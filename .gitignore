@@ -1,0 +1,17 @@
+node_modules/
+.cache/
+dist/
+frontend/dist/
+.DS_Store
+.env
+.env.*
+!.env.example
+*.blend1
+*.blend2
+__pycache__/
+
+# Authoring sources belong in the private assets repository.
+characters/
+resources/brand/
+*.blend
+*.bundle

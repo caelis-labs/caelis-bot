@@ -1,0 +1,17 @@
+name: Asset review link
+on:
+  push:
+    branches: ['assets/**']
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish review link
+        env:
+          ASSET_BRANCH: ${{ github.ref_name }}
+          PRODUCT_REPO: ${{ github.repository }}
+        run: |
+          [[ "$ASSET_BRANCH" =~ ^assets/[a-z0-9-]+-[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          printf 'Review finished assets: https://github.com/%s/compare/main...%s?expand=1\n' "$PRODUCT_REPO" "$ASSET_BRANCH" >> "$GITHUB_STEP_SUMMARY"

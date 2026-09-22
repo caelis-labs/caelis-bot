@@ -1,0 +1,140 @@
+// Package api is the Go authority for the host-to-renderer product projection.
+// Native protocol payloads and paths used to dispatch work never come from the UI.
+package api
+
+import "context"
+
+type Snapshot struct {
+	BotStatus        string      `json:"botStatus"`
+	HasEarlier       bool        `json:"hasEarlier"`
+	CurrentTurn      string      `json:"currentTurn"`
+	PreviewKey       string      `json:"previewKey"`
+	PreviewDismissed bool        `json:"previewDismissed"`
+	Revision         uint64      `json:"revision"`
+	Connection       string      `json:"connection"`
+	ConnectionIssue  string      `json:"connectionIssue"`
+	Phase            string      `json:"phase"`
+	Message          string      `json:"message"`
+	CanSend          bool        `json:"canSend"`
+	CanSteer         bool        `json:"canSteer"`
+	CanInterrupt     bool        `json:"canInterrupt"`
+	Items            []Item      `json:"items"`
+	Approvals        []Approval  `json:"approvals"`
+	Reviews          []Review    `json:"reviews"`
+	References       []Reference `json:"references"`
+	LoginPending     bool        `json:"loginPending"`
+	LastReceipt      Receipt     `json:"lastReceipt"`
+}
+
+type ChatUpdate struct {
+	Changed  bool     `json:"changed"`
+	Snapshot Snapshot `json:"snapshot"`
+}
+type AttachmentStorage struct {
+	Files         int    `json:"files"`
+	Bytes         int64  `json:"bytes"`
+	EligibleFiles int    `json:"eligibleFiles"`
+	EligibleBytes int64  `json:"eligibleBytes"`
+	CanClean      bool   `json:"canClean"`
+	Notice        string `json:"notice"`
+}
+
+// Review is a native automatic-review fact, never an actionable approval.
+type Review struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	Action    string `json:"action"`
+	Rationale string `json:"rationale"`
+}
+type Item struct {
+	TurnKey   string     `json:"turnKey"`
+	ID        string     `json:"id"`
+	Kind      string     `json:"kind"`
+	Text      string     `json:"text"`
+	Status    string     `json:"status"`
+	Details   string     `json:"details"`
+	Artifacts []Artifact `json:"artifacts"`
+}
+type Artifact struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+type Choice struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Scope   string `json:"scope"`
+	Details string `json:"details"`
+}
+type Question struct {
+	ID       string   `json:"id"`
+	Title    string   `json:"title"`
+	Secret   bool     `json:"secret"`
+	Required bool     `json:"required"`
+	Multiple bool     `json:"multiple"`
+	Type     string   `json:"type"`
+	Options  []Choice `json:"options"`
+}
+type Approval struct {
+	ID          string     `json:"id"`
+	Title       string     `json:"title"`
+	Action      string     `json:"action"`
+	Target      string     `json:"target"`
+	Description string     `json:"description"`
+	Details     string     `json:"details"`
+	Status      string     `json:"status"`
+	Choices     []Choice   `json:"choices"`
+	Questions   []Question `json:"questions"`
+	URL         string     `json:"url"`
+}
+type Reference struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Kind        string `json:"kind"`
+}
+type Draft struct {
+	Notice       string   `json:"notice"`
+	Revision     uint64   `json:"revision"`
+	Text         string   `json:"text"`
+	ReferenceIDs []string `json:"referenceIds"`
+}
+type RuntimeSettings struct {
+	Runtime string `json:"runtime"`
+	CLIPath string `json:"cliPath"`
+}
+type RuntimeCheck struct {
+	Saved     bool   `json:"saved"`
+	Connected bool   `json:"connected"`
+	Message   string `json:"message"`
+}
+type Submission struct {
+	ID           string   `json:"id"`
+	Text         string   `json:"text"`
+	FileIDs      []string `json:"fileIds"`
+	ReferenceIDs []string `json:"referenceIds"`
+}
+type Receipt struct {
+	ID      string `json:"id"`
+	Outcome string `json:"outcome"` // accepted, rejected or unknown; never inferred from prose.
+	Message string `json:"message"`
+}
+type Decision struct {
+	ID      string              `json:"id"`
+	Choice  string              `json:"choice"`
+	Answers map[string][]string `json:"answers"`
+}
+
+// InputFile is host-only. UI supplies opaque IDs resolved by the native selector.
+type InputFile struct{ Name, Path string }
+type Engine interface {
+	Connect(context.Context) error
+	Snapshot() Snapshot
+	Submit(context.Context, Submission, []InputFile) (Receipt, error)
+	Interrupt(context.Context) error
+	Decide(context.Context, Decision) error
+	Login(context.Context) (string, error)
+	CancelLogin(context.Context) error
+	Artifact(string) (string, error)
+	ApprovalURL(string) (string, error)
+	Close(context.Context) error
+}

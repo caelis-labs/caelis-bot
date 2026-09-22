@@ -1,0 +1,36 @@
+{
+  "name": "@caelis/bot",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.21.0 <25"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "check": "tsc --noEmit",
+    "check:portability": "node script/check-portability.mjs",
+    "preview": "vite preview",
+    "smoke:assets": "node script/smoke-assets.mjs",
+    "smoke:codex": "node script/smoke-codex.mjs",
+    "schema:codex": "node script/codex-schema.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.186.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "gltf-validator": "2.0.0-dev.3.10",
+    "typescript": "7.0.2",
+    "vite": "8.3.0"
+  }
+}
