@@ -15,5 +15,7 @@ Codex App Server 自动发现和协议握手、CLI 手动配置、历史恢复�
 历史人工观察只覆盖 Apple Silicon 单屏核心流程；原生多屏/Spaces、旧系统、Intel、
 长时运行、完整动作穿模与整体自然度仍需针对性验收。当前自动化未证明这些场景。
 
-当前没有 Developer ID 或公证，使用 README 的按应用信任步骤。
+当前没有 Developer ID 或公证，使用[安装指南](install.zh-CN.md)的按应用信任步骤。
+主分支要求 PR 与 product CI；版本 PR 经 release-please 管理，DMG 在精确 tag 上重新检查、
+挂载核验和计算 SHA-256 后发布。自动化配置与恢复命令见[发布维护](release.md)。
 多角色/服装清单是交接能力，尚未提供产品内切换 UI；资产更新 PR 自动创建，CI 不会自动批准或合并。

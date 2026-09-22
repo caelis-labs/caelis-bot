@@ -77,7 +77,7 @@ func check(ctx context.Context, client *http.Client, current, arch string) Resul
 		}
 		compatible := false
 		for _, asset := range release.Assets {
-			if strings.HasPrefix(asset.Name, "Caelis-Bot-") && strings.HasSuffix(asset.Name, "-macos-"+arch+".zip") {
+			if strings.HasPrefix(asset.Name, "Caelis-Bot-") && strings.HasSuffix(asset.Name, "-macos-"+arch+".dmg") {
 				compatible = true
 				break
 			}

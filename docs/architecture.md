@@ -522,10 +522,11 @@ presentation commands cancels work or sends a prompt.
 
 `internal/updates` reads up to 100 public GitHub releases on explicit request (12-second
 timeout, bounded response, no credentials/local state). It compares semantic versions,
-ignores drafts and releases without a matching macOS ZIP, and allows prereleases for
+ignores drafts and releases without a matching macOS DMG, and allows prereleases for
 preview builds. Build version comes from package.json via linker flags and matches
-the preview archive name. Downloads/installations remain manual on the fixed release page;
-this is not a signed auto-updater. The release channel currently has no public artifacts.
+the DMG name. Downloads/installations remain manual on the fixed release page;
+this is not a signed auto-updater. Release automation builds an exact main-branch tag, verifies the signed bundle inside the DMG,
+and publishes only after uploading the DMG and checksum; see [release operations](release.md).
 
 ## Neutral appearance and native chrome (2026-09-20)
 
