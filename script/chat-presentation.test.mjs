@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chatActivity, composerAction } from '../frontend/src/chat-presentation.ts';
+import { activeReplyID, chatActivity, composerAction } from '../frontend/src/chat-presentation.ts';
 
 const running = { connection:'ready', phase:'working', currentTurn:'current',
  canInterrupt:true, canSend:false, canSteer:true, items:[], approvals:[], reviews:[] };
@@ -30,10 +30,18 @@ test('waiting excludes approvals, recovery and terminal states, even with a rema
 });
 
 test('streaming reply takes the place of dots; empty, earlier or completed messages do not hide tool waiting', () => {
- const item={kind:'assistant',turnKey:'current',text:'正在回复',status:''};
+ const item={id:'answer',kind:'assistant',turnKey:'current',text:'正在回复',status:''};
  assert.equal(chatActivity({...running,items:[item]}),null);
  assert.equal(chatActivity({...running,items:[{...item,status:'inProgress'}]}),null);
  for(const change of [{text:''},{turnKey:'previous'},{status:'completed'},{kind:'activity'}]) {
   assert.equal(chatActivity({...running,items:[{...item,...change}]}),'thinking');
  }
+});
+
+test('only the latest streaming avatar moves; approval, stop and disconnect keep a static identity',()=>{
+ const item={id:'first',kind:'assistant',turnKey:'current',text:'第一段',status:'inProgress'};
+ const snapshot={...running,items:[item,{...item,id:'latest'}]};
+ assert.equal(activeReplyID(snapshot),'latest');assert.equal(chatActivity(snapshot),null);
+ for(const update of [{phase:'interrupting'},{phase:'completed'},{connection:'disconnected'},{approvals:[{status:'pending'}]},{reviews:[{status:'inProgress'}]}])assert.equal(activeReplyID({...snapshot,...update}),null);
+ assert.equal(activeReplyID({...running,items:[{...item,turnKey:'previous'}]}),null);
 });

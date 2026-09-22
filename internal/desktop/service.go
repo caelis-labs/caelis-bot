@@ -235,6 +235,25 @@ func (s *Service) SetPanelHeight(ctx context.Context, height int) error {
 	s.native.panelHeight(height)
 	return nil
 }
+
+// SetPanelMenu changes only the hosting envelope, never the editor's size.
+// Native activation fencing prevents an old renderer from moving a newer panel.
+func (s *Service) SetPanelMenu(height, activation int) error {
+	if height < 0 || height > 324 || activation < 1 || activation > 2147483647 {
+		return errors.New("invalid panel menu layout")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.started || s.stopped {
+		return errors.New("desktop is not ready")
+	}
+	native, ok := s.native.(interface{ panelMenu(int, int) })
+	if !ok {
+		return errors.New("panel menu is unavailable")
+	}
+	native.panelMenu(height, activation)
+	return nil
+}
 func (s *Service) SetHitMask(ctx context.Context, encoded string) error {
 	b, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil || len(b) != int(BaseWidth*BaseHeight) {

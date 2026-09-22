@@ -7,6 +7,7 @@ void bot_apply(void *host, double x, double y, double scale, int visible);
 void bot_panel(void *host, int visible);
 void bot_toggle_panel(void *host);
 void bot_panel_height(void *host, int height);
+void bot_panel_menu(void *host, int height, int activation);
 void bot_mask(void *host, unsigned char *mask, int length);
 void bot_destroy(void *host);
 

@@ -86,6 +86,9 @@ func (d *macDriver) apply(p Placement) {
 func (d *macDriver) panelHeight(height int) {
 	application.InvokeSync(func() { C.bot_panel_height(d.pointer, C.int(height)) })
 }
+func (d *macDriver) panelMenu(height, activation int) {
+	application.InvokeSync(func() { C.bot_panel_menu(d.pointer, C.int(height), C.int(activation)) })
+}
 func (d *macDriver) togglePanel() {
 	application.InvokeSync(func() { C.bot_toggle_panel(d.pointer) })
 }

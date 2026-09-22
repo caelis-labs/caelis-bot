@@ -321,3 +321,50 @@ func TestBubbleDoesNotOpenKeyboardOrOwnLifetime(t *testing.T) {
 		t.Fatal("late message accepted after shutdown")
 	}
 }
+
+// Popup layout is an optional native capability, with the same lifetime owner as
+// the editor. Invalid/late requests cannot reach AppKit or persist preferences.
+type menuDriver struct {
+	*fakeDriver
+	calls      int
+	menuHeight int
+	activation int
+}
+
+func (d *menuDriver) panelMenu(height, activation int) {
+	d.calls++
+	d.menuHeight = height
+	d.activation = activation
+}
+func TestPanelMenuLifetimeAndBounds(t *testing.T) {
+	s := newService(&memoryStore{value: defaults()})
+	if s.SetPanelMenu(324, 1) == nil {
+		t.Fatal("unstarted menu accepted")
+	}
+	d := &menuDriver{fakeDriver: &fakeDriver{displays: []Rect{{0, 0, 1440, 900}}}}
+	s.start(d)
+	for _, args := range [][2]int{{-1, 1}, {325, 1}, {100, 0}, {100, -1}, {100, 2147483648}} {
+		if s.SetPanelMenu(args[0], args[1]) == nil {
+			t.Fatal("invalid menu accepted", args)
+		}
+	}
+	if d.calls != 0 {
+		t.Fatal("invalid layout reached native host")
+	}
+	if err := s.SetPanelMenu(324, 7); err != nil {
+		t.Fatal(err)
+	}
+	if d.calls != 1 || d.menuHeight != 324 || d.activation != 7 || d.height != 0 || d.panelOpen {
+		t.Fatal("menu changed editor geometry/visibility or lost activation")
+	}
+	if err := s.SetPanelMenu(0, 7); err != nil {
+		t.Fatal(err)
+	}
+	if d.calls != 2 || d.menuHeight != 0 {
+		t.Fatal("menu did not collapse")
+	}
+	s.shutdown()
+	if s.SetPanelMenu(324, 7) == nil || d.calls != 2 {
+		t.Fatal("late menu request reached stopped host")
+	}
+}

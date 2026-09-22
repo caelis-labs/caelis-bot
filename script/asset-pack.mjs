@@ -5,10 +5,12 @@ import {resolve,dirname,join,relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import validator from 'gltf-validator';
+import {validateAvatarSVG} from './avatar-svg.mjs';
 
 export const manifestPath='resources/character-pack.json';
 export const runtimeExtras=new Set(['desktopPetMouthRest','desktopPetWristRest','desktopPetHands','desktopPetProfile','desktopPetLocomotion','desktopPetViewMorphs','desktopPetHandLocal','desktopPetHandGestures','desktopPetFingerRig','desktopPetArmPole','desktopPetArmMotion','desktopPetGestures','desktopPetForearmTwist','desktopPetRelaxedArms','desktopPetSoftOutfit','caelisLayer','targetNames']);
 const fixedPaths=new Set(['frontend/public/models/caelis-SOURCES.md','frontend/public/icons/caelis-avatar.png','internal/desktop/assets/app-icon.png','internal/desktop/assets/status-icon.png','resources/macos/CaelisBot.icns']);
+const animatedAvatar='frontend/assets/caelis-avatar-v1.svg';
 const modelPath=p=>/^frontend\/public\/models\/[a-z0-9]+(?:-[a-z0-9]+)*\.glb$/.test(p);
 const id=s=>typeof s==='string'&&/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s);
 export const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -23,13 +25,13 @@ function file(root,path){
 function exactKeys(object,keys){assert.deepEqual(Object.keys(object).sort(),keys.sort(),'unsupported manifest fields');}
 export function validateManifest(m){
  exactKeys(m,['schemaVersion','packId','version','contractVersion','defaultCharacter','defaultVariant','characters','fallbackModel','props','branding','files']);
- assert.equal(m.schemaVersion,1);assert.equal(m.contractVersion,1,'unsupported runtime contract');
+ assert.equal(m.schemaVersion,1);assert.ok([1,2].includes(m.contractVersion),'unsupported runtime contract');
  assert.ok(id(m.packId)&&/^\d+\.\d+\.\d+$/.test(m.version),'invalid pack version');
  assert.ok(Array.isArray(m.files)&&m.files.length>0&&m.files.length<=64);
  const paths=new Set();
  for(const f of m.files){
   exactKeys(f,['path','sha256','license']);
-  assert.ok(fixedPaths.has(f.path)||modelPath(f.path),`not an approved output path: ${f.path}`);
+  assert.ok(fixedPaths.has(f.path)||modelPath(f.path)||(m.contractVersion===2&&f.path===animatedAvatar),`not an approved output path: ${f.path}`);
   assert.ok(!paths.has(f.path),'duplicate file');paths.add(f.path);
   assert.match(f.sha256,/^[a-f0-9]{64}$/);
   assert.ok(['Apache-2.0','LicenseRef-Caelis-Character-1.0'].includes(f.license));
@@ -49,8 +51,8 @@ export function validateManifest(m){
  }
  assert.ok(m.characters.find(c=>c.id===m.defaultCharacter)?.variants.some(v=>v.id===m.defaultVariant),'default variant missing');
  model(m.fallbackModel);exactKeys(m.props,['paperPlane']);model(m.props.paperPlane);
- exactKeys(m.branding,['avatar','appIcon','statusIcon','macIcon']);
  const branding={avatar:'frontend/public/icons/caelis-avatar.png',appIcon:'internal/desktop/assets/app-icon.png',statusIcon:'internal/desktop/assets/status-icon.png',macIcon:'resources/macos/CaelisBot.icns'};
+ if(m.contractVersion===2){branding.animatedAvatar=animatedAvatar;use(animatedAvatar);}
  assert.deepEqual(m.branding,branding);
  return m;
 }
@@ -75,7 +77,8 @@ export async function verifyPack(root='.',{strict=false}={}){
    const result=await validator.validateBytes(new Uint8Array(bytes),{uri:f.path});
    assert.equal(result.issues.numErrors,0,JSON.stringify(result.issues.messages));
    assert.equal(result.issues.numWarnings,0,JSON.stringify(result.issues.messages));
-  }else if(f.path.endsWith('.png'))assert.equal(bytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
+  }else if(f.path.endsWith('.svg'))validateAvatarSVG(bytes.toString('utf8'));
+  else if(f.path.endsWith('.png'))assert.equal(bytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
   else if(f.path.endsWith('.icns'))assert.equal(bytes.subarray(0,4).toString(),'icns');
  }
  assert.ok(total<=64*1024*1024,'pack budget exceeded');

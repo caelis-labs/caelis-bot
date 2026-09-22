@@ -3,8 +3,10 @@ import { backend, desktop, type DraftFile } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Review, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { CopyText, MessageContent } from './MessageContent';
-import { chatActivity, composerAction } from './chat-presentation';
+import { activeReplyID, chatActivity, composerAction } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
+import { BotAvatar } from './BotAvatar';
+import { AttachmentMenu } from './AttachmentMenu';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
 export const labels: Record<string,string> = { working: '正在处理', sending: '正在发送', attention: '需要确认', interrupting: '正在停止', completed: '已完成', interrupted: '已停止', failed: '未完成', unknown: '结果待确认', unconfirmed: '结果未确认' };
@@ -54,9 +56,9 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     </> : <p className="quiet" role="status">{value.status === 'resolved' ? '已处理' : value.status === 'sent' || value.status === 'sending' ? '已提交，等待确认' : '连接或结果待确认，请重新连接核对'}</p>}
   </section>;
 }
-function Message({ item, report }: { item: Item; report: (message: string) => void }) {
+function Message({ item, report, animate=false }: { item: Item; report: (message: string) => void; animate?:boolean }) {
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
-   {item.kind==='assistant'&&<img className="bot-avatar" src="/icons/caelis-avatar.png" alt="Caelis Bot" width="32" height="32" draggable={false}/>}
+   {item.kind==='assistant'&&<BotAvatar animate={animate}/>}
    <div className={`message ${item.kind}`}>
     {item.kind === 'activity' ? <details><summary>{item.text}<span>{labels[item.status] ?? (item.status === 'inProgress' ? '进行中' : item.status === 'declined' ? '已拒绝' : '')}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent text={item.text} report={report}/> : <p>{item.text}</p>}
     {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report('文件已不可用'))}><Icon name="paperclip" />{file.name}<span>在访达中显示</span></button>)}
@@ -83,10 +85,11 @@ export function useConversation(active: boolean, pet=false, chat=false, composer
 // One native-host draft, two exclusive editors. Writes serialize and use a
 // revision fence so a delayed hidden renderer cannot overwrite newer text.
 function Composer({snapshot,quick=false,active=true,activation=0,refresh}:{snapshot:Snapshot|null;quick?:boolean;active?:boolean;activation?:number;refresh:()=>Promise<void>}) {
- const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null);
+ const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null),composer=useRef<HTMLDivElement>(null);
  const [draft,setDraft]=useState(''),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
  const visible=useRef(active);visible.current=active;
+ useEffect(()=>{setExpanded(false);},[active,activation]);
  const pending=useRef<Submission|null>(null);
  const saved=useRef<Draft>({revision:0,text:'',referenceIds:[],notice:''});
  const writes=useRef<Promise<void>>(Promise.resolve()), conflicted=useRef(false);
@@ -116,7 +119,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,refresh}:{snaps
   });
  };
  useLayoutEffect(()=>{const editor=input.current;if(editor){editor.style.height='0px';editor.style.height=`${Math.max(27,Math.min(127,editor.scrollHeight))}px`;}},[draft]);
- const pick=async()=>{setBusy(true);setError('');try{setFiles(await desktop<DraftFile[]>('PickFiles'));setExpanded(false);}catch(e){setError(e instanceof Error?e.message:'无法选择文件');}finally{setBusy(false);input.current?.focus();}};
+ const pick=async()=>{setExpanded(false);setBusy(true);setError('');try{setFiles(await desktop<DraftFile[]>('PickFiles'));setExpanded(false);}catch(e){setError(e instanceof Error?e.message:'无法选择文件');}finally{setBusy(false);input.current?.focus();}};
  const submit=async()=>{
   if(busy||!loaded||!(snapshot?.canSend||(!quick&&snapshot?.canSteer))||(!draft.trim()&&!files.length))return;
   setBusy(true);setError('');setExpanded(false);await writes.current;
@@ -154,9 +157,9 @@ function Composer({snapshot,quick=false,active=true,activation=0,refresh}:{snaps
   }
  };
  const actionLabel=primaryAction==='stop'?(stopping?'正在停止':'停止工作'):!quick&&snapshot?.canSteer?'补充说明':'发送';
- return <div className="compose-area" data-file-drop-target>
+ return <div ref={composer} className="compose-area" data-file-drop-target>
   <div className="capsule">
-   <button className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label="添加附件或引用" aria-expanded={expanded}><Icon name="plus"/></button>
+   <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label="添加附件或引用" aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
    <textarea aria-label="写下想法" ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={!quick&&snapshot?.canSteer?'补充说明…':'写下想法…'} title="Enter 发送，Shift+Enter 换行"/>
    <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-label={actionLabel} title={actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
@@ -165,10 +168,9 @@ function Composer({snapshot,quick=false,active=true,activation=0,refresh}:{snaps
    {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><Icon name="paperclip"/><span title={f.name}>{f.name}{f.unavailable?'（已不可用，请移除重选）':''}</span><button disabled={busy} aria-label={`移除 ${f.name}`} onClick={()=>void desktop<DraftFile[]>('RemoveFile',f.id).then(setFiles).catch(()=>setError('附件选择暂未保存，请重试'))}><Icon name="xmark"/></button></li>)}
    {refs.map(id=><li key={id}><span>{snapshot?.references.find(r=>r.id===id)?.name??'引用'}</span><button disabled={busy} aria-label="移除引用" onClick={()=>save(draft,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
   </ul>}
-  {expanded&&<section className="add-options" aria-label="附件与引用">
-   <button className="action-row" disabled={busy} onClick={()=>void pick()}><Icon name="paperclip"/>添加文件</button>
-   {!!snapshot?.references.length&&<><p className="menu-caption">插件与技能</p><div className="reference-options">{snapshot.references.map(r=><button key={r.id} className="action-row" disabled={refs.includes(r.id)} title={r.description} onClick={()=>{save(draft,[...refs,r.id]);setExpanded(false);input.current?.focus();}}><span>{r.name}<small>{r.description}</small></span></button>)}</div></>}
-  </section>}
+  {expanded&&<AttachmentMenu trigger={add} composer={composer} quick={quick} activation={activation} references={snapshot?.references??[]} selected={refs}
+   onClose={()=>setExpanded(false)} onPick={()=>void pick()} onError={()=>setError('菜单暂时无法打开，请重试')}
+   onSelect={id=>{save(draft,[...refs,id]);setExpanded(false);input.current?.focus();}}/>}
  </div>;
 }
 
@@ -204,6 +206,7 @@ export function History() {
  const promptKey=prompts.map(p=>p.id+p.status).join('');
  const reviews=snapshot?.reviews?.filter(r=>r.status==='denied'||r.status==='timedOut'||r.status==='aborted')??[];
  const activity=chatActivity(snapshot);
+ const activeReply=active?activeReplyID(snapshot):null;
  const connection=snapshot&&snapshot.connection!=='ready';
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  useLayoutEffect(()=>{
@@ -214,15 +217,18 @@ export function History() {
    if(anchor)el.scrollTop+=anchor.getBoundingClientRect().top-prepend.current.top;
    prepend.current=null;
   }else if(follow.current){el.scrollTop=el.scrollHeight;setUnread(false);}else setUnread(true);
- },[contentKey,promptKey,activity,snapshot?.hasEarlier,earlierBusy]);
+ },[contentKey,promptKey,activity,snapshot?.connection,snapshot?.phase,snapshot?.message,snapshot?.hasEarlier,earlierBusy]);
  const earlier=async()=>{if(earlierBusy)return;setEarlierBusy(true);setError('');const el=scroll.current!;follow.current=false;const anchor=Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(item=>item.getBoundingClientRect().bottom>el.getBoundingClientRect().top);if(anchor)prepend.current={id:anchor.dataset.messageId!,top:anchor.getBoundingClientRect().top};try{await backend('LoadEarlier');await refresh();}catch{prepend.current=null;setError('更早消息暂时无法读取，请重试');}finally{setEarlierBusy(false);}};
  const action=async(method:string)=>{setBusy(true);setError('');try{await backend(method);}catch(e){setError(e instanceof Error?e.message:'暂时无法操作');}finally{setBusy(false);await refresh();}};
  return <main className="history-surface" aria-label="与 Caelis Bot 聊天">
   <div className="chat-scroll" ref={scroll} onScroll={()=>{const el=scroll.current!;follow.current=el.scrollHeight-el.scrollTop-el.clientHeight<56;if(follow.current)setUnread(false);}}>
    {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">有什么想和我说的？</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy||snapshot.connection!=='ready'} onClick={()=>void earlier()}>{earlierBusy?'正在读取…':'查看更早消息'}</button></div>}
-   <div className="history-messages">{messages.map(i=><Message key={i.id} item={i} report={setError}/>)}</div>
+   <div className="history-messages">{messages.map(i=><Message key={i.id} item={i} report={setError} animate={i.id===activeReply}/>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active}/>}
+   {(!!prompts.length||!!reviews.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
+    <BotAvatar/>
+    <div className={`message assistant state-bubble ${prompts.length?'approval-bubble':''}`}>
    {prompts.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh()}/>)}
    {reviews.map(r=><ReviewNotice key={r.id} value={r}/>)}
    {connection&&<section className="connection-card" aria-label="连接 Codex">
@@ -237,10 +243,12 @@ export function History() {
     </div>
    </section>}
    {!connection&&!!snapshot?.message&&<p className="connection-message" role="status">{snapshot.message}</p>}
-   {!!error&&<p className="inline-error" role="alert">{error}</p>}
    {!connection&&snapshot?.phase==='unknown'&&<div className="connection-actions">
     <button disabled={busy} onClick={()=>void action('Connect')}>重新连接</button>
    </div>}
+    </div>
+   </article>}
+   {!!error&&<p className="inline-error" role="alert">{error}</p>}
   </div>
   {unread&&<button className="new-messages" onClick={()=>{follow.current=true;scroll.current!.scrollTop=scroll.current!.scrollHeight;setUnread(false);}}>查看新消息 ↓</button>}
   <footer>

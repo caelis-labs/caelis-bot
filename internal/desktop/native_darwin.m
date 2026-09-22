@@ -7,6 +7,7 @@
 #import <UserNotifications/UserNotifications.h>
 #import <os/log.h>
 #import "native_darwin.h"
+#include "panel_menu_layout.h"
 #import "material_darwin.h"
 extern void desktopEvent(uintptr_t handle, int kind, double x, double y, double scale);
 static void bot_js(NSWindow *window, NSString *js);
@@ -65,6 +66,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property UInt32 shortcutID;
 @property BOOL shortcutDown;
 @property BOOL panelCentered;
+@property NSInteger panelContentHeight;
+@property NSInteger panelMenuHeight;
 @property NSScreen *panelScreen;
 @property double interactionStart;
 @property NSUInteger activationID;
@@ -285,6 +288,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     // Outside clicks keep their destination and its focus. Never activate the
     // previous app here: the user may have chosen a different app altogether.
     [self.panel orderOut:nil];
+    self.panel.level = NSFloatingWindowLevel;
+    self.panelMenuHeight = 0;
     self.previousApp = nil;
     bot_js(self.panel,@"window.dispatchEvent(new Event('panel-close'))");
     [self updateBubble];
@@ -321,7 +326,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     NSRect r = self.pet.frame;
     NSMutableArray *screens = [NSMutableArray new];
     for (NSScreen *s in NSScreen.screens) [screens addObject:@{@"frame":NSStringFromRect(s.frame),@"visibleFrame":NSStringFromRect(s.visibleFrame),@"scale":@(s.backingScaleFactor)}];
-    NSDictionary *record = @{@"event":event,@"time":@(NSDate.date.timeIntervalSince1970),@"x":@(r.origin.x),@"y":@(r.origin.y),@"width":@(r.size.width),@"height":@(r.size.height),@"visible":@(self.pet.visible),@"petOnActiveSpace":@(self.pet.onActiveSpace),@"petOcclusionVisible":@((self.pet.occlusionState & NSWindowOcclusionStateVisible)!=0),@"inputOnActiveSpace":@(self.pet.onActiveSpace),@"singlePetSurface":@YES,@"panelVisible":@(self.panel.visible),@"panelOnActiveSpace":@(self.panel.onActiveSpace),@"panelFrame":NSStringFromRect(self.panel.frame),@"panelKey":@(self.panel.keyWindow),@"panelResponder":NSStringFromClass(self.panel.firstResponder.class)?:@"none",@"doubleClickInterval":@(NSEvent.doubleClickInterval),@"petKey":@(self.pet.keyWindow),@"bubbleVisible":@(self.bubble.visible),@"bubbleKey":@(self.bubble.keyWindow),@"bubbleFrame":NSStringFromRect(self.bubble.frame),@"frontApp":NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier ?: @"",@"activationPolicy":@(NSApp.activationPolicy),@"propWindowNumber":@(self.prop.windowNumber),@"propVisible":@(self.prop.visible),@"propKey":@(self.prop.keyWindow),@"propClickThrough":@(self.prop.ignoresMouseEvents),@"propFrame":NSStringFromRect(self.prop.frame),@"maskBytes":@(self.mask.length),@"screens":screens};
+    NSDictionary *record = @{@"event":event,@"time":@(NSDate.date.timeIntervalSince1970),@"x":@(r.origin.x),@"y":@(r.origin.y),@"width":@(r.size.width),@"height":@(r.size.height),@"visible":@(self.pet.visible),@"petOnActiveSpace":@(self.pet.onActiveSpace),@"petOcclusionVisible":@((self.pet.occlusionState & NSWindowOcclusionStateVisible)!=0),@"inputOnActiveSpace":@(self.pet.onActiveSpace),@"singlePetSurface":@YES,@"panelVisible":@(self.panel.visible),@"panelOnActiveSpace":@(self.panel.onActiveSpace),@"panelFrame":NSStringFromRect(self.panel.frame),@"panelContentHeight":@(self.panelContentHeight),@"panelMenuHeight":@(self.panelMenuHeight),@"panelLevel":@(self.panel.level),@"petLevel":@(self.pet.level),@"panelKey":@(self.panel.keyWindow),@"panelResponder":NSStringFromClass(self.panel.firstResponder.class)?:@"none",@"doubleClickInterval":@(NSEvent.doubleClickInterval),@"petKey":@(self.pet.keyWindow),@"bubbleVisible":@(self.bubble.visible),@"bubbleKey":@(self.bubble.keyWindow),@"bubbleFrame":NSStringFromRect(self.bubble.frame),@"frontApp":NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier ?: @"",@"activationPolicy":@(NSApp.activationPolicy),@"propWindowNumber":@(self.prop.windowNumber),@"propVisible":@(self.prop.visible),@"propKey":@(self.prop.keyWindow),@"propClickThrough":@(self.prop.ignoresMouseEvents),@"propFrame":NSStringFromRect(self.prop.frame),@"maskBytes":@(self.mask.length),@"screens":screens};
     NSData *data = [NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingSortedKeys error:nil];
     if (![NSFileManager.defaultManager fileExistsAtPath:path]) [NSFileManager.defaultManager createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
     NSFileHandle *file = [NSFileHandle fileHandleForWritingAtPath:path];
@@ -366,21 +371,30 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     if (![NSScreen.screens containsObject:screen]) screen = NSScreen.mainScreen;
     NSRect bounds = screen.visibleFrame;
     panel.size.width = MIN(self.panelCentered ? 620 : 420, bounds.size.width-32);
+    panel.size.height = self.panelContentHeight;
     if (self.panelCentered) {
         panel.origin = NSMakePoint(NSMidX(bounds)-panel.size.width/2, NSMidY(bounds)-panel.size.height/2);
-        [self.panel setFrame:panel display:YES];
-        return;
+    } else {
+        // Anchor the input, not the combined input + popup envelope.
+        double x = NSMidX(pet)-panel.size.width/2;
+        x = MAX(NSMinX(bounds),MIN(x,NSMaxX(bounds)-panel.size.width));
+        double y = NSMinY(pet)+44*(pet.size.height/240)-panel.size.height-10;
+        if (y < NSMinY(bounds)+8) y = NSMaxY(pet)+10;
+        y = MAX(NSMinY(bounds)+8,MIN(y,NSMaxY(bounds)-panel.size.height-8));
+        panel.origin = NSMakePoint(x,y);
     }
-    [self.panel setContentSize:panel.size];
-    // The model's feet are 44/240 points above the surface's transparent bottom.
-    // Anchor below visible feet, flip above when the Dock/work area leaves no room.
-    double x = NSMidX(pet)-panel.size.width/2;
-    x = MAX(NSMinX(bounds),MIN(x,NSMaxX(bounds)-panel.size.width));
-    double y = NSMinY(pet)+44*(pet.size.height/240)-panel.size.height-10;
-    if (y < NSMinY(bounds)+8) y = NSMaxY(pet)+10;
-    y = MAX(NSMinY(bounds)+8,MIN(y,NSMaxY(bounds)-panel.size.height-8));
-    [self.panel setFrameOrigin:NSMakePoint(x,y)];
+    BotPanelMenuLayout layout = bot_panel_menu_layout(panel.origin.y,panel.size.width,panel.size.height,
+        NSMinY(bounds),NSMaxY(bounds),self.panelMenuHeight);
+    panel.origin.y = layout.originY;
+    panel.size.height = layout.height;
+    self.panel.hasShadow = self.panelMenuHeight == 0;
+    // The pet is also floating; a menu must remain above its independent window.
+    self.panel.level = NSFloatingWindowLevel + (self.panelMenuHeight > 0 ? 1 : 0);
+    [self.panel setFrame:panel display:YES];
+    bot_layout_input_material(self.panel,layout.inputTop,self.panelContentHeight);
+    bot_js(self.panel,[NSString stringWithFormat:@"document.documentElement.style.setProperty('--composer-top','%gpx');window.dispatchEvent(new CustomEvent('panel-menu-layout',{detail:{activation:%lu,left:%g,top:%g,width:%g,height:%g}}))",layout.inputTop,(unsigned long)self.activationID,layout.menuLeft,layout.menuTop,layout.menuWidth,layout.menuHeight]);
 }
+
 - (void)updateBubble {
     if (!self.visible || !self.bubbleWanted || self.dragging || self.panel.visible || self.history.keyWindow) {
         [self.bubble orderOut:nil]; return;
@@ -425,6 +439,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.panel = (__bridge NSWindow *)panel; host.handle = handle;
     host.panel.collectionBehavior = bot_space_behavior(NO);
     host.panel.animationBehavior = NSWindowAnimationBehaviorNone;
+    host.panelContentHeight = 64;
     bot_install_material(host.panel, 31, 0, 0);
     host.scale = 1;
     host.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
@@ -590,14 +605,17 @@ void bot_panel(void *pointer, int visible) {
         [host collapseBubble];
         NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
         if (front.processIdentifier != NSProcessInfo.processInfo.processIdentifier) host.previousApp = front;
+        host.panelMenuHeight = 0;
+        host.activationID++;
         [host anchorPanel];
         [NSApp activateIgnoringOtherApps:YES]; [host.panel makeKeyAndOrderFront:nil];
         [host focusComposer];
-        host.activationID++;
         bot_js(host.panel,[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('panel-open',{detail:{activation:%lu}}))",(unsigned long)host.activationID]);
     } else {
         BOOL restore = NSApp.active && host.panel.keyWindow;
         [host.panel orderOut:nil];
+        host.panel.level = NSFloatingWindowLevel;
+        host.panelMenuHeight = 0;
         if (restore && host.previousApp && !host.previousApp.terminated) [host.previousApp activateWithOptions:0];
         host.previousApp = nil;
         bot_js(host.panel,@"window.dispatchEvent(new Event('panel-close'))");
@@ -614,11 +632,16 @@ void bot_toggle_panel(void *pointer) {
 }
 void bot_panel_height(void *pointer, int height) {
     BotHost *host = (__bridge BotHost *)pointer;
-    NSRect frame = host.panel.frame;
-    frame.size.height = height;
-    [host.panel setFrame:frame display:YES];
+    host.panelContentHeight = height;
     [host anchorPanel];
     [host trace:@"panel-layout"];
+}
+void bot_panel_menu(void *pointer, int height, int activation) {
+    BotHost *host = (__bridge BotHost *)pointer;
+    if (!host.panel.visible || host.activationID != (NSUInteger)activation) return;
+    host.panelMenuHeight = height;
+    [host anchorPanel];
+    [host trace:height ? @"panel-menu-open" : @"panel-menu-close"];
 }
 void bot_mask(void *pointer, unsigned char *mask, int length) {
     BotHost *host = (__bridge BotHost *)pointer;

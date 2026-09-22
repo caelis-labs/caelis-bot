@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "packId": "caelis-default",
-  "contractVersion": 1,
+  "contractVersion": 2,
   "defaultCharacter": "caelis",
   "defaultVariant": "sage-dress",
   "characters": [
@@ -30,7 +30,8 @@
     "avatar": "frontend/public/icons/caelis-avatar.png",
     "appIcon": "internal/desktop/assets/app-icon.png",
     "statusIcon": "internal/desktop/assets/status-icon.png",
-    "macIcon": "resources/macos/CaelisBot.icns"
+    "macIcon": "resources/macos/CaelisBot.icns",
+    "animatedAvatar": "frontend/assets/caelis-avatar-v1.svg"
   },
   "files": [
     {
@@ -72,7 +73,12 @@
       "path": "resources/macos/CaelisBot.icns",
       "license": "LicenseRef-Caelis-Character-1.0",
       "sha256": "f62535f3d90d31a28f62a40b0d62141ae56a4967108cbe4504941f2be0e7c77a"
+    },
+    {
+      "path": "frontend/assets/caelis-avatar-v1.svg",
+      "sha256": "212f7cf89ba7afd64aab50519d5fe1d4b20be67c43336e3a72946340808c215c",
+      "license": "LicenseRef-Caelis-Character-1.0"
     }
   ],
-  "version": "0.1.1"
+  "version": "0.1.2"
 }

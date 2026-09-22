@@ -24,6 +24,12 @@ foreground window. P1 has replaced the single-window fixture:
   screen coordinates, proportional scale, hit regions and persisted placement.
 - A contextual input surface takes focus only when requested, then closes after native
   send acceptance. Rejected/unknown submissions retain the draft.
+- Composer attachment/reference menus are portalled, editor-width overlays. History
+  prefers the space above its composer; the native quick-input host chooses the
+  available side of the visible display, growing only its transparent envelope.
+  The input rectangle and its glass backdrop stay anchored independently. Native
+  activation IDs fence late menu requests; the quick menu sits above the pet while
+  open and restores its normal window level on dismissal.
 - A non-key message bubble shows only the current request's latest assistant response/lifecycle state.
   It never auto-opens the keyboard panel. Approval clicks expand this same bubble;
   an optional IM-style chat window shows user/assistant messages and necessary decisions.

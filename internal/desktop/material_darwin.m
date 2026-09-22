@@ -125,3 +125,12 @@ void bot_sync_material_pages(void) {
         }
     }
 }
+
+void bot_layout_input_material(NSWindow *window, CGFloat top, CGFloat height) {
+    NSView *root = window.contentView;
+    for (NSView *view in root.subviews) {
+        if (![view isKindOfClass:BotMaterialView.class]) continue;
+        view.autoresizingMask = NSViewNotSizable;
+        view.frame = NSMakeRect(0,root.isFlipped ? top : root.bounds.size.height-top-height,root.bounds.size.width,height);
+    }
+}
