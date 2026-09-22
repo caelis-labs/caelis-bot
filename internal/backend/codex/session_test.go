@@ -18,6 +18,7 @@ import (
 // Wire fixtures use the real transport and session projection. They control
 // event/reply order explicitly instead of retrying a timing-dependent test.
 type sessionFixture struct {
+	modelPages     map[string]any
 	pages          map[string]turnPage
 	pageCalls      []string
 	failPage       bool
@@ -147,6 +148,17 @@ func (f *sessionFixture) serve(peer net.Conn) {
 			f.emitTo(peer, wireMessage{Method: "account/login/completed", Params: raw(map[string]any{"loginId": "fixture-login", "success": true})})
 			<-f.loginReply
 			result = map[string]string{"type": "chatgpt", "loginId": "fixture-login", "authUrl": "https://example.com/fixture"}
+		case "model/list":
+			var p struct {
+				Cursor string `json:"cursor"`
+			}
+			_ = json.Unmarshal(m.Params, &p)
+			f.mu.Lock()
+			result = f.modelPages[p.Cursor]
+			f.mu.Unlock()
+			if result == nil {
+				result = map[string]any{"data": []any{}}
+			}
 		case "skills/list":
 			result = map[string]any{"data": []any{}}
 		case "turn/start":

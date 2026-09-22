@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { desktop } from './desktop';
+import { SettingGroup, SettingRow, SettingHelp } from './SettingsUI';
 import type { AttachmentStorage } from './backend/contract';
 
 function size(bytes:number) { return bytes<1024*1024 ? `${Math.ceil(bytes/1024)} KB` : `${(bytes/1024/1024).toFixed(1)} MB`; }
@@ -20,17 +21,20 @@ export function Maintenance({storage}:{storage:boolean}) {
  };
  const exportReport=async()=>{setBusy(true);setMessage('');try{setMessage(await desktop<string>('ExportDiagnostics'));}catch{setMessage('暂时无法保存诊断报告，请重试');}finally{setBusy(false);}};
  return <section className="maintenance-surface">
-  <h1>{storage?'附件存储':'导出诊断'}</h1>
+  <h1>{storage?'存储':'诊断'}</h1>
   {storage ? <>
-   <p>发送时保存的附件副本。原始文件、聊天记录和生成的结果文件会保留。</p>
-   {info&&<><strong>{size(info.bytes)} · {info.files} 个文件</strong><p>30 天前的副本：{size(info.eligibleBytes)} · {info.eligibleFiles} 个文件</p>{info.notice&&<p role="status">{info.notice}</p>}</>}
-   {confirm?<section className="storage-confirm"><p>清理后，后续工作可能需要你重新附加这些文件。副本会移到系统废纸篓，可从那里恢复。</p><div><button disabled={busy} onClick={()=>void clean()}>移到废纸篓</button><button disabled={busy} onClick={()=>setConfirm(false)}>取消</button></div></section>:<div className="maintenance-actions"><button disabled={busy||!info?.canClean} onClick={()=>setConfirm(true)}>清理 30 天前的副本…</button><button disabled={busy} onClick={()=>void refresh()}>刷新</button></div>}
+   <SettingGroup title="附件副本">
+    <SettingRow label="已用空间" description={info?`${info.files} 个文件`:message?'读取失败':'正在读取…'}>{!info&&message?<button onClick={()=>{setMessage('');void refresh();}}>重试</button>:<span className="setting-value">{info?size(info.bytes):'—'}</span>}</SettingRow>
+    <SettingRow label="30 天前的副本" description={info?`${size(info.eligibleBytes)} · ${info.eligibleFiles} 个文件`:undefined}><button disabled={busy||!info?.canClean} onClick={()=>setConfirm(true)}>清理…</button></SettingRow>
+   </SettingGroup>
+   {info?.notice&&<p className="settings-note" role="status">{info.notice}</p>}
+   {confirm&&<section className="storage-confirm"><p>旧副本将移到废纸篓，后续使用时可能需要重新添加。原始文件和聊天记录会保留。</p><div><button disabled={busy} onClick={()=>setConfirm(false)}>取消</button><button className="primary" disabled={busy} onClick={()=>void clean()}>移到废纸篓</button></div></section>}
+   <SettingHelp><p>这里只清理发送时保存的旧副本，不影响原始文件、聊天记录或生成结果。清理后可从系统废纸篓恢复。</p></SettingHelp>
   </> : <>
-   <p>遇到问题时，保存一份诊断报告供排查。</p>
-   <p>只包含系统和组件版本、连接状态、工作状态及数量统计。不包含聊天正文、草稿内容、文件路径、审批命令或登录凭据。</p>
-   <div className="maintenance-actions"><button disabled={busy} onClick={()=>void exportReport()}>{busy?'正在导出…':'选择保存位置…'}</button></div>
-   <p>报告仅保存到本机，不会自动上传。</p>
+   <SettingGroup><SettingRow label="诊断报告" description="用于排查连接和运行问题"><button disabled={busy} onClick={()=>void exportReport()}>{busy?'正在导出…':'导出报告'}</button></SettingRow></SettingGroup>
+   <p className="settings-note">仅保存到本机，不包含聊天内容或凭据。</p>
+   <SettingHelp><p>报告包含系统和组件版本、连接状态、工作状态及数量统计。不包含草稿、文件路径或审批命令，也不会自动上传。</p></SettingHelp>
   </>}
-  {message&&<p role="status">{message}</p>}
+  {message&&<p className="settings-note" role="status">{message}</p>}
  </section>;
 }

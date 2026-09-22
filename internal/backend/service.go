@@ -13,6 +13,8 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	executionFile               string
+	executionSettings           api.ExecutionSettings
 	configurationMu             sync.Mutex
 	runtimeFile                 string
 	runtimeSettings             api.RuntimeSettings
@@ -192,4 +194,11 @@ func (s *Service) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return s.engine.Close(ctx)
+}
+
+func (s *Service) ComposerSnapshot() api.Snapshot {
+	if source, ok := s.engine.(interface{ ComposerSnapshot() api.Snapshot }); ok {
+		return s.decorate(source.ComposerSnapshot())
+	}
+	return s.Snapshot()
 }

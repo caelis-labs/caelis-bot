@@ -54,7 +54,7 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 		return nil
 	})
 }
-func saveRuntimeSettings(path string, value api.RuntimeSettings) error {
+func saveRuntimeSettings(path string, value any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}

@@ -27,9 +27,10 @@ type pendingSubmission struct {
 	TurnID string `json:"turnId"`
 }
 type SessionOptions struct {
+	Execution                            api.ExecutionSettings
 	Binary, Socket, Directory, StateFile string
 	// RequireApproval tightens policy for isolated acceptance runs. The desktop
-	// always uses on-request; this flag can never weaken its sandbox.
+	// defaults to on-request; this flag can never weaken its sandbox.
 	RequireApproval bool
 	// Host-only MCP config; never supplied by the renderer.
 	BotTools map[string]any
@@ -500,6 +501,9 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 	s.mu.Unlock()
 	params := map[string]any{"threadId": threadID, "clientUserMessageId": in.ID, "input": input}
 	method := "turn/start"
+	if run == "" {
+		s.applyExecution(params, false)
+	}
 	if run != "" {
 		method = "turn/steer"
 		params["expectedTurnId"] = run

@@ -27,3 +27,7 @@ char *bot_context(void *host);
 void bot_plane_ready(void *host, int ready);
 int bot_launch_plane(void *host, char *id, double x, double y);
 void bot_finish_plane(void *host, char *id, int completed);
+
+int bot_shortcut(void *host, char *key, int flags, int enabled);
+void bot_centered_panel(void *host);
+void bot_panel_ready(void *host, int activation);

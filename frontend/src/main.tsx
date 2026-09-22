@@ -1,7 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { mountPlane } from './character/plane';
-import { mountPet } from './character/pet';
 import { desktop } from './desktop';
 import { Panel, History } from './Panel';
 import { Bubble } from './Bubble';
@@ -15,9 +13,9 @@ function Pet() {
   useEffect(() => {
     const resize = () => setScale(window.innerWidth / 180);
     window.addEventListener('resize', resize);
-    let dispose: (() => void) | undefined;
-    try { dispose = mountPet(canvas.current!, () => setFailed(true)); } catch { setFailed(true); }
-    return () => { dispose?.(); window.removeEventListener('resize', resize); };
+    let dispose: (() => void) | undefined, stopped=false;
+    void import('./character/pet').then(({mountPet})=>{if(!stopped)dispose=mountPet(canvas.current!,()=>setFailed(true));}).catch(()=>{if(!stopped)setFailed(true);});
+    return () => { stopped=true;dispose?.(); window.removeEventListener('resize', resize); };
   }, []);
   return <main className="pet-stage" style={{ transform: `scale(${scale})` }}>
     <canvas ref={canvas} width="180" height="240" aria-hidden="true" />
@@ -26,7 +24,11 @@ function Pet() {
 }
 function Prop() {
  const canvas=useRef<HTMLCanvasElement>(null);
- useEffect(()=>mountPlane(canvas.current!),[]);
+ useEffect(()=>{
+  let stopped=false,dispose:(()=>void)|undefined;
+  void import('./character/plane').then(({mountPlane})=>{if(!stopped)dispose=mountPlane(canvas.current!);}).catch(()=>void desktop('PlaneReady',false));
+  return()=>{stopped=true;dispose?.();};
+ },[]);
  return <canvas ref={canvas} style={{display:'block',width:'100vw',height:'100vh'}} aria-hidden="true"/>;
 }
 const surface = new URLSearchParams(location.search).get('surface');

@@ -35,6 +35,7 @@ func (s *Session) connectionParams() map[string]any {
 		params["approvalPolicy"] = "untrusted"
 		params["approvalsReviewer"] = "user"
 	}
+	s.applyExecution(params, true)
 	return params
 }
 

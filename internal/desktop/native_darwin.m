@@ -1,11 +1,13 @@
 //go:build darwin && cgo
 
 #import <Cocoa/Cocoa.h>
+#import <Carbon/Carbon.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <WebKit/WebKit.h>
 #import <UserNotifications/UserNotifications.h>
 #import <os/log.h>
 #import "native_darwin.h"
+#import "material_darwin.h"
 extern void desktopEvent(uintptr_t handle, int kind, double x, double y, double scale);
 static void bot_js(NSWindow *window, NSString *js);
 
@@ -56,7 +58,18 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property BOOL dragging;
 @property BOOL pressing;
 @property NSTimer *dragCompletion;
-@property NSTimer *singleClick;
+@property EventHotKeyRef shortcut;
+@property EventHandlerRef shortcutHandler;
+@property NSString *shortcutKey;
+@property int shortcutFlags;
+@property UInt32 shortcutID;
+@property BOOL shortcutDown;
+@property BOOL panelCentered;
+@property NSScreen *panelScreen;
+@property double interactionStart;
+@property NSUInteger activationID;
+@property NSUInteger readyID;
+
 @property BOOL visible;
 @property NSStatusItem *statusItem;
 @property double scale;
@@ -68,12 +81,12 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (void)configureNotifications:(id)sender;
 - (void)openSettings:(id)sender;
 - (void)checkUpdates:(id)sender;
-- (void)cancelClick;
 - (void)click:(NSInteger)count;
 - (void)updateHit;
 - (void)showPetWithoutActivation;
 - (void)finishDrag;
 - (void)anchorPanel;
+- (void)focusComposer;
 - (void)updateBubble;
 - (void)collapseBubble;
 - (void)trace:(NSString *)event;
@@ -102,18 +115,18 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 
 @implementation BotInputView
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
-- (BOOL)accessibilityPerformPress { [self.host cancelClick]; [self.host toggleInput:nil]; return YES; }
+- (BOOL)accessibilityPerformPress {  [self.host toggleInput:nil]; return YES; }
 - (BOOL)accessibilityPerformShowMenu {
-    [self.host cancelClick];
+
     return [[self.host petMenu] popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMidX(self.bounds),NSMidY(self.bounds)) inView:self];
 }
 - (void)rightMouseDown:(NSEvent *)event {
-    [self.host cancelClick];
+
     [NSMenu popUpContextMenu:[self.host petMenu] withEvent:event forView:self];
 }
 - (void)mouseDown:(NSEvent *)event {
     BotHost *host = self.host;
-    [host cancelClick];
+
     NSPoint start = NSEvent.mouseLocation;
     host.pressing = YES;
     // Only classify click versus drag here. Window Server owns all movement.
@@ -164,26 +177,18 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     [self updateHit]; [self trace:@"drag-end"];
     desktopEvent(self.handle,1,origin.x,origin.y,0);
 }
-- (void)openChat:(id)sender { [self cancelClick]; desktopEvent(self.handle,2,0,0,0); }
+- (void)openChat:(id)sender {  desktopEvent(self.handle,2,0,0,0); }
 - (void)toggleInput:(id)sender { desktopEvent(self.handle,8,0,0,0); }
 - (void)togglePet:(id)sender { desktopEvent(self.handle,5,!self.visible,0,0); }
 - (void)quit:(id)sender { desktopEvent(self.handle,7,0,0,0); }
-- (void)openSettings:(id)sender { [self cancelClick]; desktopEvent(self.handle,9,0,0,0); }
-- (void)checkUpdates:(id)sender { [self cancelClick]; desktopEvent(self.handle,10,0,0,0); }
-- (void)cancelClick { [self.singleClick invalidate]; self.singleClick = nil; }
+- (void)openSettings:(id)sender {  desktopEvent(self.handle,9,0,0,0); }
+- (void)checkUpdates:(id)sender {  desktopEvent(self.handle,10,0,0,0); }
 - (void)click:(NSInteger)count {
-    [self cancelClick];
+    self.interactionStart = NSProcessInfo.processInfo.systemUptime;
     bot_js(self.pet,@"window.dispatchEvent(new Event('pet-touch'))");
     if (count >= 2) { [self trace:@"double-click"]; [self openChat:nil]; return; }
-    // Wait only for the system double-click interval. No composer/focus change
-    // occurs on the first half of a double-click; dragging remains immediate.
-    __weak BotHost *weak = self;
-    self.singleClick = [NSTimer timerWithTimeInterval:NSEvent.doubleClickInterval repeats:NO block:^(NSTimer *timer) {
-        BotHost *host = weak;
-        host.singleClick = nil;
-        if (host.handle && host.visible && !host.pressing && !host.dragging) [host toggleInput:nil];
-    }];
-    [NSRunLoop.mainRunLoop addTimer:self.singleClick forMode:NSRunLoopCommonModes];
+    // The first click opens immediately. A second click promotes to history.
+    [self toggleInput:nil];
 }
 - (void)refreshNotificationPermission {
     __weak BotHost *weak = self;
@@ -262,7 +267,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 }
 - (void)menuWillOpen:(NSMenu *)menu {
     self.trackingMenu=menu; self.menuTracking=YES; [self cancelPlane]; [self publishContext];
-    [self cancelClick];
+
     for (NSMenuItem *item in menu.itemArray) {
         if (item.tag == 2) item.title = self.visible ? @"隐藏" : @"显示";
     }
@@ -301,7 +306,6 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     if (!local || (event.window && (event.window==self.pet || event.window==self.panel || event.window==self.history || event.window==self.bubble || event.window==self.prop))) {
         [self dismissMenu:local ? @"menu-dismiss-local" : @"menu-dismiss-global"];
     }
-    if (!local || event.window != self.pet) [self cancelClick];
     if (!local || (event.window && event.window != self.bubble)) [self collapseBubble];
     // Windowless local events (for example native menus) are not evidence of
     // an outside click. App deactivation independently covers other apps.
@@ -317,7 +321,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     NSRect r = self.pet.frame;
     NSMutableArray *screens = [NSMutableArray new];
     for (NSScreen *s in NSScreen.screens) [screens addObject:@{@"frame":NSStringFromRect(s.frame),@"visibleFrame":NSStringFromRect(s.visibleFrame),@"scale":@(s.backingScaleFactor)}];
-    NSDictionary *record = @{@"event":event,@"time":@(NSDate.date.timeIntervalSince1970),@"x":@(r.origin.x),@"y":@(r.origin.y),@"width":@(r.size.width),@"height":@(r.size.height),@"visible":@(self.pet.visible),@"petOnActiveSpace":@(self.pet.onActiveSpace),@"petOcclusionVisible":@((self.pet.occlusionState & NSWindowOcclusionStateVisible)!=0),@"inputOnActiveSpace":@(self.pet.onActiveSpace),@"singlePetSurface":@YES,@"panelVisible":@(self.panel.visible),@"panelOnActiveSpace":@(self.panel.onActiveSpace),@"panelFrame":NSStringFromRect(self.panel.frame),@"panelKey":@(self.panel.keyWindow),@"petKey":@(self.pet.keyWindow),@"bubbleVisible":@(self.bubble.visible),@"bubbleKey":@(self.bubble.keyWindow),@"bubbleFrame":NSStringFromRect(self.bubble.frame),@"frontApp":NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier ?: @"",@"activationPolicy":@(NSApp.activationPolicy),@"propWindowNumber":@(self.prop.windowNumber),@"propVisible":@(self.prop.visible),@"propKey":@(self.prop.keyWindow),@"propClickThrough":@(self.prop.ignoresMouseEvents),@"propFrame":NSStringFromRect(self.prop.frame),@"maskBytes":@(self.mask.length),@"screens":screens};
+    NSDictionary *record = @{@"event":event,@"time":@(NSDate.date.timeIntervalSince1970),@"x":@(r.origin.x),@"y":@(r.origin.y),@"width":@(r.size.width),@"height":@(r.size.height),@"visible":@(self.pet.visible),@"petOnActiveSpace":@(self.pet.onActiveSpace),@"petOcclusionVisible":@((self.pet.occlusionState & NSWindowOcclusionStateVisible)!=0),@"inputOnActiveSpace":@(self.pet.onActiveSpace),@"singlePetSurface":@YES,@"panelVisible":@(self.panel.visible),@"panelOnActiveSpace":@(self.panel.onActiveSpace),@"panelFrame":NSStringFromRect(self.panel.frame),@"panelKey":@(self.panel.keyWindow),@"panelResponder":NSStringFromClass(self.panel.firstResponder.class)?:@"none",@"doubleClickInterval":@(NSEvent.doubleClickInterval),@"petKey":@(self.pet.keyWindow),@"bubbleVisible":@(self.bubble.visible),@"bubbleKey":@(self.bubble.keyWindow),@"bubbleFrame":NSStringFromRect(self.bubble.frame),@"frontApp":NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier ?: @"",@"activationPolicy":@(NSApp.activationPolicy),@"propWindowNumber":@(self.prop.windowNumber),@"propVisible":@(self.prop.visible),@"propKey":@(self.prop.keyWindow),@"propClickThrough":@(self.prop.ignoresMouseEvents),@"propFrame":NSStringFromRect(self.prop.frame),@"maskBytes":@(self.mask.length),@"screens":screens};
     NSData *data = [NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingSortedKeys error:nil];
     if (![NSFileManager.defaultManager fileExistsAtPath:path]) [NSFileManager.defaultManager createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
     NSFileHandle *file = [NSFileHandle fileHandleForWritingAtPath:path];
@@ -339,10 +343,35 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
         [self trace:hit ? @"hit-enter" : @"hit-leave"];
     }
 }
+// Activating an accessory app and focusing its WebKit editor are separate steps.
+// A global hotkey has no mouse click to install WebKit as first responder.
+- (void)focusComposer {
+    if (!self.panel.visible || !self.panel.keyWindow || self.panel.attachedSheet || !NSApp.active) return;
+    NSMutableArray *views=[NSMutableArray arrayWithObject:self.panel.contentView];
+    while(views.count){
+        NSView *view=views.lastObject;[views removeLastObject];
+        if([view isKindOfClass:WKWebView.class]){
+            NSResponder *current=self.panel.firstResponder;
+            if(![current isKindOfClass:NSView.class] || ![(NSView *)current isDescendantOf:view]) [self.panel makeFirstResponder:view];
+            bot_js(self.panel,@"window.dispatchEvent(new Event('panel-focus'))");
+            [self trace:@"panel-focus"];
+            return;
+        }
+        [views addObjectsFromArray:view.subviews];
+    }
+}
 - (void)anchorPanel {
     NSRect pet = self.pet.frame, panel = self.panel.frame;
-    NSScreen *screen = self.pet.screen ?: NSScreen.mainScreen;
+    NSScreen *screen = self.panelCentered ? self.panelScreen : self.pet.screen;
+    if (![NSScreen.screens containsObject:screen]) screen = NSScreen.mainScreen;
     NSRect bounds = screen.visibleFrame;
+    panel.size.width = MIN(self.panelCentered ? 620 : 420, bounds.size.width-32);
+    if (self.panelCentered) {
+        panel.origin = NSMakePoint(NSMidX(bounds)-panel.size.width/2, NSMidY(bounds)-panel.size.height/2);
+        [self.panel setFrame:panel display:YES];
+        return;
+    }
+    [self.panel setContentSize:panel.size];
     // The model's feet are 44/240 points above the surface's transparent bottom.
     // Anchor below visible feet, flip above when the Dock/work area leaves no room.
     double x = NSMidX(pet)-panel.size.width/2;
@@ -395,6 +424,8 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.history.backgroundColor = NSColor.windowBackgroundColor;
     host.panel = (__bridge NSWindow *)panel; host.handle = handle;
     host.panel.collectionBehavior = bot_space_behavior(NO);
+    host.panel.animationBehavior = NSWindowAnimationBehaviorNone;
+    bot_install_material(host.panel, 31, 0, 0);
     host.scale = 1;
     host.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
     NSImage *image = [[NSImage alloc] initWithData:[NSData dataWithBytes:icon length:iconLength]];
@@ -428,27 +459,20 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.pet.movableByWindowBackground = NO;
     // The message surface is non-key too. It never joins the pet's drag loop.
     NSWindow *bubbleOwner = (__bridge NSWindow *)bubble;
-    NSRect bubbleFrame = bubbleOwner.frame; bubbleFrame.size = NSMakeSize(360,96);
+    // The 56 pt capsule has a 6 pt transparent gutter for its soft shadow.
+    NSRect bubbleFrame = bubbleOwner.frame; bubbleFrame.size = NSMakeSize(360,68);
     host.bubble = [[BotInputPanel alloc] initWithContentRect:bubbleFrame styleMask:NSWindowStyleMaskBorderless|NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
     NSView *bubbleContent = bubbleOwner.contentView;
     bubbleOwner.contentView = [[NSView alloc] initWithFrame:bubbleContent.bounds];
-    NSView *bubbleSurface = [[NSView alloc] initWithFrame:NSMakeRect(0,0,360,96)];
-    NSVisualEffectView *glass = [[NSVisualEffectView alloc] initWithFrame:bubbleSurface.bounds];
-    glass.material = NSVisualEffectMaterialPopover;
-    glass.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    glass.state = NSVisualEffectStateActive;
-    glass.autoresizingMask = NSViewWidthSizable|NSViewHeightSizable;
-    bubbleSurface.wantsLayer = YES; bubbleSurface.layer.cornerRadius = 28; bubbleSurface.layer.masksToBounds = YES;
+    NSView *bubbleSurface = [[NSView alloc] initWithFrame:NSMakeRect(0,0,360,68)];
     bubbleContent.frame = bubbleSurface.bounds;
     bubbleContent.autoresizingMask = NSViewWidthSizable|NSViewHeightSizable;
-    // Keep WebKit beside the material: nesting under NSVisualEffectView hides
-    // its accessibility subtree on the tested macOS version.
-    [bubbleSurface addSubview:glass];
     [bubbleSurface addSubview:bubbleContent];
     host.bubble.contentView = bubbleSurface;
+    bot_install_material(host.bubble, 28, 0, 6);
     host.bubble.title = @"Caelis Bot — 消息";
     host.bubble.opaque = NO; host.bubble.backgroundColor = NSColor.clearColor;
-    host.bubble.hasShadow = YES; host.bubble.level = NSFloatingWindowLevel;
+    host.bubble.hasShadow = NO; host.bubble.level = NSFloatingWindowLevel;
     host.bubble.hidesOnDeactivate = NO; host.bubble.releasedWhenClosed = NO;
     host.bubble.collectionBehavior = bot_space_behavior(YES);
     NSWindow *propOwner=(__bridge NSWindow *)prop;
@@ -483,8 +507,16 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
         if (weak) { [weak cancelPlane]; weak.frontContext=nil; desktopEvent(weak.handle,3,0,0,0); }
     }];
     [host.observers addObject:display];
-    id deactivate = [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) { [weak dismissMenu:@"menu-dismiss-deactivate"]; [weak cancelClick]; [weak dismissPanel:@"panel-dismiss-deactivate"]; [weak collapseBubble]; [weak updateBubble]; }];
+    id deactivate = [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) { [weak dismissMenu:@"menu-dismiss-deactivate"];  [weak dismissPanel:@"panel-dismiss-deactivate"]; [weak collapseBubble]; [weak updateBubble]; }];
     [host.observers addObject:deactivate];
+    for(NSString *name in @[NSApplicationDidBecomeActiveNotification,NSWindowDidBecomeKeyNotification]){
+        id target=[name isEqualToString:NSWindowDidBecomeKeyNotification]?host.panel:nil;
+        id observer=[NSNotificationCenter.defaultCenter addObserverForName:name object:target queue:nil usingBlock:^(NSNotification *note){
+            // Finish native activation first, then focus only the still-open panel.
+            dispatch_async(dispatch_get_main_queue(),^{[weak focusComposer];});
+        }];
+        [host.observers addObject:observer];
+    }
     id activated = [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceDidActivateApplicationNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
         NSRunningApplication *app = note.userInfo[NSWorkspaceApplicationKey];
         if (app && app.processIdentifier != NSProcessInfo.processInfo.processIdentifier) [weak dismissMenu:@"menu-dismiss-other-app"];
@@ -512,7 +544,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
                 } else {
                     // Switching desktops is not a geometry change or an open-input
                     // request. Preserve placement/hidden preference and user focus.
-                    [weak cancelClick]; [weak dismissPanel:@"panel-dismiss-space-change"]; [weak collapseBubble];
+                     [weak dismissPanel:@"panel-dismiss-space-change"]; [weak collapseBubble];
                     [weak showPetWithoutActivation];
                     [weak updateHit];
                     [weak trace:@"active-space-change"];
@@ -539,7 +571,7 @@ void bot_apply(void *pointer, double x, double y, double scale, int visible) {
         [NSApp unhideWithoutActivation];
         [host showPetWithoutActivation];
         if (host.panel.visible) [host.panel orderFront:nil];
-    } else { [host cancelClick]; [host.pet orderOut:nil]; [host.bubble orderOut:nil]; }
+    } else {  [host.pet orderOut:nil]; [host.bubble orderOut:nil]; }
     if (host.panel.visible) [host anchorPanel];
     [host updateHit];
     [host trace:@"apply"];
@@ -560,7 +592,9 @@ void bot_panel(void *pointer, int visible) {
         if (front.processIdentifier != NSProcessInfo.processInfo.processIdentifier) host.previousApp = front;
         [host anchorPanel];
         [NSApp activateIgnoringOtherApps:YES]; [host.panel makeKeyAndOrderFront:nil];
-        bot_js(host.panel,visible == 2 ? @"window.dispatchEvent(new CustomEvent('panel-open',{detail:'approval'}))" : @"window.dispatchEvent(new CustomEvent('panel-open',{detail:'composer'}))");
+        [host focusComposer];
+        host.activationID++;
+        bot_js(host.panel,[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('panel-open',{detail:{activation:%lu}}))",(unsigned long)host.activationID]);
     } else {
         BOOL restore = NSApp.active && host.panel.keyWindow;
         [host.panel orderOut:nil];
@@ -574,12 +608,14 @@ void bot_panel(void *pointer, int visible) {
 void bot_toggle_panel(void *pointer) {
     BotHost *host = (__bridge BotHost *)pointer;
     if (host.panel.attachedSheet) return;
-    bot_panel(pointer,!host.panel.visible);
+    BOOL close = host.panel.visible && !host.panelCentered;
+    host.panelCentered = NO;
+    bot_panel(pointer,!close);
 }
 void bot_panel_height(void *pointer, int height) {
     BotHost *host = (__bridge BotHost *)pointer;
     NSRect frame = host.panel.frame;
-    frame.size = NSMakeSize(420,height);
+    frame.size.height = height;
     [host.panel setFrame:frame display:YES];
     [host anchorPanel];
     [host trace:@"panel-layout"];
@@ -595,6 +631,8 @@ void bot_destroy(void *pointer) {
     [host dismissMenu:@"menu-dismiss-shutdown"];
     [host cancelPlane]; [host.contextTimer invalidate];
     host.handle = 0;
+    if(host.shortcut) UnregisterEventHotKey(host.shortcut);
+    if(host.shortcutHandler) RemoveEventHandler(host.shortcutHandler);
     if (host.globalMonitor) [NSEvent removeMonitor:host.globalMonitor];
     if (host.localMonitor) [NSEvent removeMonitor:host.localMonitor];
     for (id observer in host.observers) {
@@ -603,7 +641,7 @@ void bot_destroy(void *pointer) {
     }
     [NSStatusBar.systemStatusBar removeStatusItem:host.statusItem];
     [host.dragCompletion invalidate];
-    [host cancelClick];
+
     [host.pet close]; [host.prop close]; [host.bubble close]; [host.panel orderOut:nil];
 }
 
@@ -665,15 +703,7 @@ int bot_trash_path(char *path) {
 void bot_style_settings(void *pointer) {
     NSWindow *window = (__bridge NSWindow *)pointer;
     window.backgroundColor = NSColor.windowBackgroundColor;
-    // Wails' translucent backdrop is a sibling behind WebKit. CSS keeps only
-    // the sidebar clear; the reading/form area stays opaque neutral grey.
-    for (NSView *view in window.contentView.subviews) {
-        if ([view isKindOfClass:NSVisualEffectView.class]) {
-            NSVisualEffectView *material = (NSVisualEffectView *)view;
-            material.material = NSVisualEffectMaterialSidebar;
-            material.state = NSVisualEffectStateFollowsWindowActiveState;
-        }
-    }
+    bot_install_material(window, 16, 184, 0);
 }
 
 void bot_activity(void *pointer, char *activity) {
@@ -682,4 +712,74 @@ void bot_activity(void *pointer, char *activity) {
     if (![@[@"idle",@"working",@"waiting"] containsObject:state]) return;
     if (![state isEqualToString:@"idle"]) [host cancelPlane];
     bot_js(host.pet,[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('pet-activity',{detail:'%@'}))",state]);
+}
+
+// Carbon hotkeys are system registrations; no keyboard surveillance permission.
+static OSStatus bot_hotkey(EventHandlerCallRef next, EventRef event, void *context) {
+    BotHost *host=(__bridge BotHost *)context;
+    EventHotKeyID key;
+    if(GetEventParameter(event,kEventParamDirectObject,typeEventHotKeyID,NULL,sizeof(key),NULL,&key)!=noErr || key.signature!='Cael' || key.id!=host.shortcutID) return eventNotHandledErr;
+    if(GetEventKind(event)==kEventHotKeyReleased){host.shortcutDown=NO;return noErr;}
+    if(host.shortcutDown)return noErr;
+    host.shortcutDown=YES;
+    if(host.handle) {
+        host.interactionStart=NSProcessInfo.processInfo.systemUptime;
+        [host trace:@"shortcut"];
+        // Closing is purely native: avoid hiding/refocusing any other Wails window
+        // before dismissing this one, or the compositor can show an extra frame.
+        if(host.panel.visible && host.panelCentered && !host.panel.attachedSheet) bot_panel(context,0);
+        else desktopEvent(host.handle,11,0,0,0);
+    }
+    return noErr;
+}
+int bot_shortcut(void *pointer,char *rawKey,int flags,int enabled) {
+    BotHost *host=(__bridge BotHost *)pointer;
+    NSString *key=[NSString stringWithUTF8String:rawKey];
+    if(!enabled){if(host.shortcut)UnregisterEventHotKey(host.shortcut);host.shortcut=NULL;return 0;}
+    if(host.shortcut && [host.shortcutKey isEqualToString:key] && host.shortcutFlags==flags)return 0;
+    NSDictionary *codes=@{@"Space":@49,@"KeyA":@0,@"KeyS":@1,@"KeyD":@2,@"KeyF":@3,@"KeyH":@4,@"KeyG":@5,@"KeyZ":@6,@"KeyX":@7,@"KeyC":@8,@"KeyV":@9,@"KeyB":@11,@"KeyQ":@12,@"KeyW":@13,@"KeyE":@14,@"KeyR":@15,@"KeyY":@16,@"KeyT":@17,@"KeyO":@31,@"KeyU":@32,@"KeyI":@34,@"KeyP":@35,@"KeyL":@37,@"KeyJ":@38,@"KeyK":@40,@"KeyN":@45,@"KeyM":@46,@"Digit1":@18,@"Digit2":@19,@"Digit3":@20,@"Digit4":@21,@"Digit6":@22,@"Digit5":@23,@"Digit9":@25,@"Digit7":@26,@"Digit8":@28,@"Digit0":@29,@"F1":@122,@"F2":@120,@"F3":@99,@"F4":@118,@"F5":@96,@"F6":@97,@"F7":@98,@"F8":@100,@"F9":@101,@"F10":@109,@"F11":@103,@"F12":@111};
+    NSNumber *code=codes[key]; if(!code)return paramErr;
+    if(!host.shortcutHandler){
+        EventTypeSpec specs[]={{kEventClassKeyboard,kEventHotKeyPressed},{kEventClassKeyboard,kEventHotKeyReleased}};
+        EventHandlerRef handler=NULL;
+        OSStatus result=InstallEventHandler(GetApplicationEventTarget(),bot_hotkey,2,specs,pointer,&handler);
+        if(result!=noErr)return result;
+        host.shortcutHandler=handler;
+    }
+    UInt32 mods=0;if(flags&1)mods|=controlKey;if(flags&2)mods|=optionKey;if(flags&4)mods|=shiftKey;if(flags&8)mods|=cmdKey;
+    // RegisterEventHotKey alone does not reliably reject symbolic system keys.
+    CFArrayRef symbolic=NULL;
+    if(CopySymbolicHotKeys(&symbolic)==noErr && symbolic){
+        BOOL reserved=NO;
+        for(NSDictionary *entry in (__bridge NSArray *)symbolic){
+            if([entry[(__bridge NSString *)kHISymbolicHotKeyEnabled] boolValue] &&
+               [entry[(__bridge NSString *)kHISymbolicHotKeyCode] unsignedIntValue]==code.unsignedIntValue &&
+               ([entry[(__bridge NSString *)kHISymbolicHotKeyModifiers] unsignedIntValue] & (controlKey|optionKey|shiftKey|cmdKey))==mods){reserved=YES;break;}
+        }
+        CFRelease(symbolic);
+        if(reserved)return eventHotKeyExistsErr;
+    }
+    EventHotKeyRef registration=NULL;
+    EventHotKeyID identifier={'Cael',host.shortcutID+1};
+    OSStatus result=RegisterEventHotKey(code.unsignedIntValue,mods,identifier,GetApplicationEventTarget(),0,&registration);
+    if(result!=noErr)return result;
+    if(host.shortcut)UnregisterEventHotKey(host.shortcut);
+    host.shortcutDown=NO;host.shortcut=registration;host.shortcutID=identifier.id;host.shortcutKey=key;host.shortcutFlags=flags;
+    return 0;
+}
+void bot_centered_panel(void *pointer){
+    BotHost *host=(__bridge BotHost *)pointer;
+    if(host.panel.attachedSheet)return;
+    BOOL close=host.panel.visible && host.panelCentered;
+    host.panelCentered=YES;
+    host.panelScreen=NSScreen.mainScreen;
+    for(NSScreen *screen in NSScreen.screens){if(NSPointInRect(NSEvent.mouseLocation,screen.frame)){host.panelScreen=screen;break;}}
+    bot_panel(pointer,!close);
+}
+void bot_panel_ready(void *pointer,int activation){
+    BotHost *host=(__bridge BotHost *)pointer;
+    if(activation<=0 || host.activationID!=(NSUInteger)activation || host.readyID==(NSUInteger)activation || !host.panel.visible)return;
+    host.readyID=activation;
+    double elapsed=host.interactionStart>0 ? (NSProcessInfo.processInfo.systemUptime-host.interactionStart)*1000 : 0;
+    [host trace:[NSString stringWithFormat:@"input-ready:%.1fms",elapsed]];
 }

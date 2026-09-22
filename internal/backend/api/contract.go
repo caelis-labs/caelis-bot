@@ -138,3 +138,26 @@ type Engine interface {
 	ApprovalURL(string) (string, error)
 	Close(context.Context) error
 }
+
+// ExecutionSettings applies to new turns, never to an in-flight turn/approval.
+// Empty Model means legacy Codex defaults until a user explicitly saves a model.
+type ExecutionSettings struct {
+	Model        string `json:"model"`
+	Effort       string `json:"effort"`
+	ServiceTier  string `json:"serviceTier"`
+	ApprovalMode string `json:"approvalMode"`
+}
+type ModelOption struct {
+	Model         string        `json:"model"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description"`
+	Default       bool          `json:"default"`
+	DefaultEffort string        `json:"defaultEffort"`
+	Efforts       []string      `json:"efforts"`
+	ServiceTiers  []ServiceTier `json:"serviceTiers"`
+}
+type ServiceTier struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}

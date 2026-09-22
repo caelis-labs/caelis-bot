@@ -3,6 +3,8 @@ import { backend, desktop, type DraftFile } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Review, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { CopyText, MessageContent } from './MessageContent';
+import { chatActivity, composerAction } from './chat-presentation';
+import { WorkingMessage } from './WorkingMessage';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
 export const labels: Record<string,string> = { working: '正在处理', sending: '正在发送', attention: '需要确认', interrupting: '正在停止', completed: '已完成', interrupted: '已停止', failed: '未完成', unknown: '结果待确认', unconfirmed: '结果未确认' };
@@ -63,10 +65,10 @@ function Message({ item, report }: { item: Item; report: (message: string) => vo
   </article>;
 }
 
-export function useConversation(active: boolean, pet=false, chat=false) {
+export function useConversation(active: boolean, pet=false, chat=false, composer=false) {
  const [snapshot,setSnapshot]=useState<Snapshot|null>(null);
  const revision=useRef(0),botStatus=useRef('');
- const read=async()=>{if(chat){const update=await backend<ChatUpdate>('ChatSnapshot',revision.current,botStatus.current);if(!update.changed)return null;return update.snapshot;}return backend<Snapshot>(pet?'PetSnapshot':'Snapshot');};
+ const read=async()=>{if(chat){const update=await backend<ChatUpdate>('ChatSnapshot',revision.current,botStatus.current);if(!update.changed)return null;return update.snapshot;}return backend<Snapshot>(pet?'PetSnapshot':composer?'ComposerSnapshot':'Snapshot');};
  const accept=(next:Snapshot)=>{if(next.revision>=revision.current){revision.current=next.revision;botStatus.current=next.botStatus;setSnapshot(next);}};
  const refresh=async()=>{const next=await read();if(next)accept(next);};
  useEffect(()=>{
@@ -74,29 +76,37 @@ export function useConversation(active: boolean, pet=false, chat=false) {
   let stopped=false,timer=0;
   const poll=async()=>{try{const next=await read();if(!stopped&&next)accept(next);}catch{/* Preserve confirmed state across a failed observation. */}finally{if(!stopped)timer=window.setTimeout(()=>void poll(),450);}};
   void poll();return()=>{stopped=true;clearTimeout(timer);};
- },[active,pet,chat]);
+ },[active,pet,chat,composer]);
  return {snapshot,refresh};
 }
 
 // One native-host draft, two exclusive editors. Writes serialize and use a
 // revision fence so a delayed hidden renderer cannot overwrite newer text.
-function Composer({snapshot,quick=false,refresh}:{snapshot:Snapshot|null;quick?:boolean;refresh:()=>Promise<void>}) {
+function Composer({snapshot,quick=false,active=true,activation=0,refresh}:{snapshot:Snapshot|null;quick?:boolean;active?:boolean;activation?:number;refresh:()=>Promise<void>}) {
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null);
  const [draft,setDraft]=useState(''),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
+ const visible=useRef(active);visible.current=active;
  const pending=useRef<Submission|null>(null);
  const saved=useRef<Draft>({revision:0,text:'',referenceIds:[],notice:''});
  const writes=useRef<Promise<void>>(Promise.resolve()), conflicted=useRef(false);
  const readFiles=()=>desktop<DraftFile[]>('DraftFiles').then(setFiles);
  useEffect(()=>{
   let mounted=true;
-  void backend<Draft>('Draft').then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);input.current?.focus();}}).catch(()=>setError('暂时无法读取草稿'));
+  setLoaded(false);conflicted.current=false;
+  void writes.current.then(()=>backend<Draft>('Draft')).then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();}}).catch(()=>setError('暂时无法读取草稿'));
   void readFiles();
   const changed=(event:Event)=>{void readFiles();setError((event as CustomEvent<string>).detail??'');};
   window.addEventListener('files-changed',changed);
   return()=>{mounted=false;window.removeEventListener('files-changed',changed);};
- },[]);
- useEffect(()=>{if(loaded&&!busy)input.current?.focus();},[loaded,busy]);
+ },[activation]);
+ useEffect(()=>{if(active&&loaded&&!busy){input.current?.focus();if(quick){const frame=requestAnimationFrame(()=>void desktop('PanelReady',activation));return()=>cancelAnimationFrame(frame);}}},[active,loaded,busy,activation]);
+ useEffect(()=>{
+  if(!quick||!active||!loaded)return;
+  const focus=()=>input.current?.focus();
+  window.addEventListener('panel-focus',focus);window.addEventListener('focus',focus);
+  return()=>{window.removeEventListener('panel-focus',focus);window.removeEventListener('focus',focus);};
+ },[quick,active,loaded]);
  const save=(text:string,referenceIds:string[])=>{
   setDraft(text);setRefs(referenceIds);
   writes.current=writes.current.then(async()=>{
@@ -130,12 +140,25 @@ function Composer({snapshot,quick=false,refresh}:{snapshot:Snapshot|null;quick?:
    void backend<Draft>('Draft').then(d=>{saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);void readFiles();if(quick)void desktop('ClosePanel');});
   }
  },[snapshot?.lastReceipt.id,snapshot?.lastReceipt.outcome]);
- const enabled=loaded&&!busy&&(snapshot?.canSend||(!quick&&snapshot?.canSteer))&&!!(draft.trim()||files.length);
+ const primaryAction=composerAction(snapshot,quick,!!(draft.trim()||files.length||refs.length));
+ const stopping=snapshot?.phase==='interrupting';
+ const enabled=loaded&&!busy&&(primaryAction==='stop'?!stopping:(snapshot?.canSend||(!quick&&snapshot?.canSteer))&&!!(draft.trim()||files.length));
+ const interrupt=async()=>{
+  if(busy||!loaded||!snapshot?.canInterrupt||stopping)return;
+  setBusy(true);setError('');
+  try{await backend('Interrupt');}
+  catch(e){setError(e instanceof Error?e.message:'暂时无法停止，请重试');}
+  finally{
+   try{await refresh();}catch{setError(previous=>previous||'停止状态暂未更新，请稍后核对');}
+   finally{setBusy(false);}
+  }
+ };
+ const actionLabel=primaryAction==='stop'?(stopping?'正在停止':'停止工作'):!quick&&snapshot?.canSteer?'补充说明':'发送';
  return <div className="compose-area" data-file-drop-target>
   <div className="capsule">
    <button className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label="添加附件或引用" aria-expanded={expanded}><Icon name="plus"/></button>
-   <textarea aria-label="写下想法" ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current)} placeholder={!quick&&snapshot?.canSteer?'补充说明…':'写下想法…'} title="Enter 发送，Shift+Enter 换行"/>
-   <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void submit()} aria-label={!quick&&snapshot?.canSteer?'补充说明':'发送'}><Icon name="arrow.up"/></button>
+   <textarea aria-label="写下想法" ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={!quick&&snapshot?.canSteer?'补充说明…':'写下想法…'} title="Enter 发送，Shift+Enter 换行"/>
+   <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-label={actionLabel} title={actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
   {!!error&&<p role="alert" className="input-error">{error}</p>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label="待发送的附件与引用">
@@ -150,16 +173,16 @@ function Composer({snapshot,quick=false,refresh}:{snapshot:Snapshot|null;quick?:
 }
 
 export function Panel() {
- const [active,setActive]=useState(false);const surface=useRef<HTMLElement>(null);
- const {snapshot,refresh}=useConversation(active);
+ const [active,setActive]=useState(false),[activation,setActivation]=useState(0);const surface=useRef<HTMLElement>(null);
+ const {snapshot,refresh}=useConversation(active,false,false,true);
  useEffect(()=>{
-  const open=()=>setActive(true),close=()=>setActive(false);
+  const open=(event:Event)=>{setActivation((event as CustomEvent<{activation:number}>).detail?.activation??0);setActive(true);},close=()=>setActive(false);
   const key=(e:KeyboardEvent)=>{if(!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void desktop('ClosePanel');}};
   window.addEventListener('panel-open',open);window.addEventListener('panel-close',close);window.addEventListener('keydown',key);
   return()=>{window.removeEventListener('panel-open',open);window.removeEventListener('panel-close',close);window.removeEventListener('keydown',key);};
  },[]);
  useEffect(()=>{const resize=new ResizeObserver(()=>{if(surface.current)void desktop('SetPanelHeight',Math.max(64,Math.min(500,Math.ceil(surface.current.getBoundingClientRect().height))));});resize.observe(surface.current!);return()=>resize.disconnect();},[]);
- return <main ref={surface} className="input-surface" aria-label="发送给 Caelis Bot">{active&&<Composer snapshot={snapshot} quick refresh={refresh}/>}</main>;
+ return <main ref={surface} className="input-surface" aria-label="发送给 Caelis Bot"><Composer snapshot={snapshot} quick active={active} activation={activation} refresh={refresh}/>{active&&snapshot&&!snapshot.canSend&&<button className="text-action" onClick={()=>void desktop('OpenHistory')}>{snapshot.canSteer?'正在处理，打开对话补充说明':'打开对话查看连接或待确认事项'}</button>}</main>;
 }
 
 export function History() {
@@ -175,12 +198,12 @@ export function History() {
   window.addEventListener('history-open',opened);window.addEventListener('history-close',closed);window.addEventListener('keydown',key);
   return()=>{window.removeEventListener('history-open',opened);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
  },[]);
- const messages=snapshot?.items.filter(i=>i.kind==='user'||i.kind==='assistant')??[];
+ const messages=snapshot?.items.filter(i=>i.kind==='user'||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length)))??[];
  const contentKey=messages.map(i=>i.id+i.text).join('');
  const prompts=snapshot?.approvals.filter(p=>p.status!=='resolved')??[];
  const promptKey=prompts.map(p=>p.id+p.status).join('');
  const reviews=snapshot?.reviews?.filter(r=>r.status==='denied'||r.status==='timedOut'||r.status==='aborted')??[];
- const reviewing=!!snapshot?.canInterrupt&&!!snapshot?.reviews?.some(r=>r.status==='inProgress');
+ const activity=chatActivity(snapshot);
  const connection=snapshot&&snapshot.connection!=='ready';
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  useLayoutEffect(()=>{
@@ -191,14 +214,15 @@ export function History() {
    if(anchor)el.scrollTop+=anchor.getBoundingClientRect().top-prepend.current.top;
    prepend.current=null;
   }else if(follow.current){el.scrollTop=el.scrollHeight;setUnread(false);}else setUnread(true);
- },[contentKey,promptKey,snapshot?.hasEarlier,earlierBusy]);
+ },[contentKey,promptKey,activity,snapshot?.hasEarlier,earlierBusy]);
  const earlier=async()=>{if(earlierBusy)return;setEarlierBusy(true);setError('');const el=scroll.current!;follow.current=false;const anchor=Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(item=>item.getBoundingClientRect().bottom>el.getBoundingClientRect().top);if(anchor)prepend.current={id:anchor.dataset.messageId!,top:anchor.getBoundingClientRect().top};try{await backend('LoadEarlier');await refresh();}catch{prepend.current=null;setError('更早消息暂时无法读取，请重试');}finally{setEarlierBusy(false);}};
  const action=async(method:string)=>{setBusy(true);setError('');try{await backend(method);}catch(e){setError(e instanceof Error?e.message:'暂时无法操作');}finally{setBusy(false);await refresh();}};
  return <main className="history-surface" aria-label="与 Caelis Bot 聊天">
   <div className="chat-scroll" ref={scroll} onScroll={()=>{const el=scroll.current!;follow.current=el.scrollHeight-el.scrollTop-el.clientHeight<56;if(follow.current)setUnread(false);}}>
-   {!messages.length&&!connection&&<p className="empty-conversation">有什么想和我说的？</p>}
+   {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">有什么想和我说的？</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy||snapshot.connection!=='ready'} onClick={()=>void earlier()}>{earlierBusy?'正在读取…':'查看更早消息'}</button></div>}
    <div className="history-messages">{messages.map(i=><Message key={i.id} item={i} report={setError}/>)}</div>
+   {activity&&<WorkingMessage activity={activity} active={active}/>}
    {prompts.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh()}/>)}
    {reviews.map(r=><ReviewNotice key={r.id} value={r}/>)}
    {connection&&<section className="connection-card" aria-label="连接 Codex">
@@ -220,10 +244,6 @@ export function History() {
   </div>
   {unread&&<button className="new-messages" onClick={()=>{follow.current=true;scroll.current!.scrollTop=scroll.current!.scrollHeight;setUnread(false);}}>查看新消息 ↓</button>}
   <footer>
-   {(snapshot?.canInterrupt||prompts.length>0)&&<div className="chat-controls" aria-label="当前工作">
-    <span className="chat-status" role="status">{reviewing?'正在自动审查':labels[snapshot?.phase??'']}</span>
-    {snapshot?.canInterrupt&&<button className="text-action" disabled={busy} onClick={()=>void action('Interrupt')}>停止</button>}
-   </div>}
    {active&&<Composer snapshot={snapshot} refresh={refresh}/>}
   </footer>
  </main>;

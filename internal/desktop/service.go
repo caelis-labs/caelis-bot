@@ -28,6 +28,8 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	shortcutFile       string
+	shortcut           ShortcutState
 	ready              chan struct{}
 	mu                 sync.Mutex
 	native             driver
@@ -85,6 +87,13 @@ func (s *Service) start(d driver) {
 	defer s.mu.Unlock()
 	s.native = d
 	s.started = true
+	if d, ok := d.(shortcutDriver); ok {
+		if err := d.registerShortcut(s.shortcut.Shortcut); err != nil {
+			s.shortcut.Message = err.Error()
+		} else {
+			s.shortcut.Registered = s.shortcut.Shortcut.Enabled
+		}
+	}
 	s.placement = normalize(s.placement, d.screens())
 	d.apply(s.placement)
 	close(s.ready)
@@ -343,7 +352,7 @@ func (s *Service) CollapseBubble() {
 	}
 }
 func (s *Service) SetBubbleHeight(ctx context.Context, height int) error {
-	if height < 96 || height > 480 {
+	if height < 68 || height > 480 {
 		return errors.New("invalid bubble height")
 	}
 	select {

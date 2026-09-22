@@ -44,6 +44,12 @@ export interface Draft {
   text: string;
   referenceIds: Array<string>;
 }
+export interface ExecutionSettings {
+  model: string;
+  effort: string;
+  serviceTier: string;
+  approvalMode: string;
+}
 export interface Item {
   turnKey: string;
   id: string;
@@ -52,6 +58,15 @@ export interface Item {
   status: string;
   details: string;
   artifacts: Array<Artifact>;
+}
+export interface ModelOption {
+  model: string;
+  name: string;
+  description: string;
+  default: boolean;
+  defaultEffort: string;
+  efforts: Array<string>;
+  serviceTiers: Array<ServiceTier>;
 }
 export interface Question {
   id: string;
@@ -87,6 +102,11 @@ export interface RuntimeCheck {
 export interface RuntimeSettings {
   runtime: string;
   cliPath: string;
+}
+export interface ServiceTier {
+  id: string;
+  name: string;
+  description: string;
 }
 export interface Snapshot {
   botStatus: string;

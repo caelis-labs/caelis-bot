@@ -36,7 +36,7 @@ func main() {
 			panic("unsupported contract type: " + t.String())
 		}
 	}
-	for _, v := range []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}} {
+	for _, v := range []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.ExecutionSettings{}, api.ModelOption{}} {
 		ts(reflect.TypeOf(v))
 	}
 	for previous := 0; previous != len(types); {

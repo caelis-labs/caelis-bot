@@ -4,8 +4,9 @@ package desktop
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework UserNotifications
+#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework UserNotifications -framework Carbon
 #include "native_darwin.h"
+#include "material_darwin.h"
 #include <stdlib.h>
 */
 import "C"
@@ -51,6 +52,8 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 			s.OpenSettings()
 		case 10:
 			s.OpenUpdates()
+		case 11:
+			s.ToggleCenteredPanel()
 		}
 	})
 	d.handle = cgo.NewHandle(d.events)
@@ -183,10 +186,14 @@ func trashNativePath(path string) error {
 	return nil
 }
 
-// Style Wails' existing native material; do not replace the content view or its
-// responder/accessibility hierarchy with a second window or custom chrome.
+// Install a decorative native sidebar behind WebKit without replacing its
+// content view or responder/accessibility hierarchy.
 func styleMacSettings(window *application.WebviewWindow) {
 	application.InvokeSync(func() { C.bot_style_settings(window.NativeWindow()) })
+}
+
+func syncMacMaterials() {
+	application.InvokeSync(func() { C.bot_sync_material_pages() })
 }
 
 func (d *macDriver) activity(value string) {
@@ -226,4 +233,37 @@ func (d *macDriver) finishPlane(id string, completed bool) {
 		}
 		C.bot_finish_plane(d.pointer, text, C.int(v))
 	})
+}
+
+func (d *macDriver) registerShortcut(v Shortcut) error {
+	key := C.CString(v.Key)
+	defer C.free(unsafe.Pointer(key))
+	flags := 0
+	if v.Control {
+		flags |= 1
+	}
+	if v.Alt {
+		flags |= 2
+	}
+	if v.Shift {
+		flags |= 4
+	}
+	if v.Meta {
+		flags |= 8
+	}
+	enabled := 0
+	if v.Enabled {
+		enabled = 1
+	}
+	status := application.InvokeSyncWithResult(func() int { return int(C.bot_shortcut(d.pointer, key, C.int(flags), C.int(enabled))) })
+	if status != 0 {
+		return errors.New("该快捷键已被系统或其他应用占用，请选择其他组合；原快捷键保持不变")
+	}
+	return nil
+}
+func (d *macDriver) centeredPanel() {
+	application.InvokeSync(func() { C.bot_centered_panel(d.pointer) })
+}
+func (d *macDriver) panelReady(id int) {
+	application.InvokeSync(func() { C.bot_panel_ready(d.pointer, C.int(id)) })
 }

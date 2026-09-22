@@ -35,9 +35,15 @@ func Run(assets fs.FS) error {
 	}
 	s := newService(fileStore{filepath.Join(config, "Caelis Bot", "placement.json")})
 	root := filepath.Join(config, "Caelis Bot")
+	s.configureShortcut(filepath.Join(root, "shortcut.json"))
 	logError(s.configureSelection(filepath.Join(root, "draft-files.json")))
 	runtimeFile := filepath.Join(root, "runtime.json")
 	runtimeSettings, err := backend.LoadRuntimeSettings(runtimeFile)
+	if err != nil {
+		return err
+	}
+	executionFile := filepath.Join(root, "execution.json")
+	executionSettings, err := backend.LoadExecutionSettings(executionFile)
 	if err != nil {
 		return err
 	}
@@ -59,20 +65,21 @@ func Run(assets fs.FS) error {
 			r.Stop()
 		}
 	}
-	engine := codex.NewSession(codex.SessionOptions{Binary: cliPath, Socket: os.Getenv("CAELIS_CODEX_SOCKET"), Directory: filepath.Join(root, "Work"), StateFile: filepath.Join(root, "conversation.json")})
+	engine := codex.NewSession(codex.SessionOptions{Execution: executionSettings, Binary: cliPath, Socket: os.Getenv("CAELIS_CODEX_SOCKET"), Directory: filepath.Join(root, "Work"), StateFile: filepath.Join(root, "conversation.json")})
 	back := backend.NewService(engine, s.resolveDraftFiles, s.consumeDraftFiles,
 		func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 		func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() })
 	logError(back.ConfigurePresentation(filepath.Join(root, "preview.json")))
 	logError(back.ConfigureDraft(filepath.Join(root, "draft.json")))
 	back.ConfigureRuntime(runtimeFile, runtimeSettings, engine.ChangeCLI)
+	back.ConfigureExecution(executionFile, executionSettings)
 	s.storage = engine.AttachmentStorage
 	s.cleanStorage = func(ctx context.Context) (api.AttachmentStorage, error) {
 		return engine.TrashOldAttachments(ctx, trashNativePath)
 	}
 	s.diagnosticReport = back.DiagnosticReport
 	s.activate = func() {
-		v := back.Snapshot()
+		v := back.ComposerSnapshot()
 		for _, a := range v.Approvals {
 			if a.Status != "resolved" {
 				s.OpenApproval()
@@ -140,7 +147,7 @@ func Run(assets fs.FS) error {
 	panel := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "conversation", Title: "Caelis Bot", Width: 420, Height: 64, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=panel", BackgroundType: application.BackgroundTypeTransparent, EnableFileDrop: true,
-		Mac: application.MacWindow{Backdrop: application.MacBackdropTranslucent, CornerRadius: 32, WindowLevel: application.MacWindowLevelFloating, CollectionBehavior: application.MacWindowCollectionBehaviorMoveToActiveSpace | application.MacWindowCollectionBehaviorFullScreenAuxiliary},
+		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, CornerRadius: 32, WindowLevel: application.MacWindowLevelFloating, CollectionBehavior: application.MacWindowCollectionBehaviorMoveToActiveSpace | application.MacWindowCollectionBehaviorFullScreenAuxiliary},
 	})
 	history := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "history", Title: "Caelis Bot", Width: 640, Height: 700, MinWidth: 420, MinHeight: 360,
@@ -148,7 +155,7 @@ func Run(assets fs.FS) error {
 		Mac: application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
 	bubble := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "bubble", Title: "Caelis Bot — 消息", Width: 360, Height: 96, Frameless: true, DisableResize: true, Hidden: true,
+		Name: "bubble", Title: "Caelis Bot — 消息", Width: 360, Height: 68, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=bubble", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true},
 	})
@@ -158,10 +165,13 @@ func Run(assets fs.FS) error {
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true},
 	})
 	settings := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "settings", Title: "Caelis Bot — 设置", Width: 640, Height: 500, MinWidth: 580, MinHeight: 420,
-		Hidden: true, URL: "/?surface=settings", BackgroundType: application.BackgroundTypeTranslucent,
-		Mac: application.MacWindow{Backdrop: application.MacBackdropTranslucent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
+		Name: "settings", Title: "Caelis Bot — 设置", Width: 960, Height: 680, MinWidth: 760, MinHeight: 540,
+		Hidden: true, URL: "/?surface=settings", BackgroundType: application.BackgroundTypeTransparent,
+		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
+	for _, window := range []*application.WebviewWindow{panel, bubble, settings} {
+		window.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, func(*application.WindowEvent) { syncMacMaterials() })
+	}
 	s.openSettings = func() {
 		s.ClosePanel()
 		s.CollapseBubble()
@@ -189,7 +199,9 @@ func Run(assets fs.FS) error {
 		history.ExecJS("window.dispatchEvent(new Event('history-open'))")
 	}
 	s.closeHistory = func() {
-		historyOpen.Store(false)
+		if !historyOpen.Swap(false) {
+			return
+		}
 		history.ExecJS("window.dispatchEvent(new Event('history-close'))")
 		history.Hide()
 	}
