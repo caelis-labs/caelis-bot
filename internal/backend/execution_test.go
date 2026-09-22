@@ -16,6 +16,7 @@ type executionFake struct {
 	value  api.ExecutionSettings
 }
 
+func (*executionFake) ExecutionOptions() api.ExecutionOptions { return api.ExecutionOptions{} }
 func (e *executionFake) Models(context.Context) ([]api.ModelOption, error) {
 	return []api.ModelOption{}, nil
 }
@@ -31,7 +32,7 @@ func (e *executionFake) ChangeExecution(_ context.Context, v api.ExecutionSettin
 }
 func TestExecutionPreferencesOnlyPersistAcceptedSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "execution.json")
-	initial, err := LoadExecutionSettings(path)
+	initial, err := LoadExecutionSettings(path, api.ExecutionSettings{ApprovalMode: "auto"})
 	if err != nil || initial.ApprovalMode != "auto" || initial.Model != "" {
 		t.Fatal(initial, err)
 	}
@@ -49,7 +50,7 @@ func TestExecutionPreferencesOnlyPersistAcceptedSettings(t *testing.T) {
 	if err = service.SaveExecutionSettings(context.Background(), value); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := LoadExecutionSettings(path)
+	loaded, err := LoadExecutionSettings(path, api.ExecutionSettings{ApprovalMode: "auto"})
 	if err != nil || loaded != value || engine.value != value {
 		t.Fatal("restart lost selection", loaded, err)
 	}
@@ -63,10 +64,25 @@ func TestExecutionPreferencesOnlyPersistAcceptedSettings(t *testing.T) {
 	if err = service.SaveExecutionSettings(context.Background(), change); err == nil || engine.value != value || service.ExecutionSettings() != value {
 		t.Fatal("disk failure mutated execution")
 	}
-	if err = os.WriteFile(path, []byte(`{"approvalMode":"not-a-policy"}`), 0600); err != nil {
+	if err = os.WriteFile(path, []byte(`{"approvalMode":`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = LoadExecutionSettings(path); err == nil {
-		t.Fatal("invalid stored policy silently accepted")
+	if _, err = LoadExecutionSettings(path, api.ExecutionSettings{ApprovalMode: "auto"}); err == nil {
+		t.Fatal("malformed settings silently accepted")
+	}
+}
+
+func TestProviderOwnsPolicyVocabulary(t *testing.T) {
+	e := &executionFake{}
+	s := NewService(e, nil, nil, nil, nil)
+	path := filepath.Join(t.TempDir(), "execution.json")
+	s.ConfigureExecution(path, api.ExecutionSettings{})
+	v := api.ExecutionSettings{Model: "provider-model", ApprovalMode: "provider-review"}
+	if err := s.SaveExecutionSettings(context.Background(), v); err != nil {
+		t.Fatal("shared service imposed Codex policy", err)
+	}
+	got, err := LoadExecutionSettings(path, api.ExecutionSettings{})
+	if err != nil || got != v {
+		t.Fatal("provider setting was lost", err)
 	}
 }

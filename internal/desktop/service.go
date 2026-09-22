@@ -247,7 +247,7 @@ func (s *Service) SetPanelMenu(height, activation int) error {
 	if !s.started || s.stopped {
 		return errors.New("desktop is not ready")
 	}
-	native, ok := s.native.(interface{ panelMenu(int, int) })
+	native, ok := s.native.(panelMenuDriver)
 	if !ok {
 		return errors.New("panel menu is unavailable")
 	}
@@ -366,7 +366,7 @@ func (s *Service) Activate() {
 func (s *Service) CollapseBubble() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if d, ok := s.native.(interface{ expandBubble(bool) }); ok && !s.stopped {
+	if d, ok := s.native.(bubbleDriver); ok && !s.stopped {
 		d.expandBubble(false)
 	}
 }
@@ -381,7 +381,7 @@ func (s *Service) SetBubbleHeight(ctx context.Context, height int) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if d, ok := s.native.(interface{ bubbleHeight(int) }); ok && !s.stopped {
+	if d, ok := s.native.(bubbleDriver); ok && !s.stopped {
 		d.bubbleHeight(height)
 	}
 	return nil
@@ -398,7 +398,7 @@ func (s *Service) Gesture(action string) error {
 	if !s.placement.Visible {
 		return nil
 	}
-	if d, ok := s.native.(interface{ gesture(string) }); ok {
+	if d, ok := s.native.(gestureDriver); ok {
 		d.gesture(action)
 		return nil
 	}

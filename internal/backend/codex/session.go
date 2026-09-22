@@ -35,7 +35,7 @@ type SessionOptions struct {
 	// defaults to on-request; this flag can never weaken its sandbox.
 	RequireApproval bool
 	// Host-only MCP config; never supplied by the renderer.
-	BotTools map[string]any
+	BotTools *api.ToolConnection
 }
 
 // Session projects one internally bound conversation. Native facts remain
@@ -82,6 +82,7 @@ type Session struct {
 
 func NewSession(opts SessionOptions) *Session {
 	s := &Session{opts: opts, binding: binding{Version: 1}, changed: make(chan struct{}), instance: rand.Text(), start: Start}
+	s.opts.BotTools = opts.BotTools.Clone()
 	s.life, s.cancelLife = context.WithCancel(context.Background())
 	s.resetProjection()
 	s.state.Connection = "offline"
@@ -92,6 +93,9 @@ func NewSession(opts SessionOptions) *Session {
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		s.loadErr = errors.New("无法读取本地对话记录")
+	}
+	if err := validateExecution(opts.Execution); err != nil {
+		s.loadErr = err
 	}
 	if s.loadErr != nil {
 		s.state.Message = s.loadErr.Error()

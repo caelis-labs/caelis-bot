@@ -132,15 +132,11 @@ type Engine interface {
 	Submit(context.Context, Submission, []InputFile) (Receipt, error)
 	Interrupt(context.Context) error
 	Decide(context.Context, Decision) error
-	Login(context.Context) (string, error)
-	CancelLogin(context.Context) error
-	Artifact(string) (string, error)
-	ApprovalURL(string) (string, error)
 	Close(context.Context) error
 }
 
 // ExecutionSettings applies to new turns, never to an in-flight turn/approval.
-// Empty Model means legacy Codex defaults until a user explicitly saves a model.
+// Empty Model inherits the current provider's configured default.
 type ExecutionSettings struct {
 	Model        string `json:"model"`
 	Effort       string `json:"effort"`

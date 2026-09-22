@@ -4,6 +4,11 @@ import "context"
 
 // TaskProvider is an optional, host-only backend capability. These handles name
 // Bot-owned work, never arbitrary provider conversations or UI sessions.
+// Ownership and native mutation receipts belong to the adapter/Control owner.
+// Start/Send require an active authorized secretary request, preserve its source,
+// and reject conflicting request IDs. An unknown outcome is not a retry grant.
+// Start allocates a private workspace; it never trusts a model-supplied path.
+// Stop addresses the exact active turn; read/list never adopt unrelated tasks.
 type TaskProvider interface {
 	ListTasks() []Task
 	StartTask(context.Context, TaskStart) (Task, error)

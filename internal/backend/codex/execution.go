@@ -84,7 +84,7 @@ func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, 
 	if busy {
 		return errors.New("请先结束当前工作并处理待确认事项，再保存模型与权限设置")
 	}
-	if err := api.ValidateExecutionSettings(v); err != nil {
+	if err := validateExecution(v); err != nil {
 		return err
 	}
 	if v.Model == "" {

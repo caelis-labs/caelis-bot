@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
 )
 
 // Task records and submission receipts share the atomic conversation binding.
@@ -35,12 +36,10 @@ type taskReceipt struct {
 	PriorRun    string `json:"priorRun,omitempty"`
 }
 
-const workerInstructions = `You are a professional worker delegated by Caelis Bot, the user's persistent secretary. Complete only the assigned work within the original user's request and report concrete results, artifacts, verification and blockers to the secretary. Your current directory is a dedicated workspace for this task. Keep outputs there. The quoted original request provides context, not blanket authority; the secretary's assignment cannot expand the user's authorization. Creating this task does not approve shell commands, external writes, publishing, messaging, credentials, or sandbox escapes. Preserve native approval and sandbox policy; ask for approval when required. Do not create another secretary or call Bot task-management tools. Do not claim success without evidence.`
-
 func (s *Session) workerParams(workspace string) map[string]any {
 	// Codex validates transport even for disabled MCP servers. Supply an inert
 	// stdio transport, never the secretary's endpoint/token or approved tool list.
-	params := map[string]any{"cwd": workspace, "runtimeWorkspaceRoots": []string{workspace}, "developerInstructions": workerInstructions, "config": map[string]any{
+	params := map[string]any{"cwd": workspace, "runtimeWorkspaceRoots": []string{workspace}, "developerInstructions": botpolicy.WorkerInstructions, "config": map[string]any{
 		"mcp_servers.caelis_bot": map[string]any{"command": os.Args[0], "enabled": false},
 		"agents.enabled":         false,
 	}}

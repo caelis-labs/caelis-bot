@@ -11,6 +11,12 @@ export interface Approval {
   questions: Array<Question>;
   url: string;
 }
+export interface ApprovalMode {
+  id: string;
+  name: string;
+  description: string;
+  dangerous: boolean;
+}
 export interface Artifact {
   id: string;
   name: string;
@@ -44,6 +50,10 @@ export interface Draft {
   text: string;
   referenceIds: Array<string>;
 }
+export interface ExecutionOptions {
+  defaultApprovalMode: string;
+  approvalModes: Array<ApprovalMode>;
+}
 export interface ExecutionSettings {
   model: string;
   effort: string;
@@ -67,6 +77,13 @@ export interface ModelOption {
   defaultEffort: string;
   efforts: Array<string>;
   serviceTiers: Array<ServiceTier>;
+}
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  connectionKind: string;
+  helpUrl: string;
+  connectionHint: string;
 }
 export interface Question {
   id: string;

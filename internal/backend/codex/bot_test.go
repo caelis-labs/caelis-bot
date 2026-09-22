@@ -60,7 +60,7 @@ func TestBotConnectionKeepsSandboxAndScopesDiscovery(t *testing.T) {
 	if strings.Contains(p["developerInstructions"].(string), "- bot_clock:") {
 		t.Fatal("unconfigured tool advertised")
 	}
-	s.opts.BotTools = map[string]any{"command": "synthetic"}
+	s.opts.BotTools = &api.ToolConnection{Command: "synthetic"}
 	p = s.connectionParams()
 	if !strings.Contains(p["developerInstructions"].(string), "- bot_clock:") || len(p["runtimeWorkspaceRoots"].([]string)) != 0 {
 		t.Fatal("catalog/workspace contract")

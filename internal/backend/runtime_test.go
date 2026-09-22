@@ -10,17 +10,28 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
+type runtimeFake struct {
+	snapshotEngine
+	change func(context.Context, api.RuntimeSettings, func() error) (api.RuntimeCheck, error)
+}
+
+func (e *runtimeFake) ChangeRuntime(ctx context.Context, v api.RuntimeSettings, persist func() error) (api.RuntimeCheck, error) {
+	return e.change(ctx, v, persist)
+}
+
 func TestRuntimeSettingsPersistOnlyAfterValidation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.json")
-	s := NewService(snapshotEngine{}, nil, nil, nil, nil)
+	engine := &runtimeFake{}
+	s := NewService(engine, nil, nil, nil, nil)
 	initial := api.RuntimeSettings{Runtime: "codex"}
 	valid := false
-	s.ConfigureRuntime(path, initial, func(_ context.Context, _ string, persist func() error) (api.RuntimeCheck, error) {
+	s.ConfigureRuntime(path, initial)
+	engine.change = func(_ context.Context, _ api.RuntimeSettings, persist func() error) (api.RuntimeCheck, error) {
 		if !valid {
 			return api.RuntimeCheck{}, errors.New("invalid executable")
 		}
 		return api.RuntimeCheck{Saved: true}, persist()
-	})
+	}
 	selected := api.RuntimeSettings{Runtime: "codex", CLIPath: "/local/bin/codex"}
 	if _, err := s.SaveRuntimeSettings(context.Background(), selected); err == nil {
 		t.Fatal("accepted failed validation")
@@ -32,7 +43,7 @@ func TestRuntimeSettingsPersistOnlyAfterValidation(t *testing.T) {
 	if _, err := s.SaveRuntimeSettings(context.Background(), selected); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := LoadRuntimeSettings(path)
+	loaded, err := LoadRuntimeSettings(path, "codex")
 	if err != nil || loaded != selected {
 		t.Fatal("next startup lost the validated path", err)
 	}
@@ -42,7 +53,38 @@ func TestRuntimeSettingsPersistOnlyAfterValidation(t *testing.T) {
 	if _, err := s.SaveRuntimeSettings(context.Background(), initial); err != nil {
 		t.Fatal(err)
 	}
-	if loaded, err := LoadRuntimeSettings(path); err != nil || loaded.CLIPath != "" {
+	if loaded, err := LoadRuntimeSettings(path, "codex"); err != nil || loaded.CLIPath != "" {
 		t.Fatal("could not return to automatic discovery")
+	}
+}
+
+func TestProviderMismatchNeverReachesActiveAdapter(t *testing.T) {
+	called := false
+	e := &runtimeFake{change: func(context.Context, api.RuntimeSettings, func() error) (api.RuntimeCheck, error) {
+		called = true
+		return api.RuntimeCheck{}, nil
+	}}
+	s := NewService(e, nil, nil, nil, nil)
+	s.ConfigureRuntime(filepath.Join(t.TempDir(), "runtime.json"), api.RuntimeSettings{Runtime: "fixture"})
+	if _, err := s.SaveRuntimeSettings(context.Background(), api.RuntimeSettings{Runtime: "codex"}); err == nil || called {
+		t.Fatal("cross-provider change reached active adapter")
+	}
+}
+func TestRuntimeDocumentsAreVersionedAndProviderNeutral(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime.json")
+	for _, doc := range []string{`{"runtime":"fixture","cliPath":""}`, `{"version":1,"runtime":"fixture","cliPath":""}`} {
+		if err := os.WriteFile(path, []byte(doc), 0600); err != nil {
+			t.Fatal(err)
+		}
+		v, err := LoadRuntimeSettings(path, "codex")
+		if err != nil || v.Runtime != "fixture" {
+			t.Fatal("provider-specific loader", err)
+		}
+	}
+	if err := os.WriteFile(path, []byte(`{"version":2,"runtime":"fixture"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadRuntimeSettings(path, "codex"); err == nil {
+		t.Fatal("unknown document version accepted")
 	}
 }

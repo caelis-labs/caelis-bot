@@ -9,13 +9,8 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-type executionEngine interface {
-	Models(context.Context) ([]api.ModelOption, error)
-	ChangeExecution(context.Context, api.ExecutionSettings, func() error) error
-}
-
-func LoadExecutionSettings(path string) (api.ExecutionSettings, error) {
-	v := api.ExecutionSettings{ApprovalMode: "auto"}
+func LoadExecutionSettings(path string, defaults api.ExecutionSettings) (api.ExecutionSettings, error) {
+	v := defaults
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return v, nil
@@ -43,7 +38,7 @@ func (s *Service) ExecutionSettings() api.ExecutionSettings {
 	return s.executionSettings
 }
 func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
-	e, ok := s.engine.(executionEngine)
+	e, ok := s.engine.(api.ExecutionProvider)
 	if !ok {
 		return nil, errors.New("当前运行时不支持模型设置")
 	}
@@ -55,7 +50,7 @@ func (s *Service) SaveExecutionSettings(ctx context.Context, v api.ExecutionSett
 	if err := api.ValidateExecutionSettings(v); err != nil {
 		return err
 	}
-	e, ok := s.engine.(executionEngine)
+	e, ok := s.engine.(api.ExecutionProvider)
 	if !ok {
 		return errors.New("当前运行时不支持模型设置")
 	}
@@ -66,4 +61,11 @@ func (s *Service) SaveExecutionSettings(ctx context.Context, v api.ExecutionSett
 		s.executionSettings = v
 		return nil
 	})
+}
+
+func (s *Service) ExecutionOptions() (api.ExecutionOptions, error) {
+	if e, ok := s.engine.(api.ExecutionProvider); ok {
+		return e.ExecutionOptions(), nil
+	}
+	return api.ExecutionOptions{}, errors.New("当前运行时不支持模型设置")
 }

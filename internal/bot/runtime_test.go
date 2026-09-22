@@ -181,7 +181,7 @@ func TestPrivateBridgeRejectsWrongTokenAndRoundTripsRealMCP(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer b.Close()
-	endpoint := filepath.Join(b.dir, "tools.sock")
+	endpoint := b.listener.Endpoint()
 	if !forward(endpoint, toolRequest{Token: "wrong", Name: "bot_clock"}).IsError {
 		t.Fatal("unauthenticated command accepted")
 	}
@@ -225,23 +225,29 @@ func TestGestureAllowlist(t *testing.T) {
 }
 
 func TestBotApprovalIsAnExplicitToolAllowlist(t *testing.T) {
-	b := &Bridge{dir: "synthetic", token: "synthetic"}
-	c := b.Config("synthetic")
-	if _, ok := c["default_tools_approval_mode"]; ok {
-		t.Fatal("broad approval default")
+	r, _, _ := fixture(t)
+	b, err := Serve(r)
+	if err != nil {
+		t.Fatal(err)
 	}
-	policy := c["tools"].(map[string]any)
-	if len(policy) != 8 {
+	defer b.Close()
+	c := b.Config("synthetic")
+	if len(c.ApprovedTools) != 8 {
 		t.Fatal("approval scope grew without review")
 	}
+	policy := map[string]bool{}
+	for _, name := range c.ApprovedTools {
+		policy[name] = true
+	}
 	for _, name := range []string{"bot_clock", "bot_reminders", "bot_gesture", "bot_tasks", "bot_task_start", "bot_task_read", "bot_task_send", "bot_task_stop"} {
-		if policy[name].(map[string]string)["approval_mode"] != "approve" {
+		if !policy[name] {
 			t.Fatal("owned tool approval missing", name)
 		}
 	}
+
 	for _, spec := range toolSpecs() {
 		tool := spec.(map[string]any)
-		if tool["description"] == "" || policy[tool["name"].(string)] == nil {
+		if tool["description"] == "" || !policy[tool["name"].(string)] {
 			t.Fatal("catalog/policy mismatch")
 		}
 	}

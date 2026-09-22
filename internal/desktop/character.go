@@ -24,7 +24,7 @@ func (s *Service) observeCharacter(v api.Snapshot) {
 		return
 	}
 	s.characterActivity = value
-	if d, ok := s.native.(interface{ activity(string) }); ok {
+	if d, ok := s.native.(activityDriver); ok {
 		d.activity(value)
 	}
 }

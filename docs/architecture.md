@@ -2,6 +2,11 @@
 
 Status: implemented local Codex adapter; not a released interoperability standard.
 
+The [backend/platform plan](backend-platform-plan.md) records the current coupling,
+the existing Caelis Control Host API and its Bot delegation gap, and concrete
+Windows implementation boundaries. The first shared boundary slice is implemented; see the [capability contract](backend-contract.md).
+Caelis and Windows remain unimplemented. Backend selection and OS hosting are independent axes.
+
 The optional host-only `api.TaskProvider` separates the secretary from professional work.
 The Bot MCP delegates to provider-owned task operations; Codex maps them to App Server
 thread/turn methods with durable ownership, private per-task workspaces, exact native
@@ -74,8 +79,9 @@ The native host does not recreate Codex or Caelis execution semantics.
 
 `internal/backend/api/contract.go` owns the host/renderer DTOs and Engine interface.
 `cmd/contract-gen` generates `frontend/src/backend/contract.ts`; checks reject drift.
-The Wails backend service resolves selected file handles and delegates execution to
-Codex Session. Desktop Service owns surfaces only. Snapshots carry revisions,
+The Wails backend service resolves selected file handles and delegates to the selected
+adapter. `internal/app` owns product assembly/lifetime, `botpolicy` the fixed roles, and
+`localipc` the private tool transport. Desktop Service owns surfaces only. Snapshots carry revisions,
 available actions, item results and exact opaque approval handles, not native IDs.
 
 The first real vertical slice must preserve:

@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"runtime/debug"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 // Allowlist construction, not regex redaction of logs. Native message/error
@@ -44,7 +46,7 @@ func (s *Service) DiagnosticReport() ([]byte, error) {
 		"loadedItems": len(v.Items), "approvalCount": len(v.Approvals), "reviewCount": len(v.Reviews), "hasEarlierMessages": v.HasEarlier,
 		"draftPresent": draftPresent, "draftStorageIssue": draftIssue,
 	}
-	if detail, ok := s.engine.(interface{ DiagnosticStatus() map[string]any }); ok {
+	if detail, ok := s.engine.(api.DiagnosticSource); ok {
 		report["backend"] = detail.DiagnosticStatus()
 	}
 	return json.MarshalIndent(report, "", "  ")

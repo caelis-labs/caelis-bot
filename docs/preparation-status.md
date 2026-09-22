@@ -3,6 +3,25 @@
 本项目已从工具链准备阶段推进到 macOS 开发者预览。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
 
+2026-09-22 公共后端与平台边界首片（本地工作区，尚未发布）：
+
+- `internal/app` 统一产品装配、启动、状态观察与幂等退出；macOS 入口只提供原生能力，
+  不再直接构造 Codex 或调度常驻 Bot。新增依赖方向守卫和生命周期行为测试。
+- 后端能力改为具名接口，模型/审批选项和连接信息由 provider 提供；固定角色移至
+  `botpolicy`，本地工具传输移至 `localipc`，Codex 审批配置仅在其 adapter 中生成。
+- Codex 记录和任务目录保留原位置；新 provider 使用独立命名空间。未知 provider、
+  不认识的审批策略与仅聊天的 adapter 不会静默回退。跨 provider 切换仍未开放。
+- [能力契约](backend-contract.md)明确 Caelis Control 的任务归属、用户来源、独立工作区、
+  幂等请求、原生审批、完成汇报与受限桌面工具要求；Caelis adapter 尚未实现。
+  Windows 原生接口与发行落点见[实施计划](backend-platform-plan.md)，尚无 Windows IPC/宿主实现。
+- `make check`、`make smoke`、`make build` 和 app/backend/bot/localipc 竞态测试通过。
+  共享核心通过 macOS/Windows 的 amd64、arm64 交叉编译，不代表 Windows 原生验收。
+- `make smoke-bot` 在 Codex 0.153.4 上通过旧绑定恢复、工具发现、提醒唤醒、两个独立目录的
+  工作任务和一次继续执行，共三次请求收到接受回执。此联调使用隔离合成任务。
+- `script/build_and_run.sh --verify` 已重新启动本机应用。原生设置页能加载 Codex 连接信息、
+  模型、推理强度、速度和审批选项；关闭设置后桌宠保留。没有更改用户偏好；
+  此次未重做所有桌面交互、多屏/Spaces 和旧系统视觉验收。
+
 2026-09-22 秘书与专业任务分离（本地工作区，尚未发布）：
 
 - 新增可选 `api.TaskProvider` 与五项 Bot MCP 任务工具，Codex 通过标准 App Server

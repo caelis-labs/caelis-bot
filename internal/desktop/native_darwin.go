@@ -270,3 +270,15 @@ func (d *macDriver) centeredPanel() {
 func (d *macDriver) panelReady(id int) {
 	application.InvokeSync(func() { C.bot_panel_ready(d.pointer, C.int(id)) })
 }
+
+var (
+	_ driver             = (*macDriver)(nil)
+	_ shortcutDriver     = (*macDriver)(nil)
+	_ notificationDriver = (*macDriver)(nil)
+	_ panelMenuDriver    = (*macDriver)(nil)
+	_ bubbleDriver       = (*macDriver)(nil)
+	_ activityDriver     = (*macDriver)(nil)
+	_ gestureDriver      = (*macDriver)(nil)
+	_ contextDriver      = (*macDriver)(nil)
+	_ propDriver         = (*macDriver)(nil)
+)
