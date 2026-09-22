@@ -18,8 +18,9 @@
 
 Codex start/resume 显式传入 `runtimeWorkspaceRoots: []`。私有 `Work` 目录仅是后端
 文件输入与产物的落点，不是用户项目。Bot 指令前缀固定；用户 prompt 和定时激活作为新的
-输入追加。工作 Thread 与原生线程间通信交给 Codex；宿主跟踪拥有关系、审批目标与生命周期，
-不把工作 Thread 的流水或内部对话混进用户聊天。
+输入追加。专业工作经 provider-neutral 任务接口委派到独立目录；宿主跟踪拥有关系、审批目标、
+生命周期与完成通知，不把内部流水混进用户聊天。常驻 Bot 是秘书，不是默认的专业执行工作区。
+边界与首版限制见[任务委派](task-delegation.md)。
 
 ## 三种界面的职责
 
@@ -58,7 +59,7 @@ Codex start/resume 显式传入 `runtimeWorkspaceRoots: []`。私有 `Work` 目�
 
 ## Agent 驱动角色与后端接入
 
-应用自带 stdio MCP 工具 `bot_clock`、`bot_reminders`、`bot_gesture`；以当前进程专用配置
+应用自带 stdio MCP 工具 `bot_clock`、`bot_reminders`、`bot_gesture` 及五项 `bot_task*` 工具；以当前进程专用配置
 注入 Codex start/resume，不修改全局 `~/.codex/config.toml`。这样已有对话也能接入新工具，
 无需重新创建绑定。Codex 0.153.4 为开发/回归基线，不限制用户 CLI 发行版本；
 按[兼容策略](codex-compatibility.md)握手。MCP 子集固定为 2025-06-18 的 initialize/tools。
@@ -75,7 +76,7 @@ idle/working 根据后端事实选择，隐藏/减少动态效果时停止短动
 
 Codex 默认显式使用 `approvalPolicy: on-request`、`approvalsReviewer: auto_review`，
 保留 `workspace-write` 沙箱。只有 `caelis_bot` 中的 `bot_clock`、`bot_reminders`、
-`bot_gesture` 逐项设置 `approval_mode: approve`；不设置全局或 server 默认批准，
+`bot_gesture` 和五项限定于 Bot 自有任务的工具逐项设置 `approval_mode: approve`；不设置全局或 server 默认批准，
 新工具不会自动继承此允许列表。定时任务本身只创建激活计划，激活后的命令、外部工具与
 额外权限仍沿用各自原生策略；需要用户决定的事件继续进入气泡/聊天。
 
@@ -87,7 +88,7 @@ MCP 声明可以先不放进初始提示。代码转换器不会把 ToolSearch s
 
 0.153.4 的 `features.tool_search` 和 `features.tool_search_always_defer_mcp_tools` 已是
 removed/no-op 兼容项，不设置它们。应用保留原生渐进发现，只在接入自有 MCP 时追加
-3 行“名称 + 用途”目录和按当前模式发现的提示，不注入完整 schema，不改模型模式。
+“名称 + 用途”目录和按当前模式发现的提示，不注入完整 schema，不改模型模式。
 真实调用已验证旧绑定恢复后也能发现并执行这些工具，未采集模型初始完整请求体，
 不声称所有模型/远程配置都具有相同初始列表。
 

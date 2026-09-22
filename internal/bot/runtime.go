@@ -331,6 +331,11 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	if r.engine == nil {
 		return nil
 	}
+	if reporter, ok := r.engine.(api.TaskReporter); ok {
+		if err := reporter.DeliverTaskReport(ctx); err != nil {
+			return err
+		}
+	}
 	r.mu.Lock()
 	notify = r.notify
 	now := r.now()

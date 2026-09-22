@@ -18,6 +18,7 @@ import (
 // Wire fixtures use the real transport and session projection. They control
 // event/reply order explicitly instead of retrying a timing-dependent test.
 type sessionFixture struct {
+	handle         func(wireMessage) (any, bool)
 	modelPages     map[string]any
 	pages          map[string]turnPage
 	pageCalls      []string
@@ -92,6 +93,15 @@ func (f *sessionFixture) serve(peer net.Conn) {
 			continue
 		}
 		var result any = map[string]any{}
+		f.mu.Lock()
+		handle := f.handle
+		f.mu.Unlock()
+		if handle != nil {
+			if value, handled := handle(m); handled {
+				f.emitTo(peer, wireMessage{ID: m.ID, Result: raw(value)})
+				continue
+			}
+		}
 		switch m.Method {
 		case "account/read":
 			result = map[string]any{"account": map[string]string{"type": "apiKey"}, "requiresOpenaiAuth": true}

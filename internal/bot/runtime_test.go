@@ -231,10 +231,10 @@ func TestBotApprovalIsAnExplicitToolAllowlist(t *testing.T) {
 		t.Fatal("broad approval default")
 	}
 	policy := c["tools"].(map[string]any)
-	if len(policy) != 3 {
+	if len(policy) != 8 {
 		t.Fatal("approval scope grew without review")
 	}
-	for _, name := range []string{"bot_clock", "bot_reminders", "bot_gesture"} {
+	for _, name := range []string{"bot_clock", "bot_reminders", "bot_gesture", "bot_tasks", "bot_task_start", "bot_task_read", "bot_task_send", "bot_task_stop"} {
 		if policy[name].(map[string]string)["approval_mode"] != "approve" {
 			t.Fatal("owned tool approval missing", name)
 		}

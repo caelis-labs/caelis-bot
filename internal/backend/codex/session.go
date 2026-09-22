@@ -17,10 +17,12 @@ import (
 )
 
 type binding struct {
-	Children []string           `json:"children,omitempty"`
-	Version  int                `json:"version"`
-	ThreadID string             `json:"threadId"`
-	Pending  *pendingSubmission `json:"pending,omitempty"`
+	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
+	DelegationText string                 `json:"delegationText,omitempty"`
+	Children       []string               `json:"children,omitempty"`
+	Version        int                    `json:"version"`
+	ThreadID       string                 `json:"threadId"`
+	Pending        *pendingSubmission     `json:"pending,omitempty"`
 }
 type pendingSubmission struct {
 	ID     string `json:"id"`
@@ -108,6 +110,11 @@ func (s *Session) resetProjection() {
 	for _, id := range s.binding.Children {
 		s.children[id] = true
 	}
+	for _, task := range s.binding.Tasks {
+		if task.Thread != "" {
+			s.children[task.Thread] = true
+		}
+	}
 	s.childRuns = map[string]string{}
 	s.childTerminals = map[string]bool{}
 	s.childWatching = map[string]bool{}
@@ -136,7 +143,7 @@ func (s *Session) update() {
 		s.state.CurrentTurn = opaque(s.run)
 	}
 	s.state.Revision++
-	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && s.run == "" && len(s.childRuns) == 0 && len(s.prompts) == 0 && s.state.Phase != "unknown" && !s.closed && !s.closing
+	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && s.run == "" && !s.hasBlockingChildren() && len(s.prompts) == 0 && s.state.Phase != "unknown" && !s.closed && !s.closing
 	s.state.CanSteer = s.state.Connection == "ready" && s.binding.Pending == nil && s.run != "" && s.state.Phase == "working" && len(s.prompts) == 0 && !s.closed && !s.closing
 	s.state.CanInterrupt = s.state.Connection == "ready" && (s.run != "" || len(s.childRuns) > 0) && !s.closed && !s.closing
 	close(s.changed)
@@ -375,6 +382,14 @@ func (s *Session) connect(ctx context.Context) error {
 		s.state.Message = "上次发送结果尚未确认。请重新连接核对，草稿已保留，不会自动重发。"
 	}
 	s.update()
+	for _, task := range s.binding.Tasks {
+		if task.Thread != "" && !terminal(task.View.Status) && !s.childWatching[task.Thread] {
+			s.childRuns[task.Thread] = task.Run
+			s.childWatching[task.Thread] = true
+			go s.watchChild(c, epoch, task.Thread)
+		}
+	}
+	s.update()
 	s.mu.Unlock()
 	go func() {
 		ctx, cancel := s.operation(context.Background(), 8*time.Second)
@@ -449,6 +464,9 @@ func (s *Session) listen(c *Client, epoch uint64) {
 	s.update()
 }
 func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+	return s.submit(ctx, in, files, false)
+}
+func (s *Session) submit(ctx context.Context, in api.Submission, files []api.InputFile, onlyIfIdle bool) (api.Receipt, error) {
 	s.op.Lock()
 	defer s.op.Unlock()
 	ctx, cancel := s.operation(ctx, 45*time.Second)
@@ -464,7 +482,7 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 		s.mu.Unlock()
 		return r, nil
 	}
-	if !s.state.CanSend && !s.state.CanSteer {
+	if (!s.state.CanSend && !s.state.CanSteer) || (onlyIfIdle && !s.state.CanSend) {
 		s.mu.Unlock()
 		r.Message = "当前无法发送，请先处理待确认事项或恢复连接"
 		return r, nil
@@ -488,6 +506,15 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 	}
 	s.mu.Lock()
 	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run}
+	report := false
+	for _, task := range s.binding.Tasks {
+		if task.ReportID == in.ID {
+			report = true
+		}
+	}
+	if !report {
+		s.binding.DelegationText = in.Text
+	}
 	if err = s.save(); err != nil {
 		s.binding.Pending = nil
 		s.mu.Unlock()
@@ -573,6 +600,16 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 func (s *Session) Interrupt(ctx context.Context) error {
 	s.op.Lock()
 	defer s.op.Unlock()
+	s.mu.Lock()
+	for _, task := range s.binding.Tasks {
+		task.SuppressReport = true
+		task.ReportState = "observed"
+	}
+	if err := s.save(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
 	ctx, cancel := s.operation(ctx, 20*time.Second)
 	defer cancel()
 	s.mu.Lock()

@@ -2,6 +2,12 @@
 
 Status: implemented local Codex adapter; not a released interoperability standard.
 
+The optional host-only `api.TaskProvider` separates the secretary from professional work.
+The Bot MCP delegates to provider-owned task operations; Codex maps them to App Server
+thread/turn methods with durable ownership, private per-task workspaces, exact native
+approval routing and finite completion reports. It does not inherit Codex App IPC or
+adopt arbitrary desktop conversations. See [task delegation](task-delegation.md).
+
 ```text
 Caelis Bot: menu bar + scalable desktop pet + contextual panels
   -> internal backend contract

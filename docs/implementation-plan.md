@@ -4,6 +4,10 @@
 当前事实见[准备记录](preparation-status.md)，产品约束见[product.md](product.md)，
 短期与长期目标、竞争力假设见[产品发展路线](roadmap.md)。
 
+2026-09-22 当前增量：Bot 定位为常驻秘书，专业工作使用独立工作任务。
+先落地受管目录、provider-neutral 任务接口、Codex 适配与原生审批；再接入用户授权项目、
+Git worktree 和显式任务接管。实现边界见[任务委派](task-delegation.md)，不增加任务控制台。
+
 ## 交付原则
 
 前期已用火柴人验证宿主和真实工作，现已接入小爱。下一步推进可用性收尾，同时将基础

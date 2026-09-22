@@ -3,6 +3,10 @@
 当前主线是 Caelis Bot 的产品功能和 macOS 预发布质量，先读 `product.md`、`architecture.md`、
 `roadmap.md`。产品已具备真实 Codex 工作闭环，不从早期工具链试验重新开始。
 
+最新切片是[秘书与专业任务分离](task-delegation.md)：专业工作经 Bot 自有任务接口进入
+独立受管目录，完成后有限唤醒秘书汇报；不依赖 Codex App 的私有 IPC。已有项目/worktree
+授权与其他 App 任务的显式接管仍待后续实现，不能当成当前能力。
+
 ## 工作范围
 
 - 本仓库：原生生命周期、连接适配、聊天/审批/附件、桌面行为、成品渲染、发行。
