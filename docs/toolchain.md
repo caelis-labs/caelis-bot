@@ -22,7 +22,8 @@ make run
 并回收；资产部分直接验证当前成品 SHA-256、glTF、Three.js 加载和动画更新。
 `make check` 再检查行为恢复、输入抢占、手指/视角形变与宿主生命周期。
 `make build` 制作可运行的 macOS app，附代码/素材授权和成品版本清单，再 ad-hoc 签名。
-`make package` 生成 ZIP 和 SHA-256，不上传、不公证。
+`make package` 生成只读压缩 DMG 和 SHA-256，挂载核验包内签名；本地命令不上传、不公证。
+发布、分支保护和 release-please 流程见[发布维护](release.md)。
 
 共享核心移植检查不代表 Windows 原生 GUI 已可用。GPU 和 Window Server 行为需通过
 `script/build_and_run.sh --verify` 启动后的实际窗口确认。
