@@ -10,6 +10,7 @@
 
 Product CI runs on native Apple Silicon (`macos-14`) for every PR and main push:
 
+- Pinned actionlint validates workflow syntax and expressions.
 - `npm ci` uses the lockfile; Node and Go come from repository pins.
 - `make check`: public/private boundary, finished asset hashes, TypeScript/build, focused frontend contracts, Go tests/vet and shared-core portability guards.
 - `npm run smoke:assets`: validate, parse and animate the delivered GLBs.

@@ -25,6 +25,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Validate workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - run: npm ci
       - run: make check
       - run: npm run smoke:assets
