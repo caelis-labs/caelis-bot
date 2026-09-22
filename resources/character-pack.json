@@ -1,7 +1,6 @@
 {
   "schemaVersion": 1,
   "packId": "caelis-default",
-  "version": "0.1.0",
   "contractVersion": 1,
   "defaultCharacter": "caelis",
   "defaultVariant": "sage-dress",
@@ -36,43 +35,44 @@
   "files": [
     {
       "path": "frontend/public/models/caelis-soft-outfit-v1.glb",
-      "sha256": "7dcea5aa9d89d198e464dfd17ad954b5a2dde5ed080c657f8a3ad26f5ddd54e7",
-      "license": "LicenseRef-Caelis-Character-1.0"
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "4272ba0625bf040522a2c05420444ccebd5ac18c9b182cd091726ee6900456a6"
     },
     {
       "path": "frontend/public/models/stick.glb",
-      "sha256": "02e0508a147f7f82ca55d6c99002cd7e9a8eccf7ac8137829c488f4d148b29af",
-      "license": "Apache-2.0"
+      "license": "Apache-2.0",
+      "sha256": "5b443c2e6c850426a6bbc09f9960b8bb5dc51ebeccfbefe1f560ba4708022ede"
     },
     {
       "path": "frontend/public/models/xiaoai-paper-plane.glb",
-      "sha256": "441eb55aed4b39691ea04346ce98ffd397f7dc61b9f97a77e16fe57f92bbccb0",
-      "license": "Apache-2.0"
+      "license": "Apache-2.0",
+      "sha256": "c6cdf0a8a8ba2e57724963736e839cae37caadb792aaf009e5ffb5ce0fc53cbf"
     },
     {
       "path": "frontend/public/models/caelis-SOURCES.md",
-      "sha256": "faae9cbe52864103d858d97a2a0f37acc66f50bfc468e74d1773a50c60c686bf",
-      "license": "LicenseRef-Caelis-Character-1.0"
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "faae9cbe52864103d858d97a2a0f37acc66f50bfc468e74d1773a50c60c686bf"
     },
     {
       "path": "frontend/public/icons/caelis-avatar.png",
-      "sha256": "0e002dd314beea328d34028dc084a9cf8c7786fc84633de5a735235f354f5fd7",
-      "license": "LicenseRef-Caelis-Character-1.0"
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "0e002dd314beea328d34028dc084a9cf8c7786fc84633de5a735235f354f5fd7"
     },
     {
       "path": "internal/desktop/assets/app-icon.png",
-      "sha256": "662e0a3c90bd3dc3754a76c5a75af0189fb9a7bbc67157315e2ba76dfb6d7d3e",
-      "license": "LicenseRef-Caelis-Character-1.0"
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "662e0a3c90bd3dc3754a76c5a75af0189fb9a7bbc67157315e2ba76dfb6d7d3e"
     },
     {
       "path": "internal/desktop/assets/status-icon.png",
-      "sha256": "36733bdd0ed9e232d0fd93735862e76822c186f596f0b147e9a7a10560617f77",
-      "license": "LicenseRef-Caelis-Character-1.0"
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "36733bdd0ed9e232d0fd93735862e76822c186f596f0b147e9a7a10560617f77"
     },
     {
       "path": "resources/macos/CaelisBot.icns",
-      "sha256": "f62535f3d90d31a28f62a40b0d62141ae56a4967108cbe4504941f2be0e7c77a",
-      "license": "LicenseRef-Caelis-Character-1.0"
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "f62535f3d90d31a28f62a40b0d62141ae56a4967108cbe4504941f2be0e7c77a"
     }
-  ]
+  ],
+  "version": "0.1.1"
 }
