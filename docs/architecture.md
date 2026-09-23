@@ -383,7 +383,9 @@ Retina pixels. Display recovery clamps to the largest intersecting work area, or
 primary display when there is no overlap. A load/save error is reported, not silently
 represented as durable success.
 
-Wails beta.6 supplies services, the WebKit renderer and input window. It cannot
+The host bridge was introduced on Wails beta.6; the dependency is now beta.23.
+The bridge continues to supply its own non-key panel rather than adopting the new
+upstream panel APIs as part of a dependency update. The original beta.6 host could not
 create a nonactivating NSPanel. The narrow AppKit bridge reparents the pet WebKit
 content into a non-key NSPanel while retaining Wails' hidden owner and bindings.
 The same panel contains a native input view above the WebKit content. The window's
