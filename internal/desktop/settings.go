@@ -18,7 +18,13 @@ func (s *Service) showSettings(section string) {
 		f()
 	}
 }
-func (s *Service) OpenSettings()        { s.showSettings("general") }
+func (s *Service) OpenSettings() {
+	if s.needsIntroduction != nil && s.needsIntroduction() {
+		s.showSettings("setup")
+		return
+	}
+	s.showSettings("general")
+}
 func (s *Service) OpenRuntimeSettings() { s.showSettings("runtime") }
 func (s *Service) OpenUpdates()         { s.showSettings("updates") }
 func (s *Service) CloseSettings() {
@@ -41,4 +47,11 @@ func (s *Service) OpenReleasePage() error {
 		return errors.New("发布页暂不可用")
 	}
 	return s.openReleasePage()
+}
+
+func (s *Service) RestartForRuntime() error {
+	if s.restartRuntime == nil {
+		return errors.New("重新启动暂不可用，请退出后重新打开 Caelis Bot")
+	}
+	return s.restartRuntime()
 }

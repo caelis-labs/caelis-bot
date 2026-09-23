@@ -1,12 +1,42 @@
 # Architecture and internal backend contract
 
-Status: implemented local Codex adapter; not a released interoperability standard.
+Status: application-owned Bot foundation implemented locally; Codex execution connected.
+Caelis generic application protocol is connected against baseline 4a3c059; legacy Bot Mode stays disabled.
+Isolated Host/native-tool and real-model acceptance pass; native GUI acceptance for this Core baseline remains pending.
+This is not a released interoperability standard.
+
+2026-09-23: [Bot product-host architecture](bot-platform-architecture.md) and the
+[generic Runtime extension proposal](runtime-extension-contract.md) define the target.
+`internal/bot` owns identity, tool behavior and resident reminders; `internal/tasks`
+owns task admission, workspace allocation, the product ledger and completion reports.
+Notebook and embedded Memory v0.6.1 are application-owned and shared across providers;
+see [personal data boundaries](personal-memory.md). The [Caelis implementation handoff](caelis-core-rebuild-handoff.md)
+authorizes removal of legacy Bot Mode without compatibility; existing user data is preserved.
+
+The agreed continuity model is a long-running Session with compaction, recall/remember,
+and a plain Markdown Notebook: a host-generated INDEX.md, one editable MEMORY.md and
+YYYY/MM/DD/ daily notes. Users edit files; the Bot uses Runtime file tools. The one-time initialization UI requires a name and accepts an optional description; it submits a visible ordinary user message; the Bot updates MEMORY.md.
+Keep no second identity-settings authority and do not elevate this text into system policy.
+Do not add dedicated notebook CRUD/UI, SOUL/USER files, a profile authority, bootstrap
+snapshots or a background consolidation agent. Runtime access is scoped to the Notebook,
+not the complete application data directory. The application-only notebook skill is bundled and exposed only to the resident Bot; workers keep their own workspace and instructions. Old private-format notes/profile are copied once without deleting originals. See [personal data boundaries](personal-memory.md).
+
+The [capability contract](backend-contract.md) defines provider assembly independently
+of OS hosting. Native adapters own execution bindings, approvals and uncertain receipts.
+The [Caelis integration guide](caelis-integration.md) records the current public contract and
+[scoped acceptance evidence](caelis-application-acceptance.md). Windows remains unimplemented;
+its future host boundaries are recorded in the [backend/platform plan](backend-platform-plan.md).
+
+The application implements host-only `api.TaskProvider` on top of `api.WorkRuntime`.
+Codex maps native execution to App Server thread/turn methods, retaining exact targets
+and original request provenance. It does not inherit Codex App IPC or adopt arbitrary
+desktop conversations. See [task delegation](task-delegation.md).
 
 ```text
 Caelis Bot: menu bar + scalable desktop pet + contextual panels
   -> internal backend contract
      -> Codex adapter -> native Codex App Server (first)
-     -> Caelis adapter -> versioned Caelis Host API (later)
+     -> Caelis adapter -> generic application API (public HTTP/SSE; no legacy fallback)
   -> character behavior -> Three.js -> GLB
 
 Wails / Go: windows, OS integration, process lifetime and byte transport
@@ -24,6 +54,12 @@ foreground window. P1 has replaced the single-window fixture:
   screen coordinates, proportional scale, hit regions and persisted placement.
 - A contextual input surface takes focus only when requested, then closes after native
   send acceptance. Rejected/unknown submissions retain the draft.
+- Composer attachment/reference menus are portalled, editor-width overlays. History
+  prefers the space above its composer; the native quick-input host chooses the
+  available side of the visible display, growing only its transparent envelope.
+  The input rectangle and its glass backdrop stay anchored independently. Native
+  activation IDs fence late menu requests; the quick menu sits above the pet while
+  open and restores its normal window level on dismissal.
 - A non-key message bubble shows only the current request's latest assistant response/lifecycle state.
   It never auto-opens the keyboard panel. Approval clicks expand this same bubble;
   an optional IM-style chat window shows user/assistant messages and necessary decisions.
@@ -62,8 +98,9 @@ The native host does not recreate Codex or Caelis execution semantics.
 
 `internal/backend/api/contract.go` owns the host/renderer DTOs and Engine interface.
 `cmd/contract-gen` generates `frontend/src/backend/contract.ts`; checks reject drift.
-The Wails backend service resolves selected file handles and delegates execution to
-Codex Session. Desktop Service owns surfaces only. Snapshots carry revisions,
+The Wails backend service resolves selected file handles and delegates to the selected
+adapter. `internal/app` owns product assembly/lifetime, `botpolicy` the fixed roles, and
+`localipc` the private tool transport. Desktop Service owns surfaces only. Snapshots carry revisions,
 available actions, item results and exact opaque approval handles, not native IDs.
 
 The first real vertical slice must preserve:
@@ -93,7 +130,7 @@ and chat text. Character states are projections of facts, never execution truth.
 Codex **0.153.4**, pinned in `toolchain.json`, is the schema and regression baseline,
 not a user-runtime requirement. Use native stdio JSONL without a JSON-RPC version
 header. `make schema` generates stable and
-experimental schemas; 56 consumed files are vendored byte-for-byte with hashes.
+experimental schemas; 58 consumed files are vendored byte-for-byte with hashes.
 Desktop sessions enable experimental API for background-terminal cleanup and
 native decision metadata. Unknown server requests still receive -32601.
 
@@ -509,13 +546,70 @@ changes only the bubble's explicit keyboard eligibility. Result acknowledgement 
 persisted independently from history and execution. Native frontmost chat suppression
 prevents duplicate bubbles without losing background observation.
 
-## Menu, settings and click routing (2026-09-20)
+## Menu, settings and click routing (updated 2026-09-23)
 
-AppKit owns physical pet clicks. A single click waits for NSEvent.doubleClickInterval;
-the second mouse-down cancels the pending action and a double-click opens chat.
-Dragging still starts through Window Server after the existing movement threshold,
-without waiting for the click timer. Outside clicks, menus, hiding, Space changes
-and shutdown cancel pending activation. Accessibility press keeps its direct action.
+`BotPetInputView` owns physical input through two `NSClickGestureRecognizer`s and
+one `NSPanGestureRecognizer`. Only the single-click recognizer requires double-click
+failure; both clicks require pan failure. Double-click directly recalls chat and
+already-open settings, without running a single-click action or opening a composer.
+Single-click follows AppKit's user-configured double-click interval. There is no
+manual `nextEventMatchingMask` loop or application timer deciding click count.
+Pan hands the original mouse-down event to `performWindowDragWithEvent:`; Window
+Server still owns movement. The small original hit region is retained between
+clicks so animated silhouettes cannot turn the second click into pass-through.
+Outside clicks, right-click menus, hide, deactivation, Spaces and shutdown cancel
+pending recognition. Accessibility press remains an explicit single action.
+
+Window transitions dismiss the composer without restoring the prior foreground
+application; explicit composer close keeps its existing focus-return behavior.
+Native preparation occurs before the AppKit window transaction, never by acquiring
+the Go service mutex from inside that transaction. Recall reads `NSWindow.isVisible`
+and `isMiniaturized`: Wails beta.6 `IsVisible()` measures occlusion, so it cannot decide
+whether a fully covered settings window is open. Closed settings remain closed;
+covered/minimized settings are recalled after chat and keep their current page.
+An attached native file sheet retains focus rather than being hidden by recall.
+
+System API references: [NSClickGestureRecognizer](https://developer.apple.com/documentation/appkit/nsclickgesturerecognizer),
+[gesture failure requirements](https://developer.apple.com/documentation/appkit/nsgesturerecognizerdelegate/gesturerecognizer(_:shouldrequirefailureof:)),
+[Window Server dragging](https://developer.apple.com/documentation/appkit/nswindow/performdrag(with:)).
+
+Global quick input uses a driver-owned Carbon hotkey on macOS, without an event tap
+or keyboard monitoring permission. The portable preference uses physical key codes
+and Control/Alt/Shift/Meta modifiers; the default is Control+Shift+Space.
+Registration failure preserves the prior shortcut. Saving failure rolls registration
+back; preferences use atomic replacement with mode 0600. A hidden pet does not disable
+the shortcut. A future Windows host must implement its own driver and conflict checks.
+
+Hotkey input is centered in the mouse screen's visible frame; clicking the pet keeps
+its existing nearby anchor. Resizing the composer preserves the invocation's placement
+mode. Repeating the same invocation toggles the panel; switching modes repositions it.
+The native activation/key-window callbacks explicitly transfer first-responder status
+to WebKit and request DOM focus. Closing restores the previous application when still
+appropriate; outside clicks retain their chosen destination. The settings page offers
+a preview button for the same centered path. Busy/disconnected global input retains a
+draft and links to chat; it cannot send or approve around native execution gates.
+
+Quick input remains mounted in its hidden webview, refreshing the revision-fenced
+shared draft at activation. `ComposerSnapshot` excludes transcript and approval bodies
+before copying; both native click routing and quick input polling use it. Character
+and plane renderers load separately so text surfaces do not parse Three.js at startup.
+The IM surface fills the window; individual bubbles retain relative readable widths.
+
+Model/effort/service-tier options come from bounded `model/list` pagination, not a
+hard-coded model list. `execution.json` is separate from CLI connection preferences.
+Before explicit saving, native Codex defaults remain in force. Saving revalidates the
+selection against the current catalog and is rejected during active/uncertain work or
+pending approval. The adapter applies model, effort, service tier and approval mode to
+thread start/resume and each new `turn/start`, never `turn/steer`. An explicit null tier
+clears Fast. A failed native request is reported; no model/effort fallback is attempted.
+Workspace-write + on-request + auto_review remains the default; user review retains
+that sandbox, read-only uses never/readOnly, and explicitly selected full access uses
+never/dangerFullAccess. The isolated acceptance flag always tightens back to
+untrusted/user/workspace-write. Model settings cannot rewrite pending approval targets.
+Native Codex requirements remain authoritative and may reject selected policies.
+
+Protocol references: [model/list](https://learn.chatgpt.com/docs/app-server#list-models-modellist)
+and the vendored Codex 0.153.4 ModelList/ThreadStart/ThreadResume/TurnStart schemas.
 
 The shared settings webview uses host geometry for continuous scale preview, coalesces
 in-flight changes, and persists the final value on release. Runtime file selection
@@ -533,15 +627,39 @@ and publishes only after uploading the DMG and checksum; see [release operations
 ## Neutral appearance and native chrome (2026-09-20)
 
 Chat retains one native titlebar and standard window controls. There is no duplicate
-HTML title/header; only active status and interruption controls appear above the
-composer. Shared light/dark semantic tokens use neutral grey surfaces. Window
+HTML title/header. Pending response feedback lives in the transcript as an avatar
+and animated dots, replaced by visible streaming text. The composer shares its
+primary button between sending and explicit interruption; Enter can only submit,
+never interrupt an empty draft. Backend capabilities continue to gate sending,
+steering and interruption, and approvals/recovery retain their dedicated surfaces.
+Shared light/dark semantic tokens use neutral grey surfaces. Window
 titles/accessibility and normal native titlebar dragging remain intact.
 
-Wails' public transparent-titlebar options are used for chat/settings. The existing
-translucent settings backdrop is configured as NSVisualEffectMaterialSidebar with
-window-following active state, behind WebKit as a sibling. Only the CSS sidebar is
-transparent; the form area stays opaque. This uses the macOS 12-compatible material
-path, not a new SwiftUI/NSGlassEffectView dependency or full-window glass overlay.
+Wails' public transparent-titlebar options are used for chat/settings. A decorative
+AppKit sibling behind WebKit supplies material for quick input, the message bubble,
+and the 184 pt settings sidebar. On macOS 26+, the host resolves the public
+NSGlassEffectView class at runtime with Regular for text surfaces and the settings
+sidebar; older systems use NSVisualEffectMaterialPopover. There is no native tint.
+Reduce Transparency or Increase Contrast switches the material to a solid system
+background and updates live through accessibility display notifications. The native
+backdrop does not participate in hit testing or replace WebKit's responder and
+accessibility hierarchy. A document-startup marker enables native-material CSS only
+on these surfaces, and didFinishNavigation synchronizes it again in case initial
+navigation was already in flight. Chat history and the settings form retain opaque
+semantic colors, with a lighter settings background coordinated with the sidebar.
+Quick input and the non-key message bubble share a translucent reading fill, keeping
+the text region bright and stable even when native glass varies with activation or
+backdrop. Opaque text sits above this fill; the native glass remains visible at the
+edge and provides the actual blur/refraction. The message capsule is 56 pt tall by
+default with a 28 pt corner radius, 14 pt medium text and a restrained renderer
+shadow. A 6 pt transparent gutter on each side contains the shadow, making the native
+window 68 pt tall. There is no additional NSWindow shadow; the outer 480 pt height
+limit remains aligned with the renderer and expanded decisions scroll within it.
+
+Settings defaults to 960×680 with a 760×540 minimum. Shared SettingGroup/SettingRow
+components align labels and controls, with optional details disclosed on demand.
+Permission scope, actionable errors and cleanup confirmation remain visible. No
+settings action bypasses the existing native execution gates.
 
 
 ## First embodied implementation slice
@@ -632,3 +750,23 @@ The current asset is `caelis-soft-outfit-v1.glb`; archived assets retain their o
 `desktopPetSoftOutfit.version=1` keeps idle stretching on the fitted near-arm solver
 rather than releasing it to the old wide bind stance. Clothing uses authored skinning
 and local contact shaping; no cloth simulation or task-state authority is introduced.
+
+## Local appearance content
+
+`internal/contentpack` owns the inert `caelis-content` v1 manifest, bounded ZIP/GLB/PNG
+validation, immutable local archives, independent selection and resource serving.
+The creator CLI and native installer share this implementation. Local packages are
+never labelled verified publishers and cannot carry executable extensions.
+`desktop.Service` exposes explicit picker/import/select/remove operations; backend
+providers, Bot identity, tasks and approval authority do not depend on this store.
+The native resource handler exposes only verified GLB/PNG bytes under content hashes,
+without modifying the signed application bundle. Selection is persisted separately.
+
+Renderer snapshots carry revisions; late failure reports cannot reset a newer
+selection. Models preload before replacement; old geometry, animation and GPU
+resources are disposed on commit. Community geometry receives the basic clip/profile
+path, not character-specific procedural metadata. The built-in character remains
+the recovery path. The current developer workflow and strict supported capability
+limits are in [content packs](content-packs.md). Early releases provide bundled content
+and local third-party imports. Any additional capability requires a separately defined
+versioned contract before it can be exposed to creators.

@@ -259,6 +259,9 @@ func (s *Session) addPrompt(event Notification) {
 		s.state.Message = "后端请求了尚不支持的交互，已明确拒绝；任务结果请以后端回执为准。"
 		return
 	}
+	if task := s.taskByThread(n.ThreadID); task != nil {
+		p.view.Description = "任务：" + task.View.Title + "\n" + p.view.Description
+	}
 	s.prompts[id] = p
 	s.promptHandles[string(event.RequestID)] = id
 	s.replacePrompt(id, p.view)

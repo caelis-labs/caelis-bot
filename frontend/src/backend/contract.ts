@@ -11,6 +11,12 @@ export interface Approval {
   questions: Array<Question>;
   url: string;
 }
+export interface ApprovalMode {
+  id: string;
+  name: string;
+  description: string;
+  dangerous: boolean;
+}
 export interface Artifact {
   id: string;
   name: string;
@@ -22,6 +28,15 @@ export interface AttachmentStorage {
   eligibleBytes: number;
   canClean: boolean;
   notice: string;
+}
+export interface BotInitialization {
+  required: boolean;
+  status: string;
+  message: string;
+}
+export interface BotIntroduction {
+  name: string;
+  description: string;
 }
 export interface ChatUpdate {
   changed: boolean;
@@ -44,6 +59,16 @@ export interface Draft {
   text: string;
   referenceIds: Array<string>;
 }
+export interface ExecutionOptions {
+  defaultApprovalMode: string;
+  approvalModes: Array<ApprovalMode>;
+}
+export interface ExecutionSettings {
+  model: string;
+  effort: string;
+  serviceTier: string;
+  approvalMode: string;
+}
 export interface Item {
   turnKey: string;
   id: string;
@@ -52,6 +77,22 @@ export interface Item {
   status: string;
   details: string;
   artifacts: Array<Artifact>;
+}
+export interface ModelOption {
+  model: string;
+  name: string;
+  description: string;
+  default: boolean;
+  defaultEffort: string;
+  efforts: Array<string>;
+  serviceTiers: Array<ServiceTier>;
+}
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  connectionKind: string;
+  helpUrl: string;
+  connectionHint: string;
 }
 export interface Question {
   id: string;
@@ -87,6 +128,47 @@ export interface RuntimeCheck {
 export interface RuntimeSettings {
   runtime: string;
   cliPath: string;
+  caelisStore: string;
+}
+export interface RuntimeStatus {
+  installed: boolean;
+  path: string;
+  version: string;
+  message: string;
+}
+export interface ServiceTier {
+  id: string;
+  name: string;
+  description: string;
+}
+export interface SetupChoice {
+  value: string;
+  label: string;
+  noAuth: boolean;
+  current: boolean;
+}
+export interface SetupOverview {
+  active: string;
+  pending: string;
+  onboarding: boolean;
+}
+export interface SetupRequest {
+  settings: RuntimeSettings;
+  action: string;
+  provider: string;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+}
+export interface SetupState {
+  selectedModel: string;
+  settings: RuntimeSettings;
+  installation: RuntimeStatus;
+  state: string;
+  message: string;
+  models: Array<SetupChoice>;
+  loginPending: boolean;
+  accountType: string;
 }
 export interface Snapshot {
   botStatus: string;

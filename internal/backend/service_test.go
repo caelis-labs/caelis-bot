@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"path/filepath"
 	"testing"
@@ -72,5 +73,21 @@ func TestPreviewAcknowledgementPersistsAndCannotDismissWorkOrNewResult(t *testin
 	e.value.CanInterrupt = true
 	if restored.DismissPreview(restored.Snapshot().PreviewKey) == nil {
 		t.Fatal("dismissed active work")
+	}
+}
+
+func TestMissingOptionalCapabilitiesReturnUnavailable(t *testing.T) {
+	s := NewService(snapshotEngine{}, nil, nil, nil, nil)
+	ctx := context.Background()
+	if _, err := s.Models(ctx); err == nil {
+		t.Fatal("missing models reported success")
+	}
+	if _, err := s.ExecutionOptions(); err == nil {
+		t.Fatal("missing policy reported success")
+	}
+	for _, err := range []error{s.Login(ctx), s.CancelLogin(ctx), s.RevealArtifact("unowned"), s.OpenApprovalURL("unowned"), s.OpenConnectionHelp()} {
+		if err == nil {
+			t.Fatal("missing optional capability reported success")
+		}
 	}
 }

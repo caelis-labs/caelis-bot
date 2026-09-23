@@ -39,6 +39,9 @@ fi
 BOT_LOG="$BOT_ROOT/.cache/native-run.log"
 : > "$BOT_LOG"
 BOT_OPEN_ARGS=(-g -n "$BOT_BUNDLE" --stdout "$BOT_LOG" --stderr "$BOT_LOG")
+if [[ "${CAELIS_BOT_DATA_DIR+x}" == x ]]; then
+  BOT_OPEN_ARGS+=(--env "CAELIS_BOT_DATA_DIR=$CAELIS_BOT_DATA_DIR")
+fi
 if [[ -n "${CAELIS_BOT_DESKTOP_TRACE:-}" ]]; then
   BOT_OPEN_ARGS+=(--env "CAELIS_BOT_DESKTOP_TRACE=$CAELIS_BOT_DESKTOP_TRACE")
 fi

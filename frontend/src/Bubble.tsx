@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { backend, desktop, type Placement } from './desktop';
-import { labels, reviewLabels, Prompt, useConversation } from './Panel';
+import { reviewLabels, Prompt, useConversation } from './Panel';
 
 export function Bubble() {
  const [visible,setVisible]=useState(false),[expanded,setExpanded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[index,setIndex]=useState(0);
- const surface=useRef<HTMLElement>(null);
+ const surface=useRef<HTMLDivElement>(null);
  const {snapshot,refresh}=useConversation(visible,true);
  useEffect(()=>{
   const changed=(e:Event)=>setVisible((e as CustomEvent<boolean>).detail), expand=()=>setExpanded(true), collapse=()=>setExpanded(false);
@@ -25,19 +25,18 @@ export function Bubble() {
  const wanted=!!content&&(working||attention||!snapshot?.previewDismissed);
  useEffect(()=>{void desktop('SetBubbleVisible',wanted);},[wanted]);
  useEffect(()=>{if(!prompt&&expanded)void desktop('CollapseBubble');},[prompt?.id,expanded]);
- useEffect(()=>{const resize=new ResizeObserver(()=>{if(surface.current)void desktop('SetBubbleHeight',Math.max(96,Math.min(480,Math.ceil(surface.current.getBoundingClientRect().height))));});resize.observe(surface.current!);return()=>resize.disconnect();},[]);
+ useEffect(()=>{const resize=new ResizeObserver(()=>{if(surface.current)void desktop('SetBubbleHeight',Math.max(68,Math.min(480,Math.ceil(surface.current.getBoundingClientRect().height))));});resize.observe(surface.current!);return()=>resize.disconnect();},[]);
  const open=()=>void desktop(prompt?'OpenApproval':'OpenHistory');
  const action=async(method:string,...args:unknown[])=>{setBusy(true);setError('');try{await backend(method,...args);await refresh();}catch(e){setError(e instanceof Error?e.message:'暂时无法操作');}finally{setBusy(false);}};
- return <main ref={surface} className={`message-bubble ${expanded&&prompt?'expanded':''}`} aria-label="Caelis Bot 最新消息">
+ return <div ref={surface} className="bubble-shell"><main className={`message-bubble ${expanded&&prompt?'expanded':''}`} aria-label="Caelis Bot 最新消息">
   <div className="bubble-summary">
    <button className="bubble-message" onClick={open} aria-label={`${content}。${prompt?'查看并决定':'打开聊天'}`}>
-    <span className="bubble-heading"><strong>Caelis Bot</strong><span className="bubble-state">{labels[snapshot?.phase??'']??''}</span></span>
     <span className="bubble-copy" role="status">{content}</span>
    </button>
    <div className="bubble-actions">
     {working&&<button className="bubble-action" disabled={busy} onClick={()=>void action('Interrupt')} aria-label="停止工作"><span className="stop-symbol"/></button>}
-    {!working&&!attention&&snapshot?.previewKey&&<button className="bubble-action" disabled={busy} onClick={()=>void action('DismissPreview',snapshot.previewKey)} aria-label="收起结果">✓</button>}
-    <button className="bubble-action" onClick={open} aria-label={prompt?'查看并决定':'打开聊天'}>{prompt?'→':'↗'}</button>
+    {!working&&!attention&&snapshot?.previewKey&&<button className="bubble-action" disabled={busy} onClick={()=>void action('DismissPreview',snapshot.previewKey)} aria-label="收起结果"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 10 4 4 8-9"/></svg></button>}
+    <button className="bubble-action" onClick={open} aria-label={prompt?'查看并决定':'打开聊天'}><svg viewBox="0 0 20 20" aria-hidden="true"><path d={prompt?'M4 10h12m-5-5 5 5-5 5':'M5 15 15 5M6 5h9v9'}/></svg></button>
    </div>
   </div>
   {expanded&&prompt&&<div className="bubble-decision">
@@ -45,5 +44,5 @@ export function Bubble() {
    <Prompt key={prompt.id} value={prompt} refresh={()=>void refresh()}/>
    <button className="text-action" onClick={()=>void desktop('OpenHistory')}>在聊天中查看 ↗</button>
   </div>}
- </main>;
+ </main></div>;
 }

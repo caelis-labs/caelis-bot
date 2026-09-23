@@ -181,7 +181,7 @@ func TestPrivateBridgeRejectsWrongTokenAndRoundTripsRealMCP(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer b.Close()
-	endpoint := filepath.Join(b.dir, "tools.sock")
+	endpoint := b.listener.Endpoint()
 	if !forward(endpoint, toolRequest{Token: "wrong", Name: "bot_clock"}).IsError {
 		t.Fatal("unauthenticated command accepted")
 	}
@@ -225,24 +225,149 @@ func TestGestureAllowlist(t *testing.T) {
 }
 
 func TestBotApprovalIsAnExplicitToolAllowlist(t *testing.T) {
-	b := &Bridge{dir: "synthetic", token: "synthetic"}
-	c := b.Config("synthetic")
-	if _, ok := c["default_tools_approval_mode"]; ok {
-		t.Fatal("broad approval default")
+	r, _, _ := fixture(t)
+	b, err := Serve(r)
+	if err != nil {
+		t.Fatal(err)
 	}
-	policy := c["tools"].(map[string]any)
-	if len(policy) != 3 {
+	defer b.Close()
+	c := b.Config("synthetic")
+	if len(c.ApprovedTools) != 9 {
 		t.Fatal("approval scope grew without review")
 	}
-	for _, name := range []string{"bot_clock", "bot_reminders", "bot_gesture"} {
-		if policy[name].(map[string]string)["approval_mode"] != "approve" {
+	policy := map[string]bool{}
+	for _, name := range c.ApprovedTools {
+		policy[name] = true
+	}
+	for _, name := range []string{"bot_clock", "bot_reminders", "bot_gesture", "bot_tasks", "bot_task_start", "bot_task_read", "bot_task_send", "bot_task_stop", "bot_memory"} {
+		if !policy[name] {
 			t.Fatal("owned tool approval missing", name)
 		}
 	}
+
 	for _, spec := range toolSpecs() {
 		tool := spec.(map[string]any)
-		if tool["description"] == "" || policy[tool["name"].(string)] == nil {
+		if tool["description"] == "" || !policy[tool["name"].(string)] {
 			t.Fatal("catalog/policy mismatch")
 		}
+	}
+}
+
+func TestIdentitySharedButSchedulesCannotCrossRuntime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bot.json")
+	first, e := NewForRuntime(path, "codex", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	saved := saveReminder(t, first, "codex-only")
+	second, e := NewForRuntime(path, "caelis", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if first.State().ID != second.State().ID {
+		t.Fatal("runtime switch replaced Bot identity")
+	}
+	if _, e = second.Upsert(Schedule{ID: "codex-only", Label: "changed", Prompt: "changed", EveryMinutes: 1}); e == nil {
+		t.Fatal("other runtime replaced schedule")
+	}
+	if e = second.Remove("codex-only"); e == nil {
+		t.Fatal("other runtime removed schedule")
+	}
+	engine := &fakeEngine{view: api.Snapshot{CanSend: true}, outcome: "accepted"}
+	second.engine = engine
+	second.now = func() time.Time { return saved.Next.Add(time.Minute) }
+	if e = second.Tick(t.Context()); e != nil {
+		t.Fatal(e)
+	}
+	if len(engine.submissions) != 0 || !second.State().Schedules[0].Next.Equal(saved.Next) {
+		t.Fatal("reminder ran on wrong runtime")
+	}
+}
+
+func TestQueuedWakeRetainsRuntimeAcrossRestart(t *testing.T) {
+	r, f, now := fixture(t)
+	saveReminder(t, r, "queued")
+	*now = now.Add(time.Minute)
+	f.view.CanSend = false
+	if e := r.Tick(t.Context()); e != nil {
+		t.Fatal(e)
+	}
+	wake := *r.State().Wake
+	other, e := NewForRuntime(r.path, "caelis", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	engine := &fakeEngine{view: api.Snapshot{CanSend: true}, outcome: "accepted"}
+	other.engine = engine
+	if e = other.Tick(t.Context()); e != nil {
+		t.Fatal(e)
+	}
+	if len(engine.submissions) != 0 || other.State().Wake.ID != wake.ID || !strings.Contains(other.Status(), "所属运行时") {
+		t.Fatal("queued activation crossed runtime")
+	}
+	resumed, e := NewForRuntime(r.path, "codex", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	resumed.engine = engine
+	if e = resumed.Tick(t.Context()); e != nil {
+		t.Fatal(e)
+	}
+	if len(engine.submissions) != 1 || engine.submissions[0].ID != wake.ID {
+		t.Fatal("original wake not resumed")
+	}
+}
+
+func TestApplicationToolHandlerHonorsCancellationAndShutdown(t *testing.T) {
+	r, _, _ := fixture(t)
+	defs := r.Definitions()
+	if len(defs) != 9 {
+		t.Fatal("incomplete application catalog")
+	}
+	defs[0].Name = "foreign"
+	if r.Definitions()[0].Name == "foreign" {
+		t.Fatal("catalog mutated")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if out := r.CallTool(ctx, "bot_reminders", json.RawMessage(`{"operation":"save","id":"no-write","label":"no","prompt":"no","everyMinutes":1}`)); !out.IsError || len(r.State().Schedules) != 0 {
+		t.Fatal("cancelled tool mutated state")
+	}
+	if out := r.CallTool(t.Context(), "bot_clock", json.RawMessage(`{}`)); out.IsError {
+		t.Fatal(out)
+	}
+	r.Stop()
+	if out := r.CallTool(t.Context(), "bot_clock", json.RawMessage(`{}`)); !out.IsError {
+		t.Fatal("stopped host still callable")
+	}
+}
+
+type grantEngine struct {
+	*fakeEngine
+	background [][]string
+}
+
+func (f *grantEngine) AuthorizeBackground(context.Context, string, string) error { return nil }
+func (f *grantEngine) RevokeBackground(context.Context, string) error            { return nil }
+func (f *grantEngine) SubmitBackground(_ context.Context, in api.Submission, ids []string) (api.Receipt, error) {
+	f.background = append(f.background, append([]string(nil), ids...))
+	r := api.Receipt{ID: in.ID, Outcome: "accepted"}
+	f.view.LastReceipt = r
+	return r, nil
+}
+func TestGrantedRemindersDispatchIndividuallyWithoutUserSubmit(t *testing.T) {
+	r, f, now := fixture(t)
+	g := &grantEngine{fakeEngine: f}
+	r.engine = g
+	saveReminder(t, r, "water")
+	saveReminder(t, r, "break")
+	*now = now.Add(time.Minute)
+	for range 3 {
+		if e := r.Tick(t.Context()); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if len(f.submissions) != 0 || len(g.background) != 2 || len(g.background[0]) != 1 || len(g.background[1]) != 1 || g.background[0][0] == g.background[1][0] {
+		t.Fatal("grant wakes must be separate, exactly once, and never user messages", g.background, f.submissions)
 	}
 }

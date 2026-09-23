@@ -21,6 +21,12 @@ func unsupportedHistory(err error) bool {
 	var native *NativeError
 	return errors.As(err, &native) && (native.Code == -32601 || native.Code == -32602)
 }
+
+// Match the specific native lifecycle error, not every invalid-request error.
+func nativeThreadError(err error, prefix, thread string) bool {
+	var native *NativeError
+	return thread != "" && errors.As(err, &native) && native.Code == -32600 && native.Message == prefix+thread
+}
 func readTurnPage(ctx context.Context, c *Client, thread, cursor string) (turnPage, error) {
 	var page turnPage
 	err := callDecode(ctx, c, "thread/turns/list", map[string]any{
@@ -117,4 +123,22 @@ func (s *Session) RecentSnapshot() api.Snapshot {
 	var out api.Snapshot
 	_ = json.Unmarshal(b, &out)
 	return out
+}
+
+// ComposerSnapshot never traverses or serializes the transcript. Only interaction
+// authority and value-only reference metadata cross the quick-input boundary.
+func (s *Session) ComposerSnapshot() api.Snapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v := s.state
+	v.Items = []api.Item{}
+	v.Reviews = []api.Review{}
+	v.References = append([]api.Reference{}, s.state.References...)
+	v.Approvals = []api.Approval{}
+	for _, a := range s.state.Approvals {
+		if a.Status != "resolved" {
+			v.Approvals = append(v.Approvals, api.Approval{Status: a.Status})
+		}
+	}
+	return v
 }

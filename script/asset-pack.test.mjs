@@ -9,7 +9,7 @@ test('untrusted pack cannot overwrite code, select missing resources or change c
  const mutate=f=>{const m=readManifest();f(m);return()=>validateManifest(m);};
  assert.throws(mutate(m=>m.files[0].path='../../package.json'));
  assert.throws(mutate(m=>m.files[0].path='.github/workflows/ci.yml'));
- assert.throws(mutate(m=>m.contractVersion=2));
+ assert.throws(mutate(m=>m.contractVersion=99));
  assert.throws(mutate(m=>m.defaultVariant='missing'));
  assert.throws(mutate(m=>m.files.push(m.files[0])));
  assert.throws(mutate(m=>m.sourcePath='/private/authoring.blend'));

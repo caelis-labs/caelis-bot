@@ -17,22 +17,29 @@ import (
 )
 
 type binding struct {
-	Children []string           `json:"children,omitempty"`
-	Version  int                `json:"version"`
-	ThreadID string             `json:"threadId"`
-	Pending  *pendingSubmission `json:"pending,omitempty"`
+	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
+	DelegationText string                 `json:"delegationText,omitempty"`
+	Children       []string               `json:"children,omitempty"`
+	Version        int                    `json:"version"`
+	ThreadID       string                 `json:"threadId"`
+	// True only for a newly created thread that has never reached native turn/start.
+	LastReceipt *api.Receipt       `json:"lastReceipt,omitempty"`
+	Unsubmitted bool               `json:"unsubmitted,omitempty"`
+	Pending     *pendingSubmission `json:"pending,omitempty"`
 }
 type pendingSubmission struct {
 	ID     string `json:"id"`
 	TurnID string `json:"turnId"`
 }
 type SessionOptions struct {
+	Execution                            api.ExecutionSettings
 	Binary, Socket, Directory, StateFile string
+	WorkRoot                             string
 	// RequireApproval tightens policy for isolated acceptance runs. The desktop
-	// always uses on-request; this flag can never weaken its sandbox.
+	// defaults to on-request; this flag can never weaken its sandbox.
 	RequireApproval bool
 	// Host-only MCP config; never supplied by the renderer.
-	BotTools map[string]any
+	BotTools *api.ToolConnection
 }
 
 // Session projects one internally bound conversation. Native facts remain
@@ -79,6 +86,7 @@ type Session struct {
 
 func NewSession(opts SessionOptions) *Session {
 	s := &Session{opts: opts, binding: binding{Version: 1}, changed: make(chan struct{}), instance: rand.Text(), start: Start}
+	s.opts.BotTools = opts.BotTools.Clone()
 	s.life, s.cancelLife = context.WithCancel(context.Background())
 	s.resetProjection()
 	s.state.Connection = "offline"
@@ -89,6 +97,19 @@ func NewSession(opts SessionOptions) *Session {
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		s.loadErr = errors.New("无法读取本地对话记录")
+	}
+	if s.binding.LastReceipt != nil {
+		s.state.LastReceipt = *s.binding.LastReceipt
+	}
+	if s.opts.BotTools != nil {
+		for _, t := range s.binding.Tasks {
+			if t != nil && t.Instructions == "" {
+				t.Instructions = s.opts.BotTools.WorkerInstructions
+			}
+		}
+	}
+	if err := validateExecution(opts.Execution); err != nil {
+		s.loadErr = err
 	}
 	if s.loadErr != nil {
 		s.state.Message = s.loadErr.Error()
@@ -106,6 +127,11 @@ func (s *Session) resetProjection() {
 	s.children = map[string]bool{}
 	for _, id := range s.binding.Children {
 		s.children[id] = true
+	}
+	for _, task := range s.binding.Tasks {
+		if task.Thread != "" {
+			s.children[task.Thread] = true
+		}
 	}
 	s.childRuns = map[string]string{}
 	s.childTerminals = map[string]bool{}
@@ -135,7 +161,7 @@ func (s *Session) update() {
 		s.state.CurrentTurn = opaque(s.run)
 	}
 	s.state.Revision++
-	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && s.run == "" && len(s.childRuns) == 0 && len(s.prompts) == 0 && s.state.Phase != "unknown" && !s.closed && !s.closing
+	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && s.run == "" && !s.hasBlockingChildren() && len(s.prompts) == 0 && s.state.Phase != "unknown" && !s.closed && !s.closing
 	s.state.CanSteer = s.state.Connection == "ready" && s.binding.Pending == nil && s.run != "" && s.state.Phase == "working" && len(s.prompts) == 0 && !s.closed && !s.closing
 	s.state.CanInterrupt = s.state.Connection == "ready" && (s.run != "" || len(s.childRuns) > 0) && !s.closed && !s.closing
 	close(s.changed)
@@ -304,6 +330,7 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	threadID := s.binding.ThreadID
+	unused := s.binding.Unsubmitted && s.binding.Pending == nil && len(s.binding.Tasks) == 0 && len(s.binding.Children) == 0
 	s.mu.Unlock()
 	params := s.connectionParams()
 	method := "thread/start"
@@ -315,7 +342,7 @@ func (s *Session) connect(ctx context.Context) error {
 		if _, pageErr := readTurnPage(ctx, c, threadID, ""); pageErr == nil {
 			paged = true
 			params["excludeTurns"] = true
-		} else if !unsupportedHistory(pageErr) {
+		} else if !unsupportedHistory(pageErr) && !nativeThreadError(pageErr, "thread not loaded: ", threadID) {
 			c.Close()
 			return s.connectionError("暂时无法读取最近消息，请重新连接", pageErr)
 		}
@@ -323,7 +350,15 @@ func (s *Session) connect(ctx context.Context) error {
 	var response struct {
 		Thread nativeThread `json:"thread"`
 	}
-	if err = callDecode(ctx, c, method, params, &response); err != nil {
+	err = callDecode(ctx, c, method, params, &response)
+	// Codex may not persist a thread until its first turn. Only an explicit
+	// never-submitted receipt permits replacing that missing, empty binding.
+	if err != nil && unused && nativeThreadError(err, "no rollout found for thread id ", threadID) {
+		method, threadID, paged = "thread/start", "", false
+		params = s.connectionParams()
+		err = callDecode(ctx, c, method, params, &response)
+	}
+	if err != nil {
 		c.Close()
 		return s.connectionError("无法恢复对话；草稿已保留，请重新连接", err)
 	}
@@ -346,6 +381,7 @@ func (s *Session) connect(ctx context.Context) error {
 	s.historyPaged, s.historyCursor = paged, firstPage.NextCursor
 	s.state.HasEarlier = firstPage.NextCursor != ""
 	s.binding.ThreadID = response.Thread.ID
+	s.binding.Unsubmitted = (method == "thread/start" || unused) && len(response.Thread.Turns) == 0
 	s.bound = true
 	if err = s.save(); err != nil {
 		s.mu.Unlock()
@@ -372,6 +408,14 @@ func (s *Session) connect(ctx context.Context) error {
 	if s.binding.Pending != nil {
 		s.state.Phase = "unknown"
 		s.state.Message = "上次发送结果尚未确认。请重新连接核对，草稿已保留，不会自动重发。"
+	}
+	s.update()
+	for _, task := range s.binding.Tasks {
+		if task.Thread != "" && !terminal(task.View.Status) && !s.childWatching[task.Thread] {
+			s.childRuns[task.Thread] = task.Run
+			s.childWatching[task.Thread] = true
+			go s.watchChild(c, epoch, task.Thread)
+		}
 	}
 	s.update()
 	s.mu.Unlock()
@@ -422,6 +466,15 @@ func (s *Session) listen(c *Client, epoch uint64) {
 			s.mu.Unlock()
 			continue
 		}
+		var finished func()
+		if !s.loading && event.Method == "turn/completed" && s.opts.BotTools != nil {
+			var target struct {
+				ThreadID string `json:"threadId"`
+			}
+			if json.Unmarshal(event.Params, &target) == nil && target.ThreadID == s.binding.ThreadID {
+				finished = s.opts.BotTools.FinishTurn
+			}
+		}
 		if s.loading {
 			s.buffer = append(s.buffer, event)
 		} else {
@@ -429,6 +482,9 @@ func (s *Session) listen(c *Client, epoch uint64) {
 			s.update()
 		}
 		s.mu.Unlock()
+		if finished != nil {
+			finished()
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -448,6 +504,12 @@ func (s *Session) listen(c *Client, epoch uint64) {
 	s.update()
 }
 func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+	return s.submit(ctx, in, files, false)
+}
+func (s *Session) submit(ctx context.Context, in api.Submission, files []api.InputFile, onlyIfIdle bool) (api.Receipt, error) {
+	return s.submitWithSource(ctx, in, files, onlyIfIdle, false)
+}
+func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files []api.InputFile, onlyIfIdle, report bool) (api.Receipt, error) {
 	s.op.Lock()
 	defer s.op.Unlock()
 	ctx, cancel := s.operation(ctx, 45*time.Second)
@@ -463,7 +525,7 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 		s.mu.Unlock()
 		return r, nil
 	}
-	if !s.state.CanSend && !s.state.CanSteer {
+	if (!s.state.CanSend && !s.state.CanSteer) || (onlyIfIdle && !s.state.CanSend) {
 		s.mu.Unlock()
 		r.Message = "当前无法发送，请先处理待确认事项或恢复连接"
 		return r, nil
@@ -480,13 +542,23 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 		refs = append(refs, ref)
 	}
 	s.mu.Unlock()
+	if s.opts.BotTools != nil && s.opts.BotTools.PrepareTurn != nil {
+		if err := s.opts.BotTools.PrepareTurn(ctx); err != nil {
+			r.Message = "笔记目录暂不可用，消息未发送"
+			return r, nil
+		}
+	}
 	input, err := s.prepareInput(in, files, refs)
 	if err != nil {
 		r.Message = err.Error()
 		return r, nil
 	}
 	s.mu.Lock()
+	s.binding.Unsubmitted = false
 	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run}
+	if !report {
+		s.binding.DelegationText = in.Text
+	}
 	if err = s.save(); err != nil {
 		s.binding.Pending = nil
 		s.mu.Unlock()
@@ -500,6 +572,9 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 	s.mu.Unlock()
 	params := map[string]any{"threadId": threadID, "clientUserMessageId": in.ID, "input": input}
 	method := "turn/start"
+	if run == "" {
+		s.applyExecution(params, false)
+	}
 	if run != "" {
 		method = "turn/steer"
 		params["expectedTurnId"] = run
@@ -546,6 +621,7 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 		r = s.state.LastReceipt
 		s.binding.Pending = nil
 	}
+	s.binding.LastReceipt = &r
 	if err := s.save(); err != nil {
 		s.state.Message = "对话记录未能保存，请勿重复发送；下次启动需核对历史"
 	} else {
@@ -569,6 +645,16 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 func (s *Session) Interrupt(ctx context.Context) error {
 	s.op.Lock()
 	defer s.op.Unlock()
+	s.mu.Lock()
+	for _, task := range s.binding.Tasks {
+		task.SuppressReport = true
+		task.ReportState = "observed"
+	}
+	if err := s.save(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
 	ctx, cancel := s.operation(ctx, 20*time.Second)
 	defer cancel()
 	s.mu.Lock()

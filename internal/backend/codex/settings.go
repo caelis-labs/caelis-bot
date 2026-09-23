@@ -15,7 +15,7 @@ func (s *Session) ChangeCLI(ctx context.Context, path string, persist func() err
 	s.op.Lock()
 	defer s.op.Unlock()
 	s.mu.Lock()
-	busy := s.run != "" || len(s.childRuns) > 0 || s.binding.Pending != nil || len(s.prompts) > 0 || s.closed || s.closing
+	busy := s.run != "" || len(s.childRuns) > 0 || s.binding.Pending != nil || len(s.prompts) > 0 || s.closed || s.closing || s.state.Phase == "unknown"
 	s.mu.Unlock()
 	if busy {
 		return api.RuntimeCheck{}, errors.New("请先结束当前工作或处理待确认事项，再切换连接")

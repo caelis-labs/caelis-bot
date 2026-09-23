@@ -99,8 +99,9 @@ type Draft struct {
 	ReferenceIDs []string `json:"referenceIds"`
 }
 type RuntimeSettings struct {
-	Runtime string `json:"runtime"`
-	CLIPath string `json:"cliPath"`
+	Runtime     string `json:"runtime"`
+	CLIPath     string `json:"cliPath"`
+	CaelisStore string `json:"caelisStore,omitempty"`
 }
 type RuntimeCheck struct {
 	Saved     bool   `json:"saved"`
@@ -132,9 +133,36 @@ type Engine interface {
 	Submit(context.Context, Submission, []InputFile) (Receipt, error)
 	Interrupt(context.Context) error
 	Decide(context.Context, Decision) error
-	Login(context.Context) (string, error)
-	CancelLogin(context.Context) error
-	Artifact(string) (string, error)
-	ApprovalURL(string) (string, error)
 	Close(context.Context) error
+}
+
+// ExecutionSettings applies at the provider's next supported request boundary.
+// Already-issued model requests and native approval targets are never rewritten.
+// Empty Model inherits the current provider's configured default.
+type ExecutionSettings struct {
+	Model        string `json:"model"`
+	Effort       string `json:"effort"`
+	ServiceTier  string `json:"serviceTier"`
+	ApprovalMode string `json:"approvalMode"`
+}
+type ModelOption struct {
+	Model         string        `json:"model"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description"`
+	Default       bool          `json:"default"`
+	DefaultEffort string        `json:"defaultEffort"`
+	Efforts       []string      `json:"efforts"`
+	ServiceTiers  []ServiceTier `json:"serviceTiers"`
+}
+type ServiceTier struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type RuntimeStatus struct {
+	Installed bool   `json:"installed"`
+	Path      string `json:"path"`
+	Version   string `json:"version"`
+	Message   string `json:"message"`
 }

@@ -1,8 +1,9 @@
 # 跨平台实现基线
 
-修订日期：2026-09-19。当前只实施 macOS，完整发行后才开始 Windows；Linux 暂不列入计划。
+修订日期：2026-09-22。当前只实施 macOS，完整发行后才开始 Windows；Linux 暂不列入计划。
 接口保持可扩展，不为后置平台提前建设原生驱动、打包或专属产品流程。
 这是实现与验收基线，不是已发布平台列表。
+具体文件落点和分阶段验收见[后端与平台计划](backend-platform-plan.md)。
 保持 Wails/Go + React/TypeScript + Three.js、Blender → GLB；版本继续以
 `go.mod`、`package-lock.json` 和 `toolchain.json` 为准，不因在线文档更新自动升级。
 
@@ -45,6 +46,8 @@ Wails 的多平台支持不等于本产品的原生能力已经移植。上游
   P2.1 的 `process_darwin.go` 实现本机运行时发现和子进程回收，兼容性由标准握手与消费接口检查；`process_unsupported.go`
   在其他平台明确拒绝启动；协议/client 核心不导入桌面宿主。P2 已实现原生中断及 backgroundTerminals/clean，
   macOS 合成活跃/后台工具已实测回收；逃逸的独立进程、崩溃和跨平台清理不由此保证。
+- Bot MCP 本地桥接通过 `internal/localipc`；macOS 实现在 `ipc_darwin.go` 使用短路径 Unix socket，
+  其他平台明确返回未实现。Windows 需要独立 IPC、权限和回收实现；后端 wire 协议保持不变。
 
 ## 几何、输入与持久化契约
 
@@ -76,7 +79,8 @@ TypeScript/Vite 编译及 Node 资产 smoke 不证明WebView2 的实际表现。
 
 GLB 与 Caelis 自有 logo 可共享；当前 `frontend/public/icons` 由 SF Symbols 导出，
 不能把 macOS 资产的可用性直接视为跨平台分发许可。其他平台原生包启用前选择许可明确的
-共享图标或平台资源并保留来源。Blender 只属于开发/导出工具，不作为用户运行时依赖。
+共享图标或平台资源并保留来源。Blender 制作与导出属于私有资产仓库；本仓库只消费成品，
+任何平台的公共构建和用户运行都不依赖 Blender。
 
 ## 自动检查与发布门槛
 
@@ -107,4 +111,5 @@ macOS 的 cgo 测试、`make build` 和原生 Run 仍独立执行，防止只验
   不能以当前 macOS initialize smoke 宣称另外平台的 App Server 路径成立。
 - 安装/卸载、签名、权限与资源许可、空闲成本完成当地检查，再更新支持矩阵。
 
-目前没有已运行的跨 OS CI；上述 runner 门槛是后续原生平台启用条件，而非已完成证据。
+当前 CI 只有 macOS runner，并执行共享检查及交叉编译；没有 Windows runner 执行证据。
+上述当地 runner 门槛是后续原生平台启用条件，而非已完成证据。

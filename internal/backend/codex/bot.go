@@ -4,37 +4,31 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-// Fixed across turns. Bot identity and trigger text never rewrite this prefix.
-const botInstructions = `You are Caelis Bot, a persistent personal assistant living as a desktop companion. Talk naturally as in an IM conversation. There is no user-facing session, project, or workspace to create or select. Use your private working directory only for temporary inputs and results. Preserve continuity with the user; do not offer new conversations as recovery. Use native worker threads and their communication tools when useful, and summarize their results in your own reply. Do not expose worker IDs, protocol events, or routine tool narration. Ask for native approval when required; a pet action is never permission. Only user prompts and explicitly requested scheduled tasks activate work. For reminders use the caelis_bot tools, not shell sleep or OS scheduling. The app must remain running; hidden pets do not pause schedules, missed occurrences during sleep coalesce, and explicit quit pauses missed execution. Use bounded pet gestures for appropriate feedback; respect hidden state and reduced motion. Only claim a schedule or action succeeded after its tool receipt.`
-
-// A source listing is not a per-tool catalog in Codex 0.153.4. Keep only names
-// and purpose upfront; schemas and callable handles remain native tool_search data.
-const botToolDiscovery = `
-Caelis Bot provides the caelis_bot MCP source. Discover the needed tool before calling it: use tool_search when exposed; in Code Mode use the native ALL_TOOLS name/description lookup if tool_search is not exposed.
-- bot_clock: read local time and scheduling availability.
-- bot_reminders: list, create, update or remove user-requested resident reminders.
-- bot_gesture: brief attention, nod or celebrate feedback on the desktop pet.
-Use the discovered schema and native receipt; if discovery or execution fails, report that instead of claiming success.`
-
 func (s *Session) connectionParams() map[string]any {
-	instructions := botInstructions
+	instructions := ""
 	// The pinned native discovery flags are removed/no-op compatibility fields.
 	// Native tool mode decides between tool_search and Code Mode metadata.
 	config := map[string]any{}
 	if s.opts.BotTools != nil {
-		instructions += botToolDiscovery
-		config["mcp_servers.caelis_bot"] = s.opts.BotTools
+		instructions = s.opts.BotTools.Instructions
+		config["mcp_servers.caelis_bot"] = toolConfig(s.opts.BotTools)
+		config["agents.enabled"] = false // Professional work goes through the owned task contract.
 	}
 	params := map[string]any{"runtimeWorkspaceRoots": []string{}, "developerInstructions": instructions, "cwd": s.opts.Directory, "sandbox": "workspace-write", "approvalPolicy": "on-request", "approvalsReviewer": "auto_review", "config": config}
+	if s.opts.BotTools != nil && s.opts.BotTools.NotebookDirectory != "" {
+		params["runtimeWorkspaceRoots"] = []string{s.opts.BotTools.NotebookDirectory}
+	}
 	if s.opts.RequireApproval {
 		params["approvalPolicy"] = "untrusted"
 		params["approvalsReviewer"] = "user"
 	}
+	s.applyExecution(params, true)
 	return params
 }
 
@@ -91,6 +85,14 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) {
 			return
 		}
 		if err != nil || response.Thread.ID != id {
+			if task := s.taskByThread(id); task != nil {
+				task.View.Status = "unknown"
+				_ = s.save()
+				delete(s.childWatching, id)
+				s.update()
+				s.mu.Unlock()
+				return
+			}
 			s.state.Message = workerUnconfirmed
 			s.state.Phase = "unknown"
 			s.update()
@@ -100,6 +102,15 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) {
 		}
 		done := false
 		if revision == s.childRevision[id] {
+			if task := s.taskByThread(id); task != nil {
+				changed := false
+				for _, turn := range response.Thread.Turns {
+					changed = s.observeTaskTurn(task, turn) || changed
+				}
+				if changed {
+					_ = s.save()
+				}
+			}
 			active := response.Thread.Status.Type == "active"
 			run := ""
 			for _, turn := range response.Thread.Turns {
@@ -188,6 +199,11 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 	}
 	switch event.Method {
 	case "turn/started", "turn/completed":
+		if task := s.taskByThread(thread); task != nil {
+			if s.observeTaskTurn(task, n.Turn) {
+				_ = s.save()
+			}
+		}
 		if n.Turn.Status == "inProgress" {
 			s.childRuns[thread] = n.Turn.ID
 		}
@@ -237,7 +253,7 @@ func (s *Session) resolvePrompt(id string, p *prompt) {
 // maintains several internal threads. No NewConversation command is exposed.
 var _ api.Engine = (*Session)(nil)
 
-func (s *Session) ConfigureBotTools(config map[string]any) error {
+func (s *Session) ConfigureBotTools(config *api.ToolConnection) error {
 	s.op.Lock()
 	defer s.op.Unlock()
 	s.mu.Lock()
@@ -245,6 +261,33 @@ func (s *Session) ConfigureBotTools(config map[string]any) error {
 	if s.client != nil || s.closed || s.closing {
 		return errors.New("Bot 工具须在连接前配置")
 	}
-	s.opts.BotTools = config
+	if config == nil || config.Command == "" {
+		return errors.New("Bot 工具连接无效")
+	}
+	if config.NotebookDirectory != "" {
+		if !filepath.IsAbs(config.NotebookDirectory) {
+			return errors.New("Notebook 目录必须是完整路径")
+		}
+		s.opts.Directory = config.NotebookDirectory
+	}
+	s.opts.BotTools = config.Clone()
+	for _, t := range s.binding.Tasks {
+		if t.Instructions == "" {
+			t.Instructions = config.WorkerInstructions
+		}
+	}
+	if len(s.binding.Tasks) > 0 {
+		return s.save()
+	}
 	return nil
+}
+
+// Codex-specific MCP policy is projected here, never assembled by the Bot host.
+func toolConfig(c *api.ToolConnection) map[string]any {
+	approved := map[string]any{}
+	for _, name := range c.ApprovedTools {
+		approved[name] = map[string]string{"approval_mode": "approve"}
+	}
+	return map[string]any{"command": c.Command, "args": c.Args, "env": c.Env,
+		"tools": approved, "startup_timeout_sec": 10, "tool_timeout_sec": 15}
 }

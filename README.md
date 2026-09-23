@@ -1,4 +1,4 @@
-<p align="center"><img src="frontend/public/icons/caelis-avatar.png" width="112" alt="Caelis Bot"></p>
+<p align="center"><img src="internal/desktop/assets/app-icon.png" width="144" alt="Caelis Bot"></p>
 
 # Caelis Bot
 
@@ -15,6 +15,7 @@ Caelis Bot brings your local agent to the macOS desktop through a small, express
 - **Always nearby.** A movable, resizable character and a quiet menu-bar home.
 - **One ongoing conversation.** Streaming replies, attachments, history and approvals, powered by your local Codex runtime.
 - **A character with presence.** Idle, interaction and work animations, with independently versioned character assets.
+- **A notebook that stays with you.** Markdown notes and core memory shared across runtimes, editable by you and your Bot.
 
 ## Try the preview
 
@@ -22,7 +23,7 @@ Caelis Bot brings your local agent to the macOS desktop through a small, express
 
 Apple Silicon only for now. This is an early preview with an **ad-hoc signature, without Apple notarization**. Download the DMG and its `.sha256` file, verify them, then drag **Caelis Bot.app** into Applications. See the [installation guide](docs/install.md) for copy-paste verification and first-launch commands.
 
-A locally installed, signed-in Codex runtime is required for conversations. Caelis Bot discovers it automatically; you can also select it in **Settings → Runtime**. Codex and development tools are not bundled.
+Choose a runtime during setup or in **Settings → Runtime**. Codex uses your local installation and account; discovery, installation and login guidance are built in. The Caelis adapter requires the [compatible application-runtime baseline](docs/caelis-integration.md); Caelis 0.60.1 is not compatible, and the tested Core baseline is awaiting release. Neither runtime is bundled.
 
 Click the character to write, double-click to open the conversation, and use the menu bar for settings or Quit. Hiding the character does not stop work. Updates are currently installed manually.
 
@@ -42,7 +43,11 @@ make check
 make run
 ```
 
+The [Caelis adapter](docs/caelis-integration.md) has passed isolated real-model checks with MiMo v2.6 Flash and GPT-6 Luna, including native file tools, approvals, hot configuration and resource transfer. See the [acceptance report](docs/caelis-live-acceptance.md) for scope and remaining limits.
+
 `make package` produces a verified DMG and checksum. No Blender installation or private asset access is needed. [Development and release workflow →](docs/release.md)
+
+Import local `.caelispack` files in **Settings → Appearance**. Create characters, complete outfit variants or PNG avatars with the offline tool. [Content pack creator guide (中文) →](docs/content-packs.md)
 
 [Product direction](docs/roadmap.md) · [Architecture](docs/architecture.md) · [Character assets](docs/character-assets.md) · [Verification limits](docs/native-acceptance.md)
 

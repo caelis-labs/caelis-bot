@@ -5,25 +5,25 @@ import (
 	"testing"
 )
 
-type propDriver struct {
+type fakePropDriver struct {
 	fakeDriver
 	launches int
 	ready    bool
 	finished string
 }
 
-func (d *propDriver) planeReady(v bool) { d.ready = v }
-func (d *propDriver) launchPlane(id string, x, y float64) bool {
+func (d *fakePropDriver) planeReady(v bool) { d.ready = v }
+func (d *fakePropDriver) launchPlane(id string, x, y float64) bool {
 	if !d.ready {
 		return false
 	}
 	d.launches++
 	return true
 }
-func (d *propDriver) finishPlane(id string, completed bool) { d.finished = id }
+func (d *fakePropDriver) finishPlane(id string, completed bool) { d.finished = id }
 func TestPropAuthorityAndLifecycle(t *testing.T) {
 	s := newService(&memoryStore{value: defaults()})
-	d := &propDriver{fakeDriver: fakeDriver{displays: []Rect{{0, 40, 1440, 860}}}}
+	d := &fakePropDriver{fakeDriver: fakeDriver{displays: []Rect{{0, 40, 1440, 860}}}}
 	s.start(d)
 	if ok, _ := s.LaunchPlane("first", 90, 100); ok {
 		t.Fatal("unready renderer accepted prop")

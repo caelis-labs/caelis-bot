@@ -112,3 +112,55 @@ func TestMessageWebLinkSurvivesHistoryProjection(t *testing.T) {
 		t.Fatal("web link became a local result", got)
 	}
 }
+
+func TestMissingNativeThreadCanOnlyReplaceNeverSubmittedBinding(t *testing.T) {
+	for _, state := range []string{"empty", "legacy", "submitted", "unknown", "other-error"} {
+		t.Run(state, func(t *testing.T) {
+			s, f := sessionPair(t, "early-terminal")
+			if state == "submitted" {
+				sendSynthetic(t, s, "already-submitted")
+			}
+			s.mu.Lock()
+			if state == "legacy" {
+				s.binding.Unsubmitted = false
+			}
+			if state == "unknown" {
+				s.binding.Pending = &pendingSubmission{ID: "unknown-send"}
+			}
+			if err := s.save(); err != nil {
+				t.Fatal(err)
+			}
+			s.mu.Unlock()
+			starts := 0
+			f.mu.Lock()
+			f.handle = func(m wireMessage) (any, bool) {
+				switch m.Method {
+				case "thread/turns/list":
+					return &NativeError{Code: -32600, Message: "thread not loaded: thread-native"}, true
+				case "thread/resume":
+					message := "no rollout found for thread id thread-native"
+					if state == "other-error" {
+						message = "unrelated failure"
+					}
+					return &NativeError{Code: -32600, Message: message}, true
+				case "thread/start":
+					starts++
+					return map[string]any{"thread": nativeThread{ID: "replacement"}}, true
+				}
+				return nil, false
+			}
+			peer := f.peer
+			f.mu.Unlock()
+			peer.Close()
+			awaitState(t, s, func(v api.Snapshot) bool { return v.Connection == "offline" })
+			err := s.Connect(testContext(t))
+			if state == "empty" {
+				if err != nil || starts != 1 || !s.Snapshot().CanSend {
+					t.Fatal("empty connection not recovered", err)
+				}
+			} else if err == nil || starts != 0 {
+				t.Fatal("replaced a binding without proof", state, err)
+			}
+		})
+	}
+}

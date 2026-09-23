@@ -18,6 +18,8 @@ import (
 // Wire fixtures use the real transport and session projection. They control
 // event/reply order explicitly instead of retrying a timing-dependent test.
 type sessionFixture struct {
+	handle         func(wireMessage) (any, bool)
+	modelPages     map[string]any
 	pages          map[string]turnPage
 	pageCalls      []string
 	failPage       bool
@@ -91,6 +93,19 @@ func (f *sessionFixture) serve(peer net.Conn) {
 			continue
 		}
 		var result any = map[string]any{}
+		f.mu.Lock()
+		handle := f.handle
+		f.mu.Unlock()
+		if handle != nil {
+			if value, handled := handle(m); handled {
+				if native, ok := value.(*NativeError); ok {
+					f.emitTo(peer, wireMessage{ID: m.ID, Error: native})
+				} else {
+					f.emitTo(peer, wireMessage{ID: m.ID, Result: raw(value)})
+				}
+				continue
+			}
+		}
 		switch m.Method {
 		case "account/read":
 			result = map[string]any{"account": map[string]string{"type": "apiKey"}, "requiresOpenaiAuth": true}
@@ -147,6 +162,17 @@ func (f *sessionFixture) serve(peer net.Conn) {
 			f.emitTo(peer, wireMessage{Method: "account/login/completed", Params: raw(map[string]any{"loginId": "fixture-login", "success": true})})
 			<-f.loginReply
 			result = map[string]string{"type": "chatgpt", "loginId": "fixture-login", "authUrl": "https://example.com/fixture"}
+		case "model/list":
+			var p struct {
+				Cursor string `json:"cursor"`
+			}
+			_ = json.Unmarshal(m.Params, &p)
+			f.mu.Lock()
+			result = f.modelPages[p.Cursor]
+			f.mu.Unlock()
+			if result == nil {
+				result = map[string]any{"data": []any{}}
+			}
 		case "skills/list":
 			result = map[string]any{"data": []any{}}
 		case "turn/start":
@@ -620,5 +646,28 @@ func TestFileApprovalCarriesNativeDiffAndDenial(t *testing.T) {
 	response := <-f.answers
 	if string(response.ID) != "88" || string(response.Result) != `{"decision":"decline"}` {
 		t.Fatal("denial misrouted")
+	}
+}
+
+func TestNativeReceiptSurvivesHostCrashBeforeIntroductionAcknowledgement(t *testing.T) {
+	s, _ := sessionPair(t, "early-terminal")
+	in := api.Submission{ID: "intro-durable-receipt", Text: "synthetic introduction"}
+	r, err := s.Submit(testContext(t), in, nil)
+	if err != nil || r.Outcome != "accepted" {
+		t.Fatal(r, err)
+	}
+	restored := NewSession(s.opts)
+	t.Cleanup(func() { _ = restored.Close(testContext(t)) })
+	if got := restored.Snapshot().LastReceipt; got.ID != in.ID || got.Outcome != "accepted" {
+		t.Fatal("lost confirmed native acceptance", got)
+	}
+	// Recovery can reconcile the host journal without needing another model turn.
+	restored.start = func(context.Context, Options) (*Client, error) {
+		t.Fatal("receipt lookup started Runtime")
+		return nil, nil
+	}
+	r, err = restored.Submit(testContext(t), in, nil)
+	if err != nil || r.Outcome != "accepted" {
+		t.Fatal("duplicate message was not reconciled", r, err)
 	}
 }

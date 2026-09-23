@@ -4,13 +4,31 @@
 当前事实见[准备记录](preparation-status.md)，产品约束见[product.md](product.md)，
 短期与长期目标、竞争力假设见[产品发展路线](roadmap.md)。
 
+2026-09-22 当前增量：Bot 定位为常驻秘书，专业工作使用独立工作任务。
+先落地受管目录、provider-neutral 任务接口、Codex 适配与原生审批；再接入用户授权项目、
+Git worktree 和显式任务接管。实现边界见[任务委派](task-delegation.md)，不增加任务控制台。
+
+2026-09-23 内容扩展增量：本地内容包 v1 和创作者工具已实现，
+见 [开发流程与能力合同](content-packs.md)。先开放自包含 GLB、完整服装变体和 PNG 头像，
+早期只发行预置内容并支持第三方导入；新增能力遵守 [扩展边界](asset-extensions-plan.md)。
+
+2026-09-23 产品层收敛：任务目录/账本/有限报告从 Codex adapter 移至 `internal/tasks`；
+宿主统一注入角色与工具，身份共享、提醒绑定 Runtime。Caelis 通用执行已完成
+[基线联调](caelis-application-acceptance.md) 与 [真实模型验收](caelis-live-acceptance.md)；旧 Bot Mode 不再兼容。私有 Notebook/Memory 首片已落地（[实现与验证边界](personal-memory.md)），
+完整切片与发布验收见 [产品宿主规划](bot-platform-architecture.md)。
+
+Notebook 最新方向是普通 Markdown：系统生成 INDEX.md、核心 MEMORY.md、YYYY/MM/DD/ 日期笔记。
+用户直接编辑、Bot 用文件工具；配合长 Session/Compact 及 recall/remember，不做专用笔记 CRUD/UI。
+一次性初始化名字必填、描述可选，仅提交可见用户消息，由 Bot 写入 MEMORY.md。专属 skill、
+目录维护、文件访问与旧资料保留迁移已实现，真实模型与新 Caelis 验收单独记录，见[个人空间](personal-memory.md)。
+
 ## 交付原则
 
 前期已用火柴人验证宿主和真实工作，现已接入小爱。下一步推进可用性收尾，同时将基础
 3D 表现力与 Desktop/Dock/ActiveWindow 轻量骨架纳入近期主线；独立道具、随机待机和互动同时定义，
 再扩展复杂任务/窗口关联。不再将基础动作与创作工具一并后置，初期以开发者自用和有辨识度的演示验收。
 使用 Wails/Go + React/TypeScript + Three.js；角色资产走 Blender → GLB。
-Codex App Server 为第一个后端，Caelis 后续适配。协议保留充分能力，用户入口保持克制。
+Codex App Server 为第一个后端；Caelis 已替换为通用应用 adapter；当前接入范围见 [接入说明](caelis-integration.md)。协议保留充分能力，用户入口保持克制。
 
 每个阶段交付可独立验证的增量，不按预计天数承诺。原生透明交互和后端恢复属于需要
 实测的风险点；用结果决定下一步，不以演示截图替代行为验证。
@@ -143,10 +161,13 @@ P2 验收场景应是普通用户的目标，例如“根据这个附件整理�
 
 ## P5 — Caelis adapter
 
-以 P2 的契约和验收场景为参考，核对 Caelis 当时的 versioned Host API，再实现
-adapter 和同一套一致性测试。当前 Caelis Bot Mode 的初步能力不是永久上限。
-按已实现能力逐项开放工具、审批、附件等，不用 UI 补造后端没有的语义。
-P5 可以在 P2 后随 Caelis 演进，与正式美术并行安排；不要求先重写宿主或角色。
+当前 adapter 已改为通用应用协议，固定 Core `4a3c059`；旧 Bot Mode 不恢复。
+Bot 持有身份、目录、任务账本、提醒与报告，Caelis 持有原生执行、审批和版本化配置。
+隔离 Host + 合成 provider 已完成 Notebook 原生读写、同 Turn 热配置、并行 worker 取消/恢复、
+后台授权及文件上传/下载。完整范围见 [联调报告](caelis-application-acceptance.md)。
+MiMo / Luna（含 Fast）真实模型路径见 [实测报告](caelis-live-acceptance.md)。
+后续按原生 UI、资源未知回执恢复、worker 产物报告分别收尾，不能将协议测试等同发行验收。
+共享装配与跨平台边界见 [能力契约](backend-contract.md)，Windows 保持独立后续适配。
 
 ## 本地开发与交接纪律
 
@@ -156,7 +177,7 @@ P5 可以在 P2 后随 Caelis 演进，与正式美术并行安排；不要求�
 每阶段同步更新实际状态、验收证据和剩余限制；提交与推送分别取得用户授权。
 下一实现范围按[路线](roadmap.md)的 A/B/C 顺序收敛：P3 可用性收尾与 P4.2 基础表现力均为近期，
 P4.2 已包含最小世界与道具，之后 P4.3 扩展任务空间关联。P1/P2 未测发行项仍保留；
-本轮只更新文档，交接入口见 [handoff.md](handoff.md)。
+交接入口见 [handoff.md](handoff.md)，实际验证与未测范围见 [准备状态](preparation-status.md)。
 
 2026-09-20 菜单与设置增量：精简状态栏/右键，统一设置窗口承接低频功能；
 原生单双击分流，手动检查公开发布版并进入下载页，不自动安装。详见准备状态最新记录。

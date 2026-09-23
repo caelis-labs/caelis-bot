@@ -9,6 +9,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +86,13 @@ func run() error {
 	}
 	opts.BotTools = bridge.Config(executable)
 	s := codex.NewSession(opts)
+	manager, e := tasks.Open(filepath.Join(dir, "tasks.json"), filepath.Join(dir, "Tasks"), "codex", s, s, s.Snapshot)
+	if e != nil {
+		return e
+	}
+	if e = companion.ConfigureTasks(manager, manager); e != nil {
+		return e
+	}
 	defer func() {
 		c, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -139,27 +147,18 @@ func run() error {
 	if gestures.Load() != 2 {
 		return errors.New("scheduled activation did not reach character driver")
 	}
-	prompt = `This is an isolated worker integration test. Start two native worker threads in parallel. Each must only return a different short marker, without tools, files, network or shell. Communicate one follow-up to one worker using native inter-agent communication, asking it to append done. Wait for both and return one short combined answer. Do not create tasks in the Codex desktop application.`
-	fmt.Fprintln(os.Stderr, "stage: native workers")
+	prompt = `This is an isolated Bot task integration test. Use the caelis_bot task tools. Start two independent Bot tasks with stable requestIds synthetic-worker-one and synthetic-worker-two. Each must only return a different short marker, without tools, files, network or shell. Read both tasks. Send one follow-up to the first using requestId synthetic-worker-followup, asking it to return its marker followed by done. Inspect both results and return one short combined answer. Do not use Codex App task tools or native subagents. The host may create private task directories; do not otherwise access files or external services.`
+	fmt.Fprintln(os.Stderr, "stage: owned workspace tasks")
 	if e = submit(ctx, s, "workers-check", prompt); e != nil {
 		return e
 	}
-	workers, spawns, messages := 0, 0, 0
-	kinds := map[string]int{}
-	for _, i := range s.Snapshot().Items {
-		if i.Kind == "activity" && i.Text == "协作处理" {
-			workers++
-			kinds[i.Details]++
-			if i.Details == "spawnAgent" || i.Details == "started" {
-				spawns++
-			}
-			if i.Details == "sendInput" || i.Details == "sendMessage" || i.Details == "followupTask" || i.Details == "interacted" {
-				messages++
-			}
-		}
-	}
 	var binding struct {
-		Children []string `json:"children"`
+		Tasks map[string]struct {
+			View     api.Task `json:"view"`
+			Requests map[string]struct {
+				Outcome string `json:"outcome"`
+			} `json:"requests"`
+		} `json:"tasks"`
 	}
 	data, e := os.ReadFile(opts.StateFile)
 	if e != nil {
@@ -168,11 +167,26 @@ func run() error {
 	if e = json.Unmarshal(data, &binding); e != nil {
 		return e
 	}
-	if len(binding.Children) < 2 || spawns < 2 || messages < 1 {
-		return fmt.Errorf("worker acceptance incomplete: children=%d spawn=%d communication=%d events=%d kinds=%v", len(binding.Children), spawns, messages, workers, kinds)
+	requests := 0
+	workspaces := map[string]bool{}
+	for _, task := range binding.Tasks {
+		if task.View.Status != "completed" {
+			return fmt.Errorf("task incomplete: %s", task.View.Status)
+		}
+		if _, err := os.Stat(task.View.Workspace); err != nil {
+			return errors.New("task workspace missing")
+		}
+		workspaces[task.View.Workspace] = true
+		for _, receipt := range task.Requests {
+			if receipt.Outcome == "accepted" {
+				requests++
+			}
+		}
 	}
-
-	return json.NewEncoder(os.Stdout).Encode(map[string]any{"testedCodex": codex.TestedVersion, "resumedHistory": true, "mcpOnResume": true, "scheduledActivation": true, "characterCalls": gestures.Load(), "workerEvents": workers, "workers": len(binding.Children), "communicationEvents": messages})
+	if len(binding.Tasks) != 2 || len(workspaces) != 2 || requests != 3 {
+		return fmt.Errorf("task acceptance incomplete: tasks=%d workspaces=%d acceptedRequests=%d", len(binding.Tasks), len(workspaces), requests)
+	}
+	return json.NewEncoder(os.Stdout).Encode(map[string]any{"testedCodex": codex.TestedVersion, "resumedHistory": true, "mcpOnResume": true, "scheduledActivation": true, "characterCalls": gestures.Load(), "ownedTasks": len(binding.Tasks), "isolatedWorkspaces": len(workspaces), "acceptedTaskRequests": requests})
 }
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--bot-tools" {

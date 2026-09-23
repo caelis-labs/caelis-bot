@@ -12,7 +12,7 @@ func (s *Service) DesktopContext() json.RawMessage {
 	<-s.ready
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if d, ok := s.native.(interface{ desktopContext() json.RawMessage }); ok && !s.stopped {
+	if d, ok := s.native.(contextDriver); ok && !s.stopped {
 		return d.desktopContext()
 	}
 	return json.RawMessage("null")
@@ -22,7 +22,7 @@ func (s *Service) PlaneReady(ready bool) {
 	<-s.ready
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if d, ok := s.native.(interface{ planeReady(bool) }); ok && !s.stopped {
+	if d, ok := s.native.(propDriver); ok && !s.stopped {
 		d.planeReady(ready)
 	}
 }
@@ -35,9 +35,7 @@ func (s *Service) LaunchPlane(id string, x, y float64) (bool, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if d, ok := s.native.(interface {
-		launchPlane(string, float64, float64) bool
-	}); ok && s.started && !s.stopped && s.placement.Visible && s.characterActivity != "working" && s.characterActivity != "waiting" {
+	if d, ok := s.native.(propDriver); ok && s.started && !s.stopped && s.placement.Visible && s.characterActivity != "working" && s.characterActivity != "waiting" {
 		return d.launchPlane(id, x, y), nil
 	}
 	return false, nil
@@ -46,7 +44,7 @@ func (s *Service) LaunchPlane(id string, x, y float64) (bool, error) {
 func (s *Service) FinishPlane(id string, completed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if d, ok := s.native.(interface{ finishPlane(string, bool) }); ok && !s.stopped {
+	if d, ok := s.native.(propDriver); ok && !s.stopped {
 		d.finishPlane(id, completed)
 	}
 }

@@ -13,10 +13,19 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	admission                   sync.RWMutex
+	restarting                  bool
+	setupRequired               bool
+	setup                       api.SetupController
+	providers                   []api.ProviderInfo
+	probeRuntime                func(context.Context, api.RuntimeSettings) error
+	manageRuntime               func(context.Context, string, api.RuntimeSettings) (api.RuntimeStatus, error)
+	switchGuard                 func() error
+	executionFile               string
+	executionSettings           api.ExecutionSettings
 	configurationMu             sync.Mutex
 	runtimeFile                 string
 	runtimeSettings             api.RuntimeSettings
-	changeRuntime               func(context.Context, string, func() error) (api.RuntimeCheck, error)
 	pendingDraft                *api.Submission
 	botStatus                   func() string
 	mu                          sync.Mutex
@@ -25,6 +34,7 @@ type Service struct {
 	draftLoadError              error
 	draftNotice                 string
 	dismissed, presentationFile string
+	initializer                 api.BotInitializer
 	engine                      api.Engine
 	files                       func([]string) ([]api.InputFile, error)
 	consumeFiles                func([]string)
@@ -69,7 +79,7 @@ func (s *Service) SetBotStatus(f func() string) { s.mu.Lock(); s.botStatus = f; 
 // explicit request; a new user message starts a new preview boundary.
 func (s *Service) PetSnapshot() api.Snapshot {
 	var snapshot api.Snapshot
-	if recent, ok := s.engine.(interface{ RecentSnapshot() api.Snapshot }); ok {
+	if recent, ok := s.engine.(api.RecentSource); ok {
 		snapshot = s.decorate(recent.RecentSnapshot())
 	} else {
 		snapshot = s.Snapshot()
@@ -118,7 +128,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	if status != nil {
 		currentStatus = status()
 	}
-	if source, ok := s.engine.(interface{ Revision() uint64 }); ok && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
+	if source, ok := s.engine.(api.RevisionSource); ok && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
 		return api.ChatUpdate{}
 	}
 	v := s.Snapshot()
@@ -133,14 +143,27 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	return api.ChatUpdate{Changed: true, Snapshot: v}
 }
 func (s *Service) LoadEarlier(ctx context.Context) error {
-	if source, ok := s.engine.(interface{ LoadEarlier(context.Context) error }); ok {
+	if source, ok := s.engine.(api.HistorySource); ok {
 		return source.LoadEarlier(ctx)
 	}
 	return errors.New("当前接入暂不支持读取更早消息")
 }
-func (s *Service) Connect(ctx context.Context) error { return s.engine.Connect(ctx) }
+func (s *Service) Connect(ctx context.Context) error {
+	s.admission.RLock()
+	defer s.admission.RUnlock()
+	if s.restarting || s.setupRequired {
+		return errors.New("请先完成运行时设置")
+	}
+	return s.engine.Connect(ctx)
+}
 func (s *Service) OpenConnectionHelp() error {
-	return s.openURL("https://developers.openai.com/codex/cli/")
+	return s.OpenMessageLink(s.ProviderInfo().HelpURL)
+}
+func (s *Service) ProviderInfo() api.ProviderInfo {
+	if provider, ok := s.engine.(api.Provider); ok {
+		return provider.ProviderInfo()
+	}
+	return api.ProviderInfo{}
 }
 func (s *Service) OpenMessageLink(value string) error {
 	u, err := url.Parse(value)
@@ -150,6 +173,19 @@ func (s *Service) OpenMessageLink(value string) error {
 	return s.openURL(u.String())
 }
 func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt, error) {
+	s.admission.RLock()
+	defer s.admission.RUnlock()
+	if s.restarting || s.setupRequired {
+		return api.Receipt{}, errors.New("请先完成运行时设置")
+	}
+
+	s.mu.Lock()
+	initializer := s.initializer
+	s.mu.Unlock()
+	if initializer != nil && initializer.Initialization().Status != "accepted" {
+		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "请先完成 Bot 初始化，并等待介绍发送完成"}, nil
+	}
+
 	files, err := s.files(input.FileIDs)
 	if err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
@@ -167,22 +203,39 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 func (s *Service) Interrupt(ctx context.Context) error              { return s.engine.Interrupt(ctx) }
 func (s *Service) Decide(ctx context.Context, d api.Decision) error { return s.engine.Decide(ctx, d) }
 func (s *Service) Login(ctx context.Context) error {
-	u, err := s.engine.Login(ctx)
+	auth, ok := s.engine.(api.Authenticator)
+	if !ok {
+		return errors.New("当前后端不支持在此登录")
+	}
+	u, err := auth.Login(ctx)
 	if err != nil {
 		return err
 	}
 	return s.openURL(u)
 }
-func (s *Service) CancelLogin(ctx context.Context) error { return s.engine.CancelLogin(ctx) }
+func (s *Service) CancelLogin(ctx context.Context) error {
+	if auth, ok := s.engine.(api.Authenticator); ok {
+		return auth.CancelLogin(ctx)
+	}
+	return errors.New("当前后端没有登录流程")
+}
 func (s *Service) RevealArtifact(id string) error {
-	p, err := s.engine.Artifact(id)
+	resolver, ok := s.engine.(api.ArtifactResolver)
+	if !ok {
+		return errors.New("当前后端不支持打开产物")
+	}
+	p, err := resolver.Artifact(id)
 	if err != nil {
 		return errors.New("文件已不可用")
 	}
 	return s.reveal(p)
 }
 func (s *Service) OpenApprovalURL(id string) error {
-	u, err := s.engine.ApprovalURL(id)
+	navigator, ok := s.engine.(api.ApprovalNavigator)
+	if !ok {
+		return errors.New("当前后端不支持打开外部审批")
+	}
+	u, err := navigator.ApprovalURL(id)
 	if err != nil {
 		return err
 	}
@@ -192,4 +245,11 @@ func (s *Service) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return s.engine.Close(ctx)
+}
+
+func (s *Service) ComposerSnapshot() api.Snapshot {
+	if source, ok := s.engine.(api.ComposerSource); ok {
+		return s.decorate(source.ComposerSnapshot())
+	}
+	return s.Snapshot()
 }

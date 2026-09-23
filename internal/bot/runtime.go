@@ -18,6 +18,7 @@ import (
 )
 
 type Schedule struct {
+	Runtime      string    `json:"runtime,omitempty"`
 	ID           string    `json:"id"`
 	Label        string    `json:"label"`
 	Prompt       string    `json:"prompt"`
@@ -29,6 +30,7 @@ type Schedule struct {
 	Enabled      bool      `json:"enabled"`
 }
 type Wake struct {
+	Runtime     string   `json:"runtime,omitempty"`
 	ID          string   `json:"id"`
 	Prompt      string   `json:"prompt"`
 	Messages    []string `json:"messages"`
@@ -36,27 +38,33 @@ type Wake struct {
 	Status      string   `json:"status"` // pending, dispatching, accepted, unknown
 }
 type State struct {
-	Version   int        `json:"version"`
-	ID        string     `json:"id"`
-	Schedules []Schedule `json:"schedules"`
-	Wake      *Wake      `json:"wake,omitempty"`
+	Version         int        `json:"version"`
+	PersonalVersion int        `json:"personalVersion,omitempty"`
+	ID              string     `json:"id"`
+	Schedules       []Schedule `json:"schedules"`
+	Wake            *Wake      `json:"wake,omitempty"`
 }
 type Engine interface {
 	Snapshot() api.Snapshot
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
-	stopped bool
-	mu      sync.Mutex
-	step    sync.Mutex
-	path    string
-	state   State
-	now     func() time.Time
-	engine  Engine
-	action  func(string) error
-	done    chan struct{}
-	cancel  context.CancelFunc
-	notify  func(id, title string)
+	stopped        bool
+	mu             sync.Mutex
+	step           sync.Mutex
+	path           string
+	state          State
+	now            func() time.Time
+	engine         Engine
+	provider       string
+	personal       api.PersonalTools
+	initialization *Initializer
+	tasks          api.TaskProvider
+	reports        api.TaskReporter
+	action         func(string) error
+	done           chan struct{}
+	cancel         context.CancelFunc
+	notify         func(id, title string)
 }
 
 func (r *Runtime) SetReminderNotifier(f func(id, title string)) {
@@ -66,10 +74,19 @@ func (r *Runtime) SetReminderNotifier(f func(id, title string)) {
 }
 
 func New(path string, action func(string) error) (*Runtime, error) {
-	r := &Runtime{path: path, now: time.Now, action: action, state: State{Version: 1, ID: rand.Text(), Schedules: []Schedule{}}}
+	return NewForRuntime(path, "codex", action)
+}
+
+// NewForRuntime shares Bot identity while retaining each schedule execution target.
+func NewForRuntime(path, provider string, action func(string) error) (*Runtime, error) {
+	if provider == "" {
+		return nil, errors.New("提醒需要明确的运行时")
+	}
+	r := &Runtime{path: path, provider: provider, now: time.Now, action: action, state: State{Version: 1, PersonalVersion: 1, ID: rand.Text(), Schedules: []Schedule{}}}
 	b, e := os.ReadFile(path)
 	if e == nil {
-		if json.Unmarshal(b, &r.state) != nil || r.state.Version != 1 || r.state.ID == "" {
+		r.state = State{} // Existing files must supply identity; never fill missing fields with new defaults.
+		if json.Unmarshal(b, &r.state) != nil || r.state.Version != 1 || r.state.ID == "" || r.state.PersonalVersion > 1 || r.state.PersonalVersion < 0 {
 			return nil, errors.New("Bot 记录无法读取，请保留文件并重试")
 		}
 	} else if !errors.Is(e, os.ErrNotExist) {
@@ -79,6 +96,13 @@ func New(path string, action func(string) error) (*Runtime, error) {
 	// next future slot; due one-offs missed while quit are disabled, never replayed.
 	now := r.now()
 	for i, s := range r.state.Schedules {
+		if s.Runtime == "" {
+			s.Runtime = "codex"
+			r.state.Schedules[i] = s
+		}
+		if s.Runtime != provider {
+			continue
+		}
 		if !s.Next.After(now) {
 			next, err := nextTime(s, now)
 			if err != nil {
@@ -88,6 +112,9 @@ func New(path string, action func(string) error) (*Runtime, error) {
 			s.Enabled = s.Enabled && !next.IsZero()
 			r.state.Schedules[i] = s
 		}
+	}
+	if r.state.Wake != nil && r.state.Wake.Runtime == "" {
+		r.state.Wake.Runtime = "codex"
 	}
 	if r.state.Wake != nil && r.state.Wake.Status == "dispatching" {
 		r.state.Wake.Status = "unknown"
@@ -176,6 +203,7 @@ func nextTime(s Schedule, after time.Time) (time.Time, error) {
 	return t, nil
 }
 func (r *Runtime) Upsert(s Schedule) (Schedule, error) {
+	s.Runtime = r.provider
 	if !identifier.MatchString(s.ID) || strings.TrimSpace(s.Label) == "" || len(s.Label) > 200 || strings.TrimSpace(s.Prompt) == "" || len(s.Prompt) > 16000 {
 		return s, errors.New("提醒需要有效标识、标题和内容")
 	}
@@ -197,6 +225,9 @@ func (r *Runtime) Upsert(s Schedule) (Schedule, error) {
 	index := -1
 	for i, old := range r.state.Schedules {
 		if old.ID == s.ID {
+			if old.Runtime != r.provider {
+				return s, errors.New("该提醒属于其他运行时，请切换后管理")
+			}
 			index = i
 			old.Next = time.Time{}
 			old.Enabled = false
@@ -237,6 +268,11 @@ func (r *Runtime) Upsert(s Schedule) (Schedule, error) {
 func (r *Runtime) Remove(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	for _, s := range r.state.Schedules {
+		if s.ID == id && s.Runtime != r.provider {
+			return errors.New("该提醒属于其他运行时，请切换后管理")
+		}
+	}
 	old := r.state.Schedules
 	r.state.Schedules = nil
 	for _, s := range old {
@@ -271,6 +307,18 @@ func (r *Runtime) Remove(id string) error {
 		r.state.Wake = previousWake
 		return e
 	}
+	return nil
+}
+
+// ConfigureTasks binds the application coordinator, never a provider-specific product.
+func (r *Runtime) ConfigureTasks(provider api.TaskProvider, reports api.TaskReporter) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cancel != nil || r.stopped {
+		return errors.New("任务宿主须在启动前绑定")
+	}
+	r.tasks = provider
+	r.reports = reports
 	return nil
 }
 func (r *Runtime) Start(engine Engine) {
@@ -331,9 +379,31 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	if r.engine == nil {
 		return nil
 	}
+	if r.initialization != nil {
+		if err := r.initialization.Deliver(ctx, r.engine, r.provider); err != nil {
+			return err
+		}
+		if r.initialization.Initialization().Status != "accepted" {
+			return nil
+		}
+	}
+	if r.reports != nil {
+		if err := r.reports.DeliverTaskReport(ctx); err != nil {
+			return err
+		}
+	}
+	// This protocol has no background authority. Keep schedules untouched and
+	// never disguise a timer as a user message.
+	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok && !p.ApplicationCapabilities().ScheduledActivation {
+		return nil
+	}
 	r.mu.Lock()
 	notify = r.notify
 	now := r.now()
+	if r.state.Wake != nil && r.state.Wake.Runtime != r.provider && r.state.Wake.Status != "accepted" {
+		r.mu.Unlock()
+		return nil
+	}
 	previous := r.state
 	previous.Schedules = append([]Schedule(nil), r.state.Schedules...)
 	if w := r.state.Wake; w != nil && (w.Status == "unknown" || w.Status == "dispatching") {
@@ -350,7 +420,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	if r.state.Wake == nil || r.state.Wake.Status == "accepted" {
 		var ids, texts, labels []string
 		for i, s := range r.state.Schedules {
-			if !s.Enabled || s.Next.After(now) {
+			if s.Runtime != r.provider || !s.Enabled || s.Next.After(now) {
 				continue
 			}
 			if len(strings.Join(texts, "\n"))+len(s.Prompt) > 96000 {
@@ -367,9 +437,14 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			s.Next = next
 			s.Enabled = !next.IsZero()
 			r.state.Schedules[i] = s
+			// Caelis grants authorize one schedule per native activation. Leave
+			// other due schedules untouched for the next idle tick.
+			if _, ok := r.engine.(api.BackgroundRuntime); ok {
+				break
+			}
 		}
 		if len(ids) > 0 {
-			r.state.Wake = &Wake{ID: "wake-" + rand.Text(), Prompt: wakePrompt(texts), Messages: texts, ScheduleIDs: ids, Status: "pending"}
+			r.state.Wake = &Wake{Runtime: r.provider, ID: "wake-" + rand.Text(), Prompt: wakePrompt(texts), Messages: texts, ScheduleIDs: ids, Status: "pending"}
 			if e := r.saveLocked(); e != nil {
 				r.state = previous
 				r.mu.Unlock()
@@ -394,7 +469,13 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		return e
 	}
 	r.mu.Unlock()
-	receipt, e := r.engine.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt}, nil)
+	var receipt api.Receipt
+	var e error
+	if b, ok := r.engine.(api.BackgroundRuntime); ok {
+		receipt, e = b.SubmitBackground(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt}, wake.ScheduleIDs)
+	} else {
+		receipt, e = r.engine.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt}, nil)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if e != nil || receipt.Outcome == "unknown" {
@@ -429,8 +510,14 @@ func wakePrompt(messages []string) string {
 	return "定时提醒（错过的同类提醒已合并）：\n" + strings.Join(messages, "\n")
 }
 func (r *Runtime) Status() string {
+	if r.initialization != nil && r.initialization.Initialization().Status != "accepted" {
+		return r.initialization.Initialization().Message
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.state.Wake != nil && r.state.Wake.Runtime != r.provider && r.state.Wake.Status != "accepted" {
+		return "提醒正在等待其所属运行时连接，不会改用当前运行时。"
+	}
 	if r.state.Wake != nil && r.state.Wake.Status == "unknown" {
 		return "有一次定时任务的发送结果待确认。请重新连接核对；不会自动重复执行。"
 	}

@@ -3,9 +3,11 @@
 export function handleComposerKey(
   event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'isComposing' | 'keyCode' | 'repeat' | 'defaultPrevented' | 'preventDefault'>,
   send: Pick<HTMLButtonElement, 'disabled' | 'click'> | null,
+  action: 'send' | 'stop' = 'send',
 ) {
   if (event.defaultPrevented || event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
-  // Share the button's availability and action; holding Enter must not resend.
-  if (!event.repeat && send && !send.disabled) send.click();
+  // Enter submits text only. An empty editor must never trigger the same
+  // button's stop action; stopping is an explicit pointer/button-focus action.
+  if (action === 'send' && !event.repeat && send && !send.disabled) send.click();
 }

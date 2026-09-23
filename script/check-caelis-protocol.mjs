@@ -1,0 +1,10 @@
+import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+const manifest=JSON.parse(readFileSync('protocol/caelis/manifest.json','utf8'));
+const hash=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
+assert.match(manifest.commit,/^[0-9a-f]{40}$/);
+assert.equal(hash('protocol/caelis/openapi.json'),manifest.schemaSha256,'Caelis public schema drift');
+assert.equal(hash('internal/backend/caelis/wire/control_v1.gen.go'),manifest.wireSha256,'Caelis generated wire drift');
+assert.ok(readFileSync('protocol/caelis/LICENSE','utf8').length>100);
+console.log(`Caelis public protocol pinned to ${manifest.commit.slice(0,12)}.`);

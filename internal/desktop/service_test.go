@@ -35,11 +35,15 @@ func (d *fakeDriver) screens() []Rect        { return d.displays }
 func (d *fakeDriver) apply(p Placement)      { d.placement = p }
 func (d *fakeDriver) panelHeight(height int) { d.height = height }
 func (d *fakeDriver) panel(open bool)        { d.panelOpen = open }
-func (d *fakeDriver) approval()              { d.panelOpen, d.approvalOpen = true, true }
-func (d *fakeDriver) bubble(open bool)       { d.bubbleOpen = open }
-func (d *fakeDriver) togglePanel()           { d.panelOpen = !d.panelOpen }
-func (d *fakeDriver) mask(b []byte)          { d.hit = b }
-func (d *fakeDriver) stop()                  { d.stopped = true }
+func (d *fakeDriver) prepareWindowRecall() bool {
+	d.panelOpen, d.bubbleOpen = false, false
+	return true
+}
+func (d *fakeDriver) approval()        { d.panelOpen, d.approvalOpen = true, true }
+func (d *fakeDriver) bubble(open bool) { d.bubbleOpen = open }
+func (d *fakeDriver) togglePanel()     { d.panelOpen = !d.panelOpen }
+func (d *fakeDriver) mask(b []byte)    { d.hit = b }
+func (d *fakeDriver) stop()            { d.stopped = true }
 func setup() (*Service, *fakeDriver, *memoryStore) {
 	store := &memoryStore{value: defaults()}
 	d := &fakeDriver{displays: []Rect{{0, 40, 1440, 860}}}
@@ -319,5 +323,52 @@ func TestBubbleDoesNotOpenKeyboardOrOwnLifetime(t *testing.T) {
 	s.shutdown()
 	if s.SetBubbleVisible(context.Background(), false) == nil {
 		t.Fatal("late message accepted after shutdown")
+	}
+}
+
+// Popup layout is an optional native capability, with the same lifetime owner as
+// the editor. Invalid/late requests cannot reach AppKit or persist preferences.
+type menuDriver struct {
+	*fakeDriver
+	calls      int
+	menuHeight int
+	activation int
+}
+
+func (d *menuDriver) panelMenu(height, activation int) {
+	d.calls++
+	d.menuHeight = height
+	d.activation = activation
+}
+func TestPanelMenuLifetimeAndBounds(t *testing.T) {
+	s := newService(&memoryStore{value: defaults()})
+	if s.SetPanelMenu(324, 1) == nil {
+		t.Fatal("unstarted menu accepted")
+	}
+	d := &menuDriver{fakeDriver: &fakeDriver{displays: []Rect{{0, 0, 1440, 900}}}}
+	s.start(d)
+	for _, args := range [][2]int{{-1, 1}, {325, 1}, {100, 0}, {100, -1}, {100, 2147483648}} {
+		if s.SetPanelMenu(args[0], args[1]) == nil {
+			t.Fatal("invalid menu accepted", args)
+		}
+	}
+	if d.calls != 0 {
+		t.Fatal("invalid layout reached native host")
+	}
+	if err := s.SetPanelMenu(324, 7); err != nil {
+		t.Fatal(err)
+	}
+	if d.calls != 1 || d.menuHeight != 324 || d.activation != 7 || d.height != 0 || d.panelOpen {
+		t.Fatal("menu changed editor geometry/visibility or lost activation")
+	}
+	if err := s.SetPanelMenu(0, 7); err != nil {
+		t.Fatal(err)
+	}
+	if d.calls != 2 || d.menuHeight != 0 {
+		t.Fatal("menu did not collapse")
+	}
+	s.shutdown()
+	if s.SetPanelMenu(324, 7) == nil || d.calls != 2 {
+		t.Fatal("late menu request reached stopped host")
 	}
 }

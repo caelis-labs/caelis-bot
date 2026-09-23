@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/contentpack"
 )
 
 // driver owns native interaction, coordinate conversion and OS-thread dispatch.
@@ -17,6 +18,7 @@ type driver interface {
 	screens() []Rect
 	apply(Placement)
 	panel(bool)
+	prepareWindowRecall() bool
 	approval()
 	bubble(bool)
 	togglePanel()
@@ -28,6 +30,13 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	needsIntroduction  func() bool
+	content            *contentpack.Registry
+	pickContentFile    func() (string, error)
+	contentChanged     func(contentpack.Appearance)
+	contentImportMu    sync.Mutex
+	shortcutFile       string
+	shortcut           ShortcutState
 	ready              chan struct{}
 	mu                 sync.Mutex
 	native             driver
@@ -42,9 +51,11 @@ type Service struct {
 	selectionFile      string
 	selectionError     error
 	openHistory        func()
+	recallWindows      func()
 	closeHistory       func()
 	historyVisible     func() bool
 	activate           func()
+	restartRuntime     func() error
 	openSettings       func()
 	closeSettings      func()
 	settingsSection    string
@@ -85,6 +96,13 @@ func (s *Service) start(d driver) {
 	defer s.mu.Unlock()
 	s.native = d
 	s.started = true
+	if d, ok := d.(shortcutDriver); ok {
+		if err := d.registerShortcut(s.shortcut.Shortcut); err != nil {
+			s.shortcut.Message = err.Error()
+		} else {
+			s.shortcut.Registered = s.shortcut.Shortcut.Enabled
+		}
+	}
 	s.placement = normalize(s.placement, d.screens())
 	d.apply(s.placement)
 	close(s.ready)
@@ -174,6 +192,15 @@ func (s *Service) ClosePanel() {
 	}
 	s.native.panel(false)
 }
+
+// A transition to another Bot window must not restore focus to another app.
+// Call this before entering an AppKit transaction, never while on its UI thread:
+// other service operations may already hold mu while waiting for AppKit.
+func (s *Service) prepareWindowRecall() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.started && !s.stopped && s.native.prepareWindowRecall()
+}
 func (s *Service) OpenApproval() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -224,6 +251,25 @@ func (s *Service) SetPanelHeight(ctx context.Context, height int) error {
 		return errors.New("desktop is not ready")
 	}
 	s.native.panelHeight(height)
+	return nil
+}
+
+// SetPanelMenu changes only the hosting envelope, never the editor's size.
+// Native activation fencing prevents an old renderer from moving a newer panel.
+func (s *Service) SetPanelMenu(height, activation int) error {
+	if height < 0 || height > 324 || activation < 1 || activation > 2147483647 {
+		return errors.New("invalid panel menu layout")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.started || s.stopped {
+		return errors.New("desktop is not ready")
+	}
+	native, ok := s.native.(panelMenuDriver)
+	if !ok {
+		return errors.New("panel menu is unavailable")
+	}
+	native.panelMenu(height, activation)
 	return nil
 }
 func (s *Service) SetHitMask(ctx context.Context, encoded string) error {
@@ -302,6 +348,16 @@ func (s *Service) shutdown() {
 }
 
 // Chat is an optional interactive surface. Its visibility never owns a task.
+func (s *Service) RecallWindows() {
+	s.mu.Lock()
+	f := s.recallWindows
+	ready := s.started && !s.stopped
+	s.mu.Unlock()
+	if ready && f != nil {
+		f()
+	}
+}
+
 func (s *Service) OpenHistory() {
 	s.mu.Lock()
 	f := s.openHistory
@@ -338,12 +394,12 @@ func (s *Service) Activate() {
 func (s *Service) CollapseBubble() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if d, ok := s.native.(interface{ expandBubble(bool) }); ok && !s.stopped {
+	if d, ok := s.native.(bubbleDriver); ok && !s.stopped {
 		d.expandBubble(false)
 	}
 }
 func (s *Service) SetBubbleHeight(ctx context.Context, height int) error {
-	if height < 96 || height > 480 {
+	if height < 68 || height > 480 {
 		return errors.New("invalid bubble height")
 	}
 	select {
@@ -353,7 +409,7 @@ func (s *Service) SetBubbleHeight(ctx context.Context, height int) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if d, ok := s.native.(interface{ bubbleHeight(int) }); ok && !s.stopped {
+	if d, ok := s.native.(bubbleDriver); ok && !s.stopped {
 		d.bubbleHeight(height)
 	}
 	return nil
@@ -370,7 +426,7 @@ func (s *Service) Gesture(action string) error {
 	if !s.placement.Visible {
 		return nil
 	}
-	if d, ok := s.native.(interface{ gesture(string) }); ok {
+	if d, ok := s.native.(gestureDriver); ok {
 		d.gesture(action)
 		return nil
 	}

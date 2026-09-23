@@ -149,6 +149,8 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 		view.Text = strings.Join(text, "\n")
 		if p := s.binding.Pending; p != nil && p.ID == item.ClientID {
 			s.state.LastReceipt = api.Receipt{ID: p.ID, Outcome: "accepted"}
+			receipt := s.state.LastReceipt
+			s.binding.LastReceipt = &receipt
 			s.binding.Pending = nil
 			if s.save() != nil {
 				s.state.Message = "已收到发送回执，但本地记录保存失败"
