@@ -1,0 +1,76 @@
+name: Notarization status
+on:
+  workflow_dispatch:
+    inputs:
+      submission_id:
+        description: Apple submission ID from a release notarization receipt
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
+    runs-on: macos-14
+    environment: macos-release
+    timeout-minutes: 8
+    steps:
+      - name: Read the existing Apple submission
+        env:
+          SUBMISSION_ID: ${{ inputs.submission_id }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          [[ "$SUBMISSION_ID" =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]]
+          [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
+          : "${APPLE_NOTARY_APPLE_ID:?Missing Apple ID}"
+          : "${APPLE_NOTARY_PASSWORD:?Missing app-specific password}"
+          umask 077
+          NOTARY_TEMP=$(mktemp -d "$RUNNER_TEMP/caelis-notary-status.XXXXXX")
+          NOTARY_KEYCHAIN="$NOTARY_TEMP/status.keychain-db"
+          cleanup() {
+            security delete-keychain "$NOTARY_KEYCHAIN" >/dev/null 2>&1 || true
+            rm -rf "$NOTARY_TEMP"
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          NOTARY_KEYCHAIN_PASSWORD=$(openssl rand -hex 32)
+          security create-keychain -p "$NOTARY_KEYCHAIN_PASSWORD" "$NOTARY_KEYCHAIN"
+          security unlock-keychain -p "$NOTARY_KEYCHAIN_PASSWORD" "$NOTARY_KEYCHAIN"
+          unset NOTARY_KEYCHAIN_PASSWORD
+          xcrun notarytool store-credentials caelis-status --keychain "$NOTARY_KEYCHAIN" \
+            --apple-id "$APPLE_NOTARY_APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARY_PASSWORD" >/dev/null
+          unset APPLE_NOTARY_APPLE_ID APPLE_NOTARY_PASSWORD
+          mkdir -p notarization
+          xcrun notarytool info "$SUBMISSION_ID" --keychain-profile caelis-status \
+            --keychain "$NOTARY_KEYCHAIN" --output-format json > notarization/status.json
+          cat notarization/status.json
+          status=$(plutil -extract status raw -o - notarization/status.json)
+          printf 'Apple submission `%s`: **%s**. This read-only workflow does not submit or publish artifacts.\n' \
+            "$SUBMISSION_ID" "$status" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$status" != 'In Progress' ]]; then
+            xcrun notarytool log "$SUBMISSION_ID" --keychain-profile caelis-status \
+              --keychain "$NOTARY_KEYCHAIN" notarization/log.json
+            cat notarization/log.json
+          fi
+      - name: Remove temporary credentials
+        if: always()
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for directory in "$RUNNER_TEMP"/caelis-notary-status.*; do
+            security delete-keychain "$directory/status.keychain-db" >/dev/null 2>&1 || true
+            rm -rf "$directory"
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: notarization-status
+          path: notarization/*.json
+          if-no-files-found: ignore
+          retention-days: 14

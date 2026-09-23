@@ -72,11 +72,21 @@ mkdir -p "$BOT_NOTARY_REPORTS"
 notarize() {
   local artifact=$1 label=$2 result status submission
   result="$BOT_NOTARY_REPORTS/$label.json"
-  # A timeout leaves a receipt in the log; it never proceeds to publishing.
+  # Save the upload receipt before waiting: a timeout may only write to stderr.
   xcrun notarytool submit "$artifact" --keychain-profile caelis-release --keychain "$BOT_SIGN_KEYCHAIN" \
-    --wait --timeout 20m --output-format json > "$result" || { cat "$result"; return 1; }
+    --output-format json > "$BOT_NOTARY_REPORTS/$label-submission.json"
+  cat "$BOT_NOTARY_REPORTS/$label-submission.json"
+  submission=$(node -pe 'JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).id' "$BOT_NOTARY_REPORTS/$label-submission.json")
+  [[ "$submission" =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] || return 1
+  if ! xcrun notarytool wait "$submission" --keychain-profile caelis-release --keychain "$BOT_SIGN_KEYCHAIN" \
+    --timeout 20m --output-format json > "$result"; then
+    # Query the same submission, without uploading again or permitting publication.
+    xcrun notarytool info "$submission" --keychain-profile caelis-release --keychain "$BOT_SIGN_KEYCHAIN" \
+      --output-format json > "$result" || true
+    cat "$result"
+    return 1
+  fi
   cat "$result"
-  submission=$(node -pe 'JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).id' "$result")
   status=$(node -pe 'JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).status' "$result")
   xcrun notarytool log "$submission" --keychain-profile caelis-release --keychain "$BOT_SIGN_KEYCHAIN" \
     "$BOT_NOTARY_REPORTS/$label-log.json"
