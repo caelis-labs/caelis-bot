@@ -6,6 +6,13 @@ frontend/dist/
 .env
 .env.*
 !.env.example
+# Signing identities and certificate requests must never enter the public tree.
+*.p12
+*.pfx
+*.key
+*.p8
+*.certSigningRequest
+*.keychain-db
 *.blend1
 *.blend2
 __pycache__/

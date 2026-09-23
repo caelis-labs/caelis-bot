@@ -64,8 +64,10 @@
   authoring sources, private credentials or archived models as public build dependencies.
   Preserve code/character license boundaries and provenance. New costumes and characters
   use versioned finished variants; they do not change the Bot's conversation identity.
-- Early pre-release uses ad-hoc signing and documented per-app trust steps.
-  Developer ID and notarization are deferred by the user, not gates for this preview.
+- Public DMG releases require Developer ID signing, hardened runtime, secure
+  timestamps, Apple notarization, stapled tickets and Gatekeeper acceptance.
+  Local/PR builds remain ad-hoc signed. Release credentials are restricted to the
+  main-branch macos-release environment. Never describe a signed-only build as notarized.
 - Preserve unrelated changes. Commit and push require their own user authorization.
 
 ## Verification

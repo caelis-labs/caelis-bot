@@ -9,7 +9,7 @@
       "bump-minor-pre-major": true,
       "versioning": "prerelease",
       "prerelease-type": "preview.1",
-      "prerelease": true,
+      "prerelease": false,
       "draft": true,
       "force-tag-creation": true
     }
