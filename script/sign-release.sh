@@ -12,6 +12,10 @@ test -f "$BOT_SIGN_BUNDLE/Contents/MacOS/caelis-bot"
 umask 077
 BOT_SIGN_TEMP=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/caelis-signing.XXXXXX")
 BOT_SIGN_KEYCHAIN="$BOT_SIGN_TEMP/release.keychain-db"
+BOT_SIGN_ORIGINAL_KEYCHAINS=()
+while IFS= read -r keychain; do
+  BOT_SIGN_ORIGINAL_KEYCHAINS+=("$keychain")
+done < <(security list-keychains -d user | sed -n 's/^[[:space:]]*"\(.*\)"$/\1/p')
 cleanup() {
   security delete-keychain "$BOT_SIGN_KEYCHAIN" >/dev/null 2>&1 || true
   rm -rf "$BOT_SIGN_TEMP"
@@ -23,6 +27,12 @@ printf '%s' "$BOT_SIGNING_CERTIFICATE_BASE64" | base64 --decode > "$BOT_SIGN_TEM
 unset BOT_SIGNING_CERTIFICATE_BASE64
 BOT_SIGN_KEYCHAIN_PASSWORD=$(openssl rand -hex 32)
 security create-keychain -p "$BOT_SIGN_KEYCHAIN_PASSWORD" "$BOT_SIGN_KEYCHAIN"
+if [[ ${#BOT_SIGN_ORIGINAL_KEYCHAINS[@]} -gt 0 ]]; then
+  security list-keychains -d user -s "$BOT_SIGN_KEYCHAIN" "${BOT_SIGN_ORIGINAL_KEYCHAINS[@]}"
+else
+  security list-keychains -d user -s "$BOT_SIGN_KEYCHAIN"
+fi
+# Deleting this keychain on exit also removes its temporary search-list entry.
 security set-keychain-settings -lut 3600 "$BOT_SIGN_KEYCHAIN"
 security unlock-keychain -p "$BOT_SIGN_KEYCHAIN_PASSWORD" "$BOT_SIGN_KEYCHAIN"
 security import "$BOT_SIGN_TEMP/identity.p12" -k "$BOT_SIGN_KEYCHAIN" \
@@ -45,6 +55,7 @@ BOT_SIGN_MATCHES=$(printf '%s\n' "$BOT_SIGN_IDENTITIES" | sed -n 's/^[[:space:]]
 }
 # This bundle currently contains one native executable and no embedded helpers.
 # WebKit runs out of process; no JIT, debugger, or library-validation exception is needed.
+echo 'Signing the app with the imported Developer ID identity.'
 codesign --force --sign "$BOT_SIGN_MATCHES" --keychain "$BOT_SIGN_KEYCHAIN" \
   --identifier dev.caelis.bot --options runtime --timestamp "$BOT_SIGN_BUNDLE"
 bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_SIGN_BUNDLE" developer-id

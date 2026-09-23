@@ -28,7 +28,7 @@ Use Conventional Commit PR titles, for example `feat: add reminders` or `fix: ke
 1. A main push runs `release-please`. It maintains one version PR, updating `package.json`, `package-lock.json`, `CHANGELOG.md` and `.release-please-manifest.json`.
 2. Review and merge that PR after its native **product** check. Version PRs are not auto-merged.
 3. release-please creates a `vX.Y.Z` tag and **draft** GitHub release. The reusable **Release DMG** workflow checks that the tag belongs to main and exactly matches `package.json`.
-4. Re-run checks and build from that exact tagged commit without signing credentials. The application embeds its full release version and source SHA; its macOS short version stays numeric. A separate `macos-release` environment job verifies that embedded SHA, signs the app with Developer ID and a secure timestamp, enables hardened runtime, submits it to Apple and staples its notarization ticket.
+4. Re-run checks and build from that exact tagged commit without signing credentials. The application embeds its full release version and source SHA; its macOS short version stays numeric. A separate `macos-release` environment job uses the current workflow commit for operational signing/packaging tools, verifies the downloaded app’s embedded tag SHA, and signs the app with Developer ID and a secure timestamp, enables hardened runtime, submits it to Apple and staples its notarization ticket.
 5. Package the stapled app, mount the DMG and verify the enclosed app. Sign the DMG itself, submit it to Apple, staple its ticket, verify both its signature and Gatekeeper acceptance, then calculate the final SHA-256. Both the app and DMG carry tickets for offline validation.
 6. Upload `Caelis-Bot-X.Y.Z-macos-arm64.dmg` and `.dmg.sha256`. Only after all signature, notarization, Gatekeeper and checksum gates succeed is the draft published. Stable tags become GitHub's latest release; tags containing a prerelease suffix stay prereleases.
 
@@ -38,7 +38,7 @@ A failed build remains a draft. Published release assets are never overwritten b
 gh workflow run release.yml --repo caelis-labs/caelis-bot --ref main -f tag=v0.1.0
 ```
 
-Substitute the failed draft's exact tag. The recovery workflow rejects a tag outside main, a version mismatch or a release that is already published. It can replace incomplete assets **in a draft**. The artifact retains the tagged source even if main has moved.
+Substitute the failed draft's exact tag. The recovery workflow rejects a tag outside main, a version mismatch or a release that is already published. It can replace incomplete assets **in a draft**. The app retains the tagged source even if main has moved. Recovery can apply a reviewed fix to signing/packaging tools from the immutable workflow commit without rebuilding app code from main or moving the release tag. Packaging checks the app version against the requested tag; the credential-free build job checks that tag against its own package.json.
 
 For the v0.1.0 promotion, set `prerelease` to `false` while retaining the prerelease versioning strategy; it promotes the current preview to its stable version. Keep version/package/changelog changes in the release-please version PR. Do not hand-edit published tags or bump the manifest independently.
 
@@ -79,7 +79,7 @@ gh secret set APPLE_NOTARY_PASSWORD --repo caelis-labs/caelis-bot --env macos-re
 gh variable set APPLE_TEAM_ID --repo caelis-labs/caelis-bot --env macos-release --body 'YOURTEAMID'
 ```
 
-The signing job downloads only the app built by its own preceding job; it does not install npm/Go dependencies or compile with certificate access. `script/sign-release.sh` imports the identity into a temporary keychain with a random password and codesign-only key access. It verifies the pinned public Apple G2 intermediate, stores validated notary credentials in the same temporary keychain, and removes all credentials on exit. An always-run workflow cleanup also handles cancellation. It never changes the user's default/login keychain or system trust policy. The hosted runner is discarded after the job.
+The signing job downloads only the app built by its own preceding job; it does not install npm/Go dependencies or compile with certificate access. `script/sign-release.sh` imports the identity into a temporary keychain with a random password and codesign-only key access. It verifies the pinned public Apple G2 intermediate, stores validated notary credentials in the same temporary keychain, and removes all credentials on exit. An always-run workflow cleanup also handles cancellation. It temporarily adds only that keychain to the user search list, preserving existing entries; deletion removes the temporary entry. It never changes the default keychain or system trust policy. The hosted runner is discarded after the job.
 
 `script/verify-signature.sh` checks Apple trust, the Developer ID Application certificate OID, team ID, artifact identifier, secure timestamp and (for the app) hardened runtime. The bundle currently contains one executable and no embedded helpers. It needs no hardened-runtime exceptions: WebKit runs out of process. New nested executable code requires an explicit signing plan; `--deep` is used for verification, never signing.
 
