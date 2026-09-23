@@ -22,6 +22,21 @@ func (s *Session) Snapshot() api.Snapshot {
 	return s.snapshotLocked()
 }
 func (s *Session) Revision() uint64 { s.mu.Lock(); defer s.mu.Unlock(); return s.revision }
+
+// Idle state snapshots may omit the active target. Transcript TurnKey values
+// come from canonical envelopes; retain that identity for presentation and
+// completion hooks only, never to authorize a cancel or approval.
+func observedTurn(v *view) string {
+	if turn := value(v.State.Run.TurnId); turn != "" {
+		return turn
+	}
+	for i := len(v.Items) - 1; i >= 0; i-- {
+		if v.Items[i].TurnKey != "" {
+			return v.Items[i].TurnKey
+		}
+	}
+	return ""
+}
 func (s *Session) WaitSnapshot(ctx context.Context, rev uint64) (api.Snapshot, error) {
 	for {
 		s.mu.Lock()
@@ -46,13 +61,10 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		out.ConnectionIssue = ""
 		out.Phase = "idle"
 	}
-	v := s.state.Views[s.state.Bot.SessionId]
+	v := s.state.Views[s.state.Session.SessionId]
 	if v != nil {
 		out.Items = clone(v.Items)
-		out.CurrentTurn = value(v.State.Run.TurnId)
-		if out.CurrentTurn == "" && len(v.Items) > 0 {
-			out.CurrentTurn = v.Items[len(v.Items)-1].TurnKey
-		}
+		out.CurrentTurn = observedTurn(v)
 		if s.connected && !value(v.State.Run.Active) {
 			switch value(v.State.Run.Status) {
 			case "completed", "failed", "interrupted":
@@ -78,7 +90,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			summary := p.ToolCall.Title
 			details, _ := json.MarshalIndent(p.ToolCall.RawInput, "", "  ")
 			item := api.Approval{ID: approvalID(s.state.InstanceID, sid, a), Title: summary, Action: summary, Description: "Caelis 请求执行授权", Details: string(details), Status: "pending", Choices: []api.Choice{}}
-			if sid != s.state.Bot.SessionId {
+			if sid != s.state.Session.SessionId {
 				item.Description = "独立工作任务请求授权"
 			}
 			for _, o := range p.Options {
@@ -161,15 +173,44 @@ func applyEnvelope(v *view, e wire.Envelope) {
 		return
 	}
 	var update struct {
-		Kind       string                      `json:"sessionUpdate"`
-		Content    struct{ Type, Text string } `json:"content"`
-		MessageID  string                      `json:"messageId"`
-		Title      string                      `json:"title"`
-		ToolCallID string                      `json:"toolCallId"`
-		Status     string                      `json:"status"`
+		Kind       string          `json:"sessionUpdate"`
+		Content    json.RawMessage `json:"content"`
+		MessageID  string          `json:"messageId"`
+		Name       string          `json:"name"`
+		ToolCallID string          `json:"toolCallId"`
+		Status     string          `json:"status"`
 	}
 	if json.Unmarshal(value(e.Update), &update) != nil {
 		return
+	}
+	if update.Kind == "tool_call_update" && update.Name == "PublishArtifact" && update.Status == "completed" {
+		var tool struct {
+			RawOutput json.RawMessage `json:"rawOutput"`
+		}
+		_ = json.Unmarshal(value(e.Update), &tool)
+		var output struct {
+			Resource wire.ApplicationResource `json:"resource"`
+		}
+		// Native resource tools return a text result. Control projects that
+		// JSON text under rawOutput.result; message content is a different
+		// union member from the tool's content array.
+		var raw struct {
+			Result string `json:"result"`
+		}
+		_ = json.Unmarshal(tool.RawOutput, &raw)
+		if json.Unmarshal([]byte(raw.Result), &output) == nil && output.Resource.Id != "" && output.Resource.SessionId == v.State.SessionId {
+			resource := output.Resource
+			id := "resource:" + v.State.SessionId + ":" + resource.Id
+			found := false
+			for _, item := range v.Items {
+				if item.ID == id {
+					found = true
+				}
+			}
+			if !found {
+				v.Items = append(v.Items, api.Item{ID: id, TurnKey: value(e.TurnId), Kind: "tool", Text: "文件已生成", Status: "completed", Artifacts: []api.Artifact{{ID: id, Name: resource.Name}}})
+			}
+		}
 	}
 	kind := ""
 	switch update.Kind {
@@ -179,19 +220,14 @@ func applyEnvelope(v *view, e wire.Envelope) {
 		if e.AgentCommunicationSource != nil {
 			return
 		}
-		// The pinned Host emits Bot configuration as an out-of-turn canonical
-		// user event. It instructs the model, but is not a chat submission.
-		// Use native provenance, never match generated or user-written prose.
-		if value(e.TurnId) == "" && value(e.ActivityId) == "" && strings.HasPrefix(value(e.EventId), "bot-config-") {
-			return
-		}
 		kind = "user"
 	case "agent_message_chunk":
 		kind = "assistant"
 	default:
 		return
 	}
-	if update.Content.Type != "text" || update.Content.Text == "" {
+	var content struct{ Type, Text string }
+	if json.Unmarshal(update.Content, &content) != nil || content.Type != "text" || content.Text == "" {
 		return
 	}
 	turn := value(e.TurnId)
@@ -204,11 +240,11 @@ func applyEnvelope(v *view, e wire.Envelope) {
 	}
 	for i := len(v.Items) - 1; i >= 0; i-- {
 		if v.Items[i].ID == id {
-			v.Items[i].Text += update.Content.Text
+			v.Items[i].Text += content.Text
 			return
 		}
 	}
-	v.Items = append(v.Items, api.Item{ID: id, TurnKey: turn, Kind: kind, Text: update.Content.Text, Status: "completed"})
+	v.Items = append(v.Items, api.Item{ID: id, TurnKey: turn, Kind: kind, Text: content.Text, Status: "completed"})
 }
 func (s *Session) ensureStreamLocked(sid string) {
 	if s.streams[sid] || s.ctx == nil || s.closed {
@@ -368,116 +404,129 @@ func (s *Session) refresh(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	c := s.client
-	life := s.state.Client
 	connected := s.connected
+	life := s.state.Connection
+	sid := s.state.Session.SessionId
 	s.mu.Unlock()
 	if c == nil || !connected {
 		if e := s.connect(ctx); e != nil {
 			return e
 		}
 		s.mu.Lock()
+		c = s.client
+		life = s.state.Connection
+		sid = s.state.Session.SessionId
 		s.connected = true
 		s.issue = ""
-		c = s.client
-		life = s.state.Client
 		s.mu.Unlock()
 	}
 	info, e := initialize(ctx, c)
 	if e != nil {
 		return e
 	}
-	if value(info.InstanceId) != s.state.InstanceID || value(info.StoreId) != s.state.StoreID {
-		return errors.New("Caelis Host 已变化，正在重新核对绑定")
+	s.mu.Lock()
+	same := value(info.InstanceId) == s.state.InstanceID && value(info.StoreId) == s.state.StoreID
+	s.mu.Unlock()
+	if !same {
+		return errors.New("Caelis Host 已变化，正在核对绑定")
 	}
 	if !life.ExpiresAt.After(time.Now().Add(3 * time.Minute)) {
-		var renewed wire.BotClient
-		if e = c.json(ctx, "POST", s.botPath("/client/renew"), struct{}{}, &renewed, "", ""); e != nil {
+		var renewed wire.ApplicationConnection
+		if e = c.json(ctx, "POST", "/application/connection/renew", struct{}{}, &renewed, "", ""); e != nil {
 			return e
 		}
+		if renewed.ConnectionId != life.ConnectionId || renewed.ApplicationId != life.ApplicationId || renewed.PrincipalId != life.PrincipalId || renewed.Revoked {
+			return errors.New("Caelis 续租绑定不匹配")
+		}
 		s.mu.Lock()
-		s.state.Client = renewed
+		s.state.Connection = renewed
 		s.mu.Unlock()
 	}
-	var works []wire.BotWork
-	if e = c.json(ctx, "GET", s.botPath("/work"), nil, &works, "", ""); e != nil {
-		return e
-	}
-	var completions []wire.BotCompletion
-	if e = c.json(ctx, "GET", s.botPath("/completions"), nil, &completions, "", ""); e != nil {
-		return e
-	}
 	s.mu.Lock()
-	s.works = works
-	s.completions = completions
-	s.ensureDesktopStreamLocked()
-	sessions := []string{s.state.Bot.SessionId}
-	for _, w := range works {
-		sessions = append(sessions, w.SessionId)
+	before := s.state.Views[sid]
+	var observed uint64
+	if before != nil {
+		observed = before.Observed
 	}
 	s.mu.Unlock()
-	for _, sid := range sessions {
-		s.mu.Lock()
-		before := s.state.Views[sid]
-		var observed uint64
-		if before != nil {
-			observed = before.Observed
-		}
-		s.mu.Unlock()
-		var state wire.SessionState
-		if e = c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); e != nil {
-			return e
-		}
-		if state.SessionId != sid {
-			return errors.New("工作状态来源不匹配")
-		}
-		s.mu.Lock()
-		v := s.state.Views[sid]
-		if v == nil {
-			v = &view{Items: []api.Item{}, Seen: map[string]bool{}}
-			s.state.Views[sid] = v
-		}
-		// An HTTP response can arrive after a newer SSE lifecycle fact. Do
-		// not move execution back in time; the next poll reconciles approvals.
-		if v == before && v.Observed == observed || before == nil && v.Observed == 0 {
-			v.State = state
-		}
-		s.ensureStreamLocked(sid)
-		s.mu.Unlock()
-	}
-	if e = s.recoverPrompts(ctx); e != nil {
+	var state wire.SessionState
+	if e = c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); e != nil {
 		return e
 	}
-	if e = s.desktopTick(ctx); e != nil {
-		return e
+	if state.SessionId != sid {
+		return errors.New("Caelis 对话状态不匹配")
 	}
 	s.mu.Lock()
+	v := s.state.Views[sid]
+	if v == nil {
+		v = &view{Items: []api.Item{}, Seen: map[string]bool{}}
+		s.state.Views[sid] = v
+	}
+	if v == before && v.Observed == observed || before == nil && v.Observed == 0 {
+		v.State = state
+	}
+	s.ensureStreamLocked(sid)
+	turn := observedTurn(v)
+	finished := turn != "" && !value(v.State.Run.Active) && slices.Contains([]string{"completed", "failed", "interrupted", "cancelled"}, value(v.State.Run.Status)) && s.state.FinishedTurn != turn
+	if finished {
+		s.state.FinishedTurn = turn
+	}
 	e = s.saveLocked()
 	s.bumpLocked()
 	s.mu.Unlock()
-	return e
+	if e != nil {
+		return e
+	}
+	if finished && s.tools != nil && s.tools.FinishTurn != nil {
+		s.tools.FinishTurn()
+	}
+	if e = s.refreshWorkers(ctx, c); e != nil {
+		return e
+	}
+	if e = s.recoverConfigurations(ctx); e != nil {
+		return e
+	}
+	return s.recoverOperations(ctx)
 }
-func (s *Session) recoverPrompts(ctx context.Context) error {
+
+func (s *Session) recoverOperations(ctx context.Context) error {
 	s.mu.Lock()
 	ops := clone(s.state.Operations)
+	c := s.client
 	s.mu.Unlock()
 	for id, j := range ops {
-		if j.Outcome != "unknown" || !strings.HasSuffix(j.Path, "/prompt") {
+		if j.Outcome != "unknown" || !strings.HasPrefix(j.Path, "/application/") {
 			continue
 		}
-		var src wire.BotRequestSource
-		e := s.client.json(ctx, "GET", s.botPath("/requests/")+idPath(id), nil, &src, "", "")
+		var op wire.ApplicationOperation
+		e := c.json(ctx, "GET", "/application/operations/"+idPath(id), nil, &op, "", "")
 		if e != nil {
+			if isRemoteStatus(e, 404) {
+				continue
+			}
+			return e
+		}
+		if op.OperationId != id || op.Result == nil || op.Result.OperationId != id || op.Result.Outcome != op.Outcome {
+			return errors.New("Caelis 操作恢复回执不匹配")
+		}
+		if !slices.Contains([]wire.Outcome{"accepted", "committed", "rejected", "conflicted"}, op.Outcome) {
 			continue
 		}
-		if src.OperationId != id || src.BotId != s.state.Bot.Id || src.Id == "" || src.Execution.InstanceId == "" || value(src.ClientId) != s.state.Client.Id || src.Execution.RunId == "" || src.Execution.HandleId == "" || src.Execution.TurnId == "" || src.Execution.SessionId != s.state.Bot.SessionId || src.PrincipalId != s.state.PrincipalID {
-			continue
+		j.Outcome = string(op.Outcome)
+		j.Body = nil
+		if op.Result.Resource != nil {
+			j.Resource = value(op.Result.Resource.Ref)
+		}
+		if j.Path == "/application/sessions" && value(op.Result.SessionId) != "" {
+			j.Resource = value(op.Result.SessionId)
 		}
 		s.mu.Lock()
-		j.Outcome = "accepted"
-		j.Body = nil
 		s.state.Operations[id] = j
-		s.state.LastReceipt = api.Receipt{ID: id, Outcome: "accepted"}
+		if j.Path == "/application/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" {
+			s.state.LastReceipt = api.Receipt{ID: id, Outcome: productOutcome(op.Outcome)}
+		}
 		e = s.saveLocked()
+		s.bumpLocked()
 		s.mu.Unlock()
 		if e != nil {
 			return e

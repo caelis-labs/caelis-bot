@@ -1,8 +1,8 @@
 # 后端与宿主能力契约
 
 2026-09-23。这是本产品内部 Go 契约，不是新的公共 wire 协议。
-Codex 已接通统一产品层；Caelis factory 保留，但新通用协议未接入时禁止执行，
-不回退到旧 Bot Mode。历史协议见[接入说明](caelis-integration.md)。Windows 尚未实现。
+Codex 与 Caelis 均接入统一产品层；Caelis 通用协议已通过隔离 Host 验收，真实模型待验证。
+不回退到旧 Bot Mode。公开协议见[接入说明](caelis-integration.md)。Windows 尚未实现.
 
 ## 已落实的依赖与所有权
 
@@ -20,10 +20,11 @@ macOS / 未来 Windows 入口
 - `app.Host` 注入文件选择结果解析/消费、打开 URL/产物、移入废纸篓、角色动作、通知和
   状态展示。系统操作不携带原生任务控制权。隐藏与关闭窗口均不调用 `Application.Close`。
 - `Application.Start` 在原生窗口准备好后执行：统一装配 `bot` 工具/提醒和 `tasks` 账本/报告，
-  再异步连接 adapter。Codex 使用私有 MCP；未来 callback 与 MCP 共用应用工具业务。
-  Caelis 新协议尚未接入，连接明确失败，不创建旧 Bot、绑定 DesktopEffects 或派发旧计划。
+  再异步连接 adapter。Codex 使用私有 MCP；Caelis 公开 callback 使用相同应用工具业务，
+  保留可信来源、配置 revision、工具版本和原生 invocation 身份。缺少协议能力时拒绝连接。
 - `Application.Close` 只用于明确退出，幂等执行一次：取消连接/观察和提醒，调用 adapter
-  清理自有工作，再回收工具连接、等待后台 goroutine。共享服务不因此被整个关闭。
+  按 provider 执行既有退出策略，再回收工具连接、等待后台 goroutine。Caelis 仅 detach，
+  不取消 native worker、不撤销租约、不关闭共享 Host；取消工作需显式操作。
 - `internal/botpolicy` 定义固定秘书/工作角色、九项逐一允许的本地工具及工具发现指引，
   由宿主注入 adapter。MCP 与原生审批字段仍由 adapter 翻译；角色不取代执行权限。
 - `internal/localipc` 隔离本地传输。macOS 仍使用短路径、私有目录与 0600 Unix socket，
@@ -48,10 +49,10 @@ Go 定义在 `internal/backend/api/contract.go`、`capabilities.go`、`tasks.go`
 | `BotToolBinder` | 接受宿主角色、工具目录/handler、Notebook 路径与刷新回调、私有传输及逐工具允许列表 | 必需；禁止全局/server 默认放行 |
 | `WorkRuntime` | 适配 native 执行、归属、权限、请求回执与原生状态，不分配产品目录/配额 | 必需；每次调用仍受 native admission 约束 |
 | `ReportSubmitter` | 空闲时提交应用通知，不把报告提升成新的用户授权 | 必需；不负责选择何时汇报 |
-| `ApplicationTools` | 应用工具目录及共享业务回调，不能直接暴露给 renderer | 宿主注入；当前走 MCP，通用 callback 来源/租约待新协议 |
+| `ApplicationTools` | 应用工具目录及共享业务回调，不能直接暴露给 renderer | 宿主注入；Codex MCP / Caelis 公开 callback，工具业务共用 |
 | `TaskProvider` / `TaskReporter` | 应用 `internal/tasks` 的工具入口和有限报告调度 | 由统一产品层实现，adapter 不再持有产品报告循环 |
 | `ControlCompanion` | 历史 Caelis 专用 owner 接口 | 桌面装配已不消费，不能替代新端口；随旧 adapter 清理 |
-| `PresentationAcknowledger` | 对当前报告的明确用户呈现确认；读取/OS 通知不是 ack | 可选，Caelis 已实现 |
+| `ApplicationCapabilityProvider` / `BackgroundRuntime` | 声明应用能力，用户授权计划后使用原生后台 grant；计时不伪装用户消息 | Caelis 实现；实际能力仍须握手 |
 | `ExecutionProvider` | 当前模型目录、effort/速度选择、审批选项及保存；先校验和持久化再生效 | 可选；缺失时报不可用；审批模式名称、危险提示和默认值来自 provider |
 | `RuntimeConfigurator` | 验证连接、阻止忙碌/待审批/未知结果时替换，保存后才启用 | 可选；Caelis 与跨 provider 切换检测后保存，下次启动生效；不热替换 owner |
 | `Authenticator` | 后端确实需要时启动/取消登录 | 可选；Caelis Host 认证不必伪装成 Codex 网页登录 |
@@ -61,8 +62,8 @@ Go 定义在 `internal/backend/api/contract.go`、`capabilities.go`、`tasks.go`
 | `DiagnosticSource` | adapter 白名单构造的诊断事实 | 可选；禁止日志、正文、参数、token 和私有路径 |
 
 接口实现表示适配器具备此操作；具体时刻能否操作仍以快照、授权与原生握手为准。
-类型断言不是权限证明，也不代替真实后端能力协商。Caelis 暂留拒绝调用的端口以保持设置窗口可用；
-连接与激活明确不可用，这些方法不表示新协议已实现。
+类型断言不是权限证明，也不代替真实后端能力协商。Caelis 只在六项通用应用能力和模型配置
+均就绪时可激活；旧模式不兼容、不迁移执行、不删除旧文件。
 
 模型控制保留 `ExecutionSettings` 产品 DTO，但公共校验只约束输入大小/结构。Codex 自己
 验证 `auto/ask/read-only/full-access`，并在连接前拒绝不认识的策略；不能把未知值当默认自动模式。
@@ -85,17 +86,17 @@ Notebook 使用应用根下的 `Notebook/`，Memory 使用 `personal/`；名字/
 契约见 `internal/backend/api/personal.go`，实现与限制见[个人空间](personal-memory.md)。
 跨后端设置检测后原子保存，下次启动生效；不能把旧请求、凭据或 native ID 自动投递给它。
 
-## Caelis 历史公共能力（当前桌面已禁用）
+## Caelis 通用应用能力
 
-`internal/backend/caelis` 只使用公开 HTTP/SSE，协议固定在 `protocol/caelis`。
-Control 拥有 Bot/来源/工作归属、受限工作目录、执行目标、审批、有限汇报和提醒授权；
-Bot 原生层拥有 scoped credential、独立观察、桌面 effect、通知和计时；renderer 只呈现。
-主 Bot 使用自身私有文件能力；不恢复旧 notebook 专用工具限制。
+`internal/backend/caelis` 使用固定公开 HTTP/SSE。Core 拥有执行、审批、会话历史、配置 revision、
+原生文件/命令、资源和后台授权；应用持有 Bot 身份、Notebook/Memory、计划、任务目录和报告。
+主会话的 CWD 显式绑定 Notebook；worker 使用产品分配的独立目录，不继承秘书 skill。
+模型、effort、tier、指令与工具版本可在同一 Turn 的下一请求生效；已发出请求不混用新旧目录。
+权限和目录仍在创建时确定，当前使用普通 workspace-write/manual 策略，不宣称强同用户进程隔离。
 
-工作工具由 Control 绑定真实用户/提醒来源，adapter 不能从 prose/assignment 生成授权。
-审批保存所有原生选项与精确当前 target；后端未确认的操作保留 unknown。
-执行网络关闭，工作区隔离，原生审批不能扩大强制上限。明确退出只撤销自己的客户端，
-不能关闭共享 Host。路由、证据和未完成的异常恢复边界见[接入说明](caelis-integration.md)。
+未知结果保留 operation ID，通过公开回执恢复；配置回执和实际 last_request revision 分开。
+资源只通过公开上传/下载接口传输并核对摘要；可点击下载项来自原生 PublishArtifact 输出。
+实现范围、B01–B12 证据和剩余契约问题见[联调报告](caelis-application-acceptance.md)。
 
 ## 后续独立平台工作
 
@@ -107,7 +108,7 @@ Windows ACL、原子替换或 WebView2 实现；不为收敛边界提前加入�
 
 ## 用户专用 Runtime Setup
 
-以下安装/账号管理实现保留；Caelis 执行兼容性和激活在通用协议接通前统一拒绝。
+以下安装/账号管理实现保留；Caelis 执行与激活根据当前 Host 的通用应用能力协商。
 旧 Bot 专属执行配置不是新协议的兼容承诺。
 
 `internal/backend/api/setup.go` 定义首次引导与设置复用的能力；`internal/app/setup.go`

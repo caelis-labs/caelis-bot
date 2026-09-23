@@ -9,6 +9,8 @@ import (
 	"errors"
 	"io"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,6 +54,12 @@ func (r *Runtime) Definitions() []api.ToolDefinition {
 	b, _ := json.Marshal(toolSpecs())
 	var out []api.ToolDefinition
 	_ = json.Unmarshal(b, &out)
+	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
+		caps := p.ApplicationCapabilities()
+		out = slices.DeleteFunc(out, func(d api.ToolDefinition) bool {
+			return (!caps.WorkerExecution && strings.HasPrefix(d.Name, "bot_task")) || (!caps.ScheduledActivation && d.Name == "bot_reminders")
+		})
+	}
 	return out
 }
 
@@ -65,6 +73,16 @@ func (r *Runtime) CallTool(ctx context.Context, name string, args json.RawMessag
 	r.mu.Unlock()
 	if stopped {
 		return result(nil, errors.New("Bot 已停止"))
+	}
+	available := false
+	for _, d := range r.Definitions() {
+		if d.Name == name {
+			available = true
+			break
+		}
+	}
+	if !available {
+		return result(nil, errors.New("当前运行时不支持此能力"))
 	}
 	if name == "bot_tasks" || name == "bot_task_start" || name == "bot_task_read" || name == "bot_task_send" || name == "bot_task_stop" {
 		return r.callTask(ctx, name, args)
@@ -87,9 +105,20 @@ func (r *Runtime) CallTool(ctx context.Context, name string, args json.RawMessag
 		case "list":
 			return result(r.State(), nil)
 		case "save":
+			if b, ok := r.engine.(api.BackgroundRuntime); ok {
+				raw, _ := json.Marshal(in.Schedule)
+				if e := b.AuthorizeBackground(ctx, in.ID, string(raw)); e != nil {
+					return result(nil, e)
+				}
+			}
 			s, e := r.Upsert(in.Schedule)
 			return result(s, e)
 		case "remove":
+			if b, ok := r.engine.(api.BackgroundRuntime); ok {
+				if e := b.RevokeBackground(ctx, in.ID); e != nil {
+					return result(nil, e)
+				}
+			}
 			return result("已移除", r.Remove(in.ID))
 		}
 	case "bot_gesture":

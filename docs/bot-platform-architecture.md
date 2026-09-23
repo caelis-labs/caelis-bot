@@ -3,7 +3,7 @@
 日期：2026-09-23。状态：**产品层基础已实现；完整闭环仍在实施**。
 
 本提案按本轮用户决定调整职责归属。身份、工具、任务目录/账本/报告和提醒已由本应用持有；
-Codex 已适配，Caelis 通用协议待并行实现。Notebook/Memory 首片已实现，见[个人空间](personal-memory.md)；完整文件交付与新调度模型仍是目标。
+Codex 已适配，Caelis 通用协议已完成 [隔离 Host 联调](caelis-application-acceptance.md)，真实模型待验。Notebook/Memory 首片已实现，见[个人空间](personal-memory.md)；完整文件交付与新调度模型仍是目标。
 现有实现见 [architecture.md](architecture.md)，不能将本文整体作为已发布功能。
 它取代上一轮可用性建议中“个人记忆可后置”及继续扩充 Caelis 专用 Bot 接口的方向。
 
@@ -268,7 +268,7 @@ Bot 持有统一 `ArtifactStore`：输入与输出用不透明句柄关联，不
    普通 CLI/TUI、模型登录、Control 会话、审批与 Workspace Memory 必须保留。
 2. Bot 先抽出 Codex 的产品任务、工具和调度，同一应用层再消费 Caelis 通用能力。
    保持原生审批目标、沙箱上限和未知结果语义，不新建一套模型执行循环。
-3. 桌面装配已禁止调用旧 Caelis Bot Mode；新协议未接入时明确不可用，保留设置入口。
+3. 桌面装配已禁止调用旧 Caelis Bot Mode；新协议按能力协商启用，缺少能力时保留设置入口。
    不偷偷创建旧 Bot、复制旧计划、切换 Codex 或修改 Caelis 用户数据。
 4. 现有 Codex 任务绑定继续使用，产品账本一次性接收其句柄/报告回执；重复请求不再建工作，
    不重复报告。共享身份和提醒保存在 Bot 自己的目录，提醒与在途工作继续绑定来源 Runtime。
@@ -281,7 +281,7 @@ Core 交接与审计标准见 [Caelis 重构 Prompt](caelis-core-rebuild-handoff
 
 ## 9. 可独立提交的实施切片
 
-每片内可按契约、实现、真实联调继续拆 commit。B 的产品层基础已实现，Caelis 实机联调待 A；其他完整验收仍待办，不表示已具备发布资格。
+每片内可按契约、实现、真实联调继续拆 commit。B 的产品层基础已实现，Caelis 隔离 Host 联调已完成，真实模型与其他完整验收仍待办，不表示已具备发布资格。
 
 | 顺序 / 建议提交主题 | 仓库与落点 | 交付与验收 | 依赖 |
 | --- | --- | --- | --- |

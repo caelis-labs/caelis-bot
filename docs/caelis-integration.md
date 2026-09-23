@@ -1,45 +1,36 @@
 # Caelis 接入与运行时管理
 
-2026-09-23 状态更新：**下文为旧 Bot Mode 协议及历史验证记录，当前桌面已禁用此执行路径。**
-新架构由 Bot 持有产品层，Caelis 提供通用应用执行。新协议未接通前设置明确提示不可用，
-不自动创建旧 Bot、不回退 Codex、不迁移或删除用户旧数据。旧 Bot Mode 不要求兼容。
-实施与验收以 [Caelis 重构交接](caelis-core-rebuild-handoff.md) 为准。
+2026-09-23：Bot 已接通 Caelis 通用应用运行时，固定源码基线为
+`4a3c05964d6d240ec55414e189205930588ef099`。使用公开 HTTP/SSE 与生成的 Go wire，
+不导入兄弟仓库、不恢复旧 Bot Mode。已通过隔离 Host 的确定性联调以及 MiMo / GPT-6 Luna 真实模型验收（含 Fast）；
+**原生 GUI 操作和发行安装仍待验收**。最新证据见 [真实模型报告](caelis-live-acceptance.md)，
+早期确定性 B01–B12 见 [联调报告](caelis-application-acceptance.md)。
 
-旧接入使用公开 HTTP/SSE 独立 Control Host；不打包 Caelis、不导入兄弟仓库。
-以下能力/步骤不表示新协议已就绪。
+## 基线与发现
 
-## 接入基线
+`protocol/caelis/manifest.json` 固定公开 OpenAPI、wire 哈希和源码提交。
+运行时通过 `/initialize` 协商 protocol 1、API v1、`caelis.control.envelope/v1`，以及：
 
-`protocol/caelis/manifest.json` 固定 Caelis 提交
-`6ede951f3d383e131cf71b54b3573df401407e38`，以及公开 OpenAPI 和 wire 文件哈希。
-此基线在交接时仅为本地提交，**已安装的 0.60.1 不包含这轮 Bot 能力**；
-安装最新版成功不等于兼容，仍须通过协议能力检测。
+- `application-runtime-v1`
+- `application-hot-configuration-v1`
+- `application-native-execution-v1`
+- `application-workspace-binding-v1`
+- `application-background-activation-v1`
+- `application-resource-transfer-v1`
 
-握手要求 protocol 1、API v1、`caelis.control.envelope/v1`，以及：
-`bot-mode-v1`、`bot-private-files-v1`、`bot-managed-work-v1`、
-`bot-desktop-actions-v1`、`bot-reminder-grants-v1`、`bot-text-results-v1`。
-图片另协商 `bot-image-input-v1`，并受模型能力限制。
+CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切换，保留安装、更新和服务管理入口；
+不静默换用 Codex 或旧 Bot。0.60.1 不包含此基线；安装成功也不代表运行中的共享 Host 已更新。
 
 ## 使用入口
 
-1. Bot 的「设置 → 运行时」打开 Caelis 管理页；标签仅选择管理对象，不改变当前运行时。
-2. 自动发现本机安装；也可选择已有程序或在「更多管理」填写可执行文件完整路径。
-3. 检测读取 CLI 版本并校验正在运行的 Host 能力。未安装时可点击「安装 Caelis」，调用官方 HTTPS 安装脚本。
-   「检查更新」「更新」复用 `caelis update --check` / `caelis update`。
-4. 数据目录默认为 `~/.caelis`；自建、开发版或隔离环境可指定完整路径。
-   「启动服务」复用 `caelis service status/start`；已运行的共享 Host 不由 Bot 替换或重启。
-5. 使用已有模型，或在「连接新模型」中配置；也可使用 Caelis 官方 `/connect`。凭据直接交给
-   Caelis 保存，Bot 不持久化模型密钥。模型就绪后点击明确的「切换至 Caelis」，确认后重启生效。
-   进行中工作、审批、未知结果会阻止切换；两个运行时的对话与配置独立保留。
-6. 协议不兼容时「切换至 Caelis」置灰，悬停显示原因，辅助功能也可读取；管理与检查更新仍可用。
-   2026-09-23 核实的最新正式版仍为 0.60.1，所需 Bot 能力在其发布后合入；需兼容的独立开发
-   构建或后续发行版，不能把「已是最新版」当作可切换的依据。
+1. 「设置 → 运行时」选择要管理的 Runtime；标签不切换当前执行后端。
+2. 自动发现本机安装，也可选择已有二进制和独立数据目录。安装、更新、服务启动只在明确点击后
+   调用 Caelis 官方安装或 `update`、`service` 能力；不捆绑 Runtime，不接管已经运行的共享 Host。
+3. 使用已有模型，或通过「连接新模型」配置。模型凭据由 Caelis 保存；Bot 不持久化模型密钥。
+4. 能力与模型就绪后，点击「切换至 Caelis」，保存后重启。进行中的工作、审批或未知结果会阻止切换。
+   对话、计划和原生执行记录按 Runtime 隔离；产品身份、Notebook 与 Memory 仍共享。
 
-服务不可用、旧版本缺能力、目录身份不匹配均明确报错，不能静默回退到 Codex。
-Caelis 更新二进制后，如共享 Host 仍运行旧版本，需使用 Caelis 自身的服务流程完成重启。
-安装、升级和服务启动都由用户明确点击；Bot 启动不会静默安装运行时。
-
-`runtime.json` 示例（不含凭据）：
+开发联调使用独立 `CAELIS_BOT_DATA_DIR`，其中的 `runtime.json` 可配置：
 
 ```json
 {
@@ -50,90 +41,88 @@ Caelis 更新二进制后，如共享 Host 仍运行旧版本，需使用 Caelis
 }
 ```
 
-模型与权限页面读取 Caelis 模型目录和 Bot 专属配置；完整替换配置时保留未修改开关，
-携带 revision/If-Match。effort/Fast 只展示当前模型支持的值；Caelis 的工作权限固定为
-受限工作区，不能套用 Codex 的完全访问或 auto_review。
+不要通过更换 Store 或删除绑定来绕过未确认的操作。原生启动仍使用
+`script/build_and_run.sh`；本轮协议测试没有启动日常 Bot 或修改日常 Store。
 
-## 所有权与能力映射
+## 所有权与公开接口
 
-| 产品操作 | Caelis owner / 映射 |
+| 产品能力 | 应用责任与 Runtime 映射 |
 | --- | --- |
-| 持续 Bot 身份 | Control 创建 Bot，绑定 store/principal/Bot/client；普通 Session 不能代替 |
-| 聊天、中断 | prompt 稳定 operation ID；中断使用完整原生执行目标；主 Bot 不支持 steer |
-| 专业工作 | Control 内置 ListWork/ReadWork/CreateWork/ContinueWork/SteerWork/InterruptWork；adapter 仅观察所属工作，不从 prose 补发 |
-| 原生审批 | 每个工作独立状态与 SSE；原始目标和全部原生选项映射到 opaque UI handle；提交前重新核对 |
-| 完成汇报 | Control 唯一触发，adapter 不安装 Codex TaskReporter；通知按 completion ID 去重 |
-| 呈现确认 | 用户明确收起已完成气泡时，对该报告对应的 completion ack；GET/读取/OS 通知不等于 ack |
-| 桌面动作 | 原生 Go 实现 clock/reminders/gesture；持久化 journal → claim 一次 → effect → receipt |
-| 提醒 | Control 授权 grant；Bot 计时并只提交 grant/version/due；不再本地 Submit prompt |
-| 模型设置 | Bot 专属 update + 真实目录；不用普通 Session 设置冒充成功 |
-| 附件 | 最多四张、每张 8 MiB 的受支持图片；文本正文 256 KiB；无任意文件上传或产物下载 |
-| 明确退出 | scoped client/exit 撤销当前 activation 并取消自有工作；不 shutdown/kill 共享 Host |
+| 持续身份、Notebook、Memory | Bot 持有 Markdown、索引、skill 和 recall/remember；常驻应用会话的 CWD 显式绑定 Notebook |
+| 原生文件与命令 | Caelis `workspace-write` 的 Read/Write/Patch/Glob/Grep/RunCommand；不增加 Bot 专用文件工具 |
+| 聊天与观察 | `/application/sessions`、`/{id}/prompt`；canonical Session State、reconnect/SSE；报告使用 `application_summary` |
+| 专业任务 | `internal/tasks` 分配目录、账本和有限汇报；adapter 将 WorkRuntime 映射为独立应用会话，不继承秘书 skill/Notebook 指令 |
+| 应用工具 | Bot 注入目录及 handler；Caelis 返回可信 callback；按 opaque call ID、native item、配置 revision、tools_version 路由 |
+| 后台提醒 | Bot 保存计划并计时；用户创建/修改时获取 background grant，激活使用 `authorized_background`；一条计划对应一次激活 |
+| 中断与审批 | canonical 原生 target 与完整选择；提交审批前重新核对当前 head，不用 prose 推断授权 |
+| 上传 | 图片走原生 image part；其他文件上传资源后提供 resource ID，模型通过 ReadResource 使用真实文件；单文件 8 MiB，最多四个 |
+| 下载 | PublishArtifact 原生结果投影为 opaque 下载项；公开 content 接口校验 ID、归属、size、SHA-256，再写应用下载缓存 |
+| 关闭 | 关闭 UI 不影响执行；adapter Close 仅停止自身观察和回调处理，不撤销连接、不取消 worker、不关闭共享 Host |
 
-`api.ControlCompanion` 与 `api.DesktopEffects` 是 Caelis 的原生装配边界；
-Codex 继续使用 `BotToolBinder + TaskProvider + TaskReporter`。Caelis 不注册第二套 MCP，
-不启动 Codex 本地提醒唤醒循环，也不把 Host token 或本地 IPC 命令提供给模型。
+Bot 的应用工具经过同一业务层：Codex 使用私有 MCP，Caelis 使用公开 callback；不复制一套 Bot 产品实现到 Core。
+本地凭据使用既有私有文件权限，不把“同用户进程无法读取凭据”作为 macOS 原生工具可用的门槛。
+这不是强进程隔离；实际文件与命令权限由普通 Caelis 执行策略决定。
 
-## 持久化与恢复
+## 实时配置与恢复
 
-Bot 应用数据目录的 `providers/caelis` 保存本后端的 binding、execution 和桌面记录，
-不会复制 Codex 根目录下的 conversation/Work/提醒。草稿、角色与界面偏好仍由产品管理。
-凭据独立存于 `credential.json`：本机用户拥有的 0700 目录、0600 文件，拒绝符号链接及
-宽松权限；当前使用受保护文件，**并非 macOS Keychain**。Windows ACL 尚未实现，拒绝降级。
-原生读取 Caelis discovery/auth.token；Host Bearer 仅用于初始化、创建和注册；日常调用用 scoped Bearer。
-不把凭据、原生执行目标、正文或参数加入 renderer 诊断。
+`GET/POST /application/sessions/{id}/configuration` 使用稳定 operation ID、decimal-string
+`expected_configuration_revision` 和局部 patch。模型、effort、service tier、指令、工具目录可在忙碌时保存，
+同一 Turn 的下一个尚未发出的请求采用新版本；已发出的请求及其回调保持原版本。
+`revision` 是期望配置，`last_request.revision` 是已实际用于模型请求的版本。
 
-未知 prompt 查询永久 request source，确认完整执行目标后恢复接受状态，绝不自动重发。
-未知 reminder fire 通过原生 occurrence 核对队列准入，不能把 claimed 状态说成执行完成。
-桌面 claim 回复丢失时不重领、不执行；effect 已执行且 receipt 已落盘时仅重送相同 receipt。
-SSE 完整替换先暂存、结束后一次应用，游标按不透明字符串保存；HTTP 状态轮询不能覆盖
-请求发出之后到达的新 SSE 事实。Host 重启重新核对 store/principal、更新 activation 并恢复观察。
-不同 store/principal 不能自动挪用旧身份。
+同值更新不递增 revision；Notebook 普通写入不更新配置、不强制 compact。
+字段缺省保留；instructions/effort/tier 的 `""` 与 tools/native_tools 的 `[]` 按公开契约清空。
+adapter 用 map 表达显式空数组，避免生成类型的 `omitempty` 把清空变成未提供。
+更新丢响应通过 `/application/configuration-operations/{operation_id}` 取精确历史回执，再读取当前期望配置；
+不能用旧回执覆盖后来的配置。目录、执行/继承/权限仍在创建时确定，目前产品暴露 `workspace-write` + `manual`。
 
-明确限制：创建/注册回执完全丢失且没有可查凭据时保留未知，需要人工核对与明确重新授权；
-没有提供自动重新注册按钮。模型配置、审批、中断或呈现 ack 的未知回执不自动重放，
-当前可能保留待核对状态，不能通过删记录或换 ID 绕过。历史恢复窗口为最近 64 个 turns，
-工作/完成列表尚无分页归档。尚不支持接管已有项目或其他 App 的任务。
+原生记录保存在 `providers/caelis/application.json` 和独立的 `application-credential.json`。
+旧 Bot Mode 的 `binding.json` 等文件原样保留，不迁移到新协议。注册前持久化应用凭据与操作 ID，
+此后执行请求使用应用 credential，Host credential 仅用于 enrollment、发现与显式模型配置。
 
-## 验证命令与证据
+所有 mutation 先持久化 intent；未知 prompt/create 查询原操作，不改 ID 重发。
+worker 启动分阶段保存创建配置、原授权和 prompt，重启后可在确认前一步回执后继续；
+已经发出的步骤只读回执。callback claim 丢响应不执行 effect；effect 已记账只重送相同 result；
+缺失旧 handler 时明确失败，不把旧调用交给同名新版工具。
+SSE replacement 完成后原子切换，游标保持不透明；轮询不能覆盖更新的 SSE 事实。
+
+## 复现
 
 ```bash
 cd /Users/xueyongzhi/WorkDir/caelis-labs/caelis-bot
 GOWORK=off make check
 GOWORK=off make smoke
 GOWORK=off make build
-CAELIS_BOT_TEST_BINARY="$PWD/.cache/caelis-integration" GOWORK=off make smoke-caelis
+CAELIS_BOT_TEST_BINARY=/tmp/caelis-application-candidate-20260923/caelis GOWORK=off make smoke-caelis
 ```
 
-`smoke-caelis` 使用单独构建的基线二进制、临时数据目录和可控模型服务，经过真实
-HTTP/SSE/Control/工作沙箱，验证聊天、两个模型创建的独立工作、原生审批、秘书报告与 ack、
-同一工作继续执行、工作等待审批时主 Bot 可用、动作 claim/receipt、提醒 grant/fire、
-Host 重启重新激活且不重放、客户端退出后共享 Host 存活。测试不读取日常模型凭据。
-协议夹具另覆盖未知请求重启不重发、HTTP 状态与 typed outcome、过期审批、丢失 claim/receipt、
-原子状态替换及乱序响应。真实模型与原生 UI 的证据单独记录于 `preparation-status.md`。
+`smoke-caelis` 创建临时 HOME、Store、Notebook、worker 目录与合成模型服务，通过真实 Host 的公开接口
+运行原生文件/命令。测试不读取日常模型凭据，完成后关闭自己创建的 Host。`make smoke` 的 Codex 部分
+仅做已安装 CLI 的握手，不调用模型。
 
-真实模型验收单独启用，不进入日常 CI。先用 Caelis 官方 `/connect` 在隔离数据目录配置
-模型并启动该目录的 Host，再指定该目录与模型名：
+真实模型验收另行显式启用。先在隔离 Store 配置模型认证，再运行（指定 binary 时由夹具启动/停止测试 Host）：
 
 ```bash
 CAELIS_BOT_LIVE_STORE=/absolute/path/to/isolated-store \
-CAELIS_BOT_LIVE_MODEL=mimo-v2.6-flash \
+CAELIS_BOT_LIVE_BINARY=/absolute/path/to/candidate-caelis \
+CAELIS_BOT_LIVE_MODEL=xiaomi/mimo-v2.6-flash \
+CAELIS_BOT_LIVE_ALTERNATE_MODEL=openai-codex/gpt-6-luna \
+CAELIS_BOT_LIVE_EFFORT=low \
+CAELIS_BOT_LIVE_FAST_MODEL=openai-codex/gpt-6-luna \
 GOWORK=off make smoke-caelis-live
 ```
 
-这会产生真实模型调用费用。测试创建自己的 Bot/client，仅使用合成消息与独立工作目录；
-只批准两个精确匹配的 `printf` 验收命令，不批准额外命令或永久授权。覆盖真实聊天、两个
-独立工作与报告、同一工作继续执行、桌面 clock/gesture、一次提醒唤醒及 client 退出。
-凭据始终由 Caelis 使用，测试不读取或复制模型密钥，也不停止已运行的共享 Host。
-2026-09-23 已在 `xiaomi/mimo-v2.6-flash` 通过此验收。
+live fixture 检验 Notebook、资源闭环、待审批重连、双 worker、grant、同 Turn 热配置与 Fast。
+会产生模型费用；不复制凭据，不修改日常 Store。Fast selector 使用隔离 Store 已有认证，经公开接口配置。
+缺少 Fast selector 或自管 binary 的路径明确跳过相应项目。详见真实模型报告的复现与边界。
 
-原生 UI 可通过 `CAELIS_BOT_DATA_DIR=/absolute/path/to/test-profile` 启动独立 Bot
-配置，配合 `script/build_and_run.sh --verify`；路径必须为绝对路径。测试 profile 内的
-`runtime.json` 按前述示例指向隔离 Host。不传此环境变量即恢复日常应用目录；
-此入口仅用于开发验收，不迁移用户配置。原生窗口与模型协议测试是两项独立证据。
+## 未完成边界
 
-配置说明与 Control 内部汇报上下文通过原生事件来源过滤，不以正文内容推断消息类型；
-真实助手报告仍正常显示。升级展示缓存时只重建派生消息，不清除身份、未知操作记录或桌面 receipt。
-
-此版本不宣称所有故障组合、任意产物传输、Windows 原生沙箱或发行兼容性均已完成。
-Windows 仍在 macOS 发行后按 `backend-platform-plan.md` 独立适配。
+- 当前基线不支持的配置返回明确 HTTP 400；已验证 Luna priority 正向路径。其他模型仍按能力协商，
+  不因 Luna 通过就宣称全部模型支持 Fast。
+- Core 尚无按上传 operation ID 查资源描述符的公开接口。上传响应完全丢失时 Bot 保留未知上传 intent，
+  不猜 opaque resource ID、不自动重传；需补只读恢复接口或明确支持的恢复契约。
+- 主会话和 worker 暂不支持 active Turn steer；忙碌时继续消息明确拒绝。权限选择不热更新。
+- 未确认的 cancel/approval 仍保留未知，不通过新 ID 自动重试；此类原生命令的完整恢复需要后续专项验收。
+- worker 产物已进入其原生投影，但产品报告尚未汇总成主对话下载项；本轮可点击下载闭环验证的是常驻会话。
+- 暂无接管其他应用任务、已有项目/worktree 选择、资源过期清理或历史分页归档；Windows 原生适配未实施。

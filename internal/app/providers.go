@@ -28,7 +28,7 @@ type factoryResolver func(string) (providerFactory, error)
 func resolveProvider(id string) (providerFactory, error) {
 	if id == "caelis" {
 		return providerFactory{ID: id, Defaults: api.ExecutionSettings{ApprovalMode: "workspace-write"}, Open: func(c providerConfig) (api.Engine, error) {
-			return caelis.New(caelis.Options{Directory: filepath.Dir(c.ConversationFile), Settings: c.Settings, ApplicationOwned: true}), nil
+			return caelis.New(caelis.Options{Directory: filepath.Dir(c.ConversationFile), Settings: c.Settings, Execution: c.Execution}), nil
 		}}, nil
 	}
 	if id != "codex" {

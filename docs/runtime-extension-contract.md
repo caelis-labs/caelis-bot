@@ -1,11 +1,11 @@
 # 通用 Runtime 扩展契约提案
 
-日期：2026-09-23。状态：**待 Caelis/Bot 两侧实现的语义契约，不是现有 wire schema**。
+日期：2026-09-23。状态：**语义设计提案；已实施范围见当前接入契约，不是 wire schema**。
 
 用途：支持任意应用持有自己的产品身份、上下文和工具，再调用 Caelis/Codex 完成受控执行。
 产品归属见 [Bot 平台规划](bot-platform-architecture.md)。当前 Bot 内部端口见
-[backend-contract.md](backend-contract.md)；[caelis-integration.md](caelis-integration.md) 仅记录旧协议。
-旧 Bot Mode 已从桌面执行路径禁用，新 Caelis wire 待并行实现，不要求旧接口兼容。
+[backend-contract.md](backend-contract.md)；[caelis-integration.md](caelis-integration.md) 记录当前固定公开协议。
+新 Caelis wire 已完成隔离 Host 联调，真实模型待验；旧 Bot Mode 不要求兼容。
 接口名称为语义占位，最终 wire 名称由各 Runtime 的公开协议定义，并在发布时固定版本。
 
 ## 1. 所有权
@@ -29,7 +29,7 @@
 | --- | --- | --- |
 | 应用会话作用域 | 创建/列出/恢复/关闭本应用拥有的会话；不可凭 ID 接管别的客户端 | Caelis 有身份与会话基础，需要核对/补齐统一应用作用域 |
 | 显式执行配置 | role/context 版本、工具集、允许根目录、配置继承策略与固定模型选择 | 现有 Bot 专用组装需收敛成通用 profile |
-| 应用工具绑定 | 受限 MCP 或 client-tool callback，真实调用归属、结果回传、取消与恢复 | Codex 已有 Bot MCP；Caelis 新通用契约待做 |
+| 应用工具绑定 | 受限 MCP 或 client-tool callback，真实调用归属、结果回传、取消与恢复 | Codex 已有 Bot MCP；Caelis 公开应用 callback 已接入 |
 | 稳定操作与事件 | 幂等请求、精确 native target、接受/拒绝/未知、恢复查询和事件序列 | 复用现有原生能力，补组合验收，不能回退为文本推断 |
 | 材料/成果 | 受控输入资源、执行侧文件访问、结构化成果和可读字节 | 两侧 Bot 交付路径未完整接通 |
 | 历史与归档 | 分页、已结束工作保留、归档和删除语义分离 | 按各 provider 补足 Bot 所需连续性 |

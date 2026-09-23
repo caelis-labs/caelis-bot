@@ -37,3 +37,11 @@ type WorkState struct {
 type ReportSubmitter interface {
 	SubmitReport(context.Context, Submission) (Receipt, error)
 }
+
+// BackgroundRuntime keeps timer provenance separate from actual user messages.
+// Implementations attest authorization when the user creates/updates a schedule.
+type BackgroundRuntime interface {
+	AuthorizeBackground(context.Context, string, string) error
+	RevokeBackground(context.Context, string) error
+	SubmitBackground(context.Context, Submission, []string) (Receipt, error)
+}

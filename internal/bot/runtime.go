@@ -392,6 +392,11 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			return err
 		}
 	}
+	// This protocol has no background authority. Keep schedules untouched and
+	// never disguise a timer as a user message.
+	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok && !p.ApplicationCapabilities().ScheduledActivation {
+		return nil
+	}
 	r.mu.Lock()
 	notify = r.notify
 	now := r.now()
@@ -432,6 +437,11 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			s.Next = next
 			s.Enabled = !next.IsZero()
 			r.state.Schedules[i] = s
+			// Caelis grants authorize one schedule per native activation. Leave
+			// other due schedules untouched for the next idle tick.
+			if _, ok := r.engine.(api.BackgroundRuntime); ok {
+				break
+			}
 		}
 		if len(ids) > 0 {
 			r.state.Wake = &Wake{Runtime: r.provider, ID: "wake-" + rand.Text(), Prompt: wakePrompt(texts), Messages: texts, ScheduleIDs: ids, Status: "pending"}
@@ -459,7 +469,13 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		return e
 	}
 	r.mu.Unlock()
-	receipt, e := r.engine.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt}, nil)
+	var receipt api.Receipt
+	var e error
+	if b, ok := r.engine.(api.BackgroundRuntime); ok {
+		receipt, e = b.SubmitBackground(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt}, wake.ScheduleIDs)
+	} else {
+		receipt, e = r.engine.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt}, nil)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if e != nil || receipt.Outcome == "unknown" {

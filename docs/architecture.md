@@ -1,7 +1,8 @@
 # Architecture and internal backend contract
 
 Status: application-owned Bot foundation implemented locally; Codex execution connected.
-Caelis generic application protocol is pending; legacy Bot Mode is disabled in desktop assembly.
+Caelis generic application protocol is connected against baseline 4a3c059; legacy Bot Mode stays disabled.
+Isolated Host/native-tool and real-model acceptance pass; native GUI acceptance for this Core baseline remains pending.
 This is not a released interoperability standard.
 
 2026-09-23: [Bot product-host architecture](bot-platform-architecture.md) and the
@@ -22,8 +23,8 @@ not the complete application data directory. The application-only notebook skill
 
 The [capability contract](backend-contract.md) defines provider assembly independently
 of OS hosting. Native adapters own execution bindings, approvals and uncertain receipts.
-The [Caelis integration guide](caelis-integration.md) records the previous protocol and
-historical verification, not readiness of the replacement. Windows remains unimplemented;
+The [Caelis integration guide](caelis-integration.md) records the current public contract and
+[scoped acceptance evidence](caelis-application-acceptance.md). Windows remains unimplemented;
 its future host boundaries are recorded in the [backend/platform plan](backend-platform-plan.md).
 
 The application implements host-only `api.TaskProvider` on top of `api.WorkRuntime`.
@@ -35,7 +36,7 @@ desktop conversations. See [task delegation](task-delegation.md).
 Caelis Bot: menu bar + scalable desktop pet + contextual panels
   -> internal backend contract
      -> Codex adapter -> native Codex App Server (first)
-     -> Caelis adapter -> generic application API (pending; no legacy fallback)
+     -> Caelis adapter -> generic application API (public HTTP/SSE; no legacy fallback)
   -> character behavior -> Three.js -> GLB
 
 Wails / Go: windows, OS integration, process lifetime and byte transport

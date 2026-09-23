@@ -3,7 +3,32 @@
 本项目已从工具链准备阶段推进到 macOS 开发者预览。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
 
-2026-09-23 Notebook 收敛（本地实现，尚未提交/发布）：
+2026-09-23 候选 Core `4a3c059` 真实模型验收（本地改动，未提交/发布）：
+
+- MiMo Notebook、文件交付、审批重连、双 worker 取消/恢复、后台 grant、同 Turn 切换 Luna 与 Fast 通过。
+- 修复空闲头省略活动 Turn target 时，Notebook 完成刷新和 worker 完成身份/结果过滤的问题，补回归及 race。
+- 实际公开回执、摘要、日志和 B01–B12 范围见 [真实模型报告](caelis-live-acceptance.md)。
+- make check、相关 race、smoke、ad-hoc App 构建通过；未启动日常 App，未升级日常安装或合并 Release PR。
+- 用户后续明确授权复制 Codex 认证到独立验收 Store，日常认证文件未修改；未把凭据放进仓库或报告。
+- GUI、发行安装、上传未知回执和 worker 制品主对话交付等限制仍保留，不据此宣称全部产品发行验收完成。
+
+以下为更早的确定性联调记录：
+
+2026-09-23 Caelis 通用应用联调（本地工作树，尚未提交/发布）：
+
+- 固定 Core `3e4675a`、公开 schema/wire；保留既有改动，无私有 sibling import，无旧 Bot Mode fallback。
+- 真实隔离 Host + 合成模型驱动 macOS 原生 Notebook 文件/命令、同 Turn 热配置/revision、旧版回调、
+  两个 worker 的取消/重连、后台 grant/撤销、资源上传/发布/下载及 SHA-256；详见 [B01–B12](caelis-application-acceptance.md)。
+- 修复工具结果 content union 导致下载项遗漏、同时到期提醒的 grant 合并，以及 worker 创建/提交
+  丢响应后的阶段恢复；已确认的资源 payload 不再永久积累在绑定 journal 中。
+- 完成相关 race、`make check`、`make smoke` 和 ad-hoc App 构建；未启动日常 Bot、未修改日常 Store。
+- 本轮未调用真实模型或验证 GUI/Windows。Fast 成功路径、资源上传未知回执查询、worker 产物进入
+  主对话报告等限制见报告；不要把以下旧 Bot Mode 的 MiMo 验收外推到新协议。
+- Developer ID stash 保持独立，本轮没有恢复签名流水线。
+
+以下按时间保留历史检查点；与最新报告冲突时以最新报告为准。
+
+2026-09-23 Notebook 收敛（检查点 `bca03ce`，未发布）：
 
 - 普通 Markdown Notebook：应用生成 INDEX、创建日期目录；MEMORY 是唯一核心记忆，正文不自动裁剪。
 - 应用专属 `caelis-bot-memory` skill 只注入秘书，使用普通文件工具；worker 保持独立目录与指令。

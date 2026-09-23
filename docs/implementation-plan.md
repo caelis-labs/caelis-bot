@@ -13,8 +13,8 @@ Git worktree 和显式任务接管。实现边界见[任务委派](task-delegati
 早期只发行预置内容并支持第三方导入；新增能力遵守 [扩展边界](asset-extensions-plan.md)。
 
 2026-09-23 产品层收敛：任务目录/账本/有限报告从 Codex adapter 移至 `internal/tasks`；
-宿主统一注入角色与工具，身份共享、提醒绑定 Runtime。Caelis 新执行协议待
-[并行重构](caelis-core-rebuild-handoff.md)，旧 Bot Mode 不再兼容。私有 Notebook/Memory 首片已落地（[实现与验证边界](personal-memory.md)），
+宿主统一注入角色与工具，身份共享、提醒绑定 Runtime。Caelis 通用执行已完成
+[基线联调](caelis-application-acceptance.md) 与 [真实模型验收](caelis-live-acceptance.md)；旧 Bot Mode 不再兼容。私有 Notebook/Memory 首片已落地（[实现与验证边界](personal-memory.md)），
 完整切片与发布验收见 [产品宿主规划](bot-platform-architecture.md)。
 
 Notebook 最新方向是普通 Markdown：系统生成 INDEX.md、核心 MEMORY.md、YYYY/MM/DD/ 日期笔记。
@@ -28,7 +28,7 @@ Notebook 最新方向是普通 Markdown：系统生成 INDEX.md、核心 MEMORY.
 3D 表现力与 Desktop/Dock/ActiveWindow 轻量骨架纳入近期主线；独立道具、随机待机和互动同时定义，
 再扩展复杂任务/窗口关联。不再将基础动作与创作工具一并后置，初期以开发者自用和有辨识度的演示验收。
 使用 Wails/Go + React/TypeScript + Three.js；角色资产走 Blender → GLB。
-Codex App Server 为第一个后端；Caelis 旧 Host adapter 已退出桌面路径，等待通用应用接口；历史接入范围见 [接入说明](caelis-integration.md)。协议保留充分能力，用户入口保持克制。
+Codex App Server 为第一个后端；Caelis 已替换为通用应用 adapter；当前接入范围见 [接入说明](caelis-integration.md)。协议保留充分能力，用户入口保持克制。
 
 每个阶段交付可独立验证的增量，不按预计天数承诺。原生透明交互和后端恢复属于需要
 实测的风险点；用结果决定下一步，不以演示截图替代行为验证。
@@ -161,15 +161,13 @@ P2 验收场景应是普通用户的目标，例如“根据这个附件整理�
 
 ## P5 — Caelis adapter
 
-已核对 Caelis 0.60.1 的 HTTP/SSE Control Host：基础产品 API 已存在，但当前 Bot Mode
-只开放聊天/笔记，缺少本产品需要的受限任务委派。按[后端与平台切片](backend-platform-plan.md)
-推进 C0 装配/配置边界、C1 基础 adapter、C2 Caelis Control 委派扩展、C3 完整产品验收。
-C0 首片已落实 `internal/app` 装配/生命周期、具名能力接口、provider 提供的执行选项、
-固定秘书角色和平台 IPC 分层，详见[能力契约](backend-contract.md)。Codex 保留原数据布局；
-跨 provider 切换、稳定 Host 归属和提醒绑定事务留在第二后端启用之前完成。
-两边共用场景契约测试；不以普通工作 Session 冒充 Bot，也不在桌面端复制 Caelis 执行控制。
-基础聊天联调不代表完整接入，工具、审批、附件、工作结果和一次汇报逐项通过后再开放。
-P5 可以在 P2 后随 Caelis 演进，与正式美术并行安排；不要求先重写宿主或角色。
+当前 adapter 已改为通用应用协议，固定 Core `4a3c059`；旧 Bot Mode 不恢复。
+Bot 持有身份、目录、任务账本、提醒与报告，Caelis 持有原生执行、审批和版本化配置。
+隔离 Host + 合成 provider 已完成 Notebook 原生读写、同 Turn 热配置、并行 worker 取消/恢复、
+后台授权及文件上传/下载。完整范围见 [联调报告](caelis-application-acceptance.md)。
+MiMo / Luna（含 Fast）真实模型路径见 [实测报告](caelis-live-acceptance.md)。
+后续按原生 UI、资源未知回执恢复、worker 产物报告分别收尾，不能将协议测试等同发行验收。
+共享装配与跨平台边界见 [能力契约](backend-contract.md)，Windows 保持独立后续适配。
 
 ## 本地开发与交接纪律
 

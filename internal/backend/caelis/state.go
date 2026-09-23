@@ -12,14 +12,15 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
-const currentProjectionVersion = 2
+const currentProjectionVersion = 3
 
 type journal struct {
-	Digest   string          `json:"digest"`
-	Path     string          `json:"path"`
-	Body     json.RawMessage `json:"body"`
-	Outcome  string          `json:"outcome"`
-	Resource string          `json:"resource,omitempty"`
+	Digest   string                 `json:"digest"`
+	Path     string                 `json:"path"`
+	Body     json.RawMessage        `json:"body"`
+	Outcome  string                 `json:"outcome"`
+	Resource string                 `json:"resource,omitempty"`
+	Source   wire.ApplicationSource `json:"source"`
 }
 type view struct {
 	Observed uint64            `json:"-"`
@@ -28,28 +29,37 @@ type view struct {
 	Cursor   string            `json:"cursor"`
 	Seen     map[string]bool   `json:"seen"`
 }
-type actionRecord struct {
-	Call    wire.BotDesktopCall     `json:"call"`
-	Phase   string                  `json:"phase"`
-	Receipt *wire.BotDesktopReceipt `json:"receipt,omitempty"`
+type typedRecord struct {
+	Path    string          `json:"path"`
+	Digest  string          `json:"digest,omitempty"`
+	Body    json.RawMessage `json:"body"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Outcome string          `json:"outcome"`
+}
+type callRecord struct {
+	Call    wire.ApplicationCall        `json:"call"`
+	Phase   string                      `json:"phase"`
+	Receipt *wire.ApplicationCallResult `json:"receipt,omitempty"`
 }
 type binding struct {
-	Version           int                     `json:"version"`
-	ProjectionVersion int                     `json:"projectionVersion"`
-	StoreID           string                  `json:"storeID"`
-	Endpoint          string                  `json:"endpoint"`
-	InstanceID        string                  `json:"instanceID"`
-	PrincipalID       string                  `json:"principalID"`
-	Bot               wire.Bot                `json:"bot"`
-	Client            wire.BotClient          `json:"client"`
-	CreateID          string                  `json:"createID"`
-	RegisterID        string                  `json:"registerID"`
-	Operations        map[string]journal      `json:"operations"`
-	Views             map[string]*view        `json:"views"`
-	Actions           map[string]actionRecord `json:"actions"`
-	DesktopCursor     string                  `json:"desktopCursor"`
-	Notified          map[string]bool         `json:"notified"`
-	LastReceipt       api.Receipt             `json:"lastReceipt"`
+	Version           int                                      `json:"version"`
+	ProjectionVersion int                                      `json:"projectionVersion"`
+	StoreID           string                                   `json:"storeID"`
+	Endpoint          string                                   `json:"endpoint"`
+	InstanceID        string                                   `json:"instanceID"`
+	PrincipalID       string                                   `json:"principalID"`
+	Connection        wire.ApplicationConnection               `json:"connection"`
+	Session           wire.ApplicationBinding                  `json:"session"`
+	CreateID          string                                   `json:"createID"`
+	Operations        map[string]journal                       `json:"operations"`
+	Views             map[string]*view                         `json:"views"`
+	Calls             map[string]callRecord                    `json:"calls"`
+	Typed             map[string]typedRecord                   `json:"typed"`
+	Configurations    map[string]wire.ApplicationConfiguration `json:"configurations"`
+	Workers           map[string]worker                        `json:"workers"`
+	Grants            map[string]grantRecord                   `json:"grants"`
+	FinishedTurn      string                                   `json:"finishedTurn"`
+	LastReceipt       api.Receipt                              `json:"lastReceipt"`
 }
 
 // privateRead refuses redirected/world-readable metadata and bounds allocations.
@@ -80,7 +90,11 @@ func privateRead(path string, limit int64) ([]byte, error) {
 	return b, nil
 }
 func loadBinding(path string) (binding, error) {
-	b := binding{Version: 1, Operations: map[string]journal{}, Views: map[string]*view{}, Actions: map[string]actionRecord{}, Notified: map[string]bool{}}
+	b := binding{Version: 1, Operations: map[string]journal{}, Views: map[string]*view{}, Calls: map[string]callRecord{}}
+	b.Typed = map[string]typedRecord{}
+	b.Configurations = map[string]wire.ApplicationConfiguration{}
+	b.Workers = map[string]worker{}
+	b.Grants = map[string]grantRecord{}
 	raw, e := privateRead(path, 64<<20)
 	if errors.Is(e, os.ErrNotExist) {
 		b.ProjectionVersion = currentProjectionVersion
@@ -89,7 +103,7 @@ func loadBinding(path string) (binding, error) {
 	if e != nil {
 		return b, e
 	}
-	if json.Unmarshal(raw, &b) != nil || b.Version != 1 || b.Operations == nil || b.Views == nil || b.Actions == nil || b.Notified == nil {
+	if json.Unmarshal(raw, &b) != nil || b.Version != 1 || b.Operations == nil || b.Views == nil || b.Calls == nil {
 		return b, errors.New("Caelis 连接记录无法识别，请保留文件")
 	}
 	if b.ProjectionVersion > currentProjectionVersion || b.ProjectionVersion < 0 {
@@ -126,8 +140,10 @@ func value[T any](p *T) (z T) {
 	}
 	return z
 }
-func pointer[T any](v T) *T         { return &v }
-func secretPath(path string) string { return filepath.Join(filepath.Dir(path), "credential.json") }
+func pointer[T any](v T) *T { return &v }
+func secretPath(path string) string {
+	return filepath.Join(filepath.Dir(path), "application-credential.json")
+}
 
 func succeeded(v wire.Outcome) bool { return v == wire.OutcomeAccepted || v == wire.OutcomeCommitted }
 func productOutcome(v wire.Outcome) string {

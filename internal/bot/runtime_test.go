@@ -341,3 +341,33 @@ func TestApplicationToolHandlerHonorsCancellationAndShutdown(t *testing.T) {
 		t.Fatal("stopped host still callable")
 	}
 }
+
+type grantEngine struct {
+	*fakeEngine
+	background [][]string
+}
+
+func (f *grantEngine) AuthorizeBackground(context.Context, string, string) error { return nil }
+func (f *grantEngine) RevokeBackground(context.Context, string) error            { return nil }
+func (f *grantEngine) SubmitBackground(_ context.Context, in api.Submission, ids []string) (api.Receipt, error) {
+	f.background = append(f.background, append([]string(nil), ids...))
+	r := api.Receipt{ID: in.ID, Outcome: "accepted"}
+	f.view.LastReceipt = r
+	return r, nil
+}
+func TestGrantedRemindersDispatchIndividuallyWithoutUserSubmit(t *testing.T) {
+	r, f, now := fixture(t)
+	g := &grantEngine{fakeEngine: f}
+	r.engine = g
+	saveReminder(t, r, "water")
+	saveReminder(t, r, "break")
+	*now = now.Add(time.Minute)
+	for range 3 {
+		if e := r.Tick(t.Context()); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if len(f.submissions) != 0 || len(g.background) != 2 || len(g.background[0]) != 1 || len(g.background[1]) != 1 || g.background[0][0] == g.background[1][0] {
+		t.Fatal("grant wakes must be separate, exactly once, and never user messages", g.background, f.submissions)
+	}
+}

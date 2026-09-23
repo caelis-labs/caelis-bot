@@ -3,6 +3,7 @@ package caelis
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -20,16 +21,22 @@ import (
 type Options struct {
 	Directory string
 	Settings  api.RuntimeSettings
-	// ApplicationOwned disables the retired Control-owned Bot Mode. The new
-	// generic wire contract must be integrated before this path can connect.
-	ApplicationOwned bool
+	Execution api.ExecutionSettings
+	// ToolsOnly is for protocol acceptance without native execution. Product
+	// assembly always requests workspace-write; it never silently falls back.
+	ToolsOnly bool
 }
 type Session struct {
-	applicationOwned  bool
 	mu                sync.Mutex
 	step              sync.Mutex
 	path              string
 	settings          api.RuntimeSettings
+	execution         api.ExecutionSettings
+	executionMode     string
+	tools             *api.ToolConnection
+	catalog           map[string]api.ApplicationTools
+	catalogs          map[string]map[string]api.ApplicationTools
+	profile           wire.ApplicationProfile
 	state             binding
 	loadErr           error
 	client            *client
@@ -46,32 +53,21 @@ type Session struct {
 	generation        uint64
 	wake              chan struct{}
 	streams           map[string]bool
-	effects           api.DesktopEffects
-	works             []wire.BotWork
-	completions       []wire.BotCompletion
 }
 
 func New(opts Options) *Session {
-	p := filepath.Join(opts.Directory, "binding.json")
+	p := filepath.Join(opts.Directory, "application.json")
 	b, e := loadBinding(p)
-	return &Session{applicationOwned: opts.ApplicationOwned, path: p, settings: opts.Settings, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
+	mode := "workspace-write"
+	if opts.ToolsOnly {
+		mode = "tools-only"
+	}
+	return &Session{path: p, settings: opts.Settings, execution: opts.Execution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
 }
 func (*Session) ProviderInfo() api.ProviderInfo {
-	return api.ProviderInfo{ID: "caelis", Name: "Caelis", ConnectionKind: "local-host", HelpURL: "https://caelis.dev", ConnectionHint: "使用本机 Caelis Control 服务。可自动查找或选择二进制；安装与更新由 Caelis 官方工具完成。"}
-}
-func (s *Session) BindDesktop(e api.DesktopEffects) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.connected {
-		return errors.New("连接后不能替换桌面能力")
-	}
-	s.effects = e
-	return nil
+	return api.ProviderInfo{ID: "caelis", Name: "Caelis", ConnectionKind: "local-host", HelpURL: "https://caelis.dev", ConnectionHint: "使用本机 Caelis；安装与模型凭据由运行时管理。"}
 }
 func (s *Session) Connect(ctx context.Context) error {
-	if s.applicationOwned {
-		return s.fail(errApplicationProtocol)
-	}
 	s.step.Lock()
 	defer s.step.Unlock()
 	s.mu.Lock()
@@ -87,14 +83,18 @@ func (s *Session) Connect(ctx context.Context) error {
 	if s.loadErr != nil {
 		return s.fail(s.loadErr)
 	}
+	if s.tools == nil {
+		return s.fail(errors.New("应用工具尚未配置"))
+	}
 	if e := s.connect(ctx); e != nil {
 		return s.fail(e)
 	}
 	s.mu.Lock()
 	if s.cancel == nil {
 		s.ctx, s.cancel = context.WithCancel(context.Background())
-		s.wg.Add(1)
+		s.wg.Add(2)
 		go s.pollLoop(s.ctx)
+		go s.callLoop(s.ctx)
 	}
 	s.connected = true
 	s.issue = ""
@@ -104,10 +104,10 @@ func (s *Session) Connect(ctx context.Context) error {
 }
 func (s *Session) fail(e error) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.connected = false
 	s.issue = e.Error()
 	s.bumpLocked()
-	s.mu.Unlock()
 	return e
 }
 
@@ -138,9 +138,8 @@ func Discover(settings api.RuntimeSettings) (discovery, string, error) {
 	return d, strings.TrimSpace(string(b)), nil
 }
 
-var required = []string{"bot-mode-v1", "bot-private-files-v1", "bot-managed-work-v1", "bot-desktop-actions-v1", "bot-reminder-grants-v1", "bot-text-results-v1"}
-
-var errBotIncompatible = errors.New("当前运行中的 Caelis 服务与此版 Bot 协议不兼容。请选择支持 Bot 的版本；更新程序后，还需重启 Caelis 服务")
+var required = []string{"application-runtime-v1", "application-hot-configuration-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1"}
+var errBotIncompatible = errors.New("Caelis 应用协议不兼容，请更新运行时并重启 Caelis 服务")
 
 func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
 	var i wire.ServerInfo
@@ -182,7 +181,7 @@ func ProbeBinding(ctx context.Context, settings api.RuntimeSettings, directory s
 	if e != nil || directory == "" {
 		return e
 	}
-	b, e := loadBinding(filepath.Join(directory, "binding.json"))
+	b, e := loadBinding(filepath.Join(directory, "application.json"))
 	if e != nil {
 		return e
 	}
@@ -191,15 +190,23 @@ func ProbeBinding(ctx context.Context, settings api.RuntimeSettings, directory s
 	}
 	return nil
 }
+
+// Enrollment is the only Host-authorized mutation. Credential and operation
+// identity are durable BEFORE dispatch; every later request uses app scope.
+type credential struct {
+	StoreID, PrincipalID, OperationID, Token string
+}
+
 func (s *Session) connect(ctx context.Context) error {
-	d, hostToken, e := Discover(s.settings)
+	d, token, e := Discover(s.settings)
 	if e != nil {
 		return e
 	}
-	host, e := newClient(d.Endpoint, hostToken)
+	host, e := newClient(d.Endpoint, token)
 	if e != nil {
 		return e
 	}
+	defer host.http.CloseIdleConnections()
 	info, e := initialize(ctx, host)
 	if e != nil {
 		return e
@@ -208,119 +215,72 @@ func (s *Session) connect(ctx context.Context) error {
 		return errors.New("Caelis 服务发现记录已过期")
 	}
 	s.mu.Lock()
-	if s.state.StoreID != "" && (s.state.StoreID != value(info.StoreId) || s.state.PrincipalID != d.PrincipalID) {
-		s.mu.Unlock()
-		return errors.New("Caelis 授权存储或主体已改变，原有绑定已保留；不能自动接管新存储")
+	mismatch := s.state.StoreID != "" && (s.state.StoreID != value(info.StoreId) || s.state.PrincipalID != d.PrincipalID)
+	s.mu.Unlock()
+	if mismatch {
+		return errors.New("Caelis 数据目录或授权主体已改变，原有绑定保持不变")
 	}
+	var key credential
+	raw, e := privateRead(secretPath(s.path), 65536)
+	fresh := errors.Is(e, os.ErrNotExist)
+	if fresh {
+		secret := make([]byte, 32)
+		if _, e = rand.Read(secret); e != nil {
+			return e
+		}
+		key = credential{StoreID: value(info.StoreId), PrincipalID: d.PrincipalID, OperationID: "register-" + rand.Text(), Token: "app-client-" + hex.EncodeToString(secret)}
+		if e = privateWrite(secretPath(s.path), key); e != nil {
+			return e
+		}
+	} else if e != nil {
+		return e
+	} else if json.Unmarshal(raw, &key) != nil || key.StoreID != value(info.StoreId) || key.PrincipalID != d.PrincipalID || key.Token == "" || key.OperationID == "" {
+		return errors.New("Caelis 应用凭据与绑定不一致")
+	}
+	scoped, e := newClient(d.Endpoint, key.Token)
+	if e != nil {
+		return e
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			scoped.http.CloseIdleConnections()
+		}
+	}()
+	var life wire.ApplicationConnection
+	if !fresh {
+		e = scoped.json(ctx, "GET", "/application/connection", nil, &life, "", "")
+	}
+	if fresh || isRemoteStatus(e, 401) {
+		// Replaying the exact registration is safe even after a lost response. This
+		// never creates a new credential on expiry/revocation or changes app scope.
+		e = host.json(ctx, "POST", "/applications/register", wire.ApplicationRegistration{OperationId: key.OperationID, Name: "Caelis Bot", Credential: key.Token}, &life, key.OperationID, "")
+	}
+	if e != nil {
+		return e
+	}
+	if life.PrincipalId != d.PrincipalID || life.ApplicationId == "" || life.ConnectionId == "" || life.Revoked {
+		return errors.New("Caelis 应用授权无效或已撤销")
+	}
+	s.mu.Lock()
+	previous := s.state.Connection
+	s.mu.Unlock()
+	if previous.ConnectionId != "" && (previous.ConnectionId != life.ConnectionId || previous.ApplicationId != life.ApplicationId) {
+		return errors.New("Caelis 应用授权标识改变")
+	}
+	if !life.ExpiresAt.After(time.Now().Add(3 * time.Minute)) {
+		if e = scoped.json(ctx, "POST", "/application/connection/renew", struct{}{}, &life, "", ""); e != nil {
+			return e
+		}
+	}
+	s.mu.Lock()
+	old := s.client
+	s.client = scoped
+	s.info = info
 	s.state.StoreID = value(info.StoreId)
 	s.state.PrincipalID = d.PrincipalID
 	s.state.Endpoint = d.Endpoint
-	s.info = info
-	e = s.saveLocked()
-	s.mu.Unlock()
-	if e != nil {
-		return e
-	}
-	if s.state.Bot.Id == "" {
-		if s.state.CreateID != "" {
-			return errors.New("上次创建 Bot 的结果未确认，请核对原请求，不能自动再次创建")
-		}
-		op := "bot-create-" + rand.Text()
-		s.mu.Lock()
-		s.state.CreateID = op
-		e = s.saveLocked()
-		s.mu.Unlock()
-		if e != nil {
-			return e
-		}
-		req := wire.CreateBotRequest{OperationId: &op, Config: wire.BotConfig{Name: "Caelis Bot", ManagedWork: pointer(true), DesktopActions: pointer(true), WorkPermission: pointer("workspace-write")}}
-		var res wire.CommandResult
-		if e = host.json(ctx, "POST", "/bots/create", req, &res, op, ""); e != nil {
-			s.clearRejectedEnrollment(e, true)
-			return e
-		}
-		if !succeeded(res.Outcome) {
-			if res.Outcome == "rejected" || res.Outcome == "conflicted" {
-				s.mu.Lock()
-				s.state.CreateID = ""
-				_ = s.saveLocked()
-				s.mu.Unlock()
-			}
-			return errors.New("Caelis 未接受 Bot 创建，请检查运行时的模型配置")
-		}
-		if res.Resource == nil || value(res.Resource.Ref) == "" {
-			return errors.New("Caelis 未返回 Bot 绑定")
-		}
-		// The accepted identity must survive a lost subsequent read response.
-		s.mu.Lock()
-		s.state.Bot = wire.Bot{Id: value(res.Resource.Ref)}
-		e = s.saveLocked()
-		s.mu.Unlock()
-		if e != nil {
-			return e
-		}
-	}
-	var vault struct{ StoreID, PrincipalID, ClientID, Token string }
-	raw, e := privateRead(secretPath(s.path), 65536)
-	if e == nil {
-		if json.Unmarshal(raw, &vault) != nil || vault.StoreID != s.state.StoreID || vault.PrincipalID != s.state.PrincipalID || vault.Token == "" {
-			return errors.New("Caelis 客户端凭据与绑定不一致")
-		}
-	} else if !errors.Is(e, os.ErrNotExist) {
-		return e
-	} else {
-		if s.state.RegisterID != "" {
-			return errors.New("客户端注册凭据未确认，不能自动重复注册；需要重新授权注册")
-		}
-		op := "client-register-" + rand.Text()
-		s.mu.Lock()
-		s.state.RegisterID = op
-		e = s.saveLocked()
-		s.mu.Unlock()
-		if e != nil {
-			return e
-		}
-		var reg wire.BotClientRegistration
-		req := wire.RegisterBotClientRequest{BotId: s.state.Bot.Id, OperationId: &op, Actions: []string{"clock", "reminders", "gesture"}}
-		if e = host.json(ctx, "POST", s.botPath("/clients/register"), req, &reg, op, ""); e != nil {
-			s.clearRejectedEnrollment(e, false)
-			return e
-		}
-		if reg.Token == "" || reg.Client.BotId != s.state.Bot.Id {
-			return errors.New("Caelis 未返回有效客户端凭据")
-		}
-		vault.StoreID = s.state.StoreID
-		vault.PrincipalID = s.state.PrincipalID
-		vault.ClientID = reg.Client.Id
-		vault.Token = reg.Token
-		if e = privateWrite(secretPath(s.path), vault); e != nil {
-			return errors.New("客户端凭据未能安全保存，已停止注册")
-		}
-	}
-	scoped, e := newClient(d.Endpoint, vault.Token)
-	if e != nil {
-		return e
-	}
-	var life wire.BotClient
-	if e = scoped.json(ctx, "GET", s.botPath("/client"), nil, &life, "", ""); e != nil {
-		return e
-	}
-	if life.Id != vault.ClientID || life.BotId != s.state.Bot.Id || life.PrincipalId != s.state.PrincipalID {
-		return errors.New("客户端主体不匹配")
-	}
-	if !life.Active || life.InstanceId != value(info.InstanceId) || !life.ExpiresAt.After(time.Now().Add(time.Minute)) {
-		if e = scoped.json(ctx, "POST", s.botPath("/client/activate"), struct{}{}, &life, "", ""); e != nil {
-			return e
-		}
-	}
-	var bot wire.Bot
-	if e = scoped.json(ctx, "GET", s.botPath(""), nil, &bot, "", ""); e != nil {
-		return e
-	}
-	if !value(bot.Config.ManagedWork) || !value(bot.Config.DesktopActions) {
-		return errors.New("此 Bot 尚未启用工作委派和桌面能力")
-	}
-	s.mu.Lock()
+	s.state.Connection = life
 	s.generation++
 	if s.streamCancel != nil {
 		s.streamCancel()
@@ -328,22 +288,27 @@ func (s *Session) connect(ctx context.Context) error {
 	s.streamCtx = nil
 	s.streamCancel = nil
 	s.streams = map[string]bool{}
-	if s.state.InstanceID != value(info.InstanceId) {
-		s.streams = map[string]bool{}
-		for _, v := range s.state.Views {
-			v.State.Approval = wire.ApprovalState{}
-			v.State.Run = wire.RunState{}
-		}
-	}
-	s.client = scoped
 	s.state.InstanceID = value(info.InstanceId)
-	s.state.Client = life
-	s.state.Bot = bot
 	e = s.saveLocked()
 	s.mu.Unlock()
-	return e
+	if old != nil {
+		old.http.CloseIdleConnections()
+	}
+	if e != nil {
+		return e
+	}
+	if e = s.ensureSession(ctx, host); e != nil {
+		return e
+	}
+	ok = true
+	return nil
 }
-func (s *Session) botPath(suffix string) string { return "/bots/" + idPath(s.state.Bot.Id) + suffix }
+func isRemoteStatus(e error, status int) bool {
+	var r *remoteError
+	return errors.As(e, &r) && r.Status == status
+}
+
+// Detaching observation does not revoke a lease, cancel a turn or stop the Host.
 func (s *Session) Close(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closed {
@@ -351,35 +316,20 @@ func (s *Session) Close(ctx context.Context) error {
 		return nil
 	}
 	s.closed = true
+	s.connected = false
 	if s.cancel != nil {
 		s.cancel()
 	}
-	s.connected = false
+	if s.streamCancel != nil {
+		s.streamCancel()
+	}
 	s.bumpLocked()
 	s.mu.Unlock()
 	s.wg.Wait()
 	s.step.Lock()
 	defer s.step.Unlock()
-	if s.client == nil || s.state.Client.ActivationId == "" {
-		return nil
+	if s.client != nil {
+		s.client.http.CloseIdleConnections()
 	}
-	op := "exit-" + s.state.Client.ActivationId
-	req := wire.BotClientExitRequest{BotId: s.state.Bot.Id, SessionId: pointer(s.state.Bot.SessionId), ActivationId: s.state.Client.ActivationId, CancelOwnedWork: pointer(true), OperationId: &op}
-	_, e := s.command(ctx, op, s.botPath("/client/exit"), req)
-	return e
-}
-
-func (s *Session) clearRejectedEnrollment(err error, create bool) {
-	var remote *remoteError
-	if !errors.As(err, &remote) || (remote.Status != 400 && remote.Status != 401 && remote.Status != 403 && remote.Status != 404) {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if create {
-		s.state.CreateID = ""
-	} else {
-		s.state.RegisterID = ""
-	}
-	_ = s.saveLocked()
+	return nil
 }

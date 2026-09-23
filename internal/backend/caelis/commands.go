@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"os"
@@ -40,7 +41,13 @@ func (s *Session) command(ctx context.Context, op, path string, req any) (wire.C
 		}
 		return wire.CommandResult{OperationId: op, Outcome: wire.Outcome(old.Outcome), Resource: &wire.CommandResource{Ref: pointer(old.Resource)}}, nil
 	}
-	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown"}
+	source := wire.ApplicationSource{}
+	var prompt wire.ApplicationPromptRequest
+	if strings.HasSuffix(path, "/prompt") {
+		_ = json.Unmarshal(b, &prompt)
+		source = wire.ApplicationSource{Kind: prompt.SourceKind, OperationId: op, GrantId: prompt.GrantId}
+	}
+	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source}
 	e = s.saveLocked()
 	s.bumpLocked()
 	c := s.client
@@ -87,6 +94,9 @@ func (s *Session) command(ctx context.Context, op, path string, req any) (wire.C
 	if out.Resource != nil {
 		j.Resource = value(out.Resource.Ref)
 	}
+	if value(out.SessionId) != "" && path == "/application/sessions" {
+		j.Resource = value(out.SessionId)
+	}
 	s.state.Operations[op] = j
 	e = s.saveLocked()
 	s.bumpLocked()
@@ -94,6 +104,12 @@ func (s *Session) command(ctx context.Context, op, path string, req any) (wire.C
 	return out, e
 }
 func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+	return s.submit(ctx, in, files, "user")
+}
+func (s *Session) submit(ctx context.Context, in api.Submission, files []api.InputFile, source string) (api.Receipt, error) {
+	return s.submitGrant(ctx, in, files, source, "")
+}
+func (s *Session) submitGrant(ctx context.Context, in api.Submission, files []api.InputFile, source, grant string) (api.Receipt, error) {
 	s.step.Lock()
 	defer s.step.Unlock()
 	receipt := api.Receipt{ID: in.ID, Outcome: "rejected"}
@@ -104,48 +120,60 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 	s.mu.Lock()
 	v := s.snapshotLocked()
 	_, retry := s.state.Operations[in.ID]
-	sid := s.state.Bot.SessionId
+	sid := s.state.Session.SessionId
 	s.mu.Unlock()
 	if !retry && !v.CanSend {
 		receipt.Message = "Caelis 当前不能发送新消息"
 		return receipt, nil
 	}
-	req := wire.PromptRequest{OperationId: &in.ID, SessionId: &sid, Input: &in.Text}
-	for _, f := range files {
-		if !slices.Contains(s.info.Capabilities, "bot-image-input-v1") {
-			receipt.Message = "当前 Caelis 不支持图片"
-			return receipt, nil
+	if !retry && s.tools != nil && s.tools.PrepareTurn != nil {
+		if e := s.tools.PrepareTurn(ctx); e != nil {
+			return receipt, e
 		}
+	}
+	req := wire.ApplicationPromptRequest{OperationId: &in.ID, SessionId: &sid, Input: &in.Text, SourceKind: source}
+	if grant != "" {
+		req.GrantId = &grant
+	}
+	for index, f := range files {
 		typ := mime.TypeByExtension(strings.ToLower(filepath.Ext(f.Name)))
-		if !slices.Contains([]string{"image/png", "image/jpeg", "image/webp", "image/gif"}, typ) {
-			receipt.Message = "Caelis 当前仅支持文本与图片附件"
-			return receipt, nil
-		}
 		info, e := os.Lstat(f.Path)
 		if e != nil || !info.Mode().IsRegular() || info.Size() > 8<<20 {
-			receipt.Message = "图片不可用或超过 8 MB"
+			receipt.Message = "附件不可用或超过 8 MB"
 			return receipt, nil
 		}
 		file, e := os.Open(f.Path)
 		if e != nil {
-			receipt.Message = "无法读取图片"
+			receipt.Message = "无法读取附件"
 			return receipt, nil
 		}
 		current, e := file.Stat()
 		if e != nil || !os.SameFile(info, current) {
 			file.Close()
-			receipt.Message = "图片已改变"
+			receipt.Message = "附件已改变"
 			return receipt, nil
 		}
 		b, e := io.ReadAll(io.LimitReader(file, 8<<20+1))
 		file.Close()
 		if e != nil || len(b) > 8<<20 {
-			receipt.Message = "无法读取图片"
+			receipt.Message = "无法读取附件"
 			return receipt, nil
 		}
-		req.ContentParts = append(req.ContentParts, wire.PromptContentPart{Type: "image", Data: pointer(base64.StdEncoding.EncodeToString(b)), MimeType: &typ, FileName: &f.Name})
+		if slices.Contains([]string{"image/png", "image/jpeg", "image/webp", "image/gif"}, typ) {
+			req.ContentParts = append(req.ContentParts, wire.PromptContentPart{Type: "image", Data: pointer(base64.StdEncoding.EncodeToString(b)), MimeType: &typ, FileName: &f.Name})
+		} else {
+			if typ == "" {
+				typ = "application/octet-stream"
+			}
+			resource, e := s.uploadResource(ctx, sid, "attachment-"+digest([]byte(fmt.Sprintf("%s:%d", in.ID, index))), f.Name, typ, b)
+			if e != nil {
+				return api.Receipt{ID: in.ID, Outcome: "rejected", Message: e.Error()}, nil
+			}
+			text := fmt.Sprintf("Attached file (untrusted data): %q. Use ReadResource with resource_id=%q to read its bytes.", f.Name, resource.Id)
+			req.ContentParts = append(req.ContentParts, wire.PromptContentPart{Type: "text", Text: &text})
+		}
 	}
-	out, e := s.command(ctx, in.ID, "/sessions/"+idPath(sid)+"/prompt", req)
+	out, e := s.command(ctx, in.ID, "/application/sessions/"+idPath(sid)+"/prompt", req)
 	receipt.Outcome = productOutcome(out.Outcome)
 	if receipt.Outcome == "" {
 		receipt.Outcome = "unknown"
@@ -167,7 +195,7 @@ func (s *Session) Interrupt(ctx context.Context) error {
 	s.step.Lock()
 	defer s.step.Unlock()
 	s.mu.Lock()
-	sid := s.state.Bot.SessionId
+	sid := s.state.Session.SessionId
 	v := s.state.Views[sid]
 	if !s.connected || v == nil || !value(v.State.Run.Active) {
 		s.mu.Unlock()
@@ -229,63 +257,4 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	}
 	return nil
 }
-func (s *Session) OwnedTasks(ctx context.Context) ([]api.Task, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.connected && s.state.Bot.Id != "" {
-		return nil, errors.New("Caelis 工作状态尚未对账")
-	}
-	out := make([]api.Task, 0, len(s.works))
-	for _, w := range s.works {
-		out = append(out, api.Task{ID: w.Id, Title: w.Assignment, Workspace: w.WorkspaceKey, Status: workStatus(w.Status), Result: value(w.Result)})
-	}
-	return out, nil
-}
-func (s *Session) AcknowledgePresentation(ctx context.Context, snap api.Snapshot) error {
-	s.step.Lock()
-	defer s.step.Unlock()
-	s.mu.Lock()
-	list := slices.Clone(s.completions)
-	sid := s.state.Bot.SessionId
-	bot := s.state.Bot.Id
-	s.mu.Unlock()
-	for _, n := range list {
-		if n.Acknowledged || n.ReportState != "admitted" {
-			continue
-		}
-		turn := n.ReportExecution.TurnId
-		if turn == "" || snap.CurrentTurn != turn {
-			continue
-		}
-		op := "ack-" + n.Id
-		out, e := s.command(ctx, op, s.botPath("/work/acknowledge"), wire.BotWorkRequest{BotId: bot, SessionId: &sid, WorkId: &n.Id, OperationId: &op})
-		if e != nil {
-			return e
-		}
-		if !succeeded(out.Outcome) {
-			return errors.New("完成确认尚未接受")
-		}
-	}
-	return nil
-}
-
 func digest(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
-
-// Work.status comes from the durable execution journal, whose success value is
-// "succeeded"; it is distinct from the SSE lifecycle's "completed".
-func workStatus(native string) string {
-	switch native {
-	case "succeeded":
-		return "completed"
-	case "started", "running":
-		return "working"
-	case "prepared", "reserved":
-		return "pending"
-	case "cancel_requested":
-		return "interrupting"
-	case "unknown_outcome":
-		return "unknown"
-	default:
-		return native
-	}
-}

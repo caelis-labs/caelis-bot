@@ -136,7 +136,8 @@ type Engine interface {
 	Close(context.Context) error
 }
 
-// ExecutionSettings applies to new turns, never to an in-flight turn/approval.
+// ExecutionSettings applies at the provider's next supported request boundary.
+// Already-issued model requests and native approval targets are never rewritten.
 // Empty Model inherits the current provider's configured default.
 type ExecutionSettings struct {
 	Model        string `json:"model"`

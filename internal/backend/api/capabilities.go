@@ -45,7 +45,7 @@ type ExecutionProvider interface {
 	ExecutionOptions() ExecutionOptions
 	Models(context.Context) ([]ModelOption, error)
 	// Validate against the provider's current catalog/policy and persist before
-	// applying; never rewrite an active turn or silently select another model.
+	// applying at its documented request boundary; never rewrite issued requests.
 	ChangeExecution(context.Context, ExecutionSettings, func() error) error
 }
 type AttachmentProvider interface {

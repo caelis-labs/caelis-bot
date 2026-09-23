@@ -108,9 +108,12 @@ jobs:
 
           Apple Silicon macOS preview. Download the DMG and its SHA-256 file.
           This app is ad-hoc signed, without Developer ID or Apple notarization.
-          A locally available Codex runtime is required for conversations.
+          Choose a local runtime during setup. Codex is the released baseline;
+          Caelis requires the compatible application-runtime build described in the integration guide.
 
-          当前为 Apple Silicon 预览版：本地签名，尚未经过 Apple 公证；对话需本机 Codex。
+          当前为 Apple Silicon 预览版：本地签名，尚未经过 Apple 公证。
+          首次设置时选择本机运行时；Codex 可直接接入，Caelis 需要接入说明中的兼容构建（0.60.1 不兼容）。
           [Installation & first launch](https://github.com/caelis-labs/caelis-bot/blob/main/docs/install.md) · [安装与首次启动](https://github.com/caelis-labs/caelis-bot/blob/main/docs/install.zh-CN.md)
+          [Caelis runtime compatibility / Caelis 接入](https://github.com/caelis-labs/caelis-bot/blob/main/docs/caelis-integration.md)
           NOTES
           gh release edit "$RELEASE_TAG" --draft=false --prerelease="$prerelease" --latest="$latest" --notes-file /tmp/caelis-release-notes.md

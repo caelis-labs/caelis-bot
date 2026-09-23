@@ -14,7 +14,11 @@ func (a *Application) configureRuntimeManagement() {
 	a.Backend.ConfigureRuntimeManagement([]api.ProviderInfo{(&codex.Session{}).ProviderInfo(), (&caelis.Session{}).ProviderInfo()}, func(ctx context.Context, v api.RuntimeSettings) error {
 		switch v.Runtime {
 		case "caelis":
-			return caelis.ApplicationAvailability()
+			dir, err := providerDirectory(a.root, v.Runtime)
+			if err != nil {
+				return err
+			}
+			return caelis.ProbeBinding(ctx, v, dir)
 		case "codex":
 			if e := codex.ValidateSettings(v, api.ExecutionSettings{}); e != nil {
 				return e

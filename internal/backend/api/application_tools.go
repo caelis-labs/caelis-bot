@@ -21,3 +21,14 @@ type ToolResult struct {
 	Content []map[string]string `json:"content"`
 	IsError bool                `json:"isError"`
 }
+
+// ApplicationCapabilities describes native execution boundaries, not UI state.
+// Adapters that implement this port explicitly qualify the available modes.
+type ApplicationCapabilities struct {
+	NativeFiles         bool
+	WorkerExecution     bool
+	ScheduledActivation bool
+}
+type ApplicationCapabilityProvider interface {
+	ApplicationCapabilities() ApplicationCapabilities
+}

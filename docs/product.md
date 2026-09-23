@@ -84,7 +84,8 @@ Windows 扩展能力，Windows 实现须在 macOS 完整发行后启动。Linux 
 各 Runtime 的原生会话、凭据、权限和在途工作仍分别绑定。具体边界与迁移见
 [Bot 产品宿主规划](bot-platform-architecture.md)。身份、任务协调、提醒与工具已统一到本应用；
 Notebook/Memory 已由应用持有，用户直接编辑 Markdown，Bot 通过专属 skill 和普通文件工具维护，见
-[个人空间](personal-memory.md)。Caelis 新通用协议仍待接入，不能作为现有功能宣传。
+[个人空间](personal-memory.md)。Caelis 新通用协议已完成隔离真实模型验收，具体覆盖与尚待完成的
+GUI/发行验证见 [实测报告](caelis-live-acceptance.md)。
 
 长期连续性收敛为长 Session/Compact、recall/remember 与一本结构清晰的 Notebook。
 初始化时仅出现一次 Bot 名字（必填）和描述（可选）表单，提交为可见的普通用户消息，由 Bot 更新 MEMORY.md；
@@ -128,8 +129,8 @@ Agent 拓扑与开发者仪表盘。后台可能拥有多个任务和对话，�
 
 协议可以表达完整的 Agent 能力，包括工具执行、审批、附件、任务、插件和连接器。
 Codex App Server 和 Caelis Control Host 通过独立适配器接入；能力按各自原生合同协商。
-Caelis 的官方安装、检测、更新及服务管理入口保留，不打包运行时。桌面执行路径暂时禁用旧 Bot Mode，
-待接入通用应用协议后重新开放；不会自动回退到另一 Runtime 或清理旧数据。
+Caelis 的官方安装、检测、更新及服务管理入口保留，不打包运行时。执行路径使用通用应用协议，
+按能力协商开放；不恢复旧 Bot Mode，不会自动回退到另一 Runtime 或清理旧数据。
 历史能力和验证限制见 [Caelis 接入](caelis-integration.md)。
 Codex 使用用户本机安装，通过标准 App Server 发现、初始化与账户接口连接；
 应用不携带、不静默安装 Codex 运行时，也不接管 Codex App 自己的进程或任务。

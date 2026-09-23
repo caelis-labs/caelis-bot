@@ -100,8 +100,9 @@ Codex 的秘书 cwd / workspace-write 根为 Notebook；worker 保持独立任�
 50 个目录项并注明截断；证据正文最多 16 KiB，目录最多 10,000 项。Markdown 正文没有这些 API 限额。
 未来可按路径、日期、标题与内容哈希对接 Memory/embedding 索引；不影响文件作为真源。
 
-Caelis 新通用应用协议仍待接入，旧 Bot Mode 保持禁用。共享目录与通用接口已经预留，
-不能把 provider fixture 当作两个真实 Runtime 的互操作验收。
+Caelis 新通用应用协议已绑定共享 Notebook，隔离真实 Host 与合成模型的原生文件闭环通过，
+见 [B01–B12 联调报告](caelis-application-acceptance.md)。旧 Bot Mode 保持禁用；新协议的真实模型
+和两 Runtime 交替维护同一 Notebook 尚待验收，不能用可控 provider 结果代替。
 
 ## 旧数据与代码入口
 
