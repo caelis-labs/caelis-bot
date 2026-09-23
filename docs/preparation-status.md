@@ -1,15 +1,24 @@
 # 实现与验证状态
 
-本项目已从工具链准备阶段推进到 macOS 正式发行准备。当前状态以产品代码、公共测试和
+本项目已完成 macOS v0.1.0 正式发行。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
 
-2026-09-24 v0.1.0 正式发行准备：
+2026-09-24 v0.1.0 正式发行完成：
+
+- [正式版](https://github.com/caelis-labs/caelis-bot/releases/tag/v0.1.0)已公开，非 draft、非 prerelease；源码标签保持 `6d60b22779b9ffa8927f9a306219e5bccb699320`。
+- [发行任务 35931144917](https://github.com/caelis-labs/caelis-bot/actions/runs/35931144917)的构建、签名打包和发布均成功。App 与 DMG 的 Apple 公证均为 Accepted，并已写入和验证票据。
+- 从公开 release 重新下载 DMG，在本机验证 SHA-256、内外 Developer ID 签名、票据、Gatekeeper（Notarized Developer ID）、arm64、版本及内嵌源码 SHA 全部通过。
+- 最终 DMG SHA-256：`33e8db682b4e8d5e9a1955c88470c4a9f22bdb86a8a78798f33aa9fa7eea1ff8`。
+- CI 公证等待改为每次 60 分钟，打包作业 150 分钟。超时后重新查询；Accepted 继续，Invalid/Rejected 失败并输出日志，In Progress 保存 14 天恢复检查点、跳过发布。恢复核对来源、签名、字节哈希与 Apple 回执，并复用原提交 ID。
+- 完整 `make check`、actionlint、原生 product CI 和公证状态/恢复回归检查通过。此发行验收不增加 Windows、Intel 或全量 macOS 版本的原生兼容性声明。
+
+2026-09-24 v0.1.0 发行准备记录（已完成）：
 
 - 恢复独立签名 stash；正式发行强制 Developer ID + Hardened Runtime + 安全时间戳，App 与 DMG 均签名、公证并附带票据，任一验证失败保留草稿。
 - 构建不接触签名凭据，独立 `macos-release` 环境仅允许 main；临时钥匙串与凭据在退出/失败时清理。
 - 本机 Developer ID 身份、团队、时间戳、Hardened Runtime 验证通过；隔离数据目录的签名 App 原生启动、设置与桌宠渲染通过。
 - `make check`、`make smoke`、`make build`、原生签名拒绝测试与 actionlint 通过。真实签名验证发现并修复 inline requirement 缺少 `=` 的参数错误。
-- CI 公证凭据已验证并配置；Apple 公证回执、精确 tag 的 CI、公开 DMG 下载及 Gatekeeper 验收仍以实际发行任务为准，本段不代替成功发行证明。
+- CI 公证凭据已验证并配置；最终 Apple 公证、公开 DMG 下载及 Gatekeeper 证据见上述正式发行记录。
 
 2026-09-24 工作模型解耦：
 
