@@ -77,6 +77,12 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			out.Phase = "working"
 			out.CanInterrupt = true
 		}
+		if out.Phase == "failed" && out.Message == "" {
+			out.Message = "本次请求未完成，请重试。"
+			if v.Failure != "" {
+				out.Message = "本次请求未完成：" + v.Failure
+			}
+		}
 	}
 	if s.connected {
 		for sid, v := range s.state.Views {
@@ -150,13 +156,20 @@ func applyEnvelope(v *view, e wire.Envelope) {
 		v.Seen[key] = true
 	}
 	isMain := (value(e.Scope) == "" || value(e.Scope) == "main") && value(e.ApprovalRequestId) == ""
+	if e.Kind == "caelis/error" && isMain {
+		v.Failure = value(e.Error)
+	}
 	if e.Lifecycle != nil && e.Kind == "caelis/lifecycle" && isMain {
 		switch e.Lifecycle.State {
 		case "running", "started":
 			v.State.Run.Active = pointer(true)
+			v.Failure = ""
 		case "completed", "failed", "cancelled", "interrupted", "stopped":
 			v.State.Run.Active = pointer(false)
 			v.State.Approval = wire.ApprovalState{}
+			if e.Lifecycle.State == "failed" && v.Failure == "" {
+				v.Failure = value(e.Lifecycle.Reason)
+			}
 		}
 		v.State.Run.Status = &e.Lifecycle.State
 	}

@@ -6,9 +6,13 @@ if [[ "$(uname -s)" != Darwin ]]; then
   exit 1
 fi
 BOT_MODE="${1:-run}"
-case "$BOT_MODE" in run|--verify|--debug|--logs|--telemetry|--recall) ;; *)
-  echo "Usage: $0 [--verify|--debug|--logs|--telemetry|--recall]" >&2; exit 2 ;;
+case "$BOT_MODE" in run|--verify|--verify-signed|--debug|--logs|--telemetry|--recall) ;; *)
+  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall]" >&2; exit 2 ;;
 esac
+if [[ "$BOT_MODE" == --verify-signed ]]; then
+  # Keep the distribution signature intact during native release acceptance.
+  bash "$BOT_ROOT/script/verify-signature.sh" "$BOT_ROOT/dist/Caelis Bot.app" developer-id
+fi
 if [[ "$BOT_MODE" == --recall ]]; then
   # Exercise the same single-instance recall path as opening the installed app again.
   exec /usr/bin/open -g -n "$BOT_ROOT/dist/Caelis Bot.app"
@@ -31,7 +35,7 @@ if [[ -n "$(owned_pids)" ]]; then
   echo 'Previous Caelis Bot process did not shut down; refusing to launch another owner.' >&2
   exit 1
 fi
-./script/build.sh
+if [[ "$BOT_MODE" != --verify-signed ]]; then ./script/build.sh; fi
 BOT_BUNDLE="$BOT_ROOT/dist/Caelis Bot.app"
 if [[ "$BOT_MODE" == --debug ]]; then
   exec lldb -- "$BOT_BUNDLE/Contents/MacOS/caelis-bot"
@@ -59,7 +63,7 @@ if [[ -n "${CAELIS_CODEX_SOCKET:-}" ]]; then
 fi
 /usr/bin/open "${BOT_OPEN_ARGS[@]}"
 case "$BOT_MODE" in
-  --verify)
+  --verify|--verify-signed)
     # Bounded startup observation, not a workaround for an application race.
     for ((BOT_ATTEMPT=0; BOT_ATTEMPT<50; BOT_ATTEMPT++)); do
       if pgrep -x caelis-bot >/dev/null && rg -q "Desktop native host ready" "$BOT_LOG"; then

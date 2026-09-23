@@ -342,6 +342,34 @@ func TestApplicationToolHandlerHonorsCancellationAndShutdown(t *testing.T) {
 	}
 }
 
+func TestApplicationToolSchemasHaveValidRequiredFields(t *testing.T) {
+	r, _, _ := fixture(t)
+	for _, definition := range r.Definitions() {
+		t.Run(definition.Name, func(t *testing.T) {
+			var schema map[string]any
+			if err := json.Unmarshal(definition.InputSchema, &schema); err != nil {
+				t.Fatal(err)
+			}
+			properties, ok := schema["properties"].(map[string]any)
+			if !ok {
+				t.Fatal("tool inputs need object properties")
+			}
+			if raw, present := schema["required"]; present {
+				required, ok := raw.([]any)
+				if !ok {
+					t.Fatal("JSON Schema required must be an array, not null")
+				}
+				for _, field := range required {
+					name, ok := field.(string)
+					if !ok || properties[name] == nil {
+						t.Fatal("required field is not a defined input property")
+					}
+				}
+			}
+		})
+	}
+}
+
 type grantEngine struct {
 	*fakeEngine
 	background [][]string

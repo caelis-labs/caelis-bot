@@ -32,6 +32,7 @@ type pendingSubmission struct {
 	TurnID string `json:"turnId"`
 }
 type SessionOptions struct {
+	WorkExecution                        api.WorkExecutionSettings
 	Execution                            api.ExecutionSettings
 	Binary, Socket, Directory, StateFile string
 	WorkRoot                             string
@@ -45,43 +46,44 @@ type SessionOptions struct {
 // Session projects one internally bound conversation. Native facts remain
 // authoritative; a UI fetch, hidden window or character asset cannot execute it.
 type Session struct {
-	historyMu      sync.Mutex
-	op             sync.Mutex
-	mu             sync.Mutex
-	opts           SessionOptions
-	client         *Client
-	bound          bool
-	epoch          uint64
-	state          api.Snapshot
-	binding        binding
-	loadErr        error
-	loading        bool
-	buffer         []Notification
-	run            string
-	runs           map[string]string
-	items          map[string]int
-	nativeItems    map[string]nativeItem
-	prompts        map[string]*prompt
-	promptHandles  map[string]string
-	instance       string
-	refs           map[string]nativeReference
-	artifacts      map[string]string
-	historyCursor  string
-	historyPaged   bool
-	children       map[string]bool
-	childRuns      map[string]string
-	childTerminals map[string]bool
-	childWatching  map[string]bool
-	childRevision  map[string]uint64
-	loginID        string
-	loginStarting  bool
-	earlyLogin     map[string]bool
-	changed        chan struct{}
-	closed         bool
-	closing        bool
-	life           context.Context
-	cancelLife     context.CancelFunc
-	start          func(context.Context, Options) (*Client, error)
+	residentExecution api.WorkExecutionSettings
+	historyMu         sync.Mutex
+	op                sync.Mutex
+	mu                sync.Mutex
+	opts              SessionOptions
+	client            *Client
+	bound             bool
+	epoch             uint64
+	state             api.Snapshot
+	binding           binding
+	loadErr           error
+	loading           bool
+	buffer            []Notification
+	run               string
+	runs              map[string]string
+	items             map[string]int
+	nativeItems       map[string]nativeItem
+	prompts           map[string]*prompt
+	promptHandles     map[string]string
+	instance          string
+	refs              map[string]nativeReference
+	artifacts         map[string]string
+	historyCursor     string
+	historyPaged      bool
+	children          map[string]bool
+	childRuns         map[string]string
+	childTerminals    map[string]bool
+	childWatching     map[string]bool
+	childRevision     map[string]uint64
+	loginID           string
+	loginStarting     bool
+	earlyLogin        map[string]bool
+	changed           chan struct{}
+	closed            bool
+	closing           bool
+	life              context.Context
+	cancelLife        context.CancelFunc
+	start             func(context.Context, Options) (*Client, error)
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -347,9 +349,7 @@ func (s *Session) connect(ctx context.Context) error {
 			return s.connectionError("暂时无法读取最近消息，请重新连接", pageErr)
 		}
 	}
-	var response struct {
-		Thread nativeThread `json:"thread"`
-	}
+	var response threadExecutionResponse
 	err = callDecode(ctx, c, method, params, &response)
 	// Codex may not persist a thread until its first turn. Only an explicit
 	// never-submitted receipt permits replacing that missing, empty binding.
@@ -378,6 +378,7 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	s.resetProjection()
+	s.residentExecution = *response.execution()
 	s.historyPaged, s.historyCursor = paged, firstPage.NextCursor
 	s.state.HasEarlier = firstPage.NextCursor != ""
 	s.binding.ThreadID = response.Thread.ID

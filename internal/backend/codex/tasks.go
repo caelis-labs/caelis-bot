@@ -16,17 +16,19 @@ import (
 // Task records and submission receipts share the atomic conversation binding.
 // A recorded unknown outcome is never permission to retry a mutation.
 type taskRecord struct {
-	View           api.Task               `json:"view"`
-	Thread         string                 `json:"thread"`
-	Run            string                 `json:"run"`
-	Fingerprint    string                 `json:"fingerprint"`
-	Source         string                 `json:"source"`
-	Requests       map[string]taskReceipt `json:"requests"`
-	Pending        string                 `json:"pending,omitempty"`
-	ReportID       string                 `json:"reportId,omitempty"`
-	ReportState    string                 `json:"reportState,omitempty"`
-	SuppressReport bool                   `json:"suppressReport,omitempty"`
-	Instructions   string                 `json:"instructions,omitempty"`
+	Execution      *api.WorkExecutionSettings `json:"execution,omitempty"`
+	ModelProvider  string                     `json:"modelProvider,omitempty"`
+	View           api.Task                   `json:"view"`
+	Thread         string                     `json:"thread"`
+	Run            string                     `json:"run"`
+	Fingerprint    string                     `json:"fingerprint"`
+	Source         string                     `json:"source"`
+	Requests       map[string]taskReceipt     `json:"requests"`
+	Pending        string                     `json:"pending,omitempty"`
+	ReportID       string                     `json:"reportId,omitempty"`
+	ReportState    string                     `json:"reportState,omitempty"`
+	SuppressReport bool                       `json:"suppressReport,omitempty"`
+	Instructions   string                     `json:"instructions,omitempty"`
 }
 type taskReceipt struct {
 	Fingerprint string `json:"fingerprint"`
@@ -35,14 +37,14 @@ type taskReceipt struct {
 	PriorRun    string `json:"priorRun,omitempty"`
 }
 
-func (s *Session) workerParams(workspace, instructions string) map[string]any {
+func (s *Session) workerParams(workspace, instructions string, t *taskRecord) map[string]any {
 	// Codex validates transport even for disabled MCP servers. Supply an inert
 	// stdio transport, never the secretary's endpoint/token or approved tool list.
 	params := map[string]any{"cwd": workspace, "runtimeWorkspaceRoots": []string{workspace}, "developerInstructions": instructions, "config": map[string]any{
 		"mcp_servers.caelis_bot": map[string]any{"command": os.Args[0], "enabled": false},
 		"agents.enabled":         false,
 	}}
-	s.applyExecution(params, true)
+	s.applyWorkExecution(params, true, t)
 	return params
 }
 
@@ -119,8 +121,18 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		s.mu.Unlock()
 		return api.Task{}, err
 	}
+	s.mu.Unlock()
+	execution, err := s.resolveWorkExecution(ctx, in.Workspace)
+	if err != nil {
+		return api.Task{}, err
+	}
+	s.mu.Lock()
+	if err := s.taskAdmission(); err != nil {
+		s.mu.Unlock()
+		return api.Task{}, err
+	}
 	workspace := in.Workspace
-	t := &taskRecord{View: api.Task{ID: id, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fingerprint, Source: s.binding.DelegationText, Requests: map[string]taskReceipt{}, Instructions: in.Instructions}
+	t := &taskRecord{View: api.Task{ID: id, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fingerprint, Source: s.binding.DelegationText, Requests: map[string]taskReceipt{}, Instructions: in.Instructions, Execution: &execution}
 	if s.binding.Tasks == nil {
 		s.binding.Tasks = map[string]*taskRecord{}
 	}
@@ -135,13 +147,11 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	if err := validateWorkWorkspace(s.workRoot(), workspace); err != nil {
 		return s.taskRejected(t, err)
 	}
-	params := s.workerParams(workspace, in.Instructions)
-	var response struct {
-		Thread nativeThread `json:"thread"`
-	}
-	err := callDecode(ctx, c, "thread/start", params, &response)
+	params := s.workerParams(workspace, in.Instructions, t)
+	var response threadExecutionResponse
+	err = callDecode(ctx, c, "thread/start", params, &response)
 	s.mu.Lock()
-	if err != nil || response.Thread.ID == "" || s.ownsThread(response.Thread.ID) {
+	if err != nil || response.Thread.ID == "" || response.Model == "" || s.ownsThread(response.Thread.ID) {
 		if err == nil {
 			err = ErrProtocol
 		}
@@ -155,6 +165,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		return v, err
 	}
 	t.Thread = response.Thread.ID
+	t.Execution, t.ModelProvider = response.execution(), response.ModelProvider
 	s.children[t.Thread] = true
 	// Ownership is durable before dispatch, so approvals cannot race adoption.
 	if err = s.save(); err != nil {
@@ -293,15 +304,20 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	s.mu.Unlock()
 	// Reattach an owned, idle thread after reconnect. This never imports App tasks.
 	if resume && !wasActive {
-		p := s.workerParams(t.View.Workspace, t.Instructions)
+		p := s.workerParams(t.View.Workspace, t.Instructions, t)
 		p["threadId"] = t.Thread
-		var response struct {
-			Thread nativeThread `json:"thread"`
-		}
-		if err := callDecode(ctx, c, "thread/resume", p, &response); err != nil || response.Thread.ID != t.Thread {
+		var response threadExecutionResponse
+		if err := callDecode(ctx, c, "thread/resume", p, &response); err != nil || response.Thread.ID != t.Thread || response.Model == "" {
 			if err == nil {
 				err = ErrProtocol
 			}
+			return s.taskSendResult(t, in.RequestID, nativeTurn{}, err)
+		}
+		s.mu.Lock()
+		t.Execution, t.ModelProvider = response.execution(), response.ModelProvider
+		err := s.save()
+		s.mu.Unlock()
+		if err != nil {
 			return s.taskSendResult(t, in.RequestID, nativeTurn{}, err)
 		}
 	}
@@ -310,7 +326,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		method = "turn/steer"
 		params["expectedTurnId"] = run
 	} else {
-		s.applyExecution(params, false)
+		s.applyWorkExecution(params, false, t)
 		if policy, ok := params["sandboxPolicy"].(map[string]any); ok && policy["type"] == "workspaceWrite" {
 			policy["writableRoots"] = []string{t.View.Workspace}
 		}

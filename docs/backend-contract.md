@@ -54,6 +54,7 @@ Go 定义在 `internal/backend/api/contract.go`、`capabilities.go`、`tasks.go`
 | `ControlCompanion` | 历史 Caelis 专用 owner 接口 | 桌面装配已不消费，不能替代新端口；随旧 adapter 清理 |
 | `ApplicationCapabilityProvider` / `BackgroundRuntime` | 声明应用能力，用户授权计划后使用原生后台 grant；计时不伪装用户消息 | Caelis 实现；实际能力仍须握手 |
 | `ExecutionProvider` | 当前模型目录、effort/速度选择、审批选项及保存；先校验和持久化再生效 | 可选；缺失时报不可用；审批模式名称、危险提示和默认值来自 provider |
+| `WorkExecutionProvider` | 独立工作模型偏好校验、持久化；只影响新建任务 | Codex/Caelis 实现；默认沿用 Runtime，确认无模型才回退 Bot；权限不在该 DTO 中 |
 | `RuntimeConfigurator` | 验证连接、阻止忙碌/待审批/未知结果时替换，保存后才启用 | 可选；Caelis 与跨 provider 切换检测后保存，下次启动生效；不热替换 owner |
 | `Authenticator` | 后端确实需要时启动/取消登录 | 可选；Caelis Host 认证不必伪装成 Codex 网页登录 |
 | `ArtifactResolver` / `ApprovalNavigator` | 将 opaque handle 解析成已校验的文件或原生审批 URL | 可选；未知 handle 不能成为任意路径/URL 打开能力 |

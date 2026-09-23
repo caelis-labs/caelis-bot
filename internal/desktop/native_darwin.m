@@ -64,10 +64,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property int shortcutFlags;
 @property UInt32 shortcutID;
 @property BOOL shortcutDown;
-@property BOOL panelCentered;
 @property NSInteger panelContentHeight;
 @property NSInteger panelMenuHeight;
-@property NSScreen *panelScreen;
 @property double interactionStart;
 @property NSUInteger activationID;
 @property NSUInteger readyID;
@@ -335,7 +333,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     }
 }
 // Activating an accessory app and focusing its WebKit editor are separate steps.
-// A global hotkey has no mouse click to install WebKit as first responder.
+// Explicit quick-input activation must install WebKit as first responder.
 - (void)focusComposer {
     if (!self.panel.visible || !self.panel.keyWindow || self.panel.attachedSheet || !NSApp.active) return;
     NSMutableArray *views=[NSMutableArray arrayWithObject:self.panel.contentView];
@@ -353,22 +351,18 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 }
 - (void)anchorPanel {
     NSRect pet = self.pet.frame, panel = self.panel.frame;
-    NSScreen *screen = self.panelCentered ? self.panelScreen : self.pet.screen;
+    NSScreen *screen = self.pet.screen;
     if (![NSScreen.screens containsObject:screen]) screen = NSScreen.mainScreen;
     NSRect bounds = screen.visibleFrame;
-    panel.size.width = MIN(self.panelCentered ? 620 : 420, bounds.size.width-32);
+    panel.size.width = MIN(420, bounds.size.width-32);
     panel.size.height = self.panelContentHeight;
-    if (self.panelCentered) {
-        panel.origin = NSMakePoint(NSMidX(bounds)-panel.size.width/2, NSMidY(bounds)-panel.size.height/2);
-    } else {
-        // Anchor the input, not the combined input + popup envelope.
-        double x = NSMidX(pet)-panel.size.width/2;
-        x = MAX(NSMinX(bounds),MIN(x,NSMaxX(bounds)-panel.size.width));
-        double y = NSMinY(pet)+44*(pet.size.height/240)-panel.size.height-10;
-        if (y < NSMinY(bounds)+8) y = NSMaxY(pet)+10;
-        y = MAX(NSMinY(bounds)+8,MIN(y,NSMaxY(bounds)-panel.size.height-8));
-        panel.origin = NSMakePoint(x,y);
-    }
+    // Anchor the input, not the combined input + popup envelope.
+    double x = NSMidX(pet)-panel.size.width/2;
+    x = MAX(NSMinX(bounds),MIN(x,NSMaxX(bounds)-panel.size.width));
+    double y = NSMinY(pet)+44*(pet.size.height/240)-panel.size.height-10;
+    if (y < NSMinY(bounds)+8) y = NSMaxY(pet)+10;
+    y = MAX(NSMinY(bounds)+8,MIN(y,NSMaxY(bounds)-panel.size.height-8));
+    panel.origin = NSMakePoint(x,y);
     BotPanelMenuLayout layout = bot_panel_menu_layout(panel.origin.y,panel.size.width,panel.size.height,
         NSMinY(bounds),NSMaxY(bounds),self.panelMenuHeight);
     panel.origin.y = layout.originY;
@@ -641,12 +635,15 @@ int bot_window_open(void *pointer) {
 int bot_window_visible(void *pointer) {
     return [(__bridge NSWindow *)pointer isVisible];
 }
+int bot_window_can_hide(void *pointer) {
+    NSWindow *window = (__bridge NSWindow *)pointer;
+    // Restore minimised chat and keep an attached native file dialog reachable.
+    return window.visible && !window.miniaturized && !window.attachedSheet;
+}
 void bot_toggle_panel(void *pointer) {
     BotHost *host = (__bridge BotHost *)pointer;
     if (host.panel.attachedSheet) return;
-    BOOL close = host.panel.visible && !host.panelCentered;
-    host.panelCentered = NO;
-    bot_panel(pointer,!close);
+    bot_panel(pointer,!host.panel.visible);
 }
 void bot_panel_height(void *pointer, int height) {
     BotHost *host = (__bridge BotHost *)pointer;
@@ -767,10 +764,7 @@ static OSStatus bot_hotkey(EventHandlerCallRef next, EventRef event, void *conte
     if(host.handle) {
         host.interactionStart=NSProcessInfo.processInfo.systemUptime;
         [host trace:@"shortcut"];
-        // Closing is purely native: avoid hiding/refocusing any other Wails window
-        // before dismissing this one, or the compositor can show an extra frame.
-        if(host.panel.visible && host.panelCentered && !host.panel.attachedSheet) bot_panel(context,0);
-        else desktopEvent(host.handle,11,0,0,0);
+        desktopEvent(host.handle,11,0,0,0);
     }
     return noErr;
 }
@@ -808,15 +802,6 @@ int bot_shortcut(void *pointer,char *rawKey,int flags,int enabled) {
     if(host.shortcut)UnregisterEventHotKey(host.shortcut);
     host.shortcutDown=NO;host.shortcut=registration;host.shortcutID=identifier.id;host.shortcutKey=key;host.shortcutFlags=flags;
     return 0;
-}
-void bot_centered_panel(void *pointer){
-    BotHost *host=(__bridge BotHost *)pointer;
-    if(host.panel.attachedSheet)return;
-    BOOL close=host.panel.visible && host.panelCentered;
-    host.panelCentered=YES;
-    host.panelScreen=NSScreen.mainScreen;
-    for(NSScreen *screen in NSScreen.screens){if(NSPointInRect(NSEvent.mouseLocation,screen.frame)){host.panelScreen=screen;break;}}
-    bot_panel(pointer,!close);
 }
 void bot_panel_ready(void *pointer,int activation){
     BotHost *host=(__bridge BotHost *)pointer;

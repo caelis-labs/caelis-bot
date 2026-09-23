@@ -1,7 +1,37 @@
 # 实现与验证状态
 
-本项目已从工具链准备阶段推进到 macOS 开发者预览。当前状态以产品代码、公共测试和
+本项目已从工具链准备阶段推进到 macOS 正式发行准备。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
+
+2026-09-24 v0.1.0 正式发行准备：
+
+- 恢复独立签名 stash；正式发行强制 Developer ID + Hardened Runtime + 安全时间戳，App 与 DMG 均签名、公证并附带票据，任一验证失败保留草稿。
+- 构建不接触签名凭据，独立 `macos-release` 环境仅允许 main；临时钥匙串与凭据在退出/失败时清理。
+- 本机 Developer ID 身份、团队、时间戳、Hardened Runtime 验证通过；隔离数据目录的签名 App 原生启动、设置与桌宠渲染通过。
+- `make check`、`make smoke`、`make build`、原生签名拒绝测试与 actionlint 通过。真实签名验证发现并修复 inline requirement 缺少 `=` 的参数错误。
+- CI 公证凭据已验证并配置；Apple 公证回执、精确 tag 的 CI、公开 DMG 下载及 Gatekeeper 验收仍以实际发行任务为准，本段不代替成功发行证明。
+
+2026-09-24 工作模型解耦：
+
+- 新任务优先手动指定，其次 Runtime 配置，仅未配置模型时回退 Bot；读取失败明确报错。
+- 独立设置文件、原生创建回执/worker profile 保持模型，覆盖续接、重启和重复请求；不改变权限策略。
+- `make check`、`make smoke`、`make build` 通过；相关后端 race 回归通过。
+- 本机正式 Caelis v0.61.0 + 隔离合成模型验收通过：Bot 为 `gpt-5.4-mini/low`，新 worker 为 Runtime 的 `gpt-5.4/high`；其他 B01–B11 路径继续通过。
+- 本机 Codex 0.156.1 原生 `config/read` 与 ephemeral `thread/start` 参数验证通过，未发送模型请求。
+- 协议基线仍为 0.153.4；新增 ConfigRead schema 已固定哈希。当前二进制版本不同，`make schema` 的整版精确比对未通过版本门；单独生成 0.156.1 schema 确认消费的 model/effort/tier 字段定义一致。
+- 原生设置 GUI 已验证 Runtime/手动切换、MiMo Pro 保存和刷新回读；Bot 保持 Luna/low/Fast，切回默认清空覆盖。
+- 日常 Bot 已恢复，隔离 Host 已关闭，未更改日常 Runtime/模型设置。
+- 本轮不新增真实模型端到端调用或 team 实现；team 公开入口记录为 [Caelis #74](https://github.com/caelis-labs/caelis/issues/74)。
+
+2026-09-24 正式 Caelis v0.61.0 联调：
+
+- 本机 `release` 二进制与官方 macOS ARM64 发布包一致；公开协议与候选版字节一致，固定提交推进至 `5e2546f`。
+- 原生 GUI 验证自动发现、独立 Store、启用重启、身份写入和读回、Bot 工具回调、聊天及 Luna Fast 切换。
+- 修复无参数产品工具的非法 `required:null`，并将完整产品目录加入真实模型验收，避免只测合成工具。
+- 修复 Caelis 请求失败时聊天无提示；保留原生错误/失败原因，重连可恢复，新请求清除旧错误。
+- 已恢复日常 Bot；日常 Runtime、认证、对话与 Notebook 未切换或覆盖。范围、证据和未完成项见 [正式版报告](caelis-release-acceptance.md)。
+
+以下为历史候选验收记录：
 
 2026-09-23 候选 Core `4a3c059` 真实模型验收（本地改动，未提交/发布）：
 
@@ -104,6 +134,7 @@ Automation 仍待后续切片；未新增真实模型、原生多窗口、长期
   内容导入后应用签名仍通过校验；仅证明 ad-hoc 签名资源未被修改，不是 Developer ID 验收。
 - 原生观察覆盖受控基础模型；持久化重载由 Go 测试验证，未完成任意社区作品的原生重启、
   长时资源压力、旧 macOS 或多屏验收。Windows 只完成共享核心交叉编译，未实现原生宿主。
+
 
 2026-09-23 桌宠原生点击重做（本地检查点，尚未发布）：
 
@@ -334,11 +365,38 @@ Clear 材质可以透出背景，并据此继续调整圆角、明度和阴影�
 - 0.1.2 是本地候选包，未经跨仓库 CI 发布。私库已保存制作源、成品和后续发布步骤，
   现有 release/ 与锁定版本保持可用，待公共合同提交并可在远端获取后再更新私库 pin。
 
+2026-09-23 聊天唤出与滚动修订（本地工作区，尚未发布）：
+
+- 显式打开/唤回聊天会重新定位到最新消息；观察内容和可视区尺寸，在输入区挂载、
+  多行草稿恢复和窗口缩放后保持贴底。手动翻阅与加载更早历史保留阅读位置，普通
+  应用焦点切换不重新定位。
+- 全局快捷键及设置中的“试用”切换聊天显示/隐藏；唤回时聚焦输入区，最小化时恢复，
+  附着的原生文件选择框保持可达。菜单与桌宠双击仍只唤回。
+  删除居中快捷输入路径，角色单击的就近输入胶囊保留，快捷键配置与冲突处理不变。
+- `make check`（含 37 项前端/资源行为测试）、`make smoke`、`make build` 通过。
+  初次沙箱检查被本机 Unix socket 限制阻断，本机重跑通过。
+  `script/build_and_run.sh --verify` 启动新版，原生检查了历史向上翻阅后关闭/双击重开、
+  末条长消息完整显示、五行草稿撑高与重开后恢复；测试草稿已清除，未发送新消息。
+  自动化按键未能触发 Carbon 系统热键；用户已确认真实键盘可以唤出。
+  后续显示/隐藏切换的服务回归通过，系统级连续按键切换仍需人工观察。
+
+2026-09-23 透明窗口回归修复（本地工作区，尚未发布）：
+
+- 用户提供桌宠与飞行纸飞机各自带黑色矩形背景的完整截图。根因是 Wails beta.23
+  默认构建将 WKWebView 透明开关变为空操作；原生 NSPanel 与 Three.js 的 alpha 配置
+  原本已正确。按上游合同启用 `private_mac_apis`，构建、vet/test 一致，不修改角色素材。
+- `make check`、`make smoke` 与 `script/build_and_run.sh --verify` 通过；应用二进制的
+  Go build info 确认 `production,private_mac_apis`。已启动原生版本并检查桌宠窗口，
+  原黑色背景在窗口截图中消失；已通过既有开发预览触发纸飞机绕行。
+  上游固定版本的 public/private 原生 WKWebView 桥接断言均通过，验证默认分支保持
+  背景、private 分支关闭背景绘制。窗口截图工具会将透明区域显示为白色，未单独
+  捕获飞行中的飞机窗口；用户在修复版运行时确认桌宠和纸飞机的黑框均已消失。
+
 本地 `make check` / `make smoke` / `make build` 和公开 Actions 给出可复查的当前验证结果。
 历史人工观察只覆盖 Apple Silicon 单屏核心流程；原生多屏/Spaces、旧系统、Intel、
 长时运行、完整动作穿模与整体自然度仍需针对性验收。当前自动化未证明这些场景。
 
-当前没有 Developer ID 或公证，使用[安装指南](install.zh-CN.md)的按应用信任步骤。
+公开发行要求 Developer ID 签名、公证与 Gatekeeper 验证；历史预览包不补签或覆盖。
 主分支要求 PR 与 product CI；版本 PR 经 release-please 管理，DMG 在精确 tag 上重新检查、
 挂载核验和计算 SHA-256 后发布。自动化配置与恢复命令见[发布维护](release.md)。
 本地内容包 v1 已提供设置内角色/完整服装变体与头像切换，详见 [内容包指南](content-packs.md)。

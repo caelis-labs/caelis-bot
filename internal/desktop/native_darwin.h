@@ -8,6 +8,7 @@ void bot_panel(void *host, int visible);
 int bot_prepare_window_recall(void *host);
 int bot_window_open(void *window);
 int bot_window_visible(void *window);
+int bot_window_can_hide(void *window);
 void bot_toggle_panel(void *host);
 void bot_panel_height(void *host, int height);
 void bot_panel_menu(void *host, int height, int activation);
@@ -33,5 +34,4 @@ int bot_launch_plane(void *host, char *id, double x, double y);
 void bot_finish_plane(void *host, char *id, int completed);
 
 int bot_shortcut(void *host, char *key, int flags, int enabled);
-void bot_centered_panel(void *host);
 void bot_panel_ready(void *host, int activation);

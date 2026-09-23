@@ -197,3 +197,8 @@ export interface Submission {
   fileIds: Array<string>;
   referenceIds: Array<string>;
 }
+export interface WorkExecutionSettings {
+  model: string;
+  effort: string;
+  serviceTier: string;
+}

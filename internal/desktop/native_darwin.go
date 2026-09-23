@@ -53,7 +53,7 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 		case 10:
 			s.OpenUpdates()
 		case 11:
-			s.ToggleCenteredPanel()
+			s.ToggleHistory()
 		case 12:
 			s.RecallWindows()
 		}
@@ -126,6 +126,9 @@ func macWindowOpen(window *application.WebviewWindow) bool {
 }
 func macWindowVisible(window *application.WebviewWindow) bool {
 	return application.InvokeSyncWithResult(func() bool { return C.bot_window_visible(window.NativeWindow()) != 0 })
+}
+func macWindowCanHide(window *application.WebviewWindow) bool {
+	return application.InvokeSyncWithResult(func() bool { return C.bot_window_can_hide(window.NativeWindow()) != 0 })
 }
 func (d *macDriver) mask(b []byte) {
 	application.InvokeSync(func() { C.bot_mask(d.pointer, (*C.uchar)(unsafe.Pointer(&b[0])), C.int(len(b))) })
@@ -277,9 +280,6 @@ func (d *macDriver) registerShortcut(v Shortcut) error {
 		return errors.New("该快捷键已被系统或其他应用占用，请选择其他组合；原快捷键保持不变")
 	}
 	return nil
-}
-func (d *macDriver) centeredPanel() {
-	application.InvokeSync(func() { C.bot_centered_panel(d.pointer) })
 }
 func (d *macDriver) panelReady(id int) {
 	application.InvokeSync(func() { C.bot_panel_ready(d.pointer, C.int(id)) })

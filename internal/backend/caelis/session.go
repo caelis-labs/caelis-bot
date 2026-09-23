@@ -19,9 +19,10 @@ import (
 )
 
 type Options struct {
-	Directory string
-	Settings  api.RuntimeSettings
-	Execution api.ExecutionSettings
+	WorkExecution api.WorkExecutionSettings
+	Directory     string
+	Settings      api.RuntimeSettings
+	Execution     api.ExecutionSettings
 	// ToolsOnly is for protocol acceptance without native execution. Product
 	// assembly always requests workspace-write; it never silently falls back.
 	ToolsOnly bool
@@ -32,6 +33,7 @@ type Session struct {
 	path              string
 	settings          api.RuntimeSettings
 	execution         api.ExecutionSettings
+	workExecution     api.WorkExecutionSettings
 	executionMode     string
 	tools             *api.ToolConnection
 	catalog           map[string]api.ApplicationTools
@@ -62,7 +64,7 @@ func New(opts Options) *Session {
 	if opts.ToolsOnly {
 		mode = "tools-only"
 	}
-	return &Session{path: p, settings: opts.Settings, execution: opts.Execution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
+	return &Session{path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
 }
 func (*Session) ProviderInfo() api.ProviderInfo {
 	return api.ProviderInfo{ID: "caelis", Name: "Caelis", ConnectionKind: "local-host", HelpURL: "https://caelis.dev", ConnectionHint: "使用本机 Caelis；安装与模型凭据由运行时管理。"}

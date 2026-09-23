@@ -17,11 +17,14 @@ type taskFixture struct {
 	starts, sends            int
 	threadParams, turnParams map[string]any
 	uncertain                bool
+	config                   any
+	resumed                  map[string]any
+	models                   map[string]threadExecutionResponse
 }
 
 func taskPair(t *testing.T) (*Session, *sessionFixture, *taskFixture, *tasks.Manager) {
 	s, f := sessionPair(t, "hold")
-	d := &taskFixture{}
+	d := &taskFixture{config: map[string]any{"config": map[string]any{"model": nil}}, models: map[string]threadExecutionResponse{}}
 	f.mu.Lock()
 	f.workers = map[string]nativeThread{}
 	f.handle = func(m wireMessage) (any, bool) {
@@ -30,6 +33,8 @@ func taskPair(t *testing.T) (*Session, *sessionFixture, *taskFixture, *tasks.Man
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		switch m.Method {
+		case "config/read":
+			return d.config, true
 		case "thread/start":
 			cwd, _ := p["cwd"].(string)
 			if !strings.Contains(cwd, "/Tasks/") {
@@ -39,10 +44,21 @@ func taskPair(t *testing.T) (*Session, *sessionFixture, *taskFixture, *tasks.Man
 			d.threadParams = p
 			thread := nativeThread{ID: fmt.Sprintf("owned-worker-%d", d.starts)}
 			f.workers[thread.ID] = thread
-			return map[string]any{"thread": thread}, true
+			model, _ := p["model"].(string)
+			if model == "" {
+				model = "native-default"
+			}
+			effort, _ := p["config"].(map[string]any)["model_reasoning_effort"].(string)
+			tier, _ := p["serviceTier"].(string)
+			r := threadExecutionResponse{Thread: thread, Model: model, ModelProvider: "fixture-provider", ReasoningEffort: effort, ServiceTier: tier}
+			d.models[thread.ID] = r
+			return r, true
 		case "thread/resume":
 			if thread, ok := f.workers[p["threadId"].(string)]; ok {
-				return map[string]any{"thread": thread}, true
+				d.resumed = p
+				r := d.models[thread.ID]
+				r.Thread = thread
+				return r, true
 			}
 		case "turn/start", "turn/steer":
 			id, _ := p["threadId"].(string)
@@ -347,8 +363,8 @@ func TestTaskPersistenceFailureCannotDispatchOrChangeKnownState(t *testing.T) {
 func TestWorkerParametersPreserveExplicitExecutionMode(t *testing.T) {
 	s := NewSession(SessionOptions{Directory: t.TempDir(), Execution: api.ExecutionSettings{Model: "synthetic-model", Effort: "high", ServiceTier: "fast", ApprovalMode: "read-only"}})
 	defer s.cancelLife()
-	p := s.workerParams("/synthetic/task", botpolicy.WorkerInstructions)
-	if p["sandbox"] != "read-only" || p["approvalPolicy"] != "never" || p["approvalsReviewer"] != "user" || p["model"] != "synthetic-model" || p["serviceTier"] != "fast" || p["config"].(map[string]any)["model_reasoning_effort"] != "high" {
+	p := s.workerParams("/synthetic/task", botpolicy.WorkerInstructions, &taskRecord{Execution: &api.WorkExecutionSettings{Model: "work-model", Effort: "high", ServiceTier: "fast"}})
+	if p["sandbox"] != "read-only" || p["approvalPolicy"] != "never" || p["approvalsReviewer"] != "user" || p["model"] != "work-model" || p["serviceTier"] != "fast" || p["config"].(map[string]any)["model_reasoning_effort"] != "high" {
 		t.Fatal("worker changed explicit settings")
 	}
 }

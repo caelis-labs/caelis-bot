@@ -225,6 +225,7 @@ func Run(assets fs.FS) error {
 		history.Hide()
 	}
 	s.historyVisible = func() bool { return macWindowVisible(history) }
+	s.historyCanHide = func() bool { return macWindowCanHide(history) }
 	s.recallWindows = func() {
 		if !s.prepareWindowRecall() {
 			return
@@ -257,7 +258,8 @@ func Run(assets fs.FS) error {
 				}
 				window.Show()
 				if window == history {
-					history.ExecJS("window.dispatchEvent(new Event('history-open'))")
+					// Ordinary app focus must not reset an existing history read.
+					history.ExecJS("window.dispatchEvent(new Event('history-visible'))")
 				}
 			})
 		})

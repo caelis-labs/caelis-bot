@@ -12,7 +12,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
-const currentProjectionVersion = 3
+const currentProjectionVersion = 4
 
 type journal struct {
 	Digest   string                 `json:"digest"`
@@ -28,6 +28,7 @@ type view struct {
 	Items    []api.Item        `json:"items"`
 	Cursor   string            `json:"cursor"`
 	Seen     map[string]bool   `json:"seen"`
+	Failure  string            `json:"failure,omitempty"`
 }
 type typedRecord struct {
 	Path    string          `json:"path"`
@@ -119,6 +120,7 @@ func loadBinding(path string) (binding, error) {
 			v.Items = []api.Item{}
 			v.Cursor = ""
 			v.Seen = map[string]bool{}
+			v.Failure = ""
 		}
 		b.ProjectionVersion = currentProjectionVersion
 	}

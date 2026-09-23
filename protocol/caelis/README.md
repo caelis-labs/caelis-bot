@@ -1,8 +1,9 @@
 # Caelis Control v1 baseline
 
 `manifest.json` pins the public Caelis OpenAPI schema and generated wire declarations
-from commit `6ede951f3d383e131cf71b54b3573df401407e38`. This was a local,
-unpublished commit at integration time; installed 0.60.1 is not equivalent.
+from the official v0.61.0 commit `5e2546f4954eab1d0f8fcfcc57f54939ad465125`.
+The published schema and package-normalized wire are byte-identical to the prior
+`4a3c059` candidate baseline. Installed 0.60.1 is not equivalent.
 
 `internal/backend/caelis/wire/control_v1.gen.go` is copied from the public
 `control/appserver/wirev1/generated/control_v1.gen.go`, with only its package name
@@ -15,15 +16,13 @@ when HTTP status is non-2xx. `SessionState.approval.active.permission` is an opa
 JSON object containing native `tool_call` and options with `id`, not ACP event
 `toolCall` / `optionId`. Its native structure is decoded separately in approval.go.
 
-The pinned Host appends Bot configuration as canonical `user_message_chunk`
-events with an `event_id` beginning `bot-config-` and no turn/activity identity.
-The adapter keeps them out of the chat presentation using that native provenance;
-it never classifies user content by its wording. A projection-cache revision forces
-old derived transcripts to replay while retaining identity and command journals.
-Recheck this source convention when upgrading the pin; it is not a new wire enum.
-User chunks with typed `agent_communication_source` are internal context as well,
+Application configuration uses the generic configuration API, not legacy Bot Mode
+messages. User chunks with typed `agent_communication_source` are internal context,
 including Control work-completion evidence. Their assistant responses remain in
 the chat; the adapter does not mistake the evidence for a new user request.
+Native `caelis/error` and failed lifecycle reasons are preserved for the current
+request and shown in chat. A projection-cache revision rebuilds derived views
+without replacing identity or command journals.
 
 Runtime support depends on initialize capability negotiation, not a release
 allowlist. See `docs/caelis-integration.md` for mappings, limits and live fixtures.

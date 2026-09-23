@@ -1,9 +1,10 @@
 # Caelis 接入与运行时管理
 
-2026-09-23：Bot 已接通 Caelis 通用应用运行时，固定源码基线为
-`4a3c05964d6d240ec55414e189205930588ef099`。使用公开 HTTP/SSE 与生成的 Go wire，
-不导入兄弟仓库、不恢复旧 Bot Mode。已通过隔离 Host 的确定性联调以及 MiMo / GPT-6 Luna 真实模型验收（含 Fast）；
-**原生 GUI 操作和发行安装仍待验收**。最新证据见 [真实模型报告](caelis-live-acceptance.md)，
+2026-09-24：Bot 已接通正式 Caelis v0.61.0 通用应用运行时，固定源码基线为
+`5e2546f4954eab1d0f8fcfcc57f54939ad465125`。使用公开 HTTP/SSE 与生成的 Go wire，
+不导入兄弟仓库、不恢复旧 Bot Mode。已核对本机安装与官方发布资产一致，并完成隔离 Host、
+MiMo / GPT-6 Luna（含 Fast）及原生 GUI 的设置、身份写入、聊天和模型切换验收。
+完整覆盖与限制见 [正式版联调报告](caelis-release-acceptance.md)，此前候选证据见 [真实模型报告](caelis-live-acceptance.md)，
 早期确定性 B01–B12 见 [联调报告](caelis-application-acceptance.md)。
 
 ## 基线与发现
@@ -42,7 +43,7 @@ CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切
 ```
 
 不要通过更换 Store 或删除绑定来绕过未确认的操作。原生启动仍使用
-`script/build_and_run.sh`；本轮协议测试没有启动日常 Bot 或修改日常 Store。
+`script/build_and_run.sh`；协议夹具使用临时 HOME/Store，GUI 联调临时选择独立 Bot 数据目录，结束后恢复日常 Bot。
 
 ## 所有权与公开接口
 
@@ -93,7 +94,7 @@ cd /Users/xueyongzhi/WorkDir/caelis-labs/caelis-bot
 GOWORK=off make check
 GOWORK=off make smoke
 GOWORK=off make build
-CAELIS_BOT_TEST_BINARY=/tmp/caelis-application-candidate-20260923/caelis GOWORK=off make smoke-caelis
+CAELIS_BOT_TEST_BINARY="$HOME/.local/bin/caelis" GOWORK=off GOFLAGS=-count=1 make smoke-caelis
 ```
 
 `smoke-caelis` 创建临时 HOME、Store、Notebook、worker 目录与合成模型服务，通过真实 Host 的公开接口
@@ -104,7 +105,7 @@ CAELIS_BOT_TEST_BINARY=/tmp/caelis-application-candidate-20260923/caelis GOWORK=
 
 ```bash
 CAELIS_BOT_LIVE_STORE=/absolute/path/to/isolated-store \
-CAELIS_BOT_LIVE_BINARY=/absolute/path/to/candidate-caelis \
+CAELIS_BOT_LIVE_BINARY=/absolute/path/to/installed-caelis \
 CAELIS_BOT_LIVE_MODEL=xiaomi/mimo-v2.6-flash \
 CAELIS_BOT_LIVE_ALTERNATE_MODEL=openai-codex/gpt-6-luna \
 CAELIS_BOT_LIVE_EFFORT=low \
@@ -112,7 +113,7 @@ CAELIS_BOT_LIVE_FAST_MODEL=openai-codex/gpt-6-luna \
 GOWORK=off make smoke-caelis-live
 ```
 
-live fixture 检验 Notebook、资源闭环、待审批重连、双 worker、grant、同 Turn 热配置与 Fast。
+live fixture 带入完整产品工具目录并调用无参数 `bot_clock`，检验 Notebook、资源闭环、待审批重连、双 worker、grant、同 Turn 热配置与 Fast。
 会产生模型费用；不复制凭据，不修改日常 Store。Fast selector 使用隔离 Store 已有认证，经公开接口配置。
 缺少 Fast selector 或自管 binary 的路径明确跳过相应项目。详见真实模型报告的复现与边界。
 

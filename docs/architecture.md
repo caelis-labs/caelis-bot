@@ -1,9 +1,9 @@
 # Architecture and internal backend contract
 
 Status: application-owned Bot foundation implemented locally; Codex execution connected.
-Caelis generic application protocol is connected against baseline 4a3c059; legacy Bot Mode stays disabled.
-Isolated Host/native-tool and real-model acceptance pass; native GUI acceptance for this Core baseline remains pending.
-This is not a released interoperability standard.
+Caelis generic application protocol is connected against official v0.61.0 (5e2546f); legacy Bot Mode stays disabled.
+Installed release identity, isolated Host/native tools, real models and scoped macOS GUI acceptance pass;
+see [release acceptance](caelis-release-acceptance.md) for remaining product and distribution limits.
 
 2026-09-23: [Bot product-host architecture](bot-platform-architecture.md) and the
 [generic Runtime extension proposal](runtime-extension-contract.md) define the target.
@@ -573,21 +573,29 @@ System API references: [NSClickGestureRecognizer](https://developer.apple.com/do
 [gesture failure requirements](https://developer.apple.com/documentation/appkit/nsgesturerecognizerdelegate/gesturerecognizer(_:shouldrequirefailureof:)),
 [Window Server dragging](https://developer.apple.com/documentation/appkit/nswindow/performdrag(with:)).
 
-Global quick input uses a driver-owned Carbon hotkey on macOS, without an event tap
+Global chat recall uses a driver-owned Carbon hotkey on macOS, without an event tap
 or keyboard monitoring permission. The portable preference uses physical key codes
 and Control/Alt/Shift/Meta modifiers; the default is Control+Shift+Space.
 Registration failure preserves the prior shortcut. Saving failure rolls registration
 back; preferences use atomic replacement with mode 0600. A hidden pet does not disable
 the shortcut. A future Windows host must implement its own driver and conflict checks.
 
-Hotkey input is centered in the mouse screen's visible frame; clicking the pet keeps
-its existing nearby anchor. Resizing the composer preserves the invocation's placement
-mode. Repeating the same invocation toggles the panel; switching modes repositions it.
-The native activation/key-window callbacks explicitly transfer first-responder status
-to WebKit and request DOM focus. Closing restores the previous application when still
-appropriate; outside clicks retain their chosen destination. The settings page offers
-a preview button for the same centered path. Busy/disconnected global input retains a
-draft and links to chat; it cannot send or approve around native execution gates.
+The hotkey and settings preview both call `ToggleHistory`: native visible, non-minimised
+chat is hidden; hidden/minimised chat is raised and its editor focused through the
+existing window-recall preparation. An attached native sheet is recalled rather than
+hidden. No remembered toggle bit or backend cancellation is involved. Menus and pet
+double-click keep their unconditional recall path. Pet single-click toggles its nearby capsule;
+the centered-input path is removed. Closing that capsule restores the previous
+application when appropriate; outside clicks retain their chosen destination.
+Busy/disconnected chat retains the draft and existing native send/approval gates.
+
+Explicit `history-open` resets bottom-following even if the window is already active.
+Native key-window reconciliation uses `history-visible` so ordinary app switching does
+not disturb manual history reading. An active-only ResizeObserver tracks the transcript
+content and viewport, keeping the latest message visible after composer mount, draft
+restoration and window resize. Loading earlier messages retains its message anchor;
+manual scrolling suspends bottom-following until the user returns to the bottom or
+explicitly recalls chat. Focus requests do not remount or reload the shared draft.
 
 Quick input remains mounted in its hidden webview, refreshing the revision-fenced
 shared draft at activation. `ComposerSnapshot` excludes transcript and approval bodies
@@ -608,6 +616,17 @@ never/dangerFullAccess. The isolated acceptance flag always tightens back to
 untrusted/user/workspace-write. Model settings cannot rewrite pending approval targets.
 Native Codex requirements remain authoritative and may reject selected policies.
 
+Delegated work has separate per-provider `work-execution.json` preferences. An empty
+model reads the Runtime default when creating work; only an absent configured model
+falls back to the Bot's model/effort/tier. Manual selection overrides that group.
+`WorkExecutionProvider` validates and persists these preferences independently of the
+resident execution settings. They never change permission policy or Runtime globals.
+Codex reads `config/read` and pins the native thread receipt, including model provider,
+for continuation/restart; legacy tasks first resume without model overrides. Caelis
+resolves public Host model metadata and persists an explicit application worker profile.
+Lookup errors are not absence. Existing tasks keep their settings. Caelis application
+team configuration remains deferred to [Caelis #74](https://github.com/caelis-labs/caelis/issues/74).
+
 Protocol references: [model/list](https://learn.chatgpt.com/docs/app-server#list-models-modellist)
 and the vendored Codex 0.153.4 ModelList/ThreadStart/ThreadResume/TurnStart schemas.
 
@@ -625,6 +644,16 @@ this is not a signed auto-updater. Release automation builds an exact main-branc
 and publishes only after uploading the DMG and checksum; see [release operations](release.md).
 
 ## Neutral appearance and native chrome (2026-09-20)
+
+The pinned Wails beta.23 separates its WKWebView transparency bridge behind
+`private_mac_apis`. `script/build.sh` explicitly uses `production,private_mac_apis`,
+and native vet/tests use the same transparency option. Without it, native windows and
+WebGL canvases can both be transparent while WebKit still paints an opaque rectangle
+(dark in dark mode) across the pet and the larger detached prop window. The opt-in
+uses Wails' guarded private `drawsBackground` operation; CSS transparency and public
+`underPageBackgroundColor` do not replace it. This is a native macOS dependency to
+revalidate on Wails/OS upgrades, not an asset or character-animation change. See
+[Wails transparency/build contract](https://v3.wails.io/guides/build/private-macos-apis/).
 
 Chat retains one native titlebar and standard window controls. There is no duplicate
 HTML title/header. Pending response feedback lives in the transcript as an avatar

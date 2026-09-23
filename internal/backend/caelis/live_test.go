@@ -14,6 +14,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
@@ -152,6 +153,12 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		t.Fatal(e)
 	}
 	var s *Session
+	resident, e := bot.NewForRuntime(filepath.Join(root, "resident.json"), "caelis", nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer resident.Close()
+	var clockCalls atomic.Int32
 	var oldCalls, newCalls atomic.Int32
 	entered, release := make(chan struct{}, 1), make(chan struct{})
 	var releaseOnce atomic.Bool
@@ -169,16 +176,19 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		return api.ToolResult{IsError: err != nil, Content: []map[string]string{{"type": "text", "text": text}}}
 	}
 	defs := func(version string) []api.ToolDefinition {
-		return []api.ToolDefinition{
+		return append(resident.Definitions(), []api.ToolDefinition{
 			{Name: "LiveCheckpoint", Description: "Call once when the user requests the hot configuration checkpoint; wait for its result.", InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
 			{Name: "LiveVersion", Description: "Acknowledge the current configuration by submitting its version.", InputSchema: json.RawMessage(fmt.Sprintf(`{"type":"object","properties":{"version":{"type":"%s"}},"required":["version"],"additionalProperties":false}`, version))},
 			{Name: "LiveDelegate", Description: "Start the two isolated acceptance workers explicitly requested by the user.", InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
 			{Name: "LiveSchedule", Description: "Authorize the single acceptance reminder explicitly requested by the user.", InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
-		}
+		}...)
 	}
 	h := &acceptanceTools{defs: defs("string")}
 	h.call = func(callCtx context.Context, name string, args json.RawMessage) api.ToolResult {
 		switch name {
+		case "bot_clock":
+			clockCalls.Add(1)
+			return resident.CallTool(callCtx, name, args)
 		case "LiveCheckpoint":
 			oldCalls.Add(1)
 			select {
@@ -232,6 +242,13 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		waitTurn(t, c, s, before)
 	}
 	if !run("B01_B02_B06_notebook", func(t *testing.T) {
+		// Use the complete shipped catalog, including no-argument tools. A
+		// fixture-only schema missed a provider rejection in native onboarding.
+		submit(t, "live-product-catalog", "Call bot_clock exactly once, then reply CLOCK_COMPLETE. No other tools.")
+		if clockCalls.Load() != 1 {
+			t.Fatal("shipped no-argument tool did not complete through native callback")
+		}
+		record("product_catalog", map[string]any{"tools": len(resident.Definitions()), "clock_calls": clockCalls.Load()})
 		before, err := s.Configuration(ctx)
 		if err != nil {
 			t.Fatal(err)

@@ -23,6 +23,8 @@ type Service struct {
 	switchGuard                 func() error
 	executionFile               string
 	executionSettings           api.ExecutionSettings
+	workExecutionFile           string
+	workExecutionSettings       api.WorkExecutionSettings
 	configurationMu             sync.Mutex
 	runtimeFile                 string
 	runtimeSettings             api.RuntimeSettings
