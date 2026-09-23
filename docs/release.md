@@ -38,7 +38,7 @@ A failed build remains a draft. A notarization submission still `In Progress` is
 gh workflow run release.yml --repo caelis-labs/caelis-bot --ref main -f tag=v0.1.0
 ```
 
-Substitute the failed draft's exact tag. The recovery workflow rejects a tag outside main, a version mismatch or a release that is already published. It can replace incomplete assets **in a draft**. The app retains the tagged source even if main has moved. Recovery can apply a reviewed fix to signing/packaging tools from the immutable workflow commit without rebuilding app code from main or moving the release tag. Packaging checks the app version against the requested tag; the credential-free build job checks that tag against its own package.json.
+Substitute the failed draft's exact tag. The recovery workflow rejects a tag outside main or a version mismatch. The final publication job, which alone has Contents write permission, verifies that the release is still a draft before uploading anything; read-only build tokens cannot see unpublished GitHub release drafts. It can replace incomplete assets **in a draft**. The app retains the tagged source even if main has moved. Recovery can apply a reviewed fix to signing/packaging tools from the immutable workflow commit without rebuilding app code from main or moving the release tag. Packaging checks the app version against the requested tag; the credential-free build job checks that tag against its own package.json.
 
 When a run retained a `notarization-checkpoint`, resume its exact signed artifacts and Apple submission IDs instead of signing or uploading them again:
 
