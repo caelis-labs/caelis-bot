@@ -17,6 +17,7 @@ type driver interface {
 	screens() []Rect
 	apply(Placement)
 	panel(bool)
+	prepareWindowRecall() bool
 	approval()
 	bubble(bool)
 	togglePanel()
@@ -44,9 +45,11 @@ type Service struct {
 	selectionFile      string
 	selectionError     error
 	openHistory        func()
+	recallWindows      func()
 	closeHistory       func()
 	historyVisible     func() bool
 	activate           func()
+	restartRuntime     func() error
 	openSettings       func()
 	closeSettings      func()
 	settingsSection    string
@@ -182,6 +185,15 @@ func (s *Service) ClosePanel() {
 		return
 	}
 	s.native.panel(false)
+}
+
+// A transition to another Bot window must not restore focus to another app.
+// Call this before entering an AppKit transaction, never while on its UI thread:
+// other service operations may already hold mu while waiting for AppKit.
+func (s *Service) prepareWindowRecall() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.started && !s.stopped && s.native.prepareWindowRecall()
 }
 func (s *Service) OpenApproval() {
 	s.mu.Lock()
@@ -330,6 +342,16 @@ func (s *Service) shutdown() {
 }
 
 // Chat is an optional interactive surface. Its visibility never owns a task.
+func (s *Service) RecallWindows() {
+	s.mu.Lock()
+	f := s.recallWindows
+	ready := s.started && !s.stopped
+	s.mu.Unlock()
+	if ready && f != nil {
+		f()
+	}
+}
+
 func (s *Service) OpenHistory() {
 	s.mu.Lock()
 	f := s.openHistory

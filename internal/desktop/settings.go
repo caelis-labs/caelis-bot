@@ -42,3 +42,10 @@ func (s *Service) OpenReleasePage() error {
 	}
 	return s.openReleasePage()
 }
+
+func (s *Service) RestartForRuntime() error {
+	if s.restartRuntime == nil {
+		return errors.New("重新启动暂不可用，请退出后重新打开 Caelis Bot")
+	}
+	return s.restartRuntime()
+}

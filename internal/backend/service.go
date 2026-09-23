@@ -13,6 +13,10 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	admission                   sync.RWMutex
+	restarting                  bool
+	setupRequired               bool
+	setup                       api.SetupController
 	providers                   []api.ProviderInfo
 	probeRuntime                func(context.Context, api.RuntimeSettings) error
 	manageRuntime               func(context.Context, string, api.RuntimeSettings) (api.RuntimeStatus, error)
@@ -143,7 +147,14 @@ func (s *Service) LoadEarlier(ctx context.Context) error {
 	}
 	return errors.New("当前接入暂不支持读取更早消息")
 }
-func (s *Service) Connect(ctx context.Context) error { return s.engine.Connect(ctx) }
+func (s *Service) Connect(ctx context.Context) error {
+	s.admission.RLock()
+	defer s.admission.RUnlock()
+	if s.restarting || s.setupRequired {
+		return errors.New("请先完成运行时设置")
+	}
+	return s.engine.Connect(ctx)
+}
 func (s *Service) OpenConnectionHelp() error {
 	return s.OpenMessageLink(s.ProviderInfo().HelpURL)
 }
@@ -161,6 +172,12 @@ func (s *Service) OpenMessageLink(value string) error {
 	return s.openURL(u.String())
 }
 func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt, error) {
+	s.admission.RLock()
+	defer s.admission.RUnlock()
+	if s.restarting || s.setupRequired {
+		return api.Receipt{}, errors.New("请先完成运行时设置")
+	}
+
 	files, err := s.files(input.FileIDs)
 	if err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil

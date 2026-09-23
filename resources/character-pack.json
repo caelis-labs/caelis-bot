@@ -57,28 +57,28 @@
     {
       "path": "frontend/public/icons/caelis-avatar.png",
       "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "0e002dd314beea328d34028dc084a9cf8c7786fc84633de5a735235f354f5fd7"
+      "sha256": "fb58aa27dc9e9483d95ceb9b5b782feaa792142a016a3e2ea159de5fd4fcbca8"
     },
     {
       "path": "internal/desktop/assets/app-icon.png",
       "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "662e0a3c90bd3dc3754a76c5a75af0189fb9a7bbc67157315e2ba76dfb6d7d3e"
+      "sha256": "01319de9ebc4d1531b17b9c6c22ae80904fe11e80ead41f35efb01e9e88c048d"
     },
     {
       "path": "internal/desktop/assets/status-icon.png",
       "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "36733bdd0ed9e232d0fd93735862e76822c186f596f0b147e9a7a10560617f77"
+      "sha256": "2000c3fdb0dda5948f2e7fb16f39a64f15b93f3b226855ff0693ea581d719be9"
     },
     {
       "path": "resources/macos/CaelisBot.icns",
       "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "f62535f3d90d31a28f62a40b0d62141ae56a4967108cbe4504941f2be0e7c77a"
+      "sha256": "276fa9a1cb9389194771848d3e97167baae44b7bdeca542cc28a5d8b34b23a1c"
     },
     {
       "path": "frontend/assets/caelis-avatar-v1.svg",
-      "sha256": "212f7cf89ba7afd64aab50519d5fe1d4b20be67c43336e3a72946340808c215c",
-      "license": "LicenseRef-Caelis-Character-1.0"
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "212f7cf89ba7afd64aab50519d5fe1d4b20be67c43336e3a72946340808c215c"
     }
   ],
-  "version": "0.1.2"
+  "version": "0.1.3"
 }

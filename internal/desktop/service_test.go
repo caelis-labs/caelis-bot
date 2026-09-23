@@ -35,11 +35,15 @@ func (d *fakeDriver) screens() []Rect        { return d.displays }
 func (d *fakeDriver) apply(p Placement)      { d.placement = p }
 func (d *fakeDriver) panelHeight(height int) { d.height = height }
 func (d *fakeDriver) panel(open bool)        { d.panelOpen = open }
-func (d *fakeDriver) approval()              { d.panelOpen, d.approvalOpen = true, true }
-func (d *fakeDriver) bubble(open bool)       { d.bubbleOpen = open }
-func (d *fakeDriver) togglePanel()           { d.panelOpen = !d.panelOpen }
-func (d *fakeDriver) mask(b []byte)          { d.hit = b }
-func (d *fakeDriver) stop()                  { d.stopped = true }
+func (d *fakeDriver) prepareWindowRecall() bool {
+	d.panelOpen, d.bubbleOpen = false, false
+	return true
+}
+func (d *fakeDriver) approval()        { d.panelOpen, d.approvalOpen = true, true }
+func (d *fakeDriver) bubble(open bool) { d.bubbleOpen = open }
+func (d *fakeDriver) togglePanel()     { d.panelOpen = !d.panelOpen }
+func (d *fakeDriver) mask(b []byte)    { d.hit = b }
+func (d *fakeDriver) stop()            { d.stopped = true }
 func setup() (*Service, *fakeDriver, *memoryStore) {
 	store := &memoryStore{value: defaults()}
 	d := &fakeDriver{displays: []Rect{{0, 40, 1440, 860}}}

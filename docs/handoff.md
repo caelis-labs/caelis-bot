@@ -9,8 +9,12 @@
 
 当前新增 Caelis Control Host adapter 与运行时管理，见[接入说明](caelis-integration.md)。
 使用公开固定协议，Control 独占受管工作、汇报与提醒授权；不复制 Codex 的 MCP/报告循环。
-「连接」可检测、安装、更新 Caelis，选择二进制和数据目录；保存后下次启动生效。
-这轮尚未提交，保留 Codex 原有记录。当前验证与限制以 preparation-status 为准。
+Caelis 接入检查点为 `e6699a8`。本轮继续落地已批准的 Runtime Setup：首次选择、原生检测与安装、
+Caelis 模型配置、Codex 登录及设置中的独立管理；使用原生重启应用后端选择。
+本地检查点包含上述实现，保留 Codex 原有记录。实现契约见 `internal/backend/api/setup.go` 与
+`docs/backend-contract.md`；视觉草稿位于 `docs/design/runtime-setup-v1.md`。
+同时包含完整头像图标、明确的运行时切换入口，以及 AppKit 独立单击/双击/拖动识别与窗口唤回修复。
+完整验证与限制以 preparation-status 为准；尚未发布。
 
 [能力契约](backend-contract.md)定义产品装配和 provider 分支，
 [平台计划](backend-platform-plan.md)保留 Windows 落点与历史审查。Windows 原生实现仍在

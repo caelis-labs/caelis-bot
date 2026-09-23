@@ -527,12 +527,32 @@ changes only the bubble's explicit keyboard eligibility. Result acknowledgement 
 persisted independently from history and execution. Native frontmost chat suppression
 prevents duplicate bubbles without losing background observation.
 
-## Menu, settings and click routing (2026-09-20)
+## Menu, settings and click routing (updated 2026-09-23)
 
-AppKit owns physical pet clicks. The first click opens the composer immediately;
-a second click promotes it to chat without submitting the shared draft. Dragging
-still starts through Window Server after the movement threshold. There is no
-single-click timer or delayed activation to survive dismissal.
+`BotPetInputView` owns physical input through two `NSClickGestureRecognizer`s and
+one `NSPanGestureRecognizer`. Only the single-click recognizer requires double-click
+failure; both clicks require pan failure. Double-click directly recalls chat and
+already-open settings, without running a single-click action or opening a composer.
+Single-click follows AppKit's user-configured double-click interval. There is no
+manual `nextEventMatchingMask` loop or application timer deciding click count.
+Pan hands the original mouse-down event to `performWindowDragWithEvent:`; Window
+Server still owns movement. The small original hit region is retained between
+clicks so animated silhouettes cannot turn the second click into pass-through.
+Outside clicks, right-click menus, hide, deactivation, Spaces and shutdown cancel
+pending recognition. Accessibility press remains an explicit single action.
+
+Window transitions dismiss the composer without restoring the prior foreground
+application; explicit composer close keeps its existing focus-return behavior.
+Native preparation occurs before the AppKit window transaction, never by acquiring
+the Go service mutex from inside that transaction. Recall reads `NSWindow.isVisible`
+and `isMiniaturized`: Wails beta.6 `IsVisible()` measures occlusion, so it cannot decide
+whether a fully covered settings window is open. Closed settings remain closed;
+covered/minimized settings are recalled after chat and keep their current page.
+An attached native file sheet retains focus rather than being hidden by recall.
+
+System API references: [NSClickGestureRecognizer](https://developer.apple.com/documentation/appkit/nsclickgesturerecognizer),
+[gesture failure requirements](https://developer.apple.com/documentation/appkit/nsgesturerecognizerdelegate/gesturerecognizer(_:shouldrequirefailureof:)),
+[Window Server dragging](https://developer.apple.com/documentation/appkit/nswindow/performdrag(with:)).
 
 Global quick input uses a driver-owned Carbon hotkey on macOS, without an event tap
 or keyboard monitoring permission. The portable preference uses physical key codes

@@ -31,6 +31,10 @@ func (s *Session) Models(ctx context.Context) ([]api.ModelOption, error) {
 	}
 	ctx, cancel := s.operation(ctx, 15*time.Second)
 	defer cancel()
+	return c.models(ctx)
+}
+
+func (c *Client) models(ctx context.Context) ([]api.ModelOption, error) {
 	result := []api.ModelOption{}
 	cursor := ""
 	seen := map[string]bool{}

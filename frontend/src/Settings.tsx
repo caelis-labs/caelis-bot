@@ -6,19 +6,20 @@ import { ExecutionSettings } from './ExecutionSettings';
 import { Maintenance } from './Maintenance';
 import { SettingGroup, SettingRow } from './SettingsUI';
 
-const sections = [ ['general','常规'], ['runtime','连接'], ['execution','模型与权限'], ['storage','存储'], ['diagnostics','诊断'], ['updates','关于'] ] as const;
-type Section = typeof sections[number][0];
+const sections = [ ['general','常规'], ['runtime','运行时'], ['execution','模型与权限'], ['storage','存储'], ['diagnostics','诊断'], ['updates','关于'] ] as const;
+type Section = typeof sections[number][0] | 'setup';
 type Update = { state:string; current:string; latest:string; message:string };
 
 export function Settings() {
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
  useEffect(()=>{
-  const load=()=>{void desktop<string>('SettingsSection').then(value=>{if(sections.some(([id])=>id===value))setSection(value as Section);setOpened(n=>n+1);});};
+  const load=()=>{void desktop<string>('SettingsSection').then(value=>{if(value==='setup'||sections.some(([id])=>id===value))setSection(value as Section);setOpened(n=>n+1);});};
   const key=(event:KeyboardEvent)=>{if(!event.isComposing&&(event.key==='Escape'||(event.metaKey&&event.key==='w'))){event.preventDefault();void desktop('CloseSettings');}};
   load();void desktop<string>('AppVersion').then(setVersion);
   window.addEventListener('settings-open',load);window.addEventListener('keydown',key);
   return()=>{window.removeEventListener('settings-open',load);window.removeEventListener('keydown',key);};
  },[]);
+ if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><RuntimeSettings onboarding onDone={()=>{setSection('runtime');void desktop('CloseSettings');}}/></div></main>;
  return <main className="settings-window">
   <aside><nav aria-label="设置分类">{sections.map(([id,label])=><button key={id} aria-current={section===id?'page':undefined} onClick={()=>setSection(id)}>{label}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
   <div className="settings-content" key={section}>

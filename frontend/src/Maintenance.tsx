@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { desktop } from './desktop';
-import { SettingGroup, SettingRow, SettingHelp } from './SettingsUI';
+import { SettingGroup, SettingRow } from './SettingsUI';
 import type { AttachmentStorage } from './backend/contract';
 
 function size(bytes:number) { return bytes<1024*1024 ? `${Math.ceil(bytes/1024)} KB` : `${(bytes/1024/1024).toFixed(1)} MB`; }
@@ -29,11 +29,8 @@ export function Maintenance({storage}:{storage:boolean}) {
    </SettingGroup>
    {info?.notice&&<p className="settings-note" role="status">{info.notice}</p>}
    {confirm&&<section className="storage-confirm"><p>旧副本将移到废纸篓，后续使用时可能需要重新添加。原始文件和聊天记录会保留。</p><div><button disabled={busy} onClick={()=>setConfirm(false)}>取消</button><button className="primary" disabled={busy} onClick={()=>void clean()}>移到废纸篓</button></div></section>}
-   <SettingHelp><p>这里只清理发送时保存的旧副本，不影响原始文件、聊天记录或生成结果。清理后可从系统废纸篓恢复。</p></SettingHelp>
   </> : <>
-   <SettingGroup><SettingRow label="诊断报告" description="用于排查连接和运行问题"><button disabled={busy} onClick={()=>void exportReport()}>{busy?'正在导出…':'导出报告'}</button></SettingRow></SettingGroup>
-   <p className="settings-note">仅保存到本机，不包含聊天内容或凭据。</p>
-   <SettingHelp><p>报告包含系统和组件版本、连接状态、工作状态及数量统计。不包含草稿、文件路径或审批命令，也不会自动上传。</p></SettingHelp>
+   <SettingGroup><SettingRow label="诊断报告" description="仅保存在本机，不含聊天内容或凭据"><button disabled={busy} onClick={()=>void exportReport()}>{busy?'正在导出…':'导出报告'}</button></SettingRow></SettingGroup>
   </>}
   {message&&<p className="settings-note" role="status">{message}</p>}
  </section>;

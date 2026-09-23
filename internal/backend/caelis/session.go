@@ -133,6 +133,8 @@ func Discover(settings api.RuntimeSettings) (discovery, string, error) {
 
 var required = []string{"bot-mode-v1", "bot-private-files-v1", "bot-managed-work-v1", "bot-desktop-actions-v1", "bot-reminder-grants-v1", "bot-text-results-v1"}
 
+var errBotIncompatible = errors.New("当前运行中的 Caelis 服务与此版 Bot 协议不兼容。请选择支持 Bot 的版本；更新程序后，还需重启 Caelis 服务")
+
 func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
 	var i wire.ServerInfo
 	e := c.json(ctx, "GET", "/initialize", nil, &i, "", "")
@@ -140,11 +142,11 @@ func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
 		return i, e
 	}
 	if i.ProtocolVersion != 1 || i.ApiVersion != "v1" || i.EnvelopeVersion != "caelis.control.envelope/v1" || value(i.StoreId) == "" || value(i.InstanceId) == "" {
-		return i, errors.New("Caelis Control 协议不兼容")
+		return i, errBotIncompatible
 	}
 	for _, cap := range required {
 		if !slices.Contains(i.Capabilities, cap) {
-			return i, errors.New("此 Caelis 版本缺少 " + cap + "，请更新或选择包含 Bot 能力的二进制")
+			return i, errBotIncompatible
 		}
 	}
 	return i, nil

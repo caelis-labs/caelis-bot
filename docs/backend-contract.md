@@ -74,7 +74,7 @@ Codex 明确保留原有根目录内的 `conversation.json`、`execution.json`�
 `providers/<provider-id>` 下。根目录布局是 **Codex 专属兼容命名空间**，不能被别的 provider 使用。
 若后续统一搬移，必须先实现全部文件/任务回执的事务迁移与失败恢复，再移除该分支。
 
-角色、草稿和展示偏好在产品根目录。Codex 本地提醒保留旧布局，Caelis 桌面记录在
+角色、快捷键等产品偏好共享；草稿、附件选择及消息展示记录按 provider 隔离。Codex 保留根目录兼容布局，Caelis 桌面记录在
 `providers/caelis` 下，Control grants 才能授权其唤醒。跨后端设置先检测再原子保存，
 下一次启动采用新后端，不能把旧请求、未知提醒或 native ID 自动投递给它。
 
@@ -96,3 +96,27 @@ Windows 使用相同的 app/backend/bot 和 renderer。只增加当地 desktop d
 原生进程发现/清理、权限/状态替换、材质与分发路径。当前尚未抽出通用进程启动器，也没有
 Windows ACL、原子替换或 WebView2 实现；不为收敛边界提前加入成功空壳。
 文件落点和分期验收继续见[实施计划](backend-platform-plan.md)。
+
+
+## 用户专用 Runtime Setup
+
+`internal/backend/api/setup.go` 定义首次引导与设置复用的能力；`internal/app/setup.go`
+负责 provider 调度与独立路径配置。`InspectSetup`、`SetupCatalog`、`ApplySetup`、
+`ActivateRuntime` 只通过原生设置桥调用，绝不能注册为 Bot/模型工具。
+
+- `SetupOverview` 区分当前执行后端、待切换后端与首次引导。选择管理标签不改变执行身份。
+- `runtime-profiles/{codex,caelis}.json` 仅保存程序位置与 Caelis 数据目录；`runtime.json`
+  保存下次启动的选择。活跃对话继续使用已装配的 adapter，重启时执行原生退出清理。
+- 干净安装不自动连接默认 Codex；跳过引导写 `setup.json`，不替用户选择 Runtime。
+- Caelis 配置使用用户明确发起操作的 Host credential，独立于 Bot scoped credential。
+  全局候选与 connect/delete/use-model 使用固定公开协议；配置写入带 revision 和 operation ID，
+  网络失败不重发。密钥不进入 Bot 的偏好、日志或操作 journal。
+- Codex Setup 拥有独立标准 App Server 客户端，不创建任务。OAuth 完成必须匹配本次 login ID；
+  支持提前完成事件、取消、重开授权页、API Key 与退出。凭据持久化及刷新归 Codex。
+- 配置已保存/目录可用不代表真实模型推理成功。界面不自动发送计费测试请求。
+- 安装/更新由原生层显式调用官方脚本；Codex 的自动更新仅覆盖官方默认安装位置。
+  自定义、npm/Homebrew 安装显示原安装方式的更新指引，不擅自接管另一包管理器。
+- Caelis 账号 OAuth/ACP 配置没有在本轮固定公开协议中提供完整浏览器回调流程，界面只展示
+  已验证的 API Key/本地模型连接；既有账号配置可复用，不伪造通用登录入口。
+
+共享 Setup DTO 不包含平台 shell 或凭据路径。Windows 的原生安装与重启仍属后续平台适配。

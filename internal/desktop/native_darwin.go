@@ -54,6 +54,8 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 			s.OpenUpdates()
 		case 11:
 			s.ToggleCenteredPanel()
+		case 12:
+			s.RecallWindows()
 		}
 	})
 	d.handle = cgo.NewHandle(d.events)
@@ -112,6 +114,18 @@ func (d *macDriver) panel(visible bool) {
 		}
 		C.bot_panel(d.pointer, C.int(v))
 	})
+}
+func (d *macDriver) prepareWindowRecall() bool {
+	return application.InvokeSyncWithResult(func() bool { return C.bot_prepare_window_recall(d.pointer) != 0 })
+}
+
+// Wails beta.6 IsVisible reports occlusion, not whether the window is ordered in.
+// A fully covered settings window must still be recalled; a closed one must not.
+func macWindowOpen(window *application.WebviewWindow) bool {
+	return application.InvokeSyncWithResult(func() bool { return C.bot_window_open(window.NativeWindow()) != 0 })
+}
+func macWindowVisible(window *application.WebviewWindow) bool {
+	return application.InvokeSyncWithResult(func() bool { return C.bot_window_visible(window.NativeWindow()) != 0 })
 }
 func (d *macDriver) mask(b []byte) {
 	application.InvokeSync(func() { C.bot_mask(d.pointer, (*C.uchar)(unsafe.Pointer(&b[0])), C.int(len(b))) })

@@ -39,6 +39,9 @@ func (a *Application) configureRuntimeManagement() {
 	}, a.guardRuntimeChange)
 }
 func (a *Application) guardRuntimeChange() error {
+	a.mu.Lock()
+	started := a.started
+	a.mu.Unlock()
 	v := a.engine.Snapshot()
 	if v.CanInterrupt || len(v.Approvals) > 0 || v.Phase == "unknown" || v.Phase == "sending" {
 		return errors.New("请等待工作结束并核对待处理操作后再更改运行时")
@@ -52,7 +55,7 @@ func (a *Application) guardRuntimeChange() error {
 			}
 		}
 	}
-	if native, ok := a.engine.(api.ControlCompanion); ok {
+	if native, ok := a.engine.(api.ControlCompanion); ok && started {
 		tasks, e := native.OwnedTasks(context.Background())
 		if e != nil {
 			return errors.New("请先恢复 Caelis 连接并核对工作状态，再切换运行时")

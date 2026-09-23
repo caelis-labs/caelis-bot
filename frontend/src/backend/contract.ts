@@ -132,6 +132,35 @@ export interface ServiceTier {
   name: string;
   description: string;
 }
+export interface SetupChoice {
+  value: string;
+  label: string;
+  noAuth: boolean;
+  current: boolean;
+}
+export interface SetupOverview {
+  active: string;
+  pending: string;
+  onboarding: boolean;
+}
+export interface SetupRequest {
+  settings: RuntimeSettings;
+  action: string;
+  provider: string;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+}
+export interface SetupState {
+  selectedModel: string;
+  settings: RuntimeSettings;
+  installation: RuntimeStatus;
+  state: string;
+  message: string;
+  models: Array<SetupChoice>;
+  loginPending: boolean;
+  accountType: string;
+}
 export interface Snapshot {
   botStatus: string;
   hasEarlier: boolean;

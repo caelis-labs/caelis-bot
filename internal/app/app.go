@@ -29,6 +29,7 @@ type Host struct {
 }
 
 type Application struct {
+	setup           *runtimeSetup
 	Backend         *backend.Service
 	engine          api.Engine
 	host            Host
@@ -85,7 +86,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	}
 	service := backend.NewService(engine, host.ResolveFiles, host.ConsumeFiles, host.OpenURL, host.RevealFile)
 	app := &Application{Backend: service, engine: engine, root: root, host: host}
-	for _, err := range []error{service.ConfigurePresentation(filepath.Join(root, "preview.json")), service.ConfigureDraft(filepath.Join(root, "draft.json"))} {
+	for _, err := range []error{service.ConfigurePresentation(filepath.Join(directory, "preview.json")), service.ConfigureDraft(filepath.Join(directory, "draft.json"))} {
 		if err != nil && host.ReportError != nil {
 			host.ReportError(err)
 		}
@@ -93,6 +94,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	service.ConfigureRuntime(settingsFile, settings)
 	service.ConfigureExecution(executionFile, execution)
 	app.configureRuntimeManagement()
+	app.configureSetup()
 	return app, nil
 }
 
@@ -211,6 +213,11 @@ func (a *Application) Close() error {
 			resident.Stop()
 		}
 		a.mu.Unlock()
+		if a.setup != nil {
+			a.setup.mu.Lock()
+			a.setup.codex.Close()
+			a.setup.mu.Unlock()
+		}
 		a.closeErr = a.Backend.Shutdown()
 		if resident != nil {
 			resident.Close()

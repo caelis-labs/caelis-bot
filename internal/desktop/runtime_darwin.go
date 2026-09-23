@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 
@@ -31,7 +33,7 @@ func Run(assets fs.FS) error {
 	}
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configureShortcut(filepath.Join(root, "shortcut.json"))
-	logError(s.configureSelection(filepath.Join(root, "draft-files.json")))
+
 	core, err := app.New(root, app.Host{ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
 		OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 		RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
@@ -41,9 +43,14 @@ func Run(assets fs.FS) error {
 	}
 	defer core.Close()
 	back := core.Backend
+	logError(s.configureSelection(filepath.Join(core.ProviderDirectory(), "draft-files.json")))
 	s.storage, s.cleanStorage = core.AttachmentStorage, core.CleanAttachments
 	s.diagnosticReport = back.DiagnosticReport
 	s.activate = func() {
+		if !core.HasRuntimeChoice() {
+			s.showSettings("setup")
+			return
+		}
 		v := back.ComposerSnapshot()
 		for _, a := range v.Approvals {
 			if a.Status != "resolved" {
@@ -91,6 +98,35 @@ func Run(assets fs.FS) error {
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
+	s.restartRuntime = func() error {
+		if err := core.PrepareRestart(); err != nil {
+			return err
+		}
+		executable, err := os.Executable()
+		if err != nil {
+			back.CancelRestart()
+			return err
+		}
+		// A separate helper waits for this exact owner to exit before LaunchServices
+		// recalls the bundle; launching earlier would hit the single-instance lock.
+		script := `while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; exec "$2" --env "CAELIS_BOT_DATA_DIR=$4" "$3"`
+		target := executable
+		launcher := executable
+		if i := strings.LastIndex(executable, ".app/Contents/MacOS/"); i >= 0 {
+			target = executable[:i+4]
+			launcher = "/usr/bin/open"
+		} else {
+			script = `while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; exec "$2"`
+		}
+		helper := exec.Command("/bin/sh", "-c", script, "caelis-relaunch", strconv.Itoa(os.Getpid()), launcher, target, root)
+		if err = helper.Start(); err != nil {
+			back.CancelRestart()
+			return err
+		}
+		go func() { _ = helper.Wait() }()
+		quit()
+		return nil
+	}
 	s.openReleasePage = func() error { return exec.Command("/usr/bin/open", updates.ReleasePage).Run() }
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
@@ -122,7 +158,7 @@ func Run(assets fs.FS) error {
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true},
 	})
 	settings := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "settings", Title: "Caelis Bot — 设置", Width: 960, Height: 680, MinWidth: 760, MinHeight: 540,
+		Name: "settings", Title: "Caelis Bot — 设置", Width: 1040, Height: 710, MinWidth: 860, MinHeight: 640,
 		Hidden: true, URL: "/?surface=settings", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
@@ -130,13 +166,17 @@ func Run(assets fs.FS) error {
 		window.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, func(*application.WindowEvent) { syncMacMaterials() })
 	}
 	s.openSettings = func() {
-		s.ClosePanel()
-		s.CollapseBubble()
-		settings.Show()
-		settings.Focus()
-		settings.ExecJS("window.dispatchEvent(new Event('settings-open'))")
+		if !s.prepareWindowRecall() {
+			return
+		}
+		application.InvokeSync(func() {
+			settings.UnMinimise()
+			settings.Show()
+			settings.Focus()
+			settings.ExecJS("window.dispatchEvent(new Event('settings-open'))")
+		})
 	}
-	s.closeSettings = func() { settings.Hide() }
+	s.closeSettings = func() { settings.ExecJS("window.dispatchEvent(new Event('settings-close'))"); settings.Hide() }
 	s.saveDiagnosticPath = func() (string, error) {
 		return nativeApp.Dialog.SaveFile().AttachToWindow(settings).SetFilename("Caelis-Bot-diagnostics.json").
 			SetMessage("仅包含系统、连接和状态计数；不包含聊天内容、文件路径或凭据。").
@@ -145,25 +185,60 @@ func Run(assets fs.FS) error {
 	s.pickRuntimeCLI = func() (string, error) {
 		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle("选择运行时可执行文件").SetButtonText("选择").PromptForSingleSelection()
 	}
-	settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); settings.Hide() })
-	var historyOpen atomic.Bool
-	s.openHistory = func() {
-		s.ClosePanel()
-		s.CollapseBubble()
-		historyOpen.Store(true)
+	settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.closeSettings() })
+	showHistory := func() {
+		history.UnMinimise()
 		history.Show()
 		history.Focus()
 		history.ExecJS("window.dispatchEvent(new Event('history-open'))")
 	}
-	s.closeHistory = func() {
-		if !historyOpen.Swap(false) {
-			return
+	s.openHistory = func() {
+		if s.prepareWindowRecall() {
+			application.InvokeSync(showHistory)
 		}
+	}
+	s.closeHistory = func() {
 		history.ExecJS("window.dispatchEvent(new Event('history-close'))")
 		history.Hide()
 	}
-	s.historyVisible = historyOpen.Load
+	s.historyVisible = func() bool { return macWindowVisible(history) }
+	s.recallWindows = func() {
+		if !s.prepareWindowRecall() {
+			return
+		}
+		application.InvokeSync(func() {
+			// Recall existing contextual windows, including minimised settings,
+			// without reopening a page the user explicitly closed. Settings is
+			// raised last so the larger chat window cannot cover its controls.
+			settingsOpen := macWindowOpen(settings)
+			showHistory()
+			if settingsOpen {
+				settings.UnMinimise()
+				settings.Show()
+				settings.Focus()
+			}
+			if os.Getenv("CAELIS_BOT_DESKTOP_TRACE") != "" {
+				log.Printf("Desktop recall: history=%t settings-open=%t settings=%t settings-focused=%t", macWindowVisible(history), settingsOpen, macWindowVisible(settings), settings.IsFocused())
+			}
+		})
+	}
 	history.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.closeHistory() })
+	for _, window := range []*application.WebviewWindow{history, settings} {
+		window.OnWindowEvent(events.Mac.WindowDidBecomeKey, func(*application.WindowEvent) {
+			// AppKit can reveal a window without Wails.Show (for example, an
+			// accessibility activation). Wails otherwise keeps Hidden=true and
+			// discards the native close button before our closing hook sees it.
+			application.InvokeSync(func() {
+				if !window.IsFocused() {
+					return // A queued activation must not reopen or refocus a window.
+				}
+				window.Show()
+				if window == history {
+					history.ExecJS("window.dispatchEvent(new Event('history-open'))")
+				}
+			})
+		})
+	}
 	for _, window := range []*application.WebviewWindow{panel, history} {
 		window.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
 			s.mu.Lock()
@@ -180,7 +255,7 @@ func Run(assets fs.FS) error {
 	panel.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.ClosePanel() })
 	s.pickFiles = func() ([]string, error) {
 		return nativeApp.Dialog.OpenFile().AttachToWindow(func() *application.WebviewWindow {
-			if historyOpen.Load() {
+			if macWindowVisible(history) {
 				return history
 			}
 			return panel
@@ -197,7 +272,7 @@ func Run(assets fs.FS) error {
 		menu.Add("显示桌宠").OnClick(func(*application.Context) { logError(s.SetVisible(true)) })
 		menu.Add("隐藏桌宠").OnClick(func(*application.Context) { logError(s.SetVisible(false)) })
 		menu.AddSeparator()
-		menu.Add("退出 Caelis Bot").SetAccelerator("Cmd+Q").OnClick(func(*application.Context) { quit() })
+		menu.Add("退出").SetAccelerator("Cmd+Q").OnClick(func(*application.Context) { quit() })
 	}
 	applicationMenu := nativeApp.Menu.New()
 	populate(applicationMenu.AddSubmenu("Caelis Bot"))
@@ -206,6 +281,12 @@ func Run(assets fs.FS) error {
 	nativeApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		s.start(newMacDriver(pet, panel, bubble, history, prop, s, quit))
 		styleMacSettings(settings)
+		if core.NeedsSetup() {
+			s.showSettings("setup")
+		}
+		if !core.HasRuntimeChoice() {
+			return
+		}
 		if err := core.Start(); err != nil {
 			logError(err)
 			quit()

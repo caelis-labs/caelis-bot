@@ -9,6 +9,7 @@
 #import "native_darwin.h"
 #include "panel_menu_layout.h"
 #import "material_darwin.h"
+#import "pet_input_darwin.h"
 extern void desktopEvent(uintptr_t handle, int kind, double x, double y, double scale);
 static void bot_js(NSWindow *window, NSString *js);
 
@@ -29,9 +30,6 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @implementation BotInputPanel
 - (BOOL)canBecomeKeyWindow { return self.interactive; }
 - (BOOL)canBecomeMainWindow { return NO; }
-@end
-@interface BotInputView : NSView
-@property(nonatomic, weak) BotHost *host;
 @end
 @interface BotHost : NSObject <NSMenuDelegate, UNUserNotificationCenterDelegate>
 @property BotInputPanel *pet;
@@ -57,7 +55,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property NSMutableArray *observers;
 @property NSRunningApplication *previousApp;
 @property BOOL dragging;
-@property BOOL pressing;
+@property(readonly) BOOL pressing;
+@property BotPetInputView *inputView;
 @property NSTimer *dragCompletion;
 @property EventHotKeyRef shortcut;
 @property EventHandlerRef shortcutHandler;
@@ -84,7 +83,9 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (void)configureNotifications:(id)sender;
 - (void)openSettings:(id)sender;
 - (void)checkUpdates:(id)sender;
-- (void)click:(NSInteger)count;
+- (void)singleClick;
+- (void)doubleClick;
+- (void)beginDrag:(NSEvent *)event;
 - (void)updateHit;
 - (void)showPetWithoutActivation;
 - (void)finishDrag;
@@ -116,53 +117,10 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (void)previewNear:(NSMenuItem *)item;
 @end
 
-@implementation BotInputView
-- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
-- (BOOL)accessibilityPerformPress {  [self.host toggleInput:nil]; return YES; }
-- (BOOL)accessibilityPerformShowMenu {
-
-    return [[self.host petMenu] popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMidX(self.bounds),NSMidY(self.bounds)) inView:self];
-}
-- (void)rightMouseDown:(NSEvent *)event {
-
-    [NSMenu popUpContextMenu:[self.host petMenu] withEvent:event forView:self];
-}
-- (void)mouseDown:(NSEvent *)event {
-    BotHost *host = self.host;
-
-    NSPoint start = NSEvent.mouseLocation;
-    host.pressing = YES;
-    // Only classify click versus drag here. Window Server owns all movement.
-    while (YES) {
-        NSEvent *next = [self.window nextEventMatchingMask:NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp];
-        NSPoint point = NSEvent.mouseLocation;
-        if (next.type == NSEventTypeLeftMouseUp) {
-            host.pressing = NO; [host updateHit]; [host trace:@"click"];
-            [host click:event.clickCount]; return;
-        }
-        if (hypot(point.x-start.x,point.y-start.y) > 4) {
-            host.pressing = NO; host.dragging = YES;
-            [host cancelPlane]; [host publishContext];
-            [host.bubble orderOut:nil];
-            [host dismissPanel:@"panel-dismiss-drag"];
-            [host trace:@"drag-start"];
-            [host.pet performWindowDragWithEvent:event];
-            // AppKit explicitly permits no mouse-up delivery for server drags.
-            // Observe actual release only while dragging; never poll position or
-            // animate a follower. A move notification/mouse-up can finish sooner.
-            if (!host.dragging) return;
-            __weak BotHost *weak = host;
-            host.dragCompletion = [NSTimer timerWithTimeInterval:1.0/60 repeats:YES block:^(NSTimer *timer) {
-                if (!(NSEvent.pressedMouseButtons & 1)) [weak finishDrag];
-            }];
-            [NSRunLoop.mainRunLoop addTimer:host.dragCompletion forMode:NSRunLoopCommonModes];
-            return;
-        }
-    }
-}
-@end
-
 @implementation BotHost
+- (BOOL)pressing {
+    return [self.inputView capturesPointer:NSEvent.mouseLocation atTime:NSProcessInfo.processInfo.systemUptime];
+}
 - (void)showPetWithoutActivation {
     if (!self.visible) return;
     [self.pet orderFrontRegardless];
@@ -186,12 +144,39 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (void)quit:(id)sender { desktopEvent(self.handle,7,0,0,0); }
 - (void)openSettings:(id)sender {  desktopEvent(self.handle,9,0,0,0); }
 - (void)checkUpdates:(id)sender {  desktopEvent(self.handle,10,0,0,0); }
-- (void)click:(NSInteger)count {
+- (void)singleClick {
+    if (!self.visible || !self.handle) return;
     self.interactionStart = NSProcessInfo.processInfo.systemUptime;
+    [self trace:@"single-click"];
     bot_js(self.pet,@"window.dispatchEvent(new Event('pet-touch'))");
-    if (count >= 2) { [self trace:@"double-click"]; [self openChat:nil]; return; }
-    // The first click opens immediately. A second click promotes to history.
-    [self toggleInput:nil];
+    desktopEvent(self.handle,8,0,0,0);
+}
+- (void)doubleClick {
+    if (!self.visible || !self.handle) return;
+    self.interactionStart = NSProcessInfo.processInfo.systemUptime;
+    [self trace:@"double-click"];
+    bot_js(self.pet,@"window.dispatchEvent(new Event('pet-touch'))");
+    desktopEvent(self.handle,12,0,0,0);
+}
+- (void)beginDrag:(NSEvent *)event {
+    if (!self.visible || !self.handle) return;
+    self.dragging = YES;
+    self.pet.ignoresMouseEvents = NO;
+    self.interactionStart = NSProcessInfo.processInfo.systemUptime;
+    [self cancelPlane]; [self publishContext];
+    [self.bubble orderOut:nil];
+    [self dismissPanel:@"panel-dismiss-drag"];
+    [self trace:@"drag-start"];
+    [self.pet performWindowDragWithEvent:event];
+    // Window Server owns movement and may consume mouseUp. Observe release
+    // only for an active drag; never run a mouse tracking loop for clicks.
+    if (!self.dragging) return;
+    if (!(NSEvent.pressedMouseButtons & 1)) { [self finishDrag]; return; }
+    __weak BotHost *weak = self;
+    self.dragCompletion = [NSTimer timerWithTimeInterval:1.0/60 repeats:YES block:^(NSTimer *timer) {
+        if (!(NSEvent.pressedMouseButtons & 1)) [weak finishDrag];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:self.dragCompletion forMode:NSRunLoopCommonModes];
 }
 - (void)refreshNotificationPermission {
     __weak BotHost *weak = self;
@@ -304,6 +289,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     if (self.dragging && event.type == NSEventTypeLeftMouseUp) [self finishDrag];
     [self updateHit];
     if (event.type != NSEventTypeLeftMouseDown && event.type != NSEventTypeRightMouseDown && event.type != NSEventTypeOtherMouseDown) return;
+    if (!local || event.window != self.pet || event.type != NSEventTypeLeftMouseDown) [self.inputView cancelInteraction];
     // Accessory apps may already be inactive when their status menu opens, so
     // another app's click need not produce NSApplicationDidResignActive again.
     // Cancel only proven outside clicks; keep menu-item/windowless local events
@@ -333,8 +319,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     [file seekToEndOfFile]; [file writeData:data]; [file writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]]; [file closeFile];
 }
 - (void)updateHit {
-    if (self.pressing || self.dragging) return;
     NSPoint point = NSEvent.mouseLocation;
+    if (self.dragging || [self.inputView capturesPointer:point atTime:NSProcessInfo.processInfo.systemUptime]) return;
     NSRect frame = self.pet.frame;
     BOOL hit = NO;
     if (self.visible && self.mask.length == 180*240 && NSPointInRect(point,frame)) {
@@ -444,7 +430,10 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.scale = 1;
     host.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
     NSImage *image = [[NSImage alloc] initWithData:[NSData dataWithBytes:icon length:iconLength]];
-    image.size = NSMakeSize(18,18);
+    // The full-color character has transparent breathing room of its own.
+    // Fill more of the status item while retaining a margin on shorter bars.
+    CGFloat iconSize = MIN(24.0, NSStatusBar.systemStatusBar.thickness - 2.0);
+    image.size = NSMakeSize(iconSize,iconSize);
     host.statusItem.button.image = image;
     host.statusItem.button.toolTip = @"Caelis Bot";
     host.statusItem.button.accessibilityLabel = @"Caelis Bot";
@@ -499,15 +488,20 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.prop.opaque=NO;host.prop.backgroundColor=NSColor.clearColor;host.prop.hasShadow=NO;
     host.prop.level=NSFloatingWindowLevel;host.prop.hidesOnDeactivate=NO;host.prop.releasedWhenClosed=NO;
     host.prop.collectionBehavior=bot_space_behavior(YES);host.prop.ignoresMouseEvents=YES;
-    BotInputView *view = [[BotInputView alloc] initWithFrame:surface.bounds];
+    __weak BotHost *weak = host;
+    BotPetInputView *view = [[BotPetInputView alloc] initWithFrame:surface.bounds];
+    host.inputView = view;
     view.autoresizingMask = NSViewWidthSizable|NSViewHeightSizable;
-    view.host = host;
+    view.singleClick = ^{ [weak singleClick]; };
+    view.doubleClick = ^{ [weak doubleClick]; };
+    view.beginDrag = ^(NSEvent *event){ [weak beginDrag:event]; };
+    view.pointerChanged = ^{ [weak updateHit]; };
+    view.contextMenu = ^NSMenu *{ return [weak petMenu]; };
     [surface addSubview:view positioned:NSWindowAbove relativeTo:content];
     view.accessibilityElement = YES;
     view.accessibilityRole = NSAccessibilityButtonRole;
     view.accessibilityLabel = @"Caelis Bot 桌宠";
-    view.accessibilityHelp = @"单击展开或收起输入框，双击打开聊天窗口；右键菜单，可拖动";
-    __weak BotHost *weak = host;
+    view.accessibilityHelp = @"单击展开或收起输入框，双击唤回聊天和已打开的设置；右键菜单，可拖动";
     NSEventMask mask = NSEventMaskMouseMoved|NSEventMaskLeftMouseDragged|NSEventMaskLeftMouseDown|NSEventMaskLeftMouseUp|NSEventMaskRightMouseDown|NSEventMaskOtherMouseDown;
     host.globalMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:mask handler:^(NSEvent *event) { [weak observeClick:event local:NO]; }];
     host.localMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) { [weak observeClick:event local:YES]; return event; }];
@@ -522,7 +516,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
         if (weak) { [weak cancelPlane]; weak.frontContext=nil; desktopEvent(weak.handle,3,0,0,0); }
     }];
     [host.observers addObject:display];
-    id deactivate = [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) { [weak dismissMenu:@"menu-dismiss-deactivate"];  [weak dismissPanel:@"panel-dismiss-deactivate"]; [weak collapseBubble]; [weak updateBubble]; }];
+    id deactivate = [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) { [weak.inputView cancelInteraction]; [weak dismissMenu:@"menu-dismiss-deactivate"];  [weak dismissPanel:@"panel-dismiss-deactivate"]; [weak collapseBubble]; [weak updateBubble]; }];
     [host.observers addObject:deactivate];
     for(NSString *name in @[NSApplicationDidBecomeActiveNotification,NSWindowDidBecomeKeyNotification]){
         id target=[name isEqualToString:NSWindowDidBecomeKeyNotification]?host.panel:nil;
@@ -552,7 +546,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     for (NSString *name in @[NSWorkspaceDidWakeNotification,NSWorkspaceActiveSpaceDidChangeNotification]) {
         id observer = [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
             if (weak) {
-                [weak dismissMenu:@"menu-dismiss-space-or-wake"]; [weak cancelPlane]; weak.frontContext=nil;
+                [weak.inputView cancelInteraction]; [weak dismissMenu:@"menu-dismiss-space-or-wake"]; [weak cancelPlane]; weak.frontContext=nil;
                 if ([note.name isEqualToString:NSWorkspaceDidWakeNotification]) {
                     [weak trace:@"wake"];
                     desktopEvent(weak.handle,3,0,0,0);
@@ -578,6 +572,7 @@ int bot_screens(BotRect *rects, int capacity) {
 }
 void bot_apply(void *pointer, double x, double y, double scale, int visible) {
     BotHost *host = (__bridge BotHost *)pointer;
+    if (!visible) [host.inputView cancelInteraction];
     host.visible = visible;
     host.contextTimer.fireDate=visible ? NSDate.date : NSDate.distantFuture;
     if(!visible)host.lastContext=nil;
@@ -623,6 +618,29 @@ void bot_panel(void *pointer, int visible) {
     [host updateBubble];
     [host trace:visible ? @"panel-open" : @"panel-close"];
 }
+int bot_prepare_window_recall(void *pointer) {
+    BotHost *host = (__bridge BotHost *)pointer;
+    [host.inputView cancelInteraction];
+    if (host.panel.attachedSheet) {
+        [NSApp activateIgnoringOtherApps:YES];
+        [host.panel makeKeyAndOrderFront:nil];
+        [host.panel.attachedSheet makeKeyAndOrderFront:nil];
+        return 0;
+    }
+    // This transition stays in Bot. Explicitly dismiss without restoring the
+    // old foreground app, which can asynchronously steal the new window focus.
+    [host dismissPanel:@"panel-dismiss-window-recall"];
+    host.previousApp = nil;
+    [host collapseBubble];
+    return 1;
+}
+int bot_window_open(void *pointer) {
+    NSWindow *window = (__bridge NSWindow *)pointer;
+    return window.visible || window.miniaturized;
+}
+int bot_window_visible(void *pointer) {
+    return [(__bridge NSWindow *)pointer isVisible];
+}
 void bot_toggle_panel(void *pointer) {
     BotHost *host = (__bridge BotHost *)pointer;
     if (host.panel.attachedSheet) return;
@@ -653,6 +671,7 @@ void bot_destroy(void *pointer) {
     UNUserNotificationCenter.currentNotificationCenter.delegate = nil;
     [host dismissMenu:@"menu-dismiss-shutdown"];
     [host cancelPlane]; [host.contextTimer invalidate];
+    [host.inputView cancelInteraction];
     host.handle = 0;
     if(host.shortcut) UnregisterEventHotKey(host.shortcut);
     if(host.shortcutHandler) RemoveEventHandler(host.shortcutHandler);
