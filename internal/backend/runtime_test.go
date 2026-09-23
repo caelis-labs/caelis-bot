@@ -88,3 +88,43 @@ func TestRuntimeDocumentsAreVersionedAndProviderNeutral(t *testing.T) {
 		t.Fatal("unknown document version accepted")
 	}
 }
+
+type providerRuntimeFake struct{ runtimeFake }
+
+func (*providerRuntimeFake) ProviderInfo() api.ProviderInfo { return api.ProviderInfo{ID: "codex"} }
+func TestPendingProviderSettingsNeverReachActiveAdapter(t *testing.T) {
+	e := &providerRuntimeFake{}
+	e.change = func(context.Context, api.RuntimeSettings, func() error) (api.RuntimeCheck, error) {
+		t.Fatal("pending Caelis settings reached Codex")
+		return api.RuntimeCheck{}, nil
+	}
+	s := NewService(e, nil, nil, nil, nil)
+	path := filepath.Join(t.TempDir(), "runtime.json")
+	initial := api.RuntimeSettings{Runtime: "codex"}
+	s.ConfigureRuntime(path, initial)
+	blocked := true
+	probes := 0
+	s.ConfigureRuntimeManagement(nil, func(context.Context, api.RuntimeSettings) error { probes++; return nil }, nil, func() error {
+		if blocked {
+			return errors.New("busy")
+		}
+		return nil
+	})
+	pending := api.RuntimeSettings{Runtime: "caelis", CaelisStore: "/isolated/store"}
+	if _, err := s.SaveRuntimeSettings(t.Context(), pending); err == nil || probes != 0 || s.RuntimeSettings() != initial {
+		t.Fatal("busy owner replaced")
+	}
+	blocked = false
+	for range 2 {
+		if _, err := s.SaveRuntimeSettings(t.Context(), pending); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if probes != 2 {
+		t.Fatal("second pending save skipped its provider probe")
+	}
+	loaded, err := LoadRuntimeSettings(path, "codex")
+	if err != nil || loaded != pending {
+		t.Fatal("next-start configuration missing")
+	}
+}

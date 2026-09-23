@@ -1,5 +1,10 @@
 # Caelis 接入与 Windows 实施边界
 
+2026-09-23 更新：Caelis adapter、运行时管理和 ControlCompanion 分支已落地，当前入口为
+[接入说明](caelis-integration.md)与[能力契约](backend-contract.md)。Caelis 使用 Control 内置委派，
+不复用 Codex MCP/TaskReporter 触发器。Windows 仍未实现，实施边界不变。
+以下保留历史审查与分片计划，不能作为当前 Caelis 能力状态。
+
 2026-09-22 代码审查与后续计划。Bot 基线为 `ef2f557`；Caelis 核对至
 `f136ebaeb46608a69bf7732af57bb2f2a2382756`（0.60.1）。下文新增模块、接口和切片均是
 **分阶段方案**，不代表已经支持第二个后端或 Windows。其后的公共边界首片已实现，

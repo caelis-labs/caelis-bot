@@ -99,8 +99,9 @@ type Draft struct {
 	ReferenceIDs []string `json:"referenceIds"`
 }
 type RuntimeSettings struct {
-	Runtime string `json:"runtime"`
-	CLIPath string `json:"cliPath"`
+	Runtime     string `json:"runtime"`
+	CLIPath     string `json:"cliPath"`
+	CaelisStore string `json:"caelisStore,omitempty"`
 }
 type RuntimeCheck struct {
 	Saved     bool   `json:"saved"`
@@ -156,4 +157,11 @@ type ServiceTier struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+type RuntimeStatus struct {
+	Installed bool   `json:"installed"`
+	Path      string `json:"path"`
+	Version   string `json:"version"`
+	Message   string `json:"message"`
 }

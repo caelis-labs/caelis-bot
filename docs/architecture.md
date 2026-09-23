@@ -1,11 +1,13 @@
 # Architecture and internal backend contract
 
-Status: implemented local Codex adapter; not a released interoperability standard.
+Status: implemented local Codex and Caelis adapters; not a released interoperability standard.
 
-The [backend/platform plan](backend-platform-plan.md) records the current coupling,
-the existing Caelis Control Host API and its Bot delegation gap, and concrete
-Windows implementation boundaries. The first shared boundary slice is implemented; see the [capability contract](backend-contract.md).
-Caelis and Windows remain unimplemented. Backend selection and OS hosting are independent axes.
+The [capability contract](backend-contract.md) defines provider assembly independently
+of OS hosting. The [Caelis integration guide](caelis-integration.md) pins the public
+Control Host protocol, current capabilities and verification limits. Caelis owns
+its delegation, reports and reminder authority; the native Bot only observes and
+executes claimed desktop effects. Windows remains unimplemented; its future host
+boundaries are recorded in the [backend/platform plan](backend-platform-plan.md).
 
 The optional host-only `api.TaskProvider` separates the secretary from professional work.
 The Bot MCP delegates to provider-owned task operations; Codex maps them to App Server
@@ -17,7 +19,7 @@ adopt arbitrary desktop conversations. See [task delegation](task-delegation.md)
 Caelis Bot: menu bar + scalable desktop pet + contextual panels
   -> internal backend contract
      -> Codex adapter -> native Codex App Server (first)
-     -> Caelis adapter -> versioned Caelis Host API (later)
+     -> Caelis adapter -> versioned Caelis Host API (implemented)
   -> character behavior -> Three.js -> GLB
 
 Wails / Go: windows, OS integration, process lifetime and byte transport

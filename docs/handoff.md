@@ -7,16 +7,14 @@
 独立受管目录，完成后有限唤醒秘书汇报；不依赖 Codex App 的私有 IPC。已有项目/worktree
 授权与其他 App 任务的显式接管仍待后续实现，不能当成当前能力。
 
-该实现已提交为 `ef2f557`。后续后端/平台边界见
-[Caelis 接入与 Windows 计划](backend-platform-plan.md)：优先收敛后端装配和能力契约，
-Caelis adapter 对接公开 Control Host，完整秘书能力另需 Caelis Control 的受限委派扩展。
-Windows 已列出窗口、IPC、进程和私有存储落点，原生实施仍在 macOS 发行后启动。
-该计划来自两个仓库的代码审查，未做 Caelis 真实联调或 Windows 原生验收。
+当前新增 Caelis Control Host adapter 与运行时管理，见[接入说明](caelis-integration.md)。
+使用公开固定协议，Control 独占受管工作、汇报与提醒授权；不复制 Codex 的 MCP/报告循环。
+「连接」可检测、安装、更新 Caelis，选择二进制和数据目录；保存后下次启动生效。
+这轮尚未提交，保留 Codex 原有记录。当前验证与限制以 preparation-status 为准。
 
-公共边界首片已落地：`internal/app` 接管产品装配/退出，后端可选能力已命名，
-配置选项由 provider 提供，固定角色与工具通信分别移至 `botpolicy` / `localipc`。
-以[能力契约](backend-contract.md)作为 Caelis 后续补全的入口；它明确必需能力与授权语义。
-Codex 数据保留原位置，第二个后端和跨后端切换仍未启用。最新验证见 preparation-status。
+[能力契约](backend-contract.md)定义产品装配和 provider 分支，
+[平台计划](backend-platform-plan.md)保留 Windows 落点与历史审查。Windows 原生实现仍在
+macOS 完整发行后进行；不能把共享核心交叉编译当作 Windows 桌面或 ACL 验收。
 
 ## 工作范围
 
@@ -30,6 +28,9 @@ Codex 数据保留原位置，第二个后端和跨后端切换仍未启用。�
 `make check` 检查成品边界、运行时动作与 Go 行为；`make smoke` 只握手本地 Codex 并验证成品；
 `make build` 构建 ad-hoc 签名应用。需要观察原生窗口时用 `script/build_and_run.sh --verify`。
 没有本地 Codex 时可以单独运行 `npm run smoke:assets`；CI 不安装或携带 Codex。
+`make smoke-caelis` 需要显式提供外部 Caelis 二进制；使用隔离 Host 和可控模型，见接入说明。
+`make smoke-caelis-live` 使用用户已配置的隔离 Host 进行真实模型调用；MiMo v2.6 Flash
+已通过，需显式提供 store/model，不在日常 CI 中执行。
 测试通过不代表所有角度无穿模、双屏/Spaces/全屏都已验收。
 
 继续优先处理预发布可用性、轻量桌面行为和真实演示；角色资产经私库更新 PR 独立迭代。

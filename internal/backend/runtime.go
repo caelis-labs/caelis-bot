@@ -50,8 +50,28 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 	defer s.configurationMu.Unlock()
 	// Live provider replacement needs a separate ownership/migration transaction.
 	// Never reuse the active engine's bindings for a different provider.
-	if value.Runtime != s.runtimeSettings.Runtime {
-		return api.RuntimeCheck{}, errors.New("当前连接不支持切换后端")
+	activeProvider := s.runtimeSettings.Runtime
+	if p, ok := s.engine.(api.Provider); ok {
+		activeProvider = p.ProviderInfo().ID
+	}
+	if s.switchGuard != nil {
+		if err := s.switchGuard(); err != nil {
+			return api.RuntimeCheck{}, err
+		}
+	}
+	if value.Runtime != activeProvider {
+		if s.probeRuntime == nil {
+			return api.RuntimeCheck{}, errors.New("当前连接不支持切换后端")
+		}
+
+		if err := s.probeRuntime(ctx, value); err != nil {
+			return api.RuntimeCheck{}, err
+		}
+		if err := saveRuntimeSettings(s.runtimeFile, runtimeDocument{Version: 1, RuntimeSettings: value}); err != nil {
+			return api.RuntimeCheck{}, err
+		}
+		s.runtimeSettings = value
+		return api.RuntimeCheck{Saved: true, Message: "已检测并保存，下次启动切换运行时；当前对话保持原连接。"}, nil
 	}
 	e, ok := s.engine.(api.RuntimeConfigurator)
 	if !ok {

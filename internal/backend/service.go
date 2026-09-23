@@ -13,6 +13,10 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	providers                   []api.ProviderInfo
+	probeRuntime                func(context.Context, api.RuntimeSettings) error
+	manageRuntime               func(context.Context, string, api.RuntimeSettings) (api.RuntimeStatus, error)
+	switchGuard                 func() error
 	executionFile               string
 	executionSettings           api.ExecutionSettings
 	configurationMu             sync.Mutex

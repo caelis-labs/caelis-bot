@@ -42,6 +42,8 @@ make check
 make run
 ```
 
+Development builds also include a [Caelis Control Host adapter](docs/caelis-integration.md), with runtime detection, installation and updates. Chat, delegated work and approvals have been tested with MiMo v2.6 Flash; the compatible Bot-capability build described in that guide is required.
+
 `make package` produces a verified DMG and checksum. No Blender installation or private asset access is needed. [Development and release workflow →](docs/release.md)
 
 [Product direction](docs/roadmap.md) · [Architecture](docs/architecture.md) · [Character assets](docs/character-assets.md) · [Verification limits](docs/native-acceptance.md)

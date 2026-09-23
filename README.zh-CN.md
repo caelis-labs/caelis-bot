@@ -42,6 +42,8 @@ make check
 make run
 ```
 
+开发版本还包含 [Caelis Control Host 接入](docs/caelis-integration.md)，提供运行时检测、安装与更新。已用 MiMo v2.6 Flash 验证聊天、工作委派与审批；需要说明中具备 Bot 能力的兼容构建。
+
 `make package` 生成经过校验的 DMG 和 SHA-256。无需 Blender，也无需访问私有资产仓库。[开发与发布流程 →](docs/release.md)
 
 [产品路线](docs/roadmap.md) · [架构](docs/architecture.md) · [角色资产](docs/character-assets.md) · [验收范围](docs/native-acceptance.md)

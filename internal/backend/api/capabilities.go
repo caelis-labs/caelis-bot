@@ -36,6 +36,11 @@ type RuntimeConfigurator interface {
 	// validate independently, then persist before replacing the connection.
 	ChangeRuntime(context.Context, RuntimeSettings, func() error) (RuntimeCheck, error)
 }
+
+// ExecutionSettingsSource returns Control-owned settings instead of a stale local cache.
+type ExecutionSettingsSource interface {
+	CurrentExecutionSettings(context.Context) (ExecutionSettings, error)
+}
 type ExecutionProvider interface {
 	ExecutionOptions() ExecutionOptions
 	Models(context.Context) ([]ModelOption, error)

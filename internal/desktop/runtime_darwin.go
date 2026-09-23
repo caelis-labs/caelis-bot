@@ -25,12 +25,11 @@ import (
 var appIcon []byte
 
 func Run(assets fs.FS) error {
-	config, err := os.UserConfigDir()
+	root, err := applicationDataDirectory()
 	if err != nil {
 		return err
 	}
-	s := newService(fileStore{filepath.Join(config, "Caelis Bot", "placement.json")})
-	root := filepath.Join(config, "Caelis Bot")
+	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configureShortcut(filepath.Join(root, "shortcut.json"))
 	logError(s.configureSelection(filepath.Join(root, "draft-files.json")))
 	core, err := app.New(root, app.Host{ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
@@ -144,7 +143,7 @@ func Run(assets fs.FS) error {
 			AddFilter("JSON", "*.json").CanCreateDirectories(true).PromptForSingleSelection()
 	}
 	s.pickRuntimeCLI = func() (string, error) {
-		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle("选择 Codex CLI").SetButtonText("选择").PromptForSingleSelection()
+		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle("选择运行时可执行文件").SetButtonText("选择").PromptForSingleSelection()
 	}
 	settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); settings.Hide() })
 	var historyOpen atomic.Bool

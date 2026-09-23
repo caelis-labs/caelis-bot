@@ -3,6 +3,37 @@
 本项目已从工具链准备阶段推进到 macOS 开发者预览。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
 
+2026-09-23 Caelis Control Host 接入（本地工作区，尚未提交或发布）：
+
+- 新增独立 `internal/backend/caelis` adapter，消费固定公开 schema，无 sibling Go import。
+  主聊天/审批、独立工作观察、来源对账、桌面动作、提醒授权与退出接入产品装配。
+  Control 独占委派和自动汇报；Caelis 不加载 Codex MCP 或本地 prompt 提醒循环。
+- 设置可选 Caelis、自定义二进制和数据目录；检测、安装、检查更新、更新和服务启动复用
+  官方 CLI。连接先检查能力和旧绑定，保存后下次启动生效。Codex 记录保留原位置。
+- 真实临时 Host + 可控模型 + race 已通过：两个模型创建的独立工作、原生审批、
+  审批期间主 Bot 可用、一次报告/呈现 ack、同一工作继续执行、桌面 claim/receipt、
+  grant/fire、Host 重启保留身份并重新激活、不重放动作、明确退出后共享 Host 仍存活。
+- 协议/产品回归覆盖 unknown 不重发、旧审批、丢失 claim/receipt、原子替换、乱序 HTTP/SSE、
+  凭据隔离、enrollment 后续读取失败、运行时切换及单一桌面执行 owner。
+- `make check`、`make smoke`、原生构建启动和相关 race 已通过；共享核心 macOS/Windows
+  双架构交叉编译通过，仍不代表 Windows native/ACL/worker 隔离可用。
+- 实际 macOS 设置窗口已检查：Codex/Caelis 切换展示、自动/自定义路径检测、服务未就绪错误，
+  检测失败后原 Codex 配置保持不变。未执行日常 Caelis 的安装/升级/服务替换。
+- 真实 `xiaomi/mimo-v2.6-flash` + race 已通过：目录返回并选中模型、真实聊天、两个独立
+  工作的精确一次性命令审批及完成报告、同一工作继续执行、桌面 clock/gesture、一次
+  reminder grant 的准入与真实回复；明确退出后隔离 Host 仍存活。模型由用户通过
+  Caelis `/connect` 配置，未读取或复制日常模型凭据。`make smoke-caelis-live` 为显式启用
+  的付费模型验收入口，普通 CI 不运行；此结果不代表其他模型、图片或任意专业任务均已验证。
+- 原生隔离 profile 已验证模型页加载、保存、聊天输入与 MiMo 精确回复，以及一个独立
+  工作的审批详情、Allow once 和完成报告。发现并修复初始配置事件、内部报告上下文误入
+  聊天的问题；依据原生事件来源过滤，正常用户正文与助手报告不受影响。旧展示缓存重建
+  保留 Bot 身份、未知操作与桌面 journal；已在原生重启后确认历史恢复。验收结束后恢复
+  日常 Bot profile，隔离 Caelis Host 仍运行。原生桌面动作渲染尚未在此模型验收中单独复测。
+- 旧安装 0.60.1 不包含这轮能力；联调用固定提交的独立构建。恢复边界、最近 64 turns、
+  未知配置/审批回执及手动重新授权等限制见 [Caelis 接入说明](caelis-integration.md)。
+
+以下条目是各历史检查点的状态，不能覆盖上面的最新接入结果。
+
 2026-09-22 公共后端与平台边界首片（本地工作区，尚未发布）：
 
 - `internal/app` 统一产品装配、启动、状态观察与幂等退出；macOS 入口只提供原生能力，

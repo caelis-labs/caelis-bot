@@ -14,7 +14,7 @@ Git worktree 和显式任务接管。实现边界见[任务委派](task-delegati
 3D 表现力与 Desktop/Dock/ActiveWindow 轻量骨架纳入近期主线；独立道具、随机待机和互动同时定义，
 再扩展复杂任务/窗口关联。不再将基础动作与创作工具一并后置，初期以开发者自用和有辨识度的演示验收。
 使用 Wails/Go + React/TypeScript + Three.js；角色资产走 Blender → GLB。
-Codex App Server 为第一个后端，Caelis 后续适配。协议保留充分能力，用户入口保持克制。
+Codex App Server 为第一个后端；2026-09-23 新增 Caelis Control Host adapter，当前接入范围及限制见 [接入说明](caelis-integration.md)。协议保留充分能力，用户入口保持克制。
 
 每个阶段交付可独立验证的增量，不按预计天数承诺。原生透明交互和后端恢复属于需要
 实测的风险点；用结果决定下一步，不以演示截图替代行为验证。

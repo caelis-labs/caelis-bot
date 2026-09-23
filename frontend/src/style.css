@@ -231,3 +231,5 @@ summary { cursor:pointer; }
  .settings-window { --line:currentColor; }
  .settings-window nav button[aria-current] { outline:1px solid currentColor; }
 }
+
+.runtime-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}

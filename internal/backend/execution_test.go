@@ -43,7 +43,8 @@ func TestExecutionPreferencesOnlyPersistAcceptedSettings(t *testing.T) {
 	if err = service.SaveExecutionSettings(context.Background(), value); err == nil {
 		t.Fatal("unsupported model persisted")
 	}
-	if _, err = os.Stat(path); !errors.Is(err, os.ErrNotExist) || service.ExecutionSettings() != initial {
+	prefs, prefErr := service.ExecutionSettings()
+	if _, err = os.Stat(path); !errors.Is(err, os.ErrNotExist) || prefErr != nil || prefs != initial {
 		t.Fatal("rejection changed settings")
 	}
 	engine.reject = false
@@ -61,7 +62,9 @@ func TestExecutionPreferencesOnlyPersistAcceptedSettings(t *testing.T) {
 	service.executionFile = path + "/impossible"
 	change := value
 	change.ApprovalMode = "full-access"
-	if err = service.SaveExecutionSettings(context.Background(), change); err == nil || engine.value != value || service.ExecutionSettings() != value {
+	err = service.SaveExecutionSettings(context.Background(), change)
+	prefs, prefErr = service.ExecutionSettings()
+	if err == nil || engine.value != value || prefErr != nil || prefs != value {
 		t.Fatal("disk failure mutated execution")
 	}
 	if err = os.WriteFile(path, []byte(`{"approvalMode":`), 0600); err != nil {

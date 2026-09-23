@@ -1,7 +1,7 @@
 # 后端与宿主能力契约
 
-2026-09-22。这是本产品内部 Go 契约及 Caelis 接入要求，不是新的公共 wire 协议。
-当前只有 Codex 注册为可用后端；Caelis 和 Windows 的完整实现仍待后续切片。
+2026-09-23。这是本产品内部 Go 契约，不是新的公共 wire 协议。
+Codex 与 Caelis 已注册；Caelis 接入范围及验证边界见[接入说明](caelis-integration.md)。Windows 尚未实现。
 
 ## 已落实的依赖与所有权
 
@@ -14,12 +14,13 @@ macOS / 未来 Windows 入口
               └─ localipc：当前平台的私有工具通信
 ```
 
-- `internal/app` 是唯一产品装配入口，factory 当前只注册 Codex。未知 provider 直接报错，
+- `internal/app` 是唯一产品装配入口，factory 注册 Codex 与 Caelis。未知 provider 直接报错，
   不回退到 Codex，不覆盖配置或对话。窗口模块不导入具体 adapter 或 Bot 调度器。
 - `app.Host` 注入文件选择结果解析/消费、打开 URL/产物、移入废纸篓、角色动作、通知和
   状态展示。系统操作不携带原生任务控制权。隐藏与关闭窗口均不调用 `Application.Close`。
-- `Application.Start` 在原生窗口准备好后执行：创建常驻 Bot、建立私有工具连接、绑定
-  后端工具、启动提醒/状态观察，再异步连接。工具绑定失败不连接，并回收临时 IPC。
+- `Application.Start` 在原生窗口准备好后执行：按 provider 装配常驻能力并异步连接。
+  Codex 建立私有 MCP 和本地提醒循环；Caelis 绑定受控 DesktopEffects，由 Control 管理委派与报告。
+  Caelis 不创建本地 MCP，不启动第二套提醒唤醒 owner。
 - `Application.Close` 只用于明确退出，幂等执行一次：取消连接/观察和提醒，调用 adapter
   清理自有工作，再回收工具连接、等待后台 goroutine。共享服务不因此被整个关闭。
 - `internal/botpolicy` 定义固定秘书/工作角色与八项允许的本地工具；Codex-specific 工具发现
@@ -42,11 +43,13 @@ Go 定义在 `internal/backend/api/contract.go`、`capabilities.go` 和 `tasks.g
 | `Engine` | 连接、快照、提交、中断、审批决定和关闭；adapter 保留原生目标与不确定性 | 必需 |
 | `Provider` | 安全名称、帮助链接、连接类型和说明；不含凭据 | 必需，ID 必须与配置及 factory 一致 |
 | `SnapshotObserver` | 阻塞至 revision 前进或 context 取消；重连隔离过期实例事件 | 必需，禁止循环返回同一 revision 造成忙等 |
-| `BotToolBinder` | 接受宿主发出的 stdio command/args/env 及逐工具允许列表，映射至该后端的受限能力 | 必需，在首次连接前配置；禁止全局/server 默认放行 |
-| `TaskProvider` | 仅列举、创建、读取、继续和停止此 Bot 拥有的工作 | 必需，聊天-only adapter 不作为完整秘书发布 |
-| `TaskReporter` | 空闲时投递有限完成通知，保持回执与去重，未知不重发 | 必需；此版仍由 adapter 管理完成账本，尚未迁移到共享队列 |
+| `BotToolBinder` | 接受宿主发出的 stdio command/args/env 及逐工具允许列表，映射至该后端的受限能力 | Codex 装配分支必需；禁止全局/server 默认放行 |
+| `TaskProvider` | 仅列举、创建、读取、继续和停止此 Bot 拥有的工作 | Codex 装配分支必需 |
+| `TaskReporter` | 空闲时投递有限完成通知，保持回执与去重，未知不重发 | Codex 装配分支必需；Caelis 禁止安装第二个触发器 |
+| `ControlCompanion` | 受管工作观察与受限桌面执行；远端 Control 唯一拥有委派、完成报告与授权提醒 | Caelis 装配分支必需，与上述三项替代而非叠加 |
+| `PresentationAcknowledger` | 对当前报告的明确用户呈现确认；读取/OS 通知不是 ack | 可选，Caelis 已实现 |
 | `ExecutionProvider` | 当前模型目录、effort/速度选择、审批选项及保存；先校验和持久化再生效 | 可选；缺失时报不可用；审批模式名称、危险提示和默认值来自 provider |
-| `RuntimeConfigurator` | 验证连接、阻止忙碌/待审批/未知结果时替换，保存后才启用 | 可选；目前仅同一 provider 改连接，跨 provider 热切换一律拒绝 |
+| `RuntimeConfigurator` | 验证连接、阻止忙碌/待审批/未知结果时替换，保存后才启用 | 可选；Caelis 与跨 provider 切换检测后保存，下次启动生效；不热替换 owner |
 | `Authenticator` | 后端确实需要时启动/取消登录 | 可选；Caelis Host 认证不必伪装成 Codex 网页登录 |
 | `ArtifactResolver` / `ApprovalNavigator` | 将 opaque handle 解析成已校验的文件或原生审批 URL | 可选；未知 handle 不能成为任意路径/URL 打开能力 |
 | `AttachmentProvider` | 存储统计与经 native trash 回调清理 | 可选；不据此宣称支持所有上传/下载类型 |
@@ -54,12 +57,12 @@ Go 定义在 `internal/backend/api/contract.go`、`capabilities.go` 和 `tasks.g
 | `DiagnosticSource` | adapter 白名单构造的诊断事实 | 可选；禁止日志、正文、参数、token 和私有路径 |
 
 接口实现表示适配器具备此操作；具体时刻能否操作仍以快照、授权与原生握手为准。
-类型断言不是权限证明，也不代替真实后端能力协商。Caelis 后续只在对应 Host 合同可用且
-完整验收后注册 factory，不通过方法空实现满足上述要求。
+类型断言不是权限证明，也不代替真实后端能力协商。Caelis 依据公开 Host 协商实际能力，不通过方法空实现满足上述要求。
 
 模型控制保留 `ExecutionSettings` 产品 DTO，但公共校验只约束输入大小/结构。Codex 自己
 验证 `auto/ask/read-only/full-access`，并在连接前拒绝不认识的策略；不能把未知值当默认自动模式。
-配置保存回调必须在原生操作串行化范围内执行，磁盘失败不能改变当前配置。
+配置保存回调在原生操作串行化范围内执行。Caelis 更新先获得原生接受回执；
+若后续本地保存失败，明确报告远端已接受并重新读取原生设置，不能声称事务回滚。
 
 ## 数据与兼容范围
 
@@ -71,38 +74,21 @@ Codex 明确保留原有根目录内的 `conversation.json`、`execution.json`�
 `providers/<provider-id>` 下。根目录布局是 **Codex 专属兼容命名空间**，不能被别的 provider 使用。
 若后续统一搬移，必须先实现全部文件/任务回执的事务迁移与失败恢复，再移除该分支。
 
-产品身份、提醒、草稿和展示偏好仍在产品根目录。本轮没有开放 provider 切换；真正启用
-第二个后端之前，必须补齐稳定 Host 归属绑定、已发送/未知提醒的后端归属和切换事务，
-避免把旧请求自动投递给新后端。新建连接配置字段应随 Caelis 协议切片引入，当前不预置无效 URL/token 输入框。
+角色、草稿和展示偏好在产品根目录。Codex 本地提醒保留旧布局，Caelis 桌面记录在
+`providers/caelis` 下，Control grants 才能授权其唤醒。跨后端设置先检测再原子保存，
+下一次启动采用新后端，不能把旧请求、未知提醒或 native ID 自动投递给它。
 
-## Caelis 需要提供的能力
+## Caelis 已消费的公共能力
 
-后续实现必须走 Caelis Control Host，不能把一般工作 Session 当成主 Bot。主 Bot 的身份、
-笔记和历史继续由其既有 Bot owner 管理。以下是下一合同的要求，**不是现有路由或字段**：
+`internal/backend/caelis` 只使用公开 HTTP/SSE，协议固定在 `protocol/caelis`。
+Control 拥有 Bot/来源/工作归属、受限工作目录、执行目标、审批、有限汇报和提醒授权；
+Bot 原生层拥有 scoped credential、独立观察、桌面 effect、通知和计时；renderer 只呈现。
+主 Bot 使用自身私有文件能力；不恢复旧 notebook 专用工具限制。
 
-1. **受管工作归属。** Control 持久化 principal → Bot → 工作会话/工作目录映射。一个 Bot
-   工作句柄可承载多次执行；Caelis 的 Task/Job ID 只标识具体异步执行，二者不互换。
-   列举/读取仅返回所属工作，原生 ID 和任意目录参数不能突破这个范围。
-2. **用户来源。** 委派工具运行在受信任 Bot 激活中，来源关联已持久化的用户请求或已授权
-   提醒。Control 验证此关联；模型传来的 assignment、description、附件与工作结果不生成授权。
-3. **独立工作区。** 创建时由 Control 分配工作目录/范围，复用现有 workspace trust 与
-   沙箱 owner；后续接入已有项目另走项目授权。背景 participant 本身不是目录隔离证明。
-4. **精确变更。** 创建/继续使用稳定 operation ID 和原请求摘要，重复同内容返回既有结果，
-   相同 ID 不同内容拒绝。中断锁定实际活动 turn；未知/冲突先观察恢复，禁止生成新 ID 绕过。
-5. **执行权限。** 主 Bot 仅获得受限委派工具及自身能力，工作会话保留模型/策略与原生审批。
-   不能把新工具加入目前笔记工具的整体放行策略；工作任务不继承秘书端或 Host 的控制凭据。
-6. **独立观察与审批。** 工作事件不混进主对话；主 Bot 等待期间仍可接收用户输入。
-   待审批要保留原目标、范围和真实选项；过期实例/turn 的决定不得被重连后重新投递。
-7. **完成与退出。** 每次原生执行结束只产生一次待汇报通知，携带句柄/状态，不把工作正文
-   提升为新用户命令。结果已读、明确停止或未知回执保持去重。客户端退出只能停止其自有工作，
-   不能停止共享 Host；重启根据原生事实恢复，不能为了恢复 UI 自动再次执行。
-8. **桌面能力连接。** Host 必须提供绑定到 Bot 激活/客户端生命周期的受限工具接入点，
-   支持当前 `ToolConnection` 所需的本地动作/提醒。Control 校验授权范围和失效，主 Bot
-   无此能力时不能假装已提醒或已驱动角色；不修改全局 MCP/plugin 配置来取得权限。
-
-连接认证、身份/版本/能力协商和 SSE bootstrap 沿用 Caelis 已有协议。新能力在 Caelis
-`control/bot`、`control/appserver` 及公开 wire/HTTP 边界实现，SDK 不承担桌面产品调度。
-具体 schema/capability 名称在 Caelis 能力切片中固定；Bot adapter 按发布合同做一致性测试。
+工作工具由 Control 绑定真实用户/提醒来源，adapter 不能从 prose/assignment 生成授权。
+审批保存所有原生选项与精确当前 target；后端未确认的操作保留 unknown。
+执行网络关闭，工作区隔离，原生审批不能扩大强制上限。明确退出只撤销自己的客户端，
+不能关闭共享 Host。路由、证据和未完成的异常恢复边界见[接入说明](caelis-integration.md)。
 
 ## 后续独立平台工作
 

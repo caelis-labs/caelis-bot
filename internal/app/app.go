@@ -92,6 +92,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	}
 	service.ConfigureRuntime(settingsFile, settings)
 	service.ConfigureExecution(executionFile, execution)
+	app.configureRuntimeManagement()
 	return app, nil
 }
 
@@ -104,6 +105,9 @@ func requireAssistant(engine api.Engine, id string) error {
 	}
 	if _, ok := engine.(api.SnapshotObserver); !ok {
 		return errors.New("后端缺少状态观察能力")
+	}
+	if _, remote := engine.(api.ControlCompanion); remote {
+		return nil
 	}
 	if _, ok := engine.(api.BotToolBinder); !ok {
 		return errors.New("后端缺少受限 Bot 工具连接")
@@ -128,21 +132,32 @@ func (a *Application) Start() error {
 	if a.started {
 		return nil
 	}
-	resident, err := bot.New(filepath.Join(a.root, "bot.json"), a.host.Gesture)
+	residentPath := filepath.Join(a.root, "bot.json")
+	if _, remote := a.engine.(api.ControlCompanion); remote {
+		residentPath = filepath.Join(a.root, "providers", a.engine.(api.Provider).ProviderInfo().ID, "bot.json")
+	}
+	resident, err := bot.New(residentPath, a.host.Gesture)
 	if err != nil {
 		return err
 	}
-	bridge, err := bot.Serve(resident)
-	if err != nil {
-		resident.Close()
-		return err
+	var bridge *bot.Bridge
+	remote, controlOwned := a.engine.(api.ControlCompanion)
+	if controlOwned {
+		err = remote.BindDesktop(api.DesktopEffects{Execute: resident.ExecuteDesktop, Notify: a.host.Notify})
+	} else {
+		bridge, err = bot.Serve(resident)
+		if err == nil {
+			var executable string
+			executable, err = os.Executable()
+			if err == nil {
+				err = a.engine.(api.BotToolBinder).ConfigureBotTools(bridge.Config(executable))
+			}
+		}
 	}
-	executable, err := os.Executable()
-	if err == nil {
-		err = a.engine.(api.BotToolBinder).ConfigureBotTools(bridge.Config(executable))
-	}
 	if err != nil {
-		bridge.Close()
+		if bridge != nil {
+			bridge.Close()
+		}
 		resident.Close()
 		return err
 	}
@@ -158,12 +173,14 @@ func (a *Application) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel, a.companion, a.bridge, a.started = cancel, resident, bridge, true
 	a.Backend.SetBotStatus(resident.Status)
-	resident.Start(a.engine)
+	if !controlOwned {
+		resident.Start(a.engine)
+	}
 	a.workers.Add(2)
 	go func() { defer a.workers.Done(); _ = a.Backend.Connect(ctx) }()
 	go func() {
 		defer a.workers.Done()
-		observer := backend.NotificationObserver{Notify: a.host.Notify}
+		observer := backend.NotificationObserver{Notify: a.host.Notify, SkipResults: controlOwned}
 		var revision uint64
 		for {
 			snapshot, err := a.engine.(api.SnapshotObserver).WaitSnapshot(ctx, revision)

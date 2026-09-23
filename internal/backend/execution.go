@@ -32,10 +32,13 @@ func (s *Service) ConfigureExecution(path string, v api.ExecutionSettings) {
 	s.executionFile = path
 	s.executionSettings = v
 }
-func (s *Service) ExecutionSettings() api.ExecutionSettings {
+func (s *Service) ExecutionSettings() (api.ExecutionSettings, error) {
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
-	return s.executionSettings
+	if source, ok := s.engine.(api.ExecutionSettingsSource); ok {
+		return source.CurrentExecutionSettings(context.Background())
+	}
+	return s.executionSettings, nil
 }
 func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
 	e, ok := s.engine.(api.ExecutionProvider)

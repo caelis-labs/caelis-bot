@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -78,7 +79,7 @@ func (*testEngine) StopTask(context.Context, string) (api.Task, error) {
 }
 func (*testEngine) DeliverTaskReport(context.Context) error { return nil }
 
-func fixtureApp(t *testing.T, e *testEngine, host Host) (*Application, string) {
+func fixtureApp(t *testing.T, e api.Engine, host Host) (*Application, string) {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "runtime.json"), []byte(`{"runtime":"fixture","cliPath":""}`), 0600); err != nil {
@@ -177,7 +178,7 @@ func TestToolBindingFailureDoesNotConnectAndReleasesEndpoint(t *testing.T) {
 }
 func TestUnknownProviderNeverFallsBackOrRewritesBindings(t *testing.T) {
 	root := t.TempDir()
-	settings := []byte(`{"runtime":"caelis","cliPath":""}`)
+	settings := []byte(`{"runtime":"not-implemented","cliPath":""}`)
 	sentinel := []byte(`{"version":1,"threadId":"existing-owned-thread"}`)
 	for name, value := range map[string][]byte{"runtime.json": settings, "conversation.json": sentinel} {
 		if err := os.WriteFile(filepath.Join(root, name), value, 0600); err != nil {
@@ -224,7 +225,8 @@ func TestProviderNamespacesAndLegacyCodexRestoration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	if a.Backend.ProviderInfo().ID != "codex" || a.Backend.ExecutionSettings().ApprovalMode != "auto" {
+	prefs, prefErr := a.Backend.ExecutionSettings()
+	if a.Backend.ProviderInfo().ID != "codex" || prefErr != nil || prefs.ApprovalMode != "auto" {
 		t.Fatal("legacy defaults changed")
 	}
 	got, err := os.ReadFile(filepath.Join(root, "conversation.json"))
@@ -244,5 +246,48 @@ func TestChatOnlyAdapterCannotBecomeSecretary(t *testing.T) {
 	}
 	if err := requireAssistant(e, "other"); err == nil {
 		t.Fatal("mismatched provider identity")
+	}
+}
+
+// A Control-owned companion must not receive Codex MCP or its scheduler.
+type controlTestEngine struct {
+	*testEngine
+	effects api.DesktopEffects
+}
+
+func (e *controlTestEngine) BindDesktop(v api.DesktopEffects) error       { e.effects = v; return nil }
+func (*controlTestEngine) OwnedTasks(context.Context) ([]api.Task, error) { return nil, nil }
+func (e *controlTestEngine) Connect(ctx context.Context) error {
+	if e.effects.Execute == nil {
+		return errors.New("desktop effects missing")
+	}
+	close(e.connectSeen)
+	<-ctx.Done()
+	return ctx.Err()
+}
+func TestControlCompanionHasOneExecutionOwner(t *testing.T) {
+	e := &controlTestEngine{testEngine: newTestEngine()}
+	a, root := fixtureApp(t, e, Host{})
+	if err := a.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitSignal(t, e.connectSeen)
+	if a.bridge != nil || e.tools != nil {
+		t.Fatal("Control companion received a second tool server")
+	}
+	if _, err := e.effects.Execute("clock", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.effects.Execute("reminders", json.RawMessage(`{"operation":"save","id":"native","label":"Fixture","prompt":"Fixture","at":"2099-01-01T00:00:00Z"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "providers", "fixture", "bot.json")); err != nil {
+		t.Fatal("missing private provider schedule", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "bot.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("Control mutated Codex resident state")
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

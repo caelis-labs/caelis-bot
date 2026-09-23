@@ -110,8 +110,9 @@ Agent 拓扑与开发者仪表盘。后台可能拥有多个任务和对话，�
 ## 能力范围
 
 协议可以表达完整的 Agent 能力，包括工具执行、审批、附件、任务、插件和连接器。
-现阶段 Caelis Bot Mode 的无工具实现不是产品能力上限。
-第一版后端采用 Codex App Server，后续 Caelis 通过适配器进入同一条链路。
+Codex App Server 和 Caelis Control Host 通过独立适配器接入；能力按各自原生合同协商。
+Caelis 已支持自身私有文件和受管工作，通过官方 CLI 提供显式安装、检测、更新及服务入口，
+不打包运行时。范围和验证限制见 [Caelis 接入](caelis-integration.md)。
 Codex 使用用户本机安装，通过标准 App Server 发现、初始化与账户接口连接；
 应用不携带、不静默安装 Codex 运行时，也不接管 Codex App 自己的进程或任务。
 若已有标准 App Server 本地入口，直接握手，不要求安装 CLI；否则再发现 CLI。

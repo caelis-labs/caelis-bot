@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 )
 
@@ -25,6 +26,11 @@ type providerFactory struct {
 type factoryResolver func(string) (providerFactory, error)
 
 func resolveProvider(id string) (providerFactory, error) {
+	if id == "caelis" {
+		return providerFactory{ID: id, Defaults: api.ExecutionSettings{ApprovalMode: "workspace-write"}, Open: func(c providerConfig) (api.Engine, error) {
+			return caelis.New(caelis.Options{Directory: filepath.Dir(c.ConversationFile), Settings: c.Settings}), nil
+		}}, nil
+	}
 	if id != "codex" {
 		return providerFactory{}, errors.New("该后端尚未接入，原有连接记录保持不变")
 	}

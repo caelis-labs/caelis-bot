@@ -119,6 +119,13 @@ export interface RuntimeCheck {
 export interface RuntimeSettings {
   runtime: string;
   cliPath: string;
+  caelisStore: string;
+}
+export interface RuntimeStatus {
+  installed: boolean;
+  path: string;
+  version: string;
+  message: string;
 }
 export interface ServiceTier {
   id: string;
