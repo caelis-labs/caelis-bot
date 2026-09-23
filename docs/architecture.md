@@ -616,6 +616,17 @@ never/dangerFullAccess. The isolated acceptance flag always tightens back to
 untrusted/user/workspace-write. Model settings cannot rewrite pending approval targets.
 Native Codex requirements remain authoritative and may reject selected policies.
 
+Delegated work has separate per-provider `work-execution.json` preferences. An empty
+model reads the Runtime default when creating work; only an absent configured model
+falls back to the Bot's model/effort/tier. Manual selection overrides that group.
+`WorkExecutionProvider` validates and persists these preferences independently of the
+resident execution settings. They never change permission policy or Runtime globals.
+Codex reads `config/read` and pins the native thread receipt, including model provider,
+for continuation/restart; legacy tasks first resume without model overrides. Caelis
+resolves public Host model metadata and persists an explicit application worker profile.
+Lookup errors are not absence. Existing tasks keep their settings. Caelis application
+team configuration remains deferred to [Caelis #74](https://github.com/caelis-labs/caelis/issues/74).
+
 Protocol references: [model/list](https://learn.chatgpt.com/docs/app-server#list-models-modellist)
 and the vendored Codex 0.153.4 ModelList/ThreadStart/ThreadResume/TurnStart schemas.
 

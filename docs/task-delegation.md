@@ -35,8 +35,8 @@ Codex adapter 映射至 App Server 的 `thread/start/read/resume`、`turn/start/
 仅工具调用本身不构成对其描述的外部行为的授权。
 
 宿主从实际用户提交保存原始要求，连同委派内容送入工作任务；模型不能用一个 `authorized: true`
-字段扩权。原始请求、当前请求与秘书委派都被明确区分，委派不能扩大用户范围。工作任务继承
-用户选择的模型、effort、速度档位与审批模式；默认仍为 `workspace-write / on-request / auto_review`。
+字段扩权。原始请求、当前请求与秘书委派都被明确区分，委派不能扩大用户范围。工作任务采用
+独立的工作模型、effort 和速度档位；审批模式沿用既有产品权限策略，默认仍为 `workspace-write / on-request / auto_review`。
 命令、网络、外部写入、发布和额外权限继续接受原生策略审查，拒绝不会被任务层自动重试绕过。
 需用户决定的审批保持原生动作、目录和选项，并显示所属任务名称。
 
@@ -54,3 +54,18 @@ Codex adapter 映射至 App Server 的 `thread/start/read/resume`、`turn/start/
 不通过注入 Codex App 当前会话的私有 pipe 来获得这些能力。
 
 验证区分契约测试、真实 Codex 联调和原生界面；最新实际结果见 `preparation-status.md`。
+
+## 工作模型选择（2026-09-24）
+
+Bot 模型与工作模型解耦，设置按 Runtime 分别保存在 `work-execution.json`。
+未保存文件或空 `model` 表示沿用 Runtime：新建任务先读取 Runtime 配置，未配置模型才回退
+Bot 模型；手动选择优先。模型、effort、速度作为一组解析，不把 Bot 的档位叠加给其他模型。
+配置读取失败、无权限或无法确认默认模型时明确报错，不冒充“未配置”静默回退。
+
+Codex 使用公开 `config/read` 的 effective config，而不是 `model/list` 的推荐默认项；
+创建回执的模型/provider/effort/tier 写入任务记录。旧任务首次续接不覆盖模型，从原生恢复回执
+补齐记录。Caelis 从公开 Host 模型目录读取 `current` 及档位，必要时使用结构化 `/status`
+标识；在持久化创建意图前写入独立 application profile。既有 application 会话保持原配置。
+保存工作偏好不改运行中的任务、Bot 对话模型或 Runtime 全局默认；模型工具不能提交工作模型参数。
+
+当前不配置 team，公开协议扩展见 [Caelis #74](https://github.com/caelis-labs/caelis/issues/74)。

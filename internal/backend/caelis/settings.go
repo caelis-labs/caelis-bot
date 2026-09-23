@@ -29,14 +29,14 @@ func (s *Session) Models(ctx context.Context) ([]api.ModelOption, error) {
 		if value(m.NoAuth) {
 			continue
 		}
-		v := api.ModelOption{Model: m.Value, Name: value(m.Display), ServiceTiers: []api.ServiceTier{{ID: "", Name: "标准"}}}
+		v := api.ModelOption{Model: m.Value, Name: value(m.Display), Efforts: []string{}, ServiceTiers: []api.ServiceTier{{ID: "", Name: "标准"}}}
 		if v.Name == "" {
 			v.Name = m.Value
 		}
 		if m.ModelSelection != nil {
 			v.Default = value(m.ModelSelection.Current)
 			v.DefaultEffort = m.ModelSelection.Effort
-			v.Efforts = m.ModelSelection.Efforts
+			v.Efforts = append(v.Efforts, m.ModelSelection.Efforts...)
 			if value(m.ModelSelection.FastSupported) {
 				v.ServiceTiers = append(v.ServiceTiers, api.ServiceTier{ID: "priority", Name: "Fast"})
 			}

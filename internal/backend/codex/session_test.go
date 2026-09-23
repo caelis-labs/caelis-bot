@@ -123,7 +123,7 @@ func (f *sessionFixture) serve(peer net.Conn) {
 				}
 			}
 			f.mu.Unlock()
-			result = map[string]any{"thread": nativeThread{ID: "thread-native", Turns: history}}
+			result = map[string]any{"thread": nativeThread{ID: "thread-native", Turns: history}, "model": "native-default"}
 			if m.Method == "thread/read" {
 				var params struct {
 					ThreadID string `json:"threadId"`

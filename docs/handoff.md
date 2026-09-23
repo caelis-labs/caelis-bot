@@ -19,6 +19,10 @@ GUI 联调发现并修复产品工具目录 `required:null` 和失败原因未�
 先读 [正式版联调报告](caelis-release-acceptance.md) 与 [接入契约](caelis-integration.md)。旧 Bot Mode 不恢复；
 后续优先补产物报告、未知回执恢复及其余产品/发行验收。
 
+2026-09-24 工作模型已与 Bot 模型解耦：默认沿用 Runtime，未配置模型时回退 Bot；
+设置页支持独立手动指定，已有任务保持模型。详见 [任务委派](task-delegation.md)。
+Caelis team 公开协议后续跟踪 [#74](https://github.com/caelis-labs/caelis/issues/74)。
+
 Runtime Setup、头像图标、显式切换、AppKit 点击/拖动与窗口唤回等已有功能保留。
 Developer ID 工作单独保存为本地 stash `deferred: Developer ID signing pipeline (2026-09-23)`；
 当前产品工作树使用原有 ad-hoc 预览签名。完整验证与限制以 preparation-status 为准；尚未发布。

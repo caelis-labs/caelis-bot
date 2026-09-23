@@ -66,7 +66,7 @@ func TestNotebookWorkspaceDoesNotLeakToWorkers(t *testing.T) {
 	if turn["sandboxPolicy"].(map[string]any)["writableRoots"].([]string)[0] != notebook {
 		t.Fatal("turn cannot write Notebook")
 	}
-	child := s.workerParams(worker, c.WorkerInstructions)
+	child := s.workerParams(worker, c.WorkerInstructions, &taskRecord{})
 	b, _ := json.Marshal(child)
 	if child["cwd"] != worker || strings.Contains(string(b), notebook) || strings.Contains(string(b), "resident-only-notebook-skill") {
 		t.Fatal("worker inherited resident private context")

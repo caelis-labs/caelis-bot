@@ -430,6 +430,23 @@ func TestNativeHostIntegration(t *testing.T) {
 		return
 	}
 	if !t.Run("B08_B09_B11_workers_background", func(t *testing.T) {
+		// Bot keeps its own model while newly delegated work follows the Host.
+		current, err := s.Configuration(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = s.UpdateConfiguration(ctx, "bot-model-before-delegation", string(current.Revision), map[string]any{"model": "openai/gpt-5.4-mini", "reasoning_effort": "low"}); err != nil {
+			t.Fatal(err)
+		}
+		var status wire.StatusSnapshot
+		if err = host.json(ctx, "GET", "/status", nil, &status, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		op := "runtime-model-before-delegation"
+		var result wire.CommandResult
+		if err = host.json(ctx, "POST", "/configuration/use-model", wire.UseModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Model: "openai/gpt-5.4", ReasoningEffort: pointer("high")}, &result, op, string(status.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
+			t.Fatal("runtime model selection", result.Outcome, err)
+		}
 		model.set("CASE_WORKER_A", modelStep{Block: workerA, Entered: enteredA})
 		model.set("CASE_WORKER_B", modelStep{Block: workerB, Entered: enteredB})
 		model.set("CASE_DELEGATE", modelStep{Name: "FixtureDelegate", Args: map[string]string{}})
@@ -446,6 +463,19 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		if len(s.WorkStates()) != 2 {
 			t.Fatal("missing workers")
+		}
+		for _, id := range []string{"task-a", "task-b"} {
+			s.mu.Lock()
+			sid := s.state.Workers[id].Binding.SessionId
+			s.mu.Unlock()
+			cfg, err := s.configuration(ctx, sid)
+			if err != nil || !strings.HasSuffix(cfg.Profile.Model, "/gpt-5.4") || value(cfg.Profile.ReasoningEffort) != "high" {
+				t.Fatal("worker did not inherit Runtime model", cfg.Profile.Model, err)
+			}
+		}
+		resident, err := s.Configuration(ctx)
+		if err != nil || resident.Profile.Model != "openai/gpt-5.4-mini" {
+			t.Fatal("work model changed Bot", err)
 		}
 		if _, e = s.StopWork(ctx, "task-a"); e != nil {
 			t.Fatal(e)

@@ -12,8 +12,9 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
-// setupClient is only used by explicit settings actions. Never reuse a Bot token
-// for Host configuration, nor write secret-bearing requests to the Bot journal.
+// setupClient uses Host authority for explicit settings actions and read-only
+// work-model resolution. Never reuse a Bot token for Host configuration, nor
+// write secret-bearing requests to the Bot journal.
 func setupClient(ctx context.Context, v api.RuntimeSettings) (*client, error) {
 	d, token, e := Discover(v)
 	if e != nil {

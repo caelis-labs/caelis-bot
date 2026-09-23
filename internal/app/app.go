@@ -84,7 +84,12 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	if err != nil {
 		return nil, err
 	}
-	engine, err := factory.Open(providerConfig{Settings: settings, Execution: execution,
+	workExecutionFile := filepath.Join(directory, "work-execution.json")
+	workExecution, err := backend.LoadWorkExecutionSettings(workExecutionFile)
+	if err != nil {
+		return nil, err
+	}
+	engine, err := factory.Open(providerConfig{Settings: settings, Execution: execution, WorkExecution: workExecution,
 		WorkDirectory: filepath.Join(directory, "Work"), WorkRoot: filepath.Join(root, "Tasks"), ConversationFile: filepath.Join(directory, "conversation.json")})
 	if err != nil {
 		return nil, err
@@ -110,6 +115,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	}
 	service.ConfigureRuntime(settingsFile, settings)
 	service.ConfigureExecution(executionFile, execution)
+	service.ConfigureWorkExecution(workExecutionFile, workExecution)
 	app.configureRuntimeManagement()
 	app.configureSetup()
 	return app, nil

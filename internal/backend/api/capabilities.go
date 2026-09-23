@@ -48,6 +48,10 @@ type ExecutionProvider interface {
 	// applying at its documented request boundary; never rewrite issued requests.
 	ChangeExecution(context.Context, ExecutionSettings, func() error) error
 }
+type WorkExecutionProvider interface {
+	// Persist before applying to new work; never changes an existing task.
+	ChangeWorkExecution(context.Context, WorkExecutionSettings, func() error) error
+}
 type AttachmentProvider interface {
 	AttachmentStorage() (AttachmentStorage, error)
 	TrashOldAttachments(context.Context, func(string) error) (AttachmentStorage, error)

@@ -145,6 +145,14 @@ type ExecutionSettings struct {
 	ServiceTier  string `json:"serviceTier"`
 	ApprovalMode string `json:"approvalMode"`
 }
+
+// WorkExecutionSettings selects only the model for newly delegated work.
+// Empty Model means Runtime default, then Bot fallback. Permissions are separate.
+type WorkExecutionSettings struct {
+	Model       string `json:"model"`
+	Effort      string `json:"effort"`
+	ServiceTier string `json:"serviceTier"`
+}
 type ModelOption struct {
 	Model         string        `json:"model"`
 	Name          string        `json:"name"`

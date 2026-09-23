@@ -195,6 +195,11 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 		switch {
 		case r.Method == "POST" && path == "/application/sessions":
 			creates.Add(1)
+			var in wire.CreateApplicationSessionRequest
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			if in.Profile.Model != "fixture-model" || value(in.Profile.ReasoningEffort) != "high" || value(in.Profile.ServiceTier) != "priority" {
+				t.Error("worker lost independent model")
+			}
 			drop(w)
 		case r.Method == "POST" && strings.HasSuffix(path, "/prompt"):
 			prompts.Add(1)
@@ -214,12 +219,16 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 			w.WriteHeader(404)
 		}
 	})
+	s.workExecution = api.WorkExecutionSettings{Model: "fixture-model", Effort: "high", ServiceTier: "priority"}
 	s.state.PrincipalID = "owner"
-	s.state.Configurations["main"] = wire.ApplicationConfiguration{Profile: wire.ApplicationProfile{Execution: "workspace-write"}}
+	s.state.Configurations["main"] = wire.ApplicationConfiguration{Profile: wire.ApplicationProfile{Model: "bot-luna", Execution: "workspace-write"}}
 	ctx := context.WithValue(t.Context(), invocationKey{}, wire.ApplicationCall{SessionId: "main", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Source: wire.ApplicationSource{Kind: "user", OperationId: "authorized-user"}})
 	_, _ = s.StartWork(ctx, api.WorkStart{ID: "job", TaskStart: api.TaskStart{RequestID: "request", Title: "Fixture", Prompt: "synthetic"}, Workspace: t.TempDir()})
 	for range 2 {
-		restored := New(Options{Directory: filepath.Dir(s.path)})
+		restored := New(Options{Directory: filepath.Dir(s.path), WorkExecution: api.WorkExecutionSettings{Model: "changed-setting"}})
+		if pending := restored.state.Workers["job"].Start; pending != nil && pending.Profile.Model != "fixture-model" {
+			t.Fatal("restart changed pending work model")
+		}
 		restored.client = s.client
 		s = restored
 		if e := s.recoverOperations(t.Context()); e != nil {

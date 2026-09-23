@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { backend } from './desktop';
+import { WorkExecutionSettings } from './WorkExecutionSettings';
 import { SettingGroup, SettingRow } from './SettingsUI';
 import type { ExecutionSettings as Preferences, ModelOption, ExecutionOptions } from './backend/contract';
 
@@ -16,7 +17,7 @@ export function ExecutionSettings(){
  return <section className="execution-settings"><h1>模型与权限</h1>
 
  {value&&<fieldset disabled={busy||loading} className="execution-fields">
-  <SettingGroup title="模型">
+  <SettingGroup title="Bot 对话模型">
    <SettingRow label="使用模型" description={inherited?'当前沿用运行时的默认模型':'用于下一次请求'} htmlFor="execution-model"><select id="execution-model" value={value.model} onChange={e=>{const m=models.find(m=>m.model===e.target.value)!;setValue({...value,model:m.model,effort:m.defaultEffort,serviceTier:''});setMessage('');}}>
     {!model&&<option value={value.model}>{value.model||'没有可用模型'}</option>}{models.map(m=><option key={m.model} value={m.model}>{m.name||m.model}{m.default?' · 默认':''}</option>)}
    </select></SettingRow>
@@ -31,6 +32,7 @@ export function ExecutionSettings(){
   </SettingGroup>}
  </fieldset>}
  {message&&<p className="settings-note" role="status">{message}</p>}
- <div className="settings-footer"><button disabled={busy||loading} onClick={()=>void load()}>{loading?'正在加载…':'刷新选项'}</button><button className="primary" disabled={busy||loading||!model} onClick={()=>void save()}>{busy?'正在保存…':'保存设置'}</button></div>
+ <div className="settings-footer"><button disabled={busy||loading} onClick={()=>void load()}>{loading?'正在加载…':'刷新选项'}</button><button className="primary" disabled={busy||loading||!model} onClick={()=>void save()}>{busy?'正在保存…':'保存 Bot 设置'}</button></div>
+ <WorkExecutionSettings/>
  </section>;
 }

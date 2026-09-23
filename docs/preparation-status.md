@@ -3,6 +3,18 @@
 本项目已从工具链准备阶段推进到 macOS 开发者预览。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
 
+2026-09-24 工作模型解耦：
+
+- 新任务优先手动指定，其次 Runtime 配置，仅未配置模型时回退 Bot；读取失败明确报错。
+- 独立设置文件、原生创建回执/worker profile 保持模型，覆盖续接、重启和重复请求；不改变权限策略。
+- `make check`、`make smoke`、`make build` 通过；相关后端 race 回归通过。
+- 本机正式 Caelis v0.61.0 + 隔离合成模型验收通过：Bot 为 `gpt-5.4-mini/low`，新 worker 为 Runtime 的 `gpt-5.4/high`；其他 B01–B11 路径继续通过。
+- 本机 Codex 0.156.1 原生 `config/read` 与 ephemeral `thread/start` 参数验证通过，未发送模型请求。
+- 协议基线仍为 0.153.4；新增 ConfigRead schema 已固定哈希。当前二进制版本不同，`make schema` 的整版精确比对未通过版本门；单独生成 0.156.1 schema 确认消费的 model/effort/tier 字段定义一致。
+- 原生设置 GUI 已验证 Runtime/手动切换、MiMo Pro 保存和刷新回读；Bot 保持 Luna/low/Fast，切回默认清空覆盖。
+- 日常 Bot 已恢复，隔离 Host 已关闭，未更改日常 Runtime/模型设置。
+- 本轮不新增真实模型端到端调用或 team 实现；team 公开入口记录为 [Caelis #74](https://github.com/caelis-labs/caelis/issues/74)。
+
 2026-09-24 正式 Caelis v0.61.0 联调：
 
 - 本机 `release` 二进制与官方 macOS ARM64 发布包一致；公开协议与候选版字节一致，固定提交推进至 `5e2546f`。

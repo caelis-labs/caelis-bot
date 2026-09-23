@@ -104,6 +104,13 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		return s.ReadWork(ctx, in.ID)
 	}
 	profile := cfg.Profile
+	execution, e := s.resolveWorkExecution(ctx, profile)
+	if e != nil {
+		return api.Task{}, e
+	}
+	profile.Model = execution.Model
+	profile.ReasoningEffort = pointer(execution.Effort)
+	profile.ServiceTier = pointer(execution.ServiceTier)
 	profile.Instructions = in.Instructions
 	profile.Tools = nil
 	profile.ToolsVersion = "worker-native-v1"
