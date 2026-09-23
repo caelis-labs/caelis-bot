@@ -7,6 +7,7 @@ import { activeReplyID, chatActivity, composerAction } from './chat-presentation
 import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
 import { AttachmentMenu } from './AttachmentMenu';
+import { ChatScroll } from './chat-scroll';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
 export const labels: Record<string,string> = { working: '正在处理', sending: '正在发送', attention: '需要确认', interrupting: '正在停止', completed: '已完成', interrupted: '已停止', failed: '未完成', unknown: '结果待确认', unconfirmed: '结果未确认' };
@@ -84,7 +85,7 @@ export function useConversation(active: boolean, pet=false, chat=false, composer
 
 // One native-host draft, two exclusive editors. Writes serialize and use a
 // revision fence so a delayed hidden renderer cannot overwrite newer text.
-function Composer({snapshot,quick=false,active=true,activation=0,refresh}:{snapshot:Snapshot|null;quick?:boolean;active?:boolean;activation?:number;refresh:()=>Promise<void>}) {
+function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0,refresh}:{snapshot:Snapshot|null;quick?:boolean;active?:boolean;activation?:number;focusRevision?:number;refresh:()=>Promise<void>}) {
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null),composer=useRef<HTMLDivElement>(null);
  const [draft,setDraft]=useState(''),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
@@ -103,7 +104,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,refresh}:{snaps
   window.addEventListener('files-changed',changed);
   return()=>{mounted=false;window.removeEventListener('files-changed',changed);};
  },[activation]);
- useEffect(()=>{if(active&&loaded&&!busy){input.current?.focus();if(quick){const frame=requestAnimationFrame(()=>void desktop('PanelReady',activation));return()=>cancelAnimationFrame(frame);}}},[active,loaded,busy,activation]);
+ useEffect(()=>{if(active&&loaded&&!busy){input.current?.focus({preventScroll:true});if(quick){const frame=requestAnimationFrame(()=>void desktop('PanelReady',activation));return()=>cancelAnimationFrame(frame);}}},[active,loaded,busy,activation,focusRevision]);
  useEffect(()=>{
   if(!quick||!active||!loaded)return;
   const focus=()=>input.current?.focus();
@@ -189,17 +190,30 @@ export function Panel() {
 
 export function History() {
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
+ const [activation,setActivation]=useState(0);
  const {snapshot,refresh}=useConversation(active,false,true);
  const [earlierBusy,setEarlierBusy]=useState(false);
  const prepend=useRef<{id:string;top:number}|null>(null);
- const scroll=useRef<HTMLDivElement>(null),follow=useRef(true);
+ const scroll=useRef<HTMLDivElement>(null),content=useRef<HTMLDivElement>(null),position=useRef<ChatScroll|null>(null);
+ useLayoutEffect(()=>{position.current=new ChatScroll(scroll.current!);return()=>{position.current=null;};},[]);
  useEffect(()=>{
-  const opened=()=>{setActive(true);},closed=()=>setActive(false);
-  void desktop<boolean>('HistoryVisible').then(v=>{if(v)opened();});
+  const opened=()=>{setActive(true);setActivation(value=>value+1);},visible=()=>setActive(true),closed=()=>setActive(false);
+  let mounted=true;
+  void desktop<boolean>('HistoryVisible').then(v=>{if(mounted&&v)visible();});
   const key=(e:KeyboardEvent)=>{if(!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void desktop('CloseHistory');}};
-  window.addEventListener('history-open',opened);window.addEventListener('history-close',closed);window.addEventListener('keydown',key);
-  return()=>{window.removeEventListener('history-open',opened);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
+  window.addEventListener('history-open',opened);window.addEventListener('history-visible',visible);window.addEventListener('history-close',closed);window.addEventListener('keydown',key);
+  return()=>{mounted=false;window.removeEventListener('history-open',opened);window.removeEventListener('history-visible',visible);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
  },[]);
+ useLayoutEffect(()=>{
+  if(!active)return;
+  prepend.current=null;position.current!.latest();setUnread(false);
+ },[active,activation]);
+ useLayoutEffect(()=>{
+  if(!active)return;
+  const resize=new ResizeObserver(()=>{position.current?.layout();});
+  resize.observe(scroll.current!);resize.observe(content.current!);
+  return()=>resize.disconnect();
+ },[active]);
  const messages=snapshot?.items.filter(i=>i.kind==='user'||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length)))??[];
  const contentKey=messages.map(i=>i.id+i.text).join('');
  const prompts=snapshot?.approvals.filter(p=>p.status!=='resolved')??[];
@@ -210,18 +224,19 @@ export function History() {
  const connection=snapshot&&snapshot.connection!=='ready';
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  useLayoutEffect(()=>{
-  const el=scroll.current;if(!el)return;
+  const el=scroll.current;if(!el||!active)return;
   if(prepend.current){
    if(earlierBusy)return;
    const anchor=el.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(prepend.current.id)}"]`);
    if(anchor)el.scrollTop+=anchor.getBoundingClientRect().top-prepend.current.top;
    prepend.current=null;
-  }else if(follow.current){el.scrollTop=el.scrollHeight;setUnread(false);}else setUnread(true);
+  }else if(position.current!.following){position.current!.layout();setUnread(false);}else setUnread(true);
  },[contentKey,promptKey,activity,snapshot?.connection,snapshot?.phase,snapshot?.message,snapshot?.hasEarlier,earlierBusy]);
- const earlier=async()=>{if(earlierBusy)return;setEarlierBusy(true);setError('');const el=scroll.current!;follow.current=false;const anchor=Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(item=>item.getBoundingClientRect().bottom>el.getBoundingClientRect().top);if(anchor)prepend.current={id:anchor.dataset.messageId!,top:anchor.getBoundingClientRect().top};try{await backend('LoadEarlier');await refresh();}catch{prepend.current=null;setError('更早消息暂时无法读取，请重试');}finally{setEarlierBusy(false);}};
+ const earlier=async()=>{if(earlierBusy)return;setEarlierBusy(true);setError('');const el=scroll.current!;position.current!.following=false;const anchor=Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(item=>item.getBoundingClientRect().bottom>el.getBoundingClientRect().top);if(anchor)prepend.current={id:anchor.dataset.messageId!,top:anchor.getBoundingClientRect().top};try{await backend('LoadEarlier');await refresh();}catch{prepend.current=null;setError('更早消息暂时无法读取，请重试');}finally{setEarlierBusy(false);}};
  const action=async(method:string)=>{setBusy(true);setError('');try{await backend(method);}catch(e){setError(e instanceof Error?e.message:'暂时无法操作');}finally{setBusy(false);await refresh();}};
  return <main className="history-surface" aria-label="与 Caelis Bot 聊天">
-  <div className="chat-scroll" ref={scroll} onScroll={()=>{const el=scroll.current!;follow.current=el.scrollHeight-el.scrollTop-el.clientHeight<56;if(follow.current)setUnread(false);}}>
+  <div className="chat-scroll" ref={scroll} onScroll={()=>{if(active&&position.current?.scrolled())setUnread(false);}}>
+   <div className="chat-content" ref={content}>
    {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">有什么想和我说的？</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy||snapshot.connection!=='ready'} onClick={()=>void earlier()}>{earlierBusy?'正在读取…':'查看更早消息'}</button></div>}
    <div className="history-messages">{messages.map(i=><Message key={i.id} item={i} report={setError} animate={i.id===activeReply}/>)}</div>
@@ -249,10 +264,11 @@ export function History() {
     </div>
    </article>}
    {!!error&&<p className="inline-error" role="alert">{error}</p>}
+   </div>
   </div>
-  {unread&&<button className="new-messages" onClick={()=>{follow.current=true;scroll.current!.scrollTop=scroll.current!.scrollHeight;setUnread(false);}}>查看新消息 ↓</button>}
+  {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>查看新消息 ↓</button>}
   <footer>
-   {active&&<Composer snapshot={snapshot} refresh={refresh}/>}
+   {active&&<Composer snapshot={snapshot} focusRevision={activation} refresh={refresh}/>}
   </footer>
  </main>;
 }

@@ -573,21 +573,29 @@ System API references: [NSClickGestureRecognizer](https://developer.apple.com/do
 [gesture failure requirements](https://developer.apple.com/documentation/appkit/nsgesturerecognizerdelegate/gesturerecognizer(_:shouldrequirefailureof:)),
 [Window Server dragging](https://developer.apple.com/documentation/appkit/nswindow/performdrag(with:)).
 
-Global quick input uses a driver-owned Carbon hotkey on macOS, without an event tap
+Global chat recall uses a driver-owned Carbon hotkey on macOS, without an event tap
 or keyboard monitoring permission. The portable preference uses physical key codes
 and Control/Alt/Shift/Meta modifiers; the default is Control+Shift+Space.
 Registration failure preserves the prior shortcut. Saving failure rolls registration
 back; preferences use atomic replacement with mode 0600. A hidden pet does not disable
 the shortcut. A future Windows host must implement its own driver and conflict checks.
 
-Hotkey input is centered in the mouse screen's visible frame; clicking the pet keeps
-its existing nearby anchor. Resizing the composer preserves the invocation's placement
-mode. Repeating the same invocation toggles the panel; switching modes repositions it.
-The native activation/key-window callbacks explicitly transfer first-responder status
-to WebKit and request DOM focus. Closing restores the previous application when still
-appropriate; outside clicks retain their chosen destination. The settings page offers
-a preview button for the same centered path. Busy/disconnected global input retains a
-draft and links to chat; it cannot send or approve around native execution gates.
+The hotkey and settings preview both call `ToggleHistory`: native visible, non-minimised
+chat is hidden; hidden/minimised chat is raised and its editor focused through the
+existing window-recall preparation. An attached native sheet is recalled rather than
+hidden. No remembered toggle bit or backend cancellation is involved. Menus and pet
+double-click keep their unconditional recall path. Pet single-click toggles its nearby capsule;
+the centered-input path is removed. Closing that capsule restores the previous
+application when appropriate; outside clicks retain their chosen destination.
+Busy/disconnected chat retains the draft and existing native send/approval gates.
+
+Explicit `history-open` resets bottom-following even if the window is already active.
+Native key-window reconciliation uses `history-visible` so ordinary app switching does
+not disturb manual history reading. An active-only ResizeObserver tracks the transcript
+content and viewport, keeping the latest message visible after composer mount, draft
+restoration and window resize. Loading earlier messages retains its message anchor;
+manual scrolling suspends bottom-following until the user returns to the bottom or
+explicitly recalls chat. Focus requests do not remount or reload the shared draft.
 
 Quick input remains mounted in its hidden webview, refreshing the revision-fenced
 shared draft at activation. `ComposerSnapshot` excludes transcript and approval bodies
@@ -625,6 +633,16 @@ this is not a signed auto-updater. Release automation builds an exact main-branc
 and publishes only after uploading the DMG and checksum; see [release operations](release.md).
 
 ## Neutral appearance and native chrome (2026-09-20)
+
+The pinned Wails beta.23 separates its WKWebView transparency bridge behind
+`private_mac_apis`. `script/build.sh` explicitly uses `production,private_mac_apis`,
+and native vet/tests use the same transparency option. Without it, native windows and
+WebGL canvases can both be transparent while WebKit still paints an opaque rectangle
+(dark in dark mode) across the pet and the larger detached prop window. The opt-in
+uses Wails' guarded private `drawsBackground` operation; CSS transparency and public
+`underPageBackgroundColor` do not replace it. This is a native macOS dependency to
+revalidate on Wails/OS upgrades, not an asset or character-animation change. See
+[Wails transparency/build contract](https://v3.wails.io/guides/build/private-macos-apis/).
 
 Chat retains one native titlebar and standard window controls. There is no duplicate
 HTML title/header. Pending response feedback lives in the transcript as an avatar

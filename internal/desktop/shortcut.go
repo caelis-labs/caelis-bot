@@ -24,7 +24,6 @@ type ShortcutState struct {
 }
 type shortcutDriver interface {
 	registerShortcut(Shortcut) error
-	centeredPanel()
 	panelReady(int)
 }
 
@@ -106,15 +105,6 @@ func saveShortcut(path string, v Shortcut) error {
 		err = os.Rename(f.Name(), path)
 	}
 	return err
-}
-func (s *Service) ToggleCenteredPanel() {
-	// Opening a composer never approves, submits, or cancels anything.
-	s.CloseHistory()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if d, ok := s.native.(shortcutDriver); ok && !s.stopped {
-		d.centeredPanel()
-	}
 }
 func (s *Service) PanelReady(activation int) {
 	s.mu.Lock()

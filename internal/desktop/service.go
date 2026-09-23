@@ -54,6 +54,7 @@ type Service struct {
 	recallWindows      func()
 	closeHistory       func()
 	historyVisible     func() bool
+	historyCanHide     func() bool
 	activate           func()
 	restartRuntime     func() error
 	openSettings       func()
@@ -367,6 +368,24 @@ func (s *Service) OpenHistory() {
 		f()
 	}
 }
+
+// Only the global shortcut toggles chat. Menus and pet double-click still recall
+// it unconditionally. Read native state so close/minimise never leaves a cache.
+func (s *Service) ToggleHistory() {
+	s.mu.Lock()
+	canHide := s.historyCanHide
+	ready := s.started && !s.stopped
+	s.mu.Unlock()
+	if !ready {
+		return
+	}
+	if canHide != nil && canHide() {
+		s.CloseHistory()
+	} else {
+		s.OpenHistory()
+	}
+}
+
 func (s *Service) CloseHistory() {
 	s.mu.Lock()
 	f := s.closeHistory
