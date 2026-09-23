@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -18,7 +19,7 @@ import (
 )
 
 // Run the test executable as a real stdio child, including the version command.
-// No model, credentials, network, timing-based readiness polling or mock process.
+// No model, credentials, external network, timing-based readiness polling or mock process.
 func fixtureBinary(t *testing.T, mode string) (string, string) {
 	t.Helper()
 	executable, err := os.Executable()
@@ -97,6 +98,15 @@ func TestAppServerHelper(t *testing.T) {
 		os.Exit(5)
 	}
 	if mode == "stall-init" {
+		address, err := os.ReadFile(pidFile + "-ready")
+		if err != nil {
+			os.Exit(13)
+		}
+		ready, err := net.Dial("tcp", string(address))
+		if err != nil {
+			os.Exit(14)
+		}
+		_ = ready.Close()
 		for {
 			time.Sleep(time.Hour)
 		}
@@ -206,22 +216,60 @@ func TestCompatibleProtocolDoesNotRequireCLIReleaseMatch(t *testing.T) {
 }
 
 func TestFailedProtocolHandshakeReapsProcess(t *testing.T) {
-	for _, mode := range []string{"bad-init", "wrong-type-init", "unsupported-init", "stall-init"} {
+	for _, mode := range []string{"bad-init", "wrong-type-init", "unsupported-init"} {
 		t.Run(mode, func(t *testing.T) {
 			binary, pid := fixtureBinary(t, mode)
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			client, err := Start(ctx, Options{Binary: binary, CLIOnly: true})
+			client, err := Start(testContext(t), Options{Binary: binary, CLIOnly: true})
 			if err == nil {
 				client.Close()
 				t.Fatal("invalid startup accepted")
 			}
-			if mode != "stall-init" && !incompatibleProtocol(err) {
+			if !incompatibleProtocol(err) {
 				t.Fatal("protocol failure not classified", err)
 			}
 			assertReaped(t, pid)
 		})
 	}
+}
+
+func TestStalledHandshakeCancellationReapsProcess(t *testing.T) {
+	binary, pid := fixtureBinary(t, "stall-init")
+	ready, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ready.Close()
+	if err := os.WriteFile(pid+"-ready", []byte(ready.Addr().String()), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(testContext(t))
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	_ = ready.(*net.TCPListener).SetDeadline(deadline)
+	accepted := make(chan error, 1)
+	go func() {
+		conn, err := ready.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+		accepted <- err
+		// Cancel only after the child has read initialize, not after an assumed
+		// process startup duration. The context deadline is only a failure bound.
+		cancel()
+	}()
+	client, err := Start(ctx, Options{Binary: binary, CLIOnly: true})
+	_ = ready.Close()
+	if readyErr := <-accepted; readyErr != nil {
+		t.Fatalf("helper did not receive initialize: %v (startup: %v)", readyErr, err)
+	}
+	if err == nil {
+		client.Close()
+		t.Fatal("canceled startup accepted")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected startup cancellation: %v", err)
+	}
+	assertReaped(t, pid)
 }
 
 func TestOwnedProcessExitWhileRequestPending(t *testing.T) {

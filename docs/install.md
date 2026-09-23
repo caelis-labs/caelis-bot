@@ -54,6 +54,6 @@ If you dragged the app into the system Applications folder, use `APP="/Applicati
 
 Caelis Bot appears in the **menu bar and on the desktop**, not as a regular Dock app. Single-click the character to write; double-click to open chat. Menu-bar settings control visibility, size, runtime and updates. Only Quit ends the app.
 
-The app uses an existing compatible local Codex App Server or discovers a local Codex CLI. If automatic discovery fails, select its executable in **Settings → Runtime → Codex**. Installing or opening Codex Desktop alone does not guarantee an accessible runtime. The Bot does not silently install Codex or log in for you. See [runtime compatibility](codex-compatibility.md).
+Connect a runtime during setup or in **Settings → Runtime**. Codex uses a compatible local App Server or discovers a local CLI; you can also select an executable or follow the installation and login steps. Installing or opening Codex Desktop alone does not guarantee an accessible runtime. The Bot does not silently install Codex or log in for you. See [runtime compatibility](codex-compatibility.md). Caelis requires the application-runtime baseline in the [integration guide](caelis-integration.md); 0.60.1 is incompatible.
 
 Notifications are opt-in. Resident reminders pause when the app exits. Updating the `.app` preserves preferences, attachments and conversation binding. Keep the `Application Support/Caelis Bot` folder unless you intentionally want to remove your data.
