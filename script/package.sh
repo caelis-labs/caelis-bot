@@ -19,7 +19,13 @@ if [[ "${BOT_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
   spctl --assess --type execute --verbose=2 "$BOT_PACKAGE_BUNDLE"
 fi
 BOT_PACKAGE_VERSION=$(/usr/libexec/PlistBuddy -c 'Print CaelisReleaseVersion' "$BOT_PACKAGE_BUNDLE/Contents/Info.plist")
-BOT_EXPECTED_VERSION=$(node script/release-version.mjs | node -pe 'JSON.parse(require("node:fs").readFileSync(0,"utf8")).version')
+if [[ -n "${BOT_RELEASE_TAG:-}" ]]; then
+  # Recovery uses current packaging tools with the app built from the immutable tag.
+  # The build job already checked that tag against its own package.json and source SHA.
+  BOT_EXPECTED_VERSION=$(node --input-type=module -e 'import {validateTag} from "./script/release-version.mjs"; console.log(validateTag(process.env.BOT_RELEASE_TAG))')
+else
+  BOT_EXPECTED_VERSION=$(node script/release-version.mjs | node -pe 'JSON.parse(require("node:fs").readFileSync(0,"utf8")).version')
+fi
 BOT_PACKAGE_ARCH=$(lipo -archs "$BOT_PACKAGE_BUNDLE/Contents/MacOS/caelis-bot")
 if [[ "$BOT_PACKAGE_VERSION" != "$BOT_EXPECTED_VERSION" ]] || [[ "$BOT_PACKAGE_ARCH" != arm64 && "$BOT_PACKAGE_ARCH" != x86_64 ]]; then
   echo 'Bundle version or architecture does not match this build.' >&2
