@@ -24,7 +24,7 @@ macOS / 未来 Windows 入口
   Caelis 新协议尚未接入，连接明确失败，不创建旧 Bot、绑定 DesktopEffects 或派发旧计划。
 - `Application.Close` 只用于明确退出，幂等执行一次：取消连接/观察和提醒，调用 adapter
   清理自有工作，再回收工具连接、等待后台 goroutine。共享服务不因此被整个关闭。
-- `internal/botpolicy` 定义固定秘书/工作角色、八项允许的本地工具及工具发现指引，
+- `internal/botpolicy` 定义固定秘书/工作角色、九项逐一允许的本地工具及工具发现指引，
   由宿主注入 adapter。MCP 与原生审批字段仍由 adapter 翻译；角色不取代执行权限。
 - `internal/localipc` 隔离本地传输。macOS 仍使用短路径、私有目录与 0600 Unix socket，
   工具层保留随机 token 校验、消息限长及超时；其他平台明确返回未实现。
@@ -45,7 +45,7 @@ Go 定义在 `internal/backend/api/contract.go`、`capabilities.go`、`tasks.go`
 | `Engine` | 连接、快照、提交、中断、审批决定和关闭；adapter 保留原生目标与不确定性 | 必需 |
 | `Provider` | 安全名称、帮助链接、连接类型和说明；不含凭据 | 必需，ID 必须与配置及 factory 一致 |
 | `SnapshotObserver` | 阻塞至 revision 前进或 context 取消；重连隔离过期实例事件 | 必需，禁止循环返回同一 revision 造成忙等 |
-| `BotToolBinder` | 接受宿主角色、工具目录/handler、私有传输及逐工具允许列表 | 必需；禁止全局/server 默认放行 |
+| `BotToolBinder` | 接受宿主角色、工具目录/handler、Notebook 路径与刷新回调、私有传输及逐工具允许列表 | 必需；禁止全局/server 默认放行 |
 | `WorkRuntime` | 适配 native 执行、归属、权限、请求回执与原生状态，不分配产品目录/配额 | 必需；每次调用仍受 native admission 约束 |
 | `ReportSubmitter` | 空闲时提交应用通知，不把报告提升成新的用户授权 | 必需；不负责选择何时汇报 |
 | `ApplicationTools` | 应用工具目录及共享业务回调，不能直接暴露给 renderer | 宿主注入；当前走 MCP，通用 callback 来源/租约待新协议 |
@@ -81,7 +81,8 @@ Go 定义在 `internal/backend/api/contract.go`、`capabilities.go`、`tasks.go`
 原生记录继续隔离：Codex 保留根目录的 `conversation.json`、`execution.json`、`Work`、草稿与展示文件，
 其他 provider 使用 `providers/<provider-id>`。这些 Codex 历史文件不能由另一 adapter 接管；
 共享任务目录使用 Runtime + requestId 派生的新句柄，原有 Codex 目录和句柄原样保留。
-个人资料/Notebook/Memory 计划共用产品空间，但尚未实现，不能从共享 `bot.json` 推断已有记忆能力。
+Notebook 使用应用根下的 `Notebook/`，Memory 使用 `personal/`；名字/描述只作一次初始化用户消息；
+契约见 `internal/backend/api/personal.go`，实现与限制见[个人空间](personal-memory.md)。
 跨后端设置检测后原子保存，下次启动生效；不能把旧请求、凭据或 native ID 自动投递给它。
 
 ## Caelis 历史公共能力（当前桌面已禁用）

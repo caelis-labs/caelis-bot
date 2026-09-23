@@ -34,6 +34,7 @@ type Service struct {
 	draftLoadError              error
 	draftNotice                 string
 	dismissed, presentationFile string
+	initializer                 api.BotInitializer
 	engine                      api.Engine
 	files                       func([]string) ([]api.InputFile, error)
 	consumeFiles                func([]string)
@@ -176,6 +177,13 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	defer s.admission.RUnlock()
 	if s.restarting || s.setupRequired {
 		return api.Receipt{}, errors.New("请先完成运行时设置")
+	}
+
+	s.mu.Lock()
+	initializer := s.initializer
+	s.mu.Unlock()
+	if initializer != nil && initializer.Initialization().Status != "accepted" {
+		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "请先完成 Bot 初始化，并等待介绍发送完成"}, nil
 	}
 
 	files, err := s.files(input.FileIDs)

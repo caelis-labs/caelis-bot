@@ -8,6 +8,7 @@ const ToolDiscovery = `
 Caelis Bot provides the caelis_bot MCP source. Discover the needed tool before calling it: use tool_search when exposed; in Code Mode use the native ALL_TOOLS name/description lookup if tool_search is not exposed.
 - bot_clock: read local time and scheduling availability.
 - bot_reminders: list, create, update or remove user-requested resident reminders.
+- bot_memory: recall, remember, correct or forget bounded memory evidence. Core identity and durable notes live in Notebook.
 - bot_gesture: brief attention, nod or celebrate feedback on the desktop pet.
 - bot_tasks: list Bot-owned tasks and their status, without scanning other Codex conversations.
 - bot_task_start: delegate user-requested professional work to a dedicated managed workspace; use a stable requestId.

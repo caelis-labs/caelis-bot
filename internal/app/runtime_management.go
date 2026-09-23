@@ -38,6 +38,9 @@ func (a *Application) configureRuntimeManagement() {
 	}, a.guardRuntimeChange)
 }
 func (a *Application) guardRuntimeChange() error {
+	if err := a.initialization.GuardRuntimeChange(); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	tasks := a.tasks
 	a.mu.Unlock()

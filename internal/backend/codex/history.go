@@ -21,6 +21,12 @@ func unsupportedHistory(err error) bool {
 	var native *NativeError
 	return errors.As(err, &native) && (native.Code == -32601 || native.Code == -32602)
 }
+
+// Match the specific native lifecycle error, not every invalid-request error.
+func nativeThreadError(err error, prefix, thread string) bool {
+	var native *NativeError
+	return thread != "" && errors.As(err, &native) && native.Code == -32600 && native.Message == prefix+thread
+}
 func readTurnPage(ctx context.Context, c *Client, thread, cursor string) (turnPage, error) {
 	var page turnPage
 	err := callDecode(ctx, c, "thread/turns/list", map[string]any{

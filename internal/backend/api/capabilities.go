@@ -72,11 +72,17 @@ type ToolConnection struct {
 	// a protocol adapter. The native MCP transport uses Command/Args/Env; another
 	// adapter can bind Host to a session-scoped client-tool transport.
 	Instructions, WorkerInstructions string
-	Host                             ApplicationTools
-	Command                          string
-	Args                             []string
-	Env                              map[string]string
-	ApprovedTools                    []string
+	// Notebook is the resident Bot's work directory, never a worker workspace.
+	NotebookDirectory string
+	// PrepareTurn refreshes host-owned local metadata before submission; FinishTurn
+	// runs after authoritative resident completion, outside adapter locks.
+	PrepareTurn   func(context.Context) error
+	FinishTurn    func()
+	Host          ApplicationTools
+	Command       string
+	Args          []string
+	Env           map[string]string
+	ApprovedTools []string
 }
 type BotToolBinder interface{ ConfigureBotTools(*ToolConnection) error }
 

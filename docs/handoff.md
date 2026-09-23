@@ -9,7 +9,7 @@
 
 2026-09-23 当前切片是统一 Bot 产品层：`internal/bot` 持有身份、工具与提醒，
 `internal/tasks` 持有产品目录、账本与汇报；Codex adapter 仅映射 native 执行/审批/回执。
-`bot.json` 跨 Runtime 保留身份，计划和在途工作仍绑定原 Runtime。Notebook/Memory 尚未实现。
+`bot.json` 跨 Runtime 保留身份，计划和在途工作仍绑定原 Runtime。Notebook/Memory 的本地增量见文末。
 
 Caelis 正在并行重做通用应用基础设施；直接交给其 Agent 的
 [handoff prompt](caelis-core-rebuild-handoff.md) 包含删除旧 Bot Mode 的授权与 A01–A12 审计标准。
@@ -49,3 +49,16 @@ macOS 完整发行后进行；不能把共享核心交叉编译当作 Windows �
 
 继续优先处理预发布可用性、轻量桌面行为和真实演示；角色资产经私库更新 PR 独立迭代。
 Developer ID、公证及 Windows 原生适配后置。保持历史记录和当轮验证的区别。
+
+## 2026-09-23 Notebook / Memory 收敛
+
+统一产品层检查点为 `b449aad`，本轮改动尚未提交。Notebook 为普通 Markdown 目录，
+应用只维护 INDEX 和当天目录，MEMORY 与日期笔记由用户直接编辑或 Bot 用文件工具维护。
+`internal/botskills/skills/caelis-bot-memory/SKILL.md` 只注入秘书；worker/普通 Session 不继承。
+名字必填、描述可选的表单仅首次初始化出现，转成可见用户消息，由 Bot 写 MEMORY；
+投递前保留待发正文，接受后只留状态，结果不明不自动重发。
+
+旧「记忆与笔记」UI、专用笔记 CRUD 与 Facts 写入口已移除，已有数据一次性复制为日期笔记，
+原数据保留。嵌入 Memory v0.6.1 的线索工具支持 recall/remember/correct/forget。
+路径、边界和验收见 [个人空间](personal-memory.md)。Developer ID 仍在独立 stash。
+Caelis 新协议仍待接入，fixture 的共享文件/记忆验证不代替两个真实 Runtime 联调。

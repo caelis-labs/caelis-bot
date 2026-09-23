@@ -38,30 +38,33 @@ type Wake struct {
 	Status      string   `json:"status"` // pending, dispatching, accepted, unknown
 }
 type State struct {
-	Version   int        `json:"version"`
-	ID        string     `json:"id"`
-	Schedules []Schedule `json:"schedules"`
-	Wake      *Wake      `json:"wake,omitempty"`
+	Version         int        `json:"version"`
+	PersonalVersion int        `json:"personalVersion,omitempty"`
+	ID              string     `json:"id"`
+	Schedules       []Schedule `json:"schedules"`
+	Wake            *Wake      `json:"wake,omitempty"`
 }
 type Engine interface {
 	Snapshot() api.Snapshot
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
-	stopped  bool
-	mu       sync.Mutex
-	step     sync.Mutex
-	path     string
-	state    State
-	now      func() time.Time
-	engine   Engine
-	provider string
-	tasks    api.TaskProvider
-	reports  api.TaskReporter
-	action   func(string) error
-	done     chan struct{}
-	cancel   context.CancelFunc
-	notify   func(id, title string)
+	stopped        bool
+	mu             sync.Mutex
+	step           sync.Mutex
+	path           string
+	state          State
+	now            func() time.Time
+	engine         Engine
+	provider       string
+	personal       api.PersonalTools
+	initialization *Initializer
+	tasks          api.TaskProvider
+	reports        api.TaskReporter
+	action         func(string) error
+	done           chan struct{}
+	cancel         context.CancelFunc
+	notify         func(id, title string)
 }
 
 func (r *Runtime) SetReminderNotifier(f func(id, title string)) {
@@ -79,10 +82,11 @@ func NewForRuntime(path, provider string, action func(string) error) (*Runtime, 
 	if provider == "" {
 		return nil, errors.New("提醒需要明确的运行时")
 	}
-	r := &Runtime{path: path, provider: provider, now: time.Now, action: action, state: State{Version: 1, ID: rand.Text(), Schedules: []Schedule{}}}
+	r := &Runtime{path: path, provider: provider, now: time.Now, action: action, state: State{Version: 1, PersonalVersion: 1, ID: rand.Text(), Schedules: []Schedule{}}}
 	b, e := os.ReadFile(path)
 	if e == nil {
-		if json.Unmarshal(b, &r.state) != nil || r.state.Version != 1 || r.state.ID == "" {
+		r.state = State{} // Existing files must supply identity; never fill missing fields with new defaults.
+		if json.Unmarshal(b, &r.state) != nil || r.state.Version != 1 || r.state.ID == "" || r.state.PersonalVersion > 1 || r.state.PersonalVersion < 0 {
 			return nil, errors.New("Bot 记录无法读取，请保留文件并重试")
 		}
 	} else if !errors.Is(e, os.ErrNotExist) {
@@ -375,6 +379,14 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	if r.engine == nil {
 		return nil
 	}
+	if r.initialization != nil {
+		if err := r.initialization.Deliver(ctx, r.engine, r.provider); err != nil {
+			return err
+		}
+		if r.initialization.Initialization().Status != "accepted" {
+			return nil
+		}
+	}
 	if r.reports != nil {
 		if err := r.reports.DeliverTaskReport(ctx); err != nil {
 			return err
@@ -482,6 +494,9 @@ func wakePrompt(messages []string) string {
 	return "定时提醒（错过的同类提醒已合并）：\n" + strings.Join(messages, "\n")
 }
 func (r *Runtime) Status() string {
+	if r.initialization != nil && r.initialization.Initialization().Status != "accepted" {
+		return r.initialization.Initialization().Message
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.state.Wake != nil && r.state.Wake.Runtime != r.provider && r.state.Wake.Status != "accepted" {

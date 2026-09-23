@@ -48,11 +48,15 @@ func Run(assets fs.FS) error {
 	}
 	defer core.Close()
 	back := core.Backend
+	s.needsIntroduction = func() bool {
+		v := back.BotInitialization()
+		return v.Required || v.Status == "rejected" || v.Status == "unknown"
+	}
 	logError(s.configureSelection(filepath.Join(core.ProviderDirectory(), "draft-files.json")))
 	s.storage, s.cleanStorage = core.AttachmentStorage, core.CleanAttachments
 	s.diagnosticReport = back.DiagnosticReport
 	s.activate = func() {
-		if !core.HasRuntimeChoice() {
+		if core.NeedsSetup() || !core.HasRuntimeChoice() {
 			s.showSettings("setup")
 			return
 		}
@@ -191,6 +195,7 @@ func Run(assets fs.FS) error {
 			SetMessage("仅包含系统、连接和状态计数；不包含聊天内容、文件路径或凭据。").
 			AddFilter("JSON", "*.json").CanCreateDirectories(true).PromptForSingleSelection()
 	}
+
 	s.pickRuntimeCLI = func() (string, error) {
 		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle("选择运行时可执行文件").SetButtonText("选择").PromptForSingleSelection()
 	}
@@ -299,6 +304,11 @@ func Run(assets fs.FS) error {
 	nativeApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		s.start(newMacDriver(pet, panel, bubble, history, prop, s, quit))
 		styleMacSettings(settings)
+		if err := core.PreparePersonal(); err != nil {
+			logError(err)
+			quit()
+			return
+		}
 		if core.NeedsSetup() {
 			s.showSettings("setup")
 		}

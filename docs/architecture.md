@@ -8,8 +8,17 @@ This is not a released interoperability standard.
 [generic Runtime extension proposal](runtime-extension-contract.md) define the target.
 `internal/bot` owns identity, tool behavior and resident reminders; `internal/tasks`
 owns task admission, workspace allocation, the product ledger and completion reports.
-Notebook and embedded Memory remain planned. The [Caelis implementation handoff](caelis-core-rebuild-handoff.md)
+Notebook and embedded Memory v0.6.1 are application-owned and shared across providers;
+see [personal data boundaries](personal-memory.md). The [Caelis implementation handoff](caelis-core-rebuild-handoff.md)
 authorizes removal of legacy Bot Mode without compatibility; existing user data is preserved.
+
+The agreed continuity model is a long-running Session with compaction, recall/remember,
+and a plain Markdown Notebook: a host-generated INDEX.md, one editable MEMORY.md and
+YYYY/MM/DD/ daily notes. Users edit files; the Bot uses Runtime file tools. The one-time initialization UI requires a name and accepts an optional description; it submits a visible ordinary user message; the Bot updates MEMORY.md.
+Keep no second identity-settings authority and do not elevate this text into system policy.
+Do not add dedicated notebook CRUD/UI, SOUL/USER files, a profile authority, bootstrap
+snapshots or a background consolidation agent. Runtime access is scoped to the Notebook,
+not the complete application data directory. The application-only notebook skill is bundled and exposed only to the resident Bot; workers keep their own workspace and instructions. Old private-format notes/profile are copied once without deleting originals. See [personal data boundaries](personal-memory.md).
 
 The [capability contract](backend-contract.md) defines provider assembly independently
 of OS hosting. Native adapters own execution bindings, approvals and uncertain receipts.

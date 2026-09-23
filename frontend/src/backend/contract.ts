@@ -29,6 +29,15 @@ export interface AttachmentStorage {
   canClean: boolean;
   notice: string;
 }
+export interface BotInitialization {
+  required: boolean;
+  status: string;
+  message: string;
+}
+export interface BotIntroduction {
+  name: string;
+  description: string;
+}
 export interface ChatUpdate {
   changed: boolean;
   snapshot: Snapshot;

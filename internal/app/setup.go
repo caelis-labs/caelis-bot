@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -24,17 +25,17 @@ type runtimeSetup struct {
 }
 
 func (a *Application) configureSetup() {
-	fresh := true
-	for _, name := range []string{"runtime.json", "conversation.json", "bot.json", "setup.json"} {
-		if _, e := os.Stat(filepath.Join(a.root, name)); !os.IsNotExist(e) {
-			fresh = false
-		}
+	fresh := !a.HasRuntimeChoice()
+	if _, e := os.Stat(filepath.Join(a.root, "setup.json")); !os.IsNotExist(e) {
+		fresh = false
 	}
 	a.setup = &runtimeSetup{app: a, fresh: fresh, codex: &codex.Setup{}}
 	a.Backend.ConfigureSetup(a.setup)
 	a.Backend.RequireSetup(!a.HasRuntimeChoice())
 }
-func (a *Application) NeedsSetup() bool { return a.setup.Overview().Onboarding }
+func (a *Application) NeedsSetup() bool {
+	return a.initialization.Initialization().Required || a.setup.Overview().Onboarding
+}
 func (a *Application) ProviderDirectory() string {
 	p, _ := providerDirectory(a.root, a.engine.(api.Provider).ProviderInfo().ID)
 	return p
@@ -314,11 +315,18 @@ func (s *runtimeSetup) Dismiss() error {
 }
 
 func (a *Application) HasRuntimeChoice() bool {
-	for _, name := range []string{"runtime.json", "conversation.json", "bot.json"} {
+	for _, name := range []string{"runtime.json", "conversation.json"} {
 		if _, e := os.Stat(filepath.Join(a.root, name)); !os.IsNotExist(e) {
 			return true
 		}
 	}
-	return false
+	// Only pre-Notebook identities imply the historical Codex default. Creating
+	// personal data offline must not silently choose a Runtime on next launch.
+	var legacy struct {
+		Version         int `json:"version"`
+		PersonalVersion int `json:"personalVersion"`
+	}
+	b, e := os.ReadFile(filepath.Join(a.root, "bot.json"))
+	return e == nil && json.Unmarshal(b, &legacy) == nil && legacy.Version == 1 && legacy.PersonalVersion == 0
 }
 func (a *Application) PrepareRestart() error { return a.Backend.PrepareRestart(a.guardRuntimeChange) }

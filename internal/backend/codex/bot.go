@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -20,6 +21,9 @@ func (s *Session) connectionParams() map[string]any {
 		config["agents.enabled"] = false // Professional work goes through the owned task contract.
 	}
 	params := map[string]any{"runtimeWorkspaceRoots": []string{}, "developerInstructions": instructions, "cwd": s.opts.Directory, "sandbox": "workspace-write", "approvalPolicy": "on-request", "approvalsReviewer": "auto_review", "config": config}
+	if s.opts.BotTools != nil && s.opts.BotTools.NotebookDirectory != "" {
+		params["runtimeWorkspaceRoots"] = []string{s.opts.BotTools.NotebookDirectory}
+	}
 	if s.opts.RequireApproval {
 		params["approvalPolicy"] = "untrusted"
 		params["approvalsReviewer"] = "user"
@@ -259,6 +263,12 @@ func (s *Session) ConfigureBotTools(config *api.ToolConnection) error {
 	}
 	if config == nil || config.Command == "" {
 		return errors.New("Bot 工具连接无效")
+	}
+	if config.NotebookDirectory != "" {
+		if !filepath.IsAbs(config.NotebookDirectory) {
+			return errors.New("Notebook 目录必须是完整路径")
+		}
+		s.opts.Directory = config.NotebookDirectory
 	}
 	s.opts.BotTools = config.Clone()
 	for _, t := range s.binding.Tasks {

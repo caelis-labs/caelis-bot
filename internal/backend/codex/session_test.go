@@ -98,7 +98,11 @@ func (f *sessionFixture) serve(peer net.Conn) {
 		f.mu.Unlock()
 		if handle != nil {
 			if value, handled := handle(m); handled {
-				f.emitTo(peer, wireMessage{ID: m.ID, Result: raw(value)})
+				if native, ok := value.(*NativeError); ok {
+					f.emitTo(peer, wireMessage{ID: m.ID, Error: native})
+				} else {
+					f.emitTo(peer, wireMessage{ID: m.ID, Result: raw(value)})
+				}
 				continue
 			}
 		}
@@ -642,5 +646,28 @@ func TestFileApprovalCarriesNativeDiffAndDenial(t *testing.T) {
 	response := <-f.answers
 	if string(response.ID) != "88" || string(response.Result) != `{"decision":"decline"}` {
 		t.Fatal("denial misrouted")
+	}
+}
+
+func TestNativeReceiptSurvivesHostCrashBeforeIntroductionAcknowledgement(t *testing.T) {
+	s, _ := sessionPair(t, "early-terminal")
+	in := api.Submission{ID: "intro-durable-receipt", Text: "synthetic introduction"}
+	r, err := s.Submit(testContext(t), in, nil)
+	if err != nil || r.Outcome != "accepted" {
+		t.Fatal(r, err)
+	}
+	restored := NewSession(s.opts)
+	t.Cleanup(func() { _ = restored.Close(testContext(t)) })
+	if got := restored.Snapshot().LastReceipt; got.ID != in.ID || got.Outcome != "accepted" {
+		t.Fatal("lost confirmed native acceptance", got)
+	}
+	// Recovery can reconcile the host journal without needing another model turn.
+	restored.start = func(context.Context, Options) (*Client, error) {
+		t.Fatal("receipt lookup started Runtime")
+		return nil, nil
+	}
+	r, err = restored.Submit(testContext(t), in, nil)
+	if err != nil || r.Outcome != "accepted" {
+		t.Fatal("duplicate message was not reconciled", r, err)
 	}
 }

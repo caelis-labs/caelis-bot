@@ -14,8 +14,13 @@ Git worktree 和显式任务接管。实现边界见[任务委派](task-delegati
 
 2026-09-23 产品层收敛：任务目录/账本/有限报告从 Codex adapter 移至 `internal/tasks`；
 宿主统一注入角色与工具，身份共享、提醒绑定 Runtime。Caelis 新执行协议待
-[并行重构](caelis-core-rebuild-handoff.md)，旧 Bot Mode 不再兼容。下一片是私有 Notebook/Memory，
+[并行重构](caelis-core-rebuild-handoff.md)，旧 Bot Mode 不再兼容。私有 Notebook/Memory 首片已落地（[实现与验证边界](personal-memory.md)），
 完整切片与发布验收见 [产品宿主规划](bot-platform-architecture.md)。
+
+Notebook 最新方向是普通 Markdown：系统生成 INDEX.md、核心 MEMORY.md、YYYY/MM/DD/ 日期笔记。
+用户直接编辑、Bot 用文件工具；配合长 Session/Compact 及 recall/remember，不做专用笔记 CRUD/UI。
+一次性初始化名字必填、描述可选，仅提交可见用户消息，由 Bot 写入 MEMORY.md。专属 skill、
+目录维护、文件访问与旧资料保留迁移已实现，真实模型与新 Caelis 验收单独记录，见[个人空间](personal-memory.md)。
 
 ## 交付原则
 

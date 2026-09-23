@@ -30,6 +30,7 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	needsIntroduction  func() bool
 	content            *contentpack.Registry
 	pickContentFile    func() (string, error)
 	contentChanged     func(contentpack.Appearance)

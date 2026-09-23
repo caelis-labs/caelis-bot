@@ -3,21 +3,37 @@
 本项目已从工具链准备阶段推进到 macOS 开发者预览。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
 
-2026-09-23 统一 Bot 产品层基础（本地改动，尚未提交/发布）：
+2026-09-23 Notebook 收敛（本地实现，尚未提交/发布）：
+
+- 普通 Markdown Notebook：应用生成 INDEX、创建日期目录；MEMORY 是唯一核心记忆，正文不自动裁剪。
+- 应用专属 `caelis-bot-memory` skill 只注入秘书，使用普通文件工具；worker 保持独立目录与指令。
+  维护记忆作为内置核心能力，不主动向用户介绍 skill 或内部流程。
+- 首次初始化必填名字、可选描述，保存为待发普通用户消息；接受后不保留第二份身份配置。
+- 旧资料/笔记 UI、专用笔记 CRUD 已退出。旧格式与 Facts 资料复制为日期笔记，原件保留。
+- Memory v0.6.1 线索能力保留，Bot 可 recall/remember/correct/forget；不自动摄取所有笔记。
+- `make check`、`make smoke`、原生构建启动及相关 Go race 测试通过。
+- Codex CLI 0.153.4 的隔离原生 App 验收：必填/可选表单、介绍以普通消息显示，真实模型写入
+  MEMORY；后续对话更新长期偏好、创建日期笔记，完成后 INDEX 自动刷新。介绍前与接受后重启均通过，
+  后者不再显示初始化表单。修复重复准备关闭目录句柄、从未提交的空会话恢复及回执持久化。
+- 自动用例还覆盖未知结果不重发、明确拒绝后手动重试、旧数据不复活和 worker 隔离。
+  完整边界与测试入口见 [个人空间](personal-memory.md)。
+- 新 Caelis 通用协议仍待接入，旧联调与 fixture 不作为新协议真实模型验收。
+
+2026-09-23 统一 Bot 产品层基础（检查点 `b449aad`，未发布）：
 
 - `internal/tasks` 接管目录分配、任务容量、Runtime 归属、产品 intent/账本与有限完成报告；
   `WorkRuntime` 保留 adapter 的 native 绑定、源请求、执行审批和未知回执。Codex 原任务和报告回执
   可接续，旧 requestId 不重复创建；任务账本不复制规范会话 transcript。
 - `internal/bot` 统一持有工具目录与 handler、秘书/worker 角色、稳定身份和提醒；
   MCP 连接与未来应用 callback 共用业务入口。提醒和 queued wake 显式绑定 Runtime，
-  个人资料/Notebook/Memory 计划共享，但这一片尚未新增笔记存储或 Memory 引擎。
+  此检查点个人资料/Notebook/Memory 尚待下一片实现（见上方增量）。
 - Caelis 并行任务使用 [重构 Prompt](caelis-core-rebuild-handoff.md)，允许移除旧 Bot Mode，
   不要求旧模式兼容或数据导入。桌面连接/检测/切换明确禁用旧路径；不创建旧 Bot、执行旧计划、
   回退另一 Runtime 或删除真实数据。旧 adapter 与 fixture 暂留作新 wire 替换参考。
 - Developer ID 改动已独立保存到本地 stash `deferred: Developer ID signing pipeline (2026-09-23)`。
   当前构建继续使用 ad-hoc 签名，未创建证书、未发布、未应用签名流水线。
 
-验证命令及结果（2026-09-23）：
+统一产品层检查点验证记录（2026-09-23）：
 
 - `go test -race ./internal/tasks ./internal/app ./internal/backend/codex ./internal/bot ./internal/backend/caelis` 通过。
 - `make check` 通过：前端构建及 34 项 JS/native 行为测试、Go vet/单测、共享核心检查与
@@ -42,7 +58,7 @@
 | 禁止旧 Caelis fallback | `internal/backend/caelis/application_test.go` / `TestApplicationModeNeverFallsBackToLegacyBot` |
 | Codex 精确审批、请求来源、原生回执 | `internal/backend/codex/tasks_test.go`，全部 owning tests 通过 |
 
-边界：新 Caelis wire、通用 callback 的可信来源/租约、资源交付、Notebook/Memory、完整持久
+边界：新 Caelis wire、通用 callback 的可信来源/租约、资源交付、两套真实 Runtime 的记忆联调、完整持久
 Automation 仍待后续切片；未新增真实模型、原生多窗口、长期常驻或发行级验收。此基础不能
 替代 A01–A12 或两套真实 Runtime 的发布闭环。
 

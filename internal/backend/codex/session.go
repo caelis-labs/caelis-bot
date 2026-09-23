@@ -22,7 +22,10 @@ type binding struct {
 	Children       []string               `json:"children,omitempty"`
 	Version        int                    `json:"version"`
 	ThreadID       string                 `json:"threadId"`
-	Pending        *pendingSubmission     `json:"pending,omitempty"`
+	// True only for a newly created thread that has never reached native turn/start.
+	LastReceipt *api.Receipt       `json:"lastReceipt,omitempty"`
+	Unsubmitted bool               `json:"unsubmitted,omitempty"`
+	Pending     *pendingSubmission `json:"pending,omitempty"`
 }
 type pendingSubmission struct {
 	ID     string `json:"id"`
@@ -94,6 +97,9 @@ func NewSession(opts SessionOptions) *Session {
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		s.loadErr = errors.New("无法读取本地对话记录")
+	}
+	if s.binding.LastReceipt != nil {
+		s.state.LastReceipt = *s.binding.LastReceipt
 	}
 	if s.opts.BotTools != nil {
 		for _, t := range s.binding.Tasks {
@@ -324,6 +330,7 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	threadID := s.binding.ThreadID
+	unused := s.binding.Unsubmitted && s.binding.Pending == nil && len(s.binding.Tasks) == 0 && len(s.binding.Children) == 0
 	s.mu.Unlock()
 	params := s.connectionParams()
 	method := "thread/start"
@@ -335,7 +342,7 @@ func (s *Session) connect(ctx context.Context) error {
 		if _, pageErr := readTurnPage(ctx, c, threadID, ""); pageErr == nil {
 			paged = true
 			params["excludeTurns"] = true
-		} else if !unsupportedHistory(pageErr) {
+		} else if !unsupportedHistory(pageErr) && !nativeThreadError(pageErr, "thread not loaded: ", threadID) {
 			c.Close()
 			return s.connectionError("暂时无法读取最近消息，请重新连接", pageErr)
 		}
@@ -343,7 +350,15 @@ func (s *Session) connect(ctx context.Context) error {
 	var response struct {
 		Thread nativeThread `json:"thread"`
 	}
-	if err = callDecode(ctx, c, method, params, &response); err != nil {
+	err = callDecode(ctx, c, method, params, &response)
+	// Codex may not persist a thread until its first turn. Only an explicit
+	// never-submitted receipt permits replacing that missing, empty binding.
+	if err != nil && unused && nativeThreadError(err, "no rollout found for thread id ", threadID) {
+		method, threadID, paged = "thread/start", "", false
+		params = s.connectionParams()
+		err = callDecode(ctx, c, method, params, &response)
+	}
+	if err != nil {
 		c.Close()
 		return s.connectionError("无法恢复对话；草稿已保留，请重新连接", err)
 	}
@@ -366,6 +381,7 @@ func (s *Session) connect(ctx context.Context) error {
 	s.historyPaged, s.historyCursor = paged, firstPage.NextCursor
 	s.state.HasEarlier = firstPage.NextCursor != ""
 	s.binding.ThreadID = response.Thread.ID
+	s.binding.Unsubmitted = (method == "thread/start" || unused) && len(response.Thread.Turns) == 0
 	s.bound = true
 	if err = s.save(); err != nil {
 		s.mu.Unlock()
@@ -450,6 +466,15 @@ func (s *Session) listen(c *Client, epoch uint64) {
 			s.mu.Unlock()
 			continue
 		}
+		var finished func()
+		if !s.loading && event.Method == "turn/completed" && s.opts.BotTools != nil {
+			var target struct {
+				ThreadID string `json:"threadId"`
+			}
+			if json.Unmarshal(event.Params, &target) == nil && target.ThreadID == s.binding.ThreadID {
+				finished = s.opts.BotTools.FinishTurn
+			}
+		}
 		if s.loading {
 			s.buffer = append(s.buffer, event)
 		} else {
@@ -457,6 +482,9 @@ func (s *Session) listen(c *Client, epoch uint64) {
 			s.update()
 		}
 		s.mu.Unlock()
+		if finished != nil {
+			finished()
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -514,12 +542,19 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		refs = append(refs, ref)
 	}
 	s.mu.Unlock()
+	if s.opts.BotTools != nil && s.opts.BotTools.PrepareTurn != nil {
+		if err := s.opts.BotTools.PrepareTurn(ctx); err != nil {
+			r.Message = "笔记目录暂不可用，消息未发送"
+			return r, nil
+		}
+	}
 	input, err := s.prepareInput(in, files, refs)
 	if err != nil {
 		r.Message = err.Error()
 		return r, nil
 	}
 	s.mu.Lock()
+	s.binding.Unsubmitted = false
 	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run}
 	if !report {
 		s.binding.DelegationText = in.Text
@@ -586,6 +621,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		r = s.state.LastReceipt
 		s.binding.Pending = nil
 	}
+	s.binding.LastReceipt = &r
 	if err := s.save(); err != nil {
 		s.state.Message = "对话记录未能保存，请勿重复发送；下次启动需核对历史"
 	} else {

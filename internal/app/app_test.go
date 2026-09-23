@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -262,5 +263,122 @@ func TestLegacyCompanionCannotBypassProductAssembly(t *testing.T) {
 	}{Engine: e, Provider: e, SnapshotObserver: e}
 	if err := requireAssistant(legacy, "fixture"); err == nil {
 		t.Fatal("legacy product owner bypassed generic ports")
+	}
+}
+
+func TestPersonalDataBeforeRuntimeChoiceDoesNotStartExecution(t *testing.T) {
+	root := t.TempDir()
+	a, err := New(root, Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = a.PreparePersonal(); err != nil {
+		t.Fatal(err)
+	}
+	if a.HasRuntimeChoice() || a.started || a.bridge != nil {
+		t.Fatal("local personal data selected or started a runtime")
+	}
+	err = os.WriteFile(filepath.Join(a.notebook.Path(), "offline.md"), []byte("local data"), 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(root, Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if b.HasRuntimeChoice() || !b.NeedsSetup() {
+		t.Fatal("offline identity bypassed onboarding")
+	}
+	if err = b.PreparePersonal(); err != nil {
+		t.Fatal(err)
+	}
+	n, err := os.ReadFile(filepath.Join(b.notebook.Path(), "offline.md"))
+	if err != nil || string(n) != "local data" {
+		t.Fatal("offline note lost", err)
+	}
+}
+
+func TestPersonalInitializationPreservesLegacyRuntimeChoice(t *testing.T) {
+	root := t.TempDir()
+	legacy := []byte(`{"version":1,"id":"legacy-bot","schedules":[]}`)
+	if err := os.WriteFile(filepath.Join(root, "bot.json"), legacy, 0600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := New(root, Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.HasRuntimeChoice() {
+		t.Fatal("lost legacy Codex choice")
+	}
+	if err = a.PreparePersonal(); err != nil {
+		t.Fatal(err)
+	}
+	if err = a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(root, Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if !b.HasRuntimeChoice() || b.setup.Overview().Onboarding || !b.Backend.BotInitialization().Required {
+		t.Fatal("upgrade lost existing runtime selection")
+	}
+	if err = b.PreparePersonal(); err != nil {
+		t.Fatal(err)
+	}
+	if b.companion.State().ID != "legacy-bot" || b.companion.State().PersonalVersion != 1 {
+		t.Fatal("upgrade replaced identity or omitted capability version")
+	}
+}
+
+func TestNotebookSkillIsResidentOnlyAndRegeneratesExternalNotes(t *testing.T) {
+	e := newTestEngine()
+	a, root := fixtureApp(t, e, Host{})
+	defer a.Close()
+	// Native startup prepares local data before connecting; repeated preparation
+	// must not close the Vault handle that the running adapter will use.
+	for range 2 {
+		if err := a.PreparePersonal(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.Start(); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	binding := e.tools.Clone()
+	e.mu.Unlock()
+	if binding.NotebookDirectory != filepath.Join(root, "Notebook") || !strings.Contains(binding.Instructions, a.skillPath) {
+		t.Fatal("Notebook/skill not bound")
+	}
+	if strings.Contains(binding.WorkerInstructions, "Notebook") || strings.Contains(binding.WorkerInstructions, a.skillPath) {
+		t.Fatal("skill forwarded to worker")
+	}
+	content, err := os.ReadFile(a.skillPath)
+	if err != nil || !strings.Contains(string(content), "MEMORY.md") {
+		t.Fatal("packaged skill missing", err)
+	}
+	note := filepath.Join(binding.NotebookDirectory, "external.md")
+	if err = os.WriteFile(note, []byte("# External note\nNot a private format."), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = binding.PrepareTurn(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(filepath.Join(binding.NotebookDirectory, "INDEX.md"))
+	if !strings.Contains(string(body), "External note") {
+		t.Fatal("external edit not indexed")
+	}
+	os.Remove(note)
+	binding.FinishTurn()
+	body, _ = os.ReadFile(filepath.Join(binding.NotebookDirectory, "INDEX.md"))
+	if strings.Contains(string(body), "External note") {
+		t.Fatal("deleted note not removed from index")
 	}
 }

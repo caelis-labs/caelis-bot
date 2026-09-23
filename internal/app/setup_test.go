@@ -24,7 +24,7 @@ func TestFreshSetupDoesNotConnectAndDismissDoesNotChooseRuntime(t *testing.T) {
 	if e = a.setup.Dismiss(); e != nil {
 		t.Fatal(e)
 	}
-	if a.NeedsSetup() || a.HasRuntimeChoice() {
+	if a.setup.Overview().Onboarding || a.HasRuntimeChoice() || !a.NeedsSetup() {
 		t.Fatal("skip selected a runtime")
 	}
 	b, e := New(root, Host{})
@@ -32,7 +32,7 @@ func TestFreshSetupDoesNotConnectAndDismissDoesNotChooseRuntime(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer b.Close()
-	if b.NeedsSetup() || b.HasRuntimeChoice() {
+	if b.setup.Overview().Onboarding || b.HasRuntimeChoice() || !b.NeedsSetup() {
 		t.Fatal("dismiss not retained")
 	}
 }

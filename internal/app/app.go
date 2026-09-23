@@ -8,10 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
+	"github.com/caelis-labs/caelis-bot/internal/botmemory"
+	"github.com/caelis-labs/caelis-bot/internal/botskills"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
@@ -42,6 +47,10 @@ type Application struct {
 	companion       *bot.Runtime
 	bridge          *bot.Bridge
 	tasks           *tasks.Manager
+	personal        *botmemory.Store
+	notebook        *notebook.Vault
+	skillPath       string
+	initialization  *bot.Initializer
 	closeOnce       sync.Once
 	closeErr        error
 }
@@ -87,7 +96,13 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		return nil, err
 	}
 	service := backend.NewService(engine, host.ResolveFiles, host.ConsumeFiles, host.OpenURL, host.RevealFile)
-	app := &Application{Backend: service, engine: engine, root: root, host: host}
+	initialization, err := bot.OpenInitializer(filepath.Join(root, "bot-initialization.json"))
+	if err != nil {
+		_ = service.Shutdown()
+		return nil, err
+	}
+	app := &Application{Backend: service, engine: engine, root: root, host: host, initialization: initialization}
+	service.ConfigureInitialization(initialization)
 	for _, err := range []error{service.ConfigurePresentation(filepath.Join(directory, "preview.json")), service.ConfigureDraft(filepath.Join(directory, "draft.json"))} {
 		if err != nil && host.ReportError != nil {
 			host.ReportError(err)
@@ -122,6 +137,77 @@ func requireAssistant(engine api.Engine, id string) error {
 	return nil
 }
 
+// PreparePersonal makes local data available even before selecting/logging into
+// a Runtime. It starts no model, scheduler, tool transport or execution session.
+func (a *Application) PreparePersonal() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.preparePersonalLocked()
+}
+func (a *Application) preparePersonalLocked() error {
+	if a.closed {
+		return errors.New("应用已停止")
+	}
+	if a.personal != nil {
+		return nil
+	}
+	// Preserve an earlier runtime choice represented solely by legacy bot.json
+	// before introducing an offline-capable product identity.
+	if a.HasRuntimeChoice() {
+		if _, e := os.Stat(filepath.Join(a.root, "runtime.json")); errors.Is(e, os.ErrNotExist) {
+			if e = localstate.Write(filepath.Join(a.root, "runtime.json"), a.Backend.RuntimeSettings()); e != nil {
+				return e
+			}
+		}
+	}
+	resident, err := bot.NewForRuntime(filepath.Join(a.root, "bot.json"), a.engine.(api.Provider).ProviderInfo().ID, a.host.Gesture)
+	if err != nil {
+		return err
+	}
+	personal, err := botmemory.Open(context.Background(), filepath.Join(a.root, "personal"), resident.State().ID)
+	if err != nil {
+		resident.Close()
+		return err
+	}
+	if err = resident.ConfigurePersonal(personal); err != nil {
+		personal.Close()
+		resident.Close()
+		return err
+	}
+	vault, err := notebook.OpenVault(filepath.Join(a.root, "Notebook"))
+	if err != nil {
+		personal.Close()
+		resident.Close()
+		return err
+	}
+	fail := func(err error) error { vault.Close(); personal.Close(); resident.Close(); return err }
+	marker := filepath.Join(a.root, "notebook-migration.json")
+	if _, err = os.Stat(marker); errors.Is(err, os.ErrNotExist) {
+		var profile string
+		profile, err = personal.LegacyProfile(context.Background())
+		if err != nil {
+			return fail(err)
+		}
+		if err = vault.Migrate(filepath.Join(a.root, "personal", "notebook"), marker, profile, time.Now()); err != nil {
+			return fail(err)
+		}
+	} else if err != nil {
+		return fail(err)
+	} else if err = vault.Migrate("", marker, "", time.Now()); err != nil {
+		return fail(err)
+	}
+	if err = vault.Refresh(context.Background(), time.Now()); err != nil {
+		return fail(err)
+	}
+	skillPath, err := botskills.Install(a.root)
+	if err != nil {
+		return fail(err)
+	}
+	resident.ConfigureInitialization(a.initialization)
+	a.companion, a.personal, a.notebook, a.skillPath = resident, personal, vault, skillPath
+	return nil
+}
+
 // Start runs only after native surfaces are ready. It binds the private tools
 // before connecting, then starts bounded observation and resident scheduling.
 func (a *Application) Start() error {
@@ -137,12 +223,11 @@ func (a *Application) Start() error {
 	if err != nil {
 		return err
 	}
-	resident, err := bot.NewForRuntime(filepath.Join(a.root, "bot.json"), a.engine.(api.Provider).ProviderInfo().ID, a.host.Gesture)
-	if err != nil {
+	if err = a.preparePersonalLocked(); err != nil {
 		return err
 	}
+	resident := a.companion
 	if err = resident.ConfigureTasks(manager, manager); err != nil {
-		resident.Close()
 		return err
 	}
 	bridge, err := bot.Serve(resident)
@@ -150,14 +235,22 @@ func (a *Application) Start() error {
 		var executable string
 		executable, err = os.Executable()
 		if err == nil {
-			err = a.engine.(api.BotToolBinder).ConfigureBotTools(bridge.Config(executable))
+			config := bridge.Config(executable)
+			config.Instructions += botskills.Instructions(a.skillPath)
+			config.NotebookDirectory = a.notebook.Path()
+			config.PrepareTurn = func(ctx context.Context) error { return a.notebook.Refresh(ctx, time.Now()) }
+			config.FinishTurn = func() {
+				if e := a.notebook.Refresh(context.Background(), time.Now()); e != nil && a.host.ReportError != nil {
+					a.host.ReportError(e)
+				}
+			}
+			err = a.engine.(api.BotToolBinder).ConfigureBotTools(config)
 		}
 	}
 	if err != nil {
 		if bridge != nil {
 			bridge.Close()
 		}
-		resident.Close()
 		return err
 	}
 	resident.SetReminderNotifier(func(id, label string) {
@@ -221,6 +314,12 @@ func (a *Application) Close() error {
 			bridge.Close()
 		}
 		a.workers.Wait()
+		if a.notebook != nil {
+			a.closeErr = errors.Join(a.closeErr, a.notebook.Close())
+		}
+		if a.personal != nil {
+			a.closeErr = errors.Join(a.closeErr, a.personal.Close())
+		}
 	})
 	return a.closeErr
 }
