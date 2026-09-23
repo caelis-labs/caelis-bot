@@ -1,5 +1,6 @@
 import { characterAssets } from './assets';
-import { Mesh, MeshBasicMaterial, OrthographicCamera, Scene, Texture, WebGLRenderer, WebGLRenderTarget, Vector3, type Group, type Material, type Object3D } from 'three';
+import { observeAppearance, builtinAppearance, type Appearance } from '../appearance';
+import { Mesh, MeshBasicMaterial, OrthographicCamera, Scene, Texture, WebGLRenderer, WebGLRenderTarget, Vector3, Box3, Group, type Material, type Object3D } from 'three';
 import { loadCharacterModel } from './load';
 import { desktop, type Placement } from '../desktop';
 import { CharacterAnimation, isGesture, type Activity } from './animation';
@@ -141,29 +142,67 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
  window.addEventListener('pet-visibility',visibility);window.addEventListener('pet-activity',activityChanged);window.addEventListener('pet-gesture',gesture);
  window.addEventListener('resize',resize);document.addEventListener('visibilitychange',resume);reduced.addEventListener('change',resume);
  canvas.addEventListener('webglcontextlost',lost);canvas.addEventListener('webglcontextrestored',restored);
- async function load() {
-  let gltf;
-  try{gltf=await loadCharacterModel(characterAssets.model);if(disposed){releaseModel(gltf.scene);return;}player=new CharacterAnimation(gltf.scene,gltf.animations);}
-  catch{if(gltf)releaseModel(gltf.scene);if(disposed)return;onError();gltf=await loadCharacterModel(characterAssets.fallback);}
-  if(disposed){releaseModel(gltf.scene);return;}
-  root=gltf.scene;scene.add(root);profile=characterProfile(renderer,scene,root);pose=new PoseLayer(root);running=new DragRunPose(root);face=new FacialAnimation(root);views=new ViewCorrectives(root);
-  // Independent prop; original character GLB and Blender rig remain unmodified.
-  try{const prop=await loadCharacterModel(characterAssets.paperPlane);
-   if(disposed){disposePlane(prop.scene);return;}
-   plane=prop.scene;plane.visible=false;plane.scale.setScalar(.28);scene.add(plane);
-   hand=root.getObjectByName('handR')??root.getObjectByName('hand.R');
-   if(hand)planeAnchor=new HeldPlaneAnchor(root,hand);
-   if(!hand)plane.visible=false;
-  }catch{/* Missing prop must not disable the character or chat. */}
-  const observed=activityEvents,observedContext=contextEvents;
-  const [placement,current,initialContext]=await Promise.all([desktop<Placement>('Placement'),desktop<Activity>('CharacterActivity'),desktop<DesktopContext|undefined>('DesktopContext')]);
-  if(disposed)return;
-  visible=placement.visible;if(activityEvents===observed)activity=current;if(contextEvents===observedContext)context=initialContext;
-  loaded=true;pose?.restore();player?.setActivity(activity,visible&&!reduced.matches);pose?.capture();resize();
+ let generation=0,requested='',latestAppearance=builtinAppearance;
+ const selected=(value:Appearance)=>{
+  latestAppearance=value;
+  if(value.key===requested)return;
+  requested=value.key;void load(value);
+ };
+ async function load(value:Appearance) {
+  const mine=++generation,stale=()=>disposed||mine!==generation;
+  let incoming:Object3D|undefined,incomingPlane:Group|undefined,newPlayer:CharacterAnimation|undefined;
+  let basic=value.basic;
+  try {
+   let gltf;
+   try{gltf=await loadCharacterModel(value.model||characterAssets.model,!value.basic);}
+   catch(error){
+    if(value.key!=='builtin:caelis')throw error;
+    gltf=await loadCharacterModel(characterAssets.fallback);basic=true;
+   }
+   incoming=gltf.scene;
+   if(stale()){releaseModel(incoming);return;}
+   if(basic){
+    // Only basic geometry/clips are consumed from community files. Asset extras
+    // cannot enable the default character's face/hand/desktop behavior metadata.
+    const wrapper=new Group();wrapper.add(incoming);incoming=wrapper;
+    const box=new Box3().setFromObject(wrapper),size=box.getSize(new Vector3());
+    if(!Number.isFinite(size.length())||size.y<.001||size.x<.001)throw new Error('Invalid character bounds');
+    const scale=Math.min(2.2/size.y,1.65/size.x);
+    const center=box.getCenter(new Vector3());wrapper.scale.setScalar(scale);
+    wrapper.position.set(-center.x*scale,-box.min.y*scale,-center.z*scale);
+    wrapper.userData.desktopPetProfile='reference-v1';
+   }
+   newPlayer=new CharacterAnimation(incoming,gltf.animations,!basic);
+   if(!basic){try{incomingPlane=(await loadCharacterModel(characterAssets.paperPlane)).scene;}catch{/* Optional built-in prop. */}}
+   const observed=activityEvents,observedContext=contextEvents;
+   const [placement,current,initialContext]=await Promise.all([desktop<Placement>('Placement'),desktop<Activity>('CharacterActivity'),desktop<DesktopContext|undefined>('DesktopContext')]);
+   if(stale()){newPlayer.dispose();releaseModel(incoming);if(incomingPlane)disposePlane(incomingPlane);return;}
+   // Commit only once the complete replacement is ready. Old content remains
+   // visible during loading; late loads never replace a newer selection.
+   stopFrames();cancelFlight();player?.dispose();profile?.dispose();
+   if(root){scene.remove(root);releaseModel(root);}
+   if(plane){scene.remove(plane);disposePlane(plane);}
+   root=incoming;player=newPlayer;plane=incomingPlane;scene.add(root);
+   profile=characterProfile(renderer,scene,root);
+   pose=basic?undefined:new PoseLayer(root);running=basic?undefined:new DragRunPose(root);
+   face=basic?undefined:new FacialAnimation(root);views=basic?undefined:new ViewCorrectives(root);
+   hand=undefined;planeAnchor=undefined;
+   if(plane){plane.visible=false;plane.scale.setScalar(.28);scene.add(plane);hand=root.getObjectByName('handR')??root.getObjectByName('hand.R');if(hand)planeAnchor=new HeldPlaneAnchor(root,hand);}
+   performanceDirector.reset();director.reset();nearAction=false;lastSent='';
+   visible=placement.visible;if(activityEvents===observed)activity=current;if(contextEvents===observedContext)context=initialContext;
+   loaded=true;pose?.restore();player.setActivity(activity,visible&&!reduced.matches);pose?.capture();resize();
+  }catch{
+   newPlayer?.dispose();if(incoming&&incoming!==root)releaseModel(incoming);if(incomingPlane&&incomingPlane!==plane)disposePlane(incomingPlane);
+   if(stale())return;
+   if(value.key!=='builtin:caelis'){
+    try{selected(await desktop<Appearance>('FallbackAppearance',latestAppearance.revision));}
+    catch{selected({...builtinAppearance,revision:latestAppearance.revision});}
+   }else onError();
+  }
  }
- void load().catch(()=>{if(!disposed)onError();});
+ const stopAppearance=observeAppearance(selected);
  return()=>{
-  disposed=true;stopFrames();pendingMask=null;cancelFlight();
+  disposed=true;generation++;stopAppearance();stopFrames();pendingMask=null;cancelFlight();
   window.removeEventListener('pet-near-preview',nearPreview);window.removeEventListener('pet-face-preview',facePreview);window.removeEventListener('pet-context',desktopChanged);window.removeEventListener('pet-touch',touch);window.removeEventListener('pet-preview',preview);window.removeEventListener('pet-prop-result',propResult);window.removeEventListener('pet-prop-flight',propFlight);
   window.removeEventListener('pet-visibility',visibility);window.removeEventListener('pet-activity',activityChanged);window.removeEventListener('pet-gesture',gesture);
   window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',resume);reduced.removeEventListener('change',resume);

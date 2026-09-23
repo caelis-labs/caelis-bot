@@ -26,10 +26,11 @@ for (const [GOOS, GOARCH] of [['darwin', 'arm64'], ['darwin', 'amd64'], ['window
   const target = { GOOS, GOARCH }, name = `${GOOS}-${GOARCH}`, ext = GOOS === 'windows' ? '.exe' : '';
   // Catch accidental OS/Wails imports leaking into the core, even if the code
   // would happen to compile on the author's current workstation.
-  const dependencies = go(['list', '-deps', './internal/desktop', './internal/backend/codex', './internal/bot', './internal/app', './internal/localipc'], target, true).trim().split(/\r?\n/);
+  const dependencies = go(['list', '-deps', './internal/desktop', './internal/backend/codex', './internal/bot', './internal/app', './internal/localipc', './internal/contentpack'], target, true).trim().split(/\r?\n/);
   if (dependencies.some(name => name.startsWith('github.com/wailsapp/') || name === 'runtime/cgo')) {
     throw new Error(`${name}: native dependency leaked into the shared core`);
   }
+  go(['test', '-c', '-o', join(output, `content-${name}${ext}`), './internal/contentpack'], target);
   go(['test', '-c', '-o', join(output, `desktop-${name}${ext}`), './internal/desktop'], target);
   go(['test', '-c', '-o', join(output, `codex-${name}${ext}`), './internal/backend/codex'], target);
   go(['test', '-c', '-o', join(output, `bot-${name}${ext}`), './internal/bot'], target);

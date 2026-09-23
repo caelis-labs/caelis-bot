@@ -46,6 +46,8 @@ make run
 
 `make package` 生成经过校验的 DMG 和 SHA-256。无需 Blender，也无需访问私有资产仓库。[开发与发布流程 →](docs/release.md)
 
+开发版本支持在 **设置 → 外观** 导入 `.caelispack`，独立切换角色、完整服装变体和头像。社区创作者可用离线工具完成制作、打包、校验与二创。[内容包开发指南 →](docs/content-packs.md)
+
 [产品路线](docs/roadmap.md) · [架构](docs/architecture.md) · [角色资产](docs/character-assets.md) · [验收范围](docs/native-acceptance.md)
 
 ## 许可

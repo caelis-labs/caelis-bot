@@ -46,6 +46,8 @@ Development builds also include a [Caelis Control Host adapter](docs/caelis-inte
 
 `make package` produces a verified DMG and checksum. No Blender installation or private asset access is needed. [Development and release workflow →](docs/release.md)
 
+Development builds support local `.caelispack` imports in **Settings → Appearance**. Create characters, complete outfit variants or PNG avatars with the offline tool. [Content pack creator guide (中文) →](docs/content-packs.md)
+
 [Product direction](docs/roadmap.md) · [Architecture](docs/architecture.md) · [Character assets](docs/character-assets.md) · [Verification limits](docs/native-acceptance.md)
 
 ## License

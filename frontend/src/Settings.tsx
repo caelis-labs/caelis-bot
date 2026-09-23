@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { desktop, type Placement } from './desktop';
+import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
 import { ShortcutSettings } from './ShortcutSettings';
 import { ExecutionSettings } from './ExecutionSettings';
 import { Maintenance } from './Maintenance';
 import { SettingGroup, SettingRow } from './SettingsUI';
 
-const sections = [ ['general','常规'], ['runtime','运行时'], ['execution','模型与权限'], ['storage','存储'], ['diagnostics','诊断'], ['updates','关于'] ] as const;
+const sections = [ ['general','常规'], ['appearance','外观'], ['runtime','运行时'], ['execution','模型与权限'], ['storage','存储'], ['diagnostics','诊断'], ['updates','关于'] ] as const;
 type Section = typeof sections[number][0] | 'setup';
 type Update = { state:string; current:string; latest:string; message:string };
 
@@ -23,7 +24,7 @@ export function Settings() {
  return <main className="settings-window">
   <aside><nav aria-label="设置分类">{sections.map(([id,label])=><button key={id} aria-current={section===id?'page':undefined} onClick={()=>setSection(id)}>{label}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
   <div className="settings-content" key={section}>
-   {section==='general'?<General key={opened}/>:section==='runtime'?<RuntimeSettings/>:section==='execution'?<ExecutionSettings/>:section==='storage'?<Maintenance key="storage" storage/>:section==='diagnostics'?<Maintenance key="diagnostics" storage={false}/>:<Updates key={opened} version={version}/>}
+   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?<RuntimeSettings/>:section==='execution'?<ExecutionSettings/>:section==='storage'?<Maintenance key="storage" storage/>:section==='diagnostics'?<Maintenance key="diagnostics" storage={false}/>:<Updates key={opened} version={version}/>}
   </div>
  </main>;
 }

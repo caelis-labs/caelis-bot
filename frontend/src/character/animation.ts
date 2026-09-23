@@ -1,4 +1,4 @@
-import { AnimationMixer, LoopOnce, LoopRepeat, type AnimationAction, type AnimationClip, type Object3D } from 'three';
+import { AnimationMixer, LoopOnce, LoopRepeat, type AnimationAction, AnimationClip, type Object3D } from 'three';
 
 export type Activity = 'idle' | 'working' | 'waiting';
 export type Gesture = 'attention' | 'nod' | 'celebrate';
@@ -13,8 +13,9 @@ export class CharacterAnimation {
  private activity:Activity='idle';
  private fadeElapsed=0;
  private blend:Map<AnimationAction,number>|undefined;
- constructor(private root:Object3D, clips:AnimationClip[]) {
-  for(const name of requiredClips)if(!clips.some(c=>c.name===name))throw new Error(`Missing character clip: ${name}`);
+ constructor(private root:Object3D, clips:AnimationClip[], strict=true) {
+  if(!strict&&!clips.some(c=>c.name==='idle'))clips=[...clips,new AnimationClip('idle',1,[])];
+  for(const name of requiredClips)if(strict&&!clips.some(c=>c.name===name))throw new Error(`Missing character clip: ${name}`);
   this.mixer=new AnimationMixer(root);
   for(const clip of clips)this.actions.set(clip.name,this.mixer.clipAction(clip));
   this.current=this.actions.get('idle')!;
@@ -27,6 +28,7 @@ export class CharacterAnimation {
  private finished=({action}:{action:AnimationAction})=>{if(action===this.current&&this.oneShot)this.play(this.base());};
  private base() { return this.activity==='working'?'working':'idle'; }
  private play(name:string,fade=true) {
+  if(!this.actions.has(name))name='idle';
   const next=this.actions.get(name)!;
   if(fade&&next===this.current&&next.isRunning())return;
   const weights=new Map([...this.actions.values()].map(action=>[action,action.isScheduled()&&action.enabled?action.getEffectiveWeight():0]));

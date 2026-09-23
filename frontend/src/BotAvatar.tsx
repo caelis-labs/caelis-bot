@@ -1,10 +1,14 @@
 import { memo, useEffect, useId, useMemo, useRef } from 'react';
+import { desktop } from './desktop';
+import { useAppearance } from './appearance';
 import { animateAvatar } from './avatar-motion';
 
 // A v1 asset pack remains usable with its PNG; v2 adds the optional layered art.
 const artwork=Object.values(import.meta.glob<string>('../assets/caelis-avatar-v1.svg',{eager:true,query:'?raw',import:'default'}))[0]??'';
 const avatarURL=Object.values(import.meta.glob<string>('../assets/caelis-avatar-v1.svg',{eager:true,query:'?url&no-inline',import:'default'}))[0]??'/icons/caelis-avatar.png';
 export function BotAvatar({animate=false}:{animate?:boolean}) {
+ const appearance=useAppearance();
+ if(appearance.avatar)return <img key={appearance.avatar} className="bot-avatar" src={appearance.avatar} alt="Caelis Bot" width="32" height="32" draggable={false} onError={e=>{if(e.currentTarget.dataset.fallback)return;e.currentTarget.dataset.fallback='true';e.currentTarget.src=avatarURL;void desktop('FallbackAppearance',appearance.revision).catch(()=>{});}}/>;
  return animate&&artwork?<MovingAvatar/>:<img className="bot-avatar" src={avatarURL} alt="Caelis Bot" width="32" height="32" draggable={false} onError={e=>{if(!e.currentTarget.src.endsWith('/caelis-avatar.png'))e.currentTarget.src='/icons/caelis-avatar.png';}}/>;
 }
 

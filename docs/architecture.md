@@ -731,3 +731,23 @@ The current asset is `caelis-soft-outfit-v1.glb`; archived assets retain their o
 `desktopPetSoftOutfit.version=1` keeps idle stretching on the fitted near-arm solver
 rather than releasing it to the old wide bind stance. Clothing uses authored skinning
 and local contact shaping; no cloth simulation or task-state authority is introduced.
+
+## Local appearance content
+
+`internal/contentpack` owns the inert `caelis-content` v1 manifest, bounded ZIP/GLB/PNG
+validation, immutable local archives, independent selection and resource serving.
+The creator CLI and native installer share this implementation. Local packages are
+never labelled verified publishers and cannot carry executable extensions.
+`desktop.Service` exposes explicit picker/import/select/remove operations; backend
+providers, Bot identity, tasks and approval authority do not depend on this store.
+The native resource handler exposes only verified GLB/PNG bytes under content hashes,
+without modifying the signed application bundle. Selection is persisted separately.
+
+Renderer snapshots carry revisions; late failure reports cannot reset a newer
+selection. Models preload before replacement; old geometry, animation and GPU
+resources are disposed on commit. Community geometry receives the basic clip/profile
+path, not character-specific procedural metadata. The built-in character remains
+the recovery path. The current developer workflow and strict supported capability
+limits are in [content packs](content-packs.md). Early releases provide bundled content
+and local third-party imports. Any additional capability requires a separately defined
+versioned contract before it can be exposed to creators.

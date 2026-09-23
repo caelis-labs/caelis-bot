@@ -17,6 +17,7 @@ import (
 	"syscall"
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
+	"github.com/caelis-labs/caelis-bot/internal/contentpack"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -33,6 +34,10 @@ func Run(assets fs.FS) error {
 	}
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configureShortcut(filepath.Join(root, "shortcut.json"))
+	s.content, err = contentpack.NewRegistry(filepath.Join(root, "content"))
+	if err != nil {
+		logError(err)
+	}
 
 	core, err := app.New(root, app.Host{ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
 		OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
@@ -76,10 +81,14 @@ func Run(assets fs.FS) error {
 			}()
 		}
 	}
+	assetHandler := application.AssetFileServerFS(assets)
+	if s.content != nil {
+		assetHandler = s.content.Handler(assetHandler)
+	}
 	nativeApp = application.New(application.Options{
 		Name: "Caelis Bot", Description: "A quiet desktop companion",
 		Icon:                        appIcon,
-		Assets:                      application.AssetOptions{Handler: application.AssetFileServerFS(assets)},
+		Assets:                      application.AssetOptions{Handler: assetHandler},
 		Services:                    []application.Service{application.NewService(s), application.NewService(back)},
 		Mac:                         application.MacOptions{ActivationPolicy: application.ActivationPolicyAccessory, ApplicationShouldTerminateAfterLastWindowClosed: false},
 		DisableDefaultSignalHandler: true,
@@ -184,6 +193,15 @@ func Run(assets fs.FS) error {
 	}
 	s.pickRuntimeCLI = func() (string, error) {
 		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle("选择运行时可执行文件").SetButtonText("选择").PromptForSingleSelection()
+	}
+	s.pickContentFile = func() (string, error) {
+		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).AddFilter("Caelis 内容包", "*.caelispack").SetTitle("导入内容包").SetButtonText("导入").PromptForSingleSelection()
+	}
+	s.contentChanged = func(value contentpack.Appearance) {
+		data, _ := json.Marshal(value)
+		for _, window := range []*application.WebviewWindow{pet, panel, history, bubble, settings} {
+			window.ExecJS("window.dispatchEvent(new CustomEvent('appearance-changed',{detail:" + string(data) + "}))")
+		}
 	}
 	settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.closeSettings() })
 	showHistory := func() {
