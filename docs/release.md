@@ -83,7 +83,15 @@ The signing job downloads only the app built by its own preceding job; it does n
 
 `script/verify-signature.sh` checks Apple trust, the Developer ID Application certificate OID, team ID, artifact identifier, secure timestamp and (for the app) hardened runtime. The bundle currently contains one executable and no embedded helpers. It needs no hardened-runtime exceptions: WebKit runs out of process. New nested executable code requires an explicit signing plan; `--deep` is used for verification, never signing.
 
-Notarization waits up to 20 minutes for each submission and records the submission ID/status and Apple diagnostic log. A timeout leaves the draft unpublished. Receipts are retained as a 14-day workflow artifact; credentials are not. The unsigned build artifact expires after one day. Only the final signed, stapled DMG and its final checksum enter the public release. If Apple is delayed, inspect the recorded submission status before recovering the same draft; never overwrite a published release.
+Notarization saves the upload receipt before waiting up to 20 minutes for each submission. A timeout queries that same submission and leaves the draft unpublished. Receipts and available Apple diagnostic logs are retained as a 14-day workflow artifact; credentials are not. The unsigned build artifact expires after one day. Only the final signed, stapled DMG and its final checksum enter the public release.
+
+If Apple is delayed, query the existing submission before recovering the draft:
+
+```sh
+gh workflow run notarization-status.yml --repo caelis-labs/caelis-bot --ref main -f submission_id=APPLE_SUBMISSION_UUID
+```
+
+Replace `APPLE_SUBMISSION_UUID` with the ID from the release log or receipt. This main-only workflow reads the existing submission with the two notarization secrets in `macos-release`; it does not receive the signing identity, upload another artifact or publish a release. Its run summary and `notarization-status` artifact contain the current status. If the result is `In Progress`, leave the draft unpublished and wait. Once Apple finishes, inspect any rejection log or recover the same draft after `Accepted`. Never overwrite a published release.
 
 ## Local build and signing
 
