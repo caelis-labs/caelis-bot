@@ -78,6 +78,13 @@ Windows 扩展能力，Windows 实现须在 macOS 完整发行后启动。Linux 
 
 ## 长期身份与按需唤醒
 
+2026-09-23 架构方向：Bot 自己持有身份、私有笔记与记忆、任务协调、提醒和桌面工具，
+通过通用执行接口接入各 Runtime；Caelis 保持 Core 定位。私人长期记忆列入下一版核心闭环，
+不以某个工作区或执行会话作为身份。同一 Bot 的个人资料、笔记和长期记忆跨 Runtime 共享，
+各 Runtime 的原生会话、凭据、权限和在途工作仍分别绑定。具体边界与迁移见
+[Bot 产品宿主规划](bot-platform-architecture.md)。身份、任务协调、提醒与工具已统一到本应用；
+Notebook/Memory 和 Caelis 新通用协议仍待接入，不能作为现有功能宣传。
+
 Bot 是持续存在的助手，用户不管理 Session 或工作区。内部可以管理多个工作 Thread，
 使用后端通信工具协作，最终仍由同一个 Bot 对用户说话。
 初版仅由用户 prompt 与用户设定的定时任务激活，不长期空跑模型。
@@ -112,8 +119,9 @@ Agent 拓扑与开发者仪表盘。后台可能拥有多个任务和对话，�
 
 协议可以表达完整的 Agent 能力，包括工具执行、审批、附件、任务、插件和连接器。
 Codex App Server 和 Caelis Control Host 通过独立适配器接入；能力按各自原生合同协商。
-Caelis 已支持自身私有文件和受管工作，通过官方 CLI 提供显式安装、检测、更新及服务入口，
-不打包运行时。范围和验证限制见 [Caelis 接入](caelis-integration.md)。
+Caelis 的官方安装、检测、更新及服务管理入口保留，不打包运行时。桌面执行路径暂时禁用旧 Bot Mode，
+待接入通用应用协议后重新开放；不会自动回退到另一 Runtime 或清理旧数据。
+历史能力和验证限制见 [Caelis 接入](caelis-integration.md)。
 Codex 使用用户本机安装，通过标准 App Server 发现、初始化与账户接口连接；
 应用不携带、不静默安装 Codex 运行时，也不接管 Codex App 自己的进程或任务。
 若已有标准 App Server 本地入口，直接握手，不要求安装 CLI；否则再发现 CLI。

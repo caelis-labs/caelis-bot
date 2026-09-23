@@ -20,8 +20,12 @@ import (
 type Options struct {
 	Directory string
 	Settings  api.RuntimeSettings
+	// ApplicationOwned disables the retired Control-owned Bot Mode. The new
+	// generic wire contract must be integrated before this path can connect.
+	ApplicationOwned bool
 }
 type Session struct {
+	applicationOwned  bool
 	mu                sync.Mutex
 	step              sync.Mutex
 	path              string
@@ -50,7 +54,7 @@ type Session struct {
 func New(opts Options) *Session {
 	p := filepath.Join(opts.Directory, "binding.json")
 	b, e := loadBinding(p)
-	return &Session{path: p, settings: opts.Settings, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
+	return &Session{applicationOwned: opts.ApplicationOwned, path: p, settings: opts.Settings, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
 }
 func (*Session) ProviderInfo() api.ProviderInfo {
 	return api.ProviderInfo{ID: "caelis", Name: "Caelis", ConnectionKind: "local-host", HelpURL: "https://caelis.dev", ConnectionHint: "使用本机 Caelis Control 服务。可自动查找或选择二进制；安装与更新由 Caelis 官方工具完成。"}
@@ -65,6 +69,9 @@ func (s *Session) BindDesktop(e api.DesktopEffects) error {
 	return nil
 }
 func (s *Session) Connect(ctx context.Context) error {
+	if s.applicationOwned {
+		return s.fail(errApplicationProtocol)
+	}
 	s.step.Lock()
 	defer s.step.Unlock()
 	s.mu.Lock()

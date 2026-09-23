@@ -12,13 +12,18 @@ Git worktree 和显式任务接管。实现边界见[任务委派](task-delegati
 见 [开发流程与能力合同](content-packs.md)。先开放自包含 GLB、完整服装变体和 PNG 头像，
 早期只发行预置内容并支持第三方导入；新增能力遵守 [扩展边界](asset-extensions-plan.md)。
 
+2026-09-23 产品层收敛：任务目录/账本/有限报告从 Codex adapter 移至 `internal/tasks`；
+宿主统一注入角色与工具，身份共享、提醒绑定 Runtime。Caelis 新执行协议待
+[并行重构](caelis-core-rebuild-handoff.md)，旧 Bot Mode 不再兼容。下一片是私有 Notebook/Memory，
+完整切片与发布验收见 [产品宿主规划](bot-platform-architecture.md)。
+
 ## 交付原则
 
 前期已用火柴人验证宿主和真实工作，现已接入小爱。下一步推进可用性收尾，同时将基础
 3D 表现力与 Desktop/Dock/ActiveWindow 轻量骨架纳入近期主线；独立道具、随机待机和互动同时定义，
 再扩展复杂任务/窗口关联。不再将基础动作与创作工具一并后置，初期以开发者自用和有辨识度的演示验收。
 使用 Wails/Go + React/TypeScript + Three.js；角色资产走 Blender → GLB。
-Codex App Server 为第一个后端；2026-09-23 新增 Caelis Control Host adapter，当前接入范围及限制见 [接入说明](caelis-integration.md)。协议保留充分能力，用户入口保持克制。
+Codex App Server 为第一个后端；Caelis 旧 Host adapter 已退出桌面路径，等待通用应用接口；历史接入范围见 [接入说明](caelis-integration.md)。协议保留充分能力，用户入口保持克制。
 
 每个阶段交付可独立验证的增量，不按预计天数承诺。原生透明交互和后端恢复属于需要
 实测的风险点；用结果决定下一步，不以演示截图替代行为验证。

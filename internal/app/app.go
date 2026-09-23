@@ -12,6 +12,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
 // Host provides native effects. None of these callbacks select a backend or own
@@ -40,6 +41,7 @@ type Application struct {
 	workers         sync.WaitGroup
 	companion       *bot.Runtime
 	bridge          *bot.Bridge
+	tasks           *tasks.Manager
 	closeOnce       sync.Once
 	closeErr        error
 }
@@ -74,7 +76,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		return nil, err
 	}
 	engine, err := factory.Open(providerConfig{Settings: settings, Execution: execution,
-		WorkDirectory: filepath.Join(directory, "Work"), ConversationFile: filepath.Join(directory, "conversation.json")})
+		WorkDirectory: filepath.Join(directory, "Work"), WorkRoot: filepath.Join(root, "Tasks"), ConversationFile: filepath.Join(directory, "conversation.json")})
 	if err != nil {
 		return nil, err
 	}
@@ -108,16 +110,13 @@ func requireAssistant(engine api.Engine, id string) error {
 	if _, ok := engine.(api.SnapshotObserver); !ok {
 		return errors.New("后端缺少状态观察能力")
 	}
-	if _, remote := engine.(api.ControlCompanion); remote {
-		return nil
-	}
 	if _, ok := engine.(api.BotToolBinder); !ok {
 		return errors.New("后端缺少受限 Bot 工具连接")
 	}
-	if _, ok := engine.(api.TaskProvider); !ok {
+	if _, ok := engine.(api.WorkRuntime); !ok {
 		return errors.New("后端缺少独立任务委派能力")
 	}
-	if _, ok := engine.(api.TaskReporter); !ok {
+	if _, ok := engine.(api.ReportSubmitter); !ok {
 		return errors.New("后端缺少有限任务汇报能力")
 	}
 	return nil
@@ -134,26 +133,24 @@ func (a *Application) Start() error {
 	if a.started {
 		return nil
 	}
-	residentPath := filepath.Join(a.root, "bot.json")
-	if _, remote := a.engine.(api.ControlCompanion); remote {
-		residentPath = filepath.Join(a.root, "providers", a.engine.(api.Provider).ProviderInfo().ID, "bot.json")
-	}
-	resident, err := bot.New(residentPath, a.host.Gesture)
+	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.engine.(api.WorkRuntime), a.engine.(api.ReportSubmitter), a.engine.Snapshot)
 	if err != nil {
 		return err
 	}
-	var bridge *bot.Bridge
-	remote, controlOwned := a.engine.(api.ControlCompanion)
-	if controlOwned {
-		err = remote.BindDesktop(api.DesktopEffects{Execute: resident.ExecuteDesktop, Notify: a.host.Notify})
-	} else {
-		bridge, err = bot.Serve(resident)
+	resident, err := bot.NewForRuntime(filepath.Join(a.root, "bot.json"), a.engine.(api.Provider).ProviderInfo().ID, a.host.Gesture)
+	if err != nil {
+		return err
+	}
+	if err = resident.ConfigureTasks(manager, manager); err != nil {
+		resident.Close()
+		return err
+	}
+	bridge, err := bot.Serve(resident)
+	if err == nil {
+		var executable string
+		executable, err = os.Executable()
 		if err == nil {
-			var executable string
-			executable, err = os.Executable()
-			if err == nil {
-				err = a.engine.(api.BotToolBinder).ConfigureBotTools(bridge.Config(executable))
-			}
+			err = a.engine.(api.BotToolBinder).ConfigureBotTools(bridge.Config(executable))
 		}
 	}
 	if err != nil {
@@ -173,16 +170,14 @@ func (a *Application) Start() error {
 		a.host.Notify(id, "到时间了", label, true)
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	a.cancel, a.companion, a.bridge, a.started = cancel, resident, bridge, true
+	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)
-	if !controlOwned {
-		resident.Start(a.engine)
-	}
+	resident.Start(a.engine)
 	a.workers.Add(2)
 	go func() { defer a.workers.Done(); _ = a.Backend.Connect(ctx) }()
 	go func() {
 		defer a.workers.Done()
-		observer := backend.NotificationObserver{Notify: a.host.Notify, SkipResults: controlOwned}
+		observer := backend.NotificationObserver{Notify: a.host.Notify}
 		var revision uint64
 		for {
 			snapshot, err := a.engine.(api.SnapshotObserver).WaitSnapshot(ctx, revision)

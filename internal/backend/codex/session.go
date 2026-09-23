@@ -31,6 +31,7 @@ type pendingSubmission struct {
 type SessionOptions struct {
 	Execution                            api.ExecutionSettings
 	Binary, Socket, Directory, StateFile string
+	WorkRoot                             string
 	// RequireApproval tightens policy for isolated acceptance runs. The desktop
 	// defaults to on-request; this flag can never weaken its sandbox.
 	RequireApproval bool
@@ -93,6 +94,13 @@ func NewSession(opts SessionOptions) *Session {
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		s.loadErr = errors.New("无法读取本地对话记录")
+	}
+	if s.opts.BotTools != nil {
+		for _, t := range s.binding.Tasks {
+			if t != nil && t.Instructions == "" {
+				t.Instructions = s.opts.BotTools.WorkerInstructions
+			}
+		}
 	}
 	if err := validateExecution(opts.Execution); err != nil {
 		s.loadErr = err
@@ -471,6 +479,9 @@ func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.Inp
 	return s.submit(ctx, in, files, false)
 }
 func (s *Session) submit(ctx context.Context, in api.Submission, files []api.InputFile, onlyIfIdle bool) (api.Receipt, error) {
+	return s.submitWithSource(ctx, in, files, onlyIfIdle, false)
+}
+func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files []api.InputFile, onlyIfIdle, report bool) (api.Receipt, error) {
 	s.op.Lock()
 	defer s.op.Unlock()
 	ctx, cancel := s.operation(ctx, 45*time.Second)
@@ -510,12 +521,6 @@ func (s *Session) submit(ctx context.Context, in api.Submission, files []api.Inp
 	}
 	s.mu.Lock()
 	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run}
-	report := false
-	for _, task := range s.binding.Tasks {
-		if task.ReportID == in.ID {
-			report = true
-		}
-	}
 	if !report {
 		s.binding.DelegationText = in.Text
 	}

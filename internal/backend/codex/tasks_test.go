@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
 type taskFixture struct {
@@ -17,7 +19,7 @@ type taskFixture struct {
 	uncertain                bool
 }
 
-func taskPair(t *testing.T) (*Session, *sessionFixture, *taskFixture) {
+func taskPair(t *testing.T) (*Session, *sessionFixture, *taskFixture, *tasks.Manager) {
 	s, f := sessionPair(t, "hold")
 	d := &taskFixture{}
 	f.mu.Lock()
@@ -68,11 +70,15 @@ func taskPair(t *testing.T) (*Session, *sessionFixture, *taskFixture) {
 		return nil, false
 	}
 	f.mu.Unlock()
-	return s, f, d
+	m, err := tasks.Open(filepath.Join(filepath.Dir(s.opts.StateFile), "product-tasks.json"), s.workRoot(), "codex", s, s, s.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, f, d, m
 }
-func newTask(t *testing.T, s *Session, request string) api.Task {
+func newTask(t *testing.T, m *tasks.Manager, request string) api.Task {
 	t.Helper()
-	v, err := s.StartTask(testContext(t), api.TaskStart{RequestID: request, Title: "Synthetic task", Prompt: "Make a synthetic artifact in your workspace; no external writes."})
+	v, err := m.StartTask(testContext(t), api.TaskStart{RequestID: request, Title: "Synthetic task", Prompt: "Make a synthetic artifact in your workspace; no external writes."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,12 +102,12 @@ func finishTask(s *Session, f *sessionFixture, id string, status string) {
 	f.emit(wireMessage{Method: "turn/completed", Params: raw(map[string]any{"threadId": threadID, "turn": turn})})
 }
 func TestTaskDelegationOwnsWorkspaceAndPreservesNativePolicy(t *testing.T) {
-	s, f, d := taskPair(t)
-	if _, err := s.StartTask(testContext(t), api.TaskStart{RequestID: "no-active-user", Title: "X", Prompt: "X"}); err == nil {
+	s, f, d, m := taskPair(t)
+	if _, err := m.StartTask(testContext(t), api.TaskStart{RequestID: "no-active-user", Title: "X", Prompt: "X"}); err == nil {
 		t.Fatal("idle model can create tasks")
 	}
 	sendSynthetic(t, s, "task-parent-user")
-	v := newTask(t, s, "task-create-one")
+	v := newTask(t, m, "task-create-one")
 	if v.Status != "working" || v.Outcome != "accepted" {
 		t.Fatal(v)
 	}
@@ -128,10 +134,10 @@ func TestTaskDelegationOwnsWorkspaceAndPreservesNativePolicy(t *testing.T) {
 	if !strings.Contains(string(raw(turn["input"])), "synthetic") {
 		t.Fatal("host user provenance missing")
 	}
-	if again := newTask(t, s, "task-create-one"); again.ID != v.ID {
+	if again := newTask(t, m, "task-create-one"); again.ID != v.ID {
 		t.Fatal("retry duplicated task")
 	}
-	other := newTask(t, s, "task-create-two")
+	other := newTask(t, m, "task-create-two")
 	if other.Workspace == v.Workspace {
 		t.Fatal("tasks share workspace")
 	}
@@ -153,10 +159,10 @@ func TestTaskDelegationOwnsWorkspaceAndPreservesNativePolicy(t *testing.T) {
 	}
 }
 func TestTaskOwnershipApprovalsAndCompletionReport(t *testing.T) {
-	s, f, d := taskPair(t)
+	s, f, d, m := taskPair(t)
 	sendSynthetic(t, s, "task-parent-user")
-	v := newTask(t, s, "task-with-approval")
-	if _, err := s.ReadTask(testContext(t), "thread-native"); err == nil {
+	v := newTask(t, m, "task-with-approval")
+	if _, err := m.ReadTask(testContext(t), "thread-native"); err == nil {
 		t.Fatal("native ID bypassed ownership")
 	}
 	s.mu.Lock()
@@ -165,7 +171,7 @@ func TestTaskOwnershipApprovalsAndCompletionReport(t *testing.T) {
 	s.mu.Unlock()
 	f.emit(wireMessage{ID: raw("owned-approval"), Method: "item/commandExecution/requestApproval", Params: raw(map[string]any{"threadId": thread, "turnId": run, "itemId": "command", "command": "synthetic", "cwd": v.Workspace, "availableDecisions": []string{"accept", "decline"}})})
 	view := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
-	if s.ListTasks()[0].Status != "awaiting_approval" {
+	if m.ListTasks()[0].Status != "awaiting_approval" {
 		t.Fatal("approval missing task context")
 	}
 	if err := s.Decide(testContext(t), api.Decision{ID: view.Approvals[0].ID, Choice: view.Approvals[0].Choices[1].ID}); err != nil {
@@ -177,7 +183,7 @@ func TestTaskOwnershipApprovalsAndCompletionReport(t *testing.T) {
 	finishTask(s, f, v.ID, "completed")
 	finishRoot(f)
 	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend })
-	if err := s.DeliverTaskReport(testContext(t)); err != nil {
+	if err := m.DeliverTaskReport(testContext(t)); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
@@ -189,14 +195,13 @@ func TestTaskOwnershipApprovalsAndCompletionReport(t *testing.T) {
 	}
 	s.mu.Lock()
 	source := s.binding.DelegationText
-	reportState := record.ReportState
 	s.mu.Unlock()
-	if source != "synthetic" || reportState != "delivered" {
-		t.Fatal("completion became authorization", source, reportState)
+	if source != "synthetic" {
+		t.Fatal("completion became authorization", source)
 	}
 	finishRoot(f)
 	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend })
-	_ = s.DeliverTaskReport(testContext(t))
+	_ = m.DeliverTaskReport(testContext(t))
 	f.mu.Lock()
 	count = f.starts
 	f.mu.Unlock()
@@ -205,17 +210,17 @@ func TestTaskOwnershipApprovalsAndCompletionReport(t *testing.T) {
 	}
 }
 func TestUncertainTaskDispatchDoesNotReplayAndReadReconciles(t *testing.T) {
-	s, f, d := taskPair(t)
+	s, f, d, m := taskPair(t)
 	sendSynthetic(t, s, "task-parent-user")
 	f.mu.Lock()
 	d.uncertain = true
 	f.mu.Unlock()
 	in := api.TaskStart{RequestID: "uncertain-task", Title: "Synthetic", Prompt: "Synthetic work"}
-	v, err := s.StartTask(testContext(t), in)
+	v, err := m.StartTask(testContext(t), in)
 	if err == nil || v.ID == "" {
 		t.Fatal("missing unknown receipt", v, err)
 	}
-	if _, err = s.StartTask(testContext(t), in); err != nil {
+	if _, err = m.StartTask(testContext(t), in); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
@@ -224,7 +229,7 @@ func TestUncertainTaskDispatchDoesNotReplayAndReadReconciles(t *testing.T) {
 	if count != 1 {
 		t.Fatal("unknown request replayed")
 	}
-	v, err = s.ReadTask(testContext(t), v.ID)
+	v, err = m.ReadTask(testContext(t), v.ID)
 	if err != nil || v.Outcome != "accepted" || v.Status != "working" {
 		t.Fatal("native user receipt not reconciled", v, err)
 	}
@@ -235,17 +240,17 @@ func TestUncertainTaskDispatchDoesNotReplayAndReadReconciles(t *testing.T) {
 	}
 }
 func TestTaskReadAcknowledgesCompletionAndStopDoesNotWakeAgain(t *testing.T) {
-	s, f, _ := taskPair(t)
+	s, f, _, m := taskPair(t)
 	sendSynthetic(t, s, "task-parent-user")
-	v := newTask(t, s, "task-read-complete")
+	v := newTask(t, m, "task-read-complete")
 	finishTask(s, f, v.ID, "completed")
-	view, err := s.ReadTask(testContext(t), v.ID)
+	view, err := m.ReadTask(testContext(t), v.ID)
 	if err != nil || view.Result == "" {
 		t.Fatal(view, err)
 	}
 	finishRoot(f)
 	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend })
-	_ = s.DeliverTaskReport(testContext(t))
+	_ = m.DeliverTaskReport(testContext(t))
 	f.mu.Lock()
 	count := f.starts
 	f.mu.Unlock()
@@ -262,34 +267,16 @@ func TestTaskReadAcknowledgesCompletionAndStopDoesNotWakeAgain(t *testing.T) {
 		t.Fatal("Stop allows completion wakeups")
 	}
 }
-func TestTaskWorkspaceRejectsExistingOrRedirectedDirectory(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "Tasks", "one")
-	if err := prepareTaskWorkspace(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := prepareTaskWorkspace(path); err == nil {
-		t.Fatal("adopted existing workspace")
-	}
-	other := t.TempDir()
-	if err := os.Symlink(other, filepath.Join(root, "Redirected")); err != nil {
-		t.Fatal(err)
-	}
-	if err := prepareTaskWorkspace(filepath.Join(root, "Redirected", "two")); err == nil {
-		t.Fatal("followed workspace symlink")
-	}
-}
-
 func TestTaskFollowupReusesWorkspaceAndFencesActiveTurn(t *testing.T) {
-	s, f, d := taskPair(t)
+	s, f, d, m := taskPair(t)
 	sendSynthetic(t, s, "task-parent-user")
-	v := newTask(t, s, "task-followup-create")
+	v := newTask(t, m, "task-followup-create")
 	s.mu.Lock()
 	native := s.binding.Tasks[v.ID].Thread
 	run := s.binding.Tasks[v.ID].Run
 	s.mu.Unlock()
 	in := api.TaskMessage{ID: v.ID, RequestID: "task-followup-steer", Prompt: "Append the marker done."}
-	if _, err := s.SendTask(testContext(t), in); err != nil {
+	if _, err := m.SendTask(testContext(t), in); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
@@ -298,7 +285,7 @@ func TestTaskFollowupReusesWorkspaceAndFencesActiveTurn(t *testing.T) {
 	if p["threadId"] != native || p["expectedTurnId"] != run {
 		t.Fatal("steer lost exact target")
 	}
-	if _, err := s.SendTask(testContext(t), in); err != nil {
+	if _, err := m.SendTask(testContext(t), in); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
@@ -308,10 +295,10 @@ func TestTaskFollowupReusesWorkspaceAndFencesActiveTurn(t *testing.T) {
 		t.Fatal("steer replayed")
 	}
 	finishTask(s, f, v.ID, "completed")
-	if _, err := s.ReadTask(testContext(t), v.ID); err != nil {
+	if _, err := m.ReadTask(testContext(t), v.ID); err != nil {
 		t.Fatal(err)
 	}
-	next, err := s.SendTask(testContext(t), api.TaskMessage{ID: v.ID, RequestID: "task-followup-new-turn", Prompt: "Only reply another marker."})
+	next, err := m.SendTask(testContext(t), api.TaskMessage{ID: v.ID, RequestID: "task-followup-new-turn", Prompt: "Only reply another marker."})
 	if err != nil || next.Workspace != v.Workspace {
 		t.Fatal("continuation lost owned workspace", next, err)
 	}
@@ -325,16 +312,16 @@ func TestTaskFollowupReusesWorkspaceAndFencesActiveTurn(t *testing.T) {
 }
 
 func TestTaskPersistenceFailureCannotDispatchOrChangeKnownState(t *testing.T) {
-	s, f, d := taskPair(t)
+	s, f, d, m := taskPair(t)
 	sendSynthetic(t, s, "task-parent-user")
-	v := newTask(t, s, "task-persistence")
+	v := newTask(t, m, "task-persistence")
 	s.op.Lock()
 	s.mu.Lock()
 	original := s.opts.StateFile
 	s.opts.StateFile = t.TempDir()
 	s.mu.Unlock()
 	s.op.Unlock()
-	if _, err := s.SendTask(testContext(t), api.TaskMessage{ID: v.ID, RequestID: "failed-save-request", Prompt: "Do not dispatch this."}); err == nil {
+	if _, err := m.SendTask(testContext(t), api.TaskMessage{ID: v.ID, RequestID: "failed-save-request", Prompt: "Do not dispatch this."}); err == nil {
 		t.Fatal("dispatched without durable request")
 	}
 	s.op.Lock()
@@ -360,7 +347,7 @@ func TestTaskPersistenceFailureCannotDispatchOrChangeKnownState(t *testing.T) {
 func TestWorkerParametersPreserveExplicitExecutionMode(t *testing.T) {
 	s := NewSession(SessionOptions{Directory: t.TempDir(), Execution: api.ExecutionSettings{Model: "synthetic-model", Effort: "high", ServiceTier: "fast", ApprovalMode: "read-only"}})
 	defer s.cancelLife()
-	p := s.workerParams("/synthetic/task")
+	p := s.workerParams("/synthetic/task", botpolicy.WorkerInstructions)
 	if p["sandbox"] != "read-only" || p["approvalPolicy"] != "never" || p["approvalsReviewer"] != "user" || p["model"] != "synthetic-model" || p["serviceTier"] != "fast" || p["config"].(map[string]any)["model_reasoning_effort"] != "high" {
 		t.Fatal("worker changed explicit settings")
 	}

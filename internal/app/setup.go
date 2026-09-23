@@ -106,7 +106,8 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (api.
 	if v.Runtime == "codex" {
 		out, e = s.codex.Inspect(ctx, installation.Path)
 	} else {
-		out, e = caelis.InspectSetup(ctx, v)
+		out.State = "incompatible"
+		out.Message = caelis.ApplicationAvailability().Error()
 	}
 	directory, _ := providerDirectory(s.app.root, v.Runtime)
 	prefs, pe := backend.LoadExecutionSettings(filepath.Join(directory, "execution.json"), api.ExecutionSettings{})
@@ -282,10 +283,7 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 		return errors.New("请先完成运行时连接")
 	}
 	if v.Runtime == "caelis" {
-		dir, _ := providerDirectory(s.app.root, "caelis")
-		if e = caelis.ProbeBinding(ctx, v, dir); e != nil {
-			return e
-		}
+		return caelis.ApplicationAvailability()
 	}
 	// Preserve the outgoing path before replacing the active selection.
 	if outgoing := s.app.Backend.RuntimeSettings(); outgoing.Runtime != v.Runtime {

@@ -3,6 +3,49 @@
 本项目已从工具链准备阶段推进到 macOS 开发者预览。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
 
+2026-09-23 统一 Bot 产品层基础（本地改动，尚未提交/发布）：
+
+- `internal/tasks` 接管目录分配、任务容量、Runtime 归属、产品 intent/账本与有限完成报告；
+  `WorkRuntime` 保留 adapter 的 native 绑定、源请求、执行审批和未知回执。Codex 原任务和报告回执
+  可接续，旧 requestId 不重复创建；任务账本不复制规范会话 transcript。
+- `internal/bot` 统一持有工具目录与 handler、秘书/worker 角色、稳定身份和提醒；
+  MCP 连接与未来应用 callback 共用业务入口。提醒和 queued wake 显式绑定 Runtime，
+  个人资料/Notebook/Memory 计划共享，但这一片尚未新增笔记存储或 Memory 引擎。
+- Caelis 并行任务使用 [重构 Prompt](caelis-core-rebuild-handoff.md)，允许移除旧 Bot Mode，
+  不要求旧模式兼容或数据导入。桌面连接/检测/切换明确禁用旧路径；不创建旧 Bot、执行旧计划、
+  回退另一 Runtime 或删除真实数据。旧 adapter 与 fixture 暂留作新 wire 替换参考。
+- Developer ID 改动已独立保存到本地 stash `deferred: Developer ID signing pipeline (2026-09-23)`。
+  当前构建继续使用 ad-hoc 签名，未创建证书、未发布、未应用签名流水线。
+
+验证命令及结果（2026-09-23）：
+
+- `go test -race ./internal/tasks ./internal/app ./internal/backend/codex ./internal/bot ./internal/backend/caelis` 通过。
+- `make check` 通过：前端构建及 34 项 JS/native 行为测试、Go vet/单测、共享核心检查与
+  macOS/Windows 架构编译；不是 Windows 原生适配证明。旧 Caelis schema 校验仍只验证旧固定协议。
+- `make smoke` 通过：本机 Codex 0.153.4 标准 stdio initialize，未创建会话、未发送模型请求；
+  GLB 解析/动画检查通过，不是视觉验收。
+- `make build` 通过，产出 `dist/Caelis Bot.app`，使用原有 ad-hoc 签名。保留既有非阻断
+  Vite 大 chunk 和 macOS 重复链接库提示。本轮未重新启动日常实例。
+
+可审计的 owning tests：
+
+| 边界 | 文件与测试 |
+| --- | --- |
+| 同一产品策略不绑定具体 adapter | `internal/tasks/manager_test.go` / `TestSameProductPolicyForDifferentRuntimeAdapters`（codex / generic-fixture 两个模拟标识，非两套真实 Runtime） |
+| 未知创建不再次派发 | 同文件 / `TestUnknownCreationPersistsWithoutRedispatch` |
+| intent 持久化失败阻止效果、可恢复 | 同文件 / `TestFailedPersistenceCannotDispatchAndIsRetried` |
+| 有限报告、终态读取/停止抑制重复 | 同文件 / `TestReportPersistsAndUnknownDeliveryNeverReplays`、`TestReadAndStopSuppressReportsButNewTurnReportsOnce` |
+| 旧 Codex 记录接续、跨 Runtime 不接管 | 同文件 / `TestNativeReportImportAndLegacyRequestDoNotDuplicate`、`TestProviderSwitchPreservesLedgerWithoutAdoptingWork` |
+| 目录不接管已有内容/符号链接 | 同文件 / `TestWorkspaceNeverAdoptsExistingOrSymlinkDirectory` |
+| 共享身份、提醒归属、重启保留目标 | `internal/bot/runtime_test.go` / `TestIdentitySharedButSchedulesCannotCrossRuntime`、`TestQueuedWakeRetainsRuntimeAcrossRestart` |
+| 工具取消/停止与工具目录快照 | 同文件 / `TestApplicationToolHandlerHonorsCancellationAndShutdown` |
+| 禁止旧 Caelis fallback | `internal/backend/caelis/application_test.go` / `TestApplicationModeNeverFallsBackToLegacyBot` |
+| Codex 精确审批、请求来源、原生回执 | `internal/backend/codex/tasks_test.go`，全部 owning tests 通过 |
+
+边界：新 Caelis wire、通用 callback 的可信来源/租约、资源交付、Notebook/Memory、完整持久
+Automation 仍待后续切片；未新增真实模型、原生多窗口、长期常驻或发行级验收。此基础不能
+替代 A01–A12 或两套真实 Runtime 的发布闭环。
+
 2026-09-23 本地内容包 v1（本地实现，尚未发布）：
 
 - 早期发行范围为应用预置内容与第三方包导入。设置新增“外观”，支持自包含 GLB 角色、

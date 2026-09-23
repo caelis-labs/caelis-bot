@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -64,20 +63,23 @@ func (e *testEngine) Close(context.Context) error {
 	e.closed++
 	return nil
 }
-func (*testEngine) ListTasks() []api.Task { return nil }
-func (*testEngine) StartTask(context.Context, api.TaskStart) (api.Task, error) {
+func (*testEngine) WorkAdmission(context.Context) error { return nil }
+func (*testEngine) WorkStates() []api.WorkState         { return nil }
+func (*testEngine) StartWork(context.Context, api.WorkStart) (api.Task, error) {
 	return api.Task{}, errors.New("not used")
 }
-func (*testEngine) ReadTask(context.Context, string) (api.Task, error) {
+func (*testEngine) ReadWork(context.Context, string) (api.Task, error) {
 	return api.Task{}, errors.New("not used")
 }
-func (*testEngine) SendTask(context.Context, api.TaskMessage) (api.Task, error) {
+func (*testEngine) SendWork(context.Context, api.TaskMessage) (api.Task, error) {
 	return api.Task{}, errors.New("not used")
 }
-func (*testEngine) StopTask(context.Context, string) (api.Task, error) {
+func (*testEngine) StopWork(context.Context, string) (api.Task, error) {
 	return api.Task{}, errors.New("not used")
 }
-func (*testEngine) DeliverTaskReport(context.Context) error { return nil }
+func (*testEngine) SubmitReport(context.Context, api.Submission) (api.Receipt, error) {
+	return api.Receipt{}, errors.New("not used")
+}
 
 func fixtureApp(t *testing.T, e api.Engine, host Host) (*Application, string) {
 	t.Helper()
@@ -249,45 +251,16 @@ func TestChatOnlyAdapterCannotBecomeSecretary(t *testing.T) {
 	}
 }
 
-// A Control-owned companion must not receive Codex MCP or its scheduler.
-type controlTestEngine struct {
-	*testEngine
-	effects api.DesktopEffects
-}
-
-func (e *controlTestEngine) BindDesktop(v api.DesktopEffects) error       { e.effects = v; return nil }
-func (*controlTestEngine) OwnedTasks(context.Context) ([]api.Task, error) { return nil, nil }
-func (e *controlTestEngine) Connect(ctx context.Context) error {
-	if e.effects.Execute == nil {
-		return errors.New("desktop effects missing")
-	}
-	close(e.connectSeen)
-	<-ctx.Done()
-	return ctx.Err()
-}
-func TestControlCompanionHasOneExecutionOwner(t *testing.T) {
-	e := &controlTestEngine{testEngine: newTestEngine()}
-	a, root := fixtureApp(t, e, Host{})
-	if err := a.Start(); err != nil {
-		t.Fatal(err)
-	}
-	waitSignal(t, e.connectSeen)
-	if a.bridge != nil || e.tools != nil {
-		t.Fatal("Control companion received a second tool server")
-	}
-	if _, err := e.effects.Execute("clock", json.RawMessage(`{}`)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := e.effects.Execute("reminders", json.RawMessage(`{"operation":"save","id":"native","label":"Fixture","prompt":"Fixture","at":"2099-01-01T00:00:00Z"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "providers", "fixture", "bot.json")); err != nil {
-		t.Fatal("missing private provider schedule", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "bot.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("Control mutated Codex resident state")
-	}
-	if err := a.Close(); err != nil {
-		t.Fatal(err)
+// A legacy Control companion cannot bypass the application's work/tool ports.
+func TestLegacyCompanionCannotBypassProductAssembly(t *testing.T) {
+	e := newTestEngine()
+	legacy := struct {
+		api.Engine
+		api.Provider
+		api.SnapshotObserver
+		api.ControlCompanion
+	}{Engine: e, Provider: e, SnapshotObserver: e}
+	if err := requireAssistant(legacy, "fixture"); err == nil {
+		t.Fatal("legacy product owner bypassed generic ports")
 	}
 }

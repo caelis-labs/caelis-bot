@@ -9,6 +9,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +86,13 @@ func run() error {
 	}
 	opts.BotTools = bridge.Config(executable)
 	s := codex.NewSession(opts)
+	manager, e := tasks.Open(filepath.Join(dir, "tasks.json"), filepath.Join(dir, "Tasks"), "codex", s, s, s.Snapshot)
+	if e != nil {
+		return e
+	}
+	if e = companion.ConfigureTasks(manager, manager); e != nil {
+		return e
+	}
 	defer func() {
 		c, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()

@@ -68,10 +68,15 @@ type ApprovalMode struct {
 // per-tool approval into its own policy; no global/server approval is implied.
 // It deliberately has no JSON/UI contract and must never enter diagnostics.
 type ToolConnection struct {
-	Command       string
-	Args          []string
-	Env           map[string]string
-	ApprovedTools []string
+	// Role instructions and callbacks are application-owned, never hardcoded by
+	// a protocol adapter. The native MCP transport uses Command/Args/Env; another
+	// adapter can bind Host to a session-scoped client-tool transport.
+	Instructions, WorkerInstructions string
+	Host                             ApplicationTools
+	Command                          string
+	Args                             []string
+	Env                              map[string]string
+	ApprovedTools                    []string
 }
 type BotToolBinder interface{ ConfigureBotTools(*ToolConnection) error }
 

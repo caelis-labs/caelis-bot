@@ -1,7 +1,12 @@
 # Caelis 接入与运行时管理
 
-2026-09-23，本地实现，尚未发布。Bot 通过公开 HTTP/SSE 接入独立 Control Host；
-不打包 Caelis，不导入兄弟仓库，不创建第二个 Runtime/Store owner。
+2026-09-23 状态更新：**下文为旧 Bot Mode 协议及历史验证记录，当前桌面已禁用此执行路径。**
+新架构由 Bot 持有产品层，Caelis 提供通用应用执行。新协议未接通前设置明确提示不可用，
+不自动创建旧 Bot、不回退 Codex、不迁移或删除用户旧数据。旧 Bot Mode 不要求兼容。
+实施与验收以 [Caelis 重构交接](caelis-core-rebuild-handoff.md) 为准。
+
+旧接入使用公开 HTTP/SSE 独立 Control Host；不打包 Caelis、不导入兄弟仓库。
+以下能力/步骤不表示新协议已就绪。
 
 ## 接入基线
 

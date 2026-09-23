@@ -2,9 +2,10 @@ package api
 
 import "context"
 
-// TaskProvider is an optional, host-only backend capability. These handles name
+// TaskProvider is the host-only application coordinator. These handles name
 // Bot-owned work, never arbitrary provider conversations or UI sessions.
-// Ownership and native mutation receipts belong to the adapter/Control owner.
+// The application owns allocation/reporting; native mutation receipts stay in
+// WorkRuntime. A protocol adapter does not implement this product interface.
 // Start/Send require an active authorized secretary request, preserve its source,
 // and reject conflicting request IDs. An unknown outcome is not a retry grant.
 // Start allocates a private workspace; it never trusts a model-supplied path.

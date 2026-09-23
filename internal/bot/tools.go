@@ -20,6 +20,7 @@ import (
 // A private, per-launch endpoint connects the owned stdio MCP process to
 // the resident host. No HTTP port, user-wide config edit or shell execution.
 type Bridge struct {
+	runtime  *Runtime
 	listener *localipc.Listener
 	token    string
 	once     sync.Once
@@ -31,10 +32,7 @@ type toolRequest struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
 }
-type toolResult struct {
-	Content []map[string]string `json:"content"`
-	IsError bool                `json:"isError"`
-}
+type toolResult = api.ToolResult
 
 func result(value any, err error) toolResult {
 	text := ""
@@ -44,11 +42,32 @@ func result(value any, err error) toolResult {
 		b, _ := json.Marshal(value)
 		text = string(b)
 	}
-	return toolResult{[]map[string]string{{"type": "text", "text": text}}, err != nil}
+	return toolResult{Content: []map[string]string{{"type": "text", "text": text}}, IsError: err != nil}
 }
 func (r *Runtime) call(name string, args json.RawMessage) toolResult {
+	return r.CallTool(context.Background(), name, args)
+}
+
+func (r *Runtime) Definitions() []api.ToolDefinition {
+	b, _ := json.Marshal(toolSpecs())
+	var out []api.ToolDefinition
+	_ = json.Unmarshal(b, &out)
+	return out
+}
+
+// CallTool is shared by the private MCP bridge and future native callbacks.
+func (r *Runtime) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
+	if err := ctx.Err(); err != nil {
+		return result(nil, err)
+	}
+	r.mu.Lock()
+	stopped := r.stopped
+	r.mu.Unlock()
+	if stopped {
+		return result(nil, errors.New("Bot 已停止"))
+	}
 	if name == "bot_tasks" || name == "bot_task_start" || name == "bot_task_read" || name == "bot_task_send" || name == "bot_task_stop" {
-		return r.callTask(name, args)
+		return r.callTask(ctx, name, args)
 	}
 	switch name {
 	case "bot_clock":
@@ -86,7 +105,7 @@ func Serve(r *Runtime) (*Bridge, error) {
 	if e != nil {
 		return nil, e
 	}
-	b := &Bridge{listener: listener, token: rand.Text(), done: make(chan struct{})}
+	b := &Bridge{runtime: r, listener: listener, token: rand.Text(), done: make(chan struct{})}
 	go func() {
 		defer close(b.done)
 		for {
@@ -114,7 +133,7 @@ func Serve(r *Runtime) (*Bridge, error) {
 	return b, nil
 }
 func (b *Bridge) Config(executable string) *api.ToolConnection {
-	return &api.ToolConnection{Command: executable, Args: []string{"--bot-tools"},
+	return &api.ToolConnection{Instructions: botpolicy.SecretaryInstructions + botpolicy.ToolDiscovery, WorkerInstructions: botpolicy.WorkerInstructions, Host: b.runtime, Command: executable, Args: []string{"--bot-tools"},
 		Env:           map[string]string{"CAELIS_BOT_ENDPOINT": b.listener.Endpoint(), "CAELIS_BOT_TOKEN": b.token},
 		ApprovedTools: botpolicy.ApprovedTools()}
 }
@@ -222,15 +241,15 @@ func forward(endpoint string, req toolRequest) toolResult {
 	return out
 }
 
-func (r *Runtime) callTask(name string, args json.RawMessage) toolResult {
+func (r *Runtime) callTask(parent context.Context, name string, args json.RawMessage) toolResult {
 	r.mu.Lock()
-	provider, ok := r.engine.(api.TaskProvider)
+	provider := r.tasks
 	stopped := r.stopped
 	r.mu.Unlock()
-	if !ok || stopped {
+	if provider == nil || stopped {
 		return result(nil, errors.New("当前后端没有可用的任务管理接口"))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 8*time.Second)
 	defer cancel()
 	var value any
 	var err error

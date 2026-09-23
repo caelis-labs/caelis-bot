@@ -6,8 +6,9 @@ Bot 负责准确传达范围、继续和停止任务、核对产物并汇报；�
 
 ## 已实现的首个切片
 
-`internal/backend/api/tasks.go` 定义可选的 `TaskProvider`，不携带 Codex 原生 ID。
-Bot MCP 提供 `bot_tasks`、`bot_task_start`、`bot_task_read`、`bot_task_send`、`bot_task_stop`。
+`internal/tasks` 实现应用层 `TaskProvider`，通过 `internal/backend/api/work.go` 的
+`WorkRuntime` / `ReportSubmitter` 调用原生执行，不携带 Codex 原生 ID 给模型。
+Bot MCP 与通用 `ApplicationTools` 共用业务实现，提供 `bot_tasks`、`bot_task_start`、`bot_task_read`、`bot_task_send`、`bot_task_stop`。
 Codex adapter 映射至 App Server 的 `thread/start/read/resume`、`turn/start/steer/interrupt`。
 这些是 Bot 自己的接口，不依赖 Codex App 的 `codex_app` 插件或其私有 IPC。
 后续 provider 实现同一能力契约；没有该能力时明确返回不可用，不降级为秘书直接执行专业工作。
@@ -16,8 +17,11 @@ Codex adapter 映射至 App Server 的 `thread/start/read/resume`、`turn/start/
   自选任意目录或扩大 writable roots。主 Bot 的 `Work` 仍只用于临时输入与协调。
 - 最多三个未结束任务；初版记录最多 100 个任务、每任务 100 次请求，达到容量时明确拒绝。
   创建与继续均需要稳定 requestId；同一 ID 不同内容拒绝，未知回执先查证，不自动重发。
-- 任务归属、原始用户要求、请求回执和完成通知随 `conversation.json` 原子持久化。
-  创建 Thread 后先保存归属，再提交工作；未确认创建的 Thread 不自动重建。
+- `tasks.json` 是产品账本，记录 Runtime 归属、创建 intent 和汇报回执；`conversation.json`
+  仍由 Codex adapter 保存 native binding、原始用户要求和原生请求回执，不复制规范 transcript。
+  先保存产品 intent 再分配目录；创建 Thread 后先保存 native 归属再提交工作；未知不自动重建。
+  现有 Codex 任务句柄与已投递报告可导入，重试原 requestId 不会再建任务。切换 Runtime
+  保留产品账本，但不能操作另一 Runtime 的工作；旧 Caelis Bot 数据不自动导入。
 - 主 Bot 回合结束后，后台任务继续运行，聊天可接受新的用户请求。必要审批仍优先处理。
 - 原生事件和仅针对活动任务的只读检查跟踪状态。每个任务回合结束后最多排队一次汇报激活；
   只在秘书空闲时发送，不 steer 用户的另一个请求，也没有空闲模型轮询。

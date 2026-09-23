@@ -1,6 +1,11 @@
 # Bot 身份、唤醒与对话界面
 
 本轮确认：2026-09-19。适用于 macOS 首版；Windows 在 macOS 完整发行后实现，Linux 不在当前计划。
+2026-09-23 职责更新：后续以 [Bot 产品宿主规划](bot-platform-architecture.md) 为准，
+身份、任务协调、提醒和产品工具已统一到本应用；Notebook/Memory 尚待实现。
+旧 Caelis Bot Mode 不再是桌面执行路径，也不要求兼容；通用 Runtime 能力提案见
+[runtime-extension-contract.md](runtime-extension-contract.md)。下文历史 Caelis 引用仅作设计背景。
+
 2026-09-20 路线补充：保持本文件的身份/唤醒边界，角色表现与有限空间交互按
 [产品发展路线](roadmap.md)推进；技术五段动画已接入，表现力仍需验证。
 同日交互框架补充见[桌面概念与交互基线](desktop-behavior.md)：最小桌面/Dock/前台窗口、

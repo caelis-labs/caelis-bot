@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"path/filepath"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
@@ -15,7 +14,7 @@ func (a *Application) configureRuntimeManagement() {
 	a.Backend.ConfigureRuntimeManagement([]api.ProviderInfo{(&codex.Session{}).ProviderInfo(), (&caelis.Session{}).ProviderInfo()}, func(ctx context.Context, v api.RuntimeSettings) error {
 		switch v.Runtime {
 		case "caelis":
-			return caelis.ProbeBinding(ctx, v, filepath.Join(a.root, "providers", "caelis"))
+			return caelis.ApplicationAvailability()
 		case "codex":
 			if e := codex.ValidateSettings(v, api.ExecutionSettings{}); e != nil {
 				return e
@@ -40,27 +39,14 @@ func (a *Application) configureRuntimeManagement() {
 }
 func (a *Application) guardRuntimeChange() error {
 	a.mu.Lock()
-	started := a.started
+	tasks := a.tasks
 	a.mu.Unlock()
 	v := a.engine.Snapshot()
 	if v.CanInterrupt || len(v.Approvals) > 0 || v.Phase == "unknown" || v.Phase == "sending" {
 		return errors.New("请等待工作结束并核对待处理操作后再更改运行时")
 	}
-	if tasks, ok := a.engine.(api.TaskProvider); ok {
+	if tasks != nil {
 		for _, t := range tasks.ListTasks() {
-			switch t.Status {
-			case "completed", "failed", "cancelled", "interrupted":
-			default:
-				return errors.New("仍有未结束的独立工作")
-			}
-		}
-	}
-	if native, ok := a.engine.(api.ControlCompanion); ok && started {
-		tasks, e := native.OwnedTasks(context.Background())
-		if e != nil {
-			return errors.New("请先恢复 Caelis 连接并核对工作状态，再切换运行时")
-		}
-		for _, t := range tasks {
 			switch t.Status {
 			case "completed", "failed", "cancelled", "interrupted":
 			default:
@@ -72,7 +58,7 @@ func (a *Application) guardRuntimeChange() error {
 	resident := a.companion
 	a.mu.Unlock()
 	if resident != nil {
-		if w := resident.State().Wake; w != nil && w.Status != "accepted" {
+		if w := resident.State().Wake; w != nil && w.Runtime == a.engine.(api.Provider).ProviderInfo().ID && w.Status != "accepted" {
 			return errors.New("仍有待核对的提醒")
 		}
 	}

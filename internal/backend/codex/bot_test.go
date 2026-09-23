@@ -2,6 +2,7 @@ package codex
 
 import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
 	"strings"
 	"testing"
 )
@@ -60,7 +61,7 @@ func TestBotConnectionKeepsSandboxAndScopesDiscovery(t *testing.T) {
 	if strings.Contains(p["developerInstructions"].(string), "- bot_clock:") {
 		t.Fatal("unconfigured tool advertised")
 	}
-	s.opts.BotTools = &api.ToolConnection{Command: "synthetic"}
+	s.opts.BotTools = &api.ToolConnection{Command: "synthetic", Instructions: botpolicy.SecretaryInstructions + botpolicy.ToolDiscovery}
 	p = s.connectionParams()
 	if !strings.Contains(p["developerInstructions"].(string), "- bot_clock:") || len(p["runtimeWorkspaceRoots"].([]string)) != 0 {
 		t.Fatal("catalog/workspace contract")

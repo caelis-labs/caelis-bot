@@ -1,25 +1,32 @@
 # Architecture and internal backend contract
 
-Status: implemented local Codex and Caelis adapters; not a released interoperability standard.
+Status: application-owned Bot foundation implemented locally; Codex execution connected.
+Caelis generic application protocol is pending; legacy Bot Mode is disabled in desktop assembly.
+This is not a released interoperability standard.
+
+2026-09-23: [Bot product-host architecture](bot-platform-architecture.md) and the
+[generic Runtime extension proposal](runtime-extension-contract.md) define the target.
+`internal/bot` owns identity, tool behavior and resident reminders; `internal/tasks`
+owns task admission, workspace allocation, the product ledger and completion reports.
+Notebook and embedded Memory remain planned. The [Caelis implementation handoff](caelis-core-rebuild-handoff.md)
+authorizes removal of legacy Bot Mode without compatibility; existing user data is preserved.
 
 The [capability contract](backend-contract.md) defines provider assembly independently
-of OS hosting. The [Caelis integration guide](caelis-integration.md) pins the public
-Control Host protocol, current capabilities and verification limits. Caelis owns
-its delegation, reports and reminder authority; the native Bot only observes and
-executes claimed desktop effects. Windows remains unimplemented; its future host
-boundaries are recorded in the [backend/platform plan](backend-platform-plan.md).
+of OS hosting. Native adapters own execution bindings, approvals and uncertain receipts.
+The [Caelis integration guide](caelis-integration.md) records the previous protocol and
+historical verification, not readiness of the replacement. Windows remains unimplemented;
+its future host boundaries are recorded in the [backend/platform plan](backend-platform-plan.md).
 
-The optional host-only `api.TaskProvider` separates the secretary from professional work.
-The Bot MCP delegates to provider-owned task operations; Codex maps them to App Server
-thread/turn methods with durable ownership, private per-task workspaces, exact native
-approval routing and finite completion reports. It does not inherit Codex App IPC or
-adopt arbitrary desktop conversations. See [task delegation](task-delegation.md).
+The application implements host-only `api.TaskProvider` on top of `api.WorkRuntime`.
+Codex maps native execution to App Server thread/turn methods, retaining exact targets
+and original request provenance. It does not inherit Codex App IPC or adopt arbitrary
+desktop conversations. See [task delegation](task-delegation.md).
 
 ```text
 Caelis Bot: menu bar + scalable desktop pet + contextual panels
   -> internal backend contract
      -> Codex adapter -> native Codex App Server (first)
-     -> Caelis adapter -> versioned Caelis Host API (implemented)
+     -> Caelis adapter -> generic application API (pending; no legacy fallback)
   -> character behavior -> Three.js -> GLB
 
 Wails / Go: windows, OS integration, process lifetime and byte transport
