@@ -32,13 +32,21 @@ Use Conventional Commit PR titles, for example `feat: add reminders` or `fix: ke
 5. Package the stapled app, mount the DMG and verify the enclosed app. Sign the DMG itself, submit it to Apple, staple its ticket, verify both its signature and Gatekeeper acceptance, then calculate the final SHA-256. Both the app and DMG carry tickets for offline validation.
 6. Upload `Caelis-Bot-X.Y.Z-macos-arm64.dmg` and `.dmg.sha256`. Only after all signature, notarization, Gatekeeper and checksum gates succeed is the draft published. Stable tags become GitHub's latest release; tags containing a prerelease suffix stay prereleases.
 
-A failed build remains a draft. Published release assets are never overwritten by the workflow. To recover a failed draft from the same tag, copy:
+A failed build remains a draft. A notarization submission still `In Progress` is reported as a successful **pending checkpoint**, with `verified=false` and publication skipped. It is not reported as an artifact rejection. Published release assets are never overwritten by the workflow. To start or rebuild a failed draft from the same tag, copy:
 
 ```sh
 gh workflow run release.yml --repo caelis-labs/caelis-bot --ref main -f tag=v0.1.0
 ```
 
 Substitute the failed draft's exact tag. The recovery workflow rejects a tag outside main, a version mismatch or a release that is already published. It can replace incomplete assets **in a draft**. The app retains the tagged source even if main has moved. Recovery can apply a reviewed fix to signing/packaging tools from the immutable workflow commit without rebuilding app code from main or moving the release tag. Packaging checks the app version against the requested tag; the credential-free build job checks that tag against its own package.json.
+
+When a run retained a `notarization-checkpoint`, resume its exact signed artifacts and Apple submission IDs instead of signing or uploading them again:
+
+```sh
+gh workflow run release.yml --repo caelis-labs/caelis-bot --ref main -f tag=v0.1.0 -f resume_run_id=COMPLETED_RELEASE_RUN_ID
+```
+
+The source run must be a completed main-branch Release DMG or release-please run in this repository, from a commit in main's history. Recovery verifies the checkpoint's tag, source SHA and team; the native signature; the submitted bytes' SHA-256; and the digest in Apple's acceptance log. The tagged build check still runs, but its new unsigned app is replaced by the retained signed app. Existing App/DMG submissions are queried and, if necessary, waited on; they are not resubmitted. Stapling modifies only copies of the submitted archives. A missing/expired checkpoint cannot reconstruct the old signed bytes from a submission ID alone; inspect that submission's result before starting a fresh build.
 
 For the v0.1.0 promotion, set `prerelease` to `false` while retaining the prerelease versioning strategy; it promotes the current preview to its stable version. Keep version/package/changelog changes in the release-please version PR. Do not hand-edit published tags or bump the manifest independently.
 
@@ -55,7 +63,7 @@ PR CI has read-only permissions and no App or Apple secrets. Both the build and 
 
 ## Developer ID signing and Apple notarization
 
-Public releases always require Developer ID Application signing and Apple notarization. There is no feature switch or ad-hoc fallback. An expired/wrong-type certificate, team mismatch, missing credentials/timestamp/hardened runtime, rejected or timed-out notarization, invalid staple, or Gatekeeper rejection stops publication. Existing preview releases remain historical, unnotarized artifacts.
+Public releases always require Developer ID Application signing and Apple notarization. There is no feature switch or ad-hoc fallback. An expired/wrong-type certificate, team mismatch, missing credentials/timestamp/hardened runtime, rejected or pending notarization, invalid staple, or Gatekeeper rejection stops publication. Pending Apple processing preserves a resumable checkpoint; rejection, unknown status, credential and transport errors fail the job. Existing preview releases remain historical, unnotarized artifacts.
 
 The `macos-release` GitHub environment is restricted to `main`. Configure:
 
@@ -83,7 +91,7 @@ The signing job downloads only the app built by its own preceding job; it does n
 
 `script/verify-signature.sh` checks Apple trust, the Developer ID Application certificate OID, team ID, artifact identifier, secure timestamp and (for the app) hardened runtime. The bundle currently contains one executable and no embedded helpers. It needs no hardened-runtime exceptions: WebKit runs out of process. New nested executable code requires an explicit signing plan; `--deep` is used for verification, never signing.
 
-Notarization saves the upload receipt before waiting up to 20 minutes for each submission. A timeout queries that same submission and leaves the draft unpublished. Receipts and available Apple diagnostic logs are retained as a 14-day workflow artifact; credentials are not. The unsigned build artifact expires after one day. Only the final signed, stapled DMG and its final checksum enter the public release.
+Notarization saves the upload receipt before waiting up to **60 minutes per submission**. The signing/packaging job allows **150 minutes** for the App and DMG waits plus packaging, validation and checkpoint upload; its temporary keychain remains unlocked for that bounded job lifetime. After waiting, the same submission is queried again: `Accepted` continues even if the wait command timed out, `Invalid`/`Rejected` prints Apple's log and fails, and `In Progress` preserves a pending checkpoint and skips publication. The signed App ZIP, signed DMG when available, byte hashes, release context, receipts and Apple logs are retained together for **14 days**; credentials never enter the artifact. The unsigned build artifact expires after one day. Only the final signed, stapled DMG and its final checksum enter the public release.
 
 If Apple is delayed, query the existing submission before recovering the draft:
 
@@ -91,7 +99,7 @@ If Apple is delayed, query the existing submission before recovering the draft:
 gh workflow run notarization-status.yml --repo caelis-labs/caelis-bot --ref main -f submission_id=APPLE_SUBMISSION_UUID
 ```
 
-Replace `APPLE_SUBMISSION_UUID` with the ID from the release log or receipt. This main-only workflow reads the existing submission with the two notarization secrets in `macos-release`; it does not receive the signing identity, upload another artifact or publish a release. Its run summary and `notarization-status` artifact contain the current status. If the result is `In Progress`, leave the draft unpublished and wait. Once Apple finishes, inspect any rejection log or recover the same draft after `Accepted`. Never overwrite a published release.
+Replace `APPLE_SUBMISSION_UUID` with the ID from the release log or receipt. This main-only workflow reads the existing submission with the two notarization secrets in `macos-release`; it does not receive the signing identity, upload another artifact or publish a release. Its run summary and `notarization-status` artifact contain the current status. If the result is `In Progress`, leave the draft unpublished; use `resume_run_id` to wait again with the retained artifacts. Once Apple finishes, inspect any rejection log or resume the same checkpoint after `Accepted`. Never overwrite a published release.
 
 ## Local build and signing
 

@@ -14,14 +14,25 @@ on:
       tag:
         required: true
         type: string
+      resume_run_id:
+        description: Completed main release run with a notarization checkpoint
+        required: false
+        default: ''
+        type: string
   workflow_dispatch:
     inputs:
       tag:
         description: Existing release-please draft tag to build or recover
         required: true
         type: string
+      resume_run_id:
+        description: Resume signed artifacts and Apple IDs from this release run (optional)
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: release-dmg-${{ inputs.tag }}
   cancel-in-progress: false
@@ -42,8 +53,11 @@ jobs:
         id: source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
           sha=$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")
           git merge-base --is-ancestor "$sha" origin/main
           git checkout --detach "$sha"
@@ -80,18 +94,21 @@ jobs:
     needs: build
     runs-on: macos-14
     environment: macos-release
-    timeout-minutes: 55
+    timeout-minutes: 150
     outputs:
       verified: ${{ steps.verify.outputs.verified }}
     env:
       BOT_RELEASE_TAG: ${{ inputs.tag }}
       BOT_SIGNING_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      BOT_RELEASE_SOURCE_SHA: ${{ needs.build.outputs.sha }}
+      BOT_NOTARY_WAIT_TIMEOUT: 60m
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Operational signing fixes must not require moving an immutable app tag.
           # The downloaded app is still built and verified against the tag's SHA.
           ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -107,6 +124,20 @@ jobs:
           ditto -x -k dist/unsigned-app.zip dist
           test "$(/usr/libexec/PlistBuddy -c 'Print CaelisSourceCommit' 'dist/Caelis Bot.app/Contents/Info.plist')" = "$RELEASE_SHA"
           bash script/verify-signature.sh 'dist/Caelis Bot.app' adhoc
+      - name: Restore a trusted notarization checkpoint
+        if: inputs.resume_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RESUME_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GH_REPO/actions/runs/$RESUME_RUN_ID" > "$RUNNER_TEMP/resume-run.json"
+          source_sha=$(node script/verify-notarization-run.mjs "$RUNNER_TEMP/resume-run.json" "$GH_REPO" "$RESUME_RUN_ID")
+          git merge-base --is-ancestor "$source_sha" origin/main
+          gh run download "$RESUME_RUN_ID" --repo "$GH_REPO" --name notarization-checkpoint --dir dist/notarization
       - name: Sign, notarize and verify app and DMG
         id: verify
         env:
@@ -114,9 +145,9 @@ jobs:
           BOT_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
           BOT_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
           BOT_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+          BOT_NOTARY_RESUME: ${{ inputs.resume_run_id != '' && '1' || '0' }}
         run: |
           bash script/sign-release.sh
-          echo "verified=true" >> "$GITHUB_OUTPUT"
       - name: Remove any signing material after cancellation or failure
         if: always()
         shell: bash
@@ -126,15 +157,16 @@ jobs:
             security delete-keychain "$directory/release.keychain-db" >/dev/null 2>&1 || true
             rm -rf "$directory"
           done
-      - name: Preserve notarization receipts
+      - name: Preserve signed artifacts and notarization receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: notarization-receipts
-          path: dist/notarization/*.json
+          name: notarization-checkpoint
+          path: dist/notarization/
           if-no-files-found: ignore
           retention-days: 14
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.verify.outputs.verified == 'true'
         with:
           name: release-dmg
           path: |
@@ -144,6 +176,7 @@ jobs:
           retention-days: 14
   publish:
     needs: [build, package]
+    if: needs.package.outputs.verified == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
