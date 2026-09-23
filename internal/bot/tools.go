@@ -177,6 +177,11 @@ func toolSpecs() []any {
 		return map[string]any{"type": "string", "description": description}
 	}
 	schema := func(properties map[string]any, required ...string) map[string]any {
+		// JSON Schema requires an array when the keyword is present. A nil
+		// variadic slice otherwise becomes null for no-argument tools.
+		if required == nil {
+			required = []string{}
+		}
 		return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
 	}
 	return append(personalSpecs(), []any{

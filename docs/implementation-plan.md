@@ -161,12 +161,12 @@ P2 验收场景应是普通用户的目标，例如“根据这个附件整理�
 
 ## P5 — Caelis adapter
 
-当前 adapter 已改为通用应用协议，固定 Core `4a3c059`；旧 Bot Mode 不恢复。
+当前 adapter 已改为通用应用协议，固定正式 Core v0.61.0 `5e2546f`；旧 Bot Mode 不恢复。
 Bot 持有身份、目录、任务账本、提醒与报告，Caelis 持有原生执行、审批和版本化配置。
 隔离 Host + 合成 provider 已完成 Notebook 原生读写、同 Turn 热配置、并行 worker 取消/恢复、
 后台授权及文件上传/下载。完整范围见 [联调报告](caelis-application-acceptance.md)。
-MiMo / Luna（含 Fast）真实模型路径见 [实测报告](caelis-live-acceptance.md)。
-后续按原生 UI、资源未知回执恢复、worker 产物报告分别收尾，不能将协议测试等同发行验收。
+MiMo / Luna（含 Fast）、完整产品工具目录及原生设置/聊天/模型切换见 [正式版报告](caelis-release-acceptance.md)。
+后续按其余原生 UI、资源未知回执恢复、worker 产物报告分别收尾，不能将协议测试等同完整发行验收。
 共享装配与跨平台边界见 [能力契约](backend-contract.md)，Windows 保持独立后续适配。
 
 ## 本地开发与交接纪律

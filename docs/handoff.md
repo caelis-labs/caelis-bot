@@ -11,11 +11,13 @@
 `internal/tasks` 持有产品目录、账本与汇报；Codex adapter 仅映射 native 执行/审批/回执。
 `bot.json` 跨 Runtime 保留身份，计划和在途工作仍绑定原 Runtime。Notebook/Memory 的本地增量见文末。
 
-Caelis 通用应用基线 `4a3c05964d6d240ec55414e189205930588ef099` 已完成本仓库适配，
+Caelis 正式 v0.61.0 基线 `5e2546f4954eab1d0f8fcfcc57f54939ad465125` 已完成本仓库适配，
 公开 HTTP/SSE、同 Turn 热配置、原生 Notebook、worker、后台 grant 和资源传输通过隔离 Host 验收。
 MiMo 与 GPT-6 Luna（含 Fast）真实模型验收已通过，修复了空闲头缺少 Turn target 导致漏刷 INDEX 的问题。
-先读 [实测报告](caelis-live-acceptance.md) 与 [接入契约](caelis-integration.md)。旧 Bot Mode 不恢复；
-后续优先补原生 GUI、产物报告和回执恢复缺口。Core 尚未发布，不自动合并 Release PR #68。
+2026-09-24 已核对用户安装的正式二进制与官方资产一致，原生设置、身份写入、聊天和 Luna Fast 切换通过。
+GUI 联调发现并修复产品工具目录 `required:null` 和失败原因未显示的问题；真实模型夹具现包含完整产品目录。
+先读 [正式版联调报告](caelis-release-acceptance.md) 与 [接入契约](caelis-integration.md)。旧 Bot Mode 不恢复；
+后续优先补产物报告、未知回执恢复及其余产品/发行验收。
 
 Runtime Setup、头像图标、显式切换、AppKit 点击/拖动与窗口唤回等已有功能保留。
 Developer ID 工作单独保存为本地 stash `deferred: Developer ID signing pipeline (2026-09-23)`；

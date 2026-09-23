@@ -1,9 +1,9 @@
 # Architecture and internal backend contract
 
 Status: application-owned Bot foundation implemented locally; Codex execution connected.
-Caelis generic application protocol is connected against baseline 4a3c059; legacy Bot Mode stays disabled.
-Isolated Host/native-tool and real-model acceptance pass; native GUI acceptance for this Core baseline remains pending.
-This is not a released interoperability standard.
+Caelis generic application protocol is connected against official v0.61.0 (5e2546f); legacy Bot Mode stays disabled.
+Installed release identity, isolated Host/native tools, real models and scoped macOS GUI acceptance pass;
+see [release acceptance](caelis-release-acceptance.md) for remaining product and distribution limits.
 
 2026-09-23: [Bot product-host architecture](bot-platform-architecture.md) and the
 [generic Runtime extension proposal](runtime-extension-contract.md) define the target.
