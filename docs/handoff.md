@@ -1,6 +1,6 @@
 # 继续开发
 
-当前主线是 Caelis Bot 的产品功能和 macOS 预发布质量，先读 `product.md`、`architecture.md`、
+当前主线是 Caelis Bot 的产品功能和 macOS 正式版质量，先读 `product.md`、`architecture.md`、
 `roadmap.md`。产品已具备真实 Codex 工作闭环，不从早期工具链试验重新开始。
 
 最新切片是[秘书与专业任务分离](task-delegation.md)：专业工作经 Bot 自有任务接口进入
@@ -24,8 +24,11 @@ GUI 联调发现并修复产品工具目录 `required:null` 和失败原因未�
 Caelis team 公开协议后续跟踪 [#74](https://github.com/caelis-labs/caelis/issues/74)。
 
 Runtime Setup、头像图标、显式切换、AppKit 点击/拖动与窗口唤回等已有功能保留。
-Developer ID 工作单独保存为本地 stash `deferred: Developer ID signing pipeline (2026-09-23)`；
-当前产品工作树使用原有 ad-hoc 预览签名。完整验证与限制以 preparation-status 为准；尚未发布。
+2026-09-24 [v0.1.0 正式版](https://github.com/caelis-labs/caelis-bot/releases/tag/v0.1.0)已发布。
+Developer ID 改动已恢复并提交；公开 DMG 及其 App 的签名、公证票据、Gatekeeper、
+校验和与源码提交已在本机重新下载验证。原 stash 仅作备份，不能再次当作待实施改动。
+CI 单次公证等待 60 分钟，打包作业 150 分钟；仍在处理时保留签名原件及提交 ID，
+跳过发布，可使用 `resume_run_id` 继续。详见[发行流程](release.md)与 preparation-status。
 
 [能力契约](backend-contract.md)定义产品装配和 provider 分支，
 [平台计划](backend-platform-plan.md)保留 Windows 落点与历史审查。Windows 原生实现仍在
@@ -54,8 +57,8 @@ macOS 完整发行后进行；不能把共享核心交叉编译当作 Windows �
 与 GPT-6 Luna 已在新协议通过；需显式提供隔离 store/model，Fast 与自管 Host 参数见实测报告，不在日常 CI 中执行。
 测试通过不代表所有角度无穿模、双屏/Spaces/全屏都已验收。
 
-继续优先处理预发布可用性、轻量桌面行为和真实演示；角色资产经私库更新 PR 独立迭代。
-Developer ID、公证及 Windows 原生适配后置。保持历史记录和当轮验证的区别。
+继续优先处理正式版可用性、轻量桌面行为和真实演示；角色资产经私库更新 PR 独立迭代。
+Developer ID 和公证已接入正式发行；Windows 原生适配仍未实现。保持历史记录和当轮验证的区别。
 
 ## 2026-09-23 Notebook / Memory 收敛
 
@@ -67,5 +70,5 @@ Developer ID、公证及 Windows 原生适配后置。保持历史记录和当�
 
 旧「记忆与笔记」UI、专用笔记 CRUD 与 Facts 写入口已移除，已有数据一次性复制为日期笔记，
 原数据保留。嵌入 Memory v0.6.1 的线索工具支持 recall/remember/correct/forget。
-路径、边界和验收见 [个人空间](personal-memory.md)。Developer ID 仍在独立 stash。
+路径、边界和验收见 [个人空间](personal-memory.md)。该历史检查点中 Developer ID 尚在独立 stash，现已恢复发行。
 Caelis 新协议已完成真实模型 Notebook 读写、INDEX 更新和重启后回读；跨 Runtime 资料迁移未在本轮重验。
