@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0](https://github.com/caelis-labs/caelis-bot/compare/v0.1.0-preview.2...v0.1.0) (2026-09-23)
+
+
+### Features
+
+* prepare Caelis Bot v0.1.0 with signed and notarized releases ([#10](https://github.com/caelis-labs/caelis-bot/issues/10)) ([7b769a8](https://github.com/caelis-labs/caelis-bot/commit/7b769a8ce464dcf826602becc6613c8b25f20625))
+
 ## [0.1.0-preview.2](https://github.com/caelis-labs/caelis-bot/compare/v0.1.0-preview.1...v0.1.0-preview.2) (2026-09-23)
 
 
