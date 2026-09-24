@@ -1,3 +1,4 @@
+import {defaultModel} from './shipped-character.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
@@ -14,7 +15,7 @@ test('native-rate drag samples drive a bounded reversible gait without transform
   const {DragRunPose,DragMotion}=await import(pathToFileURL(join(dir,'drag-run.mjs')));
   const {PoseLayer,BehaviorDirector}=await import(pathToFileURL(join(dir,'behavior.mjs')));
   const {CharacterAnimation}=await import(pathToFileURL(join(dir,'animation.mjs')));
-  const bytes=readFileSync('frontend/public/models/caelis-soft-outfit-v1.glb');
+  const bytes=readFileSync(defaultModel);
   const gltf=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
   const player=new CharacterAnimation(gltf.scene,gltf.animations),pose=new PoseLayer(gltf.scene),run=new DragRunPose(gltf.scene),director=new BehaviorDirector(()=>.5);
   assert.ok(run.supported);

@@ -44,7 +44,7 @@ export class NearGesturePose {
    }
   }
  }
- apply(dt:number,frame:PerformanceFrame|undefined,enabled:boolean,run?:{amount:number;phase:number;pace:number;airplane?:boolean},stretch=0){
+ apply(dt:number,frame:PerformanceFrame|undefined,enabled:boolean,run?:{amount:number;phase:number;pace:number;airplane?:boolean},stretch=0,prop=0){
   this.influence+=(Number(enabled)-this.influence)*(1-Math.exp(-dt/.14));
   const influence=run?run.amount:this.influence;
   const anatomical=this.root.userData.desktopPetArmMotion?.version===1;
@@ -112,6 +112,12 @@ export class NearGesturePose {
      const turn=anatomical?Math.min(1,this.root.userData.desktopPetArmMotion.wristTurnLimit/Math.max(1e-6,desired.angleTo(endpointRotation))):1;
      desired.slerp(endpointRotation,frame.amount*turn);
     }
+   }
+   const presentation=this.root.userData.desktopPetFingerRig?.gripBones?.[arm.side===1?'L':'R']?.presentation;
+   const heldPalm=presentation?.handRotation;
+   if(prop>0&&arm.side===-1&&presentation?.version===1&&presentation.mode==='hover'&&Array.isArray(heldPalm)&&heldPalm.length===4&&heldPalm.every(Number.isFinite)){
+    const rotation=new Quaternion().fromArray(heldPalm);
+    if(rotation.lengthSq()>1e-8)desired.slerp(rotation.normalize(),Math.min(1,prop));
    }
    if(!arm.localHand&&run){desired.slerp(arm.neutralHand,forward*.4);}
    else if(!arm.localHand&&frame?.gesture&&frame.amount>0){

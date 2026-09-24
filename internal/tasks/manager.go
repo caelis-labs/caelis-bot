@@ -20,12 +20,13 @@ import (
 )
 
 type record struct {
-	View        api.Task `json:"view"`
-	Provider    string   `json:"provider"`
-	Fingerprint string   `json:"fingerprint,omitempty"`
-	Execution   string   `json:"execution,omitempty"`
-	ReportID    string   `json:"reportId,omitempty"`
-	ReportState string   `json:"reportState,omitempty"`
+	OriginalPrompt string   `json:"originalPrompt,omitempty"`
+	View           api.Task `json:"view"`
+	Provider       string   `json:"provider"`
+	Fingerprint    string   `json:"fingerprint,omitempty"`
+	Execution      string   `json:"execution,omitempty"`
+	ReportID       string   `json:"reportId,omitempty"`
+	ReportState    string   `json:"reportState,omitempty"`
 }
 type state struct {
 	Version int                `json:"version"`
@@ -137,6 +138,9 @@ func (m *Manager) refresh() error {
 			return errors.New("任务标识与其他运行时冲突")
 		}
 		r.View = v.Task
+		if r.OriginalPrompt == "" {
+			r.OriginalPrompt = v.OriginalPrompt
+		}
 		if v.ExecutionKey != "" && (r.Execution != v.ExecutionKey || r.ReportID == "") {
 			r.Execution = v.ExecutionKey
 			r.ReportID = "task-report-" + hash(m.provider, v.Task.ID, v.ExecutionKey)
@@ -233,7 +237,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	if e := m.work.WorkAdmission(ctx); e != nil {
 		return api.Task{}, e
 	}
-	r := &record{Provider: m.provider, Fingerprint: fp, View: api.Task{ID: id, Title: in.Title, Workspace: filepath.Join(m.root, id), Status: "unknown", Outcome: "unknown"}}
+	r := &record{Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Title: in.Title, Workspace: filepath.Join(m.root, id), Status: "unknown", Outcome: "unknown"}}
 	m.mu.Lock()
 	m.state.Records[id] = r
 	e := m.write()

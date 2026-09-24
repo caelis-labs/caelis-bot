@@ -44,6 +44,7 @@ func connectExisting(ctx context.Context, path string) (connection, error) {
 }
 
 type socketConnection struct {
+	endpoint string
 	net.Conn
 	ws     *websocket.Conn
 	ctx    context.Context
@@ -62,8 +63,10 @@ func dialExisting(ctx context.Context, path string) (*socketConnection, error) {
 	life, cancel := context.WithCancel(context.Background())
 	conn := websocket.NetConn(life, ws, websocket.MessageText)
 	ws.SetReadLimit(8 * 1024 * 1024)
-	return &socketConnection{Conn: conn, ws: ws, ctx: life, cancel: cancel}, nil
+	return &socketConnection{Conn: conn, ws: ws, ctx: life, cancel: cancel, endpoint: "unix://" + path}, nil
 }
+
+func (s *socketConnection) terminalEndpoint() string { return s.endpoint }
 
 // The shared transport carries one JSON object per text frame, not JSONL. Add a
 // delimiter only at this adapter boundary so the existing correlated RPC reader

@@ -1,10 +1,10 @@
+import './style.css';
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { desktop } from './desktop';
 import { Panel, History } from './Panel';
 import { Bubble } from './Bubble';
 import { Settings } from './Settings';
-import './style.css';
 
 function Pet() {
   const canvas = useRef<HTMLCanvasElement>(null);

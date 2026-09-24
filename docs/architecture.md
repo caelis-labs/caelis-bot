@@ -42,6 +42,22 @@ Caelis Bot: menu bar + scalable desktop pet + contextual panels
 Wails / Go: windows, OS integration, process lifetime and byte transport
 ```
 
+## Runtime settings authority
+
+The settings renderer presents a single Runtime workspace: models and Team, grouped
+connections, and advanced installation controls. `api.RuntimeConfigurationController`
+is a user-only native bridge. It uses Host authority for explicit configuration;
+application execution credentials and model tools cannot call it. Shared writes keep
+the displayed configuration revision and the native command receipt. Team bindings use
+profile IDs, while main and conversation models use public selectors.
+
+`caelis.Connections` retains bounded, temporary interaction state for installation,
+ACP preparation and OAuth. Native commands, preparation digests and credentials remain
+owned by Caelis. The existing model connection command optionally streams OAuth progress;
+one-use input is tied to its principal and challenge. Long waits in the renderer observe
+this native flow and never resend its command. Unknown effects require reconciliation.
+Preview fixtures have a separate development entry and are absent from the shipped bundle.
+
 ## Native surfaces and ownership
 
 The target is a menu-bar application with several small surfaces, not one permanent
@@ -552,6 +568,17 @@ The adapter records native root/child relationships. Worker messages remain inte
 worker decisions keep their own thread/turn/request target. Explicit Stop interrupts
 owned active turns before cleaning their terminals. Native worker communication stays
 in Codex, without a second orchestration protocol or UI task/session manager.
+
+The native host projects `TaskPreview` (opaque product handle and original assignment)
+into nonactivating AppKit task bubbles. Hover/collapse has no backend effect; explicit
+click resolves an owned `WorkTerminalProvider` target and launches the user's external
+terminal. New owned Codex processes expose a private Unix socket; a native TUI attaches
+to the same App Server with `--remote … resume …`. The adapter remains subscribed across
+idle and human-created turns, with one resume on reconnect and no worker polling loop.
+The renderer never receives a shell command or native thread ID. Caelis terminal attach
+remains an optional adapter capability, not a presumed protocol equivalence. See
+[task delegation](task-delegation.md) for lifecycle and verification boundaries.
+
 
 Three presentation surfaces share theme tokens and one host draft. Approval expansion
 changes only the bubble's explicit keyboard eligibility. Result acknowledgement is

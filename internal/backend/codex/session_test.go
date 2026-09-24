@@ -51,7 +51,7 @@ func sessionPair(t *testing.T, mode string) (*Session, *sessionFixture) {
 		f.connections++
 		f.mu.Unlock()
 		go f.serve(b)
-		return &Client{newTransportOptions(a, nil, true)}, nil
+		return &Client{rpc: newTransportOptions(a, nil, true)}, nil
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -124,7 +124,7 @@ func (f *sessionFixture) serve(peer net.Conn) {
 			}
 			f.mu.Unlock()
 			result = map[string]any{"thread": nativeThread{ID: "thread-native", Turns: history}, "model": "native-default"}
-			if m.Method == "thread/read" {
+			if m.Method == "thread/read" || m.Method == "thread/resume" {
 				var params struct {
 					ThreadID string `json:"threadId"`
 				}

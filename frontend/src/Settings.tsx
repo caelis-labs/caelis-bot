@@ -8,7 +8,7 @@ import { ExecutionSettings } from './ExecutionSettings';
 import { Maintenance } from './Maintenance';
 import { SettingGroup, SettingRow } from './SettingsUI';
 
-const sections = [ ['general','常规'], ['appearance','外观'], ['runtime','连接'], ['execution','模型与权限'], ['storage','存储'], ['diagnostics','诊断'], ['updates','关于'] ] as const;
+const sections = [ ['general','常规'], ['appearance','外观'], ['runtime','运行时与模型'], ['execution','权限'], ['storage','存储'], ['diagnostics','诊断'], ['updates','关于'] ] as const;
 type Section = typeof sections[number][0] | 'setup';
 type Update = { state:string; current:string; latest:string; message:string };
 type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean };
@@ -31,7 +31,7 @@ export function Settings() {
   <div className="settings-content" ref={content}>
    <div className="settings-page" hidden={section!=='execution'}>{(executionVisited||section==='execution')&&<ExecutionSettings/>}</div>
    <div className="settings-page" key={section} hidden={section==='execution'}>
-   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?<RuntimeSettings onModels={()=>setSection('execution')}/>:section==='execution'?null:section==='storage'?<Maintenance key="storage" storage/>:section==='diagnostics'?<Maintenance key="diagnostics" storage={false}/>:<Updates key={opened} version={version}/>}
+   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?<RuntimeSettings/>:section==='execution'?null:section==='storage'?<Maintenance key="storage" storage/>:section==='diagnostics'?<Maintenance key="diagnostics" storage={false}/>:<Updates key={opened} version={version}/>}
    </div>
   </div>
  </main>;

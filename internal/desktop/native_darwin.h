@@ -2,6 +2,8 @@
 typedef struct { double x,y,width,height; } BotRect;
 void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop, uintptr_t handle, unsigned char *icon, int iconLength);
 void bot_bubble(void *host, int visible);
+void bot_tasks(void *host, char *json);
+void bot_task_failure(void *host, char *message);
 int bot_screens(BotRect *rects, int capacity);
 void bot_apply(void *host, double x, double y, double scale, int visible);
 void bot_panel(void *host, int visible);

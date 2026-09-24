@@ -23,13 +23,25 @@ type WorkStart struct {
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque
 // native generation, never a product-generated inference from assistant prose.
 type WorkState struct {
-	Task          Task
-	ExecutionKey  string
-	StopRequested bool
+	Task           Task
+	OriginalPrompt string
+	ExecutionKey   string
+	StopRequested  bool
 	// Existing native bindings may contain a completion receipt from before the
 	// product coordinator existed. Import it once, so upgrading cannot re-report.
 	PreviousReportID, PreviousReportState string
 	StartFingerprint                      string
+}
+
+// WorkTerminalProvider exposes an owned native target to the host, never a shell
+// command supplied by the model or renderer. Resolving does not start a turn.
+type WorkTerminalProvider interface {
+	WorkTerminal(context.Context, string) (TerminalTarget, error)
+}
+type TerminalTarget struct{ Binary, Endpoint, Thread, Directory, CodexHome string }
+type TaskPreview struct {
+	ID     string `json:"id"`
+	Prompt string `json:"prompt"`
 }
 
 // ReportSubmitter appends a bounded application notice only when idle. It must

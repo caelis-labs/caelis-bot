@@ -10,7 +10,9 @@
 #include "panel_menu_layout.h"
 #import "material_darwin.h"
 #import "pet_input_darwin.h"
+#import "task_dock_darwin.h"
 extern void desktopEvent(uintptr_t handle, int kind, double x, double y, double scale);
+extern void desktopTaskOpen(uintptr_t handle, char *identifier);
 static void bot_js(NSWindow *window, NSString *js);
 
 // Ordinary Spaces and other apps' full-screen Spaces are separate AppKit policies.
@@ -37,6 +39,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property NSWindow *history;
 @property BotInputPanel *bubble;
 @property BOOL bubbleWanted;
+@property BotTaskDock *taskDock;
+@property BOOL tasksBlocked;
 @property BotInputPanel *prop;
 @property BOOL propReady;
 @property NSString *flightID;
@@ -163,6 +167,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     self.interactionStart = NSProcessInfo.processInfo.systemUptime;
     [self cancelPlane]; [self publishContext];
     [self.bubble orderOut:nil];
+    [self updateBubble];
     [self dismissPanel:@"panel-dismiss-drag"];
     [self trace:@"drag-start"];
     [self.pet performWindowDragWithEvent:event];
@@ -310,7 +315,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     NSRect r = self.pet.frame;
     NSMutableArray *screens = [NSMutableArray new];
     for (NSScreen *s in NSScreen.screens) [screens addObject:@{@"frame":NSStringFromRect(s.frame),@"visibleFrame":NSStringFromRect(s.visibleFrame),@"scale":@(s.backingScaleFactor)}];
-    NSDictionary *record = @{@"event":event,@"time":@(NSDate.date.timeIntervalSince1970),@"x":@(r.origin.x),@"y":@(r.origin.y),@"width":@(r.size.width),@"height":@(r.size.height),@"visible":@(self.pet.visible),@"petOnActiveSpace":@(self.pet.onActiveSpace),@"petOcclusionVisible":@((self.pet.occlusionState & NSWindowOcclusionStateVisible)!=0),@"inputOnActiveSpace":@(self.pet.onActiveSpace),@"singlePetSurface":@YES,@"panelVisible":@(self.panel.visible),@"panelOnActiveSpace":@(self.panel.onActiveSpace),@"panelFrame":NSStringFromRect(self.panel.frame),@"panelContentHeight":@(self.panelContentHeight),@"panelMenuHeight":@(self.panelMenuHeight),@"panelLevel":@(self.panel.level),@"petLevel":@(self.pet.level),@"panelKey":@(self.panel.keyWindow),@"panelResponder":NSStringFromClass(self.panel.firstResponder.class)?:@"none",@"doubleClickInterval":@(NSEvent.doubleClickInterval),@"petKey":@(self.pet.keyWindow),@"bubbleVisible":@(self.bubble.visible),@"bubbleKey":@(self.bubble.keyWindow),@"bubbleFrame":NSStringFromRect(self.bubble.frame),@"frontApp":NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier ?: @"",@"activationPolicy":@(NSApp.activationPolicy),@"propWindowNumber":@(self.prop.windowNumber),@"propVisible":@(self.prop.visible),@"propKey":@(self.prop.keyWindow),@"propClickThrough":@(self.prop.ignoresMouseEvents),@"propFrame":NSStringFromRect(self.prop.frame),@"maskBytes":@(self.mask.length),@"screens":screens};
+    NSDictionary *record = @{@"event":event,@"time":@(NSDate.date.timeIntervalSince1970),@"x":@(r.origin.x),@"y":@(r.origin.y),@"width":@(r.size.width),@"height":@(r.size.height),@"visible":@(self.pet.visible),@"petOnActiveSpace":@(self.pet.onActiveSpace),@"petOcclusionVisible":@((self.pet.occlusionState & NSWindowOcclusionStateVisible)!=0),@"inputOnActiveSpace":@(self.pet.onActiveSpace),@"singlePetSurface":@YES,@"panelVisible":@(self.panel.visible),@"panelOnActiveSpace":@(self.panel.onActiveSpace),@"panelFrame":NSStringFromRect(self.panel.frame),@"panelContentHeight":@(self.panelContentHeight),@"panelMenuHeight":@(self.panelMenuHeight),@"panelLevel":@(self.panel.level),@"petLevel":@(self.pet.level),@"panelKey":@(self.panel.keyWindow),@"panelResponder":NSStringFromClass(self.panel.firstResponder.class)?:@"none",@"doubleClickInterval":@(NSEvent.doubleClickInterval),@"petKey":@(self.pet.keyWindow),@"taskDockWindowNumber":@(self.taskDock.window.windowNumber),@"taskDockVisible":@(self.taskDock.window.visible),@"taskDockFrame":NSStringFromRect(self.taskDock.window.frame),@"taskCount":@(self.taskDock.count),@"bubbleVisible":@(self.bubble.visible),@"bubbleKey":@(self.bubble.keyWindow),@"bubbleFrame":NSStringFromRect(self.bubble.frame),@"frontApp":NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier ?: @"",@"activationPolicy":@(NSApp.activationPolicy),@"propWindowNumber":@(self.prop.windowNumber),@"propVisible":@(self.prop.visible),@"propKey":@(self.prop.keyWindow),@"propClickThrough":@(self.prop.ignoresMouseEvents),@"propFrame":NSStringFromRect(self.prop.frame),@"maskBytes":@(self.mask.length),@"screens":screens};
     NSData *data = [NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingSortedKeys error:nil];
     if (![NSFileManager.defaultManager fileExistsAtPath:path]) [NSFileManager.defaultManager createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
     NSFileHandle *file = [NSFileHandle fileHandleForWritingAtPath:path];
@@ -376,6 +381,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 }
 
 - (void)updateBubble {
+    [self.taskDock placeWithPet:self.pet.frame bounds:(self.pet.screen ?: NSScreen.mainScreen).visibleFrame visible:self.visible && !self.dragging && !self.panel.visible && !self.history.keyWindow && !self.bubble.interactive && !self.tasksBlocked];
     if (!self.visible || !self.bubbleWanted || self.dragging || self.panel.visible || self.history.keyWindow) {
         [self.bubble orderOut:nil]; return;
     }
@@ -483,6 +489,9 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.prop.level=NSFloatingWindowLevel;host.prop.hidesOnDeactivate=NO;host.prop.releasedWhenClosed=NO;
     host.prop.collectionBehavior=bot_space_behavior(YES);host.prop.ignoresMouseEvents=YES;
     __weak BotHost *weak = host;
+    host.taskDock=[BotTaskDock new];
+    host.taskDock.openTask=^(NSString *identifier){if(weak.handle)desktopTaskOpen(weak.handle,(char *)identifier.UTF8String);};
+    host.taskDock.gesture=^(NSString *name){if(weak.handle)bot_gesture((__bridge void *)weak,(char *)name.UTF8String);};
     BotPetInputView *view = [[BotPetInputView alloc] initWithFrame:surface.bounds];
     host.inputView = view;
     view.autoresizingMask = NSViewWidthSizable|NSViewHeightSizable;
@@ -657,6 +666,7 @@ void bot_destroy(void *pointer) {
     [host dismissMenu:@"menu-dismiss-shutdown"];
     [host cancelPlane]; [host.contextTimer invalidate];
     [host.inputView cancelInteraction];
+    [host.taskDock stop];
     host.handle = 0;
     if(host.shortcut) UnregisterEventHotKey(host.shortcut);
     if(host.shortcutHandler) RemoveEventHandler(host.shortcutHandler);
@@ -737,8 +747,20 @@ void bot_activity(void *pointer, char *activity) {
     BotHost *host = (__bridge BotHost *)pointer;
     NSString *state = [NSString stringWithUTF8String:activity];
     if (![@[@"idle",@"working",@"waiting"] containsObject:state]) return;
+    host.tasksBlocked=[state isEqualToString:@"waiting"]; [host updateBubble];
     if (![state isEqualToString:@"idle"]) [host cancelPlane];
     bot_js(host.pet,[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('pet-activity',{detail:'%@'}))",state]);
+}
+
+void bot_tasks(void *pointer,char *json) {
+    BotHost *host=(__bridge BotHost *)pointer;
+    NSData *data=[[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding];
+    id tasks=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    [host.taskDock setTasks:[tasks isKindOfClass:NSArray.class] ? tasks : @[]];
+    [host updateBubble]; [host trace:@"task-bubbles-update"];
+}
+void bot_task_failure(void *pointer,char *message) {
+    [((__bridge BotHost *)pointer).taskDock showFailure:[NSString stringWithUTF8String:message]];
 }
 
 // Carbon hotkeys are system registrations; no keyboard surveillance permission.

@@ -37,7 +37,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any) (wire.C
 			oldHash = digest(old.Body)
 		}
 		if old.Path != path || oldHash != hash {
-			return wire.CommandResult{}, errors.New("操作标识已用于不同请求")
+			return wire.CommandResult{OperationId: op, Outcome: "conflicted"}, errors.New("操作标识已用于不同请求")
 		}
 		return wire.CommandResult{OperationId: op, Outcome: wire.Outcome(old.Outcome), Resource: &wire.CommandResource{Ref: pointer(old.Resource)}}, nil
 	}
@@ -70,7 +70,9 @@ func (s *Session) command(ctx context.Context, op, path string, req any) (wire.C
 			s.mu.Lock()
 			j := s.state.Operations[op]
 			j.Outcome = "rejected"
-			j.Body = nil
+			if !strings.HasSuffix(path, "/steer") {
+				j.Body = nil
+			}
 			s.state.Operations[op] = j
 			save := s.saveLocked()
 			s.bumpLocked()
@@ -88,13 +90,13 @@ func (s *Session) command(ctx context.Context, op, path string, req any) (wire.C
 	s.mu.Lock()
 	j := s.state.Operations[op]
 	j.Outcome = string(out.Outcome)
-	if j.Outcome != "unknown" {
+	if j.Outcome != "unknown" && !strings.HasSuffix(path, "/steer") {
 		j.Body = nil
 	}
 	if out.Resource != nil {
 		j.Resource = value(out.Resource.Ref)
 	}
-	if value(out.SessionId) != "" && path == "/application/sessions" {
+	if value(out.SessionId) != "" && (path == "/application/sessions" || path == "/application/workers") {
 		j.Resource = value(out.SessionId)
 	}
 	s.state.Operations[op] = j
@@ -122,11 +124,11 @@ func (s *Session) submitGrant(ctx context.Context, in api.Submission, files []ap
 	_, retry := s.state.Operations[in.ID]
 	sid := s.state.Session.SessionId
 	s.mu.Unlock()
-	if !retry && !v.CanSend {
+	if !retry && !v.CanSend && !(source == "user" && v.CanSteer) {
 		receipt.Message = "Caelis 当前不能发送新消息"
 		return receipt, nil
 	}
-	if !retry && s.tools != nil && s.tools.PrepareTurn != nil {
+	if !retry && v.CanSend && s.tools != nil && s.tools.PrepareTurn != nil {
 		if e := s.tools.PrepareTurn(ctx); e != nil {
 			return receipt, e
 		}
@@ -173,7 +175,13 @@ func (s *Session) submitGrant(ctx context.Context, in api.Submission, files []ap
 			req.ContentParts = append(req.ContentParts, wire.PromptContentPart{Type: "text", Text: &text})
 		}
 	}
-	out, e := s.command(ctx, in.ID, "/application/sessions/"+idPath(sid)+"/prompt", req)
+	var out wire.CommandResult
+	var e error
+	if source == "user" && (!retry && v.CanSteer || s.isSteeringRetry(in.ID)) {
+		out, e = s.submitNativeInput(ctx, sid, in.ID, in.Text, req.ContentParts, true)
+	} else {
+		out, e = s.command(ctx, in.ID, "/application/sessions/"+idPath(sid)+"/prompt", req)
+	}
 	receipt.Outcome = productOutcome(out.Outcome)
 	if receipt.Outcome == "" {
 		receipt.Outcome = "unknown"

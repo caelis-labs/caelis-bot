@@ -25,7 +25,7 @@ func setupFixture(t *testing.T, handler func(*Setup, wireMessage, net.Conn)) *Se
 				handler(s, m, conn)
 			}
 		}()
-		return &Client{rpc}, nil
+		return &Client{rpc: rpc}, nil
 	}
 	t.Cleanup(s.Close)
 	return s

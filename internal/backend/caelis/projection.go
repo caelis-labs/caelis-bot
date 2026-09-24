@@ -68,7 +68,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		out.CurrentTurn = observedTurn(v)
 		if s.connected && !value(v.State.Run.Active) {
 			switch value(v.State.Run.Status) {
-			case "completed", "failed", "interrupted":
+			case "completed", "failed", "interrupted", "unknown":
 				out.Phase = value(v.State.Run.Status)
 			case "cancelled":
 				out.Phase = "interrupted"
@@ -110,7 +110,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	if len(out.Approvals) > 0 {
 		out.Phase = "waiting_approval"
 	}
-	unknown := false
+	unknown := v != nil && value(v.State.Run.Status) == "unknown"
 	for _, j := range s.state.Operations {
 		if j.Outcome == "unknown" {
 			unknown = true
@@ -123,7 +123,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	}
 	out.CanSend = s.connected && !s.closed && !unknown && v != nil && !value(v.State.Run.Active) && v.State.Approval.Active == nil
 	// Worker approval does not turn the secretary's input into a steer action.
-	out.CanSteer = false
+	out.CanSteer = s.connected && !s.closed && !unknown && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
 	return out
 }
 
@@ -404,8 +404,14 @@ func (s *Session) pollLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		s.mu.Lock()
+		needed := s.needsRefreshLocked()
+		s.mu.Unlock()
+		var e error
 		s.step.Lock()
-		e := s.refresh(ctx)
+		if needed {
+			e = s.refresh(ctx)
+		}
 		s.step.Unlock()
 		if e != nil && ctx.Err() == nil {
 			_ = s.fail(e)
@@ -515,7 +521,7 @@ func (s *Session) recoverOperations(ctx context.Context) error {
 	c := s.client
 	s.mu.Unlock()
 	for id, j := range ops {
-		if j.Outcome != "unknown" || !strings.HasPrefix(j.Path, "/application/") {
+		if j.Outcome != "unknown" || !(strings.HasPrefix(j.Path, "/application/") || strings.HasSuffix(j.Path, "/steer") || strings.HasSuffix(j.Path, "/prompt")) {
 			continue
 		}
 		var op wire.ApplicationOperation
@@ -533,11 +539,13 @@ func (s *Session) recoverOperations(ctx context.Context) error {
 			continue
 		}
 		j.Outcome = string(op.Outcome)
-		j.Body = nil
+		if !strings.HasSuffix(j.Path, "/steer") {
+			j.Body = nil
+		}
 		if op.Result.Resource != nil {
 			j.Resource = value(op.Result.Resource.Ref)
 		}
-		if j.Path == "/application/sessions" && value(op.Result.SessionId) != "" {
+		if (j.Path == "/application/sessions" || j.Path == "/application/workers") && value(op.Result.SessionId) != "" {
 			j.Resource = value(op.Result.SessionId)
 		}
 		s.mu.Lock()
@@ -553,4 +561,32 @@ func (s *Session) recoverOperations(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Session progress is push-driven. Maintenance only restores a failed stream,
+// renews authority, or reconciles an unresolved operation/one terminal hook.
+func (s *Session) needsRefreshLocked() bool {
+	if !s.connected || s.client == nil || !s.state.Connection.ExpiresAt.After(time.Now().Add(3*time.Minute)) {
+		return true
+	}
+	for _, j := range s.state.Operations {
+		if j.Outcome == "unknown" {
+			return true
+		}
+	}
+	for sid := range s.state.Views {
+		if !s.streams[sid] {
+			return true
+		}
+	}
+	for _, w := range s.state.Workers {
+		if w.Start != nil || !s.streams[w.Binding.SessionId] {
+			return true
+		}
+	}
+	v := s.state.Views[s.state.Session.SessionId]
+	if v == nil {
+		return true
+	}
+	return !value(v.State.Run.Active) && observedTurn(v) != "" && s.state.FinishedTurn != observedTurn(v) && slices.Contains([]string{"completed", "failed", "interrupted", "cancelled"}, value(v.State.Run.Status))
 }

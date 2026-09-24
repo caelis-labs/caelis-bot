@@ -5,6 +5,7 @@ import "sync"
 type nativeEvent struct {
 	kind        int
 	x, y, scale float64
+	text        string
 }
 
 // Native callbacks cannot wait on a service operation that calls back into

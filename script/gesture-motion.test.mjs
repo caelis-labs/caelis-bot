@@ -1,3 +1,4 @@
+import {defaultModel} from './shipped-character.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
@@ -7,12 +8,12 @@ import {build} from 'vite';
 import {Vector3,Quaternion} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 
-for(const asset of ['caelis-soft-outfit-v1'])test(`${asset}: standing gestures bend forward, retain planted soles and recover after interruption`,async()=>{
+for(const asset of [defaultModel])test(`${asset}: standing gestures bend forward, retain planted soles and recover after interruption`,async()=>{
  const dir=mkdtempSync(resolve('.cache/gesture-motion-'));
  try{
   await build({configFile:false,logLevel:'silent',build:{ssr:resolve('frontend/src/character/behavior.ts'),outDir:dir,emptyOutDir:false,rolldownOptions:{output:{entryFileNames:'behavior.mjs'}}}});
   const {PoseLayer,BehaviorDirector}=await import(pathToFileURL(join(dir,'behavior.mjs')));
-  const bytes=readFileSync(`frontend/public/models/${asset}.glb`);
+  const bytes=readFileSync(asset);
   const {scene}=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
   const get=n=>scene.getObjectByName(n),position=n=>get(n).getWorldPosition(new Vector3());
   const pose=new PoseLayer(scene),director=new BehaviorDirector(()=>.5);
@@ -32,8 +33,8 @@ for(const asset of ['caelis-soft-outfit-v1'])test(`${asset}: standing gestures b
     if(previous)points.forEach((p,j)=>assert.ok(p.distanceTo(previous[j])<.035,`${gesture}: joint ${j} jumped ${p.distanceTo(previous[j])} at frame ${i}`));
     previous=points;
     if(i===100){
-     const sides=gesture==='wave'||gesture==='ask'&&asset!=='caelis-costume-v1'?['L']:gesture==='think'?['R']:['L','R'];
-     if(asset!=='caelis-costume-v1'){
+     const sides=gesture==='wave'||gesture==='ask'?['L']:gesture==='think'?['R']:['L','R'];
+     {
       const passive=sides[0]==='L'?'R':'L';
       const s=position('upper_arm'+passive),e=position('forearm'+passive),w=position('hand'+passive);
       assert.ok(e.clone().sub(s).angleTo(w.clone().sub(e))<.35,`${gesture}: passive elbow must remain relaxed`);
@@ -41,7 +42,7 @@ for(const asset of ['caelis-soft-outfit-v1'])test(`${asset}: standing gestures b
      }
      for(const side of sides){
       const shoulder=position('upper_arm'+side),elbow=position('forearm'+side),wrist=position('hand'+side);
-      if(asset!=='caelis-costume-v1'&&gesture==='ask'){
+      if(gesture==='ask'){
        // Low, open-handed inquiry is intentionally below the shoulder.
        assert.ok(wrist.y>elbow.y-.04&&wrist.y<shoulder.y,`${gesture}: low inquiry must reach forward at waist height`);
       }else assert.ok(wrist.y>elbow.y+.05,`${gesture}: raised forearm points down`);
@@ -58,7 +59,7 @@ for(const asset of ['caelis-soft-outfit-v1'])test(`${asset}: standing gestures b
     assert.ok(get(name).quaternion.clone().normalize().angleTo(base.q.clone().normalize())<1e-6,`${gesture}: ${name} rotation accumulated`);
    }
   }
-  if(asset==='caelis-soft-outfit-v1'){
+  {
    // A complete idle stretch must retain the fitted near-body silhouette,
    // including its transition back to breathing (the old path exposed the A-pose).
    pose.rest();pose.settle();director.preview('stretch');

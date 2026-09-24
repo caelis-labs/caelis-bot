@@ -468,9 +468,14 @@ func TestNativeHostIntegration(t *testing.T) {
 			s.mu.Lock()
 			sid := s.state.Workers[id].Binding.SessionId
 			s.mu.Unlock()
-			cfg, err := s.configuration(ctx, sid)
-			if err != nil || !strings.HasSuffix(cfg.Profile.Model, "/gpt-5.4") || value(cfg.Profile.ReasoningEffort) != "high" {
-				t.Fatal("worker did not inherit Runtime model", cfg.Profile.Model, err)
+			var state wire.SessionState
+			if err := host.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil || state.SessionId != sid {
+				t.Fatal("user cannot attach native Worker", err)
+			}
+			key := "CASE_WORKER_" + strings.ToUpper(strings.TrimPrefix(id, "task-"))
+			requests := model.seen(key)
+			if len(requests) == 0 || requests[0]["model"] != "gpt-5.4" {
+				t.Fatal("worker did not inherit Runtime model")
 			}
 		}
 		resident, err := s.Configuration(ctx)

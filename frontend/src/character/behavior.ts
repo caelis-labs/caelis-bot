@@ -134,7 +134,7 @@ export class PoseLayer {
    groundedPose(this.root,-lean*.32,Math.abs(lean)*.12,-lean*.4,0);
    this.rotate('head',0,0,-lean*.9);
   }
-  this.near.apply(dt,quiet||!nearEnabled||b==='stretch'?undefined:performance,nearEnabled,undefined,fittedStretch?stretch:0);
+  this.near.apply(dt,quiet||!nearEnabled||b==='stretch'?undefined:performance,nearEnabled,undefined,fittedStretch?stretch:0,care);
   const gestureWeight=quiet?0:performance?.amount??0;
   if(!anatomical){
    if(performance?.gesture==='think')this.rotate('head',gestureWeight*.065,0,gestureWeight*-.035);

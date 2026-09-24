@@ -120,10 +120,129 @@ export interface Review {
   action: string;
   rationale: string;
 }
+export interface RuntimeAuthMethod {
+  id: string;
+  name: string;
+  description: string;
+  available: boolean;
+  reason: string;
+}
+export interface RuntimeAuthorization {
+  url: string;
+  userCode: string;
+  inputLabel: string;
+  expiresAt: string;
+  canSubmit: boolean;
+}
 export interface RuntimeCheck {
   saved: boolean;
   connected: boolean;
   message: string;
+}
+export interface RuntimeConfiguration {
+  revision: string;
+  main: WorkExecutionSettings;
+  models: Array<ModelOption>;
+  team: RuntimeTeam;
+  connections: Array<RuntimeConnectionGroup>;
+  oauthAvailable: boolean;
+}
+export interface RuntimeConfigurationChange {
+  action: string;
+  id: string;
+  name: string;
+  description: string;
+  selection: WorkExecutionSettings;
+  expectedRevision: string;
+}
+export interface RuntimeConnectChoice {
+  id: string;
+  name: string;
+  description: string;
+  custom: boolean;
+}
+export interface RuntimeConnectionCatalog {
+  choices: Array<RuntimeConnectChoice>;
+  unavailable: string;
+}
+export interface RuntimeConnectionGroup {
+  id: string;
+  name: string;
+  kind: string;
+  detail: string;
+  models: Array<RuntimeConnectionModel>;
+}
+export interface RuntimeConnectionInput {
+  settings: RuntimeSettings | null;
+  kind: string;
+  choice: string;
+  command: string;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  contextWindowTokens: number;
+  maxOutputTokens: number;
+  imageInput: boolean | null;
+  reasoningLevels: Array<string>;
+}
+export interface RuntimeConnectionModel {
+  id: string;
+  name: string;
+  uses: Array<string>;
+  unavailable: boolean;
+}
+export interface RuntimeFlow {
+  id: string;
+  revision: string;
+  sequence: number;
+  stage: string;
+  title: string;
+  message: string;
+  installation: RuntimeInstallation | null;
+  authorization: RuntimeAuthorization | null;
+  launchers: Array<RuntimeConnectChoice>;
+  methods: Array<RuntimeAuthMethod>;
+  models: Array<RuntimeFlowModel>;
+}
+export interface RuntimeFlowAction {
+  id: string;
+  revision: string;
+  action: string;
+  input: RuntimeFlowInput;
+}
+export interface RuntimeFlowInput {
+  destination: string;
+  launcher: string;
+  method: string;
+  code: string;
+  model: string;
+}
+export interface RuntimeFlowModel {
+  id: string;
+  name: string;
+  description: string;
+}
+export interface RuntimeInstallation {
+  destination: string;
+  source: string;
+  platform: string;
+  instructions: string;
+  canInstall: boolean;
+}
+export interface RuntimeMutationResult {
+  operationId: string;
+  outcome: string;
+  message: string;
+}
+export interface RuntimeRole {
+  id: string;
+  modelIds: Array<string>;
+  description: string;
+  system: boolean;
+  custom: boolean;
+  selection: WorkExecutionSettings;
+  inherited: boolean;
+  problem: string;
 }
 export interface RuntimeSettings {
   runtime: string;
@@ -135,6 +254,20 @@ export interface RuntimeStatus {
   path: string;
   version: string;
   message: string;
+}
+export interface RuntimeTeam {
+  available: boolean;
+  reason: string;
+  revision: string;
+  roles: Array<RuntimeRole>;
+  sets: Array<RuntimeTeamSet>;
+  activeSet: string;
+  models: Array<ModelOption>;
+}
+export interface RuntimeTeamSet {
+  name: string;
+  available: boolean;
+  problem: string;
 }
 export interface ServiceTier {
   id: string;

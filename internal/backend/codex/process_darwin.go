@@ -25,6 +25,9 @@ func (p *pipeConnection) Close() error {
 }
 
 func startProcess(ctx context.Context, opts Options) (connection, func(), error) {
+	if opts.Attachable {
+		return startAttachableProcess(ctx, opts)
+	}
 	path, err := runtimeBinary(opts.Binary)
 	if err != nil {
 		return nil, nil, err

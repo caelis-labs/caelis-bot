@@ -12,13 +12,17 @@ import (
 // It is not a runtime allowlist or a negotiated App Server protocol version.
 const TestedVersion = "0.153.4"
 
-type Client struct{ rpc *transport }
+type Client struct {
+	rpc  *transport
+	home string // Native handshake home, for attaching the user's TUI to this server.
+}
 type Options struct {
 	Diagnostics *diagnosticlog.Logger
 	Binary      string
 	Socket      string
 	Directory   string
 	CLIOnly     bool // Probe a selected executable without falling back to another source.
+	Attachable  bool // Owned session runtime exposes a private local Unix endpoint.
 	// Session clients opt in for background-terminal cleanup and native requests.
 	Experimental   bool
 	HandleRequests bool
@@ -51,7 +55,7 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 	return initializeClient(ctx, conn, stop, opts)
 }
 func initializeClient(ctx context.Context, conn connection, stop func(), opts Options) (*Client, error) {
-	c := &Client{newTransportLogged(conn, stop, opts.HandleRequests, opts.Diagnostics)}
+	c := &Client{rpc: newTransportLogged(conn, stop, opts.HandleRequests, opts.Diagnostics)}
 	params := map[string]any{"clientInfo": map[string]any{"name": "caelis_bot", "title": "Caelis Bot", "version": "0.0.1"},
 		"capabilities": map[string]any{"experimentalApi": opts.Experimental, "requestAttestation": false}}
 	result, err := c.rpc.call(ctx, "initialize", params)
@@ -61,11 +65,13 @@ func initializeClient(ctx context.Context, conn connection, stop func(), opts Op
 		// account/thread/turn/approval semantics are checked when consumed; this
 		// handshake alone is not a claim that every experimental API is supported.
 		var response struct {
-			UserAgent string `json:"userAgent"`
+			UserAgent string          `json:"userAgent"`
+			CodexHome json.RawMessage `json:"codexHome"`
 		}
 		if json.Unmarshal(result, &response) != nil || response.UserAgent == "" {
 			err = ErrProtocol
 		}
+		_ = json.Unmarshal(response.CodexHome, &c.home)
 	}
 	if err == nil {
 		_, err = c.rpc.send(ctx, wireMessage{Method: "initialized"})

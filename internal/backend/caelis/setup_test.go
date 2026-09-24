@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -180,9 +181,13 @@ func TestNativeSetupIntegration(t *testing.T) {
 	}
 	// This fixture never sends a paid inference request; it validates configuration receipts.
 	r := api.SetupRequest{Settings: settings, Action: "connect-model", Provider: provider, BaseURL: "http://127.0.0.1:1/v1", Model: "gpt-4.1", APIKey: "SYNTHETIC_SETUP_KEY"}
-	if e = ApplySetup(ctx, r); e != nil {
+	connections := &Connections{}
+	defer connections.Close()
+	flow, e := connections.Start(ctx, settings, api.RuntimeConnectionInput{Kind: "api-key", Choice: r.Provider, BaseURL: r.BaseURL, Model: r.Model, APIKey: r.APIKey})
+	if e != nil {
 		t.Fatal(e)
 	}
+	_ = waitConnection(t, connections, flow.ID, "complete")
 	v, e = InspectSetup(ctx, settings)
 	if e != nil || v.State != "ready" || len(v.Models) == 0 {
 		t.Fatal("configuration did not become available", v.State, e)
@@ -193,5 +198,108 @@ func TestNativeSetupIntegration(t *testing.T) {
 	if _, e = SetupCatalog(ctx, api.SetupRequest{Settings: settings, Action: "models", Provider: provider, BaseURL: r.BaseURL}); e != nil {
 		t.Fatal(e)
 	}
-	t.Log("real Host: configure before Bot binding, read model and provider catalogs; no inference request")
+
+	read := func() api.RuntimeConfiguration {
+		t.Helper()
+		view, err := ReadRuntimeConfiguration(ctx, settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return view
+	}
+	view := read()
+	if len(view.Team.Models) == 0 || len(view.Team.Roles) == 0 {
+		t.Fatal("native Team catalog is empty")
+	}
+	mutate := func(change api.RuntimeConfigurationChange) {
+		t.Helper()
+		change.ExpectedRevision = view.Revision
+		result, err := ChangeRuntimeConfiguration(ctx, settings, change)
+		if err != nil || result.Outcome != "committed" {
+			t.Fatalf("%s: %+v %v", change.Action, result, err)
+		}
+		view = read()
+	}
+	mutate(api.RuntimeConfigurationChange{Action: "main", Selection: api.WorkExecutionSettings{Model: view.Models[0].Model}})
+	stale := view.Revision
+	mutate(api.RuntimeConfigurationChange{Action: "create-role", ID: "ui-research", Description: "Research fixture"})
+	result, err := ChangeRuntimeConfiguration(ctx, settings, api.RuntimeConfigurationChange{Action: "save-set", Name: "stale-write", ExpectedRevision: stale})
+	if err != nil || result.Outcome != "conflicted" {
+		t.Fatalf("stale UI write must conflict: %+v %v", result, err)
+	}
+	profile := view.Team.Models[0].Model
+	mutate(api.RuntimeConfigurationChange{Action: "bind", ID: "ui-research", Selection: api.WorkExecutionSettings{Model: profile, Effort: view.Team.Models[0].DefaultEffort}})
+	bound := false
+	for _, role := range view.Team.Roles {
+		if role.ID == "ui-research" && role.Selection.Model == profile {
+			bound = true
+		}
+	}
+	if !bound {
+		t.Fatal("native profile binding did not round trip")
+	}
+	mutate(api.RuntimeConfigurationChange{Action: "save-set", Name: "ui-team"})
+	mutate(api.RuntimeConfigurationChange{Action: "reset", ID: "ui-research"})
+	mutate(api.RuntimeConfigurationChange{Action: "apply-set", Name: "ui-team"})
+	mutate(api.RuntimeConfigurationChange{Action: "delete-set", Name: "ui-team"})
+	mutate(api.RuntimeConfigurationChange{Action: "delete-role", ID: "ui-research"})
+	for _, kind := range []string{"account", "agent"} {
+		catalog, err := ConnectionCatalog(ctx, settings, kind)
+		if err != nil || len(catalog.Choices) == 0 {
+			t.Fatalf("native %s catalog: %+v %v", kind, catalog, err)
+		}
+	}
+
+	peer, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow, err = connections.Start(ctx, settings, api.RuntimeConnectionInput{Kind: "agent", Choice: "custom", Command: strconv.Quote(peer) + " -test.run=^TestRuntimeACPProcess$ -- runtime-acp-fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow = waitConnection(t, connections, flow.ID, "models")
+	if len(flow.Models) != 3 {
+		t.Fatalf("ACP models not discovered: %+v", flow)
+	}
+	flow, err = connections.Advance(ctx, api.RuntimeFlowAction{ID: flow.ID, Revision: flow.Revision, Action: "connect", Input: api.RuntimeFlowInput{Model: "fixture-two"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitConnection(t, connections, flow.ID, "complete")
+	view = read()
+	agentID := ""
+	for _, group := range view.Connections {
+		if group.Kind == "agent" {
+			agentID = group.ID
+			if len(group.Models) == 0 {
+				t.Fatal("ACP connection has no models")
+			}
+		}
+	}
+	if agentID == "" {
+		t.Fatal("native ACP connection was misclassified as provider")
+	}
+	for _, group := range view.Connections {
+		if group.ID == agentID && group.Kind == "agent" {
+			for _, role := range view.Team.Roles {
+				if role.ID == "guardian" {
+					for _, allowed := range role.ModelIDs {
+						for _, model := range group.Models {
+							if allowed == model.ID {
+								t.Fatal("native Guardian eligibility allowed an ACP profile")
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	mutate(api.RuntimeConfigurationChange{Action: "disconnect-agent", ID: agentID})
+	for _, group := range view.Connections {
+		if group.Kind == "agent" && group.ID == agentID {
+			t.Fatal("ACP disconnect did not round trip")
+		}
+	}
+	t.Log("real Host: asynchronous API-key connect, main model, Team profile binding, role and preset lifecycle, CAS conflict; no inference request")
 }

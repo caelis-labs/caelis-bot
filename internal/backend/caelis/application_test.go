@@ -193,11 +193,11 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/api/control/v1")
 		switch {
-		case r.Method == "POST" && path == "/application/sessions":
+		case r.Method == "POST" && path == "/application/workers":
 			creates.Add(1)
-			var in wire.CreateApplicationSessionRequest
+			var in wire.CreateWorkerRequest
 			_ = json.NewDecoder(r.Body).Decode(&in)
-			if in.Profile.Model != "fixture-model" || value(in.Profile.ReasoningEffort) != "high" || value(in.Profile.ServiceTier) != "priority" {
+			if value(in.Model) != "fixture-model" || value(in.ReasoningEffort) != "high" || !value(in.FastMode) {
 				t.Error("worker lost independent model")
 			}
 			drop(w)
@@ -212,8 +212,8 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 		case strings.Contains(path, "/application/operations/"):
 			op := filepath.Base(path)
 			writeFixture(w, wire.ApplicationOperation{OperationId: op, Outcome: "accepted", Result: &wire.CommandResult{OperationId: op, Outcome: "accepted", SessionId: pointer("worker")}})
-		case path == "/application/sessions/worker":
-			writeFixture(w, wire.ApplicationBinding{SessionId: "worker", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner"})
+		case path == "/application/workers":
+			writeFixture(w, []wire.ApplicationWorker{{SessionId: "worker", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner"}})
 		default:
 			t.Error("unexpected worker recovery route", r.Method, path)
 			w.WriteHeader(404)
@@ -237,7 +237,7 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 		_, _ = s.advanceWorker(t.Context(), s.state.Workers["job"])
 	}
 	worker := s.state.Workers["job"]
-	if creates.Load() != 1 || prompts.Load() != 1 || grants.Load() != 1 || worker.Binding.SessionId != "worker" || worker.Start != nil || worker.Task.Outcome != "accepted" {
+	if creates.Load() != 1 || prompts.Load() != 1 || grants.Load() != 0 || worker.Binding.SessionId != "worker" || worker.Start != nil || worker.Task.Outcome != "accepted" {
 		t.Fatal("worker recovery lost identity or repeated dispatch", creates.Load(), prompts.Load(), grants.Load(), worker)
 	}
 }

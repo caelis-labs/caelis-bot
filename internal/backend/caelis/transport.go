@@ -47,6 +47,9 @@ func newClient(origin, token string) (*client, error) {
 	return &client{origin: strings.TrimRight(origin, "/"), token: token, http: &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (c *client) request(ctx context.Context, method, path string, body any, op, revision string, lastEvent ...string) (*http.Response, error) {
+	return c.requestMedia(ctx, method, path, body, op, revision, "", lastEvent...)
+}
+func (c *client) requestMedia(ctx context.Context, method, path string, body any, op, revision, accept string, lastEvent ...string) (*http.Response, error) {
 	var r io.Reader
 	if body != nil {
 		b, e := json.Marshal(body)
@@ -65,6 +68,9 @@ func (c *client) request(ctx context.Context, method, path string, body any, op,
 		req.GetBody = nil
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 	if len(lastEvent) > 0 && lastEvent[0] != "" {
 		req.Header.Set("Last-Event-ID", lastEvent[0])
 	}
@@ -84,7 +90,10 @@ func (c *client) request(ctx context.Context, method, path string, body any, op,
 	return res, nil
 }
 func (c *client) json(ctx context.Context, method, path string, body, out any, op, rev string) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	return c.jsonTimeout(ctx, method, path, body, out, op, rev, 30*time.Second)
+}
+func (c *client) jsonTimeout(ctx context.Context, method, path string, body, out any, op, rev string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	res, e := c.request(ctx, method, path, body, op, rev)
 	if e != nil {

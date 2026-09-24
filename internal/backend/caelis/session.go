@@ -144,7 +144,7 @@ func Discover(settings api.RuntimeSettings) (discovery, string, error) {
 	return d, strings.TrimSpace(string(b)), nil
 }
 
-var required = []string{"application-runtime-v1", "application-hot-configuration-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1"}
+var required = []string{"shared-native-workers-v1", "turn-steering-receipts-v1", "application-runtime-v1", "application-hot-configuration-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1"}
 var errBotIncompatible = errors.New("Caelis 应用协议不兼容，请更新运行时并重启 Caelis 服务")
 
 func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
