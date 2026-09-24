@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 // TestedVersion pins schema generation and reproducible regression evidence.
@@ -12,10 +14,11 @@ const TestedVersion = "0.153.4"
 
 type Client struct{ rpc *transport }
 type Options struct {
-	Binary    string
-	Socket    string
-	Directory string
-	CLIOnly   bool // Probe a selected executable without falling back to another source.
+	Diagnostics *diagnosticlog.Logger
+	Binary      string
+	Socket      string
+	Directory   string
+	CLIOnly     bool // Probe a selected executable without falling back to another source.
 	// Session clients opt in for background-terminal cleanup and native requests.
 	Experimental   bool
 	HandleRequests bool
@@ -48,7 +51,7 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 	return initializeClient(ctx, conn, stop, opts)
 }
 func initializeClient(ctx context.Context, conn connection, stop func(), opts Options) (*Client, error) {
-	c := &Client{newTransportOptions(conn, stop, opts.HandleRequests)}
+	c := &Client{newTransportLogged(conn, stop, opts.HandleRequests, opts.Diagnostics)}
 	params := map[string]any{"clientInfo": map[string]any{"name": "caelis_bot", "title": "Caelis Bot", "version": "0.0.1"},
 		"capabilities": map[string]any{"experimentalApi": opts.Experimental, "requestAttestation": false}}
 	result, err := c.rpc.call(ctx, "initialize", params)

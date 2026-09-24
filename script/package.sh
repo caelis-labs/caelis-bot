@@ -33,20 +33,20 @@ if [[ "$BOT_PACKAGE_VERSION" != "$BOT_EXPECTED_VERSION" ]] || [[ "$BOT_PACKAGE_A
 fi
 BOT_PACKAGE_NAME="Caelis-Bot-$BOT_PACKAGE_VERSION-macos-$BOT_PACKAGE_ARCH.dmg"
 BOT_PACKAGE_DIR="$BOT_ROOT/dist/releases"
-BOT_PACKAGE_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/caelis-dmg.XXXXXX")
 BOT_PACKAGE_MOUNT=$(mktemp -d "${TMPDIR:-/tmp}/caelis-mount.XXXXXX")
 BOT_PACKAGE_MOUNTED=false
 cleanup() {
   if [[ "$BOT_PACKAGE_MOUNTED" == true ]]; then hdiutil detach "$BOT_PACKAGE_MOUNT" -quiet || true; fi
-  rm -rf "$BOT_PACKAGE_STAGE"
   rmdir "$BOT_PACKAGE_MOUNT" 2>/dev/null || true
 }
 trap cleanup EXIT
 mkdir -p "$BOT_PACKAGE_DIR"
-ditto "$BOT_PACKAGE_BUNDLE" "$BOT_PACKAGE_STAGE/Caelis Bot.app"
-ln -s /Applications "$BOT_PACKAGE_STAGE/Applications"
-hdiutil create -quiet -ov -format UDZO -fs HFS+ -volname 'Caelis Bot' \
-  -srcfolder "$BOT_PACKAGE_STAGE" "$BOT_PACKAGE_DIR/$BOT_PACKAGE_NAME"
+source "$BOT_ROOT/script/dmg-tools.sh"
+mkdir -p "$BOT_ROOT/.cache/swift-module-cache"
+swift -module-cache-path "$BOT_ROOT/.cache/swift-module-cache" "$BOT_ROOT/script/dmg-background.swift" "$BOT_ROOT/.cache/dmg-background.tiff"
+"$BOT_DMG_ENV/bin/python" -m dmgbuild -s "$BOT_ROOT/script/dmg-settings.py" \
+  -D app="$BOT_PACKAGE_BUNDLE" -D background="$BOT_ROOT/.cache/dmg-background.tiff" \
+  'Caelis Bot' "$BOT_PACKAGE_DIR/$BOT_PACKAGE_NAME"
 hdiutil verify -quiet "$BOT_PACKAGE_DIR/$BOT_PACKAGE_NAME"
 hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$BOT_PACKAGE_MOUNT" \
   "$BOT_PACKAGE_DIR/$BOT_PACKAGE_NAME" -quiet
@@ -57,6 +57,7 @@ if [[ "${BOT_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
   spctl --assess --type execute --verbose=2 "$BOT_PACKAGE_MOUNT/Caelis Bot.app"
 fi
 test "$(readlink "$BOT_PACKAGE_MOUNT/Applications")" = /Applications
+"$BOT_DMG_ENV/bin/python" "$BOT_ROOT/script/verify-dmg-layout.py" "$BOT_PACKAGE_MOUNT"
 test -f "$BOT_PACKAGE_MOUNT/Caelis Bot.app/Contents/Resources/ASSET-LICENSE.md"
 cmp "$BOT_PACKAGE_BUNDLE/Contents/MacOS/caelis-bot" \
   "$BOT_PACKAGE_MOUNT/Caelis Bot.app/Contents/MacOS/caelis-bot"

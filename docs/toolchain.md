@@ -1,7 +1,7 @@
 # 工具链
 
 公共项目构建依赖 Apple Command Line Tools、Go、Node 24 和锁定的 npm/Go 依赖。
-版本见 `toolchain.json` 和 `package-lock.json`。不需要 Blender、Python、美术插件或私库权限。
+版本见 `toolchain.json` 和 `package-lock.json`。应用编译不需要 Blender、Python、美术插件或私库权限。
 普通用户只需已打包的应用和可连接的本地 Codex，应用不携带 Codex 运行时。
 
 ```sh
@@ -22,7 +22,10 @@ make run
 并回收；资产部分直接验证当前成品 SHA-256、glTF、Three.js 加载和动画更新。
 `make check` 再检查行为恢复、输入抢占、手指/视角形变与宿主生命周期。
 `make build` 制作可运行的 macOS app，附代码/素材授权和成品版本清单，再 ad-hoc 签名。
-`make package` 生成只读压缩 DMG 和 SHA-256，挂载核验包内签名；本地命令不上传、不公证。
+`make package` 生成只读压缩 DMG 和 SHA-256，挂载核验包内签名和 Finder 安装布局；本地命令不上传、不公证。
+DMG 打包还需要 Python 3：首次运行在 `.cache/dmg-tools` 建立独立环境，安装
+`script/dmg-requirements.txt` 固定的 dmgbuild 及依赖；不更改系统 Python。
+安装背景由 AppKit 生成，Finder 元数据直接写入镜像，不依赖 Finder 自动化权限。
 
 `make build` 同时下载 SHA-256 锁定的 Sparkle 2.10.0 成品并逐层 ad-hoc 签名，许可随包附带。
 首次构建需要访问官方 Sparkle GitHub Release，后续校验本地缓存后重新解包。

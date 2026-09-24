@@ -15,6 +15,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
@@ -23,6 +24,7 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
+	Diagnostics  *diagnosticlog.Logger
 	ResolveFiles func([]string) ([]api.InputFile, error)
 	ConsumeFiles func([]string)
 	OpenURL      func(string) error
@@ -63,6 +65,9 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("应用数据目录必须是完整路径")
 	}
+	if host.Diagnostics == nil {
+		host.Diagnostics = diagnosticlog.New(filepath.Join(root, "Logs"))
+	}
 	settingsFile := filepath.Join(root, "runtime.json")
 	settings, err := backend.LoadRuntimeSettings(settingsFile, "codex")
 	if err != nil {
@@ -89,7 +94,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	if err != nil {
 		return nil, err
 	}
-	engine, err := factory.Open(providerConfig{Settings: settings, Execution: execution, WorkExecution: workExecution,
+	engine, err := factory.Open(providerConfig{Diagnostics: host.Diagnostics, Settings: settings, Execution: execution, WorkExecution: workExecution,
 		WorkDirectory: filepath.Join(directory, "Work"), WorkRoot: filepath.Join(root, "Tasks"), ConversationFile: filepath.Join(directory, "conversation.json")})
 	if err != nil {
 		return nil, err

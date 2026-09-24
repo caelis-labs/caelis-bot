@@ -19,8 +19,16 @@ func TestOfficialCLICommandsAndCredentialIsolation(t *testing.T) {
 	t.Setenv("CAELIS_RUNTIME_TEST_LOG", log)
 	t.Setenv("CAELIS_CONTROL_TOKEN", "HOST_SECRET_SENTINEL")
 	t.Setenv("CAELIS_CONTROL_URL", "http://wrong-host.invalid")
+	t.Setenv("CODEX_THREAD_ID", "foreign-caller")
+	t.Setenv("RUNTIME_TOOL_SETTING", "native-export")
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+	if e := os.WriteFile(filepath.Join(dir, "worker-tool"), []byte("#!/bin/sh\nprintf '%s' \"$RUNTIME_TOOL_SETTING\"\n"), 0700); e != nil {
+		t.Fatal(e)
+	}
 	script := `#!/bin/sh
 [ -z "$CAELIS_CONTROL_TOKEN$CAELIS_CONTROL_URL" ] || exit 97
+[ -z "$CODEX_THREAD_ID" ] || exit 96
+[ "$(worker-tool)" = native-export ] || exit 95
 printf '%s\n' "$*" >> "$CAELIS_RUNTIME_TEST_LOG"
 case "$1" in
 version) printf '{"version":"0.fixture"}\n';;

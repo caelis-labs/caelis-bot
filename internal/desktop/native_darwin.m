@@ -628,18 +628,6 @@ int bot_prepare_window_recall(void *pointer) {
     [host collapseBubble];
     return 1;
 }
-int bot_window_open(void *pointer) {
-    NSWindow *window = (__bridge NSWindow *)pointer;
-    return window.visible || window.miniaturized;
-}
-int bot_window_visible(void *pointer) {
-    return [(__bridge NSWindow *)pointer isVisible];
-}
-int bot_window_can_hide(void *pointer) {
-    NSWindow *window = (__bridge NSWindow *)pointer;
-    // Restore minimised chat and keep an attached native file dialog reachable.
-    return window.visible && !window.miniaturized && !window.attachedSheet;
-}
 void bot_toggle_panel(void *pointer) {
     BotHost *host = (__bridge BotHost *)pointer;
     if (host.panel.attachedSheet) return;

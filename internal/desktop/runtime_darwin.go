@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"io/fs"
@@ -18,6 +19,8 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -32,6 +35,17 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
+	diagnostics := diagnosticlog.New(filepath.Join(root, "Logs"))
+	env, envErr := runtimeenv.Resolve(context.Background(), os.Environ())
+	if err := runtimeenv.Install(env); err != nil {
+		envErr = err
+	}
+	if envErr != nil {
+		// Resolve returns only locally generated causes, never shell output/values.
+		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
+	} else {
+		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_loaded", Reason: "user login and interactive shell exports loaded for native runtimes"})
+	}
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configureShortcut(filepath.Join(root, "shortcut.json"))
 	s.content, err = contentpack.NewRegistry(filepath.Join(root, "content"))
@@ -39,7 +53,7 @@ func Run(assets fs.FS) error {
 		logError(err)
 	}
 
-	core, err := app.New(root, app.Host{ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
+	core, err := app.New(root, app.Host{Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
 		OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 		RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
 		TrashFile:  trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ReportError: logError})
@@ -184,13 +198,20 @@ func Run(assets fs.FS) error {
 			return
 		}
 		application.InvokeSync(func() {
+			syncMacDock(history, settings, true)
 			settings.UnMinimise()
 			settings.Show()
 			settings.Focus()
 			settings.ExecJS("window.dispatchEvent(new Event('settings-open'))")
 		})
 	}
-	s.closeSettings = func() { settings.ExecJS("window.dispatchEvent(new Event('settings-close'))"); settings.Hide() }
+	s.closeSettings = func() {
+		application.InvokeSync(func() {
+			settings.ExecJS("window.dispatchEvent(new Event('settings-close'))")
+			settings.Hide()
+			syncMacDock(history, settings, false)
+		})
+	}
 	s.saveDiagnosticPath = func() (string, error) {
 		return nativeApp.Dialog.SaveFile().AttachToWindow(settings).SetFilename("Caelis-Bot-diagnostics.json").
 			SetMessage("仅包含系统、连接和状态计数；不包含聊天内容、文件路径或凭据。").
@@ -211,6 +232,7 @@ func Run(assets fs.FS) error {
 	}
 	settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.closeSettings() })
 	showHistory := func() {
+		syncMacDock(history, settings, true)
 		history.UnMinimise()
 		history.Show()
 		history.Focus()
@@ -222,8 +244,11 @@ func Run(assets fs.FS) error {
 		}
 	}
 	s.closeHistory = func() {
-		history.ExecJS("window.dispatchEvent(new Event('history-close'))")
-		history.Hide()
+		application.InvokeSync(func() {
+			history.ExecJS("window.dispatchEvent(new Event('history-close'))")
+			history.Hide()
+			syncMacDock(history, settings, false)
+		})
 	}
 	s.historyVisible = func() bool { return macWindowVisible(history) }
 	s.historyCanHide = func() bool { return macWindowCanHide(history) }
@@ -248,6 +273,25 @@ func Run(assets fs.FS) error {
 		})
 	}
 	history.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.closeHistory() })
+	// Wails' default Dock callback reveals every hidden window, including the
+	// private pet/prop/composer webviews. Cancel it and recall only open panels.
+	nativeApp.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
+		e.Cancel()
+		if !s.prepareWindowRecall() {
+			return
+		}
+		application.InvokeSync(func() {
+			if macWindowOpen(history) {
+				showHistory()
+			}
+			if macWindowOpen(settings) {
+				syncMacDock(history, settings, true)
+				settings.UnMinimise()
+				settings.Show()
+				settings.Focus()
+			}
+		})
+	})
 	for _, window := range []*application.WebviewWindow{history, settings} {
 		window.OnWindowEvent(events.Mac.WindowDidBecomeKey, func(*application.WindowEvent) {
 			// AppKit can reveal a window without Wails.Show (for example, an
@@ -258,6 +302,7 @@ func Run(assets fs.FS) error {
 					return // A queued activation must not reopen or refocus a window.
 				}
 				window.Show()
+				syncMacDock(history, settings, false)
 				if window == history {
 					// Ordinary app focus must not reset an existing history read.
 					history.ExecJS("window.dispatchEvent(new Event('history-visible'))")
@@ -305,6 +350,9 @@ func Run(assets fs.FS) error {
 	applicationMenu.AddRole(application.EditMenu)
 	nativeApp.Menu.Set(applicationMenu)
 	nativeApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		if !installMacAppIcon() {
+			log.Print("Desktop application icon could not be decoded")
+		}
 		s.start(newMacDriver(pet, panel, bubble, history, prop, s, quit))
 		styleMacSettings(settings)
 		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() {

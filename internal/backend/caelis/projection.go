@@ -14,6 +14,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 func (s *Session) Snapshot() api.Snapshot {
@@ -331,6 +332,10 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			return errors.New("观察结束")
 		}
 		if f.event != "caelis.control.delivery" {
+			// Unlike optional Codex notifications, this is a canonical stream;
+			// unknown delivery semantics cannot safely advance its recovery cursor.
+			s.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "caelis", Code: "unexpected_feed_event", Method: f.event, Thread: sid,
+				Reason: "canonical stream requires recovery; no cursor advanced", Fingerprint: diagnosticlog.Fingerprint(f.data), Bytes: len(f.data)})
 			return errors.New("Caelis 观察需要重新恢复")
 		}
 		var d wire.SessionFeedDelivery
@@ -353,6 +358,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			}
 			page++
 			for _, e := range d.Events {
+				s.logEnvelope(e)
 				applyEnvelope(staged, e)
 			}
 			return nil
@@ -369,6 +375,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				return errors.New("替换未完成")
 			}
 			for _, e := range d.Events {
+				s.logEnvelope(e)
 				applyEnvelope(v, e)
 			}
 		case "sync", "status":

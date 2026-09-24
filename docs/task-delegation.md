@@ -69,3 +69,24 @@ Codex 使用公开 `config/read` 的 effective config，而不是 `model/list` �
 保存工作偏好不改运行中的任务、Bot 对话模型或 Runtime 全局默认；模型工具不能提交工作模型参数。
 
 当前不配置 team，公开协议扩展见 [Caelis #74](https://github.com/caelis-labs/caelis/issues/74)。
+
+## 本机工作环境与诊断（2026-09-24）
+
+macOS 原生宿主在启动 Runtime 前，从用户的登录/交互 shell 恢复导出的环境变量，
+包括 PATH、工具管理器路径和用户导出的 Runtime 配置。Codex App Server、原生子 agent、
+独立工作任务，以及 Bot 调用 `caelis service start` 创建的 Host 都继承这套环境，
+不以 Finder 的最小 PATH 代替用户终端环境。shell 探测只执行一次，有超时与输出上限；
+失败保留原环境并记入私有日志。用户显式指定的隔离数据目录和 CODEX_HOME 保留。
+已经运行的共享 Caelis Host 继续使用其启动时的环境；Bot 不接管或重启它。
+
+普通工作任务继续使用 Runtime 自己的用户配置、MCP、插件和工具发现，不复制另一
+Codex App 的会话身份/IPC，也不继承秘书专属工具凭据与 Notebook 指令。任务目录、
+模型偏好和原生审批仍由既有产品合同提供，环境恢复不扩大文件或操作授权。
+
+错误日志位于应用数据目录的 `Logs/error.jsonl`；单文件最多 2 MiB，含活动文件共
+最多 5 份（`error.1.jsonl` 至 `error.4.jsonl`），超过 7 天的文件在下次写入时清理。
+启动也写入环境恢复结果，因此会清理上次运行遗留的过期文件。目录/文件分别为
+0700/0600。记录 UTC 时间、组件、错误分类、事件 method、原生关联标识、脱敏原因、
+载荷大小和 SHA-256，供与 Runtime 日志交叉核对；不保存原始载荷或凭据。
+诊断导出只带日志写入状态和保留策略，不包含日志正文。日志写入失败计入诊断状态，
+不生成额外聊天错误。

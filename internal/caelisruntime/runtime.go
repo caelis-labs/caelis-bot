@@ -16,6 +16,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
 )
 
 const InstallerURL = "https://caelis.dev/install.sh"
@@ -66,11 +68,7 @@ func run(ctx context.Context, path string, args ...string) ([]byte, error) {
 	var out limitedBuffer
 	cmd.Stdout = &out
 	cmd.Stderr = io.Discard
-	for _, v := range os.Environ() {
-		if !strings.HasPrefix(v, "CAELIS_CONTROL_") {
-			cmd.Env = append(cmd.Env, v)
-		}
-	}
+	cmd.Env = runtimeenv.Clean(os.Environ())
 	if err := cmd.Run(); err != nil {
 		return nil, errors.New("Caelis 命令未成功，请检查本机安装和运行时配置")
 	}

@@ -14,7 +14,7 @@ Product CI runs on native Apple Silicon (`macos-14`) for every PR and main push:
 - `npm ci` uses the lockfile; Node and Go come from repository pins.
 - `make check`: public/private boundary, finished asset hashes, TypeScript/build, focused frontend contracts, Go tests/vet and shared-core portability guards.
 - `npm run smoke:assets`: validate, parse and animate the delivered GLBs.
-- `make package`: compile and ad-hoc sign the app; build a compressed read-only DMG; mount it and verify the enclosed signature, executable and license.
+- `make package`: compile and ad-hoc sign the app; build a compressed read-only DMG; mount it and verify the enclosed signature, executable, license and Finder layout. The installer uses a 660×430 window, 128-point icons and a left-to-right Applications drag target. Pinned dmgbuild dependencies are isolated in `.cache/dmg-tools` (Python 3 required); no Finder automation is used.
 - Keep the DMG and checksum as a seven-day CI artifact. These are development builds, not published releases.
 
 `make smoke` additionally checks a locally installed Codex runtime without a model call. CI does not log into Codex or exercise a real conversation. Packaging is not interactive desktop acceptance; see [native acceptance](native-acceptance.md) and [backend acceptance](backend-acceptance.md). Intel and Windows GUI releases are not currently qualified.

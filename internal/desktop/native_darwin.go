@@ -130,6 +130,22 @@ func macWindowVisible(window *application.WebviewWindow) bool {
 func macWindowCanHide(window *application.WebviewWindow) bool {
 	return application.InvokeSyncWithResult(func() bool { return C.bot_window_can_hide(window.NativeWindow()) != 0 })
 }
+
+func syncMacDock(history, settings *application.WebviewWindow, opening bool) {
+	application.InvokeSync(func() {
+		v := 0
+		if opening {
+			v = 1
+		}
+		C.bot_sync_dock(history.NativeWindow(), settings.NativeWindow(), C.int(v))
+	})
+}
+
+func installMacAppIcon() bool {
+	return application.InvokeSyncWithResult(func() bool {
+		return C.bot_install_app_icon((*C.uchar)(unsafe.Pointer(&appIcon[0])), C.int(len(appIcon))) != 0
+	})
+}
 func (d *macDriver) mask(b []byte) {
 	application.InvokeSync(func() { C.bot_mask(d.pointer, (*C.uchar)(unsafe.Pointer(&b[0])), C.int(len(b))) })
 }

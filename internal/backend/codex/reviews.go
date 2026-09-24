@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -30,7 +29,7 @@ func (s *Session) applyReview(event Notification) {
 			Reason   string   `json:"reason"`
 		} `json:"action"`
 	}
-	if json.Unmarshal(event.Params, &n) != nil || n.ID == "" || n.TurnID == "" || !s.ownsThread(n.ThreadID) {
+	if !s.decodeEvent(event, &n, false) || n.ID == "" || n.TurnID == "" || !s.ownsThread(n.ThreadID) {
 		return
 	}
 	if n.Review.Status == "inProgress" && terminal(s.runs[n.TurnID]) {
