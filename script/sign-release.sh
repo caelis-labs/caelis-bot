@@ -77,10 +77,11 @@ BOT_SIGN_MATCHES=$(printf '%s\n' "$BOT_SIGN_IDENTITIES" | sed -n 's/^[[:space:]]
 [[ -n "$BOT_SIGN_MATCHES" && "$BOT_SIGN_MATCHES" != *$'\n'* ]] || {
   echo 'The PKCS12 must contain exactly one valid Developer ID Application identity.' >&2; exit 1;
 }
-# This bundle currently contains one native executable and no embedded helpers.
-# WebKit runs out of process; no JIT, debugger, or library-validation exception is needed.
+# Sparkle helpers and framework are signed before the outer app; no JIT,
+# debugger or library-validation exception is needed.
 if [[ "${BOT_NOTARY_RESUME:-0}" != 1 ]]; then
   echo 'Signing the app with the imported Developer ID identity.'
+  bash "$BOT_SIGN_ROOT/script/sign-sparkle.sh" "$BOT_SIGN_BUNDLE" "$BOT_SIGN_MATCHES"
   codesign --force --sign "$BOT_SIGN_MATCHES" --keychain "$BOT_SIGN_KEYCHAIN" \
     --identifier dev.caelis.bot --options runtime --timestamp "$BOT_SIGN_BUNDLE"
 fi

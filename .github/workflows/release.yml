@@ -10,6 +10,14 @@ on:
         required: false
       APPLE_NOTARY_PASSWORD:
         required: false
+      SPARKLE_PRIVATE_KEY:
+        required: false
+      R2_ACCESS_KEY_ID:
+        required: false
+      R2_SECRET_ACCESS_KEY:
+        required: false
+      R2_ENDPOINT:
+        required: false
     inputs:
       tag:
         required: true
@@ -74,10 +82,12 @@ jobs:
           cache: true
       - run: npm ci
       - run: make check
+      - run: make check-updater
       - run: npm run smoke:assets
       - name: Build without release credentials
         env:
           BOT_RELEASE_TAG: ${{ inputs.tag }}
+          BOT_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: |
           make build
           ditto -c -k --keepParent 'dist/Caelis Bot.app' dist/unsigned-app.zip
@@ -154,6 +164,12 @@ jobs:
             security delete-keychain "$directory/release.keychain-db" >/dev/null 2>&1 || true
             rm -rf "$directory"
           done
+      - name: Sign the stable update feed after notarization
+        if: steps.verify.outputs.verified == 'true' && !contains(inputs.tag, '-')
+        env:
+          BOT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          BOT_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+        run: bash script/prepare-appcast.sh
       - name: Preserve signed artifacts and notarization receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -169,6 +185,9 @@ jobs:
           path: |
             dist/releases/*.dmg
             dist/releases/*.dmg.sha256
+            dist/releases/appcast.xml
+            dist/releases/latest.json
+            dist/releases/latest.json.sig
           if-no-files-found: error
           retention-days: 14
   publish:
@@ -196,7 +215,6 @@ jobs:
           set -euo pipefail
           test "$RELEASE_VERIFIED" = true
           cd release
-          test "$(find . -type f | wc -l)" -eq 2
           test -f "$RELEASE_NAME.dmg"
           test -f "$RELEASE_NAME.dmg.sha256"
           sha256sum --check "$RELEASE_NAME.dmg.sha256"
@@ -205,6 +223,10 @@ jobs:
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
           # Recovery may replace draft assets; published assets are never overwritten here.
           gh release upload "$RELEASE_TAG" "$RELEASE_NAME.dmg" "$RELEASE_NAME.dmg.sha256" --clobber
+          if [[ "$RELEASE_TAG" != *-* ]]; then
+            test -s appcast.xml && test -s latest.json && test -s latest.json.sig
+            gh release upload "$RELEASE_TAG" appcast.xml latest.json latest.json.sig --clobber
+          fi
           prerelease=false
           latest=true
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; latest=false; fi
@@ -222,3 +244,39 @@ jobs:
           [Caelis runtime compatibility / Caelis 接入](https://github.com/caelis-labs/caelis-bot/blob/main/docs/caelis-integration.md)
           NOTES
           gh release edit "$RELEASE_TAG" --draft=false --prerelease="$prerelease" --latest="$latest" --notes-file /tmp/caelis-release-notes.md
+  r2:
+    needs: [build, package, publish]
+    if: needs.package.outputs.verified == 'true' && !contains(inputs.tag, '-')
+    runs-on: ubuntu-latest
+    environment: macos-release
+    timeout-minutes: 20
+    concurrency:
+      group: caelis-bot-r2-latest
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-dmg
+          path: release
+      - name: Publish verified update and retain only latest Bot release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOT_RELEASE_TAG: ${{ inputs.tag }}
+          BOT_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: caelis-releases
+        run: node script/publish-r2.mjs release

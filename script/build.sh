@@ -12,6 +12,9 @@ mkdir -p "$BOT_BUNDLE/Contents/MacOS" "$BOT_BUNDLE/Contents/Resources"
 BOT_VERSION_JSON=$(node script/release-version.mjs)
 BOT_BASE_VERSION=$(node -e 'console.log(JSON.parse(process.argv[1]).bundleVersion)' "$BOT_VERSION_JSON")
 BOT_RELEASE_VERSION=$(node -e 'console.log(JSON.parse(process.argv[1]).version)' "$BOT_VERSION_JSON")
+node -e 'import("./script/configure-updates.mjs").then(m=>m.validateUpdateKey(process.env.BOT_SPARKLE_PUBLIC_KEY,Boolean(process.env.BOT_RELEASE_TAG)))'
+source script/sparkle.sh
+trap 'rm -rf "$BOT_SPARKLE_DIR"' EXIT
 BOT_SOURCE_COMMIT=$(git rev-parse HEAD)
 # Wails beta.23 otherwise leaves WKWebView opaque above transparent native windows.
 # This opts into Wails' guarded drawsBackground bridge for the pet/prop/materials.
@@ -19,10 +22,17 @@ CGO_ENABLED=1 go build -tags production,private_mac_apis -ldflags "-X github.com
 cp resources/macos/Info.plist "$BOT_BUNDLE/Contents/Info.plist"
 cp resources/macos/CaelisBot.icns "$BOT_BUNDLE/Contents/Resources/CaelisBot.icns"
 /usr/libexec/PlistBuddy -c "Set CFBundleShortVersionString $BOT_BASE_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set CFBundleVersion $BOT_BASE_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add CaelisReleaseVersion string $BOT_RELEASE_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add CaelisSourceCommit string $BOT_SOURCE_COMMIT" "$BOT_BUNDLE/Contents/Info.plist"
 cp protocol/caelis/LICENSE "$BOT_BUNDLE/Contents/Resources/Caelis-Protocol-LICENSE"
 cp LICENSE ASSET-LICENSE.md "$BOT_BUNDLE/Contents/Resources/"
 cp resources/character-pack.json "$BOT_BUNDLE/Contents/Resources/character-pack.json"
+mkdir -p "$BOT_BUNDLE/Contents/Frameworks"
+rm -rf "$BOT_BUNDLE/Contents/Frameworks/Sparkle.framework"
+ditto "$BOT_SPARKLE_DIR/Sparkle.framework" "$BOT_BUNDLE/Contents/Frameworks/Sparkle.framework"
+cp "$BOT_SPARKLE_DIR/LICENSE" "$BOT_BUNDLE/Contents/Resources/Sparkle-LICENSE"
+node script/configure-updates.mjs "$BOT_BUNDLE/Contents/Info.plist"
+bash script/sign-sparkle.sh "$BOT_BUNDLE" -
 codesign --force --sign - --identifier dev.caelis.bot "$BOT_BUNDLE"
 echo "Built $BOT_BUNDLE"

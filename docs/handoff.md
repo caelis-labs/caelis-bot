@@ -3,6 +3,13 @@
 当前主线是 Caelis Bot 的产品功能和 macOS 正式版质量，先读 `product.md`、`architecture.md`、
 `roadmap.md`。产品已具备真实 Codex 工作闭环，不从早期工具链试验重新开始。
 
+2026-09-24 更新切片：Sparkle 原生更新、忙碌时延后安装和公证后 R2 同步已本地接入。
+R2 使用主仓库相同桶/域名下独立的 `caelis-bot/` 前缀，只保留最新正式版；同步失败
+通过 `sync-r2.yml` 重试，不重新公证。Sparkle 公私钥和 R2 已配置为限定仓库可用的组织
+变量/秘密；Sparkle 身份保留在本机钥匙串，新 R2 凭据于 2027-08-24 到期，见 [release.md](release.md)。
+下一发行仍需验证公开签名更新及跨版本重启。当前旧版需手动
+升级一次；本地 fixture、完整检查和实机/公证尚缺的验证范围见 [preparation-status.md](preparation-status.md)。
+
 最新切片是[秘书与专业任务分离](task-delegation.md)：专业工作经 Bot 自有任务接口进入
 独立受管目录，完成后有限唤醒秘书汇报；不依赖 Codex App 的私有 IPC。已有项目/worktree
 授权与其他 App 任务的显式接管仍待后续实现，不能当成当前能力。

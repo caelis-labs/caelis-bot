@@ -52,6 +52,7 @@ type Runtime struct {
 	stopped        bool
 	mu             sync.Mutex
 	step           sync.Mutex
+	paused         bool // guarded by step; fences update shutdown against wakeups
 	path           string
 	state          State
 	now            func() time.Time
@@ -364,11 +365,32 @@ func (r *Runtime) Close() {
 	}
 }
 
+// PauseIfIdle serializes the final idle check with every scheduled submission,
+// initialization delivery and task report. A rejected check leaves scheduling on.
+func (r *Runtime) PauseIfIdle(guard func() error) error {
+	r.step.Lock()
+	defer r.step.Unlock()
+	if err := guard(); err != nil {
+		return err
+	}
+	r.paused = true
+	return nil
+}
+
+func (r *Runtime) ResumeAfterUpdate() {
+	r.step.Lock()
+	r.paused = false
+	r.step.Unlock()
+}
+
 // Tick uses wall time after wake. It never invokes a model while idle, never
 // steers an unrelated active request, and persists an occurrence before dispatch.
 func (r *Runtime) Tick(ctx context.Context) error {
 	r.step.Lock()
 	defer r.step.Unlock()
+	if r.paused {
+		return nil
+	}
 	var noticeID, noticeTitle string
 	var notify func(string, string)
 	defer func() {

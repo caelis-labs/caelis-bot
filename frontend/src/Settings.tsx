@@ -11,6 +11,7 @@ import { SettingGroup, SettingRow } from './SettingsUI';
 const sections = [ ['general','常规'], ['appearance','外观'], ['runtime','运行时'], ['execution','模型与权限'], ['storage','存储'], ['diagnostics','诊断'], ['updates','关于'] ] as const;
 type Section = typeof sections[number][0] | 'setup';
 type Update = { state:string; current:string; latest:string; message:string };
+type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean };
 
 export function Settings() {
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
@@ -69,18 +70,28 @@ function General() {
 
 function Updates({version}:{version:string}) {
  const [result,setResult]=useState<Update|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [preferences,setPreferences]=useState<UpdatePreferences|null>(null);
  const checking=useRef(false);
  const check=async()=>{
   if(checking.current)return;
   checking.current=true;setBusy(true);setError('');
   try{setResult(await desktop<Update>('CheckUpdates'));}catch{setError('暂时无法检查更新，请重试或前往发布页查看。');}finally{checking.current=false;setBusy(false);}
  };
- useEffect(()=>{void check();},[]);
+ useEffect(()=>{
+  const refresh=()=>{void desktop<UpdatePreferences>('UpdatePreferences').then(setPreferences).catch(()=>setError('暂时无法读取更新设置'));};
+  refresh();const timer=window.setInterval(refresh,2000);return()=>clearInterval(timer);
+ },[]);
+ const automatic=async(value:boolean)=>{
+  setBusy(true);setError('');
+  try{await desktop('SetAutomaticUpdates',value);setPreferences(await desktop<UpdatePreferences>('UpdatePreferences'));}
+  catch{setError('暂时无法保存更新设置');}finally{setBusy(false);}
+ };
  return <section className="update-settings">
   <h1>关于</h1>
   <div className="about-identity"><img src="/icons/caelis-avatar.png" alt="" width="64" height="64"/><div><h2>Caelis Bot</h2><p>{result?.current||version}</p></div></div>
-  <SettingGroup><SettingRow label="软件更新" description={<span role="status">{busy?'正在检查…':error||result?.message||'检查新版本'}</span>}><button disabled={busy} onClick={()=>void check()}>检查更新</button></SettingRow>
+  <SettingGroup>{preferences?.available&&<SettingRow label="自动检查更新" htmlFor="automatic-updates" description="每天检查正式版，有新版本时提醒。"><input id="automatic-updates" type="checkbox" checked={preferences.automatic} disabled={busy} onChange={event=>void automatic(event.target.checked)}/></SettingRow>}
+  <SettingRow label="软件更新" description={<span role="status">{error||(preferences?.waiting?'更新已准备好，将在工作和待确认事项结束后重新启动。':busy?'正在处理…':result?.message||'检查新版本')}</span>}><button disabled={busy||preferences?.waiting} onClick={()=>void check()}>检查更新</button></SettingRow>
   <SettingRow label={result?.state==='available'?`新版本 ${result.latest}`:'发布与安装'}><button onClick={()=>void desktop('OpenReleasePage').catch(()=>setError('暂时无法打开发布页'))}>{result?.state==='available'?'下载新版本':'查看发布页'}</button></SettingRow></SettingGroup>
-  <p className="settings-note">更新需手动安装。</p>
+  <p className="settings-note">{preferences?.available?'确认更新后，应用会验证、安装新版本并重新启动；保留对话、笔记与设置。':'此构建未启用应用内更新，可从发布页下载正式版。'}</p>
  </section>;
 }

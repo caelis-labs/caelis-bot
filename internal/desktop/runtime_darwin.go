@@ -104,6 +104,7 @@ func Run(assets fs.FS) error {
 			return false
 		},
 		OnShutdown: func() {
+			stopMacUpdater()
 			logError(core.Close())
 			s.shutdown()
 		},
@@ -306,6 +307,11 @@ func Run(assets fs.FS) error {
 	nativeApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		s.start(newMacDriver(pet, panel, bubble, history, prop, s, quit))
 		styleMacSettings(settings)
+		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() {
+			quitting.Store(true)
+			logError(core.Close())
+			finished.Store(true)
+		})
 		if err := core.PreparePersonal(); err != nil {
 			logError(err)
 			quit()

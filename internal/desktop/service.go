@@ -30,45 +30,48 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
-	needsIntroduction  func() bool
-	content            *contentpack.Registry
-	pickContentFile    func() (string, error)
-	contentChanged     func(contentpack.Appearance)
-	contentImportMu    sync.Mutex
-	shortcutFile       string
-	shortcut           ShortcutState
-	ready              chan struct{}
-	mu                 sync.Mutex
-	native             driver
-	store              preferences
-	placement          Placement
-	started            bool
-	stopped            bool
-	pickFiles          func() ([]string, error)
-	picking            bool
-	files              []draftFile
-	nextFile           uint64
-	selectionFile      string
-	selectionError     error
-	openHistory        func()
-	recallWindows      func()
-	closeHistory       func()
-	historyVisible     func() bool
-	historyCanHide     func() bool
-	activate           func()
-	restartRuntime     func() error
-	openSettings       func()
-	closeSettings      func()
-	settingsSection    string
-	characterActivity  string
-	openReleasePage    func() error
-	pickRuntimeCLI     func() (string, error)
-	copyText           func(string) bool
-	storage            func() (api.AttachmentStorage, error)
-	cleanStorage       func(context.Context) (api.AttachmentStorage, error)
-	diagnosticReport   func() ([]byte, error)
-	saveDiagnosticPath func() (string, error)
-	exportMu           sync.Mutex
+	needsIntroduction   func() bool
+	content             *contentpack.Registry
+	pickContentFile     func() (string, error)
+	contentChanged      func(contentpack.Appearance)
+	contentImportMu     sync.Mutex
+	shortcutFile        string
+	shortcut            ShortcutState
+	ready               chan struct{}
+	mu                  sync.Mutex
+	native              driver
+	store               preferences
+	placement           Placement
+	started             bool
+	stopped             bool
+	pickFiles           func() ([]string, error)
+	picking             bool
+	files               []draftFile
+	nextFile            uint64
+	selectionFile       string
+	selectionError      error
+	openHistory         func()
+	recallWindows       func()
+	closeHistory        func()
+	historyVisible      func() bool
+	historyCanHide      func() bool
+	activate            func()
+	restartRuntime      func() error
+	openSettings        func()
+	closeSettings       func()
+	settingsSection     string
+	characterActivity   string
+	openReleasePage     func() error
+	updatePreferences   func() UpdatePreferences
+	setAutomaticUpdates func(bool) error
+	checkNativeUpdates  func() error
+	pickRuntimeCLI      func() (string, error)
+	copyText            func(string) bool
+	storage             func() (api.AttachmentStorage, error)
+	cleanStorage        func(context.Context) (api.AttachmentStorage, error)
+	diagnosticReport    func() ([]byte, error)
+	saveDiagnosticPath  func() (string, error)
+	exportMu            sync.Mutex
 }
 
 func (s *Service) CopyText(text string) error {
