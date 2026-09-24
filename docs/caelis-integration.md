@@ -1,8 +1,8 @@
 # Caelis 接入与运行时管理
 
 2026-09-24：Bot 使用 Caelis 通用应用运行时与共享原生 Worker 协议，固定源码基线为
-`1f925044065dcef5986caf22041ef00afab0bd0c`。使用公开 HTTP/SSE 与生成的 Go wire，
-不导入兄弟仓库、不恢复旧 Bot Mode。此基线包含 v0.61.0 之后的共享会话与 steering 扩展，
+`c2a5b65a6ffdd1136c91f0fd3a7e7d269435d2a0`。使用公开 HTTP/SSE 与生成的 Go wire，
+不导入兄弟仓库、不恢复旧 Bot Mode。此基线包含已合入 main 的共享会话与 steering 扩展，以及 Host 设置授权流与角色候选补充，
 尚未随正式版本发布；已通过确定性测试与隔离 macOS Host 集成测试。
 
 v0.61.0 的真实模型和原生 GUI 证据见 [正式版联调报告](caelis-release-acceptance.md)，
@@ -28,10 +28,11 @@ CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切
 
 ## 使用入口
 
-1. 「设置 → 运行时」选择要管理的 Runtime；标签不切换当前执行后端。
+1. 「设置 → 运行时与模型 → 更换」选择要管理的 Runtime；查看某个 Runtime 不切换当前后端。
 2. 自动发现本机安装，也可选择已有二进制和独立数据目录。安装、更新、服务启动只在明确点击后
    调用 Caelis 官方安装或 `update`、`service` 能力；不捆绑 Runtime，不接管已经运行的共享 Host。
-3. 使用已有模型，或通过「连接新模型」配置。模型凭据由 Caelis 保存；Bot 不持久化模型密钥。
+3. 「连接 → 添加连接」提供账号授权、API Key、内置或自定义 ACP Agent。安装和认证依照原生目录，
+   凭据只写入 Caelis；Bot 不持久化密钥或授权码。
 4. 能力与模型就绪后，点击「切换至 Caelis」，保存后重启。进行中的工作、审批或未知结果会阻止切换。
    对话、计划和原生执行记录按 Runtime 隔离；产品身份、Notebook 与 Memory 仍共享。
 
@@ -48,6 +49,22 @@ CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切
 
 不要通过更换 Store 或删除绑定来绕过未确认的操作。原生启动仍使用
 `script/build_and_run.sh`；协议夹具使用临时 HOME/Store，GUI 联调临时选择独立 Bot 数据目录，结束后恢复日常 Bot。
+
+## 共享模型与 Team 设置
+
+主模型调用 `/configuration/use-model`，Team 使用既有 `/agents/binding-status`、角色绑定、
+自定义角色和 binding-set API。所有共享写入都携带界面读取的 revision 和独立 operation ID。
+配置冲突要求读取最新状态；结果未知不自动重发。Team 使用 profile ID 和原生明确 effort，
+主模型使用公开 selector。角色可选模型来自 `eligible_profile_ids`，不在 Bot 复制能力规则。
+
+账号连接协商 `model-auth-stream-v1`：同一 `/configuration/connect-model` 命令使用 SSE 返回
+浏览器链接、设备代码和一次性 challenge；授权码经对应 `auth-input` 路径回填。
+SSE 不保存或广播授权历史；流断开后核对原命令结果，不重新发起登录。
+缺少该能力时账号入口显示更新提示，API Key 和已有配置管理仍使用公开接口。
+
+ACP 使用原生 launcher 目录、安装计划、preparation ref/digest、认证方式和声明的模型。
+选择其他模型创建 preparation 子版本，不重复安装。交互式终端认证仍在 TUI 完成。
+`self` 只读；无候选的角色不可绑定。断开外部 Agent 明确移除整个 Agent 的模型连接。
 
 ## 所有权与公开接口
 

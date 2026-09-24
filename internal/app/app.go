@@ -329,6 +329,7 @@ func (a *Application) Close() error {
 		if a.setup != nil {
 			a.setup.mu.Lock()
 			a.setup.codex.Close()
+			a.setup.connections.Close()
 			a.setup.mu.Unlock()
 		}
 		a.closeErr = a.Backend.Shutdown()

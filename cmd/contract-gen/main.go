@@ -25,6 +25,8 @@ func main() {
 			return "boolean"
 		case reflect.Int, reflect.Int64, reflect.Uint64:
 			return "number"
+		case reflect.Pointer:
+			return ts(t.Elem()) + " | null"
 		case reflect.Slice:
 			return "Array<" + ts(t.Elem()) + ">"
 		case reflect.Map:
@@ -36,7 +38,7 @@ func main() {
 			panic("unsupported contract type: " + t.String())
 		}
 	}
-	for _, v := range []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.RuntimeStatus{}, api.ExecutionSettings{}, api.WorkExecutionSettings{}, api.ModelOption{}, api.ProviderInfo{}, api.ExecutionOptions{}, api.SetupRequest{}, api.SetupState{}, api.SetupChoice{}, api.SetupOverview{}, api.BotInitialization{}, api.BotIntroduction{}} {
+	for _, v := range []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.RuntimeStatus{}, api.ExecutionSettings{}, api.WorkExecutionSettings{}, api.ModelOption{}, api.ProviderInfo{}, api.ExecutionOptions{}, api.SetupRequest{}, api.SetupState{}, api.SetupChoice{}, api.SetupOverview{}, api.BotInitialization{}, api.BotIntroduction{}, api.RuntimeConfiguration{}, api.RuntimeConfigurationChange{}, api.RuntimeMutationResult{}, api.RuntimeConnectionCatalog{}, api.RuntimeConnectionInput{}, api.RuntimeFlow{}, api.RuntimeFlowAction{}} {
 		ts(reflect.TypeOf(v))
 	}
 	for previous := 0; previous != len(types); {

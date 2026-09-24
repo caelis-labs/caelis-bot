@@ -17,11 +17,12 @@ import (
 )
 
 type runtimeSetup struct {
-	mu      sync.Mutex
-	app     *Application
-	codex   *codex.Setup
-	pending string
-	fresh   bool
+	mu          sync.Mutex
+	app         *Application
+	codex       *codex.Setup
+	connections caelis.Connections
+	pending     string
+	fresh       bool
 }
 
 func (a *Application) configureSetup() {

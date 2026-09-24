@@ -24,26 +24,7 @@ func (s *Session) Models(ctx context.Context) ([]api.ModelOption, error) {
 	if e != nil {
 		return nil, e
 	}
-	out := []api.ModelOption{}
-	for _, m := range candidates {
-		if value(m.NoAuth) {
-			continue
-		}
-		v := api.ModelOption{Model: m.Value, Name: value(m.Display), Efforts: []string{}, ServiceTiers: []api.ServiceTier{{ID: "", Name: "标准"}}}
-		if v.Name == "" {
-			v.Name = m.Value
-		}
-		if m.ModelSelection != nil {
-			v.Default = value(m.ModelSelection.Current)
-			v.DefaultEffort = m.ModelSelection.Effort
-			v.Efforts = append(v.Efforts, m.ModelSelection.Efforts...)
-			if value(m.ModelSelection.FastSupported) {
-				v.ServiceTiers = append(v.ServiceTiers, api.ServiceTier{ID: "priority", Name: "Fast"})
-			}
-		}
-		out = append(out, v)
-	}
-	return out, nil
+	return modelOptions(candidates), nil
 }
 func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, persist func() error) error {
 	if e := api.ValidateExecutionSettings(v); e != nil {

@@ -42,6 +42,22 @@ Caelis Bot: menu bar + scalable desktop pet + contextual panels
 Wails / Go: windows, OS integration, process lifetime and byte transport
 ```
 
+## Runtime settings authority
+
+The settings renderer presents a single Runtime workspace: models and Team, grouped
+connections, and advanced installation controls. `api.RuntimeConfigurationController`
+is a user-only native bridge. It uses Host authority for explicit configuration;
+application execution credentials and model tools cannot call it. Shared writes keep
+the displayed configuration revision and the native command receipt. Team bindings use
+profile IDs, while main and conversation models use public selectors.
+
+`caelis.Connections` retains bounded, temporary interaction state for installation,
+ACP preparation and OAuth. Native commands, preparation digests and credentials remain
+owned by Caelis. The existing model connection command optionally streams OAuth progress;
+one-use input is tied to its principal and challenge. Long waits in the renderer observe
+this native flow and never resend its command. Unknown effects require reconciliation.
+Preview fixtures have a separate development entry and are absent from the shipped bundle.
+
 ## Native surfaces and ownership
 
 The target is a menu-bar application with several small surfaces, not one permanent
