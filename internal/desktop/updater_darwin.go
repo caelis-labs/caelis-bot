@@ -35,18 +35,18 @@ func startMacUpdater(s *Service, prepare func() error, cancel, close func()) {
 	}
 	s.setAutomaticUpdates = func(enabled bool) error {
 		if !u.available {
-			return errors.New("此构建未启用自动更新，请从发布页安装正式版")
+			return errors.New(s.text("native.autoUpdateDisabledBuild", nil))
 		}
 		application.InvokeSync(func() { C.bot_updater_set_automatic(C.bool(enabled)) })
 		return nil
 	}
 	s.checkNativeUpdates = func() error {
 		if !u.available {
-			return errors.New("此构建未启用自动更新，请从发布页安装正式版")
+			return errors.New(s.text("native.autoUpdateDisabledBuild", nil))
 		}
 		result := application.InvokeSyncWithResult(func() int { return int(C.bot_updater_check()) })
 		if result != 1 {
-			return errors.New("更新窗口已打开或正在处理更新")
+			return errors.New(s.text("native.updateInProgress", nil))
 		}
 		return nil
 	}

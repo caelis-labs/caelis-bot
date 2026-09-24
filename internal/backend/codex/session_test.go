@@ -345,7 +345,7 @@ func TestApprovalKeepsNativeTargetChoicesAndRejectsStaleOrDuplicateButtons(t *te
 	f.emit(approvalMessage("native-reused"))
 	view := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
 	p := view.Approvals[0]
-	if len(p.Choices) != 2 || !strings.Contains(p.Details, "echo synthetic") {
+	if len(p.Choices) != 2 || p.Action != "echo synthetic" || p.Target != "/fixture" || p.TitleKey != "chat.approveCommand" || p.Choices[0].LabelKey != "chat.allowOnce" {
 		t.Fatal(p)
 	}
 	if s.Decide(testContext(t), api.Decision{ID: p.ID, Choice: "acceptForSession"}) == nil {

@@ -19,13 +19,20 @@ test('native chat shortcut and Dock policy distinguish foreground, covered, mini
    @property(getter=isMiniaturized) BOOL miniaturized;
    @property(getter=isKeyWindow) BOOL keyWindow;
    @property NSObject *attachedSheet;
+   @property int closeCount;
+   - (void)performClose:(id)sender;
    @end
-   @implementation TestWindow @end
+   @implementation TestWindow
+   - (void)performClose:(id)sender { self.closeCount++; self.visible=NO; self.miniaturized=NO; self.keyWindow=NO; }
+   @end
    @interface TestApplication : NSObject
    @property(getter=isActive) BOOL active;
    @property(readonly) NSApplicationActivationPolicy activationPolicy;
    @property int transitions;
    @property NSImage *applicationIconImage;
+   @property TestWindow *keyWindow;
+   @property TestWindow *mainWindow;
+   @property NSArray *orderedWindows;
    - (BOOL)setActivationPolicy:(NSApplicationActivationPolicy)value;
    @end
    @implementation TestApplication
@@ -58,6 +65,21 @@ test('native chat shortcut and Dock policy distinguish foreground, covered, mini
     assert(app.activationPolicy==NSApplicationActivationPolicyRegular);
     settings.visible=NO;bot_sync_dock(c,s,0);
     assert(app.activationPolicy==NSApplicationActivationPolicyAccessory);
+    // Window quit uses the same close action and leaves the other window open.
+    chat.visible=YES;settings.visible=YES;app.keyWindow=settings;app.mainWindow=chat;
+    app.orderedWindows=@[chat,settings];
+    bot_close_context_window(c,s);
+    assert(settings.closeCount==1&&chat.closeCount==0&&chat.visible);
+    // A native sheet must not lose its owning window.
+    app.keyWindow=chat;chat.attachedSheet=[NSObject new];
+    bot_close_context_window(c,s);assert(chat.closeCount==0);
+    chat.attachedSheet=nil;app.active=NO;app.keyWindow=nil;app.mainWindow=nil;
+    bot_close_context_window(c,s);assert(chat.closeCount==1&&!chat.visible);
+    // A minimised window can close without being recalled first.
+    settings.miniaturized=YES;app.orderedWindows=@[];
+    bot_close_context_window(c,s);assert(settings.closeCount==2&&!settings.miniaturized);
+    bot_close_context_window(c,s);assert(settings.closeCount==2&&chat.closeCount==1);
+    assert(!bot_system_termination());
     NSApp=nil;
    } return 0; }
   `);

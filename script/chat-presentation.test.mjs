@@ -45,3 +45,9 @@ test('only the latest streaming avatar moves; approval, stop and disconnect keep
  for(const update of [{phase:'interrupting'},{phase:'completed'},{connection:'disconnected'},{approvals:[{status:'pending'}]},{reviews:[{status:'inProgress'}]}])assert.equal(activeReplyID({...snapshot,...update}),null);
  assert.equal(activeReplyID({...running,items:[{...item,turnKey:'previous'}]}),null);
 });
+
+test('automatic checks and silent completion do not add thinking rows',()=>{
+ assert.equal(chatActivity({...running,scheduled:true,quiet:true}),null);
+ assert.equal(chatActivity({...running,scheduled:true,quiet:false,phase:'interrupting'}),'stopping');
+ assert.equal(chatActivity({...running,scheduled:true,quiet:false,phase:'failed'}),null);
+});

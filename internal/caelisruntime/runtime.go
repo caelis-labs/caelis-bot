@@ -7,36 +7,55 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
 )
 
 const InstallerURL = "https://caelis.dev/install.sh"
 
 type Status struct {
-	Installed bool   `json:"installed"`
-	Path      string `json:"path"`
-	Version   string `json:"version"`
-	Message   string `json:"message"`
+	LatestVersion string
+	UpdateState   string
+	Installed     bool   `json:"installed"`
+	Path          string `json:"path"`
+	Version       string `json:"version"`
+	Message       string `json:"message"`
 }
 
-func Find(path string) (string, error) {
+func getLocale(loc ...i18n.Locale) i18n.Locale {
+	if len(loc) > 0 && loc[0] != "" {
+		return loc[0]
+	}
+	return i18n.DefaultLocale
+}
+
+func text(l i18n.Locale, key string, args ...map[string]any) string {
+	var a map[string]any
+	if len(args) > 0 {
+		a = args[0]
+	}
+	return i18n.Text(l, key, a)
+}
+
+func Find(path string, loc ...i18n.Locale) (string, error) {
+	l := getLocale(loc...)
 	if path != "" {
 		if !filepath.IsAbs(path) {
-			return "", errors.New("请输入 Caelis 可执行文件的完整路径")
+			return "", errors.New(text(l, "host.enterCaelisFullPath"))
 		}
 		i, e := os.Stat(path)
 		if e != nil || !i.Mode().IsRegular() || i.Mode()&0111 == 0 {
-			return "", errors.New("Caelis 路径不是可执行文件")
+			return "", errors.New(text(l, "host.caelisPathNotExecutable"))
 		}
 		return filepath.Clean(path), nil
 	}
@@ -45,16 +64,18 @@ func Find(path string) (string, error) {
 	}
 	home, _ := os.UserHomeDir()
 	for _, p := range []string{filepath.Join(home, ".local/bin/caelis"), "/opt/homebrew/bin/caelis", "/usr/local/bin/caelis"} {
-		if f, e := Find(p); e == nil {
+		if f, e := Find(p, l); e == nil {
 			return f, nil
 		}
 	}
-	return "", errors.New("尚未找到 Caelis，请安装或选择本机可执行文件")
+	return "", errors.New(text(l, "host.caelisNotFoundInstallOrSelect"))
 }
-func Store(path string) (string, error) {
+
+func Store(path string, loc ...i18n.Locale) (string, error) {
+	l := getLocale(loc...)
 	if path != "" {
 		if !filepath.IsAbs(path) {
-			return "", errors.New("Caelis 数据目录必须是完整路径")
+			return "", errors.New(text(l, "host.caelisDataDirFullPath"))
 		}
 		return filepath.Clean(path), nil
 	}
@@ -63,34 +84,39 @@ func Store(path string) (string, error) {
 }
 
 // run bounds output and never returns raw stderr (which can include private configuration).
-func run(ctx context.Context, path string, args ...string) ([]byte, error) {
+func run(ctx context.Context, loc i18n.Locale, path string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
-	var out limitedBuffer
+	out := limitedBuffer{loc: loc}
 	cmd.Stdout = &out
 	cmd.Stderr = io.Discard
 	cmd.Env = runtimeenv.Clean(os.Environ())
 	if err := cmd.Run(); err != nil {
-		return nil, errors.New("Caelis 命令未成功，请检查本机安装和运行时配置")
+		return nil, errors.New(text(loc, "host.caelisCommandFailed"))
 	}
 	return out.Bytes(), nil
 }
 
-type limitedBuffer struct{ bytes.Buffer }
+type limitedBuffer struct {
+	bytes.Buffer
+	loc i18n.Locale
+}
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	if b.Len()+len(p) > 1<<20 {
-		return 0, errors.New("输出超过限制")
+		return 0, errors.New(text(b.loc, "host.outputExceededLimit"))
 	}
 	return b.Buffer.Write(p)
 }
-func Inspect(ctx context.Context, path string) (Status, error) {
-	p, e := Find(path)
+
+func Inspect(ctx context.Context, path string, loc ...i18n.Locale) (Status, error) {
+	l := getLocale(loc...)
+	p, e := Find(path, l)
 	if e != nil {
 		return Status{Message: e.Error()}, nil
 	}
 	ctx, c := context.WithTimeout(ctx, 8*time.Second)
 	defer c()
-	b, e := run(ctx, p, "version", "--format", "json")
+	b, e := run(ctx, l, p, "version", "--format", "json")
 	if e != nil {
 		return Status{Path: p, Message: e.Error()}, e
 	}
@@ -98,36 +124,37 @@ func Inspect(ctx context.Context, path string) (Status, error) {
 		Version string `json:"version"`
 	}
 	if json.Unmarshal(b, &v) != nil || v.Version == "" {
-		return Status{}, errors.New("该文件没有返回有效的 Caelis 版本")
+		return Status{}, errors.New(text(l, "host.fileInvalidCaelisVersion"))
 	}
-	return Status{Installed: true, Path: p, Version: v.Version, Message: "Caelis 已安装"}, nil
+	return Status{Installed: true, Path: p, Version: v.Version, Message: text(l, "host.caelisInstalled")}, nil
 }
-func Manage(ctx context.Context, action, path, store string) (Status, error) {
+func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale) (Status, error) {
+	l := getLocale(loc...)
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	if action == "detect" {
-		return Inspect(ctx, path)
+		return Inspect(ctx, path, l)
 	}
 	if action == "install" {
 		if runtime.GOOS != "darwin" {
-			return Status{}, errors.New("当前平台尚未提供安装入口")
+			return Status{}, errors.New(text(l, "host.platformNoInstaller"))
 		}
-		if _, e := Find(path); e == nil {
-			return Status{}, errors.New("Caelis 已安装，请使用检查更新或更新")
+		if _, e := Find(path, l); e == nil {
+			return Status{}, errors.New(text(l, "host.caelisAlreadyInstalled"))
 		}
 		if path != "" {
-			return Status{}, errors.New("自动安装只适用于默认位置；自定义路径请自行安装")
+			return Status{}, errors.New(text(l, "host.autoInstallDefaultPathOnly"))
 		}
-		if e := install(ctx); e != nil {
+		if e := install(ctx, l); e != nil {
 			return Status{}, e
 		}
-		return Inspect(ctx, "")
+		return Inspect(ctx, "", l)
 	}
-	p, e := Find(path)
+	p, e := Find(path, l)
 	if e != nil {
 		return Status{}, e
 	}
-	dir, e := Store(store)
+	dir, e := Store(store, l)
 	if e != nil {
 		return Status{}, e
 	}
@@ -137,18 +164,24 @@ func Manage(ctx context.Context, action, path, store string) (Status, error) {
 		if action == "check-update" {
 			args = append(args, "--check")
 		}
-		b, e := run(ctx, p, args...)
+		b, e := run(ctx, l, p, args...)
 		if e != nil {
 			return Status{}, e
 		}
-		v, e := Inspect(ctx, p)
-		v.Message = strings.TrimSpace(string(b))
-		if len(v.Message) > 2000 {
-			v.Message = "Caelis 已完成更新操作，请重新检测"
+		v, e := Inspect(ctx, p, l)
+		if e != nil {
+			return v, e
 		}
-		return v, e
+		return updateResult(v, string(b), action == "check-update", l)
+	case "apply-update":
+		// The public lifecycle owns selection, exact process identity, readiness,
+		// rollback and keeping a newer release. Never stop or kill it ourselves.
+		if _, e = run(ctx, l, p, "service", "start", "--store-dir", dir, "--format", "json"); e != nil {
+			return Status{}, e
+		}
+		return Inspect(ctx, p, l)
 	case "start":
-		raw, e := run(ctx, p, "service", "status", "--store-dir", dir, "--format", "json")
+		raw, e := run(ctx, l, p, "service", "status", "--store-dir", dir, "--format", "json")
 		if e != nil {
 			return Status{}, e
 		}
@@ -156,28 +189,29 @@ func Manage(ctx context.Context, action, path, store string) (Status, error) {
 			State string `json:"state"`
 		}
 		if json.Unmarshal(raw, &service) != nil {
-			return Status{}, errors.New("无法核对 Caelis 服务状态")
+			return Status{}, errors.New(text(l, "host.cannotVerifyServiceStatus"))
 		}
 		if service.State == "running" {
-			v, e := Inspect(ctx, p)
-			v.Message = "Caelis 服务已在运行；如需升级运行中的服务，请通过 Caelis 完成。"
+			v, e := Inspect(ctx, p, l)
+			v.Message = text(l, "host.caelisServiceAlreadyRunning")
 			return v, e
 		}
 		if service.State != "stopped" {
-			return Status{}, errors.New("Caelis 服务状态不明确，未启动新进程")
+			return Status{}, errors.New(text(l, "host.serviceStatusUnclearNoNewProcess"))
 		}
-		_, e = run(ctx, p, "service", "start", "--store-dir", dir, "--format", "json")
+		_, e = run(ctx, l, p, "service", "start", "--store-dir", dir, "--format", "json")
 		if e != nil {
 			return Status{}, e
 		}
-		v, e := Inspect(ctx, p)
-		v.Message = "Caelis 服务已启动"
+		v, e := Inspect(ctx, p, l)
+		v.Message = text(l, "host.caelisServiceStarted")
 		return v, e
 	default:
-		return Status{}, errors.New("不支持的运行时操作")
+		return Status{}, errors.New(text(l, "host.unsupportedRuntimeAction"))
 	}
 }
-func install(ctx context.Context) error {
+func install(ctx context.Context, loc ...i18n.Locale) error {
+	l := getLocale(loc...)
 	ctx, c := context.WithTimeout(ctx, 5*time.Minute)
 	defer c()
 	req, e := http.NewRequestWithContext(ctx, "GET", InstallerURL, nil)
@@ -186,21 +220,21 @@ func install(ctx context.Context) error {
 	}
 	client := &http.Client{Timeout: 45 * time.Second, CheckRedirect: func(r *http.Request, via []*http.Request) error {
 		if len(via) > 4 || r.URL.Scheme != "https" || r.URL.Hostname() != "caelis.dev" {
-			return errors.New("不安全的安装重定向")
+			return errors.New(text(l, "host.insecureInstallRedirect"))
 		}
 		return nil
 	}}
 	res, e := client.Do(req)
 	if e != nil {
-		return errors.New("无法下载 Caelis 官方安装程序")
+		return errors.New(text(l, "host.cannotDownloadOfficialInstaller"))
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return fmt.Errorf("Caelis 安装程序下载失败（%d）", res.StatusCode)
+		return errors.New(text(l, "host.installerDownloadFailed", map[string]any{"code": res.StatusCode}))
 	}
 	b, e := io.ReadAll(io.LimitReader(res.Body, 1<<20+1))
 	if e != nil || len(b) > 1<<20 {
-		return errors.New("安装程序内容无效")
+		return errors.New(text(l, "host.installerContentInvalid"))
 	}
 	file, e := os.CreateTemp("", "caelis-installer-*.sh")
 	if e != nil {
@@ -215,6 +249,32 @@ func install(ctx context.Context) error {
 	if ce != nil {
 		return ce
 	}
-	_, e = run(ctx, "/bin/sh", file.Name())
+	_, e = run(ctx, l, "/bin/sh", file.Name())
 	return e
+}
+
+// Parse only the CLI's bounded completion line, never expose installer output.
+var availableUpdate = regexp.MustCompile(`^update available: [A-Za-z0-9.+-]+ -> ([A-Za-z0-9.+-]+) \([^\n]+\)$`)
+
+func updateResult(v Status, output string, check bool, loc ...i18n.Locale) (Status, error) {
+	l := getLocale(loc...)
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	line := strings.TrimSpace(lines[len(lines)-1])
+	if m := availableUpdate.FindStringSubmatch(line); check && len(m) == 2 {
+		v.LatestVersion = m[1]
+		v.UpdateState = "available"
+		v.Message = text(l, "host.updateAvailableToVersion", map[string]any{"version": m[1]})
+		return v, nil
+	}
+	if strings.HasPrefix(line, "caelis is up to date (") && strings.HasSuffix(line, ")") {
+		v.LatestVersion = v.Version
+		v.UpdateState = "current"
+		v.Message = text(l, "host.installedLatestVersion", map[string]any{"version": v.Version})
+		return v, nil
+	}
+	if !check && strings.HasPrefix(line, "Caelis ") && strings.Contains(line, " is installed (") && strings.HasSuffix(line, "it takes effect on the next start.") {
+		v.Message = text(l, "host.programUpdatedEnablingService")
+		return v, nil
+	}
+	return v, errors.New(text(l, "host.updateResultUnconfirmed"))
 }

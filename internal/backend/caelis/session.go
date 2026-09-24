@@ -30,34 +30,36 @@ type Options struct {
 	ToolsOnly bool
 }
 type Session struct {
-	diagnostics       *diagnosticlog.Logger
-	mu                sync.Mutex
-	step              sync.Mutex
-	path              string
-	settings          api.RuntimeSettings
-	execution         api.ExecutionSettings
-	workExecution     api.WorkExecutionSettings
-	executionMode     string
-	tools             *api.ToolConnection
-	catalog           map[string]api.ApplicationTools
-	catalogs          map[string]map[string]api.ApplicationTools
-	profile           wire.ApplicationProfile
-	state             binding
-	loadErr           error
-	client            *client
-	info              wire.ServerInfo
-	connected, closed bool
-	issue             string
-	revision          uint64
-	changed           chan struct{}
-	cancel            context.CancelFunc
-	ctx               context.Context
-	wg                sync.WaitGroup
-	streamCtx         context.Context
-	streamCancel      context.CancelFunc
-	generation        uint64
-	wake              chan struct{}
-	streams           map[string]bool
+	sendingScheduled      string
+	scheduledPreviousTurn string
+	diagnostics           *diagnosticlog.Logger
+	mu                    sync.Mutex
+	step                  sync.Mutex
+	path                  string
+	settings              api.RuntimeSettings
+	execution             api.ExecutionSettings
+	workExecution         api.WorkExecutionSettings
+	executionMode         string
+	tools                 *api.ToolConnection
+	catalog               map[string]api.ApplicationTools
+	catalogs              map[string]map[string]api.ApplicationTools
+	profile               wire.ApplicationProfile
+	state                 binding
+	loadErr               error
+	client                *client
+	info                  wire.ServerInfo
+	connected, closed     bool
+	issue                 string
+	revision              uint64
+	changed               chan struct{}
+	cancel                context.CancelFunc
+	ctx                   context.Context
+	wg                    sync.WaitGroup
+	streamCtx             context.Context
+	streamCancel          context.CancelFunc
+	generation            uint64
+	wake                  chan struct{}
+	streams               map[string]bool
 }
 
 func New(opts Options) *Session {
@@ -118,10 +120,11 @@ func (s *Session) fail(e error) error {
 }
 
 type discovery struct {
-	Schema      string `json:"schema_version"`
-	Endpoint    string `json:"endpoint"`
-	InstanceID  string `json:"instance_id"`
-	PrincipalID string `json:"principal_id"`
+	DistributionVersion string `json:"distribution_version"`
+	Schema              string `json:"schema_version"`
+	Endpoint            string `json:"endpoint"`
+	InstanceID          string `json:"instance_id"`
+	PrincipalID         string `json:"principal_id"`
 }
 
 func Discover(settings api.RuntimeSettings) (discovery, string, error) {
@@ -180,6 +183,7 @@ func ProbeBinding(ctx context.Context, settings api.RuntimeSettings, directory s
 	if e != nil {
 		return e
 	}
+	defer c.http.CloseIdleConnections()
 	i, e := initialize(ctx, c)
 	if e == nil && value(i.InstanceId) != d.InstanceID {
 		return errors.New("Caelis 服务已替换，请重新检测")
@@ -338,4 +342,13 @@ func (s *Session) Close(ctx context.Context) error {
 		s.client.http.CloseIdleConnections()
 	}
 	return nil
+}
+
+// Reconnect after an explicit Host replacement, preserving durable identities and
+// unknown operations. Connection recovery never resends a user prompt.
+func (s *Session) Reconnect(ctx context.Context) error {
+	s.mu.Lock()
+	s.connected = false
+	s.mu.Unlock()
+	return s.Connect(ctx)
 }

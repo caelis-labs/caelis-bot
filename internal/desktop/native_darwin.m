@@ -76,6 +76,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 
 @property BOOL visible;
 @property NSStatusItem *statusItem;
+@property NSDictionary<NSString *,NSString *> *language;
 @property double scale;
 @property double placementX;
 @property double placementY;
@@ -195,7 +196,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
                 if (!weak) return;
                 weak.notificationError = error ? @"暂时无法开启通知，请稍后重试" : nil;
                 [weak refreshNotificationPermission];
-                if (granted) bot_notify((__bridge void *)weak, "notifications-enabled", "通知已开启", "到期提醒会出现在这里，点击通知可打开 Caelis Bot。", 1);
+                if (granted) bot_notify((__bridge void *)weak, "notifications-enabled", "通知已开启", "需要你确认的事项和定时任务结果会出现在这里。", 1);
             });
         }];
     } else {
@@ -210,24 +211,25 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     dispatch_async(dispatch_get_main_queue(), ^{ if (weak.handle) desktopEvent(weak.handle,2,0,0,0); });
     completionHandler();
 }
+- (NSString *)text:(NSString *)key { return self.language[key] ?: key; }
 - (NSMenu *)petMenu {
     NSMenu *menu = [NSMenu new];
     menu.autoenablesItems = NO; menu.delegate = self;
-    NSMenuItem *open = [menu addItemWithTitle:@"对话" action:@selector(openChat:) keyEquivalent:@""];
+    NSMenuItem *open = [menu addItemWithTitle:[self text:@"chat"] action:@selector(openChat:) keyEquivalent:@""];
     open.target = self;
-    NSMenuItem *visibility = [menu addItemWithTitle:self.visible ? @"隐藏" : @"显示" action:@selector(togglePet:) keyEquivalent:@""];
+    NSMenuItem *visibility = [menu addItemWithTitle:self.visible ? [self text:@"hide"] : [self text:@"show"] action:@selector(togglePet:) keyEquivalent:@""];
     visibility.target = self; visibility.tag = 2;
     return menu;
 }
 - (NSMenu *)applicationMenu {
     NSMenu *menu = [self petMenu];
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *settings = [menu addItemWithTitle:@"设置…" action:@selector(openSettings:) keyEquivalent:@","];
+    NSMenuItem *settings = [menu addItemWithTitle:[self text:@"settings"] action:@selector(openSettings:) keyEquivalent:@","];
     settings.target = self;
-    NSMenuItem *updates = [menu addItemWithTitle:@"检查更新…" action:@selector(checkUpdates:) keyEquivalent:@""];
+    NSMenuItem *updates = [menu addItemWithTitle:[self text:@"updates"] action:@selector(checkUpdates:) keyEquivalent:@""];
     updates.target = self;
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *quit = [menu addItemWithTitle:@"退出" action:@selector(quit:) keyEquivalent:@"q"];
+    NSMenuItem *quit = [menu addItemWithTitle:[self text:@"quit"] action:@selector(quit:) keyEquivalent:@""];
     quit.target = self;
     return menu;
 }
@@ -260,7 +262,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     self.trackingMenu=menu; self.menuTracking=YES; [self cancelPlane]; [self publishContext];
 
     for (NSMenuItem *item in menu.itemArray) {
-        if (item.tag == 2) item.title = self.visible ? @"隐藏" : @"显示";
+        if (item.tag == 2) item.title = self.visible ? [self text:@"hide"] : [self text:@"show"];
     }
 }
 - (void)placeX:(double)x y:(double)y scale:(double)scale {
@@ -453,7 +455,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     content.autoresizingMask = NSViewWidthSizable|NSViewHeightSizable;
     [surface addSubview:content];
     host.pet.contentView = surface;
-    host.pet.title = @"Caelis Bot — 桌宠";
+    host.pet.title = renderOwner.title;
     host.pet.opaque = NO; host.pet.backgroundColor = NSColor.clearColor;
     host.pet.hasShadow = NO; host.pet.level = NSFloatingWindowLevel;
     host.pet.hidesOnDeactivate = NO;
@@ -474,7 +476,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     [bubbleSurface addSubview:bubbleContent];
     host.bubble.contentView = bubbleSurface;
     bot_install_material(host.bubble, 28, 0, 6);
-    host.bubble.title = @"Caelis Bot — 消息";
+    host.bubble.title = bubbleOwner.title;
     host.bubble.opaque = NO; host.bubble.backgroundColor = NSColor.clearColor;
     host.bubble.hasShadow = NO; host.bubble.level = NSFloatingWindowLevel;
     host.bubble.hidesOnDeactivate = NO; host.bubble.releasedWhenClosed = NO;
@@ -484,12 +486,13 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     NSView *propContent=propOwner.contentView;
     propOwner.contentView=[[NSView alloc] initWithFrame:propContent.bounds];
     host.prop.contentView=propContent;
-    host.prop.title=@"Caelis Bot — 纸飞机";
+    host.prop.title=propOwner.title;
     host.prop.opaque=NO;host.prop.backgroundColor=NSColor.clearColor;host.prop.hasShadow=NO;
     host.prop.level=NSFloatingWindowLevel;host.prop.hidesOnDeactivate=NO;host.prop.releasedWhenClosed=NO;
     host.prop.collectionBehavior=bot_space_behavior(YES);host.prop.ignoresMouseEvents=YES;
     __weak BotHost *weak = host;
     host.taskDock=[BotTaskDock new];
+    host.taskDock.language=host.language;
     host.taskDock.openTask=^(NSString *identifier){if(weak.handle)desktopTaskOpen(weak.handle,(char *)identifier.UTF8String);};
     host.taskDock.gesture=^(NSString *name){if(weak.handle)bot_gesture((__bridge void *)weak,(char *)name.UTF8String);};
     BotPetInputView *view = [[BotPetInputView alloc] initWithFrame:surface.bounds];
@@ -503,8 +506,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     [surface addSubview:view positioned:NSWindowAbove relativeTo:content];
     view.accessibilityElement = YES;
     view.accessibilityRole = NSAccessibilityButtonRole;
-    view.accessibilityLabel = @"Caelis Bot 桌宠";
-    view.accessibilityHelp = @"单击展开或收起输入框，双击唤回聊天和已打开的设置；右键菜单，可拖动";
+    view.accessibilityLabel = renderOwner.title;
     NSEventMask mask = NSEventMaskMouseMoved|NSEventMaskLeftMouseDragged|NSEventMaskLeftMouseDown|NSEventMaskLeftMouseUp|NSEventMaskRightMouseDown|NSEventMaskOtherMouseDown;
     host.globalMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:mask handler:^(NSEvent *event) { [weak observeClick:event local:NO]; }];
     host.localMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) { [weak observeClick:event local:YES]; return event; }];
@@ -819,4 +821,24 @@ void bot_panel_ready(void *pointer,int activation){
     host.readyID=activation;
     double elapsed=host.interactionStart>0 ? (NSProcessInfo.processInfo.systemUptime-host.interactionStart)*1000 : 0;
     [host trace:[NSString stringWithFormat:@"input-ready:%.1fms",elapsed]];
+}
+
+char *bot_preferred_languages(void) {
+    @autoreleasepool {
+        NSData *data = [NSJSONSerialization dataWithJSONObject:NSLocale.preferredLanguages options:0 error:nil];
+        return strdup([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
+    }
+}
+void bot_language(void *pointer, char *json) {
+    BotHost *host = (__bridge BotHost *)pointer;
+    NSData *data = [[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding];
+    host.language = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    host.taskDock.language = host.language;
+    // These panels own the visible content; their Wails source windows are hidden.
+    host.pet.title = [host text:@"petTitle"];
+    host.bubble.title = [host text:@"bubbleTitle"];
+    host.prop.title = [host text:@"propTitle"];
+    host.inputView.accessibilityLabel = [host text:@"petLabel"];
+    host.inputView.accessibilityHelp = [host text:@"petActionHint"];
+    host.statusItem.menu = [host applicationMenu];
 }

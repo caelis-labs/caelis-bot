@@ -110,22 +110,22 @@ func (s *Session) addPrompt(event Notification) {
 	id := opaque(s.instance, fmt.Sprint(s.epoch), fmt.Sprint(event.Sequence), string(event.RequestID))
 	p := &prompt{id: event.RequestID, sequence: event.Sequence, method: event.Method, thread: n.ThreadID, turn: n.TurnID, item: n.ItemID, choices: map[string]any{}}
 	p.view = api.Approval{ID: id, Description: n.Reason, Status: "pending", Choices: []api.Choice{}, Questions: []api.Question{}}
-	add := func(id, label string, value any) {
-		p.view.Choices = append(p.view.Choices, api.Choice{ID: id, Label: label})
+	add := func(id, labelKey string, value any) {
+		p.view.Choices = append(p.view.Choices, api.Choice{ID: id, LabelKey: labelKey})
 		p.choices[id] = value
 	}
 	switch event.Method {
 	case "item/commandExecution/requestApproval":
-		p.view.Title = "允许运行此操作？"
+		p.view.TitleKey = "chat.approveCommand"
 		p.view.Action = n.Command
 		p.view.Target = n.Cwd
-		p.view.Details = n.Command + "\n位置：" + n.Cwd
+
 		if value := pretty(n.Network); value != "" {
-			p.view.Title = "允许访问网络？"
-			p.view.Details += "\n网络目标：\n" + value
+			p.view.TitleKey = "chat.approveNetwork"
+			p.view.Sections = append(p.view.Sections, api.ApprovalSection{TitleKey: "chat.networkTargets", Text: value})
 		}
 		if value := pretty(n.Additional); value != "" {
-			p.view.Details += "\n额外权限：\n" + value
+			p.view.Sections = append(p.view.Sections, api.ApprovalSection{TitleKey: "chat.additionalPermissions", Text: value})
 		}
 		decisions := n.Decisions
 		if decisions == nil {
@@ -136,16 +136,16 @@ func (s *Session) addPrompt(event Notification) {
 			_ = json.Unmarshal(d, &choice)
 			detail := ""
 			scope := map[string]string{"accept": "once", "acceptForSession": "conversation", "decline": "deny", "cancel": "deny"}[choice]
-			label := map[string]string{"accept": "允许这一次", "acceptForSession": "在本次对话中允许", "decline": "拒绝", "cancel": "取消此操作"}[choice]
+			label := map[string]string{"accept": "chat.allowOnce", "acceptForSession": "chat.allowConversation", "decline": "chat.decline", "cancel": "chat.cancelOperation"}[choice]
 			if label == "" {
 				var object map[string]json.RawMessage
 				if json.Unmarshal(d, &object) != nil {
 					continue
 				}
 				if _, ok := object["acceptWithExecpolicyAmendment"]; ok {
-					label = "允许并保存命令规则"
+					label = "chat.allowCommandRule"
 				} else if _, ok := object["applyNetworkPolicyAmendment"]; ok {
-					label = "应用网络规则"
+					label = "chat.applyNetworkRule"
 				} else {
 					continue
 				}
@@ -157,26 +157,26 @@ func (s *Session) addPrompt(event Notification) {
 			p.view.Choices[len(p.view.Choices)-1].Details = detail
 		}
 	case "item/fileChange/requestApproval":
-		p.view.Title = "允许修改这些文件？"
+		p.view.TitleKey = "chat.approveFiles"
 		item := s.nativeItems[opaque(n.TurnID, n.ItemID)]
 		for _, change := range item.Changes {
 			p.view.Details += change.Path + "\n" + change.Diff + "\n"
 		}
 		if n.GrantRoot != "" {
-			p.view.Details += "\n授权目录：" + n.GrantRoot
+			p.view.Sections = append(p.view.Sections, api.ApprovalSection{TitleKey: "chat.grantDirectory", Text: n.GrantRoot})
 		}
-		if p.view.Details != "" {
-			add("accept", "允许这一次", map[string]string{"decision": "accept"})
-			add("acceptForSession", "在本次对话中允许", map[string]string{"decision": "acceptForSession"})
+		if p.view.Details != "" || n.GrantRoot != "" {
+			add("accept", "chat.allowOnce", map[string]string{"decision": "accept"})
+			add("acceptForSession", "chat.allowConversation", map[string]string{"decision": "acceptForSession"})
 			p.view.Choices[len(p.view.Choices)-1].Scope = "conversation"
 		}
-		add("decline", "拒绝", map[string]string{"decision": "decline"})
-		add("cancel", "取消此操作", map[string]string{"decision": "cancel"})
+		add("decline", "chat.decline", map[string]string{"decision": "decline"})
+		add("cancel", "chat.cancelOperation", map[string]string{"decision": "cancel"})
 	case "item/permissions/requestApproval":
-		p.view.Title = "允许这些额外权限？"
-		p.view.Details = "位置：" + n.Cwd
+		p.view.TitleKey = "chat.approvePermissions"
+		p.view.Target = n.Cwd
 		b, _ := json.Marshal(n.Permissions)
-		p.view.Details += "\n仅本轮有效：\n" + pretty(b)
+		p.view.Sections = append(p.view.Sections, api.ApprovalSection{TitleKey: "chat.turnPermissions", Text: pretty(b)})
 		p.permissions = n.Permissions
 		granted := map[string]json.RawMessage{}
 		for _, key := range []string{"network", "fileSystem"} {
@@ -185,11 +185,11 @@ func (s *Session) addPrompt(event Notification) {
 			}
 		}
 		if len(granted) > 0 {
-			add("allow", "仅允许本轮", map[string]any{"permissions": granted, "scope": "turn"})
+			add("allow", "chat.allowTurn", map[string]any{"permissions": granted, "scope": "turn"})
 		}
-		add("decline", "拒绝", map[string]any{"permissions": map[string]any{}, "scope": "turn"})
+		add("decline", "chat.decline", map[string]any{"permissions": map[string]any{}, "scope": "turn"})
 	case "item/tool/requestUserInput":
-		p.view.Title = "需要你的确认"
+		p.view.TitleKey = "chat.confirmationRequired"
 		p.questions = n.Questions
 		for _, q := range n.Questions {
 			view := api.Question{ID: q.ID, Title: q.Question, Secret: q.IsSecret, Required: true, Type: "text", Options: []api.Choice{}}
@@ -201,13 +201,14 @@ func (s *Session) addPrompt(event Notification) {
 			}
 			p.view.Questions = append(p.view.Questions, view)
 		}
-		add("answer", "提交回答", nil)
+		add("answer", "chat.submitAnswer", nil)
 	case "mcpServer/elicitation/request":
-		p.view.Title = n.ServerName + " 需要确认"
+		p.view.Title = n.ServerName
+		p.view.TitleKey = "chat.serverConfirmationRequired"
 		p.view.Description = n.Message
 		if n.Mode == "url" && safeWebURL(n.URL) {
 			p.view.URL = n.URL
-			add("accept", "已完成授权", map[string]any{"action": "accept", "content": nil, "_meta": nil})
+			add("accept", "chat.authorizationDone", map[string]any{"action": "accept", "content": nil, "_meta": nil})
 		} else if n.Mode == "form" {
 			var form formSchema
 			decoder := json.NewDecoder(bytes.NewReader(n.Schema))
@@ -247,7 +248,7 @@ func (s *Session) addPrompt(event Notification) {
 				}
 				if valid {
 					p.form = &form
-					add("accept", "提交", nil)
+					add("accept", "chat.submitApproval", nil)
 				} else {
 					p.view.Questions = nil
 
@@ -255,18 +256,18 @@ func (s *Session) addPrompt(event Notification) {
 			}
 			if p.form == nil {
 				p.view.Questions = nil
-				p.view.Description += "\n此表单格式尚不支持，可取消后重试其他方式。"
+				p.view.NoticeKey = "chat.unsupportedApprovalForm"
 			}
 		}
-		add("decline", "拒绝", map[string]any{"action": "decline", "content": nil, "_meta": nil})
-		add("cancel", "取消", map[string]any{"action": "cancel", "content": nil, "_meta": nil})
+		add("decline", "chat.decline", map[string]any{"action": "decline", "content": nil, "_meta": nil})
+		add("cancel", "chat.cancelApproval", map[string]any{"action": "cancel", "content": nil, "_meta": nil})
 	default:
 		s.rejectRequest(event)
 		s.state.Message = "后端请求了尚不支持的交互，已明确拒绝；任务结果请以后端回执为准。"
 		return
 	}
 	if task := s.taskByThread(n.ThreadID); task != nil {
-		p.view.Description = "任务：" + task.View.Title + "\n" + p.view.Description
+		p.view.TaskTitle = task.View.Title
 	}
 	s.prompts[id] = p
 	s.promptHandles[string(event.RequestID)] = id

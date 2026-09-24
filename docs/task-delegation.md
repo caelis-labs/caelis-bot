@@ -68,7 +68,8 @@ Codex 使用公开 `config/read` 的 effective config，而不是 `model/list` �
 标识；在持久化创建意图前写入独立 application profile。既有 application 会话保持原配置。
 保存工作偏好不改运行中的任务、Bot 对话模型或 Runtime 全局默认；模型工具不能提交工作模型参数。
 
-当前不配置 team，公开协议扩展见 [Caelis #74](https://github.com/caelis-labs/caelis/issues/74)。
+Caelis 的 Agent team 在“运行时与模型”中配置，与本机 TUI `/team` 共用角色绑定和方案。
+这是 Runtime 配置，不为每个 Worker 另建 team；新任务相当于用户在本机 Caelis 发起工作。
 
 ## 本机工作环境与诊断（2026-09-24）
 
@@ -77,7 +78,8 @@ macOS 原生宿主在启动 Runtime 前，从用户的登录/交互 shell 恢复
 独立工作任务，以及 Bot 调用 `caelis service start` 创建的 Host 都继承这套环境，
 不以 Finder 的最小 PATH 代替用户终端环境。shell 探测只执行一次，有超时与输出上限；
 失败保留原环境并记入私有日志。用户显式指定的隔离数据目录和 CODEX_HOME 保留。
-已经运行的共享 Caelis Host 继续使用其启动时的环境；Bot 不接管或重启它。
+已经运行的共享 Caelis Host 继续使用其启动时的环境；普通连接不重启它。
+显式升级经原生服务生命周期选择新版，忙碌检查和共享客户端边界见 [接入契约](caelis-integration.md#安装更新与启用服务)。
 
 普通工作任务继续使用 Runtime 自己的用户配置、MCP、插件和工具发现，不复制另一
 Codex App 的会话身份/IPC，也不继承秘书专属工具凭据与 Notebook 指令。任务目录、
@@ -100,8 +102,10 @@ macOS 桌宠有任务时，脚边显示一个收起的 `···` 胶囊。悬停�
 旧任务没有原始 prompt 时明确显示缺失提示，不用标题冒充。
 
 点击由宿主解析当前 Runtime 中 Bot 自有的任务，再用默认关联终端打开一个私有 `.command`。
-命令只包含宿主确认的 CLI、Unix endpoint、原生 Thread、工作目录及 Runtime home，
-使用标准 `codex --remote unix://… resume …`，不把任务文本拼进 shell，不创建替代任务。
+命令只包含宿主确认的 CLI、endpoint、原生会话、工作目录及 Runtime 数据路径。
+Codex 使用 `codex --remote unix://… resume …`；Caelis 使用
+`caelis attach --control-url http://127.0.0.1:… --session … --store-dir … --control-token-file …`。
+不把任务文本或凭据内容拼进 shell，不创建替代任务。
 脚本目录/文件为 0700，同一任务原子覆盖同一个文件，数量随现有任务账本上限受限。
 终端是用户的观察与输入端，Bot 继续通过标准 App Server 协议通信。
 
@@ -120,8 +124,15 @@ Bot 自建进程继续遵守显式退出和工具清理。原生握手报告的 
 展开与点击只触发既有 attention/nod 展示动作。明确打开失败使用短提示，并记录任务句柄、
 错误分类与指纹到现有滚动诊断日志，不回灌为聊天消息。
 
-`WorkTerminalProvider` 是可选宿主能力。Caelis 当前尚未实现对应终端接入，因此不显示此入口；
-没有把 Codex 的 native ID 或命令格式强加给 Caelis。主动关怀规则仍在独立 POC，未在本次切片产品化。
+`WorkTerminalProvider` 由 Codex 和 Caelis adapter 分别实现。Caelis 只开放 Bot 已拥有、
+已确认原生 Session ID 的 Worker；旧应用会话、未知创建及其他应用任务不会生成 attach 命令。
+Host instance 改变时先等待 Bot 重连。终端使用本机用户的 `runtime/service/auth.token` 文件，
+Bot 仍使用受限应用凭据；脚本不会复制 token。双方分别订阅同一 Session，用户新回合和 steering
+仍进入 Bot 原有 SSE 投影。主动关怀规则保留在独立 POC。
+
+Caelis 的隔离 Host 验收使用 `CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis make smoke-caelis`，
+覆盖原生 Worker 的终端目标、同一 Session、重连和结果。shell 参数执行测试验证不重发 prompt。
+这些测试不代替原生任务气泡的实际点击与外部 Terminal GUI 验收。
 
 安装版隔离验收（合成 loopback Responses，无个人凭据、真实模型或收费请求）：
 

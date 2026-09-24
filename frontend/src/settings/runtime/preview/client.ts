@@ -11,7 +11,7 @@ export function createPreviewClient(): RuntimeSettingsClient {
  const profile = {runtime:'caelis',cliPath:'',caelisStore:''}, selection={model:models[0].model,effort:'high',serviceTier:''};
  const state: RuntimeView = {
   revision:'1',profile, pending:'', models,
-  setup:{settings:profile,selectedModel:models[1].model,state:'ready',message:'',loginPending:false,accountType:'',installation:{installed:true,path:'~/.local/bin/caelis',version:'开发预览',message:''},models:[]},
+  setup:{serviceUpdateAvailable:false,serviceVersion:"v0.62.0",serviceState:"running",settings:profile,selectedModel:models[1].model,state:'ready',message:'',loginPending:false,accountType:'',installation:{latestVersion:"",updateState:"",installed:true,path:'~/.local/bin/caelis',version:'开发预览',message:''},models:[]},
   conversation:{model:models[1].model,effort:'medium',serviceTier:'',approvalMode:'default'},work:{model:'',effort:'',serviceTier:''},main:selection,canEditMain:true,
   team:{models,available:true,reason:'',revision:'1',activeSet:'日常开发',roles:[
    ...[['breeze','快速处理轻量任务'],['orbit','规划、实现与验证'],['zenith','深入分析复杂问题'],['guardian','审核需要确认的操作'],['reviewer','检查工作结果']].map(([id,description],i)=>({id,description,modelIds:models.map(m=>m.model),system:i>2,custom:false,inherited:true,selection:i===0?{model:models[1].model,effort:'medium',serviceTier:''}:selection})),

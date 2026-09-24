@@ -22,7 +22,7 @@ import (
 // command persists exact bytes before dispatch. Unknown journals are read only;
 // transport retries can never accidentally create a second native operation.
 // Caller serializes mutations with step; stream projection only takes mu.
-func (s *Session) command(ctx context.Context, op, path string, req any) (wire.CommandResult, error) {
+func (s *Session) command(ctx context.Context, op, path string, req any, scheduled ...bool) (wire.CommandResult, error) {
 	b, e := json.Marshal(req)
 	if e != nil {
 		return wire.CommandResult{}, e
@@ -47,7 +47,18 @@ func (s *Session) command(ctx context.Context, op, path string, req any) (wire.C
 		_ = json.Unmarshal(b, &prompt)
 		source = wire.ApplicationSource{Kind: prompt.SourceKind, OperationId: op, GrantId: prompt.GrantId}
 	}
-	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source}
+	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0]}
+	if len(scheduled) > 0 && scheduled[0] {
+		s.sendingScheduled = op
+		s.scheduledPreviousTurn = observedTurn(s.state.Views[s.state.Session.SessionId])
+		defer func() {
+			s.mu.Lock()
+			s.sendingScheduled = ""
+			s.scheduledPreviousTurn = ""
+			s.bumpLocked()
+			s.mu.Unlock()
+		}()
+	}
 	e = s.saveLocked()
 	s.bumpLocked()
 	c := s.client
@@ -90,6 +101,9 @@ func (s *Session) command(ctx context.Context, op, path string, req any) (wire.C
 	s.mu.Lock()
 	j := s.state.Operations[op]
 	j.Outcome = string(out.Outcome)
+	if out.Target != nil {
+		j.TurnID = value(out.Target.TurnId)
+	}
 	if j.Outcome != "unknown" && !strings.HasSuffix(path, "/steer") {
 		j.Body = nil
 	}
@@ -180,7 +194,7 @@ func (s *Session) submitGrant(ctx context.Context, in api.Submission, files []ap
 	if source == "user" && (!retry && v.CanSteer || s.isSteeringRetry(in.ID)) {
 		out, e = s.submitNativeInput(ctx, sid, in.ID, in.Text, req.ContentParts, true)
 	} else {
-		out, e = s.command(ctx, in.ID, "/application/sessions/"+idPath(sid)+"/prompt", req)
+		out, e = s.command(ctx, in.ID, "/application/sessions/"+idPath(sid)+"/prompt", req, in.Scheduled)
 	}
 	receipt.Outcome = productOutcome(out.Outcome)
 	if receipt.Outcome == "" {

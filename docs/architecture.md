@@ -1,9 +1,9 @@
 # Architecture and internal backend contract
 
 Status: application-owned Bot foundation implemented locally; Codex execution connected.
-Caelis generic application protocol is connected against official v0.61.0 (5e2546f); legacy Bot Mode stays disabled.
-Installed release identity, isolated Host/native tools, real models and scoped macOS GUI acceptance pass;
-see [release acceptance](caelis-release-acceptance.md) for remaining product and distribution limits.
+Caelis uses the public protocol from official v0.62.0 (812264e); legacy Bot Mode stays disabled.
+See [integration](caelis-integration.md) for the current contract and
+[verification status](preparation-status.md) for scoped evidence and remaining acceptance limits.
 
 2026-09-23: [Bot product-host architecture](bot-platform-architecture.md) and the
 [generic Runtime extension proposal](runtime-extension-contract.md) define the target.
@@ -41,6 +41,12 @@ Caelis Bot: menu bar + scalable desktop pet + contextual panels
 
 Wails / Go: windows, OS integration, process lifetime and byte transport
 ```
+
+## Interface languages
+
+Desktop owns the persisted language preference and revisioned window notifications.
+Go and React share one bilingual catalog; execution content and Runtime settings
+remain independent. See [interface languages](i18n.md) for APIs and content boundaries.
 
 ## Runtime settings authority
 
@@ -205,12 +211,10 @@ optional metadata. Both adapters write private, rotating structured diagnostics 
 `internal/diagnosticlog`; the retention and exported-environment contract is documented
 in [task delegation](task-delegation.md).
 
-Native notifications consume backend revision changes and persisted reminder
-occurrences, independently of renderer visibility. Permission is requested only from
+Native notifications consume backend revision changes, independently of renderer visibility. Permission is requested only from
 an explicit user action. Restored completed history does not generate new alerts;
-pending decisions and new completed work notify when the pet is hidden, and due
-reminders notify even while unrelated work is busy. A notification click opens chat.
-The macOS bridge uses UserNotifications; no daemon or background model loop is added.
+pending decisions and new completed work notify when the pet is hidden. Scheduled results notify only after visible output or failure, even when the pet is visible; due/queued and silently skipped reminders never notify. A notification click opens chat.
+The macOS bridge uses UserNotifications; the application icon is declared in the bundle Info.plist and validated from its ICNS during packaging. Settings provide a native test notification. No daemon or background model loop is added.
 
 Implemented mapping: thread start/read/resume; turn start/steer/interrupt; native
 item/delta/completion; command/file/permission approval, tool user input and simple
@@ -561,6 +565,7 @@ See [Bot design](bot-design.md) for the product authority. `internal/bot` owns s
 identity, persisted reminder definitions/occurrences and the private MCP bridge. It
 starts only after single-instance ownership, wakes the existing Bot only when idle,
 and keeps unknown dispatches unresolved until a native receipt proves acceptance.
+Calendar windows and literal weekdays are evaluated locally, including after sleep or queueing; holiday predicates remain model instructions. `internal/backend/activation` owns quiet presentation: adapters retain scheduled provenance in their existing journals, map it through native client IDs or command targets, and filter only presentation snapshots. Canonical history remains unchanged. Partial scheduled prose and the explicit skip response never reach chat, pet bubbles or OS notifications; approvals and errors keep their normal path.
 Codex explicitly uses empty runtime workspace roots and a fixed Bot instruction
 prefix. The private result directory is not a user-selected workspace.
 
@@ -575,8 +580,9 @@ click resolves an owned `WorkTerminalProvider` target and launches the user's ex
 terminal. New owned Codex processes expose a private Unix socket; a native TUI attaches
 to the same App Server with `--remote … resume …`. The adapter remains subscribed across
 idle and human-created turns, with one resume on reconnect and no worker polling loop.
-The renderer never receives a shell command or native thread ID. Caelis terminal attach
-remains an optional adapter capability, not a presumed protocol equivalence. See
+The renderer never receives a shell command or native thread ID. The Caelis adapter
+resolves only confirmed, owned native Workers and uses `caelis attach` with the existing
+Session and a local user credential-file path. Terminal exit only detaches observation. See
 [task delegation](task-delegation.md) for lifecycle and verification boundaries.
 
 
@@ -632,6 +638,11 @@ not occlusion. Close hooks hide only the corresponding reusable webview and reco
 activation policy; they never quit or cancel backend work. The Dock reopen hook cancels
 Wails' default reveal-all-windows behavior and recalls only still-open chat/settings,
 so private pet/composer/prop surfaces and explicitly closed settings stay hidden.
+Dock Quit routes to the frontmost open chat/settings window's existing close hook,
+including when the app is in the background or minimised. Attached file sheets stay
+reachable. The application menu offers Close Window (Cmd+W); only the status-item
+Quit action initiates user-requested backend shutdown. Updater/restart, signals and
+system logout/shutdown retain the existing cleanup path.
 
 The connection page owns installation/account/model-service management, with one
 connection check and a conditional restart action. Routine model selection lives only
@@ -677,9 +688,17 @@ falls back to the Bot's model/effort/tier. Manual selection overrides that group
 resident execution settings. They never change permission policy or Runtime globals.
 Codex reads `config/read` and pins the native thread receipt, including model provider,
 for continuation/restart; legacy tasks first resume without model overrides. Caelis
-resolves public Host model metadata and persists an explicit application worker profile.
-Lookup errors are not absence. Existing tasks keep their settings. Caelis application
-team configuration remains deferred to [Caelis #74](https://github.com/caelis-labs/caelis/issues/74).
+resolves public Host model metadata and pins any explicit override before native Worker creation.
+Lookup errors are not absence. Existing tasks keep their settings. Runtime Team settings
+use the same public role bindings and binding sets as the TUI; they are not per-Worker discovery.
+
+`internal/app/caelis_management.go` owns explicit install/update/apply orchestration.
+`internal/caelisruntime` executes public CLI actions; Caelis owns process replacement.
+Installation and running Host versions remain distinct. Bot freezes its admissions,
+checks Host activity before replacement, negotiates the resulting protocol and reconnects
+its existing adapter. A failed apply retains the installation for retry. This preflight
+cannot atomically fence other clients; the confirmation exposes that shared lifecycle
+impact. See [integration](caelis-integration.md#安装更新与启用服务).
 
 Protocol references: [model/list](https://learn.chatgpt.com/docs/app-server#list-models-modellist)
 and the vendored Codex 0.153.4 ModelList/ThreadStart/ThreadResume/TurnStart schemas.

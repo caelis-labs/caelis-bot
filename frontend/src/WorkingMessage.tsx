@@ -1,9 +1,11 @@
 import type { ChatActivity } from './chat-presentation';
 import { BotAvatar } from './BotAvatar';
+import { useI18n } from './i18n';
 
 export function WorkingMessage({activity,active}:{activity:ChatActivity;active:boolean}) {
+ const {t} = useI18n();
  const moving=active&&activity!=='stopping';
- const label=activity==='stopping'?'正在停止':activity==='reviewing'?'正在自动审查':'Caelis Bot 正在回复';
+ const label=activity==='stopping'?t('chat.stopping'):activity==='reviewing'?t('chat.reviewing'):t('chat.generating');
  return <article className={`message-row assistant working-message ${moving?'is-active':''}`}>
   <BotAvatar animate={moving}/>
   <div className="message assistant working-indicator" role="status" aria-label={label}>

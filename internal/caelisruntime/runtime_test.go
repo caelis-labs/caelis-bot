@@ -32,7 +32,7 @@ func TestOfficialCLICommandsAndCredentialIsolation(t *testing.T) {
 printf '%s\n' "$*" >> "$CAELIS_RUNTIME_TEST_LOG"
 case "$1" in
 version) printf '{"version":"0.fixture"}\n';;
-update) printf 'Already current\n';;
+update) printf 'caelis is up to date (0.fixture)\n';;
 service) printf '{"state":"running"}\n';;
 *) exit 98;;
 esac
@@ -72,5 +72,25 @@ func TestInvalidLocationDoesNotExecute(t *testing.T) {
 	_ = os.WriteFile(path, []byte("no"), 0600)
 	if _, e := Find(path); e == nil {
 		t.Fatal("non-executable accepted")
+	}
+}
+
+func TestUpdateCompletionIsStructuredAndNeverLeaksInstallerOutput(t *testing.T) {
+	for _, tt := range []struct {
+		output string
+		check  bool
+		state  string
+		fail   bool
+	}{
+		{"update available: v0.61.0 -> v0.62.0 (raw)", true, "available", false},
+		{"caelis is up to date (v0.62.0)", true, "current", false},
+		{"PRIVATE_INSTALLER_OUTPUT\nCaelis v0.62.0 is installed (updated from v0.61.0 via raw); it takes effect on the next start.", false, "", false},
+		{"update skipped: unsupported", false, "", true},
+		{"PRIVATE_UNCONFIRMED_OUTPUT", false, "", true},
+	} {
+		v, err := updateResult(Status{Version: "v0.62.0"}, tt.output, tt.check)
+		if (err != nil) != tt.fail || v.UpdateState != tt.state || strings.Contains(v.Message, "PRIVATE") {
+			t.Fatal(v, err)
+		}
 	}
 }

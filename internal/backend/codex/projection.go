@@ -148,6 +148,13 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 			}
 		}
 		view.Text = strings.Join(text, "\n")
+		if _, scheduled := s.binding.Scheduled[item.ClientID]; scheduled || legacyWakeID.MatchString(item.ClientID) {
+			if s.binding.Scheduled == nil {
+				s.binding.Scheduled = map[string]string{}
+			}
+			view.Kind = "activation"
+			s.binding.Scheduled[item.ClientID] = run
+		}
 		if p := s.binding.Pending; p != nil && p.ID == item.ClientID {
 			s.state.LastReceipt = api.Receipt{ID: p.ID, Outcome: "accepted"}
 			receipt := s.state.LastReceipt

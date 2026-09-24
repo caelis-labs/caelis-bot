@@ -61,6 +61,9 @@ func main() {
 		fmt.Fprintf(&out, "export interface %s {\n", key)
 		for i := 0; i < t.NumField(); i++ {
 			f := t.Field(i)
+			if f.Tag.Get("json") == "-" {
+				continue
+			}
 			fmt.Fprintf(&out, "  %s: %s;\n", strings.Split(f.Tag.Get("json"), ",")[0], ts(f.Type))
 		}
 		out.WriteString("}\n")

@@ -30,6 +30,12 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	languageMu          sync.Mutex
+	languageSaveMu      sync.Mutex
+	languageFile        string
+	systemLanguages     []string
+	language            LanguageState
+	languageChanged     func(LanguageState)
 	taskPreviews        []api.TaskPreview
 	taskPreviewJSON     string
 	resolveTaskTerminal func(context.Context, string) (api.TerminalTarget, error)

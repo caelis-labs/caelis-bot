@@ -33,5 +33,5 @@ func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	if !filepath.IsAbs(home) {
 		home = os.Getenv("CODEX_HOME")
 	}
-	return api.TerminalTarget{Binary: binary, Endpoint: endpoint.terminalEndpoint(), Thread: task.Thread, Directory: task.View.Workspace, CodexHome: home}, nil
+	return api.TerminalTarget{Runtime: "codex", Binary: binary, Endpoint: endpoint.terminalEndpoint(), Thread: task.Thread, Directory: task.View.Workspace, CodexHome: home}, nil
 }

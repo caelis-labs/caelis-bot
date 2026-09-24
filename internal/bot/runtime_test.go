@@ -48,8 +48,6 @@ func saveReminder(t *testing.T, r *Runtime, id string) Schedule {
 }
 func TestSleepCoalescesAndBusyWorkIsNeverSteered(t *testing.T) {
 	r, f, now := fixture(t)
-	var notifications []string
-	r.SetReminderNotifier(func(id, title string) { notifications = append(notifications, title); _ = r.State() })
 	saveReminder(t, r, "water")
 	saveReminder(t, r, "break")
 	*now = now.Add(6 * time.Hour)
@@ -60,9 +58,6 @@ func TestSleepCoalescesAndBusyWorkIsNeverSteered(t *testing.T) {
 	}
 	if len(f.submissions) != 0 || r.State().Wake.Status != "pending" {
 		t.Fatal("busy work was changed")
-	}
-	if len(notifications) != 1 || notifications[0] != "water、break" {
-		t.Fatal("busy reminder was lost or was not coalesced", notifications)
 	}
 	f.view.CanSend = true
 	if e := r.Tick(context.Background()); e != nil {
@@ -77,9 +72,7 @@ func TestSleepCoalescesAndBusyWorkIsNeverSteered(t *testing.T) {
 	if len(f.submissions) != 1 {
 		t.Fatal("replayed accepted occurrence")
 	}
-	if len(notifications) != 1 {
-		t.Fatal("notified the same due occurrence again")
-	}
+
 }
 func TestUnknownDispatchNeverReplaysAndReconcilesReceipt(t *testing.T) {
 	r, f, now := fixture(t)

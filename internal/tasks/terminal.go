@@ -42,14 +42,14 @@ func (m *Manager) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
-		return api.TerminalTarget{}, errors.New("正在更新，请稍后打开任务")
+		return api.TerminalTarget{}, errors.New(m.text("host.updatingOpenTaskLater"))
 	}
 	if err := m.owned(id); err != nil {
 		return api.TerminalTarget{}, err
 	}
 	p, ok := m.work.(api.WorkTerminalProvider)
 	if !ok {
-		return api.TerminalTarget{}, errors.New("当前运行时暂不支持终端观察")
+		return api.TerminalTarget{}, errors.New(m.text("host.runtimeNoTerminalObservation"))
 	}
 	return p.WorkTerminal(ctx, id)
 }

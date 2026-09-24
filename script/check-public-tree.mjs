@@ -6,7 +6,7 @@ const paths=execFileSync('git',['ls-files','--cached','--others','--exclude-stan
 // These Python files package the macOS product; character authoring remains private.
 const packagingPython=new Set(['script/dmg-settings.py','script/verify-dmg-layout.py']);
 // Product interaction fixtures are public; character authoring previews are not.
-const runtimePreviews=new Set(['frontend/runtime-preview.html','frontend/runtime-settings-preview.html']);
+const runtimePreviews=new Set(['frontend/runtime-preview.html','frontend/runtime-settings-preview.html','frontend/i18n-preview.html']);
 const forbidden=p=>/^(characters\/|resources\/brand\/|docs\/verification\/|script\/humanoid\/)/.test(p)||/\.(blend\d*|blend\.gz|bundle|fbx|psd|kra)$/i.test(p)||p.startsWith('script/')&&p.endsWith('.py')&&!packagingPython.has(p)||/^frontend\/.*-preview\.html$/.test(p)&&!runtimePreviews.has(p);
 assert.deepEqual(paths.filter(forbidden),[],'authoring files must stay in the private asset repository');
 const pack=readManifest();

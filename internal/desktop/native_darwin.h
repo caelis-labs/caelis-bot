@@ -11,6 +11,8 @@ int bot_prepare_window_recall(void *host);
 int bot_window_open(void *window);
 int bot_window_visible(void *window);
 int bot_window_can_hide(void *window);
+void bot_close_context_window(void *history, void *settings);
+int bot_system_termination(void);
 void bot_sync_dock(void *history, void *settings, int opening);
 int bot_install_app_icon(unsigned char *bytes, int length);
 void bot_toggle_panel(void *host);
@@ -39,3 +41,6 @@ void bot_finish_plane(void *host, char *id, int completed);
 
 int bot_shortcut(void *host, char *key, int flags, int enabled);
 void bot_panel_ready(void *host, int activation);
+
+char *bot_preferred_languages(void);
+void bot_language(void *host, char *json);

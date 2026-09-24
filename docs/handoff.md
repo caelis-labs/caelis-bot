@@ -7,11 +7,11 @@
 Codex 使用标准共享 Unix App Server，Bot 保持订阅并观察终端用户的新回合，不再长期轮询 Worker。
 完整检查、smoke、构建、相关 race 与安装版隔离协议验收通过；原生浮动气泡的 hover、截断和
 点击 Terminal GUI 仍需人工实机复验，不能把此前 POC 截图当成新构建的完整视觉证明。
-Caelis 终端适配和主动关怀产品化未包含；详见[任务委派](task-delegation.md)及[验证状态](preparation-status.md)。
+Caelis 原生 Worker 也已接入相同入口，使用现有 Session 和用户凭据文件；主动关怀仍未产品化。详见[任务委派](task-delegation.md)及[验证状态](preparation-status.md)。
 
 2026-09-24 设置与窗口体验已在本地整理：连接页去重、模型统一保存与草稿保留、
 页面切换回到顶部；Dock 随聊天/设置的打开状态显示，关闭页面不退出应用。
-App 图标成品包为 0.1.4，DMG 使用紧凑拖拽布局；打包额外依赖项目内固定版本 Python 工具环境。
+当前成品由 `resources/character-pack.json` 固定，DMG 使用紧凑拖拽布局；打包额外依赖项目内固定版本 Python 工具环境。
 完整检查、smoke、构建与 DMG 验证通过，已检查原生设置和 Finder 安装窗口；
 物理快捷键与 Dock 点击、跨 Spaces 和完整 VoiceOver 仍待人工复验。详见 [验证状态](preparation-status.md)。
 改动尚未发布；不要把本地 ad-hoc 开发镜像作为已公证版本分发。
@@ -19,7 +19,7 @@ App 图标成品包为 0.1.4，DMG 使用紧凑拖拽布局；打包额外依赖
 2026-09-24 已本地修复后端通知误报：按方法和 item 类型消费 Codex 事件，非阻塞组件错误与
 重试只写入可滚动清理的私有诊断日志；真正任务失败及关键生命周期不确定仍提示用户。
 原生启动恢复用户 shell 导出环境，Bot/worker 及其 MCP/工具继承同一本机工具环境，
-保留任务工作目录、原生权限与秘书私有能力边界；共享 Caelis Host 不被接管或重启。
+保留任务工作目录、原生权限与秘书私有能力边界；普通连接不重启共享 Caelis Host；显式更新通过原生生命周期启用新版。
 检查、smoke、构建、相关 race 测试及真实 Context7 无模型启动验证通过；
 新构建的原生窗口受正在运行的正式版单实例限制，未完成 GUI 验收。详见
 [任务委派](task-delegation.md)与 [验证状态](preparation-status.md)。本轮尚未发布。
@@ -39,17 +39,15 @@ R2 使用主仓库相同桶/域名下独立的 `caelis-bot/` 前缀，只保留�
 `internal/tasks` 持有产品目录、账本与汇报；Codex adapter 仅映射 native 执行/审批/回执。
 `bot.json` 跨 Runtime 保留身份，计划和在途工作仍绑定原 Runtime。Notebook/Memory 的本地增量见文末。
 
-Caelis 正式 v0.61.0 基线 `5e2546f4954eab1d0f8fcfcc57f54939ad465125` 已完成本仓库适配，
-公开 HTTP/SSE、同 Turn 热配置、原生 Notebook、worker、后台 grant 和资源传输通过隔离 Host 验收。
-MiMo 与 GPT-6 Luna（含 Fast）真实模型验收已通过，修复了空闲头缺少 Turn target 导致漏刷 INDEX 的问题。
-2026-09-24 已核对用户安装的正式二进制与官方资产一致，原生设置、身份写入、聊天和 Luna Fast 切换通过。
-GUI 联调发现并修复产品工具目录 `required:null` 和失败原因未显示的问题；真实模型夹具现包含完整产品目录。
-先读 [正式版联调报告](caelis-release-acceptance.md) 与 [接入契约](caelis-integration.md)。旧 Bot Mode 不恢复；
-后续优先补产物报告、未知回执恢复及其余产品/发行验收。
+Caelis 当前基线为正式 v0.62.0（`812264e`），固定协议哈希见 `protocol/caelis/manifest.json`。
+共享原生 Worker、steering、模型/Team 配置和连接向导通过公开 HTTP/SSE 接入。
+Runtime 更新现在区分安装版本与服务版本，依次启用服务、验证协议、重新连接 Bot；
+已有新版程序可直接启用。任务忙碌或状态未知时拒绝替换，具体共享客户端边界见
+[接入契约](caelis-integration.md)。历史真实模型证据见[正式版联调报告](caelis-release-acceptance.md)，
+新增路径和仍待验证范围以[实现与验证状态](preparation-status.md)为准。
 
-2026-09-24 工作模型已与 Bot 模型解耦：默认沿用 Runtime，未配置模型时回退 Bot；
-设置页支持独立手动指定，已有任务保持模型。详见 [任务委派](task-delegation.md)。
-Caelis team 公开协议后续跟踪 [#74](https://github.com/caelis-labs/caelis/issues/74)。
+工作模型与 Bot 模型解耦；Agent team 是 Runtime 的共享配置，与 TUI `/team` 一致。
+Bot 不按任务发现或指定另一套 team。详见[任务委派](task-delegation.md)。
 
 Runtime Setup、头像图标、显式切换、AppKit 点击/拖动与窗口唤回等已有功能保留。
 2026-09-24 [v0.1.0 正式版](https://github.com/caelis-labs/caelis-bot/releases/tag/v0.1.0)已发布。
@@ -100,3 +98,10 @@ Developer ID 和公证已接入正式发行；Windows 原生适配仍未实现�
 原数据保留。嵌入 Memory v0.6.1 的线索工具支持 recall/remember/correct/forget。
 路径、边界和验收见 [个人空间](personal-memory.md)。该历史检查点中 Developer ID 尚在独立 stash，现已恢复发行。
 Caelis 新协议已完成真实模型 Notebook 读写、INDEX 更新和重启后回读；跨 Runtime 资料迁移未在本轮重验。
+
+## Bilingual interface work
+
+English and Simplified Chinese use shared catalogs, a host-owned language preference
+and live surface/menu updates. Locale changes preserve drafts, approval identity and
+connection progress. Coverage, external-content boundaries and release acceptance
+are maintained in [Interface languages](i18n.md). The next formal version is v0.2.0.

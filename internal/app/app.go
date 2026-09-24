@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
@@ -24,6 +26,8 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
+	// Locale is read when presenting host-generated UI, never during model execution.
+	Locale       func() i18n.Locale
 	Diagnostics  *diagnosticlog.Logger
 	ResolveFiles func([]string) ([]api.InputFile, error)
 	ConsumeFiles func([]string)
@@ -64,7 +68,7 @@ func New(root string, host Host) (*Application, error) {
 
 func newApplication(root string, host Host, resolve factoryResolver) (*Application, error) {
 	if !filepath.IsAbs(root) {
-		return nil, errors.New("应用数据目录必须是完整路径")
+		return nil, errors.New(i18n.Text(i18n.DefaultLocale, "host.appDataDirMustBeFullPath", nil))
 	}
 	if host.Diagnostics == nil {
 		host.Diagnostics = diagnosticlog.New(filepath.Join(root, "Logs"))
@@ -79,7 +83,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		return nil, err
 	}
 	if factory.ID != settings.Runtime || factory.Open == nil {
-		return nil, errors.New("后端工厂与连接标识不一致")
+		return nil, errors.New(i18n.Text(i18n.DefaultLocale, "host.backendFactoryMismatch", nil))
 	}
 	directory, err := providerDirectory(root, factory.ID)
 	if err != nil {
@@ -129,22 +133,26 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 
 // The current product promises a resident secretary with owned work delegation.
 // A chat-only adapter can be tested independently, but must not silently replace it.
-func requireAssistant(engine api.Engine, id string) error {
+func requireAssistant(engine api.Engine, id string, loc ...i18n.Locale) error {
+	l := i18n.DefaultLocale
+	if len(loc) > 0 && loc[0] != "" {
+		l = loc[0]
+	}
 	provider, ok := engine.(api.Provider)
 	if !ok || provider.ProviderInfo().ID != id {
-		return errors.New("后端身份与配置不一致")
+		return errors.New(i18n.Text(l, "host.backendIdentityMismatch", nil))
 	}
 	if _, ok := engine.(api.SnapshotObserver); !ok {
-		return errors.New("后端缺少状态观察能力")
+		return errors.New(i18n.Text(l, "host.backendMissingObservation", nil))
 	}
 	if _, ok := engine.(api.BotToolBinder); !ok {
-		return errors.New("后端缺少受限 Bot 工具连接")
+		return errors.New(i18n.Text(l, "host.backendMissingBotTools", nil))
 	}
 	if _, ok := engine.(api.WorkRuntime); !ok {
-		return errors.New("后端缺少独立任务委派能力")
+		return errors.New(i18n.Text(l, "host.backendMissingDelegation", nil))
 	}
 	if _, ok := engine.(api.ReportSubmitter); !ok {
-		return errors.New("后端缺少有限任务汇报能力")
+		return errors.New(i18n.Text(l, "host.backendMissingReporting", nil))
 	}
 	return nil
 }
@@ -158,7 +166,7 @@ func (a *Application) PreparePersonal() error {
 }
 func (a *Application) preparePersonalLocked() error {
 	if a.closed {
-		return errors.New("应用已停止")
+		return errors.New(a.text("host.appStopped"))
 	}
 	if a.personal != nil {
 		return nil
@@ -226,7 +234,7 @@ func (a *Application) Start() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {
-		return errors.New("应用已停止")
+		return errors.New(a.text("host.appStopped"))
 	}
 	if a.started {
 		return nil
@@ -235,6 +243,7 @@ func (a *Application) Start() error {
 	if err != nil {
 		return err
 	}
+	manager.SetLocale(a.locale)
 	if err = a.preparePersonalLocked(); err != nil {
 		return err
 	}
@@ -265,15 +274,6 @@ func (a *Application) Start() error {
 		}
 		return err
 	}
-	resident.SetReminderNotifier(func(id, label string) {
-		if a.host.Notify == nil {
-			return
-		}
-		if text := []rune(label); len(text) > 100 {
-			label = string(text[:100]) + "…"
-		}
-		a.host.Notify(id, "到时间了", label, true)
-	})
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)
@@ -282,7 +282,7 @@ func (a *Application) Start() error {
 	go func() { defer a.workers.Done(); _ = a.Backend.Connect(ctx) }()
 	go func() {
 		defer a.workers.Done()
-		observer := backend.NotificationObserver{Notify: a.host.Notify}
+		observer := backend.NotificationObserver{Notify: a.host.Notify, Locale: a.host.Locale}
 		var revision uint64
 		for {
 			snapshot, err := a.engine.(api.SnapshotObserver).WaitSnapshot(ctx, revision)
@@ -302,12 +302,29 @@ func (a *Application) Start() error {
 	return nil
 }
 
+func (a *Application) locale() i18n.Locale {
+	if a != nil && a.host.Locale != nil {
+		return a.host.Locale()
+	}
+	return i18n.English
+}
+func (a *Application) text(key string, args ...map[string]any) string {
+	if !strings.HasPrefix(key, "host.") {
+		key = "host." + key
+	}
+	var m map[string]any
+	if len(args) > 0 {
+		m = args[0]
+	}
+	return i18n.Text(a.locale(), key, m)
+}
+
 func (a *Application) WorkTerminal(ctx context.Context, id string) (api.TerminalTarget, error) {
 	a.mu.Lock()
 	m, stopped := a.tasks, a.closed
 	a.mu.Unlock()
 	if m == nil || stopped {
-		return api.TerminalTarget{}, errors.New("任务尚未连接，请稍后重试")
+		return api.TerminalTarget{}, errors.New(a.text("taskNotConnected", nil))
 	}
 	return m.WorkTerminal(ctx, id)
 }
@@ -354,11 +371,11 @@ func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
 	if source, ok := a.engine.(api.AttachmentProvider); ok {
 		return source.AttachmentStorage()
 	}
-	return api.AttachmentStorage{}, errors.New("当前后端不支持附件存储管理")
+	return api.AttachmentStorage{}, errors.New(a.text("backendNoAttachmentStorage", nil))
 }
 func (a *Application) CleanAttachments(ctx context.Context) (api.AttachmentStorage, error) {
 	if source, ok := a.engine.(api.AttachmentProvider); ok && a.host.TrashFile != nil {
 		return source.TrashOldAttachments(ctx, a.host.TrashFile)
 	}
-	return api.AttachmentStorage{}, errors.New("当前后端不支持附件清理")
+	return api.AttachmentStorage{}, errors.New(a.text("backendNoAttachmentClean", nil))
 }

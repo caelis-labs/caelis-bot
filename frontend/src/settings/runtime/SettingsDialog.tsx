@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useI18n } from '../../i18n';
 
 export function SettingsDialog({ title, description, busy = false, onClose, children }: { title: string; description?: string; busy?: boolean; onClose: () => void; children: ReactNode }) {
+ const { t } = useI18n();
  const titleID = useId(), ref = useRef<HTMLElement>(null);
  useEffect(() => {
   const prior = document.activeElement as HTMLElement | null;
@@ -20,7 +22,7 @@ export function SettingsDialog({ title, description, busy = false, onClose, chil
    if (event.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) { event.preventDefault(); last?.focus(); }
    else if (!event.shiftKey && (document.activeElement === last || document.activeElement === ref.current)) { event.preventDefault(); first.focus(); }
   }}>
-   <div className="runtime-dialog-heading"><h2 id={titleID}>{title}</h2><button className="runtime-close" aria-label="关闭面板" disabled={busy} onClick={onClose}><img src="/icons/xmark.png" alt=""/></button></div>
+   <div className="runtime-dialog-heading"><h2 id={titleID}>{title}</h2><button className="runtime-close" aria-label={t('runtime.closeDialog')} disabled={busy} onClick={onClose}><img src="/icons/xmark.png" alt=""/></button></div>
    {description && <p className="runtime-dialog-description">{description}</p>}
    {children}
   </section>

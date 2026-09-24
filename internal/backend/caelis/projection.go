@@ -96,9 +96,9 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			_ = json.Unmarshal(raw, &p)
 			summary := p.ToolCall.Title
 			details, _ := json.MarshalIndent(p.ToolCall.RawInput, "", "  ")
-			item := api.Approval{ID: approvalID(s.state.InstanceID, sid, a), Title: summary, Action: summary, Description: "Caelis 请求执行授权", Details: string(details), Status: "pending", Choices: []api.Choice{}}
+			item := api.Approval{ID: approvalID(s.state.InstanceID, sid, a), Title: summary, Action: summary, NoticeKey: "chat.caelisApproval", Details: string(details), Status: "pending", Choices: []api.Choice{}}
 			if sid != s.state.Session.SessionId {
-				item.Description = "独立工作任务请求授权"
+				item.NoticeKey = "chat.workerApproval"
 			}
 			for _, o := range p.Options {
 				item.Choices = append(item.Choices, api.Choice{ID: o.ID, Label: o.Name, Scope: o.Kind})
@@ -111,8 +111,8 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		out.Phase = "waiting_approval"
 	}
 	unknown := v != nil && value(v.State.Run.Status) == "unknown"
-	for _, j := range s.state.Operations {
-		if j.Outcome == "unknown" {
+	for id, j := range s.state.Operations {
+		if j.Outcome == "unknown" && id != s.sendingScheduled {
 			unknown = true
 			break
 		}
@@ -124,6 +124,9 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	out.CanSend = s.connected && !s.closed && !unknown && v != nil && !value(v.State.Run.Active) && v.State.Approval.Active == nil
 	// Worker approval does not turn the secretary's input into a steer action.
 	out.CanSteer = s.connected && !s.closed && !unknown && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
+	if v != nil {
+		return s.presentScheduled(out, v)
+	}
 	return out
 }
 
@@ -145,7 +148,7 @@ func (s *Session) approvalLocked(id string) (approvalRef, bool) {
 	}
 	return approvalRef{}, false
 }
-func applyEnvelope(v *view, e wire.Envelope) {
+func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 	key := value(e.ProjectionId)
 	if key == "" {
 		key = value(e.EventId)
@@ -235,6 +238,9 @@ func applyEnvelope(v *view, e wire.Envelope) {
 			return
 		}
 		kind = "user"
+		if len(scheduled) > 0 && scheduled[0] {
+			kind = "activation"
+		}
 	case "agent_message_chunk":
 		kind = "assistant"
 	default:
@@ -359,7 +365,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			page++
 			for _, e := range d.Events {
 				s.logEnvelope(e)
-				applyEnvelope(staged, e)
+				s.applyScheduledEnvelope(staged, e)
 			}
 			return nil
 		case "replace_end":
@@ -376,7 +382,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			}
 			for _, e := range d.Events {
 				s.logEnvelope(e)
-				applyEnvelope(v, e)
+				s.applyScheduledEnvelope(v, e)
 			}
 		case "sync", "status":
 			if staged != nil {
@@ -539,6 +545,9 @@ func (s *Session) recoverOperations(ctx context.Context) error {
 			continue
 		}
 		j.Outcome = string(op.Outcome)
+		if op.Result.Target != nil {
+			j.TurnID = value(op.Result.Target.TurnId)
+		}
 		if !strings.HasSuffix(j.Path, "/steer") {
 			j.Body = nil
 		}

@@ -5,12 +5,15 @@ package updates
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"regexp"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 )
 
 // Version is set by the bundle build from package.json, including the channel.
@@ -34,11 +37,15 @@ type release struct {
 	} `json:"assets"`
 }
 
-func Check(ctx context.Context) Result {
-	return check(ctx, &http.Client{Timeout: 12 * time.Second}, Version, runtime.GOARCH)
+func Check(ctx context.Context, loc ...i18n.Locale) Result {
+	return check(ctx, &http.Client{Timeout: 12 * time.Second}, Version, runtime.GOARCH, loc...)
 }
-func check(ctx context.Context, client *http.Client, current, arch string) Result {
-	result := Result{State: "unavailable", Current: current, Message: "暂时无法检查更新，请重试或前往发布页查看。"}
+func check(ctx context.Context, client *http.Client, current, arch string, loc ...i18n.Locale) Result {
+	l := i18n.DefaultLocale
+	if len(loc) > 0 && loc[0] != "" {
+		l = loc[0]
+	}
+	result := Result{State: "unavailable", Current: current, Message: i18n.Text(l, "host.updatesCheckUnavailable", nil)}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return result
@@ -63,7 +70,7 @@ func check(ctx context.Context, client *http.Client, current, arch string) Resul
 	}
 	installed := parseVersion(current)
 	if installed == nil {
-		result.Message = "当前为开发构建，请在发布页查看可下载版本。"
+		result.Message = i18n.Text(l, "host.updatesDevBuild", nil)
 		return result
 	}
 	if arch == "amd64" {
@@ -89,20 +96,29 @@ func check(ctx context.Context, client *http.Client, current, arch string) Resul
 	}
 	if latest == nil {
 		result.State = "unpublished"
-		result.Message = "暂时没有适用于这台 Mac 的公开下载版本。"
+		result.Message = i18n.Text(l, "host.updatesNoMacDownload", nil)
 		return result
 	}
 	if compare(latest, installed) > 0 {
 		result.State = "available"
-		result.Message = "发现新版本，可前往发布页下载。"
+		result.Message = i18n.Text(l, "host.updatesAvailable", nil)
 	} else {
 		result.State = "current"
-		result.Message = "当前已是最新可用版本。"
+		result.Message = i18n.Text(l, "host.updatesCurrent", nil)
 	}
 	return result
 }
 
 var versionPattern = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
+
+// CompareVersions orders semantic versions, rejecting unrecognized development labels.
+func CompareVersions(a, b string) (int, error) {
+	av, bv := parseVersion(a), parseVersion(b)
+	if av == nil || bv == nil {
+		return 0, errors.New("unrecognized semantic version")
+	}
+	return compare(av, bv), nil
+}
 
 func parseVersion(s string) []string {
 	if len(s) > 128 {

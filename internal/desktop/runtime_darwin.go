@@ -20,6 +20,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
@@ -49,12 +50,13 @@ func Run(assets fs.FS) error {
 	}
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configureShortcut(filepath.Join(root, "shortcut.json"))
+	logError(s.configureLanguage(filepath.Join(root, "language.json"), macPreferredLanguages()))
 	s.content, err = contentpack.NewRegistry(filepath.Join(root, "content"))
 	if err != nil {
 		logError(err)
 	}
 
-	core, err := app.New(root, app.Host{Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
+	core, err := app.New(root, app.Host{Locale: func() i18n.Locale { return s.LanguagePreferences().Locale }, Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
 		OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 		RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
 		TrashFile:  trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError})
@@ -97,6 +99,7 @@ func Run(assets fs.FS) error {
 		}
 	}
 	var nativeApp *application.App
+	var closeContextWindow func()
 	var quitting, finished atomic.Bool
 	quit := func() {
 		if quitting.CompareAndSwap(false, true) {
@@ -122,7 +125,11 @@ func Run(assets fs.FS) error {
 			if finished.Load() {
 				return true
 			}
-			quit()
+			if macSystemTermination() {
+				quit()
+			} else if !quitting.Load() && closeContextWindow != nil {
+				closeContextWindow()
+			}
 			return false
 		},
 		OnShutdown: func() {
@@ -168,7 +175,7 @@ func Run(assets fs.FS) error {
 	defer signal.Stop(signals)
 	go func() { <-signals; quit() }()
 	pet := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "pet", Title: "Caelis Bot — 桌宠", Width: 180, Height: 240, Frameless: true, DisableResize: true, Hidden: true,
+		Name: "pet", Title: s.text("native.petTitle", nil), Width: 180, Height: 240, Frameless: true, DisableResize: true, Hidden: true,
 		IgnoreMouseEvents: true, URL: "/?surface=pet", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true, CornerType: application.MacWindowCornerTypeSquare,
 			WindowLevel: application.MacWindowLevelFloating, CollectionBehavior: application.MacWindowCollectionBehaviorCanJoinAllSpaces | application.MacWindowCollectionBehaviorStationary | application.MacWindowCollectionBehaviorFullScreenAuxiliary | application.MacWindowCollectionBehaviorIgnoresCycle},
@@ -184,17 +191,17 @@ func Run(assets fs.FS) error {
 		Mac: application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
 	bubble := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "bubble", Title: "Caelis Bot — 消息", Width: 360, Height: 68, Frameless: true, DisableResize: true, Hidden: true,
+		Name: "bubble", Title: s.text("native.bubbleTitle", nil), Width: 360, Height: 68, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=bubble", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true},
 	})
 	prop := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "prop", Title: "Caelis Bot — 纸飞机", Width: 520, Height: 360, Frameless: true, DisableResize: true, Hidden: true,
+		Name: "prop", Title: s.text("native.propTitle", nil), Width: 520, Height: 360, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=prop", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true},
 	})
 	settings := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "settings", Title: "Caelis Bot — 设置", Width: 1040, Height: 710, MinWidth: 860, MinHeight: 640,
+		Name: "settings", Title: s.text("native.settingsTitle", nil), Width: 1040, Height: 710, MinWidth: 860, MinHeight: 640,
 		Hidden: true, URL: "/?surface=settings", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
@@ -222,15 +229,15 @@ func Run(assets fs.FS) error {
 	}
 	s.saveDiagnosticPath = func() (string, error) {
 		return nativeApp.Dialog.SaveFile().AttachToWindow(settings).SetFilename("Caelis-Bot-diagnostics.json").
-			SetMessage("仅包含系统、连接和状态计数；不包含聊天内容、文件路径或凭据。").
+			SetMessage(s.text("native.diagnosticExportMessage", nil)).
 			AddFilter("JSON", "*.json").CanCreateDirectories(true).PromptForSingleSelection()
 	}
 
 	s.pickRuntimeCLI = func() (string, error) {
-		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle("选择运行时可执行文件").SetButtonText("选择").PromptForSingleSelection()
+		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle(s.text("native.pickRuntimeTitle", nil)).SetButtonText(s.text("native.choose", nil)).PromptForSingleSelection()
 	}
 	s.pickContentFile = func() (string, error) {
-		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).AddFilter("Caelis 内容包", "*.caelispack").SetTitle("导入内容包").SetButtonText("导入").PromptForSingleSelection()
+		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).AddFilter(s.text("native.contentPackFilter", nil), "*.caelispack").SetTitle(s.text("native.importContentTitle", nil)).SetButtonText(s.text("native.import", nil)).PromptForSingleSelection()
 	}
 	s.contentChanged = func(value contentpack.Appearance) {
 		data, _ := json.Marshal(value)
@@ -281,6 +288,9 @@ func Run(assets fs.FS) error {
 		})
 	}
 	history.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.closeHistory() })
+	// Dock Quit is a contextual-window action. Only the status menu requests
+	// user-initiated process shutdown; updater/restart/system cleanup stays intact.
+	closeContextWindow = func() { closeMacContextWindow(history, settings) }
 	// Wails' default Dock callback reveals every hidden window, including the
 	// private pet/prop/composer webviews. Cancel it and recall only open panels.
 	nativeApp.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
@@ -339,24 +349,47 @@ func Run(assets fs.FS) error {
 			}
 			return panel
 		}()).CanChooseFiles(true).CanChooseDirectories(false).
-			SetTitle("添加文件").SetButtonText("添加").PromptForMultipleSelection()
+			SetTitle(s.text("native.addFileTitle", nil)).SetButtonText(s.text("native.add", nil)).PromptForMultipleSelection()
 	}
 	pet.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); _ = s.SetVisible(false) })
 	// AppKit owns the tray and pet context menus; Wails owns keyboard commands.
 	// Drop Wails' unrelated File/View/Window/Help fixture menus.
-	populate := func(menu *application.Menu) {
-		menu.Add("打开聊天窗口").OnClick(func(*application.Context) { s.OpenHistory() })
-		menu.Add("设置…").SetAccelerator("Cmd+,").OnClick(func(*application.Context) { s.OpenSettings() })
-		menu.Add("检查更新…").OnClick(func(*application.Context) { s.OpenUpdates() })
-		menu.Add("显示桌宠").OnClick(func(*application.Context) { logError(s.SetVisible(true)) })
-		menu.Add("隐藏桌宠").OnClick(func(*application.Context) { logError(s.SetVisible(false)) })
+	populate := func(menu *application.Menu, locale i18n.Locale) {
+		text := func(key string) string { return i18n.Text(locale, "native."+key, nil) }
+		menu.Add(text("openChat")).OnClick(func(*application.Context) { s.OpenHistory() })
+		menu.Add(text("settings")).SetAccelerator("Cmd+,").OnClick(func(*application.Context) { s.OpenSettings() })
+		menu.Add(text("updates")).OnClick(func(*application.Context) { s.OpenUpdates() })
+		menu.Add(text("showPet")).OnClick(func(*application.Context) { logError(s.SetVisible(true)) })
+		menu.Add(text("hidePet")).OnClick(func(*application.Context) { logError(s.SetVisible(false)) })
 		menu.AddSeparator()
-		menu.Add("退出").SetAccelerator("Cmd+Q").OnClick(func(*application.Context) { quit() })
+		menu.Add(text("closeWindow")).SetAccelerator("Cmd+W").OnClick(func(*application.Context) { closeContextWindow() })
 	}
-	applicationMenu := nativeApp.Menu.New()
-	populate(applicationMenu.AddSubmenu("Caelis Bot"))
-	applicationMenu.AddRole(application.EditMenu)
-	nativeApp.Menu.Set(applicationMenu)
+	updateLanguage := func(state LanguageState) {
+		applicationMenu := nativeApp.Menu.New()
+		populate(applicationMenu.AddSubmenu("Caelis Bot"), state.Locale)
+		applicationMenu.AddRole(application.EditMenu)
+		nativeApp.Menu.Set(applicationMenu)
+		settings.SetTitle(i18n.Text(state.Locale, "native.settingsTitle", nil))
+		pet.SetTitle(i18n.Text(state.Locale, "native.petTitle", nil))
+		bubble.SetTitle(i18n.Text(state.Locale, "native.bubbleTitle", nil))
+		prop.SetTitle(i18n.Text(state.Locale, "native.propTitle", nil))
+	}
+	updateLanguage(s.LanguagePreferences())
+	s.languageChanged = func(state LanguageState) {
+		data, _ := json.Marshal(state)
+		application.InvokeSync(func() {
+			updateLanguage(state)
+			for _, window := range []*application.WebviewWindow{pet, panel, history, bubble, settings, prop} {
+				window.ExecJS("window.dispatchEvent(new CustomEvent('language-changed',{detail:" + string(data) + "}))")
+			}
+		})
+		s.mu.Lock()
+		d, ok := s.native.(*macDriver)
+		s.mu.Unlock()
+		if ok {
+			d.language(state.Locale)
+		}
+	}
 	nativeApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		if !installMacAppIcon() {
 			log.Print("Desktop application icon could not be decoded")

@@ -16,7 +16,7 @@ export function activeReplyID(snapshot: Snapshot | null): string | null {
  return null;
 }
 export function chatActivity(snapshot: Snapshot | null): ChatActivity | null {
- if (!snapshot || snapshot.connection !== 'ready') return null;
+ if (!snapshot || snapshot.quiet || snapshot.connection !== 'ready') return null;
  if (snapshot.phase === 'interrupting') return 'stopping';
  if (snapshot.approvals.some(p => p.status !== 'resolved')) return null;
  if (snapshot.phase !== 'sending' && snapshot.phase !== 'working') return null;

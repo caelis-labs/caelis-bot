@@ -18,6 +18,8 @@ import (
 	"runtime/cgo"
 	"unsafe"
 
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -65,6 +67,7 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 	application.InvokeSync(func() {
 		d.pointer = C.bot_create(pet.NativeWindow(), panel.NativeWindow(), bubble.NativeWindow(), history.NativeWindow(), prop.NativeWindow(), C.uintptr_t(d.handle), (*C.uchar)(unsafe.Pointer(&statusIcon[0])), C.int(len(statusIcon)))
 	})
+	d.language(s.LanguagePreferences().Locale)
 	return d
 }
 func (d *macDriver) screens() []Rect {
@@ -132,6 +135,14 @@ func macWindowVisible(window *application.WebviewWindow) bool {
 }
 func macWindowCanHide(window *application.WebviewWindow) bool {
 	return application.InvokeSyncWithResult(func() bool { return C.bot_window_can_hide(window.NativeWindow()) != 0 })
+}
+
+func closeMacContextWindow(history, settings *application.WebviewWindow) {
+	application.InvokeSync(func() { C.bot_close_context_window(history.NativeWindow(), settings.NativeWindow()) })
+}
+
+func macSystemTermination() bool {
+	return application.InvokeSyncWithResult(func() bool { return C.bot_system_termination() != 0 })
 }
 
 func syncMacDock(history, settings *application.WebviewWindow, opening bool) {
@@ -236,7 +247,7 @@ func trashNativePath(path string) error {
 	defer C.free(unsafe.Pointer(value))
 	ok := application.InvokeSyncWithResult(func() bool { return C.bot_trash_path(value) != 0 })
 	if !ok {
-		return errors.New("无法移到废纸篓")
+		return errors.New(i18n.Text(i18n.DefaultLocale, "native.trashPathFailed", nil))
 	}
 	return nil
 }
@@ -312,7 +323,7 @@ func (d *macDriver) registerShortcut(v Shortcut) error {
 	}
 	status := application.InvokeSyncWithResult(func() int { return int(C.bot_shortcut(d.pointer, key, C.int(flags), C.int(enabled))) })
 	if status != 0 {
-		return errors.New("该快捷键已被系统或其他应用占用，请选择其他组合；原快捷键保持不变")
+		return errors.New(i18n.Text(i18n.DefaultLocale, "native.shortcutConflict", nil))
 	}
 	return nil
 }
@@ -331,3 +342,21 @@ var (
 	_ contextDriver      = (*macDriver)(nil)
 	_ propDriver         = (*macDriver)(nil)
 )
+
+// macPreferredLanguages returns the ordered OS language preferences at launch.
+func macPreferredLanguages() []string {
+	value := C.bot_preferred_languages()
+	if value == nil {
+		return nil
+	}
+	defer C.free(unsafe.Pointer(value))
+	var languages []string
+	_ = json.Unmarshal([]byte(C.GoString(value)), &languages)
+	return languages
+}
+func (d *macDriver) language(locale i18n.Locale) {
+	data, _ := json.Marshal(i18n.Namespace(locale, "native"))
+	value := C.CString(string(data))
+	defer C.free(unsafe.Pointer(value))
+	application.InvokeSync(func() { C.bot_language(d.pointer, value) })
+}
