@@ -69,7 +69,7 @@ function General() {
     <output htmlFor="pet-size">{scale===null?'—':`${Math.round(scale*100)}%`}</output>
    </div></SettingRow>
   </SettingGroup>
-  <SettingGroup title="通知"><SettingRow label="系统通知" description={<span role="status">{status[permission]??'正在读取…'}</span>}><button disabled={!permission||permission==='unavailable'} onClick={()=>void desktop('ConfigureNotifications').catch(()=>setError('暂时无法打开通知设置'))}>{permission==='notDetermined'?'开启通知':'打开系统设置'}</button></SettingRow></SettingGroup>
+  <SettingGroup title="通知"><SettingRow label="系统通知" description={<span role="status">{status[permission]??'正在读取…'}</span>}>{permission==='authorized'&&<button onClick={()=>void desktop('Notify',`notification-test-${crypto.randomUUID()}`,'通知测试','这是 Caelis Bot 的通知预览。',true).catch(()=>setError('暂时无法发送测试通知'))}>发送测试通知</button>}<button disabled={!permission||permission==='unavailable'} onClick={()=>void desktop('ConfigureNotifications').catch(()=>setError('暂时无法打开通知设置'))}>{permission==='notDetermined'?'开启通知':'打开系统设置'}</button></SettingRow></SettingGroup>
   {error&&<p role="alert" className="inline-error">{error}</p>}
  </section>;
 }

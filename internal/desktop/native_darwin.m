@@ -195,7 +195,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
                 if (!weak) return;
                 weak.notificationError = error ? @"暂时无法开启通知，请稍后重试" : nil;
                 [weak refreshNotificationPermission];
-                if (granted) bot_notify((__bridge void *)weak, "notifications-enabled", "通知已开启", "到期提醒会出现在这里，点击通知可打开 Caelis Bot。", 1);
+                if (granted) bot_notify((__bridge void *)weak, "notifications-enabled", "通知已开启", "需要你确认的事项和定时任务结果会出现在这里。", 1);
             });
         }];
     } else {
@@ -227,7 +227,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     NSMenuItem *updates = [menu addItemWithTitle:@"检查更新…" action:@selector(checkUpdates:) keyEquivalent:@""];
     updates.target = self;
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *quit = [menu addItemWithTitle:@"退出" action:@selector(quit:) keyEquivalent:@"q"];
+    NSMenuItem *quit = [menu addItemWithTitle:@"退出" action:@selector(quit:) keyEquivalent:@""];
     quit.target = self;
     return menu;
 }

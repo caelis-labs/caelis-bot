@@ -22,7 +22,7 @@ export function Bubble() {
  const attention=!!prompt||snapshot?.connection==='login'||snapshot?.connection==='offline'||snapshot?.phase==='unknown';
  const terminal=snapshot?.phase==='interrupted'?'已停止':snapshot?.phase==='failed'?'未能完成':snapshot?.phase==='completed'?'已完成':'';
  const content=error||prompt?.title||snapshot?.message||((working||!output?.text)&&reviewText)||output?.text||reviewText||(working?'正在想办法…':terminal);
- const wanted=!!content&&(working||attention||!snapshot?.previewDismissed);
+ const wanted=(!snapshot?.quiet||!!error||attention)&&!!content&&(working||attention||!snapshot?.previewDismissed);
  useEffect(()=>{void desktop('SetBubbleVisible',wanted);},[wanted]);
  useEffect(()=>{if(!prompt&&expanded)void desktop('CollapseBubble');},[prompt?.id,expanded]);
  useEffect(()=>{const resize=new ResizeObserver(()=>{if(surface.current)void desktop('SetBubbleHeight',Math.max(68,Math.min(480,Math.ceil(surface.current.getBoundingClientRect().height))));});resize.observe(surface.current!);return()=>resize.disconnect();},[]);

@@ -30,34 +30,36 @@ type Options struct {
 	ToolsOnly bool
 }
 type Session struct {
-	diagnostics       *diagnosticlog.Logger
-	mu                sync.Mutex
-	step              sync.Mutex
-	path              string
-	settings          api.RuntimeSettings
-	execution         api.ExecutionSettings
-	workExecution     api.WorkExecutionSettings
-	executionMode     string
-	tools             *api.ToolConnection
-	catalog           map[string]api.ApplicationTools
-	catalogs          map[string]map[string]api.ApplicationTools
-	profile           wire.ApplicationProfile
-	state             binding
-	loadErr           error
-	client            *client
-	info              wire.ServerInfo
-	connected, closed bool
-	issue             string
-	revision          uint64
-	changed           chan struct{}
-	cancel            context.CancelFunc
-	ctx               context.Context
-	wg                sync.WaitGroup
-	streamCtx         context.Context
-	streamCancel      context.CancelFunc
-	generation        uint64
-	wake              chan struct{}
-	streams           map[string]bool
+	sendingScheduled      string
+	scheduledPreviousTurn string
+	diagnostics           *diagnosticlog.Logger
+	mu                    sync.Mutex
+	step                  sync.Mutex
+	path                  string
+	settings              api.RuntimeSettings
+	execution             api.ExecutionSettings
+	workExecution         api.WorkExecutionSettings
+	executionMode         string
+	tools                 *api.ToolConnection
+	catalog               map[string]api.ApplicationTools
+	catalogs              map[string]map[string]api.ApplicationTools
+	profile               wire.ApplicationProfile
+	state                 binding
+	loadErr               error
+	client                *client
+	info                  wire.ServerInfo
+	connected, closed     bool
+	issue                 string
+	revision              uint64
+	changed               chan struct{}
+	cancel                context.CancelFunc
+	ctx                   context.Context
+	wg                    sync.WaitGroup
+	streamCtx             context.Context
+	streamCancel          context.CancelFunc
+	generation            uint64
+	wake                  chan struct{}
+	streams               map[string]bool
 }
 
 func New(opts Options) *Session {

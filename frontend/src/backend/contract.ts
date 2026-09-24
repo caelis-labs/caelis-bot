@@ -304,6 +304,8 @@ export interface SetupState {
   accountType: string;
 }
 export interface Snapshot {
+  scheduled: boolean;
+  quiet: boolean;
   botStatus: string;
   hasEarlier: boolean;
   currentTurn: string;

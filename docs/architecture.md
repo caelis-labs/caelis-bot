@@ -205,12 +205,10 @@ optional metadata. Both adapters write private, rotating structured diagnostics 
 `internal/diagnosticlog`; the retention and exported-environment contract is documented
 in [task delegation](task-delegation.md).
 
-Native notifications consume backend revision changes and persisted reminder
-occurrences, independently of renderer visibility. Permission is requested only from
+Native notifications consume backend revision changes, independently of renderer visibility. Permission is requested only from
 an explicit user action. Restored completed history does not generate new alerts;
-pending decisions and new completed work notify when the pet is hidden, and due
-reminders notify even while unrelated work is busy. A notification click opens chat.
-The macOS bridge uses UserNotifications; no daemon or background model loop is added.
+pending decisions and new completed work notify when the pet is hidden. Scheduled results notify only after visible output or failure, even when the pet is visible; due/queued and silently skipped reminders never notify. A notification click opens chat.
+The macOS bridge uses UserNotifications; the application icon is declared in the bundle Info.plist and validated from its ICNS during packaging. Settings provide a native test notification. No daemon or background model loop is added.
 
 Implemented mapping: thread start/read/resume; turn start/steer/interrupt; native
 item/delta/completion; command/file/permission approval, tool user input and simple
@@ -561,6 +559,7 @@ See [Bot design](bot-design.md) for the product authority. `internal/bot` owns s
 identity, persisted reminder definitions/occurrences and the private MCP bridge. It
 starts only after single-instance ownership, wakes the existing Bot only when idle,
 and keeps unknown dispatches unresolved until a native receipt proves acceptance.
+Calendar windows and literal weekdays are evaluated locally, including after sleep or queueing; holiday predicates remain model instructions. `internal/backend/activation` owns quiet presentation: adapters retain scheduled provenance in their existing journals, map it through native client IDs or command targets, and filter only presentation snapshots. Canonical history remains unchanged. Partial scheduled prose and the explicit skip response never reach chat, pet bubbles or OS notifications; approvals and errors keep their normal path.
 Codex explicitly uses empty runtime workspace roots and a fixed Bot instruction
 prefix. The private result directory is not a user-selected workspace.
 
@@ -632,6 +631,11 @@ not occlusion. Close hooks hide only the corresponding reusable webview and reco
 activation policy; they never quit or cancel backend work. The Dock reopen hook cancels
 Wails' default reveal-all-windows behavior and recalls only still-open chat/settings,
 so private pet/composer/prop surfaces and explicitly closed settings stay hidden.
+Dock Quit routes to the frontmost open chat/settings window's existing close hook,
+including when the app is in the background or minimised. Attached file sheets stay
+reachable. The application menu offers Close Window (Cmd+W); only the status-item
+Quit action initiates user-requested backend shutdown. Updater/restart, signals and
+system logout/shutdown retain the existing cleanup path.
 
 The connection page owns installation/account/model-service management, with one
 connection check and a conditional restart action. Routine model selection lives only

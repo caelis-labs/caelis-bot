@@ -24,6 +24,7 @@ import (
 )
 
 type modelStep struct {
+	Reply   string
 	Name    string
 	Args    any
 	Block   <-chan struct{}
@@ -86,6 +87,10 @@ func (m *acceptanceModel) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		args = []byte(strings.ReplaceAll(string(args), "$RESOURCE_PATH", path))
 	}
+	reply := step.Reply
+	if reply == "" {
+		reply = "ACCEPTANCE_COMPLETE"
+	}
 	id := fmt.Sprintf("fixture-%d", seq)
 	if step.Name == "FixtureLookup" {
 		id = "provider-reused-id"
@@ -98,11 +103,11 @@ func (m *acceptanceModel) serve(w http.ResponseWriter, r *http.Request) {
 			emit(map[string]any{"type": "response.function_call_arguments.delta", "item_id": id, "output_index": 0, "delta": string(args)})
 			emit(map[string]any{"type": "response.completed", "response": map[string]any{"model": body["model"], "status": "completed", "output": []any{map[string]any{"id": id, "type": "function_call", "call_id": id, "name": step.Name, "arguments": string(args)}}}})
 		} else {
-			emit(map[string]any{"type": "response.output_text.delta", "item_id": id, "output_index": 0, "delta": "ACCEPTANCE_COMPLETE"})
-			emit(map[string]any{"type": "response.completed", "response": map[string]any{"model": body["model"], "status": "completed", "output": []any{map[string]any{"id": id, "type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": "ACCEPTANCE_COMPLETE"}}}}}})
+			emit(map[string]any{"type": "response.output_text.delta", "item_id": id, "output_index": 0, "delta": reply})
+			emit(map[string]any{"type": "response.completed", "response": map[string]any{"model": body["model"], "status": "completed", "output": []any{map[string]any{"id": id, "type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": reply}}}}}})
 		}
 	} else {
-		delta := map[string]any{"role": "assistant", "content": "ACCEPTANCE_COMPLETE"}
+		delta := map[string]any{"role": "assistant", "content": reply}
 		finish := "stop"
 		if step.Name != "" {
 			delta = map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": id, "type": "function", "function": map[string]any{"name": step.Name, "arguments": string(args)}}}}
@@ -510,7 +515,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		model.set("CASE_SCHEDULE", modelStep{Name: "FixtureSchedule", Args: map[string]string{}})
 		submitAcceptance(t, ctx, s, "CASE_SCHEDULE")
 		before := s.Snapshot().CurrentTurn
-		in := api.Submission{ID: "wake-fixture", Text: "CASE_BACKGROUND"}
+		in := api.Submission{ID: "wake-fixture", Text: "CASE_BACKGROUND", Scheduled: true}
 		r, e := s.SubmitBackground(ctx, in, []string{"fixture-reminder"})
 		if e != nil || r.Outcome != "accepted" {
 			t.Fatal(r, e)
@@ -519,6 +524,30 @@ func TestNativeHostIntegration(t *testing.T) {
 		r, e = s.SubmitBackground(ctx, in, []string{"fixture-reminder"})
 		if e != nil || r.Outcome != "accepted" || len(model.seen("CASE_BACKGROUND")) != 1 {
 			t.Fatal("background duplicated", e)
+		}
+		for _, item := range s.Snapshot().Items {
+			if item.Kind == "user" && strings.Contains(item.Text, "CASE_BACKGROUND") {
+				t.Fatal("scheduled prompt exposed by canonical feed")
+			}
+		}
+		if !s.Snapshot().Scheduled {
+			t.Fatal("native feed lost scheduled origin")
+		}
+		model.set("CASE_BACKGROUND_SKIP", modelStep{Reply: api.SilentReminder})
+		before = s.Snapshot().CurrentTurn
+		skipped, e := s.SubmitBackground(ctx, api.Submission{ID: "wake-silent-fixture", Text: "CASE_BACKGROUND_SKIP", Scheduled: true}, []string{"fixture-reminder"})
+		if e != nil || skipped.Outcome != "accepted" {
+			t.Fatal(skipped, e)
+		}
+		waitTurn(t, ctx, s, before)
+		quiet := s.Snapshot()
+		if !quiet.Quiet {
+			t.Fatal("silent final was not quiet")
+		}
+		for _, item := range quiet.Items {
+			if item.TurnKey == quiet.CurrentTurn {
+				t.Fatal("silent final appeared in transcript")
+			}
 		}
 		if e = s.RevokeBackground(ctx, "fixture-reminder"); e != nil {
 			t.Fatal(e)

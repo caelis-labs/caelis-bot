@@ -11,6 +11,8 @@ int bot_prepare_window_recall(void *host);
 int bot_window_open(void *window);
 int bot_window_visible(void *window);
 int bot_window_can_hide(void *window);
+void bot_close_context_window(void *history, void *settings);
+int bot_system_termination(void);
 void bot_sync_dock(void *history, void *settings, int opening);
 int bot_install_app_icon(unsigned char *bytes, int length);
 void bot_toggle_panel(void *host);

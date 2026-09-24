@@ -4,7 +4,12 @@ package api
 
 import "context"
 
+// SilentReminder is the exact final response for a skipped scheduled activation.
+const SilentReminder = "[[CAELIS_REMINDER_SKIP]]"
+
 type Snapshot struct {
+	Scheduled        bool        `json:"scheduled"`
+	Quiet            bool        `json:"quiet"`
 	BotStatus        string      `json:"botStatus"`
 	HasEarlier       bool        `json:"hasEarlier"`
 	CurrentTurn      string      `json:"currentTurn"`
@@ -109,6 +114,8 @@ type RuntimeCheck struct {
 	Message   string `json:"message"`
 }
 type Submission struct {
+	// Scheduled is host-only presentation provenance, not an authorization grant.
+	Scheduled    bool     `json:"-"`
 	ID           string   `json:"id"`
 	Text         string   `json:"text"`
 	FileIDs      []string `json:"fileIds"`

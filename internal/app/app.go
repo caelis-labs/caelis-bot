@@ -265,15 +265,6 @@ func (a *Application) Start() error {
 		}
 		return err
 	}
-	resident.SetReminderNotifier(func(id, label string) {
-		if a.host.Notify == nil {
-			return
-		}
-		if text := []rune(label); len(text) > 100 {
-			label = string(text[:100]) + "…"
-		}
-		a.host.Notify(id, "到时间了", label, true)
-	})
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)

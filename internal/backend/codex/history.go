@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"slices"
 	"time"
 
@@ -59,6 +60,7 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 	s.mu.Lock()
 	c, thread, cursor, epoch := s.client, s.binding.ThreadID, s.historyCursor, s.epoch
 	ready := s.state.Connection == "ready" && s.historyPaged
+	scheduled := maps.Clone(s.binding.Scheduled)
 	s.mu.Unlock()
 	if cursor == "" {
 		return nil
@@ -70,9 +72,10 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 	if err != nil {
 		return errors.New("更早消息暂时无法读取，请重试")
 	}
-	projection := &Session{opts: s.opts}
+	projection := &Session{opts: s.opts, binding: binding{Scheduled: scheduled}}
 	projection.resetProjection()
 	for _, turn := range chronological(page.Data) {
+		projection.runs[turn.ID] = turn.Status
 		for _, item := range turn.Items {
 			if item.Type == "userMessage" || item.Type == "agentMessage" {
 				projection.applyItem(turn.ID, item, terminal(turn.Status))
@@ -83,6 +86,14 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 	defer s.mu.Unlock()
 	if s.epoch != epoch || s.client != c || s.historyCursor != cursor {
 		return errors.New("连接已更新，请重新读取")
+	}
+	for id, turn := range projection.binding.Scheduled {
+		if turn != "" {
+			s.binding.Scheduled[id] = turn
+		}
+	}
+	for turn, status := range projection.runs {
+		s.runs[turn] = status
 	}
 	older := make([]api.Item, 0, len(projection.state.Items))
 	for _, item := range projection.state.Items {
@@ -113,7 +124,7 @@ func (s *Session) RecentSnapshot() api.Snapshot {
 	v := s.state
 	start := 0
 	for i := len(v.Items) - 1; i >= 0; i-- {
-		if v.Items[i].Kind == "user" {
+		if v.Items[i].Kind == "user" || v.Items[i].Kind == "activation" {
 			start = i
 			break
 		}
@@ -122,7 +133,7 @@ func (s *Session) RecentSnapshot() api.Snapshot {
 	b, _ := json.Marshal(v)
 	var out api.Snapshot
 	_ = json.Unmarshal(b, &out)
-	return out
+	return s.presentScheduled(out)
 }
 
 // ComposerSnapshot never traverses or serializes the transcript. Only interaction

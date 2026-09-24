@@ -21,6 +21,8 @@ BOT_SOURCE_COMMIT=$(git rev-parse HEAD)
 CGO_ENABLED=1 go build -tags production,private_mac_apis -ldflags "-X github.com/caelis-labs/caelis-bot/internal/updates.Version=$BOT_RELEASE_VERSION" -trimpath -o "$BOT_BUNDLE/Contents/MacOS/caelis-bot" .
 cp resources/macos/Info.plist "$BOT_BUNDLE/Contents/Info.plist"
 cp resources/macos/CaelisBot.icns "$BOT_BUNDLE/Contents/Resources/CaelisBot.icns"
+# Fail before signing if the notification/Finder icon cannot be decoded.
+sips -g pixelWidth -g pixelHeight "$BOT_BUNDLE/Contents/Resources/CaelisBot.icns" >/dev/null
 /usr/libexec/PlistBuddy -c "Set CFBundleShortVersionString $BOT_BASE_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set CFBundleVersion $BOT_BASE_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add CaelisReleaseVersion string $BOT_RELEASE_VERSION" "$BOT_BUNDLE/Contents/Info.plist"

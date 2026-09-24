@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -25,6 +26,10 @@ type Schedule struct {
 	At           string    `json:"at,omitempty"`
 	EveryMinutes int       `json:"everyMinutes,omitempty"`
 	Daily        string    `json:"daily,omitempty"`
+	Times        []string  `json:"times,omitempty"`
+	Weekdays     []int     `json:"weekdays,omitempty"`
+	WindowStart  string    `json:"windowStart,omitempty"`
+	WindowEnd    string    `json:"windowEnd,omitempty"`
 	TimeZone     string    `json:"timeZone,omitempty"`
 	Next         time.Time `json:"next"`
 	Enabled      bool      `json:"enabled"`
@@ -65,13 +70,6 @@ type Runtime struct {
 	action         func(string) error
 	done           chan struct{}
 	cancel         context.CancelFunc
-	notify         func(id, title string)
-}
-
-func (r *Runtime) SetReminderNotifier(f func(id, title string)) {
-	r.mu.Lock()
-	r.notify = f
-	r.mu.Unlock()
 }
 
 func New(path string, action func(string) error) (*Runtime, error) {
@@ -161,65 +159,13 @@ func (r *Runtime) saveLocked() error {
 
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
-func nextTime(s Schedule, after time.Time) (time.Time, error) {
-	if s.EveryMinutes > 0 {
-		interval := time.Duration(s.EveryMinutes) * time.Minute
-		if s.Next.After(after) {
-			return s.Next, nil
-		}
-		if s.Next.IsZero() {
-			return after.Add(interval), nil
-		}
-		return s.Next.Add((after.Sub(s.Next)/interval + 1) * interval), nil
-	}
-	if s.Daily != "" {
-		loc, e := time.LoadLocation(s.TimeZone)
-		if e != nil {
-			return time.Time{}, errors.New("需要有效的 IANA 时区")
-		}
-		v, e := time.Parse("15:04", s.Daily)
-		if e != nil {
-			return time.Time{}, errors.New("每天时间必须为 HH:MM")
-		}
-		local := after.In(loc)
-		for day := 0; day < 4; day++ {
-			d := local.AddDate(0, 0, day)
-			candidate := time.Date(d.Year(), d.Month(), d.Day(), v.Hour(), v.Minute(), 0, 0, loc)
-			if candidate.Hour() != v.Hour() || candidate.Minute() != v.Minute() {
-				continue
-			}
-			if candidate.After(after) {
-				return candidate, nil
-			}
-		}
-		return time.Time{}, errors.New("无法确定下次提醒时间")
-	}
-	t, e := time.Parse(time.RFC3339, s.At)
-	if e != nil {
-		return time.Time{}, errors.New("需要带时区的 RFC3339 时间")
-	}
-	if !t.After(after) {
-		return time.Time{}, nil
-	}
-	return t, nil
-}
 func (r *Runtime) Upsert(s Schedule) (Schedule, error) {
 	s.Runtime = r.provider
 	if !identifier.MatchString(s.ID) || strings.TrimSpace(s.Label) == "" || len(s.Label) > 200 || strings.TrimSpace(s.Prompt) == "" || len(s.Prompt) > 16000 {
 		return s, errors.New("提醒需要有效标识、标题和内容")
 	}
-	modes := 0
-	if s.At != "" {
-		modes++
-	}
-	if s.EveryMinutes != 0 {
-		modes++
-	}
-	if s.Daily != "" {
-		modes++
-	}
-	if modes != 1 || s.EveryMinutes < 0 || s.EveryMinutes > 10080 {
-		return s, errors.New("请选择单次时间、1–10080 分钟间隔或每天时间")
+	if err := validateSchedule(&s); err != nil {
+		return s, err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -235,7 +181,7 @@ func (r *Runtime) Upsert(s Schedule) (Schedule, error) {
 			copy := s
 			copy.Next = time.Time{}
 			copy.Enabled = false
-			if old == copy {
+			if reflect.DeepEqual(old, copy) {
 				return r.state.Schedules[i], nil
 			}
 			break
@@ -284,7 +230,7 @@ func (r *Runtime) Remove(id string) error {
 	// A queued batch is rebuilt without a removed reminder. An already dispatched
 	// action cannot be silently recalled; user can use explicit Stop in the UI.
 	previousWake := r.state.Wake
-	if w := r.state.Wake; w != nil && (w.Status == "pending" || w.Status == "unknown") {
+	if w := r.state.Wake; w != nil && w.Status == "pending" {
 		next := *w
 		next.ScheduleIDs = nil
 		next.Messages = nil
@@ -391,13 +337,6 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	if r.paused {
 		return nil
 	}
-	var noticeID, noticeTitle string
-	var notify func(string, string)
-	defer func() {
-		if noticeID != "" && notify != nil {
-			notify(noticeID, noticeTitle)
-		}
-	}()
 	if r.engine == nil {
 		return nil
 	}
@@ -420,7 +359,6 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		return nil
 	}
 	r.mu.Lock()
-	notify = r.notify
 	now := r.now()
 	if r.state.Wake != nil && r.state.Wake.Runtime != r.provider && r.state.Wake.Status != "accepted" {
 		r.mu.Unlock()
@@ -440,7 +378,7 @@ func (r *Runtime) Tick(ctx context.Context) error {
 		return nil
 	}
 	if r.state.Wake == nil || r.state.Wake.Status == "accepted" {
-		var ids, texts, labels []string
+		var ids, texts []string
 		for i, s := range r.state.Schedules {
 			if s.Runtime != r.provider || !s.Enabled || s.Next.After(now) {
 				continue
@@ -448,9 +386,19 @@ func (r *Runtime) Tick(ctx context.Context) error {
 			if len(strings.Join(texts, "\n"))+len(s.Prompt) > 96000 {
 				break
 			}
+			if !scheduleAllowed(s, now) {
+				next, err := nextTime(s, now)
+				if err != nil {
+					r.mu.Unlock()
+					return err
+				}
+				s.Next = next
+				s.Enabled = !next.IsZero()
+				r.state.Schedules[i] = s
+				continue
+			}
 			ids = append(ids, s.ID)
 			texts = append(texts, s.Label+"："+s.Prompt)
-			labels = append(labels, s.Label)
 			next, e := nextTime(s, now)
 			if e != nil {
 				r.mu.Unlock()
@@ -472,10 +420,29 @@ func (r *Runtime) Tick(ctx context.Context) error {
 				r.mu.Unlock()
 				return e
 			}
-			noticeID, noticeTitle = r.state.Wake.ID, strings.Join(labels, "、")
 		}
 	}
 	if r.state.Wake == nil || r.state.Wake.Status != "pending" {
+		var err error
+		if !reflect.DeepEqual(previous.Schedules, r.state.Schedules) {
+			err = r.saveLocked()
+			if err != nil {
+				r.state = previous
+			}
+		}
+		r.mu.Unlock()
+		return err
+	}
+	beforePrune := r.state.Wake
+	r.prunePendingLocked(now)
+	if r.state.Wake != beforePrune {
+		if err := r.saveLocked(); err != nil {
+			r.state.Wake = beforePrune
+			r.mu.Unlock()
+			return err
+		}
+	}
+	if r.state.Wake == nil {
 		r.mu.Unlock()
 		return nil
 	}
@@ -494,9 +461,9 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	var receipt api.Receipt
 	var e error
 	if b, ok := r.engine.(api.BackgroundRuntime); ok {
-		receipt, e = b.SubmitBackground(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt}, wake.ScheduleIDs)
+		receipt, e = b.SubmitBackground(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt, Scheduled: true}, wake.ScheduleIDs)
 	} else {
-		receipt, e = r.engine.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt}, nil)
+		receipt, e = r.engine.Submit(ctx, api.Submission{ID: wake.ID, Text: wake.Prompt, Scheduled: true}, nil)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -529,7 +496,7 @@ func (r *Runtime) Clock() map[string]string {
 }
 
 func wakePrompt(messages []string) string {
-	return "定时提醒（错过的同类提醒已合并）：\n" + strings.Join(messages, "\n")
+	return "这是用户已授权的定时任务自动触发。先判断任务条件，不要复述指令或发送过程说明。只有确实需要告知用户时才输出提醒或结果；若本次应静默跳过，最终只输出 " + api.SilentReminder + "，不要添加其他文字。\n" + strings.Join(messages, "\n")
 }
 func (r *Runtime) Status() string {
 	if r.initialization != nil && r.initialization.Initialization().Status != "accepted" {
@@ -542,9 +509,6 @@ func (r *Runtime) Status() string {
 	}
 	if r.state.Wake != nil && r.state.Wake.Status == "unknown" {
 		return "有一次定时任务的发送结果待确认。请重新连接核对；不会自动重复执行。"
-	}
-	if r.state.Wake != nil && r.state.Wake.Status == "pending" {
-		return "提醒已到时间，正在等待连接或当前工作结束。"
 	}
 	return ""
 }

@@ -134,6 +134,14 @@ func macWindowCanHide(window *application.WebviewWindow) bool {
 	return application.InvokeSyncWithResult(func() bool { return C.bot_window_can_hide(window.NativeWindow()) != 0 })
 }
 
+func closeMacContextWindow(history, settings *application.WebviewWindow) {
+	application.InvokeSync(func() { C.bot_close_context_window(history.NativeWindow(), settings.NativeWindow()) })
+}
+
+func macSystemTermination() bool {
+	return application.InvokeSyncWithResult(func() bool { return C.bot_system_termination() != 0 })
+}
+
 func syncMacDock(history, settings *application.WebviewWindow, opening bool) {
 	application.InvokeSync(func() {
 		v := 0

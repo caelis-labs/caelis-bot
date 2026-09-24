@@ -97,6 +97,7 @@ func Run(assets fs.FS) error {
 		}
 	}
 	var nativeApp *application.App
+	var closeContextWindow func()
 	var quitting, finished atomic.Bool
 	quit := func() {
 		if quitting.CompareAndSwap(false, true) {
@@ -122,7 +123,11 @@ func Run(assets fs.FS) error {
 			if finished.Load() {
 				return true
 			}
-			quit()
+			if macSystemTermination() {
+				quit()
+			} else if !quitting.Load() && closeContextWindow != nil {
+				closeContextWindow()
+			}
 			return false
 		},
 		OnShutdown: func() {
@@ -281,6 +286,9 @@ func Run(assets fs.FS) error {
 		})
 	}
 	history.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.closeHistory() })
+	// Dock Quit is a contextual-window action. Only the status menu requests
+	// user-initiated process shutdown; updater/restart/system cleanup stays intact.
+	closeContextWindow = func() { closeMacContextWindow(history, settings) }
 	// Wails' default Dock callback reveals every hidden window, including the
 	// private pet/prop/composer webviews. Cancel it and recall only open panels.
 	nativeApp.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
@@ -351,7 +359,7 @@ func Run(assets fs.FS) error {
 		menu.Add("显示桌宠").OnClick(func(*application.Context) { logError(s.SetVisible(true)) })
 		menu.Add("隐藏桌宠").OnClick(func(*application.Context) { logError(s.SetVisible(false)) })
 		menu.AddSeparator()
-		menu.Add("退出").SetAccelerator("Cmd+Q").OnClick(func(*application.Context) { quit() })
+		menu.Add("关闭窗口").SetAccelerator("Cmd+W").OnClick(func(*application.Context) { closeContextWindow() })
 	}
 	applicationMenu := nativeApp.Menu.New()
 	populate(applicationMenu.AddSubmenu("Caelis Bot"))

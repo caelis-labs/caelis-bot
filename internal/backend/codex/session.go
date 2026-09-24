@@ -18,6 +18,8 @@ import (
 )
 
 type binding struct {
+	Scheduled map[string]string `json:"scheduled,omitempty"` // accepted client IDs to native turn IDs
+
 	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
 	DelegationText string                 `json:"delegationText,omitempty"`
 	Children       []string               `json:"children,omitempty"`
@@ -102,6 +104,9 @@ func NewSession(opts SessionOptions) *Session {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		s.loadErr = errors.New("无法读取本地对话记录")
 	}
+	if s.binding.Scheduled == nil {
+		s.binding.Scheduled = map[string]string{}
+	}
 	if s.binding.LastReceipt != nil {
 		s.state.LastReceipt = *s.binding.LastReceipt
 	}
@@ -178,7 +183,7 @@ func (s *Session) Snapshot() api.Snapshot {
 	b, _ := json.Marshal(s.state)
 	var out api.Snapshot
 	_ = json.Unmarshal(b, &out)
-	return out
+	return s.presentScheduled(out)
 }
 func (s *Session) save() error {
 	if s.opts.StateFile == "" {
@@ -529,7 +534,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	ctx, cancel := s.operation(ctx, 45*time.Second)
 	defer cancel()
 	r := api.Receipt{ID: in.ID, Outcome: "rejected"}
-	if len(in.ID) < 8 || len(in.ID) > 128 || len(in.Text) > 128*1024 || (strings.TrimSpace(in.Text) == "" && len(files) == 0) {
+	if !in.Scheduled && legacyWakeID.MatchString(in.ID) || len(in.ID) < 8 || len(in.ID) > 128 || len(in.Text) > 128*1024 || (strings.TrimSpace(in.Text) == "" && len(files) == 0) {
 		r.Message = "请输入消息，或添加文件"
 		return r, nil
 	}
@@ -539,7 +544,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		s.mu.Unlock()
 		return r, nil
 	}
-	if (!s.state.CanSend && !s.state.CanSteer) || (onlyIfIdle && !s.state.CanSend) {
+	if (!s.state.CanSend && !s.state.CanSteer) || ((onlyIfIdle || in.Scheduled) && !s.state.CanSend) {
 		s.mu.Unlock()
 		r.Message = "当前无法发送，请先处理待确认事项或恢复连接"
 		return r, nil
@@ -570,6 +575,9 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	s.mu.Lock()
 	s.binding.Unsubmitted = false
 	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run}
+	if in.Scheduled {
+		s.binding.Scheduled[in.ID] = ""
+	}
 	if !report {
 		s.binding.DelegationText = in.Text
 	}
@@ -610,6 +618,9 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	if err == nil {
 		r.Outcome = "accepted"
 		if run == "" {
+			if in.Scheduled {
+				s.binding.Scheduled[in.ID] = response.Turn.ID
+			}
 			s.applyTurn(response.Turn, false)
 		}
 		s.binding.Pending = nil
