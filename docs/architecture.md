@@ -635,13 +635,29 @@ in-flight changes, and persists the final value on release. Runtime file selecti
 and diagnostic saving attach sheets to that same settings window. None of these
 presentation commands cancels work or sends a prompt.
 
-`internal/updates` reads up to 100 public GitHub releases on explicit request (12-second
-timeout, bounded response, no credentials/local state). It compares semantic versions,
-ignores drafts and releases without a matching macOS DMG, and allows prereleases for
-preview builds. Build version comes from package.json via linker flags and matches
-the DMG name. Downloads/installations remain manual on the fixed release page;
-this is not a signed auto-updater. Release automation builds an exact main-branch tag, verifies the signed bundle inside the DMG,
-and publishes only after uploading the DMG and checksum; see [release operations](release.md).
+Stable bundles load the pinned Sparkle 2.10.0 framework through the narrow AppKit
+bridge in `internal/desktop/updater_darwin.*`. Sparkle owns scheduling, native update
+UI, signature validation, download, replacement and relaunch. The signed app embeds
+the persistent Ed25519 public key and fixed HTTPS feed. Both feed signatures and
+archive validation before extraction are required. Automatic checks default to daily;
+downloads/installations require a user choice. Sparkle preferences are authoritative,
+with no second preference store in the renderer. Development/preview bundles use
+the existing bounded GitHub checker in `internal/updates` and manual installation.
+
+Before relaunch, `Application.PrepareUpdate` fences user submission and checks active,
+uncertain and delegated work. `Runtime.PauseIfIdle` serializes this check with reminder,
+initialization and completion-report delivery; failed checks preserve scheduling.
+The native delegate retries while work is busy. Successful admission closes owned
+resources off the AppKit thread before invoking Sparkle's installation handler.
+Cancellation before that point restores admission; hiding/closing panels never accepts
+an update. `CFBundleVersion` now follows the numeric stable release version, rather
+than the old constant `1`. Previews do not join or replace the stable feed.
+
+Release automation signs nested Sparkle code before the app, notarizes/staples both
+app and DMG, then signs a one-version appcast and artifact manifest. A separate R2 job
+verifies these exact bytes, uploads under the fixed `caelis-bot/` ownership prefix,
+reads them back, switches the feed and only then removes old Bot release objects.
+See [release operations](release.md) for credentials, recovery and verification limits.
 
 ## Neutral appearance and native chrome (2026-09-20)
 

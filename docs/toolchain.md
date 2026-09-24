@@ -23,6 +23,12 @@ make run
 `make check` 再检查行为恢复、输入抢占、手指/视角形变与宿主生命周期。
 `make build` 制作可运行的 macOS app，附代码/素材授权和成品版本清单，再 ad-hoc 签名。
 `make package` 生成只读压缩 DMG 和 SHA-256，挂载核验包内签名；本地命令不上传、不公证。
+
+`make build` 同时下载 SHA-256 锁定的 Sparkle 2.10.0 成品并逐层 ad-hoc 签名，许可随包附带。
+首次构建需要访问官方 Sparkle GitHub Release，后续校验本地缓存后重新解包。
+正式发行需配置持续使用的更新签名公钥，开发构建不自动替换自身。
+`make check-updater` 使用真实框架、临时 App/DMG 和一次性测试密钥验证原生更新接口与签名清单，
+不访问生产签名私钥，也不证明公开 Developer ID 更新链路已验收。配置见 [release.md](release.md)。
 发布、分支保护和 release-please 流程见[发布维护](release.md)。
 
 共享核心移植检查不代表 Windows 原生 GUI 已可用。GPU 和 Window Server 行为需通过

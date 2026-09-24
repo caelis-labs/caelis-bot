@@ -50,6 +50,107 @@ The source run must be a completed main-branch Release DMG or release-please run
 
 For the v0.1.0 promotion, set `prerelease` to `false` while retaining the prerelease versioning strategy; it promotes the current preview to its stable version. Keep version/package/changelog changes in the release-please version PR. Do not hand-edit published tags or bump the manifest independently.
 
+## Automatic updates and R2
+
+Updater-enabled stable releases embed **Sparkle 2.10.0**, downloaded from its official
+release and verified against the SHA-256 pinned in `script/sparkle.sh`. The framework,
+Autoupdate, Updater.app and both XPC helpers are signed inside-out with the app's
+Developer ID before notarization. Local builds sign them ad-hoc and disable updating.
+Sparkle's license is included in the app. `CFBundleVersion` follows the numeric stable
+version; the older constant `1` was never used by an enabled updater.
+
+The signed app uses `https://releases.caelis.dev/caelis-bot/appcast.xml`, requires a
+signed feed and validates archives before extraction. It checks daily by default;
+settings can disable checks. Downloads/installations require confirmation. Active,
+uncertain or delegated work postpones relaunch; user and scheduled admission are
+fenced before backend cleanup. Previews remain manual and never replace the stable
+feed. Existing v0.1.0 installations need one manual upgrade to the first updater-enabled
+release. Already published apps are never modified.
+
+Configuration reuses Caelis core's bucket, endpoint and credential names. Store these
+in the **caelis-labs organization**, with access limited to the selected repositories
+below. Secrets from a sibling repository are not inherited:
+
+| Name | Location | Purpose |
+| --- | --- | --- |
+| `SPARKLE_PUBLIC_KEY` | Organization variable; `caelis-bot` only | Persistent Ed25519 public key embedded by the credential-free build job |
+| `SPARKLE_PRIVATE_KEY` | Organization secret; `caelis-bot` only | Exported Sparkle private seed, passed to signing tools through stdin |
+| `R2_ACCESS_KEY_ID` | Organization secret; `caelis`, `caelis-bot` | R2 object read/write access limited to `caelis-releases` |
+| `R2_SECRET_ACCESS_KEY` | Organization secret; `caelis`, `caelis-bot` | Corresponding R2 secret |
+| `R2_ENDPOINT` | Organization secret; `caelis`, `caelis-bot` | Existing HTTPS S3 endpoint |
+
+Generate the persistent signing identity **once** and retain its Keychain backup.
+Do not create a key per CI run. This one-time setup keeps the private value out of
+command arguments, terminal output and the public tree:
+
+```sh
+/bin/bash <<'CONFIGURE'
+set -euo pipefail
+source script/env.sh
+source script/sparkle.sh
+key_dir=$(mktemp -d)
+trap 'rm -rf "$key_dir" "$BOT_SPARKLE_DIR"' EXIT
+umask 077
+"$BOT_SPARKLE_DIR/bin/generate_keys" --account caelis-bot
+"$BOT_SPARKLE_DIR/bin/generate_keys" --account caelis-bot -p > "$key_dir/public"
+"$BOT_SPARKLE_DIR/bin/generate_keys" --account caelis-bot -x "$key_dir/private"
+gh variable set SPARKLE_PUBLIC_KEY --org caelis-labs --visibility selected --repos caelis-bot --body "$(cat "$key_dir/public")"
+gh secret set SPARKLE_PRIVATE_KEY --org caelis-labs --visibility selected --repos caelis-bot < "$key_dir/private"
+CONFIGURE
+```
+
+Set the three R2 organization secrets through GitHub Settings or `gh secret set NAME
+--org caelis-labs --visibility selected --repos caelis,caelis-bot` using its hidden
+prompt. Organization administration with GitHub CLI requires `admin:org`; obtain
+that permission explicitly before setup. Repository/environment secrets with the same
+names override organization secrets; remove obsolete overrides only after verifying
+the organization configuration. Release workflows consume these secrets only in their
+main-only `macos-release` jobs, but organization storage itself does not restrict them
+to an environment. Keep Apple credentials in that protected environment.
+The bucket is `caelis-releases`; its public domain
+must serve `caelis-bot/*` without overriding mutable objects' `no-cache, max-age=0,
+must-revalidate` headers. No new bucket or Worker is required.
+
+On 2026-09-24, the organization configuration above was installed and its selected
+repository access verified. Sparkle's persistent identity uses the local Keychain
+account `caelis-bot`; its key pair and organization public key were checked together.
+The account token `caelis-org-release-publisher-20260924-r2` grants only object
+read/write on `caelis-releases` and expires on **2027-08-24**. Renew it before that date
+and update both R2 credential secrets together. Core's obsolete repository overrides
+were removed; its earlier Cloudflare token was not revoked. This setup verification
+does not establish a successful production upload or app update.
+
+After `verified=true` (App + DMG notarization, staples and Gatekeeper), the package job
+uses `generate_appcast` with one version and no deltas. It signs the final stapled DMG,
+feed and an independent manifest binding tag, source SHA, DMG hash/size and feed hash.
+These files are attached to GitHub. Only after publication can the R2 job run, with
+read-only GitHub access and R2 credentials scoped to that step.
+
+The publisher verifies signatures/source, checks GitHub latest, uploads under
+`caelis-bot/releases/vX.Y.Z/`, and downloads each object to verify its full SHA-256.
+It rechecks GitHub latest, switches `caelis-bot/appcast.xml` and `latest.json`/signature,
+then removes older objects strictly within the Bot release prefix. It never deletes
+core's `releases/` or `latest.txt`. Publishers share one CI concurrency group, refuse
+rollback, preflight every deletion key, and refuse changed immutable bytes. Failures
+preserve old artifacts; a failure after switching the feed can temporarily leave both
+versions until retry. Clients with a cached older feed may need to check again after
+pruning. GitHub release history remains available; R2 keeps only the latest version.
+
+If only R2 failed, do **not** rerun notarization or republish a non-draft. This dedicated
+retry downloads and verifies the latest release's signed artifacts:
+
+```sh
+gh workflow run sync-r2.yml --repo caelis-labs/caelis-bot --ref main
+```
+
+`make check` covers publication ordering, signatures, tamper rejection, rollback and
+prefix ownership with fixture storage. `make check-updater` uses the pinned framework,
+an isolated AppKit host, disposable keys and an ad-hoc DMG to test the native API,
+postponed/cancelled installation and real feed signing. Neither substitutes for a
+two-version Developer ID installation/relaunch test from public R2. Run that after
+credentials and the first updater-enabled releases exist; verify preserved data and
+active-work deferral. Integration follows [Sparkle's official documentation](https://sparkle-project.org/documentation/).
+
 ## Credentials and least privilege
 
 The existing **Caelis Character Publisher** GitHub App is installed only on `caelis-bot`, with Contents and Pull requests write permissions. Public Actions uses:
@@ -89,7 +190,7 @@ gh variable set APPLE_TEAM_ID --repo caelis-labs/caelis-bot --env macos-release 
 
 The signing job downloads only the app built by its own preceding job; it does not install npm/Go dependencies or compile with certificate access. `script/sign-release.sh` imports the identity into a temporary keychain with a random password and codesign-only key access. It verifies the pinned public Apple G2 intermediate, stores validated notary credentials in the same temporary keychain, and removes all credentials on exit. An always-run workflow cleanup also handles cancellation. It temporarily adds only that keychain to the user search list, preserving existing entries; deletion removes the temporary entry. It never changes the default keychain or system trust policy. The hosted runner is discarded after the job.
 
-`script/verify-signature.sh` checks Apple trust, the Developer ID Application certificate OID, team ID, artifact identifier, secure timestamp and (for the app) hardened runtime. The bundle currently contains one executable and no embedded helpers. It needs no hardened-runtime exceptions: WebKit runs out of process. New nested executable code requires an explicit signing plan; `--deep` is used for verification, never signing.
+`script/verify-signature.sh` checks Apple trust, the Developer ID Application certificate OID, team ID, artifact identifier, secure timestamp and (for the app) hardened runtime. Sparkle's framework, Autoupdate executable, Updater.app and XPC helpers are signed explicitly before the enclosing app. The app needs no hardened-runtime exceptions: WebKit runs out of process. New nested executable code requires an explicit signing plan; `--deep` is used for verification, never signing.
 
 Notarization saves the upload receipt before waiting up to **60 minutes per submission**. The signing/packaging job allows **150 minutes** for the App and DMG waits plus packaging, validation and checkpoint upload; its temporary keychain remains unlocked for that bounded job lifetime. After waiting, the same submission is queried again: `Accepted` continues even if the wait command timed out, `Invalid`/`Rejected` prints Apple's log and fails, and `In Progress` preserves a pending checkpoint and skips publication. The signed App ZIP, signed DMG when available, byte hashes, release context, receipts and Apple logs are retained together for **14 days**; credentials never enter the artifact. The unsigned build artifact expires after one day. Only the final signed, stapled DMG and its final checksum enter the public release.
 

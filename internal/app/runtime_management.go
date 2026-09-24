@@ -42,16 +42,12 @@ func (a *Application) configureRuntimeManagement() {
 	}, a.guardRuntimeChange)
 }
 func (a *Application) guardRuntimeChange() error {
-	if err := a.initialization.GuardRuntimeChange(); err != nil {
+	if err := a.guardConversationChange(); err != nil {
 		return err
 	}
 	a.mu.Lock()
 	tasks := a.tasks
 	a.mu.Unlock()
-	v := a.engine.Snapshot()
-	if v.CanInterrupt || len(v.Approvals) > 0 || v.Phase == "unknown" || v.Phase == "sending" {
-		return errors.New("请等待工作结束并核对待处理操作后再更改运行时")
-	}
 	if tasks != nil {
 		for _, t := range tasks.ListTasks() {
 			switch t.Status {
@@ -61,6 +57,21 @@ func (a *Application) guardRuntimeChange() error {
 			}
 		}
 	}
+	return a.guardReminderChange()
+}
+
+func (a *Application) guardConversationChange() error {
+	if err := a.initialization.GuardRuntimeChange(); err != nil {
+		return err
+	}
+	v := a.engine.Snapshot()
+	if v.CanInterrupt || len(v.Approvals) > 0 || v.Phase == "unknown" || v.Phase == "sending" {
+		return errors.New("请等待工作结束并核对待处理操作")
+	}
+	return nil
+}
+
+func (a *Application) guardReminderChange() error {
 	a.mu.Lock()
 	resident := a.companion
 	a.mu.Unlock()

@@ -26,7 +26,12 @@ func (s *Service) OpenSettings() {
 	s.showSettings("general")
 }
 func (s *Service) OpenRuntimeSettings() { s.showSettings("runtime") }
-func (s *Service) OpenUpdates()         { s.showSettings("updates") }
+func (s *Service) OpenUpdates() {
+	s.showSettings("updates")
+	if s.UpdatePreferences().Available {
+		_ = s.CheckUpdates(context.Background())
+	}
+}
 func (s *Service) CloseSettings() {
 	if s.closeSettings != nil {
 		s.closeSettings()
@@ -40,8 +45,46 @@ func (s *Service) SettingsSection() string {
 	}
 	return s.settingsSection
 }
-func (s *Service) AppVersion() string                              { return updates.Version }
-func (s *Service) CheckUpdates(ctx context.Context) updates.Result { return updates.Check(ctx) }
+func (s *Service) AppVersion() string { return updates.Version }
+func (s *Service) CheckUpdates(ctx context.Context) updates.Result {
+	s.mu.Lock()
+	f := s.checkNativeUpdates
+	p := s.updatePreferences
+	s.mu.Unlock()
+	if f != nil && p != nil && p().Available {
+		if err := f(); err != nil {
+			return updates.Result{State: "unavailable", Current: updates.Version, Message: err.Error()}
+		}
+		return updates.Result{State: "native", Current: updates.Version, Message: "请在更新窗口中查看进度。"}
+	}
+	return updates.Check(ctx)
+}
+
+type UpdatePreferences struct {
+	Available bool `json:"available"`
+	Automatic bool `json:"automatic"`
+	Waiting   bool `json:"waiting"`
+}
+
+func (s *Service) UpdatePreferences() UpdatePreferences {
+	s.mu.Lock()
+	f := s.updatePreferences
+	s.mu.Unlock()
+	if f == nil {
+		return UpdatePreferences{}
+	}
+	return f()
+}
+
+func (s *Service) SetAutomaticUpdates(enabled bool) error {
+	s.mu.Lock()
+	f := s.setAutomaticUpdates
+	s.mu.Unlock()
+	if f == nil {
+		return errors.New("自动更新暂不可用")
+	}
+	return f(enabled)
+}
 func (s *Service) OpenReleasePage() error {
 	if s.openReleasePage == nil {
 		return errors.New("发布页暂不可用")

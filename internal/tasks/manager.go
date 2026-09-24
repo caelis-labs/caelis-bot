@@ -35,6 +35,7 @@ type state struct {
 type Manager struct {
 	mu                   sync.Mutex
 	op                   sync.Mutex
+	paused               bool // protected by op; updater admission fence
 	path, root, provider string
 	work                 api.WorkRuntime
 	reports              api.ReportSubmitter
@@ -196,6 +197,9 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	}
 	m.op.Lock()
 	defer m.op.Unlock()
+	if m.paused {
+		return api.Task{}, errors.New("正在安装更新，请稍后重试")
+	}
 	if e := m.refresh(); e != nil {
 		return api.Task{}, e
 	}
@@ -304,6 +308,9 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	}
 	m.op.Lock()
 	defer m.op.Unlock()
+	if m.paused {
+		return api.Task{}, errors.New("正在安装更新，请稍后重试")
+	}
 	if e := m.owned(in.ID); e != nil {
 		return api.Task{}, e
 	}
@@ -325,6 +332,9 @@ func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
 func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	m.op.Lock()
 	defer m.op.Unlock()
+	if m.paused {
+		return nil
+	}
 	if e := m.refresh(); e != nil {
 		return e
 	}

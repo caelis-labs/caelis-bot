@@ -1,0 +1,43 @@
+name: Retry R2 sync
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: caelis-bot-r2-latest
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: macos-release
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Download the latest published signed update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag=$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "BOT_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          gh release download "$tag" --dir release --pattern '*.dmg' --pattern '*.dmg.sha256' --pattern appcast.xml --pattern latest.json --pattern latest.json.sig
+      - name: Verify signatures and synchronize R2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOT_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: caelis-releases
+        run: node script/publish-r2.mjs release

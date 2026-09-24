@@ -3,6 +3,24 @@
 本项目已完成 macOS v0.1.0 正式发行。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
 
+2026-09-24 自动更新与 R2（本地接入，尚未发布）：
+
+- 正式构建接入 SHA-256 固定的 Sparkle 2.10.0；签名清单与下载包均验证，默认每天检查、用户确认安装。
+- 安装重启前冻结用户、提醒和独立任务的准入；忙碌、审批与结果未知时延后，不为更新取消工作。
+- Release CI 在 App/DMG 公证、票据和 Gatekeeper 全部通过后生成签名清单，再发布 GitHub、同步共享 R2 的 `caelis-bot/` 前缀。
+  上传完整回读校验成功后切换清单、清理旧 Bot 版本；独立重试 workflow 不重新签名或公证。
+- 本地 `make check`、`make smoke`、`make build` 和 actionlint 通过；真实固定框架的 AppKit fixture 已验证启动、开关、延后安装与取消；
+  一次性测试密钥 + ad-hoc DMG 验证官方 appcast 生成、独立签名校验及篡改拒绝。
+  `internal/app`、`internal/bot`、`internal/tasks`、`internal/desktop` 的 race 测试通过。
+- 新设置页原生视觉验收未完成：`build_and_run.sh --verify` 遇到已安装正式版的单实例占用，本轮未退出用户正在运行的应用。
+  不把旧版窗口或独立 SDK fixture 当成新 UI/真实应用替换验收。
+- `caelis-labs` 组织已配置 `SPARKLE_PUBLIC_KEY` variable、`SPARKLE_PRIVATE_KEY` secret（仅 `caelis-bot`），
+  以及三项 R2 secrets（仅 `caelis`、`caelis-bot`）；主仓库同名旧 secrets 已移除，避免覆盖组织配置。
+  Sparkle 持久密钥保存在本机钥匙串 `caelis-bot` 账户，已验证公私钥配对、签名与组织公钥一致，临时导出已清理。
+  新 R2 账户凭据仅允许 `caelis-releases` 对象读写，2027-08-24 到期；配置见 [release.md](release.md)。
+  公开 R2 上传、包含新增 Sparkle helpers 的 Developer ID 公证、跨两版自动替换/重启与数据保留尚未实测。
+  已发布 v0.1.0 仍须手动安装首个带更新器的正式版；本轮不变更公开发布状态。
+
 2026-09-24 v0.1.0 正式发行完成：
 
 - [正式版](https://github.com/caelis-labs/caelis-bot/releases/tag/v0.1.0)已公开，非 draft、非 prerelease；源码标签保持 `6d60b22779b9ffa8927f9a306219e5bccb699320`。

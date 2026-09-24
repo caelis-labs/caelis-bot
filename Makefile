@@ -1,4 +1,5 @@
 .PHONY: setup doctor dev check check-portability build run package smoke smoke-adapter smoke-workflow smoke-bot smoke-caelis smoke-caelis-live schema
+.PHONY: check-updater
 setup:
 	./script/npm.sh ci
 	GOWORK=off go mod download
@@ -8,6 +9,9 @@ dev:
 	./script/npm.sh run dev
 check:
 	./script/check.sh
+check-updater:
+	bash script/updater-native-test.sh
+	bash script/updater-feed-test.sh
 check-portability:
 	./script/npm.sh run check:portability
 build:
