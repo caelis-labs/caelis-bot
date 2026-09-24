@@ -4,14 +4,35 @@ import type { ConnectionFlow, ConnectionGroup, ModelSelection, RuntimeView } fro
 export const inheritedSelection: ModelSelection = { model: '', effort: '', serviceTier: '' };
 export const effortName: Record<string, string> = { none: '无', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最高', ultra: '超高' };
 export const tierName = (id: string, name: string) => id === 'fast' || name.toLowerCase() === 'fast' ? 'Fast' : name || id;
-export const messageOf = (error: unknown) => error instanceof Error ? error.message : '操作未完成，请稍后重试';
+export const messageOf = (error: unknown, fallback = '操作未完成，请稍后重试') => error instanceof Error ? error.message : fallback;
 
-export function selectionSummary(selection: ModelSelection, models: ModelOption[]) {
+export function getEffortName(effort: string, t?: (key: any) => string): string {
+ if (t && effort) {
+  const key = `runtime.effort_${effort}`;
+  try {
+   const translated = t(key);
+   if (translated && translated !== key) return translated;
+  } catch {
+   // fallback
+  }
+ }
+ return effortName[effort] || effort || '';
+}
+
+export function formatModelUse(use: string, t: (key: any) => string): string {
+ if (use === 'Bot 对话' || use === 'bot_conversation') return t('runtime.uses_conversation');
+ if (use === 'Caelis 主模型' || use === 'caelis_main') return t('runtime.uses_main');
+ if (use === '独立工作模型' || use === 'dedicated_work') return t('runtime.uses_work');
+ return use;
+}
+
+export function selectionSummary(selection: ModelSelection, models: ModelOption[], t?: (key: any) => string) {
  const model = models.find(m => m.model === selection.model);
- if (!selection.model) return { name: '默认', detail: '' };
+ if (!selection.model) return { name: t ? t('runtime.default') : '默认', detail: '' };
+ const effortLabel = getEffortName(selection.effort, t);
  return {
   name: model?.name || selection.model,
-  detail: [effortName[selection.effort] || selection.effort || '', selection.serviceTier ? tierName(selection.serviceTier, model?.serviceTiers.find(t => t.id === selection.serviceTier)?.name || selection.serviceTier) : ''].filter(Boolean).join(' · '),
+  detail: [effortLabel, selection.serviceTier ? tierName(selection.serviceTier, model?.serviceTiers.find(t => t.id === selection.serviceTier)?.name || selection.serviceTier) : ''].filter(Boolean).join(' · '),
  };
 }
 export function chooseModel(model: ModelOption): ModelSelection {
