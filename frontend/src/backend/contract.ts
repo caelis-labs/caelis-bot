@@ -250,6 +250,8 @@ export interface RuntimeSettings {
   caelisStore: string;
 }
 export interface RuntimeStatus {
+  latestVersion: string;
+  updateState: string;
   installed: boolean;
   path: string;
   version: string;
@@ -294,6 +296,9 @@ export interface SetupRequest {
   apiKey: string;
 }
 export interface SetupState {
+  serviceUpdateAvailable: boolean;
+  serviceVersion: string;
+  serviceState: string;
   selectedModel: string;
   settings: RuntimeSettings;
   installation: RuntimeStatus;

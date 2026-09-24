@@ -38,7 +38,11 @@ type WorkState struct {
 type WorkTerminalProvider interface {
 	WorkTerminal(context.Context, string) (TerminalTarget, error)
 }
-type TerminalTarget struct{ Binary, Endpoint, Thread, Directory, CodexHome string }
+type TerminalTarget struct {
+	Runtime, Binary, Endpoint, Thread, Directory, CodexHome string
+	// Caelis attaches with the local user credential file; never embed its bytes.
+	Session, Store, TokenFile string
+}
 type TaskPreview struct {
 	ID     string `json:"id"`
 	Prompt string `json:"prompt"`

@@ -59,3 +59,17 @@ func TestVersionOrdering(t *testing.T) {
 		t.Fatal("build metadata changed precedence")
 	}
 }
+
+func TestCompareRuntimeVersions(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want int
+	}{{"v0.62.0", "v0.61.0", 1}, {"0.156.1", "0.157.0", -1}, {"v1.2.3+local", "1.2.3", 0}} {
+		if got, err := CompareVersions(tc.a, tc.b); err != nil || got != tc.want {
+			t.Fatal(tc, got, err)
+		}
+	}
+	if _, err := CompareVersions("dev", "v0.62.0"); err == nil {
+		t.Fatal("unknown build ordered as a release")
+	}
+}

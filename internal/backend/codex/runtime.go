@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeinstall"
+	"github.com/caelis-labs/caelis-bot/internal/updates"
 	"io"
 	"net/http"
 	"os"
@@ -59,7 +60,14 @@ func ManageRuntime(ctx context.Context, action, path string) (api.RuntimeStatus,
 		if res.StatusCode != 200 || json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&v) != nil || v.Tag == "" {
 			return current, errors.New("无法读取 Codex 最新版本")
 		}
-		current.Message = "最新版本 " + strings.TrimPrefix(v.Tag, "rust-v") + " · 当前 " + current.Version
+		current.LatestVersion = strings.TrimPrefix(v.Tag, "rust-v")
+		current.Message = "最新版本 " + current.LatestVersion + " · 当前 " + current.Version
+		if order, err := updates.CompareVersions(current.LatestVersion, current.Version); err == nil {
+			current.UpdateState = "current"
+			if order > 0 {
+				current.UpdateState = "available"
+			}
+		}
 		return current, nil
 	case "install", "update":
 		if path != "" {

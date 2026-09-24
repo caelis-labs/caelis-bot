@@ -176,8 +176,10 @@ type ServiceTier struct {
 }
 
 type RuntimeStatus struct {
-	Installed bool   `json:"installed"`
-	Path      string `json:"path"`
-	Version   string `json:"version"`
-	Message   string `json:"message"`
+	LatestVersion string `json:"latestVersion"`
+	UpdateState   string `json:"updateState"` // available, current, or empty (not checked)
+	Installed     bool   `json:"installed"`
+	Path          string `json:"path"`
+	Version       string `json:"version"`
+	Message       string `json:"message"`
 }

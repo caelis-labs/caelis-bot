@@ -1,9 +1,9 @@
 # Architecture and internal backend contract
 
 Status: application-owned Bot foundation implemented locally; Codex execution connected.
-Caelis generic application protocol is connected against official v0.61.0 (5e2546f); legacy Bot Mode stays disabled.
-Installed release identity, isolated Host/native tools, real models and scoped macOS GUI acceptance pass;
-see [release acceptance](caelis-release-acceptance.md) for remaining product and distribution limits.
+Caelis uses the public protocol from official v0.62.0 (812264e); legacy Bot Mode stays disabled.
+See [integration](caelis-integration.md) for the current contract and
+[verification status](preparation-status.md) for scoped evidence and remaining acceptance limits.
 
 2026-09-23: [Bot product-host architecture](bot-platform-architecture.md) and the
 [generic Runtime extension proposal](runtime-extension-contract.md) define the target.
@@ -574,8 +574,9 @@ click resolves an owned `WorkTerminalProvider` target and launches the user's ex
 terminal. New owned Codex processes expose a private Unix socket; a native TUI attaches
 to the same App Server with `--remote … resume …`. The adapter remains subscribed across
 idle and human-created turns, with one resume on reconnect and no worker polling loop.
-The renderer never receives a shell command or native thread ID. Caelis terminal attach
-remains an optional adapter capability, not a presumed protocol equivalence. See
+The renderer never receives a shell command or native thread ID. The Caelis adapter
+resolves only confirmed, owned native Workers and uses `caelis attach` with the existing
+Session and a local user credential-file path. Terminal exit only detaches observation. See
 [task delegation](task-delegation.md) for lifecycle and verification boundaries.
 
 
@@ -681,9 +682,17 @@ falls back to the Bot's model/effort/tier. Manual selection overrides that group
 resident execution settings. They never change permission policy or Runtime globals.
 Codex reads `config/read` and pins the native thread receipt, including model provider,
 for continuation/restart; legacy tasks first resume without model overrides. Caelis
-resolves public Host model metadata and persists an explicit application worker profile.
-Lookup errors are not absence. Existing tasks keep their settings. Caelis application
-team configuration remains deferred to [Caelis #74](https://github.com/caelis-labs/caelis/issues/74).
+resolves public Host model metadata and pins any explicit override before native Worker creation.
+Lookup errors are not absence. Existing tasks keep their settings. Runtime Team settings
+use the same public role bindings and binding sets as the TUI; they are not per-Worker discovery.
+
+`internal/app/caelis_management.go` owns explicit install/update/apply orchestration.
+`internal/caelisruntime` executes public CLI actions; Caelis owns process replacement.
+Installation and running Host versions remain distinct. Bot freezes its admissions,
+checks Host activity before replacement, negotiates the resulting protocol and reconnects
+its existing adapter. A failed apply retains the installation for retry. This preflight
+cannot atomically fence other clients; the confirmation exposes that shared lifecycle
+impact. See [integration](caelis-integration.md#安装更新与启用服务).
 
 Protocol references: [model/list](https://learn.chatgpt.com/docs/app-server#list-models-modellist)
 and the vendored Codex 0.153.4 ModelList/ThreadStart/ThreadResume/TurnStart schemas.

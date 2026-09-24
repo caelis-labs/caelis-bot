@@ -1,31 +1,32 @@
 .runtime-workspace { max-width:760px; margin:0 auto; }
+.runtime-workspace h1 { font-size:22px; margin:0 0 12px; }
+.settings-window .runtime-workspace button { min-height:34px; font-size:14px; }
 .runtime-workspace h2 { margin:0; font-size:14px; font-weight:600; }
 .runtime-workspace p { line-height:1.6; }
-.runtime-active { display:flex; align-items:center; gap:13px; padding:18px 0 22px; }
+.runtime-active { display:flex; align-items:center; gap:13px; padding:10px 0 18px; }
 .runtime-active>div { flex:1; }
+.runtime-active .runtime-active-actions { flex:0; display:flex; gap:14px; align-items:center; }
 .runtime-active strong { font-size:16px; font-weight:600; }
-.runtime-active p { margin:4px 0 0; color:var(--muted); font-size:12px; }
-.runtime-monogram { display:grid; place-items:center; width:42px; height:42px; border-radius:12px; background:var(--ink); color:var(--bg); font-size:24px; font-weight:500; }
-.runtime-workspace-tabs { display:flex; gap:24px; border-bottom:1px solid var(--line); margin-bottom:26px; }
+.runtime-active p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+.runtime-monogram { display:grid; place-items:center; width:34px; height:34px; border-radius:9px; background:var(--ink); color:var(--bg); font-size:20px; font-weight:500; }
+.runtime-workspace-tabs { display:flex; gap:24px; border-bottom:1px solid var(--line); margin-bottom:10px; }
 .settings-window .runtime-workspace-tabs button { min-height:40px; padding:8px 0 11px; background:transparent; border:0; border-radius:0; color:var(--muted); }
 .settings-window .runtime-workspace-tabs button[aria-pressed="true"] { color:var(--ink); box-shadow:0 2px 0 var(--ink); }
-.runtime-model-section { margin-bottom:28px; }
-.runtime-setting-row { display:flex; gap:18px; align-items:center; justify-content:space-between; padding:16px 0; border-bottom:1px solid var(--line); }
+.runtime-model-section { margin-bottom:24px; }
+.runtime-setting-row { display:flex; gap:18px; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--line); }
 .runtime-setting-row>div:first-child { flex:1; min-width:0; }
-.runtime-setting-row strong,.runtime-connection-model strong { font-size:13px; font-weight:500; }
+.runtime-setting-row strong,.runtime-connection-model strong { font-size:14px; font-weight:500; }
 .runtime-setting-row p,.runtime-connection-model p { font-size:12px; color:var(--muted); margin:5px 0 0; }
 .settings-window .runtime-model-summary { display:flex; align-items:center; justify-content:space-between; gap:16px; min-width:170px; max-width:280px; border:0; text-align:right; background:transparent; padding:8px 0 8px 10px; }
+.runtime-model-summary>span:first-child { display:flex; align-items:baseline; gap:12px; }
 .runtime-model-summary strong,.runtime-model-summary small { display:block; overflow-wrap:anywhere; }
-.runtime-model-summary small { font-size:11px; color:var(--muted); margin-top:4px; }
+.runtime-model-summary small { font-size:13px; color:var(--muted); margin-top:0; white-space:nowrap; min-width:14px; }
 .settings-window .runtime-model-summary:disabled { opacity:1; }
 .runtime-model-summary:disabled>span:last-child { visibility:hidden; }
 .runtime-section-title { display:flex; justify-content:space-between; align-items:center; gap:16px; }
 .runtime-section-title>div:last-child { display:flex; gap:14px; align-items:center; }
 .runtime-section-title>div:first-child { display:block; }
-.runtime-shared-label { font-size:11px; color:var(--muted); }
 .runtime-row-actions { display:flex; align-items:center; gap:10px; }
-.runtime-self { display:flex; gap:24px; padding:12px 0; color:var(--muted); font-size:12px; }
-.runtime-self span { min-width:45px; }
 .runtime-system-agents { margin:18px 0; font-size:12px; }
 .runtime-system-agents summary { cursor:pointer; color:var(--muted); }
 .runtime-callout { padding:10px 12px; background:var(--wash); border-radius:8px; font-size:12px; }
@@ -38,16 +39,13 @@
 .runtime-connection-group>p { margin:0 0 8px; }
 .runtime-connection-model { display:flex; gap:18px; justify-content:space-between; align-items:center; padding:13px 0; border-top:1px solid var(--line); }
 .runtime-connection-model>div { min-width:0; overflow-wrap:anywhere; }
-.runtime-installation { display:grid; grid-template-columns:48px 1fr; row-gap:14px; font-size:12px; padding:12px 0 20px; }
-.runtime-installation dt { color:var(--muted); }
-.runtime-installation dd { margin:0; overflow-wrap:anywhere; }
 .runtime-page-footer { display:flex; justify-content:space-between; align-items:center; min-height:48px; margin-top:20px; font-size:12px; color:var(--muted); }
 .runtime-empty { padding:28px 0; font-size:13px; color:var(--muted); }
 .runtime-dialog-scrim { z-index:100; padding:24px; }
 .runtime-dialog { width:560px; max-width:100%; max-height:calc(100dvh - 48px); padding:26px; overflow-y:auto; overscroll-behavior:contain; }
 .runtime-dialog:focus { outline:none; }
 .runtime-dialog-heading { display:flex; gap:20px; align-items:center; justify-content:space-between; }
-.runtime-dialog-heading h2 { font-size:21px; line-height:1.3; margin:0; }
+.runtime-dialog-heading h2 { font-size:18px; line-height:1.3; margin:0; }
 .settings-window .runtime-close { display:grid; place-items:center; width:30px; min-height:30px; padding:7px; background:transparent; border:0; }
 .runtime-close img { width:14px; height:14px; opacity:.55; }
 .runtime-dialog-description { font-size:13px; line-height:1.6; color:var(--muted); margin:8px 0 22px; }
@@ -104,3 +102,18 @@
 .runtime-dialog .settings-note { margin:14px 0; }
 
 .runtime-dialog > .text-action { margin-right: 16px; }
+
+.runtime-program { padding:16px 0 10px; }
+.runtime-version-list { margin:0; font-size:14px; }
+.runtime-version-list>div { display:flex; align-items:center; justify-content:space-between; min-height:34px; gap:20px; }
+.runtime-version-list dt { color:var(--muted); }
+.runtime-version-list dd { display:flex; align-items:center; gap:8px; margin:0; }
+.runtime-status-dot { width:7px; height:7px; border-radius:50%; background:#ba853f; flex-shrink:0; }
+.runtime-status-dot.ready { background:#608a69; }
+.runtime-program-actions { display:flex; gap:16px; margin-top:16px; align-items:center; }
+.runtime-management .runtime-advanced { margin:10px 0 0; }
+.runtime-program .runtime-update-hint { margin:10px 0 0; font-size:14px; }
+.runtime-confirm { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); }
+.runtime-confirm h3 { margin:0 0 8px; font-size:14px; }
+.runtime-confirm p { margin:0 0 16px; font-size:14px; line-height:1.6; color:var(--muted); }
+.runtime-confirm .setup-end { margin-top:16px; }

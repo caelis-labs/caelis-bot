@@ -8,10 +8,10 @@ export const messageOf = (error: unknown) => error instanceof Error ? error.mess
 
 export function selectionSummary(selection: ModelSelection, models: ModelOption[]) {
  const model = models.find(m => m.model === selection.model);
- if (!selection.model) return { name: '沿用运行时', detail: '模型、推理强度与速度' };
+ if (!selection.model) return { name: '默认', detail: '' };
  return {
   name: model?.name || selection.model,
-  detail: [effortName[selection.effort] || selection.effort || '默认推理', selection.serviceTier ? tierName(selection.serviceTier, model?.serviceTiers.find(t => t.id === selection.serviceTier)?.name || selection.serviceTier) : '默认速度'].join(' · '),
+  detail: [effortName[selection.effort] || selection.effort || '', selection.serviceTier ? tierName(selection.serviceTier, model?.serviceTiers.find(t => t.id === selection.serviceTier)?.name || selection.serviceTier) : ''].filter(Boolean).join(' · '),
  };
 }
 export function chooseModel(model: ModelOption): ModelSelection {

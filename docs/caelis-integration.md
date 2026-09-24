@@ -1,13 +1,11 @@
 # Caelis 接入与运行时管理
 
-2026-09-24：Bot 使用 Caelis 通用应用运行时与共享原生 Worker 协议，固定源码基线为
-`fdbc8017e97238c4fcb326dd058c5095241740a4`。使用公开 HTTP/SSE 与生成的 Go wire，
-不导入兄弟仓库、不恢复旧 Bot Mode。此基线包含已合入 main 的共享会话与 steering 扩展，以及 Host 设置授权流与角色候选补充，
-尚未随正式版本发布；已通过确定性测试与隔离 macOS Host 集成测试。
+Bot 使用正式 Caelis **v0.62.0** 的通用应用运行时与共享原生 Worker 协议，
+公开协议固定于 `812264e567875fe8db6e678fcf7e0e439b18fc6d`。使用公开 HTTP/SSE 与生成的 Go wire，
+不导入兄弟仓库、不恢复旧 Bot Mode。基线包含共享会话、steering、Host 设置授权流与 Team 角色候选。
 
-v0.61.0 的真实模型和原生 GUI 证据见 [正式版联调报告](caelis-release-acceptance.md)，
-不代表本次扩展已完成相同验收。此前候选证据见 [真实模型报告](caelis-live-acceptance.md)，
-早期确定性 B01–B12 见 [联调报告](caelis-application-acceptance.md)。
+当前验证范围见 [实现与验证状态](preparation-status.md)。v0.61.0 的真实模型和原生 GUI
+历史证据见 [正式版联调报告](caelis-release-acceptance.md)，不能代替新增功能的验收。
 
 ## 基线与发现
 
@@ -28,9 +26,9 @@ CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切
 
 ## 使用入口
 
-1. 「设置 → 运行时与模型 → 更换」选择要管理的 Runtime；查看某个 Runtime 不切换当前后端。
+1. 「设置 → 运行时与模型 → 管理」维护当前 Runtime；“更换”选择其他 Runtime，查看不切换当前后端。
 2. 自动发现本机安装，也可选择已有二进制和独立数据目录。安装、更新、服务启动只在明确点击后
-   调用 Caelis 官方安装或 `update`、`service` 能力；不捆绑 Runtime，不接管已经运行的共享 Host。
+   调用 Caelis 官方安装或 `update`、`service` 能力；不捆绑 Runtime。共享服务升级流程见下节。
 3. 「连接 → 添加连接」提供账号授权、API Key、内置或自定义 ACP Agent。安装和认证依照原生目录，
    凭据只写入 Caelis；Bot 不持久化密钥或授权码。
 4. 能力与模型就绪后，点击「切换至 Caelis」，保存后重启。进行中的工作、审批或未知结果会阻止切换。
@@ -49,6 +47,33 @@ CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切
 
 不要通过更换 Store 或删除绑定来绕过未确认的操作。原生启动仍使用
 `script/build_and_run.sh`；协议夹具使用临时 HOME/Store，GUI 联调临时选择独立 Bot 数据目录，结束后恢复日常 Bot。
+
+## 安装、更新与启用服务
+
+程序版本和运行中的服务版本分别显示。检查更新只读取版本；“更新并重新连接”执行
+`caelis update`，随后通过 `caelis service start --format json` 启用已安装版本。
+原生生命周期负责服务选择、锁、就绪验证及启动失败回退；Bot 不按 PID 强杀 Host。
+安装成功后仍需 `/initialize` 验证 Bot 所需协议，并重新连接当前 Store 的 Bot adapter，
+全部成功才显示服务就绪。仅升级同一 Runtime 不要求重启 Bot。
+
+若程序已更新、服务仍旧，直接选择“启用已安装版本”，不重复下载安装。
+失败后重新读取安装与服务状态，保留明确错误，允许检测后重试启用。原始安装日志不进入设置页面。
+换 Runtime、程序路径或数据目录仍需显式切换并重启 Bot。
+
+升级确认提示其他 Caelis 客户端将短暂断开。执行期间暂停 Bot 的新对话、提醒及任务准入；
+本机 Host 状态显示活动工作，或状态无法确认时，拒绝替换服务。下载后再次检查，
+其间到达的工作只延后启用，已安装程序保留。公开协议尚无跨客户端原子的“空闲时重启”，
+检查与替换间其他客户端仍可能发起工作；应先结束其他终端/应用中的工作，升级期间不要再提交任务。
+普通连接、检测、关闭终端或退出 Bot 不触发共享 Host 替换。
+
+可使用两个正式二进制复现隔离升级，不读取日常模型账户：
+
+```sh
+source script/env.sh
+CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-0.61.0 \
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-0.62.0 \
+go test -race -v -count=1 -timeout 180s ./internal/app -run '^TestCaelisReleasedServiceUpgrade$'
+```
 
 ## 共享模型与 Team 设置
 
@@ -73,7 +98,7 @@ ACP 使用原生 launcher 目录、安装计划、preparation ref/digest、认�
 | 持续身份、Notebook、Memory | Bot 持有 Markdown、索引、skill 和 recall/remember；常驻应用会话的 CWD 显式绑定 Notebook |
 | 原生文件与命令 | Caelis `workspace-write` 的 Read/Write/Patch/Glob/Grep/RunCommand；不增加 Bot 专用文件工具 |
 | 聊天与观察 | `/application/sessions`、`/{id}/prompt`；canonical Session State、reconnect/SSE；报告使用 `application_summary` |
-| 专业任务 | `internal/tasks` 分配目录、账本和有限汇报；adapter 将 WorkRuntime 映射为独立应用会话，不继承秘书 skill/Notebook 指令 |
+| 专业任务 | `internal/tasks` 分配目录、账本和有限汇报；adapter 将 WorkRuntime 映射为共享原生 Worker，不继承秘书 skill/Notebook 指令 |
 | 应用工具 | Bot 注入目录及 handler；Caelis 返回可信 callback；按 opaque call ID、native item、配置 revision、tools_version 路由 |
 | 后台提醒 | Bot 保存计划并计时；用户创建/修改时获取 background grant，激活使用 `authorized_background`；一条计划对应一次激活 |
 | 中断与审批 | canonical 原生 target 与完整选择；提交审批前重新核对当前 head，不用 prose 推断授权 |
@@ -158,7 +183,10 @@ steer and reconnect APIs. They use the Host's normal environment, tools, MCP,
 plugins and permissions; resident Bot profiles and private Memory are not copied.
 Explicit work model preferences select a per-Session native model; an empty
 preference uses the Host default. The terminal entry point is
-`caelis attach --control-url ENDPOINT --session SESSION_ID --control-token-file PATH`.
+`caelis attach --control-url ENDPOINT --session SESSION_ID --store-dir STORE --control-token-file PATH`.
+Bot task bubbles resolve only owned native Workers and open this command in the
+user's external terminal. Closing it detaches observation without stopping work.
+No new Session or prompt is created; credential bytes never enter the command.
 The host credential belongs to the user's terminal, not to the Bot adapter.
 
 Main and Worker submissions during an active Turn preserve its exact target in
@@ -175,6 +203,6 @@ supported saved Bot state contains these workers. Unknown native operations are
 reconciled through `/application/operations/{operation_id}` without redispatch.
 
 The vendored public schema and wire are pinned to the exact source commit in
-`protocol/caelis/manifest.json`. This source pin is not a release claim. Protocol
+`protocol/caelis/manifest.json`. The pin matches official v0.62.0. Protocol
 unit tests and isolated Host integration are separate from native GUI and
 real-model acceptance.

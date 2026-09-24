@@ -5,6 +5,7 @@ package updates
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"regexp"
@@ -103,6 +104,15 @@ func check(ctx context.Context, client *http.Client, current, arch string) Resul
 }
 
 var versionPattern = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
+
+// CompareVersions orders semantic versions, rejecting unrecognized development labels.
+func CompareVersions(a, b string) (int, error) {
+	av, bv := parseVersion(a), parseVersion(b)
+	if av == nil || bv == nil {
+		return 0, errors.New("unrecognized semantic version")
+	}
+	return compare(av, bv), nil
+}
 
 func parseVersion(s string) []string {
 	if len(s) > 128 {

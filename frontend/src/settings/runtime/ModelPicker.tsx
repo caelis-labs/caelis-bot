@@ -6,12 +6,12 @@ import { ConfigurationError } from './client';
 import { SettingsDialog } from './SettingsDialog';
 
 export function ModelSummary({ value, models, disabled, onClick, label, unbound = false }: { value: ModelSelection; models: ModelOption[]; disabled?: boolean; onClick: () => void; label: string; unbound?: boolean }) {
- const summary = unbound && !value.model ? {name:'未绑定',detail:'使用此角色的默认行为'} : selectionSummary(value, models);
- return <button className="runtime-model-summary" aria-label={`配置${label}`} disabled={disabled} onClick={onClick}><span><strong>{summary.name}</strong><small>{summary.detail}</small></span><span aria-hidden="true">›</span></button>;
+ const summary = unbound && !value.model ? {name:'未绑定',detail:''} : selectionSummary(value, models);
+ return <button className="runtime-model-summary" aria-label={`配置${label}`} disabled={disabled} onClick={onClick}><span><strong>{summary.name}</strong>{summary.detail && <small>{summary.detail}</small>}</span><span aria-hidden="true">›</span></button>;
 }
 
 export function ModelPicker({ title, description, value, models, inherited = false, requireEffort = false, onSave, onClose, onConnect, onReset, onReload }: {
- title: string; description: string; value: ModelSelection; models: ModelOption[]; inherited?: boolean; requireEffort?: boolean;
+ title: string; description?: string; value: ModelSelection; models: ModelOption[]; inherited?: boolean; requireEffort?: boolean;
  onSave: (value: ModelSelection) => Promise<void>; onClose: () => void; onConnect?: () => void; onReset?: () => Promise<void>; onReload?: () => Promise<void>;
 }) {
  const [draft, setDraft] = useState(value), [query, setQuery] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [blocked, setBlocked] = useState(false);
@@ -26,7 +26,7 @@ export function ModelPicker({ title, description, value, models, inherited = fal
  return <SettingsDialog title={title} description={description} busy={busy} onClose={onClose}>
   <input className="runtime-model-search" aria-label="搜索模型" placeholder="搜索已连接的模型" value={query} onChange={e => setQuery(e.target.value)} disabled={busy}/>
   <fieldset disabled={busy} className="runtime-model-options"><legend className="visually-hidden">可用模型</legend>
-   {inherited && !query && <label className="runtime-model-option"><input type="radio" name={group} checked={!draft.model} onChange={() => setDraft(inheritedSelection)}/><span><strong>沿用运行时</strong><small>使用运行时的默认模型、推理强度和速度</small></span></label>}
+   {inherited && !query && <label className="runtime-model-option"><input type="radio" name={group} checked={!draft.model} onChange={() => setDraft(inheritedSelection)}/><span><strong>默认</strong></span></label>}
    {filtered.map(m => <label className="runtime-model-option" key={m.model}><input type="radio" name={group} checked={draft.model === m.model} onChange={() => { setDraft(chooseModel(m)); setError(''); }}/><span><strong>{m.name || m.model}</strong><small>{m.description || m.model}</small></span></label>)}
    {!filtered.length && <p className="settings-note">没有找到可用模型</p>}
   </fieldset>

@@ -37,12 +37,19 @@ func setupClient(ctx context.Context, v api.RuntimeSettings) (*client, error) {
 }
 func InspectSetup(ctx context.Context, v api.RuntimeSettings) (api.SetupState, error) {
 	out := api.SetupState{Settings: v, Models: []api.SetupChoice{}, State: "service"}
-	if _, _, e := Discover(v); e != nil {
+	d, _, e := Discover(v)
+	if e != nil {
+		out.ServiceState = "unknown"
 		out.Message = e.Error()
 		return out, nil
 	}
+	out.ServiceVersion = d.DistributionVersion
+	out.ServiceState = "running"
 	c, e := setupClient(ctx, v)
 	if e != nil {
+		if !errors.Is(e, errBotIncompatible) {
+			out.ServiceState = "unknown"
+		}
 		out.State = "unavailable"
 		if errors.Is(e, errBotIncompatible) {
 			out.State = "incompatible"

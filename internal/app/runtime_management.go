@@ -7,7 +7,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
-	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 )
 
 func (a *Application) configureRuntimeManagement() {
@@ -37,8 +36,7 @@ func (a *Application) configureRuntimeManagement() {
 		if v.Runtime != "caelis" {
 			return api.RuntimeStatus{}, errors.New("自动安装与更新仅适用于 Caelis")
 		}
-		st, e := caelisruntime.Manage(ctx, action, v.CLIPath, v.CaelisStore)
-		return api.RuntimeStatus{Installed: st.Installed, Path: st.Path, Version: st.Version, Message: st.Message}, e
+		return a.manageCaelis(ctx, action, v)
 	}, a.guardRuntimeChange)
 }
 func (a *Application) guardRuntimeChange() error {

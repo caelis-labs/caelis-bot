@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -23,10 +24,12 @@ import (
 const InstallerURL = "https://caelis.dev/install.sh"
 
 type Status struct {
-	Installed bool   `json:"installed"`
-	Path      string `json:"path"`
-	Version   string `json:"version"`
-	Message   string `json:"message"`
+	LatestVersion string
+	UpdateState   string
+	Installed     bool   `json:"installed"`
+	Path          string `json:"path"`
+	Version       string `json:"version"`
+	Message       string `json:"message"`
 }
 
 func Find(path string) (string, error) {
@@ -142,11 +145,17 @@ func Manage(ctx context.Context, action, path, store string) (Status, error) {
 			return Status{}, e
 		}
 		v, e := Inspect(ctx, p)
-		v.Message = strings.TrimSpace(string(b))
-		if len(v.Message) > 2000 {
-			v.Message = "Caelis 已完成更新操作，请重新检测"
+		if e != nil {
+			return v, e
 		}
-		return v, e
+		return updateResult(v, string(b), action == "check-update")
+	case "apply-update":
+		// The public lifecycle owns selection, exact process identity, readiness,
+		// rollback and keeping a newer release. Never stop or kill it ourselves.
+		if _, e = run(ctx, p, "service", "start", "--store-dir", dir, "--format", "json"); e != nil {
+			return Status{}, e
+		}
+		return Inspect(ctx, p)
 	case "start":
 		raw, e := run(ctx, p, "service", "status", "--store-dir", dir, "--format", "json")
 		if e != nil {
@@ -217,4 +226,29 @@ func install(ctx context.Context) error {
 	}
 	_, e = run(ctx, "/bin/sh", file.Name())
 	return e
+}
+
+// Parse only the CLI's bounded completion line, never expose installer output.
+var availableUpdate = regexp.MustCompile(`^update available: [A-Za-z0-9.+-]+ -> ([A-Za-z0-9.+-]+) \([^\n]+\)$`)
+
+func updateResult(v Status, output string, check bool) (Status, error) {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	line := strings.TrimSpace(lines[len(lines)-1])
+	if m := availableUpdate.FindStringSubmatch(line); check && len(m) == 2 {
+		v.LatestVersion = m[1]
+		v.UpdateState = "available"
+		v.Message = "可更新至 " + m[1]
+		return v, nil
+	}
+	if strings.HasPrefix(line, "caelis is up to date (") && strings.HasSuffix(line, ")") {
+		v.LatestVersion = v.Version
+		v.UpdateState = "current"
+		v.Message = "已安装最新版本 " + v.Version
+		return v, nil
+	}
+	if !check && strings.HasPrefix(line, "Caelis ") && strings.Contains(line, " is installed (") && strings.HasSuffix(line, "it takes effect on the next start.") {
+		v.Message = "程序已更新，正在启用新版服务"
+		return v, nil
+	}
+	return v, errors.New("未能确认 Caelis 更新结果，请重新检测安装；不会自动重试下载或重启服务")
 }

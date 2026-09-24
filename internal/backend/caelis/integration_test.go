@@ -21,6 +21,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
+	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
 
 type modelStep struct {
@@ -473,6 +474,14 @@ func TestNativeHostIntegration(t *testing.T) {
 			s.mu.Lock()
 			sid := s.state.Workers[id].Binding.SessionId
 			s.mu.Unlock()
+			target, err := s.WorkTerminal(ctx, id)
+			if err != nil || target.Session != sid || target.Endpoint != host.origin || target.Runtime != "caelis" {
+				t.Fatal("terminal did not resolve owned native Worker", target, err)
+			}
+			script, err := taskterminal.Script(target)
+			if err != nil || !strings.Contains(script, " attach --control-url ") || strings.Contains(script, "CASE_WORKER") {
+				t.Fatal("terminal script did not attach without a prompt", err)
+			}
 			var state wire.SessionState
 			if err := host.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil || state.SessionId != sid {
 				t.Fatal("user cannot attach native Worker", err)
@@ -634,6 +643,17 @@ func TestNativeHostIntegration(t *testing.T) {
 		after, e := s.Configuration(ctx)
 		if e != nil || after.Revision != before.Revision || s.state.Session.SessionId != sid {
 			t.Fatal("restart lost configuration or binding", e)
+		}
+		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Items) == len(items) })
+		// An explicit runtime update reconnects this same adapter, without a Bot restart.
+		stop()
+		start()
+		if err := s.Reconnect(ctx); err != nil {
+			t.Fatal("in-process reconnect", err)
+		}
+		after, e = s.Configuration(ctx)
+		if e != nil || after.Revision != before.Revision || s.state.Session.SessionId != sid {
+			t.Fatal("reconnect replaced binding", e)
 		}
 		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Items) == len(items) })
 	}) {

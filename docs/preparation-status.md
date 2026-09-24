@@ -3,6 +3,22 @@
 本项目已完成 macOS v0.1.0 正式发行。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
 
+2026-09-24 Caelis 终端与 Runtime 更新（本地实现，尚未发布）：
+
+- 任务气泡为 Bot 已拥有的原生 Worker 打开 `caelis attach`；不创建 Session 或重发 prompt。
+  终端使用本机用户凭据文件，Bot 保留应用权限；旧应用 Worker 不冒充可 attach 的原生会话。
+- 程序更新后通过 Caelis 自身服务生命周期启用新版，验证协议并重连同一个 Bot adapter。
+  安装版本与运行版本分开；服务启用失败可直接重试，不重新下载。Bot 准入冻结，Host 忙碌或状态
+  不明时拒绝替换。跨客户端检查不是原子围栏，升级期间应停止其他客户端提交新工作。
+- 主页面移除配置归属等实现注释，模型与档位同一行展示，角色职责在编辑时显示；
+  “管理”直接进入程序维护，“更换”选择另一 Runtime。更新日志不进入主界面，路径与数据目录折叠。
+- `make check`、相关 Go race、`make smoke`、macOS ad-hoc 构建通过。正式 v0.61.0 → v0.62.0
+  的隔离服务升级实测保留 Store 并通过协议验证；v0.62.0 合成模型 Host 集成覆盖原生 Worker 目标、
+  审批、静默提醒、重连及不重启 Bot 的 adapter 恢复。没有读取日常账户或调用付费模型。
+- 实际 React 组件已验证升级、直接启用、失败后保留版本及重试入口，暗色页面和 760×540
+  确认面板无裁切。预览使用合成数据，不代表原生气泡点击与外部 Terminal GUI 已完成实机验收。
+  真实第三方 OAuth、完整原生窗口验收与正式签名更新的剩余门槛保留。
+
 2026-09-24 Runtime 设置与共享配置联调（本地实现，尚未发布）：
 
 - “运行时与模型”统一 Bot 对话模型、Caelis 主模型、Agent team、连接和程序管理；权限单独成页。
@@ -10,14 +26,14 @@
 - 连接支持原生账号与 API Key、内置与自定义 ACP、启动方式选择、Antigravity 安装计划和认证。
   OAuth 保留挑战的一次性语义，未知结果不重发；临时状态与凭据不成为 Bot 持久化配置。
   首次设置和切换前的连接复用同一向导，绑定所选 Runtime，无需提前激活。
-- 上游补充见 [Caelis PR #77](https://github.com/caelis-labs/caelis/pull/77)，固定源码 `fdbc8017`。
+- 上游补充已随正式 Caelis v0.62.0 发布，公开协议固定源码 `812264e`。
   `make check`、`make smoke`、`make build`、设置/授权的 focused race 通过。macOS 原生 Host 与
   合成 provider/ACP 子进程验证了模型与 Team 的往返、CAS、ACP 连接/断开、Worker、审批和重启。
 - 已检查实际 React 组件的浏览器交互、最小 760×540 窗口、Team 保存和授权码完成状态。
   经用户允许重启后，隔离数据的原生 Wails 窗口验证了 Team 绑定保存/读回/重置、在用模型移除保护、
   Grok 模型目录、内置/自定义 Agent 目录，以及 Antigravity 安装说明和取消；已恢复日常 Bot。
   真实 GPT/Grok/Antigravity 账户登录尚未验收。
-  OAuth 测试使用合成回调，没有读取或修改用户第三方账号凭据。正式发布前需合入上游补充并完成人工账号验收。
+  OAuth 测试使用合成回调，没有读取或修改用户第三方账号凭据。真实第三方账户的完整授权仍需人工验收。
 
 2026-09-24 任务气泡与共享 Worker 终端（本地实现，尚未发布）：
 
@@ -34,7 +50,7 @@
   原生 trace 确认胶囊可见、三个任务与拖动后的锚点恢复，桌宠本身已截图检查。
   当前原生自动化无法单独选择新浮动窗口或执行 hover，因此气泡视觉、两行截断、边缘/横向滚动、
   连续悬停和点击外部终端仍需人工实机复验。之前用户确认的外部 Terminal 属于 POC 证据。
-- Caelis 的 `WorkTerminalProvider` 尚未接入，不显示这个入口；主动关怀规则仍保留在独立 POC。
+- Caelis 的 `WorkTerminalProvider` 已接入原生 Worker，使用同一 Session；主动关怀规则仍保留在独立 POC。
   细节与复现命令见[任务委派](task-delegation.md)。
 
 2026-09-24 设置、Dock 与安装界面整理（本地实现，尚未发布）：
@@ -109,7 +125,7 @@
 - 协议基线仍为 0.153.4；新增 ConfigRead schema 已固定哈希。当前二进制版本不同，`make schema` 的整版精确比对未通过版本门；单独生成 0.156.1 schema 确认消费的 model/effort/tier 字段定义一致。
 - 原生设置 GUI 已验证 Runtime/手动切换、MiMo Pro 保存和刷新回读；Bot 保持 Luna/low/Fast，切回默认清空覆盖。
 - 日常 Bot 已恢复，隔离 Host 已关闭，未更改日常 Runtime/模型设置。
-- 本轮不新增真实模型端到端调用或 team 实现；team 公开入口记录为 [Caelis #74](https://github.com/caelis-labs/caelis/issues/74)。
+- 此工作模型切片未新增真实模型调用；Team 的当前实现见本文上方 Runtime 设置记录。
 
 2026-09-24 正式 Caelis v0.61.0 联调：
 

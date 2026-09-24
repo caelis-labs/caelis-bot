@@ -14,6 +14,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/updates"
 )
 
 type runtimeSetup struct {
@@ -95,7 +96,7 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (api.
 	} else {
 		st, err := caelisruntime.Inspect(ctx, v.CLIPath)
 		e = err
-		installation = api.RuntimeStatus{Installed: st.Installed, Path: st.Path, Version: st.Version, Message: st.Message}
+		installation = runtimeInstallation(st)
 	}
 	if e != nil {
 		return out, e
@@ -126,6 +127,9 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (api.
 	}
 	out.Settings = v
 	out.Installation = installation
+	if order, err := updates.CompareVersions(installation.Version, out.ServiceVersion); err == nil {
+		out.ServiceUpdateAvailable = order > 0
+	}
 	if e == nil && out.State != "incompatible" {
 		e = s.saveProfile(v)
 	}
@@ -157,16 +161,19 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 	}
 	var e error
 	message := ""
+	var managed *api.RuntimeStatus
 	switch r.Action {
-	case "install", "update", "check-update", "start":
+	case "install", "update", "check-update", "start", "apply-update":
 		if r.Settings.Runtime == "caelis" {
-			st, err := caelisruntime.Manage(ctx, r.Action, r.Settings.CLIPath, r.Settings.CaelisStore)
+			st, err := s.app.manageCaelis(ctx, r.Action, r.Settings)
+			managed = &st
 			e = err
 			message = st.Message
 		} else {
 			s.codex.Close()
 			s.codex = &codex.Setup{}
 			st, err := codex.ManageRuntime(ctx, r.Action, r.Settings.CLIPath)
+			managed = &st
 			e = err
 			message = st.Message
 		}
@@ -218,6 +225,10 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 		return api.SetupState{}, e
 	}
 	out, e := s.inspect(ctx, r.Settings)
+	if managed != nil {
+		out.Installation.LatestVersion = managed.LatestVersion
+		out.Installation.UpdateState = managed.UpdateState
+	}
 	if message != "" {
 		out.Message = message
 	}

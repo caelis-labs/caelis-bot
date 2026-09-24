@@ -71,7 +71,7 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
  };
  const open = async (url: string) => { if (!safeWebURL(url)) { setError('运行时提供的链接无效，请重新检查连接。'); return; } try { await client.openURL(url); } catch { setError('无法打开浏览器，请复制链接后自行打开。'); } };
  const close = () => { setAPIKey(''); setCode(''); if (!flow) onClose(); else void cancel(); };
- return <SettingsDialog title={flow?.title || '添加连接'} description={flow?.message || '模型服务与外部 Agent 均由本机 Caelis 管理。'} busy={busy || canceling} onClose={close}>
+ return <SettingsDialog title={flow?.title || '添加连接'} description={flow?.message || undefined} busy={busy || canceling} onClose={close}>
   {!flow && <>
    <div className="runtime-segments" aria-label="连接类型"><button disabled={busy} aria-pressed={kind !== 'agent'} onClick={() => setKind('account')}>模型服务</button><button disabled={busy} aria-pressed={kind === 'agent'} onClick={() => setKind('agent')}>外部 Agent</button></div>
    {kind !== 'agent' && <div className="runtime-auth-tabs"><button disabled={busy} aria-pressed={kind === 'account'} onClick={() => setKind('account')}>账号登录</button><button disabled={busy} aria-pressed={kind === 'api-key'} onClick={() => setKind('api-key')}>API Key</button></div>}
@@ -87,7 +87,7 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
      <label>模型<input disabled={busy || loading} value={model} list={modelListID} onChange={e => setModel(e.target.value)} placeholder="选择或输入模型名称"/><datalist id={modelListID}>{options.models.map(m => <option key={m.value} value={m.value}>{m.name}</option>)}</datalist></label>
      <label>API Key{reuseAuth && <small>可留空，由 Caelis 处理此地址的认证</small>}<input disabled={busy} type="password" autoComplete="off" spellCheck={false} value={apiKey} onChange={e => setAPIKey(e.target.value)} placeholder={reuseAuth ? '由 Caelis 处理' : '输入 API Key'}/></label>
      <details onToggle={e => setMetadata(e.currentTarget.open)}><summary>自定义模型能力</summary><p className="settings-note">目录中未收录的模型可在此补充，数值以服务方提供的信息为准。</p><div className="runtime-model-options-row"><label>上下文上限<input type="number" min="1" step="1" value={contextWindow} onChange={e => setContextWindow(e.target.value)}/></label><label>输出上限<input type="number" min="1" step="1" value={maxOutput} onChange={e => setMaxOutput(e.target.value)}/></label></div><label>推理等级<input value={reasoningLevels} onChange={e => setReasoningLevels(e.target.value)} placeholder="逗号分隔，例如 low, medium, high"/></label><label className="runtime-check"><input type="checkbox" checked={imageInput} onChange={e => setImageInput(e.target.checked)}/>支持图片输入</label></details>
-    </> : <p className="settings-note">{kind === 'account' ? '先选择账号模型，再由 Caelis 发起浏览器授权。' : choice.custom ? '先检查本机程序，再完成它声明的认证并选择模型。' : '使用 Caelis 内置的连接方式，先检查本机安装与所需认证。'}</p>}
+    </> : null}
     <div className="setup-end"><button disabled={busy} onClick={close}>取消</button><button className="primary" disabled={busy || loading || (choice.custom && !command.trim()) || (kind === 'api-key' && (!model.trim() || !safeWebURL(baseUrl) || (!reuseAuth && !apiKey.trim())))} onClick={() => void run()}>{busy ? '正在准备…' : kind === 'account' ? '继续登录' : kind === 'agent' ? '检查 Agent' : '连接'}</button></div>
    </>}
   </>}
@@ -114,7 +114,7 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
    {!flow.authorization.inputLabel && <p className="settings-note" role="status">正在等待运行时确认…</p>}
    <button className="text-action" disabled={busy} onClick={() => void run('refresh')}>检查授权状态</button>
   </>}
-  {flow?.stage === 'models' && <><label>使用模型<select disabled={busy} value={model} onChange={e => setModel(e.target.value)}><option value="">选择模型</option>{flow.models?.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label><p className="settings-note">连接后可将此模型用于主模型或 Agent team。</p><div className="setup-end"><button className="primary" disabled={busy || !flow.models?.some(m => m.id === model)} onClick={() => void run('connect', { model })}>连接模型</button></div></>}
+  {flow?.stage === 'models' && <><label>使用模型<select disabled={busy} value={model} onChange={e => setModel(e.target.value)}><option value="">选择模型</option>{flow.models?.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label><div className="setup-end"><button className="primary" disabled={busy || !flow.models?.some(m => m.id === model)} onClick={() => void run('connect', { model })}>连接模型</button></div></>}
   {flow && ['complete', 'failed', 'unknown'].includes(flow.stage) && <div className="setup-end">{flow.stage === 'unknown' && flow.id && <button disabled={busy} onClick={() => void run('refresh')}>核对操作结果</button>}<button className={flow.stage === 'complete' ? 'primary' : ''} disabled={busy} onClick={() => void finish()}>{flow.stage === 'complete' ? '完成' : '关闭并刷新'}</button></div>}
   {flow?.id && !['complete', 'failed', 'unknown'].includes(flow.stage) && <button className="text-action" disabled={canceling} onClick={() => void cancel()}>{canceling ? '正在取消…' : '取消连接'}</button>}
   {error && <p role="alert" className="inline-error">{error}</p>}

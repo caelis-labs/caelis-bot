@@ -19,14 +19,17 @@ type SetupChoice struct {
 	Current bool   `json:"current"`
 }
 type SetupState struct {
-	SelectedModel string          `json:"selectedModel"`
-	Settings      RuntimeSettings `json:"settings"`
-	Installation  RuntimeStatus   `json:"installation"`
-	State         string          `json:"state"` // missing, service, unavailable, incompatible, login, models, ready
-	Message       string          `json:"message"`
-	Models        []SetupChoice   `json:"models"`
-	LoginPending  bool            `json:"loginPending"`
-	AccountType   string          `json:"accountType"`
+	ServiceUpdateAvailable bool            `json:"serviceUpdateAvailable"` // Installed CLI is newer than the running Host.
+	ServiceVersion         string          `json:"serviceVersion"`
+	ServiceState           string          `json:"serviceState"` // running, unknown (Caelis only)
+	SelectedModel          string          `json:"selectedModel"`
+	Settings               RuntimeSettings `json:"settings"`
+	Installation           RuntimeStatus   `json:"installation"`
+	State                  string          `json:"state"` // missing, service, unavailable, incompatible, login, models, ready
+	Message                string          `json:"message"`
+	Models                 []SetupChoice   `json:"models"`
+	LoginPending           bool            `json:"loginPending"`
+	AccountType            string          `json:"accountType"`
 }
 type SetupOverview struct {
 	Active     string `json:"active"`
