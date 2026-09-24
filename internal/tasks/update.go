@@ -21,7 +21,7 @@ func (m *Manager) PauseIfIdle(guard func() error) error {
 	}
 	m.mu.Unlock()
 	if busy {
-		return errors.New("仍有未结束或结果待核对的独立工作")
+		return errors.New(m.text("host.pendingWorkOrReviewRemaining"))
 	}
 	if err := guard(); err != nil {
 		return err

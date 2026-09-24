@@ -17,6 +17,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 )
 
 type record struct {
@@ -41,23 +42,56 @@ type Manager struct {
 	work                 api.WorkRuntime
 	reports              api.ReportSubmitter
 	snapshot             func() api.Snapshot
+	locale               func() i18n.Locale
 	state                state
 	persisted            string
 	write                func() error
 }
 
+func (m *Manager) SetLocale(f func() i18n.Locale) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.locale = f
+}
+
+func (m *Manager) currentLocale() i18n.Locale {
+	if m == nil {
+		return i18n.DefaultLocale
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.locale != nil {
+		if l := m.locale(); l != "" {
+			return l
+		}
+	}
+	return i18n.DefaultLocale
+}
+
+func (m *Manager) text(key string, args ...map[string]any) string {
+	l := m.currentLocale()
+	var a map[string]any
+	if len(args) > 0 {
+		a = args[0]
+	}
+	return i18n.Text(l, key, a)
+}
+
 func Open(path, root, provider string, work api.WorkRuntime, reports api.ReportSubmitter, snapshot func() api.Snapshot) (*Manager, error) {
 	if !filepath.IsAbs(path) || !filepath.IsAbs(root) || provider == "" || work == nil || reports == nil || snapshot == nil {
-		return nil, errors.New("任务宿主配置不完整")
+		return nil, errors.New(i18n.Text(i18n.DefaultLocale, "host.taskHostConfigIncomplete", nil))
 	}
 	m := &Manager{path: path, root: root, provider: provider, work: work, reports: reports, snapshot: snapshot, state: state{Version: 1, Records: map[string]*record{}}}
 	if b, e := os.ReadFile(path); e == nil {
 		if json.Unmarshal(b, &m.state) != nil || m.state.Version != 1 || m.state.Records == nil {
-			return nil, errors.New("任务账本无法读取，请保留记录")
+			return nil, errors.New(m.text("host.taskLedgerUnreadable"))
 		}
 		for id, r := range m.state.Records {
 			if r == nil || r.View.ID != id || r.Provider == "" {
-				return nil, errors.New("任务账本归属无效")
+				return nil, errors.New(m.text("host.taskLedgerInvalidOwner"))
 			}
 		}
 		encoded, _ := json.MarshalIndent(m.state, "", "  ")
@@ -122,7 +156,7 @@ func (m *Manager) refresh() error {
 	defer m.mu.Unlock()
 	for _, v := range states {
 		if r := m.state.Records[v.Task.ID]; r != nil && r.Provider != m.provider {
-			return errors.New("任务标识与其他运行时冲突")
+			return errors.New(m.text("host.taskConflictOtherRuntime"))
 		}
 	}
 	for _, v := range states {
@@ -135,7 +169,7 @@ func (m *Manager) refresh() error {
 			m.state.Records[v.Task.ID] = r
 		}
 		if r.Provider != m.provider {
-			return errors.New("任务标识与其他运行时冲突")
+			return errors.New(m.text("host.taskConflictOtherRuntime"))
 		}
 		r.View = v.Task
 		if r.OriginalPrompt == "" {
@@ -173,7 +207,7 @@ func (m *Manager) ListTasks() []api.Task {
 	return out
 }
 
-func prepareWorkspace(root, id string) (string, error) {
+func prepareWorkspace(root, id string, loc ...i18n.Locale) (string, error) {
 	if e := os.MkdirAll(root, 0700); e != nil {
 		return "", e
 	}
@@ -181,8 +215,12 @@ func prepareWorkspace(root, id string) (string, error) {
 	if e != nil {
 		return "", e
 	}
+	l := i18n.DefaultLocale
+	if len(loc) > 0 && loc[0] != "" {
+		l = loc[0]
+	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", errors.New("任务目录不能通过符号链接重定向")
+		return "", errors.New(i18n.Text(l, "host.taskSymlinkRedirectForbidden", nil))
 	}
 	r, e := os.OpenRoot(root)
 	if e != nil {
@@ -197,12 +235,12 @@ func prepareWorkspace(root, id string) (string, error) {
 
 func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, error) {
 	if !valid(in.RequestID, in.Prompt) || strings.TrimSpace(in.Title) == "" || len(in.Title) > 160 {
-		return api.Task{}, errors.New("任务需要稳定请求标识、简短标题和明确要求")
+		return api.Task{}, errors.New(m.text("host.taskRequiresParams"))
 	}
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
-		return api.Task{}, errors.New("正在安装更新，请稍后重试")
+		return api.Task{}, errors.New(m.text("host.installingUpdateRetryLater"))
 	}
 	if e := m.refresh(); e != nil {
 		return api.Task{}, e
@@ -217,7 +255,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 		v := r.View
 		m.mu.Unlock()
 		if r.Provider != m.provider || r.Fingerprint != fp {
-			return v, errors.New("同一请求标识不能用于不同任务")
+			return v, errors.New(m.text("host.sameRequestIdDifferentTask"))
 		}
 		return v, nil
 	}
@@ -232,7 +270,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	}
 	m.mu.Unlock()
 	if active >= 3 || total >= 100 {
-		return api.Task{}, errors.New("任务容量已满，请先查询并处理现有任务")
+		return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
 	}
 	if e := m.work.WorkAdmission(ctx); e != nil {
 		return api.Task{}, e
@@ -248,7 +286,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	if e != nil {
 		return api.Task{}, e
 	}
-	workspace, e := prepareWorkspace(m.root, id)
+	workspace, e := prepareWorkspace(m.root, id, m.currentLocale())
 	if e != nil {
 		m.mu.Lock()
 		r.View.Status = "failed"
@@ -270,7 +308,7 @@ func (m *Manager) capture(id string, v api.Task, callErr error) (api.Task, error
 	defer m.mu.Unlock()
 	r := m.state.Records[id]
 	if v.ID != "" && v.ID != id {
-		return r.View, errors.Join(callErr, errors.New("运行时返回了不同任务"))
+		return r.View, errors.Join(callErr, errors.New(m.text("host.runtimeReturnedDifferentTask")))
 	}
 	if e := m.write(); e != nil {
 		callErr = errors.Join(callErr, e)
@@ -286,7 +324,7 @@ func (m *Manager) owned(id string) error {
 	defer m.mu.Unlock()
 	r := m.state.Records[id]
 	if r == nil || r.Provider != m.provider {
-		return errors.New("只能操作当前运行时中 Bot 自己创建的任务")
+		return errors.New(m.text("host.onlyOperateBotCreatedTasks"))
 	}
 	return nil
 }
@@ -308,12 +346,12 @@ func (m *Manager) ReadTask(ctx context.Context, id string) (api.Task, error) {
 }
 func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	if !valid(in.RequestID, in.Prompt) {
-		return api.Task{}, errors.New("需要稳定请求标识和任务要求")
+		return api.Task{}, errors.New(m.text("host.requiresRequestIdAndRequirements"))
 	}
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
-		return api.Task{}, errors.New("正在安装更新，请稍后重试")
+		return api.Task{}, errors.New(m.text("host.installingUpdateRetryLater"))
 	}
 	if e := m.owned(in.ID); e != nil {
 		return api.Task{}, e

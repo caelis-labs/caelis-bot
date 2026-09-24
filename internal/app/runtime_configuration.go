@@ -13,7 +13,7 @@ import (
 func (s *runtimeSetup) caelisProfile() (api.RuntimeSettings, error) {
 	profile := s.app.Backend.RuntimeSettings()
 	if profile.Runtime != "caelis" {
-		return profile, errors.New("请先切换到 Caelis Runtime")
+		return profile, errors.New(s.app.text("host.switchToCaelisFirst"))
 	}
 	return profile, validSetup(profile)
 }
@@ -48,7 +48,7 @@ func (s *runtimeSetup) ChangeRuntimeConfiguration(ctx context.Context, r api.Run
 			for _, model := range group.Models {
 				match := r.Action == "remove-model" && model.ID == r.ID || r.Action == "disconnect-agent" && group.Kind == "agent" && group.ID == r.ID
 				if match && (model.ID == prefs.Model || model.ID == worker.Model) {
-					return api.RuntimeMutationResult{}, errors.New("请先更改 Bot 正在使用的模型，再断开连接")
+					return api.RuntimeMutationResult{}, errors.New(s.app.text("host.changeBotModelBeforeDisconnect"))
 				}
 			}
 		}
@@ -60,7 +60,7 @@ func (s *runtimeSetup) connectionProfile(settings *api.RuntimeSettings) (api.Run
 		return s.caelisProfile()
 	}
 	if settings.Runtime != "caelis" {
-		return api.RuntimeSettings{}, errors.New("此连接需要 Caelis Runtime")
+		return api.RuntimeSettings{}, errors.New(s.app.text("host.connectionRequiresCaelis"))
 	}
 	return *settings, validSetup(*settings)
 }

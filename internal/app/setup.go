@@ -13,6 +13,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 )
@@ -49,7 +50,7 @@ func (s *runtimeSetup) Overview() api.SetupOverview {
 }
 func (s *runtimeSetup) Profile(id string) (api.RuntimeSettings, error) {
 	if id != "codex" && id != "caelis" {
-		return api.RuntimeSettings{}, errors.New("不支持的运行时")
+		return api.RuntimeSettings{}, errors.New(s.app.text("unsupportedRuntime", nil))
 	}
 	path := filepath.Join(s.app.root, "runtime-profiles", id+".json")
 	if _, e := os.Stat(path); !os.IsNotExist(e) {
@@ -67,15 +68,19 @@ func (s *runtimeSetup) saveProfile(v api.RuntimeSettings) error {
 		api.RuntimeSettings
 	}{1, v})
 }
-func validSetup(v api.RuntimeSettings) error {
+func validSetup(v api.RuntimeSettings, locale ...i18n.Locale) error {
+	loc := i18n.English
+	if len(locale) > 0 {
+		loc = locale[0]
+	}
 	if v.Runtime != "codex" && v.Runtime != "caelis" {
-		return errors.New("不支持的运行时")
+		return errors.New(i18n.Text(loc, "host.unsupportedRuntime", nil))
 	}
 	if v.CLIPath != "" && !filepath.IsAbs(v.CLIPath) {
-		return errors.New("程序位置需要完整路径")
+		return errors.New(i18n.Text(loc, "host.programLocationRequiresFullPath", nil))
 	}
 	if v.CaelisStore != "" && (v.Runtime != "caelis" || !filepath.IsAbs(v.CaelisStore)) {
-		return errors.New("数据目录需要完整路径")
+		return errors.New(i18n.Text(loc, "host.dataDirectoryRequiresFullPath", nil))
 	}
 	return nil
 }
@@ -94,7 +99,7 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (api.
 	if v.Runtime == "codex" {
 		installation, e = codex.InspectRuntime(ctx, v.CLIPath)
 	} else {
-		st, err := caelisruntime.Inspect(ctx, v.CLIPath)
+		st, err := caelisruntime.Inspect(ctx, v.CLIPath, s.app.locale())
 		e = err
 		installation = runtimeInstallation(st)
 	}
@@ -138,18 +143,18 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (api.
 func (s *runtimeSetup) Catalog(ctx context.Context, r api.SetupRequest) ([]api.SetupChoice, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := validSetup(r.Settings); e != nil {
+	if e := validSetup(r.Settings, s.app.locale()); e != nil {
 		return nil, e
 	}
 	if r.Settings.Runtime != "caelis" {
-		return nil, errors.New("此运行时没有模型服务目录")
+		return nil, errors.New(s.app.text("noModelServiceDirectory", nil))
 	}
 	return caelis.SetupCatalog(ctx, r)
 }
 func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.SetupState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := validSetup(r.Settings); e != nil {
+	if e := validSetup(r.Settings, s.app.locale()); e != nil {
 		return api.SetupState{}, e
 	}
 	// Installation and credentials may affect an active shared runtime. Do not
@@ -179,27 +184,27 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 		}
 	case "login", "cancel-login", "api-key", "logout":
 		if r.Settings.Runtime != "codex" {
-			return api.SetupState{}, errors.New("此登录方式仅适用于 Codex")
+			return api.SetupState{}, errors.New(s.app.text("loginOnlyForCodex", nil))
 		}
 		path, err := codex.InspectRuntime(ctx, r.Settings.CLIPath)
 		if err != nil {
 			return api.SetupState{}, err
 		}
 		if !path.Installed {
-			return api.SetupState{}, errors.New("请先安装 Codex")
+			return api.SetupState{}, errors.New(s.app.text("installCodexFirst", nil))
 		}
 		var u string
 		u, e = s.codex.Apply(ctx, path.Path, r.Action, r.APIKey)
 		if e == nil && u != "" {
 			if s.app.host.OpenURL == nil {
-				e = errors.New("无法打开浏览器")
+				e = errors.New(s.app.text("cannotOpenBrowser", nil))
 			} else {
 				e = s.app.host.OpenURL(u)
 			}
 		}
 	case "connect-model", "remove-model":
 		if r.Settings.Runtime != "caelis" {
-			return api.SetupState{}, errors.New("此模型管理方式仅适用于 Caelis")
+			return api.SetupState{}, errors.New(s.app.text("modelManagementOnlyForCaelis", nil))
 		}
 		if r.Action == "remove-model" {
 			dir, _ := providerDirectory(s.app.root, "caelis")
@@ -208,17 +213,17 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 				return api.SetupState{}, err
 			}
 			if preferences.Model == r.Model {
-				return api.SetupState{}, errors.New("请先更改 Bot 使用的模型，再移除此模型")
+				return api.SetupState{}, errors.New(s.app.text("changeBotModelBeforeRemove", nil))
 			}
 		}
 		e = caelis.ApplySetup(ctx, r)
 		if e == nil {
-			message = "配置已保存到 Caelis；尚未发起模型调用"
+			message = s.app.text("configSavedToCaelisNoCalls", nil)
 		}
 	case "use-model":
 		e = s.useModel(ctx, r)
 	default:
-		e = errors.New("不支持的运行时管理操作")
+		e = errors.New(s.app.text("unsupportedRuntimeOperation", nil))
 	}
 	r.APIKey = ""
 	if e != nil {
@@ -246,7 +251,7 @@ func (s *runtimeSetup) useModel(ctx context.Context, r api.SetupRequest) error {
 		}
 	}
 	if !found {
-		return errors.New("请选择可用模型")
+		return errors.New(s.app.text("selectAvailableModel", nil))
 	}
 	if r.Settings.Runtime == "caelis" {
 		if e = caelis.ApplySetup(ctx, r); e != nil {
@@ -292,7 +297,7 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 		return e
 	}
 	if out.State != "ready" {
-		return errors.New("请先完成运行时连接")
+		return errors.New(s.app.text("completeRuntimeConnectionFirst", nil))
 	}
 
 	// Preserve the outgoing path before replacing the active selection.

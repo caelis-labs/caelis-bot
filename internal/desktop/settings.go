@@ -57,7 +57,7 @@ func (s *Service) CheckUpdates(ctx context.Context) updates.Result {
 		}
 		return updates.Result{State: "native", Current: updates.Version, Message: s.text("native.checkProgressInUpdateWindow", nil)}
 	}
-	return updates.Check(ctx)
+	return updates.Check(ctx, s.LanguagePreferences().Locale)
 }
 
 type UpdatePreferences struct {

@@ -118,7 +118,7 @@ func TestCaelisReleasedServiceUpgrade(t *testing.T) {
 	a, _ := fixtureApp(t, newTestEngine(), Host{})
 	defer a.Close()
 	v, err := a.manageCaelis(t.Context(), "apply-update", api.RuntimeSettings{Runtime: "caelis", CLIPath: newBinary, CaelisStore: store})
-	if err != nil || !strings.Contains(v.Message, "验证通过") {
+	if err != nil || (!strings.Contains(v.Message, "验证通过") && !strings.Contains(v.Message, "verified")) {
 		t.Fatal(v, err)
 	}
 	raw, err := os.ReadFile(filepath.Join(store, "runtime/service/discovery.json"))

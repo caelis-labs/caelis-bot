@@ -30,11 +30,11 @@ func (a *Application) configureRuntimeManagement() {
 			_, err = probe.ReadAuthStatus(ctx)
 			return err
 		default:
-			return errors.New("不支持的运行时")
+			return errors.New(a.text("unsupportedRuntime", nil))
 		}
 	}, func(ctx context.Context, action string, v api.RuntimeSettings) (api.RuntimeStatus, error) {
 		if v.Runtime != "caelis" {
-			return api.RuntimeStatus{}, errors.New("自动安装与更新仅适用于 Caelis")
+			return api.RuntimeStatus{}, errors.New(a.text("autoInstallOnlyForCaelis", nil))
 		}
 		return a.manageCaelis(ctx, action, v)
 	}, a.guardRuntimeChange)
@@ -51,7 +51,7 @@ func (a *Application) guardRuntimeChange() error {
 			switch t.Status {
 			case "completed", "failed", "cancelled", "interrupted":
 			default:
-				return errors.New("仍有未结束的独立工作")
+				return errors.New(a.text("activeWorkRemaining", nil))
 			}
 		}
 	}
@@ -64,7 +64,7 @@ func (a *Application) guardConversationChange() error {
 	}
 	v := a.engine.Snapshot()
 	if v.CanInterrupt || len(v.Approvals) > 0 || v.Phase == "unknown" || v.Phase == "sending" {
-		return errors.New("请等待工作结束并核对待处理操作")
+		return errors.New(a.text("waitWorkEndReconcile", nil))
 	}
 	return nil
 }
@@ -75,7 +75,7 @@ func (a *Application) guardReminderChange() error {
 	a.mu.Unlock()
 	if resident != nil {
 		if w := resident.State().Wake; w != nil && w.Runtime == a.engine.(api.Provider).ProviderInfo().ID && w.Status != "accepted" {
-			return errors.New("仍有待核对的提醒")
+			return errors.New(a.text("pendingRemindersRemaining", nil))
 		}
 	}
 	return nil

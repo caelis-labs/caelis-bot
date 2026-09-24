@@ -17,7 +17,7 @@ func runtimeInstallation(st caelisruntime.Status) api.RuntimeStatus {
 // is not readiness: select the installed Host, negotiate, then reconnect Bot.
 func (a *Application) manageCaelis(ctx context.Context, action string, v api.RuntimeSettings) (api.RuntimeStatus, error) {
 	if action == "detect" || action == "check-update" {
-		st, err := caelisruntime.Manage(ctx, action, v.CLIPath, v.CaelisStore)
+		st, err := caelisruntime.Manage(ctx, action, v.CLIPath, v.CaelisStore, a.locale())
 		return runtimeInstallation(st), err
 	}
 	if err := a.PrepareUpdate(); err != nil {
@@ -27,7 +27,7 @@ func (a *Application) manageCaelis(ctx context.Context, action string, v api.Run
 	if err := caelis.CheckServiceIdle(ctx, v); err != nil {
 		return api.RuntimeStatus{}, err
 	}
-	st, err := caelisruntime.Manage(ctx, action, v.CLIPath, v.CaelisStore)
+	st, err := caelisruntime.Manage(ctx, action, v.CLIPath, v.CaelisStore, a.locale())
 	if err != nil {
 		return runtimeInstallation(st), err
 	}
@@ -37,22 +37,22 @@ func (a *Application) manageCaelis(ctx context.Context, action string, v api.Run
 		if err = caelis.CheckServiceIdle(ctx, v); err != nil {
 			return runtimeInstallation(st), err
 		}
-		st, err = caelisruntime.Manage(ctx, "apply-update", v.CLIPath, v.CaelisStore)
+		st, err = caelisruntime.Manage(ctx, "apply-update", v.CLIPath, v.CaelisStore, a.locale())
 		if err != nil {
-			return runtimeInstallation(st), fmt.Errorf("程序已安装，服务尚未启用：%w", err)
+			return runtimeInstallation(st), fmt.Errorf("%s: %w", a.text("host.programInstalledServiceNotStarted"), err)
 		}
 	}
 	if err = caelis.Probe(ctx, v); err != nil {
-		return runtimeInstallation(st), fmt.Errorf("服务连接尚未验证：%w", err)
+		return runtimeInstallation(st), fmt.Errorf("%s: %w", a.text("host.serviceConnectionNotVerified"), err)
 	}
 	active := a.Backend.RuntimeSettings()
 	store, _ := caelisruntime.Store(v.CaelisStore)
 	activeStore, _ := caelisruntime.Store(active.CaelisStore)
 	if session, ok := a.engine.(*caelis.Session); ok && store == activeStore {
 		if err = session.Reconnect(ctx); err != nil {
-			return runtimeInstallation(st), fmt.Errorf("服务已就绪，Bot 重新连接未完成：%w", err)
+			return runtimeInstallation(st), fmt.Errorf("%s: %w", a.text("host.serviceReadyBotReconnectPending"), err)
 		}
 	}
-	st.Message = "Caelis 服务已就绪，连接验证通过"
+	st.Message = a.text("host.caelisServiceReady")
 	return runtimeInstallation(st), nil
 }

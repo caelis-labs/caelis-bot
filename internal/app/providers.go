@@ -10,6 +10,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 )
 
 // Provider construction is separate from both native surfaces and protocol
@@ -35,7 +36,7 @@ func resolveProvider(id string) (providerFactory, error) {
 		}}, nil
 	}
 	if id != "codex" {
-		return providerFactory{}, errors.New("该后端尚未接入，原有连接记录保持不变")
+		return providerFactory{}, errors.New(i18n.Text(i18n.DefaultLocale, "host.backendNotIntegrated", nil))
 	}
 	return providerFactory{ID: id, Defaults: api.ExecutionSettings{ApprovalMode: "auto"}, Open: func(c providerConfig) (api.Engine, error) {
 		if err := codex.ValidateSettings(c.Settings, c.Execution); err != nil {
@@ -57,7 +58,7 @@ var providerName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 // No copying/moving live task bindings is needed for this boundary refactor.
 func providerDirectory(root, id string) (string, error) {
 	if !providerName.MatchString(id) {
-		return "", errors.New("无效的后端标识")
+		return "", errors.New(i18n.Text(i18n.DefaultLocale, "host.invalidBackendId", nil))
 	}
 	if id == "codex" {
 		return root, nil
