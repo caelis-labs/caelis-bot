@@ -19,7 +19,7 @@
   "openTaskInTerminal": "Open this task in terminal",
   "taskPromptMissing": "Original prompt not saved for earlier tasks",
   "petLoadFailed": "Desktop pet failed to load. Open Caelis Bot from the menu bar",
-  "petActionHint": "Click to open input, double-click to open chat; drag to move character",
+  "petActionHint": "Click to toggle input, double-click to recall chat and open settings; right-click for menu, drag to move",
   "diagnosticExportMessage": "Contains only system, connection and status counts; no chat content, file paths or credentials.",
   "pickRuntimeTitle": "Select runtime executable",
   "choose": "Select",
@@ -64,5 +64,6 @@
   "contentStorageUnavailable": "Content storage temporarily unavailable",
   "importInProgress": "Import already in progress",
   "fileSelectionUnavailable": "File selection temporarily unavailable",
-  "importFailed": "Could not import: {error}"
+  "importFailed": "Could not import: {error}",
+  "petLabel": "Caelis Bot desktop pet"
 }

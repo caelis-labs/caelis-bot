@@ -455,7 +455,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     content.autoresizingMask = NSViewWidthSizable|NSViewHeightSizable;
     [surface addSubview:content];
     host.pet.contentView = surface;
-    host.pet.title = @"Caelis Bot — 桌宠";
+    host.pet.title = renderOwner.title;
     host.pet.opaque = NO; host.pet.backgroundColor = NSColor.clearColor;
     host.pet.hasShadow = NO; host.pet.level = NSFloatingWindowLevel;
     host.pet.hidesOnDeactivate = NO;
@@ -476,7 +476,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     [bubbleSurface addSubview:bubbleContent];
     host.bubble.contentView = bubbleSurface;
     bot_install_material(host.bubble, 28, 0, 6);
-    host.bubble.title = @"Caelis Bot — 消息";
+    host.bubble.title = bubbleOwner.title;
     host.bubble.opaque = NO; host.bubble.backgroundColor = NSColor.clearColor;
     host.bubble.hasShadow = NO; host.bubble.level = NSFloatingWindowLevel;
     host.bubble.hidesOnDeactivate = NO; host.bubble.releasedWhenClosed = NO;
@@ -486,7 +486,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     NSView *propContent=propOwner.contentView;
     propOwner.contentView=[[NSView alloc] initWithFrame:propContent.bounds];
     host.prop.contentView=propContent;
-    host.prop.title=@"Caelis Bot — 纸飞机";
+    host.prop.title=propOwner.title;
     host.prop.opaque=NO;host.prop.backgroundColor=NSColor.clearColor;host.prop.hasShadow=NO;
     host.prop.level=NSFloatingWindowLevel;host.prop.hidesOnDeactivate=NO;host.prop.releasedWhenClosed=NO;
     host.prop.collectionBehavior=bot_space_behavior(YES);host.prop.ignoresMouseEvents=YES;
@@ -506,8 +506,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     [surface addSubview:view positioned:NSWindowAbove relativeTo:content];
     view.accessibilityElement = YES;
     view.accessibilityRole = NSAccessibilityButtonRole;
-    view.accessibilityLabel = @"Caelis Bot 桌宠";
-    view.accessibilityHelp = @"单击展开或收起输入框，双击唤回聊天和已打开的设置；右键菜单，可拖动";
+    view.accessibilityLabel = renderOwner.title;
     NSEventMask mask = NSEventMaskMouseMoved|NSEventMaskLeftMouseDragged|NSEventMaskLeftMouseDown|NSEventMaskLeftMouseUp|NSEventMaskRightMouseDown|NSEventMaskOtherMouseDown;
     host.globalMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:mask handler:^(NSEvent *event) { [weak observeClick:event local:NO]; }];
     host.localMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) { [weak observeClick:event local:YES]; return event; }];
@@ -835,5 +834,11 @@ void bot_language(void *pointer, char *json) {
     NSData *data = [[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding];
     host.language = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     host.taskDock.language = host.language;
+    // These panels own the visible content; their Wails source windows are hidden.
+    host.pet.title = [host text:@"petTitle"];
+    host.bubble.title = [host text:@"bubbleTitle"];
+    host.prop.title = [host text:@"propTitle"];
+    host.inputView.accessibilityLabel = [host text:@"petLabel"];
+    host.inputView.accessibilityHelp = [host text:@"petActionHint"];
     host.statusItem.menu = [host applicationMenu];
 }
