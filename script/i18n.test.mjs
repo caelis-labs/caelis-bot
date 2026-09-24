@@ -40,3 +40,20 @@ test('late responses cannot undo a cross-window language change; formatting resp
  assert.equal(translator('en').date(time,{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}),'09/25/2026');
  assert.equal(translator('zh-CN').date(time,{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}),'2026/09/25');
 });
+
+test('approval translation changes only Bot copy, preserving raw labels and decision identity',async()=>{
+ const {approvalChoice,approvalTitle}=await import('../frontend/src/approval-presentation.ts');
+ const native={id:'native-allow',label:'chat.allowOnce',scope:'allow_once',details:'原始参数'};
+ for(const locale of ['en','zh-CN'])assert.equal(approvalChoice(native,locale),native.label);
+ const choice={...native,labelKey:'chat.allowOnce'};
+ assert.equal(approvalChoice(choice,'en'),'Allow once');
+ assert.equal(approvalChoice(choice,'zh-CN'),'允许这一次');
+ assert.equal(choice.id,'native-allow');
+ assert.equal(choice.details,'原始参数');
+ const value={id:'same-request',title:'原始 Server {name}',titleKey:'chat.serverConfirmationRequired',description:'模型的原因',action:'echo 中文',target:'/private/原始'};
+ const before=structuredClone(value);
+ assert.equal(approvalTitle(value,'en'),'原始 Server {name} needs your confirmation');
+ assert.equal(approvalTitle(value,'zh-CN'),'原始 Server {name} 需要确认');
+ assert.deepEqual(value,before);
+ assert.equal(approvalTitle({...value,titleKey:'unknown.key'},'en'),value.title);
+});

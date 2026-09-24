@@ -42,6 +42,7 @@ type Manager struct {
 	work                 api.WorkRuntime
 	reports              api.ReportSubmitter
 	snapshot             func() api.Snapshot
+	localeMu             sync.RWMutex
 	locale               func() i18n.Locale
 	state                state
 	persisted            string
@@ -52,8 +53,8 @@ func (m *Manager) SetLocale(f func() i18n.Locale) {
 	if m == nil {
 		return
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.localeMu.Lock()
+	defer m.localeMu.Unlock()
 	m.locale = f
 }
 
@@ -61,10 +62,12 @@ func (m *Manager) currentLocale() i18n.Locale {
 	if m == nil {
 		return i18n.DefaultLocale
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.locale != nil {
-		if l := m.locale(); l != "" {
+	m.localeMu.RLock()
+	f := m.locale
+	m.localeMu.RUnlock()
+	// Invoke host callbacks without holding the locale lock or acquiring the task lock.
+	if f != nil {
+		if l := f(); l != "" {
 			return l
 		}
 	}

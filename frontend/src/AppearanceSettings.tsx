@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffectEvent, useEffect, useRef, useState } from 'react';
 import { desktop } from './desktop';
 import { acceptAppearance, type ContentState, type Selection } from './appearance';
 import { SettingGroup, SettingRow } from './SettingsUI';
@@ -6,10 +6,11 @@ import { useI18n } from './i18n';
 
 export function AppearanceSettings(){
  const {t}=useI18n();
+ const loadFailed=useEffectEvent(()=>t('settings.appearanceLoadFailed'));
  const [state,setState]=useState<ContentState|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const running=useRef(false),alive=useRef(true);
  const receive=(next:ContentState)=>{acceptAppearance(next.appearance);if(alive.current)setState(old=>!old||next.appearance.revision>=old.appearance.revision?next:old);};
- useEffect(()=>{alive.current=true;const refresh=()=>{void desktop<ContentState>('ContentState').then(receive).catch(()=>{if(alive.current)setError(t('settings.appearanceLoadFailed'));});};refresh();window.addEventListener('appearance-changed',refresh);return()=>{alive.current=false;window.removeEventListener('appearance-changed',refresh);};},[t]);
+ useEffect(()=>{alive.current=true;const refresh=()=>{void desktop<ContentState>('ContentState').then(receive).catch(()=>{if(alive.current)setError(loadFailed());});};refresh();window.addEventListener('appearance-changed',refresh);return()=>{alive.current=false;window.removeEventListener('appearance-changed',refresh);};},[]);
  const run=async(method:string,...args:unknown[])=>{if(running.current)return;running.current=true;setBusy(true);setError('');try{receive(await desktop<ContentState>(method,...args));}catch(e){if(alive.current)setError(e instanceof Error?e.message:String(e));}finally{running.current=false;if(alive.current)setBusy(false);}};
  const select=(value:Partial<Selection>)=>{if(state){const s={...state.appearance.selection,...value};void run('SelectAppearance',s.character,s.avatar);}};
  return <section><h1>{t('settings.appearance')}</h1>

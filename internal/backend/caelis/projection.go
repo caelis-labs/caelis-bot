@@ -96,9 +96,9 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			_ = json.Unmarshal(raw, &p)
 			summary := p.ToolCall.Title
 			details, _ := json.MarshalIndent(p.ToolCall.RawInput, "", "  ")
-			item := api.Approval{ID: approvalID(s.state.InstanceID, sid, a), Title: summary, Action: summary, Description: "Caelis 请求执行授权", Details: string(details), Status: "pending", Choices: []api.Choice{}}
+			item := api.Approval{ID: approvalID(s.state.InstanceID, sid, a), Title: summary, Action: summary, NoticeKey: "chat.caelisApproval", Details: string(details), Status: "pending", Choices: []api.Choice{}}
 			if sid != s.state.Session.SessionId {
-				item.Description = "独立工作任务请求授权"
+				item.NoticeKey = "chat.workerApproval"
 			}
 			for _, o := range p.Options {
 				item.Choices = append(item.Choices, api.Choice{ID: o.ID, Label: o.Name, Scope: o.Kind})

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffectEvent, useEffect, useId, useRef, useState } from 'react';
 import type { APIKeyOptions, ConnectAction, ConnectChoice, ConnectionCatalog, ConnectionFlow, ConnectionKind, FlowInput, RuntimeSettingsClient } from './types';
 import { acceptConnectionProgress, messageOf, safeWebURL } from './state';
 import { SettingsDialog } from './SettingsDialog';
@@ -7,6 +7,7 @@ import { useI18n } from '../../i18n';
 const emptyCatalog: ConnectionCatalog = { choices: [], unavailable: '' };
 export function ConnectionWizard({ client, onClose, onConnected }: { client: RuntimeSettingsClient; onClose: () => void; onConnected: () => Promise<void> }) {
  const { t, date } = useI18n();
+ const actionFailed=useEffectEvent(()=>t('runtime.actionFailed'));
  const [kind, setKind] = useState<ConnectionKind>('account'), [catalog, setCatalog] = useState(emptyCatalog), [choice, setChoice] = useState<ConnectChoice | null>(null);
  const [options, setOptions] = useState<APIKeyOptions>({ endpoints: [], models: [] });
  const [metadata, setMetadata] = useState(false), [contextWindow, setContextWindow] = useState(''), [maxOutput, setMaxOutput] = useState(''), [imageInput, setImageInput] = useState(false), [reasoningLevels, setReasoningLevels] = useState('');
@@ -18,9 +19,9 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
  useEffect(() => { alive.current = true; return () => { alive.current = false; serial.current++; abort.current?.abort(); }; }, []);
  useEffect(() => {
   let valid = true; setLoading(true); setCatalog(emptyCatalog); setChoice(null); setFlow(null); setAPIKey(''); setError('');
-  void client.catalog(kind).then(value => { if (valid) setCatalog(value); }).catch(e => { if (valid) setError(messageOf(e, t('runtime.actionFailed'))); }).finally(() => { if (valid) setLoading(false); });
+  void client.catalog(kind).then(value => { if (valid) setCatalog(value); }).catch(e => { if (valid) setError(messageOf(e, actionFailed())); }).finally(() => { if (valid) setLoading(false); });
   return () => { valid = false; };
- }, [client, kind, t]);
+ }, [client, kind]);
  useEffect(() => {
   if (!choice || kind !== 'api-key') return;
   const seq = ++optionsSerial.current;
@@ -29,9 +30,9 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
    if (!alive.current || seq !== optionsSerial.current) return;
    setOptions(value);
    if (!baseUrl && value.endpoints[0]?.value) setBaseUrl(value.endpoints[0].value);
-  }).catch(e => { if (alive.current && seq === optionsSerial.current) setError(messageOf(e, t('runtime.actionFailed'))); }).finally(() => { if (alive.current && seq === optionsSerial.current) setLoading(false); });
+  }).catch(e => { if (alive.current && seq === optionsSerial.current) setError(messageOf(e, actionFailed())); }).finally(() => { if (alive.current && seq === optionsSerial.current) setLoading(false); });
   return () => { optionsSerial.current++; };
- }, [client, choice, kind, baseUrl, t]);
+ }, [client, choice, kind, baseUrl]);
  useEffect(() => { if (!flow?.authorization?.expiresAt) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [flow?.authorization?.expiresAt]);
  const expired = !!flow?.authorization?.expiresAt && Date.parse(flow.authorization.expiresAt) <= now;
  const reuseAuth = options.endpoints.some(endpoint => endpoint.value === baseUrl && endpoint.reuseAuth);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffectEvent, useEffect, useState } from 'react';
 import { desktop } from './desktop';
 import { SettingGroup, SettingRow } from './SettingsUI';
 import { useI18n } from './i18n';
@@ -10,8 +10,9 @@ const mac=navigator.platform.toLowerCase().includes('mac');
 function label(v:Shortcut){return [v.control?'Ctrl':'',v.alt?(mac?'Option':'Alt'):'',v.shift?'Shift':'',v.meta?(mac?'Command':'Meta'):'',v.key.replace(/^Key|^Digit/,'').replace('Space','Space')].filter(Boolean).join(' + ');}
 export function ShortcutSettings(){
  const {t}=useI18n();
+ const loadFailed=useEffectEvent(()=>t('settings.shortcutLoadFailed'));
  const [value,setValue]=useState<Shortcut>(initial),[recording,setRecording]=useState(false),[busy,setBusy]=useState(false),[ready,setReady]=useState(false),[message,setMessage]=useState('');
- useEffect(()=>{void desktop<State>('ShortcutSettings').then(s=>{setValue(s.shortcut);setMessage(s.message);setReady(true);}).catch(()=>setMessage(t('settings.shortcutLoadFailed')));},[t]);
+ useEffect(()=>{void desktop<State>('ShortcutSettings').then(s=>{setValue(s.shortcut);setMessage(s.message);setReady(true);}).catch(()=>setMessage(loadFailed()));},[]);
  const save=async(v:Shortcut)=>{setBusy(true);setRecording(false);setMessage('');try{const s=await desktop<State>('SaveShortcut',v);setValue(s.shortcut);setMessage(s.message||(s.registered?t('settings.shortcutSaved'):t('settings.shortcutDisabled')));}catch(e){setMessage(e instanceof Error?e.message:t('settings.shortcutSaveFailed'));}finally{setBusy(false);}};
  return <SettingGroup title={t('settings.shortcutTitle')}>
   <SettingRow label={t('settings.shortcutGlobalToggle')} description={t('settings.shortcutGlobalDescription')} htmlFor="quick-shortcut"><input id="quick-shortcut" type="checkbox" role="switch" className="settings-switch" checked={value.enabled} disabled={!ready||busy} onChange={e=>void save({...value,enabled:e.target.checked})}/></SettingRow>

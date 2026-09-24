@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffectEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { backend, desktop, type DraftFile } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Review, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
@@ -9,11 +9,10 @@ import { BotAvatar } from './BotAvatar';
 import { AttachmentMenu } from './AttachmentMenu';
 import { ChatScroll } from './chat-scroll';
 import { useI18n } from './i18n';
+import { approvalChoice, approvalText, approvalTitle } from './approval-presentation';
 import type { MessageKey } from './i18n/catalogs';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
-export const labels: Record<string,string> = { working: '正在处理', sending: '正在发送', attention: '需要确认', interrupting: '正在停止', completed: '已完成', interrupted: '已停止', failed: '未完成', unknown: '结果待确认', unconfirmed: '结果未确认' };
-export const reviewLabels: Record<string,string> = { inProgress:'正在自动审查', denied:'操作未通过自动审查', timedOut:'自动审查超时', aborted:'自动审查已中止' };
 
 export function getReviewLabel(status: string, t: (key: MessageKey) => string): string {
  switch (status) {
@@ -52,7 +51,8 @@ function ReviewNotice({value}:{value:Review}) {
 }
 
 export function Prompt({ value, refresh }: { value: Approval; refresh: () => void }) {
-  const {t} = useI18n();
+  const {t,locale} = useI18n();
+  const title = approvalTitle(value,locale);
   const [answers, setAnswers] = useState<Record<string,string[]>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -65,14 +65,17 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
   };
   const advanced = value.choices.filter(c => c.scope === 'rule' || c.scope === 'conversation');
   const immediate = value.choices.filter(c => !advanced.includes(c));
-  const button = (c: typeof value.choices[number]) => <button key={c.id} className={c.scope === 'once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{c.label}</button>;
-  return <section className="approval" aria-label={value.title}>
+  const button = (c: typeof value.choices[number]) => <button key={c.id} className={c.scope === 'once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{approvalChoice(c,locale)}</button>;
+  return <section className="approval" aria-label={title}>
     <p className="event-eyebrow">{t('chat.approvalEyebrow')}</p>
-    <h3>{value.title}</h3>
+    <h3>{title}</h3>
+    {value.taskTitle && <p>{t('chat.approvalTask',{name:value.taskTitle})}</p>}
+    {value.noticeKey && <p>{approvalText(locale,value.noticeKey,'')}</p>}
     {value.description && <p>{value.description}</p>}
     {value.action && <pre className="approval-action">{value.action}</pre>}
     {value.target && <p className="approval-target"><span>{t('chat.approvalTarget')}</span>{value.target}</p>}
-    {value.details && (!value.action || value.details !== `${value.action}\n位置：${value.target}`) && <details open={!value.action}><summary>{t('chat.approvalDetails')}</summary><pre>{value.details}</pre></details>}
+    {value.details && <details open={!value.action}><summary>{t('chat.approvalDetails')}</summary><pre>{value.details}</pre></details>}
+    {value.sections?.map((section,index)=><details key={index} open={!value.action}><summary>{approvalText(locale,section.titleKey,t('chat.approvalDetails'))}</summary><pre>{section.text}</pre></details>)}
     {value.url && <button className="text-action" disabled={!enabled} onClick={() => void backend('OpenApprovalURL',value.id).catch(() => setError(t('chat.approvalLinkExpired')))}>{t('chat.approvalOpenUrl')}</button>}
     {(value.questions ?? []).map(q => <label className="question" key={q.id}>{q.title}{q.required && <span aria-label={t('chat.required')}> *</span>}
       {q.type === 'select' || q.type === 'boolean' ? <select disabled={!enabled} value={answers[q.id]?.[0] ?? ''} onChange={e => setAnswers({ ...answers, [q.id]:[e.target.value] })}>
@@ -120,6 +123,7 @@ export function useConversation(active: boolean, pet=false, chat=false, composer
 // revision fence so a delayed hidden renderer cannot overwrite newer text.
 function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0,refresh}:{snapshot:Snapshot|null;quick?:boolean;active?:boolean;activation?:number;focusRevision?:number;refresh:()=>Promise<void>}) {
  const {t} = useI18n();
+ const draftLoadFailed=useEffectEvent(()=>t('chat.draftLoadFailed'));
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null),composer=useRef<HTMLDivElement>(null);
  const [draft,setDraft]=useState(''),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
@@ -132,12 +136,12 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  useEffect(()=>{
   let mounted=true;
   setLoaded(false);conflicted.current=false;
-  void writes.current.then(()=>backend<Draft>('Draft')).then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();}}).catch(()=>setError(t('chat.draftLoadFailed')));
+  void writes.current.then(()=>backend<Draft>('Draft')).then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();}}).catch(()=>setError(draftLoadFailed()));
   void readFiles();
   const changed=(event:Event)=>{void readFiles();setError((event as CustomEvent<string>).detail??'');};
   window.addEventListener('files-changed',changed);
   return()=>{mounted=false;window.removeEventListener('files-changed',changed);};
- },[activation,t]);
+ },[activation]);
  useEffect(()=>{if(active&&loaded&&!busy){input.current?.focus({preventScroll:true});if(quick){const frame=requestAnimationFrame(()=>void desktop('PanelReady',activation));return()=>cancelAnimationFrame(frame);}}},[active,loaded,busy,activation,focusRevision]);
  useEffect(()=>{
   if(!quick||!active||!loaded)return;

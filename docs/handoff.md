@@ -101,6 +101,7 @@ Caelis 新协议已完成真实模型 Notebook 读写、INDEX 更新和重启后
 
 ## Bilingual interface work
 
-The i18n foundation provides shared catalogs, a host-owned language preference and
-live surface/menu updates. Bulk migration and native bilingual acceptance remain;
-use the [parallel handoff](i18n-handoff.md) before the next formal release.
+English and Simplified Chinese use shared catalogs, a host-owned language preference
+and live surface/menu updates. Locale changes preserve drafts, approval identity and
+connection progress. Coverage, external-content boundaries and release acceptance
+are maintained in [Interface languages](i18n.md). The next formal version is v0.2.0.

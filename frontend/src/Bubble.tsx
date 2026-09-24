@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { backend, desktop, type Placement } from './desktop';
 import { getReviewLabel, Prompt, useConversation } from './Panel';
 import { useI18n } from './i18n';
+import { approvalTitle } from './approval-presentation';
 
 export function Bubble() {
- const {t} = useI18n();
+ const {t,locale} = useI18n();
  const [visible,setVisible]=useState(false),[expanded,setExpanded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[index,setIndex]=useState(0);
  const surface=useRef<HTMLDivElement>(null);
  const {snapshot,refresh}=useConversation(visible,true);
@@ -23,7 +24,7 @@ export function Bubble() {
  const reviewText=review&&(review.status!=='inProgress'||working)?getReviewLabel(review.status, t):'';
  const attention=!!prompt||snapshot?.connection==='login'||snapshot?.connection==='offline'||snapshot?.phase==='unknown';
  const terminal=snapshot?.phase==='interrupted'?t('chat.statusInterrupted'):snapshot?.phase==='failed'?t('chat.terminalFailed'):snapshot?.phase==='completed'?t('chat.statusCompleted'):'';
- const content=error||prompt?.title||snapshot?.message||((working||!output?.text)&&reviewText)||output?.text||reviewText||(working?t('chat.bubbleThinking'):terminal);
+ const content=error||(prompt&&approvalTitle(prompt,locale))||snapshot?.message||((working||!output?.text)&&reviewText)||output?.text||reviewText||(working?t('chat.bubbleThinking'):terminal);
  const wanted=(!snapshot?.quiet||!!error||attention)&&!!content&&(working||attention||!snapshot?.previewDismissed);
  useEffect(()=>{void desktop('SetBubbleVisible',wanted);},[wanted]);
  useEffect(()=>{if(!prompt&&expanded)void desktop('CollapseBubble');},[prompt?.id,expanded]);

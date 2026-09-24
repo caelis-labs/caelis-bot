@@ -65,10 +65,12 @@ type Artifact struct {
 	Name string `json:"name"`
 }
 type Choice struct {
-	ID      string `json:"id"`
-	Label   string `json:"label"`
-	Scope   string `json:"scope"`
-	Details string `json:"details"`
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	// LabelKey is set only for Bot-owned copy, never provider-supplied options.
+	LabelKey string `json:"labelKey"`
+	Scope    string `json:"scope"`
+	Details  string `json:"details"`
 }
 type Question struct {
 	ID       string   `json:"id"`
@@ -79,17 +81,29 @@ type Question struct {
 	Type     string   `json:"type"`
 	Options  []Choice `json:"options"`
 }
+
+// ApprovalSection keeps explanatory labels separate from native permission payloads.
+type ApprovalSection struct {
+	TitleKey string `json:"titleKey"`
+	Text     string `json:"text"`
+}
+
 type Approval struct {
-	ID          string     `json:"id"`
-	Title       string     `json:"title"`
-	Action      string     `json:"action"`
-	Target      string     `json:"target"`
-	Description string     `json:"description"`
-	Details     string     `json:"details"`
-	Status      string     `json:"status"`
-	Choices     []Choice   `json:"choices"`
-	Questions   []Question `json:"questions"`
-	URL         string     `json:"url"`
+	// Presentation keys never participate in approval identity or decisions.
+	TitleKey    string            `json:"titleKey"`
+	NoticeKey   string            `json:"noticeKey"`
+	TaskTitle   string            `json:"taskTitle"`
+	Sections    []ApprovalSection `json:"sections"`
+	ID          string            `json:"id"`
+	Title       string            `json:"title"`
+	Action      string            `json:"action"`
+	Target      string            `json:"target"`
+	Description string            `json:"description"`
+	Details     string            `json:"details"`
+	Status      string            `json:"status"`
+	Choices     []Choice          `json:"choices"`
+	Questions   []Question        `json:"questions"`
+	URL         string            `json:"url"`
 }
 type Reference struct {
 	ID          string `json:"id"`
