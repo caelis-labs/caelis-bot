@@ -2,10 +2,12 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { backend, desktop } from './desktop';
 import { RuntimeSettings } from './RuntimeSettings';
 import type { BotInitialization, BotIntroduction, Snapshot } from './backend/contract';
+import { useI18n } from './i18n';
 
 // The backend journals one ordinary user message. The Bot maintains MEMORY.md;
 // this form does not create a second identity settings store.
 export function BotSetup({ onDone }: { onDone: () => void }) {
+  const {t} = useI18n();
   const [state, setState] = useState<BotInitialization | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -19,13 +21,13 @@ export function BotSetup({ onDone }: { onDone: () => void }) {
         const value = await backend<BotInitialization>('BotInitialization');
         if (alive) setState(value);
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : '暂时无法读取初始化状态');
+        if (alive) setError(e instanceof Error ? e.message : t('chat.setupLoadFailed'));
       }
     };
     void load();
     const timer = window.setInterval(() => void load(), 1500);
     return () => { alive = false; clearInterval(timer); };
-  }, []);
+  }, [t]);
 
   const openConversation = async () => {
     await desktop('OpenHistory');
@@ -47,7 +49,7 @@ export function BotSetup({ onDone }: { onDone: () => void }) {
       setDescription('');
       await continueWhenReady();
     } catch (e) {
-      setError(e instanceof Error ? e.message : '介绍尚未保存，请重试');
+      setError(e instanceof Error ? e.message : t('chat.setupSaveFailed'));
     } finally { setBusy(false); }
   };
   const retry = async () => {
@@ -57,17 +59,17 @@ export function BotSetup({ onDone }: { onDone: () => void }) {
       setState(await backend<BotInitialization>('RetryBotIntroduction'));
       await continueWhenReady();
     } catch (e) {
-      setError(e instanceof Error ? e.message : '暂时无法重试');
+      setError(e instanceof Error ? e.message : t('chat.setupRetryFailed'));
     } finally { setBusy(false); }
   };
 
-  if (!state) return <section className="runtime-welcome" role="status">{error || '正在准备…'}</section>;
+  if (!state) return <section className="runtime-welcome" role="status">{error || t('chat.setupPreparing')}</section>;
   if (state.status === 'rejected' || state.status === 'unknown') return <section className="bot-introduction">
-    <h1>介绍尚未发送完成</h1>
+    <h1>{t('chat.setupIncompleteTitle')}</h1>
     <p className="setup-lead" role="status">{state.message}</p>
     <div className="setup-actions">
-      {state.status === 'rejected' && <button disabled={busy} onClick={() => void retry()}>重试发送</button>}
-      <button onClick={() => void openConversation()}>打开对话</button>
+      {state.status === 'rejected' && <button disabled={busy} onClick={() => void retry()}>{t('chat.setupRetry')}</button>}
+      <button onClick={() => void openConversation()}>{t('chat.setupOpenChat')}</button>
     </div>
     {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;
@@ -78,21 +80,21 @@ export function BotSetup({ onDone }: { onDone: () => void }) {
 
   return <section className="bot-introduction">
     <img className="setup-avatar" src="/icons/caelis-avatar.png" alt="" />
-    <h1>认识你的 Bot</h1>
-    <p className="setup-lead">给它一个名字，开始你们的对话。</p>
+    <h1>{t('chat.setupIntroTitle')}</h1>
+    <p className="setup-lead">{t('chat.setupSubtitle')}</p>
     <form onSubmit={event => void submit(event)}>
-      <label htmlFor="bot-name">名字
+      <label htmlFor="bot-name">{t('chat.setupNameLabel')}
         <input id="bot-name" autoFocus required maxLength={80} autoComplete="off" value={name}
-          disabled={busy} onChange={e => setName(e.target.value)} placeholder="你想怎么称呼它" />
+          disabled={busy} onChange={e => setName(e.target.value)} placeholder={t('chat.setupNamePlaceholder')} />
       </label>
-      <label htmlFor="bot-description">描述 <span>可选</span>
+      <label htmlFor="bot-description">{t('chat.setupDescLabel')} <span>{t('chat.setupOptional')}</span>
         <textarea id="bot-description" rows={3} maxLength={2000} value={description}
-          disabled={busy} onChange={e => setDescription(e.target.value)} placeholder="比如：说话简洁，喜欢分享有趣的发现" />
+          disabled={busy} onChange={e => setDescription(e.target.value)} placeholder={t('chat.setupDescPlaceholder')} />
       </label>
-      <p className="settings-note">这些话会作为你的第一条消息发给 Bot。</p>
+      <p className="settings-note">{t('chat.setupHint')}</p>
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="setup-end">
-        <button className="primary" type="submit" disabled={busy || !name.trim()}>{busy ? '正在保存…' : '继续'}</button>
+        <button className="primary" type="submit" disabled={busy || !name.trim()}>{busy ? t('common.loading') : t('chat.setupContinue')}</button>
       </div>
     </form>
   </section>;

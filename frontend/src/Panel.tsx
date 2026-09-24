@@ -8,20 +8,51 @@ import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
 import { AttachmentMenu } from './AttachmentMenu';
 import { ChatScroll } from './chat-scroll';
+import { useI18n } from './i18n';
+import type { MessageKey } from './i18n/catalogs';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
 export const labels: Record<string,string> = { working: '正在处理', sending: '正在发送', attention: '需要确认', interrupting: '正在停止', completed: '已完成', interrupted: '已停止', failed: '未完成', unknown: '结果待确认', unconfirmed: '结果未确认' };
 export const reviewLabels: Record<string,string> = { inProgress:'正在自动审查', denied:'操作未通过自动审查', timedOut:'自动审查超时', aborted:'自动审查已中止' };
 
+export function getReviewLabel(status: string, t: (key: MessageKey) => string): string {
+ switch (status) {
+  case 'inProgress': return t('chat.reviewInProgress');
+  case 'denied': return t('chat.reviewDenied');
+  case 'timedOut': return t('chat.reviewTimedOut');
+  case 'aborted': return t('chat.reviewAborted');
+  default: return t('chat.reviewPending');
+ }
+}
+export function getItemStatusLabel(status: string, t: (key: MessageKey) => string): string {
+ switch (status) {
+  case 'working': return t('chat.statusWorking');
+  case 'sending': return t('chat.statusSending');
+  case 'attention': return t('chat.statusAttention');
+  case 'interrupting': return t('chat.statusInterrupting');
+  case 'completed': return t('chat.statusCompleted');
+  case 'interrupted': return t('chat.statusInterrupted');
+  case 'failed': return t('chat.statusFailed');
+  case 'unknown': return t('chat.statusUnknown');
+  case 'unconfirmed': return t('chat.statusUnconfirmed');
+  case 'inProgress': return t('chat.statusInProgress');
+  case 'declined': return t('chat.statusDeclined');
+  default: return '';
+ }
+}
+
 function ReviewNotice({value}:{value:Review}) {
- return <section className="review-notice" aria-label={reviewLabels[value.status]??'自动审查结果'}>
-  <strong>{reviewLabels[value.status]??'自动审查结果待确认'}</strong>
+ const {t} = useI18n();
+ const statusText = getReviewLabel(value.status, t);
+ return <section className="review-notice" aria-label={statusText}>
+  <strong>{statusText}</strong>
   {value.rationale&&<p>{value.rationale}</p>}
-  {value.action&&<details><summary>查看涉及的操作</summary><pre>{value.action}</pre></details>}
+  {value.action&&<details><summary>{t('chat.reviewActionDetails')}</summary><pre>{value.action}</pre></details>}
  </section>;
 }
 
 export function Prompt({ value, refresh }: { value: Approval; refresh: () => void }) {
+  const {t} = useI18n();
   const [answers, setAnswers] = useState<Record<string,string[]>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -29,40 +60,42 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
   const decide = async (choice: string) => {
     setBusy(true); setError('');
     try { await backend('Decide', { id: value.id, choice, answers } satisfies Decision); }
-    catch (e) { setError(e instanceof Error ? e.message : '暂时无法确认，请重试'); }
+    catch (e) { setError(e instanceof Error ? e.message : t('chat.approvalFailed')); }
     finally { setBusy(false); refresh(); }
   };
   const advanced = value.choices.filter(c => c.scope === 'rule' || c.scope === 'conversation');
   const immediate = value.choices.filter(c => !advanced.includes(c));
   const button = (c: typeof value.choices[number]) => <button key={c.id} className={c.scope === 'once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{c.label}</button>;
   return <section className="approval" aria-label={value.title}>
-    <p className="event-eyebrow">需要你的决定</p>
+    <p className="event-eyebrow">{t('chat.approvalEyebrow')}</p>
     <h3>{value.title}</h3>
     {value.description && <p>{value.description}</p>}
     {value.action && <pre className="approval-action">{value.action}</pre>}
-    {value.target && <p className="approval-target"><span>位置</span>{value.target}</p>}
-    {value.details && (!value.action || value.details !== `${value.action}\n位置：${value.target}`) && <details open={!value.action}><summary>查看完整操作</summary><pre>{value.details}</pre></details>}
-    {value.url && <button className="text-action" disabled={!enabled} onClick={() => void backend('OpenApprovalURL',value.id).catch(() => setError('链接已失效'))}>打开授权页面 ↗</button>}
-    {(value.questions ?? []).map(q => <label className="question" key={q.id}>{q.title}{q.required && <span aria-label="必填"> *</span>}
+    {value.target && <p className="approval-target"><span>{t('chat.approvalTarget')}</span>{value.target}</p>}
+    {value.details && (!value.action || value.details !== `${value.action}\n位置：${value.target}`) && <details open={!value.action}><summary>{t('chat.approvalDetails')}</summary><pre>{value.details}</pre></details>}
+    {value.url && <button className="text-action" disabled={!enabled} onClick={() => void backend('OpenApprovalURL',value.id).catch(() => setError(t('chat.approvalLinkExpired')))}>{t('chat.approvalOpenUrl')}</button>}
+    {(value.questions ?? []).map(q => <label className="question" key={q.id}>{q.title}{q.required && <span aria-label={t('chat.required')}> *</span>}
       {q.type === 'select' || q.type === 'boolean' ? <select disabled={!enabled} value={answers[q.id]?.[0] ?? ''} onChange={e => setAnswers({ ...answers, [q.id]:[e.target.value] })}>
-        <option value="">请选择</option>
-        {q.type === 'boolean' ? <><option value="true">是</option><option value="false">否</option></> : q.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        <option value="">{t('chat.approvalSelectPlaceholder')}</option>
+        {q.type === 'boolean' ? <><option value="true">{t('chat.yes')}</option><option value="false">{t('chat.no')}</option></> : q.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
       </select> : <><input type={q.secret ? 'password' : q.type === 'number' || q.type === 'integer' ? 'number' : 'text'} disabled={!enabled} value={answers[q.id]?.[0] ?? ''} onChange={e => setAnswers({ ...answers, [q.id]:[e.target.value] })} />
         {q.options.length > 0 && <div className="question-options">{q.options.map(o => <button key={o.id} disabled={!enabled} onClick={() => setAnswers({ ...answers, [q.id]:[o.id] })}>{o.label}</button>)}</div>}</>}
     </label>)}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {value.status === 'pending' ? <>
       <div className="approval-choices">{immediate.map(button)}</div>
-      {advanced.length > 0 && <details className="advanced-permission"><summary>更多授权方式</summary>{advanced.map(c => <div key={c.id} className="permission-option"><p>{c.scope === 'rule' ? '保存规则会影响后续相同操作，请核对范围。' : '授权将继续用于 Bot 的后续请求，直到后台对话结束。'}</p>{c.details && <pre>{c.details}</pre>}{button(c)}</div>)}</details>}
-    </> : <p className="quiet" role="status">{value.status === 'resolved' ? '已处理' : value.status === 'sent' || value.status === 'sending' ? '已提交，等待确认' : '连接或结果待确认，请重新连接核对'}</p>}
+      {advanced.length > 0 && <details className="advanced-permission"><summary>{t('chat.approvalAdvanced')}</summary>{advanced.map(c => <div key={c.id} className="permission-option"><p>{c.scope === 'rule' ? t('chat.approvalRuleScope') : t('chat.approvalConversationScope')}</p>{c.details && <pre>{c.details}</pre>}{button(c)}</div>)}</details>}
+    </> : <p className="quiet" role="status">{value.status === 'resolved' ? t('chat.approvalResolved') : value.status === 'sent' || value.status === 'sending' ? t('chat.approvalSent') : t('chat.approvalUnknown')}</p>}
   </section>;
 }
 function Message({ item, report, animate=false }: { item: Item; report: (message: string) => void; animate?:boolean }) {
+  const {t} = useI18n();
+  const statusLabel = getItemStatusLabel(item.status, t);
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
    {item.kind==='assistant'&&<BotAvatar animate={animate}/>}
    <div className={`message ${item.kind}`}>
-    {item.kind === 'activity' ? <details><summary>{item.text}<span>{labels[item.status] ?? (item.status === 'inProgress' ? '进行中' : item.status === 'declined' ? '已拒绝' : '')}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent text={item.text} report={report}/> : <p>{item.text}</p>}
-    {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report('文件已不可用'))}><Icon name="paperclip" />{file.name}<span>在访达中显示</span></button>)}
+    {item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent text={item.text} report={report}/> : <p>{item.text}</p>}
+    {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}
     {!!item.text&&item.kind!=='activity'&&<div className="message-actions"><CopyText text={item.text} report={report}/></div>}
    </div>
   </article>;
@@ -86,6 +119,7 @@ export function useConversation(active: boolean, pet=false, chat=false, composer
 // One native-host draft, two exclusive editors. Writes serialize and use a
 // revision fence so a delayed hidden renderer cannot overwrite newer text.
 function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0,refresh}:{snapshot:Snapshot|null;quick?:boolean;active?:boolean;activation?:number;focusRevision?:number;refresh:()=>Promise<void>}) {
+ const {t} = useI18n();
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null),composer=useRef<HTMLDivElement>(null);
  const [draft,setDraft]=useState(''),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
@@ -98,12 +132,12 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  useEffect(()=>{
   let mounted=true;
   setLoaded(false);conflicted.current=false;
-  void writes.current.then(()=>backend<Draft>('Draft')).then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();}}).catch(()=>setError('暂时无法读取草稿'));
+  void writes.current.then(()=>backend<Draft>('Draft')).then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();}}).catch(()=>setError(t('chat.draftLoadFailed')));
   void readFiles();
   const changed=(event:Event)=>{void readFiles();setError((event as CustomEvent<string>).detail??'');};
   window.addEventListener('files-changed',changed);
   return()=>{mounted=false;window.removeEventListener('files-changed',changed);};
- },[activation]);
+ },[activation,t]);
  useEffect(()=>{if(active&&loaded&&!busy){input.current?.focus({preventScroll:true});if(quick){const frame=requestAnimationFrame(()=>void desktop('PanelReady',activation));return()=>cancelAnimationFrame(frame);}}},[active,loaded,busy,activation,focusRevision]);
  useEffect(()=>{
   if(!quick||!active||!loaded)return;
@@ -116,11 +150,11 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   writes.current=writes.current.then(async()=>{
    if(conflicted.current)return;
    try{saved.current=await backend<Draft>('SaveDraft',{revision:saved.current.revision,text,referenceIds});}
-   catch(e){conflicted.current=true;setError(e instanceof Error?e.message:'草稿暂未保存；请保留当前内容并重新打开');}
+   catch(e){conflicted.current=true;setError(e instanceof Error?e.message:t('chat.draftSaveFailed'));}
   });
  };
  useLayoutEffect(()=>{const editor=input.current;if(editor){editor.style.height='0px';editor.style.height=`${Math.max(27,Math.min(127,editor.scrollHeight))}px`;}},[draft]);
- const pick=async()=>{setExpanded(false);setBusy(true);setError('');try{setFiles(await desktop<DraftFile[]>('PickFiles'));setExpanded(false);}catch(e){setError(e instanceof Error?e.message:'无法选择文件');}finally{setBusy(false);input.current?.focus();}};
+ const pick=async()=>{setExpanded(false);setBusy(true);setError('');try{setFiles(await desktop<DraftFile[]>('PickFiles'));setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
  const submit=async()=>{
   if(busy||!loaded||!(snapshot?.canSend||(!quick&&snapshot?.canSteer))||(!draft.trim()&&!files.length))return;
   setBusy(true);setError('');setExpanded(false);await writes.current;
@@ -133,8 +167,8 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
     pending.current=null;
     saved.current=await backend<Draft>('Draft');setDraft(saved.current.text);setRefs(saved.current.referenceIds??[]);setError(saved.current.notice);await readFiles();
     if(quick)await desktop('ClosePanel');
-   }else setError(receipt.message||'发送结果待确认，草稿已保留');
-  }catch{setError('发送结果待确认，草稿已保留；请在聊天窗口核对');}
+   }else setError(receipt.message||t('chat.sendPending'));
+  }catch{setError(t('chat.sendPendingChat'));}
   finally{setBusy(false);await refresh();}
  };
  useEffect(()=>{
@@ -151,31 +185,32 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   if(busy||!loaded||!snapshot?.canInterrupt||stopping)return;
   setBusy(true);setError('');
   try{await backend('Interrupt');}
-  catch(e){setError(e instanceof Error?e.message:'暂时无法停止，请重试');}
+  catch(e){setError(e instanceof Error?e.message:t('chat.interruptFailed'));}
   finally{
-   try{await refresh();}catch{setError(previous=>previous||'停止状态暂未更新，请稍后核对');}
+   try{await refresh();}catch{setError(previous=>previous||t('chat.interruptPending'));}
    finally{setBusy(false);}
   }
  };
- const actionLabel=primaryAction==='stop'?(stopping?'正在停止':'停止工作'):!quick&&snapshot?.canSteer?'补充说明':'发送';
+ const actionLabel=primaryAction==='stop'?(stopping?t('chat.stopping'):t('chat.stopWork')):!quick&&snapshot?.canSteer?t('chat.steerWork'):t('chat.send');
  return <div ref={composer} className="compose-area" data-file-drop-target>
   <div className="capsule">
-   <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label="添加附件或引用" aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
-   <textarea aria-label="写下想法" ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={!quick&&snapshot?.canSteer?'补充说明…':'写下想法…'} title="Enter 发送，Shift+Enter 换行"/>
+   <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
+   <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={!quick&&snapshot?.canSteer?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
    <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-label={actionLabel} title={actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
   {!!error&&<p role="alert" className="input-error">{error}</p>}
-  {!!(files.length||refs.length)&&<ul className="attachments" aria-label="待发送的附件与引用">
-   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><Icon name="paperclip"/><span title={f.name}>{f.name}{f.unavailable?'（已不可用，请移除重选）':''}</span><button disabled={busy} aria-label={`移除 ${f.name}`} onClick={()=>void desktop<DraftFile[]>('RemoveFile',f.id).then(setFiles).catch(()=>setError('附件选择暂未保存，请重试'))}><Icon name="xmark"/></button></li>)}
-   {refs.map(id=><li key={id}><span>{snapshot?.references.find(r=>r.id===id)?.name??'引用'}</span><button disabled={busy} aria-label="移除引用" onClick={()=>save(draft,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
+  {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
+   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><Icon name="paperclip"/><span title={f.name}>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>void desktop<DraftFile[]>('RemoveFile',f.id).then(setFiles).catch(()=>setError(t('chat.attachmentUpdateFailed')))}><Icon name="xmark"/></button></li>)}
+   {refs.map(id=><li key={id}><span>{snapshot?.references.find(r=>r.id===id)?.name??t('chat.referenceDefault')}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
   </ul>}
   {expanded&&<AttachmentMenu trigger={add} composer={composer} quick={quick} activation={activation} references={snapshot?.references??[]} selected={refs}
-   onClose={()=>setExpanded(false)} onPick={()=>void pick()} onError={()=>setError('菜单暂时无法打开，请重试')}
+   onClose={()=>setExpanded(false)} onPick={()=>void pick()} onError={()=>setError(t('chat.menuOpenFailed'))}
    onSelect={id=>{save(draft,[...refs,id]);setExpanded(false);input.current?.focus();}}/>}
  </div>;
 }
 
 export function Panel() {
+ const {t} = useI18n();
  const [active,setActive]=useState(false),[activation,setActivation]=useState(0);const surface=useRef<HTMLElement>(null);
  const {snapshot,refresh}=useConversation(active,false,false,true);
  useEffect(()=>{
@@ -185,10 +220,11 @@ export function Panel() {
   return()=>{window.removeEventListener('panel-open',open);window.removeEventListener('panel-close',close);window.removeEventListener('keydown',key);};
  },[]);
  useEffect(()=>{const resize=new ResizeObserver(()=>{if(surface.current)void desktop('SetPanelHeight',Math.max(64,Math.min(500,Math.ceil(surface.current.getBoundingClientRect().height))));});resize.observe(surface.current!);return()=>resize.disconnect();},[]);
- return <main ref={surface} className="input-surface" aria-label="发送给 Caelis Bot"><Composer snapshot={snapshot} quick active={active} activation={activation} refresh={refresh}/>{active&&snapshot&&!snapshot.canSend&&<button className="text-action" onClick={()=>void desktop('OpenHistory')}>{snapshot.canSteer?'正在处理，打开对话补充说明':'打开对话查看连接或待确认事项'}</button>}</main>;
+ return <main ref={surface} className="input-surface" aria-label={t('chat.panelAriaLabel')}><Composer snapshot={snapshot} quick active={active} activation={activation} refresh={refresh}/>{active&&snapshot&&!snapshot.canSend&&<button className="text-action" onClick={()=>void desktop('OpenHistory')}>{snapshot.canSteer?t('chat.openChatToSteer'):t('chat.openChatToReview')}</button>}</main>;
 }
 
 export function History() {
+ const {t} = useI18n();
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
  const [activation,setActivation]=useState(0);
  const {snapshot,refresh}=useConversation(active,false,true);
@@ -232,13 +268,13 @@ export function History() {
    prepend.current=null;
   }else if(position.current!.following){position.current!.layout();setUnread(false);}else setUnread(true);
  },[contentKey,promptKey,activity,snapshot?.connection,snapshot?.phase,snapshot?.message,snapshot?.hasEarlier,earlierBusy]);
- const earlier=async()=>{if(earlierBusy)return;setEarlierBusy(true);setError('');const el=scroll.current!;position.current!.following=false;const anchor=Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(item=>item.getBoundingClientRect().bottom>el.getBoundingClientRect().top);if(anchor)prepend.current={id:anchor.dataset.messageId!,top:anchor.getBoundingClientRect().top};try{await backend('LoadEarlier');await refresh();}catch{prepend.current=null;setError('更早消息暂时无法读取，请重试');}finally{setEarlierBusy(false);}};
- const action=async(method:string)=>{setBusy(true);setError('');try{await backend(method);}catch(e){setError(e instanceof Error?e.message:'暂时无法操作');}finally{setBusy(false);await refresh();}};
- return <main className="history-surface" aria-label="与 Caelis Bot 聊天">
+ const earlier=async()=>{if(earlierBusy)return;setEarlierBusy(true);setError('');const el=scroll.current!;position.current!.following=false;const anchor=Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(item=>item.getBoundingClientRect().bottom>el.getBoundingClientRect().top);if(anchor)prepend.current={id:anchor.dataset.messageId!,top:anchor.getBoundingClientRect().top};try{await backend('LoadEarlier');await refresh();}catch{prepend.current=null;setError(t('chat.loadEarlierFailed'));}finally{setEarlierBusy(false);}};
+ const action=async(method:string)=>{setBusy(true);setError('');try{await backend(method);}catch(e){setError(e instanceof Error?e.message:t('chat.actionFailed'));}finally{setBusy(false);await refresh();}};
+ return <main className="history-surface" aria-label={t('chat.historyAriaLabel')}>
   <div className="chat-scroll" ref={scroll} onScroll={()=>{if(active&&position.current?.scrolled())setUnread(false);}}>
    <div className="chat-content" ref={content}>
-   {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">有什么想和我说的？</p>}
-   {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy||snapshot.connection!=='ready'} onClick={()=>void earlier()}>{earlierBusy?'正在读取…':'查看更早消息'}</button></div>}
+   {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
+   {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy||snapshot.connection!=='ready'} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
    <div className="history-messages">{messages.map(i=><Message key={i.id} item={i} report={setError} animate={i.id===activeReply}/>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active}/>}
    {(!!prompts.length||!!reviews.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
@@ -246,27 +282,27 @@ export function History() {
     <div className={`message assistant state-bubble ${prompts.length?'approval-bubble':''}`}>
    {prompts.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh()}/>)}
    {reviews.map(r=><ReviewNotice key={r.id} value={r}/>)}
-   {connection&&<section className="connection-card" aria-label="连接 Codex">
-    <strong>{snapshot.connection==='connecting'?'正在连接本机 Codex…':snapshot.connection==='login'?'连接你的 Codex 账户':setup?'准备本机 Codex':'恢复连接'}</strong>
-    <p>{snapshot.message||'正在检查本机安装和登录状态。'}</p>
+   {connection&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
+    <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
+    <p>{snapshot.message||t('chat.checkingConnection')}</p>
     <div className="connection-actions">
-     {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Login')}>在浏览器中登录</button>}
-     {snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('CancelLogin')}>取消登录</button>}
-     {snapshot.connection!=='connecting'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Connect')}>{setup?'重新检测':'重新连接'}</button>}
-     {setup&&<button className="text-action" onClick={()=>void action('OpenConnectionHelp')}>安装说明 ↗</button>}
-     {snapshot.connection!=='connecting'&&<button className="text-action" onClick={()=>void desktop('OpenRuntimeSettings')}>连接设置…</button>}
+     {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Login')}>{t('chat.loginInBrowser')}</button>}
+     {snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('CancelLogin')}>{t('chat.cancelLogin')}</button>}
+     {snapshot.connection!=='connecting'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Connect')}>{setup?t('chat.recheckSetup'):t('chat.reconnect')}</button>}
+     {setup&&<button className="text-action" onClick={()=>void action('OpenConnectionHelp')}>{t('chat.setupHelp')}</button>}
+     {snapshot.connection!=='connecting'&&<button className="text-action" onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}
     </div>
    </section>}
    {!connection&&!!snapshot?.message&&<p className="connection-message" role="status">{snapshot.message}</p>}
    {!connection&&snapshot?.phase==='unknown'&&<div className="connection-actions">
-    <button disabled={busy} onClick={()=>void action('Connect')}>重新连接</button>
+    <button disabled={busy} onClick={()=>void action('Connect')}>{t('chat.reconnect')}</button>
    </div>}
     </div>
    </article>}
    {!!error&&<p className="inline-error" role="alert">{error}</p>}
    </div>
   </div>
-  {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>查看新消息 ↓</button>}
+  {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>{t('chat.viewNewMessages')}</button>}
   <footer>
    {active&&<Composer snapshot={snapshot} focusRevision={activation} refresh={refresh}/>}
   </footer>

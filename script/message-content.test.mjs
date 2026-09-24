@@ -17,7 +17,7 @@ test('chat Markdown renders structure without executable HTML or automatic remot
   const {MessageContent}=await import(pathToFileURL(path));
   const text='# 标题\n\n**重点**\n\n```js\nconst n = 1;\n```\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n[帮助](https://example.com)\n\n[危险](javascript:alert(1))\n\n![远程](https://example.com/tracker.png)\n\n<script>alert(1)</script>';
   const html=renderToStaticMarkup(React.createElement(MessageContent,{text,report:()=>{}}));
-  for(const expected of ['<h1>标题</h1>','<strong>重点</strong>','<table>','复制代码','const n = 1;','role="link"'])assert.ok(html.includes(expected),expected);
+  for(const expected of ['<h1>标题</h1>','<strong>重点</strong>','<table>','Copy code','const n = 1;','role="link"'])assert.ok(html.includes(expected),expected);
   assert.doesNotMatch(html,/<script|<img|javascript:|<iframe|dangerouslySetInnerHTML/);
  } finally {rmSync(dir,{recursive:true,force:true});}
 });

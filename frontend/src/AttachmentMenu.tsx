@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { Reference } from './backend/contract';
 import { desktop } from './desktop';
 import { attachmentMenuLayout, type MenuLayout } from './attachment-menu-layout';
+import { useI18n } from './i18n';
 
 // Preserve open/close ordering across quick-menu mounts. Native activation IDs
 // also fence requests from an editor that has already been hidden/reopened.
@@ -17,6 +18,7 @@ export function AttachmentMenu({trigger,composer,quick,activation,references,sel
  quick:boolean;activation:number;references:Reference[];selected:string[];
  onClose:()=>void;onPick:()=>void;onSelect:(id:string)=>void;onError:()=>void;
 }) {
+ const {t} = useI18n();
  const menu=useRef<HTMLElement>(null),[layout,setLayout]=useState<MenuLayout|null>(null);
  const callbacks=useRef({onClose,onError});callbacks.current={onClose,onError};
  useLayoutEffect(()=>{
@@ -68,9 +70,9 @@ export function AttachmentMenu({trigger,composer,quick,activation,references,sel
    if(quick)void setNativeMenu(0,activation).catch(()=>{});
   };
  },[quick,activation,references.length,trigger,composer]);
- return createPortal(<section ref={menu} id="attachment-menu" className="attachment-menu" role="menu" aria-label="附件与引用"
+ return createPortal(<section ref={menu} id="attachment-menu" className="attachment-menu" role="menu" aria-label={t('chat.attachmentMenuAriaLabel')}
   style={layout?{left:layout.left,top:layout.top,width:layout.width,maxHeight:layout.height}:{visibility:'hidden'}}>
-  <button role="menuitem" className="action-row attachment-file" onClick={onPick}><img className="symbol" src="/icons/paperclip.png" alt=""/>添加文件</button>
-  {!!references.length&&<><p className="menu-caption">插件与技能</p>{references.map(r=><button role="menuitem" key={r.id} className="action-row" disabled={selected.includes(r.id)} title={r.description} onClick={()=>onSelect(r.id)}><span>{r.name}<small>{r.description}</small></span></button>)}</>}
+  <button role="menuitem" className="action-row attachment-file" onClick={onPick}><img className="symbol" src="/icons/paperclip.png" alt=""/>{t('chat.addFile')}</button>
+  {!!references.length&&<><p className="menu-caption">{t('chat.pluginsAndSkills')}</p>{references.map(r=><button role="menuitem" key={r.id} className="action-row" disabled={selected.includes(r.id)} title={r.description} onClick={()=>onSelect(r.id)}><span>{r.name}<small>{r.description}</small></span></button>)}</>}
  </section>,document.body);
 }
