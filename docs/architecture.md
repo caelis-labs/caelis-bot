@@ -553,6 +553,17 @@ worker decisions keep their own thread/turn/request target. Explicit Stop interr
 owned active turns before cleaning their terminals. Native worker communication stays
 in Codex, without a second orchestration protocol or UI task/session manager.
 
+The native host projects `TaskPreview` (opaque product handle and original assignment)
+into nonactivating AppKit task bubbles. Hover/collapse has no backend effect; explicit
+click resolves an owned `WorkTerminalProvider` target and launches the user's external
+terminal. New owned Codex processes expose a private Unix socket; a native TUI attaches
+to the same App Server with `--remote … resume …`. The adapter remains subscribed across
+idle and human-created turns, with one resume on reconnect and no worker polling loop.
+The renderer never receives a shell command or native thread ID. Caelis terminal attach
+remains an optional adapter capability, not a presumed protocol equivalence. See
+[task delegation](task-delegation.md) for lifecycle and verification boundaries.
+
+
 Three presentation surfaces share theme tokens and one host draft. Approval expansion
 changes only the bubble's explicit keyboard eligibility. Result acknowledgement is
 persisted independently from history and execution. Native frontmost chat suppression

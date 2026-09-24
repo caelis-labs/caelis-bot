@@ -228,6 +228,12 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	if s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" {
 		c, id, pending := s.client, s.binding.ThreadID, s.binding.Pending != nil
+		for _, task := range s.binding.Tasks {
+			if task.Thread != "" && !s.childWatching[task.Thread] {
+				s.childWatching[task.Thread] = true
+				go s.watchChild(c, s.epoch, task.Thread)
+			}
+		}
 		for child := range s.childRuns {
 			if !s.childWatching[child] {
 				s.childWatching[child] = true
@@ -309,7 +315,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if err := os.MkdirAll(s.opts.Directory, 0700); err != nil {
 		return s.connectionError("无法准备工作文件夹", err)
 	}
-	c, err := s.start(ctx, Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true})
+	c, err := s.start(ctx, Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true})
 	if err != nil {
 		return s.connectionError("无法连接本机 Codex，请检查连接设置后重试", err)
 	}
@@ -414,8 +420,10 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	s.update()
 	for _, task := range s.binding.Tasks {
-		if task.Thread != "" && !terminal(task.View.Status) && !s.childWatching[task.Thread] {
-			s.childRuns[task.Thread] = task.Run
+		if task.Thread != "" && !s.childWatching[task.Thread] {
+			if !terminal(task.View.Status) {
+				s.childRuns[task.Thread] = task.Run
+			}
 			s.childWatching[task.Thread] = true
 			go s.watchChild(c, epoch, task.Thread)
 		}

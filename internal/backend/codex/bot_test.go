@@ -92,7 +92,7 @@ func TestV2WorkerActivityOwnsTargetAndObservesNativeIdle(t *testing.T) {
 	f.mu.Lock()
 	f.workers["worker-v2"] = worker
 	f.mu.Unlock()
-	f.emit(wireMessage{Method: "item/completed", Params: raw(map[string]any{"threadId": "thread-native", "turnId": "run-native", "item": nativeItem{ID: "communicate", Type: "subAgentActivity", AgentThreadID: "worker-v2", ActivityKind: "interacted"}})})
+	f.emit(wireMessage{Method: "turn/completed", Params: raw(map[string]any{"threadId": "worker-v2", "turn": worker.Turns[0]})})
 	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend && !v.CanInterrupt })
 	s.mu.Lock()
 	defer s.mu.Unlock()

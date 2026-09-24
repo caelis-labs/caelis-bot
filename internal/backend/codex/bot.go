@@ -58,119 +58,97 @@ func (s *Session) trackWorkerActivity(item nativeItem) {
 	go s.watchChild(c, epoch, id)
 }
 
-// App Server need not stream every worker turn to the root subscription. Observe
-// only an active worker, serially, and stop on its authoritative idle state.
+// One subscribe/reconciliation request per owned thread and connection. Native
+// notifications remain subscribed across idle turns, including human TUI turns.
 const workerUnconfirmed = "后台工作的状态尚未确认，请重新连接核对"
 
 func (s *Session) watchChild(c *Client, epoch uint64, id string) {
 	if c == nil {
 		return
 	}
-	for {
-		s.mu.Lock()
-		if s.client != c || s.epoch != epoch || s.closed {
-			s.mu.Unlock()
-			return
-		}
-		revision := s.childRevision[id]
+	s.mu.Lock()
+	if s.client != c || s.epoch != epoch || s.closed {
 		s.mu.Unlock()
-		ctx, cancel := context.WithTimeout(s.life, 10*time.Second)
-		var response struct {
-			Thread nativeThread `json:"thread"`
+		return
+	}
+	revision := s.childRevision[id]
+	params := map[string]any{"threadId": id}
+	if task := s.taskByThread(id); task != nil {
+		params = s.workerParams(task.View.Workspace, task.Instructions, task)
+		params["threadId"] = id
+	}
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(s.life, 10*time.Second)
+	defer cancel()
+	var response struct {
+		Thread nativeThread `json:"thread"`
+	}
+	err := callDecode(ctx, c, "thread/resume", params, &response)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != c || s.epoch != epoch || s.closed {
+		return
+	}
+	if err != nil || response.Thread.ID != id {
+		if err == nil {
+			err = ErrProtocol
 		}
-		err := callDecode(ctx, c, "thread/read", map[string]any{"threadId": id, "includeTurns": true}, &response)
-		cancel()
-		s.mu.Lock()
-		if s.client != c || s.epoch != epoch || s.closed {
-			s.mu.Unlock()
-			return
+		delete(s.childWatching, id)
+		if task := s.taskByThread(id); task != nil {
+			task.View.Status = "unknown"
+			_ = s.save()
+		} else {
+			s.state.Phase, s.state.Message = "unknown", workerUnconfirmed
 		}
-		if err != nil || response.Thread.ID != id {
-			if task := s.taskByThread(id); task != nil {
-				task.View.Status = "unknown"
-				_ = s.save()
-				delete(s.childWatching, id)
-				s.update()
-				s.mu.Unlock()
-				return
-			}
-			s.state.Message = workerUnconfirmed
-			s.state.Phase = "unknown"
-			s.update()
-			delete(s.childWatching, id)
-			s.mu.Unlock()
-			return
+		s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "worker_subscription_failed", Method: "thread/resume", Thread: id, Reason: diagnosticlog.Reason(err.Error()), Fingerprint: diagnosticlog.Fingerprint([]byte(err.Error()))})
+		s.update()
+		return
+	}
+	// Live notifications that arrived during resume supersede its snapshot.
+	if revision != s.childRevision[id] {
+		return
+	}
+	active := response.Thread.Status.Type == "active"
+	run := ""
+	for _, turn := range response.Thread.Turns {
+		if task := s.taskByThread(id); task != nil {
+			s.observeTaskTurn(task, turn)
 		}
-		done := false
-		if revision == s.childRevision[id] {
-			if task := s.taskByThread(id); task != nil {
-				changed := false
-				for _, turn := range response.Thread.Turns {
-					changed = s.observeTaskTurn(task, turn) || changed
-				}
-				if changed {
-					_ = s.save()
-				}
-			}
-			active := response.Thread.Status.Type == "active"
-			run := ""
-			for _, turn := range response.Thread.Turns {
-				if turn.Status == "inProgress" && !s.childTerminals[opaque(id, turn.ID)] {
-					active = true
-					run = turn.ID
-				}
-				if terminal(turn.Status) {
-					s.childTerminals[opaque(id, turn.ID)] = true
-					for key, p := range s.prompts {
-						if p.thread == id && p.turn == turn.ID {
-							s.resolvePrompt(key, p)
-						}
-					}
-				}
-			}
-			if active {
-				s.childRuns[id] = run
-			} else {
-				delete(s.childRuns, id)
-				delete(s.childWatching, id)
-				done = true
-				if s.run == "" && len(s.childRuns) == 0 && len(s.prompts) == 0 && s.state.Phase == "working" {
-					s.state.Phase = "completed"
+		if turn.Status == "inProgress" && !s.childTerminals[opaque(id, turn.ID)] {
+			active = true
+			run = turn.ID
+		}
+		if terminal(turn.Status) {
+			s.childTerminals[opaque(id, turn.ID)] = true
+			for key, p := range s.prompts {
+				if p.thread == id && p.turn == turn.ID {
+					s.resolvePrompt(key, p)
 				}
 			}
-			if s.state.Message == workerUnconfirmed && s.binding.Pending == nil {
-				unresolved := false
-				for child := range s.childRuns {
-					if !s.childWatching[child] {
-						unresolved = true
-					}
-				}
-				if !unresolved {
-					s.state.Message = ""
-					if s.run == "" && len(s.childRuns) == 0 {
-						s.state.Phase = "completed"
-					} else {
-						s.state.Phase = "working"
-					}
-				}
-			}
-			s.update()
-		}
-		s.mu.Unlock()
-		if done {
-			return
-		}
-		timer := time.NewTimer(time.Second)
-		select {
-		case <-timer.C:
-		case <-s.life.Done():
-			timer.Stop()
-			return
-		case <-c.Done():
-			timer.Stop()
-			return
 		}
 	}
+	if active {
+		s.childRuns[id] = run
+	} else {
+		delete(s.childRuns, id)
+	}
+	if s.state.Message == workerUnconfirmed && s.binding.Pending == nil {
+		unresolved := false
+		for child := range s.childRuns {
+			if !s.childWatching[child] {
+				unresolved = true
+			}
+		}
+		if !unresolved {
+			s.state.Message = ""
+			s.state.Phase = "working"
+		}
+	}
+	if s.run == "" && len(s.childRuns) == 0 && len(s.prompts) == 0 && s.state.Phase == "working" {
+		s.state.Phase = "completed"
+	}
+	_ = s.save()
+	s.update()
 }
 
 func (s *Session) ownsThread(id string) bool {
@@ -196,13 +174,21 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 		}
 		return // The worker's terminal fact, not an error notice, owns its outcome.
 	}
-	s.childRevision[thread]++
+	// Only consumed state can supersede reconciliation. Metadata such as token
+	// usage or thread/started must not discard the only restored task snapshot.
+	switch event.Method {
+	case "item/completed", "turn/started", "turn/completed", "serverRequest/resolved", "thread/closed", "thread/deleted":
+		s.childRevision[thread]++
+	default:
+		return
+	}
 	// Worker messages stay internal; only required decisions and lifecycle project
 	// into the single Bot chat. IDs are scoped to their native target.
 	var n struct {
 		Turn      nativeTurn      `json:"turn"`
 		RequestID json.RawMessage `json:"requestId"`
 		Thread    nativeThread    `json:"thread"`
+		Item      nativeItem      `json:"item"`
 	}
 	if !s.decodeEvent(event, &n, false) {
 		if event.Method == "turn/started" || event.Method == "turn/completed" {
@@ -215,6 +201,11 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 		return
 	}
 	switch event.Method {
+	case "item/completed":
+		if task := s.taskByThread(thread); task != nil && turn == task.Run && n.Item.Type == "agentMessage" {
+			task.View.Result = boundedText(n.Item.Text, 6000)
+			_ = s.save()
+		}
 	case "turn/started", "turn/completed":
 		if task := s.taskByThread(thread); task != nil {
 			if s.observeTaskTurn(task, n.Turn) {
@@ -225,7 +216,7 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 			s.childRuns[thread] = n.Turn.ID
 		}
 		if terminal(n.Turn.Status) {
-			if s.childRuns[thread] == n.Turn.ID {
+			if current, known := s.childRuns[thread]; known && (current == "" || current == n.Turn.ID) {
 				delete(s.childRuns, thread)
 			}
 			s.childTerminals[opaque(thread, n.Turn.ID)] = true

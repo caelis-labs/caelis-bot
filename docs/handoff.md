@@ -3,6 +3,12 @@
 当前主线是 Caelis Bot 的产品功能和 macOS 正式版质量，先读 `product.md`、`architecture.md`、
 `roadmap.md`。产品已具备真实 Codex 工作闭环，不从早期工具链试验重新开始。
 
+2026-09-24 原生任务气泡已接入：脚边收起、相同圆球、悬停原始 prompt、点击外部终端。
+Codex 使用标准共享 Unix App Server，Bot 保持订阅并观察终端用户的新回合，不再长期轮询 Worker。
+完整检查、smoke、构建、相关 race 与安装版隔离协议验收通过；原生浮动气泡的 hover、截断和
+点击 Terminal GUI 仍需人工实机复验，不能把此前 POC 截图当成新构建的完整视觉证明。
+Caelis 终端适配和主动关怀产品化未包含；详见[任务委派](task-delegation.md)及[验证状态](preparation-status.md)。
+
 2026-09-24 设置与窗口体验已在本地整理：连接页去重、模型统一保存与草稿保留、
 页面切换回到顶部；Dock 随聊天/设置的打开状态显示，关闭页面不退出应用。
 App 图标成品包为 0.1.4，DMG 使用紧凑拖拽布局；打包额外依赖项目内固定版本 Python 工具环境。

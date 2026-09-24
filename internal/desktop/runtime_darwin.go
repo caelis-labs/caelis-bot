@@ -21,6 +21,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
+	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -56,12 +57,19 @@ func Run(assets fs.FS) error {
 	core, err := app.New(root, app.Host{Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
 		OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 		RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
-		TrashFile:  trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ReportError: logError})
+		TrashFile:  trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError})
 	if err != nil {
 		return err
 	}
 	defer core.Close()
 	back := core.Backend
+	s.resolveTaskTerminal = core.WorkTerminal
+	s.launchTaskTerminal = taskterminal.New(filepath.Join(root, "Terminal"), func(ctx context.Context, path string) error {
+		return exec.CommandContext(ctx, "/usr/bin/open", path).Run()
+	}).Open
+	s.taskError = func(id string, err error) {
+		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "terminal", Code: "task_open_failed", Item: id, Reason: diagnosticlog.Reason(err.Error()), Fingerprint: diagnosticlog.Fingerprint([]byte(err.Error()))})
+	}
 	s.needsIntroduction = func() bool {
 		v := back.BotInitialization()
 		return v.Required || v.Status == "rejected" || v.Status == "unknown"

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "usage-example",
+    "on": "desktop.usage",
+    "when": "event.activeSeconds >= 7200 && event.idleSeconds < 120",
+    "prompt": "Consider a brief, timely break suggestion using the user's preferences.",
+    "cooldownSeconds": 14400
+  },
+  {
+    "id": "date-example",
+    "on": "calendar.date",
+    "when": "event.month == 9 && event.day == 24",
+    "prompt": "Prepare the greeting appropriate to this previously registered date.",
+    "cooldownSeconds": 86400
+  },
+  {
+    "id": "custom-example",
+    "on": "custom.changed",
+    "when": "event.items.exists(x, x.kind == 'important' && x.score >= 80)",
+    "prompt": "Review the relevant change, within the existing authorization.",
+    "cooldownSeconds": 3600
+  }
+]

@@ -22,6 +22,10 @@ Notebook 最新方向是普通 Markdown：系统生成 INDEX.md、核心 MEMORY.
 一次性初始化名字必填、描述可选，仅提交可见用户消息，由 Bot 写入 MEMORY.md。专属 skill、
 目录维护、文件访问与旧资料保留迁移已实现，真实模型与新 Caelis 验收单独记录，见[个人空间](personal-memory.md)。
 
+2026-09-24 轻量任务入口已接入原生 macOS：收起胶囊、相同圆球、原始 prompt 两行预览和
+外部终端 attach，Codex Worker 改为共享订阅与完成事件唤醒。Caelis 终端适配与主动关怀
+规则产品化仍为后续工作，见[任务委派](task-delegation.md)。
+
 ## 交付原则
 
 前期已用火柴人验证宿主和真实工作，现已接入小爱。下一步推进可用性收尾，同时将基础

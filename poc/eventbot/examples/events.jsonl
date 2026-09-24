@@ -1,0 +1,6 @@
+{"event":{"id":"usage-1","source":"desktop.usage","data":{"activeSeconds":7300,"idleSeconds":20}},"presence":{"Awake":true,"Unlocked":false}}
+{"event":{"id":"usage-1","source":"desktop.usage","data":{"activeSeconds":7300,"idleSeconds":20}},"presence":{"Awake":true,"Unlocked":null}}
+{"presence":{"Awake":true,"Unlocked":true}}
+{"event":{"id":"date-2026-09-24","source":"calendar.date","data":{"month":9,"day":24}},"presence":{"Awake":true,"Unlocked":true}}
+{"event":{"id":"change-1","source":"custom.changed","data":{"items":[{"kind":"important","score":90}]}},"presence":{"Awake":true,"Unlocked":true}}
+{"event":{"id":"usage-2","source":"desktop.usage","data":{"activeSeconds":7400,"idleSeconds":10}},"presence":{"Awake":true,"Unlocked":true}}

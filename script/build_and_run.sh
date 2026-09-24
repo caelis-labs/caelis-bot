@@ -61,6 +61,9 @@ fi
 if [[ -n "${CAELIS_CODEX_SOCKET:-}" ]]; then
   BOT_OPEN_ARGS+=(--env "CAELIS_CODEX_SOCKET=$CAELIS_CODEX_SOCKET")
 fi
+if [[ -n "${CODEX_HOME:-}" ]]; then
+  BOT_OPEN_ARGS+=(--env "CODEX_HOME=$CODEX_HOME")
+fi
 /usr/bin/open "${BOT_OPEN_ARGS[@]}"
 case "$BOT_MODE" in
   --verify|--verify-signed)

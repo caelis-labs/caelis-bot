@@ -33,6 +33,7 @@ type Host struct {
 	Gesture      func(string) error
 	Notify       func(id, title, body string, reminder bool)
 	Observe      func(api.Snapshot)
+	ObserveTasks func([]api.TaskPreview)
 	ReportError  func(error)
 }
 
@@ -293,9 +294,22 @@ func (a *Application) Start() error {
 			if a.host.Observe != nil {
 				a.host.Observe(snapshot)
 			}
+			if a.host.ObserveTasks != nil {
+				a.host.ObserveTasks(manager.TaskPreviews())
+			}
 		}
 	}()
 	return nil
+}
+
+func (a *Application) WorkTerminal(ctx context.Context, id string) (api.TerminalTarget, error) {
+	a.mu.Lock()
+	m, stopped := a.tasks, a.closed
+	a.mu.Unlock()
+	if m == nil || stopped {
+		return api.TerminalTarget{}, errors.New("任务尚未连接，请稍后重试")
+	}
+	return m.WorkTerminal(ctx, id)
 }
 
 // Close is the explicit application-exit boundary. Cancellation stops wakeups

@@ -16,6 +16,7 @@ import (
 // Task records and submission receipts share the atomic conversation binding.
 // A recorded unknown outcome is never permission to retry a mutation.
 type taskRecord struct {
+	OriginalPrompt string                     `json:"originalPrompt,omitempty"`
 	Execution      *api.WorkExecutionSettings `json:"execution,omitempty"`
 	ModelProvider  string                     `json:"modelProvider,omitempty"`
 	View           api.Task                   `json:"view"`
@@ -70,7 +71,7 @@ func (s *Session) WorkStates() []api.WorkState {
 	out := []api.WorkState{}
 	for _, t := range s.binding.Tasks {
 		v := s.taskView(t)
-		out = append(out, api.WorkState{Task: v, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint})
+		out = append(out, api.WorkState{Task: v, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Task.ID < out[j].Task.ID })
 	return out
@@ -86,7 +87,7 @@ func (s *Session) taskView(t *taskRecord) api.Task {
 			break
 		}
 	}
-	if s.state.Connection != "ready" && !terminal(v.Status) {
+	if t.Pending != "" || (s.state.Connection != "ready" && !terminal(v.Status)) {
 		v.Status = "unknown"
 	}
 	return v
@@ -137,6 +138,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		s.binding.Tasks = map[string]*taskRecord{}
 	}
 	s.binding.Tasks[id] = t
+	t.OriginalPrompt = in.Prompt
 	if err := s.save(); err != nil {
 		delete(s.binding.Tasks, id)
 		s.mu.Unlock()
@@ -167,6 +169,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	t.Thread = response.Thread.ID
 	t.Execution, t.ModelProvider = response.execution(), response.ModelProvider
 	s.children[t.Thread] = true
+	s.childWatching[t.Thread] = true // thread/start already subscribed this client.
 	// Ownership is durable before dispatch, so approvals cannot race adoption.
 	if err = s.save(); err != nil {
 		v := t.View
@@ -265,7 +268,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		s.mu.Unlock()
 		return api.Task{}, err
 	}
-	if t.Thread == "" || t.View.Status == "unknown" || len(t.Requests) >= 100 {
+	if t.Thread == "" || t.Pending != "" || t.View.Status == "unknown" || len(t.Requests) >= 100 {
 		v := t.View
 		s.mu.Unlock()
 		return v, errors.New("请先核对该任务；结果未知的操作不会重复发送")
@@ -354,27 +357,22 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	if err == nil {
 		r.Outcome = "accepted"
 		t.Pending = ""
-		t.Run = turn.ID
-		if !terminal(t.View.Status) {
-			t.View.Status = "working"
-		}
-		reportID := "task-report-" + opaque(t.Thread, turn.ID)
-		if t.ReportID != reportID {
-			t.ReportID = reportID
-			t.ReportState = "pending"
-		}
-		if t.SuppressReport {
-			t.ReportState = "observed"
-		}
-		if !s.childTerminals[opaque(t.Thread, turn.ID)] {
-			s.childRuns[t.Thread] = turn.ID
+		// Notifications may have already completed this turn or started a later
+		// human turn. A delayed RPC receipt must not rewind that live state.
+		if t.Run == "" || t.Run == turn.ID {
+			s.observeTaskTurn(t, turn)
+			if !s.childTerminals[opaque(t.Thread, turn.ID)] && !terminal(t.View.Status) {
+				s.childRuns[t.Thread] = turn.ID
+			}
 		}
 	} else if definiteTaskRejection(err) {
 		r.Outcome = "rejected"
 		t.Pending = ""
-		t.View.Status, t.Run = r.PriorStatus, r.PriorRun
-		if t.View.Status == "unknown" && t.Run == "" {
-			t.View.Status = "failed"
+		if t.Run == "" || t.Run == r.PriorRun {
+			t.View.Status, t.Run = r.PriorStatus, r.PriorRun
+			if t.View.Status == "unknown" && t.Run == "" {
+				t.View.Status = "failed"
+			}
 		}
 	}
 	if old := t.Requests[request]; old.Outcome == "accepted" {
@@ -382,11 +380,8 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	}
 	t.Requests[request] = r
 	t.View.Outcome = r.Outcome
-	if err == nil {
-		s.observeTaskTurn(t, turn)
-	}
-	// Also reconciles a completion arriving before the turn/start response.
-	if t.Thread != "" && !s.childWatching[t.Thread] {
+	// Reconcile an uncertain receipt once; normal progress is subscription-driven.
+	if t.Thread != "" && err != nil {
 		s.childWatching[t.Thread] = true
 		go s.watchChild(s.client, s.epoch, t.Thread)
 	}
@@ -412,14 +407,18 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 				t.Requests[item.ClientID] = r
 				if item.ClientID == t.Pending {
 					t.Pending = ""
-					t.Run = turn.ID
 					t.View.Outcome = "accepted"
 				}
 			}
 		}
 	}
-	if t.Pending != "" || t.Run != turn.ID {
-		return
+	if t.Run != turn.ID {
+		if s.childTerminals[opaque(t.Thread, turn.ID)] {
+			return
+		}
+		t.Run = turn.ID
+		t.SuppressReport = false
+		t.View.Result = ""
 	}
 	if turn.Status == "inProgress" && !s.childTerminals[opaque(t.Thread, turn.ID)] {
 		t.View.Status = "working"
