@@ -42,7 +42,7 @@ func (s *Service) PickFiles() ([]DraftFile, error) {
 	s.mu.Lock()
 	if !s.started || s.stopped || s.pickFiles == nil || s.picking {
 		s.mu.Unlock()
-		return nil, errors.New("暂时无法打开文件选择器")
+		return nil, errors.New(s.text("native.pickerUnavailable", nil))
 	}
 	s.picking = true
 	pick := s.pickFiles
@@ -53,10 +53,10 @@ func (s *Service) PickFiles() ([]DraftFile, error) {
 	defer s.mu.Unlock()
 	s.picking = false
 	if s.stopped {
-		return nil, errors.New("应用已退出")
+		return nil, errors.New(s.text("native.appExited", nil))
 	}
 	if err != nil {
-		return nil, errors.New("无法选择文件，请重试")
+		return nil, errors.New(s.text("native.pickFileFailed", nil))
 	}
 	return s.stageFiles(paths)
 }
@@ -65,7 +65,7 @@ func (s *Service) stageFiles(paths []string) ([]DraftFile, error) {
 		return nil, s.selectionError
 	}
 	if !s.started || s.stopped {
-		return nil, errors.New("应用尚未就绪或已退出")
+		return nil, errors.New(s.text("native.appNotReadyOrExited", nil))
 	}
 	// Validate the whole selection before changing the draft, including duplicates.
 	files := slices.Clone(s.files)
@@ -77,13 +77,13 @@ func (s *Service) stageFiles(paths []string) ([]DraftFile, error) {
 		}
 		info, err := os.Stat(path)
 		if err != nil || !info.Mode().IsRegular() {
-			return nil, errors.New("请选择可访问的普通文件")
+			return nil, errors.New(s.text("native.selectRegularFile", nil))
 		}
 		if info.Size() > 20*1024*1024 {
-			return nil, errors.New("单个附件不能超过 20 MB")
+			return nil, errors.New(s.text("native.fileTooLarge", nil))
 		}
 		if len(files) >= 8 {
-			return nil, errors.New("一次最多保留 8 个文件，请先移除一些文件")
+			return nil, errors.New(s.text("native.maxFilesExceeded", nil))
 		}
 		next++
 		files = append(files, draftFile{DraftFile: DraftFile{ID: fmt.Sprintf("local-%d", next), Name: filepath.Base(path), Size: info.Size()}, path: path})
@@ -112,18 +112,18 @@ func (s *Service) resolveDraftFiles(ids []string) ([]api.InputFile, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(ids) > 8 {
-		return nil, errors.New("一次最多发送 8 个文件")
+		return nil, errors.New(s.text("native.maxSendFilesExceeded", nil))
 	}
 	files := make([]api.InputFile, 0, len(ids))
 	seen := map[string]bool{}
 	for _, id := range ids {
 		if seen[id] {
-			return nil, errors.New("附件重复")
+			return nil, errors.New(s.text("native.duplicateAttachment", nil))
 		}
 		seen[id] = true
 		index := slices.IndexFunc(s.files, func(f draftFile) bool { return f.ID == id })
 		if index < 0 {
-			return nil, errors.New("附件已失效，请重新选择")
+			return nil, errors.New(s.text("native.attachmentExpired", nil))
 		}
 		f := s.files[index]
 		files = append(files, api.InputFile{Name: f.Name, Path: f.path})
@@ -160,7 +160,7 @@ func (s *Service) persistSelection(files []draftFile, next uint64) error {
 		d.Files = append(d.Files, savedFile{f.ID, f.path, f.Size})
 	}
 	if err := localstate.Write(s.selectionFile, d); err != nil {
-		return errors.New("附件选择暂未保存，请重试")
+		return errors.New(s.text("native.selectionNotSaved", nil))
 	}
 	return nil
 }
@@ -174,14 +174,14 @@ func (s *Service) configureSelection(path string) error {
 	}
 	var d savedSelection
 	if err != nil || len(b) > 128*1024 || json.Unmarshal(b, &d) != nil || d.Version != 1 || len(d.Files) > 8 {
-		s.selectionError = errors.New("本机附件选择无法读取，原文件已保留")
+		s.selectionError = errors.New(s.text("native.selectionUnreadable", nil))
 		return s.selectionError
 	}
 	files := make([]draftFile, 0, len(d.Files))
 	seen := map[string]bool{}
 	for _, f := range d.Files {
 		if f.ID == "" || seen[f.ID] || !filepath.IsAbs(f.Path) {
-			s.selectionError = errors.New("本机附件选择无法读取，原文件已保留")
+			s.selectionError = errors.New(s.text("native.selectionUnreadable", nil))
 			return s.selectionError
 		}
 		seen[f.ID] = true

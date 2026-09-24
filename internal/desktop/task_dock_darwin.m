@@ -110,19 +110,26 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
     if(!valid.count) [self collapse]; else [self render];
     [self layout];
 }
+- (NSString *)text:(NSString *)key { return self.language[key] ?: key; }
+- (void)setLanguage:(NSDictionary<NSString *, NSString *> *)language {
+    _language = [language copy];
+    _window.title = [self text:@"tasksTitle"];
+    _preview.title = [self text:@"taskPreviewTitle"];
+    if (self.tasks.count) [self render];
+}
 - (BotTaskButton *)button:(NSString *)title frame:(NSRect)frame index:(NSInteger)index {
     BotTaskButton *button=[[BotTaskButton alloc] initWithFrame:frame];
     button.title=title; button.bordered=NO; button.tag=index; button.target=self;
     button.action=index<0 ? @selector(expand) : @selector(open:);
     __weak BotTaskDock *weak=self;
     button.hover=^(BOOL entered){ [weak hover:index entered:entered]; };
-    button.accessibilityLabel=index<0 ? @"展开任务" : [self promptAt:index];
-    if(index>=0)button.accessibilityHelp=@"在终端中打开此任务";
+    button.accessibilityLabel=index<0 ? [self text:@"expandTasks"] : [self promptAt:index];
+    if(index>=0)button.accessibilityHelp=[self text:@"openTaskInTerminal"];
     return button;
 }
 - (NSString *)promptAt:(NSInteger)index {
     NSString *text=self.tasks[index][@"prompt"];
-    return text.length ? text : @"早期任务未保存原始提示词";
+    return text.length ? text : [self text:@"taskPromptMissing"];
 }
 - (void)render {
     CGFloat width=self.expanded ? MIN(284, self.tasks.count*46+10) : 48;

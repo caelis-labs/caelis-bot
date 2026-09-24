@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 )
 
 // Physical key codes and platform-neutral modifiers; native drivers own mapping.
@@ -32,9 +34,13 @@ var shortcutKey = regexp.MustCompile(`^(Space|Key[A-Z]|Digit[0-9]|F([1-9]|1[0-2]
 func defaultShortcut() Shortcut {
 	return Shortcut{Enabled: true, Key: "Space", Control: true, Shift: true}
 }
-func validateShortcut(v Shortcut) error {
+func validateShortcut(v Shortcut, locale ...i18n.Locale) error {
+	loc := i18n.DefaultLocale
+	if len(locale) > 0 {
+		loc = locale[0]
+	}
 	if !shortcutKey.MatchString(v.Key) || (!v.Control && !v.Alt && !v.Meta) {
-		return errors.New("请选择 Control、Option / Alt 或 Command / Meta 加空格、字母、数字或 F1–F12")
+		return errors.New(i18n.Text(loc, "native.shortcutInvalid", nil))
 	}
 	return nil
 }
@@ -46,8 +52,8 @@ func (s *Service) configureShortcut(path string) {
 		return
 	}
 	var v Shortcut
-	if err != nil || json.Unmarshal(b, &v) != nil || validateShortcut(v) != nil {
-		s.shortcut.Message = "快捷键配置无法读取，本次使用默认快捷键"
+	if err != nil || json.Unmarshal(b, &v) != nil || validateShortcut(v, s.LanguagePreferences().Locale) != nil {
+		s.shortcut.Message = s.text("native.shortcutConfigUnreadable", nil)
 		return
 	}
 	s.shortcut.Shortcut = v
@@ -60,12 +66,12 @@ func (s *Service) ShortcutSettings() ShortcutState {
 func (s *Service) SaveShortcut(v Shortcut) (ShortcutState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := validateShortcut(v); err != nil {
+	if err := validateShortcut(v, s.LanguagePreferences().Locale); err != nil {
 		return s.shortcut, err
 	}
 	d, ok := s.native.(shortcutDriver)
 	if !ok || s.stopped {
-		return s.shortcut, errors.New("快捷键暂不可用")
+		return s.shortcut, errors.New(s.text("native.shortcutUnavailable", nil))
 	}
 	old := s.shortcut.Shortcut
 	if err := d.registerShortcut(v); err != nil {
@@ -77,9 +83,9 @@ func (s *Service) SaveShortcut(v Shortcut) (ShortcutState, error) {
 			disabled.Enabled = false
 			_ = d.registerShortcut(disabled)
 			s.shortcut.Registered = false
-			s.shortcut.Message = "保存失败，旧快捷键也未能恢复，请重新设置"
+			s.shortcut.Message = s.text("native.shortcutRollbackFailed", nil)
 		}
-		return s.shortcut, errors.New("快捷键未能保存，请重试")
+		return s.shortcut, errors.New(s.text("native.shortcutSaveFailed", nil))
 	}
 	s.shortcut = ShortcutState{Shortcut: v, Registered: v.Enabled}
 	return s.shortcut, nil

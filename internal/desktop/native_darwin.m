@@ -492,6 +492,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.prop.collectionBehavior=bot_space_behavior(YES);host.prop.ignoresMouseEvents=YES;
     __weak BotHost *weak = host;
     host.taskDock=[BotTaskDock new];
+    host.taskDock.language=host.language;
     host.taskDock.openTask=^(NSString *identifier){if(weak.handle)desktopTaskOpen(weak.handle,(char *)identifier.UTF8String);};
     host.taskDock.gesture=^(NSString *name){if(weak.handle)bot_gesture((__bridge void *)weak,(char *)name.UTF8String);};
     BotPetInputView *view = [[BotPetInputView alloc] initWithFrame:surface.bounds];
@@ -833,5 +834,6 @@ void bot_language(void *pointer, char *json) {
     BotHost *host = (__bridge BotHost *)pointer;
     NSData *data = [[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding];
     host.language = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    host.taskDock.language = host.language;
     host.statusItem.menu = [host applicationMenu];
 }

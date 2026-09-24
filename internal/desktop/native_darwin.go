@@ -247,7 +247,7 @@ func trashNativePath(path string) error {
 	defer C.free(unsafe.Pointer(value))
 	ok := application.InvokeSyncWithResult(func() bool { return C.bot_trash_path(value) != 0 })
 	if !ok {
-		return errors.New("无法移到废纸篓")
+		return errors.New(i18n.Text(i18n.DefaultLocale, "native.trashPathFailed", nil))
 	}
 	return nil
 }
@@ -323,7 +323,7 @@ func (d *macDriver) registerShortcut(v Shortcut) error {
 	}
 	status := application.InvokeSyncWithResult(func() int { return int(C.bot_shortcut(d.pointer, key, C.int(flags), C.int(enabled))) })
 	if status != 0 {
-		return errors.New("该快捷键已被系统或其他应用占用，请选择其他组合；原快捷键保持不变")
+		return errors.New(i18n.Text(i18n.DefaultLocale, "native.shortcutConflict", nil))
 	}
 	return nil
 }

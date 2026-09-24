@@ -175,7 +175,7 @@ func Run(assets fs.FS) error {
 	defer signal.Stop(signals)
 	go func() { <-signals; quit() }()
 	pet := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "pet", Title: "Caelis Bot — 桌宠", Width: 180, Height: 240, Frameless: true, DisableResize: true, Hidden: true,
+		Name: "pet", Title: s.text("native.petTitle", nil), Width: 180, Height: 240, Frameless: true, DisableResize: true, Hidden: true,
 		IgnoreMouseEvents: true, URL: "/?surface=pet", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true, CornerType: application.MacWindowCornerTypeSquare,
 			WindowLevel: application.MacWindowLevelFloating, CollectionBehavior: application.MacWindowCollectionBehaviorCanJoinAllSpaces | application.MacWindowCollectionBehaviorStationary | application.MacWindowCollectionBehaviorFullScreenAuxiliary | application.MacWindowCollectionBehaviorIgnoresCycle},
@@ -191,12 +191,12 @@ func Run(assets fs.FS) error {
 		Mac: application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
 	bubble := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "bubble", Title: "Caelis Bot — 消息", Width: 360, Height: 68, Frameless: true, DisableResize: true, Hidden: true,
+		Name: "bubble", Title: s.text("native.bubbleTitle", nil), Width: 360, Height: 68, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=bubble", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true},
 	})
 	prop := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "prop", Title: "Caelis Bot — 纸飞机", Width: 520, Height: 360, Frameless: true, DisableResize: true, Hidden: true,
+		Name: "prop", Title: s.text("native.propTitle", nil), Width: 520, Height: 360, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=prop", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true},
 	})
@@ -229,15 +229,15 @@ func Run(assets fs.FS) error {
 	}
 	s.saveDiagnosticPath = func() (string, error) {
 		return nativeApp.Dialog.SaveFile().AttachToWindow(settings).SetFilename("Caelis-Bot-diagnostics.json").
-			SetMessage("仅包含系统、连接和状态计数；不包含聊天内容、文件路径或凭据。").
+			SetMessage(s.text("native.diagnosticExportMessage", nil)).
 			AddFilter("JSON", "*.json").CanCreateDirectories(true).PromptForSingleSelection()
 	}
 
 	s.pickRuntimeCLI = func() (string, error) {
-		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle("选择运行时可执行文件").SetButtonText("选择").PromptForSingleSelection()
+		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).SetTitle(s.text("native.pickRuntimeTitle", nil)).SetButtonText(s.text("native.choose", nil)).PromptForSingleSelection()
 	}
 	s.pickContentFile = func() (string, error) {
-		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).AddFilter("Caelis 内容包", "*.caelispack").SetTitle("导入内容包").SetButtonText("导入").PromptForSingleSelection()
+		return nativeApp.Dialog.OpenFile().AttachToWindow(settings).CanChooseFiles(true).CanChooseDirectories(false).AddFilter(s.text("native.contentPackFilter", nil), "*.caelispack").SetTitle(s.text("native.importContentTitle", nil)).SetButtonText(s.text("native.import", nil)).PromptForSingleSelection()
 	}
 	s.contentChanged = func(value contentpack.Appearance) {
 		data, _ := json.Marshal(value)
@@ -349,7 +349,7 @@ func Run(assets fs.FS) error {
 			}
 			return panel
 		}()).CanChooseFiles(true).CanChooseDirectories(false).
-			SetTitle("添加文件").SetButtonText("添加").PromptForMultipleSelection()
+			SetTitle(s.text("native.addFileTitle", nil)).SetButtonText(s.text("native.add", nil)).PromptForMultipleSelection()
 	}
 	pet.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); _ = s.SetVisible(false) })
 	// AppKit owns the tray and pet context menus; Wails owns keyboard commands.
@@ -370,6 +370,9 @@ func Run(assets fs.FS) error {
 		applicationMenu.AddRole(application.EditMenu)
 		nativeApp.Menu.Set(applicationMenu)
 		settings.SetTitle(i18n.Text(state.Locale, "native.settingsTitle", nil))
+		pet.SetTitle(i18n.Text(state.Locale, "native.petTitle", nil))
+		bubble.SetTitle(i18n.Text(state.Locale, "native.bubbleTitle", nil))
+		prop.SetTitle(i18n.Text(state.Locale, "native.propTitle", nil))
 	}
 	updateLanguage(s.LanguagePreferences())
 	s.languageChanged = func(state LanguageState) {

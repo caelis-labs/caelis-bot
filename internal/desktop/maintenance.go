@@ -11,37 +11,37 @@ import (
 
 func (s *Service) AttachmentStorage() (api.AttachmentStorage, error) {
 	if s.storage == nil {
-		return api.AttachmentStorage{}, errors.New("附件存储暂不可用")
+		return api.AttachmentStorage{}, errors.New(s.text("native.attachmentStorageUnavailable", nil))
 	}
 	return s.storage()
 }
 func (s *Service) CleanAttachmentStorage(ctx context.Context) (api.AttachmentStorage, error) {
 	if s.cleanStorage == nil {
-		return api.AttachmentStorage{}, errors.New("暂时无法清理")
+		return api.AttachmentStorage{}, errors.New(s.text("native.cleanupUnavailable", nil))
 	}
 	return s.cleanStorage(ctx)
 }
 func (s *Service) ExportDiagnostics() (string, error) {
 	if !s.exportMu.TryLock() {
-		return "", errors.New("请先完成当前导出")
+		return "", errors.New(s.text("native.exportInProgress", nil))
 	}
 	defer s.exportMu.Unlock()
 	if s.diagnosticReport == nil || s.saveDiagnosticPath == nil {
-		return "", errors.New("诊断导出暂不可用")
+		return "", errors.New(s.text("native.diagnosticExportUnavailable", nil))
 	}
 	data, err := s.diagnosticReport()
 	if err != nil || !json.Valid(data) {
-		return "", errors.New("暂时无法生成诊断报告")
+		return "", errors.New(s.text("native.diagnosticReportFailed", nil))
 	}
 	path, err := s.saveDiagnosticPath()
 	if err != nil {
-		return "", errors.New("暂时无法选择保存位置")
+		return "", errors.New(s.text("native.chooseSaveLocationFailed", nil))
 	}
 	if path == "" {
 		return "", nil
 	}
 	if localstate.Write(path, json.RawMessage(data)) != nil {
-		return "", errors.New("暂时无法保存诊断报告")
+		return "", errors.New(s.text("native.saveDiagnosticReportFailed", nil))
 	}
-	return "诊断报告已保存，未自动上传。", nil
+	return s.text("native.diagnosticSaved", nil), nil
 }

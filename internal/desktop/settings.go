@@ -55,7 +55,7 @@ func (s *Service) CheckUpdates(ctx context.Context) updates.Result {
 		if err := f(); err != nil {
 			return updates.Result{State: "unavailable", Current: updates.Version, Message: err.Error()}
 		}
-		return updates.Result{State: "native", Current: updates.Version, Message: "请在更新窗口中查看进度。"}
+		return updates.Result{State: "native", Current: updates.Version, Message: s.text("native.checkProgressInUpdateWindow", nil)}
 	}
 	return updates.Check(ctx)
 }
@@ -81,20 +81,20 @@ func (s *Service) SetAutomaticUpdates(enabled bool) error {
 	f := s.setAutomaticUpdates
 	s.mu.Unlock()
 	if f == nil {
-		return errors.New("自动更新暂不可用")
+		return errors.New(s.text("native.autoUpdateUnavailable", nil))
 	}
 	return f(enabled)
 }
 func (s *Service) OpenReleasePage() error {
 	if s.openReleasePage == nil {
-		return errors.New("发布页暂不可用")
+		return errors.New(s.text("native.releasePageUnavailable", nil))
 	}
 	return s.openReleasePage()
 }
 
 func (s *Service) RestartForRuntime() error {
 	if s.restartRuntime == nil {
-		return errors.New("重新启动暂不可用，请退出后重新打开 Caelis Bot")
+		return errors.New(s.text("native.restartUnavailable", nil))
 	}
 	return s.restartRuntime()
 }

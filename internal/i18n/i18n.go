@@ -20,8 +20,9 @@ var files embed.FS
 type Locale string
 
 const (
-	English Locale = "en"
-	Chinese Locale = "zh-CN"
+	English       Locale = "en"
+	Chinese       Locale = "zh-CN"
+	DefaultLocale Locale = English
 )
 
 // ValidPreference accepts only persisted values understood by both surfaces.
