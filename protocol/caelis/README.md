@@ -1,9 +1,10 @@
 # Caelis Control v1 baseline
 
 `manifest.json` pins the public Caelis OpenAPI schema and generated wire declarations
-from the official v0.61.0 commit `5e2546f4954eab1d0f8fcfcc57f54939ad465125`.
-The published schema and package-normalized wire are byte-identical to the prior
-`4a3c059` candidate baseline. Installed 0.60.1 is not equivalent.
+from commit `1f925044065dcef5986caf22041ef00afab0bd0c`. This includes the shared native Worker
+and steering extensions after v0.61.0; it is not a published release. Runtime support
+requires the advertised capabilities, including `shared-native-workers-v1` and
+`turn-steering-receipts-v1`.
 
 `internal/backend/caelis/wire/control_v1.gen.go` is copied from the public
 `control/appserver/wirev1/generated/control_v1.gen.go`, with only its package name

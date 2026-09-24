@@ -18,6 +18,7 @@ type workerStart struct {
 	Authorization string                  `json:"authorization"`
 }
 type worker struct {
+	Native      bool                    `json:"native,omitempty"`
 	Binding     wire.ApplicationBinding `json:"binding"`
 	Task        api.Task                `json:"task"`
 	Fingerprint string                  `json:"fingerprint"`
@@ -95,7 +96,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	fp := digest([]byte(in.Title + "\x00" + in.Prompt))[:32]
 	s.mu.Lock()
 	old, exists := s.state.Workers[in.ID]
-	cfg := s.state.Configurations[s.state.Session.SessionId]
+	execution := s.workExecution
 	s.mu.Unlock()
 	if exists {
 		if old.Fingerprint != fp {
@@ -103,19 +104,8 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		}
 		return s.ReadWork(ctx, in.ID)
 	}
-	profile := cfg.Profile
-	execution, e := s.resolveWorkExecution(ctx, profile)
-	if e != nil {
-		return api.Task{}, e
-	}
-	profile.Model = execution.Model
-	profile.ReasoningEffort = pointer(execution.Effort)
-	profile.ServiceTier = pointer(execution.ServiceTier)
-	profile.Instructions = in.Instructions
-	profile.Tools = nil
-	profile.ToolsVersion = "worker-native-v1"
-	profile.Workspace = &wire.ApplicationWorkspace{Cwd: &in.Workspace}
-	w := worker{Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId}}
+	profile := wire.ApplicationProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
+	w := worker{Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId}}
 	s.mu.Lock()
 	s.state.Workers[in.ID] = w
 	e = s.saveLocked()
@@ -143,7 +133,13 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 	s.mu.Unlock()
 	op := "work-create-" + digest([]byte(w.Task.ID))
 	if w.Binding.SessionId == "" {
-		result, e := s.command(ctx, op, "/application/sessions", wire.CreateApplicationSessionRequest{OperationId: &op, Profile: w.Start.Profile})
+		path := "/application/sessions"
+		var request any = wire.CreateApplicationSessionRequest{OperationId: &op, Profile: w.Start.Profile}
+		if w.Native {
+			path = "/application/workers"
+			request = wire.CreateWorkerRequest{OperationId: &op, Cwd: w.Task.Workspace, Title: &w.Task.Title, Model: &w.Start.Profile.Model, ReasoningEffort: w.Start.Profile.ReasoningEffort, FastMode: pointer(value(w.Start.Profile.ServiceTier) == "priority")}
+		}
+		result, e := s.command(ctx, op, path, request)
 		if e != nil || !succeeded(result.Outcome) {
 			if result.Outcome == "rejected" || result.Outcome == "conflicted" {
 				w.Task.Status, w.Task.Outcome, w.Start = "failed", "rejected", nil
@@ -155,7 +151,18 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 		if sid == "" && result.Resource != nil {
 			sid = value(result.Resource.Ref)
 		}
-		if e = c.json(ctx, "GET", "/application/sessions/"+idPath(sid), nil, &w.Binding, "", ""); e != nil {
+		if w.Native {
+			var workers []wire.ApplicationWorker
+			if e = c.json(ctx, "GET", "/application/workers", nil, &workers, "", ""); e != nil {
+				return w.Task, e
+			}
+			for _, grant := range workers {
+				if grant.SessionId == sid {
+					w.Binding = wire.ApplicationBinding{SessionId: sid, ApplicationId: grant.ApplicationId, ConnectionId: grant.ConnectionId, PrincipalId: grant.PrincipalId}
+					break
+				}
+			}
+		} else if e = c.json(ctx, "GET", "/application/sessions/"+idPath(sid), nil, &w.Binding, "", ""); e != nil {
 			return w.Task, e
 		}
 		s.mu.Lock()
@@ -169,11 +176,17 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 		}
 	}
 	sid := w.Binding.SessionId
-	grant, e := s.createGrant(ctx, sid, "work-"+w.Task.ID, w.Start.Authorization)
-	if e != nil {
-		return w.Task, e
+	var result wire.CommandResult
+	var e error
+	if w.Native {
+		result, e = s.command(ctx, w.PromptID, "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &w.PromptID, SessionId: &sid, Input: &w.Start.Prompt})
+	} else {
+		grant, grantErr := s.createGrant(ctx, sid, "work-"+w.Task.ID, w.Start.Authorization)
+		if grantErr != nil {
+			return w.Task, grantErr
+		}
+		result, e = s.command(ctx, w.PromptID, "/application/sessions/"+idPath(sid)+"/prompt", wire.ApplicationPromptRequest{OperationId: &w.PromptID, SessionId: &sid, SourceKind: "authorized_background", GrantId: &grant.Id, Input: &w.Start.Prompt})
 	}
-	result, e := s.command(ctx, w.PromptID, "/application/sessions/"+idPath(sid)+"/prompt", wire.ApplicationPromptRequest{OperationId: &w.PromptID, SessionId: &sid, SourceKind: "authorized_background", GrantId: &grant.Id, Input: &w.Start.Prompt})
 	w.Task.Outcome = productOutcome(result.Outcome)
 	if succeeded(result.Outcome) {
 		w.Task.Status, w.Start = "pending", nil
@@ -213,15 +226,29 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	v := s.state.Views[w.Binding.SessionId]
 	busy := v != nil && (value(v.State.Run.Active) || v.State.Approval.Active != nil)
 	s.mu.Unlock()
-	if !ok || busy || w.Binding.SessionId == "" {
-		return api.Task{}, errors.New("任务忙碌或未就绪，当前 Caelis 不支持在途追加")
+	if !ok || w.Binding.SessionId == "" || v == nil {
+		return api.Task{}, errors.New("任务未就绪")
 	}
 	sid := w.Binding.SessionId
+	op := "work-send-" + digest([]byte(in.RequestID))
+	s.mu.Lock()
+	_, retry := s.state.Operations[op]
+	s.mu.Unlock()
+	if w.Native || s.isSteeringRetry(op) || busy && !retry {
+		res, err := s.submitNativeInput(ctx, sid, op, in.Prompt, nil, busy)
+		w.Task.Outcome = productOutcome(res.Outcome)
+		if succeeded(res.Outcome) {
+			w.Stopped = false
+		}
+		if !busy {
+			w.PromptID = op
+		}
+		return w.Task, errors.Join(err, s.saveWorker(w))
+	}
 	g, e := s.createGrant(ctx, sid, "continue-"+digest([]byte(in.RequestID)), call.Source.OperationId)
 	if e != nil {
 		return w.Task, e
 	}
-	op := "work-send-" + digest([]byte(in.RequestID))
 	res, e := s.command(ctx, op, "/application/sessions/"+idPath(sid)+"/prompt", wire.ApplicationPromptRequest{OperationId: &op, SessionId: &sid, SourceKind: "authorized_background", GrantId: &g.Id, Input: &in.Prompt})
 	s.mu.Lock()
 	w.Stopped = false

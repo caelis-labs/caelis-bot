@@ -1,10 +1,12 @@
 # Caelis 接入与运行时管理
 
-2026-09-24：Bot 已接通正式 Caelis v0.61.0 通用应用运行时，固定源码基线为
-`5e2546f4954eab1d0f8fcfcc57f54939ad465125`。使用公开 HTTP/SSE 与生成的 Go wire，
-不导入兄弟仓库、不恢复旧 Bot Mode。已核对本机安装与官方发布资产一致，并完成隔离 Host、
-MiMo / GPT-6 Luna（含 Fast）及原生 GUI 的设置、身份写入、聊天和模型切换验收。
-完整覆盖与限制见 [正式版联调报告](caelis-release-acceptance.md)，此前候选证据见 [真实模型报告](caelis-live-acceptance.md)，
+2026-09-24：Bot 使用 Caelis 通用应用运行时与共享原生 Worker 协议，固定源码基线为
+`1f925044065dcef5986caf22041ef00afab0bd0c`。使用公开 HTTP/SSE 与生成的 Go wire，
+不导入兄弟仓库、不恢复旧 Bot Mode。此基线包含 v0.61.0 之后的共享会话与 steering 扩展，
+尚未随正式版本发布；已通过确定性测试与隔离 macOS Host 集成测试。
+
+v0.61.0 的真实模型和原生 GUI 证据见 [正式版联调报告](caelis-release-acceptance.md)，
+不代表本次扩展已完成相同验收。此前候选证据见 [真实模型报告](caelis-live-acceptance.md)，
 早期确定性 B01–B12 见 [联调报告](caelis-application-acceptance.md)。
 
 ## 基线与发现
@@ -18,9 +20,11 @@ MiMo / GPT-6 Luna（含 Fast）及原生 GUI 的设置、身份写入、聊天�
 - `application-workspace-binding-v1`
 - `application-background-activation-v1`
 - `application-resource-transfer-v1`
+- `shared-native-workers-v1`
+- `turn-steering-receipts-v1`
 
 CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切换，保留安装、更新和服务管理入口；
-不静默换用 Codex 或旧 Bot。0.60.1 不包含此基线；安装成功也不代表运行中的共享 Host 已更新。
+不静默换用 Codex 或旧 Bot。v0.61.0 不包含共享 Worker 扩展；安装成功也不代表运行中的共享 Host 已更新。
 
 ## 使用入口
 
@@ -85,7 +89,7 @@ adapter 用 map 表达显式空数组，避免生成类型的 `omitempty` 把清
 worker 启动分阶段保存创建配置、原授权和 prompt，重启后可在确认前一步回执后继续；
 已经发出的步骤只读回执。callback claim 丢响应不执行 effect；effect 已记账只重送相同 result；
 缺失旧 handler 时明确失败，不把旧调用交给同名新版工具。
-SSE replacement 完成后原子切换，游标保持不透明；轮询不能覆盖更新的 SSE 事实。
+SSE replacement 完成后原子切换，游标保持不透明；稳定订阅期间进展不依赖状态轮询。
 
 ## 复现
 
@@ -123,7 +127,37 @@ live fixture 带入完整产品工具目录并调用无参数 `bot_clock`，检�
   不因 Luna 通过就宣称全部模型支持 Fast。
 - Core 尚无按上传 operation ID 查资源描述符的公开接口。上传响应完全丢失时 Bot 保留未知上传 intent，
   不猜 opaque resource ID、不自动重传；需补只读恢复接口或明确支持的恢复契约。
-- 主会话和 worker 暂不支持 active Turn steer；忙碌时继续消息明确拒绝。权限选择不热更新。
+- 主会话和 Worker 的真实用户输入支持 active Turn steering；请求持久绑定期望 Turn，重试不改投新 Turn。权限选择不热更新。
 - 未确认的 cancel/approval 仍保留未知，不通过新 ID 自动重试；此类原生命令的完整恢复需要后续专项验收。
 - worker 产物已进入其原生投影，但产品报告尚未汇总成主对话下载项；本轮可点击下载闭环验证的是常驻会话。
 - 暂无接管其他应用任务、已有项目/worktree 选择、资源过期清理或历史分页归档；Windows 原生适配未实施。
+
+
+## Shared native Workers and steering
+
+The adapter requires `shared-native-workers-v1` and `turn-steering-receipts-v1`.
+New workers use `POST /application/workers`, then the ordinary Session prompt,
+steer and reconnect APIs. They use the Host's normal environment, tools, MCP,
+plugins and permissions; resident Bot profiles and private Memory are not copied.
+Explicit work model preferences select a per-Session native model; an empty
+preference uses the Host default. The terminal entry point is
+`caelis attach --control-url ENDPOINT --session SESSION_ID --control-token-file PATH`.
+The host credential belongs to the user's terminal, not to the Bot adapter.
+
+Main and Worker submissions during an active Turn preserve its exact target in
+the outbound operation journal. A repeated ID never adopts a later Turn or turns
+into a fresh prompt. Accepted steering remains distinct from a canonical
+`input_status: applied` event. Session SSE stays open across user-initiated Turns;
+steady progress requires no state polling. Maintenance renews the application
+lease and restores failed streams or uncertain receipts.
+
+Persisted pre-native workers retain their isolated Application Session binding
+and original pending creation profile. Only those existing records use the old
+creation/prompt path; new workers never select it. Remove this reader when no
+supported saved Bot state contains these workers. Unknown native operations are
+reconciled through `/application/operations/{operation_id}` without redispatch.
+
+The vendored public schema and wire are pinned to the exact source commit in
+`protocol/caelis/manifest.json`. This source pin is not a release claim. Protocol
+unit tests and isolated Host integration are separate from native GUI and
+real-model acceptance.
