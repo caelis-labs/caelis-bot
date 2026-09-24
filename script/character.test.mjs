@@ -1,3 +1,4 @@
+import {defaultModel} from './shipped-character.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,mkdirSync,mkdtempSync,rmSync} from 'node:fs';
@@ -10,8 +11,8 @@ import {Box3} from 'three';
 import validator from 'gltf-validator';
 
 test('shipped character, five clips and host transitions preserve frame bounds',async()=>{
- const bytes=readFileSync('frontend/public/models/caelis-soft-outfit-v1.glb');
- const report=await validator.validateBytes(new Uint8Array(bytes),{uri:'caelis-soft-outfit-v1.glb'});
+ const bytes=readFileSync(defaultModel);
+ const report=await validator.validateBytes(new Uint8Array(bytes),{uri:defaultModel});
  assert.equal(report.issues.numErrors,0);assert.equal(report.issues.numWarnings,0);
  const gltf=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
  assert.deepEqual(gltf.animations.map(c=>c.name).sort(),['attention','celebrate','idle','nod','working']);
@@ -63,7 +64,7 @@ test('local behavior yields to interaction, restores constant tracks and keeps p
   for(let i=0;i<60;i++){director.update(1,'idle',{...context,interaction:{...context.interaction,input:true}});assert.equal(director.active,false);}
   const s30=new Spring(),s60=new Spring();for(let i=0;i<30;i++)s30.step(.5,1/30);for(let i=0;i<60;i++)s60.step(.5,1/60);
   assert.ok(Math.abs(s30.value-s60.value)<1e-9,'motion must not depend on refresh rate');
-  const bytes=readFileSync('frontend/public/models/caelis-soft-outfit-v1.glb');
+  const bytes=readFileSync(defaultModel);
   const gltf=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
   const pose=new PoseLayer(gltf.scene),head=gltf.scene.getObjectByName('head'),original=head.quaternion.clone();
   assert.ok(gltf.scene.getObjectByName('handR'),'reused rig supplies the prop attachment');
@@ -89,7 +90,7 @@ test('local behavior yields to interaction, restores constant tracks and keeps p
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
 
-for (const asset of ['caelis-soft-outfit-v1']) test(`${asset}: near gestures share expression timing, recover their arm pose and yield to input`,async()=>{
+for (const asset of [defaultModel]) test(`${asset}: near gestures share expression timing, recover their arm pose and yield to input`,async()=>{
  mkdirSync('.cache',{recursive:true});const dir=mkdtempSync(resolve('.cache/near-test-'));
  try{
   for(const name of ['behavior','performance'])await build({configFile:false,logLevel:'silent',build:{ssr:resolve(`frontend/src/character/${name}.ts`),outDir:dir,emptyOutDir:false,rolldownOptions:{output:{entryFileNames:`${name}.mjs`}}}});
@@ -109,7 +110,7 @@ for (const asset of ['caelis-soft-outfit-v1']) test(`${asset}: near gestures sha
   assert.equal(timeline.update(1/30,waiting).gesture,'ask');
   for(let i=0;i<100;i++)result=timeline.update(1/30,waiting);
   assert.equal(result.gesture,null,'pending approval asks once, then waits quietly');
-  const bytes=readFileSync(`frontend/public/models/${asset}.glb`);
+  const bytes=readFileSync(asset);
   const gltf=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
   const pose=new PoseLayer(gltf.scene);
   pose.settle();
@@ -120,7 +121,7 @@ gltf.scene.updateMatrixWorld(true);
    timeline.update(0,state);timeline.preview(gesture);
    for(let frame=0;frame<190;frame++){
     result=timeline.update(1/30,state);pose.restore();pose.apply(1/30,director,undefined,false,undefined,result);
-    if(['caelis-arms-v1','caelis-costume-v1','caelis-relaxed-v1','caelis-soft-outfit-v1'].includes(asset))for(const side of ['L','R']){
+    for(const side of ['L','R']){
      const helper=gltf.scene.getObjectByName('forearm_twist'+side);
      assert.equal(gltf.scene.userData.desktopPetForearmTwist[side],0,'new arm has no static half-turn compensation');
      assert.ok(Math.abs(helper.quaternion.y)<.53,'gesture must not twist the forearm through a half turn');
@@ -143,8 +144,8 @@ gltf.scene.updateMatrixWorld(true);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
 
-for(const asset of ['caelis-soft-outfit-v1'])test(`${asset} resting mouth closes fully and opens only with expression changes`,async()=>{
- const bytes=readFileSync(`frontend/public/models/${asset}.glb`);
+for(const asset of [defaultModel])test(`${asset} resting mouth closes fully and opens only with expression changes`,async()=>{
+ const bytes=readFileSync(asset);
  const gltf=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
  assert.equal(gltf.scene.userData.desktopPetMouthRest,'closed');
  const dir=mkdtempSync(resolve('.cache/natural-face-test-'));

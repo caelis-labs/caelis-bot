@@ -1,3 +1,4 @@
+import {defaultModel} from './shipped-character.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
@@ -15,7 +16,7 @@ try {
  const {FacialAnimation}=await import(pathToFileURL(join(dir,'face.mjs')));
  const parse=async path=>{const b=readFileSync(path);return new GLTFLoader().parseAsync(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength),'')};
  const clips=g=>g.animations.map(c=>{const {uuid,...data}=c.toJSON();return data});
- const path='frontend/public/models/caelis-soft-outfit-v1.glb';
+ const path=defaultModel;
  const sample=await parse(path),profile=sample.scene.userData.desktopPetViewMorphs;
  test('view blending is continuous, bounded, symmetric and fades away at the back',()=>{
   for(let angle=-180;angle<=180;angle+=.5){const w=viewWeights(angle*Math.PI/180,profile),next=viewWeights((angle+.001)*Math.PI/180,profile);assert.ok(Object.values(w).every(n=>n>=0&&n<=1));assert.ok(Object.values(w).reduce((a,b)=>a+b,0)<=1+1e-8);assert.ok(Object.keys(w).every(k=>Math.abs(next[k]-w[k])<.001));}
