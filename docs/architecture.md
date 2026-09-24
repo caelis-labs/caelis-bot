@@ -482,7 +482,9 @@ menu API cannot embed NSSlider. Both the tray and pet context menu use the same 
 lives in the shared settings window.
 The status icon is an embedded, unchanged copy of the homepage favicon, with provenance
 in internal/desktop/assets/README.md. There is no runtime sibling-repository dependency.
-The menu-bar accessory has no Dock entry. The combined pet/input panel uses
+The menu-bar-only state has no Dock entry. Open chat/settings promote the application
+to regular activation before ordering in; the Dock entry remains for covered or minimised
+windows. Closing the last contextual window restores accessory activation. The combined pet/input panel uses
 CanJoinAllSpaces + FullScreenAuxiliary, with CanJoinAllApplications on macOS 13+.
 The input capsule uses MoveToActiveSpace + FullScreenAuxiliary, so explicit open
 does not return to an old desktop. Space changes dismiss the capsule without focus
@@ -590,14 +592,29 @@ Registration failure preserves the prior shortcut. Saving failure rolls registra
 back; preferences use atomic replacement with mode 0600. A hidden pet does not disable
 the shortcut. A future Windows host must implement its own driver and conflict checks.
 
-The hotkey and settings preview both call `ToggleHistory`: native visible, non-minimised
-chat is hidden; hidden/minimised chat is raised and its editor focused through the
+The hotkey and settings preview both call `ToggleHistory`: only an active application
+with a visible, key, non-minimised chat hides it; background/hidden/minimised chat is raised and its editor focused through the
 existing window-recall preparation. An attached native sheet is recalled rather than
 hidden. No remembered toggle bit or backend cancellation is involved. Menus and pet
 double-click keep their unconditional recall path. Pet single-click toggles its nearby capsule;
 the centered-input path is removed. Closing that capsule restores the previous
 application when appropriate; outside clicks retain their chosen destination.
 Busy/disconnected chat retains the draft and existing native send/approval gates.
+`window_lifecycle_darwin.m` reads native ordered-in/minimised state for Dock policy,
+not occlusion. Close hooks hide only the corresponding reusable webview and recompute
+activation policy; they never quit or cancel backend work. The Dock reopen hook cancels
+Wails' default reveal-all-windows behavior and recalls only still-open chat/settings,
+so private pet/composer/prop surfaces and explicitly closed settings stay hidden.
+
+The connection page owns installation/account/model-service management, with one
+connection check and a conditional restart action. Routine model selection lives only
+in ExecutionSettings. Its single save action compares conversation/work drafts against
+their last accepted values, calls only changed settings, and records each receipt before
+continuing. Partial failure keeps remaining changes dirty and names the saved scope;
+there is no cross-file atomicity claim. The form remains mounted across navigation and
+native close, preserving drafts; navigation resets scroll to the top. Worker settings
+share the model catalog and are behind an optional disclosure. Untouched inherited
+conversation defaults are never persisted by a work-only save.
 
 Explicit `history-open` resets bottom-following even if the window is already active.
 Native key-window reconciliation uses `history-visible` so ordinary app switching does
