@@ -1,6 +1,7 @@
 import './style.css';
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { I18nProvider } from './i18n';
 import { desktop } from './desktop';
 import { Panel, History } from './Panel';
 import { Bubble } from './Bubble';
@@ -33,4 +34,4 @@ function Prop() {
 }
 const surface = new URLSearchParams(location.search).get('surface');
 document.body.dataset.surface = surface ?? 'pet';
-createRoot(document.getElementById('root')!).render(surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'panel' ? <Panel /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <Settings /> : <Pet />}</React.StrictMode>);
+createRoot(document.getElementById('root')!).render(<I18nProvider>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'panel' ? <Panel /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <Settings /> : <Pet />}</React.StrictMode>}</I18nProvider>);

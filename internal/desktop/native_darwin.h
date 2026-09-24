@@ -41,3 +41,6 @@ void bot_finish_plane(void *host, char *id, int completed);
 
 int bot_shortcut(void *host, char *key, int flags, int enabled);
 void bot_panel_ready(void *host, int activation);
+
+char *bot_preferred_languages(void);
+void bot_language(void *host, char *json);

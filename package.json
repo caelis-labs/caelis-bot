@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "smoke:assets": "node script/smoke-assets.mjs",
     "smoke:codex": "node script/smoke-codex.mjs",
-    "schema:codex": "node script/codex-schema.mjs"
+    "schema:codex": "node script/codex-schema.mjs",
+    "check:i18n": "node script/i18n-catalogs.mjs && node --test script/i18n.test.mjs"
   },
   "dependencies": {
     "react": "19.3.0",

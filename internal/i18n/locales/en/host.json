@@ -1,0 +1,9 @@
+{
+  "approvalTitle": "Your confirmation is needed",
+  "approvalBody": "Open Caelis Bot to review the action and decide.",
+  "scheduledTitle": "A scheduled task has an update",
+  "scheduledFailed": "A scheduled task could not finish",
+  "resultTitle": "Work completed",
+  "resultFailed": "Work could not finish",
+  "replyBody": "Open Caelis Bot to view the reply."
+}

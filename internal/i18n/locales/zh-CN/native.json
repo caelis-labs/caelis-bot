@@ -1,0 +1,13 @@
+{
+  "chat": "对话",
+  "show": "显示",
+  "hide": "隐藏",
+  "settings": "设置…",
+  "updates": "检查更新…",
+  "quit": "退出",
+  "openChat": "打开聊天窗口",
+  "showPet": "显示桌宠",
+  "hidePet": "隐藏桌宠",
+  "closeWindow": "关闭窗口",
+  "settingsTitle": "Caelis Bot — 设置"
+}

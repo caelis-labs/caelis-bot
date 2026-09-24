@@ -20,6 +20,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
@@ -49,12 +50,13 @@ func Run(assets fs.FS) error {
 	}
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configureShortcut(filepath.Join(root, "shortcut.json"))
+	logError(s.configureLanguage(filepath.Join(root, "language.json"), macPreferredLanguages()))
 	s.content, err = contentpack.NewRegistry(filepath.Join(root, "content"))
 	if err != nil {
 		logError(err)
 	}
 
-	core, err := app.New(root, app.Host{Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
+	core, err := app.New(root, app.Host{Locale: func() i18n.Locale { return s.LanguagePreferences().Locale }, Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
 		OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 		RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
 		TrashFile:  trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError})
@@ -199,7 +201,7 @@ func Run(assets fs.FS) error {
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true},
 	})
 	settings := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "settings", Title: "Caelis Bot — 设置", Width: 1040, Height: 710, MinWidth: 860, MinHeight: 640,
+		Name: "settings", Title: s.text("native.settingsTitle", nil), Width: 1040, Height: 710, MinWidth: 860, MinHeight: 640,
 		Hidden: true, URL: "/?surface=settings", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
@@ -352,19 +354,39 @@ func Run(assets fs.FS) error {
 	pet.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); _ = s.SetVisible(false) })
 	// AppKit owns the tray and pet context menus; Wails owns keyboard commands.
 	// Drop Wails' unrelated File/View/Window/Help fixture menus.
-	populate := func(menu *application.Menu) {
-		menu.Add("打开聊天窗口").OnClick(func(*application.Context) { s.OpenHistory() })
-		menu.Add("设置…").SetAccelerator("Cmd+,").OnClick(func(*application.Context) { s.OpenSettings() })
-		menu.Add("检查更新…").OnClick(func(*application.Context) { s.OpenUpdates() })
-		menu.Add("显示桌宠").OnClick(func(*application.Context) { logError(s.SetVisible(true)) })
-		menu.Add("隐藏桌宠").OnClick(func(*application.Context) { logError(s.SetVisible(false)) })
+	populate := func(menu *application.Menu, locale i18n.Locale) {
+		text := func(key string) string { return i18n.Text(locale, "native."+key, nil) }
+		menu.Add(text("openChat")).OnClick(func(*application.Context) { s.OpenHistory() })
+		menu.Add(text("settings")).SetAccelerator("Cmd+,").OnClick(func(*application.Context) { s.OpenSettings() })
+		menu.Add(text("updates")).OnClick(func(*application.Context) { s.OpenUpdates() })
+		menu.Add(text("showPet")).OnClick(func(*application.Context) { logError(s.SetVisible(true)) })
+		menu.Add(text("hidePet")).OnClick(func(*application.Context) { logError(s.SetVisible(false)) })
 		menu.AddSeparator()
-		menu.Add("关闭窗口").SetAccelerator("Cmd+W").OnClick(func(*application.Context) { closeContextWindow() })
+		menu.Add(text("closeWindow")).SetAccelerator("Cmd+W").OnClick(func(*application.Context) { closeContextWindow() })
 	}
-	applicationMenu := nativeApp.Menu.New()
-	populate(applicationMenu.AddSubmenu("Caelis Bot"))
-	applicationMenu.AddRole(application.EditMenu)
-	nativeApp.Menu.Set(applicationMenu)
+	updateLanguage := func(state LanguageState) {
+		applicationMenu := nativeApp.Menu.New()
+		populate(applicationMenu.AddSubmenu("Caelis Bot"), state.Locale)
+		applicationMenu.AddRole(application.EditMenu)
+		nativeApp.Menu.Set(applicationMenu)
+		settings.SetTitle(i18n.Text(state.Locale, "native.settingsTitle", nil))
+	}
+	updateLanguage(s.LanguagePreferences())
+	s.languageChanged = func(state LanguageState) {
+		data, _ := json.Marshal(state)
+		application.InvokeSync(func() {
+			updateLanguage(state)
+			for _, window := range []*application.WebviewWindow{pet, panel, history, bubble, settings, prop} {
+				window.ExecJS("window.dispatchEvent(new CustomEvent('language-changed',{detail:" + string(data) + "}))")
+			}
+		})
+		s.mu.Lock()
+		d, ok := s.native.(*macDriver)
+		s.mu.Unlock()
+		if ok {
+			d.language(state.Locale)
+		}
+	}
 	nativeApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		if !installMacAppIcon() {
 			log.Print("Desktop application icon could not be decoded")

@@ -10,7 +10,9 @@
     "noEmit": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "types": ["node"]
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true
   },
   "include": ["frontend/src", "vite.config.ts"]
 }

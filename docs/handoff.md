@@ -98,3 +98,9 @@ Developer ID 和公证已接入正式发行；Windows 原生适配仍未实现�
 原数据保留。嵌入 Memory v0.6.1 的线索工具支持 recall/remember/correct/forget。
 路径、边界和验收见 [个人空间](personal-memory.md)。该历史检查点中 Developer ID 尚在独立 stash，现已恢复发行。
 Caelis 新协议已完成真实模型 Notebook 读写、INDEX 更新和重启后回读；跨 Runtime 资料迁移未在本轮重验。
+
+## Bilingual interface work
+
+The i18n foundation provides shared catalogs, a host-owned language preference and
+live surface/menu updates. Bulk migration and native bilingual acceptance remain;
+use the [parallel handoff](i18n-handoff.md) before the next formal release.

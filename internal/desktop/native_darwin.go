@@ -18,6 +18,8 @@ import (
 	"runtime/cgo"
 	"unsafe"
 
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -65,6 +67,7 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 	application.InvokeSync(func() {
 		d.pointer = C.bot_create(pet.NativeWindow(), panel.NativeWindow(), bubble.NativeWindow(), history.NativeWindow(), prop.NativeWindow(), C.uintptr_t(d.handle), (*C.uchar)(unsafe.Pointer(&statusIcon[0])), C.int(len(statusIcon)))
 	})
+	d.language(s.LanguagePreferences().Locale)
 	return d
 }
 func (d *macDriver) screens() []Rect {
@@ -339,3 +342,21 @@ var (
 	_ contextDriver      = (*macDriver)(nil)
 	_ propDriver         = (*macDriver)(nil)
 )
+
+// macPreferredLanguages returns the ordered OS language preferences at launch.
+func macPreferredLanguages() []string {
+	value := C.bot_preferred_languages()
+	if value == nil {
+		return nil
+	}
+	defer C.free(unsafe.Pointer(value))
+	var languages []string
+	_ = json.Unmarshal([]byte(C.GoString(value)), &languages)
+	return languages
+}
+func (d *macDriver) language(locale i18n.Locale) {
+	data, _ := json.Marshal(i18n.Namespace(locale, "native"))
+	value := C.CString(string(data))
+	defer C.free(unsafe.Pointer(value))
+	application.InvokeSync(func() { C.bot_language(d.pointer, value) })
+}

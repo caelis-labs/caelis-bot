@@ -76,6 +76,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 
 @property BOOL visible;
 @property NSStatusItem *statusItem;
+@property NSDictionary<NSString *,NSString *> *language;
 @property double scale;
 @property double placementX;
 @property double placementY;
@@ -210,24 +211,25 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     dispatch_async(dispatch_get_main_queue(), ^{ if (weak.handle) desktopEvent(weak.handle,2,0,0,0); });
     completionHandler();
 }
+- (NSString *)text:(NSString *)key { return self.language[key] ?: key; }
 - (NSMenu *)petMenu {
     NSMenu *menu = [NSMenu new];
     menu.autoenablesItems = NO; menu.delegate = self;
-    NSMenuItem *open = [menu addItemWithTitle:@"对话" action:@selector(openChat:) keyEquivalent:@""];
+    NSMenuItem *open = [menu addItemWithTitle:[self text:@"chat"] action:@selector(openChat:) keyEquivalent:@""];
     open.target = self;
-    NSMenuItem *visibility = [menu addItemWithTitle:self.visible ? @"隐藏" : @"显示" action:@selector(togglePet:) keyEquivalent:@""];
+    NSMenuItem *visibility = [menu addItemWithTitle:self.visible ? [self text:@"hide"] : [self text:@"show"] action:@selector(togglePet:) keyEquivalent:@""];
     visibility.target = self; visibility.tag = 2;
     return menu;
 }
 - (NSMenu *)applicationMenu {
     NSMenu *menu = [self petMenu];
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *settings = [menu addItemWithTitle:@"设置…" action:@selector(openSettings:) keyEquivalent:@","];
+    NSMenuItem *settings = [menu addItemWithTitle:[self text:@"settings"] action:@selector(openSettings:) keyEquivalent:@","];
     settings.target = self;
-    NSMenuItem *updates = [menu addItemWithTitle:@"检查更新…" action:@selector(checkUpdates:) keyEquivalent:@""];
+    NSMenuItem *updates = [menu addItemWithTitle:[self text:@"updates"] action:@selector(checkUpdates:) keyEquivalent:@""];
     updates.target = self;
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *quit = [menu addItemWithTitle:@"退出" action:@selector(quit:) keyEquivalent:@""];
+    NSMenuItem *quit = [menu addItemWithTitle:[self text:@"quit"] action:@selector(quit:) keyEquivalent:@""];
     quit.target = self;
     return menu;
 }
@@ -260,7 +262,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     self.trackingMenu=menu; self.menuTracking=YES; [self cancelPlane]; [self publishContext];
 
     for (NSMenuItem *item in menu.itemArray) {
-        if (item.tag == 2) item.title = self.visible ? @"隐藏" : @"显示";
+        if (item.tag == 2) item.title = self.visible ? [self text:@"hide"] : [self text:@"show"];
     }
 }
 - (void)placeX:(double)x y:(double)y scale:(double)scale {
@@ -819,4 +821,17 @@ void bot_panel_ready(void *pointer,int activation){
     host.readyID=activation;
     double elapsed=host.interactionStart>0 ? (NSProcessInfo.processInfo.systemUptime-host.interactionStart)*1000 : 0;
     [host trace:[NSString stringWithFormat:@"input-ready:%.1fms",elapsed]];
+}
+
+char *bot_preferred_languages(void) {
+    @autoreleasepool {
+        NSData *data = [NSJSONSerialization dataWithJSONObject:NSLocale.preferredLanguages options:0 error:nil];
+        return strdup([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
+    }
+}
+void bot_language(void *pointer, char *json) {
+    BotHost *host = (__bridge BotHost *)pointer;
+    NSData *data = [[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding];
+    host.language = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    host.statusItem.menu = [host applicationMenu];
 }

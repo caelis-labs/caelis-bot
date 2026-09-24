@@ -16,6 +16,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
@@ -24,6 +25,8 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
+	// Locale is read when presenting host-generated UI, never during model execution.
+	Locale       func() i18n.Locale
 	Diagnostics  *diagnosticlog.Logger
 	ResolveFiles func([]string) ([]api.InputFile, error)
 	ConsumeFiles func([]string)
@@ -273,7 +276,7 @@ func (a *Application) Start() error {
 	go func() { defer a.workers.Done(); _ = a.Backend.Connect(ctx) }()
 	go func() {
 		defer a.workers.Done()
-		observer := backend.NotificationObserver{Notify: a.host.Notify}
+		observer := backend.NotificationObserver{Notify: a.host.Notify, Locale: a.host.Locale}
 		var revision uint64
 		for {
 			snapshot, err := a.engine.(api.SnapshotObserver).WaitSnapshot(ctx, revision)

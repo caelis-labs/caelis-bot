@@ -2,6 +2,7 @@ package backend
 
 import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"testing"
 )
 
@@ -80,5 +81,23 @@ func TestScheduledNotificationAfterReconnectDuringExecution(t *testing.T) {
 	o.Observe(v)
 	if delivered != 1 {
 		t.Fatalf("completion after reconnect: %d notifications", delivered)
+	}
+}
+
+func TestNotificationsUseCurrentLanguageWithoutReannouncingHistory(t *testing.T) {
+	locale := i18n.English
+	var titles []string
+	o := NotificationObserver{Locale: func() i18n.Locale { return locale }, Notify: func(_, title, _ string, _ bool) { titles = append(titles, title) }}
+	v := api.Snapshot{Connection: "ready", Approvals: []api.Approval{{ID: "first", Status: "pending"}}}
+	o.Observe(v)
+	locale = i18n.Chinese
+	o.Observe(v)
+	if len(titles) != 1 {
+		t.Fatal("language change reannounced a decision")
+	}
+	v.Approvals = append(v.Approvals, api.Approval{ID: "second", Status: "pending"})
+	o.Observe(v)
+	if len(titles) != 2 || titles[0] != "Your confirmation is needed" || titles[1] != "需要你的确认" {
+		t.Fatal(titles)
 	}
 }

@@ -42,6 +42,12 @@ Caelis Bot: menu bar + scalable desktop pet + contextual panels
 Wails / Go: windows, OS integration, process lifetime and byte transport
 ```
 
+## Interface languages
+
+Desktop owns the persisted language preference and revisioned window notifications.
+Go and React share one bilingual catalog; execution content and Runtime settings
+remain independent. See [interface languages](i18n.md) for APIs and content boundaries.
+
 ## Runtime settings authority
 
 The settings renderer presents a single Runtime workspace: models and Team, grouped

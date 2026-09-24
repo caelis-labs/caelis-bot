@@ -1,0 +1,9 @@
+{
+  "approvalTitle": "需要你的确认",
+  "approvalBody": "点击打开 Caelis Bot，查看操作并作出决定。",
+  "scheduledTitle": "定时任务有新消息",
+  "scheduledFailed": "定时任务未能完成",
+  "resultTitle": "工作已完成",
+  "resultFailed": "工作未能完成",
+  "replyBody": "点击查看 Caelis Bot 的回复。"
+}
