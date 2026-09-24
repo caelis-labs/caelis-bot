@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 type prompt struct {
@@ -97,7 +98,12 @@ func (s *Session) addPrompt(event Notification) {
 		URL         string                     `json:"url"`
 		Schema      json.RawMessage            `json:"requestedSchema"`
 	}
-	if json.Unmarshal(event.Params, &n) != nil || !s.ownsThread(n.ThreadID) || (n.ThreadID == s.binding.ThreadID && n.TurnID != "" && terminal(s.runs[n.TurnID])) || s.childTerminals[opaque(n.ThreadID, n.TurnID)] {
+	if err := json.Unmarshal(event.Params, &n); err != nil {
+		s.logEvent(event, "server_request_decode_failed", diagnosticlog.DecodeReason(err))
+		s.rejectRequest(event)
+		return
+	}
+	if !s.ownsThread(n.ThreadID) || (n.ThreadID == s.binding.ThreadID && n.TurnID != "" && terminal(s.runs[n.TurnID])) || s.childTerminals[opaque(n.ThreadID, n.TurnID)] {
 		s.rejectRequest(event)
 		return
 	}

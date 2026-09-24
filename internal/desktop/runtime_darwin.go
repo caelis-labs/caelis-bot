@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"io/fs"
@@ -18,6 +19,8 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -32,6 +35,17 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
+	diagnostics := diagnosticlog.New(filepath.Join(root, "Logs"))
+	env, envErr := runtimeenv.Resolve(context.Background(), os.Environ())
+	if err := runtimeenv.Install(env); err != nil {
+		envErr = err
+	}
+	if envErr != nil {
+		// Resolve returns only locally generated causes, never shell output/values.
+		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
+	} else {
+		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_loaded", Reason: "user login and interactive shell exports loaded for native runtimes"})
+	}
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configureShortcut(filepath.Join(root, "shortcut.json"))
 	s.content, err = contentpack.NewRegistry(filepath.Join(root, "content"))
@@ -39,7 +53,7 @@ func Run(assets fs.FS) error {
 		logError(err)
 	}
 
-	core, err := app.New(root, app.Host{ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
+	core, err := app.New(root, app.Host{Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
 		OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 		RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
 		TrashFile:  trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ReportError: logError})

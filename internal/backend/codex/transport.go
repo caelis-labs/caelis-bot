@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 var (
@@ -78,6 +80,7 @@ type connection interface {
 }
 
 type transport struct {
+	diagnostics    *diagnosticlog.Logger
 	conn           connection
 	mu             sync.Mutex
 	next           uint64
@@ -102,8 +105,11 @@ func newTransport(conn connection, stop func()) *transport {
 	return newTransportOptions(conn, stop, false)
 }
 func newTransportOptions(conn connection, stop func(), requests bool) *transport {
+	return newTransportLogged(conn, stop, requests, nil)
+}
+func newTransportLogged(conn connection, stop func(), requests bool, diagnostics *diagnosticlog.Logger) *transport {
 	t := &transport{conn: conn, pending: make(map[string]chan response), done: make(chan struct{}),
-		stopped: make(chan struct{}), readDone: make(chan struct{}), writeToken: make(chan struct{}, 1), events: make(chan Notification, 64), stop: stop}
+		stopped: make(chan struct{}), readDone: make(chan struct{}), writeToken: make(chan struct{}, 1), events: make(chan Notification, 64), stop: stop, diagnostics: diagnostics}
 	t.handleRequests = requests
 	t.serverPending = make(map[string]serverRequestState)
 	t.writeToken <- struct{}{}
@@ -119,6 +125,16 @@ func (t *transport) fail(err error) {
 	t.terminal = err
 	close(t.done)
 	t.mu.Unlock()
+	if !errors.Is(err, ErrClosed) {
+		reason := "transport disconnected; pending outcomes require reconciliation"
+		if errors.Is(err, ErrEventOverflow) {
+			reason = "notification queue overflow; execution observation incomplete"
+		}
+		if errors.Is(err, ErrProtocol) {
+			reason = "invalid native wire envelope"
+		}
+		t.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "transport_failed", Reason: reason})
+	}
 	_ = t.conn.Close() // Releases a blocked writer/reader, including cancellation.
 	go func() {
 		if t.stop != nil {
@@ -225,7 +241,8 @@ func (t *transport) read() {
 	scan.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	for scan.Scan() {
 		var m wireMessage
-		if json.Unmarshal(scan.Bytes(), &m) != nil {
+		if err := json.Unmarshal(scan.Bytes(), &m); err != nil {
+			t.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "wire_decode_failed", Reason: diagnosticlog.DecodeReason(err), Fingerprint: diagnosticlog.Fingerprint(scan.Bytes()), Bytes: len(scan.Bytes())})
 			t.fail(ErrProtocol)
 			return
 		}

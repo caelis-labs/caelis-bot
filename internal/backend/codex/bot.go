@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 func (s *Session) connectionParams() map[string]any {
@@ -186,6 +187,15 @@ func (s *Session) rememberChild(id string) {
 	}
 }
 func (s *Session) childEvent(event Notification, thread, turn string) {
+	if event.Method == "error" {
+		var n struct {
+			Error turnError `json:"error"`
+		}
+		if s.decodeEvent(event, &n, false) {
+			s.logEvent(event, "worker_error", diagnosticlog.Reason(n.Error.Message))
+		}
+		return // The worker's terminal fact, not an error notice, owns its outcome.
+	}
 	s.childRevision[thread]++
 	// Worker messages stay internal; only required decisions and lifecycle project
 	// into the single Bot chat. IDs are scoped to their native target.
@@ -194,7 +204,14 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 		RequestID json.RawMessage `json:"requestId"`
 		Thread    nativeThread    `json:"thread"`
 	}
-	if json.Unmarshal(event.Params, &n) != nil {
+	if !s.decodeEvent(event, &n, false) {
+		if event.Method == "turn/started" || event.Method == "turn/completed" {
+			if task := s.taskByThread(thread); task != nil {
+				task.View.Status = "unknown"
+			} else {
+				s.state.Phase, s.state.Message = "unknown", workerUnconfirmed
+			}
+		}
 		return
 	}
 	switch event.Method {

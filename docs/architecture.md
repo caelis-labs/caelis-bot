@@ -179,6 +179,16 @@ an approval choice. Only actual server requests can do so. Authentication recove
 uses native unauthorized/HTTP 401 codes; successful browser login resumes the existing
 binding without resubmitting a prompt. Unknown dispatch still requires reconciliation.
 
+Native notifications are dispatched by method before decoding their method-specific
+payload. Thread items are decoded as a tagged union on both live and replay paths;
+unconsumed variants cannot collide with fields of another variant. Optional component
+failures and native retries are diagnostic-only. A lost owned lifecycle or decision
+fact still requires reconciliation; unknown native requests remain rejected. Caelis
+keeps its canonical feed/cursor checks: unknown delivery semantics are not treated as
+optional metadata. Both adapters write private, rotating structured diagnostics through
+`internal/diagnosticlog`; the retention and exported-environment contract is documented
+in [task delegation](task-delegation.md).
+
 Native notifications consume backend revision changes and persisted reminder
 occurrences, independently of renderer visibility. Permission is requested only from
 an explicit user action. Restored completed history does not generate new alerts;

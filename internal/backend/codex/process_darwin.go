@@ -33,7 +33,7 @@ func startProcess(ctx context.Context, opts Options) (connection, func(), error)
 	// is established on the wire, using the same handshake as shared endpoints.
 	cmd := exec.Command(path, "app-server", "--listen", "stdio://")
 	cmd.Dir = opts.Directory
-	cmd.Env = ownedEnvironment(os.Environ())
+	cmd.Env = ownedEnvironment(cmd.Environ()) // Environ also sets PWD to the actual working directory.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	inRead, inWrite, err := os.Pipe()
 	if err != nil {

@@ -26,6 +26,6 @@ func (s *Session) DiagnosticStatus() map[string]any {
 			transport = "disconnected"
 		}
 	}
-	return map[string]any{"transport": transport, "bound": s.bound, "pendingSubmission": s.binding.Pending != nil,
+	return map[string]any{"transport": transport, "bound": s.bound, "pendingSubmission": s.binding.Pending != nil, "errorLog": s.opts.Diagnostics.Status(),
 		"ownedWorkers": len(s.children), "activeWorkers": len(s.childRuns), "pagedHistory": s.historyPaged, "schemaBaseline": TestedVersion}
 }

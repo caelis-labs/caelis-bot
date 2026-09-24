@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 type binding struct {
@@ -32,6 +33,7 @@ type pendingSubmission struct {
 	TurnID string `json:"turnId"`
 }
 type SessionOptions struct {
+	Diagnostics                          *diagnosticlog.Logger
 	WorkExecution                        api.WorkExecutionSettings
 	Execution                            api.ExecutionSettings
 	Binary, Socket, Directory, StateFile string
@@ -307,7 +309,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if err := os.MkdirAll(s.opts.Directory, 0700); err != nil {
 		return s.connectionError("无法准备工作文件夹", err)
 	}
-	c, err := s.start(ctx, Options{Binary: s.opts.Binary, Socket: s.opts.Socket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true})
+	c, err := s.start(ctx, Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true})
 	if err != nil {
 		return s.connectionError("无法连接本机 Codex，请检查连接设置后重试", err)
 	}
@@ -455,8 +457,11 @@ func callDecode(ctx context.Context, c *Client, method string, params, result an
 	if err != nil {
 		return err
 	}
-	if result != nil && json.Unmarshal(b, result) != nil {
-		return ErrProtocol
+	if result != nil {
+		if err := json.Unmarshal(b, result); err != nil {
+			c.rpc.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "response_decode_failed", Method: method, Reason: diagnosticlog.DecodeReason(err), Fingerprint: diagnosticlog.Fingerprint(b), Bytes: len(b)})
+			return ErrProtocol
+		}
 	}
 	return nil
 }

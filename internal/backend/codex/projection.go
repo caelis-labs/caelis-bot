@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 type nativeThread struct {
@@ -274,113 +275,151 @@ func (s *Session) applyEvent(event Notification) {
 		s.addPrompt(event)
 		return
 	}
-	var n struct {
-		Thread    nativeThread    `json:"thread"`
-		ThreadID  string          `json:"threadId"`
-		TurnID    string          `json:"turnId"`
-		ItemID    string          `json:"itemId"`
-		Turn      nativeTurn      `json:"turn"`
-		Item      nativeItem      `json:"item"`
-		Delta     string          `json:"delta"`
-		RequestID json.RawMessage `json:"requestId"`
-		Message   string          `json:"message"`
-		WillRetry bool            `json:"willRetry"`
-		Error     turnError       `json:"error"`
-		LoginID   string          `json:"loginId"`
-		Success   bool            `json:"success"`
-	}
-	// Login errors have a different native shape from turn errors.
-	if event.Method == "account/login/completed" {
-		var login struct {
+	// Select the native method before decoding its payload. Same-named fields
+	// (notably error) have different types in unrelated notifications.
+	switch event.Method {
+	case "account/login/completed":
+		var n struct {
 			LoginID string `json:"loginId"`
 			Success bool   `json:"success"`
 		}
-		if json.Unmarshal(event.Params, &login) == nil && login.LoginID != "" {
-			if login.LoginID == s.loginID {
-				s.loginCompleted(login.Success)
+		if s.decodeEvent(event, &n, false) && n.LoginID != "" {
+			if n.LoginID == s.loginID {
+				s.loginCompleted(n.Success)
 			} else if s.loginStarting {
-				s.earlyLogin[login.LoginID] = login.Success
+				s.earlyLogin[n.LoginID] = n.Success
 			}
 		}
 		return
-	}
-	if json.Unmarshal(event.Params, &n) != nil {
-		s.state.Message = "收到无法识别的后端事件，请重新连接核对"
+	case "mcpServer/startupStatus/updated", "mcpServer/oauthLogin/completed", "windowsSandbox/setupCompleted":
+		s.componentEvent(event)
 		return
-	}
-	if event.Method == "thread/started" {
-		if s.ownsThread(n.Thread.ParentThreadID) {
+	case "thread/started":
+		var n struct {
+			Thread struct {
+				ID     string `json:"id"`
+				Parent string `json:"parentThreadId"`
+			} `json:"thread"`
+		}
+		if s.decodeEvent(event, &n, false) && s.ownsThread(n.Thread.Parent) {
 			s.rememberChild(n.Thread.ID)
 		}
 		return
-	}
-	if event.Method == "item/autoApprovalReview/started" || event.Method == "item/autoApprovalReview/completed" {
+	case "item/autoApprovalReview/started", "item/autoApprovalReview/completed":
 		s.applyReview(event)
 		return
+	case "turn/started", "turn/completed", "item/started", "item/completed",
+		"item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta",
+		"item/mcpToolCall/progress", "serverRequest/resolved", "error", "thread/closed", "thread/deleted", "account/updated":
+		// Consumed below, with only this method's fields.
+	case "thread/status/changed", "thread/tokenUsage/updated", "account/rateLimits/updated",
+		"item/reasoning/textDelta", "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded",
+		"turn/diff/updated", "turn/plan/updated", "skills/changed", "thread/name/updated":
+		return // Native metadata has no Bot presentation or lifecycle effect.
+	default:
+		s.logEvent(event, "notification_ignored", "unconsumed notification; no execution state changed")
+		return
 	}
-	if n.ThreadID != "" && n.ThreadID != s.binding.ThreadID {
-		if s.children[n.ThreadID] {
-			s.childEvent(event, n.ThreadID, n.TurnID)
+	var target struct {
+		ThreadID string `json:"threadId"`
+		TurnID   string `json:"turnId"`
+		ItemID   string `json:"itemId"`
+	}
+	if !s.decodeEvent(event, &target, false) {
+		return
+	}
+	if target.ThreadID != "" && target.ThreadID != s.binding.ThreadID {
+		if s.children[target.ThreadID] {
+			s.childEvent(event, target.ThreadID, target.TurnID)
 		}
 		return
 	}
 	switch event.Method {
-	case "turn/started":
-		s.applyTurn(n.Turn, false)
-	case "turn/completed":
-		s.applyTurn(n.Turn, false)
-	case "item/started":
-		s.applyItem(n.TurnID, n.Item, false)
-	case "item/completed":
-		s.applyItem(n.TurnID, n.Item, true)
-		s.trackWorkerActivity(n.Item)
-	case "item/agentMessage/delta", "item/plan/delta":
-		key := opaque(n.TurnID, n.ItemID)
-		item := s.nativeItems[key]
-		if terminal(item.Status) || terminal(s.runs[n.TurnID]) {
+	case "turn/started", "turn/completed":
+		var n struct {
+			Turn nativeTurn `json:"turn"`
+		}
+		if s.decodeEvent(event, &n, true) {
+			if n.Turn.Error != nil {
+				s.logEvent(event, "turn_failed", diagnosticlog.Reason(n.Turn.Error.Message))
+			}
+			s.applyTurn(n.Turn, false)
+		}
+	case "item/started", "item/completed":
+		var n struct {
+			Item nativeItem `json:"item"`
+		}
+		if s.decodeEvent(event, &n, false) {
+			complete := event.Method == "item/completed"
+			s.applyItem(target.TurnID, n.Item, complete)
+			if complete {
+				s.trackWorkerActivity(n.Item)
+				if n.Item.Status == "failed" {
+					s.logEvent(event, "tool_failed", "native tool failed; execution remains runtime-owned")
+				}
+			}
+		}
+	case "item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta":
+		var n struct {
+			Delta string `json:"delta"`
+		}
+		if !s.decodeEvent(event, &n, false) {
 			return
 		}
-		item.ID = n.ItemID
-		item.Type = "agentMessage"
+		key := opaque(target.TurnID, target.ItemID)
+		item := s.nativeItems[key]
+		if terminal(item.Status) || terminal(s.runs[target.TurnID]) {
+			return
+		}
+		if event.Method == "item/commandExecution/outputDelta" {
+			if item.ID != "" {
+				item.Output += n.Delta
+				s.nativeItems[key] = item
+			}
+			return
+		}
+		item.ID, item.Type = target.ItemID, "agentMessage"
 		if event.Method == "item/plan/delta" {
 			item.Type = "plan"
 		}
 		item.Text += n.Delta
-		s.applyItem(n.TurnID, item, false)
-	case "item/commandExecution/outputDelta":
-		key := opaque(n.TurnID, n.ItemID)
-		item := s.nativeItems[key]
-		if item.ID != "" && !terminal(item.Status) {
-			item.Output += n.Delta
-			s.nativeItems[key] = item
-		}
+		s.applyItem(target.TurnID, item, false)
 	case "item/mcpToolCall/progress":
-		key := opaque(n.TurnID, n.ItemID)
-		if index, ok := s.items[key]; ok {
-			s.state.Items[index].Details = n.Message
+		var n struct {
+			Message string `json:"message"`
+		}
+		if s.decodeEvent(event, &n, false) {
+			if index, ok := s.items[opaque(target.TurnID, target.ItemID)]; ok {
+				s.state.Items[index].Details = n.Message
+			}
 		}
 	case "serverRequest/resolved":
+		var n struct {
+			RequestID json.RawMessage `json:"requestId"`
+		}
+		if !s.decodeEvent(event, &n, true) {
+			return
+		}
 		id := s.promptHandles[string(n.RequestID)]
 		if p, ok := s.prompts[id]; ok {
-			p.view.Status = "resolved"
-			s.replacePrompt(id, p.view)
-			delete(s.prompts, id)
-			delete(s.promptHandles, string(n.RequestID))
-			if len(s.prompts) == 0 && s.run != "" && s.state.Phase == "attention" {
-				s.state.Phase = "working"
-			}
+			s.resolvePrompt(id, p)
 		}
 	case "error":
+		var n struct {
+			Error     turnError `json:"error"`
+			WillRetry bool      `json:"willRetry"`
+		}
+		if !s.decodeEvent(event, &n, true) {
+			return
+		}
+		s.logEvent(event, "turn_error", diagnosticlog.Reason(n.Error.Message))
+		if n.WillRetry {
+			return
+		} // Native retry is not a request for user action.
 		if n.Error.Message != "" {
-			if n.WillRetry {
-				s.state.Message = "连接暂时中断，Codex 正在恢复…"
-			} else {
-				s.applyFailure(n.Error)
-			}
+			s.applyFailure(n.Error)
 		}
-		if !n.WillRetry {
-			s.state.Phase = "failed"
-		}
+		s.state.Phase = "failed"
 	case "thread/closed", "thread/deleted":
 		s.bound = false
 		s.state.Connection = "offline"
@@ -392,7 +431,9 @@ func (s *Session) applyEvent(event Notification) {
 		}
 	}
 }
+
 func (s *Session) rejectRequest(event Notification) {
+	s.logEvent(event, "server_request_rejected", "unsupported, invalid or stale native request; no authority granted")
 	c := s.client
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

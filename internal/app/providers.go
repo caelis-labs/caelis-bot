@@ -9,11 +9,13 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 // Provider construction is separate from both native surfaces and protocol
 // adapters. Only complete, registered adapters may become a product connection.
 type providerConfig struct {
+	Diagnostics                               *diagnosticlog.Logger
 	WorkExecution                             api.WorkExecutionSettings
 	Settings                                  api.RuntimeSettings
 	Execution                                 api.ExecutionSettings
@@ -29,7 +31,7 @@ type factoryResolver func(string) (providerFactory, error)
 func resolveProvider(id string) (providerFactory, error) {
 	if id == "caelis" {
 		return providerFactory{ID: id, Defaults: api.ExecutionSettings{ApprovalMode: "workspace-write"}, Open: func(c providerConfig) (api.Engine, error) {
-			return caelis.New(caelis.Options{Directory: filepath.Dir(c.ConversationFile), Settings: c.Settings, Execution: c.Execution, WorkExecution: c.WorkExecution}), nil
+			return caelis.New(caelis.Options{Diagnostics: c.Diagnostics, Directory: filepath.Dir(c.ConversationFile), Settings: c.Settings, Execution: c.Execution, WorkExecution: c.WorkExecution}), nil
 		}}, nil
 	}
 	if id != "codex" {
@@ -43,7 +45,7 @@ func resolveProvider(id string) (providerFactory, error) {
 		if override := os.Getenv("CODEX_BIN"); override != "" {
 			binary = override
 		}
-		return codex.NewSession(codex.SessionOptions{Binary: binary, Socket: os.Getenv("CAELIS_CODEX_SOCKET"),
+		return codex.NewSession(codex.SessionOptions{Diagnostics: c.Diagnostics, Binary: binary, Socket: os.Getenv("CAELIS_CODEX_SOCKET"),
 			Execution: c.Execution, WorkExecution: c.WorkExecution, Directory: c.WorkDirectory, WorkRoot: c.WorkRoot, StateFile: c.ConversationFile}), nil
 	}}, nil
 }

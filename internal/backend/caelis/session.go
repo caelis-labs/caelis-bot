@@ -16,9 +16,11 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 type Options struct {
+	Diagnostics   *diagnosticlog.Logger
 	WorkExecution api.WorkExecutionSettings
 	Directory     string
 	Settings      api.RuntimeSettings
@@ -28,6 +30,7 @@ type Options struct {
 	ToolsOnly bool
 }
 type Session struct {
+	diagnostics       *diagnosticlog.Logger
 	mu                sync.Mutex
 	step              sync.Mutex
 	path              string
@@ -64,7 +67,7 @@ func New(opts Options) *Session {
 	if opts.ToolsOnly {
 		mode = "tools-only"
 	}
-	return &Session{path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
+	return &Session{diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
 }
 func (*Session) ProviderInfo() api.ProviderInfo {
 	return api.ProviderInfo{ID: "caelis", Name: "Caelis", ConnectionKind: "local-host", HelpURL: "https://caelis.dev", ConnectionHint: "使用本机 Caelis；安装与模型凭据由运行时管理。"}
@@ -107,6 +110,7 @@ func (s *Session) Connect(ctx context.Context) error {
 func (s *Session) fail(e error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "caelis", Code: "connection_unconfirmed", Thread: s.state.Session.SessionId, Reason: diagnosticlog.Reason(e.Error()), Fingerprint: diagnosticlog.Fingerprint([]byte(e.Error()))})
 	s.connected = false
 	s.issue = e.Error()
 	s.bumpLocked()
