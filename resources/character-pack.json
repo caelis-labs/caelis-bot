@@ -10,7 +10,7 @@
       "variants": [
         {
           "id": "sage-dress",
-          "model": "frontend/public/models/caelis-soft-outfit-v1.glb",
+          "model": "frontend/public/models/caelis-garden-outfit-v1.glb",
           "capabilities": [
             "body-v1",
             "face-v1",
@@ -35,9 +35,9 @@
   },
   "files": [
     {
-      "path": "frontend/public/models/caelis-soft-outfit-v1.glb",
+      "path": "frontend/public/models/caelis-garden-outfit-v1.glb",
       "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "4272ba0625bf040522a2c05420444ccebd5ac18c9b182cd091726ee6900456a6"
+      "sha256": "4c5224d7a6487aff8e0f7bfc686cce99f9fd93f6ca60796802089182369b4e4e"
     },
     {
       "path": "frontend/public/models/stick.glb",
@@ -80,5 +80,5 @@
       "sha256": "212f7cf89ba7afd64aab50519d5fe1d4b20be67c43336e3a72946340808c215c"
     }
   ],
-  "version": "0.1.4"
+  "version": "0.1.5"
 }
