@@ -85,7 +85,7 @@ try{
    }else hidden++;
   }
   assert.ok(hidden>0&&visible>30,'the prop must wait for the hand and then become visible');
-  director.update(1/60,'idle',{interaction:{pressing:false,dragging:false,input:true,menu:false}});
+  director.update(1/60,'idle',{pointer:{hovering:false},interaction:{pressing:false,dragging:false,input:true,menu:false}});
   pose.restore();pose.apply(1/60,director);plane.visible=director.holdsPlane;anchor.place(plane);
   assert.equal(plane.visible,false,'input interruption takes ownership from the prop');
  });
