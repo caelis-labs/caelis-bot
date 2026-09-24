@@ -1,10 +1,12 @@
 # Caelis Control v1 baseline
 
 `manifest.json` pins the public Caelis OpenAPI schema and generated wire declarations
-from commit `1f925044065dcef5986caf22041ef00afab0bd0c`. This includes the shared native Worker
-and steering extensions after v0.61.0; it is not a published release. Runtime support
-requires the advertised capabilities, including `shared-native-workers-v1` and
-`turn-steering-receipts-v1`.
+at the exact commit recorded in that manifest. The baseline includes shared native
+Workers, steering and interactive Host settings. Runtime support requires the
+advertised capabilities, including `shared-native-workers-v1` and
+`turn-steering-receipts-v1`. Team settings explicitly request
+`/agents/binding-status?include=eligible_profile_ids`; the default response remains
+compatible with strict clients that predate this extension.
 
 `internal/backend/caelis/wire/control_v1.gen.go` is copied from the public
 `control/appserver/wirev1/generated/control_v1.gen.go`, with only its package name
