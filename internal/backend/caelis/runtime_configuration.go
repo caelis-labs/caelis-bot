@@ -60,7 +60,7 @@ func ReadRuntimeConfiguration(ctx context.Context, settings api.RuntimeSettings)
 			return api.RuntimeConfiguration{}, err
 		}
 		var status wire.AgentBindingStatus
-		if err = c.json(ctx, "POST", "/agents/binding-status", wire.AgentRequest{}, &status, "", ""); err != nil {
+		if err = c.json(ctx, "POST", "/agents/binding-status?include=eligible_profile_ids", wire.AgentRequest{}, &status, "", ""); err != nil {
 			return api.RuntimeConfiguration{}, err
 		}
 		candidates, err := rawCatalog(ctx, c, "model")

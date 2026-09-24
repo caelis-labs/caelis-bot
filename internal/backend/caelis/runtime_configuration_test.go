@@ -37,6 +37,9 @@ func TestRuntimeConfigurationSelectorsAndRevision(t *testing.T) {
 		}
 		switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
 		case "/agents/binding-status":
+			if r.URL.Query().Get("include") != "eligible_profile_ids" {
+				t.Error("settings must explicitly request the eligibility extension")
+			}
 			writeFixture(w, status)
 		case "/completion/slash-arguments":
 			writeFixture(w, []wire.SlashArgCandidate{{Value: "provider/vendor/model", ModelConfigId: pointer("stored-model"), ModelSelection: &wire.ModelSelection{Current: pointer(true), Effort: "high", Fast: pointer(true)}}, {Value: "acp-profile"}})

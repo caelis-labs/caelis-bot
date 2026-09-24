@@ -1,7 +1,7 @@
 # Caelis 接入与运行时管理
 
 2026-09-24：Bot 使用 Caelis 通用应用运行时与共享原生 Worker 协议，固定源码基线为
-`c2a5b65a6ffdd1136c91f0fd3a7e7d269435d2a0`。使用公开 HTTP/SSE 与生成的 Go wire，
+`fdbc8017e97238c4fcb326dd058c5095241740a4`。使用公开 HTTP/SSE 与生成的 Go wire，
 不导入兄弟仓库、不恢复旧 Bot Mode。此基线包含已合入 main 的共享会话与 steering 扩展，以及 Host 设置授权流与角色候选补充，
 尚未随正式版本发布；已通过确定性测试与隔离 macOS Host 集成测试。
 

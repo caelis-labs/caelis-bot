@@ -10,7 +10,7 @@
 - 连接支持原生账号与 API Key、内置与自定义 ACP、启动方式选择、Antigravity 安装计划和认证。
   OAuth 保留挑战的一次性语义，未知结果不重发；临时状态与凭据不成为 Bot 持久化配置。
   首次设置和切换前的连接复用同一向导，绑定所选 Runtime，无需提前激活。
-- 上游补充见 [Caelis PR #77](https://github.com/caelis-labs/caelis/pull/77)，固定源码 `c2a5b65a`。
+- 上游补充见 [Caelis PR #77](https://github.com/caelis-labs/caelis/pull/77)，固定源码 `fdbc8017`。
   `make check`、`make smoke`、`make build`、设置/授权的 focused race 通过。macOS 原生 Host 与
   合成 provider/ACP 子进程验证了模型与 Team 的往返、CAS、ACP 连接/断开、Worker、审批和重启。
 - 已检查实际 React 组件的浏览器交互、最小 760×540 窗口、Team 保存和授权码完成状态。
