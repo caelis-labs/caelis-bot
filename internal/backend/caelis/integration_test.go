@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -279,8 +280,10 @@ func TestNativeHostIntegration(t *testing.T) {
 		case "FixtureDelegate":
 			for _, id := range []string{"a", "b"} {
 				dir := filepath.Join(root, "worker-"+id)
+				parent, _ := filepath.EvalSymlinks(root)
+				dir = filepath.Join(parent, "worker-"+id)
 				_ = os.Mkdir(dir, 0700)
-				_, err = s.StartWork(callCtx, api.WorkStart{ID: "task-" + id, Workspace: dir, Instructions: "Independent worker without resident skills", TaskStart: api.TaskStart{RequestID: "fixture-worker-" + id, Title: id, Prompt: "CASE_WORKER_" + strings.ToUpper(id)}})
+				_, err = s.StartWork(callCtx, api.WorkStart{ID: "task-" + id, Workspace: dir, Instructions: "Independent worker without resident skills", TaskStart: api.TaskStart{RequestID: "fixture-worker-" + id, Title: id, Prompt: "CASE_WORKER_" + strings.ToUpper(id), Workspace: dir}})
 				if err != nil {
 					taskError.Store(err.Error())
 					break
@@ -567,7 +570,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		if err = host.json(ctx, "POST", "/configuration/use-model", wire.UseModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Model: "openai/gpt-5.4", ReasoningEffort: pointer("high")}, &result, op, string(status.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
 			t.Fatal("runtime model selection", result.Outcome, err)
 		}
-		model.set("CASE_WORKER_A", modelStep{Block: workerA, Entered: enteredA})
+		model.set("CASE_WORKER_A", modelStep{Name: "Write", Args: map[string]string{"path": "workspace-sentinel", "content": "selected workspace"}}, modelStep{Block: workerA, Entered: enteredA})
 		model.set("CASE_WORKER_B", modelStep{Block: workerB, Entered: enteredB})
 		model.set("CASE_DELEGATE", modelStep{Name: "FixtureDelegate", Args: map[string]string{}})
 		submitAcceptance(t, ctx, s, "CASE_DELEGATE")
@@ -580,6 +583,10 @@ func TestNativeHostIntegration(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal(ctx.Err())
 			}
+		}
+		selectedData, selectedErr := os.ReadFile(filepath.Join(root, "worker-a", "workspace-sentinel"))
+		if selectedErr != nil || string(selectedData) != "selected workspace" {
+			t.Fatal("worker did not execute in selected workspace", selectedErr)
 		}
 		if len(s.WorkStates()) != 2 {
 			t.Fatal("missing workers")
@@ -747,6 +754,77 @@ func TestNativeHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
+	if !t.Run("B12_late_approval_followup", func(t *testing.T) {
+		if !slices.Contains(s.info.Capabilities, commandObservationCapability) {
+			t.Skip("Host has no optional terminal observation capability; baseline connection and workspace scenarios remain supported")
+		}
+		defer func() {
+			if t.Failed() {
+				s.mu.Lock()
+				t.Logf("phase=%s issue=%s followups=%+v", s.snapshotLocked().Phase, s.issue, s.state.CommandFollowups)
+				sid := s.state.Session.SessionId
+				s.mu.Unlock()
+				var directory wire.TaskList
+				err := s.client.json(ctx, "GET", "/sessions/"+idPath(sid)+"/tasks", nil, &directory, "", "")
+				data, _ := json.Marshal(directory)
+				t.Logf("tasks=%s error=%v requests=%d", data, err, len(model.seen("CASE_APPROVAL")))
+			}
+		}()
+
+		model.set("CASE_APPROVAL", modelStep{Name: "RunCommand", Args: map[string]any{"command": "/bin/sleep 1; printf x >> approval-once.txt", "yield_time_ms": 0, "sandbox_permissions": "require_escalated", "justification": "Synthetic late-approval regression"}}, modelStep{Reply: "APPROVAL_WAITING_SENTINEL"}, modelStep{Reply: "APPROVAL_FOLLOWUP_SENTINEL"})
+		receipt, err := s.Submit(ctx, api.Submission{ID: "case-approval", Text: "CASE_APPROVAL"}, nil)
+		if err != nil || receipt.Outcome != "accepted" {
+			t.Fatal(receipt, err)
+		}
+		approvalCtx, approvalCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer approvalCancel()
+		waitAcceptance(t, approvalCtx, func() bool { return len(s.Snapshot().Approvals) == 1 && len(model.seen("CASE_APPROVAL")) >= 2 })
+		// No forced refresh/reconnect: the normal live stream must expose it.
+		a := s.Snapshot().Approvals[0]
+		choice := ""
+		for _, c := range a.Choices {
+			if c.Scope == "allow_once" {
+				choice = c.ID
+			}
+		}
+		if choice == "" {
+			t.Fatal("native allow_once missing")
+		}
+		var pending wire.TaskList
+		if err = s.client.json(ctx, "GET", "/sessions/"+idPath(s.state.Session.SessionId)+"/tasks", nil, &pending, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		handle := ""
+		for _, task := range pending.Tasks {
+			if task.State == "waiting_approval" {
+				handle = task.Handle
+			}
+		}
+		if handle == "" {
+			t.Fatal("missing approved command handle")
+		}
+		model.mu.Lock()
+		model.plans["CASE_APPROVAL"] = append(model.plans["CASE_APPROVAL"][:2], modelStep{Name: "Task", Args: map[string]string{"action": "read", "handle": handle}}, modelStep{Reply: "APPROVAL_FOLLOWUP_SENTINEL"})
+		model.mu.Unlock()
+		if err = s.Decide(ctx, api.Decision{ID: a.ID, Choice: choice}); err != nil {
+			t.Fatal(err)
+		}
+		waitAcceptance(t, approvalCtx, func() bool { return len(model.seen("CASE_APPROVAL")) >= 4 && s.Snapshot().CanSend })
+		data, err := os.ReadFile(filepath.Join(vault.Path(), "approval-once.txt"))
+		if err != nil || string(data) != "x" {
+			t.Fatal("approved command missing or repeated", err)
+		}
+		requests := model.seen("CASE_APPROVAL")
+		payload, _ := json.Marshal(requests[2])
+		if !strings.Contains(string(payload), "application completion notice") {
+			t.Fatal("no completion-driven model followup")
+		}
+		if len(s.Snapshot().Approvals) != 0 {
+			t.Fatal("settled approval remained visible")
+		}
+	}) {
+		return
+	}
 	if !t.Run("B07_restart", func(t *testing.T) {
 		before, e := s.Configuration(ctx)
 		if e != nil {
@@ -784,6 +862,6 @@ func TestNativeHostIntegration(t *testing.T) {
 		t.Fatal(failure)
 	}
 	if !t.Failed() {
-		t.Log("B01-B11 external Host acceptance complete; synthetic provider, real macOS native tools; no daily Store or real credentials")
+	t.Logf("external Host acceptance complete; optional terminal observation=%t; synthetic provider, real macOS native tools; no daily Store or real credentials", slices.Contains(s.info.Capabilities, commandObservationCapability))
 	}
 }

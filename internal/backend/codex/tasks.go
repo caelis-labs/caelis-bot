@@ -103,9 +103,8 @@ func (s *Session) taskView(t *taskRecord) api.Task {
 	return v
 }
 
-// Model-supplied workspace paths and native thread IDs are deliberately absent.
-// Routine delegation may allocate a fresh private directory, not grant access
-// to an existing project or take ownership of another application's conversation.
+// The host validates the selected directory. Native policy still gates commands;
+// selecting a cwd does not grant ownership of another native conversation.
 func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
 	if !taskRequestValid(in.RequestID, in.Prompt) || strings.TrimSpace(in.Title) == "" || len(in.Title) > 160 {
 		return api.Task{}, errors.New("任务需要稳定请求标识、简短标题和明确要求")
@@ -115,13 +114,16 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	ctx, cancel := s.operation(ctx, 8*time.Second)
 	defer cancel()
 	id, fingerprint := in.ID, opaque(in.Title, in.Prompt)
-	if !validWorkID(id) || in.Workspace != filepath.Join(s.workRoot(), id) || strings.TrimSpace(in.Instructions) == "" {
+	if in.TaskStart.Workspace != "" {
+		fingerprint = opaque(in.Title, in.Prompt, in.TaskStart.Workspace)
+	}
+	if !validWorkID(id) || !filepath.IsAbs(in.Workspace) || strings.TrimSpace(in.Instructions) == "" {
 		return api.Task{}, errors.New("工作需要宿主分配的目录与角色")
 	}
 	s.mu.Lock()
 	if t := s.binding.Tasks[id]; t != nil {
 		v := t.View
-		same := t.Fingerprint == fingerprint
+		same := t.Fingerprint == fingerprint && t.View.Workspace == in.Workspace
 		s.mu.Unlock()
 		if !same {
 			return v, errors.New("同一请求标识不能用于不同任务")
@@ -156,7 +158,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	}
 	c := s.client
 	s.mu.Unlock()
-	if err := validateWorkWorkspace(s.workRoot(), workspace); err != nil {
+	if err := validateWorkWorkspace(s.workRoot(), workspace, in.TaskStart.Workspace != ""); err != nil {
 		return s.taskRejected(t, err)
 	}
 	params := s.workerParams(workspace, in.Instructions, t)
@@ -207,7 +209,17 @@ func validWorkID(id string) bool {
 	}
 	return true
 }
-func validateWorkWorkspace(root, path string) error {
+func validateWorkWorkspace(root, path string, selected bool) error {
+	if selected {
+		resolved, err := api.ResolveTaskWorkspace(path)
+		if err != nil {
+			return err
+		}
+		if resolved != path {
+			return errors.New("工作目录已发生重定向")
+		}
+		return nil
+	}
 	if !filepath.IsAbs(root) || filepath.Dir(path) != root {
 		return errors.New("工作目录不在宿主授权范围")
 	}

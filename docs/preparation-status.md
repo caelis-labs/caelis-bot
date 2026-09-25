@@ -1,5 +1,36 @@
 # 实现与验证状态
 
+## 2026-09-25 审批与任务工作区修复（本地，尚未发布）
+
+- Bot：实时审批事件触发当前 head 核对，乱序读取受到审批代数隔离；原生异步命令的
+  迟到审批有持久化结果跟进。只在确认终态且 Bot 空闲时发送一次 application summary，
+  再通过原 Task 读取结果，未知回执不重发。
+- `bot_task_start.workspace` 指定已有绝对目录，默认私有目录；新任务有空位自动 pin，
+  满额不驱逐，重复 start 保留手动 unpin。Bot 核心 skill 和任务参考已同步。
+- `make check`、`make smoke`、`make build` 通过；相关审批/任务 race、两 Runtime 的
+  隔离原生测试和渐进 skill 加载通过。原生测试使用本地合成模型，不产生实际模型费用。
+- Codex：已安装 CLI 的真实 App Server 验证指定目录、同一 worker 的第二客户端续接、
+  客户端断开后 Bot 继续及进程清理；wire fixture 同时验证 native writableRoots。
+- Caelis：基于 v0.62.0 的配套修复二进制通过 B00–B12 隔离 Host + native tools 验收。
+  指定工作区的真实 Write 落到目标目录；模型输出 final 后才批准的命令只执行一次，退出
+  后 Bot 自动收到通知、调用 Task read，随后生成回复；断线/重启保留绑定。相关 SDK、
+  HTTP transport、Control 与 terminal adapter 的完整包 race 检查通过。
+- 配套 Caelis 源码工作副本：`/private/tmp/caelis-approval-completion-20260925`，基线
+  `812264e567875fe8db6e678fcf7e0e439b18fc6d`。新增能力
+  `application-terminal-observation-v1`，应用只读取自身会话/worker 的终端快照，保留应用
+  身份；SDK 快照返回真实进程退出状态而不消费模型 Task 结果。没有改主分支或安装目录。
+- 2026-09-26 调整交付边界：该能力为可选增强，正式 v0.62.0 可正常连接；旧 Host 不登记
+  命令跟进，也不请求可选终端接口。重连到旧 Host 时保留已有跟进证据但暂停观察。
+  Caelis 修复已独立提交 [PR #78](https://github.com/caelis-labs/caelis/pull/78)，提交
+  `09d3317334cd3824071385858a9fe4687c164c75`；不单独发 release，不阻塞 Bot 交付。普通会话不会因只读观察而
+  自动发起模型回合。Bot 改动仍未提交或发布。
+- 2026-09-26 验证：正式安装版 v0.62.0 的隔离 Host 验收通过，B12 可选跟进明确跳过；
+  PR 开发二进制的同组验收包含 B12 并通过。旧能力握手、重启后暂停观察的回归、相关包
+  race，以及 Bot 的 `make check`、`make smoke`、`make build` 均通过。Caelis 的
+  `make commit-check`、相关四个包 race、product acceptance、协议生成核对与文档链接通过。
+- 未声称通过新一轮实际桌宠 UI 验收；本轮未改审批布局或终端开关 UI。长脚本审批布局
+  保留待办，终端小球精确窗口绑定完成可行性评估，尚未实现。
+
 本项目已完成 macOS v0.1.0 正式发行。当前状态以产品代码、公共测试和
 成品清单为准；完整历史制作记录保存在私有资产库。
 
@@ -19,8 +50,9 @@
 
 - 后台任务并发默认 3，可配置正整数；降低上限不打断已有任务，新建与续跑共享准入，
   运行中追加不另占名额。取消累计任务数量上限，`bot_tasks` 支持搜索、过滤和游标分页。
-- 脚边最多固定 8 项，Bot 可 pin/unpin，用户可右键移除；新任务默认不固定，完成后不会
-  自动删除 pin。历史、结果与目录不因移除而删除。旧数据迁移只固定最多 8 个未完成任务。
+- 脚边最多固定 8 项，Bot 可 pin/unpin，用户可右键移除；此阶段新任务默认不固定，已由
+  上方审批与工作区修复改为有空位自动 pin。完成后不会自动删除 pin；历史、结果与目录不因
+  移除而删除。旧数据迁移只固定最多 8 个未完成任务。
 - 设置自动保存，不保留 Reload/Save/Test opening 按钮。普通终端列表只显示已安装的
   Terminal/iTerm2/Ghostty，默认跟随系统关联；此前所选终端被卸载后自动持久化回退。
   高级配置可显式启用带独立 `{script}` 参数的自定义命令，兼容性由用户自行验证。

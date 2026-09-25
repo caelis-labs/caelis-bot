@@ -32,8 +32,8 @@ func TestTaskPreviewPersistsOriginalPromptAndFencesOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m.TaskPreviews()) != 0 {
-		t.Fatal("new tasks must not be implicitly pinned")
+	if len(m.TaskPreviews()) != 1 {
+		t.Fatal("new task missing automatic pin")
 	}
 	if _, err = m.PinTask(v.ID, true); err != nil {
 		t.Fatal(err)

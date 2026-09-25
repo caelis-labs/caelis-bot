@@ -8,7 +8,7 @@ import "context"
 // WorkRuntime. A protocol adapter does not implement this product interface.
 // Start/Send require an active authorized secretary request, preserve its source,
 // and reject conflicting request IDs. An unknown outcome is not a retry grant.
-// Start allocates a private workspace; it never trusts a model-supplied path.
+// Start validates an explicit workspace or allocates a private directory.
 // Stop addresses the exact active turn; read/list never adopt unrelated tasks.
 type TaskProvider interface {
 	ListTasks() []Task
@@ -58,6 +58,7 @@ type TaskStart struct {
 	RequestID string `json:"requestId"`
 	Title     string `json:"title"`
 	Prompt    string `json:"prompt"`
+	Workspace string `json:"workspace,omitempty"`
 }
 type TaskMessage struct {
 	ID        string `json:"id"`

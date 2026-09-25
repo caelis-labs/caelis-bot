@@ -94,15 +94,27 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	s.step.Lock()
 	defer s.step.Unlock()
 	fp := digest([]byte(in.Title + "\x00" + in.Prompt))[:32]
+	if in.TaskStart.Workspace != "" {
+		fp = digest([]byte(in.Title + "\x00" + in.Prompt + "\x00" + in.TaskStart.Workspace))[:32]
+	}
 	s.mu.Lock()
 	old, exists := s.state.Workers[in.ID]
 	execution := s.workExecution
 	s.mu.Unlock()
 	if exists {
-		if old.Fingerprint != fp {
+		if old.Fingerprint != fp || old.Task.Workspace != in.Workspace {
 			return api.Task{}, errors.New("任务请求冲突")
 		}
 		return s.ReadWork(ctx, in.ID)
+	}
+	if in.TaskStart.Workspace != "" {
+		resolved, err := api.ResolveTaskWorkspace(in.Workspace)
+		if err != nil {
+			return api.Task{}, err
+		}
+		if resolved != in.Workspace {
+			return api.Task{}, errors.New("工作目录已发生重定向")
+		}
 	}
 	profile := wire.ApplicationProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
 	w := worker{Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId}}
@@ -333,9 +345,10 @@ func (s *Session) refreshWorkers(ctx context.Context, c *client) error {
 		}
 		s.mu.Lock()
 		before := s.state.Views[sid]
-		var observed uint64
+		var observed, approvalVersion uint64
 		if before != nil {
 			observed = before.Observed
+			approvalVersion = before.ApprovalVersion
 		}
 		s.mu.Unlock()
 		var v wire.SessionState
@@ -352,8 +365,11 @@ func (s *Session) refreshWorkers(ctx context.Context, c *client) error {
 			s.state.Views[sid] = p
 		}
 		if p == before && p.Observed == observed || before == nil && p.Observed == 0 {
+			approval := p.State.Approval
 			p.State = v
+			p.State.Approval = approval
 		}
+		reconcileApproval(p, before, approvalVersion, v)
 		s.ensureStreamLocked(sid)
 		s.bumpLocked()
 		e := s.saveLocked()
