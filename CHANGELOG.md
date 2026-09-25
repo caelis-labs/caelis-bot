@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/caelis-labs/caelis-bot/compare/v0.2.0...v0.3.0) (2026-09-25)
+
+
+### Features
+
+* add proactive care, task watchlists, and terminal preferences ([#23](https://github.com/caelis-labs/caelis-bot/issues/23)) ([c4de5cd](https://github.com/caelis-labs/caelis-bot/commit/c4de5cd614aa43e31e98c5794745d496f568c335))
+
 ## [0.2.0](https://github.com/caelis-labs/caelis-bot/compare/v0.1.0...v0.2.0) (2026-09-24)
 
 
