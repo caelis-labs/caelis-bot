@@ -8,7 +8,7 @@ See [integration](caelis-integration.md) for the current contract and
 2026-09-23: [Bot product-host architecture](bot-platform-architecture.md) and the
 [generic Runtime extension proposal](runtime-extension-contract.md) define the target.
 `internal/bot` owns identity, tool behavior and resident reminders; `internal/tasks`
-owns task admission, workspace allocation, the product ledger and completion reports.
+owns task admission, workspace validation/allocation, the product ledger and completion reports.
 Notebook and embedded Memory v0.6.1 are application-owned and shared across providers;
 see [personal data boundaries](personal-memory.md). The [Caelis implementation handoff](caelis-core-rebuild-handoff.md)
 authorizes removal of legacy Bot Mode without compatibility; existing user data is preserved.
@@ -595,7 +595,8 @@ in Codex, without a second orchestration protocol or UI task/session manager.
 
 The task coordinator separates user-configured execution capacity (default three),
 uncapped task history with cursor pagination, and an explicitly pinned watchlist
-(eight items). New tasks are unpinned; completion never clears a pin. Persisted
+(eight items). New tasks automatically pin when capacity is available; completion
+never clears a pin. A duplicate start preserves explicit unpin decisions. Persisted
 watchlist changes notify the native host even without a new runtime event.
 Start and completed-task continuation share admission; already recorded requests
 can still reconcile without acquiring another execution slot. Direct native TUI

@@ -83,7 +83,11 @@ func TestNativeSharedWorkerTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, err := m.StartTask(ctx, api.TaskStart{RequestID: "shared-terminal-worker", Title: "Terminal acceptance", Prompt: "验证同一任务：Bot 和终端用户都能发送消息并观察进展。"})
+	workspace, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, err := m.StartTask(ctx, api.TaskStart{Workspace: workspace, RequestID: "shared-terminal-worker", Title: "Terminal acceptance", Prompt: "验证同一任务：Bot 和终端用户都能发送消息并观察进展。"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,6 +110,9 @@ func TestNativeSharedWorkerTerminal(t *testing.T) {
 	target, err := m.WorkTerminal(ctx, work.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if target.Directory != workspace || work.Workspace != workspace {
+		t.Fatal("selected workspace lost")
 	}
 	path := strings.TrimPrefix(target.Endpoint, "unix://")
 	for _, p := range []string{path, filepath.Dir(path)} {

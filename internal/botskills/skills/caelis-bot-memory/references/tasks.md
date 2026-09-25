@@ -1,6 +1,6 @@
 # Arrange and continue independent work
 
-Use Bot tasks for work that benefits from sustained execution, a dedicated
+Prefer `bot_task_start` over native subagents for independent professional work, so the user can reach the work from the desktop watchlist. Use Bot tasks for work that benefits from sustained execution, a dedicated
 workspace, or parallel progress. Choose the decomposition yourself when it helps
 the user's goal or an existing commitment. The user does not need to ask for a
 thread explicitly.
@@ -27,6 +27,16 @@ for the same submission. If acceptance is uncertain, read the recorded state
 before deciding what to do; do not create another task to get around uncertainty.
 An accepted start means work has been arranged, not completed.
 
+For work in an existing project, pass its absolute directory as `workspace` to
+`bot_task_start`. Use the directory requested by the user or established for that
+assignment; a path in the prompt alone does not select the workspace. Omit
+`workspace` for a fresh private directory. The selected directory must already
+exist. This uses the directory directly; it does not create a Git worktree or
+reset its branch. Keep concurrent assignments from overwriting each other's work.
+The workspace is fixed at creation and is part of the stable request identity.
+Workers keep native command approvals; selecting a project does not authorize
+unrelated operations.
+
 ## History and the watchlist
 
 Start with `bot_tasks` using `operation: "list"`. The default page has 20 items,
@@ -38,9 +48,13 @@ Pages show current state; new tasks belong on a refreshed first page. Read a
 selected task for its result instead of loading every transcript. History has no
 task-count limit and does not disappear when an item leaves the watchlist.
 
-The desktop watchlist is the work the user needs to keep an eye on. New tasks are
-unpinned. Pin meaningful ongoing work, a result the user wants to revisit, or a
-task they explicitly ask to keep visible. Do not pin every internal step. A pinned
+The desktop watchlist is the work the user needs to keep an eye on. A new task
+is automatically pinned when there is room. Actively maintain this area: keep
+ongoing work and tasks needing user attention visible, and retain results the
+user wants to revisit. After reporting an obsolete or completed result, unpin it
+when it no longer needs attention and the user has not asked to keep it. Inspect
+the list before making room for a task that could not auto-pin. Preserve explicit
+user removals and pins; do not restore a manually removed item on a retry. A pinned
 task stays visible after completion until unpinned; unpinning neither interrupts
 work nor deletes its workspace, results, or history. The user can also remove an
 item through its context menu. To recall old work, search for it and pin or continue
@@ -79,6 +93,16 @@ that an arbitrary terminal is supported or alter the command without a request.
 Opening may wait for the terminal's own confirmation. A pending indicator means
 the attach script has not started yet, not that the worker restarted. The user can
 cancel opening from the watchlist; this never cancels the underlying task.
+
+A pending approval means the command has not started. An accepted decision is
+permission to proceed, not proof of success. When a native command completion
+notice arrives after an earlier turn ended, use its exact `Task read` handle to
+inspect the retained result and report the outcome. Do not rerun the command.
+An uncertain receipt must be reconciled; it is not permission to resend.
+Late command completion notices depend on Runtime support. Do not promise an
+automatic follow-up merely because approval is pending or accepted. If no notice
+arrives and the user asks for status, inspect the original task; never submit the
+command again to obtain its result.
 
 After delegating, remain available to the user. Completion notices bring finished
 work back to your attention; do not keep yourself running merely to poll. Read the

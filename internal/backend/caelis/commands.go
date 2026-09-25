@@ -145,6 +145,10 @@ func (s *Session) submit(ctx context.Context, in api.Submission, files []api.Inp
 func (s *Session) submitGrant(ctx context.Context, in api.Submission, files []api.InputFile, source, grant string) (api.Receipt, error) {
 	s.step.Lock()
 	defer s.step.Unlock()
+	return s.submitGrantLocked(ctx, in, files, source, grant)
+}
+
+func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, files []api.InputFile, source, grant string) (api.Receipt, error) {
 	receipt := api.Receipt{ID: in.ID, Outcome: "rejected"}
 	if in.ID == "" || len(in.ID) > 128 || len(in.Text) > 256<<10 || len(in.ReferenceIDs) != 0 || len(files) > 4 {
 		receipt.Message = "Caelis 不支持此消息或插件引用"
@@ -264,6 +268,15 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	if !ok || !connected {
 		return errors.New("此审批已失效，请重新核对")
 	}
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if v := s.state.Views[ref.sid]; v != nil {
+			v.ApprovalDirty = true
+			v.ApprovalVersion++
+			s.requestRefreshLocked()
+		}
+	}()
 	// Fetch the authoritative head immediately before resolving; never reuse a stale UI target.
 	var head wire.SessionState
 	if e := c.json(ctx, "GET", "/sessions/"+idPath(ref.sid)+"/state", nil, &head, "", ""); e != nil {

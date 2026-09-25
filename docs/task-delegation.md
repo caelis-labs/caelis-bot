@@ -11,10 +11,15 @@ Bot 负责准确传达范围、继续和停止任务、核对产物并汇报；�
 Bot MCP 与通用 `ApplicationTools` 共用业务实现，提供 `bot_tasks`、`bot_task_start`、`bot_task_read`、`bot_task_send`、`bot_task_stop`。
 Codex adapter 映射至 App Server 的 `thread/start/read/resume`、`turn/start/steer/interrupt`。
 这些是 Bot 自己的接口，不依赖 Codex App 的 `codex_app` 插件或其私有 IPC。
+Caelis adapter 通过公开 `/application/workers` 的 `cwd` 创建原生 worker。
 后续 provider 实现同一能力契约；没有该能力时明确返回不可用，不降级为秘书直接执行专业工作。
 
-- 每个任务在应用数据目录的 `Tasks/<opaque-handle>` 中独立工作；模型不能指定原生 Thread ID、
-  自选任意目录或扩大 writable roots。主 Bot 的 `Work` 仍只用于临时输入与协调。
+- `bot_task_start.workspace` 可指定任务相关的已有绝对目录；省略时在应用数据目录的
+  `Tasks/<opaque-handle>` 中分配独立目录。宿主校验目录并固定解析后的真实路径；不修改
+  已有目录权限、创建 worktree、切分支或删除文件。工作区参与稳定 requestId 的冲突校验，
+  重试不改目标。Codex 把它传入 cwd/runtimeWorkspaceRoots/turn writableRoots；Caelis
+  传入原生 worker cwd。任务继续和终端恢复沿用同一工作区。模型不能指定原生 Thread ID。
+  主 Bot 的 Notebook 仍只用于个人笔记与协调。
 - 同时未结束任务数量由“设置 → 常规 → 后台任务”控制，默认 3，保存后即时影响新建和续跑准入。
   调低上限不停止现有工作；运行中补充和原生已记录请求的对账不消耗新名额。
   历史任务取消累计 100 条上限，`bot_tasks` 分页检索；Codex 单个任务原生请求账本的既有 100 次限制仍独立保留。
@@ -52,8 +57,7 @@ Codex adapter 映射至 App Server 的 `thread/start/read/resume`、`turn/start/
 ## 后续扩展
 
 本轮不自动管理 Codex App 已存在的任务，也不把“列举本机全部 Thread”等同于拥有它们。
-接入已有项目时需要增加用户选择的项目授权记录和工作目录策略：Git 项目使用独立 worktree，
-非 Git 项目明确是否就地操作。跨应用任务的只读发现、显式接管、归档和配额回收属于后续切片。
+指定项目目录已经支持；任务工具本身不自动创建 Git worktree，任务需遵守用户明确的隔离要求。跨应用任务的只读发现、显式接管、归档和配额回收属于后续切片。
 不通过注入 Codex App 当前会话的私有 pipe 来获得这些能力。
 
 验证区分契约测试、真实 Codex 联调和原生界面；最新实际结果见 `preparation-status.md`。
@@ -99,7 +103,8 @@ Codex App 的会话身份/IPC，也不继承秘书专属工具凭据与 Notebook
 ## 轻量任务气泡与共享终端（2026-09-24）
 
 2026-09-25：脚边改为用户需要关注的任务清单，与历史记录和运行并发分开管理。
-新任务默认不 pin；Bot 通过 `bot_tasks` 的 `pin/unpin` 管理，用户也可右键圆球移除。
+新任务有空位即自动 pin；Bot 通过 `bot_tasks` 的 `pin/unpin` 主动整理，用户也可右键圆球移除。
+满额时新任务继续创建但不替换任何 pin；重复 start 不恢复用户手动移除的 pin。
 pin 最多 8 项，满额明确拒绝，不静默挤掉另一项。完成后仍保留，直到明确移除；
 移除不停止工作、不删除结果或目录。旧版升级只将最多 8 个未结束任务迁入关注清单，
 既有历史全部保留。错误/未知状态不伪装成完成，移除也不改变后端事实。
@@ -191,3 +196,39 @@ CAELIS_BOT_TEST_CODEX="$(command -v codex)" go test -v -count=1 -timeout 90s ./i
 
 该测试走生产 Session、任务协调器与自建进程，覆盖 Bot 完成、另一个标准客户端发送用户回合、
 该客户端断开后 Bot 继续、原生结果投影及退出清理。它不代替外部终端 GUI 与原生 hover 的人工验收。
+
+## 审批交付与迟到命令结果（2026-09-25）
+
+Caelis 的实时审批事件触发精确当前 head 核对，原生 Control 对象继续拥有审批身份、选项、
+目标和队列。独立审批代数隔离迟到读取；普通流式文字不会阻止审批投影。重连使用 bootstrap，
+历史 replacement 不重新产生完成通知。决定之后立即核对，未知回执仍只查询原操作。
+
+主 Bot 的异步 RunCommand 可能在模型输出 final 后才获批准。宿主记录该审批对应的原生工具
+调用，用公开 Task directory 确认命令归属。目录的 running 是已提交快照，因此继续通过公开
+`terminals/output` 只读观察生产者是否退出。只有终态/退出证据才在主 Bot 空闲时提交一次
+`application_summary`，要求读取原 Task 结果并汇报。运行中只做原生读取，不轮询模型；不
+重新执行命令，不把输出当授权，未知通知回执不重发。该跟进状态与操作账本跨重启保留。
+
+该适配只在当前 Host 声明 `application-terminal-observation-v1` 时启用，不属于连接的
+必需能力。旧 Host 保留审批、任务与工作区功能，不创建跟进记录、不访问观察接口；重连
+后能力缺失时暂停已有跟进，保留原证据。Caelis 的独立修复纠正底层终端快照并提供受限
+观察，不隐式重启普通会话的模型回合。自动续跑的通用语义仍由 harness 统一拥有。
+
+## 终端小球开关评估（2026-09-25，待实施）
+
+可以做，但必须先取得并验证每个任务专属的终端窗口身份。当前 Launcher 的回执仅证明
+`.command` 脚本开始运行，`open` 不返回窗口或 tab ID；重复点击会新开一次 attach。
+不能用窗口标题、当前最前窗口或整个应用的隐藏/退出代替精确绑定，这可能影响无关终端。
+
+建议让终端 adapter 返回进程实例、窗口/tab/session 标识及生命周期；同一任务点击时：
+关闭了则重新 attach，目标在后台或最小化则恢复并聚焦，目标已经在前台则最小化。
+最小化不退出 TUI、不停止后台任务。切换终端偏好后仍对原绑定执行切换，显式关闭之后才
+使用新偏好。Terminal/iTerm2 需独立的脚本接口与 Automation 授权验证；Ghostty 和自定义
+命令必须协商确切句柄能力，无句柄时保留“打开”语义，不宣称支持 toggle。还需覆盖多 tab、
+窗口手动关闭、程序重启和窗口 ID 重用的原生验收。本轮不加入未经验证的窗口控制。
+
+官方能力依据：[iTerm2 脚本接口](https://iterm2.com/documentation-scripting.html) 提供窗口与
+session 身份，但 AppleScript 已标为 deprecated，应评估 Python API 的接入成本；
+[Ghostty AppleScript](https://ghostty.org/docs/features/applescript) 从 1.3.0 起提供窗口/tab/terminal ID
+和聚焦接口，需检测安装版本、脚本开关及 macOS Automation 授权。存在 API 不能代替当前
+Bot 启动链路的身份绑定与原生 toggle 验收。

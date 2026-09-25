@@ -32,13 +32,15 @@ type journal struct {
 	Source       wire.ApplicationSource `json:"source"`
 }
 type view struct {
-	Turns    map[string]string `json:"turns,omitempty"`
-	Observed uint64            `json:"-"`
-	State    wire.SessionState `json:"state"`
-	Items    []api.Item        `json:"items"`
-	Cursor   string            `json:"cursor"`
-	Seen     map[string]bool   `json:"seen"`
-	Failure  string            `json:"failure,omitempty"`
+	ApprovalDirty   bool              `json:"approvalDirty,omitempty"`
+	ApprovalVersion uint64            `json:"-"`
+	Turns           map[string]string `json:"turns,omitempty"`
+	Observed        uint64            `json:"-"`
+	State           wire.SessionState `json:"state"`
+	Items           []api.Item        `json:"items"`
+	Cursor          string            `json:"cursor"`
+	Seen            map[string]bool   `json:"seen"`
+	Failure         string            `json:"failure,omitempty"`
 }
 type typedRecord struct {
 	Path    string          `json:"path"`
@@ -53,6 +55,7 @@ type callRecord struct {
 	Receipt *wire.ApplicationCallResult `json:"receipt,omitempty"`
 }
 type binding struct {
+	CommandFollowups  map[string]commandFollowup               `json:"commandFollowups,omitempty"`
 	Version           int                                      `json:"version"`
 	ProjectionVersion int                                      `json:"projectionVersion"`
 	StoreID           string                                   `json:"storeID"`
