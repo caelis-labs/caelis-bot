@@ -66,8 +66,19 @@ func Run(assets fs.FS) error {
 	defer core.Close()
 	back := core.Backend
 	s.resolveTaskTerminal = core.WorkTerminal
+	s.taskPreferences = core.TaskPreferences
+	s.saveTaskPreferences = core.SaveTaskPreferences
+	s.terminalChoices = func() []taskterminal.Choice { return taskterminal.Choices(terminalInstalled) }
+	s.removeTaskPin = func(id string) error { _, err := core.PinTask(id, false); return err }
 	s.launchTaskTerminal = taskterminal.New(filepath.Join(root, "Terminal"), func(ctx context.Context, path string) error {
-		return exec.CommandContext(ctx, "/usr/bin/open", path).Run()
+		p, err := s.TaskPreferences()
+		if err != nil {
+			return err
+		}
+		if p.Terminal == "custom" {
+			return taskterminal.LaunchCustom(ctx, p.CustomCommand, path)
+		}
+		return s.openPreferredTerminal(ctx, p.Terminal, path)
 	}).Open
 	s.taskError = func(id string, err error) {
 		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "terminal", Code: "task_open_failed", Item: id, Reason: diagnosticlog.Reason(err.Error()), Fingerprint: diagnosticlog.Fingerprint([]byte(err.Error()))})

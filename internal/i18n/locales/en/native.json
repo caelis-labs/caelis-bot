@@ -65,5 +65,15 @@
   "importInProgress": "Import already in progress",
   "fileSelectionUnavailable": "File selection temporarily unavailable",
   "importFailed": "Could not import: {error}",
-  "petLabel": "Caelis Bot desktop pet"
+  "petLabel": "Caelis Bot desktop pet",
+  "removeTaskPin": "Remove from watchlist",
+  "taskUnpinFailed": "Could not remove this item. Please try again.",
+  "taskPreferencesUnavailable": "Task preferences are unavailable.",
+  "preferredTerminalUnavailable": "The selected terminal is unavailable. Choose an installed terminal in Settings.",
+  "taskTerminalWaiting": "Waiting for terminal confirmation…",
+  "taskTerminalUnconfirmed": "Opening was not confirmed. Check the terminal, then open the task again.",
+  "taskTerminalFailed": "Could not open the task. Check your connection and terminal preference.",
+  "defaultTerminalUnsupported": "Your default terminal is not supported. Choose an installed terminal or configure a custom command in Settings.",
+  "cancelTaskTerminal": "Cancel opening terminal",
+  "taskTerminalCanceled": "Opening canceled."
 }

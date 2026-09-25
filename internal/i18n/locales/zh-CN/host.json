@@ -46,7 +46,7 @@
   "taskRequiresParams": "任务需要稳定请求标识、简短标题和明确要求",
   "installingUpdateRetryLater": "正在安装更新，请稍后重试",
   "sameRequestIdDifferentTask": "同一请求标识不能用于不同任务",
-  "taskCapacityFull": "任务容量已满，请先查询并处理现有任务",
+  "taskCapacityFull": "运行中的任务已达到上限。请等待任务结束，或在设置中调整后台任务数量。",
   "runtimeReturnedDifferentTask": "运行时返回了不同任务",
   "onlyOperateBotCreatedTasks": "只能操作当前运行时中 Bot 自己创建的任务",
   "requiresRequestIdAndRequirements": "需要稳定请求标识和任务要求",
@@ -86,5 +86,8 @@
   "backendMissingReporting": "后端缺少有限任务汇报能力",
   "appStopped": "应用已停止",
   "backendNotIntegrated": "该后端尚未接入，原有连接记录保持不变",
-  "invalidBackendId": "无效的后端标识"
+  "invalidBackendId": "无效的后端标识",
+  "taskQueryInvalid": "任务检索条件或分页大小无效（每页 1–50 项）。",
+  "taskCursorInvalid": "分页游标与当前检索条件不符，请从第一页重新查询。",
+  "taskPinsFull": "关注清单最多固定 8 项任务，请先移除一项再添加。"
 }

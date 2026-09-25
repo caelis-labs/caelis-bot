@@ -92,6 +92,8 @@
 @property NSTimer *previewTimer;
 @property NSUInteger hoverGeneration;
 @property NSArray<BotTaskButton *> *buttons;
+@property NSString *opening;
+@property NSString *openingMessage;
 @end
 
 @implementation BotTaskDock
@@ -166,6 +168,10 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
     button.hover=^(BOOL entered){ [weak hover:index entered:entered]; };
     button.accessibilityLabel=index<0 ? [self text:@"expandTasks"] : [self promptAt:index];
     if(index>=0)button.accessibilityHelp=[self text:@"openTaskInTerminal"];
+    if(self.opening.length) {
+        NSMenu *menu=[NSMenu new];NSMenuItem *cancel=[[NSMenuItem alloc] initWithTitle:[self text:@"cancelTaskTerminal"] action:@selector(cancelOpen) keyEquivalent:@""];
+        cancel.target=self;[menu addItem:cancel];button.menu=menu;
+    }
     return button;
 }
 - (NSString *)promptAt:(NSInteger)index {
@@ -186,6 +192,9 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
         NSView *row=[[NSView alloc] initWithFrame:NSMakeRect(0,0,self.tasks.count*46-2,40)];
         for(NSUInteger i=0;i<self.tasks.count;i++) {
             BotTaskButton *button=[self button:[NSString stringWithFormat:@"%lu",(unsigned long)i+1] frame:NSMakeRect(i*46+2,2,36,36) index:i];
+            NSMenu *menu=[NSMenu new];
+            NSMenuItem *remove=[[NSMenuItem alloc] initWithTitle:[self text:@"removeTaskPin"] action:@selector(removePin:) keyEquivalent:@""];
+            remove.target=self;remove.representedObject=self.tasks[i][@"id"];[menu addItem:remove];if(!self.opening.length)button.menu=menu;
             [row addSubview:button]; [buttons addObject:button];
         }
         scroll.documentView=row; [surface addSubview:scroll];
@@ -205,11 +214,17 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
     BOOL animate=!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
     for(BotTaskButton *button in self.buttons) {
         NSString *status=button.tag>=0 && (NSUInteger)button.tag<self.tasks.count ? self.tasks[button.tag][@"status"] : @"";
-        button.enabled=![status isEqual:@"unavailable"];
-        button.loading=self.visible && (button.tag<0 ? anyActive : [self activeStatus:status]);
+        button.enabled=![status isEqual:@"unavailable"] && (!self.opening.length || button.tag<0);
+        BOOL opening=button.tag<0 ? self.opening.length>0 : [self.tasks[button.tag][@"id"] isEqual:self.opening];
+        button.loading=self.visible && (opening || (button.tag<0 ? anyActive : [self activeStatus:status]));
         button.animateLoading=animate; [button updateProgress];
     }
 }
+- (void)removePin:(NSMenuItem *)item {
+    NSString *identifier=item.representedObject;
+    [self collapse];if(self.unpinTask)self.unpinTask(identifier);
+}
+- (void)cancelOpen { if(self.cancelOpening)self.cancelOpening(); }
 - (BOOL)activeStatus:(NSString *)status {
     return [@[@"pending",@"working",@"running",@"inProgress",@"starting",@"sending",@"interrupting"] containsObject:status ?: @""];
 }
@@ -266,6 +281,7 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
     if(!self.window.visible)[self.window orderFrontRegardless];
 }
 - (void)showPrompt:(NSString *)text {
+    if(self.opening.length)text=self.openingMessage;
     self.prompt.stringValue=text;
     NSRect bounds=self.bounds; CGFloat width=MIN(320,bounds.size.width-16);
     NSRect frame=NSMakeRect(MAX(NSMinX(bounds)+8,MIN(NSMidX(self.pet)-width/2,NSMaxX(bounds)-width-8)),NSMaxY(self.pet)+8,width,70);
@@ -284,9 +300,17 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
     [self.previewTimer invalidate]; __weak BotTaskDock *weak=self;
     self.previewTimer=[NSTimer scheduledTimerWithTimeInterval:4 repeats:NO block:^(NSTimer *timer){[weak.preview orderOut:nil];}];
 }
+- (void)setOpening:(NSString *)identifier message:(NSString *)message {
+    BOOL hadOpening=self.opening.length>0;
+    [self.previewTimer invalidate];self.previewTimer=nil;
+    self.opening=identifier;self.openingMessage=message;
+    [self render];
+    if(identifier.length && self.visible)[self showPrompt:message];
+    else if(hadOpening)[self.preview orderOut:nil];
+}
 - (void)stop {
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
     self.visible=NO; [self collapse]; [self.window close]; [self.preview close];
-    self.openTask=nil; self.gesture=nil;
+    self.openTask=nil; self.unpinTask=nil; self.cancelOpening=nil; self.gesture=nil;
 }
 @end

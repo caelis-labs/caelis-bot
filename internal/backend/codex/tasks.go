@@ -37,6 +37,17 @@ type taskReceipt struct {
 	PriorRun    string `json:"priorRun,omitempty"`
 }
 
+func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.binding.Tasks[in.ID]
+	if t == nil {
+		return false
+	}
+	_, ok := t.Requests[in.RequestID]
+	return ok
+}
+
 func (s *Session) workerParams(workspace, instructions string, t *taskRecord) map[string]any {
 	// Codex validates transport even for disabled MCP servers. Supply an inert
 	// stdio transport, never the secretary's endpoint/token or approved tool list.

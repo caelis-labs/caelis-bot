@@ -21,6 +21,8 @@ import (
 )
 
 type record struct {
+	Sequence       int64    `json:"sequence,omitempty"`
+	Pinned         *bool    `json:"pinned,omitempty"`
 	OriginalPrompt string   `json:"originalPrompt,omitempty"`
 	View           api.Task `json:"view"`
 	Provider       string   `json:"provider"`
@@ -30,11 +32,14 @@ type record struct {
 	ReportState    string   `json:"reportState,omitempty"`
 }
 type state struct {
-	Version int                `json:"version"`
-	Records map[string]*record `json:"records"`
+	Sequence int64              `json:"sequence,omitempty"`
+	Version  int                `json:"version"`
+	Records  map[string]*record `json:"records"`
 }
 
 type Manager struct {
+	maxRunning           func() int
+	watchlistChanged     func([]api.TaskPreview)
 	mu                   sync.Mutex
 	op                   sync.Mutex
 	paused               bool // protected by op; updater admission fence
@@ -187,6 +192,7 @@ func (m *Manager) refresh() error {
 			r.ReportState = "observed"
 		}
 	}
+	m.metadataLocked()
 	return m.write()
 }
 
@@ -262,24 +268,19 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 		}
 		return v, nil
 	}
-	active, total := 0, 0
-	for _, r := range m.state.Records {
-		if r.Provider == m.provider {
-			total++
-			if !terminal(r.View.Status) {
-				active++
-			}
-		}
-	}
+	active := m.activeLocked()
 	m.mu.Unlock()
-	if active >= 3 || total >= 100 {
+	if active >= m.maximumRunning() {
 		return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
 	}
 	if e := m.work.WorkAdmission(ctx); e != nil {
 		return api.Task{}, e
 	}
-	r := &record{Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Title: in.Title, Workspace: filepath.Join(m.root, id), Status: "unknown", Outcome: "unknown"}}
+	pinned := false
+	r := &record{Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Title: in.Title, Workspace: filepath.Join(m.root, id), Status: "unknown", Outcome: "unknown"}}
 	m.mu.Lock()
+	m.state.Sequence++
+	r.Sequence = m.state.Sequence
 	m.state.Records[id] = r
 	e := m.write()
 	if e != nil {
@@ -356,8 +357,21 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if m.paused {
 		return api.Task{}, errors.New(m.text("host.installingUpdateRetryLater"))
 	}
+	if err := m.refresh(); err != nil {
+		return api.Task{}, err
+	}
 	if e := m.owned(in.ID); e != nil {
 		return api.Task{}, e
+	}
+	m.mu.Lock()
+	restarting := terminal(m.state.Records[in.ID].View.Status)
+	active := m.activeLocked()
+	m.mu.Unlock()
+	if restarting && active >= m.maximumRunning() {
+		replay, ok := m.work.(api.RecordedWorkMessage)
+		if !ok || !replay.WorkMessageRecorded(in) {
+			return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
+		}
 	}
 	v, e := m.work.SendWork(ctx, in)
 	return m.capture(in.ID, v, e)

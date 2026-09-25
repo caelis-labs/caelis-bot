@@ -25,7 +25,7 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 	out := []api.TaskPreview{}
 	for id, r := range m.state.Records {
 		state, current := latest[id]
-		if r.Provider != m.provider || r.View.Outcome == "rejected" || (current && state.Task.Outcome == "rejected") {
+		if r.Provider != m.provider || r.Pinned == nil || !*r.Pinned {
 			continue
 		}
 		prompt := r.OriginalPrompt
@@ -39,6 +39,9 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	if len(out) > PinnedLimit {
+		out = out[:PinnedLimit]
+	}
 	return out
 }
 

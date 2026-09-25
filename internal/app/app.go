@@ -45,6 +45,7 @@ type Host struct {
 }
 
 type Application struct {
+	taskPreferences *tasks.PreferencesStore
 	setup           *runtimeSetup
 	Backend         *backend.Service
 	engine          api.Engine
@@ -120,6 +121,11 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		return nil, err
 	}
 	app := &Application{Backend: service, engine: engine, root: root, host: host, initialization: initialization}
+	app.taskPreferences, err = tasks.OpenPreferences(filepath.Join(root, "task-preferences.json"))
+	if err != nil {
+		_ = service.Shutdown()
+		return nil, err
+	}
 	service.ConfigureInitialization(initialization)
 	for _, err := range []error{service.ConfigurePresentation(filepath.Join(directory, "preview.json")), service.ConfigureDraft(filepath.Join(directory, "draft.json"))} {
 		if err != nil && host.ReportError != nil {
@@ -251,6 +257,8 @@ func (a *Application) Start() error {
 		return err
 	}
 	manager.SetLocale(a.locale)
+	manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
+	manager.ObserveWatchlist(a.host.ObserveTasks)
 	if err = a.preparePersonalLocked(); err != nil {
 		return err
 	}

@@ -18,6 +18,34 @@ type TaskProvider interface {
 	StopTask(context.Context, string) (Task, error)
 }
 
+// TaskCatalog manages the product watchlist independently of execution.
+type TaskCatalog interface {
+	QueryTasks(TaskQuery) (TaskPage, error)
+	PinTask(string, bool) (TaskSummary, error)
+}
+type TaskQuery struct {
+	Query  string `json:"query,omitempty"`
+	Status string `json:"status,omitempty"`
+	Pinned *bool  `json:"pinned,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
+}
+type TaskSummary struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Status  string `json:"status"`
+	Outcome string `json:"outcome,omitempty"`
+	Pinned  bool   `json:"pinned"`
+}
+type TaskPage struct {
+	Tasks       []TaskSummary `json:"tasks"`
+	NextCursor  string        `json:"nextCursor,omitempty"`
+	Total       int           `json:"total"`
+	Running     int           `json:"running"`
+	MaxRunning  int           `json:"maxRunning"`
+	PinnedLimit int           `json:"pinnedLimit"`
+}
+
 type Task struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`

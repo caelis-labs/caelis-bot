@@ -15,6 +15,10 @@ type WorkRuntime interface {
 	StopWork(context.Context, string) (Task, error)
 }
 
+// RecordedWorkMessage permits reconciliation of a previously submitted request
+// even when no new execution slots remain. Adapters still check its exact intent.
+type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }
+
 type WorkStart struct {
 	TaskStart
 	ID, Workspace, Instructions string

@@ -46,7 +46,7 @@
   "taskRequiresParams": "Task requires a stable request ID, brief title, and clear requirements",
   "installingUpdateRetryLater": "Installing updates. Try again later.",
   "sameRequestIdDifferentTask": "Same request ID cannot be used for different tasks",
-  "taskCapacityFull": "Task capacity full. Inspect and handle existing tasks first.",
+  "taskCapacityFull": "The running-task limit is reached. Wait for work to finish or adjust Background tasks in Settings.",
   "runtimeReturnedDifferentTask": "Runtime returned a different task",
   "onlyOperateBotCreatedTasks": "Can only operate on Bot-created tasks in the current runtime",
   "requiresRequestIdAndRequirements": "Requires stable request ID and task requirements",
@@ -86,5 +86,8 @@
   "backendMissingReporting": "Backend lacks task reporting capability",
   "appStopped": "Application has stopped",
   "backendNotIntegrated": "Backend not integrated yet; existing connection record preserved",
-  "invalidBackendId": "Invalid backend ID"
+  "invalidBackendId": "Invalid backend ID",
+  "taskQueryInvalid": "Invalid task search or page size (1–50).",
+  "taskCursorInvalid": "This cursor does not match the current task search. Start from the first page.",
+  "taskPinsFull": "The watchlist holds up to 8 tasks. Unpin an existing item before pinning another."
 }

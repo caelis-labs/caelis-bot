@@ -46,10 +46,33 @@ int main(void) {
   [dock collapse];
   assert([dock.tasks[0][@"id"] isEqual:@"two"]);
   assert(NSEqualSizes(dock.window.contentView.bounds.size,NSMakeSize(48,26)));
+  [dock expand];
+  __block NSString *removed=nil; __block BOOL opened=NO;
+  dock.unpinTask=^(NSString *identifier){removed=identifier;};
+  dock.openTask=^(NSString *identifier){opened=YES;};
+  [dock removePin:dock.buttons[0].menu.itemArray[0]];
+  assert([removed isEqual:@"two"] && !opened && !dock.expanded);
+  // A full watchlist stays in a bounded, scrollable panel.
+  NSMutableArray *eight=[NSMutableArray new];
+  for(int i=0;i<8;i++)[eight addObject:task([NSString stringWithFormat:@"task-%d",i],@"completed")];
+  [dock setTasks:eight];[dock expand];
+  assert(dock.buttons.count==8 && dock.window.frame.size.width<=284);
+  NSScrollView *scroll=(NSScrollView *)dock.window.contentView.subviews[0];
+  [scroll.documentView scrollRectToVisible:dock.buttons.lastObject.frame];
+  assert(NSIntersectsRect(scroll.documentVisibleRect,dock.buttons.lastObject.frame));
+  [dock setOpening:@"task-7" message:@"Waiting for terminal confirmation"];
+  assert(dock.buttons.lastObject.loading && !dock.buttons.lastObject.enabled);
+  [dock collapse];
+  assert(dock.buttons[0].loading && dock.buttons[0].menu.itemArray.count==1);
+  __block BOOL canceled=NO;dock.cancelOpening=^{canceled=YES;};[dock cancelOpen];assert(canceled);
+  [dock setOpening:@"" message:@""];
+  assert(!dock.buttons[0].loading && !dock.preview.visible);
+  [dock showFailure:@"Opening was not confirmed"];
+  assert(dock.preview.visible && [dock.prompt.stringValue isEqual:@"Opening was not confirmed"]);
   [dock placeWithPet:NSZeroRect bounds:NSZeroRect visible:NO];
   assert(!dock.window.visible && !dock.buttons[0].loading && ![dock.buttons[0].progress animationForKey:@"loading"]);
   [dock stop];
-  puts("Task dock: bounds, live status, stable hover order, loading, reduced motion and hidden lifecycle passed.");
+  puts("Task dock: bounds, status, hover order, loading, watchlist removal, eight-item scrolling and hidden lifecycle passed.");
  }
  return 0;
 }

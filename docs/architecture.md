@@ -589,10 +589,18 @@ worker decisions keep their own thread/turn/request target. Explicit Stop interr
 owned active turns before cleaning their terminals. Native worker communication stays
 in Codex, without a second orchestration protocol or UI task/session manager.
 
-The native host projects `TaskPreview` (opaque product handle and original assignment)
+The task coordinator separates user-configured execution capacity (default three),
+uncapped task history with cursor pagination, and an explicitly pinned watchlist
+(eight items). New tasks are unpinned; completion never clears a pin. Persisted
+watchlist changes notify the native host even without a new runtime event.
+Start and completed-task continuation share admission; already recorded requests
+can still reconcile without acquiring another execution slot. Direct native TUI
+input remains governed by its runtime, not an application-wide global semaphore.
+
+The native host projects pinned `TaskPreview` entries (opaque product handle and original assignment)
 into nonactivating AppKit task bubbles. Hover/collapse has no backend effect; explicit
 click resolves an owned `WorkTerminalProvider` target and launches the user's external
-terminal. New owned Codex processes expose a private Unix socket; a native TUI attaches
+terminal chosen in app preferences. New owned Codex processes expose a private Unix socket; a native TUI attaches
 to the same App Server with `--remote … resume …`. The adapter remains subscribed across
 idle and human-created turns, with one resume on reconnect and no worker polling loop.
 The renderer never receives a shell command or native thread ID. The Caelis adapter

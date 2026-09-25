@@ -214,6 +214,16 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	}
 	return s.workerViewLocked(w), nil
 }
+func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.state.Workers[in.ID]; !ok {
+		return false
+	}
+	_, ok := s.state.Operations["work-send-"+digest([]byte(in.RequestID))]
+	return ok
+}
+
 func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	call, e := s.authority(ctx)
 	if e != nil {
