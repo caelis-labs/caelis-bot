@@ -32,7 +32,11 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 		if prompt == "" {
 			prompt = state.OriginalPrompt
 		}
-		out = append(out, api.TaskPreview{ID: id, Prompt: prompt})
+		status := r.View.Status
+		if current {
+			status = state.Task.Status
+		}
+		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out

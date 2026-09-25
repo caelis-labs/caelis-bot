@@ -20,6 +20,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
@@ -289,7 +290,11 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		return api.ToolResult{IsError: err != nil, Content: []map[string]string{{"type": "text", "text": text}}}
 	}
-	config := &api.ToolConnection{Instructions: "APPLICATION_OLD_INSTRUCTIONS", NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
+	skillPath, e := botskills.Install(root)
+	if e != nil {
+		t.Fatal(e)
+	}
+	config := &api.ToolConnection{Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
 	open := func() {
 		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
 		if e = s.ConfigureBotTools(config); e != nil {
@@ -302,6 +307,77 @@ func TestNativeHostIntegration(t *testing.T) {
 	}
 	open()
 	defer func() { _ = s.Close(context.Background()) }()
+	if !t.Run("B00_progressive_skill", func(t *testing.T) {
+		model.set("CASE_SKILL", modelStep{Name: "Read", Args: map[string]string{"path": skillPath}}, modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")}})
+		submitAcceptance(t, ctx, s, "CASE_SKILL")
+		correlated := false
+		for _, item := range s.Snapshot().Items {
+			if item.Kind == "user" && item.RequestID == "case_skill" {
+				correlated = true
+			}
+		}
+		if !correlated {
+			t.Fatal("native user input did not preserve submission identity")
+		}
+		requests := model.seen("CASE_SKILL")
+		if len(requests) != 3 {
+			t.Fatalf("skill/reference loading did not complete: %d requests", len(requests))
+		}
+		first, _ := json.Marshal(requests[0])
+		second, _ := json.Marshal(requests[1])
+		third, _ := json.Marshal(requests[2])
+		if !strings.Contains(string(first), "You are Caelis Bot, a persistent personal assistant.") || strings.Contains(string(first), "# Restore your context") {
+			t.Fatal("skill metadata absent or body eagerly injected")
+		}
+		if !strings.Contains(string(second), "# Restore your context") || strings.Contains(string(second), "# Arrange and continue independent work") || !strings.Contains(string(third), "# Arrange and continue independent work") {
+			t.Fatal("progressive native reads did not expose skill and reference")
+		}
+	}) {
+		return
+	}
+	if !t.Run("B00_running_inputs", func(t *testing.T) {
+		release := make(chan struct{})
+		var once sync.Once
+		unblock := func() { once.Do(func() { close(release) }) }
+		defer unblock()
+		entered := make(chan struct{}, 1)
+		model.set("CASE_STEER", modelStep{Name: "FixtureLookup", Args: map[string]string{"key": "steer"}, Block: release, Entered: entered})
+		before := s.Snapshot().CurrentTurn
+		r, err := s.Submit(ctx, api.Submission{ID: "steer-prompt", Text: "CASE_STEER"}, nil)
+		if err != nil || r.Outcome != "accepted" {
+			t.Fatal(r, err)
+		}
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		for _, id := range []string{"steer-one", "steer-two"} {
+			if !s.Snapshot().CanSteer {
+				t.Fatal("running prompt cannot receive input")
+			}
+			r, err = s.Submit(ctx, api.Submission{ID: id, Text: "additional context"}, nil)
+			if err != nil || r.Outcome != "accepted" {
+				t.Fatal(r, err)
+			}
+		}
+		unblock()
+		waitTurn(t, ctx, s, before)
+		counts := map[string]int{}
+		for _, item := range s.Snapshot().Items {
+			if item.Kind == "user" {
+				counts[item.RequestID]++
+			}
+		}
+		for _, id := range []string{"steer-prompt", "steer-one", "steer-two"} {
+			if counts[id] != 1 {
+				t.Fatalf("input %s projected %d times", id, counts[id])
+			}
+		}
+		oldEffects.Store(0)
+	}) {
+		return
+	}
 	if !t.Run("B01_B02_native_notebook", func(t *testing.T) {
 		prior, e := s.Configuration(ctx)
 		if e != nil {
@@ -490,6 +566,10 @@ func TestNativeHostIntegration(t *testing.T) {
 			requests := model.seen(key)
 			if len(requests) == 0 || requests[0]["model"] != "gpt-5.4" {
 				t.Fatal("worker did not inherit Runtime model")
+			}
+			payload, _ := json.Marshal(requests[0])
+			if strings.Contains(string(payload), skillPath) || strings.Contains(string(payload), "You are Caelis Bot, a persistent personal assistant.") || strings.Contains(string(payload), "Native identity sentinel") {
+				t.Fatal("resident skill/memory leaked into worker")
 			}
 		}
 		resident, err := s.Configuration(ctx)

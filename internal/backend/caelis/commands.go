@@ -48,6 +48,19 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		source = wire.ApplicationSource{Kind: prompt.SourceKind, OperationId: op, GrantId: prompt.GrantId}
 	}
 	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0]}
+	if path == "/application/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" && source.Kind == "user" && !s.state.Operations[op].Scheduled {
+		pending := &pendingInput{VisibleIDs: []string{}}
+		if v := s.state.Views[s.state.Session.SessionId]; v != nil {
+			for _, item := range v.Items {
+				if item.Kind == "user" {
+					pending.VisibleIDs = append(pending.VisibleIDs, item.ID)
+				}
+			}
+		}
+		j := s.state.Operations[op]
+		j.PendingInput = pending
+		s.state.Operations[op] = j
+	}
 	if len(scheduled) > 0 && scheduled[0] {
 		s.sendingScheduled = op
 		s.scheduledPreviousTurn = observedTurn(s.state.Views[s.state.Session.SessionId])
@@ -81,6 +94,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 			s.mu.Lock()
 			j := s.state.Operations[op]
 			j.Outcome = "rejected"
+			j.PendingInput = nil
 			if !strings.HasSuffix(path, "/steer") {
 				j.Body = nil
 			}
@@ -101,6 +115,9 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 	s.mu.Lock()
 	j := s.state.Operations[op]
 	j.Outcome = string(out.Outcome)
+	if j.Outcome != "unknown" {
+		j.PendingInput = nil
+	}
 	if out.Target != nil {
 		j.TurnID = value(out.Target.TurnId)
 	}

@@ -46,6 +46,7 @@ type TerminalTarget struct {
 type TaskPreview struct {
 	ID     string `json:"id"`
 	Prompt string `json:"prompt"`
+	Status string `json:"status"`
 }
 
 // ReportSubmitter appends a bounded application notice only when idle. It must

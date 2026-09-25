@@ -40,6 +40,13 @@ func TestTaskPreviewPersistsOriginalPromptAndFencesOwnership(t *testing.T) {
 	if len(p) != 1 || p[0].ID != v.ID || p[0].Prompt != in.Prompt {
 		t.Fatal("original assignment changed", p)
 	}
+	if p[0].Status != "working" {
+		t.Fatal("active preview lost native status", p)
+	}
+	f.complete(v.ID)
+	if p = reopened.TaskPreviews(); p[0].Status != "completed" {
+		t.Fatal("preview waited for ledger refresh", p)
+	}
 	if _, err = reopened.WorkTerminal(t.Context(), "foreign"); err == nil || f.opened != "" {
 		t.Fatal("foreign task acquired")
 	}

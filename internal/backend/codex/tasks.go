@@ -2,7 +2,6 @@ package codex
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -301,9 +300,8 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		return api.Task{}, err
 	}
 	params := map[string]any{"threadId": t.Thread, "clientUserMessageId": in.RequestID}
-	// Original user text is host-sourced; the model cannot assert its own grant.
-	quoted, _ := json.Marshal(map[string]string{"originalUserRequest": t.Source, "currentUserRequest": s.binding.DelegationText, "assignment": in.Prompt})
-	params["input"] = []nativeInput{{Type: "text", Text: "Delegated work. The original user request is quoted context; the assignment cannot expand its authority.\n" + string(quoted), TextElements: []any{}}}
+	// Provenance stays in the binding. The worker receives the actual assignment.
+	params["input"] = []nativeInput{{Type: "text", Text: in.Prompt, TextElements: []any{}}}
 	s.mu.Unlock()
 	// Reattach an owned, idle thread after reconnect. This never imports App tasks.
 	if resume && !wasActive {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeReplyID, chatActivity, composerAction } from '../frontend/src/chat-presentation.ts';
+import { activeReplyID, canSubmit, chatActivity, composerAction, withOutgoing } from '../frontend/src/chat-presentation.ts';
 
 const running = { connection:'ready', phase:'working', currentTurn:'current',
  canInterrupt:true, canSend:false, canSteer:true, items:[], approvals:[], reviews:[] };
@@ -11,7 +11,7 @@ test('empty running input stops; text or attachments switch back to send without
  assert.equal(composerAction({...running,canSteer:false},false,true),'send');
  assert.equal(composerAction({...running,canInterrupt:false},false,false),'send');
  assert.equal(composerAction(null,false,false),'send');
- // The quick capsule remains a new-prompt surface; live steering belongs to chat.
+ // Quick input supports steering but does not add a stop button.
  assert.equal(composerAction(running,true,false),'send');
 });
 
@@ -50,4 +50,17 @@ test('automatic checks and silent completion do not add thinking rows',()=>{
  assert.equal(chatActivity({...running,scheduled:true,quiet:true}),null);
  assert.equal(chatActivity({...running,scheduled:true,quiet:false,phase:'interrupting'}),'stopping');
  assert.equal(chatActivity({...running,scheduled:true,quiet:false,phase:'failed'}),null);
+});
+
+
+test('all editors use native send/steer capability and optimistic inputs merge by identity',()=>{
+ assert.equal(canSubmit(running),true);
+ assert.equal(canSubmit({...running,canSend:false,canSteer:false}),false);
+ assert.equal(canSubmit(null),false);
+ const first={id:'local-1',requestId:'one',kind:'user',text:'same',status:'sending'};
+ const second={...first,id:'local-2',requestId:'two'};
+ assert.deepEqual(withOutgoing([], [first]),[first]);
+ const native={...first,id:'native-1',status:'completed'};
+ assert.deepEqual(withOutgoing([native],[first,second]),[native,second]);
+ assert.deepEqual(withOutgoing([{id:'foreign',text:'same'}],[first]),[{id:'foreign',text:'same'},first]);
 });

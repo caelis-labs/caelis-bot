@@ -1,6 +1,7 @@
 //go:build darwin && cgo
 
 #import "task_dock_darwin.h"
+#import <QuartzCore/QuartzCore.h>
 
 @interface BotTaskPanel : NSPanel
 @end
@@ -13,6 +14,10 @@
 @property(copy) void (^hover)(BOOL);
 @property BOOL hovered;
 @property NSTrackingArea *tracking;
+@property CAShapeLayer *progress;
+@property BOOL loading;
+@property BOOL animateLoading;
+- (void)updateProgress;
 @end
 @implementation BotTaskButton
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
@@ -24,6 +29,29 @@
 }
 - (void)mouseEntered:(NSEvent *)event { self.hovered=YES; self.needsDisplay=YES; if(self.hover)self.hover(YES); }
 - (void)mouseExited:(NSEvent *)event { self.hovered=NO; self.needsDisplay=YES; if(self.hover)self.hover(NO); }
+- (void)updateProgress {
+    if(!self.progress) {
+        self.wantsLayer=YES; self.progress=[CAShapeLayer layer];
+        self.progress.fillColor=NSColor.clearColor.CGColor; self.progress.lineWidth=1.5;
+        self.progress.lineCap=kCALineCapRound; self.progress.strokeEnd=0.72;
+        [self.layer addSublayer:self.progress];
+    }
+    [CATransaction begin]; [CATransaction setDisableActions:YES];
+    self.progress.frame=self.bounds;
+    CGFloat radius=self.tag<0 ? 7 : MIN(self.bounds.size.width,self.bounds.size.height)/2-4;
+    CGPathRef path=CGPathCreateWithEllipseInRect(CGRectMake(NSMidX(self.bounds)-radius,NSMidY(self.bounds)-radius,2*radius,2*radius),NULL);
+    self.progress.path=path; CGPathRelease(path);
+    self.progress.strokeColor=NSColor.secondaryLabelColor.CGColor; self.progress.hidden=!self.loading;
+    [CATransaction commit];
+    if(self.loading && self.animateLoading) {
+        if(![self.progress animationForKey:@"loading"]) {
+            CABasicAnimation *spin=[CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
+            spin.fromValue=@0; spin.toValue=@(2*M_PI); spin.duration=1.1; spin.repeatCount=HUGE_VALF;
+            [self.progress addAnimation:spin forKey:@"loading"];
+        }
+    } else [self.progress removeAnimationForKey:@"loading"];
+    self.needsDisplay=YES;
+}
 - (void)drawRect:(NSRect)dirty {
     NSRect rect=NSInsetRect(self.bounds,1.5,1.5);
     NSBezierPath *shape=[NSBezierPath bezierPathWithRoundedRect:rect xRadius:rect.size.height/2 yRadius:rect.size.height/2];
@@ -31,7 +59,7 @@
     [[NSColor.labelColor colorWithAlphaComponent:self.hovered ? 0.25 : 0.09] setStroke]; shape.lineWidth=1; [shape stroke];
     NSDictionary *attributes=@{NSFontAttributeName:[NSFont systemFontOfSize:12 weight:NSFontWeightMedium],NSForegroundColorAttributeName:NSColor.secondaryLabelColor};
     NSSize size=[self.title sizeWithAttributes:attributes];
-    [self.title drawAtPoint:NSMakePoint((self.bounds.size.width-size.width)/2,(self.bounds.size.height-size.height)/2) withAttributes:attributes];
+    if(!(self.tag<0 && self.loading)) [self.title drawAtPoint:NSMakePoint((self.bounds.size.width-size.width)/2,(self.bounds.size.height-size.height)/2) withAttributes:attributes];
 }
 @end
 
@@ -63,6 +91,7 @@
 @property NSTimer *closeTimer;
 @property NSTimer *previewTimer;
 @property NSUInteger hoverGeneration;
+@property NSArray<BotTaskButton *> *buttons;
 @end
 
 @implementation BotTaskDock
@@ -91,7 +120,9 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
         _prompt.frame=NSMakeRect(18,14,284,42); _prompt.font=[NSFont systemFontOfSize:13];
         _prompt.textColor=NSColor.labelColor; _prompt.maximumNumberOfLines=2;
         _prompt.lineBreakMode=NSLineBreakByTruncatingTail; _prompt.selectable=NO;
-        [surface addSubview:_prompt]; _preview.contentView=surface;
+        [surface addSubview:_prompt];
+        [_preview setContentSize:NSMakeSize(320,70)]; _preview.contentView=surface;
+        [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self selector:@selector(updateActivity) name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
     }
     return self;
 }
@@ -102,10 +133,20 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
         if(![entry isKindOfClass:NSDictionary.class])continue;
         id identifier=entry[@"id"], prompt=entry[@"prompt"];
         if(![identifier isKindOfClass:NSString.class] || ![identifier length] || [ids containsObject:identifier] || ![prompt isKindOfClass:NSString.class])continue;
-        [valid addObject:@{@"id":identifier,@"prompt":prompt}]; [ids addObject:identifier];
+        NSString *status=[entry[@"status"] isKindOfClass:NSString.class] ? entry[@"status"] : @"unknown";
+        [valid addObject:@{@"id":identifier,@"prompt":prompt,@"status":status}]; [ids addObject:identifier];
     }
     // An incoming snapshot must not move another task under the pointer.
-    if(self.expanded && valid.count) { self.pendingTasks=valid; return; }
+    if(self.expanded && valid.count) {
+        self.pendingTasks=valid;
+        NSMutableArray *stable=[NSMutableArray new];
+        for(NSDictionary *old in self.tasks) {
+            NSDictionary *latest=nil;
+            for(NSDictionary *entry in valid) if([entry[@"id"] isEqual:old[@"id"]]) { latest=entry; break; }
+            [stable addObject:latest ?: @{@"id":old[@"id"],@"prompt":old[@"prompt"],@"status":@"unavailable"}];
+        }
+        _tasks=stable; [self updateActivity]; return;
+    }
     _tasks=[valid copy]; self.pendingTasks=nil;
     if(!valid.count) [self collapse]; else [self render];
     [self layout];
@@ -135,6 +176,7 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
     CGFloat width=self.expanded ? MIN(284, self.tasks.count*46+10) : 48;
     CGFloat height=self.expanded ? 52 : 26;
     BotTaskSurface *surface=taskMaterial(NSMakeRect(0,0,width,height),height/2);
+    NSMutableArray *buttons=[NSMutableArray new];
     __weak BotTaskDock *weak=self;
     surface.leave=^{[weak hover:-2 entered:NO];};
     if(self.expanded) {
@@ -142,11 +184,34 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
         scroll.drawsBackground=NO; scroll.hasHorizontalScroller=YES; scroll.autohidesScrollers=YES;
         scroll.scrollerStyle=NSScrollerStyleOverlay; scroll.horizontalScrollElasticity=NSScrollElasticityAllowed;
         NSView *row=[[NSView alloc] initWithFrame:NSMakeRect(0,0,self.tasks.count*46-2,40)];
-        for(NSUInteger i=0;i<self.tasks.count;i++) [row addSubview:[self button:[NSString stringWithFormat:@"%lu",(unsigned long)i+1] frame:NSMakeRect(i*46+2,2,36,36) index:i]];
+        for(NSUInteger i=0;i<self.tasks.count;i++) {
+            BotTaskButton *button=[self button:[NSString stringWithFormat:@"%lu",(unsigned long)i+1] frame:NSMakeRect(i*46+2,2,36,36) index:i];
+            [row addSubview:button]; [buttons addObject:button];
+        }
         scroll.documentView=row; [surface addSubview:scroll];
-    } else [surface addSubview:[self button:@"···" frame:surface.bounds index:-1]];
+    } else {
+        BotTaskButton *button=[self button:@"···" frame:surface.bounds index:-1];
+        [surface addSubview:button]; [buttons addObject:button];
+    }
+    // NSWindow resizes a newly assigned contentView to its existing bounds.
+    // Set the intended content size first, never read it back from that view.
+    [self.window setContentSize:NSMakeSize(width,height)];
     self.window.contentView=surface;
-    NSRect frame=self.window.frame; frame.size=surface.frame.size; [self.window setFrame:frame display:YES];
+    self.buttons=buttons; [self updateActivity];
+}
+- (void)updateActivity {
+    BOOL anyActive=NO;
+    for(NSDictionary *task in (self.pendingTasks ?: self.tasks)) if([self activeStatus:task[@"status"]])anyActive=YES;
+    BOOL animate=!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+    for(BotTaskButton *button in self.buttons) {
+        NSString *status=button.tag>=0 && (NSUInteger)button.tag<self.tasks.count ? self.tasks[button.tag][@"status"] : @"";
+        button.enabled=![status isEqual:@"unavailable"];
+        button.loading=self.visible && (button.tag<0 ? anyActive : [self activeStatus:status]);
+        button.animateLoading=animate; [button updateProgress];
+    }
+}
+- (BOOL)activeStatus:(NSString *)status {
+    return [@[@"pending",@"working",@"running",@"inProgress",@"starting",@"sending",@"interrupting"] containsObject:status ?: @""];
 }
 - (void)hover:(NSInteger)index entered:(BOOL)entered {
     if(!self.visible)return;
@@ -180,7 +245,7 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
     [self render]; [self layout];
 }
 - (void)open:(BotTaskButton *)button {
-    if(!self.visible || button.tag<0 || (NSUInteger)button.tag>=self.tasks.count)return;
+    if(!self.visible || !button.enabled || button.tag<0 || (NSUInteger)button.tag>=self.tasks.count)return;
     NSString *identifier=self.tasks[button.tag][@"id"];
     // Close the local affordance before launching; this does not stop a worker.
     [self collapse];
@@ -189,7 +254,7 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
 }
 - (void)placeWithPet:(NSRect)pet bounds:(NSRect)bounds visible:(BOOL)visible {
     self.pet=pet; self.bounds=bounds; self.visible=visible;
-    if(!visible)[self collapse]; else [self layout];
+    if(!visible)[self collapse]; else { [self updateActivity]; [self layout]; }
 }
 - (void)layout {
     if(!self.visible || !self.tasks.count) { [self.window orderOut:nil]; [self.preview orderOut:nil]; return; }
@@ -220,6 +285,7 @@ static BotTaskSurface *taskMaterial(NSRect rect,CGFloat radius) {
     self.previewTimer=[NSTimer scheduledTimerWithTimeInterval:4 repeats:NO block:^(NSTimer *timer){[weak.preview orderOut:nil];}];
 }
 - (void)stop {
+    [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
     self.visible=NO; [self collapse]; [self.window close]; [self.preview close];
     self.openTask=nil; self.gesture=nil;
 }

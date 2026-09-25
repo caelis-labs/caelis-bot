@@ -133,6 +133,7 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 	switch item.Type {
 	case "userMessage":
 		view.Kind = "user"
+		view.RequestID = item.ClientID
 		var text []string
 		for _, part := range item.Content {
 			if part.Type == "text" {

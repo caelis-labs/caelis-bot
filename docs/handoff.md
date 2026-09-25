@@ -3,6 +3,18 @@
 当前主线是 Caelis Bot 的产品功能和 macOS 正式版质量，先读 `product.md`、`architecture.md`、
 `roadmap.md`。产品已具备真实 Codex 工作闭环，不从早期工具链试验重新开始。
 
+2026-09-25 聊天与 Bot 核心 skill 已本地实现，尚未发布：
+
+- CHAT-01：立即显示待发送气泡，以原生请求标识去重；拒绝/未知保留状态和草稿，不自动重发。
+- CHAT-02：有订阅的子任务由原生回合事件维护终态，迟到活动通知不再重置忙碌。
+- 聊天和快捷输入均按 canSend/canSteer 支持运行中补充；委派正文原样传递。
+- Bot 英文核心 skill 使用 metadata → 正文 → 条件 references；旧固定角色/发现文案已迁入，
+  Codex/Caelis 的应用 instructions 只提供局部技能目录。详见[加载契约](design/bot-core-skill-v1.md)。
+- 任务气泡先设置目标窗口尺寸，再安装内容；活跃任务显示 loading，悬停顺序冻结但状态实时更新。
+- 回归、真实 Runtime + 本机合成 provider、原生 AppKit fixture 和真实 React 组件检查的
+  具体范围见[修复清单](bugfix-checklist.md)。真实模型长期自主加载/压缩恢复与完整桌面交互
+  不能由合成测试替代。未接管或改变原生子代理的委派路线。
+
 2026-09-24 原生任务气泡已接入：脚边收起、相同圆球、悬停原始 prompt、点击外部终端。
 Codex 使用标准共享 Unix App Server，Bot 保持订阅并观察终端用户的新回合，不再长期轮询 Worker。
 完整检查、smoke、构建、相关 race 与安装版隔离协议验收通过；原生浮动气泡的 hover、截断和

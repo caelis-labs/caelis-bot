@@ -220,7 +220,12 @@ Implemented mapping: thread start/read/resume; turn start/steer/interrupt; nativ
 item/delta/completion; command/file/permission approval, tool user input and simple
 MCP form/URL elicitation. Approval responses preserve offered native payloads,
 request IDs and a transport-local generation, including reused native IDs.
-Available skill references come from skills/list, including plugin-provided skills.
+Available user-selectable skill references come from skills/list, including plugin-provided skills.
+The application core skill has a separate resident-scoped metadata catalog assembled
+from its bundled frontmatter and file locator. Both adapters preserve this catalog
+in their public session instructions; the model loads SKILL.md and relative references
+with native file tools. No eager body injection, ambient skills inheritance or global
+installation is needed. This is not registration in either runtime's native skill-list API.
 Plugin installation, arbitrary complex forms and external-token refresh are not
 advertised. Native managed ChatGPT browser login/cancel is present; fresh-account
 live verification remains separate from existing-account model checks.
@@ -888,3 +893,26 @@ the recovery path. The current developer workflow and strict supported capabilit
 limits are in [content packs](content-packs.md). Early releases provide bundled content
 and local third-party imports. Any additional capability requires a separately defined
 versioned contract before it can be exposed to creators.
+
+
+## Chat submission and task presentation (2026-09-25)
+
+The renderer inserts a pending user bubble before waiting on draft persistence or
+native submission. The host keeps an in-memory outbox across chat/quick-input
+surface changes. Native clientUserMessageId (Codex), the prompt receipt's exact
+turn target (Caelis), and input_operation_id (Caelis steers) correlate acceptance
+and replace pending bubbles, including steers within one turn;
+identical text is never a deduplication key. Rejected and unknown inputs retain the
+draft and their status, and are never automatically resubmitted. Outbox display is
+not durable execution evidence; adapter journals and native replay own recovery.
+While a Caelis prompt receipt is unresolved, newly observed uncorrelated user
+messages stay in the canonical transcript but await the exact receipt before
+presentation; the pending bubble remains visible. This fence survives reconnect
+and restart without guessing from text or event arrival order.
+Both editors respect CanSend/CanSteer. Quick input retains its send-only affordance.
+
+A subscribed Codex child is driven by its native turn events. Parent activity with
+no turn identity cannot resurrect a terminal child. TaskPreview carries the current
+native status into the task dock; hover freezes ordering, not status. The AppKit
+window receives its intended content size before installing views. Active rings
+stop on completion/hiding and remain static under reduced motion.

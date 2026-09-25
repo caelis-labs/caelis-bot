@@ -41,17 +41,18 @@ func (s *Session) trackWorkerActivity(item nativeItem) {
 		return
 	}
 	s.rememberChild(id)
-	s.childRevision[id]++
 	if item.ActivityKind == "completed" || item.ActivityKind == "interrupted" {
 		// The activity has no turn id; read the child before declaring it idle.
 	} else if item.ActivityKind != "started" && item.ActivityKind != "interacted" {
 		return
 	}
+	if s.childWatching[id] {
+		// Activity has no turn identity and can arrive after the child's terminal
+		// event. An existing subscription owns lifecycle; never revive it here.
+		return
+	}
 	if _, known := s.childRuns[id]; !known {
 		s.childRuns[id] = ""
-	}
-	if s.childWatching[id] {
-		return
 	}
 	s.childWatching[id] = true
 	c, epoch := s.client, s.epoch
@@ -212,7 +213,7 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 				_ = s.save()
 			}
 		}
-		if n.Turn.Status == "inProgress" {
+		if n.Turn.Status == "inProgress" && !s.childTerminals[opaque(thread, n.Turn.ID)] {
 			s.childRuns[thread] = n.Turn.ID
 		}
 		if terminal(n.Turn.Status) {

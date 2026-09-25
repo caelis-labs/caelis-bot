@@ -3,7 +3,7 @@ import { backend, desktop, type DraftFile } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Review, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { CopyText, MessageContent } from './MessageContent';
-import { activeReplyID, chatActivity, composerAction } from './chat-presentation';
+import { activeReplyID, canSubmit, chatActivity, composerAction, withOutgoing } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
 import { AttachmentMenu } from './AttachmentMenu';
@@ -36,6 +36,7 @@ export function getItemStatusLabel(status: string, t: (key: MessageKey) => strin
   case 'unconfirmed': return t('chat.statusUnconfirmed');
   case 'inProgress': return t('chat.statusInProgress');
   case 'declined': return t('chat.statusDeclined');
+  case 'rejected': return t('chat.statusDeclined');
   default: return '';
  }
 }
@@ -100,6 +101,7 @@ function Message({ item, report, animate=false }: { item: Item; report: (message
     {item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent text={item.text} report={report}/> : <p>{item.text}</p>}
     {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}
     {!!item.text&&item.kind!=='activity'&&<div className="message-actions"><CopyText text={item.text} report={report}/></div>}
+    {item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)&&<small className="outgoing-status" role="status">{statusLabel}</small>}
    </div>
   </article>;
 }
@@ -121,7 +123,7 @@ export function useConversation(active: boolean, pet=false, chat=false, composer
 
 // One native-host draft, two exclusive editors. Writes serialize and use a
 // revision fence so a delayed hidden renderer cannot overwrite newer text.
-function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0,refresh}:{snapshot:Snapshot|null;quick?:boolean;active?:boolean;activation?:number;focusRevision?:number;refresh:()=>Promise<void>}) {
+function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0,refresh,onOutgoing}:{snapshot:Snapshot|null;quick?:boolean;active?:boolean;activation?:number;focusRevision?:number;refresh:()=>Promise<void>;onOutgoing?:(item:Item)=>void}) {
  const {t} = useI18n();
  const draftLoadFailed=useEffectEvent(()=>t('chat.draftLoadFailed'));
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null),composer=useRef<HTMLDivElement>(null);
@@ -160,19 +162,23 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  useLayoutEffect(()=>{const editor=input.current;if(editor){editor.style.height='0px';editor.style.height=`${Math.max(27,Math.min(127,editor.scrollHeight))}px`;}},[draft]);
  const pick=async()=>{setExpanded(false);setBusy(true);setError('');try{setFiles(await desktop<DraftFile[]>('PickFiles'));setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
  const submit=async()=>{
-  if(busy||!loaded||!(snapshot?.canSend||(!quick&&snapshot?.canSteer))||(!draft.trim()&&!files.length))return;
-  setBusy(true);setError('');setExpanded(false);await writes.current;
-  if(conflicted.current){setBusy(false);return;}
+  if(busy||!loaded||!canSubmit(snapshot)||(!draft.trim()&&!files.length))return;
+  setBusy(true);setError('');setExpanded(false);
   const request:Submission={id:crypto.randomUUID(),text:draft,fileIds:files.map(f=>f.id),referenceIds:refs};
- pending.current=request;
+  const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,turnKey:'',kind:'user',text:[draft,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',artifacts:[]};
+  onOutgoing?.(outgoing);
+  await writes.current;
+  if(conflicted.current){onOutgoing?.({...outgoing,status:'rejected'});setBusy(false);return;}
+  pending.current=request;
   try{
    const receipt=await backend<Receipt>('Submit',request);
+   onOutgoing?.({...outgoing,status:receipt.outcome||'unknown'});
    if(receipt.outcome==='accepted'){
     pending.current=null;
     saved.current=await backend<Draft>('Draft');setDraft(saved.current.text);setRefs(saved.current.referenceIds??[]);setError(saved.current.notice);await readFiles();
     if(quick)await desktop('ClosePanel');
    }else setError(receipt.message||t('chat.sendPending'));
-  }catch{setError(t('chat.sendPendingChat'));}
+  }catch{onOutgoing?.({...outgoing,status:'unknown'});setError(t('chat.sendPendingChat'));}
   finally{setBusy(false);await refresh();}
  };
  useEffect(()=>{
@@ -184,7 +190,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  },[snapshot?.lastReceipt.id,snapshot?.lastReceipt.outcome]);
  const primaryAction=composerAction(snapshot,quick,!!(draft.trim()||files.length||refs.length));
  const stopping=snapshot?.phase==='interrupting';
- const enabled=loaded&&!busy&&(primaryAction==='stop'?!stopping:(snapshot?.canSend||(!quick&&snapshot?.canSteer))&&!!(draft.trim()||files.length));
+ const enabled=loaded&&!busy&&(primaryAction==='stop'?!stopping:canSubmit(snapshot)&&!!(draft.trim()||files.length));
  const interrupt=async()=>{
   if(busy||!loaded||!snapshot?.canInterrupt||stopping)return;
   setBusy(true);setError('');
@@ -195,11 +201,11 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
    finally{setBusy(false);}
   }
  };
- const actionLabel=primaryAction==='stop'?(stopping?t('chat.stopping'):t('chat.stopWork')):!quick&&snapshot?.canSteer?t('chat.steerWork'):t('chat.send');
+ const actionLabel=primaryAction==='stop'?(stopping?t('chat.stopping'):t('chat.stopWork')):snapshot?.canSteer?t('chat.steerWork'):t('chat.send');
  return <div ref={composer} className="compose-area" data-file-drop-target>
   <div className="capsule">
    <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
-   <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={!quick&&snapshot?.canSteer?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
+   <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
    <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-label={actionLabel} title={actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
   {!!error&&<p role="alert" className="input-error">{error}</p>}
@@ -224,7 +230,7 @@ export function Panel() {
   return()=>{window.removeEventListener('panel-open',open);window.removeEventListener('panel-close',close);window.removeEventListener('keydown',key);};
  },[]);
  useEffect(()=>{const resize=new ResizeObserver(()=>{if(surface.current)void desktop('SetPanelHeight',Math.max(64,Math.min(500,Math.ceil(surface.current.getBoundingClientRect().height))));});resize.observe(surface.current!);return()=>resize.disconnect();},[]);
- return <main ref={surface} className="input-surface" aria-label={t('chat.panelAriaLabel')}><Composer snapshot={snapshot} quick active={active} activation={activation} refresh={refresh}/>{active&&snapshot&&!snapshot.canSend&&<button className="text-action" onClick={()=>void desktop('OpenHistory')}>{snapshot.canSteer?t('chat.openChatToSteer'):t('chat.openChatToReview')}</button>}</main>;
+ return <main ref={surface} className="input-surface" aria-label={t('chat.panelAriaLabel')}><Composer snapshot={snapshot} quick active={active} activation={activation} refresh={refresh}/>{active&&snapshot&&!canSubmit(snapshot)&&<button className="text-action" onClick={()=>void desktop('OpenHistory')}>{t('chat.openChatToReview')}</button>}</main>;
 }
 
 export function History() {
@@ -232,6 +238,9 @@ export function History() {
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
  const [activation,setActivation]=useState(0);
  const {snapshot,refresh}=useConversation(active,false,true);
+ const [outgoing,setOutgoing]=useState<Item[]>([]);
+ const stage=(item:Item)=>setOutgoing(previous=>[...previous.filter(p=>p.requestId!==item.requestId),item]);
+ useEffect(()=>{const known=new Set(snapshot?.items.map(i=>i.requestId).filter(Boolean));setOutgoing(previous=>previous.filter(i=>!known.has(i.requestId)));},[snapshot]);
  const [earlierBusy,setEarlierBusy]=useState(false);
  const prepend=useRef<{id:string;top:number}|null>(null);
  const scroll=useRef<HTMLDivElement>(null),content=useRef<HTMLDivElement>(null),position=useRef<ChatScroll|null>(null);
@@ -254,7 +263,7 @@ export function History() {
   resize.observe(scroll.current!);resize.observe(content.current!);
   return()=>resize.disconnect();
  },[active]);
- const messages=snapshot?.items.filter(i=>i.kind==='user'||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length)))??[];
+ const messages=withOutgoing(snapshot?.items??[],outgoing).filter(i=>i.kind==='user'||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length)));
  const contentKey=messages.map(i=>i.id+i.text).join('');
  const prompts=snapshot?.approvals.filter(p=>p.status!=='resolved')??[];
  const promptKey=prompts.map(p=>p.id+p.status).join('');
@@ -279,7 +288,7 @@ export function History() {
    <div className="chat-content" ref={content}>
    {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy||snapshot.connection!=='ready'} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
-   <div className="history-messages">{messages.map(i=><Message key={i.id} item={i} report={setError} animate={i.id===activeReply}/>)}</div>
+   <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply}/>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active}/>}
    {(!!prompts.length||!!reviews.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
     <BotAvatar/>
@@ -308,7 +317,7 @@ export function History() {
   </div>
   {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>{t('chat.viewNewMessages')}</button>}
   <footer>
-   {active&&<Composer snapshot={snapshot} focusRevision={activation} refresh={refresh}/>}
+   {active&&<Composer snapshot={snapshot} focusRevision={activation} refresh={refresh} onOutgoing={stage}/>}
   </footer>
  </main>;
 }

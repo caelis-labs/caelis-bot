@@ -165,7 +165,7 @@ func Serve(r *Runtime) (*Bridge, error) {
 	return b, nil
 }
 func (b *Bridge) Config(executable string) *api.ToolConnection {
-	return &api.ToolConnection{Instructions: botpolicy.SecretaryInstructions + botpolicy.ToolDiscovery, WorkerInstructions: botpolicy.WorkerInstructions, Host: b.runtime, Command: executable, Args: []string{"--bot-tools"},
+	return &api.ToolConnection{WorkerInstructions: botpolicy.WorkerInstructions, Host: b.runtime, Command: executable, Args: []string{"--bot-tools"},
 		Env:           map[string]string{"CAELIS_BOT_ENDPOINT": b.listener.Endpoint(), "CAELIS_BOT_TOKEN": b.token},
 		ApprovedTools: botpolicy.ApprovedTools()}
 }
