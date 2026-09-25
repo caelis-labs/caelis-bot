@@ -21,6 +21,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
+	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
@@ -141,7 +142,7 @@ func (h *acceptanceTools) CallTool(ctx context.Context, name string, args json.R
 }
 func fixtureDefinitions(kind string) []api.ToolDefinition {
 	out := []api.ToolDefinition{}
-	for _, name := range []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule"} {
+	for _, name := range []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureCare"} {
 		out = append(out, api.ToolDefinition{Name: name, Description: "Controlled acceptance tool", InputSchema: json.RawMessage(fmt.Sprintf(`{"type":"object","properties":{"key":{"type":%q}},"additionalProperties":false}`, kind))})
 	}
 	return out
@@ -263,6 +264,10 @@ func TestNativeHostIntegration(t *testing.T) {
 	var oldEffects, newEffects atomic.Int32
 	h := &acceptanceTools{defs: fixtureDefinitions("string")}
 	var s *Session
+	careEngine, careErr := care.Open(filepath.Join(root, "care.json"))
+	if careErr != nil {
+		t.Fatal(careErr)
+	}
 	var taskError atomic.Value
 	workerA, workerB := make(chan struct{}), make(chan struct{})
 	enteredA, enteredB := make(chan struct{}, 1), make(chan struct{}, 1)
@@ -281,6 +286,8 @@ func TestNativeHostIntegration(t *testing.T) {
 					break
 				}
 			}
+		case "FixtureCare":
+			_, err = careEngine.Save(callCtx, care.Rule{ID: "native-care", Label: "Native care", On: "clock.minute", When: "true", Prompt: "CASE_CARE_FIRE", TimeZone: "UTC"}, s.AuthorizeBackground)
 		case "FixtureSchedule":
 			err = s.AuthorizeBackground(callCtx, "fixture-reminder", "original-user-schedule")
 		}
@@ -375,6 +382,37 @@ func TestNativeHostIntegration(t *testing.T) {
 			}
 		}
 		oldEffects.Store(0)
+	}) {
+		return
+	}
+	if !t.Run("B00_care_activation", func(t *testing.T) {
+		model.set("CASE_CARE", modelStep{Name: "FixtureCare", Args: map[string]string{"key": "save"}})
+		submitAcceptance(t, ctx, s, "CASE_CARE")
+		saved := careEngine.Snapshot()
+		if len(saved.Rules) != 1 || !saved.Rules[0].Enabled {
+			t.Fatal("native care registration failed")
+		}
+		now := time.Now()
+		if err := careEngine.Receive(ctx, care.Event{Source: "clock.minute", At: now, Data: map[string]any{}}, now); err != nil {
+			t.Fatal(err)
+		}
+		model.set("CASE_CARE_FIRE", modelStep{Reply: api.SilentReminder})
+		before := s.Snapshot().CurrentTurn
+		yes := true
+		err := careEngine.Deliver(ctx, now, care.Presence{Awake: true, Unlocked: &yes}, s.Snapshot().CanSend, s.BackgroundReceipt, func(ctx context.Context, a care.Activation) (api.Receipt, error) {
+			return s.SubmitBackground(ctx, api.Submission{ID: a.ID, Text: a.Prompt, Scheduled: true}, []string{care.GrantID(a.RuleID)})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitTurn(t, ctx, s, before)
+		a := careEngine.Snapshot().Activations[0]
+		if a.Status != "accepted" || s.BackgroundReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Quiet {
+			t.Fatal("care did not use native silent background path")
+		}
+		if err = careEngine.Remove(ctx, "native-care", s.RevokeBackground); err != nil {
+			t.Fatal(err)
+		}
 	}) {
 		return
 	}

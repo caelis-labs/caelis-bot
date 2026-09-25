@@ -571,8 +571,18 @@ identity, persisted reminder definitions/occurrences and the private MCP bridge.
 starts only after single-instance ownership, wakes the existing Bot only when idle,
 and keeps unknown dispatches unresolved until a native receipt proves acceptance.
 Calendar windows and literal weekdays are evaluated locally, including after sleep or queueing; holiday predicates remain model instructions. `internal/backend/activation` owns quiet presentation: adapters retain scheduled provenance in their existing journals, map it through native client IDs or command targets, and filter only presentation snapshots. Canonical history remains unchanged. Partial scheduled prose and the explicit skip response never reach chat, pet bubbles or OS notifications; approvals and errors keep their normal path.
-Codex explicitly uses empty runtime workspace roots and a fixed Bot instruction
-prefix. The private result directory is not a user-selected workspace.
+Codex explicitly uses empty runtime workspace roots and the app-scoped skill
+catalog; behavior is loaded progressively from the bundled Bot skill. The private
+result directory is not a user-selected workspace.
+
+`internal/care` adds bounded CEL predicates over native metadata and registered
+JSON sources. `internal/bot` owns rule tools and dispatch through the existing
+background activation contract, including exact Caelis grants and retained native
+receipts. Durable versions, cooldown, expiry, presence and shared care budgets
+gate every activation. `Host.CareSources` and `Application.PublishCareEvent` are
+in-process adapter interfaces, not a renderer or model-controlled event ingress.
+Collectors own credentials, schema, cancellation and execution authority; CEL has
+no I/O. See [proactive care](proactive-care.md) for limits and verification boundaries.
 
 The adapter records native root/child relationships. Worker messages remain internal;
 worker decisions keep their own thread/turn/request target. Explicit Stop interrupts

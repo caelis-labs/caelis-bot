@@ -16,6 +16,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
+	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -26,6 +27,8 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
+	CareSample  func() care.Sample
+	CareSources []care.Source
 	// Locale is read when presenting host-generated UI, never during model execution.
 	Locale       func() i18n.Locale
 	Diagnostics  *diagnosticlog.Logger
@@ -182,6 +185,10 @@ func (a *Application) preparePersonalLocked() error {
 	}
 	resident, err := bot.NewForRuntime(filepath.Join(a.root, "bot.json"), a.engine.(api.Provider).ProviderInfo().ID, a.host.Gesture)
 	if err != nil {
+		return err
+	}
+	if err = resident.ConfigureCare(a.host.CareSample, a.host.CareSources...); err != nil {
+		resident.Close()
 		return err
 	}
 	personal, err := botmemory.Open(context.Background(), filepath.Join(a.root, "personal"), resident.State().ID)

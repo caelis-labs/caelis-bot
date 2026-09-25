@@ -59,7 +59,7 @@ func Run(assets fs.FS) error {
 	core, err := app.New(root, app.Host{Locale: func() i18n.Locale { return s.LanguagePreferences().Locale }, Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
 		OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 		RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
-		TrashFile:  trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError})
+		TrashFile:  trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError, CareSample: macCareSample})
 	if err != nil {
 		return err
 	}

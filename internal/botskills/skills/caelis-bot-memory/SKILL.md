@@ -44,5 +44,7 @@ they are relevant to the work:
   independent work, including when a task completion notice arrives.
 - [Reminders](references/reminders.md): when arranging future work or responding to
   a reminder activation.
+- [Proactive care](references/proactive-care.md): when arranging condition-based
+  care, evaluating event data, or responding to a care activation.
 - [Expression](references/expression.md): when using a desktop gesture to accompany
   a response or draw attention to a result.

@@ -132,7 +132,7 @@ Bot 自建进程继续遵守显式退出和工具清理。原生握手报告的 
 已确认原生 Session ID 的 Worker；旧应用会话、未知创建及其他应用任务不会生成 attach 命令。
 Host instance 改变时先等待 Bot 重连。终端使用本机用户的 `runtime/service/auth.token` 文件，
 Bot 仍使用受限应用凭据；脚本不会复制 token。双方分别订阅同一 Session，用户新回合和 steering
-仍进入 Bot 原有 SSE 投影。主动关怀规则保留在独立 POC。
+仍进入 Bot 原有 SSE 投影。主动关怀已在后续增量中接入生产路径，见[主动关怀](proactive-care.md)。
 
 Caelis 的隔离 Host 验收使用 `CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis make smoke-caelis`，
 覆盖原生 Worker 的终端目标、同一 Session、重连和结果。shell 参数执行测试验证不重发 prompt。

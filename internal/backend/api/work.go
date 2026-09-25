@@ -62,3 +62,7 @@ type BackgroundRuntime interface {
 	RevokeBackground(context.Context, string) error
 	SubmitBackground(context.Context, Submission, []string) (Receipt, error)
 }
+
+// BackgroundReceiptProvider reads retained native submission evidence without
+// dispatching again, even after later user input replaces LastReceipt.
+type BackgroundReceiptProvider interface{ BackgroundReceipt(string) Receipt }

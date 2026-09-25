@@ -151,9 +151,11 @@ Windows native adapters are not implemented by this POC.
 
 ## Integration after this POC
 
-后续状态：第 1、2 项已在正式 Bot 代码接入，验证边界见
-[任务委派](../../docs/task-delegation.md)与[准备记录](../../docs/preparation-status.md)。
-以下保留 POC 的交接范围；主动关怀及 Caelis 共享终端仍待跟进。
+2026-09-25 后续状态：共享终端、Bot 规则工具及两种 Runtime 的后台激活现已接入正式代码，
+见[任务委派](../../docs/task-delegation.md)、[主动关怀](../../docs/proactive-care.md)与
+[准备记录](../../docs/preparation-status.md)。正式实现读取明确的本机锁状态，未知时禁止派发；
+物理锁屏/睡眠切换与真实模型仍待实机复验，命令/外部连接器只有扩展接口。
+以下保留当时 POC 的历史交接范围，不作为当前产品状态：
 
 1. Codex: shared local endpoint, restore subscriptions after reconnect, and replace
    `watchChild` periodic history reads with events plus recovery reads. Update the
@@ -171,6 +173,5 @@ Windows native adapters are not implemented by this POC.
    lasting user authorization must be represented explicitly rather than inferred
    from worker output. Keep condition evaluation in the Bot, not duplicated in Core.
 
-This isolated POC does not modify production state. Production Codex subscriptions
-and task bubbles were implemented in the subsequent slice linked above. Background
-registration and Caelis application-session authorization still need their own work.
+This isolated POC does not modify production state. The production implementation
+and its current verification boundaries are documented in the links above.

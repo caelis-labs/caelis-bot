@@ -16,6 +16,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
+	"github.com/caelis-labs/caelis-bot/internal/care"
 )
 
 // Real App Server and native file tool, local deterministic provider. No account
@@ -140,9 +141,44 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 	mu.Lock()
-	defer mu.Unlock()
-	if strings.Contains(requests[3], skillPath) || strings.Contains(requests[3], "You are Caelis Bot, a persistent personal assistant.") {
+	workerRequest := requests[3]
+	mu.Unlock()
+	if strings.Contains(workerRequest, skillPath) || strings.Contains(workerRequest, "You are Caelis Bot, a persistent personal assistant.") {
 		t.Fatal("resident skill leaked into native worker")
+	}
+	careEngine, err := care.Open(filepath.Join(dir, "care.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = careEngine.Save(ctx, care.Rule{ID: "native-care", Label: "Care fixture", On: "clock.minute", When: "true", Prompt: "Synthetic care activation", TimeZone: "UTC"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err = careEngine.Receive(ctx, care.Event{Source: "clock.minute", At: now, Data: map[string]any{}}, now); err != nil {
+		t.Fatal(err)
+	}
+	before := s.Snapshot().CurrentTurn
+	yes := true
+	err = careEngine.Deliver(ctx, now, care.Presence{Awake: true, Unlocked: &yes}, s.Snapshot().CanSend, s.BackgroundReceipt, func(ctx context.Context, a care.Activation) (api.Receipt, error) {
+		return s.Submit(ctx, api.Submission{ID: a.ID, Text: a.Prompt, Scheduled: true}, nil)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		v, err := s.WaitSnapshot(ctx, revision)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revision = v.Revision
+		if v.CurrentTurn != before && v.Phase == "completed" {
+			break
+		}
+	}
+	a := careEngine.Snapshot().Activations[0]
+	if a.Status != "accepted" || s.BackgroundReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Scheduled {
+		t.Fatal("care did not use native background projection")
 	}
 	t.Log("native provider requests contain metadata first, then only the explicitly loaded body/reference")
 }

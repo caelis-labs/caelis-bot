@@ -18,3 +18,7 @@ useful next action. If the reminder calls for substantial work, read
 [Tasks](tasks.md) and arrange it. Avoid duplicate delivery or restarting work that
 is already underway. Keep routine progress quiet unless there is a result,
 meaningful change, blocker, or decision the user should know about.
+
+For care that depends on computer use, foreground app changes, or another
+registered data source, read [Proactive care](proactive-care.md). Use its local
+conditions to avoid waking a model just to check whether anything is relevant.

@@ -8,5 +8,5 @@ const WorkerInstructions = `Complete the assigned task in this dedicated workspa
 // ApprovedTools returns a fresh, explicit set of host-owned routine operations.
 // It grants neither worker execution nor arbitrary MCP/server-wide approval.
 func ApprovedTools() []string {
-	return []string{"bot_clock", "bot_reminders", "bot_gesture", "bot_tasks", "bot_task_start", "bot_task_read", "bot_task_send", "bot_task_stop", "bot_memory"}
+	return []string{"bot_clock", "bot_reminders", "bot_care", "bot_gesture", "bot_tasks", "bot_task_start", "bot_task_read", "bot_task_send", "bot_task_stop", "bot_memory"}
 }

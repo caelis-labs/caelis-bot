@@ -37,6 +37,7 @@ caelis-bot-memory/
     memory.md
     tasks.md
     reminders.md
+    proactive-care.md
     expression.md
 ```
 

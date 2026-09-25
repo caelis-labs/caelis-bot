@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/care"
 )
 
 type Schedule struct {
@@ -54,6 +55,9 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
+	care           *care.Engine
+	careSample     func() care.Sample
+	careSources    care.SourcesTracker
 	stopped        bool
 	mu             sync.Mutex
 	step           sync.Mutex
@@ -331,7 +335,7 @@ func (r *Runtime) ResumeAfterUpdate() {
 
 // Tick uses wall time after wake. It never invokes a model while idle, never
 // steers an unrelated active request, and persists an occurrence before dispatch.
-func (r *Runtime) Tick(ctx context.Context) error {
+func (r *Runtime) Tick(ctx context.Context) (err error) {
 	r.step.Lock()
 	defer r.step.Unlock()
 	if r.paused {
@@ -357,6 +361,12 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	// never disguise a timer as a user message.
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok && !p.ApplicationCapabilities().ScheduledActivation {
 		return nil
+	}
+	// A failed care store must not disable independently persisted reminders.
+	careErr := r.tickCare(ctx)
+	defer func() { err = errors.Join(err, careErr) }()
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	r.mu.Lock()
 	now := r.now()
@@ -499,6 +509,11 @@ func wakePrompt(messages []string) string {
 	return "这是用户已授权的定时任务自动触发。先判断任务条件，不要复述指令或发送过程说明。只有确实需要告知用户时才输出提醒或结果；若本次应静默跳过，最终只输出 " + api.SilentReminder + "，不要添加其他文字。\n" + strings.Join(messages, "\n")
 }
 func (r *Runtime) Status() string {
+	if r.care != nil {
+		if status := r.care.Status(); status != "" {
+			return status
+		}
+	}
 	if r.initialization != nil && r.initialization.Initialization().Status != "accepted" {
 		return r.initialization.Initialization().Message
 	}

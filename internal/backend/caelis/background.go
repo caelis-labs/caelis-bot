@@ -111,3 +111,13 @@ func (s *Session) SubmitBackground(ctx context.Context, in api.Submission, ids [
 	}
 	return s.submitGrant(ctx, in, nil, "authorized_background", g.Grant.Id)
 }
+
+func (s *Session) BackgroundReceipt(id string) api.Receipt {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j, ok := s.state.Operations[id]
+	if !ok || !j.Scheduled {
+		return api.Receipt{ID: id, Outcome: "unknown"}
+	}
+	return api.Receipt{ID: id, Outcome: productOutcome(wire.Outcome(j.Outcome))}
+}
