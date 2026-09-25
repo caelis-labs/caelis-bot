@@ -15,6 +15,10 @@ type WorkRuntime interface {
 	StopWork(context.Context, string) (Task, error)
 }
 
+// RecordedWorkMessage permits reconciliation of a previously submitted request
+// even when no new execution slots remain. Adapters still check its exact intent.
+type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }
+
 type WorkStart struct {
 	TaskStart
 	ID, Workspace, Instructions string
@@ -46,6 +50,7 @@ type TerminalTarget struct {
 type TaskPreview struct {
 	ID     string `json:"id"`
 	Prompt string `json:"prompt"`
+	Status string `json:"status"`
 }
 
 // ReportSubmitter appends a bounded application notice only when idle. It must
@@ -61,3 +66,7 @@ type BackgroundRuntime interface {
 	RevokeBackground(context.Context, string) error
 	SubmitBackground(context.Context, Submission, []string) (Receipt, error)
 }
+
+// BackgroundReceiptProvider reads retained native submission evidence without
+// dispatching again, even after later user input replaces LastReceipt.
+type BackgroundReceiptProvider interface{ BackgroundReceipt(string) Receipt }

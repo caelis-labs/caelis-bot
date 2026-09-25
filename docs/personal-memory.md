@@ -67,7 +67,11 @@ MEMORY 保存 Bot 的名字、描述、交流风格，对用户的稳定认知�
 ## Bot 专属 skill
 
 应用打包 [`internal/botskills/skills/caelis-bot-memory/SKILL.md`](../internal/botskills/skills/caelis-bot-memory/SKILL.md)，
-启动时放到应用数据目录的 `app-skills/caelis-bot-memory/SKILL.md`，在秘书的固定指令中注册读取入口。
+启动时将完整目录放到应用数据目录的 `app-skills/caelis-bot-memory/`。从 frontmatter 读取
+名称和 description，在驻留会话的应用技能目录中提供元数据及文件路径，正文不自动注入。
+Codex 和 Caelis 均通过原生文件工具按需读取 `SKILL.md` 与相对 references。
+这份应用范围目录通过两者公开的会话 instructions 提供，不依赖全局安装或 Caelis 的 ambient
+`inherit.skills`；也不声称已注册到 Caelis 内置 Skill 工具或 Codex `skills/list`。
 不安装到用户全局 skills；普通 Session 和工作任务不会继承此 skill 或整本笔记。
 
 skill 教会 Bot：
@@ -81,7 +85,9 @@ skill 教会 Bot：
 维护记忆是内置核心能力，正常对话不主动提及 skill、Notebook 或内部读写步骤。
 必要时只简短确认实际结果；用户询问或发生需要其关注的失败/限制时再解释。
 这是正常交互中的读写习惯，没有额外维护 Agent 或自动人格抽取层。
-指令只包含固定 skill 位置，不把笔记内容注入系统前缀。实际内容经普通文件读取进入上下文。
+固定目录只包含名称、description 和位置，不把技能正文或笔记内容注入系统前缀。
+根文件包含基本身份恢复与模块路由；`references/memory.md`、`tasks.md`、`reminders.md`、
+`expression.md` 按场景渐进加载。Bot 行为文案以这些英文文件为唯一来源。
 
 ## Runtime 与 Memory 边界
 
@@ -139,5 +145,7 @@ Memory 测试使用真实嵌入式 appliance，覆盖共享证据、更正链遗
 进入对话、真实模型写入 MEMORY；后续对话保存长期偏好与当日笔记，INDEX 在完成后生成链接。
 初始化前退出再打开、接受后重启恢复历史且不再显示表单均通过。未读取或修改日常笔记。
 
-主动整理频率、Compact 后回读及两个真实 Runtime 的切换仍需独立验收；
-fixture 不证明所有模型都会可靠遵循 skill，也不证明新 Caelis wire 已可用。
+2026-09-25 安装版 Codex/Caelis 与本机合成 provider 已验证应用技能的 metadata-only 目录、
+原生文件工具渐进读取正文/任务 reference，以及 worker 隔离。详见[技能加载契约](design/bot-core-skill-v1.md)。
+主动整理频率、Compact 后自主回读及日常资料在两个 Runtime 之间的切换仍需独立验收；
+合成 provider 不证明所有真实模型都会可靠遵循 skill。

@@ -79,6 +79,7 @@ export interface ExecutionSettings {
   approvalMode: string;
 }
 export interface Item {
+  requestId: string;
   turnKey: string;
   id: string;
   kind: string;

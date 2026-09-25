@@ -23,8 +23,12 @@ Notebook 最新方向是普通 Markdown：系统生成 INDEX.md、核心 MEMORY.
 目录维护、文件访问与旧资料保留迁移已实现，真实模型与新 Caelis 验收单独记录，见[个人空间](personal-memory.md)。
 
 2026-09-24 轻量任务入口已接入原生 macOS：收起胶囊、相同圆球、原始 prompt 两行预览和
-外部终端 attach，Codex Worker 改为共享订阅与完成事件唤醒。Caelis 终端适配与主动关怀
-规则产品化仍为后续工作，见[任务委派](task-delegation.md)。
+外部终端 attach，Codex Worker 改为共享订阅与完成事件唤醒。Caelis 终端适配同日完成，
+见[任务委派](task-delegation.md)。
+
+2026-09-25 主动关怀已接入正式代码：本机元数据 → CEL → 持久化准入 → 原有后台 prompt。
+`bot_care` 与渐进式 Skill 提供发现、试算和规则管理；注册式 JSON 来源保留连接器及命令
+采集扩展。当前不含 gh 执行器，物理锁屏/睡眠与真实模型效果仍需验收，见[主动关怀](proactive-care.md)。
 
 ## 交付原则
 

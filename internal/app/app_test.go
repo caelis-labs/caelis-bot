@@ -364,6 +364,12 @@ func TestNotebookSkillIsResidentOnlyAndRegeneratesExternalNotes(t *testing.T) {
 	if err != nil || !strings.Contains(string(content), "MEMORY.md") {
 		t.Fatal("packaged skill missing", err)
 	}
+	if strings.Contains(binding.Instructions, "# Restore your context") || strings.Contains(binding.Instructions, "MEMORY.md") {
+		t.Fatal("skill body or memory eagerly injected")
+	}
+	if _, err = os.ReadFile(filepath.Join(filepath.Dir(a.skillPath), "references", "tasks.md")); err != nil {
+		t.Fatal(err)
+	}
 	note := filepath.Join(binding.NotebookDirectory, "external.md")
 	if err = os.WriteFile(note, []byte("# External note\nNot a private format."), 0600); err != nil {
 		t.Fatal(err)

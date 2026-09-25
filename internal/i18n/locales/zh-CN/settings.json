@@ -85,7 +85,9 @@
   "diagnosticsExportFailed": "暂时无法保存诊断报告，请重试",
   "storageCopiesGroup": "附件副本",
   "storageUsed": "已用空间",
-  "storageFileCount": {"other": "{count} 个文件"},
+  "storageFileCount": {
+    "other": "{count} 个文件"
+  },
   "storageReadFailed": "读取失败",
   "retry": "重试",
   "storageEligibleGroup": "30 天前的副本",
@@ -95,5 +97,20 @@
   "diagnosticsReport": "诊断报告",
   "diagnosticsReportDescription": "仅保存在本机，不含聊天内容或凭据",
   "diagnosticsExporting": "正在导出…",
-  "diagnosticsExportButton": "导出报告"
+  "diagnosticsExportButton": "导出报告",
+  "backgroundTasks": "后台任务",
+  "maxBackgroundTasks": "同时运行数量",
+  "maxBackgroundTasksHelp": "默认为 3，适用于 Bot 新建或继续的后台工作。调低上限不会停止已有任务。",
+  "externalTerminal": "外部终端",
+  "externalTerminalHelp": "从脚边关注清单打开任务时使用。",
+  "systemTerminal": "跟随系统默认",
+  "taskPreferencesLoadFailed": "无法加载任务偏好。",
+  "taskPreferencesSaveFailed": "未能保存，请重新修改以重试。",
+  "taskLimitInvalid": "请输入大于 0 的整数。",
+  "taskPreferencesSaving": "正在保存…",
+  "advancedTerminal": "高级",
+  "customTerminal": "自定义命令",
+  "customTerminalCommand": "终端命令",
+  "customTerminalHelp": "将 {script} 作为独立参数。兼容性不作保证，请自行配置和验证；不展开 Shell 运算符。",
+  "useCustomTerminal": "使用自定义命令"
 }

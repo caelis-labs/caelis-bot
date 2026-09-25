@@ -85,7 +85,10 @@
   "diagnosticsExportFailed": "Could not export diagnostic report. Try again.",
   "storageCopiesGroup": "Attachment copies",
   "storageUsed": "Used space",
-  "storageFileCount": {"one": "{count} file", "other": "{count} files"},
+  "storageFileCount": {
+    "one": "{count} file",
+    "other": "{count} files"
+  },
   "storageReadFailed": "Failed to read",
   "retry": "Retry",
   "storageEligibleGroup": "Copies older than 30 days",
@@ -95,5 +98,20 @@
   "diagnosticsReport": "Diagnostic report",
   "diagnosticsReportDescription": "Saved locally only; excludes chat content and credentials",
   "diagnosticsExporting": "Exporting…",
-  "diagnosticsExportButton": "Export report"
+  "diagnosticsExportButton": "Export report",
+  "backgroundTasks": "Background tasks",
+  "maxBackgroundTasks": "Concurrent tasks",
+  "maxBackgroundTasksHelp": "Default: 3. Applies to work started or resumed by the Bot. Lowering this limit does not stop existing work.",
+  "externalTerminal": "External terminal",
+  "externalTerminalHelp": "Used when opening a task from the watchlist.",
+  "systemTerminal": "System default",
+  "taskPreferencesLoadFailed": "Could not load task preferences.",
+  "taskPreferencesSaveFailed": "Could not save. Edit the value to try again.",
+  "taskLimitInvalid": "Enter a positive whole number.",
+  "taskPreferencesSaving": "Saving…",
+  "advancedTerminal": "Advanced",
+  "customTerminal": "Custom command",
+  "customTerminalCommand": "Terminal command",
+  "customTerminalHelp": "Use {script} as a separate argument. Compatibility is not guaranteed; configure and verify your command. Shell operators are not expanded.",
+  "useCustomTerminal": "Use custom command"
 }

@@ -5,6 +5,7 @@ import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
 import { ShortcutSettings } from './ShortcutSettings';
 import { ExecutionSettings } from './ExecutionSettings';
+import { TaskSettings } from './TaskSettings';
 import { Maintenance } from './Maintenance';
 import { useI18n } from './i18n';
 import { LanguageSetting } from './i18n/LanguageSetting';
@@ -66,7 +67,7 @@ function General() {
  const commit=()=>{dragging.current=false;save.current=true;void flush();};
  const status:Record<string,string>={authorized:t('settings.notificationEnabled'),denied:t('settings.notificationDisabled'),notDetermined:t('settings.notificationNotDetermined'),unavailable:t('settings.unavailable')};
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><LanguageSetting/><ShortcutSettings/>
+  <h1>{t('settings.general')}</h1><LanguageSetting/><ShortcutSettings/><TaskSettings/>
   <SettingGroup title={t('settings.pet')}>
    <SettingRow label={t('settings.petSize')} htmlFor="pet-size"><div className="size-control">
     <input id="pet-size" type="range" min="0.65" max="1.6" step="any" disabled={scale===null} value={scale??1} aria-valuetext={scale===null?'':number(scale,{style:'percent',maximumFractionDigits:0})} onPointerDown={()=>{dragging.current=true;}} onChange={event=>{const value=event.target.valueAsNumber;setScale(value);pending.current=value;save.current=!dragging.current;setError('');void flush();}} onPointerUp={commit} onPointerCancel={commit} onBlur={commit}/>

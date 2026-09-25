@@ -12,17 +12,24 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
-const currentProjectionVersion = 5
+const currentProjectionVersion = 6
+
+// Hold newly observed native inputs until the prompt's receipt can identify
+// them exactly. The canonical transcript remains intact, including on restart.
+type pendingInput struct {
+	VisibleIDs []string `json:"visibleIDs"`
+}
 
 type journal struct {
-	TurnID    string                 `json:"turnID,omitempty"`
-	Scheduled bool                   `json:"scheduled,omitempty"`
-	Digest    string                 `json:"digest"`
-	Path      string                 `json:"path"`
-	Body      json.RawMessage        `json:"body"`
-	Outcome   string                 `json:"outcome"`
-	Resource  string                 `json:"resource,omitempty"`
-	Source    wire.ApplicationSource `json:"source"`
+	PendingInput *pendingInput          `json:"pendingInput,omitempty"`
+	TurnID       string                 `json:"turnID,omitempty"`
+	Scheduled    bool                   `json:"scheduled,omitempty"`
+	Digest       string                 `json:"digest"`
+	Path         string                 `json:"path"`
+	Body         json.RawMessage        `json:"body"`
+	Outcome      string                 `json:"outcome"`
+	Resource     string                 `json:"resource,omitempty"`
+	Source       wire.ApplicationSource `json:"source"`
 }
 type view struct {
 	Turns    map[string]string `json:"turns,omitempty"`

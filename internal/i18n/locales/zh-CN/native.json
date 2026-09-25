@@ -65,5 +65,15 @@
   "importInProgress": "已有导入正在进行",
   "fileSelectionUnavailable": "文件选择暂不可用",
   "importFailed": "无法导入：{error}",
-  "petLabel": "Caelis Bot 桌宠"
+  "petLabel": "Caelis Bot 桌宠",
+  "removeTaskPin": "从关注清单移除",
+  "taskUnpinFailed": "暂时无法移除此项，请重试。",
+  "taskPreferencesUnavailable": "任务偏好暂不可用。",
+  "preferredTerminalUnavailable": "所选终端不可用，请在设置中选择已安装的终端。",
+  "taskTerminalWaiting": "等待终端确认…",
+  "taskTerminalUnconfirmed": "尚未确认打开。请检查终端后重新打开任务。",
+  "taskTerminalFailed": "暂时无法打开任务，请检查连接与终端设置。",
+  "defaultTerminalUnsupported": "系统默认终端暂不支持，请在设置中选择已安装的终端，或配置高级自定义命令。",
+  "cancelTaskTerminal": "取消打开终端",
+  "taskTerminalCanceled": "已取消打开。"
 }

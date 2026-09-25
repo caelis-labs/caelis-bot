@@ -220,7 +220,12 @@ Implemented mapping: thread start/read/resume; turn start/steer/interrupt; nativ
 item/delta/completion; command/file/permission approval, tool user input and simple
 MCP form/URL elicitation. Approval responses preserve offered native payloads,
 request IDs and a transport-local generation, including reused native IDs.
-Available skill references come from skills/list, including plugin-provided skills.
+Available user-selectable skill references come from skills/list, including plugin-provided skills.
+The application core skill has a separate resident-scoped metadata catalog assembled
+from its bundled frontmatter and file locator. Both adapters preserve this catalog
+in their public session instructions; the model loads SKILL.md and relative references
+with native file tools. No eager body injection, ambient skills inheritance or global
+installation is needed. This is not registration in either runtime's native skill-list API.
 Plugin installation, arbitrary complex forms and external-token refresh are not
 advertised. Native managed ChatGPT browser login/cancel is present; fresh-account
 live verification remains separate from existing-account model checks.
@@ -566,18 +571,40 @@ identity, persisted reminder definitions/occurrences and the private MCP bridge.
 starts only after single-instance ownership, wakes the existing Bot only when idle,
 and keeps unknown dispatches unresolved until a native receipt proves acceptance.
 Calendar windows and literal weekdays are evaluated locally, including after sleep or queueing; holiday predicates remain model instructions. `internal/backend/activation` owns quiet presentation: adapters retain scheduled provenance in their existing journals, map it through native client IDs or command targets, and filter only presentation snapshots. Canonical history remains unchanged. Partial scheduled prose and the explicit skip response never reach chat, pet bubbles or OS notifications; approvals and errors keep their normal path.
-Codex explicitly uses empty runtime workspace roots and a fixed Bot instruction
-prefix. The private result directory is not a user-selected workspace.
+Codex explicitly uses empty runtime workspace roots and the app-scoped skill
+catalog; behavior is loaded progressively from the bundled Bot skill. The private
+result directory is not a user-selected workspace.
+
+`internal/care` adds bounded CEL predicates over native metadata and registered
+JSON sources. `internal/bot` owns rule tools and dispatch through the existing
+background activation contract, including exact Caelis grants and retained native
+receipts. Durable versions, cooldown, expiry, presence and shared care budgets
+gate every activation. `Host.CareSources` and `Application.PublishCareEvent` are
+in-process adapter interfaces, not a renderer or model-controlled event ingress.
+Care load failures preserve the journal and disable only care; personal data,
+chat and reminders continue with a visible care error. Uncertain reminder wakes
+reconcile retained receipts by request ID before new care dispatch; acceptance
+must persist before releasing that wake.
+Collectors own credentials, schema, cancellation and execution authority; CEL has
+no I/O. See [proactive care](proactive-care.md) for limits and verification boundaries.
 
 The adapter records native root/child relationships. Worker messages remain internal;
 worker decisions keep their own thread/turn/request target. Explicit Stop interrupts
 owned active turns before cleaning their terminals. Native worker communication stays
 in Codex, without a second orchestration protocol or UI task/session manager.
 
-The native host projects `TaskPreview` (opaque product handle and original assignment)
+The task coordinator separates user-configured execution capacity (default three),
+uncapped task history with cursor pagination, and an explicitly pinned watchlist
+(eight items). New tasks are unpinned; completion never clears a pin. Persisted
+watchlist changes notify the native host even without a new runtime event.
+Start and completed-task continuation share admission; already recorded requests
+can still reconcile without acquiring another execution slot. Direct native TUI
+input remains governed by its runtime, not an application-wide global semaphore.
+
+The native host projects pinned `TaskPreview` entries (opaque product handle and original assignment)
 into nonactivating AppKit task bubbles. Hover/collapse has no backend effect; explicit
 click resolves an owned `WorkTerminalProvider` target and launches the user's external
-terminal. New owned Codex processes expose a private Unix socket; a native TUI attaches
+terminal chosen in app preferences. New owned Codex processes expose a private Unix socket; a native TUI attaches
 to the same App Server with `--remote … resume …`. The adapter remains subscribed across
 idle and human-created turns, with one resume on reconnect and no worker polling loop.
 The renderer never receives a shell command or native thread ID. The Caelis adapter
@@ -888,3 +915,26 @@ the recovery path. The current developer workflow and strict supported capabilit
 limits are in [content packs](content-packs.md). Early releases provide bundled content
 and local third-party imports. Any additional capability requires a separately defined
 versioned contract before it can be exposed to creators.
+
+
+## Chat submission and task presentation (2026-09-25)
+
+The renderer inserts a pending user bubble before waiting on draft persistence or
+native submission. The host keeps an in-memory outbox across chat/quick-input
+surface changes. Native clientUserMessageId (Codex), the prompt receipt's exact
+turn target (Caelis), and input_operation_id (Caelis steers) correlate acceptance
+and replace pending bubbles, including steers within one turn;
+identical text is never a deduplication key. Rejected and unknown inputs retain the
+draft and their status, and are never automatically resubmitted. Outbox display is
+not durable execution evidence; adapter journals and native replay own recovery.
+While a Caelis prompt receipt is unresolved, newly observed uncorrelated user
+messages stay in the canonical transcript but await the exact receipt before
+presentation; the pending bubble remains visible. This fence survives reconnect
+and restart without guessing from text or event arrival order.
+Both editors respect CanSend/CanSteer. Quick input retains its send-only affordance.
+
+A subscribed Codex child is driven by its native turn events. Parent activity with
+no turn identity cannot resurrect a terminal child. TaskPreview carries the current
+native status into the task dock; hover freezes ordering, not status. The AppKit
+window receives its intended content size before installing views. Active rings
+stop on completion/hiding and remain static under reduced motion.

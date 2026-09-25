@@ -9,6 +9,8 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
+	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
 
 // driver owns native interaction, coordinate conversion and OS-thread dispatch.
@@ -30,6 +32,10 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	taskPreferences     func() tasks.Preferences
+	saveTaskPreferences func(tasks.Preferences) (tasks.Preferences, error)
+	terminalChoices     func() []taskterminal.Choice
+	removeTaskPin       func(string) error
 	languageMu          sync.Mutex
 	languageSaveMu      sync.Mutex
 	languageFile        string
@@ -41,6 +47,7 @@ type Service struct {
 	resolveTaskTerminal func(context.Context, string) (api.TerminalTarget, error)
 	launchTaskTerminal  func(context.Context, string, api.TerminalTarget) error
 	taskOpenMu          sync.Mutex
+	taskOpenCancel      context.CancelFunc
 	taskError           func(string, error)
 	needsIntroduction   func() bool
 	content             *contentpack.Registry
@@ -359,6 +366,9 @@ func (s *Service) shutdown() {
 		return
 	}
 	s.stopped = true
+	if s.taskOpenCancel != nil {
+		s.taskOpenCancel()
+	}
 	_ = s.persist()
 	s.native.stop()
 }

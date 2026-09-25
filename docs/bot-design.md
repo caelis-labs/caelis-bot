@@ -2,7 +2,7 @@
 
 本轮确认：2026-09-19。适用于 macOS 首版；Windows 在 macOS 完整发行后实现，Linux 不在当前计划。
 2026-09-23 职责更新：后续以 [Bot 产品宿主规划](bot-platform-architecture.md) 为准，
-身份、任务协调、提醒和产品工具已统一到本应用；Notebook/Memory 尚待实现。
+身份、任务协调、提醒和产品工具已统一到本应用；Notebook/Memory 现已实现，见[个人空间](personal-memory.md)。
 旧 Caelis Bot Mode 不再是桌面执行路径，也不要求兼容；通用 Runtime 能力提案见
 [runtime-extension-contract.md](runtime-extension-contract.md)。下文历史 Caelis 引用仅作设计背景。
 
@@ -22,7 +22,7 @@
 主仓库当前纯聊天限制不成为桌宠的能力上限。
 
 Codex start/resume 显式传入 `runtimeWorkspaceRoots: []`。私有 `Work` 目录仅是后端
-文件输入与产物的落点，不是用户项目。Bot 指令前缀固定；用户 prompt 和定时激活作为新的
+文件输入与产物的落点，不是用户项目。宿主提供 Bot 专属技能目录，行为指引按需读取；用户 prompt 和定时激活作为新的
 输入追加。专业工作经 provider-neutral 任务接口委派到独立目录；宿主跟踪拥有关系、审批目标、
 生命周期与完成通知，不把内部流水混进用户聊天。常驻 Bot 是秘书，不是默认的专业执行工作区。
 边界与首版限制见[任务委派](task-delegation.md)。
@@ -83,7 +83,12 @@ Codex start/resume 显式传入 `runtimeWorkspaceRoots: []`。私有 `Work` 目�
 
 ## Agent 驱动角色与后端接入
 
-应用自带 stdio MCP 工具 `bot_clock`、`bot_reminders`、`bot_gesture` 及五项 `bot_task*` 工具；以当前进程专用配置
+2026-09-25 新增可编程主动关怀：`bot_care` 在本地 CEL 条件命中时排队，沿用上述后台激活
+和静默投影。内置日期、使用时长、应用切换；来源目录可扩展为连接器/命令的 JSON 结果。
+条件本身不执行命令；派发等待明确解锁与空闲，遵循冷却、过期和总预算，不持续调用模型。
+首批范围、英文技能示例及尚未验收的硬件场景见[主动关怀](proactive-care.md)。
+
+应用自带 stdio MCP 工具 `bot_clock`、`bot_reminders`、`bot_care`、`bot_gesture` 及五项 `bot_task*` 工具；以当前进程专用配置
 注入 Codex start/resume，不修改全局 `~/.codex/config.toml`。这样已有对话也能接入新工具，
 无需重新创建绑定。Codex 0.153.4 为开发/回归基线，不限制用户 CLI 发行版本；
 按[兼容策略](codex-compatibility.md)握手。MCP 子集固定为 2025-06-18 的 initialize/tools。
@@ -99,7 +104,7 @@ idle/working 根据后端事实选择，隐藏/减少动态效果时停止短动
 [计划中的架构边界](architecture.md#planned-embodied-behavior-boundaries-2026-09-20)，不能按现有 API 宣传。
 
 Codex 默认显式使用 `approvalPolicy: on-request`、`approvalsReviewer: auto_review`，
-保留 `workspace-write` 沙箱。只有 `caelis_bot` 中的 `bot_clock`、`bot_reminders`、
+保留 `workspace-write` 沙箱。只有 `caelis_bot` 中的 `bot_clock`、`bot_reminders`、`bot_care`、
 `bot_gesture` 和五项限定于 Bot 自有任务的工具逐项设置 `approval_mode: approve`；不设置全局或 server 默认批准，
 新工具不会自动继承此允许列表。定时任务本身只创建激活计划，激活后的命令、外部工具与
 额外权限仍沿用各自原生策略；需要用户决定的事件继续进入气泡/聊天。

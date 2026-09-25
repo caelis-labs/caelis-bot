@@ -2,16 +2,19 @@ package taskterminal
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-func TestLaunchPreservesArgumentsAndReusesPrivateFile(t *testing.T) {
+func TestLaunchPreservesArgumentsAndCleansConfirmedAttempts(t *testing.T) {
 	dir := t.TempDir()
 	workspace := filepath.Join(dir, "work ' $(touch unexpected)")
 	if err := os.Mkdir(workspace, 0700); err != nil {
@@ -25,6 +28,12 @@ func TestLaunchPreservesArgumentsAndReusesPrivateFile(t *testing.T) {
 	var paths []string
 	l := New(filepath.Join(dir, "launch"), func(ctx context.Context, path string) error {
 		paths = append(paths, path)
+		for _, p := range []string{path, filepath.Dir(path)} {
+			info, err := os.Stat(p)
+			if err != nil || info.Mode().Perm() != 0700 {
+				t.Error("nonprivate launch file", err)
+			}
+		}
 		cmd := exec.CommandContext(ctx, "/bin/sh", path)
 		cmd.Env = append(os.Environ(), "CAPTURE_ARGS="+filepath.Join(dir, "args"), "CAPTURE_ENV="+filepath.Join(dir, "env"))
 		return cmd.Run()
@@ -34,27 +43,79 @@ func TestLaunchPreservesArgumentsAndReusesPrivateFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if paths[0] != paths[1] {
-		t.Fatal("repeated opens created unbounded launch files")
+	if paths[0] == paths[1] {
+		t.Fatal("different attempts shared a receipt target")
 	}
 	args, _ := os.ReadFile(filepath.Join(dir, "args"))
 	env, _ := os.ReadFile(filepath.Join(dir, "env"))
 	if string(args) != "--remote\n"+target.Endpoint+"\nresume\n"+target.Thread+"\n" || string(env) != workspace+"\n"+target.CodexHome+"\n" {
 		t.Fatalf("arguments changed: %q %q", args, env)
 	}
-	for _, path := range []string{paths[0], filepath.Dir(paths[0])} {
-		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm() != 0700 {
-			t.Fatal("launch data permissions", err)
-		}
-	}
 	files, _ := os.ReadDir(l.directory)
-	if len(files) != 1 {
+	if len(files) != 0 {
 		t.Fatal("temporary files leaked")
 	}
-	script, _ := os.ReadFile(paths[0])
-	if strings.Contains(string(script), "opaque-task") {
-		t.Fatal("product handle not needed in command")
+}
+
+func TestTerminalWaitsForExecutionAndRevokesLateConsent(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "executed")
+	binary := filepath.Join(dir, "fake-codex")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf done > "+quote(marker)+"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	target := api.TerminalTarget{Runtime: "codex", Binary: binary, Directory: dir, Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
+	for _, consent := range []bool{true, false} {
+		t.Run(fmt.Sprint(consent), func(t *testing.T) {
+			_ = os.Remove(marker)
+			opened := make(chan string, 1)
+			done := make(chan error, 1)
+			l := New(filepath.Join(dir, "launch"), func(_ context.Context, path string) error { opened <- path; return nil })
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			go func() { done <- l.Open(ctx, "owned", target) }()
+			path := <-opened
+			script, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case err := <-done:
+				t.Fatal("open receipt confused with execution", err)
+			case <-time.After(25 * time.Millisecond):
+			}
+			if consent {
+				if out, err := exec.Command("/bin/sh", path).CombinedOutput(); err != nil {
+					t.Fatal(string(out), err)
+				}
+				if err := <-done; err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(marker); err != nil {
+					t.Fatal("runtime not executed", err)
+				}
+			} else {
+				cancel()
+				if err := <-done; !errors.Is(err, ErrUnconfirmed) {
+					t.Fatal(err)
+				}
+				// Even a terminal that buffered the original script cannot execute a
+				// revoked attempt after its user eventually accepts the dialog.
+				cmd := exec.Command("/bin/sh")
+				cmd.Stdin = strings.NewReader(string(script))
+				out, err := cmd.CombinedOutput()
+				if err == nil || !strings.Contains(string(out), "expired") {
+					t.Fatal(string(out), err)
+				}
+				if _, err := os.Stat(marker); !os.IsNotExist(err) {
+					t.Fatal("late consent launched runtime")
+				}
+			}
+			files, _ := os.ReadDir(l.directory)
+			if len(files) != 0 {
+				t.Fatal("attempt files leaked")
+			}
+		})
 	}
 }
 

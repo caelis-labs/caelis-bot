@@ -65,6 +65,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	v := s.state.Views[s.state.Session.SessionId]
 	if v != nil {
 		out.Items = clone(v.Items)
+		s.correlateUserInputs(&out)
 		out.CurrentTurn = observedTurn(v)
 		if s.connected && !value(v.State.Run.Active) {
 			switch value(v.State.Run.Status) {
@@ -128,6 +129,30 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		return s.presentScheduled(out, v)
 	}
 	return out
+}
+
+// Initial prompts identify their turn in the command receipt; only steered
+// inputs carry input_operation_id on their canonical message envelopes.
+func (s *Session) correlateUserInputs(out *api.Snapshot) {
+	path := "/application/sessions/" + idPath(s.state.Session.SessionId) + "/prompt"
+	for id, j := range s.state.Operations {
+		if j.Path != path || j.TurnID == "" || !succeeded(wire.Outcome(j.Outcome)) {
+			continue
+		}
+		for i := range out.Items {
+			item := &out.Items[i]
+			if item.Kind == "user" && item.RequestID == "" && item.TurnKey == j.TurnID {
+				item.RequestID = id
+			}
+		}
+	}
+	for _, j := range s.state.Operations {
+		if j.Path == path && j.Outcome == "unknown" && j.PendingInput != nil {
+			out.Items = slices.DeleteFunc(out.Items, func(item api.Item) bool {
+				return item.Kind == "user" && item.RequestID == "" && !slices.Contains(j.PendingInput.VisibleIDs, item.ID)
+			})
+		}
+	}
 }
 
 type approvalRef struct {
@@ -255,6 +280,13 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		turn = value(e.ActivityId)
 	}
 	id := turn + "/" + kind
+	requestID := ""
+	if kind == "user" || kind == "activation" {
+		requestID = value(e.InputOperationId)
+		if requestID != "" {
+			id += "/" + requestID
+		}
+	}
 	if update.MessageID != "" {
 		id += "/" + update.MessageID
 	}
@@ -264,7 +296,7 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 			return
 		}
 	}
-	v.Items = append(v.Items, api.Item{ID: id, TurnKey: turn, Kind: kind, Text: content.Text, Status: "completed"})
+	v.Items = append(v.Items, api.Item{ID: id, RequestID: requestID, TurnKey: turn, Kind: kind, Text: content.Text, Status: "completed"})
 }
 func (s *Session) ensureStreamLocked(sid string) {
 	if s.streams[sid] || s.ctx == nil || s.closed {
@@ -545,6 +577,7 @@ func (s *Session) recoverOperations(ctx context.Context) error {
 			continue
 		}
 		j.Outcome = string(op.Outcome)
+		j.PendingInput = nil
 		if op.Result.Target != nil {
 			j.TurnID = value(op.Result.Target.TurnId)
 		}

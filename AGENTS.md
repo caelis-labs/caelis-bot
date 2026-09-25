@@ -70,6 +70,21 @@
   main-branch macos-release environment. Never describe a signed-only build as notarized.
 - Preserve unrelated changes. Commit and push require their own user authorization.
 
+## Bot skill maintenance
+
+- For every new feature or behavior change, check whether the Bot needs updated
+  skill guidance. Update `internal/botskills/skills/caelis-bot-memory/` when its
+  capabilities, workflows, tool usage or recovery behavior change; otherwise state
+  why no skill update is needed in the implementation handoff.
+- Write skill content in English, addressing the Bot directly. Keep core guidance
+  and routing in `SKILL.md`; put conditional workflows in linked reference files.
+  Developer architecture, installation and isolation requirements belong in project
+  documentation and runtime configuration, not in the Bot-facing skill text.
+- Preserve standard progressive disclosure: expose skill metadata for discovery,
+  load the body and supporting files on demand, and verify Bot-scoped discovery and
+  loading in both Codex and Caelis without affecting ordinary sessions or workers.
+  The structure and runtime loading contract are in `docs/design/bot-core-skill-v1.md`.
+
 ## Verification
 
 - Use `make check`, `make smoke`, and `make build` for the affected preparation paths.

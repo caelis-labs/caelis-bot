@@ -13,6 +13,8 @@
 #import "task_dock_darwin.h"
 extern void desktopEvent(uintptr_t handle, int kind, double x, double y, double scale);
 extern void desktopTaskOpen(uintptr_t handle, char *identifier);
+extern void desktopTaskCancelOpening(uintptr_t handle);
+extern void desktopTaskUnpin(uintptr_t handle, char *identifier);
 static void bot_js(NSWindow *window, NSString *js);
 
 // Ordinary Spaces and other apps' full-screen Spaces are separate AppKit policies.
@@ -494,6 +496,8 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.taskDock=[BotTaskDock new];
     host.taskDock.language=host.language;
     host.taskDock.openTask=^(NSString *identifier){if(weak.handle)desktopTaskOpen(weak.handle,(char *)identifier.UTF8String);};
+    host.taskDock.cancelOpening=^{if(weak.handle)desktopTaskCancelOpening(weak.handle);};
+    host.taskDock.unpinTask=^(NSString *identifier){if(weak.handle)desktopTaskUnpin(weak.handle,(char *)identifier.UTF8String);};
     host.taskDock.gesture=^(NSString *name){if(weak.handle)bot_gesture((__bridge void *)weak,(char *)name.UTF8String);};
     BotPetInputView *view = [[BotPetInputView alloc] initWithFrame:surface.bounds];
     host.inputView = view;
@@ -763,6 +767,9 @@ void bot_tasks(void *pointer,char *json) {
 }
 void bot_task_failure(void *pointer,char *message) {
     [((__bridge BotHost *)pointer).taskDock showFailure:[NSString stringWithUTF8String:message]];
+}
+void bot_task_opening(void *pointer,char *identifier,char *message) {
+    [((__bridge BotHost *)pointer).taskDock setOpening:[NSString stringWithUTF8String:identifier] message:[NSString stringWithUTF8String:message]];
 }
 
 // Carbon hotkeys are system registrations; no keyboard surveillance permission.

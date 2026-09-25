@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/care"
 )
 
 type Schedule struct {
@@ -54,6 +55,10 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
+	care           *care.Engine
+	careLoadErr    error
+	careSample     func() care.Sample
+	careSources    care.SourcesTracker
 	stopped        bool
 	mu             sync.Mutex
 	step           sync.Mutex
@@ -331,7 +336,7 @@ func (r *Runtime) ResumeAfterUpdate() {
 
 // Tick uses wall time after wake. It never invokes a model while idle, never
 // steers an unrelated active request, and persists an occurrence before dispatch.
-func (r *Runtime) Tick(ctx context.Context) error {
+func (r *Runtime) Tick(ctx context.Context) (err error) {
 	r.step.Lock()
 	defer r.step.Unlock()
 	if r.paused {
@@ -358,6 +363,30 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok && !p.ApplicationCapabilities().ScheduledActivation {
 		return nil
 	}
+	// Reconcile an uncertain reminder before any new care activation can
+	// replace the latest receipt. Keep the wake unresolved if persistence fails.
+	r.mu.Lock()
+	if w := r.state.Wake; w != nil && w.Runtime == r.provider && (w.Status == "unknown" || w.Status == "dispatching") {
+		receipt := r.backgroundReceipt(w.ID)
+		var err error
+		if receipt.ID == w.ID && receipt.Outcome == "accepted" {
+			next := *w
+			next.Status = "accepted"
+			r.state.Wake = &next
+			if err = r.saveLocked(); err != nil {
+				r.state.Wake = w
+			}
+		}
+		r.mu.Unlock()
+		return err
+	}
+	r.mu.Unlock()
+	// A failed care store must not disable independently persisted reminders.
+	careErr := r.tickCare(ctx)
+	defer func() { err = errors.Join(err, careErr) }()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	r.mu.Lock()
 	now := r.now()
 	if r.state.Wake != nil && r.state.Wake.Runtime != r.provider && r.state.Wake.Status != "accepted" {
@@ -366,17 +395,6 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	}
 	previous := r.state
 	previous.Schedules = append([]Schedule(nil), r.state.Schedules...)
-	if w := r.state.Wake; w != nil && (w.Status == "unknown" || w.Status == "dispatching") {
-		receipt := r.engine.Snapshot().LastReceipt
-		if receipt.ID == w.ID && receipt.Outcome == "accepted" {
-			w.Status = "accepted"
-			e := r.saveLocked()
-			r.mu.Unlock()
-			return e
-		}
-		r.mu.Unlock()
-		return nil
-	}
 	if r.state.Wake == nil || r.state.Wake.Status == "accepted" {
 		var ids, texts []string
 		for i, s := range r.state.Schedules {
@@ -479,6 +497,16 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	}
 	return e
 }
+
+// Native journals retain per-request evidence after subsequent input changes
+// the snapshot. Legacy engines may only expose their most recent receipt.
+func (r *Runtime) backgroundReceipt(id string) api.Receipt {
+	if p, ok := r.engine.(api.BackgroundReceiptProvider); ok {
+		return p.BackgroundReceipt(id)
+	}
+	return r.engine.Snapshot().LastReceipt
+}
+
 func (r *Runtime) Perform(action string) error {
 	switch action {
 	case "attention", "nod", "celebrate":
@@ -499,11 +527,19 @@ func wakePrompt(messages []string) string {
 	return "这是用户已授权的定时任务自动触发。先判断任务条件，不要复述指令或发送过程说明。只有确实需要告知用户时才输出提醒或结果；若本次应静默跳过，最终只输出 " + api.SilentReminder + "，不要添加其他文字。\n" + strings.Join(messages, "\n")
 }
 func (r *Runtime) Status() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.careLoadErr != nil {
+		return r.careLoadErr.Error()
+	}
+	if r.care != nil {
+		if status := r.care.Status(); status != "" {
+			return status
+		}
+	}
 	if r.initialization != nil && r.initialization.Initialization().Status != "accepted" {
 		return r.initialization.Initialization().Message
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.state.Wake != nil && r.state.Wake.Runtime != r.provider && r.state.Wake.Status != "accepted" {
 		return "提醒正在等待其所属运行时连接，不会改用当前运行时。"
 	}

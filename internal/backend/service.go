@@ -29,6 +29,7 @@ type Service struct {
 	runtimeFile                 string
 	runtimeSettings             api.RuntimeSettings
 	pendingDraft                *api.Submission
+	outbox                      []outgoingMessage
 	botStatus                   func() string
 	mu                          sync.Mutex
 	draft                       api.Draft
@@ -53,6 +54,7 @@ func (s *Service) Snapshot() api.Snapshot {
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 	s.mu.Lock()
+	v = s.presentOutgoing(v)
 	pending := s.pendingDraft
 	status := s.botStatus
 	if pending != nil && v.LastReceipt.ID == pending.ID && v.LastReceipt.Outcome == "accepted" {
@@ -130,7 +132,10 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	if status != nil {
 		currentStatus = status()
 	}
-	if source, ok := s.engine.(api.RevisionSource); ok && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
+	s.mu.Lock()
+	hasOutgoing := len(s.outbox) > 0
+	s.mu.Unlock()
+	if source, ok := s.engine.(api.RevisionSource); ok && !hasOutgoing && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
 		return api.ChatUpdate{}
 	}
 	v := s.Snapshot()
@@ -195,7 +200,9 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	s.mu.Lock()
 	s.pendingDraft = &input
 	s.mu.Unlock()
+	s.stageOutgoing(input, files)
 	receipt, err := s.engine.Submit(ctx, input, files)
+	s.finishOutgoing(input.ID, receipt)
 	if receipt.Outcome == "accepted" {
 		s.consumeFiles(input.FileIDs)
 		s.clearDraft(input)

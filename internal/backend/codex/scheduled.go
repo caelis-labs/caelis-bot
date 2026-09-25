@@ -28,3 +28,15 @@ func (s *Session) presentScheduled(v api.Snapshot) api.Snapshot {
 // those retained native IDs to repair old presentation without rewriting history.
 // This compatibility remains until pre-provenance Bot histories are unsupported.
 var legacyWakeID = regexp.MustCompile(`^wake-[A-Z2-7]{26}$`)
+
+func (s *Session) BackgroundReceipt(id string) api.Receipt {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.binding.LastReceipt != nil && s.binding.LastReceipt.ID == id {
+		return *s.binding.LastReceipt
+	}
+	if s.binding.Scheduled[id] != "" {
+		return api.Receipt{ID: id, Outcome: "accepted"}
+	}
+	return api.Receipt{ID: id, Outcome: "unknown"}
+}

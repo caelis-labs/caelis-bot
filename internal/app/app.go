@@ -16,6 +16,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
+	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -26,6 +27,8 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
+	CareSample  func() care.Sample
+	CareSources []care.Source
 	// Locale is read when presenting host-generated UI, never during model execution.
 	Locale       func() i18n.Locale
 	Diagnostics  *diagnosticlog.Logger
@@ -42,6 +45,7 @@ type Host struct {
 }
 
 type Application struct {
+	taskPreferences *tasks.PreferencesStore
 	setup           *runtimeSetup
 	Backend         *backend.Service
 	engine          api.Engine
@@ -117,6 +121,11 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		return nil, err
 	}
 	app := &Application{Backend: service, engine: engine, root: root, host: host, initialization: initialization}
+	app.taskPreferences, err = tasks.OpenPreferences(filepath.Join(root, "task-preferences.json"))
+	if err != nil {
+		_ = service.Shutdown()
+		return nil, err
+	}
 	service.ConfigureInitialization(initialization)
 	for _, err := range []error{service.ConfigurePresentation(filepath.Join(directory, "preview.json")), service.ConfigureDraft(filepath.Join(directory, "draft.json"))} {
 		if err != nil && host.ReportError != nil {
@@ -184,6 +193,13 @@ func (a *Application) preparePersonalLocked() error {
 	if err != nil {
 		return err
 	}
+	if err = resident.ConfigureCare(a.host.CareSample, a.host.CareSources...); err != nil {
+		// Care has its own journal. Keep it unavailable, with its saved state
+		// untouched, without preventing chat, personal data or reminders from starting.
+		if a.host.ReportError != nil {
+			a.host.ReportError(err)
+		}
+	}
 	personal, err := botmemory.Open(context.Background(), filepath.Join(a.root, "personal"), resident.State().ID)
 	if err != nil {
 		resident.Close()
@@ -244,6 +260,8 @@ func (a *Application) Start() error {
 		return err
 	}
 	manager.SetLocale(a.locale)
+	manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
+	manager.ObserveWatchlist(a.host.ObserveTasks)
 	if err = a.preparePersonalLocked(); err != nil {
 		return err
 	}

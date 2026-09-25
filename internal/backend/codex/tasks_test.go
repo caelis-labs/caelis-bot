@@ -147,8 +147,9 @@ func TestTaskDelegationOwnsWorkspaceAndPreservesNativePolicy(t *testing.T) {
 	if len(roots) != 1 || roots[0] != v.Workspace {
 		t.Fatal("worker writable scope expanded")
 	}
-	if !strings.Contains(string(raw(turn["input"])), "synthetic") {
-		t.Fatal("host user provenance missing")
+	var delegated []nativeInput
+	if json.Unmarshal(raw(turn["input"]), &delegated) != nil || len(delegated) != 1 || delegated[0].Text != "Make a synthetic artifact in your workspace; no external writes." {
+		t.Fatal("assignment was wrapped or rewritten", turn["input"])
 	}
 	if again := newTask(t, m, "task-create-one"); again.ID != v.ID {
 		t.Fatal("retry duplicated task")

@@ -52,6 +52,8 @@ type Review struct {
 	Rationale string `json:"rationale"`
 }
 type Item struct {
+	// RequestID correlates a local submission with an authoritative native input.
+	RequestID string     `json:"requestId"`
 	TurnKey   string     `json:"turnKey"`
 	ID        string     `json:"id"`
 	Kind      string     `json:"kind"`

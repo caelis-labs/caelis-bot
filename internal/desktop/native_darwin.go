@@ -61,6 +61,10 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 			s.RecallWindows()
 		case 13:
 			go func() { _ = s.openTask(context.Background(), e.text) }()
+		case 14:
+			go func() { _ = s.unpinTask(e.text) }()
+		case 15:
+			s.cancelTerminalOpening()
 		}
 	})
 	d.handle = cgo.NewHandle(d.events)
@@ -212,6 +216,16 @@ func desktopTaskOpen(handle C.uintptr_t, id *C.char) {
 	cgo.Handle(handle).Value().(*nativeEventQueue).push(nativeEvent{kind: 13, text: C.GoString(id)})
 }
 
+//export desktopTaskUnpin
+func desktopTaskUnpin(handle C.uintptr_t, id *C.char) {
+	cgo.Handle(handle).Value().(*nativeEventQueue).push(nativeEvent{kind: 14, text: C.GoString(id)})
+}
+
+//export desktopTaskCancelOpening
+func desktopTaskCancelOpening(handle C.uintptr_t) {
+	cgo.Handle(handle).Value().(*nativeEventQueue).push(nativeEvent{kind: 15})
+}
+
 func (d *macDriver) tasks(data string) {
 	value := C.CString(data)
 	defer C.free(unsafe.Pointer(value))
@@ -221,6 +235,12 @@ func (d *macDriver) taskFailure(message string) {
 	value := C.CString(message)
 	defer C.free(unsafe.Pointer(value))
 	application.InvokeSync(func() { C.bot_task_failure(d.pointer, value) })
+}
+func (d *macDriver) taskOpening(id, message string) {
+	identifier, value := C.CString(id), C.CString(message)
+	defer C.free(unsafe.Pointer(identifier))
+	defer C.free(unsafe.Pointer(value))
+	application.InvokeSync(func() { C.bot_task_opening(d.pointer, identifier, value) })
 }
 
 func (d *macDriver) expandBubble(expanded bool) {

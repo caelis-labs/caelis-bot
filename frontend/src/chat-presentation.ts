@@ -1,4 +1,13 @@
-import type { Snapshot } from './backend/contract';
+import type { Item, Snapshot } from './backend/contract';
+
+export function canSubmit(snapshot: Snapshot | null) {
+ return !!(snapshot?.canSend || snapshot?.canSteer);
+}
+
+export function withOutgoing(items: Item[], outgoing: Item[]): Item[] {
+ const known = new Set(items.map(item => item.requestId).filter(Boolean));
+ return [...items, ...outgoing.filter(item => !known.has(item.requestId))];
+}
 
 // Presentation follows backend capabilities; typing never grants permission to
 // steer a run that is awaiting approval or recovering its connection.
