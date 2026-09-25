@@ -581,6 +581,10 @@ background activation contract, including exact Caelis grants and retained nativ
 receipts. Durable versions, cooldown, expiry, presence and shared care budgets
 gate every activation. `Host.CareSources` and `Application.PublishCareEvent` are
 in-process adapter interfaces, not a renderer or model-controlled event ingress.
+Care load failures preserve the journal and disable only care; personal data,
+chat and reminders continue with a visible care error. Uncertain reminder wakes
+reconcile retained receipts by request ID before new care dispatch; acceptance
+must persist before releasing that wake.
 Collectors own credentials, schema, cancellation and execution authority; CEL has
 no I/O. See [proactive care](proactive-care.md) for limits and verification boundaries.
 

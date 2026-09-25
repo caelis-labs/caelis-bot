@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 
@@ -23,9 +24,12 @@ func (r *Runtime) ConfigureCare(sample func() care.Sample, extra ...care.Source)
 	}
 	e, err := care.OpenWithSources(filepath.Join(filepath.Dir(r.path), "care-"+r.provider+".json"), append(care.NativeSources(), extra...))
 	if err != nil {
-		return err
+		r.care, r.careSample = nil, nil
+		r.careLoadErr = fmt.Errorf("proactive care unavailable; saved state preserved: %w", err)
+		return r.careLoadErr
 	}
 	r.care, r.careSample = e, sample
+	r.careLoadErr = nil
 	return nil
 }
 func (r *Runtime) tickCare(ctx context.Context) error {
@@ -43,12 +47,7 @@ func (r *Runtime) tickCare(ctx context.Context) error {
 			return err
 		}
 	}
-	return r.care.Deliver(ctx, now, sample.Presence, r.engine.Snapshot().CanSend, func(id string) api.Receipt {
-		if p, ok := r.engine.(api.BackgroundReceiptProvider); ok {
-			return p.BackgroundReceipt(id)
-		}
-		return r.engine.Snapshot().LastReceipt
-	}, func(ctx context.Context, a care.Activation) (api.Receipt, error) {
+	return r.care.Deliver(ctx, now, sample.Presence, r.engine.Snapshot().CanSend, r.backgroundReceipt, func(ctx context.Context, a care.Activation) (api.Receipt, error) {
 		// Re-sample immediately before submitting; time and event data cannot prove presence.
 		if !r.careSample().Available() {
 			return api.Receipt{ID: a.ID, Outcome: "rejected"}, nil
@@ -64,6 +63,9 @@ func carePrompt(prompt string) string {
 	return "A registered proactive-care condition matched. Follow the standing assignment below. Be brief and timely. If no useful action or notification is warranted, return exactly " + api.SilentReminder + ".\n" + prompt
 }
 func (r *Runtime) callCare(ctx context.Context, args json.RawMessage) api.ToolResult {
+	if r.careLoadErr != nil {
+		return result(nil, r.careLoadErr)
+	}
 	if r.care == nil {
 		return result(nil, errors.New("native care observations unavailable"))
 	}

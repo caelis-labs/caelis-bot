@@ -194,8 +194,11 @@ func (a *Application) preparePersonalLocked() error {
 		return err
 	}
 	if err = resident.ConfigureCare(a.host.CareSample, a.host.CareSources...); err != nil {
-		resident.Close()
-		return err
+		// Care has its own journal. Keep it unavailable, with its saved state
+		// untouched, without preventing chat, personal data or reminders from starting.
+		if a.host.ReportError != nil {
+			a.host.ReportError(err)
+		}
 	}
 	personal, err := botmemory.Open(context.Background(), filepath.Join(a.root, "personal"), resident.State().ID)
 	if err != nil {

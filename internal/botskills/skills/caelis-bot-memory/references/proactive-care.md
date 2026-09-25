@@ -100,6 +100,11 @@ waits for an idle Bot and a known awake, unlocked session; stale pending work
 expires. Quit stops observation, and restart does not replay missed clock samples.
 Rules stay with the Runtime where they were registered.
 
+If the saved care state cannot be loaded, care is unavailable while conversation
+and ordinary reminders remain usable. Report the tool's error; do not delete or
+recreate the state to clear it, since it retains cooldowns and uncertain deliveries.
+After the storage issue is repaired, restart the app and inspect `list` again.
+
 A queued match is not completed work. Unknown submission results are reconciled
 from native receipts without automatic resubmission. Inspect `list` for condition,
 authorization, unavailable-source, queue, and delivery issues. When activated,

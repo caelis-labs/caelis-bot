@@ -147,6 +147,140 @@ func TestCareStorageFailureDoesNotBlockReminder(t *testing.T) {
 	}
 }
 
+func TestCareLoadFailureStillDeliversOrdinaryReminders(t *testing.T) {
+	r, f, now := fixture(t)
+	path := filepath.Join(filepath.Dir(r.path), "care-"+r.provider+".json")
+	if err := os.WriteFile(path, []byte("invalid care journal"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ConfigureCare(func() care.Sample { return care.Sample{} }); err == nil {
+		t.Fatal("load failure hidden")
+	}
+	if !strings.Contains(r.Status(), "care") {
+		t.Fatal("care failure absent from status", r.Status())
+	}
+	saveReminder(t, r, "water")
+	*now = now.Add(time.Minute)
+	if err := r.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.submissions) != 1 || !strings.Contains(f.submissions[0].Text, "Synthetic reminder") {
+		t.Fatal("ordinary reminder not delivered", f.submissions)
+	}
+}
+
+type retainedReminderEngine struct {
+	*fakeEngine
+	receipt api.Receipt
+	reads   []string
+}
+
+func (f *retainedReminderEngine) BackgroundReceipt(id string) api.Receipt {
+	f.reads = append(f.reads, id)
+	return f.receipt
+}
+
+func TestReminderRecoveryPrecedesDueCare(t *testing.T) {
+	for _, retained := range []bool{false, true} {
+		name := "legacy-last-receipt"
+		if retained {
+			name = "retained-receipt-after-later-input"
+		}
+		t.Run(name, func(t *testing.T) {
+			r, base, now := fixture(t)
+			saveReminder(t, r, "water")
+			*now = now.Add(time.Minute)
+			base.outcome = "unknown"
+			if err := r.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			id := r.State().Wake.ID
+			receipt := api.Receipt{ID: id, Outcome: "accepted"}
+			base.view.LastReceipt = receipt
+			if retained {
+				r.engine = &retainedReminderEngine{fakeEngine: base, receipt: receipt}
+				base.view.LastReceipt = api.Receipt{ID: "later-user-message", Outcome: "accepted"}
+			}
+			base.outcome = "accepted"
+			configureCare(t, r)
+			if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
+				t.Fatal(out)
+			}
+			if err := r.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if w := r.State().Wake; w.ID != id || w.Status != "accepted" {
+				t.Fatal("reminder receipt lost to care dispatch", w)
+			}
+			var persisted State
+			b, err := os.ReadFile(r.path)
+			if err != nil || json.Unmarshal(b, &persisted) != nil || persisted.Wake.Status != "accepted" {
+				t.Fatal("recovery was not persisted", err)
+			}
+			if len(base.submissions) != 1 {
+				t.Fatal("new work dispatched before reminder reconciliation", base.submissions)
+			}
+			if err := r.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if len(base.submissions) != 2 || !strings.Contains(base.submissions[1].Text, "proactive-care") {
+				t.Fatal("care did not resume after reconciliation", base.submissions)
+			}
+			*now = now.Add(time.Minute)
+			if err := r.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if len(base.submissions) != 3 || !strings.Contains(base.submissions[2].Text, "Synthetic reminder") || base.submissions[2].ID == id {
+				t.Fatal("later reminder blocked or old reminder replayed", base.submissions)
+			}
+		})
+	}
+}
+
+func TestReminderRecoveryRequiresExactDurableAcceptance(t *testing.T) {
+	for _, outcome := range []string{"unknown", "rejected", "wrong-id", "write-failure"} {
+		t.Run(outcome, func(t *testing.T) {
+			r, base, now := fixture(t)
+			saveReminder(t, r, "water")
+			*now = now.Add(time.Minute)
+			base.outcome = "unknown"
+			if err := r.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			id := r.State().Wake.ID
+			f := &retainedReminderEngine{fakeEngine: base, receipt: api.Receipt{ID: id, Outcome: outcome}}
+			r.engine = f
+			base.view.LastReceipt = api.Receipt{ID: id, Outcome: "accepted"} // Exact provider evidence takes priority.
+			configureCare(t, r)
+			if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
+				t.Fatal(out)
+			}
+			switch outcome {
+			case "wrong-id":
+				f.receipt = api.Receipt{ID: "other-wake", Outcome: "accepted"}
+			case "write-failure":
+				f.receipt.Outcome = "accepted"
+				r.path = t.TempDir()
+			}
+			for range 2 {
+				err := r.Tick(t.Context())
+				if (err != nil) != (outcome == "write-failure") {
+					t.Fatal("wrong persistence error", err)
+				}
+				if w := r.State().Wake; w.ID != id || w.Status != "unknown" {
+					t.Fatal("uncertain wake released", w)
+				}
+				if len(base.submissions) != 1 {
+					t.Fatal("unresolved wake allowed a new dispatch", base.submissions)
+				}
+			}
+			if len(f.reads) != 2 || f.reads[0] != id || f.reads[1] != id {
+				t.Fatal("receipt not read by exact wake ID", f.reads)
+			}
+		})
+	}
+}
+
 func TestCareRejectsUnknownArguments(t *testing.T) {
 	r, _, _ := fixture(t)
 	configureCare(t, r)
