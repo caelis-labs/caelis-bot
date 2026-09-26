@@ -193,14 +193,12 @@ func TestCommandFollowupRejectedIsVisibleNotDelivered(t *testing.T) {
 				t.Fatalf("unexpected retry: %d", posts)
 			}
 			if outcome != "committed" {
-				found := false
-				for _, item := range s.Snapshot().Items {
-					if item.ID == "command-delivery:call" && item.Status == "failed" {
-						found = true
-					}
+				if s.Snapshot().Message == "" || !s.Snapshot().CanSend {
+					t.Fatal("nondelivery hidden from chat status or blocked recovery input")
 				}
-				if !found {
-					t.Fatal("nondelivery silently hidden")
+				applyEnvelope(s.state.Views["main"], commandResultEnvelope("Task", "read-recovery", "read", map[string]any{"handle": "command-1", "state": "completed"}))
+				if s.Snapshot().Message != "" {
+					t.Fatal("observed result did not clear failure status")
 				}
 			}
 		})
@@ -313,5 +311,29 @@ func TestCommandFollowupReconnectFencesBeforeBootstrap(t *testing.T) {
 	s.wg.Wait()
 	if caughtUp {
 		t.Fatal("previous connection remained eligible before bootstrap")
+	}
+}
+
+func TestCommandFollowupRecoveryOvertakesTerminalRead(t *testing.T) {
+	var s *Session
+	s = fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/tasks") {
+			t.Errorf("dispatched during recovery: %s", r.URL.Path)
+			return
+		}
+		s.mu.Lock()
+		s.state.Views["main"].CommandCaughtUp = false
+		s.mu.Unlock()
+		writeFixture(w, wire.TaskList{Tasks: []wire.TaskDescriptor{{SessionId: "main", Kind: "command", TaskId: "command-id", Handle: "command-1", State: "completed", ParentTool: &wire.TaskParentTool{ToolCallId: pointer("call")}}}})
+	})
+	s.info.Capabilities = []string{commandObservationCapability}
+	s.trackCommandApprovalLocked("main", "call", "execute")
+	commandEvidenceFixture(s, "running", true)
+	s.state.Views["main"].CommandCaughtUp = true
+	if err := s.reportApprovedCommands(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if s.state.CommandFollowups["call"].Done {
+		t.Fatal("recovery race completed notification")
 	}
 }

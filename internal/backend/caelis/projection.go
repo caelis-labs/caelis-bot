@@ -112,7 +112,9 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			if v != nil && v.CommandResults[id].Received {
 				continue
 			}
-			out.Items = append(out.Items, api.Item{ID: "command-delivery:" + id, Kind: "tool", Status: "failed", Text: "命令已结束，但结果跟进未被接受。请让 Bot 检查保留的命令结果；不会自动重跑命令。"})
+			if out.Message == "" && s.connected {
+				out.Message = "命令已结束，但结果跟进未被接受。请让 Bot 检查保留的命令结果；不会自动重跑命令。"
+			}
 		}
 	}
 	slices.SortFunc(out.Approvals, func(a, b api.Approval) int { return strings.Compare(a.ID, b.ID) })
@@ -409,6 +411,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			if staged != nil || value(d.SnapshotId) == "" || value(d.Page) != 0 || d.Source != "replacement" || len(d.Events) != 0 || value(d.NextCursor) != "" {
 				return errors.New("重复或无效状态替换")
 			}
+			v.CommandCaughtUp = false
 			snapshotID = value(d.SnapshotId)
 			page = 0
 			staged = &view{State: *bootstrap, Items: []api.Item{}, Seen: map[string]bool{}}

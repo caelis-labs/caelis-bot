@@ -144,7 +144,7 @@ func (s *Session) reportApprovedCommands(ctx context.Context) error {
 		// Stream delivery can advance while the read-only task request runs.
 		s.mu.Lock()
 		latest := s.state.Views[sid].CommandResults[callID]
-		readyNow := s.snapshotLocked().CanSend
+		readyNow := s.snapshotLocked().CanSend && s.state.Views[sid].CommandCaughtUp
 		s.mu.Unlock()
 		if latest.Received {
 			return s.finishCommandFollowup(callID)
