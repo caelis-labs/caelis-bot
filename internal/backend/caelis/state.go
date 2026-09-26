@@ -12,7 +12,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
-const currentProjectionVersion = 6
+const currentProjectionVersion = 7
 
 // Hold newly observed native inputs until the prompt's receipt can identify
 // them exactly. The canonical transcript remains intact, including on restart.
@@ -32,15 +32,17 @@ type journal struct {
 	Source       wire.ApplicationSource `json:"source"`
 }
 type view struct {
-	ApprovalDirty   bool              `json:"approvalDirty,omitempty"`
-	ApprovalVersion uint64            `json:"-"`
-	Turns           map[string]string `json:"turns,omitempty"`
-	Observed        uint64            `json:"-"`
-	State           wire.SessionState `json:"state"`
-	Items           []api.Item        `json:"items"`
-	Cursor          string            `json:"cursor"`
-	Seen            map[string]bool   `json:"seen"`
-	Failure         string            `json:"failure,omitempty"`
+	CommandCaughtUp bool                             `json:"-"`
+	CommandResults  map[string]commandResultEvidence `json:"commandResults,omitempty"`
+	ApprovalDirty   bool                             `json:"approvalDirty,omitempty"`
+	ApprovalVersion uint64                           `json:"-"`
+	Turns           map[string]string                `json:"turns,omitempty"`
+	Observed        uint64                           `json:"-"`
+	State           wire.SessionState                `json:"state"`
+	Items           []api.Item                       `json:"items"`
+	Cursor          string                           `json:"cursor"`
+	Seen            map[string]bool                  `json:"seen"`
+	Failure         string                           `json:"failure,omitempty"`
 }
 type typedRecord struct {
 	Path    string          `json:"path"`
@@ -135,6 +137,15 @@ func loadBinding(path string) (binding, error) {
 			v.Seen = map[string]bool{}
 			v.Failure = ""
 			v.Turns = nil
+			v.CommandResults = nil
+		}
+		for id, f := range b.CommandFollowups {
+			op := "command-result-" + digest([]byte(b.Session.SessionId+"\x00"+id))
+			if j, ok := b.Operations[op]; ok && (j.Outcome == "rejected" || j.Outcome == "conflicted") {
+				f.Done = false
+				f.DeliveryFailure = j.Outcome
+				b.CommandFollowups[id] = f
+			}
 		}
 		b.ProjectionVersion = currentProjectionVersion
 	}

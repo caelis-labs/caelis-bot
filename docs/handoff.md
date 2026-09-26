@@ -11,7 +11,7 @@
   保留应用来源，并纠正终端生产者已退出但 Task 快照仍为 running 的观察结果。当前正式
   v0.62.0 不具备该能力，但仍可正常连接并使用其他功能。Caelis 修复独立提 PR，不单独发 release，
   不阻塞 Bot 交付；普通会话的自动续跑仍由 harness 决定，观察接口不隐式发起模型回合。
-  Caelis 已提交 [PR #78](https://github.com/caelis-labs/caelis/pull/78)，Bot 工作区改动仍未提交。
+  Caelis 已提交 [PR #78](https://github.com/caelis-labs/caelis/pull/78)，Bot 修复已提交 [PR #25](https://github.com/caelis-labs/caelis-bot/pull/25)。
 - `bot_task_start.workspace` 支持指定已有绝对目录，两 Runtime 都支持。默认仍分配私有目录。
 - 新任务有空位自动 pin，满额保留已有项；稳定 ID 重试保留用户 unpin。英文 skill 已同步。
 - 终端小球可绑定具体窗口实现收起/恢复，但现有启动回执没有窗口身份，本轮只完成评估。

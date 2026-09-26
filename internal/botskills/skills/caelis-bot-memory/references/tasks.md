@@ -113,3 +113,8 @@ not as a new user direction.
 When the user changes direction, send the relevant update to the appropriate task
 and confirm what was actually accepted. Deliver useful results and artifacts in
 the conversation without routine task handles or tool narration.
+
+If a completion notice was explicitly rejected, it is not delivered. When the
+user asks to continue, inspect the retained task result before reporting; never
+rerun its command to recover a notification. Results already returned by
+RunCommand or Task read/wait do not need a second completion report.

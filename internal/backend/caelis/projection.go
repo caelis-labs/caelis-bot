@@ -107,6 +107,14 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			out.Approvals = append(out.Approvals, item)
 		}
 	}
+	for id, f := range s.state.CommandFollowups {
+		if f.DeliveryFailure != "" && !f.Done {
+			if v != nil && v.CommandResults[id].Received {
+				continue
+			}
+			out.Items = append(out.Items, api.Item{ID: "command-delivery:" + id, Kind: "tool", Status: "failed", Text: "命令已结束，但结果跟进未被接受。请让 Bot 检查保留的命令结果；不会自动重跑命令。"})
+		}
+	}
 	slices.SortFunc(out.Approvals, func(a, b api.Approval) int { return strings.Compare(a.ID, b.ID) })
 	if len(out.Approvals) > 0 {
 		out.Phase = "waiting_approval"
@@ -184,6 +192,7 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		}
 		v.Seen[key] = true
 	}
+	observeCommandResult(v, e)
 	// ACP permission events are notifications, not the durable Control approval
 	// shape. Reconcile the exact head before presenting native targets/choices.
 	if e.Kind == "session/request_permission" || value(e.ApprovalRequestId) != "" {
@@ -369,6 +378,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				s.state.Views[sid] = v
 			}
 			v.State = st
+			v.CommandCaughtUp = false
 			s.observeApprovalHeadLocked(st)
 			v.ApprovalDirty = false
 			v.ApprovalVersion++
@@ -414,6 +424,13 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			if staged == nil || snapshotID != value(d.SnapshotId) || value(d.Page) != page || d.Source != "replacement" || len(d.Events) != 0 || value(d.NextCursor) != "" {
 				return errors.New("恢复快照不匹配")
 			}
+			for id, f := range staged.CommandResults {
+				if old := v.CommandResults[id]; old.TurnID == f.TurnID && old.Handle == f.Handle {
+					f.TurnEnded = f.TurnEnded || old.TurnEnded
+					f.Received = f.Received || old.Received
+					staged.CommandResults[id] = f
+				}
+			}
 			staged.State = *bootstrap
 			staged.ApprovalDirty = false
 			v = staged
@@ -434,6 +451,9 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			}
 		default:
 			return fmt.Errorf("未知状态投影 %s", d.Kind)
+		}
+		if d.Kind == "sync" {
+			v.CommandCaughtUp = true
 		}
 		v.Observed++
 		if d.NextCursor != nil {

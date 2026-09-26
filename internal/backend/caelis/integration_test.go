@@ -762,6 +762,7 @@ func TestNativeHostIntegration(t *testing.T) {
 			if t.Failed() {
 				s.mu.Lock()
 				t.Logf("phase=%s issue=%s followups=%+v", s.snapshotLocked().Phase, s.issue, s.state.CommandFollowups)
+				t.Logf("result evidence=%+v", s.state.Views[s.state.Session.SessionId].CommandResults)
 				sid := s.state.Session.SessionId
 				s.mu.Unlock()
 				var directory wire.TaskList
@@ -825,6 +826,39 @@ func TestNativeHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
+
+	if !t.Run("B13_timely_approval_no_duplicate", func(t *testing.T) {
+		model.set("CASE_TIMELY", modelStep{Name: "RunCommand", Args: map[string]any{"command": "printf timely > timely.txt", "yield_time_ms": 10000, "sandbox_permissions": "require_escalated", "justification": "Synthetic timely-approval regression"}}, modelStep{Reply: "TIMELY_RESULT_SENTINEL"})
+		receipt, err := s.Submit(ctx, api.Submission{ID: "case-timely", Text: "CASE_TIMELY"}, nil)
+		if err != nil || receipt.Outcome != "accepted" {
+			t.Fatal(receipt, err)
+		}
+		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Approvals) == 1 })
+		a := s.Snapshot().Approvals[0]
+		choice := ""
+		for _, c := range a.Choices {
+			if c.Scope == "allow_once" {
+				choice = c.ID
+			}
+		}
+		if choice == "" {
+			t.Fatal("allow once missing")
+		}
+		if err = s.Decide(ctx, api.Decision{ID: a.ID, Choice: choice}); err != nil {
+			t.Fatal(err)
+		}
+		waitAcceptance(t, ctx, func() bool { return len(model.seen("CASE_TIMELY")) >= 2 && s.Snapshot().CanSend })
+		for range 3 {
+			if err = s.reportApprovedCommands(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if n := len(model.seen("CASE_TIMELY")); n != 2 {
+			t.Fatalf("normal completion invoked %d model requests, want 2", n)
+		}
+	}) {
+		return
+	}
 	if !t.Run("B07_restart", func(t *testing.T) {
 		before, e := s.Configuration(ctx)
 		if e != nil {
@@ -862,6 +896,6 @@ func TestNativeHostIntegration(t *testing.T) {
 		t.Fatal(failure)
 	}
 	if !t.Failed() {
-	t.Logf("external Host acceptance complete; optional terminal observation=%t; synthetic provider, real macOS native tools; no daily Store or real credentials", slices.Contains(s.info.Capabilities, commandObservationCapability))
+		t.Logf("external Host acceptance complete; optional terminal observation=%t; synthetic provider, real macOS native tools; no daily Store or real credentials", slices.Contains(s.info.Capabilities, commandObservationCapability))
 	}
 }

@@ -36,6 +36,7 @@ func TestCommandObservationIsOptional(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.state, err = loadBinding(s.path)
+	s.state.Views["main"].CommandCaughtUp = true
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +98,8 @@ func TestApprovedCommandFinishesAfterModelTurn(t *testing.T) {
 			})
 			s.info.Capabilities = []string{commandObservationCapability}
 			s.trackCommandApprovalLocked("main", "call", "execute")
+			s.state.Views["main"].CommandCaughtUp = true
+			commandEvidenceFixture(s, "waiting_approval", true)
 			s.state.Views["main"].State.Run.Active = pointer(true)
 			if err := s.reportApprovedCommands(t.Context()); err != nil || reads.Load() != 0 {
 				t.Fatal("polled while model active", err)
@@ -122,6 +125,7 @@ func TestApprovedCommandFinishesAfterModelTurn(t *testing.T) {
 				t.Fatal(err)
 			}
 			s.state = restored
+			s.state.Views["main"].CommandCaughtUp = true
 			for range 3 {
 				_ = s.reportApprovedCommands(t.Context())
 			}
@@ -129,5 +133,168 @@ func TestApprovedCommandFinishesAfterModelTurn(t *testing.T) {
 				t.Fatal("completion duplicated after restart or uncertain response")
 			}
 		})
+	}
+}
+
+func commandEvidenceFixture(s *Session, state string, ended bool) {
+	applyEnvelope(s.state.Views["main"], commandResultEnvelope("RunCommand", "call", "", map[string]any{"handle": "command-1", "state": state}))
+	if ended {
+		applyEnvelope(s.state.Views["main"], wire.Envelope{Kind: "caelis/lifecycle", TurnId: pointer("original"), Delivery: wire.Delivery{Mode: "canonical"}, Lifecycle: &wire.LifecycleEvent{State: "completed"}})
+	}
+}
+func commandResultEnvelope(name, call, action string, output map[string]any) wire.Envelope {
+	raw, _ := json.Marshal(map[string]any{"sessionUpdate": "tool_call_update", "name": name, "toolCallId": call, "rawInput": map[string]string{"action": action}, "rawOutput": output})
+	u := wire.ACPUpdate(raw)
+	return wire.Envelope{Kind: "session/update", TurnId: pointer("original"), Delivery: wire.Delivery{Mode: "canonical"}, Update: &u}
+}
+func TestCommandFollowupRejectedIsVisibleNotDelivered(t *testing.T) {
+	for _, outcome := range []wire.Outcome{"rejected", "conflicted", "committed"} {
+		t.Run(string(outcome), func(t *testing.T) {
+			posts := 0
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/tasks") {
+					writeFixture(w, wire.TaskList{Tasks: []wire.TaskDescriptor{{SessionId: "main", Kind: "command", TaskId: "command-id", Handle: "command-1", State: "completed", ParentTool: &wire.TaskParentTool{ToolCallId: pointer("call")}}}})
+					return
+				}
+				if strings.HasSuffix(r.URL.Path, "/prompt") {
+					posts++
+					var req wire.ApplicationPromptRequest
+					_ = json.NewDecoder(r.Body).Decode(&req)
+					writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: outcome})
+					return
+				}
+				t.Errorf("unexpected request: %s", r.URL.Path)
+			})
+			s.info.Capabilities = []string{commandObservationCapability}
+			s.trackCommandApprovalLocked("main", "call", "execute")
+			s.state.Views["main"].CommandCaughtUp = true
+			commandEvidenceFixture(s, "waiting_approval", true)
+			for range 3 {
+				if err := s.reportApprovedCommands(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				s.state, err = loadBinding(s.path)
+				s.state.Views["main"].CommandCaughtUp = true
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			f := s.state.CommandFollowups["call"]
+			if outcome == "committed" {
+				if !f.Done {
+					t.Fatal("committed result not completed")
+				}
+			} else if f.Done || f.DeliveryFailure != string(outcome) {
+				t.Fatalf("lost failed delivery: %+v", f)
+			}
+			if posts != 1 {
+				t.Fatalf("unexpected retry: %d", posts)
+			}
+			if outcome != "committed" {
+				found := false
+				for _, item := range s.Snapshot().Items {
+					if item.ID == "command-delivery:call" && item.Status == "failed" {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatal("nondelivery silently hidden")
+				}
+			}
+		})
+	}
+}
+func TestCommandFollowupRequiresUnconsumedCanonicalResult(t *testing.T) {
+	for _, scenario := range []string{"direct", "read", "wait", "batch", "no-evidence", "turn-not-ended", "transient"} {
+		t.Run(scenario, func(t *testing.T) {
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				if !strings.HasSuffix(r.URL.Path, "/tasks") {
+					t.Errorf("extra model activation %s", r.URL.Path)
+					return
+				}
+				writeFixture(w, wire.TaskList{Tasks: []wire.TaskDescriptor{{SessionId: "main", Kind: "command", TaskId: "command-id", Handle: "command-1", State: "completed", ParentTool: &wire.TaskParentTool{ToolCallId: pointer("call")}}}})
+			})
+			s.info.Capabilities = []string{commandObservationCapability}
+			s.trackCommandApprovalLocked("main", "call", "execute")
+			s.state.Views["main"].CommandCaughtUp = true
+			if scenario == "direct" {
+				commandEvidenceFixture(s, "completed", true)
+			}
+			if scenario == "turn-not-ended" {
+				commandEvidenceFixture(s, "running", false)
+				s.state.Views["main"].State.Run.Active = pointer(false)
+			}
+			if scenario == "transient" {
+				e := commandResultEnvelope("RunCommand", "call", "", map[string]any{"handle": "command-1", "state": "running"})
+				e.Delivery.Mode = "transient"
+				applyEnvelope(s.state.Views["main"], e)
+			}
+			if scenario == "read" || scenario == "wait" || scenario == "batch" {
+				commandEvidenceFixture(s, "running", false)
+				output := map[string]any{"handle": "command-1", "state": "completed"}
+				action := scenario
+				if scenario == "batch" {
+					output = map[string]any{"tasks": []any{output}}
+					action = "wait"
+				}
+				applyEnvelope(s.state.Views["main"], commandResultEnvelope("Task", "observer", action, output))
+				commandEvidenceFixture(s, "running", true)
+			}
+			if err := s.saveLocked(); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			s.state, err = loadBinding(s.path)
+			s.state.Views["main"].CommandCaughtUp = true
+			if err != nil {
+				t.Fatal(err)
+			}
+			for range 3 {
+				if err := s.reportApprovedCommands(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func TestCommandFollowupWaitsForRecoverySyncAndCanonicalEvidence(t *testing.T) {
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Errorf("recovery dispatched %s", r.URL.Path) })
+	s.info.Capabilities = []string{commandObservationCapability}
+	s.trackCommandApprovalLocked("main", "call", "execute")
+	commandEvidenceFixture(s, "running", true)
+	if err := s.reportApprovedCommands(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	v := s.state.Views["main"]
+	for _, mode := range []wire.DeliveryMode{"transient", "mirror"} {
+		e := commandResultEnvelope("Task", "observer", "read", map[string]any{"handle": "command-1", "state": "completed"})
+		e.Delivery.Mode = mode
+		applyEnvelope(v, e)
+	}
+	e := commandResultEnvelope("Task", "foreign", "read", map[string]any{"handle": "command-1", "state": "completed"})
+	e.Scope = pointer("participant")
+	e.ParticipantId = pointer("worker")
+	applyEnvelope(v, e)
+	if v.CommandResults["call"].Received {
+		t.Fatal("noncanonical or foreign result counted as delivery")
+	}
+}
+func TestCommandFollowupMigrationRepairsRejectedDone(t *testing.T) {
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Fatal("unexpected request") })
+	s.state.ProjectionVersion = 6
+	s.state.CommandFollowups = map[string]commandFollowup{"call": {Done: true}}
+	op := "command-result-" + digest([]byte("main\x00call"))
+	s.state.Operations[op] = journal{Outcome: "conflicted"}
+	if err := s.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := loadBinding(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := b.CommandFollowups["call"]; f.Done || f.DeliveryFailure != "conflicted" {
+		t.Fatalf("migration lost rejection: %+v", f)
 	}
 }
