@@ -107,6 +107,16 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			out.Approvals = append(out.Approvals, item)
 		}
 	}
+	for id, f := range s.state.CommandFollowups {
+		if f.DeliveryFailure != "" && !f.Done {
+			if v != nil && v.CommandResults[id].Received {
+				continue
+			}
+			if out.Message == "" && s.connected {
+				out.Message = "命令已结束，但结果跟进未被接受。请让 Bot 检查保留的命令结果；不会自动重跑命令。"
+			}
+		}
+	}
 	slices.SortFunc(out.Approvals, func(a, b api.Approval) int { return strings.Compare(a.ID, b.ID) })
 	if len(out.Approvals) > 0 {
 		out.Phase = "waiting_approval"
@@ -184,6 +194,13 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		}
 		v.Seen[key] = true
 	}
+	observeCommandResult(v, e)
+	// ACP permission events are notifications, not the durable Control approval
+	// shape. Reconcile the exact head before presenting native targets/choices.
+	if e.Kind == "session/request_permission" || value(e.ApprovalRequestId) != "" {
+		v.ApprovalDirty = true
+		v.ApprovalVersion++
+	}
 	isMain := (value(e.Scope) == "" || value(e.Scope) == "main") && value(e.ApprovalRequestId) == ""
 	if e.Kind == "caelis/error" && isMain {
 		v.Failure = value(e.Error)
@@ -195,7 +212,8 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 			v.Failure = ""
 		case "completed", "failed", "cancelled", "interrupted", "stopped":
 			v.State.Run.Active = pointer(false)
-			v.State.Approval = wire.ApprovalState{}
+			v.ApprovalDirty = true
+			v.ApprovalVersion++
 			if e.Lifecycle.State == "failed" && v.Failure == "" {
 				v.Failure = value(e.Lifecycle.Reason)
 			}
@@ -303,6 +321,9 @@ func (s *Session) ensureStreamLocked(sid string) {
 		return
 	}
 	s.streams[sid] = true
+	if v := s.state.Views[sid]; v != nil {
+		v.CommandCaughtUp = false
+	}
 	if s.streamCtx == nil {
 		s.streamCtx, s.streamCancel = context.WithCancel(s.ctx)
 	}
@@ -362,6 +383,10 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				s.state.Views[sid] = v
 			}
 			v.State = st
+			v.CommandCaughtUp = false
+			s.observeApprovalHeadLocked(st)
+			v.ApprovalDirty = false
+			v.ApprovalVersion++
 			v.Observed++
 			s.bumpLocked()
 			return nil
@@ -386,6 +411,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			if staged != nil || value(d.SnapshotId) == "" || value(d.Page) != 0 || d.Source != "replacement" || len(d.Events) != 0 || value(d.NextCursor) != "" {
 				return errors.New("重复或无效状态替换")
 			}
+			v.CommandCaughtUp = false
 			snapshotID = value(d.SnapshotId)
 			page = 0
 			staged = &view{State: *bootstrap, Items: []api.Item{}, Seen: map[string]bool{}}
@@ -404,7 +430,15 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			if staged == nil || snapshotID != value(d.SnapshotId) || value(d.Page) != page || d.Source != "replacement" || len(d.Events) != 0 || value(d.NextCursor) != "" {
 				return errors.New("恢复快照不匹配")
 			}
+			for id, f := range staged.CommandResults {
+				if old := v.CommandResults[id]; old.TurnID == f.TurnID && old.Handle == f.Handle {
+					f.TurnEnded = f.TurnEnded || old.TurnEnded
+					f.Received = f.Received || old.Received
+					staged.CommandResults[id] = f
+				}
+			}
 			staged.State = *bootstrap
+			staged.ApprovalDirty = false
 			v = staged
 			s.state.Views[sid] = v
 			staged = nil
@@ -415,6 +449,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			for _, e := range d.Events {
 				s.logEnvelope(e)
 				s.applyScheduledEnvelope(v, e)
+				s.observeCommandApprovalLocked(sid, e)
 			}
 		case "sync", "status":
 			if staged != nil {
@@ -422,6 +457,9 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			}
 		default:
 			return fmt.Errorf("未知状态投影 %s", d.Kind)
+		}
+		if d.Kind == "sync" {
+			v.CommandCaughtUp = true
 		}
 		v.Observed++
 		if d.NextCursor != nil {
@@ -431,6 +469,9 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			return e
 		}
 		s.bumpLocked()
+		if v.ApprovalDirty {
+			s.requestRefreshLocked()
+		}
 		return nil
 	})
 }
@@ -451,6 +492,9 @@ func (s *Session) pollLoop(ctx context.Context) {
 			e = s.refresh(ctx)
 		}
 		s.step.Unlock()
+		if e == nil {
+			e = s.reportApprovedCommands(ctx)
+		}
 		if e != nil && ctx.Err() == nil {
 			_ = s.fail(e)
 		}
@@ -508,9 +552,10 @@ func (s *Session) refresh(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	before := s.state.Views[sid]
-	var observed uint64
+	var observed, approvalVersion uint64
 	if before != nil {
 		observed = before.Observed
+		approvalVersion = before.ApprovalVersion
 	}
 	s.mu.Unlock()
 	var state wire.SessionState
@@ -527,8 +572,12 @@ func (s *Session) refresh(ctx context.Context) error {
 		s.state.Views[sid] = v
 	}
 	if v == before && v.Observed == observed || before == nil && v.Observed == 0 {
+		approval := v.State.Approval
 		v.State = state
+		v.State.Approval = approval
 	}
+	reconcileApproval(v, before, approvalVersion, state)
+	s.observeApprovalHeadLocked(v.State)
 	s.ensureStreamLocked(sid)
 	turn := observedTurn(v)
 	finished := turn != "" && !value(v.State.Run.Active) && slices.Contains([]string{"completed", "failed", "interrupted", "cancelled"}, value(v.State.Run.Status)) && s.state.FinishedTurn != turn
@@ -616,8 +665,8 @@ func (s *Session) needsRefreshLocked() bool {
 			return true
 		}
 	}
-	for sid := range s.state.Views {
-		if !s.streams[sid] {
+	for sid, v := range s.state.Views {
+		if !s.streams[sid] || v.ApprovalDirty {
 			return true
 		}
 	}

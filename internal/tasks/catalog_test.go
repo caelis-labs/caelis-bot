@@ -104,7 +104,7 @@ func TestWatchlistPersistsAndDoesNotControlExecution(t *testing.T) {
 	if _, e = m.PinTask(ids[8], true); e == nil {
 		t.Fatal("silent eviction")
 	}
-	if _, e = m.PinTask(ids[0], true); e != nil || changes != 8 {
+	if _, e = m.PinTask(ids[0], true); e != nil || changes != 0 {
 		t.Fatal("pin not idempotent", e, changes)
 	}
 	if _, e = m.PinTask("foreign", true); e == nil {

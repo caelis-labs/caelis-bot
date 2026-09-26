@@ -1,7 +1,10 @@
 # Caelis 接入与运行时管理
 
-Bot 使用正式 Caelis **v0.62.0** 的通用应用运行时与共享原生 Worker 协议，
-公开协议固定于 `812264e567875fe8db6e678fcf7e0e439b18fc6d`。使用公开 HTTP/SSE 与生成的 Go wire，
+协议生成与最低能力基线仍为正式 Caelis **v0.62.0**。
+`application-terminal-observation-v1` 是可选增强：支持时启用迟到审批命令的结果跟进，
+不支持时正常连接，且不访问该观察接口。审批投影、指定工作区和自动 pin 均不依赖它。
+Caelis 可独立交付该修复，无需为此单独发布版本。通用应用运行时与共享原生 Worker 的
+公开 wire schema 仍固定于 `812264e567875fe8db6e678fcf7e0e439b18fc6d`。使用公开 HTTP/SSE 与生成的 Go wire，
 不导入兄弟仓库、不恢复旧 Bot Mode。基线包含共享会话、steering、Host 设置授权流与 Team 角色候选。
 
 当前验证范围见 [实现与验证状态](preparation-status.md)。v0.61.0 的真实模型和原生 GUI

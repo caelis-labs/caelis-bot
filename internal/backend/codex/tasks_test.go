@@ -36,8 +36,7 @@ func taskPair(t *testing.T) (*Session, *sessionFixture, *taskFixture, *tasks.Man
 		case "config/read":
 			return d.config, true
 		case "thread/start":
-			cwd, _ := p["cwd"].(string)
-			if !strings.Contains(cwd, "/Tasks/") {
+			if p["developerInstructions"] != botpolicy.WorkerInstructions {
 				return nil, false
 			}
 			d.starts++
@@ -367,5 +366,35 @@ func TestWorkerParametersPreserveExplicitExecutionMode(t *testing.T) {
 	p := s.workerParams("/synthetic/task", botpolicy.WorkerInstructions, &taskRecord{Execution: &api.WorkExecutionSettings{Model: "work-model", Effort: "high", ServiceTier: "fast"}})
 	if p["sandbox"] != "read-only" || p["approvalPolicy"] != "never" || p["approvalsReviewer"] != "user" || p["model"] != "work-model" || p["serviceTier"] != "fast" || p["config"].(map[string]any)["model_reasoning_effort"] != "high" {
 		t.Fatal("worker changed explicit settings")
+	}
+}
+
+func TestSelectedTaskWorkspaceReachesNativeSandboxAndResume(t *testing.T) {
+	s, f, d, m := taskPair(t)
+	sendSynthetic(t, s, "selected-workspace-parent")
+	workspace, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := api.TaskStart{RequestID: "selected-workspace-start", Title: "Selected project", Prompt: "Read the project", Workspace: workspace}
+	v, err := m.StartTask(testContext(t), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	p, turn := d.threadParams, d.turnParams
+	f.mu.Unlock()
+	roots, _ := json.Marshal(p["runtimeWorkspaceRoots"])
+	if p["cwd"] != workspace || string(roots) != string(raw([]string{workspace})) || p["sandbox"] != "workspace-write" || string(raw(turn["sandboxPolicy"].(map[string]any)["writableRoots"])) != string(raw([]string{workspace})) {
+		t.Fatalf("workspace/policy lost: %v %v", p, turn)
+	}
+	finishTask(s, f, v.ID, "completed")
+	awaitState(t, s, func(api.Snapshot) bool { return s.WorkStates()[0].Task.Status == "completed" })
+	in.Workspace = t.TempDir()
+	if _, err = m.StartTask(testContext(t), in); err == nil {
+		t.Fatal("request changed native workspace")
+	}
+	if s.WorkStates()[0].Task.Workspace != workspace {
+		t.Fatal("native worker lost selected workspace")
 	}
 }

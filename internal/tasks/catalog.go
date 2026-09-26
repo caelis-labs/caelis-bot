@@ -12,6 +12,15 @@ import (
 
 const PinnedLimit = 8
 
+func (m *Manager) notifyWatchlist() {
+	m.mu.Lock()
+	f := m.watchlistChanged
+	m.mu.Unlock()
+	if f != nil {
+		f(m.TaskPreviews())
+	}
+}
+
 // ConfigureLimit changes admission only; reducing the preference never stops work.
 func (m *Manager) ConfigureLimit(read func() int) {
 	m.op.Lock()

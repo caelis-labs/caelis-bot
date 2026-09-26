@@ -106,6 +106,7 @@ func TestReplacementIsAtomicAndCursorIsOpaque(t *testing.T) {
 					fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
 				}
 				send("caelis.control.bootstrap", wire.SessionState{SessionId: "main", ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1"})
+				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "sync", Source: "exact"})
 				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_begin", Source: "replacement", SnapshotId: pointer("s")})
 				raw := json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"new"}}`)
 				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_page", Source: "replacement", SnapshotId: pointer("s"), Events: []wire.Envelope{{TurnId: pointer("turn"), Update: &raw}}})
@@ -122,6 +123,9 @@ func TestReplacementIsAtomicAndCursorIsOpaque(t *testing.T) {
 			defer cancel()
 			_ = s.watch(ctx, s.client, "main", "instance")
 			v := s.state.Views["main"]
+			if v.CommandCaughtUp != valid {
+				t.Fatal("partial replacement enabled command followup")
+			}
 			if valid {
 				if len(v.Items) != 1 || v.Items[0].Text != "new" || v.Cursor != "next" {
 					t.Fatal("replacement missing")

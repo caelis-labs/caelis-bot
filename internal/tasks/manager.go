@@ -255,6 +255,9 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 		return api.Task{}, e
 	}
 	id, fp := "task-"+hash(m.provider, in.RequestID), hash(in.Title, in.Prompt)
+	if in.Workspace != "" {
+		fp = hash(in.Title, in.Prompt, in.Workspace)
+	}
 	m.mu.Lock()
 	legacyID := "task-" + hash(in.RequestID)
 	if r := m.state.Records[legacyID]; r != nil && r.Provider == m.provider {
@@ -276,9 +279,17 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	if e := m.work.WorkAdmission(ctx); e != nil {
 		return api.Task{}, e
 	}
-	pinned := false
-	r := &record{Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Title: in.Title, Workspace: filepath.Join(m.root, id), Status: "unknown", Outcome: "unknown"}}
+	workspace := filepath.Join(m.root, id)
+	if in.Workspace != "" {
+		var err error
+		workspace, err = api.ResolveTaskWorkspace(in.Workspace)
+		if err != nil {
+			return api.Task{}, err
+		}
+	}
 	m.mu.Lock()
+	pinned := m.pinnedLocked() < PinnedLimit
+	r := &record{Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
 	m.state.Sequence++
 	r.Sequence = m.state.Sequence
 	m.state.Records[id] = r
@@ -290,7 +301,11 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	if e != nil {
 		return api.Task{}, e
 	}
-	workspace, e := prepareWorkspace(m.root, id, m.currentLocale())
+	// Publish the durable pin even if native admission later becomes uncertain.
+	defer m.notifyWatchlist()
+	if in.Workspace == "" {
+		workspace, e = prepareWorkspace(m.root, id, m.currentLocale())
+	}
 	if e != nil {
 		m.mu.Lock()
 		r.View.Status = "failed"

@@ -5,7 +5,7 @@ import "context"
 // WorkRuntime is the native execution port consumed by the application's task
 // coordinator. It owns native bindings, approvals and mutation receipts, not
 // workspace allocation, product capacity or completion-report scheduling.
-// All methods are host-only; model input cannot select a workspace or role.
+// All methods are host-only; the host validates the workspace and owns the role.
 type WorkRuntime interface {
 	WorkAdmission(context.Context) error
 	WorkStates() []WorkState
