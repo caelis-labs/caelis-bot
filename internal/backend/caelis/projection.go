@@ -319,6 +319,9 @@ func (s *Session) ensureStreamLocked(sid string) {
 		return
 	}
 	s.streams[sid] = true
+	if v := s.state.Views[sid]; v != nil {
+		v.CommandCaughtUp = false
+	}
 	if s.streamCtx == nil {
 		s.streamCtx, s.streamCancel = context.WithCancel(s.ctx)
 	}

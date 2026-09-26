@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -296,5 +297,21 @@ func TestCommandFollowupMigrationRepairsRejectedDone(t *testing.T) {
 	}
 	if f := b.CommandFollowups["call"]; f.Done || f.DeliveryFailure != "conflicted" {
 		t.Fatalf("migration lost rejection: %+v", f)
+	}
+}
+
+func TestCommandFollowupReconnectFencesBeforeBootstrap(t *testing.T) {
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Error("canceled stream sent a request") })
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	s.mu.Lock()
+	s.ctx = ctx
+	s.state.Views["main"].CommandCaughtUp = true
+	s.ensureStreamLocked("main")
+	caughtUp := s.state.Views["main"].CommandCaughtUp
+	s.mu.Unlock()
+	s.wg.Wait()
+	if caughtUp {
+		t.Fatal("previous connection remained eligible before bootstrap")
 	}
 }
