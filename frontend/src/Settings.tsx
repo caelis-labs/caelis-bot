@@ -3,6 +3,7 @@ import { desktop, type Placement } from './desktop';
 import { BotSetup } from './BotSetup';
 import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
+import { ScreenInputSettings } from './ScreenInputSettings';
 import { ShortcutSettings } from './ShortcutSettings';
 import { ExecutionSettings } from './ExecutionSettings';
 import { PermissionSettings } from './PermissionSettings';
@@ -66,7 +67,7 @@ function General() {
  const commit=()=>{dragging.current=false;save.current=true;void flush();};
 
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><LanguageSetting/><ShortcutSettings/><ShortcutSettings tasks/><ShortcutSettings capture/><ShortcutSettings paste/><TaskSettings/>
+  <h1>{t('settings.general')}</h1><LanguageSetting/><ShortcutSettings/><ShortcutSettings tasks/><ShortcutSettings capture/><ShortcutSettings paste/><ScreenInputSettings/><TaskSettings/>
   <SettingGroup title={t('settings.pet')}>
    <SettingRow label={t('settings.petSize')} htmlFor="pet-size"><div className="size-control">
     <input id="pet-size" type="range" min="0.65" max="1.6" step="any" disabled={scale===null} value={scale??1} aria-valuetext={scale===null?'':number(scale,{style:'percent',maximumFractionDigits:0})} onPointerDown={()=>{dragging.current=true;}} onChange={event=>{const value=event.target.valueAsNumber;setScale(value);pending.current=value;save.current=!dragging.current;setError('');void flush();}} onPointerUp={commit} onPointerCancel={commit} onBlur={commit}/>

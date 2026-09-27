@@ -205,9 +205,7 @@ func Present(item api.Item) api.Item {
 	if !ok || json.NewDecoder(strings.NewReader(data)).Decode(&snapshot) != nil || snapshot.Version != 1 || !identifier.MatchString(snapshot.ID) {
 		return item
 	}
-	item.Text = "Ask Bot · Screenshot"
-	if note := strings.TrimSpace(snapshot.Note); note != "" {
-		item.Text += "\n" + note
-	}
+	item.Text = strings.TrimSpace(snapshot.Note)
+	item.Screen = &api.ScreenPresentation{Application: snapshot.Application}
 	return item
 }

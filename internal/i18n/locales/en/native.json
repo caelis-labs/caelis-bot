@@ -108,13 +108,11 @@
   "capture.start": "Capture Screen…",
   "capture.paste": "Paste Image to Screen",
   "capture.togglePins": "Show / Hide Image Pins",
-  "capture.copy": "Copy",
-  "capture.save": "Save",
+  "capture.copy": "Copy image (⌘C)",
+  "capture.save": "Save image (⌘S)",
   "capture.pin": "Pin",
-  "capture.context": "Include complete screen",
   "capture.note": "Add a note (optional)",
   "capture.unknown": "Delivery unconfirmed. Kept locally; will not resend.",
-  "capture.hint": "⌘C Copy · Paste shortcut: Pin · Capture shortcut: Ask Bot · Esc Cancel",
   "capture.copied": "Copied",
   "capture.saveFailed": "Could not save the image. Your selection is kept.",
   "capture.edit": "Annotate",
@@ -136,5 +134,11 @@
   "capture.tool.mosaic": "Mosaic",
   "capture.tool.redact": "Opaque redaction",
   "capture.noteTooLong": "Note is too long (maximum 4096 UTF-8 bytes). Shorten it and try again.",
-  "capture.invalidInput": "Could not prepare this screenshot. Your selection and note are editable; try again."
+  "capture.invalidInput": "Could not prepare this screenshot. Your selection and note are editable; try again.",
+  "capture.ask": "Send screenshot to Bot (Enter)",
+  "capture.close": "Cancel (Esc / capture shortcut)",
+  "capture.color": "Change color",
+  "capture.width": "Stroke width",
+  "capture.undo": "Undo (⌘Z)",
+  "capture.redo": "Redo (⇧⌘Z)"
 }

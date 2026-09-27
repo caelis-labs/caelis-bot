@@ -92,6 +92,7 @@ export interface Item {
   details: string;
   activity: Activity | null;
   artifacts: Array<Artifact>;
+  screen?: ScreenPresentation | null;
 }
 export interface ModelOption {
   imageInput: boolean | null;
@@ -263,7 +264,7 @@ export interface RuntimeRole {
 export interface RuntimeSettings {
   runtime: string;
   cliPath: string;
-  caelisStore: string;
+  caelisStore?: string;
 }
 export interface RuntimeStatus {
   latestVersion: string;
@@ -286,6 +287,16 @@ export interface RuntimeTeamSet {
   name: string;
   available: boolean;
   problem: string;
+}
+export interface ScreenImage {
+  id: string;
+  role: string;
+  width: number;
+  height: number;
+}
+export interface ScreenPresentation {
+  application: string;
+  images: Array<ScreenImage>;
 }
 export interface ServiceTier {
   id: string;

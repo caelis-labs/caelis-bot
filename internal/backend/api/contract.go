@@ -54,15 +54,28 @@ type Review struct {
 }
 type Item struct {
 	// RequestID correlates a local submission with an authoritative native input.
-	RequestID string     `json:"requestId"`
-	TurnKey   string     `json:"turnKey"`
-	ID        string     `json:"id"`
-	Kind      string     `json:"kind"`
-	Text      string     `json:"text"`
-	Status    string     `json:"status"`
-	Details   string     `json:"details"`
-	Activity  *Activity  `json:"activity"`
-	Artifacts []Artifact `json:"artifacts"`
+	RequestID string              `json:"requestId"`
+	TurnKey   string              `json:"turnKey"`
+	ID        string              `json:"id"`
+	Kind      string              `json:"kind"`
+	Text      string              `json:"text"`
+	Status    string              `json:"status"`
+	Details   string              `json:"details"`
+	Activity  *Activity           `json:"activity"`
+	Artifacts []Artifact          `json:"artifacts"`
+	Screen    *ScreenPresentation `json:"screen,omitempty"`
+}
+
+// ScreenPresentation is host-owned display metadata, never delivery evidence.
+type ScreenPresentation struct {
+	Application string        `json:"application"`
+	Images      []ScreenImage `json:"images"`
+}
+type ScreenImage struct {
+	ID     string `json:"id"`
+	Role   string `json:"role"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
 }
 
 // Activity is presentation-only metadata from a native tool's typed semantics.

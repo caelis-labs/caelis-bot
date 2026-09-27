@@ -7,13 +7,39 @@
 #include <math.h>
 extern void desktopCaptureEvent(uintptr_t handle,int kind,char *text);
 
+@interface BotCaptureFieldEditor : NSTextView
+@property BOOL interpretingMarkedText;
+@end
+@implementation BotCaptureFieldEditor
+- (void)keyDown:(NSEvent *)event {
+    self.interpretingMarkedText=self.hasMarkedText;
+    [super keyDown:event];
+    self.interpretingMarkedText=NO;
+}
+@end
+static BOOL composing(NSTextView *editor) {
+    return editor.hasMarkedText || ([editor isKindOfClass:BotCaptureFieldEditor.class] && ((BotCaptureFieldEditor *)editor).interpretingMarkedText);
+}
+@interface BotStrokePreview : NSView
+@property CGFloat stroke;
+@property NSColor *ink;
+@end
+@implementation BotStrokePreview
+- (void)drawRect:(NSRect)dirtyRect {
+    [self.ink setStroke];NSBezierPath *path=[NSBezierPath new];
+    path.lineWidth=self.stroke;path.lineCapStyle=NSLineCapStyleRound;
+    [path moveToPoint:NSMakePoint(12,NSMidY(self.bounds))];
+    [path lineToPoint:NSMakePoint(NSMaxX(self.bounds)-12,NSMidY(self.bounds))];[path stroke];
+}
+@end
+
+
 @class BotCaptureCanvas;
-@interface BotCapturePanel : NSPanel
+@interface BotCapturePanel : NSPanel <NSWindowDelegate>
+@property(weak) BotCaptureCanvas *captureCanvas;
+@property BotCaptureFieldEditor *captureEditor;
 @end
-@implementation BotCapturePanel
-- (BOOL)canBecomeKeyWindow { return YES; }
-- (BOOL)canBecomeMainWindow { return NO; }
-@end
+
 
 @interface BotCapture ()
 @property NSMutableArray<BotCapturePanel *> *pins;
@@ -26,6 +52,7 @@ extern void desktopCaptureEvent(uintptr_t handle,int kind,char *text);
 @property(nonatomic) NSDictionary *availability;
 @property NSTimer *refreshTimer;
 @property NSMutableArray *observers;
+@property id keyMonitor;
 - (NSString *)text:(NSString *)key fallback:(NSString *)fallback;
 - (void)finish:(BOOL)restoreFocus;
 - (void)pinDocument:(BotCaptureDocument *)document at:(NSPoint)point;
@@ -55,9 +82,19 @@ extern void desktopCaptureEvent(uintptr_t handle,int kind,char *text);
 @property NSTextField *textEditor;
 @property NSTextField *noteEditor;
 @property NSButton *askButton;
-@property NSButton *contextButton;
+@property NSMutableArray<NSButton *> *toolButtons;
+@property NSButton *widthButton;
+@property NSPopover *widthPopover;
+@property NSTextField *widthValue;
+@property BotStrokePreview *widthPreview;
+@property BOOL adjustingSelection;
+@property BOOL gestureActive;
 @property NSRect hoverRect;
 @property NSTrackingArea *tracking;
+- (void)focusNote;
+- (void)closeAction:(id)sender;
+- (void)undoAction:(id)sender;
+- (void)redoAction:(id)sender;
 - (void)buildToolbar;
 - (void)updateAvailability;
 - (void)copyImage;
@@ -65,6 +102,34 @@ extern void desktopCaptureEvent(uintptr_t handle,int kind,char *text);
 - (void)save;
 - (void)showMessage:(NSString *)message;
 @end
+
+@implementation BotCapturePanel
+- (BOOL)canBecomeKeyWindow {return YES;}
+- (BOOL)canBecomeMainWindow {return NO;}
+- (id)windowWillReturnFieldEditor:(NSWindow *)window toObject:(id)object {
+    if(![object isKindOfClass:NSTextField.class]||![[object delegate] isKindOfClass:BotCaptureCanvas.class])return nil;
+    if(!self.captureEditor){self.captureEditor=[BotCaptureFieldEditor new];self.captureEditor.fieldEditor=YES;}
+    return self.captureEditor;
+}
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    BOOL command=(event.modifierFlags&NSEventModifierFlagCommand)!=0;
+    NSString *key=event.charactersIgnoringModifiers.lowercaseString;
+    NSTextView *editor=[self.firstResponder isKindOfClass:NSTextView.class]?(NSTextView *)self.firstResponder:nil;
+    if(command && self.captureCanvas) {
+        if([key isEqual:@"c"]){
+            // Default note focus must not swallow image copy, but text selection owns Copy.
+            if(composing(editor))return YES;
+            if(editor.selectedRange.length>0){[editor copy:nil];return YES;}
+            [self.captureCanvas copyImage];return YES;
+        }
+        if(editor)return [super performKeyEquivalent:event];
+        if([key isEqual:@"s"]){[self.captureCanvas save];return YES;}
+        if([key isEqual:@"z"]){if(event.modifierFlags&NSEventModifierFlagShift)[self.captureCanvas redoAction:nil];else [self.captureCanvas undoAction:nil];return YES;}
+    }
+    return [super performKeyEquivalent:event];
+}
+@end
+
 
 static NSRect selectionBetween(NSPoint a,NSPoint b,NSRect bounds) {
     NSRect r=NSMakeRect(MIN(a.x,b.x),MIN(a.y,b.y),fabs(a.x-b.x),fabs(a.y-b.y));
@@ -82,7 +147,7 @@ static NSWindowCollectionBehavior captureBehavior(void) {
 }
 static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     BotCapturePanel *panel=[[BotCapturePanel alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskBorderless|NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
-    panel.releasedWhenClosed=NO;panel.hidesOnDeactivate=NO;panel.becomesKeyOnlyIfNeeded=NO;
+    panel.delegate=panel;panel.releasedWhenClosed=NO;panel.hidesOnDeactivate=NO;panel.becomesKeyOnlyIfNeeded=NO;
     panel.level=overlay?NSScreenSaverWindowLevel:NSFloatingWindowLevel;
     panel.collectionBehavior=captureBehavior();panel.opaque=overlay;panel.backgroundColor=NSColor.clearColor;
     panel.hasShadow=!overlay;panel.acceptsMouseMovedEvents=YES;
@@ -90,6 +155,58 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
 }
 
 @implementation BotCaptureCanvas
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)editor doCommandBySelector:(SEL)command {
+    if(command==@selector(insertNewline:)) {
+        // Keep the Return that accepts an IME candidate inside the text system.
+        if(composing(editor))return YES;
+        if(control==self.textEditor){[self textDone:control];return YES;}
+        if(control==self.noteEditor){[self askAction:control];return YES;}
+    }
+    if(command==@selector(cancelOperation:)) {
+        if(composing(editor))return NO;
+        if(control==self.textEditor){[self.textEditor removeFromSuperview];self.textEditor=nil;[self focusNote];}
+        else [self closeAction:nil];
+        return YES;
+    }
+    return NO;
+}
+- (void)controlTextDidChange:(NSNotification *)notification {
+    if(notification.object==self.noteEditor)self.document.note=self.noteEditor.stringValue;
+}
+- (void)focusNote {
+    if(!self.noteEditor.editable||self.toolbar.hidden||self.textEditor||NSIsEmptyRect(self.document.selection))return;
+    self.adjustingSelection=NO;
+    [self.noteEditor.window makeKeyWindow];[self.noteEditor.window makeFirstResponder:self.noteEditor];
+    NSTextView *editor=(NSTextView *)self.noteEditor.currentEditor;
+    [editor setSelectedRange:NSMakeRange(editor.string.length,0)];
+}
+- (void)adjustWidth:(NSSlider *)sender {self.stroke=sender.doubleValue;[self updateWidthPreview];}
+- (void)updateWidthPreview {
+    // The toolbar shows the current stroke, while the popover previews its actual width.
+    NSImage *image=[[NSImage alloc] initWithSize:NSMakeSize(22,22)];[image lockFocus];
+    [NSColor.blackColor setStroke];NSBezierPath *path=[NSBezierPath new];
+    path.lineWidth=MAX(1,self.stroke*0.5);path.lineCapStyle=NSLineCapStyleRound;
+    [path moveToPoint:NSMakePoint(4,11)];[path lineToPoint:NSMakePoint(18,11)];[path stroke];[image unlockFocus];image.template=YES;
+    self.widthButton.image=image;
+    NSString *label=[self.owner text:@"capture.width" fallback:@"Stroke width"];
+    self.widthButton.toolTip=[NSString stringWithFormat:@"%@ · %.1f",label,self.stroke];
+    [self.widthButton setAccessibilityLabel:self.widthButton.toolTip];
+    self.widthValue.stringValue=[NSString stringWithFormat:@"%.1f",self.stroke];
+    self.widthPreview.stroke=self.stroke;self.widthPreview.ink=self.ink;self.widthPreview.needsDisplay=YES;
+}
+- (void)updateTools {
+    for(NSButton *button in self.toolButtons)button.layer.backgroundColor=[button.identifier isEqual:self.tool]?[NSColor.controlAccentColor colorWithAlphaComponent:0.2].CGColor:NSColor.clearColor.CGColor;
+}
+- (void)separator:(CGFloat)x {
+    NSBox *line=[[NSBox alloc] initWithFrame:NSMakeRect(x,49,1,20)];line.boxType=NSBoxSeparator;[self.toolbar addSubview:line];
+}
+- (NSButton *)icon:(NSString *)symbol key:(NSString *)key fallback:(NSString *)fallback action:(SEL)action x:(CGFloat)x {
+    NSString *label=[self.owner text:key fallback:fallback];
+    NSButton *b=[NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:label] target:self action:action];
+    b.frame=NSMakeRect(x,44,30,30);b.bordered=NO;b.bezelStyle=NSBezelStyleRegularSquare;b.imageScaling=NSImageScaleProportionallyDown;
+    b.toolTip=label;[b setAccessibilityLabel:label];b.wantsLayer=YES;b.layer.cornerRadius=6;
+    [self.toolbar addSubview:b];return b;
+}
 - (instancetype)initWithFrame:(NSRect)frame {
     if((self=[super initWithFrame:frame])){_tool=@"select";_ink=NSColor.systemRedColor;_stroke=3;}
     return self;
@@ -160,93 +277,128 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self.toolbar addSubview:button];return button;
 }
 - (void)buildToolbar {
-    [self.toolbar removeFromSuperview];
-    CGFloat width=self.pinned?720:MIN(720,self.bounds.size.width-16);
-    self.toolbar=[[NSView alloc] initWithFrame:NSMakeRect(8,8,width,99)];
-    self.toolbar.wantsLayer=YES;self.toolbar.layer.backgroundColor=NSColor.windowBackgroundColor.CGColor;self.toolbar.layer.cornerRadius=9;
+    [self.widthPopover close];self.widthPopover=nil;
+    [self.toolbar removeFromSuperview];CGFloat width=520;
+    self.toolbar=[[NSView alloc] initWithFrame:NSMakeRect(0,0,width,86)];self.toolbar.wantsLayer=YES;
+    self.toolbar.layer.backgroundColor=NSColor.windowBackgroundColor.CGColor;self.toolbar.layer.cornerRadius=12;
+    self.toolbar.layer.borderWidth=0.5;self.toolbar.layer.borderColor=[NSColor.separatorColor colorWithAlphaComponent:0.65].CGColor;
     if(self.pinned) {
-        if(!self.toolbarPanel)self.toolbarPanel=capturePanel(NSMakeRect(0,0,width,99),NO);
-        self.toolbar.frame=NSMakeRect(0,0,width,99);self.toolbarPanel.contentView=self.toolbar;
-        [self.window addChildWindow:self.toolbarPanel ordered:NSWindowAbove];[self.toolbarPanel orderFront:nil];
-    } else [self addSubview:self.toolbar];
-    NSArray *tools=@[@"select",@"arrow",@"rectangle",@"text",@"mosaic",@"redact"];
-    NSArray *titles=@[@"↖",@"↗",@"□",@"T",@"▦",@"■"];
-    CGFloat x=8;
-    for(NSUInteger i=0;i<tools.count;i++) {
-        NSButton *button=[self button:titles[i] action:@selector(chooseTool:) x:x width:30];
-        button.identifier=tools[i];button.toolTip=[self.owner text:[@"capture.tool." stringByAppendingString:tools[i]] fallback:tools[i]];
-        x+=32;
+        if(!self.toolbarPanel)self.toolbarPanel=capturePanel(NSMakeRect(0,0,width,86),NO);
+        ((BotCapturePanel *)self.toolbarPanel).captureCanvas=self;
+        self.toolbarPanel.contentView=self.toolbar;[self.window addChildWindow:self.toolbarPanel ordered:NSWindowAbove];[self.toolbarPanel orderFront:nil];
+    } else { ((BotCapturePanel *)self.window).captureCanvas=self;[self addSubview:self.toolbar]; }
+    self.toolButtons=[NSMutableArray new];
+    NSArray *symbols=@[@"cursorarrow",@"arrow.up.right",@"rectangle",@"textformat",@"square.grid.3x3",@"rectangle.fill"];
+    NSArray *keys=@[@"select",@"arrow",@"rectangle",@"text",@"mosaic",@"redact"];
+    for(NSUInteger i=0;i<keys.count;i++) {
+        NSButton *b=[self icon:symbols[i] key:[@"capture.tool." stringByAppendingString:keys[i]] fallback:keys[i] action:@selector(chooseTool:) x:10+i*32];
+        b.identifier=keys[i];[self.toolButtons addObject:b];
     }
-    NSButton *color=[self button:@"●" action:@selector(changeColor:) x:x width:30];color.contentTintColor=self.ink;x+=32;
-    [self button:@"− / +" action:@selector(changeWidth:) x:x width:44];x+=46;
-    [self button:@"↶" action:@selector(undoAction:) x:x width:30];x+=32;
-    [self button:@"↷" action:@selector(redoAction:) x:x width:30];x+=32;
-    [self button:[self.owner text:@"capture.copy" fallback:@"Copy"] action:@selector(copyAction:) x:x width:55];x+=57;
-    [self button:[self.owner text:@"capture.save" fallback:@"Save"] action:@selector(saveAction:) x:x width:55];x+=57;
-    [self button:[self.owner text:@"capture.pin" fallback:@"Pin"] action:@selector(pinAction:) x:x width:55];x+=57;
-    self.askButton=[self button:@"Ask Bot" action:@selector(askAction:) x:x width:75];x+=77;
-    [self button:@"×" action:@selector(closeAction:) x:x width:30];
-    self.contextButton=[NSButton checkboxWithTitle:[self.owner text:@"capture.context" fallback:@"Include complete screen"] target:self action:@selector(contextAction:)];
-    self.contextButton.frame=NSMakeRect(12,36,225,22);
-    self.contextButton.state=self.document.includeBackground?NSControlStateValueOn:NSControlStateValueOff;
-    self.contextButton.enabled=[self.document.source isEqual:@"screen"]&&!self.restored&&!self.document.identifier.length;
-    [self.toolbar addSubview:self.contextButton];
-    self.noteEditor=[[NSTextField alloc] initWithFrame:NSMakeRect(240,36,MAX(100,width-252),22)];
+    [self separator:209];
+    NSButton *color=[self icon:@"paintpalette.fill" key:@"capture.color" fallback:@"Color" action:@selector(changeColor:) x:216];color.contentTintColor=self.ink;
+    self.widthButton=[self icon:@"lineweight" key:@"capture.width" fallback:@"Stroke width" action:@selector(changeWidth:) x:248];
+    [self icon:@"arrow.uturn.backward" key:@"capture.undo" fallback:@"Undo (⌘Z)" action:@selector(undoAction:) x:280];
+    [self icon:@"arrow.uturn.forward" key:@"capture.redo" fallback:@"Redo (⇧⌘Z)" action:@selector(redoAction:) x:312];
+    [self separator:351];
+    [self icon:@"doc.on.doc" key:@"capture.copy" fallback:@"Copy (⌘C)" action:@selector(copyAction:) x:361];
+    [self icon:@"square.and.arrow.down" key:@"capture.save" fallback:@"Save (⌘S)" action:@selector(saveAction:) x:395];
+    [self icon:@"pin" key:@"capture.pin" fallback:@"Pin (F3)" action:@selector(pinAction:) x:429];
+    [self icon:@"xmark" key:@"capture.close" fallback:@"Cancel (Esc)" action:@selector(closeAction:) x:478];
+    NSView *composer=[[NSView alloc] initWithFrame:NSMakeRect(12,10,width-24,32)];composer.wantsLayer=YES;
+    composer.layer.cornerRadius=9;composer.layer.backgroundColor=NSColor.textBackgroundColor.CGColor;
+    composer.layer.borderWidth=0.5;composer.layer.borderColor=NSColor.separatorColor.CGColor;
+    [self.toolbar addSubview:composer];
+    self.noteEditor=[[NSTextField alloc] initWithFrame:NSMakeRect(10,6,composer.bounds.size.width-54,20)];
     self.noteEditor.placeholderString=[self.owner text:@"capture.note" fallback:@"Add a note (optional)"];
-    self.noteEditor.stringValue=self.document.note?:@"";self.noteEditor.delegate=self;
+    self.noteEditor.stringValue=self.document.note?:@"";self.noteEditor.font=[NSFont systemFontOfSize:13];self.noteEditor.delegate=self;
     self.noteEditor.editable=!self.document.identifier.length;
-    [self.toolbar addSubview:self.noteEditor];
-    self.statusLabel=[NSTextField labelWithString:@""];
-    self.statusLabel.frame=NSMakeRect(12,65,width-24,25);self.statusLabel.font=[NSFont systemFontOfSize:11];
-    self.statusLabel.lineBreakMode=NSLineBreakByTruncatingTail;[self.toolbar addSubview:self.statusLabel];
-    [self positionToolbar];[self updateAvailability];
+    self.noteEditor.bordered=NO;self.noteEditor.drawsBackground=NO;self.noteEditor.focusRingType=NSFocusRingTypeNone;
+    [self.noteEditor setAccessibilityLabel:self.noteEditor.placeholderString];[composer addSubview:self.noteEditor];
+    self.askButton=[self icon:@"sparkles" key:@"capture.ask" fallback:@"Send to Bot" action:@selector(askAction:) x:0];
+    [self.askButton removeFromSuperview];self.askButton.frame=NSMakeRect(composer.bounds.size.width-34,2,28,28);
+    self.askButton.layer.cornerRadius=7;[composer addSubview:self.askButton];
+    self.statusLabel=[NSTextField labelWithString:@""];self.statusLabel.frame=NSMakeRect(12,83,width-24,20);
+    self.statusLabel.font=[NSFont systemFontOfSize:11];self.statusLabel.textColor=NSColor.secondaryLabelColor;
+    [self.toolbar addSubview:self.statusLabel];
+    [self updateAvailability];[self positionToolbar];[self updateTools];[self updateWidthPreview];
 }
 - (void)positionToolbar {
     if(!self.toolbar)return;
-    if(self.pinned){
+    CGFloat width=self.toolbar.frame.size.width;
+    if(self.pinned) {
         NSRect frame=self.window.frame,visible=self.window.screen.visibleFrame;
-        CGFloat x=MAX(NSMinX(visible),MIN(NSMaxX(visible)-720,frame.origin.x));
-        CGFloat y=frame.origin.y-105;if(y<NSMinY(visible))y=MIN(NSMaxY(visible)-99,NSMaxY(frame)+6);
+        CGFloat x=MAX(NSMinX(visible)+8,MIN(NSMaxX(visible)-width-8,frame.origin.x));
+        CGFloat height=self.toolbar.frame.size.height;CGFloat y=frame.origin.y-height-8;if(y<NSMinY(visible))y=MIN(NSMaxY(visible)-height,NSMaxY(frame)+8);
         [self.toolbarPanel setFrameOrigin:NSMakePoint(x,y)];return;
     }
     NSRect r=self.document.selection;
-    CGFloat x=MAX(8,MIN(self.bounds.size.width-self.toolbar.frame.size.width-8,r.origin.x));
-    CGFloat y=NSMaxY(r)+10;
-    if(y+self.toolbar.frame.size.height>self.bounds.size.height-8)y=MAX(8,r.origin.y-self.toolbar.frame.size.height-10);
-    if(self.pinned)y=8;
+    CGFloat x=MAX(8,MIN(self.bounds.size.width-width-8,r.origin.x));
+    CGFloat height=self.toolbar.frame.size.height;CGFloat y=NSMaxY(r)+10;if(y+height>self.bounds.size.height-8)y=MAX(8,r.origin.y-height-10);
     [self.toolbar setFrameOrigin:NSMakePoint(x,y)];
 }
 - (void)updateAvailability {
     BOOL pending=[self.document.outcome isEqual:@"unknown"]||[self.document.outcome isEqual:@"accepted"];
-    self.askButton.enabled=[self.owner.availability[@"state"] isEqual:@"supported"]&&!pending;
-    NSString *message=self.owner.availability[@"message"]?:@"";
+    BOOL supported=[self.owner.availability[@"state"] isEqual:@"supported"];
+    self.askButton.enabled=supported&&!pending;
+    self.askButton.contentTintColor=self.askButton.enabled?NSColor.controlAccentColor:NSColor.disabledControlTextColor;
+    self.askButton.layer.backgroundColor=[NSColor.controlAccentColor colorWithAlphaComponent:self.askButton.enabled?0.16:0.04].CGColor;
+    NSString *message=@"";
     if(pending)message=[self.owner text:@"capture.unknown" fallback:@"Delivery unconfirmed. Kept locally; will not resend."];
-    else if([self.owner.availability[@"state"] isEqual:@"supported"]&&[self.document.outcome isEqual:@"rejected"])
-        message=[self.owner text:@"capture.rejected" fallback:@"Not sent. You can retry."];
-    else if([self.owner.availability[@"state"] isEqual:@"supported"])
-        message=[self.owner text:@"capture.hint" fallback:@"⌘C Copy · F3 Pin · F1 Ask Bot · Esc Cancel"];
+    else if([self.document.outcome isEqual:@"rejected"])message=[self.owner text:@"capture.rejected" fallback:@"Not sent. You can retry."];
+    self.askButton.toolTip=self.askButton.enabled?[self.owner text:@"capture.ask" fallback:@"Send screenshot to Bot (Enter)"]:(message.length?message:self.owner.availability[@"message"]);
     [self showMessage:message];
 }
-- (void)showMessage:(NSString *)message {self.statusLabel.stringValue=message?:@"";self.statusLabel.toolTip=message;}
+- (void)showMessage:(NSString *)message {
+    // The default toolbar has no hint row. Exceptions appear below only as needed.
+    self.statusLabel.stringValue=message?:@"";self.statusLabel.hidden=!message.length;
+    self.noteEditor.toolTip=message.length?message:nil;
+    NSRect frame=self.toolbar.frame;frame.size.height=message.length?110:86;self.toolbar.frame=frame;
+    if(self.pinned){NSRect panelFrame=self.toolbarPanel.frame;panelFrame.size.height=frame.size.height;[self.toolbarPanel setFrame:panelFrame display:YES];}
+    [self positionToolbar];
+    self.noteEditor.textColor=NSColor.labelColor;
+}
 - (void)chooseTool:(NSButton *)sender {
     if(self.document.identifier.length)return;
     [self commitText];self.tool=sender.identifier;
     if(self.pinned&&[self.tool isEqual:@"select"]){self.editing=NO;[self.toolbarPanel orderOut:nil];return;}
     if(self.pinned){self.editing=YES;[self.window makeKeyWindow];}
+    self.adjustingSelection=[self.tool isEqual:@"select"];
+    [self updateTools];
+    if(self.adjustingSelection)[self.window makeFirstResponder:self];else [self focusNote];
 }
 - (void)changeColor:(NSButton *)sender {
     NSArray *colors=@[NSColor.systemRedColor,NSColor.systemYellowColor,NSColor.systemBlueColor,NSColor.whiteColor,NSColor.blackColor];
     NSUInteger index=[colors indexOfObject:self.ink];self.ink=colors[(index+1)%colors.count];sender.contentTintColor=self.ink;
+[self updateWidthPreview];
 }
-- (void)changeWidth:(id)sender {self.stroke=self.stroke>=6?2:self.stroke+2;}
+- (void)changeWidth:(NSButton *)sender {
+    if(self.widthPopover.shown){[self.widthPopover close];return;}
+    NSViewController *controller=[NSViewController new];controller.view=[[NSView alloc] initWithFrame:NSMakeRect(0,0,228,108)];
+    NSTextField *label=[NSTextField labelWithString:[self.owner text:@"capture.width" fallback:@"Stroke width"]];
+    label.frame=NSMakeRect(16,76,150,18);label.font=[NSFont systemFontOfSize:12 weight:NSFontWeightMedium];[controller.view addSubview:label];
+    self.widthValue=[NSTextField labelWithString:@""];self.widthValue.frame=NSMakeRect(164,76,48,18);
+    self.widthValue.alignment=NSTextAlignmentRight;self.widthValue.font=[NSFont monospacedDigitSystemFontOfSize:12 weight:NSFontWeightRegular];[controller.view addSubview:self.widthValue];
+    self.widthPreview=[[BotStrokePreview alloc] initWithFrame:NSMakeRect(16,38,196,28)];[controller.view addSubview:self.widthPreview];
+    NSSlider *slider=[NSSlider sliderWithValue:self.stroke minValue:1 maxValue:16 target:self action:@selector(adjustWidth:)];
+    slider.frame=NSMakeRect(16,10,196,22);slider.continuous=YES;slider.numberOfTickMarks=0;
+    [slider setAccessibilityLabel:[self.owner text:@"capture.width" fallback:@"Stroke width"]];[controller.view addSubview:slider];
+    self.widthPopover=[NSPopover new];self.widthPopover.contentViewController=controller;
+    self.widthPopover.behavior=NSPopoverBehaviorTransient;self.widthPopover.animates=NO;
+    [self updateWidthPreview];[self.widthPopover showRelativeToRect:sender.bounds ofView:sender preferredEdge:NSRectEdgeMaxY];
+}
 - (void)undoAction:(id)sender {if(self.document.identifier.length)return;[self commitText];[self.document undo];self.needsDisplay=YES;}
 - (void)redoAction:(id)sender {if(self.document.identifier.length)return;[self.document redo];self.needsDisplay=YES;}
-- (void)contextAction:(NSButton *)sender {self.document.includeBackground=sender.state==NSControlStateValueOn;}
+
 - (void)copyAction:(id)sender {[self copyImage];}
 - (void)saveAction:(id)sender {[self save];}
 - (void)pinAction:(id)sender {[self pin];}
-- (void)askAction:(id)sender {[self commitText];if(self.noteEditor)self.document.note=self.noteEditor.stringValue;[self.owner ask:self];}
+- (void)askAction:(id)sender {
+    if(self.gestureActive||!self.askButton.enabled)return;
+    [self.widthPopover close];[self commitText];
+    if(self.noteEditor)self.document.note=self.noteEditor.stringValue;[self.owner ask:self];
+}
 - (void)closeAction:(id)sender {
+    [self.widthPopover close];
     if(!self.pinned){[self.owner finish:YES];return;}
     [self.toolbarPanel orderOut:nil];[self.window orderOut:nil];
 }
@@ -257,7 +409,10 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self.textEditor removeFromSuperview];self.textEditor=nil;
     [self.window makeFirstResponder:self];self.needsDisplay=YES;
 }
-- (void)textDone:(id)sender {[self commitText];}
+- (void)textDone:(id)sender {
+    if(composing((NSTextView *)self.textEditor.currentEditor))return;
+    [self commitText];[self focusNote];
+}
 - (void)mouseMoved:(NSEvent *)event {
     self.last=[self documentPoint:event];
     if(!self.pinned && NSIsEmptyRect(self.document.selection)) {
@@ -267,12 +422,12 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     }
 }
 - (void)mouseDown:(NSEvent *)event {
-    [self.window makeFirstResponder:self];[self commitText];
+    self.gestureActive=YES;[self.window makeFirstResponder:self];[self commitText];
     if(self.pinned&&!self.editing) {
-        if(event.clickCount==2){[self closeAction:nil];return;}
-        [self.window performWindowDragWithEvent:event];return;
+        if(event.clickCount==2){self.gestureActive=NO;[self closeAction:nil];return;}
+        [self.window performWindowDragWithEvent:event];self.gestureActive=NO;return;
     }
-    if(self.document.identifier.length)return;
+    if(self.document.identifier.length){self.gestureActive=NO;return;}
     self.start=self.last=[self documentPoint:event];
     self.originalSelection=self.document.selection;self.resizeEdges=0;self.moving=NO;self.selecting=NO;
     if([self.tool isEqual:@"select"]&&!self.pinned) {
@@ -292,7 +447,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
             CGFloat x=(self.start.x-region.origin.x)*sx,y=(self.start.y-region.origin.y)*sy;
             self.textEditor=[[NSTextField alloc] initWithFrame:NSMakeRect(x,y,MAX(80,MIN(320,self.bounds.size.width-x)),32)];
             self.textEditor.font=[NSFont systemFontOfSize:MAX(14,self.stroke*5)];self.textEditor.textColor=self.ink;
-            self.textEditor.target=self;self.textEditor.action=@selector(textDone:);
+            self.textEditor.delegate=self;self.textEditor.target=self;self.textEditor.action=@selector(textDone:);
             [self addSubview:self.textEditor];[self.window makeFirstResponder:self.textEditor];
         } else self.previewMark=@{@"kind":self.tool,@"a":[NSValue valueWithPoint:self.start],@"b":[NSValue valueWithPoint:self.start],@"width":@(self.stroke),@"color":self.ink};
     }
@@ -326,6 +481,8 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
         if(!self.toolbar)[self buildToolbar];self.toolbar.hidden=self.pinned&&!self.editing;[self positionToolbar];
     }
     self.needsDisplay=YES;
+    self.gestureActive=NO;
+    if(!self.pinned&&!self.adjustingSelection)[self focusNote];
 }
 - (void)rightMouseDown:(NSEvent *)event {
     if(self.textEditor){[self commitText];return;}
@@ -363,6 +520,9 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self.window setFrame:frame display:YES];[self positionToolbar];
 }
 - (void)keyDown:(NSEvent *)event {
+    if(event.isARepeat&&(event.keyCode==36||event.keyCode==76))return;
+    if(event.keyCode==36||event.keyCode==76){[self askAction:nil];return;}
+    if(!self.pinned&&[event.charactersIgnoringModifiers isEqual:@" "]){[self focusNote];return;}
     BOOL cmd=(event.modifierFlags&NSEventModifierFlagCommand)!=0;
     NSString *key=event.charactersIgnoringModifiers.lowercaseString;
     if(cmd&&[key isEqual:@"c"]){[self copyImage];return;}
@@ -381,7 +541,17 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     }
     [super keyDown:event];
 }
+// Standard responder selectors cover menu commands as well as keyDown.
+- (void)copy:(id)sender {[self copyImage];}
+- (void)saveDocument:(id)sender {[self save];}
+- (void)undo:(id)sender {[self undoAction:sender];}
+- (void)redo:(id)sender {[self redoAction:sender];}
+- (BOOL)validateUserInterfaceItem:(id<NSValidatedUserInterfaceItem>)item {
+    if(item.action==@selector(copy:)||item.action==@selector(saveDocument:))return !NSIsEmptyRect(self.document.selection);
+    return YES;
+}
 - (void)copyImage {
+    [self.widthPopover close];
     [self commitText];NSImage *image=imageFromBitmap([self.document render:NO maximumEdge:0]);
     if(!image)return;
     [NSPasteboard.generalPasteboard clearContents];
@@ -408,11 +578,23 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
 @implementation BotCapture
 - (instancetype)init {
     if((self=[super init])) {
-        _pins=[NSMutableArray new];_availability=@{@"state":@"unknown"};_language=@{};_excludedWindows=@[];_observers=[NSMutableArray new];
+        _includeBackground=YES;_pins=[NSMutableArray new];_availability=@{@"state":@"unknown"};_language=@{};_excludedWindows=@[];_observers=[NSMutableArray new];
         __weak BotCapture *weak=self;
         _refreshTimer=[NSTimer scheduledTimerWithTimeInterval:3 repeats:YES block:^(NSTimer *timer){
             BotCapture *strong=weak;
             if(strong && (strong.overlay || strong.pins.count))[strong refresh];
+        }];
+        _keyMonitor=[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event){
+            BotCapture *owner=weak;if(!owner)return event;
+            NSMutableArray *canvases=[NSMutableArray new];if(owner.canvas)[canvases addObject:owner.canvas];
+            for(NSWindow *pin in owner.pins)[canvases addObject:pin.contentView];
+            for(BotCaptureCanvas *canvas in canvases) {
+                if(canvas.widthPopover.shown&&(event.keyCode==36||event.keyCode==76||event.keyCode==53)) {
+                    [canvas.widthPopover close];[canvas focusNote];return nil;
+                }
+            }
+            if([event.window isKindOfClass:BotCapturePanel.class]&&event.isARepeat&&(event.keyCode==36||event.keyCode==76))return nil;
+            return event;
         }];
         for(NSString *event in @[NSApplicationDidChangeScreenParametersNotification]) {
             id observer=[NSNotificationCenter.defaultCenter addObserverForName:event object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
@@ -435,8 +617,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
 }
 - (void)capture {
     if(self.stopped)return;
-    if(self.overlay) {if(!NSIsEmptyRect(self.canvas.document.selection))[self.canvas askAction:nil];return;}
-    if(self.preparing)return;
+    if(self.overlay||self.preparing) {[self finish:YES];return;}
     [self refresh];
     self.previousApp=NSWorkspace.sharedWorkspace.frontmostApplication;
     if(!CGPreflightScreenCaptureAccess()||bot_screen_capture_denied()) {
@@ -444,7 +625,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
         [alert addButtonWithTitle:[self text:@"capture.ok" fallback:@"OK"]];[alert runModal];return;
     }
     if(@available(macOS 14.0,*)) {
-        self.preparing=YES;NSUInteger generation=++self.generation;
+        self.preparing=YES;NSUInteger generation=++self.generation;BOOL includeBackground=self.includeBackground;
         NSPoint pointer=NSEvent.mouseLocation;NSScreen *screen=NSScreen.mainScreen;
         for(NSScreen *candidate in NSScreen.screens)if(NSPointInRect(pointer,candidate.frame)){screen=candidate;break;}
         NSRect frame=screen.frame;CGDirectDisplayID displayID=[screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
@@ -480,7 +661,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
                         owner.preparing=NO;
                         if(failure||!still){[owner captureError];return;}
                         BotCaptureDocument *doc=[BotCaptureDocument new];doc.image=still;doc.canvasSize=frame.size;doc.pixelScale=scale;doc.capturedAt=[[NSISO8601DateFormatter new] stringFromDate:NSDate.date];
-                        doc.windows=rects;doc.applicationName=application;doc.windowTitle=title;
+                        doc.includeBackground=includeBackground;doc.windows=rects;doc.applicationName=application;doc.windowTitle=title;
                         owner.overlay=capturePanel(frame,YES);owner.canvas=[[BotCaptureCanvas alloc] initWithFrame:NSMakeRect(0,0,frame.size.width,frame.size.height)];
                         owner.canvas.owner=owner;owner.canvas.document=doc;owner.canvas.last=NSMakePoint(pointer.x-frame.origin.x,NSMaxY(frame)-pointer.y);
                         owner.overlay.contentView=owner.canvas;[owner.overlay makeKeyAndOrderFront:nil];[owner.overlay makeFirstResponder:owner.canvas];
@@ -497,6 +678,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
 }
 - (void)finish:(BOOL)restoreFocus {
     ++self.generation;self.preparing=NO;
+    [self.canvas.widthPopover close];
     BOOL wasKey=self.overlay.keyWindow;
     [self.overlay orderOut:nil];[self.overlay close];self.overlay=nil;self.canvas=nil;
     if(restoreFocus&&wasKey&&self.previousApp&&!self.previousApp.terminated)[self.previousApp activateWithOptions:0];
@@ -515,7 +697,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     BotCapturePanel *pin=capturePanel(NSMakeRect(point.x,point.y,width,height),NO);
     BotCaptureCanvas *canvas=[[BotCaptureCanvas alloc] initWithFrame:NSMakeRect(0,0,pin.frame.size.width,pin.frame.size.height)];
     canvas.owner=self;canvas.document=document;canvas.pinned=YES;
-    pin.contentView=canvas;canvas.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
+    pin.contentView=canvas;pin.captureCanvas=canvas;canvas.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
     [self.pins addObject:pin];[pin orderFrontRegardless];
 }
 - (void)paste {
@@ -587,7 +769,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     }
 }
 - (void)stop {
-    self.stopped=YES;self.handle=0;[self.refreshTimer invalidate];[self finish:NO];
+    self.stopped=YES;self.handle=0;if(self.keyMonitor){[NSEvent removeMonitor:self.keyMonitor];self.keyMonitor=nil;}[self.refreshTimer invalidate];[self finish:NO];
     for(NSWindow *pin in self.pins){[((BotCaptureCanvas *)pin.contentView).toolbarPanel close];[pin close];}[self.pins removeAllObjects];
     for(id observer in self.observers){[NSNotificationCenter.defaultCenter removeObserver:observer];[NSWorkspace.sharedWorkspace.notificationCenter removeObserver:observer];}
     [self.observers removeAllObjects];
@@ -601,3 +783,10 @@ void bot_capture_availability(void *pointer,const char *json) {[( __bridge BotCa
 void bot_capture_receipt(void *pointer,const char *json) {[( __bridge BotCapture *)pointer receipt:captureJSON(json)];}
 void bot_capture_restore(void *pointer,const char *json) {[( __bridge BotCapture *)pointer restore:captureJSON(json)];}
 void bot_capture_stop(void *pointer) {BotCapture *c=(__bridge_transfer BotCapture *)pointer;[c stop];}
+
+void bot_capture_preferences(void *pointer,int value) {[( __bridge BotCapture *)pointer setIncludeBackground:value!=0];}
+int bot_capture_copy_image(const void *bytes,int length) {
+    if(!bytes||length<=0||length>8*1024*1024)return 0;
+    NSImage *image=[[NSImage alloc] initWithData:[NSData dataWithBytes:bytes length:length]];if(!image)return 0;
+    [NSPasteboard.generalPasteboard clearContents];return [NSPasteboard.generalPasteboard writeObjects:@[image]];
+}

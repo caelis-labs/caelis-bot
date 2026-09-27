@@ -168,5 +168,9 @@
   "pasteShortcutTitle": "Image pins",
   "pasteShortcutToggle": "Paste image to screen",
   "pasteShortcutDescription": "Pin the selected capture or an image from the clipboard.",
-  "captureShortcutInvalid": "Use F1–F12, or a key with Control, Option or Command."
+  "captureShortcutInvalid": "Use F1–F12, or a key with Control, Option or Command.",
+  "screenInput": "Screen input",
+  "screenContext": "Include the complete screen for Bot",
+  "screenContextDescription": "Include the frozen screen with your selection to help Bot understand the context. Applies to new captures; copying and pinning use only the selection.",
+  "screenPreferencesFailed": "Could not read or save screen preferences. Try setting the switch again."
 }

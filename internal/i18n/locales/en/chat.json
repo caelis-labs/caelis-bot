@@ -154,5 +154,10 @@
   "activityImage": "Processing an image",
   "activityCompact": "Organizing context",
   "activityPlan": "Planning",
-  "activityRespond": "Responding"
+  "activityRespond": "Responding",
+  "screenSelection": "Selected screenshot",
+  "screenContext": "Screen context",
+  "screenImageUnavailable": "Screenshot preview unavailable",
+  "screenCopy": "Copy image",
+  "screenCopyFailed": "Could not copy this image."
 }

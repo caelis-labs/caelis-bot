@@ -10,6 +10,9 @@ image, when present, shows the captured display and outlines that selection.
 Use the surrounding page or application to disambiguate the selected content.
 The metadata gives capture time, source application when available, and the
 selection rectangle in the encoded background's top-left pixel coordinates.
+The user controls full-screen context through a global screen-input setting; do
+not ask them to toggle it for every snapshot. The chat image card is a local
+history preview, not a new observation or permission to resend that image.
 Missing context is normal. A clipboard image may have no original application
 or screen context. Do not claim to have inspected a live screen, hidden content,
 a full document, or a URL merely because a screenshot resembles it.

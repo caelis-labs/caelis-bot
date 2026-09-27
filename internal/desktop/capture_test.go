@@ -302,3 +302,35 @@ func TestDiscardInvalidUnsubmittedCapture(t *testing.T) {
 		t.Fatal("invalid unsubmitted export orphaned", err)
 	}
 }
+
+func TestCaptureContextPreferencePersistsAndFailsClosed(t *testing.T) {
+	s, _, _ := captureFixture(t)
+	if !s.CapturePreferences().IncludeBackground {
+		t.Fatal("context should default on")
+	}
+	if _, err := s.SaveCapturePreferences(CapturePreferences{}); err != nil {
+		t.Fatal(err)
+	}
+	restored := newService(&memoryStore{value: defaults()})
+	if err := restored.configureCapture(s.capture.root); err != nil {
+		t.Fatal(err)
+	}
+	if restored.CapturePreferences().IncludeBackground {
+		t.Fatal("preference lost on restart")
+	}
+	blocker := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(blocker, nil, 0600)
+	restored.capture.preferenceFile = filepath.Join(blocker, "setting")
+	if _, err := restored.SaveCapturePreferences(CapturePreferences{IncludeBackground: true}); err == nil || restored.CapturePreferences().IncludeBackground {
+		t.Fatal("failed persistence enabled background")
+	}
+	if err := os.WriteFile(s.capture.preferenceFile, []byte("invalid"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := restored.configureCapture(s.capture.root); err != nil {
+		t.Fatal(err)
+	}
+	if v := restored.CapturePreferences(); v.IncludeBackground || v.Notice == "" {
+		t.Fatal("unreadable preference did not fail closed", v)
+	}
+}

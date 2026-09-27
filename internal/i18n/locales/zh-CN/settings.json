@@ -167,5 +167,9 @@
   "pasteShortcutTitle": "桌面贴图",
   "pasteShortcutToggle": "剪贴板贴图快捷键",
   "pasteShortcutDescription": "将当前选区或剪贴板图片贴到桌面。",
-  "captureShortcutInvalid": "请使用 F1–F12，或带 Control、Option、Command 的组合键。"
+  "captureShortcutInvalid": "请使用 F1–F12，或带 Control、Option、Command 的组合键。",
+  "screenInput": "屏幕输入",
+  "screenContext": "向 Bot 附带完整屏幕",
+  "screenContextDescription": "发送选区时附带本次完整屏幕，帮助 Bot 理解上下文。对新截图生效；复制和贴图仍只使用选区。",
+  "screenPreferencesFailed": "无法读取或保存屏幕输入偏好，请重新设置开关。"
 }

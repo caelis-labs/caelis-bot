@@ -64,7 +64,11 @@ func main() {
 			if f.Tag.Get("json") == "-" {
 				continue
 			}
-			fmt.Fprintf(&out, "  %s: %s;\n", strings.Split(f.Tag.Get("json"), ",")[0], ts(f.Type))
+			optional := ""
+			if strings.Contains(f.Tag.Get("json"), ",omitempty") {
+				optional = "?"
+			}
+			fmt.Fprintf(&out, "  %s%s: %s;\n", strings.Split(f.Tag.Get("json"), ",")[0], optional, ts(f.Type))
 		}
 		out.WriteString("}\n")
 	}

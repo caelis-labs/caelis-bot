@@ -115,6 +115,9 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		return nil, err
 	}
 	service := backend.NewService(engine, host.ResolveFiles, host.ConsumeFiles, host.OpenURL, host.RevealFile)
+	if err := backend.ConfigureScreenMedia(service, filepath.Join(root, "ScreenMedia")); err != nil && host.ReportError != nil {
+		host.ReportError(err)
+	}
 	initialization, err := bot.OpenInitializer(filepath.Join(root, "bot-initialization.json"))
 	if err != nil {
 		_ = service.Shutdown()
@@ -401,14 +404,39 @@ func (a *Application) Close() error {
 }
 
 func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
-	if source, ok := a.engine.(api.AttachmentProvider); ok {
-		return source.AttachmentStorage()
+	media, err := backend.ScreenMediaStorage(a.Backend, false, nil)
+	if err != nil {
+		return media, err
 	}
-	return api.AttachmentStorage{}, errors.New(a.text("backendNoAttachmentStorage", nil))
+	if source, ok := a.engine.(api.AttachmentProvider); ok {
+		info, err := source.AttachmentStorage()
+		if err != nil {
+			return info, err
+		}
+		info.Files += media.Files
+		info.Bytes += media.Bytes
+		info.EligibleFiles += media.EligibleFiles
+		info.EligibleBytes += media.EligibleBytes
+		info.CanClean = (info.CanClean || media.CanClean) && info.Notice == "" && a.guardRuntimeChange() == nil
+		return info, nil
+	}
+	media.CanClean = media.CanClean && a.guardRuntimeChange() == nil
+	return media, nil
 }
 func (a *Application) CleanAttachments(ctx context.Context) (api.AttachmentStorage, error) {
-	if source, ok := a.engine.(api.AttachmentProvider); ok && a.host.TrashFile != nil {
-		return source.TrashOldAttachments(ctx, a.host.TrashFile)
+	if err := a.guardRuntimeChange(); err != nil {
+		return api.AttachmentStorage{}, err
 	}
-	return api.AttachmentStorage{}, errors.New(a.text("backendNoAttachmentClean", nil))
+	if source, ok := a.engine.(api.AttachmentProvider); ok && a.host.TrashFile != nil {
+		if _, err := source.TrashOldAttachments(ctx, a.host.TrashFile); err != nil {
+			return api.AttachmentStorage{}, err
+		}
+	}
+	if a.host.TrashFile == nil {
+		return api.AttachmentStorage{}, errors.New(a.text("backendNoAttachmentClean", nil))
+	}
+	if _, err := backend.ScreenMediaStorage(a.Backend, true, a.host.TrashFile); err != nil {
+		return api.AttachmentStorage{}, err
+	}
+	return a.AttachmentStorage()
 }
