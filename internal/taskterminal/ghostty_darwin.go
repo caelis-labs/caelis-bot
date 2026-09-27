@@ -10,25 +10,38 @@ import "C"
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 	"unsafe"
 )
 
-func openGhostty(ctx context.Context, path string) (int, error) {
+func openGhostty(ctx context.Context, path string) (Window, error) {
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return nil, NotLaunched(err)
 	}
 	command := C.CString(ghosttyCommand(path))
 	defer C.free(unsafe.Pointer(command))
 	handle := C.task_ghostty_open(command)
 	defer C.task_ghostty_open_release(handle)
-	return waitGhosttyOpen(ctx, func() (int, int, int64) {
+	w := &applicationInstance{handle: C.task_ghostty_open_instance(handle), terminal: "ghostty"}
+	return finishGhosttyOpen(ctx, w, func() (int, int, int64) {
 		var pid C.int
 		var code C.long
 		status := C.task_ghostty_open_poll(handle, &pid, &code)
 		return int(status), int(pid), int64(code)
 	})
+}
+
+func finishGhosttyOpen(ctx context.Context, w Window, poll func() (int, int, int64)) (Window, error) {
+	_, err := waitGhosttyOpen(ctx, poll)
+	if errors.Is(err, ErrWindowUnsupported) {
+		// Native capability rejection precedes submission. Only this outcome
+		// can discard the pending owner and select the standard launch route.
+		w.Release()
+		return nil, NotLaunched(err)
+	}
+	return w, err
 }
 
 func ghosttyCommand(path string) string {
@@ -37,9 +50,8 @@ func ghosttyCommand(path string) string {
 	return "/usr/bin/env -u NO_COLOR /bin/sh " + quote(path)
 }
 
-// Cancellation returns the launched identity even if the event reply is still
-// pending. Launcher revokes the script's token and reconciles an accepted client;
-// a late permission grant cannot start the task again.
+// The common owner is retained before polling. Cancellation may return PID zero;
+// a late native callback still fills that owner, while Launcher revokes the script.
 func waitGhosttyOpen(ctx context.Context, poll func() (status, pid int, code int64)) (int, error) {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()

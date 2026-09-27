@@ -1,7 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #include <assert.h>
 // The disposable bundle is intentionally not installed/registered system-wide.
-#define BOT_INSTANCE_APPLICATION_URL(bundle) NSBundle.mainBundle.bundleURL
+#define BOT_INSTANCE_APPLICATION_URL(bundle) ([bundle hasSuffix:@".missing"] ? nil : NSBundle.mainBundle.bundleURL)
 #include "instance_darwin.m"
 
 // Two disposable GUI instances, two windows each. Tests the production bridge
@@ -59,6 +59,11 @@ static void runFixture(void) {
     NSString *bundle=NSBundle.mainBundle.bundleIdentifier;
     NSString *script=[[NSBundle.mainBundle.bundlePath stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"fixture.command"];
     assert(script.length);
+    void *missing=bot_terminal_instance_open([bundle stringByAppendingString:@".missing"].UTF8String,script.UTF8String);
+    pump(^{return bot_terminal_instance_ready(missing)!=0;});
+    assert(bot_terminal_instance_ready(missing)==-2 && observed(missing)==1);
+    bot_terminal_instance_release(missing);
+    puts("PASS unavailable application is proven not submitted");
     puts("launch first");void *first=bot_terminal_instance_open(bundle.UTF8String,script.UTF8String);
     pump(^{return bot_terminal_instance_ready(first)!=0;});
     assert(bot_terminal_instance_ready(first)==1);

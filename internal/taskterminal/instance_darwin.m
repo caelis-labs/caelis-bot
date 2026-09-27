@@ -51,6 +51,23 @@ static BOOL instance_accept(BotTerminalInstance *owner, NSRunningApplication *ap
     owner.app = app;
     return YES;
 }
+void *bot_terminal_instance_pending(const char *bundle) {
+    BotTerminalInstance *owner = [BotTerminalInstance new];
+    owner.bundle = [NSString stringWithUTF8String:bundle];
+    return (__bridge_retained void *)owner;
+}
+void bot_terminal_instance_not_submitted(void *handle) {
+    instance_main(^{ ((__bridge BotTerminalInstance *)handle).ready = -2; });
+}
+BOOL bot_terminal_instance_complete(void *handle, NSRunningApplication *app, NSSet *previous) {
+    __block BOOL accepted;
+    instance_main(^{
+        BotTerminalInstance *owner = (__bridge BotTerminalInstance *)handle;
+        accepted = instance_accept(owner, app, previous);
+        owner.ready = accepted ? 1 : -1;
+    });
+    return accepted;
+}
 static NSWorkspaceOpenConfiguration *instance_configuration(void) {
     NSWorkspaceOpenConfiguration *config = [NSWorkspaceOpenConfiguration configuration];
     config.createsNewApplicationInstance = YES;
@@ -66,7 +83,7 @@ void *bot_terminal_instance_open(const char *bundle, const char *script) {
         NSString *document = [NSString stringWithUTF8String:script];
         dispatch_async(dispatch_get_main_queue(), ^{
             NSURL *url = BOT_INSTANCE_APPLICATION_URL(owner.bundle);
-            if (!url) { owner.ready = -1; return; }
+            if (!url) { owner.ready = -2; return; } // No native request was submitted.
             NSMutableSet *previous = [NSMutableSet set];
             for (NSRunningApplication *app in [NSRunningApplication runningApplicationsWithBundleIdentifier:owner.bundle])
                 [previous addObject:@(app.processIdentifier)];
@@ -148,6 +165,7 @@ int bot_terminal_instance_observe(void *handle, int *state, int *pid, uint64_t *
         BotTerminalInstance *owner = (__bridge BotTerminalInstance *)handle;
         NSRunningApplication *app = owner.app;
         if (owner.ready == 0) { result = 0; return; }
+        if (owner.ready == -2) { *state = 1; return; } // Proven no launch, safe to retry.
         if (!app) { result = -1; return; } // No authority over a reused/unknown application.
         if (app.terminated) { *state = 1; return; }
         uint64_t live = instance_birth(app.processIdentifier);

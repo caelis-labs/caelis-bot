@@ -1,4 +1,4 @@
-#import "ghostty_darwin.h"
+#include "ghostty_darwin.m"
 #include <assert.h>
 #include <unistd.h>
 #import <ApplicationServices/ApplicationServices.h>
@@ -36,6 +36,30 @@ static NSDictionary *received;
 
 int main(void) {
     @autoreleasepool {
+        [NSApplication sharedApplication];
+        // Simulate a submitted launch whose completion arrives after the Go
+        // caller cancels at PID zero. Only this fixture's own process is used;
+        // cancellation must suppress every creation/activation Apple Event.
+        NSRunningApplication *selfApp=NSRunningApplication.currentApplication;
+        BotGhosttyLaunch *pending=[BotGhosttyLaunch new];
+        pending.instance=(__bridge_transfer id)bot_terminal_instance_pending(NSBundle.mainBundle.bundleIdentifier.UTF8String);
+        void *launchLease=(__bridge_retained void *)pending;
+        void *owner=task_ghostty_open_instance(launchLease);
+        int pid=0,state=0;long launchError=0;uint64_t birth=0;
+        assert(task_ghostty_open_poll(launchLease,&pid,&launchError)==0 && pid==0);
+        task_ghostty_open_release(launchLease);
+        assert(pending.cancelled);
+        assert(bot_terminal_instance_observe(owner,&state,&pid,&birth)==0);
+        task_ghostty_completed(pending,selfApp,nil,[NSSet set],@"must not execute");
+        pending=nil; // The caller's retained owner must survive launch-state release.
+        assert(bot_terminal_instance_observe(owner,&state,&pid,&birth)==1);
+        assert(pid==getpid() && birth>0 && state!=1);
+        bot_terminal_instance_release(owner);
+        void *unsubmitted=bot_terminal_instance_pending(NSBundle.mainBundle.bundleIdentifier.UTF8String);
+        bot_terminal_instance_not_submitted(unsubmitted);
+        assert(bot_terminal_instance_observe(unsubmitted,&state,&pid,&birth)==1 && state==1);
+        bot_terminal_instance_release(unsubmitted);
+        puts("Ghostty cancelled-before-PID retains late native owner; unsubmitted launch is distinguishable (no external events)");
         NSWorkspaceOpenConfiguration *launch = task_ghostty_configuration();
         assert(launch.createsNewApplicationInstance && !launch.allowsRunningApplicationSubstitution);
         assert(!launch.activates && !launch.addsToRecentItems);

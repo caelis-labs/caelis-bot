@@ -87,7 +87,7 @@ func (m *WindowManager) entry(id string) (*managedEntry, error) {
 			e.blocked = ErrWindowUnsupported
 			return nil, ErrWindowUnsupported
 		}
-		if err != nil && w == nil && !errors.Is(err, ErrWindowPermission) && !errors.Is(err, ErrWindowUnsupported) && !errors.Is(err, ErrWindowOpenCancelled) && !errors.Is(err, context.Canceled) {
+		if err != nil && w == nil && !errors.Is(err, ErrLaunchNotSubmitted) {
 			e.blocked = err
 		}
 		return controlled, err

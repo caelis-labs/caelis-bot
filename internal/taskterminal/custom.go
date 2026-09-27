@@ -81,15 +81,15 @@ func CustomArgs(command, script string) ([]string, error) {
 
 func LaunchCustom(ctx context.Context, command, script string) error {
 	if err := ctx.Err(); err != nil {
-		return err
+		return NotLaunched(err)
 	}
 	args, err := CustomArgs(command, script)
 	if err != nil {
-		return err
+		return NotLaunched(err)
 	}
 	cmd := exec.Command(args[0], args[1:]...)
 	if err = cmd.Start(); err != nil {
-		return err
+		return NotLaunched(err)
 	}
 	// Some terminal CLIs stay alive until the terminal closes. Confirmation is
 	// observed by Launcher, independently of the terminal process lifetime.

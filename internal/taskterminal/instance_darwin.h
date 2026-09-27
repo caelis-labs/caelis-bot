@@ -3,6 +3,14 @@
 #include <stdint.h>
 void *bot_terminal_instance_open(const char *bundle, const char *script);
 void *bot_terminal_instance_adopt(int pid, const char *bundle);
+void *bot_terminal_instance_pending(const char *bundle);
+// Only for a proven pre-submission cancellation/capability rejection.
+void bot_terminal_instance_not_submitted(void *handle);
+#ifdef __OBJC__
+#import <Cocoa/Cocoa.h>
+BOOL bot_terminal_instance_complete(void *handle, NSRunningApplication *app, NSSet *previous);
+#endif
+// 0 pending, 1 owned, -1 unknown, -2 proven not submitted.
 int bot_terminal_instance_ready(void *handle);
 int bot_terminal_instance_open_document(void *handle, const char *script);
 // 1 pending, 2 replied, 3 cancelled, 4 timed out, -2 permission,

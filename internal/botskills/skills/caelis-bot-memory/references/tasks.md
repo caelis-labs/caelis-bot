@@ -120,6 +120,10 @@ The system launch/control path is standard. A terminal-specific startup enhancem
 may improve it, but unsupported versions are not a reason to repeatedly launch.
 Unknown outcomes retain the existing instance. Rapid clicks update the desired
 state and completion follows observed OS state, not a command's immediate return.
+If Bot reports a failure before any launch was submitted, the user can repair
+the terminal preference or local launch directory and click the same card again.
+Cancellation after submission is different: a late application may still appear
+and remain managed. Do not treat cancellation alone as proof that no app launched.
 If an operation remains unconfirmed, direct the user to the existing terminal;
 never duplicate a task to work around terminal management.
 

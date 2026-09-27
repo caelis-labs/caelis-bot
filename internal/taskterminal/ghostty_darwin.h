@@ -4,6 +4,8 @@
 #include <stdbool.h>
 
 void *task_ghostty_open(const char *command);
+// Retained common instance owner, valid before LaunchServices returns a PID.
+void *task_ghostty_open_instance(void *handle);
 int task_ghostty_open_poll(void *handle, int *pid, long *error);
 void task_ghostty_open_release(void *handle);
 

@@ -30,22 +30,19 @@ type applicationInstance struct {
 }
 
 func OpenWindow(ctx context.Context, preference, path string) (Window, error) {
+	if !filepath.IsAbs(path) || strings.ContainsRune(path, 0) {
+		return nil, NotLaunched(ErrWindowIdentity)
+	}
 	bundle := BundleID(preference)
 	if bundle == "" {
-		return nil, ErrUnsupportedDefault
+		return nil, NotLaunched(ErrUnsupportedDefault)
 	}
 	if preference == "ghostty" {
 		// Optional creation enhancement. Management below is identical for
 		// every terminal. Fallback is allowed only before anything launched.
-		pid, err := openGhostty(ctx, path)
-		if pid > 0 {
-			id := C.CString(bundle)
-			defer C.free(unsafe.Pointer(id))
-			w := &applicationInstance{handle: C.bot_terminal_instance_adopt(C.int(pid), id), terminal: preference}
+		w, err := openGhostty(ctx, path)
+		if w != nil || !errors.Is(err, ErrWindowUnsupported) {
 			return w, err
-		}
-		if !errors.Is(err, ErrWindowUnsupported) {
-			return nil, err
 		}
 	}
 	return OpenApplication(ctx, bundle, preference, path)
@@ -55,10 +52,10 @@ func OpenWindow(ctx context.Context, preference, path string) (Window, error) {
 // Accepting a script/document is the terminal's capability, not a Bot guarantee.
 func OpenApplication(ctx context.Context, bundle, name, path string) (Window, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, NotLaunched(err)
 	}
 	if bundle == "" || strings.ContainsRune(bundle, 0) || !filepath.IsAbs(path) || strings.ContainsRune(path, 0) {
-		return nil, ErrWindowIdentity
+		return nil, NotLaunched(ErrWindowIdentity)
 	}
 	b, p := C.CString(bundle), C.CString(path)
 	defer C.free(unsafe.Pointer(b))
@@ -72,6 +69,9 @@ func OpenApplication(ctx context.Context, bundle, name, path string) (Window, er
 			return w, nil
 		case -1:
 			return w, ErrWindowIdentity
+		case -2:
+			w.Release()
+			return nil, NotLaunched(ErrUnsupportedDefault)
 		}
 		select {
 		case <-ctx.Done():

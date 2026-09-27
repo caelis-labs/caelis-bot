@@ -77,7 +77,7 @@ func Run(assets fs.FS) error {
 	terminalWindows := taskterminal.NewWindowManager(filepath.Join(root, "Terminal"), func(ctx context.Context, path string) (taskterminal.Window, error) {
 		p, err := s.TaskPreferences()
 		if err != nil {
-			return nil, err
+			return nil, taskterminal.NotLaunched(err)
 		}
 		if p.Terminal == "custom" {
 			return nil, taskterminal.LaunchCustom(ctx, p.CustomCommand, path)

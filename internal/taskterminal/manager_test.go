@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -69,15 +71,66 @@ func TestManagerOneLaunchWithClicksDuringReceipt(t *testing.T) {
 	}
 }
 func TestManagerUnknownCreationIsNotRetried(t *testing.T) {
-	var launches atomic.Int32
-	m := testManager(t, func(context.Context, string) (Window, error) { launches.Add(1); return nil, ErrWindowIdentity })
-	for range 2 {
-		if err := m.Click(t.Context(), "a"); !errors.Is(err, ErrWindowIdentity) {
-			t.Fatal(err)
-		}
+	for _, outcome := range []error{ErrWindowIdentity, context.Canceled, ErrWindowPermission, ErrWindowUnsupported, ErrWindowOpenCancelled} {
+		t.Run(outcome.Error(), func(t *testing.T) {
+			launches := 0
+			m := testManager(t, func(context.Context, string) (Window, error) { launches++; return nil, outcome })
+			for range 2 {
+				if err := m.Click(t.Context(), "a"); !errors.Is(err, outcome) {
+					t.Fatal(err)
+				}
+			}
+			if launches != 1 {
+				t.Fatal("uncertain creation retried", launches)
+			}
+		})
 	}
-	if launches.Load() != 1 {
-		t.Fatal("uncertain creation retried")
+}
+
+func TestManagerRetriesAfterTerminalConfigurationRepaired(t *testing.T) {
+	for _, cause := range []error{errors.New("preferred terminal unavailable"), ErrUnsupportedDefault} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			configured, launches := false, 0
+			m := testManager(t, func(ctx context.Context, path string) (Window, error) {
+				if !configured {
+					return nil, NotLaunched(cause)
+				}
+				launches++
+				w := newDocumentFixture()
+				return w, exec.CommandContext(ctx, "/bin/sh", path).Run()
+			})
+			if err := m.Click(t.Context(), "owned"); !errors.Is(err, cause) || !errors.Is(err, ErrLaunchNotSubmitted) || launches != 0 {
+				t.Fatal("missing pre-launch evidence/cause", err, launches)
+			}
+			configured = true
+			if err := m.Click(t.Context(), "owned"); err != nil || launches != 1 {
+				t.Fatal("repaired terminal remained blocked", err, launches)
+			}
+		})
+	}
+}
+
+func TestManagerRetriesAfterLaunchDirectoryRepaired(t *testing.T) {
+	launches := 0
+	m := testManager(t, func(ctx context.Context, path string) (Window, error) {
+		launches++
+		_, w := controllerFixture(WindowForeground)
+		immediateWindow(w)
+		return w, exec.CommandContext(ctx, "/bin/sh", path).Run()
+	})
+	blocked := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocked, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.directory = filepath.Join(blocked, "launches")
+	if err := m.Click(t.Context(), "owned"); err == nil || launches != 0 {
+		t.Fatal("expected failure before terminal launch", err, launches)
+	}
+	if err := os.Remove(blocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Click(t.Context(), "owned"); err != nil || launches != 1 {
+		t.Fatal("repaired directory remained blocked", err, launches)
 	}
 }
 func TestManagerBindingGenerationsFencePreviousCompletions(t *testing.T) {

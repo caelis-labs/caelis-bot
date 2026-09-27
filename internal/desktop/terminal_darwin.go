@@ -75,7 +75,7 @@ func (s *Service) openManagedTerminal(ctx context.Context, preference, path stri
 	}
 	preference, err := s.resolveTerminalPreference(preference, path)
 	if err != nil {
-		return nil, err
+		return nil, taskterminal.NotLaunched(err)
 	}
 	return taskterminal.OpenWindow(ctx, preference, path)
 }

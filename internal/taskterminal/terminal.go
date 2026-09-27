@@ -94,7 +94,13 @@ func (l *Launcher) Open(ctx context.Context, id string, t api.TerminalTarget) er
 
 // Called with the operation lease held. A failed attempt fences its script
 // before returning; another attempt cannot overlap command delivery.
-func (l *Launcher) openConnection(ctx context.Context, id string, t api.TerminalTarget) error {
+func (l *Launcher) openConnection(ctx context.Context, id string, t api.TerminalTarget) (result error) {
+	submitted := false
+	defer func() {
+		if result != nil && !submitted {
+			result = NotLaunched(result)
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -162,6 +168,7 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 			delete(l.windows, id)
 		}
 	}()
+	submitted = true // A callback may submit before returning an error or cancellation.
 	if window != nil {
 		err = window.(DocumentWindow).OpenDocument(ctx, path)
 	} else if l.openWindow != nil {

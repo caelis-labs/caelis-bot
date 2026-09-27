@@ -33,6 +33,7 @@ cat > "$bundle/Contents/Resources/Fixture.sdef" <<'SDEF'
 </suite></dictionary>
 SDEF
 clang -fobjc-arc -fblocks -I "$BOT_ROOT/internal/taskterminal" -framework Cocoa -framework ApplicationServices \
-  "$BOT_ROOT/script/ghostty-native-test.m" "$BOT_ROOT/internal/taskterminal/ghostty_darwin.m" \
+  "$BOT_ROOT/script/ghostty-native-test.m" \
+  "$BOT_ROOT/internal/taskterminal/instance_darwin.m" \
   -o "$bundle/Contents/MacOS/fixture"
 "$bundle/Contents/MacOS/fixture"
