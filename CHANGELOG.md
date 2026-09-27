@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0](https://github.com/caelis-labs/caelis-bot/compare/v0.3.0...v0.4.0) (2026-09-27)
+
+
+### Features
+
+* add adaptive task cards and reusable terminal management ([#28](https://github.com/caelis-labs/caelis-bot/issues/28)) ([3674b95](https://github.com/caelis-labs/caelis-bot/commit/3674b9547620a006d7d3787faa2a9d54c174d025))
+* add screen capture, annotations and contextual Ask Bot ([#30](https://github.com/caelis-labs/caelis-bot/issues/30)) ([ed06443](https://github.com/caelis-labs/caelis-bot/commit/ed06443d7474f24d6d0166380a56fd1b2cbf6c6d))
+* refine screen input and retain screenshot previews ([#31](https://github.com/caelis-labs/caelis-bot/issues/31)) ([7141336](https://github.com/caelis-labs/caelis-bot/commit/7141336ec337360300d7d3273bce5f6e1fa30339))
+* show live tool activity and expandable Markdown bubbles ([#29](https://github.com/caelis-labs/caelis-bot/issues/29)) ([f46d65a](https://github.com/caelis-labs/caelis-bot/commit/f46d65aaf0c741ffc4e582ea88b61f44513ec290))
+
+
+### Bug Fixes
+
+* deliver approvals and support task workspaces with automatic pins ([#25](https://github.com/caelis-labs/caelis-bot/issues/25)) ([4cf1c1a](https://github.com/caelis-labs/caelis-bot/commit/4cf1c1a136f9981258820dd5836663e67abd4e0d))
+
 ## [0.3.0](https://github.com/caelis-labs/caelis-bot/compare/v0.2.0...v0.3.0) (2026-09-25)
 
 
