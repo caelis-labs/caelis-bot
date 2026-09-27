@@ -20,6 +20,9 @@ Linux 不进入里程碑、常规编译矩阵或发行承诺。此前 X11/Waylan
 不是当前 P1 本地 ad-hoc 包能够启动。
 早期 pre-release 例外允许 ad-hoc 包与用户手动信任，Developer ID/公证暂时后置。
 
+屏幕快捷输入首版要求 macOS 14+ 的 SCScreenshotManager；旧系统的屏幕采集返回不支持提示，
+剪贴板贴图/标注独立工作。此能力门槛不改变整体 12.0 deployment target，低版本仍需单独实测。
+
 macOS Spaces 指同一显示器上的虚拟桌面及原生全屏应用；它不是多显示器迁移。
 当前产品要求宠物随 Space 保持可见，不抢焦点；主动隐藏后仍保持隐藏。
 外接显示器自动迁移、混合 DPI、拔屏恢复仍需独立实机验收。

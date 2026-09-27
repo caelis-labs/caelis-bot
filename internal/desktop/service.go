@@ -9,6 +9,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
+	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
@@ -32,6 +33,7 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	capture             captureState
 	permissionGuide     permissionGuide
 	taskPreferences     func() tasks.Preferences
 	saveTaskPreferences func(tasks.Preferences) (tasks.Preferences, error)
@@ -140,6 +142,19 @@ func (s *Service) start(d driver) {
 		}
 	}
 	s.placement = normalize(s.placement, d.screens())
+	if capture, ok := d.(captureDriver); ok {
+		for i := range s.capture.shortcuts {
+			state := &s.capture.shortcuts[i]
+			if s.captureShortcutConflict(state.Shortcut, i+2) {
+				state.Message = s.text("native.shortcutConflict", nil)
+			} else if err := capture.registerCaptureShortcut(state.Shortcut, i); err != nil {
+				state.Message = err.Error()
+			} else {
+				state.Registered = state.Shortcut.Enabled
+			}
+		}
+		capture.restoreCaptures(screeninput.Pending(s.capture.root))
+	}
 	d.apply(s.placement)
 	close(s.ready)
 	slog.Info("Desktop native host ready")

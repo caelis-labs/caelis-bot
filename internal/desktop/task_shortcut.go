@@ -44,6 +44,9 @@ func (s *Service) SaveTaskShortcut(v Shortcut) (ShortcutState, error) {
 		return s.taskShortcut, errors.New(s.text("native.shortcutUnavailable", nil))
 	}
 	old := s.taskShortcut.Shortcut
+	if s.captureShortcutConflict(v, 1) {
+		return s.taskShortcut, errors.New(s.text("native.shortcutConflict", nil))
+	}
 	if err := d.registerTaskShortcut(v); err != nil {
 		return s.taskShortcut, err
 	}

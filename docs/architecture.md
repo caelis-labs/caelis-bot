@@ -1,7 +1,9 @@
 # Architecture and internal backend contract
 
 Status: application-owned Bot foundation implemented locally; Codex execution connected.
-Caelis uses the public protocol from official v0.62.0 (812264e); legacy Bot Mode stays disabled.
+Caelis pins the public protocol in `protocol/caelis/manifest.json`; the v0.62.0
+required capability baseline remains compatible, with selected-model image support
+negotiated separately. Legacy Bot Mode stays disabled.
 See [integration](caelis-integration.md) for the current contract and
 [verification status](preparation-status.md) for scoped evidence and remaining acceptance limits.
 
@@ -1095,3 +1097,20 @@ quit/reopen; it reports foreground acceptance separately because automated focus
 requests can be refused. `--terminal-smoke` is an explicit local acceptance entrypoint
 using synthetic scripts; it does not load the Bot store or contact a Runtime/model.
 Real-terminal acceptance and visual limits are recorded in the handoff.
+
+## Screen acquisition and Ask Bot (2026-09-27, local)
+
+`desktop/capture*` owns ScreenCaptureKit still acquisition (macOS 14+), the AppKit
+selection/annotation document, clipboard/export, and nonactivating pin panels.
+`screeninput` owns bounded versioned snapshot metadata, owned files and durable receipt
+state; it contains no application-specific intent classifier. Context coordinates refer
+to the actual encoded image. Both images share annotation/redaction rendering.
+
+The native owner alone calls the standalone `backend.SubmitScreen` function. This path
+cannot consume the normal composer draft or accept renderer-supplied local paths.
+The backend and adapter validate current resident-model image support before dispatch.
+A durable unknown receipt precedes sending; exact request identity reconciles later
+acceptance, and native restoration never retries unknown delivery. Model uncertainty
+is separate from delivery uncertainty. Bot skill guidance owns intent interpretation
+and confirmed habit learning through the existing notebook. See
+[screen input v1](design/screen-input-v1.md), including the current Caelis capability gap.

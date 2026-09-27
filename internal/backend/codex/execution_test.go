@@ -1,7 +1,13 @@
 package codex
 
 import (
+	"encoding/json"
 	"errors"
+	"image"
+	"image/jpeg"
+	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -165,5 +171,100 @@ func BenchmarkComposerSnapshot(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func TestScreenModelCapabilitySwitchAndDispatchRecheck(t *testing.T) {
+	s, f := sessionPair(t, "")
+	vision := catalogEntry()
+	vision["model"] = "vision"
+	vision["inputModalities"] = []string{"text", "image"}
+	text := catalogEntry()
+	text["model"] = "text"
+	text["isDefault"] = false
+	text["inputModalities"] = []string{"text"}
+	absent := catalogEntry()
+	absent["model"] = "unknown"
+	absent["isDefault"] = false
+	f.mu.Lock()
+	f.modelPages = map[string]any{"": map[string]any{"data": []any{vision, text, absent}}}
+	f.mu.Unlock()
+	for _, choice := range []struct{ model, state string }{{"text", "unsupported"}, {"unknown", "unknown"}, {"vision", "supported"}} {
+		err := s.ChangeExecution(t.Context(), api.ExecutionSettings{Model: choice.model, Effort: "high"}, func() error { return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.ImageInput(t.Context())
+		if err != nil || got.State != choice.state || got.Model != choice.model {
+			t.Fatal(got, err)
+		}
+		if choice.state != "supported" {
+			before := s.Snapshot()
+			receipt, err := s.Submit(t.Context(), api.Submission{ID: "screen-" + choice.model, Text: "synthetic", ScreenInput: true}, nil)
+			if err != nil || receipt.Outcome != "rejected" || s.Snapshot().Revision != before.Revision {
+				t.Fatal("dispatch ignored gate", receipt, err)
+			}
+		}
+	}
+	// UI's earlier supported result is not authority after the model changes.
+	if err := s.ChangeExecution(t.Context(), api.ExecutionSettings{Model: "text", Effort: "high"}, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := s.Submit(t.Context(), api.Submission{ID: "screen-stale-button", Text: "synthetic", ScreenInput: true}, nil)
+	if err != nil || receipt.Outcome != "rejected" {
+		t.Fatal(receipt, err)
+	}
+}
+
+func TestScreenInputDeliversBothImagesWithCurrentModel(t *testing.T) {
+	s, f := sessionPair(t, "")
+	m := catalogEntry()
+	m["inputModalities"] = []string{"text", "image"}
+	f.mu.Lock()
+	f.modelPages = map[string]any{"": map[string]any{"data": []any{m}}}
+	f.mu.Unlock()
+	if err := s.ChangeExecution(t.Context(), api.ExecutionSettings{Model: "test-model", Effort: "high"}, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	files := []api.InputFile{}
+	for _, name := range []string{"selection.png", "context.jpg"} {
+		path := filepath.Join(dir, name)
+		out, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pixels := image.NewRGBA(image.Rect(0, 0, 10, 10))
+		if name == "selection.png" {
+			err = png.Encode(out, pixels)
+		} else {
+			err = jpeg.Encode(out, pixels, nil)
+		}
+		out.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, api.InputFile{Name: name, Path: path})
+	}
+	receipt, err := s.Submit(t.Context(), api.Submission{ID: "screen-image-pair", Text: "synthetic screen input", ScreenInput: true}, files)
+	if err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	f.mu.Lock()
+	raw := append([]byte{}, f.lastParams["input"]...)
+	f.mu.Unlock()
+	var input []map[string]any
+	if err = json.Unmarshal(raw, &input); err != nil {
+		t.Fatal(err)
+	}
+	if len(input) != 3 || input[0]["type"] != "text" || input[1]["type"] != "localImage" || input[2]["type"] != "localImage" {
+		t.Fatalf("lost native image pair: %s", raw)
+	}
+	// Confirm the Runtime owns copies before the capture owner removes temporary files.
+	os.RemoveAll(dir)
+	for _, item := range input[1:] {
+		if _, err = os.Stat(item["path"].(string)); err != nil {
+			t.Fatal("model image depended on cleared capture", err)
+		}
 	}
 }

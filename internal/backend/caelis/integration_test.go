@@ -889,6 +889,16 @@ func TestNativeHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
+	if !t.Run("B14_screen_input", func(t *testing.T) {
+		currentHost, err := setupClient(ctx, settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer currentHost.http.CloseIdleConnections()
+		screenHostAcceptance(t, ctx, s, currentHost, model, server.URL)
+	}) {
+		return
+	}
 	model.mu.Lock()
 	failure := model.failure
 	model.mu.Unlock()

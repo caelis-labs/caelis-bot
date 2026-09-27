@@ -6,6 +6,9 @@ if [[ "$(uname -s)" != Darwin ]]; then
   exit 1
 fi
 BOT_MODE="${1:-run}"
+if [[ "$BOT_MODE" == --capture-preview ]]; then
+  BOT_CAPTURE_LIVE=1 exec bash "$BOT_ROOT/script/capture-native-test.sh"
+fi
 if [[ "$BOT_MODE" == --bubble-preview ]]; then
   exec bash "$BOT_ROOT/script/bubble-preview.sh"
 fi
@@ -14,7 +17,7 @@ if [[ "$BOT_MODE" == --task-dock-preview ]]; then
   BOT_TASK_DOCK_LIVE=1 exec bash "$BOT_ROOT/script/task-dock-native-test.sh"
 fi
 case "$BOT_MODE" in run|--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--terminal-smoke) ;; *)
-  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--task-dock-preview|--bubble-preview|--terminal-smoke terminal iterm2 ghostty]" >&2; exit 2 ;;
+  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--capture-preview|--task-dock-preview|--bubble-preview|--terminal-smoke terminal iterm2 ghostty]" >&2; exit 2 ;;
 esac
 if [[ "$BOT_MODE" == --verify-signed ]]; then
   # Keep the distribution signature intact during native release acceptance.

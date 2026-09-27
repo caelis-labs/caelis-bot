@@ -1,10 +1,10 @@
 # Caelis 接入与运行时管理
 
-协议生成与最低能力基线仍为正式 Caelis **v0.62.0**。
+最低必需能力基线保持正式 Caelis **v0.62.0**；公开 schema/wire 已随 Core 可选扩展更新。
 `application-terminal-observation-v1` 是可选增强：支持时启用迟到审批命令的结果跟进，
 不支持时正常连接，且不访问该观察接口。审批投影、指定工作区和自动 pin 均不依赖它。
 Caelis 可独立交付该修复，无需为此单独发布版本。通用应用运行时与共享原生 Worker 的
-公开 wire schema 仍固定于 `812264e567875fe8db6e678fcf7e0e439b18fc6d`。使用公开 HTTP/SSE 与生成的 Go wire，
+公开 wire schema 的精确源码提交与哈希见 `protocol/caelis/manifest.json`。使用公开 HTTP/SSE 与生成的 Go wire，
 不导入兄弟仓库、不恢复旧 Bot Mode。基线包含共享会话、steering、Host 设置授权流与 Team 角色候选。
 
 当前验证范围见 [实现与验证状态](preparation-status.md)。v0.61.0 的真实模型和原生 GUI
@@ -26,6 +26,13 @@ Caelis 可独立交付该修复，无需为此单独发布版本。通用应用�
 
 CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切换，保留安装、更新和服务管理入口；
 不静默换用 Codex 或旧 Bot。v0.61.0 不包含共享 Worker 扩展；安装成功也不代表运行中的共享 Host 已更新。
+
+`application-model-capabilities-v1` 是 Ask Bot 的可选增强：应用凭据读取
+`GET /application/sessions/{session_id}/model-capabilities`，返回 `session_id`、
+十进制字符串 `configuration_revision`、desired `model` 和可选 `image_input`。
+仅 true 启用；false、缺失、断线、无协商均禁用 Ask Bot，复制/标注/贴图不受影响。
+发送前再次读取当前配置，模型切换后恢复，无需更换 Bot 身份。该读取不激活模型，
+也不是派发授权；服务端正常执行校验继续生效，旧请求始终按原 ID 核对。
 
 ## 使用入口
 

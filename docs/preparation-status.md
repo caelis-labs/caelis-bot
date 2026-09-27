@@ -1,5 +1,23 @@
 # 实现与验证状态
 
+## 2026-09-27 屏幕快捷输入（本地，未发布）
+
+- 实现范围、能力降级和未验收项见 [screen input v1](design/screen-input-v1.md)。
+- Go 定向回归和原生合成夹具通过；通过标准 launch 脚本打开预览，已查看真实工具栏与选区转贴图。
+  证据 `.cache/capture-preview.png`、`.cache/capture-regression.log`；这不是实际屏幕采集或真实模型验收。
+- `make check`、`make smoke`、开发签名 `make build` 与截图相关四包 race 通过。日志为
+  `.cache/capture-{check,smoke,build,race,native}.log`，最后的存储失败恢复补验为 `.cache/capture-race-final.log`。
+  Codex wire fixture 验证两张 native localImage 和附件副本生命周期；没有发送真实模型请求。
+
+- Caelis 增量协议固定于 `addc06614124714e4d604c57ba207ccea836db2a`（基于最新主线 `dd1cb96d`）；
+  可选握手能力 `application-model-capabilities-v1`，旧 Host 普通功能保持兼容。
+- Core 候选二进制 + 隔离 Store + 合成 provider 的 B00–B14 全部通过；B14 验证当前模型的
+  图片能力、文本模型拒绝、切回图片模型恢复，以及选区 PNG、背景 JPEG 的原始字节和元数据到达 provider。
+  新用例仍是合成模型验证，不代表真实模型理解或长期习惯学习验收。日志 `.cache/screen-caelis-host.log`。
+- 本轮 adapter 门控/未知回执回归、五包 race、`make check`、`make smoke` 和 macOS 开发构建通过，
+  日志 `.cache/screen-caelis-unit.log`、`.cache/screen-final-{check,race,smoke,build}.log`。
+  Core 协议 PR：[caelis#80](https://github.com/caelis-labs/caelis/pull/80)，尚未随正式版本发布。
+
 ## 2026-09-27 工作可观察性与 Markdown 气泡（本地，未发布）
 
 - Codex 根据原生 item 类型、commandActions 与 WebSearchAction 投影活动；Caelis 根据 ACP

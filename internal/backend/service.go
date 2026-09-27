@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 )
 
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
@@ -75,6 +76,11 @@ func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 		if v.Message == "" {
 			v.Message = v.BotStatus
 		}
+	}
+	// Copy presentation items so native history and model context stay intact.
+	v.Items = append([]api.Item(nil), v.Items...)
+	for i := range v.Items {
+		v.Items[i] = screeninput.Present(v.Items[i])
 	}
 	return s.presentation(v)
 }

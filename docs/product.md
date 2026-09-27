@@ -240,3 +240,13 @@ separate Settings page. Users enable only the features they need; chat does not
 require Accessibility or screen capture. The page reports the running copy's OS
 state and provides a scoped, explicit repair path for stale grants. Installation
 and ordinary enable actions do not silently reset existing privacy decisions.
+
+## Screen input (local v1)
+
+A user-triggered screenshot is a unified acquisition input. The native overlay provides
+Snipaste-style selection, lightweight annotations, copy/save and floating pins. Ask Bot
+sends the selected region plus its frozen complete-display context by default; an optional
+note and remembered preferences guide intent. Intent inference and learning from explicit
+feedback belong to the existing Bot/Notebook workflow, with ordinary authority boundaries.
+Image support must be confirmed for the resident Bot model before Ask Bot is enabled.
+Capture/edit/pin remain useful without a model. See [the v1 contract and limitations](design/screen-input-v1.md).

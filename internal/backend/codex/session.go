@@ -561,6 +561,13 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		refs = append(refs, ref)
 	}
 	s.mu.Unlock()
+	if in.ScreenInput {
+		capability, err := s.ImageInput(ctx)
+		if err != nil || capability.State != "supported" {
+			r.Message = "当前 Bot 模型的图片能力不可用，请切换到支持图片的模型"
+			return r, nil
+		}
+	}
 	if s.opts.BotTools != nil && s.opts.BotTools.PrepareTurn != nil {
 		if err := s.opts.BotTools.PrepareTurn(ctx); err != nil {
 			r.Message = "笔记目录暂不可用，消息未发送"

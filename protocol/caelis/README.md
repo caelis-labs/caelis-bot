@@ -14,6 +14,13 @@ changed to `wire`. Source license: Apache-2.0 (`LICENSE`). No sibling Go import,
 module replace or go.work is used. `script/check-caelis-protocol.mjs` checks hashes.
 Review the consumed semantics and update both pins intentionally when upgrading.
 
+`application-model-capabilities-v1` is optional and gates Ask Bot only. Its scoped
+`GET /application/sessions/{session_id}/model-capabilities` observes the current
+desired application model and decimal-string configuration revision. An explicit
+`image_input: true` enables image input; false or omission disables it. Neither
+the immutable creation profile nor Host-wide union capabilities can substitute
+for this observation. Older Hosts continue ordinary workflows without this read.
+
 The adapter preserves accepted/committed/rejected/conflicted/unknown outcomes even
 when HTTP status is non-2xx. `SessionState.approval.active.permission` is an opaque
 JSON object containing native `tool_call` and options with `id`, not ACP event
