@@ -8,6 +8,7 @@
 #import <os/log.h>
 #import "native_darwin.h"
 #include "panel_menu_layout.h"
+#include "bubble_layout.h"
 #import "material_darwin.h"
 #import "pet_input_darwin.h"
 #import "task_dock_darwin.h"
@@ -44,6 +45,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property NSWindow *history;
 @property BotInputPanel *bubble;
 @property BOOL bubbleWanted;
+@property double bubbleRequestedHeight;
+@property double bubbleMaxHeight;
 @property BotTaskDock *taskDock;
 @property BOOL tasksBlocked;
 @property BotInputPanel *prop;
@@ -395,21 +398,19 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (void)updateBubble {
     [self.taskDock placeWithPet:self.pet.frame bounds:(self.pet.screen ?: NSScreen.mainScreen).visibleFrame visible:self.visible && !self.dragging && !self.panel.visible && !self.history.keyWindow && !self.bubble.interactive && !self.tasksBlocked];
     if (!self.visible || !self.bubbleWanted || self.dragging || self.panel.visible || self.history.keyWindow) {
+        if(self.bubble.visible) bot_js(self.bubble,@"window.dispatchEvent(new Event('bubble-hidden'))");
         [self.bubble orderOut:nil]; return;
     }
-    NSRect pet = self.pet.frame, bubble = self.bubble.frame;
+    NSRect pet = self.pet.frame;
     NSRect bounds = (self.pet.screen ?: NSScreen.mainScreen).visibleFrame;
-    double x = MAX(NSMinX(bounds)+8,MIN(NSMidX(pet)-bubble.size.width/2,NSMaxX(bounds)-bubble.size.width-8));
-    double y = NSMaxY(pet)+8;
-    // At the top edge, use a side position before covering the character.
-    if (y+bubble.size.height > NSMaxY(bounds)-8) {
-        x = NSMinX(pet)-bubble.size.width-8;
-        if (x < NSMinX(bounds)+8) x = NSMaxX(pet)+8;
-        x = MAX(NSMinX(bounds)+8,MIN(x,NSMaxX(bounds)-bubble.size.width-8));
-        y = NSMaxY(pet)-bubble.size.height;
+    BotBubbleLayout layout=bot_bubble_layout(pet.origin.x,pet.origin.y,pet.size.width,pet.size.height,
+        bounds.origin.x,bounds.origin.y,bounds.size.width,bounds.size.height,self.bubbleRequestedHeight);
+    if(self.bubbleMaxHeight!=layout.maxHeight) {
+        self.bubbleMaxHeight=layout.maxHeight;
+        bot_js(self.bubble,[NSString stringWithFormat:@"document.documentElement.style.setProperty('--bubble-max-height','%gpx')",layout.maxHeight]);
     }
-    y = MAX(NSMinY(bounds)+8,MIN(y,NSMaxY(bounds)-bubble.size.height-8));
-    [self.bubble setFrameOrigin:NSMakePoint(x,y)];
+    NSRect frame=NSMakeRect(layout.x,layout.y,layout.width,layout.height);
+    if(!NSEqualRects(self.bubble.frame,frame)) [self.bubble setFrame:frame display:YES];
     if (!self.bubble.visible) [self.bubble orderFrontRegardless];
 }
 @end
@@ -724,8 +725,11 @@ void bot_expand_bubble(void *pointer,int expanded) {
 }
 void bot_bubble_height(void *pointer,int height) {
  BotHost *host=(__bridge BotHost *)pointer;
- NSRect frame=host.bubble.frame; frame.size=NSMakeSize(360,height);
- [host.bubble setFrame:frame display:YES];[host updateBubble];
+ host.bubbleRequestedHeight=height;
+ // A reloaded renderer may have lost its CSS variable without changing the
+ // display's geometry. Re-send the limit when it reports its content height.
+ host.bubbleMaxHeight=0;
+ [host updateBubble];
 }
 
 void bot_gesture(void *pointer,char *action) {

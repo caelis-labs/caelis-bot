@@ -141,5 +141,18 @@
   "unsupportedApprovalForm": "此表单格式尚不支持，可取消后重试其他方式。",
   "approvalTask": "任务：{name}",
   "caelisApproval": "Caelis 请求执行授权",
-  "workerApproval": "独立工作任务请求授权"
+  "workerApproval": "独立工作任务请求授权",
+  "activityRead": "正在读取文件",
+  "activityEdit": "正在编辑文件",
+  "activitySearch": "正在搜索文件",
+  "activityList": "正在浏览文件",
+  "activityWeb": "正在搜索网络",
+  "activityFetch": "正在读取网页",
+  "activityExecute": "正在执行命令",
+  "activityTool": "正在使用工具",
+  "activityDelegate": "正在协调任务",
+  "activityImage": "正在处理图片",
+  "activityCompact": "正在整理上下文",
+  "activityPlan": "正在规划",
+  "activityRespond": "正在回复"
 }

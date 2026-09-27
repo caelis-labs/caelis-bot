@@ -1,5 +1,27 @@
 # 实现与验证状态
 
+## 2026-09-27 工作可观察性与 Markdown 气泡（本地，未发布）
+
+- Codex 根据原生 item 类型、commandActions 与 WebSearchAction 投影活动；Caelis 根据 ACP
+  kind/name/locations 投影，状态稀疏更新保留语义。主回合工具与子任务观察分开；终态、断线、
+  审批和停止不继续显示旧工具正在执行。并行工具先完成较新项后，较早活跃项仍可见。
+- 气泡和聊天等待区展示简短工作提示；气泡复用聊天的安全 Markdown。完整最新助手正文保留，
+  鼠标阅读状态展开后内部滚动；不打开原生审批、不自动请求远程图片，嵌套链接/复制不打开聊天。
+- `make check` 与 `make smoke` 通过；最后增加的 Codex 网页读取分类补跑对应投影回归通过。
+  backend/Codex/Caelis 三包 race 通过，macOS 开发签名 `make build` 通过。
+  日志：`.cache/bubble-observability-{check-final,smoke,race,build-final}.log`。
+  首轮完整检查发现旧制品测试假定只有制品项；已改为检查制品身份和去重，保留新增活动项。
+- `script/bubble-layout.test.mjs` 编译共享原生布局函数，验证短屏、四角、负坐标显示器、尺寸上限，
+  并断言展开矩形包含原折叠区域，不因尺寸变化换锚点。
+- 通过 `script/build_and_run.sh --bubble-preview` 启动独立 AppKit/WKWebView 夹具，使用生产前端
+  与共享原生布局。查看实际 WebKit 视图截图：折叠 92 点；展开窗口和 viewport 均为 480 点，
+  正文 scrollHeight 1558、clientHeight 428，完整末尾 END 存在。列表、加粗、代码、表格可见。
+  顶部展开、恢复 92 点紧凑状态通过；审批到达后同一 hover 路径仍是 68 点摘要，不自动开决策。
+  截图和测量：`.cache/bubble-{collapsed,expanded,web-search}.png`、`.cache/bubble-expanded.json`。
+- 上述是合成事件与原生视图验收，没有重启日常 Bot、发送真实模型请求或运行用户命令。
+  物理鼠标跨屏、混合 DPI/拔屏、VoiceOver，以及两种真实 Runtime 的完整任务交互仍需实机复验。
+- Bot 核心 skill 无需更新：工具能力、执行/恢复流程和授权边界不变，本轮仅完善事实呈现。
+
 ## 2026-09-27 任务卡片与通用终端管理
 
 当前实现、真实终端证据及未验收边界见[交接记录](handoff.md#2026-09-27-任务卡片与通用终端管理未发布)。

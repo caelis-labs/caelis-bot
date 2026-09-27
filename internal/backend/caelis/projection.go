@@ -202,6 +202,12 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		v.ApprovalVersion++
 	}
 	isMain := (value(e.Scope) == "" || value(e.Scope) == "main") && value(e.ApprovalRequestId) == ""
+	if isMain && e.ParentTool != nil {
+		// A child observation cannot replace the foreground turn or hint.
+		// Its exact parent invocation may still receive a terminal update.
+		applyToolActivity(v, e)
+		return
+	}
 	if e.Kind == "caelis/error" && isMain {
 		v.Failure = value(e.Error)
 	}
@@ -271,6 +277,10 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 				v.Items = append(v.Items, api.Item{ID: id, TurnKey: value(e.TurnId), Kind: "tool", Text: "文件已生成", Status: "completed", Artifacts: []api.Artifact{{ID: id, Name: resource.Name}}})
 			}
 		}
+	}
+	if update.Kind == "tool_call" || update.Kind == "tool_call_update" {
+		applyToolActivity(v, e)
+		return
 	}
 	kind := ""
 	switch update.Kind {

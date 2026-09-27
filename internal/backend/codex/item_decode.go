@@ -22,7 +22,7 @@ func (item *nativeItem) UnmarshalJSON(data []byte) error {
 	case "plan":
 		fields = append(fields, "text")
 	case "commandExecution":
-		fields = append(fields, "status", "command", "cwd", "aggregatedOutput", "exitCode")
+		fields = append(fields, "status", "command", "commandActions", "cwd", "aggregatedOutput", "exitCode")
 	case "fileChange":
 		fields = append(fields, "status", "changes")
 	case "mcpToolCall", "dynamicToolCall":
@@ -33,6 +33,8 @@ func (item *nativeItem) UnmarshalJSON(data []byte) error {
 		fields = append(fields, "agentThreadId", "kind")
 	case "imageView", "imageGeneration":
 		fields = append(fields, "status", "path")
+	case "webSearch":
+		fields = append(fields, "action")
 	default:
 		*item = nativeItem{ID: header.ID, Type: header.Type}
 		return nil

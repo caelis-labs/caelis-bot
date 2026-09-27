@@ -15,7 +15,7 @@ export function composerAction(snapshot: Snapshot | null, quick: boolean, hasCon
  return !quick && snapshot?.canInterrupt && !hasContent ? 'stop' : 'send';
 }
 
-export type ChatActivity = 'thinking' | 'reviewing' | 'stopping';
+export type ChatActivity = 'thinking' | 'reviewing' | 'stopping' | 'tool';
 export function activeReplyID(snapshot: Snapshot | null): string | null {
  if(!snapshot||snapshot.connection!=='ready'||!['sending','working'].includes(snapshot.phase)||snapshot.approvals.some(p=>p.status!=='resolved')||snapshot.reviews.some(r=>r.status==='inProgress'))return null;
  for(let n=snapshot.items.length-1;n>=0;n--){
@@ -30,6 +30,7 @@ export function chatActivity(snapshot: Snapshot | null): ChatActivity | null {
  if (snapshot.approvals.some(p => p.status !== 'resolved')) return null;
  if (snapshot.phase !== 'sending' && snapshot.phase !== 'working') return null;
  if (snapshot.reviews.some(r => r.status === 'inProgress')) return 'reviewing';
+ if (snapshot.activity) return 'tool';
  // A visible streaming answer already communicates progress. Empty started
  // items, completed commentary and tool work still need a waiting indicator.
  if (activeReplyID(snapshot)) return null;

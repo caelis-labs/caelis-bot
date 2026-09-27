@@ -113,16 +113,31 @@ summary { cursor:pointer; }
 .runtime-save { background:var(--accent); color:var(--on-accent); }
 .inline-error { color:var(--error); font-size:12px; }
 .bubble-shell { padding:6px; }
-.message-bubble { min-height:56px; max-height:468px; overflow:hidden; border:1px solid var(--line); border-radius:28px; background:var(--surface); box-shadow:0 1px 4px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.45); }
+.message-bubble { display:flex; flex-direction:column; min-height:56px; max-height:calc(var(--bubble-max-height,480px) - 12px); overflow:hidden; border:1px solid var(--line); border-radius:28px; background:var(--surface); box-shadow:0 1px 4px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.45); }
 .bubble-summary { min-height:54px; display:flex; gap:10px; align-items:center; padding:8px 12px 8px 18px; }
-.bubble-message { flex:1; min-width:0; text-align:left; color:inherit; border:0; padding:0; background:transparent; }
-.bubble-copy { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; overflow-wrap:anywhere; white-space:pre-wrap; font-size:14px; line-height:20px; font-weight:500; }
+.bubble-summary { flex-shrink:0; }
+.bubble-message { flex:1; min-width:0; display:flex; flex-direction:column; max-height:calc(var(--bubble-max-height,480px) - 30px); text-align:left; color:inherit; cursor:pointer; }
+.bubble-copy { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; max-height:40px; overflow:hidden; overflow-wrap:anywhere; white-space:pre-wrap; font-size:14px; line-height:20px; font-weight:400; }
+.message-bubble.reading .bubble-copy { display:block; max-height:none; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; cursor:auto; }
+.message-bubble.reading .bubble-actions { align-self:flex-start; margin-top:4px; }
+.bubble-copy .markdown-body { white-space:normal; }
+.bubble-copy .markdown-body p { margin-bottom:8px; }
+.bubble-copy .markdown-body > :last-child { margin-bottom:0; }
+.bubble-copy .markdown-body h1,.bubble-copy .markdown-body h2,.bubble-copy .markdown-body h3 { font-size:15px; line-height:20px; margin-top:12px; }
+.bubble-copy .markdown-body > :first-child { margin-top:0; }
+.bubble-copy .code-block pre { font-size:12px; }
+.bubble-progress { display:flex; align-items:center; gap:6px; flex-shrink:0; min-width:0; margin-bottom:6px; font-size:11px; line-height:16px; color:var(--muted); }
+.bubble-progress > :last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.bubble-standalone-progress { display:flex; align-items:center; gap:8px; }
+.activity-spinner { flex:none; width:10px; height:10px; border:1.5px solid var(--line); border-top-color:var(--muted); border-radius:50%; animation:activity-spin .9s linear infinite; }
+@keyframes activity-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .activity-spinner { animation:none; } }
 .bubble-actions { display:flex; flex:none; align-items:center; gap:2px; }
 .bubble-action { display:grid; place-items:center; width:28px; height:28px; border:0; border-radius:50%; background:transparent; color:var(--ink); font-size:18px; }
 .bubble-action:hover { background:var(--wash); }
 .bubble-action svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
 .stop-symbol { width:9px; height:9px; border:1.5px solid currentColor; border-radius:2px; }
-.bubble-decision { max-height:410px; overflow-y:auto; overscroll-behavior:contain; padding:0 20px 15px; border-top:1px solid var(--line); }
+.bubble-decision { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:0 20px 15px; border-top:1px solid var(--line); }
 .event-pagination { display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--muted); padding-top:8px; }
 @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto !important; } }
 .message-actions { position:absolute; top:6px; right:6px; z-index:1; border-radius:7px; background:transparent; opacity:0; pointer-events:none; }

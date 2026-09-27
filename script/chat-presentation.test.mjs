@@ -52,6 +52,16 @@ test('automatic checks and silent completion do not add thinking rows',()=>{
  assert.equal(chatActivity({...running,scheduled:true,quiet:false,phase:'failed'}),null);
 });
 
+test('typed tool activity stays visible with commentary, but yields to approval and stop',()=>{
+ const snapshot={...running,activity:{kind:'read',target:'README.md'},items:[{id:'answer',kind:'assistant',turnKey:'current',text:'I will check',status:'inProgress'}]};
+ assert.equal(chatActivity(snapshot),'tool');
+ assert.equal(chatActivity({...snapshot,reviews:[{status:'inProgress'}]}),'reviewing');
+ assert.equal(chatActivity({...snapshot,approvals:[{status:'pending'}]}),null);
+ assert.equal(chatActivity({...snapshot,phase:'interrupting'}),'stopping');
+ assert.equal(chatActivity({...snapshot,phase:'completed'}),null);
+ assert.equal(chatActivity({...snapshot,connection:'offline'}),null);
+});
+
 
 test('all editors use native send/steer capability and optimistic inputs merge by identity',()=>{
  assert.equal(canSubmit(running),true);

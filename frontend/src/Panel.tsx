@@ -165,7 +165,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   if(busy||!loaded||!canSubmit(snapshot)||(!draft.trim()&&!files.length))return;
   setBusy(true);setError('');setExpanded(false);
   const request:Submission={id:crypto.randomUUID(),text:draft,fileIds:files.map(f=>f.id),referenceIds:refs};
-  const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,turnKey:'',kind:'user',text:[draft,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',artifacts:[]};
+  const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,turnKey:'',kind:'user',text:[draft,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',activity:null,artifacts:[]};
   onOutgoing?.(outgoing);
   await writes.current;
   if(conflicted.current){onOutgoing?.({...outgoing,status:'rejected'});setBusy(false);return;}
@@ -289,7 +289,7 @@ export function History() {
    {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy||snapshot.connection!=='ready'} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
    <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply}/>)}</div>
-   {activity&&<WorkingMessage activity={activity} active={active}/>}
+   {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity}/>}
    {(!!prompts.length||!!reviews.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
     <BotAvatar/>
     <div className={`message assistant state-bubble ${prompts.length?'approval-bubble':''}`}>
