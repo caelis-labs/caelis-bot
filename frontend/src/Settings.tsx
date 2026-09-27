@@ -5,13 +5,14 @@ import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
 import { ShortcutSettings } from './ShortcutSettings';
 import { ExecutionSettings } from './ExecutionSettings';
+import { PermissionSettings } from './PermissionSettings';
 import { TaskSettings } from './TaskSettings';
 import { Maintenance } from './Maintenance';
 import { useI18n } from './i18n';
 import { LanguageSetting } from './i18n/LanguageSetting';
 import { SettingGroup, SettingRow } from './SettingsUI';
 
-const sections = ['general','appearance','runtime','execution','storage','diagnostics','updates'] as const;
+const sections = ['general','appearance','runtime','execution','permissions','storage','diagnostics','updates'] as const;
 type Section = typeof sections[number] | 'setup';
 type Update = { state:string; current:string; latest:string; message:string };
 type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean };
@@ -35,7 +36,7 @@ export function Settings() {
   <div className="settings-content" ref={content}>
    <div className="settings-page" hidden={section!=='execution'}>{(executionVisited||section==='execution')&&<ExecutionSettings/>}</div>
    <div className="settings-page" key={section} hidden={section==='execution'}>
-   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?<RuntimeSettings/>:section==='execution'?null:section==='storage'?<Maintenance key="storage" storage/>:section==='diagnostics'?<Maintenance key="diagnostics" storage={false}/>:<Updates key={opened} version={version}/>}
+   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?<RuntimeSettings/>:section==='permissions'?<PermissionSettings/>:section==='execution'?null:section==='storage'?<Maintenance key="storage" storage/>:section==='diagnostics'?<Maintenance key="diagnostics" storage={false}/>:<Updates key={opened} version={version}/>}
    </div>
   </div>
  </main>;
@@ -43,13 +44,11 @@ export function Settings() {
 
 function General() {
  const {t,number}=useI18n();
- const [scale,setScale]=useState<number|null>(null),[permission,setPermission]=useState(''),[error,setError]=useState<'settings.sizeLoadFailed'|'settings.sizeSaveFailed'|'settings.notificationTestFailed'|'settings.notificationSettingsFailed'|''>('');
+ const [scale,setScale]=useState<number|null>(null),[error,setError]=useState<'settings.sizeLoadFailed'|'settings.sizeSaveFailed'|''>('');
  const pending=useRef<number|null>(null),pumping=useRef(false),save=useRef(false),dragging=useRef(false);
  useEffect(()=>{
   void desktop<Placement>('Placement').then(p=>setScale(p.scale)).catch(()=>setError('settings.sizeLoadFailed'));
-  const refresh=()=>{void desktop<string>('NotificationStatus').then(setPermission).catch(()=>setPermission('unavailable'));};
-  refresh();const timer=window.setInterval(()=>{if(document.hasFocus())refresh();},2000);window.addEventListener('focus',refresh);
-  return()=>{clearInterval(timer);window.removeEventListener('focus',refresh);};
+
  },[]);
  // At most one geometry request is in flight. Coalesce motion, then save the
  // final value on release; late bridge responses cannot rewind the thumb.
@@ -65,16 +64,16 @@ function General() {
   finally{pumping.current=false;}
  };
  const commit=()=>{dragging.current=false;save.current=true;void flush();};
- const status:Record<string,string>={authorized:t('settings.notificationEnabled'),denied:t('settings.notificationDisabled'),notDetermined:t('settings.notificationNotDetermined'),unavailable:t('settings.unavailable')};
+
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><LanguageSetting/><ShortcutSettings/><TaskSettings/>
+  <h1>{t('settings.general')}</h1><LanguageSetting/><ShortcutSettings/><ShortcutSettings tasks/><TaskSettings/>
   <SettingGroup title={t('settings.pet')}>
    <SettingRow label={t('settings.petSize')} htmlFor="pet-size"><div className="size-control">
     <input id="pet-size" type="range" min="0.65" max="1.6" step="any" disabled={scale===null} value={scale??1} aria-valuetext={scale===null?'':number(scale,{style:'percent',maximumFractionDigits:0})} onPointerDown={()=>{dragging.current=true;}} onChange={event=>{const value=event.target.valueAsNumber;setScale(value);pending.current=value;save.current=!dragging.current;setError('');void flush();}} onPointerUp={commit} onPointerCancel={commit} onBlur={commit}/>
     <output htmlFor="pet-size">{scale===null?'—':number(scale,{style:'percent',maximumFractionDigits:0})}</output>
    </div></SettingRow>
   </SettingGroup>
-  <SettingGroup title={t('settings.notifications')}><SettingRow label={t('settings.systemNotifications')} description={<span role="status">{status[permission]??t('common.loading')}</span>}>{permission==='authorized'&&<button onClick={()=>void desktop('Notify',`notification-test-${crypto.randomUUID()}`,t('settings.notificationTestTitle'),t('settings.notificationTestBody'),true).catch(()=>setError('settings.notificationTestFailed'))}>{t('settings.notificationTest')}</button>}<button disabled={!permission||permission==='unavailable'} onClick={()=>void desktop('ConfigureNotifications').catch(()=>setError('settings.notificationSettingsFailed'))}>{t(permission==='notDetermined'?'settings.enableNotifications':'settings.openSystemSettings')}</button></SettingRow></SettingGroup>
+
   {error&&<p role="alert" className="inline-error">{t(error)}</p>}
  </section>;
 }

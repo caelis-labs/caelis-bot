@@ -16,7 +16,7 @@ type catalogFixture struct {
 func (f *catalogFixture) QueryTasks(q api.TaskQuery) (api.TaskPage, error) {
 	f.query = q
 	f.calls++
-	return api.TaskPage{Tasks: []api.TaskSummary{}, MaxRunning: 7, PinnedLimit: 8}, nil
+	return api.TaskPage{Tasks: []api.TaskSummary{}, MaxRunning: 7, CompletedRetentionSeconds: 1800}, nil
 }
 func (f *catalogFixture) PinTask(id string, pin bool) (api.TaskSummary, error) {
 	f.pinned = id
@@ -47,5 +47,29 @@ func TestTaskToolRoutesBoundedQueriesAndPins(t *testing.T) {
 	}
 	if f.calls != 3 {
 		t.Fatal("bad arguments reached task manager")
+	}
+}
+
+func (f *catalogFixture) LockTask(id string, locked bool) (api.TaskSummary, error) {
+	f.pinned = id
+	f.calls++
+	return api.TaskSummary{ID: id, Locked: locked, Pinned: true}, nil
+}
+func (f *catalogFixture) ClearTasks() error { f.calls++; return nil }
+func TestTaskCatalogBackgroundManagement(t *testing.T) {
+	f := &catalogFixture{}
+	for _, op := range []string{"lock", "unlock"} {
+		out, err := callTaskCatalog(f, json.RawMessage(`{"operation":"`+op+`","id":"owned"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		v := out.(api.TaskSummary)
+		if v.Locked != (op == "lock") || v.ID != "owned" {
+			t.Fatal(v)
+		}
+	}
+	out, err := callTaskCatalog(f, json.RawMessage(`{"operation":"clear"}`))
+	if err != nil || f.calls != 4 || f.query.Pinned == nil || !*f.query.Pinned {
+		t.Fatal(out, err, f.calls)
 	}
 }

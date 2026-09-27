@@ -13,7 +13,7 @@ func TestPreferencesPersistValidateAndFenceStaleWriters(t *testing.T) {
 		t.Fatal(e)
 	}
 	p := s.Snapshot()
-	if p.MaxRunning != 3 || p.Terminal != "system" {
+	if p.MaxRunning != 6 || p.Terminal != "system" {
 		t.Fatal(p)
 	}
 	p.MaxRunning = 12
@@ -71,5 +71,29 @@ func TestCustomTerminalDraftRequiresValidTemplateBeforeActivation(t *testing.T) 
 	reopened, err := OpenPreferences(s.path)
 	if err != nil || reopened.Snapshot() != p {
 		t.Fatal("custom preference not retained", err)
+	}
+}
+
+func TestSavedConcurrencyIsNotRaisedWithNewDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prefs.json")
+	// An old default is indistinguishable from an explicit user choice.
+	if err := os.WriteFile(path, []byte(`{"maxRunning":3,"terminal":"system","revision":7}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenPreferences(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot(); got.MaxRunning != 3 || got.Revision != 7 {
+		t.Fatal(got)
+	}
+	runtime := newRuntime()
+	manager := openFixture(t, t.TempDir(), "codex", runtime)
+	manager.ConfigureLimit(func() int { return store.Snapshot().MaxRunning })
+	for _, request := range []string{"saved-limit-one", "saved-limit-two", "saved-limit-three"} {
+		start(t, manager, request)
+	}
+	if _, err := manager.StartTask(t.Context(), input("saved-limit-four")); err == nil || runtime.starts != 3 {
+		t.Fatal("saved concurrency preference ignored", err)
 	}
 }

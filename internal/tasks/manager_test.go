@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -128,9 +129,14 @@ func TestSameProductPolicyForDifferentRuntimeAdapters(t *testing.T) {
 			if _, e = m.StartTask(t.Context(), different); e == nil {
 				t.Fatal("conflicting request admitted")
 			}
-			start(t, m, "second-request")
-			start(t, m, "third-request")
-			if _, e = m.StartTask(t.Context(), input("fourth-request")); e == nil || f.starts != 3 {
+			for i := 1; i < 6; i++ {
+				start(t, m, fmt.Sprintf("default-slot-%d", i))
+			}
+			page, e := m.QueryTasks(api.TaskQuery{})
+			if e != nil || page.Running != 6 || page.MaxRunning != 6 {
+				t.Fatal(page, e)
+			}
+			if _, e = m.StartTask(t.Context(), input("seventh-request")); e == nil || f.starts != 6 {
 				t.Fatal("capacity escaped")
 			}
 			if _, e = m.ReadTask(t.Context(), "native-foreign-id"); e == nil {

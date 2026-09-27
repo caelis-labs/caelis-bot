@@ -23,6 +23,10 @@ type TaskCatalog interface {
 	QueryTasks(TaskQuery) (TaskPage, error)
 	PinTask(string, bool) (TaskSummary, error)
 }
+type TaskWatchlist interface {
+	LockTask(string, bool) (TaskSummary, error)
+	ClearTasks() error
+}
 type TaskQuery struct {
 	Query  string `json:"query,omitempty"`
 	Status string `json:"status,omitempty"`
@@ -31,6 +35,7 @@ type TaskQuery struct {
 	Cursor string `json:"cursor,omitempty"`
 }
 type TaskSummary struct {
+	Locked  bool   `json:"locked"`
 	ID      string `json:"id"`
 	Title   string `json:"title"`
 	Status  string `json:"status"`
@@ -38,12 +43,12 @@ type TaskSummary struct {
 	Pinned  bool   `json:"pinned"`
 }
 type TaskPage struct {
-	Tasks       []TaskSummary `json:"tasks"`
-	NextCursor  string        `json:"nextCursor,omitempty"`
-	Total       int           `json:"total"`
-	Running     int           `json:"running"`
-	MaxRunning  int           `json:"maxRunning"`
-	PinnedLimit int           `json:"pinnedLimit"`
+	Tasks                     []TaskSummary `json:"tasks"`
+	NextCursor                string        `json:"nextCursor,omitempty"`
+	Total                     int           `json:"total"`
+	Running                   int           `json:"running"`
+	MaxRunning                int           `json:"maxRunning"`
+	CompletedRetentionSeconds int           `json:"completedRetentionSeconds"`
 }
 
 type Task struct {

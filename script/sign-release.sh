@@ -83,7 +83,8 @@ if [[ "${BOT_NOTARY_RESUME:-0}" != 1 ]]; then
   echo 'Signing the app with the imported Developer ID identity.'
   bash "$BOT_SIGN_ROOT/script/sign-sparkle.sh" "$BOT_SIGN_BUNDLE" "$BOT_SIGN_MATCHES"
   codesign --force --sign "$BOT_SIGN_MATCHES" --keychain "$BOT_SIGN_KEYCHAIN" \
-    --identifier dev.caelis.bot --options runtime --timestamp "$BOT_SIGN_BUNDLE"
+    --identifier dev.caelis.bot --options runtime --timestamp \
+    --entitlements "$BOT_SIGN_ROOT/resources/macos/entitlements.plist" "$BOT_SIGN_BUNDLE"
 fi
 bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_SIGN_BUNDLE" developer-id
 echo 'Developer ID identity, team, hardened runtime and timestamp verified.'

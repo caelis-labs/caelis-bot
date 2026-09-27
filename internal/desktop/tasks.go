@@ -17,12 +17,25 @@ type taskDriver interface {
 }
 
 func (s *Service) observeTasks(tasks []api.TaskPreview) {
+	// Terminal app choice is desktop presentation metadata, not backend state.
+	type presentation struct {
+		api.TaskPreview
+		Terminal string `json:"terminal,omitempty"`
+	}
+	views := make([]presentation, len(tasks))
+	terminal := ""
+	if s.taskPreferences != nil {
+		terminal = s.taskPreferences().Terminal
+	}
+	for i, task := range tasks {
+		views[i] = presentation{TaskPreview: task, Terminal: terminal}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.stopped {
 		return
 	}
-	data, _ := json.Marshal(tasks)
+	data, _ := json.Marshal(views)
 	if string(data) == s.taskPreviewJSON {
 		return
 	}
@@ -33,77 +46,52 @@ func (s *Service) observeTasks(tasks []api.TaskPreview) {
 	}
 }
 
-// Explicit clicks are the only terminal-launch path. Visibility and hover have
-// no backend effect. Coalesce overlapping launches; the native button also
-// collapses immediately so a second click cannot launch another task.
+// Explicit clicks are the only terminal-launch path. Presentation never chooses
+// a toggle direction; the per-window controller reconciles the native state.
 func (s *Service) openTask(ctx context.Context, id string) error {
-	if !s.taskOpenMu.TryLock() {
-		return nil
+	if !s.taskWindowAllowed(id) || s.taskWindows == nil {
+		return errors.New("task is unavailable")
 	}
-	defer s.taskOpenMu.Unlock()
-	s.mu.Lock()
-	allowed := s.started && !s.stopped && slices.ContainsFunc(s.taskPreviews, func(t api.TaskPreview) bool { return t.ID == id })
-	resolve, launch := s.resolveTaskTerminal, s.launchTaskTerminal
-	s.mu.Unlock()
-	if !allowed || resolve == nil || launch == nil {
-		return errors.New("该任务暂不可用")
-	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	s.mu.Lock()
-	if s.stopped {
-		s.mu.Unlock()
-		return context.Canceled
-	}
-	s.taskOpenCancel = cancel
-	if d, ok := s.native.(taskDriver); ok {
-		d.taskOpening(id, s.text("native.taskTerminalWaiting", nil))
-	}
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.taskOpenCancel = nil
-	}()
-	resolveCtx, resolveCancel := context.WithTimeout(ctx, 10*time.Second)
-	target, err := resolve(resolveCtx, id)
-	resolveCancel()
-	if err == nil {
-		err = launch(ctx, id, target)
-	}
-	s.mu.Lock()
-	if d, ok := s.native.(taskDriver); ok && !s.stopped {
-		d.taskOpening("", "")
-	}
-	s.mu.Unlock()
-	if err != nil {
-		if s.taskError != nil {
-			s.taskError(id, err)
-		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if d, ok := s.native.(taskDriver); ok && !s.stopped {
-			key := "native.taskTerminalFailed"
-			if errors.Is(err, taskterminal.ErrUnconfirmed) {
-				key = "native.taskTerminalUnconfirmed"
-			}
-			if errors.Is(err, context.Canceled) {
-				key = "native.taskTerminalCanceled"
-			}
-			if errors.Is(err, taskterminal.ErrUnsupportedDefault) {
-				key = "native.defaultTerminalUnsupported"
-			}
-			d.taskFailure(s.text(key, nil))
-		}
-	}
-	return err
+	return s.taskWindows.Click(ctx, id)
 }
 
 func (s *Service) cancelTerminalOpening() {
+	if s.taskWindows != nil {
+		s.taskWindows.CancelAll()
+	}
+}
+
+// UI close is stronger than Bot unpin: close only the owned attach client,
+// then persist list removal. There is deliberately no StopWork dependency.
+func (s *Service) dismissTask(ctx context.Context, id string) error {
+	if !s.taskWindowAllowed(id) || s.taskWindows == nil {
+		return errors.New("task is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if err := s.taskWindows.Dismiss(ctx, id); err != nil {
+		if errors.Is(err, taskterminal.ErrWindowCloseCancelled) || errors.Is(err, taskterminal.ErrWindowClosePending) || errors.Is(err, context.Canceled) {
+			return nil // Keep the card; user consent is neither failure nor exit.
+		}
+		s.taskListFailure("native.taskCloseFailed")
+		return err
+	}
+	return s.unpinTask(id)
+}
+func (s *Service) moveTask(id, before string) error {
+	if s.moveTaskPin == nil {
+		return errors.New("task order is unavailable")
+	}
+	if err := s.moveTaskPin(id, before); err != nil {
+		s.taskListFailure("native.taskListChangeFailed")
+		return err
+	}
+	return nil
+}
+func (s *Service) taskListFailure(key string) {
 	s.mu.Lock()
-	cancel := s.taskOpenCancel
-	s.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	defer s.mu.Unlock()
+	if d, ok := s.native.(taskDriver); ok && !s.stopped {
+		d.taskFailure(s.text(key, nil))
 	}
 }

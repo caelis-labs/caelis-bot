@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { backend, desktop } from './desktop';
+import { PermissionSettings } from './PermissionSettings';
 import { RuntimeSettings } from './RuntimeSettings';
 import type { BotInitialization, BotIntroduction, Snapshot } from './backend/contract';
 import { useI18n } from './i18n';
@@ -7,6 +8,15 @@ import { useI18n } from './i18n';
 // The backend journals one ordinary user message. The Bot maintains MEMORY.md;
 // this form does not create a second identity settings store.
 export function BotSetup({ onDone }: { onDone: () => void }) {
+ const {t}=useI18n();
+ const [pending,setPending]=useState<boolean|null>(null);
+ const [failed,setFailed]=useState(false);
+ useEffect(()=>{let active=true;void desktop<boolean>('PermissionGuidePending').then(value=>{if(active)setPending(value);}).catch(()=>{if(active)setFailed(true);});return()=>{active=false;};},[]);
+ if(pending===null)return <p role="status">{t(failed?'settings.permissionLoadFailed':'common.loading')}</p>;
+ if(pending)return <PermissionSettings onDone={()=>setPending(false)}/>;
+ return <BotIntroductionSetup onDone={onDone}/>;
+}
+function BotIntroductionSetup({ onDone }: { onDone: () => void }) {
   const {t} = useI18n();
   const [state, setState] = useState<BotInitialization | null>(null);
   const [name, setName] = useState('');

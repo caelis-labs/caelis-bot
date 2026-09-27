@@ -7,6 +7,10 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
 
+// Status reads never prompt. Only an explicit Settings click requests access.
+func (s *Service) TaskSnapshotStatus() string    { return taskSnapshotStatus() }
+func (s *Service) ConfigureTaskSnapshots() error { return configureTaskSnapshots() }
+
 func (s *Service) TaskPreferences() (tasks.Preferences, error) {
 	if s.taskPreferences == nil {
 		return tasks.Preferences{}, errors.New(s.text("native.taskPreferencesUnavailable", nil))
@@ -60,4 +64,28 @@ func (s *Service) unpinTask(id string) error {
 		return err
 	}
 	return nil
+}
+
+func (s *Service) manageTaskList(id string, locked bool, clear bool) error {
+	s.mu.Lock()
+	ready := s.started && !s.stopped
+	lock, clearAll := s.lockTaskPin, s.clearTaskPins
+	s.mu.Unlock()
+	if !ready || lock == nil || clearAll == nil {
+		return errors.New(s.text("native.taskPreferencesUnavailable", nil))
+	}
+	var err error
+	if clear {
+		err = clearAll()
+	} else {
+		err = lock(id, locked)
+	}
+	if err != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if d, ok := s.native.(taskDriver); ok && !s.stopped {
+			d.taskFailure(s.text("native.taskListChangeFailed", nil))
+		}
+	}
+	return err
 }

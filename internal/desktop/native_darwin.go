@@ -4,7 +4,7 @@ package desktop
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework UserNotifications -framework Carbon
+#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework UserNotifications -framework Carbon -framework ScreenCaptureKit
 #include "native_darwin.h"
 #include "material_darwin.h"
 #include <stdlib.h>
@@ -19,6 +19,7 @@ import (
 	"unsafe"
 
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
+	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -62,9 +63,20 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 		case 13:
 			go func() { _ = s.openTask(context.Background(), e.text) }()
 		case 14:
-			go func() { _ = s.unpinTask(e.text) }()
+			go func() { _ = s.dismissTask(context.Background(), e.text) }()
 		case 15:
 			s.cancelTerminalOpening()
+		case 16:
+			go func() { _ = s.manageTaskList(e.text, e.x != 0, false) }()
+		case 17:
+			go func() {
+				var ids []string
+				if json.Unmarshal([]byte(e.text), &ids) == nil && len(ids) == 2 {
+					_ = s.moveTask(ids[0], ids[1])
+				}
+			}()
+		case 18:
+			go func() { _ = s.openTaskAt(context.Background(), e.text, &taskterminal.Point{X: e.x, Y: e.y}) }()
 		}
 	})
 	d.handle = cgo.NewHandle(d.events)
@@ -321,7 +333,12 @@ func (d *macDriver) finishPlane(id string, completed bool) {
 	})
 }
 
-func (d *macDriver) registerShortcut(v Shortcut) error {
+func (d *macDriver) registerShortcut(v Shortcut) error     { return d.registerHotkey(v, 0) }
+func (d *macDriver) registerTaskShortcut(v Shortcut) error { return d.registerHotkey(v, 1) }
+func (d *macDriver) toggleTaskDock() {
+	application.InvokeSync(func() { C.bot_toggle_tasks(d.pointer) })
+}
+func (d *macDriver) registerHotkey(v Shortcut, tasks int) error {
 	key := C.CString(v.Key)
 	defer C.free(unsafe.Pointer(key))
 	flags := 0
@@ -341,7 +358,7 @@ func (d *macDriver) registerShortcut(v Shortcut) error {
 	if v.Enabled {
 		enabled = 1
 	}
-	status := application.InvokeSyncWithResult(func() int { return int(C.bot_shortcut(d.pointer, key, C.int(flags), C.int(enabled))) })
+	status := application.InvokeSyncWithResult(func() int { return int(C.bot_shortcut(d.pointer, key, C.int(flags), C.int(enabled), C.int(tasks))) })
 	if status != 0 {
 		return errors.New(i18n.Text(i18n.DefaultLocale, "native.shortcutConflict", nil))
 	}
@@ -379,4 +396,33 @@ func (d *macDriver) language(locale i18n.Locale) {
 	value := C.CString(string(data))
 	defer C.free(unsafe.Pointer(value))
 	application.InvokeSync(func() { C.bot_language(d.pointer, value) })
+}
+
+//export desktopTaskLock
+func desktopTaskLock(handle C.uintptr_t, id *C.char, locked C.int) {
+	cgo.Handle(handle).Value().(*nativeEventQueue).push(nativeEvent{kind: 16, text: C.GoString(id), x: float64(locked)})
+}
+
+//export desktopTaskMove
+func desktopTaskMove(handle C.uintptr_t, id, before *C.char) {
+	data, _ := json.Marshal([]string{C.GoString(id), C.GoString(before)})
+	cgo.Handle(handle).Value().(*nativeEventQueue).push(nativeEvent{kind: 17, text: string(data)})
+}
+
+//export desktopTaskPlace
+func desktopTaskPlace(handle C.uintptr_t, id *C.char, x, y C.double) {
+	cgo.Handle(handle).Value().(*nativeEventQueue).push(nativeEvent{kind: 18, text: C.GoString(id), x: float64(x), y: float64(y)})
+}
+func (d *macDriver) taskSnapshot(id string, source taskterminal.PreviewSource) {
+	data, _ := json.Marshal(source)
+	key, value := C.CString(id), C.CString(string(data))
+	defer C.free(unsafe.Pointer(key))
+	defer C.free(unsafe.Pointer(value))
+	application.InvokeSync(func() { C.bot_task_snapshot(d.pointer, key, value) })
+}
+
+func (d *macDriver) taskTransitions(data string) {
+	value := C.CString(data)
+	defer C.free(unsafe.Pointer(value))
+	application.InvokeSync(func() { C.bot_task_transitions(d.pointer, value) })
 }

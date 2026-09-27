@@ -296,7 +296,22 @@ func (a *Application) Start() error {
 	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)
 	resident.Start(a.engine)
-	a.workers.Add(2)
+	a.workers.Add(3)
+	go func() {
+		defer a.workers.Done()
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := manager.RefreshWatchlist(); err != nil && a.host.ReportError != nil {
+					a.host.ReportError(err)
+				}
+			}
+		}
+	}()
 	go func() { defer a.workers.Done(); _ = a.Backend.Connect(ctx) }()
 	go func() {
 		defer a.workers.Done()

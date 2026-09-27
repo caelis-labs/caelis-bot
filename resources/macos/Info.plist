@@ -15,4 +15,6 @@
   <key>LSUIElement</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSScreenCaptureUsageDescription</key><string>Cache a local still preview of an explicitly opened task terminal. No continuous recording.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Caelis Bot uses automation to open and manage the task terminal connections you choose.</string>
 </dict></plist>

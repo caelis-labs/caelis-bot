@@ -4,101 +4,147 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
 
 type taskFakeDriver struct {
 	*fakeDriver
-	updates int
-	failure string
-	opening string
+	updates             int
+	failure, opening    string
+	confirmationPrompts int
 }
 
-func (d *taskFakeDriver) tasks(string)                   { d.updates++ }
-func (d *taskFakeDriver) taskFailure(message string)     { d.failure = message }
-func (d *taskFakeDriver) taskOpening(id, message string) { d.opening = id }
+func (d *taskFakeDriver) tasks(string)               { d.updates++ }
+func (d *taskFakeDriver) taskFailure(message string) { d.failure = message }
+func (d *taskFakeDriver) taskOpening(id, message string) {
+	d.opening = id
+	if id != "" && message != "" {
+		d.confirmationPrompts++
+	}
+}
 
-func TestTaskBubblesArePassiveAndLaunchOnlyOwnedTarget(t *testing.T) {
+type taskControllerStub struct {
+	click   func(context.Context, string) error
+	dismiss func(context.Context, string) error
+	cancels int
+}
+
+func (w *taskControllerStub) Click(ctx context.Context, id string) error   { return w.click(ctx, id) }
+func (w *taskControllerStub) Dismiss(ctx context.Context, id string) error { return w.dismiss(ctx, id) }
+func (w *taskControllerStub) CancelAll()                                   { w.cancels++ }
+
+func taskService(t *testing.T) (*Service, *taskFakeDriver) {
+	t.Helper()
 	s := newService(&memoryStore{value: defaults()})
 	d := &taskFakeDriver{fakeDriver: &fakeDriver{displays: []Rect{{0, 40, 1440, 860}}}}
 	s.start(d)
-	defer s.shutdown()
-	resolves, launches, logs := 0, 0, 0
-	s.resolveTaskTerminal = func(_ context.Context, id string) (api.TerminalTarget, error) {
-		resolves++
+	t.Cleanup(s.shutdown)
+	return s, d
+}
+func TestTaskBubblesArePassiveAndDispatchOnlyOwnedTarget(t *testing.T) {
+	s, d := taskService(t)
+	clicks := 0
+	w := &taskControllerStub{click: func(_ context.Context, id string) error {
+		clicks++
 		if id != "owned" {
-			t.Fatal("foreign target resolved")
-		}
-		return api.TerminalTarget{Thread: "native-owned"}, nil
-	}
-	s.launchTaskTerminal = func(_ context.Context, id string, target api.TerminalTarget) error {
-		launches++
-		if target.Thread != "native-owned" {
-			t.Fatal("wrong target")
+			t.Fatal("foreign task dispatched")
 		}
 		return nil
-	}
-	s.taskError = func(string, error) { logs++ }
-	previews := []api.TaskPreview{{ID: "owned", Prompt: "Original prompt\nwith details"}}
+	}}
+	s.taskWindows = w
+	previews := []api.TaskPreview{{ID: "owned", Prompt: "Private task"}}
 	s.observeTasks(previews)
 	s.observeTasks(previews)
-	if d.updates != 1 || resolves != 0 || launches != 0 {
-		t.Fatal("projection polled/launched backend")
+	if d.updates != 1 || clicks != 0 {
+		t.Fatal("passive projection dispatched work")
 	}
-	if s.openTask(context.Background(), "foreign") == nil || resolves != 0 {
+	if s.openTask(t.Context(), "foreign") == nil || clicks != 0 {
 		t.Fatal("unowned task accepted")
 	}
-	if err := s.openTask(context.Background(), "owned"); err != nil || launches != 1 {
-		t.Fatal("click failed", err)
-	}
-	s.launchTaskTerminal = func(context.Context, string, api.TerminalTarget) error { return errors.New("private runtime detail") }
-	if s.openTask(context.Background(), "owned") == nil || logs != 1 || d.failure == "" || d.failure == "private runtime detail" {
-		t.Fatal("launch failure not privately diagnosed")
-	}
-	s.shutdown()
-	if s.openTask(context.Background(), "owned") == nil || resolves != 2 {
-		t.Fatal("closed app launched a task")
-	}
-}
-
-func TestTerminalConfirmationCoalescesClicksAndCanBeCanceled(t *testing.T) {
-	s := newService(&memoryStore{value: defaults()})
-	d := &taskFakeDriver{fakeDriver: &fakeDriver{displays: []Rect{{0, 40, 1440, 860}}}}
-	s.start(d)
-	defer s.shutdown()
-	s.observeTasks([]api.TaskPreview{{ID: "owned"}})
-	s.resolveTaskTerminal = func(context.Context, string) (api.TerminalTarget, error) { return api.TerminalTarget{}, nil }
-	entered := make(chan struct{})
-	done := make(chan error, 1)
-	launches := 0
-	s.launchTaskTerminal = func(ctx context.Context, _ string, _ api.TerminalTarget) error {
-		launches++
-		close(entered)
-		<-ctx.Done()
-		return ctx.Err()
-	}
-	go func() { done <- s.openTask(t.Context(), "owned") }()
-	<-entered
-	s.mu.Lock()
-	opening := d.opening
-	s.mu.Unlock()
-	if opening != "owned" {
-		t.Fatal("pending launch not visible")
-	}
-	// Waiting belongs to this UI launch only, not the task projection or Bot.
-	s.observeTasks([]api.TaskPreview{{ID: "owned", Status: "completed"}})
-	if d.updates != 2 {
-		t.Fatal("terminal consent blocked task updates")
-	}
-	if err := s.openTask(t.Context(), "owned"); err != nil {
-		t.Fatal(err)
+	if err := s.openTask(t.Context(), "owned"); err != nil || clicks != 1 {
+		t.Fatal(err, clicks)
 	}
 	s.cancelTerminalOpening()
-	if err := <-done; !errors.Is(err, context.Canceled) {
-		t.Fatal(err)
+	if w.cancels != 1 {
+		t.Fatal("cancellation not sent to controller")
 	}
-	if launches != 1 || d.opening != "" || d.failure == "" {
-		t.Fatal("opening state not cleared", launches, d.opening, d.failure)
+	s.shutdown()
+	if s.openTask(t.Context(), "owned") == nil || clicks != 1 {
+		t.Fatal("stopped app dispatched work")
+	}
+}
+func TestWindowClicksDoNotWaitForOptionalPreview(t *testing.T) {
+	s, _ := taskService(t)
+	s.observeTasks([]api.TaskPreview{{ID: "owned"}})
+	entered, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	s.observeTaskTerminal = func(context.Context, string) { close(entered); <-release }
+	s.taskWindowChanged("owned", taskterminal.WindowEvent{Revision: 1, Phase: taskterminal.WindowIdle, State: taskterminal.WindowForeground})
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("preview did not start")
+	}
+	clicks := 0
+	s.taskWindows = &taskControllerStub{click: func(context.Context, string) error { clicks++; return nil }}
+	done := make(chan error, 1)
+	go func() { done <- s.openTask(t.Context(), "owned") }()
+	select {
+	case err := <-done:
+		if err != nil || clicks != 1 {
+			t.Fatal(err, clicks)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("preview blocked input")
+	}
+}
+func TestTaskDismissOnlyUnpinsAfterConfirmedClose(t *testing.T) {
+	s, d := taskService(t)
+	s.observeTasks([]api.TaskPreview{{ID: "owned"}})
+	removed, closed := 0, 0
+	s.removeTaskPin = func(string) error { removed++; return nil }
+	closeErr := errors.New("native close rejected")
+	s.taskWindows = &taskControllerStub{dismiss: func(context.Context, string) error { closed++; return closeErr }}
+	if err := s.dismissTask(t.Context(), "owned"); err == nil || removed != 0 || d.failure == "" {
+		t.Fatal(err, removed)
+	}
+	closeErr = nil
+	if err := s.dismissTask(t.Context(), "owned"); err != nil || removed != 1 {
+		t.Fatal(err, removed)
+	}
+	if err := s.dismissTask(t.Context(), "foreign"); err == nil || closed != 2 {
+		t.Fatal("foreign task closed", err)
+	}
+}
+func TestTaskDismissConsentIsNotFailureOrRemoval(t *testing.T) {
+	for _, outcome := range []error{taskterminal.ErrWindowCloseCancelled, taskterminal.ErrWindowClosePending, context.Canceled} {
+		t.Run(outcome.Error(), func(t *testing.T) {
+			s, d := taskService(t)
+			s.observeTasks([]api.TaskPreview{{ID: "owned"}})
+			removed := false
+			s.removeTaskPin = func(string) error { removed = true; return nil }
+			s.taskWindows = &taskControllerStub{dismiss: func(context.Context, string) error { return outcome }}
+			if err := s.dismissTask(t.Context(), "owned"); err != nil || removed || d.failure != "" {
+				t.Fatal(err, removed, d.failure)
+			}
+		})
+	}
+}
+func TestWindowFailureProjectionKeepsPrivateDetailsOutOfPrompt(t *testing.T) {
+	s, d := taskService(t)
+	cause := errors.New("private runtime detail")
+	reports := 0
+	s.taskError = func(_ string, err error) {
+		if err != cause {
+			t.Fatal(err)
+		}
+		reports++
+	}
+	s.taskWindowChanged("owned", taskterminal.WindowEvent{Revision: 1, Phase: taskterminal.WindowUncertain, Err: cause})
+	if reports != 1 || d.failure == "" || d.failure == cause.Error() {
+		t.Fatal("private failure projection", reports, d.failure)
 	}
 }

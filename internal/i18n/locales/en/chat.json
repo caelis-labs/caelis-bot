@@ -82,6 +82,7 @@
   "bubbleAriaLabel": "Caelis Bot update",
   "bubbleReviewAndDecide": "Review and decide",
   "bubbleOpenChat": "Open chat",
+  "bubbleOpenTasks": "Show background tasks",
   "bubbleThinking": "Thinking…",
   "bubbleSummaryAria": "{content} — {action}",
   "terminalFailed": "Could not complete",

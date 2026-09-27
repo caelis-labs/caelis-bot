@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
@@ -22,6 +23,9 @@ import (
 
 type record struct {
 	Sequence       int64    `json:"sequence,omitempty"`
+	Locked         bool     `json:"locked,omitempty"`
+	CompletedAt    int64    `json:"completedAt,omitempty"`
+	ActiveAt       int64    `json:"activeAt,omitempty"`
 	Pinned         *bool    `json:"pinned,omitempty"`
 	OriginalPrompt string   `json:"originalPrompt,omitempty"`
 	View           api.Task `json:"view"`
@@ -32,12 +36,14 @@ type record struct {
 	ReportState    string   `json:"reportState,omitempty"`
 }
 type state struct {
-	Sequence int64              `json:"sequence,omitempty"`
-	Version  int                `json:"version"`
-	Records  map[string]*record `json:"records"`
+	WatchOrder map[string][]string `json:"watchOrder,omitempty"`
+	Sequence   int64               `json:"sequence,omitempty"`
+	Version    int                 `json:"version"`
+	Records    map[string]*record  `json:"records"`
 }
 
 type Manager struct {
+	now                  func() time.Time
 	maxRunning           func() int
 	watchlistChanged     func([]api.TaskPreview)
 	mu                   sync.Mutex
@@ -92,7 +98,7 @@ func Open(path, root, provider string, work api.WorkRuntime, reports api.ReportS
 	if !filepath.IsAbs(path) || !filepath.IsAbs(root) || provider == "" || work == nil || reports == nil || snapshot == nil {
 		return nil, errors.New(i18n.Text(i18n.DefaultLocale, "host.taskHostConfigIncomplete", nil))
 	}
-	m := &Manager{path: path, root: root, provider: provider, work: work, reports: reports, snapshot: snapshot, state: state{Version: 1, Records: map[string]*record{}}}
+	m := &Manager{now: time.Now, path: path, root: root, provider: provider, work: work, reports: reports, snapshot: snapshot, state: state{Version: 1, Records: map[string]*record{}}}
 	if b, e := os.ReadFile(path); e == nil {
 		if json.Unmarshal(b, &m.state) != nil || m.state.Version != 1 || m.state.Records == nil {
 			return nil, errors.New(m.text("host.taskLedgerUnreadable"))
@@ -178,6 +184,13 @@ func (m *Manager) refresh() error {
 		}
 		if r.Provider != m.provider {
 			return errors.New(m.text("host.taskConflictOtherRuntime"))
+		}
+		if (r.Execution != "" && v.ExecutionKey != "" && r.Execution != v.ExecutionKey) || (terminal(r.View.Status) && !terminal(v.Task.Status)) {
+			pin := true
+			r.Pinned = &pin
+			r.CompletedAt = 0
+			r.ActiveAt = m.now().UnixMilli()
+			m.promoteWatchLocked(v.Task.ID)
 		}
 		r.View = v.Task
 		if r.OriginalPrompt == "" {
@@ -288,10 +301,11 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 		}
 	}
 	m.mu.Lock()
-	pinned := m.pinnedLocked() < PinnedLimit
-	r := &record{Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
+	pinned := true
+	r := &record{ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
 	m.state.Sequence++
 	r.Sequence = m.state.Sequence
+	m.promoteWatchLocked(id)
 	m.state.Records[id] = r
 	e := m.write()
 	if e != nil {
@@ -388,6 +402,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 			return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
 		}
 	}
+	defer m.notifyWatchlist()
 	v, e := m.work.SendWork(ctx, in)
 	return m.capture(in.ID, v, e)
 }

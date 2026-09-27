@@ -66,7 +66,9 @@
   use versioned finished variants; they do not change the Bot's conversation identity.
 - Public DMG releases require Developer ID signing, hardened runtime, secure
   timestamps, Apple notarization, stapled tickets and Gatekeeper acceptance.
-  Local/PR builds remain ad-hoc signed. Release credentials are restricted to the
+  Local/PR builds default to ad-hoc signing; a user-selected local Apple Development
+  identity may be pinned for stable development permissions (see `docs/development-signing.md`).
+  CI remains ad-hoc. Release credentials are restricted to the
   main-branch macos-release environment. Never describe a signed-only build as notarized.
 - Preserve unrelated changes. Commit and push require their own user authorization.
 

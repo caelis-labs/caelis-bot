@@ -2,6 +2,7 @@ package taskterminal
 
 import (
 	"context"
+	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"os"
 	"path/filepath"
@@ -9,6 +10,20 @@ import (
 	"testing"
 	"time"
 )
+
+func TestCustomTerminalStartFailureCanBeRepaired(t *testing.T) {
+	command := "/missing-terminal {script}"
+	m := testManager(t, func(ctx context.Context, path string) (Window, error) {
+		return nil, LaunchCustom(ctx, command, path)
+	})
+	if err := m.Click(t.Context(), "owned"); !errors.Is(err, ErrLaunchNotSubmitted) || !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("failed exec lost pre-launch evidence/cause", err)
+	}
+	command = "/bin/sh {script}"
+	if err := m.Click(t.Context(), "owned"); err != nil {
+		t.Fatal("repaired executable remained blocked", err)
+	}
+}
 
 func TestCustomTerminalParsesArgvAndDoesNotInterpolateScript(t *testing.T) {
 	script := "/private/folder with ' quotes/$(unexpected).command"

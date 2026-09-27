@@ -32,10 +32,18 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	permissionGuide     permissionGuide
 	taskPreferences     func() tasks.Preferences
 	saveTaskPreferences func(tasks.Preferences) (tasks.Preferences, error)
 	terminalChoices     func() []taskterminal.Choice
 	removeTaskPin       func(string) error
+	lockTaskPin         func(string, bool) error
+	clearTaskPins       func() error
+	moveTaskPin         func(string, string) error
+	observeTaskTerminal func(context.Context, string)
+	taskWindows         taskWindowController
+	taskWindowEvents    map[string]taskterminal.WindowEvent
+	taskWindowPrompt    string
 	languageMu          sync.Mutex
 	languageSaveMu      sync.Mutex
 	languageFile        string
@@ -44,16 +52,14 @@ type Service struct {
 	languageChanged     func(LanguageState)
 	taskPreviews        []api.TaskPreview
 	taskPreviewJSON     string
-	resolveTaskTerminal func(context.Context, string) (api.TerminalTarget, error)
-	launchTaskTerminal  func(context.Context, string, api.TerminalTarget) error
-	taskOpenMu          sync.Mutex
-	taskOpenCancel      context.CancelFunc
 	taskError           func(string, error)
 	needsIntroduction   func() bool
 	content             *contentpack.Registry
 	pickContentFile     func() (string, error)
 	contentChanged      func(contentpack.Appearance)
 	contentImportMu     sync.Mutex
+	taskShortcutFile    string
+	taskShortcut        ShortcutState
 	shortcutFile        string
 	shortcut            ShortcutState
 	ready               chan struct{}
@@ -124,6 +130,13 @@ func (s *Service) start(d driver) {
 			s.shortcut.Message = err.Error()
 		} else {
 			s.shortcut.Registered = s.shortcut.Shortcut.Enabled
+		}
+	}
+	if d, ok := d.(taskShortcutDriver); ok {
+		if err := d.registerTaskShortcut(s.taskShortcut.Shortcut); err != nil {
+			s.taskShortcut.Message = err.Error()
+		} else {
+			s.taskShortcut.Registered = s.taskShortcut.Shortcut.Enabled
 		}
 	}
 	s.placement = normalize(s.placement, d.screens())
@@ -366,8 +379,8 @@ func (s *Service) shutdown() {
 		return
 	}
 	s.stopped = true
-	if s.taskOpenCancel != nil {
-		s.taskOpenCancel()
+	if s.taskWindows != nil {
+		s.taskWindows.CancelAll()
 	}
 	_ = s.persist()
 	s.native.stop()

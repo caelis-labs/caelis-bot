@@ -31,14 +31,27 @@ func callTaskCatalog(provider api.TaskProvider, args json.RawMessage) (any, erro
 		return catalog.PinTask(in.ID, true)
 	case "unpin":
 		return catalog.PinTask(in.ID, false)
+	case "lock", "unlock", "clear":
+		watchlist, ok := provider.(api.TaskWatchlist)
+		if !ok {
+			return nil, errors.New("task watchlist unavailable")
+		}
+		if in.Operation == "clear" {
+			if err := watchlist.ClearTasks(); err != nil {
+				return nil, err
+			}
+			pinned := true
+			return catalog.QueryTasks(api.TaskQuery{Pinned: &pinned})
+		}
+		return watchlist.LockTask(in.ID, in.Operation == "lock")
 	default:
 		return nil, errors.New("unsupported task catalog operation")
 	}
 }
 func taskCatalogSpec() any {
-	return map[string]any{"name": "bot_tasks", "description": "Search and paginate this Bot's task history, or pin/unpin an owned task in the desktop watchlist. History has no task-count cap. list defaults to 20 items (max 50); reuse nextCursor with the same filters. Search matches title, original assignment or task handle; results omit transcripts. The response includes the current running limit (user preference, default 3) and pin limit (8). New tasks are unpinned. Pin work that the user needs to follow; unpin never stops work or deletes history. A full watchlist is an explicit error; choose an item to unpin, never evict silently. These operations never adopt unrelated conversations.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
-		"operation": map[string]any{"type": "string", "enum": []string{"list", "pin", "unpin"}},
-		"id":        map[string]any{"type": "string", "description": "Owned task handle for pin/unpin"},
+	return map[string]any{"name": "bot_tasks", "description": "Search this Bot's task history or manage its desktop background-task list. list defaults to 20 items (max 50); use nextCursor with the same filters. Responses omit transcripts and include the running admission limit (default 6). The display list has no capacity limit: new or resumed executions appear automatically, running tasks first. Completed unlocked items leave after 30 minutes. pin restores an item; unpin removes it and its lock until a new execution, without stopping work. lock pins and protects an item from automatic cleanup and clear; unlock starts the normal completed-item grace period. clear removes all unlocked items, including running items, without stopping workers or deleting history. Preserve explicit user removals during ordinary polling. Never adopt unrelated conversations.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
+		"operation": map[string]any{"type": "string", "enum": []string{"list", "pin", "unpin", "lock", "unlock", "clear"}},
+		"id":        map[string]any{"type": "string", "description": "Owned task handle for pin/unpin/lock/unlock"},
 		"query":     map[string]any{"type": "string", "maxLength": 500, "description": "Case-insensitive title, assignment or handle search"},
 		"status":    map[string]any{"type": "string", "description": "Optional exact task status filter"},
 		"pinned":    map[string]any{"type": "boolean", "description": "Optional list filter"},

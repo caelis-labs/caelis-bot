@@ -15,6 +15,9 @@ extern void desktopEvent(uintptr_t handle, int kind, double x, double y, double 
 extern void desktopTaskOpen(uintptr_t handle, char *identifier);
 extern void desktopTaskCancelOpening(uintptr_t handle);
 extern void desktopTaskUnpin(uintptr_t handle, char *identifier);
+extern void desktopTaskLock(uintptr_t handle, char *identifier, int locked);
+extern void desktopTaskMove(uintptr_t handle,char *identifier,char *before);
+extern void desktopTaskPlace(uintptr_t handle,char *identifier,double x,double y);
 static void bot_js(NSWindow *window, NSString *js);
 
 // Ordinary Spaces and other apps' full-screen Spaces are separate AppKit policies.
@@ -70,6 +73,11 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property int shortcutFlags;
 @property UInt32 shortcutID;
 @property BOOL shortcutDown;
+@property EventHotKeyRef taskShortcut;
+@property NSString *taskShortcutKey;
+@property int taskShortcutFlags;
+@property UInt32 taskShortcutID;
+@property BOOL taskShortcutDown;
 @property NSInteger panelContentHeight;
 @property NSInteger panelMenuHeight;
 @property double interactionStart;
@@ -495,9 +503,24 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     __weak BotHost *weak = host;
     host.taskDock=[BotTaskDock new];
     host.taskDock.language=host.language;
-    host.taskDock.openTask=^(NSString *identifier){if(weak.handle)desktopTaskOpen(weak.handle,(char *)identifier.UTF8String);};
+    host.taskDock.notice=^(NSString *message,BOOL pending){
+        NSData *data=[NSJSONSerialization dataWithJSONObject:@{@"message":message ?: @"",@"pending":@(pending)} options:0 error:nil];
+        NSString *json=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        if(json && weak.bubble)bot_js(weak.bubble,[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('terminal-notice',{detail:%@}))",json]);
+    };
+    host.taskDock.openTask=^(NSString *identifier){
+        // The Go consumer may run immediately on another thread. Let AppKit
+        // finish the nonactivating panel's mouse-up/focus transaction before
+        // it asks another app to become active; never race that transaction.
+        dispatch_async(dispatch_get_main_queue(),^{
+            if(weak.handle)desktopTaskOpen(weak.handle,(char *)identifier.UTF8String);
+        });
+    };
     host.taskDock.cancelOpening=^{if(weak.handle)desktopTaskCancelOpening(weak.handle);};
     host.taskDock.unpinTask=^(NSString *identifier){if(weak.handle)desktopTaskUnpin(weak.handle,(char *)identifier.UTF8String);};
+    host.taskDock.lockTask=^(NSString *identifier,BOOL locked){if(weak.handle)desktopTaskLock(weak.handle,(char *)identifier.UTF8String,locked);};
+    host.taskDock.reorderTask=^(NSString *identifier,NSString *before){if(weak.handle)desktopTaskMove(weak.handle,(char *)identifier.UTF8String,(char *)before.UTF8String);};
+    host.taskDock.placeTask=^(NSString *identifier,NSPoint p){if(weak.handle)desktopTaskPlace(weak.handle,(char *)identifier.UTF8String,p.x,p.y);};
     host.taskDock.gesture=^(NSString *name){if(weak.handle)bot_gesture((__bridge void *)weak,(char *)name.UTF8String);};
     BotPetInputView *view = [[BotPetInputView alloc] initWithFrame:surface.bounds];
     host.inputView = view;
@@ -675,6 +698,7 @@ void bot_destroy(void *pointer) {
     [host.taskDock stop];
     host.handle = 0;
     if(host.shortcut) UnregisterEventHotKey(host.shortcut);
+    if(host.taskShortcut) UnregisterEventHotKey(host.taskShortcut);
     if(host.shortcutHandler) RemoveEventHandler(host.shortcutHandler);
     if (host.globalMonitor) [NSEvent removeMonitor:host.globalMonitor];
     if (host.localMonitor) [NSEvent removeMonitor:host.localMonitor];
@@ -776,7 +800,13 @@ void bot_task_opening(void *pointer,char *identifier,char *message) {
 static OSStatus bot_hotkey(EventHandlerCallRef next, EventRef event, void *context) {
     BotHost *host=(__bridge BotHost *)context;
     EventHotKeyID key;
-    if(GetEventParameter(event,kEventParamDirectObject,typeEventHotKeyID,NULL,sizeof(key),NULL,&key)!=noErr || key.signature!='Cael' || key.id!=host.shortcutID) return eventNotHandledErr;
+    if(GetEventParameter(event,kEventParamDirectObject,typeEventHotKeyID,NULL,sizeof(key),NULL,&key)!=noErr) return eventNotHandledErr;
+    if(key.signature=='Caet' && key.id==host.taskShortcutID) {
+        BOOL down=GetEventKind(event)!=kEventHotKeyReleased;
+        if(down!=host.taskShortcutDown){host.taskShortcutDown=down;[host.taskDock setShortcutHeld:down];}
+        return noErr;
+    }
+    if(key.signature!='Cael' || key.id!=host.shortcutID)return eventNotHandledErr;
     if(GetEventKind(event)==kEventHotKeyReleased){host.shortcutDown=NO;return noErr;}
     if(host.shortcutDown)return noErr;
     host.shortcutDown=YES;
@@ -787,11 +817,21 @@ static OSStatus bot_hotkey(EventHandlerCallRef next, EventRef event, void *conte
     }
     return noErr;
 }
-int bot_shortcut(void *pointer,char *rawKey,int flags,int enabled) {
+void bot_toggle_tasks(void *pointer){[((__bridge BotHost *)pointer).taskDock toggle];}
+int bot_shortcut(void *pointer,char *rawKey,int flags,int enabled,int tasks) {
     BotHost *host=(__bridge BotHost *)pointer;
     NSString *key=[NSString stringWithUTF8String:rawKey];
-    if(!enabled){if(host.shortcut)UnregisterEventHotKey(host.shortcut);host.shortcut=NULL;return 0;}
-    if(host.shortcut && [host.shortcutKey isEqualToString:key] && host.shortcutFlags==flags)return 0;
+    EventHotKeyRef existing=tasks?host.taskShortcut:host.shortcut;
+    NSString *existingKey=tasks?host.taskShortcutKey:host.shortcutKey;
+    int existingFlags=tasks?host.taskShortcutFlags:host.shortcutFlags;
+    if(!enabled){
+        if(existing)UnregisterEventHotKey(existing);
+        if(tasks){host.taskShortcut=NULL;host.taskShortcutDown=NO;[host.taskDock setShortcutHeld:NO];}
+        else {host.shortcut=NULL;host.shortcutDown=NO;}
+        return 0;
+    }
+    if(existing && [existingKey isEqualToString:key] && existingFlags==flags)return 0;
+    if(tasks ? (host.shortcut && [host.shortcutKey isEqual:key] && host.shortcutFlags==flags) : (host.taskShortcut && [host.taskShortcutKey isEqual:key] && host.taskShortcutFlags==flags))return eventHotKeyExistsErr;
     NSDictionary *codes=@{@"Space":@49,@"KeyA":@0,@"KeyS":@1,@"KeyD":@2,@"KeyF":@3,@"KeyH":@4,@"KeyG":@5,@"KeyZ":@6,@"KeyX":@7,@"KeyC":@8,@"KeyV":@9,@"KeyB":@11,@"KeyQ":@12,@"KeyW":@13,@"KeyE":@14,@"KeyR":@15,@"KeyY":@16,@"KeyT":@17,@"KeyO":@31,@"KeyU":@32,@"KeyI":@34,@"KeyP":@35,@"KeyL":@37,@"KeyJ":@38,@"KeyK":@40,@"KeyN":@45,@"KeyM":@46,@"Digit1":@18,@"Digit2":@19,@"Digit3":@20,@"Digit4":@21,@"Digit6":@22,@"Digit5":@23,@"Digit9":@25,@"Digit7":@26,@"Digit8":@28,@"Digit0":@29,@"F1":@122,@"F2":@120,@"F3":@99,@"F4":@118,@"F5":@96,@"F6":@97,@"F7":@98,@"F8":@100,@"F9":@101,@"F10":@109,@"F11":@103,@"F12":@111};
     NSNumber *code=codes[key]; if(!code)return paramErr;
     if(!host.shortcutHandler){
@@ -815,11 +855,12 @@ int bot_shortcut(void *pointer,char *rawKey,int flags,int enabled) {
         if(reserved)return eventHotKeyExistsErr;
     }
     EventHotKeyRef registration=NULL;
-    EventHotKeyID identifier={'Cael',host.shortcutID+1};
+    EventHotKeyID identifier={tasks?'Caet':'Cael',(tasks?host.taskShortcutID:host.shortcutID)+1};
     OSStatus result=RegisterEventHotKey(code.unsignedIntValue,mods,identifier,GetApplicationEventTarget(),0,&registration);
     if(result!=noErr)return result;
-    if(host.shortcut)UnregisterEventHotKey(host.shortcut);
-    host.shortcutDown=NO;host.shortcut=registration;host.shortcutID=identifier.id;host.shortcutKey=key;host.shortcutFlags=flags;
+    if(existing)UnregisterEventHotKey(existing);
+    if(tasks){host.taskShortcutDown=NO;host.taskShortcut=registration;host.taskShortcutID=identifier.id;host.taskShortcutKey=key;host.taskShortcutFlags=flags;}
+    else {host.shortcutDown=NO;host.shortcut=registration;host.shortcutID=identifier.id;host.shortcutKey=key;host.shortcutFlags=flags;}
     return 0;
 }
 void bot_panel_ready(void *pointer,int activation){
@@ -848,4 +889,16 @@ void bot_language(void *pointer, char *json) {
     host.inputView.accessibilityLabel = [host text:@"petLabel"];
     host.inputView.accessibilityHelp = [host text:@"petActionHint"];
     host.statusItem.menu = [host applicationMenu];
+}
+
+void bot_task_snapshot(void *pointer,const char *identifier,const char *source) {
+    NSData *data=[[NSString stringWithUTF8String:source] dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *value=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if([value isKindOfClass:NSDictionary.class])[((__bridge BotHost *)pointer).taskDock captureTask:[NSString stringWithUTF8String:identifier] source:value];
+}
+
+void bot_task_transitions(void *pointer,char *data) {
+ NSData *json=[[NSString stringWithUTF8String:data] dataUsingEncoding:NSUTF8StringEncoding];
+ NSDictionary *value=[NSJSONSerialization JSONObjectWithData:json options:0 error:nil];
+ if([value isKindOfClass:NSDictionary.class])[((__bridge BotHost *)pointer).taskDock setTransitions:value];
 }

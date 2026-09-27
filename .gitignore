@@ -3,6 +3,7 @@ node_modules/
 dist/
 frontend/dist/
 .DS_Store
+.development-signing-identity
 .env
 .env.*
 !.env.example

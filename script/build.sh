@@ -5,6 +5,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
   echo 'The initial desktop build is qualified on macOS only.' >&2
   exit 1
 fi
+source "$BOT_ROOT/script/development-signing.sh"
 node script/asset-pack.mjs verify
 npm run build
 BOT_BUNDLE="$BOT_ROOT/dist/Caelis Bot.app"
@@ -35,6 +36,9 @@ rm -rf "$BOT_BUNDLE/Contents/Frameworks/Sparkle.framework"
 ditto "$BOT_SPARKLE_DIR/Sparkle.framework" "$BOT_BUNDLE/Contents/Frameworks/Sparkle.framework"
 cp "$BOT_SPARKLE_DIR/LICENSE" "$BOT_BUNDLE/Contents/Resources/Sparkle-LICENSE"
 node script/configure-updates.mjs "$BOT_BUNDLE/Contents/Info.plist"
-bash script/sign-sparkle.sh "$BOT_BUNDLE" -
-codesign --force --sign - --identifier dev.caelis.bot "$BOT_BUNDLE"
+bash script/sign-sparkle.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_IDENTITY" "$BOT_BUILD_SIGN_MODE"
+BOT_BUILD_SIGN_ARGS=(--force --sign "$BOT_BUILD_SIGN_IDENTITY" --identifier dev.caelis.bot --entitlements "$BOT_ROOT/resources/macos/entitlements.plist")
+if [[ "$BOT_BUILD_SIGN_MODE" == development ]]; then BOT_BUILD_SIGN_ARGS+=(--options runtime --timestamp=none); fi
+codesign "${BOT_BUILD_SIGN_ARGS[@]}" "$BOT_BUNDLE"
+bash script/verify-signature.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_MODE"
 echo "Built $BOT_BUNDLE"
