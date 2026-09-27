@@ -22,5 +22,6 @@
 - (void)redo;
 - (void)drawMarks;
 - (NSBitmapImageRep *)render:(BOOL)background maximumEdge:(CGFloat)edge;
+- (BOOL)noteWithinLimit;
 - (NSDictionary *)writeToRoot:(NSString *)root error:(NSError **)error;
 @end

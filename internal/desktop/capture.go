@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 	"os"
@@ -29,6 +30,14 @@ type captureState struct {
 	capability func(context.Context) (api.ImageInputCapability, error)
 	submit     func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	snapshot   func() api.Snapshot
+}
+
+func (s *Service) configureCaptureBackend(back *backend.Service) {
+	s.capture.capability = back.ImageInput
+	s.capture.snapshot = func() api.Snapshot { return backend.ScreenSnapshot(back) }
+	s.capture.submit = func(ctx context.Context, input api.Submission, files []api.InputFile) (api.Receipt, error) {
+		return backend.SubmitScreen(ctx, back, input, files)
+	}
 }
 
 func (s *Service) configureCapture(root string) error {
@@ -199,7 +208,7 @@ func (s *Service) sendCapture(id string) {
 	}()
 	r, err := screeninput.Load(s.capture.root, id)
 	if err != nil {
-		s.publishCaptureReceipt(id, "rejected", "native.capture.saveFailed")
+		s.failCapturePreflight(id)
 		return
 	}
 	if r.Outcome == "unknown" || r.Outcome == "accepted" {
@@ -208,7 +217,7 @@ func (s *Service) sendCapture(id string) {
 	}
 	files, err := screeninput.Files(s.capture.root, r)
 	if err != nil {
-		s.publishCaptureReceipt(id, "rejected", "native.capture.saveFailed")
+		s.failCapturePreflight(id)
 		return
 	}
 	if s.capture.submit == nil {
@@ -228,6 +237,20 @@ func (s *Service) sendCapture(id string) {
 		outcome = "unknown"
 	}
 	s.finishCapture(r, outcome)
+}
+
+func (s *Service) failCapturePreflight(id string) {
+	s.capture.mu.Lock()
+	err := screeninput.DiscardUnsubmitted(s.capture.root, id)
+	s.capture.mu.Unlock()
+	if err == nil {
+		// No dispatch receipt existed. The native document can be edited and
+		// exported again, even if the invalid on-disk metadata could not load.
+		s.publishCaptureReceipt(id, "draft", "native.capture.invalidInput")
+	} else {
+		// An unreadable receipt must not become permission to resend.
+		s.publishCaptureReceipt(id, "unknown", "native.capture.saveFailed")
+	}
 }
 func (s *Service) finishCapture(r screeninput.Record, outcome string) {
 	s.capture.mu.Lock()
@@ -266,7 +289,11 @@ func (s *Service) discardCapture(id string) {
 		return
 	}
 	r, err := screeninput.Load(s.capture.root, id)
-	if err != nil || r.Outcome == "unknown" {
+	if err != nil {
+		_ = screeninput.DiscardUnsubmitted(s.capture.root, id)
+		return
+	}
+	if r.Outcome == "unknown" {
 		return
 	}
 	if dir, err := screeninput.Directory(s.capture.root, id); err == nil {

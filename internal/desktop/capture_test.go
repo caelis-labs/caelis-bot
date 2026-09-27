@@ -7,8 +7,10 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 )
@@ -179,5 +181,124 @@ func TestCaptureStorageFailureDoesNotRemoveLocalShortcuts(t *testing.T) {
 	}
 	if s.capture.shortcuts[0].Shortcut.Key != "F1" || s.capture.shortcuts[1].Shortcut.Key != "F3" {
 		t.Fatal("Ask Bot storage failure disabled capture/clipboard")
+	}
+}
+
+// Exercise the same backend wiring as the native product, including its outbox.
+type captureRuntime struct {
+	api.Engine
+	snapshot api.Snapshot
+	submit   func(api.Submission) api.Receipt
+}
+
+func (e *captureRuntime) Snapshot() api.Snapshot { return e.snapshot }
+func (e *captureRuntime) ImageInput(context.Context) (api.ImageInputCapability, error) {
+	return api.ImageInputCapability{State: "supported"}, nil
+}
+func (e *captureRuntime) Submit(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+	return e.submit(in), nil
+}
+func TestCaptureReconciliationIgnoresBackendOutbox(t *testing.T) {
+	for _, outcome := range []string{"unknown", "rejected"} {
+		t.Run(outcome, func(t *testing.T) {
+			s, d, id := captureFixture(t)
+			engine := &captureRuntime{}
+			back := backend.NewService(engine, nil, nil, nil, nil)
+			s.configureCaptureBackend(back)
+			var request string
+			checkKept := func(want string) {
+				t.Helper()
+				r, err := screeninput.Load(s.capture.root, id)
+				if err != nil || r.Outcome != want {
+					t.Fatalf("capture lost authority boundary: %+v %v, want %s", r, err, want)
+				}
+				for _, receipt := range d.receipts {
+					if receipt["outcome"] == "accepted" {
+						t.Fatal("optimistic item closed capture")
+					}
+				}
+			}
+			engine.submit = func(in api.Submission) api.Receipt {
+				request = in.ID
+				projected := back.Snapshot()
+				if len(projected.Items) != 1 || projected.Items[0].ID != "outgoing:"+in.ID || projected.Items[0].Status != "sending" {
+					t.Fatal("fixture missed real staged outbox", projected.Items)
+				}
+				s.refreshCapture()
+				checkKept("unknown")
+				return api.Receipt{ID: in.ID, Outcome: outcome}
+			}
+			s.sendCapture(id)
+			checkKept(outcome)
+			s.refreshCapture()
+			checkKept(outcome)
+			if outcome == "unknown" {
+				engine.snapshot.Items = []api.Item{{ID: "native-input", Kind: "user", RequestID: request}}
+				s.refreshCapture()
+				if _, err := os.Stat(filepath.Join(s.capture.root, id)); !os.IsNotExist(err) {
+					t.Fatal("native acceptance did not clean capture", err)
+				}
+				if d.receipts[len(d.receipts)-1]["outcome"] != "accepted" {
+					t.Fatal("native acceptance not presented")
+				}
+			}
+		})
+	}
+}
+
+func TestCaptureInvalidExportReturnsEditableDraft(t *testing.T) {
+	for _, invalid := range []string{"note", "image"} {
+		for _, receipt := range []string{"", "unknown", "corrupt"} {
+			t.Run(invalid+"/"+receipt, func(t *testing.T) {
+				s, d, id := captureFixture(t)
+				dir := filepath.Join(s.capture.root, id)
+				if receipt != "" {
+					data := []byte(`{"requestId":"screen-uncertain","outcome":"unknown"}`)
+					if receipt == "corrupt" {
+						data = []byte("corrupt")
+					}
+					if err := os.WriteFile(filepath.Join(dir, "receipt.json"), data, 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if invalid == "note" {
+					data, _ := json.Marshal(screeninput.Snapshot{Version: 1, ID: id, Source: "clipboard", Note: strings.Repeat("汉", 1366)})
+					if err := os.WriteFile(filepath.Join(dir, "capture.json"), data, 0600); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.Remove(filepath.Join(dir, "selection.png")); err != nil {
+					t.Fatal(err)
+				}
+				s.capture.submit = func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+					t.Fatal("invalid or uncertain capture dispatched")
+					return api.Receipt{}, nil
+				}
+				s.sendCapture(id)
+				want := "draft"
+				if receipt != "" {
+					want = "unknown"
+				}
+				if len(d.receipts) != 1 || d.receipts[0]["outcome"] != want {
+					t.Fatalf("receipt = %v, want %s", d.receipts, want)
+				}
+				s.discardCapture(id)
+				_, err := os.Stat(dir)
+				if receipt == "" && !os.IsNotExist(err) || receipt != "" && err != nil {
+					t.Fatal("wrong invalid-export retention", err)
+				}
+			})
+		}
+	}
+}
+
+func TestDiscardInvalidUnsubmittedCapture(t *testing.T) {
+	s, _, id := captureFixture(t)
+	dir := filepath.Join(s.capture.root, id)
+	if err := os.WriteFile(filepath.Join(dir, "capture.json"), []byte("broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.discardCapture(id)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatal("invalid unsubmitted export orphaned", err)
 	}
 }

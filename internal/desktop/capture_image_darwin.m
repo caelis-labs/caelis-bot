@@ -2,6 +2,19 @@
 #import "capture_image_darwin.h"
 #include <math.h>
 
+// Match screeninput's UTF-8 limits. Optional OS metadata may be shortened;
+// user-authored notes must remain intact for correction instead of truncation.
+static NSString *boundedUTF8(NSString *value, NSUInteger maximum) {
+    NSData *data=[(value?:@"") dataUsingEncoding:NSUTF8StringEncoding];
+    if(data.length<=maximum)return value?:@"";
+    while(maximum>0) {
+        NSString *prefix=[[NSString alloc] initWithData:[data subdataWithRange:NSMakeRange(0,maximum)] encoding:NSUTF8StringEncoding];
+        if(prefix)return prefix;
+        maximum--;
+    }
+    return @"";
+}
+
 static NSRect markRect(NSDictionary *mark) {
     NSPoint a=[mark[@"a"] pointValue],b=[mark[@"b"] pointValue];
     return NSMakeRect(MIN(a.x,b.x),MIN(a.y,b.y),fabs(a.x-b.x),fabs(a.y-b.y));
@@ -97,7 +110,15 @@ static NSBitmapImageRep *bitmap(NSInteger width,NSInteger height) {
     NSGraphicsContext.currentContext=old;
     return rep;
 }
+- (BOOL)noteWithinLimit {
+    NSData *data=[(self.note?:@"") dataUsingEncoding:NSUTF8StringEncoding];
+    return data && data.length<=4096;
+}
 - (NSDictionary *)writeToRoot:(NSString *)root error:(NSError **)error {
+    if(![self noteWithinLimit]) {
+        if(error)*error=[NSError errorWithDomain:@"CaelisCapture" code:1 userInfo:@{NSLocalizedDescriptionKey:@"Note exceeds 4096 UTF-8 bytes"}];
+        return nil;
+    }
     if(!self.identifier.length)self.identifier=NSUUID.UUID.UUIDString;
     NSString *dir=[root stringByAppendingPathComponent:self.identifier];
     if(![NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:error])return nil;
@@ -110,7 +131,7 @@ static NSBitmapImageRep *bitmap(NSInteger width,NSInteger height) {
     }
     if(!crop || crop.length>8*1024*1024)return nil;
     if(![crop writeToFile:[dir stringByAppendingPathComponent:@"selection.png"] options:NSDataWritingAtomic error:error])return nil;
-    NSMutableDictionary *meta=[@{@"version":@1,@"id":self.identifier,@"capturedAt":self.capturedAt,@"application":self.applicationName,@"windowTitle":self.windowTitle,@"source":self.source,@"note":self.note?:@"",@"background":@NO,@"backgroundWidth":@0,@"backgroundHeight":@0,@"selection":@{@"x":@0,@"y":@0,@"width":@0,@"height":@0}} mutableCopy];
+    NSMutableDictionary *meta=[@{@"version":@1,@"id":self.identifier,@"capturedAt":self.capturedAt,@"application":boundedUTF8(self.applicationName,512),@"windowTitle":boundedUTF8(self.windowTitle,2048),@"source":self.source,@"note":self.note?:@"",@"background":@NO,@"backgroundWidth":@0,@"backgroundHeight":@0,@"selection":@{@"x":@0,@"y":@0,@"width":@0,@"height":@0}} mutableCopy];
     if(self.includeBackground && [self.source isEqual:@"screen"]) {
         NSBitmapImageRep *rep=[self render:YES maximumEdge:2400];
         NSData *data=[rep representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor:@0.85}];

@@ -73,12 +73,45 @@ int main(int argc,char **argv) {
         [owner ask:pin];assert(deliveries==1);
         [owner receipt:@{@"id":doc.identifier,@"outcome":@"unknown",@"message":@"Unknown"}];assert(owner.pins.count==1);
         [owner receipt:@{@"id":doc.identifier,@"outcome":@"accepted",@"message":@"Accepted"}];assert(owner.pins.count==0);
+        // UTF-8 note limits must reject before allocating an ID or closing the editor.
+        for(NSString *note in @[[ @"" stringByPaddingToLength:4097 withString:@"a" startingAtIndex:0],[@"" stringByPaddingToLength:1366 withString:@"汉" startingAtIndex:0]]) {
+            BotCaptureDocument *invalid=fixtureDocument();[owner pinDocument:invalid at:frame.origin];
+            BotCaptureCanvas *view=(BotCaptureCanvas *)owner.pins.lastObject.contentView;
+            [view buildToolbar];view.noteEditor.stringValue=note;
+            [view askAction:nil];
+            assert(deliveries==1&&!invalid.identifier.length&&view.noteEditor.editable&&[invalid.outcome isEqual:@"draft"]);
+            assert([view.statusLabel.stringValue containsString:@"4096"]);
+            assert([invalid.note isEqual:note]);
+            error=nil;assert(![invalid writeToRoot:root error:&error]&&error&&!invalid.identifier.length);
+            [view destroyPin:nil];
+        }
+        // Boundary notes survive unchanged; optional OS text truncates at UTF-8 boundaries.
+        for(NSString *note in @[[ @"" stringByPaddingToLength:4096 withString:@"a" startingAtIndex:0],[@"" stringByPaddingToLength:1365 withString:@"汉" startingAtIndex:0]]) {
+            BotCaptureDocument *bounded=fixtureDocument();bounded.note=note;
+            bounded.applicationName=[@"" stringByPaddingToLength:1000 withString:@"汉" startingAtIndex:0];
+            bounded.windowTitle=[@"" stringByPaddingToLength:1000 withString:@"汉" startingAtIndex:0];
+            NSDictionary *saved=[bounded writeToRoot:root error:&error];assert(saved&&[saved[@"note"] isEqual:note]);
+            assert([saved[@"application"] lengthOfBytesUsingEncoding:NSUTF8StringEncoding]==510);
+            assert([saved[@"windowTitle"] lengthOfBytesUsingEncoding:NSUTF8StringEncoding]==2046);
+        }
+        // A proven pre-dispatch failure unlocks the same in-memory selection and note.
+        BotCaptureDocument *retry=fixtureDocument();retry.note=@"Please translate this";
+        [owner pinDocument:retry at:frame.origin];BotCaptureCanvas *retryPin=(BotCaptureCanvas *)owner.pins.lastObject.contentView;
+        [owner ask:retryPin];assert(deliveries==2&&!retryPin.noteEditor.editable);
+        NSString *failedID=retry.identifier;
+        [owner receipt:@{@"id":failedID,@"outcome":@"draft",@"message":@"Prepare again"}];
+        assert(!retry.identifier.length&&retryPin.noteEditor.editable&&retryPin.contextButton.enabled);
+        assert([retryPin.noteEditor.stringValue isEqual:@"Please translate this"]&&retry.marks.count==3);
+        retryPin.noteEditor.stringValue=@"Translate the selected paragraph";[retryPin askAction:nil];
+        assert(deliveries==3&&![retry.identifier isEqual:failedID]);
+        assert([retry.note isEqual:@"Translate the selected paragraph"]);
+        [owner receipt:@{@"id":retry.identifier,@"outcome":@"accepted",@"message":@"Accepted"}];
         // Failed persistence must leave editing available and never deliver.
         [@"blocked" writeToFile:[root stringByAppendingPathComponent:@"blocked"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
         owner.root=[root stringByAppendingPathComponent:@"blocked"];
         BotCaptureDocument *unsaved=fixtureDocument();[owner pinDocument:unsaved at:frame.origin];
         BotCaptureCanvas *unsavedPin=(BotCaptureCanvas *)owner.pins.lastObject.contentView;
-        [owner ask:unsavedPin];assert(deliveries==1&&!unsaved.identifier.length&&[unsaved.outcome isEqual:@"draft"]);
+        [owner ask:unsavedPin];assert(deliveries==3&&!unsaved.identifier.length&&[unsaved.outcome isEqual:@"draft"]);
         [owner stop];[[NSFileManager defaultManager] removeItemAtPath:root error:nil];
         puts("CAPTURE NATIVE PASS: crop/context redaction, pixels, pin viewport, capability gate and receipt lifecycle");
     }

@@ -145,3 +145,58 @@ func TestScreenPresentationPreservesModelMaterial(t *testing.T) {
 		t.Fatal("ordinary input was collapsed")
 	}
 }
+
+func TestMetadataUTF8LimitsAndJSONEscaping(t *testing.T) {
+	for _, note := range []string{strings.Repeat("a", 4096), strings.Repeat("汉", 1365), strings.Repeat("\x00", 4096), strings.Repeat("a", 4097), strings.Repeat("汉", 1366)} {
+		root, r := fixture(t, false)
+		r.Snapshot.Note = note
+		r.Snapshot.Application = strings.Repeat("\x00", 512)
+		r.Snapshot.WindowTitle = strings.Repeat("\x00", 2048)
+		data, _ := json.Marshal(r.Snapshot)
+		if err := os.WriteFile(filepath.Join(root, r.Snapshot.ID, "capture.json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := Load(root, r.Snapshot.ID)
+		if len(note) <= 4096 {
+			if err != nil || loaded.Snapshot.Note != note {
+				t.Fatal("valid bounded text rejected", err)
+			}
+		} else if err == nil {
+			t.Fatal("oversized UTF-8 note accepted")
+		}
+	}
+}
+
+func TestUnsubmittedCleanupRequiresAbsentReceipt(t *testing.T) {
+	for _, kind := range []string{"missing", "corrupt", "unknown", "rejected", "accepted", "symlink", "directory"} {
+		t.Run(kind, func(t *testing.T) {
+			root, r := fixture(t, false)
+			dir := filepath.Join(root, r.Snapshot.ID)
+			path := filepath.Join(dir, "receipt.json")
+			var err error
+			switch kind {
+			case "missing":
+			case "corrupt":
+				err = os.WriteFile(path, []byte("broken"), 0600)
+			case "symlink":
+				err = os.Symlink(filepath.Join(dir, "nonexistent"), path)
+			case "directory":
+				err = os.Mkdir(path, 0700)
+			default:
+				r.RequestID, r.Outcome = "screen-request-1", kind
+				err = SaveReceipt(root, r)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = DiscardUnsubmitted(root, r.Snapshot.ID)
+			if (err == nil) != (kind == "missing") {
+				t.Fatal("incorrect cleanup authority", err)
+			}
+			_, err = os.Stat(dir)
+			if kind == "missing" && !os.IsNotExist(err) || kind != "missing" && err != nil {
+				t.Fatal("wrong receipt retention", err)
+			}
+		})
+	}
+}

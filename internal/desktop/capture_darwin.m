@@ -537,10 +537,13 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     if(![self.availability[@"state"] isEqual:@"supported"]){[canvas updateAvailability];return;}
     BotCaptureDocument *doc=canvas.document;
     if([doc.outcome isEqual:@"unknown"]||[doc.outcome isEqual:@"accepted"]||NSIsEmptyRect(doc.selection))return;
+    if(![doc noteWithinLimit]) {
+        [canvas showMessage:[self text:@"capture.noteTooLong" fallback:@"Note is too long (maximum 4096 UTF-8 bytes). Shorten it and try again."]];return;
+    }
     if(!canvas.restored) {
         NSError *error=nil;NSString *previousID=doc.identifier;
         if(![doc writeToRoot:self.root error:&error]){
-            if(!previousID.length){
+            if(!previousID.length&&doc.identifier.length){
                 NSString *partial=[self.root stringByAppendingPathComponent:doc.identifier];
                 [NSFileManager.defaultManager removeItemAtPath:partial error:nil];doc.identifier=nil;
             }
@@ -560,6 +563,12 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
         BotCaptureCanvas *canvas=(BotCaptureCanvas *)pin.contentView;
         if(![canvas.document.identifier isEqual:result[@"id"]])continue;
         canvas.document.outcome=result[@"outcome"];
+        if([result[@"outcome"] isEqual:@"draft"]) {
+            canvas.document.identifier=nil;
+            // Restored documents only retain the rendered selection in memory.
+            if(canvas.restored){canvas.document.includeBackground=NO;canvas.restored=NO;}
+            [canvas buildToolbar];
+        }
         if([result[@"outcome"] isEqual:@"accepted"]){[canvas.toolbarPanel close];[pin close];[self.pins removeObject:(BotCapturePanel *)pin];}
         else {[canvas updateAvailability];[canvas showMessage:result[@"message"]];}
     }

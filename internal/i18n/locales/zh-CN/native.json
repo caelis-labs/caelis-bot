@@ -134,5 +134,7 @@
   "capture.tool.rectangle": "矩形",
   "capture.tool.text": "文字",
   "capture.tool.mosaic": "马赛克",
-  "capture.tool.redact": "实色遮盖"
+  "capture.tool.redact": "实色遮盖",
+  "capture.noteTooLong": "备注过长（最多 4096 个 UTF-8 字节），请缩短后重试。",
+  "capture.invalidInput": "截图未能准备好，选区和备注已恢复编辑，可修改后重试。"
 }

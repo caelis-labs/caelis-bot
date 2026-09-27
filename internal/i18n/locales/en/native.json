@@ -134,5 +134,7 @@
   "capture.tool.rectangle": "Rectangle",
   "capture.tool.text": "Text",
   "capture.tool.mosaic": "Mosaic",
-  "capture.tool.redact": "Opaque redaction"
+  "capture.tool.redact": "Opaque redaction",
+  "capture.noteTooLong": "Note is too long (maximum 4096 UTF-8 bytes). Shorten it and try again.",
+  "capture.invalidInput": "Could not prepare this screenshot. Your selection and note are editable; try again."
 }

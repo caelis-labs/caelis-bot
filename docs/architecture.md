@@ -1110,7 +1110,9 @@ The native owner alone calls the standalone `backend.SubmitScreen` function. Thi
 cannot consume the normal composer draft or accept renderer-supplied local paths.
 The backend and adapter validate current resident-model image support before dispatch.
 A durable unknown receipt precedes sending; exact request identity reconciles later
-acceptance, and native restoration never retries unknown delivery. Model uncertainty
+acceptance from the raw adapter snapshot, never the presentation outbox. Native restoration
+never retries unknown delivery. A preflight failure can unlock the in-memory document
+only when no dispatch receipt exists; unreadable receipts remain uncertain. Model uncertainty
 is separate from delivery uncertainty. Bot skill guidance owns intent interpretation
 and confirmed habit learning through the existing notebook. See
-[screen input v1](design/screen-input-v1.md), including the current Caelis capability gap.
+[screen input v1](design/screen-input-v1.md) for negotiated model support and limits.

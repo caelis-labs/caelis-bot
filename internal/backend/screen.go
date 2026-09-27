@@ -7,6 +7,17 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
+// ScreenSnapshot exposes only authoritative runtime facts to native capture
+// recovery. The presentation outbox in Service.Snapshot is not delivery evidence.
+func ScreenSnapshot(s *Service) api.Snapshot {
+	s.admission.RLock()
+	defer s.admission.RUnlock()
+	if s.restarting || s.setupRequired {
+		return api.Snapshot{}
+	}
+	return s.engine.Snapshot()
+}
+
 func (s *Service) ImageInput(ctx context.Context) (api.ImageInputCapability, error) {
 	s.admission.RLock()
 	defer s.admission.RUnlock()

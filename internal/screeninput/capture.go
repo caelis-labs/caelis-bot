@@ -59,6 +59,19 @@ func Directory(root, id string) (string, error) {
 	}
 	return dir, nil
 }
+
+// DiscardUnsubmitted cleans invalid exports without trusting their metadata.
+// Any receipt, including an unreadable one, forbids this pre-dispatch recovery.
+func DiscardUnsubmitted(root, id string) error {
+	dir, err := Directory(root, id)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "receipt.json")); !errors.Is(err, os.ErrNotExist) {
+		return errors.New("capture may have been submitted")
+	}
+	return os.RemoveAll(dir)
+}
 func readFile(path string, max int64) ([]byte, error) {
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() > max {
@@ -71,7 +84,9 @@ func Load(root, id string) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	data, err := readFile(filepath.Join(dir, "capture.json"), 32<<10)
+	// Allow JSON escaping of all bounded text fields without rejecting a valid
+	// native export (each UTF-8 byte can occupy up to six bytes in JSON).
+	data, err := readFile(filepath.Join(dir, "capture.json"), 64<<10)
 	if err != nil {
 		return Record{}, err
 	}
