@@ -1,5 +1,14 @@
 # 实现与验证状态
 
+## 2026-09-27 模型能力 review 修复
+
+- Caelis #80 的能力查询现在重读持久化 AppConfig，模型选择/应用 revision 不变时也能观察模型目录更新；
+  保留旧进程 lookup 的回归在修复前失败，修复后通过，读取失败不会回退到旧声明。
+- Bot #30 的 Codex 截图测试原先把后台引用刷新导致的 UI revision 变化误判成发送；改为检查没有
+  派发原生 turn、没有暂存输入。原测试重复运行可复现失败，修正后 race 重复 100 次及 `make check` 通过。
+- 修复后的 Core 候选二进制重跑隔离 Host B00–B14 通过；日志 `.cache/screen-review-{codex-before,codex-after,check,host}.log`。
+  无 Bot skill 增量：本轮只修复模型能力来源和测试断言，用户操作、理解/学习工作流与授权边界不变。
+
 ## 2026-09-27 屏幕快捷输入（本地，未发布）
 
 - 实现范围、能力降级和未验收项见 [screen input v1](design/screen-input-v1.md)。
@@ -9,7 +18,7 @@
   `.cache/capture-{check,smoke,build,race,native}.log`，最后的存储失败恢复补验为 `.cache/capture-race-final.log`。
   Codex wire fixture 验证两张 native localImage 和附件副本生命周期；没有发送真实模型请求。
 
-- Caelis 增量协议固定于 `addc06614124714e4d604c57ba207ccea836db2a`（基于最新主线 `dd1cb96d`）；
+- Caelis 增量协议固定于 `334c4274dbb1113490f5f0905fa04f9bef7e48e1`（基于最新主线 `dd1cb96d`）；
   可选握手能力 `application-model-capabilities-v1`，旧 Host 普通功能保持兼容。
 - Core 候选二进制 + 隔离 Store + 合成 provider 的 B00–B14 全部通过；B14 验证当前模型的
   图片能力、文本模型拒绝、切回图片模型恢复，以及选区 PNG、背景 JPEG 的原始字节和元数据到达 provider。

@@ -199,10 +199,20 @@ func TestScreenModelCapabilitySwitchAndDispatchRecheck(t *testing.T) {
 			t.Fatal(got, err)
 		}
 		if choice.state != "supported" {
-			before := s.Snapshot()
 			receipt, err := s.Submit(t.Context(), api.Submission{ID: "screen-" + choice.model, Text: "synthetic", ScreenInput: true}, nil)
-			if err != nil || receipt.Outcome != "rejected" || s.Snapshot().Revision != before.Revision {
+			if err != nil || receipt.Outcome != "rejected" {
 				t.Fatal("dispatch ignored gate", receipt, err)
+			}
+			// Reference refresh may independently advance the view revision.
+			// Assert the actual dispatch and pending input instead of UI timing.
+			f.mu.Lock()
+			starts := f.starts
+			f.mu.Unlock()
+			s.mu.Lock()
+			pending := s.binding.Pending != nil
+			s.mu.Unlock()
+			if starts != 0 || pending {
+				t.Fatal("rejected screen input was dispatched or staged", starts, pending)
 			}
 		}
 	}
@@ -213,6 +223,12 @@ func TestScreenModelCapabilitySwitchAndDispatchRecheck(t *testing.T) {
 	receipt, err := s.Submit(t.Context(), api.Submission{ID: "screen-stale-button", Text: "synthetic", ScreenInput: true}, nil)
 	if err != nil || receipt.Outcome != "rejected" {
 		t.Fatal(receipt, err)
+	}
+	f.mu.Lock()
+	starts := f.starts
+	f.mu.Unlock()
+	if starts != 0 {
+		t.Fatal("stale enabled button dispatched screen input", starts)
 	}
 }
 
