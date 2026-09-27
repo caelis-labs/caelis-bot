@@ -139,6 +139,9 @@ type RuntimeCheck struct {
 	Message   string `json:"message"`
 }
 type Submission struct {
+	// ScreenInput is host-only acquisition provenance, not an instruction or
+	// authority grant. Adapters recheck the resident model before dispatch.
+	ScreenInput bool `json:"-"`
 	// Scheduled is host-only presentation provenance, not an authorization grant.
 	Scheduled    bool     `json:"-"`
 	ID           string   `json:"id"`
@@ -186,6 +189,7 @@ type WorkExecutionSettings struct {
 	ServiceTier string `json:"serviceTier"`
 }
 type ModelOption struct {
+	ImageInput    *bool         `json:"imageInput"`
 	Model         string        `json:"model"`
 	Name          string        `json:"name"`
 	Description   string        `json:"description"`

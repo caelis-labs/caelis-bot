@@ -160,5 +160,12 @@
   "permissionChangeInSystem": "请在系统设置中关闭这项权限。",
   "permissionPrivacyTitle": "隐私说明",
   "permissionPrivacyBody": "终端预览仅缓存于本机内存，不上传、不发送给模型。Bot 不持续录屏，也不采集系统声音。",
-  "permissionMissingApp": "列表中没有 Caelis Bot？辅助功能和屏幕录制支持通过「＋」添加应用。可先在 Finder 中定位下面这个运行副本，再添加到对应列表。自动化需先完成针对终端的系统授权请求。"
+  "permissionMissingApp": "列表中没有 Caelis Bot？辅助功能和屏幕录制支持通过「＋」添加应用。可先在 Finder 中定位下面这个运行副本，再添加到对应列表。自动化需先完成针对终端的系统授权请求。",
+  "captureShortcutTitle": "屏幕快捷输入",
+  "captureShortcutToggle": "截图快捷键",
+  "captureShortcutDescription": "选区、标注、复制、贴图或 Ask Bot。Apple 键盘的功能键可能需要同时按 Fn。",
+  "pasteShortcutTitle": "桌面贴图",
+  "pasteShortcutToggle": "剪贴板贴图快捷键",
+  "pasteShortcutDescription": "将当前选区或剪贴板图片贴到桌面。",
+  "captureShortcutInvalid": "请使用 F1–F12，或带 Control、Option、Command 的组合键。"
 }

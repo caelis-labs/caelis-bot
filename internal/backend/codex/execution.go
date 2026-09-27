@@ -10,15 +10,47 @@ import (
 )
 
 type modelEntry struct {
-	Model                     string `json:"model"`
-	DisplayName               string `json:"displayName"`
-	Description               string `json:"description"`
-	IsDefault                 bool   `json:"isDefault"`
-	DefaultReasoningEffort    string `json:"defaultReasoningEffort"`
+	InputModalities           []string `json:"inputModalities"`
+	Model                     string   `json:"model"`
+	DisplayName               string   `json:"displayName"`
+	Description               string   `json:"description"`
+	IsDefault                 bool     `json:"isDefault"`
+	DefaultReasoningEffort    string   `json:"defaultReasoningEffort"`
 	SupportedReasoningEfforts []struct {
 		ReasoningEffort string `json:"reasoningEffort"`
 	} `json:"supportedReasoningEfforts"`
 	ServiceTiers []api.ServiceTier `json:"serviceTiers"`
+}
+
+func (s *Session) ImageInput(ctx context.Context) (api.ImageInputCapability, error) {
+	s.mu.Lock()
+	model := s.opts.Execution.Model
+	if model == "" {
+		model = s.residentExecution.Model
+	}
+	c, ready := s.client, s.state.Connection == "ready" && !s.closed && !s.closing
+	s.mu.Unlock()
+	out := api.ImageInputCapability{Model: model, State: "unknown"}
+	if !ready || c == nil {
+		return out, nil
+	}
+	catalog, err := c.models(ctx)
+	if err != nil {
+		return out, err
+	}
+	for _, m := range catalog {
+		if m.Model == model || model == "" && m.Default {
+			out.Model = m.Model
+			if m.ImageInput != nil {
+				out.State = "unsupported"
+				if *m.ImageInput {
+					out.State = "supported"
+				}
+			}
+			return out, nil
+		}
+	}
+	return out, nil
 }
 
 func (s *Session) Models(ctx context.Context) ([]api.ModelOption, error) {
@@ -66,7 +98,12 @@ func (c *Client) models(ctx context.Context) ([]api.ModelOption, error) {
 			if tiers == nil {
 				tiers = []api.ServiceTier{}
 			}
-			result = append(result, api.ModelOption{Model: m.Model, Name: m.DisplayName, Description: m.Description, Default: m.IsDefault, DefaultEffort: m.DefaultReasoningEffort, Efforts: efforts, ServiceTiers: tiers})
+			var imageInput *bool
+			if m.InputModalities != nil {
+				supported := slices.Contains(m.InputModalities, "image")
+				imageInput = &supported
+			}
+			result = append(result, api.ModelOption{Model: m.Model, Name: m.DisplayName, Description: m.Description, Default: m.IsDefault, DefaultEffort: m.DefaultReasoningEffort, Efforts: efforts, ServiceTiers: tiers, ImageInput: imageInput})
 		}
 		if page.NextCursor == "" {
 			return result, nil

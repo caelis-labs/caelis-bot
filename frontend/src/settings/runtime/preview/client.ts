@@ -4,9 +4,9 @@ import type { ConnectionFlow, RuntimeSettingsClient, RuntimeView } from '../type
 // entry point. It performs no network, credential, filesystem or process work.
 export function createPreviewClient(): RuntimeSettingsClient {
  const models = [
-  { model:'openai-codex/gpt-6-astra', name:'GPT-6 Astra', description:'OpenAI · 账号连接', default:true, defaultEffort:'high', efforts:['low','medium','high','xhigh'], serviceTiers:[{id:'priority',name:'Fast',description:'优先处理'}] },
-  { model:'xiaomi/mimo-v2.6-flash', name:'MiMo V2.6 Flash', description:'小米 · API Key', default:false, defaultEffort:'medium', efforts:['low','medium','high'], serviceTiers:[] },
-  { model:'grok/grok-4.6', name:'Grok 4.6', description:'Grok · 账号连接', default:false, defaultEffort:'high', efforts:['medium','high'], serviceTiers:[] },
+  { imageInput:null, model:'openai-codex/gpt-6-astra', name:'GPT-6 Astra', description:'OpenAI · 账号连接', default:true, defaultEffort:'high', efforts:['low','medium','high','xhigh'], serviceTiers:[{id:'priority',name:'Fast',description:'优先处理'}] },
+  { imageInput:null, model:'xiaomi/mimo-v2.6-flash', name:'MiMo V2.6 Flash', description:'小米 · API Key', default:false, defaultEffort:'medium', efforts:['low','medium','high'], serviceTiers:[] },
+  { imageInput:null, model:'grok/grok-4.6', name:'Grok 4.6', description:'Grok · 账号连接', default:false, defaultEffort:'high', efforts:['medium','high'], serviceTiers:[] },
  ];
  const profile = {runtime:'caelis',cliPath:'',caelisStore:''}, selection={model:models[0].model,effort:'high',serviceTier:''};
  const state: RuntimeView = {

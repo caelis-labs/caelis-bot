@@ -161,5 +161,12 @@
   "permissionChangeInSystem": "Turn this permission off in System Settings.",
   "permissionPrivacyTitle": "Privacy",
   "permissionPrivacyBody": "Terminal previews stay in local memory. They are never uploaded or sent to a model. Bot does not record continuously or capture system audio.",
-  "permissionMissingApp": "Caelis Bot missing from the list? Use the + button in Accessibility or Screen Recording to add the running copy shown below. Locate it in Finder first. Automation requires a system request for the selected terminal."
+  "permissionMissingApp": "Caelis Bot missing from the list? Use the + button in Accessibility or Screen Recording to add the running copy shown below. Locate it in Finder first. Automation requires a system request for the selected terminal.",
+  "captureShortcutTitle": "Screen input",
+  "captureShortcutToggle": "Capture screen",
+  "captureShortcutDescription": "Select, annotate, copy, pin or Ask Bot. Function keys may require Fn on Apple keyboards.",
+  "pasteShortcutTitle": "Image pins",
+  "pasteShortcutToggle": "Paste image to screen",
+  "pasteShortcutDescription": "Pin the selected capture or an image from the clipboard.",
+  "captureShortcutInvalid": "Use F1–F12, or a key with Control, Option or Command."
 }

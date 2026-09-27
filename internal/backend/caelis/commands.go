@@ -163,6 +163,13 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		receipt.Message = "Caelis 当前不能发送新消息"
 		return receipt, nil
 	}
+	if in.ScreenInput && !retry {
+		capability, err := s.ImageInput(ctx)
+		if err != nil || capability.State != "supported" {
+			receipt.Message = "当前 Bot 模型尚未确认支持图片，请切换到支持图片的模型"
+			return receipt, nil
+		}
+	}
 	if !retry && v.CanSend && s.tools != nil && s.tools.PrepareTurn != nil {
 		if e := s.tools.PrepareTurn(ctx); e != nil {
 			return receipt, e

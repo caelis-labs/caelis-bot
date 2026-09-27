@@ -40,6 +40,8 @@ they are relevant to the work:
 
 - [Memory](references/memory.md): when recalling earlier context, recording useful
   knowledge, correcting preferences, or preparing to resume substantial work.
+- [Screen input](references/screen-input.md): when the user points at screen
+  content, sends a screenshot snapshot, or corrects your interpretation of it.
 - [Tasks](references/tasks.md): before creating, continuing, stopping, or reviewing
   independent work, selecting its workspace, managing desktop pins, or handling a
   task or delayed command completion notice.

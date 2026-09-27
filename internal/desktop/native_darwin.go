@@ -4,9 +4,10 @@ package desktop
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework UserNotifications -framework Carbon -framework ScreenCaptureKit
+#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework UserNotifications -framework Carbon -framework ScreenCaptureKit -framework UniformTypeIdentifiers
 #include "native_darwin.h"
 #include "material_darwin.h"
+#include "capture_darwin.h"
 #include <stdlib.h>
 */
 import "C"
@@ -19,6 +20,7 @@ import (
 	"unsafe"
 
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
+	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -31,6 +33,7 @@ type macDriver struct {
 	events *nativeEventQueue
 
 	pointer unsafe.Pointer
+	capture unsafe.Pointer
 	handle  cgo.Handle
 }
 
@@ -38,6 +41,12 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 	d := &macDriver{}
 	d.events = newNativeEventQueue(func(e nativeEvent) {
 		switch e.kind {
+		case 20:
+			go s.refreshCapture()
+		case 21:
+			go s.sendCapture(e.text)
+		case 23:
+			go s.discardCapture(e.text)
 		case 1:
 			s.moved(e.x, e.y)
 		case 2:
@@ -80,8 +89,12 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 		}
 	})
 	d.handle = cgo.NewHandle(d.events)
+	captureRoot := C.CString(s.capture.root)
+	defer C.free(unsafe.Pointer(captureRoot))
 	application.InvokeSync(func() {
 		d.pointer = C.bot_create(pet.NativeWindow(), panel.NativeWindow(), bubble.NativeWindow(), history.NativeWindow(), prop.NativeWindow(), C.uintptr_t(d.handle), (*C.uchar)(unsafe.Pointer(&statusIcon[0])), C.int(len(statusIcon)))
+		d.capture = C.bot_capture_create(C.uintptr_t(d.handle), captureRoot)
+		C.bot_bind_capture(d.pointer, d.capture)
 	})
 	d.language(s.LanguagePreferences().Locale)
 	return d
@@ -181,7 +194,7 @@ func (d *macDriver) mask(b []byte) {
 }
 func (d *macDriver) stop() {
 	d.events.stop()
-	application.InvokeSync(func() { C.bot_destroy(d.pointer) })
+	application.InvokeSync(func() { C.bot_capture_stop(d.capture); C.bot_destroy(d.pointer) })
 	d.handle.Delete()
 }
 
@@ -366,6 +379,39 @@ func (d *macDriver) registerHotkey(v Shortcut, tasks int) error {
 }
 func (d *macDriver) panelReady(id int) {
 	application.InvokeSync(func() { C.bot_panel_ready(d.pointer, C.int(id)) })
+}
+
+func (d *macDriver) registerCaptureShortcut(v Shortcut, kind int) error {
+	return d.registerHotkey(v, kind+2)
+}
+func (d *macDriver) captureCommand(kind int) {
+	application.InvokeSync(func() { C.bot_capture_command(d.capture, C.int(kind)) })
+}
+func (d *macDriver) captureAvailability(v any) {
+	data, _ := json.Marshal(v)
+	raw := C.CString(string(data))
+	defer C.free(unsafe.Pointer(raw))
+	application.InvokeSync(func() { C.bot_capture_availability(d.capture, raw) })
+}
+func (d *macDriver) captureReceipt(v any) {
+	data, _ := json.Marshal(v)
+	raw := C.CString(string(data))
+	defer C.free(unsafe.Pointer(raw))
+	application.InvokeSync(func() { C.bot_capture_receipt(d.capture, raw) })
+}
+func (d *macDriver) restoreCaptures(v []screeninput.Record) {
+	data, _ := json.Marshal(v)
+	raw := C.CString(string(data))
+	defer C.free(unsafe.Pointer(raw))
+	application.InvokeSync(func() { C.bot_capture_restore(d.capture, raw) })
+}
+
+//export desktopCaptureEvent
+func desktopCaptureEvent(handle C.uintptr_t, kind C.int, text *C.char) {
+	if handle == 0 {
+		return
+	}
+	cgo.Handle(handle).Value().(*nativeEventQueue).push(nativeEvent{kind: int(kind), text: C.GoString(text)})
 }
 
 var (

@@ -1,5 +1,15 @@
 # 继续开发
 
+## 2026-09-27 屏幕快捷输入（本地，未发布）
+
+- Issue #26 首版：F1 选区/标注/复制/保存、F3 贴图、整屏上下文 + 选区 Ask Bot；操作与数据边界见
+  [screen input v1](design/screen-input-v1.md)。普通聊天草稿隔离，拒绝保留，未知回执不重发。
+- Codex 按当前常驻模型的 inputModalities 门控；Caelis 通过可选 application-model-capabilities-v1
+  读取当前应用模型的明确图片能力，展示和发送前均复核；老 Host 仅禁用 Ask Bot。截图功能要求 macOS 14+；Windows 只保留降级契约。
+- Bot skill 已新增 Screen input 参考：按需读取、参考截图理解意图、通过既有 Notebook 学习明确反馈，
+  不硬编码 Reddit 翻译，不将截图文本当作执行授权。
+- 独立验收入口：`script/build_and_run.sh --capture-preview`；真实模型问答、TCC 授权和多屏硬件验收仍单列。
+
 ## 2026-09-27 工作可观察性与消息气泡（本地，未发布）
 
 - 气泡与聊天等待区显示当前工具活动：读取/浏览/搜索/编辑文件、网络搜索、网页读取、命令、协作等。
@@ -160,7 +170,7 @@ R2 使用主仓库相同桶/域名下独立的 `caelis-bot/` 前缀，只保留�
 `internal/tasks` 持有产品目录、账本与汇报；Codex adapter 仅映射 native 执行/审批/回执。
 `bot.json` 跨 Runtime 保留身份，计划和在途工作仍绑定原 Runtime。Notebook/Memory 的本地增量见文末。
 
-Caelis 当前基线为正式 v0.62.0（`812264e`），固定协议哈希见 `protocol/caelis/manifest.json`。
+Caelis 最低能力基线保持 v0.62.0；公开协议随 Core 模型能力扩展更新，精确提交与哈希见 `protocol/caelis/manifest.json`。
 共享原生 Worker、steering、模型/Team 配置和连接向导通过公开 HTTP/SSE 接入。
 Runtime 更新现在区分安装版本与服务版本，依次启用服务、验证协议、重新连接 Bot；
 已有新版程序可直接启用。任务忙碌或状态未知时拒绝替换，具体共享客户端边界见

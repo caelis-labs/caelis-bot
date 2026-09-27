@@ -74,6 +74,9 @@ func (s *Service) SaveShortcut(v Shortcut) (ShortcutState, error) {
 		return s.shortcut, errors.New(s.text("native.shortcutUnavailable", nil))
 	}
 	old := s.shortcut.Shortcut
+	if s.captureShortcutConflict(v, 0) {
+		return s.shortcut, errors.New(s.text("native.shortcutConflict", nil))
+	}
 	if err := d.registerShortcut(v); err != nil {
 		return s.shortcut, err
 	}

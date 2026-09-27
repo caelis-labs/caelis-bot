@@ -94,6 +94,7 @@ export interface Item {
   artifacts: Array<Artifact>;
 }
 export interface ModelOption {
+  imageInput: boolean | null;
   model: string;
   name: string;
   description: string;

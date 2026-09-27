@@ -12,6 +12,7 @@
 #import "material_darwin.h"
 #import "pet_input_darwin.h"
 #import "task_dock_darwin.h"
+#import "capture_darwin.h"
 extern void desktopEvent(uintptr_t handle, int kind, double x, double y, double scale);
 extern void desktopTaskOpen(uintptr_t handle, char *identifier);
 extern void desktopTaskCancelOpening(uintptr_t handle);
@@ -32,6 +33,15 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 }
 
 @class BotHost;
+@interface BotHotkeySlot : NSObject
+@property EventHotKeyRef registration;
+@property NSString *key;
+@property int flags;
+@property UInt32 revision;
+@property BOOL down;
+@end
+@implementation BotHotkeySlot
+@end
 @interface BotInputPanel : NSPanel
 @property BOOL interactive;
 @end
@@ -40,6 +50,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (BOOL)canBecomeMainWindow { return NO; }
 @end
 @interface BotHost : NSObject <NSMenuDelegate, UNUserNotificationCenterDelegate>
+@property BotCapture *capture;
+@property NSArray<BotHotkeySlot *> *hotkeys;
 @property BotInputPanel *pet;
 @property NSWindow *panel;
 @property NSWindow *history;
@@ -70,17 +82,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property(readonly) BOOL pressing;
 @property BotPetInputView *inputView;
 @property NSTimer *dragCompletion;
-@property EventHotKeyRef shortcut;
 @property EventHandlerRef shortcutHandler;
-@property NSString *shortcutKey;
-@property int shortcutFlags;
-@property UInt32 shortcutID;
-@property BOOL shortcutDown;
-@property EventHotKeyRef taskShortcut;
-@property NSString *taskShortcutKey;
-@property int taskShortcutFlags;
-@property UInt32 taskShortcutID;
-@property BOOL taskShortcutDown;
 @property NSInteger panelContentHeight;
 @property NSInteger panelMenuHeight;
 @property double interactionStart;
@@ -237,6 +239,11 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (NSMenu *)applicationMenu {
     NSMenu *menu = [self petMenu];
     [menu addItem:NSMenuItem.separatorItem];
+    for(NSArray *entry in @[@[@"capture.start",NSStringFromSelector(@selector(startCapture:))],@[@"capture.paste",NSStringFromSelector(@selector(pasteCapture:))],@[@"capture.togglePins",NSStringFromSelector(@selector(toggleCapturePins:))]]) {
+        NSMenuItem *item=[menu addItemWithTitle:[self text:entry[0]] action:NSSelectorFromString(entry[1]) keyEquivalent:@""];
+        item.target=self;
+    }
+    [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *settings = [menu addItemWithTitle:[self text:@"settings"] action:@selector(openSettings:) keyEquivalent:@","];
     settings.target = self;
     NSMenuItem *updates = [menu addItemWithTitle:[self text:@"updates"] action:@selector(checkUpdates:) keyEquivalent:@""];
@@ -246,6 +253,9 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     quit.target = self;
     return menu;
 }
+- (void)startCapture:(id)sender {[self.capture capture];}
+- (void)pasteCapture:(id)sender {[self.capture paste];}
+- (void)toggleCapturePins:(id)sender {[self.capture togglePins];}
 - (void)installPreviewMenu {
     // Explicit developer opt-in belongs in the application menu bar, never on the pet.
     if ([NSProcessInfo.processInfo.environment[@"CAELIS_BOT_BEHAVIOR_PREVIEW"] isEqualToString:@"1"]) {
@@ -698,8 +708,7 @@ void bot_destroy(void *pointer) {
     [host.inputView cancelInteraction];
     [host.taskDock stop];
     host.handle = 0;
-    if(host.shortcut) UnregisterEventHotKey(host.shortcut);
-    if(host.taskShortcut) UnregisterEventHotKey(host.taskShortcut);
+    for(BotHotkeySlot *slot in host.hotkeys)if(slot.registration)UnregisterEventHotKey(slot.registration);
     if(host.shortcutHandler) RemoveEventHandler(host.shortcutHandler);
     if (host.globalMonitor) [NSEvent removeMonitor:host.globalMonitor];
     if (host.localMonitor) [NSEvent removeMonitor:host.localMonitor];
@@ -804,68 +813,56 @@ void bot_task_opening(void *pointer,char *identifier,char *message) {
 static OSStatus bot_hotkey(EventHandlerCallRef next, EventRef event, void *context) {
     BotHost *host=(__bridge BotHost *)context;
     EventHotKeyID key;
-    if(GetEventParameter(event,kEventParamDirectObject,typeEventHotKeyID,NULL,sizeof(key),NULL,&key)!=noErr) return eventNotHandledErr;
-    if(key.signature=='Caet' && key.id==host.taskShortcutID) {
-        BOOL down=GetEventKind(event)!=kEventHotKeyReleased;
-        if(down!=host.taskShortcutDown){host.taskShortcutDown=down;[host.taskDock setShortcutHeld:down];}
-        return noErr;
-    }
-    if(key.signature!='Cael' || key.id!=host.shortcutID)return eventNotHandledErr;
-    if(GetEventKind(event)==kEventHotKeyReleased){host.shortcutDown=NO;return noErr;}
-    if(host.shortcutDown)return noErr;
-    host.shortcutDown=YES;
-    if(host.handle) {
-        host.interactionStart=NSProcessInfo.processInfo.systemUptime;
-        [host trace:@"shortcut"];
-        desktopEvent(host.handle,11,0,0,0);
-    }
+    if(GetEventParameter(event,kEventParamDirectObject,typeEventHotKeyID,NULL,sizeof(key),NULL,&key)!=noErr || key.signature!='Cael')return eventNotHandledErr;
+    NSUInteger kind=key.id>>28;if(kind>=host.hotkeys.count)return eventNotHandledErr;
+    BotHotkeySlot *slot=host.hotkeys[kind];
+    if(!slot.registration||(key.id&0x0fffffff)!=slot.revision)return eventNotHandledErr;
+    BOOL down=GetEventKind(event)!=kEventHotKeyReleased;
+    if(slot.down==down)return noErr;slot.down=down;
+    if(kind==1){[host.taskDock setShortcutHeld:down];return noErr;}
+    if(!down)return noErr;
+    if(kind==2){[host.capture capture];return noErr;}
+    if(kind==3){[host.capture paste];return noErr;}
+    if(host.handle){host.interactionStart=NSProcessInfo.processInfo.systemUptime;[host trace:@"shortcut"];desktopEvent(host.handle,11,0,0,0);}
     return noErr;
 }
 void bot_toggle_tasks(void *pointer){[((__bridge BotHost *)pointer).taskDock toggle];}
-int bot_shortcut(void *pointer,char *rawKey,int flags,int enabled,int tasks) {
+int bot_shortcut(void *pointer,char *rawKey,int flags,int enabled,int kind) {
     BotHost *host=(__bridge BotHost *)pointer;
-    NSString *key=[NSString stringWithUTF8String:rawKey];
-    EventHotKeyRef existing=tasks?host.taskShortcut:host.shortcut;
-    NSString *existingKey=tasks?host.taskShortcutKey:host.shortcutKey;
-    int existingFlags=tasks?host.taskShortcutFlags:host.shortcutFlags;
-    if(!enabled){
-        if(existing)UnregisterEventHotKey(existing);
-        if(tasks){host.taskShortcut=NULL;host.taskShortcutDown=NO;[host.taskDock setShortcutHeld:NO];}
-        else {host.shortcut=NULL;host.shortcutDown=NO;}
-        return 0;
-    }
-    if(existing && [existingKey isEqualToString:key] && existingFlags==flags)return 0;
-    if(tasks ? (host.shortcut && [host.shortcutKey isEqual:key] && host.shortcutFlags==flags) : (host.taskShortcut && [host.taskShortcutKey isEqual:key] && host.taskShortcutFlags==flags))return eventHotKeyExistsErr;
+    if(kind<0||kind>3)return paramErr;
+    if(!host.hotkeys)host.hotkeys=@[[BotHotkeySlot new],[BotHotkeySlot new],[BotHotkeySlot new],[BotHotkeySlot new]];
+    BotHotkeySlot *slot=host.hotkeys[kind];NSString *key=[NSString stringWithUTF8String:rawKey];
+    if(!enabled){if(slot.registration)UnregisterEventHotKey(slot.registration);slot.registration=NULL;slot.down=NO;if(kind==1)[host.taskDock setShortcutHeld:NO];return noErr;}
+    if(slot.registration&&[slot.key isEqual:key]&&slot.flags==flags)return noErr;
+    for(BotHotkeySlot *other in host.hotkeys)if(other!=slot&&other.registration&&[other.key isEqual:key]&&other.flags==flags)return eventHotKeyExistsErr;
     NSDictionary *codes=@{@"Space":@49,@"KeyA":@0,@"KeyS":@1,@"KeyD":@2,@"KeyF":@3,@"KeyH":@4,@"KeyG":@5,@"KeyZ":@6,@"KeyX":@7,@"KeyC":@8,@"KeyV":@9,@"KeyB":@11,@"KeyQ":@12,@"KeyW":@13,@"KeyE":@14,@"KeyR":@15,@"KeyY":@16,@"KeyT":@17,@"KeyO":@31,@"KeyU":@32,@"KeyI":@34,@"KeyP":@35,@"KeyL":@37,@"KeyJ":@38,@"KeyK":@40,@"KeyN":@45,@"KeyM":@46,@"Digit1":@18,@"Digit2":@19,@"Digit3":@20,@"Digit4":@21,@"Digit6":@22,@"Digit5":@23,@"Digit9":@25,@"Digit7":@26,@"Digit8":@28,@"Digit0":@29,@"F1":@122,@"F2":@120,@"F3":@99,@"F4":@118,@"F5":@96,@"F6":@97,@"F7":@98,@"F8":@100,@"F9":@101,@"F10":@109,@"F11":@103,@"F12":@111};
-    NSNumber *code=codes[key]; if(!code)return paramErr;
+    NSNumber *code=codes[key];if(!code)return paramErr;
     if(!host.shortcutHandler){
         EventTypeSpec specs[]={{kEventClassKeyboard,kEventHotKeyPressed},{kEventClassKeyboard,kEventHotKeyReleased}};
-        EventHandlerRef handler=NULL;
-        OSStatus result=InstallEventHandler(GetApplicationEventTarget(),bot_hotkey,2,specs,pointer,&handler);
-        if(result!=noErr)return result;
-        host.shortcutHandler=handler;
+        EventHandlerRef handler=NULL;OSStatus result=InstallEventHandler(GetApplicationEventTarget(),bot_hotkey,2,specs,pointer,&handler);
+        if(result!=noErr)return result;host.shortcutHandler=handler;
     }
     UInt32 mods=0;if(flags&1)mods|=controlKey;if(flags&2)mods|=optionKey;if(flags&4)mods|=shiftKey;if(flags&8)mods|=cmdKey;
-    // RegisterEventHotKey alone does not reliably reject symbolic system keys.
     CFArrayRef symbolic=NULL;
-    if(CopySymbolicHotKeys(&symbolic)==noErr && symbolic){
-        BOOL reserved=NO;
-        for(NSDictionary *entry in (__bridge NSArray *)symbolic){
-            if([entry[(__bridge NSString *)kHISymbolicHotKeyEnabled] boolValue] &&
-               [entry[(__bridge NSString *)kHISymbolicHotKeyCode] unsignedIntValue]==code.unsignedIntValue &&
-               ([entry[(__bridge NSString *)kHISymbolicHotKeyModifiers] unsignedIntValue] & (controlKey|optionKey|shiftKey|cmdKey))==mods){reserved=YES;break;}
-        }
-        CFRelease(symbolic);
-        if(reserved)return eventHotKeyExistsErr;
+    if(CopySymbolicHotKeys(&symbolic)==noErr&&symbolic){
+        BOOL reserved=NO;for(NSDictionary *entry in (__bridge NSArray *)symbolic){
+            if([entry[(__bridge NSString *)kHISymbolicHotKeyEnabled] boolValue]&&[entry[(__bridge NSString *)kHISymbolicHotKeyCode] unsignedIntValue]==code.unsignedIntValue&&([entry[(__bridge NSString *)kHISymbolicHotKeyModifiers] unsignedIntValue]&(controlKey|optionKey|shiftKey|cmdKey))==mods){reserved=YES;break;}}
+        CFRelease(symbolic);if(reserved)return eventHotKeyExistsErr;
     }
-    EventHotKeyRef registration=NULL;
-    EventHotKeyID identifier={tasks?'Caet':'Cael',(tasks?host.taskShortcutID:host.shortcutID)+1};
+    UInt32 revision=(slot.revision+1)&0x0fffffff;
+    EventHotKeyRef registration=NULL;EventHotKeyID identifier={'Cael',((UInt32)kind<<28)|revision};
     OSStatus result=RegisterEventHotKey(code.unsignedIntValue,mods,identifier,GetApplicationEventTarget(),0,&registration);
     if(result!=noErr)return result;
-    if(existing)UnregisterEventHotKey(existing);
-    if(tasks){host.taskShortcutDown=NO;host.taskShortcut=registration;host.taskShortcutID=identifier.id;host.taskShortcutKey=key;host.taskShortcutFlags=flags;}
-    else {host.shortcutDown=NO;host.shortcut=registration;host.shortcutID=identifier.id;host.shortcutKey=key;host.shortcutFlags=flags;}
-    return 0;
+    if(slot.registration)UnregisterEventHotKey(slot.registration);
+    if(kind==1)[host.taskDock setShortcutHeld:NO];
+    slot.registration=registration;slot.revision=revision;slot.key=key;slot.flags=flags;slot.down=NO;return noErr;
+}
+void bot_bind_capture(void *pointer,void *capture) {
+    BotHost *host=(__bridge BotHost *)pointer;host.capture=(__bridge BotCapture *)capture;
+    NSMutableArray *excluded=[NSMutableArray new];
+    for(id window in @[host.pet?:NSNull.null,host.panel?:NSNull.null,host.bubble?:NSNull.null,host.prop?:NSNull.null,host.taskDock.window?:NSNull.null])if([window isKindOfClass:NSWindow.class])[excluded addObject:window];
+    host.capture.excludedWindows=excluded;
+    host.capture.language=host.language;
 }
 void bot_panel_ready(void *pointer,int activation){
     BotHost *host=(__bridge BotHost *)pointer;
@@ -886,6 +883,7 @@ void bot_language(void *pointer, char *json) {
     NSData *data = [[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding];
     host.language = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     host.taskDock.language = host.language;
+    host.capture.language = host.language;
     // These panels own the visible content; their Wails source windows are hidden.
     host.pet.title = [host text:@"petTitle"];
     host.bubble.title = [host text:@"bubbleTitle"];

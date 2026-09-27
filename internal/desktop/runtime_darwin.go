@@ -52,6 +52,7 @@ func Run(assets fs.FS) error {
 	s.configurePermissionGuide(filepath.Join(root, "permission-guide.json"))
 	s.configureShortcut(filepath.Join(root, "shortcut.json"))
 	s.configureTaskShortcut(filepath.Join(root, "task-shortcut.json"))
+	logError(s.configureCapture(filepath.Join(root, "Captures")))
 	logError(s.configureLanguage(filepath.Join(root, "language.json"), macPreferredLanguages()))
 	s.content, err = contentpack.NewRegistry(filepath.Join(root, "content"))
 	if err != nil {
@@ -67,6 +68,7 @@ func Run(assets fs.FS) error {
 	}
 	defer core.Close()
 	back := core.Backend
+	s.configureCaptureBackend(back)
 	s.taskPreferences = core.TaskPreferences
 	s.saveTaskPreferences = core.SaveTaskPreferences
 	s.terminalChoices = func() []taskterminal.Choice { return taskterminal.Choices(terminalInstalled) }
