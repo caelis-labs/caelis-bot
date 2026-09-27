@@ -1103,7 +1103,11 @@ Real-terminal acceptance and visual limits are recorded in the handoff.
 `desktop/capture*` owns ScreenCaptureKit still acquisition (macOS 14+), the AppKit
 selection/annotation document, clipboard/export, and nonactivating pin panels.
 `screeninput` owns bounded versioned snapshot metadata, owned files and durable receipt
-state; it contains no application-specific intent classifier. Context coordinates refer
+state; it contains no application-specific intent classifier. Private `ScreenMedia` retains
+immutable image/thumbnail bytes before dispatch for cross-runtime history presentation.
+Only opaque IDs cross to the renderer; reads stay rooted to that store. Preview cleanup
+joins user-initiated attachment maintenance after 30 days and never resubmits images.
+Global capture preferences are native-owned and frozen at capture start. Context coordinates refer
 to the actual encoded image. Both images share annotation/redaction rendering.
 
 The native owner alone calls the standalone `backend.SubmitScreen` function. This path

@@ -97,7 +97,24 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 		C.bot_bind_capture(d.pointer, d.capture)
 	})
 	d.language(s.LanguagePreferences().Locale)
+	d.capturePreferences(s.CapturePreferences().IncludeBackground)
 	return d
+}
+
+func (d *macDriver) capturePreferences(include bool) {
+	value := C.int(0)
+	if include {
+		value = 1
+	}
+	application.InvokeSync(func() { C.bot_capture_preferences(d.capture, value) })
+}
+func (d *macDriver) copyCaptureImage(data []byte) bool {
+	if len(data) == 0 || len(data) > 8<<20 {
+		return false
+	}
+	raw := C.CBytes(data)
+	defer C.free(raw)
+	return application.InvokeSyncWithResult(func() bool { return C.bot_capture_copy_image(raw, C.int(len(data))) != 0 })
 }
 func (d *macDriver) screens() []Rect {
 	return application.InvokeSyncWithResult(func() []Rect {

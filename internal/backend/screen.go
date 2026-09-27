@@ -5,7 +5,23 @@ import (
 	"errors"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 )
+
+func ConfigureScreenMedia(s *Service, path string) error {
+	s.screenMedia, s.screenMediaError = screeninput.OpenMedia(path)
+	return s.screenMediaError
+}
+func (s *Service) ScreenImage(id string, thumbnail bool) (string, error) {
+	return s.screenMedia.DataURL(id, thumbnail)
+}
+func ScreenImageBytes(s *Service, id string) ([]byte, error) {
+	data, _, err := s.screenMedia.Bytes(id, false)
+	return data, err
+}
+func ScreenMediaStorage(s *Service, clean bool, trash func(string) error) (api.AttachmentStorage, error) {
+	return s.screenMedia.Storage(clean, trash)
+}
 
 // ScreenSnapshot exposes only authoritative runtime facts to native capture
 // recovery. The presentation outbox in Service.Snapshot is not delivery evidence.
@@ -55,6 +71,14 @@ func SubmitScreen(ctx context.Context, s *Service, input api.Submission, files [
 	}
 	input.ScreenInput = true
 	input.FileIDs, input.ReferenceIDs = nil, nil
+	if s.screenMediaError != nil {
+		return r, errors.New("screen image storage unavailable")
+	}
+	if s.screenMedia != nil {
+		if err := s.screenMedia.Save(input.ID, files); err != nil {
+			return r, err
+		}
+	}
 	s.stageOutgoing(input, files)
 	r, err = s.engine.Submit(ctx, input, files)
 	s.finishOutgoing(input.ID, r)

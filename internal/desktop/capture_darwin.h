@@ -9,6 +9,7 @@
 @property(nonatomic,copy) NSString *root;
 @property(nonatomic,copy) NSDictionary *language;
 @property(nonatomic,copy) NSArray<NSWindow *> *excludedWindows;
+@property(nonatomic) BOOL includeBackground;
 - (void)capture;
 - (void)paste;
 - (void)togglePins;
@@ -25,4 +26,6 @@ void bot_capture_availability(void *capture,const char *json);
 void bot_capture_receipt(void *capture,const char *json);
 void bot_capture_restore(void *capture,const char *json);
 void bot_capture_stop(void *capture);
+void bot_capture_preferences(void *capture,int includeBackground);
+int bot_capture_copy_image(const void *bytes,int length);
 void bot_bind_capture(void *host,void *capture);

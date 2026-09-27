@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 	"os"
 	"path/filepath"
@@ -21,18 +22,22 @@ type captureDriver interface {
 	restoreCaptures([]screeninput.Record)
 }
 type captureState struct {
-	root       string
-	shortcuts  [2]ShortcutState
-	files      [2]string
-	mu         sync.Mutex
-	refreshing bool
-	sending    map[string]bool
-	capability func(context.Context) (api.ImageInputCapability, error)
-	submit     func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
-	snapshot   func() api.Snapshot
+	preferences    CapturePreferences
+	preferenceFile string
+	imageBytes     func(string) ([]byte, error)
+	root           string
+	shortcuts      [2]ShortcutState
+	files          [2]string
+	mu             sync.Mutex
+	refreshing     bool
+	sending        map[string]bool
+	capability     func(context.Context) (api.ImageInputCapability, error)
+	submit         func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
+	snapshot       func() api.Snapshot
 }
 
 func (s *Service) configureCaptureBackend(back *backend.Service) {
+	s.capture.imageBytes = func(id string) ([]byte, error) { return backend.ScreenImageBytes(back, id) }
 	s.capture.capability = back.ImageInput
 	s.capture.snapshot = func() api.Snapshot { return backend.ScreenSnapshot(back) }
 	s.capture.submit = func(ctx context.Context, input api.Submission, files []api.InputFile) (api.Receipt, error) {
@@ -42,6 +47,15 @@ func (s *Service) configureCaptureBackend(back *backend.Service) {
 
 func (s *Service) configureCapture(root string) error {
 	s.capture.root = root
+	s.capture.preferenceFile = filepath.Join(filepath.Dir(root), "screen-input.json")
+	s.capture.preferences.IncludeBackground = true
+	if data, err := os.ReadFile(s.capture.preferenceFile); err == nil {
+		if json.Unmarshal(data, &s.capture.preferences) != nil {
+			s.capture.preferences = CapturePreferences{Notice: "unreadable"}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		s.capture.preferences = CapturePreferences{Notice: "unreadable"}
+	}
 	s.capture.sending = map[string]bool{}
 	for i, key := range []string{"F1", "F3"} {
 		s.capture.files[i] = filepath.Join(filepath.Dir(root), []string{"capture-shortcut.json", "paste-shortcut.json"}[i])
@@ -55,6 +69,52 @@ func (s *Service) configureCapture(root string) error {
 		s.capture.shortcuts[i].Shortcut = v
 	}
 	return os.MkdirAll(root, 0700)
+}
+
+type CapturePreferences struct {
+	IncludeBackground bool   `json:"includeBackground"`
+	Notice            string `json:"notice"`
+}
+type capturePreferencesDriver interface {
+	capturePreferences(bool)
+	copyCaptureImage([]byte) bool
+}
+
+func (s *Service) CapturePreferences() CapturePreferences {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.capture.preferences
+}
+func (s *Service) SaveCapturePreferences(v CapturePreferences) (CapturePreferences, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v.Notice = ""
+	if err := localstate.Write(s.capture.preferenceFile, v); err != nil {
+		return s.capture.preferences, err
+	}
+	s.capture.preferences = v
+	if d, ok := s.native.(capturePreferencesDriver); ok && !s.stopped {
+		d.capturePreferences(v.IncludeBackground)
+	}
+	return v, nil
+}
+func (s *Service) CopyScreenImage(id string) error {
+	s.mu.Lock()
+	read := s.capture.imageBytes
+	s.mu.Unlock()
+	if read == nil {
+		return errors.New("screen image unavailable")
+	}
+	data, err := read(id)
+	if err != nil {
+		return errors.New("screen image unavailable")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d, ok := s.native.(capturePreferencesDriver); ok && !s.stopped && d.copyCaptureImage(data) {
+		return nil
+	}
+	return errors.New("could not copy screen image")
 }
 func validateCaptureShortcut(v Shortcut) error {
 	if !shortcutKey.MatchString(v.Key) || (!v.Control && !v.Alt && !v.Meta && v.Key[0] != 'F') {

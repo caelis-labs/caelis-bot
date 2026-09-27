@@ -1,0 +1,20 @@
+.message.user:has(.screen-message){padding:0;background:transparent;max-width:min(87%,420px)}
+.screen-message{display:flex;flex-direction:column;align-items:flex-end;gap:10px;min-width:160px}
+.screen-image-card{width:100%;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--wash)}
+.screen-selection{display:block;width:100%;padding:0;border:0;background:transparent;cursor:zoom-in}
+.screen-selection img{display:block;width:100%;height:auto;max-height:280px;object-fit:contain}
+.screen-source{padding:9px 12px;color:var(--muted);font-size:12px}
+.screen-context{display:flex;align-items:center;gap:8px;max-width:100%;padding:0;border:0;background:transparent;color:var(--muted);font-size:12px;cursor:zoom-in}
+.screen-context img{width:54px;height:36px;object-fit:contain;border:1px solid var(--line);border-radius:5px}
+.screen-image-placeholder,.screen-missing{display:block;padding:18px;color:var(--muted);font-size:12px}
+.screen-context .screen-image-placeholder{max-width:110px;padding:4px}
+.screen-note{margin:0!important;padding:10px 15px;border-radius:16px 16px 5px 16px;background:var(--wash);white-space:pre-wrap;overflow-wrap:anywhere}
+.message.user:has(.screen-message) .message-actions{position:static;display:flex;justify-content:flex-end;margin-top:5px}
+.screen-viewer{color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:12px;max-width:94vw;max-height:92vh;overflow:auto}
+.screen-viewer::backdrop{background:#0009}
+.screen-viewer-toolbar{display:flex;align-items:center;gap:10px;padding-bottom:10px;font-size:13px}
+.screen-viewer-toolbar span{flex:1}
+.screen-viewer-toolbar button{padding:7px;border:0;background:transparent;border-radius:7px}
+.screen-viewer-toolbar button:hover{background:var(--wash)}
+.screen-full-image{display:block;max-width:88vw;max-height:78vh;object-fit:contain}
+.screen-selection:focus-visible,.screen-context:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}

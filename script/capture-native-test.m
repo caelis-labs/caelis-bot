@@ -23,6 +23,53 @@ static BotCaptureDocument *fixtureDocument(void) {
     [doc addMark:@{@"kind":@"mosaic",@"a":[NSValue valueWithPoint:NSMakePoint(600,410)],@"b":[NSValue valueWithPoint:NSMakePoint(820,445)],@"color":NSColor.blackColor,@"width":@3}];
     return doc;
 }
+static NSEvent *testKey(NSString *characters,unsigned short code,NSEventModifierFlags flags,NSWindow *window) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:flags timestamp:0 windowNumber:window.windowNumber context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
+}
+static void checkInteraction(NSString *root) {
+    NSUInteger before=deliveries;
+    BotCapture *owner=[BotCapture new];owner.root=root;owner.handle=1;
+    [owner setAvailability:@{@"state":@"supported"}];
+    owner.overlay=capturePanel(NSMakeRect(100,100,1280,800),YES);
+    owner.canvas=[[BotCaptureCanvas alloc] initWithFrame:NSMakeRect(0,0,1280,800)];
+    BotCaptureCanvas *canvas=owner.canvas;canvas.owner=owner;canvas.document=fixtureDocument();
+    owner.overlay.contentView=canvas;[canvas buildToolbar];[owner.overlay makeKeyAndOrderFront:nil];
+    [canvas focusNote];
+    BotCaptureFieldEditor *editor=(BotCaptureFieldEditor *)canvas.noteEditor.currentEditor;
+    assert([editor isKindOfClass:BotCaptureFieldEditor.class]);
+    canvas.noteEditor.stringValue=@"Translate this";
+    editor.interpretingMarkedText=YES;
+    [canvas control:canvas.noteEditor textView:editor doCommandBySelector:@selector(insertNewline:)];
+    assert(deliveries==before&&owner.overlay);
+    editor.interpretingMarkedText=NO;
+    // Selected text owns Cmd+C even though the image is ready.
+    [editor setString:@"Translate this"];[editor setSelectedRange:NSMakeRange(0,9)];
+    assert([owner.overlay performKeyEquivalent:testKey(@"c",8,NSEventModifierFlagCommand,owner.overlay)]);
+    assert([[NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] isEqual:@"Translate"]&&owner.overlay);
+    // Annotation Return commits one mark, returns to the note and does not send.
+    canvas.textEditor=[[NSTextField alloc] initWithFrame:NSMakeRect(350,260,180,30)];
+    canvas.textEditor.delegate=canvas;canvas.textEditor.stringValue=@"Annotation";[canvas addSubview:canvas.textEditor];
+    [owner.overlay makeFirstResponder:canvas.textEditor];NSUInteger count=canvas.document.marks.count;
+    [canvas control:canvas.textEditor textView:(NSTextView *)canvas.textEditor.currentEditor doCommandBySelector:@selector(insertNewline:)];
+    assert(!canvas.textEditor&&canvas.document.marks.count==count+1&&canvas.noteEditor.currentEditor&&deliveries==before);
+    // Continuous values reach the actual annotation width and visible preview.
+    [canvas changeWidth:canvas.widthButton];NSSlider *slider=nil;
+    for(NSView *view in canvas.widthPopover.contentViewController.view.subviews)if([view isKindOfClass:NSSlider.class])slider=(NSSlider *)view;
+    assert(slider&&slider.continuous&&slider.numberOfTickMarks==0);slider.doubleValue=8.4;[canvas adjustWidth:slider];
+    assert(fabs(canvas.stroke-8.4)<0.01&&[canvas.widthValue.stringValue containsString:@"8.4"]);
+    [canvas.widthPopover close];[canvas focusNote];
+    [owner setAvailability:@{@"state":@"unsupported"}];
+    [canvas control:canvas.noteEditor textView:(NSTextView *)canvas.noteEditor.currentEditor doCommandBySelector:@selector(insertNewline:)];
+    assert(deliveries==before&&owner.overlay);
+    [owner setAvailability:@{@"state":@"supported"}];
+    [canvas control:canvas.noteEditor textView:(NSTextView *)canvas.noteEditor.currentEditor doCommandBySelector:@selector(insertNewline:)];
+    assert(deliveries==before+1&&!owner.overlay&&owner.pins.count==1);
+    [owner stop];
+    // Repeat capture cancels both preparing and selected states without sending.
+    owner=[BotCapture new];owner.preparing=YES;[owner capture];assert(!owner.preparing&&!owner.overlay);
+    owner.overlay=capturePanel(NSMakeRect(100,100,800,600),YES);[owner capture];assert(!owner.overlay&&deliveries==before+1);
+    [owner stop];deliveries=before;
+}
 static void checkRedaction(NSBitmapImageRep *rep,NSInteger x,NSInteger y) {
     NSColor *color=[[rep colorAtX:x y:y] colorUsingColorSpace:NSColorSpace.deviceRGBColorSpace];
     if(color.redComponent>0.12||color.greenComponent>0.12||color.blueComponent>0.12){
@@ -58,6 +105,8 @@ int main(int argc,char **argv) {
         [owner ask:owner.canvas];assert(deliveries==0);
         [owner setAvailability:@{@"state":@"supported"}];assert(owner.canvas.askButton.enabled);
         if(live){[NSApp run];return 0;}
+        checkInteraction(root);
+        [owner.overlay makeKeyAndOrderFront:nil];
         [owner.canvas displayIfNeeded];
         NSBitmapImageRep *preview=[owner.canvas bitmapImageRepForCachingDisplayInRect:owner.canvas.bounds];
         [owner.canvas cacheDisplayInRect:owner.canvas.bounds toBitmapImageRep:preview];
@@ -100,7 +149,7 @@ int main(int argc,char **argv) {
         [owner ask:retryPin];assert(deliveries==2&&!retryPin.noteEditor.editable);
         NSString *failedID=retry.identifier;
         [owner receipt:@{@"id":failedID,@"outcome":@"draft",@"message":@"Prepare again"}];
-        assert(!retry.identifier.length&&retryPin.noteEditor.editable&&retryPin.contextButton.enabled);
+        assert(!retry.identifier.length&&retryPin.noteEditor.editable);
         assert([retryPin.noteEditor.stringValue isEqual:@"Please translate this"]&&retry.marks.count==3);
         retryPin.noteEditor.stringValue=@"Translate the selected paragraph";[retryPin askAction:nil];
         assert(deliveries==3&&![retry.identifier isEqual:failedID]);

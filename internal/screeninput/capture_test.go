@@ -132,7 +132,7 @@ func TestScreenPresentationPreservesModelMaterial(t *testing.T) {
 	raw := Prompt(r.Snapshot)
 	item := api.Item{Kind: "user", RequestID: "screen-12345678", Text: raw + "\nselection.png"}
 	view := Present(item)
-	if view.Text != "Ask Bot · Screenshot\nTranslate this" || item.Text != raw+"\nselection.png" {
+	if view.Text != "Translate this" || view.Screen == nil || item.Text != raw+"\nselection.png" {
 		t.Fatal("screen presentation changed native material")
 	}
 	item.Kind = "assistant"

@@ -44,6 +44,8 @@ type Service struct {
 	consumeFiles                func([]string)
 	openURL                     func(string) error
 	reveal                      func(string) error
+	screenMedia                 *screeninput.Media
+	screenMediaError            error
 }
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string), openURL, reveal func(string) error) *Service {
@@ -81,6 +83,9 @@ func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 	v.Items = append([]api.Item(nil), v.Items...)
 	for i := range v.Items {
 		v.Items[i] = screeninput.Present(v.Items[i])
+		if v.Items[i].Screen != nil {
+			v.Items[i].Screen.Images = s.screenMedia.Images(v.Items[i].RequestID)
+		}
 	}
 	return s.presentation(v)
 }
