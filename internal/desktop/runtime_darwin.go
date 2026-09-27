@@ -49,7 +49,9 @@ func Run(assets fs.FS) error {
 		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_loaded", Reason: "user login and interactive shell exports loaded for native runtimes"})
 	}
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
+	s.configurePermissionGuide(filepath.Join(root, "permission-guide.json"))
 	s.configureShortcut(filepath.Join(root, "shortcut.json"))
+	s.configureTaskShortcut(filepath.Join(root, "task-shortcut.json"))
 	logError(s.configureLanguage(filepath.Join(root, "language.json"), macPreferredLanguages()))
 	s.content, err = contentpack.NewRegistry(filepath.Join(root, "content"))
 	if err != nil {
@@ -65,21 +67,27 @@ func Run(assets fs.FS) error {
 	}
 	defer core.Close()
 	back := core.Backend
-	s.resolveTaskTerminal = core.WorkTerminal
 	s.taskPreferences = core.TaskPreferences
 	s.saveTaskPreferences = core.SaveTaskPreferences
 	s.terminalChoices = func() []taskterminal.Choice { return taskterminal.Choices(terminalInstalled) }
 	s.removeTaskPin = func(id string) error { _, err := core.PinTask(id, false); return err }
-	s.launchTaskTerminal = taskterminal.New(filepath.Join(root, "Terminal"), func(ctx context.Context, path string) error {
+	s.lockTaskPin = func(id string, locked bool) error { _, err := core.LockTask(id, locked); return err }
+	s.clearTaskPins = core.ClearTasks
+	s.moveTaskPin = core.MoveTask
+	terminalWindows := taskterminal.NewWindowManager(filepath.Join(root, "Terminal"), func(ctx context.Context, path string) (taskterminal.Window, error) {
 		p, err := s.TaskPreferences()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if p.Terminal == "custom" {
-			return taskterminal.LaunchCustom(ctx, p.CustomCommand, path)
+			return nil, taskterminal.LaunchCustom(ctx, p.CustomCommand, path)
 		}
-		return s.openPreferredTerminal(ctx, p.Terminal, path)
-	}).Open
+		return s.openManagedTerminal(ctx, p.Terminal, path)
+	}, core.WorkTerminal, s.taskWindowChanged, taskterminal.InputEpoch)
+	defer terminalWindows.Close()
+	s.taskWindows = terminalWindows
+	s.observeTaskTerminal = func(ctx context.Context, id string) { s.observeMacTaskTerminal(ctx, id, terminalWindows) }
+	log.Printf("Task terminal preview capability: %s", taskSnapshotStatus())
 	s.taskError = func(id string, err error) {
 		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "terminal", Code: "task_open_failed", Item: id, Reason: diagnosticlog.Reason(err.Error()), Fingerprint: diagnosticlog.Fingerprint([]byte(err.Error()))})
 	}
@@ -116,6 +124,12 @@ func Run(assets fs.FS) error {
 		if quitting.CompareAndSwap(false, true) {
 			go func() {
 				logError(core.Close())
+				// Drain/stop native surfaces while the AppKit loop is still alive.
+				// A permission poll can hold s.mu while awaiting InvokeSync; doing
+				// the first shutdown only on AppKit's OnShutdown can invert that wait.
+				terminalWindows.CancelAll()
+				terminalWindows.Close()
+				s.shutdown()
 				finished.Store(true)
 				nativeApp.Quit()
 			}()

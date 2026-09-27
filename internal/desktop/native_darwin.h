@@ -40,8 +40,13 @@ void bot_plane_ready(void *host, int ready);
 int bot_launch_plane(void *host, char *id, double x, double y);
 void bot_finish_plane(void *host, char *id, int completed);
 
-int bot_shortcut(void *host, char *key, int flags, int enabled);
+int bot_shortcut(void *host, char *key, int flags, int enabled, int tasks);
+void bot_toggle_tasks(void *host);
 void bot_panel_ready(void *host, int activation);
 
 char *bot_preferred_languages(void);
 void bot_language(void *host, char *json);
+
+void bot_task_snapshot(void *host,const char *identifier,const char *source);
+
+void bot_task_transitions(void *pointer,char *data);

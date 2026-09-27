@@ -26,9 +26,7 @@ func TestSelectedWorkspaceAndAutomaticPins(t *testing.T) {
 			changes := 0
 			m.ObserveWatchlist(func(v []api.TaskPreview) {
 				changes++
-				if len(v) > 8 {
-					t.Fatal("pin overflow")
-				}
+
 			})
 			in := input("selected-project")
 			in.Workspace = selected
@@ -66,8 +64,8 @@ func TestSelectedWorkspaceAndAutomaticPins(t *testing.T) {
 				next := start(t, m, fmt.Sprintf("auto-pin-%d", i))
 				f.complete(next.ID)
 			}
-			if len(m.TaskPreviews()) != 8 {
-				t.Fatal("auto pin capacity not respected")
+			if len(m.TaskPreviews()) != 9 {
+				t.Fatal("new work excluded by display capacity")
 			}
 			for _, bad := range []string{"relative", filepath.Join(root, "missing"), filepath.Join(selected, "sentinel")} {
 				req := input("bad-workspace-" + hash(bad))

@@ -19,3 +19,32 @@ func (a *Application) PinTask(id string, pin bool) (api.TaskSummary, error) {
 	}
 	return m.PinTask(id, pin)
 }
+
+func (a *Application) LockTask(id string, locked bool) (api.TaskSummary, error) {
+	a.mu.Lock()
+	m, closed := a.tasks, a.closed
+	a.mu.Unlock()
+	if m == nil || closed {
+		return api.TaskSummary{}, errors.New(a.text("taskNotConnected"))
+	}
+	return m.LockTask(id, locked)
+}
+func (a *Application) ClearTasks() error {
+	a.mu.Lock()
+	m, closed := a.tasks, a.closed
+	a.mu.Unlock()
+	if m == nil || closed {
+		return errors.New(a.text("taskNotConnected"))
+	}
+	return m.ClearTasks()
+}
+
+func (a *Application) MoveTask(id, before string) error {
+	a.mu.Lock()
+	m, closed := a.tasks, a.closed
+	a.mu.Unlock()
+	if m == nil || closed {
+		return errors.New(a.text("taskNotConnected"))
+	}
+	return m.MoveTask(id, before)
+}

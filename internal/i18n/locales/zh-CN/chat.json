@@ -82,6 +82,7 @@
   "bubbleAriaLabel": "Caelis Bot 最新消息",
   "bubbleReviewAndDecide": "查看并决定",
   "bubbleOpenChat": "打开聊天",
+  "bubbleOpenTasks": "查看后台任务",
   "bubbleThinking": "正在想办法…",
   "bubbleSummaryAria": "{content}。{action}",
   "terminalFailed": "未能完成",

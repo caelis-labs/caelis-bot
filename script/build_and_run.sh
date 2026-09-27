@@ -6,8 +6,12 @@ if [[ "$(uname -s)" != Darwin ]]; then
   exit 1
 fi
 BOT_MODE="${1:-run}"
-case "$BOT_MODE" in run|--verify|--verify-signed|--debug|--logs|--telemetry|--recall) ;; *)
-  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall]" >&2; exit 2 ;;
+if [[ "$BOT_MODE" == --task-dock-preview ]]; then
+  # A native panel fixture with disposable tasks, independent of the daily Bot.
+  BOT_TASK_DOCK_LIVE=1 exec bash "$BOT_ROOT/script/task-dock-native-test.sh"
+fi
+case "$BOT_MODE" in run|--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--terminal-smoke) ;; *)
+  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--task-dock-preview|--terminal-smoke terminal iterm2 ghostty]" >&2; exit 2 ;;
 esac
 if [[ "$BOT_MODE" == --verify-signed ]]; then
   # Keep the distribution signature intact during native release acceptance.
@@ -35,7 +39,8 @@ if [[ -n "$(owned_pids)" ]]; then
   echo 'Previous Caelis Bot process did not shut down; refusing to launch another owner.' >&2
   exit 1
 fi
-if [[ "$BOT_MODE" != --verify-signed ]]; then ./script/build.sh; fi
+# Preserve the exact signed bytes when restarting after an OS permission change.
+if [[ "$BOT_MODE" != --verify-signed && "$BOT_MODE" != --restart && "$BOT_MODE" != --terminal-smoke ]]; then ./script/build.sh; fi
 BOT_BUNDLE="$BOT_ROOT/dist/Caelis Bot.app"
 if [[ "$BOT_MODE" == --debug ]]; then
   exec lldb -- "$BOT_BUNDLE/Contents/MacOS/caelis-bot"
@@ -43,11 +48,25 @@ fi
 BOT_LOG="$BOT_ROOT/.cache/native-run.log"
 : > "$BOT_LOG"
 BOT_OPEN_ARGS=(-g -n "$BOT_BUNDLE" --stdout "$BOT_LOG" --stderr "$BOT_LOG")
+if [[ "$BOT_MODE" == --terminal-smoke ]]; then
+  shift
+  /usr/bin/open "${BOT_OPEN_ARGS[@]}" --args --terminal-smoke "$@"
+  for ((BOT_ATTEMPT=0; BOT_ATTEMPT<3000; BOT_ATTEMPT++)); do
+    if rg -q 'TERMINAL E2E PASS' "$BOT_LOG"; then cat "$BOT_LOG"; exit 0; fi
+    if rg -q 'TERMINAL E2E FAIL' "$BOT_LOG"; then cat "$BOT_LOG"; exit 1; fi
+    sleep 0.1
+  done
+  echo 'Terminal acceptance did not finish; see .cache/native-run.log.' >&2
+  exit 1
+fi
 if [[ "${CAELIS_BOT_DATA_DIR+x}" == x ]]; then
   BOT_OPEN_ARGS+=(--env "CAELIS_BOT_DATA_DIR=$CAELIS_BOT_DATA_DIR")
 fi
 if [[ -n "${CAELIS_BOT_DESKTOP_TRACE:-}" ]]; then
   BOT_OPEN_ARGS+=(--env "CAELIS_BOT_DESKTOP_TRACE=$CAELIS_BOT_DESKTOP_TRACE")
+fi
+if [[ "${CAELIS_BOT_WINDOW_TRACE:-}" == 1 ]]; then
+  BOT_OPEN_ARGS+=(--env "CAELIS_BOT_WINDOW_TRACE=1")
 fi
 if [[ "${CAELIS_BOT_BEHAVIOR_PREVIEW:-}" == 1 ]]; then
   BOT_OPEN_ARGS+=(--env "CAELIS_BOT_BEHAVIOR_PREVIEW=1")
@@ -66,7 +85,7 @@ if [[ -n "${CODEX_HOME:-}" ]]; then
 fi
 /usr/bin/open "${BOT_OPEN_ARGS[@]}"
 case "$BOT_MODE" in
-  --verify|--verify-signed)
+  --verify|--verify-signed|--restart)
     # Bounded startup observation, not a workaround for an application race.
     for ((BOT_ATTEMPT=0; BOT_ATTEMPT<50; BOT_ATTEMPT++)); do
       if pgrep -x caelis-bot >/dev/null && rg -q "Desktop native host ready" "$BOT_LOG"; then

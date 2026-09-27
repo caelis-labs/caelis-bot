@@ -9,7 +9,7 @@ import type {TaskPreferences} from './task-preferences';
 type Choice={id:string;name:string;available:boolean};
 export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
  const {t}=useI18n();
- const [ready,setReady]=useState(false),[limit,setLimit]=useState('3'),[terminal,setTerminal]=useState('system'),[choices,setChoices]=useState<Choice[]>([]);
+ const [ready,setReady]=useState(false),[limit,setLimit]=useState(''),[terminal,setTerminal]=useState('system'),[choices,setChoices]=useState<Choice[]>([]);
  const [busy,setBusy]=useState(false),[error,setError]=useState<MessageKey|''>('');
  const [custom,setCustom]=useState('');
  const saver=useRef<TaskPreferencesSaver|null>(null),timer=useRef<ReturnType<typeof setTimeout>|null>(null);

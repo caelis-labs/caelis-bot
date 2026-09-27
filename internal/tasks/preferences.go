@@ -10,6 +10,9 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
 
+// DefaultMaxRunning applies only when no user preference has been saved.
+const DefaultMaxRunning = 6
+
 type Preferences struct {
 	MaxRunning    int    `json:"maxRunning"`
 	Terminal      string `json:"terminal"`
@@ -23,7 +26,7 @@ type PreferencesStore struct {
 }
 
 func OpenPreferences(path string) (*PreferencesStore, error) {
-	s := &PreferencesStore{path: path, value: Preferences{MaxRunning: 3, Terminal: "system", Revision: 1}}
+	s := &PreferencesStore{path: path, value: Preferences{MaxRunning: DefaultMaxRunning, Terminal: "system", Revision: 1}}
 	b, err := os.ReadFile(path)
 	if err == nil {
 		if json.Unmarshal(b, &s.value) != nil || !validPreferences(s.value) || s.value.Revision == 0 {

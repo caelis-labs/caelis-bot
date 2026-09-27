@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"slices"
 	"sort"
 )
 
@@ -25,7 +26,8 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 	out := []api.TaskPreview{}
 	for id, r := range m.state.Records {
 		state, current := latest[id]
-		if r.Provider != m.provider || r.Pinned == nil || !*r.Pinned {
+		newRun := current && ((r.Execution != "" && state.ExecutionKey != "" && state.ExecutionKey != r.Execution) || (terminal(r.View.Status) && !terminal(state.Task.Status)))
+		if r.Provider != m.provider || (!newRun && (r.Pinned == nil || !*r.Pinned)) {
 			continue
 		}
 		prompt := r.OriginalPrompt
@@ -36,12 +38,27 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 		if current {
 			status = state.Task.Status
 		}
-		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status})
+		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: r.Provider, Locked: r.Locked})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	if len(out) > PinnedLimit {
-		out = out[:PinnedLimit]
-	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		order := m.state.WatchOrder[m.provider]
+		if len(order) > 0 {
+			ai, bi := slices.Index(order, a.ID), slices.Index(order, b.ID)
+			// New tasks not yet in the manual order appear first.
+			if ai != bi {
+				return ai < bi
+			}
+		}
+		if terminal(a.Status) != terminal(b.Status) {
+			return !terminal(a.Status)
+		}
+		ra, rb := m.state.Records[a.ID], m.state.Records[b.ID]
+		if ra.ActiveAt != rb.ActiveAt {
+			return ra.ActiveAt > rb.ActiveAt
+		}
+		return ra.Sequence > rb.Sequence
+	})
 	return out
 }
 

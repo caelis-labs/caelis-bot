@@ -7,10 +7,44 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
+
+func TestWatchlistObserverCanChangeDuringRefresh(t *testing.T) {
+	m := openFixture(t, t.TempDir(), "codex", newRuntime())
+	var deliveries atomic.Int64
+	observer := func([]api.TaskPreview) { deliveries.Add(1) }
+	m.ObserveWatchlist(observer)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range 200 {
+			m.ObserveWatchlist(nil)
+			m.ObserveWatchlist(observer)
+		}
+	})
+	wg.Go(func() {
+		for range 200 {
+			if err := m.RefreshWatchlist(); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	})
+	wg.Wait()
+	m.ObserveWatchlist(observer)
+	before := deliveries.Load()
+	if err := m.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	if deliveries.Load() != before+1 {
+		t.Fatal("current observer did not receive the refreshed watchlist")
+	}
+}
 
 func TestUnlimitedHistoryStablePagesAndSearch(t *testing.T) {
 	f := newRuntime()
@@ -29,8 +63,8 @@ func TestUnlimitedHistoryStablePagesAndSearch(t *testing.T) {
 	seen := map[string]bool{}
 	for _, v := range first.Tasks {
 		seen[v.ID] = true
-		if v.Pinned {
-			t.Fatal("new task pinned")
+		if !v.Pinned {
+			t.Fatal("new task missing from background list")
 		}
 	}
 	newer, e := m.StartTask(t.Context(), api.TaskStart{RequestID: "new-history-item", Title: "Needle", Prompt: "Read a unique MATCH in history"})
@@ -92,17 +126,15 @@ func TestWatchlistPersistsAndDoesNotControlExecution(t *testing.T) {
 	changes := 0
 	m.ObserveWatchlist(func(v []api.TaskPreview) {
 		changes++
-		if len(v) > PinnedLimit {
-			t.Fatal("overflow")
-		}
+
 	})
 	for _, id := range ids[:8] {
 		if _, e = m.PinTask(id, true); e != nil {
 			t.Fatal(e)
 		}
 	}
-	if _, e = m.PinTask(ids[8], true); e == nil {
-		t.Fatal("silent eviction")
+	if _, e = m.PinTask(ids[8], true); e != nil {
+		t.Fatal("display capacity hid task", e)
 	}
 	if _, e = m.PinTask(ids[0], true); e != nil || changes != 0 {
 		t.Fatal("pin not idempotent", e, changes)
@@ -165,8 +197,8 @@ func TestLegacyWatchlistMigrationKeepsHistoryWithoutFloodingDock(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(m.TaskPreviews()) != 8 {
-		t.Fatal("unbounded migration")
+	if len(m.TaskPreviews()) != 10 {
+		t.Fatal("active legacy work excluded")
 	}
 	p, e := m.QueryTasks(api.TaskQuery{})
 	if e != nil || p.Total != 15 || len(p.Tasks) != 15 {
@@ -237,5 +269,206 @@ func TestConfigurableAdmissionCoversResumeButAllowsReceiptReconciliation(t *test
 	}
 	if _, e = m.StartTask(t.Context(), input("limit-001")); e != nil {
 		t.Fatal("same start receipt blocked", e)
+	}
+}
+
+func TestBackgroundListLifecycle(t *testing.T) {
+	for _, provider := range []string{"codex", "caelis"} {
+		t.Run(provider, func(t *testing.T) {
+			f := &terminalFixture{fixtureRuntime: newRuntime()}
+			root := t.TempDir()
+			m, err := Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), provider, f, f, f.Snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now()
+			m.now = func() time.Time { return now }
+			m.ConfigureLimit(func() int { return 12 })
+			var ids []string
+			for i := 0; i < 12; i++ {
+				ids = append(ids, start(t, m, fmt.Sprintf("background-%02d", i)).ID)
+				now = now.Add(time.Second)
+			}
+			previews := m.TaskPreviews()
+			if len(previews) != 12 || previews[0].ID != ids[11] {
+				t.Fatal("running work omitted or misordered", previews)
+			}
+			if _, err = m.LockTask(ids[0], true); err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range ids[:10] {
+				f.complete(id)
+			}
+			if err = m.RefreshWatchlist(); err != nil {
+				t.Fatal(err)
+			}
+			previews = m.TaskPreviews()
+			if len(previews) != 12 || previews[0].Status != "working" || previews[1].Status != "working" {
+				t.Fatal("recent completions or active priority lost", previews)
+			}
+			now = now.Add(CompletedRetention - time.Second)
+			if err = m.RefreshWatchlist(); err != nil || len(m.TaskPreviews()) != 12 {
+				t.Fatal("premature cleanup", err)
+			}
+			now = now.Add(2 * time.Second)
+			if err = m.RefreshWatchlist(); err != nil || len(m.TaskPreviews()) != 3 {
+				t.Fatal("completed items not aged out", err)
+			}
+			if err = m.ClearTasks(); err != nil {
+				t.Fatal(err)
+			}
+			previews = m.TaskPreviews()
+			if len(previews) != 1 || previews[0].ID != ids[0] || !previews[0].Locked {
+				t.Fatal("clear lost lock", previews)
+			}
+			if err = m.RefreshWatchlist(); err != nil || len(m.TaskPreviews()) != 1 {
+				t.Fatal("poll undid clear", err)
+			}
+			// Reopen preserves both lock and manual removal.
+			reopened, err := Open(m.path, m.root, provider, f, f, f.Snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reopened.now = m.now
+			if len(reopened.TaskPreviews()) != 1 {
+				t.Fatal("restart undid dismissal")
+			}
+			msg := api.TaskMessage{ID: ids[1], RequestID: "resume-a-dismissed-task", Prompt: "Continue"}
+			if _, err = reopened.SendTask(t.Context(), msg); err != nil {
+				t.Fatal(err)
+			}
+			if len(reopened.TaskPreviews()) != 2 || reopened.TaskPreviews()[0].ID != ids[1] {
+				t.Fatal("new execution not repinned")
+			}
+			if _, err = reopened.PinTask(ids[1], false); err != nil {
+				t.Fatal(err)
+			}
+			// Reconciliation of the same native generation is not a fresh resume.
+			if _, err = reopened.SendTask(t.Context(), msg); err != nil || len(reopened.TaskPreviews()) != 1 {
+				t.Fatal("same execution repinned", err)
+			}
+			if _, err = reopened.LockTask(ids[0], false); err != nil {
+				t.Fatal(err)
+			}
+			now = now.Add(CompletedRetention + time.Second)
+			if err = reopened.RefreshWatchlist(); err != nil || len(reopened.TaskPreviews()) != 0 {
+				t.Fatal("unlock never aged", err)
+			}
+			page, err := reopened.QueryTasks(api.TaskQuery{})
+			if err != nil || page.Total != 12 || f.starts != 12 {
+				t.Fatal("cleanup affected history/execution", page, err)
+			}
+			for _, state := range f.states {
+				if state.StopRequested {
+					t.Fatal("cleanup canceled worker")
+				}
+			}
+		})
+	}
+}
+
+func TestBackgroundChangesRollbackWhenStorageFails(t *testing.T) {
+	f := &terminalFixture{fixtureRuntime: newRuntime()}
+	root := t.TempDir()
+	m, err := Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "codex", f, f, f.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := start(t, m, "storage-background-task").ID
+	original := m.write
+	failMutation := func() {
+		n := 0
+		m.write = func() error {
+			n++
+			if n == 1 {
+				return original()
+			}
+			return errors.New("disk full")
+		}
+	}
+	failMutation()
+	if _, err = m.LockTask(id, true); err == nil || m.TaskPreviews()[0].Locked {
+		t.Fatal("failed lock survived", err)
+	}
+	m.write = original
+	if _, err = m.LockTask(id, true); err != nil {
+		t.Fatal(err)
+	}
+	failMutation()
+	if _, err = m.LockTask(id, false); err == nil || !m.TaskPreviews()[0].Locked {
+		t.Fatal("failed unlock lost lock", err)
+	}
+	m.write = original
+	if _, err = m.LockTask(id, false); err != nil {
+		t.Fatal(err)
+	}
+	failMutation()
+	if err = m.ClearTasks(); err == nil || len(m.TaskPreviews()) != 1 {
+		t.Fatal("failed clear lost item", err)
+	}
+}
+
+func TestManualWatchOrderPersistsWithoutReorderingHistory(t *testing.T) {
+	f := &terminalFixture{fixtureRuntime: newRuntime()}
+	root := t.TempDir()
+	m, err := Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "codex", f, f, f.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for i := 0; i < 3; i++ {
+		v, err := m.StartTask(t.Context(), input(fmt.Sprintf("manual-order-%d", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, v.ID)
+		f.complete(v.ID)
+	}
+	page, _ := m.QueryTasks(api.TaskQuery{Limit: 2})
+	if err := m.MoveTask(ids[0], ids[2]); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.TaskPreviews(); got[0].ID != ids[0] || got[1].ID != ids[2] {
+		t.Fatal(got)
+	}
+	m, err = Open(m.path, m.root, "codex", f, f, f.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.TaskPreviews(); got[0].ID != ids[0] {
+		t.Fatal("order lost on restart", got)
+	}
+	next, err := m.QueryTasks(api.TaskQuery{Limit: 2, Cursor: page.NextCursor})
+	if err != nil || len(next.Tasks) != 1 || next.Tasks[0].ID != ids[0] {
+		t.Fatal("history cursor reordered", next, err)
+	}
+	// A new native generation returns to the front, even after explicit removal.
+	if _, err := m.PinTask(ids[1], false); err != nil {
+		t.Fatal(err)
+	}
+	state := f.states[ids[1]]
+	state.Task.Status = "working"
+	state.ExecutionKey = "next-run"
+	f.states[ids[1]] = state
+	if err := m.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.TaskPreviews(); got[0].ID != ids[1] {
+		t.Fatal("new run missing from front", got)
+	}
+	old := m.TaskPreviews()
+	writes := 0
+	m.write = func() error {
+		writes++
+		if writes > 1 {
+			return errors.New("disk full")
+		}
+		return nil
+	}
+	if err := m.MoveTask(ids[0], ids[1]); err == nil {
+		t.Fatal("persistence failure hidden")
+	}
+	if got := m.TaskPreviews(); got[0].ID != old[0].ID {
+		t.Fatal("failed move changed order", got)
 	}
 }

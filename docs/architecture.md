@@ -593,11 +593,16 @@ worker decisions keep their own thread/turn/request target. Explicit Stop interr
 owned active turns before cleaning their terminals. Native worker communication stays
 in Codex, without a second orchestration protocol or UI task/session manager.
 
-The task coordinator separates user-configured execution capacity (default three),
-uncapped task history with cursor pagination, and an explicitly pinned watchlist
-(eight items). New tasks automatically pin when capacity is available; completion
-never clears a pin. A duplicate start preserves explicit unpin decisions. Persisted
-watchlist changes notify the native host even without a new runtime event.
+The task coordinator separates user-configured execution capacity (default six; saved preferences are preserved),
+uncapped task history with cursor pagination, and a background-task watchlist.
+The native stack has no task-count cap or displayed count. It increases overlap
+inside adaptive bounds instead of scrolling. New native execution generations
+restore visibility; duplicate receipts and status polls preserve manual dismissal.
+Without explicit manual ordering, active entries sort before terminal ones. The coordinator persists locks and the
+first observed completion time; unlocked completions expire after 30 minutes.
+A 15-second local maintenance tick reads adapter memory and ages the ledger,
+without reading workers, opening terminals or waking a model. Clear dismisses
+unlocked items only. All watchlist mutations preserve execution and history.
 Start and completed-task continuation share admission; already recorded requests
 can still reconcile without acquiring another execution slot. Direct native TUI
 input remains governed by its runtime, not an application-wide global semaphore.
@@ -937,5 +942,136 @@ Both editors respect CanSend/CanSteer. Quick input retains its send-only afforda
 A subscribed Codex child is driven by its native turn events. Parent activity with
 no turn identity cannot resurrect a terminal child. TaskPreview carries the current
 native status into the task dock; hover freezes ordering, not status. The AppKit
-window receives its intended content size before installing views. Active rings
-stop on completion/hiding and remain static under reduced motion.
+window receives its intended content size before installing views. The transparent collapsed entry contains three dots without a count or capsule.
+Staggered dot animation stops on completion/hiding and stays static under reduced motion.
+
+Task terminal management owns a dedicated GUI application instance per card in
+`internal/taskterminal`, obtained from the LaunchServices completion callback and
+fenced by process birth. A returned existing application is rejected. No TTY,
+terminal session ID, title, window count or foreground heuristic establishes ownership.
+The basic contract is launch, foreground and normal quit. Hide/show, capture and
+placement are optional enhancements. A single controller serializes user intent;
+unknown outcomes retain the instance. Proven app or receipt-client exit permits
+reconnection on the next explicit click. Client PID/birth is tracked separately
+from GUI identity. A surviving owned app receives a PID-addressed standard Open
+Documents request through the optional DocumentWindow interface. The terminal
+chooses its window/tab; no input is injected into an existing shell. A closed app
+is replaced. An adapter without document reuse retains the previous detach-only
+fallback; no automatic quit of old windows is implied.
+No background reconnect or task prompt replay occurs. The private single-use
+script receipt proves command delivery, not window identity.
+Cancellation revokes the command while retaining an already launched app for reuse.
+Document handling success is not client delivery: iTerm2 may reply success after
+the user cancels its run-script prompt. Native document replies are awaited off
+the main thread. Explicit cancellation or app exit ends the wait; a handled reply
+gets a bounded three-second receipt grace, then an unclaimed token is atomically
+removed. Successful removal proves the buffered old script cannot execute, and
+only then makes a later explicit click retryable. A concurrent receipt wins and
+is reconciled. Missing/unknown evidence alone never authorizes a duplicate launch.
+Clicks while the native reply is pending preserve the show goal without stacking
+requests; after a reply, explicit input can end the receipt grace and retry through
+the same serialized controller. No automatic resubmission occurs.
+An ended client's app may finish quitting during reuse. That explicit gesture can
+make one fresh launch only after the old script was revoked and the original app
+is proven closed. Cancellation in a living app never authorizes this replacement.
+
+macOS first obtains a fresh app through LaunchServices with
+createsNewApplicationInstance, then sends one standard Open Documents event with
+an observable reply, including for unknown system-associated applications. Ghostty may use
+its optional PID-addressed new-window API to improve startup. Missing capability
+before launch permits the standard path; denial or uncertain execution never does.
+Application management has no terminal-brand branches. It uses a PID-addressed
+standard Activate Apple Event for show/foreground, NSRunningApplication for hide,
+and standard Quit Apple Event with a reply for normal close. No Accessibility grant, window enumeration or exact binding
+is needed for this path. Activation is one transaction, with no preceding unhide
+or subsequent raise/retry. AppKit activation refusal is not a permission diagnosis.
+Method return values are not completion evidence: subsequent native state confirms
+visibility/foreground/exit. Native quit replies are awaited off the main thread:
+user cancellation preserves the card without an error, confirmed exit removes it,
+and pending/unknown outcomes retain it. Repeated close gestures share one request;
+an explicit click can cancel the local wait and bring its confirmation forward.
+Shutdown cancels local observation; neither path accepts the terminal dialog for
+the user. No force kill or Worker cancellation is implied. Custom argv launchers without a provable
+GUI owner remain open-only. Bot restart does not adopt old instances.
+
+Terminal-operation hints use the existing message-bubble renderer, not another
+native panel. Native cards emit local pending/feedback notices; the renderer owns
+their visibility, dismissal and feedback expiry. Approvals and recovery attention
+take precedence. Clearing a pending hint cannot clear newer feedback, and an old
+expiry cannot dismiss its successor. Notices do not enter conversation history,
+invoke a model or dismiss a backend preview. Their action opens the task stack.
+Standard instance reuse is implemented; idle cleanup remains a separate proposal
+in [the retention design](design/terminal-instance-retention.md).
+
+Task thumbnails are optional single captures on macOS 14+. They check existing
+permission and the owned PID/birth, then require a unique eligible window; multiple
+windows leave the placeholder or old cache. SCScreenshotManager creates one local
+image, with no picker, timer, stream, model, upload or disk path. Up to 24 images /
+16 MiB remain in native memory. Preview failure never gates basic management.
+
+The transparent stack contains no provider labels, context menus or bulk-clear UI.
+Hover reveals lock/close controls. Upward drag or precise trackpad swipe closes the
+owned terminal instance before unpinning; locks prevent gesture dismissal, and failure
+preserves the card. Runtime execution is never stopped by this path. Reordering
+uses provider-scoped watchOrder independently of immutable history pagination;
+new execution generations move to the front. Desktop drops open/foreground an
+instance and place it only when supported, never toggle-hide it; a new attach requires
+proven app or client exit. Platform coordinates and permissions stay in native adapters.
+
+Mac task layout policy lives in `task_dock_layout_darwin.h`. It consumes the
+current screen's AppKit visibleFrame and the pet frame, chooses a horizontal row
+or an inward-facing vertical stack, and chooses upward/downward growth from
+available space. Its maximum extent is constrained by both the visible area and a
+small desktop footprint. Additional cards compress the stride, never overflow
+into a scroll container. Hover keeps frames fixed and brings the selected card
+in front of a two-sided fan, leaving each neighbor an exposed, hit-testable edge.
+Only exposed slices are painted, so dense translucent layers do not form an opaque
+backplate. Reorder hit testing follows the same axis; there is no edge autoscroll. Vertical upward drags reorder inside the stack and dismiss only
+beyond its top edge. A display/anchor change cancels the drag before relayout.
+Negative-origin secondary screens use their own bounds, never primary-screen
+coordinates or a fixed resolution.
+
+Portable task coordination does not expose AppKit points or CGWindow capture
+metadata. `Window` is an opaque observation handle; toggle and dismissal are
+independent optional interfaces, and unsupported operations preserve the handle.
+`window_actions_darwin.go` and `task_native_darwin.go` own placement and preview
+hooks exclusively. Backend TaskPreview carries task facts; desktop presentation
+adds the configured terminal icon. A future Windows host chooses its own UI,
+window operations and feature degradation. Shared-core compilation is not a
+promise of macOS-style stacking, swipes, capture, Spaces or global-key behavior.
+
+
+### macOS permission guidance
+
+Settings separates Runtime execution policy from **System permissions**. An optional
+first-use guide precedes Bot introduction; only the guide's completion is persisted
+(`permission-guide.json`), never OS grant states. Reads use current-process AX trust,
+CG capture preflight, per-selected-terminal Apple Event preflight and the notification
+center. A stopped terminal is unknown, not denied; reads neither launch it nor prompt.
+Explicit Automation setup may start the selected application, but sends no task or
+shell command. An explicit screen-access request uses a single ScreenCaptureKit
+shareable-content request and discards its metadata; it does not create an image,
+filter or stream. It waits for the native callback before reporting an outcome.
+Screen preflight remains read-only and background preview capture never requests
+consent. Accessibility prompting is asynchronous and no longer immediately obscured
+by a competing Settings jump.
+
+Permission switches reflect fresh host snapshots, never request receipts. Enabling
+requests consent; disabling opens the relevant OS page without resetting grants.
+The renderer explains the pending/denied result and offers a manual Settings link.
+Privacy explanations are separate from short, terminal-independent feature labels.
+Accessibility, Automation, optional still capture and notifications
+are independent choices. Other platforms report unsupported through a native adapter.
+
+The repair UI reveals the running bundle and identifies ad-hoc builds. A separate
+checkbox-confirmed action runs `tccutil reset <one-category> <current-bundle-id>`
+for this user only. It cannot distinguish old versions and explicitly explains the
+impact on other copies and all Automation targets. Ordinary enable actions never
+reset grants; the app never edits TCC databases or requests Full Disk Access.
+
+The instance controller replaces the former exact-window/TTY/AX-event binding path.
+A disposable multi-instance native fixture checks ownership isolation and normal
+quit/reopen; it reports foreground acceptance separately because automated focus
+requests can be refused. `--terminal-smoke` is an explicit local acceptance entrypoint
+using synthetic scripts; it does not load the Bot store or contact a Runtime/model.
+Real-terminal acceptance and visual limits are recorded in the handoff.

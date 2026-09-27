@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verify identity as well as integrity; ad-hoc is never a Developer ID fallback.
 set -euo pipefail
-BOT_VERIFY_PATH=${1:?Usage: verify-signature.sh PATH [adhoc|developer-id] [app|dmg]}
+BOT_VERIFY_PATH=${1:?Usage: verify-signature.sh PATH [adhoc|development|developer-id] [app|dmg]}
 BOT_VERIFY_MODE=${2:-adhoc}
 BOT_VERIFY_KIND=${3:-app}
 case "$BOT_VERIFY_KIND" in
@@ -14,6 +14,13 @@ BOT_VERIFY_DETAILS=$(codesign -dvv "$BOT_VERIFY_PATH" 2>&1)
 case "$BOT_VERIFY_MODE" in
   adhoc)
     grep -q '^Signature=adhoc$' <<< "$BOT_VERIFY_DETAILS"
+    ;;
+  development)
+    [[ "$BOT_VERIFY_KIND" == app ]]
+    codesign --verify --strict --test-requirement \
+      '=anchor apple generic and identifier "dev.caelis.bot"' "$BOT_VERIFY_PATH"
+    grep -q '^Authority=Apple Development:' <<< "$BOT_VERIFY_DETAILS"
+    grep -q 'flags=.*runtime' <<< "$BOT_VERIFY_DETAILS"
     ;;
   developer-id)
     [[ "${BOT_SIGNING_TEAM_ID:-}" =~ ^[A-Z0-9]{10}$ ]] || {

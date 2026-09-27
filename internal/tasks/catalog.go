@@ -4,13 +4,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-const PinnedLimit = 8
+// Display density is a native concern; active tasks have no display-count cap.
+const CompletedRetention = 30 * time.Minute
 
 func (m *Manager) notifyWatchlist() {
 	m.mu.Lock()
@@ -33,7 +36,7 @@ func (m *Manager) maximumRunning() int {
 			return n
 		}
 	}
-	return 3
+	return DefaultMaxRunning
 }
 func (m *Manager) activeLocked() int {
 	n := 0
@@ -44,21 +47,12 @@ func (m *Manager) activeLocked() int {
 	}
 	return n
 }
-func (m *Manager) pinnedLocked() int {
-	n := 0
-	for _, r := range m.state.Records {
-		if r.Provider == m.provider && r.Pinned != nil && *r.Pinned {
-			n++
-		}
-	}
-	return n
-}
 func summary(r *record) api.TaskSummary {
-	return api.TaskSummary{ID: r.View.ID, Title: r.View.Title, Status: r.View.Status, Outcome: r.View.Outcome, Pinned: r.Pinned != nil && *r.Pinned}
+	return api.TaskSummary{ID: r.View.ID, Title: r.View.Title, Status: r.View.Status, Outcome: r.View.Outcome, Locked: r.Locked, Pinned: r.Pinned != nil && *r.Pinned}
 }
 
 // Legacy records acquire stable pagination order once. Only old unfinished work
-// is migrated into the bounded watchlist; historical records remain searchable.
+// is migrated into the watchlist; historical records remain searchable.
 func (m *Manager) metadataLocked() {
 	ids := make([]string, 0, len(m.state.Records))
 	for id, r := range m.state.Records {
@@ -68,12 +62,6 @@ func (m *Manager) metadataLocked() {
 		}
 	}
 	sort.Strings(ids)
-	pins := map[string]int{}
-	for _, r := range m.state.Records {
-		if r.Pinned != nil && *r.Pinned {
-			pins[r.Provider]++
-		}
-	}
 	for _, id := range ids {
 		r := m.state.Records[id]
 		if r.Sequence == 0 {
@@ -81,13 +69,34 @@ func (m *Manager) metadataLocked() {
 			r.Sequence = m.state.Sequence
 		}
 		if r.Pinned == nil {
-			p := !terminal(r.View.Status) && pins[r.Provider] < PinnedLimit
+			p := !terminal(r.View.Status)
 			r.Pinned = &p
-			if p {
-				pins[r.Provider]++
-			}
+		}
+		if r.Provider != m.provider {
+			continue
+		}
+		if !terminal(r.View.Status) {
+			r.CompletedAt = 0
+		} else if r.CompletedAt == 0 {
+			r.CompletedAt = m.now().UnixMilli()
+		}
+		if !r.Locked && r.CompletedAt > 0 && m.now().Sub(time.UnixMilli(r.CompletedAt)) >= CompletedRetention {
+			pin := false
+			r.Pinned = &pin
 		}
 	}
+}
+
+// RefreshWatchlist only reads adapter memory and ages the local ledger. No
+// worker read, model turn, terminal launch or cancellation is dispatched.
+func (m *Manager) RefreshWatchlist() error {
+	m.op.Lock()
+	err := m.refresh()
+	m.op.Unlock()
+	if err == nil {
+		m.notifyWatchlist()
+	}
+	return err
 }
 
 type pageCursor struct {
@@ -96,7 +105,7 @@ type pageCursor struct {
 }
 
 func (m *Manager) QueryTasks(q api.TaskQuery) (api.TaskPage, error) {
-	page := api.TaskPage{Tasks: []api.TaskSummary{}, PinnedLimit: PinnedLimit}
+	page := api.TaskPage{Tasks: []api.TaskSummary{}, CompletedRetentionSeconds: int(CompletedRetention.Seconds())}
 	if q.Limit == 0 {
 		q.Limit = 20
 	}
@@ -168,20 +177,22 @@ func (m *Manager) PinTask(id string, pinned bool) (api.TaskSummary, error) {
 		m.mu.Unlock()
 		return out, nil
 	}
-	if pinned && m.pinnedLocked() >= PinnedLimit {
-		m.mu.Unlock()
-		return api.TaskSummary{}, errors.New(m.text("host.taskPinsFull"))
-	}
-	previous := r.Pinned
+	previous := *r
 	r.Pinned = &pinned
+	if !pinned {
+		r.Locked = false
+	}
+	if pinned && terminal(r.View.Status) {
+		r.CompletedAt = m.now().UnixMilli()
+	}
 	err := m.write()
 	if err != nil {
-		r.Pinned = previous
+		*r = previous
 	}
 	out := summary(r)
 	m.mu.Unlock()
-	if err == nil && m.watchlistChanged != nil {
-		m.watchlistChanged(m.TaskPreviews())
+	if err == nil {
+		m.notifyWatchlist()
 	}
 	return out, err
 }
@@ -189,5 +200,127 @@ func (m *Manager) PinTask(id string, pinned bool) (api.TaskSummary, error) {
 func (m *Manager) ObserveWatchlist(changed func([]api.TaskPreview)) {
 	m.op.Lock()
 	defer m.op.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.watchlistChanged = changed
+}
+
+// LockTask keeps a task resident without changing its native execution.
+func (m *Manager) LockTask(id string, locked bool) (api.TaskSummary, error) {
+	m.op.Lock()
+	defer m.op.Unlock()
+	if err := m.refresh(); err != nil {
+		return api.TaskSummary{}, err
+	}
+	if err := m.owned(id); err != nil {
+		return api.TaskSummary{}, err
+	}
+	m.mu.Lock()
+	r := m.state.Records[id]
+	previous := *r
+	r.Locked = locked
+	if locked {
+		pin := true
+		r.Pinned = &pin
+	}
+	// Unlocking a completed task gives the user the normal grace period.
+	if terminal(r.View.Status) {
+		r.CompletedAt = m.now().UnixMilli()
+	}
+	err := m.write()
+	if err != nil {
+		*r = previous
+	}
+	out := summary(r)
+	m.mu.Unlock()
+	if err == nil {
+		m.notifyWatchlist()
+	}
+	return out, err
+}
+
+// ClearTasks dismisses unlocked items, including active ones, until a new
+// native execution or an explicit pin. Locks, history and workers survive.
+func (m *Manager) ClearTasks() error {
+	m.op.Lock()
+	defer m.op.Unlock()
+	if err := m.refresh(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	previous := map[string]*bool{}
+	for id, r := range m.state.Records {
+		if r.Provider == m.provider && !r.Locked && r.Pinned != nil && *r.Pinned {
+			previous[id] = r.Pinned
+			pin := false
+			r.Pinned = &pin
+		}
+	}
+	err := m.write()
+	if err != nil {
+		for id, pin := range previous {
+			m.state.Records[id].Pinned = pin
+		}
+	}
+	m.mu.Unlock()
+	if err == nil {
+		m.notifyWatchlist()
+	}
+	return err
+}
+
+// Manual ordering is independent of the immutable history pagination sequence.
+// New native executions go to the front; ordinary polling preserves the order.
+func (m *Manager) promoteWatchLocked(id string) {
+	if order, ok := m.state.WatchOrder[m.provider]; ok {
+		order = slices.DeleteFunc(slices.Clone(order), func(v string) bool { return v == id })
+		m.state.WatchOrder[m.provider] = append([]string{id}, order...)
+	}
+}
+func (m *Manager) MoveTask(id, before string) error {
+	m.op.Lock()
+	defer m.op.Unlock()
+	if err := m.refresh(); err != nil {
+		return err
+	}
+	previews := m.TaskPreviews()
+	ids := make([]string, 0, len(previews))
+	found, target := false, before == ""
+	for _, p := range previews {
+		if p.ID == id {
+			found = true
+			continue
+		}
+		ids = append(ids, p.ID)
+		if p.ID == before {
+			target = true
+		}
+	}
+	if !found || !target || id == before {
+		return errors.New("task order target is unavailable")
+	}
+	at := len(ids)
+	if before != "" {
+		at = slices.Index(ids, before)
+	}
+	ids = slices.Insert(ids, at, id)
+	m.mu.Lock()
+	if m.state.WatchOrder == nil {
+		m.state.WatchOrder = map[string][]string{}
+	}
+	old, had := m.state.WatchOrder[m.provider]
+	m.state.WatchOrder[m.provider] = ids
+	err := m.write()
+	if err != nil {
+		if had {
+			m.state.WatchOrder[m.provider] = old
+		} else {
+			delete(m.state.WatchOrder, m.provider)
+		}
+	}
+	m.mu.Unlock()
+	if err == nil {
+		m.notifyWatchlist()
+	}
+	return err
 }

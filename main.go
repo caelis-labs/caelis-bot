@@ -13,6 +13,12 @@ import (
 var assets embed.FS
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--terminal-smoke" {
+		if err := desktop.RunTerminalSmoke(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--bot-tools" {
 		if err := bot.RunStdio(os.Stdin, os.Stdout); err != nil {
 			os.Exit(1)

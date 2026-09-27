@@ -113,3 +113,13 @@ macOS 的 cgo 测试、`make build` 和原生 Run 仍独立执行，防止只验
 
 当前 CI 只有 macOS runner，并执行共享检查及交叉编译；没有 Windows runner 执行证据。
 上述当地 runner 门槛是后续原生平台启用条件，而非已完成证据。
+
+
+## 后台任务终端管理的平台边界
+
+跨平台共享的是任务生命周期、工作区、可见性、锁定与顺序，以及宿主解析的 attach 目标。
+macOS 当前的透明堆叠/边缘布局、AppKit 坐标、向上关闭手势、LaunchServices/Apple Events 专属实例管理、
+ScreenCaptureKit 单帧预览和 Carbon 快捷键，属于 macOS host，不构成 Windows 的实现要求。
+通用窗口句柄不要求收起/关闭/定位/截图能力成套存在；不支持的动作保留现有绑定并返回明确结果。
+Windows 适配可采用平台自己的清单/切换界面或仅支持打开，必须独立声明能力、交互和验收边界。
+本轮没有启用 Windows 桌面，非 macOS / 无 CGO 仍在启动前明确返回 unsupported。
