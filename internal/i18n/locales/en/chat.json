@@ -141,5 +141,18 @@
   "unsupportedApprovalForm": "This form is not supported. Cancel and try another method.",
   "approvalTask": "Task: {name}",
   "caelisApproval": "Caelis requests permission to proceed.",
-  "workerApproval": "A delegated task requests permission to proceed."
+  "workerApproval": "A delegated task requests permission to proceed.",
+  "activityRead": "Reading files",
+  "activityEdit": "Editing files",
+  "activitySearch": "Searching files",
+  "activityList": "Browsing files",
+  "activityWeb": "Searching the web",
+  "activityFetch": "Reading a web page",
+  "activityExecute": "Running a command",
+  "activityTool": "Using a tool",
+  "activityDelegate": "Coordinating work",
+  "activityImage": "Processing an image",
+  "activityCompact": "Organizing context",
+  "activityPlan": "Planning",
+  "activityRespond": "Responding"
 }

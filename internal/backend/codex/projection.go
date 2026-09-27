@@ -41,14 +41,18 @@ type nativeChange struct {
 	Kind json.RawMessage `json:"kind"`
 }
 type nativeItem struct {
-	ID                string          `json:"id"`
-	Type              string          `json:"type"`
-	Text              string          `json:"text"`
-	ClientID          string          `json:"clientId"`
-	Content           []nativeInput   `json:"content"`
-	Status            string          `json:"status"`
-	Phase             string          `json:"phase"`
-	Command           string          `json:"command"`
+	ID             string          `json:"id"`
+	Type           string          `json:"type"`
+	Text           string          `json:"text"`
+	ClientID       string          `json:"clientId"`
+	Content        []nativeInput   `json:"content"`
+	Status         string          `json:"status"`
+	Phase          string          `json:"phase"`
+	Command        string          `json:"command"`
+	CommandActions []commandAction `json:"commandActions"`
+	WebAction      *struct {
+		Type string `json:"type"`
+	} `json:"action"`
 	Cwd               string          `json:"cwd"`
 	Output            string          `json:"aggregatedOutput"`
 	ExitCode          *int            `json:"exitCode"`
@@ -130,6 +134,10 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 	}
 	s.nativeItems[key] = item
 	view := api.Item{TurnKey: opaque(run), ID: key, Status: item.Status, Artifacts: []api.Artifact{}}
+	view.Activity = itemActivity(item)
+	if view.Activity != nil && view.Status == "" {
+		view.Status = "inProgress"
+	}
 	switch item.Type {
 	case "userMessage":
 		view.Kind = "user"

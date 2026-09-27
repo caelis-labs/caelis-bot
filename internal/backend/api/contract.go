@@ -20,6 +20,7 @@ type Snapshot struct {
 	ConnectionIssue  string      `json:"connectionIssue"`
 	Phase            string      `json:"phase"`
 	Message          string      `json:"message"`
+	Activity         *Activity   `json:"activity"`
 	CanSend          bool        `json:"canSend"`
 	CanSteer         bool        `json:"canSteer"`
 	CanInterrupt     bool        `json:"canInterrupt"`
@@ -60,7 +61,15 @@ type Item struct {
 	Text      string     `json:"text"`
 	Status    string     `json:"status"`
 	Details   string     `json:"details"`
+	Activity  *Activity  `json:"activity"`
 	Artifacts []Artifact `json:"artifacts"`
+}
+
+// Activity is presentation-only metadata from a native tool's typed semantics.
+// Target is a short file/tool name, never command arguments or output.
+type Activity struct {
+	Kind   string `json:"kind"`
+	Target string `json:"target"`
 }
 type Artifact struct {
 	ID   string `json:"id"`

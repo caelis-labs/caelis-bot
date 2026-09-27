@@ -53,6 +53,7 @@ func (s *Service) Snapshot() api.Snapshot {
 	return s.decorate(v)
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
+	v.Activity = currentActivity(v)
 	s.mu.Lock()
 	v = s.presentOutgoing(v)
 	pending := s.pendingDraft
@@ -108,7 +109,9 @@ func (s *Service) PetSnapshot() api.Snapshot {
 		item.Details = ""
 		item.Artifacts = nil
 		text := []rune(item.Text)
-		if len(text) > 1000 {
+		// The latest assistant response remains complete for hover reading;
+		// bound the number of messages, not the Markdown source mid-structure.
+		if item.Kind != "assistant" && len(text) > 1000 {
 			item.Text = string(text[:1000]) + "…"
 		}
 		items = append(items, item)

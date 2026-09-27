@@ -82,7 +82,7 @@ foreground window. P1 has replaced the single-window fixture:
   The input rectangle and its glass backdrop stay anchored independently. Native
   activation IDs fence late menu requests; the quick menu sits above the pet while
   open and restores its normal window level on dismissal.
-- A non-key message bubble shows only the current request's latest assistant response/lifecycle state.
+- A non-key message bubble shows the current request's latest assistant response/lifecycle state and compact native tool activity.
   It never auto-opens the keyboard panel. Approval clicks expand this same bubble;
   an optional IM-style chat window shows user/assistant messages and necessary decisions.
 - Approval/details surfaces show adequate decision context and preserve the exact
@@ -291,7 +291,7 @@ with regular files qualify; symlinks/unknown directories, originals, selected dr
 and result files are not deleted. Active work, pending submissions, decisions or
 running native background terminals block cleaning. The native host uses macOS Trash,
 not permanent removal. Future work may need the user to reattach cleared copies.
-Assistant Markdown renders in the optional chat, with explicit http(s) links and
+Assistant Markdown renders in the optional chat and pet bubble, with explicit http(s) links and
 native message/code copying. Raw HTML is skipped and remote images become links,
 so rendering a reply alone does not fetch remote resources.
 
@@ -556,13 +556,33 @@ P2 backend.Service is registered separately; it does not expand desktop.Service 
 
 ## Pet message projection
 
-`PetSnapshot` supplies only the latest user/assistant/activity after the latest user
-boundary, at most three items with bounded preview text, plus pending event titles.
-It strips tool details, artifacts and authorization payloads from the passive bubble;
-the explicit details/decision paths load the full authoritative snapshot. The bubble
-polls serially every 400 ms while the pet is shown; input/history polling runs only
-while those surfaces are open. The current adapter still clones history to make a
-snapshot; true incremental subscriptions and long-history performance remain gates.
+`PetSnapshot` supplies the latest user/assistant/activity after the current request
+boundary. It strips tool details and artifacts, but keeps the complete latest
+assistant Markdown so hover reading does not stop at an arbitrary character limit.
+Pending approvals retain their exact native choices; only explicit approval clicks
+expand the decision controls. Chat and bubble reuse the same safe Markdown renderer.
+Nested link/copy actions and text selection do not trigger the bubble's open-chat action.
+
+Adapters attach presentation-only `Activity` categories to native tool items. Codex
+uses commandActions, item variants and tool lifecycle; Caelis uses ACP kind/name,
+locations and call identity, retaining metadata across sparse updates. Caelis child
+observations do not replace the main turn; an exact parent terminal update may close
+its foreground invocation. Projection version 8 rebuilds old Caelis views from native
+history. No activity is derived from assistant prose, command text or tool output.
+The backend service selects the newest still-active current-turn tool before reducing
+pet/chat payloads, so completing a parallel tool or adding a steering input cannot
+hide an older running tool. Terminal/disconnected states clear the hint; UI approvals,
+automatic review and interrupting take precedence. Unknown tools get a generic label.
+The hint describes the resident Bot's foreground invocation, not workers' internal
+steps; worker observation remains in the existing task/terminal surfaces.
+
+Hover/focus expands only message reading. `bubble_layout.h` derives an invariant
+anchor and size cap from native visibleFrame: up to 480 points, 55 percent of visible
+screen height, and the actual space above/beside the pet. CSS uses that native cap,
+scrolls the complete body, and leaves controls accessible. Expanding preserves the
+collapsed rectangle to avoid pointer/resize oscillation. Hidden surfaces reset hover;
+hover never enables the native panel's key-window flag. Polls remain serial every
+450 ms while the pet is shown; no new model calls or idle inference loop is added.
 
 ## Long-lived Bot and resident wakeups (2026-09-19)
 

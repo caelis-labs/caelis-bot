@@ -129,6 +129,16 @@ func (s *Session) RecentSnapshot() api.Snapshot {
 			break
 		}
 	}
+	// Steering adds another user item in the same turn. Retain earlier tool
+	// owners until the service selects the current activity, then trim prose.
+	if v.CurrentTurn != "" {
+		for i := 0; i < start; i++ {
+			if v.Items[i].TurnKey == v.CurrentTurn {
+				start = i
+				break
+			}
+		}
+	}
 	v.Items = v.Items[start:]
 	b, _ := json.Marshal(v)
 	var out api.Snapshot

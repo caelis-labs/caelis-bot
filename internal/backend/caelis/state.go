@@ -12,7 +12,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
-const currentProjectionVersion = 7
+const currentProjectionVersion = 8
 
 // Hold newly observed native inputs until the prompt's receipt can identify
 // them exactly. The canonical transcript remains intact, including on restart.

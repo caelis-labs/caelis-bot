@@ -183,7 +183,11 @@ func TestNativeArtifactProjectionAcceptsToolContentUnion(t *testing.T) {
 		update := json.RawMessage(raw)
 		applyEnvelope(v, wire.Envelope{TurnId: pointer("turn"), Update: &update})
 	}
-	if len(v.Items) != 1 || len(v.Items[0].Artifacts) != 1 || v.Items[0].Artifacts[0].ID != "resource:main:artifact" {
+	resources := []api.Artifact{}
+	for _, item := range v.Items {
+		resources = append(resources, item.Artifacts...)
+	}
+	if len(resources) != 1 || resources[0].ID != "resource:main:artifact" {
 		t.Fatal("artifact missing or duplicated", v.Items)
 	}
 }
