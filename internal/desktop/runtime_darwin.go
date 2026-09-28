@@ -6,6 +6,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -33,18 +34,20 @@ import (
 var appIcon []byte
 
 func Run(assets fs.FS) error {
+	env, report, envErr := runtimeenv.ResolveWithReport(context.Background(), os.Environ(), environmentNotebookHomes()...)
+	if err := runtimeenv.Install(env); err != nil {
+		envErr = err
+	}
 	root, err := applicationDataDirectory()
 	if err != nil {
 		return err
 	}
 	diagnostics := diagnosticlog.New(filepath.Join(root, "Logs"))
-	env, envErr := runtimeenv.Resolve(context.Background(), os.Environ())
-	if err := runtimeenv.Install(env); err != nil {
-		envErr = err
-	}
 	if envErr != nil {
 		// Resolve returns only locally generated causes, never shell output/values.
 		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
+	} else if report.HomeRestored || report.RecoveredPathEntries > 0 {
+		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_recovered", Reason: fmt.Sprintf("account home restored: %t; inherited PATH entries recovered: %d", report.HomeRestored, report.RecoveredPathEntries)})
 	} else {
 		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_loaded", Reason: "user login and interactive shell exports loaded for native runtimes"})
 	}

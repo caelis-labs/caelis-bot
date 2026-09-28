@@ -78,13 +78,22 @@ Codex 使用公开 `config/read` 的 effective config，而不是 `model/list` �
 Caelis 的 Agent team 在“运行时与模型”中配置，与本机 TUI `/team` 共用角色绑定和方案。
 这是 Runtime 配置，不为每个 Worker 另建 team；新任务相当于用户在本机 Caelis 发起工作。
 
-## 本机工作环境与诊断（2026-09-24）
+## 本机工作环境与诊断（2026-09-28）
 
 macOS 原生宿主在启动 Runtime 前，从用户的登录/交互 shell 恢复导出的环境变量，
 包括 PATH、工具管理器路径和用户导出的 Runtime 配置。Codex App Server、原生子 agent、
 独立工作任务，以及 Bot 调用 `caelis service start` 创建的 Host 都继承这套环境，
 不以 Finder 的最小 PATH 代替用户终端环境。shell 探测只执行一次，有超时与输出上限；
-失败保留原环境并记入私有日志。用户显式指定的隔离数据目录和 CODEX_HOME 保留。
+探测前补全账户信息，只修复缺失/相对或已知 Notebook 的 HOME，以及已知 Notebook 的
+ZDOTDIR/TMPDIR；合法自定义 HOME/ZDOTDIR 保留。Notebook 仍是 CWD，与用户 home 分开。
+PATH 按 shell 优先合并继承目录并去重，避免 shell 初始化覆盖原本可用的工具；失败返回
+已纠正的继承环境。诊断只写恢复状态、目录数量与错误原因，不写环境值或 shell 输出。
+用户显式指定的隔离数据目录和 CODEX_HOME 保留；Codex/Caelis 自有进程共用一份环境清理，
+只移除调用者会话身份及私有 IPC，不按通用工具链白名单裁剪配置。
+Caelis 现有 Application 执行路径仍会在 Core 内覆盖命令环境；上述启动修复不代表该路径
+已经保留用户环境。Core 应提供通用可装配的环境/shell 配置，由 Bot 通过公共接口指定，
+跟踪 [Core #84](https://github.com/caelis-labs/caelis/issues/84)。等其合并后接入并完成 Run/Start、
+审批后执行与普通会话/Worker 的环境联调，再关闭 Bot #36。
 已经运行的共享 Caelis Host 继续使用其启动时的环境；普通连接不重启它。
 显式升级经原生服务生命周期选择新版，忙碌检查和共享客户端边界见 [接入契约](caelis-integration.md#安装更新与启用服务)。
 

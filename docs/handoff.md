@@ -1,5 +1,19 @@
 # 继续开发
 
+## 2026-09-28 Runtime 启动环境（本地，等待 Core）
+
+- Issue #36 的 Bot 启动部分已修复：统一环境准备，纠正已知 Notebook HOME/ZDOTDIR/TMPDIR，
+  保留合法自定义配置，合并 shell 与继承 PATH。Codex/Caelis 自有进程复用同一清理策略。
+- Core 的通用环境/shell 配置入口由 [Core #84](https://github.com/caelis-labs/caelis/issues/84)
+  独立实现。Core 不承载 Bot 产品假设；Bot 通过公共能力装配 Runtime。当前旧 Core 命令路径
+  仍会覆盖环境，不能因 Bot 启动测试通过就关闭 #36。
+- 同一 worktree 已完成 #35 与 #36 Bot 部分，分 commit；等 Core PR 合并、公共配置接入和
+  新二进制联调通过后再提一个 Bot PR。原 PR #37 保持独立，本次没有推送或创建 Bot PR。
+- `make check`、`make smoke`、`make build`（ad-hoc）与受影响包 race 通过；Codex/Caelis
+  原生 Runtime + 合成 provider 联调通过。未启动日常 Bot、未验证实际 GUI 或 gh 账户登录。
+  #36 不新增 Bot skill 指令：账户/环境初始化属于宿主装配，不能教 Bot 用临时 shell 绕法修补。
+- [实现、验证和后续接入清单](design/issues-35-36-repair-plan.md)。
+
 ## 2026-09-28 主动关怀 v2（本地，未发布）
 
 - Issue #35：`onAny` 规范化多源订阅，共用 occurrence/冷却；`appChanged` 携带同次采样的使用时长。

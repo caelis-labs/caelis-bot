@@ -1,5 +1,26 @@
 # 实现与验证状态
 
+## 2026-09-28 主动关怀 v2 与启动环境修复（本地，等待 Core）
+
+Issue #35 已实现规范化多源订阅、同次使用时长采样、可见打扰记账、未决预留、按规则隔离、
+派发冷却、可配置 policy 和 v1 原子迁移。Codex/Caelis 均持久保存结果，复用静默呈现规则；
+英文主动关怀 skill 已同步。Issue #36 已完成 Bot 启动环境修复和两份过滤策略收敛。
+
+- `make check`、`make smoke`、`make build` 通过；构建为本地 ad-hoc，不是公证发行。
+  日志位于 `.cache/issues-35-36-{check,smoke,build}.log`。
+- care、bot、activation、Codex、Caelis、runtimeenv、botskills 的 race 通过。
+  首轮 Codex 既有 restore 测试曾出现关闭确认超时；该测试独立连续 5 次、随后整包 race
+  和完整 check 均通过，没有数据竞争报告，未改动无关的关闭逻辑。
+- 安装版 Codex App Server 与 Caelis Host + 本机合成 provider 联调通过：技能渐进读取、
+  Worker 隔离、原生可见结果计数、静默结果释放及既有工作流。没有真实付费模型请求。
+- 真实 zsh 合成账户验证自定义工具、合法 ZDOTDIR、已知 Notebook 污染恢复、继承 PATH
+  保留、缺失身份变量与探测失败。未读取用户 dotfiles/凭据作为测试数据。
+
+[Core #84](https://github.com/caelis-labs/caelis/issues/84) 的可装配运行环境入口仍是 #36
+完整修复的外部依赖，现有 Core 命令路径仍覆盖环境。等 Core 合并后再装配公共配置、验证
+Run/Start 与审批后执行，再提一个 Bot PR。未新增 GUI 视觉验收，未验证 gh 真实账户登录、
+物理锁屏/睡眠或长期关怀质量。完整交接见[修复记录](design/issues-35-36-repair-plan.md)。
+
 ## 2026-09-28 设置和首次使用（本地，未发布）
 
 五类设置导航、低频内容折叠、真实形象静止预览、可跳过权限的三步首次引导、稳定模型选择面板、
