@@ -28,6 +28,10 @@ type Options struct {
 	// ToolsOnly is for protocol acceptance without native execution. Product
 	// assembly always requests workspace-write; it never silently falls back.
 	ToolsOnly bool
+	// RequireApproval keeps isolated manual acceptance explicit. Product defaults to Guardian.
+	RequireApproval bool
+	// ReviewerModel is an optional assembly override; otherwise pin the initial main model.
+	ReviewerModel string
 }
 type Session struct {
 	sendingScheduled      string
@@ -40,6 +44,8 @@ type Session struct {
 	execution             api.ExecutionSettings
 	workExecution         api.WorkExecutionSettings
 	executionMode         string
+	requireApproval       bool
+	reviewerModel         string
 	tools                 *api.ToolConnection
 	catalog               map[string]api.ApplicationTools
 	catalogs              map[string]map[string]api.ApplicationTools
@@ -69,7 +75,7 @@ func New(opts Options) *Session {
 	if opts.ToolsOnly {
 		mode = "tools-only"
 	}
-	return &Session{diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
+	return &Session{requireApproval: opts.RequireApproval, reviewerModel: opts.ReviewerModel, diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
 }
 func (*Session) ProviderInfo() api.ProviderInfo {
 	return api.ProviderInfo{ID: "caelis", Name: "Caelis", ConnectionKind: "local-host", HelpURL: "https://caelis.dev", ConnectionHint: "使用本机 Caelis；安装与模型凭据由运行时管理。"}
@@ -147,7 +153,7 @@ func Discover(settings api.RuntimeSettings) (discovery, string, error) {
 	return d, strings.TrimSpace(string(b)), nil
 }
 
-var required = []string{"shared-native-workers-v1", "turn-steering-receipts-v1", "application-runtime-v1", "application-hot-configuration-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1", "execution-configuration-v1"}
+var required = []string{"shared-native-workers-v1", "turn-steering-receipts-v1", "application-runtime-v1", "application-hot-configuration-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1", "execution-configuration-v1", "application-guardian-review-v1"}
 var errBotIncompatible = errors.New("Caelis 应用协议不兼容，请更新运行时并重启 Caelis 服务")
 
 func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {

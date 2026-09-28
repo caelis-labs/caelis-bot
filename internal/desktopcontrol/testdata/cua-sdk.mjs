@@ -17,7 +17,7 @@ export class CuaDriver {
     const input = async () => {writeFileSync(new URL('input-dispatched', root), 'yes'); return {isError: false};};
     return {
       listWindows: async () => {
-        if (++lists === 3 && config.blockPreflight) {
+        if (++lists === 4 && config.blockPreflight) {
           writeFileSync(new URL('preflight-started', root), 'yes');
           // EOF is precisely the old grace-period shutdown signal. It does not
           // cancel an in-flight SDK promise, which can then dispatch an input.

@@ -168,6 +168,7 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 			return err
 		}
 		profile := config.Profile
+		s.configureReviewer(&profile)
 		profile.Instructions, profile.Tools, profile.ToolsVersion = s.profile.Instructions, s.profile.Tools, s.profile.ToolsVersion
 		_, renewalErr = s.command(ctx, op, "/application/sessions", wire.CreateApplicationSessionRequest{OperationId: &op, Profile: profile})
 	} else if pending.Outcome == "unknown" {
@@ -199,6 +200,9 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 	}
 	if next.SessionId != sid || sid == source || next.ApplicationId != life.ApplicationId || next.ConnectionId != life.ConnectionId || next.PrincipalId != life.PrincipalId || next.Archived || next.Profile.Execution != s.executionMode {
 		return errors.New("新上下文绑定不匹配")
+	}
+	if err := s.checkReviewer(ctx, next); err != nil {
+		return err
 	}
 	var state wire.SessionState
 	if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil {

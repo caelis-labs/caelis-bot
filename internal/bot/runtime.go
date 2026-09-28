@@ -56,6 +56,7 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
+	desktopTurn    string
 	desktopContext context.Context
 	desktopCancel  context.CancelFunc
 	desktopControl api.ApplicationTools    // owned by native host, never by workers

@@ -9,8 +9,10 @@ try {
     try {
       if (Buffer.byteLength(line) > 65536) throw new Error('request_too_large');
       const r = JSON.parse(line);
+      desktop.setTurn(r.turn);
       let state;
       if (r.name === 'bot_desktop_observe') state = await desktop.observe(r.arguments);
+      else if (r.name === 'bot_desktop_authorize') state = await desktop.authorize(r.arguments);
       else if (r.name === 'bot_desktop_perform') state = await desktop.perform(r.arguments);
       else throw new Error('unknown_tool');
       reply(envelope(state));

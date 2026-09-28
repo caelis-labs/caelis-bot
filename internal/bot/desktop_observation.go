@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"time"
@@ -27,6 +28,7 @@ func (r *Runtime) BeginDesktopTurn() {
 	if r.desktopCancel != nil {
 		r.desktopCancel()
 	}
+	r.desktopTurn = rand.Text()
 	r.desktopContext, r.desktopCancel = context.WithCancel(context.Background())
 	if r.stopped {
 		r.desktopCancel()
@@ -42,8 +44,9 @@ func (r *Runtime) StopDesktopTurn() {
 func (r *Runtime) desktopCallContext(parent context.Context) (context.Context, context.CancelFunc) {
 	r.mu.Lock()
 	turn := r.desktopContext
+	turnID := r.desktopTurn
 	r.mu.Unlock()
-	ctx, cancel := context.WithCancel(parent)
+	ctx, cancel := context.WithCancel(desktopcontrol.WithTurn(parent, turnID))
 	if turn == nil || turn.Err() != nil {
 		cancel()
 		return ctx, cancel

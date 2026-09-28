@@ -225,14 +225,14 @@ func TestBotApprovalIsAnExplicitToolAllowlist(t *testing.T) {
 	}
 	defer b.Close()
 	c := b.Config("synthetic")
-	if len(c.ApprovedTools) != 10 {
+	if len(c.ApprovedTools) != 8 {
 		t.Fatal("approval scope grew without review")
 	}
 	policy := map[string]bool{}
 	for _, name := range c.ApprovedTools {
 		policy[name] = true
 	}
-	for _, name := range []string{"bot_clock", "bot_reminders", "bot_care", "bot_gesture", "bot_tasks", "bot_task_start", "bot_task_read", "bot_task_send", "bot_task_stop", "bot_memory"} {
+	for _, name := range []string{"bot_clock", "bot_gesture", "bot_tasks", "bot_task_read", "bot_memory", "bot_reminders_list", "bot_care_read", "bot_task_stop"} {
 		if !policy[name] {
 			t.Fatal("owned tool approval missing", name)
 		}
@@ -240,7 +240,7 @@ func TestBotApprovalIsAnExplicitToolAllowlist(t *testing.T) {
 
 	for _, spec := range toolSpecs() {
 		tool := spec.(map[string]any)
-		if tool["description"] == "" || !policy[tool["name"].(string)] {
+		if tool["description"] == "" {
 			t.Fatal("catalog/policy mismatch")
 		}
 	}
@@ -314,7 +314,7 @@ func TestQueuedWakeRetainsRuntimeAcrossRestart(t *testing.T) {
 func TestApplicationToolHandlerHonorsCancellationAndShutdown(t *testing.T) {
 	r, _, _ := fixture(t)
 	defs := r.Definitions()
-	if len(defs) != 10 {
+	if len(defs) != 12 {
 		t.Fatal("incomplete application catalog")
 	}
 	defs[0].Name = "foreign"
@@ -390,5 +390,22 @@ func TestGrantedRemindersDispatchIndividuallyWithoutUserSubmit(t *testing.T) {
 	}
 	if len(f.submissions) != 0 || len(g.background) != 2 || len(g.background[0]) != 1 || len(g.background[1]) != 1 || g.background[0][0] == g.background[1][0] {
 		t.Fatal("grant wakes must be separate, exactly once, and never user messages", g.background, f.submissions)
+	}
+}
+
+func TestReadOnlyToolsCannotCreateBackgroundWork(t *testing.T) {
+	r, engine, _ := fixture(t)
+	for _, name := range []string{"bot_reminders_list", "bot_care_read"} {
+		for _, args := range []string{`{"operation":"save","id":"injected","prompt":"not authorized"}`, `{"operation":"configure","policy":{}}`, `{"operation":"remove","id":"existing"}`} {
+			if out := r.CallTool(t.Context(), name, json.RawMessage(args)); !out.IsError {
+				t.Fatal("read-only route accepted mutation", name)
+			}
+		}
+	}
+	if len(r.State().Schedules) != 0 || len(engine.submissions) != 0 {
+		t.Fatal("read-only path changed work")
+	}
+	if r.CallTool(t.Context(), "bot_reminders_list", json.RawMessage(`{}`)).IsError {
+		t.Fatal("read-only listing rejected")
 	}
 }

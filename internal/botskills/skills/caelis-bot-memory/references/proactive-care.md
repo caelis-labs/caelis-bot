@@ -2,7 +2,7 @@
 
 Use `bot_care` for a standing arrangement that should run only when a local
 condition matches. Use `bot_reminders` for an ordinary fixed-time reminder. Read
-`bot_care` with `operation: "list"` first: it returns the available sources, their
+`bot_care_read` with `operation: "list"` first: it returns the available sources, their
 fields, saved rules, queued outcomes, and current presence availability.
 
 Use `on` for one source, or `onAny` for a nonempty list of registered sources.
@@ -12,7 +12,7 @@ All sources share one rule, pending activation, and cooldown.
 
 Translate the user's request or standing arrangement into a short task and a CEL
 boolean condition. Test representative matching and non-matching data with
-`operation: "test"` before saving. Testing neither registers a rule nor publishes
+`bot_care_read` with `operation: "test"` before saving. Testing neither registers a rule nor publishes
 an event. Save with a stable ID, and confirm the returned enabled state. Identical
 saves preserve cooldown and pending work. Use `remove` to stop future callbacks.
 A Caelis registration or substantive change needs a user-originated request;
@@ -37,7 +37,8 @@ every 30 seconds, and clock conditions once per current minute.
 
 These are `bot_care` arguments. Adapt the purpose, timezone, application identifiers,
 and frequency to the actual arrangement. To try an example, change `operation` to
-`test` and include the indicated `event` object, then save without that sample.
+`test` on `bot_care_read` and include the indicated `event` object, then save
+with `bot_care` without that sample.
 
 A brief break suggestion after two hours of active use during weekday daytime:
 

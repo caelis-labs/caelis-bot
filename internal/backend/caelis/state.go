@@ -13,7 +13,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
-const currentProjectionVersion = 8
+const currentProjectionVersion = 9
 
 // Hold newly observed native inputs until the prompt's receipt can identify
 // them exactly. The canonical transcript remains intact, including on restart.
@@ -34,6 +34,8 @@ type journal struct {
 	Source       wire.ApplicationSource `json:"source"`
 }
 type view struct {
+	Reviews         map[string]reviewFact            `json:"reviews,omitempty"`
+	LiveReviews     map[string]reviewFact            `json:"-"`
 	CommandCaughtUp bool                             `json:"-"`
 	CommandResults  map[string]commandResultEvidence `json:"commandResults,omitempty"`
 	ApprovalDirty   bool                             `json:"approvalDirty,omitempty"`
@@ -144,6 +146,7 @@ func loadBinding(path string) (binding, error) {
 			if v == nil {
 				continue
 			}
+			v.Reviews, v.LiveReviews = nil, nil
 			v.Items = []api.Item{}
 			v.Cursor = ""
 			v.Seen = map[string]bool{}

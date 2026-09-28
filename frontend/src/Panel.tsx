@@ -21,6 +21,7 @@ export function getReviewLabel(status: string, t: (key: MessageKey) => string): 
   case 'denied': return t('chat.reviewDenied');
   case 'timedOut': return t('chat.reviewTimedOut');
   case 'aborted': return t('chat.reviewAborted');
+  case 'failed': return t('chat.reviewFailed');
   default: return t('chat.reviewPending');
  }
 }
@@ -268,7 +269,7 @@ export function History() {
  const contentKey=messages.map(i=>i.id+i.text).join('');
  const prompts=snapshot?.approvals.filter(p=>p.status!=='resolved')??[];
  const promptKey=prompts.map(p=>p.id+p.status).join('');
- const reviews=snapshot?.reviews?.filter(r=>r.status==='denied'||r.status==='timedOut'||r.status==='aborted')??[];
+ const reviews=snapshot?.reviews?.filter(r=>r.status==='denied'||r.status==='timedOut'||r.status==='aborted'||r.status==='failed')??[];
  const activity=chatActivity(snapshot);
  const activeReply=active?activeReplyID(snapshot):null;
  const connection=snapshot&&snapshot.connection!=='ready';

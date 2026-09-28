@@ -120,3 +120,49 @@ func TestBackgroundApprovalRemainsVisibleAfterSilentCompletion(t *testing.T) {
 		t.Fatal("approval was refunded", got)
 	}
 }
+
+func TestBackgroundGuardianCountsOnlyVisibleFeedbackForItsTurn(t *testing.T) {
+	for _, tc := range []struct {
+		status, turn string
+		visible      bool
+	}{
+		{"in_progress", "care-turn", false}, {"approved", "care-turn", false},
+		{"denied", "care-turn", true}, {"failed", "care-turn", true}, {"timed_out", "care-turn", true},
+		{"denied", "other-turn", false},
+	} {
+		t.Run(tc.status+"/"+tc.turn, func(t *testing.T) {
+			s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected request") })
+			s.state.Session.Profile.Permissions = &wire.ApplicationPermissions{ApprovalMode: pointer("auto-review")}
+			s.state.Operations["care"] = journal{Scheduled: true, Outcome: "accepted", TurnID: "care-turn", Path: "/application/sessions/main/prompt"}
+			v := s.state.Views["main"]
+			v.CommandCaughtUp = true
+			v.State.Run.TurnId, v.State.Run.Status = pointer("care-turn"), pointer("running")
+			v.State.Approval.Active = testApproval()
+			e := wire.Envelope{Kind: "caelis/approval_review", SessionId: pointer("main"), TurnId: &tc.turn, ApprovalRequestId: pointer("review"), ApprovalReview: &wire.ApprovalReview{ToolCallId: pointer("call"), Status: &tc.status}}
+			if tc.status == "approved" || tc.status == "denied" {
+				e.Delivery.Mode = wire.DeliveryModeMirror
+			}
+			applyEnvelope(v, e)
+			if err := s.saveLocked(); err != nil {
+				t.Fatal(err)
+			}
+			if got := s.BackgroundResult("care"); got.Visible != tc.visible || got.Complete {
+				t.Fatal("incorrect pending interruption", got)
+			}
+			v.State.Approval.Active = nil
+			v.State.Run.Status = pointer("completed")
+			v.Items = []api.Item{{Kind: "assistant", TurnKey: "care-turn", Text: api.SilentReminder}}
+			if err := s.saveLocked(); err != nil {
+				t.Fatal(err)
+			}
+			restored, err := loadBinding(s.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.state = restored
+			if got := s.BackgroundResult("care"); got.Visible != tc.visible || !got.Complete {
+				t.Fatal("incorrect retained interruption", got)
+			}
+		})
+	}
+}

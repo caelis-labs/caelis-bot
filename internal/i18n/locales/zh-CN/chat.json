@@ -13,6 +13,7 @@
   "reviewInProgress": "正在自动审查",
   "reviewDenied": "操作未通过自动审查",
   "reviewTimedOut": "自动审查超时",
+  "reviewFailed": "自动审查未完成",
   "reviewAborted": "自动审查已中止",
   "reviewResult": "自动审查结果",
   "reviewPending": "自动审查结果待确认",

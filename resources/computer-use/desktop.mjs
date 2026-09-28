@@ -40,6 +40,23 @@ export class Desktop {
   constructor(driver, sdk, {now = Date.now} = {}) {
     this.driver = driver; this.sdk = sdk; this.now = now;
     this.windows = new Map(); this.current = undefined; this.listing = undefined;
+    this.grants = new Map(); this.turn = undefined;
+  }
+  setTurn(turn) {
+    const next = typeof turn === 'string' && turn.length > 0 && turn.length <= 128 ? turn : undefined;
+    if (next !== this.turn) { this.grants.clear(); this.current = undefined; this.turn = next; }
+  }
+  appAuthorized(window) { return Boolean(this.turn && this.grants.get(window.pid) === window.appName); }
+  async authorize(input) {
+    const current = this.current;
+    if (!this.turn || !exact(input, ['observation','application','purpose']) || !current ||
+        input.observation !== current.observation ||
+        input.application !== short(current.window.appName) || typeof input.purpose !== 'string' ||
+        !input.purpose.trim() || input.purpose.length > 2000) fail('invalid_app_authorization');
+    await this.validateWindow(current.window, false);
+    this.grants.set(current.window.pid, current.window.appName);
+    return {application: short(current.window.appName), authorized: true, scope: 'current_task_turn',
+      instruction: 'Continue the authorized task in this application. Observe fresh state before input. Other applications and future task turns require their own authorization.'};
   }
   options() { return {signal: AbortSignal.timeout(6000)}; }
   async observe(input = {}) {
@@ -138,7 +155,7 @@ export class Desktop {
     const images = screenshot ? (state.images ?? []).filter(i => ['image/png', 'image/jpeg'].includes(i.mimeType) &&
       Buffer.byteLength(i.dataBase64, 'base64') <= 256 * 1024).slice(0, 1) : [];
     const output = {observation, window: handle, application: short(window.appName), title: short(window.title),
-      source: 'accessibility', windowBounds: state.windowBounds ?? window.bounds,
+      source: 'accessibility', authorized: this.appAuthorized(window), windowBounds: state.windowBounds ?? window.bounds,
       geometry: 'Native driver coordinates. Use component targets; do not guess pixel coordinates.',
       elementsComplete: state.elementsComplete === true, degraded: Boolean(state.degraded),
       reason: short(state.degradedReason), truncated: Boolean(state.truncated || text?.length > 22000),
@@ -193,6 +210,7 @@ export class Desktop {
     if (!exact(input, ['observation', 'steps']) || !current || input.observation !== current.observation ||
         this.now() - current.at > 60000) fail('stale_observation');
     if (!current.actionable) fail('observation_not_actionable');
+    if (!this.appAuthorized(current.window)) fail('application_authorization_required');
     if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 8) fail('invalid_steps');
     input.steps.forEach(s => this.validateStep(s, current));
     await this.validateWindow(current.window, true);

@@ -217,9 +217,9 @@ func TestConfiguredModelIntegration(t *testing.T) {
 		}
 		return textResult("unexpected tool", fmt.Errorf("unexpected tool %s", name))
 	}
-	config := &api.ToolConnection{Host: h, NotebookDirectory: vault.Path(), Instructions: "You are an isolated Caelis Bot acceptance assistant. Complete only the explicit acceptance request. Use native tools, do not claim effects without successful tool results. Do not access other directories except your application skill, or the network." + botskills.Instructions(skill), PrepareTurn: func(c context.Context) error { return vault.Refresh(c, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
+	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureCare"}, Host: h, NotebookDirectory: vault.Path(), Instructions: "You are an isolated Caelis Bot acceptance assistant. Complete only the explicit acceptance request. Use native tools, do not claim effects without successful tool results. Do not access other directories except your application skill, or the network." + botskills.Instructions(skill), PrepareTurn: func(c context.Context) error { return vault.Refresh(c, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
 	open := func() {
-		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: model, ApprovalMode: "workspace-write"}})
+		s = New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: model, ApprovalMode: "workspace-write"}})
 		if e = s.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
 		}

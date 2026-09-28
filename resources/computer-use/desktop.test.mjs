@@ -29,8 +29,11 @@ function setup() {
     pressKey:async input=>{calls.push(['key',input]);return {isError:false};},
   };
   const desktop=new Desktop(driver,sdk,{now:()=>now});
+  desktop.setTurn("fixture-turn");
   return {desktop,driver,window,state,calls,tick:n=>now+=n,observe:async()=>{
-    const listed=await desktop.observe();return desktop.observe({window:listed.windows[0].window});
+    const listed=await desktop.observe();const observation=await desktop.observe({window:listed.windows[0].window});
+    await desktop.authorize({observation:observation.observation,application:observation.application,purpose:'Fixture task'});
+    return observation;
   }};
 }
 test('metadata observation excludes unrelated menus and never captures implicitly',async()=>{
@@ -213,4 +216,40 @@ test('byte-budget pagination resumes after the last returned window without skip
   page=page.nextCursor ? await f.desktop.observe({cursor:page.nextCursor}) : null;
  } while(page);
  assert.deepEqual(seen,Array.from({length:41},(_,i)=>i+1));
+});
+
+test('authorization is once per app per task turn, not per input',async()=>{
+ const f=setup();
+ const list=await f.desktop.observe();
+ let o=await f.desktop.observe({window:list.windows[0].window});
+ const step={op:'type',target:'e3',text:'first'};
+ assert.equal(o.authorized,false);
+ await assert.rejects(f.desktop.perform({observation:o.observation,steps:[step]}),/authorization_required/);
+ await assert.rejects(f.desktop.authorize({observation:o.observation,application:'Other',purpose:'task'}),/invalid_app_authorization/);
+ await f.desktop.authorize({observation:o.observation,application:o.application,purpose:'Edit requested document'});
+ for(let i=0;i<3;i++){
+  const result=await f.desktop.perform({observation:o.observation,steps:[{...step,text:String(i)}]});
+  o=result.observation;assert.equal(o.authorized,true);
+ }
+ assert.equal(f.calls.filter(c=>c[0]==='type_text').length,3);
+ f.desktop.setTurn('next-task');
+ o=await f.desktop.observe({window:list.windows[0].window});
+ assert.equal(o.authorized,false);
+ await assert.rejects(f.desktop.perform({observation:o.observation,steps:[step]}),/authorization_required/);
+ assert.equal(f.calls.filter(c=>c[0]==='type_text').length,3);
+});
+test('app grant covers its windows but cannot authorize another process or helper restart',async()=>{
+ const f=setup(),first=await f.observe();
+ f.window.windowId=43n;f.window.title='Second document';f.state.elements[0].label='Second document';
+ const list=await f.desktop.observe();
+ let o=await f.desktop.observe({window:list.windows[0].window});
+ assert.equal(o.authorized,true);
+ await f.desktop.perform({observation:o.observation,steps:[{op:'type',target:'e3',text:'same app'}]});
+ f.window.pid=18;f.window.appName='Other App';
+ const other=await f.desktop.observe();o=await f.desktop.observe({window:other.windows[0].window});
+ assert.equal(o.authorized,false);
+ await assert.rejects(f.desktop.perform({observation:o.observation,steps:[{op:'type',target:'e3',text:'blocked'}]}),/authorization_required/);
+ f.desktop.setTurn(undefined);
+ await assert.rejects(f.desktop.authorize({observation:o.observation,application:o.application,purpose:'task'}),/invalid_app_authorization/);
+ assert.equal(f.calls.filter(c=>c[0]==='type_text').length,1);
 });

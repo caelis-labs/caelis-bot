@@ -13,6 +13,7 @@
   "reviewInProgress": "Automated review in progress",
   "reviewDenied": "Action not approved by automated review",
   "reviewTimedOut": "Automated review timed out",
+  "reviewFailed": "Automated review unavailable",
   "reviewAborted": "Automated review aborted",
   "reviewResult": "Automated review result",
   "reviewPending": "Automated review pending confirmation",

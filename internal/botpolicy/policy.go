@@ -5,8 +5,10 @@ package botpolicy
 // Worker role is execution context; Bot identity and coordination live in its skill.
 const WorkerInstructions = `Complete the assigned task in this dedicated workspace. Return concrete results, artifacts, verification, and any blockers to the coordinating assistant.`
 
-// ApprovedTools returns a fresh, explicit set of host-owned routine operations.
+// ApprovedTools lists observation and expression tools that need no review.
+// Notebook memory, presentation and stopping owned work are product-local operations.
+// Starting/steering work and persistent schedules use automatic review.
 // It grants neither worker execution nor arbitrary MCP/server-wide approval.
 func ApprovedTools() []string {
-	return []string{"bot_clock", "bot_reminders", "bot_care", "bot_gesture", "bot_tasks", "bot_task_start", "bot_task_read", "bot_task_send", "bot_task_stop", "bot_memory"}
+	return []string{"bot_clock", "bot_gesture", "bot_tasks", "bot_task_read", "bot_memory", "bot_reminders_list", "bot_care_read", "bot_task_stop"}
 }

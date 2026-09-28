@@ -52,8 +52,9 @@ func TestContentCapabilityAndRestartCatalog(t *testing.T) {
 // product-owned tool path without borrowing the daily model/store or worker tools.
 func cuaHostAcceptance(t *testing.T, ctx context.Context, s *Session, model *acceptanceModel) {
 	node, script := os.Getenv("CAELIS_BOT_CUA_NODE"), os.Getenv("CAELIS_BOT_CUA_HOST")
-	if node == "" || script == "" {
-		t.Skip("requires explicit Cua SDK host and running native fixture")
+	title := os.Getenv("CAELIS_BOT_CUA_WINDOW")
+	if node == "" || script == "" || title == "" {
+		t.Skip("requires explicit Cua SDK host and exact CAELIS_BOT_CUA_WINDOW fixture title")
 	}
 	driver, err := desktopcontrol.StartDriver(node, script)
 	if err != nil {
@@ -87,7 +88,13 @@ func cuaHostAcceptance(t *testing.T, ctx context.Context, s *Session, model *acc
 		}
 		return out
 	}}
-	if err = s.ConfigureBotTools(&api.ToolConnection{Host: h}); err != nil {
+	// This hardware fixture explicitly authorizes only its own synthetic tools.
+	// Guardian gating is separately exercised through the full G06 callback path.
+	approved := []string{}
+	for _, d := range definitions {
+		approved = append(approved, d.Name)
+	}
+	if err = s.ConfigureBotTools(&api.ToolConnection{Host: h, ApprovedTools: approved, PrepareTurn: func(context.Context) error { r.BeginDesktopTurn(); return nil }, FinishTurn: r.StopDesktopTurn}); err != nil {
 		t.Fatal(err)
 	}
 	current, err := s.Configuration(ctx)
@@ -97,7 +104,15 @@ func cuaHostAcceptance(t *testing.T, ctx context.Context, s *Session, model *acc
 	if _, err = s.UpdateConfiguration(ctx, "cua-fixture-tools", string(current.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); err != nil {
 		t.Fatal(err)
 	}
-	model.set("CASE_CUA_OBSERVE", modelStep{Name: "bot_desktop_observe", Args: map[string]any{}}, modelStep{Reply: "STRUCTURED_DESKTOP_RECEIVED"})
+	model.set("CASE_CUA_OBSERVE", modelStep{Name: "bot_desktop_observe", Args: map[string]any{}}, modelStep{Name: "bot_desktop_observe", BuildArgs: func() any {
+		for _, value := range observed.Load().StructuredContent["windows"].([]any) {
+			w := value.(map[string]any)
+			if w["title"] == title {
+				return map[string]any{"window": w["window"]}
+			}
+		}
+		return map[string]any{"window": "missing-explicit-native-fixture"}
+	}}, modelStep{Reply: "STRUCTURED_DESKTOP_RECEIVED"})
 	submitAcceptance(t, ctx, s, "CASE_CUA_OBSERVE")
 	if observed.Load().IsError {
 		t.Fatal("Cua observation failed", observed.Load().Content)
@@ -122,7 +137,16 @@ func cuaHostAcceptance(t *testing.T, ctx context.Context, s *Session, model *acc
 	}
 	before := filter(state)["value"]
 	for i, key := range []string{"CASE_CUA_PERFORM", "CASE_CUA_RESTORE"} {
-		model.set(key, modelStep{Name: "bot_desktop_perform", Args: map[string]any{"observation": state["observation"], "steps": []any{map[string]any{"op": "click", "target": filter(state)["target"]}}}}, modelStep{Reply: "STRUCTURED_EFFECT_RECEIVED"})
+		model.set(key,
+			modelStep{Name: "bot_desktop_observe", Args: map[string]any{"window": state["window"]}},
+			modelStep{Name: "bot_desktop_authorize", BuildArgs: func() any {
+				o := observed.Load().StructuredContent
+				return map[string]any{"observation": o["observation"], "application": o["application"], "purpose": "Toggle and restore the named native acceptance fixture"}
+			}},
+			modelStep{Name: "bot_desktop_perform", BuildArgs: func() any {
+				o := observed.Load().StructuredContent
+				return map[string]any{"observation": o["observation"], "steps": []any{map[string]any{"op": "click", "target": filter(o)["target"]}}}
+			}}, modelStep{Reply: "STRUCTURED_EFFECT_RECEIVED"})
 		submitAcceptance(t, ctx, s, key)
 		if observed.Load().IsError {
 			t.Fatal("Cua action failed", observed.Load().Content)
@@ -133,11 +157,11 @@ func cuaHostAcceptance(t *testing.T, ctx context.Context, s *Session, model *acc
 		}
 	}
 	requests := model.seen("CASE_CUA_OBSERVE")
-	if len(requests) != 2 {
+	if len(requests) != 3 {
 		t.Fatal("missing Cua observation continuation")
 	}
-	beforeRaw, _ := json.Marshal(requests[0])
-	raw, _ := json.Marshal(requests[1])
+	beforeRaw, _ := json.Marshal(requests[1])
+	raw, _ := json.Marshal(requests[2])
 	// Earlier tests deliberately placed images in the same resident history.
 	// Compare this tool's continuation against its own preceding request.
 	if strings.Count(string(raw), "data:image/") != strings.Count(string(beforeRaw), "data:image/") || !strings.Contains(string(raw), "Only incomplete") {
@@ -182,7 +206,7 @@ func desktopHostAcceptance(t *testing.T, ctx context.Context, s *Session, model 
 	r.ConfigureDesktop(func(context.Context) (desktopcontrol.Frame, error) { return frame, nil })
 	r.Start(s)
 	defer r.Close()
-	if err = s.ConfigureBotTools(&api.ToolConnection{Host: r, Instructions: "Desktop observation acceptance"}); err != nil {
+	if err = s.ConfigureBotTools(&api.ToolConnection{Host: r, ApprovedTools: []string{desktopcontrol.ToolName}, Instructions: "Desktop observation acceptance"}); err != nil {
 		t.Fatal(err)
 	}
 	current, err := s.Configuration(ctx)

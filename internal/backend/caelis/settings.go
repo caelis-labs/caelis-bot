@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Session) ExecutionOptions() api.ExecutionOptions {
-	return api.ExecutionOptions{DefaultApprovalMode: s.executionMode, ApprovalModes: []api.ApprovalMode{{ID: s.executionMode, Name: "运行时受限执行", Description: "工作区内执行；额外访问由运行时请求审批。"}}}
+	return api.ExecutionOptions{DefaultApprovalMode: s.executionMode, ApprovalModes: []api.ApprovalMode{{ID: s.executionMode, Name: "自动审查", Description: "新对话由 Guardian 自动审查额外访问；保留沙箱，现有对话使用创建时的审查配置。"}}}
 }
 func (s *Session) Models(ctx context.Context) ([]api.ModelOption, error) {
 	c, e := setupClient(ctx, s.settings)

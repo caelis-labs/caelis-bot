@@ -28,11 +28,12 @@ import (
 )
 
 type modelStep struct {
-	Reply   string
-	Name    string
-	Args    any
-	Block   <-chan struct{}
-	Entered chan<- struct{}
+	BuildArgs func() any
+	Reply     string
+	Name      string
+	Args      any
+	Block     <-chan struct{}
+	Entered   chan<- struct{}
 }
 type acceptanceModel struct {
 	mu       sync.Mutex
@@ -80,6 +81,9 @@ func (m *acceptanceModel) serve(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		}
+	}
+	if step.BuildArgs != nil {
+		step.Args = step.BuildArgs()
 	}
 	args, _ := json.Marshal(step.Args)
 	if strings.Contains(string(args), "$RESOURCE_PATH") {
@@ -308,10 +312,10 @@ func TestNativeHostIntegration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	config := &api.ToolConnection{Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
+	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureCare"}, Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
 	config.PrepareContext, config.ConsumeContext = vault.PrepareContext, vault.ConsumeContext
 	open := func() {
-		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
+		s = New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
 		if e = s.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
 		}
