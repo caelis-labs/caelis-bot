@@ -6,6 +6,10 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
+type reviewOrigin struct {
+	thread, turn string
+}
+
 // The native reviewer owns its decision. Only a separate server request may
 // offer user approval; a denied/timed-out review never creates an Allow button.
 func (s *Session) applyReview(event Notification) {
@@ -57,9 +61,26 @@ func (s *Session) applyReview(event Notification) {
 			if old.Status != "inProgress" && review.Status == "inProgress" {
 				return
 			}
+			s.reviewOrigins[id] = reviewOrigin{thread: n.ThreadID, turn: n.TurnID}
 			s.state.Reviews[i] = review
 			return
 		}
 	}
+	s.reviewOrigins[id] = reviewOrigin{thread: n.ThreadID, turn: n.TurnID}
 	s.state.Reviews = append(s.state.Reviews, review)
+}
+
+// Match the failed review notices displayed by chat, scoped to the exact native
+// owner. Worker/earlier-turn reviews must not consume this activation's budget.
+func (s *Session) visibleReview(thread, turn string) bool {
+	for _, review := range s.state.Reviews {
+		if s.reviewOrigins[review.ID] != (reviewOrigin{thread: thread, turn: turn}) {
+			continue
+		}
+		switch review.Status {
+		case "denied", "timedOut", "aborted", "failed":
+			return true
+		}
+	}
+	return false
 }

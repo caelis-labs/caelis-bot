@@ -24,7 +24,9 @@ export class TextReveal {
    return;
   }
   this.ends = Array.from(segmenter.segment(text), part => part.index + part.segment.length);
-  this.from = this.ends.filter(end => end <= this.displayed.length).length;
+  // A delta may complete a previously displayed grapheme (accent, ZWJ,
+  // flag). Keep that visible prefix and reveal the rest of its cluster now.
+  this.from = this.displayed.length === 0 ? 0 : this.ends.findIndex(end => end >= this.displayed.length) + 1;
   this.started = now;
   // Catch up within one snapshot interval, even after a large provider chunk.
   // Completion drains briefly instead of dumping the final chunk in one frame.

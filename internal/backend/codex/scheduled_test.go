@@ -95,3 +95,48 @@ func TestBackgroundApprovalRemainsVisibleAfterSilentCompletion(t *testing.T) {
 		t.Fatal("approval was refunded", got)
 	}
 }
+
+func TestBackgroundReviewVisibilityKeepsNativeProvenance(t *testing.T) {
+	for _, tc := range []struct {
+		thread, turn, status string
+		visible              bool
+	}{
+		{"root", "care-turn", "denied", true},
+		{"root", "care-turn", "timedOut", true},
+		{"root", "care-turn", "aborted", true},
+		{"root", "care-turn", "failed", true},
+		{"root", "care-turn", "approved", false},
+		{"root", "care-turn", "inProgress", false},
+		{"root", "old-turn", "denied", false},
+		{"worker", "care-turn", "denied", false},
+		{"foreign", "care-turn", "denied", false},
+	} {
+		t.Run(tc.thread+"/"+tc.turn+"/"+tc.status, func(t *testing.T) {
+			s := NewSession(SessionOptions{StateFile: t.TempDir() + "/binding.json"})
+			s.binding.ThreadID = "root"
+			s.binding.Scheduled["care"] = "care-turn"
+			s.children["worker"] = true
+			s.runs["care-turn"] = "inProgress"
+			event := Notification{Method: "item/autoApprovalReview/completed", Params: raw(map[string]any{
+				"threadId": tc.thread, "turnId": tc.turn, "reviewId": "review",
+				"review": map[string]string{"status": tc.status},
+			})}
+			s.applyEvent(event)
+			s.update()
+			observed := s.BackgroundResult("care")
+			if observed.Visible != tc.visible || observed.Complete {
+				t.Fatalf("wrong review attribution: %+v", observed)
+			}
+			s.applyEvent(event) // Native retries must not consume a second interruption.
+			s.applyTurn(nativeTurn{ID: "care-turn", Status: "completed", Items: []nativeItem{
+				{ID: "u", Type: "userMessage", ClientID: "care"},
+				{ID: "a", Type: "agentMessage", Text: api.SilentReminder},
+			}}, false)
+			s.update()
+			got := NewSession(s.opts).BackgroundResult("care")
+			if !got.Complete || got.Visible != tc.visible || !got.ObservedAt.Equal(observed.ObservedAt) {
+				t.Fatalf("review visibility was lost or counted twice: %+v -> %+v", observed, got)
+			}
+		})
+	}
+}

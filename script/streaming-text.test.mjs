@@ -43,3 +43,19 @@ test('history, replaced snapshots, reduced motion and hidden surfaces show autho
  reveal.update('服务端已修正，完整内容',true,30,true);assert.equal(reveal.value(30),'服务端已修正，完整内容');
  assert.equal(reveal.pending,false);
 });
+
+for (const [before, after] of [['e', 'e\u0301'], ['hello e', 'hello e\u0301'], ['👩', '👩🏽‍💻'], ['🇨', '🇨🇳']]) {
+ test(`appended grapheme bytes never erase displayed text: ${before}`, () => {
+  const reveal = new TextReveal();
+  reveal.update(before, true, 0);
+  assert.equal(reveal.value(500), before);
+  reveal.update(after + ' next', true, 500);
+  let previous = before;
+  for (let now = 500; now <= 1000; now += 10) {
+   const current = reveal.value(now);
+   assert.ok(current.startsWith(previous), `${JSON.stringify(previous)} regressed to ${JSON.stringify(current)}`);
+   previous = current;
+  }
+  assert.equal(previous, after + ' next');
+ });
+}

@@ -78,6 +78,7 @@ type Session struct {
 	runs              map[string]string
 	items             map[string]int
 	nativeItems       map[string]nativeItem
+	reviewOrigins     map[string]reviewOrigin
 	prompts           map[string]*prompt
 	promptHandles     map[string]string
 	instance          string
@@ -163,6 +164,7 @@ func (s *Session) resetProjection() {
 	s.state.Items = []api.Item{}
 	s.state.Approvals = []api.Approval{}
 	s.state.Reviews = []api.Review{}
+	s.reviewOrigins = map[string]reviewOrigin{}
 	s.state.References = []api.Reference{}
 	s.historyCursor = ""
 	s.historyThread = s.binding.ThreadID
@@ -642,6 +644,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	}
 	s.state.Phase = "sending"
 	s.state.Reviews = []api.Review{}
+	s.reviewOrigins = map[string]reviewOrigin{}
 	s.state.Message = ""
 	s.update()
 	s.mu.Unlock()
