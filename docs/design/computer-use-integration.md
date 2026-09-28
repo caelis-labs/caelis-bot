@@ -25,7 +25,11 @@
 窗口引用最长 5 分钟，观察最长 60 秒；重观察使旧观察失效。派发前复核窗口身份和位置。
 Cua 原生层继续校验 element token。macOS 只保留选中 AXWindow 的子树，避免将整个应用的
 其他窗口/系统菜单混入当前目标。无窗口子树、降级、失效或不支持的操作不能执行。
-按字节限制观察内容，保留截断标志，适配 512 KiB 的 Go/MCP 帧上限。
+按完整 content-v1 回执限制内容：文本块加上 Go JSON 编码后的 structuredContent，
+为 outcome、receipt_id 等字段预留空间，总计不超过 Caelis 的 32 KiB；另保留 512 KiB 的 Go/MCP 帧上限。
+统一覆盖列窗、单窗观察和动作后带 remaining 的结果，计入 HTML 与 Unicode 分隔符转义。
+裁剪后的窗口/目标引用同时从宿主目录移除。`remainingCount` 保留全部未执行步骤数；
+超限时只移除完整步骤并标记 `remainingTruncated`，不截短待输入文字而改变操作。
 
 文本框只列出实际可用动作：没有 AXPress 时不宣称可点击，可以直接 `type`。
 Cua 0.30.2 的 typed TypeText/PressKey/Scroll input 缺少 element token，因此这三项使用它的公开
@@ -70,7 +74,8 @@ Cua 原生包最低 macOS 13；所捆绑 Node 二进制的 LC_BUILD_VERSION 为 
 因此本实现只在 **macOS 13.5+** 注册此能力。App 本身原有系统支持范围不因此缩小。
 Windows 共用宿主/协议边界并保留上游发行路径，尚未打包或原生验证。
 
-工具调用最长 8 秒；未知、超时、取消后回收当前子进程，不自动重放。
+工具调用最长 8 秒；传输失败、超时、取消时先立即终止当前子进程再关闭输入管道，
+不沿用普通空闲退出的一秒清理宽限期，避免仍在等待的只读校验完成后继续派发输入；不自动重放。
 只有新 observe 可以重新创建驱动，perform 不能在失去观察的情况下启动驱动。
 用户点击“停止工作”先取消本地桌面调用，再中断 Runtime；结束 Turn 与退出 App 也取消调用。
 新 Turn 重新开放观察，旧原生引用在驱动回收后不复用。已发出的单个系统输入不能撤回，
@@ -104,6 +109,13 @@ elicitation，再请求 Runtime 中断；确认卡消失，下一轮正常返回
 Apple Development 签名、嵌套代码验证和 Finder 布局检查通过；不是公证发行包。
 提交前复核还验证了独立副本的 CI ad-hoc 签名与真实 SDK 加载，保留 Dev App 的稳定开发签名。
 工作流通过 actionlint；远端 PR CI 的结果单独记录，不用本地通过代替。
+
+PR #37 的首轮 CI 在 Xcode 15.4 的 `lipo -verify_arch` 参数解析处失败；
+已调整为输入文件在选项之前，重新验证实际 App/DMG 打包。
+Review 回归使用产品 Go driver、host 与 Desktop facade，仅替换底层 SDK：
+修复前可复现取消后输入，以及 18,000 字符观察超过 37,000 字节的超限回执；
+修复后验证取消隔离、正常关闭、ASCII/Unicode/转义文本、长列窗、剩余步骤及可选图片预算。
+这些是边界与传输测试，不等同于真实 Caelis 模型 GUI 验收。
 
 在最初统一注入 Cua 的 Apple Development 签名 Dev Bot 下，用户分别授予开发版辅助功能和录屏权限；
 系统设置同时显示生产版和 Dev 版两个独立条目。通过真正的聊天输入启动模型，使用包内驱动：

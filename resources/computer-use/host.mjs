@@ -1,16 +1,9 @@
 import {createInterface} from 'node:readline';
 import * as sdk from '@trycua/cua-driver';
-import {Desktop} from './desktop.mjs';
+import {Desktop, envelope} from './desktop.mjs';
 
 const desktop = new Desktop(sdk.CuaDriver.create(), sdk);
 const reply = value => process.stdout.write(JSON.stringify(value, (_, v) => typeof v === 'bigint' ? String(v) : v) + '\n');
-function envelope(state) {
-  const images = state._images ?? [];
-  delete state._images;
-  if (state.observation && typeof state.observation === 'object') delete state.observation._images;
-  return {content: [{type: 'text', text: JSON.stringify(state)},
-    ...images.map(i => ({type: 'image', mimeType: i.mimeType, data: i.dataBase64}))], structuredContent: state};
-}
 try {
   for await (const line of createInterface({input: process.stdin, crlfDelay: Infinity})) {
     try {

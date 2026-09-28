@@ -104,17 +104,31 @@ func (d *Driver) CallTool(ctx context.Context, name string, args json.RawMessage
 	}()
 	select {
 	case value := <-done:
-		if value.err == nil {
+		if value.err == nil && ctx.Err() == nil {
 			return value.result
 		}
-		d.closeLocked()
+		d.abortLocked()
 		return driverError("desktop result unknown; observe through a new explicit run, never repeat the action automatically")
 	case <-ctx.Done():
-		d.closeLocked()
+		d.abortLocked()
 		<-done
 		return driverError("desktop result unknown after timeout or cancellation; do not repeat the action")
 	}
 }
+
+// Cancellation/transport loss cannot use the graceful EOF path: the JS host
+// may still be awaiting a preflight read and dispatch input when it completes.
+// Kill before closing stdin so EOF cannot resume that pending request.
+func (d *Driver) abortLocked() {
+	if d.closed {
+		return
+	}
+	d.closed = true
+	_ = d.cmd.Process.Kill()
+	_ = d.input.Close()
+	<-d.exited
+}
+
 func (d *Driver) closeLocked() {
 	if d.closed {
 		return

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {Desktop} from './desktop.mjs';
+import {Desktop, envelope} from './desktop.mjs';
 
 const factory = {new: v => v};
 class Record {constructor(v) {Object.assign(this,v);}}
@@ -112,14 +112,25 @@ test('unicode observations plus a maximum image fit the bounded transport',async
  f.state.elements.push(...Array.from({length:154},(_,i)=>({elementIndex:BigInt(i+10),parentIndex:1n,role:'AXButton',label:'界'.repeat(300),value:'界'.repeat(1500),elementToken:`token${i}`,actions:['AXPress']})));
  f.state.images=[{mimeType:'image/png',dataBase64:Buffer.alloc(256*1024).toString('base64')}];
  const first=await f.observe();const o=await f.desktop.observe({window:first.window,screenshot:true});
- const images=o._images;delete o._images;
  assert.equal(o.truncated,true);assert.equal(o.elementsComplete,false);
- assert.ok(Buffer.byteLength(JSON.stringify(o))<=64*1024);
- const envelope={content:[{type:'text',text:JSON.stringify(o)},{type:'image',data:images[0].dataBase64,mimeType:'image/png'}],structuredContent:o};
- assert.ok(Buffer.byteLength(JSON.stringify(envelope))<512*1024);
+ const result=envelope(o);
+ assert.ok(Buffer.byteLength(result.content[0].text)<16*1024);
+ assert.ok(Buffer.byteLength(JSON.stringify(result))<512*1024);
+ assert.equal(result.content[1].type,'image');assert.equal(result.structuredContent._images,undefined);
+ assert.ok(o.targets.length<159);
+ await assert.rejects(f.desktop.perform({observation:o.observation,steps:[{op:'click',target:'e159'}]}),/unknown/);
+ for(const target of f.desktop.current.elements.keys()) assert.ok(o.targets.some(t=>t.target===target));
 });
 
 test('window text starts at the selected native root, never a sibling window',async()=>{
  const f=setup();f.state.treeMarkdown='- [9] AXWindow Other\n  - private sibling\n- [1] AXWindow Fixture\n  - current fixture\n- AXMenuBar other';
  const o=await f.observe();assert.match(o.text,/current fixture/);assert.doesNotMatch(o.text,/private sibling|AXMenuBar/);
+});
+
+test('clipped window handles are removed from the native catalog',async()=>{
+ const f=setup();
+ f.driver.listWindows=async()=>({windows:Array.from({length:80},(_,i)=>({...f.window,windowId:BigInt(i+1),title:'界'.repeat(300),appName:'界'.repeat(300)}))});
+ const listed=await f.desktop.observe();
+ assert.equal(listed.truncated,true);assert.ok(listed.windows.length>0 && listed.windows.length<80);
+ assert.deepEqual([...f.desktop.windows.keys()],listed.windows.map(w=>w.window));
 });

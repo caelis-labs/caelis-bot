@@ -21,7 +21,7 @@ BOT_CUA_VERIFY_TEAM=$(codesign -dvv "$BOT_CUA_VERIFY_BUNDLE" 2>&1 | sed -n 's/^T
 BOT_CUA_VERIFY_COUNT=0
 while IFS= read -r -d '' BOT_CUA_VERIFY_NATIVE; do
   codesign --verify --strict "$BOT_CUA_VERIFY_NATIVE"
-  lipo -verify_arch "$BOT_CUA_VERIFY_ARCH" "$BOT_CUA_VERIFY_NATIVE"
+  lipo "$BOT_CUA_VERIFY_NATIVE" -verify_arch "$BOT_CUA_VERIFY_ARCH"
   BOT_CUA_VERIFY_DETAILS=$(codesign -dvv "$BOT_CUA_VERIFY_NATIVE" 2>&1)
   if [[ "$BOT_CUA_VERIFY_MODE" == adhoc ]]; then
     grep -q '^Signature=adhoc$' <<< "$BOT_CUA_VERIFY_DETAILS"

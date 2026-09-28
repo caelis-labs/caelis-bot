@@ -36,9 +36,14 @@ value, control state or document text before claiming success. Dispatched input
 alone proves no user-visible outcome. Old references expire on observation;
 re-observe stale targets. An unknown result must never be automatically repeated.
 After a driver interruption, begin with a fresh observation, not another action.
+Large results may be truncated. `remainingCount` records all unexecuted steps;
+when `remainingTruncated` is true, the returned array omits some whole steps.
+Use the original request and fresh observation to replan them; omitted steps did
+not run, and returned text is never a shortened replacement for pending input.
 
 Accessible component lists may be projections rather than the complete document;
-read the accompanying text and completeness flag. Native component coordinates
+read the accompanying text, truncation and completeness flags. Do not assume an
+omitted window or component is absent from the application. Native component coordinates
 are explicitly labeled. Do not mix them with screenshot pixels or Bot placement.
 
 If visual evidence is necessary, call `bot_desktop_observe` with the window handle
