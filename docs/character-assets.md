@@ -9,6 +9,11 @@
 [角色与装饰内容包扩展方案](asset-extensions-plan.md)。其中本地内容包 v1 已实现，创作者入口见[制作与发布内容包](content-packs.md)。
 本页记录官方内置成品交付合同，两者版本与校验入口独立。
 
+2026-09-28 [实验控制协议](design/bot-action-protocol-v1.md)先使用朴素语义动作与内部最小角色适配，
+[私库制作](design/bot-action-assets-handoff-v1.md)仅补核心表现缺口；独立公共 profile/成品格式待 POC 验证后确定。
+正式新格式发行仍需等公共消费者和校验器合入。
+现有 v1/v2 不接受本规划尚未实现的字段；角色数据不会增加模型工具或系统控制权限。
+
 ## 成品合同 v1 / v2
 
 `resources/character-pack.json` 是唯一的成品版本、文件 SHA-256 和授权清单。

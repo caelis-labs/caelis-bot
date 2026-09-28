@@ -323,6 +323,37 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	}
 	return nil
 }
+
+// A native MCP call can wait for an elicitation even after turn/interrupt is
+// requested. User Stop also cancels those outstanding decisions; it never grants
+// access. The caller holds s.op, and transport generation checks fence stale IDs.
+func (s *Session) cancelPendingElicitations(ctx context.Context, c *Client) {
+	s.mu.Lock()
+	pending := map[string]*prompt{}
+	for id, p := range s.prompts {
+		if p.method == "mcpServer/elicitation/request" && p.view.Status == "pending" {
+			pending[id] = p
+			p.view.Status = "sending"
+			s.replacePrompt(id, p.view)
+		}
+	}
+	s.update()
+	s.mu.Unlock()
+	for id, p := range pending {
+		err := c.rpc.respond(ctx, p.id, p.sequence, p.choices["cancel"], nil)
+		s.mu.Lock()
+		if s.prompts[id] == p {
+			p.view.Status = "sent"
+			if err != nil {
+				p.view.Status = "unknown"
+			}
+			s.replacePrompt(id, p.view)
+			s.update()
+		}
+		s.mu.Unlock()
+	}
+}
+
 func questionAnswers(p *prompt, answers map[string][]string) (any, error) {
 	result := map[string]any{}
 	for _, q := range p.questions {

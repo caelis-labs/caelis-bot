@@ -722,6 +722,7 @@ func (s *Session) Interrupt(ctx context.Context) error {
 	current := s.client
 	s.mu.Unlock()
 	if current != nil {
+		s.cancelPendingElicitations(ctx, current)
 		current.captureTools()
 		_ = s.cleanTerminals(ctx, current)
 	}

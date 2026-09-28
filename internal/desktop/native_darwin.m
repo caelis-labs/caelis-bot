@@ -333,7 +333,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (void)trace:(NSString *)event {
     static os_log_t logger;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ logger = os_log_create("dev.caelis.bot", "Desktop"); });
+    dispatch_once(&once, ^{ logger = os_log_create(NSBundle.mainBundle.bundleIdentifier.UTF8String ?: "dev.caelis.bot", "Desktop"); });
     if (![event hasPrefix:@"hit-"]) os_log_info(logger, "Surface event: %{public}@", event);
     NSString *path = NSProcessInfo.processInfo.environment[@"CAELIS_BOT_DESKTOP_TRACE"];
     if (!path.length) return;
@@ -458,8 +458,8 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     CGFloat iconSize = MIN(24.0, NSStatusBar.systemStatusBar.thickness - 2.0);
     image.size = NSMakeSize(iconSize,iconSize);
     host.statusItem.button.image = image;
-    host.statusItem.button.toolTip = @"Caelis Bot";
-    host.statusItem.button.accessibilityLabel = @"Caelis Bot";
+    host.statusItem.button.toolTip = NSBundle.mainBundle.infoDictionary[@"CFBundleDisplayName"] ?: @"Caelis Bot";
+    host.statusItem.button.accessibilityLabel = host.statusItem.button.toolTip;
     host.statusItem.menu = [host applicationMenu];
     [host installPreviewMenu];
     // Wails beta.6 cannot create NSPanel. Keep its original hidden window and

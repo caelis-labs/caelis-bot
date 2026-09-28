@@ -72,6 +72,9 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            resources/computer-use/package-lock.json
       - name: Match package version to release tag
         env:
           BOT_RELEASE_TAG: ${{ inputs.tag }}
@@ -86,6 +89,7 @@ jobs:
       - run: npm run smoke:assets
       - name: Build without release credentials
         env:
+          BOT_BUILD_CHANNEL: release
           BOT_RELEASE_TAG: ${{ inputs.tag }}
           BOT_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: |
@@ -124,7 +128,7 @@ jobs:
         with:
           name: unsigned-app
           path: dist
-      - name: Verify build provenance before signing
+      - name: Verify provenance and bundled native dependencies before signing
         env:
           RELEASE_SHA: ${{ needs.build.outputs.sha }}
         run: |

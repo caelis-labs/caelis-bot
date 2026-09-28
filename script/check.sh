@@ -5,7 +5,7 @@ go run ./cmd/contract-gen --check
 node script/check-public-tree.mjs
 node script/check-caelis-protocol.mjs
 node script/asset-pack.mjs verify
-node --test script/update.test.mjs
+node --test script/update.test.mjs resources/computer-use/desktop.test.mjs
 npm run check:i18n
 npm run build
 node --test script/bubble-notice.test.mjs script/bubble-layout.test.mjs

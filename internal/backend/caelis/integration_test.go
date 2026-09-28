@@ -941,6 +941,12 @@ func TestNativeHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
+	if !t.Run("B15_desktop_content", func(t *testing.T) { desktopHostAcceptance(t, ctx, s, model) }) {
+		return
+	}
+	if !t.Run("B16_real_cua", func(t *testing.T) { cuaHostAcceptance(t, ctx, s, model) }) {
+		return
+	}
 	model.mu.Lock()
 	failure := model.failure
 	model.mu.Unlock()
