@@ -19,6 +19,7 @@ import (
 )
 
 type binding struct {
+	RuntimeVersion    string                          `json:"runtimeVersion,omitempty"`
 	BackgroundResults map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
 	Context       contextseed.State      `json:"context,omitempty"`
@@ -422,6 +423,9 @@ func (s *Session) connect(ctx context.Context) error {
 	s.historyPaged, s.historyCursor = paged, firstPage.NextCursor
 	s.state.HasEarlier = firstPage.NextCursor != "" || len(s.binding.PastThreads) > 0
 	s.binding.ThreadID = response.Thread.ID
+	if method == "thread/start" && s.opts.BotTools != nil {
+		s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion
+	}
 	s.historyThread = response.Thread.ID
 	s.binding.Unsubmitted = (method == "thread/start" || unused) && len(response.Thread.Turns) == 0
 	s.bound = true

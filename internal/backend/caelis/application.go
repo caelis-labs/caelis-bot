@@ -24,6 +24,9 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	catalog := map[string]api.ApplicationTools{}
 	formats := map[string]bool{}
 	profile := wire.ApplicationProfile{Version: "caelis-bot-application-v1", Execution: s.executionMode, Instructions: c.Instructions, Tools: []wire.ApplicationToolDefinition{}}
+	if c.RuntimeVersion != "" {
+		profile.Version += "/" + c.RuntimeVersion
+	}
 	// The native host already restored its user environment once. Select public
 	// inheritance/non-login semantics without persisting a copy of environment
 	// values or treating the Notebook CWD as HOME. Workers use the same Core defaults.
