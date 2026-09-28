@@ -60,3 +60,21 @@
 结构上减少后台工作与界面跳动，不宣称已量化性能提升。已安装的 v0.4.0 未被覆盖。
 
 Bot skill 的截图范围说明和设置入口已同步；工具权限、审批语义与后端配置所有权保持原有契约。
+
+## PR #34：形象切换回归修复
+
+原预览 effect 在切换模型时销毁 WebGL 上下文，却继续复用同一 canvas，导致第二个形象无法绘制。
+现在每次 effect 都创建并拥有自己的 canvas，清理时一起断开观察、释放渲染资源并移除节点；
+迟到的模型加载仍按原有取消标记释放，不写入下一次预览。React StrictMode 的 effect 重放遵循同一边界。
+
+开发回归入口：运行 `npm run dev`，打开 `/character-preview-test.html`，点击 Run regression。
+它使用生产 CharacterPreview、真实模型和 WebGL，仅在夹具中开启 preserveDrawingBuffer 供像素断言。
+验证默认形象 → 简笔形象 → 默认形象的非透明像素、不同形象画面不同、切回画面一致、旧上下文释放，
+再在 StrictMode 重跑。修复前已复现第二次预览上下文丢失，修复后八项结果全部通过。
+这是通过 computer-use 运行的真实 GPU 回归，不作为常规 Node CI 已执行的测试；夹具不进入发布包。
+证据为 `.cache/preview-fix-browser.txt` 与 `.cache/ux-screenshots/21-preview-context-before.png`、
+`22-preview-context-after.png`。
+最终修复通过 `make check/smoke/build`，日志 `.cache/preview-fix-{check,smoke,build}.log`；
+构建产物中未包含开发回归页面。
+
+此修复只调整预览渲染资源生命周期，不改变 Bot 能力、工具使用或恢复流程，因此无需追加 Bot skill。

@@ -334,6 +334,7 @@ summary { cursor:pointer; }
 .shortcut-editor .setting-row { min-height:58px; }
 .shortcut-editor .shortcut-actions { justify-content:flex-start; }
 .character-preview { position:relative; height:220px; margin:0 0 24px; border-bottom:1px solid var(--line); }
+.character-preview-surface { width:100%; height:100%; }
 .character-preview canvas { display:block; width:100%; height:100%; }
 .character-preview figcaption { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); font-size:12px; }
 .permission-badge { display:inline-block; color:var(--muted); font-size:12px; text-align:right; line-height:1.5; }
