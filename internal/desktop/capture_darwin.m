@@ -7,6 +7,24 @@
 #include <math.h>
 extern void desktopCaptureEvent(uintptr_t handle,int kind,char *text);
 
+// CALayer stores resolved CGColors. Re-resolve semantic colors in the actual
+// window appearance when a toolbar is attached or the system theme changes.
+@interface BotCaptureSurface : NSView
+@property NSColor *fillColor;
+@property NSColor *strokeColor;
+- (void)refreshColors;
+@end
+@implementation BotCaptureSurface
+- (void)refreshColors {
+    [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+        self.layer.backgroundColor=self.fillColor.CGColor;
+        self.layer.borderColor=self.strokeColor.CGColor;
+    }];
+}
+- (void)viewDidMoveToWindow { [super viewDidMoveToWindow];[self refreshColors]; }
+- (void)viewDidChangeEffectiveAppearance { [super viewDidChangeEffectiveAppearance];[self refreshColors]; }
+@end
+
 @interface BotCaptureFieldEditor : NSTextView
 @property BOOL interpretingMarkedText;
 @end
@@ -206,12 +224,17 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     NSString *label=[self.owner text:key fallback:fallback];
     NSButton *b=[NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:label] target:self action:action];
     b.frame=NSMakeRect(x,44,30,30);b.bordered=NO;b.bezelStyle=NSBezelStyleRegularSquare;b.imageScaling=NSImageScaleProportionallyDown;
-    b.toolTip=label;[b setAccessibilityLabel:label];b.wantsLayer=YES;b.layer.cornerRadius=6;
+    b.toolTip=label;[b setAccessibilityLabel:label];b.contentTintColor=NSColor.labelColor;b.wantsLayer=YES;b.layer.cornerRadius=6;
     [self.toolbar addSubview:b];return b;
 }
 - (instancetype)initWithFrame:(NSRect)frame {
     if((self=[super initWithFrame:frame])){_tool=@"select";_ink=NSColor.systemRedColor;_stroke=3;}
     return self;
+}
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    if(!self.toolbar)return;
+    [self.effectiveAppearance performAsCurrentDrawingAppearance:^{[self updateTools];[self updateAvailability];}];
 }
 - (BOOL)isFlipped {return YES;}
 - (BOOL)acceptsFirstResponder {return YES;}
@@ -281,9 +304,10 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
 - (void)buildToolbar {
     [self.widthPopover close];self.widthPopover=nil;
     [self.toolbar removeFromSuperview];CGFloat width=520;
-    self.toolbar=[[NSView alloc] initWithFrame:NSMakeRect(0,0,width,86)];self.toolbar.wantsLayer=YES;
-    self.toolbar.layer.backgroundColor=NSColor.windowBackgroundColor.CGColor;self.toolbar.layer.cornerRadius=12;
-    self.toolbar.layer.borderWidth=0.5;self.toolbar.layer.borderColor=[NSColor.separatorColor colorWithAlphaComponent:0.65].CGColor;
+    BotCaptureSurface *toolbar=[[BotCaptureSurface alloc] initWithFrame:NSMakeRect(0,0,width,86)];
+    self.toolbar=toolbar;toolbar.wantsLayer=YES;toolbar.fillColor=NSColor.windowBackgroundColor;
+    toolbar.strokeColor=[NSColor.separatorColor colorWithAlphaComponent:0.65];
+    toolbar.layer.cornerRadius=12;toolbar.layer.borderWidth=0.5;
     if(self.pinned) {
         if(!self.toolbarPanel)self.toolbarPanel=capturePanel(NSMakeRect(0,0,width,86),NO);
         ((BotCapturePanel *)self.toolbarPanel).captureCanvas=self;
@@ -306,9 +330,9 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self icon:@"square.and.arrow.down" key:@"capture.save" fallback:@"Save (⌘S)" action:@selector(saveAction:) x:395];
     [self icon:@"pin" key:@"capture.pin" fallback:@"Pin (F3)" action:@selector(pinAction:) x:429];
     [self icon:@"xmark" key:@"capture.close" fallback:@"Cancel (Esc)" action:@selector(closeAction:) x:478];
-    NSView *composer=[[NSView alloc] initWithFrame:NSMakeRect(12,10,width-24,32)];composer.wantsLayer=YES;
-    composer.layer.cornerRadius=9;composer.layer.backgroundColor=NSColor.textBackgroundColor.CGColor;
-    composer.layer.borderWidth=0.5;composer.layer.borderColor=NSColor.separatorColor.CGColor;
+    BotCaptureSurface *composer=[[BotCaptureSurface alloc] initWithFrame:NSMakeRect(12,10,width-24,32)];composer.wantsLayer=YES;
+    composer.layer.cornerRadius=9;composer.fillColor=NSColor.textBackgroundColor;
+    composer.layer.borderWidth=0.5;composer.strokeColor=NSColor.separatorColor;
     [self.toolbar addSubview:composer];
     self.noteEditor=[[NSTextField alloc] initWithFrame:NSMakeRect(10,6,composer.bounds.size.width-122,20)];
     self.noteEditor.placeholderString=[self.owner text:@"capture.note" fallback:@"Add a note (optional)"];
