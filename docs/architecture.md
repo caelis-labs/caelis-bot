@@ -1,5 +1,28 @@
 # Architecture and internal backend contract
 
+2026-09-28 exploration: [Bot Control and Computer Use](design/bot-control-computer-use-v1.md)
+are host capabilities whose model tools are resident-Bot-only; workers retain their Runtime's native scope.
+The latest delivery priority is basic Computer Use: structured observation, short semantic action
+sequences and verified effects. Character movement is a separate subsequent exploration in the
+[POC plan](design/bot-control-delivery-plan.md), not a prerequisite for the first Computer Use release.
+Manual gamepad control, public asset schemas and broad platform parity are deferred until feasibility
+and product value are demonstrated; this exploration does not commit every part to a product feature.
+The [experimental protocol](design/bot-action-protocol-v1.md) exposes move/point/jump semantics,
+not physical button states, character skills or animation catalogs. Local adapters own execution detail.
+An optional [OS virtual gamepad](design/virtual-gamepad-research.md) is a separate receiver.
+The native macOS 13.5+ bundle now provides a pinned Cua SDK child owned by
+`internal/desktopcontrol`, registered only on a resident Bot whose Runtime does not declare the native
+`computer-use` capability tag. Codex declares that ownership and uses its native
+tools unchanged; unavailable permissions never activate a second route. The host
+Cua path reads AX metadata,
+performs supported semantic click/type/key/scroll operations and returns fresh observations;
+images are optional. The native host cancels desktop input before runtime interruption.
+Local/PR builds use a separate Dev identity and data directory. See the
+[current integration and Dev Bot E2E evidence](design/computer-use-integration.md).
+Character actions and Windows native support remain unverified. The
+[dependency audit](design/computer-use-dependency-audit.md) records the clarified
+MPL distribution policy; Bot-owned source remains Apache-2.0.
+
 Status: application-owned Bot foundation implemented locally; Codex execution connected.
 Caelis pins the public protocol in `protocol/caelis/manifest.json` and requires
 `execution-configuration-v1` alongside the application/Worker capabilities. Native
@@ -106,8 +129,9 @@ The [platform baseline](platform-baseline.md) defines shared-core/native-driver
 ownership and qualification gates. Only macOS has a native host today. Other builds
 return an explicit unsupported error before creating surfaces; cross-compilation
 does not qualify desktop behavior. OS imports stay in build-tagged runtime/driver
-files, with pure-Go lifecycle and placement tests compiled for macOS/Windows architectures. Windows implementation starts only
-after the complete macOS release; Linux is outside the current plan.
+files, with pure-Go lifecycle and placement tests compiled for macOS/Windows architectures.
+Windows is a near-term implementation direction; its contracts are designed now, while native
+hosting and release acceptance remain separate work. Linux is outside the current plan.
 
 ## Owners
 
@@ -369,13 +393,14 @@ The [desktop behavior baseline](desktop-behavior.md) now puts a small Desktop/Do
 ActiveWindow snapshot, idle/interaction profiles and detached props in P4.2. Complex
 desktop semantics and task/window grounding are later extensions, not prerequisites.
 
-Keep two inputs distinct: authoritative backend facts (work, decisions, results)
-and presentation intents (look, attend, approach, deliver). An Agent may intentionally
-request an expression; it cannot manufacture an execution fact by requesting an animation.
+Keep authoritative backend facts (work, decisions, results) distinct from control input.
+The latest 2026-09-28 POC protocol uses short batches of simple semantic actions.
+Character adapters translate them to internal presentation plans;
+the model does not discover character skills. It cannot manufacture execution facts with input.
 
 ```text
 Backend adapters -> typed work/approval/result facts --+
-Bot / user ------> high-level presentation intents ----+-> local Presence Director
+Bot / user ------> generic input -> character mapping +-> local Presence Director
 Native desktop --> bounded context / input state -----+       |
                                                            action plan
                                                              |
@@ -411,12 +436,14 @@ Unavailable geometry stays unknown; inferred Dock avoidance bounds stay estimate
 Geometry-only access, content access and computer control remain
 separate capabilities; add only the permissions required by the selected scenario.
 
-The initial internal action shape should carry a correlation handle, semantic intent,
-optional valid target, deadline and interruption/fallback policy. Receipts distinguish
+The planned control shape carries correlation, observation/target validity,
+bounded semantic steps and a deadline; internal character plans own pose and motion detail.
+The [controller protocol](design/bot-action-protocol-v1.md) defines the latest receipt semantics,
+including uncertainty and input release. Internal presentation receipts distinguish
 accepted, started, completed, interrupted, failed and unsupported; acceptance by the
 MCP bridge is not proof that a visible action completed. A gesture can be suppressed
 by hiding/reduced motion; that outcome must not be reported as visible completion.
-Exact DTOs and tool names are designed when the first action path is implemented;
+The new DTO and tool names remain proposals until the first path is implemented;
 the current bot_gesture API does not already promise these receipts.
 
 Manual dragging/input, hidden preference and reduced motion take priority over

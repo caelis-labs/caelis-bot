@@ -2,15 +2,19 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 )
 
 type testEngine struct {
@@ -386,5 +390,65 @@ func TestNotebookSkillIsResidentOnlyAndRegeneratesExternalNotes(t *testing.T) {
 	body, _ = os.ReadFile(filepath.Join(binding.NotebookDirectory, "INDEX.md"))
 	if strings.Contains(string(body), "External note") {
 		t.Fatal("deleted note not removed from index")
+	}
+}
+
+type taggedEngine struct {
+	*testEngine
+	native bool
+}
+
+func (e *taggedEngine) ApplicationCapabilities() api.ApplicationCapabilities {
+	c := api.ApplicationCapabilities{NativeFiles: true, WorkerExecution: true, ScheduledActivation: true}
+	if e.native {
+		c.NativeTools = []api.NativeToolCapability{api.NativeComputerUse}
+	}
+	return c
+}
+
+type neverDesktop struct{ calls int }
+
+func (*neverDesktop) Definitions() []api.ToolDefinition { return nil }
+func (d *neverDesktop) CallTool(context.Context, string, json.RawMessage) api.ToolResult {
+	d.calls++
+	return api.ToolResult{}
+}
+func TestComputerUseAssemblyUsesRuntimeTagsAndDoesNotFallbackOnRefusal(t *testing.T) {
+	for _, native := range []bool{true, false} {
+		t.Run(fmt.Sprint(native), func(t *testing.T) {
+			e := &taggedEngine{testEngine: newTestEngine(), native: native}
+			desktop := &neverDesktop{}
+			a, _ := fixtureApp(t, e, Host{DesktopControl: desktop, DesktopObservation: func(context.Context) (desktopcontrol.Frame, error) {
+				return desktopcontrol.Frame{}, errors.New("permission denied")
+			}})
+			if err := a.Start(); err != nil {
+				t.Fatal(err)
+			}
+			e.mu.Lock()
+			config := e.tools.Clone()
+			e.mu.Unlock()
+			names := []string{}
+			for _, d := range config.Host.Definitions() {
+				names = append(names, d.Name)
+			}
+			for _, name := range []string{"bot_desktop_observe", "bot_desktop_perform", "bot_desktop_capture"} {
+				if slices.Contains(names, name) == native || slices.Contains(config.ApprovedTools, name) == native {
+					t.Fatalf("wrong native ownership for %s", name)
+				}
+			}
+			if (config.Env["CAELIS_BOT_COMPUTER_USE"] == "1") == native || (config.Env["CAELIS_BOT_DESKTOP_POC"] == "1") == native {
+				t.Fatal("desktop MCP discovery configuration escaped native ownership")
+			}
+			if native {
+				for range 2 {
+					if !config.Host.CallTool(t.Context(), "bot_desktop_perform", json.RawMessage(`{}`)).IsError {
+						t.Fatal("undeclared desktop fallback callable")
+					}
+				}
+				if desktop.calls != 0 {
+					t.Fatal("native runtime reached fallback")
+				}
+			}
+		})
 	}
 }

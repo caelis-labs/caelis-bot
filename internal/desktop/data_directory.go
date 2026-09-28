@@ -20,7 +20,8 @@ func applicationDataDirectory() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(config, "Caelis Bot"), nil
+	name, _ := applicationIdentity()
+	return filepath.Join(config, name), nil
 }
 
 // Only paths owned by this product are recognized as legacy HOME overrides.

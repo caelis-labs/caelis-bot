@@ -11,6 +11,11 @@ Caelis 可独立交付该修复，无需为此单独发布版本。通用应用�
 当前验证范围见 [实现与验证状态](preparation-status.md)。v0.61.0 的真实模型和原生 GUI
 历史证据见 [正式版联调报告](caelis-release-acceptance.md)，不能代替新增功能的验收。
 
+macOS 13.5+ 安装包为常驻 Bot 装配 Cua 桌面工具时，还要求 Host 声明
+`application-tool-result-content-v1`（Caelis #82）。缺少时在注册工具前提示更新并重启 Host，
+不能仅凭 v0.62.0 版本号认定桌面集成可用。未装配此能力的纯文本会话仍遵循原基线。
+Codex 使用其原生 Computer Use，不经过这条 Cua callback 路径。
+
 ## 基线与发现
 
 `protocol/caelis/manifest.json` 固定公开 OpenAPI、wire 哈希和源码提交。

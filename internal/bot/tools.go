@@ -16,6 +16,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
+	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 	"github.com/caelis-labs/caelis-bot/internal/localipc"
 )
 
@@ -54,6 +55,12 @@ func (r *Runtime) Definitions() []api.ToolDefinition {
 	b, _ := json.Marshal(toolSpecs())
 	var out []api.ToolDefinition
 	_ = json.Unmarshal(b, &out)
+	if r.desktop != nil {
+		out = append(out, desktopcontrol.Definition())
+	}
+	if r.desktopControl != nil {
+		out = append(out, desktopcontrol.SemanticDefinitions()...)
+	}
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
 		caps := p.ApplicationCapabilities()
 		out = slices.DeleteFunc(out, func(d api.ToolDefinition) bool {
@@ -83,6 +90,31 @@ func (r *Runtime) CallTool(ctx context.Context, name string, args json.RawMessag
 	}
 	if !available {
 		return result(nil, errors.New("当前运行时不支持此能力"))
+	}
+	if name == desktopcontrol.ToolName {
+		return r.observeDesktop(ctx, args)
+	}
+	if r.desktopControl != nil && (name == "bot_desktop_observe" || name == "bot_desktop_perform") {
+		var cancel context.CancelFunc
+		ctx, cancel = r.desktopCallContext(ctx)
+		defer cancel()
+		if ctx.Err() != nil {
+			return result(nil, errors.New("desktop turn stopped; wait for a new user request"))
+		}
+		if name == "bot_desktop_observe" {
+			var input struct {
+				Screenshot bool `json:"screenshot"`
+			}
+			if json.Unmarshal(args, &input) != nil {
+				return result(nil, errors.New("invalid desktop arguments"))
+			}
+			if input.Screenshot {
+				if err := r.requireDesktopImage(ctx); err != nil {
+					return result(nil, err)
+				}
+			}
+		}
+		return r.desktopControl.CallTool(ctx, name, args)
 	}
 	if name == "bot_tasks" || name == "bot_task_start" || name == "bot_task_read" || name == "bot_task_send" || name == "bot_task_stop" {
 		return r.callTask(ctx, name, args)
@@ -168,9 +200,18 @@ func Serve(r *Runtime) (*Bridge, error) {
 	return b, nil
 }
 func (b *Bridge) Config(executable string) *api.ToolConnection {
-	return &api.ToolConnection{WorkerInstructions: botpolicy.WorkerInstructions, Host: b.runtime, Command: executable, Args: []string{"--bot-tools"},
+	config := &api.ToolConnection{WorkerInstructions: botpolicy.WorkerInstructions, Host: b.runtime, Command: executable, Args: []string{"--bot-tools"},
 		Env:           map[string]string{"CAELIS_BOT_ENDPOINT": b.listener.Endpoint(), "CAELIS_BOT_TOKEN": b.token},
 		ApprovedTools: botpolicy.ApprovedTools()}
+	if b.runtime.desktop != nil {
+		config.Env["CAELIS_BOT_DESKTOP_POC"] = "1"
+		config.ApprovedTools = append(config.ApprovedTools, desktopcontrol.ToolName)
+	}
+	if b.runtime.desktopControl != nil {
+		config.Env["CAELIS_BOT_COMPUTER_USE"] = "1"
+		config.ApprovedTools = append(config.ApprovedTools, "bot_desktop_observe", "bot_desktop_perform")
+	}
+	return config
 }
 func (b *Bridge) Close() {
 	b.once.Do(func() { _ = b.listener.Close(); <-b.done; b.wg.Wait() })
@@ -237,7 +278,16 @@ func RunStdio(in io.Reader, out io.Writer) error {
 			}
 			switch req.Method {
 			case "tools/list":
-				value = map[string]any{"tools": toolSpecs()}
+				specs := toolSpecs()
+				if os.Getenv("CAELIS_BOT_DESKTOP_POC") == "1" {
+					specs = append(specs, desktopcontrol.Definition())
+				}
+				if os.Getenv("CAELIS_BOT_COMPUTER_USE") == "1" {
+					for _, d := range desktopcontrol.SemanticDefinitions() {
+						specs = append(specs, d)
+					}
+				}
+				value = map[string]any{"tools": specs}
 			case "tools/call":
 				var call toolRequest
 				if json.Unmarshal(req.Params, &call) != nil {
@@ -277,6 +327,9 @@ func forward(endpoint string, req toolRequest) toolResult {
 	}
 	var out toolResult
 	if e = json.NewDecoder(io.LimitReader(conn, 512*1024)).Decode(&out); e != nil {
+		if req.Name == "bot_desktop_perform" {
+			return result(nil, errors.New("desktop input result unknown; observe again, never replay automatically"))
+		}
 		return result(nil, errors.New("Bot 请求结果未确认；请先读取当前状态，重试写入时复用原请求标识"))
 	}
 	return out

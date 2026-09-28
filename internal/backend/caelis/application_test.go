@@ -108,6 +108,9 @@ func TestCallbacksLostClaimOrResultNeverRepeatEffect(t *testing.T) {
 					count := results.Add(1)
 					var result wire.ApplicationCallResult
 					_ = json.NewDecoder(r.Body).Decode(&result)
+					if _, ok := result.Content.([]any); !ok {
+						t.Error("callback blocks encoded as an opaque base64 string")
+					}
 					want := "succeeded"
 					if loss == "claim" {
 						want = "unknown"

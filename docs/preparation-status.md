@@ -30,6 +30,39 @@ Notebook 只作为工作目录，保留用户 HOME、PATH 和 CLI 配置查找�
 Core 接入仅改变 Runtime 装配，无新增 Bot 工具或工作流，因此不额外修改 Bot skill。
 完整交接见[修复记录](design/issues-35-36-repair-plan.md)。
 
+## 2026-09-28 Cua 基础集成与独立 Dev Bot（本地，未发布）
+
+- 按 Runtime 能力标签装配：Codex 的 `computer-use` 原生能力保留，不注入 `bot_desktop_*`；Caelis 当前由 Bot 补充 Cua。原生拒绝不触发后备路线。
+- [当前实现与验收](design/computer-use-integration.md)：常驻 Bot 的结构化观察、语义点击/输入/按键/滚动、按需图片，私有驱动随包发布；Worker 范围不变。
+- 最终 Codex 原生路线已由真实 Dev Bot 完成筛选、Cmd+A 文本替换、滚动与读回，0 图、0 次 `bot_desktop_*` 调用、无 Cua helper。此前 Cua 路线及可选图片另有独立证据。
+- 默认开发包使用 `Caelis Bot Dev` / `dev.caelis.bot.dev`，独立数据、单实例和权限；初始化引导已补辅助功能入口及准确隐私说明。
+- Turn 停止传播到私有驱动，未知效果不重放；包内 Node 要求此能力使用 macOS 13.5+。Windows/角色控制/广泛应用与正式公证仍为独立门槛。
+- Bot skill 已更新。下列同日“未接入正式 Bot”“默认关闭”的 POC/调研段落保留历史范围，以本段为当前集成状态。
+
+## 2026-09-28 Computer Use 依赖复核与原生备选（未接入正式 Bot）
+
+近期先上线基础 Computer Use，角色控制探索后置。[依赖复核](design/computer-use-dependency-audit.md)
+记录 Cua 0.30.2 的 MPL 传递依赖，区分项目依赖政策与 MPL 实际分发义务。
+独立 AXorcist v0.2.0 探针已固定依赖、构建并完成原生观察/切换/读回 10/10、0 截图、状态恢复；
+许可检查涵盖实际解析的三个包及探针链接清单，不扩展为最终产品或未来版本的完整验收。
+本轮 shell 语法、差异空白和公共树检查通过；未替换产品驱动，不新增 Bot skill 或发布承诺。
+
+## 2026-09-28 Bot Control / Computer Use POC 首片（默认关闭，未发布）
+
+最新 [POC 路线](design/bot-control-delivery-plan.md)前移模型观察、简单批量动作与一项真实 Computer Use 联动，
+人工手柄模式和完整资产生态后置，验证后才决定正式功能。Caelis #81 已由合并的
+[#82](https://github.com/caelis-labs/caelis/pull/82) 承接，Bot 固定公开 schema/wire 并完成首轮 callback 联调。
+
+已形成[Bot Control 架构](design/bot-control-computer-use-v1.md)、[输入/角色协议](design/bot-action-protocol-v1.md)、
+[私库交接](design/bot-action-assets-handoff-v1.md)和[手柄可行性](design/virtual-gamepad-research.md)；Core 缺口见
+[Caelis #81](https://github.com/caelis-labs/caelis/issues/81)。模型只见通用控制，角色映射不进入工具目录；Worker 不新增产品控制能力。
+真实 Cua SDK 0.30.2 的 AX 元数据定位 → 原生点击 → 状态读回重复 10/10 通过，无截图；
+Bot 常驻工具 → 真实 Caelis Host → 合成 provider 的结构化反馈与辅助图片内容块分别通过。
+实验依赖独立、默认关闭，尚无角色位移、真实 LLM 决策、任意应用或 Windows 原生验收。
+`make check`、`make smoke`、ad-hoc 与原 Apple Development 身份开发构建通过；
+新增 Worker 隔离与子进程取消回收验证通过。原生夹具已检查，完整 Bot 的新工具权限身份未验收。
+更多检查、许可、签名环境问题和未覆盖范围见 [POC 验证记录](design/bot-control-poc-validation.md)。
+
 ## 2026-09-28 设置和首次使用（本地，未发布）
 
 五类设置导航、低频内容折叠、真实形象静止预览、可跳过权限的三步首次引导、稳定模型选择面板、

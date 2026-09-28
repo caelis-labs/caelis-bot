@@ -55,6 +55,7 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationB
 	// provider's reusable call_id are never trusted invocation context.
 	s.mu.Lock()
 	host := s.catalogs[call.ToolsVersion][call.Name]
+	contentV1 := s.state.ContentCatalogs[call.ToolsVersion][call.Name]
 	s.mu.Unlock()
 	if call.Id == "" || call.TurnId == "" || call.ItemId == "" || call.SessionId != b.SessionId || call.ApplicationId != b.ApplicationId || call.ConnectionId != life.ConnectionId || call.PrincipalId != life.PrincipalId {
 		return errors.New("Caelis 工具调用绑定不匹配")
@@ -98,7 +99,11 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationB
 				if result.IsError {
 					outcome = "failed"
 				}
-				record.Receipt = &wire.ApplicationCallResult{Outcome: outcome, Content: content}
+				record.Receipt = &wire.ApplicationCallResult{Outcome: outcome, Content: json.RawMessage(content)}
+				if contentV1 {
+					record.Receipt.ResultFormat = pointer("content-v1")
+					record.Receipt.StructuredContent = result.StructuredContent
+				}
 			}
 			// Lost claim response never grants an effect, even if a later read says
 			// claimed. A crash after executing is equally uncertain, never replayed.
@@ -106,6 +111,9 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationB
 	}
 	if record.Receipt == nil {
 		record.Receipt = &wire.ApplicationCallResult{Outcome: "unknown", Content: json.RawMessage(`[{"type":"text","text":"Tool outcome is uncertain; do not automatically repeat the effect."}]`)}
+		if contentV1 {
+			record.Receipt.ResultFormat = pointer("content-v1")
+		}
 	}
 	record.Phase = "receipt"
 	if e := s.saveCall(call.Id, record); e != nil {

@@ -13,6 +13,8 @@ jobs:
   product:
     runs-on: macos-14
     timeout-minutes: 30
+    env:
+      BOT_BUILD_CHANNEL: development
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -21,6 +23,9 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            resources/computer-use/package-lock.json
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -30,12 +35,17 @@ jobs:
       - run: npm ci
       - run: make check
       - run: npm run smoke:assets
-      - run: make package
+      - name: Build independent Dev app with bundled Computer Use
+        run: make build
+      - name: Verify native Computer Use payload without desktop permissions
+        run: bash script/verify-computer-use.sh 'dist/Caelis Bot Dev.app' adhoc
+      - name: Package and verify mounted Dev DMG
+        run: bash script/package.sh --skip-build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: macos-arm64-preview
+          name: macos-arm64-dev-preview
           path: |
-            dist/releases/*.dmg
-            dist/releases/*.dmg.sha256
+            dist/releases/Caelis-Bot-Dev-*.dmg
+            dist/releases/Caelis-Bot-Dev-*.dmg.sha256
           if-no-files-found: error
           retention-days: 7

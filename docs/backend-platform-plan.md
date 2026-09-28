@@ -1,5 +1,10 @@
 # Caelis 接入与 Windows 实施边界
 
+2026-09-28 最新规划：[Bot Control / Computer Use](design/bot-control-computer-use-v1.md)仅归常驻 Bot，
+Worker 保持原生能力；后端和 OS 独立适配。Windows 已进入近期规划，提前设计契约但尚未实现原生宿主。
+下文“完整 macOS 发行后再开始”的时间安排属于历史计划，不覆盖本次方向；ControlCompanion 也是历史路径，
+现状以 [产品宿主架构](bot-platform-architecture.md)和[接入说明](caelis-integration.md)为准。
+
 2026-09-23 更新：Caelis adapter、运行时管理和 ControlCompanion 分支已落地，当前入口为
 [接入说明](caelis-integration.md)与[能力契约](backend-contract.md)。Caelis 使用 Control 内置委派，
 不复用 Codex MCP/TaskReporter 触发器。Windows 仍未实现，实施边界不变。

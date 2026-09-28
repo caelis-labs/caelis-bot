@@ -221,6 +221,9 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	if err := s.checkContentCapability(info); err != nil {
+		return err
+	}
 	if value(info.InstanceId) != d.InstanceID {
 		return errors.New("Caelis 服务发现记录已过期")
 	}

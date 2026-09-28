@@ -11,7 +11,7 @@ with DSStore.open(str(root / '.DS_Store'), 'r') as store:
     assert not any(window[key] for key in ('ShowToolbar', 'ShowSidebar', 'ShowStatusBar', 'ShowPathbar'))
     assert view['iconSize'] == 128 and view['textSize'] == 14, view
     assert view['backgroundType'] == 2 and view['backgroundImageAlias']
-    assert store['Caelis Bot.app']['Iloc'] == (170, 220)
+    assert store[sys.argv[2] if len(sys.argv) > 2 else 'Caelis Bot.app']['Iloc'] == (170, 220)
     assert store['Applications']['Iloc'] == (490, 220)
 assert (root / '.background.tiff').is_file()
 assert (root / 'Applications').is_symlink()

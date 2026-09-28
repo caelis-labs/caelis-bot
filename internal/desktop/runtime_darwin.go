@@ -19,7 +19,9 @@ import (
 	"syscall"
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
+	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
@@ -38,6 +40,8 @@ func Run(assets fs.FS) error {
 	if err := runtimeenv.Install(env); err != nil {
 		envErr = err
 	}
+
+	appName, appID := applicationIdentity()
 	root, err := applicationDataDirectory()
 	if err != nil {
 		return err
@@ -62,10 +66,27 @@ func Run(assets fs.FS) error {
 		logError(err)
 	}
 
+	var controlDriver api.ApplicationTools
+	if computerUseSupported() {
+		if bundled := desktopcontrol.Bundled(); bundled != nil {
+			controlDriver = bundled
+			defer bundled.Close()
+		}
+	}
+	if os.Getenv("CAELIS_BOT_CUA_POC") == "1" {
+		driver, e := desktopcontrol.StartDriver(os.Getenv("CAELIS_BOT_CUA_NODE"), os.Getenv("CAELIS_BOT_CUA_HOST"))
+		if e != nil {
+			return e
+		}
+		defer driver.Close()
+		controlDriver = driver
+	}
 	core, err := app.New(root, app.Host{Locale: func() i18n.Locale { return s.LanguagePreferences().Locale }, Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
-		OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
-		RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
-		TrashFile:  trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError, CareSample: macCareSample})
+		DesktopControl:     controlDriver,
+		DesktopObservation: s.desktopExperiment(),
+		OpenURL:            func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
+		RevealFile:         func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
+		TrashFile:          trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError, CareSample: macCareSample})
 	if err != nil {
 		return err
 	}
@@ -145,7 +166,7 @@ func Run(assets fs.FS) error {
 		assetHandler = s.content.Handler(assetHandler)
 	}
 	nativeApp = application.New(application.Options{
-		Name: "Caelis Bot", Description: "A quiet desktop companion",
+		Name: appName, Description: "A quiet desktop companion",
 		Icon:                        appIcon,
 		Assets:                      application.AssetOptions{Handler: assetHandler},
 		Services:                    []application.Service{application.NewService(s), application.NewService(back)},
@@ -167,7 +188,7 @@ func Run(assets fs.FS) error {
 			logError(core.Close())
 			s.shutdown()
 		},
-		SingleInstance: &application.SingleInstanceOptions{UniqueID: "dev.caelis.bot", OnSecondInstanceLaunch: func(application.SecondInstanceData) { _ = s.SetVisible(true) }},
+		SingleInstance: &application.SingleInstanceOptions{UniqueID: appID, OnSecondInstanceLaunch: func(application.SecondInstanceData) { _ = s.SetVisible(true) }},
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
@@ -211,12 +232,12 @@ func Run(assets fs.FS) error {
 			WindowLevel: application.MacWindowLevelFloating, CollectionBehavior: application.MacWindowCollectionBehaviorCanJoinAllSpaces | application.MacWindowCollectionBehaviorStationary | application.MacWindowCollectionBehaviorFullScreenAuxiliary | application.MacWindowCollectionBehaviorIgnoresCycle},
 	})
 	panel := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "conversation", Title: "Caelis Bot", Width: 420, Height: 64, Frameless: true, DisableResize: true, Hidden: true,
+		Name: "conversation", Title: appName, Width: 420, Height: 64, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=panel", BackgroundType: application.BackgroundTypeTransparent, EnableFileDrop: true,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, CornerType: application.MacWindowCornerTypeSquare, WindowLevel: application.MacWindowLevelFloating, CollectionBehavior: application.MacWindowCollectionBehaviorMoveToActiveSpace | application.MacWindowCollectionBehaviorFullScreenAuxiliary},
 	})
 	history := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "history", Title: "Caelis Bot", Width: 640, Height: 700, MinWidth: 420, MinHeight: 360,
+		Name: "history", Title: appName, Width: 640, Height: 700, MinWidth: 420, MinHeight: 360,
 		Hidden: true, URL: "/?surface=history", EnableFileDrop: true, BackgroundColour: application.NewRGB(247, 247, 247),
 		Mac: application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
@@ -396,13 +417,13 @@ func Run(assets fs.FS) error {
 	}
 	updateLanguage := func(state LanguageState) {
 		applicationMenu := nativeApp.Menu.New()
-		populate(applicationMenu.AddSubmenu("Caelis Bot"), state.Locale)
+		populate(applicationMenu.AddSubmenu(appName), state.Locale)
 		applicationMenu.AddRole(application.EditMenu)
 		nativeApp.Menu.Set(applicationMenu)
-		settings.SetTitle(i18n.Text(state.Locale, "native.settingsTitle", nil))
-		pet.SetTitle(i18n.Text(state.Locale, "native.petTitle", nil))
-		bubble.SetTitle(i18n.Text(state.Locale, "native.bubbleTitle", nil))
-		prop.SetTitle(i18n.Text(state.Locale, "native.propTitle", nil))
+		settings.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.settingsTitle", nil), "Caelis Bot", appName, 1))
+		pet.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.petTitle", nil), "Caelis Bot", appName, 1))
+		bubble.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.bubbleTitle", nil), "Caelis Bot", appName, 1))
+		prop.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.propTitle", nil), "Caelis Bot", appName, 1))
 	}
 	updateLanguage(s.LanguagePreferences())
 	s.languageChanged = func(state LanguageState) {
@@ -425,6 +446,10 @@ func Run(assets fs.FS) error {
 			log.Print("Desktop application icon could not be decoded")
 		}
 		s.start(newMacDriver(pet, panel, bubble, history, prop, s, quit))
+		if len(os.Args) > 1 && os.Args[1] == "--desktop-observe-smoke" {
+			go s.runObservationProbe(root)
+			return
+		}
 		styleMacSettings(settings)
 		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() {
 			quitting.Store(true)

@@ -59,7 +59,11 @@ type callRecord struct {
 	Receipt *wire.ApplicationCallResult `json:"receipt,omitempty"`
 }
 type binding struct {
-	BackgroundResults map[string]api.BackgroundResult          `json:"backgroundResults,omitempty"`
+	BackgroundResults map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
+
+	// Keep callback formats across a crash or a disabled experiment so old
+	// pending calls can receive an unknown receipt without redispatching effects.
+	ContentCatalogs   map[string]map[string]bool               `json:"contentCatalogs,omitempty"`
 	Context           contextseed.State                        `json:"context,omitempty"`
 	ContextInputs     map[string]int                           `json:"contextInputs,omitempty"`
 	ContextRequests   map[string]string                        `json:"contextRequests,omitempty"`

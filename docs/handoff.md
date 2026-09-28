@@ -8,7 +8,7 @@
 - 独立构建精确合并版本，通过公共 API 验证自定义 CLI 配置、HOME/CWD、PATH、TTY 后续输入、
   显式空环境、set/unset、审批后执行、普通 Session/Worker 隔离、重启及 sandbox 越界写拒绝。
   fixture 采用规范目录和独立 TMPDIR，避免 macOS 路径别名及临时写授权掩盖权限问题。
-- #35 与 #36 在同一分支，原 PR #37 仍独立在途。新增联调未使用日常 Store/凭据、真实模型或 GUI。
+- #35 与 #36 在同一分支，PR #37 已合并并整合到当前分支。新增联调未使用日常 Store/凭据、真实模型或 GUI。
 - #35 英文 skill 已更新；#36 属于宿主/Runtime 装配，不新增 Bot 临时 shell 绕法或默认导航。
   验证结果见[准备记录](preparation-status.md)，完整合同见[修复记录](design/issues-35-36-repair-plan.md)。
 
@@ -24,6 +24,50 @@
   Bot 英文主动关怀 skill 已同步多源、计量、配置和恢复语义。
 - 受影响包 race 与本机 Codex/Caelis + 合成 provider 联调通过，包含可见计数与静默释放。
   物理锁屏/睡眠、实际 GUI 通知和真实模型长期效果不在此次增量验收中。
+
+## 2026-09-28 Cua 基础集成与独立 Dev Bot（本地，未发布）
+
+- 按 Runtime 能力标签装配：Codex 的 `computer-use` 原生能力保留，不注入 `bot_desktop_*`；Caelis 当前由 Bot 补充 Cua。原生拒绝不触发后备路线。
+- [当前实现与验收](design/computer-use-integration.md)：常驻 Bot 的结构化观察、语义点击/输入/按键/滚动、按需图片，私有驱动随包发布；Worker 范围不变。
+- 最终 Codex 原生路线已由真实 Dev Bot 完成筛选、Cmd+A 文本替换、滚动与读回，0 图、0 次 `bot_desktop_*` 调用、无 Cua helper。此前 Cua 路线及可选图片另有独立证据。
+- 默认开发包使用 `Caelis Bot Dev` / `dev.caelis.bot.dev`，独立数据、单实例和权限；初始化引导已补辅助功能入口及准确隐私说明。
+- Turn 停止传播到私有驱动，未知效果不重放；包内 Node 要求此能力使用 macOS 13.5+。Windows/角色控制/广泛应用与正式公证仍为独立门槛。
+- Bot skill 已更新。下列同日“未接入正式 Bot”“默认关闭”的 POC/调研段落保留历史范围，以本段为当前集成状态。
+
+## 2026-09-28 Computer Use 依赖复核（本地，未替换产品驱动）
+
+- 最新目标先交付基础 Computer Use，角色行动与公共动作资产独立后置；Worker 仍保留原生范围。
+- [复核记录](design/computer-use-dependency-audit.md)区分 MPL 分发义务与项目禁止 MPL 的政策。
+  Cua 0.30.2 的 Node 绑定和 Rust contract/SDK 都引入 MPL；仅换 CLI/MCP 或关闭默认 features 不能移除。
+  用户已明确接受不改变 Bot 自有 Apache-2.0 许可、且履行分发义务的 MPL 依赖；不再按完全禁用 MPL 筛选。
+  结合近期 Windows 计划，推荐继续 Cua 主驱动，AXorcist 保留为 macOS 备选；尚未切换或默认启用产品能力。
+- 新增独立 [AXorcist 探针](../experiments/desktop-control-axorcist/README.md)，固定 MIT/Apache-2.0 依赖：
+  真实原生组件观察、AXPress、值与任务数回读 10/10，截图 0，最终恢复状态；未接入正式 Bot。
+  它验证了一条不含 MPL 的小型 macOS 路径，不代表全部桌面能力或 Windows 已验收。
+- 已核对 OpenClaw macOS 经 Peekaboo 4.6.0 传递使用 AXorcist 0.1.11；AXorcist 本身只支持 macOS。
+  Cua 0.30.2 已有 Windows 原生发行，上游矩阵不能替代 Bot 的 Windows 验收。
+- 本轮未改变 Bot 模型工作流，无需新增 skill；后续产品接入按实际能力更新。
+  原有 Cua POC 及此前全量检查证据保留，不把此前检查冒充本轮新增探针的产品验收。
+
+## 2026-09-28 Bot Control / Computer Use POC 首片（本地，默认关闭）
+
+- 最新澄清为[探索 POC](design/bot-control-delivery-plan.md)，替代之前的人工手柄优先路线：
+  模型真实观察、批量语义动作、角色行动与一项 Computer Use 联动前移；用户手柄玩法、完整资产导入升级后置。
+  拆为观察、身体控制、真实联动、重复实验四类独立 PR；只有核心链路和产品价值验证后才定正式 feature。
+- [架构与开源选型](design/bot-control-computer-use-v1.md)：控制归常驻 Bot，Worker 保持原生能力；Windows 提前设计共同契约。
+- [实验协议](design/bot-action-protocol-v1.md)：move/point/可选 jump 与 steps 数组；宿主执行细节并反馈，
+  模型不维持物理按键、不读取角色技能/动画目录；共享目标引用连接角色和真实点击。
+- [最小资产适配](design/bot-action-assets-handoff-v1.md)：复用现有角色，只补核心表达；公共 schema/完整导入待验证后确定。
+- [系统虚拟手柄](design/virtual-gamepad-research.md)：默认内部控制，外部游戏接收端独立验证驱动、许可、识别与归零。
+- 第一片接入固定版本 Cua Driver 0.30.2，独立实验目录与宿主持有的 SDK 子进程；模型入口为
+  `bot_desktop_observe` / `bot_desktop_perform`，组件名称、状态、动作引用与边界为主，截图是可选补充。
+  目前仅操作自有原生测试窗口的筛选框；10 次真实点击/读回全部通过，截图为 0。尚未实现角色位移。
+- [Caelis #81](https://github.com/caelis-labs/caelis/issues/81) 已由合并的 [#82](https://github.com/caelis-labs/caelis/pull/82)
+  承接；公开 wire 固定到合并提交。真实 Host + 合成 provider 已验证组件工具及辅助图片内容块回传，
+  并修复 callback 将 JSON 数组再次编码为 Base64 字符串的问题；不等于真实模型规划或完整原生 Bot 验收。
+- Bot skill 增加按需加载的英文 Desktop observation 指导。开关关闭时不注册新工具，Worker 保留原生范围。
+  Cua 依赖链包含 MPL-2.0，不按纯 MIT 组件认定；正式打包前核对精确分发要求。
+  复现命令、检查结果、权限与剩余门槛见 [验证记录](design/bot-control-poc-validation.md)。未提交、推送或发布。
 
 ## 2026-09-28 设置与首次使用体验（本地，未发布）
 

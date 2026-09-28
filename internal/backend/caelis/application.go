@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -21,6 +22,7 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	}
 	s.tools = c.Clone()
 	catalog := map[string]api.ApplicationTools{}
+	formats := map[string]bool{}
 	profile := wire.ApplicationProfile{Version: "caelis-bot-application-v1", Execution: s.executionMode, Instructions: c.Instructions, Tools: []wire.ApplicationToolDefinition{}}
 	// The native host already restored its user environment once. Select public
 	// inheritance/non-login semantics without persisting a copy of environment
@@ -44,7 +46,15 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 				return errors.New("应用工具 schema 无效")
 			}
 			catalog[d.Name] = host
-			profile.Tools = append(profile.Tools, wire.ApplicationToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema})
+			definition := wire.ApplicationToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema}
+			if d.ResultFormat != "" {
+				if d.ResultFormat != "content-v1" {
+					return errors.New("unsupported application tool result format")
+				}
+				definition.ResultFormat = pointer(d.ResultFormat)
+				formats[d.Name] = true
+			}
+			profile.Tools = append(profile.Tools, definition)
 		}
 	}
 	sort.Slice(profile.Tools, func(i, j int) bool { return profile.Tools[i].Name < profile.Tools[j].Name })
@@ -58,10 +68,34 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	if s.catalogs == nil {
 		s.catalogs = map[string]map[string]api.ApplicationTools{}
 	}
+	if s.state.ContentCatalogs == nil {
+		s.state.ContentCatalogs = map[string]map[string]bool{}
+	}
+	if len(formats) > 0 {
+		s.state.ContentCatalogs[profile.ToolsVersion] = formats
+		if err := s.saveLocked(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
 	s.catalogs[profile.ToolsVersion] = catalog
 	s.catalog = catalog
 	s.profile = profile
 	s.mu.Unlock()
+	return nil
+}
+
+// Optional content-v1 tools require a positive handshake before any application
+// registration or session mutation. Ordinary text-only Bot sessions still work
+// with the existing required capability baseline.
+func (s *Session) checkContentCapability(info wire.ServerInfo) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, tool := range s.profile.Tools {
+		if value(tool.ResultFormat) == "content-v1" && !slices.Contains(info.Capabilities, "application-tool-result-content-v1") {
+			return errors.New("Computer Use requires Caelis application-tool-result-content-v1; update and restart the Host")
+		}
+	}
 	return nil
 }
 func (s *Session) ensureSession(ctx context.Context, host *client) error {
