@@ -304,8 +304,8 @@ cache still reconstructs the same native facts. Upgrade renewal preserves histor
 Sessions/Workers retain native defaults. Skills remain progressively loaded and resident-only.
 
 These are release capability conditions, not proof of paid Guardian judgment quality. The App × Turn integration
-uses the real Bot/helper pipe with a deterministic underlying UI fixture, not real WPS. After Core publishes,
-rerun the external suite against the downloaded binary before declaring that artifact qualified.
+uses the real Bot/helper pipe with a deterministic underlying UI fixture, not real WPS. Core v0.65.0 darwin-arm64 was independently downloaded, checksum-verified and passed this external suite
+on 2026-09-29. Rerun it for subsequent Core releases before declaring those artifacts qualified.
 
 Remaining boundaries: unknown upload responses lack a public resource-descriptor lookup and are not retried;
 worker artifacts are not yet aggregated into resident download items; cancel/approval uncertainty never retries

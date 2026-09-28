@@ -124,6 +124,12 @@ func TestBackgroundReviewVisibilityKeepsNativeProvenance(t *testing.T) {
 			s.applyEvent(event)
 			s.update()
 			observed := s.BackgroundResult("care")
+			if tc.visible {
+				v := s.Snapshot()
+				if v.Quiet || len(v.Reviews) != 1 {
+					t.Fatal("counted review notice was hidden", v)
+				}
+			}
 			if observed.Visible != tc.visible || observed.Complete {
 				t.Fatalf("wrong review attribution: %+v", observed)
 			}

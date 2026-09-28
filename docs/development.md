@@ -90,11 +90,13 @@ Never copy daily credentials into logs or use a shared Store for destructive fix
 
 ## Current evidence and limits
 
-The 2026-09-28 candidate passed check/smoke/build and affected race suites. External Core #91 passed
-NativeHost and GuardianHost integration (including 90-second timeout, upgrade renewal and replay identity).
+The 2026-09-29 candidate passed check/smoke/build and affected race suites. Downloaded and checksum-verified
+Core v0.65.0 darwin-arm64 passed NativeHost and GuardianHost integration, including real 90-second timeout,
+upgrade renewal and replay identity. Streaming grapheme append, exact review accounting and preservation of
+failed Guardian notices through quiet care/Dream projection have focused regressions.
 Cua App × Turn coverage substitutes only the underlying SDK UI fixture; it is not real WPS acceptance.
 Earlier v0.61.0 MiMo/Luna live results cover that historical baseline only. Subsequent changes require their
-own regression evidence, and a published Core binary needs the same external acceptance suite.
+own regression evidence, and subsequent Core releases need the same external acceptance suite.
 
 Native bubble/Glass/F1 theme and setup preview were inspected on a single Retina Apple Silicon Mac.
 Minimum macOS 12 deployment target and Intel/mixed-DPI/multi-display behavior are not qualified by compilation.
