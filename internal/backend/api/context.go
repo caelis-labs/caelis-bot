@@ -1,6 +1,15 @@
 package api
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrConversationRenewalRejected means native creation was definitively rejected
+// and that result is durable. The source binding is unchanged, so the host may
+// retire this handoff attempt and submit to the original conversation normally.
+// Unknown outcomes and local persistence failures must not return this error.
+var ErrConversationRenewalRejected = errors.New("conversation renewal rejected")
 
 // ContextSeed is application-owned data appended at the first request boundary,
 // never policy or an instruction override. HandoffDigest permits conditional
@@ -14,7 +23,10 @@ type ContextSeed struct {
 // cannot be mistaken for another resident turn or a successful Dream.
 type ConversationState struct {
 	Session, Turn, Status string
-	Idle                  bool
+	// Observed is true only after native state has been restored. It is independent
+	// of Idle: an observed running turn must still invalidate an older handoff.
+	Observed bool
+	Idle     bool
 }
 
 // ConversationRuntime performs ordinary native session/turn operations. It has

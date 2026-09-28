@@ -2,15 +2,17 @@ package caelis
 
 import (
 	"encoding/json"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
-	"github.com/caelis-labs/caelis-bot/internal/notebook"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
 func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
@@ -96,6 +98,7 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 	})
 	s.state.Operations["dream"] = journal{Path: "/application/sessions/main/prompt", Dream: true, Scheduled: true, Outcome: "accepted", TurnID: "turn"}
 	v := s.state.Views["main"]
+	v.CommandCaughtUp = true
 	v.State.Run.Status = pointer("completed")
 	v.State.Run.TurnId = pointer("turn")
 	v.Turns = map[string]string{"turn": "completed"}
@@ -109,5 +112,88 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 	}
 	if creates.Load() != 1 || grants.Load() != 1 || s.state.Grants["reminder"].Grant.Id != "new-grant" || len(s.Snapshot().Items) != 2 {
 		t.Fatal("lost continuity")
+	}
+}
+
+func TestDreamRenewalRejectedAndUnknownRecovery(t *testing.T) {
+	for _, outcome := range []string{"rejected", "conflicted", "http-rejected", "unknown", "recovered-rejected"} {
+		t.Run(outcome, func(t *testing.T) {
+			var creates atomic.Int32
+			op := "dream-renew-" + digest([]byte("dream"))
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
+				case "/application/sessions/main/configuration":
+					writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{Execution: "workspace-write"}})
+				case "/application/sessions":
+					creates.Add(1)
+					if outcome == "unknown" || outcome == "recovered-rejected" {
+						drop(w)
+					} else if outcome == "http-rejected" {
+						http.Error(w, "synthetic rejection", http.StatusBadRequest)
+					} else {
+						writeFixture(w, wire.CommandResult{OperationId: op, Outcome: wire.Outcome(outcome)})
+					}
+				case "/application/operations/" + op:
+					recovered := wire.Outcome("unknown")
+					if outcome == "recovered-rejected" {
+						recovered = "rejected"
+					}
+					writeFixture(w, wire.ApplicationOperation{OperationId: op, Outcome: recovered, Result: &wire.CommandResult{OperationId: op, Outcome: recovered}})
+				default:
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+					http.NotFound(w, r)
+				}
+			})
+			s.state.Operations["dream"] = journal{Path: "/application/sessions/main/prompt", Dream: true, Outcome: "accepted", TurnID: "turn"}
+			v := s.state.Views["main"]
+			v.CommandCaughtUp = true
+			v.State.Run.Status, v.State.Run.TurnId = pointer("completed"), pointer("turn")
+			v.Turns = map[string]string{"turn": "completed"}
+			for i := range 3 {
+				err := s.RenewConversation(t.Context(), "dream", "main")
+				known := outcome != "unknown" && (outcome != "recovered-rejected" || i > 0)
+				if err == nil || errors.Is(err, api.ErrConversationRenewalRejected) != known {
+					t.Fatalf("attempt %d: rejection=%v err=%v", i, known, err)
+				}
+				if s.state.Session.SessionId != "main" || creates.Load() != 1 || s.Snapshot().CanSend != known {
+					t.Fatal("lost source binding, repeated creation, or incorrect send gate", creates.Load(), s.Snapshot().CanSend)
+				}
+				// Both a known rejection and an unknown receipt survive process restart.
+				restored := New(Options{Directory: filepath.Dir(s.path)})
+				restored.client, restored.connected = s.client, true
+				restored.state.Views["main"].CommandCaughtUp = true
+				s = restored
+			}
+		})
+	}
+}
+
+func TestConversationObservedOnlyAfterNativeCatchup(t *testing.T) {
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	v := s.state.Views["main"]
+	v.State.Run.Status, v.State.Run.TurnId = pointer("completed"), pointer("dream-turn")
+	if s.ConversationState().Observed {
+		t.Fatal("unrestored projection was authoritative")
+	}
+	v.CommandCaughtUp = true
+	v.State.Run.Active, v.State.Run.Status = pointer(true), pointer("running")
+	if got := s.ConversationState(); !got.Observed || got.Idle {
+		t.Fatal("observed activity confused with idle", got)
+	}
+}
+
+func TestDreamRenewalRejectionRequiresDurableReceipt(t *testing.T) {
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Error("repeated native create") })
+	s.state.Operations["dream"] = journal{Dream: true, Outcome: "accepted", TurnID: "turn"}
+	s.state.Operations["dream-renew-"+digest([]byte("dream"))] = journal{Path: "/application/sessions", Outcome: "rejected"}
+	v := s.state.Views["main"]
+	v.CommandCaughtUp = true
+	v.State.Run.Status, v.State.Run.TurnId = pointer("completed"), pointer("turn")
+	s.path = filepath.Join(t.TempDir(), "blocked")
+	if err := os.Mkdir(s.path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RenewConversation(t.Context(), "dream", "main"); err == nil || errors.Is(err, api.ErrConversationRenewalRejected) {
+		t.Fatal("persistence failure permitted fallback", err)
 	}
 }

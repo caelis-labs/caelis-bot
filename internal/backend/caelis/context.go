@@ -25,6 +25,7 @@ func (s *Session) cleanupContextLocked() {
 func (s *Session) conversationLocked() api.ConversationState {
 	out := api.ConversationState{Session: s.state.Session.SessionId}
 	if v := s.state.Views[out.Session]; v != nil {
+		out.Observed = s.connected && !s.closed && v.CommandCaughtUp
 		out.Turn = observedTurn(v)
 		out.Status = v.Turns[out.Turn]
 		if out.Status == "" {
@@ -148,7 +149,7 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 	}
 	current := s.conversationLocked()
 	j := s.state.Operations[id]
-	if current.Session != source || !j.Dream || current.Turn != j.TurnID || current.Status != "completed" {
+	if !current.Observed || current.Session != source || !j.Dream || current.Turn != j.TurnID || current.Status != "completed" {
 		s.mu.Unlock()
 		return errors.New("对话已有新活动，暂不能交接")
 	}
@@ -157,6 +158,7 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 	c, life := s.client, s.state.Connection
 	grants := clone(s.state.Grants)
 	s.mu.Unlock()
+	var renewalErr error
 	if !exists {
 		if !current.Idle {
 			return errors.New("对话暂不能交接")
@@ -167,17 +169,26 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 		}
 		profile := config.Profile
 		profile.Instructions, profile.Tools, profile.ToolsVersion = s.profile.Instructions, s.profile.Tools, s.profile.ToolsVersion
-		if _, err = s.command(ctx, op, "/application/sessions", wire.CreateApplicationSessionRequest{OperationId: &op, Profile: profile}); err != nil {
-			return err
-		}
+		_, renewalErr = s.command(ctx, op, "/application/sessions", wire.CreateApplicationSessionRequest{OperationId: &op, Profile: profile})
 	} else if pending.Outcome == "unknown" {
-		if err := s.recoverOperations(ctx); err != nil {
-			return err
-		}
+		renewalErr = s.recoverOperations(ctx)
 	}
 	s.mu.Lock()
 	pending = s.state.Operations[op]
+	if pending.Path == "/application/sessions" && (pending.Outcome == "rejected" || pending.Outcome == "conflicted") && s.state.Session.SessionId == source {
+		// HTTP rejection may return both a known outcome and an error. Persist
+		// the receipt before allowing the host to retire this renewal attempt.
+		err := s.saveLocked()
+		s.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		return api.ErrConversationRenewalRejected
+	}
 	s.mu.Unlock()
+	if renewalErr != nil {
+		return renewalErr
+	}
 	if !succeeded(wire.Outcome(pending.Outcome)) || pending.Resource == "" {
 		return errors.New("新上下文创建结果尚未确认")
 	}
@@ -210,7 +221,7 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current = s.conversationLocked()
-	if current.Session != source || current.Turn != j.TurnID || current.Status != "completed" || !current.Idle {
+	if !current.Observed || current.Session != source || current.Turn != j.TurnID || current.Status != "completed" || !current.Idle {
 		return errors.New("原对话已有新活动，交接未切换")
 	}
 	old := s.state

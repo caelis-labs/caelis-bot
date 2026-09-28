@@ -68,6 +68,9 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 		return nil
 	}
 	current := p.ConversationState()
+	if !current.Observed {
+		return nil
+	}
 	now := r.now()
 	if a := d.state.Attempt; a != nil && !a.Done {
 		receipt, result := p.DreamResult(a.ID)
@@ -147,6 +150,10 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 	if p, ok := r.engine.(api.ConversationRuntime); ok && r.dream != nil {
 		d := r.dream
 		if a := d.state.Attempt; a != nil {
+			if !p.ConversationState().Observed {
+				rejected.Message = "正在恢复对话，消息未发送，请稍后重试"
+				return rejected, nil
+			}
 			if !a.Done {
 				if err := p.CancelDream(ctx, a.ID); err != nil {
 					rejected.Message = "正在结束上下文整理，请稍后重试"
@@ -155,7 +162,7 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 				a.Done, a.Ready = true, false
 			}
 			if a.Ready {
-				if err := p.RenewConversation(ctx, a.ID, a.Session); err != nil {
+				if err := p.RenewConversation(ctx, a.ID, a.Session); err != nil && !errors.Is(err, api.ErrConversationRenewalRejected) {
 					rejected.Message = "新上下文尚未准备好，消息未发送，请重试"
 					return rejected, nil
 				}

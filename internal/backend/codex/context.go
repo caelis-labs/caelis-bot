@@ -44,7 +44,11 @@ func (s *Session) cleanupContextLocked() {
 }
 
 func (s *Session) conversationLocked() api.ConversationState {
-	return api.ConversationState{Session: s.binding.ThreadID, Turn: s.lastTurn, Status: s.runs[s.lastTurn], Idle: s.state.CanSend && s.opts.Execution.ApprovalMode != "read-only"}
+	return api.ConversationState{
+		Session: s.binding.ThreadID, Turn: s.lastTurn, Status: s.runs[s.lastTurn],
+		Observed: s.bound && !s.loading && s.state.Connection == "ready" && !s.closed && !s.closing,
+		Idle:     s.state.CanSend && s.opts.Execution.ApprovalMode != "read-only",
+	}
 }
 func (s *Session) ConversationState() api.ConversationState {
 	s.mu.Lock()

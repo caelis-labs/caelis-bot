@@ -2,13 +2,15 @@ package codex
 
 import (
 	"encoding/json"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
 func TestContextAcceptanceAndLazyRenewalRetainChat(t *testing.T) {
@@ -88,6 +90,59 @@ func TestContextAcceptanceAndLazyRenewalRetainChat(t *testing.T) {
 	if restored.binding.ThreadID != "next-thread" || len(restored.binding.PastThreads) != 1 {
 		t.Fatal("binding not durable")
 	}
+}
+
+func TestConversationObservedOnlyAfterNativeRestore(t *testing.T) {
+	s, f := sessionPair(t, "normal")
+	if err := s.Close(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	restored := NewSession(s.opts)
+	restored.start = s.start
+	t.Cleanup(func() { _ = restored.Close(testContext(t)) })
+	if got := restored.ConversationState(); got.Session != "thread-native" || got.Turn != "" || got.Observed {
+		t.Fatal("persisted binding mistaken for restored history", got)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method != "thread/resume" {
+			return nil, false
+		}
+		close(entered)
+		<-release
+		return map[string]any{"thread": nativeThread{ID: "thread-native", Turns: []nativeTurn{{ID: "dream-turn", Status: "completed"}}}, "model": "native-default"}, true
+	}
+	f.mu.Unlock()
+	connected := make(chan error, 1)
+	go func() { connected <- restored.Connect(testContext(t)) }()
+	select {
+	case <-entered:
+	case <-testContext(t).Done():
+		t.Fatal("resume did not start")
+	}
+	if got := restored.ConversationState(); got.Observed || got.Turn != "" {
+		t.Fatal("incomplete native resume exposed as observed", got)
+	}
+	once.Do(func() { close(release) })
+	if err := <-connected; err != nil {
+		t.Fatal(err)
+	}
+	if got := restored.ConversationState(); !got.Observed || got.Turn != "dream-turn" || got.Status != "completed" {
+		t.Fatal("native history not observed", got)
+	}
+	restored.mu.Lock()
+	restored.applyTurn(nativeTurn{ID: "background-report", Status: "inProgress"}, false)
+	restored.update()
+	restored.mu.Unlock()
+	if got := restored.ConversationState(); !got.Observed || got.Idle {
+		t.Fatal("observed activity confused with idle", got)
+	}
+	restored.mu.Lock()
+	restored.run = "" // No producer for the synthetic background turn.
+	restored.mu.Unlock()
 }
 
 func TestDreamCancelTargetsOnlyMaintenanceTurn(t *testing.T) {
