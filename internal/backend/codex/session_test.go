@@ -339,6 +339,39 @@ func TestSteerUsesExpectedRunAndInterruptWaitsForTerminal(t *testing.T) {
 func approvalMessage(id string) wireMessage {
 	return wireMessage{ID: raw(id), Method: "item/commandExecution/requestApproval", Params: raw(map[string]any{"threadId": "thread-native", "turnId": "run-native", "itemId": "command", "command": "echo synthetic", "cwd": "/fixture", "availableDecisions": []string{"accept", "decline"}})}
 }
+
+func TestInterruptCancelsPendingNativeElicitationBeforeWaitingForTurn(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	sendSynthetic(t, s, "desktop-read")
+	f.emit(wireMessage{ID: raw("desktop-access"), Method: "mcpServer/elicitation/request", Params: raw(map[string]any{
+		"threadId": "thread-native", "turnId": "run-native", "mode": "form", "serverName": "cua_repl",
+		"message": "Allow fixture access?", "requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	})})
+	view := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method != "turn/interrupt" {
+			return nil, false
+		}
+		select {
+		case answer := <-f.answers:
+			if string(answer.ID) != `"desktop-access"` || string(answer.Result) != `{"_meta":null,"action":"cancel","content":null}` {
+				t.Error("stop must cancel the exact native request without granting access", string(answer.Result))
+			}
+		default:
+			return &NativeError{Code: -32000, Message: "native tool is still waiting for its elicitation"}, true
+		}
+		return nil, false
+	}
+	f.mu.Unlock()
+	if err := s.Interrupt(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend && v.Phase == "interrupted" })
+	if err := s.Decide(testContext(t), api.Decision{ID: view.Approvals[0].ID, Choice: "accept"}); err == nil {
+		t.Fatal("stopped permission request remained actionable")
+	}
+}
 func TestApprovalKeepsNativeTargetChoicesAndRejectsStaleOrDuplicateButtons(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	sendSynthetic(t, s, "approval-run")

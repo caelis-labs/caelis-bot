@@ -91,6 +91,14 @@ char *bot_context(void *pointer) {
     NSData *data=[NSJSONSerialization dataWithJSONObject:context ?: NSNull.null options:NSJSONWritingFragmentsAllowed error:nil];
     return strdup(data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String : "null");
 }
+char *bot_observation_context(void *pointer) {
+    // The presentation cache may be one second old. A tool capture needs a fresh
+    // pre/post geometry sample and explicitly refuses multiple displays in POC-1.
+    if(NSScreen.screens.count!=1)return strdup("null");
+    BotHost *host=(__bridge BotHost *)pointer;
+    host.frontContext=nil;
+    return bot_context(pointer);
+}
 void bot_plane_ready(void *pointer,int ready) {
     BotHost *host=(__bridge BotHost *)pointer;host.propReady=ready;
     if(!ready)[host cancelPlane];

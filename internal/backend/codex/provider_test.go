@@ -123,3 +123,10 @@ func TestNotebookRefreshUsesResidentTurnLifecycle(t *testing.T) {
 		t.Fatal("failed preparation reached native turn")
 	}
 }
+
+func TestCodexOwnsNativeComputerUseBeforeConnection(t *testing.T) {
+	c := (&Session{}).ApplicationCapabilities()
+	if !c.HasNativeTool(api.NativeComputerUse) || !c.NativeFiles || !c.WorkerExecution || !c.ScheduledActivation {
+		t.Fatal("Codex capability contract regressed")
+	}
+}

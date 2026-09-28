@@ -8,6 +8,13 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
+// Codex owns Computer Use discovery, permissions and execution. The host must
+// not install a second desktop tool family when the native one is unavailable.
+func (*Session) ApplicationCapabilities() api.ApplicationCapabilities {
+	return api.ApplicationCapabilities{NativeFiles: true, WorkerExecution: true, ScheduledActivation: true,
+		NativeTools: []api.NativeToolCapability{api.NativeComputerUse}}
+}
+
 func (*Session) ProviderInfo() api.ProviderInfo {
 	return api.ProviderInfo{ID: "codex", Name: "Codex", ConnectionKind: "local-cli",
 		HelpURL:        "https://developers.openai.com/codex/cli/",

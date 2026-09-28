@@ -32,6 +32,7 @@ type Service struct {
 	pendingDraft                *api.Submission
 	outbox                      []outgoingMessage
 	botStatus                   func() string
+	beforeInterrupt             func()
 	mu                          sync.Mutex
 	draft                       api.Draft
 	draftFile                   string
@@ -238,7 +239,16 @@ func (s *Service) submit(ctx context.Context, in api.Submission, files []api.Inp
 	}
 	return s.engine.Submit(ctx, in, files)
 }
-func (s *Service) Interrupt(ctx context.Context) error              { return s.engine.Interrupt(ctx) }
+func (s *Service) SetInterruptObserver(f func()) { s.mu.Lock(); s.beforeInterrupt = f; s.mu.Unlock() }
+func (s *Service) Interrupt(ctx context.Context) error {
+	s.mu.Lock()
+	stop := s.beforeInterrupt
+	s.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
+	return s.engine.Interrupt(ctx)
+}
 func (s *Service) Decide(ctx context.Context, d api.Decision) error { return s.engine.Decide(ctx, d) }
 func (s *Service) Login(ctx context.Context) error {
 	auth, ok := s.engine.(api.Authenticator)

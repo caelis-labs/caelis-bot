@@ -1,7 +1,8 @@
 # 跨平台实现基线
 
-修订日期：2026-09-22。当前只实施 macOS，完整发行后才开始 Windows；Linux 暂不列入计划。
-接口保持可扩展，不为后置平台提前建设原生驱动、打包或专属产品流程。
+修订日期：2026-09-28。当前已实现宿主仍为 macOS；Windows 进入近期实施规划，Linux 暂不列入计划。
+现在共同设计控制、观察、坐标、进程/IPC 与回执契约；本轮没有实现 Windows 驱动、打包或专属流程。
+新增边界见 [Bot Control 与 Computer Use](design/bot-control-computer-use-v1.md)及[虚拟手柄研究](design/virtual-gamepad-research.md)。
 这是实现与验收基线，不是已发布平台列表。
 具体文件落点和分阶段验收见[后端与平台计划](backend-platform-plan.md)。
 保持 Wails/Go + React/TypeScript + Three.js、Blender → GLB；版本继续以
@@ -12,7 +13,7 @@
 | 平台 | 实现基线 | 当前证据与限制 |
 | --- | --- | --- |
 | macOS | 唯一当前实现与发行目标，arm64 优先；部署目标目前 12.0，WKWebView/AppKit | 在 macOS 27 / M4 单屏 Retina 实测；12.0 最低版本和 Intel 原生宿主尚未验收，不能由 deployment target 推断兼容 |
-| Windows | 仅保留接口扩展与共享核心编译；macOS 完整发行后再确定系统支持范围并实施 | 原生驱动、托盘、安装包、系统输入与虚拟桌面策略未实现；当前入口明确返回不支持错误 |
+| Windows | 近期规划；提前确定共享契约，原生实施时明确最低系统和架构矩阵 | 原生驱动、托盘、安装包、系统输入与虚拟桌面策略未实现；当前入口明确返回不支持错误 |
 
 Linux 不进入里程碑、常规编译矩阵或发行承诺。此前 X11/Wayland 调研只是风险资料，
 不构成待实施计划；如将来重新立项，再做独立平台评估。

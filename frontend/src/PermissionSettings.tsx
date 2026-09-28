@@ -72,9 +72,9 @@ export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?
   {state&&!state.supported&&<p>{t('settings.permissionUnsupported')}</p>}
   {state?.supported&&<>
    <div className="permission-list">
-    {state.permissions.filter(p=>p.id==='screenCapture'||p.id==='notifications').map(permissionRow)}
+    {state.permissions.filter(p=>p.id==='accessibility'||p.id==='screenCapture'||p.id==='notifications').map(permissionRow)}
    </div>
-   {!onDone&&<details className="permission-more"><summary>{t('settings.morePermissions')}</summary><div className="permission-list">{state.permissions.filter(p=>p.id==='accessibility'||p.id==='automation').map(permissionRow)}</div></details>}
+   {!onDone&&<details className="permission-more"><summary>{t('settings.morePermissions')}</summary><div className="permission-list">{state.permissions.filter(p=>p.id==='automation').map(permissionRow)}</div></details>}
    <p className="permission-system-note">{t('settings.permissionSwitchHelp')}</p>
    <section className="permission-privacy" aria-labelledby="permission-privacy-title">
     <h2 id="permission-privacy-title">{t('settings.permissionPrivacyTitle')}</h2>

@@ -17,6 +17,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/care"
+	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 )
 
 type Schedule struct {
@@ -55,7 +56,11 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
-	dream          *dreamController // guarded by step
+	desktopContext context.Context
+	desktopCancel  context.CancelFunc
+	desktopControl api.ApplicationTools    // owned by native host, never by workers
+	desktop        desktopcontrol.Observer // fixed before tool transport starts
+	dream          *dreamController        // guarded by step
 	care           *care.Engine
 	careLoadErr    error
 	careSample     func() care.Sample
@@ -301,6 +306,10 @@ func (r *Runtime) Start(engine Engine) {
 func (r *Runtime) Stop() {
 	r.mu.Lock()
 	r.stopped = true
+	// Fence BeginDesktopTurn in the same critical section as permanent shutdown.
+	if r.desktopCancel != nil {
+		r.desktopCancel()
+	}
 	cancel := r.cancel
 	r.mu.Unlock()
 	if cancel != nil {

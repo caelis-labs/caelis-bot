@@ -91,3 +91,24 @@ func TestMissingOptionalCapabilitiesReturnUnavailable(t *testing.T) {
 		}
 	}
 }
+
+type interruptOrderEngine struct {
+	api.Engine
+	stopped *bool
+	t       *testing.T
+}
+
+func (e interruptOrderEngine) Interrupt(context.Context) error {
+	if !*e.stopped {
+		e.t.Fatal("native input not stopped before runtime interrupt")
+	}
+	return nil
+}
+func TestUserStopCancelsNativeInputBeforeInterruptingRuntime(t *testing.T) {
+	stopped := false
+	s := NewService(interruptOrderEngine{stopped: &stopped, t: t}, nil, nil, nil, nil)
+	s.SetInterruptObserver(func() { stopped = true })
+	if err := s.Interrupt(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}

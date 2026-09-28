@@ -1,5 +1,26 @@
 # 整体实现计划
 
+## 2026-09-28 Cua 基础集成与独立 Dev Bot（本地，未发布）
+
+- 按 Runtime 能力标签装配：Codex 的 `computer-use` 原生能力保留，不注入 `bot_desktop_*`；Caelis 当前由 Bot 补充 Cua。原生拒绝不触发后备路线。
+- [当前实现与验收](design/computer-use-integration.md)：常驻 Bot 的结构化观察、语义点击/输入/按键/滚动、按需图片，私有驱动随包发布；Worker 范围不变。
+- 最终 Codex 原生路线已由真实 Dev Bot 完成筛选、Cmd+A 文本替换、滚动与读回，0 图、0 次 `bot_desktop_*` 调用、无 Cua helper。此前 Cua 路线及可选图片另有独立证据。
+- 默认开发包使用 `Caelis Bot Dev` / `dev.caelis.bot.dev`，独立数据、单实例和权限；初始化引导已补辅助功能入口及准确隐私说明。
+- Turn 停止传播到私有驱动，未知效果不重放；包内 Node 要求此能力使用 macOS 13.5+。Windows/角色控制/广泛应用与正式公证仍为独立门槛。
+- Bot skill 已更新。下列同日“未接入正式 Bot”“默认关闭”的 POC/调研段落保留历史范围，以本段为当前集成状态。
+
+2026-09-28 最新实施优先级：先交付 Bot 基础 Computer Use，再独立探索角色控制联动。
+驱动/打包、真实模型闭环、正式启用分片验收；许可边界、Cua 精确依赖与已验证的原生备选见
+[依赖复核](design/computer-use-dependency-audit.md)。以下 POC 身体控制阶段不再阻塞基础能力上线。
+
+2026-09-28 探索增量：[Bot Control / Computer Use](design/bot-control-computer-use-v1.md)、
+[实验语义动作协议](design/bot-action-protocol-v1.md)及[最小资产适配](design/bot-action-assets-handoff-v1.md)。
+最新[POC 分阶段交付](design/bot-control-delivery-plan.md)：POC-1 真实 Cua 驱动观察与有限操作，POC-2 模型批量控制身体，
+POC-3 一项真实 Computer Use 联动，POC-4 重复实验与去留结论。每片独立 PR/验收/回退，不增加 Worker 权限。
+Core 的 [Caelis #81](https://github.com/caelis-labs/caelis/issues/81) 已由 [#82](https://github.com/caelis-labs/caelis/pull/82)
+实现并合并；第一片已本地接入 Cua 结构化观察/筛选操作与标准内容回传，
+见 [验证范围](design/bot-control-poc-validation.md)。真实模型决策与角色控制仍待验证；完整手柄/资产生态后置。
+
 基线日期：2026-09-19；路线修订：2026-09-20。本文保留 P0–P5 阶段编号；历史准备顺序不覆盖最新路线。
 当前事实见[准备记录](preparation-status.md)，产品约束见[product.md](product.md)，
 短期与长期目标、竞争力假设见[产品发展路线](roadmap.md)。
