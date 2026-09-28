@@ -152,6 +152,8 @@ type RuntimeCheck struct {
 	Message   string `json:"message"`
 }
 type Submission struct {
+	// Dream is host-only provenance, never an option supplied by the renderer.
+	Dream bool `json:"-"`
 	// ScreenInput is host-only acquisition provenance, not an instruction or
 	// authority grant. Adapters recheck the resident model before dispatch.
 	ScreenInput bool `json:"-"`

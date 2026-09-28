@@ -9,6 +9,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/backend/contextseed"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
@@ -21,6 +22,7 @@ type pendingInput struct {
 }
 
 type journal struct {
+	Dream        bool                   `json:"dream,omitempty"`
 	PendingInput *pendingInput          `json:"pendingInput,omitempty"`
 	TurnID       string                 `json:"turnID,omitempty"`
 	Scheduled    bool                   `json:"scheduled,omitempty"`
@@ -57,6 +59,11 @@ type callRecord struct {
 	Receipt *wire.ApplicationCallResult `json:"receipt,omitempty"`
 }
 type binding struct {
+	Context           contextseed.State                        `json:"context,omitempty"`
+	ContextInputs     map[string]int                           `json:"contextInputs,omitempty"`
+	ContextRequests   map[string]string                        `json:"contextRequests,omitempty"`
+	PastSessions      []string                                 `json:"pastSessions,omitempty"`
+	RenewedBy         string                                   `json:"renewedBy,omitempty"`
 	CommandFollowups  map[string]commandFollowup               `json:"commandFollowups,omitempty"`
 	Version           int                                      `json:"version"`
 	ProjectionVersion int                                      `json:"projectionVersion"`

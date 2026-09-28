@@ -80,7 +80,7 @@ func SubmitScreen(ctx context.Context, s *Service, input api.Submission, files [
 		}
 	}
 	s.stageOutgoing(input, files)
-	r, err = s.engine.Submit(ctx, input, files)
+	r, err = s.submit(ctx, input, files)
 	s.finishOutgoing(input.ID, r)
 	return r, err
 }

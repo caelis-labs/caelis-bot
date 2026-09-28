@@ -48,6 +48,11 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		source = wire.ApplicationSource{Kind: prompt.SourceKind, OperationId: op, GrantId: prompt.GrantId}
 	}
 	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0]}
+	if len(scheduled) > 1 {
+		j := s.state.Operations[op]
+		j.Dream = scheduled[1]
+		s.state.Operations[op] = j
+	}
 	if path == "/application/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" && source.Kind == "user" && !s.state.Operations[op].Scheduled {
 		pending := &pendingInput{VisibleIDs: []string{}}
 		if v := s.state.Views[s.state.Session.SessionId]; v != nil {
@@ -99,6 +104,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 				j.Body = nil
 			}
 			s.state.Operations[op] = j
+			s.state.Context.Resolve(op, "rejected")
 			save := s.saveLocked()
 			s.bumpLocked()
 			s.mu.Unlock()
@@ -131,7 +137,11 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		j.Resource = value(out.SessionId)
 	}
 	s.state.Operations[op] = j
+	s.state.Context.Resolve(op, productOutcome(out.Outcome))
 	e = s.saveLocked()
+	if e == nil {
+		s.cleanupContextLocked()
+	}
 	s.bumpLocked()
 	s.mu.Unlock()
 	return out, e
@@ -219,10 +229,53 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 	}
 	var out wire.CommandResult
 	var e error
+	if !retry && v.CanSend {
+		s.mu.Lock()
+		var seed string
+		s.cleanupContextLocked()
+		seed, e = s.state.Context.Prepare(ctx, s.tools, in.ID)
+		if e == nil && seed != "" {
+			if s.state.ContextInputs == nil {
+				s.state.ContextInputs = map[string]int{}
+			}
+			s.state.ContextInputs[in.ID] = len(seed)
+			if s.state.ContextRequests == nil {
+				s.state.ContextRequests = map[string]string{}
+			}
+			original, _ := json.Marshal(struct {
+				Input api.Submission
+				Files []api.InputFile
+			}{in, files})
+			s.state.ContextRequests[in.ID] = digest(original)
+			text := seed + in.Text
+			req.Input = &text
+		}
+		s.mu.Unlock()
+		if e != nil {
+			return receipt, e
+		}
+	} else if retry {
+		s.mu.Lock()
+		j := s.state.Operations[in.ID]
+		if s.state.ContextInputs[in.ID] > 0 {
+			original, _ := json.Marshal(struct {
+				Input api.Submission
+				Files []api.InputFile
+			}{in, files})
+			if s.state.ContextRequests[in.ID] != digest(original) {
+				s.mu.Unlock()
+				receipt.Message = "同一标识不能用于不同消息"
+				return receipt, nil
+			}
+			s.mu.Unlock()
+			return api.Receipt{ID: in.ID, Outcome: productOutcome(wire.Outcome(j.Outcome))}, nil
+		}
+		s.mu.Unlock()
+	}
 	if source == "user" && (!retry && v.CanSteer || s.isSteeringRetry(in.ID)) {
 		out, e = s.submitNativeInput(ctx, sid, in.ID, in.Text, req.ContentParts, true)
 	} else {
-		out, e = s.command(ctx, in.ID, "/application/sessions/"+idPath(sid)+"/prompt", req, in.Scheduled)
+		out, e = s.command(ctx, in.ID, "/application/sessions/"+idPath(sid)+"/prompt", req, in.Scheduled, in.Dream)
 	}
 	receipt.Outcome = productOutcome(out.Outcome)
 	if receipt.Outcome == "" {

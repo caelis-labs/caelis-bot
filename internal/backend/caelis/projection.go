@@ -28,6 +28,9 @@ func (s *Session) Revision() uint64 { s.mu.Lock(); defer s.mu.Unlock(); return s
 // come from canonical envelopes; retain that identity for presentation and
 // completion hooks only, never to authorize a cancel or approval.
 func observedTurn(v *view) string {
+	if v == nil {
+		return ""
+	}
 	if turn := value(v.State.Run.TurnId); turn != "" {
 		return turn
 	}
@@ -65,7 +68,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	v := s.state.Views[s.state.Session.SessionId]
 	if v != nil {
 		out.Items = clone(v.Items)
-		s.correlateUserInputs(&out)
+		s.correlateSessionInputs(&out, s.state.Session.SessionId)
 		out.CurrentTurn = observedTurn(v)
 		if s.connected && !value(v.State.Run.Active) {
 			switch value(v.State.Run.Status) {
@@ -136,6 +139,15 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	// Worker approval does not turn the secretary's input into a steer action.
 	out.CanSteer = s.connected && !s.closed && !unknown && v != nil && value(v.State.Run.Active) && value(v.State.Run.TurnId) != "" && value(v.State.Run.HandleId) != "" && value(v.State.Run.RunId) != ""
 	if v != nil {
+		var past []api.Item
+		for _, sid := range s.state.PastSessions {
+			if old := s.state.Views[sid]; old != nil {
+				history := api.Snapshot{Items: clone(old.Items)}
+				s.correlateSessionInputs(&history, sid)
+				past = append(past, history.Items...)
+			}
+		}
+		out.Items = append(past, out.Items...)
 		return s.presentScheduled(out, v)
 	}
 	return out
@@ -144,7 +156,10 @@ func (s *Session) snapshotLocked() api.Snapshot {
 // Initial prompts identify their turn in the command receipt; only steered
 // inputs carry input_operation_id on their canonical message envelopes.
 func (s *Session) correlateUserInputs(out *api.Snapshot) {
-	path := "/application/sessions/" + idPath(s.state.Session.SessionId) + "/prompt"
+	s.correlateSessionInputs(out, s.state.Session.SessionId)
+}
+func (s *Session) correlateSessionInputs(out *api.Snapshot, sid string) {
+	path := "/application/sessions/" + idPath(sid) + "/prompt"
 	for id, j := range s.state.Operations {
 		if j.Path != path || j.TurnID == "" || !succeeded(wire.Outcome(j.Outcome)) {
 			continue
@@ -161,6 +176,18 @@ func (s *Session) correlateUserInputs(out *api.Snapshot) {
 			out.Items = slices.DeleteFunc(out.Items, func(item api.Item) bool {
 				return item.Kind == "user" && item.RequestID == "" && !slices.Contains(j.PendingInput.VisibleIDs, item.ID)
 			})
+		}
+	}
+	for index := range out.Items {
+		item := &out.Items[index]
+		if item.Kind == "user" {
+			if n := s.state.ContextInputs[item.RequestID]; n > 0 {
+				if len(item.Text) >= n {
+					item.Text = item.Text[n:]
+				} else {
+					item.Text = ""
+				}
+			}
 		}
 	}
 }
@@ -651,10 +678,14 @@ func (s *Session) recoverOperations(ctx context.Context) error {
 		}
 		s.mu.Lock()
 		s.state.Operations[id] = j
+		s.state.Context.Resolve(id, productOutcome(op.Outcome))
 		if j.Path == "/application/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" {
 			s.state.LastReceipt = api.Receipt{ID: id, Outcome: productOutcome(op.Outcome)}
 		}
 		e = s.saveLocked()
+		if e == nil {
+			s.cleanupContextLocked()
+		}
 		s.bumpLocked()
 		s.mu.Unlock()
 		if e != nil {
@@ -676,6 +707,9 @@ func (s *Session) needsRefreshLocked() bool {
 		}
 	}
 	for sid, v := range s.state.Views {
+		if slices.Contains(s.state.PastSessions, sid) {
+			continue
+		}
 		if !s.streams[sid] || v.ApprovalDirty {
 			return true
 		}

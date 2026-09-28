@@ -80,13 +80,15 @@ type ToolConnection struct {
 	NotebookDirectory string
 	// PrepareTurn refreshes host-owned local metadata before submission; FinishTurn
 	// runs after authoritative resident completion, outside adapter locks.
-	PrepareTurn   func(context.Context) error
-	FinishTurn    func()
-	Host          ApplicationTools
-	Command       string
-	Args          []string
-	Env           map[string]string
-	ApprovedTools []string
+	PrepareTurn    func(context.Context) error
+	FinishTurn     func()
+	PrepareContext func(context.Context) (ContextSeed, error)
+	ConsumeContext func(ContextSeed) error
+	Host           ApplicationTools
+	Command        string
+	Args           []string
+	Env            map[string]string
+	ApprovedTools  []string
 }
 type BotToolBinder interface{ ConfigureBotTools(*ToolConnection) error }
 

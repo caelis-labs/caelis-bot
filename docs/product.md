@@ -115,17 +115,20 @@ Notebook/Memory 已由应用持有，用户直接编辑 Markdown，Bot 通过专
 [个人空间](personal-memory.md)。Caelis 新通用协议已完成隔离真实模型验收，具体覆盖与剩余的
 GUI/发行验证见 [正式版联调报告](caelis-release-acceptance.md)。
 
-长期连续性收敛为长 Session/Compact、recall/remember 与一本结构清晰的 Notebook。
+长期连续性由 Provider 自有 Compact、Bot 空闲 Dream、recall/remember 与 Notebook 共同提供。
+主对话空闲 15 分钟后，Dream 有限整理并安静留下 recap；成功后等待下一次用户输入才创建
+新内部 Session，注入 MEMORY 和非空 HANDOFF，原生确认接受后消费 HANDOFF。
+详见[上下文生命周期](design/context-lifecycle-v1.md)。
 初始化时仅出现一次 Bot 名字（必填）和描述（可选）表单，提交为可见的普通用户消息，由 Bot 更新 MEMORY.md；
 不另存配置副本，不提升为系统指令，未投递或未写入成功不显示已修改。
-Notebook 仅包含系统生成的 INDEX.md、用户与 Bot 维护的核心 MEMORY.md，以及 YYYY/MM/DD/
+Notebook 包含系统生成的 INDEX.md、用户与 Bot 维护的核心 MEMORY.md、一次性交接 HANDOFF.md，以及 YYYY/MM/DD/
 日期笔记。用户直接编辑 Markdown，Bot 使用 Runtime 文件工具；不提供专用笔记管理 UI 或 CRUD 工具。
 不另设 SOUL/USER 文件、核心认知层或同步的用户画像。独立资料页与专用笔记 CRUD 工具已退出；
 具体目录、读写习惯、迁移和验收见[笔记方向](personal-memory.md)。
 
 Bot 是持续存在的助手，用户不管理 Session 或工作区。内部可以管理多个工作 Thread，
 使用后端通信工具协作，最终仍由同一个 Bot 对用户说话。
-初版仅由用户 prompt 与用户设定的定时任务激活，不长期空跑模型。
+用户 prompt、既有提醒/care/任务报告和一次性 Dream 可激活驻留 Bot，不长期空跑模型。
 定时任务依赖应用常驻，隐藏照常执行，睡眠错过的同类提醒合并，明确退出后暂停。
 Agent 通过受控接口驱动提醒与角色动作，动作不产生执行授权。
 完整职责与边界见 [Bot 设计](bot-design.md)。

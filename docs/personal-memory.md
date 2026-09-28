@@ -12,6 +12,7 @@ Caelis Bot 的长期连续性由长会话/Compact、一本普通 Markdown 笔记
 Notebook/
   INDEX.md                 # 应用生成的导航，可覆盖重建
   MEMORY.md                # 唯一核心记忆，用户与 Bot 编辑
+  HANDOFF.md               # Dream 写入；新 Session 首次接受后消费，不进日期索引
   2026/09/23/
     1030-项目讨论.md
     1645-工作复盘.md
@@ -76,7 +77,7 @@ Codex 和 Caelis 均通过原生文件工具按需读取 `SKILL.md` 与相对 re
 
 skill 教会 Bot：
 
-1. 新上下文或 Compact 后需要恢复认知时，读 skill 和 MEMORY。
+1. 新 Session 首次请求由宿主注入 MEMORY 和非空 HANDOFF；缺失、过时或 Compact 后按需重读。
 2. 需要旧事时查 INDEX、读相关笔记，必要时 recall；不要假定旧上下文仍是最新文件。
 3. 对话或工作中及时记有用的决定和结果，日常细节落到当天目录，稳定认识精炼到 MEMORY。
 4. 更正过时内容、合并重复信息；遗忘时处理相关笔记和 Memory 线索，按实际范围报告。
@@ -84,7 +85,9 @@ skill 教会 Bot：
 
 维护记忆是内置核心能力，正常对话不主动提及 skill、Notebook 或内部读写步骤。
 必要时只简短确认实际结果；用户询问或发生需要其关注的失败/限制时再解释。
-这是正常交互中的读写习惯，没有额外维护 Agent 或自动人格抽取层。
+另有 `caelis-dream` 技能，仅在宿主明确请求时整理，写指定 HANDOFF 并输出简短 recap；
+成功后等待下一次用户输入才切换内部会话。它复用驻留 Bot，不另起维护 Agent 或人格抽取层。
+参见[上下文生命周期](design/context-lifecycle-v1.md)。
 固定目录只包含名称、description 和位置，不把技能正文或笔记内容注入系统前缀。
 根文件包含基本身份恢复与模块路由；`references/memory.md`、`tasks.md`、`reminders.md`、
 `expression.md` 按场景渐进加载。Bot 行为文案以这些英文文件为唯一来源。

@@ -82,7 +82,11 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 	if terminal(s.runs[turn.ID]) && !terminal(turn.Status) {
 		return
 	}
+	_, knownTurn := s.runs[turn.ID]
 	s.runs[turn.ID] = turn.Status
+	if !knownTurn || s.lastTurn == "" || turn.Status == "inProgress" || history {
+		s.lastTurn = turn.ID
+	}
 	for _, item := range turn.Items {
 		s.applyItem(turn.ID, item, terminal(turn.Status))
 	}
@@ -143,9 +147,16 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 		view.Kind = "user"
 		view.RequestID = item.ClientID
 		var text []string
-		for _, part := range item.Content {
+		for index, part := range item.Content {
 			if part.Type == "text" {
 				value := part.Text
+				if n := s.binding.ContextInputs[item.ClientID]; index == 0 && n > 0 {
+					if len(value) >= n {
+						value = value[n:]
+					} else {
+						value = ""
+					}
+				}
 				if strings.HasPrefix(value, "[用户附件：") {
 					value = strings.SplitN(value, "\n", 2)[0]
 				}
@@ -169,8 +180,11 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 			receipt := s.state.LastReceipt
 			s.binding.LastReceipt = &receipt
 			s.binding.Pending = nil
+			s.binding.Context.Resolve(item.ClientID, "accepted")
 			if s.save() != nil {
 				s.state.Message = "已收到发送回执，但本地记录保存失败"
+			} else {
+				s.cleanupContextLocked()
 			}
 		}
 	case "agentMessage":

@@ -1,5 +1,13 @@
 # 实现与验证状态
 
+## 2026-09-28 Bot Dream 上下文交接（未发布）
+
+空闲 15 分钟的一次性整理、显式 `caelis-dream`、recap、下一次用户输入才开启新 Session、
+MEMORY 与非空 HANDOFF 注入及接受后消费均已接入 Codex/Caelis。
+`make check/smoke/build` 与受影响包 race 通过；安装版 Runtime + 合成 provider 已验证原生
+文件读写和跨 Session 闭环。未测真实模型长期记忆质量、KV Cache 收益或新增 GUI 展示。
+详见[实现与时序](design/context-lifecycle-v1.md)。
+
 ## 2026-09-27 截图交互与历史图片（v0.4.0 候选）
 
 - 批准的交互草稿已接入生产：图标工具栏、调色板、连续粗细与预览、备注旁 Ask Bot、全局整屏开关。
