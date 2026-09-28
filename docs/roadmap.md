@@ -1,5 +1,14 @@
 # 产品发展路线
 
+2026-09-28 增量：[Bot Control 与 Computer Use](design/bot-control-computer-use-v1.md)归常驻 Bot，Worker 保持原生能力。
+模型只用[通用控制输入](design/bot-action-protocol-v1.md)，角色层实现响应；私库可并行改善动作候选。
+Windows 纳入近期规划；[系统虚拟手柄](design/virtual-gamepad-research.md)作为可选接收端调研，均不代表已实现。
+
+最新顺序先交付基础 Computer Use：结构化观察 → 模型短序列 → 操作与效果验证；
+驱动与许可路径见[依赖复核](design/computer-use-dependency-audit.md)。
+角色行动与 Computer Use 联动保留为[探索 POC](design/bot-control-delivery-plan.md)，按独立 PR 推进。
+用户手柄控制、完整资产格式/生态和系统手柄后置；探索部分验证后才决定正式 feature 范围。
+
 更新：2026-09-20。根据用户对「桌面智能体深度研究」的讨论与本轮反馈确定。
 本文件记录产品方向、阶段顺序和竞争力假设；不将研究建议自动视为已实现能力。
 本轮仅持久化文档，不修改程序、角色资产，不新增提交或发布授权。
@@ -115,7 +124,7 @@ C 再选「窗口陪伴」和「结果交付」，不同时铺开多个应用和
    公共 SDK、角色安装、VRM、行为包和创作者生态以这些验证为前提；多角色协作是可选探索。
 
 Codex App Server 仍是第一后端：发现用户本机服务/CLI、标准握手，不捆绑运行时，不锁用户发行版本。
-macOS 完整发行后才实现 Windows；Linux 暂不列入计划。早期预览按既定边界使用 ad-hoc 包，
+Windows 的最新安排为近期规划、提前设计共同契约；Linux 暂不列入计划。早期预览按既定边界使用 ad-hoc 包，
 Developer ID/公证后置；角色公开分发授权单独确认，不由仓库代码许可替代。
 
 ## 与既有阶段计划的关系
