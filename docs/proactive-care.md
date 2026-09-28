@@ -35,6 +35,10 @@
 ## 规则与交付
 
 规则包含 `id/label/on/when/prompt/timeZone/cooldownSeconds/expiresSeconds`。
+单源使用 `on`；多源使用 `onAny` 非空数组，两者互斥。来源归一化、去重后共用一条规则、
+冷却与待发项；单元素数组归一成旧单源编码，不重建已有授权。条件只读取当前事件字段，
+不隐式合并其他来源数据。appChanged 附带同次原生采样的 activeSeconds/idleSeconds。
+某来源不可用只取消它触发的未派发项，其他已注册来源仍可触发。
 CEL 输入是 `event`、时间戳 `now` 和指定时区的整数 `local` 字段。
 `test` 只编译并评估示例，不保存或发布事件；`list` 同时给出来源字段、队列状态与预算。
 英文 Bot 使用指引与可复制样例只有一份：[proactive-care.md](../internal/botskills/skills/caelis-bot-memory/references/proactive-care.md)。

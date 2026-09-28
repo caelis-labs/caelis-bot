@@ -30,6 +30,7 @@ type Activation struct {
 	Prompt  string    `json:"prompt"`
 	Expires time.Time `json:"expires"`
 	Status  string    `json:"status"`
+	Source  string    `json:"source,omitempty"`
 }
 type State struct {
 	Version     int                  `json:"version"`
@@ -121,7 +122,7 @@ func (e *Engine) Snapshot() State {
 	defer e.mu.Unlock()
 	out := copyState(e.state)
 	for i, r := range out.Rules {
-		if !e.hasSource(r.On) {
+		if !e.hasAllSources(r.Rule) {
 			out.Rules[i].Issue = "source_unavailable"
 		}
 	}
@@ -153,7 +154,7 @@ func cancelPending(s *State, id string) {
 // retain the candidate version, including a lost grant response.
 func (e *Engine) Save(ctx context.Context, r Rule, authorize func(context.Context, string, string) error) (Registration, error) {
 	r, c, err := compile(r)
-	if !e.hasSource(r.On) {
+	if !e.hasAllSources(r) {
 		return Registration{}, errors.New("unsupported event source")
 	}
 	if err != nil {
@@ -274,7 +275,7 @@ func (e *Engine) Receive(ctx context.Context, event Event, now time.Time) error 
 	next := copyState(e.state)
 	interested := false
 	for i, r := range next.Rules {
-		if !r.Enabled || r.On != event.Source {
+		if !r.Enabled || !r.subscribes(event.Source) {
 			continue
 		}
 		interested = true
@@ -308,7 +309,7 @@ func (e *Engine) Receive(ctx context.Context, event Event, now time.Time) error 
 			next.Rules[i].Issue = "queue_full"
 			continue
 		}
-		next.Activations = append(next.Activations, Activation{ID: "care-" + rand.Text(), RuleID: r.ID, Version: r.Version, Prompt: r.Prompt, Expires: now.Add(time.Duration(r.ExpiresSeconds) * time.Second), Status: "pending"})
+		next.Activations = append(next.Activations, Activation{ID: "care-" + rand.Text(), RuleID: r.ID, Version: r.Version, Prompt: r.Prompt, Source: event.Source, Expires: now.Add(time.Duration(r.ExpiresSeconds) * time.Second), Status: "pending"})
 		next.Rules[i].Last = now
 	}
 	if !interested {
@@ -359,7 +360,7 @@ func (e *Engine) Deliver(ctx context.Context, now time.Time, p Presence, canSend
 		}
 		if a.Status == "pending" {
 			current := slices.ContainsFunc(next.Rules, func(r Registration) bool {
-				return r.Enabled && e.hasSource(r.On) && r.ID == a.RuleID && r.Version == a.Version
+				return r.Enabled && e.hasAnySource(r.Rule) && (a.Source == "" || e.hasSource(a.Source)) && r.ID == a.RuleID && r.Version == a.Version
 			})
 			if !current {
 				next.Activations[i].Status = "cancelled"

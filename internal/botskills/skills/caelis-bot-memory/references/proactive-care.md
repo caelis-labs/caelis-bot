@@ -5,6 +5,11 @@ condition matches. Use `bot_reminders` for an ordinary fixed-time reminder. Read
 `bot_care` with `operation: "list"` first: it returns the available sources, their
 fields, saved rules, queued outcomes, and current presence availability.
 
+Use `on` for one source, or `onAny` for a nonempty list of registered sources.
+Any subscribed event evaluates the condition using only that event's fields; it
+does not merge data from other sources. Use `has(event.field)` for optional fields.
+All sources share one rule, pending activation, and cooldown.
+
 Translate the user's request or standing arrangement into a short task and a CEL
 boolean condition. Test representative matching and non-matching data with
 `operation: "test"` before saving. Testing neither registers a rule nor publishes
@@ -19,7 +24,7 @@ report a rejected native grant rather than claiming the rule is active.
 | --- | --- |
 | `clock.minute` | No event fields. Use `local.year`, `month`, `day`, `weekday`, `hour`, and `minute` for a date, weekday, or time-window condition in the rule's IANA timezone. Monday is 1, Sunday is 7; holidays are not supplied. |
 | `desktop.usage` | `activeSeconds`, `idleSeconds` (integers), and `application` (foreground bundle identifier). Use for break suggestions after sustained computer use, optionally limited to an app or time window. |
-| `desktop.appChanged` | `application` and `previousApplication` (bundle identifiers). Use for a helpful action when the sampled foreground app changes. |
+| `desktop.appChanged` | `application` and `previousApplication` (bundle identifiers), plus `activeSeconds` and `idleSeconds` from the same native sample. Use for a helpful action when the sampled foreground app changes. |
 
 Desktop observations contain no window titles, screen content, typed text, or
 browser URLs. Usage is approximate: it accumulates across apps while recent input
