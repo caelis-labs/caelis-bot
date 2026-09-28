@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { useI18n } from '../../i18n';
 
-export function SettingsDialog({ title, description, busy = false, onClose, children }: { title: string; description?: string; busy?: boolean; onClose: () => void; children: ReactNode }) {
+export function SettingsDialog({ title, description, busy = false, onClose, children, className = '' }: { title: string; description?: string; busy?: boolean; onClose: () => void; children: ReactNode; className?: string }) {
  const { t } = useI18n();
  const titleID = useId(), ref = useRef<HTMLElement>(null);
  useEffect(() => {
@@ -12,7 +12,7 @@ export function SettingsDialog({ title, description, busy = false, onClose, chil
   return () => { window.removeEventListener('settings-navigate', guard); if (prior?.isConnected) prior.focus(); };
  }, []);
  return <div className="setup-scrim runtime-dialog-scrim" onPointerDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-  <section ref={ref} tabIndex={-1} className="setup-dialog runtime-dialog" role="dialog" aria-modal="true" aria-labelledby={titleID} onKeyDown={event => {
+  <section ref={ref} tabIndex={-1} className={`setup-dialog runtime-dialog ${className}`} role="dialog" aria-modal="true" aria-labelledby={titleID} onKeyDown={event => {
    if (event.key === 'Escape') { event.stopPropagation(); if (!busy) onClose(); }
    if (event.key !== 'Tab') return;
    event.stopPropagation();

@@ -1120,3 +1120,14 @@ only when no dispatch receipt exists; unreadable receipts remain uncertain. Mode
 is separate from delivery uncertainty. Bot skill guidance owns intent interpretation
 and confirmed habit learning through the existing notebook. See
 [screen input v1](design/screen-input-v1.md) for negotiated model support and limits.
+
+### 2026-09 设置与引导呈现收敛
+
+设置导航保留原生 section 路由兼容映射，汇集为五项；执行策略面板跨分类保持草稿，
+系统权限面板只在可见分类读取。存储与任务设置展开后才加载。真实角色静态预览独立于桌面
+行为/命中测试，不注册桌面事件、不循环渲染，卸载释放 GL、纹理、材质和骨骼资源。
+
+首次引导将身份介绍提前，再展示可跳过的权限页，最后连接运行时；仍由 Bot initializer
+拥有消息状态与回执，permission-guide 文件拥有已完成标记，renderer 不新增身份存储。
+截图开始时冻结默认 includeBackground；原生画布允许未提交的屏幕文档单次修改该值，
+不回写全局偏好。剪贴板以及具有 identifier 的提交文档不能修改范围，原始未知回执语义保持。

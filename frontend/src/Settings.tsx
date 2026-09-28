@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { desktop, type Placement } from './desktop';
+import { desktop } from './desktop';
 import { BotSetup } from './BotSetup';
 import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
@@ -13,7 +13,7 @@ import { useI18n } from './i18n';
 import { LanguageSetting } from './i18n/LanguageSetting';
 import { SettingGroup, SettingRow } from './SettingsUI';
 
-const sections = ['general','appearance','runtime','execution','permissions','storage','diagnostics','updates'] as const;
+const sections = ['general','appearance','runtime','permissions','updates'] as const;
 type Section = typeof sections[number] | 'setup';
 type Update = { state:string; current:string; latest:string; message:string };
 type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean };
@@ -21,61 +21,37 @@ type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean
 export function Settings() {
  const {t}=useI18n();
  const content=useRef<HTMLDivElement>(null);
- const [executionVisited,setExecutionVisited]=useState(false);
+ const [executionVisited,setExecutionVisited]=useState(false),[runtimeVisited,setRuntimeVisited]=useState(false);
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
  useEffect(()=>{
-  const load=()=>{void desktop<string>('SettingsSection').then(value=>{if((value==='setup'||sections.some(id=>id===value))&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(value as Section);setOpened(n=>n+1);});};
-  const key=(event:KeyboardEvent)=>{if(!event.isComposing&&(event.key==='Escape'||(event.metaKey&&event.key==='w'))){event.preventDefault();void desktop('CloseSettings');}};
+  const load=()=>{void desktop<string>('SettingsSection').then(value=>{const destination=({execution:'permissions',storage:'general',diagnostics:'updates'} as Record<string,string>)[value]??value;if((destination==='setup'||sections.some(id=>id===destination))&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(destination as Section);setOpened(n=>n+1);});};
+  const key=(event:KeyboardEvent)=>{if(!event.defaultPrevented&&!event.isComposing&&(event.key==='Escape'||(event.metaKey&&event.key==='w'))){event.preventDefault();void desktop('CloseSettings');}};
   load();void desktop<string>('AppVersion').then(setVersion);
   window.addEventListener('settings-open',load);window.addEventListener('keydown',key);
   return()=>{window.removeEventListener('settings-open',load);window.removeEventListener('keydown',key);};
  },[]);
- useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='execution')setExecutionVisited(true);},[section]);
+ useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='permissions')setExecutionVisited(true);if(section==='runtime')setRuntimeVisited(true);},[section]);
  if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup onDone={()=>{setSection('runtime');void desktop('CloseSettings');}}/></div></main>;
  return <main className="settings-window">
   <aside><nav aria-label={t('settings.navLabel')}>{sections.map(id=><button key={id} aria-current={section===id?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}>{t(`settings.${id}`)}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
   <div className="settings-content" ref={content}>
-   <div className="settings-page" hidden={section!=='execution'}>{(executionVisited||section==='execution')&&<ExecutionSettings/>}</div>
-   <div className="settings-page" key={section} hidden={section==='execution'}>
-   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?<RuntimeSettings/>:section==='permissions'?<PermissionSettings/>:section==='execution'?null:section==='storage'?<Maintenance key="storage" storage/>:section==='diagnostics'?<Maintenance key="diagnostics" storage={false}/>:<Updates key={opened} version={version}/>}
+   <div className="settings-page" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<><PermissionSettings embedded/><ScreenInputSettings/></>}<ExecutionSettings embedded/></>}</div>
+<div className="settings-page" hidden={section!=='runtime'}>{(runtimeVisited||section==='runtime')&&<RuntimeSettings active={section==='runtime'} refreshKey={opened}/>}</div>
+   <div className="settings-page" key={section} hidden={section==='permissions'||section==='runtime'}>
+   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?null:section==='permissions'?null:<Updates key={opened} version={version}/>}
    </div>
   </div>
  </main>;
 }
 
 function General() {
- const {t,number}=useI18n();
- const [scale,setScale]=useState<number|null>(null),[error,setError]=useState<'settings.sizeLoadFailed'|'settings.sizeSaveFailed'|''>('');
- const pending=useRef<number|null>(null),pumping=useRef(false),save=useRef(false),dragging=useRef(false);
- useEffect(()=>{
-  void desktop<Placement>('Placement').then(p=>setScale(p.scale)).catch(()=>setError('settings.sizeLoadFailed'));
-
- },[]);
- // At most one geometry request is in flight. Coalesce motion, then save the
- // final value on release; late bridge responses cannot rewind the thumb.
- const flush=async()=>{
-  if(pumping.current)return;
-  pumping.current=true;
-  try {
-   while(pending.current!==null||save.current){
-    if(pending.current!==null){const value=pending.current;pending.current=null;await desktop('PreviewScale',value);}
-    else {save.current=false;await desktop('CommitScale');}
-   }
-  }catch{pending.current=null;save.current=false;setError('settings.sizeSaveFailed');}
-  finally{pumping.current=false;}
- };
- const commit=()=>{dragging.current=false;save.current=true;void flush();};
-
+ const {t}=useI18n();
+ const [storageOpen,setStorageOpen]=useState(false),[tasksOpen,setTasksOpen]=useState(false);
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><LanguageSetting/><ShortcutSettings/><ShortcutSettings tasks/><ShortcutSettings capture/><ShortcutSettings paste/><ScreenInputSettings/><TaskSettings/>
-  <SettingGroup title={t('settings.pet')}>
-   <SettingRow label={t('settings.petSize')} htmlFor="pet-size"><div className="size-control">
-    <input id="pet-size" type="range" min="0.65" max="1.6" step="any" disabled={scale===null} value={scale??1} aria-valuetext={scale===null?'':number(scale,{style:'percent',maximumFractionDigits:0})} onPointerDown={()=>{dragging.current=true;}} onChange={event=>{const value=event.target.valueAsNumber;setScale(value);pending.current=value;save.current=!dragging.current;setError('');void flush();}} onPointerUp={commit} onPointerCancel={commit} onBlur={commit}/>
-    <output htmlFor="pet-size">{scale===null?'—':number(scale,{style:'percent',maximumFractionDigits:0})}</output>
-   </div></SettingRow>
-  </SettingGroup>
-
-  {error&&<p role="alert" className="inline-error">{t(error)}</p>}
+  <h1>{t('settings.general')}</h1><LanguageSetting/>
+  <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/><ShortcutSettings capture/><ShortcutSettings paste/></SettingGroup>
+  <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
+  <details className="settings-disclosure" onToggle={e=>setTasksOpen(e.currentTarget.open)}><summary>{t('settings.advancedTasks')}</summary>{tasksOpen&&<TaskSettings/>}</details>
  </section>;
 }
 
@@ -101,9 +77,9 @@ function Updates({version}:{version:string}) {
  return <section className="update-settings">
   <h1>{t('settings.updates')}</h1>
   <div className="about-identity"><img src="/icons/caelis-avatar.png" alt="" width="64" height="64"/><div><h2>Caelis Bot</h2><p>{result?.current||version}</p></div></div>
-  <SettingGroup>{preferences?.available&&<SettingRow label={t('settings.autoUpdateLabel')} htmlFor="automatic-updates" description={t('settings.autoUpdateDescription')}><input id="automatic-updates" type="checkbox" checked={preferences.automatic} disabled={busy} onChange={event=>void automatic(event.target.checked)}/></SettingRow>}
+  <SettingGroup>{preferences?.available&&<SettingRow label={t('settings.autoUpdateLabel')} htmlFor="automatic-updates" description={t('settings.autoUpdateDescription')}><input id="automatic-updates" className="settings-switch" role="switch" type="checkbox" checked={preferences.automatic} disabled={busy} onChange={event=>void automatic(event.target.checked)}/></SettingRow>}
   <SettingRow label={t('settings.softwareUpdate')} description={<span role="status">{error||(preferences?.waiting?t('settings.updateWaiting'):busy?t('common.loading'):result?.message||t('settings.checkNewVersion'))}</span>}><button disabled={busy||preferences?.waiting} onClick={()=>void check()}>{t('settings.checkUpdatesButton')}</button></SettingRow>
   <SettingRow label={result?.state==='available'?t('settings.newVersionAvailable',{version:result.latest}):t('settings.releaseAndInstall')}><button onClick={()=>void desktop('OpenReleasePage').catch(()=>setError(t('settings.openReleasePageFailed')))}>{result?.state==='available'?t('settings.downloadNewVersion'):t('settings.viewReleasePage')}</button></SettingRow></SettingGroup>
-  <p className="settings-note">{preferences?.available?t('settings.updateNoteAvailable'):t('settings.updateNoteManual')}</p>
+  <p className="settings-note">{preferences?.available?t('settings.updateNoteAvailable'):t('settings.updateNoteManual')}</p><Maintenance storage={false} embedded/>
  </section>;
 }

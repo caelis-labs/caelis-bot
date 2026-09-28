@@ -117,3 +117,19 @@
 .runtime-confirm h3 { margin:0 0 8px; font-size:14px; }
 .runtime-confirm p { margin:0 0 16px; font-size:14px; line-height:1.6; color:var(--muted); }
 .runtime-confirm .setup-end { margin-top:16px; }
+
+.runtime-model-dialog { display:flex; flex-direction:column; height:560px; max-height:calc(100dvh - 48px); overflow:hidden; }
+.runtime-model-dialog > :not(.runtime-model-options) { flex-shrink:0; }
+.runtime-model-dialog .runtime-model-options { flex:1 1 160px; min-height:80px; max-height:none; scrollbar-gutter:stable; }
+.runtime-model-dialog .runtime-dialog-description { margin-bottom:6px; }
+.runtime-model-dialog .setup-end { margin-top:16px; }
+.model-parameters { margin-top:14px; font-size:12px; color:var(--muted); }
+.model-parameters summary { cursor:pointer; padding:6px 0; }
+.model-parameters .runtime-model-options-row { margin:8px 0 0; }
+.runtime-active-actions { display:flex; align-items:center; gap:14px; }
+.runtime-advanced-settings .runtime-model-section { margin:0; }
+.runtime-connection-group { border:0; border-bottom:1px solid var(--line); border-radius:0; padding:0; margin-top:0; }
+.runtime-connection-group summary { min-height:58px; padding:14px 0; }
+.runtime-connection-group[open] summary > span:last-child { transform:rotate(180deg); }
+.runtime-connection-model { padding-inline:12px; }
+@media(max-height:580px) { .runtime-model-dialog { padding:18px; } .runtime-model-dialog .runtime-dialog-description { margin-top:4px; } .runtime-model-dialog .setup-end { margin-top:10px; } }
