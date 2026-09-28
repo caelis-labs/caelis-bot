@@ -45,7 +45,7 @@ and a plain Markdown Notebook: a host-generated INDEX.md, one editable MEMORY.md
 YYYY/MM/DD/ daily notes. Users edit files; the Bot uses Runtime file tools. The one-time initialization UI requires a name and accepts an optional description; it submits a visible ordinary user message; the Bot updates MEMORY.md.
 Keep no second identity-settings authority and do not elevate this text into system policy.
 Do not add dedicated notebook CRUD/UI, SOUL/USER files, a profile authority, bootstrap
-snapshots or a separate background consolidation agent. A one-shot Dream runs in the resident session after 15 idle minutes; only the next user input creates a replacement execution session. Each session's first request includes MEMORY.md and any nonempty HANDOFF.md, consumed after durable native acceptance. Provider compaction remains untouched. See [context lifecycle](design/context-lifecycle-v1.md). Runtime access is scoped to the Notebook,
+snapshots or a separate background consolidation agent. A one-shot Dream runs in the resident session after 15 idle minutes; ordinary Dream creates a replacement execution session at the next user input. A product-version change also initiates one handoff after startup restoration and idle reconciliation, reusing a valid handoff or preparing it immediately. Each replacement records its product version; same-version restarts restore the binding without extra maintenance. Pending work and unknown receipts keep their original identities. Each session's first request includes MEMORY.md and any nonempty HANDOFF.md, consumed after durable native acceptance. Provider compaction remains untouched. See [context lifecycle](design/context-lifecycle-v1.md). Runtime access is scoped to the Notebook,
 not the complete application data directory. The application-only notebook skill is bundled and exposed only to the resident Bot; workers keep their own workspace and instructions. Old private-format notes/profile are copied once without deleting originals. See [personal data boundaries](personal-memory.md).
 
 The [capability contract](backend-contract.md) defines provider assembly independently
@@ -1167,3 +1167,19 @@ and confirmed habit learning through the existing notebook. See
 拥有消息状态与回执，permission-guide 文件拥有已完成标记，renderer 不新增身份存储。
 截图开始时冻结默认 includeBackground；原生画布允许未提交的屏幕文档单次修改该值，
 不回写全局偏好。剪贴板以及具有 identifier 的提交文档不能修改范围，原始未知回执语义保持。
+
+
+## Guardian assembly and application input grants (2026-09-28)
+
+The Bot owns its explicitly listed direct tool policy and versioned Runtime assembly.
+Memory/Notebook operations, observations and local presentation are direct; worker
+creation/steering and persistent schedule mutations use native review. Caelis uses
+public `application-guardian-review-v1`, explicit reviewer configuration and scoped
+readiness. Review facts never become manual approval targets or execution authority.
+
+For Bot-owned Computer Use, a required `bot_desktop_authorize` callback grants input
+for one observed running application and one continuous resident turn. The native
+lifecycle supplies the turn identity over the helper's private pipe; the model cannot
+extend it. Every subsequent input checks that grant and fresh targets locally, avoiding
+a Guardian invocation per click. Codex continues using its native Computer Use policy.
+See [acceptance and release conditions](caelis-guardian-acceptance.md).

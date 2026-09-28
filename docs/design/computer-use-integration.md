@@ -10,7 +10,7 @@
 
 - Codex 声明 `computer-use` 原生能力标签，直接使用 Runtime 自己的 Computer Use；不注入任何
   `bot_desktop_*`，不扩充其自动批准清单，不启动 Cua 子进程。实际工具可用性、权限与拒绝仍由 Codex 决定。
-- Caelis 当前没有此原生标签，由常驻 Bot 自身持有 `bot_desktop_observe` / `bot_desktop_perform`。
+- Caelis 当前没有此原生标签，由常驻 Bot 自身持有 `bot_desktop_observe` / `bot_desktop_authorize` / `bot_desktop_perform`。
 - 标签表示能力所有权，不是即时就绪状态；原生工具不可用或权限被拒绝，不触发 Cua 后备路线。
 
 后文的短引用、输入与生命周期契约描述 Bot 提供的 Cua 路径；Codex 原生路径遵循其自己的工具契约。
@@ -24,9 +24,15 @@
 快照和窗口引用从列窗开始计时，最长 5 分钟；新 `{}` 列窗或驱动重启使旧游标、窗口引用失效。
 选窗后返回更完整的标题和当前组件信息，并重新核验实际窗口身份；快照不授权控制已关闭或替换的窗口。
 
+首次输入前调用 `bot_desktop_authorize`，由 Runtime 对观察到的 App 和当前任务用途审查一次。
+授权覆盖该 App 在本连续任务 Turn 内的窗口和后续输入，不按点击或批次重复审查；跨 App 或
+新 Turn 单独授权。宿主通过私有管道提供 Turn，helper 以 PID 与应用名持有内存授权；停止、
+完成、下一 Turn 或 helper 重启不能复用。观察与截图不审批。详见[策略矩阵](../caelis-guardian-acceptance.md)。
+
 `perform` 支持 `click`、向指定文本控件 `type`、向指定可编辑控件 `press_key`、向指定内容区域 `scroll`。
 模型只使用宿主发出的短引用，不传 PID、原生 token、脚本或任意坐标。
-整批至多 8 步，先校验全部参数，执行一次界面变更后返回新观察及未执行步骤。
+每次请求至多携带 8 个候选步骤，先校验参数，实际只执行一次界面变更，返回新观察和剩余步骤。
+这是输入接口上限，不是审批批次。
 模型用新目标重新规划；`dispatched` 本身不是效果证明。输入为插入，不隐式清空原文。
 
 窗口引用最长 5 分钟，观察最长 60 秒；重观察使旧观察失效。派发前复核窗口身份和位置。

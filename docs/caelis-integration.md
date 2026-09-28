@@ -1,6 +1,7 @@
 # Caelis 接入与运行时管理
 
-当前必需能力新增 `execution-configuration-v1`，对应已合并 Core PR #85（`bdebd8d2d4bf`）。
+当前必需能力包括 `execution-configuration-v1` 和 `application-guardian-review-v1`，
+公开协议固定于已合并 Core PR #91（`e8281aa7bb89`），包含 #85 环境修复、#89 Guardian 与 #91 审批身份修复。
 公开 schema/wire 同步固定到该提交；按能力判断兼容性，不以发行版本号代替握手。
 `application-terminal-observation-v1` 是可选增强：支持时启用迟到审批命令的结果跟进，
 不支持时正常连接，且不访问该观察接口。审批投影、指定工作区和自动 pin 均不依赖它。
@@ -30,6 +31,7 @@ Codex 使用其原生 Computer Use，不经过这条 Cua callback 路径。
 - `shared-native-workers-v1`
 - `turn-steering-receipts-v1`
 - `execution-configuration-v1`
+- `application-guardian-review-v1`
 
 CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切换，保留安装、更新和服务管理入口；
 不静默换用 Codex 或旧 Bot。v0.61.0 不包含共享 Worker 扩展；安装成功也不代表运行中的共享 Host 已更新。
@@ -40,6 +42,13 @@ CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切
 仅 true 启用；false、缺失、断线、无协商均禁用 Ask Bot，复制/标注/贴图不受影响。
 发送前再次读取当前配置，模型切换后恢复，无需更换 Bot 身份。该读取不激活模型，
 也不是派发授权；服务端正常执行校验继续生效，旧请求始终按原 ID 核对。
+
+## Guardian 装配与工具审批
+
+新建 Bot Runtime 默认显式装配 Guardian，低风险记忆与读取直通；派生 Worker、持续安排修改
+由自动审查处理。Computer Use 按一个 App、一个连续任务 Turn 授权一次。
+版本升级后的恢复启动主动交接到新配置，普通 Dream 也可交接；同版本重启恢复原绑定。
+不热改当前或未决 Runtime；保留历史、Notebook 与原工作状态。具体策略、已验证能力和发布条件见[Guardian 联调与发布条件](caelis-guardian-acceptance.md)。
 
 ## 执行环境装配
 

@@ -1,5 +1,21 @@
 # 实现与验证状态
 
+## 2026-09-28 Core #91 Guardian、App 授权与升级交接联调（本地，未发布）
+
+- 公共协议固定到 `e8281aa7bb89`，新建 Bot Runtime 显式 Guardian；版本升级启动与正常 Dream 均支持配置交接。
+- 记忆、只读、呈现与停止直通；Worker 派生/续接与持续安排修改自动审查。
+- Computer Use 每 App、每连续任务 Turn 授权一次；由原生生命周期和 helper 在输入前校验，
+  不按点击/批次重复调用 Guardian，跨 App/新 Turn/停止/重启不继承授权。
+- 外部 Core 原生集成 race 通过：批准/拒绝、故障、取消、真实 90 秒超时、回执幂等、重启、
+  原生命令/文件、环境/Worker/技能/关怀及生产 Cua 管道（SDK 夹具）均有证据。
+- 完整 check、smoke、build 与受影响包 race 通过；英文 skill 已同步。
+- #90 已由 [Core #91](https://github.com/caelis-labs/caelis/pull/91) 修复，最终 pin 已更新。
+  实时/回放/callback 身份、同 Turn provider ID 重用及升级交接均通过；
+  Bot 所需 Core 源码能力满足，可进入下一版 release，发行工件另行验收。
+- 新版启动恢复后即发起一次配置交接，保留历史和交接内容；同版本重启恢复原绑定，未决结果不重发。
+- 策略矩阵、日志、验证限制与 release 条件见[完整报告](caelis-guardian-acceptance.md)。
+
+
 ## 2026-09-28 主线整合、流式气泡与截图主题（本地，未发布）
 
 - 已合入 PR #37 主线 `0274933`，保留两侧账本、环境初始化、Cua 内容协议与 Dev 身份。
@@ -15,7 +31,7 @@
 - 生产前端与原生材质共用的气泡预览已检查深浅色、完整 URL 表格、流式、顶部避让和实色呈现。
   实色分支由预览注入，没有改系统无障碍偏好；未在旧 macOS 硬件验证回退。
 - Codex 已默认 Auto-review；Caelis Application 通用 reviewer 缺口登记为
-  [Core #88](https://github.com/caelis-labs/caelis/issues/88)。本轮未改审批权威或调用付费模型。
+  [Core #88](https://github.com/caelis-labs/caelis/issues/88)。此历史检查未改审批权威；后续 #89 接入见本页最新记录。
 - 仅修改显示与主题、评估已有审批契约，Bot 工具/工作流未变，无需新增 Bot skill。
   实现与证据见[详细记录](design/bubble-streaming-and-auto-review.md)。
 
