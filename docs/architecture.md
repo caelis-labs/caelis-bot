@@ -110,6 +110,9 @@ foreground window. P1 has replaced the single-window fixture:
   activation IDs fence late menu requests; the quick menu sits above the pet while
   open and restores its normal window level on dismissal.
 - A non-key message bubble shows the current request's latest assistant response/lifecycle state and compact native tool activity.
+  Chat and bubble share a grapheme-aware display buffer for active replies; native snapshots, copy text,
+  approvals and execution state remain authoritative and immediate. Expanded reading gives content
+  the full width below a compact action row; reduced motion and history skip typing animation.
   It never auto-opens the keyboard panel. Approval clicks expand this same bubble;
   an optional IM-style chat window shows user/assistant messages and necessary decisions.
 - Approval/details surfaces show adequate decision context and preserve the exact
@@ -843,7 +846,8 @@ titles/accessibility and normal native titlebar dragging remain intact.
 Wails' public transparent-titlebar options are used for chat/settings. A decorative
 AppKit sibling behind WebKit supplies material for quick input, the message bubble,
 and the 184 pt settings sidebar. On macOS 26+, the host resolves the public
-NSGlassEffectView class at runtime with Regular for text surfaces and the settings
+NSGlassEffectView class at runtime with Clear for the bubble (a 94% neutral reading fill)
+and Regular for quick input and the settings
 sidebar; older systems use NSVisualEffectMaterialPopover. There is no native tint.
 Reduce Transparency or Increase Contrast switches the material to a solid system
 background and updates live through accessibility display notifications. The native
@@ -852,7 +856,7 @@ accessibility hierarchy. A document-startup marker enables native-material CSS o
 on these surfaces, and didFinishNavigation synchronizes it again in case initial
 navigation was already in flight. Chat history and the settings form retain opaque
 semantic colors, with a lighter settings background coordinated with the sidebar.
-Quick input and the non-key message bubble share a translucent reading fill, keeping
+Quick input and the non-key message bubble use separate translucent reading fills, keeping
 the text region bright and stable even when native glass varies with activation or
 backdrop. Opaque text sits above this fill; the native glass remains visible at the
 edge and provides the actual blur/refraction. The message capsule is 56 pt tall by

@@ -1,5 +1,24 @@
 # 实现与验证状态
 
+## 2026-09-28 主线整合、流式气泡与截图主题（本地，未发布）
+
+- 已合入 PR #37 主线 `0274933`，保留两侧账本、环境初始化、Cua 内容协议与 Dev 身份。
+  合并后受影响后端/desktop/app 检查通过。
+- 聊天及头顶气泡逐字平滑呈现；展开后按钮位于顶部，正文和表格独占完整宽度。
+  正式气泡使用 Clear Glass 与 94% 阅读底色；保留旧系统材质和无障碍实色回退。
+- F1 工具栏修复固定 CGColor 导致的主题错配；原生回归先复现失败，修复后浅→深→浅切换通过，
+  既有截图选择、标注、备注、能力门控、回执恢复等回归通过。实际深色工具栏窗口已查看。
+- 最终 `make check`、`make smoke`、`make build` 全部通过；日志
+  `.cache/bubble-glass-capture-{check,smoke,build}.log`。产物是隔离的 ad-hoc `Caelis Bot Dev.app`，非公证发行。
+- 合并后 Core 原生集成以 race 重跑通过：`.cache/bubble-review-core-integration.log`，
+  包含环境、Worker、审批、重启和 B15 Cua 内容协议；B16 真实 Cua 操作未启用，不代表重做完整桌面控制验收。
+- 生产前端与原生材质共用的气泡预览已检查深浅色、完整 URL 表格、流式、顶部避让和实色呈现。
+  实色分支由预览注入，没有改系统无障碍偏好；未在旧 macOS 硬件验证回退。
+- Codex 已默认 Auto-review；Caelis Application 通用 reviewer 缺口登记为
+  [Core #88](https://github.com/caelis-labs/caelis/issues/88)。本轮未改审批权威或调用付费模型。
+- 仅修改显示与主题、评估已有审批契约，Bot 工具/工作流未变，无需新增 Bot skill。
+  实现与证据见[详细记录](design/bubble-streaming-and-auto-review.md)。
+
 ## 2026-09-28 主动关怀 v2 与启动环境修复（已联调，未发布）
 
 Issue #35 已实现规范化多源订阅、同次使用时长采样、可见打扰记账、未决预留、按规则隔离、

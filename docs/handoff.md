@@ -1,5 +1,14 @@
 # 继续开发
 
+## 2026-09-28 气泡、截图主题与审批评估
+
+- 当前分支已合入 PR #37 主线；保留关怀、Core 环境配置、Cua callback 和 Dev 身份的合并行为。
+- 聊天与头顶气泡共用字素级逐字呈现，展开气泡顶部收纳按钮，正文/表格使用完整宽度。
+- 正式气泡采用 Clear Glass + 94% 阅读底色；F1 工具栏和备注底色随系统外观重新解析，修复深色按钮对比度。
+- Codex 已默认接入 Auto-review；Caelis Application 仍只支持 manual，缺口已登记
+  [Core #88](https://github.com/caelis-labs/caelis/issues/88)，待通用配置与事件契约合并后接入。
+- 实现、原生预览证据及审批边界见[评估记录](design/bubble-streaming-and-auto-review.md)。
+
 ## 2026-09-28 Runtime 启动环境与 Core 联调（本地，未发布）
 
 - #36 启动恢复与 Core 配套接入已完成，公共 schema/wire 固定到 Core PR #85 合并提交
