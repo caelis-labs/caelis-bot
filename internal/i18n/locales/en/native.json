@@ -140,5 +140,10 @@
   "capture.color": "Change color",
   "capture.width": "Stroke width",
   "capture.undo": "Undo (⌘Z)",
-  "capture.redo": "Redo (⇧⌘Z)"
+  "capture.redo": "Redo (⇧⌘Z)",
+  "capture.askButton": "Ask Bot",
+  "capture.includeBackground": "Also send full screen",
+  "capture.selectionOnly": "Selection only",
+  "capture.clipboardOnly": "Clipboard image only",
+  "capture.fullScreenIncluded": "Full screen included"
 }

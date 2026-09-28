@@ -11,7 +11,7 @@ const descriptions:Record<PermissionID,MessageKey>={accessibility:'settings.perm
 const statuses:Record<string,MessageKey>={authorized:'settings.permissionAuthorized',permissionRequired:'settings.permissionRequired',notDetermined:'settings.permissionRequired',denied:'settings.permissionDenied',notRunning:'settings.permissionNotRunning',unsupported:'settings.permissionUnsupported',unavailable:'settings.permissionUnknown'};
 const outcomes:Record<PermissionRequestResult['state'],MessageKey>={requested:'settings.permissionRequested',authorized:'settings.permissionRefreshNeeded',settingsRequired:'settings.permissionNeedsSettings',settingsOpened:'settings.permissionChangeInSystem'};
 
-export function PermissionSettings({onDone,call=desktop}:{onDone?:()=>void;call?:typeof desktop}) {
+export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?:()=>void;embedded?:boolean;call?:typeof desktop}) {
  const {t}=useI18n();
  const [state,setState]=useState<PermissionState|null>(null),[busy,setBusy]=useState(''),[error,setError]=useState<MessageKey|''>(''),[notice,setNotice]=useState(false);
  const [feedback,setFeedback]=useState<{id:PermissionID;state:PermissionRequestResult['state']}|null>(null);
@@ -44,15 +44,9 @@ export function PermissionSettings({onDone,call=desktop}:{onDone?:()=>void;call?
   const result=await changeSystemPermission(call,p.id,p.status==='authorized');
   if(alive.current)setFeedback({id:p.id,state:result.state});
  });
- return <section className="permission-settings">
-  <h1>{t(onDone?'settings.permissionGuideTitle':'settings.permissions')}</h1>
-  <p className="permission-intro">{t('settings.permissionIntroduction')}</p>
-  {!state&&<p role="status">{t('common.loading')}</p>}
-  {state&&!state.supported&&<p>{t('settings.permissionUnsupported')}</p>}
-  {state?.supported&&<>
-   <div className="permission-list">
-    {state.permissions.filter(p=>!onDone||p.id!=='accessibility').map(p=>{
+ const permissionRow=(p:Permission)=>{
      const checked=p.status==='authorized';
+     const action=checked?'settings.managePermission':p.status==='notRunning'||p.status==='unavailable'?'settings.checkPermission':p.status==='denied'?'settings.openSystemSettings':'settings.allowPermission';
      const hint=feedback?.id===p.id&&(feedback.state==='settingsOpened'||!checked)?outcomes[feedback.state]:null;
      return <div className="permission-row" key={p.id}>
       <div className="permission-description">
@@ -62,22 +56,31 @@ export function PermissionSettings({onDone,call=desktop}:{onDone?:()=>void;call?
       </div>
       <div className="permission-toggle">
        <span id={`permission-status-${p.id}`} role="status">{t(busy===p.id?'settings.permissionWaiting':statuses[p.status]??'settings.permissionUnknown')}</span>
-       <input id={`permission-${p.id}`} type="checkbox" role="switch" className="settings-switch permission-switch"
-        aria-labelledby={`permission-label-${p.id}`} aria-describedby={`permission-description-${p.id} permission-status-${p.id}`}
-        aria-busy={busy===p.id} checked={checked} disabled={!!busy||p.status==='unsupported'} onChange={()=>void change(p)}/>
+       <button id={`permission-${p.id}`} aria-label={`${t(names[p.id])} · ${t(action)}`}
+        aria-describedby={`permission-description-${p.id} permission-status-${p.id}`} aria-busy={busy===p.id}
+        disabled={!!busy||p.status==='unsupported'} onClick={()=>void change(p)}>{t(action)}</button>
       </div>
       {hint&&<div className="permission-feedback" role="status"><span>{t(hint)}</span>
        {feedback?.state!=='settingsOpened'&&<button className="text-action" disabled={!!busy} onClick={()=>void perform(p.id,()=>call('OpenSystemPermissionSettings',p.id))}>{t('settings.openSystemSettings')}</button>}
       </div>}
      </div>;
-    })}
+ };
+ return <section className="permission-settings">
+  {embedded?<h2 className="settings-section-title">{t('settings.systemPermissions')}</h2>:<h1>{t(onDone?'settings.permissionGuideTitle':'settings.permissions')}</h1>}
+  <p className="permission-intro">{t(onDone?'settings.permissionOptionalIntro':'settings.permissionIntroduction')}</p>
+  {!state&&<p role="status">{t('common.loading')}</p>}
+  {state&&!state.supported&&<p>{t('settings.permissionUnsupported')}</p>}
+  {state?.supported&&<>
+   <div className="permission-list">
+    {state.permissions.filter(p=>p.id==='screenCapture'||p.id==='notifications').map(permissionRow)}
    </div>
+   {!onDone&&<details className="permission-more"><summary>{t('settings.morePermissions')}</summary><div className="permission-list">{state.permissions.filter(p=>p.id==='accessibility'||p.id==='automation').map(permissionRow)}</div></details>}
    <p className="permission-system-note">{t('settings.permissionSwitchHelp')}</p>
    <section className="permission-privacy" aria-labelledby="permission-privacy-title">
     <h2 id="permission-privacy-title">{t('settings.permissionPrivacyTitle')}</h2>
     <p>{t('settings.permissionPrivacyBody')}</p>
    </section>
-   <details className="permission-repair">
+   {!onDone&&<details className="permission-repair">
     <summary>{t('settings.permissionRepairTitle')}</summary>
     <p className="settings-note">{t('settings.permissionMissingApp')}</p>
     <div className="permission-app-path"><code>{state.appPath}</code><button disabled={!!busy} onClick={()=>void perform('reveal',()=>call('RevealPermissionApp'))}>{t('settings.permissionReveal')}</button></div>
@@ -93,9 +96,9 @@ export function PermissionSettings({onDone,call=desktop}:{onDone?:()=>void;call?
     <label className="permission-reset-consent"><input type="checkbox" checked={confirmed} disabled={!!busy} onChange={e=>setConfirmed(e.target.checked)}/>{t('settings.permissionResetConfirm')}</label>
     <button disabled={!confirmed||!!busy} onClick={()=>void perform('reset',async()=>{await call('ResetSystemPermission',repair);if(alive.current){setNotice(true);setConfirmed(false);}})}>{t('settings.permissionReset')}</button>
     {notice&&<p role="status">{t('settings.permissionResetDone')}</p>}
-   </details>
+   </details>}
   </>}
   {error&&<p className="inline-error" role="alert">{t(error)}</p>}
-  {onDone&&<div className="setup-end"><button className="primary" disabled={!!busy||!state} onClick={()=>void perform('finish',async()=>{await call('FinishPermissionGuide');onDone();})}>{t('settings.permissionContinue')}</button></div>}
+  {onDone&&<div className="setup-end"><button className="primary" disabled={!!busy} onClick={()=>void perform('finish',async()=>{await call('FinishPermissionGuide');onDone();})}>{t('settings.permissionContinue')}</button></div>}
  </section>;
 }

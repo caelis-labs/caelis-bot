@@ -13,10 +13,9 @@ export function BotSetup({ onDone }: { onDone: () => void }) {
  const [failed,setFailed]=useState(false);
  useEffect(()=>{let active=true;void desktop<boolean>('PermissionGuidePending').then(value=>{if(active)setPending(value);}).catch(()=>{if(active)setFailed(true);});return()=>{active=false;};},[]);
  if(pending===null)return <p role="status">{t(failed?'settings.permissionLoadFailed':'common.loading')}</p>;
- if(pending)return <PermissionSettings onDone={()=>setPending(false)}/>;
- return <BotIntroductionSetup onDone={onDone}/>;
+ return <BotIntroductionSetup permissionsPending={pending} onPermissionsDone={()=>setPending(false)} onDone={onDone}/>;
 }
-function BotIntroductionSetup({ onDone }: { onDone: () => void }) {
+function BotIntroductionSetup({ onDone,permissionsPending,onPermissionsDone }: { onDone: () => void;permissionsPending:boolean;onPermissionsDone:()=>void }) {
   const {t} = useI18n();
   const [state, setState] = useState<BotInitialization | null>(null);
   const [name, setName] = useState('');
@@ -45,7 +44,7 @@ function BotIntroductionSetup({ onDone }: { onDone: () => void }) {
   };
   const continueWhenReady = async () => {
     const snapshot = await backend<Snapshot>('Snapshot');
-    if (snapshot.connection === 'ready') await openConversation();
+    if (!permissionsPending && snapshot.connection === 'ready') await openConversation();
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -83,12 +82,13 @@ function BotIntroductionSetup({ onDone }: { onDone: () => void }) {
     </div>
     {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;
-  if (!state.required) return <>
+  if (!state.required && permissionsPending) return <div className="setup-flow"><SetupProgress step={1}/><PermissionSettings onDone={()=>{onPermissionsDone();void backend<Snapshot>('Snapshot').then(s=>{if(s.connection==='ready')void openConversation();}).catch(()=>{});}}/></div>;
+  if (!state.required) return <div className="setup-flow"><SetupProgress step={2}/>
     {state.message && <p className="setup-introduction-status" role="status">{state.message}</p>}
     <RuntimeSettings onboarding onDone={onDone} />
-  </>;
+  </div>;
 
-  return <section className="bot-introduction">
+  return <div className="setup-flow"><SetupProgress step={0}/><section className="bot-introduction">
     <img className="setup-avatar" src="/icons/caelis-avatar.png" alt="" />
     <h1>{t('chat.setupIntroTitle')}</h1>
     <p className="setup-lead">{t('chat.setupSubtitle')}</p>
@@ -107,5 +107,10 @@ function BotIntroductionSetup({ onDone }: { onDone: () => void }) {
         <button className="primary" type="submit" disabled={busy || !name.trim()}>{busy ? t('common.loading') : t('chat.setupContinue')}</button>
       </div>
     </form>
-  </section>;
+  </section></div>;
+}
+
+function SetupProgress({step}:{step:number}) {
+ const {t}=useI18n();
+ return <ol className="setup-progress" aria-label={t('settings.setupProgress')}>{(['setupIdentity','setupPermissions','setupConnection'] as const).map((key,index)=><li key={key} aria-current={index===step?'step':undefined}><span aria-hidden="true">{index<step?'✓':index+1}</span>{t(`settings.${key}`)}</li>)}</ol>;
 }

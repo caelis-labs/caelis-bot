@@ -82,6 +82,8 @@ static BOOL composing(NSTextView *editor) {
 @property NSTextField *textEditor;
 @property NSTextField *noteEditor;
 @property NSButton *askButton;
+@property NSButton *backgroundButton;
+@property NSTextField *scopeLabel;
 @property NSMutableArray<NSButton *> *toolButtons;
 @property NSButton *widthButton;
 @property NSPopover *widthPopover;
@@ -308,19 +310,35 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     composer.layer.cornerRadius=9;composer.layer.backgroundColor=NSColor.textBackgroundColor.CGColor;
     composer.layer.borderWidth=0.5;composer.layer.borderColor=NSColor.separatorColor.CGColor;
     [self.toolbar addSubview:composer];
-    self.noteEditor=[[NSTextField alloc] initWithFrame:NSMakeRect(10,6,composer.bounds.size.width-54,20)];
+    self.noteEditor=[[NSTextField alloc] initWithFrame:NSMakeRect(10,6,composer.bounds.size.width-122,20)];
     self.noteEditor.placeholderString=[self.owner text:@"capture.note" fallback:@"Add a note (optional)"];
     self.noteEditor.stringValue=self.document.note?:@"";self.noteEditor.font=[NSFont systemFontOfSize:13];self.noteEditor.delegate=self;
     self.noteEditor.editable=!self.document.identifier.length;
     self.noteEditor.bordered=NO;self.noteEditor.drawsBackground=NO;self.noteEditor.focusRingType=NSFocusRingTypeNone;
     [self.noteEditor setAccessibilityLabel:self.noteEditor.placeholderString];[composer addSubview:self.noteEditor];
     self.askButton=[self icon:@"sparkles" key:@"capture.ask" fallback:@"Send to Bot" action:@selector(askAction:) x:0];
-    [self.askButton removeFromSuperview];self.askButton.frame=NSMakeRect(composer.bounds.size.width-34,2,28,28);
+    [self.askButton removeFromSuperview];self.askButton.frame=NSMakeRect(composer.bounds.size.width-108,2,102,28);
+    self.askButton.title=[self.owner text:@"capture.askButton" fallback:@"Ask Bot"];self.askButton.imagePosition=NSImageLeft;
+    self.askButton.font=[NSFont systemFontOfSize:12 weight:NSFontWeightMedium];
     self.askButton.layer.cornerRadius=7;[composer addSubview:self.askButton];
     self.statusLabel=[NSTextField labelWithString:@""];self.statusLabel.frame=NSMakeRect(12,83,width-24,20);
     self.statusLabel.font=[NSFont systemFontOfSize:11];self.statusLabel.textColor=NSColor.secondaryLabelColor;
     [self.toolbar addSubview:self.statusLabel];
+    // Make sending scope visible before any submission. It belongs to this
+    // frozen document; changing it never changes the next capture's preference.
+    for(NSView *view in self.toolbar.subviews){NSRect frame=view.frame;frame.origin.y+=24;view.frame=frame;}
+    self.backgroundButton=[NSButton checkboxWithTitle:[self.owner text:@"capture.includeBackground" fallback:@"Also send full screen"] target:self action:@selector(changeBackground:)];
+    self.backgroundButton.frame=NSMakeRect(12,6,300,22);self.backgroundButton.font=[NSFont systemFontOfSize:11];
+    self.backgroundButton.state=self.document.includeBackground?NSControlStateValueOn:NSControlStateValueOff;
+    [self.toolbar addSubview:self.backgroundButton];
+    self.scopeLabel=[NSTextField labelWithString:@""];self.scopeLabel.frame=NSMakeRect(300,9,width-312,18);
+    self.scopeLabel.alignment=NSTextAlignmentRight;self.scopeLabel.font=[NSFont systemFontOfSize:11];self.scopeLabel.textColor=NSColor.secondaryLabelColor;
+    [self.toolbar addSubview:self.scopeLabel];
     [self updateAvailability];[self positionToolbar];[self updateTools];[self updateWidthPreview];
+}
+- (void)changeBackground:(NSButton *)sender {
+    if(self.document.identifier.length||[self.document.source isEqual:@"clipboard"]){[self updateAvailability];return;}
+    self.document.includeBackground=sender.state==NSControlStateValueOn;[self updateAvailability];
 }
 - (void)positionToolbar {
     if(!self.toolbar)return;
@@ -340,6 +358,11 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     BOOL pending=[self.document.outcome isEqual:@"unknown"]||[self.document.outcome isEqual:@"accepted"];
     BOOL supported=[self.owner.availability[@"state"] isEqual:@"supported"];
     self.askButton.enabled=supported&&!pending;
+    BOOL clipboard=[self.document.source isEqual:@"clipboard"];
+    self.backgroundButton.hidden=clipboard||self.restored;
+    self.backgroundButton.enabled=!self.document.identifier.length;
+    self.backgroundButton.state=self.document.includeBackground?NSControlStateValueOn:NSControlStateValueOff;
+    self.scopeLabel.stringValue=self.restored?(self.document.includeBackground?[self.owner text:@"capture.fullScreenIncluded" fallback:@"Full screen included"]:[self.owner text:@"capture.selectionOnly" fallback:@"Selection only"]):clipboard?[self.owner text:@"capture.clipboardOnly" fallback:@"Clipboard image only"]:self.document.includeBackground?@"":[self.owner text:@"capture.selectionOnly" fallback:@"Selection only"];
     self.askButton.contentTintColor=self.askButton.enabled?NSColor.controlAccentColor:NSColor.disabledControlTextColor;
     self.askButton.layer.backgroundColor=[NSColor.controlAccentColor colorWithAlphaComponent:self.askButton.enabled?0.16:0.04].CGColor;
     NSString *message=@"";
@@ -349,10 +372,10 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self showMessage:message];
 }
 - (void)showMessage:(NSString *)message {
-    // The default toolbar has no hint row. Exceptions appear below only as needed.
+    // Scope remains visible; only delivery exceptions add another row.
     self.statusLabel.stringValue=message?:@"";self.statusLabel.hidden=!message.length;
     self.noteEditor.toolTip=message.length?message:nil;
-    NSRect frame=self.toolbar.frame;frame.size.height=message.length?110:86;self.toolbar.frame=frame;
+    NSRect frame=self.toolbar.frame;frame.size.height=message.length?134:110;self.toolbar.frame=frame;
     if(self.pinned){NSRect panelFrame=self.toolbarPanel.frame;panelFrame.size.height=frame.size.height;[self.toolbarPanel setFrame:panelFrame display:YES];}
     [self positionToolbar];
     self.noteEditor.textColor=NSColor.labelColor;

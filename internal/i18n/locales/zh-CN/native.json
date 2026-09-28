@@ -140,5 +140,10 @@
   "capture.color": "切换颜色",
   "capture.width": "线条粗细",
   "capture.undo": "撤销（⌘Z）",
-  "capture.redo": "重做（⇧⌘Z）"
+  "capture.redo": "重做（⇧⌘Z）",
+  "capture.askButton": "问 Bot",
+  "capture.includeBackground": "同时发送整屏",
+  "capture.selectionOnly": "仅发送选区",
+  "capture.clipboardOnly": "仅发送剪贴板图片",
+  "capture.fullScreenIncluded": "已附带整屏"
 }
