@@ -99,7 +99,7 @@ function Message({ item, report, animate=false }: { item: Item; report: (message
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
    {item.kind==='assistant'&&<BotAvatar animate={animate}/>}
    <div className={`message ${item.kind}`}>
-    {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent text={item.text} report={report}/> : <p>{item.text}</p>}
+    {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} streaming={animate}/> : <p>{item.text}</p>}
     {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}
     {!!item.text&&item.kind!=='activity'&&<div className="message-actions"><CopyText text={item.text} report={report}/></div>}
     {item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)&&<small className="outgoing-status" role="status">{statusLabel}</small>}

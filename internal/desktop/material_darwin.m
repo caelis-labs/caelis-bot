@@ -13,6 +13,7 @@
 
 @interface BotMaterialView : NSView
 @property CGFloat radius;
+@property BOOL clearGlass;
 @property NSView *effect;
 @property(weak) WKWebView *webView;
 @property id accessibilityObserver;
@@ -39,12 +40,13 @@
             if (glassClass) {
                 NSView<BotGlassEffect> *glass = [[glassClass alloc] initWithFrame:self.bounds];
                 [glass setCornerRadius:self.radius];
-                // Regular (public enum value 0) adjusts backdrop luminance for
-                // text. Clear prioritizes the desktop and is unsuitable here.
-                [glass setStyle:0];
+                // Public styles: Regular=0, Clear=1. The bubble supplies a
+                // stronger translucent reading fill above Clear glass; other
+                // surfaces retain Regular's adaptive luminance.
+                [glass setStyle:self.clearGlass ? 1 : 0];
                 [glass setContentView:[[NSView alloc] initWithFrame:glass.bounds]];
                 self.effect = glass;
-                kind = @"glass-regular";
+                kind = self.clearGlass ? @"glass-clear" : @"glass-regular";
             }
         }
         if (!self.effect) {
@@ -85,7 +87,7 @@
 }
 @end
 
-void bot_install_material(NSWindow *window, CGFloat radius, CGFloat sidebarWidth, CGFloat inset) {
+static void installMaterial(NSWindow *window, CGFloat radius, CGFloat sidebarWidth, CGFloat inset, BOOL clearGlass) {
     NSView *root = window.contentView;
     // Remove only the previous decorative backdrop, preserving WebKit and its
     // native key-view / accessibility hierarchy as siblings of the material.
@@ -102,6 +104,7 @@ void bot_install_material(NSWindow *window, CGFloat radius, CGFloat sidebarWidth
     }
     BotMaterialView *material = [[BotMaterialView alloc] initWithFrame:NSInsetRect(root.bounds,inset,inset)];
     material.radius = radius;
+    material.clearGlass = clearGlass;
     material.webView = webView;
     material.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     if (sidebarWidth > 0) {
@@ -116,6 +119,13 @@ void bot_install_material(NSWindow *window, CGFloat radius, CGFloat sidebarWidth
     __weak BotMaterialView *weak = material;
     material.accessibilityObserver = [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [weak refreshMaterial]; }];
     [material refreshMaterial];
+}
+
+void bot_install_material(NSWindow *window, CGFloat radius, CGFloat sidebarWidth, CGFloat inset) {
+    installMaterial(window,radius,sidebarWidth,inset,NO);
+}
+void bot_install_bubble_material(NSWindow *window, CGFloat radius, CGFloat inset) {
+    installMaterial(window,radius,0,inset,YES);
 }
 
 void bot_sync_material_pages(void) {

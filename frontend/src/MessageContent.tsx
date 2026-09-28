@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { backend, desktop } from './desktop';
 import { messageURL } from './message-url';
 import { useI18n } from './i18n';
+import { useStreamingText } from './use-streaming-text';
 
 export function CopyText({text,label,report}:{text:string;label?:string;report:(error:string)=>void}) {
  const {t} = useI18n();
@@ -29,13 +30,14 @@ function ExternalLink({url,children,report}:{url?:string;children:ReactNode;repo
  if(!safe)return <span>{children}</span>;
  return <button type="button" role="link" className="message-link" title={safe} onClick={()=>void backend('OpenMessageLink',safe).catch(()=>report(t('chat.openLinkFailed')))}>{children}</button>;
 }
-export const MessageContent=memo(function MessageContent({text,report}:{text:string;report:(error:string)=>void}) {
+export const MessageContent=memo(function MessageContent({text,report,streaming=false}:{text:string;report:(error:string)=>void;streaming?:boolean}) {
  const {t} = useI18n();
+ const shown=useStreamingText(text,streaming);
  return <div className="markdown-body"><Markdown skipHtml remarkPlugins={[remarkGfm]} urlTransform={messageURL} components={{
   a:({href,children})=><ExternalLink url={href} report={report}>{children}</ExternalLink>,
   // Generated image URLs must not fetch anything merely because a reply arrives.
   img:({src,alt})=><ExternalLink url={typeof src==='string'?src:''} report={report}>{t('chat.imagePrefix')}{alt||t('chat.imageOpen')} ↗</ExternalLink>,
   pre:({children})=><div className="code-block"><CopyText text={plain(children)} label={t('chat.copyCode')} report={report}/><pre>{children}</pre></div>,
   table:({children})=><div className="message-table"><table>{children}</table></div>,
- }}>{text}</Markdown></div>;
+ }}>{shown}</Markdown></div>;
 });
