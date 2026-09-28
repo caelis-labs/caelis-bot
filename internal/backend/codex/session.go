@@ -19,6 +19,8 @@ import (
 )
 
 type binding struct {
+	BackgroundResults map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
+
 	Context       contextseed.State      `json:"context,omitempty"`
 	ContextInputs map[string]int         `json:"contextInputs,omitempty"`
 	Dreams        map[string]dreamRecord `json:"dreams,omitempty"`
@@ -56,6 +58,8 @@ type SessionOptions struct {
 // Session projects one internally bound conversation. Native facts remain
 // authoritative; a UI fetch, hidden window or character asset cannot execute it.
 type Session struct {
+	backgroundResultsDirty bool
+
 	residentExecution api.WorkExecutionSettings
 	historyMu         sync.Mutex
 	op                sync.Mutex
@@ -180,6 +184,17 @@ func (s *Session) update() {
 	s.state.CurrentTurn = ""
 	if s.run != "" {
 		s.state.CurrentTurn = opaque(s.run)
+	}
+	if s.captureBackgroundResults() {
+		s.backgroundResultsDirty = true
+	}
+	if s.backgroundResultsDirty {
+		if err := s.save(); err != nil {
+			s.state.Phase = "unknown"
+			s.state.Message = "后台结果记录保存失败，请恢复连接核对"
+		} else {
+			s.backgroundResultsDirty = false
+		}
 	}
 	s.state.Revision++
 	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && s.run == "" && !s.hasBlockingChildren() && len(s.prompts) == 0 && s.state.Phase != "unknown" && !s.closed && !s.closing

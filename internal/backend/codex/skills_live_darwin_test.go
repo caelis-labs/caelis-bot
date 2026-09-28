@@ -247,5 +247,15 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if a.Status != "accepted" || s.BackgroundReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Scheduled {
 		t.Fatal("care did not use native background projection")
 	}
+	result := s.BackgroundResult(a.ID)
+	if !result.Complete || !result.Visible {
+		t.Fatal("native visible result was not retained", result)
+	}
+	if err = careEngine.Deliver(ctx, time.Now(), care.Presence{}, false, s.BackgroundReceipt, nil, s.BackgroundResult); err != nil {
+		t.Fatal(err)
+	}
+	if b := careEngine.Budget(time.Now()); b.InterruptionsUsed != 1 || b.Reserved != 0 {
+		t.Fatal("native visible result not accounted", b)
+	}
 	t.Log("native provider requests contain metadata first, then only the explicitly loaded body/reference")
 }

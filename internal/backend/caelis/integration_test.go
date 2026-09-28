@@ -455,6 +455,16 @@ func TestNativeHostIntegration(t *testing.T) {
 		if a.Status != "accepted" || s.BackgroundReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Quiet {
 			t.Fatal("care did not use native silent background path")
 		}
+		result := s.BackgroundResult(a.ID)
+		if !result.Complete || result.Visible {
+			t.Fatal("native silent result was not retained", result)
+		}
+		if err = careEngine.Deliver(ctx, now, care.Presence{}, false, s.BackgroundReceipt, nil, s.BackgroundResult); err != nil {
+			t.Fatal(err)
+		}
+		if b := careEngine.Budget(now); b.InterruptionsUsed != 0 || b.Reserved != 0 {
+			t.Fatal("native silent result retained budget", b)
+		}
 		if err = careEngine.Remove(ctx, "native-care", s.RevokeBackground); err != nil {
 			t.Fatal(err)
 		}

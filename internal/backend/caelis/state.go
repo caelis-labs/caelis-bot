@@ -59,6 +59,7 @@ type callRecord struct {
 	Receipt *wire.ApplicationCallResult `json:"receipt,omitempty"`
 }
 type binding struct {
+	BackgroundResults map[string]api.BackgroundResult          `json:"backgroundResults,omitempty"`
 	Context           contextseed.State                        `json:"context,omitempty"`
 	ContextInputs     map[string]int                           `json:"contextInputs,omitempty"`
 	ContextRequests   map[string]string                        `json:"contextRequests,omitempty"`
@@ -159,6 +160,7 @@ func loadBinding(path string) (binding, error) {
 	return b, nil
 }
 func (s *Session) saveLocked() error {
+	s.captureBackgroundResultsLocked()
 	if e := privateWrite(s.path, s.state); e != nil {
 		s.issue = "Caelis 连接记录未能保存，已暂停发送"
 		s.connected = false

@@ -18,6 +18,9 @@ func TestScheduledSubmitAndReplayKeepProvenance(t *testing.T) {
 	if !v.Quiet || !v.Scheduled || len(v.Items) != 0 {
 		t.Fatal("automatic prompt/skip leaked", v)
 	}
+	if result := s.BackgroundResult(in.ID); !result.Complete || result.Visible {
+		t.Fatal("silent result missing", result)
+	}
 	// New adapter from durable binding, then canonical historical replay.
 	restored := NewSession(s.opts)
 	restored.state.Connection = "ready"
@@ -46,5 +49,49 @@ func TestLegacyScheduledHistoryIsHiddenByReservedNativeID(t *testing.T) {
 	v := s.Snapshot()
 	if len(v.Items) != 0 || !v.Quiet {
 		t.Fatal("legacy automatic input leaked", v)
+	}
+}
+
+func TestBackgroundResultRetainedAfterNewTurnAndReload(t *testing.T) {
+	s, f := sessionPair(t, "")
+	in := api.Submission{ID: "care-result-test", Text: "fixture", Scheduled: true}
+	if r, err := s.Submit(testContext(t), in, nil); err != nil || r.Outcome != "accepted" {
+		t.Fatal(r, err)
+	}
+	turn := nativeTurn{ID: "run-native", Status: "completed", Items: []nativeItem{{ID: "u", Type: "userMessage", ClientID: in.ID}, {ID: "a", Type: "agentMessage", Text: "visible result"}}}
+	f.emit(wireMessage{Method: "turn/completed", Params: raw(map[string]any{"threadId": "thread-native", "turn": turn})})
+	awaitState(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" })
+	result := s.BackgroundResult(in.ID)
+	if !result.Complete || !result.Visible || result.ObservedAt.IsZero() {
+		t.Fatal(result)
+	}
+	restored := NewSession(s.opts)
+	restored.applyTurn(nativeTurn{ID: "later", Status: "completed"}, true)
+	restored.update()
+	if got := restored.BackgroundResult(in.ID); got != result {
+		t.Fatal("lost result", got)
+	}
+}
+
+func TestBackgroundApprovalRemainsVisibleAfterSilentCompletion(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	in := api.Submission{ID: "care-approval", Text: "fixture", Scheduled: true}
+	if r, err := s.Submit(testContext(t), in, nil); err != nil || r.Outcome != "accepted" {
+		t.Fatal(r, err)
+	}
+	f.emit(approvalMessage("care-native-approval"))
+	awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
+	observed := s.BackgroundResult(in.ID)
+	if !observed.Visible || observed.Complete {
+		t.Fatal("approval not observed", observed)
+	}
+	turn := nativeTurn{ID: "run-native", Status: "completed", Items: []nativeItem{{ID: "u", Type: "userMessage", ClientID: in.ID}, {ID: "a", Type: "agentMessage", Text: api.SilentReminder}}}
+	f.emit(wireMessage{Method: "serverRequest/resolved", Params: raw(map[string]any{"threadId": "thread-native", "requestId": "care-native-approval"})})
+	f.emit(wireMessage{Method: "turn/completed", Params: raw(map[string]any{"threadId": "thread-native", "turn": turn})})
+	awaitState(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" })
+	restored := NewSession(s.opts)
+	got := restored.BackgroundResult(in.ID)
+	if !got.Complete || !got.Visible || !got.ObservedAt.Equal(observed.ObservedAt) {
+		t.Fatal("approval was refunded", got)
 	}
 }

@@ -94,11 +94,27 @@ boolean; missing fields, incompatible types, and excessive evaluation cost produ
 an error, not a match. Guard optional fields with `has(event.field)`.
 
 The current limits are 32 rules, 2 KiB per condition, 4 KiB per prompt, and 16 KiB
-per event. Cooldown defaults to one hour and starts when a match is queued; expiry
-also defaults to one hour. At most one pending activation per rule is retained.
-Care activations are spaced at least five minutes apart, with at most eight
-attempts in a rolling 24 hours across care rules for the selected Runtime. These
-limits do not change ordinary reminders or user messages.
+per event. Cooldown defaults to one hour and starts at dispatch; expiry
+also defaults to one hour. At most one outstanding activation per rule is retained.
+Read `list.policy` and `list.budget` for effective limits. Defaults are eight
+visible interruptions per rolling 24 hours and a five-minute dispatch gap.
+The gap spaces model activations, not delayed output. Silent completion does not
+consume an interruption; visible text, files, approval requests, or failure
+feedback count once per activation. An earlier visible approval is not refunded
+when the final response is silent. Human follow-up is not a new automatic nudge.
+Queued expiry and explicit rejection do not consume the full rule cooldown.
+
+Unknown and accepted-but-unfinished activations reserve capacity until native
+results resolve them, blocking another activation of that rule. Other rules may
+continue when capacity and the Runtime's idle admission permit. Never resend an
+unknown activation. `reserved` is not an interruption count. Migration reservations
+represent old attempt records without visibility evidence and expire after their
+original 24-hour window; unresolved submissions remain reserved separately.
+
+Only at the user's explicit request, use `configure` with a complete `policy`:
+`{"maximumInterruptionsPer24Hours":8,"minimumGapSeconds":300}`. Caelis requires
+a user-originated authorization. Never raise limits merely to get more work through.
+These settings do not change ordinary reminders, user messages, or approval handling.
 
 The app must remain running. Hiding the pet does not stop collection. Delivery
 waits for an idle Bot and a known awake, unlocked session; stale pending work

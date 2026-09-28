@@ -600,7 +600,10 @@ result directory is not a user-selected workspace.
 `internal/care` adds bounded CEL predicates over native metadata and registered
 JSON sources. `internal/bot` owns rule tools and dispatch through the existing
 background activation contract, including exact Caelis grants and retained native
-receipts. Durable versions, cooldown, expiry, presence and shared care budgets
+receipts and retained background-result evidence. Care v2 separates visible interruptions
+from dispatch pacing and unknown reservations; silent results release capacity, and
+an unresolved care occurrence blocks only its own rule subject to native idle admission.
+Durable versions, cooldown, expiry, presence and shared care budgets
 gate every activation. `Host.CareSources` and `Application.PublishCareEvent` are
 in-process adapter interfaces, not a renderer or model-controlled event ingress.
 Care load failures preserve the journal and disable only care; personal data,
