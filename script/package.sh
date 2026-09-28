@@ -10,10 +10,16 @@ fi
 if [[ "${1:-}" != --skip-build ]]; then
   "$BOT_ROOT/script/build.sh"
 fi
-BOT_PACKAGE_BUNDLE="$BOT_ROOT/dist/Caelis Bot.app"
-BOT_PACKAGE_SIGNING_MODE=${BOT_SIGNING_MODE:-adhoc}
+source "$BOT_ROOT/script/app-identity.sh"
+BOT_PACKAGE_BUNDLE="$BOT_BUNDLE"
+if [[ -n "${BOT_SIGNING_MODE:-}" ]]; then
+  BOT_PACKAGE_SIGNING_MODE=$BOT_SIGNING_MODE
+else
+  source "$BOT_ROOT/script/development-signing.sh"
+  BOT_PACKAGE_SIGNING_MODE=$BOT_BUILD_SIGN_MODE
+fi
 plutil -lint "$BOT_PACKAGE_BUNDLE/Contents/Info.plist"
-bash "$BOT_ROOT/script/verify-signature.sh" "$BOT_PACKAGE_BUNDLE" "$BOT_PACKAGE_SIGNING_MODE"
+bash "$BOT_ROOT/script/verify-signature.sh" "$BOT_PACKAGE_BUNDLE" "$BOT_PACKAGE_SIGNING_MODE" app "$BOT_APP_ID"
 if [[ "${BOT_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
   xcrun stapler validate "$BOT_PACKAGE_BUNDLE"
   spctl --assess --type execute --verbose=2 "$BOT_PACKAGE_BUNDLE"
@@ -31,7 +37,7 @@ if [[ "$BOT_PACKAGE_VERSION" != "$BOT_EXPECTED_VERSION" ]] || [[ "$BOT_PACKAGE_A
   echo 'Bundle version or architecture does not match this build.' >&2
   exit 1
 fi
-BOT_PACKAGE_NAME="Caelis-Bot-$BOT_PACKAGE_VERSION-macos-$BOT_PACKAGE_ARCH.dmg"
+BOT_PACKAGE_NAME="${BOT_APP_NAME// /-}-$BOT_PACKAGE_VERSION-macos-$BOT_PACKAGE_ARCH.dmg"
 BOT_PACKAGE_DIR="$BOT_ROOT/dist/releases"
 BOT_PACKAGE_MOUNT=$(mktemp -d "${TMPDIR:-/tmp}/caelis-mount.XXXXXX")
 BOT_PACKAGE_MOUNTED=false
@@ -46,21 +52,21 @@ mkdir -p "$BOT_ROOT/.cache/swift-module-cache"
 swift -module-cache-path "$BOT_ROOT/.cache/swift-module-cache" "$BOT_ROOT/script/dmg-background.swift" "$BOT_ROOT/.cache/dmg-background.tiff"
 "$BOT_DMG_ENV/bin/python" -m dmgbuild -s "$BOT_ROOT/script/dmg-settings.py" \
   -D app="$BOT_PACKAGE_BUNDLE" -D background="$BOT_ROOT/.cache/dmg-background.tiff" \
-  'Caelis Bot' "$BOT_PACKAGE_DIR/$BOT_PACKAGE_NAME"
+  "$BOT_APP_NAME" "$BOT_PACKAGE_DIR/$BOT_PACKAGE_NAME"
 hdiutil verify -quiet "$BOT_PACKAGE_DIR/$BOT_PACKAGE_NAME"
 hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$BOT_PACKAGE_MOUNT" \
   "$BOT_PACKAGE_DIR/$BOT_PACKAGE_NAME" -quiet
 BOT_PACKAGE_MOUNTED=true
-bash "$BOT_ROOT/script/verify-signature.sh" "$BOT_PACKAGE_MOUNT/Caelis Bot.app" "$BOT_PACKAGE_SIGNING_MODE"
+bash "$BOT_ROOT/script/verify-signature.sh" "$BOT_PACKAGE_MOUNT/$BOT_APP_NAME.app" "$BOT_PACKAGE_SIGNING_MODE" app "$BOT_APP_ID"
 if [[ "${BOT_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
-  xcrun stapler validate "$BOT_PACKAGE_MOUNT/Caelis Bot.app"
-  spctl --assess --type execute --verbose=2 "$BOT_PACKAGE_MOUNT/Caelis Bot.app"
+  xcrun stapler validate "$BOT_PACKAGE_MOUNT/$BOT_APP_NAME.app"
+  spctl --assess --type execute --verbose=2 "$BOT_PACKAGE_MOUNT/$BOT_APP_NAME.app"
 fi
 test "$(readlink "$BOT_PACKAGE_MOUNT/Applications")" = /Applications
-"$BOT_DMG_ENV/bin/python" "$BOT_ROOT/script/verify-dmg-layout.py" "$BOT_PACKAGE_MOUNT"
-test -f "$BOT_PACKAGE_MOUNT/Caelis Bot.app/Contents/Resources/ASSET-LICENSE.md"
+"$BOT_DMG_ENV/bin/python" "$BOT_ROOT/script/verify-dmg-layout.py" "$BOT_PACKAGE_MOUNT" "$BOT_APP_NAME.app"
+test -f "$BOT_PACKAGE_MOUNT/$BOT_APP_NAME.app/Contents/Resources/ASSET-LICENSE.md"
 cmp "$BOT_PACKAGE_BUNDLE/Contents/MacOS/caelis-bot" \
-  "$BOT_PACKAGE_MOUNT/Caelis Bot.app/Contents/MacOS/caelis-bot"
+  "$BOT_PACKAGE_MOUNT/$BOT_APP_NAME.app/Contents/MacOS/caelis-bot"
 hdiutil detach "$BOT_PACKAGE_MOUNT" -quiet
 BOT_PACKAGE_MOUNTED=false
 cd "$BOT_PACKAGE_DIR"

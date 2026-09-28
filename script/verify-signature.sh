@@ -9,8 +9,13 @@ case "$BOT_VERIFY_KIND" in
   dmg) BOT_VERIFY_IDENTIFIER=dev.caelis.bot.dmg ;;
   *) echo "Unknown artifact kind: $BOT_VERIFY_KIND" >&2; exit 1 ;;
 esac
+if [[ "$BOT_VERIFY_KIND" == app && "${4:-}" == dev.caelis.bot.dev ]]; then
+  [[ "$BOT_VERIFY_MODE" != developer-id ]] || { echo 'Development identity is not a production release.' >&2; exit 1; }
+  BOT_VERIFY_IDENTIFIER=dev.caelis.bot.dev
+fi
 codesign --verify --deep --strict "$BOT_VERIFY_PATH"
 BOT_VERIFY_DETAILS=$(codesign -dvv "$BOT_VERIFY_PATH" 2>&1)
+grep -Fxq "Identifier=$BOT_VERIFY_IDENTIFIER" <<< "$BOT_VERIFY_DETAILS"
 case "$BOT_VERIFY_MODE" in
   adhoc)
     grep -q '^Signature=adhoc$' <<< "$BOT_VERIFY_DETAILS"
@@ -18,7 +23,7 @@ case "$BOT_VERIFY_MODE" in
   development)
     [[ "$BOT_VERIFY_KIND" == app ]]
     codesign --verify --strict --test-requirement \
-      '=anchor apple generic and identifier "dev.caelis.bot"' "$BOT_VERIFY_PATH"
+      "=anchor apple generic and identifier \"$BOT_VERIFY_IDENTIFIER\"" "$BOT_VERIFY_PATH"
     grep -q '^Authority=Apple Development:' <<< "$BOT_VERIFY_DETAILS"
     grep -q 'flags=.*runtime' <<< "$BOT_VERIFY_DETAILS"
     ;;
@@ -35,3 +40,6 @@ case "$BOT_VERIFY_MODE" in
     ;;
   *) echo "Unknown signing mode: $BOT_VERIFY_MODE" >&2; exit 1 ;;
 esac
+if [[ "$BOT_VERIFY_KIND" == app && -d "$BOT_VERIFY_PATH/Contents" ]]; then
+  bash "$(dirname "$0")/verify-computer-use.sh" "$BOT_VERIFY_PATH" "$BOT_VERIFY_MODE" --allow-legacy
+fi

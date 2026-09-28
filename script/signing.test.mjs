@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync, rmSync, writeFileSync, openSync, writeSync, closeSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, rmSync, writeFileSync, openSync, writeSync, closeSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -55,4 +55,50 @@ test('release signing cannot silently fall back when credentials are absent', {s
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Missing Developer ID PKCS12 secret/);
+});
+
+test('ordinary and CI builds select a separate app; only explicit release selects production',()=>{
+ const read=extra=>spawnSync('/bin/bash',['-c','source "$1"; printf "%s|%s|%s" "$BOT_APP_NAME" "$BOT_APP_ID" "$BOT_BUNDLE"','fixture',resolve('script/app-identity.sh')],{
+  encoding:'utf8',env:{...process.env,BOT_ROOT:'/fixture',BOT_BUILD_CHANNEL:'',BOT_RELEASE_TAG:'',...extra},timeout:10000});
+ for(const extra of [{},{CI:'true'}]) {const r=read(extra);assert.equal(r.status,0);assert.equal(r.stdout,'Caelis Bot Dev|dev.caelis.bot.dev|/fixture/dist/Caelis Bot Dev.app');}
+ for(const extra of [{BOT_BUILD_CHANNEL:'release'},{BOT_RELEASE_TAG:'v1.0.0'}]) {const r=read(extra);assert.equal(r.status,0);assert.equal(r.stdout,'Caelis Bot|dev.caelis.bot|/fixture/dist/Caelis Bot.app');}
+ assert.notEqual(read({BOT_BUILD_CHANNEL:'typo'}).status,0);
+});
+
+test('legacy release recovery is explicit; missing current Cua payloads never pass as legacy', {skip: process.platform !== 'darwin'},()=>{
+ const directory=mkdtempSync(join(tmpdir(),'bot-cua-bundle-'));
+ try {
+  const app=join(directory,'Fixture.app'), contents=join(app,'Contents');mkdirSync(contents,{recursive:true});
+  const plist=join(contents,'Info.plist');
+  writeFileSync(plist,'<?xml version="1.0"?><plist version="1.0"><dict/></plist>');
+  const verify=(...args)=>spawnSync('/bin/bash',[resolve('script/verify-computer-use.sh'),app,'adhoc',...args],{encoding:'utf8',timeout:10000});
+  assert.notEqual(verify().status,0,'new builds require the payload');
+  assert.equal(verify('--allow-legacy').status,0,'old immutable release may omit it');
+  mkdirSync(join(contents,'Resources/ComputerUse'),{recursive:true});
+  assert.notEqual(verify('--allow-legacy').status,0,'unmarked payload is not legacy');
+  rmSync(join(contents,'Resources'),{recursive:true});
+  assert.equal(spawnSync('/usr/libexec/PlistBuddy',['-c','Add CaelisComputerUseVersion string 0.30.2',plist]).status,0);
+  assert.notEqual(verify('--allow-legacy').status,0,'declared but missing payload is corrupt');
+ } finally {rmSync(directory,{recursive:true,force:true});}
+});
+
+test('native dependency gate permits build-time self IDs but rejects external loads and search paths', {skip: process.platform !== 'darwin'},()=>{
+ const directory=mkdtempSync(join(tmpdir(),'bot native dependencies '));
+ try {
+  const source=join(directory,'fixture.c'), library=join(directory,'fixture.dylib'), consumer=join(directory,'consumer');
+  const run=(command,args)=>spawnSync(command,args,{encoding:'utf8',timeout:30000});
+  writeFileSync(source,'int fixture(void) { return 0; }\n');
+  assert.equal(run('clang',['-dynamiclib',source,'-install_name',library,'-o',library]).status,0);
+  const arch=run('lipo',['-archs',library]).stdout.trim();
+  const verify=binary=>run('/bin/bash',[resolve('script/verify-native-dependencies.sh'),arch,binary]);
+  let result=verify(library);assert.equal(result.status,0,result.stderr);
+  writeFileSync(source,'extern int fixture(void); int main(void) { return fixture(); }\n');
+  assert.equal(run('clang',[source,library,'-o',consumer]).status,0);
+  result=verify(consumer);assert.notEqual(result.status,0);assert.ok(result.stderr.includes(library));
+  writeFileSync(source,'int main(void) { return 0; }\n');
+  assert.equal(run('clang',[source,'-Wl,-rpath,'+directory,'-o',consumer]).status,0);
+  result=verify(consumer);assert.notEqual(result.status,0);assert.ok(result.stderr.includes(directory));
+  assert.equal(run('clang',[source,'-Wl,-rpath,@loader_path','-o',consumer]).status,0);
+  result=verify(consumer);assert.equal(result.status,0,result.stderr);
+ } finally {rmSync(directory,{recursive:true,force:true});}
 });
