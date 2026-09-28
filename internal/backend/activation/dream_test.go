@@ -21,3 +21,27 @@ func TestDreamKeepsOnlyRecapAndPreservesApproval(t *testing.T) {
 		t.Fatal("approval hidden")
 	}
 }
+
+func TestScheduledReviewNoticesSurviveQuietProjection(t *testing.T) {
+	for _, status := range []string{"denied", "timedOut", "aborted", "failed", "inProgress", "approved"} {
+		for _, dream := range []bool{false, true} {
+			t.Run(status+map[bool]string{false: "/care", true: "/dream"}[dream], func(t *testing.T) {
+				v := api.Snapshot{Connection: "ready", Phase: "completed", CurrentTurn: "automatic",
+					Reviews: []api.Review{{ID: "native-review", Status: status}},
+					Items:   []api.Item{{ID: "recap", TurnKey: "automatic", Kind: "assistant", Text: api.SilentReminder}}}
+				turns := map[string]string{"automatic": "completed"}
+				out := Present(v, turns, false)
+				if dream {
+					out = Dream(out, turns, false)
+				}
+				visible := status != "inProgress" && status != "approved"
+				if out.Quiet == visible || (len(out.Reviews) == 1) != visible {
+					t.Fatalf("review notice visibility differs from quiet status: %+v", out)
+				}
+				if len(out.Approvals) != 0 {
+					t.Fatal("review created manual approval authority")
+				}
+			})
+		}
+	}
+}

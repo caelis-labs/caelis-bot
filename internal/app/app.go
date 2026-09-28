@@ -23,6 +23,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
+	"github.com/caelis-labs/caelis-bot/internal/updates"
 )
 
 // Host provides native effects. None of these callbacks select a backend or own
@@ -296,6 +297,7 @@ func (a *Application) Start() error {
 			config := bridge.Config(executable)
 			config.Instructions += botskills.Instructions(a.skillPath)
 			config.NotebookDirectory = a.notebook.Path()
+			config.RuntimeVersion = updates.Version
 			config.PrepareContext = a.notebook.PrepareContext
 			config.ConsumeContext = a.notebook.ConsumeContext
 			config.PrepareTurn = func(ctx context.Context) error {

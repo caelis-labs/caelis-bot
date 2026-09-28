@@ -70,7 +70,7 @@ func hostCall(t *testing.T, driver *Driver, name string, input any) api.ToolResu
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := driver.CallTool(t.Context(), name, raw)
+	result := driver.CallTool(WithTurn(t.Context(), "fixture-turn"), name, raw)
 	if result.IsError {
 		t.Fatalf("host call failed: %+v", result.Content)
 	}
@@ -82,7 +82,8 @@ func TestHostCancellationDoesNotDispatchAfterPreflight(t *testing.T) {
 	listed := hostCall(t, driver, "bot_desktop_observe", map[string]any{})
 	window := listed.StructuredContent["windows"].([]any)[0].(map[string]any)["window"]
 	observed := hostCall(t, driver, "bot_desktop_observe", map[string]any{"window": window})
-	ctx, cancel := context.WithCancel(t.Context())
+	hostCall(t, driver, "bot_desktop_authorize", map[string]any{"observation": observed.StructuredContent["observation"], "application": observed.StructuredContent["application"], "purpose": "Fixture task"})
+	ctx, cancel := context.WithCancel(WithTurn(t.Context(), "fixture-turn"))
 	defer cancel()
 	args, _ := json.Marshal(map[string]any{"observation": observed.StructuredContent["observation"], "steps": []any{map[string]any{"op": "type", "target": "e3", "text": "fixture"}}})
 	done := make(chan api.ToolResult, 1)
@@ -221,6 +222,7 @@ func TestHostResultsFitCaelisContentV1Receipt(t *testing.T) {
 			for range 7 {
 				steps = append(steps, map[string]any{"op": "type", "target": "e3", "text": strings.Repeat("z", 4000)})
 			}
+			hostCall(t, driver, "bot_desktop_authorize", map[string]any{"observation": observed.StructuredContent["observation"], "application": observed.StructuredContent["application"], "purpose": "Fixture task"})
 			performed := hostCall(t, driver, "bot_desktop_perform", map[string]any{"observation": observed.StructuredContent["observation"], "steps": steps})
 			check(t, performed)
 			if performed.StructuredContent["remainingCount"] != float64(7) || performed.StructuredContent["remainingTruncated"] != true {

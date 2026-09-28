@@ -1,7 +1,7 @@
 # Arrange future work
 
 Discover `bot_clock` to check local time and scheduling availability, and
-`bot_reminders` to create, list, update, or remove reminders. Use the current tool
+`bot_reminders_list` to read reminders, and `bot_reminders` to create, update, or remove them. Use the current tool
 schema rather than assuming a schedule format.
 
 Turn the requested timing and purpose into a clear reminder. Resolve ambiguity

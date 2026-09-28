@@ -94,6 +94,27 @@ static void checkRedaction(NSBitmapImageRep *rep,NSInteger x,NSInteger y) {
         fprintf(stderr,"redaction mismatch at %ld,%ld: %.2f %.2f %.2f\n",(long)x,(long)y,color.redComponent,color.greenComponent,color.blueComponent);abort();
     }
 }
+static void checkToolbarAppearance(BotCaptureCanvas *canvas, NSString *output) {
+    NSAppearance *original=canvas.window.appearance;
+    for(NSString *name in @[NSAppearanceNameAqua,NSAppearanceNameDarkAqua,NSAppearanceNameAqua]) {
+        BOOL dark=[name isEqual:NSAppearanceNameDarkAqua];
+        canvas.window.appearance=[NSAppearance appearanceNamed:name];
+        [canvas.window displayIfNeeded];[canvas.toolbar displayIfNeeded];
+        NSColor *background=[[NSColor colorWithCGColor:canvas.toolbar.layer.backgroundColor] colorUsingColorSpace:NSColorSpace.deviceRGBColorSpace];
+        assert(dark?background.redComponent<0.35:background.redComponent>0.7);
+        NSView *composer=canvas.noteEditor.superview;
+        NSColor *input=[[NSColor colorWithCGColor:composer.layer.backgroundColor] colorUsingColorSpace:NSColorSpace.deviceRGBColorSpace];
+        assert(dark?input.redComponent<0.35:input.redComponent>0.7);
+        __block NSColor *ink=nil;
+        [canvas.toolbar.effectiveAppearance performAsCurrentDrawingAppearance:^{ink=[canvas.toolButtons[0].contentTintColor colorUsingColorSpace:NSColorSpace.deviceRGBColorSpace];}];
+        assert(ink&&(dark?ink.redComponent>0.7:ink.redComponent<0.35));
+        assert(CGColorGetAlpha(canvas.toolButtons[0].layer.backgroundColor)>0.1);
+        NSBitmapImageRep *image=[canvas.toolbar bitmapImageRepForCachingDisplayInRect:canvas.toolbar.bounds];
+        [canvas.toolbar cacheDisplayInRect:canvas.toolbar.bounds toBitmapImageRep:image];
+        if(output.length)[[image representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:[output stringByAppendingString:dark?@".dark-toolbar.png":@".light-toolbar.png"] atomically:YES];
+    }
+    canvas.window.appearance=original;
+}
 int main(int argc,char **argv) {
     @autoreleasepool {
         [NSApplication sharedApplication];[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
@@ -123,6 +144,7 @@ int main(int argc,char **argv) {
         [owner ask:owner.canvas];assert(deliveries==0);
         [owner setAvailability:@{@"state":@"supported"}];assert(owner.canvas.askButton.enabled);
         if(live){[NSApp run];return 0;}
+        checkToolbarAppearance(owner.canvas,argc>1?[NSString stringWithUTF8String:argv[1]]:nil);
         checkInteraction(root);
         [owner.overlay makeKeyAndOrderFront:nil];
         [owner.canvas displayIfNeeded];

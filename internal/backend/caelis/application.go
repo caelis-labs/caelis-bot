@@ -24,6 +24,18 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	catalog := map[string]api.ApplicationTools{}
 	formats := map[string]bool{}
 	profile := wire.ApplicationProfile{Version: "caelis-bot-application-v1", Execution: s.executionMode, Instructions: c.Instructions, Tools: []wire.ApplicationToolDefinition{}}
+	if c.RuntimeVersion != "" {
+		profile.Version += "/" + c.RuntimeVersion
+	}
+	// The native host already restored its user environment once. Select public
+	// inheritance/non-login semantics without persisting a copy of environment
+	// values or treating the Notebook CWD as HOME. Workers use the same Core defaults.
+	if s.executionMode == "workspace-write" {
+		profile.ExecutionConfig = &wire.ExecutionConfig{
+			Environment: &wire.EnvironmentConfig{Inherit: pointer(true)},
+			Shell:       &wire.ShellConfig{Login: pointer(false)},
+		}
+	}
 	for _, host := range []api.ApplicationTools{c.Host} {
 		if host == nil {
 			continue
@@ -37,7 +49,11 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 				return errors.New("应用工具 schema 无效")
 			}
 			catalog[d.Name] = host
-			definition := wire.ApplicationToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema}
+			policy := "required"
+			if slices.Contains(c.ApprovedTools, d.Name) {
+				policy = "direct"
+			}
+			definition := wire.ApplicationToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema, ApprovalPolicy: &policy}
 			if d.ResultFormat != "" {
 				if d.ResultFormat != "content-v1" {
 					return errors.New("unsupported application tool result format")
@@ -138,6 +154,7 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 			if profile.Model == "" {
 				return errors.New("请先连接并选择一个 Caelis 模型")
 			}
+			s.configureReviewer(&profile)
 			// Deterministic operation from the connection: persisting CreateID then
 			// command intent cannot generate a second session across a crash.
 			op = "create-" + digest([]byte(life.ConnectionId))
@@ -173,6 +190,9 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	e := s.saveLocked()
 	s.mu.Unlock()
 	if e != nil {
+		return e
+	}
+	if e := s.checkReviewer(ctx, b); e != nil {
 		return e
 	}
 	desired, e := s.configuration(ctx, b.SessionId)

@@ -22,7 +22,7 @@ func TestContextAcceptanceAndLazyRenewalRetainChat(t *testing.T) {
 	defer v.Close()
 	handoff := filepath.Join(v.Path(), notebook.HandoffName)
 	os.WriteFile(handoff, []byte("old handoff"), 0600)
-	s.opts.BotTools = &api.ToolConnection{PrepareContext: v.PrepareContext, ConsumeContext: v.ConsumeContext}
+	s.opts.BotTools = &api.ToolConnection{RuntimeVersion: "new-version", PrepareContext: v.PrepareContext, ConsumeContext: v.ConsumeContext}
 	var starts atomic.Int32
 	f.mu.Lock()
 	f.handle = func(m wireMessage) (any, bool) {
@@ -87,7 +87,7 @@ func TestContextAcceptanceAndLazyRenewalRetainChat(t *testing.T) {
 		t.Fatal("chat lost or new context skipped")
 	}
 	restored := NewSession(s.opts)
-	if restored.binding.ThreadID != "next-thread" || len(restored.binding.PastThreads) != 1 {
+	if restored.ConversationState().RuntimeVersion != "new-version" || restored.ConversationState().DesiredRuntimeVersion != "new-version" || restored.binding.ThreadID != "next-thread" || len(restored.binding.PastThreads) != 1 {
 		t.Fatal("binding not durable")
 	}
 }

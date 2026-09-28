@@ -37,6 +37,9 @@ func Dream(v api.Snapshot, turns map[string]string, pending bool) api.Snapshot {
 				v.Quiet = false
 			}
 		}
+		if hasReviewNotice(v.Reviews) {
+			v.Quiet = false
+		}
 		if v.Quiet {
 			v.Reviews = []api.Review{}
 		}

@@ -57,6 +57,11 @@ func (r *Runtime) tickCare(ctx context.Context) error {
 			return b.SubmitBackground(ctx, in, []string{care.GrantID(a.RuleID)})
 		}
 		return r.engine.Submit(ctx, in, nil)
+	}, func(id string) api.BackgroundResult {
+		if provider, ok := r.engine.(api.BackgroundResultProvider); ok {
+			return provider.BackgroundResult(id)
+		}
+		return api.BackgroundResult{ID: id}
 	})
 }
 func carePrompt(prompt string) string {
@@ -72,7 +77,11 @@ func (r *Runtime) callCare(ctx context.Context, args json.RawMessage) api.ToolRe
 	var in struct {
 		Operation string `json:"operation"`
 		care.Rule
-		Event map[string]any `json:"event"`
+		Event  map[string]any `json:"event"`
+		Policy *struct {
+			MaximumInterruptionsPer24Hours *int `json:"maximumInterruptionsPer24Hours"`
+			MinimumGapSeconds              *int `json:"minimumGapSeconds"`
+		} `json:"policy"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(args))
 	decoder.DisallowUnknownFields()
@@ -81,7 +90,17 @@ func (r *Runtime) callCare(ctx context.Context, args json.RawMessage) api.ToolRe
 	}
 	switch in.Operation {
 	case "list":
-		return result(map[string]any{"sources": r.care.Sources(), "state": r.care.Snapshot(), "status": r.care.Status(), "presenceAvailable": r.careSample().Available(), "minimumGapSeconds": 300, "maximumActivationsPer24Hours": 8}, nil)
+		return result(map[string]any{"sources": r.care.Sources(), "state": r.care.Snapshot(), "status": r.care.Status(), "presenceAvailable": r.careSample().Available(), "policy": r.care.Snapshot().Policy, "budget": r.care.Budget(r.now())}, nil)
+	case "configure":
+		if in.Policy == nil || in.Policy.MaximumInterruptionsPer24Hours == nil || in.Policy.MinimumGapSeconds == nil {
+			return result(nil, errors.New("care policy requires maximumInterruptionsPer24Hours and minimumGapSeconds"))
+		}
+		var authorize func(context.Context, string, string) error
+		if b, ok := r.engine.(api.BackgroundRuntime); ok {
+			authorize = b.AuthorizeBackground
+		}
+		err := r.care.Configure(ctx, care.Policy{MaximumInterruptionsPer24Hours: *in.Policy.MaximumInterruptionsPer24Hours, MinimumGapSeconds: *in.Policy.MinimumGapSeconds}, authorize)
+		return result(r.care.Snapshot().Policy, err)
 	case "test":
 		matched, err := r.care.Test(ctx, in.Rule, in.Event, r.now())
 		return result(map[string]bool{"matches": matched}, err)
@@ -105,8 +124,8 @@ func careSpec() any {
 	str := func(description string) map[string]any {
 		return map[string]any{"type": "string", "description": description}
 	}
-	return map[string]any{"name": "bot_care", "description": "List, test, save or remove standing proactive-care rules. Conditions use bounded, pure CEL; only a matching condition queues the prompt for the resident Bot. Native sources: clock.minute, desktop.usage, desktop.appChanged. App must remain running; dispatch waits for known unlocked presence and an idle Bot. Conditions cannot execute commands or publish events. Discover registered adapters with list; do not assume that an installed CLI or connector is already an event source. Read the proactive-care skill guide for fields, examples and limits. A save must implement the user's request or existing standing arrangement; Caelis requires a user-originated registration grant.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation"}, "properties": map[string]any{
-		"operation": map[string]any{"type": "string", "enum": []string{"list", "test", "save", "remove"}}, "id": str("Stable rule identifier, 1–64 letters, digits, hyphen or underscore"), "label": str("Brief user-facing purpose"), "on": map[string]any{"type": "string", "description": "Exact source name returned by list; only host-registered sources are accepted"}, "when": str("CEL boolean using event, now (timestamp), local (year, month, day, weekday 1–7, hour, minute)"), "prompt": str("Standing task, up to 4096 bytes"), "timeZone": str("Explicit IANA zone, e.g. Asia/Shanghai"), "cooldownSeconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 31622400, "description": "Default 3600; cooldown starts when a match is queued"}, "expiresSeconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 86400, "description": "Default 3600; queued work expires rather than catching up indefinitely"}, "event": map[string]any{"type": "object", "additionalProperties": true, "description": "Sample data for test only; never publishes an event or changes presence"},
+	return map[string]any{"name": "bot_care", "description": "Save, configure or remove standing proactive-care rules. Use bot_care_read to list sources/rules or test conditions. Conditions use bounded, pure CEL; only a matching condition queues the prompt for the resident Bot. Native sources: clock.minute, desktop.usage, desktop.appChanged. App must remain running; dispatch waits for known unlocked presence and an idle Bot. Conditions cannot execute commands or publish events. Discover registered adapters with list; do not assume that an installed CLI or connector is already an event source. Read the proactive-care skill guide for fields, examples and limits. Configure changes the shared interruption budget and dispatch gap only at the user's explicit request. A save must implement the user's request or existing standing arrangement; Caelis requires a user-originated registration grant.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation"}, "properties": map[string]any{
+		"operation": map[string]any{"type": "string", "enum": []string{"save", "remove", "configure"}}, "policy": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"maximumInterruptionsPer24Hours", "minimumGapSeconds"}, "properties": map[string]any{"maximumInterruptionsPer24Hours": map[string]any{"type": "integer", "minimum": 1, "maximum": 256}, "minimumGapSeconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 86400}}, "description": "For configure only: change care policy at the user's explicit request; never increase it to bypass a limit. Gap is between dispatches, not delayed results."}, "id": str("Stable rule identifier, 1–64 letters, digits, hyphen or underscore"), "label": str("Brief user-facing purpose"), "on": map[string]any{"type": "string", "description": "Exact source name returned by list; only host-registered sources are accepted"}, "onAny": map[string]any{"type": "array", "minItems": 1, "maxItems": 32, "items": map[string]any{"type": "string"}, "description": "Subscribe to any of these registered sources instead of on; evaluates only the arriving event data, with one shared cooldown and pending activation"}, "when": str("CEL boolean using event, now (timestamp), local (year, month, day, weekday 1–7, hour, minute)"), "prompt": str("Standing task, up to 4096 bytes"), "timeZone": str("Explicit IANA zone, e.g. Asia/Shanghai"), "cooldownSeconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 31622400, "description": "Default 3600; cooldown starts when dispatched; unsent expiry/rejection does not consume it"}, "expiresSeconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 86400, "description": "Default 3600; queued work expires rather than catching up indefinitely"}, "event": map[string]any{"type": "object", "additionalProperties": true, "description": "Sample data for test only; never publishes an event or changes presence"},
 	}}}
 }
 
@@ -120,4 +139,16 @@ func (r *Runtime) PublishCareEvent(ctx context.Context, event care.Event) error 
 		return errors.New("care is unavailable")
 	}
 	return r.care.Receive(ctx, event, r.now())
+}
+
+// Separate read-only discovery from reviewed standing authorization changes.
+func careReadSpec() any {
+	spec := careSpec().(map[string]any)
+	spec["name"] = "bot_care_read"
+	spec["description"] = "Read registered sources, rules, budget and presence with list, or evaluate a pure condition with test. Never publishes events, registers work or changes policy."
+	schema := spec["inputSchema"].(map[string]any)
+	properties := schema["properties"].(map[string]any)
+	properties["operation"] = map[string]any{"type": "string", "enum": []string{"list", "test"}}
+	delete(properties, "policy")
+	return spec
 }

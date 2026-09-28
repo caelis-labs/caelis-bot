@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,14 +22,15 @@ const MaxEventBytes = 16384
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 type Rule struct {
-	ID              string `json:"id"`
-	Label           string `json:"label"`
-	On              string `json:"on"`
-	When            string `json:"when"`
-	Prompt          string `json:"prompt"`
-	TimeZone        string `json:"timeZone"`
-	CooldownSeconds int    `json:"cooldownSeconds"`
-	ExpiresSeconds  int    `json:"expiresSeconds"`
+	ID              string   `json:"id"`
+	Label           string   `json:"label"`
+	On              string   `json:"on"`
+	OnAny           []string `json:"onAny,omitempty"`
+	When            string   `json:"when"`
+	Prompt          string   `json:"prompt"`
+	TimeZone        string   `json:"timeZone"`
+	CooldownSeconds int      `json:"cooldownSeconds"`
+	ExpiresSeconds  int      `json:"expiresSeconds"`
 }
 type Event struct {
 	Source string         `json:"source"`
@@ -45,8 +47,23 @@ func compile(r Rule) (Rule, condition, error) {
 	if !identifier.MatchString(r.ID) || strings.TrimSpace(r.Label) == "" || len(r.Label) > 200 || strings.TrimSpace(r.Prompt) == "" || len(r.Prompt) > 4096 {
 		return r, c, errors.New("invalid rule id, label or prompt")
 	}
-	if !sourceName.MatchString(r.On) || len(r.On) > 128 {
-		return r, c, errors.New("unsupported event source")
+	if (r.On == "") == (len(r.OnAny) == 0) || len(r.OnAny) > 32 {
+		return r, c, errors.New("specify on or a nonempty onAny list of at most 32 sources")
+	}
+	for _, name := range r.subscriptions() {
+		if !sourceName.MatchString(name) || len(name) > 128 {
+			return r, c, errors.New("unsupported event source")
+		}
+	}
+	if len(r.OnAny) > 0 {
+		r.OnAny = slices.Clone(r.OnAny)
+		slices.Sort(r.OnAny)
+		r.OnAny = slices.Compact(r.OnAny)
+		if len(r.OnAny) == 1 {
+			r.On, r.OnAny = r.OnAny[0], nil
+		}
+	} else {
+		r.OnAny = nil
 	}
 	if len(r.When) > 2048 {
 		return r, c, errors.New("condition exceeds 2 KiB")
@@ -159,3 +176,12 @@ func Test(ctx context.Context, r Rule, data map[string]any, now time.Time) (bool
 	}
 	return c.evaluate(ctx, data, now)
 }
+
+// Single-source encoding stays byte-compatible with existing native grants.
+func (r Rule) subscriptions() []string {
+	if r.On != "" {
+		return []string{r.On}
+	}
+	return r.OnAny
+}
+func (r Rule) subscribes(source string) bool { return slices.Contains(r.subscriptions(), source) }

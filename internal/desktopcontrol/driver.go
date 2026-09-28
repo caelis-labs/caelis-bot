@@ -62,8 +62,17 @@ func (d *Driver) Definitions() []api.ToolDefinition { return SemanticDefinitions
 func driverError(message string) api.ToolResult {
 	return api.ToolResult{IsError: true, Content: []map[string]string{{"type": "text", "text": message}}}
 }
+
+type turnKey struct{}
+
+// WithTurn is private-channel metadata supplied by the native Bot lifecycle, not
+// a model argument. Changing it invalidates every app grant in the helper.
+func WithTurn(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, turnKey{}, id)
+}
+
 func (d *Driver) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
-	if name != "bot_desktop_observe" && name != "bot_desktop_perform" {
+	if name != "bot_desktop_observe" && name != "bot_desktop_authorize" && name != "bot_desktop_perform" {
 		return driverError("unsupported desktop tool")
 	}
 	if len(args) > 65536 || !json.Valid(args) {
@@ -89,9 +98,10 @@ func (d *Driver) CallTool(ctx context.Context, name string, args json.RawMessage
 	done := make(chan response, 1)
 	go func() {
 		err := json.NewEncoder(d.input).Encode(struct {
+			Turn      string          `json:"turn"`
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
-		}{name, args})
+		}{turnID(ctx), name, args})
 		var out api.ToolResult
 		if err == nil {
 			var line []byte
@@ -143,3 +153,5 @@ func (d *Driver) closeLocked() {
 	}
 }
 func (d *Driver) Close() { d.mu.Lock(); defer d.mu.Unlock(); d.closeLocked() }
+
+func turnID(ctx context.Context) string { id, _ := ctx.Value(turnKey{}).(string); return id }

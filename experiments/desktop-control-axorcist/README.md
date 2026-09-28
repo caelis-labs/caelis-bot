@@ -52,6 +52,6 @@ Typed `Attribute<Int>` / `Attribute<String>` reads avoid an optional-nil boxing
 problem observed with this revision's Any-valued `.value()` convenience method
 under Swift 6.4. Production adoption still requires broader component testing.
 
-See the [dependency audit](../../docs/design/computer-use-dependency-audit.md)
+See the [dependency audit](../../docs/architecture.md)
 for the exact Cua dependency chain, MPL usage/distribution distinction, alternate
 path, and remaining production gates.

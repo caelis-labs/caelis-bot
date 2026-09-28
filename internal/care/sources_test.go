@@ -24,7 +24,7 @@ func TestNativeUsageResetsWithoutCountingSleepOrAbsence(t *testing.T) {
 	}
 	v.Application = "terminal"
 	ev := s.Poll(instant.Add(31*time.Second), v)
-	if len(ev) != 1 || ev[0].Source != "desktop.appChanged" || ev[0].Data["previousApplication"] != "editor" {
+	if len(ev) != 1 || ev[0].Source != "desktop.appChanged" || ev[0].Data["previousApplication"] != "editor" || ev[0].Data["activeSeconds"] != int64(31) || ev[0].Data["idleSeconds"] != int64(0) {
 		t.Fatal(ev)
 	}
 	if n := usage(s.Poll(instant.Add(3*time.Hour), v)); n != 0 {

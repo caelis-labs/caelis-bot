@@ -41,6 +41,7 @@ func (e *dreamEngine) RenewConversation(context.Context, string, string) error {
 		return e.renewErr
 	}
 	e.conversation.Session, e.conversation.Turn, e.conversation.Status = "new", "", ""
+	e.conversation.RuntimeVersion = e.conversation.DesiredRuntimeVersion
 	return nil
 }
 
@@ -233,5 +234,89 @@ func TestDreamRestartWaitsForNativeConversationRestore(t *testing.T) {
 	}
 	if e.renewals != 1 || len(e.submissions) != 2 || len(e.dreams) != 1 {
 		t.Fatal("missing or repeated renewal", e.renewals, len(e.submissions), len(e.dreams))
+	}
+}
+
+func TestUpgradeHandoffWaitsForRestoreThenRunsOnceWithoutIdleDelay(t *testing.T) {
+	r, e, _ := dreamFixture(t)
+	e.conversation.RuntimeVersion, e.conversation.DesiredRuntimeVersion = "old-version", "new-version"
+	e.conversation.Observed = false
+	_ = r.Tick(t.Context())
+	e.conversation.Observed, e.conversation.Idle = true, false
+	_ = r.Tick(t.Context())
+	if len(e.dreams) != 0 {
+		t.Fatal("upgrade interrupted recovery or active work")
+	}
+	e.conversation.Idle = true
+	if err := r.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.dreams) != 1 {
+		t.Fatal("upgrade waited for idle timer")
+	}
+	id := e.dreams[0].ID
+	if err := os.WriteFile(filepath.Join(r.dream.vault.Path(), notebook.HandoffName), []byte(notebook.DreamMarker(id)+"\nRetain the existing assignment."), 0600); err != nil {
+		t.Fatal(err)
+	}
+	e.conversation.Status, e.conversation.Idle = "completed", true
+	r = restartDreamRuntime(t, r, e)
+	if err := r.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if e.renewals != 1 || e.conversation.RuntimeVersion != "new-version" {
+		t.Fatal("upgrade did not install new context")
+	}
+	r = restartDreamRuntime(t, r, e)
+	for range 3 {
+		if err := r.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(e.dreams) != 1 || e.renewals != 1 {
+		t.Fatal("same-version restart repeated handoff")
+	}
+	if _, err := os.Stat(filepath.Join(r.dream.vault.Path(), notebook.HandoffName)); err != nil {
+		t.Fatal("handoff consumed before new input", err)
+	}
+}
+
+func TestUpgradeReusesReadyHandoffAndReconcilesUnknownRenewal(t *testing.T) {
+	r, e, now := dreamFixture(t)
+	completeDream(t, r, e, now)
+	e.conversation.DesiredRuntimeVersion = "new-version"
+	e.renewErr = errors.New("unknown create")
+	if err := r.Tick(t.Context()); err == nil {
+		t.Fatal("unknown renewal hidden")
+	}
+	r = restartDreamRuntime(t, r, e)
+	e.renewErr = nil
+	if err := r.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.dreams) != 1 || e.renewals != 2 || r.dream.state.Attempt.Ready {
+		t.Fatal("handoff was regenerated or not recovered")
+	}
+}
+
+func TestUpgradeFailureDoesNotCreateMaintenanceLoop(t *testing.T) {
+	for _, outcome := range []string{"unknown", "rejected", "accepted"} {
+		t.Run(outcome, func(t *testing.T) {
+			r, e, now := dreamFixture(t)
+			e.conversation.DesiredRuntimeVersion, e.outcome = "new-version", outcome
+			if err := r.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if outcome == "accepted" {
+				e.conversation.Status, e.conversation.Idle = "failed", true
+			}
+			*now = now.Add(time.Hour)
+			for range 3 {
+				_ = r.Tick(t.Context())
+				r = restartDreamRuntime(t, r, e)
+			}
+			if len(e.dreams) != 1 || e.renewals != 0 {
+				t.Fatal("failed/unknown upgrade retried a model turn")
+			}
+		})
 	}
 }

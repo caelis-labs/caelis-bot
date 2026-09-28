@@ -23,6 +23,8 @@ type ContextSeed struct {
 // cannot be mistaken for another resident turn or a successful Dream.
 type ConversationState struct {
 	Session, Turn, Status string
+	// Host-only assembly versions; never user-facing Session navigation.
+	RuntimeVersion, DesiredRuntimeVersion string
 	// Observed is true only after native state has been restored. It is independent
 	// of Idle: an observed running turn must still invalidate an older handoff.
 	Observed bool

@@ -37,7 +37,7 @@ func (s *SourcesTracker) Poll(now time.Time, v Sample) []Event {
 		s.active += elapsed
 	}
 	if available && s.available && s.app != "" && v.Application != "" && v.Application != s.app {
-		events = append(events, Event{Source: "desktop.appChanged", At: now, Data: map[string]any{"application": v.Application, "previousApplication": s.app}})
+		events = append(events, Event{Source: "desktop.appChanged", At: now, Data: map[string]any{"application": v.Application, "previousApplication": s.app, "activeSeconds": int64(s.active.Seconds()), "idleSeconds": int64(v.IdleSeconds)}})
 	}
 	s.app = v.Application
 	s.available = available

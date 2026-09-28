@@ -2,6 +2,7 @@ package codex
 
 import (
 	"regexp"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/activation"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -50,4 +51,43 @@ func (s *Session) BackgroundReceipt(id string) api.Receipt {
 		return api.Receipt{ID: id, Outcome: "accepted"}
 	}
 	return api.Receipt{ID: id, Outcome: "unknown"}
+}
+
+func (s *Session) captureBackgroundResults() bool {
+	changed := false
+	for id, turn := range s.binding.Scheduled {
+		if turn == "" {
+			continue
+		}
+		if _, dream := s.binding.Dreams[id]; dream {
+			continue
+		}
+		old := s.binding.BackgroundResults[id]
+		if old.Complete {
+			continue
+		}
+		approval := s.visibleReview(s.binding.ThreadID, turn)
+		for _, p := range s.prompts {
+			if p.thread == s.binding.ThreadID && p.turn == turn && p.view.Status != "resolved" {
+				approval = true
+			}
+		}
+		next := activation.Observe(old, id, opaque(turn), s.runs[turn], s.state.Items, approval, time.Now())
+		if next == old || !next.Visible && !next.Complete {
+			continue
+		}
+		if s.binding.BackgroundResults == nil {
+			s.binding.BackgroundResults = map[string]api.BackgroundResult{}
+		}
+		s.binding.BackgroundResults[id] = next
+		changed = true
+	}
+	return changed
+}
+func (s *Session) BackgroundResult(id string) api.BackgroundResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.binding.BackgroundResults[id]
+	out.ID = id
+	return out
 }

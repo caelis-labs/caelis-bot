@@ -5,7 +5,7 @@ Driver 0.30.2** SDK and a disposable macOS native window. Default observation is
 accessibility metadata and text; the tested sequence makes **zero screenshots**.
 No browser profile, account, arbitrary app or system-menu action is exposed.
 The current product adapter is separately implemented in `resources/computer-use`;
-see the [integration record](../../docs/design/computer-use-integration.md).
+see the [integration record](../../docs/architecture.md).
 
 The model-facing tools are `bot_desktop_observe {}` and
 `bot_desktop_perform {observation, steps:[{op:"click",target}]}`. The current fixture

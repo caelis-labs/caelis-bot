@@ -67,20 +67,25 @@ func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
 
 func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 	var creates, grants atomic.Int32
+	var created wire.ApplicationProfile
+	const version = "caelis-bot-application-v1/new-version"
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
 		case "/application/sessions/main/configuration":
-			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{Model: "retained-model", Execution: "workspace-write"}})
+			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{Model: "retained-model", Execution: "workspace-write", Permissions: &wire.ApplicationPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}}})
 		case "/application/sessions":
 			creates.Add(1)
 			var in wire.CreateApplicationSessionRequest
 			json.NewDecoder(r.Body).Decode(&in)
-			if in.Profile.Model != "retained-model" {
-				t.Error("model changed")
+			if in.Profile.Version != version || in.Profile.ExecutionConfig == nil || !value(in.Profile.ExecutionConfig.Environment.Inherit) || in.Profile.Model != "retained-model" || in.Profile.Reviewer == nil || in.Profile.Reviewer.Model != "retained-model" || value(in.Profile.Permissions.Mode) != "read-only" || value(in.Profile.Permissions.ApprovalMode) != "auto-review" {
+				t.Error("handoff lost model, sandbox or Guardian assembly")
 			}
+			created = in.Profile
 			writeFixture(w, wire.CommandResult{OperationId: value(in.OperationId), Outcome: "committed", SessionId: pointer("next")})
 		case "/application/sessions/next":
-			writeFixture(w, wire.ApplicationBinding{SessionId: "next", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Profile: wire.ApplicationProfile{Execution: "workspace-write"}})
+			writeFixture(w, wire.ApplicationBinding{SessionId: "next", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Profile: created})
+		case "/application/sessions/next/reviewer-state":
+			writeFixture(w, wire.ApplicationReviewerState{SessionId: "next", ApprovalMode: "auto-review", Reviewer: created.Reviewer, Status: "ready"})
 		case "/sessions/next/state":
 			writeFixture(w, wire.SessionState{SessionId: "next"})
 		case "/application/sessions/next/background-grants":
@@ -96,6 +101,9 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	})
+	s.profile.Version = version
+	s.profile.ExecutionConfig = &wire.ExecutionConfig{Environment: &wire.EnvironmentConfig{Inherit: pointer(true)}}
+	s.tools = &api.ToolConnection{RuntimeVersion: "new-version"}
 	s.state.Operations["dream"] = journal{Path: "/application/sessions/main/prompt", Dream: true, Scheduled: true, Outcome: "accepted", TurnID: "turn"}
 	v := s.state.Views["main"]
 	v.CommandCaughtUp = true
@@ -110,7 +118,7 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 	if err := s.RenewConversation(t.Context(), "dream", "main"); err != nil {
 		t.Fatal(err)
 	}
-	if creates.Load() != 1 || grants.Load() != 1 || s.state.Grants["reminder"].Grant.Id != "new-grant" || len(s.Snapshot().Items) != 2 {
+	if s.ConversationState().RuntimeVersion != "new-version" || creates.Load() != 1 || grants.Load() != 1 || s.state.Grants["reminder"].Grant.Id != "new-grant" || len(s.Snapshot().Items) != 2 {
 		t.Fatal("lost continuity")
 	}
 }

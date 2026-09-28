@@ -35,7 +35,7 @@ smoke-bot:
 
 # Uses a separately built/installed Caelis binary, never a sibling Go import.
 smoke-caelis:
-	bash -c 'set -e; source script/env.sh; : "$${CAELIS_BOT_TEST_BINARY:?Set an external Caelis binary}"; go test -race -v -timeout 120s -run "^TestNativeHostIntegration$$" ./internal/backend/caelis'
+	bash -c 'set -e; source script/env.sh; : "$${CAELIS_BOT_TEST_BINARY:?Set an external Caelis binary}"; go test -race -v -count=1 -timeout 240s -run "^(TestNativeHostIntegration|TestGuardianHostIntegration)$$" ./internal/backend/caelis'
 
 # Opt-in, billable model calls through an already configured isolated Host.
 smoke-caelis-live:

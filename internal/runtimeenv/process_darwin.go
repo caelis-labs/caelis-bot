@@ -35,3 +35,13 @@ func boundProcess(cmd *exec.Cmd) {
 	}
 	cmd.WaitDelay = 250 * time.Millisecond
 }
+
+func userTemp(ctx context.Context) string {
+	cmd := exec.CommandContext(ctx, "/usr/bin/getconf", "DARWIN_USER_TEMP_DIR")
+	if b, err := cmd.Output(); err == nil {
+		if path := strings.TrimSpace(string(b)); strings.HasPrefix(path, "/") {
+			return path
+		}
+	}
+	return "/tmp"
+}

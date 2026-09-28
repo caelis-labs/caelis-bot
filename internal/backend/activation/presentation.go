@@ -62,6 +62,9 @@ func Present(v api.Snapshot, scheduled map[string]string, pending bool) api.Snap
 			v.Quiet = false
 		}
 	}
+	if hasReviewNotice(v.Reviews) {
+		v.Quiet = false
+	}
 	if v.Quiet {
 		v.Reviews = []api.Review{}
 	}
@@ -70,4 +73,16 @@ func Present(v api.Snapshot, scheduled map[string]string, pending bool) api.Snap
 		v.CurrentTurn = current
 	}
 	return v
+}
+
+// These native facts produce visible chat notices, never manual Allow choices.
+// Quiet schedules suppress review progress/success, not a denied or failed action.
+func hasReviewNotice(reviews []api.Review) bool {
+	for _, review := range reviews {
+		switch review.Status {
+		case "denied", "timedOut", "aborted", "failed":
+			return true
+		}
+	}
+	return false
 }

@@ -24,6 +24,10 @@ func (s *Session) cleanupContextLocked() {
 }
 func (s *Session) conversationLocked() api.ConversationState {
 	out := api.ConversationState{Session: s.state.Session.SessionId}
+	if s.tools != nil {
+		out.DesiredRuntimeVersion = s.tools.RuntimeVersion
+	}
+	out.RuntimeVersion, _ = strings.CutPrefix(s.state.Session.Profile.Version, "caelis-bot-application-v1/")
 	if v := s.state.Views[out.Session]; v != nil {
 		out.Observed = s.connected && !s.closed && v.CommandCaughtUp
 		out.Turn = observedTurn(v)
@@ -168,6 +172,13 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 			return err
 		}
 		profile := config.Profile
+		if profile.Version != s.profile.Version {
+			// New product assembly adopts current host environment defaults; CWD,
+			// selected model and the independent sandbox scope remain preserved.
+			profile.Version = s.profile.Version
+			profile.ExecutionConfig = clone(s.profile.ExecutionConfig)
+		}
+		s.configureReviewer(&profile)
 		profile.Instructions, profile.Tools, profile.ToolsVersion = s.profile.Instructions, s.profile.Tools, s.profile.ToolsVersion
 		_, renewalErr = s.command(ctx, op, "/application/sessions", wire.CreateApplicationSessionRequest{OperationId: &op, Profile: profile})
 	} else if pending.Outcome == "unknown" {
@@ -199,6 +210,9 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 	}
 	if next.SessionId != sid || sid == source || next.ApplicationId != life.ApplicationId || next.ConnectionId != life.ConnectionId || next.PrincipalId != life.PrincipalId || next.Archived || next.Profile.Execution != s.executionMode {
 		return errors.New("新上下文绑定不匹配")
+	}
+	if err := s.checkReviewer(ctx, next); err != nil {
+		return err
 	}
 	var state wire.SessionState
 	if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil {

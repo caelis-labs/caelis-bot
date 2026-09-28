@@ -1,6 +1,9 @@
 package api
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // WorkRuntime is the native execution port consumed by the application's task
 // coordinator. It owns native bindings, approvals and mutation receipts, not
@@ -72,3 +75,14 @@ type BackgroundRuntime interface {
 // BackgroundReceiptProvider reads retained native submission evidence without
 // dispatching again, even after later user input replaces LastReceipt.
 type BackgroundReceiptProvider interface{ BackgroundReceipt(string) Receipt }
+
+// BackgroundResult is retained presentation evidence for one native submission.
+// ObservedAt is the host's first observation, not a fabricated native timestamp.
+// It carries no text or execution authority and never means the user read it.
+type BackgroundResult struct {
+	ID         string    `json:"id"`
+	Complete   bool      `json:"complete"`
+	Visible    bool      `json:"visible"`
+	ObservedAt time.Time `json:"observedAt,omitempty"`
+}
+type BackgroundResultProvider interface{ BackgroundResult(string) BackgroundResult }

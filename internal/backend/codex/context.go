@@ -44,7 +44,12 @@ func (s *Session) cleanupContextLocked() {
 }
 
 func (s *Session) conversationLocked() api.ConversationState {
+	desired := ""
+	if s.opts.BotTools != nil {
+		desired = s.opts.BotTools.RuntimeVersion
+	}
 	return api.ConversationState{
+		RuntimeVersion: s.binding.RuntimeVersion, DesiredRuntimeVersion: desired,
 		Session: s.binding.ThreadID, Turn: s.lastTurn, Status: s.runs[s.lastTurn],
 		Observed: s.bound && !s.loading && s.state.Connection == "ready" && !s.closed && !s.closing,
 		Idle:     s.state.CanSend && s.opts.Execution.ApprovalMode != "read-only",
@@ -163,6 +168,9 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 	}
 	old := s.binding
 	s.binding.ThreadID, s.binding.RenewedBy = response.Thread.ID, id
+	if s.opts.BotTools != nil {
+		s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion
+	}
 	s.binding.PastThreads = append(append([]string{}, old.PastThreads...), source)
 	s.binding.Context, s.binding.Unsubmitted = contextseed.State{}, true
 	if err := s.save(); err != nil {

@@ -50,7 +50,14 @@ func accepted(_ context.Context, a Activation) (api.Receipt, error) {
 }
 func deliver(t *testing.T, e *Engine, now time.Time) {
 	t.Helper()
-	if err := e.Deliver(t.Context(), now, presence(), true, noReceipt, accepted); err != nil {
+	if err := e.Deliver(t.Context(), now, presence(), true, noReceipt, accepted, func(id string) api.BackgroundResult {
+		return api.BackgroundResult{ID: id, Complete: true, Visible: true, ObservedAt: now}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Deliver(t.Context(), now, Presence{}, false, noReceipt, accepted, func(id string) api.BackgroundResult {
+		return api.BackgroundResult{ID: id, Complete: true, Visible: true, ObservedAt: now}
+	}); err != nil {
 		t.Fatal(err)
 	}
 }

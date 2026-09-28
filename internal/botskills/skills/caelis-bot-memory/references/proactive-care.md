@@ -2,12 +2,17 @@
 
 Use `bot_care` for a standing arrangement that should run only when a local
 condition matches. Use `bot_reminders` for an ordinary fixed-time reminder. Read
-`bot_care` with `operation: "list"` first: it returns the available sources, their
+`bot_care_read` with `operation: "list"` first: it returns the available sources, their
 fields, saved rules, queued outcomes, and current presence availability.
+
+Use `on` for one source, or `onAny` for a nonempty list of registered sources.
+Any subscribed event evaluates the condition using only that event's fields; it
+does not merge data from other sources. Use `has(event.field)` for optional fields.
+All sources share one rule, pending activation, and cooldown.
 
 Translate the user's request or standing arrangement into a short task and a CEL
 boolean condition. Test representative matching and non-matching data with
-`operation: "test"` before saving. Testing neither registers a rule nor publishes
+`bot_care_read` with `operation: "test"` before saving. Testing neither registers a rule nor publishes
 an event. Save with a stable ID, and confirm the returned enabled state. Identical
 saves preserve cooldown and pending work. Use `remove` to stop future callbacks.
 A Caelis registration or substantive change needs a user-originated request;
@@ -19,7 +24,7 @@ report a rejected native grant rather than claiming the rule is active.
 | --- | --- |
 | `clock.minute` | No event fields. Use `local.year`, `month`, `day`, `weekday`, `hour`, and `minute` for a date, weekday, or time-window condition in the rule's IANA timezone. Monday is 1, Sunday is 7; holidays are not supplied. |
 | `desktop.usage` | `activeSeconds`, `idleSeconds` (integers), and `application` (foreground bundle identifier). Use for break suggestions after sustained computer use, optionally limited to an app or time window. |
-| `desktop.appChanged` | `application` and `previousApplication` (bundle identifiers). Use for a helpful action when the sampled foreground app changes. |
+| `desktop.appChanged` | `application` and `previousApplication` (bundle identifiers), plus `activeSeconds` and `idleSeconds` from the same native sample. Use for a helpful action when the sampled foreground app changes. |
 
 Desktop observations contain no window titles, screen content, typed text, or
 browser URLs. Usage is approximate: it accumulates across apps while recent input
@@ -32,7 +37,8 @@ every 30 seconds, and clock conditions once per current minute.
 
 These are `bot_care` arguments. Adapt the purpose, timezone, application identifiers,
 and frequency to the actual arrangement. To try an example, change `operation` to
-`test` and include the indicated `event` object, then save without that sample.
+`test` on `bot_care_read` and include the indicated `event` object, then save
+with `bot_care` without that sample.
 
 A brief break suggestion after two hours of active use during weekday daytime:
 
@@ -89,11 +95,27 @@ boolean; missing fields, incompatible types, and excessive evaluation cost produ
 an error, not a match. Guard optional fields with `has(event.field)`.
 
 The current limits are 32 rules, 2 KiB per condition, 4 KiB per prompt, and 16 KiB
-per event. Cooldown defaults to one hour and starts when a match is queued; expiry
-also defaults to one hour. At most one pending activation per rule is retained.
-Care activations are spaced at least five minutes apart, with at most eight
-attempts in a rolling 24 hours across care rules for the selected Runtime. These
-limits do not change ordinary reminders or user messages.
+per event. Cooldown defaults to one hour and starts at dispatch; expiry
+also defaults to one hour. At most one outstanding activation per rule is retained.
+Read `list.policy` and `list.budget` for effective limits. Defaults are eight
+visible interruptions per rolling 24 hours and a five-minute dispatch gap.
+The gap spaces model activations, not delayed output. Silent completion does not
+consume an interruption; visible text, files, approval requests, or failure
+feedback count once per activation. An earlier visible approval is not refunded
+when the final response is silent. Human follow-up is not a new automatic nudge.
+Queued expiry and explicit rejection do not consume the full rule cooldown.
+
+Unknown and accepted-but-unfinished activations reserve capacity until native
+results resolve them, blocking another activation of that rule. Other rules may
+continue when capacity and the Runtime's idle admission permit. Never resend an
+unknown activation. `reserved` is not an interruption count. Migration reservations
+represent old attempt records without visibility evidence and expire after their
+original 24-hour window; unresolved submissions remain reserved separately.
+
+Only at the user's explicit request, use `configure` with a complete `policy`:
+`{"maximumInterruptionsPer24Hours":8,"minimumGapSeconds":300}`. Caelis requires
+a user-originated authorization. Never raise limits merely to get more work through.
+These settings do not change ordinary reminders, user messages, or approval handling.
 
 The app must remain running. Hiding the pet does not stop collection. Delivery
 waits for an idle Bot and a known awake, unlocked session; stale pending work

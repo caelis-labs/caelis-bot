@@ -92,7 +92,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	if s.connected {
 		for sid, v := range s.state.Views {
 			a := v.State.Approval.Active
-			if a == nil {
+			if a == nil || s.automaticApprovalLocked(sid, a) {
 				continue
 			}
 			raw, _ := json.Marshal(a.Permission)
@@ -110,6 +110,15 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			out.Approvals = append(out.Approvals, item)
 		}
 	}
+	for _, view := range s.state.Views {
+		for _, review := range view.Reviews {
+			out.Reviews = append(out.Reviews, review.Review)
+		}
+		for _, review := range view.LiveReviews {
+			out.Reviews = append(out.Reviews, review.Review)
+		}
+	}
+	slices.SortFunc(out.Reviews, func(a, b api.Review) int { return strings.Compare(a.ID, b.ID) })
 	for id, f := range s.state.CommandFollowups {
 		if f.DeliveryFailure != "" && !f.Done {
 			if v != nil && v.CommandResults[id].Received {
@@ -204,7 +213,7 @@ func approvalID(instance, sid string, a *wire.ActiveApproval) string {
 }
 func (s *Session) approvalLocked(id string) (approvalRef, bool) {
 	for sid, v := range s.state.Views {
-		if a := v.State.Approval.Active; a != nil && approvalID(s.state.InstanceID, sid, a) == id {
+		if a := v.State.Approval.Active; a != nil && !s.automaticApprovalLocked(sid, a) && approvalID(s.state.InstanceID, sid, a) == id {
 			return approvalRef{sid, clone(a)}, true
 		}
 	}
@@ -220,6 +229,10 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 			return
 		}
 		v.Seen[key] = true
+	}
+	if e.Kind == "caelis/approval_review" {
+		applyReview(v, e)
+		return
 	}
 	observeCommandResult(v, e)
 	// ACP permission events are notifications, not the durable Control approval

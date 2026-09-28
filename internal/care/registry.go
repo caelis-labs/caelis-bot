@@ -23,7 +23,7 @@ func NativeSources() []Source {
 	return []Source{
 		{Name: "clock.minute", Description: "One current wall-clock minute while the app runs; no missed-minute replay. Use local fields for the rule timezone.", Fields: map[string]string{}},
 		{Name: "desktop.usage", Description: "Sampled about every 30 seconds with known unlocked presence. Active time resets after a five-minute break, lock, sleep or app restart.", Fields: map[string]string{"activeSeconds": "integer", "idleSeconds": "integer", "application": "bundle identifier string"}},
-		{Name: "desktop.appChanged", Description: "A change between sampled foreground application bundle identifiers, with known unlocked presence.", Fields: map[string]string{"application": "bundle identifier string", "previousApplication": "bundle identifier string"}},
+		{Name: "desktop.appChanged", Description: "A change between sampled foreground application bundle identifiers, with known unlocked presence.", Fields: map[string]string{"application": "bundle identifier string", "previousApplication": "bundle identifier string", "activeSeconds": "integer", "idleSeconds": "integer"}},
 	}
 }
 func registry(sources []Source) (map[string]Source, error) {
@@ -73,8 +73,28 @@ func (e *Engine) Sources() []Source {
 }
 func (e *Engine) hasSource(name string) bool { _, ok := e.sources[name]; return ok }
 func (e *Engine) Test(ctx context.Context, r Rule, data map[string]any, now time.Time) (bool, error) {
-	if !e.hasSource(r.On) {
+	if !e.hasAllSources(r) {
 		return false, errors.New("unsupported event source")
 	}
 	return Test(ctx, r, data, now)
+}
+
+func (e *Engine) hasAllSources(r Rule) bool {
+	if len(r.subscriptions()) == 0 {
+		return false
+	}
+	for _, name := range r.subscriptions() {
+		if !e.hasSource(name) {
+			return false
+		}
+	}
+	return true
+}
+func (e *Engine) hasAnySource(r Rule) bool {
+	for _, name := range r.subscriptions() {
+		if e.hasSource(name) {
+			return true
+		}
+	}
+	return false
 }

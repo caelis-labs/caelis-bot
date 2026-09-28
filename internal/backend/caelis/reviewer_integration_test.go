@@ -1,0 +1,681 @@
+package caelis
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
+	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
+	"github.com/caelis-labs/caelis-bot/internal/botskills"
+	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
+	notebookstore "github.com/caelis-labs/caelis-bot/internal/notebook"
+)
+
+// Synthetic decisions exercise the public transport and native execution, not
+// model judgment quality. No private Core imports or daily Store are involved.
+func TestGuardianHostIntegration(t *testing.T) {
+	bin := os.Getenv("CAELIS_BOT_TEST_BINARY")
+	if bin == "" {
+		t.Skip("set CAELIS_BOT_TEST_BINARY for external Guardian acceptance")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Second)
+	defer cancel()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := newExecutionFixture(t, root)
+	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
+	main := newAcceptanceModel()
+	var mu sync.Mutex
+	decision := `{"option_id":"allow_once"}`
+	var block <-chan struct{}
+	var reviewRequests []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		if body["model"] != "reviewer-model" {
+			r.Body = io.NopCloser(bytes.NewReader(raw))
+			main.serve(w, r)
+			return
+		}
+		mu.Lock()
+		reply, gate := decision, block
+		reviewRequests = append(reviewRequests, body)
+		mu.Unlock()
+		if gate != nil {
+			select {
+			case <-gate:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		b, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "content": reply}, "finish_reason": "stop"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", b)
+	}))
+	defer server.Close()
+	configureReview := func(reply string, gate <-chan struct{}) { mu.Lock(); decision, block = reply, gate; mu.Unlock() }
+	var cmd *exec.Cmd
+	start := func() {
+		cmd = exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
+		cmd.Dir = root
+		cmd.Env = env.env
+		log, e := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if e != nil {
+			t.Fatal(e)
+		}
+		cmd.Stdout, cmd.Stderr = log, log
+		if e = cmd.Start(); e != nil {
+			t.Fatal(e)
+		}
+		_ = log.Close()
+		waitAcceptance(t, ctx, func() bool { _, _, e := Discover(settings); return e == nil })
+	}
+	stop := func() {
+		if cmd != nil {
+			_ = cmd.Process.Signal(os.Interrupt)
+			_ = cmd.Wait()
+			cmd = nil
+		}
+	}
+	start()
+	defer stop()
+	d, token, err := Discover(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := newClient(d.Endpoint, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host.http.CloseIdleConnections()
+	for _, name := range []string{"gpt-4.1", "reviewer-model"} {
+		var state wire.StatusSnapshot
+		if err = host.json(ctx, "GET", "/status", nil, &state, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		op := "configure-" + name
+		var result wire.CommandResult
+		err = host.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &state.Configuration.Revision, Config: wire.ConnectConfig{Provider: "openai-compatible", Model: name, BaseUrl: pointer(server.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}, &result, op, string(state.Configuration.Revision))
+		if err != nil || !succeeded(result.Outcome) {
+			t.Fatal("model configuration", err)
+		}
+	}
+	notebook := filepath.Join(root, "Notebook")
+	if err = os.Mkdir(notebook, 0700); err != nil {
+		t.Fatal(err)
+	}
+	var effects atomic.Int32
+	tools := &acceptanceTools{defs: fixtureDefinitions("string"), call: func(_ context.Context, name string, args json.RawMessage) api.ToolResult {
+		effects.Add(1)
+		return api.ToolResult{Content: []map[string]string{{"type": "text", "text": "REVIEWED_CALLBACK_RESULT"}}}
+	}}
+	var s *Session
+	open := func() {
+		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai-compatible/gpt-4.1"}, ReviewerModel: "openai-compatible/reviewer-model"})
+		if err = s.ConfigureBotTools(&api.ToolConnection{Host: tools, NotebookDirectory: notebook}); err != nil {
+			t.Fatal(err)
+		}
+		if err = s.Connect(ctx); err != nil {
+			t.Fatal(err)
+		}
+		waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
+	}
+	open()
+	defer func() { _ = s.Close(context.Background()) }()
+	original := s.state.Session.SessionId
+	if p := s.state.Session.Profile; p.Reviewer == nil || p.Reviewer.Model != "openai-compatible/reviewer-model" || value(p.Permissions.ApprovalMode) != "auto-review" || value(p.Permissions.Mode) != "workspace-write" {
+		t.Fatal("Guardian/sandbox not assembled")
+	}
+	reviewFor := func(status, action string) bool {
+		for _, r := range s.Snapshot().Reviews {
+			if r.Status == status && strings.Contains(r.Action, action) {
+				return true
+			}
+		}
+		return false
+	}
+	identities := map[string]reviewFact{}
+	assertIdentity := func(t *testing.T, status, action string) reviewFact {
+		t.Helper()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, facts := range []map[string]reviewFact{s.state.Views[original].Reviews, s.state.Views[original].LiveReviews} {
+			for id, fact := range facts {
+				if fact.Status != status || !strings.Contains(fact.Action, action) {
+					continue
+				}
+				if fact.ItemID == "" || fact.ToolCallID == "" || fact.TurnID == "" || fact.ApprovalID == "" {
+					t.Fatal("review lost native identity", status)
+				}
+				for priorID, prior := range identities {
+					if priorID == id && (prior.ItemID != fact.ItemID || prior.ToolCallID != fact.ToolCallID || prior.TurnID != fact.TurnID) {
+						t.Fatal("review identity changed")
+					}
+					if priorID != id && prior.TurnID == fact.TurnID && prior.ItemID == fact.ItemID {
+						t.Fatal("distinct invocations reused item identity")
+					}
+				}
+				identities[id] = fact
+				return fact
+			}
+		}
+		t.Fatal("review missing", status, action)
+		return reviewFact{}
+	}
+	noManual := func() {
+		t.Helper()
+		if len(s.Snapshot().Approvals) != 0 {
+			t.Fatal("automatic review created manual interaction")
+		}
+	}
+	noCalls := func() {
+		t.Helper()
+		var calls []wire.ApplicationCall
+		if e := s.client.json(ctx, "GET", "/application/sessions/"+idPath(original)+"/calls", nil, &calls, "", ""); e != nil {
+			t.Fatal(e)
+		}
+		for _, c := range calls {
+			if c.State == "pending" || c.State == "claimed" {
+				t.Fatal("unreviewed callback dispatch")
+			}
+		}
+	}
+	if !t.Run("G01_callback_gate_and_exact_once", func(t *testing.T) {
+		gate := make(chan struct{})
+		var once sync.Once
+		release := func() { once.Do(func() { close(gate) }) }
+		defer release()
+		configureReview(`{"option_id":"allow_once"}`, gate)
+		main.set("CASE_REVIEW_ALLOW", modelStep{Name: "FixtureLookup", Args: map[string]any{"key": "allowed"}})
+		before := s.Snapshot().CurrentTurn
+		if _, e := s.Submit(ctx, api.Submission{ID: "review-allow", Text: "CASE_REVIEW_ALLOW"}, nil); e != nil {
+			t.Fatal(e)
+		}
+		waitAcceptance(t, ctx, func() bool { return reviewFor("inProgress", "allowed") })
+		assertIdentity(t, "inProgress", "allowed")
+		noManual()
+		noCalls()
+		if effects.Load() != 0 {
+			t.Fatal("effect before review")
+		}
+		s.mu.Lock()
+		active := clone(s.state.Views[original].State.Approval.Active)
+		instance := s.state.InstanceID
+		s.mu.Unlock()
+		if active != nil {
+			if e := s.Decide(ctx, api.Decision{ID: approvalID(instance, original, active), Choice: "allow_once"}); e == nil {
+				t.Fatal("manual bypass accepted")
+			}
+		}
+		release()
+		waitTurn(t, ctx, s, before)
+		waitAcceptance(t, ctx, func() bool { return reviewFor("approved", "allowed") })
+		review := assertIdentity(t, "approved", "allowed")
+		if effects.Load() != 1 {
+			t.Fatal("approved effect count", effects.Load())
+		}
+		noManual()
+		s.mu.Lock()
+		records := clone(s.state.Calls)
+		s.mu.Unlock()
+		for _, record := range records {
+			if record.Call.Arguments.(map[string]any)["key"] != "allowed" {
+				continue
+			}
+			if record.Call.ItemId != review.ItemID || record.Call.TurnId != review.TurnID || record.Call.CallId != review.ToolCallID || record.Receipt == nil {
+				t.Fatal("lost exact callback identity")
+			}
+			path := "/application/sessions/" + idPath(original) + "/calls/" + idPath(record.Call.Id)
+			var claimed wire.ApplicationCall
+			if e := s.client.json(ctx, "POST", path+"/claim", struct{}{}, &claimed, "", ""); e == nil {
+				t.Fatal("duplicate claim accepted")
+			}
+			if e := s.client.json(ctx, "POST", path+"/result", record.Receipt, nil, "", ""); e != nil {
+				t.Fatal("identical receipt retry", e)
+			}
+		}
+	}) {
+		return
+	}
+	effectDir, err := os.MkdirTemp(".", ".guardian-effect-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(effectDir) // This test owns this synthetic, isolated directory.
+	effectDir, err = filepath.Abs(effectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"Write", "RunCommand"} {
+		for _, allow := range []bool{true, false} {
+			label := "deny"
+			want := "denied"
+			reply := `{"option_id":"reject_once","rationale":"Synthetic action is not authorized."}`
+			if allow {
+				label = "allow"
+				want = "approved"
+				reply = `{"option_id":"allow_once"}`
+			}
+			if !t.Run("G02_"+name+"_"+label, func(t *testing.T) {
+				configureReview(reply, nil)
+				target := filepath.Join(effectDir, name+"-"+label+".txt")
+				args := map[string]any{"path": target, "content": "ONCE\n"}
+				if name == "RunCommand" {
+					args = map[string]any{"command": "printf 'ONCE\\n' >> " + executionQuote(target), "sandbox_permissions": "require_escalated", "justification": "Write the synthetic fixture requested by the acceptance test", "yield_time_ms": 1000}
+				}
+				key := "CASE_NATIVE_" + strings.ToUpper(name) + "_" + strings.ToUpper(label)
+				main.set(key, modelStep{Name: name, Args: args})
+				submitAcceptance(t, ctx, s, key)
+				waitAcceptance(t, ctx, func() bool { return reviewFor(want, name+"-"+label) })
+				assertIdentity(t, want, name+"-"+label)
+				data, e := os.ReadFile(target)
+				if allow && (e != nil || string(data) != "ONCE\n") {
+					t.Fatalf("approved effect: %q %v", data, e)
+				}
+				if !allow && !os.IsNotExist(e) {
+					t.Fatal("denied native effect executed")
+				}
+				noManual()
+			}) {
+				return
+			}
+		}
+	}
+	for _, tc := range []struct{ key, reply, status string }{
+		{"DENY", `{"option_id":"reject_once","rationale":"Not authorized by the synthetic request."}`, "denied"},
+		{"FAIL", `{"option_id":"permit_forever"}`, "failed"},
+	} {
+		if !t.Run("G03_callback_"+tc.key, func(t *testing.T) {
+			configureReview(tc.reply, nil)
+			key := "CASE_REVIEW_" + tc.key
+			main.set(key, modelStep{Name: "FixtureLookup", Args: map[string]any{"key": tc.key}})
+			submitAcceptance(t, ctx, s, key)
+			waitAcceptance(t, ctx, func() bool { return reviewFor(tc.status, tc.key) })
+			assertIdentity(t, tc.status, tc.key)
+			noManual()
+			noCalls()
+			if effects.Load() != 1 {
+				t.Fatal("review failure dispatched effect")
+			}
+		}) {
+			return
+		}
+	}
+	if !t.Run("G04_cancel_pending_review", func(t *testing.T) {
+		gate := make(chan struct{})
+		var once sync.Once
+		release := func() { once.Do(func() { close(gate) }) }
+		defer release()
+		configureReview(`{"option_id":"allow_once"}`, gate)
+		main.set("CASE_REVIEW_CANCEL", modelStep{Name: "FixtureLookup", Args: map[string]any{"key": "cancelled"}})
+		if _, e := s.Submit(ctx, api.Submission{ID: "review-cancel", Text: "CASE_REVIEW_CANCEL"}, nil); e != nil {
+			t.Fatal(e)
+		}
+		waitAcceptance(t, ctx, func() bool { return reviewFor("inProgress", "cancelled") })
+		assertIdentity(t, "inProgress", "cancelled")
+		if e := s.Interrupt(ctx); e != nil {
+			t.Fatal(e)
+		}
+		release()
+		waitAcceptance(t, ctx, func() bool { return s.Snapshot().CanSend })
+		noCalls()
+		noManual()
+		if effects.Load() != 1 {
+			t.Fatal("late review resurrected cancelled effect")
+		}
+	}) {
+		return
+	}
+	if !t.Run("G05_restart_replay_and_pinned_reviewer", func(t *testing.T) {
+		// A main-model settings change does not reselect the reviewer.
+		config, e := s.Configuration(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = s.UpdateConfiguration(ctx, "review-hot-model", string(config.Revision), map[string]any{"model": "openai-compatible/gpt-4.1"}); e != nil {
+			t.Fatal(e)
+		}
+		if e = s.Close(ctx); e != nil {
+			t.Fatal(e)
+		}
+		// Discard only Bot's derived review cache, forcing proof from public replay.
+		s.mu.Lock()
+		v := s.state.Views[original]
+		v.Reviews, v.LiveReviews, v.Cursor, v.Seen = nil, nil, "", map[string]bool{}
+		e = s.saveLocked()
+		s.mu.Unlock()
+		if e != nil {
+			t.Fatal(e)
+		}
+		stop()
+		start()
+		open()
+		if s.state.Session.SessionId != original {
+			t.Fatal("reconnect replaced conversation")
+		}
+		waitAcceptance(t, ctx, func() bool { return reviewFor("approved", "allowed") && reviewFor("denied", "DENY") })
+		for _, prior := range identities {
+			if prior.Status == "approved" || prior.Status == "denied" {
+				assertIdentity(t, prior.Status, prior.Action)
+			}
+		}
+		if reviewFor("failed", "FAIL") || reviewFor("inProgress", "cancelled") {
+			t.Fatal("transient review persisted as decision")
+		}
+		noCalls()
+		noManual()
+		if effects.Load() != 1 {
+			t.Fatal("restart repeated callback")
+		}
+		for _, name := range []string{"Write", "RunCommand"} {
+			data, e := os.ReadFile(filepath.Join(effectDir, name+"-allow.txt"))
+			if e != nil || string(data) != "ONCE\n" {
+				t.Fatal("restart repeated native effect")
+			}
+		}
+		var state wire.ApplicationReviewerState
+		if e = s.client.json(ctx, "GET", "/application/sessions/"+idPath(original)+"/reviewer-state", nil, &state, "", ""); e != nil || state.Status != "ready" || state.Reviewer.Model != "openai-compatible/reviewer-model" {
+			t.Fatal("reviewer binding changed", e)
+		}
+	}) {
+		return
+	}
+	if !t.Run("G06_app_authorization_once_per_turn", func(t *testing.T) {
+		node, e := exec.LookPath("node")
+		if e != nil {
+			t.Fatal("Node required for full desktop callback acceptance")
+		}
+		node, _ = filepath.Abs(node)
+		helper := filepath.Join(root, "desktop-fixture")
+		if e = os.MkdirAll(filepath.Join(helper, "node_modules/@trycua/cua-driver"), 0700); e != nil {
+			t.Fatal(e)
+		}
+		copyFile := func(from, to string) {
+			t.Helper()
+			data, e := os.ReadFile(from)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = os.WriteFile(filepath.Join(helper, to), data, 0600); e != nil {
+				t.Fatal(e)
+			}
+		}
+		for _, name := range []string{"host.mjs", "desktop.mjs"} {
+			copyFile("../../../resources/computer-use/"+name, name)
+		}
+		copyFile("../../desktopcontrol/testdata/cua-sdk.mjs", "node_modules/@trycua/cua-driver/index.mjs")
+		if e = os.WriteFile(filepath.Join(helper, "node_modules/@trycua/cua-driver/package.json"), []byte(`{"type":"module","exports":"./index.mjs"}`), 0600); e != nil {
+			t.Fatal(e)
+		}
+		if e = os.WriteFile(filepath.Join(helper, "fixture.json"), []byte(`{}`), 0600); e != nil {
+			t.Fatal(e)
+		}
+		driver, e := desktopcontrol.StartDriver(node, filepath.Join(helper, "host.mjs"))
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer driver.Close()
+		resident, e := bot.NewForRuntime(filepath.Join(root, "desktop-bot.json"), "caelis", nil)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer resident.Close()
+		resident.ConfigureDesktopControl(driver)
+		var observed atomic.Pointer[api.ToolResult]
+		var inputs atomic.Int32
+		proxy := &acceptanceTools{defs: resident.Definitions(), call: func(c context.Context, name string, args json.RawMessage) api.ToolResult {
+			out := resident.CallTool(c, name, args)
+			if !out.IsError {
+				if name == "bot_desktop_perform" {
+					inputs.Add(1)
+					state, _ := out.StructuredContent["observation"].(map[string]any)
+					observed.Store(&api.ToolResult{StructuredContent: state})
+				}
+				if name == "bot_desktop_observe" {
+					observed.Store(&out)
+				}
+			}
+			return out
+		}}
+		config := &api.ToolConnection{Host: proxy, NotebookDirectory: notebook, ApprovedTools: append(botpolicy.ApprovedTools(), "bot_desktop_observe", "bot_desktop_perform"), PrepareTurn: func(context.Context) error { resident.BeginDesktopTurn(); return nil }, FinishTurn: resident.StopDesktopTurn}
+		if e = s.ConfigureBotTools(config); e != nil {
+			t.Fatal(e)
+		}
+		current, e := s.Configuration(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = s.UpdateConfiguration(ctx, "desktop-review-catalog", string(current.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); e != nil {
+			t.Fatal(e)
+		}
+		observe := []modelStep{{Name: "bot_desktop_observe", Args: map[string]any{}}, {Name: "bot_desktop_observe", BuildArgs: func() any {
+			return map[string]any{"window": observed.Load().StructuredContent["windows"].([]any)[0].(map[string]any)["window"]}
+		}}}
+		authorize := modelStep{Name: "bot_desktop_authorize", BuildArgs: func() any {
+			o := observed.Load().StructuredContent
+			return map[string]any{"observation": o["observation"], "application": o["application"], "purpose": "Edit the requested synthetic document during this task"}
+		}}
+		perform := modelStep{Name: "bot_desktop_perform", BuildArgs: func() any {
+			return map[string]any{"observation": observed.Load().StructuredContent["observation"], "steps": []any{map[string]any{"op": "type", "target": "e3", "text": "synthetic"}}}
+		}}
+		countReviews := func() int { mu.Lock(); defer mu.Unlock(); return len(reviewRequests) }
+		configureReview(`{"option_id":"allow_once"}`, nil)
+		before := countReviews()
+		main.set("CASE_APP_ALLOW", append(append([]modelStep{}, observe...), authorize, perform, perform)...)
+		submitAcceptance(t, ctx, s, "CASE_APP_ALLOW")
+		if inputs.Load() != 2 || countReviews() != before+1 {
+			t.Fatalf("want two inputs / one review; got %d / %d", inputs.Load(), countReviews()-before)
+		}
+		// A new task can read freely but cannot reuse the previous app's grant.
+		main.set("CASE_APP_STALE", append(append([]modelStep{}, observe...), perform)...)
+		submitAcceptance(t, ctx, s, "CASE_APP_STALE")
+		if inputs.Load() != 2 || countReviews() != before+1 {
+			t.Fatal("new task reused input grant or reviewed read-only observation")
+		}
+		configureReview(`{"option_id":"reject_once","rationale":"The synthetic request does not authorize application input."}`, nil)
+		main.set("CASE_APP_DENY", append(append([]modelStep{}, observe...), authorize, perform)...)
+		submitAcceptance(t, ctx, s, "CASE_APP_DENY")
+		if inputs.Load() != 2 || countReviews() != before+2 {
+			t.Fatal("denied authorization allowed app input")
+		}
+		noManual()
+	}) {
+		return
+	}
+
+	if !t.Run("G08_upgrade_handoff_adopts_new_assembly", func(t *testing.T) {
+		dir := filepath.Join(root, "upgrade")
+		vault, e := notebookstore.OpenVault(filepath.Join(dir, "Notebook"))
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer vault.Close()
+		skill, e := botskills.Install(filepath.Join(dir, "CASE_UPGRADE"))
+		if e != nil {
+			t.Fatal(e)
+		}
+		config := &api.ToolConnection{Host: tools, NotebookDirectory: vault.Path(), PrepareContext: vault.PrepareContext, ConsumeContext: vault.ConsumeContext}
+		opts := Options{Directory: filepath.Join(dir, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai-compatible/gpt-4.1"}, RequireApproval: true, ReviewerModel: "openai-compatible/reviewer-model"}
+		legacy := New(opts)
+		if e = legacy.ConfigureBotTools(config); e != nil {
+			t.Fatal(e)
+		}
+		if e = legacy.Connect(ctx); e != nil {
+			t.Fatal(e)
+		}
+		waitAcceptance(t, ctx, func() bool { return legacy.Snapshot().CanSend })
+		main.set("CASE_LEGACY_CONTEXT", modelStep{Reply: "Prior assignment finished. Preserve the selected project."})
+		submitAcceptance(t, ctx, legacy, "CASE_LEGACY_CONTEXT")
+		old := legacy.ConversationState().Session
+		if e = legacy.Close(ctx); e != nil {
+			t.Fatal(e)
+		}
+
+		config.RuntimeVersion = "fixture-next-version"
+		opts.RequireApproval = false
+		upgraded := New(opts)
+		if e = upgraded.ConfigureBotTools(config); e != nil {
+			t.Fatal(e)
+		}
+		if e = upgraded.Connect(ctx); e != nil {
+			t.Fatal(e)
+		}
+		defer upgraded.Close(context.Background())
+		waitAcceptance(t, ctx, func() bool { return upgraded.ConversationState().Observed && upgraded.Snapshot().CanSend })
+		if upgraded.ConversationState().Session != old || value(upgraded.state.Session.Profile.Permissions.ApprovalMode) != "manual" {
+			t.Fatal("upgrade mutated existing runtime before handoff")
+		}
+		main.set("CASE_UPGRADE", modelStep{Name: "Write", BuildArgs: func() any {
+			requests := main.seen("CASE_UPGRADE")
+			raw, _ := json.Marshal(requests[len(requests)-1])
+			text := strings.NewReplacer(`\u003c`, "<", `\u003e`, ">").Replace(string(raw))
+			marker := regexp.MustCompile(`<!-- caelis-dream: [A-Za-z0-9_-]+ -->`).FindString(text)
+			return map[string]string{"path": filepath.Join(vault.Path(), notebookstore.HandoffName), "content": marker + "\nPreserve the selected project; prior assignment is complete."}
+		}}, modelStep{Reply: "The previous work is ready to continue."})
+		resident, e := bot.NewForRuntime(filepath.Join(dir, "resident.json"), "caelis", nil)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer resident.Close()
+		if e = resident.ConfigureDream(vault, skill); e != nil {
+			t.Fatal(e)
+		}
+		resident.Start(upgraded)
+		waitAcceptance(t, ctx, func() bool { return upgraded.ConversationState().RuntimeVersion == config.RuntimeVersion })
+		current := upgraded.ConversationState()
+		if current.Session == old || current.Turn != "" || len(main.seen("CASE_UPGRADE")) != 2 {
+			t.Fatal("upgrade did not hand off once at startup")
+		}
+		profile := upgraded.state.Session.Profile
+		if value(profile.Permissions.ApprovalMode) != "auto-review" || value(profile.Permissions.Mode) != "workspace-write" || profile.Reviewer.Model != "openai-compatible/reviewer-model" {
+			t.Fatal("new version did not adopt Guardian and preserve sandbox")
+		}
+		main.set("CASE_UPGRADED_INPUT", modelStep{Reply: "Continuing with the retained project."})
+		submitAcceptance(t, ctx, upgraded, "CASE_UPGRADED_INPUT")
+		raw, _ := json.Marshal(main.seen("CASE_UPGRADED_INPUT"))
+		if !strings.Contains(string(raw), "Preserve the selected project") {
+			t.Fatal("upgrade lost handoff context")
+		}
+		for range 3 {
+			if e = resident.Tick(ctx); e != nil {
+				t.Fatal(e)
+			}
+		}
+		if len(main.seen("CASE_UPGRADE")) != 2 || upgraded.ConversationState().Session != current.Session {
+			t.Fatal("upgrade repeated maintenance")
+		}
+		if len(upgraded.Snapshot().Items) < 4 {
+			t.Fatal("upgrade lost visible history")
+		}
+	}) {
+		return
+	}
+
+	if !t.Run("G09_reused_provider_call_ids_within_one_turn", func(t *testing.T) {
+		if e := s.ConfigureBotTools(&api.ToolConnection{Host: tools, NotebookDirectory: notebook}); e != nil {
+			t.Fatal(e)
+		}
+		current, e := s.Configuration(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = s.UpdateConfiguration(ctx, "reused-review-catalog", string(current.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); e != nil {
+			t.Fatal(e)
+		}
+		caseCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		defer func() {
+			if !t.Failed() {
+				return
+			}
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			for _, call := range s.state.Calls {
+				if call.Call.TurnId == value(s.state.Views[original].State.Run.TurnId) {
+					t.Logf("callback: item=%s state=%s", call.Call.ItemId, call.Call.State)
+				}
+			}
+			for _, fact := range s.state.Views[original].Reviews {
+				if fact.TurnID == value(s.state.Views[original].State.Run.TurnId) {
+					t.Logf("review: item=%s status=%s", fact.ItemID, fact.Status)
+				}
+			}
+			t.Logf("synthetic main requests=%d effects=%d run=%s", len(main.seen("CASE_REUSED_CALL")), effects.Load(), value(s.state.Views[original].State.Run.Status))
+		}()
+		configureReview(`{"option_id":"allow_once"}`, nil)
+		before := effects.Load()
+		main.set("CASE_REUSED_CALL", modelStep{Name: "FixtureLookup", Args: map[string]any{"key": "first-of-two"}}, modelStep{Name: "FixtureLookup", Args: map[string]any{"key": "second-of-two"}})
+		submitAcceptance(t, caseCtx, s, "CASE_REUSED_CALL")
+		waitAcceptance(t, caseCtx, func() bool { return reviewFor("approved", "first-of-two") && reviewFor("approved", "second-of-two") })
+		first := assertIdentity(t, "approved", "first-of-two")
+		second := assertIdentity(t, "approved", "second-of-two")
+		if first.TurnID != second.TurnID || first.ItemID == second.ItemID || first.ToolCallID != second.ToolCallID || first.ApprovalID == second.ApprovalID || effects.Load() != before+2 {
+			t.Fatal("provider call ID merged native invocations")
+		}
+	}) {
+		return
+	}
+
+	if !t.Run("G07_timeout_never_dispatches", func(t *testing.T) {
+		// Restore the simple reviewed callback and wait through the actual Core budget.
+		before := effects.Load()
+		if e := s.ConfigureBotTools(&api.ToolConnection{Host: tools, NotebookDirectory: notebook}); e != nil {
+			t.Fatal(e)
+		}
+		current, e := s.Configuration(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = s.UpdateConfiguration(ctx, "timeout-review-catalog", string(current.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); e != nil {
+			t.Fatal(e)
+		}
+		gate := make(chan struct{})
+		defer close(gate)
+		configureReview(`{"option_id":"allow_once"}`, gate)
+		main.set("CASE_REVIEW_TIMEOUT", modelStep{Name: "FixtureLookup", Args: map[string]any{"key": "timed-out"}})
+		if _, e = s.Submit(ctx, api.Submission{ID: "review-timeout", Text: "CASE_REVIEW_TIMEOUT"}, nil); e != nil {
+			t.Fatal(e)
+		}
+		waitAcceptance(t, ctx, func() bool { return reviewFor("timedOut", "timed-out") })
+		assertIdentity(t, "timedOut", "timed-out")
+		noManual()
+		noCalls()
+		if effects.Load() != before {
+			t.Fatal("timed-out review dispatched callback")
+		}
+	}) {
+		return
+	}
+
+	mu.Lock()
+	requests := clone(reviewRequests)
+	mu.Unlock()
+	if len(requests) < 6 {
+		t.Fatal("reviewer not exercised")
+	}
+	for _, req := range requests {
+		if tools, ok := req["tools"].([]any); ok && len(tools) > 0 {
+			t.Fatal("Application Guardian received ambient query tools")
+		}
+	}
+	t.Log("Guardian: public configuration/readiness, gated callback, native command/file allow+deny, failure, cancellation, exact receipt retry, restart replay, App x Turn authorization, real deadline and no manual fallback passed")
+}

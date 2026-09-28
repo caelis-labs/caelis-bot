@@ -19,6 +19,7 @@ const dreamIdle = 15 * time.Minute
 
 type dreamAttempt struct {
 	ID, Session, Turn, Outcome string
+	UpgradeVersion             string
 	Started                    time.Time
 	Done, Ready                bool
 }
@@ -72,6 +73,7 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 		return nil
 	}
 	now := r.now()
+	upgrade := current.DesiredRuntimeVersion != "" && current.RuntimeVersion != current.DesiredRuntimeVersion
 	if a := d.state.Attempt; a != nil && !a.Done {
 		receipt, result := p.DreamResult(a.ID)
 		if receipt.Outcome == "unknown" || receipt.Outcome == "" {
@@ -99,7 +101,16 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 		a.Done = true
 		d.state.Activity, d.state.At = conversationActivity(current), now
 		d.state.Dirty = current.Turn != "" && current.Turn != a.Turn && receipt.Outcome == "accepted"
-		return errors.Join(handoffErr, d.save())
+		if err := errors.Join(handoffErr, d.save()); err != nil {
+			return err
+		}
+		if upgrade && a.Ready {
+			return d.renew(ctx, p)
+		}
+		return nil
+	}
+	if a := d.state.Attempt; upgrade && a != nil && a.Ready && current.Session == a.Session && current.Turn == a.Turn && current.Status == "completed" {
+		return d.renew(ctx, p)
 	}
 	key := conversationActivity(current)
 	if key != d.state.Activity {
@@ -112,7 +123,10 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 			return err
 		}
 	}
-	if !dispatch || !current.Idle || !d.state.Dirty || now.Sub(d.state.At) < dreamIdle {
+	// An upgrade is a finite startup handoff, not another periodic model loop.
+	// A rejected/interrupted attempt waits for normal activity and idle maintenance.
+	startup := upgrade && (d.state.Attempt == nil || d.state.Attempt.UpgradeVersion != current.DesiredRuntimeVersion)
+	if !dispatch || !current.Idle || (!startup && (!d.state.Dirty || now.Sub(d.state.At) < dreamIdle)) {
 		return nil
 	}
 	path, err := d.vault.PrepareDream()
@@ -120,6 +134,9 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 		return err
 	}
 	a := &dreamAttempt{ID: "dream-" + rand.Text(), Session: current.Session, Started: now, Outcome: "unknown"}
+	if upgrade {
+		a.UpgradeVersion = current.DesiredRuntimeVersion
+	}
 	d.state.Attempt, d.state.Dirty = a, false
 	if err := d.save(); err != nil {
 		return err
@@ -133,8 +150,25 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 	return errors.Join(err, d.save())
 }
 
-// SubmitUser is the sole user-input hook. A completed Dream is a promise to
-// rotate on this boundary, not permission to create idle sessions in the timer.
+// renew shares exact receipt recovery between upgrade and ordinary Dream handoffs.
+func (d *dreamController) renew(ctx context.Context, p api.ConversationRuntime) error {
+	a := d.state.Attempt
+	current := p.ConversationState()
+	if current.DesiredRuntimeVersion != "" && current.RuntimeVersion != current.DesiredRuntimeVersion && a.UpgradeVersion != current.DesiredRuntimeVersion {
+		a.UpgradeVersion = current.DesiredRuntimeVersion
+		if err := d.save(); err != nil {
+			return err
+		}
+	}
+	if err := p.RenewConversation(ctx, a.ID, a.Session); err != nil && !errors.Is(err, api.ErrConversationRenewalRejected) {
+		return err
+	}
+	a.Ready = false
+	return d.save()
+}
+
+// SubmitUser is the sole user-input hook. Ordinary Dream rotates on user input;
+// a version upgrade can also rotate at the restored, idle startup boundary.
 func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 	r.step.Lock()
 	defer r.step.Unlock()
@@ -162,7 +196,7 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 				a.Done, a.Ready = true, false
 			}
 			if a.Ready {
-				if err := p.RenewConversation(ctx, a.ID, a.Session); err != nil && !errors.Is(err, api.ErrConversationRenewalRejected) {
+				if err := d.renew(ctx, p); err != nil {
 					rejected.Message = "新上下文尚未准备好，消息未发送，请重试"
 					return rejected, nil
 				}

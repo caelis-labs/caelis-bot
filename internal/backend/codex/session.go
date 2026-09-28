@@ -19,6 +19,9 @@ import (
 )
 
 type binding struct {
+	RuntimeVersion    string                          `json:"runtimeVersion,omitempty"`
+	BackgroundResults map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
+
 	Context       contextseed.State      `json:"context,omitempty"`
 	ContextInputs map[string]int         `json:"contextInputs,omitempty"`
 	Dreams        map[string]dreamRecord `json:"dreams,omitempty"`
@@ -56,6 +59,8 @@ type SessionOptions struct {
 // Session projects one internally bound conversation. Native facts remain
 // authoritative; a UI fetch, hidden window or character asset cannot execute it.
 type Session struct {
+	backgroundResultsDirty bool
+
 	residentExecution api.WorkExecutionSettings
 	historyMu         sync.Mutex
 	op                sync.Mutex
@@ -73,6 +78,7 @@ type Session struct {
 	runs              map[string]string
 	items             map[string]int
 	nativeItems       map[string]nativeItem
+	reviewOrigins     map[string]reviewOrigin
 	prompts           map[string]*prompt
 	promptHandles     map[string]string
 	instance          string
@@ -158,6 +164,7 @@ func (s *Session) resetProjection() {
 	s.state.Items = []api.Item{}
 	s.state.Approvals = []api.Approval{}
 	s.state.Reviews = []api.Review{}
+	s.reviewOrigins = map[string]reviewOrigin{}
 	s.state.References = []api.Reference{}
 	s.historyCursor = ""
 	s.historyThread = s.binding.ThreadID
@@ -180,6 +187,17 @@ func (s *Session) update() {
 	s.state.CurrentTurn = ""
 	if s.run != "" {
 		s.state.CurrentTurn = opaque(s.run)
+	}
+	if s.captureBackgroundResults() {
+		s.backgroundResultsDirty = true
+	}
+	if s.backgroundResultsDirty {
+		if err := s.save(); err != nil {
+			s.state.Phase = "unknown"
+			s.state.Message = "后台结果记录保存失败，请恢复连接核对"
+		} else {
+			s.backgroundResultsDirty = false
+		}
 	}
 	s.state.Revision++
 	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && s.run == "" && !s.hasBlockingChildren() && len(s.prompts) == 0 && s.state.Phase != "unknown" && !s.closed && !s.closing
@@ -407,6 +425,9 @@ func (s *Session) connect(ctx context.Context) error {
 	s.historyPaged, s.historyCursor = paged, firstPage.NextCursor
 	s.state.HasEarlier = firstPage.NextCursor != "" || len(s.binding.PastThreads) > 0
 	s.binding.ThreadID = response.Thread.ID
+	if method == "thread/start" && s.opts.BotTools != nil {
+		s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion
+	}
 	s.historyThread = response.Thread.ID
 	s.binding.Unsubmitted = (method == "thread/start" || unused) && len(response.Thread.Turns) == 0
 	s.bound = true
@@ -623,6 +644,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	}
 	s.state.Phase = "sending"
 	s.state.Reviews = []api.Review{}
+	s.reviewOrigins = map[string]reviewOrigin{}
 	s.state.Message = ""
 	s.update()
 	s.mu.Unlock()

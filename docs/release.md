@@ -17,7 +17,7 @@ Product CI runs on native Apple Silicon (`macos-14`) for every PR and main push:
 - `make package`: compile and ad-hoc sign the app; build a compressed read-only DMG; mount it and verify the enclosed signature, executable, license and Finder layout. The installer uses a 660×430 window, 128-point icons and a left-to-right Applications drag target. Pinned dmgbuild dependencies are isolated in `.cache/dmg-tools` (Python 3 required); no Finder automation is used.
 - Keep the DMG and checksum as a seven-day CI artifact. These are development builds, not published releases.
 
-`make smoke` additionally checks a locally installed Codex runtime without a model call. CI does not log into Codex or exercise a real conversation. Packaging is not interactive desktop acceptance; see [native acceptance](native-acceptance.md) and [backend acceptance](backend-acceptance.md). Intel and Windows GUI releases are not currently qualified.
+`make smoke` additionally checks a locally installed Codex runtime without a model call. CI does not log into Codex or exercise a real conversation. Packaging is not interactive desktop acceptance; see [native acceptance](development.md) and [backend acceptance](caelis-integration.md). Intel and Windows GUI releases are not currently qualified.
 
 Dependabot checks Actions, npm and Go dependencies weekly. Dependency PRs use the same required check and are not auto-merged. Update `toolchain.json` when changing the corresponding explicitly pinned toolchain; review Wails/Codex compatibility separately.
 
@@ -47,8 +47,6 @@ gh workflow run release.yml --repo caelis-labs/caelis-bot --ref main -f tag=v0.1
 ```
 
 The source run must be a completed main-branch Release DMG or release-please run in this repository, from a commit in main's history. Recovery verifies the checkpoint's tag, source SHA and team; the native signature; the submitted bytes' SHA-256; and the digest in Apple's acceptance log. The tagged build check still runs, but its new unsigned app is replaced by the retained signed app. Existing App/DMG submissions are queried and, if necessary, waited on; they are not resubmitted. Stapling modifies only copies of the submitted archives. A missing/expired checkpoint cannot reconstruct the old signed bytes from a submission ID alone; inspect that submission's result before starting a fresh build.
-
-For the v0.1.0 promotion, set `prerelease` to `false` while retaining the prerelease versioning strategy; it promotes the current preview to its stable version. Keep version/package/changelog changes in the release-please version PR. Do not hand-edit published tags or bump the manifest independently.
 
 ## Automatic updates and R2
 
@@ -217,7 +215,7 @@ Local builds get a `-dev` / `.dev` suffix so they do not masquerade as a publish
 BOT_RELEASE_TAG=v0.1.0 make package
 ```
 
-The build rejects tag/package mismatches. `dist/releases/` contains the DMG and checksum; `dist/Caelis Bot.app` contains the local app. Development build signing remains `codesign --force --sign - --identifier dev.caelis.bot`, followed by strict signature validation. **Ad-hoc signing is neither Developer ID signing nor Apple notarization.** Ordinary PR CI does not require an Apple account/certificate. After explicitly signing an existing bundle, use `BOT_SIGNING_MODE=developer-id BOT_SIGNING_TEAM_ID=YOURTEAMID bash script/package.sh --skip-build`; rebuilding would replace that signature with the development signature.
+The build rejects tag/package mismatches. `dist/releases/` contains the DMG and checksum; `dist/Caelis Bot Dev.app` contains the default local app; tagged release builds use `Caelis Bot.app`. Development builds use the isolated Dev identity and strict signature validation; see [development](development.md). **Ad-hoc signing is neither Developer ID signing nor Apple notarization.** Ordinary PR CI does not require an Apple account/certificate. After explicitly signing an existing bundle, use `BOT_SIGNING_MODE=developer-id BOT_SIGNING_TEAM_ID=YOURTEAMID bash script/package.sh --skip-build`; rebuilding would replace that signature with the development signature.
 
 For native acceptance of an already signed app in `dist`, run `BOT_SIGNING_TEAM_ID=YOURTEAMID bash script/build_and_run.sh --verify-signed`; this preserves the signature instead of rebuilding. It checks native startup, not Apple notarization. Inspect the actual desktop/chat/settings surfaces separately. Use an isolated `CAELIS_BOT_DATA_DIR` for test conversations.
 

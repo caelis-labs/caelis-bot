@@ -8,7 +8,7 @@ not a monochrome template. This compensates for the character's transparent
 breathing room without clipping its outline.
 
 Source and reproducible size conversion remain in the private asset repository;
-see [character assets](../../../docs/character-assets.md) for delivery and licensing.
+see [character assets](../../../docs/content-packs.md) for delivery and licensing.
 `app-icon.png` supplies the matching Wails application/dialog icon.
 
 The copy is embedded at build time. Builds do not import or read the sibling repo.

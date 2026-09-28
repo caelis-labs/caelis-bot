@@ -28,11 +28,12 @@ import (
 )
 
 type modelStep struct {
-	Reply   string
-	Name    string
-	Args    any
-	Block   <-chan struct{}
-	Entered chan<- struct{}
+	BuildArgs func() any
+	Reply     string
+	Name      string
+	Args      any
+	Block     <-chan struct{}
+	Entered   chan<- struct{}
 }
 type acceptanceModel struct {
 	mu       sync.Mutex
@@ -80,6 +81,9 @@ func (m *acceptanceModel) serve(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		}
+	}
+	if step.BuildArgs != nil {
+		step.Args = step.BuildArgs()
 	}
 	args, _ := json.Marshal(step.Args)
 	if strings.Contains(string(args), "$RESOURCE_PATH") {
@@ -185,21 +189,25 @@ func TestNativeHostIntegration(t *testing.T) {
 	if bin == "" {
 		t.Skip("set CAELIS_BOT_TEST_BINARY for isolated external Host acceptance")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 180*time.Second)
 	defer cancel()
 	model := newAcceptanceModel()
 	server := httptest.NewServer(http.HandlerFunc(model.serve))
 	defer server.Close()
-	root := t.TempDir()
+	root, rootErr := filepath.EvalSymlinks(t.TempDir())
+	if rootErr != nil {
+		t.Fatal(rootErr)
+	}
 	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
 	if e := os.Mkdir(filepath.Join(root, "home"), 0700); e != nil {
 		t.Fatal(e)
 	}
+	environment := newExecutionFixture(t, root)
 	var cmd *exec.Cmd
 	start := func() {
 		cmd = exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
 		cmd.Dir = root
-		cmd.Env = []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + filepath.Join(root, "home"), "TMPDIR=" + os.TempDir()}
+		cmd.Env = environment.env
 		log, e := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 		if e != nil {
 			t.Fatal(e)
@@ -304,10 +312,10 @@ func TestNativeHostIntegration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	config := &api.ToolConnection{Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
+	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureCare"}, Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
 	config.PrepareContext, config.ConsumeContext = vault.PrepareContext, vault.ConsumeContext
 	open := func() {
-		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
+		s = New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
 		if e = s.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
 		}
@@ -318,6 +326,11 @@ func TestNativeHostIntegration(t *testing.T) {
 	}
 	open()
 	defer func() { _ = s.Close(context.Background()) }()
+	if !t.Run("B00_execution_environment", func(t *testing.T) {
+		verifyExecutionConfiguration(t, ctx, s, host, model, root, vault.Path(), environment)
+	}) {
+		return
+	}
 	if !t.Run("B00_progressive_skill", func(t *testing.T) {
 		model.set("CASE_SKILL", modelStep{Name: "Read", Args: map[string]string{"path": skillPath}}, modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")}})
 		submitAcceptance(t, ctx, s, "CASE_SKILL")
@@ -454,6 +467,16 @@ func TestNativeHostIntegration(t *testing.T) {
 		a := careEngine.Snapshot().Activations[0]
 		if a.Status != "accepted" || s.BackgroundReceipt(a.ID).Outcome != "accepted" || !s.Snapshot().Quiet {
 			t.Fatal("care did not use native silent background path")
+		}
+		result := s.BackgroundResult(a.ID)
+		if !result.Complete || result.Visible {
+			t.Fatal("native silent result was not retained", result)
+		}
+		if err = careEngine.Deliver(ctx, now, care.Presence{}, false, s.BackgroundReceipt, nil, s.BackgroundResult); err != nil {
+			t.Fatal(err)
+		}
+		if b := careEngine.Budget(now); b.InterruptionsUsed != 0 || b.Reserved != 0 {
+			t.Fatal("native silent result retained budget", b)
 		}
 		if err = careEngine.Remove(ctx, "native-care", s.RevokeBackground); err != nil {
 			t.Fatal(err)
@@ -612,7 +635,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		if err = host.json(ctx, "POST", "/configuration/use-model", wire.UseModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Model: "openai/gpt-5.4", ReasoningEffort: pointer("high")}, &result, op, string(status.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
 			t.Fatal("runtime model selection", result.Outcome, err)
 		}
-		model.set("CASE_WORKER_A", modelStep{Name: "Write", Args: map[string]string{"path": "workspace-sentinel", "content": "selected workspace"}}, modelStep{Block: workerA, Entered: enteredA})
+		model.set("CASE_WORKER_A", modelStep{Name: "RunCommand", Args: map[string]any{"command": environment.check(t, filepath.Join(root, "worker-a")) + " && printf ok > worker-env.txt"}}, modelStep{Name: "Write", Args: map[string]string{"path": "workspace-sentinel", "content": "selected workspace"}}, modelStep{Block: workerA, Entered: enteredA})
 		model.set("CASE_WORKER_B", modelStep{Block: workerB, Entered: enteredB})
 		model.set("CASE_DELEGATE", modelStep{Name: "FixtureDelegate", Args: map[string]string{}})
 		submitAcceptance(t, ctx, s, "CASE_DELEGATE")
@@ -630,6 +653,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		if selectedErr != nil || string(selectedData) != "selected workspace" {
 			t.Fatal("worker did not execute in selected workspace", selectedErr)
 		}
+		requireExecutionFile(t, filepath.Join(root, "worker-a"), "worker-env.txt", "ok")
 		if len(s.WorkStates()) != 2 {
 			t.Fatal("missing workers")
 		}
@@ -814,7 +838,7 @@ func TestNativeHostIntegration(t *testing.T) {
 			}
 		}()
 
-		model.set("CASE_APPROVAL", modelStep{Name: "RunCommand", Args: map[string]any{"command": "/bin/sleep 1; printf x >> approval-once.txt", "yield_time_ms": 0, "sandbox_permissions": "require_escalated", "justification": "Synthetic late-approval regression"}}, modelStep{Reply: "APPROVAL_WAITING_SENTINEL"}, modelStep{Reply: "APPROVAL_FOLLOWUP_SENTINEL"})
+		model.set("CASE_APPROVAL", modelStep{Name: "RunCommand", Args: map[string]any{"command": "/bin/sleep 1; " + environment.check(t, vault.Path()) + " && printf x >> approval-once.txt", "yield_time_ms": 0, "sandbox_permissions": "require_escalated", "justification": "Synthetic late-approval regression"}}, modelStep{Reply: "APPROVAL_WAITING_SENTINEL"}, modelStep{Reply: "APPROVAL_FOLLOWUP_SENTINEL"})
 		receipt, err := s.Submit(ctx, api.Submission{ID: "case-approval", Text: "CASE_APPROVAL"}, nil)
 		if err != nil || receipt.Outcome != "accepted" {
 			t.Fatal(receipt, err)
@@ -917,6 +941,9 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("restart lost configuration or binding", e)
 		}
 		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Items) == len(items) })
+		if after.Profile.ExecutionConfig == nil {
+			t.Fatal("restart lost execution configuration")
+		}
 		// An explicit runtime update reconnects this same adapter, without a Bot restart.
 		stop()
 		start()
@@ -928,6 +955,13 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("reconnect replaced binding", e)
 		}
 		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Items) == len(items) })
+	}) {
+		return
+	}
+	if !t.Run("B07_environment_after_restart", func(t *testing.T) {
+		model.set("CASE_ENV_RESTART", modelStep{Name: "RunCommand", Args: map[string]any{"command": environment.check(t, vault.Path()) + " && printf ok > restarted-env.txt"}})
+		submitAcceptance(t, ctx, s, "CASE_ENV_RESTART")
+		requireExecutionFile(t, vault.Path(), "restarted-env.txt", "ok")
 	}) {
 		return
 	}

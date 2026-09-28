@@ -24,19 +24,26 @@ type Registration struct {
 	Issue   string    `json:"issue,omitempty"`
 }
 type Activation struct {
-	ID      string    `json:"id"`
-	RuleID  string    `json:"ruleId"`
-	Version string    `json:"version"`
-	Prompt  string    `json:"prompt"`
-	Expires time.Time `json:"expires"`
-	Status  string    `json:"status"`
+	ID           string    `json:"id"`
+	RuleID       string    `json:"ruleId"`
+	Version      string    `json:"version"`
+	Prompt       string    `json:"prompt"`
+	Expires      time.Time `json:"expires"`
+	Status       string    `json:"status"`
+	Source       string    `json:"source,omitempty"`
+	DispatchedAt time.Time `json:"dispatchedAt,omitempty"`
+	VisibleAt    time.Time `json:"visibleAt,omitempty"`
+	Result       string    `json:"result,omitempty"` // visible, silent, or legacy (v1 attempt accounting)
 }
 type State struct {
-	Version     int                  `json:"version"`
-	Rules       []Registration       `json:"rules"`
-	Activations []Activation         `json:"activations"`
-	Watermarks  map[string]time.Time `json:"watermarks"`
-	Attempts    []time.Time          `json:"attempts"`
+	Version        int                  `json:"version"`
+	Rules          []Registration       `json:"rules"`
+	Activations    []Activation         `json:"activations"`
+	Watermarks     map[string]time.Time `json:"watermarks"`
+	Attempts       []time.Time          `json:"attempts"`
+	Policy         Policy               `json:"policy"`
+	Interruptions  []time.Time          `json:"interruptions"`
+	LegacyAttempts []time.Time          `json:"legacyAttempts,omitempty"`
 }
 type Presence struct {
 	Awake    bool
@@ -75,7 +82,7 @@ func OpenWithSources(path string, sources []Source) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := &Engine{sources: catalog, path: path, write: durableWrite, programs: map[string]condition{}, state: State{Version: 1, Rules: []Registration{}, Activations: []Activation{}, Watermarks: map[string]time.Time{}, Attempts: []time.Time{}}}
+	e := &Engine{sources: catalog, path: path, write: durableWrite, programs: map[string]condition{}, state: State{Version: 2, Policy: DefaultPolicy(), Interruptions: []time.Time{}, Rules: []Registration{}, Activations: []Activation{}, Watermarks: map[string]time.Time{}, Attempts: []time.Time{}}}
 	f, err := os.Open(path)
 	if err == nil {
 		defer f.Close()
@@ -83,7 +90,7 @@ func OpenWithSources(path string, sources []Source) (*Engine, error) {
 		if err != nil || !info.Mode().IsRegular() || info.Size() > 2<<20 {
 			return nil, errors.New("invalid care state file")
 		}
-		if json.NewDecoder(f).Decode(&e.state) != nil || e.state.Version != 1 || e.state.Watermarks == nil || len(e.state.Rules) > MaxRules || len(e.state.Activations) > 256 || len(e.state.Attempts) > 8 {
+		if json.NewDecoder(f).Decode(&e.state) != nil || (e.state.Version != 1 && e.state.Version != 2) || e.state.Watermarks == nil || len(e.state.Rules) > MaxRules || len(e.state.Activations) > 256 || len(e.state.Attempts) > 256 || (e.state.Version == 1 && len(e.state.Attempts) > 8) || !e.state.Policy.valid() || len(e.state.Interruptions) > 256 || len(e.state.LegacyAttempts) > 8 {
 			return nil, errors.New("invalid care state")
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -99,13 +106,28 @@ func OpenWithSources(path string, sources []Source) (*Engine, error) {
 		}
 		e.programs[r.ID] = c
 	}
+	legacy := e.state.Version == 1
+	if legacy {
+		e.state.LegacyAttempts = slices.Clone(e.state.Attempts)
+		e.state.Version = 2
+	}
+	seen := map[string]bool{}
 	for i := range e.state.Activations {
 		a := &e.state.Activations[i]
-		if a.ID == "" || a.Version == "" || !slices.Contains([]string{"pending", "dispatching", "unknown", "accepted", "rejected", "expired", "cancelled"}, a.Status) {
+		if a.ID == "" || a.Version == "" || seen[a.ID] || !slices.Contains([]string{"", "silent", "visible", "legacy"}, a.Result) || !slices.Contains([]string{"pending", "dispatching", "unknown", "accepted", "rejected", "expired", "cancelled"}, a.Status) {
 			return nil, errors.New("invalid activation record")
+		}
+		seen[a.ID] = true
+		if legacy && a.Status == "accepted" {
+			a.Result = "legacy"
 		}
 		if a.Status == "dispatching" {
 			a.Status = "unknown"
+		}
+	}
+	if legacy {
+		if err := e.commit(e.state); err != nil {
+			return nil, err
 		}
 	}
 	return e, nil
@@ -121,7 +143,7 @@ func (e *Engine) Snapshot() State {
 	defer e.mu.Unlock()
 	out := copyState(e.state)
 	for i, r := range out.Rules {
-		if !e.hasSource(r.On) {
+		if !e.hasAllSources(r.Rule) {
 			out.Rules[i].Issue = "source_unavailable"
 		}
 	}
@@ -153,7 +175,7 @@ func cancelPending(s *State, id string) {
 // retain the candidate version, including a lost grant response.
 func (e *Engine) Save(ctx context.Context, r Rule, authorize func(context.Context, string, string) error) (Registration, error) {
 	r, c, err := compile(r)
-	if !e.hasSource(r.On) {
+	if !e.hasAllSources(r) {
 		return Registration{}, errors.New("unsupported event source")
 	}
 	if err != nil {
@@ -274,7 +296,7 @@ func (e *Engine) Receive(ctx context.Context, event Event, now time.Time) error 
 	next := copyState(e.state)
 	interested := false
 	for i, r := range next.Rules {
-		if !r.Enabled || r.On != event.Source {
+		if !r.Enabled || !r.subscribes(event.Source) {
 			continue
 		}
 		interested = true
@@ -282,7 +304,7 @@ func (e *Engine) Receive(ctx context.Context, event Event, now time.Time) error 
 			continue
 		}
 		if slices.ContainsFunc(next.Activations, func(a Activation) bool {
-			return a.RuleID == r.ID && (a.Status == "pending" || a.Status == "unknown" || a.Status == "dispatching")
+			return a.RuleID == r.ID && (a.Status == "pending" || inFlight(a))
 		}) {
 			continue
 		}
@@ -300,7 +322,7 @@ func (e *Engine) Receive(ctx context.Context, event Event, now time.Time) error 
 		}
 		active := 0
 		for _, a := range next.Activations {
-			if a.Status == "pending" || a.Status == "unknown" || a.Status == "dispatching" {
+			if a.Status == "pending" || inFlight(a) {
 				active++
 			}
 		}
@@ -308,8 +330,7 @@ func (e *Engine) Receive(ctx context.Context, event Event, now time.Time) error 
 			next.Rules[i].Issue = "queue_full"
 			continue
 		}
-		next.Activations = append(next.Activations, Activation{ID: "care-" + rand.Text(), RuleID: r.ID, Version: r.Version, Prompt: r.Prompt, Expires: now.Add(time.Duration(r.ExpiresSeconds) * time.Second), Status: "pending"})
-		next.Rules[i].Last = now
+		next.Activations = append(next.Activations, Activation{ID: "care-" + rand.Text(), RuleID: r.ID, Version: r.Version, Prompt: r.Prompt, Source: event.Source, Expires: now.Add(time.Duration(r.ExpiresSeconds) * time.Second), Status: "pending"})
 	}
 	if !interested {
 		return nil
@@ -319,10 +340,16 @@ func (e *Engine) Receive(ctx context.Context, event Event, now time.Time) error 
 	return e.commit(next)
 }
 func trim(s *State, now time.Time) {
-	s.Attempts = slices.DeleteFunc(s.Attempts, func(t time.Time) bool { return !t.After(now.Add(-24 * time.Hour)) })
+	expired := func(t time.Time) bool { return !t.After(now.Add(-24 * time.Hour)) }
+	s.Attempts = slices.DeleteFunc(s.Attempts, expired)
+	if len(s.Attempts) > 256 {
+		s.Attempts = s.Attempts[len(s.Attempts)-256:]
+	}
+	s.Interruptions = slices.DeleteFunc(s.Interruptions, expired)
+	s.LegacyAttempts = slices.DeleteFunc(s.LegacyAttempts, expired)
 	for len(s.Activations) > 256 {
 		index := slices.IndexFunc(s.Activations, func(a Activation) bool {
-			return a.Status != "pending" && a.Status != "unknown" && a.Status != "dispatching"
+			return a.Status != "pending" && !inFlight(a)
 		})
 		if index < 0 {
 			break
@@ -331,9 +358,10 @@ func trim(s *State, now time.Time) {
 	}
 }
 
-// Deliver submits at most one activation. Unknown outcomes block later dispatch
-// until native receipts resolve them; no timer, retry or restart grants certainty.
-func (e *Engine) Deliver(ctx context.Context, now time.Time, p Presence, canSend bool, lookup func(string) api.Receipt, send func(context.Context, Activation) (api.Receipt, error)) error {
+// Deliver admits at most one occurrence. The native runtime still owns idle
+// admission; an uncertain care receipt alone does not block unrelated rules.
+// Optional result evidence is required to release accepted reservations.
+func (e *Engine) Deliver(ctx context.Context, now time.Time, p Presence, canSend bool, lookup func(string) api.Receipt, send func(context.Context, Activation) (api.Receipt, error), results ...func(string) api.BackgroundResult) error {
 	e.op.Lock()
 	defer e.op.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -347,66 +375,116 @@ func (e *Engine) Deliver(ctx context.Context, now time.Time, p Presence, canSend
 	}
 	next := copyState(e.state)
 	trim(&next, now)
-	unresolved := false
-	for i, a := range next.Activations {
+	for i := range next.Activations {
+		a := &next.Activations[i]
 		if a.Status == "unknown" || a.Status == "dispatching" {
-			r := lookup(a.ID)
-			if r.ID == a.ID && (r.Outcome == "accepted" || r.Outcome == "rejected") {
-				next.Activations[i].Status = r.Outcome
-			} else {
-				unresolved = true
+			receipt := lookup(a.ID)
+			if receipt.ID == a.ID && (receipt.Outcome == "accepted" || receipt.Outcome == "rejected") {
+				a.Status = receipt.Outcome
 			}
+		}
+		if inFlight(*a) && len(results) > 0 && results[0] != nil {
+			result := results[0](a.ID)
+			if result.ID == a.ID {
+				if result.Visible || result.Complete {
+					a.Status = "accepted"
+				}
+				if result.Visible && a.VisibleAt.IsZero() {
+					a.VisibleAt = result.ObservedAt
+					if a.VisibleAt.IsZero() {
+						a.VisibleAt = now
+					}
+					next.Interruptions = append(next.Interruptions, a.VisibleAt)
+				}
+				if result.Complete {
+					a.Result = "silent"
+					if !a.VisibleAt.IsZero() {
+						a.Result = "visible"
+					}
+				}
+			}
+		}
+		if a.Status == "rejected" {
+			releaseCooldown(&next, *a)
 		}
 		if a.Status == "pending" {
 			current := slices.ContainsFunc(next.Rules, func(r Registration) bool {
-				return r.Enabled && e.hasSource(r.On) && r.ID == a.RuleID && r.Version == a.Version
+				return r.Enabled && e.hasAnySource(r.Rule) && (a.Source == "" || e.hasSource(a.Source)) && r.ID == a.RuleID && r.Version == a.Version
 			})
 			if !current {
-				next.Activations[i].Status = "cancelled"
+				a.Status = "cancelled"
 			} else if !now.Before(a.Expires) {
-				next.Activations[i].Status = "expired"
+				a.Status = "expired"
 			}
 		}
 	}
+	trim(&next, now)
 	if !reflect.DeepEqual(next, e.state) {
 		if err := e.commit(next); err != nil {
 			e.mu.Unlock()
 			return err
 		}
 	}
-	if unresolved || !canSend || !p.Available() || len(next.Attempts) >= 8 || len(next.Attempts) > 0 && now.Before(next.Attempts[len(next.Attempts)-1].Add(5*time.Minute)) {
+	b := budget(next, now)
+	if !canSend || !p.Available() || b.Remaining == 0 || len(next.Attempts) > 0 && now.Before(next.Attempts[len(next.Attempts)-1].Add(time.Duration(next.Policy.MinimumGapSeconds)*time.Second)) {
 		e.mu.Unlock()
 		return nil
 	}
-	index := slices.IndexFunc(next.Activations, func(a Activation) bool { return a.Status == "pending" })
+	index := slices.IndexFunc(next.Activations, func(a Activation) bool {
+		return a.Status == "pending" && !slices.ContainsFunc(next.Activations, func(other Activation) bool { return other.RuleID == a.RuleID && inFlight(other) })
+	})
 	if index < 0 {
 		e.mu.Unlock()
 		return nil
 	}
-	next.Activations[index].Status = "dispatching"
+	a := &next.Activations[index]
+	a.Status = "dispatching"
+	a.DispatchedAt = now
+	for i := range next.Rules {
+		if next.Rules[i].ID == a.RuleID && next.Rules[i].Version == a.Version {
+			next.Rules[i].Last = now
+		}
+	}
+	dispatched := *a
 	next.Attempts = append(next.Attempts, now)
+	trim(&next, now)
 	if err := e.commit(next); err != nil {
 		e.mu.Unlock()
 		return err
 	}
-	a := next.Activations[index]
 	e.mu.Unlock()
-	receipt, err := send(ctx, a)
+	receipt, err := send(ctx, dispatched)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	next = copyState(e.state)
+	// trim may have shifted terminal records before the dispatch was persisted.
+	index = slices.IndexFunc(next.Activations, func(a Activation) bool { return a.ID == dispatched.ID })
 	status := "unknown"
-	// An exact native receipt remains authoritative when an adapter also returns
-	// explanatory errors (for example, an explicitly revoked background grant).
-	if receipt.ID == a.ID && (receipt.Outcome == "accepted" || receipt.Outcome == "rejected") {
+	if receipt.ID == dispatched.ID && (receipt.Outcome == "accepted" || receipt.Outcome == "rejected") {
 		status = receipt.Outcome
 	}
 	next.Activations[index].Status = status
+	if status == "rejected" {
+		releaseCooldown(&next, next.Activations[index])
+	}
 	if save := e.commit(next); save != nil {
 		return save
 	}
 	return err
 }
+
+func inFlight(a Activation) bool {
+	return a.Status == "unknown" || a.Status == "dispatching" || a.Status == "accepted" && a.Result == ""
+}
+func releaseCooldown(s *State, a Activation) {
+	for i := range s.Rules {
+		r := &s.Rules[i]
+		if r.ID == a.RuleID && r.Version == a.Version && !a.DispatchedAt.IsZero() && r.Last.Equal(a.DispatchedAt) {
+			r.Last = time.Time{}
+		}
+	}
+}
+
 func (e *Engine) Status() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()

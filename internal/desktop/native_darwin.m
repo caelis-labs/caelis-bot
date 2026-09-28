@@ -496,7 +496,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     bubbleContent.autoresizingMask = NSViewWidthSizable|NSViewHeightSizable;
     [bubbleSurface addSubview:bubbleContent];
     host.bubble.contentView = bubbleSurface;
-    bot_install_material(host.bubble, 28, 0, 6);
+    bot_install_bubble_material(host.bubble, 28, 6);
     host.bubble.title = bubbleOwner.title;
     host.bubble.opaque = NO; host.bubble.backgroundColor = NSColor.clearColor;
     host.bubble.hasShadow = NO; host.bubble.level = NSFloatingWindowLevel;

@@ -52,7 +52,7 @@ open "$HOME/Applications/Caelis Bot.app"
 
 启动后查看**状态栏和桌面角色**；它默认不显示普通 Dock 图标。单击角色输入，双击打开聊天，从状态栏进入设置、显示/隐藏或退出。隐藏角色不会退出应用。
 
-首次设置或在“设置 → 运行时”中连接运行时。Codex 优先使用可用的本机 App Server，否则自动发现 CLI；也可手动选择程序或按引导安装、登录。仅安装或打开 Codex Desktop 不保证存在可连接的入口；Bot 不会静默安装 Codex，也不代替用户登录。详见[运行时兼容性](codex-compatibility.md)。Caelis v0.61.0 是已验收的正式基线；兼容性由[通用应用协议](caelis-integration.md)协商决定，不按 CLI 版本号白名单限制。
+首次设置或在“设置 → 运行时”中连接运行时。Codex 优先使用可用的本机 App Server，否则自动发现 CLI；也可手动选择程序或按引导安装、登录。仅安装或打开 Codex Desktop 不保证存在可连接的入口；Bot 不会静默安装 Codex，也不代替用户登录。详见[运行时兼容性](caelis-integration.md)。Caelis 需要当前应用与 Guardian 能力；兼容性由[通用应用协议](caelis-integration.md)协商决定，不按 CLI 版本号白名单限制。
 
 系统通知需要主动开启，退出时定时提醒暂停。替换 `.app` 会保留偏好、附件和对话绑定；除非有意清除数据，请保留 `Application Support/Caelis Bot` 文件夹。
 

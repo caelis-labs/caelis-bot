@@ -78,6 +78,8 @@ type ToolConnection struct {
 	Instructions, WorkerInstructions string
 	// Notebook is the resident Bot's work directory, never a worker workspace.
 	NotebookDirectory string
+	// RuntimeVersion identifies the product assembly used for new resident contexts.
+	RuntimeVersion string
 	// PrepareTurn refreshes host-owned local metadata before submission; FinishTurn
 	// runs after authoritative resident completion, outside adapter locks.
 	PrepareTurn    func(context.Context) error

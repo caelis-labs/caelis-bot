@@ -152,8 +152,8 @@ Windows native adapters are not implemented by this POC.
 ## Integration after this POC
 
 2026-09-25 后续状态：共享终端、Bot 规则工具及两种 Runtime 的后台激活现已接入正式代码，
-见[任务委派](../../docs/task-delegation.md)、[主动关怀](../../docs/proactive-care.md)与
-[准备记录](../../docs/preparation-status.md)。正式实现读取明确的本机锁状态，未知时禁止派发；
+见[任务委派](../../docs/architecture.md)、[主动关怀](../../docs/architecture.md)与
+[准备记录](../../docs/development.md)。正式实现读取明确的本机锁状态，未知时禁止派发；
 物理锁屏/睡眠切换与真实模型仍待实机复验，命令/外部连接器只有扩展接口。
 以下保留当时 POC 的历史交接范围，不作为当前产品状态：
 

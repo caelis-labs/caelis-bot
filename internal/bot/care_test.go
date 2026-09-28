@@ -312,3 +312,31 @@ func TestCareToolCannotForgePresenceOrPublishEvents(t *testing.T) {
 		t.Fatal("cancel ignored")
 	}
 }
+
+func TestCarePolicyConfigurationUsesUserGrantAndReportsEffectiveBudget(t *testing.T) {
+	r, base, _ := fixture(t)
+	configureCare(t, r)
+	f := &careGrantEngine{fakeEngine: base, deny: true}
+	r.engine = f
+	request := json.RawMessage(`{"operation":"configure","policy":{"maximumInterruptionsPer24Hours":12,"minimumGapSeconds":60}}`)
+	if out := r.CallTool(t.Context(), "bot_care", request); !out.IsError || r.care.Snapshot().Policy != care.DefaultPolicy() {
+		t.Fatal("native denial bypassed", out)
+	}
+	f.deny = false
+	for _, invalid := range []string{`{"operation":"configure","policy":{"maximumInterruptionsPer24Hours":12}}`, `{"operation":"configure","policy":{"maximumInterruptionsPer24Hours":12,"minimumGapSeconds":null}}`} {
+		if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(invalid)); !out.IsError {
+			t.Fatal("incomplete policy accepted")
+		}
+	}
+	if out := r.CallTool(t.Context(), "bot_care", request); out.IsError || f.authorized != "care-policy:limits" {
+		t.Fatal(out)
+	}
+	out := r.CallTool(t.Context(), "bot_care", json.RawMessage(`{"operation":"list"}`))
+	raw, _ := json.Marshal(out)
+	if out.IsError || !strings.Contains(string(raw), "maximumInterruptionsPer24Hours") || !strings.Contains(string(raw), "interruptionsUsed") {
+		t.Fatal(out)
+	}
+	if r.care.Snapshot().Policy != (care.Policy{MaximumInterruptionsPer24Hours: 12, MinimumGapSeconds: 60}) {
+		t.Fatal("wrong effective policy")
+	}
+}

@@ -431,8 +431,8 @@ func TestComputerUseAssemblyUsesRuntimeTagsAndDoesNotFallbackOnRefusal(t *testin
 			for _, d := range config.Host.Definitions() {
 				names = append(names, d.Name)
 			}
-			for _, name := range []string{"bot_desktop_observe", "bot_desktop_perform", "bot_desktop_capture"} {
-				if slices.Contains(names, name) == native || slices.Contains(config.ApprovedTools, name) == native {
+			for _, name := range []string{"bot_desktop_observe", "bot_desktop_perform", "bot_desktop_capture", "bot_desktop_authorize"} {
+				if slices.Contains(names, name) == native || slices.Contains(config.ApprovedTools, name) != (!native && name != "bot_desktop_authorize") {
 					t.Fatalf("wrong native ownership for %s", name)
 				}
 			}

@@ -467,11 +467,12 @@ type ApplicationContentCallResult struct {
 }
 
 type ApplicationContentToolDefinition struct {
-	Description  string     `json:"description"`
-	InputSchema  JSONObject `json:"input_schema"`
-	Name         string     `json:"name"`
-	OutputSchema JSONObject `json:"output_schema,omitempty"`
-	ResultFormat string     `json:"result_format"`
+	ApprovalPolicy *string    `json:"approval_policy,omitempty"`
+	Description    string     `json:"description"`
+	InputSchema    JSONObject `json:"input_schema"`
+	Name           string     `json:"name"`
+	OutputSchema   JSONObject `json:"output_schema,omitempty"`
+	ResultFormat   string     `json:"result_format"`
 }
 
 type ApplicationEmptyRequest map[string]any
@@ -489,9 +490,10 @@ type ApplicationLegacyCallResult struct {
 }
 
 type ApplicationLegacyToolDefinition struct {
-	Description string     `json:"description"`
-	InputSchema JSONObject `json:"input_schema"`
-	Name        string     `json:"name"`
+	ApprovalPolicy *string    `json:"approval_policy,omitempty"`
+	Description    string     `json:"description"`
+	InputSchema    JSONObject `json:"input_schema"`
+	Name           string     `json:"name"`
 }
 
 type ApplicationModelCapabilities struct {
@@ -514,12 +516,14 @@ type ApplicationPermissions struct {
 
 type ApplicationProfile struct {
 	Execution       string                      `json:"execution"`
+	ExecutionConfig *ExecutionConfig            `json:"execution_config,omitempty"`
 	Inherit         ApplicationInheritance      `json:"inherit"`
 	Instructions    string                      `json:"instructions"`
 	Model           string                      `json:"model"`
 	NativeTools     []string                    `json:"native_tools,omitempty"`
 	Permissions     *ApplicationPermissions     `json:"permissions,omitempty"`
 	ReasoningEffort *string                     `json:"reasoning_effort,omitempty"`
+	Reviewer        *ApplicationReviewer        `json:"reviewer,omitempty"`
 	ServiceTier     *string                     `json:"service_tier,omitempty"`
 	Tools           []ApplicationToolDefinition `json:"tools,omitempty"`
 	ToolsVersion    string                      `json:"tools_version"`
@@ -601,6 +605,19 @@ type ApplicationResultTextBlock struct {
 	Type string `json:"type"`
 }
 
+type ApplicationReviewer struct {
+	Kind  string `json:"kind"`
+	Model string `json:"model"`
+}
+
+type ApplicationReviewerState struct {
+	ApprovalMode string               `json:"approval_mode"`
+	Reason       *string              `json:"reason,omitempty"`
+	Reviewer     *ApplicationReviewer `json:"reviewer,omitempty"`
+	SessionId    string               `json:"session_id"`
+	Status       string               `json:"status"`
+}
+
 type ApplicationScope struct {
 	ApplicationId string `json:"application_id"`
 	ConnectionId  string `json:"connection_id"`
@@ -615,11 +632,12 @@ type ApplicationSource struct {
 }
 
 type ApplicationToolDefinition struct {
-	Description  string     `json:"description"`
-	InputSchema  JSONObject `json:"input_schema"`
-	Name         string     `json:"name"`
-	OutputSchema JSONObject `json:"output_schema,omitempty"`
-	ResultFormat *string    `json:"result_format,omitempty"`
+	ApprovalPolicy *string    `json:"approval_policy,omitempty"`
+	Description    string     `json:"description"`
+	InputSchema    JSONObject `json:"input_schema"`
+	Name           string     `json:"name"`
+	OutputSchema   JSONObject `json:"output_schema,omitempty"`
+	ResultFormat   *string    `json:"result_format,omitempty"`
 }
 
 type ApplicationWorker struct {
@@ -641,6 +659,7 @@ type ApplicationWorkspaceAccess struct {
 
 type ApprovalReview struct {
 	Authorization *string    `json:"authorization,omitempty"`
+	ItemId        *string    `json:"item_id,omitempty"`
 	RawInput      JSONObject `json:"raw_input,omitempty"`
 	Risk          *string    `json:"risk,omitempty"`
 	Status        *string    `json:"status,omitempty"`
@@ -650,28 +669,29 @@ type ApprovalReview struct {
 }
 
 type ApprovalReviewEnvelope struct {
-	Meta             *ACPMetadata        `json:"_meta,omitempty"`
-	ActivityId       *string             `json:"activity_id,omitempty"`
-	Actor            *string             `json:"actor,omitempty"`
-	ApprovalReview   ApprovalReview      `json:"approval_review"`
-	Cursor           *string             `json:"cursor,omitempty"`
-	Delivery         Delivery            `json:"delivery"`
-	EventId          *string             `json:"event_id,omitempty"`
-	Final            *bool               `json:"final,omitempty"`
-	HandleId         *string             `json:"handle_id,omitempty"`
-	InputOperationId *string             `json:"input_operation_id,omitempty"`
-	InputStatus      *string             `json:"input_status,omitempty"`
-	Kind             string              `json:"kind"`
-	OccurredAt       *time.Time          `json:"occurred_at,omitempty"`
-	ParentTool       *ParentToolRelation `json:"parent_tool,omitempty"`
-	ParticipantId    *string             `json:"participant_id,omitempty"`
-	Position         *FeedPosition       `json:"position,omitempty"`
-	ProjectionId     *string             `json:"projection_id,omitempty"`
-	RunId            *string             `json:"run_id,omitempty"`
-	Scope            *string             `json:"scope,omitempty"`
-	ScopeId          *string             `json:"scope_id,omitempty"`
-	SessionId        *string             `json:"session_id,omitempty"`
-	TurnId           *string             `json:"turn_id,omitempty"`
+	Meta              *ACPMetadata        `json:"_meta,omitempty"`
+	ActivityId        *string             `json:"activity_id,omitempty"`
+	Actor             *string             `json:"actor,omitempty"`
+	ApprovalRequestId *string             `json:"approval_request_id,omitempty"`
+	ApprovalReview    ApprovalReview      `json:"approval_review"`
+	Cursor            *string             `json:"cursor,omitempty"`
+	Delivery          Delivery            `json:"delivery"`
+	EventId           *string             `json:"event_id,omitempty"`
+	Final             *bool               `json:"final,omitempty"`
+	HandleId          *string             `json:"handle_id,omitempty"`
+	InputOperationId  *string             `json:"input_operation_id,omitempty"`
+	InputStatus       *string             `json:"input_status,omitempty"`
+	Kind              string              `json:"kind"`
+	OccurredAt        *time.Time          `json:"occurred_at,omitempty"`
+	ParentTool        *ParentToolRelation `json:"parent_tool,omitempty"`
+	ParticipantId     *string             `json:"participant_id,omitempty"`
+	Position          *FeedPosition       `json:"position,omitempty"`
+	ProjectionId      *string             `json:"projection_id,omitempty"`
+	RunId             *string             `json:"run_id,omitempty"`
+	Scope             *string             `json:"scope,omitempty"`
+	ScopeId           *string             `json:"scope_id,omitempty"`
+	SessionId         *string             `json:"session_id,omitempty"`
+	TurnId            *string             `json:"turn_id,omitempty"`
 }
 
 type ApprovalState struct {
@@ -872,15 +892,16 @@ type CreateApplicationSessionRequest struct {
 }
 
 type CreateSessionRequest struct {
-	Cwd                     *string        `json:"cwd,omitempty"`
-	ExpectedControllerEpoch *string        `json:"expected_controller_epoch,omitempty"`
-	ExpectedRevision        *Uint64Decimal `json:"expected_revision,omitempty"`
-	Metadata                JSONObject     `json:"metadata,omitempty"`
-	OperationId             *string        `json:"operation_id,omitempty"`
-	PreferredSessionId      *string        `json:"preferred_session_id,omitempty"`
-	SessionId               *string        `json:"session_id,omitempty"`
-	Title                   *string        `json:"title,omitempty"`
-	WorkspaceKey            *string        `json:"workspace_key,omitempty"`
+	Cwd                     *string          `json:"cwd,omitempty"`
+	ExecutionConfig         *ExecutionConfig `json:"execution_config,omitempty"`
+	ExpectedControllerEpoch *string          `json:"expected_controller_epoch,omitempty"`
+	ExpectedRevision        *Uint64Decimal   `json:"expected_revision,omitempty"`
+	Metadata                JSONObject       `json:"metadata,omitempty"`
+	OperationId             *string          `json:"operation_id,omitempty"`
+	PreferredSessionId      *string          `json:"preferred_session_id,omitempty"`
+	SessionId               *string          `json:"session_id,omitempty"`
+	Title                   *string          `json:"title,omitempty"`
+	WorkspaceKey            *string          `json:"workspace_key,omitempty"`
 }
 
 type CreateWorkerRequest struct {
@@ -1042,6 +1063,12 @@ const (
 	EnvelopeKindCaelisError              EnvelopeKind = "caelis/error"
 )
 
+type EnvironmentConfig struct {
+	Inherit *bool          `json:"inherit,omitempty"`
+	Set     map[string]any `json:"set,omitempty"`
+	Unset   []string       `json:"unset,omitempty"`
+}
+
 type ErrorCode string
 
 const (
@@ -1103,6 +1130,11 @@ type ErrorResponse struct {
 	Code  ErrorCode `json:"code"`
 	Error string    `json:"error"`
 	Kind  ErrorKind `json:"kind,omitempty"`
+}
+
+type ExecutionConfig struct {
+	Environment *EnvironmentConfig `json:"environment,omitempty"`
+	Shell       *ShellConfig       `json:"shell,omitempty"`
 }
 
 type FeedPosition struct {
@@ -1797,6 +1829,7 @@ type SessionState struct {
 	Controller       ControllerBinding    `json:"controller"`
 	Cwd              *string              `json:"cwd,omitempty"`
 	EnvelopeVersion  string               `json:"envelope_version"`
+	ExecutionConfig  *ExecutionConfig     `json:"execution_config,omitempty"`
 	Metadata         JSONObject           `json:"metadata,omitempty"`
 	Participants     []ParticipantBinding `json:"participants,omitempty"`
 	ProtocolVersion  int                  `json:"protocol_version"`
@@ -1843,6 +1876,11 @@ type SessionUpdateEnvelope struct {
 	TurnId                   *string             `json:"turn_id,omitempty"`
 	Update                   ACPUpdate           `json:"update"`
 	UsageSemantics           UsageSemantics      `json:"usage_semantics,omitempty"`
+}
+
+type ShellConfig struct {
+	Login *bool   `json:"login,omitempty"`
+	Path  *string `json:"path,omitempty"`
 }
 
 type SkillResolveResult struct {
@@ -2249,4 +2287,4 @@ type WriteBase struct {
 	SessionId               *string        `json:"session_id,omitempty"`
 }
 
-var OperationIDs = []string{"archiveApplicationSession", "cancelParticipant", "cancelSessionTurn", "claimApplicationCall", "closeSession", "compactSession", "completeApplicationCall", "completeFiles", "completeSessions", "completeSkills", "completeSlashArguments", "configureSessionControllerMode", "configureSessionMode", "configureSessionPresentation", "configureSessionPresentationMode", "createApplicationBackgroundGrant", "createApplicationResource", "createApplicationSession", "createSession", "createWorker", "getAgentStatus", "getApplicationBackgroundGrant", "getApplicationCall", "getApplicationConfiguration", "getApplicationConfigurationOperation", "getApplicationConnection", "getApplicationModelCapabilities", "getApplicationOperation", "getApplicationResource", "getApplicationSession", "getHostStatus", "getPresentationCapabilities", "getSessionPresentation", "getSessionState", "getSessionStatus", "getTerminalOutput", "handoffAgent", "hostAddMarketplace", "hostAddPluginPath", "hostApplyAgentBindingSet", "hostBindAgent", "hostCompleteFiles", "hostCompleteSessions", "hostCompleteSkills", "hostCompleteSlashArguments", "hostConnectACP", "hostConnectModel", "hostCreateAgentRole", "hostDeleteAgentBindingSet", "hostDeleteAgentRole", "hostDeleteModel", "hostDisablePlugin", "hostDisconnectACP", "hostEnablePlugin", "hostGetACPPreparation", "hostGetAgentBindingStatus", "hostGetAgentStatus", "hostInspectPlugin", "hostInstallPlugin", "hostListAgents", "hostListDisconnectCandidates", "hostListMarketplaces", "hostListPlugins", "hostPrepareACP", "hostPrepareACPAuthentication", "hostRemoveMarketplace", "hostRemovePlugin", "hostResetAgentBinding", "hostResolveSkill", "hostSaveAgentBindingSet", "hostUpdateMarketplace", "hostUseModel", "initializeClient", "inspectPlugin", "killTerminal", "listAgents", "listApplicationBackgroundGrants", "listApplicationCalls", "listApplicationSessions", "listMarketplaces", "listParticipantHandles", "listPlugins", "listSessionTasks", "listSessions", "listWorkers", "loadUIPreferences", "prepareSandbox", "promptApplicationSession", "promptParticipant", "promptSession", "readApplicationResource", "readTaskEvents", "reconnectSession", "refreshSandbox", "registerApplication", "releaseTerminal", "renewApplicationConnection", "repairSandbox", "resetSandbox", "resolveApproval", "resolveSkill", "revokeApplicationBackgroundGrant", "revokeApplicationConnection", "saveUIPreferences", "setSandboxBackend", "setWorkspaceTrust", "shutdownHost", "startParticipant", "steerSession", "subagentInputStatuses", "submitModelAuthenticationInput", "submitSubagentInput", "subscribeTaskEvents", "updateApplicationConfiguration", "useSessionModel", "waitTerminal", "watchSessionTaskDirectory"}
+var OperationIDs = []string{"archiveApplicationSession", "cancelParticipant", "cancelSessionTurn", "claimApplicationCall", "closeSession", "compactSession", "completeApplicationCall", "completeFiles", "completeSessions", "completeSkills", "completeSlashArguments", "configureSessionControllerMode", "configureSessionMode", "configureSessionPresentation", "configureSessionPresentationMode", "createApplicationBackgroundGrant", "createApplicationResource", "createApplicationSession", "createSession", "createWorker", "getAgentStatus", "getApplicationBackgroundGrant", "getApplicationCall", "getApplicationConfiguration", "getApplicationConfigurationOperation", "getApplicationConnection", "getApplicationModelCapabilities", "getApplicationOperation", "getApplicationResource", "getApplicationReviewerState", "getApplicationSession", "getHostStatus", "getPresentationCapabilities", "getSessionPresentation", "getSessionState", "getSessionStatus", "getTerminalOutput", "handoffAgent", "hostAddMarketplace", "hostAddPluginPath", "hostApplyAgentBindingSet", "hostBindAgent", "hostCompleteFiles", "hostCompleteSessions", "hostCompleteSkills", "hostCompleteSlashArguments", "hostConnectACP", "hostConnectModel", "hostCreateAgentRole", "hostDeleteAgentBindingSet", "hostDeleteAgentRole", "hostDeleteModel", "hostDisablePlugin", "hostDisconnectACP", "hostEnablePlugin", "hostGetACPPreparation", "hostGetAgentBindingStatus", "hostGetAgentStatus", "hostInspectPlugin", "hostInstallPlugin", "hostListAgents", "hostListDisconnectCandidates", "hostListMarketplaces", "hostListPlugins", "hostPrepareACP", "hostPrepareACPAuthentication", "hostRemoveMarketplace", "hostRemovePlugin", "hostResetAgentBinding", "hostResolveSkill", "hostSaveAgentBindingSet", "hostUpdateMarketplace", "hostUseModel", "initializeClient", "inspectPlugin", "killTerminal", "listAgents", "listApplicationBackgroundGrants", "listApplicationCalls", "listApplicationSessions", "listMarketplaces", "listParticipantHandles", "listPlugins", "listSessionTasks", "listSessions", "listWorkers", "loadUIPreferences", "prepareSandbox", "promptApplicationSession", "promptParticipant", "promptSession", "readApplicationResource", "readTaskEvents", "reconnectSession", "refreshSandbox", "registerApplication", "releaseTerminal", "renewApplicationConnection", "repairSandbox", "resetSandbox", "resolveApproval", "resolveSkill", "revokeApplicationBackgroundGrant", "revokeApplicationConnection", "saveUIPreferences", "setSandboxBackend", "setWorkspaceTrust", "shutdownHost", "startParticipant", "steerSession", "subagentInputStatuses", "submitModelAuthenticationInput", "submitSubagentInput", "subscribeTaskEvents", "updateApplicationConfiguration", "useSessionModel", "waitTerminal", "watchSessionTaskDirectory"}

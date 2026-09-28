@@ -36,3 +36,20 @@ without replacing identity or command journals.
 
 Runtime support depends on initialize capability negotiation, not a release
 allowlist. See `docs/caelis-integration.md` for mappings, limits and live fixtures.
+
+`execution-configuration-v1` is required for Bot's native execution contract. The
+profile sends `execution_config.environment.inherit: true` and
+`execution_config.shell.login: false`. No user environment values or credentials
+are copied into the profile. Core's normal Worker defaults have the same behavior.
+Existing Session profiles and pending creation bytes remain authoritative on resume;
+missing configuration uses the corrected Core defaults. Configuration is not hot
+patched during tool rebind. A version upgrade creates a replacement context with current
+host assembly defaults after a verified handoff; same-version renewal retains them. See the pinned Core
+[execution contract](https://github.com/caelis-labs/caelis/blob/bdebd8d2d4bfe6b1bec455fca0f19da49b673c8f/docs/execution-configuration.md).
+
+`application-guardian-review-v1` is required. New Bot Runtime profiles explicitly
+select `auto-review` and a pinned `guardian` model, then verify scoped reviewer
+readiness. Callback policy is `required` except for product-owned direct tools.
+Approval review observations never confer execution or manual-resolution authority.
+See [acceptance and release conditions](../../docs/caelis-integration.md),
+including the Runtime item identity repair in Core #91.
