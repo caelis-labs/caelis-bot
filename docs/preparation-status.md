@@ -1,25 +1,34 @@
 # 实现与验证状态
 
-## 2026-09-28 主动关怀 v2 与启动环境修复（本地，等待 Core）
+## 2026-09-28 主动关怀 v2 与启动环境修复（已联调，未发布）
 
 Issue #35 已实现规范化多源订阅、同次使用时长采样、可见打扰记账、未决预留、按规则隔离、
 派发冷却、可配置 policy 和 v1 原子迁移。Codex/Caelis 均持久保存结果，复用静默呈现规则；
 英文主动关怀 skill 已同步。Issue #36 已完成 Bot 启动环境修复和两份过滤策略收敛。
 
-- `make check`、`make smoke`、`make build` 通过；构建为本地 ad-hoc，不是公证发行。
-  日志位于 `.cache/issues-35-36-{check,smoke,build}.log`。
-- care、bot、activation、Codex、Caelis、runtimeenv、botskills 的 race 通过。
-  首轮 Codex 既有 restore 测试曾出现关闭确认超时；该测试独立连续 5 次、随后整包 race
-  和完整 check 均通过，没有数据竞争报告，未改动无关的关闭逻辑。
-- 安装版 Codex App Server 与 Caelis Host + 本机合成 provider 联调通过：技能渐进读取、
-  Worker 隔离、原生可见结果计数、静默结果释放及既有工作流。没有真实付费模型请求。
-- 真实 zsh 合成账户验证自定义工具、合法 ZDOTDIR、已知 Notebook 污染恢复、继承 PATH
-  保留、缺失身份变量与探测失败。未读取用户 dotfiles/凭据作为测试数据。
+[Core #84](https://github.com/caelis-labs/caelis/issues/84) 已由
+[Core #85](https://github.com/caelis-labs/caelis/pull/85) 合并。Bot 协议与联调二进制固定于
+`bdebd8d2d4bfe6b1bec455fca0f19da49b673c8f`：握手要求 `execution-configuration-v1`，
+workspace-write profile 显式装配 Host 环境继承与非 login shell；不保存环境变量快照，
+Notebook 只作为工作目录，保留用户 HOME、PATH 和 CLI 配置查找语义。
 
-[Core #84](https://github.com/caelis-labs/caelis/issues/84) 的可装配运行环境入口仍是 #36
-完整修复的外部依赖，现有 Core 命令路径仍覆盖环境。等 Core 合并后再装配公共配置、验证
-Run/Start 与审批后执行，再提一个 Bot PR。未新增 GUI 视觉验收，未验证 gh 真实账户登录、
-物理锁屏/睡眠或长期关怀质量。完整交接见[修复记录](design/issues-35-36-repair-plan.md)。
+- 最终 `make check`、`make smoke`、`make build` 和 care、bot、activation、Codex、Caelis、
+  runtimeenv、app 的 race 全部通过。日志 `.cache/core-84-{check,smoke,build,race}.log`。
+  构建为本地 ad-hoc，不是公证发行；smoke 包含安装版 Codex 的标准握手。
+- 固定 Core 源码构建的真实 macOS Host + 本机合成 provider 全套联调通过，日志
+  `.cache/core-84-integration-final.log`。覆盖同步命令、TTY 输入/等待、审批后执行、Worker、
+  Host 重启、技能渐进读取、Dream、关怀可见结果计数与静默释放，以及既有截图链路。
+- 环境用例覆盖 HOME/ZDOTDIR、自定义 PATH 和 CLI 配置、一次 shell 初始化、空继承环境、
+  显式变量覆盖/删除/空字符串、Session 隔离、执行配置禁止热修改，以及 HOME 写入被 sandbox 拒绝。
+  隔离测试使用规范路径与独立 TMPDIR，避免系统临时目录写权限掩盖 HOME 边界。
+- 前一轮安装版 Codex + 合成 provider 验证技能读取、Worker 隔离、关怀结果记账；真实 zsh
+  合成账户验证 Notebook 污染恢复、继承 PATH 保留、缺失身份变量和探测失败。
+  原日志 `.cache/issues-35-36-{check,smoke,build}.log` 保留。
+
+测试使用合成账户、CLI 配置和 provider；未读取用户 dotfiles/凭据，未调用真实付费模型。
+未新增 GUI 视觉验收，未验证 gh 真实账户登录、物理锁屏/睡眠或长期关怀质量。
+Core 接入仅改变 Runtime 装配，无新增 Bot 工具或工作流，因此不额外修改 Bot skill。
+完整交接见[修复记录](design/issues-35-36-repair-plan.md)。
 
 ## 2026-09-28 设置和首次使用（本地，未发布）
 

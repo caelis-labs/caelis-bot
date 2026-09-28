@@ -1,9 +1,11 @@
 # Architecture and internal backend contract
 
 Status: application-owned Bot foundation implemented locally; Codex execution connected.
-Caelis pins the public protocol in `protocol/caelis/manifest.json`; the v0.62.0
-required capability baseline remains compatible, with selected-model image support
-negotiated separately. Legacy Bot Mode stays disabled.
+Caelis pins the public protocol in `protocol/caelis/manifest.json` and requires
+`execution-configuration-v1` alongside the application/Worker capabilities. Native
+profiles explicitly inherit the Host environment and use a non-login shell; CWD
+does not redefine HOME. Selected-model image support is negotiated separately.
+Legacy Bot Mode stays disabled.
 See [integration](caelis-integration.md) for the current contract and
 [verification status](preparation-status.md) for scoped evidence and remaining acceptance limits.
 

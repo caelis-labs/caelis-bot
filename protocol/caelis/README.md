@@ -36,3 +36,12 @@ without replacing identity or command journals.
 
 Runtime support depends on initialize capability negotiation, not a release
 allowlist. See `docs/caelis-integration.md` for mappings, limits and live fixtures.
+
+`execution-configuration-v1` is required for Bot's native execution contract. The
+profile sends `execution_config.environment.inherit: true` and
+`execution_config.shell.login: false`. No user environment values or credentials
+are copied into the profile. Core's normal Worker defaults have the same behavior.
+Existing Session profiles and pending creation bytes remain authoritative on resume;
+missing configuration uses the corrected Core defaults. Configuration is not hot
+patched during tool rebind or context renewal. See the pinned Core
+[execution contract](https://github.com/caelis-labs/caelis/blob/bdebd8d2d4bfe6b1bec455fca0f19da49b673c8f/docs/execution-configuration.md).

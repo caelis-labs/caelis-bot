@@ -90,10 +90,10 @@ PATH 按 shell 优先合并继承目录并去重，避免 shell 初始化覆盖�
 已纠正的继承环境。诊断只写恢复状态、目录数量与错误原因，不写环境值或 shell 输出。
 用户显式指定的隔离数据目录和 CODEX_HOME 保留；Codex/Caelis 自有进程共用一份环境清理，
 只移除调用者会话身份及私有 IPC，不按通用工具链白名单裁剪配置。
-Caelis 现有 Application 执行路径仍会在 Core 内覆盖命令环境；上述启动修复不代表该路径
-已经保留用户环境。Core 应提供通用可装配的环境/shell 配置，由 Bot 通过公共接口指定，
-跟踪 [Core #84](https://github.com/caelis-labs/caelis/issues/84)。等其合并后接入并完成 Run/Start、
-审批后执行与普通会话/Worker 的环境联调，再关闭 Bot #36。
+[Core #84](https://github.com/caelis-labs/caelis/issues/84) 已随 PR #85 合并。Bot 通过公共
+`execution_config` 显式选择继承 Host 环境、非登录 shell，要求 `execution-configuration-v1`。
+不会把用户环境/凭据复制进持久 profile；普通 Session 与 Worker 使用 Core 的同等默认值。
+隔离联调覆盖同步命令、TTY/input、审批后执行、Session 隔离、重启及越界写入拒绝。
 已经运行的共享 Caelis Host 继续使用其启动时的环境；普通连接不重启它。
 显式升级经原生服务生命周期选择新版，忙碌检查和共享客户端边界见 [接入契约](caelis-integration.md#安装更新与启用服务)。
 

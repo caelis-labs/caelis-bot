@@ -1,21 +1,21 @@
 # Issues #35 / #36 修复记录
 
 日期：2026-09-28。Bot 改动在 `codex/care-runtime-fixes`；起点为 `a95e031`。
-同一 worktree 分 commit 实现，等待 Core 修复合并后再接入公共配置、完成联调并提交一个 Bot PR。
+同一 worktree 分 commit 实现；Core #84 已合并，公共配置接入与外部二进制联调已完成。
 原在途 PR #37 独立推进，未将其未合并改动带入本分支。
 
 ## Core 与 Bot 的职责
 
-[Core #84](https://github.com/caelis-labs/caelis/issues/84) 已单独登记，由 Core 独立修复。
+[Core #84](https://github.com/caelis-labs/caelis/issues/84) 已随 [Core PR #85](https://github.com/caelis-labs/caelis/pull/85) 合并。
 Core 不识别 Bot/Notebook 等上层产品身份，不为 Bot 定制裁剪环境；提供可装配的通用配置
 和公共 Runtime 能力。具体如何初始化 Runtime、使用哪个 CWD、继承和覆盖哪些环境、
 shell 如何启动，由上层装配。协议可参考 Codex app-server 的配置入口与作用域语义，
 但不假设两种 Runtime 的字段完全相同。sandbox、审批和原生执行权限保持各自所有权。
 
-当前 Core 的 `applicationExecutionRuntime.command` 覆盖整张请求环境、固定 PATH、
+修复前 Core 的 `applicationExecutionRuntime.command` 覆盖整张请求环境、固定 PATH、
 将 HOME/TMPDIR/ZDOTDIR 设为 CWD；随后登录 shell 还可能重组 PATH。它发生在 Bot
 启动探测之后，不会反向修改父进程。只有 Bot 从已污染环境启动时，探测本身才会读错 home。
-本次未修改 Core 代码，也不把旧 Host 的环境问题归为 Bot 启动修复已解决。
+本次未修改 Core 代码。Bot 明确要求新版能力，旧 Host 需要用户经原有入口升级/启用。
 
 ## #35 已实现
 
@@ -62,10 +62,15 @@ shell 如何启动，由上层装配。协议可参考 Codex app-server 的配�
 完整仓库 gate 结果见 [准备记录](../preparation-status.md)。本次未新增 GUI 视觉验收，
 也未验证物理锁屏/睡眠、真实模型长期关怀效果或用户账号下的 gh 登录态。
 
-Core #84 合并后：
+Core 合并后的装配与联调：
 
-1. 按公共能力更新 Bot 的协议基线/配置装配，核对未指定、显式空、继承与覆盖的语义。
-2. 使用修复后的外部二进制验证 Bot → Application Run/Start、审批后执行、普通会话和 Worker；
-   HOME 为用户 home，CWD 为工作目录，自定义工具可用，sandbox/审批仍按原生政策执行。
-3. 共享旧 Host 单独说明其启动环境，不静默重启。刷新 main，处理与 PR #37 的交集。
-4. 补齐必要回归后，在同一个 Bot PR 中提交本分支的全部修复。此前不推送或创建 Bot PR。
+- schema/wire 和测试二进制固定 `bdebd8d2d4bfe6b1bec455fca0f19da49b673c8f`，通过源码归档独立
+  构建外部 CLI，不导入 Core 私有包、不改 Core 工作区或安装版。
+- 新 profile 显式 `environment.inherit: true`、`shell.login: false`；不写入环境值/凭据。
+  既有 profile、未知创建请求与 Dream 交接保留创建时配置，不通过热更新更换环境。
+- 原生夹具验证 Bot 的 HOME/Notebook CWD 分离，自定义 CLI 读取合成 home 配置，PATH 与
+  合法 ZDOTDIR 保留，shell 恢复只发生一次；同步命令、TTY/input、一次性审批、Worker、
+  普通 Session、Host 重启后执行均通过。继承配置不允许额外 HOME 写入。
+- 同一 Host 上显式不继承、inherit+set/unset、空值与普通无配置 Session 互不污染；执行配置
+  热更新被原生拒绝。旧 Host 缺少能力时明确不兼容，不生成新会话或悄悄改走另一 Runtime。
+- Bot main 仍为 `a95e031`，PR #37 未合并，本分支保持独立。两个 issue 的修复合为一个 Bot PR。

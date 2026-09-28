@@ -1,18 +1,16 @@
 # 继续开发
 
-## 2026-09-28 Runtime 启动环境（本地，等待 Core）
+## 2026-09-28 Runtime 启动环境与 Core 联调（本地，未发布）
 
-- Issue #36 的 Bot 启动部分已修复：统一环境准备，纠正已知 Notebook HOME/ZDOTDIR/TMPDIR，
-  保留合法自定义配置，合并 shell 与继承 PATH。Codex/Caelis 自有进程复用同一清理策略。
-- Core 的通用环境/shell 配置入口由 [Core #84](https://github.com/caelis-labs/caelis/issues/84)
-  独立实现。Core 不承载 Bot 产品假设；Bot 通过公共能力装配 Runtime。当前旧 Core 命令路径
-  仍会覆盖环境，不能因 Bot 启动测试通过就关闭 #36。
-- 同一 worktree 已完成 #35 与 #36 Bot 部分，分 commit；等 Core PR 合并、公共配置接入和
-  新二进制联调通过后再提一个 Bot PR。原 PR #37 保持独立，本次没有推送或创建 Bot PR。
-- `make check`、`make smoke`、`make build`（ad-hoc）与受影响包 race 通过；Codex/Caelis
-  原生 Runtime + 合成 provider 联调通过。未启动日常 Bot、未验证实际 GUI 或 gh 账户登录。
-  #36 不新增 Bot skill 指令：账户/环境初始化属于宿主装配，不能教 Bot 用临时 shell 绕法修补。
-- [实现、验证和后续接入清单](design/issues-35-36-repair-plan.md)。
+- #36 启动恢复与 Core 配套接入已完成，公共 schema/wire 固定到 Core PR #85 合并提交
+  `bdebd8d2d4bf`，要求 `execution-configuration-v1`。profile 显式继承 Host 环境并禁用登录初始化；
+  不复制环境值/凭据，不把 HOME 指向 Notebook，不热改已创建 Session。
+- 独立构建精确合并版本，通过公共 API 验证自定义 CLI 配置、HOME/CWD、PATH、TTY 后续输入、
+  显式空环境、set/unset、审批后执行、普通 Session/Worker 隔离、重启及 sandbox 越界写拒绝。
+  fixture 采用规范目录和独立 TMPDIR，避免 macOS 路径别名及临时写授权掩盖权限问题。
+- #35 与 #36 在同一分支，原 PR #37 仍独立在途。新增联调未使用日常 Store/凭据、真实模型或 GUI。
+- #35 英文 skill 已更新；#36 属于宿主/Runtime 装配，不新增 Bot 临时 shell 绕法或默认导航。
+  验证结果见[准备记录](preparation-status.md)，完整合同见[修复记录](design/issues-35-36-repair-plan.md)。
 
 ## 2026-09-28 主动关怀 v2（本地，未发布）
 
@@ -233,7 +231,7 @@ R2 使用主仓库相同桶/域名下独立的 `caelis-bot/` 前缀，只保留�
 `internal/tasks` 持有产品目录、账本与汇报；Codex adapter 仅映射 native 执行/审批/回执。
 `bot.json` 跨 Runtime 保留身份，计划和在途工作仍绑定原 Runtime。Notebook/Memory 的本地增量见文末。
 
-Caelis 最低能力基线保持 v0.62.0；公开协议随 Core 模型能力扩展更新，精确提交与哈希见 `protocol/caelis/manifest.json`。
+Caelis 当前必需能力包括 `execution-configuration-v1`；公开协议固定 Core PR #85 合并提交，精确哈希见 `protocol/caelis/manifest.json`。
 共享原生 Worker、steering、模型/Team 配置和连接向导通过公开 HTTP/SSE 接入。
 Runtime 更新现在区分安装版本与服务版本，依次启用服务、验证协议、重新连接 Bot；
 已有新版程序可直接启用。任务忙碌或状态未知时拒绝替换，具体共享客户端边界见

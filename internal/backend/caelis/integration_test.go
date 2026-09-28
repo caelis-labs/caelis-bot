@@ -185,21 +185,25 @@ func TestNativeHostIntegration(t *testing.T) {
 	if bin == "" {
 		t.Skip("set CAELIS_BOT_TEST_BINARY for isolated external Host acceptance")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 180*time.Second)
 	defer cancel()
 	model := newAcceptanceModel()
 	server := httptest.NewServer(http.HandlerFunc(model.serve))
 	defer server.Close()
-	root := t.TempDir()
+	root, rootErr := filepath.EvalSymlinks(t.TempDir())
+	if rootErr != nil {
+		t.Fatal(rootErr)
+	}
 	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: bin, CaelisStore: filepath.Join(root, "store")}
 	if e := os.Mkdir(filepath.Join(root, "home"), 0700); e != nil {
 		t.Fatal(e)
 	}
+	environment := newExecutionFixture(t, root)
 	var cmd *exec.Cmd
 	start := func() {
 		cmd = exec.CommandContext(ctx, bin, "serve", "--store-dir", settings.CaelisStore, "--listen", "127.0.0.1:0")
 		cmd.Dir = root
-		cmd.Env = []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + filepath.Join(root, "home"), "TMPDIR=" + os.TempDir()}
+		cmd.Env = environment.env
 		log, e := os.OpenFile(filepath.Join(root, "host.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 		if e != nil {
 			t.Fatal(e)
@@ -318,6 +322,11 @@ func TestNativeHostIntegration(t *testing.T) {
 	}
 	open()
 	defer func() { _ = s.Close(context.Background()) }()
+	if !t.Run("B00_execution_environment", func(t *testing.T) {
+		verifyExecutionConfiguration(t, ctx, s, host, model, root, vault.Path(), environment)
+	}) {
+		return
+	}
 	if !t.Run("B00_progressive_skill", func(t *testing.T) {
 		model.set("CASE_SKILL", modelStep{Name: "Read", Args: map[string]string{"path": skillPath}}, modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")}})
 		submitAcceptance(t, ctx, s, "CASE_SKILL")
@@ -622,7 +631,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		if err = host.json(ctx, "POST", "/configuration/use-model", wire.UseModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Model: "openai/gpt-5.4", ReasoningEffort: pointer("high")}, &result, op, string(status.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
 			t.Fatal("runtime model selection", result.Outcome, err)
 		}
-		model.set("CASE_WORKER_A", modelStep{Name: "Write", Args: map[string]string{"path": "workspace-sentinel", "content": "selected workspace"}}, modelStep{Block: workerA, Entered: enteredA})
+		model.set("CASE_WORKER_A", modelStep{Name: "RunCommand", Args: map[string]any{"command": environment.check(t, filepath.Join(root, "worker-a")) + " && printf ok > worker-env.txt"}}, modelStep{Name: "Write", Args: map[string]string{"path": "workspace-sentinel", "content": "selected workspace"}}, modelStep{Block: workerA, Entered: enteredA})
 		model.set("CASE_WORKER_B", modelStep{Block: workerB, Entered: enteredB})
 		model.set("CASE_DELEGATE", modelStep{Name: "FixtureDelegate", Args: map[string]string{}})
 		submitAcceptance(t, ctx, s, "CASE_DELEGATE")
@@ -640,6 +649,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		if selectedErr != nil || string(selectedData) != "selected workspace" {
 			t.Fatal("worker did not execute in selected workspace", selectedErr)
 		}
+		requireExecutionFile(t, filepath.Join(root, "worker-a"), "worker-env.txt", "ok")
 		if len(s.WorkStates()) != 2 {
 			t.Fatal("missing workers")
 		}
@@ -824,7 +834,7 @@ func TestNativeHostIntegration(t *testing.T) {
 			}
 		}()
 
-		model.set("CASE_APPROVAL", modelStep{Name: "RunCommand", Args: map[string]any{"command": "/bin/sleep 1; printf x >> approval-once.txt", "yield_time_ms": 0, "sandbox_permissions": "require_escalated", "justification": "Synthetic late-approval regression"}}, modelStep{Reply: "APPROVAL_WAITING_SENTINEL"}, modelStep{Reply: "APPROVAL_FOLLOWUP_SENTINEL"})
+		model.set("CASE_APPROVAL", modelStep{Name: "RunCommand", Args: map[string]any{"command": "/bin/sleep 1; " + environment.check(t, vault.Path()) + " && printf x >> approval-once.txt", "yield_time_ms": 0, "sandbox_permissions": "require_escalated", "justification": "Synthetic late-approval regression"}}, modelStep{Reply: "APPROVAL_WAITING_SENTINEL"}, modelStep{Reply: "APPROVAL_FOLLOWUP_SENTINEL"})
 		receipt, err := s.Submit(ctx, api.Submission{ID: "case-approval", Text: "CASE_APPROVAL"}, nil)
 		if err != nil || receipt.Outcome != "accepted" {
 			t.Fatal(receipt, err)
@@ -927,6 +937,9 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("restart lost configuration or binding", e)
 		}
 		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Items) == len(items) })
+		if after.Profile.ExecutionConfig == nil {
+			t.Fatal("restart lost execution configuration")
+		}
 		// An explicit runtime update reconnects this same adapter, without a Bot restart.
 		stop()
 		start()
@@ -938,6 +951,13 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("reconnect replaced binding", e)
 		}
 		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Items) == len(items) })
+	}) {
+		return
+	}
+	if !t.Run("B07_environment_after_restart", func(t *testing.T) {
+		model.set("CASE_ENV_RESTART", modelStep{Name: "RunCommand", Args: map[string]any{"command": environment.check(t, vault.Path()) + " && printf ok > restarted-env.txt"}})
+		submitAcceptance(t, ctx, s, "CASE_ENV_RESTART")
+		requireExecutionFile(t, vault.Path(), "restarted-env.txt", "ok")
 	}) {
 		return
 	}

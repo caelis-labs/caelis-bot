@@ -1,6 +1,7 @@
 # Caelis 接入与运行时管理
 
-最低必需能力基线保持正式 Caelis **v0.62.0**；公开 schema/wire 已随 Core 可选扩展更新。
+当前必需能力新增 `execution-configuration-v1`，对应已合并 Core PR #85（`bdebd8d2d4bf`）。
+公开 schema/wire 同步固定到该提交；按能力判断兼容性，不以发行版本号代替握手。
 `application-terminal-observation-v1` 是可选增强：支持时启用迟到审批命令的结果跟进，
 不支持时正常连接，且不访问该观察接口。审批投影、指定工作区和自动 pin 均不依赖它。
 Caelis 可独立交付该修复，无需为此单独发布版本。通用应用运行时与共享原生 Worker 的
@@ -23,6 +24,7 @@ Caelis 可独立交付该修复，无需为此单独发布版本。通用应用�
 - `application-resource-transfer-v1`
 - `shared-native-workers-v1`
 - `turn-steering-receipts-v1`
+- `execution-configuration-v1`
 
 CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切换，保留安装、更新和服务管理入口；
 不静默换用 Codex 或旧 Bot。v0.61.0 不包含共享 Worker 扩展；安装成功也不代表运行中的共享 Host 已更新。
@@ -33,6 +35,18 @@ CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切
 仅 true 启用；false、缺失、断线、无协商均禁用 Ask Bot，复制/标注/贴图不受影响。
 发送前再次读取当前配置，模型切换后恢复，无需更换 Bot 身份。该读取不激活模型，
 也不是派发授权；服务端正常执行校验继续生效，旧请求始终按原 ID 核对。
+
+## 执行环境装配
+
+Bot 的 workspace-write profile 显式选择继承 Host 环境、非登录 shell；Notebook 只指定 CWD。
+启动 shell 恢复由原生 Bot 宿主做一次，Core 按通用配置执行，不再次私有化 HOME 或重置 PATH。
+不把整张客户端环境和凭据写入持久 profile，也不为连接中的共享 Host 偷改环境或重启进程。
+旧 Host 缺少能力时保留已有数据并报告不兼容，用户经原有更新/启用服务路径处理。
+
+环境配置在创建时固定。恢复/未知创建沿用已有 profile 和原请求；已有无配置的 Session
+使用新版 Core 默认值，无需更换 Bot 对话。工具重绑定不热修改环境，Dream 交接保留原配置。
+原生 Worker 使用 Core 的普通 Session 默认环境，保持自身工作目录及模型配置。
+继承 HOME、PATH、CLI 配置不扩大 sandbox 的写入范围，审批仍使用原目标与一次性选择。
 
 ## 使用入口
 
@@ -213,6 +227,6 @@ supported saved Bot state contains these workers. Unknown native operations are
 reconciled through `/application/operations/{operation_id}` without redispatch.
 
 The vendored public schema and wire are pinned to the exact source commit in
-`protocol/caelis/manifest.json`. The pin matches official v0.62.0. Protocol
+`protocol/caelis/manifest.json` (`bdebd8d2d4bf`, merged Core PR #85). Protocol
 unit tests and isolated Host integration are separate from native GUI and
 real-model acceptance.

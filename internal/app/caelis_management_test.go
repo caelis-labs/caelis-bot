@@ -40,7 +40,7 @@ func TestCaelisUpdateRequiresLiveCompatibilityAndRefusesBusyHost(t *testing.T) {
 				}
 				caps := []string{}
 				if _, err := os.Stat(marker); err == nil && mode != "incompatible" {
-					caps = []string{"shared-native-workers-v1", "turn-steering-receipts-v1", "application-runtime-v1", "application-hot-configuration-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1"}
+					caps = []string{"shared-native-workers-v1", "turn-steering-receipts-v1", "application-runtime-v1", "application-hot-configuration-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1", "execution-configuration-v1"}
 				}
 				_ = json.NewEncoder(w).Encode(map[string]any{"instance_id": "fixture-instance", "store_id": "fixture-store", "protocol_version": 1, "api_version": "v1", "envelope_version": "caelis.control.envelope/v1", "capabilities": caps})
 			}))
