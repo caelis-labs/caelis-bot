@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/caelis-labs/caelis-bot/compare/v0.4.0...v0.5.0) (2026-09-28)
+
+
+### Features
+
+* add idle Dream and deferred context handoff ([#32](https://github.com/caelis-labs/caelis-bot/issues/32)) ([28119db](https://github.com/caelis-labs/caelis-bot/commit/28119db68ffb429054930a1ba88e441a4dd480cf))
+* add runtime-aware Computer Use and isolated Dev packaging ([#37](https://github.com/caelis-labs/caelis-bot/issues/37)) ([0274933](https://github.com/caelis-labs/caelis-bot/commit/0274933347d2ff452847f94ac03bfeceff2e7740))
+* simplify settings and first-run onboarding ([#34](https://github.com/caelis-labs/caelis-bot/issues/34)) ([a95e031](https://github.com/caelis-labs/caelis-bot/commit/a95e0312ca61a9afa680b028983d053233c04f6d))
+
+
+### Bug Fixes
+
+* improve care, runtime setup and Guardian approvals ([#38](https://github.com/caelis-labs/caelis-bot/issues/38)) ([81d89ad](https://github.com/caelis-labs/caelis-bot/commit/81d89adde07670835cb2913d70050e651e37d7cd))
+
 ## [0.4.0](https://github.com/caelis-labs/caelis-bot/compare/v0.3.0...v0.4.0) (2026-09-27)
 
 
