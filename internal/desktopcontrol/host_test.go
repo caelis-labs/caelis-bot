@@ -151,23 +151,57 @@ func TestHostResultsFitCaelisContentV1Receipt(t *testing.T) {
 			t.Fatal("result exceeds pipe/MCP frame")
 		}
 	}
-	for _, mode := range []string{"ascii", "escaping", "windows", "remaining", "image"} {
+	for _, mode := range []string{"ascii", "escaping", "windows", "windows-escaping", "remaining", "image"} {
 		t.Run(mode, func(t *testing.T) {
 			config := map[string]any{"text": strings.Repeat("x", 18000)}
 			switch mode {
 			case "escaping":
 				config["text"] = strings.Repeat("<>&\u2028\u2029界", 2000)
 			case "windows":
-				config["windows"], config["windowText"] = 80, strings.Repeat("界", 300)
+				config["windows"], config["windowText"] = 85, strings.Repeat("界", 300)
+			case "windows-escaping":
+				config["windows"], config["windowText"] = 85, strings.Repeat("<>&\u2028\u2029", 60)
 			case "image":
 				config["images"] = []any{map[string]any{"mimeType": "image/png", "dataBase64": base64.StdEncoding.EncodeToString(make([]byte, 256<<10))}}
 			}
 			driver, _ := fixtureHost(t, config)
 			listed := hostCall(t, driver, "bot_desktop_observe", map[string]any{})
 			check(t, listed)
-			if mode == "windows" {
+			if strings.HasPrefix(mode, "windows") {
 				if listed.StructuredContent["truncated"] != true {
 					t.Fatal("truncated list not marked")
+				}
+				seen := make(map[string]bool)
+				var last string
+				for pages := 0; ; pages++ {
+					if pages >= 85 {
+						t.Fatal("pagination did not terminate")
+					}
+					check(t, listed)
+					windows := listed.StructuredContent["windows"].([]any)
+					if len(windows) == 0 || len(windows) > 20 {
+						t.Fatal("page did not make bounded progress")
+					}
+					for _, entry := range windows {
+						last = entry.(map[string]any)["window"].(string)
+						if seen[last] {
+							t.Fatal("duplicate window handle across pages")
+						}
+						seen[last] = true
+					}
+					cursor := listed.StructuredContent["nextCursor"]
+					if cursor == nil {
+						break
+					}
+					listed = hostCall(t, driver, "bot_desktop_observe", map[string]any{"cursor": cursor})
+				}
+				if len(seen) != 85 {
+					t.Fatalf("only %d of 85 native windows discoverable", len(seen))
+				}
+				observed := hostCall(t, driver, "bot_desktop_observe", map[string]any{"window": last})
+				check(t, observed)
+				if !strings.HasPrefix(observed.StructuredContent["title"].(string), "Window 85 ") || !strings.Contains(observed.StructuredContent["text"].(string), "selected 126") {
+					t.Fatal("later-page handle did not observe the expected native window")
 				}
 				return
 			}

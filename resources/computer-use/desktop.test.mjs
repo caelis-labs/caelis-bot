@@ -127,10 +127,90 @@ test('window text starts at the selected native root, never a sibling window',as
  const o=await f.observe();assert.match(o.text,/current fixture/);assert.doesNotMatch(o.text,/private sibling|AXMenuBar/);
 });
 
-test('clipped window handles are removed from the native catalog',async()=>{
+test('long-title windows beyond the first response remain discoverable and selectable',async()=>{
+ for(const count of [20,85]) {
+  const f=setup(), windows=Array.from({length:count},(_,i)=>({...f.window,windowId:BigInt(i+1),title:`Window ${i+1} `+'界'.repeat(290),appName:'Browser'}));
+  f.driver.listWindows=async()=>({windows});
+  f.driver.getWindowState=async input=>{
+   const w=windows.find(w=>w.windowId===input.windowId);
+   return {...f.state,treeMarkdown:`- [1] AXWindow ${w.title}\n  - selected ${w.windowId}`,elements:[{elementIndex:1n,role:'AXWindow',label:w.title}]};
+  };
+  const seen=new Map();let input={}, pages=0, last;
+  do {
+   const page=await f.desktop.observe(input);pages++;
+   assert.ok(pages<=count,'pagination must make progress');
+   assert.ok(page.windows.length>0);
+   for(const w of page.windows) {assert.ok(!seen.has(w.title),'duplicate window');seen.set(w.title,w.window);last=w;}
+   assert.equal(f.desktop.windows.size,seen.size,'only exposed handles enter the selectable catalog');
+   input=page.nextCursor ? {cursor:page.nextCursor} : null;
+  } while(input);
+  assert.equal(seen.size,count,'a stable native window set must be fully discoverable');
+  if(count>20) assert.ok(pages>1,'fixture must exercise continuation');
+  const observed=await f.desktop.observe({window:last.window});
+  assert.equal(observed.title,windows.at(-1).title.slice(0,300));
+  assert.match(observed.text,new RegExp(`selected ${count}$`));
+ }
+});
+
+test('continuation uses a stable snapshot, replays the same page and preserves earlier handles',async()=>{
+ const f=setup();let lists=0;
+ const windows=Array.from({length:45},(_,i)=>({...f.window,windowId:BigInt(i+1),title:`Window ${i+1}`}));
+ f.driver.listWindows=async()=>{lists++;return {windows};};
+ const first=await f.desktop.observe();
+ assert.equal(first.windows.length,20);assert.ok(first.nextCursor);
+ windows.reverse(); // Native order can change while the model reads the first page.
+ const second=await f.desktop.observe({cursor:first.nextCursor});
+ assert.equal(second.windows[0].title,'Window 21');
+ const replay=await f.desktop.observe({cursor:first.nextCursor});
+ assert.deepEqual(replay,second);assert.equal(f.desktop.windows.size,40);
+ const last=await f.desktop.observe({cursor:second.nextCursor});
+ assert.equal(last.windows.at(-1).title,'Window 45');assert.equal(last.nextCursor,null);
+ assert.equal(lists,1,'continuation must not restart native enumeration');
+ await f.desktop.observe({window:first.windows[0].window});
+ assert.equal(f.calls.at(-1)[1].windowId,1n,'earlier-page handle still selects its native window');
+ windows.splice(windows.findIndex(w=>w.windowId===45n),1);
+ await assert.rejects(f.desktop.observe({window:last.windows.at(-1).window}),/window_changed/);
+});
+
+test('cursor validation, expiry and list refresh cannot expose old or invented handles',async()=>{
  const f=setup();
- f.driver.listWindows=async()=>({windows:Array.from({length:80},(_,i)=>({...f.window,windowId:BigInt(i+1),title:'界'.repeat(300),appName:'界'.repeat(300)}))});
- const listed=await f.desktop.observe();
- assert.equal(listed.truncated,true);assert.ok(listed.windows.length>0 && listed.windows.length<80);
- assert.deepEqual([...f.desktop.windows.keys()],listed.windows.map(w=>w.window));
+ f.driver.listWindows=async()=>({windows:Array.from({length:25},(_,i)=>({...f.window,windowId:BigInt(i+1)}))});
+ const first=await f.desktop.observe();
+ for(const input of [{cursor:''},{cursor:42},{cursor:'x'.repeat(129)},
+   {cursor:first.nextCursor,window:first.windows[0].window},{cursor:first.nextCursor,screenshot:false}]) {
+  await assert.rejects(f.desktop.observe(input),/invalid_arguments/);
+ }
+ await assert.rejects(f.desktop.observe({cursor:'p-forged'}),/window_cursor_expired/);
+ f.tick(300001);
+ await assert.rejects(f.desktop.observe({cursor:first.nextCursor}),/window_cursor_expired/);
+ await assert.rejects(f.desktop.observe({window:first.windows[0].window}),/window_reference_expired/);
+ const fresh=await f.desktop.observe();
+ await f.desktop.observe();
+ await assert.rejects(f.desktop.observe({cursor:fresh.nextCursor}),/window_cursor_expired/);
+ await assert.rejects(f.desktop.observe({window:fresh.windows[0].window}),/window_reference_expired/);
+ f.driver.listWindows=async()=>{throw Error('enumeration failed');};
+ await assert.rejects(f.desktop.observe(),/enumeration failed/);
+ assert.equal(f.desktop.windows.size,0);
+ await assert.rejects(f.desktop.observe({cursor:fresh.nextCursor}),/window_cursor_expired/);
+ f.driver.listWindows=async()=>({windows:[]});
+ const empty=await f.desktop.observe();
+ assert.deepEqual(empty.windows,[]);assert.equal(empty.nextCursor,null);assert.equal(empty.truncated,false);
+});
+
+test('byte-budget pagination resumes after the last returned window without skipping any',async()=>{
+ const f=setup(), seen=[];
+ f.driver.listWindows=async()=>({windows:Array.from({length:41},(_,i)=>({...f.window,windowId:BigInt(i+1),
+  appName:'<>&\u2028\u2029'.repeat(60),title:`Window ${i+1} `+'<>&\u2028\u2029'.repeat(60)}))});
+ let page=await f.desktop.observe();
+ assert.ok(page.windows.length<20,'escaped summaries must exercise the byte cap');
+ do {
+  const result=envelope(page);
+  const goJSON=JSON.stringify(result.structuredContent).replace(/[<>&\u2028\u2029]/g,c=>`\\u${c.charCodeAt(0).toString(16).padStart(4,'0')}`);
+  assert.ok(Buffer.byteLength(result.content[0].text)+Buffer.byteLength(goJSON)+1024<=32*1024);
+  seen.push(...page.windows.map(w=>Number(w.title.split(' ')[1])));
+  assert.ok(page.windows.every(w=>w.summaryTruncated));
+  assert.ok(seen.length<=41,'pagination must terminate');
+  page=page.nextCursor ? await f.desktop.observe({cursor:page.nextCursor}) : null;
+ } while(page);
+ assert.deepEqual(seen,Array.from({length:41},(_,i)=>i+1));
 });

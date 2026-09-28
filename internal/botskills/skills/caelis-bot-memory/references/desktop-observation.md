@@ -13,8 +13,15 @@ The following workflow applies only when `bot_desktop_observe` and
 `bot_desktop_perform` are actually available. These are the Bot's host-provided
 capability for Runtimes that do not own native Computer Use.
 
-Call `bot_desktop_observe` with `{}` to list visible windows. Choose the relevant
-window handle and call it again with `{"window":"..."}` to read component names,
+Call `bot_desktop_observe` with `{}` for a page of visible window summaries.
+If the relevant window is missing and `nextCursor` is non-null, call again with
+only `{"cursor":"..."}` using that value. Continue until you find the window or
+`nextCursor` is null; the first page is not the full desktop. Summaries abbreviate
+long names and titles (`summaryTruncated`); selecting a handle provides more detail.
+Pages belong to one snapshot and keep earlier handles usable. Calling with `{}`
+starts a new list and invalidates earlier handles and cursors. Both expire five
+minutes after the list starts; on expiration, start a fresh list.
+Choose the relevant window handle and call it with `{"window":"..."}` to read component names,
 values, bounds, available actions and accessible text. Prefer these targets over
 screenshots. Do not use shell scripts or another automation route to bypass an
 unavailable permission, stale target, rejected action or uncertain result.

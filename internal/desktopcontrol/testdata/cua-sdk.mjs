@@ -12,6 +12,8 @@ export class CuaDriver {
     let lists = 0;
     const window = {pid: 17, windowId: 42n, appName: config.windowText ?? 'Fixture', title: config.windowText ?? 'Fixture',
       bounds: {x: 10, y: 20, width: 600, height: 400}};
+    const windows = Array.from({length: config.windows ?? 1}, (_, i) => ({...window, windowId: 42n + BigInt(i),
+      title: config.windows ? `Window ${i + 1} ${window.title}` : window.title}));
     const input = async () => {writeFileSync(new URL('input-dispatched', root), 'yes'); return {isError: false};};
     return {
       listWindows: async () => {
@@ -21,12 +23,12 @@ export class CuaDriver {
           // cancel an in-flight SDK promise, which can then dispatch an input.
           await new Promise(resolve => process.stdin.once('end', resolve));
         }
-        return {windows: Array.from({length: config.windows ?? 1}, (_, i) => ({...window, windowId: 42n + BigInt(i)}))};
+        return {windows};
       },
-      getWindowState: async () => ({snapshotId: 'snapshot', elementsComplete: true,
-        treeMarkdown: '- [1] AXWindow Fixture\n  - ' + (config.text ?? 'Fixture text'),
+      getWindowState: async ({windowId}) => ({snapshotId: 'snapshot', elementsComplete: true,
+        treeMarkdown: `- [1] AXWindow ${windows.find(w => w.windowId === windowId).title}\n  - selected ${windowId}\n  - ` + (config.text ?? 'Fixture text'),
         elements: [
-          {elementIndex: 1n, role: 'AXWindow', label: window.title},
+          {elementIndex: 1n, role: 'AXWindow', label: windows.find(w => w.windowId === windowId).title},
           {elementIndex: 2n, parentIndex: 1n, role: 'AXCheckBox', label: 'Filter', value: '0', elementToken: 'check', actions: ['AXPress']},
           {elementIndex: 3n, parentIndex: 1n, role: 'AXTextField', label: 'Text', elementToken: 'text'},
         ], images: config.images ?? []}),
