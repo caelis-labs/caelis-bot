@@ -51,5 +51,5 @@ host assembly defaults after a verified handoff; same-version renewal retains th
 select `auto-review` and a pinned `guardian` model, then verify scoped reviewer
 readiness. Callback policy is `required` except for product-owned direct tools.
 Approval review observations never confer execution or manual-resolution authority.
-See [acceptance and release conditions](../../docs/caelis-guardian-acceptance.md),
+See [acceptance and release conditions](../../docs/caelis-integration.md),
 including the Runtime item identity repair in Core #91.

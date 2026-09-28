@@ -4,9 +4,9 @@
 
 - Read `docs/product.md` and `docs/architecture.md` before changing behavior.
 - Caelis Bot is a restrained, agent-driven entry point for nontechnical users.
-- Follow `docs/roadmap.md` for the product direction: a persistent personal assistant
+- Follow `docs/product.md` for the product direction: a persistent personal assistant
   with contextual 3D expression and a basic Desktop/Dock/ActiveWindow model early.
-  Use `docs/desktop-behavior.md` for idle, pointer/work interactions and independent props.
+  Use `docs/architecture.md` for idle, pointer/work interactions and independent props.
   Initial exploration targets developer daily use and distinctive real demos; broad
   user-retention proof and complex desktop semantics are not prerequisites. A model
   plus chat/status clips is an integration baseline, not the competitive endpoint.
@@ -17,7 +17,7 @@
   the pet must not implicitly quit the app or cancel work.
 - Bot has one long-lived product identity, no new-session/workspace navigation.
   User prompts and resident schedules activate work; internal worker threads stay hidden.
-  Use `docs/bot-design.md` for surface ownership and wakeup semantics.
+  Use `docs/product.md` for surface ownership and wakeup semantics.
 - Never expose Session/thread IDs, workspace trees, terminal panes, model controls,
   protocol details, or developer dashboards as default product navigation.
 - Conversation, attachments, approvals, and contextual connection/plugin setup
@@ -50,24 +50,24 @@
   App Server handshake and consumed protocol semantics to decide compatibility.
 - Do not turn a draft capability into an advertised feature before its full path works.
 
-## Current preparation scope
+## Current implementation and evidence
 
 - P1's native shell is implemented; keep remaining hardware/release gates explicit.
 - P2's real Codex workflow is connected: conversation, tools, files, approvals,
   interrupt and recovery. Keep live evidence separate from fixture coverage.
-- Follow the latest checkpoint in `docs/implementation-plan.md` and `docs/handoff.md`;
-  do not restart P1/P2 from their historical plan. Keep `docs/preparation-status.md` honest
-  about implemented behavior versus plans and previous verification.
+- Use `docs/development.md` for current commands and verification limits; do not restart
+  historical P1/P2 plans or append duplicate handoff diaries. Keep implementation,
+  fixture coverage, live evidence and published artifact acceptance distinct.
 - Character authoring belongs in the private `caelis-labs/caelis-bot-assets` repository.
   This public repository contains only finished resources, the renderer and public contracts.
-  Read `docs/character-assets.md` before changing asset delivery. Never introduce Blender,
+  Read `docs/content-packs.md` before changing asset delivery. Never introduce Blender,
   authoring sources, private credentials or archived models as public build dependencies.
   Preserve code/character license boundaries and provenance. New costumes and characters
   use versioned finished variants; they do not change the Bot's conversation identity.
 - Public DMG releases require Developer ID signing, hardened runtime, secure
   timestamps, Apple notarization, stapled tickets and Gatekeeper acceptance.
   Local/PR builds default to ad-hoc signing; a user-selected local Apple Development
-  identity may be pinned for stable development permissions (see `docs/development-signing.md`).
+  identity may be pinned for stable development permissions (see `docs/development.md`).
   CI remains ad-hoc. Release credentials are restricted to the
   main-branch macos-release environment. Never describe a signed-only build as notarized.
 - Preserve unrelated changes. Commit and push require their own user authorization.
@@ -85,7 +85,7 @@
 - Preserve standard progressive disclosure: expose skill metadata for discovery,
   load the body and supporting files on demand, and verify Bot-scoped discovery and
   loading in both Codex and Caelis without affecting ordinary sessions or workers.
-  The structure and runtime loading contract are in `docs/design/bot-core-skill-v1.md`.
+  The structure and runtime loading contract are in `docs/architecture.md`.
 
 ## Verification
 

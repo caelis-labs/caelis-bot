@@ -23,7 +23,7 @@ Caelis Bot brings your local agent to the macOS desktop through a small, express
 
 Available for Apple Silicon Macs. Download the DMG and its `.sha256` file, verify the download, then drag **Caelis Bot.app** into Applications. See the [installation guide](docs/install.md) for verification and first-launch steps.
 
-Choose **Caelis or Codex** during setup or in **Settings → Runtime**. Use your local installation and account; neither runtime is bundled. Caelis v0.61.0 is the tested release baseline; see [runtime compatibility](docs/caelis-integration.md). The Bot's conversation model and the models used for delegated work can be configured separately. By default, delegated work uses the runtime's configuration.
+Choose **Caelis or Codex** during setup or in **Settings → Runtime**. Use your local installation and account; neither runtime is bundled. Caelis must expose the required application and Guardian capabilities; see [runtime compatibility](docs/caelis-integration.md). The Bot's conversation model and the models used for delegated work can be configured separately. By default, delegated work uses the runtime's configuration.
 
 Click the character to write, double-click to open the conversation, and use the menu bar for settings or Quit. Hiding the character does not stop work. Stable builds with the updater check daily and install signed updates after confirmation. Older builds need one manual upgrade; see [updating](docs/install.md#update).
 
@@ -43,13 +43,13 @@ make check
 make run
 ```
 
-The [Caelis adapter](docs/caelis-integration.md) has passed isolated real-model checks with MiMo v2.6 Flash and GPT-6 Luna, including native file tools, approvals, hot configuration and resource transfer. See the [acceptance report](docs/caelis-live-acceptance.md) for scope and remaining limits.
+The [Caelis adapter](docs/caelis-integration.md) has passed isolated real-model checks with MiMo v2.6 Flash and GPT-6 Luna, including native file tools, approvals, hot configuration and resource transfer. Those historical results do not qualify newer capabilities; see [verification limits](docs/development.md).
 
 `make package` produces a verified DMG and checksum. No Blender installation or private asset access is needed. [Development and release workflow →](docs/release.md)
 
 Import local `.caelispack` files in **Settings → Appearance**. Create characters, complete outfit variants or PNG avatars with the offline tool. [Content pack creator guide (中文) →](docs/content-packs.md)
 
-[Product direction](docs/roadmap.md) · [Architecture](docs/architecture.md) · [Character assets](docs/character-assets.md) · [Verification limits](docs/native-acceptance.md)
+[Product direction](docs/product.md) · [Architecture](docs/architecture.md) · [Character assets](docs/content-packs.md) · [Verification limits](docs/development.md)
 
 ## License
 

@@ -23,7 +23,7 @@ Caelis Bot 通过一个有表情、有动作的 3D 小角色，把本机 Agent �
 
 目前提供 Apple Silicon Mac 版本。下载 DMG 及其 `.sha256` 文件，核验后将 **Caelis Bot.app** 拖到“应用程序”。[安装指南](docs/install.zh-CN.md)提供校验和首次启动步骤。
 
-首次设置或在 **设置 → 运行时** 中选择 **Caelis 或 Codex**，使用本机安装与账户；安装包不包含运行时。Caelis v0.61.0 是已验收的正式版本，兼容范围见[接入说明](docs/caelis-integration.md)。Bot 的对话模型与实际工作模型可以分别配置；派出的任务默认沿用运行时配置。
+首次设置或在 **设置 → 运行时** 中选择 **Caelis 或 Codex**，使用本机安装与账户；安装包不包含运行时。Caelis 需具备所需的应用与 Guardian 能力，兼容范围见[接入说明](docs/caelis-integration.md)。Bot 的对话模型与实际工作模型可以分别配置；派出的任务默认沿用运行时配置。
 
 单击角色输入，双击打开对话；从状态栏进入设置或退出。隐藏角色不会停止工作。接入更新器的正式版每天检查更新，确认后验证签名并安装；旧版需先手动升级一次，详见[安装说明](docs/install.zh-CN.md)。
 
@@ -43,13 +43,13 @@ make check
 make run
 ```
 
-[Caelis 接入](docs/caelis-integration.md)已通过 MiMo v2.6 Flash 与 GPT-6 Luna 的隔离真实模型验收，覆盖原生文件工具、审批、热配置与资源传输。具体范围和剩余限制见[验收报告](docs/caelis-live-acceptance.md)。
+[Caelis 接入](docs/caelis-integration.md)已通过 MiMo v2.6 Flash 与 GPT-6 Luna 的隔离真实模型验收，覆盖原生文件工具、审批、热配置与资源传输。这些历史结果不代替新增能力验收，当前范围见[验证说明](docs/development.md)。
 
 `make package` 生成经过校验的 DMG 和 SHA-256。无需 Blender，也无需访问私有资产仓库。[开发与发布流程 →](docs/release.md)
 
 在 **设置 → 外观** 导入 `.caelispack`，独立切换角色、完整服装变体和头像。社区创作者可用离线工具完成制作、打包、校验与二创。[内容包开发指南 →](docs/content-packs.md)
 
-[产品路线](docs/roadmap.md) · [架构](docs/architecture.md) · [角色资产](docs/character-assets.md) · [验收范围](docs/native-acceptance.md)
+[产品路线](docs/product.md) · [架构](docs/architecture.md) · [角色资产](docs/content-packs.md) · [验收范围](docs/development.md)
 
 ## 许可
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
 if [[ "$(uname -s)" != Darwin ]]; then
-  echo 'Native run is implemented for macOS only; see docs/platform-baseline.md.' >&2
+  echo 'Native run is implemented for macOS only; see docs/development.md.' >&2
   exit 1
 fi
 BOT_MODE="${1:-run}"

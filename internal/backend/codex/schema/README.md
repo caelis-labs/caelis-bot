@@ -19,7 +19,7 @@ This pin is only a reproducible schema/test baseline. Runtime connections do not
 check CLI release numbers. Both stdio and Unix sockets use the standard handshake
 and validate the wire fields actually consumed by the adapter. App Server does not
 currently negotiate a protocolVersion; schema directories named v1/v2 are not a
-negotiated version range. See [compatibility policy](../../../../docs/codex-compatibility.md).
+negotiated version range. See [compatibility policy](../../../../docs/caelis-integration.md).
 
 These are native wire schemas, not a second frontend contract. The Go client projects
 initialize, auth, threads, turns, items, input, approvals and cleanup. In the JSON schema `account` may be omitted

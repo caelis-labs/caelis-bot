@@ -9,8 +9,7 @@ Caelis 可独立交付该修复，无需为此单独发布版本。通用应用�
 公开 wire schema 的精确源码提交与哈希见 `protocol/caelis/manifest.json`。使用公开 HTTP/SSE 与生成的 Go wire，
 不导入兄弟仓库、不恢复旧 Bot Mode。基线包含共享会话、steering、Host 设置授权流与 Team 角色候选。
 
-当前验证范围见 [实现与验证状态](preparation-status.md)。v0.61.0 的真实模型和原生 GUI
-历史证据见 [正式版联调报告](caelis-release-acceptance.md)，不能代替新增功能的验收。
+验证命令和证据范围见[开发与验证](development.md)。历史 v0.61.0 的真实模型结果不代替新增能力验收。
 
 macOS 13.5+ 安装包为常驻 Bot 装配 Cua 桌面工具时，还要求 Host 声明
 `application-tool-result-content-v1`（Caelis #82）。缺少时在注册工具前提示更新并重启 Host，
@@ -48,7 +47,7 @@ CLI 版本号仅供显示，不是兼容性 allowlist。缺少能力时阻止切
 新建 Bot Runtime 默认显式装配 Guardian，低风险记忆与读取直通；派生 Worker、持续安排修改
 由自动审查处理。Computer Use 按一个 App、一个连续任务 Turn 授权一次。
 版本升级后的恢复启动主动交接到新配置，普通 Dream 也可交接；同版本重启恢复原绑定。
-不热改当前或未决 Runtime；保留历史、Notebook 与原工作状态。具体策略、已验证能力和发布条件见[Guardian 联调与发布条件](caelis-guardian-acceptance.md)。
+不热改当前或未决 Runtime；保留历史、Notebook 与原工作状态。完整策略和发布条件见下文。
 
 ## 执行环境装配
 
@@ -58,7 +57,7 @@ Bot 的 workspace-write profile 显式选择继承 Host 环境、非登录 shell
 旧 Host 缺少能力时保留已有数据并报告不兼容，用户经原有更新/启用服务路径处理。
 
 环境配置在创建时固定。恢复/未知创建沿用已有 profile 和原请求；已有无配置的 Session
-使用新版 Core 默认值，无需更换 Bot 对话。工具重绑定不热修改环境，Dream 交接保留原配置。
+使用新版 Core 默认值，无需更换 Bot 对话。工具重绑定不热修改环境，同版本 Dream 交接保留原配置；App 升级交接按当前产品版本重新装配。
 原生 Worker 使用 Core 的普通 Session 默认环境，保持自身工作目录及模型配置。
 继承 HOME、PATH、CLI 配置不扩大 sandbox 的写入范围，审批仍使用原目标与一次性选择。
 
@@ -108,8 +107,8 @@ Bot 的 workspace-write profile 显式选择继承 Host 环境、非登录 shell
 
 ```sh
 source script/env.sh
-CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-0.61.0 \
-CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-0.62.0 \
+CAELIS_BOT_TEST_PREVIOUS_BINARY=/absolute/path/to/caelis-previous \
+CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis-current \
 go test -race -v -count=1 -timeout 180s ./internal/app -run '^TestCaelisReleasedServiceUpgrade$'
 ```
 
@@ -159,7 +158,7 @@ Bot 的应用工具经过同一业务层：Codex 使用私有 MCP，Caelis 使�
 字段缺省保留；instructions/effort/tier 的 `""` 与 tools/native_tools 的 `[]` 按公开契约清空。
 adapter 用 map 表达显式空数组，避免生成类型的 `omitempty` 把清空变成未提供。
 更新丢响应通过 `/application/configuration-operations/{operation_id}` 取精确历史回执，再读取当前期望配置；
-不能用旧回执覆盖后来的配置。目录、执行/继承/权限仍在创建时确定，目前产品暴露 `workspace-write` + `manual`。
+不能用旧回执覆盖后来的配置。目录、执行/继承/权限仍在创建时确定，默认产品装配 `workspace-write` + Guardian auto-review。
 
 原生记录保存在 `providers/caelis/application.json` 和独立的 `application-credential.json`。
 旧 Bot Mode 的 `binding.json` 等文件原样保留，不迁移到新协议。注册前持久化应用凭据与操作 ID，
@@ -170,48 +169,6 @@ worker 启动分阶段保存创建配置、原授权和 prompt，重启后可在
 已经发出的步骤只读回执。callback claim 丢响应不执行 effect；effect 已记账只重送相同 result；
 缺失旧 handler 时明确失败，不把旧调用交给同名新版工具。
 SSE replacement 完成后原子切换，游标保持不透明；稳定订阅期间进展不依赖状态轮询。
-
-## 复现
-
-```bash
-cd /Users/xueyongzhi/WorkDir/caelis-labs/caelis-bot
-GOWORK=off make check
-GOWORK=off make smoke
-GOWORK=off make build
-CAELIS_BOT_TEST_BINARY="$HOME/.local/bin/caelis" GOWORK=off GOFLAGS=-count=1 make smoke-caelis
-```
-
-`smoke-caelis` 创建临时 HOME、Store、Notebook、worker 目录与合成模型服务，通过真实 Host 的公开接口
-运行原生文件/命令。测试不读取日常模型凭据，完成后关闭自己创建的 Host。`make smoke` 的 Codex 部分
-仅做已安装 CLI 的握手，不调用模型。
-
-真实模型验收另行显式启用。先在隔离 Store 配置模型认证，再运行（指定 binary 时由夹具启动/停止测试 Host）：
-
-```bash
-CAELIS_BOT_LIVE_STORE=/absolute/path/to/isolated-store \
-CAELIS_BOT_LIVE_BINARY=/absolute/path/to/installed-caelis \
-CAELIS_BOT_LIVE_MODEL=xiaomi/mimo-v2.6-flash \
-CAELIS_BOT_LIVE_ALTERNATE_MODEL=openai-codex/gpt-6-luna \
-CAELIS_BOT_LIVE_EFFORT=low \
-CAELIS_BOT_LIVE_FAST_MODEL=openai-codex/gpt-6-luna \
-GOWORK=off make smoke-caelis-live
-```
-
-live fixture 带入完整产品工具目录并调用无参数 `bot_clock`，检验 Notebook、资源闭环、待审批重连、双 worker、grant、同 Turn 热配置与 Fast。
-会产生模型费用；不复制凭据，不修改日常 Store。Fast selector 使用隔离 Store 已有认证，经公开接口配置。
-缺少 Fast selector 或自管 binary 的路径明确跳过相应项目。详见真实模型报告的复现与边界。
-
-## 未完成边界
-
-- 当前基线不支持的配置返回明确 HTTP 400；已验证 Luna priority 正向路径。其他模型仍按能力协商，
-  不因 Luna 通过就宣称全部模型支持 Fast。
-- Core 尚无按上传 operation ID 查资源描述符的公开接口。上传响应完全丢失时 Bot 保留未知上传 intent，
-  不猜 opaque resource ID、不自动重传；需补只读恢复接口或明确支持的恢复契约。
-- 主会话和 Worker 的真实用户输入支持 active Turn steering；请求持久绑定期望 Turn，重试不改投新 Turn。权限选择不热更新。
-- 未确认的 cancel/approval 仍保留未知，不通过新 ID 自动重试；此类原生命令的完整恢复需要后续专项验收。
-- worker 产物已进入其原生投影，但产品报告尚未汇总成主对话下载项；本轮可点击下载闭环验证的是常驻会话。
-- 暂无接管其他应用任务、已有项目/worktree 选择、资源过期清理或历史分页归档；Windows 原生适配未实施。
-
 
 ## Shared native Workers and steering
 
@@ -240,7 +197,163 @@ creation/prompt path; new workers never select it. Remove this reader when no
 supported saved Bot state contains these workers. Unknown native operations are
 reconciled through `/application/operations/{operation_id}` without redispatch.
 
-The vendored public schema and wire are pinned to the exact source commit in
-`protocol/caelis/manifest.json` (`bdebd8d2d4bf`, merged Core PR #85). Protocol
-unit tests and isolated Host integration are separate from native GUI and
-real-model acceptance.
+
+## Codex compatibility
+
+
+用户本机 CLI 不按发行版本设白名单、最小值或最大值。较旧、较新、预发布版本只要满足
+所需协议就可接入。自动发现、手动路径、共享 Unix socket 使用一致的协议判断。
+`toolchain.json` / `TestedVersion` 的 0.153.4 仅为仓库 schema 与回归证据的可复现基线。
+
+当前官方 App Server 并未在 initialize 中协商独立的 protocolVersion，也没有返回完整
+服务端能力列表。clientInfo.version 是客户端版本；schema 的 v1/v2 目录也不能作为
+已协商的协议版本。不能用 CLI 版本号替代它们，或虚构支持的数字协议范围。
+
+实际兼容切面：
+
+- 连接通过标准 initialize → initialized，保留 experimentalApi 客户端能力声明。
+  检查 userAgent 的必要形状，不要求未使用的 codexHome/platform 元数据；新增字段忽略。
+- 配置检测额外只读 account/read，校验所需认证字段后才允许保存。检测不发起模型请求；
+  账户记录不代表 token 有效性或模型调用权限。握手通过不等于全部扩展均通过验收。
+- 真正连接 Bot 时继续通过 thread/start 或 thread/resume 等原生接口验证当前所需语义。
+  缺失方法、参数不被支持、必要字段不合法均明确报错；不为兼容而改用宽松审批策略，
+  不重新发送未知结果的 prompt/审批，不丢弃原有绑定。
+- 扩展字段与不关注的通知可忽略；未知服务端请求仍明确返回 -32601。新的审批选项或
+  权限语义不能根据字符串或角色反馈推断。experimentalApi 不表示支持所有实验能力。
+
+开发验证保留一份固定 schema，make schema 仍要求对应基线生成器并审查差异。
+运行时和无模型 smoke 不调用 --version 作为准入条件，smoke 的 testedCodex 只报告测试
+基线。契约回归覆盖不同发行号但协议相同、没有版本命令、最小/扩展握手响应可以接入，
+以及基线发行号但协议错误仍拒绝、配置不保存、自有进程被回收。
+这些 fixture 证明判断切面，不冒充每个真实历史/未来版本的完整功能验收。
+
+依据：[官方 App Server 初始化与能力声明](https://developers.openai.com/codex/app-server/#initialization)
+及仓库内固定 InitializeParams/InitializeResponse schema。未来官方若增加明确的协议版本
+协商，再以官方字段扩展兼容策略；不提前猜测字段或版本含义。
+
+## Guardian contract
+
+## 上层装配
+
+新建 Bot Runtime 显式选择 `permissions.approval_mode: auto-review` 和
+`reviewer: {kind: guardian, model: <configured model>}`；默认固定初始 Bot 模型，
+原生装配可通过 `Options.ReviewerModel` 指定另一个已配置模型。后续主模型变更不替换 reviewer。
+`workspace-write`、HOME/CWD、环境继承和 shell 配置独立保留；没有用 full-access/never 代替审查。
+
+连接通过 `application-guardian-review-v1` 协商，读取应用作用域的 `reviewer-state`，核对
+Session、模式、reviewer 与 ready 状态；unavailable 明确报错，不转为人工或免审批。
+ready 只表示本地装配就绪，不保证下一次模型调用成功。
+
+旧版 Bot 的 manual 是代码固定值，没有用户可选的 manual 模式。已存在或创建结果未决的
+Runtime 不热修改；**版本升级后的首次恢复启动**是新配置交接点。两种后端都记录创建时的
+Bot 版本；启动恢复完成且旧工作空闲后，复用有效 Dream 交接，或立即发起一次交接整理，
+不等待 15 分钟闲置。完成后自动创建新版 Runtime 并保留历史、Notebook、任务和既有提醒授权。
+新 Runtime 使用当前版本的工具/指令与环境装配，保留用户选定模型、工作目录和独立沙箱范围。
+同版本普通重启恢复原绑定；普通 Dream 仍在下一次用户输入交接。未决结果按原 ID 核对；
+失败不形成空闲重试循环，用户输入仍可中断整理并优先继续工作。交接内容只在新上下文首个
+请求获持久接受后消费。显式手动验收使用 `RequireApproval`；普通
+Session 和 Worker 继续由 Core 各自的原生配置负责，Bot 不改全局审批设置。
+
+## 注入工具的策略与成本
+
+| 工具 / 操作 | 策略 | 原因 |
+| --- | --- | --- |
+| `bot_memory` 全部操作；Notebook 内文件 | 产品范围内直接执行 | Bot 工作区与低风险记忆，不增加 Guardian 成本；越界文件访问仍受原生政策约束 |
+| `bot_clock`、`bot_task_read`、`bot_reminders_list`、`bot_care_read`（list/test） | 直接读取 | 只读观察与纯条件测试不审批 |
+| `bot_gesture`、`bot_tasks` 的列表/固定/锁定/清理、`bot_task_stop` | 直接执行 | 本地呈现或停止已拥有的工作；不扩大执行权限，不删除任务历史 |
+| `bot_task_start`、`bot_task_send` | 每次派生 / 新指令由 Guardian 审查 | 新执行或扩大工作指令；审批后直接继续，Worker 内部仍有自己的 sandbox / reviewer |
+| `bot_reminders` save/remove、`bot_care` save/remove/configure | 修改持续安排时审查 | 审查未来工作授权；读取使用独立免审入口，匹配每次时钟事件不会再审查注册动作 |
+| `bot_desktop_observe`、`bot_desktop_capture` | 只读直通 | 保留原系统权限、模型图片能力门控 |
+| `bot_desktop_authorize` | 每个 App、每个连续任务 Turn 审查一次 | Guardian 审查本次任务的 App 访问目的和已观察到的 App |
+| `bot_desktop_perform` | 当前 Turn 内已获授权 App 免逐次 Guardian | 每次输入前由原生 helper 校验 App 授权和新鲜目标；不按点击次数或操作批次收费 |
+| 未明确列出的 callback | `approval_policy: required` | 新能力不会默认为免审；Codex 同样只免审明确列出的工具 |
+
+Computer Use 授权属于当前连续任务，不向用户暴露 Session 概念。相同 App 的窗口共享授权，
+另一个 App 必须单独授权。当前实现用原生 PID 与应用名称绑定本次运行的 App，不按窗口标题授权，
+不同进程实例不会因同名而继承授权。授权仅在 helper 内存中存在，由 Bot 原生生命周期通过私有
+管道提供 Turn 标识；模型参数不能创建或延长 Turn。完成、停止、中断、新 Turn 或 helper 重启后
+不复用授权。长任务不设置按分钟或点击次数重新审批的限制。
+
+App 授权不取消输入的新鲜目标检查、不扩大系统权限，也不把页面里的指令变成用户授权。
+每次输入仍返回新观察并重规划，未知结果不自动重放。系统权限、登录和必要信息选择保留原交互。
+Codex 使用原生 Computer Use 的应用授权语义，不另装 Bot Cua 绕行路径。
+
+## 审查事实与恢复
+
+审查中、批准、拒绝、失败、超时按原 Session/Turn/approval request 关联；保留工具调用及
+实际动作证据。审查事实只读，不生成“用户已同意”的回执，也不能通过 Bot 的 Decide 接口
+人工抢答自动审查。失败与超时独立于拒绝，不自动回退为手动审批。仅 canonical mirror 的
+批准/拒绝进入派生持久记录，进度/失败/超时不伪造成持久决策。
+
+自动审查中和静默通过不消耗可见打扰额度；可见拒绝/失败反馈按对应关怀激活计量。
+callbacks 继续沿用原调用 ID、原 catalog 和参数的 claim/result 账本；未知结果只核对，
+重连、重复 result、Host 重启都不重新执行副作用。
+
+
+## Core release acceptance and remaining limits
+
+The public pin is Core #91, `e8281aa7bb89b0ae330044eb5bd6a13916fd68fc`, including #85 environment,
+#89 Guardian and #91 item identity. An installed release **and the running Host** must expose the required
+capabilities; a release number alone cannot prove compatibility. Core stays generic; Bot supplies the profile.
+
+The isolated external Host suite passes explicit reviewer assembly/readiness, independent sandbox, callback
+review before claim, native command/file allow/deny, invalid replies/cancellation/real 90-second timeout with
+no side effects, idempotent results, and restart replay without re-execution. Live review, callback and canonical
+replay agree on immutable item identity, including repeated provider call IDs in a Turn. Clearing Bot's derived
+cache still reconstructs the same native facts. Upgrade renewal preserves history and adopts Guardian; ordinary
+Sessions/Workers retain native defaults. Skills remain progressively loaded and resident-only.
+
+These are release capability conditions, not proof of paid Guardian judgment quality. The App × Turn integration
+uses the real Bot/helper pipe with a deterministic underlying UI fixture, not real WPS. After Core publishes,
+rerun the external suite against the downloaded binary before declaring that artifact qualified.
+
+Remaining boundaries: unknown upload responses lack a public resource-descriptor lookup and are not retried;
+worker artifacts are not yet aggregated into resident download items; cancel/approval uncertainty never retries
+under a new ID; optional terminal observation/model image support require their own negotiated capabilities.
+Real model, long-running memory quality and cross-Runtime daily Notebook usage need separate evidence.
+
+## Bot-owned Computer Use
+
+Codex owns native Computer Use; Bot never injects a Cua fallback or relaxes those tool policies.
+Caelis currently uses the Bot helper when native ownership is absent. An ownership tag is not readiness;
+denied permissions or unavailable native tools cannot select an alternate driver automatically.
+
+Observe visible windows, then select a short host-issued reference for AX metadata/actions. Default observation
+does not capture pixels. Window contents are untrusted data. Pagination preserves a single snapshot and returns
+all bounded pages without discarding unseen windows. New enumeration/helper restart expires old references;
+window refs last at most five minutes, observations at most sixty seconds. A fresh observation invalidates old
+input targets. The driver rechecks actual window identity/position and selected-window subtree before dispatch.
+
+`bot_desktop_authorize` reviews the observed App and task purpose once per App × native Turn. The helper receives
+Turn identity privately from Go; the model cannot create/extend it. PID plus app name binds a running instance.
+Grants stay in helper memory and expire on completion, stop, next Turn or restart; multiple windows of the same
+App reuse the grant. Observing/capturing is direct; every input still validates the grant and fresh target.
+
+`perform` supports click, text insertion, targeted key and scroll. Up to eight candidate steps are accepted but
+only the first mutation executes; new observation and remaining steps are returned. This is not an approval batch.
+No arbitrary coordinates, scripts, PID or native tokens from the model. Text insertion does not imply replacement.
+Modifier keys use the pinned driver's window/element-scoped background hotkey; unsupported input rejects without
+switching execution routes. Dispatch acknowledgment alone is not proof of the intended UI effect.
+
+Full content-v1 results (text plus JSON-escaped structuredContent) fit 32 KiB; outer IPC frames fit 512 KiB.
+Truncated targets are removed from the selectable directory; remaining steps drop only as whole steps with a
+truncation marker, never by shortening intended input. Optional screenshot requires current model image support,
+at most one image/256 KiB; unavailable images leave metadata usable. Window text/images go to the selected model
+only for the requested task. OS consent stays independent of Guardian.
+
+`desktopcontrol` owns private pipes to packaged Node 24.21.0 `--jitless` and Cua 0.30.2. Lockfile integrity and Node
+SHA-256 are pinned; no global Node, MCP listener or model credentials in the helper. Calls are bounded to eight
+seconds. Timeout/cancel/transport loss kills the helper before closing input, preventing delayed validation from
+sending input after stop. Only a fresh observe can restart it; uncertain effects are never replayed. Input already
+sent to the OS cannot be withdrawn. Stop cancels local input before interrupting the native Turn.
+
+Packaged Cua requires macOS 13.5+ (Node baseline). All nested Mach-O code is signed with the app identity;
+`--jitless` avoids new JIT/library-validation exceptions. `script/verify-computer-use.sh` verifies versions,
+architecture, signatures, dynamic dependencies/rpaths, licenses and loads the actual binding without requesting
+OS access. Tagged historical recovery permits an absent payload only when its version marker is also absent.
+
+Cua is MIT with MPL-covered UniFFI/Node runtime components. Bot remains Apache-2.0 and character assets retain
+their own license. Preserve the actual bundled notices, matching source/rebuild references and dependency list
+under `resources/computer-use`; do not relabel third-party payloads or assume an unmodified binary needs no notices.
+The fixed upstream Cua source is `a2229c5b829153ec3b1828387bc72ca8f1f18704`; package notices identify corresponding
+UniFFI sources. Experimental AXorcist/gamepad work is not another production driver.
