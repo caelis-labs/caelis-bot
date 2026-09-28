@@ -63,12 +63,18 @@ func installFile(path string, body []byte) error {
 // application adapters carry this scoped catalog on start/resume. Reading the
 // body/references is a model tool action, never automatic prefix assembly.
 func Instructions(skillPath string) string {
-	body, err := files.ReadFile(path.Join("skills", "caelis-bot-memory", "SKILL.md"))
-	if err != nil {
-		panic(err)
-	} // Embedded application asset.
-	name, description := metadata(string(body))
-	return fmt.Sprintf("\n## Skills\n\nSkills provide instructions in SKILL.md files. Read a skill's file when its description applies, then follow linked references only as needed. Resolve relative references from that skill's directory.\n\n- %s: %s (file: %s)\n", name, description, skillPath)
+	var out strings.Builder
+	out.WriteString("\n## Skills\n\nSkills provide instructions in SKILL.md files. Read a skill's file when its description applies, then follow linked references only as needed. Resolve relative references from that skill's directory.\n\n")
+	for _, skill := range []string{"caelis-bot-memory", "caelis-dream"} {
+		body, err := files.ReadFile(path.Join("skills", skill, "SKILL.md"))
+		if err != nil {
+			panic(err)
+		}
+		name, description := metadata(string(body))
+		location := filepath.Join(filepath.Dir(filepath.Dir(skillPath)), skill, "SKILL.md")
+		fmt.Fprintf(&out, "- %s: %s (file: %s)\n", name, description, location)
+	}
+	return out.String()
 }
 
 // The bundled frontmatter deliberately uses simple single-line scalar values.

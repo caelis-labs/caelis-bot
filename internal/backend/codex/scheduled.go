@@ -21,7 +21,18 @@ func (s *Session) presentScheduled(v api.Snapshot) api.Snapshot {
 	if pending && v.CurrentTurn != "" {
 		turns[v.CurrentTurn] = "inProgress"
 	}
-	return activation.Present(v, turns, pending)
+	v = activation.Present(v, turns, pending)
+	dreams := map[string]string{}
+	for id := range s.binding.Dreams {
+		if turn := s.binding.Scheduled[id]; turn != "" {
+			dreams[opaque(turn)] = s.runs[turn]
+		}
+	}
+	dreamPending := false
+	if p := s.binding.Pending; p != nil {
+		_, dreamPending = s.binding.Dreams[p.ID]
+	}
+	return activation.Dream(v, dreams, dreamPending)
 }
 
 // Pre-provenance Bot builds reserved wake-<crypto/rand.Text> client IDs. Read

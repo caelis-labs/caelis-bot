@@ -14,11 +14,17 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/contextseed"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 type binding struct {
-	Scheduled map[string]string `json:"scheduled,omitempty"` // accepted client IDs to native turn IDs
+	Context       contextseed.State      `json:"context,omitempty"`
+	ContextInputs map[string]int         `json:"contextInputs,omitempty"`
+	Dreams        map[string]dreamRecord `json:"dreams,omitempty"`
+	PastThreads   []string               `json:"pastThreads,omitempty"`
+	RenewedBy     string                 `json:"renewedBy,omitempty"`
+	Scheduled     map[string]string      `json:"scheduled,omitempty"` // accepted client IDs to native turn IDs
 
 	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
 	DelegationText string                 `json:"delegationText,omitempty"`
@@ -73,6 +79,9 @@ type Session struct {
 	refs              map[string]nativeReference
 	artifacts         map[string]string
 	historyCursor     string
+	historyThread     string
+	historyPrevious   int
+	lastTurn          string
 	historyPaged      bool
 	children          map[string]bool
 	childRuns         map[string]string
@@ -151,6 +160,9 @@ func (s *Session) resetProjection() {
 	s.state.Reviews = []api.Review{}
 	s.state.References = []api.Reference{}
 	s.historyCursor = ""
+	s.historyThread = s.binding.ThreadID
+	s.historyPrevious = len(s.binding.PastThreads) - 1
+	s.lastTurn = ""
 	s.historyPaged = false
 	s.state.HasEarlier = false
 	s.run = ""
@@ -393,8 +405,9 @@ func (s *Session) connect(ctx context.Context) error {
 	s.resetProjection()
 	s.residentExecution = *response.execution()
 	s.historyPaged, s.historyCursor = paged, firstPage.NextCursor
-	s.state.HasEarlier = firstPage.NextCursor != ""
+	s.state.HasEarlier = firstPage.NextCursor != "" || len(s.binding.PastThreads) > 0
 	s.binding.ThreadID = response.Thread.ID
+	s.historyThread = response.Thread.ID
 	s.binding.Unsubmitted = (method == "thread/start" || unused) && len(response.Thread.Turns) == 0
 	s.bound = true
 	if err = s.save(); err != nil {
@@ -419,6 +432,7 @@ func (s *Session) connect(ctx context.Context) error {
 		s.applyEvent(event)
 	}
 	s.buffer = nil
+	s.cleanupContextLocked()
 	if s.binding.Pending != nil {
 		s.state.Phase = "unknown"
 		s.state.Message = "上次发送结果尚未确认。请重新连接核对，草稿已保留，不会自动重发。"
@@ -580,16 +594,29 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		return r, nil
 	}
 	s.mu.Lock()
+	input, err = s.prepareContextLocked(ctx, in.ID, input)
+	if err != nil {
+		s.mu.Unlock()
+		r.Message = "上下文暂不可用，消息未发送"
+		return r, nil
+	}
 	s.binding.Unsubmitted = false
 	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run}
 	if in.Scheduled {
 		s.binding.Scheduled[in.ID] = ""
+	}
+	if in.Dream {
+		if s.binding.Dreams == nil {
+			s.binding.Dreams = map[string]dreamRecord{}
+		}
+		s.binding.Dreams[in.ID] = dreamRecord{Thread: threadID}
 	}
 	if !report {
 		s.binding.DelegationText = in.Text
 	}
 	if err = s.save(); err != nil {
 		s.binding.Pending = nil
+		s.binding.Context.Resolve(in.ID, "rejected")
 		s.mu.Unlock()
 		r.Message = "无法保存发送记录，消息未发送"
 		return r, nil
@@ -654,10 +681,12 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		s.binding.Pending = nil
 	}
 	s.binding.LastReceipt = &r
+	s.binding.Context.Resolve(in.ID, r.Outcome)
 	if err := s.save(); err != nil {
 		s.state.Message = "对话记录未能保存，请勿重复发送；下次启动需核对历史"
 	} else {
 		s.state.Message = r.Message
+		s.cleanupContextLocked()
 	}
 	s.state.LastReceipt = r
 	if r.Outcome != "unknown" {

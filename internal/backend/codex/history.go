@@ -58,21 +58,41 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 	ctx, cancel := s.operation(ctx, 15*time.Second)
 	defer cancel()
 	s.mu.Lock()
-	c, thread, cursor, epoch := s.client, s.binding.ThreadID, s.historyCursor, s.epoch
-	ready := s.state.Connection == "ready" && s.historyPaged
-	scheduled := maps.Clone(s.binding.Scheduled)
-	s.mu.Unlock()
-	if cursor == "" {
+	c, thread, cursor, epoch := s.client, s.historyThread, s.historyCursor, s.epoch
+	if thread == "" {
+		thread = s.binding.ThreadID
+	}
+	previous := s.historyPrevious
+	if cursor == "" && previous >= 0 && previous < len(s.binding.PastThreads) {
+		thread = s.binding.PastThreads[previous]
+		previous--
+	} else if cursor == "" {
+		s.mu.Unlock()
 		return nil
 	}
+	ready := s.state.Connection == "ready"
+	scheduled := maps.Clone(s.binding.Scheduled)
+	inputs := maps.Clone(s.binding.ContextInputs)
+	s.mu.Unlock()
 	if !ready || c == nil {
 		return errors.New("请先恢复连接，再查看更早消息")
 	}
 	page, err := readTurnPage(ctx, c, thread, cursor)
+	if unsupportedHistory(err) && cursor == "" {
+		var response struct {
+			Thread nativeThread `json:"thread"`
+		}
+		err = callDecode(ctx, c, "thread/read", map[string]any{"threadId": thread, "includeTurns": true}, &response)
+		if err == nil && response.Thread.ID != thread {
+			err = ErrProtocol
+		}
+		page.Data = slices.Clone(response.Thread.Turns)
+		slices.Reverse(page.Data)
+	}
 	if err != nil {
 		return errors.New("更早消息暂时无法读取，请重试")
 	}
-	projection := &Session{opts: s.opts, binding: binding{Scheduled: scheduled}}
+	projection := &Session{opts: s.opts, binding: binding{Scheduled: scheduled, ContextInputs: inputs}}
 	projection.resetProjection()
 	for _, turn := range chronological(page.Data) {
 		projection.runs[turn.ID] = turn.Status
@@ -110,7 +130,8 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 			s.artifacts[id] = path
 		}
 	}
-	s.historyCursor, s.state.HasEarlier = page.NextCursor, page.NextCursor != ""
+	s.historyThread, s.historyPrevious = thread, previous
+	s.historyCursor, s.state.HasEarlier = page.NextCursor, page.NextCursor != "" || previous >= 0
 	s.update()
 	return nil
 }

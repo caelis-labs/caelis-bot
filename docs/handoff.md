@@ -1,5 +1,17 @@
 # 继续开发
 
+## 2026-09-28 空闲 Dream 与延迟上下文交接
+
+- Bot 主对话空闲 15 分钟后执行一次 `caelis-dream`，写指定 HANDOFF 并安静展示一句 recap；
+  只在下一次用户消息/截图输入时切换内部 Session，Provider 原生 Compact 保持原状。
+- 每个 Session 首次输入携带 MEMORY 和非空 HANDOFF；原生接受记录持久保存后消费交接，
+  未知/拒绝不删除，文件已编辑则保留。用户返回只中断维护 Turn，旧聊天与任务继续保留。
+- 两种后端均接入；技能保持 Bot 范围与渐进加载，普通工作增加简短进度汇报要求。
+- `make check`、`make smoke`、`make build`、受影响包 race 通过；安装版 Codex/Caelis + 本机
+  合成 provider 验证原生技能读取、HANDOFF 写入、延迟切换、注入/消费、worker 隔离与既有功能。
+- 未做新增 GUI 视觉验收或真实模型长期摘要/缓存收益测量。改动尚未发布。
+  [实现边界与时序图](design/context-lifecycle-v1.md)。
+
 ## 2026-09-27 截图交互完善（v0.4.0 候选）
 
 - 使用图标工具栏、调色板、连续粗细滑杆；备注与 Ask Bot 组成同一发送行。选区完成默认聚焦备注，

@@ -116,7 +116,7 @@ func (v *Vault) Refresh(ctx context.Context, now time.Time) error {
 		out.WriteString("[核心记忆](MEMORY.md)\n\n")
 	}
 	for _, path := range paths {
-		if path == "MEMORY.md" {
+		if path == "MEMORY.md" || path == HandoffName {
 			continue
 		}
 		f, err := v.root.Open(path)

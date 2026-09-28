@@ -243,6 +243,9 @@ func (a *Application) preparePersonalLocked() error {
 		return fail(err)
 	}
 	resident.ConfigureInitialization(a.initialization)
+	if err = resident.ConfigureDream(vault, skillPath); err != nil {
+		return fail(err)
+	}
 	a.companion, a.personal, a.notebook, a.skillPath = resident, personal, vault, skillPath
 	return nil
 }
@@ -280,6 +283,8 @@ func (a *Application) Start() error {
 			config := bridge.Config(executable)
 			config.Instructions += botskills.Instructions(a.skillPath)
 			config.NotebookDirectory = a.notebook.Path()
+			config.PrepareContext = a.notebook.PrepareContext
+			config.ConsumeContext = a.notebook.ConsumeContext
 			config.PrepareTurn = func(ctx context.Context) error { return a.notebook.Refresh(ctx, time.Now()) }
 			config.FinishTurn = func() {
 				if e := a.notebook.Refresh(context.Background(), time.Now()); e != nil && a.host.ReportError != nil {
@@ -299,6 +304,7 @@ func (a *Application) Start() error {
 	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)
 	resident.Start(a.engine)
+	a.Backend.SetUserSubmitter(resident.SubmitUser)
 	a.workers.Add(3)
 	go func() {
 		defer a.workers.Done()

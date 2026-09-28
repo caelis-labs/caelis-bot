@@ -27,18 +27,27 @@ func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope) {
 }
 func (s *Session) presentScheduled(out api.Snapshot, v *view) api.Snapshot {
 	turns := map[string]string{}
+	dreams := map[string]string{}
 	for _, j := range s.state.Operations {
 		if j.Scheduled && j.TurnID != "" {
-			status := v.Turns[j.TurnID]
+			status := ""
+			for sid, history := range s.state.Views {
+				if j.Path == "/application/sessions/"+idPath(sid)+"/prompt" {
+					status = history.Turns[j.TurnID]
+				}
+			}
 			if j.TurnID == out.CurrentTurn {
 				status = value(v.State.Run.Status)
 			}
 			turns[j.TurnID] = status
+			if j.Dream {
+				dreams[j.TurnID] = status
+			}
 		}
 	}
 	pending := s.sendingScheduled != ""
 	if pending && out.CurrentTurn != s.scheduledPreviousTurn {
 		turns[out.CurrentTurn] = "running"
 	}
-	return activation.Present(out, turns, pending)
+	return activation.Dream(activation.Present(out, turns, pending), dreams, pending && s.state.Operations[s.sendingScheduled].Dream)
 }

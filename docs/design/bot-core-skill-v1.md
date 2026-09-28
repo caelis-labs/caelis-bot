@@ -12,7 +12,9 @@
 
 `botskills.Install` 打包并安装完整目录到应用私有的 `app-skills/caelis-bot-memory/`。
 `botskills.Instructions` 从同一份 frontmatter 生成短技能目录，宿主仅向驻留会话传递。
-没有正文、references 或 MEMORY 的自动注入，也没有第二份固定秘书行为 prompt。
+技能正文和 references 不自动注入。2026-09-28 增加 `caelis-dream` 的显式宿主触发目录项；
+每个 Session 首次输入独立注入 MEMORY 和非空 HANDOFF，原生接受后消费交接文件。
+这不改变技能的渐进式加载，也不增加第二份固定秘书行为 prompt。
 
 Codex 和 Caelis 均使用公开的会话 instructions 承载这份应用技能目录，用原生文件工具
 按需读取文件。实际模型请求验收确认 description 可见、正文最初不在上下文中，正文和

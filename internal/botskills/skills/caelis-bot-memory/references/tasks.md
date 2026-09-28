@@ -26,6 +26,9 @@ Reuse a suitable task rather than starting duplicates. Keep a stable request ID
 for the same submission. If acceptance is uncertain, read the recorded state
 before deciding what to do; do not create another task to get around uncertainty.
 An accepted start means work has been arranged, not completed.
+Keep the user informed with frequent, brief updates about what you are doing and
+what comes next, especially while arranging or reviewing longer work. Avoid
+repeating unchanged status or creating extra monitoring turns just to narrate it.
 
 For work in an existing project, pass its absolute directory as `workspace` to
 `bot_task_start`. Use the directory requested by the user or established for that

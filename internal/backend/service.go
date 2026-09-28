@@ -40,6 +40,7 @@ type Service struct {
 	dismissed, presentationFile string
 	initializer                 api.BotInitializer
 	engine                      api.Engine
+	submitUser                  func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	files                       func([]string) ([]api.InputFile, error)
 	consumeFiles                func([]string)
 	openURL                     func(string) error
@@ -215,13 +216,27 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	s.pendingDraft = &input
 	s.mu.Unlock()
 	s.stageOutgoing(input, files)
-	receipt, err := s.engine.Submit(ctx, input, files)
+	receipt, err := s.submit(ctx, input, files)
 	s.finishOutgoing(input.ID, receipt)
 	if receipt.Outcome == "accepted" {
 		s.consumeFiles(input.FileIDs)
 		s.clearDraft(input)
 	}
 	return receipt, err
+}
+func (s *Service) SetUserSubmitter(f func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)) {
+	s.mu.Lock()
+	s.submitUser = f
+	s.mu.Unlock()
+}
+func (s *Service) submit(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+	s.mu.Lock()
+	submit := s.submitUser
+	s.mu.Unlock()
+	if submit != nil {
+		return submit(ctx, in, files)
+	}
+	return s.engine.Submit(ctx, in, files)
 }
 func (s *Service) Interrupt(ctx context.Context) error              { return s.engine.Interrupt(ctx) }
 func (s *Service) Decide(ctx context.Context, d api.Decision) error { return s.engine.Decide(ctx, d) }

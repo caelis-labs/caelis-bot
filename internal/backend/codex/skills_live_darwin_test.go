@@ -17,6 +17,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/care"
+	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
 // Real App Server and native file tool, local deterministic provider. No account
@@ -36,6 +37,14 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	vault, err := notebook.OpenVault(filepath.Join(dir, "Notebook"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vault.Close()
+	os.WriteFile(filepath.Join(vault.Path(), "MEMORY.md"), []byte("# Memory\nNative core identity."), 0600)
+	dreamPath := filepath.Join(filepath.Dir(filepath.Dir(skillPath)), "caelis-dream", "SKILL.md")
+	handoffPath := filepath.Join(vault.Path(), notebook.HandoffName)
 	var mu sync.Mutex
 	var requests []string
 	workerRequested := make(chan struct{})
@@ -45,7 +54,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		requests = append(requests, string(body))
 		n := len(requests)
 		mu.Unlock()
-		if n == 4 {
+		if n == 8 {
 			defer close(workerRequested)
 		}
 		id := fmt.Sprintf("skill-%d", n)
@@ -53,12 +62,19 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		emit := func(v any) { b, _ := json.Marshal(v); fmt.Fprintf(w, "data: %s\n\n", b); w.(http.Flusher).Flush() }
 		emit(map[string]any{"type": "response.created", "response": map[string]any{"id": id, "status": "in_progress", "output": []any{}}})
 		var item map[string]any
-		if n <= 2 {
+		if n <= 2 || n == 4 || n == 5 {
 			p := skillPath
 			if n == 2 {
 				p = filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")
 			}
-			args, _ := json.Marshal(map[string]any{"cmd": "cat '" + strings.ReplaceAll(p, "'", "'\"'\"'") + "'", "max_output_tokens": 4000})
+			if n == 4 {
+				p = dreamPath
+			}
+			command := "cat '" + strings.ReplaceAll(p, "'", "'\"'\"'") + "'"
+			if n == 5 {
+				command = "printf '%s\\n' '<!-- caelis-dream: native-dream -->' 'Finished the skill check; nothing pending.' > '" + strings.ReplaceAll(handoffPath, "'", "'\"'\"'") + "'"
+			}
+			args, _ := json.Marshal(map[string]any{"cmd": command, "max_output_tokens": 4000})
 			item = map[string]any{"id": id, "type": "function_call", "name": "exec_command", "call_id": id, "arguments": string(args)}
 		} else {
 			item = map[string]any{"id": id, "type": "message", "role": "assistant", "status": "completed", "phase": "final_answer", "content": []any{map[string]any{"type": "output_text", "text": "skill-read-complete", "annotations": []any{}}}}
@@ -71,9 +87,9 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
-	s := NewSession(SessionOptions{Binary: binary, Directory: filepath.Join(dir, "Notebook"), StateFile: filepath.Join(dir, "binding.json"), BotTools: &api.ToolConnection{Command: "/usr/bin/false", Args: []string{"--fixture"}, Env: map[string]string{}, Instructions: botskills.Instructions(skillPath)}})
+	s := NewSession(SessionOptions{Binary: binary, Directory: vault.Path(), StateFile: filepath.Join(dir, "binding.json"), BotTools: &api.ToolConnection{Command: "/usr/bin/false", Args: []string{"--fixture"}, Env: map[string]string{}, Instructions: botskills.Instructions(skillPath), PrepareContext: vault.PrepareContext, ConsumeContext: vault.ConsumeContext}})
 	defer func() {
 		c, done := context.WithTimeout(context.Background(), 10*time.Second)
 		defer done()
@@ -116,10 +132,61 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	for _, item := range s.Snapshot().Items {
 		if item.Kind == "user" && item.RequestID == "progressive-skill-input" {
 			correlated = true
+			if item.Text != "Read the applicable guide and its task reference." {
+				t.Fatal("context prefix leaked into native chat projection")
+			}
 		}
 	}
 	if !correlated {
 		t.Fatal("native user input did not preserve submission identity")
+	}
+	old := s.ConversationState().Session
+	if _, err = vault.PrepareDream(); err != nil {
+		t.Fatal(err)
+	}
+	r, err = s.SubmitDream(ctx, api.Submission{ID: "native-dream", Text: "Explicit Bot host Dream request. Load caelis-dream and write the supplied handoff, then give a short recap."})
+	if err != nil || r.Outcome != "accepted" {
+		t.Fatal(r, err)
+	}
+	for {
+		_, result := s.DreamResult("native-dream")
+		if result.Status == "completed" {
+			break
+		}
+		v, e := s.WaitSnapshot(ctx, revision)
+		if e != nil {
+			t.Fatal(e)
+		}
+		revision = v.Revision
+	}
+	if ready, e := vault.DreamReady("native-dream"); e != nil || !ready || s.ConversationState().Session != old {
+		t.Fatal("handoff not written or session changed early", e)
+	}
+	if err = s.RenewConversation(ctx, "native-dream", old); err != nil {
+		t.Fatal(err)
+	}
+	r, err = s.Submit(ctx, api.Submission{ID: "after-native-dream", Text: "A new topic."}, nil)
+	if err != nil || r.Outcome != "accepted" {
+		t.Fatal(r, err)
+	}
+	for !s.Snapshot().CanSend {
+		v, e := s.WaitSnapshot(ctx, revision)
+		if e != nil {
+			t.Fatal(e)
+		}
+		revision = v.Revision
+	}
+	mu.Lock()
+	nextRequests := append([]string{}, requests...)
+	mu.Unlock()
+	if len(nextRequests) != 7 || !strings.Contains(nextRequests[3], "caelis-dream") || strings.Contains(nextRequests[3], "# Prepare the next conversation") || !strings.Contains(nextRequests[4], "# Prepare the next conversation") {
+		t.Fatal("Dream body did not load progressively")
+	}
+	if !strings.Contains(nextRequests[6], "Native core identity.") || !strings.Contains(nextRequests[6], "Finished the skill check") || strings.Contains(nextRequests[6], "Read the applicable guide and its task reference.") {
+		t.Fatal("new session context did not reset and restore")
+	}
+	if _, err = os.Stat(handoffPath); !os.IsNotExist(err) {
+		t.Fatal("accepted native handoff not consumed")
 	}
 	workerDir := filepath.Join(dir, "Tasks", "isolated")
 	if err = os.MkdirAll(workerDir, 0700); err != nil {
@@ -141,7 +208,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 	mu.Lock()
-	workerRequest := requests[3]
+	workerRequest := requests[7]
 	mu.Unlock()
 	if strings.Contains(workerRequest, skillPath) || strings.Contains(workerRequest, "You are Caelis Bot, a persistent personal assistant.") {
 		t.Fatal("resident skill leaked into native worker")

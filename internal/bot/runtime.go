@@ -55,6 +55,7 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
+	dream          *dreamController // guarded by step
 	care           *care.Engine
 	careLoadErr    error
 	careSample     func() care.Sample
@@ -334,8 +335,8 @@ func (r *Runtime) ResumeAfterUpdate() {
 	r.step.Unlock()
 }
 
-// Tick uses wall time after wake. It never invokes a model while idle, never
-// steers an unrelated active request, and persists an occurrence before dispatch.
+// Tick uses wall time after wake. It dispatches authorized schedules and at most
+// one Dream after new conversation activity, never an endless idle model loop.
 func (r *Runtime) Tick(ctx context.Context) (err error) {
 	r.step.Lock()
 	defer r.step.Unlock()
@@ -358,6 +359,11 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 			return err
 		}
 	}
+	defer func() {
+		if err == nil {
+			err = r.tickDream(ctx, true)
+		}
+	}()
 	// This protocol has no background authority. Keep schedules untouched and
 	// never disguise a timer as a user message.
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok && !p.ApplicationCapabilities().ScheduledActivation {
