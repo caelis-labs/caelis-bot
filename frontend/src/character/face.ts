@@ -10,6 +10,7 @@ export class FacialAnimation {
  readonly weights=neutralFace();
  private meshes:Mesh[]=[];private restClosed=.88;private refined=false;
  private springs=Object.fromEntries(facialTargets.map(k=>[k,new Spring()])) as Record<FacialTarget,Spring>;
+ private sleep=new Spring();
  private blink=-1;private nextBlink:number;private hover=false;private warmth=0;
  private previewing:{kind:FacePreview;elapsed:number}|undefined;
  constructor(root:Object3D,private random=Math.random){
@@ -51,7 +52,8 @@ export class FacialAnimation {
   for(const name of facialTargets){const base=target[name];target[name]=base+((preset[name]??0)*(name==='mouthClosed'?this.restClosed/.88:1)-base)*amount;}
   for(const name of facialTargets)this.weights[name]=Math.max(0,Math.min(1,this.springs[name].step(target[name],dt,name.startsWith('mouth')?.32:name.startsWith('brow')?.25:.18)));
   const previewBlink=this.previewing?.kind==='blink'?envelope(this.previewing.elapsed/4,0,1,.09):0;
-  const left=Math.max(closure(this.blink),previewBlink),right=Math.max(closure(this.blink-.012),previewBlink);
+  const sleeping=this.sleep.step(activity==='dreaming'&&!hardQuiet?1:0,dt,.5);
+  const left=Math.max(closure(this.blink),previewBlink,sleeping),right=Math.max(closure(this.blink-.012),previewBlink,sleeping);
   this.weights.blinkLeft=left*(1-this.weights.eyeSmile);this.weights.blinkRight=right*(1-this.weights.eyeSmile);
   this.weights.eyeFocused*=1-Math.max(left,right,this.weights.eyeSmile);
   // Mouth and lid targets are alternative endpoints, not cumulative deformations.
@@ -61,7 +63,7 @@ export class FacialAnimation {
   this.write();
  }
  rest(){
-  this.blink=-1;this.nextBlink=2+this.random()*3;this.hover=false;this.warmth=0;this.previewing=undefined;
+  this.sleep.reset();this.blink=-1;this.nextBlink=2+this.random()*3;this.hover=false;this.warmth=0;this.previewing=undefined;
   for(const spring of Object.values(this.springs))spring.reset();this.springs.mouthClosed.value=this.restClosed;
   Object.assign(this.weights,neutralFace(),{mouthClosed:this.restClosed});this.write();
  }

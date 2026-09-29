@@ -57,3 +57,21 @@ func TestCharacterConsumesFactsWithoutRepeatingAttention(t *testing.T) {
 		t.Fatal("character updated after shutdown")
 	}
 }
+
+func TestDreamCharacterYieldsToApprovalAndRecovery(t *testing.T) {
+	v := api.Snapshot{Maintenance: "dreaming", Connection: "ready", Phase: "working", CanInterrupt: true}
+	if characterActivity(v) != "dreaming" {
+		t.Fatal("missing nap")
+	}
+	v.Approvals = []api.Approval{{Status: "pending"}}
+	if characterActivity(v) != "waiting" {
+		t.Fatal("nap masked approval")
+	}
+	v.Approvals = nil
+	for _, phase := range []string{"completed", "interrupting", "unknown", "failed"} {
+		v.Phase = phase
+		if characterActivity(v) == "dreaming" {
+			t.Fatal("stale nap", phase)
+		}
+	}
+}

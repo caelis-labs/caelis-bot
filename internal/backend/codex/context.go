@@ -53,6 +53,7 @@ func (s *Session) conversationLocked() api.ConversationState {
 		Session: s.binding.ThreadID, Turn: s.lastTurn, Status: s.runs[s.lastTurn],
 		Observed: s.bound && !s.loading && s.state.Connection == "ready" && !s.closed && !s.closing,
 		Idle:     s.state.CanSend && s.opts.Execution.ApprovalMode != "read-only",
+		Usage:    s.usage,
 	}
 }
 func (s *Session) ConversationState() api.ConversationState {

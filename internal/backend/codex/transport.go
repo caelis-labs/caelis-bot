@@ -58,17 +58,20 @@ func (e *RequestError) Error() string {
 func (e *RequestError) Unwrap() error { return e.Cause }
 
 type Notification struct {
-	Method    string
-	Params    json.RawMessage
-	RequestID json.RawMessage // Present only for a server request, in wire order.
-	Sequence  uint64          // Connection-local generation; native IDs may be reused.
+	ReceivedAt  time.Time
+	EmittedAtMS int64
+	Method      string
+	Params      json.RawMessage
+	RequestID   json.RawMessage // Present only for a server request, in wire order.
+	Sequence    uint64          // Connection-local generation; native IDs may be reused.
 }
 type wireMessage struct {
-	ID     json.RawMessage `json:"id,omitempty"`
-	Method string          `json:"method,omitempty"`
-	Params json.RawMessage `json:"params,omitempty"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *NativeError    `json:"error,omitempty"`
+	EmittedAtMS int64           `json:"emittedAtMs,omitempty"`
+	ID          json.RawMessage `json:"id,omitempty"`
+	Method      string          `json:"method,omitempty"`
+	Params      json.RawMessage `json:"params,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	Error       *NativeError    `json:"error,omitempty"`
 }
 type response struct {
 	result json.RawMessage
@@ -296,7 +299,7 @@ func (t *transport) read() {
 					}
 				}
 				select {
-				case t.events <- Notification{Method: m.Method, Params: m.Params}:
+				case t.events <- Notification{Method: m.Method, Params: m.Params, ReceivedAt: time.Now().Round(0), EmittedAtMS: m.EmittedAtMS}:
 				default:
 					t.fail(ErrEventOverflow)
 					return

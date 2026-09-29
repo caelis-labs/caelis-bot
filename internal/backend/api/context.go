@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // ErrConversationRenewalRejected means native creation was definitively rejected
@@ -29,6 +30,15 @@ type ConversationState struct {
 	// of Idle: an observed running turn must still invalidate an older handoff.
 	Observed bool
 	Idle     bool
+	// Usage is a live resident-context gauge, never cumulative billed tokens.
+	// It is deliberately not persisted or restored from transcript history.
+	Usage ContextUsage
+}
+
+type ContextUsage struct {
+	Used, Window int64
+	// ModelAt is the last confirmed model response, not a tool/UI update.
+	ModelAt time.Time
 }
 
 // ConversationRuntime performs ordinary native session/turn operations. It has

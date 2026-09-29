@@ -260,6 +260,16 @@ func (a *Application) preparePersonalLocked() error {
 	if err = resident.ConfigureDream(vault, skillPath); err != nil {
 		return fail(err)
 	}
+	// Sample independently of care rules and its store. Drafts are read under
+	// the backend presentation lock; no renderer timer can authorize maintenance.
+	resident.ConfigureDreamEnvironment(func() bot.DreamEnvironment {
+		if a.host.CareSample == nil {
+			return bot.DreamEnvironment{}
+		}
+		sample := a.host.CareSample()
+		return bot.DreamEnvironment{Available: sample.Available(), Epoch: sample.Epoch, DraftRevision: a.Backend.Draft().Revision}
+	})
+	resident.ConfigureDreamDiagnostics(a.host.Diagnostics)
 	a.companion, a.personal, a.notebook, a.skillPath = resident, personal, vault, skillPath
 	return nil
 }

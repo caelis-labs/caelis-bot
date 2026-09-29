@@ -14,6 +14,13 @@ int main(void) { @autoreleasepool {
  NSData *data=[NSData dataWithBytes:bytes length:strlen(bytes)];free(bytes);
  NSDictionary *sample=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];assert(sample);
  assert([sample[@"Awake"] isKindOfClass:NSNumber.class]);
+ assert([sample[@"Epoch"] isKindOfClass:NSNumber.class]);
+ // Exercise native observer wiring without putting the user's machine to sleep.
+ uint64_t epoch=[sample[@"Epoch"] unsignedLongLongValue];
+ [NSWorkspace.sharedWorkspace.notificationCenter postNotificationName:NSWorkspaceDidWakeNotification object:nil];
+ bytes=bot_care_sample();assert(bytes);
+ NSDictionary *after=[NSJSONSerialization JSONObjectWithData:[NSData dataWithBytes:bytes length:strlen(bytes)] options:0 error:nil];free(bytes);
+ assert([after[@"Epoch"] unsignedLongLongValue]>epoch);
  assert(sample[@"Unlocked"]==NSNull.null || [sample[@"Unlocked"] isKindOfClass:NSNumber.class]);
  assert([sample[@"IdleSeconds"] doubleValue]>=0);
  assert([sample[@"Application"] isKindOfClass:NSString.class]);

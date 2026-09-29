@@ -12,6 +12,14 @@ function Pet() {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [scale, setScale] = useState(window.innerWidth / 180);
   const [failed, setFailed] = useState(false);
+  const [dreaming,setDreaming]=useState(false);
+  useEffect(()=>{
+    let events=0,stopped=false;
+    const change=(e:Event)=>{events++;setDreaming((e as CustomEvent<string>).detail==='dreaming');};
+    window.addEventListener('pet-activity',change);
+    void desktop<string>('CharacterActivity').then(value=>{if(!stopped&&!events)setDreaming(value==='dreaming');});
+    return()=>{stopped=true;window.removeEventListener('pet-activity',change);};
+  },[]);
   useEffect(() => {
     const resize = () => setScale(window.innerWidth / 180);
     window.addEventListener('resize', resize);
@@ -21,6 +29,7 @@ function Pet() {
   }, []);
   return <main className="pet-stage" style={{ transform: `scale(${scale})` }}>
     <canvas ref={canvas} width="180" height="240" aria-hidden="true" />
+    {dreaming&&<span className="pet-dream" role="status" aria-label={t('chat.dreaming')} title={t('chat.dreamHint')}>zzz</span>}
     <button className="pet-open" tabIndex={-1} onClick={() => void desktop('Activate')} aria-label={failed ? t('native.petLoadFailed') : t('native.petActionHint')} />
   </main>;
 }

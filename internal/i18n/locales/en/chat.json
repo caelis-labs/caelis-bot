@@ -160,5 +160,7 @@
   "screenContext": "Screen context",
   "screenImageUnavailable": "Screenshot preview unavailable",
   "screenCopy": "Copy image",
-  "screenCopyFailed": "Could not copy this image."
+  "screenCopyFailed": "Could not copy this image.",
+  "dreaming": "Taking a little nap to tidy up our conversation… zzz",
+  "dreamHint": "You can keep talking at any time."
 }

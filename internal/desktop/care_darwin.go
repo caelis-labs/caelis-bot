@@ -27,9 +27,10 @@ func macCareSample() care.Sample {
 		Unlocked    *bool
 		IdleSeconds float64
 		Application string
+		Epoch       uint64
 	}
 	if json.Unmarshal([]byte(C.GoString(p)), &v) != nil {
 		return care.Sample{}
 	}
-	return care.Sample{Presence: care.Presence{Awake: v.Awake, Unlocked: v.Unlocked}, IdleSeconds: v.IdleSeconds, Application: v.Application}
+	return care.Sample{Presence: care.Presence{Awake: v.Awake, Unlocked: v.Unlocked}, Epoch: v.Epoch, IdleSeconds: v.IdleSeconds, Application: v.Application}
 }

@@ -8,6 +8,9 @@ func characterActivity(v api.Snapshot) string {
 			return "waiting"
 		}
 	}
+	if v.Maintenance == "dreaming" && v.Connection == "ready" && v.Phase == "working" && v.Message == "" {
+		return "dreaming"
+	}
 	if v.CanInterrupt {
 		return "working"
 	}

@@ -5,14 +5,14 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {resolve,extname} from 'node:path';
 
 const runtime=String.raw`
-let revision=1,streamTimer=0,recordFrame=0;
+let revision=1,streamTimer=0,recordFrame=0,petState='idle';
 window.fixtureFrames=[];
 const short='钉好了 — 任务卡片现在是 **固定** 状态，\`pinned: true\`，会一直留在你脚底下。';
 const long=short+'\n\n### 工作进展\n\n- 已读取 **README.md**\n- 已完成网络搜索\n- 正在更新说明文件\n\n> 悬浮可以阅读完整内容，移开后收起。\n\n| 操作 | 状态 |\n| --- | --- |\n| 阅读 | 完成 |\n| 编辑 | 完成 |\n\n\`\`\`go\nfmt.Println("Caelis Bot")\n\`\`\`\n\n'+Array.from({length:16},(_,i)=>(i+1)+'. 这是用于验证完整内容和屏幕高度限制的长段落。**格式保持可读**，滚动可继续阅读。').join('\n\n')+'\n\n**全文结束 END**\n\n[示例链接](https://example.com)';
 const snapshot={connection:'ready',phase:'working',currentTurn:'fixture',canInterrupt:true,canSend:false,canSteer:true,quiet:false,items:[],approvals:[],reviews:[],references:[],message:'',previewKey:'fixture',previewDismissed:false,botStatus:'',hasEarlier:false,lastReceipt:{id:'',outcome:'',message:''}};
 window.fixtureSet=kind=>{
  clearInterval(streamTimer);
- Object.assign(snapshot,{phase:'working',canInterrupt:true,activity:{kind:'read',target:'README.md'},approvals:[],reviews:[],previewDismissed:false});
+ Object.assign(snapshot,{quiet:false,maintenance:'',phase:'working',canInterrupt:true,activity:{kind:'read',target:'README.md'},approvals:[],reviews:[],previewDismissed:false});
  snapshot.items=[{id:'answer',turnKey:'fixture',kind:'assistant',text:kind==='short'?short:long,status:'completed',artifacts:[]}];
  if(['read','edit','web','execute'].includes(kind))snapshot.activity={kind,target:kind==='read'?'README.md':kind==='edit'?'notes.md':''};
  if(kind==='review')snapshot.reviews=[{id:'review',status:'inProgress',action:'',rationale:''}];
@@ -34,6 +34,16 @@ window.fixtureSet=kind=>{
 
 };
 window.fixtureSet('short');
+window.fixtureDream=kind=>{
+ clearInterval(streamTimer);cancelAnimationFrame(recordFrame);
+ window.fixtureSet(kind==='approval'?'approval':'completed');
+ snapshot.items=[{id:'ordinary',turnKey:'ordinary',kind:'assistant',text:'已经整理好了今天的工作。你随时可以继续说。',status:'completed',artifacts:[]}];
+ Object.assign(snapshot,{currentTurn:'dream',maintenance:kind==='running'?'dreaming':'',quiet:kind!=='approval',phase:kind==='done'?'completed':kind==='approval'?'waiting_approval':'working',canInterrupt:kind!=='done',canSend:kind==='done',canSteer:kind==='running',activity:null});
+ petState=kind==='running'?'dreaming':kind==='approval'?'waiting':'idle';
+ window.dispatchEvent(new CustomEvent('pet-activity',{detail:petState}));
+};
+if(new URLSearchParams(location.search).has('dream'))window.fixtureDream('running');
+
 // Exercise the actual History component, polling bridge and Markdown renderer.
 // These synthetic replies never reach an agent or the user's conversation.
 window.fixtureChat=kind=>{
@@ -42,7 +52,7 @@ window.fixtureChat=kind=>{
  const paragraph='这是一段用于检查聊天窗口打字效果的合成回复。文字应该连续出现，即使模型一次返回了较长的段落，也不应该整块跳出。';
  const text=paragraph.repeat(5)+'\n\n**完整结束** 👩🏽‍💻 é 🇨🇳\n\n| 项目 | 状态 |\n| --- | --- |\n| 中文 | 完成 |\n| Emoji | 完成 |\n\n\`\`\`js\nconst complete = true;\n\`\`\`';
  const item={id,turnKey:id,kind:'assistant',text:'',status:'inProgress',artifacts:[]};
- Object.assign(snapshot,{items:[...snapshot.items,item],currentTurn:id,activity:null,phase:'working',canInterrupt:true,canSend:false,approvals:[],reviews:[]});
+ Object.assign(snapshot,{quiet:false,maintenance:'',items:[...snapshot.items,item],currentTurn:id,activity:null,phase:'working',canInterrupt:true,canSend:false,approvals:[],reviews:[]});
  window.fixtureFrames=[];window.fixtureExpected=text;window.fixtureTarget=id;
  const started=performance.now();
  const record=now=>{
@@ -63,6 +73,8 @@ window.fixtureReopen=()=>{window.dispatchEvent(new Event('history-close'));setTi
 export const Call={ByName:async(name,...args)=>{
  const method=name.split('.').at(-1);
  if(method==='LanguagePreferences')return {preference:'zh-CN',locale:'zh-CN',revision:1};
+ if(method==='Appearance')return {revision:1,selection:{character:'builtin:caelis',avatar:'follow'},model:'',avatar:'',basic:false,key:'builtin:caelis'};
+ if(method==='CharacterActivity')return petState;
  if(method==='Placement')return {visible:true,x:0,y:0,scale:1};
  if(method==='PetSnapshot'||method==='Snapshot')return {...snapshot,revision:++revision};
  if(method==='ChatSnapshot')return {changed:true,snapshot:{...snapshot,revision:++revision}};

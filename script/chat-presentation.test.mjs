@@ -124,3 +124,13 @@ test('a completed reply after an accepted outbox replacement is still a live arr
  // Identical prose from a different request cannot establish this boundary.
  assert.equal(liveReplyIDs(previous,{...next,items:[{...next.items[0],requestId:'other'},next.items[1]]},new Set()).size,0);
 });
+
+test('confirmed Dream has a quiet status that yields to attention and ends with the turn',()=>{
+ const dreaming={...running,quiet:true,maintenance:'dreaming'};
+ assert.equal(chatActivity(dreaming),'dreaming');
+ assert.equal(chatActivity({...dreaming,maintenance:undefined}),null);
+ assert.equal(chatActivity({...dreaming,approvals:[{status:'pending'}]}),null);
+ assert.equal(chatActivity({...dreaming,phase:'interrupting'}),'stopping');
+ for(const change of [{phase:'completed'},{phase:'unknown'},{connection:'offline'},{message:'Recovery required'}])assert.equal(chatActivity({...dreaming,...change}),null);
+ assert.equal(canSubmit(dreaming),true,'new user input retains its native capability');
+});

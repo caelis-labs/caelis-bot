@@ -25,6 +25,11 @@ Aim for at most 400 words. Use the current user's language for the recap. Do not
 send progress commentary during this maintenance turn; its final recap is the
 only routine user-facing message.
 
+The host displays a quiet napping status while this turn runs. Do not emit a
+progress message, gesture, or `zzz` to create that status. User input takes
+priority; if this maintenance turn is interrupted, do not retry or resume it
+autonomously. A later host request will supply its own path and marker.
+
 Confirm that the handoff write succeeded. Then end this turn with only one short,
 user-facing recap sentence describing what was accomplished and what, if anything,
 is still pending. Do not describe internal files, Dream, or session management.

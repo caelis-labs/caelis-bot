@@ -1,6 +1,6 @@
 # Consumed Codex native schema
 
-These 56 schema files are unchanged output from **Codex CLI 0.153.4**:
+These 57 schema files are unchanged output from **Codex CLI 0.153.4**:
 
 ```sh
 codex app-server generate-json-schema --out .cache/codex-json-schema/0.153.4
@@ -27,7 +27,8 @@ initialize, auth, threads, turns, items, input, approvals and cleanup. In the JS
 and nullable. Auth projection omits email, plan, identifiers, paths and credentials.
 
 Wire envelope is newline-delimited JSON, without a `jsonrpc` header. Request IDs are
-native numbers/strings. Go tests cover exact server request targets and native errors.
+native numbers/strings. Optional `emittedAtMs` is read as native notification wall time; absent timestamps
+fall back to transport receive time. Go tests cover exact server request targets and native errors.
 The separate host contract lives in internal/backend/api and generates the UI types.
 Unknown native methods are explicitly rejected; enabling experimentalApi is not blanket support.
 
@@ -40,3 +41,7 @@ The local pinned schemas take precedence over examples for newer versions.
 
 ThreadTurnsList params/response cover optional descending full-item history pages.
 Unsupported optional pagination falls back to legacy resume, without a CLI version gate.
+
+ThreadTokenUsageUpdatedNotification supplies the last-response context estimate and model window.
+The cumulative total only deduplicates updates; neither history restoration nor worker usage establishes
+a resident cache opportunity. Native contextCompaction invalidates the gauge until fresh usage arrives.

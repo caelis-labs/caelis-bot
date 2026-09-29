@@ -15,7 +15,7 @@ export function composerAction(snapshot: Snapshot | null, quick: boolean, hasCon
  return !quick && snapshot?.canInterrupt && !hasContent ? 'stop' : 'send';
 }
 
-export type ChatActivity = 'thinking' | 'reviewing' | 'stopping' | 'tool';
+export type ChatActivity = 'thinking' | 'reviewing' | 'stopping' | 'tool' | 'dreaming';
 
 // Track arrivals separately from execution state. A reply may already be
 // completed on its first poll; opening/recovering history must not replay it.
@@ -48,9 +48,11 @@ export function activeReplyID(snapshot: Snapshot | null): string | null {
  return null;
 }
 export function chatActivity(snapshot: Snapshot | null): ChatActivity | null {
- if (!snapshot || snapshot.quiet || snapshot.connection !== 'ready') return null;
+ if (!snapshot || snapshot.connection !== 'ready') return null;
  if (snapshot.phase === 'interrupting') return 'stopping';
  if (snapshot.approvals.some(p => p.status !== 'resolved')) return null;
+ if (snapshot.maintenance === 'dreaming' && snapshot.phase === 'working' && !snapshot.message) return 'dreaming';
+ if (snapshot.quiet) return null;
  if (snapshot.phase !== 'sending' && snapshot.phase !== 'working') return null;
  if (snapshot.reviews.some(r => r.status === 'inProgress')) return 'reviewing';
  if (snapshot.activity) return 'tool';
