@@ -5,7 +5,7 @@ import { useI18n } from './i18n';
 import { approvalTitle } from './approval-presentation';
 import { bubblePresentation, reduceBubbleNotice } from './bubble-notice';
 import { MessageContent } from './MessageContent';
-import { activeReplyID, chatActivity } from './chat-presentation';
+import { chatActivity } from './chat-presentation';
 import { activityLabel } from './activity-presentation';
 
 export function Bubble() {
@@ -19,7 +19,7 @@ export function Bubble() {
  useEffect(()=>()=>window.clearTimeout(leaveTimer.current),[]);
  const [notice,dispatchNotice]=useReducer(reduceBubbleNotice,null);
  const noticeID=useRef(0);
- const {snapshot,refresh}=useConversation(visible,true);
+ const {snapshot,liveReplies,refresh}=useConversation(visible,true);
  useEffect(()=>{
   const receive=(event:Event)=>{
    const detail=(event as CustomEvent<{message:string;pending:boolean}>).detail;
@@ -49,13 +49,14 @@ export function Bubble() {
  const output=snapshot?.items.filter(i=>i.kind==='assistant').at(-1);
  const working=!!snapshot?.canInterrupt;
  const activity=chatActivity(snapshot);
- const progress=activity==='tool'&&snapshot?.activity?activityLabel(snapshot.activity,t):activity==='stopping'?t('chat.stopping'):activity==='reviewing'?t('chat.reviewing'):activity==='thinking'?t('chat.bubbleThinking'):'';
+ const dreaming=activity==='dreaming';
+ const progress=dreaming?t('chat.dreaming'):activity==='tool'&&snapshot?.activity?activityLabel(snapshot.activity,t):activity==='stopping'?t('chat.stopping'):activity==='reviewing'?t('chat.reviewing'):activity==='thinking'?t('chat.bubbleThinking'):'';
  const review=snapshot?.reviews?.filter(r=>r.status!=='approved').at(-1);
  const reviewText=review&&(review.status!=='inProgress'||working)?getReviewLabel(review.status, t):'';
  const attention=!!prompt||snapshot?.connection==='login'||snapshot?.connection==='offline'||snapshot?.phase==='unknown';
  const terminal=snapshot?.phase==='interrupted'?t('chat.statusInterrupted'):snapshot?.phase==='failed'?t('chat.terminalFailed'):snapshot?.phase==='completed'?t('chat.statusCompleted'):'';
- const conversationContent=error||(prompt&&approvalTitle(prompt,locale))||snapshot?.message||((working||!output?.text)&&reviewText)||output?.text||reviewText||progress||(working?t('chat.bubbleThinking'):terminal);
- const conversationWanted=(!snapshot?.quiet||!!error||attention)&&!!conversationContent&&(working||attention||!snapshot?.previewDismissed);
+ const conversationContent=error||(prompt&&approvalTitle(prompt,locale))||snapshot?.message||((working||!output?.text)&&reviewText)||(dreaming?progress:'')||output?.text||reviewText||progress||(working?t('chat.bubbleThinking'):terminal);
+ const conversationWanted=(!snapshot?.quiet||dreaming||!!error||attention)&&!!conversationContent&&(working||attention||!snapshot?.previewDismissed);
  const {content,wanted,showNotice}=bubblePresentation(conversationContent,conversationWanted,attention||!!error,notice);
  const markdown=!showNotice&&!error&&!prompt&&!snapshot?.message&&!reviewText&&!!output?.text&&content===output.text;
  const progressText=!showNotice&&!attention&&!error&&content!==progress?progress:'';
@@ -66,7 +67,7 @@ export function Bubble() {
  const open=()=>void desktop(showNotice?'ToggleTaskDock':prompt?'OpenApproval':'OpenHistory');
  const action=async(method:string,...args:unknown[])=>{setBusy(true);setError('');try{await backend(method,...args);await refresh();}catch(e){setError(e instanceof Error?e.message:t('chat.actionFailed'));}finally{setBusy(false);}};
  const actionText=showNotice?t('chat.bubbleOpenTasks'):prompt?t('chat.bubbleReviewAndDecide'):t('chat.bubbleOpenChat');
- return <div ref={surface} className="bubble-shell" onMouseEnter={read} onMouseLeave={unread} onFocusCapture={read} onBlurCapture={e=>{if(!e.currentTarget.contains(e.relatedTarget))unread();}}><main className={`message-bubble ${expanded&&prompt?'expanded':''} ${readingMessage?'reading':''}`} aria-label={t('chat.bubbleAriaLabel')}>
+ return <div ref={surface} className="bubble-shell" onMouseEnter={read} onMouseLeave={unread} onFocusCapture={read} onBlurCapture={e=>{if(!e.currentTarget.contains(e.relatedTarget))unread();}}><main className={`message-bubble ${expanded&&prompt?'expanded':''} ${readingMessage?'reading':''}`} aria-label={t('chat.bubbleAriaLabel')} title={dreaming?t('chat.dreamHint'):undefined}>
   <div className="bubble-summary">
    <div className="bubble-message" onClick={e=>{
     if((e.target as Element).closest('button,a,input,select,textarea')||window.getSelection()?.toString())return;
@@ -74,7 +75,9 @@ export function Bubble() {
    }}>
     {!!progressText&&<div className="bubble-progress" role="status"><span className="activity-spinner" aria-hidden="true"/><span>{progressText}</span></div>}
     <div className="bubble-copy" tabIndex={readingMessage?0:undefined} role="region" aria-label={t('chat.bubbleAriaLabel')}>
-     {markdown?<MessageContent key={output?.id} text={content} report={setError} streaming={visible&&output?.id===activeReplyID(snapshot)}/>:<span className={content===progress?'bubble-standalone-progress':undefined}>{content===progress&&!!progress&&<span className="activity-spinner" aria-hidden="true"/>}{content}</span>}
+     {/* Temporary prompts keep the reply mounted so its reveal progress survives. */}
+     {output&&<div hidden={!markdown}><MessageContent key={output.id} text={output.text} report={setError} animate={visible&&liveReplies.has(output.id)}/></div>}
+     {!markdown&&<span className={content===progress?'bubble-standalone-progress':undefined}>{content===progress&&!!progress&&!dreaming&&<span className="activity-spinner" aria-hidden="true"/>}{content}</span>}
     </div>
    </div>
    <div className="bubble-actions">

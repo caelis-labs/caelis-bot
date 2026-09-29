@@ -433,6 +433,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				s.state.Views[sid] = v
 			}
 			v.State = st
+			v.Usage, v.UsageTurn, v.ModelTurn = api.ContextUsage{}, "", ""
 			v.CommandCaughtUp = false
 			s.observeApprovalHeadLocked(st)
 			v.ApprovalDirty = false
@@ -498,6 +499,9 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			}
 			for _, e := range d.Events {
 				s.logEnvelope(e)
+				if d.Source == wire.StreamSourceClassExact && v.CommandCaughtUp {
+					applyLiveUsage(v, e, time.Now().Round(0))
+				}
 				s.applyScheduledEnvelope(v, e)
 				s.observeCommandApprovalLocked(sid, e)
 			}

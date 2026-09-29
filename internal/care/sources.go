@@ -9,6 +9,8 @@ import (
 // It is supplied by the native host, never a model tool or renderer.
 type Sample struct {
 	Presence
+	// Native sleep/wake and lock/unlock generation, metadata only.
+	Epoch       uint64
 	IdleSeconds float64
 	Application string
 }

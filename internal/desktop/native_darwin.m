@@ -789,7 +789,7 @@ void bot_style_settings(void *pointer) {
 void bot_activity(void *pointer, char *activity) {
     BotHost *host = (__bridge BotHost *)pointer;
     NSString *state = [NSString stringWithUTF8String:activity];
-    if (![@[@"idle",@"working",@"waiting"] containsObject:state]) return;
+    if (![@[@"idle",@"working",@"waiting",@"dreaming"] containsObject:state]) return;
     host.tasksBlocked=[state isEqualToString:@"waiting"]; [host updateBubble];
     if (![state isEqualToString:@"idle"]) [host cancelPlane];
     bot_js(host.pet,[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('pet-activity',{detail:'%@'}))",state]);

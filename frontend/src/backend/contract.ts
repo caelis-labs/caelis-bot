@@ -336,6 +336,7 @@ export interface SetupState {
   accountType: string;
 }
 export interface Snapshot {
+  maintenance?: string;
   scheduled: boolean;
   quiet: boolean;
   botStatus: string;

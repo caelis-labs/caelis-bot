@@ -150,6 +150,9 @@ func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, 
 		return err
 	}
 	s.mu.Lock()
+	if s.opts.Execution.Model != v.Model {
+		s.usage, s.usageTurn = api.ContextUsage{}, ""
+	}
 	s.opts.Execution = v
 	s.mu.Unlock()
 	return nil

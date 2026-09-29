@@ -8,6 +8,7 @@ import (
 // Dream presents only the last completed assistant recap. It never hides an
 // approval or connection failure, and never interprets ordinary user prose.
 func Dream(v api.Snapshot, turns map[string]string, pending bool) api.Snapshot {
+	v.Maintenance = ""
 	last := map[string]string{}
 	for _, item := range v.Items {
 		if item.Kind == "assistant" && strings.TrimSpace(item.Text) != "" {
@@ -42,6 +43,10 @@ func Dream(v api.Snapshot, turns map[string]string, pending bool) api.Snapshot {
 		}
 		if v.Quiet {
 			v.Reviews = []api.Review{}
+			status := turns[current]
+			if v.Phase == "working" && v.CanInterrupt && (status == "running" || status == "inProgress" || status == "started") {
+				v.Maintenance = "dreaming"
+			}
 		}
 	}
 	return v

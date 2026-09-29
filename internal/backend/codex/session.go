@@ -62,6 +62,9 @@ type Session struct {
 	backgroundResultsDirty bool
 
 	residentExecution api.WorkExecutionSettings
+	usage             api.ContextUsage
+	usageTurn         string
+	usageTotal        int64
 	historyMu         sync.Mutex
 	op                sync.Mutex
 	mu                sync.Mutex
@@ -141,6 +144,7 @@ func NewSession(opts SessionOptions) *Session {
 	return s
 }
 func (s *Session) resetProjection() {
+	s.usage, s.usageTurn, s.usageTotal = api.ContextUsage{}, "", 0
 	s.runs = map[string]string{}
 	s.items = map[string]int{}
 	s.nativeItems = map[string]nativeItem{}
@@ -452,6 +456,8 @@ func (s *Session) connect(ctx context.Context) error {
 	for _, event := range s.buffer {
 		s.applyEvent(event)
 	}
+	// Restoration/replay never establishes a warm-cache opportunity.
+	s.usage, s.usageTurn, s.usageTotal = api.ContextUsage{}, "", 0
 	s.buffer = nil
 	s.cleanupContextLocked()
 	if s.binding.Pending != nil {
@@ -482,6 +488,7 @@ func (s *Session) connectionError(message string, cause error) error {
 	defer s.mu.Unlock()
 	s.loading = false
 	s.state.Connection = "offline"
+	s.usage, s.usageTurn = api.ContextUsage{}, ""
 	s.state.ConnectionIssue = "connection"
 	if errors.Is(cause, errRuntimeMissing) {
 		s.state.ConnectionIssue = "runtime_missing"
@@ -547,6 +554,7 @@ func (s *Session) listen(c *Client, epoch uint64) {
 	}
 	s.state.Connection = "offline"
 	s.state.Message = "连接已断开；请重新连接核对结果。"
+	s.usage, s.usageTurn = api.ContextUsage{}, ""
 	s.state.ConnectionIssue = "connection"
 	if s.run != "" || s.binding.Pending != nil {
 		s.state.Phase = "unknown"

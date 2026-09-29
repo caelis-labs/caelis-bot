@@ -376,3 +376,9 @@ summary { cursor:pointer; }
 .permission-more { font-size:12px; color:var(--muted); margin-top:12px; }
 .permission-more summary { cursor:pointer; padding:8px 0; }
 .permission-more .permission-list { margin-top:8px; color:var(--ink); }
+
+/* Host-owned maintenance status; motion is decorative and never blocks input. */
+.pet-dream{position:absolute;top:25px;right:17px;color:#59677f;font-size:19px;font-weight:600;letter-spacing:2px;text-shadow:0 1px 4px #fff;pointer-events:none;animation:dream-breathe 3s ease-in-out infinite}
+.dream-indicator{color:var(--muted);font-style:normal}
+@keyframes dream-breathe{0%,100%{opacity:.65;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+@media(prefers-reduced-motion:reduce){.pet-dream{animation:none}}

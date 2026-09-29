@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeReplyID, canSubmit, chatActivity, composerAction, withOutgoing } from '../frontend/src/chat-presentation.ts';
+import { activeReplyID, canSubmit, chatActivity, composerAction, liveReplyIDs, withOutgoing } from '../frontend/src/chat-presentation.ts';
 
 const running = { connection:'ready', phase:'working', currentTurn:'current',
  canInterrupt:true, canSend:false, canSteer:true, items:[], approvals:[], reviews:[] };
@@ -73,4 +73,64 @@ test('all editors use native send/steer capability and optimistic inputs merge b
  const native={...first,id:'native-1',status:'completed'};
  assert.deepEqual(withOutgoing([native],[first,second]),[native,second]);
  assert.deepEqual(withOutgoing([{id:'foreign',text:'same'}],[first]),[{id:'foreign',text:'same'},first]);
+});
+
+
+test('new completed replies animate even when no in-progress snapshot was observed',()=>{
+ const history={...running,phase:'completed',currentTurn:'',items:[{id:'old',kind:'assistant',text:'历史',status:'completed'}]};
+ const answer={id:'new',kind:'assistant',turnKey:'new-turn',text:'在两次轮询之间完成的新回复',status:'completed'};
+ const next={...history,items:[...history.items,answer]};
+ assert.deepEqual([...liveReplyIDs(null,history,new Set())],[]);
+ const live=liveReplyIDs(history,next,new Set());
+ assert.deepEqual([...live],['new']);
+ assert.equal(activeReplyID(next),null);
+ assert.deepEqual([...liveReplyIDs(next,next,live)],['new']);
+});
+
+test('initial/reopened/recovered history and prepended pages do not replay',()=>{
+ const item={id:'latest',kind:'assistant',text:'最新历史',status:'completed'};
+ const snapshot={...running,items:[item]};
+ assert.equal(liveReplyIDs(null,snapshot,new Set(['latest'])).size,0);
+ assert.equal(liveReplyIDs({...snapshot,connection:'offline'},snapshot,new Set()).size,0);
+ assert.equal(liveReplyIDs(snapshot,{...snapshot,items:[{...item,id:'earlier'},item]},new Set()).size,0);
+ assert.equal(liveReplyIDs(snapshot,{...snapshot,items:[{...item,id:'replacement'}]},new Set()).size,0);
+});
+
+test('empty started items and extensions stay live across final status and cleared turn',()=>{
+ const item={id:'answer',kind:'assistant',turnKey:'current',text:'',status:'inProgress'};
+ const started={...running,items:[item]};
+ const completed={...running,phase:'completed',currentTurn:'',items:[{...item,text:'完整回复',status:'completed'}]};
+ assert.deepEqual([...liveReplyIDs(started,completed,new Set())],['answer']);
+ const initial={...started,items:[{...item,text:'已有部分'}]};
+ const extended={...started,items:[{...item,text:'已有部分，加上增量'}]};
+ assert.deepEqual([...liveReplyIDs(initial,extended,new Set())],['answer']);
+ const corrected={...completed,items:[{...completed.items[0],text:'完整回复，历史修正'}]};
+ assert.equal(liveReplyIDs(completed,corrected,new Set()).size,0);
+});
+
+test('bounded pet snapshots may replace their previous tail with a new completed reply',()=>{
+ const previous={...running,items:[{id:'old',kind:'assistant',text:'旧回复',status:'completed'}]};
+ const next={...previous,phase:'completed',items:[{id:'new',kind:'assistant',text:'新回复',status:'completed'}]};
+ assert.deepEqual([...liveReplyIDs(previous,next,new Set(),true)],['new']);
+ assert.equal(liveReplyIDs(null,next,new Set(),true).size,0);
+});
+
+test('a completed reply after an accepted outbox replacement is still a live arrival',()=>{
+ const pending={id:'outgoing:request',requestId:'request',kind:'user',text:'你好',status:'sending'};
+ const previous={...running,items:[pending]};
+ const next={...running,phase:'completed',currentTurn:'',items:[{...pending,id:'native',status:'completed'},
+  {id:'reply',kind:'assistant',text:'你好！',status:'completed'}]};
+ assert.deepEqual([...liveReplyIDs(previous,next,new Set())],['reply']);
+ // Identical prose from a different request cannot establish this boundary.
+ assert.equal(liveReplyIDs(previous,{...next,items:[{...next.items[0],requestId:'other'},next.items[1]]},new Set()).size,0);
+});
+
+test('confirmed Dream has a quiet status that yields to attention and ends with the turn',()=>{
+ const dreaming={...running,quiet:true,maintenance:'dreaming'};
+ assert.equal(chatActivity(dreaming),'dreaming');
+ assert.equal(chatActivity({...dreaming,maintenance:undefined}),null);
+ assert.equal(chatActivity({...dreaming,approvals:[{status:'pending'}]}),null);
+ assert.equal(chatActivity({...dreaming,phase:'interrupting'}),'stopping');
+ for(const change of [{phase:'completed'},{phase:'unknown'},{connection:'offline'},{message:'Recovery required'}])assert.equal(chatActivity({...dreaming,...change}),null);
+ assert.equal(canSubmit(dreaming),true,'new user input retains its native capability');
 });

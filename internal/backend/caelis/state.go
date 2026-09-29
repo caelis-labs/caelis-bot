@@ -34,6 +34,9 @@ type journal struct {
 	Source       wire.ApplicationSource `json:"source"`
 }
 type view struct {
+	Usage           api.ContextUsage                 `json:"-"`
+	UsageTurn       string                           `json:"-"`
+	ModelTurn       string                           `json:"-"`
 	Reviews         map[string]reviewFact            `json:"reviews,omitempty"`
 	LiveReviews     map[string]reviewFact            `json:"-"`
 	CommandCaughtUp bool                             `json:"-"`

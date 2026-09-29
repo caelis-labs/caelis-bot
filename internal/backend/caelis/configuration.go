@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
@@ -105,6 +106,11 @@ func (s *Session) acceptConfiguration(sid string, v wire.ApplicationConfiguratio
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if old := s.state.Configurations[sid]; old.Profile.Model != v.Profile.Model {
+		if view := s.state.Views[sid]; view != nil {
+			view.Usage, view.UsageTurn, view.ModelTurn = api.ContextUsage{}, "", ""
+		}
+	}
 	s.state.Configurations[sid] = v
 	return s.saveLocked()
 }
@@ -125,6 +131,13 @@ func (s *Session) UpdateConfiguration(ctx context.Context, op, revision string, 
 	return s.updateConfiguration(ctx, sid, op, revision, patch)
 }
 func (s *Session) updateConfiguration(ctx context.Context, sid, op, revision string, patch map[string]any) (wire.ApplicationConfiguration, error) {
+	if _, changesModel := patch["model"]; changesModel {
+		s.mu.Lock()
+		if view := s.state.Views[sid]; view != nil {
+			view.Usage, view.UsageTurn, view.ModelTurn = api.ContextUsage{}, "", ""
+		}
+		s.mu.Unlock()
+	}
 	// A map preserves explicit [] vs omitted catalogs; generated omitempty slices
 	// cannot represent a catalog clear. Do not alter the pinned generated types.
 	body := map[string]any{"operation_id": op, "expected_configuration_revision": revision, "patch": patch}

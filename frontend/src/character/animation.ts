@@ -1,6 +1,6 @@
 import { AnimationMixer, LoopOnce, LoopRepeat, type AnimationAction, AnimationClip, type Object3D } from 'three';
 
-export type Activity = 'idle' | 'working' | 'waiting';
+export type Activity = 'idle' | 'working' | 'waiting' | 'dreaming';
 export type Gesture = 'attention' | 'nod' | 'celebrate';
 export const requiredClips = ['idle', 'working', 'attention', 'nod', 'celebrate'] as const;
 export const isGesture = (name:string):name is Gesture => ['attention','nod','celebrate'].includes(name);
@@ -46,7 +46,7 @@ export class CharacterAnimation {
   if(activity==='waiting'&&animate)this.play('attention');
   // Let feedback finish even when a tool's turn completes immediately after it.
   // Its completion callback returns to the latest authoritative base activity.
-  else if(!animate||!this.oneShot)this.play(this.base());
+  else if(activity==='dreaming'||!animate||!this.oneShot)this.play(this.base());
  }
  gesture(name:Gesture) { this.play(name); }
  rest() { this.play(this.base(),false); }

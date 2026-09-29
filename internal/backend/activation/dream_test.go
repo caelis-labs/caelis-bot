@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+func TestDreamPresentationRequiresConfirmedRunningTurn(t *testing.T) {
+	base := api.Snapshot{Connection: "ready", Phase: "working", CurrentTurn: "dream", CanInterrupt: true}
+	for _, status := range []string{"running", "inProgress", "started", "completed", "failed", "interrupted", ""} {
+		v := Dream(base, map[string]string{"dream": status}, false)
+		want := status == "running" || status == "inProgress" || status == "started"
+		if (v.Maintenance == "dreaming") != want {
+			t.Fatal(status, v)
+		}
+	}
+	if Dream(base, nil, true).Maintenance != "" {
+		t.Fatal("submission uncertainty displayed as sleep")
+	}
+	for _, change := range []func(*api.Snapshot){
+		func(v *api.Snapshot) { v.Connection = "offline" },
+		func(v *api.Snapshot) { v.Message = "recovery required" },
+		func(v *api.Snapshot) { v.Phase = "interrupting" },
+		func(v *api.Snapshot) { v.Phase = "unknown" },
+		func(v *api.Snapshot) { v.CurrentTurn = "user" },
+		func(v *api.Snapshot) { v.Approvals = []api.Approval{{Status: "pending"}} },
+		func(v *api.Snapshot) { v.Reviews = []api.Review{{Status: "denied"}} },
+	} {
+		v := base
+		change(&v)
+		if Dream(v, map[string]string{"dream": "running"}, false).Maintenance != "" {
+			t.Fatal("sleep masked attention", v)
+		}
+	}
+}
+
 func TestDreamKeepsOnlyRecapAndPreservesApproval(t *testing.T) {
 	v := api.Snapshot{Connection: "ready", Phase: "completed", CurrentTurn: "dream", Items: []api.Item{
 		{ID: "user", TurnKey: "ordinary", Kind: "user", Text: "hello"},

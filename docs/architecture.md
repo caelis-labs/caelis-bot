@@ -91,14 +91,41 @@ Update skill guidance for behavior changes; implementation-only fixes need no du
 First introduction is a normal user message with a durable stable delivery ID; until acceptance it precedes
 other submissions. The host does not write the Bot personality or claim that acceptance proves memory saved.
 
-Dream runs once after 15 idle minutes, never during active/pending/unknown work. It reuses the resident Bot,
+Ordinary Dream is an opportunistic local decision, never an idle model loop. It needs a live resident
+context gauge and a recent confirmed model response; tool progress, window activity and replay do not
+refresh model age. Codex uses the last response's total tokens (not cumulative billing); Caelis requires
+both explicit context_gauge and provider_usage evidence on the same live resident turn. Missing facts
+skip the opportunity. Native compaction/model changes invalidate or rebase the gauge.
+
+Defaults: below 30% context skips; 30–70% needs five continuous idle minutes; at least 70% needs 90 seconds.
+At least 8,000 tokens of growth since the last attempt are required, with a 30-minute attempt cooldown.
+The first observed conversation uses zero as its growth baseline; compaction rebases to the smaller gauge.
+One attempt consumes the dirty generation, including rejection/failure. Dream's own usage is excluded
+from subsequent growth when available. The host allows at most 15 wall-clock minutes since model activity,
+reserving three minutes for its two-minute execution budget and margin. This is an opportunity budget,
+not a provider cache-TTL guarantee or proof of a future cache hit. No keep-alive calls are sent.
+
+Independent native presence sampling tracks sleep/wake and lock/unlock generations. Unknown presence,
+disconnection, restart, clock reversal or a polling gap over 45 seconds requires fresh model activity;
+waking also requires 60 seconds of stability. Sleep counts against cache age, not continuous idle time.
+Draft edits postpone admission by 60 seconds. Expired opportunities never catch up after wake/cooldown.
+Admission diagnostics contain reason codes, token counts and model age, never conversation content.
+
+Dream never starts during active/pending/unknown work. It reuses the resident Bot,
 explicitly loads the Dream skill, writes a marked HANDOFF, and emits a concise recap. Success requires native
 completion plus a matching nonempty handoff. Normal success only marks ready; next user text/screen request
 renews. An intervening background turn invalidates readiness. User input interrupts only the maintenance Turn;
 Workers continue. Maintenance over two minutes requests cancellation. Failure does not start an idle retry loop.
 
+Only a confirmed running native Dream projects `maintenance: dreaming`. Pet, bubble and chat share
+that fact: a quiet napping pose/zzz and transient status, with static presentation for reduced motion.
+Approvals, recovery, interruption and errors take precedence; completion clears the nap even while a
+handoff remains ready. This status is not a transcript item, notification, or reason to show a hidden pet.
+The host owns it; the model emits only its final recap. User submission retains interruption priority.
+
 Runtime creation records the Bot version. After an App upgrade, recover/observe old work first; when idle,
-reuse a valid handoff or initiate one immediately, then create current configuration. Same-version restart
+reuse a valid handoff or initiate one after native presence stabilizes, then create current configuration.
+This finite upgrade handoff bypasses ordinary context, cache-opportunity and cooldown gates. Same-version restart
 resumes the existing binding. Preserve model/CWD/sandbox and history; don't hot-rewrite an unresolved runtime.
 Explicit creation rejection ends renewal and allows input on the old binding; unknown creation keeps its ID.
 
@@ -194,8 +221,12 @@ prove task association. Local behavior consumes facts without invoking an idle m
 decisions preempt decoration. Independent paper-plane surfaces are bounded/pass-through and reclaimed on hide,
 Space change or disposal. Planned movement/intent receipts must not be advertised as current bot_gesture semantics.
 
-Streaming is presentation-only: grapheme boundaries, monotonic append progress and bounded catch-up; authoritative
-final Markdown remains exact. Raw HTML is disabled and remote images are links, so reading cannot fetch resources.
+Streaming is presentation-only: a continuous 60–120 grapheme/second budget survives snapshot boundaries and
+completion, with a capped time step after a stalled frame. New replies remain eligible even when first observed
+as completed; arrival tracking is independent of avatar/execution state. Initial/reopened/reconnected history
+and prepended pages establish a baseline without replay. Authoritative final Markdown remains exact, and
+approvals, stop controls, copy actions and execution state never wait for the text animation.
+Raw HTML is disabled and remote images are links, so reading cannot fetch resources.
 Reduced motion/history/hidden surfaces display directly. GL contexts own and remove their canvases on disposal;
 StrictMode/repeated previews must create fresh renderers and release textures/materials/bones.
 

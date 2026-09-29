@@ -9,7 +9,7 @@ import { interactionBusy, type DesktopContext } from './context';
 
 export const idleBehaviors = ['breathe','observe','weight_shift','plane_care','stretch','plane_play'] as const;
 export type IdleBehavior = typeof idleBehaviors[number];
-type Behavior = IdleBehavior|'focus'|'inspect'|'waiting';
+type Behavior = IdleBehavior|'focus'|'inspect'|'waiting'|'dreaming';
 const active = (b:Behavior) => b==='stretch'||b==='plane_play';
 const ease=(t:number)=>{t=Math.max(0,Math.min(1,t));return t*t*t*(t*(t*6-15)+10);};
 
@@ -29,18 +29,19 @@ export class BehaviorDirector {
  touched(){this.hoverResponse=.8;}
  private select(name:Behavior,duration:number){this.behavior=name;this.elapsed=0;this.duration=duration;this.launched=false;}
  preview(name:IdleBehavior){this.select(name,name==='plane_play'?10:8);}
- reset(){this.select(this.work==='working'?'focus':this.work==='waiting'?'waiting':'breathe',10);this.hover=false;this.hoverResponse=0;}
+ reset(){this.select(this.work==='working'?'focus':this.work==='waiting'?'waiting':this.work==='dreaming'?'dreaming':'breathe',10);this.hover=false;this.hoverResponse=0;}
  update(dt:number,work:Activity,context?:DesktopContext,oneShot=false):boolean {
   this.clock+=dt;this.elapsed+=dt;this.hoverResponse=Math.max(0,this.hoverResponse-dt);
   const hover=!!context?.pointer.hovering;
   if(hover&&!this.hover)this.hoverResponse=.8;
   this.hover=hover;
   const busy=interactionBusy(context)||hover||oneShot;
-  if(work!==this.work){this.work=work;this.select(work==='working'?'focus':work==='waiting'?'waiting':'breathe',12);}
-  if((busy||work!=='idle')&&(this.active||this.behavior==='plane_care'))this.select(work==='working'?'focus':work==='waiting'?'waiting':'breathe',10);
+  if(work!==this.work){this.work=work;this.select(work==='working'?'focus':work==='waiting'?'waiting':work==='dreaming'?'dreaming':'breathe',12);}
+  if((busy||work!=='idle')&&(this.active||this.behavior==='plane_care'))this.select(work==='working'?'focus':work==='waiting'?'waiting':work==='dreaming'?'dreaming':'breathe',10);
   if(this.elapsed>=this.duration){
    if(work==='working')this.select(this.behavior==='focus'?'inspect':'focus',12+this.random()*8);
    else if(work==='waiting')this.select('waiting',12);
+   else if(work==='dreaming')this.select('dreaming',12);
    else {
     const candidates=idleBehaviors.filter(b=>b!==this.behavior&&(!active(b)||(!busy&&this.clock>=this.activeAfter)));
     const weights=candidates.map(b=>active(b) ? .30/2 : .70/4);
@@ -71,6 +72,7 @@ export class PoseLayer {
  private bones=new Map<string,{node:Object3D; base:Quaternion; position:Vector3}>();
  private yaw=new Spring(); private pitch=new Spring(); private body=new Spring();
  private toss=new Spring(); private care=new Spring(); private stretch=new Spring(); private lean=new Spring();
+ private sleep=new Spring();
  private near:NearGesturePose;
  private gestureBlend=new Spring(); private lastPerformance:PerformanceFrame|undefined;
  private hands:HandPoseLayer;
@@ -92,7 +94,7 @@ export class PoseLayer {
   this.time+=dt;const t=this.time,b=director.behavior,envelope=director.envelope;
   const quiet=interactionBusy(context),hover=!!context?.pointer.hovering;
   let targetYaw=0,targetPitch=0;
-  if(context&&(follow||hover||b==='observe'||b==='inspect')){
+  if(b!=='dreaming'&&context&&(follow||hover||b==='observe'||b==='inspect')){
    const window=context.activeWindow.frame;
    const x=follow?follow.x:hover?context.pointer.x:window?window.x+window.width/2:context.desktop.workArea.x+context.desktop.workArea.width/2;
    const y=follow?follow.y:hover?context.pointer.y:window?window.y+window.height*.6:context.actor.y+context.actor.height*.7;
@@ -106,6 +108,9 @@ export class PoseLayer {
   const toss=this.toss.step(b==='plane_play'&&!quiet&&!oneShot?ease((director.elapsed-1.35)/.6)*(1-ease((director.elapsed-2.4)/.8)):0,dt,.3);
   const stretch=this.stretch.step(b==='stretch'&&!quiet&&!oneShot?Math.sin(Math.PI*director.phase)*envelope:0,dt,.45);
   const lean=this.lean.step(b==='weight_shift'&&!quiet&&!oneShot?.075*envelope*Math.sin(director.phase*Math.PI*2):0,dt,.45);
+  const sleep=this.sleep.step(b==='dreaming'&&!quiet&&!oneShot?1:0,dt,.8);
+  this.rotate('head',sleep*.12,0,sleep*-.1);
+  this.rotate('chest',sleep*(.018+.008*Math.sin(t*1.2)));
   this.root.rotation.y=body;
   this.rotate('head',pitch+care*.13, yaw-body*.35, strength*(.012*Math.sin(t*1.1)+director.touch*.035));
   this.rotate('chest',care*.025-stretch*.07-toss*.025,body*.14,lean);
@@ -120,7 +125,7 @@ export class PoseLayer {
   // A performance owns the whole posture. Props and one-shot clips keep their
   // own ownership, and direct interaction fades the standing pose away.
   const fittedStretch=this.root.userData.desktopPetSoftOutfit?.version===1;
-  const nearEnabled=!oneShot&&b!=='plane_care'&&b!=='plane_play'&&(b!=='stretch'||fittedStretch);
+  const nearEnabled=b!=='dreaming'&&!oneShot&&b!=='plane_care'&&b!=='plane_play'&&(b!=='stretch'||fittedStretch);
   const present=!quiet&&nearEnabled&&b!=='stretch'&&!!performance?.gesture;
   if(present)this.lastPerformance=performance;
   const blend=this.gestureBlend.step(present?performance!.amount:0,dt,.36);
@@ -144,5 +149,5 @@ export class PoseLayer {
   this.hands.apply(dt,{performance:quiet||!nearEnabled?undefined:performance,dragging:context?.interaction.dragging,holding:director.holdsPlane&&!quiet&&!hover&&!oneShot});
  }
  settle(){this.near.reset();this.near.apply(0,undefined,true);this.hands.apply(0);}
- rest(){this.near.reset();this.restore();this.hands.reset();this.yaw.reset();this.pitch.reset();this.body.reset();this.care.reset();this.toss.reset();this.stretch.reset();this.lean.reset();this.gestureBlend.reset();this.lastPerformance=undefined;}
+ rest(){this.near.reset();this.restore();this.hands.reset();this.yaw.reset();this.pitch.reset();this.body.reset();this.care.reset();this.toss.reset();this.stretch.reset();this.lean.reset();this.sleep.reset();this.gestureBlend.reset();this.lastPerformance=undefined;}
 }

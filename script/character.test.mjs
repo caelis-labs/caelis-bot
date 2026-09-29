@@ -21,6 +21,7 @@ test('shipped character, five clips and host transitions preserve frame bounds',
   await build({configFile:false,logLevel:'silent',build:{ssr:resolve('frontend/src/character/animation.ts'),outDir:dir,emptyOutDir:false,rolldownOptions:{output:{entryFileNames:'animation.mjs'}}}});
   const {CharacterAnimation}=await import(pathToFileURL(join(dir,'animation.mjs')));
   const player=new CharacterAnimation(gltf.scene,gltf.animations);
+  player.setActivity('dreaming');player.update(.25);assert.equal(player.clip,'idle','Dream uses an existing clip');
   player.setActivity('working');player.update(.25);assert.equal(player.clip,'working');
   player.gesture('celebrate');player.update(.3);player.gesture('nod');player.update(1.1);assert.equal(player.clip,'working');
   player.setActivity('waiting');assert.equal(player.clip,'attention');player.update(1.8);assert.equal(player.clip,'idle');
@@ -62,6 +63,7 @@ test('local behavior yields to interaction, restores constant tracks and keeps p
   assert.equal(director.active,false,'direct manipulation cancels active idle');
   director.preview('plane_play');director.update(.1,'waiting',context);assert.equal(director.behavior,'waiting');
   for(let i=0;i<60;i++){director.update(1,'idle',{...context,interaction:{...context.interaction,input:true}});assert.equal(director.active,false);}
+  for(let i=0;i<90;i++){director.update(1,'dreaming',context);assert.equal(director.behavior,'dreaming');assert.equal(director.holdsPlane,false);}
   const s30=new Spring(),s60=new Spring();for(let i=0;i<30;i++)s30.step(.5,1/30);for(let i=0;i<60;i++)s60.step(.5,1/60);
   assert.ok(Math.abs(s30.value-s60.value)<1e-9,'motion must not depend on refresh rate');
   const bytes=readFileSync(defaultModel);

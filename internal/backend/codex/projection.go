@@ -338,11 +338,14 @@ func (s *Session) applyEvent(event Notification) {
 	case "item/autoApprovalReview/started", "item/autoApprovalReview/completed":
 		s.applyReview(event)
 		return
+	case "thread/tokenUsage/updated":
+		s.applyUsage(event)
+		return
 	case "turn/started", "turn/completed", "item/started", "item/completed",
 		"item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta",
 		"item/mcpToolCall/progress", "serverRequest/resolved", "error", "thread/closed", "thread/deleted", "account/updated":
 		// Consumed below, with only this method's fields.
-	case "thread/status/changed", "thread/tokenUsage/updated", "account/rateLimits/updated",
+	case "thread/status/changed", "account/rateLimits/updated",
 		"item/reasoning/textDelta", "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded",
 		"turn/diff/updated", "turn/plan/updated", "skills/changed", "thread/name/updated":
 		return // Native metadata has no Bot presentation or lifecycle effect.
@@ -370,6 +373,12 @@ func (s *Session) applyEvent(event Notification) {
 			Turn nativeTurn `json:"turn"`
 		}
 		if s.decodeEvent(event, &n, true) {
+			if event.Method == "turn/started" && target.ThreadID == s.binding.ThreadID && !terminal(s.runs[n.Turn.ID]) {
+				if s.usageTurn != n.Turn.ID {
+					s.usage = api.ContextUsage{}
+				}
+				s.usageTurn = n.Turn.ID
+			}
 			if n.Turn.Error != nil {
 				s.logEvent(event, "turn_failed", diagnosticlog.Reason(n.Turn.Error.Message))
 			}
@@ -381,6 +390,9 @@ func (s *Session) applyEvent(event Notification) {
 		}
 		if s.decodeEvent(event, &n, false) {
 			complete := event.Method == "item/completed"
+			if n.Item.Type == "contextCompaction" {
+				s.usage, s.usageTotal = api.ContextUsage{}, 0
+			}
 			s.applyItem(target.TurnID, n.Item, complete)
 			if complete {
 				s.trackWorkerActivity(n.Item)

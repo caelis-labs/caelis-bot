@@ -61,15 +61,22 @@ func dreamFixture(t *testing.T) (*Runtime, *dreamEngine, *time.Time) {
 }
 func beginDream(t *testing.T, r *Runtime, e *dreamEngine, now *time.Time) {
 	t.Helper()
+	r.ConfigureDreamEnvironment(func() DreamEnvironment { return DreamEnvironment{Available: true} })
+	*now = now.Add(time.Second)
+	e.conversation.Usage = api.ContextUsage{Used: 80000, Window: 100000, ModelAt: *now}
 	if err := r.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	*now = now.Add(14 * time.Minute)
-	_ = r.Tick(t.Context())
+	for range 89 {
+		*now = now.Add(time.Second)
+		if err := r.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if len(e.dreams) != 0 {
 		t.Fatal("early Dream")
 	}
-	*now = now.Add(time.Minute)
+	*now = now.Add(time.Second)
 	if err := r.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}

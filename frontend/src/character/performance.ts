@@ -17,6 +17,7 @@ export class LocalPerformance {
  update(dt:number,state:PerformanceState):PerformanceFrame{
   const {activity,clip,progress,director,context}=state;
   this.clock+=dt;
+  if(activity==='dreaming'){this.reset();return rest;}
   const hover=!!context?.pointer.hovering,busy=interactionBusy(context),oneShot=!['idle','working'].includes(clip);
   if(activity!==this.activity){this.activity=activity;this.cue=undefined;this.pendingAsk=activity==='waiting';}
   if(hover&&!this.hovering&&!busy&&activity==='idle'&&this.clock>=this.nextGreeting){this.cue={name:'wave',time:-.25};this.nextGreeting=this.clock+24;}

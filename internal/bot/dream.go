@@ -11,11 +11,10 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
-
-const dreamIdle = 15 * time.Minute
 
 type dreamAttempt struct {
 	ID, Session, Turn, Outcome string
@@ -24,16 +23,21 @@ type dreamAttempt struct {
 	Done, Ready                bool
 }
 type dreamState struct {
-	Version  int
-	Activity string
-	At       time.Time
-	Dirty    bool
-	Attempt  *dreamAttempt
+	Version         int
+	Activity        string
+	At              time.Time
+	Dirty           bool
+	Attempt         *dreamAttempt
+	LastAttempt     time.Time
+	BaselineSession string
+	BaselineUsed    int64
 }
 type dreamController struct {
 	path, skill string
 	vault       *notebook.Vault
 	state       dreamState
+	policy      dreamPolicy
+	log         *diagnosticlog.Logger
 }
 
 func (r *Runtime) ConfigureDream(vault *notebook.Vault, coreSkill string) error {
@@ -53,9 +57,21 @@ func (r *Runtime) ConfigureDream(vault *notebook.Vault, coreSkill string) error 
 		return err
 	}
 	r.dream = d
+	if d.state.LastAttempt.IsZero() && d.state.Attempt != nil {
+		d.state.LastAttempt = d.state.Attempt.Started
+	}
+	d.policy.notBefore = r.now().Round(0)
 	return nil
 }
 func (d *dreamController) save() error { return localstate.Write(d.path, d.state) }
+
+func (r *Runtime) ConfigureDreamDiagnostics(log *diagnosticlog.Logger) {
+	r.step.Lock()
+	defer r.step.Unlock()
+	if r.dream != nil {
+		r.dream.log = log
+	}
+}
 func conversationActivity(s api.ConversationState) string {
 	return s.Session + "\x00" + s.Turn + "\x00" + s.Status
 }
@@ -69,10 +85,11 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 		return nil
 	}
 	current := p.ConversationState()
+	now := r.now().Round(0)
+	stable := d.policy.observe(now, current)
 	if !current.Observed {
 		return nil
 	}
-	now := r.now()
 	upgrade := current.DesiredRuntimeVersion != "" && current.RuntimeVersion != current.DesiredRuntimeVersion
 	if a := d.state.Attempt; a != nil && !a.Done {
 		receipt, result := p.DreamResult(a.ID)
@@ -99,6 +116,10 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 			a.Ready = err == nil && ready && current.Session == a.Session && current.Turn == a.Turn
 		}
 		a.Done = true
+		if current.Session == a.Session && current.Turn == a.Turn && current.Usage.Window > 0 {
+			d.state.BaselineSession, d.state.BaselineUsed = current.Session, current.Usage.Used
+			d.policy.baseline = current.Usage.Used
+		}
 		d.state.Activity, d.state.At = conversationActivity(current), now
 		d.state.Dirty = current.Turn != "" && current.Turn != a.Turn && receipt.Outcome == "accepted"
 		if err := errors.Join(handoffErr, d.save()); err != nil {
@@ -126,7 +147,17 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 	// An upgrade is a finite startup handoff, not another periodic model loop.
 	// A rejected/interrupted attempt waits for normal activity and idle maintenance.
 	startup := upgrade && (d.state.Attempt == nil || d.state.Attempt.UpgradeVersion != current.DesiredRuntimeVersion)
-	if !dispatch || !current.Idle || (!startup && (!d.state.Dirty || now.Sub(d.state.At) < dreamIdle)) {
+	reason := d.policy.decide(now, current, d.state)
+	if dispatch && reason != d.policy.reason && d.state.Dirty {
+		age := int64(-1)
+		if !current.Usage.ModelAt.IsZero() {
+			age = int64(now.Sub(current.Usage.ModelAt).Seconds())
+		}
+		d.log.Write(diagnosticlog.Record{Level: "info", Component: "dream", Code: "admission_" + reason,
+			Reason: fmt.Sprintf("context_used=%d context_window=%d model_age_seconds=%d", current.Usage.Used, current.Usage.Window, age)})
+	}
+	d.policy.reason = reason
+	if !dispatch || !current.Idle || (startup && d.policy.sample != nil && !stable) || (!startup && d.policy.reason != "ready") {
 		return nil
 	}
 	path, err := d.vault.PrepareDream()
@@ -138,6 +169,9 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 		a.UpgradeVersion = current.DesiredRuntimeVersion
 	}
 	d.state.Attempt, d.state.Dirty = a, false
+	d.state.LastAttempt = now
+	d.state.BaselineSession, d.state.BaselineUsed = current.Session, current.Usage.Used
+	d.policy.baseline = current.Usage.Used
 	if err := d.save(); err != nil {
 		return err
 	}

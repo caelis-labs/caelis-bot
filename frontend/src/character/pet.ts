@@ -132,10 +132,10 @@ export function mountPet(canvas:HTMLCanvasElement,onError:()=>void):()=>void {
  }
  const visibility=(e:Event)=>{visible=(e as CustomEvent<boolean>).detail;resume();};
  const activityChanged=(e:Event)=>{
-  const value=(e as CustomEvent<string>).detail;if(!['idle','working','waiting'].includes(value))return;
+  const value=(e as CustomEvent<string>).detail;if(!['idle','working','waiting','dreaming'].includes(value))return;
   activityEvents++;activity=value as Activity;running?.restore();pose?.restore();player?.setActivity(activity,animate());pose?.capture();if(activity!=='idle')cancelFlight();resume();
  };
- const gesture=(e:Event)=>{const value=(e as CustomEvent<string>).detail;if(!isGesture(value)||!animate())return;running?.restore();pose?.restore();player!.gesture(value);pose?.capture();cancelFlight();resume();};
+ const gesture=(e:Event)=>{const value=(e as CustomEvent<string>).detail;if(!isGesture(value)||!animate()||activity==='dreaming')return;running?.restore();pose?.restore();player!.gesture(value);pose?.capture();cancelFlight();resume();};
  const lost=(e:Event)=>{e.preventDefault();contextLost=true;stopFrames();cancelFlight();};
  const restored=()=>{contextLost=false;lastSent='';resize();};
  window.addEventListener('pet-near-preview',nearPreview);window.addEventListener('pet-face-preview',facePreview);window.addEventListener('pet-context',desktopChanged);window.addEventListener('pet-touch',touch);window.addEventListener('pet-preview',preview);window.addEventListener('pet-prop-result',propResult);window.addEventListener('pet-prop-flight',propFlight);

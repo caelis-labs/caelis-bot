@@ -5,14 +5,14 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {resolve,extname} from 'node:path';
 
 const runtime=String.raw`
-let revision=1,streamTimer=0;
+let revision=1,streamTimer=0,recordFrame=0,petState='idle';
 window.fixtureFrames=[];
 const short='钉好了 — 任务卡片现在是 **固定** 状态，\`pinned: true\`，会一直留在你脚底下。';
 const long=short+'\n\n### 工作进展\n\n- 已读取 **README.md**\n- 已完成网络搜索\n- 正在更新说明文件\n\n> 悬浮可以阅读完整内容，移开后收起。\n\n| 操作 | 状态 |\n| --- | --- |\n| 阅读 | 完成 |\n| 编辑 | 完成 |\n\n\`\`\`go\nfmt.Println("Caelis Bot")\n\`\`\`\n\n'+Array.from({length:16},(_,i)=>(i+1)+'. 这是用于验证完整内容和屏幕高度限制的长段落。**格式保持可读**，滚动可继续阅读。').join('\n\n')+'\n\n**全文结束 END**\n\n[示例链接](https://example.com)';
 const snapshot={connection:'ready',phase:'working',currentTurn:'fixture',canInterrupt:true,canSend:false,canSteer:true,quiet:false,items:[],approvals:[],reviews:[],references:[],message:'',previewKey:'fixture',previewDismissed:false,botStatus:'',hasEarlier:false,lastReceipt:{id:'',outcome:'',message:''}};
 window.fixtureSet=kind=>{
  clearInterval(streamTimer);
- Object.assign(snapshot,{phase:'working',canInterrupt:true,activity:{kind:'read',target:'README.md'},approvals:[],reviews:[],previewDismissed:false});
+ Object.assign(snapshot,{quiet:false,maintenance:'',phase:'working',canInterrupt:true,activity:{kind:'read',target:'README.md'},approvals:[],reviews:[],previewDismissed:false});
  snapshot.items=[{id:'answer',turnKey:'fixture',kind:'assistant',text:kind==='short'?short:long,status:'completed',artifacts:[]}];
  if(['read','edit','web','execute'].includes(kind))snapshot.activity={kind,target:kind==='read'?'README.md':kind==='edit'?'notes.md':''};
  if(kind==='review')snapshot.reviews=[{id:'review',status:'inProgress',action:'',rationale:''}];
@@ -34,9 +34,93 @@ window.fixtureSet=kind=>{
 
 };
 window.fixtureSet('short');
+// Runs against the mounted production Bubble, including its 450ms polling and
+// real animation frames. Also callable from the native preview's regression button.
+window.fixtureBubbleReplay=async()=>{
+ const samples=[];
+ const body=()=>document.querySelector('.bubble-copy .markdown-body');
+ const visible=()=>body()?.getClientRects().length>0;
+ const wait=async(label,condition)=>{
+  const deadline=performance.now()+12000;
+  while(!condition()){
+   if(performance.now()>deadline)throw Error('Timed out: '+label);
+   await new Promise(requestAnimationFrame);
+  }
+ };
+ try{
+  await wait('initial snapshot',()=>visible());
+  window.fixtureSet('completed');
+  const text='已经完成的说明文字不应在审批后重新打字。'.repeat(8);
+  const item=snapshot.items[0];item.id='overlay-'+(++revision);item.text=text;
+  await wait('completed reply still animates',()=>visible()&&body().textContent.length>0&&text.startsWith(body().textContent)&&body().textContent!==text);
+  await wait('reply fully revealed',()=>visible()&&body().textContent===text);
+  for(const overlay of ['approval','review','notice','message']){
+   if(overlay==='approval')snapshot.approvals=[{id:'overlay-approval',title:'允许读取所选文件？',status:'pending',action:'cat README.md',target:'README.md',details:'',questions:[],choices:[]}];
+   if(overlay==='review')snapshot.reviews=[{id:'overlay-review',status:'completed',action:'',rationale:''}];
+   if(overlay==='notice')window.dispatchEvent(new CustomEvent('terminal-notice',{detail:{message:'合成通知',pending:true}}));
+   if(overlay==='message')snapshot.message='合成连接提示';
+   await wait(overlay+' shown',()=>!visible());
+   snapshot.approvals=[];snapshot.reviews=[];snapshot.message='';
+   if(overlay==='notice')window.dispatchEvent(new CustomEvent('terminal-notice',{detail:{message:'',pending:false}}));
+   await wait(overlay+' dismissed',visible);
+   samples.push({overlay,text:body().textContent});
+   if(body().textContent!==text)throw Error(overlay+' replayed a fully revealed reply');
+  }
+  // Completion does not drain a queued tail, and a temporary overlay must not
+  // restart or flush that tail either.
+  item.text=text+'完成后的末尾仍然逐字出现。'.repeat(30);
+  await wait('queued tail',()=>visible()&&body().textContent.length>text.length&&body().textContent!==item.text);
+  const before=body().textContent;
+  snapshot.message='合成连接提示';
+  await wait('tail overlay',()=>!visible());
+  snapshot.message='';
+  await wait('tail restored',visible);
+  if(!body().textContent.startsWith(before)||body().textContent===item.text)throw Error('overlay restarted or flushed queued tail');
+  await wait('tail complete',()=>body().textContent===item.text);
+  return window.fixtureReplayResult={ok:true,overlays:samples.map(s=>s.overlay),tailLength:item.text.length};
+ }catch(error){return window.fixtureReplayResult={ok:false,error:String(error),samples};}
+};
+window.fixtureDream=kind=>{
+ clearInterval(streamTimer);cancelAnimationFrame(recordFrame);
+ window.fixtureSet(kind==='approval'?'approval':'completed');
+ snapshot.items=[{id:'ordinary',turnKey:'ordinary',kind:'assistant',text:'已经整理好了今天的工作。你随时可以继续说。',status:'completed',artifacts:[]}];
+ Object.assign(snapshot,{currentTurn:'dream',maintenance:kind==='running'?'dreaming':'',quiet:kind!=='approval',phase:kind==='done'?'completed':kind==='approval'?'waiting_approval':'working',canInterrupt:kind!=='done',canSend:kind==='done',canSteer:kind==='running',activity:null});
+ petState=kind==='running'?'dreaming':kind==='approval'?'waiting':'idle';
+ window.dispatchEvent(new CustomEvent('pet-activity',{detail:petState}));
+};
+if(new URLSearchParams(location.search).has('dream'))window.fixtureDream('running');
+
+// Exercise the actual History component, polling bridge and Markdown renderer.
+// These synthetic replies never reach an agent or the user's conversation.
+window.fixtureChat=kind=>{
+ clearInterval(streamTimer);cancelAnimationFrame(recordFrame);
+ const id='chat-'+(++revision);
+ const paragraph='这是一段用于检查聊天窗口打字效果的合成回复。文字应该连续出现，即使模型一次返回了较长的段落，也不应该整块跳出。';
+ const text=paragraph.repeat(5)+'\n\n**完整结束** 👩🏽‍💻 é 🇨🇳\n\n| 项目 | 状态 |\n| --- | --- |\n| 中文 | 完成 |\n| Emoji | 完成 |\n\n\`\`\`js\nconst complete = true;\n\`\`\`';
+ const item={id,turnKey:id,kind:'assistant',text:'',status:'inProgress',artifacts:[]};
+ Object.assign(snapshot,{quiet:false,maintenance:'',items:[...snapshot.items,item],currentTurn:id,activity:null,phase:'working',canInterrupt:true,canSend:false,approvals:[],reviews:[]});
+ window.fixtureFrames=[];window.fixtureExpected=text;window.fixtureTarget=id;
+ const started=performance.now();
+ const record=now=>{
+  const element=document.querySelector('[data-message-id="'+id+'"] .markdown-body');
+  const scroll=document.querySelector('.chat-scroll');
+  window.fixtureFrames.push({time:now-started,text:element?.textContent??'',phase:snapshot.phase,stop:!!document.querySelector('[aria-label="停止工作"]'),bottom:scroll?scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop:0});
+  if(now-started<15000)recordFrame=requestAnimationFrame(record);
+ };recordFrame=requestAnimationFrame(record);
+ let offset=0;
+ const push=()=>{
+  offset=kind==='instant'||kind==='final'&&offset>0?text.length:Math.min(text.length,offset+(kind==='burst'?160:kind==='final'?12:36));
+  item.text=text.slice(0,offset);
+  if(offset===text.length){clearInterval(streamTimer);Object.assign(snapshot,{phase:'completed',currentTurn:'',canInterrupt:false,canSend:true});item.status='completed';}
+ };
+ if(kind==='instant')push();else streamTimer=setInterval(push,450);
+};
+window.fixtureReopen=()=>{window.dispatchEvent(new Event('history-close'));setTimeout(()=>window.dispatchEvent(new Event('history-open')),100);};
 export const Call={ByName:async(name,...args)=>{
  const method=name.split('.').at(-1);
  if(method==='LanguagePreferences')return {preference:'zh-CN',locale:'zh-CN',revision:1};
+ if(method==='Appearance')return {revision:1,selection:{character:'builtin:caelis',avatar:'follow'},model:'',avatar:'',basic:false,key:'builtin:caelis'};
+ if(method==='CharacterActivity')return petState;
  if(method==='Placement')return {visible:true,x:0,y:0,scale:1};
  if(method==='PetSnapshot'||method==='Snapshot')return {...snapshot,revision:++revision};
  if(method==='ChatSnapshot')return {changed:true,snapshot:{...snapshot,revision:++revision}};
@@ -48,7 +132,7 @@ export const Call={ByName:async(name,...args)=>{
  if(method==='Decide')window.fixtureSet('read');
  if(method==='OpenApproval')window.dispatchEvent(new Event('bubble-expand'));
  if(method==='CollapseBubble')window.dispatchEvent(new Event('bubble-collapse'));
- window.webkit?.messageHandlers.preview.postMessage({method,args});
+ window.webkit?.messageHandlers.preview?.postMessage({method,args});
 }};
 `;
 const root=resolve('frontend/dist');
@@ -60,4 +144,4 @@ const server=createServer((req,res)=>{
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}
  catch{res.writeHead(404);res.end();}
 });
-server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface=bubble';writeFileSync(process.argv[2],url);console.log(url);});
+server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble');writeFileSync(process.argv[2],url);console.log(url);});

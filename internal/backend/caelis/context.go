@@ -31,6 +31,9 @@ func (s *Session) conversationLocked() api.ConversationState {
 	if v := s.state.Views[out.Session]; v != nil {
 		out.Observed = s.connected && !s.closed && v.CommandCaughtUp
 		out.Turn = observedTurn(v)
+		if v.UsageTurn == out.Turn && v.ModelTurn == out.Turn {
+			out.Usage = v.Usage
+		}
 		out.Status = v.Turns[out.Turn]
 		if out.Status == "" {
 			out.Status = value(v.State.Run.Status)

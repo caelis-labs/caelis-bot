@@ -7,6 +7,17 @@
 char *bot_care_sample(void) {
  __block char *result=NULL;
  void (^read)(void)=^{ @autoreleasepool {
+	static uint64_t epoch=0;
+	static NSMutableArray *observers;
+	if(!observers) {
+	 observers=[NSMutableArray array];
+	 for(NSString *name in @[NSWorkspaceWillSleepNotification,NSWorkspaceDidWakeNotification,NSWorkspaceScreensDidSleepNotification,NSWorkspaceScreensDidWakeNotification,NSWorkspaceSessionDidResignActiveNotification,NSWorkspaceSessionDidBecomeActiveNotification]) {
+	  [observers addObject:[NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){epoch++;}]];
+	 }
+	 for(NSString *name in @[@"com.apple.screenIsLocked",@"com.apple.screenIsUnlocked"]) {
+	  [observers addObject:[NSDistributedNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){epoch++;}]];
+	 }
+	}
   NSDictionary *session=CFBridgingRelease(CGSessionCopyCurrentDictionary());
   BOOL console=[session[(__bridge NSString *)kCGSessionOnConsoleKey] boolValue];
   BOOL login=[session[(__bridge NSString *)kCGSessionLoginDoneKey] boolValue];
@@ -22,7 +33,7 @@ char *bot_care_sample(void) {
   BOOL awake=console && login && !CGDisplayIsAsleep(CGMainDisplayID());
   double idle=CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateCombinedSessionState,kCGAnyInputEventType);
   if(!isfinite(idle)||idle<0){awake=NO;idle=0;}
-  NSDictionary *sample=@{@"Awake":@(awake),@"Unlocked":unlocked,@"IdleSeconds":@(idle),@"Application":NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier ?: @""};
+  NSDictionary *sample=@{@"Awake":@(awake),@"Unlocked":unlocked,@"Epoch":@(epoch),@"IdleSeconds":@(idle),@"Application":NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier ?: @""};
   NSData *data=[NSJSONSerialization dataWithJSONObject:sample options:0 error:nil];
   if(data)result=strndup(data.bytes,data.length);
  }};
