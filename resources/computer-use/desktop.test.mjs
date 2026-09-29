@@ -380,3 +380,63 @@ test('new observation accepts a changed title while old input remains fenced',as
   await assert.rejects(f.desktop.perform({observation:o.observation,steps:[{op:'press_key',target:'window',key:'Escape'}]}),/window_changed/);
   const next=await f.desktop.observe({window:o.window});assert.equal(next.title,'Next tab');
 });
+
+for(const [name,step,geometry] of [
+  ['drag', {op:'drag',point:{x:20,y:30},to:{x:120,y:30}}, {x:110}],
+  ['double-click', {op:'click',point:{x:20,y:30},count:2}, {width:750,height:500}],
+  ['element click without screenshot', {op:'click',target:'e2'}, {x:110,width:750}],
+  ['unchanged window', {op:'click',target:'e2'}, {}],
+]) test(`post-action observation keeps subsequent input usable after ${name}`,async()=>{
+  const f=setup();
+  if(step.point)withImage(f);
+  let o=await f.observe();
+  if(step.point)o=await f.desktop.observe({window:o.window,screenshot:true});
+  const before={...f.window.bounds},after={...before,...geometry};
+  const move=()=>{f.window.bounds={...after};};
+  const click=f.driver.click,callTool=f.driver.callTool;
+  f.driver.click=async input=>{const result=await click(input);move();return result;};
+  f.driver.callTool=async(name,json)=>{
+    if(name==='get_window_state') {
+      // Native JSON field order differs from the typed listWindows record.
+      const {x,y,width,height}=f.window.bounds;
+      f.state.windowBounds={height,width,x,y};
+    }
+    const result=await callTool(name,json);
+    if(name==='drag')move();
+    return result;
+  };
+  const result=await f.desktop.perform({observation:o.observation,steps:[step]});
+  const next=result.observation;
+  assert.notEqual(next.observation,o.observation);
+  assert.deepEqual(o.windowBounds,before,'previous observation must remain immutable');
+  assert.deepEqual(next.windowBounds,after);
+  assert.equal(next.screenshot,Boolean(step.point));
+  await assert.rejects(f.desktop.perform({observation:o.observation,steps:[{op:'press_key',target:'window',key:'Escape'}]}),/stale_observation/);
+  const continued=await f.desktop.perform({observation:next.observation,steps:[{op:'press_key',target:'window',key:'Escape'}]});
+  assert.equal(f.calls.filter(c=>c[0]==='press_key').length,1);
+  assert.deepEqual(f.desktop.current.window.bounds,after);
+  f.window.bounds={...after,x:after.x+1};
+  await assert.rejects(f.desktop.perform({observation:continued.observation.observation,steps:[{op:'press_key',target:'window',key:'Escape'}]}),/window_moved_observe_again/);
+  assert.equal(f.calls.filter(c=>c[0]==='press_key').length,1,'later external movement must block input');
+});
+
+for(const valid of [true,false]) test(`only a validated capture advances geometry past the pre-walk listing (${valid})`,async()=>{
+  const f=setup();withImage(f);const first=await f.observe();
+  const before={...f.window.bounds},after={...before,x:110,width:750};
+  const callTool=f.driver.callTool;
+  f.driver.callTool=async(name,json)=>{
+    if(name==='get_window_state') {
+      f.window.bounds={...after};
+      f.state.windowBounds={...after};
+      f.state.screenshotFrameValid=valid;
+    }
+    return callTool(name,json);
+  };
+  const o=await f.desktop.observe({window:first.window,screenshot:true});
+  assert.deepEqual(o.windowBounds,valid?after:before);
+  assert.deepEqual(f.desktop.current.window.bounds,o.windowBounds);
+  const action=f.desktop.perform({observation:o.observation,steps:[{op:'press_key',target:'window',key:'Escape'}]});
+  if(valid)await action;
+  else await assert.rejects(action,/window_moved_observe_again/);
+  assert.equal(f.calls.filter(c=>c[0]==='press_key').length,valid?1:0);
+});

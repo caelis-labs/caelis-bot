@@ -103,7 +103,6 @@ export class Desktop {
     }
     const window = this.windows.get(input.window);
     if (!window || this.now() - window.listedAt > 300000) fail('window_reference_expired_list_again');
-    await this.validateWindow(window, false);
     return this.read(input.window, window, input.screenshot === true, input);
   }
   windowPage(offset) {
@@ -132,12 +131,15 @@ export class Desktop {
     const {windows} = await this.driver.listWindows(this.sdk.ListWindowsInput.new({pid: window.pid, onScreenOnly: true}), this.options());
     const fresh = windows.find(w => w.pid === window.pid && w.windowId === window.windowId && !w.minimized);
     if (!fresh || fresh.appName !== window.appName || (checkGeometry && fresh.title !== window.title)) fail('window_changed_observe_again');
-    if (checkGeometry && JSON.stringify(fresh.bounds) !== JSON.stringify(window.bounds)) fail('window_moved_observe_again');
-    window.bounds = fresh.bounds;
+    if (checkGeometry && ['x', 'y', 'width', 'height'].some(k => fresh.bounds[k] !== window.bounds[k])) fail('window_moved_observe_again');
+    window.bounds = {...fresh.bounds};
     window.title = fresh.title;
   }
   async read(handle, window, screenshot = false, {query = '', expanded = false} = {}) {
     this.current = undefined;
+    // Every new observation, including post-action readback without an image,
+    // starts from current native geometry. Input still checks the old baseline.
+    await this.validateWindow(window, false);
     const input = {
       pid: window.pid, windowId: window.windowId, includeAccessibilityTree: true,
       includeScreenshot: screenshot, maxElements: expanded ? 8000 : 2000, maxDepth: expanded ? 40 : 25, timeoutMs: expanded ? 2500 : 1500,
@@ -149,6 +151,9 @@ export class Desktop {
       Object.fromEntries(Object.entries(input).map(([k, v]) => [k.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`), v]))), this.options())) :
       await this.driver.getWindowState(this.sdk.GetWindowStateInput.new(input), this.options());
     if (state.pid !== window.pid || String(state.windowId) !== String(window.windowId)) fail('observation_window_mismatch');
+    // A validated capture can be newer than the pre-walk window listing. Keep
+    // the public bounds and the next input's baseline on that same frame.
+    if (screenshot && state.screenshotFrameValid === true && state.windowBounds) window.bounds = {...state.windowBounds};
     if (typeof state.windowTitle === 'string') window.title = state.windowTitle;
     const observation = `o-${randomUUID()}`;
     const elements = new Map();
@@ -190,7 +195,7 @@ export class Desktop {
       {width: state.screenshotWidth, height: state.screenshotHeight, capture: state.captureId} : undefined;
     const filtered = query ? targets.filter(e => [e.role, e.name, e.value].some(v => v?.toLocaleLowerCase().includes(query.toLocaleLowerCase()))) : targets;
     const output = {observation, window: handle, application: short(window.appName), title: short(window.title),
-      source: 'accessibility', authorized: this.appAuthorized(window), windowBounds: state.windowBounds ?? window.bounds,
+      source: 'accessibility', authorized: this.appAuthorized(window), windowBounds: window.bounds,
       geometry: 'Element bounds are native coordinates. Visual points use ONLY this observation image, top-left pixels; never convert element bounds into image points.',
       elementsComplete: state.elementsComplete === true, degraded: Boolean(state.degraded),
       reason: short(state.degradedReason), truncated: Boolean(state.truncated || text?.length > 8000),
