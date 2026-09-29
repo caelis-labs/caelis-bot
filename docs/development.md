@@ -79,6 +79,12 @@ loading the Bot store/model. Observe physical focus/hit regions and light/dark a
 acceptance. Avoid logging credentials or full private conversations. Generated `.cache` logs are local evidence,
 not public reproducibility prerequisites.
 
+The chat preview also offers thinking/search/read, concurrent stream+tool and completion controls.
+“头像回归” runs the mounted production portrait player through these states and approval, verifies
+moving pixels/static history/visible activity labels, and asserts that the waiting row disappears
+during streaming even with a tool still reported. Save the capture to record `avatar.ok` and samples
+in the same JSON. This is native WebKit fixture evidence, not a live backend run.
+
 ```sh
 source script/env.sh
 go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/bot ./internal/care ./internal/desktopcontrol

@@ -15,8 +15,10 @@ test('layered art is graphics-only; reject active SVG even with a correct pack h
   assert.throws(()=>validateAvatarSVG(art.replace('<path ',`<path ${attribute} `)),attribute);
  assert.throws(()=>validateAvatarSVG(art.replace('data-avatar-part="head"','data-avatar-part="missing"')));
  assert.throws(()=>validateAvatarSVG(art.replace('</g>','')));
- const pack=readManifest(),old=structuredClone(pack);old.contractVersion=1;delete old.branding.animatedAvatar;old.files=old.files.filter(f=>!f.path.endsWith('.svg'));validateManifest(old);
- if(pack.contractVersion===2)assert.throws(()=>validateManifest({...pack,contractVersion:1}));
+ const pack=readManifest(),old=structuredClone(pack);old.contractVersion=1;delete old.branding.animatedAvatar;old.files=old.files.filter(f=>!f.path.endsWith('.svg')&&!f.path.includes('/portraits/'));
+ for(const c of old.characters)for(const v of c.variants)delete v.portrait;
+ validateManifest(old);
+ if(pack.contractVersion>=2)assert.throws(()=>validateManifest({...pack,contractVersion:1}));
 });
 
 test('gaze and tilt stay bounded, blink recovers, long frame gaps do not catch up',()=>{

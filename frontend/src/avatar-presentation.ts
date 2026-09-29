@@ -1,0 +1,32 @@
+import type { Snapshot } from './backend/contract';
+import { activeReplyID, chatActivity } from './chat-presentation.ts';
+
+export type PortraitClip='companion'|'think'|'scan'|'focus'|'waiting'|'listen'|'delight'|'dreaming';
+
+// The same native facts drive both the waiting label and the portrait. Neither
+// generated prose nor a character gesture grants authority or implies progress.
+export function activityPortrait(s:Snapshot|null):PortraitClip {
+ if(!s||s.connection!=='ready'||s.phase==='interrupting')return 'companion';
+ if(s.approvals.some(p=>p.status!=='resolved')||['failed','unknown','attention'].includes(s.phase))return 'waiting';
+ const activity=chatActivity(s);
+ if(activity==='dreaming')return 'dreaming';
+ if(activity==='reviewing')return 'focus';
+ if(activeReplyID(s))return 'listen';
+ if(activity==='tool'){
+  if(['web','search','list'].includes(s.activity!.kind))return 'scan';
+  if(['plan','compact'].includes(s.activity!.kind))return 'think';
+  return 'focus';
+ }
+ return activity==='thinking'?'think':'companion';
+}
+
+// Completion is a live, observed edge, never a guess from text or history.
+// Codex clears currentTurn on completion; the final item retains its turn key.
+export function completedReply(previous:Snapshot|null,next:Snapshot):string|null {
+ if(!previous||previous.connection!=='ready'||next.connection!=='ready'||
+  !['sending','working'].includes(previous.phase)||next.phase!=='completed'||
+  previous.quiet||next.quiet||previous.maintenance||next.maintenance||
+  !previous.currentTurn||next.currentTurn&&next.currentTurn!==previous.currentTurn||
+  next.approvals.some(p=>p.status!=='resolved')||next.reviews.some(r=>r.status==='inProgress'))return null;
+ return next.items.slice().reverse().find(i=>i.kind==='assistant'&&i.turnKey===previous.currentTurn&&i.status==='completed'&&i.text.trim())?.id??null;
+}

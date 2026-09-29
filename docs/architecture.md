@@ -230,6 +230,21 @@ Raw HTML is disabled and remote images are links, so reading cannot fetch resour
 Reduced motion/history/hidden surfaces display directly. GL contexts own and remove their canvases on disposal;
 StrictMode/repeated previews must create fresh renderers and release textures/materials/bones.
 
+Chat portraits consume finished, model-derived sprite atlases from official character contract v3;
+they never construct a Three renderer. Only the current reply/work/approval portrait animates;
+historical rows use a neutral poster. Typed activity selects thinking, searching, focus, replying,
+waiting or Dream clips. A live observed successful turn edge can play one completion clip for six
+seconds; opening/reconnecting history, quiet work and failures cannot trigger it. Waiting labels
+share the same facts: visible current-turn assistant streaming suppresses tool/thinking dots,
+while approvals, reviews and interruption retain their control priority. Completed commentary
+does not suppress ongoing tool work. Animation never drives execution or authorization.
+Caelis projects main-scope ACP text chunks as in progress until an explicit final frame,
+new foreground tool/thought segment or turn terminal. Child events and sparse tool updates
+cannot end a concurrent reply; resumed text on the same message remains eligible for reveal.
+The player keeps at most three cached atlas entries (each decoded atlas at most 8 MiB), loads on
+visibility, fences late loads, crossfades through a small canvas and cancels frames on hide,
+offscreen, reduced motion and disposal. Explicit custom PNG avatars keep their existing behavior.
+
 Native screen input owns immutable image/thumbnail bytes and its independent durable receipt; renderer receives
 opaque handles. Capture preferences freeze at acquisition; redaction affects both images. Submitted documents
 cannot change scope. Ask Bot rechecks negotiated model image support immediately before dispatch. Unknown delivery

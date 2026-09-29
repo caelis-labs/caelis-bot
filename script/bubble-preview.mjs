@@ -116,6 +116,49 @@ window.fixtureChat=kind=>{
  if(kind==='instant')push();else streamTimer=setInterval(push,450);
 };
 window.fixtureReopen=()=>{window.dispatchEvent(new Event('history-close'));setTimeout(()=>window.dispatchEvent(new Event('history-open')),100);};
+window.fixtureAvatar=kind=>{
+ clearInterval(streamTimer);cancelAnimationFrame(recordFrame);
+ if(kind==='stream'){
+  window.fixtureChat('stream');
+  snapshot.activity={kind:'read',target:'README.md'};
+  return;
+ }
+ if(kind==='done'){
+  for(const item of snapshot.items)if(item.kind==='assistant')item.status='completed';
+  Object.assign(snapshot,{phase:'completed',currentTurn:'',canInterrupt:false,canSend:true,activity:null});return;
+ }
+ window.fixtureSet(kind==='approval'?'approval':'read');
+ Object.assign(snapshot,{currentTurn:'fixture',message:'',canSend:false,quiet:false,maintenance:''});
+ snapshot.items=[{id:'avatar-history',kind:'assistant',turnKey:'old',status:'completed',text:'头像会跟着我正在做的事情变化。历史消息里的头像保持安静。',artifacts:[]}];
+ snapshot.activity=kind==='thinking'?null:{kind:kind==='search'?'web':'read',target:kind==='search'?'':'README.md'};
+};
+window.fixtureAvatarRegression=async()=>{
+ const wait=async(condition)=>{const until=performance.now()+8000;while(!condition()){if(performance.now()>until)throw Error('avatar fixture timeout');await new Promise(r=>setTimeout(r,50));}};
+ const samples=[];
+ try{
+  for(const [kind,clip]of [['thinking','think'],['search','scan'],['read','focus']]){
+   window.fixtureAvatar(kind);
+   await wait(()=>document.querySelector('.working-message [data-portrait="'+clip+'"] canvas')?.dataset.frame>='1');
+   const row=document.querySelector('.working-message'),canvas=row.querySelector('canvas');
+   const first=canvas.toDataURL();await new Promise(r=>setTimeout(r,700));
+   if(first===canvas.toDataURL())throw Error(kind+' portrait did not move');
+   if(!row.querySelector('.working-label')?.textContent)throw Error(kind+' has no visible label');
+   if(document.querySelector('.history-messages canvas'))throw Error('history animated');
+   samples.push({kind,clip,label:row.textContent});
+  }
+  window.fixtureAvatar('stream');
+  await wait(()=>document.querySelector('[data-portrait="listen"] canvas')?.dataset.frame>='1'&&!document.querySelector('.working-message'));
+  samples.push({kind:'stream',dots:false});
+  window.fixtureAvatar('done');
+  await wait(()=>document.querySelector('[data-portrait="delight"] canvas')?.dataset.frame>='1');
+  samples.push({kind:'done',clip:'delight'});
+  window.fixtureAvatar('approval');
+  await wait(()=>document.querySelector('.state-message [data-portrait="waiting"] canvas')?.dataset.frame>='1');
+  if(document.querySelector('.working-message'))throw Error('approval duplicated waiting row');
+  samples.push({kind:'approval',clip:'waiting'});
+  return window.fixtureAvatarResult={ok:true,samples};
+ }catch(error){return window.fixtureAvatarResult={ok:false,error:String(error),samples};}
+};
 export const Call={ByName:async(name,...args)=>{
  const method=name.split('.').at(-1);
  if(method==='LanguagePreferences')return {preference:'zh-CN',locale:'zh-CN',revision:1};
