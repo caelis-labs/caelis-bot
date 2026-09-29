@@ -1,12 +1,12 @@
 import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {TextReveal} from './streaming-text';
 
-export function useStreamingText(text: string, streaming: boolean) {
+export function useStreamingText(text: string, animate: boolean) {
  const [immediate,setImmediate] = useState(() => typeof window !== 'undefined' && (document.hidden || matchMedia('(prefers-reduced-motion: reduce)').matches));
  const reveal = useRef<TextReveal|null>(null);
  if (!reveal.current) {
   reveal.current = new TextReveal();
-  reveal.current.update(text, streaming, performance.now(), immediate);
+  reveal.current.update(text, animate, performance.now(), immediate);
  }
  const [shown,setShown] = useState(() => reveal.current!.value(performance.now()));
  useEffect(() => {
@@ -19,7 +19,7 @@ export function useStreamingText(text: string, streaming: boolean) {
  }, []);
  useLayoutEffect(() => {
   const state = reveal.current!;
-  state.update(text, streaming, performance.now(), immediate);
+  state.update(text, animate, performance.now(), immediate);
   let frame = 0;
   const paint = (now: number) => {
    setShown(state.value(now));
@@ -27,6 +27,6 @@ export function useStreamingText(text: string, streaming: boolean) {
   };
   paint(performance.now());
   return () => cancelAnimationFrame(frame);
- }, [text, streaming, immediate]);
+ }, [text, animate, immediate]);
  return shown;
 }

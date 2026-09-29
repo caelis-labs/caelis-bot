@@ -5,7 +5,7 @@ import { useI18n } from './i18n';
 import { approvalTitle } from './approval-presentation';
 import { bubblePresentation, reduceBubbleNotice } from './bubble-notice';
 import { MessageContent } from './MessageContent';
-import { activeReplyID, chatActivity } from './chat-presentation';
+import { chatActivity } from './chat-presentation';
 import { activityLabel } from './activity-presentation';
 
 export function Bubble() {
@@ -19,7 +19,7 @@ export function Bubble() {
  useEffect(()=>()=>window.clearTimeout(leaveTimer.current),[]);
  const [notice,dispatchNotice]=useReducer(reduceBubbleNotice,null);
  const noticeID=useRef(0);
- const {snapshot,refresh}=useConversation(visible,true);
+ const {snapshot,liveReplies,refresh}=useConversation(visible,true);
  useEffect(()=>{
   const receive=(event:Event)=>{
    const detail=(event as CustomEvent<{message:string;pending:boolean}>).detail;
@@ -74,7 +74,7 @@ export function Bubble() {
    }}>
     {!!progressText&&<div className="bubble-progress" role="status"><span className="activity-spinner" aria-hidden="true"/><span>{progressText}</span></div>}
     <div className="bubble-copy" tabIndex={readingMessage?0:undefined} role="region" aria-label={t('chat.bubbleAriaLabel')}>
-     {markdown?<MessageContent key={output?.id} text={content} report={setError} streaming={visible&&output?.id===activeReplyID(snapshot)}/>:<span className={content===progress?'bubble-standalone-progress':undefined}>{content===progress&&!!progress&&<span className="activity-spinner" aria-hidden="true"/>}{content}</span>}
+     {markdown?<MessageContent key={output?.id} text={content} report={setError} animate={visible&&!!output&&liveReplies.has(output.id)}/>:<span className={content===progress?'bubble-standalone-progress':undefined}>{content===progress&&!!progress&&<span className="activity-spinner" aria-hidden="true"/>}{content}</span>}
     </div>
    </div>
    <div className="bubble-actions">

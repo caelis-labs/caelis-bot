@@ -66,7 +66,11 @@ Developer ID / 公证流程完成。
 | Public release | Exact tag/source, signed public assets/feed, notarization/staples and independent Gatekeeper; see release.md |
 
 Run native launches only through `script/build_and_run.sh`; use `CAELIS_BOT_DATA_DIR` for synthetic data.
-`--bubble-preview` provides a long Markdown/streaming fixture; `--terminal-smoke` uses synthetic scripts without
+`--bubble-preview` provides a long Markdown/streaming fixture. `--chat-preview` runs the production chat component
+in a separate native WebKit window with small/large chunks, already-completed replies, a large final chunk and
+history reopening. Its capture button saves `.cache/chat-preview.png` and `.cache/chat-preview.png.json`
+(frame text/timing, control state, scroll position and final HTML). Both previews use synthetic data and never
+connect to the daily Bot or call a model. `--terminal-smoke` uses synthetic scripts without
 loading the Bot store/model. Observe physical focus/hit regions and light/dark appearance before claiming visual
 acceptance. Avoid logging credentials or full private conversations. Generated `.cache` logs are local evidence,
 not public reproducibility prerequisites.

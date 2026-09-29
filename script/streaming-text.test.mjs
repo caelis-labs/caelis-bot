@@ -2,45 +2,79 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {TextReveal} from '../frontend/src/streaming-text.ts';
 
-test('chunked replies reveal many intermediate frames and retain full exact final Markdown',()=>{
- const reveal=new TextReveal();
- const first='这是流式输出。**内容会逐字呈现**，而不是一整块跳出来。';
- reveal.update(first,true,0);
- const frames=Array.from({length:27},(_,i)=>reveal.value(i*16));
- assert.ok(new Set(frames).size>15);
- for(let i=1;i<frames.length;i++)assert.ok(frames[i].startsWith(frames[i-1]));
- const final=first+'\n\n| 名称 | 状态 |\n| --- | --- |\n| 测试 | 完成 |';
- reveal.update(final,true,450);
- assert.equal(reveal.value(450),first);
- reveal.update(final,false,550);
- assert.notEqual(reveal.value(550),final);
- assert.equal(reveal.value(670),final);
+function frames(reveal, start, end, interval=16) {
+ return Array.from({length:Math.floor((end-start)/interval)+1},(_,i)=>reveal.value(start+i*interval));
+}
+function smooth(values, limit=2) {
+ for(let i=1;i<values.length;i++) {
+  assert.ok(values[i].startsWith(values[i-1]), 'visible text never regresses');
+  assert.ok(values[i].length-values[i-1].length<=limit, 'a frame must not dump a chunk');
+ }
+}
+
+test('450ms snapshots keep a continuous character budget instead of racing each chunk',()=>{
+ const reveal=new TextReveal();let text='',values=[];
+ for(let n=0;n<12;n++) {
+  text+='这是流式正文，应该连续平滑地显示。'.repeat(2);
+  reveal.update(text,true,n*450);
+  values.push(...frames(reveal,n*450,n*450+448));
+ }
+ smooth(values,3);
+ assert.ok(new Set(values).size>250);
+ // No repeated finish-and-wait gaps at snapshot boundaries.
+ let gap=0,maxGap=0;
+ for(let i=1;i<values.length;i++){gap=values[i]===values[i-1]?gap+1:0;maxGap=Math.max(maxGap,gap);}
+ assert.ok(maxGap<=1, `paused for ${maxGap} frames`);
+ assert.equal(frames(reveal,5400,9000).at(-1),text);
+});
+
+test('large provider and final chunks remain paced, with exact final Markdown',()=>{
+ const reveal=new TextReveal(),first='开头正文。';
+ reveal.update(first,true,0);frames(reveal,0,200);
+ const final=first+'内容'.repeat(300)+'\n\n| 名称 | 状态 |\n| --- | --- |\n| 测试 | 完成 |';
+ reveal.update(final,true,208);
+ const values=frames(reveal,208,1000);
+ smooth(values);
+ assert.ok(values.at(-1).length<150, 'must not drain a large final chunk in 120/450ms');
+ assert.equal(frames(reveal,1008,9000).at(-1),final);
  assert.equal(reveal.pending,false);
 });
-test('frequent provider deltas cannot starve progress and a large backlog has a bounded drain',()=>{
+
+test('frequent tiny deltas retain fractional progress and never starve',()=>{
  const reveal=new TextReveal();let text='';
- for(let n=0;n<100;n++){
-  text+='文';reveal.update(text,true,n*20);reveal.value(n*20+16);
- }
- assert.ok(reveal.value(2000).length>70);
- text+='末尾'.repeat(2000);reveal.update(text,true,2000);
- assert.notEqual(reveal.value(2200),text);
- assert.equal(reveal.value(2450),text);
+ for(let now=0;now<=1000;now+=5){text+='文';reveal.update(text,true,now);}
+ assert.ok(reveal.value(1005).length>70);
+ assert.equal(frames(reveal,1008,5000).at(-1),text);
 });
+
+test('a stalled frame or an idle gap cannot cause a burst',()=>{
+ const reveal=new TextReveal();reveal.update('文'.repeat(500),true,0);
+ const before=reveal.value(16),after=reveal.value(3000);
+ assert.ok(after.length-before.length<=6);
+ reveal.update('历史',false,3010);
+ reveal.update('历史'+'字'.repeat(200),true,9000);
+ assert.equal(reveal.value(9000),'历史');
+ assert.ok(reveal.value(9016).length<=4);
+});
+
 test('graphemes stay whole, including emoji families, combining marks and flags',()=>{
  const text='👩🏽‍💻家👨‍👩‍👧‍👦e\u0301🇨🇳结束',reveal=new TextReveal();
  const prefixes=new Set(['']);let prefix='';
  for(const part of new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(text)){prefix+=part.segment;prefixes.add(prefix);}
  reveal.update(text,true,0);
- for(let n=0;n<500;n+=7)assert.ok(prefixes.has(reveal.value(n)));
+ for(const value of frames(reveal,0,500,7))assert.ok(prefixes.has(value));
  assert.equal(reveal.value(500),text);
 });
-test('history, replaced snapshots, reduced motion and hidden surfaces show authoritative text immediately',()=>{
+
+test('history, corrections, inactive surfaces and reduced motion display immediately',()=>{
  const reveal=new TextReveal();
  reveal.update('已有历史',false,0);assert.equal(reveal.value(0),'已有历史');
  reveal.update('已有历史，补充',true,10);
  reveal.update('服务端已修正',true,20);assert.equal(reveal.value(20),'服务端已修正');
  reveal.update('服务端已修正，完整内容',true,30,true);assert.equal(reveal.value(30),'服务端已修正，完整内容');
+ reveal.update('服务端已修正，完整内容以及新增内容',true,40);
+ assert.equal(reveal.pending,true);
+ reveal.update('服务端已修正，完整内容以及新增内容',false,50);
  assert.equal(reveal.pending,false);
 });
 
@@ -48,14 +82,10 @@ for (const [before, after] of [['e', 'e\u0301'], ['hello e', 'hello e\u0301'], [
  test(`appended grapheme bytes never erase displayed text: ${before}`, () => {
   const reveal = new TextReveal();
   reveal.update(before, true, 0);
-  assert.equal(reveal.value(500), before);
+  assert.equal(frames(reveal,0,496).at(-1), before);
   reveal.update(after + ' next', true, 500);
-  let previous = before;
-  for (let now = 500; now <= 1000; now += 10) {
-   const current = reveal.value(now);
-   assert.ok(current.startsWith(previous), `${JSON.stringify(previous)} regressed to ${JSON.stringify(current)}`);
-   previous = current;
-  }
-  assert.equal(previous, after + ' next');
+  const values=[before,...frames(reveal,500,1000,10)];
+  for(let i=1;i<values.length;i++)assert.ok(values[i].startsWith(values[i-1]));
+  assert.equal(values.at(-1), after + ' next');
  });
 }

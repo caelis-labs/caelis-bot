@@ -194,8 +194,12 @@ prove task association. Local behavior consumes facts without invoking an idle m
 decisions preempt decoration. Independent paper-plane surfaces are bounded/pass-through and reclaimed on hide,
 Space change or disposal. Planned movement/intent receipts must not be advertised as current bot_gesture semantics.
 
-Streaming is presentation-only: grapheme boundaries, monotonic append progress and bounded catch-up; authoritative
-final Markdown remains exact. Raw HTML is disabled and remote images are links, so reading cannot fetch resources.
+Streaming is presentation-only: a continuous 60–120 grapheme/second budget survives snapshot boundaries and
+completion, with a capped time step after a stalled frame. New replies remain eligible even when first observed
+as completed; arrival tracking is independent of avatar/execution state. Initial/reopened/reconnected history
+and prepended pages establish a baseline without replay. Authoritative final Markdown remains exact, and
+approvals, stop controls, copy actions and execution state never wait for the text animation.
+Raw HTML is disabled and remote images are links, so reading cannot fetch resources.
 Reduced motion/history/hidden surfaces display directly. GL contexts own and remove their canvases on disposal;
 StrictMode/repeated previews must create fresh renderers and release textures/materials/bones.
 

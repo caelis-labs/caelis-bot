@@ -16,6 +16,29 @@ export function composerAction(snapshot: Snapshot | null, quick: boolean, hasCon
 }
 
 export type ChatActivity = 'thinking' | 'reviewing' | 'stopping' | 'tool';
+
+// Track arrivals separately from execution state. A reply may already be
+// completed on its first poll; opening/recovering history must not replay it.
+export function liveReplyIDs(previous: Snapshot | null, next: Snapshot, live: ReadonlySet<string>, latestOnly=false): Set<string> {
+ const result = new Set<string>();
+ if (!previous || previous.connection !== 'ready' || next.connection !== 'ready') return result;
+ const before = new Map(previous.items.map(item => [item.id, item]));
+ const tail = previous.items.at(-1);
+ // Native acceptance can replace an optimistic user item between polls.
+ // Match its exact request identity, just as the transcript does.
+ const anchor = tail ? next.items.findIndex(item => item.id === tail.id ||
+  tail.kind === 'user' && !!tail.requestId && item.kind === 'user' && item.requestId === tail.requestId) : -1;
+ for (const [index,item] of next.items.entries()) {
+  if (item.kind !== 'assistant') continue;
+  const old = before.get(item.id);
+  // Pet snapshots intentionally retain only the latest item of each kind.
+  const appended = !old && (latestOnly || !tail || anchor >= 0 && index > anchor);
+  const extended = old && (old.status === '' || old.status === 'inProgress') && item.text.length > old.text.length && item.text.startsWith(old.text);
+  if (live.has(item.id) || appended || extended) result.add(item.id);
+ }
+ return result;
+}
+
 export function activeReplyID(snapshot: Snapshot | null): string | null {
  if(!snapshot||snapshot.connection!=='ready'||!['sending','working'].includes(snapshot.phase)||snapshot.approvals.some(p=>p.status!=='resolved')||snapshot.reviews.some(r=>r.status==='inProgress'))return null;
  for(let n=snapshot.items.length-1;n>=0;n--){

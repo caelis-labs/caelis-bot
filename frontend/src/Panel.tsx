@@ -3,7 +3,7 @@ import { backend, desktop, type DraftFile } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Review, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { CopyText, MessageContent } from './MessageContent';
-import { activeReplyID, canSubmit, chatActivity, composerAction, withOutgoing } from './chat-presentation';
+import { activeReplyID, canSubmit, chatActivity, composerAction, liveReplyIDs, withOutgoing } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
 import { AttachmentMenu } from './AttachmentMenu';
@@ -94,13 +94,13 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     </> : <p className="quiet" role="status">{value.status === 'resolved' ? t('chat.approvalResolved') : value.status === 'sent' || value.status === 'sending' ? t('chat.approvalSent') : t('chat.approvalUnknown')}</p>}
   </section>;
 }
-function Message({ item, report, animate=false }: { item: Item; report: (message: string) => void; animate?:boolean }) {
+function Message({ item, report, animate=false, reveal=false }: { item: Item; report: (message: string) => void; animate?:boolean; reveal?:boolean }) {
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
    {item.kind==='assistant'&&<BotAvatar animate={animate}/>}
    <div className={`message ${item.kind}`}>
-    {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} streaming={animate}/> : <p>{item.text}</p>}
+    {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal}/> : <p>{item.text}</p>}
     {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}
     {!!item.text&&item.kind!=='activity'&&<div className="message-actions"><CopyText text={item.text} report={report}/></div>}
     {item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)&&<small className="outgoing-status" role="status">{statusLabel}</small>}
@@ -109,18 +109,22 @@ function Message({ item, report, animate=false }: { item: Item; report: (message
 }
 
 export function useConversation(active: boolean, pet=false, chat=false, composer=false) {
- const [snapshot,setSnapshot]=useState<Snapshot|null>(null);
+ const [conversation,setConversation]=useState<{snapshot:Snapshot|null;liveReplies:Set<string>}>({snapshot:null,liveReplies:new Set()});
+ const observation=useRef(conversation);
  const revision=useRef(0),botStatus=useRef('');
  const read=async()=>{if(chat){const update=await backend<ChatUpdate>('ChatSnapshot',revision.current,botStatus.current);if(!update.changed)return null;return update.snapshot;}return backend<Snapshot>(pet?'PetSnapshot':composer?'ComposerSnapshot':'Snapshot');};
- const accept=(next:Snapshot)=>{if(next.revision>=revision.current){revision.current=next.revision;botStatus.current=next.botStatus;setSnapshot(next);}};
+ const accept=(next:Snapshot)=>{if(next.revision>=revision.current){revision.current=next.revision;botStatus.current=next.botStatus;observation.current={snapshot:next,liveReplies:liveReplyIDs(observation.current.snapshot,next,observation.current.liveReplies,pet)};setConversation(observation.current);}};
  const refresh=async()=>{const next=await read();if(next)accept(next);};
  useEffect(()=>{
   if(!active)return;
+  observation.current={snapshot:null,liveReplies:new Set()};
+  // Always establish a fresh baseline when reopening, even without a revision change.
+  revision.current=0;
   let stopped=false,timer=0;
   const poll=async()=>{try{const next=await read();if(!stopped&&next)accept(next);}catch{/* Preserve confirmed state across a failed observation. */}finally{if(!stopped)timer=window.setTimeout(()=>void poll(),450);}};
   void poll();return()=>{stopped=true;clearTimeout(timer);};
  },[active,pet,chat,composer]);
- return {snapshot,refresh};
+ return {...conversation,refresh};
 }
 
 // One native-host draft, two exclusive editors. Writes serialize and use a
@@ -239,7 +243,7 @@ export function History() {
  const {t} = useI18n();
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
  const [activation,setActivation]=useState(0);
- const {snapshot,refresh}=useConversation(active,false,true);
+ const {snapshot,liveReplies,refresh}=useConversation(active,false,true);
  const [outgoing,setOutgoing]=useState<Item[]>([]);
  const stage=(item:Item)=>setOutgoing(previous=>[...previous.filter(p=>p.requestId!==item.requestId),item]);
  useEffect(()=>{const known=new Set(snapshot?.items.map(i=>i.requestId).filter(Boolean));setOutgoing(previous=>previous.filter(i=>!known.has(i.requestId)));},[snapshot]);
@@ -290,7 +294,7 @@ export function History() {
    <div className="chat-content" ref={content}>
    {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy||snapshot.connection!=='ready'} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
-   <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply}/>)}</div>
+   <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply} reveal={active&&liveReplies.has(i.id)}/>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity}/>}
    {(!!prompts.length||!!reviews.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
     <BotAvatar/>
