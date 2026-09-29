@@ -159,6 +159,31 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 
 ## Desktop and presentation
 
+Runtimes with native Computer Use retain ownership; the Bot never installs a competing fallback.
+Other Runtimes use the private Cua helper through `bot_desktop_observe/authorize/perform`. App input
+grants remain App × task Turn. The adapter checks native PID/window identity, not AX title equality.
+Bounded AX walks expose paginated targets, query and an explicit larger walk; unseen/truncated nodes
+are not evidence of absence. Element pages share one snapshot and expire with it.
+
+Element input, exact-window shortcuts and screenshot-based window input share the same authorization
+and cancellation path. Image points use the native capture dimensions; clicks consume Cua's immutable
+capture receipt. Scroll and drag use the same fresh snapshot and checked window geometry. Pixel focus
+and keyboard input are separate mutations with observation between them. No desktop-wide targeting
+or arbitrary native-tool passthrough is exposed. Each perform dispatches one mutation and observes
+again; unknown effects invalidate references and are never replayed.
+
+Explicit `focus` is a separate authorized window mutation. The private helper validates the current
+observation and App × Turn grant before requesting the native shell's focus port. The shell verifies
+CGWindow ownership and exact AX window identity, raises it and confirms the foreground focused window.
+Only that private pipe carries native IDs; no arbitrary launch, script, global input or automatic retry
+is exposed. Cancellation closes this exchange before the helper can resume. This fills the gap where
+Cua's foreground delivery reports dispatch but the inactive app does not accept the event.
+
+The private pipe permits bounded native PNGs; Go preserves dimensions and first tries lossless PNG
+optimization, then the highest tested JPEG quality under the 256 KiB public image budget. Compression
+does not change coordinates. Corrupt or mismatched images abort the helper instead of leaving usable
+references to unseen pixels. Images from post-action observations reach the same content envelope.
+
 Native logical coordinates use primary-display bottom-left origin, Y up, including negative coordinates.
 Device pixels/DPI do not belong in saved character scale. AppKit owns nonactivating panels, hit masks, drag,
 focus, Space/display changes and geometry; Three.js owns model/mixer/local poses and GPU resource disposal.

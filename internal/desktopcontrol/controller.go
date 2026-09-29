@@ -17,9 +17,10 @@ type Controller struct {
 	node, script string
 	driver       *Driver
 	closed       bool
+	focus        WindowFocuser
 }
 
-func Bundled() *Controller {
+func Bundled(focus ...WindowFocuser) *Controller {
 	executable, err := os.Executable()
 	if err != nil {
 		return nil
@@ -31,7 +32,11 @@ func Bundled() *Controller {
 			return nil
 		}
 	}
-	return &Controller{node: node, script: script}
+	c := &Controller{node: node, script: script}
+	if len(focus) > 0 {
+		c.focus = focus[0]
+	}
+	return c
 }
 func (c *Controller) Definitions() []api.ToolDefinition { return SemanticDefinitions() }
 func (c *Controller) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
@@ -44,7 +49,7 @@ func (c *Controller) CallTool(ctx context.Context, name string, args json.RawMes
 		if name != "bot_desktop_observe" {
 			return driverError("observe the desktop before performing actions")
 		}
-		d, err := StartDriver(c.node, c.script)
+		d, err := StartDriver(c.node, c.script, c.focus)
 		if err != nil {
 			return driverError("desktop helper unavailable; check the application installation")
 		}

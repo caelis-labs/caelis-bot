@@ -24,10 +24,14 @@ type Driver struct {
 	input  io.WriteCloser
 	output *bufio.Reader
 	closed bool
+	focus  WindowFocuser
 	exited chan struct{}
 }
 
-func StartDriver(node, script string) (*Driver, error) {
+// WindowFocuser is an OS port supplied by the native shell, not by tool input.
+type WindowFocuser func(context.Context, int, uint64) error
+
+func StartDriver(node, script string, focus ...WindowFocuser) (*Driver, error) {
 	if !filepath.IsAbs(node) || !filepath.IsAbs(script) {
 		return nil, errors.New("desktop helper requires explicit absolute Node and host paths")
 	}
@@ -52,7 +56,12 @@ func StartDriver(node, script string) (*Driver, error) {
 		output.Close()
 		return nil, err
 	}
-	d := &Driver{cmd: cmd, input: input, output: bufio.NewReaderSize(output, 512<<10), exited: make(chan struct{})}
+	// The private pipe carries the native PNG before lossless optimization or
+	// same-size JPEG encoding. The model-visible content remains below 256 KiB.
+	d := &Driver{cmd: cmd, input: input, output: bufio.NewReaderSize(output, 8<<20), exited: make(chan struct{})}
+	if len(focus) > 0 {
+		d.focus = focus[0]
+	}
 	go func() { _ = cmd.Wait(); close(d.exited) }()
 	return d, nil
 }
@@ -98,16 +107,51 @@ func (d *Driver) CallTool(ctx context.Context, name string, args json.RawMessage
 	done := make(chan response, 1)
 	go func() {
 		err := json.NewEncoder(d.input).Encode(struct {
-			Turn      string          `json:"turn"`
-			Name      string          `json:"name"`
-			Arguments json.RawMessage `json:"arguments"`
-		}{turnID(ctx), name, args})
+			Turn                 string          `json:"turn"`
+			Name                 string          `json:"name"`
+			Arguments            json.RawMessage `json:"arguments"`
+			NativeFocusAvailable bool            `json:"nativeFocusAvailable"`
+		}{turnID(ctx), name, args, d.focus != nil})
 		var out api.ToolResult
 		if err == nil {
 			var line []byte
 			line, err = d.output.ReadSlice('\n')
 			if err == nil {
+				var callback struct {
+					Focus *struct {
+						ID       string `json:"id"`
+						PID      int    `json:"pid"`
+						WindowID uint64 `json:"windowId,string"`
+					} `json:"nativeFocus"`
+				}
+				err = json.Unmarshal(line, &callback)
+				if err == nil && callback.Focus != nil {
+					f := callback.Focus
+					var input struct{ Steps []struct{ Op, Target string } }
+					_ = json.Unmarshal(args, &input)
+					if name != "bot_desktop_perform" || len(input.Steps) == 0 || input.Steps[0].Op != "focus" || input.Steps[0].Target != "window" || f.PID <= 0 || f.WindowID == 0 || len(f.ID) != 36 {
+						err = errors.New("unexpected desktop focus request")
+					} else {
+						ok := ctx.Err() == nil && d.focus != nil && d.focus(ctx, f.PID, f.WindowID) == nil
+						if ctx.Err() != nil {
+							err = ctx.Err()
+						} else {
+							err = json.NewEncoder(d.input).Encode(map[string]any{"focusResult": f.ID, "ok": ok})
+						}
+						if err == nil {
+							line, err = d.output.ReadSlice('\n')
+						}
+					}
+				}
+			}
+			if err == nil {
 				err = json.Unmarshal(line, &out)
+				if err == nil && len(out.Content) == 0 {
+					err = errors.New("empty desktop response")
+				}
+			}
+			if err == nil {
+				err = boundImages(&out)
 			}
 		}
 		done <- response{out, err}

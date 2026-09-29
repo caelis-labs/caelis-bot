@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Caelis Computer Use Acceptance</title>
+<style>
+body{font:20px system-ui;margin:36px;max-width:800px}label,button,input,textarea{font:inherit;margin:8px;padding:10px}input,textarea{border:2px solid #64748b}#canvas{border:2px solid #64748b;background:#eef2ff;width:500px;height:90px}#status{padding:16px;background:#ecfdf5}article{height:700px;background:linear-gradient(#fafafa,#dbeafe)}#drag{height:70px;width:200px;background:#e0e7ff;cursor:grab;touch-action:none}
+</style>
+</head>
+<body>
+<h1>Caelis Computer Use Acceptance</h1>
+<p>Local disposable page. No network requests and no saved user data.</p>
+<label>Verification text <input aria-label="Verification text" id="field"></label><br>
+<label><input type="checkbox" id="check">Only incomplete</label><button id="button">Increment</button><p id="status" aria-live="polite">Clicks: 0; checked: false</p>
+<canvas id="canvas" width="500" height="90"></canvas>
+<p id="canvasstatus">Canvas clicks: 0</p>
+<div id="drag">Drag here</div>
+<p id="dragstatus">Drag distance: 0</p>
+<article>
+<h2>Scroll test</h2>
+<p>Scroll down to the footer, then return.</p>
+</article>
+<footer>
+<h2>Acceptance footer</h2>
+<textarea aria-label="Footer notes"></textarea></footer>
+<script>
+let n=0,c=0;const status=document.getElementById('status');function render(){status.textContent=`Clicks: ${n}; checked: ${check.checked}`}button.onclick=()=>{n++;render()};
+check.onchange=render;const cx=canvas.getContext('2d');cx.font='24px system-ui';cx.fillText('Visual-only canvas target',60,52);canvas.onclick=()=>canvasstatus.textContent=`Canvas clicks: ${++c}`;canvas.ondblclick=()=>canvasstatus.textContent+='; double click';canvas.oncontextmenu=e=>{e.preventDefault();canvasstatus.textContent='Canvas context menu received'};
+let start;drag.onpointerdown=e=>{start=e.clientX;drag.setPointerCapture(e.pointerId)};
+drag.onpointerup=e=>{dragstatus.textContent=`Drag distance: ${Math.round(e.clientX-start)}`};
+
+</script>
+</body>
+</html>

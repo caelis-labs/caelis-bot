@@ -101,14 +101,23 @@ func (r *Runtime) CallTool(ctx context.Context, name string, args json.RawMessag
 		if ctx.Err() != nil {
 			return result(nil, errors.New("desktop turn stopped; wait for a new user request"))
 		}
-		if name == "bot_desktop_observe" {
+		if name == "bot_desktop_observe" || name == "bot_desktop_perform" {
 			var input struct {
 				Screenshot bool `json:"screenshot"`
+				Steps      []struct {
+					Op     string          `json:"op"`
+					Target string          `json:"target"`
+					Point  json.RawMessage `json:"point"`
+				} `json:"steps"`
 			}
 			if json.Unmarshal(args, &input) != nil {
 				return result(nil, errors.New("invalid desktop arguments"))
 			}
-			if input.Screenshot {
+			needsImage := input.Screenshot
+			for _, step := range input.Steps {
+				needsImage = needsImage || len(step.Point) > 0 || (step.Op == "type" && step.Target == "window")
+			}
+			if needsImage {
 				if err := r.requireDesktopImage(ctx); err != nil {
 					return result(nil, err)
 				}

@@ -129,6 +129,82 @@ func TestHostIdleClosePreservesGracefulShutdown(t *testing.T) {
 	}
 }
 
+func TestHostWithoutNativeFocusPortDoesNotAdvertiseIt(t *testing.T) {
+	driver, _ := fixtureHost(t, map[string]any{})
+	listed := hostCall(t, driver, "bot_desktop_observe", map[string]any{})
+	window := listed.StructuredContent["windows"].([]any)[0].(map[string]any)["window"]
+	observed := hostCall(t, driver, "bot_desktop_observe", map[string]any{"window": window})
+	for _, action := range observed.StructuredContent["windowActions"].([]any) {
+		if action == "focus" {
+			t.Fatal("unavailable focus advertised")
+		}
+	}
+}
+
+func TestHostFocusUsesPrivateExactTargetPortAfterAuthorization(t *testing.T) {
+	driver, root := fixtureHost(t, map[string]any{})
+	calls := 0
+	driver.focus = func(ctx context.Context, pid int, windowID uint64) error {
+		if ctx.Err() != nil || pid != 17 || windowID != 42 {
+			t.Error("incorrect native focus target")
+		}
+		calls++
+		return nil
+	}
+	listed := hostCall(t, driver, "bot_desktop_observe", map[string]any{})
+	window := listed.StructuredContent["windows"].([]any)[0].(map[string]any)["window"]
+	observed := hostCall(t, driver, "bot_desktop_observe", map[string]any{"window": window})
+	args := map[string]any{"observation": observed.StructuredContent["observation"], "steps": []any{map[string]any{"op": "focus", "target": "window"}}}
+	raw, _ := json.Marshal(args)
+	if out := driver.CallTool(WithTurn(t.Context(), "fixture-turn"), "bot_desktop_perform", raw); !out.IsError || calls != 0 {
+		t.Fatal("focus bypassed app grant")
+	}
+	hostCall(t, driver, "bot_desktop_authorize", map[string]any{"observation": observed.StructuredContent["observation"], "application": observed.StructuredContent["application"], "purpose": "Fixture focus"})
+	result := hostCall(t, driver, "bot_desktop_perform", args)
+	if calls != 1 || result.StructuredContent["observation"] == nil {
+		t.Fatal("focus/readback missing")
+	}
+	if _, err := os.Stat(filepath.Join(root, "input-dispatched")); !os.IsNotExist(err) {
+		t.Fatal("focus also typed or clicked")
+	}
+	b, _ := json.Marshal(result)
+	if strings.Contains(string(b), "nativeFocus") || strings.Contains(string(b), "windowId") {
+		t.Fatal("private focus protocol leaked")
+	}
+}
+
+func TestHostCancellationDuringFocusCannotResumeHelper(t *testing.T) {
+	driver, _ := fixtureHost(t, map[string]any{})
+	entered := make(chan struct{})
+	driver.focus = func(ctx context.Context, _ int, _ uint64) error { close(entered); <-ctx.Done(); return ctx.Err() }
+	listed := hostCall(t, driver, "bot_desktop_observe", map[string]any{})
+	window := listed.StructuredContent["windows"].([]any)[0].(map[string]any)["window"]
+	observed := hostCall(t, driver, "bot_desktop_observe", map[string]any{"window": window})
+	hostCall(t, driver, "bot_desktop_authorize", map[string]any{"observation": observed.StructuredContent["observation"], "application": observed.StructuredContent["application"], "purpose": "Fixture focus"})
+	ctx, cancel := context.WithCancel(WithTurn(t.Context(), "fixture-turn"))
+	defer cancel()
+	raw, _ := json.Marshal(map[string]any{"observation": observed.StructuredContent["observation"], "steps": []any{map[string]any{"op": "focus", "target": "window"}}})
+	done := make(chan api.ToolResult, 1)
+	go func() { done <- driver.CallTool(ctx, "bot_desktop_perform", raw) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("focus not reached")
+	}
+	cancel()
+	select {
+	case result := <-done:
+		if !result.IsError {
+			t.Fatal("cancelled focus succeeded")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("focus cancellation hung")
+	}
+	if !driver.closed {
+		t.Fatal("helper remained actionable after focus cancellation")
+	}
+}
+
 func TestHostResultsFitCaelisContentV1Receipt(t *testing.T) {
 	// Match the pinned Host: text block bytes plus Go's JSON serialization of
 	// outcome/receipt_id/structuredContent, including HTML and U+2028 escaping.
@@ -163,7 +239,7 @@ func TestHostResultsFitCaelisContentV1Receipt(t *testing.T) {
 			case "windows-escaping":
 				config["windows"], config["windowText"] = 85, strings.Repeat("<>&\u2028\u2029", 60)
 			case "image":
-				config["images"] = []any{map[string]any{"mimeType": "image/png", "dataBase64": base64.StdEncoding.EncodeToString(make([]byte, 256<<10))}}
+				config["images"] = []any{map[string]any{"mimeType": "image/png", "dataBase64": base64.StdEncoding.EncodeToString(desktopTestPNG(t, false))}}
 			}
 			driver, _ := fixtureHost(t, config)
 			listed := hostCall(t, driver, "bot_desktop_observe", map[string]any{})
