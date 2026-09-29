@@ -7,6 +7,27 @@ No browser profile, account, arbitrary app or system-menu action is exposed.
 The current product adapter is separately implemented in `resources/computer-use`;
 see the [integration record](../../docs/architecture.md).
 
+## Product browser acceptance
+
+`browser.html` is a disposable local page for the current product adapter, separate
+from the older native checkbox POC below. It makes no network requests and writes
+no persistent data. Open it in a new Chrome or Safari tab. Using the Bot desktop
+tools, select that window, authorize the app, explicitly focus it, then verify:
+
+1. Observe/query the Verification text field, type a marker and read it back.
+2. Toggle Only incomplete; both its AX value and the visible status must change.
+3. Observe a screenshot, click/double-click/right-click the canvas, and inspect
+   its event counter/status after each action.
+4. Drag within the colored area and verify its reported distance. Scroll to the
+   footer, click its textarea, confirm focus, then type with `target:"window"`.
+5. Close only the test tab and refresh the window catalog to confirm cleanup.
+
+Use the current returned image coordinates, never hardcoded points. Native
+`foreground` delivery alone may not activate an inactive app; `op:"focus"` is a
+separate authorized step. Keep UI-mutating native fixtures and live acceptance
+serial so they cannot steal each other's focus. A dispatched action is not a
+verified result. On unknown effects, observe and reconcile before continuing.
+
 The model-facing tools are `bot_desktop_observe {}` and
 `bot_desktop_perform {observation, steps:[{op:"click",target}]}`. The current fixture
 adapter admits only its filter checkbox. Each external mutation returns a fresh

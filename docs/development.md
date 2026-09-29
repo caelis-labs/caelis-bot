@@ -95,6 +95,24 @@ Core v0.65.0 darwin-arm64 passed NativeHost and GuardianHost integration, includ
 upgrade renewal and replay identity. Streaming grapheme append, exact review accounting and preservation of
 failed Guardian notices through quiet care/Dream projection have focused regressions.
 Cua App × Turn coverage substitutes only the underlying SDK UI fixture; it is not real WPS acceptance.
+The same-day Computer Use repair additionally exercised the production Go driver/private Cua 0.30.2
+helper on this Mac: Chrome local-page element typing, window typing/shortcuts, pixel click/double-click,
+scroll and drag; Safari pixel typing, semantic checkbox toggling and right-click; Telegram visual search
+typing/clearing; and Obsidian quick-switcher search/dismissal, including a field beyond the first element
+page. Native exact-window focus was verified on Chrome, Telegram, Obsidian and WeChat. Browser fixtures
+were disposable local pages; no messages were sent or notes edited. WeChat search focus worked, but
+after test input its window changed to a sign-in/security notice. The input result and cause of that
+state change are unconfirmed; testing stopped there. Do not advertise complete WeChat automation.
+
+This live evidence used the product adapter and native focus port in a local acceptance owner, not an
+LLM-driven session or the signed installed Bot's TCC identity. Host/Guardian/skill fixtures independently
+cover Runtime delivery and authorization. `experiments/desktop-control/browser.html` provides the
+reusable no-network browser fixture; its README describes the manual acceptance sequence. Screen
+captures and private App content stay in ignored local artifacts. Native Cua `foreground` dispatch
+alone did not reliably activate inactive apps: use the explicit authorized `focus` step and fresh feedback.
+Images over the public limit are losslessly optimized first, then encoded at the highest fitting JPEG
+quality without changing Cua's returned pixel dimensions. Compression and malformed-image rejection
+have deterministic Go coverage; readable PNG/JPEG output was inspected during the live browser runs.
 Earlier v0.61.0 MiMo/Luna live results cover that historical baseline only. Subsequent changes require their
 own regression evidence, and subsequent Core releases need the same external acceptance suite.
 

@@ -21,7 +21,7 @@ func TestControllerExplicitRecoveryNeverReplaysInput(t *testing.T) {
 for await (const line of createInterface({input:process.stdin})) {
  const r=JSON.parse(line);
  if(r.name==='bot_desktop_perform') await new Promise(resolve=>setTimeout(resolve,10000));
- process.stdout.write(JSON.stringify({content:[],structuredContent:{pid:process.pid}})+'\n');
+ process.stdout.write(JSON.stringify({content:[{type:'text',text:'fixture'}],structuredContent:{pid:process.pid}})+'\n');
 }`), 0600)
 	if err != nil {
 		t.Fatal(err)

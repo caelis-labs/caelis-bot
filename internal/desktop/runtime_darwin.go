@@ -68,13 +68,13 @@ func Run(assets fs.FS) error {
 
 	var controlDriver api.ApplicationTools
 	if computerUseSupported() {
-		if bundled := desktopcontrol.Bundled(); bundled != nil {
+		if bundled := desktopcontrol.Bundled(FocusComputerUseWindow); bundled != nil {
 			controlDriver = bundled
 			defer bundled.Close()
 		}
 	}
 	if os.Getenv("CAELIS_BOT_CUA_POC") == "1" {
-		driver, e := desktopcontrol.StartDriver(os.Getenv("CAELIS_BOT_CUA_NODE"), os.Getenv("CAELIS_BOT_CUA_HOST"))
+		driver, e := desktopcontrol.StartDriver(os.Getenv("CAELIS_BOT_CUA_NODE"), os.Getenv("CAELIS_BOT_CUA_HOST"), FocusComputerUseWindow)
 		if e != nil {
 			return e
 		}

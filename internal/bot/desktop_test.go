@@ -99,12 +99,22 @@ func TestSemanticCaptureRequiresModelSupportButMetadataDoesNot(t *testing.T) {
 	}
 	for _, state := range []string{"unknown", "unsupported"} {
 		e.state = state
-		if out := r.CallTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{"window":"fixture","screenshot":true}`)); !out.IsError || provider.calls != 1 {
-			t.Fatal("unsupported image reached provider")
+		for _, input := range []struct{ tool, arguments string }{
+			{"bot_desktop_observe", `{"window":"fixture","screenshot":true}`},
+			{"bot_desktop_perform", `{"screenshot":true,"steps":[{"op":"press_key","target":"window","key":"f","modifiers":["meta"]}]}`},
+			{"bot_desktop_perform", `{"steps":[{"op":"click","point":{"x":10,"y":20}}]}`},
+			{"bot_desktop_perform", `{"steps":[{"op":"type","target":"window","text":"fixture"}]}`},
+		} {
+			if out := r.CallTool(t.Context(), input.tool, json.RawMessage(input.arguments)); !out.IsError || provider.calls != 1 {
+				t.Fatalf("unsupported image reached provider: %s", input.arguments)
+			}
 		}
 	}
+	if out := r.CallTool(t.Context(), "bot_desktop_perform", json.RawMessage(`{"steps":[{"op":"press_key","target":"window","key":"Escape"}]}`)); out.IsError || provider.calls != 2 {
+		t.Fatal("window shortcut depends on vision")
+	}
 	e.state = "supported"
-	if out := r.CallTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{"window":"fixture","screenshot":true}`)); out.IsError || provider.calls != 2 {
+	if out := r.CallTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{"window":"fixture","screenshot":true}`)); out.IsError || provider.calls != 3 {
 		t.Fatal("supported image was blocked")
 	}
 }
