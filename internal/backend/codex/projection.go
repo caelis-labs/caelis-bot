@@ -390,6 +390,11 @@ func (s *Session) applyEvent(event Notification) {
 		}
 		if s.decodeEvent(event, &n, false) {
 			complete := event.Method == "item/completed"
+			// agentMessage has no wire status. Only live lifecycle evidence can
+			// identify streaming; a recovered in-progress turn may contain old commentary.
+			if !complete && n.Item.Type == "agentMessage" {
+				n.Item.Status = "inProgress"
+			}
 			if n.Item.Type == "contextCompaction" {
 				s.usage, s.usageTotal = api.ContextUsage{}, 0
 			}
@@ -421,6 +426,7 @@ func (s *Session) applyEvent(event Notification) {
 			return
 		}
 		item.ID, item.Type = target.ItemID, "agentMessage"
+		item.Status = "inProgress"
 		if event.Method == "item/plan/delta" {
 			item.Type = "plan"
 		}

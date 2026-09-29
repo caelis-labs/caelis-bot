@@ -3,9 +3,11 @@ import { backend, desktop, type DraftFile } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Review, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { CopyText, MessageContent } from './MessageContent';
-import { activeReplyID, canSubmit, chatActivity, composerAction, liveReplyIDs, withOutgoing } from './chat-presentation';
+import { canSubmit, chatActivity, composerAction, liveReplyIDs, withOutgoing } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
+import { useAvatarPresentation } from './use-avatar-presentation';
+import { animatedReplyID, type PortraitClip } from './avatar-presentation';
 import { AttachmentMenu } from './AttachmentMenu';
 import { ScreenMessage } from './ScreenMessage';
 import { ChatScroll } from './chat-scroll';
@@ -94,11 +96,11 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     </> : <p className="quiet" role="status">{value.status === 'resolved' ? t('chat.approvalResolved') : value.status === 'sent' || value.status === 'sending' ? t('chat.approvalSent') : t('chat.approvalUnknown')}</p>}
   </section>;
 }
-function Message({ item, report, animate=false, reveal=false }: { item: Item; report: (message: string) => void; animate?:boolean; reveal?:boolean }) {
+function Message({ item, report, animate=false, reveal=false, clip }: { item: Item; report: (message: string) => void; animate?:boolean; reveal?:boolean; clip?:PortraitClip }) {
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
-   {item.kind==='assistant'&&<BotAvatar animate={animate}/>}
+   {item.kind==='assistant'&&<BotAvatar animate={animate} clip={clip}/>}
    <div className={`message ${item.kind}`}>
     {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal}/> : <p>{item.text}</p>}
     {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}
@@ -275,7 +277,8 @@ export function History() {
  const promptKey=prompts.map(p=>p.id+p.status).join('');
  const reviews=snapshot?.reviews?.filter(r=>r.status==='denied'||r.status==='timedOut'||r.status==='aborted'||r.status==='failed')??[];
  const activity=chatActivity(snapshot);
- const activeReply=active?activeReplyID(snapshot):null;
+ const avatar=useAvatarPresentation(snapshot,active);
+ const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
  const connection=snapshot&&snapshot.connection!=='ready';
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  useLayoutEffect(()=>{
@@ -294,10 +297,10 @@ export function History() {
    <div className="chat-content" ref={content}>
    {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy||snapshot.connection!=='ready'} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
-   <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply} reveal={active&&liveReplies.has(i.id)}/>)}</div>
-   {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity}/>}
+   <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply} clip={i.id===avatar.completion?'delight':avatar.clip} reveal={active&&liveReplies.has(i.id)}/>)}</div>
+   {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
    {(!!prompts.length||!!reviews.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
-    <BotAvatar/>
+    <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
     <div className={`message assistant state-bubble ${prompts.length?'approval-bubble':''}`}>
    {prompts.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh()}/>)}
    {reviews.map(r=><ReviewNotice key={r.id} value={r}/>)}

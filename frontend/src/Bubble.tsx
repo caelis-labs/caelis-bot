@@ -14,6 +14,7 @@ export function Bubble() {
  const surface=useRef<HTMLDivElement>(null);
  const [reading,setReading]=useState(false);
  const leaveTimer=useRef(0);
+ const nativeHover=useRef<boolean|null>(null);
  const read=()=>{window.clearTimeout(leaveTimer.current);setReading(true);};
  const unread=()=>{window.clearTimeout(leaveTimer.current);leaveTimer.current=window.setTimeout(()=>setReading(false),180);};
  useEffect(()=>()=>window.clearTimeout(leaveTimer.current),[]);
@@ -37,12 +38,17 @@ export function Bubble() {
  },[notice]);
  useEffect(()=>{
   const changed=(e:Event)=>{setVisible((e as CustomEvent<boolean>).detail);setReading(false);}, expand=()=>setExpanded(true), collapse=()=>{setExpanded(false);setReading(false);};
-  const hidden=()=>setReading(false);
+  const hidden=()=>{window.clearTimeout(leaveTimer.current);if(nativeHover.current!==null)nativeHover.current=false;setReading(false);};
+  const hover=(event:Event)=>{
+   nativeHover.current=(event as CustomEvent<boolean>).detail;
+   if(nativeHover.current)read();else unread();
+  };
+  window.addEventListener('bubble-hover',hover);
   window.addEventListener('bubble-hidden',hidden);
   window.addEventListener('pet-visibility',changed);window.addEventListener('bubble-expand',expand);window.addEventListener('bubble-collapse',collapse);
   const key=(e:KeyboardEvent)=>{if(!e.isComposing&&e.key==='Escape'){setReading(false);void desktop('CollapseBubble');}};window.addEventListener('keydown',key);
   void desktop<Placement>('Placement').then(p=>setVisible(p.visible));
-  return()=>{window.removeEventListener('bubble-hidden',hidden);window.removeEventListener('pet-visibility',changed);window.removeEventListener('bubble-expand',expand);window.removeEventListener('bubble-collapse',collapse);window.removeEventListener('keydown',key);};
+  return()=>{window.removeEventListener('bubble-hover',hover);window.removeEventListener('bubble-hidden',hidden);window.removeEventListener('pet-visibility',changed);window.removeEventListener('bubble-expand',expand);window.removeEventListener('bubble-collapse',collapse);window.removeEventListener('keydown',key);};
  },[]);
  const prompts=snapshot?.approvals.filter(p=>p.status!=='resolved')??[];
  const prompt=prompts[Math.min(index,Math.max(0,prompts.length-1))];
@@ -67,7 +73,7 @@ export function Bubble() {
  const open=()=>void desktop(showNotice?'ToggleTaskDock':prompt?'OpenApproval':'OpenHistory');
  const action=async(method:string,...args:unknown[])=>{setBusy(true);setError('');try{await backend(method,...args);await refresh();}catch(e){setError(e instanceof Error?e.message:t('chat.actionFailed'));}finally{setBusy(false);}};
  const actionText=showNotice?t('chat.bubbleOpenTasks'):prompt?t('chat.bubbleReviewAndDecide'):t('chat.bubbleOpenChat');
- return <div ref={surface} className="bubble-shell" onMouseEnter={read} onMouseLeave={unread} onFocusCapture={read} onBlurCapture={e=>{if(!e.currentTarget.contains(e.relatedTarget))unread();}}><main className={`message-bubble ${expanded&&prompt?'expanded':''} ${readingMessage?'reading':''}`} aria-label={t('chat.bubbleAriaLabel')} title={dreaming?t('chat.dreamHint'):undefined}>
+ return <div ref={surface} className="bubble-shell" onMouseEnter={()=>{if(nativeHover.current===null)read();}} onMouseLeave={()=>{if(nativeHover.current===null)unread();}} onFocusCapture={read} onBlurCapture={e=>{if(!nativeHover.current&&!e.currentTarget.contains(e.relatedTarget))unread();}}><main className={`message-bubble ${expanded&&prompt?'expanded':''} ${readingMessage?'reading':''}`} aria-label={t('chat.bubbleAriaLabel')} title={dreaming?t('chat.dreamHint'):undefined}>
   <div className="bubble-summary">
    <div className="bubble-message" onClick={e=>{
     if((e.target as Element).closest('button,a,input,select,textarea')||window.getSelection()?.toString())return;

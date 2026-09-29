@@ -257,6 +257,7 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 			v.State.Run.Active = pointer(true)
 			v.Failure = ""
 		case "completed", "failed", "cancelled", "interrupted", "stopped":
+			finishAssistantStream(v, value(e.TurnId))
 			v.State.Run.Active = pointer(false)
 			v.ApprovalDirty = true
 			v.ApprovalVersion++
@@ -319,7 +320,16 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		}
 	}
 	if update.Kind == "tool_call" || update.Kind == "tool_call_update" {
+		// A new foreground tool is a text-segment boundary. Sparse updates
+		// and child completions can arrive during a reply and must not end it.
+		if update.Kind == "tool_call" {
+			finishAssistantStream(v, value(e.TurnId))
+		}
 		applyToolActivity(v, e)
+		return
+	}
+	if update.Kind == "agent_thought_chunk" {
+		finishAssistantStream(v, value(e.TurnId))
 		return
 	}
 	kind := ""
@@ -336,6 +346,9 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		}
 	case "agent_message_chunk":
 		kind = "assistant"
+		if value(e.Final) {
+			finishAssistantStream(v, value(e.TurnId))
+		}
 	default:
 		return
 	}
@@ -358,13 +371,38 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 	if update.MessageID != "" {
 		id += "/" + update.MessageID
 	}
+	status := "completed"
+	if kind == "assistant" {
+		// ACP chunks carry streaming text; an explicit final frame or the
+		// next foreground segment/lifecycle closes it. Never infer from prose.
+		finishAssistantStream(v, turn)
+		if !value(e.Final) {
+			status = "inProgress"
+		}
+	}
 	for i := len(v.Items) - 1; i >= 0; i-- {
 		if v.Items[i].ID == id {
 			v.Items[i].Text += content.Text
+			v.Items[i].Status = status
 			return
 		}
 	}
-	v.Items = append(v.Items, api.Item{ID: id, RequestID: requestID, TurnKey: turn, Kind: kind, Text: content.Text, Status: "completed"})
+	v.Items = append(v.Items, api.Item{ID: id, RequestID: requestID, TurnKey: turn, Kind: kind, Text: content.Text, Status: status})
+}
+
+func finishAssistantStream(v *view, turn string) {
+	if turn == "" {
+		turn = value(v.State.Run.TurnId)
+	}
+	if turn == "" {
+		return
+	}
+	for i := range v.Items {
+		item := &v.Items[i]
+		if item.Kind == "assistant" && item.TurnKey == turn && item.Status == "inProgress" {
+			item.Status = "completed"
+		}
+	}
 }
 func (s *Session) ensureStreamLocked(sid string) {
 	if s.streams[sid] || s.ctx == nil || s.closed {

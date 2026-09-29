@@ -30,19 +30,19 @@ test('waiting excludes approvals, recovery and terminal states, even with a rema
 });
 
 test('streaming reply takes the place of dots; empty, earlier or completed messages do not hide tool waiting', () => {
- const item={id:'answer',kind:'assistant',turnKey:'current',text:'正在回复',status:''};
+ const item={id:'answer',kind:'assistant',turnKey:'current',text:'正在回复',status:'inProgress'};
  assert.equal(chatActivity({...running,items:[item]}),null);
  assert.equal(chatActivity({...running,items:[{...item,status:'inProgress'}]}),null);
- for(const change of [{text:''},{turnKey:'previous'},{status:'completed'},{kind:'activity'}]) {
+ for(const change of [{text:''},{turnKey:'previous'},{status:''},{status:'completed'},{kind:'activity'}]) {
   assert.equal(chatActivity({...running,items:[{...item,...change}]}),'thinking');
  }
 });
 
-test('only the latest streaming avatar moves; approval, stop and disconnect keep a static identity',()=>{
+test('only the latest streaming reply owns reply animation; control states and quiet work preempt it',()=>{
  const item={id:'first',kind:'assistant',turnKey:'current',text:'第一段',status:'inProgress'};
  const snapshot={...running,items:[item,{...item,id:'latest'}]};
  assert.equal(activeReplyID(snapshot),'latest');assert.equal(chatActivity(snapshot),null);
- for(const update of [{phase:'interrupting'},{phase:'completed'},{connection:'disconnected'},{approvals:[{status:'pending'}]},{reviews:[{status:'inProgress'}]}])assert.equal(activeReplyID({...snapshot,...update}),null);
+ for(const update of [{quiet:true},{phase:'interrupting'},{phase:'completed'},{connection:'disconnected'},{approvals:[{status:'pending'}]},{reviews:[{status:'inProgress'}]}])assert.equal(activeReplyID({...snapshot,...update}),null);
  assert.equal(activeReplyID({...running,items:[{...item,turnKey:'previous'}]}),null);
 });
 
@@ -52,9 +52,14 @@ test('automatic checks and silent completion do not add thinking rows',()=>{
  assert.equal(chatActivity({...running,scheduled:true,quiet:false,phase:'failed'}),null);
 });
 
-test('typed tool activity stays visible with commentary, but yields to approval and stop',()=>{
+test('streaming text hides tool waiting; completed commentary restores it; control states still win',()=>{
  const snapshot={...running,activity:{kind:'read',target:'README.md'},items:[{id:'answer',kind:'assistant',turnKey:'current',text:'I will check',status:'inProgress'}]};
- assert.equal(chatActivity(snapshot),'tool');
+ assert.equal(chatActivity(snapshot),null);
+ assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],status:'completed'}]}),'tool');
+ // Recovery has no agentMessage status; old commentary is not proof of streaming.
+ assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],status:''}]}),'tool');
+ assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],text:''}]}),'tool');
+ assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],turnKey:'old'}]}),'tool');
  assert.equal(chatActivity({...snapshot,reviews:[{status:'inProgress'}]}),'reviewing');
  assert.equal(chatActivity({...snapshot,approvals:[{status:'pending'}]}),null);
  assert.equal(chatActivity({...snapshot,phase:'interrupting'}),'stopping');
@@ -104,6 +109,8 @@ test('empty started items and extensions stay live across final status and clear
  const initial={...started,items:[{...item,text:'已有部分'}]};
  const extended={...started,items:[{...item,text:'已有部分，加上增量'}]};
  assert.deepEqual([...liveReplyIDs(initial,extended,new Set())],['answer']);
+ const commentary={...initial,items:[{...initial.items[0],status:'completed'}]};
+ assert.deepEqual([...liveReplyIDs(commentary,extended,new Set())],['answer'],'an ACP message can resume streaming after a tool boundary');
  const corrected={...completed,items:[{...completed.items[0],text:'完整回复，历史修正'}]};
  assert.equal(liveReplyIDs(completed,corrected,new Set()).size,0);
 });

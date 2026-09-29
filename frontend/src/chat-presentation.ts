@@ -33,17 +33,17 @@ export function liveReplyIDs(previous: Snapshot | null, next: Snapshot, live: Re
   const old = before.get(item.id);
   // Pet snapshots intentionally retain only the latest item of each kind.
   const appended = !old && (latestOnly || !tail || anchor >= 0 && index > anchor);
-  const extended = old && (old.status === '' || old.status === 'inProgress') && item.text.length > old.text.length && item.text.startsWith(old.text);
+  const extended = old && (old.status === '' || old.status === 'inProgress' || item.status === 'inProgress') && item.text.length > old.text.length && item.text.startsWith(old.text);
   if (live.has(item.id) || appended || extended) result.add(item.id);
  }
  return result;
 }
 
 export function activeReplyID(snapshot: Snapshot | null): string | null {
- if(!snapshot||snapshot.connection!=='ready'||!['sending','working'].includes(snapshot.phase)||snapshot.approvals.some(p=>p.status!=='resolved')||snapshot.reviews.some(r=>r.status==='inProgress'))return null;
+ if(!snapshot||snapshot.quiet||snapshot.connection!=='ready'||!['sending','working'].includes(snapshot.phase)||snapshot.approvals.some(p=>p.status!=='resolved')||snapshot.reviews.some(r=>r.status==='inProgress'))return null;
  for(let n=snapshot.items.length-1;n>=0;n--){
   const i=snapshot.items[n];
-  if(i.turnKey===snapshot.currentTurn&&i.kind==='assistant'&&i.text.trim()&&(i.status===''||i.status==='inProgress'))return i.id;
+  if(i.turnKey===snapshot.currentTurn&&i.kind==='assistant'&&i.text.trim()&&i.status==='inProgress')return i.id;
  }
  return null;
 }
@@ -55,9 +55,9 @@ export function chatActivity(snapshot: Snapshot | null): ChatActivity | null {
  if (snapshot.quiet) return null;
  if (snapshot.phase !== 'sending' && snapshot.phase !== 'working') return null;
  if (snapshot.reviews.some(r => r.status === 'inProgress')) return 'reviewing';
- if (snapshot.activity) return 'tool';
  // A visible streaming answer already communicates progress. Empty started
  // items, completed commentary and tool work still need a waiting indicator.
  if (activeReplyID(snapshot)) return null;
+ if (snapshot.activity) return 'tool';
  return 'thinking';
 }

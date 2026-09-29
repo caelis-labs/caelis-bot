@@ -9,11 +9,11 @@
 @end
 @implementation ChatPreview
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
- self.window=[[NSWindow alloc] initWithContentRect:NSMakeRect(240,120,760,756) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
+ self.window=[[NSWindow alloc] initWithContentRect:NSMakeRect(240,100,760,790) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
  self.window.title=@"Caelis Chat Preview — 聊天流式验收";self.window.delegate=self;self.window.releasedWhenClosed=NO;
  self.web=[[WKWebView alloc] initWithFrame:NSMakeRect(0,0,760,672)];self.web.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
  [self.window.contentView addSubview:self.web];
- NSArray *names=@[@"短段流式",@"大块流式",@"一次完成",@"完成前大块",@"重开聊天",@"保存截图",@"打瞌睡",@"醒来",@"打盹审批",@"桌宠打盹",@"返回聊天",@"气泡打盹"];
+ NSArray *names=@[@"短段流式",@"大块流式",@"一次完成",@"完成前大块",@"重开聊天",@"保存截图",@"打瞌睡",@"醒来",@"打盹审批",@"桌宠打盹",@"返回聊天",@"气泡打盹",@"思考动作",@"查找动作",@"读取动作",@"流式与工具",@"完成动作",@"头像回归"];
  for(NSUInteger i=0;i<names.count;i++){
   NSButton *button=[NSButton buttonWithTitle:names[i] target:self action:@selector(select:)];button.tag=i;
   button.frame=NSMakeRect(12+(i%6)*122,682+(i/6)*34,116,28);button.autoresizingMask=NSViewMinYMargin;[self.window.contentView addSubview:button];
@@ -23,6 +23,10 @@
 }
 - (void)select:(NSButton *)button {
  if(button.tag==5){[self capture];return;}
+ if(button.tag>=12){
+  NSArray *scripts=@[@"fixtureAvatar('thinking')",@"fixtureAvatar('search')",@"fixtureAvatar('read')",@"fixtureAvatar('stream')",@"fixtureAvatar('done')",@"fixtureAvatarRegression()"];
+  [self.web evaluateJavaScript:scripts[button.tag-12] completionHandler:nil];return;
+ }
  if(button.tag>=9){
   NSString *surface=button.tag==9?@"pet":button.tag==10?@"history":@"bubble";
   NSURLComponents *url=[NSURLComponents componentsWithString:self.url];url.query=[NSString stringWithFormat:@"surface=%@&dream=1",surface];
@@ -38,7 +42,7 @@
   NSBitmapImageRep *bitmap=[[NSBitmapImageRep alloc] initWithData:image.TIFFRepresentation];
   [[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:self.capturePath atomically:YES];
  }];
- [self.web evaluateJavaScript:@"JSON.stringify({frames:window.fixtureFrames,expected:window.fixtureExpected,html:document.querySelector('[data-message-id=\"'+window.fixtureTarget+'\"] .markdown-body')?.innerHTML})" completionHandler:^(id result,NSError *error){
+ [self.web evaluateJavaScript:@"JSON.stringify({avatar:window.fixtureAvatarResult,portraits:Array.from(document.querySelectorAll('[data-portrait]')).map(e=>({clip:e.dataset.portrait,frame:e.querySelector('canvas')?.dataset.frame})),working:document.querySelector('.working-message')?.textContent,frames:window.fixtureFrames,expected:window.fixtureExpected,html:document.querySelector('[data-message-id=\"'+window.fixtureTarget+'\"] .markdown-body')?.innerHTML})" completionHandler:^(id result,NSError *error){
   if(result)[result writeToFile:[self.capturePath stringByAppendingString:@".json"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
  }];
 }

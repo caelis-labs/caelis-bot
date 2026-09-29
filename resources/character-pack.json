@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "packId": "caelis-default",
-  "contractVersion": 2,
+  "contractVersion": 3,
   "defaultCharacter": "caelis",
   "defaultVariant": "sage-dress",
   "characters": [
@@ -17,7 +17,26 @@
             "hands-v1",
             "view-v1",
             "drag-run-v1"
-          ]
+          ],
+          "portrait": {
+            "version": 1,
+            "sourceSHA256": "4c5224d7a6487aff8e0f7bfc686cce99f9fd93f6ca60796802089182369b4e4e",
+            "frameSize": 128,
+            "columns": 12,
+            "frameCount": 120,
+            "fps": 20,
+            "poster": "frontend/public/portraits/caelis-sage-v1/poster.png",
+            "clips": {
+              "companion": "frontend/public/portraits/caelis-sage-v1/companion.webp",
+              "think": "frontend/public/portraits/caelis-sage-v1/think.webp",
+              "scan": "frontend/public/portraits/caelis-sage-v1/scan.webp",
+              "focus": "frontend/public/portraits/caelis-sage-v1/focus.webp",
+              "waiting": "frontend/public/portraits/caelis-sage-v1/waiting.webp",
+              "listen": "frontend/public/portraits/caelis-sage-v1/listen.webp",
+              "delight": "frontend/public/portraits/caelis-sage-v1/delight.webp",
+              "dreaming": "frontend/public/portraits/caelis-sage-v1/dreaming.webp"
+            }
+          }
         }
       ]
     }
@@ -52,7 +71,7 @@
     {
       "path": "frontend/public/models/caelis-SOURCES.md",
       "license": "LicenseRef-Caelis-Character-1.0",
-      "sha256": "faae9cbe52864103d858d97a2a0f37acc66f50bfc468e74d1773a50c60c686bf"
+      "sha256": "fff0c0f1e11ebceb1a83c9a002172765dc9b866842999872c6ea04244ea9ae77"
     },
     {
       "path": "frontend/public/icons/caelis-avatar.png",
@@ -78,7 +97,52 @@
       "path": "frontend/assets/caelis-avatar-v1.svg",
       "license": "LicenseRef-Caelis-Character-1.0",
       "sha256": "212f7cf89ba7afd64aab50519d5fe1d4b20be67c43336e3a72946340808c215c"
+    },
+    {
+      "path": "frontend/public/portraits/caelis-sage-v1/companion.webp",
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "aa66dc83da9e569e97512e07f70418dd1949e4133e984d1ea868fd2789e30f55"
+    },
+    {
+      "path": "frontend/public/portraits/caelis-sage-v1/delight.webp",
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "d8ea42154a74a1bfec2616ce511bb0e547af8f98f17fc14876fa97fc9a24d296"
+    },
+    {
+      "path": "frontend/public/portraits/caelis-sage-v1/dreaming.webp",
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "85a461be01a145c5df35b64b08c901cd2baa420afaaa38c3865b785c95ce4698"
+    },
+    {
+      "path": "frontend/public/portraits/caelis-sage-v1/focus.webp",
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "bb8e8c1cf209e5b639b0501b978c45b2445af98ead0a0733ee049c2c02283406"
+    },
+    {
+      "path": "frontend/public/portraits/caelis-sage-v1/listen.webp",
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "d1ce9e4157a699fad524e1ef98e4d370bf9ff624cfc52d8e91fff28021dd8037"
+    },
+    {
+      "path": "frontend/public/portraits/caelis-sage-v1/poster.png",
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "d29fd04be96ac635efe6d1ad828489c41f4f646282b2c6c1dbf23695e19187f9"
+    },
+    {
+      "path": "frontend/public/portraits/caelis-sage-v1/scan.webp",
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "57a768a5354105d0880a214791973ef7b7685a17484f9ef4563775093ee1e960"
+    },
+    {
+      "path": "frontend/public/portraits/caelis-sage-v1/think.webp",
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "e1938838b628378c545d794e738e09b17c6b4a889cea6e5af12830dee0dba71d"
+    },
+    {
+      "path": "frontend/public/portraits/caelis-sage-v1/waiting.webp",
+      "license": "LicenseRef-Caelis-Character-1.0",
+      "sha256": "32acbf8755f913fd2f7a3caa02418682d83a64148b940ba3f53d6b9499a0d5e2"
     }
   ],
-  "version": "0.1.5"
+  "version": "0.1.6"
 }
