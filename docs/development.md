@@ -69,6 +69,10 @@ Run native launches only through `script/build_and_run.sh`; use `CAELIS_BOT_DATA
 `--bubble-preview` provides a long Markdown/streaming fixture. Its “审批恢复回归” button checks that completed
 text and queued tails survive approval, review, notice and connection overlays in the mounted production Bubble;
 the result is saved to `.cache/bubble-preview.png.replay.json` (run with reduced motion off).
+The “展开 / 收起” control exercises the shared native tracking callback, rather than synthesizing
+a DOM mouse event. `bubble-hover-native-test.sh` checks always-active tracking, resize, exit, hide
+and detachment without taking key focus. These injected events do not qualify physical pointer
+delivery: also hover the real bubble while another app is foreground, then leave and re-enter.
 `--chat-preview` runs the production chat component
 in a separate native WebKit window with small/large chunks, already-completed replies, a large final chunk and
 history reopening. It also offers Dream/running/approval/completion controls and the production pet/bubble
@@ -84,6 +88,8 @@ The chat preview also offers thinking/search/read, concurrent stream+tool and co
 moving pixels/static history/visible activity labels, and asserts that the waiting row disappears
 during streaming even with a tool still reported. Save the capture to record `avatar.ok` and samples
 in the same JSON. This is native WebKit fixture evidence, not a live backend run.
+The regression also waits past completion expiry, requires a static poster with zero queued frame
+callbacks, and checks that a later tool-only completion does not reanimate an older message.
 
 ```sh
 source script/env.sh

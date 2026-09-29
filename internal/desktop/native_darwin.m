@@ -9,6 +9,7 @@
 #import "native_darwin.h"
 #include "panel_menu_layout.h"
 #include "bubble_layout.h"
+#import "bubble_hover_darwin.h"
 #import "material_darwin.h"
 #import "pet_input_darwin.h"
 #import "task_dock_darwin.h"
@@ -408,6 +409,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (void)updateBubble {
     [self.taskDock placeWithPet:self.pet.frame bounds:(self.pet.screen ?: NSScreen.mainScreen).visibleFrame visible:self.visible && !self.dragging && !self.panel.visible && !self.history.keyWindow && !self.bubble.interactive && !self.tasksBlocked];
     if (!self.visible || !self.bubbleWanted || self.dragging || self.panel.visible || self.history.keyWindow) {
+        [(BotBubbleSurface *)self.bubble.contentView resetHover];
         if(self.bubble.visible) bot_js(self.bubble,@"window.dispatchEvent(new Event('bubble-hidden'))");
         [self.bubble orderOut:nil]; return;
     }
@@ -491,7 +493,12 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.bubble = [[BotInputPanel alloc] initWithContentRect:bubbleFrame styleMask:NSWindowStyleMaskBorderless|NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
     NSView *bubbleContent = bubbleOwner.contentView;
     bubbleOwner.contentView = [[NSView alloc] initWithFrame:bubbleContent.bounds];
-    NSView *bubbleSurface = [[NSView alloc] initWithFrame:NSMakeRect(0,0,360,68)];
+    BotBubbleSurface *bubbleSurface = [[BotBubbleSurface alloc] initWithFrame:NSMakeRect(0,0,360,68)];
+    __weak BotHost *bubbleHost = host;
+    bubbleSurface.hoverChanged = ^(BOOL inside) {
+        BotHost *owner = bubbleHost;
+        if (owner) bot_js(owner.bubble, [NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('bubble-hover',{detail:%@}))", inside ? @"true" : @"false"]);
+    };
     bubbleContent.frame = bubbleSurface.bounds;
     bubbleContent.autoresizingMask = NSViewWidthSizable|NSViewHeightSizable;
     [bubbleSurface addSubview:bubbleContent];
@@ -502,6 +509,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.bubble.hasShadow = NO; host.bubble.level = NSFloatingWindowLevel;
     host.bubble.hidesOnDeactivate = NO; host.bubble.releasedWhenClosed = NO;
     host.bubble.collectionBehavior = bot_space_behavior(YES);
+    host.bubble.acceptsMouseMovedEvents = YES;
     NSWindow *propOwner=(__bridge NSWindow *)prop;
     host.prop=[[BotInputPanel alloc] initWithContentRect:propOwner.frame styleMask:NSWindowStyleMaskBorderless|NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
     NSView *propContent=propOwner.contentView;

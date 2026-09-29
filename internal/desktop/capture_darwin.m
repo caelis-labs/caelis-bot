@@ -7,6 +7,26 @@
 #include <math.h>
 extern void desktopCaptureEvent(uintptr_t handle,int kind,char *text);
 
+// NSImageLeft spreads the image and title across a borderless button. Keep the
+// symbol and localized label together, centered within equal horizontal insets.
+@interface BotCaptureAskCell : NSButtonCell @end
+@implementation BotCaptureAskCell
+- (NSSize)labelSize { return [self.title sizeWithAttributes:@{NSFontAttributeName:self.font}]; }
+- (NSRect)imageRectForBounds:(NSRect)bounds {
+    CGFloat groupWidth=14+5+[self labelSize].width;
+    return NSMakeRect(NSMidX(bounds)-groupWidth/2,NSMidY(bounds)-7,14,14);
+}
+- (NSRect)titleRectForBounds:(NSRect)bounds {
+    NSSize size=[self labelSize];NSRect icon=[self imageRectForBounds:bounds];
+    return NSMakeRect(NSMaxX(icon)+5,NSMidY(bounds)-size.height/2,size.width,size.height);
+}
+- (void)drawInteriorWithFrame:(NSRect)frame inView:(NSView *)view {
+    [self drawImage:self.image withFrame:[self imageRectForBounds:frame] inView:view];
+    NSColor *color=self.enabled?((NSButton *)view).contentTintColor:NSColor.disabledControlTextColor;
+    [self.title drawInRect:[self titleRectForBounds:frame] withAttributes:@{NSFontAttributeName:self.font,NSForegroundColorAttributeName:color?:NSColor.labelColor}];
+}
+@end
+
 // CALayer stores resolved CGColors. Re-resolve semantic colors in the actual
 // window appearance when a toolbar is attached or the system theme changes.
 @interface BotCaptureSurface : NSView
@@ -330,21 +350,26 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self icon:@"square.and.arrow.down" key:@"capture.save" fallback:@"Save (⌘S)" action:@selector(saveAction:) x:395];
     [self icon:@"pin" key:@"capture.pin" fallback:@"Pin (F3)" action:@selector(pinAction:) x:429];
     [self icon:@"xmark" key:@"capture.close" fallback:@"Cancel (Esc)" action:@selector(closeAction:) x:478];
-    BotCaptureSurface *composer=[[BotCaptureSurface alloc] initWithFrame:NSMakeRect(12,10,width-24,32)];composer.wantsLayer=YES;
+    BotCaptureSurface *composer=[[BotCaptureSurface alloc] initWithFrame:NSMakeRect(12,8,width-24,36)];composer.wantsLayer=YES;
     composer.layer.cornerRadius=9;composer.fillColor=NSColor.textBackgroundColor;
     composer.layer.borderWidth=0.5;composer.strokeColor=NSColor.separatorColor;
     [self.toolbar addSubview:composer];
-    self.noteEditor=[[NSTextField alloc] initWithFrame:NSMakeRect(10,6,composer.bounds.size.width-122,20)];
+    self.noteEditor=[[NSTextField alloc] initWithFrame:NSMakeRect(10,8,composer.bounds.size.width-122,20)];
     self.noteEditor.placeholderString=[self.owner text:@"capture.note" fallback:@"Add a note (optional)"];
     self.noteEditor.stringValue=self.document.note?:@"";self.noteEditor.font=[NSFont systemFontOfSize:13];self.noteEditor.delegate=self;
     self.noteEditor.editable=!self.document.identifier.length;
     self.noteEditor.bordered=NO;self.noteEditor.drawsBackground=NO;self.noteEditor.focusRingType=NSFocusRingTypeNone;
     [self.noteEditor setAccessibilityLabel:self.noteEditor.placeholderString];[composer addSubview:self.noteEditor];
-    self.askButton=[self icon:@"sparkles" key:@"capture.ask" fallback:@"Send to Bot" action:@selector(askAction:) x:0];
-    [self.askButton removeFromSuperview];self.askButton.frame=NSMakeRect(composer.bounds.size.width-108,2,102,28);
+    self.askButton=[[NSButton alloc] initWithFrame:NSZeroRect];self.askButton.cell=[BotCaptureAskCell new];
+    self.askButton.target=self;self.askButton.action=@selector(askAction:);self.askButton.bordered=NO;
+    self.askButton.image=[NSImage imageWithSystemSymbolName:@"sparkles" accessibilityDescription:nil];
     self.askButton.title=[self.owner text:@"capture.askButton" fallback:@"Ask Bot"];self.askButton.imagePosition=NSImageLeft;
     self.askButton.font=[NSFont systemFontOfSize:12 weight:NSFontWeightMedium];
-    self.askButton.layer.cornerRadius=7;[composer addSubview:self.askButton];
+    CGFloat askWidth=MAX(80,ceil([self.askButton.title sizeWithAttributes:@{NSFontAttributeName:self.askButton.font}].width)+43);
+    self.askButton.frame=NSMakeRect(composer.bounds.size.width-askWidth-3,3,askWidth,30);
+    self.askButton.wantsLayer=YES;self.askButton.layer.cornerRadius=7;[composer addSubview:self.askButton];
+    [self.askButton setAccessibilityLabel:[self.owner text:@"capture.ask" fallback:@"Send to Bot"]];
+    NSRect noteFrame=self.noteEditor.frame;noteFrame.size.width=NSMinX(self.askButton.frame)-18;self.noteEditor.frame=noteFrame;
     self.statusLabel=[NSTextField labelWithString:@""];self.statusLabel.frame=NSMakeRect(12,83,width-24,20);
     self.statusLabel.font=[NSFont systemFontOfSize:11];self.statusLabel.textColor=NSColor.secondaryLabelColor;
     [self.toolbar addSubview:self.statusLabel];

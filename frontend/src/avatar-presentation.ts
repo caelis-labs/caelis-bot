@@ -30,3 +30,13 @@ export function completedReply(previous:Snapshot|null,next:Snapshot):string|null
   next.approvals.some(p=>p.status!=='resolved')||next.reviews.some(r=>r.status==='inProgress'))return null;
  return next.items.slice().reverse().find(i=>i.kind==='assistant'&&i.turnKey===previous.currentTurn&&i.status==='completed'&&i.text.trim())?.id??null;
 }
+
+export function animatedReplyID(snapshot:Snapshot|null,completion:string|null):string|null {
+ const streaming=activeReplyID(snapshot);
+ if(streaming)return streaming;
+ if(!completion||!snapshot||snapshot.connection!=='ready'||snapshot.phase!=='completed'||
+  snapshot.quiet||snapshot.maintenance||snapshot.message||snapshot.approvals.some(p=>p.status!=='resolved')||
+  snapshot.reviews.some(r=>r.status==='inProgress'))return null;
+ return snapshot.items.find(i=>i.id===completion&&i.kind==='assistant'&&i.status==='completed'&&
+  (!snapshot.currentTurn||i.turnKey===snapshot.currentTurn))?.id??null;
+}

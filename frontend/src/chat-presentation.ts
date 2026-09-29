@@ -43,7 +43,7 @@ export function activeReplyID(snapshot: Snapshot | null): string | null {
  if(!snapshot||snapshot.quiet||snapshot.connection!=='ready'||!['sending','working'].includes(snapshot.phase)||snapshot.approvals.some(p=>p.status!=='resolved')||snapshot.reviews.some(r=>r.status==='inProgress'))return null;
  for(let n=snapshot.items.length-1;n>=0;n--){
   const i=snapshot.items[n];
-  if(i.turnKey===snapshot.currentTurn&&i.kind==='assistant'&&i.text.trim()&&(i.status===''||i.status==='inProgress'))return i.id;
+  if(i.turnKey===snapshot.currentTurn&&i.kind==='assistant'&&i.text.trim()&&i.status==='inProgress')return i.id;
  }
  return null;
 }

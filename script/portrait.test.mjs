@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {PortraitCache,portraitClock,portraitFrame} from '../frontend/src/portrait-player.ts';
-import {activityPortrait,completedReply} from '../frontend/src/avatar-presentation.ts';
+import {activityPortrait,animatedReplyID,completedReply} from '../frontend/src/avatar-presentation.ts';
 import {readManifest,validateManifest} from './asset-pack.mjs';
 
 const running={revision:1,connection:'ready',phase:'working',currentTurn:'one',items:[],approvals:[],reviews:[],quiet:false};
@@ -35,6 +35,13 @@ test('decoded cache is bounded, shares pending loads, retries failures and fence
  pending.get('b').reject(Error('decode'));await assert.rejects(b);
  assert.equal(cache.size,1);const retry=cache.get('b');assert.notEqual(retry,b);
  pending.get('b').resolve('new b');pending.get('c').resolve('c');assert.deepEqual(await Promise.all([retry,c]),['new b','c']);
+});
+test('completion animation belongs only to its live target and expires to a poster',()=>{
+ const done={...running,phase:'completed',currentTurn:'',items:[{...reply,status:'completed'}]};
+ assert.equal(animatedReplyID(done,'answer'),'answer');
+ assert.equal(animatedReplyID(done,null),null);
+ assert.equal(animatedReplyID(done,'older-answer'),null);
+ for(const change of [{connection:'offline'},{quiet:true},{maintenance:'dreaming'},{message:'notice'},{approvals:[{status:'pending'}]},{reviews:[{status:'inProgress'}]},{currentTurn:'other'},{phase:'working'}])assert.equal(animatedReplyID({...done,...change},'answer'),null);
 });
 test('portrait clock owns one RAF, pauses hidden time and releases on replacement/unmount',()=>{
  let id=0;const queued=new Map(),drawn=[];

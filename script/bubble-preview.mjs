@@ -7,6 +7,11 @@ import {resolve,extname} from 'node:path';
 const runtime=String.raw`
 let revision=1,streamTimer=0,recordFrame=0,petState='idle';
 window.fixtureFrames=[];
+// Fixture-only frame accounting verifies that completed portraits release RAFs.
+const requestFrame=window.requestAnimationFrame.bind(window),cancelFrame=window.cancelAnimationFrame.bind(window);
+const pendingFrames=new Set();
+window.requestAnimationFrame=callback=>{const id=requestFrame(time=>{pendingFrames.delete(id);callback(time);});pendingFrames.add(id);return id;};
+window.cancelAnimationFrame=id=>{pendingFrames.delete(id);cancelFrame(id);};
 const short='钉好了 — 任务卡片现在是 **固定** 状态，\`pinned: true\`，会一直留在你脚底下。';
 const long=short+'\n\n### 工作进展\n\n- 已读取 **README.md**\n- 已完成网络搜索\n- 正在更新说明文件\n\n> 悬浮可以阅读完整内容，移开后收起。\n\n| 操作 | 状态 |\n| --- | --- |\n| 阅读 | 完成 |\n| 编辑 | 完成 |\n\n\`\`\`go\nfmt.Println("Caelis Bot")\n\`\`\`\n\n'+Array.from({length:16},(_,i)=>(i+1)+'. 这是用于验证完整内容和屏幕高度限制的长段落。**格式保持可读**，滚动可继续阅读。').join('\n\n')+'\n\n**全文结束 END**\n\n[示例链接](https://example.com)';
 const snapshot={connection:'ready',phase:'working',currentTurn:'fixture',canInterrupt:true,canSend:false,canSteer:true,quiet:false,items:[],approvals:[],reviews:[],references:[],message:'',previewKey:'fixture',previewDismissed:false,botStatus:'',hasEarlier:false,lastReceipt:{id:'',outcome:'',message:''}};
@@ -152,6 +157,17 @@ window.fixtureAvatarRegression=async()=>{
   window.fixtureAvatar('done');
   await wait(()=>document.querySelector('[data-portrait="delight"] canvas')?.dataset.frame>='1');
   samples.push({kind:'done',clip:'delight'});
+  await new Promise(r=>setTimeout(r,6500));
+  if(document.querySelector('.history-messages canvas'))throw Error('completion still animates after expiry');
+  await wait(()=>pendingFrames.size===0);
+  samples.push({kind:'expired',clip:'still',pendingFrames:pendingFrames.size});
+  // A later tool-only turn must not reanimate the preceding reply.
+  Object.assign(snapshot,{phase:'working',currentTurn:'tool-only',activity:{kind:'read'},canInterrupt:true});
+  await wait(()=>!!document.querySelector('.working-message'));
+  Object.assign(snapshot,{phase:'completed',currentTurn:'',activity:null,canInterrupt:false});
+  await wait(()=>!document.querySelector('.working-message'));
+  if(document.querySelector('.history-messages canvas'))throw Error('tool-only completion replayed an old portrait');
+  samples.push({kind:'tool-only',clip:'still'});
   window.fixtureAvatar('approval');
   await wait(()=>document.querySelector('.state-message [data-portrait="waiting"] canvas')?.dataset.frame>='1');
   if(document.querySelector('.working-message'))throw Error('approval duplicated waiting row');

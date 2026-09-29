@@ -3,6 +3,7 @@
 #import <WebKit/WebKit.h>
 #include "bubble_layout.h"
 #import "material_darwin.h"
+#import "bubble_hover_darwin.h"
 @interface PreviewPanel:NSPanel @end
 @implementation PreviewPanel
 - (BOOL)canBecomeKeyWindow { return NO; }
@@ -41,7 +42,10 @@
  WKWebViewConfiguration *configuration=[WKWebViewConfiguration new];[configuration.userContentController addScriptMessageHandler:self name:@"preview"];
  self.web=[[WKWebView alloc] initWithFrame:self.panel.contentView.bounds configuration:configuration];
  [self.web setValue:@NO forKey:@"drawsBackground"];self.web.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;self.web.navigationDelegate=self;
- NSView *surface=[[NSView alloc] initWithFrame:self.panel.contentView.bounds];[surface addSubview:self.web];self.panel.contentView=surface;
+ BotBubbleSurface *surface=[[BotBubbleSurface alloc] initWithFrame:self.panel.contentView.bounds];
+ __weak Preview *owner=self;
+ surface.hoverChanged=^(BOOL inside){[owner.web evaluateJavaScript:[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('bubble-hover',{detail:%@}))",inside?@"true":@"false"] completionHandler:nil];};
+ [surface addSubview:self.web];self.panel.contentView=surface;self.panel.acceptsMouseMovedEvents=YES;
  bot_install_bubble_material(self.panel,28,6);
  [self.web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:self.url]]];
  [self.controls makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];
@@ -55,7 +59,7 @@
   NSData *data=[NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil];
   [data writeToFile:[self.capturePath stringByAppendingString:@".replay.json"] atomically:YES];
  }
- else if([method isEqual:@"SetBubbleVisible"]) { if([body[@"args"][0] boolValue])[self.panel orderFrontRegardless];else[self.panel orderOut:nil]; }
+ else if([method isEqual:@"SetBubbleVisible"]) { if([body[@"args"][0] boolValue])[self.panel orderFrontRegardless];else{[(BotBubbleSurface *)self.panel.contentView resetHover];[self.panel orderOut:nil];} }
  else if([method isEqual:@"OpenHistory"] || [method isEqual:@"OpenMessageLink"] || [method isEqual:@"CopyText"]) self.status.stringValue=[@"已捕获：" stringByAppendingString:method];
 }
 - (void)select:(NSButton *)button {
@@ -67,7 +71,11 @@
  }
  if(button.tag==10){self.top=!self.top;[self place];return;}
  if(button.tag==12 || button.tag==13){[self.web evaluateJavaScript:button.tag==12?@"window.fixtureSet('table')":@"window.fixtureSet('stream')" completionHandler:nil];return;}
- if(button.tag==11){[self.web evaluateJavaScript:@"document.querySelector('.bubble-shell').dispatchEvent(new MouseEvent(document.querySelector('.message-bubble').classList.contains('reading')?'mouseout':'mouseover',{bubbles:true}))" completionHandler:nil];return;}
+ if(button.tag==11){
+  BotBubbleSurface *surface=(BotBubbleSurface *)self.panel.contentView;
+  if(surface.hovered)[surface mouseExited:[NSEvent new]];else[surface mouseEntered:[NSEvent new]];
+  return;
+ }
  NSArray *scenes=@[@"short",@"long",@"read",@"web",@"execute",@"edit",@"review",@"approval",@"completed",@"stop"];
  [self.web evaluateJavaScript:[NSString stringWithFormat:@"window.fixtureSet('%@')",scenes[button.tag]] completionHandler:nil];
 }

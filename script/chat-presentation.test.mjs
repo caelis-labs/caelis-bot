@@ -30,10 +30,10 @@ test('waiting excludes approvals, recovery and terminal states, even with a rema
 });
 
 test('streaming reply takes the place of dots; empty, earlier or completed messages do not hide tool waiting', () => {
- const item={id:'answer',kind:'assistant',turnKey:'current',text:'正在回复',status:''};
+ const item={id:'answer',kind:'assistant',turnKey:'current',text:'正在回复',status:'inProgress'};
  assert.equal(chatActivity({...running,items:[item]}),null);
  assert.equal(chatActivity({...running,items:[{...item,status:'inProgress'}]}),null);
- for(const change of [{text:''},{turnKey:'previous'},{status:'completed'},{kind:'activity'}]) {
+ for(const change of [{text:''},{turnKey:'previous'},{status:''},{status:'completed'},{kind:'activity'}]) {
   assert.equal(chatActivity({...running,items:[{...item,...change}]}),'thinking');
  }
 });
@@ -56,6 +56,8 @@ test('streaming text hides tool waiting; completed commentary restores it; contr
  const snapshot={...running,activity:{kind:'read',target:'README.md'},items:[{id:'answer',kind:'assistant',turnKey:'current',text:'I will check',status:'inProgress'}]};
  assert.equal(chatActivity(snapshot),null);
  assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],status:'completed'}]}),'tool');
+ // Recovery has no agentMessage status; old commentary is not proof of streaming.
+ assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],status:''}]}),'tool');
  assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],text:''}]}),'tool');
  assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],turnKey:'old'}]}),'tool');
  assert.equal(chatActivity({...snapshot,reviews:[{status:'inProgress'}]}),'reviewing');

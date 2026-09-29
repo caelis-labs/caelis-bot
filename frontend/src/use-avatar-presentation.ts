@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Snapshot } from './backend/contract';
-import { activityPortrait, completedReply, type PortraitClip } from './avatar-presentation';
+import { activityPortrait, animatedReplyID, completedReply, type PortraitClip } from './avatar-presentation';
 
 export function useAvatarPresentation(snapshot:Snapshot|null,active:boolean){
  const previous=useRef<Snapshot|null>(null);
@@ -12,10 +12,10 @@ export function useAvatarPresentation(snapshot:Snapshot|null,active:boolean){
   if(snapshot){
    const reply=completedReply(previous.current,snapshot);
    if(reply)setCompletion(reply);
-   else if(projected!=='companion')setCompletion(null);
+   else if(snapshot.phase!=='completed'||!animatedReplyID(snapshot,completion))setCompletion(null);
   }
   previous.current=snapshot;
- },[snapshot,active,projected]);
+ },[snapshot,active,completion]);
  useEffect(()=>{
   if(!completion)return;
   const timer=setTimeout(()=>setCompletion(null),6000);

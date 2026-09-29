@@ -215,6 +215,9 @@ Native logical coordinates use primary-display bottom-left origin, Y up, includi
 Device pixels/DPI do not belong in saved character scale. AppKit owns nonactivating panels, hit masks, drag,
 focus, Space/display changes and geometry; Three.js owns model/mixer/local poses and GPU resource disposal.
 Scaling updates geometry, projection, anchors and hit coverage coherently. Transparent clicks need real OS tests.
+The passive bubble owns an always-active AppKit tracking area and forwards enter/exit facts to the
+renderer without activating the app. WebKit's key-window hover delivery is not its native trigger.
+The renderer retains delayed collapse, bounded scrolling and explicit approval interaction.
 
 Desktop/Dock/ActiveWindow context records freshness/source and unknown/estimated fields; foreground does not
 prove task association. Local behavior consumes facts without invoking an idle model. User input and pending
@@ -238,6 +241,10 @@ seconds; opening/reconnecting history, quiet work and failures cannot trigger it
 share the same facts: visible current-turn assistant streaming suppresses tool/thinking dots,
 while approvals, reviews and interruption retain their control priority. Completed commentary
 does not suppress ongoing tool work. Animation never drives execution or authorization.
+Codex recovered agent messages have no native item status; only live item-start/delta events
+mark them in progress. An unknown-status recovered commentary cannot hide an ongoing tool.
+Completion portrait eligibility expires with its six-second target; reveal-arrival history is
+independent and cannot keep a completed portrait animating or revive it in a later tool-only turn.
 Caelis projects main-scope ACP text chunks as in progress until an explicit final frame,
 new foreground tool/thought segment or turn terminal. Child events and sparse tool updates
 cannot end a concurrent reply; resumed text on the same message remains eligible for reveal.

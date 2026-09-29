@@ -3,11 +3,11 @@ import { backend, desktop, type DraftFile } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Review, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { CopyText, MessageContent } from './MessageContent';
-import { activeReplyID, canSubmit, chatActivity, composerAction, liveReplyIDs, withOutgoing } from './chat-presentation';
+import { canSubmit, chatActivity, composerAction, liveReplyIDs, withOutgoing } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
 import { useAvatarPresentation } from './use-avatar-presentation';
-import type { PortraitClip } from './avatar-presentation';
+import { animatedReplyID, type PortraitClip } from './avatar-presentation';
 import { AttachmentMenu } from './AttachmentMenu';
 import { ScreenMessage } from './ScreenMessage';
 import { ChatScroll } from './chat-scroll';
@@ -278,8 +278,7 @@ export function History() {
  const reviews=snapshot?.reviews?.filter(r=>r.status==='denied'||r.status==='timedOut'||r.status==='aborted'||r.status==='failed')??[];
  const activity=chatActivity(snapshot);
  const avatar=useAvatarPresentation(snapshot,active);
- const latestLive=messages.slice().reverse().find(i=>i.kind==='assistant'&&liveReplies.has(i.id));
- const activeReply=active?(activeReplyID(snapshot)??(snapshot?.connection==='ready'&&snapshot.phase==='completed'&&!snapshot.quiet&&!prompts.length&&!snapshot.message?latestLive?.id:null)):null;
+ const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
  const connection=snapshot&&snapshot.connection!=='ready';
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  useLayoutEffect(()=>{
