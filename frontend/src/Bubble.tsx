@@ -75,7 +75,9 @@ export function Bubble() {
    }}>
     {!!progressText&&<div className="bubble-progress" role="status"><span className="activity-spinner" aria-hidden="true"/><span>{progressText}</span></div>}
     <div className="bubble-copy" tabIndex={readingMessage?0:undefined} role="region" aria-label={t('chat.bubbleAriaLabel')}>
-     {markdown?<MessageContent key={output?.id} text={content} report={setError} animate={visible&&!!output&&liveReplies.has(output.id)}/>:<span className={content===progress?'bubble-standalone-progress':undefined}>{content===progress&&!!progress&&!dreaming&&<span className="activity-spinner" aria-hidden="true"/>}{content}</span>}
+     {/* Temporary prompts keep the reply mounted so its reveal progress survives. */}
+     {output&&<div hidden={!markdown}><MessageContent key={output.id} text={output.text} report={setError} animate={visible&&liveReplies.has(output.id)}/></div>}
+     {!markdown&&<span className={content===progress?'bubble-standalone-progress':undefined}>{content===progress&&!!progress&&!dreaming&&<span className="activity-spinner" aria-hidden="true"/>}{content}</span>}
     </div>
    </div>
    <div className="bubble-actions">

@@ -79,11 +79,13 @@ func (p *dreamPolicy) observe(now time.Time, s api.ConversationState) bool {
 
 func (p *dreamPolicy) decide(now time.Time, s api.ConversationState, state dreamState) string {
 	u := s.Usage
-	if u.Window > 0 && u.Used >= 0 && !u.ModelAt.IsZero() {
+	if u.Window > 0 && u.Used >= 0 && !u.ModelAt.IsZero() && u.ModelAt.After(p.notBefore) && !u.ModelAt.After(now) {
 		if p.session != s.Session {
 			p.session, p.window, p.baseline = s.Session, u.Window, 0
 			if state.BaselineSession == s.Session {
-				p.baseline = state.BaselineUsed
+				// Compaction may have lowered usage since the last persisted
+				// attempt. Rebase from fresh native evidence after a restart too.
+				p.baseline = min(state.BaselineUsed, u.Used)
 			}
 		} else if p.window != u.Window || u.Used < p.lastUsed {
 			// A changed model window or native compaction establishes a new baseline.

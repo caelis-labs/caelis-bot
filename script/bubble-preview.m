@@ -27,12 +27,12 @@
  self.status.stringValue=[NSString stringWithFormat:@"气泡 %.0f pt / 上限 %.0f pt · 非激活窗口",l.height,l.maxHeight];
 }
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
- self.controls=[[NSWindow alloc] initWithContentRect:NSMakeRect(100,160,390,334) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+ self.controls=[[NSWindow alloc] initWithContentRect:NSMakeRect(100,160,390,376) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
  self.controls.title=@"Caelis Bubble Preview — 合成验收";self.controls.delegate=self;self.controls.releasedWhenClosed=NO;
- NSArray *names=@[@"短消息",@"长正文",@"读文件",@"网络搜索",@"执行命令",@"编辑文件",@"自动审查",@"审批",@"已完成",@"停止中",@"切换顶部",@"展开 / 收起",@"Issue 表格",@"流式打字",@"跟随系统",@"浅色",@"深色",@"实色回退"];
+ NSArray *names=@[@"短消息",@"长正文",@"读文件",@"网络搜索",@"执行命令",@"编辑文件",@"自动审查",@"审批",@"已完成",@"停止中",@"切换顶部",@"展开 / 收起",@"Issue 表格",@"流式打字",@"跟随系统",@"浅色",@"深色",@"实色回退",@"审批恢复回归"];
  for(NSUInteger i=0;i<names.count;i++) {
   NSButton *button=[NSButton buttonWithTitle:names[i] target:self action:@selector(select:)];button.tag=i;
-  button.frame=NSMakeRect(12+(i%3)*124,290-(i/3)*42,118,32);[self.controls.contentView addSubview:button];
+  button.frame=NSMakeRect(12+(i%3)*124,332-(i/3)*42,118,32);[self.controls.contentView addSubview:button];
  }
  NSButton *capture=[NSButton buttonWithTitle:@"保存气泡截图" target:self action:@selector(capture:)];capture.frame=NSMakeRect(12,40,150,30);[self.controls.contentView addSubview:capture];
  self.status=[NSTextField labelWithString:@"Loading…"];self.status.frame=NSMakeRect(16,18,360,24);[self.controls.contentView addSubview:self.status];
@@ -50,10 +50,16 @@
 - (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
  NSDictionary *body=message.body;NSString *method=body[@"method"];
  if([method isEqual:@"SetBubbleHeight"]) { self.height=[body[@"args"][0] doubleValue];[self place]; }
+ else if([method isEqual:@"BubbleReplayResult"]) {
+  NSDictionary *result=body[@"result"];self.status.stringValue=[result[@"ok"] boolValue]?@"PASS：审批恢复与末尾打字回归":result[@"error"];
+  NSData *data=[NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil];
+  [data writeToFile:[self.capturePath stringByAppendingString:@".replay.json"] atomically:YES];
+ }
  else if([method isEqual:@"SetBubbleVisible"]) { if([body[@"args"][0] boolValue])[self.panel orderFrontRegardless];else[self.panel orderOut:nil]; }
  else if([method isEqual:@"OpenHistory"] || [method isEqual:@"OpenMessageLink"] || [method isEqual:@"CopyText"]) self.status.stringValue=[@"已捕获：" stringByAppendingString:method];
 }
 - (void)select:(NSButton *)button {
+ if(button.tag==18){[self.web evaluateJavaScript:@"fixtureBubbleReplay().then(result=>window.webkit.messageHandlers.preview.postMessage({method:'BubbleReplayResult',result}))" completionHandler:nil];return;}
  if(button.tag>=14){
   if(button.tag==17){[self.web evaluateJavaScript:@"document.documentElement.dataset.nativeMaterial='solid'" completionHandler:nil];return;}
   NSAppearance *appearance=button.tag==14?nil:[NSAppearance appearanceNamed:button.tag==15?NSAppearanceNameAqua:NSAppearanceNameDarkAqua];

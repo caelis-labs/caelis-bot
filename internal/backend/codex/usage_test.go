@@ -4,7 +4,58 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
+
+func TestDreamRenewalAcceptsFirstUsageOfNewThread(t *testing.T) {
+	s, f := sessionPair(t, "normal")
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		switch m.Method {
+		case "thread/start":
+			return map[string]any{"thread": nativeThread{ID: "next-thread"}, "model": "native-default"}, true
+		case "turn/start":
+			var p struct {
+				ID string `json:"clientUserMessageId"`
+			}
+			json.Unmarshal(m.Params, &p)
+			return map[string]any{"turn": nativeTurn{ID: p.ID + "-turn", Status: "inProgress"}}, true
+		}
+		return nil, false
+	}
+	f.mu.Unlock()
+	finish := func(thread, turn string, used, total int64) {
+		t.Helper()
+		f.emit(wireMessage{Method: "turn/started", Params: raw(map[string]any{"threadId": thread, "turn": nativeTurn{ID: turn, Status: "inProgress"}})})
+		f.emit(wireMessage{Method: "thread/tokenUsage/updated", Params: raw(map[string]any{
+			"threadId": thread, "turnId": turn,
+			"tokenUsage": map[string]any{"last": map[string]int64{"totalTokens": used, "inputTokens": used - 1000, "outputTokens": 1000}, "total": map[string]int64{"totalTokens": total}, "modelContextWindow": 100000},
+		})})
+		f.emit(wireMessage{Method: "turn/completed", Params: raw(map[string]any{"threadId": thread, "turn": nativeTurn{ID: turn, Status: "completed"}})})
+		awaitState(t, s, func(v api.Snapshot) bool { return v.Phase == "completed" })
+	}
+	if receipt, err := s.SubmitDream(t.Context(), api.Submission{ID: "dream-usage", Text: "system maintenance"}); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	finish("thread-native", "dream-usage-turn", 80000, 9000000)
+	if got := s.ConversationState().Usage; got.Used != 80000 {
+		t.Fatal("old thread usage not established", got)
+	}
+	if err := s.RenewConversation(t.Context(), "dream-usage", "thread-native"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.ConversationState().Usage; !got.ModelAt.IsZero() {
+		t.Error("empty new thread retained old model activity", got)
+	}
+	if receipt, err := s.Submit(t.Context(), api.Submission{ID: "fresh-user", Text: "hello"}, nil); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	finish("next-thread", "fresh-user-turn", 40000, 40000)
+	if got := s.ConversationState().Usage; got.Used != 40000 || got.Window != 100000 || got.ModelAt.IsZero() {
+		t.Fatal("first usage of new thread was discarded", got)
+	}
+}
 
 func TestUsageUsesLastContextAndLiveResidentEvidence(t *testing.T) {
 	s := NewSession(SessionOptions{})

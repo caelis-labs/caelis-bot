@@ -178,6 +178,9 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 		s.binding = old
 		return err
 	}
+	// Usage totals and freshness belong to the native thread, not the retained
+	// chat history. Reset only after the new binding is durably authoritative.
+	s.usage, s.usageTurn, s.usageTotal = api.ContextUsage{}, "", 0
 	s.residentExecution = *response.execution()
 	s.lastTurn, s.run = "", ""
 	s.state.Phase, s.state.Message = "idle", ""

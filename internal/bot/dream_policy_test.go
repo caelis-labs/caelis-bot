@@ -161,3 +161,50 @@ func TestDreamCooldownAndAttemptSurviveRestart(t *testing.T) {
 		t.Fatal("expired opportunity dispatched at cooldown boundary")
 	}
 }
+
+func TestDreamCompactionRegrowthAcrossRestart(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		t.Run(map[bool]string{false: "continuous", true: "restart"}[restart], func(t *testing.T) {
+			r, e, now, env := warmDream(t, 80000)
+			dreamSeconds(t, r, now, 90)
+			e.conversation.Status, e.conversation.Idle = "failed", true
+			if err := r.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			// The prior attempt durably recorded 80k. Native compaction later
+			// lowers the context to 40k without creating another Dream attempt.
+			dreamSeconds(t, r, now, 30*60)
+			*now = now.Add(time.Second)
+			e.conversation.Turn = "after-compaction"
+			e.conversation.Usage = api.ContextUsage{Used: 40000, Window: 100000, ModelAt: *now}
+			if err := r.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if restart {
+				r = restartDreamRuntime(t, r, e)
+				r.ConfigureDreamEnvironment(func() DreamEnvironment { return *env })
+				// Restored facts alone must not regain cache freshness.
+				dreamSeconds(t, r, now, 300)
+				if len(e.dreams) != 1 || r.dream.policy.reason != "fresh_activity_required" {
+					t.Fatal("restart reused stale model evidence", r.dream.policy.reason)
+				}
+			}
+			// The first fresh gauge after restart is still below the persisted
+			// baseline. Subsequent real growth must use the compacted baseline.
+			*now = now.Add(time.Second)
+			e.conversation.Turn = "fresh-after-compaction"
+			e.conversation.Usage.ModelAt = *now
+			dreamSeconds(t, r, now, 300)
+			if len(e.dreams) != 1 || r.dream.policy.reason != "growth_small" {
+				t.Fatal("compaction alone admitted Dream", r.dream.policy.reason)
+			}
+			*now = now.Add(time.Second)
+			e.conversation.Turn = "regrowth"
+			e.conversation.Usage.Used, e.conversation.Usage.ModelAt = 60000, *now
+			dreamSeconds(t, r, now, 301)
+			if len(e.dreams) != 2 {
+				t.Fatal("fresh regrowth blocked after compaction", r.dream.policy.reason)
+			}
+		})
+	}
+}
