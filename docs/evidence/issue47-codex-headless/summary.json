@@ -3,7 +3,7 @@
   "node": "Linux-B",
   "runtime": "Codex0.159.2",
   "provider": "synthetic-loopback",
-  "passed": true,
+  "passed": false,
   "sha256": {
     "caelis-node": "f3f7e4fffae44b0a89e262b80570959f8c7d8e4e3ba7ac4bd1c0d654c2a73ee4",
     "fixture.py": "492474b9fb4f9331002b24b1590a5929feaf4958afa3909343aa7b50442afe00"
@@ -30,16 +30,20 @@
   "stop": {
     "owner_stopped": true,
     "owned_children_reaped": true,
-    "owned_native_children": 23
+    "owned_native_children": 23,
+    "qualified": false
   },
   "rootRemoved": true,
   "logSHA256": "5046e05c5336e197fccc5c4d18238a58f8e872495eedc844a43e78be36f5c028",
   "limits": [
     "Synthetic provider; no paid model or existing authentication files used.",
     "Same-node local Worker; main-node SSH to a second Worker machine remains separately unverified.",
-    "Native headless/application evidence; no visual GUI claim."
+    "Native headless/application evidence; no visual GUI claim.",
+    "The reported initial owned-child cleanup used a weaker zombie-excluding predicate and is not final reaping qualification."
   ],
   "rawRuntimeJournalTransferred": false,
   "authenticationTransferred": false,
-  "earlierFixtureFailuresRetained": true
+  "earlierFixtureFailuresRetained": true,
+  "behaviorPassed": true,
+  "strictReapingAcceptance": "pending: final fixture review found the initial cleanup predicate excluded zombie state; a corrected PID/birth-identity disappearance repeat is running"
 }
