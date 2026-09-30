@@ -51,6 +51,12 @@ func privatePath(path string, existing bool) error {
 // ServeUnix closes only wire sessions when its service context ends. The caller
 // owns explicit Owner.Stop; neither this listener nor its helpers reap Codex.
 func (s *Server) ServeUnix(ctx context.Context, path string) error {
+	return s.ServeUnixReady(ctx, path, nil)
+}
+
+// ServeUnixReady publishes native readiness only after the private listener is
+// bound and chmodded. The callback grants no authority and does not own shutdown.
+func (s *Server) ServeUnixReady(ctx context.Context, path string, ready func()) error {
 	if err := privatePath(path, false); err != nil {
 		return err
 	}
@@ -61,6 +67,9 @@ func (s *Server) ServeUnix(ctx context.Context, path string) error {
 	defer listener.Close()
 	if err = os.Chmod(path, 0600); err != nil {
 		return err
+	}
+	if ready != nil {
+		ready()
 	}
 	stop := context.AfterFunc(ctx, func() { _ = listener.Close() })
 	defer stop()
