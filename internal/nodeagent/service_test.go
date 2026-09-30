@@ -2,6 +2,7 @@ package nodeagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"os"
@@ -249,5 +250,77 @@ func TestUnknownInstallationReconcilesOriginalAndClearsPending(t *testing.T) {
 	catalog, err = s.Catalog(t.Context())
 	if err != nil || len(catalog.PendingOperations) != 0 {
 		t.Fatal("confirmed original remained pending")
+	}
+}
+
+func TestNativeCodexConversationWorkerPreferencesAreSeparateAndRecoverable(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("Python fixture unavailable")
+	}
+	s := agentFixture(t)
+	body, err := os.ReadFile("testdata/codex_setup_fixture.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = append([]byte("#!"+python+"\n"), body[strings.Index(string(body), "\n")+1:]...)
+	binary := filepath.Join(s.options.Directory, "fixture-codex")
+	if err := os.WriteFile(binary, body, 0700); err != nil {
+		t.Fatal(err)
+	}
+	s.options.Binaries[api.NodeCodex] = binary
+	configuration := &CodexConfiguration{Directory: s.options.Directory, Binary: binary}
+	s.options.Configurations = map[api.NodeBackend]NativeConfiguration{api.NodeCodex: configuration}
+	s.options.Health = func(ctx context.Context, b api.NodeBackend) (NativeHealth, error) {
+		if b == api.NodeCodex {
+			return configuration.Health(ctx)
+		}
+		return NativeHealth{}, nil
+	}
+	view, err := s.Configuration(t.Context(), s.options.NodeID, api.NodeCodex)
+	if err != nil || !view.ConfigurationAvailable || view.Conversation == nil || view.Worker == nil || view.Guard.Revision != "1" {
+		t.Fatalf("native scoped config unavailable %+v %v", view, err)
+	}
+	r := nodeplane.ManagementRequest{Guard: view.Guard, Ref: api.NodeOperationRef{NodeID: s.options.NodeID, Backend: api.NodeCodex, OperationID: "conversation-selection"}, Change: &api.RuntimeConfigurationChange{Action: "conversation-model", ExpectedRevision: view.Guard.Revision, Selection: api.WorkExecutionSettings{Model: "fixture-model", Effort: "high"}}}
+	r.Ref.RequestDigest = RequestDigest(r)
+	result, err := s.Manage(t.Context(), r)
+	if err != nil || result.Outcome != api.NodeCommitted {
+		t.Fatalf("%+v %v", result, err)
+	}
+	after, err := s.Configuration(t.Context(), s.options.NodeID, api.NodeCodex)
+	if err != nil || after.Conversation.Model != "fixture-model" || after.Conversation.Effort != "high" || after.Worker.Model != "" {
+		t.Fatalf("scopes mixed %+v %v", after, err)
+	}
+	restarted, err := New(s.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := restarted.Reconcile(t.Context(), r.Ref)
+	if err != nil || restored != result {
+		t.Fatalf("original config lost %+v %v", restored, err)
+	}
+	stale := r
+	copy := *r.Change
+	stale.Change = &copy
+	stale.Ref.OperationID = "stale-worker-selection"
+	stale.Change.Action = "worker-model"
+	stale.Ref.RequestDigest = RequestDigest(stale)
+	denied, err := s.Manage(t.Context(), stale)
+	if err != nil || denied.Outcome != api.NodeConflicted {
+		t.Fatalf("stale scope applied %+v %v", denied, err)
+	}
+	catalog, err := s.Catalog(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "NATIVE_ONLY_FIXTURE_SECRET") {
+		t.Fatal("native authentication material entered catalog")
+	}
+	if catalog.Nodes[0].Runtimes[0].Authentication != api.NodeAuthenticated || catalog.Nodes[0].Runtimes[0].Roles[0].Eligible {
+		t.Fatal("native auth created uncontrolled Bot eligibility")
 	}
 }
