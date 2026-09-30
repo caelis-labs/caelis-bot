@@ -428,7 +428,7 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 		go s.watchChild(s.client, s.epoch, t.Thread)
 	}
 	if saveErr := s.save(); saveErr != nil {
-		err = saveErr
+		err = errors.Join(err, saveErr)
 	}
 	s.update()
 	return t.View, err

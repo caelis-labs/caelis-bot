@@ -106,6 +106,7 @@ type Session struct {
 	life              context.Context
 	cancelLife        context.CancelFunc
 	start             func(context.Context, Options) (*Client, error)
+	writeBinding      func(string, []byte) error
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -223,19 +224,35 @@ func (s *Session) save() error {
 	if s.opts.StateFile == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.opts.StateFile), 0700); err != nil {
-		return err
-	}
 	b, err := json.Marshal(s.binding)
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(s.opts.StateFile), ".binding-*")
+	if s.writeBinding != nil {
+		return s.writeBinding(s.opts.StateFile, b)
+	}
+	return writeBindingFile(s.opts.StateFile, b, (*os.File).Sync)
+}
+
+// Both the contents and the replacement directory entry must be durable before
+// callers admit a native mutation. A publication error never proves that an
+// already dispatched native operation did not execute.
+func writeBindingFile(path string, data []byte, syncDirectory func(*os.File) error) error {
+	parent := filepath.Dir(path)
+	if err := os.MkdirAll(parent, 0700); err != nil {
+		return err
+	}
+	dir, err := os.Open(parent)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	f, err := os.CreateTemp(parent, ".binding-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(f.Name())
-	if _, err = f.Write(b); err == nil {
+	if _, err = f.Write(data); err == nil {
 		err = f.Sync()
 	}
 	closeErr := f.Close()
@@ -243,7 +260,10 @@ func (s *Session) save() error {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(f.Name(), s.opts.StateFile)
+		err = os.Rename(f.Name(), path)
+	}
+	if err == nil {
+		err = syncDirectory(dir)
 	}
 	return err
 }

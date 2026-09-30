@@ -479,7 +479,8 @@ func (w *WorkerClient) StopWork(ctx context.Context, id string) (api.Task, error
 	}
 	ctx, cancel := s.operation(ctx, 8*time.Second)
 	defer cancel()
-	err = callDecode(ctx, c, "turn/interrupt", map[string]string{"threadId": thread, "turnId": run}, nil)
+	cancelErr := s.cancelElicitations(ctx, c, thread, run)
+	err = errors.Join(cancelErr, callDecode(ctx, c, "turn/interrupt", map[string]string{"threadId": thread, "turnId": run}, nil))
 	s.mu.Lock()
 	view = copyWorkerTask(s.taskView(task))
 	s.mu.Unlock()
