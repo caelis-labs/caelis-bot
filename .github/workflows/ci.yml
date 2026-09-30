@@ -28,6 +28,9 @@ jobs:
       - name: Check Linux process ownership and private IPC
         run: |
           go test -race -count=1 -run '^(TestLinux|TestOwnedProcess|TestCompatibleProtocol|TestFailedProtocolHandshake|TestStalledHandshakeCancellation|TestPrivateEndpoint)' ./internal/backend/codex ./internal/localipc
+      - name: Check headless product receipts and runtime management
+        run: |
+          go test -race -count=1 ./internal/productrpc ./internal/productmanagement ./internal/runtimemanagement ./cmd/caelis-node
   product:
     runs-on: macos-14
     timeout-minutes: 30
