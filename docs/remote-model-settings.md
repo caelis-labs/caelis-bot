@@ -18,7 +18,9 @@ The closed `configure-execution` command contains the inspected Bot/generation, 
 target `conversation` or `work`, the expected revision and only `{model, effort}`. Comparing
 the revision, reading current preferences and saving the change share the backend settings
 lock with local saves. Model/effort must satisfy the current catalog and native policy.
-Conversation changes preserve approval mode and service tier. Work changes preserve tier;
+Conversation inheritance/default effort follows the active provider, even when the saved
+Runtime preference selects a different provider for the next launch. Conversation changes
+preserve approval mode and service tier. Work changes preserve tier;
 explicit empty work selection clears the existing whole override to inherit defaults.
 Empty conversation selection requires advertised inheritance and an empty preserved tier.
 No permissions, service-tier controls, paths, login, API keys or generic native RPC are exposed.
