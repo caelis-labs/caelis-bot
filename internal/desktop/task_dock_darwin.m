@@ -169,7 +169,7 @@
         NSMutableParagraphStyle *paragraph=[NSMutableParagraphStyle new];paragraph.lineBreakMode=NSLineBreakByTruncatingTail;
         NSDictionary *body=@{NSFontAttributeName:[NSFont systemFontOfSize:12 weight:NSFontWeightMedium],NSForegroundColorAttributeName:NSColor.whiteColor,NSParagraphStyleAttributeName:paragraph};
         [self.detail drawInRect:NSMakeRect(10,26,self.bounds.size.width-20,18) withAttributes:body];
-        NSDictionary *status=@{NSFontAttributeName:[NSFont systemFontOfSize:10],NSForegroundColorAttributeName:[NSColor.whiteColor colorWithAlphaComponent:0.72]};
+        NSDictionary *status=@{NSFontAttributeName:[NSFont systemFontOfSize:10],NSForegroundColorAttributeName:[NSColor.whiteColor colorWithAlphaComponent:0.72],NSParagraphStyleAttributeName:paragraph};
         [self.statusText drawInRect:NSMakeRect(10,10,132,14) withAttributes:status];
         [NSGraphicsContext restoreGraphicsState];
     }
@@ -307,7 +307,7 @@ static NSPanel *taskPanel(NSString *title) {
         id identifier=entry[@"id"], prompt=entry[@"prompt"];
         if(![identifier isKindOfClass:NSString.class] || ![identifier length] || [ids containsObject:identifier] || ![prompt isKindOfClass:NSString.class])continue;
         NSString *status=[entry[@"status"] isKindOfClass:NSString.class] ? entry[@"status"] : @"unknown";
-        [valid addObject:@{@"id":identifier,@"prompt":prompt,@"status":status,@"provider":([entry[@"provider"] isKindOfClass:NSString.class]?entry[@"provider"]:@""),@"locked":@([entry[@"locked"] isKindOfClass:NSNumber.class] && [entry[@"locked"] boolValue]),@"terminal":([entry[@"terminal"] isKindOfClass:NSString.class]?entry[@"terminal"]:@"system")}]; [ids addObject:identifier];
+        [valid addObject:@{@"id":identifier,@"prompt":prompt,@"status":status,@"provider":([entry[@"provider"] isKindOfClass:NSString.class]?entry[@"provider"]:@""),@"targetLabel":([entry[@"targetLabel"] isKindOfClass:NSString.class]?entry[@"targetLabel"]:@""),@"locked":@([entry[@"locked"] isKindOfClass:NSNumber.class] && [entry[@"locked"] boolValue]),@"terminal":([entry[@"terminal"] isKindOfClass:NSString.class]?entry[@"terminal"]:@"system")}]; [ids addObject:identifier];
     }
     for(NSDictionary *old in self.tasks)if(![ids containsObject:old[@"id"]])[self.snapshots removeObjectForKey:old[@"id"]];
     if(self.snapshotTask && ![ids containsObject:self.snapshotTask]){[self.snapshotCapture cancel];self.snapshotTask=nil;}
@@ -430,6 +430,8 @@ static NSPanel *taskPanel(NSString *title) {
         NSString *statusKey=[self activeStatus:status] ? @"taskRunning" : ([status isEqual:@"completed"] ? @"taskFinished" : ([status isEqual:@"waiting_approval"] ? @"taskApproval" : @"taskIdle"));
         button.statusText=opening?[self text:[phase isEqual:@"closing"]?@"taskClosing":([phase isEqual:@"opening"]?@"taskOpening":@"taskSwitching")]:[self text:statusKey];
         if(button.tag>=0) {
+            NSString *targetLabel=self.tasks[button.tag][@"targetLabel"];
+            if(targetLabel.length)button.statusText=[button.statusText stringByAppendingFormat:@" · %@",targetLabel];
             button.accessibilityValue=button.statusText;
             BOOL locked=[self.tasks[button.tag][@"locked"] boolValue];button.locked=locked;
 

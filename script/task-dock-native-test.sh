@@ -125,7 +125,8 @@ int main(void) {
   dock.notice=^(NSString *message,BOOL pending){notice=message;noticePending=pending;};
   NSData *language=[NSData dataWithContentsOfFile:@"internal/i18n/locales/zh-CN/native.json"];
   dock.language=[NSJSONSerialization JSONObjectWithData:language options:0 error:nil];
-  [dock setTasks:@[task(@"one",@"working"),task(@"two",@"completed")]];
+  NSMutableDictionary *remoteTask=[task(@"one",@"working") mutableCopy];remoteTask[@"targetLabel"]=@"Fixture Worker location";
+  [dock setTasks:@[remoteTask,task(@"two",@"completed")]];
   [dock placeWithPet:NSMakeRect(400,300,240,240) bounds:NSMakeRect(0,0,1200,900) visible:YES];
   assert(NSEqualSizes(dock.window.contentView.bounds.size,NSMakeSize(62,28)));
   assert(dock.buttons[0].loading);
@@ -150,6 +151,10 @@ int main(void) {
   dock.openTask=^(NSString *identifier){entryOpens++;};
   [entry mouseEntered:[NSEvent new]];[dock.openTimer fire];
   assert(dock.expanded);NSArray *expandedButtons=dock.buttons;
+  [dock updateActivity];
+  assert([dock.buttons[0].statusText containsString:@"Fixture Worker location"]);
+  assert([dock.buttons[0].accessibilityValue containsString:@"Fixture Worker location"]);
+
   [entry performClick:nil];
   assert(dock.expanded && dock.buttons==expandedButtons && entryOpens==0);
   // A release inherited from the old entry is not a press on a new card.
