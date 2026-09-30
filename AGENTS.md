@@ -27,8 +27,10 @@
 
 ## Architecture
 
-- Ship a complete macOS release first. Preserve interfaces for a future Windows
-  adapter, but do not implement it before macOS ships. Linux is outside the current plan.
+- Ship a complete macOS desktop release first. Preserve interfaces for a future Windows
+  adapter, but do not implement it before macOS ships. Linux scope is optional headless
+  Runtime/Worker hosting; it does not include a Linux desktop product. Default local
+  APP plus Runtime remains in-process without SSH or a node daemon prerequisite.
 - Codex App Server is the first backend; Caelis adapts to the same contract later.
 - Discover the user's local Codex installation and connect through the standard
   App Server handshake. Do not bundle or silently install a Codex runtime.

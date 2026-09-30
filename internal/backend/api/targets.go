@@ -72,3 +72,41 @@ type WorkWorkspaceProvider interface {
 	ResolveWorkWorkspace(context.Context, string, string) (string, error)
 	PrepareWorkWorkspace(context.Context, string, string, bool) error
 }
+
+// WorkApproval retains the exact task and machine/backend/role binding of a
+// native choice. A service may expose an opaque product handle, but must restore
+// the original native Decision.ID and this binding before resolving it.
+type WorkApproval struct {
+	TaskID   string
+	Target   WorkTarget
+	Approval Approval
+}
+
+type WorkApprovalProvider interface {
+	WorkApprovals() []WorkApproval
+	DecideWork(context.Context, WorkApproval, Decision) error
+}
+
+// WorkTargetInfo is safe discovery metadata. State reports negotiated
+// readiness; labels and candidate declarations never grant execution authority.
+type WorkTargetInfo struct {
+	Target WorkTarget `json:"target"`
+	Label  string     `json:"label"`
+	State  string     `json:"state"`
+}
+
+type WorkTargetCatalog interface{ WorkTargets() []WorkTargetInfo }
+
+const MaxWorkArtifactBytes = 8 * 1024 * 1024
+
+// WorkArtifact is host-only bounded data from one owned task's projected
+// artifact ID. The service owns any local destination, never the model/adapter.
+type WorkArtifact struct {
+	ID, Name, MediaType, SHA256 string
+	Size                        int64
+	Bytes                       []byte `json:"-"`
+}
+
+type WorkArtifactProvider interface {
+	ReadWorkArtifact(context.Context, string, string) (WorkArtifact, error)
+}
