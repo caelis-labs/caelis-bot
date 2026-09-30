@@ -201,7 +201,7 @@ func validProxyRequest(f proxyFrame) bool {
 			valid = len(u.Query()) == 1 && identifier.MatchString(u.Query().Get("id"))
 		}
 	case "POST":
-		valid = u.RawQuery == "" && (u.Path == "/v1/state" || u.Path == "/v1/watch" || u.Path == "/v1/commands" || u.Path == "/v1/receipt")
+		valid = u.RawQuery == "" && (u.Path == "/v1/state" || u.Path == "/v1/watch" || u.Path == "/v1/commands" || u.Path == "/v1/receipt" || managementPath(u.Path))
 	case "PUT":
 		valid = u.Path == "/v1/resources" && u.RawQuery == ""
 		limit = MaxResourceBytes

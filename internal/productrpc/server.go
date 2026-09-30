@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/productmanagement"
 )
 
 // Options is native-only configuration. Token must come from private OS storage,
@@ -30,10 +31,14 @@ type Options struct {
 	// OnStopped belongs to the native process owner. It runs after the stop
 	// receipt publication and response observation boundary, never on detach.
 	OnStopped func(Result)
+	// Management is constructed once from the inspected native service scope.
+	// It receives no wire-supplied directory, credential or connection options.
+	Management func(productmanagement.Scope) (productmanagement.Port, error)
 }
 
 type Server struct {
 	port       Port
+	management productmanagement.Port
 	opts       Options
 	identity   Identity
 	projection projection
@@ -69,8 +74,17 @@ func NewServer(port Port, opts Options) (*Server, error) {
 	if opts.Resources == nil {
 		s.identity.Capabilities.Files = false
 	}
-	// Management is a future optional typed port, not a working endpoint yet.
 	s.identity.Capabilities.RuntimeManagement = false
+	if opts.Management != nil {
+		s.management, err = opts.Management(managementScope(s.identity.Scope))
+		if err != nil {
+			return nil, err
+		}
+		if s.management != nil {
+			caps := s.management.Capabilities()
+			s.identity.Capabilities.RuntimeManagement = caps.Installation || caps.Configuration
+		}
+	}
 	return s, nil
 }
 
@@ -152,6 +166,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			result = Result{ID: query.ID, Outcome: "unknown", Code: "receipt-unavailable"}
 		}
 		s.write(w, result)
+	case r.Method == "POST" && managementPath(r.URL.Path):
+		s.manageHTTP(w, r)
 	case r.Method == "PUT" && r.URL.Path == "/v1/resources":
 		s.upload(w, r)
 	case r.Method == "GET" && r.URL.Path == "/v1/resources":
@@ -243,12 +259,16 @@ func validCommand(c Command) bool {
 		return false
 	}
 	n := 0
-	for _, set := range []bool{c.Submission != nil, c.Decision != nil, c.Introduction != nil, c.Draft != nil, c.Turn != ""} {
+	for _, set := range []bool{c.Submission != nil, c.Decision != nil, c.Introduction != nil, c.Draft != nil, c.Turn != "", c.RuntimeManagement != nil, c.Configuration != nil} {
 		if set {
 			n++
 		}
 	}
 	switch c.Kind {
+	case "manage-runtime":
+		return n == 1 && c.RuntimeManagement != nil && c.RuntimeManagement.ID == c.ID && c.RuntimeManagement.Scope == managementScope(c.Scope) && validRuntimeManagement(*c.RuntimeManagement, false)
+	case "configure-runtime":
+		return n == 1 && c.Configuration != nil && c.Configuration.ID == c.ID && c.Configuration.Scope == managementScope(c.Scope) && validConfiguration(c.Configuration.Change)
 	case "submit":
 		return n == 1 && c.Submission != nil && c.Submission.ID == c.ID && len(c.Submission.Text) <= 256<<10 && validIDs(c.Submission.FileIDs, 8) && validIDs(c.Submission.ReferenceIDs, 64)
 	case "decide":
@@ -312,9 +332,19 @@ func (s *Server) command(w http.ResponseWriter, r *http.Request, command Command
 	}
 	canonical := command
 	canonical.Generation = "" // Restart cannot grant a duplicate dispatch.
+	if canonical.RuntimeManagement != nil {
+		v := *canonical.RuntimeManagement
+		v.Generation = ""
+		canonical.RuntimeManagement = &v
+	}
+	if canonical.Configuration != nil {
+		v := *canonical.Configuration
+		v.Generation = ""
+		canonical.Configuration = &v
+	}
 	b, _ := json.Marshal(canonical)
 	digest := sha256.Sum256(b)
-	result, fresh, err := s.journal.reserve(command.ID, hex.EncodeToString(digest[:]))
+	result, fresh, err := s.journal.reserve(command.ID, hex.EncodeToString(digest[:]), command.RuntimeManagement)
 	if err != nil {
 		problem(w, 409, "command-conflict-or-journal-unavailable")
 		return
@@ -370,6 +400,8 @@ func (s *Server) execute(ctx context.Context, c Command) Result {
 	var err error
 	snapshot := s.port.Snapshot()
 	switch c.Kind {
+	case "manage-runtime", "configure-runtime":
+		return s.executeManagement(ctx, c)
 	case "submit":
 		in := *c.Submission
 		in.FileIDs = append([]string(nil), in.FileIDs...)

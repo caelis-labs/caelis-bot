@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/productmanagement"
 )
 
 type headlessFixture struct {
@@ -128,6 +129,31 @@ func TestNativeLinuxHeadlessProductStdio(t *testing.T) {
 	defer cancel()
 	c := connectHeadlessFixture(t, ctx, f)
 	state := waitHeadlessState(t, ctx, c, func(s State) bool { return s.Snapshot.Connection == "ready" })
+	caps, err := c.ManagementCapabilities(ctx)
+	if err != nil || !caps.Installation || !caps.Configuration || caps.ConfigurationReceiptLookup {
+		t.Fatal("native optional management capabilities", caps, err)
+	}
+	releases, err := c.ReviewedReleases(ctx)
+	if err != nil || len(releases) == 0 {
+		t.Fatal("native reviewed releases unavailable", err)
+	}
+	installed, err := c.RuntimeStatus(ctx, "caelis")
+	if err != nil || installed.Runtime != "caelis" || installed.Installed {
+		t.Fatal("isolated managed runtime status invalid", err)
+	}
+	configuration, err := c.RuntimeConfiguration(ctx)
+	if err != nil || configuration.Main.Model == "" {
+		t.Fatal("native public configuration unavailable", err)
+	}
+	changed, err := c.ChangeRuntimeConfiguration(ctx, productmanagement.ConfigurationCommand{ID: "native-public-config", Change: api.RuntimeConfigurationChange{Action: "main", ExpectedRevision: configuration.Revision, Selection: configuration.Main}})
+	if err != nil || changed.Outcome != "accepted" || changed.Native.Outcome != "committed" || changed.Native.OperationID != "" {
+		t.Fatal("native public configuration receipt", changed.Outcome, changed.Native.Outcome, err)
+	}
+	configurationReceipt, err := c.Receipt(ctx, "native-public-config")
+	if err != nil || configurationReceipt.Configuration == nil || configurationReceipt.Configuration.Native.Outcome != "committed" {
+		t.Fatal("original product configuration receipt unavailable", err)
+	}
+
 	if state.Initialization.Required {
 		r, err := c.Command(ctx, Command{ID: "native-introduction", Kind: "initialize", Introduction: &api.BotIntroduction{Name: "Synthetic Fixture", Description: "Temporary loopback provider only"}})
 		if err != nil || r.Outcome != "accepted" {
@@ -194,5 +220,5 @@ func TestNativeLinuxHeadlessProductStdio(t *testing.T) {
 	if !status.HostAlive || status.Counts["CASE_PRODUCT_DETACH"] != 1 {
 		t.Fatal("shared native Host lost ownership or detach replayed work")
 	}
-	t.Log("public Caelis0.65 native Linux headless product: paired identity/init/native facts, unknown original receipt, detach/reconnect, explicit owner/listener stop passed; synthetic provider, no user credentials")
+	t.Log("public Caelis0.65 native Linux headless product: paired identity/init/native facts, typed management status/config committed receipt, unknown original receipt, detach/reconnect, explicit owner/listener stop passed; synthetic provider, no user credentials")
 }

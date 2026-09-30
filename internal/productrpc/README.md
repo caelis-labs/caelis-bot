@@ -81,3 +81,30 @@ product traffic. It cannot forward arbitrary URLs or attach native bindings.
 The application owner must provide the target's existing runtime configuration
 and credentials through its normal native/human setup. Headless fixtures and
 cross-compilation do not establish actual Linux runtime/model acceptance.
+
+## Optional native management
+
+`serve-bot --runtime-directory ABS` binds the reviewed Linux installer to an
+explicit private directory inside the target user's HOME. It advertises typed
+management only after that native factory succeeds; omission preserves the
+existing default owner path. No installation or credential setup runs on startup.
+The configuration capability uses only the existing Caelis shared Host model,
+role, team and removal settings. Bot conversation preferences and connection,
+account, OAuth, API-key or custom URL setup have no commands on this transport.
+
+Native clients read management capabilities, reviewed releases, runtime status
+and public configuration through fixed endpoints. Installation/configuration
+mutations use the same durable original command ID/digest reservation and owner
+context as product actions. Native `committed` maps to outer `accepted`,
+`conflicted` to outer `rejected`; the exact native outcome remains in the typed
+receipt. Native operation IDs remain target-local. Configuration receipts are
+queried through the original outer product ID, never inferred from current model
+values; `configurationReceiptLookup=false` explicitly denies native lookup.
+
+Installation `resolve` is a separate lookup of the original durable intent, with
+matching runtime/version/expectedVersion. It cannot create a missing command or
+retry install/update. While the original operation is pending it returns unknown.
+Known outer outcomes return the existing receipt. A completed unknown intent can
+query its original native installer receipt in the same service generation; an
+unknown earlier generation remains unknown because that native scoped ID cannot
+be adopted by a restarted service. No automatic retry or new-ID replacement runs.
