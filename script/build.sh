@@ -9,6 +9,8 @@ source "$BOT_ROOT/script/development-signing.sh"
 source "$BOT_ROOT/script/app-identity.sh"
 node script/asset-pack.mjs verify
 npm run build
+# Recreate owned resources so incremental builds cannot retain retired payloads.
+rm -rf "$BOT_BUNDLE/Contents/Resources"
 mkdir -p "$BOT_BUNDLE/Contents/MacOS" "$BOT_BUNDLE/Contents/Resources"
 BOT_VERSION_JSON=$(node script/release-version.mjs)
 BOT_BASE_VERSION=$(node -e 'console.log(JSON.parse(process.argv[1]).bundleVersion)' "$BOT_VERSION_JSON")
@@ -39,10 +41,8 @@ rm -rf "$BOT_BUNDLE/Contents/Frameworks/Sparkle.framework"
 ditto "$BOT_SPARKLE_DIR/Sparkle.framework" "$BOT_BUNDLE/Contents/Frameworks/Sparkle.framework"
 cp "$BOT_SPARKLE_DIR/LICENSE" "$BOT_BUNDLE/Contents/Resources/Sparkle-LICENSE"
 node script/configure-updates.mjs "$BOT_BUNDLE/Contents/Info.plist"
-bash script/computer-use-runtime.sh "$BOT_BUNDLE"
-BOT_CUA_VERSION=$(node -p 'require("./resources/computer-use/package.json").dependencies["@trycua/cua-driver"]')
-/usr/libexec/PlistBuddy -c "Add CaelisComputerUseVersion string $BOT_CUA_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
-bash script/sign-computer-use.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_IDENTITY" "$BOT_BUILD_SIGN_MODE"
+bash script/desktop-world-runtime.sh "$BOT_BUNDLE"
+bash script/sign-desktop-world.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_IDENTITY" "$BOT_BUILD_SIGN_MODE"
 bash script/sign-sparkle.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_IDENTITY" "$BOT_BUILD_SIGN_MODE"
 BOT_BUILD_SIGN_ARGS=(--force --sign "$BOT_BUILD_SIGN_IDENTITY" --identifier "$BOT_APP_ID" --entitlements "$BOT_ROOT/resources/macos/entitlements.plist")
 if [[ "$BOT_BUILD_SIGN_MODE" == development ]]; then BOT_BUILD_SIGN_ARGS+=(--options runtime --timestamp=none); fi

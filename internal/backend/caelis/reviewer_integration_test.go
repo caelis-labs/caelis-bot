@@ -400,63 +400,24 @@ func TestGuardianHostIntegration(t *testing.T) {
 		return
 	}
 	if !t.Run("G06_app_authorization_once_per_turn", func(t *testing.T) {
-		node, e := exec.LookPath("node")
-		if e != nil {
-			t.Fatal("Node required for full desktop callback acceptance")
-		}
-		node, _ = filepath.Abs(node)
-		helper := filepath.Join(root, "desktop-fixture")
-		if e = os.MkdirAll(filepath.Join(helper, "node_modules/@trycua/cua-driver"), 0700); e != nil {
-			t.Fatal(e)
-		}
-		copyFile := func(from, to string) {
-			t.Helper()
-			data, e := os.ReadFile(from)
-			if e != nil {
-				t.Fatal(e)
-			}
-			if e = os.WriteFile(filepath.Join(helper, to), data, 0600); e != nil {
-				t.Fatal(e)
-			}
-		}
-		for _, name := range []string{"host.mjs", "desktop.mjs"} {
-			copyFile("../../../resources/computer-use/"+name, name)
-		}
-		copyFile("../../desktopcontrol/testdata/cua-sdk.mjs", "node_modules/@trycua/cua-driver/index.mjs")
-		if e = os.WriteFile(filepath.Join(helper, "node_modules/@trycua/cua-driver/package.json"), []byte(`{"type":"module","exports":"./index.mjs"}`), 0600); e != nil {
-			t.Fatal(e)
-		}
-		if e = os.WriteFile(filepath.Join(helper, "fixture.json"), []byte(`{}`), 0600); e != nil {
-			t.Fatal(e)
-		}
-		driver, e := desktopcontrol.StartDriver(node, filepath.Join(helper, "host.mjs"))
-		if e != nil {
-			t.Fatal(e)
-		}
-		defer driver.Close()
+		// This fixture isolates real Guardian approval from native OS delivery;
+		// Desktop World's private control transport is covered in its adapter tests.
+		driver := &reviewDesktopFixture{}
 		resident, e := bot.NewForRuntime(filepath.Join(root, "desktop-bot.json"), "caelis", nil)
 		if e != nil {
 			t.Fatal(e)
 		}
 		defer resident.Close()
 		resident.ConfigureDesktopControl(driver)
-		var observed atomic.Pointer[api.ToolResult]
 		var inputs atomic.Int32
 		proxy := &acceptanceTools{defs: resident.Definitions(), call: func(c context.Context, name string, args json.RawMessage) api.ToolResult {
 			out := resident.CallTool(c, name, args)
-			if !out.IsError {
-				if name == "bot_desktop_perform" {
-					inputs.Add(1)
-					state, _ := out.StructuredContent["observation"].(map[string]any)
-					observed.Store(&api.ToolResult{StructuredContent: state})
-				}
-				if name == "bot_desktop_observe" {
-					observed.Store(&out)
-				}
+			if name == "bot_desktop_act" && !out.IsError {
+				inputs.Add(1)
 			}
 			return out
 		}}
-		config := &api.ToolConnection{Host: proxy, NotebookDirectory: notebook, ApprovedTools: append(botpolicy.ApprovedTools(), "bot_desktop_observe", "bot_desktop_perform"), PrepareTurn: func(context.Context) error { resident.BeginDesktopTurn(); return nil }, FinishTurn: resident.StopDesktopTurn}
+		config := &api.ToolConnection{Host: proxy, NotebookDirectory: notebook, ApprovedTools: append(botpolicy.ApprovedTools(), "bot_desktop_observe", "bot_desktop_act"), PrepareTurn: func(context.Context) error { resident.BeginDesktopTurn(); return nil }, FinishTurn: resident.StopDesktopTurn}
 		if e = s.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
 		}
@@ -467,16 +428,9 @@ func TestGuardianHostIntegration(t *testing.T) {
 		if _, e = s.UpdateConfiguration(ctx, "desktop-review-catalog", string(current.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); e != nil {
 			t.Fatal(e)
 		}
-		observe := []modelStep{{Name: "bot_desktop_observe", Args: map[string]any{}}, {Name: "bot_desktop_observe", BuildArgs: func() any {
-			return map[string]any{"window": observed.Load().StructuredContent["windows"].([]any)[0].(map[string]any)["window"]}
-		}}}
-		authorize := modelStep{Name: "bot_desktop_authorize", BuildArgs: func() any {
-			o := observed.Load().StructuredContent
-			return map[string]any{"observation": o["observation"], "application": o["application"], "purpose": "Edit the requested synthetic document during this task"}
-		}}
-		perform := modelStep{Name: "bot_desktop_perform", BuildArgs: func() any {
-			return map[string]any{"observation": observed.Load().StructuredContent["observation"], "steps": []any{map[string]any{"op": "type", "target": "e3", "text": "synthetic"}}}
-		}}
+		observe := []modelStep{{Name: "bot_desktop_observe", Args: map[string]any{"requestId": "observe-fixture", "args": map[string]any{"scope": map[string]any{"desktop": true}}}}}
+		authorize := modelStep{Name: "bot_desktop_authorize", Args: map[string]any{"application": "fixture-app-ref", "name": "Fixture", "purpose": "Complete the requested fixture task"}}
+		perform := modelStep{Name: "bot_desktop_act", Args: map[string]any{"requestId": "fixture-input", "args": map[string]any{"steps": []any{map[string]any{"id": "invoke", "op": "invoke", "target": map[string]any{"ref": "fixture-button"}}}}}}
 		countReviews := func() int { mu.Lock(); defer mu.Unlock(); return len(reviewRequests) }
 		configureReview(`{"option_id":"allow_once"}`, nil)
 		before := countReviews()
@@ -678,4 +632,21 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}
 	}
 	t.Log("Guardian: public configuration/readiness, gated callback, native command/file allow+deny, failure, cancellation, exact receipt retry, restart replay, App x Turn authorization, real deadline and no manual fallback passed")
+}
+
+// Reviewer fixture is deliberately semantic only; it never sends native input.
+type reviewDesktopFixture struct {
+	mu      sync.Mutex
+	granted bool
+}
+
+func (*reviewDesktopFixture) Definitions() []api.ToolDefinition { return desktopcontrol.Definitions() }
+func (d *reviewDesktopFixture) EndTurn(string)                  { d.mu.Lock(); d.granted = false; d.mu.Unlock() }
+func (d *reviewDesktopFixture) CallTool(_ context.Context, name string, _ json.RawMessage) api.ToolResult {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if name == "bot_desktop_authorize" {
+		d.granted = true
+	}
+	return api.ToolResult{IsError: name == "bot_desktop_act" && !d.granted, Content: []map[string]string{{"type": "text", "text": "synthetic desktop receipt"}}}
 }

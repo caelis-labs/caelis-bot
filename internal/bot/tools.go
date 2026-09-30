@@ -55,11 +55,8 @@ func (r *Runtime) Definitions() []api.ToolDefinition {
 	b, _ := json.Marshal(toolSpecs())
 	var out []api.ToolDefinition
 	_ = json.Unmarshal(b, &out)
-	if r.desktop != nil {
-		out = append(out, desktopcontrol.Definition())
-	}
 	if r.desktopControl != nil {
-		out = append(out, desktopcontrol.SemanticDefinitions()...)
+		out = append(out, desktopcontrol.Definitions()...)
 	}
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
 		caps := p.ApplicationCapabilities()
@@ -91,36 +88,19 @@ func (r *Runtime) CallTool(ctx context.Context, name string, args json.RawMessag
 	if !available {
 		return result(nil, errors.New("当前运行时不支持此能力"))
 	}
-	if name == desktopcontrol.ToolName {
-		return r.observeDesktop(ctx, args)
-	}
-	if r.desktopControl != nil && (name == "bot_desktop_observe" || name == "bot_desktop_authorize" || name == "bot_desktop_perform") {
-		var cancel context.CancelFunc
-		ctx, cancel = r.desktopCallContext(ctx)
-		defer cancel()
-		if ctx.Err() != nil {
-			return result(nil, errors.New("desktop turn stopped; wait for a new user request"))
+	if r.desktopControl != nil && strings.HasPrefix(name, desktopcontrol.Prefix) {
+		// Reconciliation remains read-only and available after turn revocation.
+		if name != "bot_desktop_reconcile" {
+			var cancel context.CancelFunc
+			ctx, cancel = r.desktopCallContext(ctx)
+			defer cancel()
+			if ctx.Err() != nil {
+				return result(nil, errors.New("desktop turn stopped; wait for a new user request"))
+			}
 		}
-		if name == "bot_desktop_observe" || name == "bot_desktop_perform" {
-			var input struct {
-				Screenshot bool `json:"screenshot"`
-				Steps      []struct {
-					Op     string          `json:"op"`
-					Target string          `json:"target"`
-					Point  json.RawMessage `json:"point"`
-				} `json:"steps"`
-			}
-			if json.Unmarshal(args, &input) != nil {
-				return result(nil, errors.New("invalid desktop arguments"))
-			}
-			needsImage := input.Screenshot
-			for _, step := range input.Steps {
-				needsImage = needsImage || len(step.Point) > 0 || (step.Op == "type" && step.Target == "window")
-			}
-			if needsImage {
-				if err := r.requireDesktopImage(ctx); err != nil {
-					return result(nil, err)
-				}
+		if name == "bot_desktop_capture" {
+			if err := r.requireDesktopImage(ctx); err != nil {
+				return result(nil, err)
 			}
 		}
 		return r.desktopControl.CallTool(ctx, name, args)
@@ -218,6 +198,9 @@ func Serve(r *Runtime) (*Bridge, error) {
 					_ = json.NewEncoder(conn).Encode(result(nil, errors.New("拒绝未授权调用")))
 					return
 				}
+				if strings.HasPrefix(req.Name, desktopcontrol.Prefix) {
+					_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
+				}
 				_ = json.NewEncoder(conn).Encode(r.call(req.Name, req.Arguments))
 			}()
 		}
@@ -228,15 +211,11 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 	config := &api.ToolConnection{WorkerInstructions: botpolicy.WorkerInstructions, Host: b.runtime, Command: executable, Args: []string{"--bot-tools"},
 		Env:           map[string]string{"CAELIS_BOT_ENDPOINT": b.listener.Endpoint(), "CAELIS_BOT_TOKEN": b.token},
 		ApprovedTools: botpolicy.ApprovedTools()}
-	if b.runtime.desktop != nil {
-		config.Env["CAELIS_BOT_DESKTOP_POC"] = "1"
-		config.ApprovedTools = append(config.ApprovedTools, desktopcontrol.ToolName)
-	}
 	if b.runtime.desktopControl != nil {
-		config.Env["CAELIS_BOT_COMPUTER_USE"] = "1"
+		config.Env["CAELIS_BOT_DESKTOP_WORLD"] = "1"
 		// Input is cheap after a separately reviewed app grant; the native helper
 		// enforces its application and turn scope before every dispatch.
-		config.ApprovedTools = append(config.ApprovedTools, "bot_desktop_observe", "bot_desktop_perform")
+		config.ApprovedTools = append(config.ApprovedTools, desktopcontrol.ApprovedTools()...)
 	}
 	return config
 }
@@ -308,11 +287,8 @@ func RunStdio(in io.Reader, out io.Writer) error {
 			switch req.Method {
 			case "tools/list":
 				specs := toolSpecs()
-				if os.Getenv("CAELIS_BOT_DESKTOP_POC") == "1" {
-					specs = append(specs, desktopcontrol.Definition())
-				}
-				if os.Getenv("CAELIS_BOT_COMPUTER_USE") == "1" {
-					for _, d := range desktopcontrol.SemanticDefinitions() {
+				if os.Getenv("CAELIS_BOT_DESKTOP_WORLD") == "1" {
+					for _, d := range desktopcontrol.Definitions() {
 						specs = append(specs, d)
 					}
 				}
@@ -351,13 +327,16 @@ func forward(endpoint string, req toolRequest) toolResult {
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	if strings.HasPrefix(req.Name, desktopcontrol.Prefix) {
+		_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
+	}
 	if e = json.NewEncoder(conn).Encode(req); e != nil {
 		return result(nil, errors.New("Bot 请求未确认"))
 	}
 	var out toolResult
 	if e = json.NewDecoder(io.LimitReader(conn, 512*1024)).Decode(&out); e != nil {
-		if req.Name == "bot_desktop_perform" {
-			return result(nil, errors.New("desktop input result unknown; observe again, never replay automatically"))
+		if strings.HasPrefix(req.Name, desktopcontrol.Prefix) {
+			return result(nil, errors.New("desktop result unconfirmed; reconcile the original requestId, never replay with a new ID"))
 		}
 		return result(nil, errors.New("Bot 请求结果未确认；请先读取当前状态，重试写入时复用原请求标识"))
 	}

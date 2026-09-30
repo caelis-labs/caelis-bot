@@ -20,6 +20,12 @@ func (s *Session) connectionParams() map[string]any {
 		instructions = s.opts.BotTools.Instructions
 		config["mcp_servers.caelis_bot"] = toolConfig(s.opts.BotTools)
 		config["agents.enabled"] = false // Professional work goes through the owned task contract.
+		if s.opts.BotTools.Env["CAELIS_BOT_DESKTOP_WORLD"] == "1" {
+			// The resident has one desktop writer. Ordinary Codex sessions and
+			// worker configuration retain their native tool policies.
+			config["computer_use.default_app_access"] = "deny"
+			config["computer_use.macos.bundle_ids"] = map[string]any{}
+		}
 	}
 	params := map[string]any{"runtimeWorkspaceRoots": []string{}, "developerInstructions": instructions, "cwd": s.opts.Directory, "sandbox": "workspace-write", "approvalPolicy": "on-request", "approvalsReviewer": "auto_review", "config": config}
 	if s.opts.BotTools != nil && s.opts.BotTools.NotebookDirectory != "" {

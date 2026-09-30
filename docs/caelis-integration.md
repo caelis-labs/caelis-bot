@@ -11,10 +11,10 @@ Caelis 可独立交付该修复，无需为此单独发布版本。通用应用�
 
 验证命令和证据范围见[开发与验证](development.md)。历史 v0.61.0 的真实模型结果不代替新增能力验收。
 
-macOS 13.5+ 安装包为常驻 Bot 装配 Cua 桌面工具时，还要求 Host 声明
+macOS 14+ arm64 安装包为常驻 Bot 装配 Desktop World 工具时，还要求 Host 声明
 `application-tool-result-content-v1`（Caelis #82）。缺少时在注册工具前提示更新并重启 Host，
 不能仅凭 v0.62.0 版本号认定桌面集成可用。未装配此能力的纯文本会话仍遵循原基线。
-Codex 使用其原生 Computer Use，不经过这条 Cua callback 路径。
+Codex 与 Caelis 的常驻 Bot 都使用同一个 Desktop World Go host/helper；各自的适配器负责工具传输和审批。
 
 ## 基线与发现
 
@@ -263,20 +263,23 @@ Session 和 Worker 继续由 Core 各自的原生配置负责，Bot 不改全局
 | `bot_gesture`、`bot_tasks` 的列表/固定/锁定/清理、`bot_task_stop` | 直接执行 | 本地呈现或停止已拥有的工作；不扩大执行权限，不删除任务历史 |
 | `bot_task_start`、`bot_task_send` | 每次派生 / 新指令由 Guardian 审查 | 新执行或扩大工作指令；审批后直接继续，Worker 内部仍有自己的 sandbox / reviewer |
 | `bot_reminders` save/remove、`bot_care` save/remove/configure | 修改持续安排时审查 | 审查未来工作授权；读取使用独立免审入口，匹配每次时钟事件不会再审查注册动作 |
-| `bot_desktop_observe`、`bot_desktop_capture` | 只读直通 | 保留原系统权限、模型图片能力门控 |
+| `bot_desktop_observe` | 只读直通 | 有界元数据观察；不申请系统权限、不自动截图 |
 | `bot_desktop_authorize` | 每个 App、每个连续任务 Turn 审查一次 | Guardian 审查本次任务的 App 访问目的和已观察到的 App |
-| `bot_desktop_perform` | 当前 Turn 内已获授权 App 免逐次 Guardian | 每次输入前由原生 helper 校验 App 授权和新鲜目标；不按点击次数或操作批次收费 |
+| `bot_desktop_act` | 当前 Turn 内已获授权 App 免逐次 Guardian | helper 校验 App 授权和目标；最多 16 步顺序执行，返回交付与验证收据 |
+| `bot_desktop_capture` | 已获授权 App 内免逐次 Guardian | 仅显式请求截图；检查模型图片能力，图片最多 256 KiB |
+| `bot_desktop_read` / `sync` / `get` / `cancel` / `reconcile` | 明确列入免审目录 | 有界读取、增量与原请求恢复；不会自动重放输入 |
 | 未明确列出的 callback | `approval_policy: required` | 新能力不会默认为免审；Codex 同样只免审明确列出的工具 |
 
 Computer Use 授权属于当前连续任务，不向用户暴露 Session 概念。相同 App 的窗口共享授权，
-另一个 App 必须单独授权。当前实现用原生 PID 与应用名称绑定本次运行的 App，不按窗口标题授权，
+另一个 App 必须单独授权。当前实现用已观察到的 application Ref 与准确名称绑定本次运行的 App，不按窗口标题授权，
 不同进程实例不会因同名而继承授权。授权仅在 helper 内存中存在，由 Bot 原生生命周期通过私有
 管道提供 Turn 标识；模型参数不能创建或延长 Turn。完成、停止、中断、新 Turn 或 helper 重启后
 不复用授权。长任务不设置按分钟或点击次数重新审批的限制。
 
 App 授权不取消输入的新鲜目标检查、不扩大系统权限，也不把页面里的指令变成用户授权。
-每次输入仍返回新观察并重规划，未知结果不自动重放。系统权限、登录和必要信息选择保留原交互。
-Codex 使用原生 Computer Use 的应用授权语义，不另装 Bot Cua 绕行路径。
+输入返回收据；按需要读取或同步变化，出现新弹窗后先观察再选择目标。未知结果不自动重放。
+系统权限、登录和必要信息选择保留原交互。Codex 的常驻配置关闭竞争的原生桌面输入工具，
+普通 Session 和 Worker 的原有配置不变。
 
 ## 审查事实与恢复
 
@@ -312,48 +315,41 @@ worker artifacts are not yet aggregated into resident download items; cancel/app
 under a new ID; optional terminal observation/model image support require their own negotiated capabilities.
 Real model, long-running memory quality and cross-Runtime daily Notebook usage need separate evidence.
 
-## Bot-owned Computer Use
+## Desktop World integration
 
-Codex owns native Computer Use; Bot never injects a Cua fallback or relaxes those tool policies.
-Caelis currently uses the Bot helper when native ownership is absent. An ownership tag is not readiness;
-denied permissions or unavailable native tools cannot select an alternate driver automatically.
+Both resident backends use the public Desktop World Go host SDK and independent
+native helper, pinned together to `v0.1.0-alpha.1` / `5a2ae97ddf65579d2d0051e82a33efd588f17942`.
+There is one desktop writer. No alternate driver, bundled JavaScript runtime or
+native-capability fallback remains. F1 screen input and passive desktop context
+are separate product services.
 
-Observe visible windows, then select a short host-issued reference for AX metadata/actions. Default observation
-does not capture pixels. Window contents are untrusted data. Pagination preserves a single snapshot and returns
-all bounded pages without discarding unseen windows. New enumeration/helper restart expires old references;
-window refs last at most five minutes, observations at most sixty seconds. A fresh observation invalidates old
-input targets. The driver rechecks actual window identity/position and selected-window subtree before dispatch.
+`desktopcontrol` owns private stdio for requests and independent control pipes for
+BeginTurn/Grant/EndTurn. The host supplies turn identity, epoch, helper path and
+capture asset directory; model arguments cannot choose them. Observe before
+requesting authorization for the exact live application Ref/name. Finish, stop,
+interrupt, runtime replacement and shutdown revoke grants, including idle ones.
 
-`bot_desktop_authorize` reviews the observed App and task purpose once per App × native Turn. The helper receives
-Turn identity privately from Go; the model cannot create/extend it. PID plus app name binds a running instance.
-Grants stay in helper memory and expire on completion, stop, next Turn or restart; multiple windows of the same
-App reuse the grant. Observing/capturing is direct; every input still validates the grant and fresh target.
+Observe uses scoped fields/budgets; sync returns cursor deltas. Act accepts up to
+16 ordered steps and local predicates, without automatic screenshots or full AX
+trees. Only explicit capture returns pixels, gated by model support and app grant.
+Content projection bounds text plus structured JSON to 32 KiB; Caelis suppresses
+identical duplicate JSON text only. A single image is bounded to 256 KiB. Prefer
+semantic invoke/set_value; the alpha still shares the system focus and pointer.
 
-`perform` supports click, text insertion, targeted key and scroll. Up to eight candidate steps are accepted but
-only the first mutation executes; new observation and remaining steps are returned. This is not an approval batch.
-No arbitrary coordinates, scripts, PID or native tokens from the model. Text insertion does not imply replacement.
-Modifier keys use the pinned driver's window/element-scoped background hotkey; unsupported input rejects without
-switching execution routes. Dispatch acknowledgment alone is not proof of the intended UI effect.
+Stable request IDs deduplicate identical arguments and reject conflicts. Reconcile
+returns the original receipt, including after its turn ends, without input or
+recapture. Unknown delivery revokes the turn; neither helper restart nor a new
+request ID is a recovery strategy. Receipt history is process-local and bounded;
+missing history never proves no effect. The managed JavaScript bridge is not used.
 
-Full content-v1 results (text plus JSON-escaped structuredContent) fit 32 KiB; outer IPC frames fit 512 KiB.
-Truncated targets are removed from the selectable directory; remaining steps drop only as whole steps with a
-truncation marker, never by shortening intended input. Optional screenshot requires current model image support,
-at most one image/256 KiB; unavailable images leave metadata usable. Window text/images go to the selected model
-only for the requested task. OS consent stays independent of Guardian.
+Builds download the archive pinned in `resources/desktop-world/release.json`, check
+SHA-256, source revision, protocol and licensing metadata, then sign the helper with
+the app identity. CI verifies the real packaged helper without app grants or UI input.
+Current signing and packaging require Desktop World; use an historical tag's own
+release tooling for historical payloads. Upstream is a public preview with no
+open-source license grant; preserve its NOTICE separately from Bot licensing.
 
-`desktopcontrol` owns private pipes to packaged Node 24.21.0 `--jitless` and Cua 0.30.2. Lockfile integrity and Node
-SHA-256 are pinned; no global Node, MCP listener or model credentials in the helper. Calls are bounded to eight
-seconds. Timeout/cancel/transport loss kills the helper before closing input, preventing delayed validation from
-sending input after stop. Only a fresh observe can restart it; uncertain effects are never replayed. Input already
-sent to the OS cannot be withdrawn. Stop cancels local input before interrupting the native Turn.
-
-Packaged Cua requires macOS 13.5+ (Node baseline). All nested Mach-O code is signed with the app identity;
-`--jitless` avoids new JIT/library-validation exceptions. `script/verify-computer-use.sh` verifies versions,
-architecture, signatures, dynamic dependencies/rpaths, licenses and loads the actual binding without requesting
-OS access. Tagged historical recovery permits an absent payload only when its version marker is also absent.
-
-Cua is MIT with MPL-covered UniFFI/Node runtime components. Bot remains Apache-2.0 and character assets retain
-their own license. Preserve the actual bundled notices, matching source/rebuild references and dependency list
-under `resources/computer-use`; do not relabel third-party payloads or assume an unmodified binary needs no notices.
-The fixed upstream Cua source is `a2229c5b829153ec3b1828387bc72ca8f1f18704`; package notices identify corresponding
-UniFFI sources. Experimental AXorcist/gamepad work is not another production driver.
+See [architecture](architecture.md#desktop-and-presentation) for the ownership
+contract and [development](development.md#current-evidence-and-limits) for real Bot,
+fixture, performance and upstream issue evidence. Live WPS success required a
+correction; it does not establish first-attempt autonomy or end-to-end speed.

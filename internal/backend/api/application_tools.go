@@ -25,30 +25,13 @@ type ToolResult struct {
 	StructuredContent map[string]any      `json:"structuredContent,omitzero"`
 }
 
-// NativeToolCapability tags identify tool families owned by a Runtime. They
-// select the integration owner, not current permission, plugin or tool readiness.
-// A native owner's unavailable/refused tool must not enable a host fallback.
-type NativeToolCapability string
-
-const NativeComputerUse NativeToolCapability = "computer-use"
-
 // ApplicationCapabilities describes native execution boundaries, not UI state.
 // Adapters that implement this port explicitly qualify the available modes.
 type ApplicationCapabilities struct {
-	NativeTools         []NativeToolCapability
 	NativeFiles         bool
 	WorkerExecution     bool
 	ScheduledActivation bool
 }
 type ApplicationCapabilityProvider interface {
 	ApplicationCapabilities() ApplicationCapabilities
-}
-
-func (c ApplicationCapabilities) HasNativeTool(tag NativeToolCapability) bool {
-	for _, v := range c.NativeTools {
-		if v == tag {
-			return true
-		}
-	}
-	return false
 }

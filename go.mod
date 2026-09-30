@@ -4,9 +4,10 @@ go 1.26.8
 
 require (
 	cel.dev/cel-go v0.32.0
+	github.com/caelis-labs/desktop-world v0.1.0-alpha.2
 	github.com/caelis-labs/memory v0.6.1
 	github.com/coder/websocket v1.8.15
-	github.com/wailsapp/wails/v3 v3.0.0-beta.23
+	github.com/wailsapp/wails/v3 v3.0.0-beta.26
 	golang.org/x/sys v0.48.0
 )
 

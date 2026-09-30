@@ -557,16 +557,54 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 		if d.NextCursor != nil {
 			v.Cursor = *d.NextCursor
 		}
-		if e := s.saveLocked(); e != nil {
+		if e := s.publishProjectionLocked(d, time.Now()); e != nil {
 			return e
 		}
-		s.bumpLocked()
 		if v.ApprovalDirty {
 			s.requestRefreshLocked()
 		}
 		return nil
 	})
 }
+
+// Only reconstructible, non-final prose may be checkpointed in batches. Native
+// commands, callback receipts, approvals, canonical events and stream boundaries
+// retain their immediate durable writes. The saved cursor and its projection
+// are always written together; a crash replays from that last checkpoint.
+func (s *Session) publishProjectionLocked(d wire.SessionFeedDelivery, now time.Time) error {
+	soft := transientProse(d)
+	if !soft || now.Sub(s.projectionSavedAt) >= time.Second {
+		if err := s.saveLocked(); err != nil {
+			return err
+		}
+		s.projectionSavedAt = now
+	}
+	if !soft || now.Sub(s.projectionPublishedAt) >= 50*time.Millisecond {
+		s.bumpLocked()
+		s.projectionPublishedAt = now
+	}
+	return nil
+}
+
+func transientProse(d wire.SessionFeedDelivery) bool {
+	if d.Kind != "append_page" || len(d.Events) == 0 {
+		return false
+	}
+	for _, e := range d.Events {
+		if e.Delivery.Mode != wire.DeliveryModeTransient || e.Kind != "session/update" || value(e.Final) ||
+			e.Permission != nil || e.ApprovalReview != nil || value(e.ApprovalRequestId) != "" || e.Lifecycle != nil {
+			return false
+		}
+		var update struct {
+			Kind string `json:"sessionUpdate"`
+		}
+		if json.Unmarshal(value(e.Update), &update) != nil || (update.Kind != "agent_message_chunk" && update.Kind != "agent_thought_chunk") {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Session) pollLoop(ctx context.Context) {
 	defer s.wg.Done()
 	timer := time.NewTicker(2 * time.Second)

@@ -17,7 +17,6 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/care"
-	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 )
 
 type Schedule struct {
@@ -56,32 +55,32 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
-	desktopTurn    string
-	desktopContext context.Context
-	desktopCancel  context.CancelFunc
-	desktopControl api.ApplicationTools    // owned by native host, never by workers
-	desktop        desktopcontrol.Observer // fixed before tool transport starts
-	dream          *dreamController        // guarded by step
-	care           *care.Engine
-	careLoadErr    error
-	careSample     func() care.Sample
-	careSources    care.SourcesTracker
-	stopped        bool
-	mu             sync.Mutex
-	step           sync.Mutex
-	paused         bool // guarded by step; fences update shutdown against wakeups
-	path           string
-	state          State
-	now            func() time.Time
-	engine         Engine
-	provider       string
-	personal       api.PersonalTools
-	initialization *Initializer
-	tasks          api.TaskProvider
-	reports        api.TaskReporter
-	action         func(string) error
-	done           chan struct{}
-	cancel         context.CancelFunc
+	desktopTurn      string
+	desktopContext   context.Context
+	desktopCancel    context.CancelFunc
+	desktopControl   api.ApplicationTools // owned by native host, never by workers
+	desktopLifecycle sync.Mutex           // serializes turn activation and independent revocation
+	dream            *dreamController     // guarded by step
+	care             *care.Engine
+	careLoadErr      error
+	careSample       func() care.Sample
+	careSources      care.SourcesTracker
+	stopped          bool
+	mu               sync.Mutex
+	step             sync.Mutex
+	paused           bool // guarded by step; fences update shutdown against wakeups
+	path             string
+	state            State
+	now              func() time.Time
+	engine           Engine
+	provider         string
+	personal         api.PersonalTools
+	initialization   *Initializer
+	tasks            api.TaskProvider
+	reports          api.TaskReporter
+	action           func(string) error
+	done             chan struct{}
+	cancel           context.CancelFunc
 }
 
 func New(path string, action func(string) error) (*Runtime, error) {
@@ -313,6 +312,7 @@ func (r *Runtime) Stop() {
 	}
 	cancel := r.cancel
 	r.mu.Unlock()
+	r.StopDesktopTurn()
 	if cancel != nil {
 		cancel()
 	}
