@@ -26,6 +26,12 @@ func (s nativeSSHFixtureSource) WorkDispatchSource(context.Context) (api.WorkDis
 	return s.source, nil
 }
 func TestSSHNativeWorkerIntegration(t *testing.T) {
+	runSSHNativeWorkerIntegration(t, caelis.WorkerProtocolSharedNative)
+}
+func TestSSHBoundedApplicationWorkerIntegration(t *testing.T) {
+	runSSHNativeWorkerIntegration(t, caelis.WorkerProtocolBoundedApplication)
+}
+func runSSHNativeWorkerIntegration(t *testing.T, protocol caelis.WorkerProtocol) {
 	configPath := os.Getenv("CAELIS_BOT_SSH_FIXTURE_CONFIG")
 	if configPath == "" {
 		t.Skip("set CAELIS_BOT_SSH_FIXTURE_CONFIG for approved isolated strict SSH acceptance")
@@ -50,7 +56,7 @@ func TestSSHNativeWorkerIntegration(t *testing.T) {
 	var worker *caelis.WorkerClient
 	open := func() {
 		var e error
-		transport, e = NewSSHWorker(SSHConfig{Target: config.Target, Helper: config.Helper, Store: config.Store, WorkspaceRoot: config.WorkspaceRoot, Binary: "/usr/bin/ssh"})
+		transport, e = NewSSHWorker(SSHConfig{Protocol: protocol, Target: config.Target, Helper: config.Helper, Store: config.Store, WorkspaceRoot: config.WorkspaceRoot, Binary: "/usr/bin/ssh"})
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -58,7 +64,11 @@ func TestSSHNativeWorkerIntegration(t *testing.T) {
 		if probeErr != nil || ready.OS != "linux" || ready.Arch != "arm64" || ready.StoreID == "" || ready.InstanceID == "" || ready.PrincipalID == "" {
 			t.Fatal("actual target-native public initialization provenance unavailable")
 		}
-		for _, required := range []string{"shared-native-workers-v1", "turn-steering-receipts-v1", "application-runtime-v1", "application-resource-transfer-v1"} {
+		requiredCaps := []string{"shared-native-workers-v1", "turn-steering-receipts-v1", "application-runtime-v1", "application-resource-transfer-v1"}
+		if protocol == caelis.WorkerProtocolBoundedApplication {
+			requiredCaps = []string{"application-runtime-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1", "execution-configuration-v1", "turn-steering-receipts-v1"}
+		}
+		for _, required := range requiredCaps {
 			found := false
 			for _, capability := range ready.Capabilities {
 				if capability == required {
@@ -69,7 +79,7 @@ func TestSSHNativeWorkerIntegration(t *testing.T) {
 				t.Fatal("actual target-native minimum capability unavailable", required)
 			}
 		}
-		worker = caelis.NewWorker(caelis.WorkerOptions{Target: target, Directory: directory, Endpoint: transport.Endpoint, Source: nativeSSHFixtureSource{source}, Workspace: transport})
+		worker = caelis.NewWorker(caelis.WorkerOptions{Protocol: protocol, Target: target, Directory: directory, Endpoint: transport.Endpoint, Source: nativeSSHFixtureSource{source}, Workspace: transport})
 		if e = worker.Connect(ctx); e != nil {
 			t.Fatal("native SSH scoped connect:", e)
 		}
@@ -182,7 +192,7 @@ func TestSSHNativeWorkerIntegration(t *testing.T) {
 		// currently does not install PublishArtifact on shared native Workers.
 		// A native failed tool result cannot become an artifact from prose/path.
 		evidence := control("GET", "artifact-status")
-		if evidence["native_version"] == "0.65.0" && evidence["tool"] == "PublishArtifact" && evidence["status"] == "failed" && evidence["error_code"] == "not_found" {
+		if protocol == caelis.WorkerProtocolSharedNative && evidence["native_version"] == "0.65.0" && evidence["tool"] == "PublishArtifact" && evidence["status"] == "failed" && evidence["error_code"] == "not_found" {
 			if len(worker.WorkArtifacts()) != 0 {
 				t.Fatal("failed native publication invented an artifact")
 			}
@@ -212,9 +222,9 @@ func TestSSHNativeWorkerIntegration(t *testing.T) {
 	}
 	t.Log("actual SSH: target-side enrollment, Worker-only start, lost prompt receipt passed; artifact gate separately reported")
 	start("approval", "CASE_SSH_APPROVAL")
-	t.Run("native_human_approval_receipt", func(t *testing.T) {
+	t.Run("native_human_approval_lost_reply", func(t *testing.T) {
 		evidence := control("GET", "approval-status")
-		if evidence["native_version"] == "0.65.0" && evidence["status"] == "failed" && evidence["error_code"] == "approval_unavailable" {
+		if protocol == caelis.WorkerProtocolSharedNative && evidence["native_version"] == "0.65.0" && evidence["status"] == "failed" && evidence["error_code"] == "approval_unavailable" {
 			if len(worker.WorkApprovals()) != 0 {
 				t.Fatal("native failed automatic review invented a human approval")
 			}
@@ -247,9 +257,32 @@ func TestSSHNativeWorkerIntegration(t *testing.T) {
 			t.Fatal("cross-task approval accepted")
 		}
 		_ = worker.DecideWork(ctx, approval, decision)
-		wait("lost approval receipt", func() bool { return settled("approval-") })
+		if protocol == caelis.WorkerProtocolBoundedApplication {
+			evidence := control("GET", "approval-receipt")
+			if evidence["native_response_outcome"] != "committed" || evidence["native_recovery_http"] != float64(404) || evidence["response_dropped"] != true {
+				t.Fatal("unexpected native lost-approval receipt evidence")
+			}
+			if settled("approval-") {
+				t.Fatal("missing native approval receipt was falsely confirmed")
+			}
+			if worker.DecideWork(ctx, approval, decision) == nil {
+				t.Fatal("stale settled native approval accepted")
+			}
+		} else {
+			wait("lost approval receipt", func() bool { return settled("approval-") })
+		}
 		wait("approved task complete", func() bool { return state("approval").Status == "completed" })
-		t.Log("actual SSH: exact Worker approval and lost native approval receipt passed")
+		if protocol == caelis.WorkerProtocolBoundedApplication && state("approval").Outcome != "unknown" {
+			t.Fatal("native completed task falsely confirmed original lost approval")
+		}
+		if len(worker.WorkApprovals()) != 0 {
+			t.Fatal("resolved native approval remained visible")
+		}
+		if protocol == caelis.WorkerProtocolBoundedApplication {
+			t.Log("actual SSH: exact human Worker approval applied; original lost reply unknown; later approval absence/completion independently observed; no repeat")
+		} else {
+			t.Log("actual SSH: exact Worker approval and lost native approval receipt passed")
+		}
 	})
 	start("cancel", "CASE_SSH_CANCEL")
 	wait("provider entered cancel", func() bool { return control("GET", "state")["model_counts"].(map[string]any)["CASE_SSH_CANCEL"] != nil })
@@ -260,11 +293,18 @@ func TestSSHNativeWorkerIntegration(t *testing.T) {
 			if settled("cancel-") {
 				t.Fatal("missing native receipt was falsely settled")
 			}
-			t.Skip("official Core 0.65.0 committed cancel missing from scoped application operation recovery; exact receipt remains unknown")
+			if protocol == caelis.WorkerProtocolSharedNative {
+				t.Skip("official Core 0.65.0 committed cancel missing from scoped application operation recovery; exact receipt remains unknown")
+			}
+			t.Log("supported bounded v1 loss behavior: original cancel receipt unknown; native task independently interrupted; no retry")
+			return
 		}
 		wait("lost cancel receipt", func() bool { return settled("cancel-") })
 	})
 	wait("native cancelled target", func() bool { return state("cancel").Status == "interrupted" })
+	if protocol == caelis.WorkerProtocolBoundedApplication && state("cancel").Outcome != "unknown" {
+		t.Fatal("native interrupted task falsely confirmed original lost cancel")
+	}
 	control("POST", "release/CASE_SSH_CANCEL")
 	t.Log("actual SSH: exact Worker cancellation observed; lost cancel receipt gate separately reported")
 	start("detach", "CASE_SSH_DETACH")
@@ -278,6 +318,14 @@ func TestSSHNativeWorkerIntegration(t *testing.T) {
 	open()
 	wait("same-grant reconnect completion", func() bool { return state("detach").Status == "completed" })
 	stats = control("GET", "state")
+	if protocol == caelis.WorkerProtocolBoundedApplication {
+		if state("cancel").Outcome != "unknown" || state("approval").Outcome != "unknown" || settled("cancel-") || settled("approval-") {
+			t.Fatal("reconnect discarded original action uncertainty")
+		}
+		if stats["request_counts"].(map[string]any)["approval"] != float64(1) {
+			t.Fatal("uncertain native approval resent")
+		}
+	}
 	if stats["request_counts"].(map[string]any)["create"].(float64) != 4 {
 		t.Fatal("reconnect replaced native worker grant")
 	}

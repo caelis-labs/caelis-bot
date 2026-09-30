@@ -3,7 +3,7 @@
 Owns only its supplied random /tmp root and generated fixture credential. The
 management credential remains target-local. All provider requests stay loopback.
 """
-import http.client, http.server, json, os, pathlib, re, signal, socket, subprocess, sys, threading, time, urllib.parse, uuid
+import hashlib, http.client, http.server, json, os, pathlib, re, signal, socket, subprocess, sys, threading, time, urllib.parse, uuid
 root = pathlib.Path(sys.argv[1])
 if not re.fullmatch(r'/tmp/caelis-bot-issue47-worker-[a-f0-9]{16}', str(root)) or root.is_symlink() or root.stat().st_mode & 0o077:
     raise SystemExit('invalid isolated fixture root')
@@ -87,13 +87,14 @@ try:
             if self.path.startswith('/fixture/'):
                 if self.path == '/fixture/state':
                     with lock: self.reply({'model_counts':dict(counts),'request_counts':dict(requests),'dropped':sorted(dropped),'host_alive':host.poll() is None})
-                elif self.path == '/fixture/cancel-receipt':
-                    receipt=native_receipts.get('cancel',{})
+                elif self.path in ('/fixture/cancel-receipt','/fixture/approval-receipt'):
+                    category='cancel' if self.path=='/fixture/cancel-receipt' else 'approval'
+                    receipt=native_receipts.get(category,{})
                     credential=json.loads(next((root/'store/runtime/bot-worker-enrollments').glob('*.json')).read_text())['Token']
                     connection=http.client.HTTPConnection(origin.hostname,origin.port,timeout=10)
                     connection.request('GET','/api/control/v1/application/operations/'+receipt['operation_id'],headers={'Authorization':'Bearer '+credential})
                     response=connection.getresponse(); response.read(); connection.close()
-                    self.reply({'native_version':'0.65.0','native_response_outcome':receipt['outcome'],'native_recovery_http':response.status,'response_dropped':'cancel' in dropped})
+                    self.reply({'native_version':'0.65.0','native_response_outcome':receipt['outcome'],'native_recovery_http':response.status,'response_dropped':category in dropped})
                 elif self.path in ('/fixture/artifact-status','/fixture/approval-status'):
                     artifact=self.path=='/fixture/artifact-status'
                     sid=session_titles.get('artifact' if artifact else 'approval')
@@ -132,12 +133,16 @@ try:
                 data=res.read()
                 if self.command=='POST' and self.path.endswith('/application/workers') and res.status<300:
                     session_titles[json.loads(raw)['title']]=json.loads(data)['session_id']
+                if self.command=='POST' and self.path.endswith('/application/sessions') and res.status<300:
+                    profile=json.loads(raw)['profile']; cwd=profile.get('workspace',{}).get('cwd','')
+                    for task in ('artifact','approval','cancel','detach'):
+                        if cwd.endswith('/task-'+hashlib.sha256(task.encode()).hexdigest()[:24]):session_titles[task]=json.loads(data)['session_id']
                 category=''
                 if self.command=='POST':
                     if self.path.endswith('/prompt'): category='prompt'
                     elif self.path.endswith('/resolve'): category='approval'
                     elif self.path.endswith('/cancel'): category='cancel'
-                    elif self.path.endswith('/application/workers'): category='create'
+                    elif self.path.endswith('/application/workers') or self.path.endswith('/application/sessions'): category='create'
                 if category:
                     native_result=json.loads(data) if res.status<300 else {}
                     if native_result.get('operation_id'): native_receipts[category]={'operation_id':native_result['operation_id'],'outcome':native_result.get('outcome')}
