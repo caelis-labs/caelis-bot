@@ -344,3 +344,31 @@ func NewSSHForegroundClient(ctx context.Context, s SSHConfig, helper, directory,
 	}
 	return c, err
 }
+
+// OpenBrokerStream owns only the strict existing SSH observation process for
+// the closed target-local broker helper. It neither creates a broker nor adds
+// forwarding, credentials, key material or account configuration.
+func OpenBrokerStream(ctx context.Context, s SSHConfig, helper, socket string) (io.ReadWriteCloser, error) {
+	args, err := s.args()
+	if err != nil || !filepath.IsAbs(helper) || !validSocket(socket) || strings.ContainsAny(helper, "\x00\r\n") {
+		return nil, errors.New("invalid SSH broker proxy")
+	}
+	args = append(args, "-o", "ClearAllForwardings=yes", "--", s.Target, shellQuote(helper)+" proxy-broker --socket "+shellQuote(socket))
+	cmd := exec.CommandContext(ctx, s.binary(), args...)
+	cmd.Stderr = io.Discard
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		in.Close()
+		return nil, err
+	}
+	if cmd.Start() != nil {
+		in.Close()
+		out.Close()
+		return nil, errors.New("SSH broker proxy unavailable")
+	}
+	return &sshStream{stdin: in, stdout: out, cmd: cmd}, nil
+}
