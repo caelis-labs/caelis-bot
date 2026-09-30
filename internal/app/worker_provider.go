@@ -17,13 +17,20 @@ func (a *Application) newWorkerNodeAdapter(config backend.WorkerNodeConfig, dire
 	if !ok {
 		return nil, errors.New("resident driver cannot attest Worker dispatch")
 	}
-	ssh, err := nodes.NewSSHWorker(nodes.SSHConfig{Target: config.SSH, Helper: config.Helper, Store: config.Store, WorkspaceRoot: config.WorkspaceRoot})
+	if config.Backend == "codex" {
+		return a.newCodexWorkerNode(config, source)
+	}
+	protocol := caelis.WorkerProtocolSharedNative
+	if config.Backend == "caelis" {
+		protocol = caelis.WorkerProtocolBoundedApplication
+	}
+	ssh, err := nodes.NewSSHWorker(nodes.SSHConfig{Target: config.SSH, Helper: config.Helper, Store: config.Store, WorkspaceRoot: config.WorkspaceRoot, Protocol: protocol})
 	if err != nil {
 		return nil, err
 	}
 	// Remote Worker model selection inherits its target Host default. The local
 	// resident/work settings never silently select or configure a remote model.
-	worker := caelis.NewWorker(caelis.WorkerOptions{Target: workerTarget(config.ID), Directory: directory, Endpoint: ssh.Endpoint, Source: source, Workspace: ssh})
+	worker := caelis.NewWorker(caelis.WorkerOptions{Target: workerTarget(config.ID), Directory: directory, Endpoint: ssh.Endpoint, Source: source, Workspace: ssh, Protocol: protocol})
 	return &sshWorkerNodeAdapter{ssh: ssh, worker: worker}, nil
 }
 
