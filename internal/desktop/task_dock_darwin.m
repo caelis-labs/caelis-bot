@@ -307,7 +307,7 @@ static NSPanel *taskPanel(NSString *title) {
         id identifier=entry[@"id"], prompt=entry[@"prompt"];
         if(![identifier isKindOfClass:NSString.class] || ![identifier length] || [ids containsObject:identifier] || ![prompt isKindOfClass:NSString.class])continue;
         NSString *status=[entry[@"status"] isKindOfClass:NSString.class] ? entry[@"status"] : @"unknown";
-        [valid addObject:@{@"id":identifier,@"prompt":prompt,@"status":status,@"provider":([entry[@"provider"] isKindOfClass:NSString.class]?entry[@"provider"]:@""),@"targetLabel":([entry[@"targetLabel"] isKindOfClass:NSString.class]?entry[@"targetLabel"]:@""),@"locked":@([entry[@"locked"] isKindOfClass:NSNumber.class] && [entry[@"locked"] boolValue]),@"terminal":([entry[@"terminal"] isKindOfClass:NSString.class]?entry[@"terminal"]:@"system")}]; [ids addObject:identifier];
+        [valid addObject:@{@"id":identifier,@"prompt":prompt,@"status":status,@"provider":([entry[@"provider"] isKindOfClass:NSString.class]?entry[@"provider"]:@""),@"outcome":([entry[@"outcome"] isKindOfClass:NSString.class]?entry[@"outcome"]:@""),@"targetLabel":([entry[@"targetLabel"] isKindOfClass:NSString.class]?entry[@"targetLabel"]:@""),@"locked":@([entry[@"locked"] isKindOfClass:NSNumber.class] && [entry[@"locked"] boolValue]),@"terminal":([entry[@"terminal"] isKindOfClass:NSString.class]?entry[@"terminal"]:@"system")}]; [ids addObject:identifier];
     }
     for(NSDictionary *old in self.tasks)if(![ids containsObject:old[@"id"]])[self.snapshots removeObjectForKey:old[@"id"]];
     if(self.snapshotTask && ![ids containsObject:self.snapshotTask]){[self.snapshotCapture cancel];self.snapshotTask=nil;}
@@ -427,9 +427,10 @@ static NSPanel *taskPanel(NSString *title) {
         if(!button.enabled)button.pressed=NO;
         NSString *phase=button.tag>=0 ? self.transitions[self.tasks[button.tag][@"id"]] : nil;
         BOOL opening=button.tag<0 ? (self.transitions.count>0 || self.opening.length>0) : (phase.length>0 || [self.tasks[button.tag][@"id"] isEqual:self.opening]);
-        NSString *statusKey=[self activeStatus:status] ? @"taskRunning" : ([status isEqual:@"completed"] ? @"taskFinished" : ([status isEqual:@"waiting_approval"] ? @"taskApproval" : @"taskIdle"));
+        NSString *statusKey=[self activeStatus:status] ? @"taskRunning" : ([status isEqual:@"completed"] ? @"taskFinished" : ([status isEqual:@"interrupted"] ? @"taskInterrupted" : ([status isEqual:@"failed"] ? @"taskFailed" : ([status isEqual:@"waiting_approval"] ? @"taskApproval" : @"taskIdle"))));
         button.statusText=opening?[self text:[phase isEqual:@"closing"]?@"taskClosing":([phase isEqual:@"opening"]?@"taskOpening":@"taskSwitching")]:[self text:statusKey];
         if(button.tag>=0) {
+            if([self.tasks[button.tag][@"outcome"] isEqual:@"unknown"])button.statusText=[NSString stringWithFormat:@"%@ · %@",[self text:@"taskReceiptUnconfirmed"],button.statusText];
             NSString *targetLabel=self.tasks[button.tag][@"targetLabel"];
             if(targetLabel.length)button.statusText=[button.statusText stringByAppendingFormat:@" · %@",targetLabel];
             button.accessibilityValue=button.statusText;
