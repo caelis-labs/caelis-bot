@@ -30,7 +30,7 @@ export function WorkerNodeSettings({call=backend}:{call?:typeof backend}) {
  const save=async()=>{
   if(pending.current||!setup)return;
   pending.current=true;setBusy(true);setError('');
-  const config={...draft,label:draft.label.trim(),ssh:draft.ssh.trim(),helper:draft.helper.trim(),store:draft.store.trim(),workspaceRoot:draft.workspaceRoot.trim()};
+  const config={...draft,label:draft.label.trim(),ssh:draft.ssh.trim(),helper:draft.helper.trim(),store:draft.store.trim(),socket:(draft.socket??'').trim(),workspaceRoot:draft.workspaceRoot.trim()};
   try{const next=await call<WorkerNodeSetup>('SaveWorkerNode',config,setup.revision);if(active.current){setSetup(next);setDraft(emptyNode);}}
   catch{if(active.current)setError('settings.workerNodeSaveFailed');await refresh().catch(()=>{});}
   finally{pending.current=false;if(active.current)setBusy(false);}
@@ -41,7 +41,7 @@ export function WorkerNodeSettings({call=backend}:{call?:typeof backend}) {
  return <SettingGroup title={t('settings.workerNodes')}>
   <p className="settings-note">{t('settings.workerNodesHelp')}</p>
   {setup?.nodes.map(node=><div className="worker-node-entry" key={node.config.id}>
-   <SettingRow label={node.config.label} description={<><span>{t(stateKey(node.state))} · Caelis</span>{node.facts.os&&<span className="worker-node-facts">{[node.facts.os,node.facts.arch,node.facts.version].filter(Boolean).join(' · ')}</span>}</>}>
+   <SettingRow label={node.config.label} description={<><span>{t(stateKey(node.state))} · {node.config.backend==='codex'?'Codex':'Caelis'}</span>{node.facts.os&&<span className="worker-node-facts">{[node.facts.os,node.facts.arch,node.facts.version].filter(Boolean).join(' · ')}</span>}</>}>
     <button disabled={!editable||node.connected} onClick={()=>void perform('ProbeWorkerNode',node.config.id)}>{t('settings.workerNodeCheck')}</button>
     <button disabled={!editable} onClick={()=>void perform(node.connected?'DisconnectWorkerNode':'ConnectWorkerNode',node.config.id)}>{t(node.connected?'settings.workerNodeDisconnect':'settings.workerNodeConnect')}</button>
    </SettingRow>
@@ -50,14 +50,15 @@ export function WorkerNodeSettings({call=backend}:{call?:typeof backend}) {
   <details className="worker-node-form">
    <summary>{t('settings.workerNodeAdd')}</summary>
    <p className="settings-note">{t('settings.workerNodePreparation')}</p>
+   <SettingRow label={t('settings.workerNodeBackend')} htmlFor="worker-node-backend"><select id="worker-node-backend" value={draft.backend??'caelis'} disabled={!editable} onChange={e=>setDraft({...draft,backend:e.target.value,store:'',socket:'',helper:''})}><option value="caelis">Caelis</option><option value="codex">Codex</option></select></SettingRow>
    <SettingRow label={t('settings.workerNodeLabel')} htmlFor="worker-node-label"><input id="worker-node-label" value={draft.label} disabled={!editable} maxLength={128} onChange={e=>setDraft({...draft,label:e.target.value})}/></SettingRow>
    <SettingRow label={t('settings.workerNodeSSH')} htmlFor="worker-node-ssh" description={t('settings.workerNodeSSHHelp')}><input id="worker-node-ssh" value={draft.ssh} disabled={!editable} autoComplete="off" spellCheck={false} maxLength={256} onChange={e=>setDraft({...draft,ssh:e.target.value})}/></SettingRow>
    <SettingRow label={t('settings.workerNodeWorkspace')} htmlFor="worker-node-workspace" description={t('settings.workerNodeWorkspaceHelp')}><input id="worker-node-workspace" value={draft.workspaceRoot} disabled={!editable} autoComplete="off" spellCheck={false} onChange={e=>setDraft({...draft,workspaceRoot:e.target.value})}/></SettingRow>
    <details className="worker-node-advanced"><summary>{t('settings.workerNodeAdvanced')}</summary>
-    <SettingRow label={t('settings.workerNodeStore')} htmlFor="worker-node-store" description={t('settings.workerNodeStoreHelp')}><input id="worker-node-store" value={draft.store} disabled={!editable} autoComplete="off" spellCheck={false} onChange={e=>setDraft({...draft,store:e.target.value})}/></SettingRow>
+    {draft.backend==='codex'?<SettingRow label={t('settings.workerNodeSocket')} htmlFor="worker-node-socket" description={t('settings.workerNodeSocketHelp')}><input id="worker-node-socket" value={draft.socket??''} disabled={!editable} autoComplete="off" spellCheck={false} onChange={e=>setDraft({...draft,socket:e.target.value})}/></SettingRow>:<SettingRow label={t('settings.workerNodeStore')} htmlFor="worker-node-store" description={t('settings.workerNodeStoreHelp')}><input id="worker-node-store" value={draft.store} disabled={!editable} autoComplete="off" spellCheck={false} onChange={e=>setDraft({...draft,store:e.target.value})}/></SettingRow>}
     <SettingRow label={t('settings.workerNodeHelper')} htmlFor="worker-node-helper" description={t('settings.workerNodeHelperHelp')}><input id="worker-node-helper" value={draft.helper} disabled={!editable} autoComplete="off" spellCheck={false} onChange={e=>setDraft({...draft,helper:e.target.value})}/></SettingRow>
    </details>
-   <button disabled={!editable||!draft.label.trim()||!draft.ssh.trim()||!draft.workspaceRoot.trim()} onClick={()=>void save()}>{t('settings.workerNodeSave')}</button>
+   <button disabled={!editable||!draft.label.trim()||!draft.ssh.trim()||!draft.workspaceRoot.trim()||draft.backend==='codex'&&!draft.socket?.trim()} onClick={()=>void save()}>{t('settings.workerNodeSave')}</button>
   </details>
   {setup?.issue&&<p className="inline-error" role="alert">{t('settings.workerNodeConfigUnreadable')}</p>}
   {(error||busy)&&<p className={error?'inline-error':'settings-note'} role={error?'alert':'status'}>{t(error||'settings.workerNodeWorking')}</p>}
