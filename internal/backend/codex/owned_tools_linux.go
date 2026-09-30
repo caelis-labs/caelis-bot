@@ -2,6 +2,7 @@ package codex
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -290,10 +291,22 @@ func (o *ownedTools) failure() error { o.mu.Lock(); defer o.mu.Unlock(); return 
 // pidfd readiness confirms the captured process exited, including an unreaped
 // zombie. It never substitutes a newly created process with the same numeric PID.
 func linuxHandleExited(fd int) (bool, error) {
+	return linuxHandleExitedWithPoll(fd, unix.Poll)
+}
+
+func linuxHandleExitedWithPoll(fd int, poll func([]unix.PollFd, int) (int, error)) (bool, error) {
 	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
-	_, err := unix.Poll(fds, 0)
-	if err != nil {
-		return false, errors.New("owned process exit observation unavailable")
+	for {
+		_, err := poll(fds, 0)
+		if errors.Is(err, unix.EINTR) {
+			// A signal (including Go async preemption) interrupts observation,
+			// not the captured process. Retry without losing cleanup authority.
+			continue
+		}
+		if err != nil {
+			return false, fmt.Errorf("owned process exit observation unavailable: %w", err)
+		}
+		break
 	}
 	if fds[0].Revents&unix.POLLNVAL != 0 {
 		return false, errors.New("owned process handle invalid")
