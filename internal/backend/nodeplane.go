@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"io"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -13,6 +14,19 @@ func (s *Service) SetNodeManagementController(c api.NodeManagementController) {
 	s.mu.Lock()
 	s.nodeManagement = c
 	s.mu.Unlock()
+}
+
+// CloseNodeManagement detaches optional observer transports. Runtime stop and
+// lease quiescence remain with the independent native lifecycle owner.
+func (s *Service) CloseNodeManagement(context.Context) error {
+	c, err := s.nodeManagementController()
+	if err != nil {
+		return nil
+	}
+	if closer, ok := c.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }
 
 func (s *Service) nodeManagementController() (api.NodeManagementController, error) {
