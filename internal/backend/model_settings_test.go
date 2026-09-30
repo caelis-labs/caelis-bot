@@ -13,10 +13,19 @@ import (
 
 type modelSettingsEngine struct {
 	executionFake
+	provider         string
 	calls            int
 	catalogError     error
 	changeError      error
 	entered, release chan struct{}
+}
+
+func (e *modelSettingsEngine) ProviderInfo() api.ProviderInfo {
+	id := e.provider
+	if id == "" {
+		id = "codex"
+	}
+	return api.ProviderInfo{ID: id}
 }
 
 func (e *modelSettingsEngine) Models(context.Context) ([]api.ModelOption, error) {
@@ -166,5 +175,57 @@ func TestModelSettingsConcurrentRevisionHasOneWinner(t *testing.T) {
 	}
 	if accepted != 1 || conflicted != 1 || e.calls != 1 {
 		t.Fatal(accepted, conflicted, e.calls)
+	}
+}
+
+func TestModelSettingsUseActiveProviderAfterNextLaunchRuntimeSave(t *testing.T) {
+	for _, active := range []string{"codex", "caelis"} {
+		t.Run(active, func(t *testing.T) {
+			e := &modelSettingsEngine{provider: active}
+			s := modelSettingsFixture(t, e)
+			root := t.TempDir()
+			s.ConfigureRuntime(filepath.Join(root, "runtime.json"), api.RuntimeSettings{Runtime: active})
+			if active == "caelis" {
+				s.ConfigureExecution(filepath.Join(root, "execution.json"), api.ExecutionSettings{Model: "one", Effort: "low", ApprovalMode: "workspace-write"})
+			}
+			next := "caelis"
+			if active == "caelis" {
+				next = "codex"
+			}
+			probes := 0
+			s.ConfigureRuntimeManagement(nil, func(context.Context, api.RuntimeSettings) error { probes++; return nil }, nil, nil)
+			if result, err := s.SaveRuntimeSettings(t.Context(), api.RuntimeSettings{Runtime: next}); err != nil || !result.Saved {
+				t.Fatal(result, err)
+			}
+			if probes != 1 || s.RuntimeSettings().Runtime != next {
+				t.Fatal("next launch preference not saved")
+			}
+			state, _, err := s.ReadModelSettings(t.Context())
+			if err != nil || state.ConversationDefault != (active == "caelis") {
+				t.Fatal("next launch preference changed active capability", state, err)
+			}
+			revision := productmanagement.ExecutionRevision(state)
+			err = s.ApplyModelSettings(t.Context(), revision, "conversation", productmanagement.Selection{})
+			if active == "codex" {
+				if !errors.Is(err, productmanagement.ErrExecutionInvalid) || e.calls != 0 {
+					t.Fatal("inactive Caelis default dispatched to Codex", err, e.calls)
+				}
+			} else {
+				if err != nil || e.calls != 1 {
+					t.Fatal("active Caelis inheritance disabled", err, e.calls)
+				}
+				state, _, err = s.ReadModelSettings(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = s.ApplyModelSettings(t.Context(), productmanagement.ExecutionRevision(state), "conversation", productmanagement.Selection{Model: "one", Effort: ""}); err != nil {
+					t.Fatal("native Caelis default effort removed", err)
+				}
+				got, _ := s.ExecutionSettings()
+				if got.Model != "one" || got.Effort != "" || got.ApprovalMode != "workspace-write" || got.ServiceTier != "" {
+					t.Fatal(got)
+				}
+			}
+		})
 	}
 }
