@@ -12,7 +12,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
+
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 )
 
@@ -146,7 +146,7 @@ func (c *CodexConfiguration) Change(ctx context.Context, r nodeplane.ManagementR
 	p.Revision++
 	result.Outcome = "committed"
 	p.Receipts[r.Ref.OperationID] = preferenceReceipt{Ref: r.Ref, Result: result}
-	if err := localstate.Write(filepath.Join(c.Directory, "execution.json"), p); err != nil {
+	if err := writeState(filepath.Join(c.Directory, "execution.json"), p); err != nil {
 		result.Outcome = "unknown"
 		return result, err
 	}
