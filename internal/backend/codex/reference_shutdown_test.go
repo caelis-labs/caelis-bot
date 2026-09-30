@@ -36,6 +36,25 @@ func (c *referenceWriteBarrier) SetWriteDeadline(d time.Time) error {
 
 func (c *referenceWriteBarrier) unblock() { c.releaseOnce.Do(func() { close(c.release) }) }
 
+// operation forwards lifecycle cancellation with AfterFunc. Observe completion
+// of that forwarding callback, rather than merely the parent's Done channel.
+type lifecycleCancelBarrier struct {
+	context.Context
+	cancelled chan struct{}
+	once      sync.Once
+}
+
+// Route cancellation through AfterFunc instead of the parent's internal
+// cancel-context shortcut. The lifecycle context carries no user values.
+func (c *lifecycleCancelBarrier) Value(any) any { return nil }
+
+func (c *lifecycleCancelBarrier) AfterFunc(f func()) func() bool {
+	return context.AfterFunc(c.Context, func() {
+		f()
+		c.once.Do(func() { close(c.cancelled) })
+	})
+}
+
 func TestCloseFinishesAdmittedReferenceFrameBeforeNativeCleanup(t *testing.T) {
 	for _, owned := range []bool{false, true} {
 		t.Run(map[bool]string{false: "shared", true: "owned"}[owned], func(t *testing.T) {
@@ -45,6 +64,8 @@ func TestCloseFinishesAdmittedReferenceFrameBeforeNativeCleanup(t *testing.T) {
 				t.Fatal(err)
 			}
 			s := NewSession(opts)
+			life := &lifecycleCancelBarrier{Context: s.life, cancelled: make(chan struct{})}
+			s.life = life
 			f := &sessionFixture{mode: "normal", started: make(chan struct{}, 8), answers: make(chan wireMessage, 8), loginReply: make(chan struct{}), history: []nativeTurn{{ID: "restored-turn", Status: "completed"}}}
 			a, b := net.Pipe()
 			barrier := &referenceWriteBarrier{Conn: a, entered: make(chan struct{}), release: make(chan struct{})}
@@ -74,7 +95,7 @@ func TestCloseFinishesAdmittedReferenceFrameBeforeNativeCleanup(t *testing.T) {
 			done := make(chan error, 1)
 			go func() { done <- s.Close(ctx) }()
 			select {
-			case <-s.life.Done():
+			case <-life.cancelled:
 			case <-ctx.Done():
 				t.Fatal("Close did not cancel session observations")
 			}
