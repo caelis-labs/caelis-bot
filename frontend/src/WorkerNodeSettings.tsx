@@ -5,7 +5,7 @@ import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
 import type {WorkerNodeConfig, WorkerNodeSetup} from './backend/contract';
 
-const emptyNode:WorkerNodeConfig={id:'',label:'',ssh:'',helper:'',store:'',workspaceRoot:''};
+const emptyNode:WorkerNodeConfig={backend:'caelis',id:'',label:'',ssh:'',helper:'',store:'',workspaceRoot:''};
 type NodeAction='ProbeWorkerNode'|'ConnectWorkerNode'|'DisconnectWorkerNode';
 
 export function WorkerNodeSettings({call=backend}:{call?:typeof backend}) {
