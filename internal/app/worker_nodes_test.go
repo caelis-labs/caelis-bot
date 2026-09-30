@@ -265,3 +265,51 @@ func TestApplicationIgnoresUnreadableOptionalNodesAndKeepsDirectLocalAssembly(t 
 		t.Fatal("offline settings started runtime")
 	}
 }
+
+func TestWorkerNodeBackendSelectionPreservesLegacyScope(t *testing.T) {
+	c, registry, adapter := nodeFixture(t)
+	saved, err := c.Save(nodeConfig(), c.Snapshot().Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := saved.Nodes[0].Config
+	config.Backend = "caelis"
+	before, err := os.ReadFile(c.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = c.Save(config, saved.Revision); err == nil {
+		t.Fatal("existing shared profile silently changed application scope")
+	}
+	after, err := os.ReadFile(c.path)
+	if err != nil || string(after) != string(before) || c.Snapshot().Revision != saved.Revision {
+		t.Fatal("rejected selection changed persistent identity", err)
+	}
+	config.ID = "new-bounded"
+	bounded, err := c.Save(config, saved.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adapter.probes+adapter.connects != 0 {
+		t.Fatal("native selection performed implicit enrollment")
+	}
+	reloaded := openWorkerNodes(c.path, registry, nil)
+	defer reloaded.Close()
+	got := reloaded.Snapshot()
+	if got.Issue != "" || len(got.Nodes) != 2 || got.Nodes[0].Config.Backend != "" || got.Nodes[1].Config.Backend != "caelis" {
+		t.Fatal("legacy/explicit scope did not survive offline reload", got)
+	}
+	for _, node := range bounded.Nodes {
+		target := workerTarget(node.Config.ID)
+		if _, err = registry.ResolveWorkTarget(&target); err == nil {
+			t.Fatal("saved selection became dispatchable without connect")
+		}
+	}
+	for _, unsupported := range []string{"codex", "unknown"} {
+		bad := config
+		bad.ID, bad.Backend = "unsupported", unsupported
+		if _, err = c.Save(bad, bounded.Revision); err == nil {
+			t.Fatal("unsupported backend accepted", unsupported)
+		}
+	}
+}
