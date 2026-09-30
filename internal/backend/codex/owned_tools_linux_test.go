@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -8,6 +9,40 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+func TestLinuxHandleObservationRetriesInterruptedPoll(t *testing.T) {
+	calls := 0
+	exited, err := linuxHandleExitedWithPoll(42, func(fds []unix.PollFd, timeout int) (int, error) {
+		calls++
+		if len(fds) != 1 || fds[0].Fd != 42 || timeout != 0 {
+			t.Fatal("poll lost the exact captured handle")
+		}
+		if calls < 3 {
+			return 0, unix.EINTR
+		}
+		fds[0].Revents = unix.POLLIN
+		return 1, nil
+	})
+	if err != nil || !exited || calls != 3 {
+		t.Fatalf("interrupted observation: exited=%v calls=%d err=%v", exited, calls, err)
+	}
+}
+
+func TestLinuxHandleObservationPreservesFailures(t *testing.T) {
+	exited, err := linuxHandleExitedWithPoll(42, func([]unix.PollFd, int) (int, error) {
+		return 0, unix.EACCES
+	})
+	if exited || !errors.Is(err, unix.EACCES) {
+		t.Fatalf("observation failure hidden: exited=%v err=%v", exited, err)
+	}
+	exited, err = linuxHandleExitedWithPoll(42, func(fds []unix.PollFd, _ int) (int, error) {
+		fds[0].Revents = unix.POLLNVAL
+		return 1, nil
+	})
+	if exited || err == nil {
+		t.Fatalf("invalid handle accepted: exited=%v err=%v", exited, err)
+	}
+}
 
 func TestLinuxProcessIdentityParsing(t *testing.T) {
 	stat := "42 (tool (worker) with\nspaces)) S 7 " + strings.Repeat("0 ", 17) + "12345 0 0"
