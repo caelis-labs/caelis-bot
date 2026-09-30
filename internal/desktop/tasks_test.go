@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -13,11 +14,12 @@ import (
 type taskFakeDriver struct {
 	*fakeDriver
 	updates             int
+	lastTasks           string
 	failure, opening    string
 	confirmationPrompts int
 }
 
-func (d *taskFakeDriver) tasks(string)               { d.updates++ }
+func (d *taskFakeDriver) tasks(value string)         { d.updates++; d.lastTasks = value }
 func (d *taskFakeDriver) taskFailure(message string) { d.failure = message }
 func (d *taskFakeDriver) taskOpening(id, message string) {
 	d.opening = id
@@ -146,5 +148,22 @@ func TestWindowFailureProjectionKeepsPrivateDetailsOutOfPrompt(t *testing.T) {
 	s.taskWindowChanged("owned", taskterminal.WindowEvent{Revision: 1, Phase: taskterminal.WindowUncertain, Err: cause})
 	if reports != 1 || d.failure == "" || d.failure == cause.Error() {
 		t.Fatal("private failure projection", reports, d.failure)
+	}
+}
+
+func TestTerminalTaskKeepsUnknownReceiptSeparateFromStatus(t *testing.T) {
+	s, d := taskService(t)
+	s.observeTasks([]api.TaskPreview{{ID: "owned", Status: "completed"}})
+	s.observeTaskReceipts([]api.TaskSummary{{ID: "owned", Status: "completed", Outcome: "unknown"}})
+	var rows []struct{ ID, Status, Outcome string }
+	if err := json.Unmarshal([]byte(d.lastTasks), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != "owned" || rows[0].Status != "completed" || rows[0].Outcome != "unknown" {
+		t.Fatal("terminal execution erased receipt uncertainty", rows)
+	}
+	s.observeTaskReceipts([]api.TaskSummary{{ID: "owned", Status: "completed", Outcome: "accepted"}})
+	if err := json.Unmarshal([]byte(d.lastTasks), &rows); err != nil || rows[0].Status != "completed" || rows[0].Outcome != "accepted" {
+		t.Fatal("known receipt changed execution fact", rows, err)
 	}
 }

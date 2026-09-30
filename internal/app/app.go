@@ -33,18 +33,19 @@ type Host struct {
 	CareSample     func() care.Sample
 	CareSources    []care.Source
 	// Locale is read when presenting host-generated UI, never during model execution.
-	Locale       func() i18n.Locale
-	Diagnostics  *diagnosticlog.Logger
-	ResolveFiles func([]string) ([]api.InputFile, error)
-	ConsumeFiles func([]string)
-	OpenURL      func(string) error
-	RevealFile   func(string) error
-	TrashFile    func(string) error
-	Gesture      func(string) error
-	Notify       func(id, title, body string, reminder bool)
-	Observe      func(api.Snapshot)
-	ObserveTasks func([]api.TaskPreview)
-	ReportError  func(error)
+	Locale              func() i18n.Locale
+	Diagnostics         *diagnosticlog.Logger
+	ResolveFiles        func([]string) ([]api.InputFile, error)
+	ConsumeFiles        func([]string)
+	OpenURL             func(string) error
+	RevealFile          func(string) error
+	TrashFile           func(string) error
+	Gesture             func(string) error
+	Notify              func(id, title, body string, reminder bool)
+	Observe             func(api.Snapshot)
+	ObserveTasks        func([]api.TaskPreview)
+	ObserveTaskReceipts func([]api.TaskSummary)
+	ReportError         func(error)
 }
 
 type Application struct {
@@ -367,6 +368,9 @@ func (a *Application) Start() error {
 			case <-ticker.C:
 				if err := manager.RefreshWatchlist(); err != nil && a.host.ReportError != nil {
 					a.host.ReportError(err)
+				}
+				if a.host.ObserveTaskReceipts != nil {
+					a.host.ObserveTaskReceipts(a.Backend.TaskSummaries())
 				}
 			}
 		}

@@ -155,6 +155,15 @@ int main(void) {
   assert([dock.buttons[0].statusText containsString:@"Fixture Worker location"]);
   assert([dock.buttons[0].accessibilityValue containsString:@"Fixture Worker location"]);
 
+  // Native terminal state does not imply that the original cancel receipt is known.
+  NSArray *terminalUnknown=@[@{@"id":@"one",@"prompt":remoteTask[@"prompt"],@"status":@"interrupted",@"outcome":@"unknown",@"targetLabel":@"Fixture Worker location"},task(@"two",@"completed")];
+  [dock setTasks:terminalUnknown];[dock updateActivity];
+  assert([dock.buttons[0].statusText containsString:@"回执未确认"]);
+  assert([dock.buttons[0].accessibilityValue containsString:@"已停止"]);
+  assert(!dock.buttons[0].loading);
+  assert([dock.tasks[0][@"status"] isEqual:@"interrupted"]);
+  [dock setTasks:@[remoteTask,task(@"two",@"completed")]];[dock updateActivity];
+
   [entry performClick:nil];
   assert(dock.expanded && dock.buttons==expandedButtons && entryOpens==0);
   // A release inherited from the old entry is not a press on a new card.
