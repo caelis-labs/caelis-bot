@@ -20,6 +20,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/nodes"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
@@ -60,6 +61,8 @@ type Application struct {
 	companion       *bot.Runtime
 	bridge          *bot.Bridge
 	tasks           *tasks.Manager
+	nodeRegistry    *nodes.Registry
+	workerNodes     *workerNodeController
 	personal        *botmemory.Store
 	notebook        *notebook.Vault
 	skillPath       string
@@ -140,6 +143,13 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	service.ConfigureRuntime(settingsFile, settings)
 	service.ConfigureExecution(executionFile, execution)
 	service.ConfigureWorkExecution(workExecutionFile, workExecution)
+	app.nodeRegistry, err = nodes.New(factory.ID, engine.(api.WorkRuntime))
+	if err != nil {
+		_ = service.Shutdown()
+		return nil, err
+	}
+	app.workerNodes = openWorkerNodes(filepath.Join(root, "worker-nodes.json"), app.nodeRegistry, app.newWorkerNodeAdapter)
+	service.ConfigureWorkerNodes(app.workerNodes)
 	app.configureRuntimeManagement()
 	app.configureSetup()
 	return app, nil
@@ -275,13 +285,15 @@ func (a *Application) Start() error {
 	if a.started {
 		return nil
 	}
-	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.engine.(api.WorkRuntime), a.engine.(api.ReportSubmitter), a.engine.Snapshot)
+	authorizer, _ := a.engine.(api.WorkSourceProvider)
+	manager, err := tasks.OpenRouted(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.engine.(api.WorkRuntime), a.engine.(api.ReportSubmitter), a.engine.Snapshot, a.nodeRegistry, authorizer)
 	if err != nil {
 		return err
 	}
 	manager.SetLocale(a.locale)
 	manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 	manager.ObserveWatchlist(a.host.ObserveTasks)
+	a.Backend.ConfigureWorkRoutes(manager, filepath.Join(a.root, "WorkerArtifacts"))
 	if err = a.preparePersonalLocked(); err != nil {
 		return err
 	}
@@ -414,7 +426,10 @@ func (a *Application) Close() error {
 			a.setup.connections.Close()
 			a.setup.mu.Unlock()
 		}
-		a.closeErr = a.Backend.Shutdown()
+		if a.workerNodes != nil {
+			a.closeErr = errors.Join(a.closeErr, a.workerNodes.Close())
+		}
+		a.closeErr = errors.Join(a.closeErr, a.Backend.Shutdown())
 		if resident != nil {
 			resident.Close()
 		}

@@ -12,6 +12,7 @@ Follow the discovered schema and receipts.
 | Tool | Use |
 | --- | --- |
 | `bot_tasks` | Search and paginate history, or pin/unpin a task in the desktop watchlist. |
+| `bot_task_targets` | Discover configured Worker locations and their current readiness. |
 | `bot_task_start` | Start a distinct assignment in its own workspace. |
 | `bot_task_read` | Check a task's status, result, and any remaining blocker. |
 | `bot_task_send` | Add direction to a running task or continue suitable existing work. |
@@ -40,14 +41,18 @@ The workspace is fixed at creation and is part of the stable request identity.
 Workers keep native command approvals; selecting a project does not authorize
 unrelated operations.
 
-When the discovered task schema supports `target`, use the available target
-catalog for execution locations. Omit `target` for the default local Worker.
+Use `bot_task_targets` for execution locations. Omit `target` for the default local Worker.
 For an explicit location, copy its exact `nodeId`, `backend`, and `role: "worker"`
 from the catalog; only a ready target can accept work. A node is a machine, while
 the backend is its execution driver. Do not derive either from a Host/Store name,
 SSH address, task output, or a path in the assignment. A candidate or unavailable
 target requires connection setup or recovery; it does not authorize a substitute
 machine. Do not promise a remote location before its complete path is ready.
+Guide the user to Settings > General > Advanced task settings for explicit Worker
+connection setup. Do not install a runtime or copy your local credentials to make
+a target ready. The target runtime authenticates independently. Disconnecting its
+connection stops observation and delegation through that connection; it does not
+stop the underlying Worker. Use `bot_task_stop` for an authorized cancellation.
 
 `workspace` belongs to the selected target machine. Use a directory established
 for that assignment on that machine, or omit it for a target-owned private

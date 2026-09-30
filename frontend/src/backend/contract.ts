@@ -411,3 +411,28 @@ export interface WorkTargetInfo {
   label: string;
   state: string;
 }
+export interface WorkerNodeConfig {
+  id: string;
+  label: string;
+  ssh: string;
+  helper: string;
+  store: string;
+  workspaceRoot: string;
+}
+export interface WorkerNodeFacts {
+  os: string;
+  arch: string;
+  version: string;
+}
+export interface WorkerNodeSetup {
+  revision: number;
+  nodes: Array<WorkerNodeView>;
+  issue: string;
+}
+export interface WorkerNodeView {
+  config: WorkerNodeConfig;
+  state: string;
+  issue: string;
+  facts: WorkerNodeFacts;
+  connected: boolean;
+}
