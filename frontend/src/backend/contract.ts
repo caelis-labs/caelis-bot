@@ -51,6 +51,7 @@ export interface BotIntroduction {
   description: string;
 }
 export interface Capabilities {
+  execution: boolean;
   installation: boolean;
   configuration: boolean;
   configurationReceiptLookup: boolean;
@@ -158,6 +159,21 @@ export interface RemoteConfigurationRequest {
   id: string;
   binding: string;
   change: RuntimeConfigurationChange;
+}
+export interface RemoteExecutionRequest {
+  id: string;
+  binding: string;
+  target: string;
+  expectedRevision: string;
+  selection: Selection;
+}
+export interface RemoteExecutionView {
+  binding: string;
+  conversationDefault: boolean;
+  conversation: Selection;
+  work?: Selection | null;
+  revision: string;
+  models: Array<ModelOption>;
 }
 export interface RemoteManagementResult {
   id: string;
@@ -357,6 +373,10 @@ export interface ScreenImage {
 export interface ScreenPresentation {
   application: string;
   images: Array<ScreenImage>;
+}
+export interface Selection {
+  model: string;
+  effort: string;
 }
 export interface ServiceTier {
   id: string;

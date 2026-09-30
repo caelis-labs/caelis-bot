@@ -2,6 +2,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {backend} from './desktop';
 import type {RemoteManagementResult,RemoteRuntimeRequest,RemoteRuntimeState,Status} from './backend/contract';
 import {SettingGroup,SettingRow} from './SettingsUI';
+import {RemoteExecutionSettings} from './RemoteExecutionSettings';
 import {RuntimeWorkspace} from './settings/runtime/RuntimeWorkspace';
 import {createRemoteRuntimeSettingsClient} from './settings/runtime/remoteClient';
 import {useI18n} from './i18n';
@@ -25,6 +26,7 @@ export function RemoteRuntimeSettings({active=true,refreshKey=0}:{active?:boolea
   <p className="settings-note">{t('settings.productCredentialHandoff')}</p>
   {state?.pending.length ? <div role="status"><p>{t('settings.productManagementUnknown')}</p>{state.pending.map(pending=><button key={pending.id} disabled={busy||!state.available} onClick={()=>void recover(pending.id,pending.runtime)}>{t('settings.productCheckOriginalReceipt')}</button>)}</div>:null}
   {!state?.available?<p role="status">{t('settings.productManagementUnavailable')}</p>:state.capabilities.configuration?<RuntimeWorkspace key={state.binding} remote client={client} active={active} refreshKey={revision} preparation={runtime=><RemoteRuntimeInstallation runtime={runtime} state={state} onChanged={changed}/>}/>:<h1>{t('settings.productTargetRuntime')}</h1>}
+  {state?.available&&state.capabilities.execution&&<RemoteExecutionSettings key={state.binding} state={state} active={active} refreshKey={revision} onChanged={changed}/>}
   {state?.available&&state.capabilities.installation&&<details className="settings-disclosure"><summary>{t('settings.productTargetPrograms')}</summary>{['codex','caelis'].map(runtime=><RemoteRuntimeInstallation key={`${state.binding}:${runtime}`} runtime={runtime} state={state} onChanged={changed}/>)}</details>}
   {error&&<p role="alert" className="inline-error">{error}</p>}{notice&&<p role="status" className="settings-note">{notice}</p>}
   <button disabled={busy} className="text-action" onClick={()=>{setError('');void refresh();}}>{t('runtime.refreshConfig')}</button>
