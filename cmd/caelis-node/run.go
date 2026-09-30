@@ -85,6 +85,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	defer unlock()
+	if err = rejectRemoteProfile(*profile); err != nil {
+		return err
+	}
 	files, err := productrpc.OpenUploads(filepath.Join(*profile, "Product", "Uploads"))
 	if err != nil {
 		return err
@@ -123,7 +126,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		}
 		return productrpc.Resource{ID: id, Name: artifact.Name, Size: artifact.Size, SHA256: artifact.SHA256}, io.NopCloser(bytes.NewReader(artifact.Bytes)), nil
 	}
-	s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}})
+	stopped := make(chan productrpc.Result, 1)
+	s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}, OnStopped: func(r productrpc.Result) { stopped <- r }})
 	if err != nil {
 		return err
 	}
@@ -147,6 +151,12 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	done := make(chan error, 1)
 	go func() { done <- s.Serve(l) }()
 	select {
+	case result := <-stopped:
+		_ = l.Close()
+		if result.Outcome != "accepted" {
+			return errors.New("product stop outcome unconfirmed: " + result.Code)
+		}
+		return nil
 	case err = <-done:
 		return err
 	case <-ctx.Done():
@@ -154,6 +164,42 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		_ = l.Close()
 		return application.Close()
 	}
+}
+
+// This resident-only entry point cannot recursively assemble a thin APP. Read
+// only the native selector before app.New; normal APP owns its full validation.
+func rejectRemoteProfile(root string) error {
+	path := filepath.Join(root, "product-connection.json")
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return errors.New("product selector must be private")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var selector struct {
+		Version int `json:"version"`
+		Pairing struct {
+			Mode string `json:"mode"`
+		} `json:"pairing"`
+	}
+	if len(b) > 16<<10 || json.Unmarshal(b, &selector) != nil || selector.Version != 1 {
+		return errors.New("invalid native product selector")
+	}
+	if selector.Pairing.Mode == "remote" {
+		return errors.New("serve-bot requires a resident local profile")
+	}
+	if selector.Pairing.Mode != "" && selector.Pairing.Mode != "local" {
+		return errors.New("unknown native product mode")
+	}
+	return nil
 }
 
 func readProductToken(path string) (string, error) {
