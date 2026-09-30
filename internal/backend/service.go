@@ -52,6 +52,7 @@ type Service struct {
 	workInteractions            *workerInteractions
 	productConnection           ProductConnectionController
 	remoteManagement            RemoteManagementController
+	nodeManagement              api.NodeManagementController
 }
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string), openURL, reveal func(string) error) *Service {
