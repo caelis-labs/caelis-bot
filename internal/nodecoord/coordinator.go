@@ -243,7 +243,7 @@ func (c *Coordinator) Claim(ctx context.Context, r nodeplane.ClaimRequest) (node
 func (c *Coordinator) grant(now time.Time) nodeplane.Lease {
 	l := c.state.Lease
 	l.ExpiresAt = c.deadline
-	l.TTLMs = max(int64(0), c.deadline.Sub(c.opts.Now()).Milliseconds())
+	l.TTLMs = min(nodeplane.DefaultLeaseExpiry.Milliseconds(), max(int64(0), c.deadline.Sub(c.opts.Now()).Milliseconds()))
 	return l
 }
 func (c *Coordinator) Heartbeat(ctx context.Context, l nodeplane.Lease) (nodeplane.Lease, error) {
@@ -366,6 +366,7 @@ func (c *Coordinator) PublishSnapshot(ctx context.Context, l nodeplane.Lease, re
 	if !c.active(now) {
 		return ErrConflict
 	}
+	previous := c.state.Latest
 	s := c.state
 	s.Latest = ref
 	s.Claim.Snapshot = ref
@@ -373,6 +374,11 @@ func (c *Coordinator) PublishSnapshot(ctx context.Context, l nodeplane.Lease, re
 		return err
 	}
 	c.state = s
+	// The cache retains one complete bundle; remove the previous immutable
+	// blob only after the new authoritative pointer is durably committed.
+	if previous.Digest != ref.Digest {
+		_ = os.Remove(c.snapshotPath(previous))
+	}
 	return nil
 }
 func (c *Coordinator) LatestSnapshot(ctx context.Context, bot string) (nodeplane.SnapshotRef, error) {

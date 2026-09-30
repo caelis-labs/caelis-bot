@@ -113,6 +113,24 @@ func TestRealPrivateUnixBrokerPartitionReceiptReplayAndSnapshot(t *testing.T) {
 	if !errors.Is(e, nodecoord.ErrSnapshot) {
 		t.Fatal(e)
 	}
+	called := false
+	if e = client2.CommitInstall(ctx, s, func() error { called = true; return nil }); !errors.Is(e, nodecoord.ErrSnapshot) || called {
+		t.Fatalf("stale generation installed: %v called=%v", e, called)
+	}
+	newerBytes, newer := testBundle(l.Epoch, "3", "newer-complete-tree")
+	e = client2.CommitInstall(ctx, latest, func() error {
+		called = true
+		if e := os.WriteFile(filepath.Join(dir, "unused-offline-generation"), []byte("cold"), 0600); e != nil {
+			return e
+		}
+		return c.PublishSnapshot(ctx, l, newer, newerBytes)
+	})
+	if !errors.Is(e, nodecoord.ErrSnapshot) || !called {
+		t.Fatalf("publication race did not reject adoption: %v", e)
+	}
+	if got, e := client2.LatestSnapshot(ctx, "bot"); e != nil || got != newer {
+		t.Fatalf("offline race poisoned broker %+v %v", got, e)
+	}
 	cancel()
 	select {
 	case <-done:

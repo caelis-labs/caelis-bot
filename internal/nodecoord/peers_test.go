@@ -69,3 +69,25 @@ func TestPairingRejectsSelfReportedProofForeignAndUnknown(t *testing.T) {
 		requireError(t, registry.VerifyClaim(ctx, r), ErrIneligible)
 	}
 }
+
+func TestBootstrapRequiresPairedQuiescedExactSnapshotSource(t *testing.T) {
+	_, _, s := fixture(t)
+	r := claim("source", s, "")
+	registry := NewPeerRegistry()
+	p := &ownedPeer{state: nodeplane.RuntimeEligibility{Proof: r.Proof, Snapshot: s, SafeIdle: true}}
+	if e := registry.Register(r.Target, p); e != nil {
+		t.Fatal(e)
+	}
+	ctx := context.Background()
+	if e := registry.VerifyBootstrap(ctx, r.Target, s); e != nil {
+		t.Fatal(e)
+	}
+	p.state.Unknown = true
+	requireError(t, registry.VerifyBootstrap(ctx, r.Target, s), ErrIneligible)
+	p.state.Unknown = false
+	p.state.Snapshot.Version = "2"
+	requireError(t, registry.VerifyBootstrap(ctx, r.Target, s), ErrIneligible)
+	p.state.Snapshot = s
+	p.state.LeaseEpoch = "1"
+	requireError(t, registry.VerifyBootstrap(ctx, r.Target, s), ErrIneligible)
+}
