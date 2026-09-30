@@ -15,7 +15,8 @@ const displayName=(catalog:NodeCatalog,id:string)=>catalog.nodes.find(node=>node
 // change the Bot owner, or change the exact configured Worker target.
 export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,call=backend}:{active?:boolean;refreshKey?:number;client?:NodeSettingsClient;call?:typeof backend}) {
  const {t}=useI18n();
- const owner=useMemo(()=>provided??createNodeSettingsClient(call),[provided,call]);
+ const translations=useRef(t);translations.current=t;
+ const owner=useMemo(()=>provided??createNodeSettingsClient(call,key=>translations.current(key)),[provided,call]);
  const [catalog,setCatalog]=useState<NodeCatalog|null>(null),[selected,setSelected]=useState(''),[runtime,setRuntime]=useState('');
  const [error,setError]=useState<MessageKey|''>(''),[loading,setLoading]=useState(false),[refresh,setRefresh]=useState(0),[notice,setNotice]=useState<MessageKey|''>('');
  const generation=useRef(0),pending=useRef(false);
@@ -56,7 +57,7 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
   {catalog&&<p className="settings-note node-owner-context">{t('settings.nodeBotOwner',{name:displayName(catalog,catalog.activeBotNodeId)||t('runtime.notConnected')})}{catalog.workerTarget&&<><br/>{t('settings.nodeWorkerTarget',{name:displayName(catalog,catalog.workerTarget.nodeId),backend:catalog.workerTarget.backend==='codex'?'Codex':'Caelis'})}</>}</p>}
   {node&&status&&<NodeStatus node={node} backendID={backendID}/>}
   {owner.pending(selected,backendID)&&<div role="status" className="runtime-callout"><p>{t('settings.nodeOperationUnknown')}</p><button disabled={loading} onClick={()=>void recover()}>{t('settings.productCheckOriginalReceipt')}</button></div>}
-  {catalog&&node?<div className="node-configuration"><RuntimeWorkspace nodeManaged readOnly={!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy)=>local?<RuntimePreparation initialRuntime={id} onBusy={onBusy} viewOnly call={call}/>:<p className="settings-note">{t('settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
+  {catalog&&node?<div className="node-configuration"><RuntimeWorkspace nodeManaged readOnly={!!error||!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy)=>local?<RuntimePreparation initialRuntime={id} onBusy={onBusy} viewOnly call={call}/>:<p className="settings-note">{t('settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
   {node&&!healthy&&<p role="status" className="settings-note">{t('settings.nodeUnavailable')}</p>}
   {node&&status&&<NodePrograms key={scope} node={node} backendID={backendID as 'codex'|'caelis'} owner={owner} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
   <NodeEnrollment catalog={catalog} call={call} onChanged={()=>setRefresh(value=>value+1)}/>

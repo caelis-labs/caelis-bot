@@ -294,7 +294,7 @@
   "nodeJoinWaiting": "Waiting for this node to join.",
   "nodeAddUnknown": "The node was not confirmed. Refresh the node list before trying again.",
   "nodeProgramFailed": "The program change was not confirmed. Check the original operation if its result is unknown.",
-  "nodeReviewedVersionHelp": "Enter the release version to install on this node. The node verifies whether that release can be installed.",
+  "nodeReviewedVersionHelp": "Choose a reviewed release to install on this node.",
   "nodeCoordinatorHelp": "Choose a node that stays online. Automatic roaming also requires a reachable connection and an eligible runtime.",
   "nodeCoordinatorNone": "Use this Mac directly",
   "nodeCoordinatorFailed": "The always-on node change was not confirmed. Refresh to check the saved setting."

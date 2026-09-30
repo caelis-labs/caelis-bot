@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test, after } from 'node:test';
 import { createServer } from 'vite';
 import { readFileSync } from 'node:fs';
-const server = await createServer({server:{middlewareMode:true},appType:'custom'});
+const server = await createServer({server:{middlewareMode:true,ws:false},appType:'custom'});
 after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
 const {chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
