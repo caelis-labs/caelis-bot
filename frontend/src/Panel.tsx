@@ -306,7 +306,7 @@ export function History() {
    {reviews.map(r=><ReviewNotice key={r.id} value={r}/>)}
    {connection&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
     <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
-    <p>{snapshot.message||t('chat.checkingConnection')}</p>
+    <p>{snapshot.connectionIssue?.startsWith('remote_product:')?t(snapshot.connectionIssue==='remote_product:outcome_unknown'?'settings.productUnknownReceipt':'settings.productOffline'):snapshot.message||t('chat.checkingConnection')}</p>
     <div className="connection-actions">
      {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Login')}>{t('chat.loginInBrowser')}</button>}
      {snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('CancelLogin')}>{t('chat.cancelLogin')}</button>}
@@ -316,6 +316,7 @@ export function History() {
     </div>
    </section>}
    {!connection&&!!snapshot?.message&&<p className="connection-message" role="status">{snapshot.message}</p>}
+   {!connection&&snapshot?.phase==='unknown'&&snapshot.connectionIssue==='remote_product:outcome_unknown'&&<p role="status">{t('settings.productUnknownReceipt')}</p>}
    {!connection&&snapshot?.phase==='unknown'&&<div className="connection-actions">
     <button disabled={busy} onClick={()=>void action('Connect')}>{t('chat.reconnect')}</button>
    </div>}

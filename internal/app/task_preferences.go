@@ -6,8 +6,16 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
-func (a *Application) TaskPreferences() tasks.Preferences { return a.taskPreferences.Snapshot() }
+func (a *Application) TaskPreferences() tasks.Preferences {
+	if a.taskPreferences == nil {
+		return tasks.Preferences{MaxRunning: 1, Terminal: "system"}
+	}
+	return a.taskPreferences.Snapshot()
+}
 func (a *Application) SaveTaskPreferences(p tasks.Preferences) (tasks.Preferences, error) {
+	if a.taskPreferences == nil {
+		return p, errors.New("remote Bot task preferences are managed on its host")
+	}
 	return a.taskPreferences.Save(p)
 }
 func (a *Application) PinTask(id string, pin bool) (api.TaskSummary, error) {
