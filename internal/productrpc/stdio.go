@@ -29,12 +29,13 @@ type proxyFrame struct {
 }
 
 type stdioTransport struct {
-	stream      io.ReadWriteCloser
-	writeMu, mu sync.Mutex
-	pending     map[string]chan proxyFrame
-	closed      chan struct{}
-	once        sync.Once
-	next        atomic.Uint64
+	stream    io.ReadWriteCloser
+	mu        sync.Mutex
+	writeGate chan struct{}
+	pending   map[string]chan proxyFrame
+	closed    chan struct{}
+	once      sync.Once
+	next      atomic.Uint64
 }
 
 // NewStdioClient owns only an authenticated SSH proxy stream. Product auth stays
@@ -43,7 +44,8 @@ func NewStdioClient(opts StdioOptions, stream io.ReadWriteCloser) (*Client, erro
 	if stream == nil || !identifier.MatchString(opts.ExpectedNode) || !identifier.MatchString(opts.ExpectedBot) {
 		return nil, errors.New("invalid native product stream pairing")
 	}
-	t := &stdioTransport{stream: stream, pending: make(map[string]chan proxyFrame), closed: make(chan struct{})}
+	t := &stdioTransport{stream: stream, pending: make(map[string]chan proxyFrame), closed: make(chan struct{}), writeGate: make(chan struct{}, 1)}
+	t.writeGate <- struct{}{}
 	c, err := NewClient(ClientOptions{URL: "http://127.0.0.1:1", ExpectedNode: opts.ExpectedNode, ExpectedBot: opts.ExpectedBot, Token: strings.Repeat("native-proxy-", 3), HTTP: &http.Client{Transport: t}})
 	if err != nil {
 		return nil, err
@@ -138,9 +140,23 @@ func (t *stdioTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	t.pending[f.ID] = reply
 	t.mu.Unlock()
 	defer func() { t.mu.Lock(); delete(t.pending, f.ID); t.mu.Unlock() }()
-	t.writeMu.Lock()
+	select {
+	case <-t.writeGate:
+	case <-r.Context().Done():
+		return nil, r.Context().Err()
+	case <-t.closed:
+		return nil, errors.New("product proxy disconnected")
+	}
+	if err := r.Context().Err(); err != nil {
+		t.writeGate <- struct{}{}
+		return nil, err
+	}
+	// Cancellation after admission may leave a partial frame. Detach this
+	// stream to unblock Write; never retry or continue a damaged framing stream.
+	stopWrite := context.AfterFunc(r.Context(), t.CloseIdleConnections)
 	err := writeFrame(t.stream, f)
-	t.writeMu.Unlock()
+	stopWrite()
+	t.writeGate <- struct{}{}
 	if err != nil {
 		t.CloseIdleConnections()
 		return nil, err
@@ -214,6 +230,9 @@ func ProxyStdio(ctx context.Context, in io.Reader, out io.Writer, endpoint, toke
 	var workers sync.WaitGroup
 	stopClose := context.AfterFunc(ctx, func() {
 		if closer, ok := in.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		if closer, ok := out.(io.Closer); ok {
 			_ = closer.Close()
 		}
 	})
