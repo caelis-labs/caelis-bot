@@ -81,10 +81,7 @@ BOT_SIGN_MATCHES=$(printf '%s\n' "$BOT_SIGN_IDENTITIES" | sed -n 's/^[[:space:]]
 # debugger or library-validation exception is needed.
 if [[ "${BOT_NOTARY_RESUME:-0}" != 1 ]]; then
   echo 'Signing the app with the imported Developer ID identity.'
-  # Recovery tools may sign an immutable tag predating the Computer Use bundle.
-  if [[ -e "$BOT_SIGN_BUNDLE/Contents/Resources/ComputerUse" ]] || /usr/libexec/PlistBuddy -c 'Print CaelisComputerUseVersion' "$BOT_SIGN_BUNDLE/Contents/Info.plist" >/dev/null 2>&1; then
-    bash "$BOT_SIGN_ROOT/script/sign-computer-use.sh" "$BOT_SIGN_BUNDLE" "$BOT_SIGN_MATCHES"
-  fi
+  bash "$BOT_SIGN_ROOT/script/sign-desktop-world.sh" "$BOT_SIGN_BUNDLE" "$BOT_SIGN_MATCHES"
   bash "$BOT_SIGN_ROOT/script/sign-sparkle.sh" "$BOT_SIGN_BUNDLE" "$BOT_SIGN_MATCHES"
   codesign --force --sign "$BOT_SIGN_MATCHES" --keychain "$BOT_SIGN_KEYCHAIN" \
     --identifier dev.caelis.bot --options runtime --timestamp \

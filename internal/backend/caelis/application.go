@@ -100,7 +100,7 @@ func (s *Session) checkContentCapability(info wire.ServerInfo) error {
 	defer s.mu.Unlock()
 	for _, tool := range s.profile.Tools {
 		if value(tool.ResultFormat) == "content-v1" && !slices.Contains(info.Capabilities, "application-tool-result-content-v1") {
-			return errors.New("Computer Use requires Caelis application-tool-result-content-v1; update and restart the Host")
+			return errors.New("Desktop World requires Caelis application-tool-result-content-v1; update and restart the Host")
 		}
 	}
 	return nil

@@ -332,7 +332,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		return
 	}
 	if !t.Run("B00_progressive_skill", func(t *testing.T) {
-		model.set("CASE_SKILL", modelStep{Name: "Read", Args: map[string]string{"path": skillPath}}, modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")}})
+		model.set("CASE_SKILL", modelStep{Name: "Read", Args: map[string]string{"path": skillPath}}, modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")}}, modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "desktop-observation.md")}})
 		submitAcceptance(t, ctx, s, "CASE_SKILL")
 		correlated := false
 		for _, item := range s.Snapshot().Items {
@@ -344,17 +344,21 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("native user input did not preserve submission identity")
 		}
 		requests := model.seen("CASE_SKILL")
-		if len(requests) != 3 {
+		if len(requests) != 4 {
 			t.Fatalf("skill/reference loading did not complete: %d requests", len(requests))
 		}
 		first, _ := json.Marshal(requests[0])
 		second, _ := json.Marshal(requests[1])
 		third, _ := json.Marshal(requests[2])
+		fourth, _ := json.Marshal(requests[3])
 		if !strings.Contains(string(first), "You are Caelis Bot, a persistent personal assistant.") || strings.Contains(string(first), "# Restore your context") {
 			t.Fatal("skill metadata absent or body eagerly injected")
 		}
 		if !strings.Contains(string(second), "# Restore your context") || strings.Contains(string(second), "# Arrange and continue independent work") || !strings.Contains(string(third), "# Arrange and continue independent work") {
 			t.Fatal("progressive native reads did not expose skill and reference")
+		}
+		if strings.Contains(string(third), "## Observe narrowly, then follow changes") || !strings.Contains(string(fourth), "## Observe narrowly, then follow changes") {
+			t.Fatal("desktop policy reference was not progressively loaded")
 		}
 	}) {
 		return
@@ -975,12 +979,11 @@ func TestNativeHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
-	if !t.Run("B15_desktop_content", func(t *testing.T) { desktopHostAcceptance(t, ctx, s, model) }) {
+
+	if !t.Run("B15_desktop_world_content", func(t *testing.T) { desktopHostAcceptance(t, ctx, s, model) }) {
 		return
 	}
-	if !t.Run("B16_real_cua", func(t *testing.T) { cuaHostAcceptance(t, ctx, s, model) }) {
-		return
-	}
+
 	model.mu.Lock()
 	failure := model.failure
 	model.mu.Unlock()

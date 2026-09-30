@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 )
 
 type testEngine struct {
@@ -393,19 +391,6 @@ func TestNotebookSkillIsResidentOnlyAndRegeneratesExternalNotes(t *testing.T) {
 	}
 }
 
-type taggedEngine struct {
-	*testEngine
-	native bool
-}
-
-func (e *taggedEngine) ApplicationCapabilities() api.ApplicationCapabilities {
-	c := api.ApplicationCapabilities{NativeFiles: true, WorkerExecution: true, ScheduledActivation: true}
-	if e.native {
-		c.NativeTools = []api.NativeToolCapability{api.NativeComputerUse}
-	}
-	return c
-}
-
 type neverDesktop struct{ calls int }
 
 func (*neverDesktop) Definitions() []api.ToolDefinition { return nil }
@@ -413,42 +398,29 @@ func (d *neverDesktop) CallTool(context.Context, string, json.RawMessage) api.To
 	d.calls++
 	return api.ToolResult{}
 }
-func TestComputerUseAssemblyUsesRuntimeTagsAndDoesNotFallbackOnRefusal(t *testing.T) {
-	for _, native := range []bool{true, false} {
-		t.Run(fmt.Sprint(native), func(t *testing.T) {
-			e := &taggedEngine{testEngine: newTestEngine(), native: native}
-			desktop := &neverDesktop{}
-			a, _ := fixtureApp(t, e, Host{DesktopControl: desktop, DesktopObservation: func(context.Context) (desktopcontrol.Frame, error) {
-				return desktopcontrol.Frame{}, errors.New("permission denied")
-			}})
-			if err := a.Start(); err != nil {
-				t.Fatal(err)
-			}
-			e.mu.Lock()
-			config := e.tools.Clone()
-			e.mu.Unlock()
-			names := []string{}
-			for _, d := range config.Host.Definitions() {
-				names = append(names, d.Name)
-			}
-			for _, name := range []string{"bot_desktop_observe", "bot_desktop_perform", "bot_desktop_capture", "bot_desktop_authorize"} {
-				if slices.Contains(names, name) == native || slices.Contains(config.ApprovedTools, name) != (!native && name != "bot_desktop_authorize") {
-					t.Fatalf("wrong native ownership for %s", name)
-				}
-			}
-			if (config.Env["CAELIS_BOT_COMPUTER_USE"] == "1") == native || (config.Env["CAELIS_BOT_DESKTOP_POC"] == "1") == native {
-				t.Fatal("desktop MCP discovery configuration escaped native ownership")
-			}
-			if native {
-				for range 2 {
-					if !config.Host.CallTool(t.Context(), "bot_desktop_perform", json.RawMessage(`{}`)).IsError {
-						t.Fatal("undeclared desktop fallback callable")
-					}
-				}
-				if desktop.calls != 0 {
-					t.Fatal("native runtime reached fallback")
-				}
-			}
-		})
+func TestDesktopWorldAssemblyOwnsResidentDesktop(t *testing.T) {
+	e := newTestEngine()
+	desktop := &neverDesktop{}
+	a, _ := fixtureApp(t, e, Host{DesktopControl: desktop})
+	if err := a.Start(); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	config := e.tools.Clone()
+	e.mu.Unlock()
+	names := []string{}
+	for _, d := range config.Host.Definitions() {
+		names = append(names, d.Name)
+	}
+	for _, name := range []string{"bot_desktop_observe", "bot_desktop_act", "bot_desktop_capture", "bot_desktop_authorize", "bot_desktop_reconcile"} {
+		if !slices.Contains(names, name) || slices.Contains(config.ApprovedTools, name) != (name != "bot_desktop_authorize") {
+			t.Fatalf("wrong ownership for %s", name)
+		}
+	}
+	if config.Env["CAELIS_BOT_DESKTOP_WORLD"] != "1" {
+		t.Fatal("missing Desktop World discovery")
+	}
+	if slices.Contains(names, "bot_desktop_perform") {
+		t.Fatal("retired desktop writer remains")
 	}
 }

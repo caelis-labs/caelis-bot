@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 30
     env:
       BOT_BUILD_CHANNEL: development
+      GOWORK: "off"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -23,9 +24,7 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            resources/computer-use/package-lock.json
+          cache-dependency-path: package-lock.json
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -34,11 +33,20 @@ jobs:
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - run: npm ci
       - run: make check
+      - name: Check desktop authority, receipts and projection races
+        run: |
+          source script/env.sh
+          go test -race ./internal/desktopcontrol ./internal/bot ./internal/backend/caelis ./internal/backend/codex
       - run: npm run smoke:assets
-      - name: Build independent Dev app with bundled Computer Use
+      - name: Build independent Dev app with Desktop World
         run: make build
-      - name: Verify native Computer Use payload without desktop permissions
-        run: bash script/verify-computer-use.sh 'dist/Caelis Bot Dev.app' adhoc
+      - name: Verify pinned Desktop World payload without desktop permissions
+        run: bash script/verify-desktop-world.sh 'dist/Caelis Bot Dev.app' adhoc
+      - name: Exercise the packaged Go host and independent helper
+        run: |
+          source script/env.sh
+          export CAELIS_BOT_TEST_DESKTOP_WORLD="$PWD/dist/Caelis Bot Dev.app/Contents/Resources/DesktopWorld/bin/desktop-world"
+          go test -count=1 -run '^TestPackagedHelperReadAndDeniedInput$' -v ./internal/desktopcontrol
       - name: Package and verify mounted Dev DMG
         run: bash script/package.sh --skip-build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -65,7 +65,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		if n <= 2 || n == 4 || n == 5 {
 			p := skillPath
 			if n == 2 {
-				p = filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")
+				p = filepath.Join(filepath.Dir(skillPath), "references", "desktop-observation.md")
 			}
 			if n == 4 {
 				p = dreamPath
@@ -89,7 +89,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
-	s := NewSession(SessionOptions{Binary: binary, Directory: vault.Path(), StateFile: filepath.Join(dir, "binding.json"), BotTools: &api.ToolConnection{Command: "/usr/bin/false", Args: []string{"--fixture"}, Env: map[string]string{}, Instructions: botskills.Instructions(skillPath), PrepareContext: vault.PrepareContext, ConsumeContext: vault.ConsumeContext}})
+	s := NewSession(SessionOptions{Binary: binary, Directory: vault.Path(), StateFile: filepath.Join(dir, "binding.json"), BotTools: &api.ToolConnection{Command: "/usr/bin/false", Args: []string{"--fixture"}, Env: map[string]string{"CAELIS_BOT_DESKTOP_WORLD": "1"}, Instructions: botskills.Instructions(skillPath), PrepareContext: vault.PrepareContext, ConsumeContext: vault.ConsumeContext}})
 	defer func() {
 		c, done := context.WithTimeout(context.Background(), 10*time.Second)
 		defer done()
@@ -98,7 +98,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if err = s.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	r, err := s.Submit(ctx, api.Submission{ID: "progressive-skill-input", Text: "Read the applicable guide and its task reference."}, nil)
+	r, err := s.Submit(ctx, api.Submission{ID: "progressive-skill-input", Text: "Read the applicable guide and its desktop reference."}, nil)
 	if err != nil || r.Outcome != "accepted" {
 		t.Fatal(r, err)
 	}
@@ -125,14 +125,17 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if !strings.Contains(initial[0], "You are Caelis Bot, a persistent personal assistant.") || strings.Contains(initial[0], "# Restore your context") {
 		t.Fatal("metadata absent or eager body injection")
 	}
-	if !strings.Contains(initial[1], "# Restore your context") || strings.Contains(initial[1], "# Arrange and continue independent work") || !strings.Contains(initial[2], "# Arrange and continue independent work") {
+	if !strings.Contains(initial[1], "# Restore your context") || strings.Contains(initial[1], "# Desktop World") || !strings.Contains(initial[2], "# Desktop World") {
 		t.Fatal("native file tools did not progressively load skill")
+	}
+	if strings.Contains(initial[1], "## Observe narrowly, then follow changes") || !strings.Contains(initial[2], "## Observe narrowly, then follow changes") {
+		t.Fatal("desktop policy reference was not progressively loaded")
 	}
 	correlated := false
 	for _, item := range s.Snapshot().Items {
 		if item.Kind == "user" && item.RequestID == "progressive-skill-input" {
 			correlated = true
-			if item.Text != "Read the applicable guide and its task reference." {
+			if item.Text != "Read the applicable guide and its desktop reference." {
 				t.Fatal("context prefix leaked into native chat projection")
 			}
 		}
@@ -182,7 +185,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if len(nextRequests) != 7 || !strings.Contains(nextRequests[3], "caelis-dream") || strings.Contains(nextRequests[3], "# Prepare the next conversation") || !strings.Contains(nextRequests[4], "# Prepare the next conversation") {
 		t.Fatal("Dream body did not load progressively")
 	}
-	if !strings.Contains(nextRequests[6], "Native core identity.") || !strings.Contains(nextRequests[6], "Finished the skill check") || strings.Contains(nextRequests[6], "Read the applicable guide and its task reference.") {
+	if !strings.Contains(nextRequests[6], "Native core identity.") || !strings.Contains(nextRequests[6], "Finished the skill check") || strings.Contains(nextRequests[6], "Read the applicable guide and its desktop reference.") {
 		t.Fatal("new session context did not reset and restore")
 	}
 	if _, err = os.Stat(handoffPath); !os.IsNotExist(err) {

@@ -8,7 +8,7 @@ fi
 BOT_MODE="${1:-run}"
 if [[ "$BOT_MODE" == --verify-signed ]]; then export BOT_BUILD_CHANNEL=release; fi
 source "$BOT_ROOT/script/app-identity.sh"
-if [[ "$BOT_MODE" == --cua-driver-preview || "$BOT_MODE" == --desktop-control-preview ]]; then
+if [[ "$BOT_MODE" == --desktop-control-preview ]]; then
   exec bash "$BOT_ROOT/experiments/desktop-control/run-native.sh"
 fi
 if [[ "$BOT_MODE" == --capture-preview ]]; then
@@ -24,13 +24,9 @@ if [[ "$BOT_MODE" == --task-dock-preview ]]; then
   # A native panel fixture with disposable tasks, independent of the daily Bot.
   BOT_TASK_DOCK_LIVE=1 exec bash "$BOT_ROOT/script/task-dock-native-test.sh"
 fi
-case "$BOT_MODE" in run|--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--terminal-smoke|--desktop-observe-smoke) ;; *)
-  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--capture-preview|--task-dock-preview|--bubble-preview|--chat-preview|--desktop-control-preview|--cua-driver-preview|--desktop-observe-smoke|--terminal-smoke terminal iterm2 ghostty]" >&2; exit 2 ;;
+case "$BOT_MODE" in run|--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--terminal-smoke) ;; *)
+  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--capture-preview|--task-dock-preview|--bubble-preview|--chat-preview|--desktop-control-preview|--terminal-smoke terminal iterm2 ghostty]" >&2; exit 2 ;;
 esac
-if [[ "$BOT_MODE" == --desktop-observe-smoke ]]; then
-  : "${CAELIS_BOT_DATA_DIR:?Set an isolated absolute Bot data directory}"
-  export CAELIS_BOT_DESKTOP_POC=1
-fi
 if [[ "$BOT_MODE" == --verify-signed ]]; then
   # Keep the distribution signature intact during native release acceptance.
   bash "$BOT_ROOT/script/verify-signature.sh" "$BOT_BUNDLE" developer-id
@@ -88,13 +84,8 @@ fi
 if [[ "${CAELIS_BOT_BEHAVIOR_PREVIEW:-}" == 1 ]]; then
   BOT_OPEN_ARGS+=(--env "CAELIS_BOT_BEHAVIOR_PREVIEW=1")
 fi
-if [[ "${CAELIS_BOT_DESKTOP_POC:-}" == 1 ]]; then
-  BOT_OPEN_ARGS+=(--env "CAELIS_BOT_DESKTOP_POC=1")
-fi
-if [[ "${CAELIS_BOT_CUA_POC:-}" == 1 ]]; then
-  : "${CAELIS_BOT_CUA_NODE:?Set absolute Node path}" "${CAELIS_BOT_CUA_HOST:?Set absolute experimental host.mjs path}"
-  BOT_OPEN_ARGS+=(--env "CAELIS_BOT_CUA_POC=1" --env "CAELIS_BOT_CUA_NODE=$CAELIS_BOT_CUA_NODE" --env "CAELIS_BOT_CUA_HOST=$CAELIS_BOT_CUA_HOST")
-fi
+
+
 # Match Finder's environment by default; exercise local installation discovery.
 # An explicit developer override remains available for isolated acceptance runs.
 if [[ -n "${CODEX_BIN:-}" ]]; then
@@ -106,15 +97,6 @@ if [[ -n "${CAELIS_CODEX_SOCKET:-}" ]]; then
 fi
 if [[ -n "${CODEX_HOME:-}" ]]; then
   BOT_OPEN_ARGS+=(--env "CODEX_HOME=$CODEX_HOME")
-fi
-if [[ "$BOT_MODE" == --desktop-observe-smoke ]]; then
-  /usr/bin/open "${BOT_OPEN_ARGS[@]}" --args --desktop-observe-smoke
-  for ((BOT_ATTEMPT=0; BOT_ATTEMPT<150; BOT_ATTEMPT++)); do
-    if rg -q 'DESKTOP OBSERVE PASS' "$BOT_LOG"; then echo 'Desktop observation captured; inspect private profile artifacts separately.'; exit 0; fi
-    if rg -q 'DESKTOP OBSERVE FAIL' "$BOT_LOG"; then rg 'DESKTOP OBSERVE FAIL' "$BOT_LOG"; exit 1; fi
-    sleep 0.1
-  done
-  echo "Desktop observation did not complete; see $BOT_LOG." >&2; exit 1
 fi
 /usr/bin/open "${BOT_OPEN_ARGS[@]}"
 case "$BOT_MODE" in

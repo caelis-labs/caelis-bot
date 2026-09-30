@@ -344,7 +344,7 @@ func TestInterruptCancelsPendingNativeElicitationBeforeWaitingForTurn(t *testing
 	s, f := sessionPair(t, "hold")
 	sendSynthetic(t, s, "desktop-read")
 	f.emit(wireMessage{ID: raw("desktop-access"), Method: "mcpServer/elicitation/request", Params: raw(map[string]any{
-		"threadId": "thread-native", "turnId": "run-native", "mode": "form", "serverName": "cua_repl",
+		"threadId": "thread-native", "turnId": "run-native", "mode": "form", "serverName": "fixture_mcp",
 		"message": "Allow fixture access?", "requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 	})})
 	view := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
