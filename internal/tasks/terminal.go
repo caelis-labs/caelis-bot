@@ -11,6 +11,10 @@ import (
 // TaskPreviews reads the product ledger; it never polls a Worker or reads a
 // transcript. Stable handle ordering also survives process restarts.
 func (m *Manager) TaskPreviews() []api.TaskPreview {
+	labels := map[api.WorkTarget]string{}
+	for _, info := range m.WorkTargets() {
+		labels[info.Target] = info.Label
+	}
 	// Read the adapter's in-memory projection, not its transcript. Native events
 	// can precede the coordinator's final write of a start receipt.
 	states, _ := m.workStates()
@@ -36,7 +40,12 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 		if current {
 			status = state.Task.Status
 		}
-		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: r.Provider, Locked: r.Locked})
+		preview := api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: r.Target.Backend, Locked: r.Locked}
+		if r.Target != localTarget(m.provider) {
+			preview.Target = targetPointer(r.Target)
+			preview.TargetLabel = labels[r.Target]
+		}
+		out = append(out, preview)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]

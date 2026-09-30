@@ -111,6 +111,10 @@ func TestCrossBackendWorkerUsesTargetWorkspaceAndExactOwnedRoute(t *testing.T) {
 	if !m.OwnsWorkTarget(v.ID, target) || m.OwnsWorkTarget(v.ID, localTarget("codex")) {
 		t.Fatal("wrong ledger target ownership")
 	}
+	previews := m.TaskPreviews()
+	if len(previews) != 1 || previews[0].Provider != "caelis" || previews[0].Target == nil || *previews[0].Target != target || previews[0].TargetLabel != "Linux A" {
+		t.Fatal("preview lost execution target", previews)
+	}
 	v.Target.NodeID = "tampered-return-value"
 	if !m.OwnsWorkTarget(v.ID, target) {
 		t.Fatal("returned DTO changed authority")
