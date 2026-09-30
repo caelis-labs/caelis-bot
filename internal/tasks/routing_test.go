@@ -236,3 +236,82 @@ func TestNativeTargetOrWorkspaceDriftCannotOverwriteLedger(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteRestartPreservesSourceAndContinuationBinding(t *testing.T) {
+	m, local, remote, source, router, target := routedFixture(t)
+	in := input("restart-target-request")
+	in.Target = &target
+	v, err := m.StartTask(t.Context(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := api.TaskMessage{ID: v.ID, RequestID: "restart-continuation", Prompt: "Continue original assignment"}
+	if _, err = m.SendTask(t.Context(), message); err != nil {
+		t.Fatal(err)
+	}
+	original := remote.lastMessage
+	source.source.OperationID = "new-resident-turn"
+	m, err = OpenRouted(m.path, m.root, "codex", local, local, local.Snapshot, router, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.SendTask(t.Context(), message); err != nil || remote.sends != 1 || remote.lastMessage.Source != original.Source || remote.lastMessage.RequestDigest != original.RequestDigest {
+		t.Fatal("restart changed continuation receipt", err)
+	}
+	if again, err := m.StartTask(t.Context(), in); err != nil || again.ID != v.ID || remote.starts != 1 {
+		t.Fatal("restart dispatched duplicate start", again, err)
+	}
+	other := input("other-target-request")
+	other.Target = &target
+	otherTask, err := m.StartTask(t.Context(), other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message.ID = otherTask.ID
+	if _, err = m.SendTask(t.Context(), message); err == nil || remote.sends != 1 {
+		t.Fatal("continuation request moved to another task")
+	}
+}
+
+func TestPersistedRequestDigestRejectsChangedTargetOrSource(t *testing.T) {
+	for _, mode := range []string{"target", "source", "message"} {
+		t.Run(mode, func(t *testing.T) {
+			m, local, _, source, router, target := routedFixture(t)
+			in := input("digest-target-request")
+			in.Target = &target
+			v, err := m.StartTask(t.Context(), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = m.SendTask(t.Context(), api.TaskMessage{ID: v.ID, RequestID: "digest-continuation", Prompt: "Continue"}); err != nil {
+				t.Fatal(err)
+			}
+			b, err := os.ReadFile(m.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var saved state
+			if err = json.Unmarshal(b, &saved); err != nil {
+				t.Fatal(err)
+			}
+			switch mode {
+			case "target":
+				saved.Records[v.ID].Target.NodeID = "other-node"
+				saved.Records[v.ID].View.Target = targetPointer(saved.Records[v.ID].Target)
+			case "source":
+				saved.Records[v.ID].Source.OperationID = "different-turn"
+			case "message":
+				message := saved.Messages["digest-continuation"]
+				message.Source.OperationID = "different-turn"
+				saved.Messages["digest-continuation"] = message
+			}
+			b, _ = json.Marshal(saved)
+			if err = os.WriteFile(m.path, b, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = OpenRouted(m.path, m.root, "codex", local, local, local.Snapshot, router, source); err == nil {
+				t.Fatal("changed durable binding accepted")
+			}
+		})
+	}
+}
