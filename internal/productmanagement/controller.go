@@ -145,16 +145,29 @@ func (c *Controller) ChangeRuntimeConfiguration(ctx context.Context, command Con
 	// owns replay and unknown fencing; this port never retries or reads values
 	// to guess whether the native operation happened.
 	native, err := c.configuration.ChangeRuntimeConfiguration(ctx, command.Change)
-	if err != nil || !validOutcome(native.Outcome) || !identifier.MatchString(native.OperationID) {
+	result.Native = native
+	if err != nil {
 		result.Outcome, result.Code = "unknown", "native-operation-unresolved"
-		if identifier.MatchString(native.OperationID) {
-			result.Native = api.RuntimeMutationResult{OperationID: native.OperationID, Outcome: "unknown", Message: "Original configuration operation remains unresolved"}
-		}
 		return result, nil
 	}
-	result.Native, result.Outcome, result.Code = native, native.Outcome, ""
-	if result.Outcome == "unknown" {
-		result.Code = "native-operation-unresolved"
+	if !identifier.MatchString(native.OperationID) {
+		result.Outcome, result.Code = "unknown", "invalid-native-receipt"
+		return result, nil
+	}
+	// Configuration uses Caelis command outcomes, while installation uses
+	// product outcomes. Preserve the native receipt and translate only the
+	// outer product receipt; a committed configuration is an accepted command.
+	switch native.Outcome {
+	case "committed":
+		result.Outcome, result.Code = "accepted", ""
+	case "conflicted":
+		result.Outcome, result.Code = "rejected", "configuration-conflict"
+	case "rejected":
+		result.Outcome, result.Code = "rejected", ""
+	case "unknown":
+		result.Outcome, result.Code = "unknown", "native-operation-unresolved"
+	default:
+		result.Outcome, result.Code = "unknown", "invalid-native-receipt"
 	}
 	return result, nil
 }

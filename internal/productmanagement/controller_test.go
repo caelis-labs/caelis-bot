@@ -43,7 +43,7 @@ func (f *fixtureConfiguration) ChangeRuntimeConfiguration(_ context.Context, cha
 
 func fixtureController() (*Controller, *fixtureInstaller, *fixtureConfiguration) {
 	installation := &fixtureInstaller{}
-	configuration := &fixtureConfiguration{result: api.RuntimeMutationResult{OperationID: "settings-original", Outcome: "accepted"}}
+	configuration := &fixtureConfiguration{result: api.RuntimeMutationResult{OperationID: "settings-original", Outcome: "committed"}}
 	return &Controller{scope: Scope{BotID: "bot-fixture", Generation: "generation-1"}, installation: installation, configuration: configuration, releases: []ReviewedRelease{{Runtime: "codex", Version: "0.159.2"}, {Runtime: "caelis", Version: "0.65.0"}}}, installation, configuration
 }
 
@@ -141,6 +141,32 @@ func TestConfigurationUnknownDoesNotRetryOrInferSuccessFromCurrentValues(t *test
 	encoded, _ := json.Marshal(result)
 	if result.Outcome != "unknown" || result.Native.OperationID != "settings-original" || strings.Contains(string(encoded), "private network") {
 		t.Fatalf("native error lost original operation or leaked details: %s", encoded)
+	}
+}
+
+func TestConfigurationTranslatesCaelisOutcomesAndPreservesNativeReceipt(t *testing.T) {
+	for _, test := range []struct {
+		name, native, operationID, outcome, code string
+		err                                      error
+	}{
+		{"committed", "committed", "settings-original", "accepted", "", nil},
+		{"conflicted", "conflicted", "settings-original", "rejected", "configuration-conflict", nil},
+		{"rejected", "rejected", "settings-original", "rejected", "", nil},
+		{"unknown", "unknown", "settings-original", "unknown", "native-operation-unresolved", nil},
+		{"installer-outcome", "accepted", "settings-original", "unknown", "invalid-native-receipt", nil},
+		{"missing-outcome", "", "settings-original", "unknown", "invalid-native-receipt", nil},
+		{"missing-operation", "committed", "", "unknown", "invalid-native-receipt", nil},
+		{"error-with-committed", "committed", "settings-original", "unknown", "native-operation-unresolved", errors.New("transport response unavailable")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			controller, _, configuration := fixtureController()
+			configuration.result = api.RuntimeMutationResult{OperationID: test.operationID, Outcome: test.native, Message: "Original native message"}
+			configuration.err = test.err
+			result, err := controller.ChangeRuntimeConfiguration(t.Context(), ConfigurationCommand{Scope: controller.scope, ID: "configuration", Change: api.RuntimeConfigurationChange{Action: "main", ExpectedRevision: "42", Selection: api.WorkExecutionSettings{Model: "public/model"}}})
+			if err != nil || result.Outcome != test.outcome || result.Code != test.code || result.Native != configuration.result || result.ID != "configuration" || configuration.changes != 1 || configuration.reads != 0 {
+				t.Fatalf("native configuration receipt translation: %+v %v", result, err)
+			}
+		})
 	}
 }
 
