@@ -36,24 +36,36 @@ import (
 var appIcon []byte
 
 func Run(assets fs.FS) error {
-	env, report, envErr := runtimeenv.ResolveWithReport(context.Background(), os.Environ(), environmentNotebookHomes()...)
-	if err := runtimeenv.Install(env); err != nil {
-		envErr = err
-	}
-
 	appName, appID := applicationIdentity()
-	root, err := applicationDataDirectory()
+	root, err := applicationDataDirectoryBeforeRuntimeEnvironment()
+	if err != nil {
+		return err
+	}
+	remoteProduct, err := app.RemoteProductSelected(root)
 	if err != nil {
 		return err
 	}
 	diagnostics := diagnosticlog.New(filepath.Join(root, "Logs"))
-	if envErr != nil {
-		// Resolve returns only locally generated causes, never shell output/values.
-		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
-	} else if report.HomeRestored || report.RecoveredPathEntries > 0 {
-		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_recovered", Reason: fmt.Sprintf("account home restored: %t; inherited PATH entries recovered: %d", report.HomeRestored, report.RecoveredPathEntries)})
+	if !remoteProduct {
+		env, report, envErr := runtimeenv.ResolveWithReport(context.Background(), os.Environ(), environmentNotebookHomes()...)
+		if err := runtimeenv.Install(env); err != nil {
+			envErr = err
+		}
+		root, err = applicationDataDirectory()
+		if err != nil {
+			return err
+		}
+		diagnostics = diagnosticlog.New(filepath.Join(root, "Logs"))
+		if envErr != nil {
+			// Resolve returns only locally generated causes, never shell output/values.
+			diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
+		} else if report.HomeRestored || report.RecoveredPathEntries > 0 {
+			diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_recovered", Reason: fmt.Sprintf("account home restored: %t; inherited PATH entries recovered: %d", report.HomeRestored, report.RecoveredPathEntries)})
+		} else {
+			diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_loaded", Reason: "user login and interactive shell exports loaded for native runtimes"})
+		}
 	} else {
-		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_loaded", Reason: "user login and interactive shell exports loaded for native runtimes"})
+		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "remote_product", Reason: "explicit thin APP connection; local runtime environment discovery skipped"})
 	}
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configurePermissionGuide(filepath.Join(root, "permission-guide.json"))
@@ -67,7 +79,7 @@ func Run(assets fs.FS) error {
 	}
 
 	var controlDriver api.ApplicationTools
-	if desktopWorldSupported() {
+	if !remoteProduct && desktopWorldSupported() {
 		if bundled := desktopcontrol.Bundled(); bundled != nil {
 			controlDriver = bundled
 			defer bundled.Close()

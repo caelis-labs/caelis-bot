@@ -63,6 +63,7 @@ type Application struct {
 	tasks           *tasks.Manager
 	nodeRegistry    *nodes.Registry
 	workerNodes     *workerNodeController
+	product         *productEngine
 	personal        *botmemory.Store
 	notebook        *notebook.Vault
 	skillPath       string
@@ -78,6 +79,13 @@ func New(root string, host Host) (*Application, error) {
 func newApplication(root string, host Host, resolve factoryResolver) (*Application, error) {
 	if !filepath.IsAbs(root) {
 		return nil, errors.New(i18n.Text(i18n.DefaultLocale, "host.appDataDirMustBeFullPath", nil))
+	}
+	pairing, err := loadProductPairing(root)
+	if err != nil {
+		return nil, err
+	}
+	if pairing.Mode == "remote" {
+		return newRemoteApplication(root, host, pairing)
 	}
 	if host.Diagnostics == nil {
 		host.Diagnostics = diagnosticlog.New(filepath.Join(root, "Logs"))
@@ -152,6 +160,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	service.ConfigureWorkerNodes(app.workerNodes)
 	app.configureRuntimeManagement()
 	app.configureSetup()
+	service.ConfigureProductConnection(newProductPairingController(root, pairing, nil))
 	return app, nil
 }
 
@@ -184,6 +193,9 @@ func requireAssistant(engine api.Engine, id string, loc ...i18n.Locale) error {
 // PreparePersonal makes local data available even before selecting/logging into
 // a Runtime. It starts no model, scheduler, tool transport or execution session.
 func (a *Application) PreparePersonal() error {
+	if a.product != nil {
+		return nil
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.preparePersonalLocked()
@@ -277,6 +289,9 @@ func (a *Application) preparePersonalLocked() error {
 // Start runs only after native surfaces are ready. It binds the private tools
 // before connecting, then starts bounded observation and resident scheduling.
 func (a *Application) Start() error {
+	if a.product != nil {
+		return a.startRemoteProduct()
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {
