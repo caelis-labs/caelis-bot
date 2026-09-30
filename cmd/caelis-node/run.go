@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -115,6 +116,13 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	port := productrpc.ServicePort{Service: application.Backend, Stop: func(context.Context) error { return application.Close() }}
+	files.Artifacts = func(ctx context.Context, id string) (productrpc.Resource, io.ReadCloser, error) {
+		artifact, err := application.Backend.ReadProductArtifact(ctx, id)
+		if err != nil {
+			return productrpc.Resource{}, nil, err
+		}
+		return productrpc.Resource{ID: id, Name: artifact.Name, Size: artifact.Size, SHA256: artifact.SHA256}, io.NopCloser(bytes.NewReader(artifact.Bytes)), nil
+	}
 	s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}})
 	if err != nil {
 		return err
