@@ -1,0 +1,29 @@
+{
+  "native_version": "0.65.0",
+  "native_arch": "linux-arm64",
+  "official_archive_sha256": "25e5124d746c34e0496aa933f8cf33da338338a489e7e8f23489bc9879193286",
+  "native_initialize_sha256": "3701f89ba57079115b9d9efbc55a87cd6278061221c192c67fc62dcbad963fd5",
+  "native_receipt_sha256": "8f86f204031b18609bfd127b1edb022f11ba359941ebb879528a0ffecca04b85",
+  "protocol_version": 1,
+  "api_version": "v1",
+  "envelope_version": "caelis.control.envelope/v1",
+  "worker_required_capabilities_present": true,
+  "native_receipt_revision_json_type": "int",
+  "native_receipt_revision_value": 2,
+  "synthetic_only": true,
+  "transport": "strict system OpenSSH direct-tcpip to target loopback",
+  "verified_gates": [
+    "target-side scoped enrollment",
+    "independent native Worker start",
+    "lost prompt receipt recovered without redispatch",
+    "exact native cancellation observed",
+    "detach leaves Host and active task alive",
+    "reconnect retains original grants and observes completion"
+  ],
+  "remaining_gates": {
+    "canonical_worker_artifact": "PublishArtifact canonical native tool result failed/not_found; owned Worker application session/configuration/resource endpoints404",
+    "native_human_approval": "automatic review returned guardian_unavailable/approval_unavailable; manual controller endpoint requires external ACP controller",
+    "lost_cancel_receipt": "cancel returned committed but scoped application operation recovery404; journal remains unknown",
+    "real_model": "human guest configuration and actual provider authorization pending"
+  }
+}
