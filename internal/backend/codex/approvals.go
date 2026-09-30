@@ -275,8 +275,18 @@ func (s *Session) addPrompt(event Notification) {
 	s.state.Phase = "attention"
 }
 func (s *Session) Decide(ctx context.Context, d api.Decision) error {
+	ctx, release, admissionErr := api.BeginExecution(ctx, s.opts.Admission)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer release()
 	s.op.Lock()
 	defer s.op.Unlock()
+	if s.opts.Admission != nil {
+		if err := s.opts.Admission.CheckContext(ctx); err != nil {
+			return err
+		}
+	}
 	s.mu.Lock()
 	p, ok := s.prompts[d.ID]
 	if !ok || p.view.Status != "pending" || s.state.Connection != "ready" {

@@ -204,8 +204,18 @@ func (d *dreamController) renew(ctx context.Context, p api.ConversationRuntime) 
 // SubmitUser is the sole user-input hook. Ordinary Dream rotates on user input;
 // a version upgrade can also rotate at the restored, idle startup boundary.
 func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+	ctx, release, err := api.BeginExecution(ctx, r.executionAdmission)
+	if err != nil {
+		return api.Receipt{ID: in.ID, Outcome: "rejected"}, err
+	}
+	defer release()
 	r.step.Lock()
 	defer r.step.Unlock()
+	if r.executionAdmission != nil {
+		if err := r.executionAdmission.CheckContext(ctx); err != nil {
+			return api.Receipt{ID: in.ID, Outcome: "rejected"}, err
+		}
+	}
 	rejected := api.Receipt{ID: in.ID, Outcome: "rejected"}
 	if r.paused {
 		rejected.Message = "应用正在更新，请稍后发送"

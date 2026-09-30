@@ -29,6 +29,8 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
+	// BindLeasePower is invoked only by a managed leased generation.
+	BindLeasePower func(suspend func(), wake func()) (func(), error)
 	DesktopControl api.ApplicationTools // optional private native desktop driver
 	CareSample     func() care.Sample
 	CareSources    []care.Source
@@ -49,28 +51,30 @@ type Host struct {
 }
 
 type Application struct {
-	taskPreferences *tasks.PreferencesStore
-	setup           *runtimeSetup
-	Backend         *backend.Service
-	engine          api.Engine
-	host            Host
-	root            string
-	mu              sync.Mutex
-	started, closed bool
-	cancel          context.CancelFunc
-	workers         sync.WaitGroup
-	companion       *bot.Runtime
-	bridge          *bot.Bridge
-	tasks           *tasks.Manager
-	nodeRegistry    *nodes.Registry
-	workerNodes     *workerNodeController
-	product         *productEngine
-	personal        *botmemory.Store
-	notebook        *notebook.Vault
-	skillPath       string
-	initialization  *bot.Initializer
-	closeOnce       sync.Once
-	closeErr        error
+	managed            *managedNodeOwner
+	executionAdmission api.ExecutionAdmission
+	taskPreferences    *tasks.PreferencesStore
+	setup              *runtimeSetup
+	Backend            *backend.Service
+	engine             api.Engine
+	host               Host
+	root               string
+	mu                 sync.Mutex
+	started, closed    bool
+	cancel             context.CancelFunc
+	workers            sync.WaitGroup
+	companion          *bot.Runtime
+	bridge             *bot.Bridge
+	tasks              *tasks.Manager
+	nodeRegistry       *nodes.Registry
+	workerNodes        *workerNodeController
+	product            *productEngine
+	personal           *botmemory.Store
+	notebook           *notebook.Vault
+	skillPath          string
+	initialization     *bot.Initializer
+	closeOnce          sync.Once
+	closeErr           error
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -283,6 +287,7 @@ func (a *Application) preparePersonalLocked() error {
 		return bot.DreamEnvironment{Available: sample.Available(), Epoch: sample.Epoch, DraftRevision: a.Backend.Draft().Revision}
 	})
 	resident.ConfigureDreamDiagnostics(a.host.Diagnostics)
+	resident.ConfigureExecutionAdmission(a.executionAdmission)
 	a.companion, a.personal, a.notebook, a.skillPath = resident, personal, vault, skillPath
 	return nil
 }
@@ -306,6 +311,7 @@ func (a *Application) Start() error {
 	if err != nil {
 		return err
 	}
+	manager.ConfigureExecutionAdmission(a.executionAdmission)
 	manager.SetLocale(a.locale)
 	manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 	manager.ObserveWatchlist(a.host.ObserveTasks)
@@ -428,6 +434,9 @@ func (a *Application) WorkTerminal(ctx context.Context, id string) (api.Terminal
 // Close is the explicit application-exit boundary. Cancellation stops wakeups
 // before the adapter cleans only owned work; shared servers remain alive.
 func (a *Application) Close() error {
+	if a.managed != nil {
+		a.managed.guard.Revoke()
+	}
 	a.closeOnce.Do(func() {
 		a.mu.Lock()
 		a.closed = true
