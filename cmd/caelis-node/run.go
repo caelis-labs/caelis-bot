@@ -142,8 +142,14 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return productmanagement.New(scope, *runtimeDirectory, configuration)
 		}
 	}
+	var execution func(productmanagement.Scope) (productmanagement.ExecutionPort, error)
+	if application.Backend.ModelSettingsAvailable() {
+		execution = func(scope productmanagement.Scope) (productmanagement.ExecutionPort, error) {
+			return productmanagement.NewExecution(scope, application.Backend)
+		}
+	}
 	stopped := make(chan productrpc.Result, 1)
-	s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}, Management: management, OnStopped: func(r productrpc.Result) { stopped <- r }})
+	s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}, Management: management, Execution: execution, OnStopped: func(r productrpc.Result) { stopped <- r }})
 	if err != nil {
 		return err
 	}
