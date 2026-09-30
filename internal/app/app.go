@@ -78,7 +78,16 @@ type Application struct {
 }
 
 func New(root string, host Host) (*Application, error) {
-	return newApplication(root, host, resolveProvider)
+	a, err := newApplication(root, host, resolveProvider)
+	if err != nil {
+		return nil, err
+	}
+	// Optional node metadata must never add network/daemon requirements or
+	// prevent the established local (or thin APP) path from starting.
+	if err = AttachNodeManagement(a); err != nil && host.ReportError != nil {
+		host.ReportError(err)
+	}
+	return a, nil
 }
 
 func newApplication(root string, host Host, resolve factoryResolver) (*Application, error) {
@@ -457,6 +466,7 @@ func (a *Application) Close() error {
 		if a.workerNodes != nil {
 			a.closeErr = errors.Join(a.closeErr, a.workerNodes.Close())
 		}
+		a.closeErr = errors.Join(a.closeErr, a.Backend.CloseNodeManagement(context.Background()))
 		a.closeErr = errors.Join(a.closeErr, a.Backend.Shutdown())
 		if resident != nil {
 			resident.Close()
