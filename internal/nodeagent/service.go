@@ -452,15 +452,24 @@ func (s *Service) Reconcile(ctx context.Context, ref api.NodeOperationRef) (api.
 	return s.reconcile(prior)
 }
 func (s *Service) reconcile(prior operation) (api.NodeOperationReceipt, error) {
-	if prior.Phase == "done" {
+	if prior.Phase == "done" && prior.Receipt.Outcome != api.NodeUnknown {
 		return prior.Receipt, nil
 	}
-	if prior.Phase != "intent" {
+	if prior.Phase != "intent" && !(prior.Phase == "done" && prior.Receipt.Outcome == api.NodeUnknown) {
 		return prior.Receipt, nil
 	}
 	if prior.Request.Change != nil {
 		if port, ok := s.options.Configurations[prior.Request.Ref.Backend].(ConfigurationReconciler); ok {
-			return port.Reconcile(context.Background(), prior.Request.Ref)
+			receipt, err := port.Reconcile(context.Background(), prior.Request.Ref)
+			if err == nil && receipt.Ref == prior.Request.Ref && receipt.Outcome != api.NodeUnknown {
+				prior.Phase = "done"
+				prior.Receipt = receipt
+				if writeState(s.operationPath(receipt.Ref.OperationID), prior) != nil {
+					receipt.Outcome = api.NodeUnknown
+					receipt.Message = "original-receipt-unconfirmed"
+				}
+			}
+			return receipt, err
 		}
 		return prior.Receipt, nil
 	}
