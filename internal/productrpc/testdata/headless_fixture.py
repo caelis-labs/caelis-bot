@@ -64,7 +64,7 @@ try:
     if result.get('outcome') not in ('accepted','committed'):raise RuntimeError('synthetic public model configuration rejected')
     (root/'profile/runtime.json').write_text(json.dumps({'runtime':'caelis','cliPath':str(root/'caelis'),'caelisStore':str(root/'store')}))
     directory=root/'profile/providers/caelis';directory.mkdir(parents=True,mode=0o700)
-    (directory/'execution.json').write_text(json.dumps({'model':'gpt-5.4-mini','approvalMode':'workspace-write'}))
+    (directory/'execution.json').write_text(json.dumps({'model':'openai/gpt-5.4-mini','approvalMode':'workspace-write'}))
     (root/'product.auth').write_text(uuid.uuid4().hex+uuid.uuid4().hex)
     node=subprocess.Popen([str(root/'caelis-node'),'serve-bot','--profile',str(root/'profile'),'--listen','127.0.0.1:0','--auth-file',str(root/'product.auth')],cwd=root,env=env,stdout=node_output,stderr=node_log)
     for _ in range(800):
