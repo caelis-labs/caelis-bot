@@ -69,7 +69,21 @@ func (p projection) state(scope Scope, cursor Cursor, port Port) (State, error) 
 	for i := range draft.ReferenceIDs {
 		draft.ReferenceIDs[i] = p.handle("reference", draft.ReferenceIDs[i])
 	}
-	return State{Scope: scope, Cursor: cursor, Snapshot: v, Draft: draft, Initialization: port.BotInitialization(), ApprovalTargets: targets}, nil
+	summaries := []api.TaskSummary{}
+	if tasks, ok := port.(TaskSummaryPort); ok {
+		raw := tasks.TaskSummaries()
+		if len(raw) > MaxTaskSummaries {
+			return State{}, errors.New("task summaries exceed product limit")
+		}
+		for _, summary := range raw {
+			if summary.ID == "" || len(summary.Title) > 4096 || len(summary.Status) > 64 || len(summary.Outcome) > 64 {
+				return State{}, errors.New("task summary exceeds product limit")
+			}
+			summary.ID = p.handle("task", summary.ID)
+			summaries = append(summaries, summary)
+		}
+	}
+	return State{Scope: scope, Cursor: cursor, Snapshot: v, Draft: draft, Initialization: port.BotInitialization(), ApprovalTargets: targets, TaskSummaries: summaries}, nil
 }
 
 func (p projection) decision(v api.Snapshot, d ApprovalDecision) (api.Decision, bool) {

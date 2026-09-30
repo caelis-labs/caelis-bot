@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/productmanagement"
 )
 
 const (
@@ -16,6 +17,7 @@ const (
 	MaxSnapshotBytes = 8 << 20
 	MaxResourceBytes = 20 << 20
 	MaxReceipts      = 4096
+	MaxTaskSummaries = 512
 )
 
 var ErrUnsupported = errors.New("product capability unavailable")
@@ -54,19 +56,22 @@ type State struct {
 	Initialization  api.BotInitialization `json:"initialization"`
 	Draft           api.Draft             `json:"draft"`
 	ApprovalTargets map[string]string     `json:"approvalTargets"`
+	TaskSummaries   []api.TaskSummary     `json:"taskSummaries"`
 }
 
 // Command is a closed union. Exactly the payload for Kind is allowed.
 // Native paths, ToolConnection and provider credentials have no wire fields.
 type Command struct {
 	Scope
-	ID           string               `json:"id"`
-	Kind         string               `json:"kind"`
-	Submission   *api.Submission      `json:"submission,omitempty"`
-	Decision     *ApprovalDecision    `json:"decision,omitempty"`
-	Turn         string               `json:"turn,omitempty"`
-	Introduction *api.BotIntroduction `json:"introduction,omitempty"`
-	Draft        *api.Draft           `json:"draft,omitempty"`
+	ID                string                                  `json:"id"`
+	Kind              string                                  `json:"kind"`
+	Submission        *api.Submission                         `json:"submission,omitempty"`
+	Decision          *ApprovalDecision                       `json:"decision,omitempty"`
+	Turn              string                                  `json:"turn,omitempty"`
+	Introduction      *api.BotIntroduction                    `json:"introduction,omitempty"`
+	Draft             *api.Draft                              `json:"draft,omitempty"`
+	RuntimeManagement *productmanagement.RuntimeCommand       `json:"runtimeManagement,omitempty"`
+	Configuration     *productmanagement.ConfigurationCommand `json:"configuration,omitempty"`
 }
 
 type ApprovalDecision struct {
@@ -76,12 +81,14 @@ type ApprovalDecision struct {
 
 // Result is a command receipt, not evidence that a model turn completed.
 type Result struct {
-	ID             string                 `json:"id"`
-	Outcome        string                 `json:"outcome"`
-	Code           string                 `json:"code,omitempty"`
-	Submission     *api.Receipt           `json:"submission,omitempty"`
-	Initialization *api.BotInitialization `json:"initialization,omitempty"`
-	Draft          *api.Draft             `json:"draft,omitempty"`
+	ID                string                                 `json:"id"`
+	Outcome           string                                 `json:"outcome"`
+	Code              string                                 `json:"code,omitempty"`
+	Submission        *api.Receipt                           `json:"submission,omitempty"`
+	Initialization    *api.BotInitialization                 `json:"initialization,omitempty"`
+	Draft             *api.Draft                             `json:"draft,omitempty"`
+	RuntimeManagement *productmanagement.RuntimeResult       `json:"runtimeManagement,omitempty"`
+	Configuration     *productmanagement.ConfigurationResult `json:"configuration,omitempty"`
 }
 
 // Port is backed by the composed product Service, including Worker facts.
@@ -114,3 +121,7 @@ type Resources interface {
 	Open(context.Context, string) (Resource, io.ReadCloser, error)
 	Upload(context.Context, Resource, io.Reader) (Resource, error)
 }
+
+// TaskSummaryPort is a host-only composed watchlist observation. It carries
+// native terminal status and receipt uncertainty independently, never paths.
+type TaskSummaryPort interface{ TaskSummaries() []api.TaskSummary }
