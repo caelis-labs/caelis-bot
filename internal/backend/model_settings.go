@@ -17,7 +17,11 @@ func (s *Service) ModelSettingsAvailable() bool {
 
 func (s *Service) modelSettingsLocked(ctx context.Context) (productmanagement.ExecutionState, error) {
 	v, err := s.executionSettingsLocked(ctx)
-	state := productmanagement.ExecutionState{Conversation: v, ConversationDefault: s.runtimeSettings.Runtime == "caelis"}
+	activeProvider := s.runtimeSettings.Runtime
+	if p, ok := s.engine.(api.Provider); ok {
+		activeProvider = p.ProviderInfo().ID
+	}
+	state := productmanagement.ExecutionState{Conversation: v, ConversationDefault: activeProvider == "caelis"}
 	if _, ok := s.engine.(api.WorkExecutionProvider); ok {
 		work := s.workExecutionSettings
 		state.Work = &work
@@ -77,7 +81,10 @@ func (s *Service) ApplyModelSettings(ctx context.Context, revision, target strin
 			return productmanagement.ErrExecutionInvalid
 		}
 		m := catalog[i]
-		if !slices.Contains(m.Efforts, selection.Effort) && !(selection.Effort == "" && len(m.Efforts) == 0) {
+		// Caelis conversation configuration supports its native default effort.
+		// Codex and work overrides retain their existing explicit-effort policy.
+		defaultEffort := target == "conversation" && state.ConversationDefault && selection.Effort == ""
+		if !defaultEffort && !slices.Contains(m.Efforts, selection.Effort) && !(selection.Effort == "" && len(m.Efforts) == 0) {
 			return productmanagement.ErrExecutionInvalid
 		}
 	}
