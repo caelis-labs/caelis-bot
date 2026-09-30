@@ -42,6 +42,13 @@ type Options struct {
 	// If absent, conservative claim eligibility (safe idle) is rechecked.
 	VerifyRenew      func(context.Context, nodeplane.Lease, nodeplane.ClaimRequest) error
 	ValidateSnapshot func(context.Context, []byte) (nodeplane.SnapshotRef, error)
+	// PreferredNodeID is trusted native configuration, independent of view
+	// selection. An empty value preserves ordinary first-eligible lease CAS.
+	PreferredNodeID string
+	// ReadOwnerEligibility reads the exact paired native owner. It is used only
+	// to reclaim at safe idle; renewal verification remains separate so busy,
+	// pending and unknown work can retain its existing authority.
+	ReadOwnerEligibility func(context.Context, api.WorkTarget) (nodeplane.RuntimeEligibility, error)
 }
 
 type diskState struct {
@@ -62,6 +69,7 @@ type Coordinator struct {
 	last       time.Time
 	poisoned   bool
 	unlock     func()
+	preference preferredIntent
 }
 
 func Open(o Options) (*Coordinator, error) {
@@ -207,12 +215,14 @@ func (c *Coordinator) Claim(ctx context.Context, r nodeplane.ClaimRequest) (node
 		return nodeplane.Lease{}, err
 	}
 	if r.Snapshot != c.state.Latest || r.Snapshot.BotID != c.opts.BotID || r.Snapshot.Digest == "" {
+		c.invalidatePreferredClaim(r)
 		return nodeplane.Lease{}, ErrSnapshot
 	}
 	if _, err = c.readSnapshot(ctx, r.Snapshot); err != nil {
 		return nodeplane.Lease{}, ErrSnapshot
 	}
 	if err = c.verify(ctx, r); err != nil {
+		c.invalidatePreferredClaim(r)
 		return nodeplane.Lease{}, err
 	}
 	now, err = c.tick(ctx)
@@ -224,6 +234,7 @@ func (c *Coordinator) Claim(ctx context.Context, r nodeplane.ClaimRequest) (node
 		if r == c.state.Claim {
 			return c.grant(now), nil
 		}
+		c.observePreferredClaim(now, r)
 		return nodeplane.Lease{}, ErrConflict
 	}
 	if r.ExpectedEpoch != c.state.Lease.Epoch {
@@ -238,6 +249,7 @@ func (c *Coordinator) Claim(ctx context.Context, r nodeplane.ClaimRequest) (node
 	}
 	c.state = s
 	c.deadline = now.Add(nodeplane.DefaultLeaseExpiry)
+	c.preference = preferredIntent{}
 	return c.grant(now), nil
 }
 func (c *Coordinator) grant(now time.Time) nodeplane.Lease {
@@ -279,6 +291,20 @@ func (c *Coordinator) Heartbeat(ctx context.Context, l nodeplane.Lease) (nodepla
 	}
 	if !c.active(now) {
 		return nodeplane.Lease{}, ErrConflict
+	}
+	if c.opts.PreferredNodeID != "" && c.preference.claim.BotID != "" {
+		if err = c.reclaimPreferred(ctx); err != nil {
+			return nodeplane.Lease{}, err
+		}
+		// Paired reads can take time; never renew across the old deadline or
+		// after cancellation while observing a preferred candidate.
+		now, err = c.tick(ctx)
+		if err != nil {
+			return nodeplane.Lease{}, err
+		}
+		if !c.active(now) {
+			return nodeplane.Lease{}, ErrConflict
+		}
 	}
 	s := c.state
 	s.Lease.ExpiresAt = now.Add(nodeplane.DefaultLeaseExpiry)
@@ -374,6 +400,7 @@ func (c *Coordinator) PublishSnapshot(ctx context.Context, l nodeplane.Lease, re
 		return err
 	}
 	c.state = s
+	c.preference = preferredIntent{}
 	// The cache retains one complete bundle; remove the previous immutable
 	// blob only after the new authoritative pointer is durably committed.
 	if previous.Digest != ref.Digest {
