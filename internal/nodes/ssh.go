@@ -20,6 +20,7 @@ import (
 
 // SSHConfig is native private configuration. It is never tool/renderer input.
 type SSHConfig struct {
+	Protocol                             caelis.WorkerProtocol
 	Target, Helper, Store, WorkspaceRoot string
 	Binary                               string
 }
@@ -34,6 +35,10 @@ type SSHWorker struct {
 var sshTarget = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.@:-]*$`)
 
 func NewSSHWorker(config SSHConfig) (*SSHWorker, error) {
+	if config.Protocol != "" && config.Protocol != caelis.WorkerProtocolSharedNative && config.Protocol != caelis.WorkerProtocolBoundedApplication {
+		return nil, errors.New("invalid Worker protocol")
+	}
+
 	if !sshTarget.MatchString(config.Target) {
 		return nil, errors.New("invalid SSH target")
 	}
@@ -92,7 +97,7 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 
 // Probe is read-only: no tunnel, enrollment, workspace or remote installation.
 func (s *SSHWorker) Probe(ctx context.Context) (caelis.WorkerBootstrapResult, error) {
-	return s.helper(ctx, caelis.WorkerBootstrapRequest{Action: "probe", Store: s.config.Store})
+	return s.helper(ctx, caelis.WorkerBootstrapRequest{Action: "probe", Store: s.config.Store, Protocol: s.config.Protocol})
 }
 func (s *SSHWorker) Endpoint(ctx context.Context) (caelis.WorkerEndpoint, error) {
 	s.mu.Lock()
@@ -140,7 +145,7 @@ func sameSSHIdentity(a, b caelis.WorkerBootstrapResult) bool {
 }
 func (s *SSHWorker) request(action string) caelis.WorkerBootstrapRequest {
 	// Caller either owns mu (Endpoint) or copies under mu in workspace methods.
-	return caelis.WorkerBootstrapRequest{Action: action, Store: s.config.Store, WorkspaceRoot: s.config.WorkspaceRoot, StoreID: s.expected.StoreID, InstanceID: s.expected.InstanceID, PrincipalID: s.expected.PrincipalID}
+	return caelis.WorkerBootstrapRequest{Action: action, Store: s.config.Store, Protocol: s.config.Protocol, WorkspaceRoot: s.config.WorkspaceRoot, StoreID: s.expected.StoreID, InstanceID: s.expected.InstanceID, PrincipalID: s.expected.PrincipalID}
 }
 func (s *SSHWorker) ResolveWorkWorkspace(ctx context.Context, id, requested string) (string, error) {
 	s.mu.Lock()
