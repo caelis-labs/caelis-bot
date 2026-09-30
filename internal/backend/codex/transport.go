@@ -152,6 +152,10 @@ func (t *transport) cause() error { t.mu.Lock(); defer t.mu.Unlock(); return t.t
 // send serializes JSONL writes. A context can cancel a blocked pipe write without
 // leaving a goroutine holding the writer lock or interleaving another message.
 func (t *transport) send(ctx context.Context, message wireMessage) (bool, error) {
+	return t.sendFrame(ctx, message, false)
+}
+
+func (t *transport) sendFrame(ctx context.Context, message wireMessage, finishFrame bool) (bool, error) {
 	b, err := json.Marshal(message)
 	if err != nil {
 		return false, err
@@ -178,7 +182,10 @@ func (t *transport) send(ctx context.Context, message wireMessage) (bool, error)
 		return false, err
 	}
 	cancelDone := make(chan struct{})
-	cancel := context.AfterFunc(ctx, func() { _ = t.conn.SetWriteDeadline(time.Now()); close(cancelDone) })
+	cancel := func() bool { return true }
+	if !finishFrame {
+		cancel = context.AfterFunc(ctx, func() { _ = t.conn.SetWriteDeadline(time.Now()); close(cancelDone) })
+	}
 	n, err := t.conn.Write(append(b, '\n'))
 	if !cancel() {
 		<-cancelDone
@@ -190,12 +197,25 @@ func (t *transport) send(ctx context.Context, message wireMessage) (bool, error)
 	if err != nil {
 		t.fail(ErrClosed) // A partial frame cannot be safely reused or retried.
 		if ctx.Err() != nil {
-			err = ctx.Err()
+			err = errors.Join(ctx.Err(), err)
 		}
 	}
 	return true, err
 }
 func (t *transport) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return t.request(ctx, method, params, false)
+}
+
+// observe cancels admission and response observation, but lets an admitted frame
+// finish under its original write deadline. Shutdown can then reuse the writer
+// for cleanup instead of destroying it by cancelling a background read request.
+// An actual write failure still makes the transport unusable, even at zero bytes:
+// a framed connection may have written bytes below this adapter boundary.
+func (t *transport) observe(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return t.request(ctx, method, params, true)
+}
+
+func (t *transport) request(ctx context.Context, method string, params any, finishFrame bool) (json.RawMessage, error) {
 	b, err := json.Marshal(params)
 	if err != nil {
 		return nil, &RequestError{method, false, err}
@@ -212,7 +232,7 @@ func (t *transport) call(ctx context.Context, method string, params any) (json.R
 	t.pending[id] = ch
 	t.mu.Unlock()
 	defer func() { t.mu.Lock(); delete(t.pending, id); t.mu.Unlock() }()
-	sent, err := t.send(ctx, wireMessage{ID: json.RawMessage(id), Method: method, Params: b})
+	sent, err := t.sendFrame(ctx, wireMessage{ID: json.RawMessage(id), Method: method, Params: b}, finishFrame)
 	if err != nil {
 		return nil, &RequestError{method, sent, err}
 	}
