@@ -24,12 +24,15 @@ type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }
 
 type WorkStart struct {
 	TaskStart
+	Source                      WorkDispatchSource `json:"-"`
+	RequestDigest               string             `json:"-"`
 	ID, Workspace, Instructions string
 }
 
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque
 // native generation, never a product-generated inference from assistant prose.
 type WorkState struct {
+	Target         WorkTarget
 	Task           Task
 	OriginalPrompt string
 	ExecutionKey   string
