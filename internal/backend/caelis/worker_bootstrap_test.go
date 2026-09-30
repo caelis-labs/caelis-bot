@@ -140,3 +140,59 @@ func TestTargetBootstrapReadOnlyProbeAndDurableScopedEnrollment(t *testing.T) {
 		t.Fatal("redirected workspace admitted")
 	}
 }
+
+func TestConcurrentEnrollmentIntentCannotOverwriteScope(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private", "intent.json")
+	first := credential{StoreID: "store", PrincipalID: "owner", OperationID: "same-operation", Token: "first-synthetic-credential"}
+	second := first
+	second.Token = "second-synthetic-credential"
+	// Both complete intents reach the publication boundary before either is linked.
+	// This reproduces the missing-file race deterministically, rather than relying
+	// on filesystem timing or hoping two independent helpers overlap their reads.
+	reached, release := make(chan struct{}, 2), make(chan struct{})
+	link := func(old, new string) error { reached <- struct{}{}; <-release; return os.Link(old, new) }
+	results := make(chan error, 2)
+	go func() { results <- publishEnrollmentIntent(path, first, link) }()
+	go func() { results <- publishEnrollmentIntent(path, second, link) }()
+	for range 2 {
+		select {
+		case <-reached:
+		case <-time.After(3 * time.Second):
+			t.Fatal("writers did not reach exclusive publication barrier")
+		}
+	}
+	close(release)
+	successes := 0
+	for range 2 {
+		select {
+		case err := <-results:
+			if err == nil {
+				successes++
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("exclusive publication blocked")
+		}
+	}
+	if successes != 1 {
+		t.Fatal("different scopes did not select exactly one durable intent")
+	}
+	raw, err := privateRead(path, 65536)
+	var winner credential
+	if err != nil || json.Unmarshal(raw, &winner) != nil || winner != first && winner != second {
+		t.Fatal("durable intent lost or mixed")
+	}
+	loser := first
+	if winner == first {
+		loser = second
+	}
+	if err = persistEnrollmentIntent(path, loser); err == nil {
+		t.Fatal("different scope overwrote the winner")
+	}
+	if err = persistEnrollmentIntent(path, winner); err != nil {
+		t.Fatal("exact original scope could not replay", err)
+	}
+	again, err := privateRead(path, 65536)
+	if err != nil || !bytes.Equal(raw, again) {
+		t.Fatal("immutable intent bytes changed")
+	}
+}
