@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -19,6 +17,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/productmanagement"
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
 
@@ -51,6 +50,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	profile := f.String("profile", "", "explicit isolated application profile")
 	listen := f.String("listen", "127.0.0.1:0", "literal loopback listener")
 	auth := f.String("auth-file", "", "private application-local product token file (not Runtime credentials)")
+	runtimeDirectory := f.String("runtime-directory", "", "optional target-local managed Runtime directory inside user HOME; no automatic installation")
 	if err := f.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -126,8 +126,21 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		}
 		return productrpc.Resource{ID: id, Name: artifact.Name, Size: artifact.Size, SHA256: artifact.SHA256}, io.NopCloser(bytes.NewReader(artifact.Bytes)), nil
 	}
+	var management func(productmanagement.Scope) (productmanagement.Port, error)
+	if *runtimeDirectory != "" {
+		if !filepath.IsAbs(*runtimeDirectory) {
+			return errors.New("managed Runtime directory must be absolute")
+		}
+		management = func(scope productmanagement.Scope) (productmanagement.Port, error) {
+			var configuration productmanagement.Configuration
+			if application.Backend.RuntimeSettings().Runtime == "caelis" {
+				configuration = application.Backend
+			}
+			return productmanagement.New(scope, *runtimeDirectory, configuration)
+		}
+	}
 	stopped := make(chan productrpc.Result, 1)
-	s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}, OnStopped: func(r productrpc.Result) { stopped <- r }})
+	s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}, Management: management, OnStopped: func(r productrpc.Result) { stopped <- r }})
 	if err != nil {
 		return err
 	}
@@ -240,8 +253,7 @@ func profileIdentity(root string) (string, string, error) {
 	if len(b) > 1<<20 || json.Unmarshal(b, &bot) != nil || bot.ID == "" {
 		return "", "", errors.New("invalid resident identity")
 	}
-	h := sha256.Sum256([]byte("caelis-product-bot\x00" + bot.ID))
-	botID := "bot-" + hex.EncodeToString(h[:])
+	botID := productrpc.ProfileBotID(bot.ID)
 	path := filepath.Join(root, "Product", "node.json")
 	var node struct {
 		ID string `json:"id"`

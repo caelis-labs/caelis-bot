@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 // ServicePort preserves the existing application assembly. Stop is the native
@@ -37,3 +38,10 @@ func (p ServicePort) StopBot(ctx context.Context) error {
 }
 
 var _ Port = ServicePort{}
+
+func (p ServicePort) TaskSummaries() []api.TaskSummary {
+	if summary, ok := any(p.Service).(TaskSummaryPort); ok {
+		return summary.TaskSummaries()
+	}
+	return nil
+}
