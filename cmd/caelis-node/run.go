@@ -22,6 +22,14 @@ import (
 )
 
 func run(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "serve-broker":
+			return runBroker(ctx, args, out)
+		case "serve-agent", "proxy-agent", "join-agent", "verify-join-directory":
+			return runAgent(ctx, args, out)
+		}
+	}
 	if len(args) > 0 && (args[0] == "serve-worker" || args[0] == "proxy-worker") {
 		return runWorker(ctx, args, out)
 	}
