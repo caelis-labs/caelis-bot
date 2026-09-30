@@ -12,6 +12,9 @@ type NodeCatalog struct {
 	ActiveBotNodeID string      `json:"activeBotNodeId"`
 	WorkerTarget    *WorkTarget `json:"workerTarget"`
 	Broker          *NodeBroker `json:"broker"`
+	// Native journals expose original unresolved references after APP remount
+	// or restart, including installation operations with no readable config.
+	PendingOperations []NodeOperationRef `json:"pendingOperations"`
 }
 
 type NodeInfo struct {
@@ -149,8 +152,11 @@ type NodeRuntimeConfiguration struct {
 	Configuration RuntimeConfiguration `json:"configuration"`
 	// Codex conversation and Worker preferences are separate scopes. A null
 	// scope is unavailable; never infer it from a shared Runtime main model.
-	Conversation *WorkExecutionSettings `json:"conversation"`
-	Worker       *WorkExecutionSettings `json:"worker"`
+	Conversation           *WorkExecutionSettings `json:"conversation"`
+	Worker                 *WorkExecutionSettings `json:"worker"`
+	ConfigurationAvailable bool                   `json:"configurationAvailable"`
+	InstallerAvailable     bool                   `json:"installerAvailable"`
+	ReviewedVersions       []string               `json:"reviewedVersions"`
 }
 
 // Enrollment accepts a user-selected SSH destination, not a filesystem path,
