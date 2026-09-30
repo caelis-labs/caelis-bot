@@ -67,7 +67,6 @@ func TestNativeCodexWorkerSSHGate(t *testing.T) {
 		t.Fatal("owned native gate transport failed")
 	}
 	done := make(chan error, 1)
-	go func() { done <- process.Wait() }()
 	reader := bufio.NewReader(output)
 	read := func(value any) error {
 		line, e := reader.ReadBytes('\n')
@@ -79,10 +78,17 @@ func TestNativeCodexWorkerSSHGate(t *testing.T) {
 		}
 		return json.Unmarshal(line, value)
 	}
+	var expectedSource api.WorkDispatchSource
+	var expectedDigest string
 	var stopped struct {
-		OwnerStopped, NativeChildrenStopped bool
-		OwnedNativeChildren                 int
-		ModelSettings                       []struct{ Model, Effort string }
+		OwnerStopped, NativeChildrenStopped, ResidentThreadCreated, AcceptedOriginalReplyDropped bool
+		RetainedReceipts                                                                         []struct {
+			BindingDigest, OperationDigest, SourceNode, SourceBackend, SourceKind, RequestDigest, RequestID string
+			NativeThreadPresent, NativeTurnPresent                                                          bool
+			NativeReceiptCount                                                                              int
+		}
+		OwnedNativeChildren int
+		ModelSettings       []struct{ Model, Effort string }
 	}
 	cleanup := func() {
 		_, _ = io.WriteString(input, "{\"stop\":true}\n")
@@ -90,6 +96,7 @@ func TestNativeCodexWorkerSSHGate(t *testing.T) {
 		if e := read(&stopped); e != nil {
 			t.Error("native gate shutdown metadata unavailable")
 		}
+		go func() { done <- process.Wait() }()
 		select {
 		case e := <-done:
 			if e != nil {
@@ -105,6 +112,14 @@ func TestNativeCodexWorkerSSHGate(t *testing.T) {
 		for _, settings := range stopped.ModelSettings {
 			if settings.Model != "gpt-6-luna" || settings.Effort != "medium" {
 				t.Error("native execution differed from authorized model/effort")
+			}
+		}
+		if len(stopped.ModelSettings) != 1 || len(stopped.RetainedReceipts) != 1 || stopped.ResidentThreadCreated || !stopped.AcceptedOriginalReplyDropped {
+			t.Error("native gate did not retain exactly one Worker receipt without resident session")
+		}
+		for _, receipt := range stopped.RetainedReceipts {
+			if receipt.BindingDigest != nativeIDHash(expectedSource.BindingID) || receipt.OperationDigest != nativeIDHash(expectedSource.OperationID) || receipt.SourceNode != expectedSource.NodeID || receipt.SourceBackend != expectedSource.Backend || receipt.SourceKind != expectedSource.Kind || receipt.RequestDigest != expectedDigest || receipt.RequestID != "native-artifact-original" || !receipt.NativeThreadPresent || !receipt.NativeTurnPresent || receipt.NativeReceiptCount != 1 {
+				t.Error("retained original native Worker identity/source/receipt changed")
 			}
 		}
 		t.Log("owned supervisor and captured native children stopped", stopped.OwnerStopped, stopped.NativeChildrenStopped, "authorized model", "gpt-6-luna", "effort", "medium")
@@ -129,7 +144,7 @@ func TestNativeCodexWorkerSSHGate(t *testing.T) {
 	if err = read(&ready); err != nil || ready.Version != 1 || ready.Socket != config.Socket || ready.Pair != primary.pair {
 		t.Fatal("native Worker readiness mismatch")
 	}
-	node := backend.WorkerNodeConfig{ID: "linux-gate", Label: "Isolated native Worker", Backend: "codex", SSH: gate.SSH, Helper: gate.Directory + "/node", Socket: config.Socket, WorkspaceRoot: config.Directory + "/Tasks"}
+	node := backend.WorkerNodeConfig{ID: "linux-gate", Label: "Isolated native Worker", Backend: "codex", SSH: gate.SSH, Helper: gate.Directory + "/proxy.py", Socket: config.Socket, WorkspaceRoot: config.Directory + "/Tasks"}
 	setup, err := primary.app.Backend.SaveWorkerNode(node, primary.app.Backend.WorkerNodes().Revision)
 	if err != nil {
 		t.Fatal("explicit APP node setup failed", err)
@@ -141,8 +156,8 @@ func TestNativeCodexWorkerSSHGate(t *testing.T) {
 	target := primary.pair.Target
 	request := api.TaskStart{Target: &target, RequestID: "native-artifact-original", Title: "Native artifact gate", Prompt: "Create artifact.txt in this task workspace with exactly the text CODEX_NATIVE_WORKER_ARTIFACT and a trailing newline. Use apply_patch to create it so the native file change is recorded. Then give a brief completion message. Do not read credentials, contact the network, or modify any other directory."}
 	task, err := primary.app.tasks.StartTask(ctx, request)
-	if err != nil || task.ID == "" || task.Target == nil || *task.Target != target {
-		t.Fatal("actual native-source Worker dispatch failed", err)
+	if err == nil || task.ID == "" || task.Target == nil || *task.Target != target {
+		t.Fatal("fault injection did not retain the original uncertain Worker request")
 	}
 	initialID := task.ID
 	// Disconnect the APP observer while native execution owns the request.
@@ -228,6 +243,7 @@ func TestNativeCodexWorkerSSHGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored, exists := ledger.Records[initialID]
+	expectedSource, expectedDigest = stored.Source, stored.RequestDigest
 	if !exists || stored.Source.Validate() != nil || stored.RequestDigest == "" {
 		t.Fatal("original native source/digest not retained")
 	}
@@ -246,5 +262,5 @@ func TestNativeCodexWorkerSSHGate(t *testing.T) {
 	if _, err = primary.app.tasks.StartTask(ctx, fresh); err == nil {
 		t.Fatal("fresh mutation admitted after primary native source ended")
 	}
-	t.Log(fmt.Sprintf("native APP→strictSSH→Worker artifact gate passed; target=codex/worker, originalTaskDigest=%s, artifactSHA256=%s, detach/reconnect=true, originalReplay=true, changedIntentRejected=true, foreignReadRejected=true, endedSourceFreshRejected=true", nativeIDHash(initialID), artifact.SHA256))
+	t.Log(fmt.Sprintf("native APP→strictSSH→Worker artifact gate passed; target=codex/worker, originalTaskDigest=%s, artifactSHA256=%s, acceptedReplyLoss=true, detach/reconnect=true, originalReplay=true, changedIntentRejected=true, foreignReadRejected=true, endedSourceFreshRejected=true", nativeIDHash(initialID), artifact.SHA256))
 }
