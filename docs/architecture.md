@@ -179,6 +179,12 @@ The default APP plus local Runtime still calls its in-process adapter directly, 
 SSH, enrollment or probe prerequisite. Optional targets are candidate/ready/unavailable from trusted
 native assembly; selecting an unavailable target fails without moving work to another machine/backend.
 
+One configured machine may expose both Codex and Caelis Workers. Native setup keys connection state
+and actions by the exact NodeID/backend/Worker target; ID-only compatibility actions reject a machine
+with multiple backends. The shared machine label and configured SSH association stay consistent,
+while each backend retains its own immutable scope. Legacy empty-backend Caelis configuration keeps
+its original protocol and private binding directory; adding Codex does not adopt or replace that binding.
+
 `tasks.OpenRouted` adds optional Worker ports while preserving resident-provider watchlist/report scope.
 The product ledger retains TaskID, exact target, target-owned workspace, request digest and source;
 native adapters retain their original Thread/Session/Turn receipts. Old records acquire `local` plus
