@@ -2,7 +2,7 @@
 """Foreground acceptance owner. Only its explicit random /tmp root is written.
 Existing Codex login stays in the native CLI; this helper never reads auth files.
 """
-import json, os, pathlib, re, signal, subprocess, sys
+import hashlib, json, os, pathlib, re, signal, subprocess, sys
 os.umask(0o077)
 root=pathlib.Path(sys.argv[1])
 if not re.fullmatch(r'/tmp/caelis-worker-gate-[0-9a-f]{16}',str(root)) or root.is_symlink() or root.stat().st_mode&0o077:
@@ -45,8 +45,10 @@ finally:
         except FileNotFoundError:same=False
         alive=alive or same
     bindings=json.loads((root/'owner/worker-bindings.json').read_text())
-    model_settings=[]
+    model_settings=[];receipts=[]
     for task in bindings.get('tasks',{}).values():
         settings=task.get('execution',{});model_settings.append({'model':settings.get('model',''),'effort':settings.get('effort','')})
-    summary={'ownerStopped':child.returncode==0,'nativeChildrenStopped':not alive,'ownedNativeChildren':len(owned),'modelSettings':model_settings}
+        source=task.get('workerSource',{})
+        receipts.append({'bindingDigest':hashlib.sha256(source.get('BindingID','').encode()).hexdigest(),'operationDigest':hashlib.sha256(source.get('OperationID','').encode()).hexdigest(),'sourceNode':source.get('NodeID',''),'sourceBackend':source.get('Backend',''),'sourceKind':source.get('Kind',''),'requestDigest':task.get('workerStartDigest',''),'requestID':task.get('workerStartId',''),'nativeThreadPresent':bool(task.get('thread')),'nativeTurnPresent':bool(task.get('run')),'nativeReceiptCount':len(task.get('requests',{}))})
+    summary={'ownerStopped':child.returncode==0,'nativeChildrenStopped':not alive,'ownedNativeChildren':len(owned),'modelSettings':model_settings,'retainedReceipts':receipts,'residentThreadCreated':bool(bindings.get('threadId')),'acceptedOriginalReplyDropped':(root/'reply-dropped.json').exists()}
     (root/'stopped.json').write_text(json.dumps(summary));print(json.dumps(summary),flush=True)
