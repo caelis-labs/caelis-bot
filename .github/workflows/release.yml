@@ -72,9 +72,7 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            resources/computer-use/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Match package version to release tag
         env:
           BOT_RELEASE_TAG: ${{ inputs.tag }}

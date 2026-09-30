@@ -1,7 +1,0 @@
-{
-  "name": "caelis-bot-desktop-control-poc",
-  "private": true,
-  "type": "module",
-  "engines": {"node": ">=24.21.0 <25"},
-  "dependencies": {"@trycua/cua-driver": "0.30.2"}
-}

@@ -41,5 +41,5 @@ case "$BOT_VERIFY_MODE" in
   *) echo "Unknown signing mode: $BOT_VERIFY_MODE" >&2; exit 1 ;;
 esac
 if [[ "$BOT_VERIFY_KIND" == app && -d "$BOT_VERIFY_PATH/Contents" ]]; then
-  bash "$(dirname "$0")/verify-computer-use.sh" "$BOT_VERIFY_PATH" "$BOT_VERIFY_MODE" --allow-legacy
+  bash "$(dirname "$0")/verify-desktop-world.sh" "$BOT_VERIFY_PATH" "$BOT_VERIFY_MODE"
 fi

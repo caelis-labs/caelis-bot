@@ -124,9 +124,24 @@ func TestNotebookRefreshUsesResidentTurnLifecycle(t *testing.T) {
 	}
 }
 
-func TestCodexOwnsNativeComputerUseBeforeConnection(t *testing.T) {
+func TestCodexApplicationCapabilitiesBeforeConnection(t *testing.T) {
 	c := (&Session{}).ApplicationCapabilities()
-	if !c.HasNativeTool(api.NativeComputerUse) || !c.NativeFiles || !c.WorkerExecution || !c.ScheduledActivation {
+	if !c.NativeFiles || !c.WorkerExecution || !c.ScheduledActivation {
 		t.Fatal("Codex capability contract regressed")
+	}
+}
+
+func TestDesktopWorldDeniesCompetingResidentNativeWriterOnly(t *testing.T) {
+	ordinary := NewSession(SessionOptions{Directory: t.TempDir()})
+	if ordinary.connectionParams()["config"].(map[string]any)["computer_use.default_app_access"] != nil {
+		t.Fatal("ordinary Codex policy changed")
+	}
+	resident := NewSession(SessionOptions{Directory: t.TempDir(), BotTools: &api.ToolConnection{Command: "fixture", Env: map[string]string{"CAELIS_BOT_DESKTOP_WORLD": "1"}}})
+	config := resident.connectionParams()["config"].(map[string]any)
+	if config["computer_use.default_app_access"] != "deny" {
+		t.Fatal("competing desktop writer enabled")
+	}
+	if len(config["computer_use.macos.bundle_ids"].(map[string]any)) != 0 {
+		t.Fatal("native app exceptions retained")
 	}
 }

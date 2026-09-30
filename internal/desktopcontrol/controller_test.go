@@ -3,53 +3,172 @@ package desktopcontrol
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"errors"
+	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	dw "github.com/caelis-labs/desktop-world"
+	"github.com/caelis-labs/desktop-world/host"
+	"github.com/caelis-labs/desktop-world/protocol"
 )
 
-func TestControllerExplicitRecoveryNeverReplaysInput(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("Node required for process lifecycle test")
+type fakeClient struct {
+	mu                  sync.Mutex
+	calls, grants, ends int
+	last                map[string]any
+	block               chan struct{}
+	entered             chan struct{}
+	uncertain           bool
+	reply               host.Reply
+}
+
+func (*fakeClient) BeginTurn(context.Context, string) error { return nil }
+func (f *fakeClient) EndTurn(ctx context.Context, _ string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
-	node, _ = filepath.Abs(node)
-	host := filepath.Join(t.TempDir(), "host.mjs")
-	err = os.WriteFile(host, []byte(`import {createInterface} from 'node:readline';
-for await (const line of createInterface({input:process.stdin})) {
- const r=JSON.parse(line);
- if(r.name==='bot_desktop_perform') await new Promise(resolve=>setTimeout(resolve,10000));
- process.stdout.write(JSON.stringify({content:[{type:'text',text:'fixture'}],structuredContent:{pid:process.pid}})+'\n');
-}`), 0600)
-	if err != nil {
-		t.Fatal(err)
+	f.mu.Lock()
+	f.ends++
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeClient) Grant(context.Context, string, dw.Ref) error {
+	f.mu.Lock()
+	f.grants++
+	f.mu.Unlock()
+	return nil
+}
+func (f *fakeClient) Call(ctx context.Context, _, _, op string, args any) (host.Reply, error) {
+	f.mu.Lock()
+	f.calls++
+	f.last = args.(map[string]any)
+	f.mu.Unlock()
+	if op == "act" && f.block != nil {
+		close(f.entered)
+		select {
+		case <-f.block:
+		case <-ctx.Done():
+			return host.Reply{}, ctx.Err()
+		}
 	}
-	c := &Controller{node: node, script: host}
-	defer c.Close()
-	call := func(name string) bool { return c.CallTool(t.Context(), name, json.RawMessage(`{}`)).IsError }
-	if !call("bot_desktop_perform") || c.driver != nil {
-		t.Fatal("action started an unobserved helper")
+	if op == "act" && f.uncertain {
+		return host.Reply{}, errors.New("transport interrupted")
 	}
-	first := c.CallTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{}`))
-	if first.IsError {
-		t.Fatal("observation did not start helper")
+	if op == "observe" {
+		name := "Fixture"
+		b, _ := protocol.Marshal(dw.Observation{Epoch: "epoch", Objects: []dw.Object{{Ref: "app-1", Kind: dw.KindApplication, Lifecycle: dw.LifeLive, Name: dw.Fact[string]{Status: dw.FactKnown, Value: &name}}}})
+		return host.Reply{Result: b}, nil
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-	defer cancel()
-	if !c.CallTool(ctx, "bot_desktop_perform", json.RawMessage(`{}`)).IsError {
-		t.Fatal("uncertain input reported success")
+	return f.reply, nil
+}
+func (f *fakeClient) Reconcile(context.Context, string, string) (host.Reply, error) {
+	return f.reply, nil
+}
+func (*fakeClient) Close() {}
+func fixtureController(t *testing.T) (*Controller, *fakeClient, context.Context) {
+	t.Helper()
+	f := &fakeClient{reply: host.Reply{Result: json.RawMessage(`{"run_id":"run-1","outcome":"completed","seat_health":"ready"}`)}}
+	c := New("", t.TempDir())
+	c.start = func(context.Context) (client, dw.Epoch, error) { return f, "epoch", nil }
+	t.Cleanup(c.Close)
+	ctx := WithTurn(t.Context(), "turn-one")
+	if r := c.CallTool(ctx, Prefix+"observe", json.RawMessage(`{"requestId":"observe-1","args":{"scope":{"desktop":true}}}`)); r.IsError {
+		t.Fatal(r)
 	}
-	if c.driver != nil || !call("bot_desktop_perform") || c.driver != nil {
-		t.Fatal("input replay restarted helper")
+	return c, f, ctx
+}
+func TestExactObservedGrantAndHostOnlyEnvelope(t *testing.T) {
+	c, f, ctx := fixtureController(t)
+	for _, raw := range []string{
+		`{"application":"app-1","name":"Wrong","purpose":"task"}`,
+		`{"application":"window","name":"Fixture","purpose":"task"}`,
+		`{"application":"app-1","name":"Fixture","purpose":"task","turn":"forged"}`,
+		`{"application":"app-1","name":"Fixture","purpose":"task","name":"Wrong"}`,
+	} {
+		if !c.CallTool(ctx, Prefix+"authorize", json.RawMessage(raw)).IsError {
+			t.Fatal("accepted unobserved/forged grant")
+		}
 	}
-	fresh := c.CallTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{}`))
-	if fresh.IsError || fresh.StructuredContent["pid"] == first.StructuredContent["pid"] {
-		t.Fatal("explicit fresh observation did not recover")
+	if f.grants != 0 {
+		t.Fatal("invalid grant dispatched")
 	}
-	c.Close()
-	if !call("bot_desktop_observe") || c.driver != nil {
-		t.Fatal("closed controller restarted")
+	if c.CallTool(ctx, Prefix+"authorize", json.RawMessage(`{"application":"app-1","name":"Fixture","purpose":"task"}`)).IsError || f.grants != 1 {
+		t.Fatal("valid reviewed grant rejected")
+	}
+	for _, name := range ApprovedTools() {
+		if name == Prefix+"authorize" {
+			t.Fatal("grant auto-approved")
+		}
+	}
+}
+func TestRequestDedupConflictAndRecoveryAcrossTurns(t *testing.T) {
+	c, f, ctx := fixtureController(t)
+	raw := json.RawMessage(`{"requestId":"action-1","args":{"steps":[{"id":"one","op":"invoke","target":{"ref":"button"}}]}}`)
+	if c.CallTool(ctx, Prefix+"act", raw).IsError {
+		t.Fatal("action rejected")
+	}
+	if f.last["epoch"] != nil || f.last["request_id"] != nil {
+		t.Fatal("helper-owned identity was supplied as plan arguments")
+	}
+
+	c.EndTurn("turn-one")
+	if c.CallTool(WithTurn(t.Context(), "turn-two"), Prefix+"act", raw).IsError || f.calls != 2 {
+		t.Fatal("retry replayed or lost original receipt")
+	}
+	if !c.CallTool(ctx, Prefix+"act", json.RawMessage(`{"requestId":"action-1","args":{"steps":[]}}`)).IsError || f.calls != 2 {
+		t.Fatal("conflicting ID accepted")
+	}
+	if !c.CallTool(ctx, Prefix+"observe", json.RawMessage(`{"requestId":"observe-2","args":{"scope":{"desktop":true}}}`)).IsError {
+		t.Fatal("ended turn resurrected")
+	}
+}
+func TestControlRevocationDoesNotWaitForDataCall(t *testing.T) {
+	c, f, ctx := fixtureController(t)
+	f.block = make(chan struct{})
+	f.entered = make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.CallTool(ctx, Prefix+"act", json.RawMessage(`{"requestId":"blocking-action","args":{"steps":[]}}`))
+	}()
+	<-f.entered
+	stopped := make(chan struct{})
+	go func() { c.EndTurn("turn-one"); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("control queued behind data")
+	}
+	close(f.block)
+	<-done
+	if f.ends != 1 {
+		t.Fatal("revocation not sent")
+	}
+}
+func TestUnknownResultRetainsReceiptAndNeverRestarts(t *testing.T) {
+	c, f, ctx := fixtureController(t)
+	f.uncertain = true
+	r := c.CallTool(ctx, Prefix+"act", json.RawMessage(`{"requestId":"unknown-action","args":{"steps":[]}}`))
+	if !r.IsError || f.ends == 0 {
+		t.Fatal("uncertain input did not revoke turn")
+	}
+	r = c.CallTool(t.Context(), Prefix+"reconcile", json.RawMessage(`{"requestId":"unknown-action"}`))
+	if r.IsError || !strings.Contains(r.Content[0]["text"], "run-1") || f.calls != 2 {
+		t.Fatal("original receipt lost or mutation repeated")
+	}
+}
+func TestModelBudgetPreservesReceiptAndDoesNotCapture(t *testing.T) {
+	c, f, ctx := fixtureController(t)
+	b, _ := json.Marshal(map[string]any{"run_id": "run-large", "outcome": "unknown", "seat_health": "fenced", "detail": strings.Repeat("x", 40000)})
+	f.reply = host.Reply{Result: b}
+	r := c.CallTool(ctx, Prefix+"act", json.RawMessage(`{"requestId":"large-action","args":{"steps":[]}}`))
+	encoded, _ := json.Marshal(r)
+	if len(encoded) > 32<<10 || !r.IsError || !strings.Contains(r.Content[0]["text"], "run-large") {
+		t.Fatal("budget discarded receipt")
+	}
+	if len(r.Content) != 1 || r.Content[0]["type"] != "text" {
+		t.Fatal("action captured image")
 	}
 }
