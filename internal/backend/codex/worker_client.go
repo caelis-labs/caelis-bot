@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/workerwire"
 )
 
 // WorkerOptions is trusted target-side assembly. Execution is explicitly
@@ -24,7 +25,8 @@ type WorkerOptions struct {
 	Directory, WorkRoot, Binary, Socket string
 	Execution                           api.WorkExecutionSettings
 	Source                              api.WorkSourceProvider
-	RequireApproval                     bool // Tighten policy for isolated native acceptance fixtures.
+	Pair                                *workerwire.Pair // Trusted originating Bot pairing for a foreign-source owner.
+	RequireApproval                     bool             // Tighten policy for isolated native acceptance fixtures.
 }
 
 // WorkerClient exposes no resident Submit/Interrupt or Bot lifecycle. The private
@@ -34,8 +36,10 @@ type WorkerClient struct {
 	engine   *Session
 	target   api.WorkTarget
 	source   api.WorkSourceProvider
+	pair     workerwire.Pair
 	endpoint string
 	stop     func()
+	owned    *Client
 	open     func(context.Context, Options) (*Client, func(), string, error)
 }
 
@@ -46,6 +50,12 @@ func NewWorker(opts WorkerOptions) *WorkerClient {
 	}
 	s := NewSession(SessionOptions{Directory: opts.Directory, StateFile: filepath.Join(opts.Directory, "worker-bindings.json"), WorkRoot: root, Binary: opts.Binary, Socket: opts.Socket, WorkExecution: opts.Execution, RequireApproval: opts.RequireApproval})
 	w := &WorkerClient{engine: s, target: opts.Target, source: opts.Source, open: openWorkerClient}
+	if opts.Pair != nil {
+		w.pair = *opts.Pair
+		if w.pair.Target != opts.Target {
+			s.loadErr = errors.New("Worker native pairing target mismatch")
+		}
+	}
 	if opts.Target.Validate() != nil || opts.Target.Backend != "codex" || opts.Target.Role != api.RoleWorker || !filepath.IsAbs(opts.Directory) || !filepath.IsAbs(root) || opts.Source == nil {
 		s.loadErr = errors.New("Codex Worker requires an explicit target, private directory and native source provider")
 	}
@@ -143,9 +153,21 @@ func (w *WorkerClient) Connect(ctx context.Context) error {
 	if err != nil {
 		return s.connectionError("Worker workspace root unavailable", err)
 	}
+	directory, err := filepath.EvalSymlinks(s.opts.Directory)
+	if err != nil {
+		return s.connectionError("Worker directory unavailable", err)
+	}
 	s.mu.Lock()
 	s.opts.WorkRoot = root
+	s.opts.Directory = directory
+	s.opts.StateFile = filepath.Join(directory, "worker-bindings.json")
+	retainedTasks := len(s.binding.Tasks) > 0
 	s.mu.Unlock()
+	if w.pair.BotID != "" {
+		if err = workerwire.BindPair(directory, w.pair, retainedTasks); err != nil {
+			return s.connectionError("Worker original origin pairing unavailable", err)
+		}
+	}
 	socket := s.opts.Socket
 	if w.endpoint != "" {
 		socket = w.endpoint
@@ -161,6 +183,7 @@ func (w *WorkerClient) Connect(ctx context.Context) error {
 			return errors.New("Worker cannot replace its original native process owner")
 		}
 		w.stop = stop
+		w.owned = c
 	}
 	w.endpoint = strings.TrimPrefix(endpoint, "unix://")
 	s.mu.Lock()
@@ -202,6 +225,8 @@ func (w *WorkerClient) Connect(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (w *WorkerClient) WorkerPair() workerwire.Pair { return w.pair }
 
 func (w *WorkerClient) ready(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
@@ -365,6 +390,9 @@ func (w *WorkerClient) StartWork(ctx context.Context, in api.WorkStart) (api.Tas
 
 func (w *WorkerClient) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	view, err := w.engine.ReadWork(ctx, id)
+	w.engine.mu.Lock()
+	w.engine.update()
+	w.engine.mu.Unlock()
 	return copyWorkerTask(view), err
 }
 func (w *WorkerClient) WorkMessageRecorded(in api.TaskMessage) bool {
@@ -565,6 +593,9 @@ func (w *WorkerClient) Close(ctx context.Context) error {
 	s.mu.Unlock()
 	if client != nil {
 		err = errors.Join(err, client.toolCleanupError())
+	}
+	if w.owned != nil {
+		err = errors.Join(err, w.owned.toolCleanupError())
 	}
 	return err
 }

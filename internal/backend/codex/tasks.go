@@ -18,6 +18,7 @@ type taskRecord struct {
 	WorkerStartID     string                     `json:"workerStartId,omitempty"`
 	WorkerStartDigest string                     `json:"workerStartDigest,omitempty"`
 	WorkerBinding     string                     `json:"workerBinding,omitempty"`
+	WorkerArtifacts   map[string]string          `json:"workerArtifacts,omitempty"`
 	WorkerSource      *api.WorkDispatchSource    `json:"workerSource,omitempty"`
 	OriginalPrompt    string                     `json:"originalPrompt,omitempty"`
 	Execution         *api.WorkExecutionSettings `json:"execution,omitempty"`
@@ -440,6 +441,7 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 	if turn.ID == "" {
 		return
 	}
+	changed = rememberWorkerArtifacts(t, turn) || changed
 	for _, item := range turn.Items {
 		if item.Type == "userMessage" {
 			if r, ok := t.Requests[item.ClientID]; ok {
