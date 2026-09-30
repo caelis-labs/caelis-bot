@@ -84,7 +84,7 @@ func New(o Options) (*Service, error) {
 		if !identifier.MatchString(identity.ID) {
 			return nil, errors.New("invalid native node identity")
 		}
-		if err = localstate.Write(path, identity); err != nil {
+		if err = writeState(path, identity); err != nil {
 			return nil, err
 		}
 	} else if err != nil {
@@ -371,7 +371,7 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 	result.Outcome = api.NodeUnknown
 	result.Message = "original-operation-unresolved"
 	prior = operation{Schema: 1, Request: r, Phase: "intent", Receipt: result}
-	if err := localstate.Write(path, prior); err != nil {
+	if err := writeState(path, prior); err != nil {
 		return result, errors.New("installation intent unavailable")
 	}
 	// Admitted mutation belongs to the foreground native owner, not the stream.
@@ -410,7 +410,7 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 	}
 	prior.Phase = "done"
 	prior.Receipt = result
-	if err := localstate.Write(path, prior); err != nil {
+	if err := writeState(path, prior); err != nil {
 		result.Outcome = api.NodeUnknown
 		result.Message = "original-receipt-unconfirmed"
 	}
@@ -477,7 +477,7 @@ func (s *Service) reconcile(prior operation) (api.NodeOperationReceipt, error) {
 	if r.Outcome != api.NodeUnknown {
 		prior.Phase = "done"
 		prior.Receipt = r
-		if err := localstate.Write(s.operationPath(r.Ref.OperationID), prior); err != nil {
+		if err := writeState(s.operationPath(r.Ref.OperationID), prior); err != nil {
 			r.Outcome = api.NodeUnknown
 			r.Message = "original-receipt-unconfirmed"
 		}
@@ -527,4 +527,17 @@ func (s *Service) pendingOperations() []api.NodeOperationRef {
 		}
 	}
 	return refs
+}
+
+// Agent intent publication syncs the containing directory before dispatch.
+func writeState(path string, value any) error {
+	if err := localstate.Write(path, value); err != nil {
+		return err
+	}
+	directory, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
