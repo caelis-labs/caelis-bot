@@ -173,3 +173,34 @@ func PrepareNodeDirectory(ctx context.Context, s SSHConfig) (string, error) {
 	}
 	return directory, nil
 }
+
+// PrepareJoinDirectory allocates an explicit enrolled node's outgoing slot on
+// the chosen SSH broker. Its short fixed HOME namespace keeps Unix paths
+// bounded; the node ID is hashed locally and never becomes shell syntax.
+func PrepareJoinDirectory(ctx context.Context, s SSHConfig, nodeID string) (string, error) {
+	if !identifier.MatchString(nodeID) {
+		return "", errors.New("enrolled outgoing node identity required")
+	}
+	sum := sha256.Sum256([]byte(nodeID))
+	slot := hex.EncodeToString(sum[:])[:16]
+	args, err := s.args()
+	if err != nil {
+		return "", err
+	}
+	script := `set -eu; test "${HOME#/}" != "$HOME"; b="$HOME/.caelis-bot-joins"; umask 077; mkdir -p "$b"; test -d "$b"; test ! -L "$b"; test "$(stat -c %u "$b")" = "$(id -u)"; test "$(stat -c %a "$b")" = 700; d="$b/` + slot + `"; mkdir -p "$d"; test -d "$d"; test ! -L "$d"; test "$(stat -c %u "$d")" = "$(id -u)"; test "$(stat -c %a "$d")" = 700; printf '%s\n' "$d"`
+	args = append(args, "-o", "ClearAllForwardings=yes", "--", s.Target, script)
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.binary(), args...)
+	var out boundedOutput
+	cmd.Stdout = &out
+	cmd.Stderr = io.Discard
+	if cmd.Run() != nil {
+		return "", errors.New("native outgoing join directory unavailable")
+	}
+	directory := strings.TrimSpace(out.String())
+	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || !validSocket(filepath.Join(directory, "agent.sock")) {
+		return "", errors.New("native outgoing socket directory incompatible")
+	}
+	return directory, nil
+}
