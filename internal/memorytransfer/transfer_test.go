@@ -191,6 +191,14 @@ func TestPublicMemoryRoundTripKeepsIdentityCorrectionForgettingAndOwnCredentials
 	if err != nil || len(view.Evidence) != 1 || view.Evidence[0].Text != "I prefer tea in the morning." {
 		t.Fatalf("restored evidence: %#v, %v", view, err)
 	}
+	view, err = store.ReadMemory(ctx, "tea")
+	if err != nil || len(view.Evidence) != 1 || view.Evidence[0].Text != "I prefer tea in the morning." {
+		t.Fatalf("public Recall lost corrected evidence: %#v, %v", view, err)
+	}
+	view, err = store.ReadMemory(ctx, "Private phrase")
+	if err != nil || len(view.Evidence) != 0 {
+		t.Fatalf("public Recall exposed forgotten evidence: %#v, %v", view, err)
+	}
 	// Replay of old mutation IDs cannot resurrect either the forgotten chain
 	// or superseded original receipt after restore.
 	if _, err = store.Remember(ctx, "remember-private", "Private phrase to forget completely.", "settings"); err == nil {
