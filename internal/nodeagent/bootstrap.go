@@ -187,7 +187,8 @@ func PrepareJoinDirectory(ctx context.Context, s SSHConfig, nodeID string) (stri
 	if err != nil {
 		return "", err
 	}
-	script := `set -eu; test "${HOME#/}" != "$HOME"; b="$HOME/.caelis-bot-joins"; umask 077; mkdir -p "$b"; test -d "$b"; test ! -L "$b"; test "$(stat -c %u "$b")" = "$(id -u)"; test "$(stat -c %a "$b")" = 700; d="$b/` + slot + `"; mkdir -p "$d"; test -d "$d"; test ! -L "$d"; test "$(stat -c %u "$d")" = "$(id -u)"; test "$(stat -c %a "$d")" = 700; printf '%s\n' "$d"`
+	script := `set -eu; test "${HOME#/}" != "$HOME"; system=$(uname -s); case "$system" in Linux|Darwin) ;; *) exit 1;; esac; check_dir() { test -d "$1"; test ! -L "$1"; if test "$system" = Linux; then test "$(stat -c %u "$1")" = "$(id -u)"; test "$(stat -c %a "$1")" = 700; else test "$(stat -f %u "$1")" = "$(id -u)"; test "$(stat -f %Lp "$1")" = 700; fi; }; b="$HOME/.caelis-bot-joins"; umask 077; mkdir -p "$b"; check_dir "$b"; d="$b/` + slot + `"; mkdir -p "$d"; check_dir "$d"; printf '%s\n' "$d"`
+
 	args = append(args, "-o", "ClearAllForwardings=yes", "--", s.Target, script)
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
