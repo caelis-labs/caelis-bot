@@ -205,6 +205,20 @@ execution require their own adapter/assembly and live acceptance. It adds no Lin
 high availability, ownership epochs, session transfer or identity/memory migration. macOS remains the
 complete desktop release target; a remote Worker does not establish a remote resident Bot or thin APP.
 
+`codex.WorkerClient` is a target-side Worker-only native client. It performs the standard
+handshake/account projection without creating a resident Bot thread or inventing a resident activation.
+Fresh mutations require the authenticated host invocation's exact native source; the private journal
+retains original source, request digest and native binding. Receipt queries can reconcile that original
+intent after the host advances to a new activation. Unknown native thread creation cannot be adopted or
+redispatched. Work model defaults come from explicit target settings or the target's native config.
+
+`internal/nodeworker.Owner` holds this client independently of observers: `Observer.Detach` cancels
+observation only; explicit `Owner.Stop` interrupts owned turns, checks tool cleanup and stops its retained
+native process. A native observation socket failure retains the original private endpoint; reconnect
+restores exact retained threads and never silently launches a replacement process. The persistent node
+service must own this owner. This slice supplies native protocol/process fixtures and Linux compilation;
+Worker role RPC assembly, supervisor restart and Mac-to-Linux live acceptance remain separate gates.
+
 A task card owns a dedicated GUI application instance established by LaunchServices completion and PID/birth,
 not window title, TTY, foreground state or count. A single controller serializes intent. An existing app returned
 by launch is rejected. Open Documents delivers a one-use attach script; its receipt proves command delivery,
