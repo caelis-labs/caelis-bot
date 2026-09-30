@@ -149,6 +149,39 @@ type NodeRuntimeConfiguration struct {
 	Configuration RuntimeConfiguration `json:"configuration"`
 }
 
+// Enrollment accepts a user-selected SSH destination, not a filesystem path,
+// key, socket or runtime command. Outgoing enrollment uses native instructions.
+type NodeAddRequest struct {
+	Label            string   `json:"label"`
+	Join             NodeJoin `json:"join"`
+	SSHDestination   string   `json:"sshDestination"`
+	ExpectedRevision string   `json:"expectedRevision"`
+}
+
+type NodeJoinState string
+
+const (
+	NodeJoinWaiting     NodeJoinState = "waiting"
+	NodeJoinConnected   NodeJoinState = "connected"
+	NodeJoinUnavailable NodeJoinState = "unavailable"
+)
+
+type NodeJoinInstructions struct {
+	NodeID       string        `json:"nodeId"`
+	State        NodeJoinState `json:"state"`
+	Instructions string        `json:"instructions"`
+}
+
+type NodeAddResult struct {
+	Node             NodeInfo              `json:"node"`
+	JoinInstructions *NodeJoinInstructions `json:"joinInstructions"`
+}
+
+type NodeCoordinatorSelection struct {
+	NodeID           string `json:"nodeId"`
+	ExpectedRevision string `json:"expectedRevision"`
+}
+
 // These methods are explicit user management actions, never model tools.
 // SelectNode changes presentation only and returns the new view revision.
 type NodeManagementController interface {
@@ -157,4 +190,8 @@ type NodeManagementController interface {
 	SelectNode(context.Context, string, string) (NodeCatalog, error)
 	ChangeNodeConfiguration(context.Context, NodeManagementRequest) (NodeOperationReceipt, error)
 	ReconcileNodeOperation(context.Context, NodeOperationRef) (NodeOperationReceipt, error)
+	AddNode(context.Context, NodeAddRequest) (NodeAddResult, error)
+	DetectNode(context.Context, string) (NodeInfo, error)
+	NodeJoinInstructions(context.Context, string) (NodeJoinInstructions, error)
+	SetNodeCoordinator(context.Context, NodeCoordinatorSelection) (NodeCatalog, error)
 }

@@ -48,6 +48,23 @@ type RuntimeProof struct {
 	Controllable bool
 }
 
+// RuntimeEligibility is read from the paired concrete owner. Claim requires
+// safe idle with no pending/unknown effect; renewal can retain running work.
+// Snapshot and lease epoch must match broker state. A wire boolean alone is
+// insufficient: the broker's paired verifier attests this native response.
+type RuntimeEligibility struct {
+	Proof      RuntimeProof
+	Snapshot   SnapshotRef
+	SafeIdle   bool
+	Pending    bool
+	Unknown    bool
+	LeaseEpoch string
+}
+
+type RuntimeProofPort interface {
+	ReadRuntimeProof(context.Context, api.WorkTarget) (RuntimeEligibility, error)
+}
+
 type ClaimRequest struct {
 	BotID         string
 	Target        api.WorkTarget
@@ -68,6 +85,16 @@ type CatalogAgent interface {
 // ManagementRequest is deliberately not a generic RPC. The configuration
 // payload uses the existing semantic DTO; Ref identifies the persisted intent.
 type ManagementRequest = api.NodeManagementRequest
+
+// NodeSetup is trusted native enrollment. It probes a verified agent before
+// discovery/installation and persists its own immutable pairing, never taking
+// credentials, private profile paths or transport socket names from the UI.
+type NodeSetup interface {
+	Add(context.Context, api.NodeAddRequest) (api.NodeAddResult, error)
+	Detect(context.Context, string) (api.NodeInfo, error)
+	JoinInstructions(context.Context, string) (api.NodeJoinInstructions, error)
+	SetCoordinator(context.Context, api.NodeCoordinatorSelection) (api.NodeCatalog, error)
+}
 
 // Coordinator performs exact-epoch compare-and-swap. Claim requires safe idle
 // and the last complete snapshot. Expiry closes admission before any reclaim;
