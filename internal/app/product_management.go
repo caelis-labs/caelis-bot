@@ -37,7 +37,7 @@ func (e *productEngine) managementBindingLocked() string {
 func (e *productEngine) managementClient(binding string) (nativeProductClient, nativeProductManagement, productmanagement.Scope, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.closed || e.client == nil || e.connection != "ready" || !e.identity.Capabilities.RuntimeManagement || binding != "" && binding != e.managementBindingLocked() {
+	if e.closed || e.client == nil || e.connection != "ready" || (!e.identity.Capabilities.RuntimeManagement && !e.identity.Capabilities.Execution) || binding != "" && binding != e.managementBindingLocked() {
 		return nil, nil, productmanagement.Scope{}, errors.New("remote management connection changed; inspect its current state")
 	}
 	managed, ok := e.client.(nativeProductManagement)
@@ -64,7 +64,7 @@ func (e *productEngine) RemoteRuntime(parent context.Context) (backend.RemoteRun
 	defer e.op.Unlock()
 	state := backend.RemoteRuntimeState{Label: e.pairing.Label, Releases: []productmanagement.ReviewedRelease{}, Pending: []backend.RemoteRuntimePending{}}
 	for id, pending := range e.receipts.Pending {
-		if pending.Kind != "manage-runtime" && pending.Kind != "configure-runtime" {
+		if !productManagementKind(pending.Kind) {
 			continue
 		}
 		row := backend.RemoteRuntimePending{ID: id, Kind: pending.Kind}
@@ -255,7 +255,7 @@ func (e *productEngine) ReconcileRemoteManagement(parent context.Context, bindin
 		return backend.RemoteManagementResult{}, errors.New("reconnect and inspect the original target before checking its receipt")
 	}
 	pending, exists := e.receipts.Pending[id]
-	if !exists || pending.Kind != "manage-runtime" && pending.Kind != "configure-runtime" {
+	if !exists || !productManagementKind(pending.Kind) {
 		return backend.RemoteManagementResult{}, errors.New("original target management receipt is unavailable")
 	}
 	ctx, done := e.managementContext(parent)
@@ -268,3 +268,7 @@ func (e *productEngine) ReconcileRemoteManagement(parent context.Context, bindin
 }
 
 var _ backend.RemoteManagementController = (*productEngine)(nil)
+
+func productManagementKind(kind string) bool {
+	return kind == "manage-runtime" || kind == "configure-runtime" || kind == "configure-execution"
+}
