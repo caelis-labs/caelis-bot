@@ -26,9 +26,12 @@ def descendants(pid):
     except FileNotFoundError:return
     for p in values:
         try:
-            stat=(pathlib.Path('/proc')/p/'stat').read_text();owned[p]=stat[stat.rfind(')')+2:].split()[19]
+            stat=(pathlib.Path('/proc')/p/'stat').read_text();birth=stat[stat.rfind(')')+2:].split()[19]
+            with lock:owned[p]=birth
         except FileNotFoundError:continue
         descendants(p)
+def identities():
+    with lock:return dict(owned)
 def same_process(pid,birth):
     try:
         stat=(pathlib.Path('/proc')/pid/'stat').read_text();fields=stat[stat.rfind(')')+2:].split();return fields[19]==birth
@@ -134,13 +137,18 @@ try:
             if self.path=='/stop':self.reply({'stopping':True});stop.set();return
             if self.path!='/status':self.send_error(404);return
             descendants(node.pid);s=socket.socket();s.settimeout(.3);alive=s.connect_ex(('127.0.0.1',port))==0;s.close()
-            with lock:data={'counts':dict(counts),'node_alive':node.poll() is None,'listener_alive':alive,'response_dropped':lost,'tool_attempt':tool_attempt,'tool_names':sorted(tool_names),'task_tool_discovered':any(n.endswith('bot_task_start') for n in tool_names),'owned_native_children':len(owned),'native_children_alive':sum(same_process(p,b) for p,b in owned.items()),**native_facts()}
+            captured=identities()
+            with lock:data={'counts':dict(counts),'node_alive':node.poll() is None,'listener_alive':alive,'response_dropped':lost,'tool_attempt':tool_attempt,'tool_names':sorted(tool_names),'task_tool_discovered':any(n.endswith('bot_task_start') for n in tool_names),'owned_native_children':len(owned),'native_children_alive':sum(same_process(p,b) for p,b in captured.items()),**native_facts()}
             self.reply(data)
     control=Server(('127.0.0.1',0),Control);threading.Thread(target=control.serve_forever,daemon=True).start()
     ready={'endpoint':'http://127.0.0.1:'+str(proxy.server_port),'identity':metadata['identity'],'control_port':control.server_port,'synthetic':True,'native_version':'0.159.2'}
     (root/'fixture-ready.json').write_text(json.dumps(ready));(root/'processes.json').write_text(json.dumps({'supervisor':os.getpid(),'node':node.pid}))
     print(json.dumps(ready),flush=True)
-    while not stop.wait(.02):descendants(node.pid)
+    previous={}
+    while not stop.wait(.02):
+        descendants(node.pid);current=identities()
+        if current!=previous:
+            temporary=root/'.processes.tmp';temporary.write_text(json.dumps({'supervisor':os.getpid(),'node':node.pid,'children':current}));os.replace(temporary,root/'processes.json');previous=current
 finally:
     release.set()
     if node is not None and node.poll() is None:
@@ -148,7 +156,7 @@ finally:
         try:node.wait(timeout=40)
         except subprocess.TimeoutExpired:node.kill();node.wait();raise RuntimeError('owner cleanup exceeded bound')
     provider.shutdown();output.close();node_log.close()
-    alive=[p for p,b in owned.items() if same_process(p,b)]
+    alive=[p for p,b in identities().items() if same_process(p,b)]
     summary={'owner_stopped':node is not None and node.returncode==0,'owned_children_reaped':not alive,'owned_native_children':len(owned),**native_facts()}
     (root/'fixture-stopped.json').write_text(json.dumps(summary));print(json.dumps(summary),flush=True)
     if alive:raise RuntimeError('owned native descendants remain')
