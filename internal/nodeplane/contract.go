@@ -60,6 +60,7 @@ type ClaimRequest struct {
 // mutations. Credentials/native paths stay in its local implementation.
 type CatalogAgent interface {
 	Catalog(context.Context) (api.NodeCatalog, error)
+	Configuration(context.Context, string, api.NodeBackend) (api.NodeRuntimeConfiguration, error)
 	Manage(context.Context, ManagementRequest) (api.NodeOperationReceipt, error)
 	Reconcile(context.Context, api.NodeOperationRef) (api.NodeOperationReceipt, error)
 }
