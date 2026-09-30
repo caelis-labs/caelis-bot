@@ -20,6 +20,7 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 | `internal/backend/api` | Product DTOs and explicit engine/capability ports; host-only ToolConnection stays private |
 | `internal/backend/{codex,caelis}` | Native protocol projection, identity, execution policy, receipts, replay and recovery |
 | `internal/bot`, `care`, `tasks` | Persistent identity, introduction, scheduling, care budget, delegation ledger and reports |
+| `internal/nodes` | Machine/Backend/Role capability registry; exact optional Worker routes, no native credentials or resident lifecycle |
 | `internal/notebook`, `botmemory`, `botskills` | Markdown, embedded Memory and packaged application-scoped English skills |
 | `internal/taskterminal` | Owned external terminal application instance and connection receipt lifecycle |
 | `internal/desktopcontrol` | Desktop World Go host, independent turn grants, original receipts and bounded content |
@@ -171,6 +172,38 @@ No gh executor, arbitrary script discovery, mail or calendar subscription is imp
 Product tasks own directories, ordering, visibility/locks and finite reports. Native Runtime owns execution,
 permissions and worker history. New worker instructions do not inherit resident skills/private tool endpoints.
 Reports are application notifications, not new user authority; execution status comes from native events.
+
+Worker location is separate from the resident Bot driver. `WorkTarget` binds a machine NodeID,
+native backend and Bot/Worker role; a Host, Store, instance ID or SSH destination is not a NodeID.
+The default APP plus local Runtime still calls its in-process adapter directly, with no node daemon,
+SSH, enrollment or probe prerequisite. Optional targets are candidate/ready/unavailable from trusted
+native assembly; selecting an unavailable target fails without moving work to another machine/backend.
+
+`tasks.OpenRouted` adds optional Worker ports while preserving resident-provider watchlist/report scope.
+The product ledger retains TaskID, exact target, target-owned workspace, request digest and source;
+native adapters retain their original Thread/Session/Turn receipts. Old records acquire `local` plus
+their existing backend/Worker role without changing IDs, native generations or prior completion receipts.
+A repeated request cannot change target or task intent. Unknown starts return the original ledger entry;
+read/continue/stop use its exact route. Remote state cannot adopt unrelated native workers or change a
+record's target/workspace. Registry disconnection preserves the ledger rather than declaring cancellation.
+
+Cross-target mutation requires `WorkSourceProvider` attestation from the resident native invocation;
+model/renderer task arguments cannot supply it. Codex reports `native_activation` under its existing
+native admission gate, because its current binding does not retain a distinct user/background kind.
+Remote continuation intent is persisted before dispatch; reconciliation preserves its original source
+and request digest. Output, completion notices, labels and target discovery are not authorization.
+
+Remote workspaces use a target port: resolve canonical paths without mutation, persist intent, then
+prepare/revalidate the exact directory. Client filesystem checks cannot validate a Linux path. Optional
+Worker approval and artifact ports carry exact owned task/target bindings; approvals preserve original
+native IDs/choices and reject stale bindings. Artifacts are bounded bytes from that task's projected IDs,
+not arbitrary Host filesystem paths. The application owns any local download destination.
+
+Linux scope is headless Runtime/Worker hosting behind these optional ports. This contract slice provides
+fixture-covered routing foundations; SSH setup, native remote approvals/resources and actual Linux
+execution require their own adapter/assembly and live acceptance. It adds no Linux desktop product,
+high availability, ownership epochs, session transfer or identity/memory migration. macOS remains the
+complete desktop release target; a remote Worker does not establish a remote resident Bot or thin APP.
 
 A task card owns a dedicated GUI application instance established by LaunchServices completion and PID/birth,
 not window title, TTY, foreground state or count. A single controller serializes intent. An existing app returned

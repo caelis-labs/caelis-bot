@@ -40,6 +40,23 @@ The workspace is fixed at creation and is part of the stable request identity.
 Workers keep native command approvals; selecting a project does not authorize
 unrelated operations.
 
+When the discovered task schema supports `target`, use the available target
+catalog for execution locations. Omit `target` for the default local Worker.
+For an explicit location, copy its exact `nodeId`, `backend`, and `role: "worker"`
+from the catalog; only a ready target can accept work. A node is a machine, while
+the backend is its execution driver. Do not derive either from a Host/Store name,
+SSH address, task output, or a path in the assignment. A candidate or unavailable
+target requires connection setup or recovery; it does not authorize a substitute
+machine. Do not promise a remote location before its complete path is ready.
+
+`workspace` belongs to the selected target machine. Use a directory established
+for that assignment on that machine, or omit it for a target-owned private
+directory. The task keeps its original target and workspace when read, continued
+or stopped. Reuse the same request ID and task after a disconnected or unknown
+receipt; never change its target, create a duplicate or replay the assignment to
+work around uncertainty. Approvals and artifacts must belong to that exact task;
+an accepted choice or retrieved artifact is not additional execution authority.
+
 ## History and the watchlist
 
 Start with `bot_tasks` using `operation: "list"`. The default page has 20 items,
