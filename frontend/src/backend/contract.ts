@@ -110,6 +110,92 @@ export interface ModelOption {
   efforts: Array<string>;
   serviceTiers: Array<ServiceTier>;
 }
+export interface NodeAddRequest {
+  label: string;
+  join: string;
+  sshDestination: string;
+  expectedRevision: string;
+}
+export interface NodeAddResult {
+  node: NodeInfo;
+  joinInstructions: NodeJoinInstructions | null;
+}
+export interface NodeBroker {
+  nodeId: string;
+  reachable: boolean;
+  automaticRoaming: boolean;
+  reason: string;
+}
+export interface NodeCatalog {
+  revision: string;
+  nodes: Array<NodeInfo>;
+  selectedNodeId: string;
+  activeBotNodeId: string;
+  workerTarget: WorkTarget | null;
+  broker: NodeBroker | null;
+}
+export interface NodeCoordinatorSelection {
+  nodeId: string;
+  expectedRevision: string;
+}
+export interface NodeEditGuard {
+  nodeId: string;
+  backend: string;
+  revision: string;
+}
+export interface NodeInfo {
+  id: string;
+  label: string;
+  os: string;
+  join: string;
+  runtimes: Array<NodeRuntime>;
+}
+export interface NodeInstallationChange {
+  action: string;
+  version: string;
+  expectedVersion: string;
+}
+export interface NodeJoinInstructions {
+  nodeId: string;
+  state: string;
+  instructions: string;
+}
+export interface NodeManagementRequest {
+  guard: NodeEditGuard;
+  ref: NodeOperationRef;
+  change: RuntimeConfigurationChange | null;
+  installation: NodeInstallationChange | null;
+}
+export interface NodeOperationReceipt {
+  ref: NodeOperationRef;
+  outcome: string;
+  revision: string;
+  message: string;
+}
+export interface NodeOperationRef {
+  nodeId: string;
+  backend: string;
+  operationId: string;
+  requestDigest: string;
+}
+export interface NodeRoleCapability {
+  role: string;
+  eligible: boolean;
+  reason: string;
+}
+export interface NodeRuntime {
+  backend: string;
+  version: string;
+  authentication: string;
+  health: string;
+  roles: Array<NodeRoleCapability>;
+}
+export interface NodeRuntimeConfiguration {
+  guard: NodeEditGuard;
+  configuration: RuntimeConfiguration;
+  conversation: WorkExecutionSettings | null;
+  worker: WorkExecutionSettings | null;
+}
 export interface ProductConnectionState {
   revision: number;
   pairing: ProductPairing;
