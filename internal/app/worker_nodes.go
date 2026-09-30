@@ -45,9 +45,9 @@ type workerNodeController struct {
 	registry  *nodes.Registry
 	factory   workerNodeFactory
 	document  workerNodeDocument
-	views     map[string]backend.WorkerNodeView
-	active    map[string]workerNodeAdapter
-	runtimes  map[string]api.WorkRuntime
+	views     map[api.WorkTarget]backend.WorkerNodeView
+	active    map[api.WorkTarget]workerNodeAdapter
+	runtimes  map[api.WorkTarget]api.WorkRuntime
 	revision  uint64
 	issue     string
 	closed    bool
@@ -57,7 +57,7 @@ type workerNodeController struct {
 
 func openWorkerNodes(filename string, registry *nodes.Registry, factory workerNodeFactory) *workerNodeController {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &workerNodeController{path: filename, registry: registry, factory: factory, document: workerNodeDocument{Version: 1}, views: map[string]backend.WorkerNodeView{}, active: map[string]workerNodeAdapter{}, runtimes: map[string]api.WorkRuntime{}, revision: 1, ctx: ctx, cancel: cancel}
+	c := &workerNodeController{path: filename, registry: registry, factory: factory, document: workerNodeDocument{Version: 1}, views: map[api.WorkTarget]backend.WorkerNodeView{}, active: map[api.WorkTarget]workerNodeAdapter{}, runtimes: map[api.WorkTarget]api.WorkRuntime{}, revision: 1, ctx: ctx, cancel: cancel}
 	info, err := os.Lstat(filename)
 	if errors.Is(err, os.ErrNotExist) {
 		return c
@@ -79,17 +79,21 @@ func openWorkerNodes(filename string, registry *nodes.Registry, factory workerNo
 		c.issue = "config_unreadable"
 		return c
 	}
-	seen := map[string]bool{}
+	seen := map[api.WorkTarget]bool{}
+	machines := map[string]backend.WorkerNodeConfig{}
 	for _, config := range document.Nodes {
-		if validateWorkerNode(config) != nil || seen[config.ID] {
+		target := configuredWorkerTarget(config)
+		previous, exists := machines[config.ID]
+		if validateWorkerNode(config) != nil || seen[target] || exists && (previous.SSH != config.SSH || previous.Label != config.Label) {
 			c.issue = "config_unreadable"
 			return c
 		}
-		seen[config.ID] = true
+		seen[target] = true
+		machines[config.ID] = config
 	}
 	c.document = document
 	for _, config := range document.Nodes {
-		c.views[config.ID] = backend.WorkerNodeView{Config: config, State: string(nodes.Candidate)}
+		c.views[configuredWorkerTarget(config)] = backend.WorkerNodeView{Config: config, State: string(nodes.Candidate)}
 		_ = c.register(config, nodes.Candidate, nil)
 	}
 	return c
@@ -153,7 +157,7 @@ func (c *workerNodeController) Snapshot() backend.WorkerNodeSetup {
 func (c *workerNodeController) snapshotLocked() backend.WorkerNodeSetup {
 	snapshot := backend.WorkerNodeSetup{Revision: c.revision, Issue: c.issue, Nodes: []backend.WorkerNodeView{}}
 	for _, config := range c.document.Nodes {
-		snapshot.Nodes = append(snapshot.Nodes, c.views[config.ID])
+		snapshot.Nodes = append(snapshot.Nodes, c.views[configuredWorkerTarget(config)])
 	}
 	return snapshot
 }
@@ -186,7 +190,14 @@ func (c *workerNodeController) Save(config backend.WorkerNodeConfig, revision ui
 	if err := validateWorkerNode(config); err != nil {
 		return c.snapshotLocked(), err
 	}
-	index := slices.IndexFunc(c.document.Nodes, func(value backend.WorkerNodeConfig) bool { return value.ID == config.ID })
+	for _, previous := range c.document.Nodes {
+		if previous.ID == config.ID && previous.SSH != config.SSH {
+			return c.snapshotLocked(), errors.New("use a new worker node for a different SSH machine association")
+		}
+	}
+	index := slices.IndexFunc(c.document.Nodes, func(value backend.WorkerNodeConfig) bool {
+		return configuredWorkerTarget(value) == configuredWorkerTarget(config)
+	})
 	if index < 0 && len(c.document.Nodes) >= 16 {
 		return c.snapshotLocked(), errors.New("worker node limit reached")
 	}
@@ -205,22 +216,33 @@ func (c *workerNodeController) Save(config backend.WorkerNodeConfig, revision ui
 	} else {
 		document.Nodes[index] = config
 	}
+	for i := range document.Nodes {
+		if document.Nodes[i].ID == config.ID {
+			document.Nodes[i].Label = config.Label
+		}
+	}
 	if err := localstate.Write(c.path, document); err != nil {
 		return c.snapshotLocked(), errors.New("worker node configuration could not be saved")
 	}
 	c.document = document
-	view, exists := c.views[config.ID]
-	view.Config = config
-	if !exists {
-		view.State = string(nodes.Candidate)
+	for _, sibling := range document.Nodes {
+		if sibling.ID != config.ID {
+			continue
+		}
+		target := configuredWorkerTarget(sibling)
+		view, exists := c.views[target]
+		view.Config = sibling
+		if !exists {
+			view.State = string(nodes.Candidate)
+		}
+		c.views[target] = view
+		var runtime api.WorkRuntime
+		if view.State == string(nodes.Ready) {
+			runtime = c.runtimes[target]
+		}
+		_ = c.register(sibling, nodes.Availability(view.State), runtime)
 	}
-	c.views[config.ID] = view
 	c.revision++
-	var runtime api.WorkRuntime
-	if view.State == string(nodes.Ready) {
-		runtime = c.runtimes[config.ID]
-	}
-	_ = c.register(config, nodes.Availability(view.State), runtime)
 	return c.snapshotLocked(), nil
 }
 
@@ -239,6 +261,43 @@ func (c *workerNodeController) Connect(ctx context.Context, id string, revision 
 }
 
 func (c *workerNodeController) connect(parent context.Context, id string, revision uint64, enroll bool) (backend.WorkerNodeSetup, error) {
+	return c.connectTarget(parent, api.WorkTarget{NodeID: id}, revision, enroll, false)
+}
+func (c *workerNodeController) ProbeTarget(ctx context.Context, target api.WorkTarget, revision uint64) (backend.WorkerNodeSetup, error) {
+	return c.connectTarget(ctx, target, revision, false, true)
+}
+func (c *workerNodeController) ConnectTarget(ctx context.Context, target api.WorkTarget, revision uint64) (backend.WorkerNodeSetup, error) {
+	return c.connectTarget(ctx, target, revision, true, true)
+}
+
+func (c *workerNodeController) selectTargetLocked(target api.WorkTarget, exact bool) (api.WorkTarget, error) {
+	if exact {
+		if target.Validate() != nil || target.Role != api.RoleWorker || (target.Backend != "caelis" && target.Backend != "codex") {
+			return api.WorkTarget{}, errors.New("invalid exact Worker target")
+		}
+		if _, exists := c.views[target]; !exists {
+			return api.WorkTarget{}, errors.New("worker target is not configured")
+		}
+		return target, nil
+	}
+	var selected api.WorkTarget
+	matches := 0
+	for candidate := range c.views {
+		if candidate.NodeID == target.NodeID {
+			selected = candidate
+			matches++
+		}
+	}
+	if matches > 1 {
+		return api.WorkTarget{}, errors.New("worker node has multiple backends; select an exact Worker target")
+	}
+	if matches == 0 {
+		return api.WorkTarget{}, errors.New("worker node is not configured")
+	}
+	return selected, nil
+}
+
+func (c *workerNodeController) connectTarget(parent context.Context, target api.WorkTarget, revision uint64, enroll, exact bool) (backend.WorkerNodeSetup, error) {
 	c.operation.Lock()
 	defer c.operation.Unlock()
 	c.mu.Lock()
@@ -247,24 +306,27 @@ func (c *workerNodeController) connect(parent context.Context, id string, revisi
 		c.mu.Unlock()
 		return snapshot, err
 	}
-	view, exists := c.views[id]
-	if !exists {
+	selected, selectionErr := c.selectTargetLocked(target, exact)
+	if selectionErr != nil {
+		snapshot := c.snapshotLocked()
 		c.mu.Unlock()
-		return c.Snapshot(), errors.New("worker node is not configured")
+		return snapshot, selectionErr
 	}
+	target = selected
+	view := c.views[target]
 	var stale workerNodeAdapter
-	if c.active[id] != nil {
-		readiness, known := c.runtimes[id].(interface{ Ready() bool })
+	if c.active[target] != nil {
+		readiness, known := c.runtimes[target].(interface{ Ready() bool })
 		if !known || readiness.Ready() {
 			snapshot := c.snapshotLocked()
 			c.mu.Unlock()
 			return snapshot, nil
 		}
-		stale = c.active[id]
-		delete(c.active, id)
-		delete(c.runtimes, id)
+		stale = c.active[target]
+		delete(c.active, target)
+		delete(c.runtimes, target)
 		view.State, view.Issue, view.Connected = string(nodes.Unavailable), "connection_unavailable", false
-		c.views[id] = view
+		c.views[target] = view
 		_ = c.register(view.Config, nodes.Unavailable, nil)
 	}
 	c.mu.Unlock()
@@ -277,9 +339,17 @@ func (c *workerNodeController) connect(parent context.Context, id string, revisi
 	defer cancel()
 	var adapter workerNodeAdapter
 	var err error
-	directory := filepath.Join(filepath.Dir(c.path), "worker-nodes", id)
+	directory := filepath.Join(filepath.Dir(c.path), "worker-nodes", view.Config.ID)
+	if target.Backend == "codex" {
+		directory = filepath.Join(filepath.Dir(c.path), "worker-nodes", ".codex", view.Config.ID)
+	}
 	if enroll {
-		err = privateWorkerDirectory(directory)
+		if target.Backend == "codex" {
+			err = privateWorkerDirectory(filepath.Dir(directory))
+		}
+		if err == nil {
+			err = privateWorkerDirectory(directory)
+		}
 	}
 	if err == nil {
 		if c.factory == nil {
@@ -334,7 +404,7 @@ func (c *workerNodeController) connect(parent context.Context, id string, revisi
 			route = runtime
 		}
 		if err = c.register(view.Config, state, route); err == nil {
-			c.active[id], c.runtimes[id] = adapter, runtime
+			c.active[target], c.runtimes[target] = adapter, runtime
 			view.State, view.Connected = string(state), true
 		}
 	} else {
@@ -342,7 +412,7 @@ func (c *workerNodeController) connect(parent context.Context, id string, revisi
 		view.State = string(nodes.Candidate)
 		_ = c.register(view.Config, nodes.Candidate, nil)
 	}
-	c.views[id] = view
+	c.views[target] = view
 	c.revision++
 	if err != nil {
 		return c.snapshotLocked(), errors.New("worker connection unavailable; check existing SSH access and the prepared native Worker")
@@ -351,6 +421,12 @@ func (c *workerNodeController) connect(parent context.Context, id string, revisi
 }
 
 func (c *workerNodeController) Disconnect(ctx context.Context, id string, revision uint64) (backend.WorkerNodeSetup, error) {
+	return c.disconnectTarget(ctx, api.WorkTarget{NodeID: id}, revision, false)
+}
+func (c *workerNodeController) DisconnectTarget(ctx context.Context, target api.WorkTarget, revision uint64) (backend.WorkerNodeSetup, error) {
+	return c.disconnectTarget(ctx, target, revision, true)
+}
+func (c *workerNodeController) disconnectTarget(ctx context.Context, target api.WorkTarget, revision uint64, exact bool) (backend.WorkerNodeSetup, error) {
 	c.operation.Lock()
 	defer c.operation.Unlock()
 	c.mu.Lock()
@@ -359,16 +435,19 @@ func (c *workerNodeController) Disconnect(ctx context.Context, id string, revisi
 		c.mu.Unlock()
 		return snapshot, err
 	}
-	view, exists := c.views[id]
-	adapter := c.active[id]
-	if !exists {
+	selected, selectionErr := c.selectTargetLocked(target, exact)
+	if selectionErr != nil {
+		snapshot := c.snapshotLocked()
 		c.mu.Unlock()
-		return c.Snapshot(), errors.New("worker node is not configured")
+		return snapshot, selectionErr
 	}
+	target = selected
+	view := c.views[target]
+	adapter := c.active[target]
 	view.State, view.Issue, view.Connected = string(nodes.Unavailable), "detached", false
-	c.views[id] = view
-	delete(c.active, id)
-	delete(c.runtimes, id)
+	c.views[target] = view
+	delete(c.active, target)
+	delete(c.runtimes, target)
 	_ = c.register(view.Config, nodes.Unavailable, nil)
 	c.revision++
 	c.mu.Unlock()
@@ -388,7 +467,7 @@ func (c *workerNodeController) Close() error {
 	c.mu.Lock()
 	c.closed = true
 	active := c.active
-	c.active, c.runtimes = map[string]workerNodeAdapter{}, map[string]api.WorkRuntime{}
+	c.active, c.runtimes = map[api.WorkTarget]workerNodeAdapter{}, map[api.WorkTarget]api.WorkRuntime{}
 	for _, config := range c.document.Nodes {
 		_ = c.register(config, nodes.Unavailable, nil)
 	}
@@ -403,6 +482,7 @@ func (c *workerNodeController) Close() error {
 }
 
 var _ backend.WorkerNodeController = (*workerNodeController)(nil)
+var _ backend.WorkerNodeTargetController = (*workerNodeController)(nil)
 
 func privateWorkerDirectory(directory string) error {
 	for _, candidate := range []string{filepath.Dir(directory), directory} {

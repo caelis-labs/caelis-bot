@@ -3,6 +3,8 @@ package backend
 import (
 	"context"
 	"errors"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 // WorkerNodeConfig is explicit connection setup, never model-visible discovery.
@@ -46,6 +48,47 @@ type WorkerNodeController interface {
 	Probe(context.Context, string, uint64) (WorkerNodeSetup, error)
 	Connect(context.Context, string, uint64) (WorkerNodeSetup, error)
 	Disconnect(context.Context, string, uint64) (WorkerNodeSetup, error)
+}
+
+// WorkerNodeTargetController addresses one machine/backend/Worker capability.
+// The legacy NodeID actions remain compatible only while that node is unambiguous.
+type WorkerNodeTargetController interface {
+	ProbeTarget(context.Context, api.WorkTarget, uint64) (WorkerNodeSetup, error)
+	ConnectTarget(context.Context, api.WorkTarget, uint64) (WorkerNodeSetup, error)
+	DisconnectTarget(context.Context, api.WorkTarget, uint64) (WorkerNodeSetup, error)
+}
+
+func (s *Service) workerTargetController() (WorkerNodeTargetController, error) {
+	controller, err := s.workerNodeController()
+	if err != nil {
+		return nil, err
+	}
+	exact, ok := controller.(WorkerNodeTargetController)
+	if !ok {
+		return nil, errors.New("exact Worker target actions are unavailable")
+	}
+	return exact, nil
+}
+func (s *Service) ProbeWorkerTarget(ctx context.Context, target api.WorkTarget, revision uint64) (WorkerNodeSetup, error) {
+	controller, err := s.workerTargetController()
+	if err != nil {
+		return WorkerNodeSetup{}, err
+	}
+	return controller.ProbeTarget(ctx, target, revision)
+}
+func (s *Service) ConnectWorkerTarget(ctx context.Context, target api.WorkTarget, revision uint64) (WorkerNodeSetup, error) {
+	controller, err := s.workerTargetController()
+	if err != nil {
+		return WorkerNodeSetup{}, err
+	}
+	return controller.ConnectTarget(ctx, target, revision)
+}
+func (s *Service) DisconnectWorkerTarget(ctx context.Context, target api.WorkTarget, revision uint64) (WorkerNodeSetup, error) {
+	controller, err := s.workerTargetController()
+	if err != nil {
+		return WorkerNodeSetup{}, err
+	}
+	return controller.DisconnectTarget(ctx, target, revision)
 }
 
 func (s *Service) ConfigureWorkerNodes(controller WorkerNodeController) {
