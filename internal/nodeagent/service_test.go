@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -188,5 +189,32 @@ func TestResolvedJoinPreservesTrustAndDropsAmbientForwardings(t *testing.T) {
 	}
 	if _, err := SanitizedSSHConfiguration(append(effective, []byte("proxyjump private-hop\n")...)); err == nil {
 		t.Fatal("unsupported proxy silently changed connection")
+	}
+}
+
+func TestSanitizedConfigAcceptedByActualOpenSSH(t *testing.T) {
+	binary, err := exec.LookPath("ssh")
+	if err != nil {
+		t.Skip("OpenSSH unavailable")
+	}
+	cmd := exec.CommandContext(t.Context(), binary, "-F", "/dev/null", "-T", "-G", "fixture.invalid")
+	effective, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := SanitizedSSHConfiguration(effective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "resolved-config")
+	if err := os.WriteFile(path, config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.CommandContext(t.Context(), binary, "-F", path, "-T", "-G", "fixture.invalid").Output()
+	if err != nil {
+		t.Fatal("resolved native metadata not accepted by OpenSSH", err)
+	}
+	if !strings.Contains(string(out), "hostname fixture.invalid") || !strings.Contains(string(out), "stricthostkeychecking true") {
+		t.Fatal("resolved target or strict trust changed")
 	}
 }

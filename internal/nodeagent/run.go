@@ -180,6 +180,11 @@ func Run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 			return err
 		}
 		if *hold {
+			cleanup, err := CaptureJoinSocket(*directory)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
 			<-ctx.Done()
 		}
 		return nil
