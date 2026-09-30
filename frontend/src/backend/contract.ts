@@ -416,6 +416,7 @@ export interface WorkerNodeConfig {
   label: string;
   ssh: string;
   helper: string;
+  backend?: string;
   store: string;
   workspaceRoot: string;
 }

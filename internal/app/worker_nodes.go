@@ -99,6 +99,9 @@ var workerNodeID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 var workerSSH = regexp.MustCompile(`^[A-Za-z0-9_.@:\[\]-]+$`)
 
 func validateWorkerNode(config backend.WorkerNodeConfig) error {
+	if config.Backend != "" && config.Backend != "caelis" {
+		return errors.New("worker backend is unavailable")
+	}
 	if !workerNodeID.MatchString(config.ID) || config.ID == api.LocalNodeID || strings.TrimSpace(config.Label) == "" || len(config.Label) > 128 || strings.ContainsAny(config.Label, "\x00\r\n") {
 		return errors.New("worker node identity is invalid")
 	}
