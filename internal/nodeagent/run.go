@@ -83,6 +83,9 @@ func Run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if err != nil {
 			return err
 		}
+		if manager, ok := service.installation.(interface{ BinaryPath(string) (string, error) }); ok {
+			codexConfig.BinaryPath = func() (string, error) { return manager.BinaryPath("codex") }
+		}
 		if *stdio {
 			return productrpc.ServeNativeStream(ctx, in, out, Handler(service), allowed)
 		}

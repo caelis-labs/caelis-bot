@@ -219,6 +219,9 @@ func (c *Client) Manage(ctx context.Context, r nodeplane.ManagementRequest) (api
 	if err == nil && out.Ref != r.Ref {
 		err = errors.New("node receipt identity changed")
 	}
+	if err != nil {
+		out = api.NodeOperationReceipt{Ref: r.Ref, Outcome: api.NodeUnknown, Message: "original-operation-unresolved"}
+	}
 	return out, err
 }
 func (c *Client) Reconcile(ctx context.Context, ref api.NodeOperationRef) (api.NodeOperationReceipt, error) {
@@ -229,6 +232,9 @@ func (c *Client) Reconcile(ctx context.Context, ref api.NodeOperationRef) (api.N
 	err := c.request(ctx, "POST", "/v1/node/receipt", ref, &out)
 	if err == nil && out.Ref != ref {
 		err = errors.New("node receipt identity changed")
+	}
+	if err != nil {
+		out = api.NodeOperationReceipt{Ref: ref, Outcome: api.NodeUnknown, Message: "original-operation-unresolved"}
 	}
 	return out, err
 }
