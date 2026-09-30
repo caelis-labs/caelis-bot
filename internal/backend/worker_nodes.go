@@ -12,6 +12,8 @@ type WorkerNodeConfig struct {
 	Label         string `json:"label"`
 	SSH           string `json:"ssh"`
 	Helper        string `json:"helper"`
+	Backend       string `json:"backend,omitempty"`
+	Socket        string `json:"socket,omitempty"`
 	Store         string `json:"store"`
 	WorkspaceRoot string `json:"workspaceRoot"`
 }
