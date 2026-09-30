@@ -54,11 +54,13 @@ type TerminalTarget struct {
 	Session, Store, TokenFile string
 }
 type TaskPreview struct {
-	Locked   bool   `json:"locked"`
-	Provider string `json:"provider,omitempty"`
-	ID       string `json:"id"`
-	Prompt   string `json:"prompt"`
-	Status   string `json:"status"`
+	Target      *WorkTarget `json:"target,omitempty"`
+	TargetLabel string      `json:"targetLabel,omitempty"`
+	Locked      bool        `json:"locked"`
+	Provider    string      `json:"provider,omitempty"`
+	ID          string      `json:"id"`
+	Prompt      string      `json:"prompt"`
+	Status      string      `json:"status"`
 }
 
 // ReportSubmitter appends a bounded application notice only when idle. It must
