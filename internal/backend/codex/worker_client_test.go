@@ -140,6 +140,12 @@ func workerPair(t *testing.T) *workerFixture {
 }
 
 func (d *workerFixture) start(t *testing.T, n int) (api.WorkStart, api.Task, error) {
+	in := d.intent(t, n)
+	v, err := d.w.StartWork(testContext(t), in)
+	return in, v, err
+}
+
+func (d *workerFixture) intent(t *testing.T, n int) api.WorkStart {
 	t.Helper()
 	id := fmt.Sprintf("task-%032x", n)
 	workspace, err := d.w.ResolveWorkWorkspace(testContext(t), id, "")
@@ -152,8 +158,7 @@ func (d *workerFixture) start(t *testing.T, n int) (api.WorkStart, api.Task, err
 	source, _ := d.source.WorkDispatchSource(testContext(t))
 	target := d.w.target
 	in := api.WorkStart{TaskStart: api.TaskStart{RequestID: fmt.Sprintf("worker-start-%d", n), Title: "Fixture assignment", Prompt: "Write an isolated synthetic result.", Target: &target}, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions, Source: source, RequestDigest: strings.Repeat("a", 64)}
-	v, err := d.w.StartWork(testContext(t), in)
-	return in, v, err
+	return in
 }
 
 func TestWorkerOnlyNativeHandshakeAndTargetPolicy(t *testing.T) {
