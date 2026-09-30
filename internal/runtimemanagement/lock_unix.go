@@ -11,14 +11,25 @@ import (
 )
 
 func lockRoot(ctx context.Context, root *os.Root) (func(), error) {
+	return lockRootUsing(ctx, root, syscall.Flock)
+}
+
+func lockRootUsing(ctx context.Context, root *os.Root, flock func(int, int) error) (func(), error) {
 	file, err := root.OpenFile(".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return nil, errors.New("runtime management lock unavailable")
 	}
 	for {
-		err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err := ctx.Err(); err != nil {
+			_ = file.Close()
+			return nil, err
+		}
+		err = flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == syscall.EINTR {
+			continue
+		}
 		if err == nil {
-			return func() { _ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN); _ = file.Close() }, nil
+			return func() { _ = flock(int(file.Fd()), syscall.LOCK_UN); _ = file.Close() }, nil
 		}
 		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
 			_ = file.Close()
