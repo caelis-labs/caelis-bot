@@ -88,5 +88,51 @@ There is a 512 MiB per-file and 1 GiB total bundle limit. Import checks availabl
 space for the bundle, restore work and generated index. Filesystem errors leave
 the target uninstalled. After a successful import, configure the target's own
 Runtime/model login and start a new native session against the installed profile.
-Cross-machine Mac → Linux → Mac acceptance remains an integration gate; local
-public Memory round-trip tests and Linux builds do not prove SSH or remote login.
+Local public Memory round-trip tests and Linux builds do not prove SSH or remote
+login. The opt-in synthetic native fixture below covers a stopped source and a
+fresh target; real account setup and paid-model behavior remain separate gates.
+
+## Synthetic native acceptance
+
+`internal/productrpc/testdata/memory_headless_fixture.py` extends the isolated
+public Core headless fixture with **offline import before Bot startup**. It needs
+`caelis`, `caelis-node`, `caelis-memory`, `memorycheck` and `inbound-bundle` in a
+fresh private `/tmp/caelis-bot-issue47-product-<16 hex digits>` directory. All
+HOME/XDG/Store data, loopback model configuration and credentials are generated
+there. The fixture imports into an absent profile and checks public Memory,
+correction receipts, forgotten tombstones, authored Notebook/attachment and
+regenerated INDEX before creating any native execution binding.
+
+Build the test-only public-API helper from the normal module:
+
+```sh
+GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+  go build -o memorycheck ./internal/productrpc/testdata/memorycheck
+```
+
+Prepare source metadata from the fixture's `fixture-ready.json`, adding its
+existing strict SSH `target`, owned `root` and `Stage: "source"`. Run one native
+synthetic turn, explicit Bot stop, stopped public Memory verification and fixture
+Host shutdown with:
+
+```sh
+CAELIS_BOT_MEMORY_HEADLESS_FIXTURE=/private/source-metadata.json \
+CAELIS_BOT_MEMORY_NATIVE_EVIDENCE=/private/source-evidence.json \
+GOWORK=off go test -race ./internal/productrpc \
+  -run '^TestNativeStoppedMemoryHeadless$' -count=1
+```
+
+Wait for the owned `fixture-stopped.json`, export that stopped profile with the
+production memory CLI and its referenced attachment allowlist, then copy and
+validate **only the bundle**. Keep the source stopped. Prepare a second absent
+target profile through the same fixture with its own HOME/Store/credentials.
+Target metadata uses `Stage: "target"`, `SourceBotID`, `SourceGeneration` and
+`SourceNative` from the source evidence; run the same test against that metadata.
+
+The target test requires the same logical identity and ProfileBotID projection,
+a different native Session and service generation, no source command receipt or
+conversation and no Worker bindings. It executes a fresh synthetic turn, stops
+the target and rechecks the public Memory/Notebook facts. Native Session IDs and
+credentials remain on the fixture host; evidence contains only hashes and
+booleans. [Recorded synthetic evidence](evidence/issue47-memory-native/summary.json)
+contains no SSH destination, profile path, credential or native Session ID.
