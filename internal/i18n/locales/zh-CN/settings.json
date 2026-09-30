@@ -261,6 +261,8 @@
   "productReviewedVersion": "已核验的发行版本",
   "productSelectVersion": "选择发行版本",
   "productConfirmInstall": "在 {target} 上安装 {name} {version}？这只修改目标机器受管理的程序；账户设置与运行中的 Host 仍需单独处理。",
+  "workerNodeLocation": "机器",
+  "workerNodeNewLocation": "新机器",
   "workerNodeBackend": "执行后端",
   "workerNodeSocket": "目标机器上的私有 Worker socket",
   "workerNodeSocketHelp": "填写已准备的 Codex Worker 宿主私有 Unix socket。配对凭据保留在各自原生宿主；APP 不复制 SSH 或模型凭据。"

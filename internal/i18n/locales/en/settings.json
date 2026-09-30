@@ -262,6 +262,8 @@
   "productReviewedVersion": "Reviewed release",
   "productSelectVersion": "Choose a release",
   "productConfirmInstall": "Install {name} {version} on {target}? This changes only the target’s managed program; account setup and the running Host remain separate.",
+  "workerNodeLocation": "Machine",
+  "workerNodeNewLocation": "New machine",
   "workerNodeBackend": "Execution backend",
   "workerNodeSocket": "Private Worker socket on the target",
   "workerNodeSocketHelp": "Use the prepared Codex Worker host’s private Unix socket. Pairing credentials stay on each native owner; the APP does not copy SSH or model credentials."

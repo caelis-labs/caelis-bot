@@ -91,3 +91,26 @@ test('production entry has no preview import or fake success fallback',()=>{
  const main=readFileSync('frontend/src/main.tsx','utf8');const client=readFileSync('frontend/src/settings/runtime/client.ts','utf8');
  assert.doesNotMatch(main,/preview\//);assert.doesNotMatch(client,/createPreviewClient|preview\/client/);
 });
+
+test('same machine runtime actions retain exact target and reuse machine association',async()=>{
+ const {callWorkerTarget,workerTargetKey,workerBackends,workerLocations,workerDraftForLocation}=await server.ssrLoadModule('/src/workerNodeTargets.ts');
+ const legacy={id:'machine-a',label:'Build machine',ssh:'existing-alias',backend:'',helper:'',store:'/native/store',workspaceRoot:'/workspace'};
+ const codex={...legacy,backend:'codex',store:'',socket:'/native/worker.sock'};
+ const nodes=[{config:legacy},{config:codex}];
+ const calls=[];
+ const call=async(method,...args)=>{calls.push([method,...args]);return {nodes,revision:42};};
+ await callWorkerTarget(call,'ConnectWorkerTarget',legacy,42);
+ await callWorkerTarget(call,'DisconnectWorkerTarget',codex,42);
+ assert.deepEqual(calls,[['ConnectWorkerTarget',{nodeId:'machine-a',backend:'caelis',role:'worker'},42],['DisconnectWorkerTarget',{nodeId:'machine-a',backend:'codex',role:'worker'},42]]);
+ assert.notEqual(workerTargetKey(legacy),workerTargetKey(codex));
+ assert.equal(workerLocations(nodes).length,1);
+ assert.deepEqual(workerBackends(nodes,'machine-a'),[]);
+ const second=workerDraftForLocation([{config:legacy}],'machine-a');
+ assert.deepEqual({id:second.id,label:second.label,ssh:second.ssh,backend:second.backend},{id:'machine-a',label:'Build machine',ssh:'existing-alias',backend:'codex'});
+ assert.equal(second.store,'');assert.equal(second.socket,'');assert.equal(second.workspaceRoot,'');
+ assert.equal(legacy.backend,'');
+ const ui=readFileSync('frontend/src/WorkerNodeSettings.tsx','utf8');
+ assert.match(ui,/value=\{draft.id\}/);assert.match(ui,/selectLocation\(e.target.value\)/);
+ assert.equal((ui.match(/disabled=\{!editable\|\|!!draft.id\}/g)||[]).length,2);
+ assert.doesNotMatch(ui,/perform\('(?:Probe|Connect|Disconnect)WorkerNode'/);
+});
