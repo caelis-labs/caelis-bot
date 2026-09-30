@@ -238,7 +238,7 @@ func ValidateManagementRequest(r ManagementRequest) error {
 			return errors.New("configuration revision differs from edit guard")
 		}
 		switch c.Action {
-		case "main", "bind", "reset", "create-role", "delete-role", "save-set", "apply-set", "delete-set", "remove-model", "disconnect-agent":
+		case "main", "bind", "reset", "create-role", "delete-role", "save-set", "apply-set", "delete-set", "remove-model", "disconnect-agent", "conversation-model", "worker-model":
 		default:
 			return errors.New("unsupported configuration action")
 		}
