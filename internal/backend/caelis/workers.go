@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -16,15 +15,26 @@ type workerStart struct {
 	Profile       wire.ApplicationProfile `json:"profile"`
 	Prompt        string                  `json:"prompt"`
 	Authorization string                  `json:"authorization"`
+	Source        api.WorkDispatchSource  `json:"source,omitempty"`
+	RequestDigest string                  `json:"requestDigest,omitempty"`
+}
+type workerMessage struct {
+	Source        api.WorkDispatchSource `json:"source"`
+	RequestDigest string                 `json:"requestDigest"`
+	PromptDigest  string                 `json:"promptDigest"`
 }
 type worker struct {
-	Native      bool                    `json:"native,omitempty"`
-	Binding     wire.ApplicationBinding `json:"binding"`
-	Task        api.Task                `json:"task"`
-	Fingerprint string                  `json:"fingerprint"`
-	PromptID    string                  `json:"promptID"`
-	Stopped     bool                    `json:"stopped"`
-	Start       *workerStart            `json:"start,omitempty"`
+	StartRequestID string                   `json:"startRequestID,omitempty"`
+	Source         api.WorkDispatchSource   `json:"source,omitempty"`
+	RequestDigest  string                   `json:"requestDigest,omitempty"`
+	Messages       map[string]workerMessage `json:"messages,omitempty"`
+	Native         bool                     `json:"native,omitempty"`
+	Binding        wire.ApplicationBinding  `json:"binding"`
+	Task           api.Task                 `json:"task"`
+	Fingerprint    string                   `json:"fingerprint"`
+	PromptID       string                   `json:"promptID"`
+	Stopped        bool                     `json:"stopped"`
+	Start          *workerStart             `json:"start,omitempty"`
 }
 
 func (s *Session) authority(ctx context.Context) (wire.ApplicationCall, error) {
@@ -39,7 +49,34 @@ func (s *Session) authority(ctx context.Context) (wire.ApplicationCall, error) {
 	}
 	return call, nil
 }
-func (s *Session) WorkAdmission(ctx context.Context) error { _, e := s.authority(ctx); return e }
+func (s *Session) workAuthorization(ctx context.Context) (string, error) {
+	if s.workerOnly {
+		s.mu.Lock()
+		ready := s.connected && !s.closed
+		configured, auth := s.workerModelConfigured, s.workerModelAuth
+		s.mu.Unlock()
+		if !configured {
+			return "", errors.New("Worker selected default model not configured")
+		}
+		if auth == "reported_missing" {
+			return "", errors.New("Worker native Host reports missing model authentication")
+		}
+		if !ready || s.workerSource == nil {
+			return "", errors.New("Worker connection or dispatch source unavailable")
+		}
+		source, err := s.workerSource(ctx)
+		if err == nil {
+			err = source.Validate()
+		}
+		return source.OperationID, err
+	}
+	call, err := s.authority(ctx)
+	return call.Source.OperationId, err
+}
+func (s *Session) WorkAdmission(ctx context.Context) error {
+	_, e := s.workAuthorization(ctx)
+	return e
+}
 func (s *Session) WorkStates() []api.WorkState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -50,7 +87,11 @@ func (s *Session) WorkStates() []api.WorkState {
 		if p := s.state.Views[w.Binding.SessionId]; p != nil {
 			key = observedTurn(p)
 		}
-		out = append(out, api.WorkState{Task: v, ExecutionKey: key, StopRequested: w.Stopped, StartFingerprint: w.Fingerprint})
+		target := api.WorkTarget{}
+		if v.Target != nil {
+			target = *v.Target
+		}
+		out = append(out, api.WorkState{Target: target, Task: v, ExecutionKey: key, StopRequested: w.Stopped, StartFingerprint: w.Fingerprint})
 	}
 	return out
 }
@@ -83,12 +124,43 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 	}
 	return out
 }
-func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
-	call, e := s.authority(ctx)
-	if e != nil {
-		return api.Task{}, e
+func (s *Session) checkWorkerSource(ctx context.Context, source api.WorkDispatchSource) error {
+	if !s.workerOnly {
+		return nil
 	}
-	if in.ID == "" || in.RequestID == "" || !filepath.IsAbs(in.Workspace) {
+	if s.workerSource == nil {
+		return errors.New("Worker dispatch source unavailable")
+	}
+	if err := source.Validate(); err != nil {
+		return err
+	}
+	attested, err := s.workerSource(ctx)
+	if err != nil {
+		return err
+	}
+	if attested != source {
+		return errors.New("Worker dispatch source does not match the native request")
+	}
+	return nil
+}
+func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
+	s.mu.Lock()
+	recorded, recordedStart := s.state.Workers[in.ID]
+	s.mu.Unlock()
+	authorization := in.Source.OperationID
+	var e error
+	if !s.workerOnly || !recordedStart {
+		if err := s.checkWorkerSource(ctx, in.Source); err != nil {
+			return api.Task{}, err
+		}
+		authorization, e = s.workAuthorization(ctx)
+		if e != nil {
+			return api.Task{}, e
+		}
+	} else if recorded.Source != in.Source || recorded.RequestDigest != in.RequestDigest {
+		return api.Task{}, errors.New("Worker recorded source or request changed")
+	}
+	if in.ID == "" || in.RequestID == "" || !s.validWorkWorkspace(in.Workspace) {
 		return api.Task{}, errors.New("工作配置无效")
 	}
 	s.step.Lock()
@@ -102,12 +174,12 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	execution := s.workExecution
 	s.mu.Unlock()
 	if exists {
-		if old.Fingerprint != fp || old.Task.Workspace != in.Workspace {
+		if old.Fingerprint != fp || old.Task.Workspace != in.Workspace || s.workerOnly && old.StartRequestID != in.RequestID {
 			return api.Task{}, errors.New("任务请求冲突")
 		}
 		return s.ReadWork(ctx, in.ID)
 	}
-	if in.TaskStart.Workspace != "" {
+	if !s.workerOnly && in.TaskStart.Workspace != "" {
 		resolved, err := api.ResolveTaskWorkspace(in.Workspace)
 		if err != nil {
 			return api.Task{}, err
@@ -117,7 +189,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		}
 	}
 	profile := wire.ApplicationProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
-	w := worker{Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId}}
+	w := worker{Native: true, StartRequestID: in.RequestID, Source: in.Source, RequestDigest: in.RequestDigest, Task: api.Task{ID: in.ID, Title: in.Title, Target: in.Target, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: authorization, Source: in.Source, RequestDigest: in.RequestDigest}}
 	s.mu.Lock()
 	s.state.Workers[in.ID] = w
 	e = s.saveLocked()
@@ -237,9 +309,24 @@ func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
 }
 
 func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
-	call, e := s.authority(ctx)
-	if e != nil {
-		return api.Task{}, e
+	s.mu.Lock()
+	recordedWorker := s.state.Workers[in.ID]
+	recorded, recordedMessage := recordedWorker.Messages[in.RequestID]
+	s.mu.Unlock()
+	authorization := in.Source.OperationID
+	var e error
+	if s.workerOnly && recordedMessage {
+		if recorded.Source != in.Source || recorded.RequestDigest != in.RequestDigest || recorded.PromptDigest != digest([]byte(in.Prompt)) {
+			return api.Task{}, errors.New("Worker continuation intent changed")
+		}
+	} else {
+		if err := s.checkWorkerSource(ctx, in.Source); err != nil {
+			return api.Task{}, err
+		}
+		authorization, e = s.workAuthorization(ctx)
+		if e != nil {
+			return api.Task{}, e
+		}
 	}
 	s.step.Lock()
 	defer s.step.Unlock()
@@ -250,6 +337,15 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	s.mu.Unlock()
 	if !ok || w.Binding.SessionId == "" || v == nil {
 		return api.Task{}, errors.New("任务未就绪")
+	}
+	if s.workerOnly && !recordedMessage {
+		if w.Messages == nil {
+			w.Messages = map[string]workerMessage{}
+		}
+		w.Messages[in.RequestID] = workerMessage{Source: in.Source, RequestDigest: in.RequestDigest, PromptDigest: digest([]byte(in.Prompt))}
+		if err := s.saveWorker(w); err != nil {
+			return w.Task, err
+		}
 	}
 	sid := w.Binding.SessionId
 	op := "work-send-" + digest([]byte(in.RequestID))
@@ -267,7 +363,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		}
 		return w.Task, errors.Join(err, s.saveWorker(w))
 	}
-	g, e := s.createGrant(ctx, sid, "continue-"+digest([]byte(in.RequestID)), call.Source.OperationId)
+	g, e := s.createGrant(ctx, sid, "continue-"+digest([]byte(in.RequestID)), authorization)
 	if e != nil {
 		return w.Task, e
 	}

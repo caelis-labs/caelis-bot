@@ -34,6 +34,14 @@ type Options struct {
 	ReviewerModel string
 }
 type Session struct {
+	workerOnly            bool
+	workerTarget          api.WorkTarget
+	workerUseDefault      bool
+	workerModelConfigured bool
+	workerModelAuth       string
+	workerEndpoint        func(context.Context) (WorkerEndpoint, error)
+	workerSource          func(context.Context) (api.WorkDispatchSource, error)
+
 	sendingScheduled      string
 	scheduledPreviousTurn string
 	diagnostics           *diagnosticlog.Logger
@@ -159,6 +167,9 @@ var required = []string{"shared-native-workers-v1", "turn-steering-receipts-v1",
 var errBotIncompatible = errors.New("Caelis 应用协议不兼容，请更新运行时并重启 Caelis 服务")
 
 func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
+	return initializeCapabilities(ctx, c, required)
+}
+func initializeCapabilities(ctx context.Context, c *client, capabilities []string) (wire.ServerInfo, error) {
 	var i wire.ServerInfo
 	e := c.json(ctx, "GET", "/initialize", nil, &i, "", "")
 	if e != nil {
@@ -167,7 +178,7 @@ func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
 	if i.ProtocolVersion != 1 || i.ApiVersion != "v1" || i.EnvelopeVersion != "caelis.control.envelope/v1" || value(i.StoreId) == "" || value(i.InstanceId) == "" {
 		return i, errBotIncompatible
 	}
-	for _, cap := range required {
+	for _, cap := range capabilities {
 		if !slices.Contains(i.Capabilities, cap) {
 			return i, errBotIncompatible
 		}
@@ -216,6 +227,9 @@ type credential struct {
 }
 
 func (s *Session) connect(ctx context.Context) error {
+	if s.workerOnly {
+		return s.connectWorker(ctx)
+	}
 	d, token, e := Discover(s.settings)
 	if e != nil {
 		return e
@@ -225,7 +239,7 @@ func (s *Session) connect(ctx context.Context) error {
 		return e
 	}
 	defer host.http.CloseIdleConnections()
-	info, e := initialize(ctx, host)
+	info, e := s.initialize(ctx, host)
 	if e != nil {
 		return e
 	}
