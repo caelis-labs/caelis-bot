@@ -27,6 +27,9 @@ type Options struct {
 	Token                      string `json:"-"`
 	Capabilities               Capabilities
 	Resources                  Resources
+	// OnStopped belongs to the native process owner. It runs after the stop
+	// receipt publication and response observation boundary, never on detach.
+	OnStopped func(Result)
 }
 
 type Server struct {
@@ -187,6 +190,7 @@ func (s *Server) write(w http.ResponseWriter, value any) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(b)))
 	_, _ = w.Write(b)
 }
 
@@ -320,21 +324,38 @@ func (s *Server) command(w http.ResponseWriter, r *http.Request, command Command
 		return
 	}
 	done := make(chan Result, 1)
+	observed := make(chan struct{})
+	defer close(observed)
 	go func() {
 		s.commands.Lock()
 		defer s.commands.Unlock()
 		ctx, cancel := context.WithTimeout(s.opts.Context, 2*time.Minute)
 		defer cancel()
 		result := s.execute(ctx, command)
+		stopped := command.Kind == "stop-bot" && s.stopping
 		if s.journal.finish(command.ID, result) != nil {
 			result = Result{ID: command.ID, Outcome: "unknown", Code: "receipt-save-failed"}
 		}
 		s.NotifySnapshot()
 		done <- result
+		if stopped && s.opts.OnStopped != nil {
+			// A lost response already ends observation. A live response gets a
+			// bounded chance to flush before its owner releases the listener.
+			wait, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			select {
+			case <-observed:
+			case <-wait.Done():
+			}
+			s.opts.OnStopped(result)
+		}
 	}()
 	select {
 	case result := <-done:
 		s.write(w, result)
+		if command.Kind == "stop-bot" {
+			_ = http.NewResponseController(w).Flush()
+		}
 	case <-r.Context().Done():
 	}
 }

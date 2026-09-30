@@ -480,3 +480,22 @@ func TestReservationPublicationFailureNeverDispatches(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeOwnerStopHookFollowsDurableReceiptAndResponse(t *testing.T) {
+	s, c, _, _, _ := fixture(t)
+	stopped := make(chan Result, 1)
+	s.opts.OnStopped = func(r Result) { stopped <- r }
+	r, err := c.Command(bounded(t), Command{ID: "owner-stop", Kind: "stop-bot"})
+	if err != nil || r.Outcome != "accepted" {
+		t.Fatal(r, err)
+	}
+	select {
+	case hook := <-stopped:
+		persisted, ok := s.journal.lookup(hook.ID)
+		if !ok || persisted.Outcome != "accepted" {
+			t.Fatal("owner exited before durable receipt")
+		}
+	case <-bounded(t).Done():
+		t.Fatal("explicit stop did not reach native owner")
+	}
+}
