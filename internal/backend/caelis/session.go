@@ -35,6 +35,7 @@ type Options struct {
 }
 type Session struct {
 	workerOnly            bool
+	workerProtocol        WorkerProtocol
 	workerTarget          api.WorkTarget
 	workerUseDefault      bool
 	workerModelConfigured bool

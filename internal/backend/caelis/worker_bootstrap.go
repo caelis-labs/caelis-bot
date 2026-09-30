@@ -18,6 +18,7 @@ import (
 // WorkerBootstrapRequest is native stdin only, never an application tool/DTO.
 // AppCredential is scoped and cannot administer the Host.
 type WorkerBootstrapRequest struct {
+	Protocol                                                     WorkerProtocol `json:"protocol,omitempty"`
 	Action, Store, WorkspaceRoot, TaskID, Workspace, OperationID string
 	StoreID, InstanceID, PrincipalID                             string
 	Selected                                                     bool
@@ -54,6 +55,10 @@ func RunWorkerBootstrap(ctx context.Context, in io.Reader, out io.Writer) error 
 }
 func workerBootstrap(ctx context.Context, req WorkerBootstrapRequest) (WorkerBootstrapResult, error) {
 	var out WorkerBootstrapResult
+	protocol, protocolErr := workerProtocol(req.Protocol)
+	if protocolErr != nil {
+		return out, protocolErr
+	}
 	store, err := caelisruntime.Store(req.Store)
 	if err != nil {
 		return out, err
@@ -73,7 +78,7 @@ func workerBootstrap(ctx context.Context, req WorkerBootstrapRequest) (WorkerBoo
 		return out, err
 	}
 	defer c.http.CloseIdleConnections()
-	info, err := initializeCapabilities(ctx, c, workerRequired)
+	info, err := initializeCapabilities(ctx, c, workerProtocolCapabilities(protocol))
 	if err != nil {
 		return out, err
 	}
