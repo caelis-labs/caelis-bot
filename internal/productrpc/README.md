@@ -70,8 +70,9 @@ The application-local product token is a bounded private regular file supplied
 by the native owner, scoped to this product listener/profile. It is unrelated to
 model credentials and Core Host tokens. No credential discovery, copying,
 automatic remote configuration or persistent service installation occurs.
-Startup emits only endpoint and opaque identity. Explicit RPC stop closes the
-owned Bot while retaining its receipt endpoint; SIGTERM ends the native process.
+Startup emits only endpoint and opaque identity. Explicit RPC stop publishes and
+flushes its receipt, then exits the owner and releases its listener; SIGTERM also
+ends the native process. A restarted owner can read the original persisted receipt.
 Observer EOF, stdin closure and client detachment never stop the resident owner.
 
 `caelis-node proxy-product --endpoint http://127.0.0.1:PORT --auth-file PRIVATE`

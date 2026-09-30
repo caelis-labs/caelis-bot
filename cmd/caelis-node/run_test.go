@@ -68,3 +68,13 @@ func TestHeadlessRequiresExplicitProfileAndLoopback(t *testing.T) {
 		}
 	}
 }
+
+func TestResidentEntryRejectsThinRemoteProfileBeforeAssembly(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "product-connection.json"), []byte(`{"version":1,"pairing":{"mode":"remote"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := rejectRemoteProfile(root); err == nil {
+		t.Fatal("resident owner accepted thin remote profile")
+	}
+}
