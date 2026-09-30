@@ -33,7 +33,7 @@ prompt receipt recovery without redispatch, exact native cancellation observatio
 detach leaving the Host and active task alive, and same-grant reconnect completion.
 The adapter creates no resident Caelis main Session to obtain Worker rights.
 
-Three separately skipped gates remain incomplete on that runtime:
+Three separately skipped gates remain incomplete for the shared-native Worker protocol on that runtime:
 
 - Shared Worker `PublishArtifact` failed in the canonical feed with `not_found`.
   Its scoped application-session/configuration/resource API paths also returned
@@ -57,3 +57,46 @@ The temporary supervisor and Host were explicitly stopped and only the recorded
 fixture root was removed. Real-model acceptance remains pending human guest
 configuration. No HA, Host restart grant transfer or resident Session transfer is
 claimed.
+
+
+## Explicit bounded application Worker
+
+A second, explicitly selected native assembly policy uses
+`WorkerProtocolBoundedApplication` in both `caelis.WorkerOptions` and
+`nodes.SSHConfig`. The absent value retains the existing shared-native policy;
+changing an existing private credential's pinned protocol is rejected. Tasks and
+pending native profile bytes remain pinned to their original protocol. This
+selector is private native setup policy, never arbitrary model or renderer
+routing authority, and there is no automatic protocol fallback.
+
+Pinned official source `8430bff9c36187d4cfaa33576ff238cd36c94c06` (v0.65.0)
+supports a genuine bounded ApplicationSession profile with native workspace
+execution, creation-bound `workspace-write`/manual permissions, and the native
+ReadResource/PublishArtifact bridge. Each such Session executes one actual task;
+there is no resident main Session, Bot callback catalog, inherited Bot memory,
+MCP or CWD instructions, or claim of ordinary shared/TUI Worker attachment.
+An independently enrolled application records its trusted host attestation in a
+native background grant, then dispatches `authorized_background`; it does not
+invent a Caelis parent user prompt to authorize a Codex activation.
+
+Run only `TestSSHBoundedApplicationWorkerIntegration` against a freshly prepared
+fixture, since provider case plans belong to that isolated run. Actual strict
+SSH verification took 4.49 seconds with no skipped bounded gates. It verified
+canonical resource publication and bounded checksum/ownership download, exact
+native manual approval, independently observed native completion/interruption,
+lost prompt receipt recovery, and detach/reconnect without replacement grants.
+Four native bounded bindings had workspace-write/manual profiles and no callback
+or inherited resident tools; zero shared-native Worker grants were created.
+Source/helper hashes and public initialization provenance are preserved in
+`native_bounded_worker_065_evidence.json`.
+
+Generic native cancel and approval resolution still have no read-only scoped
+operation receipt in 0.65.0. Same-POST replay is not a safe indefinite lookup:
+operation retention can expire and re-admit a mutation. The adapter keeps the
+original exact action journal `unknown`, never resends it, and projects
+`Task.Outcome=unknown` alongside independent `Task.Status=completed/interrupted`.
+Tests verify that ending, approval absence, and reconnect never confirm or erase
+the original lost receipt. This supported v1 uncertainty behavior passed; receipt
+recovery itself remains unsupported. Native setup/APP assembly must still select
+and present this policy explicitly before full APP acceptance is claimed.
+Real provider login/model and Host restart/HA remain outside this synthetic gate.

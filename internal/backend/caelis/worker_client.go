@@ -28,7 +28,27 @@ type WorkerEndpoint struct {
 	Origin, StoreID, InstanceID, PrincipalID string
 	Enroll                                   func(context.Context, string, string) (wire.ApplicationConnection, error) `json:"-"`
 }
+type WorkerProtocol string
+
+const (
+	WorkerProtocolSharedNative       WorkerProtocol = "shared-native-worker"
+	WorkerProtocolBoundedApplication WorkerProtocol = "bounded-application-worker"
+)
+
+func workerProtocol(v WorkerProtocol) (WorkerProtocol, error) {
+	if v == "" {
+		return WorkerProtocolSharedNative, nil
+	}
+	if v != WorkerProtocolSharedNative && v != WorkerProtocolBoundedApplication {
+		return "", errors.New("Worker protocol unavailable")
+	}
+	return v, nil
+}
+
+// Protocol is trusted native assembly policy, never task/model/renderer input.
+// The empty value preserves already pinned shared-native Worker semantics.
 type WorkerOptions struct {
+	Protocol  WorkerProtocol
 	Target    api.WorkTarget
 	Directory string
 	Execution api.WorkExecutionSettings
@@ -46,6 +66,15 @@ type WorkerClient struct {
 
 var workerRequired = []string{"shared-native-workers-v1", "turn-steering-receipts-v1", "application-runtime-v1", "application-resource-transfer-v1"}
 
+var boundedWorkerRequired = []string{"application-runtime-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1", "execution-configuration-v1", "turn-steering-receipts-v1"}
+
+func workerProtocolCapabilities(v WorkerProtocol) []string {
+	if v == WorkerProtocolBoundedApplication {
+		return boundedWorkerRequired
+	}
+	return workerRequired
+}
+
 func NewWorker(opts WorkerOptions) *WorkerClient {
 	s := New(Options{Directory: opts.Directory, WorkExecution: opts.Execution})
 	s.path = filepath.Join(opts.Directory, "worker-application.json")
@@ -54,6 +83,11 @@ func NewWorker(opts WorkerOptions) *WorkerClient {
 		s.loadErr = errors.New("private absolute Worker directory required")
 	}
 	s.workerOnly, s.workerEndpoint, s.workerTarget = true, opts.Endpoint, opts.Target
+	protocol, protocolErr := workerProtocol(opts.Protocol)
+	if protocolErr != nil {
+		s.loadErr = protocolErr
+	}
+	s.workerProtocol = protocol
 	s.workerUseDefault = opts.Execution.Model == ""
 	if opts.Source != nil {
 		s.workerSource = opts.Source.WorkDispatchSource
@@ -62,7 +96,7 @@ func NewWorker(opts WorkerOptions) *WorkerClient {
 }
 func (s *Session) initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
 	if s.workerOnly {
-		return initializeCapabilities(ctx, c, workerRequired)
+		return initializeCapabilities(ctx, c, workerProtocolCapabilities(s.workerProtocol))
 	}
 	return initialize(ctx, c)
 }
@@ -76,6 +110,7 @@ func (s *Session) validWorkWorkspace(v string) bool {
 
 type workerCredential struct {
 	credential
+	Protocol   WorkerProtocol
 	Target     api.WorkTarget
 	InstanceID string
 }
@@ -91,7 +126,7 @@ func (s *Session) connectWorker(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	for _, capability := range workerRequired {
+	for _, capability := range workerProtocolCapabilities(s.workerProtocol) {
 		if !slices.Contains(ep.Capabilities, capability) {
 			return errors.New("Worker public capability unavailable")
 		}
@@ -121,7 +156,7 @@ func (s *Session) connectWorker(ctx context.Context) error {
 		if _, e = rand.Read(secret); e != nil {
 			return e
 		}
-		key = workerCredential{credential: credential{StoreID: ep.StoreID, PrincipalID: ep.PrincipalID, OperationID: "register-worker-" + rand.Text(), Token: "app-client-" + hex.EncodeToString(secret)}, Target: s.workerTarget, InstanceID: ep.InstanceID}
+		key = workerCredential{credential: credential{StoreID: ep.StoreID, PrincipalID: ep.PrincipalID, OperationID: "register-worker-" + rand.Text(), Token: "app-client-" + hex.EncodeToString(secret)}, Protocol: s.workerProtocol, Target: s.workerTarget, InstanceID: ep.InstanceID}
 		if e = privateWrite(workerSecretPath(s.path), key); e != nil {
 			return e
 		}
@@ -129,6 +164,10 @@ func (s *Session) connectWorker(ctx context.Context) error {
 		return e
 	} else if json.Unmarshal(raw, &key) != nil || key.StoreID != ep.StoreID || key.PrincipalID != ep.PrincipalID || key.Token == "" || key.OperationID == "" || key.Target != s.workerTarget || key.InstanceID != ep.InstanceID {
 		return errors.New("Worker credential binding mismatch")
+	}
+	pinnedProtocol, protocolErr := workerProtocol(key.Protocol)
+	if protocolErr != nil || pinnedProtocol != s.workerProtocol {
+		return errors.New("Worker protocol changed; original binding retained")
 	}
 	c, e := newClient(ep.Origin, key.Token)
 	if e != nil {
@@ -157,12 +196,15 @@ func (s *Session) connectWorker(ctx context.Context) error {
 	if old.ConnectionId != "" && (old.ConnectionId != life.ConnectionId || old.ApplicationId != life.ApplicationId || old.PrincipalId != life.PrincipalId) {
 		return errors.New("Worker enrollment changed; original binding retained")
 	}
-	if len(oldBinding.Workers) > 0 {
+	if len(oldBinding.Workers) > 0 && s.workerProtocol == WorkerProtocolSharedNative {
 		var grants []wire.ApplicationWorker
 		if e = c.json(ctx, "GET", "/application/workers", nil, &grants, "", ""); e != nil {
 			return e
 		}
 		for _, worker := range oldBinding.Workers {
+			if !worker.Native {
+				return errors.New("Worker protocol does not match original task")
+			}
 			if worker.Binding.SessionId == "" {
 				continue
 			}
@@ -175,6 +217,23 @@ func (s *Session) connectWorker(ctx context.Context) error {
 			}
 			if !owned {
 				return errors.New("Worker original native grant unavailable")
+			}
+		}
+	}
+	if len(oldBinding.Workers) > 0 && s.workerProtocol == WorkerProtocolBoundedApplication {
+		for _, worker := range oldBinding.Workers {
+			if worker.Native {
+				return errors.New("Worker protocol does not match original task")
+			}
+			if worker.Binding.SessionId == "" {
+				continue
+			}
+			var binding wire.ApplicationBinding
+			if e = c.json(ctx, "GET", "/application/sessions/"+idPath(worker.Binding.SessionId), nil, &binding, "", ""); e != nil {
+				return e
+			}
+			if binding.Archived || binding.SessionId != worker.Binding.SessionId || binding.ApplicationId != life.ApplicationId || binding.ConnectionId != life.ConnectionId || binding.PrincipalId != life.PrincipalId || binding.CreationDigest != worker.Binding.CreationDigest {
+				return errors.New("Worker original bounded binding unavailable")
 			}
 		}
 	}

@@ -122,6 +122,16 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 			out.Result = out.Result[:16000]
 		}
 	}
+	// Native terminal facts are independent of the original generic mutation
+	// receipt. Ending a turn cannot acknowledge a missing cancel/resolve reply.
+	if s.workerOnly && w.Binding.SessionId != "" {
+		prefix := "/sessions/" + idPath(w.Binding.SessionId) + "/"
+		for _, operation := range s.state.Operations {
+			if operation.Outcome == "unknown" && strings.HasPrefix(operation.Path, prefix) && (strings.HasSuffix(operation.Path, "/cancel") || strings.Contains(operation.Path, "/approvals/") && strings.HasSuffix(operation.Path, "/resolve")) {
+				out.Outcome = "unknown"
+			}
+		}
+	}
 	return out
 }
 func (s *Session) checkWorkerSource(ctx context.Context, source api.WorkDispatchSource) error {
@@ -169,6 +179,10 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	if in.TaskStart.Workspace != "" {
 		fp = digest([]byte(in.Title + "\x00" + in.Prompt + "\x00" + in.TaskStart.Workspace))[:32]
 	}
+	bounded := s.workerOnly && s.workerProtocol == WorkerProtocolBoundedApplication
+	if bounded {
+		fp = digest([]byte(string(s.workerProtocol) + "\x00" + fp + "\x00" + in.Instructions))[:32]
+	}
 	s.mu.Lock()
 	old, exists := s.state.Workers[in.ID]
 	execution := s.workExecution
@@ -189,7 +203,17 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		}
 	}
 	profile := wire.ApplicationProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
-	w := worker{Native: true, StartRequestID: in.RequestID, Source: in.Source, RequestDigest: in.RequestDigest, Task: api.Task{ID: in.ID, Title: in.Title, Target: in.Target, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: authorization, Source: in.Source, RequestDigest: in.RequestDigest}}
+	if bounded {
+		profile.Version = "caelis-bot-bounded-worker-v1"
+		profile.Execution = "workspace-write"
+		profile.Instructions = in.Instructions
+		profile.Workspace = &wire.ApplicationWorkspace{Cwd: &in.Workspace}
+		profile.Permissions = &wire.ApplicationPermissions{Mode: pointer("workspace-write"), ApprovalMode: pointer("manual")}
+		profile.Tools = []wire.ApplicationToolDefinition{}
+		profile.ToolsVersion = digest([]byte("[]"))
+		profile.ExecutionConfig = &wire.ExecutionConfig{Environment: &wire.EnvironmentConfig{Inherit: pointer(true)}, Shell: &wire.ShellConfig{Login: pointer(false)}}
+	}
+	w := worker{Native: !bounded, StartRequestID: in.RequestID, Source: in.Source, RequestDigest: in.RequestDigest, Task: api.Task{ID: in.ID, Title: in.Title, Target: in.Target, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: authorization, Source: in.Source, RequestDigest: in.RequestDigest}}
 	s.mu.Lock()
 	s.state.Workers[in.ID] = w
 	e = s.saveLocked()
@@ -387,7 +411,10 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 		return api.Task{}, errors.New("任务不属于当前 Bot")
 	}
 	if e := s.interruptSession(ctx, w.Binding.SessionId); e != nil {
-		return w.Task, e
+		s.mu.Lock()
+		out := s.workerViewLocked(s.state.Workers[id])
+		s.mu.Unlock()
+		return out, e
 	}
 	s.mu.Lock()
 	w.Stopped = true
