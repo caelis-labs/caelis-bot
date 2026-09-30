@@ -8,6 +8,7 @@ fi
 BOT_MODE="${1:-run}"
 if [[ "$BOT_MODE" == --verify-signed ]]; then export BOT_BUILD_CHANNEL=release; fi
 source "$BOT_ROOT/script/app-identity.sh"
+source "$BOT_ROOT/script/native-run-log.sh"
 if [[ "$BOT_MODE" == --desktop-control-preview ]]; then
   exec bash "$BOT_ROOT/experiments/desktop-control/run-native.sh"
 fi
@@ -58,8 +59,11 @@ if [[ "$BOT_MODE" != --verify-signed && "$BOT_MODE" != --restart && "$BOT_MODE" 
 if [[ "$BOT_MODE" == --debug ]]; then
   exec lldb -- "$BOT_BUNDLE/Contents/MacOS/caelis-bot"
 fi
-BOT_LOG="$BOT_ROOT/.cache/$BOT_BUILD_CHANNEL-native-run.log"
-: > "$BOT_LOG"
+if [[ -n "${CAELIS_BOT_NATIVE_LOG:-}" ]]; then
+  (umask 077; : > "$BOT_LOG")
+else
+  : > "$BOT_LOG"
+fi
 BOT_OPEN_ARGS=(-g -n "$BOT_BUNDLE" --stdout "$BOT_LOG" --stderr "$BOT_LOG")
 if [[ "$BOT_MODE" == --terminal-smoke ]]; then
   shift
