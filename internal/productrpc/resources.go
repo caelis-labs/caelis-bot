@@ -65,6 +65,11 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		problem(w, 409, "resource-unavailable")
 		return
 	}
+	native := result.ID
+	result.ID = s.projection.handle("upload", native)
+	s.uploadMu.Lock()
+	s.uploads[result.ID] = native
+	s.uploadMu.Unlock()
 	s.write(w, result)
 }
 
@@ -84,14 +89,24 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 	}
 	// The composed Service owns the artifact catalog; no client-chosen path or
 	// arbitrary native binding can select a resource outside that catalog.
+	native := ""
 	for _, item := range s.port.Snapshot().Items {
 		for _, artifact := range item.Artifacts {
 			if s.projection.handle("resource", artifact.ID) == id {
-				id = artifact.ID
+				native = artifact.ID
 			}
 		}
 	}
-	meta, reader, err := s.opts.Resources.Open(r.Context(), id)
+	if native == "" {
+		s.uploadMu.Lock()
+		native = s.uploads[id]
+		s.uploadMu.Unlock()
+	}
+	if native == "" {
+		problem(w, 404, "resource-unavailable")
+		return
+	}
+	meta, reader, err := s.opts.Resources.Open(r.Context(), native)
 	if err != nil || reader == nil {
 		problem(w, 404, "resource-unavailable")
 		return

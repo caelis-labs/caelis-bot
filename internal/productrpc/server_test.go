@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -337,6 +338,15 @@ func TestResourcesRequireDigestAndNeverExportPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if meta.ID == resources.meta.ID {
+		t.Fatal("native upload id exposed")
+	}
+	if _, _, err := c.Download(t.Context(), resources.meta.ID); err == nil {
+		t.Fatal("raw native upload id accepted")
+	}
+	if _, _, err := c.Download(t.Context(), "native-artifact"); err == nil {
+		t.Fatal("raw native artifact id accepted")
+	}
 	got, b, err := c.Download(t.Context(), meta.ID)
 	if err != nil || got.SHA256 != meta.SHA256 || string(b) != "private synthetic bytes" {
 		t.Fatal(got, err)
@@ -422,5 +432,51 @@ func TestClientDetachCancelsResourceObservationAndStopFencesUploads(t *testing.T
 	c.Close()
 	if _, _, err := c.Download(t.Context(), "resource-1"); err == nil {
 		t.Fatal("closed observer allowed resource request")
+	}
+}
+
+func TestReservationPublicationFailureNeverDispatches(t *testing.T) {
+	for _, afterRename := range []bool{false, true} {
+		t.Run(map[bool]string{false: "before-rename", true: "directory-sync"}[afterRename], func(t *testing.T) {
+			s, c, f, _, opts := fixture(t)
+			s.journal.write = func(path string, doc journalDocument) error {
+				if afterRename {
+					if err := durableJournalWrite(path, doc); err != nil {
+						return err
+					}
+				}
+				return errors.New("injected receipt publication failure")
+			}
+			command := Command{ID: "uncertain-publication", Kind: "submit", Submission: &api.Submission{ID: "uncertain-publication", Text: "synthetic"}}
+			if _, err := c.Command(t.Context(), command); err == nil {
+				t.Fatal("unconfirmed durability admitted")
+			}
+			if f.submits != 0 {
+				t.Fatal("native dispatch preceded durable reservation")
+			}
+			if r, err := c.Command(t.Context(), command); err != nil || r.Outcome != "unknown" {
+				t.Fatalf("same id became fresh: %+v %v", r, err)
+			}
+			command.ID = "another-publication"
+			command.Submission.ID = command.ID
+			if _, err := c.Command(t.Context(), command); err == nil {
+				t.Fatal("fresh admission after durability failure")
+			}
+			command.ID = "uncertain-publication"
+			command.Submission.ID = command.ID
+			if f.submits != 0 {
+				t.Fatal("publication retry dispatched native intent")
+			}
+			if afterRename {
+				reopened, err := openJournal(opts.JournalFile, opts.BotID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				r, ok := reopened.lookup(command.ID)
+				if !ok || r.Outcome != "unknown" {
+					t.Fatal("uncertain publication lost no-replay marker")
+				}
+			}
+		})
 	}
 }
