@@ -127,6 +127,30 @@ func (r *Registry) Capabilities() []Capability {
 	return out
 }
 
+func (r *Registry) Nodes() []Node {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []Node
+	for _, node := range r.nodes {
+		out = append(out, node)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func (r *Registry) WorkTargets() []api.WorkTargetInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []api.WorkTargetInfo
+	for target, entry := range r.entries {
+		if target.Role == api.RoleWorker {
+			out = append(out, api.WorkTargetInfo{Target: target, Label: r.nodes[target.NodeID].Label, State: string(entry.State)})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return targetKey(out[i].Target) < targetKey(out[j].Target) })
+	return out
+}
+
 func targetKey(t api.WorkTarget) string {
 	return t.NodeID + "\x00" + t.Backend + "\x00" + string(t.Role)
 }
