@@ -23,7 +23,12 @@ choice and target; interrupt dispatch must atomically validate the native turn.
 The closed command union supports submit, decide, exact interrupt, initialize,
 retry introduction, load earlier, save draft and explicit stop Bot. Snapshot,
 cursor long poll, original receipt lookup and bounded resource bytes are separate
-endpoints. Runtime management is an optional future port and is not advertised.
+endpoints. An optional typed management port exposes reviewed releases, managed
+installation status, install/update with an original receipt, and the existing
+Host main/Team configuration controller. Capabilities explicitly report when the
+port or native configuration receipt lookup is unavailable. Reads that happen to
+match a requested setting do not confirm a lost original configuration receipt.
+The port accepts no credentials, shell command, arbitrary URL or destination path.
 There is no generic method invocation, raw ToolConnection, provider token,
 terminal, native session navigation, multi-client merge or offline outbox.
 
@@ -49,6 +54,11 @@ composed Worker artifact downloads use `Service.ReadProductArtifact` ownership.
 Closing the native client, observer socket or listener never stops the Bot.
 Explicit stop fences later commands/uploads and calls only the host-owned Bot
 shutdown. Signal/supervisor shutdown is a separate native owner boundary.
+
+State carries at most 512 watchlisted task summaries with generation-scoped
+opaque IDs. Native terminal task facts and the original request outcome remain
+separate, so an interrupted task can retain an unknown original cancel receipt.
+Task summaries are presentation data, not a new task/session navigation API.
 
 Fixture tests cover authentication/schema bounds, projection and stale approval,
 response loss/detach, restart/reset/unknown intent, stable-ID conflicts, draft CAS,
