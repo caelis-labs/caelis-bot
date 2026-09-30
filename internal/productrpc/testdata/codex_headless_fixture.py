@@ -31,7 +31,7 @@ def descendants(pid):
         descendants(p)
 def same_process(pid,birth):
     try:
-        stat=(pathlib.Path('/proc')/pid/'stat').read_text();fields=stat[stat.rfind(')')+2:].split();return fields[19]==birth and fields[0]!='Z'
+        stat=(pathlib.Path('/proc')/pid/'stat').read_text();fields=stat[stat.rfind(')')+2:].split();return fields[19]==birth
     except FileNotFoundError:return False
 def native_facts():
     path=root/'profile/conversation.json'
