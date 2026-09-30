@@ -45,8 +45,15 @@ An empty document/container value does not include its descendant text. Some
 web pages expose one character per text node: do not make one `read` call per
 character. Observe that document with fields `["role","value_preview"]` and
 `match:{"within":"OBSERVED_DOCUMENT_REF","role":"text"}` to collect a bounded
-text sample together. If metadata remains insufficient, use one explicit
-capture when the model supports images, or state the verification limit.
+text sample together. Keep source Refs and returned order; repeated visible
+strings are separate content. For paragraph/container reconstruction, include
+`parent` in the fields and omit the text-only role filter so native containers
+are retained. Follow stable continuations with the same query and budget. Bound
+the total pages, nodes, bytes and elapsed time. Preview values can be clipped at
+384 UTF-16 units upstream or at the query's `max_text_runes`; potentially clipped
+leaves require bounded `read` continuation or an explicit incomplete-text marker.
+Traversal coverage alone does not establish full text completeness.
+If metadata remains insufficient, use one explicit capture when the model supports images, or state the verification limit.
 
 Save the observation cursor. `bot_desktop_sync` with `args:{"cursor":"..."}`
 returns changed projected objects and removals. Apply it to that cursor's view;
@@ -91,12 +98,13 @@ predicates when useful. Local `wait` steps wait for explicit predicates; do not
 use model turns for a polling loop. If an action creates a new dialog or rebuilds
 controls, observe its new Refs before acting. Never heal a stale Ref using a
 similar label or repeat an uncertain prefix of a plan.
-In this alpha, numeric controls such as checkboxes can expose `value_preview`
-as `"0"`/`"1"` while the text reader used by a `value` predicate returns their
-label. Do not use an inline `value` predicate to verify those numeric controls:
-dispatch the intended change once, then verify its fresh observed value and task
-result. A verification timeout after completed delivery is not permission to
-toggle it again; reconcile the original receipt and inspect the actual state.
+Numeric controls such as checkboxes and sliders expose their native value as text
+for `value` predicates (for example, checkbox `"0"`/`"1"`, and `"2"` when mixed
+state is exposed). Verify only an actual value source: a control label cannot
+establish its value, and protected/unknown values remain unavailable. Dispatch
+the intended change once. A verification timeout after completed delivery is
+not permission to toggle it again; reconcile the original receipt and inspect
+the actual state.
 
 Focus a window or focusable UI object, not an application Ref. For keyboard input,
 observe the seat's foreground application/window and `focused_object`; verify

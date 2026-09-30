@@ -10,6 +10,8 @@ github.com/antlr4-go/antlr/v4 v4.13.1 h1:SqQKkuVZ+zWkMMNkjy5FZe5mr5WURWnlpmOuzYW
 github.com/antlr4-go/antlr/v4 v4.13.1/go.mod h1:GKmUxMtwp6ZgGwZSva4eWPC5mS6vUAmOABFgjdkM7Nw=
 github.com/caelis-labs/desktop-world v0.1.0-alpha.1 h1:oFjOL/tv8dGALKhcn09dW3NxFQDRARLm31fuJFVe7uY=
 github.com/caelis-labs/desktop-world v0.1.0-alpha.1/go.mod h1:GAfu7Yg5LvupTHJclTM3PdRWQJmGoC8CIpqhu5YJibU=
+github.com/caelis-labs/desktop-world v0.1.0-alpha.2 h1:a4fazp2HC/G/buCsaXZ798YXxn2ozfHccqR4mokxuXQ=
+github.com/caelis-labs/desktop-world v0.1.0-alpha.2/go.mod h1:GAfu7Yg5LvupTHJclTM3PdRWQJmGoC8CIpqhu5YJibU=
 github.com/caelis-labs/memory v0.6.1 h1:roPQKSkd9CfDXBf4QMzaAHK3TXzgbd5sVrejjBVSNOw=
 github.com/caelis-labs/memory v0.6.1/go.mod h1:C2/X3ya/mZ0AABL9JHdOW91MvfAXoen3LVesJetszE4=
 github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=

@@ -115,7 +115,7 @@ Core v0.65.0 darwin-arm64 passed NativeHost and GuardianHost integration, includ
 upgrade renewal and replay identity. Streaming grapheme append, exact review accounting and preservation of
 failed Guardian notices through quiet care/Dream projection have focused regressions.
 Desktop World migration (2026-09-30): the Go module and downloaded darwin-arm64
-helper are pinned to v0.1.0-alpha.1 / `5a2ae97ddf65579d2d0051e82a33efd588f17942`.
+helper are pinned to v0.1.0-alpha.2 / `cc50357f9f922712ef4e2bf4db4822381d10d71a`.
 `resources/desktop-world/release.json` owns the archive checksum/revision;
 `desktop-world-runtime.sh` verifies these before staging. The bundle contains the
 independent helper and upstream NOTICE, with no Cua/Node runtime. This preview
@@ -129,6 +129,29 @@ focus adapters, AXorcist experiment and capability-based fallback are removed;
 public-tree checks prevent their payloads returning. Build resources are freshly
 staged so incremental builds cannot retain old runtimes. Historical app payloads
 require their matching historical release tooling.
+
+Alpha.2 uptake acceptance (2026-09-30): all three published assets were downloaded;
+both archives matched SHA256SUMS and the actual helper reported the pinned
+version/revision with `vcs.modified=false`. Normal `make check`, `make smoke` and
+`make build` passed with the published Go module and helper, without a module
+replacement. The built Bot binary records the alpha.2 SDK dependency; its nested
+helper passed the repository manifest/signature/dependency checks and an
+escalated deep strict signature check using the existing development identity.
+The official SDK passed real AppKit numeric/string/redaction/receipt regressions
+([value evidence](evidence/desktop-world-alpha2/values.txt)). The actual bundled
+helper passed real slow-AX timeout/recovery and separate EndTurn revocation
+([timeout evidence](evidence/desktop-world-alpha2/timeout.txt)); Bot controller
+race tests, including packaged helper refusal/reconciliation, passed
+([adapter evidence](evidence/desktop-world-alpha2/adapter.txt)).
+These native probes were compiled inside Bot's unchanged normal module graph
+from the published source archive; no local source dependency override was used.
+A native Bot launch through `script/build_and_run.sh --restart` with an isolated
+profile failed at Launch Services with `-10810`, before readiness. The existing
+user Bot was untouched, and no trust/TCC settings were changed. This uptake does
+not claim a fresh full Bot/Wails/model run, original WPS Save-dialog acceptance,
+Windows native desktop acceptance, or public notarized Bot release acceptance.
+See [upstream alpha.2](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.0-alpha.2)
+and its `docs/ax-regressions.md` for scoped native Chrome and remaining limits.
 
 Current migration evidence: `make smoke`, `make build`, all Go tests/vet and the
 shared-core portability gate passed. The nested helper passed version/revision,
@@ -210,17 +233,17 @@ The rebuilt app recovered the completed WPS reply and subsequently presented a
 new fixture task and a receipt-only turn as completed. Full checks, race tests,
 signed build and installed Caelis NativeHost integration passed after this fix.
 
-The last live fixture task also identified an upstream alpha inconsistency:
+The historical alpha.1 live fixture task identified an upstream inconsistency:
 Darwin `node()` stringifies numeric AX values for `value_preview`, but its `text`
 operation falls back to the label for non-string AX values. The engine's `value`
 predicate uses that text operation. Consequently, a checkbox click succeeded
 while `value == "1"` timed out. Bot reconciled the same request without clicking
 again and independently observed checked=1 / Visible tasks=2; Submitted remained
 1. A later Bot turn recovered the same receipt without authorization, observation
-or input. The current guide avoids numeric `value` predicates and verifies these
-controls by fresh observation. The pinned upstream implementation still needs a
-consistent numeric-value/text contract; this has not been silently patched or
-reported as a successful inline predicate check. See upstream
+or input. That alpha.1 guide avoided numeric `value` predicates and verified these
+controls by fresh observation. Published alpha.2 fixes the numeric AX value/text
+contract and rejects label fallback as value evidence; the current guide uses
+that contract while preserving receipt-only recovery after uncertain delivery. See upstream
 [Desktop World #1](https://github.com/caelis-labs/desktop-world/issues/1).
 The other live findings are tracked as bounded-read improvements in
 [#2](https://github.com/caelis-labs/desktop-world/issues/2) and fragmented browser
