@@ -8,6 +8,7 @@ root = pathlib.Path(sys.argv[1])
 if not re.fullmatch(r'/tmp/caelis-bot-issue47-worker-[a-f0-9]{16}', str(root)) or root.is_symlink() or root.stat().st_mode & 0o077:
     raise SystemExit('invalid isolated fixture root')
 os.umask(0o077)
+hold_artifact_completion = '--hold-artifact-completion' in sys.argv[2:]
 stop = threading.Event()
 lock = threading.Lock()
 counts, requests, dropped, released, session_titles, native_receipts = {}, {}, set(), set(), {}, {}
@@ -23,7 +24,7 @@ class Provider(Quiet):
         body = json.loads(raw); keys = re.findall(rb'CASE_[A-Z_]+', raw); key = keys[-1].decode() if keys else ''
         with lock:
             index = counts.get(key,0); counts[key] = index+1
-        if key in ('CASE_SSH_CANCEL','CASE_SSH_DETACH'):
+        if key in ('CASE_SSH_CANCEL','CASE_SSH_DETACH') or (hold_artifact_completion and key == 'CASE_SSH_ARTIFACT' and index == 2):
             while key not in released and not stop.wait(.05): pass
         name, args = '', {}
         if key == 'CASE_SSH_ARTIFACT' and index == 0: name,args = 'Write',{'path':'artifact.txt','content':'SSH_NATIVE_ARTIFACT_SENTINEL'}
@@ -86,7 +87,7 @@ try:
         def handle_request(self):
             if self.path.startswith('/fixture/'):
                 if self.path == '/fixture/state':
-                    with lock: self.reply({'model_counts':dict(counts),'request_counts':dict(requests),'dropped':sorted(dropped),'host_alive':host.poll() is None})
+                    with lock: self.reply({'model_counts':dict(counts),'request_counts':dict(requests),'dropped':sorted(dropped),'host_alive':host.poll() is None,'artifact_completion_held':hold_artifact_completion and counts.get('CASE_SSH_ARTIFACT',0)>=3 and 'CASE_SSH_ARTIFACT' not in released})
                 elif self.path in ('/fixture/cancel-receipt','/fixture/approval-receipt'):
                     category='cancel' if self.path=='/fixture/cancel-receipt' else 'approval'
                     receipt=native_receipts.get(category,{})
