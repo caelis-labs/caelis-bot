@@ -394,3 +394,29 @@ func TestUnknownJournalBlocksFreshIntentAfterRestartOnlySameBackend(t *testing.T
 		t.Fatalf("different runtime incorrectly fenced %+v %v", accepted, err)
 	}
 }
+
+func TestUnverifiableOriginalJournalFailsClosed(t *testing.T) {
+	s := agentFixture(t)
+	installer := &installationFixture{}
+	s.installation = installer
+	r := request(t, s, "first-intent")
+	path := s.operationPath(r.Ref.OperationID)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("broken original journal"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Catalog(t.Context()); err == nil {
+		t.Fatal("unverifiable journal silently disappeared")
+	}
+	fresh := r
+	fresh.Ref.OperationID = "fresh-after-corruption"
+	result, err := s.Manage(t.Context(), fresh)
+	if err == nil && result.Outcome != api.NodeUnknown && result.Outcome != api.NodeRejected {
+		t.Fatalf("unverifiable original adopted fresh mutation %+v %v", result, err)
+	}
+	if installer.calls != 0 {
+		t.Fatal("corrupt journal dispatched a fresh operation")
+	}
+}
