@@ -21,11 +21,14 @@ func (noNativeSource) WorkDispatchSource(context.Context) (api.WorkDispatchSourc
 func TestCodexSSHWorkerUsesStrictNativeProxyAndBoundedDetach(t *testing.T) {
 	dir := t.TempDir()
 	binary, argsFile := filepath.Join(dir, "ssh"), filepath.Join(dir, "args")
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\nfor arg do printf '%s\\n' \"$arg\"; done > "+sshQuote(argsFile)+"\ncat >/dev/null\n"), 0700); err != nil {
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nfor arg do printf '%s\\n' \"$arg\"; done > "+sshQuote(argsFile)+"\nexit 0\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	pair := workerwire.Pair{Target: api.WorkTarget{NodeID: "linux-node", Backend: "codex", Role: api.RoleWorker}, BotID: "origin-bot", SourceNode: "local", SourceBackend: "codex"}
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	// Helper EOF is the deterministic detach barrier; the timeout is only a
+	// failure bound, so slow race-instrumented process startup cannot kill it
+	// before its argument capture is published.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if client, err := NewCodexSSHWorker(ctx, CodexSSHConfig{Destination: "fixture", Helper: "/fixture/node helper", Socket: "/fixture/private/worker.sock", Binary: binary, Pair: pair, Source: noNativeSource{}}); err == nil {
 		client.Close()
