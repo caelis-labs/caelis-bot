@@ -147,6 +147,10 @@ type NodeManagementRequest struct {
 type NodeRuntimeConfiguration struct {
 	Guard         NodeEditGuard        `json:"guard"`
 	Configuration RuntimeConfiguration `json:"configuration"`
+	// Codex conversation and Worker preferences are separate scopes. A null
+	// scope is unavailable; never infer it from a shared Runtime main model.
+	Conversation *WorkExecutionSettings `json:"conversation"`
+	Worker       *WorkExecutionSettings `json:"worker"`
 }
 
 // Enrollment accepts a user-selected SSH destination, not a filesystem path,
