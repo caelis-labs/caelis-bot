@@ -36,6 +36,10 @@ func (s *Service) WorkExecutionSettings() api.WorkExecutionSettings {
 func (s *Service) SaveWorkExecutionSettings(ctx context.Context, v api.WorkExecutionSettings) error {
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
+	return s.saveWorkExecutionSettingsLocked(ctx, v)
+}
+
+func (s *Service) saveWorkExecutionSettingsLocked(ctx context.Context, v api.WorkExecutionSettings) error {
 	if err := api.ValidateExecutionSettings(v.Execution()); err != nil {
 		return err
 	}

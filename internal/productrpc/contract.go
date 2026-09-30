@@ -33,6 +33,7 @@ type Capabilities struct {
 	Files             bool `json:"files"`
 	Interrupt         bool `json:"interrupt"`
 	RuntimeManagement bool `json:"runtimeManagement"`
+	Execution         bool `json:"execution"`
 }
 
 type Identity struct {
@@ -72,6 +73,7 @@ type Command struct {
 	Draft             *api.Draft                              `json:"draft,omitempty"`
 	RuntimeManagement *productmanagement.RuntimeCommand       `json:"runtimeManagement,omitempty"`
 	Configuration     *productmanagement.ConfigurationCommand `json:"configuration,omitempty"`
+	Execution         *productmanagement.ExecutionCommand     `json:"execution,omitempty"`
 }
 
 type ApprovalDecision struct {
@@ -89,6 +91,7 @@ type Result struct {
 	Draft             *api.Draft                             `json:"draft,omitempty"`
 	RuntimeManagement *productmanagement.RuntimeResult       `json:"runtimeManagement,omitempty"`
 	Configuration     *productmanagement.ConfigurationResult `json:"configuration,omitempty"`
+	Execution         *productmanagement.ExecutionResult     `json:"execution,omitempty"`
 }
 
 // Port is backed by the composed product Service, including Worker facts.

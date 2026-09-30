@@ -35,10 +35,7 @@ func (s *Service) ConfigureExecution(path string, v api.ExecutionSettings) {
 func (s *Service) ExecutionSettings() (api.ExecutionSettings, error) {
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
-	if source, ok := s.engine.(api.ExecutionSettingsSource); ok {
-		return source.CurrentExecutionSettings(context.Background())
-	}
-	return s.executionSettings, nil
+	return s.executionSettingsLocked(context.Background())
 }
 func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
 	e, ok := s.engine.(api.ExecutionProvider)
@@ -50,6 +47,17 @@ func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
 func (s *Service) SaveExecutionSettings(ctx context.Context, v api.ExecutionSettings) error {
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
+	return s.saveExecutionSettingsLocked(ctx, v)
+}
+
+func (s *Service) executionSettingsLocked(ctx context.Context) (api.ExecutionSettings, error) {
+	if source, ok := s.engine.(api.ExecutionSettingsSource); ok {
+		return source.CurrentExecutionSettings(ctx)
+	}
+	return s.executionSettings, nil
+}
+
+func (s *Service) saveExecutionSettingsLocked(ctx context.Context, v api.ExecutionSettings) error {
 	if err := api.ValidateExecutionSettings(v); err != nil {
 		return err
 	}

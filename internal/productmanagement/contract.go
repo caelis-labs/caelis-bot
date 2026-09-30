@@ -17,6 +17,7 @@ type Scope struct {
 }
 
 type Capabilities struct {
+	Execution                  bool `json:"execution"`
 	Installation               bool `json:"installation"`
 	Configuration              bool `json:"configuration"`
 	ConfigurationReceiptLookup bool `json:"configurationReceiptLookup"`

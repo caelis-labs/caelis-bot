@@ -16,6 +16,8 @@ type journalEntry struct {
 	Result Result `json:"result"`
 	// Only installation selectors needed to reconcile the original native intent.
 	Runtime *productmanagement.RuntimeCommand `json:"runtime,omitempty"`
+	// Only the category is needed to fence unresolved settings after restart.
+	Execution bool `json:"execution,omitempty"`
 }
 
 type journalDocument struct {
@@ -53,6 +55,18 @@ func openJournal(path, botID string) (*journal, error) {
 		if entry.Runtime != nil && (entry.Runtime.ID != id || entry.Runtime.BotID != botID || !identifier.MatchString(entry.Runtime.Generation) || !validRuntimeManagement(*entry.Runtime, false)) {
 			return nil, errors.New("invalid original installation intent")
 		}
+		if entry.Execution {
+			v := entry.Result.Execution
+			if v == nil || v.ID != id || v.BotID != botID || !identifier.MatchString(v.Generation) || v.Outcome != entry.Result.Outcome {
+				return nil, errors.New("invalid execution receipt")
+			}
+			if entry.Result.Outcome == "unknown" && entry.Result.Code == "pending" {
+				entry.Result.Code = "execution-outcome-unresolved"
+				copy := *v
+				copy.Code = entry.Result.Code
+				entry.Result.Execution = &copy
+			}
+		}
 		entry.Result = receiptOnly(entry.Result)
 		j.doc.Entries[id] = entry
 	}
@@ -60,6 +74,14 @@ func openJournal(path, botID string) (*journal, error) {
 }
 
 func (j *journal) reserve(id, digest string, runtime ...*productmanagement.RuntimeCommand) (Result, bool, error) {
+	var original *productmanagement.RuntimeCommand
+	if len(runtime) == 1 {
+		original = runtime[0]
+	}
+	return j.reserveCommand(id, digest, original, nil)
+}
+
+func (j *journal) reserveCommand(id, digest string, runtime *productmanagement.RuntimeCommand, execution *productmanagement.ExecutionCommand) (Result, bool, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if e, ok := j.doc.Entries[id]; ok {
@@ -76,10 +98,15 @@ func (j *journal) reserve(id, digest string, runtime ...*productmanagement.Runti
 	}
 	r := Result{ID: id, Outcome: "unknown", Code: "pending"}
 	entry := journalEntry{Digest: digest, Result: r}
-	if len(runtime) == 1 && runtime[0] != nil {
-		original := *runtime[0]
+	if runtime != nil {
+		original := *runtime
 		entry.Runtime = &original
 		r.RuntimeManagement = &productmanagement.RuntimeResult{Scope: original.Scope, ID: id, Outcome: "unknown", Code: "pending"}
+		entry.Result = r
+	}
+	if execution != nil {
+		entry.Execution = true
+		r.Execution = &productmanagement.ExecutionResult{Scope: execution.Scope, ID: id, Outcome: "unknown", Code: "pending"}
 		entry.Result = r
 	}
 	j.doc.Entries[id] = entry
@@ -100,6 +127,11 @@ func (j *journal) finish(id string, result Result) error {
 		return errors.New("product command was not reserved")
 	}
 	old := e
+	if e.Execution && result.Execution == nil {
+		v := *e.Result.Execution
+		v.Outcome, v.Code = result.Outcome, result.Code
+		result.Execution = &v
+	}
 	e.Result = receiptOnly(result)
 	j.doc.Entries[id] = e
 	if err := j.write(j.path, j.doc); err != nil {
@@ -188,4 +220,20 @@ func (j *journal) lookup(id string) (Result, bool) {
 	defer j.mu.Unlock()
 	e, ok := j.doc.Entries[id]
 	return e.Result, ok
+}
+
+// Called under the service mutation lock. Pending requests from this owner are
+// queued; reopened pending entries were converted to unresolved in openJournal.
+func (j *journal) executionUnresolved(except string) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.unavailable {
+		return true
+	}
+	for id, e := range j.doc.Entries {
+		if id != except && e.Execution && e.Result.Outcome == "unknown" && e.Result.Code != "pending" {
+			return true
+		}
+	}
+	return false
 }

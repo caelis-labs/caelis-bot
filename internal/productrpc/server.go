@@ -34,11 +34,14 @@ type Options struct {
 	// Management is constructed once from the inspected native service scope.
 	// It receives no wire-supplied directory, credential or connection options.
 	Management func(productmanagement.Scope) (productmanagement.Port, error)
+	// Execution observes an already composed provider; it cannot start a Runtime.
+	Execution func(productmanagement.Scope) (productmanagement.ExecutionPort, error)
 }
 
 type Server struct {
 	port       Port
 	management productmanagement.Port
+	execution  productmanagement.ExecutionPort
 	opts       Options
 	identity   Identity
 	projection projection
@@ -84,6 +87,14 @@ func NewServer(port Port, opts Options) (*Server, error) {
 			caps := s.management.Capabilities()
 			s.identity.Capabilities.RuntimeManagement = caps.Installation || caps.Configuration
 		}
+	}
+	s.identity.Capabilities.Execution = false
+	if opts.Execution != nil {
+		s.execution, err = opts.Execution(managementScope(s.identity.Scope))
+		if err != nil {
+			return nil, err
+		}
+		s.identity.Capabilities.Execution = s.execution != nil
 	}
 	return s, nil
 }
@@ -259,7 +270,7 @@ func validCommand(c Command) bool {
 		return false
 	}
 	n := 0
-	for _, set := range []bool{c.Submission != nil, c.Decision != nil, c.Introduction != nil, c.Draft != nil, c.Turn != "", c.RuntimeManagement != nil, c.Configuration != nil} {
+	for _, set := range []bool{c.Submission != nil, c.Decision != nil, c.Introduction != nil, c.Draft != nil, c.Turn != "", c.RuntimeManagement != nil, c.Configuration != nil, c.Execution != nil} {
 		if set {
 			n++
 		}
@@ -267,6 +278,8 @@ func validCommand(c Command) bool {
 	switch c.Kind {
 	case "manage-runtime":
 		return n == 1 && c.RuntimeManagement != nil && c.RuntimeManagement.ID == c.ID && c.RuntimeManagement.Scope == managementScope(c.Scope) && validRuntimeManagement(*c.RuntimeManagement, false)
+	case "configure-execution":
+		return n == 1 && c.Execution != nil && c.Execution.ID == c.ID && c.Execution.Scope == managementScope(c.Scope) && productmanagement.ValidExecutionCommand(*c.Execution)
 	case "configure-runtime":
 		return n == 1 && c.Configuration != nil && c.Configuration.ID == c.ID && c.Configuration.Scope == managementScope(c.Scope) && validConfiguration(c.Configuration.Change)
 	case "submit":
@@ -342,9 +355,14 @@ func (s *Server) command(w http.ResponseWriter, r *http.Request, command Command
 		v.Generation = ""
 		canonical.Configuration = &v
 	}
+	if canonical.Execution != nil {
+		v := *canonical.Execution
+		v.Generation = ""
+		canonical.Execution = &v
+	}
 	b, _ := json.Marshal(canonical)
 	digest := sha256.Sum256(b)
-	result, fresh, err := s.journal.reserve(command.ID, hex.EncodeToString(digest[:]), command.RuntimeManagement)
+	result, fresh, err := s.journal.reserveCommand(command.ID, hex.EncodeToString(digest[:]), command.RuntimeManagement, command.Execution)
 	if err != nil {
 		problem(w, 409, "command-conflict-or-journal-unavailable")
 		return
@@ -400,7 +418,12 @@ func (s *Server) execute(ctx context.Context, c Command) Result {
 	var err error
 	snapshot := s.port.Snapshot()
 	switch c.Kind {
+	case "configure-execution":
+		return s.executeExecution(ctx, c)
 	case "manage-runtime", "configure-runtime":
+		if c.Kind == "configure-runtime" && s.journal.executionUnresolved(c.ID) {
+			return Result{ID: c.ID, Outcome: "rejected", Code: "execution-outcome-unresolved"}
+		}
 		return s.executeManagement(ctx, c)
 	case "submit":
 		in := *c.Submission
