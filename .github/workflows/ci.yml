@@ -10,6 +10,24 @@ concurrency:
   group: product-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  linux-headless:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build headless Go commands
+        run: go build ./cmd/...
+      - name: Check Linux process ownership and private IPC
+        run: |
+          go test -race -count=1 -run '^(TestLinux|TestOwnedProcess|TestCompatibleProtocol|TestFailedProtocolHandshake|TestStalledHandshakeCancellation|TestPrivateEndpoint)' ./internal/backend/codex ./internal/localipc
   product:
     runs-on: macos-14
     timeout-minutes: 30
