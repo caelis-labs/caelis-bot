@@ -44,7 +44,9 @@
     "user_credentials_access": false,
     "security_changes": false,
     "persistent_install": false,
-    "new_core_changes": false
+    "new_core_changes": false,
+    "independent_descendant_birth_identity_census": false
   },
-  "bot_skill_update": "Not needed: test-only acceptance of existing native application/product/configuration paths; no Bot tools or workflows changed."
+  "bot_skill_update": "Not needed: test-only acceptance of existing native application/product/configuration paths; no Bot tools or workflows changed.",
+  "process_reap_evidence": "Exact directly owned Bot/Core/supervisor Popen poll/wait; does not claim an independent census of arbitrary descendants."
 }
