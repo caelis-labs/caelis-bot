@@ -249,7 +249,7 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 
 ## Optional remote APP
 
-`product-pairing.json` is an explicit client connection choice, loaded before
+`product-connection.json` is an explicit client connection choice, loaded before
 local Runtime, Memory, Notebook, resident Bot or task initialization. Missing
 pairing selects the existing in-process local path. Remote mode binds a pinned
 Bot/Node/backend/role and generation through standard SSH and the closed F2
