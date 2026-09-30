@@ -167,7 +167,8 @@ func (s *Server) executeManagement(ctx context.Context, c Command) Result {
 		r.Outcome, r.Code = "unknown", "invalid-management-receipt"
 		return r
 	}
-	// Core operation binding is retained by the native controller, never exported.
+	// Core operation IDs belong to the native boundary. Product receipts retain
+	// only the stable business ID/digest and outcome, without native IDs or messages.
 	v.Native.OperationID = ""
 	if len(v.Native.Message) > 4096 {
 		v.Native.Message = "Configuration operation outcome received"
