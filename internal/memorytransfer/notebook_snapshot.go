@@ -509,7 +509,10 @@ func ApplyNotebook(ctx context.Context, in NotebookApplyOptions) (out Result, er
 	if err != nil {
 		return out, err
 	}
-	view, readErr := store.ReadMemory(ctx, "Notebook")
+	// Empty evidence enumeration validates the fresh receipt index without
+	// spending the public recall query's one-second search budget during cold
+	// appliance initialization. Normal keyword recall is exercised separately.
+	view, readErr := store.ReadMemory(ctx, "")
 	err = errors.Join(readErr, store.Close())
 	if err != nil {
 		return out, err
