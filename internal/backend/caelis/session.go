@@ -66,6 +66,8 @@ type Session struct {
 	generation            uint64
 	wake                  chan struct{}
 	streams               map[string]bool
+	projectionSavedAt     time.Time
+	projectionPublishedAt time.Time
 }
 
 func New(opts Options) *Session {
