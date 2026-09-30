@@ -218,3 +218,36 @@ func TestSanitizedConfigAcceptedByActualOpenSSH(t *testing.T) {
 		t.Fatal("resolved target or strict trust changed")
 	}
 }
+
+type lostInstallationFixture struct{ installationFixture }
+
+func (i *lostInstallationFixture) Manage(ctx context.Context, r runtimemanagement.Request) (runtimemanagement.Status, error) {
+	status, err := i.installationFixture.Manage(ctx, r)
+	if r.Action == "install" {
+		status.Outcome = "unknown"
+		return status, errors.New("reply lost")
+	}
+	return status, err
+}
+func TestUnknownInstallationReconcilesOriginalAndClearsPending(t *testing.T) {
+	s := agentFixture(t)
+	installer := &lostInstallationFixture{}
+	s.installation = installer
+	r := request(t, s, "lost-installation")
+	first, err := s.Manage(t.Context(), r)
+	if err != nil || first.Outcome != api.NodeUnknown {
+		t.Fatalf("%+v %v", first, err)
+	}
+	catalog, err := s.Catalog(t.Context())
+	if err != nil || len(catalog.PendingOperations) != 1 || catalog.PendingOperations[0] != r.Ref {
+		t.Fatalf("original unknown not recoverable %+v %v", catalog, err)
+	}
+	resolved, err := s.Reconcile(t.Context(), r.Ref)
+	if err != nil || resolved.Outcome != api.NodeCommitted || installer.calls != 1 {
+		t.Fatalf("original receipt unresolved %+v %v calls=%d", resolved, err, installer.calls)
+	}
+	catalog, err = s.Catalog(t.Context())
+	if err != nil || len(catalog.PendingOperations) != 0 {
+		t.Fatal("confirmed original remained pending")
+	}
+}
