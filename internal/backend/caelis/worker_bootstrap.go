@@ -104,17 +104,10 @@ func workerBootstrap(ctx context.Context, req WorkerBootstrapRequest) (WorkerBoo
 		}
 		journalPath := filepath.Join(root, "runtime", "bot-worker-enrollments", digest([]byte(req.OperationID))+".json")
 		intent := credential{StoreID: out.StoreID, PrincipalID: out.PrincipalID, OperationID: req.OperationID, Token: req.AppCredential}
-		raw, readErr := privateRead(journalPath, 65536)
-		if errors.Is(readErr, os.ErrNotExist) {
-			if err = privateWrite(journalPath, intent); err != nil {
-				return out, err
-			}
-		} else {
-			var old credential
-			if readErr != nil || json.Unmarshal(raw, &old) != nil || old != intent {
-				return out, errors.New("enrollment intent conflict")
-			}
+		if err = persistEnrollmentIntent(journalPath, intent); err != nil {
+			return out, err
 		}
+
 		var life wire.ApplicationConnection
 		err = c.json(ctx, "POST", "/applications/register", wire.ApplicationRegistration{OperationId: req.OperationID, Name: "Caelis Bot Worker", Credential: req.AppCredential}, &life, req.OperationID, "")
 		if err != nil || life.PrincipalId != out.PrincipalID || life.ApplicationId == "" || life.ConnectionId == "" || life.Revoked {
@@ -220,4 +213,53 @@ func workerDefaultModel(ctx context.Context, c *client) (api.WorkExecutionSettin
 		return execution, true, auth
 	}
 	return api.WorkExecutionSettings{}, false, "unknown"
+}
+
+// Publish a complete synced immutable intent with an exclusive hard link. Two
+// helpers cannot replace each other's scope, and readers never see partial JSON.
+func persistEnrollmentIntent(path string, intent credential) error {
+	return publishEnrollmentIntent(path, intent, os.Link)
+}
+func publishEnrollmentIntent(path string, intent credential, link func(string, string) error) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	if err := privateDir(dir); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(dir, ".enrollment-intent-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temp.Name())
+	err = json.NewEncoder(temp).Encode(intent)
+	if err == nil {
+		err = temp.Sync()
+	}
+	closeErr := temp.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if err = link(temp.Name(), path); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return err
+		}
+		raw, readErr := privateRead(path, 65536)
+		var previous credential
+		if readErr != nil || json.Unmarshal(raw, &previous) != nil || previous != intent {
+			return errors.New("enrollment intent conflict")
+		}
+	}
+	// Also flush an already-published identical intent before a second helper can
+	// replay native registration; the winner may not yet have flushed the entry.
+	directory, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
