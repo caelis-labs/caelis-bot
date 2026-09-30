@@ -108,6 +108,53 @@ func TestWorkerNodesLoadAndSaveOfflineWithoutRemotePrerequisites(t *testing.T) {
 	}
 }
 
+func TestCodexWorkerConfigRequiresExplicitNativeScopeAndKeepsLegacyDefault(t *testing.T) {
+	legacy := nodeConfig()
+	if configuredWorkerTarget(legacy) != workerTarget(legacy.ID) {
+		t.Fatal("old Caelis configuration changed backend")
+	}
+	legacyController, _, _ := nodeFixture(t)
+	if _, err := legacyController.Save(legacy, legacyController.Snapshot().Revision); err != nil {
+		t.Fatal(err)
+	}
+	upgraded := legacy
+	upgraded.Backend = "caelis"
+	if _, err := legacyController.Save(upgraded, legacyController.Snapshot().Revision); err == nil {
+		t.Fatal("legacy shared credentials silently changed protocol")
+	}
+	c, registry, _ := nodeFixture(t)
+	config := legacy
+	config.Backend = "codex"
+	config.Socket = "/private/worker.sock"
+	if _, err := c.Save(config, c.Snapshot().Revision); err != nil {
+		t.Fatal(err)
+	}
+	target := configuredWorkerTarget(config)
+	if target.Backend != "codex" {
+		t.Fatal("Codex native route mislabeled")
+	}
+	if _, err := registry.WorkRuntimeFor(target); err == nil {
+		t.Fatal("saved candidate dispatched")
+	}
+	for _, change := range []func(*backend.WorkerNodeConfig){func(c *backend.WorkerNodeConfig) { c.Socket = "" }, func(c *backend.WorkerNodeConfig) { c.Backend = "unknown" }, func(c *backend.WorkerNodeConfig) { c.Store = "/unrelated/caelis" }, func(c *backend.WorkerNodeConfig) { c.Socket = "../worker.sock" }} {
+		bad := config
+		change(&bad)
+		if validateWorkerNode(bad) == nil {
+			t.Fatal("invalid native Codex configuration accepted", bad)
+		}
+	}
+	config.Backend = "caelis"
+	if validateWorkerNode(config) == nil {
+		t.Fatal("Caelis route adopted a Codex native socket")
+	}
+	changed := legacy
+	changed.Backend = "codex"
+	changed.Socket = "/different/socket"
+	if _, err := c.Save(changed, c.Snapshot().Revision); err == nil {
+		t.Fatal("configured target changed connection identity")
+	}
+}
+
 func TestWorkerNodeProbeConnectAndDetachHaveDifferentAuthority(t *testing.T) {
 	c, registry, adapter := nodeFixture(t)
 	saved, err := c.Save(nodeConfig(), c.Snapshot().Revision)
