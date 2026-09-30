@@ -7,15 +7,25 @@ os.umask(0o077)
 root=pathlib.Path(sys.argv[1])
 if not re.fullmatch(r'/tmp/caelis-worker-gate-[0-9a-f]{16}',str(root)) or root.is_symlink() or root.stat().st_mode&0o077:
     raise SystemExit('invalid isolated Worker gate root')
+mode=sys.argv[2] if len(sys.argv)>2 else 'dispatch'
+if mode not in ('dispatch','observe'):raise SystemExit('invalid gate mode')
 config=json.loads(sys.stdin.readline())
 if config.get('directory')!=str(root/'owner') or config.get('socket')!=str(root/'owner/worker.sock') or config.get('execution')!={'model':'gpt-6-luna','effort':'medium','serviceTier':''}:
     raise SystemExit('gate configuration changed')
-with (root/'worker-config.json').open('x') as f:json.dump(config,f)
+if mode=='dispatch':
+    with (root/'worker-config.json').open('x') as f:json.dump(config,f)
+else:
+    if json.loads((root/'worker-config.json').read_text())!=config:raise SystemExit('retained pairing changed')
 private=(root/'owner.private.log').open('wb')
 child=subprocess.Popen([str(root/'node'),'serve-worker','--config-file',str(root/'worker-config.json')],cwd=root,stdout=subprocess.PIPE,stderr=private)
 owned=[]
 def children(pid):
-    try: values=(pathlib.Path('/proc')/str(pid)/'task'/str(pid)/'children').read_text().split()
+    try:
+        tasks=(pathlib.Path('/proc')/str(pid)/'task').iterdir()
+        values=set()
+        for thread in tasks:
+            try:values.update((thread/'children').read_text().split())
+            except FileNotFoundError:pass
     except FileNotFoundError:return []
     result=[]
     for value in values:
