@@ -22,6 +22,9 @@ import (
 )
 
 func run(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) > 0 && (args[0] == "serve-worker" || args[0] == "proxy-worker") {
+		return runWorker(ctx, args, out)
+	}
 	if len(args) > 0 && args[0] == "proxy-product" {
 		f := flag.NewFlagSet("proxy-product", flag.ContinueOnError)
 		f.SetOutput(out)
