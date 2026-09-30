@@ -11,11 +11,10 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-// Keep the native capture's exact pixel dimensions: Cua's immutable capture
-// receipt and all model-selected coordinates refer to this image. Try lossless
-// PNG first, then the highest JPEG quality that fits the public content limit.
-// Failure aborts the helper so an image not delivered to the model can never
-// authorize later visual input.
+const MaxImageBytes = 256 << 10
+
+// Keep Desktop World's exact pixel dimensions and image-to-desktop transform.
+// Prefer lossless PNG, then the highest JPEG quality fitting the image budget.
 func boundImages(result *api.ToolResult) error {
 	count := 0
 	for _, block := range result.Content {
@@ -36,9 +35,6 @@ func boundImages(result *api.ToolResult) error {
 			return errors.New("invalid desktop image dimensions")
 		}
 		observation := result.StructuredContent
-		if nested, ok := observation["observation"].(map[string]any); ok {
-			observation = nested
-		}
 		if observation["imageWidth"] != float64(config.Width) || observation["imageHeight"] != float64(config.Height) {
 			return errors.New("desktop image geometry mismatch")
 		}

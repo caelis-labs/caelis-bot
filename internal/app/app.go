@@ -17,7 +17,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/care"
-	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -29,10 +28,9 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
-	DesktopControl     api.ApplicationTools    // optional private native desktop driver
-	DesktopObservation desktopcontrol.Observer // opt-in experiment, resident only
-	CareSample         func() care.Sample
-	CareSources        []care.Source
+	DesktopControl api.ApplicationTools // optional private native desktop driver
+	CareSample     func() care.Sample
+	CareSources    []care.Source
 	// Locale is read when presenting host-generated UI, never during model execution.
 	Locale       func() i18n.Locale
 	Diagnostics  *diagnosticlog.Logger
@@ -200,16 +198,8 @@ func (a *Application) preparePersonalLocked() error {
 	if err != nil {
 		return err
 	}
-	// Choose ownership from adapter capability tags, not provider names or
-	// current permission errors. Native discovery/approval remains untouched.
-	nativeDesktop := false
-	if p, ok := a.engine.(api.ApplicationCapabilityProvider); ok {
-		nativeDesktop = p.ApplicationCapabilities().HasNativeTool(api.NativeComputerUse)
-	}
-	if !nativeDesktop {
-		resident.ConfigureDesktop(a.host.DesktopObservation)
-		resident.ConfigureDesktopControl(a.host.DesktopControl)
-	}
+	// Desktop World is the single resident desktop backend for both adapters.
+	resident.ConfigureDesktopControl(a.host.DesktopControl)
 	if err = resident.ConfigureCare(a.host.CareSample, a.host.CareSources...); err != nil {
 		// Care has its own journal. Keep it unavailable, with its saved state
 		// untouched, without preventing chat, personal data or reminders from starting.

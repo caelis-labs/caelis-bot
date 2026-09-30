@@ -46,9 +46,6 @@ func TestDesktopImagesPreserveGeometryAndPreferLosslessCompression(t *testing.T)
 			t.Fatal("fixture must exceed the public image limit")
 		}
 		result := imageResult(data)
-		if noise {
-			result.StructuredContent = map[string]any{"observation": result.StructuredContent}
-		}
 		if err := boundImages(&result); err != nil {
 			t.Fatal(err)
 		}

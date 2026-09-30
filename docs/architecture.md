@@ -9,7 +9,7 @@ limits live in [development](development.md). Source contracts remain authoritat
 ```text
 macOS surfaces → internal/app → backend.Service → adapter → native Runtime
                         ├── bot / care / tasks / notebook / botmemory
-                        └── desktopcontrol → private Node/Cua helper
+                        └── desktopcontrol → private Desktop World Go helper
 renderer → typed product DTOs; no credentials, native IDs or local paths as authority
 ```
 
@@ -22,7 +22,7 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 | `internal/bot`, `care`, `tasks` | Persistent identity, introduction, scheduling, care budget, delegation ledger and reports |
 | `internal/notebook`, `botmemory`, `botskills` | Markdown, embedded Memory and packaged application-scoped English skills |
 | `internal/taskterminal` | Owned external terminal application instance and connection receipt lifecycle |
-| `internal/desktopcontrol` | Cua helper process, cancellation, private Turn updates and bounded content |
+| `internal/desktopcontrol` | Desktop World Go host, independent turn grants, original receipts and bounded content |
 | `frontend/src` | Presentation, transient interactions, character render resources; never execution authority |
 
 `app.Host` injects OS actions. Desktop does not import concrete adapters. Unknown providers fail explicitly.
@@ -186,30 +186,62 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 
 ## Desktop and presentation
 
-Runtimes with native Computer Use retain ownership; the Bot never installs a competing fallback.
-Other Runtimes use the private Cua helper through `bot_desktop_observe/authorize/perform`. App input
-grants remain App × task Turn. The adapter checks native PID/window identity, not AX title equality.
-Bounded AX walks expose paginated targets, query and an explicit larger walk; unseen/truncated nodes
-are not evidence of absence. Element pages share one snapshot and expire with it.
+Desktop World is the resident desktop backend for both Codex and Caelis. The pinned
+public Go module and independently signed helper are v0.1.0-alpha.1, revision
+`5a2ae97ddf65579d2d0051e82a33efd588f17942`. The old Cua/Node driver, native focus
+ports and optional whole-desktop experiment are retired. F1 screen input and
+passive character context remain separate. Codex resident configuration denies
+native Computer Use app access when Desktop World is bound; ordinary sessions
+and workers retain their own configuration.
 
-Element input, exact-window shortcuts and screenshot-based window input share the same authorization
-and cancellation path. Image points use the native capture dimensions; clicks consume Cua's immutable
-capture receipt. Scroll and drag use the same fresh snapshot and checked window geometry. Pixel focus
-and keyboard input are separate mutations with observation between them. No desktop-wide targeting
-or arbitrary native-tool passthrough is exposed. Each perform dispatches one mutation and observes
-again; unknown effects invalidate references and are never replayed.
+`desktopcontrol.Controller` lazily starts the bundled helper through the public
+`host` SDK. Data uses private stdio; independent FD 3/4 control pipes own
+BeginTurn/Grant/EndTurn. Neither model arguments nor the renderer can choose a
+helper, turn, process identity or startup grants. Only read/observe/sync/act/
+capture/get/cancel are exposed. `bot_desktop_authorize` is separately reviewed
+and checks the exact observed application Ref/name before Grant. App × Turn
+approval covers all windows of that live application instance. Finish, interrupt,
+shutdown and runtime replacement cancel the tool context and revoke even idle
+grants with a fresh short control deadline. No native work executes in Wails.
 
-Explicit `focus` is a separate authorized window mutation. The private helper validates the current
-observation and App × Turn grant before requesting the native shell's focus port. The shell verifies
-CGWindow ownership and exact AX window identity, raises it and confirms the foreground focused window.
-Only that private pipe carries native IDs; no arbitrary launch, script, global input or automatic retry
-is exposed. Cancellation closes this exchange before the helper can resume. This fills the gap where
-Cua's foreground delivery reports dispatch but the inactive app does not accept the event.
+Each tool requires a stable `requestId`; the managed helper derives epoch and plan
+identity from its trusted turn and stable SDK envelope ID. Duplicate IDs with
+identical arguments return the original response;
+conflicting arguments fail. `bot_desktop_reconcile` remains available after a
+turn ends, reads the original receipt and never sends input. Unknown/partial
+results preserve their receipts. There is no automatic helper restart, backend
+fallback or mutation replay. The SDK bounds retained requests/turns to 4096;
+process restart loses prior receipt history and is not proof of no effect.
 
-The private pipe permits bounded native PNGs; Go preserves dimensions and first tries lossless PNG
-optimization, then the highest tested JPEG quality under the 256 KiB public image budget. Compression
-does not change coordinates. Corrupt or mismatched images abort the helper instead of leaving usable
-references to unseen pixels. Images from post-action observations reach the same content envelope.
+Observations use scope/fields/budgets and native cursor sync (upserts/removals,
+coverage and reset_required). Reads default to 60 objects/8 KiB when no budget
+is supplied. Ordered act plans support up to 16 steps and local predicates;
+new dialogs require new observations before targeting their controls. Actions
+return receipts, not implicit full trees or screenshots. `host.Content` bounds
+text plus structured JSON to 32 KiB with a receipt-preserving overflow notice.
+Caelis content-v1 suppresses only identical JSON text duplication.
+
+Only explicit capture returns pixels, after checking model image support and
+application authorization. The helper writes to a private temporary asset root;
+Bot reads only that root, strips paths, validates tile dimensions, preserves the
+image transform and compresses one image to at most 256 KiB. Multi-tile or
+oversized captures require a narrower request. Reconciliation returns metadata,
+never captures again. Capture is visible-region evidence; window_content and
+unobscured background composition remain capability-dependent. Managed raw
+points are forbidden; use object Refs or bounded object anchors.
+
+Prefer semantic invoke/set_value operations when supported. The alpha shares
+system focus and pointer; it provides neither a virtual mouse nor a universal
+background delivery mode. Functionality takes priority over avoiding activation,
+without promising that focus stays unchanged. Delivery is distinct from verified
+postconditions. Desktop World frame/topology units are independent of the pet's
+native placement coordinates below.
+
+The managed JavaScript bridge is not part of this first Go host integration. The
+upstream Node CLI uses a different startup authorization route and must not be
+launched as an alternative writer. Distribution is currently macOS arm64 / 14+;
+Bot re-signs its nested helper. Public preview availability grants no open-source
+license; preserve the upstream NOTICE and separate Bot licensing.
 
 Native logical coordinates use primary-display bottom-left origin, Y up, including negative coordinates.
 Device pixels/DPI do not belong in saved character scale. AppKit owns nonactivating panels, hit masks, drag,

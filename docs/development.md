@@ -16,7 +16,7 @@ make build
 lifecycle fixtures, Go vet/tests and shared-core portability. `make smoke` only handshakes the installed Codex
 and checks assets; it does not create a conversation or call a model. `make build` creates an ad-hoc Dev app.
 `make package` adds a verified read-only DMG/checksum, using pinned Python dmgbuild in `.cache/dmg-tools`.
-First builds fetch pinned Sparkle and Computer Use artifacts; versions/hashes remain source-controlled.
+First builds fetch pinned Sparkle and Desktop World artifacts; versions/hashes remain source-controlled.
 
 ## Native development
 
@@ -35,7 +35,7 @@ First builds fetch pinned Sparkle and Computer Use artifacts; versions/hashes re
    将其 40 位证书指纹保存到 `.development-signing-identity`（一行，无引号）。
    该文件已被 Git 忽略，只保存公开指纹，不保存凭据。
 3. 用 `bash script/build_and_run.sh --verify` 构建并启动。构建会验证该身份类型、
-   签署内部 Sparkle、Computer Use 原生组件及应用、核验 Apple 签名链和应用标识。
+   签署内部 Sparkle、Desktop World helper及应用、核验 Apple 签名链和应用标识。
    身份失效/缺少私钥时停止，不静默退回 ad-hoc 或发行证书。
 
 单次覆盖用 `BOT_DEVELOPMENT_IDENTITY=<指纹>`；显式 `-` 表示 ad-hoc。
@@ -114,31 +114,133 @@ The 2026-09-29 candidate passed check/smoke/build and affected race suites. Down
 Core v0.65.0 darwin-arm64 passed NativeHost and GuardianHost integration, including real 90-second timeout,
 upgrade renewal and replay identity. Streaming grapheme append, exact review accounting and preservation of
 failed Guardian notices through quiet care/Dream projection have focused regressions.
-Cua App × Turn coverage substitutes only the underlying SDK UI fixture; it is not real WPS acceptance.
-The same-day Computer Use repair additionally exercised the production Go driver/private Cua 0.30.2
-helper on this Mac: Chrome local-page element typing, window typing/shortcuts, pixel click/double-click,
-scroll and drag; Safari pixel typing, semantic checkbox toggling and right-click; Telegram visual search
-typing/clearing; and Obsidian quick-switcher search/dismissal, including a field beyond the first element
-page. Native exact-window focus was verified on Chrome, Telegram, Obsidian and WeChat. Browser fixtures
-were disposable local pages; no messages were sent or notes edited. WeChat search focus worked, but
-after test input its window changed to a sign-in/security notice. The input result and cause of that
-state change are unconfirmed; testing stopped there. Do not advertise complete WeChat automation.
+Desktop World migration (2026-09-30): the Go module and downloaded darwin-arm64
+helper are pinned to v0.1.0-alpha.1 / `5a2ae97ddf65579d2d0051e82a33efd588f17942`.
+`resources/desktop-world/release.json` owns the archive checksum/revision;
+`desktop-world-runtime.sh` verifies these before staging. The bundle contains the
+independent helper and upstream NOTICE, with no Cua/Node runtime. This preview
+has no open-source license grant and its upstream artifact is not notarized.
+Bot development signing does not establish public release acceptance.
+Product CI and release packaging now require the Desktop World payload, verify
+its revision/protocol/NOTICE and nested signature, and reject missing payloads.
+Product CI runs authority/receipt/projection race coverage and an opt-in test of
+the actual packaged Go host/helper without grants or UI input. Legacy runtime,
+focus adapters, AXorcist experiment and capability-based fallback are removed;
+public-tree checks prevent their payloads returning. Build resources are freshly
+staged so incremental builds cannot retain old runtimes. Historical app payloads
+require their matching historical release tooling.
 
-This live evidence used the product adapter and native focus port in a local acceptance owner, not an
-LLM-driven session or the signed installed Bot's TCC identity. Host/Guardian/skill fixtures independently
-cover Runtime delivery and authorization. `experiments/desktop-control/browser.html` provides the
-reusable no-network browser fixture; its README describes the manual acceptance sequence. Screen
-captures and private App content stay in ignored local artifacts. Native Cua `foreground` dispatch
-alone did not reliably activate inactive apps: use the explicit authorized `focus` step and fresh feedback.
-Images over the public limit are losslessly optimized first, then encoded at the highest fitting JPEG
-quality without changing Cua's returned pixel dimensions. Compression and malformed-image rejection
-have deterministic Go coverage; readable PNG/JPEG output was inspected during the live browser runs.
+Current migration evidence: `make smoke`, `make build`, all Go tests/vet and the
+shared-core portability gate passed. The nested helper passed version/revision,
+architecture, Apple Development identity and hardened-runtime checks. Race tests
+cover exact observed app grants, revocation while data blocks, stable-ID
+conflicts/deduplication, original receipt recovery and the 32 KiB output budget.
+The real pinned Go host also ran through separate OS data/control pipes. The
+actual packaged helper passed handshake, bounded read, invalid-input refusal and
+receipt recovery without granting any application or sending UI input. Codex's
+installed App Server passed progressive loading of the new guide. Caelis v0.65.0
+NativeHost/GuardianHost acceptance passed, including progressive guide loading,
+provider image transport, per-turn review/revocation, worker isolation and the
+real 90-second reviewer timeout; native input in that fixture is synthetic.
+
+After unlocking the Mac, the full `make check`, `make smoke` and signed
+`make build` passed; this includes the native window hide/show check that had
+timed out while locked. The development app was restarted through
+`build_and_run.sh --restart` and its actual conversation surface inspected.
+The installed Caelis v0.65.0 runtime (live turns used `deepseek-flash`) discovered
+and executed the new tools through the real Bot/Wails application.
+
+Live evidence is under `.cache/desktop-world-live-20260930/`. In the native
+AppKit fixture, Bot used one two-step `set_value` + `invoke` plan to enter
+`Desktop World 联调成功 🌍 2026-09-30` and submit once. Independent fixture JSON
+confirmed the complete Unicode string and `submissions:1`; cursor sync returned
+only the two changed objects. Chrome also completed a new-tab navigation to
+`https://example.com`, preserving previous tabs and checking title, address and
+page text. Neither task requested a screenshot. These are live input results;
+the separate Guardian fixture still proves policy behavior with synthetic input.
+Obsidian created the requested note in the existing vault: independent file
+inspection confirmed the exact three lines and intact URL. The first title
+write changed only the editable control; Bot detected the unchanged filename
+and committed it with foreground Enter before reporting completion.
+
+WPS exposed the New popover as 13 semantic buttons and reached the native save
+dialog. Two overly broad dialog reads timed out; a narrower read recovered
+without restarting the helper. The first saved document failed independent
+OOXML inspection: WPS recovery content remained and both paragraphs were bold.
+An unlabeled button had not established a blank-document action, and Home/End
+selection assumptions were invalid. Bot corrected only the new acceptance file
+through UI, using explicit captures where WPS AX exposed neither body text nor
+formatting. Final OOXML inspection confirmed exactly the two requested paragraphs,
+first bold and second explicitly nonbold. The failed first artifact is retained
+separately. This is an assisted successful workflow, not a first-attempt autonomy
+or usability pass. The guide now forbids guessing unnamed controls and requires
+checking document identity, initial content and application-level commit state.
+
+The retired Cua audit explains the migration: the WPS turn used 33 calls in
+790 seconds, 79 seconds inside tool intervals, 26 images, four identical images
+and nine repeated AX states. Result text alone estimated 54,110 tokens. Most
+elapsed time was outside the tools, so removing repeated payloads and model
+round trips matters alongside native speed. Desktop World now exposes bounded
+observations, native cursor deltas and 16-step local plans, with explicit capture
+only. The first live fixture task took about 111 seconds with six desktop calls;
+their combined intervals were 22.8 seconds, including 15.3 seconds for review,
+while native execution of both input steps took 151 ms. This is not yet a fast
+end-to-end experience: the resident turn carried roughly 230k tokens of prior
+context. The Chrome task also exposed excessive outline pagination, a changed
+continuation query, an expanded application name rejected by exact-name grants,
+and a web AX tree with single-character text nodes. The guide now starts with
+fewer fields, inspects only candidate capabilities, preserves continuation query
+parameters, copies exact names and batches fragmented text instead of reading
+one character per model call. Tool metrics record result bytes, approximate
+UTF-8-bytes/4 token counts, call intervals and native sample/step timing; those
+estimates are not the provider's exact tokenization. Reused pagination samples
+must not be counted as new native scan time.
+
+That run also reproduced a Bot presentation bottleneck: while the native turn
+had completed, its UI still showed working. The Caelis feed handler rewrote the
+entire connection record for every transient prose fragment; the live record
+was 16.5 MB, of which 16.2 MB was retained callback receipts. A bounded spool
+sample contained 3,827 transient events versus 22 canonical ones. Transient,
+non-final message/thought chunks now checkpoint at most once per second and
+publish at most every 50 ms; canonical/final events, approvals, callbacks and
+stream boundaries still persist immediately. Cursor and projection are saved
+atomically. Regression coverage simulates a crash between checkpoints and exact
+replay without missing or duplicated text, plus immediate terminal persistence.
+The rebuilt app recovered the completed WPS reply and subsequently presented a
+new fixture task and a receipt-only turn as completed. Full checks, race tests,
+signed build and installed Caelis NativeHost integration passed after this fix.
+
+The last live fixture task also identified an upstream alpha inconsistency:
+Darwin `node()` stringifies numeric AX values for `value_preview`, but its `text`
+operation falls back to the label for non-string AX values. The engine's `value`
+predicate uses that text operation. Consequently, a checkbox click succeeded
+while `value == "1"` timed out. Bot reconciled the same request without clicking
+again and independently observed checked=1 / Visible tasks=2; Submitted remained
+1. A later Bot turn recovered the same receipt without authorization, observation
+or input. The current guide avoids numeric `value` predicates and verifies these
+controls by fresh observation. The pinned upstream implementation still needs a
+consistent numeric-value/text contract; this has not been silently patched or
+reported as a successful inline predicate check. See upstream
+[Desktop World #1](https://github.com/caelis-labs/desktop-world/issues/1).
+The other live findings are tracked as bounded-read improvements in
+[#2](https://github.com/caelis-labs/desktop-world/issues/2) and fragmented browser
+text usability in [#3](https://github.com/caelis-labs/desktop-world/issues/3).
+Those two are improvement requests, not claims of a helper crash. WPS missing AX
+body/formatting, shared input focus and the unimplemented managed JS bridge remain
+explicit capability limits. Bot feed persistence was a downstream defect fixed here.
+
+First integration intentionally uses the Go host contract. The upstream managed
+JS bridge remains unimplemented; do not launch its separately authorized CLI
+from the Bot. Alpha input still shares system focus and pointer. Unknown input
+is reconciled using the original requestId; no restart or alternate backend
+replays it. Helper history is process-local and capped at 4096 records.
+
 Earlier v0.61.0 MiMo/Luna live results cover that historical baseline only. Subsequent changes require their
 own regression evidence, and subsequent Core releases need the same external acceptance suite.
 
 Native bubble/Glass/F1 theme and setup preview were inspected on a single Retina Apple Silicon Mac.
 Minimum macOS 12 deployment target and Intel/mixed-DPI/multi-display behavior are not qualified by compilation.
-Cua/packaged Node requires macOS 13.5+; ScreenCaptureKit selection requires 14+. Older systems return unsupported
+Desktop World alpha requires macOS 14+ and arm64; ScreenCaptureKit selection requires 14+. Older systems return unsupported
 for those capabilities. Windows shared-core cross-compilation is checked; native GUI/IPC/distribution is absent.
 Linux is outside scope. Sparkle fixture tests do not prove two-version public install/relaunch with active work.
 

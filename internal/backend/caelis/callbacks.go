@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -94,7 +95,11 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationB
 				if host != nil {
 					result = host.CallTool(context.WithValue(ctx, invocationKey{}, call), call.Name, args)
 				}
-				content, _ := json.Marshal(result.Content)
+				blocks := result.Content
+				if contentV1 {
+					blocks = contentV1Blocks(result)
+				}
+				content, _ := json.Marshal(blocks)
 				outcome := "succeeded"
 				if result.IsError {
 					outcome = "failed"
@@ -129,6 +134,39 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationB
 	}
 	record.Phase = "completed"
 	return s.saveCall(call.Id, record)
+}
+
+// Caelis content-v1 projects structuredContent as a provider JSON part. MCP's
+// identical text fallback must not become a second copy of the same desktop
+// state in every model request. Keep prose, media and nonidentical JSON intact.
+func contentV1Blocks(result api.ToolResult) []map[string]string {
+	if len(result.StructuredContent) == 0 {
+		return result.Content
+	}
+	structured, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		return result.Content
+	}
+	blocks := make([]map[string]string, 0, len(result.Content))
+	for _, block := range result.Content {
+		duplicate := false
+		if block["type"] == "text" && json.Valid([]byte(block["text"])) {
+			var value any
+			decoder := json.NewDecoder(bytes.NewBufferString(block["text"]))
+			decoder.UseNumber()
+			if decoder.Decode(&value) == nil {
+				canonical, err := json.Marshal(value)
+				duplicate = err == nil && bytes.Equal(canonical, structured)
+			}
+		}
+		if !duplicate {
+			blocks = append(blocks, block)
+		}
+	}
+	if len(blocks) == 0 {
+		return []map[string]string{{"type": "text", "text": "See the structured tool result."}}
+	}
+	return blocks
 }
 func sameInvocation(a, b wire.ApplicationCall) bool {
 	a.State = ""

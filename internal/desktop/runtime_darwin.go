@@ -67,26 +67,17 @@ func Run(assets fs.FS) error {
 	}
 
 	var controlDriver api.ApplicationTools
-	if computerUseSupported() {
-		if bundled := desktopcontrol.Bundled(FocusComputerUseWindow); bundled != nil {
+	if desktopWorldSupported() {
+		if bundled := desktopcontrol.Bundled(); bundled != nil {
 			controlDriver = bundled
 			defer bundled.Close()
 		}
 	}
-	if os.Getenv("CAELIS_BOT_CUA_POC") == "1" {
-		driver, e := desktopcontrol.StartDriver(os.Getenv("CAELIS_BOT_CUA_NODE"), os.Getenv("CAELIS_BOT_CUA_HOST"), FocusComputerUseWindow)
-		if e != nil {
-			return e
-		}
-		defer driver.Close()
-		controlDriver = driver
-	}
 	core, err := app.New(root, app.Host{Locale: func() i18n.Locale { return s.LanguagePreferences().Locale }, Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
-		DesktopControl:     controlDriver,
-		DesktopObservation: s.desktopExperiment(),
-		OpenURL:            func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
-		RevealFile:         func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
-		TrashFile:          trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError, CareSample: macCareSample})
+		DesktopControl: controlDriver,
+		OpenURL:        func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
+		RevealFile:     func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
+		TrashFile:      trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError, CareSample: macCareSample})
 	if err != nil {
 		return err
 	}
@@ -446,10 +437,6 @@ func Run(assets fs.FS) error {
 			log.Print("Desktop application icon could not be decoded")
 		}
 		s.start(newMacDriver(pet, panel, bubble, history, prop, s, quit))
-		if len(os.Args) > 1 && os.Args[1] == "--desktop-observe-smoke" {
-			go s.runObservationProbe(root)
-			return
-		}
 		styleMacSettings(settings)
 		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() {
 			quitting.Store(true)

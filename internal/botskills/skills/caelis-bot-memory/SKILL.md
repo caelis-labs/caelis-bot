@@ -61,8 +61,8 @@ they are relevant to the work:
   knowledge, correcting preferences, or preparing to resume substantial work.
 - [Screen input](references/screen-input.md): when the user points at screen
   content, sends a screenshot snapshot, or corrects your interpretation of it.
-- [Desktop observation](references/desktop-observation.md): when you need to observe or operate
-  an application, using your Runtime’s native Computer Use or the available Bot tools.
+- [Desktop World](references/desktop-observation.md): when you need to observe or operate
+  an application through the resident Desktop World tools, including authorization and receipt recovery.
 - [Tasks](references/tasks.md): before creating, continuing, stopping, or reviewing
   independent work, selecting its workspace, managing desktop pins, or handling a
   task or delayed command completion notice.

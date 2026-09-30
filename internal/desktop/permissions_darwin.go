@@ -23,7 +23,7 @@ static int permission_development(void) {
  if(info)CFRelease(info);if(code)CFRelease(code);return result;
 }
 static int permission_accessibility(void) { return AXIsProcessTrusted(); }
-static int computer_use_supported(void) { if (@available(macOS 13.5, *)) return 1; return 0; }
+static int desktop_world_supported(void) { if (@available(macOS 14.0, *)) return 1; return 0; }
 static int permission_settings(const char *category) {
  NSString *url=[@"x-apple.systempreferences:com.apple.preference.security?Privacy_" stringByAppendingString:[NSString stringWithUTF8String:category]];
  return [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:url]];
@@ -84,7 +84,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-func computerUseSupported() bool { return C.computer_use_supported() != 0 }
+func desktopWorldSupported() bool { return C.desktop_world_supported() != 0 }
 
 func permissionTerminalBundle(preference string) string {
 	if preference == "system" {
