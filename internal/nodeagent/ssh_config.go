@@ -25,9 +25,10 @@ func SanitizedSSHConfiguration(effective []byte) ([]byte, error) {
 	}
 	var out strings.Builder
 	found := map[string]bool{}
-	drop := map[string]bool{"localforward": true, "remoteforward": true, "dynamicforward": true, "controlmaster": true, "controlpath": true, "controlpersist": true, "clearallforwardings": true, "forwardagent": true, "forwardx11": true, "forwardx11trusted": true, "gatewayports": true, "streamlocalbindmask": true, "streamlocalbindunlink": true, "exitonforwardfailure": true, "permitlocalcommand": true, "localcommand": true, "remotecommand": true, "requesttty": true, "forkafterauthentication": true, "sessiontype": true, "stdinnull": true, "sendenv": true, "loglevel": true, "escapechar": true}
+	drop := map[string]bool{"stricthostkeychecking": true, "updatehostkeys": true, "localforward": true, "remoteforward": true, "dynamicforward": true, "controlmaster": true, "controlpath": true, "controlpersist": true, "clearallforwardings": true, "forwardagent": true, "forwardx11": true, "forwardx11trusted": true, "gatewayports": true, "streamlocalbindmask": true, "streamlocalbindunlink": true, "exitonforwardfailure": true, "permitlocalcommand": true, "localcommand": true, "remotecommand": true, "requesttty": true, "forkafterauthentication": true, "sessiontype": true, "stdinnull": true, "sendenv": true, "loglevel": true, "escapechar": true}
 	for _, line := range strings.Split(string(effective), "\n") {
 		key, value, ok := strings.Cut(line, " ")
+		key = strings.ToLower(key)
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -40,7 +41,12 @@ func SanitizedSSHConfiguration(effective []byte) ([]byte, error) {
 				return nil, errors.New("SSH join requires a connection without executable proxy or secret environment hooks")
 			}
 			continue
-		case "host", "match", "include":
+		case "host":
+			if !sshTarget.MatchString(value) {
+				return nil, errors.New("effective SSH target incompatible")
+			}
+			continue
+		case "match", "include":
 			return nil, errors.New("unresolved SSH configuration")
 		}
 		if drop[key] {

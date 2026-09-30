@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	if err := nodeagent.Run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
