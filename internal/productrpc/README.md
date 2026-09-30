@@ -73,6 +73,54 @@ Bot capabilities and native authority; it adds no model-facing tools/workflow.
 assembles the existing `app.New`, `PreparePersonal`, `Start` and `Close` services.
 The explicit private profile owns `runtime.json`, execution settings, identity,
 Notebook, schedules and receipts. A profile lock prevents two native owners.
+
+To activate configured foreign Workers before accepting product requests, repeat
+`--connect-worker NODE/BACKEND`, for example
+`--connect-worker build-node/caelis --connect-worker build-node/codex`.
+Selection is exact: each backend is independent even on the same node. Without
+these flags, startup does not connect configured Workers or require SSH.
+All selections are validated before profile writes or any Worker connection;
+every selected capability must then return connected and ready before resident
+startup and listener/readiness publication. Missing authentication/model setup,
+connection errors and cancellation fail startup, retaining cleanup errors.
+
+The existing native profile file `worker-nodes.json` supplies the configuration.
+It must be a private regular file (0600), at most 128 KiB, with version 1, at most
+16 nodes, no extra JSON fields or trailing values. A minimal explicit Caelis
+entry is:
+
+```json
+{
+  "version": 1,
+  "nodes": [{
+    "id": "build-node",
+    "label": "Build machine",
+    "ssh": "existing-trusted-alias",
+    "helper": "/opt/caelis/bin/caelis-worker-bootstrap",
+    "backend": "caelis",
+    "store": "/home/worker/caelis-store",
+    "workspaceRoot": "/home/worker/work"
+  }]
+}
+```
+
+For Codex, use `backend: "codex"`, an explicit private target-local `socket`,
+an empty `store`, and the `caelis-node` helper supporting `proxy-worker`.
+Paths are clean absolute target paths; `workspaceRoot` is required. Node IDs
+start with a lowercase letter and contain up to 64 lowercase letters, digits or
+hyphens; `local` cannot select a foreign Worker. Duplicate node/backend entries
+are rejected. Entries sharing a node ID must have the same SSH destination and
+label. An omitted backend remains the existing legacy Caelis shared protocol;
+explicit `caelis` uses the bounded application Worker protocol. This flag uses
+existing trusted SSH configuration; it creates no keys, trust entries or service
+installation and does not discover, copy or transfer Runtime credentials. Native
+Runtimes continue to use their existing target-local authentication.
+
+Failure cleanup detaches newly connected adapters and closes this Application;
+it does not undo prior task authorization or stop a shared target Host. Reconnect
+may continue already admitted native workflow steps. Unknown original operations
+remain receipt lookup only and are never replayed under new IDs. This startup
+selection adds no Bot tools or model workflow, so Bot skill guidance is unchanged.
 This executable supports the private `--bot-tools` bridge used by both adapters;
 it imports no Wails, renderer assets or desktop application assembly.
 
