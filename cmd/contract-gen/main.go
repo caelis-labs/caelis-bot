@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
@@ -29,7 +30,7 @@ func main() {
 }
 
 func productRoots() []any {
-	return []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.RuntimeStatus{}, api.ExecutionSettings{}, api.WorkExecutionSettings{}, api.ModelOption{}, api.ProviderInfo{}, api.ExecutionOptions{}, api.SetupRequest{}, api.SetupState{}, api.SetupChoice{}, api.SetupOverview{}, api.BotInitialization{}, api.BotIntroduction{}, api.RuntimeConfiguration{}, api.RuntimeConfigurationChange{}, api.RuntimeMutationResult{}, api.RuntimeConnectionCatalog{}, api.RuntimeConnectionInput{}, api.RuntimeFlow{}, api.RuntimeFlowAction{}, api.Task{}, api.TaskStart{}, api.TaskMessage{}, api.TaskPreview{}, api.WorkTargetInfo{}}
+	return []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.RuntimeStatus{}, api.ExecutionSettings{}, api.WorkExecutionSettings{}, api.ModelOption{}, api.ProviderInfo{}, api.ExecutionOptions{}, api.SetupRequest{}, api.SetupState{}, api.SetupChoice{}, api.SetupOverview{}, api.BotInitialization{}, api.BotIntroduction{}, api.RuntimeConfiguration{}, api.RuntimeConfigurationChange{}, api.RuntimeMutationResult{}, api.RuntimeConnectionCatalog{}, api.RuntimeConnectionInput{}, api.RuntimeFlow{}, api.RuntimeFlowAction{}, api.Task{}, api.TaskStart{}, api.TaskMessage{}, api.TaskPreview{}, api.WorkTargetInfo{}, backend.WorkerNodeSetup{}}
 }
 
 func generateProjection(roots ...any) string {
