@@ -64,3 +64,20 @@ func (r *PeerRegistry) VerifyRenew(ctx context.Context, l nodeplane.Lease, claim
 	}
 	return nil
 }
+
+// VerifyBootstrap requires an explicitly selected, paired native source to
+// attest the exact exported complete snapshot while admission and all writers
+// are quiesced. A private payload file alone is not evidence of quiescence.
+func (r *PeerRegistry) VerifyBootstrap(ctx context.Context, target api.WorkTarget, ref nodeplane.SnapshotRef) error {
+	if ref.Epoch != "0" {
+		return ErrSnapshot
+	}
+	p, err := r.read(ctx, target)
+	if err != nil {
+		return err
+	}
+	if p.Snapshot != ref || !p.SafeIdle || p.Pending || p.Unknown || p.LeaseEpoch != "" {
+		return ErrIneligible
+	}
+	return nil
+}

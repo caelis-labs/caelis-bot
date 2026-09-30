@@ -270,3 +270,35 @@ func (c *Client) SnapshotState(ctx context.Context) (nodeplane.Lease, nodeplane.
 	out, err := c.call(ctx, "/state", envelope{})
 	return out.Lease, out.Snapshot, err
 }
+
+// CommitInstall installs only an offline absent generation. Reads before and
+// after the local atomic rename reject publication races. A successful return
+// is still not execution authority: the native owner must attest this exact
+// installed reference and perform Claim's final latest/epoch CAS before adopt
+// or start. An error may leave an unused cold generation; never adopt it.
+func (c *Client) CommitInstall(ctx context.Context, ref nodeplane.SnapshotRef, install func() error) error {
+	if install == nil {
+		return nodecoord.ErrSnapshot
+	}
+	current, err := c.LatestSnapshot(ctx, ref.BotID)
+	if err != nil {
+		return err
+	}
+	if current != ref {
+		return nodecoord.ErrSnapshot
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if err = install(); err != nil {
+		return err
+	}
+	current, err = c.LatestSnapshot(ctx, ref.BotID)
+	if err != nil {
+		return err
+	}
+	if current != ref {
+		return nodecoord.ErrSnapshot
+	}
+	return ctx.Err()
+}
