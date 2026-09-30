@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -326,3 +327,10 @@ func (m *nodeManagement) SetNodeCoordinator(ctx context.Context, r api.NodeCoord
 }
 
 var _ api.NodeManagementController = (*nodeManagement)(nil)
+
+func (m *nodeManagement) Close() error {
+	if closer, ok := m.agent.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
+}
