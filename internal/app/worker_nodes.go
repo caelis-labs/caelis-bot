@@ -99,8 +99,8 @@ var workerNodeID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 var workerSSH = regexp.MustCompile(`^[A-Za-z0-9_.@:\[\]-]+$`)
 
 func validateWorkerNode(config backend.WorkerNodeConfig) error {
-	if config.Backend != "" && config.Backend != "caelis" {
-		return errors.New("worker backend is unavailable")
+	if config.Backend != "" && config.Backend != "caelis" && config.Backend != "codex" {
+		return errors.New("worker backend is invalid")
 	}
 	if !workerNodeID.MatchString(config.ID) || config.ID == api.LocalNodeID || strings.TrimSpace(config.Label) == "" || len(config.Label) > 128 || strings.ContainsAny(config.Label, "\x00\r\n") {
 		return errors.New("worker node identity is invalid")
@@ -108,13 +108,19 @@ func validateWorkerNode(config backend.WorkerNodeConfig) error {
 	if !workerSSH.MatchString(config.SSH) || strings.HasPrefix(config.SSH, "-") || len(config.SSH) > 256 {
 		return errors.New("worker SSH destination is invalid")
 	}
-	for _, value := range []string{config.Store, config.WorkspaceRoot} {
+	for _, value := range []string{config.Store, config.WorkspaceRoot, config.Socket} {
 		if value != "" && (!path.IsAbs(value) || path.Clean(value) != value || strings.ContainsAny(value, "\x00\r\n") || len(value) > 4096) {
 			return errors.New("worker paths must be clean absolute target paths")
 		}
 	}
 	if config.WorkspaceRoot == "" {
 		return errors.New("worker workspace root is required")
+	}
+	if config.Backend == "codex" && (config.Socket == "" || config.Store != "") {
+		return errors.New("Codex Worker requires an explicit private native socket")
+	}
+	if config.Backend != "codex" && config.Socket != "" {
+		return errors.New("Caelis Worker does not accept a Codex native socket")
 	}
 	if config.Helper != "" && (len(config.Helper) > 4096 || strings.ContainsAny(config.Helper, " \t\r\n\x00") || strings.HasPrefix(config.Helper, "-") || strings.Contains(config.Helper, "..")) {
 		return errors.New("worker helper executable is invalid")
@@ -126,8 +132,16 @@ func workerTarget(id string) api.WorkTarget {
 	return api.WorkTarget{NodeID: id, Backend: "caelis", Role: api.RoleWorker}
 }
 
+func configuredWorkerTarget(config backend.WorkerNodeConfig) api.WorkTarget {
+	target := workerTarget(config.ID)
+	if config.Backend != "" {
+		target.Backend = config.Backend
+	}
+	return target
+}
+
 func (c *workerNodeController) register(config backend.WorkerNodeConfig, state nodes.Availability, runtime api.WorkRuntime) error {
-	return c.registry.Set(nodes.Node{ID: config.ID, Label: config.Label}, nodes.Capability{Target: workerTarget(config.ID), State: state}, runtime)
+	return c.registry.Set(nodes.Node{ID: config.ID, Label: config.Label}, nodes.Capability{Target: configuredWorkerTarget(config), State: state}, runtime)
 }
 
 func (c *workerNodeController) Snapshot() backend.WorkerNodeSetup {
@@ -238,12 +252,27 @@ func (c *workerNodeController) connect(parent context.Context, id string, revisi
 		c.mu.Unlock()
 		return c.Snapshot(), errors.New("worker node is not configured")
 	}
+	var stale workerNodeAdapter
 	if c.active[id] != nil {
-		snapshot := c.snapshotLocked()
-		c.mu.Unlock()
-		return snapshot, nil
+		readiness, known := c.runtimes[id].(interface{ Ready() bool })
+		if !known || readiness.Ready() {
+			snapshot := c.snapshotLocked()
+			c.mu.Unlock()
+			return snapshot, nil
+		}
+		stale = c.active[id]
+		delete(c.active, id)
+		delete(c.runtimes, id)
+		view.State, view.Issue, view.Connected = string(nodes.Unavailable), "connection_unavailable", false
+		c.views[id] = view
+		_ = c.register(view.Config, nodes.Unavailable, nil)
 	}
 	c.mu.Unlock()
+	if stale != nil {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = stale.Close(closeCtx)
+		closeCancel()
+	}
 	ctx, cancel := c.operationContext(parent)
 	defer cancel()
 	var adapter workerNodeAdapter
@@ -316,7 +345,7 @@ func (c *workerNodeController) connect(parent context.Context, id string, revisi
 	c.views[id] = view
 	c.revision++
 	if err != nil {
-		return c.snapshotLocked(), errors.New("worker connection unavailable; check the existing SSH access and prepared Caelis Host")
+		return c.snapshotLocked(), errors.New("worker connection unavailable; check existing SSH access and the prepared native Worker")
 	}
 	return c.snapshotLocked(), nil
 }
