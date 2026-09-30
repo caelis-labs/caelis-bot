@@ -271,3 +271,5 @@ func (g *Guard) live(now time.Time) bool {
 	}
 	return now.Before(g.deadline) && now.Round(0).Before(g.deadline.Round(0))
 }
+
+func (g *Guard) IsStopped() bool { g.mu.Lock(); defer g.mu.Unlock(); return g.stopped }

@@ -15,6 +15,8 @@ import (
 
 // Broker is the authenticated single-user authority. CommitInstall must hold
 // latest CAS through the offline generation's final install; it is not UI state.
+var ErrSnapshotChanged = errors.New("latest Notebook changed; prepare a fresh generation")
+
 type Broker interface {
 	nodeplane.Coordinator
 	nodeplane.SnapshotReader
@@ -122,7 +124,7 @@ func (r *Runner) TryClaim(ctx context.Context) error {
 		r.guard.Revoke()
 		_ = r.runtime.Close()
 		r.runtime, r.guard = nil, nil
-		return errors.New("latest Notebook changed; prepare a fresh generation")
+		return ErrSnapshotChanged
 	}
 	proof, err := r.runtime.ReadRuntimeProof(ctx, r.opts.Target)
 	if err != nil {
