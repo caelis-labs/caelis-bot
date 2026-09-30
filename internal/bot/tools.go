@@ -69,6 +69,11 @@ func (r *Runtime) Definitions() []api.ToolDefinition {
 
 // CallTool is shared by the private MCP bridge and future native callbacks.
 func (r *Runtime) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
+	ctx, release, err := api.BeginExecution(ctx, r.executionAdmission)
+	if err != nil {
+		return result(nil, err)
+	}
+	defer release()
 	if err := ctx.Err(); err != nil {
 		return result(nil, err)
 	}

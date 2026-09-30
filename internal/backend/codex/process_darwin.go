@@ -10,8 +10,9 @@ import (
 )
 
 type pipeConnection struct {
-	in, out *os.File
-	tools   *ownedTools
+	in, out   *os.File
+	tools     *ownedTools
+	forceStop func() error
 }
 
 func (p *pipeConnection) Read(b []byte) (int, error)         { return p.out.Read(b) }
@@ -93,5 +94,27 @@ func startProcess(ctx context.Context, opts Options) (connection, func(), error)
 		_ = cmd.Process.Kill()
 		<-exited
 	}
-	return &pipeConnection{inWrite, outRead, owned}, stop, nil
+	forceStop := func() error {
+		// All captured processes were frozen first, so no new owned descendants
+		// can appear while immediate termination is confirmed.
+		err := owned.killFencedChildren()
+		killErr := cmd.Process.Kill()
+		if !errors.Is(killErr, os.ErrProcessDone) {
+			err = errors.Join(err, killErr)
+		}
+		select {
+		case <-exited:
+		case <-time.After(time.Second):
+			err = errors.Join(err, errors.New("fenced runtime exit unconfirmed"))
+		}
+		return err
+	}
+	return &pipeConnection{inWrite, outRead, owned, forceStop}, stop, nil
+}
+
+func (p *pipeConnection) forceKillOwned() error {
+	if p.forceStop == nil {
+		return errors.New("owned immediate termination port unavailable")
+	}
+	return p.forceStop()
 }
