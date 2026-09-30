@@ -80,6 +80,9 @@ type Observer struct {
 
 func (o *Owner) Observe(ctx context.Context) *Observer {
 	ctx, cancel := context.WithCancel(ctx)
+	if o.life.Err() != nil {
+		cancel()
+	}
 	return &Observer{owner: o, ctx: ctx, cancel: cancel, stopOwner: context.AfterFunc(o.life, cancel)}
 }
 
