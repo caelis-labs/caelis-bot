@@ -17,6 +17,10 @@ func applicationDataDirectory() (string, error) {
 		}
 		return filepath.Clean(root), nil
 	}
+	return defaultApplicationDataDirectory()
+}
+
+func defaultApplicationDataDirectory() (string, error) {
 	config, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -44,12 +48,16 @@ func environmentNotebookHomes() []string {
 // paired thin APP never invokes local runtime shell discovery. Only the known
 // historical product Notebook override is interpreted; custom HOME is retained.
 func applicationDataDirectoryBeforeRuntimeEnvironment() (string, error) {
-	root, err := applicationDataDirectory()
+	if _, explicit := os.LookupEnv("CAELIS_BOT_DATA_DIR"); explicit {
+		return applicationDataDirectory()
+	}
+	return defaultApplicationDataDirectoryBeforeRuntimeEnvironment()
+}
+
+func defaultApplicationDataDirectoryBeforeRuntimeEnvironment() (string, error) {
+	root, err := defaultApplicationDataDirectory()
 	if err != nil || runtime.GOOS != "darwin" {
 		return root, err
-	}
-	if _, explicit := os.LookupEnv("CAELIS_BOT_DATA_DIR"); explicit {
-		return root, nil
 	}
 	inherited := filepath.Clean(os.Getenv("HOME"))
 	for _, owned := range environmentNotebookHomes() {

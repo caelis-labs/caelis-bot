@@ -41,6 +41,17 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
+	instanceID := appID
+	if _, explicit := os.LookupEnv("CAELIS_BOT_DATA_DIR"); explicit {
+		defaultProfile, err := defaultApplicationDataDirectoryBeforeRuntimeEnvironment()
+		if err != nil {
+			return err
+		}
+		instanceID, err = profileInstanceID(appID, root, defaultProfile)
+		if err != nil {
+			return err
+		}
+	}
 	remoteProduct, err := app.RemoteProductSelected(root)
 	if err != nil {
 		return err
@@ -191,7 +202,7 @@ func Run(assets fs.FS) error {
 			logError(core.Close())
 			s.shutdown()
 		},
-		SingleInstance: &application.SingleInstanceOptions{UniqueID: appID, OnSecondInstanceLaunch: func(application.SecondInstanceData) { _ = s.SetVisible(true) }},
+		SingleInstance: &application.SingleInstanceOptions{UniqueID: instanceID, OnSecondInstanceLaunch: func(application.SecondInstanceData) { _ = s.SetVisible(true) }},
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
