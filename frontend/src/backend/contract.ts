@@ -104,6 +104,24 @@ export interface ModelOption {
   efforts: Array<string>;
   serviceTiers: Array<ServiceTier>;
 }
+export interface ProductConnectionState {
+  revision: number;
+  pairing: ProductPairing;
+  activeMode: string;
+  state: string;
+  issue: string;
+  restartRequired: boolean;
+}
+export interface ProductPairing {
+  mode: string;
+  label: string;
+  ssh: string;
+  helper: string;
+  endpoint: string;
+  authFile: string;
+  nodeId: string;
+  botId: string;
+}
 export interface ProviderInfo {
   id: string;
   name: string;

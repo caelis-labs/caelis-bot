@@ -59,8 +59,10 @@ func (a *Application) guardRuntimeChange() error {
 }
 
 func (a *Application) guardConversationChange() error {
-	if err := a.initialization.GuardRuntimeChange(); err != nil {
-		return err
+	if a.initialization != nil {
+		if err := a.initialization.GuardRuntimeChange(); err != nil {
+			return err
+		}
 	}
 	v := a.engine.Snapshot()
 	if v.CanInterrupt || len(v.Approvals) > 0 || v.Phase == "unknown" || v.Phase == "sending" {

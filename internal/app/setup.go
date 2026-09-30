@@ -37,9 +37,15 @@ func (a *Application) configureSetup() {
 	a.Backend.RequireSetup(!a.HasRuntimeChoice())
 }
 func (a *Application) NeedsSetup() bool {
+	if a.product != nil {
+		return false
+	}
 	return a.initialization.Initialization().Required || a.setup.Overview().Onboarding
 }
 func (a *Application) ProviderDirectory() string {
+	if a.product != nil {
+		return filepath.Join(a.root, "ProductClientResources")
+	}
 	p, _ := providerDirectory(a.root, a.engine.(api.Provider).ProviderInfo().ID)
 	return p
 }
@@ -329,6 +335,9 @@ func (s *runtimeSetup) Dismiss() error {
 }
 
 func (a *Application) HasRuntimeChoice() bool {
+	if a.product != nil {
+		return true
+	}
 	for _, name := range []string{"runtime.json", "conversation.json"} {
 		if _, e := os.Stat(filepath.Join(a.root, name)); !os.IsNotExist(e) {
 			return true
