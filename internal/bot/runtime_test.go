@@ -225,14 +225,14 @@ func TestBotApprovalIsAnExplicitToolAllowlist(t *testing.T) {
 	}
 	defer b.Close()
 	c := b.Config("synthetic")
-	if len(c.ApprovedTools) != 8 {
+	if len(c.ApprovedTools) != 9 {
 		t.Fatal("approval scope grew without review")
 	}
 	policy := map[string]bool{}
 	for _, name := range c.ApprovedTools {
 		policy[name] = true
 	}
-	for _, name := range []string{"bot_clock", "bot_gesture", "bot_tasks", "bot_task_read", "bot_memory", "bot_reminders_list", "bot_care_read", "bot_task_stop"} {
+	for _, name := range []string{"bot_clock", "bot_gesture", "bot_tasks", "bot_task_targets", "bot_task_read", "bot_memory", "bot_reminders_list", "bot_care_read", "bot_task_stop"} {
 		if !policy[name] {
 			t.Fatal("owned tool approval missing", name)
 		}
@@ -314,7 +314,7 @@ func TestQueuedWakeRetainsRuntimeAcrossRestart(t *testing.T) {
 func TestApplicationToolHandlerHonorsCancellationAndShutdown(t *testing.T) {
 	r, _, _ := fixture(t)
 	defs := r.Definitions()
-	if len(defs) != 12 {
+	if len(defs) != 13 {
 		t.Fatal("incomplete application catalog")
 	}
 	defs[0].Name = "foreign"

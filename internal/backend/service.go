@@ -48,6 +48,8 @@ type Service struct {
 	reveal                      func(string) error
 	screenMedia                 *screeninput.Media
 	screenMediaError            error
+	workerNodes                 WorkerNodeController
+	workInteractions            *workerInteractions
 }
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string), openURL, reveal func(string) error) *Service {
@@ -88,6 +90,9 @@ func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 		if v.Items[i].Screen != nil {
 			v.Items[i].Screen.Images = s.screenMedia.Images(v.Items[i].RequestID)
 		}
+	}
+	if workers := s.workerInteractions(); workers != nil {
+		v = workers.project(v)
 	}
 	return s.presentation(v)
 }
@@ -151,7 +156,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	s.mu.Lock()
 	hasOutgoing := len(s.outbox) > 0
 	s.mu.Unlock()
-	if source, ok := s.engine.(api.RevisionSource); ok && !hasOutgoing && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
+	if source, ok := s.engine.(api.RevisionSource); ok && !hasOutgoing && !s.hasWorkerInteractions() && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
 		return api.ChatUpdate{}
 	}
 	v := s.Snapshot()
@@ -249,7 +254,16 @@ func (s *Service) Interrupt(ctx context.Context) error {
 	}
 	return s.engine.Interrupt(ctx)
 }
-func (s *Service) Decide(ctx context.Context, d api.Decision) error { return s.engine.Decide(ctx, d) }
+func (s *Service) Decide(ctx context.Context, d api.Decision) error {
+	if isWorkerApproval(d.ID) {
+		workers := s.workerInteractions()
+		if workers == nil {
+			return errors.New("worker approval is no longer available")
+		}
+		return workers.decide(ctx, d)
+	}
+	return s.engine.Decide(ctx, d)
+}
 func (s *Service) Login(ctx context.Context) error {
 	auth, ok := s.engine.(api.Authenticator)
 	if !ok {
@@ -268,6 +282,9 @@ func (s *Service) CancelLogin(ctx context.Context) error {
 	return errors.New("当前后端没有登录流程")
 }
 func (s *Service) RevealArtifact(id string) error {
+	if isWorkerArtifact(id) {
+		return s.revealWorkerArtifact(id)
+	}
 	resolver, ok := s.engine.(api.ArtifactResolver)
 	if !ok {
 		return errors.New("当前后端不支持打开产物")
@@ -279,6 +296,17 @@ func (s *Service) RevealArtifact(id string) error {
 	return s.reveal(p)
 }
 func (s *Service) OpenApprovalURL(id string) error {
+	if isWorkerApproval(id) {
+		workers := s.workerInteractions()
+		if workers == nil {
+			return errors.New("worker approval is no longer available")
+		}
+		link, err := workers.approvalURL(id)
+		if err != nil {
+			return err
+		}
+		return s.OpenMessageLink(link)
+	}
 	navigator, ok := s.engine.(api.ApprovalNavigator)
 	if !ok {
 		return errors.New("当前后端不支持打开外部审批")
