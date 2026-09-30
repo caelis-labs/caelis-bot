@@ -1,0 +1,51 @@
+{
+  "frozen_memory_source": "7242bb4e4d9787f426ddf58ff51f5bea092be0d4",
+  "synthetic_native_version": "0.65.0",
+  "single_active_order_verified": true,
+  "same_logical_bot": true,
+  "same_profile_bot_projection": true,
+  "new_native_session": true,
+  "correction_recall_and_forget_tombstones": true,
+  "notebook_body_attachment_index": true,
+  "no_task_or_native_session_handoff": true,
+  "both_owned_nodes_and_hosts_stopped": true,
+  "bundles_and_profiles_retained": false,
+  "user_profiles_read": false,
+  "paid_models_called": false,
+  "target_generated_credentials_copied": false,
+  "binary_sha256": {
+    "caelis": "06ee2ebf8f1ba896b33bad0f9714189b31e02c6cfbba98ffe1f8619745e37206",
+    "caelis-node": "23f4d943a023a8b3e742c8235ec8ff7caf688d292c541bb50c3d4da315988484",
+    "caelis-memory": "22ed9b8b031411339228f95c2941139f6b9d8341b33e127f1917daec5629f1aa",
+    "memorycheck": "d042709667c350084fdfc580e118b49dc01a638d35e1cd836ad6f7d2fcad538e",
+    "fixture.py": "1524d0dbd7b10009ee9960792c5cd9be51bd7426c8c8232ce31048e7a8bfeca8"
+  },
+  "independent_target_generated_credentials": true,
+  "public_memory_log_sha256": {
+    "source": "9e21ea53d3f75fda3a7f916fd5584b6f93bf6cf71fc92065236ac9624543d48a",
+    "target": "9e21ea53d3f75fda3a7f916fd5584b6f93bf6cf71fc92065236ac9624543d48a"
+  },
+  "final_clone_manifest_sha256": "109c1899f0a30b58b215bbb6de5a31f3240cca64514bb0787ed5ef5fb3b5f19e",
+  "owned_remote_roots_removed": true,
+  "bundles_and_evidence_retained_on_mac": true,
+  "production_baseline": "436e02cc4eba9bbdcd23a77900ef7a1a0a7023bc",
+  "source_tree": "production baseline plus test-only fixture additions",
+  "source_native_race": "passed",
+  "target_native_race": "passed",
+  "affected_race": "ProductRPC and MemoryTransfer passed",
+  "affected_vet": "passed",
+  "not_proven": [
+    "paid or real model judgment",
+    "user account authentication or login",
+    "public VPS migration",
+    "Mac GUI startup",
+    "migration of in-flight tasks or native sessions"
+  ],
+  "public_evidence_sha256": {
+    "source-public-memory.json": "9e21ea53d3f75fda3a7f916fd5584b6f93bf6cf71fc92065236ac9624543d48a",
+    "target-public-memory.json": "9e21ea53d3f75fda3a7f916fd5584b6f93bf6cf71fc92065236ac9624543d48a",
+    "source-native-race.txt": "7456469ec6afa8203db23777a5acfce38e78735f1dfcda79ad37b99b81b66ab2",
+    "target-native-race.txt": "bc44b9aec677d50edc1642c819fbe0159ad4b99852dc22409f373d2bb449f538",
+    "affected-race.txt": "9243b6ff34e2694180f94a4f2d2d7888bcd3039397a8c01ed8278f376106dba8"
+  }
+}

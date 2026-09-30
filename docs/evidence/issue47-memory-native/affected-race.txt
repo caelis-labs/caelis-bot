@@ -1,0 +1,2 @@
+ok  	github.com/caelis-labs/caelis-bot/internal/productrpc	1.687s
+ok  	github.com/caelis-labs/caelis-bot/internal/memorytransfer	22.125s
