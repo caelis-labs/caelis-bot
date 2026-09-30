@@ -113,11 +113,21 @@ func (s *Session) taskView(t *taskRecord) api.Task {
 // The host validates the selected directory. Native policy still gates commands;
 // selecting a cwd does not grant ownership of another native conversation.
 func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
+	ctx, release, admissionErr := api.BeginExecution(ctx, s.opts.Admission)
+	if admissionErr != nil {
+		return api.Task{}, admissionErr
+	}
+	defer release()
 	if !taskRequestValid(in.RequestID, in.Prompt) || strings.TrimSpace(in.Title) == "" || len(in.Title) > 160 {
 		return api.Task{}, errors.New("任务需要稳定请求标识、简短标题和明确要求")
 	}
 	s.op.Lock()
 	defer s.op.Unlock()
+	if s.opts.Admission != nil {
+		if err := s.opts.Admission.CheckContext(ctx); err != nil {
+			return api.Task{}, err
+		}
+	}
 	ctx, cancel := s.operation(ctx, 8*time.Second)
 	defer cancel()
 	id, fingerprint := in.ID, opaque(in.Title, in.Prompt)
@@ -271,11 +281,21 @@ func (s *Session) taskAdmission() error {
 	return nil
 }
 func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
+	ctx, release, admissionErr := api.BeginExecution(ctx, s.opts.Admission)
+	if admissionErr != nil {
+		return api.Task{}, admissionErr
+	}
+	defer release()
 	if !taskRequestValid(in.RequestID, in.Prompt) {
 		return api.Task{}, errors.New("需要稳定请求标识和任务要求")
 	}
 	s.op.Lock()
 	defer s.op.Unlock()
+	if s.opts.Admission != nil {
+		if err := s.opts.Admission.CheckContext(ctx); err != nil {
+			return api.Task{}, err
+		}
+	}
 	ctx, cancel := s.operation(ctx, 8*time.Second)
 	defer cancel()
 	s.mu.Lock()

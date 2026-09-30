@@ -14,6 +14,7 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	executionAdmission          api.ExecutionAdmission
 	admission                   sync.RWMutex
 	restarting                  bool
 	setupRequired               bool
@@ -179,6 +180,11 @@ func (s *Service) LoadEarlier(ctx context.Context) error {
 	return errors.New("当前接入暂不支持读取更早消息")
 }
 func (s *Service) Connect(ctx context.Context) error {
+	ctx, release, err := api.BeginExecution(ctx, s.executionAdmission)
+	if err != nil {
+		return err
+	}
+	defer release()
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	if s.restarting || s.setupRequired {
@@ -203,6 +209,11 @@ func (s *Service) OpenMessageLink(value string) error {
 	return s.openURL(u.String())
 }
 func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt, error) {
+	ctx, release, err := api.BeginExecution(ctx, s.executionAdmission)
+	if err != nil {
+		return api.Receipt{ID: input.ID, Outcome: "rejected"}, err
+	}
+	defer release()
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	if s.restarting || s.setupRequired {

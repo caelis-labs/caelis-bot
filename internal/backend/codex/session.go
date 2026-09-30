@@ -44,6 +44,9 @@ type pendingSubmission struct {
 	TurnID string `json:"turnId"`
 }
 type SessionOptions struct {
+	// ForceOwned is reserved for isolated leased runtimes; default local discovery is unchanged.
+	ForceOwned                           bool
+	Admission                            api.ExecutionAdmission
 	Diagnostics                          *diagnosticlog.Logger
 	WorkExecution                        api.WorkExecutionSettings
 	Execution                            api.ExecutionSettings
@@ -268,8 +271,18 @@ func writeBindingFile(path string, data []byte, syncDirectory func(*os.File) err
 	return err
 }
 func (s *Session) Connect(ctx context.Context) error {
+	ctx, release, err := api.BeginExecution(ctx, s.opts.Admission)
+	if err != nil {
+		return err
+	}
+	defer release()
 	s.op.Lock()
 	defer s.op.Unlock()
+	if s.opts.Admission != nil {
+		if err := s.opts.Admission.CheckContext(ctx); err != nil {
+			return err
+		}
+	}
 	return s.connect(ctx)
 }
 func (s *Session) connect(ctx context.Context) error {
@@ -374,7 +387,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if err := os.MkdirAll(s.opts.Directory, 0700); err != nil {
 		return s.connectionError("无法准备工作文件夹", err)
 	}
-	c, err := s.start(ctx, Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true})
+	c, err := s.start(ctx, Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: !s.opts.ForceOwned, CLIOnly: s.opts.ForceOwned})
 	if err != nil {
 		return s.connectionError("无法连接本机 Codex，请检查连接设置后重试", err)
 	}
@@ -592,8 +605,18 @@ func (s *Session) submit(ctx context.Context, in api.Submission, files []api.Inp
 	return s.submitWithSource(ctx, in, files, onlyIfIdle, false)
 }
 func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files []api.InputFile, onlyIfIdle, report bool) (api.Receipt, error) {
+	ctx, release, err := api.BeginExecution(ctx, s.opts.Admission)
+	if err != nil {
+		return api.Receipt{ID: in.ID, Outcome: "rejected"}, err
+	}
+	defer release()
 	s.op.Lock()
 	defer s.op.Unlock()
+	if s.opts.Admission != nil {
+		if err := s.opts.Admission.CheckContext(ctx); err != nil {
+			return api.Receipt{ID: in.ID, Outcome: "rejected"}, err
+		}
+	}
 	ctx, cancel := s.operation(ctx, 45*time.Second)
 	defer cancel()
 	r := api.Receipt{ID: in.ID, Outcome: "rejected"}
