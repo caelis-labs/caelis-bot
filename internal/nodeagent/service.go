@@ -47,6 +47,9 @@ type Options struct {
 	Configurations                             map[api.NodeBackend]NativeConfiguration
 	RuntimeOwner                               nodeplane.RuntimeProofPort
 }
+
+const MaxOperations = 4096
+
 type Service struct {
 	options      Options
 	installation installer
@@ -335,19 +338,31 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 		return result, err
 	}
 	result.Revision = catalog.Revision
-	revision := catalog.Revision
-	if r.Change != nil {
-		configuration, err := s.configuration(ctx, r.Ref.NodeID, r.Ref.Backend)
-		if err != nil || !configuration.ConfigurationAvailable {
-			result.Message = "configuration-unavailable"
+	configuration, err := s.configuration(ctx, r.Ref.NodeID, r.Ref.Backend)
+	if err != nil || (r.Change != nil && !configuration.ConfigurationAvailable) {
+		result.Message = "configuration-unavailable"
+		return result, nil
+	}
+	revision := configuration.Guard.Revision
+	for _, pending := range s.pendingOperations() {
+		if pending.Backend == r.Ref.Backend {
+			result.Message = "original-operation-pending"
 			return result, nil
 		}
-		revision = configuration.Guard.Revision
 	}
+
 	if revision != r.Guard.Revision {
 		result.Outcome = api.NodeConflicted
 		result.Message = "catalog-revision-changed"
 		return result, nil
+	}
+	if r.Installation != nil && r.Installation.Action == api.NodeUpdate && s.installation != nil {
+		observed, err := s.installation.Manage(ctx, runtimemanagement.Request{Action: "detect", Runtime: string(r.Ref.Backend)})
+		if err != nil || !observed.Installed || r.Installation.ExpectedVersion == "" || observed.Version != r.Installation.ExpectedVersion {
+			result.Outcome = api.NodeConflicted
+			result.Message = "installation-version-changed"
+			return result, nil
+		}
 	}
 	if ctx.Err() != nil {
 		result.Message = "cancelled-before-dispatch"
@@ -366,6 +381,16 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 		return result, err
 	}
 	if err := CheckPrivateDirectory(dir); err != nil {
+		return result, err
+	}
+	if file, err := os.Open(dir); err == nil {
+		names, _ := file.Readdirnames(MaxOperations + 1)
+		file.Close()
+		if len(names) >= MaxOperations {
+			result.Message = "original-receipt-limit"
+			return result, nil
+		}
+	} else {
 		return result, err
 	}
 	result.Outcome = api.NodeUnknown
@@ -513,12 +538,17 @@ func (s *Service) ReadRuntimeProof(ctx context.Context, target api.WorkTarget) (
 // Only bounded original nonterminal journal references enter presentation.
 func (s *Service) pendingOperations() []api.NodeOperationRef {
 	refs := []api.NodeOperationRef{}
-	entries, err := os.ReadDir(filepath.Join(s.options.Directory, "receipts"))
+	directory, err := os.Open(filepath.Join(s.options.Directory, "receipts"))
+	if err != nil {
+		return refs
+	}
+	defer directory.Close()
+	entries, err := directory.ReadDir(MaxOperations + 1)
 	if err != nil {
 		return refs
 	}
 	for _, entry := range entries {
-		if len(refs) >= 4096 {
+		if len(refs) >= MaxOperations {
 			break
 		}
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {

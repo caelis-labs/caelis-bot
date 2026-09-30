@@ -324,3 +324,73 @@ func TestNativeCodexConversationWorkerPreferencesAreSeparateAndRecoverable(t *te
 		t.Fatal("native auth created uncontrolled Bot eligibility")
 	}
 }
+
+type configurationRevisionFixture struct{ revision string }
+
+func (c *configurationRevisionFixture) Read(context.Context) (api.RuntimeConfiguration, error) {
+	return api.RuntimeConfiguration{Revision: c.revision}, nil
+}
+func (c *configurationRevisionFixture) Change(context.Context, nodeplane.ManagementRequest) (api.RuntimeMutationResult, error) {
+	return api.RuntimeMutationResult{}, errors.New("not a mutation fixture")
+}
+func TestInstallationUsesDisplayedConfigurationGuard(t *testing.T) {
+	s := agentFixture(t)
+	installer := &installationFixture{status: runtimemanagement.Status{Installed: true, Version: "0.153.4"}}
+	s.installation = installer
+	config := &configurationRevisionFixture{revision: "7"}
+	s.options.Configurations = map[api.NodeBackend]NativeConfiguration{api.NodeCodex: config}
+	view, err := s.Configuration(t.Context(), s.options.NodeID, api.NodeCodex)
+	if err != nil || !view.ConfigurationAvailable || view.Guard.Revision != "7" {
+		t.Fatal(view, err)
+	}
+	r := nodeplane.ManagementRequest{Guard: view.Guard, Ref: api.NodeOperationRef{NodeID: s.options.NodeID, Backend: api.NodeCodex, OperationID: "guarded-update"}, Installation: &api.NodeInstallationChange{Action: api.NodeUpdate, Version: "0.159.2", ExpectedVersion: "0.153.4"}}
+	r.Ref.RequestDigest = RequestDigest(r)
+	result, err := s.Manage(t.Context(), r)
+	if err != nil || result.Outcome != api.NodeCommitted || installer.calls != 1 {
+		t.Fatalf("displayed guard falsely conflicted %+v %v", result, err)
+	}
+	stale := r
+	stale.Ref.OperationID = "stale-update"
+	config.revision = "8"
+	stale.Ref.RequestDigest = RequestDigest(stale)
+	denied, err := s.Manage(t.Context(), stale)
+	if err != nil || denied.Outcome != api.NodeConflicted || installer.calls != 1 {
+		t.Fatal("stale native configuration guard admitted")
+	}
+	stale.Ref.OperationID = "stale-installation-version"
+	stale.Guard.Revision = "8"
+	stale.Ref.RequestDigest = RequestDigest(stale)
+	denied, err = s.Manage(t.Context(), stale)
+	if err != nil || denied.Outcome != api.NodeConflicted || denied.Message != "installation-version-changed" || installer.calls != 1 {
+		t.Fatal("stale installed version admitted")
+	}
+}
+func TestUnknownJournalBlocksFreshIntentAfterRestartOnlySameBackend(t *testing.T) {
+	s := agentFixture(t)
+	r := request(t, s, "unresolved-original")
+	path := s.operationPath(r.Ref.OperationID)
+	original := operation{Schema: 1, Request: r, Phase: "intent", Receipt: api.NodeOperationReceipt{Ref: r.Ref, Outcome: api.NodeUnknown}}
+	if err := writeState(path, original); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := New(s.options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer := &installationFixture{}
+	restarted.installation = installer
+	fresh := request(t, restarted, "fresh-id-bypass")
+	denied, err := restarted.Manage(t.Context(), fresh)
+	if err != nil || denied.Outcome != api.NodeRejected || denied.Message != "original-operation-pending" || installer.calls != 0 {
+		t.Fatalf("fresh ID bypassed original journal %+v %v", denied, err)
+	}
+	other := fresh
+	other.Ref.OperationID = "other-runtime"
+	other.Ref.Backend = api.NodeCaelis
+	other.Guard.Backend = api.NodeCaelis
+	other.Ref.RequestDigest = RequestDigest(other)
+	accepted, err := restarted.Manage(t.Context(), other)
+	if err != nil || accepted.Outcome != api.NodeCommitted || installer.calls != 1 {
+		t.Fatalf("different runtime incorrectly fenced %+v %v", accepted, err)
+	}
+}
