@@ -58,13 +58,20 @@ func ReadExecutionPreferences(directory string) (ExecutionPreferences, error) {
 
 type CodexConfiguration struct {
 	Directory, Binary string
+	BinaryPath        func() (string, error)
 	mu                sync.Mutex
 }
 
 func (c *CodexConfiguration) models(ctx context.Context) ([]api.ModelOption, error) {
 	setup := &codex.Setup{}
 	defer setup.Close()
-	return setup.Models(ctx, c.Binary)
+	binary := c.Binary
+	if binary == "" && c.BinaryPath != nil {
+		if resolved, err := c.BinaryPath(); err == nil {
+			binary = resolved
+		}
+	}
+	return setup.Models(ctx, binary)
 }
 func (c *CodexConfiguration) Read(ctx context.Context) (api.RuntimeConfiguration, error) {
 	c.mu.Lock()
@@ -170,7 +177,13 @@ func (c *CodexConfiguration) Reconcile(ctx context.Context, ref api.NodeOperatio
 func (c *CodexConfiguration) Health(ctx context.Context) (NativeHealth, error) {
 	setup := &codex.Setup{}
 	defer setup.Close()
-	state, err := setup.Inspect(ctx, c.Binary)
+	binary := c.Binary
+	if binary == "" && c.BinaryPath != nil {
+		if resolved, err := c.BinaryPath(); err == nil {
+			binary = resolved
+		}
+	}
+	state, err := setup.Inspect(ctx, binary)
 	if err != nil {
 		return NativeHealth{}, err
 	}
