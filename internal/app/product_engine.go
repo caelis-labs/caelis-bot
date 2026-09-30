@@ -18,6 +18,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/productmanagement"
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
 
@@ -35,9 +36,11 @@ type nativeProductClient interface {
 type productClientFactory func(backend.ProductPairing) (nativeProductClient, io.Closer, error)
 
 type productPending struct {
-	Kind         string `json:"kind"`
-	Digest       string `json:"digest"`
-	SourceDigest string `json:"sourceDigest,omitempty"`
+	Kind         string                        `json:"kind"`
+	Digest       string                        `json:"digest"`
+	SourceDigest string                        `json:"sourceDigest,omitempty"`
+	Runtime      *backend.RemoteRuntimeRequest `json:"runtime,omitempty"`
+	Scope        *productmanagement.Scope      `json:"scope,omitempty"`
 }
 type productReceiptDocument struct {
 	Version int                       `json:"version"`
@@ -292,6 +295,12 @@ func (e *productEngine) WaitSnapshot(ctx context.Context, revision uint64) (api.
 func (e *productEngine) Revision() uint64 { e.mu.Lock(); defer e.mu.Unlock(); return e.revision }
 func (e *productEngine) ProviderInfo() api.ProviderInfo {
 	return api.ProviderInfo{ID: "remote-product", Name: e.pairing.Label, ConnectionKind: "remote-product"}
+}
+
+func (e *productEngine) TaskSummaries() []api.TaskSummary {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Clone(e.state.TaskSummaries)
 }
 
 func (e *productEngine) refresh(ctx context.Context, client nativeProductClient) error {

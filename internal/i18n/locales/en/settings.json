@@ -249,5 +249,20 @@
   "productSave": "Save connection",
   "productRestartRequired": "The selected Bot takes effect after APP restarts.",
   "productRestart": "Restart APP",
-  "productRuntimeOnTarget": "Runtime installation, model selection and sign-in belong to the target Bot. This APP does not open a local runtime or copy local credentials."
+  "productRuntimeOnTarget": "Runtime installation, model selection and sign-in belong to the target Bot. This APP does not open a local runtime or copy local credentials.",
+  "productTargetRuntime": "Runtime on the connected machine",
+  "productHostConfiguration": "Shared Host settings; model access is reported by the target.",
+  "productCredentialHandoff": "Complete account sign-in and model credentials on the connected machine. This APP can inspect programs and change supported settings without transferring credentials.",
+  "productManagementUnavailable": "Target Runtime management is unavailable. Connect to the prepared Bot service, then refresh.",
+  "productManagementUnknown": "The original operation is still unconfirmed. Check its original receipt; do not submit a replacement change.",
+  "productManagementConfirmed": "The original operation was confirmed.",
+  "productManagementRejected": "The target rejected the operation. Refresh its current settings before making another change.",
+  "productCheckOriginalReceipt": "Check original receipt",
+  "productTargetPrograms": "Programs on the connected machine",
+  "productReviewedVersion": "Reviewed release",
+  "productSelectVersion": "Choose a release",
+  "productConfirmInstall": "Install {name} {version} on {target}? This changes only the target’s managed program; account setup and the running Host remain separate.",
+  "workerNodeBackend": "Execution backend",
+  "workerNodeSocket": "Private Worker socket on the target",
+  "workerNodeSocketHelp": "Use the prepared Codex Worker host’s private Unix socket. Pairing credentials stay on each native owner; the APP does not copy SSH or model credentials."
 }
