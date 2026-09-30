@@ -70,10 +70,11 @@ type TaskStart struct {
 type TaskMessage struct {
 	// Source is filled by the native coordinator after authorization. JSON input
 	// cannot create or override dispatch authority.
-	Source    WorkDispatchSource `json:"-"`
-	ID        string             `json:"id"`
-	RequestID string             `json:"requestId"`
-	Prompt    string             `json:"prompt"`
+	Source        WorkDispatchSource `json:"-"`
+	RequestDigest string             `json:"-"`
+	ID            string             `json:"id"`
+	RequestID     string             `json:"requestId"`
+	Prompt        string             `json:"prompt"`
 }
 
 // TaskReporter delivers a finite completion notification to the secretary. It
