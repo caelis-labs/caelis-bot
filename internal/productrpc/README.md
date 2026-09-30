@@ -5,6 +5,14 @@ listener or a private Unix listener forwarded by separately owned SSH. This
 package never selects a Runtime, creates a local Bot, transfers native bindings,
 or reads credentials. Default desktop assembly remains local.
 
+The thin native APP may instead use `NewStdioClient(StdioOptions, stream)` over
+an owned SSH process. `caelis-node proxy-product` attaches a target-local product
+token to a fixed loopback endpoint; no token is sent to the APP. Length-prefixed
+frames use bounded closed method/path/header fields and concurrent request IDs.
+Canceled queued writes are rejected; cancellation after write admission detaches
+the stream, preventing partial frames from being continued or retried. SSH
+host-key checking, user pairing and process ownership belong to the native APP.
+
 The host supplies an opaque node ID and Bot ID, a private bounded bearer token,
 a receipt journal, and the composed product Service port. Authentication is
 native-only; browser origins and redirects are refused. A server generation
@@ -33,6 +41,10 @@ Limits: JSON command 512 KiB, snapshot 8 MiB, user text 256 KiB, eight input fil
 64 references, resource 20 MiB. Resource callbacks must enforce Bot/task ownership
 and return size/hash metadata. Bytes are verified before publication; client
 paths cannot select server files. Unsupported artifacts return unavailable.
+Issued uploads use generation-bound handles; unmatched native resource IDs are
+refused. The private upload catalog is limited to 256 files and 512 MiB, and rejects
+linked/public roots, catalogs and files. A native host resolves issued upload IDs;
+composed Worker artifact downloads use `Service.ReadProductArtifact` ownership.
 
 Closing the native client, observer socket or listener never stops the Bot.
 Explicit stop fences later commands/uploads and calls only the host-owned Bot
@@ -44,3 +56,27 @@ receipt privacy, exact interrupt admission and resource integrity. They do not
 establish remote SSH, native Linux runtime, model, renderer or distribution
 acceptance. Bot skill guidance is unchanged: this transport preserves existing
 Bot capabilities and native authority; it adds no model-facing tools/workflow.
+
+## Explicit headless owner
+
+`caelis-node serve-bot --profile ABS --listen 127.0.0.1:0 --auth-file PRIVATE`
+assembles the existing `app.New`, `PreparePersonal`, `Start` and `Close` services.
+The explicit private profile owns `runtime.json`, execution settings, identity,
+Notebook, schedules and receipts. A profile lock prevents two native owners.
+This executable supports the private `--bot-tools` bridge used by both adapters;
+it imports no Wails, renderer assets or desktop application assembly.
+
+The application-local product token is a bounded private regular file supplied
+by the native owner, scoped to this product listener/profile. It is unrelated to
+model credentials and Core Host tokens. No credential discovery, copying,
+automatic remote configuration or persistent service installation occurs.
+Startup emits only endpoint and opaque identity. Explicit RPC stop closes the
+owned Bot while retaining its receipt endpoint; SIGTERM ends the native process.
+Observer EOF, stdin closure and client detachment never stop the resident owner.
+
+`caelis-node proxy-product --endpoint http://127.0.0.1:PORT --auth-file PRIVATE`
+is the target-local forwarding helper. Its stdin/stdout carries only framed
+product traffic. It cannot forward arbitrary URLs or attach native bindings.
+The application owner must provide the target's existing runtime configuration
+and credentials through its normal native/human setup. Headless fixtures and
+cross-compilation do not establish actual Linux runtime/model acceptance.
