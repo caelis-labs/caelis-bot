@@ -2,8 +2,10 @@
 
 The Go contracts in `internal/backend/api/nodeplane.go` and
 `internal/nodeplane/` freeze the management projection and host boundaries for
-this feature. They do not implement node services, transport, native admission,
-Notebook transfer or presentation. Installed binaries, fixture tests and a
+this feature. `internal/app/node_management*.go` and
+`internal/backend/nodeplane.go` implement the explicit management facade and
+native assembly. Concrete owners implement transport, native admission,
+Notebook transfer and presentation. Installed binaries, fixture tests and a
 generated frontend contract are not evidence of remote execution or safe roaming.
 
 ## Identity and management state
@@ -62,6 +64,51 @@ The operation ID and digest itself are excluded; Ref Node/backend must match the
 guard separately. Cross-language Unicode coverage lives in the source tests.
 
 ## Ownership and safe admission
+
+`AttachNodeManagement` creates the in-process local catalog agent and loads a
+bounded private `nodeplane/config.json`. It does not start a broker or socket.
+The document preserves enrolled Node IDs, existing SSH associations, private
+bootstrap paths, outgoing gateway pairing and designated coordinator across APP
+restart. Temporary view selection is not persisted in that document.
+
+SSH Add probes the selected Linux architecture, resolves the APP-owned artifact
+manifest, verifies source revision/checksum/ELF architecture, prepares the target
+user's private directory and installs the verified agent bytes. It verifies the
+foreground agent's exact identity before publishing enrollment. The temporary
+management agent holds no Bot execution authority. Its observer closes on APP
+detach; node lifecycle owns any separately started Runtime.
+
+Outgoing Add requires a designated coordinator. An enrolled SSH coordinator
+gets a separate private join slot rather than replacing its existing agent
+socket. The outgoing client subsequently reaches the joined Node through that
+coordinator's exact SSH/helper/socket pairing. A local coordinator requires the
+user's existing authorized SSH destination in native configuration
+(`CAELIS_BOT_NODE_OUTGOING_SSH_TARGET`) and the verified packaged native join
+helper. No route is guessed or account provisioned. Without that route Add
+returns an explicit unavailable result and creates no permanent waiting entry.
+Join instructions give two foreground commands on the target; both remain
+explicitly running until the user ends them. Detect reads the actual joined
+agent. This implementation has source/fixture coverage, not live SSH/NAT
+qualification.
+
+`NodeCatalog.PendingOperations` projects original unresolved journal references
+so a remounted settings surface can recover them. The facade prevents duplicate
+in-flight dispatch, rehydrates native pending references before fresh mutation
+and scopes its barrier by Node/backend. Native journals own the final atomic
+check and receipt recovery. A failed or mismatched response becomes unknown with
+the original reference; another selected view never consumes it.
+
+Local Codex settings use the existing Backend preference mutex for a true
+displayed-revision CAS. Conversation and Worker remain separate scopes;
+model/effort changes retain approval policy and do not expand service-tier
+support. A missing/inactive Runtime returns its exact installation guard and
+availability metadata rather than a different backend's settings. Configuration
+and installer availability are independently projected.
+
+`CloseNodeManagement` cancels optional management observers. Native runtime stop,
+lease withdrawal and Notebook staging remain separate owners. Aggregate catalog
+sorting copies source slices, so a read cannot corrupt a cached local catalog.
+
 
 The broker is optional, designated by this single user, and defaults to the local
 machine when explicitly enabled. It is a single point of availability rather

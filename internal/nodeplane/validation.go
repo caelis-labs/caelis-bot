@@ -107,6 +107,24 @@ func ValidateCatalog(c api.NodeCatalog) error {
 			return errors.New("automatic roaming requires reachable broker and eligible Bot runtime")
 		}
 	}
+	pending := map[api.NodeOperationRef]bool{}
+	for _, ref := range c.PendingOperations {
+		if err := ValidateOperationRef(ref); err != nil {
+			return err
+		}
+		n, exists := nodes[ref.NodeID]
+		if !exists {
+			return errors.New("pending operation references unknown node")
+		}
+		found := false
+		for _, runtime := range n.Runtimes {
+			found = found || runtime.Backend == ref.Backend
+		}
+		if !found || pending[ref] {
+			return errors.New("pending operation runtime is unavailable or duplicated")
+		}
+		pending[ref] = true
+	}
 	return nil
 }
 

@@ -41,11 +41,15 @@ func (s *Service) ChangeNodeExecutionScopes(ctx context.Context, r api.NodeManag
 	if r.Ref.NodeID != api.LocalNodeID || r.Ref.Backend != api.NodeCodex || r.Change == nil || (r.Change.Action != "conversation-model" && r.Change.Action != "worker-model") {
 		return result, nil
 	}
-	if s.RuntimeSettings().Runtime != "codex" {
-		return result, errors.New("local active Runtime is not Codex")
-	}
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
+	active := s.runtimeSettings.Runtime
+	if p, ok := s.engine.(api.Provider); ok {
+		active = p.ProviderInfo().ID
+	}
+	if active != "codex" {
+		return result, errors.New("local active Runtime is not Codex")
+	}
 	rev, conversation, worker, err := s.nodeExecutionLocked(ctx)
 	if err != nil {
 		return result, err

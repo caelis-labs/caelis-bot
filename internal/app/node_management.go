@@ -188,6 +188,20 @@ func (m *nodeManagement) ChangeNodeConfiguration(ctx context.Context, r api.Node
 	if m.agent == nil {
 		return api.NodeOperationReceipt{}, errors.New("node management is unavailable")
 	}
+	// Rehydrate original references from native journals after APP/owner remount.
+	// The native agent repeats this check atomically at actual dispatch.
+	catalog, catalogErr := m.catalog(ctx)
+	if catalogErr != nil {
+		return api.NodeOperationReceipt{}, catalogErr
+	}
+	for _, ref := range catalog.PendingOperations {
+		if ref.NodeID == r.Ref.NodeID && ref.Backend == r.Ref.Backend {
+			if ref != r.Ref {
+				return api.NodeOperationReceipt{}, errors.New("reconcile the original journaled operation on this node runtime first")
+			}
+			return unknownNodeReceipt(ref), nil
+		}
+	}
 	key := operationKey(r.Ref)
 	m.mu.Lock()
 	if previous, ok := m.operations[key]; ok {
