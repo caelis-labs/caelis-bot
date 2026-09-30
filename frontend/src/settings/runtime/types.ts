@@ -39,6 +39,7 @@ export type TeamChange =
 // A frontend seam for the user-owned settings surface, never a model tool.
 // No implementation may infer an auth URL, installation command or capability.
 export interface RuntimeSettingsClient {
+ capture?(revision:string):RuntimeSettingsClient;
  read(): Promise<RuntimeView>;
  saveModel(scope: ModelScope, value: ModelSelection, revision?: string): Promise<void>;
  changeTeam(change: TeamChange, revision: string): Promise<void>;

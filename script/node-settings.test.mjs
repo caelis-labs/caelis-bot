@@ -22,9 +22,9 @@ let root,container;
 afterEach(async()=>{if(root)await act(async()=>root.unmount());container?.remove();root=null;});
 after(async()=>{await server.close();dom.window.close();});
 const runtime=(backend='caelis')=>({backend,version:'1.0',health:'healthy',authentication:'authenticated',roles:[{role:'bot',eligible:true,reason:''},{role:'worker',eligible:true,reason:''}]});
-const catalog=()=>({revision:'catalog-1',selectedNodeId:'local',activeBotNodeId:'other',workerTarget:{nodeId:'local',backend:'codex',role:'worker'},broker:null,nodes:[{id:'local',label:'Local',os:'darwin',join:'local',runtimes:[runtime(),runtime('codex')]},{id:'other',label:'Other',os:'linux',join:'outgoing',runtimes:[runtime()]}]});
+const catalog=()=>({revision:'catalog-1',selectedNodeId:'local',activeBotNodeId:'other',workerTarget:{nodeId:'local',backend:'codex',role:'worker'},broker:null,pendingOperations:[],nodes:[{id:'local',label:'Local',os:'darwin',join:'local',runtimes:[runtime(),runtime('codex')]},{id:'other',label:'Other',os:'linux',join:'outgoing',runtimes:[runtime()]}]});
 const model=(id)=>({model:id,name:id,description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[]});
-const config=(nodeId,backend)=>({guard:{nodeId,backend,revision:`guard-${nodeId}-${backend}`},conversation:null,worker:null,configuration:{revision:`config-${nodeId}-${backend}`,main:{model:`${nodeId}-${backend}-a`,effort:'high',serviceTier:''},models:[model(`${nodeId}-${backend}-a`),model(`${nodeId}-${backend}-b`)],connections:[],team:{available:false,reason:'',revision:'team',roles:[],sets:[],activeSet:'',models:[]},oauthAvailable:false}});
+const config=(nodeId,backend)=>({guard:{nodeId,backend,revision:`guard-${nodeId}-${backend}`},configurationAvailable:true,installerAvailable:true,reviewedVersions:['1.0','2.0'],conversation:null,worker:null,configuration:{revision:`config-${nodeId}-${backend}`,main:{model:`${nodeId}-${backend}-a`,effort:'high',serviceTier:''},models:[model(`${nodeId}-${backend}-a`),model(`${nodeId}-${backend}-b`)],connections:[],team:{available:false,reason:'',revision:'team',roles:[],sets:[],activeSet:'',models:[]},oauthAvailable:false}});
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
 const click=async(el)=>{assert.ok(el);await act(async()=>el.dispatchEvent(new MouseEvent('click',{bubbles:true})));};
 const choose=async(el,value)=>{assert.ok(el);await act(async()=>{el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));});};
@@ -121,7 +121,7 @@ test('small window source uses wrapping bounded native selectors, without dashbo
 test('native form draft blocks node switch; uncertain install exposes original receipt and does not resend',async()=>{
  const calls=[];await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='ChangeNodeConfiguration')throw new Error('delivery lost');if(method==='ReconcileNodeOperation')return {ref:args[0],outcome:'committed',revision:'new',message:''};return defaultInvoke(method,...args);});
  const version=container.querySelector('#node-program-version');
- await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set.call(version,'2.0');version.dispatchEvent(new Event('input',{bubbles:true}));});
+ await choose(version,'2.0');
  await choose(select('Node'),'other');assert.equal(select('Node').value,'local');assert.equal(version.value,'2.0');
  await click(buttons('Update')[0]);
  await click(buttons('Confirm')[0]);
@@ -154,4 +154,43 @@ test('dialog Tab wraps within enabled controls and Escape returns focus to its o
  assert.equal(document.activeElement,enabled.at(-1));
  await act(async()=>dialog.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
  assert.equal(document.activeElement,picker);
+});
+
+test('remounted owner recovers native pending refs and ignores a stale catalog after original receipt resolution',async()=>{
+ const original={nodeId:'local',backend:'caelis',operationId:'persisted-operation',requestDigest:'f'.repeat(64)};
+ const calls=[];const owner=await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return {...catalog(),pendingOperations:[original]};if(method==='ReconcileNodeOperation')return {ref:args[0],outcome:'committed',revision:'2',message:''};return defaultInvoke(method,...args);});
+ assert.equal(owner.pending('local','caelis').operationId,original.operationId);assert.ok(buttons('Check original receipt')[0]);
+ assert.equal(container.querySelector('button.runtime-model-summary').disabled,true);
+ await click(buttons('Check original receipt')[0]);
+ assert.deepEqual(calls.find(call=>call[0]==='ReconcileNodeOperation')[1],original);
+ assert.equal(owner.pending('local','caelis'),undefined);
+ assert.equal(buttons('Check original receipt').length,0);
+ assert.equal(calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,0);
+});
+test('missing installer and configuration capability keep last native facts and cannot submit installation',async()=>{
+ const calls=[];await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return catalog();return {...config(...args),configurationAvailable:false,installerAvailable:false,reviewedVersions:[]};});
+ assert.match(container.textContent,/Program management is not available/);
+ assert.equal(container.querySelector('#node-program-version').disabled,true);assert.equal(buttons('Update')[0].disabled,true);
+ await click(buttons('Update')[0]);assert.equal(container.querySelector('[role="dialog"]'),null);
+ assert.equal(calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,0);
+});
+
+test('background configuration refresh cannot advance a draft captured native guard or expected revision',async()=>{
+ let revision=1;const calls=[];
+ const invoke=async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return {...catalog(),revision:`catalog-${revision}`};if(method==='ChangeNodeConfiguration')return {ref:args[0].ref,outcome:'conflicted',revision:'2',message:'Draft conflict'};const value=config(...args);value.guard.revision=`guard-${revision}`;value.configuration.revision=`config-${revision}`;return value;};
+ const owner=await mount(invoke);
+ await click(container.querySelector('button.runtime-model-summary'));
+ await click(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1]);
+ revision=2;
+ await act(async()=>root.render(React.createElement(NodeRuntimeSettings,{client:owner,call:async()=>({}),refreshKey:1})));
+ assert.ok(container.querySelector('[role="dialog"]'));
+ await click(buttons('Save')[0]);
+ const command=calls.find(call=>call[0]==='ChangeNodeConfiguration')[1];
+ assert.equal(command.guard.revision,'guard-1');assert.equal(command.change.expectedRevision,'config-1');assert.match(container.textContent,/Draft conflict/);
+});
+
+test('roaming availability needs both reachable coordinator and an eligible native Bot runtime',async()=>{
+ await mount(async(method,...args)=>{if(method==='NodeCatalog'){const value=catalog();value.broker={nodeId:'other',reachable:true,automaticRoaming:true,reason:''};for(const node of value.nodes)for(const runtime of node.runtimes)runtime.roles=runtime.roles.map(role=>({...role,eligible:role.role==='worker'}));return value;}return config(...args);});
+ assert.match(container.textContent,/Automatic roaming is unavailable/);
+ assert.doesNotMatch(container.textContent,/Connected · automatic roaming available/);
 });

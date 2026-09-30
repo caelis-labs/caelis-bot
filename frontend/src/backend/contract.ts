@@ -133,6 +133,7 @@ export interface NodeCatalog {
   activeBotNodeId: string;
   workerTarget: WorkTarget | null;
   broker: NodeBroker | null;
+  pendingOperations: Array<NodeOperationRef>;
 }
 export interface NodeCoordinatorSelection {
   nodeId: string;
@@ -195,6 +196,9 @@ export interface NodeRuntimeConfiguration {
   configuration: RuntimeConfiguration;
   conversation: WorkExecutionSettings | null;
   worker: WorkExecutionSettings | null;
+  configurationAvailable: boolean;
+  installerAvailable: boolean;
+  reviewedVersions: Array<string>;
 }
 export interface ProductConnectionState {
   revision: number;

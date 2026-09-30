@@ -42,18 +42,19 @@ export function NodeEnrollment({catalog,call=backend,onChanged}:{catalog:NodeCat
 
 export function NodePrograms({node,backendID,owner,call=backend,onChanged}:{node:NodeInfo;backendID:'codex'|'caelis';owner:NodeSettingsClient;call?:typeof backend;onChanged:()=>void}) {
  const {t}=useI18n();
+ const [installer,setInstaller]=useState(false),[versions,setVersions]=useState<string[]>([]);
  const [version,setVersion]=useState(''),[confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState<MessageKey|''>('');
  const pending=useRef(false);
  const status=node.runtimes.find(value=>value.backend===backendID)!;
  const installationGuard=useRef<NodeEditGuard|null>(null);
- useEffect(()=>{let active=true;installationGuard.current=null;void owner.configuration({nodeId:node.id,backend:backendID,revision:''}).then(read=>{if(active&&read.guard.nodeId===node.id&&read.guard.backend===backendID)installationGuard.current=read.guard;}).catch(()=>{});return()=>{active=false;};},[owner,node.id,backendID,status.version]);
+ useEffect(()=>{let active=true;installationGuard.current=null;void owner.configuration({nodeId:node.id,backend:backendID,revision:''}).then(read=>{if(active&&read.guard.nodeId===node.id&&read.guard.backend===backendID){installationGuard.current=read.guard;setInstaller(read.installerAvailable);setVersions(read.reviewedVersions??[]);}}).catch(()=>{});return()=>{active=false;};},[owner,node.id,backendID,status.version]);
  useEffect(()=>{const guard=(event:Event)=>{if(version&&version!==status.version)event.preventDefault();};window.addEventListener('settings-navigate',guard);return()=>window.removeEventListener('settings-navigate',guard);},[version,status.version]);
  const detect=async()=>{
   if(pending.current)return;pending.current=true;setBusy(true);setError('');
   try{await call<NodeInfo>('DetectNode',node.id);onChanged();}catch{setError('settings.nodeCatalogFailed');}finally{pending.current=false;setBusy(false);}
  };
  const apply=async()=>{
-  if(pending.current||owner.pending(node.id,backendID)||!version.trim())return;pending.current=true;setBusy(true);setError('');
+  if(pending.current||owner.pending(node.id,backendID)||!installer||!versions.includes(version))return;pending.current=true;setBusy(true);setError('');
   try{
    // Installation obtains its native guard from the target read. A catalog
    // revision is not a substitute for that target's configuration revision.
@@ -65,9 +66,9 @@ export function NodePrograms({node,backendID,owner,call=backend,onChanged}:{node
  };
  return <details className="settings-disclosure"><summary>{t('settings.productTargetPrograms')}</summary>
   <SettingRow label={t('runtime.installed')}><span>{status.version||t(status.health==='missing'?'runtime.notInstalled':'runtime.unknownVersion')}</span><button disabled={busy} onClick={()=>void detect()}>{t('runtime.recheck')}</button></SettingRow>
-  <p className="settings-note">{t('settings.nodeReviewedVersionHelp')}</p>
+  <p className="settings-note">{t(installer?'settings.nodeReviewedVersionHelp':'settings.nodeRemotePreparation')}</p>
   {version&&<button disabled={busy} className="text-action" onClick={()=>setVersion('')}>{t('common.cancel')}</button>}
-  <SettingRow label={t('settings.productReviewedVersion')} htmlFor="node-program-version"><input id="node-program-version" autoComplete="off" spellCheck={false} value={version} onChange={event=>setVersion(event.target.value)} disabled={busy||!!owner.pending(node.id,backendID)}/><button disabled={busy||!!owner.pending(node.id,backendID)||!version.trim()||version===status.version} onClick={()=>setConfirm(true)}>{t(status.health==='missing'?'runtime.installRuntime':'runtime.update',{name:backendID==='codex'?'Codex':'Caelis'})}</button></SettingRow>
+  <SettingRow label={t('settings.productReviewedVersion')} htmlFor="node-program-version"><select id="node-program-version" value={version} onChange={event=>setVersion(event.target.value)} disabled={!installer||busy||!!owner.pending(node.id,backendID)}><option value="" disabled>{t('settings.productSelectVersion')}</option>{versions.map(value=><option key={value} value={value}>{value}</option>)}</select><button disabled={!installer||busy||!!owner.pending(node.id,backendID)||!versions.includes(version)||version===status.version} onClick={()=>setConfirm(true)}>{t(status.health==='missing'?'runtime.installRuntime':'runtime.update',{name:backendID==='codex'?'Codex':'Caelis'})}</button></SettingRow>
   {confirm&&<SettingsDialog title={t('runtime.confirm')} busy={busy} onClose={()=>setConfirm(false)}><p>{t('settings.productConfirmInstall',{name:backendID==='codex'?'Codex':'Caelis',version,target:node.label})}</p>{error&&<p role="alert" className="inline-error">{t(error)}</p>}<div className="setup-end"><button disabled={busy} onClick={()=>setConfirm(false)}>{t('common.cancel')}</button><button disabled={busy||!!owner.pending(node.id,backendID)} onClick={()=>void apply()}>{t('runtime.confirm')}</button></div></SettingsDialog>}
   {!confirm&&error&&<p role="alert" className="inline-error">{t(error)}</p>}
  </details>;
@@ -84,7 +85,7 @@ export function NodeCoordinator({catalog,call=backend,onChanged}:{catalog:NodeCa
  return <details className="settings-disclosure"><summary>{t('settings.nodeAlwaysOn')}</summary>
   <p className="settings-note">{t('settings.nodeCoordinatorHelp')}</p>
   <SettingRow label={t('settings.nodeAlwaysOn')} htmlFor="node-coordinator"><select id="node-coordinator" value={selected} disabled={busy} onChange={event=>{revision.current=catalog.revision;setSelected(event.target.value);}}><option value="">{t('settings.nodeCoordinatorNone')}</option>{catalog.nodes.map(node=><option key={node.id} value={node.id}>{node.label}</option>)}</select><button disabled={busy||selected===(catalog.broker?.nodeId??'')} onClick={()=>void save()}>{t('common.save')}</button></SettingRow>
-  <p role="status" className="settings-note">{t(catalog.broker?.reachable&&catalog.broker.automaticRoaming?'settings.nodeRoamingAvailable':'settings.nodeRoamingUnavailable')}</p>
+  <p role="status" className="settings-note">{t(catalog.broker?.reachable&&catalog.broker.automaticRoaming&&catalog.nodes.some(node=>node.runtimes.some(runtime=>runtime.roles.some(role=>role.role==='bot'&&role.eligible)))?'settings.nodeRoamingAvailable':'settings.nodeRoamingUnavailable')}</p>
   {catalog.broker?.reason&&<p className="settings-note">{catalog.broker.reason}</p>}{error&&<p role="alert" className="inline-error">{t(error)}</p>}
  </details>;
 }

@@ -293,7 +293,7 @@
   "nodeJoinWaiting": "等待该节点加入。",
   "nodeAddUnknown": "尚未确认节点是否添加成功，请先刷新节点列表再操作。",
   "nodeProgramFailed": "尚未确认程序更改。如结果未知，请核对原操作。",
-  "nodeReviewedVersionHelp": "输入要在此节点安装的发布版本，节点会核验此版本是否可安装。",
+  "nodeReviewedVersionHelp": "选择要在此节点安装的已审核版本。",
   "nodeCoordinatorHelp": "选择一个保持在线的节点。自动切换还需要连接可达且运行程序符合条件。",
   "nodeCoordinatorNone": "直接使用本机",
   "nodeCoordinatorFailed": "尚未确认常开节点更改，请刷新核对已保存的设置。"
