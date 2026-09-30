@@ -40,6 +40,8 @@ type Server struct {
 	revision   uint64
 	changed    chan struct{}
 	stopping   bool
+	uploadMu   sync.Mutex
+	uploads    map[string]string
 }
 
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
@@ -59,7 +61,7 @@ func NewServer(port Port, opts Options) (*Server, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	s := &Server{port: port, opts: opts, journal: j, projection: projection{key: key}, changed: make(chan struct{}), revision: 1}
+	s := &Server{port: port, opts: opts, journal: j, projection: projection{key: key}, changed: make(chan struct{}), revision: 1, uploads: make(map[string]string)}
 	s.identity = Identity{Version: ProtocolVersion, NodeID: opts.NodeID, Scope: Scope{BotID: opts.BotID, Generation: rand.Text()}, Capabilities: opts.Capabilities}
 	if opts.Resources == nil {
 		s.identity.Capabilities.Files = false
@@ -349,6 +351,18 @@ func (s *Server) execute(ctx context.Context, c Command) Result {
 	switch c.Kind {
 	case "submit":
 		in := *c.Submission
+		in.FileIDs = append([]string(nil), in.FileIDs...)
+		s.uploadMu.Lock()
+		for i, id := range in.FileIDs {
+			native, ok := s.uploads[id]
+			if !ok {
+				s.uploadMu.Unlock()
+				r.Outcome, r.Code = "rejected", "stale-input-file"
+				return r
+			}
+			in.FileIDs[i] = native
+		}
+		s.uploadMu.Unlock()
 		var ok bool
 		in.ReferenceIDs, ok = s.projection.references(snapshot, in.ReferenceIDs)
 		if !ok {

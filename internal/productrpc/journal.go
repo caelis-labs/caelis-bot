@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 type journalEntry struct {
@@ -24,13 +24,15 @@ type journalDocument struct {
 // Only command digests and receipts are persisted, never prompts, approval
 // answers, native credentials, or raw command payloads. Unknown entries survive.
 type journal struct {
-	mu   sync.Mutex
-	path string
-	doc  journalDocument
+	mu          sync.Mutex
+	path        string
+	doc         journalDocument
+	write       func(string, journalDocument) error
+	unavailable bool
 }
 
 func openJournal(path, botID string) (*journal, error) {
-	j := &journal{path: path, doc: journalDocument{Version: 1, BotID: botID, Entries: make(map[string]journalEntry)}}
+	j := &journal{path: path, doc: journalDocument{Version: 1, BotID: botID, Entries: make(map[string]journalEntry)}, write: durableJournalWrite}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return j, nil
@@ -60,13 +62,18 @@ func (j *journal) reserve(id, digest string) (Result, bool, error) {
 		}
 		return e.Result, false, nil
 	}
+	if j.unavailable {
+		return Result{}, false, errors.New("receipt durability unavailable")
+	}
 	if len(j.doc.Entries) >= MaxReceipts {
 		return Result{}, false, errors.New("product receipt limit reached")
 	}
 	r := Result{ID: id, Outcome: "unknown", Code: "pending"}
 	j.doc.Entries[id] = journalEntry{Digest: digest, Result: r}
-	if err := localstate.Write(j.path, j.doc); err != nil {
-		delete(j.doc.Entries, id)
+	if err := j.write(j.path, j.doc); err != nil {
+		// Publication may have reached rename before directory sync failed.
+		// Keep the unknown marker and fence fresh admission in this owner.
+		j.unavailable = true
 		return Result{}, false, err
 	}
 	return r, true, nil
@@ -82,11 +89,67 @@ func (j *journal) finish(id string, result Result) error {
 	old := e
 	e.Result = receiptOnly(result)
 	j.doc.Entries[id] = e
-	if err := localstate.Write(j.path, j.doc); err != nil {
+	if err := j.write(j.path, j.doc); err != nil {
 		j.doc.Entries[id] = old
+		j.unavailable = true
 		return err
 	}
 	return nil
+}
+
+// Native dispatch requires the reservation's directory entry to be durable as
+// well as its file bytes. A rename-only writer is insufficient after power loss.
+func durableJournalWrite(path string, doc journalDocument) error {
+	dir := filepath.Dir(path)
+	if err := durableDirectory(dir); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".receipt-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	err = json.NewEncoder(f).Encode(doc)
+	if err == nil {
+		err = f.Sync()
+	}
+	err = errors.Join(err, f.Close())
+	if err != nil {
+		return err
+	}
+	if err = os.Rename(f.Name(), path); err != nil {
+		return err
+	}
+	return syncDirectory(dir)
+}
+
+func syncDirectory(path string) error {
+	d, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(d.Sync(), d.Close())
+}
+
+func durableDirectory(path string) error {
+	info, err := os.Stat(path)
+	if err == nil {
+		if !info.IsDir() {
+			return errors.New("receipt parent is not a directory")
+		}
+		return nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	parent := filepath.Dir(path)
+	if err = durableDirectory(parent); err != nil {
+		return err
+	}
+	if err = os.Mkdir(path, 0700); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	return syncDirectory(parent)
 }
 
 func receiptOnly(r Result) Result {
