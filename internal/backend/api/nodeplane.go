@@ -144,10 +144,16 @@ type NodeManagementRequest struct {
 	Installation *NodeInstallationChange     `json:"installation"`
 }
 
+type NodeRuntimeConfiguration struct {
+	Guard         NodeEditGuard        `json:"guard"`
+	Configuration RuntimeConfiguration `json:"configuration"`
+}
+
 // These methods are explicit user management actions, never model tools.
 // SelectNode changes presentation only and returns the new view revision.
 type NodeManagementController interface {
 	NodeCatalog(context.Context) (NodeCatalog, error)
+	NodeRuntimeConfiguration(context.Context, string, NodeBackend) (NodeRuntimeConfiguration, error)
 	SelectNode(context.Context, string, string) (NodeCatalog, error)
 	ChangeNodeConfiguration(context.Context, NodeManagementRequest) (NodeOperationReceipt, error)
 	ReconcileNodeOperation(context.Context, NodeOperationRef) (NodeOperationReceipt, error)
