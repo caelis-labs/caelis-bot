@@ -66,7 +66,7 @@ try:
     directory=root/'profile/providers/caelis';directory.mkdir(parents=True,mode=0o700)
     (directory/'execution.json').write_text(json.dumps({'model':'openai/gpt-5.4-mini','approvalMode':'workspace-write'}))
     (root/'product.auth').write_text(uuid.uuid4().hex+uuid.uuid4().hex)
-    node=subprocess.Popen([str(root/'caelis-node'),'serve-bot','--profile',str(root/'profile'),'--listen','127.0.0.1:0','--auth-file',str(root/'product.auth')],cwd=root,env=env,stdout=node_output,stderr=node_log)
+    node=subprocess.Popen([str(root/'caelis-node'),'serve-bot','--profile',str(root/'profile'),'--listen','127.0.0.1:0','--auth-file',str(root/'product.auth'),'--runtime-directory',str(root/'home/managed-runtimes')],cwd=root,env=env,stdout=node_output,stderr=node_log)
     for _ in range(800):
         if (root/'node-ready.json').stat().st_size:break
         if node.poll() is not None:raise RuntimeError('headless owner exited before metadata')
