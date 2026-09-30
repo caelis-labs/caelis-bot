@@ -488,9 +488,9 @@ func (m *Manager) stage(ctx context.Context, root *os.Root, release Release) (st
 	}
 	defer root.RemoveAll(stage)
 	defer root.Remove(archive)
-	source, err := m.fetch(ctx, release)
+	source, err := m.archiveSource(ctx, root, release)
 	if err != nil {
-		return "", errors.New("official release download failed")
+		return "", err
 	}
 	err = saveArchive(ctx, root, archive, release, source)
 	closed := source.Close()
