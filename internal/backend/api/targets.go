@@ -110,3 +110,13 @@ type WorkArtifact struct {
 type WorkArtifactProvider interface {
 	ReadWorkArtifact(context.Context, string, string) (WorkArtifact, error)
 }
+
+// WorkArtifactCatalog lists canonical native projections, never identifiers
+// extracted from assistant prose. References remain owned by the exact task.
+type WorkArtifactRef struct {
+	TaskID   string
+	Target   WorkTarget
+	Artifact Artifact
+}
+
+type WorkArtifactCatalog interface{ WorkArtifacts() []WorkArtifactRef }
