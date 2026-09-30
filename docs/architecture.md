@@ -247,6 +247,28 @@ A confirmed exited TUI client can reconnect in the same owned GUI instance; do n
 No automatic reconnect, task prompt replay or idle instance cleanup. Closing a terminal does not stop a Worker.
 Hide/show, placement and still preview are optional driver capabilities; unsupported actions preserve ownership.
 
+## Optional remote APP
+
+`product-pairing.json` is an explicit client connection choice, loaded before
+local Runtime, Memory, Notebook, resident Bot or task initialization. Missing
+pairing selects the existing in-process local path. Remote mode binds a pinned
+Bot/Node/backend/role and generation through standard SSH and the closed F2
+product stream; it does not start a local Runtime or remote owner.
+
+The remote Bot owns conversation, tasks and memory. APP owns presentation
+acknowledgements and user-selected attachment metadata. Closing or quitting APP
+closes its SSH observer and detaches; only the separately authorized target owner
+stop terminates the remote Bot. Reconnect is explicit. Pending original sends and
+management requests retain their IDs and scopes; uncertainty blocks a replacement
+mutation until the original receipt is resolved. A new owner generation is not
+proof that an old command had no effect.
+
+Remote management uses typed, capability-advertised target operations and the
+existing configuration presentation. It has no generic method dispatcher or
+credential-transfer action. Authentication entry belongs to the user on the
+target Runtime. Linux desktop operations report unsupported; transport acceptance,
+native APP readiness, visual GUI and authenticated model acceptance are separate.
+
 ## Desktop and presentation
 
 Desktop World is the resident desktop backend for both Codex and Caelis. The pinned
