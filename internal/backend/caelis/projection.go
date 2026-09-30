@@ -658,7 +658,7 @@ func (s *Session) refresh(ctx context.Context) error {
 		s.issue = ""
 		s.mu.Unlock()
 	}
-	info, e := initialize(ctx, c)
+	info, e := s.initialize(ctx, c)
 	if e != nil {
 		return e
 	}
@@ -679,6 +679,12 @@ func (s *Session) refresh(ctx context.Context) error {
 		s.mu.Lock()
 		s.state.Connection = renewed
 		s.mu.Unlock()
+	}
+	if s.workerOnly {
+		if e = s.recoverOperations(ctx); e != nil {
+			return e
+		}
+		return s.refreshWorkers(ctx, c)
 	}
 	s.mu.Lock()
 	before := s.state.Views[sid]
@@ -738,7 +744,7 @@ func (s *Session) recoverOperations(ctx context.Context) error {
 	c := s.client
 	s.mu.Unlock()
 	for id, j := range ops {
-		if j.Outcome != "unknown" || !(strings.HasPrefix(j.Path, "/application/") || strings.HasSuffix(j.Path, "/steer") || strings.HasSuffix(j.Path, "/prompt")) {
+		if j.Outcome != "unknown" || !(strings.HasPrefix(j.Path, "/application/") || strings.HasSuffix(j.Path, "/steer") || strings.HasSuffix(j.Path, "/prompt") || s.workerOnly && strings.HasPrefix(j.Path, "/sessions/")) {
 			continue
 		}
 		var op wire.ApplicationOperation
@@ -811,6 +817,9 @@ func (s *Session) needsRefreshLocked() bool {
 		if w.Start != nil || !s.streams[w.Binding.SessionId] {
 			return true
 		}
+	}
+	if s.workerOnly {
+		return false
 	}
 	v := s.state.Views[s.state.Session.SessionId]
 	if v == nil {
