@@ -89,7 +89,7 @@ func Run(assets fs.FS) error {
 		DesktopControl: controlDriver,
 		OpenURL:        func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 		RevealFile:     func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
-		TrashFile:      trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError, CareSample: macCareSample})
+		TrashFile:      trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ObserveTaskReceipts: s.observeTaskReceipts, ReportError: logError, CareSample: macCareSample})
 	if err != nil {
 		return err
 	}
