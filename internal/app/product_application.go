@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 func newRemoteApplication(root string, host Host, pairing backend.ProductPairing) (*Application, error) {
@@ -15,6 +16,7 @@ func newRemoteApplication(root string, host Host, pairing backend.ProductPairing
 	service := backend.NewService(engine, host.ResolveFiles, host.ConsumeFiles, host.OpenURL, host.RevealFile)
 	service.ConfigureInitialization(engine)
 	service.ConfigureProductConnection(newProductPairingController(root, pairing, engine))
+	service.ConfigureRemoteManagement(engine)
 	// Surface acknowledgements and user-selected attachment metadata belong to
 	// APP. They are separate from the remote Bot's draft, memory and Runtime.
 	if err := service.ConfigurePresentation(filepath.Join(root, "ProductClientResources", "preview.json")); err != nil && host.ReportError != nil {
@@ -49,6 +51,17 @@ func (a *Application) startRemoteProduct() error {
 			observer.Observe(snapshot)
 			if a.host.Observe != nil {
 				a.host.Observe(snapshot)
+			}
+			summaries := a.product.TaskSummaries()
+			if a.host.ObserveTasks != nil {
+				previews := make([]api.TaskPreview, 0, len(summaries))
+				for _, task := range summaries {
+					previews = append(previews, api.TaskPreview{ID: task.ID, Prompt: task.Title, Status: task.Status, Provider: "remote-product", Locked: task.Locked})
+				}
+				a.host.ObserveTasks(previews)
+			}
+			if a.host.ObserveTaskReceipts != nil {
+				a.host.ObserveTaskReceipts(summaries)
 			}
 		}
 	}()

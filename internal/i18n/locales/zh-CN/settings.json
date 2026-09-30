@@ -248,5 +248,20 @@
   "productSave": "保存连接",
   "productRestartRequired": "所选 Bot 会在 APP 重新启动后生效。",
   "productRestart": "重新启动 APP",
-  "productRuntimeOnTarget": "运行时安装、模型选择及登录由目标 Bot 所在机器管理。此 APP 不会打开本机运行时或复制本机凭据。"
+  "productRuntimeOnTarget": "运行时安装、模型选择及登录由目标 Bot 所在机器管理。此 APP 不会打开本机运行时或复制本机凭据。",
+  "productTargetRuntime": "已连接机器上的运行时",
+  "productHostConfiguration": "共享 Host 配置；模型访问情况由目标机器报告。",
+  "productCredentialHandoff": "请在已连接机器上完成账户登录与模型凭据设置。此 APP 可检查程序并修改受支持的配置，不会传输凭据。",
+  "productManagementUnavailable": "目标运行时管理暂不可用。请连接已准备的 Bot 服务后刷新。",
+  "productManagementUnknown": "原操作结果仍未确认。请核对原回执，不要提交替代操作。",
+  "productManagementConfirmed": "原操作已确认。",
+  "productManagementRejected": "目标机器拒绝了操作。请刷新当前配置后再作修改。",
+  "productCheckOriginalReceipt": "核对原回执",
+  "productTargetPrograms": "已连接机器上的程序",
+  "productReviewedVersion": "已核验的发行版本",
+  "productSelectVersion": "选择发行版本",
+  "productConfirmInstall": "在 {target} 上安装 {name} {version}？这只修改目标机器受管理的程序；账户设置与运行中的 Host 仍需单独处理。",
+  "workerNodeBackend": "执行后端",
+  "workerNodeSocket": "目标机器上的私有 Worker socket",
+  "workerNodeSocketHelp": "填写已准备的 Codex Worker 宿主私有 Unix socket。配对凭据保留在各自原生宿主；APP 不复制 SSH 或模型凭据。"
 }

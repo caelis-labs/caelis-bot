@@ -50,6 +50,11 @@ export interface BotIntroduction {
   name: string;
   description: string;
 }
+export interface Capabilities {
+  installation: boolean;
+  configuration: boolean;
+  configurationReceiptLookup: boolean;
+}
 export interface ChatUpdate {
   changed: boolean;
   snapshot: Snapshot;
@@ -149,11 +154,48 @@ export interface Reference {
   description: string;
   kind: string;
 }
+export interface RemoteConfigurationRequest {
+  id: string;
+  binding: string;
+  change: RuntimeConfigurationChange;
+}
+export interface RemoteManagementResult {
+  id: string;
+  outcome: string;
+  code: string;
+  status?: Status | null;
+  configuration?: RuntimeMutationResult | null;
+}
+export interface RemoteRuntimePending {
+  id: string;
+  kind: string;
+  runtime?: RemoteRuntimeRequest | null;
+}
+export interface RemoteRuntimeRequest {
+  id: string;
+  binding: string;
+  action: string;
+  runtime: string;
+  version: string;
+  expectedVersion: string;
+}
+export interface RemoteRuntimeState {
+  binding: string;
+  label: string;
+  available: boolean;
+  capabilities: Capabilities;
+  releases: Array<ReviewedRelease>;
+  pending: Array<RemoteRuntimePending>;
+}
 export interface Review {
   id: string;
   status: string;
   action: string;
   rationale: string;
+}
+export interface ReviewedRelease {
+  runtime: string;
+  version: string;
 }
 export interface RuntimeAuthMethod {
   id: string;
@@ -377,6 +419,16 @@ export interface Snapshot {
   references: Array<Reference>;
   loginPending: boolean;
   lastReceipt: Receipt;
+}
+export interface Status {
+  runtime?: string;
+  installed: boolean;
+  version?: string;
+  latestVersion?: string;
+  updateState?: string;
+  requestId?: string;
+  outcome: string;
+  message: string;
 }
 export interface Submission {
   id: string;
