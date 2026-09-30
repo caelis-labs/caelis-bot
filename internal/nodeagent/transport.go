@@ -326,7 +326,7 @@ func NewSSHForegroundClient(ctx context.Context, s SSHConfig, helper, directory,
 	if err != nil || !filepath.IsAbs(helper) || !filepath.IsAbs(directory) || strings.ContainsAny(helper+directory, "\x00\r\n") {
 		return nil, errors.New("invalid foreground SSH node agent")
 	}
-	args = append(args, "-o", "ClearAllForwardings=yes", "--", s.Target, shellQuote(helper)+" serve-agent --stdio --directory "+shellQuote(directory)+" --node-id "+shellQuote(expectedNode))
+	args = append(args, "-o", "ClearAllForwardings=yes", "--", s.Target, shellQuote(helper)+" serve-agent --stdio --directory "+shellQuote(directory)+" --runtime-directory "+shellQuote(filepath.Join(directory, "runtime"))+" --node-id "+shellQuote(expectedNode))
 	cmd := exec.CommandContext(ctx, s.binary(), args...)
 	cmd.Stderr = io.Discard
 	in, err := cmd.StdinPipe()
