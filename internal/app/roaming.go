@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -70,9 +71,15 @@ func NewManagedNode(root string, host Host, nodeID string) (*Application, *roami
 	if err != nil {
 		return nil, nil, err
 	}
-	owner := &managedNodeOwner{app: a, nodeID: nodeID, generation: rand.Text(), snapshot: snapshot, nativeFenced: make(chan struct{})}
+	owner := &managedNodeOwner{app: a, nodeID: nodeID, generation: rand.Text(), snapshot: snapshot}
 	guard := roaming.NewGuard(nodeID, api.NodeCodex, owner, true)
 	owner.guard = guard
+	owner.nativeFenced = make(chan struct{})
+	owner.nativeFenceDone = make(chan struct{})
+	a.managed = owner
+	a.executionAdmission = guard
+	a.Backend.ConfigureExecutionAdmission(guard)
+	a.engine.(*codex.Session).ConfigureExecutionAdmission(guard)
 	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
 		if host.BindLeasePower == nil {
 			_ = a.Close()
@@ -82,24 +89,22 @@ func NewManagedNode(root string, host Host, nodeID string) (*Application, *roami
 			guard.Suspend()
 			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 			defer cancel()
-			select {
-			case <-owner.nativeFenced:
-			case <-ctx.Done():
-				if host.ReportError != nil {
-					host.ReportError(errors.New("native power fencing was not confirmed within suspend budget"))
-				}
+			if err := owner.hardFence(ctx); err != nil && host.ReportError != nil {
+				host.ReportError(err)
 			}
 		}, func() { _ = guard.Wake() })
 		if err != nil {
 			_ = a.Close()
 			return nil, nil, err
 		}
+		owner.powerMu.Lock()
 		owner.releasePower = release
+		owner.powerMu.Unlock()
+		if guard.IsStopped() {
+			go release()
+			return nil, nil, roaming.ErrFenced
+		}
 	}
-	a.managed = owner
-	a.executionAdmission = guard
-	a.Backend.ConfigureExecutionAdmission(guard)
-	a.engine.(*codex.Session).ConfigureExecutionAdmission(guard)
 	return a, guard, nil
 }
 
@@ -108,7 +113,12 @@ type managedNodeOwner struct {
 	guard              *roaming.Guard
 	nodeID, generation string
 	snapshot           nodeplane.SnapshotRef
+	powerMu            sync.Mutex
 	releasePower       func()
+	nativeFenced       chan struct{}
+	nativeFenceDone    chan struct{}
+	nativeFenceOnce    sync.Once
+	nativeFenceErr     error
 }
 
 func (o *managedNodeOwner) WithdrawWorkerGrants(ctx context.Context) error {
@@ -121,14 +131,40 @@ func (o *managedNodeOwner) WithdrawWorkerGrants(ctx context.Context) error {
 	}
 	return nil
 }
-func (o *managedNodeOwner) Stop(ctx context.Context) error {
-	err := o.app.engine.(*codex.Session).FenceStop(ctx)
-	close(o.nativeFenced)
-	if o.releasePower != nil {
-		o.releasePower()
+func (o *managedNodeOwner) hardFence(ctx context.Context) error {
+	o.nativeFenceOnce.Do(func() {
+		native, ok := o.app.engine.(interface{ FenceStop(context.Context) error })
+		if !ok {
+			o.nativeFenceErr = errors.New("runtime does not expose owned native fencing")
+		} else {
+			o.nativeFenceErr = native.FenceStop(ctx)
+		}
+		if o.nativeFenceErr == nil {
+			close(o.nativeFenced)
+		}
+		close(o.nativeFenceDone)
+	})
+	select {
+	case <-o.nativeFenceDone:
+		return o.nativeFenceErr
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	return errors.Join(err, o.app.Close())
 }
+func (o *managedNodeOwner) Stop(ctx context.Context) error {
+	err := o.hardFence(ctx)
+	err = errors.Join(err, o.app.Close())
+	// Never call a power binder's release from its own suspend callback. Native
+	// termination is already complete; observer disposal is independent cleanup.
+	o.powerMu.Lock()
+	release := o.releasePower
+	o.powerMu.Unlock()
+	if release != nil {
+		go release()
+	}
+	return err
+}
+
 func (o *managedNodeOwner) SafeIdle(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -158,6 +194,7 @@ func (a *Application) ReadRuntimeProof(ctx context.Context, target api.WorkTarge
 	if err != nil {
 		return nodeplane.RuntimeEligibility{}, err
 	}
+	proof.Epoch = o.generation
 	idleErr := o.SafeIdle(ctx)
 	v := a.engine.Snapshot()
 	pending := v.CanInterrupt || v.Phase == "sending" || v.Phase == "working" || len(v.Approvals) > 0
