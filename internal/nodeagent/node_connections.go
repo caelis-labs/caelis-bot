@@ -275,6 +275,9 @@ func (s *Service) closeConnectionSession(session *nodeConnectionSession) {
 	if writeState(s.connectionPath(session.record.Ref), session.record) != nil {
 		err = connectionError("cleanup receipt unconfirmed")
 	}
+	// Retain only the sanitized durable outcome after cleanup. Dropping the
+	// session releases transient SDK authorization challenges and flow data.
+	delete(s.connections, session.record.Ref.OperationID)
 	s.connectionsMu.Unlock()
 	session.mu.Lock()
 	if err != nil {
