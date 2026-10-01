@@ -24,7 +24,7 @@ after(async()=>{await server.close();dom.window.close();});
 const runtime=(backend='caelis')=>({backend,version:'1.0',health:'healthy',authentication:'authenticated',roles:[{role:'bot',eligible:true,reason:''},{role:'worker',eligible:true,reason:''}]});
 const catalog=()=>({revision:'catalog-1',selectedNodeId:'local',activeBotNodeId:'other',workerTarget:{nodeId:'local',backend:'codex',role:'worker'},broker:null,pendingOperations:[],nodes:[{id:'local',label:'Local',os:'darwin',join:'local',runtimes:[runtime(),runtime('codex')]},{id:'other',label:'Other',os:'linux',join:'outgoing',runtimes:[runtime()]}]});
 const model=(id)=>({model:id,name:id,description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[]});
-const config=(nodeId,backend)=>({guard:{nodeId,backend,revision:`guard-${nodeId}-${backend}`},configurationAvailable:true,installerAvailable:true,reviewedVersions:['1.0','2.0'],conversation:null,worker:null,configuration:{revision:`config-${nodeId}-${backend}`,main:{model:`${nodeId}-${backend}-a`,effort:'high',serviceTier:''},models:[model(`${nodeId}-${backend}-a`),model(`${nodeId}-${backend}-b`)],connections:[],team:{available:false,reason:'',revision:'team',roles:[],sets:[],activeSet:'',models:[]},oauthAvailable:false}});
+const config=(nodeId,backend)=>({guard:{nodeId,backend,revision:`guard-${nodeId}-${backend}`},configurationAvailable:true,installerAvailable:true,installation:{installed:true,version:'1.0',latestVersion:'2.0'},reviewedVersions:['1.0','2.0'],conversation:null,worker:null,configuration:{revision:`config-${nodeId}-${backend}`,main:{model:`${nodeId}-${backend}-a`,effort:'high',serviceTier:''},models:[model(`${nodeId}-${backend}-a`),model(`${nodeId}-${backend}-b`)],connections:[],team:{available:false,reason:'',revision:'team',roles:[],sets:[],activeSet:'',models:[]},oauthAvailable:false}});
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
 const click=async(el)=>{assert.ok(el);await act(async()=>el.dispatchEvent(new MouseEvent('click',{bubbles:true})));};
 const choose=async(el,value)=>{assert.ok(el);await act(async()=>{el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));});};
@@ -193,4 +193,113 @@ test('roaming availability needs both reachable coordinator and an eligible nati
  await mount(async(method,...args)=>{if(method==='NodeCatalog'){const value=catalog();value.broker={nodeId:'other',reachable:true,automaticRoaming:true,reason:''};for(const node of value.nodes)for(const runtime of node.runtimes)runtime.roles=runtime.roles.map(role=>({...role,eligible:role.role==='worker'}));return value;}return config(...args);});
  assert.match(container.textContent,/Automatic roaming is unavailable/);
  assert.doesNotMatch(container.textContent,/Connected · automatic roaming available/);
+});
+
+test('paired product invoker retains original unknown id and refuses another remote mutation',async()=>{
+ const {createPairedRuntimeInvoker}=await server.ssrLoadModule('/src/settings/runtime/pairedClient.ts');
+ const calls=[];const state={binding:'paired-binding',available:true,capabilities:{execution:true},pending:[]};
+ const invoke=createPairedRuntimeInvoker(async(method,...args)=>{calls.push([method,...args]);if(method==='RemoteRuntime')return state;if(method==='ReconcileRemoteManagement')return {id:args[1],outcome:'accepted'};throw new Error('lost delivery');},'paired-binding',()=> 'Unknown');
+ const original={id:'original',binding:'paired-binding',target:'work',expectedRevision:'5',selection:{model:'m',effort:'high'}};
+ await assert.rejects(invoke('ChangeRemoteExecutionSettings',original),e=>e.unknown&&e.receipt.operationId==='original');
+ await assert.rejects(invoke('ChangeRemoteExecutionSettings',{...original,id:'second'}),e=>e.unknown);
+ assert.equal(calls.filter(call=>call[0]==='ChangeRemoteExecutionSettings').length,1);
+ await invoke('ReconcileRemoteManagement','paired-binding','original');
+ assert.deepEqual(calls.at(-1),['ReconcileRemoteManagement','paired-binding','original']);
+ state.binding='different-binding';
+ await assert.rejects(invoke('RemoteExecutionSettings','paired-binding'));
+ assert.equal(calls.filter(call=>call[0]==='RemoteExecutionSettings').length,0);
+});
+
+function pairedFixture() {
+ const calls=[];let executionRevision='paired-execution-1',pending=[];
+ const fixtureCatalog=()=>({...catalog(),activeBotNodeId:'paired-node',pairedRuntime:{nodeId:'paired-node',binding:'paired-binding'},nodes:[catalog().nodes[0],{id:'paired-node',label:'Paired host',os:'unknown',join:'ssh',runtimes:[]}]});
+ const remoteModels=[model('paired-a'),model('paired-b')];
+ const remoteState=()=>({binding:'paired-binding',label:'Paired host',available:true,capabilities:{configuration:true,execution:true,installation:true},releases:[{runtime:'codex',version:'2.0'},{runtime:'caelis',version:'2.0'}],pending});
+ const invoke=async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return fixtureCatalog();
+  if(method==='NodeRuntimeConfiguration')return config(...args);
+  if(method==='RemoteRuntime')return remoteState();
+  if(method==='RemoteRuntimeConfiguration')return {...config('paired','caelis').configuration,main:{model:'paired-a',effort:'high',serviceTier:''},models:remoteModels};
+  if(method==='RemoteExecutionSettings')return {binding:'paired-binding',revision:executionRevision,conversationDefault:false,conversation:{model:'paired-a',effort:'high'},work:{model:'paired-a',effort:'high'},models:remoteModels};
+  if(method==='RemoteRuntimeStatus')return {installed:true,version:'1.0',latestVersion:'2.0'};
+  if(method==='ChangeRemoteExecutionSettings'){executionRevision='paired-execution-2';return {id:args[0].id,outcome:'accepted'};}
+  if(method==='ChangeRemoteRuntimeConfiguration')return {id:args[0].id,outcome:'accepted',configuration:{operationId:args[0].id,outcome:'committed',message:''}};
+  if(method==='ManageRemoteRuntime')return {id:args[0].id,outcome:'accepted',status:{installed:true,version:'2.0',latestVersion:'2.0'}};
+  if(method==='ReconcileRemoteManagement'){pending=[];return {id:args[1],outcome:'accepted'};}
+  throw new Error(`Unexpected method ${method}`);
+ };
+ return {calls,invoke,fixtureCatalog,remoteState,setPending:value=>pending=value};
+}
+async function mountPaired(fixture) {
+ const owner=createNodeSettingsClient(fixture.invoke);
+ container=document.createElement('div');document.body.append(container);root=createRoot(container);
+ await act(async()=>root.render(React.createElement(NodeRuntimeSettings,{client:owner,call:fixture.invoke})));
+ return owner;
+}
+test('thin paired node preserves original remote models and installation, while Local never calls remote APIs',async()=>{
+ const fixture=pairedFixture();await mountPaired(fixture);
+ assert.equal(fixture.calls.filter(call=>call[0].includes('Remote')).length,0);
+ await choose(select('Node'),'paired-node');
+ assert.match(container.textContent,/Connections and models for the Bot paired with this app/);
+ assert.match(container.textContent,/paired-a/);assert.equal(select('Execution backend'),null);
+ const conversation=container.querySelector('button[aria-label="Configure Bot conversation model"]');
+ await click(conversation);await click(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1]);await click(buttons('Save')[0]);
+ const modelChange=fixture.calls.find(call=>call[0]==='ChangeRemoteExecutionSettings')[1];
+ assert.equal(modelChange.binding,'paired-binding');assert.equal(modelChange.target,'conversation');assert.equal(modelChange.expectedRevision,'paired-execution-1');assert.equal(modelChange.selection.model,'paired-b');
+ await click(buttons('Update')[0]);
+ const confirm=buttons('Confirm')[0];await act(async()=>{confirm.dispatchEvent(new MouseEvent('click',{bubbles:true}));confirm.dispatchEvent(new MouseEvent('click',{bubbles:true}));});
+ const install=fixture.calls.find(call=>call[0]==='ManageRemoteRuntime')[1];
+ assert.equal(install.binding,'paired-binding');assert.equal(install.runtime,'codex');assert.equal(install.action,'update');assert.equal(install.expectedVersion,'1.0');
+ assert.equal(fixture.calls.filter(call=>call[0]==='ManageRemoteRuntime').length,1);
+ assert.equal(fixture.calls.filter(call=>call[0]==='NodeRuntimeConfiguration'&&call[1]==='paired-node').length,0);
+ const count=fixture.calls.length;await choose(select('Node'),'local');
+ assert.equal(select('Node').value,'local');assert.equal(fixture.calls.slice(count).filter(call=>call[0].includes('Remote')).length,0);
+ assert.ok(fixture.calls.every(call=>!['ActivateRuntime','SelectWorkTarget','RestartForRuntime','SelectNode'].includes(call[0])));
+});
+test('paired model response loss renders original receipt and reconcile never sends a new model command',async()=>{
+ const fixture=pairedFixture(),base=fixture.invoke;let original;
+ fixture.invoke=async(method,...args)=>{if(method==='ChangeRemoteExecutionSettings'){fixture.calls.push([method,...args]);original=args[0];throw new Error('lost response');}return base(method,...args);};
+ await mountPaired(fixture);await choose(select('Node'),'paired-node');
+ await click(container.querySelector('button[aria-label="Configure Bot conversation model"]'));await click(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1]);await click(buttons('Save')[0]);
+ assert.ok(buttons('Check original receipt')[0]);
+ await click(buttons('Cancel')[0]);await click(buttons('Check original receipt')[0]);
+ const lookup=fixture.calls.find(call=>call[0]==='ReconcileRemoteManagement');
+ assert.deepEqual(lookup,['ReconcileRemoteManagement','paired-binding',original.id]);
+ assert.equal(fixture.calls.filter(call=>call[0]==='ChangeRemoteExecutionSettings').length,1);
+});
+
+test('detected PATH runtime installs a separate managed copy with empty managed expected version',async()=>{
+ const calls=[];await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog'){const value=catalog();value.nodes[0].runtimes[0].version='0.158.0';return value;}if(method==='ChangeNodeConfiguration')return {ref:args[0].ref,outcome:'committed',revision:'next',message:''};return {...config(...args),installation:{installed:false,version:'',latestVersion:'2.0'}};});
+ assert.match(container.textContent,/Detected program0.158.0/);assert.match(container.textContent,/Managed programNot installed/);assert.match(container.textContent,/separate managed copy/);
+ await choose(container.querySelector('#node-program-version'),'2.0');await click(buttons('Install managed copy')[0]);await click(buttons('Confirm')[0]);
+ const command=calls.find(call=>call[0]==='ChangeNodeConfiguration')[1];
+ assert.deepEqual(command.installation,{action:'install',version:'2.0',expectedVersion:''});
+});
+test('missing managed installation status disables writes even when a PATH runtime and installer are detected',async()=>{
+ const calls=[];await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return catalog();return {...config(...args),installerAvailable:true,installation:null};});
+ assert.equal(container.querySelector('#node-program-version').disabled,true);assert.equal(buttons('Install managed copy')[0].disabled,true);
+ assert.equal(calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,0);
+});
+test('closed role diagnostics render human capability explanations and never internal reason codes',async()=>{
+ await mount(async(method,...args)=>{if(method==='NodeCatalog'){const value=catalog();value.nodes[0].runtimes[0].roles=[{role:'bot',eligible:false,reason:'shared-runtime-not-fenceable'},{role:'worker',eligible:false,reason:'runtime-owner-unavailable'}];return value;}return config(...args);});
+ assert.match(container.textContent,/Bot cannot safely move between nodes/);assert.match(container.textContent,/not ready to handle this role/);assert.doesNotMatch(container.textContent,/shared-runtime-not-fenceable|runtime-owner-unavailable/);
+});
+
+test('thin paired shared-model configuration keeps its existing native binding and revision',async()=>{
+ const fixture=pairedFixture();await mountPaired(fixture);await choose(select('Node'),'paired-node');
+ const main=[...container.querySelectorAll('button.runtime-model-summary')].find(el=>el.getAttribute('aria-label').includes('Caelis main model'));
+ await click(main);await click(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1]);await click(buttons('Save')[0]);
+ const command=fixture.calls.find(call=>call[0]==='ChangeRemoteRuntimeConfiguration')[1];
+ assert.equal(command.binding,'paired-binding');assert.equal(command.change.action,'main');assert.equal(command.change.expectedRevision,'config-paired-caelis');assert.equal(command.change.selection.model,'paired-b');
+ assert.equal(fixture.calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,0);
+});
+test('paired read completion from a replaced native binding is rejected before populating a new view',async()=>{
+ const {createPairedRuntimeInvoker}=await server.ssrLoadModule('/src/settings/runtime/pairedClient.ts');
+ const read=deferred();let binding='original';const calls=[];
+ const invoke=createPairedRuntimeInvoker(async(method,...args)=>{calls.push([method,...args]);if(method==='RemoteRuntime')return {binding,available:true,pending:[]};return read.promise;},'original',()=> 'Connection changed');
+ const waiting=invoke('RemoteRuntimeConfiguration','original');waiting.catch(()=>{});
+ await new Promise(resolve=>setImmediate(resolve));binding='replacement';read.resolve(config('remote','caelis').configuration);
+ await assert.rejects(waiting,e=>e.receipt.outcome==='rejected');
+ assert.deepEqual(calls.filter(call=>call[0]==='RemoteRuntimeConfiguration'),[['RemoteRuntimeConfiguration','original']]);
 });

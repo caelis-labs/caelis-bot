@@ -290,6 +290,14 @@ func (c *Client) DecideWork(ctx context.Context, a api.WorkApproval, d api.Decis
 	if a.Target != c.pair.Target {
 		return errors.New("Worker decision target mismatch")
 	}
+	if c.LeaseAwareAdmission() {
+		source, err := c.nativeSource(ctx, nil)
+		if err != nil {
+			return err
+		}
+		_, err = c.callAdmitted(ctx, frame{Method: "decide", Approval: &a, Decision: &d, Current: &source}, func() error { _, err := c.nativeSource(ctx, &source); return err })
+		return err
+	}
 	_, err := c.call(ctx, frame{Method: "decide", Approval: &a, Decision: &d})
 	return err
 }
@@ -316,3 +324,13 @@ var _ api.WorkApprovalProvider = (*Client)(nil)
 var _ api.WorkArtifactProvider = (*Client)(nil)
 var _ api.WorkArtifactCatalog = (*Client)(nil)
 var _ api.RecordedWorkMessage = (*Client)(nil)
+
+// LeaseAwareAdmission reports the paired target owner’s negotiated native fence.
+func (c *Client) LeaseAwareAdmission() bool {
+	if !c.Ready() {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.state.LeaseAware
+}

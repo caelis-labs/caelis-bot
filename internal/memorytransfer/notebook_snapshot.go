@@ -224,6 +224,7 @@ func validateNotebook(ctx context.Context, s NotebookSnapshot) error {
 		attachments[p] = true
 	}
 	files := map[string][]byte{}
+	portablePaths := map[string]bool{}
 	var total int64
 	for i, f := range s.Files {
 		if err := ctx.Err(); err != nil {
@@ -232,6 +233,13 @@ func validateNotebook(ctx context.Context, s NotebookSnapshot) error {
 		if len(f.Path) > 1024 || !safePath(f.Path) || i > 0 && s.Files[i-1].Path >= f.Path || f.Size < 0 || f.Size > maxNotebookFile || int64(len(f.Body)) != f.Size || digest(f.Body) != f.SHA256 {
 			return errors.New("invalid Notebook file path, size or checksum")
 		}
+		// Linux can contain distinct case aliases that collide on the default
+		// macOS filesystem. Never merge or overwrite one during roaming.
+		portablePath := strings.ToLower(f.Path)
+		if portablePaths[portablePath] {
+			return errors.New("Notebook paths collide across supported filesystems")
+		}
+		portablePaths[portablePath] = true
 		total += f.Size
 		if total > maxNotebookBytes {
 			return errors.New("Notebook snapshot exceeds limit")
@@ -240,7 +248,7 @@ func validateNotebook(ctx context.Context, s NotebookSnapshot) error {
 		case "bot.json", "notebook-migration.json", "bot-initialization.json":
 		default:
 			rel := strings.TrimPrefix(f.Path, "Notebook/")
-			if rel == f.Path || rel == "INDEX.md" || rel == notebook.HandoffName || !strings.EqualFold(path.Ext(rel), ".md") && !attachments[rel] {
+			if rel == f.Path || strings.EqualFold(rel, "INDEX.md") || strings.EqualFold(rel, notebook.HandoffName) || !strings.EqualFold(path.Ext(rel), ".md") && !attachments[rel] {
 				return errors.New("file outside Notebook snapshot allowlist")
 			}
 		}
@@ -417,7 +425,7 @@ func notebookSource(ctx context.Context, in NotebookExportOptions) (NotebookSnap
 			return nil
 		}
 		rel := strings.TrimPrefix(p, "Notebook/")
-		if rel == "INDEX.md" || rel == notebook.HandoffName || !strings.EqualFold(path.Ext(rel), ".md") {
+		if strings.EqualFold(rel, "INDEX.md") || strings.EqualFold(rel, notebook.HandoffName) || !strings.EqualFold(path.Ext(rel), ".md") {
 			return nil
 		}
 		if !safePath(p) {

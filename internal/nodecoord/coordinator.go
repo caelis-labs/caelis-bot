@@ -34,14 +34,23 @@ const MaxSnapshotBytes = 16 << 20
 type Verify func(context.Context, nodeplane.ClaimRequest) error
 
 type Options struct {
-	Directory string
-	BotID     string
-	Now       func() time.Time
-	Verify    Verify
+	BrokerNodeID    string
+	VerifyBootstrap func(context.Context, api.WorkTarget, nodeplane.SnapshotRef) error
+	Directory       string
+	BotID           string
+	Now             func() time.Time
+	Verify          Verify
 	// VerifyRenew proves the running owner still controls deadline fencing.
 	// If absent, conservative claim eligibility (safe idle) is rechecked.
 	VerifyRenew      func(context.Context, nodeplane.Lease, nodeplane.ClaimRequest) error
 	ValidateSnapshot func(context.Context, []byte) (nodeplane.SnapshotRef, error)
+	// PreferredNodeID is trusted native configuration, independent of view
+	// selection. An empty value preserves ordinary first-eligible lease CAS.
+	PreferredNodeID string
+	// ReadOwnerEligibility reads the exact paired native owner. It is used only
+	// to reclaim at safe idle; renewal verification remains separate so busy,
+	// pending and unknown work can retain its existing authority.
+	ReadOwnerEligibility func(context.Context, api.WorkTarget) (nodeplane.RuntimeEligibility, error)
 }
 
 type diskState struct {
@@ -62,6 +71,7 @@ type Coordinator struct {
 	last       time.Time
 	poisoned   bool
 	unlock     func()
+	preference preferredIntent
 }
 
 func Open(o Options) (*Coordinator, error) {
@@ -207,12 +217,14 @@ func (c *Coordinator) Claim(ctx context.Context, r nodeplane.ClaimRequest) (node
 		return nodeplane.Lease{}, err
 	}
 	if r.Snapshot != c.state.Latest || r.Snapshot.BotID != c.opts.BotID || r.Snapshot.Digest == "" {
+		c.invalidatePreferredClaim(r)
 		return nodeplane.Lease{}, ErrSnapshot
 	}
 	if _, err = c.readSnapshot(ctx, r.Snapshot); err != nil {
 		return nodeplane.Lease{}, ErrSnapshot
 	}
 	if err = c.verify(ctx, r); err != nil {
+		c.invalidatePreferredClaim(r)
 		return nodeplane.Lease{}, err
 	}
 	now, err = c.tick(ctx)
@@ -224,6 +236,7 @@ func (c *Coordinator) Claim(ctx context.Context, r nodeplane.ClaimRequest) (node
 		if r == c.state.Claim {
 			return c.grant(now), nil
 		}
+		c.observePreferredClaim(now, r)
 		return nodeplane.Lease{}, ErrConflict
 	}
 	if r.ExpectedEpoch != c.state.Lease.Epoch {
@@ -238,6 +251,7 @@ func (c *Coordinator) Claim(ctx context.Context, r nodeplane.ClaimRequest) (node
 	}
 	c.state = s
 	c.deadline = now.Add(nodeplane.DefaultLeaseExpiry)
+	c.preference = preferredIntent{}
 	return c.grant(now), nil
 }
 func (c *Coordinator) grant(now time.Time) nodeplane.Lease {
@@ -279,6 +293,20 @@ func (c *Coordinator) Heartbeat(ctx context.Context, l nodeplane.Lease) (nodepla
 	}
 	if !c.active(now) {
 		return nodeplane.Lease{}, ErrConflict
+	}
+	if c.opts.PreferredNodeID != "" && c.preference.claim.BotID != "" {
+		if err = c.reclaimPreferred(ctx); err != nil {
+			return nodeplane.Lease{}, err
+		}
+		// Paired reads can take time; never renew across the old deadline or
+		// after cancellation while observing a preferred candidate.
+		now, err = c.tick(ctx)
+		if err != nil {
+			return nodeplane.Lease{}, err
+		}
+		if !c.active(now) {
+			return nodeplane.Lease{}, ErrConflict
+		}
 	}
 	s := c.state
 	s.Lease.ExpiresAt = now.Add(nodeplane.DefaultLeaseExpiry)
@@ -374,6 +402,7 @@ func (c *Coordinator) PublishSnapshot(ctx context.Context, l nodeplane.Lease, re
 		return err
 	}
 	c.state = s
+	c.preference = preferredIntent{}
 	// The cache retains one complete bundle; remove the previous immutable
 	// blob only after the new authoritative pointer is durably committed.
 	if previous.Digest != ref.Digest {
@@ -509,4 +538,80 @@ func atomicWrite(path string, b []byte) error {
 	}
 	defer d.Close()
 	return d.Sync()
+}
+
+// BrokerNodeID is native enrollment metadata, never a model request selector.
+func (c *Coordinator) BrokerNodeID() string { return c.opts.BrokerNodeID }
+
+// CurrentLease returns live authority after quarantine, expiry and a fresh
+// trusted owner observation. Busy/unknown work can remain controlled; it does
+// not make the owner safe for replacement. Recalculate after the paired read.
+func (c *Coordinator) CurrentLease(ctx context.Context, botID string) (nodeplane.Lease, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now, err := c.tick(ctx)
+	if err != nil {
+		return nodeplane.Lease{}, err
+	}
+	if botID != c.opts.BotID || !c.active(now) || !c.state.Claim.Proof.Controllable {
+		return nodeplane.Lease{}, ErrConflict
+	}
+	if c.opts.ReadOwnerEligibility != nil {
+		target := api.WorkTarget{NodeID: c.state.Lease.NodeID, Backend: string(c.state.Lease.Backend), Role: api.RoleBot}
+		p, err := c.opts.ReadOwnerEligibility(ctx, target)
+		if err != nil || !p.Proof.Controllable || p.Proof.NodeID != target.NodeID || string(p.Proof.Backend) != target.Backend || p.Proof != c.state.Claim.Proof || p.LeaseEpoch != c.state.Lease.Epoch || p.Snapshot != c.state.Latest {
+			return nodeplane.Lease{}, ErrIneligible
+		}
+	}
+	now, err = c.tick(ctx)
+	if err != nil {
+		return nodeplane.Lease{}, err
+	}
+	if !c.active(now) {
+		return nodeplane.Lease{}, ErrConflict
+	}
+	return c.grant(now), nil
+}
+func (c *Coordinator) ReadWorkerLease(ctx context.Context, ref nodeplane.WorkLeaseRef) (nodeplane.Lease, error) {
+	if c.opts.ReadOwnerEligibility == nil || c.opts.BrokerNodeID == "" || ref.BrokerNodeID != c.opts.BrokerNodeID || ref.SourceNode == "" || ref.Epoch == "" {
+		return nodeplane.Lease{}, ErrIneligible
+	}
+	l, err := c.CurrentLease(ctx, ref.BotID)
+	if err != nil {
+		return nodeplane.Lease{}, err
+	}
+	if l.NodeID != ref.SourceNode || l.Backend != ref.SourceBackend || l.Epoch != ref.Epoch {
+		return nodeplane.Lease{}, ErrConflict
+	}
+	return l, nil
+}
+
+// BootstrapSnapshot is the one genesis exception to leased publication. The
+// exact paired source must supply native stopped/idle proof; no request flag or
+// filesystem profile can authorize it. Existing epoch/cache state never resets.
+func (c *Coordinator) BootstrapSnapshot(ctx context.Context, target api.WorkTarget, ref nodeplane.SnapshotRef, payload []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, err := c.tick(ctx); err != nil {
+		return err
+	}
+	if c.state.Counter != "0" || c.state.Latest.BotID != "" || ref.Epoch != "0" {
+		return ErrConflict
+	}
+	if c.opts.VerifyBootstrap == nil || target.Role != api.RoleBot || c.opts.VerifyBootstrap(ctx, target, ref) != nil {
+		return ErrIneligible
+	}
+	if err := c.storeSnapshot(ctx, ref, payload); err != nil {
+		return err
+	}
+	if _, err := c.tick(ctx); err != nil {
+		return err
+	}
+	s := c.state
+	s.Latest = ref
+	if err := c.persist(s); err != nil {
+		return err
+	}
+	c.state = s
+	return nil
 }

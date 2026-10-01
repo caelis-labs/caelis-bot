@@ -131,6 +131,7 @@ export interface NodeCatalog {
   nodes: Array<NodeInfo>;
   selectedNodeId: string;
   activeBotNodeId: string;
+  pairedRuntime: NodePairedRuntime | null;
   workerTarget: WorkTarget | null;
   broker: NodeBroker | null;
   pendingOperations: Array<NodeOperationRef>;
@@ -156,6 +157,11 @@ export interface NodeInstallationChange {
   version: string;
   expectedVersion: string;
 }
+export interface NodeInstallationState {
+  installed: boolean;
+  version: string;
+  latestVersion: string;
+}
 export interface NodeJoinInstructions {
   nodeId: string;
   state: string;
@@ -179,6 +185,10 @@ export interface NodeOperationRef {
   operationId: string;
   requestDigest: string;
 }
+export interface NodePairedRuntime {
+  nodeId: string;
+  binding: string;
+}
 export interface NodeRoleCapability {
   role: string;
   eligible: boolean;
@@ -198,6 +208,7 @@ export interface NodeRuntimeConfiguration {
   worker: WorkExecutionSettings | null;
   configurationAvailable: boolean;
   installerAvailable: boolean;
+  installation: NodeInstallationState | null;
   reviewedVersions: Array<string>;
 }
 export interface ProductConnectionState {

@@ -163,8 +163,28 @@ func (m *Manager) authorizeWork(ctx context.Context, target api.WorkTarget) (api
 	if err = source.Validate(); err != nil {
 		return api.WorkDispatchSource{}, err
 	}
-	if source.NodeID != api.LocalNodeID || source.Backend != m.provider {
+	if source.Backend != m.provider || (source.Lease == (api.WorkerLeaseGrant{}) && source.NodeID != api.LocalNodeID) {
 		return api.WorkDispatchSource{}, errors.New("worker source does not match resident driver")
+	}
+	if source.Lease != (api.WorkerLeaseGrant{}) {
+		if gate, ok := m.executionAdmission.(interface {
+			AnnotateWorkSource(context.Context, api.WorkDispatchSource) (api.WorkDispatchSource, error)
+		}); ok {
+			// Compare against freshly attested authority rather than trusting a
+			// Source field supplied by a tool or an arbitrary source provider.
+			plain := source
+			plain.Lease = api.WorkerLeaseGrant{}
+			plain.NodeID = api.LocalNodeID
+			verified, e := gate.AnnotateWorkSource(ctx, plain)
+			if e != nil {
+				return api.WorkDispatchSource{}, e
+			}
+			if verified != source {
+				return api.WorkDispatchSource{}, errors.New("worker source lease does not match native owner")
+			}
+		} else {
+			return api.WorkDispatchSource{}, errors.New("leased worker source has no native admission owner")
+		}
 	}
 	return source, nil
 }

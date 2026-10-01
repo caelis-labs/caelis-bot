@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
 
 func nativeManagementApplication(t *testing.T) *Application {
@@ -182,5 +185,107 @@ func TestNativePairingCorruptionPreservesSource(t *testing.T) {
 	}
 	if strings.Contains(string(got), "operationId") {
 		t.Fatal("unrelated native receipts entered pairing document")
+	}
+}
+
+type thinNodeScopeTrap struct {
+	api.Engine
+	remoteCalls atomic.Int32
+}
+
+func (*thinNodeScopeTrap) ProviderInfo() api.ProviderInfo { return api.ProviderInfo{ID: "codex"} }
+func (e *thinNodeScopeTrap) Models(context.Context) ([]api.ModelOption, error) {
+	e.remoteCalls.Add(1)
+	return nil, errors.New("remote model catalog reached by local node")
+}
+func (*thinNodeScopeTrap) ExecutionOptions() api.ExecutionOptions { return api.ExecutionOptions{} }
+func (e *thinNodeScopeTrap) CurrentExecutionSettings(context.Context) (api.ExecutionSettings, error) {
+	e.remoteCalls.Add(1)
+	return api.ExecutionSettings{Model: "remote-only-model"}, nil
+}
+func (e *thinNodeScopeTrap) ChangeExecution(context.Context, api.ExecutionSettings, func() error) error {
+	e.remoteCalls.Add(1)
+	return errors.New("remote mutation reached by local node")
+}
+
+func TestThinNodeManagementLocalModelsNeverUseRemoteBotBackend(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("Python fixture unavailable")
+	}
+	a := nativeManagementApplication(t)
+	remote := &thinNodeScopeTrap{}
+	a.Backend = backend.NewService(remote, nil, nil, nil, nil)
+	a.product = &productEngine{pairing: thinPairing()}
+	body, err := os.ReadFile("../nodeagent/testdata/codex_setup_fixture.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = append([]byte("#!"+python+"\n"), body[strings.Index(string(body), "\n")+1:]...)
+	binary := filepath.Join(t.TempDir(), "local-codex-fixture")
+	if err = os.WriteFile(binary, body, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = AttachNodeManagement(a, NodeManagementNativeOptions{LocalCodexBinary: binary}); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Backend.CloseNodeManagement(t.Context())
+	catalog, err := a.Backend.NodeCatalog(t.Context())
+	if err != nil || catalog.ActiveBotNodeID != a.product.pairing.NodeID || catalog.WorkerTarget != nil {
+		t.Fatal("thin APP invented local execution owner", catalog, err)
+	}
+	paired := false
+	for _, node := range catalog.Nodes {
+		if node.ID == a.product.pairing.NodeID {
+			paired = node.OS == api.NodeOSUnknown && len(node.Runtimes) == 0
+		}
+	}
+	if !paired {
+		t.Fatal("paired remote owner metadata absent or invented")
+	}
+	if catalog.PairedRuntime == nil || catalog.PairedRuntime.NodeID != a.product.pairing.NodeID || catalog.PairedRuntime.Binding != "" {
+		t.Fatal("offline thin APP invented a usable product binding")
+	}
+	view, err := a.Backend.NodeRuntimeConfiguration(t.Context(), "local", api.NodeCodex)
+	if err != nil || !view.ConfigurationAvailable || view.Conversation == nil || view.Conversation.Model != "" {
+		t.Fatal("independent local configuration unavailable", view, err)
+	}
+	r := api.NodeManagementRequest{Guard: view.Guard, Ref: api.NodeOperationRef{NodeID: "local", Backend: api.NodeCodex, OperationID: "local-thin-setting"}, Change: &api.RuntimeConfigurationChange{Action: "conversation-model", ExpectedRevision: view.Guard.Revision, Selection: api.WorkExecutionSettings{Model: "fixture-model", Effort: "high"}}}
+	r.Ref.RequestDigest, err = nodeplane.ManagementDigest(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := a.Backend.ChangeNodeConfiguration(t.Context(), r)
+	if err != nil || result.Outcome != api.NodeCommitted {
+		t.Fatal("local target preference update unavailable", result, err)
+	}
+	updated, err := a.Backend.NodeRuntimeConfiguration(t.Context(), "local", api.NodeCodex)
+	if err != nil || updated.Conversation.Model != "fixture-model" {
+		t.Fatal("local setting did not apply to local native profile", updated, err)
+	}
+	if remote.remoteCalls.Load() != 0 {
+		t.Fatal("thin local management crossed into remote Bot", remote.remoteCalls.Load())
+	}
+	if _, err := a.Backend.NodeRuntimeConfiguration(t.Context(), a.product.pairing.NodeID, api.NodeCodex); err == nil {
+		t.Fatal("read-only product pairing became an enrolled management agent")
+	}
+	a.product.mu.Lock()
+	a.product.connection = "ready"
+	a.product.client = newThinClientFixture()
+	a.product.identity = productrpc.Identity{Scope: productrpc.Scope{BotID: a.product.pairing.BotID, Generation: "native-generation"}, Capabilities: productrpc.Capabilities{RuntimeManagement: true}}
+	a.product.mu.Unlock()
+	ready, err := a.Backend.NodeCatalog(t.Context())
+	if err != nil || ready.PairedRuntime == nil || ready.PairedRuntime.Binding == "" {
+		t.Fatal("ready native binding absent", err)
+	}
+	a.product.mu.Lock()
+	a.product.attempt++
+	a.product.mu.Unlock()
+	reconnected, err := a.Backend.NodeCatalog(t.Context())
+	if err != nil || reconnected.PairedRuntime.Binding == ready.PairedRuntime.Binding || reconnected.Revision == ready.Revision {
+		t.Fatal("new native binding retained stale view guard", err)
+	}
+	if remote.remoteCalls.Load() != 0 {
+		t.Fatal("reading paired native binding queried remote execution", remote.remoteCalls.Load())
 	}
 }

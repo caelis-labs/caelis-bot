@@ -35,3 +35,20 @@ func TestWorkSourceRequiresNativeActivationAndPreservesOpaqueBinding(t *testing.
 		t.Fatal("stale prompt became authority")
 	}
 }
+
+func TestManagedWorkSourceAnnotationPreservesNativeActivation(t *testing.T) {
+	s, _ := sessionPair(t, "hold")
+	sendSynthetic(t, s, "managed-source-parent")
+	s.ConfigureDispatchSource(func(ctx context.Context, source api.WorkDispatchSource) (api.WorkDispatchSource, error) {
+		if source.BindingID != "thread-native" || source.OperationID != "run-native" {
+			t.Fatal("wrapper lost native activation", source)
+		}
+		source.NodeID = "managed-node"
+		source.Lease = api.WorkerLeaseGrant{BotID: "stable-bot", BrokerNodeID: "paired-broker", SourceNodeID: "managed-node", Backend: "codex", Epoch: "opaque-epoch"}
+		return source, source.Validate()
+	})
+	source, err := s.WorkDispatchSource(t.Context())
+	if err != nil || source.NodeID != "managed-node" || source.Lease.SourceNodeID != "managed-node" {
+		t.Fatal(source, err)
+	}
+}

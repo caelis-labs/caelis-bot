@@ -5,6 +5,8 @@ import {NodeEnrollment,NodePrograms,NodeCoordinator} from './settings/runtime/No
 import {RuntimeWorkspace} from './settings/runtime/RuntimeWorkspace';
 import {createNodeRuntimeClient,createNodeSettingsClient,nodeScopeKey,type NodeSettingsClient} from './settings/runtime/nodeClient';
 import {RuntimePreparation} from './RuntimePreparation';
+import {RemoteRuntimeSettings} from './RemoteRuntimeSettings';
+import {createPairedRuntimeInvoker} from './settings/runtime/pairedClient';
 import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
 import './settings/runtime/runtime.css';
@@ -30,6 +32,9 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
  };
  useEffect(()=>{if(active)void load();return()=>{generation.current++;};},[owner,active,refreshKey,refresh]);
  const node=catalog?.nodes.find(value=>value.id===selected);
+ const paired=catalog?.pairedRuntime;
+ const pairedSelected=!!paired&&paired.nodeId===selected;
+ const pairedCall=useMemo(()=>createPairedRuntimeInvoker(call,paired?.binding??'',()=>translations.current('settings.productManagementUnknown')),[call,paired?.binding]);
  const backendID=node?.runtimes.some(value=>value.backend===runtime)?runtime:node?.runtimes[0]?.backend||'';
  const status=node?.runtimes.find(value=>value.backend===backendID);
  const scope=nodeScopeKey(selected,backendID);
@@ -51,15 +56,15 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
  return <section className="runtime-workspace node-runtime-settings">
   <div className="node-settings-heading"><h1>{t('runtime.runtimeAndModelsTitle')}</h1><div className="node-settings-selectors">
    <label>{t('settings.nodeSelected')}<select aria-label={t('settings.nodeSelected')} disabled={!catalog||loading} value={selected} onChange={event=>select(event.target.value,'')}>{catalog?.nodes.map(value=><option key={value.id} value={value.id}>{value.label}</option>)}</select></label>
-   {node&&<label>{t('settings.workerNodeBackend')}<select aria-label={t('settings.workerNodeBackend')} value={backendID} onChange={event=>select(selected,event.target.value)}>{node.runtimes.map(value=><option key={value.backend} value={value.backend}>{value.backend==='codex'?'Codex':'Caelis'}</option>)}</select></label>}
+   {node&&node.runtimes.length>0&&<label>{t('settings.workerNodeBackend')}<select aria-label={t('settings.workerNodeBackend')} value={backendID} onChange={event=>select(selected,event.target.value)}>{node.runtimes.map(value=><option key={value.backend} value={value.backend}>{value.backend==='codex'?'Codex':'Caelis'}</option>)}</select></label>}
   </div></div>
   <p className="settings-note">{t('settings.nodeViewOnly')}</p>
   {catalog&&<p className="settings-note node-owner-context">{t('settings.nodeBotOwner',{name:displayName(catalog,catalog.activeBotNodeId)||t('runtime.notConnected')})}{catalog.workerTarget&&<><br/>{t('settings.nodeWorkerTarget',{name:displayName(catalog,catalog.workerTarget.nodeId),backend:catalog.workerTarget.backend==='codex'?'Codex':'Caelis'})}</>}</p>}
   {node&&status&&<NodeStatus node={node} backendID={backendID}/>}
   {owner.pending(selected,backendID)&&<div role="status" className="runtime-callout"><p>{t('settings.nodeOperationUnknown')}</p><button disabled={loading} onClick={()=>void recover()}>{t('settings.productCheckOriginalReceipt')}</button></div>}
-  {catalog&&node?<div className="node-configuration"><RuntimeWorkspace nodeManaged readOnly={!!error||!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy)=>local?<RuntimePreparation initialRuntime={id} onBusy={onBusy} viewOnly call={call}/>:<p className="settings-note">{t('settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
-  {node&&!healthy&&<p role="status" className="settings-note">{t('settings.nodeUnavailable')}</p>}
-  {node&&status&&<NodePrograms key={scope} node={node} backendID={backendID as 'codex'|'caelis'} owner={owner} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
+  {pairedSelected?<><p className="settings-note">{t('settings.nodePairedProductScope')}</p><RemoteRuntimeSettings key={`${selected}:${paired.binding}`} call={pairedCall} heading={false} active={active} refreshKey={refresh}/></>:catalog&&node?<div className="node-configuration"><RuntimeWorkspace nodeManaged readOnly={!!error||!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy)=>local?<RuntimePreparation initialRuntime={id} onBusy={onBusy} viewOnly call={call}/>:<p className="settings-note">{t('settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
+  {!pairedSelected&&node&&!healthy&&<p role="status" className="settings-note">{t('settings.nodeUnavailable')}</p>}
+  {!pairedSelected&&node&&status&&<NodePrograms refreshKey={`${catalog?.revision}:${refresh}:${refreshKey}`} key={scope} node={node} backendID={backendID as 'codex'|'caelis'} owner={owner} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
   <NodeEnrollment catalog={catalog} call={call} onChanged={()=>setRefresh(value=>value+1)}/>
   {catalog&&<NodeCoordinator key={catalog.broker?.nodeId??''} catalog={catalog} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
   {notice&&<p role="status" className="settings-note">{t(notice)}</p>}
@@ -73,5 +78,5 @@ function NodeStatus({node,backendID}:{node:NodeInfo;backendID:string}) {
  const status=node.runtimes.find(value=>value.backend===backendID)!;
  const health:MessageKey=status.health==='healthy'?'settings.nodeHealthy':status.health==='missing'?'runtime.notInstalled':status.health==='unavailable'?'runtime.notConnected':'settings.nodeStateUnknown';
  const auth:MessageKey=status.authentication==='authenticated'?'settings.nodeAuthenticated':status.authentication==='required'?'settings.workerNodeAuthSetup':'settings.nodeStateUnknown';
- return <div className="runtime-active"><span className="runtime-monogram" aria-hidden="true">{backendID==='caelis'?'C':'⌘'}</span><div><strong>{backendID==='caelis'?'Caelis':'Codex'}</strong><p>{t(health)} · {status.version||t('runtime.unknownVersion')} · {t(auth)}</p><p>{status.roles.map(role=>t(role.role==='bot'?(role.eligible?'settings.nodeBotEligible':'settings.nodeBotUnavailable'):(role.eligible?'settings.nodeWorkerEligible':'settings.nodeWorkerUnavailable'))).join(' · ')}</p>{status.roles.filter(role=>!role.eligible&&role.reason).map(role=><p key={role.role}>{role.reason}</p>)}</div></div>;
+ return <div className="runtime-active"><span className="runtime-monogram" aria-hidden="true">{backendID==='caelis'?'C':'⌘'}</span><div><strong>{backendID==='caelis'?'Caelis':'Codex'}</strong><p>{t(health)} · {status.version||t('runtime.unknownVersion')} · {t(auth)}</p><p>{status.roles.map(role=>t(role.role==='bot'?(role.eligible?'settings.nodeBotEligible':'settings.nodeBotUnavailable'):(role.eligible?'settings.nodeWorkerEligible':'settings.nodeWorkerUnavailable'))).join(' · ')}</p>{status.roles.filter(role=>!role.eligible&&role.reason).map(role=><p key={role.role}>{t(role.reason==='runtime-owner-unavailable'?'settings.nodeOwnerUnavailableReason':role.reason==='shared-runtime-not-fenceable'?'settings.nodeSharedRuntimeReason':role.reason==='windows-process-ownership-unsupported'?'settings.nodeWindowsWorkerOnlyReason':'settings.nodeRoleUnavailableReason')}</p>)}</div></div>;
 }

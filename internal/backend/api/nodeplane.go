@@ -6,15 +6,23 @@ import "context"
 // the active Bot owner or the exact Worker target. Credentials and machine paths
 // are deliberately absent. Revisions, epochs and versions are opaque strings.
 type NodeCatalog struct {
-	Revision        string      `json:"revision"`
-	Nodes           []NodeInfo  `json:"nodes"`
-	SelectedNodeID  string      `json:"selectedNodeId"`
-	ActiveBotNodeID string      `json:"activeBotNodeId"`
-	WorkerTarget    *WorkTarget `json:"workerTarget"`
-	Broker          *NodeBroker `json:"broker"`
+	Revision        string     `json:"revision"`
+	Nodes           []NodeInfo `json:"nodes"`
+	SelectedNodeID  string     `json:"selectedNodeId"`
+	ActiveBotNodeID string     `json:"activeBotNodeId"`
+	// The existing product pairing retains its exact opaque management fence.
+	// It does not imply node-agent enrollment or local execution authority.
+	PairedRuntime *NodePairedRuntime `json:"pairedRuntime"`
+	WorkerTarget  *WorkTarget        `json:"workerTarget"`
+	Broker        *NodeBroker        `json:"broker"`
 	// Native journals expose original unresolved references after APP remount
 	// or restart, including installation operations with no readable config.
 	PendingOperations []NodeOperationRef `json:"pendingOperations"`
+}
+
+type NodePairedRuntime struct {
+	NodeID  string `json:"nodeId"`
+	Binding string `json:"binding"`
 }
 
 type NodeInfo struct {
@@ -28,9 +36,10 @@ type NodeInfo struct {
 type NodeOS string
 
 const (
-	NodeDarwin  NodeOS = "darwin"
-	NodeLinux   NodeOS = "linux"
-	NodeWindows NodeOS = "windows"
+	NodeDarwin    NodeOS = "darwin"
+	NodeLinux     NodeOS = "linux"
+	NodeWindows   NodeOS = "windows"
+	NodeOSUnknown NodeOS = "unknown"
 )
 
 type NodeJoin string
@@ -139,6 +148,15 @@ type NodeInstallationChange struct {
 	ExpectedVersion string                 `json:"expectedVersion"`
 }
 
+// NodeInstallationState describes only the native managed installer. A Runtime
+// found on PATH does not make Installed true. A nil state means unavailable or
+// unknown and cannot authorize an install/update precondition.
+type NodeInstallationState struct {
+	Installed     bool   `json:"installed"`
+	Version       string `json:"version"`
+	LatestVersion string `json:"latestVersion"`
+}
+
 // Exactly one semantic payload is allowed; there is no arbitrary RPC or command.
 type NodeManagementRequest struct {
 	Guard        NodeEditGuard               `json:"guard"`
@@ -156,6 +174,7 @@ type NodeRuntimeConfiguration struct {
 	Worker                 *WorkExecutionSettings `json:"worker"`
 	ConfigurationAvailable bool                   `json:"configurationAvailable"`
 	InstallerAvailable     bool                   `json:"installerAvailable"`
+	Installation           *NodeInstallationState `json:"installation"`
 	ReviewedVersions       []string               `json:"reviewedVersions"`
 }
 

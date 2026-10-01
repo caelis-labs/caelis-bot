@@ -30,6 +30,7 @@ type NodeRegistration struct {
 	Join                                              api.NodeJoin
 	SSHDestination, Directory, HelperPath, SocketPath string
 	BrokerNodeID                                      string
+	HostHelperPath                                    string
 }
 
 type NodeManagementNativeOptions struct {
@@ -43,6 +44,9 @@ type NodeManagementNativeOptions struct {
 	RuntimeOwner                           nodeplane.RuntimeProofPort
 	OutgoingSSHDestination, JoinHelperPath string
 	ExecutionState                         func() (string, *api.WorkTarget)
+	// Thin APP's Backend belongs to its remote Bot, never local discovery.
+	LocalCodexBinary    string
+	LocalCaelisSettings *api.RuntimeSettings
 }
 
 type nodeManagementDocument struct {
@@ -104,8 +108,51 @@ func AttachNodeManagement(a *Application, options ...NodeManagementNativeOptions
 		ports := map[api.NodeBackend]nodeagent.NativeConfiguration{}
 		ports[api.NodeCodex] = &nodeLocalCodexConfiguration{nodeLocalConfiguration{app: a, backend: api.NodeCodex}}
 		ports[api.NodeCaelis] = &nodeLocalConfiguration{app: a, backend: api.NodeCaelis}
-		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Configurations: ports, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
-			return nodeLocalHealth(ctx, a, b)
+		binaries := map[api.NodeBackend]string{}
+		var localHealth func(context.Context, api.NodeBackend) (nodeagent.NativeHealth, error)
+		if a.product != nil {
+			binary := o.LocalCodexBinary
+			if binary == "" {
+				binary = os.Getenv("CODEX_BIN")
+			}
+			codex := &nodeagent.CodexConfiguration{Directory: localDir, Binary: binary}
+			if binary != "" {
+				if !filepath.IsAbs(binary) {
+					cancel()
+					return errors.New("explicit local Codex executable must be absolute")
+				}
+				binaries[api.NodeCodex] = binary
+			}
+			ports = map[api.NodeBackend]nodeagent.NativeConfiguration{api.NodeCodex: codex}
+			var caelis *nodeagent.CaelisConfiguration
+			if o.LocalCaelisSettings != nil {
+				settings := *o.LocalCaelisSettings
+				if settings.Runtime != "caelis" || settings.CaelisStore == "" || !filepath.IsAbs(settings.CaelisStore) {
+					cancel()
+					return errors.New("explicit local Caelis profile is required")
+				}
+				caelis = &nodeagent.CaelisConfiguration{Settings: settings}
+				ports[api.NodeCaelis] = caelis
+				if settings.CLIPath != "" {
+					binaries[api.NodeCaelis] = settings.CLIPath
+				}
+			}
+			localHealth = func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+				if b == api.NodeCodex {
+					return codex.Health(ctx)
+				}
+				if caelis != nil {
+					return caelis.Health(ctx)
+				}
+				return nodeagent.NativeHealth{}, nil
+			}
+		} else {
+			localHealth = func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+				return nodeLocalHealth(ctx, a, b)
+			}
+		}
+		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Binaries: binaries, Configurations: ports, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+			return localHealth(ctx, b)
 		}})
 		if err != nil {
 			cancel()
@@ -255,7 +302,30 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 	}
 	sort.Slice(c.Nodes, func(i, j int) bool { return c.Nodes[i].ID < c.Nodes[j].ID })
 	c.ActiveBotNodeID = api.LocalNodeID
-	if n.app != nil && n.app.Backend != nil {
+	if n.app != nil && n.app.product != nil {
+		pairing := n.app.product.pairing
+		c.ActiveBotNodeID = pairing.NodeID
+		product := n.app.product
+		product.mu.Lock()
+		binding := ""
+		if !product.closed && product.client != nil && product.connection == "ready" && (product.identity.Capabilities.RuntimeManagement || product.identity.Capabilities.Execution) {
+			binding = product.managementBindingLocked()
+		}
+		product.mu.Unlock()
+		c.PairedRuntime = &api.NodePairedRuntime{NodeID: pairing.NodeID, Binding: binding}
+		c.WorkerTarget = nil // The product-only pairing does not attest Worker routes.
+		found := false
+		for _, node := range c.Nodes {
+			found = found || node.ID == pairing.NodeID
+		}
+		if !found && pairing.NodeID != "" {
+			label := pairing.Label
+			if label == "" {
+				label = "Connected Bot machine"
+			}
+			c.Nodes = append(c.Nodes, api.NodeInfo{ID: pairing.NodeID, Label: label, OS: api.NodeOSUnknown, Join: api.NodeSSH, Runtimes: []api.NodeRuntime{}})
+		}
+	} else if n.app != nil && n.app.Backend != nil {
 		backend := n.app.Backend.ProviderInfo().ID
 		if backend != "" {
 			c.WorkerTarget = &api.WorkTarget{NodeID: api.LocalNodeID, Backend: backend, Role: api.RoleWorker}
@@ -264,6 +334,7 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 	if n.options.ExecutionState != nil {
 		c.ActiveBotNodeID, c.WorkerTarget = n.options.ExecutionState()
 	}
+	sort.Slice(c.Nodes, func(i, j int) bool { return c.Nodes[i].ID < c.Nodes[j].ID })
 	c.Broker = nil
 	if doc.Coordinator != "" {
 		broker := api.NodeBroker{NodeID: doc.Coordinator, Reachable: false, Reason: "broker-unavailable"}
@@ -280,7 +351,8 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 		Broker          *api.NodeBroker
 		ActiveBotNodeID string
 		WorkerTarget    *api.WorkTarget
-	}{strconv.FormatUint(doc.Revision, 10), c.Nodes, c.Broker, c.ActiveBotNodeID, c.WorkerTarget})
+		PairedRuntime   *api.NodePairedRuntime
+	}{strconv.FormatUint(doc.Revision, 10), c.Nodes, c.Broker, c.ActiveBotNodeID, c.WorkerTarget, c.PairedRuntime})
 	digest := sha256.Sum256(data)
 	c.Revision = hex.EncodeToString(digest[:])
 	return c, nodeplane.ValidateCatalog(c)
@@ -356,6 +428,9 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 			return api.NodeAddResult{}, e
 		}
 		reg = NodeRegistration{ID: "node-" + rand.Text(), Label: r.Label, Join: r.Join, SSHDestination: r.SSHDestination, Directory: dir, HelperPath: filepath.Join(dir, "caelis-agent")}
+		if artifact.HostPath != "" {
+			reg.HostHelperPath = filepath.Join(dir, "caelis-node")
+		}
 	} else {
 		reg = NodeRegistration{ID: "node-" + rand.Text(), Label: r.Label, Join: api.NodeOutgoing}
 		var i api.NodeJoinInstructions
@@ -547,6 +622,16 @@ func (n *nativeNodeManagement) SetCoordinator(ctx context.Context, r api.NodeCoo
 		return api.NodeCatalog{}, errors.New("node catalog changed")
 	}
 	n.mu.Lock()
+	if r.NodeID != "" && r.NodeID != api.LocalNodeID {
+		found := false
+		for _, node := range n.document.Nodes {
+			found = found || node.ID == r.NodeID
+		}
+		if !found {
+			n.mu.Unlock()
+			return api.NodeCatalog{}, errors.New("coordinator requires an enrolled node agent")
+		}
+	}
 	next := n.document
 	next.Coordinator = r.NodeID
 	next.Revision++

@@ -52,11 +52,18 @@ type WorkRouter interface {
 // activating user request or existing authorized background occurrence.
 type WorkDispatchSource struct {
 	NodeID, Backend, BindingID, OperationID, Kind string
+	Lease                                         WorkerLeaseGrant `json:"lease,omitzero"`
 }
 
 func (s WorkDispatchSource) Validate() error {
 	if s.NodeID == "" || s.Backend == "" || s.BindingID == "" || s.OperationID == "" || (s.Kind != "user" && s.Kind != "authorized_background" && s.Kind != "native_activation") {
 		return errors.New("work requires an attested resident request source")
+	}
+	if err := s.Lease.Validate(); err != nil {
+		return err
+	}
+	if s.Lease != (WorkerLeaseGrant{}) && (s.Lease.SourceNodeID != s.NodeID || s.Lease.Backend != s.Backend) {
+		return errors.New("worker lease source differs from native invocation")
 	}
 	return nil
 }

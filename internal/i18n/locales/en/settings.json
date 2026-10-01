@@ -297,5 +297,14 @@
   "nodeReviewedVersionHelp": "Choose a reviewed release to install on this node.",
   "nodeCoordinatorHelp": "Choose a node that stays online. Automatic roaming also requires a reachable connection and an eligible runtime.",
   "nodeCoordinatorNone": "Use this Mac directly",
-  "nodeCoordinatorFailed": "The always-on node change was not confirmed. Refresh to check the saved setting."
+  "nodeCoordinatorFailed": "The always-on node change was not confirmed. Refresh to check the saved setting.",
+  "nodePairedProductScope": "Connections and models for the Bot paired with this app.",
+  "nodeOwnerUnavailableReason": "This runtime is not ready to handle this role on the node.",
+  "nodeSharedRuntimeReason": "The Bot cannot safely move between nodes with this shared runtime.",
+  "nodeWindowsWorkerOnlyReason": "On Windows, this runtime can run Workers. Bot hosting is unavailable.",
+  "nodeRoleUnavailableReason": "This role is unavailable on this runtime.",
+  "nodeDetectedProgram": "Detected program",
+  "nodeManagedProgram": "Managed program",
+  "nodeInstallManagedCopy": "Install managed copy",
+  "nodeManagedCopyHelp": "A separate managed copy is installed for this node. The detected program stays available."
 }

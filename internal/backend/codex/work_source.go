@@ -15,12 +15,24 @@ func (s *Session) WorkDispatchSource(ctx context.Context) (api.WorkDispatchSourc
 		return api.WorkDispatchSource{}, err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := s.taskAdmission(); err != nil {
+		s.mu.Unlock()
 		return api.WorkDispatchSource{}, err
 	}
 	source := api.WorkDispatchSource{NodeID: api.LocalNodeID, Backend: "codex", BindingID: s.binding.ThreadID, OperationID: s.run, Kind: "native_activation"}
+	annotate := s.opts.DispatchSource
+	s.mu.Unlock()
+	if annotate != nil {
+		return annotate(ctx, source)
+	}
 	return source, source.Validate()
+}
+
+// ConfigureDispatchSource is native assembly only, before activation.
+func (s *Session) ConfigureDispatchSource(annotate func(context.Context, api.WorkDispatchSource) (api.WorkDispatchSource, error)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.opts.DispatchSource = annotate
 }
 
 var _ api.WorkSourceProvider = (*Session)(nil)

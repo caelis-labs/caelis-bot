@@ -172,7 +172,11 @@ func (s *Service) catalog(ctx context.Context) (api.NodeCatalog, error) {
 	}
 	encoded, _ := json.Marshal(node)
 	hash := sha256.Sum256(encoded)
-	return api.NodeCatalog{Revision: hex.EncodeToString(hash[:]), Nodes: []api.NodeInfo{node}, SelectedNodeID: node.ID, PendingOperations: s.pendingOperations()}, nil
+	pending, err := s.pendingOperations()
+	if err != nil {
+		return api.NodeCatalog{}, err
+	}
+	return api.NodeCatalog{Revision: hex.EncodeToString(hash[:]), Nodes: []api.NodeInfo{node}, SelectedNodeID: node.ID, PendingOperations: pending}, nil
 }
 func (s *Service) detectVersion(ctx context.Context, b api.NodeBackend) (string, error) {
 	path := s.options.Binaries[b]
@@ -245,6 +249,9 @@ func readPrivateJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
+	if err := CheckPrivateDirectory(filepath.Dir(path)); err != nil {
+		return err
+	}
 	if !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 1<<20 {
 		return errors.New("private agent state invalid")
 	}
@@ -280,6 +287,10 @@ func (s *Service) configuration(ctx context.Context, nodeID string, b api.NodeBa
 	out := api.NodeRuntimeConfiguration{Guard: api.NodeEditGuard{NodeID: nodeID, Backend: b}, ReviewedVersions: []string{}}
 	if s.installation != nil {
 		out.InstallerAvailable = true
+		status, err := s.installation.Manage(ctx, runtimemanagement.Request{Action: "detect", Runtime: string(b)})
+		if err == nil && status.Outcome == "accepted" {
+			out.Installation = &api.NodeInstallationState{Installed: status.Installed, Version: status.Version, LatestVersion: status.LatestVersion}
+		}
 		for _, release := range runtimemanagement.Releases() {
 			if release.Arch == runtime.GOARCH && release.Runtime == string(b) {
 				out.ReviewedVersions = append(out.ReviewedVersions, release.Version)
@@ -344,7 +355,13 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 		return result, nil
 	}
 	revision := configuration.Guard.Revision
-	for _, pending := range s.pendingOperations() {
+	pendingOperations, err := s.pendingOperations()
+	if err != nil {
+		result.Outcome = api.NodeUnknown
+		result.Message = "original-journal-unavailable"
+		return result, nil
+	}
+	for _, pending := range pendingOperations {
 		if pending.Backend == r.Ref.Backend {
 			result.Message = "original-operation-pending"
 			return result, nil
@@ -356,9 +373,17 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 		result.Message = "catalog-revision-changed"
 		return result, nil
 	}
-	if r.Installation != nil && r.Installation.Action == api.NodeUpdate && s.installation != nil {
-		observed, err := s.installation.Manage(ctx, runtimemanagement.Request{Action: "detect", Runtime: string(r.Ref.Backend)})
-		if err != nil || !observed.Installed || r.Installation.ExpectedVersion == "" || observed.Version != r.Installation.ExpectedVersion {
+	if r.Installation != nil && (r.Installation.Action == api.NodeUpdate || r.Installation.Action == api.NodeInstall) && s.installation != nil {
+		observed := configuration.Installation
+		conflict := observed == nil
+		if observed != nil {
+			if r.Installation.Action == api.NodeUpdate {
+				conflict = !observed.Installed || r.Installation.ExpectedVersion == "" || observed.Version != r.Installation.ExpectedVersion
+			} else {
+				conflict = observed.Installed || r.Installation.ExpectedVersion != ""
+			}
+		}
+		if conflict {
 			result.Outcome = api.NodeConflicted
 			result.Message = "installation-version-changed"
 			return result, nil
@@ -536,36 +561,43 @@ func (s *Service) ReadRuntimeProof(ctx context.Context, target api.WorkTarget) (
 }
 
 // Only bounded original nonterminal journal references enter presentation.
-func (s *Service) pendingOperations() []api.NodeOperationRef {
+func (s *Service) pendingOperations() ([]api.NodeOperationRef, error) {
 	refs := []api.NodeOperationRef{}
-	directory, err := os.Open(filepath.Join(s.options.Directory, "receipts"))
+	path := filepath.Join(s.options.Directory, "receipts")
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return refs, nil
+	}
+	if err := CheckPrivateDirectory(path); err != nil {
+		return nil, errors.New("original agent journal unavailable")
+	}
+	directory, err := os.Open(path)
 	if err != nil {
-		return refs
+		return nil, errors.New("original agent journal unavailable")
 	}
 	defer directory.Close()
 	entries, err := directory.ReadDir(MaxOperations + 1)
-	if err != nil {
-		return refs
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, errors.New("original agent journal unavailable")
+	}
+	if len(entries) > MaxOperations {
+		return nil, errors.New("original agent journal limit exceeded")
 	}
 	for _, entry := range entries {
-		if len(refs) >= MaxOperations {
-			break
-		}
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
 		var op operation
-		if readPrivateJSON(filepath.Join(s.options.Directory, "receipts", entry.Name()), &op) != nil {
-			continue
+		if readPrivateJSON(filepath.Join(path, entry.Name()), &op) != nil || op.Schema != 1 || op.Request.Ref.NodeID != s.options.NodeID || nodeplane.ValidateManagementRequest(op.Request) != nil {
+			return nil, errors.New("original agent journal cannot be verified")
 		}
-		if op.Schema != 1 || op.Request.Ref.NodeID != s.options.NodeID || nodeplane.ValidateManagementRequest(op.Request) != nil {
-			continue
+		if op.Phase != "intent" && op.Phase != "done" {
+			return nil, errors.New("original agent journal phase unavailable")
 		}
 		if op.Phase == "intent" || op.Receipt.Outcome == api.NodeUnknown {
 			refs = append(refs, op.Request.Ref)
 		}
 	}
-	return refs
+	return refs, nil
 }
 
 // Agent intent publication syncs the containing directory before dispatch.

@@ -24,7 +24,9 @@ import (
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
-		case "serve-broker":
+		case "owned-runtime-watchdog":
+			return runOwnedWatchdog(ctx, args[1:], out)
+		case "serve-broker", "proxy-broker":
 			return runBroker(ctx, args, out)
 		case "serve-agent", "proxy-agent", "join-agent", "verify-join-directory":
 			return runAgent(ctx, args, out)

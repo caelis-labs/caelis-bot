@@ -52,6 +52,7 @@ type messageIntent struct {
 }
 
 type Manager struct {
+	executionAdmission   api.ExecutionAdmission
 	now                  func() time.Time
 	maxRunning           func() int
 	watchlistChanged     func([]api.TaskPreview)
@@ -315,11 +316,21 @@ func prepareWorkspace(root, id string, loc ...i18n.Locale) (string, error) {
 }
 
 func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, error) {
+	ctx, release, err := api.BeginExecution(ctx, m.executionAdmission)
+	if err != nil {
+		return api.Task{}, err
+	}
+	defer release()
 	if !valid(in.RequestID, in.Prompt) || strings.TrimSpace(in.Title) == "" || len(in.Title) > 160 {
 		return api.Task{}, errors.New(m.text("host.taskRequiresParams"))
 	}
 	m.op.Lock()
 	defer m.op.Unlock()
+	if m.executionAdmission != nil {
+		if err := m.executionAdmission.CheckContext(ctx); err != nil {
+			return api.Task{}, err
+		}
+	}
 	if m.paused {
 		return api.Task{}, errors.New(m.text("host.installingUpdateRetryLater"))
 	}
@@ -329,6 +340,11 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	target := localTarget(m.provider)
 	if in.Target != nil {
 		target = *in.Target
+	}
+	if gate, ok := m.executionAdmission.(api.WorkTargetAdmission); ok {
+		if err := gate.CheckWorkTarget(ctx, target); err != nil {
+			return api.Task{}, err
+		}
 	}
 	if e := validateWorkerTarget(target); e != nil {
 		return api.Task{}, e
@@ -358,6 +374,11 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	work, e := m.runtimeFor(target)
 	if e != nil {
 		return api.Task{}, e
+	}
+	if gate, ok := m.executionAdmission.(api.WorkRuntimeAdmission); ok {
+		if err := gate.CheckWorkRuntime(ctx, target, work); err != nil {
+			return api.Task{}, err
+		}
 	}
 	source, e := m.authorizeWork(ctx, target)
 	if e != nil {
@@ -418,6 +439,11 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 		m.mu.Unlock()
 		return v, errors.Join(e, saveErr)
 	}
+	if m.executionAdmission != nil {
+		if err := m.executionAdmission.CheckContext(ctx); err != nil {
+			return m.capture(id, api.Task{}, err)
+		}
+	}
 	in.Target = targetPointer(target)
 	v, e := work.StartWork(ctx, api.WorkStart{TaskStart: in, Source: source, RequestDigest: r.RequestDigest, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions})
 	return m.capture(id, v, e)
@@ -475,11 +501,21 @@ func (m *Manager) ReadTask(ctx context.Context, id string) (api.Task, error) {
 	return v, e
 }
 func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, error) {
+	ctx, release, err := api.BeginExecution(ctx, m.executionAdmission)
+	if err != nil {
+		return api.Task{}, err
+	}
+	defer release()
 	if !valid(in.RequestID, in.Prompt) {
 		return api.Task{}, errors.New(m.text("host.requiresRequestIdAndRequirements"))
 	}
 	m.op.Lock()
 	defer m.op.Unlock()
+	if m.executionAdmission != nil {
+		if err := m.executionAdmission.CheckContext(ctx); err != nil {
+			return api.Task{}, err
+		}
+	}
 	if m.paused {
 		return api.Task{}, errors.New(m.text("host.installingUpdateRetryLater"))
 	}
@@ -506,6 +542,16 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	m.mu.Lock()
 	target := m.state.Records[in.ID].Target
 	m.mu.Unlock()
+	if gate, ok := m.executionAdmission.(api.WorkTargetAdmission); ok {
+		if err := gate.CheckWorkTarget(ctx, target); err != nil {
+			return api.Task{}, err
+		}
+	}
+	if gate, ok := m.executionAdmission.(api.WorkRuntimeAdmission); ok {
+		if err := gate.CheckWorkRuntime(ctx, target, work); err != nil {
+			return api.Task{}, err
+		}
+	}
 	if target != localTarget(m.provider) {
 		in.Source, e = m.authorizeWork(ctx, target)
 		if e != nil {
@@ -522,6 +568,11 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		in.RequestDigest = ""
 	}
 	defer m.notifyWatchlist()
+	if m.executionAdmission != nil {
+		if err := m.executionAdmission.CheckContext(ctx); err != nil {
+			return api.Task{}, err
+		}
+	}
 	v, e := work.SendWork(ctx, in)
 	return m.capture(in.ID, v, e)
 }
@@ -542,8 +593,18 @@ func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
 // DeliverTaskReport is finite: native generation -> one durable dispatch.
 // Uncertain delivery is only reconciled, never automatically resubmitted.
 func (m *Manager) DeliverTaskReport(ctx context.Context) error {
+	ctx, release, err := api.BeginExecution(ctx, m.executionAdmission)
+	if err != nil {
+		return err
+	}
+	defer release()
 	m.op.Lock()
 	defer m.op.Unlock()
+	if m.executionAdmission != nil {
+		if err := m.executionAdmission.CheckContext(ctx); err != nil {
+			return err
+		}
+	}
 	if m.paused {
 		return nil
 	}
