@@ -22,9 +22,10 @@ import (
 )
 
 type client struct {
-	origin, token string
-	http          *http.Client
-	admission     api.ExecutionAdmission
+	origin, token        string
+	http                 *http.Client
+	admission            api.ExecutionAdmission
+	nativeWorkerDispatch api.ExecutionAdmission
 }
 type remoteError struct {
 	Status       int
@@ -62,6 +63,15 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 			release()
 		}
 	}()
+	if method != "GET" && c.nativeWorkerDispatch != nil {
+		workerCtx, workerRelease, workerErr := c.nativeWorkerDispatch.Begin(ctx)
+		if workerErr != nil {
+			return nil, workerErr
+		}
+		ctx = workerCtx
+		previousRelease := release
+		release = func() { workerRelease(); previousRelease() }
+	}
 	var r io.Reader
 	if body != nil {
 		b, e := json.Marshal(body)
@@ -97,6 +107,11 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 	}
 	if c.admission != nil {
 		if err := c.admission.CheckContext(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if method != "GET" && c.nativeWorkerDispatch != nil {
+		if err := c.nativeWorkerDispatch.CheckContext(ctx); err != nil {
 			return nil, err
 		}
 	}

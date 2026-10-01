@@ -125,3 +125,14 @@ native gates; abrupt-owner watchdog fixtures cover isolated processes only, and
 temporary loopback/private-IPC and synthetic owned-process tests do not prove
 those hardware or deployment conditions. Bot skill guidance is unchanged because
 these native pairing and lifecycle controls add no model-facing tool surface.
+
+Owned Caelis Workers use `NewLeasedWorker` with a separate private foreground
+Host and bounded application protocol. Native assembly pins the raw profile Bot
+identity, paired broker, actual source node/backend and Worker target. The private
+dispatch Source retains its exact lease before projection into public Control
+requests. Every new target mutation rechecks the paired broker and renews the
+independent watchdog before sending bytes; a queued or resumed start keeps its
+original Source. Lease expiry, broker loss, suspend revocation or changed epoch
+cancels admission and hard-stops only that owned Host tree. Read-only receipt
+reconciliation does not replay unknown operations. Ordinary shared Host Workers
+report no lease-aware admission capability.
