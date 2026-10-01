@@ -46,13 +46,16 @@ func (b *controlBroker) CurrentLease(context.Context, string) (nodeplane.Lease, 
 }
 
 type controlFixture struct {
-	a                                                  *Application
-	c                                                  *nodeRoamingControl
-	broker                                             *controlBroker
-	client                                             *thinClientFixture
-	local                                              *controlLocalEngine
-	preflight, prepared, staged, disabled, stageClosed atomic.Int32
-	preflightErr, stageErr, disableErr                 error
+	a                                                            *Application
+	c                                                            *nodeRoamingControl
+	broker                                                       *controlBroker
+	client                                                       *thinClientFixture
+	local                                                        *controlLocalEngine
+	preflight, prepared, staged, disabled, stageClosed           atomic.Int32
+	preflightErr, stageErr, disableErr, sourceErr, stageCloseErr error
+	localStarts                                                  atomic.Int32
+	stageCloseHook                                               func()
+	restored                                                     *Application
 }
 
 func roamingControlFixture(t *testing.T) *controlFixture {
@@ -81,7 +84,13 @@ func roamingControlFixture(t *testing.T) *controlFixture {
 					t.Error("missing concrete stopped source proof")
 				}
 			}
-			return NodeRoamingStage{Broker: f.broker, Disable: func(context.Context, string) error { f.disabled.Add(1); return f.disableErr }, Close: func() error { f.stageClosed.Add(1); return nil }}, f.stageErr
+			return NodeRoamingStage{Broker: f.broker, Disable: func(context.Context, string) error { f.disabled.Add(1); return f.disableErr }, Close: func() error {
+				f.stageClosed.Add(1)
+				if f.stageCloseHook != nil {
+					f.stageCloseHook()
+				}
+				return f.stageCloseErr
+			}}, f.stageErr
 		},
 		ResolveProduct: func(context.Context, nodeplane.Lease, NodeRegistration) (NodeRoamingProductLocation, error) {
 			f.client.mu.Lock()
@@ -93,7 +102,8 @@ func roamingControlFixture(t *testing.T) *controlFixture {
 		},
 		RestoreLocal: func(context.Context, NodeRoamingStage) (*Application, error) {
 			engine := &controlLocalEngine{}
-			return &Application{root: t.TempDir(), engine: engine, Backend: backend.NewService(engine, nil, nil, nil, nil)}, nil
+			f.restored = &Application{root: t.TempDir(), engine: engine, Backend: backend.NewService(engine, func([]string) ([]api.InputFile, error) { return nil, nil }, func([]string) {}, nil, nil)}
+			return f.restored, nil
 		},
 	}
 	if err := AttachNodeRoaming(f.a, o); err != nil {
@@ -105,6 +115,7 @@ func roamingControlFixture(t *testing.T) *controlFixture {
 	}
 	f.c = port.(*nodeRoamingControl)
 	f.c.startLocal = func(_ context.Context, a *Application) error {
+		f.localStarts.Add(1)
 		if f.c.doc.Phase != "local" || f.c.doc.Outcome != "accepted" {
 			t.Error("local admission opened before durable disable")
 		}
@@ -125,6 +136,9 @@ func roamingControlFixture(t *testing.T) *controlFixture {
 	}
 	f.c.prepareSource = func(ctx context.Context, id string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error) {
 		f.prepared.Add(1)
+		if f.sourceErr != nil {
+			return nil, nodeplane.SnapshotRef{}, nil, f.sourceErr
+		}
 		ref := nodeplane.SnapshotRef{BotID: "bot-fixture", Epoch: "0", Version: "1", Digest: "fixture"}
 		target := api.WorkTarget{NodeID: id, Backend: "codex", Role: api.RoleBot}
 		return []byte("fixture-only"), ref, &preparedNotebookSource{target: target, ref: ref, generation: "source-generation"}, nil
@@ -200,7 +214,7 @@ func TestNodeRoamingControlSavedUnknownNeverStartsOriginalSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine := &controlLocalEngine{}
-	a := &Application{root: f.a.root, engine: engine, Backend: backend.NewService(engine, nil, nil, nil, nil)}
+	a := &Application{root: f.a.root, engine: engine, Backend: backend.NewService(engine, func([]string) ([]api.InputFile, error) { return nil, nil }, func([]string) {}, nil, nil)}
 	agent := newNodeManagementFixture()
 	agent.catalog.Broker = &api.NodeBroker{NodeID: "local", Reachable: true}
 	a.Backend.SetNodeManagementController(NewNodeManagement(agent, nil))
@@ -314,5 +328,231 @@ func TestNodeRoamingControlUnenrolledOwnerCannotChooseProduct(t *testing.T) {
 	f.c.op.Unlock()
 	if err == nil || f.a.Backend.Snapshot().CanSend {
 		t.Fatal("foreign owner gained a route", err)
+	}
+}
+
+func attachControlRestart(t *testing.T, f *controlFixture, options NodeRoamingOptions) (*Application, *nodeRoamingControl) {
+	t.Helper()
+	engine := &controlLocalEngine{}
+	a := &Application{root: f.a.root, engine: engine, Backend: backend.NewService(engine, func([]string) ([]api.InputFile, error) { return nil, nil }, func([]string) {}, nil, nil)}
+	agent := newNodeManagementFixture()
+	agent.catalog.Broker = &api.NodeBroker{NodeID: "local", Reachable: true}
+	a.Backend.SetNodeManagementController(NewNodeManagement(agent, nil))
+	if err := AttachNodeRoaming(a, options); err != nil {
+		t.Fatal(err)
+	}
+	p, err := backend.NativeNodeRoamingController(a.Backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := p.(*nodeRoamingControl)
+	c.startLocal = f.c.startLocal
+	c.prepareLocalSource = f.c.prepareLocalSource
+	c.clientFactory = f.c.clientFactory
+	t.Cleanup(func() { _ = c.Close() })
+	return a, c
+}
+func TestNodeRoamingControlPartialStageRestartAndReadOnlyReconciliation(t *testing.T) {
+	f := roamingControlFixture(t)
+	f.stageErr = errors.New("persistent owner started but response lost")
+	state, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original"))
+	if err != nil || state.Outcome != "unknown" {
+		t.Fatal(state, err)
+	}
+	saved, err := loadNodeRoamingDocument(f.c.filename())
+	if err != nil || saved.Enabled || saved.Phase != "staging" || !saved.SourceRetiredIntent {
+		t.Fatal(saved, err)
+	}
+	o := f.c.options
+	reads := 0
+	o.Recover = func(_ context.Context, in NodeRoamingRecoveryInput) (NodeRoamingRecovery, error) {
+		reads++
+		if in.OperationID != "enable-original" || in.OperationKind != "enable" || in.StageInput.OperationID != "enable-original" {
+			t.Fatal(in)
+		}
+		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "unknown"}, nil
+	}
+	a, _ := attachControlRestart(t, f, o)
+	owned, err := RestoreNodeRoaming(t.Context(), a)
+	if !owned || err == nil || reads != 1 || f.staged.Load() != 1 || f.prepared.Load() != 1 {
+		t.Fatal("restart replayed uncertain stage", owned, err, reads)
+	}
+	if _, err := a.Backend.EnableNodeRoaming(t.Context(), controlRequest("new-command")); err == nil {
+		t.Fatal("replaced original receipt")
+	}
+	if _, err := a.Backend.Submit(t.Context(), api.Submission{ID: "unsafe", Text: "unsafe"}); err == nil {
+		t.Fatal("original local admitted work")
+	}
+}
+func TestNodeRoamingControlUnknownDisableRestartNeverResumesClaimants(t *testing.T) {
+	f := roamingControlFixture(t)
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+		t.Fatal(err)
+	}
+	f.disableErr = errors.New("owners quiescing but result lost")
+	state, err := f.a.Backend.DisableNodeRoaming(t.Context(), controlRequest("disable-original"))
+	if err != nil || state.Outcome != "unknown" {
+		t.Fatal(state, err)
+	}
+	o := f.c.options
+	o.Recover = func(_ context.Context, in NodeRoamingRecoveryInput) (NodeRoamingRecovery, error) {
+		if in.OperationKind != "disable" || in.OperationID != "disable-original" || in.StageOperationID != "enable-original" || in.Phase != "quiescing" {
+			t.Fatal(in)
+		}
+		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "unknown"}, nil
+	}
+	a, _ := attachControlRestart(t, f, o)
+	owned, err := RestoreNodeRoaming(t.Context(), a)
+	if !owned || err == nil || f.staged.Load() != 1 || f.prepared.Load() != 1 || f.localStarts.Load() != 0 {
+		t.Fatal("disable restart restarted owners/local", owned, err)
+	}
+}
+func TestNodeRoamingControlDisableFailuresKeepFreshLocalAdmissionClosed(t *testing.T) {
+	for _, failure := range []string{"stage-close", "accepted-save"} {
+		t.Run(failure, func(t *testing.T) {
+			f := roamingControlFixture(t)
+			if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+				t.Fatal(err)
+			}
+			if failure == "stage-close" {
+				f.stageCloseErr = errors.New("detach uncertain")
+			} else {
+				f.stageCloseHook = func() {
+					f.stageCloseHook = nil
+					if err := os.Remove(f.c.filename()); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Mkdir(f.c.filename(), 0700); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			state, err := f.a.Backend.DisableNodeRoaming(t.Context(), controlRequest("disable-original"))
+			if err != nil || state.Outcome != "unknown" || f.localStarts.Load() != 0 || f.c.local != nil || f.restored == nil || f.restored.engine.(*controlLocalEngine).closed.Load() != 1 || f.a.Backend.Snapshot().CanSend {
+				t.Fatal("cold candidate admitted during failure", state, err)
+			}
+			if f.c.doc.Phase == "active" {
+				t.Fatal("poller can resume claimants after disable")
+			}
+		})
+	}
+}
+func TestNodeRoamingControlEnableDisableEnableUsesFreshSource(t *testing.T) {
+	f := roamingControlFixture(t)
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.a.Backend.DisableNodeRoaming(t.Context(), controlRequest("disable-original")); err != nil {
+		t.Fatal(err)
+	}
+	fresh := f.c.local
+	sourceSelected := false
+	f.c.prepareLocalSource = func(ctx context.Context, a *Application, id string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error) {
+		sourceSelected = a == fresh && a != f.a
+		return f.c.prepareSource(ctx, id)
+	}
+	state, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-next"))
+	if err != nil || state.Outcome != "accepted" || !state.Enabled || !sourceSelected || f.c.local != nil || f.staged.Load() != 2 || fresh.engine.(*controlLocalEngine).closed.Load() != 1 {
+		t.Fatal("second enable reused retired source", state, err)
+	}
+}
+func TestNodeRoamingControlDisabledRestartUsesRecordedFreshLocalGeneration(t *testing.T) {
+	f := roamingControlFixture(t)
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.a.Backend.DisableNodeRoaming(t.Context(), controlRequest("disable-original")); err != nil {
+		t.Fatal(err)
+	}
+	dir := f.c.local.root
+	o := f.c.options
+	engine := &controlLocalEngine{}
+	o.Recover = func(_ context.Context, in NodeRoamingRecoveryInput) (NodeRoamingRecovery, error) {
+		if in.LocalGenerationDirectory != dir || in.OperationID != "disable-original" || in.Phase != "local" {
+			t.Fatal(in)
+		}
+		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "accepted", Phase: "local", Local: &Application{root: dir, engine: engine, Backend: backend.NewService(engine, func([]string) ([]api.InputFile, error) { return nil, nil }, func([]string) {}, nil, nil)}}, nil
+	}
+	a, c := attachControlRestart(t, f, o)
+	owned, err := RestoreNodeRoaming(t.Context(), a)
+	if !owned || err != nil || c.local == nil || c.local.root != dir || c.proxy.Current() != engine {
+		t.Fatal("disabled restart reverted original root", owned, err)
+	}
+	if _, err := a.Backend.Submit(t.Context(), api.Submission{ID: "fresh-local", Text: "fixture"}); err != nil || engine.submits.Load() != 1 || a.engine.(*controlLocalEngine).submits.Load() != 0 {
+		t.Fatal("restored generation not active", err)
+	}
+	state, err := a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-after-restart"))
+	if err != nil || !state.Enabled || state.Outcome != "accepted" || c.local != nil || f.staged.Load() != 2 {
+		t.Fatal("restart cycle failed to enable current fresh generation", state, err)
+	}
+}
+func TestNodeRoamingControlSourcePreflightRejectsWithoutPermanentUnknown(t *testing.T) {
+	f := roamingControlFixture(t)
+	f.sourceErr = ErrNodeRoamingPreflight
+	state, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("busy-original"))
+	if err != nil || state.Outcome != "rejected" || state.Enabled || f.c.doc.SourceRetiredIntent || f.staged.Load() != 0 {
+		t.Fatal(state, err)
+	}
+	if _, err := f.a.Backend.Submit(t.Context(), api.Submission{ID: "continue-local", Text: "fixture"}); err != nil || f.local.submits.Load() != 1 {
+		t.Fatal("safe refusal froze local", err)
+	}
+	f.sourceErr = nil
+	if state, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("retry-new")); err != nil || state.Outcome != "accepted" {
+		t.Fatal(state, err)
+	}
+}
+func TestNodeRoamingControlCorruptIntentDoesNotPartiallyInstallWrapper(t *testing.T) {
+	engine := &controlLocalEngine{}
+	a := &Application{root: t.TempDir(), engine: engine, Backend: backend.NewService(engine, func([]string) ([]api.InputFile, error) { return nil, nil }, func([]string) {}, nil, nil)}
+	a.Backend.SetNodeManagementController(NewNodeManagement(newNodeManagementFixture(), nil))
+	path := filepath.Join(a.root, "nodeplane", "roaming.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":1,"enabled":true,"extra":"unexpected"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := AttachNodeRoaming(a, NodeRoamingOptions{}); err == nil {
+		t.Fatal("corrupt intent accepted")
+	}
+	if _, err := a.Backend.Submit(t.Context(), api.Submission{ID: "local", Text: "fixture"}); err != nil || engine.submits.Load() != 1 {
+		t.Fatal("failed attach mutated facade", err)
+	}
+	if _, err := backend.NativeNodeRoamingController(a.Backend); err == nil {
+		t.Fatal("partially installed controller")
+	}
+}
+
+func TestNodeRoamingControlUnknownDisableCannotReconnectToActiveOwner(t *testing.T) {
+	f := roamingControlFixture(t)
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+		t.Fatal(err)
+	}
+	f.disableErr = errors.New("disable unknown")
+	if _, err := f.a.Backend.DisableNodeRoaming(t.Context(), controlRequest("disable-original")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.c.Reconnect(t.Context()); err == nil {
+		t.Fatal("reconnect bypassed quiescing intent")
+	}
+}
+func TestNodeRoamingControlCoordinatorGuardBlocksChangesButNotViewSelection(t *testing.T) {
+	f := roamingControlFixture(t)
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"", "node-fixture"} {
+		if _, err := f.a.Backend.SetNodeCoordinator(t.Context(), api.NodeCoordinatorSelection{NodeID: id, ExpectedRevision: "catalog-1"}); err == nil {
+			t.Fatal("coordinator changed while active", id)
+		}
+		if err := GuardNodeRoamingCoordinator(f.a, id); err == nil {
+			t.Fatal("native coordinator barrier bypassed", id)
+		}
+	}
+	if _, err := f.a.Backend.SetNodeCoordinator(t.Context(), api.NodeCoordinatorSelection{NodeID: "local", ExpectedRevision: "catalog-1"}); err != nil {
+		t.Fatal("same coordinator refused", err)
+	}
+	if _, err := f.a.Backend.SelectNode(t.Context(), "node-fixture", "catalog-1"); err != nil {
+		t.Fatal("view selection blocked", err)
 	}
 }
