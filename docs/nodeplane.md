@@ -37,6 +37,12 @@ compare-and-swap. A completion applies only if `MatchesEdit` still matches the
 captured Node, backend and revision; otherwise the receipt is retained without
 changing the newly selected view.
 
+`NodeRuntimeConfiguration.installation` is the native managed installer state,
+independent of a Runtime discovered on PATH. A null state is unavailable or
+unknown and disables installation writes. A known uninstalled state selects
+`install` with an empty expected version; a known installed state selects
+`update` with its exact managed version. Reviewed versions remain authoritative.
+
 Every mutation has an original `NodeOperationRef`: Node, backend, operation ID
 and semantic request digest. Persist it and the exact intent before dispatch.
 The journal is scoped to the exact Node/backend and rejects a reused ID with a
