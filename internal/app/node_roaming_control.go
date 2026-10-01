@@ -71,6 +71,7 @@ type NodeRoamingOptions struct {
 	RefreshNodeManagement *NodeManagementNativeOptions
 }
 type nodeRoamingDocument struct {
+	SourceBackend            string `json:"sourceBackend,omitempty"`
 	Phase                    string `json:"phase"`
 	OperationKind            string `json:"operationKind"`
 	StageOperationID         string `json:"stageOperationId"`
@@ -150,6 +151,11 @@ func AttachNodeRoaming(a *Application, o NodeRoamingOptions) error {
 		a.Backend.RollbackNodeRoamingEngine(proxy)
 		return err
 	}
+	if doc.Enabled || doc.Outcome == "unknown" || doc.LocalGenerationDirectory != "" {
+		if err := a.Backend.ActivateNodeRoamingProduct(roamingWaitingEngine{}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 func loadNodeRoamingDocument(filename string) (nodeRoamingDocument, error) {
@@ -199,6 +205,9 @@ func loadNodeRoamingDocument(filename string) (nodeRoamingDocument, error) {
 	if doc.Phase == "active" && (!doc.Enabled || doc.StageOperationID == "" || doc.BotID == "" || !doc.SourceRetiredIntent) {
 		return doc, errors.New("incomplete active roaming authority")
 	}
+	if doc.SourceBackend != "" && doc.SourceBackend != "codex" && doc.SourceBackend != "caelis" {
+		return doc, errors.New("invalid original source backend")
+	}
 	if doc.LocalGenerationDirectory != "" && (!filepath.IsAbs(doc.LocalGenerationDirectory) || filepath.Clean(doc.LocalGenerationDirectory) != doc.LocalGenerationDirectory) {
 		return doc, errors.New("invalid restored local generation")
 	}
@@ -209,7 +218,7 @@ func (c *nodeRoamingControl) filename() string {
 }
 
 // RestoreNodeRoaming is invoked by native startup before original APP Start.
-// Only durable explicit enablement can start the staged native hosts again.
+// Recovery and resume only reconnect to confirmed native ownership; they never launch hosts.
 func RestoreNodeRoaming(ctx context.Context, a *Application) (bool, error) {
 	port, err := backend.NativeNodeRoamingController(a.Backend)
 	if err != nil {
@@ -278,6 +287,9 @@ func (c *nodeRoamingControl) currentState(ctx context.Context) (backend.NodeRoam
 	return c.state, nil
 }
 func (c *nodeRoamingControl) setState(state, reason string) {
+	if state == "unknown" {
+		c.doc.Outcome = "unknown"
+	}
 	c.mu.Lock()
 	c.state.State, c.state.Reason = state, reason
 	c.mu.Unlock()
@@ -310,7 +322,16 @@ func (c *nodeRoamingControl) input(ctx context.Context, r backend.NodeRoamingReq
 	if coordinator.ID == "" {
 		return NodeRoamingStageInput{}, errors.New("coordinator is not enrolled")
 	}
-	return NodeRoamingStageInput{ReviewedPlanID: r.ReviewedPlanID, AllowPersistentExecution: r.AllowPersistentExecution, OperationID: r.ID, Coordinator: coordinator, Nodes: regs, SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleBot}}, nil
+	source := ActiveNodeRoamingApplication(c.app)
+	nativeProvider, ok := source.engine.(api.Provider)
+	if !ok {
+		return NodeRoamingStageInput{}, errors.New("local source provider unavailable")
+	}
+	provider := nativeProvider.ProviderInfo().ID
+	if provider != "codex" && provider != "caelis" {
+		return NodeRoamingStageInput{}, errors.New("local source backend does not support native roaming")
+	}
+	return NodeRoamingStageInput{ReviewedPlanID: r.ReviewedPlanID, AllowPersistentExecution: r.AllowPersistentExecution, OperationID: r.ID, Coordinator: coordinator, Nodes: regs, SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: provider, Role: api.RoleBot}}, nil
 }
 func (c *nodeRoamingControl) EnableNodeRoaming(ctx context.Context, r backend.NodeRoamingRequest) (backend.NodeRoamingState, error) {
 	c.op.Lock()
@@ -336,7 +357,7 @@ func (c *nodeRoamingControl) EnableNodeRoaming(ctx context.Context, r backend.No
 	if plan.ID == "" || plan.CoordinatorNodeID != input.Coordinator.ID || plan.ID != r.ReviewedPlanID || !r.AllowPersistentExecution {
 		return state, errors.New("review the native deployment plan before enabling")
 	}
-	c.doc = nodeRoamingDocument{LocalGenerationDirectory: c.doc.LocalGenerationDirectory, Phase: "preparing", OperationKind: "enable", StageOperationID: r.ID, ReviewedPlanID: r.ReviewedPlanID, AllowPersistentExecution: r.AllowPersistentExecution, Version: 1, CoordinatorNodeID: input.Coordinator.ID, OperationID: r.ID, Outcome: "unknown"}
+	c.doc = nodeRoamingDocument{SourceBackend: input.SourceTarget.Backend, LocalGenerationDirectory: c.doc.LocalGenerationDirectory, Phase: "preparing", OperationKind: "enable", StageOperationID: r.ID, ReviewedPlanID: r.ReviewedPlanID, AllowPersistentExecution: r.AllowPersistentExecution, Version: 1, CoordinatorNodeID: input.Coordinator.ID, OperationID: r.ID, Outcome: "unknown"}
 	if err := c.save(); err != nil {
 		return state, err
 	}
@@ -350,7 +371,10 @@ func (c *nodeRoamingControl) EnableNodeRoaming(ctx context.Context, r backend.No
 		if errors.Is(err, ErrNodeRoamingPreflight) {
 			c.doc.Outcome = "rejected"
 			c.doc.Phase = "local"
-			_ = c.save()
+			if saveErr := c.save(); saveErr != nil {
+				c.setState("unknown", "intent-write-unconfirmed")
+				return c.currentState(ctx)
+			}
 			c.mu.Lock()
 			c.state.Outcome = "rejected"
 			c.state.State = "disabled"
@@ -393,6 +417,7 @@ func (c *nodeRoamingControl) EnableNodeRoaming(ctx context.Context, r backend.No
 			c.state.Reason = "source-not-eligible"
 			c.mu.Unlock()
 		} else {
+			_ = c.withdrawObserver("source-retirement-unconfirmed")
 			c.setState("unknown", "source-retirement-unconfirmed")
 		}
 		return c.currentState(ctx)
@@ -403,6 +428,7 @@ func (c *nodeRoamingControl) EnableNodeRoaming(ctx context.Context, r backend.No
 		c.local = nil
 		c.mu.Unlock()
 	}
+	_ = c.withdrawObserver("native-stage-preparing")
 	c.doc.Phase = "staging"
 	c.doc.BotID = input.Snapshot.BotID
 	input.BotID = c.doc.BotID
@@ -577,7 +603,11 @@ func (c *nodeRoamingControl) recoveryInput() (NodeRoamingRecoveryInput, error) {
 	if coordinator.ID == "" {
 		return NodeRoamingRecoveryInput{}, errors.New("original coordinator enrollment unavailable")
 	}
-	return NodeRoamingRecoveryInput{StageInput: NodeRoamingStageInput{OperationID: c.doc.StageOperationID, BotID: c.doc.BotID, Coordinator: coordinator, Nodes: regs, SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleBot}, ReviewedPlanID: c.doc.ReviewedPlanID, AllowPersistentExecution: c.doc.AllowPersistentExecution, Resume: true}, OperationID: c.doc.OperationID, StageOperationID: c.doc.StageOperationID, OperationKind: c.doc.OperationKind, Phase: c.doc.Phase, SourceRetiredIntent: c.doc.SourceRetiredIntent, LocalGenerationDirectory: c.doc.LocalGenerationDirectory}, nil
+	sourceBackend := c.doc.SourceBackend
+	if sourceBackend == "" {
+		sourceBackend = "codex"
+	}
+	return NodeRoamingRecoveryInput{StageInput: NodeRoamingStageInput{OperationID: c.doc.StageOperationID, BotID: c.doc.BotID, Coordinator: coordinator, Nodes: regs, SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: sourceBackend, Role: api.RoleBot}, ReviewedPlanID: c.doc.ReviewedPlanID, AllowPersistentExecution: c.doc.AllowPersistentExecution, Resume: true}, OperationID: c.doc.OperationID, StageOperationID: c.doc.StageOperationID, OperationKind: c.doc.OperationKind, Phase: c.doc.Phase, SourceRetiredIntent: c.doc.SourceRetiredIntent, LocalGenerationDirectory: c.doc.LocalGenerationDirectory}, nil
 }
 func (c *nodeRoamingControl) recoverOriginal(ctx context.Context) error {
 	if c.options.Recover == nil {
@@ -622,6 +652,13 @@ func (c *nodeRoamingControl) recoverOriginal(ctx context.Context) error {
 		c.startObserver()
 		_ = c.followOwner(ctx)
 	case result.Outcome == "accepted" && result.Phase == "local" && result.Local != nil && result.Local != c.app:
+		result.Local.mu.Lock()
+		started := result.Local.started
+		result.Local.mu.Unlock()
+		if started {
+			_ = result.Local.Close()
+			return errors.New("recovered local candidate already active")
+		}
 		c.doc.Enabled = false
 		c.doc.Phase = "local"
 		c.doc.LocalGenerationDirectory = result.Local.root
@@ -632,6 +669,8 @@ func (c *nodeRoamingControl) recoverOriginal(ctx context.Context) error {
 		}
 		if err := c.installLocal(ctx, result.Local); err != nil {
 			_ = result.Local.Close()
+			c.setState("unknown", "local-start-unconfirmed")
+			_ = c.save()
 			return err
 		}
 		c.mu.Lock()
@@ -642,6 +681,11 @@ func (c *nodeRoamingControl) recoverOriginal(ctx context.Context) error {
 		c.state.Reason = ""
 		c.mu.Unlock()
 	case result.Outcome == "rejected" && result.Phase == "source-active":
+		if c.proxy.Current() != c.app.engine {
+			if err := c.app.Backend.ActivateNodeRoamingProduct(c.app.engine); err != nil {
+				return err
+			}
+		}
 		c.doc.Enabled = false
 		c.doc.Phase = "local"
 		c.doc.SourceRetiredIntent = false
@@ -849,6 +893,10 @@ func (roamingWaitingEngine) Decide(context.Context, api.Decision) error {
 	return errors.New("no verified owner")
 }
 func (roamingWaitingEngine) Close(context.Context) error { return nil }
+func (roamingWaitingEngine) Draft() api.Draft            { return api.Draft{} }
+func (roamingWaitingEngine) SaveDraft(api.Draft) (api.Draft, error) {
+	return api.Draft{}, errors.New("awaiting verified native owner")
+}
 
 func (c *nodeRoamingControl) PrepareNodeRoaming(ctx context.Context, r backend.NodeRoamingRequest) (backend.NodeRoamingPlan, error) {
 	c.op.Lock()
@@ -882,7 +930,7 @@ func (c *nodeRoamingControl) SavePairing(backend.ProductPairing, uint64) (backen
 func (c *nodeRoamingControl) Reconnect(ctx context.Context) error {
 	c.op.Lock()
 	defer c.op.Unlock()
-	if !c.doc.Enabled || c.stage.Broker == nil {
+	if !c.doc.Enabled || c.doc.Phase != "active" || c.doc.Outcome == "unknown" || c.stage.Broker == nil {
 		return errors.New("automatic roaming unavailable")
 	}
 	return c.followOwner(ctx)

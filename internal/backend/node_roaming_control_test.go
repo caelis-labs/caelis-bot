@@ -161,3 +161,36 @@ func TestNodeRoamingBoundaryConcurrentReadersAndNativeReplacement(t *testing.T) 
 	}
 	wg.Wait()
 }
+
+type roamingBoundedEngine struct{ roamingBoundaryEngine }
+
+func (*roamingBoundedEngine) Snapshot() api.Snapshot {
+	panic("bounded projection visited full history")
+}
+func (*roamingBoundedEngine) Revision() uint64 { return 7 }
+func (*roamingBoundedEngine) RecentSnapshot() api.Snapshot {
+	return api.Snapshot{Revision: 7, Connection: "recent"}
+}
+func (*roamingBoundedEngine) ComposerSnapshot() api.Snapshot {
+	return api.Snapshot{Revision: 7, Connection: "composer"}
+}
+func TestNodeRoamingBoundaryPreservesBoundedNativeProjections(t *testing.T) {
+	s := NewService(&roamingBoundedEngine{}, nil, nil, nil, nil)
+	proxy, err := s.PrepareNodeRoamingEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxy.Revision() != 7 || proxy.RecentSnapshot().Connection != "recent" || proxy.ComposerSnapshot().Connection != "composer" {
+		t.Fatal("native bounded port lost")
+	}
+	if err := proxy.Replace(&roamingBoundedEngine{}); err != nil {
+		t.Fatal(err)
+	}
+	revision := uint64(7) + (1 << 32)
+	if proxy.Revision() != revision || proxy.RecentSnapshot().Revision != revision || proxy.ComposerSnapshot().Revision != revision {
+		t.Fatal("bounded swap revision lost")
+	}
+	if s.ComposerSnapshot().Revision != revision {
+		t.Fatal("service lost bounded native composer")
+	}
+}
