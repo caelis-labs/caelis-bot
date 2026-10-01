@@ -61,6 +61,7 @@ type Application struct {
 	root               string
 	mu                 sync.Mutex
 	started, closed    bool
+	sourceRetired      bool
 	cancel             context.CancelFunc
 	workers            sync.WaitGroup
 	companion          *bot.Runtime
@@ -208,6 +209,9 @@ func (a *Application) PreparePersonal() error {
 func (a *Application) preparePersonalLocked() error {
 	if a.closed {
 		return errors.New(a.text("host.appStopped"))
+	}
+	if a.sourceRetired {
+		return errors.New("original native source was retired for roaming")
 	}
 	if a.personal != nil {
 		return nil
