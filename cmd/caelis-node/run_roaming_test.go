@@ -312,7 +312,7 @@ func testManagedForeground(t *testing.T, disable, startManaged bool) {
 		t.Fatal(e)
 	}
 	defer agentClient.Close()
-	if !startManaged {
+	{
 		config, e := agentClient.Configuration(ctx, target.NodeID, api.NodeCodex)
 		if e != nil || !config.ConfigurationAvailable || len(config.Configuration.Revision) != 64 {
 			t.Fatalf("active configuration %+v %v", config, e)

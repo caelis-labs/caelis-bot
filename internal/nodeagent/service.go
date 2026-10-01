@@ -276,6 +276,11 @@ func (s *Service) configuration(ctx context.Context, nodeID string, b api.NodeBa
 	if nodeID != s.options.NodeID || !backend(b) {
 		return api.NodeRuntimeConfiguration{}, errors.New("configuration scope changed")
 	}
+	if managed, ok := s.options.ManagedStart.(ManagedConfigurationPort); ok {
+		if configuration, delegated, err := managed.ReadManagedConfiguration(ctx, nodeID, b); delegated {
+			return configuration, err
+		}
+	}
 	port := s.options.Configurations[b]
 	out := api.NodeRuntimeConfiguration{Guard: api.NodeEditGuard{NodeID: nodeID, Backend: b}, ReviewedVersions: []string{}}
 	if s.installation != nil {
@@ -320,6 +325,13 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 	result := api.NodeOperationReceipt{Ref: r.Ref, Outcome: api.NodeRejected, Message: "invalid-command"}
 	if !validRequest(r) || r.Ref.NodeID != s.options.NodeID {
 		return result, nil
+	}
+	if r.Change != nil {
+		if managed, ok := s.options.ManagedStart.(ManagedConfigurationPort); ok {
+			if receipt, delegated, err := managed.ChangeManagedConfiguration(ctx, r); delegated {
+				return receipt, err
+			}
+		}
 	}
 	path := s.operationPath(r.Ref.OperationID)
 	var prior operation
