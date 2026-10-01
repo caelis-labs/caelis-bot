@@ -99,10 +99,6 @@ func TestJoinedDeploymentUsesPairedAgentAndDetachedProductionSupervisor(t *testi
 	if e = os.Mkdir(bins, 0700); e != nil {
 		t.Fatal(e)
 	}
-	// This isolated authorization fixture never contacts a real machine.
-	if e = os.WriteFile(filepath.Join(bins, "ssh"), []byte("#!/bin/sh\nexit 0\n"), 0700); e != nil {
-		t.Fatal(e)
-	}
 	t.Setenv("PATH", bins+string(os.PathListSeparator)+os.Getenv("PATH"))
 	service, e := nodeagent.New(nodeagent.Options{Directory: directory, NodeID: "nat-node", Join: api.NodeOutgoing, Binaries: map[api.NodeBackend]string{api.NodeCodex: "/usr/bin/true"}})
 	if e != nil {
@@ -136,6 +132,16 @@ func TestJoinedDeploymentUsesPairedAgentAndDetachedProductionSupervisor(t *testi
 	slot := filepath.Join(directory, "roaming-"+nativeRoamingKey(op))
 	planID := strings.Repeat("a", 64)
 	m := &NodeRoamingManagedDeployment{BotID: "fixture-bot", NodeID: "nat-node", Backend: "codex", CodexBinary: "/usr/bin/true", AgentDirectory: filepath.Join(slot, "agent"), GenerationRoot: filepath.Join(slot, "generations"), AuthFile: filepath.Join(slot, "product.token"), WorkersFile: filepath.Join(slot, "workers.json"), BrokerNodeID: "coordinator", BrokerSocket: "/private/broker.sock", BrokerSSHDestination: route.Target, BrokerHelper: "/existing/caelis-node", JoinSSHDestination: route.Target, JoinHelper: route.Helper, JoinDirectory: "/private/roaming-joins/nat-node"}
+	// This paired plan freezes the existing coordinator enrollment separately
+	// from its reverse-join directory. The isolated SSH fixture owns transport.
+	m.CoordinatorIdentity = &nodeagent.NativeEnrollmentIdentity{NodeID: "coordinator", Directory: "/private/coordinator-enrollment"}
+	// Accept only the closed identity verification for this original route.
+	// The contained fixture never contacts or adopts a real coordinator.
+	verification := "'/existing/caelis-agent' verify-join-directory --directory '/private/coordinator-enrollment' --node-id 'coordinator'"
+	ssh := "#!/bin/sh\nprevious=\nlast=\nfor arg in \"$@\"; do previous=$last; last=$arg; done\n[ \"$previous\" = 'existing-coordinator' ] || exit 91\n[ \"$last\" = " + nodeShellQuote(verification) + " ] || exit 92\n"
+	if e = os.WriteFile(filepath.Join(bins, "ssh"), []byte(ssh), 0700); e != nil {
+		t.Fatal(e)
+	}
 	p := NodeRoamingSupervisorPlan{Version: 1, PlanID: planID, OperationID: op, NodeID: "nat-node", Helper: helper, HelperSHA256: metadata.Metadata.HelperSHA256, Directory: slot, Managed: m}
 	wire, e := json.Marshal(p)
 	if e != nil {
@@ -145,6 +151,19 @@ func TestJoinedDeploymentUsesPairedAgentAndDetachedProductionSupervisor(t *testi
 	request := nodeagent.RoamingDeploymentRequest{NodeID: "nat-node", Action: "preflight", OperationID: op, PlanID: planID, Plan: wire, Workers: workers, Preferences: &nodeagent.ExecutionPreferences{Schema: 1, Revision: 1}}
 	if result, e := client.RoamingDeployment(t.Context(), request); e != nil || result.Outcome != "accepted" {
 		t.Fatal("paired preflight", result, e)
+	}
+	missingIdentity := p
+	unboundManaged := *m
+	unboundManaged.CoordinatorIdentity = nil
+	missingIdentity.Managed = &unboundManaged
+	unboundWire, e := json.Marshal(missingIdentity)
+	if e != nil {
+		t.Fatal(e)
+	}
+	unboundRequest := request
+	unboundRequest.Plan = unboundWire
+	if _, e = client.RoamingDeployment(t.Context(), unboundRequest); e == nil {
+		t.Fatal("paired preflight adopted a plan without coordinator enrollment identity")
 	}
 	if _, e = os.Stat(slot); !os.IsNotExist(e) {
 		t.Fatal("preflight wrote supervisor slot", e)

@@ -416,6 +416,9 @@ func TestDefaultNativeCatalogueAfterDisableKeepsTopologyAndNextPlan(t *testing.T
 	if e := os.WriteFile(helper, []byte("reviewed fixture bytes"), 0700); e != nil {
 		t.Fatal(e)
 	}
+	// The control fixture exercises lifecycle alone. Plan preparation also
+	// requires the real native enrollment port, as production construction does.
+	f.a.Backend.SetNodeManagementController(nativeLocalEnrollmentManagementFixture(t))
 	defaults := DefaultNodeRoamingOptions(f.a, NodeRoamingNativeOptions{Host: func() (string, error) { return helper, nil }})
 	backendIdentity := f.a.Backend
 	if e := AttachNodeManagement(f.a, *defaults.RefreshNodeManagement); e != nil {
