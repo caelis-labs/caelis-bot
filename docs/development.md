@@ -87,7 +87,16 @@ history reopening. It also offers Dream/running/approval/completion controls and
 surfaces to inspect napping, input priority and status cleanup. Its capture button saves `.cache/chat-preview.png` and `.cache/chat-preview.png.json`
 (frame text/timing, control state, scroll position and final HTML). Both previews use synthetic data and never
 connect to the daily Bot or call a model. `--terminal-smoke` uses synthetic scripts without
-loading the Bot store/model. Observe physical focus/hit regions and light/dark appearance before claiming visual
+loading the Bot store/model. After building, run `script/build_and_run.sh --terminal-smoke terminal`
+in an idle disposable checkout; use `iterm2` or `ghostty` for those installed terminals.
+An optional `--confirm-open` or `--confirm-close` argument immediately after `--terminal-smoke`
+exercises manual cancellation/retry.
+The launcher replaces only the checkout bundle's existing process. The fixture explicitly stamps a
+local synthetic Worker binding, starts its own temporary client, ends that client, normally quits only
+its owned terminal instances and removes its temporary directory. It exercises the production
+WindowManager/native terminal driver, without creating task records. It does not exercise Bot delegation
+or TaskDock-to-Worker routing; `--task-dock-preview` uses simulated terminal windows separately.
+Observe physical focus/hit regions and light/dark appearance before claiming visual
 acceptance. Avoid logging credentials or full private conversations. Generated `.cache` logs are local evidence,
 not public reproducibility prerequisites.
 
