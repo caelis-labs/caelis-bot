@@ -47,6 +47,7 @@ type Options struct {
 	Configurations                             map[api.NodeBackend]NativeConfiguration
 	RuntimeOwner                               nodeplane.RuntimeProofPort
 	WorkerProxy                                *NativeWorkerProxy
+	OwnedRuntimeSettings                       func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error)
 }
 
 const MaxOperations = 4096
