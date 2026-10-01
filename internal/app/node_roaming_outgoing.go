@@ -269,6 +269,16 @@ func (n *roamingNativeAssembly) stageOutgoingCompanion(ctx context.Context, x ro
 	}
 
 	defer close()
+	metadata, e := port.RoamingDeployment(ctx, nodeagent.RoamingDeploymentRequest{NodeID: x.Registration.ID, Action: "metadata"})
+	if e != nil || metadata.Metadata == nil || metadata.Metadata.Helper != x.HostHelper {
+		return errors.Join(errors.New("original outgoing companion pairing changed"), e)
+	}
+	if metadata.Metadata.HelperSHA256 != "" {
+		if metadata.Metadata.HelperSHA256 != x.Plan.HelperSHA256 {
+			return errors.New("original outgoing companion bytes changed")
+		}
+		return nil
+	}
 	f, e := os.Open(artifact.HostPath)
 	if e != nil {
 		return e
