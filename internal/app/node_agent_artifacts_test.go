@@ -15,6 +15,7 @@ func TestNodeAgentArtifactRejectsMixedSourceChangedBytesAndArchitecture(t *testi
 	directory := t.TempDir()
 	revision := strings.Repeat("a", 40)
 	name := "caelis-agent-linux-amd64"
+	hostName := "caelis-node-linux-amd64"
 	data := make([]byte, 64)
 	copy(data, "\x7fELF")
 	data[4] = 2
@@ -22,7 +23,10 @@ func TestNodeAgentArtifactRejectsMixedSourceChangedBytesAndArchitecture(t *testi
 	binary.LittleEndian.PutUint16(data[16:18], 2)
 	binary.LittleEndian.PutUint16(data[18:20], 62)
 	h := sha256.Sum256(data)
-	manifest := nodeAgentManifest{Version: 1, SourceRevision: revision, Artifacts: []nodeAgentManifestEntry{{OS: "linux", Arch: "amd64", File: name, SHA256: hex.EncodeToString(h[:])}}}
+	manifest := nodeAgentManifest{Version: 1, SourceRevision: revision, Artifacts: []nodeAgentManifestEntry{
+		{OS: "linux", Arch: "amd64", File: name, SHA256: hex.EncodeToString(h[:])},
+		{OS: "linux", Arch: "amd64", File: hostName, SHA256: hex.EncodeToString(h[:])},
+	}}
 	writeManifest := func() {
 		t.Helper()
 		b, err := json.Marshal(manifest)
@@ -37,9 +41,21 @@ func TestNodeAgentArtifactRejectsMixedSourceChangedBytesAndArchitecture(t *testi
 	if err := os.WriteFile(filepath.Join(directory, name), data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readNodeAgentArtifact(directory, "amd64", revision); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, hostName), data, 0700); err != nil {
 		t.Fatal(err)
 	}
+	if result, err := readNodeAgentArtifact(directory, "amd64", revision); err != nil {
+		t.Fatal(err)
+	} else if result.HostPath != filepath.Join(directory, hostName) || result.HostExpectedSHA256 == "" {
+		t.Fatal("verified host companion omitted")
+	}
+	manifest.Artifacts = manifest.Artifacts[:1]
+	writeManifest()
+	if _, err := readNodeAgentArtifact(directory, "amd64", revision); err == nil {
+		t.Fatal("incomplete host/agent package accepted")
+	}
+	manifest.Artifacts = append(manifest.Artifacts, nodeAgentManifestEntry{OS: "linux", Arch: "amd64", File: hostName, SHA256: hex.EncodeToString(h[:])})
+	writeManifest()
 	if _, err := readNodeAgentArtifact(directory, "amd64", strings.Repeat("b", 40)); err == nil {
 		t.Fatal("mixed APP/helper source accepted")
 	}
