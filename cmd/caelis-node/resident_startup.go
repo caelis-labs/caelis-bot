@@ -21,7 +21,7 @@ func (s *selectedWorkers) String() string {
 	return strings.Join(values, ",")
 }
 
-var startupNodeID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
+var startupNodeID = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,63}$`)
 
 func (s *selectedWorkers) Set(value string) error {
 	parts := strings.Split(value, "/")
