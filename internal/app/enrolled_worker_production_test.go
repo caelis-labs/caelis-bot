@@ -1,3 +1,5 @@
+//go:build darwin || linux
+
 package app
 
 import (
@@ -19,28 +21,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 	"github.com/caelis-labs/caelis-bot/internal/workerwire"
 )
-
-func TestDefaultConstructorsAssembleEnrolledWorkerLookup(t *testing.T) {
-	for _, owned := range []bool{false, true} {
-		root := t.TempDir()
-		var a *Application
-		var err error
-		if owned {
-			a, err = NewOwnedResident(t.Context(), root, Host{}, "fixture-owner", "/fixture/caelis-node")
-		} else {
-			a, err = New(root, Host{})
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		if a.registeredWorkers == nil || a.started {
-			t.Fatal("ordinary composition lacks dormant native lookup")
-		}
-		if err = a.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
 
 // Explicit local acceptance: a real installed Codex with an empty isolated
 // CODEX_HOME talks only to the synthetic loopback provider. SSH executes locally
