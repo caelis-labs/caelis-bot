@@ -1203,7 +1203,9 @@ func (n *roamingNativeAssembly) resolve(ctx context.Context, lease nodeplane.Lea
 	}
 	pairing := backend.ProductPairing{Mode: "remote", NodeID: lease.NodeID, BotID: endpoint.Identity.BotID, Label: node.Registration.Label, SSH: node.Registration.SSHDestination, Helper: node.HostHelper, Endpoint: endpoint.Endpoint, AuthFile: endpoint.AuthFile}
 	location := NodeRoamingProductLocation{Pairing: pairing, Generation: endpoint.Identity.Generation}
-	if node.Registration.ID == api.LocalNodeID {
+	if node.Registration.Join == api.NodeOutgoing {
+		location.ClientFactory = outgoingRoamingProductFactory(session.observerCtx, node, lease, endpoint, pairing)
+	} else if node.Registration.ID == api.LocalNodeID {
 		location.Pairing.SSH = "localhost"
 		location.ClientFactory = localRoamingProductFactory(node.HostHelper)
 	}
