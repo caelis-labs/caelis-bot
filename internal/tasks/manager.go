@@ -156,7 +156,7 @@ func OpenRouted(path, root, provider string, work api.WorkRuntime, reports api.R
 			} else if r.RequestDigest != requestDigest(id, r.Target, r.View.Workspace, r.Fingerprint, r.Source) {
 				return nil, errors.New("task ledger request binding conflicts")
 			}
-			if r.Target != m.directTarget(r.Provider) {
+			if r.Target != m.directTarget(r.Provider) || r.Source != (api.WorkDispatchSource{}) {
 				if err := r.Source.Validate(); err != nil {
 					return nil, err
 				}
@@ -556,6 +556,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	}
 	m.mu.Lock()
 	target := m.state.Records[in.ID].Target
+	_, boundMessage := m.state.Messages[in.RequestID]
 	m.mu.Unlock()
 	if gate, ok := m.executionAdmission.(api.WorkTargetAdmission); ok {
 		if err := gate.CheckWorkTarget(ctx, target); err != nil {
@@ -567,7 +568,15 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 			return api.Task{}, err
 		}
 	}
-	if target != m.nativeTarget {
+	// A native receipt predating routed message intent stays unchanged. Looking
+	// up that original receipt must not fabricate a source from today's turn.
+	legacyReceipt := false
+	if target == m.nativeTarget && !boundMessage {
+		if replay, ok := work.(api.RecordedWorkMessage); ok {
+			legacyReceipt = replay.WorkMessageRecorded(in)
+		}
+	}
+	if target != m.nativeTarget || m.authorizer != nil && !legacyReceipt {
 		in.Source, e = m.authorizeWork(ctx, target)
 		if e != nil {
 			return api.Task{}, e
@@ -577,8 +586,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 			return api.Task{}, e
 		}
 	} else {
-		// Ignore any host struct source supplied by a task caller. The original
-		// local adapter owns its admission and native continuation receipts.
+		// Ignore caller-supplied provenance on the legacy direct/receipt path.
 		in.Source = api.WorkDispatchSource{}
 		in.RequestDigest = ""
 	}
