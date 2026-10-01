@@ -20,12 +20,26 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/memorytransfer"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodebroker"
 	"github.com/caelis-labs/caelis-bot/internal/nodecoord"
+	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
+
+// The actual running executable also provides the private watchdog command in
+// contained CLI tests, exactly as the production binary does.
+func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "owned-runtime-watchdog" {
+		if err := codex.RunSupervisedRuntime(context.Background(), os.NewFile(3, "owned-watchdog-control")); err != nil {
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 // The real owned child speaks only standard discovery and an empty new thread.
 // Any model turn, old thread resume, or work replay terminates this fixture.
@@ -298,6 +312,36 @@ func testManagedForeground(t *testing.T, disable, startManaged bool) {
 		t.Fatal(e)
 	}
 	defer agentClient.Close()
+	if !startManaged {
+		config, e := agentClient.Configuration(ctx, target.NodeID, api.NodeCodex)
+		if e != nil || !config.ConfigurationAvailable || len(config.Configuration.Revision) != 64 {
+			t.Fatalf("active configuration %+v %v", config, e)
+		}
+		request := nodeplane.ManagementRequest{Guard: config.Guard, Ref: api.NodeOperationRef{NodeID: target.NodeID, Backend: api.NodeCodex, OperationID: "active-model-original"}, Change: &api.RuntimeConfigurationChange{Action: "conversation-model", ExpectedRevision: config.Configuration.Revision, Selection: api.WorkExecutionSettings{Model: "fixture"}}}
+		request.Ref.RequestDigest = nodeagent.RequestDigest(request)
+		changed, e := agentClient.Manage(ctx, request)
+		if e != nil || changed.Outcome != api.NodeCommitted {
+			t.Fatalf("active native change %+v %v", changed, e)
+		}
+		current, e := agentClient.Configuration(ctx, target.NodeID, api.NodeCodex)
+		if e != nil || current.Conversation == nil || current.Conversation.Model != "fixture" || current.Configuration.Revision == config.Configuration.Revision {
+			t.Fatalf("actual native next-turn configuration %+v %v", current, e)
+		}
+		preferences, e := nodeagent.ReadExecutionPreferences(agentDir)
+		if e != nil || preferences.Conversation.Model != "fixture" {
+			t.Fatalf("accepted native defaults missing %+v %v", preferences, e)
+		}
+		repeated, e := agentClient.Manage(ctx, request)
+		if e != nil || repeated != changed {
+			t.Fatalf("original configuration receipt %+v %v", repeated, e)
+		}
+		request.Ref.OperationID = "active-stale-original"
+		request.Ref.RequestDigest = nodeagent.RequestDigest(request)
+		stale, e := agentClient.Manage(ctx, request)
+		if e != nil || stale.Outcome != api.NodeConflicted {
+			t.Fatalf("stale active configuration %+v %v", stale, e)
+		}
+	}
 	locator, e := agentClient.ReadManagedProduct(ctx, target)
 	if e != nil || locator.Identity != identity || locator.Endpoint != active.Endpoint || locator.BotID != botID || locator.AuthFile != auth || locator.Lease.Epoch != lease.Epoch {
 		t.Fatalf("native locator %+v %v", locator, e)
@@ -397,6 +441,9 @@ func TestRoamingFlagsRequirePinnedScopeAndLoopback(t *testing.T) {
 	valid := []string{"serve-roaming", "--node-id", "n", "--bot-id", "b", "--broker-node-id", "c", "--agent-directory", "/private/a", "--generations", "/private/g", "--broker-socket", "/private/s", "--auth-file", "/private/token"}
 	if _, err := parseRoamingCommand(valid, io.Discard); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := parseRoamingCommand(append(append([]string{}, valid...), "--backend", "caelis", "--caelis-binary", "/private/bin/caelis", "--caelis-store", "/private/owned-store", "--model", "fixture"), io.Discard); err != nil {
+		t.Fatalf("owned Caelis native configuration refused: %v", err)
 	}
 	for _, tail := range [][]string{{"--backend", "caelis"}, {"--listen", "0.0.0.0:1"}, {"--broker-node-id", ""}, {"--join-target", "peer"}} {
 		if _, err := parseRoamingCommand(append(append([]string{}, valid...), tail...), io.Discard); err == nil {

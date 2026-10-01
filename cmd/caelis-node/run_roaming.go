@@ -17,6 +17,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodebroker"
@@ -37,6 +38,7 @@ type roamingCommand struct {
 	NodeID, BotID, Backend, AgentDirectory, GenerationRoot, BrokerSocket, BrokerNodeID, BrokerHelper, AuthFile, CodexBinary, Listen string
 	Join                                                                                                                            nodeagent.SSHConfig
 	JoinHelper, JoinDirectory                                                                                                       string
+	CaelisBinary, CaelisStore, Model                                                                                                string
 }
 
 func parseRoamingCommand(args []string, out io.Writer) (roamingCommand, error) {
@@ -60,6 +62,9 @@ func parseRoamingCommand(args []string, out io.Writer) (roamingCommand, error) {
 	f.StringVar(&c.BrokerSocket, "broker-socket", "", "existing private broker Unix socket, optionally SSH-forwarded")
 	f.StringVar(&c.AuthFile, "auth-file", "", "existing target-private application product token file")
 	f.StringVar(&c.CodexBinary, "codex-binary", "", "optional explicit installed target-local Codex executable")
+	f.StringVar(&c.CaelisBinary, "caelis-binary", "", "installed target-local Caelis executable")
+	f.StringVar(&c.CaelisStore, "caelis-store", "", "designated private node-owned foreground Host store")
+	f.StringVar(&c.Model, "model", "", "target-side authenticated Caelis model")
 	f.StringVar(&c.Listen, "listen", "127.0.0.1:0", "literal loopback product listener after leased activation")
 	f.StringVar(&c.Join.Target, "join-target", "", "optional existing authorized SSH destination for outgoing agent join")
 	f.StringVar(&c.JoinHelper, "join-helper", "", "existing absolute native helper at outgoing join destination")
@@ -67,8 +72,14 @@ func parseRoamingCommand(args []string, out io.Writer) (roamingCommand, error) {
 	if err := f.Parse(args[1:]); err != nil {
 		return c, err
 	}
-	if f.NArg() != 0 || c.NodeID == "" || c.BotID == "" || c.BrokerNodeID == "" || c.Backend != "codex" || !filepath.IsAbs(c.AgentDirectory) || !filepath.IsAbs(c.GenerationRoot) || !filepath.IsAbs(c.BrokerSocket) || !filepath.IsAbs(c.AuthFile) {
-		return c, errors.New("exact enrolled identity, owned Codex target and absolute private native paths required")
+	if f.NArg() != 0 || c.NodeID == "" || c.BotID == "" || c.BrokerNodeID == "" || (c.Backend != "codex" && c.Backend != "caelis") || !filepath.IsAbs(c.AgentDirectory) || !filepath.IsAbs(c.GenerationRoot) || !filepath.IsAbs(c.BrokerSocket) || !filepath.IsAbs(c.AuthFile) {
+		return c, errors.New("exact enrolled identity, owned native target and absolute private native paths required")
+	}
+	if c.Backend == "caelis" && (!filepath.IsAbs(c.CaelisStore) || !filepath.IsAbs(c.CaelisBinary)) {
+		return c, errors.New("owned Caelis requires absolute installed executable and designated private store")
+	}
+	if c.Backend == "codex" && (c.CaelisBinary != "" || c.CaelisStore != "" || c.Model != "") {
+		return c, errors.New("Caelis configuration requires owned Caelis backend")
 	}
 	if c.RuntimeDirectory != "" && !filepath.IsAbs(c.RuntimeDirectory) {
 		return c, errors.New("native runtime directory must be absolute")
@@ -155,7 +166,7 @@ func (h *roamingProofOwner) ReadRuntimeProof(ctx context.Context, target api.Wor
 	return h.read(ctx, target, true)
 }
 func (h *roamingProofOwner) Health(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
-	if b != api.NodeCodex {
+	if string(b) != h.target.Backend {
 		return nodeagent.NativeHealth{}, nil
 	}
 	native, err := h.health(ctx)
@@ -164,6 +175,7 @@ func (h *roamingProofOwner) Health(ctx context.Context, b api.NodeBackend) (node
 	}
 	proof, proofErr := h.read(ctx, h.target, false)
 	if proofErr == nil {
+		native.SharedHost = false
 		native.ManagedOwner = true
 		native.Fenceable = true
 		native.BotEligible = proof.Proof.Controllable && (proof.SafeIdle && !proof.Pending && !proof.Unknown || proof.LeaseEpoch != "")
@@ -209,6 +221,10 @@ func runRoaming(ctx context.Context, args []string, out io.Writer) error {
 
 func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, power func(context.Context, func(), func()) (func(), error)) error {
 	var err error
+	helper, err := verifiedRoamingExecutable()
+	if err != nil {
+		return err
+	}
 	workerConfigs, err := loadRoamingWorkers(c.WorkersFile)
 	if err != nil {
 		return err
@@ -234,7 +250,7 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	if err = nodeagent.CheckPrivateDirectory(c.GenerationRoot); err != nil {
 		return err
 	}
-	if c.CodexBinary == "" && c.RuntimeDirectory != "" {
+	if c.Backend == "codex" && c.CodexBinary == "" && c.RuntimeDirectory != "" {
 		manager, e := runtimemanagement.New(c.RuntimeDirectory)
 		if e != nil {
 			return e
@@ -272,8 +288,15 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	life, cancel := context.WithCancel(ctx)
 	defer cancel()
 	target := api.WorkTarget{NodeID: c.NodeID, Backend: c.Backend, Role: api.RoleBot}
-	config := &nodeagent.CodexConfiguration{Directory: c.AgentDirectory, Binary: c.CodexBinary}
-	holder := &roamingProofOwner{target: target, botID: c.BotID, health: config.Health}
+	defaults := &nodeagent.CodexConfiguration{Directory: c.AgentDirectory, Binary: c.CodexBinary}
+	var configuration nodeagent.NativeConfiguration = defaults
+	health := defaults.Health
+	if c.Backend == "caelis" {
+		native := &nodeagent.CaelisConfiguration{Settings: api.RuntimeSettings{Runtime: "caelis", CLIPath: c.CaelisBinary, CaelisStore: c.CaelisStore}}
+		configuration, health = native, native.Health
+	}
+	holder := &roamingProofOwner{target: target, botID: c.BotID, health: health}
+	config := &roamingActiveConfiguration{holder: holder, fallback: configuration}
 	control := &roamingManagedControl{holder: holder, broker: broker, token: token, productHTTP: &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	journal, err := nodeagent.OpenManagedDisableJournal(filepath.Join(c.AgentDirectory, "managed-control.json"), c.NodeID, c.BotID)
 	if err != nil {
@@ -286,7 +309,10 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	if c.CodexBinary != "" {
 		binaries[api.NodeCodex] = c.CodexBinary
 	}
-	service, err := nodeagent.New(nodeagent.Options{Directory: c.AgentDirectory, NodeID: c.NodeID, Label: "Managed Bot node", Join: api.NodeSSH, Binaries: binaries, Configurations: map[api.NodeBackend]nodeagent.NativeConfiguration{api.NodeCodex: config}, RuntimeOwner: holder, ManagedProduct: control, Health: holder.Health})
+	if c.CaelisBinary != "" {
+		binaries[api.NodeCaelis] = c.CaelisBinary
+	}
+	service, err := nodeagent.New(nodeagent.Options{Directory: c.AgentDirectory, NodeID: c.NodeID, Label: "Managed Bot node", Join: api.NodeSSH, Binaries: binaries, Configurations: map[api.NodeBackend]nodeagent.NativeConfiguration{api.NodeBackend(c.Backend): config}, RuntimeOwner: holder, ManagedProduct: control, Health: holder.Health})
 	if err != nil {
 		return err
 	}
@@ -326,10 +352,16 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 			s.NotifySnapshot()
 		}
 	}}
-	factory := app.ManagedNodeFactory(host, app.ManagedNodeOptions{BrokerNodeID: c.BrokerNodeID})
+	options := app.ManagedNodeOptions{BrokerNodeID: c.BrokerNodeID, WatchdogHelperPath: helper, CodexBinary: c.CodexBinary, Backend: api.NodeBackend(c.Backend), Model: c.Model}
+	if c.Backend == "caelis" {
+		options.CaelisHost = &caelis.OwnedHostOptions{NodeID: c.NodeID, Binary: c.CaelisBinary, Store: c.CaelisStore}
+	}
+	factory := app.ManagedNodeFactory(host, options)
 	runner, err := roaming.NewRunner(roaming.RunnerOptions{BotID: c.BotID, Target: target, GenerationRoot: c.GenerationRoot, Broker: broker, RegisterOwner: holder.register, Factory: func(ctx context.Context, profile string, target api.WorkTarget) (roaming.ManagedRuntime, *roaming.Guard, error) {
-		if err := writeRoamingNativeSettings(profile, c.AgentDirectory, c.CodexBinary); err != nil {
-			return nil, nil, err
+		if c.Backend == "codex" {
+			if err := writeRoamingNativeSettings(profile, c.AgentDirectory, c.CodexBinary); err != nil {
+				return nil, nil, err
+			}
 		}
 		store, err := productrpc.OpenUploads(filepath.Join(profile, "Product", "Uploads"))
 		if err != nil {
