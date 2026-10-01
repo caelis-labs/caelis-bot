@@ -91,6 +91,7 @@ type roamingNativeSession struct {
 	plan        roamingNativePlan
 	broker      *nodebroker.Client
 	peers       map[string]*nodeagent.Client
+	management  map[string]*nodeagent.Client
 	disabled    bool
 	closed      bool
 	mu          sync.Mutex
@@ -382,7 +383,7 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 	p.LocalHost = host
 	// Runtime IPC lives in a deterministic private native slot, separate from
 	// durable cold bundles. Neither path can be supplied by the renderer.
-	tempRoot, e := filepath.EvalSymlinks(os.TempDir())
+	tempRoot, e := filepath.EvalSymlinks("/tmp")
 	if e != nil {
 		return p, errors.New("canonical private native socket root unavailable")
 	}
@@ -460,6 +461,21 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			sha = a.HostExpectedSHA256
 		}
 		plan := NodeRoamingSupervisorPlan{Version: 1, OperationID: in.OperationID, NodeID: r.ID, Helper: helper, HelperSHA256: sha, Directory: dir}
+		if r.ID != api.LocalNodeID && r.Join == api.NodeSSH {
+			ipc := nodeagent.RoamingIPCDirectory(r.Directory, in.OperationID)
+			if ipc != dir {
+				plan.IPCDirectory = ipc
+			}
+		}
+		// A remote designated coordinator owns the broker and cold cache only.
+		// Its installed/authenticated Runtime metadata does not grant this plan
+		// permission to launch a Bot or advertise Worker routes there.
+		if r.ID == in.Coordinator.ID && r.ID != api.LocalNodeID {
+			p.Nodes = append(p.Nodes, roamingNativeNode{Registration: r, Plan: plan, HostHelper: helper})
+			foundCoordinator = true
+			p.Coordinator = r
+			continue
+		}
 		m := &NodeRoamingManagedDeployment{BotID: p.BotID, NodeID: r.ID, Backend: in.SourceTarget.Backend, AgentDirectory: filepath.Join(dir, "agent"), GenerationRoot: filepath.Join(dir, "generations"), AuthFile: filepath.Join(dir, "product.token"), WorkersFile: filepath.Join(dir, "workers.json"), BrokerNodeID: in.Coordinator.ID}
 		if r.ID == api.LocalNodeID {
 			m.CodexBinary = n.options.LocalCodexBinary
@@ -496,6 +512,9 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			}
 		}
 		plan.Managed = m
+		if plan.IPCDirectory != "" {
+			m.AgentSocket = filepath.Join(plan.IPCDirectory, "agent.sock")
+		}
 		bindings := n.workerBindings(ctx, p, r, m)
 		for _, binding := range bindings {
 			if binding.Backend == m.Backend && m.Backend == "codex" {
@@ -516,7 +535,7 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 		if m.Backend == "caelis" {
 			m.Model = pref.Conversation.Model
 		}
-		p.Nodes = append(p.Nodes, roamingNativeNode{Registration: r, Plan: plan, HostHelper: helper, AgentSocket: filepath.Join(m.AgentDirectory, "agent.sock"), RuntimeBindings: bindings, Preferences: pref, CompanionArtifact: companionArtifact})
+		p.Nodes = append(p.Nodes, roamingNativeNode{Registration: r, Plan: plan, HostHelper: helper, AgentSocket: nativeManagedSocket(*m), RuntimeBindings: bindings, Preferences: pref, CompanionArtifact: companionArtifact})
 		foundCoordinator = foundCoordinator || r.ID == in.Coordinator.ID
 		if r.ID == in.Coordinator.ID {
 			p.Coordinator = r
@@ -532,13 +551,17 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 		}
 	}
 	brokerDir := coordinator.Plan.Directory
-	broker := &NodeRoamingBrokerDeployment{BotID: p.BotID, NodeID: p.Coordinator.ID, Profile: filepath.Join(brokerDir, "broker"), Socket: filepath.Join(brokerDir, "broker.sock"), PeersFile: filepath.Join(brokerDir, "peers.json"), BootstrapPeersFile: filepath.Join(brokerDir, "bootstrap-peers.json"), PreferredNodeID: api.LocalNodeID}
+	brokerIPC := nativeRoamingIPCRoot(coordinator.Plan)
+	broker := &NodeRoamingBrokerDeployment{BotID: p.BotID, NodeID: p.Coordinator.ID, Profile: filepath.Join(brokerDir, "broker"), Socket: filepath.Join(brokerIPC, "broker.sock"), PeersFile: filepath.Join(brokerDir, "peers.json"), BootstrapPeersFile: filepath.Join(brokerDir, "bootstrap-peers.json"), PreferredNodeID: api.LocalNodeID}
 	coordinator.Plan.Broker = broker
-	p.BootstrapDirectory = filepath.Join(brokerDir, "bootstrap")
+	p.BootstrapDirectory = filepath.Join(brokerIPC, "bootstrap")
 	p.BootstrapSocket = filepath.Join(p.BootstrapDirectory, "agent.sock")
 	for i := range p.Nodes {
 		x := &p.Nodes[i]
 		m := x.Plan.Managed
+		if m == nil {
+			continue
+		}
 		m.BrokerSocket = broker.Socket
 		if x.Registration.ID == p.Coordinator.ID {
 			x.BrokerPeerSocket = x.AgentSocket
@@ -558,7 +581,7 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 		}
 		m.BrokerSSHDestination = m.JoinSSHDestination
 		m.BrokerHelper = coordinator.HostHelper
-		m.JoinDirectory = filepath.Join(brokerDir, "joins", nativeRoamingKey(x.Registration.ID))
+		m.JoinDirectory = filepath.Join(brokerIPC, "joins", nativeRoamingKey(x.Registration.ID))
 		x.BrokerPeerSocket = filepath.Join(m.JoinDirectory, "agent.sock")
 	}
 	if p.Coordinator.ID == api.LocalNodeID {
@@ -643,11 +666,14 @@ func (n *roamingNativeAssembly) prepare(ctx context.Context, in NodeRoamingStage
 	n.mu.Unlock()
 	result := backend.NodeRoamingPlan{ID: p.ID, CoordinatorNodeID: p.Coordinator.ID, RequiresConfirmation: true}
 	for _, x := range p.Nodes {
-		result.Actions = append(result.Actions, backend.NodeRoamingPlanAction{NodeID: x.Registration.ID, Label: x.Registration.Label, Action: backend.NodeRoamingPrepareNode}, backend.NodeRoamingPlanAction{NodeID: x.Registration.ID, Label: x.Registration.Label, Action: backend.NodeRoamingStartBot})
+		result.Actions = append(result.Actions, backend.NodeRoamingPlanAction{NodeID: x.Registration.ID, Label: x.Registration.Label, Action: backend.NodeRoamingPrepareNode})
+		if x.Plan.Managed != nil {
+			result.Actions = append(result.Actions, backend.NodeRoamingPlanAction{NodeID: x.Registration.ID, Label: x.Registration.Label, Action: backend.NodeRoamingStartBot})
+		}
 		if x.Plan.Broker != nil {
 			result.Actions = append(result.Actions, backend.NodeRoamingPlanAction{NodeID: x.Registration.ID, Label: x.Registration.Label, Action: backend.NodeRoamingPrepareCoordinator})
 		}
-		if x.Plan.Managed.JoinSSHDestination != "" {
+		if x.Plan.Managed != nil && x.Plan.Managed.JoinSSHDestination != "" {
 			result.Actions = append(result.Actions, backend.NodeRoamingPlanAction{NodeID: x.Registration.ID, Label: x.Registration.Label, Action: backend.NodeRoamingConnectOutgoing})
 		}
 	}
@@ -666,6 +692,9 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 	}
 	if !in.AllowPersistentExecution || in.ReviewedPlanID != p.ID {
 		return errors.New("review and confirm the exact node deployment plan before retiring the local profile")
+	}
+	if e = validateNativeRoamingSockets(p); e != nil {
+		return e
 	}
 	for _, node := range p.Nodes {
 		if e = n.confirmCandidateRuntime(ctx, node); e != nil {
@@ -693,7 +722,7 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 			return errors.New("native deployment private socket path exceeds platform limit")
 		}
 		if x.Registration.ID == api.LocalNodeID {
-			if m := x.Plan.Managed; m.JoinSSHDestination != "" {
+			if m := x.Plan.Managed; m != nil && m.JoinSSHDestination != "" {
 				if e = runRoamingSSH(ctx, m.JoinSSHDestination, nodeShellQuote(m.JoinHelper)+" verify-join-directory --directory "+nodeShellQuote(p.Coordinator.Directory), nil); e != nil {
 					return errors.New("this machine's existing outward coordinator authorization unavailable")
 				}
@@ -708,9 +737,12 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 		}
 		// Inspect the fixed enrolled helper and the target's own existing outbound
 		// authorization before any source fence or deployment write.
-		script := "test -x " + nodeShellQuote(x.HostHelper) + " && test \"$(sha256sum " + nodeShellQuote(x.HostHelper) + " | cut -d ' ' -f 1)\" = " + nodeShellQuote(x.Plan.HelperSHA256)
+		script := "test -x " + nodeShellQuote(x.HostHelper) + " && test \"$(sha256sum " + nodeShellQuote(x.HostHelper) + " | cut -d ' ' -f 1)\" = " + nodeShellQuote(x.Plan.HelperSHA256) + " && " + nativeRoamingInspectIPC(x)
 		if e = runRoamingSSH(ctx, x.Registration.SSHDestination, script, nil); e != nil {
 			return fmt.Errorf("node %s host companion verification failed", x.Registration.Label)
+		}
+		if x.Plan.Managed == nil {
+			continue
 		}
 		info, e := n.catalogNode(ctx, x.Registration.ID)
 		healthy := false
@@ -809,6 +841,9 @@ func nativeRoamingWorkers(p roamingNativePlan, x roamingNativeNode) any {
 		}
 	}
 	for _, other := range p.Nodes {
+		if other.Plan.Managed == nil {
+			continue
+		}
 		backends := []string{other.Plan.Managed.Backend}
 		for _, binding := range other.RuntimeBindings {
 			if binding.Backend == "caelis" && p.UnavailableCaelisWorkers[other.Registration.ID] {
@@ -840,7 +875,9 @@ func (n *roamingNativeAssembly) provision(ctx context.Context, p roamingNativePl
 	}
 	roster := peers{Version: 1, BotID: p.BotID}
 	for _, x := range p.Nodes {
-		roster.Peers = append(roster.Peers, peer{x.Registration.ID, api.NodeBackend(x.Plan.Managed.Backend), x.BrokerPeerSocket})
+		if x.Plan.Managed != nil {
+			roster.Peers = append(roster.Peers, peer{x.Registration.ID, api.NodeBackend(x.Plan.Managed.Backend), x.BrokerPeerSocket})
+		}
 	}
 	bootstrap := peers{Version: 1, BotID: p.BotID, Peers: []peer{{p.SourceNodeID, api.NodeBackend(p.SourceBackend), p.BootstrapSocket}}}
 	for _, x := range p.Nodes {
@@ -853,19 +890,21 @@ func (n *roamingNativeAssembly) provision(ctx context.Context, p roamingNativePl
 			}
 			continue
 		}
-		workers := nativeRoamingWorkers(p, x)
-		files := map[string]any{"workers.json": workers, "supervisor.json": x.Plan, "agent/node.json": struct {
-			ID string `json:"id"`
-		}{x.Registration.ID}}
-		// Preferences were frozen from this exact target before source retirement;
-		// Runtime authentication and receipts never enter this deployment document.
-		files["agent/execution.json"] = x.Preferences
+		files := map[string]any{"supervisor.json": x.Plan}
+		if x.Plan.Managed != nil {
+			files["workers.json"] = nativeRoamingWorkers(p, x)
+			files["agent/node.json"] = struct {
+				ID string `json:"id"`
+			}{x.Registration.ID}
+			// Exact target preferences contain no authentication or receipts.
+			files["agent/execution.json"] = x.Preferences
+		}
 		if x.Plan.Broker != nil {
 			files["peers.json"] = roster
 			files["bootstrap-peers.json"] = bootstrap
 		}
 		if x.Registration.ID == api.LocalNodeID {
-			for _, dir := range []string{x.Plan.Directory, x.Plan.Managed.AgentDirectory, x.Plan.Managed.GenerationRoot} {
+			for _, dir := range nativeRoamingNodeDirs(x) {
 				if e := nativeRoamingPrivateDir(dir); e != nil {
 					return e
 				}
@@ -874,8 +913,11 @@ func (n *roamingNativeAssembly) provision(ctx context.Context, p roamingNativePl
 				if e := nativeRoamingPrivateDir(p.BootstrapDirectory); e != nil {
 					return e
 				}
+				if e := nativeRoamingPrivateDir(filepath.Join(nativeRoamingIPCRoot(x.Plan), "joins")); e != nil {
+					return e
+				}
 				for _, node := range p.Nodes {
-					if node.Plan.Managed.JoinDirectory != "" {
+					if node.Plan.Managed != nil && node.Plan.Managed.JoinDirectory != "" {
 						if e := nativeRoamingPrivateDir(node.Plan.Managed.JoinDirectory); e != nil {
 							return e
 						}
@@ -887,6 +929,9 @@ func (n *roamingNativeAssembly) provision(ctx context.Context, p roamingNativePl
 					return e
 				}
 			}
+			if x.Plan.Managed == nil {
+				continue
+			}
 			if _, e := os.Lstat(x.Plan.Managed.AuthFile); errors.Is(e, os.ErrNotExist) {
 				if e = os.WriteFile(x.Plan.Managed.AuthFile, []byte(rand.Text()+rand.Text()), 0600); e != nil {
 					return e
@@ -897,17 +942,17 @@ func (n *roamingNativeAssembly) provision(ctx context.Context, p roamingNativePl
 		} else {
 			// Reviewed files are transferred only to the fixed enrolled user directory.
 			// The product token is generated on its target and never returned to APP.
-			dirs := []string{x.Plan.Directory, x.Plan.Managed.AgentDirectory, x.Plan.Managed.GenerationRoot}
+			dirs := nativeRoamingNodeDirs(x)
 			if x.Plan.Broker != nil {
-				dirs = append(dirs, p.BootstrapDirectory)
+				dirs = append(dirs, p.BootstrapDirectory, filepath.Join(nativeRoamingIPCRoot(x.Plan), "joins"))
 				for _, node := range p.Nodes {
-					if node.Plan.Managed.JoinDirectory != "" {
+					if node.Plan.Managed != nil && node.Plan.Managed.JoinDirectory != "" {
 						dirs = append(dirs, node.Plan.Managed.JoinDirectory)
 					}
 				}
 			}
 			for _, dir := range dirs {
-				script := "umask 077; mkdir -p " + nodeShellQuote(dir) + " && " + nodeShellQuote(x.Registration.HelperPath) + " verify-join-directory --directory " + nodeShellQuote(dir)
+				script := "umask 077; test ! -L " + nodeShellQuote(dir) + " && test \"$(cd " + nodeShellQuote(filepath.Dir(dir)) + " && pwd -P)\" = " + nodeShellQuote(filepath.Dir(dir)) + " && mkdir -p " + nodeShellQuote(dir) + " && " + nodeShellQuote(x.Registration.HelperPath) + " verify-join-directory --directory " + nodeShellQuote(dir)
 				if e := runRoamingSSH(ctx, x.Registration.SSHDestination, script, nil); e != nil {
 					return e
 				}
@@ -922,6 +967,9 @@ func (n *roamingNativeAssembly) provision(ctx context.Context, p roamingNativePl
 				if e = runRoamingSSH(ctx, x.Registration.SSHDestination, script, b); e != nil {
 					return e
 				}
+			}
+			if x.Plan.Managed == nil {
+				continue
 			}
 			token := x.Plan.Managed.AuthFile
 			script := "umask 077; if test ! -e " + nodeShellQuote(token) + "; then head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \\n' > " + nodeShellQuote(token) + "; fi; test -f " + nodeShellQuote(token) + " && test ! -L " + nodeShellQuote(token)
@@ -1089,12 +1137,18 @@ func (n *roamingNativeAssembly) stage(ctx context.Context, in NodeRoamingStageIn
 		detach()
 		return NodeRoamingStage{}, e
 	}
-	s := &roamingNativeSession{assembly: n, plan: p, broker: broker, peers: map[string]*nodeagent.Client{}, observerCtx: observerCtx, detach: detach}
+	s := &roamingNativeSession{assembly: n, plan: p, broker: broker, peers: map[string]*nodeagent.Client{}, management: map[string]*nodeagent.Client{}, observerCtx: observerCtx, detach: detach}
 	for _, x := range p.Nodes {
 		var client *nodeagent.Client
 		e = boundedRoamingRetry(ctx, func(c context.Context) error {
 			var err error
-			client, err = dialRoamingNode(observerCtx, x)
+			if x.Plan.Managed == nil {
+				// An enrolled foreground agent observes metadata only. It never
+				// joins the runtime proof registry or claims the broker's lease.
+				client, err = nodeagent.NewSSHForegroundClient(observerCtx, nodeagent.SSHConfig{Target: x.Registration.SSHDestination}, x.Registration.HelperPath, x.Registration.Directory, x.Registration.ID)
+			} else {
+				client, err = dialRoamingNode(observerCtx, x)
+			}
 			if err != nil {
 				return err
 			}
@@ -1113,7 +1167,11 @@ func (n *roamingNativeAssembly) stage(ctx context.Context, in NodeRoamingStageIn
 			s.close()
 			return NodeRoamingStage{}, e
 		}
-		s.peers[x.Registration.ID] = client
+		if x.Plan.Managed == nil {
+			s.management[x.Registration.ID] = client
+		} else {
+			s.peers[x.Registration.ID] = client
+		}
 	}
 	n.mu.Lock()
 	n.sessions[broker] = s
@@ -1182,7 +1240,7 @@ func (n *roamingNativeAssembly) resolve(ctx context.Context, lease nodeplane.Lea
 			node = x
 		}
 	}
-	if node.Registration.ID == "" || node.Registration.ID != reg.ID {
+	if node.Registration.ID == "" || node.Registration.ID != reg.ID || node.Plan.Managed == nil {
 		return NodeRoamingProductLocation{}, errors.New("active lease node is not in the approved deployment")
 	}
 	target := api.WorkTarget{NodeID: lease.NodeID, Backend: string(lease.Backend), Role: api.RoleBot}
@@ -1298,7 +1356,7 @@ func (s *roamingNativeSession) disable(ctx context.Context, operationID string) 
 		return e
 	}
 	for _, x := range s.plan.Nodes {
-		if x.Registration.ID == lease.NodeID {
+		if x.Plan.Managed == nil || x.Registration.ID == lease.NodeID {
 			continue
 		}
 		peer := s.peers[x.Registration.ID]
@@ -1404,7 +1462,7 @@ func (s *roamingNativeSession) close() error {
 		if management, ok := controller.(*nodeManagement); ok {
 			if native, ok := management.agent.(*nativeNodeManagement); ok {
 				native.mu.Lock()
-				for id, peer := range s.peers {
+				for id, peer := range s.observationClients() {
 					if native.clients[id] == peer {
 						delete(native.clients, id)
 					}
@@ -1416,7 +1474,7 @@ func (s *roamingNativeSession) close() error {
 	if s.detach != nil {
 		s.detach()
 	}
-	for _, p := range s.peers {
+	for _, p := range s.observationClients() {
 		_ = p.Close()
 	}
 	s.broker.Close()
@@ -1555,6 +1613,9 @@ func nativeBrokerArgs(v NodeRoamingBrokerDeployment) []string {
 }
 func nativeManagedArgs(v NodeRoamingManagedDeployment) []string {
 	a := []string{"serve-roaming", "--node-id", v.NodeID, "--bot-id", v.BotID, "--backend", v.Backend, "--agent-directory", v.AgentDirectory, "--generations", v.GenerationRoot, "--broker-node-id", v.BrokerNodeID, "--broker-socket", v.BrokerSocket, "--auth-file", v.AuthFile, "--listen", "127.0.0.1:0"}
+	if v.AgentSocket != "" {
+		a = append(a, "--agent-socket", v.AgentSocket)
+	}
 	if v.BrokerSSHDestination != "" {
 		a = append(a, "--broker-ssh-target", v.BrokerSSHDestination, "--broker-helper", v.BrokerHelper)
 	}
@@ -1717,7 +1778,7 @@ func (n *roamingNativeAssembly) recover(ctx context.Context, in NodeRoamingRecov
 			detach()
 			return result, e
 		}
-		s := &roamingNativeSession{assembly: n, plan: p, broker: broker, disabled: true, peers: map[string]*nodeagent.Client{}, observerCtx: observerCtx, detach: detach}
+		s := &roamingNativeSession{assembly: n, plan: p, broker: broker, disabled: true, peers: map[string]*nodeagent.Client{}, management: map[string]*nodeagent.Client{}, observerCtx: observerCtx, detach: detach}
 		n.mu.Lock()
 		n.sessions[broker] = s
 		n.mu.Unlock()
@@ -1782,6 +1843,9 @@ func (n *roamingNativeAssembly) managementPeer(ctx context.Context, id string) (
 	defer n.mu.Unlock()
 	for _, s := range n.sessions {
 		if peer := s.peers[id]; peer != nil {
+			return peer, nil
+		}
+		if peer := s.management[id]; peer != nil {
 			return peer, nil
 		}
 	}

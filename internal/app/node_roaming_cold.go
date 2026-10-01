@@ -123,6 +123,9 @@ func (n *roamingNativeAssembly) ownedRuntimeReadiness(ctx context.Context, reg N
 
 func (n *roamingNativeAssembly) confirmOwnedReadiness(ctx context.Context, p *roamingNativePlan) error {
 	for _, node := range p.Nodes {
+		if node.Plan.Managed == nil {
+			continue
+		}
 		primary := node.Plan.Managed.Backend == "caelis"
 		var binding *NodeRoamingWorkerRuntime
 		for i := range node.RuntimeBindings {

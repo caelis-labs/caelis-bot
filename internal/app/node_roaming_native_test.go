@@ -160,7 +160,7 @@ func TestNativeSupervisorSurvivesLaunchingAPPExitAndHonorsDisable(t *testing.T) 
 	if e != nil {
 		t.Fatal(e)
 	}
-	p := NodeRoamingSupervisorPlan{Version: 1, PlanID: strings.Repeat("c", 64), OperationID: "fixture-approved-enable", NodeID: api.LocalNodeID, Helper: helper, HelperSHA256: digest, Directory: dir, Broker: &NodeRoamingBrokerDeployment{BotID: "bot-fixture", NodeID: api.LocalNodeID, Profile: filepath.Join(dir, "broker"), Socket: filepath.Join(dir, "b.sock"), PeersFile: filepath.Join(dir, "peers.json"), BootstrapPeersFile: filepath.Join(dir, "bootstrap.json"), PreferredNodeID: api.LocalNodeID}}
+	p := NodeRoamingSupervisorPlan{Version: 1, PlanID: strings.Repeat("c", 64), OperationID: "fixture-approved-enable", NodeID: "fixture-coordinator", Helper: helper, HelperSHA256: digest, Directory: dir, Broker: &NodeRoamingBrokerDeployment{BotID: "bot-fixture", NodeID: "fixture-coordinator", Profile: filepath.Join(dir, "broker"), Socket: filepath.Join(dir, "b.sock"), PeersFile: filepath.Join(dir, "peers.json"), BootstrapPeersFile: filepath.Join(dir, "bootstrap.json"), PreferredNodeID: "fixture-coordinator"}}
 	filename := filepath.Join(dir, "supervisor.json")
 	if e = localstate.Write(filename, p); e != nil {
 		t.Fatal(e)
@@ -182,7 +182,7 @@ func TestNativeSupervisorSurvivesLaunchingAPPExitAndHonorsDisable(t *testing.T) 
 	var client *nodebroker.Client
 	for i := 0; i < 100; i++ {
 		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-		client, e = nodebroker.DialUnixForBroker(ctx, p.Broker.Socket, api.LocalNodeID)
+		client, e = nodebroker.DialUnixForBroker(ctx, p.Broker.Socket, p.NodeID)
 		cancel()
 		if e == nil {
 			break
@@ -194,13 +194,16 @@ func TestNativeSupervisorSurvivesLaunchingAPPExitAndHonorsDisable(t *testing.T) 
 		t.Logf("supervisor output: %s", log)
 		t.Fatal("independent broker did not survive launching APP exit", e)
 	}
+	if _, err := client.Claim(t.Context(), nodeplane.ClaimRequest{BotID: p.Broker.BotID, Target: api.WorkTarget{NodeID: p.NodeID, Backend: "codex", Role: api.RoleBot}, Proof: nodeplane.RuntimeProof{NodeID: p.NodeID, Backend: api.NodeCodex, Epoch: "fabricated", Controllable: true}}); err == nil {
+		t.Fatal("broker-only coordinator acquired Runtime lease")
+	}
 	client.Close()
 	if e = SetNodeRoamingSupervisorState(filename, "fixture-approved-disable", "disabling"); e != nil {
 		t.Fatal(e)
 	}
 	// Disabling suppresses restart while preserving the current broker for a
 	// final complete snapshot/control confirmation. APP observer detach is inert.
-	client, e = nodebroker.DialUnixForBroker(t.Context(), p.Broker.Socket, api.LocalNodeID)
+	client, e = nodebroker.DialUnixForBroker(t.Context(), p.Broker.Socket, p.NodeID)
 	if e != nil {
 		t.Fatal("no-restart intent prematurely stopped broker", e)
 	}
@@ -484,7 +487,7 @@ func TestDefaultNativeCatalogueReconnectsExactStagePeerAfterDisable(t *testing.T
 	if e != nil {
 		t.Fatal(e)
 	}
-	session := &roamingNativeSession{assembly: assembly, broker: broker, peers: map[string]*nodeagent.Client{"node-fixture": peer, api.LocalNodeID: dial(api.LocalNodeID, local)}}
+	session := &roamingNativeSession{assembly: assembly, broker: broker, peers: map[string]*nodeagent.Client{api.LocalNodeID: dial(api.LocalNodeID, local)}, management: map[string]*nodeagent.Client{"node-fixture": peer}}
 	assembly.sessions[broker] = session
 	f.c.stage.Close = session.close
 	refresh := *defaults.RefreshNodeManagement

@@ -157,6 +157,26 @@ lease withdrawal and Notebook staging remain separate owners. Aggregate catalog
 sorting copies source slices, so a read cannot corrupt a cached local catalog.
 
 
+A remote designated coordinator is deployed as a broker and cold Notebook cache
+only. It does not need an installed or authenticated model Runtime. Its reviewed
+plan prepares the coordinator without a Start Bot action, product token, Runtime
+generation or Worker binding. The local source remains a managed candidate; a
+local coordinator continues to combine those roles. Other enrolled candidates
+must independently qualify for their selected Runtime. Actual installed,
+authentication and health metadata remain visible through a separate enrolled
+management observer. Catalog capability describes the machine; the exact reviewed
+runtime roster and live ownership proof determine admission to this deployment.
+The coordinator is absent from that roster even if it later authenticates a model.
+
+Durable cache and supervisor/configuration files remain in the enrolled user’s
+deployment directory. Native IPC uses a separately frozen short private slot:
+standard SSH enrollment uses that HOME’s `.caelis-bot-joins` namespace, and local
+IPC uses canonical `/tmp` with a deterministic same-user 0700 directory. Exact
+broker, agent and reverse-forward sockets are included in the reviewed private
+plan and checked against the existing 100-byte limit before source retirement.
+Existing permissions and symlinks are checked, never repaired; stored legacy
+plans retain their original paths. Neither namespace is renderer path authority.
+
 The broker is optional, designated by this single user, and defaults to the local
 machine when explicitly enabled. It is a single point of availability rather
 than a high-availability control plane. `AutomaticRoaming` is true only while
