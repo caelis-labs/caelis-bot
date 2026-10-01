@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"net/http"
@@ -267,8 +268,8 @@ func TestWorkerOnlyScopedEnrollmentReceiptsApprovalCancelAndReconnect(t *testing
 func TestResidentWorkSourceExportsOnlyAttestedMetadata(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) {})
 	s.state.PrincipalID = "owner"
-	if _, err := s.WorkDispatchSource(t.Context()); err == nil {
-		t.Fatal("missing native callback accepted")
+	if _, err := s.WorkDispatchSource(t.Context()); !errors.Is(err, api.ErrWorkSourceInactive) {
+		t.Fatal("connected missing callback not classified as idle", err)
 	}
 	call := wire.ApplicationCall{ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", SessionId: "main", Source: wire.ApplicationSource{Kind: "user", OperationId: "user-op"}}
 	source, err := s.WorkDispatchSource(context.WithValue(t.Context(), invocationKey{}, call))
@@ -276,8 +277,8 @@ func TestResidentWorkSourceExportsOnlyAttestedMetadata(t *testing.T) {
 		t.Fatal(source, err)
 	}
 	call.Source.Kind = "application_summary"
-	if _, err = s.WorkDispatchSource(context.WithValue(t.Context(), invocationKey{}, call)); err == nil {
-		t.Fatal("summary promoted to authority")
+	if _, err = s.WorkDispatchSource(context.WithValue(t.Context(), invocationKey{}, call)); err == nil || errors.Is(err, api.ErrWorkSourceInactive) {
+		t.Fatal("summary promoted to idle authority", err)
 	}
 }
 

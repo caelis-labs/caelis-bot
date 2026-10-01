@@ -68,6 +68,10 @@ func (s WorkDispatchSource) Validate() error {
 	return nil
 }
 
+// ErrWorkSourceInactive denotes a connected resident with no current activation.
+// It does not hide transport, authority, or source-provider failures.
+var ErrWorkSourceInactive = errors.New("resident work source is inactive")
+
 type WorkSourceProvider interface {
 	WorkDispatchSource(context.Context) (WorkDispatchSource, error)
 }

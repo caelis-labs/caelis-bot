@@ -265,7 +265,11 @@ func (c *Client) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	return taskFrom(f), err
 }
 func (c *Client) StopWork(ctx context.Context, id string) (api.Task, error) {
-	f, err := c.call(ctx, frame{Method: "stop", TaskID: id})
+	source, err := c.controlSource(ctx)
+	if err != nil {
+		return api.Task{}, err
+	}
+	f, err := c.callAdmitted(ctx, frame{Method: "stop", TaskID: id, Current: source}, func() error { return c.checkControlSource(ctx, source) })
 	return taskFrom(f), err
 }
 func (c *Client) WorkMessageRecorded(in api.TaskMessage) bool {
@@ -290,15 +294,11 @@ func (c *Client) DecideWork(ctx context.Context, a api.WorkApproval, d api.Decis
 	if a.Target != c.pair.Target {
 		return errors.New("Worker decision target mismatch")
 	}
-	if c.LeaseAwareAdmission() {
-		source, err := c.nativeSource(ctx, nil)
-		if err != nil {
-			return err
-		}
-		_, err = c.callAdmitted(ctx, frame{Method: "decide", Approval: &a, Decision: &d, Current: &source}, func() error { _, err := c.nativeSource(ctx, &source); return err })
+	source, err := c.controlSource(ctx)
+	if err != nil {
 		return err
 	}
-	_, err := c.call(ctx, frame{Method: "decide", Approval: &a, Decision: &d})
+	_, err = c.callAdmitted(ctx, frame{Method: "decide", Approval: &a, Decision: &d, Current: source}, func() error { return c.checkControlSource(ctx, source) })
 	return err
 }
 func (c *Client) ReadWorkArtifact(ctx context.Context, taskID, id string) (api.WorkArtifact, error) {
@@ -333,4 +333,39 @@ func (c *Client) LeaseAwareAdmission() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.state.LeaseAware
+}
+
+// Idle UI controls carry no invented activation. The authenticated target owns
+// original task authority; if a current source exists it must remain exact.
+func (c *Client) controlSource(ctx context.Context) (*api.WorkDispatchSource, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	source, err := c.source.WorkDispatchSource(ctx)
+	if err != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if errors.Is(err, api.ErrWorkSourceInactive) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if source.Validate() != nil || source.NodeID != c.pair.SourceNode || source.Backend != c.pair.SourceBackend {
+		return nil, errors.New("Worker control source differs from paired native invocation")
+	}
+	return &source, nil
+}
+func (c *Client) checkControlSource(ctx context.Context, original *api.WorkDispatchSource) error {
+	actual, err := c.controlSource(ctx)
+	if err != nil {
+		return err
+	}
+	if original == nil && actual == nil {
+		return nil
+	}
+	if original == nil || actual == nil || *actual != *original {
+		return errors.New("Worker control source changed while queued")
+	}
+	return nil
 }
