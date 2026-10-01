@@ -342,7 +342,7 @@ func (m *nodeRoamingManagement) SetNodeCoordinator(ctx context.Context, r api.No
 		return api.NodeCatalog{}, err
 	}
 	if state.Enabled || state.Outcome == "unknown" {
-		if r.NodeID != state.CoordinatorNodeID {
+		if r.NodeID != state.CoordinatorNodeID || r.SourceRoutes != nil {
 			return api.NodeCatalog{}, errors.New("disable automatic roaming before changing its coordinator")
 		}
 		catalog, err := m.NodeManagementController.NodeCatalog(ctx)

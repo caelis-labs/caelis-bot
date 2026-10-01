@@ -95,10 +95,11 @@ type NodeRoleCapability struct {
 // availability; automatic roaming is available only with an eligible node and
 // a reachable broker. Its absence preserves direct in-process local operation.
 type NodeBroker struct {
-	NodeID           string `json:"nodeId"`
-	Reachable        bool   `json:"reachable"`
-	AutomaticRoaming bool   `json:"automaticRoaming"`
-	Reason           string `json:"reason"`
+	NodeID           string                       `json:"nodeId"`
+	Reachable        bool                         `json:"reachable"`
+	AutomaticRoaming bool                         `json:"automaticRoaming"`
+	Reason           string                       `json:"reason"`
+	SourceRoutes     []NodeCoordinatorSourceRoute `json:"sourceRoutes,omitempty"`
 }
 
 // NodeEditGuard is captured when editing starts. Async completion must match
@@ -219,9 +220,18 @@ type NodeAddResult struct {
 	JoinInstructions *NodeJoinInstructions `json:"joinInstructions"`
 }
 
+// This existing SSH destination is interpreted on the named source machine.
+// Native enrollment supplies the coordinator identity, helper and directory.
+type NodeCoordinatorSourceRoute struct {
+	SourceNodeID   string `json:"sourceNodeId"`
+	SSHDestination string `json:"sshDestination"`
+}
+
 type NodeCoordinatorSelection struct {
 	NodeID           string `json:"nodeId"`
 	ExpectedRevision string `json:"expectedRevision"`
+	// Omitted/null preserves routes; [] clears only this coordinator's routes.
+	SourceRoutes *[]NodeCoordinatorSourceRoute `json:"sourceRoutes,omitempty"`
 }
 
 // These methods are explicit user management actions, never model tools.
