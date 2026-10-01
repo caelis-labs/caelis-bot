@@ -24,6 +24,8 @@ import (
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "deploy-joined-roaming":
+			return runJoinedRoamingDeploy(ctx, args, out)
 		case "supervise-roaming", "control-roaming", "inspect-roaming":
 			return runRoamingDeploy(ctx, args, out)
 		case "serve-roaming":

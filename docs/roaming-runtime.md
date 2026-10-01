@@ -106,6 +106,36 @@ APP stream. Managed starts are rejected on transient `--stdio` agent lifetimes.
 No service installation, new key, SSH configuration or real persistent deployment
 is performed by these source fixtures.
 
+Native enable also supports an already paired outgoing Linux agent without
+incoming SSH to that candidate. `/v1/node/roaming-deployment` is a closed,
+native-only port for metadata, preflight, fixed companion staging, preparation,
+start, original disable control and receipt lookup. Metadata reports the
+agent's own private directory, architecture, installed companion hash and its
+existing explicit outbound pairing; the coordinator-side join directory is not
+used as a target filesystem path. The APP verifies packaged release bytes and
+freezes them into the same reviewed supervisor plan as the SSH path. A missing
+companion may be uploaded in bounded verified chunks to one fixed absent helper;
+installed helpers, arbitrary filenames, shells and Runtime credentials cannot be
+sent or replaced through this port.
+
+The original pairing is persisted only after `join-agent` verifies the existing
+outward authorization. Deployment uses that pairing to the designated enrolled
+SSH coordinator. Candidate Runtime and Worker executables must match native
+metadata from that candidate; no Runtime is silently installed and unsupported
+ownership, including Windows, remains ineligible. Both transport paths use the
+same supervisor schema, directory validation and original disable marker.
+Preparation creates only the fixed operation slot, nonsecret reviewed files and
+a target-generated product token. Start persists its original dispatch intent
+before launching the detached production supervisor. A lost reply remains
+unknown; repeating start never launches a second supervisor. Observation is
+reopened through the persisted paired route after the old management observer
+closes, and does not own the serving agent or supervisor lifetime.
+
+Contained real duplex and Unix-stream fixtures exercise metadata scope, fixed
+artifact chunks, target-local executable checks, preparation, subprocess start,
+APP observer detach and original disable receipts. They do not prove live NAT
+routing, model execution, Linux sleep fencing or long-running remote acceptance.
+
 The paired agent exposes a read-only managed product locator and a closed
 product proxy. The proxy confirms the exact live owner and generation, uses the
 target's existing bearer locally, and relays the existing product command and
