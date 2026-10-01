@@ -172,3 +172,17 @@ func TestWorkerLeaseDeadlineAndOriginalReceiptRecovery(t *testing.T) {
 		t.Fatal("unknown original intent redispatched", starts)
 	}
 }
+
+func TestLeasedWorkerClosePreservesUnverifiedOwnedStopError(t *testing.T) {
+	d := workerPair(t)
+	// The protocol fixture owns no independently captured native process tree.
+	// A successful socket close cannot substitute for that missing stop proof.
+	d.w.lease = newWorkerLeaseFence(d.w, WorkerLeaseOptions{})
+	err := d.w.Close(testContext(t))
+	if err == nil || !strings.Contains(err.Error(), "Worker owned process fence unavailable") {
+		t.Fatalf("unverified owned stop error hidden: %v", err)
+	}
+	if err = d.w.Close(testContext(t)); err == nil {
+		t.Fatal("repeated close forgot original unknown stop")
+	}
+}
