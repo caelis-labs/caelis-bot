@@ -78,6 +78,15 @@ func validateWorkerNode(config backend.WorkerNodeConfig) error {
 	if !workerNodeID.MatchString(config.ID) || config.ID == api.LocalNodeID || strings.TrimSpace(config.Label) == "" || len(config.Label) > 128 || strings.ContainsAny(config.Label, "\x00\r\n") {
 		return errors.New("worker node identity is invalid")
 	}
+	if config.Transport == "registered-agent" {
+		if config.Backend == "" || config.SSH != "" || config.Helper != "" || config.Store != "" || config.Socket != "" || config.WorkspaceRoot != "" {
+			return errors.New("registered Worker routes accept only an enrolled node and backend")
+		}
+		return nil
+	}
+	if config.Transport != "" {
+		return errors.New("unsupported Worker transport")
+	}
 	if !workerSSH.MatchString(config.SSH) || strings.HasPrefix(config.SSH, "-") || len(config.SSH) > 256 {
 		return errors.New("worker SSH destination is invalid")
 	}
