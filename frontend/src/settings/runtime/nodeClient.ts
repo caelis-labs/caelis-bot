@@ -129,7 +129,7 @@ export function createNodeRuntimeClient(owner:NodeSettingsClient,guard:NodeEditG
    if(!connectionGuard)throw new Error(owner.text('settings.nodeStateUnknown'));
    // Only the native target's observed guard can authorize explicit setup.
    const port=owner.connection({...connectionGuard});session=port;
-   try{await port.begin();}catch{await port.close().catch(()=>{});throw new Error(owner.text('settings.nodeOperationUnknown'));}
+   try{await port.begin();}catch(error){await port.close().catch(()=>{});if(error instanceof ConfigurationError&&!error.unknown)throw error;throw new Error(owner.text('settings.nodeOperationUnknown'));}
    return {...client,beginConnection:undefined,closeConnection:port.close,catalog:port.catalog,apiKeyOptions:port.apiKeyOptions,startConnection:port.startConnection,advanceConnection:port.advanceConnection,cancelConnection:port.cancelConnection,openURL:port.openURL};
   },
   closeConnection:()=>session?.close()??Promise.resolve(),

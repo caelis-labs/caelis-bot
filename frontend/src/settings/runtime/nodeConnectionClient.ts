@@ -19,7 +19,7 @@ export function createNodeConnectionOwner(invoke:Invoke,text:(key:MessageKey)=>s
   const existing=sessions.get(key);if(existing)return existing;
   const captured={...guard},ref:ConnectionRef={nodeId:guard.nodeId,backend:guard.backend,operationId:crypto.randomUUID()};
   const unknown=()=>new ConfigurationError({operationId:ref.operationId,outcome:'unknown',message:text('settings.nodeOperationUnknown')});
-  let closed=false,observing=0;
+  let closed=false,rejected=false,observing=0;
   let beginning:Promise<void>|undefined,closing:Promise<void>|undefined,start:Promise<RuntimeFlow>|undefined;
   const actions=new Map<string,Promise<RuntimeFlow>>(),cancels=new Map<string,Promise<void>>();
   const requireOpen=()=>{if(closed||!beginning)throw unknown();};
@@ -51,20 +51,34 @@ export function createNodeConnectionOwner(invoke:Invoke,text:(key:MessageKey)=>s
      try {
       const actual=await invoke<ConnectionRef>('BeginNodeRuntimeConnection',captured,ref.operationId);
       if(actual.nodeId!==ref.nodeId||actual.backend!==ref.backend||actual.operationId!==ref.operationId)throw unknown();
-     }catch{throw unknown();}
+     }catch(error){
+      // Wails serializes Error() only. Recognize this single fixed native code,
+      // which is emitted solely after a durable proof of no setup dispatch.
+      const message=error instanceof Error?error.message:error;
+      if(message==='node connection begin-rejected'){
+       rejected=true;closed=true;
+       if(sessions.get(key)===session)sessions.delete(key);
+       throw new ConfigurationError({operationId:ref.operationId,outcome:'rejected',message:text('settings.nodeConnectionSetupUnavailable')});
+      }
+      throw unknown();
+     }
     })();
     return beginning;
    },
    close(){
+    if(rejected)return Promise.resolve();
     closed=true;observing++;
-    closing??=(async()=>{
+    if(closing)return closing;
+    const attempt=(async()=>{
      // A late or lost Begin still belongs to this original operation. Cleanup
-     // uses that reference once even when its response was unavailable.
+     // checks always use that reference, including after a lost Close reply.
      await beginning?.catch(()=>{});
      try{await invoke('CloseNodeRuntimeConnection',ref);}catch{throw unknown();}
      if(sessions.get(key)===session)sessions.delete(key);
     })();
-    return closing;
+    closing=attempt;
+    void attempt.catch(()=>{if(closing===attempt)closing=undefined;});
+    return attempt;
    },
    catalog:kind=>call('NodeRuntimeConnectionCatalog',kind),
    async apiKeyOptions(provider,baseURL){

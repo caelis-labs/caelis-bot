@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ConnectionGroup, ConnectionModel, ModelScope, RuntimeSettingsClient, RuntimeView } from './types';
 import { formatModelUse, messageOf } from './state';
-import { runtimeSettingsClient } from './client';
+import { ConfigurationError, runtimeSettingsClient } from './client';
 import { ModelPicker, ModelSummary } from './ModelPicker';
 import { SettingsDialog } from './SettingsDialog';
 import { TeamSettings } from './TeamSettings';
@@ -45,7 +45,7 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, preparation,a
    const prepared=await captured.beginConnection?.()??captured;
    if(!alive.current||epoch!==connectionEpoch.current){await prepared.closeConnection?.();return;}
    connectionOwner.current=prepared;setConnectionClient(prepared);setConnecting(true);
-  } catch {if(alive.current&&epoch===connectionEpoch.current)setConnectionError(t('settings.nodeOperationUnknown'));}
+  } catch (error) {if(alive.current&&epoch===connectionEpoch.current)setConnectionError(error instanceof ConfigurationError&&!error.unknown?error.message:t('settings.nodeOperationUnknown'));}
   finally {connectionWorking.current=false;if(alive.current)setConnectionStarting(false);}
  };
  // Navigation cannot silently discard an active settings/authentication dialog.

@@ -708,9 +708,58 @@ test('lost Begin and cleanup keep the original scope blocked without leaking SDK
  await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return coldCatalog();if(method==='NodeRuntimeConfiguration')return coldConfig(...args);if(['BeginNodeRuntimeConnection','CloseNodeRuntimeConnection'].includes(method))throw new Error('RAW-SDK-BODY-MUST-STAY-PRIVATE');throw new Error('Unexpected fixture method');});
  await click(buttons('Add connection')[0]);await click(buttons('Add connection')[0]);
  assert.equal(calls.filter(c=>c[0]==='BeginNodeRuntimeConnection').length,1);
- assert.equal(calls.filter(c=>c[0]==='CloseNodeRuntimeConnection').length,1);
+ assert.equal(calls.filter(c=>c[0]==='CloseNodeRuntimeConnection').length,2);
+ const cleanup=calls.filter(c=>c[0]==='CloseNodeRuntimeConnection');assert.deepEqual(cleanup[0][1],cleanup[1][1]);
  assert.equal(container.querySelector('[role="dialog"]'),null);
  assert.doesNotMatch(container.textContent,/RAW-SDK-BODY-MUST-STAY-PRIVATE/);
+});
+
+test('confirmed pre-start rejection stays explanatory and permits only a later explicit Begin',async()=>{
+ const calls=[];
+ await mount(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return coldCatalog();
+  if(method==='NodeRuntimeConfiguration')return coldConfig(...args);
+  if(method==='BeginNodeRuntimeConnection')throw new Error('node connection begin-rejected');
+  throw new Error('Unexpected fixture method');
+ });
+ await click(buttons('Add connection')[0]);
+ assert.equal(container.querySelector('[role="dialog"]'),null);
+ assert.ok(container.textContent.includes(translator('en').t('settings.nodeConnectionSetupUnavailable')));
+ assert.ok(!container.textContent.includes(translator('en').t('settings.nodeOperationUnknown')));
+ assert.equal(calls.filter(call=>call[0]==='CloseNodeRuntimeConnection').length,0,'a proven no-start rejection needs no extra cleanup mutation');
+ await click(buttons('Add connection')[0]);
+ const begins=calls.filter(call=>call[0]==='BeginNodeRuntimeConnection');
+ assert.equal(begins.length,2);assert.notEqual(begins[0][2],begins[1][2]);
+});
+
+test('lost pre-start rejection remains blocked until Close confirms the original reference',async()=>{
+ const calls=[];
+ let closeConfirmed=false;
+ const owner=createNodeSettingsClient(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeRuntimeConfiguration')return coldConfig(...args);
+  if(method==='BeginNodeRuntimeConnection')throw new Error('lost response');
+  if(method==='CloseNodeRuntimeConnection'){if(!closeConfirmed)throw new Error('lost cleanup response');return;}
+  throw new Error('Unexpected fixture method');
+ });
+ const client=createNodeRuntimeClient(owner,{nodeId:'other',backend:'caelis',revision:''});
+ await client.read();
+ await assert.rejects(client.beginConnection());
+ const original=calls.find(call=>call[0]==='BeginNodeRuntimeConnection');
+ await assert.rejects(client.beginConnection());
+ assert.equal(calls.filter(call=>call[0]==='BeginNodeRuntimeConnection').length,1);
+ assert.deepEqual(calls.find(call=>call[0]==='CloseNodeRuntimeConnection')[1],nativeRef(original[1],original[2]));
+ // A later explicit click checks cleanup with the original reference. It
+ // cannot dispatch a fresh Begin during that reconciliation action.
+ closeConfirmed=true;
+ await assert.rejects(client.beginConnection());
+ assert.equal(calls.filter(call=>call[0]==='BeginNodeRuntimeConnection').length,1);
+ const cleanup=calls.filter(call=>call[0]==='CloseNodeRuntimeConnection');
+ assert.equal(cleanup.length,3);for(const call of cleanup)assert.deepEqual(call[1],nativeRef(original[1],original[2]));
+ await assert.rejects(client.beginConnection());
+ const begins=calls.filter(call=>call[0]==='BeginNodeRuntimeConnection');
+ assert.equal(begins.length,2);assert.notEqual(begins[0][2],begins[1][2]);
 });
 
 test('Node cancel and unknown Start preserve original native flow without duplicate actions',async()=>{
