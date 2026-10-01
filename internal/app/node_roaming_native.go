@@ -36,12 +36,13 @@ import (
 // shell commands. Approval covers the closed deployment plan, not new SSH keys,
 // system services, automatic login or Runtime credential transfer.
 type NodeRoamingNativeOptions struct {
-	Host                func() (string, error)
-	Artifact            func(string) (nodeagent.Artifact, error)
-	LocalSSHDestination string
-	LocalCodexBinary    string
-	RuntimeSettings     func(context.Context, NodeRegistration, api.NodeBackend) (api.RuntimeSettings, error)
-	OwnedRuntimeProbe   func(context.Context, NodeRegistration, api.NodeBackend) (bool, string, error)
+	Host                  func() (string, error)
+	Artifact              func(string) (nodeagent.Artifact, error)
+	LocalSSHDestination   string
+	LocalCodexBinary      string
+	RuntimeSettings       func(context.Context, NodeRegistration, api.NodeBackend) (api.RuntimeSettings, error)
+	OwnedRuntimeProbe     func(context.Context, NodeRegistration, api.NodeBackend) (bool, string, error)
+	OwnedRuntimeReadiness func(context.Context, NodeRegistration, nodeagent.OwnedRuntimeReadinessRequest) (nodeagent.OwnedRuntimeReadinessReceipt, error)
 }
 
 // The paired deployment port and SSH lifecycle use one closed native schema.
@@ -73,6 +74,7 @@ type roamingNativePlan struct {
 	LocalWorkExecution                                             api.WorkExecutionSettings
 	DisableOperationID                                             string
 	DisableLease                                                   nodeplane.Lease
+	UnavailableCaelisWorkers                                       map[string]bool `json:",omitempty"`
 }
 type roamingNativeAssembly struct {
 	app        *Application
@@ -123,6 +125,9 @@ func DefaultNodeRoamingOptions(a *Application, options ...NodeRoamingNativeOptio
 	}
 	if n.options.OwnedRuntimeProbe == nil {
 		n.options.OwnedRuntimeProbe = n.ownedRuntimeProbe
+	}
+	if n.options.OwnedRuntimeReadiness == nil {
+		n.options.OwnedRuntimeReadiness = n.ownedRuntimeReadiness
 	}
 	if n.options.LocalSSHDestination == "" {
 		n.options.LocalSSHDestination = os.Getenv("CAELIS_BOT_NODE_OUTGOING_SSH_TARGET")
@@ -455,24 +460,9 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 				m.CodexBinary = p.LocalRuntime.CLIPath
 			}
 		} else {
-			info, err := n.catalogNode(ctx, r.ID)
-			if err != nil {
-				return p, err
-			}
-			ready := map[string]bool{}
-			for _, runtime := range info.Runtimes {
-				if runtime.Authentication == api.NodeAuthenticated && runtime.Health == api.NodeHealthy {
-					ready[string(runtime.Backend)] = true
-				}
-			}
-			if !ready[m.Backend] {
-				if ready["codex"] {
-					m.Backend = "codex"
-				} else if ready["caelis"] {
-					m.Backend = "caelis"
-				} else {
-					return p, fmt.Errorf("node %s needs its own authenticated healthy Runtime", r.Label)
-				}
+			m.Backend, e = n.candidateBackend(ctx, r, m.Backend)
+			if e != nil {
+				return p, e
 			}
 			if m.Backend == "codex" {
 				m.RuntimeDirectory = filepath.Join(r.Directory, "runtime")
@@ -496,12 +486,6 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			m.CodexBinary, m.RuntimeDirectory = "", ""
 			if r.ID == api.LocalNodeID {
 				m.Model = p.LocalExecution.Model
-			} else {
-				configuration, e := n.app.Backend.NodeRuntimeConfiguration(ctx, r.ID, api.NodeCaelis)
-				if e != nil || !configuration.ConfigurationAvailable {
-					return p, errors.New("target Caelis model configuration is unavailable")
-				}
-				m.Model = configuration.Configuration.Main.Model
 			}
 		}
 		plan.Managed = m
@@ -517,20 +501,13 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			pref.Conversation = api.WorkExecutionSettings{Model: p.LocalExecution.Model, Effort: p.LocalExecution.Effort, ServiceTier: p.LocalExecution.ServiceTier}
 			pref.Worker = p.LocalWorkExecution
 		} else {
-			configuration, e := n.app.Backend.NodeRuntimeConfiguration(ctx, r.ID, api.NodeBackend(m.Backend))
-			if e != nil || !configuration.ConfigurationAvailable {
-				return p, errors.New("target Runtime preferences cannot be frozen for review")
+			pref, e = n.targetPreferences(ctx, r, api.NodeBackend(m.Backend))
+			if e != nil {
+				return p, e
 			}
-			if configuration.Conversation != nil {
-				pref.Conversation = *configuration.Conversation
-			} else if m.Backend == "caelis" {
-				pref.Conversation = configuration.Configuration.Main
-			}
-			if configuration.Worker != nil {
-				pref.Worker = *configuration.Worker
-			} else if m.Backend == "caelis" {
-				pref.Worker = configuration.Configuration.Main
-			}
+		}
+		if m.Backend == "caelis" {
+			m.Model = pref.Conversation.Model
 		}
 		p.Nodes = append(p.Nodes, roamingNativeNode{Registration: r, Plan: plan, HostHelper: helper, AgentSocket: filepath.Join(m.AgentDirectory, "agent.sock"), RuntimeBindings: bindings, Preferences: pref, CompanionArtifact: companionArtifact})
 		foundCoordinator = foundCoordinator || r.ID == in.Coordinator.ID
@@ -605,7 +582,7 @@ func (n *roamingNativeAssembly) workerBindings(ctx context.Context, p roamingNat
 	}
 	result := []NodeRoamingWorkerRuntime{}
 	for _, b := range []api.NodeBackend{api.NodeCodex, api.NodeCaelis} {
-		if !ready[string(b)] {
+		if b != api.NodeCaelis && !ready[string(b)] {
 			continue
 		}
 		if b == api.NodeCaelis {
@@ -631,17 +608,11 @@ func (n *roamingNativeAssembly) workerBindings(ctx context.Context, p roamingNat
 		if r.ID == api.LocalNodeID && string(b) == p.SourceBackend {
 			execution = p.LocalWorkExecution
 		} else {
-			configuration, e := n.app.Backend.NodeRuntimeConfiguration(ctx, r.ID, b)
-			if e != nil || !configuration.ConfigurationAvailable {
+			pref, e := n.targetPreferences(ctx, r, b)
+			if e != nil {
 				continue
 			}
-			if configuration.Worker != nil {
-				execution = *configuration.Worker
-			} else if b == api.NodeCaelis {
-				execution = configuration.Configuration.Main
-			} else {
-				continue
-			}
+			execution = pref.Worker
 		}
 		store := ""
 		if b == api.NodeCaelis {
@@ -694,6 +665,9 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 			return e
 		}
 	}
+	if e = n.confirmOwnedReadiness(ctx, &p); e != nil {
+		return e
+	}
 	if !in.Resume {
 		source := ActiveNodeRoamingApplication(n.app)
 		if source == nil {
@@ -738,7 +712,7 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 				healthy = healthy || string(r.Backend) == x.Plan.Managed.Backend && r.Health == api.NodeHealthy && r.Authentication == api.NodeAuthenticated
 			}
 		}
-		if !healthy {
+		if !healthy && x.Plan.Managed.Backend != "caelis" {
 			return fmt.Errorf("node %s needs its own authenticated healthy selected Runtime", x.Registration.Label)
 		}
 		m := x.Plan.Managed
@@ -757,6 +731,12 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 			}
 		}
 	}
+	n.mu.Lock()
+	if n.plans == nil {
+		n.plans = map[string]roamingNativePlan{}
+	}
+	n.plans[p.ID] = p
+	n.mu.Unlock()
 	return nil
 }
 func strictRoamingSSH(target string) ([]string, error) {
@@ -814,10 +794,18 @@ func nativeRoamingWorkers(p roamingNativePlan, x roamingNativeNode) any {
 		Agents   []agentRoute               `json:"agents"`
 		Sources  []source                   `json:"sources"`
 		Runtimes []NodeRoamingWorkerRuntime `json:"runtimes"`
-	}{Version: 1, Nodes: []worker{}, Agents: []agentRoute{}, Sources: []source{}, Runtimes: x.RuntimeBindings}
+	}{Version: 1, Nodes: []worker{}, Agents: []agentRoute{}, Sources: []source{}, Runtimes: []NodeRoamingWorkerRuntime{}}
+	for _, binding := range x.RuntimeBindings {
+		if binding.Backend != "caelis" || !p.UnavailableCaelisWorkers[x.Registration.ID] {
+			workers.Runtimes = append(workers.Runtimes, binding)
+		}
+	}
 	for _, other := range p.Nodes {
 		backends := []string{other.Plan.Managed.Backend}
 		for _, binding := range other.RuntimeBindings {
+			if binding.Backend == "caelis" && p.UnavailableCaelisWorkers[other.Registration.ID] {
+				continue
+			}
 			if binding.Backend != other.Plan.Managed.Backend {
 				backends = append(backends, binding.Backend)
 			}
