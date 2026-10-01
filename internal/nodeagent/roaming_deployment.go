@@ -85,9 +85,9 @@ func ValidateRoamingDeploymentRequest(r RoamingDeploymentRequest) error {
 	return nil
 }
 
-// ReadRoamingDeploymentMetadata inspects only fixed target-local metadata. It
-// never reads a Runtime credential or takes ownership from installed bytes.
-func ReadRoamingDeploymentMetadata(directory, nodeID string) (RoamingDeploymentMetadata, error) {
+// ReadNativeCompanionMetadata inspects only the fixed packaged native helper.
+// It never reads Runtime credentials or establishes outward SSH authority.
+func ReadNativeCompanionMetadata(directory, nodeID string) (RoamingDeploymentMetadata, error) {
 	value := RoamingDeploymentMetadata{NodeID: nodeID, Directory: directory, Architecture: runtime.GOARCH, OS: runtime.GOOS}
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" || CheckPrivateDirectory(directory) != nil {
 		return value, errors.New("native process ownership unsupported")
@@ -129,6 +129,16 @@ func ReadRoamingDeploymentMetadata(directory, nodeID string) (RoamingDeploymentM
 			return value, e
 		}
 		value.HelperSHA256 = hex.EncodeToString(h.Sum(nil))
+	}
+	return value, nil
+}
+
+// ReadRoamingDeploymentMetadata additionally validates the existing outward
+// pairing; helper discovery is shared with approved native readiness actions.
+func ReadRoamingDeploymentMetadata(directory, nodeID string) (RoamingDeploymentMetadata, error) {
+	value, e := ReadNativeCompanionMetadata(directory, nodeID)
+	if e != nil {
+		return value, e
 	}
 	if e = readPrivateJSON(filepath.Join(directory, "outgoing-route.json"), &value.Route); e != nil {
 		return value, errors.New("existing outbound pairing metadata unavailable")

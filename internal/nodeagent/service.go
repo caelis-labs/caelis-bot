@@ -51,14 +51,16 @@ type Options struct {
 	ManagedStart                               ManagedStartPort
 	WorkerProxy                                *NativeWorkerProxy
 	OwnedRuntimeSettings                       func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error)
+	OwnedRuntimeCompanion                      func(context.Context) (OwnedRuntimeCompanion, error)
 }
 
 const MaxOperations = 4096
 
 type Service struct {
-	options      Options
-	installation installer
-	mu           sync.Mutex
+	options        Options
+	installation   installer
+	mu             sync.Mutex
+	readinessCheck ownedReadinessCheck
 }
 
 var _ nodeplane.CatalogAgent = (*Service)(nil)

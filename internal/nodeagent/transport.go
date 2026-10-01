@@ -21,7 +21,7 @@ import (
 )
 
 func allowed(method, path string) bool {
-	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/managed-product" || path == "/v1/node/managed-disable" || path == "/v1/node/managed-status" || path == "/v1/node/managed-start" || path == "/v1/node/managed-product-proxy" || path == "/v1/node/managed-disable-receipt" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/roaming-deployment")
+	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/managed-product" || path == "/v1/node/managed-disable" || path == "/v1/node/managed-status" || path == "/v1/node/managed-start" || path == "/v1/node/managed-product-proxy" || path == "/v1/node/managed-disable-receipt" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/roaming-deployment" || path == "/v1/node/check-owned-readiness" || path == "/v1/node/owned-readiness-receipt")
 }
 func strictDecode(r io.Reader, v any) error {
 	d := json.NewDecoder(io.LimitReader(r, productrpc.MaxCommandBytes+1))
@@ -58,6 +58,30 @@ func Handler(agent nodeplane.CatalogAgent) http.Handler {
 			value, err = port.RoamingDeployment(r.Context(), input)
 		case "/v1/node/catalog":
 			value, err = agent.Catalog(r.Context())
+		case "/v1/node/check-owned-readiness":
+			var input OwnedRuntimeReadinessRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ownedRuntimeReadinessPort)
+			if !ok {
+				http.Error(w, "native readiness action unavailable", 503)
+				return
+			}
+			value, err = port.CheckOwnedRuntimeReadiness(r.Context(), input)
+		case "/v1/node/owned-readiness-receipt":
+			var input ownedRuntimeReadinessRef
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ownedRuntimeReadinessPort)
+			if !ok {
+				http.Error(w, "original readiness unavailable", 503)
+				return
+			}
+			value, err = port.ReadOwnedRuntimeReadiness(r.Context(), input.NodeID, input.Backend, input.OperationID)
 		case "/v1/node/probe-owned-runtime":
 			var input ownedRuntimeSettingsRequest
 			if strictDecode(r.Body, &input) != nil {
