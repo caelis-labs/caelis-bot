@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,7 @@ type roamingCommand struct {
 	reportStop                                                                                                                      func(error)
 	ManagedAgent                                                                                                                    bool
 	RuntimeDirectory                                                                                                                string
+	AgentSocket                                                                                                                     string
 	WorkersFile                                                                                                                     string
 	BrokerSSH                                                                                                                       nodeagent.SSHConfig
 	NodeID, BotID, Backend, AgentDirectory, GenerationRoot, BrokerSocket, BrokerNodeID, BrokerHelper, AuthFile, CodexBinary, Listen string
@@ -55,6 +57,7 @@ func parseRoamingCommand(args []string, out io.Writer) (roamingCommand, error) {
 	f.StringVar(&c.WorkersFile, "workers-file", "", "optional private exact approved Worker deployment configuration; excluded from Notebook")
 	f.BoolVar(&c.ManagedAgent, "managed-agent", false, "use the fixed separate managed proof socket alongside an existing catalog agent")
 	f.StringVar(&c.RuntimeDirectory, "runtime-directory", "", "existing enrolled target-native managed Runtime installer directory")
+	f.StringVar(&c.AgentSocket, "agent-socket", "", "optional frozen private native IPC socket; durable agent state stays separate")
 	f.StringVar(&c.AgentDirectory, "agent-directory", "", "existing enrolled same-user private agent directory")
 	f.StringVar(&c.GenerationRoot, "generations", "", "private root for absent fresh Notebook generations")
 	f.StringVar(&c.BrokerNodeID, "broker-node-id", "", "exact inspected designated broker enrollment")
@@ -81,6 +84,12 @@ func parseRoamingCommand(args []string, out io.Writer) (roamingCommand, error) {
 	}
 	if c.Backend == "codex" && (c.CaelisBinary != "" || c.CaelisStore != "" || c.Model != "") {
 		return c, errors.New("Caelis configuration requires owned Caelis backend")
+	}
+	if c.AgentSocket != "" && (!filepath.IsAbs(c.AgentSocket) || filepath.Clean(c.AgentSocket) != c.AgentSocket || len(c.AgentSocket) >= 100 || filepath.Base(c.AgentSocket) != "agent.sock" || strings.ContainsAny(c.AgentSocket, ":\x00\r\n")) {
+		return c, errors.New("exact short native agent socket required")
+	}
+	if c.ManagedAgent && c.AgentSocket != "" {
+		return c, errors.New("existing managed agent must retain its original proof socket")
 	}
 	if c.RuntimeDirectory != "" && !filepath.IsAbs(c.RuntimeDirectory) {
 		return c, errors.New("native runtime directory must be absolute")
@@ -233,6 +242,13 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	if err = nodeagent.CheckPrivateDirectory(c.AgentDirectory); err != nil {
 		return err
 	}
+	if c.AgentSocket != "" {
+		parent := filepath.Dir(c.AgentSocket)
+		canonical, e := filepath.EvalSymlinks(parent)
+		if e != nil || canonical != parent || nodeagent.CheckPrivateDirectory(parent) != nil {
+			return errors.New("native agent IPC parent must be canonical, private and owned")
+		}
+	}
 	// Enrollment is prerequisite; this command cannot manufacture a replacement
 	// node identity that silently changes an existing broker pairing.
 	identityBytes, err := readBrokerFile(filepath.Join(c.AgentDirectory, "node.json"), 1024)
@@ -337,6 +353,9 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 		return err
 	}
 	agentSocket := filepath.Join(c.AgentDirectory, agentSocketName)
+	if c.AgentSocket != "" {
+		agentSocket = c.AgentSocket
+	}
 	if len(agentSocket) >= 100 {
 		return errors.New("managed agent socket path exceeds private IPC limit")
 	}

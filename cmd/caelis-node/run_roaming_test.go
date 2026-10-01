@@ -139,6 +139,17 @@ func testManagedForeground(t *testing.T, disable, startManaged bool) {
 		t.Fatal(err)
 	}
 	agentDir := filepath.Join(root, "agent")
+	if !startManaged {
+		agentDir = filepath.Join(root, "durable-agent-"+strings.Repeat("x", 80))
+	}
+	agentSocket := filepath.Join(agentDir, "agent.sock")
+	if !startManaged {
+		ipc := filepath.Join(root, "ipc")
+		if err = os.Mkdir(ipc, 0700); err != nil {
+			t.Fatal(err)
+		}
+		agentSocket = filepath.Join(ipc, "agent.sock")
+	}
 	if err = os.Mkdir(agentDir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +169,7 @@ func testManagedForeground(t *testing.T, disable, startManaged bool) {
 	}
 	target := api.WorkTarget{NodeID: "native-node", Backend: "codex", Role: api.RoleBot}
 	registry := nodecoord.NewPeerRegistry()
-	if err = registry.Register(target, pairedRuntimePeer{brokerPeer{NodeID: target.NodeID, Backend: api.NodeCodex, Socket: filepath.Join(agentDir, "agent.sock")}}); err != nil {
+	if err = registry.Register(target, pairedRuntimePeer{brokerPeer{NodeID: target.NodeID, Backend: api.NodeCodex, Socket: agentSocket}}); err != nil {
 		t.Fatal(err)
 	}
 	broker, err := nodecoord.Open(nodecoord.Options{Directory: filepath.Join(root, "cache"), BotID: botID, BrokerNodeID: "native-broker", Verify: registry.VerifyClaim, VerifyRenew: registry.VerifyRenew, ReadOwnerEligibility: registry.ReadOwnerEligibility, ValidateSnapshot: memorytransfer.ValidateNotebookPayload})
@@ -188,6 +199,9 @@ func testManagedForeground(t *testing.T, disable, startManaged bool) {
 		t.Fatal(err)
 	}
 	c := roamingCommand{NodeID: target.NodeID, BotID: botID, Backend: "codex", AgentDirectory: agentDir, GenerationRoot: filepath.Join(root, "generations"), BrokerNodeID: "native-broker", BrokerSocket: socket, AuthFile: auth, CodexBinary: binary, Listen: "127.0.0.1:0"}
+	if !startManaged {
+		c.AgentSocket = agentSocket
+	}
 	stopObserved := make(chan error, 1)
 	c.reportStop = func(e error) { stopObserved <- e }
 	metadata := make(chan roamingMetadata, 4)
@@ -221,7 +235,7 @@ func testManagedForeground(t *testing.T, disable, startManaged bool) {
 			t.Fatal(e)
 		}
 		go func() { done <- nodeagent.Serve(ctx, listener, service) }()
-		mainClient, e := nodeagent.Dial(ctx, filepath.Join(agentDir, "agent.sock"), target.NodeID)
+		mainClient, e := nodeagent.Dial(ctx, agentSocket, target.NodeID)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -298,7 +312,7 @@ func testManagedForeground(t *testing.T, disable, startManaged bool) {
 	if err != nil || receipt.Outcome != "unknown" {
 		t.Fatalf("old receipt replay %+v %v", receipt, err)
 	}
-	agentClient, e := nodeagent.Dial(ctx, filepath.Join(agentDir, "agent.sock"), target.NodeID)
+	agentClient, e := nodeagent.Dial(ctx, agentSocket, target.NodeID)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -436,7 +450,7 @@ func TestRoamingFlagsRequirePinnedScopeAndLoopback(t *testing.T) {
 	if _, err := parseRoamingCommand(append(append([]string{}, valid...), "--backend", "caelis", "--caelis-binary", "/private/bin/caelis", "--caelis-store", "/private/owned-store", "--model", "fixture"), io.Discard); err != nil {
 		t.Fatalf("owned Caelis native configuration refused: %v", err)
 	}
-	for _, tail := range [][]string{{"--backend", "caelis"}, {"--listen", "0.0.0.0:1"}, {"--broker-node-id", ""}, {"--join-target", "peer"}} {
+	for _, tail := range [][]string{{"--backend", "caelis"}, {"--listen", "0.0.0.0:1"}, {"--broker-node-id", ""}, {"--join-target", "peer"}, {"--agent-socket", "relative.sock"}, {"--agent-socket", "/private/" + strings.Repeat("x", 100) + "/agent.sock"}, {"--agent-socket", "/private/managed.sock"}, {"--agent-socket", "/private/agent.sock", "--managed-agent"}} {
 		if _, err := parseRoamingCommand(append(append([]string{}, valid...), tail...), io.Discard); err == nil {
 			t.Fatalf("invalid native pairing accepted: %v", tail)
 		}
