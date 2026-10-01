@@ -26,13 +26,15 @@ type WorkerOptions struct {
 	Execution                           api.WorkExecutionSettings
 	Source                              api.WorkSourceProvider
 	Pair                                *workerwire.Pair // Trusted originating Bot pairing for a foreign-source owner.
-	RequireApproval                     bool             // Tighten policy for isolated native acceptance fixtures.
+	Lease                               *WorkerLeaseOptions
+	RequireApproval                     bool // Tighten policy for isolated native acceptance fixtures.
 }
 
 // WorkerClient exposes no resident Submit/Interrupt or Bot lifecycle. The private
 // Session value reuses native projections/receipts, with an empty resident ID.
 // Its native server belongs to the persistent target owner, not an observer.
 type WorkerClient struct {
+	lease    *workerLeaseFence
 	engine   *Session
 	target   api.WorkTarget
 	source   api.WorkSourceProvider
@@ -50,8 +52,18 @@ func NewWorker(opts WorkerOptions) *WorkerClient {
 	}
 	s := NewSession(SessionOptions{Directory: opts.Directory, StateFile: filepath.Join(opts.Directory, "worker-bindings.json"), WorkRoot: root, Binary: opts.Binary, Socket: opts.Socket, WorkExecution: opts.Execution, RequireApproval: opts.RequireApproval})
 	w := &WorkerClient{engine: s, target: opts.Target, source: opts.Source, open: openWorkerClient}
+	if opts.Lease != nil {
+		w.lease = newWorkerLeaseFence(w, *opts.Lease)
+		s.opts.Admission = w.lease
+		if opts.Socket != "" || !w.lease.valid() {
+			s.loadErr = errors.New("leased Worker requires pinned broker, power fence and isolated native process")
+		}
+	}
 	if opts.Pair != nil {
 		w.pair = *opts.Pair
+		if opts.Lease != nil && (opts.Lease.BotID != w.pair.BotID || opts.Lease.SourceNode != w.pair.SourceNode || opts.Lease.SourceBackend != w.pair.SourceBackend) {
+			s.loadErr = errors.New("Worker lease pin differs from native origin pairing")
+		}
 		if w.pair.Target != opts.Target {
 			s.loadErr = errors.New("Worker native pairing target mismatch")
 		}
@@ -183,7 +195,9 @@ func (w *WorkerClient) Connect(ctx context.Context) error {
 			return errors.New("Worker cannot replace its original native process owner")
 		}
 		w.stop = stop
+		s.mu.Lock()
 		w.owned = c
+		s.mu.Unlock()
 	}
 	w.endpoint = strings.TrimPrefix(endpoint, "unix://")
 	s.mu.Lock()
@@ -218,6 +232,11 @@ func (w *WorkerClient) Connect(ctx context.Context) error {
 		}
 	}
 	s.mu.Unlock()
+	if w.lease != nil {
+		if err = w.lease.activate(ctx); err != nil {
+			return err
+		}
+	}
 	go s.listen(c, epoch)
 	// Restore only retained native bindings; never create a replacement thread.
 	for _, id := range ids {
@@ -255,7 +274,7 @@ func (w *WorkerClient) authorize(ctx context.Context, source api.WorkDispatchSou
 	if actual.Validate() != nil || actual != source {
 		return errors.New("Worker source does not match the current native invocation")
 	}
-	return nil
+	return w.checkWorkerLease(ctx, source)
 }
 
 func (w *WorkerClient) WorkAdmission(ctx context.Context) error {
@@ -266,7 +285,10 @@ func (w *WorkerClient) WorkAdmission(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return source.Validate()
+	if err = source.Validate(); err != nil {
+		return err
+	}
+	return w.checkWorkerLease(ctx, source)
 }
 
 func workerDigest(v string) bool {
@@ -505,6 +527,11 @@ func (w *WorkerClient) workRoot() string {
 	return w.engine.workRoot()
 }
 func (w *WorkerClient) PrepareWorkWorkspace(ctx context.Context, id, workspace string, selected bool) error {
+	if w.lease != nil {
+		if err := w.WorkAdmission(ctx); err != nil {
+			return err
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -581,6 +608,10 @@ func (w *WorkerClient) Snapshot() api.Snapshot { return w.engine.Snapshot() }
 // Close is explicit target-owner shutdown. Observer detachment must never call
 // it; the retained process stop runs even if the native observation socket died.
 func (w *WorkerClient) Close(ctx context.Context) error {
+	if w.lease != nil {
+		w.lease.revoke()
+		w.lease.releasePower()
+	}
 	s := w.engine
 	err := s.Close(ctx)
 	s.op.Lock()
@@ -597,6 +628,9 @@ func (w *WorkerClient) Close(ctx context.Context) error {
 	}
 	if w.owned != nil {
 		err = errors.Join(err, w.owned.toolCleanupError())
+	}
+	if w.lease != nil {
+		err = errors.Join(err, w.lease.stopErr)
 	}
 	return err
 }
