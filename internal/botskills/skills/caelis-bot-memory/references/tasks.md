@@ -41,7 +41,10 @@ The workspace is fixed at creation and is part of the stable request identity.
 Workers keep native command approvals; selecting a project does not authorize
 unrelated operations.
 
-Use `bot_task_targets` for execution locations. Omit `target` for the default local Worker.
+Use `bot_task_targets` for execution locations. Omit `target` for the default Worker
+on the same machine as the active Bot.
+When the Bot runs on another machine, select the APP machine explicitly from the
+catalog to work there; never assume `nodeId: "local"` names the Bot's machine.
 For an explicit location, copy its exact `nodeId`, `backend`, and `role: "worker"`
 from the catalog; only a ready target can accept work. A node is a machine, while
 the backend is its execution driver. Do not derive either from a Host/Store name,

@@ -39,7 +39,7 @@ type WorkRoute struct {
 }
 
 // WorkRouter resolves only the explicitly selected target. Missing targets use
-// the existing local Worker; unavailable targets must fail without fallback.
+// the direct Worker on the active Bot's machine; unavailable targets fail without fallback.
 type WorkRouter interface {
 	ResolveWorkTarget(*WorkTarget) (WorkTarget, error)
 	WorkRuntimeFor(WorkTarget) (WorkRuntime, error)

@@ -75,7 +75,7 @@ func validateWorkerNode(config backend.WorkerNodeConfig) error {
 	if config.Backend != "" && config.Backend != "caelis" && config.Backend != "codex" {
 		return errors.New("worker backend is invalid")
 	}
-	if !workerNodeID.MatchString(config.ID) || config.ID == api.LocalNodeID || strings.TrimSpace(config.Label) == "" || len(config.Label) > 128 || strings.ContainsAny(config.Label, "\x00\r\n") {
+	if !workerNodeID.MatchString(config.ID) || strings.TrimSpace(config.Label) == "" || len(config.Label) > 128 || strings.ContainsAny(config.Label, "\x00\r\n") {
 		return errors.New("worker node identity is invalid")
 	}
 	if config.Transport == "registered-agent" {
@@ -83,6 +83,9 @@ func validateWorkerNode(config backend.WorkerNodeConfig) error {
 			return errors.New("registered Worker routes accept only an enrolled node and backend")
 		}
 		return nil
+	}
+	if config.ID == api.LocalNodeID {
+		return errors.New("SSH worker cannot replace the local machine identity")
 	}
 	if config.Transport != "" {
 		return errors.New("unsupported Worker transport")
@@ -123,6 +126,9 @@ func configuredWorkerTarget(config backend.WorkerNodeConfig) api.WorkTarget {
 }
 
 func (c *workerNodeController) register(config backend.WorkerNodeConfig, state nodes.Availability, runtime api.WorkRuntime) error {
+	if configuredWorkerTarget(config) == c.registry.DefaultTarget() {
+		return errors.New("optional Worker cannot replace the direct native Worker")
+	}
 	return c.registry.Set(nodes.Node{ID: config.ID, Label: config.Label}, nodes.Capability{Target: configuredWorkerTarget(config), State: state}, runtime)
 }
 
@@ -167,6 +173,9 @@ func (c *workerNodeController) Save(config backend.WorkerNodeConfig, revision ui
 	}
 	if err := validateWorkerNode(config); err != nil {
 		return c.snapshotLocked(), err
+	}
+	if configuredWorkerTarget(config) == c.registry.DefaultTarget() {
+		return c.snapshotLocked(), errors.New("optional Worker cannot replace the direct native Worker")
 	}
 	for _, previous := range c.document.Nodes {
 		if previous.ID == config.ID && previous.SSH != config.SSH {

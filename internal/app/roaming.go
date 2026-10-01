@@ -18,6 +18,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/memorytransfer"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/nodes"
 	"github.com/caelis-labs/caelis-bot/internal/roaming"
 )
 
@@ -135,6 +136,19 @@ func NewManagedNode(root string, host Host, nodeID string, options ...ManagedNod
 	if err != nil {
 		return nil, nil, err
 	}
+	// The imported generation has no optional routes yet. Bind its direct Worker
+	// to the managed machine before native startup or route configuration.
+	if err := a.workerNodes.Close(); err != nil {
+		_ = a.Close()
+		return nil, nil, err
+	}
+	a.nodeRegistry, err = nodes.NewAt(nodes.Node{ID: nodeID, Label: "This machine", OS: runtime.GOOS}, string(configured.Backend), a.engine.(api.WorkRuntime))
+	if err != nil {
+		_ = a.Close()
+		return nil, nil, err
+	}
+	a.workerNodes = openWorkerNodes(filepath.Join(root, "worker-nodes.json"), a.nodeRegistry, a.newWorkerNodeAdapter)
+	a.Backend.ConfigureWorkerNodes(a.workerNodes)
 	owner := &managedNodeOwner{app: a, nodeID: nodeID, generation: rand.Text(), snapshot: snapshot}
 	guard := roaming.NewGuard(nodeID, configured.Backend, owner, true)
 	if err := guard.ConfigureBroker(configured.BrokerNodeID); err != nil {

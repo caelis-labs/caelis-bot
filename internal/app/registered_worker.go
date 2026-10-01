@@ -57,6 +57,9 @@ func (a *Application) newRegisteredWorkerNode(config backend.WorkerNodeConfig, s
 	if err != nil {
 		return nil, err
 	}
+	if pair.Target.NodeID == pair.SourceNode && pair.Target.Backend == pair.SourceBackend {
+		return nil, errors.New("registered Worker cannot replace the source's direct native Worker")
+	}
 	a.mu.Lock()
 	lookup, requireLease := a.registeredWorkers, a.managed != nil
 	a.mu.Unlock()

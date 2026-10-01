@@ -280,10 +280,13 @@ func (g *Guard) CheckWorkTarget(ctx context.Context, target api.WorkTarget) erro
 	if err := g.CheckContext(ctx); err != nil {
 		return err
 	}
-	if target.Role != api.RoleWorker || target.Backend != string(g.backend) {
+	if err := target.Validate(); err != nil {
+		return err
+	}
+	if target.Role != api.RoleWorker || (target.Backend != string(api.NodeCodex) && target.Backend != string(api.NodeCaelis)) {
 		return errors.New("selected Worker does not participate in the managed native lease fence")
 	}
-	if target.NodeID != api.LocalNodeID {
+	if target.NodeID != g.node || target.Backend != string(g.backend) {
 		g.mu.Lock()
 		broker := g.brokerNode
 		g.mu.Unlock()
@@ -323,7 +326,7 @@ func (g *Guard) CheckWorkRuntime(ctx context.Context, target api.WorkTarget, wor
 	if err := g.CheckWorkTarget(ctx, target); err != nil {
 		return err
 	}
-	if target.NodeID == api.LocalNodeID {
+	if target.NodeID == g.node && target.Backend == string(g.backend) {
 		return nil
 	}
 	aware, ok := work.(api.LeaseAwareWorkRuntime)
