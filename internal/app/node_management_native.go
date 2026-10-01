@@ -752,7 +752,7 @@ func nodeLocalHealth(ctx context.Context, a *Application, b api.NodeBackend) (no
 			_, err := a.nodeRegistry.WorkRuntimeFor(api.WorkTarget{NodeID: api.LocalNodeID, Backend: string(b), Role: api.RoleWorker})
 			workerEligible = err == nil
 		}
-		return nodeagent.NativeHealth{AuthenticationKnown: state.AuthenticationKnown, Authenticated: state.Authenticated, HealthKnown: state.HealthKnown, Healthy: state.Healthy, WorkerEligible: workerEligible, SharedHost: true}, nil
+		return nodeagent.NativeHealth{AuthenticationKnown: state.AuthenticationKnown, Authenticated: state.Authenticated, HealthKnown: state.HealthKnown, Healthy: state.Healthy, WorkerEligible: workerEligible, SharedHost: state.HealthKnown && state.Healthy}, nil
 	}
 	state, err := a.Backend.InspectSetup(ctx, settings)
 	if err != nil {

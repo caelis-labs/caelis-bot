@@ -65,7 +65,7 @@ func TestNodeLocalCaelisHealthKeepsInactiveStoreIsolated(t *testing.T) {
 				t.Fatal(err)
 			}
 			health, err := nodeLocalHealth(t.Context(), a, api.NodeCaelis)
-			if err != nil || health.HealthKnown != tc.ready || health.Healthy != tc.ready || health.AuthenticationKnown != tc.ready || health.Authenticated != tc.ready || health.WorkerEligible && !tc.active {
+			if err != nil || health.HealthKnown != tc.ready || health.Healthy != tc.ready || health.AuthenticationKnown != tc.ready || health.Authenticated != tc.ready || health.SharedHost != tc.ready || health.WorkerEligible && !tc.active {
 				t.Fatal("health did not belong to designated Node Store", health, err)
 			}
 			if (defaultCalls.Load() > 0) != tc.active || (designatedCalls.Load() > 0) != (tc.designation != "") {
