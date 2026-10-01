@@ -61,3 +61,53 @@ actually stopped and idle native source. It cannot overwrite an initialized
 cache or reset an epoch. A raw file or request boolean is never bootstrap proof.
 The SSH broker transport invokes only the existing fixed `proxy-broker` helper
 and pins the inspected native broker identity; it installs no SSH configuration.
+
+`serve-roaming` is the optional foreground headless composition. It requires an
+existing exact enrollment, pinned broker identity, target-private product token,
+and an owned Codex installation. It combines the real managed application,
+request-start deadline guard, dynamic paired proof agent, Notebook Runner and
+existing product protocol. Standby keeps the same prepared native generation
+across ordinary claim conflicts, waits for an absent genesis snapshot, and
+imports a fresh generation if latest changes. Product readiness is emitted only
+after actual lease installation and native start. Each generation has its own
+product receipt journal; old operation receipts are never adopted or replayed.
+Linux and Darwin power fencing use `internal/leasepower`, with no Wails dependency
+in the headless command.
+
+`--managed-agent` uses the fixed separate `managed.sock` and managed owner lock
+alongside an existing catalog agent. `--runtime-directory` resolves the actual
+native managed installer executable. An optional `--workers-file` carries
+approved nonsecret exact Worker deployment bindings, independently of Notebook
+contents. The application saves and connects those exact targets through the
+existing native setup API; unsupported lease-aware targets remain ineligible.
+
+An independently running private Unix `serve-agent --managed-config` may own a
+configured managed starter. Its private plan pins the verified helper checksum,
+exact Bot/broker enrollment, existing outbound SSH pairing and broker private
+slot, and existing target-private product token file. The closed start request
+contains only native identities and an original operation ID. Repeating that ID
+returns its original receipt; an uncertain start is never replaced or replayed.
+The target-owned child and outbound proof channel do not depend on an observing
+APP stream. Managed starts are rejected on transient `--stdio` agent lifetimes.
+No service installation, new key, SSH configuration or real persistent deployment
+is performed by these source fixtures.
+
+The paired agent exposes a read-only managed product locator and a closed
+product proxy. The proxy confirms the exact live owner and generation, uses the
+target's existing bearer locally, and relays the existing product command and
+receipt protocol over an outgoing-only connection. It has no arbitrary URL,
+command, filesystem path or credential response. Private framed proxy requests
+are bounded to 256 KiB and responses to 4 MiB, including bounded file transfers;
+larger transfers fail explicitly. `PrepareManagedDisable` first cancels standby
+claim intent. The active owner additionally checks safe idle, publishes a final
+complete Notebook, and proves native stop before acknowledging release. A
+failed or unknown outcome cannot authorize restoring local execution. The native
+controller must disable all standbys before disabling the active owner.
+
+`--bootstrap-peers-file` separates temporary exact stopped-source genesis proof
+from the independently joined normal owner peers. Bootstrap proof does not become
+an ongoing APP-owned lease authority. Live OS sleep, owner-crash watchdog and
+long-running independent deployment acceptance remain separate native gates;
+temporary loopback/private-IPC and synthetic owned-process tests do not prove
+those hardware or deployment conditions. Bot skill guidance is unchanged because
+these native pairing and lifecycle controls add no model-facing tool surface.

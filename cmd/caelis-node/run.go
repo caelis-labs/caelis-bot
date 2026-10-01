@@ -24,6 +24,8 @@ import (
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "serve-roaming":
+			return runRoaming(ctx, args, out)
 		case "owned-runtime-watchdog":
 			return runOwnedWatchdog(ctx, args[1:], out)
 		case "serve-broker", "proxy-broker":
