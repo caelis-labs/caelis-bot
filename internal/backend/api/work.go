@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -48,7 +49,38 @@ type WorkState struct {
 type WorkTerminalProvider interface {
 	WorkTerminal(context.Context, string) (TerminalTarget, error)
 }
+
+// Locality is established by the native adapter which owns the attach endpoint.
+// Node IDs are opaque identities and do not determine filesystem locality.
+type TerminalLocality string
+
+const (
+	TerminalLocal  TerminalLocality = "local"
+	TerminalRemote TerminalLocality = "remote"
+)
+
+var ErrRemoteWorkTerminal = errors.New("this node has no verified remote terminal observation route")
+var ErrWorkTerminalOffline = errors.New("the task's original node is unavailable")
+var ErrWorkTerminalBinding = errors.New("the task's original terminal binding changed")
+
+// TerminalObservationError preserves a typed native cause while the product
+// boundary supplies the user's locale. Error text contains no private paths.
+type TerminalObservationError struct {
+	Message string
+	Cause   error
+}
+
+func (e *TerminalObservationError) Error() string { return e.Message }
+func (e *TerminalObservationError) Unwrap() error { return e.Cause }
+
 type TerminalTarget struct {
+	// Target is stamped by the task ledger. Locality is a native adapter fact,
+	// never inferred from a path, node label, active settings or an absent stamp.
+	Target   WorkTarget
+	Locality TerminalLocality
+	// Generation is the adapter's native connection/Host generation, independent
+	// of the task's current Turn or completion-report key.
+	Generation                                              string
 	Runtime, Binary, Endpoint, Thread, Directory, CodexHome string
 	// Caelis attaches with the local user credential file; never embed its bytes.
 	Session, Store, TokenFile string

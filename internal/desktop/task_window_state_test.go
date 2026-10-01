@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 	"testing"
 )
@@ -15,6 +16,24 @@ func TestCloseConfirmationProjectionAndCancellation(t *testing.T) {
 	s.taskWindowChanged("owned", taskterminal.WindowEvent{Revision: 2, Phase: taskterminal.WindowIdle, State: taskterminal.WindowForeground, Err: taskterminal.ErrWindowCloseCancelled})
 	if d.failure != "" || d.opening != "" {
 		t.Fatal("cancel displayed as error or left prompt", d)
+	}
+}
+
+func TestNodeTerminalErrorsProjectLocalizedSpecificFeedback(t *testing.T) {
+	for _, tc := range []struct {
+		cause error
+		key   string
+	}{
+		{api.ErrRemoteWorkTerminal, "host.remoteTaskTerminalUnavailable"},
+		{api.ErrWorkTerminalOffline, "host.taskTerminalNodeUnavailable"},
+		{api.ErrWorkTerminalBinding, "host.taskTerminalBindingChanged"},
+	} {
+		s, d := taskService(t)
+		wrapped := &api.TerminalObservationError{Message: "private native cause must not replace product feedback", Cause: tc.cause}
+		s.taskWindowChanged("original-task", taskterminal.WindowEvent{Revision: 1, Phase: taskterminal.WindowUncertain, Err: wrapped})
+		if key := taskWindowErrorKey(wrapped); key != tc.key || d.failure != s.text(tc.key, nil) {
+			t.Fatal("node-specific terminal feedback became generic or native text", key, d.failure)
+		}
 	}
 }
 
