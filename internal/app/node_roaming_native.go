@@ -22,6 +22,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/memorytransfer"
@@ -40,6 +41,7 @@ type NodeRoamingNativeOptions struct {
 	LocalSSHDestination string
 	LocalCodexBinary    string
 	RuntimeSettings     func(context.Context, NodeRegistration, api.NodeBackend) (api.RuntimeSettings, error)
+	OwnedRuntimeProbe   func(context.Context, NodeRegistration, api.NodeBackend) (bool, string, error)
 }
 
 // The paired deployment port and SSH lifecycle use one closed native schema.
@@ -118,6 +120,9 @@ func DefaultNodeRoamingOptions(a *Application, options ...NodeRoamingNativeOptio
 	}
 	if n.options.RuntimeSettings == nil {
 		n.options.RuntimeSettings = n.runtimeSettings
+	}
+	if n.options.OwnedRuntimeProbe == nil {
+		n.options.OwnedRuntimeProbe = n.ownedRuntimeProbe
 	}
 	if n.options.LocalSSHDestination == "" {
 		n.options.LocalSSHDestination = os.Getenv("CAELIS_BOT_NODE_OUTGOING_SSH_TARGET")
@@ -267,6 +272,76 @@ func (n *roamingNativeAssembly) runtimeSettings(ctx context.Context, reg NodeReg
 		return api.RuntimeSettings{}, errors.Join(errors.New("exact target Runtime metadata is unconfirmed"), e)
 	}
 	return api.RuntimeSettings{Runtime: string(b), CLIPath: value.Binary, CaelisStore: value.Store}, nil
+}
+func (n *roamingNativeAssembly) ownedRuntimeProbe(ctx context.Context, reg NodeRegistration, b api.NodeBackend) (bool, string, error) {
+	if e := ctx.Err(); e != nil {
+		return false, "owned-runtime-probe-unavailable", e
+	}
+	if reg.ID == api.LocalNodeID && b == api.NodeCaelis {
+		// The in-process configuration adapter owns the actual local profile.
+		// Its designated Store is native authority; the generic agent's fallback
+		// private Store must not stand in for this profile's reviewed binding.
+		if n.options.RuntimeSettings == nil {
+			return false, "runtime-metadata-unavailable", errors.New("local native Runtime settings are unavailable")
+		}
+		settings, e := n.options.RuntimeSettings(ctx, reg, b)
+		if e != nil || settings.Runtime != "caelis" || !filepath.IsAbs(settings.CLIPath) {
+			return false, "runtime-metadata-unavailable", e
+		}
+		eligible, reason := caelis.ProbeOwnedStore(reg.ID, settings.CaelisStore)
+		return eligible, reason, nil
+	}
+	if n.app == nil || n.app.Backend == nil {
+		return false, "native-pairing-unavailable", errors.New("native application is unavailable")
+	}
+	controller, e := backend.NativeNodeManagementController(n.app.Backend)
+	if e != nil {
+		return false, "native-pairing-unavailable", e
+	}
+	management, ok := controller.(*nodeManagement)
+	if !ok {
+		return false, "native-pairing-unavailable", errors.New("retained native node management is unavailable")
+	}
+	native, ok := management.agent.(*nativeNodeManagement)
+	if !ok {
+		return false, "native-pairing-unavailable", errors.New("exact target native pairing is unavailable")
+	}
+	peer, e := native.agent(reg.ID)
+	if e != nil {
+		return false, "native-pairing-unavailable", e
+	}
+	if local, ok := peer.(roamingManagedCatalog); ok && reg.ID == api.LocalNodeID {
+		peer, e = local.peer(ctx, reg.ID)
+		if e != nil {
+			return false, "native-pairing-unavailable", e
+		}
+	}
+	reader, ok := peer.(interface {
+		ProbeOwnedRuntime(context.Context, string, api.NodeBackend) (nodeagent.OwnedRuntimeProbe, error)
+	})
+	if !ok {
+		return false, "owned-runtime-probe-unavailable", errors.New("target native owned Runtime probe is unavailable")
+	}
+	value, e := reader.ProbeOwnedRuntime(ctx, reg.ID, b)
+	return value.Eligible, value.Reason, e
+}
+
+func (n *roamingNativeAssembly) confirmCandidateRuntime(ctx context.Context, node roamingNativeNode) error {
+	if node.Plan.Managed == nil || node.Plan.Managed.Backend != "caelis" {
+		return nil
+	}
+	if n.options.OwnedRuntimeProbe == nil || n.options.RuntimeSettings == nil {
+		return errors.New("target Caelis owned Host readiness probe is unavailable")
+	}
+	eligible, reason, e := n.options.OwnedRuntimeProbe(ctx, node.Registration, api.NodeCaelis)
+	if e != nil || !eligible {
+		return errors.Join(fmt.Errorf("node %s designated Caelis Host cannot be owned: %s", node.Registration.Label, reason), e)
+	}
+	settings, e := n.options.RuntimeSettings(ctx, node.Registration, api.NodeCaelis)
+	if e != nil || settings.Runtime != "caelis" || settings.CLIPath != node.Plan.Managed.CaelisBinary || settings.CaelisStore != node.Plan.Managed.CaelisStore {
+		return errors.Join(errors.New("target Caelis native settings changed after review"), e)
+	}
+	return nil
 }
 func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageInput) (roamingNativePlan, error) {
 	var p roamingNativePlan
@@ -533,6 +608,15 @@ func (n *roamingNativeAssembly) workerBindings(ctx context.Context, p roamingNat
 		if !ready[string(b)] {
 			continue
 		}
+		if b == api.NodeCaelis {
+			if n.options.OwnedRuntimeProbe == nil {
+				continue
+			}
+			eligible, _, e := n.options.OwnedRuntimeProbe(ctx, r, b)
+			if e != nil || !eligible {
+				continue
+			}
+		}
 		var settings api.RuntimeSettings
 		var e error
 		if n.options.RuntimeSettings != nil {
@@ -559,7 +643,11 @@ func (n *roamingNativeAssembly) workerBindings(ctx context.Context, p roamingNat
 				continue
 			}
 		}
-		result = append(result, NodeRoamingWorkerRuntime{Backend: string(b), Binary: settings.CLIPath, Store: settings.CaelisStore, Model: execution.Model, Execution: execution})
+		store := ""
+		if b == api.NodeCaelis {
+			store = settings.CaelisStore
+		}
+		result = append(result, NodeRoamingWorkerRuntime{Backend: string(b), Binary: settings.CLIPath, Store: store, Model: execution.Model, Execution: execution})
 	}
 	return result
 }
@@ -600,6 +688,11 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 	}
 	if !in.AllowPersistentExecution || in.ReviewedPlanID != p.ID {
 		return errors.New("review and confirm the exact node deployment plan before retiring the local profile")
+	}
+	for _, node := range p.Nodes {
+		if e = n.confirmCandidateRuntime(ctx, node); e != nil {
+			return e
+		}
 	}
 	if !in.Resume {
 		source := ActiveNodeRoamingApplication(n.app)
