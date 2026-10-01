@@ -145,3 +145,81 @@ local old-Notebook retention, and a fresh local session without old binding.
 Also verify busy/unknown refusal and a lost SSH response without a second owner.
 Record each actual runtime owner/Worker result independently. The old QA thread's
 active-writer conflict is not evidence that its original session resumed.
+
+## Existing product RPC control entry
+
+The complete ordinary `serve-bot` owner, including `--owned-node-id`, composes
+these same Node/Worker/Notebook controllers. Its inspected identity advertises
+`capabilities.nodeManagement`. This is native user settings access over the
+existing authenticated loopback product listener or `proxy-product` SSH stdio;
+it is not a Bot tool, a new credential scheme, or a generic Service dispatcher.
+The GUI's switch confirmation remains unchanged. An authenticated native caller
+must explicitly request the switch action; native idle/stopped checks still run.
+
+Read via `POST /v1/management/nodes` with the currently inspected `botId` and
+`generation`. The closed `action` values are:
+
+- `catalog`: `catalog` contains the authoritative enrollment/catalog revision.
+- `workers`: `workers` contains its own revision and exact enrolled Worker facts.
+- `notebook`: `notebookSettings` and `notebookState` contain settings, last success,
+  failure/phase and original switch operation.
+- `configuration`: include `nodeId` and `backend` for target Runtime configuration,
+  detection and reviewed installer versions.
+- `enrollment`: include `nodeId` equal to the original enrollment operation ID.
+- `operation`: include the unchanged original `operation` NodeOperationRef.
+
+Mutate through the existing `POST /v1/commands` journal, with one stable original
+`id`, the inspected scope, `kind: "manage-nodes"` and one `nodeManagement` payload.
+For example, after reading the current catalog revision:
+
+```json
+{
+  "botId": "INSPECTED_BOT",
+  "generation": "INSPECTED_GENERATION",
+  "id": "enroll-fedora-original",
+  "kind": "manage-nodes",
+  "nodeManagement": {
+    "action": "add-node",
+    "add": {
+      "operationId": "enroll-fedora-original",
+      "label": "Fedora",
+      "join": "ssh",
+      "sshDestination": "EXISTING_SSH_ALIAS_ON_THIS_OWNER",
+      "expectedRevision": "CATALOG_REVISION"
+    }
+  }
+}
+```
+
+The remaining payloads map to the existing Service methods:
+
+| `action` | Sole payload | Existing method |
+| --- | --- | --- |
+| `detect-node` | `nodeId` | `DetectNode` |
+| `configure-node` | `configuration` (existing guard/ref and semantic change or installation) | `ChangeNodeConfiguration` |
+| `save-worker-node` | `worker: {nodeId, backend, revision}` | `SaveWorkerNode` |
+| `probe-worker-target` / `connect-worker-target` / `disconnect-worker-target` | same `worker` payload | Exact Worker target methods |
+| `save-notebook-settings` | `notebookSettings: {enabled, intervalMinutes, targets: [{nodeId, backend}]}` | `SaveNotebookSyncSettings` |
+| `sync-notebook` | `nodeId` | `SyncNotebook` |
+| `switch-notebook-node` | `nodeId` | `SwitchNotebookNode` |
+
+Worker labels and routes are resolved from this owner's enrolled catalog. No
+wire input may supply a Worker transport/helper/socket/Store/workspace path;
+worker observations omit these native fields. Notebook observations preserve
+last-success and phase while categorizing private native errors. Native settings
+revision checks, existing ownership and configuration guards are not relaxed.
+
+The product command's `outcome` and optional `nodeManagement` view confirm only
+that operation's existing result. An uncertain native switch remains `unknown`.
+A lost response must use `/v1/receipt` with the original ID, then re-read the
+relevant current state; replay never dispatches again. Stored receipts do not
+cache current node/Worker/Notebook views. Native enrollment/configuration unknown
+outcomes use the original `enrollment`/`operation` lookup, not another command ID.
+
+After a confirmed headless source switch, official `stop-bot` closes that already
+fenced owner normally and releases its profile lock. `serve-bot` still requires a
+resident local profile: it cannot become a thin remote APP or bypass that existing
+restriction. The ordinary desktop APP remains the original profile's controller
+for remote source backup and return to this machine. A GUI automation blocker is
+therefore separate from successful authenticated headless control; do not claim
+full desktop round-trip acceptance using headless wire calls alone.

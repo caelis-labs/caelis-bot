@@ -36,12 +36,24 @@ func NewOwnedResident(ctx context.Context, root string, host Host, nodeID, helpe
 		_ = a.Close()
 		return nil, err
 	}
+	if err = attachDefaultNotebookSync(a); err != nil {
+		_ = a.Close()
+		return nil, err
+	}
 	return a, nil
 }
 
 // StopNotebookOwner freezes new work and requires the concrete owned Runtime
 // to finish stopping. Ordinary shared Hosts cannot provide this proof.
 func (a *Application) StopNotebookOwner(ctx context.Context) error {
+	// A completed switch already fenced and retired this exact local Runtime.
+	// The product owner still needs to close normally and release its profile lock.
+	a.mu.Lock()
+	retired := a.sourceRetired && !a.started && a.notebookRestartPrepared
+	a.mu.Unlock()
+	if retired {
+		return nil
+	}
 	hooks, completed := a.NotebookLocalSourceHooks()
 	if err := hooks.StopSource(ctx); err != nil {
 		return err

@@ -18,7 +18,7 @@ func managementScope(s Scope) productmanagement.Scope {
 }
 func managementPath(path string) bool {
 	switch path {
-	case "/v1/management/capabilities", "/v1/management/releases", "/v1/management/status", "/v1/management/configuration", "/v1/management/resolve", "/v1/management/execution":
+	case "/v1/management/nodes", "/v1/management/capabilities", "/v1/management/releases", "/v1/management/status", "/v1/management/configuration", "/v1/management/resolve", "/v1/management/execution":
 		return true
 	}
 	return false
@@ -70,6 +70,10 @@ func validConfiguration(c api.RuntimeConfigurationChange) bool {
 func receiptOutcome(v string) bool { return v == "accepted" || v == "rejected" || v == "unknown" }
 
 func (s *Server) manageHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/v1/management/nodes" {
+		s.nodesHTTP(w, r)
+		return
+	}
 	if r.URL.Path == "/v1/management/resolve" {
 		var command productmanagement.RuntimeCommand
 		if !decode(w, r, &command) || !s.scope(w, Scope{command.BotID, command.Generation}) {

@@ -199,6 +199,9 @@ func durableDirectory(path string) error {
 
 func receiptOnly(r Result) Result {
 	r.Draft, r.Initialization = nil, nil
+	// Node views are re-read from their existing owner, never cached as a current
+	// catalog or a proof that a retired owner is still active.
+	r.NodeManagement = nil
 	if r.Configuration != nil {
 		v := *r.Configuration
 		v.Native.OperationID, v.Native.Message = "", ""

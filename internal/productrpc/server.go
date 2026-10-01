@@ -88,6 +88,7 @@ func NewServer(port Port, opts Options) (*Server, error) {
 			s.identity.Capabilities.RuntimeManagement = caps.Installation || caps.Configuration
 		}
 	}
+	_, s.identity.Capabilities.NodeManagement = port.(NodeManagementPort)
 	s.identity.Capabilities.Execution = false
 	if opts.Execution != nil {
 		s.execution, err = opts.Execution(managementScope(s.identity.Scope))
@@ -270,12 +271,14 @@ func validCommand(c Command) bool {
 		return false
 	}
 	n := 0
-	for _, set := range []bool{c.Submission != nil, c.Decision != nil, c.Introduction != nil, c.Draft != nil, c.Turn != "", c.RuntimeManagement != nil, c.Configuration != nil, c.Execution != nil} {
+	for _, set := range []bool{c.Submission != nil, c.Decision != nil, c.Introduction != nil, c.Draft != nil, c.Turn != "", c.RuntimeManagement != nil, c.Configuration != nil, c.Execution != nil, c.NodeManagement != nil} {
 		if set {
 			n++
 		}
 	}
 	switch c.Kind {
+	case "manage-nodes":
+		return n == 1 && c.NodeManagement != nil && validNodeCommand(*c.NodeManagement, c.ID)
 	case "manage-runtime":
 		return n == 1 && c.RuntimeManagement != nil && c.RuntimeManagement.ID == c.ID && c.RuntimeManagement.Scope == managementScope(c.Scope) && validRuntimeManagement(*c.RuntimeManagement, false)
 	case "configure-execution":
@@ -418,6 +421,8 @@ func (s *Server) execute(ctx context.Context, c Command) Result {
 	var err error
 	snapshot := s.port.Snapshot()
 	switch c.Kind {
+	case "manage-nodes":
+		return s.executeNodes(ctx, c)
 	case "configure-execution":
 		return s.executeExecution(ctx, c)
 	case "manage-runtime", "configure-runtime":
