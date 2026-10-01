@@ -377,3 +377,41 @@ func TestWorkerCLIRejectsChangedRolePrivateRedirectAndSecretFields(t *testing.T)
 		}
 	}
 }
+
+func TestWorkerLeaseConfigurationPinsNativeBroker(t *testing.T) {
+	dir := t.TempDir()
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := workerConfiguration{Version: 1, Pair: workerwire.Pair{Target: api.WorkTarget{NodeID: "worker", Backend: "codex", Role: api.RoleWorker}, BotID: api.ProfileBotID("raw-bot"), SourceNode: "managed-source", SourceBackend: "codex"}, Directory: filepath.Join(dir, "worker"), Binary: binary, Socket: filepath.Join(dir, "worker", "worker.sock"), Lease: &workerLeaseConfiguration{RawBotID: "raw-bot", BrokerNodeID: "broker", BrokerSocket: filepath.Join(dir, "broker.sock")}}
+	path := filepath.Join(dir, "worker.json")
+	write := func() {
+		b, _ := json.Marshal(config)
+		if err := os.WriteFile(path, b, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write()
+	got, err := readWorkerConfiguration(path)
+	if err != nil || got.Lease == nil || got.Lease.BrokerNodeID != "broker" || got.Pair.BotID != api.ProfileBotID("raw-bot") {
+		t.Fatal("native lease scope unavailable", got, err)
+	}
+	config.Lease.RawBotID = "forged-other-bot"
+	write()
+	if _, err = readWorkerConfiguration(path); err == nil {
+		t.Fatal("raw Bot identity did not match product pairing")
+	}
+	config.Lease.RawBotID = "raw-bot"
+	config.Lease.BrokerSocket = config.Socket
+	write()
+	if _, err = readWorkerConfiguration(path); err == nil {
+		t.Fatal("broker and target endpoint conflated")
+	}
+	config.Lease.BrokerSocket = filepath.Join(dir, "broker.sock")
+	config.Lease.BrokerNodeID = "-oProxyCommand=bad"
+	write()
+	if _, err = readWorkerConfiguration(path); err == nil {
+		t.Fatal("untrusted broker identity accepted")
+	}
+}

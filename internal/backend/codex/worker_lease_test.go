@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/workerwire"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +52,7 @@ func TestLeasedWorkerActualProcessStopsBeforeQueuedAdmission(t *testing.T) {
 	source := &workerSourceFixture{value: api.WorkDispatchSource{NodeID: "host", Backend: "codex", BindingID: "binding", OperationID: "op", Kind: "user", Lease: grant}}
 	reader := &leaseReaderFixture{lease: nodeplane.Lease{BotID: grant.BotID, NodeID: grant.SourceNodeID, Backend: api.NodeCodex, Epoch: grant.Epoch, TTLMs: 60000}}
 	var suspend func()
-	w := NewWorker(WorkerOptions{Target: api.WorkTarget{NodeID: "worker", Backend: "codex", Role: api.RoleWorker}, Directory: filepath.Join(dir, "worker"), Binary: binary, Source: source, Lease: &WorkerLeaseOptions{HelperPath: watchdog, BrokerNodeID: "broker", BotID: "bot", SourceNode: "host", SourceBackend: "codex", Reader: reader, BindPower: func(ctx context.Context, s, w func()) (func(), error) { suspend = s; return func() {}, nil }}})
+	w := NewWorker(WorkerOptions{Target: api.WorkTarget{NodeID: "worker", Backend: "codex", Role: api.RoleWorker}, Directory: filepath.Join(dir, "worker"), Binary: binary, Source: source, Pair: &workerwire.Pair{Target: api.WorkTarget{NodeID: "worker", Backend: "codex", Role: api.RoleWorker}, BotID: api.ProfileBotID(grant.BotID), SourceNode: "host", SourceBackend: "codex"}, Lease: &WorkerLeaseOptions{HelperPath: watchdog, BrokerNodeID: "broker", RawBotID: "bot", SourceNode: "host", SourceBackend: "codex", Reader: reader, BindPower: func(ctx context.Context, s, w func()) (func(), error) { suspend = s; return func() {}, nil }}})
 	defer w.Close(testContext(t))
 	if err = w.Connect(testContext(t)); err != nil {
 		t.Fatal(err)
@@ -111,7 +112,7 @@ func TestWorkerLeaseDeadlineAndOriginalReceiptRecovery(t *testing.T) {
 	}
 	grant := api.WorkerLeaseGrant{BotID: "bot", BrokerNodeID: "broker", SourceNodeID: "host-node", Backend: "codex", Epoch: "epoch"}
 	reader := &leaseReaderFixture{lease: nodeplane.Lease{BotID: "bot", NodeID: "host-node", Backend: api.NodeCodex, Epoch: "epoch", TTLMs: 60000}}
-	d.w.lease = newWorkerLeaseFence(d.w, WorkerLeaseOptions{BrokerNodeID: "broker", BotID: "bot", SourceNode: "host-node", SourceBackend: "codex", Reader: reader, BindPower: func(context.Context, func(), func()) (func(), error) { return func() {}, nil }})
+	d.w.lease = newWorkerLeaseFence(d.w, WorkerLeaseOptions{BrokerNodeID: "broker", RawBotID: "bot", SourceNode: "host-node", SourceBackend: "codex", Reader: reader, BindPower: func(context.Context, func(), func()) (func(), error) { return func() {}, nil }})
 	f := d.w.lease
 	f.enabled = true
 	f.renew = func(context.Context, string, time.Time) error { return nil }

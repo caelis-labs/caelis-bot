@@ -13,10 +13,10 @@ import (
 // WorkerLeaseOptions is trusted target-native configuration. A dispatch frame
 // can supply an epoch, never the broker endpoint, pairing or power binder.
 type WorkerLeaseOptions struct {
-	BrokerNodeID, BotID, SourceNode, SourceBackend string
-	HelperPath                                     string
-	Reader                                         nodeplane.WorkLeaseReader
-	BindPower                                      func(context.Context, func(), func()) (func(), error)
+	BrokerNodeID, RawBotID, SourceNode, SourceBackend string
+	HelperPath                                        string
+	Reader                                            nodeplane.WorkLeaseReader
+	BindPower                                         func(context.Context, func(), func()) (func(), error)
 }
 type workerLeaseFence struct {
 	w                *WorkerClient
@@ -39,7 +39,7 @@ func newWorkerLeaseFence(w *WorkerClient, opts WorkerLeaseOptions) *workerLeaseF
 	return &workerLeaseFence{w: w, opts: opts, life: life, cancel: cancel}
 }
 func (f *workerLeaseFence) valid() bool {
-	return f.opts.HelperPath != "" && f.opts.Reader != nil && f.opts.BindPower != nil && f.opts.BrokerNodeID != "" && f.opts.BotID != "" && f.opts.SourceNode != "" && (f.opts.SourceBackend == "codex" || f.opts.SourceBackend == "caelis")
+	return f.opts.HelperPath != "" && f.opts.Reader != nil && f.opts.BindPower != nil && f.opts.BrokerNodeID != "" && f.opts.RawBotID != "" && f.opts.SourceNode != "" && (f.opts.SourceBackend == "codex" || f.opts.SourceBackend == "caelis")
 }
 func (f *workerLeaseFence) activate(ctx context.Context) error {
 	f.mu.Lock()
@@ -127,7 +127,7 @@ func (w *WorkerClient) checkWorkerLease(ctx context.Context, s api.WorkDispatchS
 	return w.lease.check(ctx, s.Lease)
 }
 func (f *workerLeaseFence) check(ctx context.Context, g api.WorkerLeaseGrant) error {
-	if g.Validate() != nil || g == (api.WorkerLeaseGrant{}) || g.BotID != f.opts.BotID || g.BrokerNodeID != f.opts.BrokerNodeID || g.SourceNodeID != f.opts.SourceNode || g.Backend != f.opts.SourceBackend {
+	if g.Validate() != nil || g == (api.WorkerLeaseGrant{}) || g.BotID != f.opts.RawBotID || g.BrokerNodeID != f.opts.BrokerNodeID || g.SourceNodeID != f.opts.SourceNode || g.Backend != f.opts.SourceBackend {
 		return errors.New("Worker source lease differs from trusted native pairing")
 	}
 	f.mu.Lock()
@@ -142,6 +142,7 @@ func (f *workerLeaseFence) check(ctx context.Context, g api.WorkerLeaseGrant) er
 	defer func() { stop(); cancel() }()
 	l, err := f.opts.Reader.ReadWorkerLease(bounded, nodeplane.WorkLeaseRef{BotID: g.BotID, BrokerNodeID: g.BrokerNodeID, SourceNode: g.SourceNodeID, SourceBackend: api.NodeBackend(g.Backend), Epoch: g.Epoch})
 	if err != nil {
+		f.revoke()
 		return err
 	}
 	if l.BotID != g.BotID || l.NodeID != g.SourceNodeID || string(l.Backend) != g.Backend || l.Epoch != g.Epoch || l.TTLMs <= 15000 || l.TTLMs > 60000 {
