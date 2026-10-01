@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -67,14 +68,63 @@ func TestOwnedCaelisProcessHelper(t *testing.T) {
 	}
 	_ = os.WriteFile(filepath.Join(store, "runtime/service/auth.token"), []byte("SYNTHETIC_PRIVATE_TOKEN"), 0600)
 	_ = os.WriteFile(filepath.Join(store, "fixture-pids"), []byte(strconv.Itoa(os.Getpid())+" "+strconv.Itoa(child.Process.Pid)), 0600)
+	var fixtureMu sync.Mutex
+	var applicationSecret string
+	var workerProfile wire.ApplicationProfile
+	life := func() wire.ApplicationConnection {
+		return wire.ApplicationConnection{ApplicationId: "worker-app", ConnectionId: "worker-connection", PrincipalId: "fixture-owner", ExpiresAt: time.Now().Add(time.Hour)}
+	}
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer SYNTHETIC_PRIVATE_TOKEN" {
+		fixtureMu.Lock()
+		defer fixtureMu.Unlock()
+		if r.Header.Get("Authorization") != "Bearer SYNTHETIC_PRIVATE_TOKEN" && (applicationSecret == "" || r.Header.Get("Authorization") != "Bearer "+applicationSecret) {
 			w.WriteHeader(401)
 			return
 		}
 		switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
 		case "/initialize":
-			writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("owned-store"), InstanceId: pointer("owned-core-fixture"), Capabilities: required})
+			writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("owned-store"), InstanceId: pointer("owned-core-fixture"), Capabilities: append(append(append([]string{}, required...), boundedWorkerRequired...), workerRequired...)})
+		case "/status":
+			writeFixture(w, wire.StatusSnapshot{})
+		case "/applications/register":
+			var req wire.ApplicationRegistration
+			if json.NewDecoder(r.Body).Decode(&req) != nil || r.Header.Get("Authorization") != "Bearer SYNTHETIC_PRIVATE_TOKEN" {
+				w.WriteHeader(400)
+				return
+			}
+			applicationSecret = req.Credential
+			writeFixture(w, life())
+		case "/application/connection":
+			writeFixture(w, life())
+		case "/application/sessions":
+			var req wire.CreateApplicationSessionRequest
+			if json.NewDecoder(r.Body).Decode(&req) != nil {
+				w.WriteHeader(400)
+				return
+			}
+			workerProfile = req.Profile
+			_ = os.WriteFile(filepath.Join(store, "worker-created"), []byte("created"), 0600)
+			writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: "committed", SessionId: pointer("owned-worker-session")})
+		case "/application/sessions/owned-worker-session":
+			writeFixture(w, wire.ApplicationBinding{ApplicationId: life().ApplicationId, ConnectionId: life().ConnectionId, PrincipalId: life().PrincipalId, SessionId: "owned-worker-session", Profile: workerProfile, CreationDigest: "fixture-creation"})
+		case "/application/sessions/owned-worker-session/background-grants":
+			var req wire.ApplicationBackgroundGrantRequest
+			if json.NewDecoder(r.Body).Decode(&req) != nil {
+				w.WriteHeader(400)
+				return
+			}
+			writeFixture(w, wire.ApplicationBackgroundGrant{Id: "owned-grant", PrincipalId: life().PrincipalId, ApplicationId: life().ApplicationId, ConnectionId: life().ConnectionId, SessionId: "owned-worker-session", Source: req.Source, AuthorizationOperationId: req.AuthorizationOperationId})
+		case "/application/sessions/owned-worker-session/prompt":
+			var req wire.ApplicationPromptRequest
+			if json.NewDecoder(r.Body).Decode(&req) != nil || req.SourceKind != "authorized_background" || value(req.GrantId) != "owned-grant" {
+				w.WriteHeader(400)
+				return
+			}
+			_ = os.WriteFile(filepath.Join(store, "worker-prompted"), []byte("prompted"), 0600)
+			writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: "committed", SessionId: pointer("owned-worker-session")})
+		case "/fixture/worker-effect":
+			_ = os.WriteFile(filepath.Join(store, "worker-effect"), []byte("executed"), 0600)
+			writeFixture(w, wire.CommandResult{OperationId: r.Header.Get("Idempotency-Key"), Outcome: "committed"})
 		case "/completion/slash-arguments":
 			writeFixture(w, []wire.SlashArgCandidate{{Value: "fixture-model", NoAuth: pointer(false), ModelSelection: &wire.ModelSelection{Current: pointer(true)}}})
 		default:

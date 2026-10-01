@@ -124,3 +124,14 @@ renderer fields cannot grant that capability. Unknown external effects are not
 replayed. Process proof covers the original launched root and retained descendants;
 an unobserved deliberately orphaned process cannot be retroactively adopted or
 killed by PID/name, and must not be represented as a confirmed external outcome.
+
+Owned Caelis Workers use `NewLeasedWorker` with a separate private foreground
+Host and bounded application protocol. Native assembly pins the raw profile Bot
+identity, paired broker, actual source node/backend and Worker target. The private
+dispatch Source retains its exact lease before projection into public Control
+requests. Every new target mutation rechecks the paired broker and renews the
+independent watchdog before sending bytes; a queued or resumed start keeps its
+original Source. Lease expiry, broker loss, suspend revocation or changed epoch
+cancels admission and hard-stops only that owned Host tree. Read-only receipt
+reconciliation does not replay unknown operations. Ordinary shared Host Workers
+report no lease-aware admission capability.
