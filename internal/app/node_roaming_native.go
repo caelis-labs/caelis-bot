@@ -234,6 +234,13 @@ func (n *roamingNativeAssembly) catalogNode(ctx context.Context, id string) (api
 
 func (n *roamingNativeAssembly) runtimeSettings(ctx context.Context, reg NodeRegistration, b api.NodeBackend) (api.RuntimeSettings, error) {
 	if reg.ID == api.LocalNodeID {
+		if b == api.NodeCaelis {
+			settings, e := nodeLocalCaelisSettings(n.app, filepath.Join(n.app.root, "nodeplane", "local"), nil)
+			if e == nil && !filepath.IsAbs(settings.CLIPath) {
+				e = errors.New("installed local native Runtime binary unavailable")
+			}
+			return settings, e
+		}
 		actual := ActiveNodeRoamingApplication(n.app)
 		if actual == nil {
 			return api.RuntimeSettings{}, errors.New("actual local native Runtime unavailable")
@@ -789,12 +796,13 @@ func nativeRoamingWorkers(p roamingNativePlan, x roamingNativeNode) any {
 		Backends []string `json:"backends"`
 	}
 	workers := struct {
-		Version  int                        `json:"version"`
-		Nodes    []worker                   `json:"nodes"`
-		Agents   []agentRoute               `json:"agents"`
-		Sources  []source                   `json:"sources"`
-		Runtimes []NodeRoamingWorkerRuntime `json:"runtimes"`
-	}{Version: 1, Nodes: []worker{}, Agents: []agentRoute{}, Sources: []source{}, Runtimes: []NodeRoamingWorkerRuntime{}}
+		Version          int                        `json:"version"`
+		Nodes            []worker                   `json:"nodes"`
+		Agents           []agentRoute               `json:"agents"`
+		Sources          []source                   `json:"sources"`
+		Runtimes         []NodeRoamingWorkerRuntime `json:"runtimes"`
+		SettingsRuntimes []NodeRoamingWorkerRuntime `json:"settingsRuntimes,omitempty"`
+	}{Version: 1, Nodes: []worker{}, Agents: []agentRoute{}, Sources: []source{}, Runtimes: []NodeRoamingWorkerRuntime{}, SettingsRuntimes: append([]NodeRoamingWorkerRuntime(nil), x.RuntimeBindings...)}
 	for _, binding := range x.RuntimeBindings {
 		if binding.Backend != "caelis" || !p.UnavailableCaelisWorkers[x.Registration.ID] {
 			workers.Runtimes = append(workers.Runtimes, binding)

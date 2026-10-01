@@ -20,6 +20,8 @@ type nodeConnectionFixture struct {
 	input         api.RuntimeConnectionInput
 	changedTarget bool
 	unknownStop   bool
+	begun         map[api.NodeRuntimeConnectionRef]bool
+	revision      string
 }
 
 func (f *nodeConnectionFixture) record(action string, ref api.NodeRuntimeConnectionRef) {
@@ -28,6 +30,21 @@ func (f *nodeConnectionFixture) record(action string, ref api.NodeRuntimeConnect
 }
 func (f *nodeConnectionFixture) BeginNodeRuntimeConnection(_ context.Context, g api.NodeEditGuard, id string) (api.NodeRuntimeConnectionRef, error) {
 	ref := api.NodeRuntimeConnectionRef{NodeID: g.NodeID, Backend: g.Backend, OperationID: id}
+	if f.begun[ref] {
+		f.record("begin-query", ref)
+		return ref, nil
+	}
+	revision := f.revision
+	if revision == "" {
+		revision = "7"
+	}
+	if g.Revision != revision {
+		return api.NodeRuntimeConnectionRef{}, errors.New("target guard changed")
+	}
+	if f.begun == nil {
+		f.begun = map[api.NodeRuntimeConnectionRef]bool{}
+	}
+	f.begun[ref] = true
 	f.record("begin", ref)
 	if f.changedTarget {
 		ref.NodeID = "replacement-target"
@@ -185,5 +202,23 @@ func TestNodeConnectionBridgeRejectsStaleGuardPathsRetargetingAndUnknownCleanup(
 	target.unknownStop = true
 	if e = a.Backend.CloseNodeRuntimeConnection(ctx, ref); e == nil || !strings.Contains(e.Error(), "unconfirmed") {
 		t.Fatal("unconfirmed target cleanup hidden", e)
+	}
+}
+
+func TestNodeConnectionOriginalBeginReconcilesBeforeChangedLiveGuard(t *testing.T) {
+	a, _, target := nodeConnectionBridge(t)
+	guard := api.NodeEditGuard{NodeID: "target", Backend: api.NodeCaelis, Revision: "7"}
+	original, e := a.Backend.BeginNodeRuntimeConnection(t.Context(), guard, "original")
+	if e != nil {
+		t.Fatal(e)
+	}
+	target.revision = "8"
+	target.configured = &api.NodeRuntimeConfiguration{Guard: api.NodeEditGuard{NodeID: "target", Backend: api.NodeCaelis, Revision: "8"}}
+	got, e := a.Backend.BeginNodeRuntimeConnection(t.Context(), guard, "original")
+	if e != nil || got != original || strings.Join(target.calls, ",") != "begin,begin-query" {
+		t.Fatal("original intent lookup was blocked by live revision or redispatched", got, e, target.calls)
+	}
+	if _, e = a.Backend.BeginNodeRuntimeConnection(t.Context(), guard, "replacement"); e == nil || len(target.calls) != 2 {
+		t.Fatal("replacement ID bypassed new target guard", e, target.calls)
 	}
 }

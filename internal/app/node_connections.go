@@ -35,13 +35,8 @@ func (m *nodeManagement) BeginNodeRuntimeConnection(ctx context.Context, guard a
 	if !validNodeConnectionRef(ref) || guard.Revision == "" {
 		return api.NodeRuntimeConnectionRef{}, errors.New("exact original Caelis connection scope required")
 	}
-	view, e := m.NodeRuntimeConfiguration(ctx, guard.NodeID, guard.Backend)
-	if e != nil {
-		return api.NodeRuntimeConnectionRef{}, e
-	}
-	if view.Guard != guard {
-		return api.NodeRuntimeConnectionRef{}, errors.New("node settings changed before connection begin")
-	}
+	// Only the exact target admits a new guard. Original retries must reach its
+	// journal before comparing a revision changed by the first setup Begin.
 	c, e := m.nodeConnectionController()
 	if e != nil {
 		return api.NodeRuntimeConnectionRef{}, e

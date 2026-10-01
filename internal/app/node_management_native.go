@@ -152,7 +152,7 @@ func AttachNodeManagement(a *Application, options ...NodeManagementNativeOptions
 				return nodeLocalHealth(ctx, a, b)
 			}
 		}
-		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Binaries: binaries, Configurations: ports, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Binaries: binaries, Configurations: ports, OwnedRuntimeSettings: n.localOwnedRuntimeSettings, OwnedRuntimeCompanion: n.localOwnedRuntimeCompanion, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
 			return localHealth(ctx, b)
 		}})
 		if err != nil {
@@ -687,7 +687,7 @@ func (p *nodeLocalConfiguration) Read(ctx context.Context) (api.RuntimeConfigura
 		}
 		return api.RuntimeConfiguration{Revision: rev, Main: conversation, Models: models, Team: api.RuntimeTeam{Available: false, Revision: rev, Models: models, Reason: "native-team-configuration-unavailable"}}, nil
 	}
-	settings, err := p.app.Backend.SetupProfile("caelis")
+	settings, err := nodeLocalCaelisSettings(p.app, filepath.Join(p.app.root, "nodeplane", "local"), nil)
 	if err != nil {
 		return api.RuntimeConfiguration{}, err
 	}
@@ -697,7 +697,7 @@ func (p *nodeLocalConfiguration) Change(ctx context.Context, r nodeplane.Managem
 	if p.backend == api.NodeCodex {
 		return p.app.Backend.ChangeNodeExecutionScopes(ctx, r)
 	}
-	settings, err := p.app.Backend.SetupProfile("caelis")
+	settings, err := nodeLocalCaelisSettings(p.app, filepath.Join(p.app.root, "nodeplane", "local"), nil)
 	if err != nil {
 		return api.RuntimeMutationResult{}, err
 	}
