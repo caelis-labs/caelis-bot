@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/leasepower"
 	"golang.org/x/sys/unix"
 )
 
@@ -41,6 +42,7 @@ type supervisorFrame struct {
 	Method                                  string
 	Kind                                    SupervisedRuntimeKind `json:",omitempty"`
 	Binary, Directory, Socket, Store, Epoch string                `json:",omitempty"`
+	WallDeadlineNs                          int64                 `json:",omitempty"`
 	DeadlineNs                              int64                 `json:",omitempty"`
 	PID                                     int                   `json:",omitempty"`
 	Stopped                                 bool                  `json:",omitempty"`
@@ -94,6 +96,7 @@ type SupervisedProcess struct {
 	conn    net.Conn
 	cmd     *exec.Cmd
 	pid     int
+	tools   *ownedTools
 	gate    chan struct{}
 	exited  chan struct{}
 	next    atomic.Uint64
@@ -153,6 +156,16 @@ func StartSupervisedProcess(ctx context.Context, o SupervisedProcessOptions) (*S
 		return nil, errors.New("owned watchdog runtime launch unavailable")
 	}
 	p.pid = reply.PID
+	p.tools = newOwnedTools(p.pid)
+	p.tools.capture()
+	if p.tools.failure() != nil {
+		_ = p.conn.Close()
+		return nil, errors.New("owned watchdog parent stable proof unavailable")
+	}
+	if _, err = p.call(ctx, supervisorFrame{Method: "bound"}); err != nil {
+		_ = p.conn.Close()
+		return nil, err
+	}
 	return p, nil
 }
 func (p *SupervisedProcess) PID() int { return p.pid }
@@ -198,7 +211,7 @@ func (p *SupervisedProcess) Renew(ctx context.Context, epoch string, remaining t
 	if err != nil {
 		return err
 	}
-	_, err = p.call(ctx, supervisorFrame{Method: "renew", Epoch: epoch, DeadlineNs: clock + remaining.Nanoseconds() - int64(time.Second)})
+	_, err = p.call(ctx, supervisorFrame{Method: "renew", Epoch: epoch, DeadlineNs: clock + remaining.Nanoseconds() - int64(time.Second), WallDeadlineNs: time.Now().UnixNano() + remaining.Nanoseconds() - int64(time.Second)})
 	if err != nil {
 		_ = p.conn.Close()
 	}
@@ -217,6 +230,16 @@ func (p *SupervisedProcess) Stop(ctx context.Context) error {
 		err = errors.New("owned watchdog stop unconfirmed")
 	}
 	_ = p.conn.Close()
+	if err == nil && p.tools != nil {
+		err = p.tools.killFencedChildren()
+	}
+	if err != nil && p.tools != nil {
+		freeze := (&pipeConnection{tools: p.tools}).freezeOwned()
+		p.tools.capture()
+		root := p.tools.watchdogForceRoot()
+		children := p.tools.killFencedChildren()
+		err = errors.Join(freeze, root, children, p.tools.failure())
+	}
 	p.mu.Lock()
 	p.stopped = true
 	p.stopErr = err
@@ -229,6 +252,12 @@ func (p *SupervisedProcess) Stop(ctx context.Context) error {
 // fences the native process even when the application owner is forcibly killed.
 // No PIDs, shell body, network listeners or auth/account operations are accepted.
 func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
+	return RunSupervisedRuntimeWithPower(ctx, control, leasepower.Bind)
+}
+
+// RunSupervisedRuntimeWithPower permits native platform binding and deterministic
+// fixture injection; the production CLI always selects leasepower.Bind.
+func RunSupervisedRuntimeWithPower(ctx context.Context, control *os.File, bindPower func(context.Context, func(), func()) (func(), error)) error {
 	conn, err := net.FileConn(control)
 	control.Close()
 	if err != nil {
@@ -245,7 +274,7 @@ func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
 		if first.Socket != "" || first.Store != "" {
 			return errors.New("owned watchdog purpose mismatch")
 		}
-		args = []string{"app-server"}
+		args = []string{"app-server", "--listen", "stdio://"}
 	case SupervisedCodexUnix:
 		if !filepath.IsAbs(first.Socket) || first.Store != "" {
 			return errors.New("owned watchdog private endpoint required")
@@ -282,7 +311,7 @@ func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if first.Kind == SupervisedCaelisForeground {
 		home := filepath.Join(first.Store, ".native-home")
-		cmd.Env = append(cmd.Env, "HOME="+home, "XDG_CONFIG_HOME="+home)
+		cmd.Env = ownedEnvironment([]string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + home, "XDG_CONFIG_HOME=" + home, "TMPDIR=" + os.TempDir()})
 	}
 	if err = cmd.Start(); err != nil {
 		return errors.New("owned watchdog native process unavailable")
@@ -290,24 +319,57 @@ func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
 	tools := newOwnedTools(cmd.Process.Pid)
 	tools.capture()
 	exited := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(exited) }()
+	var waitOnce sync.Once
+	startWait := func() { waitOnce.Do(func() { go func() { _ = cmd.Wait(); close(exited) }() }) }
+	defer startWait()
+	var stopOnce sync.Once
+	var stoppedErr error
+	var stopped atomic.Bool
+	bound := false
 	stopNative := func() error {
-		freezeErr := (&pipeConnection{tools: tools}).freezeOwned()
-		childrenErr := tools.killFencedChildren()
-		killErr := cmd.Process.Kill()
-		if errors.Is(killErr, os.ErrProcessDone) {
-			killErr = nil
-		}
-		select {
-		case <-exited:
-		case <-time.After(time.Second):
-			killErr = errors.Join(killErr, errors.New("owned watchdog native exit unconfirmed"))
-		}
-		return errors.Join(freezeErr, childrenErr, killErr, tools.failure())
+		stopOnce.Do(func() {
+			stopped.Store(true)
+
+			freezeErr := (&pipeConnection{tools: tools}).freezeOwned()
+			childrenErr := tools.killFencedChildren()
+			killErr := cmd.Process.Kill()
+			if errors.Is(killErr, os.ErrProcessDone) {
+				killErr = nil
+			}
+
+			for range 100 {
+				live, err := tools.watchdogRootLive()
+				if err != nil {
+					killErr = errors.Join(killErr, err)
+					break
+				}
+				if !live {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			live, err := tools.watchdogRootLive()
+			if err != nil || live {
+				killErr = errors.Join(killErr, errors.New("owned watchdog native exit unconfirmed"))
+			}
+			stoppedErr = errors.Join(freezeErr, childrenErr, killErr, tools.failure())
+		})
+		return stoppedErr
 	}
 	defer stopNative()
 	if err = tools.failure(); err != nil {
 		return err
+	}
+	if bindPower == nil {
+		return errors.New("independent watchdog native power binder missing")
+	}
+	releasePower, powerErr := bindPower(ctx, func() { _ = stopNative() }, func() { _ = stopNative() })
+	if powerErr != nil {
+		return powerErr
+	}
+	defer releasePower()
+	if stopped.Load() {
+		return errors.New("owned watchdog power preparation revoked startup")
 	}
 	if err = writeSupervisor(conn, supervisorFrame{ID: first.ID, PID: cmd.Process.Pid}); err != nil {
 		return err
@@ -341,6 +403,8 @@ func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
 		return stopNative()
 	}
 	deadline := clock + int64(45*time.Second)
+	wallDeadline := time.Now().UnixNano() + int64(45*time.Second)
+	priorMono, priorWall := clock, time.Now().UnixNano()
 	epoch := ""
 	tick := time.NewTicker(20 * time.Millisecond)
 	defer tick.Stop()
@@ -358,8 +422,21 @@ func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
 			if clockErr != nil {
 				return stopNative()
 			}
-			if now >= deadline {
-				return stopNative()
+			wall := time.Now().UnixNano()
+			drift := (wall - priorWall) - (now - priorMono)
+			priorMono, priorWall = now, wall
+			if now >= deadline || wall >= wallDeadline || drift > int64(2*time.Second) || drift < -int64(2*time.Second) {
+				_ = stopNative()
+				if bound {
+					return stopNative()
+				}
+				continue
+			}
+			if stopped.Load() {
+				if bound {
+					return stopNative()
+				}
+				continue
 			}
 			tools.capture()
 			if err = tools.failure(); err != nil {
@@ -370,6 +447,24 @@ func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
 				return stopNative()
 			}
 			last = f.ID
+			if f.Method == "bound" && !bound {
+				bound = true
+				startWait()
+				reply := supervisorFrame{ID: f.ID, PID: cmd.Process.Pid}
+				if stopped.Load() {
+					reply.Fault = "prepared-owner-revoked"
+				}
+				if writeSupervisor(conn, reply) != nil {
+					return stopNative()
+				}
+				if stopped.Load() {
+					return stopNative()
+				}
+				continue
+			}
+			if !bound && f.Method != "stop" {
+				return stopNative()
+			}
 			if f.Method == "stop" {
 				err = stopNative()
 				reply := supervisorFrame{ID: f.ID, Stopped: err == nil}
@@ -383,13 +478,16 @@ func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
 			if clockErr != nil {
 				return stopNative()
 			}
-			if f.Method != "renew" || f.DeadlineNs <= now || f.DeadlineNs-now > int64(45*time.Second) || (epoch != "" && f.Epoch != epoch) {
+			wallNow := time.Now().UnixNano()
+			difference := (f.WallDeadlineNs - wallNow) - (f.DeadlineNs - now)
+			if f.Method != "renew" || stopped.Load() || f.DeadlineNs <= now || f.DeadlineNs-now > int64(45*time.Second) || f.WallDeadlineNs <= wallNow || difference > int64(2*time.Second) || difference < -int64(2*time.Second) || (epoch != "" && f.Epoch != epoch) {
 				return stopNative()
 			}
 			if epoch == "" {
 				epoch = f.Epoch
 			}
 			deadline = f.DeadlineNs
+			wallDeadline = f.WallDeadlineNs
 			tools.capture()
 			if tools.failure() != nil {
 				return stopNative()
