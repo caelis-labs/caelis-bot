@@ -338,7 +338,7 @@ func TestManagedBotDefaultAndExplicitMacWorkerKeepExactBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	v, err := m.StartTask(t.Context(), input("managed-default-request"))
-	if err != nil || v.Target == nil || *v.Target != router.DefaultTarget() || owned.starts != 1 || mac.starts != 0 || source.calls != 0 {
+	if err != nil || v.Target == nil || *v.Target != router.DefaultTarget() || owned.starts != 1 || mac.starts != 0 || source.calls != 1 || owned.lastStart.Source != source.source {
 		t.Fatal(v, err)
 	}
 	if _, err := os.Stat(v.Workspace); err != nil {

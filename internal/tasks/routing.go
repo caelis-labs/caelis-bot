@@ -105,7 +105,7 @@ func (m *Manager) WorkTargets() []api.WorkTargetInfo {
 	return []api.WorkTargetInfo{{Target: m.nativeTarget, Label: "This machine", State: "ready"}}
 }
 
-// bindMessage commits remote continuation intent before any native call. A
+// bindMessage commits routed continuation intent before any native call. A
 // request ID cannot move between tasks, change prompt or acquire a new source
 // on retry; the native adapter reconciles the original receipt.
 func (m *Manager) bindMessage(in api.TaskMessage, target api.WorkTarget) (api.TaskMessage, error) {
@@ -153,9 +153,15 @@ func (m *Manager) workStates() ([]api.WorkState, error) {
 }
 
 func (m *Manager) authorizeWork(ctx context.Context, target api.WorkTarget) (api.WorkDispatchSource, error) {
-	// The default local path retains its existing native admission semantics.
+	// Keep direct admission for the legacy entry without a native source port.
+	// Production routed local work also needs the resident's exact attestation.
 	if target == m.nativeTarget {
-		return api.WorkDispatchSource{}, m.work.WorkAdmission(ctx)
+		if err := m.work.WorkAdmission(ctx); err != nil {
+			return api.WorkDispatchSource{}, err
+		}
+		if m.authorizer == nil {
+			return api.WorkDispatchSource{}, nil
+		}
 	}
 	authorizer := m.authorizer
 	if authorizer == nil {

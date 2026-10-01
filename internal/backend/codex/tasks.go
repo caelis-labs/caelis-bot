@@ -213,7 +213,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		return v, err
 	}
 	s.mu.Unlock()
-	return s.sendTask(ctx, t, api.TaskMessage{ID: id, RequestID: in.RequestID, Prompt: in.Prompt}, false)
+	return s.sendTask(ctx, t, api.TaskMessage{ID: id, RequestID: in.RequestID, Prompt: in.Prompt, Source: in.Source, RequestDigest: in.RequestDigest}, false)
 }
 
 func (s *Session) workRoot() string {
