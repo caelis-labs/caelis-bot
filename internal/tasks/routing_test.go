@@ -319,3 +319,74 @@ func TestPersistedRequestDigestRejectsChangedTargetOrSource(t *testing.T) {
 		})
 	}
 }
+
+func TestManagedBotDefaultAndExplicitMacWorkerKeepExactBindings(t *testing.T) {
+	root := t.TempDir()
+	owned := newRuntime()
+	mac := &remoteFixture{fixtureRuntime: newRuntime(), ledger: filepath.Join(root, "tasks.json"), requests: map[string]api.TaskMessage{}}
+	router, err := nodes.NewAt(nodes.Node{ID: "managed-linux", Label: "Linux"}, "codex", owned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleWorker}
+	if err := router.Set(nodes.Node{ID: api.LocalNodeID, Label: "Mac"}, nodes.Capability{Target: target, State: nodes.Ready}, mac); err != nil {
+		t.Fatal(err)
+	}
+	source := &sourceFixture{source: api.WorkDispatchSource{NodeID: "managed-linux", Backend: "codex", Kind: "native_activation", BindingID: "original-resident", OperationID: "original-turn"}}
+	m, err := OpenRouted(mac.ledger, filepath.Join(root, "Tasks"), "codex", owned, owned, owned.Snapshot, router, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := m.StartTask(t.Context(), input("managed-default-request"))
+	if err != nil || v.Target == nil || *v.Target != router.DefaultTarget() || owned.starts != 1 || mac.starts != 0 || source.calls != 0 {
+		t.Fatal(v, err)
+	}
+	if _, err := os.Stat(v.Workspace); err != nil {
+		t.Fatal("owned machine did not allocate direct workspace", err)
+	}
+	in := input("explicit-mac-request")
+	in.Target = &target
+	remote, err := m.StartTask(t.Context(), in)
+	if err != nil || remote.Target == nil || *remote.Target != target || mac.starts != 1 || mac.prepares != 1 || mac.lastStart.Source != source.source {
+		t.Fatal(remote, mac.lastStart, err)
+	}
+	if filepath.Dir(remote.Workspace) == m.root {
+		t.Fatal("Mac workspace allocated on managed machine")
+	}
+	if got := m.DefaultWorkerTarget(); got != router.DefaultTarget() {
+		t.Fatal("native default port changed", got)
+	}
+	if got := m.WorkRoutes(); len(got) != 2 {
+		t.Fatal(got)
+	}
+	if _, err := OpenRouted(mac.ledger, m.root, "codex", owned, owned, owned.Snapshot, router, source); err != nil {
+		t.Fatal("actual source rejected during recovery", err)
+	}
+	message := api.TaskMessage{ID: remote.ID, RequestID: "managed-mac-continue", Prompt: "Continue"}
+	if _, err := m.SendTask(t.Context(), message); err != nil {
+		t.Fatal(err)
+	}
+	source.source.OperationID = "later-turn"
+	if _, err := m.SendTask(t.Context(), message); err != nil || mac.sends != 1 || mac.lastMessage.Source.OperationID != "original-turn" {
+		t.Fatal("continuation receipt changed", mac.lastMessage, err)
+	}
+	if err := router.Set(nodes.Node{ID: api.LocalNodeID, Label: "Mac"}, nodes.Capability{Target: target, State: nodes.Unavailable}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ReadTask(t.Context(), remote.ID); err == nil {
+		t.Fatal("missing original Mac route fell back")
+	}
+	if _, err := m.StartTask(t.Context(), in); err != nil || mac.starts != 1 || owned.starts != 1 {
+		t.Fatal("original request redispatched", err)
+	}
+	// A ledger with a coherent digest but another source machine still fails.
+	r := m.state.Records[remote.ID]
+	r.Source.NodeID = api.LocalNodeID
+	r.RequestDigest = requestDigest(remote.ID, r.Target, r.View.Workspace, r.Fingerprint, r.Source)
+	if err := m.save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenRouted(mac.ledger, m.root, "codex", owned, owned, owned.Snapshot, router, source); err == nil {
+		t.Fatal("recovery accepted a different source machine")
+	}
+}

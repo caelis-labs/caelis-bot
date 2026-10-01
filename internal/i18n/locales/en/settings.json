@@ -301,7 +301,7 @@
   "nodePairedProductScope": "Connections and models for the Bot paired with this app.",
   "nodeOwnerUnavailableReason": "This runtime is not ready to handle this role on the node.",
   "nodeSharedRuntimeReason": "The Bot cannot safely move between nodes with this shared runtime.",
-  "nodeWindowsWorkerOnlyReason": "On Windows, this runtime can run Workers. Bot hosting is unavailable.",
+  "nodeWindowsWorkerOnlyReason": "Bot hosting on Windows is not supported yet. Worker availability is checked separately.",
   "nodeRoleUnavailableReason": "This role is unavailable on this runtime.",
   "nodeDetectedProgram": "Detected program",
   "nodeManagedProgram": "Managed program",

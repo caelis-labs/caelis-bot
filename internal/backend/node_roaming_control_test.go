@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,78 @@ import (
 type roamingBoundaryEngine struct {
 	api.Engine
 	commands atomic.Int32
+}
+
+type roamingAuthoritativeEngine struct{ roamingBoundaryEngine }
+
+func (*roamingAuthoritativeEngine) CurrentExecutionSettings(context.Context) (api.ExecutionSettings, error) {
+	return api.ExecutionSettings{Model: "native-authoritative"}, nil
+}
+
+func TestNodeRoamingBoundaryKeepsOptionalCapabilitiesAndNativeSettings(t *testing.T) {
+	s := NewService(&roamingBoundaryEngine{}, nil, nil, nil, nil)
+	if _, err := s.PrepareNodeRoamingEngine(); err != nil {
+		t.Fatal(err)
+	}
+	if s.ModelSettingsAvailable() || s.ExactInterruptAvailable() {
+		t.Fatal("wrapper invented optional capability")
+	}
+	if _, err := s.ExecutionOptions(); err == nil {
+		t.Fatal("wrapper invented execution configuration")
+	}
+	if _, err := s.Models(t.Context()); err == nil {
+		t.Fatal("wrapper invented model catalog")
+	}
+	if err := s.Login(t.Context()); err == nil {
+		t.Fatal("wrapper invented authentication")
+	}
+	if err := s.CancelLogin(t.Context()); err == nil {
+		t.Fatal("wrapper invented cancel authentication")
+	}
+	if input, err := s.ImageInput(t.Context()); err != nil || input.State != "unknown" {
+		t.Fatal(input, err)
+	}
+	native := NewService(&roamingAuthoritativeEngine{}, nil, nil, nil, nil)
+	native.ConfigureExecution("unused", api.ExecutionSettings{Model: "stale-cache"})
+	if _, err := native.PrepareNodeRoamingEngine(); err != nil {
+		t.Fatal(err)
+	}
+	v, err := native.ExecutionSettings()
+	if err != nil || v.Model != "native-authoritative" {
+		t.Fatal("native settings lost through wrapper", v, err)
+	}
+}
+
+func TestNodeRoamingBoundaryLocalRestoreCopiesFreshConfigurationAndGuard(t *testing.T) {
+	s := NewService(&roamingBoundaryEngine{}, nil, nil, nil, nil)
+	if _, err := s.PrepareNodeRoamingEngine(); err != nil {
+		t.Fatal(err)
+	}
+	s.ConfigureRuntime("old-runtime", api.RuntimeSettings{Runtime: "old"})
+	other := NewService(&roamingBoundaryEngine{}, nil, nil, nil, nil)
+	other.ConfigureRuntime("fresh-runtime", api.RuntimeSettings{Runtime: "codex", CLIPath: "/fixture/fresh-codex"})
+	other.ConfigureExecution("fresh-execution", api.ExecutionSettings{Model: "fresh-model"})
+	other.ConfigureWorkExecution("fresh-work", api.WorkExecutionSettings{Model: "fresh-worker"})
+	guardCalls := 0
+	other.ConfigureRuntimeManagement(nil, nil, func(context.Context, string, api.RuntimeSettings) (api.RuntimeStatus, error) {
+		t.Error("busy local guard bypassed")
+		return api.RuntimeStatus{}, nil
+	}, func() error { guardCalls++; return errors.New("fresh owner busy") })
+	if err := s.ActivateNodeRoamingLocal(other); err != nil {
+		t.Fatal(err)
+	}
+	if s.RuntimeSettings().CLIPath != "/fixture/fresh-codex" || s.runtimeFile != "fresh-runtime" || s.executionFile != "fresh-execution" || s.workExecutionFile != "fresh-work" {
+		t.Fatal("source configuration reused")
+	}
+	if v, err := s.ExecutionSettings(); err != nil || v.Model != "fresh-model" {
+		t.Fatal(v, err)
+	}
+	if s.WorkExecutionSettings().Model != "fresh-worker" {
+		t.Fatal("fresh Worker settings lost")
+	}
+	if _, err := s.ManageRuntime(t.Context(), "stop", s.RuntimeSettings()); err == nil || guardCalls != 1 {
+		t.Fatal("fresh native guard lost", err)
+	}
 }
 
 func (*roamingBoundaryEngine) Snapshot() api.Snapshot {
@@ -87,4 +160,37 @@ func TestNodeRoamingBoundaryConcurrentReadersAndNativeReplacement(t *testing.T) 
 		}
 	}
 	wg.Wait()
+}
+
+type roamingBoundedEngine struct{ roamingBoundaryEngine }
+
+func (*roamingBoundedEngine) Snapshot() api.Snapshot {
+	panic("bounded projection visited full history")
+}
+func (*roamingBoundedEngine) Revision() uint64 { return 7 }
+func (*roamingBoundedEngine) RecentSnapshot() api.Snapshot {
+	return api.Snapshot{Revision: 7, Connection: "recent"}
+}
+func (*roamingBoundedEngine) ComposerSnapshot() api.Snapshot {
+	return api.Snapshot{Revision: 7, Connection: "composer"}
+}
+func TestNodeRoamingBoundaryPreservesBoundedNativeProjections(t *testing.T) {
+	s := NewService(&roamingBoundedEngine{}, nil, nil, nil, nil)
+	proxy, err := s.PrepareNodeRoamingEngine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxy.Revision() != 7 || proxy.RecentSnapshot().Connection != "recent" || proxy.ComposerSnapshot().Connection != "composer" {
+		t.Fatal("native bounded port lost")
+	}
+	if err := proxy.Replace(&roamingBoundedEngine{}); err != nil {
+		t.Fatal(err)
+	}
+	revision := uint64(7) + (1 << 32)
+	if proxy.Revision() != revision || proxy.RecentSnapshot().Revision != revision || proxy.ComposerSnapshot().Revision != revision {
+		t.Fatal("bounded swap revision lost")
+	}
+	if s.ComposerSnapshot().Revision != revision {
+		t.Fatal("service lost bounded native composer")
+	}
 }

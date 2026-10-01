@@ -473,6 +473,13 @@ func (w *WorkerClient) SendWork(ctx context.Context, in api.TaskMessage) (api.Ta
 // Stop targets a retained native active turn. It does not require a resident
 // model activation and never stops the server or another Worker's turn.
 func (w *WorkerClient) StopWork(ctx context.Context, id string) (api.Task, error) {
+	ticket, release, err := w.beginControl(ctx, id)
+	if err != nil {
+		view, readErr := w.ReadWork(ctx, id)
+		return view, errors.Join(err, readErr)
+	}
+	defer release()
+	ctx = ticket
 	s := w.engine
 	s.op.Lock()
 	defer s.op.Unlock()
@@ -487,15 +494,23 @@ func (w *WorkerClient) StopWork(ctx context.Context, id string) (api.Task, error
 	}
 	run, c := s.childRuns[task.Thread], s.client
 	view := copyWorkerTask(s.taskView(task))
+	if w.lease != nil && task.WorkerStop != nil && task.WorkerStop.Outcome == "unknown" {
+		s.mu.Unlock()
+		return view, errors.New("original Worker cancellation remains unconfirmed")
+	}
 	if run == "" {
 		s.mu.Unlock()
 		return view, errors.New("Worker active native turn is unconfirmed")
 	}
-	previousStop := task.SuppressReport
+	previousStop, previousReceipt := task.SuppressReport, task.WorkerStop
 	task.SuppressReport = true
-	err := s.save()
+	if w.lease != nil {
+		task.WorkerStop = &workerStopReceipt{Thread: task.Thread, Run: run, Outcome: "unknown"}
+	}
+	err = s.save()
 	if err != nil {
 		task.SuppressReport = previousStop
+		task.WorkerStop = previousReceipt
 	}
 	thread := task.Thread
 	s.mu.Unlock()
@@ -507,6 +522,10 @@ func (w *WorkerClient) StopWork(ctx context.Context, id string) (api.Task, error
 	cancelErr := s.cancelElicitations(ctx, c, thread, run)
 	err = errors.Join(cancelErr, callDecode(ctx, c, "turn/interrupt", map[string]string{"threadId": thread, "turnId": run}, nil))
 	s.mu.Lock()
+	if w.lease != nil && err == nil {
+		task.WorkerStop.Outcome = "accepted"
+		err = s.save()
+	}
 	view = copyWorkerTask(s.taskView(task))
 	s.mu.Unlock()
 	return view, err
@@ -592,6 +611,12 @@ func (w *WorkerClient) WorkApprovals() []api.WorkApproval {
 	return out
 }
 func (w *WorkerClient) DecideWork(ctx context.Context, approval api.WorkApproval, decision api.Decision) error {
+	ticket, release, err := w.beginControl(ctx, approval.TaskID)
+	if err != nil {
+		return err
+	}
+	defer release()
+	ctx = ticket
 	s := w.engine
 	s.mu.Lock()
 	task, prompt := s.binding.Tasks[approval.TaskID], s.prompts[approval.Approval.ID]
@@ -616,6 +641,20 @@ func (w *WorkerClient) Close(ctx context.Context) error {
 		w.lease.releasePower()
 	}
 	s := w.engine
+	// The leased watchdog has already stopped and verified the exact owned
+	// process tree. Asking that dead native connection to list/clean terminals
+	// would turn confirmed native cleanup into a spurious unknown stop. Retain
+	// every task receipt and use the independent process proof for this close.
+	if w.lease != nil && w.owned != nil && w.lease.stopErr == nil && w.owned.toolCleanupError() == nil {
+		// Drain admitted journal writers after the fence cancels native work.
+		s.op.Lock()
+		s.mu.Lock()
+		s.closed = true
+		s.state.Connection = "stopped"
+		s.update()
+		s.mu.Unlock()
+		s.op.Unlock()
+	}
 	err := s.Close(ctx)
 	s.op.Lock()
 	defer s.op.Unlock()

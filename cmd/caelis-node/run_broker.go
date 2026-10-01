@@ -122,6 +122,7 @@ func runBroker(ctx context.Context, args []string, out io.Writer) error {
 	preferred := f.String("preferred-node", "", "explicit paired native node preferred after stable safe idle")
 	botID := f.String("bot-id", "", "stable Bot identity in Notebook snapshot, not product transport hash")
 	socket := f.String("socket", "", "explicit same-user private Unix socket")
+	bootstrapPeers := f.String("bootstrap-peers-file", "", "optional separate private exact stopped-source pairing for genesis only")
 	peers := f.String("peers-file", "", "optional private versioned exact node/backend/socket pairing file")
 	seedSource := f.String("seed-source", "", "exact paired NODE/BACKEND source attesting stopped initial export")
 	seed := f.String("seed-snapshot", "", "optional private complete initial Notebook payload (epoch 0, first initialization only)")
@@ -138,10 +139,17 @@ func runBroker(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	bootstrapRegistry := registry
+	if *bootstrapPeers != "" {
+		bootstrapRegistry, err = loadBrokerPeers(*bootstrapPeers, *botID)
+		if err != nil {
+			return err
+		}
+	}
 	if *preferred != "" && !registry.HasNode(*preferred) {
 		return errors.New("preferred node must be explicitly paired")
 	}
-	owner, err := nodecoord.Open(nodecoord.Options{Directory: *profile, BotID: *botID, BrokerNodeID: *brokerID, PreferredNodeID: *preferred, ReadOwnerEligibility: registry.ReadOwnerEligibility, VerifyBootstrap: registry.VerifyBootstrap, Verify: registry.VerifyClaim, VerifyRenew: registry.VerifyRenew, ValidateSnapshot: memorytransfer.ValidateNotebookPayload})
+	owner, err := nodecoord.Open(nodecoord.Options{Directory: *profile, BotID: *botID, BrokerNodeID: *brokerID, PreferredNodeID: *preferred, ReadOwnerEligibility: registry.ReadOwnerEligibility, VerifyBootstrap: bootstrapRegistry.VerifyBootstrap, Verify: registry.VerifyClaim, VerifyRenew: registry.VerifyRenew, ValidateSnapshot: memorytransfer.ValidateNotebookPayload})
 	if err != nil {
 		return err
 	}
@@ -159,7 +167,7 @@ func runBroker(ctx context.Context, args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if err = registry.VerifyBootstrap(ctx, api.WorkTarget{NodeID: parts[0], Backend: parts[1], Role: api.RoleBot}, ref); err != nil {
+		if err = bootstrapRegistry.VerifyBootstrap(ctx, api.WorkTarget{NodeID: parts[0], Backend: parts[1], Role: api.RoleBot}, ref); err != nil {
 			return err
 		}
 		if err = owner.SeedSnapshot(ctx, ref, b); err != nil {

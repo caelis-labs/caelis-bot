@@ -21,7 +21,7 @@ import (
 )
 
 func allowed(method, path string) bool {
-	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close")
+	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/managed-product" || path == "/v1/node/managed-disable" || path == "/v1/node/managed-status" || path == "/v1/node/managed-start" || path == "/v1/node/managed-product-proxy" || path == "/v1/node/managed-disable-receipt" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/roaming-deployment")
 }
 func strictDecode(r io.Reader, v any) error {
 	d := json.NewDecoder(io.LimitReader(r, productrpc.MaxCommandBytes+1))
@@ -44,6 +44,18 @@ func Handler(agent nodeplane.CatalogAgent) http.Handler {
 		var value any
 		var err error
 		switch r.URL.Path {
+		case "/v1/node/roaming-deployment":
+			var input RoamingDeploymentRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(RoamingDeploymentPort)
+			if !ok {
+				http.Error(w, "native deployment unavailable", 503)
+				return
+			}
+			value, err = port.RoamingDeployment(r.Context(), input)
 		case "/v1/node/catalog":
 			value, err = agent.Catalog(r.Context())
 		case "/v1/node/probe-owned-runtime":
@@ -92,6 +104,80 @@ func Handler(agent nodeplane.CatalogAgent) http.Handler {
 				return
 			}
 			value, err = port.ReadRuntimeProof(r.Context(), input)
+		case "/v1/node/managed-product":
+			var input api.WorkTarget
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedProductPort)
+			if !ok {
+				http.Error(w, "managed product unavailable", 503)
+				return
+			}
+			value, err = port.ReadManagedProduct(r.Context(), input)
+		case "/v1/node/managed-disable":
+			var input ManagedDisableRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedProductPort)
+			if !ok {
+				http.Error(w, "managed control unavailable", 503)
+				return
+			}
+			value, err = port.PrepareManagedDisable(r.Context(), input)
+		case "/v1/node/managed-status":
+			var input struct {
+				NodeID string `json:"nodeId"`
+			}
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedStartPort)
+			if !ok {
+				http.Error(w, "managed start unavailable", 503)
+				return
+			}
+			value, err = port.ManagedRoamingStatus(r.Context(), input.NodeID)
+		case "/v1/node/managed-start":
+			var input ManagedStartRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedStartPort)
+			if !ok {
+				http.Error(w, "managed start unavailable", 503)
+				return
+			}
+			value, err = port.StartManagedRoaming(r.Context(), input)
+		case "/v1/node/managed-product-proxy":
+			var input ManagedProductRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedProductPort)
+			if !ok {
+				http.Error(w, "managed proxy unavailable", 503)
+				return
+			}
+			value, err = port.ProxyManagedProduct(r.Context(), input)
+		case "/v1/node/managed-disable-receipt":
+			var input ManagedDisableRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedProductPort)
+			if !ok {
+				http.Error(w, "managed receipt unavailable", 503)
+				return
+			}
+			value, err = port.ReconcileManagedDisable(r.Context(), input)
 		case "/v1/node/manage":
 			var input nodeplane.ManagementRequest
 			if strictDecode(r.Body, &input) != nil {

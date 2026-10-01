@@ -39,7 +39,7 @@ type WorkRoute struct {
 }
 
 // WorkRouter resolves only the explicitly selected target. Missing targets use
-// the existing local Worker; unavailable targets must fail without fallback.
+// the direct Worker on the active Bot's machine; unavailable targets fail without fallback.
 type WorkRouter interface {
 	ResolveWorkTarget(*WorkTarget) (WorkTarget, error)
 	WorkRuntimeFor(WorkTarget) (WorkRuntime, error)
@@ -67,6 +67,10 @@ func (s WorkDispatchSource) Validate() error {
 	}
 	return nil
 }
+
+// ErrWorkSourceInactive denotes a connected resident with no current activation.
+// It does not hide transport, authority, or source-provider failures.
+var ErrWorkSourceInactive = errors.New("resident work source is inactive")
 
 type WorkSourceProvider interface {
 	WorkDispatchSource(context.Context) (WorkDispatchSource, error)

@@ -86,3 +86,19 @@ func TestBootstrapRetirementPreservesFacadeAndRejectsOriginalRestart(t *testing.
 		t.Fatal("final application close was consumed during retirement")
 	}
 }
+
+func TestBootstrapPreflightRefusalPreservesOriginalLocalLifetime(t *testing.T) {
+	for _, node := range []string{"", "actual-node"} {
+		e := newTestEngine()
+		a, _ := fixtureApp(t, e, Host{})
+		if _, _, _, err := a.PrepareRoamingBootstrap(t.Context(), node); !errors.Is(err, ErrNodeRoamingPreflight) {
+			t.Fatal("no-effect refusal became unknown", err)
+		}
+		if a.closed || a.sourceRetired || e.closed != 0 {
+			t.Fatal("preflight refusal retired original local runtime")
+		}
+		if err := a.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

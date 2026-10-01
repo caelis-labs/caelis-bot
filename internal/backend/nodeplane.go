@@ -39,6 +39,20 @@ func (s *Service) nodeManagementController() (api.NodeManagementController, erro
 	return c, nil
 }
 
+// NativeNodeManagementController exposes the retained native assembly port to
+// other native constructors. It is a package function, never a Wails method or
+// model tool, and does not expose target paths in the product facade.
+func NativeNodeManagementController(s *Service) (api.NodeManagementController, error) {
+	if s == nil {
+		return nil, errors.New("node management is unavailable")
+	}
+	c, err := s.nodeManagementController()
+	if wrapper, ok := c.(*nodeRoamingManagement); ok {
+		c = wrapper.NodeManagementController
+	}
+	return c, err
+}
+
 func (s *Service) NodeCatalog(ctx context.Context) (api.NodeCatalog, error) {
 	c, err := s.nodeManagementController()
 	if err != nil {

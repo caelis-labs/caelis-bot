@@ -65,3 +65,44 @@ func TestCapabilityRequiresMatchingIdentityAndReadiness(t *testing.T) {
 		}
 	}
 }
+
+func TestManagedDefaultAndExplicitLocalAreIndependent(t *testing.T) {
+	managed, mac := &runtimeFixture{}, &runtimeFixture{}
+	r, err := NewAt(Node{ID: "managed-linux", Label: "This machine", OS: "linux"}, "codex", managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exactDefault := api.WorkTarget{NodeID: "managed-linux", Backend: "codex", Role: api.RoleWorker}
+	if got, err := r.ResolveWorkTarget(nil); err != nil || got != exactDefault {
+		t.Fatal(got, err)
+	}
+	macTarget := api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleWorker}
+	if _, err := r.WorkRuntimeFor(macTarget); err == nil {
+		t.Fatal("local alias fell back to managed machine")
+	}
+	if err := r.Set(Node{ID: api.LocalNodeID, Label: "Mac"}, Capability{Target: macTarget, State: Ready}, mac); err != nil {
+		t.Fatal(err)
+	}
+	for target, want := range map[api.WorkTarget]api.WorkRuntime{exactDefault: managed, macTarget: mac} {
+		if got, err := r.WorkRuntimeFor(target); err != nil || got != want {
+			t.Fatal(target, err)
+		}
+	}
+	if got, err := r.ResolveWorkTarget(nil); err != nil || got != exactDefault {
+		t.Fatal("Mac registration changed default", got, err)
+	}
+	if err := r.Set(Node{ID: api.LocalNodeID, Label: "Mac"}, Capability{Target: macTarget, State: Unavailable}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.ResolveWorkTarget(&macTarget); err == nil {
+		t.Fatal("detached Mac fell back to managed default")
+	}
+}
+
+func TestNewAtRequiresCompleteMachineIdentity(t *testing.T) {
+	for _, node := range []Node{{Label: "Machine"}, {ID: "managed"}} {
+		if _, err := NewAt(node, "codex", &runtimeFixture{}); err == nil {
+			t.Fatal("incomplete native identity accepted", node)
+		}
+	}
+}

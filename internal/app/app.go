@@ -60,6 +60,7 @@ type Application struct {
 	host               Host
 	root               string
 	mu                 sync.Mutex
+	startMu            sync.Mutex
 	started, closed    bool
 	sourceRetired      bool
 	cancel             context.CancelFunc
@@ -69,6 +70,7 @@ type Application struct {
 	tasks              *tasks.Manager
 	nodeRegistry       *nodes.Registry
 	workerNodes        *workerNodeController
+	registeredWorkers  RegisteredWorkerAgentLookup
 	product            *productEngine
 	personal           *botmemory.Store
 	notebook           *notebook.Vault
@@ -83,10 +85,14 @@ func New(root string, host Host) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Optional node metadata must never add network/daemon requirements or
-	// prevent the established local (or thin APP) path from starting.
+	// Node assembly starts no network service or daemon. Persisted roaming
+	// authority must be validated before publishing the local or thin APP.
 	if err = AttachNodeManagement(a); err != nil && host.ReportError != nil {
 		host.ReportError(err)
+	}
+	if err = attachDefaultNodeRoaming(a); err != nil {
+		_ = a.Close()
+		return nil, err
 	}
 	return a, nil
 }
@@ -208,6 +214,12 @@ func requireAssistant(engine api.Engine, id string, loc ...i18n.Locale) error {
 // PreparePersonal makes local data available even before selecting/logging into
 // a Runtime. It starts no model, scheduler, tool transport or execution session.
 func (a *Application) PreparePersonal() error {
+	if active := ActiveNodeRoamingApplication(a); active != a {
+		return active.PreparePersonal()
+	}
+	if NodeRoamingOwnsExecution(a) {
+		return nil
+	}
 	if a.product != nil {
 		return nil
 	}
@@ -308,9 +320,34 @@ func (a *Application) preparePersonalLocked() error {
 // Start runs only after native surfaces are ready. It binds the private tools
 // before connecting, then starts bounded observation and resident scheduling.
 func (a *Application) Start() error {
+	a.startMu.Lock()
+	defer a.startMu.Unlock()
 	a.mu.Lock()
-	retired := a.sourceRetired
+	closed, started, retired := a.closed, a.started, a.sourceRetired
 	a.mu.Unlock()
+	if closed {
+		return errors.New(a.text("host.appStopped"))
+	}
+	if started {
+		return nil
+	}
+	// Persisted native authority must be resolved before the original source
+	// can open personal data, bind tools, or connect to a Runtime.
+	if _, err := backend.NativeNodeRoamingController(a.Backend); err == nil {
+		owned, err := RestoreNodeRoaming(context.Background(), a)
+		if err != nil {
+			return err
+		}
+		if owned {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			if a.closed {
+				return errors.New(a.text("host.appStopped"))
+			}
+			a.started = true
+			return nil
+		}
+	}
 	if retired {
 		return errors.New("original native source was retired for roaming")
 	}
@@ -441,6 +478,12 @@ func (a *Application) text(key string, args ...map[string]any) string {
 }
 
 func (a *Application) WorkTerminal(ctx context.Context, id string) (api.TerminalTarget, error) {
+	if active := ActiveNodeRoamingApplication(a); active != a {
+		return active.WorkTerminal(ctx, id)
+	}
+	if NodeRoamingOwnsExecution(a) {
+		return api.TerminalTarget{}, errors.New("native local operation unavailable during roaming")
+	}
 	a.mu.Lock()
 	m, stopped := a.tasks, a.closed
 	a.mu.Unlock()
@@ -457,6 +500,7 @@ func (a *Application) Close() error {
 		a.managed.guard.Revoke()
 	}
 	a.closeOnce.Do(func() {
+		a.startMu.Lock()
 		a.mu.Lock()
 		a.closed = true
 		if a.cancel != nil {
@@ -467,6 +511,7 @@ func (a *Application) Close() error {
 			resident.Stop()
 		}
 		a.mu.Unlock()
+		a.startMu.Unlock()
 		if a.setup != nil {
 			a.setup.mu.Lock()
 			a.setup.codex.Close()
@@ -496,6 +541,12 @@ func (a *Application) Close() error {
 }
 
 func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
+	if active := ActiveNodeRoamingApplication(a); active != a {
+		return active.AttachmentStorage()
+	}
+	if NodeRoamingOwnsExecution(a) {
+		return api.AttachmentStorage{}, errors.New("native local operation unavailable during roaming")
+	}
 	media, err := backend.ScreenMediaStorage(a.Backend, false, nil)
 	if err != nil {
 		return media, err
@@ -516,6 +567,12 @@ func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
 	return media, nil
 }
 func (a *Application) CleanAttachments(ctx context.Context) (api.AttachmentStorage, error) {
+	if active := ActiveNodeRoamingApplication(a); active != a {
+		return active.CleanAttachments(ctx)
+	}
+	if NodeRoamingOwnsExecution(a) {
+		return api.AttachmentStorage{}, errors.New("native local operation unavailable during roaming")
+	}
 	if err := a.guardRuntimeChange(); err != nil {
 		return api.AttachmentStorage{}, err
 	}

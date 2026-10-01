@@ -41,7 +41,7 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 			status = state.Task.Status
 		}
 		preview := api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: r.Target.Backend, Locked: r.Locked}
-		if r.Target != localTarget(m.provider) {
+		if r.Target != m.nativeTarget {
 			preview.Target = targetPointer(r.Target)
 			preview.TargetLabel = labels[r.Target]
 		}

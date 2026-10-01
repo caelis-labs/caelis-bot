@@ -134,3 +134,7 @@ func (s *Session) WaitSnapshot(ctx context.Context, revision uint64) (apiSnapsho
 		}
 	}
 }
+
+// ResolveInstalledExecutable shares the adapter's standard installed CLI
+// discovery with native managed composition. It never installs a Runtime.
+func ResolveInstalledExecutable(explicit string) (string, error) { return runtimeBinary(explicit) }

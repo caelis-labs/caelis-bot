@@ -26,7 +26,8 @@ import (
 )
 
 // The native child fixture only initializes an App Server connection. Any
-// thread/turn/model command is a failure; it uses no account store or network.
+// thread/turn/model command is a failure unless the contained effect marker is present.
+// It uses no account store or external network.
 func TestWorkerCLINativeHelper(t *testing.T) {
 	sep := -1
 	for i, arg := range os.Args {
@@ -79,6 +80,18 @@ func TestWorkerCLINativeHelper(t *testing.T) {
 				result = map[string]string{"userAgent": "worker-cli-synthetic"}
 			case "initialized":
 				continue
+			case "config/read":
+				result = map[string]any{"config": map[string]any{"model": "fixture-model", "model_reasoning_effort": "medium"}}
+			case "thread/start", "thread/read", "thread/resume":
+				if _, err := os.Stat(args[0] + ".allow-effects"); err != nil {
+					os.Exit(6)
+				}
+				result = map[string]any{"thread": map[string]any{"id": "fixture-worker-thread", "status": map[string]string{"type": "idle"}}, "model": "fixture-model", "reasoningEffort": "medium"}
+			case "turn/start":
+				if _, err := os.Stat(args[0] + ".allow-effects"); err != nil {
+					os.Exit(6)
+				}
+				result = map[string]any{"turn": map[string]any{"id": "fixture-worker-turn", "status": "inProgress", "items": []any{}}}
 			case "account/read":
 				result = map[string]any{"account": map[string]string{"type": "chatgpt"}, "requiresOpenaiAuth": true}
 			default:
