@@ -420,3 +420,39 @@ func TestUnverifiableOriginalJournalFailsClosed(t *testing.T) {
 		t.Fatal("corrupt journal dispatched a fresh operation")
 	}
 }
+
+func TestManagedInstallStateDoesNotAdoptOrOverwriteExternalCLI(t *testing.T) {
+	s := agentFixture(t)
+	external := filepath.Join(t.TempDir(), "codex")
+	original := []byte("#!/bin/sh\nprintf 'codex-cli 0.158.0\\n'\n")
+	if err := os.WriteFile(external, original, 0700); err != nil {
+		t.Fatal(err)
+	}
+	s.options.Binaries[api.NodeCodex] = external
+	s.installation = &installationFixture{}
+	catalog, err := s.Catalog(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Nodes[0].Runtimes[0].Version != "0.158.0" {
+		t.Fatal("external detection unavailable")
+	}
+	view, err := s.Configuration(t.Context(), s.options.NodeID, api.NodeCodex)
+	if err != nil || view.Installation == nil || view.Installation.Installed || view.Installation.Version != "" {
+		t.Fatal("external CLI became managed", view, err)
+	}
+	r := nodeplane.ManagementRequest{Guard: view.Guard, Ref: api.NodeOperationRef{NodeID: s.options.NodeID, Backend: api.NodeCodex, OperationID: "managed-first-copy"}, Installation: &api.NodeInstallationChange{Action: api.NodeInstall, Version: "0.159.2"}}
+	r.Ref.RequestDigest = RequestDigest(r)
+	receipt, err := s.Manage(t.Context(), r)
+	if err != nil || receipt.Outcome != api.NodeCommitted {
+		t.Fatal("managed first installation rejected", receipt, err)
+	}
+	after, _ := os.ReadFile(external)
+	if string(after) != string(original) {
+		t.Fatal("existing external CLI overwritten")
+	}
+	view, err = s.Configuration(t.Context(), s.options.NodeID, api.NodeCodex)
+	if err != nil || view.Installation == nil || !view.Installation.Installed || view.Installation.Version != "0.159.2" {
+		t.Fatal("managed detect not projected", view, err)
+	}
+}
