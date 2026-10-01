@@ -200,7 +200,7 @@ summary { cursor:pointer; }
 .setting-label p { margin:4px 0 0; color:var(--muted); font-size:12px; }
 .setting-control { display:flex; flex:0 1 auto; align-items:center; justify-content:flex-end; min-width:0; max-width:68%; gap:8px; }
 .settings-window button:not(nav button) { border:1px solid var(--line); border-radius:8px; padding:7px 11px; background:var(--surface); white-space:nowrap; font-size:12px; }
-.settings-window button:not(nav button):hover { background:var(--wash); }
+.settings-window button:not(nav button):not(.primary):hover { background:var(--wash); }
 .settings-window button.primary { background:var(--ink); color:var(--bg); border-color:transparent; }
 .settings-window button.text-action { border-color:transparent; background:transparent; padding-inline:0; color:var(--muted); }
 .settings-window select,.runtime-path input { min-width:0; max-width:100%; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:12px; }

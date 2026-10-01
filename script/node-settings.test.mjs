@@ -17,6 +17,8 @@ const {createRoot}=await import('react-dom/client');
 const {act}=React;
 const server=await createServer({server:{middlewareMode:true,ws:false},appType:'custom'});
 const {NodeRuntimeSettings}=await server.ssrLoadModule('/src/NodeRuntimeSettings.tsx');
+const {SettingsDialog}=await server.ssrLoadModule('/src/settings/runtime/SettingsDialog.tsx');
+const {closeSettingsOnKey}=await server.ssrLoadModule('/src/Settings.tsx');
 const {createNodeSettingsClient,createNodeRuntimeClient,managementDigestInput}=await server.ssrLoadModule('/src/settings/runtime/nodeClient.ts');
 const {createNodeEnrollmentClient}=await server.ssrLoadModule('/src/settings/runtime/enrollmentClient.ts');
 const {I18nProvider}=await server.ssrLoadModule('/src/i18n/index.tsx');
@@ -33,6 +35,8 @@ const click=async(el)=>{assert.ok(el);await act(async()=>el.dispatchEvent(new Mo
 const choose=async(el,value)=>{assert.ok(el);await act(async()=>{el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));});};
 const buttons=(name)=>[...container.querySelectorAll('button')].filter(el=>el.textContent.trim()===name);
 const select=(name)=>container.querySelector(`select[aria-label="${name}"]`);
+const visibleControls=dialog=>{for(const element of dialog.querySelectorAll('button,input,select,textarea,summary,a,[tabindex]'))element.getClientRects=()=>[{width:1,height:1}];};
+const press=async(target,key,options={})=>{const event=new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...options});await act(async()=>target.dispatchEvent(event));return event;};
 async function mount(invoke,call=async()=>({revision:1,nodes:[],issue:''}),strict=false,locale) {
  container=document.createElement('div');document.body.append(container);root=createRoot(container);
  const owner=createNodeSettingsClient(invoke,locale?translator(locale).t:undefined);
@@ -160,6 +164,144 @@ test('dialog Tab wraps within enabled controls and Escape returns focus to its o
  assert.equal(document.activeElement,enabled.at(-1));
  await act(async()=>dialog.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
  assert.equal(document.activeElement,picker);
+});
+
+test('install confirmation owns every Tab and Escape ahead of the production Settings window handler',async()=>{
+ const calls=[];let closedSettings=0;
+ const parentKey=event=>closeSettingsOnKey(event,()=>closedSettings++);
+ window.addEventListener('keydown',parentKey);
+ try{
+  await mount(async(method,...args)=>{calls.push([method,...args]);return method==='NodeCatalog'?catalog():{...config(...args),installation:{installed:false,version:'',latestVersion:'2.0'}};});
+  const version=container.querySelector('#node-program-version');await choose(version,'2.0');
+  const opener=buttons('Install managed copy')[0];opener.focus();await click(opener);
+  const dialog=container.querySelector('[role="dialog"]');visibleControls(dialog);
+  const controls=[...dialog.querySelectorAll('button')];assert.equal(controls.length,3);
+  assert.equal(document.activeElement,dialog);
+  for(const expected of [...controls,controls[0]]){
+   const event=await press(document.activeElement,'Tab');assert.equal(event.defaultPrevented,true);assert.equal(document.activeElement,expected);
+  }
+  await press(document.activeElement,'Tab',{shiftKey:true});assert.equal(document.activeElement,controls[2]);
+  const background=container.querySelector('.node-settings-selectors');assert.ok(background.closest('[inert]'));
+  assert.equal(background.closest('[inert]').getAttribute('aria-hidden'),'true');
+  // jsdom does not implement native inert focus suppression. The production
+  // focus guard also repairs an attempted outside focus in this DOM fixture.
+  version.focus();assert.equal(document.activeElement,dialog);
+  const escape=await press(dialog,'Escape');assert.equal(escape.defaultPrevented,true);
+  assert.equal(container.querySelector('[role="dialog"]'),null);assert.equal(closedSettings,0);
+  assert.equal(document.activeElement,opener);assert.equal(version.value,'2.0');
+  assert.equal(container.querySelector('[inert]'),null);
+  assert.equal(calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,0);
+  await press(opener,'Escape',{repeat:true});assert.equal(closedSettings,0);
+  await press(opener,'Escape');assert.equal(closedSettings,1);
+ }finally{window.removeEventListener('keydown',parentKey);}
+});
+
+test('explicit modal traversal preserves the selected model radio as one Tab stop',async()=>{
+ await mount(defaultInvoke);await click(container.querySelector('button.runtime-model-summary'));
+ const dialog=container.querySelector('[role="dialog"]');visibleControls(dialog);
+ const selected=dialog.querySelector('input[type="radio"]:checked');assert.ok(selected);
+ const stops=new Set();
+ for(let index=0;index<dialog.querySelectorAll('button,input,select').length+2;index++){
+  await press(document.activeElement,'Tab');if(document.activeElement.matches('input[type="radio"]'))stops.add(document.activeElement);
+ }
+ assert.deepEqual([...stops],[selected]);assert.equal(selected.checked,true);
+});
+
+test('busy modal consumes Escape, excludes unavailable controls, and restores existing background attributes',async()=>{
+ let closed=0;
+ const preserved=document.createElement('aside');preserved.setAttribute('inert','');preserved.setAttribute('aria-hidden','false');document.body.append(preserved);
+ function Frame({busy}){return React.createElement('main',null,React.createElement('nav',null,React.createElement('button',null,'Background')),React.createElement(SettingsDialog,{title:'Confirmation',busy,onClose:()=>closed++},
+  React.createElement('button',{disabled:busy},'Cancel'),React.createElement('button',{disabled:busy},'Confirm'),
+  React.createElement('button',{hidden:true},'Hidden'),React.createElement('button',{tabIndex:-1},'Untabbable'),
+  React.createElement('fieldset',{disabled:true},React.createElement('input',{type:'text'})),
+  React.createElement('details',{hidden:busy},React.createElement('summary',null,'More'),React.createElement('button',null,'Collapsed'))));}
+ try{
+  container=document.createElement('div');document.body.append(container);root=createRoot(container);
+  await act(async()=>root.render(React.createElement(React.StrictMode,null,React.createElement(Frame,{busy:true}))));
+  let dialog=container.querySelector('[role="dialog"]');visibleControls(dialog);
+  // No enabled, visible control: keyboard focus stays on the modal itself.
+  await press(dialog,'Tab');assert.equal(document.activeElement,dialog);
+  await press(document.activeElement,'Tab');assert.equal(document.activeElement,dialog);
+  await press(window,'Escape');assert.equal(closed,0);assert.ok(dialog.isConnected);
+  await act(async()=>root.render(React.createElement(React.StrictMode,null,React.createElement(Frame,{busy:false}))));
+  dialog=container.querySelector('[role="dialog"]');visibleControls(dialog);
+  await press(dialog,'Escape',{isComposing:true});assert.equal(closed,0);
+  dialog.focus();const expected=[dialog.querySelector('.runtime-close'),...dialog.querySelectorAll('button:not([hidden]):not([tabindex])')].filter((element,index,array)=>array.indexOf(element)===index&&!element.closest('details'));
+  for(const element of expected){await press(document.activeElement,'Tab');assert.equal(document.activeElement,element);}
+  await press(document.activeElement,'Tab');assert.equal(document.activeElement.tagName,'SUMMARY');
+  await press(document.activeElement,'Tab');assert.equal(document.activeElement,expected[0]);
+  const nav=container.querySelector('nav'),added=document.createElement('button');added.textContent='Late background';
+  await act(async()=>container.querySelector('main').append(added));assert.equal(added.hasAttribute('inert'),true);
+  assert.equal(preserved.getAttribute('aria-hidden'),'true');
+  await act(async()=>root.unmount());root=null;
+  assert.equal(preserved.hasAttribute('inert'),true);assert.equal(preserved.getAttribute('aria-hidden'),'false');
+  assert.equal(nav.hasAttribute('inert'),false);assert.equal(added.hasAttribute('inert'),false);
+ }finally{preserved.remove();}
+});
+
+test('nested modal owns Escape and restores parent focus while background remains inert',async()=>{
+ let closeSettings=0;
+ const parentKey=event=>closeSettingsOnKey(event,()=>closeSettings++);window.addEventListener('keydown',parentKey);
+ function Frame(){const [outer,setOuter]=React.useState(true),[inner,setInner]=React.useState(false);return React.createElement('main',null,
+  React.createElement('button',{id:'background'},'Background'),outer&&React.createElement(SettingsDialog,{title:'Outer',onClose:()=>setOuter(false)},
+   React.createElement('button',{id:'open-inner',onClick:()=>setInner(true)},'Open inner'),inner&&React.createElement(SettingsDialog,{title:'Inner',onClose:()=>setInner(false)},React.createElement('button',null,'Inner action'))));}
+ try{
+  container=document.createElement('div');document.body.append(container);root=createRoot(container);await act(async()=>root.render(React.createElement(Frame)));
+  const opener=container.querySelector('#open-inner');opener.focus();await click(opener);
+  const dialogs=container.querySelectorAll('[role="dialog"]');assert.equal(dialogs.length,2);visibleControls(dialogs[1]);
+  await press(dialogs[1],'Tab');assert.ok(dialogs[1].contains(document.activeElement));
+  await press(document.activeElement,'Escape');assert.equal(container.querySelectorAll('[role="dialog"]').length,1);
+  assert.equal(document.activeElement,opener);assert.equal(closeSettings,0);assert.ok(container.querySelector('#background').hasAttribute('inert'));
+  await press(opener,'Escape');assert.equal(container.querySelector('[role="dialog"]'),null);assert.equal(closeSettings,0);
+  assert.equal(container.querySelector('#background').hasAttribute('inert'),false);
+ }finally{window.removeEventListener('keydown',parentKey);}
+});
+
+test('enabled primary buttons retain contrasting theme colors under every matching settings hover rule',()=>{
+ // CSSOM selector matching and theme-token contrast, without browser layout or
+ // native visual acceptance. Replacing :hover preserves selector specificity.
+ const css=readFileSync('frontend/src/style.css','utf8').replaceAll(':hover','.fixture-hover');
+ const styled=new JSDOM(`<style>${css}</style><main class="settings-window"><button class="primary">Add</button><button id="ordinary">Other</button></main>`);
+ try{
+  const doc=styled.window.document,button=doc.querySelector('.primary'),sheet=doc.querySelector('style').sheet;
+  const dark=[...sheet.cssRules].find(rule=>rule.conditionText==='(prefers-color-scheme:dark)').cssRules[0].style;
+  const resolve=value=>value.replace(/var\((--[\w-]+)\)/g,(_,name)=>styled.window.getComputedStyle(doc.documentElement).getPropertyValue(name).trim());
+  const luminance=color=>{assert.match(color,/^#[\da-f]{6}$/i);const rgb=color.slice(1).match(/../g).map(channel=>parseInt(channel,16)/255).map(channel=>channel<=.04045?channel/12.92:((channel+.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
+  const ratio=(a,b)=>{const values=[luminance(a),luminance(b)].sort((a,b)=>b-a);return (values[0]+.05)/(values[1]+.05);};
+  for(const theme of ['light','dark']){
+   if(theme==='dark')for(const token of ['--bg','--ink','--wash'])doc.documentElement.style.setProperty(token,dark.getPropertyValue(token));
+   const normal=styled.window.getComputedStyle(button),background=resolve(normal.background),foreground=resolve(normal.color);
+   assert.ok(ratio(background,foreground)>=4.5,`${theme} primary text contrast`);
+   button.classList.add('fixture-hover');
+   for(const rule of sheet.cssRules){
+    if(!rule.selectorText?.includes('.fixture-hover')||!button.matches(rule.selectorText))continue;
+    const hoverBackground=rule.style.background||rule.style.backgroundColor;
+    if(hoverBackground)assert.ok(ratio(resolve(hoverBackground),resolve(rule.style.color||normal.color))>=4.5,`${theme} hover rule ${rule.selectorText}`);
+   }
+   const hovered=styled.window.getComputedStyle(button);assert.equal(resolve(hovered.background),background);assert.equal(resolve(hovered.color),foreground);
+   button.classList.remove('fixture-hover');
+  }
+  button.disabled=true;assert.equal(styled.window.getComputedStyle(button).opacity,'0.45');
+  const ordinary=doc.querySelector('#ordinary');ordinary.classList.add('fixture-hover');assert.equal(resolve(styled.window.getComputedStyle(ordinary).background),resolve('var(--wash)'));
+ }finally{styled.window.close();}
+});
+
+test('provider catalog cards retain full long copy within wrapping flex and grid constraints',async()=>{
+ const style=document.createElement('style');style.textContent=readFileSync('frontend/src/style.css','utf8')+'\n'+readFileSync('frontend/src/settings/runtime/runtime.css','utf8');document.head.append(style);
+ const choices=[{id:'openai-responses-compatible',name:'openai-responses-compatible',description:'OpenAI Responses API compatible proxy or self-hosted endpoint with a deliberately long description and an_unbroken_provider_identifier',custom:false},{id:'openai-chat-compatible',name:'openai-chat-compatible',description:'OpenAI Chat Completions compatible proxy or self-hosted endpoint',custom:false}];
+ try{
+  await mount(async(method,...args)=>{if(method==='NodeCatalog')return coldCatalog();if(method==='NodeRuntimeConfiguration')return coldConfig(...args);if(method==='BeginNodeRuntimeConnection')return nativeRef(...args);if(method==='NodeRuntimeConnectionCatalog')return {choices,unavailable:''};if(method==='CloseNodeRuntimeConnection')return;throw new Error('Unexpected fixture method');});
+  container.classList.add('settings-window');await click(buttons('Add connection')[0]);
+  const grid=container.querySelector('.runtime-connect-catalog');assert.equal(window.getComputedStyle(grid).gridTemplateColumns,'repeat(2,minmax(0,1fr))');
+  for(const [index,card] of [...grid.querySelectorAll('button')].entries()){
+   const text=card.firstElementChild,arrow=card.lastElementChild;
+   assert.equal(card.querySelector('strong').textContent,choices[index].name);assert.equal(card.querySelector('small').textContent,choices[index].description);
+   assert.equal(window.getComputedStyle(card).whiteSpace,'normal');assert.equal(window.getComputedStyle(text).minWidth,'0');assert.equal(window.getComputedStyle(text).overflowWrap,'anywhere');
+   assert.equal(window.getComputedStyle(text).flexGrow,'1');assert.equal(window.getComputedStyle(arrow).flexShrink,'0');
+   assert.equal(window.getComputedStyle(card.querySelector('strong')).display,'block');assert.equal(window.getComputedStyle(card.querySelector('small')).display,'block');
+   assert.equal(arrow.getAttribute('aria-hidden'),'true');
+  }
+ }finally{style.remove();}
 });
 
 test('remounted owner recovers native pending refs and ignores a stale catalog after original receipt resolution',async()=>{
