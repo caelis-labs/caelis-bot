@@ -68,7 +68,9 @@ func openWorkerNodes(filename string, registry *nodes.Registry, factory workerNo
 	return c
 }
 
-var workerNodeID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
+// Native enrollment uses node- + rand.Text(), including uppercase letters.
+// IDs remain exact and case-sensitive across configuration and native pairing.
+var workerNodeID = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,63}$`)
 var workerSSH = regexp.MustCompile(`^[A-Za-z0-9_.@:\[\]-]+$`)
 
 func validateWorkerNode(config backend.WorkerNodeConfig) error {
