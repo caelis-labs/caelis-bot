@@ -44,7 +44,9 @@ func TestPairedVerifierReadsOwnedSnapshotAndNativeEligibility(t *testing.T) {
 	}
 	p.state.Unknown = true
 	_, e = c.Heartbeat(ctx, l)
-	requireError(t, e, ErrIneligible)
+	if e != nil {
+		t.Fatal("controlled unknown owner lost authority", e)
+	}
 	p.state.Unknown = false
 	p.err = errors.New("partition")
 	_, e = c.Heartbeat(ctx, l)

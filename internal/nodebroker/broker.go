@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/nodecoord"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 )
@@ -24,21 +25,28 @@ type Port interface {
 	nodeplane.Coordinator
 	nodeplane.SnapshotPublisher
 	nodeplane.SnapshotReader
+	BootstrapSnapshot(context.Context, api.WorkTarget, nodeplane.SnapshotRef, []byte) error
+	CurrentLease(context.Context, string) (nodeplane.Lease, error)
+	ReadWorkerLease(context.Context, nodeplane.WorkLeaseRef) (nodeplane.Lease, error)
+	BrokerNodeID() string
 	SnapshotState(context.Context) (nodeplane.Lease, nodeplane.SnapshotRef, error)
 }
 
 type envelope struct {
-	Claim    *nodeplane.ClaimRequest `json:"claim,omitempty"`
-	Lease    *nodeplane.Lease        `json:"lease,omitempty"`
-	Snapshot *nodeplane.SnapshotRef  `json:"snapshot,omitempty"`
-	BotID    string                  `json:"botId,omitempty"`
-	Payload  []byte                  `json:"payload,omitempty"`
+	SourceTarget *api.WorkTarget         `json:"sourceTarget,omitempty"`
+	WorkerLease  *nodeplane.WorkLeaseRef `json:"workerLease,omitempty"`
+	Claim        *nodeplane.ClaimRequest `json:"claim,omitempty"`
+	Lease        *nodeplane.Lease        `json:"lease,omitempty"`
+	Snapshot     *nodeplane.SnapshotRef  `json:"snapshot,omitempty"`
+	BotID        string                  `json:"botId,omitempty"`
+	Payload      []byte                  `json:"payload,omitempty"`
 }
 type response struct {
-	Lease    nodeplane.Lease       `json:"lease"`
-	Snapshot nodeplane.SnapshotRef `json:"snapshot"`
-	Payload  []byte                `json:"payload,omitempty"`
-	Code     string                `json:"code,omitempty"`
+	BrokerNodeID string                `json:"brokerNodeId,omitempty"`
+	Lease        nodeplane.Lease       `json:"lease"`
+	Snapshot     nodeplane.SnapshotRef `json:"snapshot"`
+	Payload      []byte                `json:"payload,omitempty"`
+	Code         string                `json:"code,omitempty"`
 }
 
 const maxFrame = 24 << 20
@@ -90,9 +98,24 @@ func Handler(p Port) http.Handler {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		var out response
+		out := response{BrokerNodeID: p.BrokerNodeID()}
 		var err error
 		switch r.URL.Path {
+		case "/bootstrap":
+			if in.SourceTarget == nil || in.Snapshot == nil {
+				err = nodecoord.ErrIneligible
+			} else {
+				err = p.BootstrapSnapshot(r.Context(), *in.SourceTarget, *in.Snapshot, in.Payload)
+			}
+		case "/identity":
+		case "/current-lease":
+			out.Lease, err = p.CurrentLease(r.Context(), in.BotID)
+		case "/worker-lease":
+			if in.WorkerLease == nil {
+				err = nodecoord.ErrIneligible
+			} else {
+				out.Lease, err = p.ReadWorkerLease(r.Context(), *in.WorkerLease)
+			}
 		case "/claim":
 			if in.Claim == nil {
 				err = nodecoord.ErrIneligible
@@ -186,10 +209,11 @@ func ServeUnix(ctx context.Context, path string, p Port, ready func()) error {
 }
 
 type Client struct {
-	http      *http.Client
-	transport *http.Transport
-	mu        sync.Mutex
-	closed    bool
+	http           *http.Client
+	transport      *http.Transport
+	mu             sync.Mutex
+	closed         bool
+	expectedBroker string
 }
 
 func DialUnix(path string) (*Client, error) {
@@ -239,6 +263,9 @@ func (c *Client) call(ctx context.Context, path string, in envelope) (response, 
 	var out response
 	if dec.Decode(&out) != nil || dec.Decode(&struct{}{}) != io.EOF {
 		return response{}, nodecoord.ErrUnavailable
+	}
+	if c.expectedBroker != "" && out.BrokerNodeID != c.expectedBroker {
+		return response{}, nodecoord.ErrIneligible
 	}
 	return out, fromCode(out.Code)
 }
@@ -301,4 +328,55 @@ func (c *Client) CommitInstall(ctx context.Context, ref nodeplane.SnapshotRef, i
 		return nodecoord.ErrSnapshot
 	}
 	return ctx.Err()
+}
+
+// DialUnixForBroker pins the native enrollment identity through the inspected
+// private endpoint before exposing Worker lease attestation to a target gate.
+func DialUnixForBroker(ctx context.Context, path, expectedBroker string) (*Client, error) {
+	if expectedBroker == "" {
+		return nil, nodecoord.ErrIneligible
+	}
+	c, err := DialUnix(path)
+	if err != nil {
+		return nil, err
+	}
+	c.expectedBroker = expectedBroker
+	out, err := c.call(ctx, "/identity", envelope{})
+	if err != nil || out.BrokerNodeID != expectedBroker {
+		c.Close()
+		return nil, nodecoord.ErrIneligible
+	}
+	return c, nil
+}
+func (c *Client) CurrentLease(ctx context.Context, bot string) (nodeplane.Lease, error) {
+	out, err := c.call(ctx, "/current-lease", envelope{BotID: bot})
+	if err == nil && c.expectedBroker != "" && out.BrokerNodeID != c.expectedBroker {
+		return nodeplane.Lease{}, nodecoord.ErrIneligible
+	}
+	return out.Lease, err
+}
+func (c *Client) ReadWorkerLease(ctx context.Context, ref nodeplane.WorkLeaseRef) (nodeplane.Lease, error) {
+	if c.expectedBroker == "" || ref.BrokerNodeID != c.expectedBroker {
+		return nodeplane.Lease{}, nodecoord.ErrIneligible
+	}
+	out, err := c.call(ctx, "/worker-lease", envelope{WorkerLease: &ref})
+	if err != nil {
+		return nodeplane.Lease{}, err
+	}
+	l := out.Lease
+	if out.BrokerNodeID != c.expectedBroker || l.BotID != ref.BotID || l.NodeID != ref.SourceNode || l.Backend != ref.SourceBackend || l.Epoch != ref.Epoch || l.TTLMs <= 0 || l.TTLMs > nodeplane.DefaultLeaseExpiry.Milliseconds() {
+		return nodeplane.Lease{}, nodecoord.ErrConflict
+	}
+	return l, nil
+}
+
+func (c *Client) BootstrapSnapshot(ctx context.Context, target api.WorkTarget, ref nodeplane.SnapshotRef, payload []byte) error {
+	if c.expectedBroker == "" {
+		return nodecoord.ErrIneligible
+	}
+	out, err := c.call(ctx, "/bootstrap", envelope{SourceTarget: &target, Snapshot: &ref, Payload: payload})
+	if err == nil && out.BrokerNodeID != c.expectedBroker {
+		return nodecoord.ErrIneligible
+	}
+	return err
 }

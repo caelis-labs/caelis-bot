@@ -46,3 +46,18 @@ configuration are still required before it can participate in automatic takeover
 Windows has no eligible native owner. Existing remote Worker observer detachment
 also does not fence native work; leased task admission currently permits only
 workers owned by the same local Codex process lifetime.
+
+The broker's native enrollment can be pinned with `serve-broker --node-id` and
+`DialUnixForBroker` or `NewSSHClient`. Worker lease reads require this configured
+identity, an exact raw Bot/source-node/backend/epoch tuple, and a fresh read from
+the paired native owner. `SnapshotState` is historical metadata and never grants
+Worker authority. Remaining TTL is recalculated after the native read; pending
+or unknown work may retain a controlled lease but cannot authorize replacement.
+A changed native owner generation cannot renew the old grant.
+
+`BootstrapSnapshot` is a closed one-time genesis operation. It accepts only the
+exact complete epoch-zero snapshot independently attested by a previously paired,
+actually stopped and idle native source. It cannot overwrite an initialized
+cache or reset an epoch. A raw file or request boolean is never bootstrap proof.
+The SSH broker transport invokes only the existing fixed `proxy-broker` helper
+and pins the inspected native broker identity; it installs no SSH configuration.
