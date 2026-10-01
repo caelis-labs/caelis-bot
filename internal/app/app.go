@@ -308,6 +308,12 @@ func (a *Application) preparePersonalLocked() error {
 // Start runs only after native surfaces are ready. It binds the private tools
 // before connecting, then starts bounded observation and resident scheduling.
 func (a *Application) Start() error {
+	a.mu.Lock()
+	retired := a.sourceRetired
+	a.mu.Unlock()
+	if retired {
+		return errors.New("original native source was retired for roaming")
+	}
 	if a.product != nil {
 		return a.startRemoteProduct()
 	}
