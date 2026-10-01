@@ -41,7 +41,8 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
  const status=node?.runtimes.find(value=>value.backend===backendID);
  const scope=nodeScopeKey(selected,backendID);
  const guard=useMemo(()=>({nodeId:selected,backend:backendID as 'codex'|'caelis',revision:catalog?.revision??''}),[selected,backendID,catalog?.revision]);
- const scoped=useMemo(()=>createNodeRuntimeClient(owner,guard),[owner,guard]);
+ const defaultLocal=node?.join==='local'&&catalog?.activeBotNodeId===selected;
+ const scoped=useMemo(()=>createNodeRuntimeClient(owner,guard,{defaultLocal}),[owner,guard,defaultLocal]);
  const select=(nodeId:string,backendID:string)=>{
   if(!window.dispatchEvent(new Event('settings-navigate',{cancelable:true}))){setNotice('settings.nodeFinishEditing');return;}
   generation.current++;setLoading(false);setSelected(nodeId);setRuntime(backendID);setNotice('');
@@ -64,7 +65,7 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
   {catalog&&<p className="settings-note node-owner-context">{t('settings.nodeBotOwner',{name:displayName(catalog,catalog.activeBotNodeId)||t('runtime.notConnected')})}{catalog.workerTarget&&<><br/>{t('settings.nodeWorkerTarget',{name:displayName(catalog,catalog.workerTarget.nodeId),backend:catalog.workerTarget.backend==='codex'?'Codex':'Caelis'})}</>}</p>}
   {node&&status&&<NodeStatus node={node} backendID={backendID}/>}
   {owner.pending(selected,backendID)&&<div role="status" className="runtime-callout"><p>{t('settings.nodeOperationUnknown')}</p><button disabled={loading} onClick={()=>void recover()}>{t('settings.productCheckOriginalReceipt')}</button></div>}
-  {pairedSelected?<><p className="settings-note">{t('settings.nodePairedProductScope')}</p><RemoteRuntimeSettings key={`${selected}:${paired.binding}`} call={pairedCall} heading={false} active={active} refreshKey={refresh}/></>:catalog&&node?<div className="node-configuration"><RuntimeWorkspace nodeManaged readOnly={!!error||!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy)=>local?<RuntimePreparation initialRuntime={id} onBusy={onBusy} viewOnly call={call}/>:<p className="settings-note">{t('settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
+  {pairedSelected?<><p className="settings-note">{t('settings.nodePairedProductScope')}</p><RemoteRuntimeSettings key={`${selected}:${paired.binding}`} call={pairedCall} heading={false} active={active} refreshKey={refresh}/></>:catalog&&node?<div className="node-configuration"><RuntimeWorkspace nodeManaged connectionReadOnly={!!error||!!owner.pending(selected,backendID)||status?.health==='missing'} readOnly={!!error||!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy)=>local?<RuntimePreparation initialRuntime={id} onBusy={onBusy} viewOnly call={call}/>:<p className="settings-note">{t('settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
   {!pairedSelected&&node&&!healthy&&<p role="status" className="settings-note">{t('settings.nodeUnavailable')}</p>}
   {!pairedSelected&&node&&status&&<NodePrograms refreshKey={`${catalog?.revision}:${refresh}:${refreshKey}`} key={scope} node={node} backendID={backendID as 'codex'|'caelis'} owner={owner} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
   <NodeEnrollment catalog={catalog} call={call} onChanged={()=>setRefresh(value=>value+1)}/>
