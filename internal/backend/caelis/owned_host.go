@@ -17,6 +17,10 @@ import (
 )
 
 func startOwnedHost(ctx context.Context, o OwnedHostOptions) (*ownedHost, error) {
+	return startOwnedHostWithStore(ctx, o, false)
+}
+
+func startOwnedHostWithStore(ctx context.Context, o OwnedHostOptions, requireExisting bool) (*ownedHost, error) {
 	if o.NodeID == "" || !filepath.IsAbs(o.Store) {
 		return nil, errors.New("owned Caelis requires a designated absolute node store")
 	}
@@ -35,6 +39,9 @@ func startOwnedHost(ctx context.Context, o OwnedHostOptions) (*ownedHost, error)
 	}
 	marker := filepath.Join(store, ".caelis-bot-node-owner.json")
 	if _, err = os.Lstat(store); errors.Is(err, os.ErrNotExist) {
+		if requireExisting {
+			return nil, errors.New("owned Caelis store requires explicit preparation")
+		}
 		if err = os.Mkdir(store, 0700); err != nil {
 			return nil, err
 		}
@@ -99,8 +106,10 @@ func startOwnedHost(ctx context.Context, o OwnedHostOptions) (*ownedHost, error)
 	defer tick.Stop()
 	for {
 		if !p.Live() {
-			_ = h.stop(context.Background())
-			return nil, errors.New("owned Caelis foreground exited before readiness")
+			stop, finish := context.WithTimeout(context.Background(), 4*time.Second)
+			stopErr := h.stop(stop)
+			finish()
+			return nil, errors.Join(errors.New("owned Caelis foreground exited before readiness"), stopErr)
 		}
 		d, _, e := Discover(h.settings)
 		if e == nil {
@@ -113,8 +122,10 @@ func startOwnedHost(ctx context.Context, o OwnedHostOptions) (*ownedHost, error)
 		}
 		select {
 		case <-ready.Done():
-			_ = h.stop(context.Background())
-			return nil, errors.New("owned Caelis foreground readiness unconfirmed")
+			stop, finish := context.WithTimeout(context.Background(), 4*time.Second)
+			stopErr := h.stop(stop)
+			finish()
+			return nil, errors.Join(errors.New("owned Caelis foreground readiness unconfirmed"), ready.Err(), stopErr)
 		case <-tick.C:
 		}
 	}
@@ -133,20 +144,16 @@ func (h *ownedHost) check(ctx context.Context) error {
 	return ctx.Err()
 }
 func (h *ownedHost) ready(ctx context.Context, model string) error {
-	if err := h.check(ctx); err != nil {
-		return err
-	}
-	state, err := InspectSetup(ctx, h.settings)
+	out, err := inspectOwnedReadiness(ctx, h, model)
 	if err != nil {
 		return err
 	}
-	for _, m := range state.Models {
-		if !m.NoAuth && (m.Value == model || (model == "" && m.Current)) {
-			return nil
-		}
+	if !out.Ready {
+		return errors.New(out.Reason)
 	}
-	return errors.New("owned Caelis needs explicit target-side authenticated model selection")
+	return nil
 }
+
 func (h *ownedHost) stop(ctx context.Context) error {
 	h.once.Do(func() {
 		h.stopErr = h.process.Stop(ctx)
