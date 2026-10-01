@@ -54,6 +54,9 @@ func (c *client) request(ctx context.Context, method, path string, body any, op,
 	return c.requestMedia(ctx, method, path, body, op, revision, "", lastEvent...)
 }
 func (c *client) requestMedia(ctx context.Context, method, path string, body any, op, revision, accept string, lastEvent ...string) (*http.Response, error) {
+	if c == nil {
+		return nil, errors.New("Caelis 尚未连接")
+	}
 	ctx, release, err := api.BeginExecution(ctx, c.admission)
 	if err != nil {
 		return nil, err

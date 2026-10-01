@@ -8,6 +8,15 @@ import (
 // Export only metadata after the ordinary resident callback authority check.
 // Callback objects and remote enrollment grants never leave this adapter.
 func (s *Session) WorkDispatchSource(ctx context.Context) (api.WorkDispatchSource, error) {
+	if err := ctx.Err(); err != nil {
+		return api.WorkDispatchSource{}, err
+	}
+	s.mu.Lock()
+	idle := ctx.Value(invocationKey{}) == nil && s.connected && !s.closed
+	s.mu.Unlock()
+	if idle {
+		return api.WorkDispatchSource{}, api.ErrWorkSourceInactive
+	}
 	call, err := s.authority(ctx)
 	if err != nil {
 		return api.WorkDispatchSource{}, err

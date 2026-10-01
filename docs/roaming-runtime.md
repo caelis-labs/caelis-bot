@@ -71,3 +71,25 @@ original Source. Lease expiry, broker loss, suspend revocation or changed epoch
 cancels admission and hard-stops only that owned Host tree. Read-only receipt
 reconciliation does not replay unknown operations. Ordinary shared Host Workers
 report no lease-aware admission capability.
+
+An owned leased Worker starts with read-only native Host/model readiness. Its
+paired wire hello does not enroll an application, write an application secret,
+or create an activation. The first authenticated mutation supplies the exact
+private dispatch Source, installs the broker-validated ticket, and then performs
+lazy application enrollment before the original task/continuation/workspace
+mutation. Admission metadata checks also remain free of enrollment side effects.
+Original recorded task receipts can reconcile without a new Source or enrollment.
+
+Paired cancellation and approval frames retain exact task, turn, approval and
+choice IDs. If a current native Source exists, the client rechecks it after
+queueing and the target requires its grant to match the original task generation.
+An idle UI control carries the authenticated server's private paired principal,
+without inventing an activation. The target then validates only the exact stored
+task Source.Lease against the live pinned broker before control bytes. Unpaired
+source-less calls fail. Original unknown cancellation is not reissued against a
+changed native turn or a new lease epoch; read-only receipts remain available.
+
+Resident drivers classify connected inactivity explicitly. Transport failures,
+authority faults and source annotation errors remain visible and cannot grant an
+idle paired-control fallback. Codex persists the exact attempted cancellation
+thread/turn before native control; an uncertain receipt fences later-turn replay.

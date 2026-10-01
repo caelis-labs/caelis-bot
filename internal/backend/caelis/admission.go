@@ -44,6 +44,7 @@ func (s *Session) FenceStop(ctx context.Context) error {
 		return errors.New("shared Caelis Host cannot be fenced by this APP")
 	}
 	s.connected = false
+	s.workerPrepared = false
 	if s.cancel != nil {
 		s.cancel()
 	}
