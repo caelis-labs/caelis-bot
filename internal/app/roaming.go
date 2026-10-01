@@ -281,3 +281,60 @@ func (a *Application) ExportNotebookForRoaming(ctx context.Context, epoch, versi
 	}
 	return memorytransfer.ExportNotebook(ctx, memorytransfer.NotebookExportOptions{Source: a.root, SourceStopped: true, Epoch: epoch, Version: version})
 }
+
+// PrepareRoamingBootstrap is called on the original live native APP by an
+// explicit coordinator-enable action. It proves and stops that APP's exact
+// owned Codex lifetime before exporting genesis; it cannot adopt another APP's
+// profile or stop a discovered shared App Server/Caelis Host.
+func (a *Application) PrepareRoamingBootstrap(ctx context.Context, nodeID string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error) {
+	fail := func(err error) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error) {
+		return nil, nodeplane.SnapshotRef{}, nil, err
+	}
+	if nodeID == "" {
+		return fail(errors.New("bootstrap requires the actual source node identity"))
+	}
+	native, ok := a.engine.(*codex.Session)
+	if !ok || !native.OwnsLiveRuntime() {
+		return fail(errors.New("bootstrap requires this APP's live owned Codex runtime"))
+	}
+	if err := a.PrepareUpdate(); err != nil {
+		return fail(err)
+	}
+	if err := a.guardRuntimeChange(); err != nil {
+		a.CancelUpdate()
+		return fail(err)
+	}
+	if err := native.FenceOwnedForBootstrap(ctx); err != nil {
+		_ = a.Close()
+		return fail(err)
+	}
+	if err := a.Close(); err != nil {
+		return fail(err)
+	}
+	if err := a.guardRuntimeChange(); err != nil {
+		return fail(err)
+	}
+	payload, ref, err := memorytransfer.ExportNotebook(ctx, memorytransfer.NotebookExportOptions{Source: a.root, SourceStopped: true, Epoch: "0", Version: "1"})
+	if err != nil {
+		return fail(err)
+	}
+	target := api.WorkTarget{NodeID: nodeID, Backend: "codex", Role: api.RoleBot}
+	port := &preparedNotebookSource{target: target, ref: ref, generation: rand.Text()}
+	return payload, ref, port, nil
+}
+
+type preparedNotebookSource struct {
+	target     api.WorkTarget
+	ref        nodeplane.SnapshotRef
+	generation string
+}
+
+func (p *preparedNotebookSource) ReadRuntimeProof(ctx context.Context, target api.WorkTarget) (nodeplane.RuntimeEligibility, error) {
+	if err := ctx.Err(); err != nil {
+		return nodeplane.RuntimeEligibility{}, err
+	}
+	if target != p.target {
+		return nodeplane.RuntimeEligibility{}, errors.New("prepared Notebook source does not own this target")
+	}
+	return nodeplane.RuntimeEligibility{Proof: nodeplane.RuntimeProof{NodeID: target.NodeID, Backend: api.NodeBackend(target.Backend), Epoch: p.generation, Controllable: true}, Snapshot: p.ref, SafeIdle: true}, nil
+}
