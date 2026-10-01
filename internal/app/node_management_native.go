@@ -30,6 +30,7 @@ type NodeRegistration struct {
 	Join                                              api.NodeJoin
 	SSHDestination, Directory, HelperPath, SocketPath string
 	BrokerNodeID                                      string
+	HostHelperPath                                    string
 }
 
 type NodeManagementNativeOptions struct {
@@ -304,7 +305,14 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 	if n.app != nil && n.app.product != nil {
 		pairing := n.app.product.pairing
 		c.ActiveBotNodeID = pairing.NodeID
-		c.PairedProductNodeID = pairing.NodeID
+		product := n.app.product
+		product.mu.Lock()
+		binding := ""
+		if !product.closed && product.client != nil && product.connection == "ready" && (product.identity.Capabilities.RuntimeManagement || product.identity.Capabilities.Execution) {
+			binding = product.managementBindingLocked()
+		}
+		product.mu.Unlock()
+		c.PairedRuntime = &api.NodePairedRuntime{NodeID: pairing.NodeID, Binding: binding}
 		c.WorkerTarget = nil // The product-only pairing does not attest Worker routes.
 		found := false
 		for _, node := range c.Nodes {
@@ -343,7 +351,8 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 		Broker          *api.NodeBroker
 		ActiveBotNodeID string
 		WorkerTarget    *api.WorkTarget
-	}{strconv.FormatUint(doc.Revision, 10), c.Nodes, c.Broker, c.ActiveBotNodeID, c.WorkerTarget})
+		PairedRuntime   *api.NodePairedRuntime
+	}{strconv.FormatUint(doc.Revision, 10), c.Nodes, c.Broker, c.ActiveBotNodeID, c.WorkerTarget, c.PairedRuntime})
 	digest := sha256.Sum256(data)
 	c.Revision = hex.EncodeToString(digest[:])
 	return c, nodeplane.ValidateCatalog(c)
@@ -419,6 +428,9 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 			return api.NodeAddResult{}, e
 		}
 		reg = NodeRegistration{ID: "node-" + rand.Text(), Label: r.Label, Join: r.Join, SSHDestination: r.SSHDestination, Directory: dir, HelperPath: filepath.Join(dir, "caelis-agent")}
+		if artifact.HostPath != "" {
+			reg.HostHelperPath = filepath.Join(dir, "caelis-node")
+		}
 	} else {
 		reg = NodeRegistration{ID: "node-" + rand.Text(), Label: r.Label, Join: api.NodeOutgoing}
 		var i api.NodeJoinInstructions
@@ -610,6 +622,16 @@ func (n *nativeNodeManagement) SetCoordinator(ctx context.Context, r api.NodeCoo
 		return api.NodeCatalog{}, errors.New("node catalog changed")
 	}
 	n.mu.Lock()
+	if r.NodeID != "" && r.NodeID != api.LocalNodeID {
+		found := false
+		for _, node := range n.document.Nodes {
+			found = found || node.ID == r.NodeID
+		}
+		if !found {
+			n.mu.Unlock()
+			return api.NodeCatalog{}, errors.New("coordinator requires an enrolled node agent")
+		}
+	}
 	next := n.document
 	next.Coordinator = r.NodeID
 	next.Revision++
