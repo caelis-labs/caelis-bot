@@ -2,19 +2,23 @@ package nodeagent
 
 import "context"
 
-// NotebookSSH reuses the existing, sanitized SSH connection and host trust for
-// ordinary rsync. It reads only ssh -G metadata, never credential file contents.
-// The temporary metadata configuration must outlive the transfer and be closed.
+// NotebookSSH validates native ssh -G metadata and keeps the enrolled alias in
+// its original SSH configuration namespace, including ProxyJump hop aliases.
+// A flattened -F profile would lose those aliases' own connection/trust settings.
+// It never reads credential contents or creates another connection definition.
 func NotebookSSH(ctx context.Context, s SSHConfig) ([]string, func(), error) {
 	args, err := s.args()
 	if err != nil {
 		return nil, nil, err
 	}
-	path, cleanup, err := resolvedJoinConfig(ctx, s)
+	effective, err := effectiveSSHConfiguration(ctx, s)
 	if err != nil {
 		return nil, nil, err
 	}
-	args = append([]string{s.binary(), "-F", path}, args...)
+	if _, err = sanitizedSSHConfiguration(effective, true); err != nil {
+		return nil, nil, err
+	}
+	args = append([]string{s.binary()}, args...)
 	args = append(args, "-o", "ClearAllForwardings=yes")
-	return args, cleanup, nil
+	return args, func() {}, nil
 }

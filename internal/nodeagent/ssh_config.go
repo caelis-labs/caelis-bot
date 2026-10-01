@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,6 +22,10 @@ var sshKeyword = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 // Forwardings and session side effects are removed. Arbitrary executable
 // proxy/known-host hooks cannot be represented by this private join profile.
 func SanitizedSSHConfiguration(effective []byte) ([]byte, error) {
+	return sanitizedSSHConfiguration(effective, false)
+}
+
+func sanitizedSSHConfiguration(effective []byte, allowJump bool) ([]byte, error) {
 	if len(effective) == 0 || len(effective) > 256<<10 {
 		return nil, errors.New("effective SSH configuration unavailable")
 	}
@@ -36,7 +42,12 @@ func SanitizedSSHConfiguration(effective []byte) ([]byte, error) {
 			return nil, errors.New("effective SSH configuration incompatible")
 		}
 		switch key {
-		case "proxycommand", "proxyjump", "knownhostscommand", "setenv":
+		case "proxyjump":
+			if value != "none" && strings.TrimSpace(value) != "" && (!allowJump || !validNotebookProxyJump(value)) {
+				return nil, errors.New("SSH route has an unsupported jump configuration")
+			}
+			continue
+		case "proxycommand", "knownhostscommand", "setenv":
 			if value != "none" && strings.TrimSpace(value) != "" {
 				return nil, errors.New("SSH join requires a connection without executable proxy or secret environment hooks")
 			}
@@ -69,23 +80,43 @@ func SanitizedSSHConfiguration(effective []byte) ([]byte, error) {
 	return []byte(out.String()), nil
 }
 
+// ProxyJump is an OpenSSH route, not a shell command. Accept only explicit
+// host/alias hops (optional user and port) and bracketed IPv6 addresses. Preserve
+// their native alias resolution; never expand these into a command or endpoint.
+var notebookJumpHop = regexp.MustCompile(`^(?:ssh://)?(?:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}@)?([A-Za-z0-9][A-Za-z0-9_.-]{0,252}|\[[0-9A-Fa-f:.]+\])(?::([0-9]{1,5}))?$`)
+
+func validNotebookProxyJump(value string) bool {
+	if len(value) > 4096 {
+		return false
+	}
+	hops := strings.Split(value, ",")
+	if len(hops) > 16 {
+		return false
+	}
+	for _, hop := range hops {
+		parts := notebookJumpHop.FindStringSubmatch(hop)
+		if parts == nil {
+			return false
+		}
+		if strings.HasPrefix(parts[1], "[") && net.ParseIP(strings.Trim(parts[1], "[]")) == nil {
+			return false
+		}
+		if parts[2] != "" {
+			port, err := strconv.Atoi(parts[2])
+			if err != nil || port < 1 || port > 65535 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func resolvedJoinConfig(ctx context.Context, s SSHConfig) (string, func(), error) {
-	args, err := s.args()
+	effective, err := effectiveSSHConfiguration(ctx, s)
 	if err != nil {
 		return "", nil, err
 	}
-	args = append([]string{"-G"}, args...)
-	args = append(args, "-o", "ClearAllForwardings=yes", "--", s.Target)
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, s.binary(), args...)
-	var output configOutput
-	cmd.Stdout = &output
-	cmd.Stderr = io.Discard
-	if cmd.Run() != nil {
-		return "", nil, errors.New("effective existing SSH connection unavailable")
-	}
-	config, err := SanitizedSSHConfiguration(output.Bytes())
+	config, err := SanitizedSSHConfiguration(effective)
 	if err != nil {
 		return "", nil, err
 	}
@@ -100,6 +131,25 @@ func resolvedJoinConfig(ctx context.Context, s SSHConfig) (string, func(), error
 		return "", nil, err
 	}
 	return path, cleanup, nil
+}
+
+func effectiveSSHConfiguration(ctx context.Context, s SSHConfig) ([]byte, error) {
+	args, err := s.args()
+	if err != nil {
+		return nil, err
+	}
+	args = append([]string{"-G"}, args...)
+	args = append(args, "-o", "ClearAllForwardings=yes", "--", s.Target)
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.binary(), args...)
+	var output configOutput
+	cmd.Stdout = &output
+	cmd.Stderr = io.Discard
+	if cmd.Run() != nil {
+		return nil, errors.New("effective existing SSH connection unavailable")
+	}
+	return output.Bytes(), nil
 }
 
 type configOutput struct{ bytes.Buffer }

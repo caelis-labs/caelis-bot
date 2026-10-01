@@ -276,3 +276,23 @@ re-entering the old return lock. Stop proof, final copy and fresh-start admissio
 remain unchanged. Remote TaskDock terminals remain unsupported. Periodic backup
 and remote-source return after a switch require the ordinary desktop thin APP;
 `serve-bot` does not accept a profile paired to a remote source.
+
+Notebook SSH validates the existing alias with `ssh -G`, then uses that same
+alias and original SSH configuration for owner actions and rsync. Supported
+`ProxyJump` hops are explicit aliases/hosts, optional user/port, bracketed IPv6,
+comma-separated hops, and `ssh://` hop syntax. Hop aliases keep their own native
+Host configuration; Notebook does not flatten them into a new `-F` profile or
+substitute a guessed direct address. Strict host checking and no forwarding /
+control-session side effects remain command-line requirements. Arbitrary
+ProxyCommand, KnownHostsCommand, SetEnv and invalid shell-bearing jump values
+are refused. Private reverse joins retain their existing narrower boundary.
+
+If an earlier `save-notebook-settings` receipt is `unknown` because this route
+validation refused a configured ProxyJump before prepare, keep the original
+receipt and query it by its original ID. Re-read Notebook settings/state and
+verify the original target was never prepared and no copy/switch started. Only
+with that confirmed pre-dispatch evidence may the operator explicitly submit a
+new Save action under the repaired build and current owner scope; this is not
+an automatic retry of the unknown command. If target preparation or effects
+cannot be ruled out, stop for native owner review. Reusing the original command
+ID returns its retained receipt and never dispatches it again.

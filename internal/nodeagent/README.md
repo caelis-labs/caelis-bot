@@ -73,7 +73,7 @@ socket, with strict known-host checking, no agent/X11 forwarding, mode 0600 and
 no socket replacement. Native `ssh -G` connection resolution preserves the
 original hostname/user/port, authentication references and known-host metadata
 in a temporary private configuration while excluding ambient forwardings and
-control/session side effects. Executable ProxyCommand/ProxyJump,
+control/session side effects. ProxyCommand/ProxyJump,
 KnownHostsCommand and SetEnv hooks are explicitly unsupported. Tailscale
 addresses are ordinary SSH destinations; no Tailscale login/account management
 is added. Ending the join only detaches forwarding.
@@ -91,3 +91,11 @@ it submits no model turn, reads no model credential itself and makes no SSH
 connection. Linux cross-compilation does not establish remote deployment or
 native Linux model acceptance. This native setup/transport feature changes no
 Bot-facing tool capability or workflow, so the Bot memory skill needs no update.
+
+Notebook owner actions and rsync use `NotebookSSH`, which validates native
+`ssh -G` metadata and retains the enrolled alias's original SSH configuration.
+It supports validated native ProxyJump hop aliases/hosts without a flattened
+`-F` profile, so each jump's existing Host/trust/authentication references remain
+in its native namespace. It still refuses arbitrary executable ProxyCommand,
+KnownHostsCommand, SetEnv and shell-bearing jump values. This does not broaden
+the separate reverse-join configuration boundary or change any user's SSH files.
