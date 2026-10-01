@@ -366,8 +366,74 @@ export interface Submission {
   fileIds: Array<string>;
   referenceIds: Array<string>;
 }
+export interface Task {
+  target?: WorkTarget | null;
+  id: string;
+  title: string;
+  workspace: string;
+  status: string;
+  outcome?: string;
+  result?: string;
+}
+export interface TaskMessage {
+  id: string;
+  requestId: string;
+  prompt: string;
+}
+export interface TaskPreview {
+  target?: WorkTarget | null;
+  targetLabel?: string;
+  locked: boolean;
+  provider?: string;
+  id: string;
+  prompt: string;
+  status: string;
+}
+export interface TaskStart {
+  target?: WorkTarget | null;
+  requestId: string;
+  title: string;
+  prompt: string;
+  workspace?: string;
+}
 export interface WorkExecutionSettings {
   model: string;
   effort: string;
   serviceTier: string;
+}
+export interface WorkTarget {
+  nodeId: string;
+  backend: string;
+  role: string;
+}
+export interface WorkTargetInfo {
+  target: WorkTarget;
+  label: string;
+  state: string;
+}
+export interface WorkerNodeConfig {
+  id: string;
+  label: string;
+  ssh: string;
+  helper: string;
+  backend?: string;
+  store: string;
+  workspaceRoot: string;
+}
+export interface WorkerNodeFacts {
+  os: string;
+  arch: string;
+  version: string;
+}
+export interface WorkerNodeSetup {
+  revision: number;
+  nodes: Array<WorkerNodeView>;
+  issue: string;
+}
+export interface WorkerNodeView {
+  config: WorkerNodeConfig;
+  state: string;
+  issue: string;
+  facts: WorkerNodeFacts;
+  connected: boolean;
 }

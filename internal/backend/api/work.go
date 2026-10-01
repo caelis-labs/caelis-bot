@@ -24,12 +24,15 @@ type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }
 
 type WorkStart struct {
 	TaskStart
+	Source                      WorkDispatchSource `json:"-"`
+	RequestDigest               string             `json:"-"`
 	ID, Workspace, Instructions string
 }
 
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque
 // native generation, never a product-generated inference from assistant prose.
 type WorkState struct {
+	Target         WorkTarget
 	Task           Task
 	OriginalPrompt string
 	ExecutionKey   string
@@ -51,11 +54,13 @@ type TerminalTarget struct {
 	Session, Store, TokenFile string
 }
 type TaskPreview struct {
-	Locked   bool   `json:"locked"`
-	Provider string `json:"provider,omitempty"`
-	ID       string `json:"id"`
-	Prompt   string `json:"prompt"`
-	Status   string `json:"status"`
+	Target      *WorkTarget `json:"target,omitempty"`
+	TargetLabel string      `json:"targetLabel,omitempty"`
+	Locked      bool        `json:"locked"`
+	Provider    string      `json:"provider,omitempty"`
+	ID          string      `json:"id"`
+	Prompt      string      `json:"prompt"`
+	Status      string      `json:"status"`
 }
 
 // ReportSubmitter appends a bounded application notice only when idle. It must

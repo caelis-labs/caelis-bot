@@ -9,12 +9,31 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 func main() {
 	check := flag.Bool("check", false, "check generated projection")
 	flag.Parse()
+	out := generateProjection(productRoots()...)
+	path := "frontend/src/backend/contract.ts"
+	if *check {
+		b, err := os.ReadFile(path)
+		if err != nil || string(b) != out {
+			fmt.Fprintln(os.Stderr, "Backend UI types drifted; run go run ./cmd/contract-gen")
+			os.Exit(1)
+		}
+	} else if err := os.WriteFile(path, []byte(out), 0644); err != nil {
+		panic(err)
+	}
+}
+
+func productRoots() []any {
+	return []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.RuntimeStatus{}, api.ExecutionSettings{}, api.WorkExecutionSettings{}, api.ModelOption{}, api.ProviderInfo{}, api.ExecutionOptions{}, api.SetupRequest{}, api.SetupState{}, api.SetupChoice{}, api.SetupOverview{}, api.BotInitialization{}, api.BotIntroduction{}, api.RuntimeConfiguration{}, api.RuntimeConfigurationChange{}, api.RuntimeMutationResult{}, api.RuntimeConnectionCatalog{}, api.RuntimeConnectionInput{}, api.RuntimeFlow{}, api.RuntimeFlowAction{}, api.Task{}, api.TaskStart{}, api.TaskMessage{}, api.TaskPreview{}, api.WorkTargetInfo{}, backend.WorkerNodeSetup{}}
+}
+
+func generateProjection(roots ...any) string {
 	types := map[string]reflect.Type{}
 	var ts func(reflect.Type) string
 	ts = func(t reflect.Type) string {
@@ -38,13 +57,16 @@ func main() {
 			panic("unsupported contract type: " + t.String())
 		}
 	}
-	for _, v := range []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.RuntimeStatus{}, api.ExecutionSettings{}, api.WorkExecutionSettings{}, api.ModelOption{}, api.ProviderInfo{}, api.ExecutionOptions{}, api.SetupRequest{}, api.SetupState{}, api.SetupChoice{}, api.SetupOverview{}, api.BotInitialization{}, api.BotIntroduction{}, api.RuntimeConfiguration{}, api.RuntimeConfigurationChange{}, api.RuntimeMutationResult{}, api.RuntimeConnectionCatalog{}, api.RuntimeConnectionInput{}, api.RuntimeFlow{}, api.RuntimeFlowAction{}} {
+	for _, v := range roots {
 		ts(reflect.TypeOf(v))
 	}
 	for previous := 0; previous != len(types); {
 		previous = len(types)
 		for _, t := range types {
 			for i := 0; i < t.NumField(); i++ {
+				if t.Field(i).Tag.Get("json") == "-" {
+					continue
+				}
 				ts(t.Field(i).Type)
 			}
 		}
@@ -72,14 +94,5 @@ func main() {
 		}
 		out.WriteString("}\n")
 	}
-	path := "frontend/src/backend/contract.ts"
-	if *check {
-		b, err := os.ReadFile(path)
-		if err != nil || string(b) != out.String() {
-			fmt.Fprintln(os.Stderr, "Backend UI types drifted; run go run ./cmd/contract-gen")
-			os.Exit(1)
-		}
-	} else if err := os.WriteFile(path, []byte(out.String()), 0644); err != nil {
-		panic(err)
-	}
+	return out.String()
 }

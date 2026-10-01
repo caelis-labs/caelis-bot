@@ -265,7 +265,9 @@ Native bubble/Glass/F1 theme and setup preview were inspected on a single Retina
 Minimum macOS 12 deployment target and Intel/mixed-DPI/multi-display behavior are not qualified by compilation.
 Desktop World alpha requires macOS 14+ and arm64; ScreenCaptureKit selection requires 14+. Older systems return unsupported
 for those capabilities. Windows shared-core cross-compilation is checked; native GUI/IPC/distribution is absent.
-Linux is outside scope. Sparkle fixture tests do not prove two-version public install/relaunch with active work.
+Linux desktop is outside scope; optional headless Runtime/Worker hosting needs its own live acceptance.
+Node/target routing fixtures do not prove SSH or remote native execution. Sparkle fixture tests do not
+prove two-version public install/relaunch with active work.
 
 Real Guardian quality/cost, long-term Dream summary/memory quality and cache benefits remain usage evaluations.
 Keep these limits separate from regressions, synthetic protocol coverage and public signature verification.
