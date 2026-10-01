@@ -238,6 +238,11 @@ export interface NodeRuntimeConfiguration {
   installation: NodeInstallationState | null;
   reviewedVersions: Array<string>;
 }
+export interface NodeRuntimeConnectionRef {
+  nodeId: string;
+  backend: string;
+  operationId: string;
+}
 export interface ProductConnectionState {
   revision: number;
   pairing: ProductPairing;
