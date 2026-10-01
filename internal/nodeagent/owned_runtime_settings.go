@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -64,6 +65,26 @@ func (s *Service) ReadOwnedRuntimeSettings(ctx context.Context, nodeID string, b
 		}
 		if value.Binary == "" {
 			value.Binary = options.Binaries[b]
+		}
+		if value.Binary == "" {
+			switch config := options.Configurations[b].(type) {
+			case *CodexConfiguration:
+				if b == api.NodeCodex && config != nil {
+					value.Binary = config.Binary
+				}
+			case *CaelisConfiguration:
+				if b == api.NodeCaelis && config != nil {
+					value.Binary = config.Settings.CLIPath
+				}
+			}
+		}
+		if value.Binary == "" {
+			// Match native setup's standard installed CLI discovery. Only an
+			// executable path is resolved; no process or account probe is run.
+			value.Binary, err = exec.LookPath(string(b))
+			if err != nil {
+				return OwnedRuntimeSettings{}, errors.New("native owned runtime executable unavailable")
+			}
 		}
 		if b == api.NodeCaelis {
 			value.Store = filepath.Join(options.Directory, "caelis-store")
