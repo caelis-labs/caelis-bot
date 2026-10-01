@@ -418,3 +418,41 @@ test('late or unrecognized deployment plans cannot be confirmed or execute a roa
  unknown=true;await click(buttons('Enable automatic roaming')[0]);assert.equal(container.querySelector('[role="dialog"]'),null);assert.match(container.textContent,/Could not prepare the deployment plan/);
  assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
 });
+
+test('enabled and unresolved roaming lock coordinator clear/change; confirmed disabled state restores editing',async()=>{
+ const calls=[];let native=roamingState({enabled:true,state:'ready',activeBotNodeId:'other'});
+ const call=async(method,...args)=>{calls.push([method,...args]);return method==='NodeRoamingState'?native:coordinatorCatalog();};
+ const owner=await mountCoordinator(call);
+ for(const current of [native,roamingState({enabled:true,state:'waiting'}),roamingState({enabled:true,state:'unavailable'}),roamingState({state:'enabling'}),roamingState({enabled:true,state:'disabling'}),roamingState({state:'unknown',operationId:'original',outcome:'unknown'})]) {
+  native=current;await act(async()=>owner.read());
+  const coordinator=container.querySelector('#node-coordinator');assert.equal(coordinator.disabled,true,current.state);assert.equal(buttons('Save')[0].disabled,true,current.state);
+  await choose(coordinator,'');assert.equal(coordinator.value,'other');
+  await choose(coordinator,'local');assert.equal(coordinator.value,'other');await click(buttons('Save')[0]);
+  assert.match(container.textContent,/Stop automatic roaming before changing the always-on node/);
+ }
+ assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
+ native=roamingState({state:'disabled',operationId:'original',outcome:'accepted'});await act(async()=>owner.read());
+ assert.equal(container.querySelector('#node-coordinator').disabled,false);
+ await choose(container.querySelector('#node-coordinator'),'local');assert.equal(buttons('Save')[0].disabled,false);await click(buttons('Save')[0]);
+ await choose(container.querySelector('#node-coordinator'),'');await click(buttons('Save')[0]);
+ assert.deepEqual(calls.filter(call=>call[0]==='SetNodeCoordinator').map(call=>call[1]),[{nodeId:'local',expectedRevision:'catalog-1'},{nodeId:'',expectedRevision:'catalog-1'}]);
+});
+
+test('live roaming coordinator lock leaves viewed-node selection available and makes no roaming mutation',async()=>{
+ const calls=[],call=async(method,...args)=>{calls.push([method,...args]);return method==='NodeRoamingState'?roamingState({enabled:true,state:'waiting'}):defaultInvoke(method,...args);};
+ await mount(async(method,...args)=>method==='NodeCatalog'?coordinatorCatalog():config(...args),call);
+ assert.equal(container.querySelector('#node-coordinator').disabled,true);assert.equal(select('Node').disabled,false);
+ await choose(select('Node'),'other');assert.equal(select('Node').value,'other');assert.equal(container.querySelector('#node-coordinator').value,'other');
+ assert.ok(calls.every(call=>!['SetNodeCoordinator','EnableNodeRoaming','DisableNodeRoaming','ActivateRuntime'].includes(call[0])));
+});
+
+
+test('a coordinator draft stays cancellable when native roaming becomes enabled before save',async()=>{
+ const calls=[];let native=roamingState();const call=async(method,...args)=>{calls.push([method,...args]);return native;};
+ const owner=await mountCoordinator(call);await choose(container.querySelector('#node-coordinator'),'local');
+ native=roamingState({enabled:true,state:'waiting'});await act(async()=>owner.read());
+ assert.equal(buttons('Save')[0].disabled,true);assert.equal(container.querySelector('#node-coordinator').disabled,true);
+ assert.equal(buttons('Cancel')[0].disabled,false);await click(buttons('Cancel')[0]);
+ assert.equal(container.querySelector('#node-coordinator').value,'other');assert.equal(buttons('Stop automatic roaming')[0].disabled,false);
+ assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
+});

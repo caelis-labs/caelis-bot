@@ -329,5 +329,6 @@
   "nodeRoamingStopSource": "Safely stop the current Bot on {name}.",
   "nodeRoamingStartBot": "Start Bot on {name} when ready.",
   "nodeRoamingPrepareService": "Prepare the reviewed service on {name}.",
-  "nodeRoamingConnectOutgoing": "Connect the enrolled outgoing node {name}."
+  "nodeRoamingConnectOutgoing": "Connect the enrolled outgoing node {name}.",
+  "nodeCoordinatorLocked": "Stop automatic roaming before changing the always-on node. If an operation is uncertain, check its original result first."
 }

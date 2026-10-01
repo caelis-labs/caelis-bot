@@ -86,12 +86,14 @@ export function NodeCoordinator({catalog,roaming,onChanged,call=backend,refreshK
  const [,render]=useState(0),[attempted,setAttempted]=useState(false);
  const pending=useRef(false),revision=useRef(catalog.revision),draft=useRef(false),current=useRef(catalog);current.current=catalog;
  const state=roaming.snapshot(),dirty=selected!==committed;
+ const coordinatorLocked=()=>{const current=roaming.snapshot();return !!current.value?.enabled||!!current.pending||['enabling','disabling','unknown'].includes(current.value?.state??'');};
+ const locked=coordinatorLocked();
  useEffect(()=>roaming.subscribe(()=>render(value=>value+1)),[roaming]);
  useEffect(()=>{void roaming.read();},[roaming,catalog.revision,refreshKey]);
  useEffect(()=>{if(!draft.current){setSelected(committed);revision.current=catalog.revision;}},[committed,catalog.revision]);
  useEffect(()=>{const guard=(event:Event)=>{if(dirty||busy)event.preventDefault();};window.addEventListener('settings-navigate',guard);return()=>window.removeEventListener('settings-navigate',guard);},[dirty,busy]);
  const save=async()=>{
-  if(pending.current||state.busy||state.pending)return;pending.current=true;setBusy(true);setError('');
+  if(pending.current||roaming.snapshot().busy||coordinatorLocked()||!dirty)return;pending.current=true;setBusy(true);setError('');
   try{await call<NodeCatalog>('SetNodeCoordinator',{nodeId:selected,expectedRevision:revision.current});draft.current=false;onChanged();}catch{setError('settings.nodeCoordinatorFailed');}finally{pending.current=false;setBusy(false);}
  };
  const open=async()=>{
@@ -118,7 +120,8 @@ export function NodeCoordinator({catalog,roaming,onChanged,call=backend,refreshK
  const status:MessageKey=state.pending||phase==='unknown'?'settings.nodeRoamingUnknown':ready?'settings.nodeRoamingReady':phase==='enabling'?'settings.nodeRoamingPreparing':phase==='waiting'||phase==='ready'?'settings.nodeRoamingWaiting':phase==='disabling'?'settings.nodeRoamingStopping':phase==='disabled'?'settings.nodeRoamingDisabled':'settings.nodeRoamingControllerUnavailable';
  return <details className="settings-disclosure"><summary>{t('settings.nodeAlwaysOn')}</summary>
   <p className="settings-note">{t('settings.nodeCoordinatorHelp')}</p>
-  <SettingRow label={t('settings.nodeAlwaysOn')} htmlFor="node-coordinator"><select id="node-coordinator" value={selected} disabled={busy||state.busy||!!state.pending||changing} onChange={event=>{revision.current=catalog.revision;draft.current=true;setSelected(event.target.value);}}><option value="">{t('settings.nodeCoordinatorNone')}</option>{catalog.nodes.map(node=><option key={node.id} value={node.id}>{node.label}</option>)}</select><button disabled={busy||state.busy||!!state.pending||!dirty||changing} onClick={()=>void save()}>{t('common.save')}</button>{dirty&&<button disabled={busy} onClick={()=>{draft.current=false;setSelected(committed);revision.current=catalog.revision;setError('');}}>{t('common.cancel')}</button>}</SettingRow>
+  <SettingRow label={t('settings.nodeAlwaysOn')} htmlFor="node-coordinator"><select id="node-coordinator" value={selected} disabled={busy||state.busy||locked} onChange={event=>{if(pending.current||roaming.snapshot().busy||coordinatorLocked())return;revision.current=catalog.revision;draft.current=true;setSelected(event.target.value);}}><option value="">{t('settings.nodeCoordinatorNone')}</option>{catalog.nodes.map(node=><option key={node.id} value={node.id}>{node.label}</option>)}</select><button disabled={busy||state.busy||locked||!dirty} onClick={()=>void save()}>{t('common.save')}</button>{dirty&&<button disabled={busy} onClick={()=>{draft.current=false;setSelected(committed);revision.current=catalog.revision;setError('');}}>{t('common.cancel')}</button>}</SettingRow>
+  {locked&&<p className="settings-note">{t('settings.nodeCoordinatorLocked')}</p>}
   <SettingRow label={t('settings.nodeRoamingLabel')}><button disabled={blocked} onClick={()=>void open()}>{t(enabled?'settings.nodeRoamingDisable':'settings.nodeRoamingEnable')}</button></SettingRow>
   <p role="status" className="settings-note">{t(status)}</p>
   {(state.pending||state.failed||changing||phase==='waiting')&&<button disabled={busy||state.busy} onClick={()=>{setError('');void roaming.read();}}>{t(state.pending?'settings.productCheckOriginalReceipt':'runtime.recheck')}</button>}
