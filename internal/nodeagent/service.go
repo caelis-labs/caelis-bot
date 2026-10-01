@@ -48,6 +48,7 @@ type Options struct {
 	RuntimeOwner                               nodeplane.RuntimeProofPort
 	ManagedProduct                             ManagedProductPort
 	ManagedStart                               ManagedStartPort
+	WorkerProxy                                *NativeWorkerProxy
 }
 
 const MaxOperations = 4096
