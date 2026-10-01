@@ -62,6 +62,7 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
    <label>{t('settings.nodeSelected')}<select aria-label={t('settings.nodeSelected')} disabled={!catalog||loading} value={selected} onChange={event=>select(event.target.value,'')}>{catalog?.nodes.map(value=><option key={value.id} value={value.id}>{value.label}</option>)}</select></label>
    {node&&node.runtimes.length>0&&<label>{t('settings.workerNodeBackend')}<select aria-label={t('settings.workerNodeBackend')} value={backendID} onChange={event=>select(selected,event.target.value)}>{node.runtimes.map(value=><option key={value.backend} value={value.backend}>{value.backend==='codex'?'Codex':'Caelis'}</option>)}</select></label>}
   </div></div>
+  {notice&&<p role="status" className="settings-note">{t(notice)}</p>}
   <p className="settings-note">{t('settings.nodeViewOnly')}</p>
   {catalog&&<p className="settings-note node-owner-context">{t('settings.nodeBotOwner',{name:displayName(catalog,catalog.activeBotNodeId)||t('runtime.notConnected')})}{catalog.workerTarget&&<><br/>{t('settings.nodeWorkerTarget',{name:displayName(catalog,catalog.workerTarget.nodeId),backend:catalog.workerTarget.backend==='codex'?'Codex':'Caelis'})}</>}</p>}
   {node&&status&&<NodeStatus node={node} backendID={backendID}/>}
@@ -71,7 +72,6 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
   {!pairedSelected&&node&&status&&<NodePrograms refreshKey={`${catalog?.revision}:${refresh}:${refreshKey}`} key={scope} node={node} backendID={backendID as 'codex'|'caelis'} owner={owner} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
   <NodeEnrollment catalog={catalog} call={call} onChanged={()=>setRefresh(value=>value+1)}/>
   {catalog&&<NodeCoordinator catalog={catalog} roaming={roaming} refreshKey={refreshKey+refresh} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
-  {notice&&<p role="status" className="settings-note">{t(notice)}</p>}
   {error&&<p role="alert" className="inline-error">{t(error)}</p>}
   <button className="text-action" disabled={loading} onClick={()=>setRefresh(value=>value+1)}>{t('runtime.refreshConfig')}</button>
  </section>;

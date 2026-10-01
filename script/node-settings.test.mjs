@@ -143,6 +143,29 @@ test('native form draft blocks node switch; uncertain install exposes original r
  assert.deepEqual(calls.find(call=>call[0]==='ReconcileNodeOperation')[1],command.ref);
  assert.equal(calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,1);
 });
+for(const locale of ['en','zh-CN'])for(const field of ['node','backend'])test(`installation draft switch guard stays beside selectors without changing draft or focus (${locale}, ${field})`,async()=>{
+ const calls=[],t=translator(locale).t;
+ await mount(async(method,...args)=>{calls.push([method,...args]);return defaultInvoke(method,...args);},undefined,false,locale);
+ const version=container.querySelector('#node-program-version');version.closest('details').open=true;
+ await choose(version,'2.0');
+ const selector=select(t(field==='node'?'settings.nodeSelected':'settings.workerNodeBackend'));
+ const original=selector.value,target=field==='node'?'other':'codex';selector.focus();
+ const inspectedReads=calls.filter(call=>call[0]==='NodeRuntimeConfiguration').length;
+ await choose(selector,target);
+ assert.equal(selector.value,original);assert.equal(version.value,'2.0');assert.equal(document.activeElement,selector);
+ const heading=selector.closest('.node-settings-heading'),feedback=heading.nextElementSibling;
+ assert.equal(feedback.getAttribute('role'),'status');assert.equal(feedback.textContent,t('settings.nodeFinishEditing'));
+ assert.equal([...container.querySelectorAll('[role="status"]')].filter(element=>element.textContent===t('settings.nodeFinishEditing')).length,1);
+ assert.equal(container.querySelector('[role="dialog"]'),null);
+ assert.equal(calls.filter(call=>call[0]==='NodeRuntimeConfiguration').length,inspectedReads);
+ assert.equal(calls.filter(call=>['ChangeNodeConfiguration','ActivateRuntime','SelectNode'].includes(call[0])).length,0);
+ await click(buttons(t('common.cancel'))[0]);assert.equal(version.value,'');
+ selector.focus();await choose(selector,target);assert.equal(selector.value,target);assert.equal(document.activeElement,selector);
+ assert.equal([...container.querySelectorAll('[role="status"]')].filter(element=>element.textContent===t('settings.nodeFinishEditing')).length,0);
+ assert.ok(calls.some(call=>call[0]==='NodeRuntimeConfiguration'&&call[1]===(field==='node'?'other':'local')&&call[2]===(field==='backend'?'codex':'caelis')));
+ assert.equal(calls.filter(call=>['ChangeNodeConfiguration','ActivateRuntime','SelectNode'].includes(call[0])).length,0);
+});
+
 test('failed detection after node selection cannot replace the new node health or display its error',async()=>{
  const detection=deferred();const owner=await mount(async(method,...args)=>defaultInvoke(method,...args));
  // Exercise the actual child with a closed native facade, never real SSH.
