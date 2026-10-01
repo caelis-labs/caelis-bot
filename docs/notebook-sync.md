@@ -1,123 +1,136 @@
-# Simple Notebook backup (Issue47, opt-in native assembly)
+# Notebook backup and manual node switch
 
-This path copies ordinary files in the actual `<APP profile>/Notebook` from one
-active Bot to stopped backup profiles. Every node retains its complete existing
-Codex/Caelis runtime and its own authentication. It installs no daemon, login,
-execution agent, snapshot protocol, session transfer, or consensus mechanism.
-The existing cold migration/roaming path is retained unchanged.
+This opt-in path copies ordinary files from the active Bot's actual Notebook to
+stopped SSH backup nodes. Each node retains its complete Codex/Caelis runtime,
+configuration and authentication. The default APP + local Runtime needs no SSH,
+broker, node daemon or background deployment. No automatic failover, session
+migration or snapshot protocol is involved.
 
-## Implemented entry points
+## Product entry points
 
-`app.AttachNotebookSync(application, app.NotebookSyncOptions)` attaches a native
-controller **before `Application.Start`**. `SourceNodeID`, `Profiles` (actual APP
-profile directories), `Interval` (at least one minute), and concrete native owner
-checks are required. Existing enrolled direct SSH destinations are read from the
-APP's node management document; no new SSH connection or credential is configured.
-Outgoing-only nodes without a direct file-transfer pairing are explicitly unsupported.
-The APP starts/stops its timer. No synchronization runs merely by constructing
-`Application.New` or browsing settings.
+1. Open **Settings → Runtime and models**. Add an existing SSH node, then detect
+   or install its Runtime and complete its own sign-in using the existing setup.
+   Batch settings can apply conversation/Worker preferences and supported Caelis
+   configuration to selected nodes, with per-node results and original receipts.
+2. Existing Worker selection remains **Worker node → connect → choose for work**.
+   A Worker task uses the exact chosen node/backend. Installation or a successful
+   settings write alone is not evidence that a task ran there.
+3. Expand **Notebook backup**, select stopped SSH nodes and their Runtime, choose
+   an interval (1–1440 minutes; default 5), enable periodic backup and save.
+   Saving prepares the fixed private target APP profile using that node's own
+   Runtime paths and execution preferences. The UI accepts no SSH commands,
+   profile paths, credentials or native session IDs.
+4. **Back up now** performs the same one-way ordinary-file copy. Each node shows
+   its last confirmed successful backup. Failure retains the last success time.
+5. **Switch to this node** confirms the action, checks target Runtime readiness,
+   freezes old Bot admission, stops its actual owner, confirms the stop, verifies
+   the standby, performs the final copy, reconfirms the old stop and starts a new
+   native conversation. The new owner's identity and existing product proxy must
+   connect before a successful switch is recorded.
+6. Restart APP to use the saved ordinary product pairing. Reopening APP after a
+   failed or uncertain switch cannot restart the old local source. After a
+   confirmed move, explicitly save Notebook settings for the new active source;
+   direction is never reversed automatically. Remote-to-remote switches use
+   the same stop-first sequence and relay ordinary files through this APP.
 
-The existing Wails/backend service exposes:
+The settings surface currently selects remote SSH standby nodes. Returning the
+Bot to the original local desktop profile is not exposed by this simple path;
+its original data and native binding remain preserved. Outgoing-only nodes lack
+an ordinary direct file-transfer pairing and are explicitly unsupported here.
+Remote TaskDock interactive terminals remain unsupported and report that fact;
+they do not prevent ordinary task execution, backup or node switching.
 
-- `NotebookSyncState()` → `{sourceNodeId, targets:[{nodeId,lastSuccess,lastAttempt,error,phase}]}`.
-- `SyncNotebook(ctx, nodeID)` → ordinary one-way backup and the resulting status.
-- `SwitchNotebookNode(ctx, nodeID)` → persist intent, stop source, confirm actual
-  stop, verify stopped standby, perform final sync, reconfirm source stop, then
-  invoke the supplied existing target fresh-session start action.
+## Production composition and ordinary owner
 
-UI integration should call `NotebookSyncState`, resolve labels from the existing
-node catalog, and display **last successful backup** plus the current error.
-An empty `lastSuccess` means no confirmed successful backup. Failure keeps the
-old successful timestamp. `phase` other than `ready` requires native recovery;
-it is never an instruction to launch a second Bot. UI integration remains with
-the settings worker; no same-page frontend edits are included here.
+`app.New` calls `attachDefaultNotebookSync` after node management/roaming
+assembly and before any personal preparation or start. The default controller
+is dormant with no targets. Saved enabled settings call `AttachNotebookSync`
+with concrete local or remote ownership hooks. A user settings change stops the
+old timer before replacing its native controller; browsing settings does not
+start synchronization. The timer belongs to APP's lifetime.
 
-## Actual remaining production gap
+Private local settings are `nodeplane/notebook-settings.json`. The backup and
+original switch intent are `nodeplane/notebook-sync.json`. These are native
+records, not files transferred by rsync. An uncertain action keeps its original
+switch ID and non-ready phase; no new stop or start is dispatched to retry it.
 
-**`AttachNotebookSync` is not called by default production composition.**
-The next native integration stage must call it after `AttachNodeManagement` and
-before any `PreparePersonal`/`Start`, supplying verified actual target APP profiles,
-`Hooks.StandbyStopped` and `Hooks.StartFresh` from the existing target lifecycle
-owner. For a remote active source it must also supply `SourceActive`, `StopSource`,
-`SourceStopped` and, optionally, an exact completed handoff reader. The ordinary target startup to adapt is `cmd/caelis-node/run.go`'s
-`serve-bot --profile ABS --listen 127.0.0.1:0 --auth-file PRIVATE`; it reuses that
-target's already configured runtime and existing authentication. The prepared
-profile must omit an old native conversation binding so it creates a fresh
-session; copying those bindings is outside this sync path. Target owner process
-start/stop and product-pairing observation still need concrete integration there.
-The next source
-must be reconfigured explicitly after a successful move; this version does not
-reverse backup direction or automatically fail over.
-
-The local-source path is concrete: if local source hooks are omitted,
-`NotebookLocalSourceHooks` uses `Application.PrepareUpdate`,
-`guardRuntimeChange`, `codex.Session.FenceOwnedForBootstrap` (or the owned Caelis
-`FenceStop`), and `retireRoamingSource`. Shared/uncontrollable Hosts cannot provide
-stop proof. Failed/unknown stop or start stays fenced and requires the existing
-native ownership recovery; it is not retried with a new ID. Saved non-ready intent
-blocks restarting this old APP when this assembly is restored.
-
-`nodeagent.ManagedStartPort.StartManagedRoaming` and
-`Application.PrepareRoamingBootstrap` depend on the existing snapshot/generation
-workflow, so they are **not** claimed as a working fresh-session target adapter
-for this simple directory path. No actual remote Bot start has been implemented
-or verified by this change. The remaining production composition/target adapter
-is one integration gap, not a completed remote switch. Target identity and normal
-fresh-session initialization must be prepared there using the existing portable
-identity mechanisms; rsync never copies `bot.json` or SQLite.
-
-## File semantics
-
-Both endpoints need existing `rsync`. Transfers use SSH with the existing
-sanitized connection metadata and strict host trust. Ordinary files are staged
-in a private disposable local directory for two transfers, including for two
-remote nodes, without needing credentials on the source. Staging is only
-ordinary temporary files and is removed afterward; it is not a versioned snapshot
-system. A periodic copy is not a point-in-time transaction across concurrent edits.
-
-Includes `MEMORY.md`, dated/user notes, and ordinary attachments. Excludes hidden
-paths, `INDEX.md`, `HANDOFF.md`, SQLite/database sidecars, runtime/session/history
-folders, common credential filenames, locks, sockets and temporary files.
-Exclusion patterns are case insensitive. Links and special files are refused;
-APP profile ancestors must already be canonical. Source/target directories must
-already exist; this path does not initialize or adopt an arbitrary profile.
-
-There is no `rsync --delete` and no deletion of user files. Replaced target content
-is retained under `Notebook/.caelis-sync-conflicts/<attempt>/`, excluded from later
-copies and normal Notebook indexing. Source deletions leave destination files in
-place. Before activation, the final sync reports extra old destination files and
-refuses to start, preventing forgotten notes from silently becoming active again.
-Those files remain untouched for explicit review. No automatic merge or backup
-retention cleanup is implemented.
-
-`HANDOFF.md` is Dream output, read by `PrepareContext` and consumed once by digest
-after accepted native input. Periodic backup never transfers it. The concrete
-local stop adapter captures only the host-confirmed, current completed Dream
-output (`Runtime.CompletedNotebookHandoff` / `Vault.CompletedHandoff`), freezes
-and stops the source, then compares the still-current file before final transfer.
-Unfinished, stale, edited, missing or consumed output is not transferred. A
-standby's existing `HANDOFF.md` blocks final switching without deleting that file.
-The new session continues to use the existing one-use context consumption.
-
-## Validation scope
-
-Passed on isolated temporary Notebook directories:
+The native one-shot `caelis-node notebook-owner --directory <enrolled directory>
+--node-id <exact enrolled ID>` command accepts a closed JSON request through the
+existing sanitized SSH channel. It prepares, observes, stops or starts the fixed
+`<enrolled directory>/notebook-bot` APP profile. Its actual Bot process is the
+existing entry point:
 
 ```sh
-GOWORK=off GOPROXY=off GOCACHE=/tmp/caelis-notebook-go-cache \
-  go test -p 1 ./internal/notebooksync ./internal/notebook
+caelis-node serve-bot --profile ABS --listen 127.0.0.1:0 \
+  --auth-file TARGET_PRIVATE_PRODUCT_AUTH --owned-node-id EXACT_NODE_ID
 ```
 
-Real local rsync verifies notes/attachments, excludes, preserved replacements,
-no deletion, final stale-note/handoff refusal, and transfer failures. Controller
-fixtures verify stop → final sync → fresh-start ordering, retained success time,
-and no re-dispatch after failed/unknown stop, final copy or start. Remote SSH
-argument/relay behavior is fixture-only; no real remote transfer was run.
-Changed Go files pass syntax parsing and `git diff --check`.
+This uses the complete ordinary application services. Codex uses the target's
+App Server/authentication; Caelis uses its existing designated, marked owned Host
+and watchdog. Shared/uncontrollable Caelis Hosts cannot supply stop proof.
+`NewOwnedResident` does not require or create a roaming generation, broker or
+snapshot. The existing product proxy credential format is generated on target,
+kept private there and never returned/copied to APP. Runtime login credentials
+are never transferred.
 
-APP/backend/nodeagent/Bot package compilation and their lifecycle integration
-have **not** been run. Full build, race, model, GUI, broad tests and real multi-node
-acceptance remain for the coordinated heavy-check stage. No user Notebook,
-credentials, Bot55827 or Host18649 were read/copied/changed by validation, and no
-persistent service was deployed. This is an implementation-stage deliverable,
-not end-to-end production acceptance.
+`Product/owner.json` publishes only the loopback endpoint and product identity.
+Stop uses the existing product command, freezes admission and checks active,
+pending and uncertain work before the concrete runtime fence. Releasing the
+actual `.product-owner.lock` confirms owner exit; SSH failure proves nothing.
+Start records its original operation before spawning a detached `serve-bot`;
+a failed/unknown start is not replayed. Successful starts are observed through
+the actual product identity, then through the existing SSH product proxy.
+
+A previously activated, confirmed stopped target can start a new conversation.
+Its old native bindings, personal Memory evidence and product task/admission
+records are retained locally under `Product/retired-<original start ID>/` before
+fresh initialization. No old binding or receipt is resumed; none of these native
+files are transferred to another node. Notebook and old user artifacts remain
+in place. This is preservation of the target's original files, not a migration
+or restore mechanism. Current target execution preferences are read again at
+startup; no source machine's CLI path/model configuration is substituted.
+
+## File semantics and handoff
+
+Both endpoints need existing `rsync`. Transfers reuse strict host trust and the
+sanitized enrolled SSH metadata. Remote-to-remote transfers stage only ordinary
+files in a disposable private local directory, without needing source-to-target
+credentials. Staging is removed after the attempt. Periodic copies are not a
+point-in-time transaction across concurrent edits.
+
+Includes `MEMORY.md`, dated/user notes and ordinary attachments. Excludes hidden
+paths, generated `INDEX.md`, periodic `HANDOFF.md`, SQLite/database sidecars,
+runtime/session/history folders, common credential filenames, locks, sockets
+and temporary files. Exclusion patterns are case insensitive. Links and special
+files are refused; Notebook directories and their ancestors must be canonical.
+
+No `rsync --delete`, file deletion, automatic merge or retention cleanup occurs.
+Replaced target content is retained under
+`Notebook/.caelis-sync-conflicts/<attempt>/`. Source deletions leave destination
+files intact. Final switching refuses extra old destination files, preventing
+forgotten notes from becoming active again; they remain available for explicit
+review. An unresolved target `HANDOFF.md` also blocks switching without deletion.
+
+Only a host-confirmed completed Dream handoff whose current file still matches
+is transferred after stopping. Remote owners preserve this proof privately and
+recheck it at final transfer. Unfinished, stale, edited, missing or consumed output
+is not transferred. The new conversation uses the existing one-use digest-based
+Notebook context consumption. Fresh local Memory evidence is built normally;
+SQLite, credentials, session bindings and runtime history are never synchronized.
+
+## Verification and live acceptance
+
+Local fixture checks exercise real temporary files/rsync, conflict preservation,
+excludes, stale-note refusal, controller stop ordering/uncertainty, default dormant
+composition, startup fencing, target preferences, profile owner locks and fresh
+session preservation. Frontend checks exercise the actual settings components.
+Compilation/fixture coverage is distinct from real deployment and model/GUI
+acceptance. No existing user Notebook or real node is modified by these checks.
+
+The independent real-node acceptance should use a fresh isolated APP profile,
+current packaged helpers and normal new sessions. Verify SSH enrollment and
+Runtime setup, per-node batch results, an actual selected Worker task, timed and
+manual file backup, preserved overwritten files, and stop-first switch/reconnect.
+Also verify busy/unknown refusal and a lost SSH response without a second owner.
+Record each actual runtime owner/Worker result independently. The old QA thread's
+active-writer conflict is not evidence that its original session resumed.

@@ -83,6 +83,7 @@ type Application struct {
 	notebookSync         *notebooksync.Controller
 	notebookSyncInterval time.Duration
 	notebookSyncCancel   context.CancelFunc
+ notebookSyncRecovery bool
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -96,6 +97,10 @@ func New(root string, host Host) (*Application, error) {
 		host.ReportError(err)
 	}
 	if err = attachDefaultNodeRoaming(a); err != nil {
+		_ = a.Close()
+		return nil, err
+	}
+	if err = attachDefaultNotebookSync(a); err != nil {
 		_ = a.Close()
 		return nil, err
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/productmanagement"
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
@@ -24,6 +25,8 @@ import (
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "notebook-owner":
+			return runNotebookOwner(ctx, args[1:], out)
 		case "deploy-joined-roaming":
 			return runJoinedRoamingDeploy(ctx, args, out)
 		case "supervise-roaming", "control-roaming", "inspect-roaming":
@@ -72,6 +75,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	var selected selectedWorkers
 	f.Var(&selected, "connect-worker", "explicit configured NODE/BACKEND Worker; repeat for each target")
 	runtimeDirectory := f.String("runtime-directory", "", "optional target-local managed Runtime directory inside user HOME; no automatic installation")
+	ownedNode := f.String("owned-node-id", "", "optional exact node for a complete owned resident Runtime")
 	if err := f.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -117,7 +121,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	var server atomic.Pointer[productrpc.Server]
-	application, err := app.New(*profile, app.Host{
+	hostEffects := app.Host{
 		ResolveFiles: files.Resolve, ConsumeFiles: func([]string) {},
 		Observe: func(api.Snapshot) {
 			if s := server.Load(); s != nil {
@@ -130,7 +134,17 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			}
 		},
 		OpenURL: func(string) error { return productrpc.ErrUnsupported }, RevealFile: func(string) error { return productrpc.ErrUnsupported },
-	})
+	}
+	var application *app.Application
+	if *ownedNode != "" {
+		helper, e := os.Executable()
+		if e != nil {
+			return e
+		}
+		application, err = app.NewOwnedResident(ctx, *profile, hostEffects, *ownedNode, helper)
+	} else {
+		application, err = app.New(*profile, hostEffects)
+	}
 	if err != nil {
 		return err
 	}
@@ -139,7 +153,14 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		if err != nil {
 			return nil, err
 		}
-		port := productrpc.ServicePort{Service: application.Backend, Stop: func(context.Context) error { return application.Close() }}
+		port := productrpc.ServicePort{Service: application.Backend, Stop: func(stop context.Context) error {
+			if *ownedNode != "" {
+				if e := application.StopNotebookOwner(stop); e != nil {
+					return e
+				}
+			}
+			return application.Close()
+		}}
 		files.Artifacts = func(ctx context.Context, id string) (productrpc.Resource, io.ReadCloser, error) {
 			artifact, err := application.Backend.ReadProductArtifact(ctx, id)
 			if err != nil {
@@ -183,10 +204,13 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			}
 			// Pairing metadata contains no credential/native session binding. The token
 			// stays in its target-local file; SSH authentication/forwarding is external.
-			if err = json.NewEncoder(out).Encode(struct {
-				Endpoint string              `json:"endpoint"`
-				Identity productrpc.Identity `json:"identity"`
-			}{"http://" + l.Addr().String(), s.Identity()}); err != nil {
+			publication := nodeagent.NotebookOwnerState{Endpoint: "http://" + l.Addr().String(), Identity: s.Identity()}
+			if *ownedNode != "" {
+				if err = localstate.Write(filepath.Join(*profile, "Product", "owner.json"), publication); err != nil {
+					return err
+				}
+			}
+			if err = json.NewEncoder(out).Encode(publication); err != nil {
 				return err
 			}
 			done := make(chan error, 1)

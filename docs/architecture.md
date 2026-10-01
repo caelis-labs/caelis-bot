@@ -81,7 +81,9 @@ Notebook has `MEMORY.md`, generated `INDEX.md`, optional `HANDOFF.md`, and local
 Only INDEX is automatically rebuilt; it indexes Markdown paths/titles, ignores hidden directories/symlinks,
 and refreshes at startup, before submit and on completion. No background model or body database owns notes.
 User edits/deletions persist. Legacy personal data is copied once with a marker outside Notebook; conflicts
-stop migration and preserve both sides. No automatic Git commit or cloud sync.
+stop migration and preserve both sides. No automatic Git commit or cloud sync. Opt-in ordinary-file SSH backups and manual
+stop-first node switching are assembled by APP; see [Notebook backup](notebook-sync.md).
+They transfer neither native session bindings nor SQLite/authentication.
 
 Embedded public Memory provides recall/remember/correct/forget in a stable Bot scope. Mutation request IDs
 and receipt chains prevent forgotten evidence returning on replay. This does not erase chat, Git or backups.

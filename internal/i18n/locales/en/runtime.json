@@ -239,5 +239,22 @@
   "batchSaved": "Saved: {items}",
   "batchRole": "Role {id}",
   "batchRoleCreated": "Created role {id}",
-  "batchReceiptConfirmed": "Original operation confirmed; remaining settings require review"
+  "batchReceiptConfirmed": "Original operation confirmed; remaining settings require review",
+  "notebookTitle": "Notebook backup",
+  "notebookDescription": "Copy ordinary Notebook files to stopped backup nodes. Each node keeps its own complete Runtime and sign-in. Files already on the backup are preserved.",
+  "notebookEnabled": "Periodic backup",
+  "notebookInterval": "Interval (minutes)",
+  "notebookLastSuccess": "Last successful backup: {time}",
+  "notebookNeverSynced": "No successful backup yet",
+  "notebookBackupFailed": "The latest backup failed; the previous successful backup is retained.",
+  "notebookSyncNow": "Back up now",
+  "notebookSwitch": "Switch to this node",
+  "notebookAddNode": "Add an existing SSH node to choose a backup.",
+  "notebookRestart": "Switch confirmed. Restart the app to connect to the new Bot, then save backup settings for the new source.",
+  "notebookSwitchUnconfirmed": "The switch is unconfirmed. Check the original node owner before starting another Bot. Do not repeat the switch.",
+  "notebookActionFailed": "Notebook backup could not complete. Check the selected node and its existing Runtime; original files remain intact.",
+  "notebookUnavailable": "Notebook backup settings are unavailable.",
+  "notebookSaved": "Backup settings saved.",
+  "notebookSwitchTitle": "Switch Bot to {name}",
+  "notebookSwitchDescription": "Stop the current Bot, confirm its stop, copy the latest Notebook, then start a fresh conversation on this node. Active or uncertain work blocks switching. Extra old notes on the target must be reviewed first."
 }

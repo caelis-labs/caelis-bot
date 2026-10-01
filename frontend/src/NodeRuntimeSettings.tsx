@@ -3,6 +3,7 @@ import {backend} from './desktop';
 import type {NodeCatalog,NodeInfo} from './backend/contract';
 import {NodeEnrollment,NodePrograms,NodeCoordinator} from './settings/runtime/NodeSetup';
 import {BatchSettings} from './settings/runtime/BatchSettings';
+import {NotebookSyncSettings} from './settings/runtime/NotebookSyncSettings';
 import {RuntimeWorkspace} from './settings/runtime/RuntimeWorkspace';
 import {createNodeRuntimeClient,createNodeSettingsClient,nodeScopeKey,type NodeSettingsClient} from './settings/runtime/nodeClient';
 import {RuntimePreparation} from './RuntimePreparation';
@@ -71,6 +72,7 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
   {pairedSelected?<><p className="settings-note">{t('settings.nodePairedProductScope')}</p><RemoteRuntimeSettings key={`${selected}:${paired.binding}`} call={pairedCall} heading={false} active={active} refreshKey={refresh}/></>:catalog&&node?<div className="node-configuration"><RuntimeWorkspace batch={(view,connection,onClose)=><BatchSettings catalog={catalog} owner={owner} sourceId={selected} view={view} connection={connection} onClose={onClose} onSelect={id=>{setTimeout(()=>select(id,backendID),0);}}/>} nodeManaged connectionState={connectionState} connectionReadOnly={!!error||!!owner.pending(selected,backendID)||status?.health==='missing'} readOnly={!!error||!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy,defaultLocalView)=>local&&defaultLocal&&defaultLocalView&&id===backendID?<RuntimePreparation initialRuntime={id} onBusy={onBusy} viewOnly call={call}/>:<p className="settings-note">{t(local?'settings.nodeScopedPreparation':'settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
   {!pairedSelected&&node&&!healthy&&<p role="status" className="settings-note">{t('settings.nodeUnavailable')}</p>}
   {!pairedSelected&&node&&status&&<NodePrograms refreshKey={`${catalog?.revision}:${refresh}:${refreshKey}`} key={scope} node={node} backendID={backendID as 'codex'|'caelis'} owner={owner} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
+  {catalog&&<NotebookSyncSettings catalog={catalog} call={call} active={active}/>}
   <NodeEnrollment catalog={catalog} call={call} onChanged={()=>setRefresh(value=>value+1)}/>
   {catalog&&<NodeCoordinator catalog={catalog} roaming={roaming} refreshKey={refreshKey+refresh} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
   {error&&<p role="alert" className="inline-error">{t(error)}</p>}

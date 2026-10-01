@@ -9,23 +9,28 @@ import (
 	"time"
 )
 
-type Status struct {
+type NotebookSyncStatus struct {
 	NodeID      string `json:"nodeId"`
+	OperationID string `json:"operationId,omitempty"`
 	LastSuccess string `json:"lastSuccess,omitempty"`
 	LastAttempt string `json:"lastAttempt,omitempty"`
 	Error       string `json:"error,omitempty"`
 	Phase       string `json:"phase"`
 }
-type State struct {
+type NotebookSyncState struct {
 	SourceNodeID string   `json:"sourceNodeId"`
 	Targets      []Status `json:"targets"`
 }
+
+type Status = NotebookSyncStatus
+type State = NotebookSyncState
 
 // Hooks reuse native ownership/idle/stop/start ports. All checks must consult
 // the concrete owner; connectivity loss is never proof of stopped ownership.
 type Hooks struct {
 	SourceActive   func(context.Context) error
 	StandbyStopped func(context.Context, string) error
+	TargetReady    func(context.Context, string) error
 	StopSource     func(context.Context) error
 	SourceStopped  func(context.Context) error
 	StartFresh     func(context.Context, string) error
@@ -176,6 +181,16 @@ func (c *Controller) Switch(ctx context.Context, id string) error {
 	}
 	if err = h.StandbyStopped(ctx, id); err != nil {
 		return c.fail(s, err)
+	}
+	s.OperationID = AttemptID()
+	if h.TargetReady != nil {
+		s.Phase = "preparing"
+		if err = c.store(s); err != nil {
+			return err
+		}
+		if err = h.TargetReady(ctx, id); err != nil {
+			return c.fail(s, err)
+		}
 	}
 	s.Phase = "stopping"
 	s.LastAttempt = time.Now().UTC().Format(time.RFC3339Nano)

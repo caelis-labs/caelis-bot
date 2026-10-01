@@ -259,6 +259,28 @@ export interface NodeRuntimeExecutable {
   installed: boolean;
   version: string;
 }
+export interface NotebookBackupTarget {
+  nodeId: string;
+  backend: string;
+}
+export interface NotebookSyncSettings {
+  enabled: boolean;
+  sourceNodeId: string;
+  intervalMinutes: number;
+  targets: Array<NotebookBackupTarget>;
+}
+export interface NotebookSyncState {
+  sourceNodeId: string;
+  targets: Array<NotebookSyncStatus>;
+}
+export interface NotebookSyncStatus {
+  nodeId: string;
+  operationId?: string;
+  lastSuccess?: string;
+  lastAttempt?: string;
+  error?: string;
+  phase: string;
+}
 export interface ProductConnectionState {
   revision: number;
   pairing: ProductPairing;

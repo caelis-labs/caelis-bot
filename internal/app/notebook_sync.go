@@ -29,7 +29,8 @@ type NotebookSyncOptions struct {
 	CompletedHandoff func(context.Context) ([]byte, error)
 }
 
-// AttachNotebookSync is explicit opt-in assembly before APP Start. It reuses
+// AttachNotebookSync is opt-in native assembly, before APP Start or through the
+// serialized default settings controller after closing the old timer. It reuses
 // enrolled SSH pairings and starts only an APP-scoped timer. Existing roaming
 // and cold migration remain available; they cannot own execution concurrently.
 func AttachNotebookSync(a *Application, o NotebookSyncOptions) error {
@@ -37,10 +38,10 @@ func AttachNotebookSync(a *Application, o NotebookSyncOptions) error {
 		return errors.New("invalid Notebook sync assembly")
 	}
 	a.mu.Lock()
-	busy := a.started || a.closed || a.notebookSync != nil
+	busy := a.closed || a.notebookSync != nil
 	a.mu.Unlock()
 	if busy || NodeRoamingOwnsExecution(a) {
-		return errors.New("Notebook sync must be attached before start with one native owner")
+		return errors.New("Notebook sync requires one native owner and no existing controller")
 	}
 	if o.SourceNodeID == api.LocalNodeID && o.Hooks.SourceActive == nil && o.Hooks.StopSource == nil && o.Hooks.SourceStopped == nil {
 		local, completed := a.NotebookLocalSourceHooks()
@@ -180,8 +181,13 @@ func (a *Application) closeNotebookSync() {
 func (a *Application) notebookSyncStartupGuard() error {
 	a.mu.Lock()
 	c := a.notebookSync
+	remote := a.product != nil
+	recovery := a.notebookSyncRecovery
 	a.mu.Unlock()
-	if c == nil {
+	if recovery && !remote {
+		return errors.New("Notebook switch needs native owner review before restarting this source")
+	}
+	if c == nil || remote {
 		return nil
 	}
 	for _, s := range c.State().Targets {

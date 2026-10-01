@@ -155,3 +155,4 @@
 .runtime-dialog .runtime-batch-options .runtime-check { display: flex; align-items: flex-start; gap: 10px; margin: 0; }
 .runtime-dialog .runtime-batch-options input[type="checkbox"] { width: 16px; height: 16px; padding: 0; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--ink); }
 .runtime-batch-options .runtime-check small { display: block; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.notebook-backup-row{padding:12px 0;border-bottom:1px solid var(--border-color,rgba(128,128,128,.2))}.notebook-backup-row>label{display:inline-flex;gap:8px;align-items:center}.notebook-backup-row>select{margin-left:12px}.notebook-sync-settings input[type=number]{width:80px}

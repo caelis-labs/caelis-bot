@@ -238,5 +238,22 @@
   "batchSaved": "已保存：{items}",
   "batchRole": "角色 {id}",
   "batchRoleCreated": "已创建角色 {id}",
-  "batchReceiptConfirmed": "原操作已确认，剩余配置仍需核对"
+  "batchReceiptConfirmed": "原操作已确认，剩余配置仍需核对",
+  "notebookTitle": "Notebook 备份",
+  "notebookDescription": "将 Notebook 普通文件单向复制到已停止的备份节点。各节点保留自己的完整 Runtime 和登录。备份节点原有文件会保留。",
+  "notebookEnabled": "周期备份",
+  "notebookInterval": "同步间隔（分钟）",
+  "notebookLastSuccess": "最近成功备份：{time}",
+  "notebookNeverSynced": "尚无成功备份",
+  "notebookBackupFailed": "最近一次备份失败；上次成功备份仍保留。",
+  "notebookSyncNow": "立即备份",
+  "notebookSwitch": "切换到此节点",
+  "notebookAddNode": "添加现有 SSH 节点后可选择备份。",
+  "notebookRestart": "换机已确认。请重启 APP 连接新 Bot，再为新来源保存备份设置。",
+  "notebookSwitchUnconfirmed": "换机尚未确认。启动另一个 Bot 前请检查原节点的 owner，不要重复切换。",
+  "notebookActionFailed": "Notebook 备份未完成。请检查所选节点及现有 Runtime，原文件仍保留。",
+  "notebookUnavailable": "Notebook 备份设置暂不可用。",
+  "notebookSaved": "备份设置已保存。",
+  "notebookSwitchTitle": "将 Bot 切换到 {name}",
+  "notebookSwitchDescription": "停止当前 Bot 并确认，复制最新 Notebook，再在此节点启动新会话。进行中或结果不明的任务会阻止切换。目标上多余的旧笔记需要先处理。"
 }

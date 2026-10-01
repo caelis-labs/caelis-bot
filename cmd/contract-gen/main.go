@@ -11,6 +11,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/notebooksync"
 )
 
 func main() {
@@ -30,7 +31,7 @@ func main() {
 }
 
 func productRoots() []any {
-	return []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.RuntimeStatus{}, api.ExecutionSettings{}, api.WorkExecutionSettings{}, api.ModelOption{}, api.ProviderInfo{}, api.ExecutionOptions{}, api.SetupRequest{}, api.SetupState{}, api.SetupChoice{}, api.SetupOverview{}, api.BotInitialization{}, api.BotIntroduction{}, api.RuntimeConfiguration{}, api.RuntimeConfigurationChange{}, api.RuntimeMutationResult{}, api.RuntimeConnectionCatalog{}, api.RuntimeConnectionInput{}, api.RuntimeFlow{}, api.RuntimeFlowAction{}, api.Task{}, api.TaskStart{}, api.TaskMessage{}, api.TaskPreview{}, api.WorkTargetInfo{}, backend.WorkerNodeSetup{}, backend.ProductConnectionState{}, backend.RemoteRuntimeState{}, backend.RemoteRuntimeRequest{}, backend.RemoteConfigurationRequest{}, backend.RemoteManagementResult{}, backend.RemoteExecutionView{}, backend.RemoteExecutionRequest{}, api.NodeCatalog{}, api.NodeManagementRequest{}, api.NodeOperationReceipt{}, api.NodeRuntimeConfiguration{}, api.NodeRuntimeConnectionRef{}, api.NodeAddRequest{}, api.NodeAddResult{}, api.NodeCoordinatorSelection{}, backend.NodeRoamingRequest{}, backend.NodeRoamingState{}, backend.NodeRoamingPlan{}, backend.NodeRoamingPlanAction{}}
+	return []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.RuntimeStatus{}, api.ExecutionSettings{}, api.WorkExecutionSettings{}, api.ModelOption{}, api.ProviderInfo{}, api.ExecutionOptions{}, api.SetupRequest{}, api.SetupState{}, api.SetupChoice{}, api.SetupOverview{}, api.BotInitialization{}, api.BotIntroduction{}, api.RuntimeConfiguration{}, api.RuntimeConfigurationChange{}, api.RuntimeMutationResult{}, api.RuntimeConnectionCatalog{}, api.RuntimeConnectionInput{}, api.RuntimeFlow{}, api.RuntimeFlowAction{}, api.Task{}, api.TaskStart{}, api.TaskMessage{}, api.TaskPreview{}, api.WorkTargetInfo{}, backend.WorkerNodeSetup{}, backend.ProductConnectionState{}, backend.RemoteRuntimeState{}, backend.RemoteRuntimeRequest{}, backend.RemoteConfigurationRequest{}, backend.RemoteManagementResult{}, backend.RemoteExecutionView{}, backend.RemoteExecutionRequest{}, api.NodeCatalog{}, api.NodeManagementRequest{}, api.NodeOperationReceipt{}, api.NodeRuntimeConfiguration{}, api.NodeRuntimeConnectionRef{}, api.NodeAddRequest{}, api.NodeAddResult{}, api.NodeCoordinatorSelection{}, backend.NodeRoamingRequest{}, backend.NodeRoamingState{}, backend.NodeRoamingPlan{}, backend.NodeRoamingPlanAction{}, backend.NotebookSyncSettings{}, notebooksync.State{}}
 }
 
 func generateProjection(roots ...any) string {
