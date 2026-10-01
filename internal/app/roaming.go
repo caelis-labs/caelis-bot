@@ -408,7 +408,7 @@ func (a *Application) PrepareRoamingBootstrap(ctx context.Context, nodeID string
 		_ = a.Close()
 		return fail(err)
 	}
-	if err := a.Close(); err != nil {
+	if err := a.retireRoamingSource(ctx); err != nil {
 		return fail(err)
 	}
 	if err := a.guardRuntimeChange(); err != nil {
@@ -421,6 +421,46 @@ func (a *Application) PrepareRoamingBootstrap(ctx context.Context, nodeID string
 	target := api.WorkTarget{NodeID: nodeID, Backend: "codex", Role: api.RoleBot}
 	port := &preparedNotebookSource{target: target, ref: ref, generation: rand.Text()}
 	return payload, ref, port, nil
+}
+
+// retireRoamingSource closes every original native/local writer while retaining
+// the stable native facade and its management observers for the thin client.
+// It is used only after successful hard fencing of the actual live source.
+func (a *Application) retireRoamingSource(ctx context.Context) error {
+	a.mu.Lock()
+	a.sourceRetired = true
+	a.started = false
+	if a.cancel != nil {
+		a.cancel()
+	}
+	resident, bridge := a.companion, a.bridge
+	if resident != nil {
+		resident.Stop()
+	}
+	a.mu.Unlock()
+	var err error
+	if a.workerNodes != nil {
+		err = errors.Join(err, a.workerNodes.Close())
+	}
+	err = errors.Join(err, a.engine.Close(ctx))
+	if resident != nil {
+		resident.Close()
+	}
+	if bridge != nil {
+		bridge.Close()
+	}
+	a.workers.Wait()
+	if a.notebook != nil {
+		err = errors.Join(err, a.notebook.Close())
+	}
+	if a.personal != nil {
+		err = errors.Join(err, a.personal.Close())
+	}
+	a.mu.Lock()
+	a.companion, a.bridge, a.tasks, a.notebook, a.personal = nil, nil, nil, nil, nil
+	a.cancel = nil
+	a.mu.Unlock()
+	return err
 }
 
 type preparedNotebookSource struct {
