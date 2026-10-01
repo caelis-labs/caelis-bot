@@ -42,13 +42,7 @@ func startOwnedHostWithStore(ctx context.Context, o OwnedHostOptions, requireExi
 		if requireExisting {
 			return nil, errors.New("owned Caelis store requires explicit preparation")
 		}
-		if err = os.Mkdir(store, 0700); err != nil {
-			return nil, err
-		}
-		b, _ := json.Marshal(struct {
-			NodeID string `json:"nodeId"`
-		}{o.NodeID})
-		if err = os.WriteFile(marker, b, 0600); err != nil {
+		if err = PrepareOwnedStore(o.NodeID, store); err != nil {
 			return nil, err
 		}
 	} else {

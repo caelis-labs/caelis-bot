@@ -20,11 +20,13 @@ import (
 // credential provisioning, automatic remote copy or execution lease here.
 func Run(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: caelis-agent serve-agent|proxy-agent|join-agent|verify-join-directory")
+		return errors.New("usage: caelis-agent serve-agent|proxy-agent|join-agent|verify-join-directory|prepare-owned-caelis-store")
 	}
 	f := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	f.SetOutput(out)
 	switch args[0] {
+	case "prepare-owned-caelis-store":
+		return runPrepareOwnedCaelisStore(ctx, args[1:], out)
 	case "serve-agent":
 		stdio := f.Bool("stdio", false, "serve framed protocol over this foreground process stdin/stdout")
 		directory := f.String("directory", "", "existing private user-owned agent directory")
