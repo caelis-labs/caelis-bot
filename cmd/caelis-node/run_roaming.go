@@ -275,6 +275,12 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	config := &nodeagent.CodexConfiguration{Directory: c.AgentDirectory, Binary: c.CodexBinary}
 	holder := &roamingProofOwner{target: target, botID: c.BotID, health: config.Health}
 	control := &roamingManagedControl{holder: holder, broker: broker, token: token, productHTTP: &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	journal, err := nodeagent.OpenManagedDisableJournal(filepath.Join(c.AgentDirectory, "managed-control.json"), c.NodeID, c.BotID)
+	if err != nil {
+		return err
+	}
+	control.journal = journal
+	control.disabled.Store(journal.Disabled())
 	defer holder.clear()
 	binaries := map[api.NodeBackend]string{}
 	if c.CodexBinary != "" {

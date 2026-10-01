@@ -31,6 +31,7 @@ type ManagedProductPort interface {
 	ReadManagedProduct(context.Context, api.WorkTarget) (ManagedProductEndpoint, error)
 	ProxyManagedProduct(context.Context, ManagedProductRequest) (ManagedProductResponse, error)
 	PrepareManagedDisable(context.Context, ManagedDisableRequest) (nodeplane.SnapshotRef, error)
+	ReconcileManagedDisable(context.Context, ManagedDisableRequest) (ManagedDisableReceipt, error)
 }
 
 func validateManagedProduct(target api.WorkTarget, p ManagedProductEndpoint) error {
@@ -79,4 +80,22 @@ func (c *Client) PrepareManagedDisable(ctx context.Context, r ManagedDisableRequ
 		err = errors.New("managed control snapshot mismatch")
 	}
 	return ref, err
+}
+
+func (s *Service) ReconcileManagedDisable(ctx context.Context, r ManagedDisableRequest) (ManagedDisableReceipt, error) {
+	if r.Target.NodeID != s.options.NodeID || s.options.ManagedProduct == nil {
+		return ManagedDisableReceipt{}, errors.New("managed receipt owner unavailable")
+	}
+	return s.options.ManagedProduct.ReconcileManagedDisable(ctx, r)
+}
+func (c *Client) ReconcileManagedDisable(ctx context.Context, r ManagedDisableRequest) (ManagedDisableReceipt, error) {
+	var receipt ManagedDisableReceipt
+	if r.Target.NodeID != c.expected {
+		return receipt, errors.New("managed receipt node mismatch")
+	}
+	err := c.request(ctx, "POST", "/v1/node/managed-disable-receipt", r, &receipt)
+	if err == nil && receipt.Request != canonicalDisableRequest(r) {
+		err = errors.New("managed original receipt mismatch")
+	}
+	return receipt, err
 }
