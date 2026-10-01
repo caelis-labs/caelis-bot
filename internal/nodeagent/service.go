@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 	"github.com/caelis-labs/caelis-bot/internal/runtimemanagement"
@@ -161,7 +162,7 @@ func (s *Service) catalog(ctx context.Context) (api.NodeCatalog, error) {
 					}
 				}
 				controlled := h.ManagedOwner && h.Fenceable && !h.SharedHost && h.HealthKnown && h.Healthy && h.AuthenticationKnown && h.Authenticated
-				r.Roles[0].Eligible = controlled && h.BotEligible && runtime.GOOS != "windows"
+				r.Roles[0].Eligible = controlled && h.BotEligible && codex.OwnedRuntimeSupported()
 				r.Roles[1].Eligible = h.WorkerEligible && h.HealthKnown && h.Healthy && h.AuthenticationKnown && h.Authenticated
 				if r.Roles[0].Eligible {
 					r.Roles[0].Reason = ""
@@ -169,6 +170,8 @@ func (s *Service) catalog(ctx context.Context) (api.NodeCatalog, error) {
 					r.Roles[0].Reason = "shared-runtime-not-fenceable"
 				} else if runtime.GOOS == "windows" && b == api.NodeCodex {
 					r.Roles[0].Reason = "windows-process-ownership-unsupported"
+				} else if !codex.OwnedRuntimeSupported() {
+					r.Roles[0].Reason = "owned-runtime-unsupported"
 				}
 				if r.Roles[1].Eligible {
 					r.Roles[1].Reason = ""

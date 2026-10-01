@@ -3,10 +3,10 @@ package nodeagent
 import (
 	"context"
 	"errors"
-	"runtime"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 )
 
 // OwnedRuntimeProbe is native-only preflight evidence. It does not establish
@@ -38,7 +38,7 @@ func (s *Service) ProbeOwnedRuntime(ctx context.Context, nodeID string, b api.No
 	if nodeID != s.options.NodeID || !backend(b) {
 		return OwnedRuntimeProbe{}, errors.New("native owned runtime scope changed")
 	}
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if !codex.OwnedRuntimeSupported() {
 		return OwnedRuntimeProbe{Reason: "unsupported-platform"}, nil
 	}
 	metadata, err := s.ReadOwnedRuntimeSettings(ctx, nodeID, b)
