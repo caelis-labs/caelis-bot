@@ -55,6 +55,7 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
   finally{pending.current=false;if(epoch===generation.current)setLoading(false);}
  };
  const healthy=status?.health==='healthy';
+ const connectionState=error?'unknown':healthy&&status?.authentication==='authenticated'?'connected':status?.health==='unknown'||status?.authentication==='unknown'?'unknown':'disconnected';
  const local=node?.join==='local';
  return <section className="runtime-workspace node-runtime-settings">
   <div className="node-settings-heading"><h1>{t('runtime.runtimeAndModelsTitle')}</h1><div className="node-settings-selectors">
@@ -65,7 +66,7 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
   {catalog&&<p className="settings-note node-owner-context">{t('settings.nodeBotOwner',{name:displayName(catalog,catalog.activeBotNodeId)||t('runtime.notConnected')})}{catalog.workerTarget&&<><br/>{t('settings.nodeWorkerTarget',{name:displayName(catalog,catalog.workerTarget.nodeId),backend:catalog.workerTarget.backend==='codex'?'Codex':'Caelis'})}</>}</p>}
   {node&&status&&<NodeStatus node={node} backendID={backendID}/>}
   {owner.pending(selected,backendID)&&<div role="status" className="runtime-callout"><p>{t('settings.nodeOperationUnknown')}</p><button disabled={loading} onClick={()=>void recover()}>{t('settings.productCheckOriginalReceipt')}</button></div>}
-  {pairedSelected?<><p className="settings-note">{t('settings.nodePairedProductScope')}</p><RemoteRuntimeSettings key={`${selected}:${paired.binding}`} call={pairedCall} heading={false} active={active} refreshKey={refresh}/></>:catalog&&node?<div className="node-configuration"><RuntimeWorkspace nodeManaged connectionReadOnly={!!error||!!owner.pending(selected,backendID)||status?.health==='missing'} readOnly={!!error||!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy)=>local?<RuntimePreparation initialRuntime={id} onBusy={onBusy} viewOnly call={call}/>:<p className="settings-note">{t('settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
+  {pairedSelected?<><p className="settings-note">{t('settings.nodePairedProductScope')}</p><RemoteRuntimeSettings key={`${selected}:${paired.binding}`} call={pairedCall} heading={false} active={active} refreshKey={refresh}/></>:catalog&&node?<div className="node-configuration"><RuntimeWorkspace nodeManaged connectionState={connectionState} connectionReadOnly={!!error||!!owner.pending(selected,backendID)||status?.health==='missing'} readOnly={!!error||!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy,defaultLocalView)=>local&&defaultLocal&&defaultLocalView&&id===backendID?<RuntimePreparation initialRuntime={id} onBusy={onBusy} viewOnly call={call}/>:<p className="settings-note">{t(local?'settings.nodeScopedPreparation':'settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
   {!pairedSelected&&node&&!healthy&&<p role="status" className="settings-note">{t('settings.nodeUnavailable')}</p>}
   {!pairedSelected&&node&&status&&<NodePrograms refreshKey={`${catalog?.revision}:${refresh}:${refreshKey}`} key={scope} node={node} backendID={backendID as 'codex'|'caelis'} owner={owner} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
   <NodeEnrollment catalog={catalog} call={call} onChanged={()=>setRefresh(value=>value+1)}/>
@@ -81,5 +82,13 @@ function NodeStatus({node,backendID}:{node:NodeInfo;backendID:string}) {
  const status=node.runtimes.find(value=>value.backend===backendID)!;
  const health:MessageKey=status.health==='healthy'?'settings.nodeHealthy':status.health==='missing'?'runtime.notInstalled':status.health==='unavailable'?'runtime.notConnected':'settings.nodeStateUnknown';
  const auth:MessageKey=status.authentication==='authenticated'?'settings.nodeAuthenticated':status.authentication==='required'?'settings.workerNodeAuthSetup':'settings.nodeStateUnknown';
- return <div className="runtime-active"><span className="runtime-monogram" aria-hidden="true">{backendID==='caelis'?'C':'⌘'}</span><div><strong>{backendID==='caelis'?'Caelis':'Codex'}</strong><p>{t(health)} · {status.version||t('runtime.unknownVersion')} · {t(auth)}</p><p>{status.roles.map(role=>t(role.role==='bot'?(role.eligible?'settings.nodeBotEligible':'settings.nodeBotUnavailable'):(role.eligible?'settings.nodeWorkerEligible':'settings.nodeWorkerUnavailable'))).join(' · ')}</p>{status.roles.filter(role=>!role.eligible&&role.reason).map(role=><p key={role.role}>{t(role.reason==='runtime-owner-unavailable'?'settings.nodeOwnerUnavailableReason':role.reason==='shared-runtime-not-fenceable'?'settings.nodeSharedRuntimeReason':role.reason==='windows-process-ownership-unsupported'?'settings.nodeWindowsWorkerOnlyReason':'settings.nodeRoleUnavailableReason')}</p>)}</div></div>;
+ const roles=new Map<string,string[]>();
+ for(const role of status.roles){
+  const reason=role.eligible?'':role.reason;
+  const labels=roles.get(reason)??[];
+  labels.push(t(role.role==='bot'?(role.eligible?'settings.nodeBotEligible':'settings.nodeBotUnavailable'):(role.eligible?'settings.nodeWorkerEligible':'settings.nodeWorkerUnavailable')));
+  roles.set(reason,labels);
+ }
+ const reasonKey=(reason:string):MessageKey=>reason==='runtime-owner-unavailable'?'settings.nodeOwnerUnavailableReason':reason==='shared-runtime-not-fenceable'?'settings.nodeSharedRuntimeReason':reason==='windows-process-ownership-unsupported'?'settings.nodeWindowsWorkerOnlyReason':'settings.nodeRoleUnavailableReason';
+ return <div className="runtime-active"><span className="runtime-monogram" aria-hidden="true">{backendID==='caelis'?'C':'⌘'}</span><div><strong>{backendID==='caelis'?'Caelis':'Codex'}</strong><p>{t(health)} · {status.version||t('runtime.unknownVersion')} · {t(auth)}</p>{[...roles].map(([reason,labels])=><p key={reason}>{labels.join(' · ')}{reason&&<> · {t(reasonKey(reason))}</>}</p>)}</div></div>;
 }

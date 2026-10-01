@@ -18,6 +18,8 @@ const {act}=React;
 const server=await createServer({server:{middlewareMode:true,ws:false},appType:'custom'});
 const {NodeRuntimeSettings}=await server.ssrLoadModule('/src/NodeRuntimeSettings.tsx');
 const {createNodeSettingsClient,createNodeRuntimeClient,managementDigestInput}=await server.ssrLoadModule('/src/settings/runtime/nodeClient.ts');
+const {I18nProvider}=await server.ssrLoadModule('/src/i18n/index.tsx');
+const {translator}=await server.ssrLoadModule('/src/i18n/core.ts');
 let root,container;
 afterEach(async()=>{if(root)await act(async()=>root.unmount());container?.remove();root=null;});
 after(async()=>{await server.close();dom.window.close();});
@@ -30,10 +32,10 @@ const click=async(el)=>{assert.ok(el);await act(async()=>el.dispatchEvent(new Mo
 const choose=async(el,value)=>{assert.ok(el);await act(async()=>{el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));});};
 const buttons=(name)=>[...container.querySelectorAll('button')].filter(el=>el.textContent.trim()===name);
 const select=(name)=>container.querySelector(`select[aria-label="${name}"]`);
-async function mount(invoke,call=async()=>({revision:1,nodes:[],issue:''}),strict=false) {
+async function mount(invoke,call=async()=>({revision:1,nodes:[],issue:''}),strict=false,locale) {
  container=document.createElement('div');document.body.append(container);root=createRoot(container);
- const owner=createNodeSettingsClient(invoke);
- await act(async()=>{const page=React.createElement(NodeRuntimeSettings,{client:owner,call});root.render(strict?React.createElement(React.StrictMode,null,page):page);});
+ const owner=createNodeSettingsClient(invoke,locale?translator(locale).t:undefined);
+ await act(async()=>{let page=React.createElement(NodeRuntimeSettings,{client:owner,call});if(locale)page=React.createElement(I18nProvider,{bridge:{read:async()=>({preference:locale,locale,revision:1}),subscribe:()=>()=>{}}},page);root.render(strict?React.createElement(React.StrictMode,null,page):page);});
  return owner;
 }
 const defaultInvoke=async(method,...args)=>method==='NodeCatalog'?catalog():config(...args);
@@ -288,7 +290,95 @@ test('missing managed installation status disables writes even when a PATH runti
 });
 test('closed role diagnostics render human capability explanations and never internal reason codes',async()=>{
  await mount(async(method,...args)=>{if(method==='NodeCatalog'){const value=catalog();value.nodes[0].runtimes[0].roles=[{role:'bot',eligible:false,reason:'shared-runtime-not-fenceable'},{role:'worker',eligible:false,reason:'runtime-owner-unavailable'}];return value;}return config(...args);});
- assert.match(container.textContent,/Bot cannot safely move between nodes/);assert.match(container.textContent,/not ready to handle this role/);assert.doesNotMatch(container.textContent,/shared-runtime-not-fenceable|runtime-owner-unavailable/);
+ assert.match(container.textContent,/Bot cannot safely move between nodes/);assert.match(container.textContent,/Worker unavailable · Runtime not ready/);assert.doesNotMatch(container.textContent,/shared-runtime-not-fenceable|runtime-owner-unavailable/);
+});
+
+function localCodexStatusFixture({health='unavailable',authentication='required',state='models',accountType=''}={}){
+ const profile={runtime:'codex',cliPath:'/usr/bin/false',caelisStore:''},calls=[];
+ const value={health,authentication,state,accountType},inspection={pending:null};
+ const invoke=async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return {revision:`catalog-${value.health}-${value.authentication}`,selectedNodeId:'local',activeBotNodeId:'local',workerTarget:{nodeId:'local',backend:'codex',role:'worker'},broker:null,pendingOperations:[],nodes:[{id:'local',label:'This machine',os:'darwin',join:'local',runtimes:[{...runtime('codex'),health:value.health,authentication:value.authentication,roles:['bot','worker'].map(role=>({role,eligible:value.health==='healthy',reason:value.health==='healthy'?'':'runtime-owner-unavailable'}))}]}]};
+  if(method==='RuntimeSettings')return profile;
+  if(method==='SetupOverview')return {active:'codex',pending:''};
+  if(method==='InspectSetup')return inspection.pending??{settings:profile,state:value.state,message:'',installation:{installed:true,path:'',version:'0.158.0',latestVersion:'',updateState:'',message:''},models:[],selectedModel:'',accountType:value.accountType};
+  if(['ExecutionSettings','WorkExecutionSettings'].includes(method))return null;
+  if(method==='Models')return [];
+  if(method==='NodeRuntimeConfiguration')return {...config(...args),configurationAvailable:false,conversation:null,worker:null,configuration:{revision:'',models:[],main:null,connections:[],team:null}};
+  throw new Error(`Unexpected fixture method: ${method}`);
+ };
+ return {invoke,calls,value,inspection,profile};
+}
+
+for(const locale of ['en','zh-CN'])test(`fresh local unconfigured Codex uses truthful account and concise role status (${locale})`,async()=>{
+ const fixture=localCodexStatusFixture(),t=translator(locale).t;
+ await mount(fixture.invoke,undefined,false,locale);
+ assert.equal(container.querySelector('.runtime-section-title h2').textContent,t('runtime.connectionsHeading'));
+ assert.ok(buttons(t('runtime.connectAccount'))[0]);assert.equal(buttons(t('runtime.manageAccount')).length,0);
+ assert.equal(buttons(t('runtime.connectAccount'))[0].disabled,false);
+ assert.ok(container.textContent.includes(t('runtime.notConnected')));
+ const roleRows=[...container.querySelectorAll('.runtime-active p')].filter(row=>row.textContent.includes(t('settings.nodeOwnerUnavailableReason')));
+ assert.equal(roleRows.length,1);
+ assert.ok(roleRows[0].textContent.includes(t('settings.nodeBotUnavailable')));
+ assert.ok(roleRows[0].textContent.includes(t('settings.nodeWorkerUnavailable')));
+ assert.ok(!container.textContent.includes(t('runtime.connectedViaChatGPT')));
+ assert.ok(!container.textContent.includes(t('runtime.connectedViaApiKey')));
+ assert.ok(fixture.calls.every(call=>!['BeginNodeRuntimeConnection','StartRuntimeConnection','StartNodeRuntimeConnection','ActivateRuntime','SaveExecutionSettings'].includes(call[0])));
+});
+
+test('unknown Node authentication never displays cached local account success',async()=>{
+ const fixture=localCodexStatusFixture({health:'unknown',authentication:'unknown',state:'ready',accountType:'chatgpt'});
+ await mount(fixture.invoke);
+ assert.ok(buttons('Connect account')[0]);assert.equal(buttons('Manage account').length,0);
+ assert.ok(container.textContent.includes(translator('en').t('runtime.connectionUnknown')));
+ assert.ok(!container.textContent.includes(translator('en').t('runtime.connectedViaChatGPT')));
+ assert.equal(container.querySelectorAll('button.runtime-model-summary').length,0);
+});
+
+test('disconnected Node suppresses cached login success while local inspection is still pending',async()=>{
+ const fixture=localCodexStatusFixture({health:'healthy',authentication:'authenticated',state:'ready',accountType:'chatgpt'});
+ await mount(fixture.invoke);
+ assert.ok(buttons('Manage account')[0]);assert.ok(container.textContent.includes(translator('en').t('runtime.connectedViaChatGPT')));
+ const pending=deferred();fixture.value.health='unavailable';fixture.value.authentication='required';fixture.inspection.pending=pending.promise;
+ await click(container.querySelector('.node-runtime-settings > button.text-action'));
+ assert.ok(buttons('Connect account')[0]);assert.equal(buttons('Manage account').length,0);
+ assert.ok(!container.textContent.includes(translator('en').t('runtime.connectedViaChatGPT')));
+ await act(async()=>pending.resolve({settings:fixture.profile,state:'ready',message:'',installation:{installed:true,path:'',version:'0.158.0',latestVersion:'',updateState:'',message:''},models:[],selectedModel:'',accountType:'chatgpt'}));
+ assert.ok(buttons('Connect account')[0]);assert.equal(buttons('Manage account').length,0);
+ assert.ok(!container.textContent.includes(translator('en').t('runtime.connectedViaChatGPT')));
+});
+
+test('alternate local Caelis preparation never reads a global profile; active local Codex retains ordinary preparation',async()=>{
+ const calls=[],profile={runtime:'codex',cliPath:'/usr/bin/false',caelisStore:''};
+ const setup={settings:profile,state:'models',message:'',installation:{installed:true,path:'',version:'0.158.0',latestVersion:'',updateState:'',message:''},models:[],selectedModel:'',accountType:'',serviceState:'',serviceVersion:'',serviceUpdateAvailable:false,loginPending:false};
+ const invoke=async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return {...catalog(),activeBotNodeId:'local'};
+  if(method==='RuntimeSettings')return profile;
+  if(method==='NodeRuntimeConfiguration')return {...config(...args),configurationAvailable:false,configuration:{revision:'',models:[],main:null,connections:[],team:null}};
+  if(method==='SetupOverview')return {active:'codex',pending:''};
+  if(method==='InspectSetup')return setup;
+  if(method==='ComposerSnapshot')return {connection:'unavailable'};
+  if(method==='SetupProfile'){assert.equal(args[0],'codex');return profile;}
+  throw new Error(`Unexpected fixture method: ${method}`);
+ };
+ await mount(invoke,invoke);
+ assert.equal(select('Execution backend').value,'caelis');
+ await click(buttons('Manage')[0]);
+ assert.ok(container.querySelector('[role="dialog"]').textContent.includes(translator('en').t('settings.nodeScopedPreparation')));
+ assert.equal(calls.filter(call=>['SetupProfile','InspectSetup','SetupOverview'].includes(call[0])).length,0);
+ assert.equal(calls.filter(call=>/NodeRuntimeConnection/.test(call[0])).length,0);
+ await click(container.querySelector('[role="dialog"] button.runtime-close'));
+ await choose(select('Execution backend'),'codex');
+ await click(buttons('Connect account')[0]);
+ assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','codex']]);
+ assert.ok(calls.filter(call=>call[0]==='InspectSetup').every(call=>call[1].runtime==='codex'&&call[1].caelisStore===''));
+ await click(container.querySelector('[role="dialog"] button.runtime-close'));
+ await click(buttons(translator('en').t('runtime.switch'))[0]);
+ await click([...container.querySelectorAll('[role="dialog"] .runtime-choices button')].find(button=>button.querySelector('strong')?.textContent==='Caelis'));
+ assert.ok(container.querySelector('[role="dialog"]').textContent.includes(translator('en').t('settings.nodeScopedPreparation')));
+ assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','codex']]);
+ assert.ok(!calls.some(call=>call[0]==='ActivateRuntime'||call[0]==='ApplySetup'));
 });
 
 test('thin paired shared-model configuration keeps its existing native binding and revision',async()=>{
