@@ -13,6 +13,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 )
 
 // OwnedRuntimeCompanion is a trusted native packaged helper binding. No wire
@@ -166,6 +167,10 @@ func (s *Service) CheckOwnedRuntimeReadiness(ctx context.Context, r OwnedRuntime
 		return result, nil
 	}
 	s.mu.Unlock()
+	if s.readinessCheck == nil && !codex.OwnedRuntimeSupported() {
+		result.Outcome, result.Reason = "unavailable", "owned-runtime-unsupported"
+		return result, codex.ErrOwnedRuntimeUnsupported
+	}
 	metadata, err := s.ReadOwnedRuntimeSettings(ctx, r.NodeID, r.Backend)
 	if err != nil || metadata.Binary != r.ExpectedBinary || metadata.Store != r.ExpectedStore {
 		return result, errors.New("reviewed readiness native binding changed")

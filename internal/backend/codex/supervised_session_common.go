@@ -16,6 +16,9 @@ type ownedLeaseProcess interface {
 }
 
 func (s *Session) ConfigureOwnedDeadline(ctx context.Context, epoch string, deadline time.Time) error {
+	if !OwnedRuntimeSupported() {
+		return ErrOwnedRuntimeUnsupported
+	}
 	s.mu.Lock()
 	helper, p, prior := s.opts.WatchdogHelper, s.supervisor, s.ownedEpoch
 	s.mu.Unlock()
@@ -62,6 +65,9 @@ func (s *Session) OwnedRuntimeReady(ctx context.Context) error {
 }
 
 func (s *Session) VerifyOwnedSupervisor(ctx context.Context) error {
+	if !OwnedRuntimeSupported() {
+		return ErrOwnedRuntimeUnsupported
+	}
 	s.mu.Lock()
 	helper, binary, directory := s.opts.WatchdogHelper, s.opts.Binary, s.opts.Directory
 	s.mu.Unlock()
