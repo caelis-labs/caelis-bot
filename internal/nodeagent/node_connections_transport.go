@@ -122,6 +122,9 @@ func handleNodeConnections(agent nodeplane.CatalogAgent, w http.ResponseWriter, 
 		var typed *NodeConnectionError
 		if errors.As(err, &typed) {
 			failure.Unknown = typed.Unknown
+			if typed.Code == "begin-rejected" && !typed.Unknown {
+				failure.Code = typed.Code
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -209,7 +212,7 @@ func (c *Client) nodeConnectionRPC(ctx context.Context, path string, input, outp
 		var failure NodeConnectionError
 		decoder := json.NewDecoder(io.LimitReader(response.Body, 4097))
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&failure) == nil && decoder.Decode(new(any)) == io.EOF && failure.Code == "unavailable" {
+		if decoder.Decode(&failure) == nil && decoder.Decode(new(any)) == io.EOF && (failure.Code == "unavailable" || failure.Code == "begin-rejected" && !failure.Unknown) {
 			return &failure
 		}
 		return connectionError("original response unavailable")

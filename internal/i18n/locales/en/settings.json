@@ -274,6 +274,7 @@
   "nodeCatalogFailed": "The node list could not be refreshed. The last confirmed settings are still shown.",
   "nodeFinishEditing": "Finish or cancel the current settings form before choosing another node or runtime.",
   "nodeOperationUnknown": "This change has not been confirmed. Check the original operation before making another change.",
+  "nodeConnectionSetupUnavailable": "Connection setup could not use this runtime’s private data location. Nothing was started. Check its setup location before trying again.",
   "nodeRemotePreparation": "Program management is not available through this node connection. Check the program on that node and refresh.",
   "nodeScopedPreparation": "Use the program controls below. Complete login on this node when needed.",
   "nodeUnavailable": "This runtime is not currently reachable. Its saved settings have not been changed.",

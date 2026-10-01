@@ -273,6 +273,7 @@
   "nodeCatalogFailed": "无法刷新节点列表，仍显示上次确认的设置。",
   "nodeFinishEditing": "请先完成或取消当前设置，再选择其他节点或运行程序。",
   "nodeOperationUnknown": "尚未确认此更改。请先核对原操作结果，再进行其他更改。",
+  "nodeConnectionSetupUnavailable": "无法使用此运行程序的私有数据位置设置连接，本次未启动任何程序。请先核对其设置位置再重试。",
   "nodeRemotePreparation": "当前节点连接尚不支持管理程序。请在该节点核对程序后刷新。",
   "nodeScopedPreparation": "请使用下方的程序设置。需要登录时，请在此节点完成。",
   "nodeUnavailable": "当前无法连接此运行程序，已保存的设置未更改。",

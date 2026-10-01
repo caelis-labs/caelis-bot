@@ -557,6 +557,161 @@ func TestNodeConnectionsClosedInputsAndVerifiedHelperBeforeStorePreparation(t *t
 	}
 }
 
+func TestNodeConnectionsExistingEmptyStoreRejectsBeforeDispatchAndOriginalCleanupRecoversLostReply(t *testing.T) {
+	s, store := realNodeConnectionFixture(t)
+	if err := os.Mkdir(store, 0700); err != nil {
+		t.Fatal(err)
+	}
+	var ownerCalls, startCalls atomic.Int32
+	// The production local assembly always supplies this trusted hook, even
+	// when there is no warm owner. It must not bypass structural admission.
+	s.options.NodeConnectionOwner = func(context.Context, OwnedRuntimeSettings) (NodeConnectionOwner, error) {
+		ownerCalls.Add(1)
+		return nil, nil
+	}
+	s.beginSetup = func(context.Context, caelis.OwnedHostOptions) (NodeConnectionOwner, error) {
+		startCalls.Add(1)
+		return nil, errors.New("unexpected setup start")
+	}
+	base := Handler(s)
+	var drop atomic.Bool
+	c, detach := framedConnectionHandler(t, s, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == connectionPrefix+"begin" && drop.Swap(false) {
+			recorder := httptest.NewRecorder()
+			base.ServeHTTP(recorder, r)
+			w.WriteHeader(recorder.Code) // lose the terminal rejection only
+			return
+		}
+		base.ServeHTTP(w, r)
+	}))
+	defer detach()
+	view, err := c.Configuration(t.Context(), s.options.NodeID, api.NodeCaelis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"known-empty-store-rejection", "lost-empty-store-rejection"} {
+		drop.Store(strings.HasPrefix(id, "lost-"))
+		ref, err := c.BeginNodeRuntimeConnection(t.Context(), view.Guard, id)
+		var failure *NodeConnectionError
+		if !errors.As(err, &failure) || failure.Unknown != strings.HasPrefix(id, "lost-") || !failure.Unknown && failure.Code != "begin-rejected" {
+			t.Fatal("rejection/lost response classification changed", ref, err)
+		}
+		record, err := s.connectionRecord(ref)
+		if err != nil || !record.Rejected || !record.CleanupConfirmed || record.Outcome != "closed" || record.FlowDispatched {
+			t.Fatal("pre-start rejection wedged the original operation", record, err)
+		}
+		if err := c.CloseNodeRuntimeConnection(t.Context(), ref); err != nil {
+			t.Fatal("original rejection cleanup could not be confirmed", err)
+		}
+		if _, err := c.BeginNodeRuntimeConnection(t.Context(), view.Guard, id); !errors.As(err, &failure) || failure.Unknown || failure.Code != "begin-rejected" {
+			t.Fatal("original rejection replay became unknown or dispatched", err)
+		}
+		restarted, err := New(s.options)
+		if err != nil || restarted.CloseNodeRuntimeConnection(t.Context(), ref) != nil {
+			t.Fatal("restart lost confirmed original rejection", err)
+		}
+	}
+	entries, err := os.ReadDir(store)
+	if err != nil || len(entries) != 0 || ownerCalls.Load() != 0 || startCalls.Load() != 0 || len(s.connections) != 0 {
+		t.Fatal("empty unmarked Store was adopted or native owner dispatched", entries, err, ownerCalls.Load(), startCalls.Load())
+	}
+}
+
+func TestNodeConnectionsFailureBeforeEffectsIsClosedButPreparedStoreStartFailureStaysUnknown(t *testing.T) {
+	for _, phase := range []string{"binding-drift", "prepared-start"} {
+		t.Run(phase, func(t *testing.T) {
+			s, store := realNodeConnectionFixture(t)
+			metadata, err := s.ReadOwnedRuntimeSettings(t.Context(), s.options.NodeID, api.NodeCaelis)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := api.NodeRuntimeConnectionRef{NodeID: s.options.NodeID, Backend: api.NodeCaelis, OperationID: "original-" + phase}
+			if phase == "binding-drift" {
+				s.options.OwnedRuntimeSettings = func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error) {
+					current := metadata
+					if _, err := os.Stat(s.connectionPath(ref)); err == nil {
+						current.Store += "-changed"
+					}
+					return current, nil
+				}
+			}
+			var starts atomic.Int32
+			s.beginSetup = func(context.Context, caelis.OwnedHostOptions) (NodeConnectionOwner, error) {
+				starts.Add(1)
+				return nil, errors.New("SYNTHETIC_NATIVE_START_FAILURE")
+			}
+			view, err := s.Configuration(t.Context(), ref.NodeID, ref.Backend)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := s.BeginNodeRuntimeConnection(t.Context(), view.Guard, ref.OperationID)
+			var failure *NodeConnectionError
+			if got != ref || !errors.As(err, &failure) || failure.Unknown != (phase == "prepared-start") {
+				t.Fatal("native effects failure classification changed", got, err)
+			}
+			record, err := s.connectionRecord(ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if phase == "binding-drift" {
+				if !record.Rejected || !record.CleanupConfirmed || record.Outcome != "closed" || starts.Load() != 0 || s.CloseNodeRuntimeConnection(t.Context(), ref) != nil {
+					t.Fatal("proven pre-effect failure was not terminal", record, starts.Load())
+				}
+				if _, err := os.Lstat(store); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("binding drift prepared Store", err)
+				}
+			} else {
+				if record.Rejected || record.CleanupConfirmed || record.Outcome != "unknown" || starts.Load() != 1 || s.CloseNodeRuntimeConnection(t.Context(), ref) == nil {
+					t.Fatal("dispatched native failure was falsely closed", record, starts.Load())
+				}
+				if eligible, _ := caelis.ProbeOwnedStore(ref.NodeID, store); !eligible {
+					t.Fatal("fixture did not exercise prepared Store before failure")
+				}
+				if _, err := s.BeginNodeRuntimeConnection(t.Context(), view.Guard, ref.OperationID); err == nil {
+					t.Fatal("original native failure replayed")
+				}
+				if _, err := s.BeginNodeRuntimeConnection(t.Context(), view.Guard, "new-after-unknown"); err == nil || starts.Load() != 1 {
+					t.Fatal("new identity bypassed unknown native failure", err)
+				}
+			}
+		})
+	}
+}
+
+func TestNodeConnectionsFailedBeginWithOwnerRequiresItsConfirmedClose(t *testing.T) {
+	s, request, _ := readinessFixture(t)
+	if err := os.WriteFile(request.ExpectedBinary, []byte("#!/bin/sh\nprintf '{\"version\":\"0.65.0\"}'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	owner := &syntheticNodeConnectionOwner{settings: api.RuntimeSettings{Runtime: "caelis", CLIPath: request.ExpectedBinary, CaelisStore: request.ExpectedStore}, done: make(chan struct{})}
+	var starts atomic.Int32
+	s.beginSetup = func(context.Context, caelis.OwnedHostOptions) (NodeConnectionOwner, error) {
+		starts.Add(1)
+		return owner, errors.New("SYNTHETIC_NATIVE_START_FAILURE")
+	}
+	view, err := s.Configuration(t.Context(), request.NodeID, request.Backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := s.BeginNodeRuntimeConnection(t.Context(), view.Guard, "failed-begin-retained-owner")
+	var failure *NodeConnectionError
+	if !errors.As(err, &failure) || !failure.Unknown {
+		t.Fatal("dispatched owner failure was prematurely rejected", err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.CloseNodeRuntimeConnection(ctx, ref); err != nil {
+		t.Fatal("retained original owner did not confirm cleanup", err)
+	}
+	record, err := s.connectionRecord(ref)
+	if err != nil || record.Rejected || !record.CleanupConfirmed || record.Outcome != "closed" || starts.Load() != 1 {
+		t.Fatal("owner cleanup became a no-dispatch rejection", record, err, starts.Load())
+	}
+	if _, err := s.BeginNodeRuntimeConnection(t.Context(), view.Guard, ref.OperationID); err == nil || starts.Load() != 1 {
+		t.Fatal("failed original setup restarted", err)
+	}
+}
+
 func TestNodeConnectionsInvalidExecutableCannotPrepareStoreOrWriteIntent(t *testing.T) {
 	s := agentFixture(t)
 	s.options.Binaries[api.NodeCaelis] = "/usr/bin/false"
