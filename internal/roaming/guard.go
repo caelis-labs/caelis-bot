@@ -35,6 +35,7 @@ type Guard struct {
 	mu           sync.Mutex
 	runtime      OwnedRuntime
 	node         string
+	brokerNode   string
 	backend      api.NodeBackend
 	eligible     bool
 	lease        nodeplane.Lease
@@ -254,10 +255,57 @@ func (g *Guard) CheckWorkTarget(ctx context.Context, target api.WorkTarget) erro
 	if err := g.CheckContext(ctx); err != nil {
 		return err
 	}
-	if target.NodeID != api.LocalNodeID || target.Backend != string(g.backend) {
+	if target.Role != api.RoleWorker || target.Backend != string(g.backend) {
 		return errors.New("selected Worker does not participate in the managed native lease fence")
 	}
+	if target.NodeID != api.LocalNodeID {
+		g.mu.Lock()
+		broker := g.brokerNode
+		g.mu.Unlock()
+		if broker == "" {
+			return errors.New("managed remote Worker requires a pinned broker identity")
+		}
+	}
 	return nil
+}
+
+func (g *Guard) ConfigureBroker(nodeID string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.active || g.stopped || (g.brokerNode != "" && g.brokerNode != nodeID) {
+		return errors.New("broker identity cannot change in a native generation")
+	}
+	g.brokerNode = nodeID
+	return nil
+}
+
+// AnnotateWorkSource retains the native binding/operation and adds authority
+// only from this generation's live host grant, after queued admission checks.
+func (g *Guard) AnnotateWorkSource(ctx context.Context, source api.WorkDispatchSource) (api.WorkDispatchSource, error) {
+	if err := g.CheckContext(ctx); err != nil {
+		return api.WorkDispatchSource{}, err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.active || !g.live(g.now()) || g.brokerNode == "" || source.Backend != string(g.backend) || source.Lease != (api.WorkerLeaseGrant{}) {
+		return api.WorkDispatchSource{}, ErrFenced
+	}
+	source.NodeID = g.node
+	source.Lease = api.WorkerLeaseGrant{BotID: g.lease.BotID, BrokerNodeID: g.brokerNode, SourceNodeID: g.node, Backend: string(g.backend), Epoch: g.lease.Epoch}
+	return source, source.Validate()
+}
+func (g *Guard) CheckWorkRuntime(ctx context.Context, target api.WorkTarget, work api.WorkRuntime) error {
+	if err := g.CheckWorkTarget(ctx, target); err != nil {
+		return err
+	}
+	if target.NodeID == api.LocalNodeID {
+		return nil
+	}
+	aware, ok := work.(api.LeaseAwareWorkRuntime)
+	if !ok || !aware.LeaseAwareAdmission() {
+		return errors.New("selected Worker has no verified native lease-aware admission")
+	}
+	return g.CheckContext(ctx)
 }
 
 // A wall/monotonic discontinuity fails closed as an additional boundary check.

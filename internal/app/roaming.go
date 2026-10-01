@@ -24,7 +24,20 @@ import (
 // execution or restore old native threads, task ledgers, wakes or receipts.
 // Callers install the broker grant on Guard before Application.Start/Connect.
 // Default New remains the original local assembly with no broker dependency.
-func NewManagedNode(root string, host Host, nodeID string) (*Application, *roaming.Guard, error) {
+type ManagedNodeOptions struct {
+	// BrokerNodeID is the paired broker's inspected identity, supplied by native
+	// composition. It is never a tool or renderer parameter.
+	BrokerNodeID string
+}
+
+func NewManagedNode(root string, host Host, nodeID string, options ...ManagedNodeOptions) (*Application, *roaming.Guard, error) {
+	if len(options) > 1 {
+		return nil, nil, errors.New("managed node accepts one native configuration")
+	}
+	var configured ManagedNodeOptions
+	if len(options) == 1 {
+		configured = options[0]
+	}
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		return nil, nil, errors.New("this platform cannot confirm owned runtime shutdown")
 	}
@@ -73,6 +86,10 @@ func NewManagedNode(root string, host Host, nodeID string) (*Application, *roami
 	}
 	owner := &managedNodeOwner{app: a, nodeID: nodeID, generation: rand.Text(), snapshot: snapshot}
 	guard := roaming.NewGuard(nodeID, api.NodeCodex, owner, true)
+	if err := guard.ConfigureBroker(configured.BrokerNodeID); err != nil {
+		_ = a.Close()
+		return nil, nil, err
+	}
 	owner.guard = guard
 	owner.nativeFenced = make(chan struct{})
 	owner.nativeFenceDone = make(chan struct{})
@@ -80,6 +97,7 @@ func NewManagedNode(root string, host Host, nodeID string) (*Application, *roami
 	a.executionAdmission = guard
 	a.Backend.ConfigureExecutionAdmission(guard)
 	a.engine.(*codex.Session).ConfigureExecutionAdmission(guard)
+	a.engine.(*codex.Session).ConfigureDispatchSource(guard.AnnotateWorkSource)
 	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
 		if host.BindLeasePower == nil {
 			_ = a.Close()
@@ -225,12 +243,12 @@ func (a *Application) ReadRuntimeProof(ctx context.Context, target api.WorkTarge
 
 // ManagedNodeFactory bridges the runtime orchestrator to the real application
 // assembly. The caller owns the paired agent and supplies its native host.
-func ManagedNodeFactory(host Host) roaming.RuntimeFactory {
+func ManagedNodeFactory(host Host, options ...ManagedNodeOptions) roaming.RuntimeFactory {
 	return func(ctx context.Context, profile string, target api.WorkTarget) (roaming.ManagedRuntime, *roaming.Guard, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		return NewManagedNode(profile, host, target.NodeID)
+		return NewManagedNode(profile, host, target.NodeID, options...)
 	}
 }
 func (a *Application) PauseNotebook(ctx context.Context) (func(), error) {

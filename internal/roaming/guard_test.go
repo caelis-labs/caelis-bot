@@ -34,6 +34,56 @@ func installed(t *testing.T) (*Guard, *ownerFixture, time.Time) {
 	return g, o, start
 }
 
+type leaseWorkerFixture struct {
+	api.WorkRuntime
+	aware bool
+}
+
+func (w leaseWorkerFixture) LeaseAwareAdmission() bool { return w.aware }
+func TestManagedWorkerGrantPreservesNativeSourceAndRequiresTargetCapability(t *testing.T) {
+	g := NewGuard("owned-node", api.NodeCodex, &ownerFixture{}, true)
+	if err := g.ConfigureBroker("paired-broker"); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	if err := g.Install(grant(), started); err != nil {
+		t.Fatal(err)
+	}
+	defer g.Revoke()
+	ctx, release, err := g.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	source := api.WorkDispatchSource{NodeID: api.LocalNodeID, Backend: "codex", BindingID: "opaque-binding", OperationID: "opaque-native-turn", Kind: "native_activation"}
+	verified, err := g.AnnotateWorkSource(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.NodeID != "owned-node" || verified.BindingID != source.BindingID || verified.OperationID != source.OperationID || verified.Lease != (api.WorkerLeaseGrant{BotID: "stable-bot", BrokerNodeID: "paired-broker", SourceNodeID: "owned-node", Backend: "codex", Epoch: grant().Epoch}) {
+		t.Fatal("native source or broker identity changed", verified)
+	}
+	if _, err = g.AnnotateWorkSource(t.Context(), source); err == nil {
+		t.Fatal("source callback admitted without operation ticket")
+	}
+	remote := api.WorkTarget{NodeID: "worker-node", Backend: "codex", Role: api.RoleWorker}
+	if err = g.CheckWorkRuntime(ctx, remote, leaseWorkerFixture{aware: false}); err == nil {
+		t.Fatal("unverified target admitted")
+	}
+	if err = g.CheckWorkRuntime(ctx, remote, leaseWorkerFixture{aware: true}); err != nil {
+		t.Fatal(err)
+	}
+	g.mu.Lock()
+	g.now = func() time.Time { return started.Add(46 * time.Second) }
+	g.mu.Unlock()
+	if _, err = g.AnnotateWorkSource(ctx, source); !errors.Is(err, ErrFenced) {
+		t.Fatal("expired source retained grant", err)
+	}
+	if err = g.CheckWorkRuntime(ctx, remote, leaseWorkerFixture{aware: true}); err == nil {
+		t.Fatal("target capability extended expired source authority")
+	}
+}
+
 func TestRequestStartDeadlineRejectsDelayedResponseAndWallTimestamp(t *testing.T) {
 	o := &ownerFixture{}
 	g := NewGuard("owned-node", api.NodeCodex, o, true)
