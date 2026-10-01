@@ -203,11 +203,11 @@ func (c *CaelisConfiguration) Change(ctx context.Context, r nodeplane.Management
 	return caelis.ChangeRuntimeConfigurationOperation(ctx, c.Settings, *r.Change, r.Ref.OperationID)
 }
 func (c *CaelisConfiguration) Health(ctx context.Context) (NativeHealth, error) {
-	state, err := caelis.InspectSetup(ctx, c.Settings)
+	state, err := caelis.InspectNodeRuntimeHealth(ctx, c.Settings)
 	if err != nil {
 		return NativeHealth{}, err
 	}
-	return NativeHealth{HealthKnown: state.ServiceState != "unknown", Healthy: state.ServiceState == "running", AuthenticationKnown: state.State == "ready" || state.State == "models", Authenticated: state.State == "ready", SharedHost: true}, nil
+	return NativeHealth{HealthKnown: state.HealthKnown, Healthy: state.Healthy, AuthenticationKnown: state.AuthenticationKnown, Authenticated: state.Authenticated, SharedHost: true}, nil
 }
 
 func (c *CodexConfiguration) ExecutionScopes(ctx context.Context) (api.WorkExecutionSettings, api.WorkExecutionSettings, error) {

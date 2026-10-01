@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
@@ -713,6 +714,18 @@ func nodeLocalHealth(ctx context.Context, a *Application, b api.NodeBackend) (no
 	settings, err := a.Backend.SetupProfile(string(b))
 	if err != nil {
 		return nodeagent.NativeHealth{}, err
+	}
+	if b == api.NodeCaelis {
+		state, err := caelis.InspectNodeRuntimeHealth(ctx, settings)
+		if err != nil {
+			return nodeagent.NativeHealth{}, err
+		}
+		workerEligible := false
+		if state.AuthenticationKnown && state.Authenticated && state.HealthKnown && state.Healthy && a.nodeRegistry != nil {
+			_, err := a.nodeRegistry.WorkRuntimeFor(api.WorkTarget{NodeID: api.LocalNodeID, Backend: string(b), Role: api.RoleWorker})
+			workerEligible = err == nil
+		}
+		return nodeagent.NativeHealth{AuthenticationKnown: state.AuthenticationKnown, Authenticated: state.Authenticated, HealthKnown: state.HealthKnown, Healthy: state.Healthy, WorkerEligible: workerEligible, SharedHost: true}, nil
 	}
 	state, err := a.Backend.InspectSetup(ctx, settings)
 	if err != nil {
