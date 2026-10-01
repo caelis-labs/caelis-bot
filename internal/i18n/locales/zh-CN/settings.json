@@ -296,5 +296,14 @@
   "nodeReviewedVersionHelp": "选择要在此节点安装的已审核版本。",
   "nodeCoordinatorHelp": "选择一个保持在线的节点。自动切换还需要连接可达且运行程序符合条件。",
   "nodeCoordinatorNone": "直接使用本机",
-  "nodeCoordinatorFailed": "尚未确认常开节点更改，请刷新核对已保存的设置。"
+  "nodeCoordinatorFailed": "尚未确认常开节点更改，请刷新核对已保存的设置。",
+  "nodePairedProductScope": "管理与本应用已配对的 Bot 的连接和模型。",
+  "nodeOwnerUnavailableReason": "此节点的运行程序尚未准备好承担此角色。",
+  "nodeSharedRuntimeReason": "使用此共享运行程序时，Bot 尚不能安全切换运行节点。",
+  "nodeWindowsWorkerOnlyReason": "此运行程序在 Windows 上可运行 Worker，暂不支持托管 Bot。",
+  "nodeRoleUnavailableReason": "此运行程序暂不支持此角色。",
+  "nodeDetectedProgram": "检测到的程序",
+  "nodeManagedProgram": "受管理的程序",
+  "nodeInstallManagedCopy": "安装受管理的副本",
+  "nodeManagedCopyHelp": "为此节点安装独立的受管理副本，检测到的程序仍可使用。"
 }
