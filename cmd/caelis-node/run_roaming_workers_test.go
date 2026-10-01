@@ -90,3 +90,52 @@ func TestRoamingWorkerLookupRejectsChangedSourceBeforeDial(t *testing.T) {
 		t.Fatal("cancelled lookup opened new agent")
 	}
 }
+
+func TestRoamingWorkerPlanSeparatesSourcesAndBothTargetBindings(t *testing.T) {
+	p := roamingWorkerPlan{Version: 1, Sources: []roamingWorkerSource{{NodeID: "same-node", Backends: []string{"codex", "caelis"}}}, Runtimes: []roamingWorkerRuntime{{Backend: "codex", Binary: "/native/codex", Model: "fixture-model", Execution: &api.WorkExecutionSettings{Model: "fixture-model", Effort: "medium"}}, {Backend: "caelis", Binary: "/native/caelis", Store: "/native/caelis-store", Model: "fixture-model"}}}
+	filename := filepath.Join(t.TempDir(), "workers.json")
+	check := func(valid bool) {
+		t.Helper()
+		b, _ := json.Marshal(p)
+		if err := os.WriteFile(filename, b, 0600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := loadRoamingWorkerPlan(filename)
+		if (err == nil) != valid {
+			t.Fatalf("binding validation valid=%t err=%v plan=%+v", valid, err, p)
+		}
+	}
+	check(true)
+	p.Sources[0].Backends = []string{"codex", "unknown"}
+	check(false)
+	p.Sources[0].Backends = []string{"codex", "codex"}
+	check(false)
+	p.Sources[0].Backends = []string{"codex", "caelis"}
+	p.Runtimes[1].Backend = "codex"
+	check(false)
+	p.Runtimes[1].Backend = "caelis"
+	p.Runtimes[1].Store = "relative-store"
+	check(false)
+	p.Runtimes[1].Store = "/native/caelis-store"
+	p.Runtimes[0].Binary = "relative-binary"
+	check(false)
+}
+
+type roamingOptionalWorkerFixture struct{ *startupFixture }
+
+func (s roamingOptionalWorkerFixture) SaveWorkerNode(config backend.WorkerNodeConfig, revision uint64) (backend.WorkerNodeSetup, error) {
+	return s.snapshot, nil
+}
+func TestRoamingUnavailableOptionalWorkerPreservesPrimaryStartup(t *testing.T) {
+	s := startupFixtureFor()
+	s.prepared = true
+	s.failAt = 1
+	s.failure = errors.New("target owned Host unavailable")
+	configs := []backend.WorkerNodeConfig{s.snapshot.Nodes[0].Config, s.snapshot.Nodes[1].Config}
+	if err := connectRoamingWorkers(t.Context(), roamingOptionalWorkerFixture{s}, configs); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.calls) != 2 || !s.snapshot.Nodes[1].Connected || s.snapshot.Nodes[0].Connected {
+		t.Fatalf("optional handshake prevented healthy route %+v", s)
+	}
+}

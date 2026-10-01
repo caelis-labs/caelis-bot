@@ -157,3 +157,17 @@ Resident drivers classify connected inactivity explicitly. Transport failures,
 authority faults and source annotation errors remain visible and cannot grant an
 idle paired-control fallback. Codex persists the exact attempted cancellation
 thread/turn before native control; an uncertain receipt fences later-turn replay.
+
+The private managed Worker manifest freezes approved source node/backend sets
+separately from the target's Codex/Caelis binary, store and execution bindings.
+An approved same-node alternate backend uses an independently owned Worker;
+the main backend continues through its existing source engine. A target binding
+still needs its live native ownership/authentication handshake. An unavailable
+optional Worker stays unavailable without stopping a healthy primary Bot.
+
+When the same source returns with a broker-confirmed new lease epoch, the target
+first verifies the previous exact owned process stop, then creates a fresh opaque
+Worker directory, socket and receipt namespace. A persistent private generation
+ledger retains original task/request IDs; those IDs cannot dispatch through the
+new owner. Unconfirmed stop or missing original generation evidence blocks
+replacement. Original task outcomes and old native receipts remain unchanged.

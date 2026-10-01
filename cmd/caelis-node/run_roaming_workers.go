@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -20,10 +21,31 @@ import (
 // The native deployment writes this private manifest from approved enrolled
 // pairs. Only Nodes reach product settings; agent sockets remain host-only.
 type roamingWorkerPlan struct {
-	Version int                        `json:"version"`
-	Nodes   []backend.WorkerNodeConfig `json:"nodes"`
-	Agents  []roamingWorkerAgent       `json:"agents"`
+	Version  int                        `json:"version"`
+	Nodes    []backend.WorkerNodeConfig `json:"nodes"`
+	Agents   []roamingWorkerAgent       `json:"agents"`
+	Sources  []roamingWorkerSource      `json:"sources,omitempty"`
+	Runtimes []roamingWorkerRuntime     `json:"runtimes,omitempty"`
 }
+
+// Sources identify approved primary owners independently of Worker backends.
+// Runtimes are the target node's private installed bindings, never renderer data.
+type roamingWorkerSource struct {
+	NodeID   string   `json:"nodeId"`
+	Backends []string `json:"backends"`
+}
+type roamingWorkerRuntime struct {
+	Backend   string                     `json:"backend"`
+	Binary    string                     `json:"binary"`
+	Store     string                     `json:"store,omitempty"`
+	Model     string                     `json:"model,omitempty"`
+	Execution *api.WorkExecutionSettings `json:"execution,omitempty"`
+}
+
+var roamingSourceID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
+
+func validRoamingBackend(backend string) bool { return backend == "codex" || backend == "caelis" }
+
 type roamingWorkerAgent struct {
 	NodeID  string `json:"nodeId"`
 	Backend string `json:"backend"`
@@ -44,7 +66,7 @@ func loadRoamingWorkerPlan(filename string) (roamingWorkerPlan, error) {
 	}
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
-	if d.Decode(&document) != nil || d.Decode(&struct{}{}) != io.EOF || document.Version != 1 || len(document.Nodes) > 16 || len(document.Agents) != len(document.Nodes) {
+	if d.Decode(&document) != nil || d.Decode(&struct{}{}) != io.EOF || document.Version != 1 || len(document.Nodes) > 16 || len(document.Agents) != len(document.Nodes) || len(document.Sources) > 16 || len(document.Runtimes) > 2 {
 		return document, errors.New("invalid private enrolled Worker plan")
 	}
 	seen := map[api.WorkTarget]bool{}
@@ -64,6 +86,35 @@ func loadRoamingWorkerPlan(filename string) (roamingWorkerPlan, error) {
 	}
 	if len(seen) != 0 {
 		return document, errors.New("private Worker route missing")
+	}
+	sources := map[string]bool{}
+	for _, source := range document.Sources {
+		if !roamingSourceID.MatchString(source.NodeID) || sources[source.NodeID] || len(source.Backends) == 0 || len(source.Backends) > 2 {
+			return document, errors.New("invalid approved primary source set")
+		}
+		sources[source.NodeID] = true
+		seen := map[string]bool{}
+		for _, backend := range source.Backends {
+			if !validRoamingBackend(backend) || seen[backend] {
+				return document, errors.New("invalid approved primary backend set")
+			}
+			seen[backend] = true
+		}
+	}
+	runtimes := map[string]bool{}
+	for _, native := range document.Runtimes {
+		if !validRoamingBackend(native.Backend) || runtimes[native.Backend] || !filepath.IsAbs(native.Binary) || filepath.Clean(native.Binary) != native.Binary || strings.ContainsAny(native.Binary, "\x00\r\n") {
+			return document, errors.New("invalid private target Runtime binding")
+		}
+		runtimes[native.Backend] = true
+		if native.Backend == "codex" && native.Store != "" || native.Backend == "caelis" && (!filepath.IsAbs(native.Store) || filepath.Clean(native.Store) != native.Store || strings.ContainsAny(native.Store, "\x00\r\n")) || len(native.Model) > 256 || strings.ContainsAny(native.Model, "\x00\r\n") {
+			return document, errors.New("private target Runtime scope changed")
+		}
+		if native.Execution != nil {
+			if err := api.ValidateExecutionSettings(native.Execution.Execution()); err != nil {
+				return document, err
+			}
+		}
 	}
 	return document, nil
 }
@@ -123,7 +174,13 @@ func (r *roamingWorkerAgents) Close() {
 		delete(r.clients, target)
 	}
 }
-func connectRoamingWorkers(ctx context.Context, service *backend.Service, configs []backend.WorkerNodeConfig) error {
+
+type roamingWorkerService interface {
+	startupWorkers
+	SaveWorkerNode(backend.WorkerNodeConfig, uint64) (backend.WorkerNodeSetup, error)
+}
+
+func connectRoamingWorkers(ctx context.Context, service roamingWorkerService, configs []backend.WorkerNodeConfig) error {
 	selected := make([]api.WorkTarget, 0, len(configs))
 	for _, config := range configs {
 		if _, err := service.SaveWorkerNode(config, service.WorkerNodes().Revision); err != nil {
@@ -131,5 +188,13 @@ func connectRoamingWorkers(ctx context.Context, service *backend.Service, config
 		}
 		selected = append(selected, startupTarget(config))
 	}
-	return connectStartupWorkers(ctx, service, selected)
+	// Approved bindings still need a live owned/authenticated handshake. A
+	// unavailable optional Worker records its native controller issue without
+	// taking the primary Bot's otherwise valid generation offline.
+	for _, target := range selected {
+		if err := connectStartupWorkers(ctx, service, []api.WorkTarget{target}); err != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	return ctx.Err()
 }
