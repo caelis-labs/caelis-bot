@@ -6,9 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -89,11 +92,60 @@ func TestOwnedReadinessFaultStopsItsTreeAndKeepsOtherOwnerLive(t *testing.T) {
 
 func TestOwnedReadinessCancelledMetadataStillStopsExactForeground(t *testing.T) {
 	opts := ownedReadinessFixture(t, "metadata-cancel")
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	entered := make(chan struct{})
+	var once sync.Once
+	barrier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.URL.Path != "/metadata-entered" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		once.Do(func() { close(entered) })
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer barrier.Close()
+	if err := os.WriteFile(filepath.Join(opts.Store, "fixture-metadata-entered-url"), []byte(barrier.URL+"/metadata-entered"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	out, err := ProbeOwnedReadiness(ctx, opts, "")
-	if err == nil || !errors.Is(err, context.DeadlineExceeded) || out.Ready {
-		t.Fatal("metadata cancellation lost native uncertainty", out, err)
+	type result struct {
+		out OwnedReadiness
+		err error
+	}
+	results := make(chan result, 1)
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		out, err := ProbeOwnedReadiness(ctx, opts, "")
+		results <- result{out, err}
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-finished:
+		case <-time.After(5 * time.Second):
+			t.Error("cancelled readiness did not finish exact native cleanup")
+		}
+	})
+	// This budget is a failure guard, not the trigger for cancellation. Native
+	// metadata must actually enter before the test revokes its original context.
+	budget := time.NewTimer(30 * time.Second)
+	defer budget.Stop()
+	select {
+	case <-entered:
+	case early := <-results:
+		t.Fatal("probe returned before native metadata barrier", early.out, early.err)
+	case <-budget.C:
+		t.Fatal("native metadata barrier was not reached")
+	}
+	cancel()
+	select {
+	case got := <-results:
+		if !errors.Is(got.err, context.Canceled) || got.out.Ready {
+			t.Fatal("metadata cancellation lost native uncertainty", got.out, got.err)
+		}
+	case <-budget.C:
+		t.Fatal("metadata cancellation did not return a native result")
 	}
 	assertReadinessStopped(t, opts)
 }
