@@ -18,6 +18,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodebroker"
@@ -219,7 +220,7 @@ func runRoaming(ctx context.Context, args []string, out io.Writer) error {
 	return runRoamingCommand(ctx, c, out, bindRoamingPower)
 }
 
-func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, power func(context.Context, func(), func()) (func(), error)) error {
+func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, power func(context.Context, func(), func()) (func(), error)) (returnErr error) {
 	var err error
 	helper, err := verifiedRoamingExecutable()
 	if err != nil {
@@ -260,6 +261,12 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 			return e
 		}
 	}
+	if c.Backend == "codex" {
+		c.CodexBinary, err = codex.ResolveInstalledExecutable(c.CodexBinary)
+		if err != nil {
+			return err
+		}
+	}
 	ownerLock := ".agent-owner.lock"
 	agentSocketName := "agent.sock"
 	if c.ManagedAgent {
@@ -289,6 +296,9 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	defer cancel()
 	workerAgents := newRoamingWorkerAgents(life, c, workerPlan)
 	defer workerAgents.Close()
+	ownedWorkers := newRoamingOwnedWorkers(life, c, workerPlan, helper, broker, power)
+	defer func() { returnErr = errors.Join(returnErr, ownedWorkers.Close()) }()
+	workerProxy := nodeagent.NewNativeWorkerProxy(life, ownedWorkers.resolve)
 	target := api.WorkTarget{NodeID: c.NodeID, Backend: c.Backend, Role: api.RoleBot}
 	defaults := &nodeagent.CodexConfiguration{Directory: c.AgentDirectory, Binary: c.CodexBinary}
 	var configuration nodeagent.NativeConfiguration = defaults
@@ -314,7 +324,7 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	if c.CaelisBinary != "" {
 		binaries[api.NodeCaelis] = c.CaelisBinary
 	}
-	service, err := nodeagent.New(nodeagent.Options{Directory: c.AgentDirectory, NodeID: c.NodeID, Label: "Managed Bot node", Join: api.NodeSSH, Binaries: binaries, Configurations: map[api.NodeBackend]nodeagent.NativeConfiguration{api.NodeBackend(c.Backend): config}, RuntimeOwner: holder, ManagedProduct: control, Health: holder.Health})
+	service, err := nodeagent.New(nodeagent.Options{Directory: c.AgentDirectory, NodeID: c.NodeID, Label: "Managed Bot node", Join: api.NodeSSH, Binaries: binaries, Configurations: map[api.NodeBackend]nodeagent.NativeConfiguration{api.NodeBackend(c.Backend): config}, RuntimeOwner: holder, ManagedProduct: control, WorkerProxy: workerProxy, Health: holder.Health})
 	if err != nil {
 		return err
 	}
@@ -360,6 +370,9 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	}
 	factory := app.ManagedNodeFactory(host, options)
 	runner, err := roaming.NewRunner(roaming.RunnerOptions{BotID: c.BotID, Target: target, GenerationRoot: c.GenerationRoot, Broker: broker, RegisterOwner: holder.register, Factory: func(ctx context.Context, profile string, target api.WorkTarget) (roaming.ManagedRuntime, *roaming.Guard, error) {
+		if ownedWorkers.CaelisStoreInUse() {
+			return nil, nil, nodecoord.ErrConflict
+		}
 		if c.Backend == "codex" {
 			if err := writeRoamingNativeSettings(profile, c.AgentDirectory, c.CodexBinary); err != nil {
 				return nil, nil, err
