@@ -76,6 +76,7 @@ func (i *ownedSettingsInstaller) BinaryPath(string) (string, error) { i.reads++;
 
 func TestOwnedRuntimeSettingsInstalledExecutableAndMissingAreHonest(t *testing.T) {
 	s := agentFixture(t)
+	t.Setenv("PATH", t.TempDir())
 	installed := ownedSettingsBinary(t, s.options.Directory, "installed-caelis")
 	explicit := ownedSettingsBinary(t, s.options.Directory, "explicit-caelis")
 	s.options.Binaries[api.NodeCaelis] = explicit
@@ -102,6 +103,56 @@ func TestOwnedRuntimeSettingsInstalledExecutableAndMissingAreHonest(t *testing.T
 	s.options.Binaries[api.NodeCaelis] = explicit
 	if _, err := s.ReadOwnedRuntimeSettings(t.Context(), s.options.NodeID, api.NodeCaelis); err == nil {
 		t.Fatal("non-executable file became a runtime")
+	}
+}
+
+func TestOwnedRuntimeSettingsUsesNativeConfiguredAndStandardInstalledCLIs(t *testing.T) {
+	for _, backend := range []api.NodeBackend{api.NodeCodex, api.NodeCaelis} {
+		t.Run(string(backend), func(t *testing.T) {
+			s := agentFixture(t)
+			s.options.Binaries = nil
+			searchDirectory := t.TempDir()
+			standard := ownedSettingsBinary(t, searchDirectory, string(backend))
+			t.Setenv("PATH", searchDirectory)
+			configured := ownedSettingsBinary(t, s.options.Directory, "configured-"+string(backend))
+			if backend == api.NodeCodex {
+				s.options.Configurations = map[api.NodeBackend]NativeConfiguration{backend: &CodexConfiguration{Binary: configured}}
+			} else {
+				s.options.Configurations = map[api.NodeBackend]NativeConfiguration{backend: &CaelisConfiguration{Settings: api.RuntimeSettings{Runtime: "caelis", CLIPath: configured}}}
+			}
+			value, err := s.ReadOwnedRuntimeSettings(t.Context(), s.options.NodeID, backend)
+			if err != nil || value.Binary != configured {
+				t.Fatal("native configured binary was ignored", value, err)
+			}
+			s.options.Configurations = nil
+			for _, managed := range []installer{nil, &ownedSettingsInstaller{err: errors.New("not installed")}} {
+				s.installation = managed
+				value, err = s.ReadOwnedRuntimeSettings(t.Context(), s.options.NodeID, backend)
+				if err != nil || value.Binary != standard {
+					t.Fatal("standard native CLI discovery was not preserved", value, err)
+				}
+				if backend == api.NodeCodex && value.Store != "" || backend == api.NodeCaelis && value.Store != filepath.Join(s.options.Directory, "caelis-store") {
+					t.Fatal("CLI discovery changed designated Store scope", value)
+				}
+				if value.Store != "" {
+					if _, err := os.Stat(value.Store); !errors.Is(err, os.ErrNotExist) {
+						t.Fatal("discovery initialized Store", err)
+					}
+				}
+			}
+			// A configured target or authoritative provider must never silently
+			// switch to a different installed CLI when it fails.
+			s.options.Binaries = map[api.NodeBackend]string{backend: filepath.Join(s.options.Directory, "missing-selected-cli")}
+			if value, err := s.ReadOwnedRuntimeSettings(t.Context(), s.options.NodeID, backend); err == nil || value != (OwnedRuntimeSettings{}) {
+				t.Fatal("selected missing CLI fell back to PATH", value, err)
+			}
+			s.options.OwnedRuntimeSettings = func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error) {
+				return OwnedRuntimeSettings{Backend: backend, Binary: standard, Store: filepath.Join(s.options.Directory, "store")}, errors.New("arbitrary native provider failure")
+			}
+			if value, err := s.ReadOwnedRuntimeSettings(t.Context(), s.options.NodeID, backend); err == nil || value != (OwnedRuntimeSettings{}) {
+				t.Fatal("authoritative provider error fell back", value, err)
+			}
+		})
 	}
 }
 
