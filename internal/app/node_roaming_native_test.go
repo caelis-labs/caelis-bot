@@ -18,9 +18,11 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/memorytransfer"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodebroker"
 	"github.com/caelis-labs/caelis-bot/internal/nodecoord"
+	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 )
 
 func TestNativeRoamingPlanBindsApprovalAndChangesWithoutEffects(t *testing.T) {
@@ -300,5 +302,260 @@ func TestDefaultNativeRoamingConstructionNeedsNoHelper(t *testing.T) {
 	options := DefaultNodeRoamingOptions(nil, NodeRoamingNativeOptions{Host: func() (string, error) { called = true; return "", errors.New("absent") }})
 	if called || options.PreparePlan == nil || options.Preflight == nil || options.Stage == nil || options.Recover == nil {
 		t.Fatal("default assembly started native prerequisite")
+	}
+}
+
+func TestDefaultNativeRecoverPreparingCrashRejectsOnlyBeforeRetirement(t *testing.T) {
+	a := nativeManagementApplication(t)
+	called := false
+	options := DefaultNodeRoamingOptions(a, NodeRoamingNativeOptions{Host: func() (string, error) { called = true; return "", errors.New("not required for receipt recovery") }})
+	original := NodeRoamingRecoveryInput{OperationID: "original-enable", StageOperationID: "original-enable", OperationKind: "enable", Phase: "preparing", SourceRetiredIntent: false}
+	result, e := options.Recover(t.Context(), original)
+	if e != nil || result.OperationID != original.OperationID || result.Outcome != "rejected" || result.Phase != "source-active" || called {
+		t.Fatal("pre-retirement crash did not confirm original rejection", result, e)
+	}
+	for _, input := range []NodeRoamingRecoveryInput{
+		{OperationID: original.OperationID, StageOperationID: original.StageOperationID, OperationKind: "enable", Phase: "retiring-source", SourceRetiredIntent: true},
+		{OperationID: original.OperationID, StageOperationID: original.StageOperationID, OperationKind: "enable", Phase: "staging", SourceRetiredIntent: true},
+		{OperationID: "replacement-enable", StageOperationID: original.StageOperationID, OperationKind: "enable", Phase: "preparing"},
+	} {
+		result, e = options.Recover(t.Context(), input)
+		if e == nil || result.Outcome != "unknown" {
+			t.Fatal("unconfirmed retirement or replacement ID was rolled back", result, e)
+		}
+	}
+	dir := filepath.Join(a.root, "nodeplane")
+	if e = os.Mkdir(dir, 0700); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(filepath.Join(dir, "roaming-deployment.json"), []byte("corrupt-record"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	result, e = options.Recover(t.Context(), original)
+	if e == nil || result.Outcome != "unknown" {
+		t.Fatal("corrupt manifest was treated as absent", result, e)
+	}
+	if called {
+		t.Fatal("receipt recovery started native helper")
+	}
+}
+
+func TestDefaultNativeRuntimeMetadataReusesExactRetainedPair(t *testing.T) {
+	a := nativeManagementApplication(t)
+	dir := t.TempDir()
+	if e := os.Chmod(dir, 0700); e != nil {
+		t.Fatal(e)
+	}
+	binary := filepath.Join(dir, "target-runtime")
+	if e := os.WriteFile(binary, []byte("metadata fixture executable"), 0700); e != nil {
+		t.Fatal(e)
+	}
+	store := filepath.Join(dir, "caelis-store")
+	service, e := nodeagent.New(nodeagent.Options{Directory: dir, NodeID: "node-target", Binaries: map[api.NodeBackend]string{api.NodeCaelis: binary}, Configurations: map[api.NodeBackend]nodeagent.NativeConfiguration{api.NodeCaelis: &nodeagent.CaelisConfiguration{Settings: api.RuntimeSettings{Runtime: "caelis", CLIPath: binary, CaelisStore: store}}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	reg := NodeRegistration{ID: "node-target", Label: "Target", Join: api.NodeSSH, SSHDestination: "existing-target", Directory: dir, HelperPath: "/fixed/helper"}
+	native := &nativeNodeManagement{app: a, document: nodeManagementDocument{Version: 1, Nodes: []NodeRegistration{reg}}, clients: map[string]nodeplane.CatalogAgent{reg.ID: service}}
+	a.Backend.SetNodeManagementController(NewNodeManagement(native, native))
+	assembly := &roamingNativeAssembly{app: a}
+	settings, e := assembly.runtimeSettings(t.Context(), reg, api.NodeCaelis)
+	if e != nil || settings.Runtime != "caelis" || settings.CLIPath != binary || settings.CaelisStore != store {
+		t.Fatal("retained target metadata mismatch", settings, e)
+	}
+	if _, e = os.Lstat(store); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("metadata query created target Host configuration", e)
+	}
+	reg.ID = "replacement-node"
+	if _, e = assembly.runtimeSettings(t.Context(), reg, api.NodeCaelis); e == nil {
+		t.Fatal("unregistered replacement target accepted")
+	}
+}
+
+func TestDefaultNativeCatalogueAfterDisableKeepsTopologyAndNextPlan(t *testing.T) {
+	f := roamingControlFixture(t)
+	doc := nodeManagementDocument{Version: 1, Revision: 1, Coordinator: api.LocalNodeID, Nodes: []NodeRegistration{}}
+	if e := localstate.Write(filepath.Join(f.a.root, "nodeplane", "config.json"), doc); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := f.a.Backend.DisableNodeRoaming(t.Context(), controlRequest("disable-original")); e != nil {
+		t.Fatal(e)
+	}
+	fresh := f.c.local
+	if fresh == nil || fresh == f.a {
+		t.Fatal("disable did not install fresh local owner")
+	}
+	helper := filepath.Join(f.a.root, "reviewed-host")
+	if e := os.WriteFile(helper, []byte("reviewed fixture bytes"), 0700); e != nil {
+		t.Fatal(e)
+	}
+	defaults := DefaultNodeRoamingOptions(f.a, NodeRoamingNativeOptions{Host: func() (string, error) { return helper, nil }})
+	backendIdentity := f.a.Backend
+	if e := AttachNodeManagement(f.a, *defaults.RefreshNodeManagement); e != nil {
+		t.Fatal(e)
+	}
+	if e := f.a.Backend.ConfigureNodeRoaming(f.c); e != nil {
+		t.Fatal(e)
+	}
+	catalog, e := f.a.Backend.NodeCatalog(t.Context())
+	if e != nil || len(catalog.Nodes) != 1 || catalog.Nodes[0].ID != api.LocalNodeID || catalog.ActiveBotNodeID != api.LocalNodeID || catalog.Broker == nil || catalog.Broker.NodeID != api.LocalNodeID {
+		t.Fatal("default restored catalogue lost topology", catalog, e)
+	}
+	if f.a.Backend != backendIdentity || ActiveNodeRoamingApplication(f.a) != fresh {
+		t.Fatal("stable facade or actual fresh native owner changed")
+	}
+	plan, e := defaults.PreparePlan(t.Context(), NodeRoamingStageInput{BotID: "bot-fixture", OperationID: "enable-next", Coordinator: NodeRegistration{ID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal}, Nodes: []NodeRegistration{{ID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal}}, SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleBot}})
+	if e != nil || plan.ID == "" {
+		t.Fatal("next default plan cannot be prepared", plan, e)
+	}
+	if f.local.submits.Load() != 0 {
+		t.Fatal("retired original source serviced restored catalogue")
+	}
+}
+
+func TestDefaultNativeDisableRecoveryFromPreparedColdGeneration(t *testing.T) {
+	a := nativeManagementApplication(t)
+	if e := os.Chmod(a.root, 0700); e != nil {
+		t.Fatal(e)
+	}
+	var e error
+	a.root, e = filepath.EvalSymlinks(a.root)
+	if e != nil {
+		t.Fatal(e)
+	}
+	source := filepath.Join(a.root, "cold-source")
+	if e = os.MkdirAll(filepath.Join(source, "Notebook"), 0700); e != nil {
+		t.Fatal(e)
+	}
+	if e = localstate.Write(filepath.Join(source, "bot.json"), map[string]any{"version": 1, "personalVersion": 1, "id": "bot-fixture", "schedules": []any{}}); e != nil {
+		t.Fatal(e)
+	}
+	if e = localstate.Write(filepath.Join(source, "bot-initialization.json"), map[string]any{"version": 1, "id": "intro-original", "status": "accepted", "runtime": "codex"}); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(filepath.Join(source, "Notebook", "MEMORY.md"), []byte("# Memory\n\nComplete stopped fixture.\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	payload, ref, e := memorytransfer.ExportNotebook(t.Context(), memorytransfer.NotebookExportOptions{Source: source, SourceStopped: true, Epoch: "1", Version: "2"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	restore := filepath.Join(a.root, "nodeplane", "local-restores", "generation-fixture")
+	if e = os.MkdirAll(filepath.Dir(restore), 0700); e != nil {
+		t.Fatal(e)
+	}
+	applied, e := memorytransfer.ApplyNotebook(t.Context(), memorytransfer.NotebookApplyOptions{Payload: payload, Destination: restore, DestinationStopped: true, Expected: ref, Commit: func(_ context.Context, r nodeplane.SnapshotRef, install func() error) error {
+		if r != ref {
+			return errors.New("wrong cold descriptor")
+		}
+		return install()
+	}})
+	if e != nil || !applied.Activated {
+		t.Fatal(applied, e)
+	}
+	if e = localstate.Write(filepath.Join(restore, "runtime.json"), api.RuntimeSettings{Runtime: "codex"}); e != nil {
+		t.Fatal(e)
+	}
+	dir := filepath.Join(a.root, "nodeplane", "approved-deployment")
+	if e = os.Mkdir(dir, 0700); e != nil {
+		t.Fatal(e)
+	}
+	id := strings.Repeat("c", 64)
+	plan := NodeRoamingSupervisorPlan{Version: 1, PlanID: id, OperationID: "enable-original", NodeID: api.LocalNodeID, Helper: "/fixed/verified-helper", HelperSHA256: strings.Repeat("d", 64), Directory: dir, Managed: &NodeRoamingManagedDeployment{BotID: ref.BotID, NodeID: api.LocalNodeID, Backend: "codex", AgentDirectory: filepath.Join(dir, "agent"), GenerationRoot: filepath.Join(dir, "generations"), AuthFile: filepath.Join(dir, "token"), BrokerNodeID: api.LocalNodeID, BrokerSocket: filepath.Join(dir, "broker.sock")}}
+	filename := filepath.Join(dir, "supervisor.json")
+	if e = localstate.Write(filename, plan); e != nil {
+		t.Fatal(e)
+	}
+	local := NodeRegistration{ID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal}
+	saved := roamingNativePlan{ID: id, OperationID: plan.OperationID, BotID: ref.BotID, SourceNodeID: api.LocalNodeID, SourceBackend: "codex", Coordinator: local, Enrollment: []NodeRegistration{local}, Nodes: []roamingNativeNode{{Registration: local, Plan: plan, HostHelper: plan.Helper}}, Phase: "local-prepared", RestoreDirectory: restore, RestoredSnapshot: ref, DisableOperationID: "disable-original", DisableLease: nodeplane.Lease{BotID: ref.BotID, NodeID: api.LocalNodeID, Backend: api.NodeCodex, Epoch: ref.Epoch}}
+	if e = nodeagent.WriteManagedPrivateJSON(filepath.Join(a.root, "nodeplane", "roaming-deployment.json"), saved); e != nil {
+		t.Fatal(e)
+	}
+	options := DefaultNodeRoamingOptions(a)
+	input := NodeRoamingRecoveryInput{OperationID: saved.DisableOperationID, StageOperationID: saved.OperationID, OperationKind: "disable", SourceRetiredIntent: true, Phase: "restoring-local", StageInput: NodeRoamingStageInput{ReviewedPlanID: id, BotID: ref.BotID, Coordinator: local}}
+	result, e := options.Recover(t.Context(), input)
+	if e == nil || result.Outcome != "unknown" || result.Local != nil {
+		t.Fatal("missing no-restart marker permitted fresh local assembly", result, e)
+	}
+	if e = SetNodeRoamingSupervisorState(filename, saved.DisableOperationID, "disabling"); e != nil {
+		t.Fatal(e)
+	}
+	result, e = options.Recover(t.Context(), input)
+	if e != nil || result.Outcome != "accepted" || result.Phase != "local" || result.Local == nil {
+		t.Fatal("confirmed cold generation not recovered", result, e)
+	}
+	defer result.Local.Close()
+	result.Local.mu.Lock()
+	started := result.Local.started
+	result.Local.mu.Unlock()
+	if started {
+		t.Fatal("recovery started local work before controller receipt")
+	}
+	marker, e := ReadNodeRoamingSupervisorState(filename, saved.DisableOperationID)
+	if e != nil || marker.State != "disabled" {
+		t.Fatal("original supervisor intent not finalized", marker, e)
+	}
+	final, e := readNativeRoamingPlan(filepath.Join(a.root, "nodeplane", "roaming-deployment.json"))
+	if e != nil || final.Phase != "restored-local" || final.RestoreDirectory != restore || final.RestoredSnapshot != ref {
+		t.Fatal("recovered cold receipt changed", final, e)
+	}
+	result.Local.Close()
+	current := api.RuntimeSettings{Runtime: "codex", CLIPath: "/current/native/codex"}
+	if e = localstate.Write(filepath.Join(restore, "runtime.json"), current); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(filepath.Join(restore, "Notebook", "MEMORY.md"), []byte("# Edited local memory\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	reenable := NodeRoamingRecoveryInput{OperationID: "enable-next", StageOperationID: "enable-next", OperationKind: "enable", Phase: "preparing", SourceRetiredIntent: false, LocalGenerationDirectory: restore, StageInput: NodeRoamingStageInput{ReviewedPlanID: strings.Repeat("e", 64), Coordinator: local}}
+	result, e = options.Recover(t.Context(), reenable)
+	if e != nil || result.Outcome != "rejected" || result.Phase != "source-active" || result.Local == nil || result.Local == a || result.Local.root != restore || result.Local.Backend.RuntimeSettings() != current {
+		t.Fatal("re-enable crash did not preserve actual current source", result, e)
+	}
+	defer result.Local.Close()
+	currentBody, _ := os.ReadFile(filepath.Join(restore, "Notebook", "MEMORY.md"))
+	if string(currentBody) != "# Edited local memory\n" {
+		t.Fatal("old Notebook bytes replaced current local source")
+	}
+}
+
+func TestNativeWorkerRosterPreservesBothBackendsAndSameNodeAlternative(t *testing.T) {
+	bindings := []NodeRoamingWorkerRuntime{{Backend: "codex", Binary: "/native/codex", Execution: api.WorkExecutionSettings{Model: "target-codex"}}, {Backend: "caelis", Binary: "/native/caelis", Store: "/native/owned-store", Model: "target-caelis", Execution: api.WorkExecutionSettings{Model: "target-caelis"}}}
+	local := roamingNativeNode{Registration: NodeRegistration{ID: api.LocalNodeID, Label: "This machine"}, Plan: NodeRoamingSupervisorPlan{Managed: &NodeRoamingManagedDeployment{Backend: "codex"}}, RuntimeBindings: bindings, BrokerPeerSocket: "/private/approved/local.sock"}
+	remote := roamingNativeNode{Registration: NodeRegistration{ID: "node-target", Label: "Target"}, Plan: NodeRoamingSupervisorPlan{Managed: &NodeRoamingManagedDeployment{Backend: "caelis"}}, RuntimeBindings: bindings, BrokerPeerSocket: "/private/approved/target.sock"}
+	wire, e := json.Marshal(nativeRoamingWorkers(roamingNativePlan{Nodes: []roamingNativeNode{local, remote}}, local))
+	if e != nil {
+		t.Fatal(e)
+	}
+	var result struct {
+		Nodes   []map[string]any                           `json:"nodes"`
+		Agents  []struct{ NodeID, Backend, Socket string } `json:"agents"`
+		Sources []struct {
+			NodeID   string
+			Backends []string
+		} `json:"sources"`
+		Runtimes []NodeRoamingWorkerRuntime `json:"runtimes"`
+	}
+	if e = json.Unmarshal(wire, &result); e != nil {
+		t.Fatal(e)
+	}
+	if len(result.Nodes) != 3 || len(result.Agents) != 3 || len(result.Runtimes) != 2 || len(result.Sources) != 2 {
+		t.Fatal("runtime alternative lost", string(wire))
+	}
+	seen := map[string]bool{}
+	for _, node := range result.Nodes {
+		if len(node) != 4 || node["transport"] != "registered-agent" {
+			t.Fatal("private native paths escaped Worker metadata", node)
+		}
+		seen[node["id"].(string)+"/"+node["backend"].(string)] = true
+	}
+	if !seen["local/caelis"] || !seen["node-target/codex"] || !seen["node-target/caelis"] || seen["local/codex"] {
+		t.Fatal("Worker target is not exact source-independent backend", seen)
+	}
+	if result.Runtimes[1].Store != "/native/owned-store" || result.Runtimes[0].Execution.Model != "target-codex" {
+		t.Fatal("target-native settings not retained", result.Runtimes)
 	}
 }
