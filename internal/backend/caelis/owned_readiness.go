@@ -79,19 +79,35 @@ func ProbeOwnedReadiness(ctx context.Context, opts OwnedHostOptions, desiredMode
 }
 
 func inspectOwnedReadiness(ctx context.Context, host *ownedHost, desiredModel string) (out OwnedReadiness, err error) {
+	if err = host.check(ctx); err != nil {
+		out.Reason = "owned-host-unavailable"
+		return out, readinessFailure(out.Reason, errors.Join(err, ctx.Err()))
+	}
+	c, err := setupClient(ctx, host.settings)
+	if err != nil {
+		out.Reason = "owned-metadata-unavailable"
+		return out, readinessFailure(out.Reason, errors.Join(err, ctx.Err()))
+	}
+	defer c.http.CloseIdleConnections()
+	out, err = inspectPublicReadiness(ctx, c, desiredModel, nil)
+	if err == nil && out.Ready {
+		if err = host.check(ctx); err != nil {
+			out.Ready = false
+			out.Reason = "owned-host-unavailable"
+			return out, readinessFailure(out.Reason, err)
+		}
+	}
+	return out, err
+}
+
+type publicCurrentAuthentication struct{ known, authenticated bool }
+
+func inspectPublicReadiness(ctx context.Context, c *client, desiredModel string, current *publicCurrentAuthentication) (out OwnedReadiness, err error) {
 	fail := func(reason string, cause error) (OwnedReadiness, error) {
 		out.Ready = false
 		out.Reason = reason
 		return out, readinessFailure(reason, errors.Join(cause, ctx.Err()))
 	}
-	if err = host.check(ctx); err != nil {
-		return fail("owned-host-unavailable", err)
-	}
-	c, err := setupClient(ctx, host.settings)
-	if err != nil {
-		return fail("owned-metadata-unavailable", err)
-	}
-	defer c.http.CloseIdleConnections()
 	var before, after wire.StatusSnapshot
 	if err = c.json(ctx, "GET", "/status", nil, &before, "", ""); err != nil {
 		return fail("owned-metadata-unavailable", err)
@@ -155,6 +171,10 @@ func inspectOwnedReadiness(ctx context.Context, host *ownedHost, desiredModel st
 			known = true
 			ready = false
 		}
+		if current != nil && m.Value == out.CurrentModel {
+			current.known = currentProvider
+			current.authenticated = currentProvider && ready
+		}
 		if known {
 			knownAuth[m.Value] = true
 		}
@@ -202,9 +222,6 @@ func inspectOwnedReadiness(ctx context.Context, host *ownedHost, desiredModel st
 		return out, nil
 	}
 
-	if err = host.check(ctx); err != nil {
-		return fail("owned-host-unavailable", err)
-	}
 	out.Ready = true
 	return out, nil
 }
