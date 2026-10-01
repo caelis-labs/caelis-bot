@@ -18,6 +18,7 @@ const {act}=React;
 const server=await createServer({server:{middlewareMode:true,ws:false},appType:'custom'});
 const {NodeRuntimeSettings}=await server.ssrLoadModule('/src/NodeRuntimeSettings.tsx');
 const {createNodeSettingsClient,createNodeRuntimeClient,managementDigestInput}=await server.ssrLoadModule('/src/settings/runtime/nodeClient.ts');
+const {createNodeEnrollmentClient}=await server.ssrLoadModule('/src/settings/runtime/enrollmentClient.ts');
 const {I18nProvider}=await server.ssrLoadModule('/src/i18n/index.tsx');
 const {translator}=await server.ssrLoadModule('/src/i18n/core.ts');
 let root,container;
@@ -551,6 +552,79 @@ test('a coordinator draft stays cancellable when native roaming becomes enabled 
 // native authentication, installed Runtime or remote process acceptance.
 const flow=(stage='complete',sequence=1)=>({id:'original-flow',revision:`flow-${sequence}`,sequence,stage,title:'Node connection',message:'',installation:null,authorization:null,launchers:[],methods:[],models:[]});
 const enter=async(el,value)=>{assert.ok(el);await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));});};
+const enrollmentResult=(operationId,outcome='unknown',reason='unknown')=>({operationId,outcome,reason,node:{id:outcome==='committed'?'enrolled-original':'',label:'Fixture',os:'linux',join:'ssh',runtimes:[]},joinInstructions:null});
+
+test('enrollment client admits one original ID and receipt reads never resend Add',async()=>{
+ const calls=[],delivery=deferred();
+ const owner=createNodeEnrollmentClient(async(method,...args)=>{calls.push([method,...args]);if(method==='AddNode')return delivery.promise;return enrollmentResult(args[0],'failed','dns');});
+ const request={label:'Fixture',join:'ssh',sshDestination:'fixture.invalid',expectedRevision:'catalog-1'};
+ const first=owner.add(request);await owner.add(request);
+ const original=calls[0][1].operationId;assert.ok(original);assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+ delivery.reject(new Error('PRIVATE_SSH_DIAGNOSTIC'));await first;
+ assert.equal(owner.snapshot().pending,original);
+ await owner.add({...request,sshDestination:'another.invalid'});assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+ await owner.reconcile();assert.deepEqual(calls.at(-1),['ReconcileNodeEnrollment',original]);assert.equal(owner.snapshot().pending,'');
+ assert.equal(owner.snapshot().result.outcome,'failed');
+ owner.restore([original]);assert.equal(owner.snapshot().pending,'','stale catalog revived terminal original');
+ await owner.add({...request,sshDestination:'corrected.invalid'});assert.notEqual(calls.at(-1)[1].operationId,original,'explicit corrected input did not get a fresh identity after confirmed failure');
+});
+
+test('native pending enrollment rehydrates after remount and an unknown query blocks fresh Add',async()=>{
+ const calls=[],owner=createNodeEnrollmentClient(async(method,...args)=>{calls.push([method,...args]);return enrollmentResult(args[0]);});
+ owner.restore(['native-original']);await owner.reconcile();
+ assert.deepEqual(calls,[['ReconcileNodeEnrollment','native-original']]);
+ await owner.add({label:'Replacement',join:'ssh',sshDestination:'new.invalid',expectedRevision:'2'});
+ assert.equal(calls.length,1);assert.equal(owner.snapshot().pending,'native-original');
+});
+
+test('native concurrency barrier restores the admitted original enrollment ID',async()=>{
+ const calls=[],owner=createNodeEnrollmentClient(async(method,...args)=>{calls.push([method,...args]);return enrollmentResult('other-surface-original','unknown','original-pending');});
+ await owner.add({label:'Second surface',join:'ssh',sshDestination:'fixture.invalid',expectedRevision:'1'});
+ assert.equal(owner.snapshot().pending,'other-surface-original');
+ await owner.reconcile();assert.deepEqual(calls.at(-1),['ReconcileNodeEnrollment','other-surface-original']);
+ assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+});
+
+test('an enrollment receipt for another ID or an unrecognized outcome cannot release the original barrier',async()=>{
+ const calls=[],owner=createNodeEnrollmentClient(async(method,...args)=>{calls.push([method,...args]);return method==='AddNode'?{...enrollmentResult('another-original','committed'),node:{id:'other',join:'ssh'}}:enrollmentResult(args[0],'unexpected');});
+ await owner.add({label:'Fixture',join:'ssh',sshDestination:'fixture.invalid',expectedRevision:'1'});
+ const original=calls[0][1].operationId;assert.equal(owner.snapshot().pending,original);assert.equal(owner.snapshot().result.outcome,'unknown');
+ await owner.reconcile();assert.deepEqual(calls.at(-1),['ReconcileNodeEnrollment',original]);assert.equal(owner.snapshot().pending,original);
+ await owner.add({label:'Replacement',join:'ssh',sshDestination:'new.invalid',expectedRevision:'1'});assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+});
+
+test('enrollment double submit stays single-flight; Cancel and root Refresh reconcile the original failed DNS receipt',async()=>{
+ const calls=[],delivery=deferred();let original;
+ await mount(defaultInvoke,async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='AddNode'){original=args[0].operationId;return delivery.promise;}
+  if(method==='ReconcileNodeEnrollment')return enrollmentResult(args[0],'failed','dns');
+  return {revision:1,nodes:[],issue:''};
+ });
+ await click(buttons(translator('en').t('settings.nodeAdd'))[0]);
+ const form=container.querySelector('[role="dialog"] form');
+ await enter(form.querySelectorAll('input')[0],'Fixture machine');await enter(form.querySelectorAll('input')[1],'fixture.invalid');
+ await act(async()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});
+ assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+ await act(async()=>delivery.reject(new Error('PRIVATE_SSH_DIAGNOSTIC')));
+ assert.ok(container.textContent.includes(translator('en').t('settings.nodeAddUnknown')));
+ await click(buttons('Cancel')[0]);assert.equal(container.querySelector('[role="dialog"]'),null);
+ await click(buttons(translator('en').t('runtime.refreshConfig')).at(-1));
+ assert.deepEqual(calls.filter(call=>call[0]==='ReconcileNodeEnrollment'),[['ReconcileNodeEnrollment',original]]);
+ assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+ assert.ok(container.textContent.includes(translator('en').t('settings.nodeAddDNS')));assert.doesNotMatch(container.textContent,/PRIVATE_SSH_DIAGNOSTIC/);
+ await click(buttons(translator('en').t('settings.nodeAdd'))[0]);assert.equal(container.querySelector('[role="dialog"] input').disabled,false);
+});
+
+test('known pre-dispatch capacity failure stays explanatory and allows explicit correction',async()=>{
+ const calls=[];await mount(defaultInvoke,async(method,...args)=>{calls.push([method,...args]);return method==='AddNode'?enrollmentResult(args[0].operationId,'failed','limit'):{revision:1,nodes:[],issue:''};});
+ await click(buttons(translator('en').t('settings.nodeAdd'))[0]);const form=container.querySelector('[role="dialog"] form');
+ await enter(form.querySelectorAll('input')[0],'Fixture machine');await enter(form.querySelectorAll('input')[1],'fixture.invalid');
+ await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+ assert.ok(container.textContent.includes(translator('en').t('settings.nodeAddLimit')));
+ assert.equal(form.querySelector('input').disabled,false);assert.equal(buttons('Check original receipt').length,0);
+ assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+});
 const coldCatalog=()=>{const value=catalog();value.selectedNodeId='other';value.nodes[1].runtimes[0]={...runtime(),health:'unavailable',authentication:'required'};return value;};
 const coldConfig=(nodeId,backend)=>{const value=config(nodeId,backend);return {...value,configurationAvailable:false,configuration:{...value.configuration,main:null,models:[],connections:[],team:{...value.configuration.team,roles:null,sets:null,models:null}}};};
 const nativeRef=(guard,operationId)=>({nodeId:guard.nodeId,backend:guard.backend,operationId});

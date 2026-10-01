@@ -293,7 +293,7 @@
   "nodeJoinSSH": "Existing SSH destination",
   "nodeJoinOutgoing": "Outgoing connection",
   "nodeJoinWaiting": "Waiting for this node to join.",
-  "nodeAddUnknown": "The node was not confirmed. Refresh the node list before trying again.",
+  "nodeAddUnknown": "The original node enrollment outcome is unknown. Check its original receipt before adding another node.",
   "nodeProgramFailed": "The program change was not confirmed. Check the original operation if its result is unknown.",
   "nodeReviewedVersionHelp": "Choose a reviewed release to install on this node.",
   "nodeCoordinatorHelp": "Choose a node that stays online. Automatic roaming also requires a reachable connection and an eligible runtime.",
@@ -331,5 +331,11 @@
   "nodeRoamingStartBot": "Start Bot on {name} when ready.",
   "nodeRoamingPrepareService": "Prepare the reviewed service on {name}.",
   "nodeRoamingConnectOutgoing": "Connect the enrolled outgoing node {name}.",
-  "nodeCoordinatorLocked": "Stop automatic roaming before changing the always-on node. If an operation is uncertain, check its original result first."
+  "nodeCoordinatorLocked": "Stop automatic roaming before changing the always-on node. If an operation is uncertain, check its original result first.",
+  "nodeAddFailed": "The node was not added. Check the destination and existing SSH access, then try again.",
+  "nodeAddDNS": "The SSH destination could not be resolved. Check its address or SSH alias, then try again.",
+  "nodeAddAuthentication": "SSH access was denied. Check your existing SSH authorization, then try again.",
+  "nodeAddHostKey": "The SSH host key could not be verified. Check the destination and its trusted host key, then try again.",
+  "nodeAddLimit": "No node was added because the enrollment history limit was reached. Existing operation receipts must be retained.",
+  "nodeAddReceiptUnavailable": "No node was added because its setup could not be safely recorded. Check the app’s private data location before trying again."
 }

@@ -114,6 +114,19 @@ foreground agent's exact identity before publishing enrollment. The temporary
 management agent holds no Bot execution authority. Its observer closes on APP
 detach; node lifecycle owns any separately started Runtime.
 
+Each Add records its original `OperationID` and immutable request in a private
+enrollment journal before bootstrap can mutate a target. Read-only architecture,
+SSH authorization/host-key, and artifact checks can return a confirmed failure
+with a safe reason; raw SSH diagnostics stay native. Once bootstrap is admitted,
+lost delivery remains unknown until `ReconcileNodeEnrollment` can prove the
+original result from its exact journal and published pairing. This query never
+repeats bootstrap. Cancel keeps the original ID; Refresh and Check original
+receipt query it, and `NodeCatalog.PendingEnrollments` restores it after settings
+remount or APP restart. Only a confirmed terminal result permits a new explicit
+Add. A still-unknown bootstrap requires original-receipt recovery or manual
+inspection of that target. The private journal retains at most 128 receipts;
+capacity or unavailable private storage rejects new enrollment before mutation.
+
 Outgoing Add requires a designated coordinator. An enrolled SSH coordinator
 gets a separate private join slot rather than replacing its existing agent
 socket. The outgoing client subsequently reaches the joined Node through that

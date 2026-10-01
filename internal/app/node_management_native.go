@@ -299,6 +299,10 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 	// Sorting/appending aggregation must not mutate a cached source catalog.
 	c.Nodes = append([]api.NodeInfo(nil), c.Nodes...)
 	c.PendingOperations = append([]api.NodeOperationRef(nil), c.PendingOperations...)
+	c.PendingEnrollments, err = n.pendingEnrollments()
+	if err != nil {
+		return api.NodeCatalog{}, err
+	}
 	n.mu.Lock()
 	doc := n.document
 	doc.Nodes = append([]NodeRegistration(nil), doc.Nodes...)
@@ -397,9 +401,7 @@ func (n *nativeNodeManagement) Reconcile(ctx context.Context, r api.NodeOperatio
 	return c.Reconcile(ctx, r)
 }
 
-func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (api.NodeAddResult, error) {
-	n.controlMu.Lock()
-	defer n.controlMu.Unlock()
+func (n *nativeNodeManagement) addEnrollment(ctx context.Context, r api.NodeAddRequest, beforeMutation func() error, prepared func(NodeRegistration, api.NodeAddResult) error) (api.NodeAddResult, error) {
 	c, err := n.Catalog(ctx)
 	if err != nil {
 		return api.NodeAddResult{}, err
@@ -423,19 +425,29 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 	var reg NodeRegistration
 	var instructions *api.NodeJoinInstructions
 	if n.options.Bootstrap != nil {
+		if beforeMutation != nil {
+			if err = beforeMutation(); err != nil {
+				return api.NodeAddResult{}, err
+			}
+		}
 		reg, err = n.options.Bootstrap(ctx, r)
 	} else if r.Join == api.NodeSSH {
 		ssh := nodeagent.SSHConfig{Target: r.SSHDestination}
 		arch, e := nodeagent.ProbeArchitecture(ctx, ssh)
 		if e != nil {
-			return api.NodeAddResult{}, e
+			return api.NodeAddResult{}, enrollmentPreflightError{nodeagent.ArchitectureProbeReason(e)}
 		}
 		artifact, e := n.options.Artifact(arch)
 		if e != nil {
-			return api.NodeAddResult{}, e
+			return api.NodeAddResult{}, enrollmentPreflightError{"artifact"}
 		}
 		if e = nodeagent.VerifyArtifact(artifact); e != nil {
-			return api.NodeAddResult{}, e
+			return api.NodeAddResult{}, enrollmentPreflightError{"artifact"}
+		}
+		if beforeMutation != nil {
+			if err = beforeMutation(); err != nil {
+				return api.NodeAddResult{}, err
+			}
 		}
 		dir, e := nodeagent.PrepareNodeDirectory(ctx, ssh)
 		if e != nil {
@@ -449,6 +461,11 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 			reg.HostHelperPath = filepath.Join(dir, "caelis-node")
 		}
 	} else {
+		if beforeMutation != nil {
+			if err = beforeMutation(); err != nil {
+				return api.NodeAddResult{}, err
+			}
+		}
 		reg = NodeRegistration{ID: "node-" + rand.Text(), Label: r.Label, Join: api.NodeOutgoing}
 		var i api.NodeJoinInstructions
 		if n.options.PrepareOutgoing != nil {
@@ -461,7 +478,7 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 	if err != nil {
 		return api.NodeAddResult{}, err
 	}
-	if reg.Join != r.Join || reg.Label != r.Label {
+	if reg.Join != r.Join || reg.Label != r.Label || reg.Join == api.NodeSSH && reg.SSHDestination != r.SSHDestination {
 		return api.NodeAddResult{}, errors.New("bootstrap changed node enrollment intent")
 	}
 	if err = validateNodeRegistration(reg); err != nil {
@@ -494,6 +511,17 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 		verified.Label = reg.Label
 		verified.Join = reg.Join
 	}
+	// Retain the exact verified registration/result before publishing its local
+	// pairing, so an original receipt can prove success after response loss.
+	if verified.ID == "" {
+		verified = api.NodeInfo{ID: reg.ID, Label: reg.Label, OS: api.NodeLinux, Join: reg.Join, Runtimes: []api.NodeRuntime{}}
+	}
+	result := api.NodeAddResult{Node: verified, JoinInstructions: instructions}
+	if prepared != nil {
+		if err = prepared(reg, result); err != nil {
+			return api.NodeAddResult{}, err
+		}
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.document.Revision != revision {
@@ -515,11 +543,7 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 		n.clients[reg.ID] = verifiedClient
 		retained = true
 	}
-	// Detection is a separate explicit action for outgoing waiting joins.
-	if verified.ID == "" {
-		verified = api.NodeInfo{ID: reg.ID, Label: reg.Label, OS: api.NodeLinux, Join: reg.Join, Runtimes: []api.NodeRuntime{}}
-	}
-	return api.NodeAddResult{Node: verified, JoinInstructions: instructions}, nil
+	return result, nil
 }
 
 func (n *nativeNodeManagement) Detect(ctx context.Context, id string) (api.NodeInfo, error) {
