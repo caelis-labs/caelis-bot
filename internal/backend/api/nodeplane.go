@@ -28,9 +28,10 @@ type NodeInfo struct {
 type NodeOS string
 
 const (
-	NodeDarwin  NodeOS = "darwin"
-	NodeLinux   NodeOS = "linux"
-	NodeWindows NodeOS = "windows"
+	NodeDarwin    NodeOS = "darwin"
+	NodeLinux     NodeOS = "linux"
+	NodeWindows   NodeOS = "windows"
+	NodeOSUnknown NodeOS = "unknown"
 )
 
 type NodeJoin string
