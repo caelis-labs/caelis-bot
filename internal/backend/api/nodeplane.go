@@ -6,12 +6,15 @@ import "context"
 // the active Bot owner or the exact Worker target. Credentials and machine paths
 // are deliberately absent. Revisions, epochs and versions are opaque strings.
 type NodeCatalog struct {
-	Revision        string      `json:"revision"`
-	Nodes           []NodeInfo  `json:"nodes"`
-	SelectedNodeID  string      `json:"selectedNodeId"`
-	ActiveBotNodeID string      `json:"activeBotNodeId"`
-	WorkerTarget    *WorkTarget `json:"workerTarget"`
-	Broker          *NodeBroker `json:"broker"`
+	Revision        string     `json:"revision"`
+	Nodes           []NodeInfo `json:"nodes"`
+	SelectedNodeID  string     `json:"selectedNodeId"`
+	ActiveBotNodeID string     `json:"activeBotNodeId"`
+	// The exact existing product pairing retains its pinned management scope.
+	// This field never implies node-agent enrollment or local authority.
+	PairedProductNodeID string      `json:"pairedProductNodeId"`
+	WorkerTarget        *WorkTarget `json:"workerTarget"`
+	Broker              *NodeBroker `json:"broker"`
 	// Native journals expose original unresolved references after APP remount
 	// or restart, including installation operations with no readable config.
 	PendingOperations []NodeOperationRef `json:"pendingOperations"`

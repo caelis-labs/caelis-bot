@@ -73,7 +73,7 @@ func ValidateCatalog(c api.NodeCatalog) error {
 		}
 		nodes[n.ID] = n
 	}
-	for _, id := range []string{c.SelectedNodeID, c.ActiveBotNodeID} {
+	for _, id := range []string{c.SelectedNodeID, c.ActiveBotNodeID, c.PairedProductNodeID} {
 		if id != "" {
 			if _, exists := nodes[id]; !exists {
 				return errors.New("catalog references unknown node")
