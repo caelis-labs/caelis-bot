@@ -191,19 +191,32 @@ func (c *CodexConfiguration) Health(ctx context.Context) (NativeHealth, error) {
 	return h, nil
 }
 
-type CaelisConfiguration struct{ Settings api.RuntimeSettings }
+type CaelisConfiguration struct {
+	Settings   api.RuntimeSettings
+	BinaryPath func() (string, error)
+}
+
+func (c *CaelisConfiguration) runtimeSettings() api.RuntimeSettings {
+	v := c.Settings
+	if c.BinaryPath != nil {
+		if binary, err := c.BinaryPath(); err == nil {
+			v.CLIPath = binary
+		}
+	}
+	return v
+}
 
 func (c *CaelisConfiguration) Read(ctx context.Context) (api.RuntimeConfiguration, error) {
-	return caelis.ReadRuntimeConfiguration(ctx, c.Settings)
+	return caelis.ReadRuntimeConfiguration(ctx, c.runtimeSettings())
 }
 func (c *CaelisConfiguration) Change(ctx context.Context, r nodeplane.ManagementRequest) (api.RuntimeMutationResult, error) {
 	if r.Change == nil {
 		return api.RuntimeMutationResult{OperationID: r.Ref.OperationID, Outcome: "rejected"}, nil
 	}
-	return caelis.ChangeRuntimeConfigurationOperation(ctx, c.Settings, *r.Change, r.Ref.OperationID)
+	return caelis.ChangeRuntimeConfigurationOperation(ctx, c.runtimeSettings(), *r.Change, r.Ref.OperationID)
 }
 func (c *CaelisConfiguration) Health(ctx context.Context) (NativeHealth, error) {
-	state, err := caelis.InspectNodeRuntimeHealth(ctx, c.Settings)
+	state, err := caelis.InspectNodeRuntimeHealth(ctx, c.runtimeSettings())
 	if err != nil {
 		return NativeHealth{}, err
 	}

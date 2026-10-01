@@ -21,7 +21,7 @@ import (
 )
 
 func allowed(method, path string) bool {
-	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/managed-product" || path == "/v1/node/managed-disable" || path == "/v1/node/managed-status" || path == "/v1/node/managed-start" || path == "/v1/node/managed-product-proxy" || path == "/v1/node/managed-disable-receipt" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/roaming-deployment" || path == "/v1/node/check-owned-readiness" || path == "/v1/node/owned-readiness-receipt")
+	return method == "POST" && allowedNodeConnection(path) || method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/managed-product" || path == "/v1/node/managed-disable" || path == "/v1/node/managed-status" || path == "/v1/node/managed-start" || path == "/v1/node/managed-product-proxy" || path == "/v1/node/managed-disable-receipt" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/roaming-deployment" || path == "/v1/node/check-owned-readiness" || path == "/v1/node/owned-readiness-receipt")
 }
 func strictDecode(r io.Reader, v any) error {
 	d := json.NewDecoder(io.LimitReader(r, productrpc.MaxCommandBytes+1))
@@ -36,6 +36,9 @@ func Handler(agent nodeplane.CatalogAgent) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !allowed(r.Method, r.URL.RequestURI()) {
 			http.Error(w, "node endpoint unavailable", 404)
+			return
+		}
+		if handleNodeConnections(agent, w, r) {
 			return
 		}
 		if handleNativeWorkerProxy(agent, w, r) {
