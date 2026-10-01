@@ -189,6 +189,7 @@ func Run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return Join(ctx, SSHConfig{Target: *target}, *helper, *directory, *socket)
 	case "verify-join-directory":
 		directory := f.String("directory", "", "explicit destination user-owned private directory")
+		nodeID := f.String("node-id", "", "exact existing enrolled coordinator identity")
 		hold := f.Bool("hold", false, "hold foreground reverse SSH forwarding after verification")
 		if err := f.Parse(args[1:]); err != nil {
 			return help(err)
@@ -198,6 +199,11 @@ func Run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 		if err := CheckPrivateDirectory(*directory); err != nil {
 			return err
+		}
+		if *nodeID != "" {
+			if _, err := ReadNativeEnrollmentIdentity(*directory, *nodeID); err != nil {
+				return err
+			}
 		}
 		if *hold {
 			cleanup, err := CaptureJoinSocket(*directory)

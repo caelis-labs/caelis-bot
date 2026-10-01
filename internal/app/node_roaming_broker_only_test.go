@@ -81,11 +81,21 @@ func TestNativeRemoteCoordinatorDoesNotRequireOrDeployRuntime(t *testing.T) {
 	}}}
 	local := NodeRegistration{ID: api.LocalNodeID, Label: "Preferred source", Join: api.NodeLocal}
 	in := NodeRoamingStageInput{BotID: "bot-fixture", OperationID: "enable-original", Coordinator: coordinator, Nodes: []NodeRegistration{local, coordinator, standby}, SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleBot}, Resume: true}
+	in.SourceRoutes = []api.NodeCoordinatorSourceRoute{{SourceNodeID: api.LocalNodeID, SSHDestination: "fixture-mac-outward-ubuntu"}, {SourceNodeID: standby.ID, SSHDestination: "fixture-fedora-outward-ubuntu"}}
 	summary, e := n.prepare(t.Context(), in)
 	if e != nil {
 		t.Fatal(e)
 	}
 	p := n.plans[summary.ID]
+	for _, source := range p.Nodes {
+		if source.Registration.ID == standby.ID && (source.Plan.Managed.JoinSSHDestination != "fixture-fedora-outward-ubuntu" || source.Plan.Managed.BrokerSSHDestination != "fixture-fedora-outward-ubuntu" || source.Registration.SSHDestination != standby.SSHDestination) {
+			t.Fatal("source route was replaced by APP management alias", source)
+		}
+	}
+	bootstrapTarget, bootstrapHelper, e := nativeRoamingBootstrapRoute(p)
+	if e != nil || bootstrapTarget != "fixture-mac-outward-ubuntu" || bootstrapHelper != coordinator.HelperPath || p.CoordinatorIdentity.NodeID != coordinator.ID || p.CoordinatorIdentity.Directory != coordinator.Directory {
+		t.Fatal("bootstrap or identity ignored frozen enrollment", bootstrapTarget, e)
+	}
 
 	if output := os.Getenv("CAELIS_BOT_TEST_NATIVE_PLAN_OUTPUT"); output != "" {
 		if !filepath.IsAbs(output) || os.Getenv("CAELIS_BOT_TEST_HOST_BINARY") == "" || os.Getenv("CAELIS_BOT_TEST_HOST_SHA256") == "" {
@@ -157,6 +167,11 @@ func TestNativeRemoteCoordinatorDoesNotRequireOrDeployRuntime(t *testing.T) {
 	if e != nil || next.ID != p.ID {
 		t.Fatal("coordinator account changed dedicated plan", next, e)
 	}
+	in.SourceRoutes[1].SSHDestination = "fixture-fedora-alternate-ubuntu"
+	changed, e := n.prepare(t.Context(), in)
+	if e != nil || changed.ID == p.ID || p.SourceRoutes[0].SSHDestination == "fixture-fedora-alternate-ubuntu" || p.SourceRoutes[1].SSHDestination == "fixture-fedora-alternate-ubuntu" {
+		t.Fatal("source route edit reused or mutated original reviewed plan", changed, e)
+	}
 }
 
 func TestNativeBrokerOnlyProvisionContainsOnlyCacheAndSupervisor(t *testing.T) {
@@ -224,8 +239,11 @@ func TestNativeBrokerOnlyUnknownRecoveryNeverReplaysOrReplacesOriginal(t *testin
 	if e != nil || string(original) != string(after) {
 		t.Fatal("lookup changed durable original intent", e)
 	}
-	stored, e := readNativeRoamingPlan(manifest)
-	if e != nil || stored.Nodes[0].Plan.IPCDirectory != ipc || stored.Nodes[0].Plan.Broker.Socket != plan.Broker.Socket {
-		t.Fatal("original frozen IPC paths did not survive recovery", e)
+	if _, e := readNativeRoamingPlan(manifest); e == nil {
+		t.Fatal("unsealed legacy execution plan was adopted")
+	}
+	var stored roamingNativePlan
+	if e := json.Unmarshal(after, &stored); e != nil || stored.Nodes[0].Plan.IPCDirectory != ipc || stored.Nodes[0].Plan.Broker.Socket != plan.Broker.Socket {
+		t.Fatal("unsealed original IPC receipt was not preserved", e)
 	}
 }

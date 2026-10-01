@@ -30,6 +30,7 @@ type NodeRoamingStageInput struct {
 	OperationID              string
 	Coordinator              NodeRegistration
 	Nodes                    []NodeRegistration
+	SourceRoutes             []api.NodeCoordinatorSourceRoute
 	SourceTarget             api.WorkTarget
 	Source                   nodeplane.RuntimeProofPort
 	Snapshot                 nodeplane.SnapshotRef
@@ -356,7 +357,7 @@ func (c *nodeRoamingControl) input(ctx context.Context, r backend.NodeRoamingReq
 	if provider != "codex" && provider != "caelis" {
 		return NodeRoamingStageInput{}, errors.New("local source backend does not support native roaming")
 	}
-	return NodeRoamingStageInput{ReviewedPlanID: r.ReviewedPlanID, AllowPersistentExecution: r.AllowPersistentExecution, OperationID: r.ID, Coordinator: coordinator, Nodes: regs, SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: provider, Role: api.RoleBot}}, nil
+	return NodeRoamingStageInput{ReviewedPlanID: r.ReviewedPlanID, AllowPersistentExecution: r.AllowPersistentExecution, OperationID: r.ID, Coordinator: coordinator, Nodes: regs, SourceRoutes: nodeCoordinatorRoutes(doc, coordinator.ID), SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: provider, Role: api.RoleBot}}, nil
 }
 func (c *nodeRoamingControl) EnableNodeRoaming(ctx context.Context, r backend.NodeRoamingRequest) (backend.NodeRoamingState, error) {
 	c.op.Lock()

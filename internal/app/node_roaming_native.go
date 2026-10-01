@@ -59,11 +59,15 @@ type roamingNativeNode struct {
 	RuntimeBindings   []NodeRoamingWorkerRuntime
 	Preferences       nodeagent.ExecutionPreferences
 	CompanionArtifact *nodeagent.Artifact
+	SourceMetadata    *nodeagent.RoamingDeploymentMetadata `json:",omitempty"`
 }
 type roamingNativePlan struct {
+	SealVersion                                                    int
 	ID                                                             string
 	OperationID, BotID, SourceNodeID, SourceBackend                string
 	Coordinator                                                    NodeRegistration
+	CoordinatorIdentity                                            nodeagent.NativeEnrollmentIdentity
+	SourceRoutes                                                   []api.NodeCoordinatorSourceRoute `json:",omitempty"`
 	Nodes                                                          []roamingNativeNode
 	Enrollment                                                     []NodeRegistration
 	BootstrapSocket, BootstrapDirectory, LocalDirectory, LocalHost string
@@ -402,6 +406,19 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 	regs := append([]NodeRegistration(nil), in.Nodes...)
 	sort.Slice(regs, func(i, j int) bool { return regs[i].ID < regs[j].ID })
 	p.Enrollment = append([]NodeRegistration(nil), regs...)
+	ids := make([]string, 0, len(regs))
+	for _, r := range regs {
+		ids = append(ids, r.ID)
+	}
+	if e = nodeplane.ValidateCoordinatorSourceRoutes(in.Coordinator.ID, ids, in.SourceRoutes); e != nil {
+		return p, e
+	}
+	p.SourceRoutes = append([]api.NodeCoordinatorSourceRoute(nil), in.SourceRoutes...)
+	sort.Slice(p.SourceRoutes, func(i, j int) bool { return p.SourceRoutes[i].SourceNodeID < p.SourceRoutes[j].SourceNodeID })
+	p.CoordinatorIdentity, e = n.coordinatorEnrollmentIdentity(in.Coordinator)
+	if e != nil {
+		return p, e
+	}
 	seen := map[string]bool{}
 	foundCoordinator := false
 	for _, r := range regs {
@@ -425,6 +442,11 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			}
 			if metadata.Route.Target != r.SSHDestination || metadata.Route.Helper != in.Coordinator.HelperPath {
 				return p, errors.New("actual outward pairing differs from enrolled coordinator")
+			}
+			for _, route := range p.SourceRoutes {
+				if route.SourceNodeID == r.ID && route.SSHDestination != metadata.Route.Target {
+					return p, errors.New("configured source route differs from actual outward pairing")
+				}
 			}
 			if metadata.HelperSHA256 == "" {
 				companionArtifact = &artifact
@@ -477,6 +499,8 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			continue
 		}
 		m := &NodeRoamingManagedDeployment{BotID: p.BotID, NodeID: r.ID, Backend: in.SourceTarget.Backend, AgentDirectory: filepath.Join(dir, "agent"), GenerationRoot: filepath.Join(dir, "generations"), AuthFile: filepath.Join(dir, "product.token"), WorkersFile: filepath.Join(dir, "workers.json"), BrokerNodeID: in.Coordinator.ID}
+		identity := p.CoordinatorIdentity
+		m.CoordinatorIdentity = &identity
 		if outgoing != nil {
 			// This alias belongs to the joined source's existing SSH configuration,
 			// independently of the APP's management route to the same coordinator.
@@ -540,7 +564,7 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 		if m.Backend == "caelis" {
 			m.Model = pref.Conversation.Model
 		}
-		p.Nodes = append(p.Nodes, roamingNativeNode{Registration: r, Plan: plan, HostHelper: helper, AgentSocket: nativeManagedSocket(*m), RuntimeBindings: bindings, Preferences: pref, CompanionArtifact: companionArtifact})
+		p.Nodes = append(p.Nodes, roamingNativeNode{Registration: r, Plan: plan, HostHelper: helper, AgentSocket: nativeManagedSocket(*m), RuntimeBindings: bindings, Preferences: pref, CompanionArtifact: companionArtifact, SourceMetadata: outgoing})
 		foundCoordinator = foundCoordinator || r.ID == in.Coordinator.ID
 		if r.ID == in.Coordinator.ID {
 			p.Coordinator = r
@@ -579,6 +603,11 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 				m.JoinSSHDestination = n.options.LocalSSHDestination
 				m.JoinHelper = host
 			}
+			for _, route := range p.SourceRoutes {
+				if route.SourceNodeID == x.Registration.ID {
+					m.JoinSSHDestination = route.SSHDestination
+				}
+			}
 		}
 		if _, e := strictRoamingSSH(m.JoinSSHDestination); e != nil {
 			return p, errors.New("existing outward SSH destination unavailable")
@@ -596,9 +625,11 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 	}
 	// Digest includes exact enrollment, helper bytes and closed native actions;
 	// no source snapshot/native thread/receipt changes the approval after fencing.
-	b, _ := json.Marshal(p)
-	h := sha256.Sum256(b)
-	p.ID = hex.EncodeToString(h[:])
+	p.SealVersion = 1
+	p.ID, e = nativeRoamingPlanDigest(p)
+	if e != nil {
+		return p, e
+	}
 	for i := range p.Nodes {
 		p.Nodes[i].Plan.PlanID = p.ID
 	}
@@ -665,6 +696,9 @@ func (n *roamingNativeAssembly) prepare(ctx context.Context, in NodeRoamingStage
 	if e != nil {
 		return backend.NodeRoamingPlan{}, e
 	}
+	if e = n.verifyFrozenSourceRoutes(ctx, p); e != nil {
+		return backend.NodeRoamingPlan{}, e
+	}
 	n.mu.Lock()
 	if n.plans == nil {
 		n.plans = map[string]roamingNativePlan{}
@@ -700,6 +734,9 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 	if !in.AllowPersistentExecution || in.ReviewedPlanID != p.ID {
 		return errors.New("review and confirm the exact node deployment plan before retiring the local profile")
 	}
+	if e = n.verifyFrozenSourceRoutes(ctx, p); e != nil {
+		return e
+	}
 	if e = validateNativeRoamingSockets(p); e != nil {
 		return e
 	}
@@ -729,11 +766,6 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 			return errors.New("native deployment private socket path exceeds platform limit")
 		}
 		if x.Registration.ID == api.LocalNodeID {
-			if m := x.Plan.Managed; m != nil && m.JoinSSHDestination != "" {
-				if e = runRoamingSSH(ctx, m.JoinSSHDestination, nodeShellQuote(m.JoinHelper)+" verify-join-directory --directory "+nodeShellQuote(p.Coordinator.Directory), nil); e != nil {
-					return errors.New("this machine's existing outward coordinator authorization unavailable")
-				}
-			}
 			continue
 		}
 		if x.Registration.Join == api.NodeOutgoing {
@@ -760,21 +792,6 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 		}
 		if !healthy && x.Plan.Managed.Backend != "caelis" {
 			return fmt.Errorf("node %s needs its own authenticated healthy selected Runtime", x.Registration.Label)
-		}
-		m := x.Plan.Managed
-		if m.JoinSSHDestination != "" {
-			args, e := strictRoamingSSH(m.JoinSSHDestination)
-			if e != nil {
-				return e
-			}
-			quoted := []string{"ssh"}
-			for _, arg := range args {
-				quoted = append(quoted, nodeShellQuote(arg))
-			}
-			quoted = append(quoted, nodeShellQuote(nodeShellQuote(m.JoinHelper)+" verify-join-directory --directory "+nodeShellQuote(p.Coordinator.Directory)))
-			if e = runRoamingSSH(ctx, x.Registration.SSHDestination, strings.Join(quoted, " "), nil); e != nil {
-				return fmt.Errorf("node %s existing outbound coordinator authorization unavailable", x.Registration.Label)
-			}
 		}
 	}
 	n.mu.Lock()
@@ -1055,7 +1072,13 @@ func boundedRoamingRetry(ctx context.Context, f func(context.Context) error) err
 	}
 }
 func nativeRoamingInputMatches(p roamingNativePlan, in NodeRoamingStageInput) bool {
+	if e := validateNativeRoamingSeal(p); e != nil {
+		return false
+	}
 	if !in.AllowPersistentExecution || in.ReviewedPlanID != p.ID || in.OperationID != p.OperationID || in.BotID != p.BotID || in.Coordinator.ID != p.Coordinator.ID || in.SourceTarget != (api.WorkTarget{NodeID: p.SourceNodeID, Backend: p.SourceBackend, Role: api.RoleBot}) {
+		return false
+	}
+	if !in.Resume && !nodeCoordinatorRouteEntriesEqual(p.SourceRoutes, in.SourceRoutes) {
 		return false
 	}
 	regs := append([]NodeRegistration(nil), in.Nodes...)
@@ -1196,6 +1219,10 @@ func (n *roamingNativeAssembly) stage(ctx context.Context, in NodeRoamingStageIn
 	return NodeRoamingStage{Broker: broker, Disable: s.disable, Close: s.close}, nil
 }
 func (n *roamingNativeAssembly) bootstrapSource(ctx context.Context, p roamingNativePlan, source nodeplane.RuntimeProofPort) (func(), error) {
+	target, helper, err := nativeRoamingBootstrapRoute(p)
+	if err != nil {
+		return nil, err
+	}
 	local := filepath.Join(p.LocalDirectory, "source-agent")
 	if e := nativeRoamingPrivateDir(local); e != nil {
 		return nil, e
@@ -1217,14 +1244,8 @@ func (n *roamingNativeAssembly) bootstrapSource(ctx context.Context, p roamingNa
 	done := make(chan error, 1)
 	go func() { done <- nodeagent.Serve(life, listener, agent) }()
 	if p.Coordinator.ID != api.LocalNodeID {
-		var helper string
-		for _, x := range p.Nodes {
-			if x.Registration.ID == p.Coordinator.ID {
-				helper = x.Registration.HelperPath
-			}
-		}
 		go func() {
-			_ = nodeagent.Join(life, nodeagent.SSHConfig{Target: p.Coordinator.SSHDestination}, helper, p.BootstrapDirectory, socket)
+			_ = nodeagent.Join(life, nodeagent.SSHConfig{Target: target}, helper, p.BootstrapDirectory, socket)
 		}()
 	}
 	return func() { cancel(); listener.Close(); <-done; _ = os.Remove(socket) }, nil
@@ -1674,6 +1695,9 @@ func readNativeRoamingPlan(filename string) (roamingNativePlan, error) {
 		if node.Plan.PlanID != p.ID || node.Plan.OperationID != p.OperationID || validateNativeSupervisor(node.Plan, filepath.Join(node.Plan.Directory, "supervisor.json")) != nil {
 			return p, errors.New("original native deployment pairing changed")
 		}
+	}
+	if e = validateNativeRoamingSeal(p); e != nil {
+		return p, e
 	}
 	return p, nil
 }

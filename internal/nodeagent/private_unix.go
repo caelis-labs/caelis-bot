@@ -9,6 +9,11 @@ import (
 	"syscall"
 )
 
+func privateFileOwnedByCurrentUser(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Uid == uint32(os.Geteuid())
+}
+
 // CheckPrivateDirectory never repairs permissions or adopts a shared directory.
 func CheckPrivateDirectory(path string) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {

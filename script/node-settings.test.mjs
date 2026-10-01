@@ -753,6 +753,49 @@ test('a coordinator draft stays cancellable when native roaming becomes enabled 
 // native authentication, installed Runtime or remote process acceptance.
 const flow=(stage='complete',sequence=1)=>({id:'original-flow',revision:`flow-${sequence}`,sequence,stage,title:'Node connection',message:'',installation:null,authorization:null,launchers:[],methods:[],models:[]});
 const enter=async(el,value)=>{assert.ok(el);await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));});};
+
+test('coordinator source route is an explicit scoped draft and saves through the supported product request',async()=>{
+ const calls=[],value=coordinatorCatalog();value.broker.sourceRoutes=[{sourceNodeId:'local',sshDestination:'source-original-coordinator'}];
+ const call=async(method,...args)=>{calls.push([method,...args]);return method==='NodeRoamingState'?roamingState():value;};
+ await mountCoordinator(call,value);
+ const field=container.querySelector('#node-coordinator-route-local');assert.equal(field.value,'source-original-coordinator');
+ for(let parent=field.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+ assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
+ assert.ok(calls.every(call=>!['PrepareNodeRoaming','EnableNodeRoaming','BeginNodeRuntimeConnection'].includes(call[0])));
+ await enter(field,'source-edited-coordinator');assert.equal(container.querySelector('#node-coordinator').disabled,true);
+ assert.equal(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})),false);
+ await click(buttons('Save')[0]);
+ assert.deepEqual(calls.filter(call=>call[0]==='SetNodeCoordinator').map(call=>call[1]),[{nodeId:'other',expectedRevision:'catalog-1',sourceRoutes:[{sourceNodeId:'local',sshDestination:'source-edited-coordinator'}]}]);
+ assert.equal(select('Node'),null);assert.equal(value.activeBotNodeId,'other');assert.equal(value.workerTarget.nodeId,'local');
+});
+
+test('coordinator source route cancel preserves original metadata and explicit clear sends an empty list',async()=>{
+ const calls=[],value=coordinatorCatalog();value.broker.sourceRoutes=[{sourceNodeId:'local',sshDestination:'source-original-coordinator'}];
+ const call=async(method,...args)=>{calls.push([method,...args]);return method==='NodeRoamingState'?roamingState():value;};
+ await mountCoordinator(call,value);
+ const field=container.querySelector('#node-coordinator-route-local');
+ for(let parent=field.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+ await enter(field,'discarded-source-draft');await click(buttons('Cancel')[0]);
+ assert.equal(field.value,'source-original-coordinator');assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
+ assert.equal(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})),true);
+ await enter(field,'');await click(buttons('Save')[0]);
+ assert.deepEqual(calls.filter(call=>call[0]==='SetNodeCoordinator').map(call=>call[1]),[{nodeId:'other',expectedRevision:'catalog-1',sourceRoutes:[]}]);
+});
+
+test('coordinator route draft keeps its original revision after refresh and cannot save while roaming becomes unknown',async()=>{
+ const calls=[],value=coordinatorCatalog();let native=roamingState();
+ const call=async(method,...args)=>{calls.push([method,...args]);if(method==='SetNodeCoordinator')throw Error('fixture stale revision');return method==='NodeRoamingState'?native:value;};
+ const owner=await mountCoordinator(call,value);
+ let field=container.querySelector('#node-coordinator-route-local');await enter(field,'original-source-draft');
+ const refreshed={...value,revision:'catalog-2'};
+ await act(async()=>root.render(React.createElement(NodeCoordinator,{catalog:refreshed,roaming:owner,call,onChanged:()=>{}})));
+ field=container.querySelector('#node-coordinator-route-local');await enter(field,'edited-source-draft');await click(buttons('Save')[0]);
+ assert.equal(calls.find(call=>call[0]==='SetNodeCoordinator')[1].expectedRevision,'catalog-1');assert.equal(field.value,'edited-source-draft');
+ native=roamingState({enabled:true,state:'unknown',outcome:'unknown'});await act(async()=>owner.read());
+ assert.equal(field.disabled,true);assert.equal(buttons('Save')[0].disabled,true);
+ await enter(field,'unapproved-late-edit');assert.equal(field.value,'edited-source-draft');await click(buttons('Save')[0]);
+ assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,1);
+});
 const enrollmentResult=(operationId,outcome='unknown',reason='unknown')=>({operationId,outcome,reason,node:{id:outcome==='committed'?'enrolled-original':'',label:'Fixture',os:'linux',join:'ssh',runtimes:[]},joinInstructions:null});
 
 test('enrollment client admits one original ID and receipt reads never resend Add',async()=>{

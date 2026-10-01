@@ -35,6 +35,7 @@ func TestNativeRoamingPlanBindsApprovalAndChangesWithoutEffects(t *testing.T) {
 		t.Fatal(e)
 	}
 	n := &roamingNativeAssembly{app: a, options: NodeRoamingNativeOptions{Host: func() (string, error) { return helper, nil }}}
+	n.original = nativeLocalEnrollmentManagementFixture(t)
 	local := NodeRegistration{ID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal}
 	in := NodeRoamingStageInput{BotID: "bot-fixture", OperationID: "original-enable", Coordinator: local, Nodes: []NodeRegistration{local}, SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleBot}}
 	p, e := n.prepare(t.Context(), in)
@@ -238,6 +239,7 @@ func TestNativeRoamingFrozenInputAndOriginalRecovery(t *testing.T) {
 		t.Fatal(e)
 	}
 	n := &roamingNativeAssembly{app: a, options: NodeRoamingNativeOptions{Host: func() (string, error) { return helper, nil }}}
+	n.original = nativeLocalEnrollmentManagementFixture(t)
 	local := NodeRegistration{ID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal}
 	in := NodeRoamingStageInput{BotID: "bot-fixture", OperationID: "original-enable", Coordinator: local, Nodes: []NodeRegistration{local}, SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleBot}}
 	summary, e := n.prepare(t.Context(), in)
@@ -647,6 +649,11 @@ func TestDefaultNativeRecoverDisableBeforeDispatchObservesOriginalStage(t *testi
 		t.Fatal(e)
 	}
 	saved := roamingNativePlan{ID: id, OperationID: plan.OperationID, BotID: ref.BotID, SourceNodeID: api.LocalNodeID, SourceBackend: "codex", Coordinator: local, Enrollment: []NodeRegistration{local}, Phase: "owners-ready", Nodes: []roamingNativeNode{{Registration: local, Plan: plan, HostHelper: plan.Helper, AgentSocket: agentSocket}}}
+	sealNativeRecoveryFixture(t, &saved)
+	id, plan = saved.ID, saved.Nodes[0].Plan
+	if e = nodeagent.WriteManagedPrivateJSON(filepath.Join(owned, "supervisor.json"), plan); e != nil {
+		t.Fatal(e)
+	}
 	manifest := filepath.Join(a.root, "nodeplane", "roaming-deployment.json")
 	if e = os.MkdirAll(filepath.Dir(manifest), 0700); e != nil {
 		t.Fatal(e)
@@ -743,6 +750,11 @@ func TestDefaultNativeDisableRecoveryFromPreparedColdGeneration(t *testing.T) {
 	}
 	local := NodeRegistration{ID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal}
 	saved := roamingNativePlan{ID: id, OperationID: plan.OperationID, BotID: ref.BotID, SourceNodeID: api.LocalNodeID, SourceBackend: "codex", Coordinator: local, Enrollment: []NodeRegistration{local}, Nodes: []roamingNativeNode{{Registration: local, Plan: plan, HostHelper: plan.Helper}}, Phase: "local-prepared", RestoreDirectory: restore, RestoredSnapshot: ref, DisableOperationID: "disable-original", DisableLease: nodeplane.Lease{BotID: ref.BotID, NodeID: api.LocalNodeID, Backend: api.NodeCodex, Epoch: ref.Epoch}}
+	sealNativeRecoveryFixture(t, &saved)
+	id, plan = saved.ID, saved.Nodes[0].Plan
+	if e = localstate.Write(filename, plan); e != nil {
+		t.Fatal(e)
+	}
 	if e = nodeagent.WriteManagedPrivateJSON(filepath.Join(a.root, "nodeplane", "roaming-deployment.json"), saved); e != nil {
 		t.Fatal(e)
 	}
