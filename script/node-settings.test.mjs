@@ -81,7 +81,7 @@ test('node/backend switches preserve Bot owner and exact Worker; no activation i
 });
 test('open model draft blocks node/backend change; cancel preserves keyboard focus',async()=>{
  await mount(defaultInvoke);
- const picker=container.querySelector('button.runtime-model-summary');picker.focus();
+ const picker=container.querySelector('button.runtime-model-summary');picker.closest('details').open=true;picker.focus();
  await click(picker);
  const dialog=container.querySelector('[role="dialog"]');assert.ok(dialog);assert.equal(document.activeElement,dialog);
  const radio=dialog.querySelectorAll('input[type="radio"]')[1];await click(radio);assert.equal(radio.checked,true);
@@ -152,7 +152,7 @@ test('failed detection after node selection cannot replace the new node health o
  assert.equal(select('Node').value,'other');assert.doesNotMatch(container.textContent,/old node failed|node list could not be refreshed/);
 });
 test('dialog Tab wraps within enabled controls and Escape returns focus to its opener',async()=>{
- await mount(defaultInvoke);const picker=container.querySelector('button.runtime-model-summary');picker.focus();await click(picker);
+ await mount(defaultInvoke);const picker=container.querySelector('button.runtime-model-summary');picker.closest('details').open=true;picker.focus();await click(picker);
  const dialog=container.querySelector('[role="dialog"]');
  // jsdom has no layout. This marks test controls as visible for the existing
  // focus algorithm; it does not assert screen geometry or native GUI layout.
@@ -172,8 +172,8 @@ test('install confirmation owns every Tab and Escape ahead of the production Set
  window.addEventListener('keydown',parentKey);
  try{
   await mount(async(method,...args)=>{calls.push([method,...args]);return method==='NodeCatalog'?catalog():{...config(...args),installation:{installed:false,version:'',latestVersion:'2.0'}};});
-  const version=container.querySelector('#node-program-version');await choose(version,'2.0');
-  const opener=buttons('Install managed copy')[0];opener.focus();await click(opener);
+  const version=container.querySelector('#node-program-version');version.closest('details').open=true;await choose(version,'2.0');
+  const opener=buttons('Install managed copy')[0];select('Node').focus();assert.notEqual(document.activeElement,opener);await click(opener);
   const dialog=container.querySelector('[role="dialog"]');visibleControls(dialog);
   const controls=[...dialog.querySelectorAll('button')];assert.equal(controls.length,3);
   assert.equal(document.activeElement,dialog);
@@ -194,6 +194,42 @@ test('install confirmation owns every Tab and Escape ahead of the production Set
   await press(opener,'Escape',{repeat:true});assert.equal(closedSettings,0);
   await press(opener,'Escape');assert.equal(closedSettings,1);
  }finally{window.removeEventListener('keydown',parentKey);}
+});
+
+for(const prior of ['body','other-control'])for(const close of ['Escape','Cancel'])test(`install mouse trigger returns focus without prefocusing it (${prior}, ${close})`,async()=>{
+ const calls=[];
+ await mount(async(method,...args)=>{calls.push([method,...args]);return method==='NodeCatalog'?catalog():{...config(...args),installation:{installed:false,version:'',latestVersion:'2.0'}};});
+ const version=container.querySelector('#node-program-version');version.closest('details').open=true;await choose(version,'2.0');
+ if(prior==='body'){document.activeElement.blur();assert.equal(document.activeElement,document.body);}else select('Execution backend').focus();
+ const opener=buttons('Install managed copy')[0];assert.notEqual(document.activeElement,opener);
+ await click(opener);const dialog=container.querySelector('[role="dialog"]');assert.equal(document.activeElement,dialog);
+ if(close==='Escape')await press(dialog,'Escape');else await click([...dialog.querySelectorAll('button')].find(button=>button.textContent==='Cancel'));
+ assert.equal(container.querySelector('[role="dialog"]'),null);assert.ok(document.activeElement===opener,'actual install mouse trigger receives focus after dismissal');
+ assert.equal(version.value,'2.0');assert.equal(container.querySelector('[inert]'),null);
+ assert.equal(calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,0);
+});
+
+for(const unavailable of ['removed','disabled','hidden','inert','collapsed-programs'])test(`install modal returns to its visible program summary when its mouse trigger is ${unavailable}`,async()=>{
+ const calls=[];
+ await mount(async(method,...args)=>{calls.push([method,...args]);return method==='NodeCatalog'?catalog():{...config(...args),installation:{installed:false,version:'',latestVersion:'2.0'}};});
+ const version=container.querySelector('#node-program-version'),programs=version.closest('details'),summary=programs.querySelector('summary');
+ programs.open=true;await choose(version,'2.0');select('Node').focus();
+ const opener=buttons('Install managed copy')[0];await click(opener);
+ if(unavailable==='removed')opener.remove();else if(unavailable==='disabled')opener.disabled=true;else if(unavailable==='hidden')opener.hidden=true;else if(unavailable==='inert')opener.setAttribute('inert','');else programs.open=false;
+ await press(container.querySelector('[role="dialog"]'),'Escape');
+ assert.ok(document.activeElement===summary,'visible program summary receives fallback focus');assert.equal(summary.closest('[inert],[hidden]'),null);
+ assert.notEqual(window.getComputedStyle(summary).display,'none');assert.equal(version.value,'2.0');
+ assert.equal(calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,0);
+});
+
+test('install return focus skips a preexisting accessibility-hidden fallback',async()=>{
+ await mount(async(method,...args)=>method==='NodeCatalog'?catalog():{...config(...args),installation:{installed:false,version:'',latestVersion:'2.0'}});
+ const version=container.querySelector('#node-program-version'),programs=version.closest('details'),summary=programs.querySelector('summary');
+ programs.open=true;summary.setAttribute('aria-hidden','true');await choose(version,'2.0');
+ const prior=select('Node');prior.focus();const opener=buttons('Install managed copy')[0];await click(opener);opener.disabled=true;
+ await press(container.querySelector('[role="dialog"]'),'Escape');
+ assert.equal(document.activeElement,prior);assert.equal(summary.getAttribute('aria-hidden'),'true');
+ assert.equal(version.value,'2.0');assert.equal(container.querySelector('[inert]'),null);
 });
 
 test('explicit modal traversal preserves the selected model radio as one Tab stop',async()=>{
@@ -873,6 +909,31 @@ test('confirmed pre-start rejection stays explanatory and permits only a later e
  await click(buttons('Add connection')[0]);
  const begins=calls.filter(call=>call[0]==='BeginNodeRuntimeConnection');
  assert.equal(begins.length,2);assert.notEqual(begins[0][2],begins[1][2]);
+});
+
+test('connection progress and rejection stay beside Add connection without moving focus or duplicating feedback',async()=>{
+ const calls=[],begin=deferred();
+ await mount(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return coldCatalog();
+  if(method==='NodeRuntimeConfiguration')return coldConfig(...args);
+  if(method==='BeginNodeRuntimeConnection')return begin.promise;
+  throw new Error('Unexpected fixture method');
+ });
+ const trigger=buttons('Add connection')[0],row=trigger.closest('.runtime-section-title');select('Node').focus();const prior=document.activeElement;
+ await click(trigger);
+ let feedback=row.nextElementSibling;
+ assert.equal(feedback.getAttribute('role'),'status');assert.equal(feedback.textContent,translator('en').t('connections.preparing'));
+ assert.equal(document.activeElement,prior);
+ assert.equal([...container.querySelectorAll('[role="status"]')].filter(element=>element.textContent===feedback.textContent).length,1);
+ await act(async()=>begin.reject(new Error('node connection begin-rejected')));
+ feedback=row.nextElementSibling;
+ assert.equal(feedback.getAttribute('role'),'alert');assert.equal(feedback.textContent,translator('en').t('settings.nodeConnectionSetupUnavailable'));
+ assert.equal(document.activeElement,prior);assert.equal(container.querySelector('[role="dialog"]'),null);
+ assert.equal([...container.querySelectorAll('[role="alert"]')].filter(element=>element.textContent===feedback.textContent).length,1);
+ assert.ok(feedback.compareDocumentPosition(container.querySelector('.runtime-page-footer'))&Node.DOCUMENT_POSITION_FOLLOWING);
+ assert.equal(calls.filter(call=>call[0]==='BeginNodeRuntimeConnection').length,1);
+ assert.equal(calls.filter(call=>['StartNodeRuntimeConnection','CloseNodeRuntimeConnection','ChangeNodeConfiguration','ActivateRuntime'].includes(call[0])).length,0);
 });
 
 test('lost pre-start rejection remains blocked until Close confirms the original reference',async()=>{

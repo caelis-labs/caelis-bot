@@ -19,8 +19,18 @@ function restoreBackground(element:HTMLElement){
 }
 const activeModal=()=>modals.reduce<(typeof modals)[number]|undefined>((top,modal)=>top&&modal.element.contains(top.element)?top:modal,undefined);
 const topModal=()=>activeModal()?.element;
+function canRestoreFocus(element:HTMLElement|null|undefined){
+ if(!element?.isConnected||element.matches(':disabled,[aria-disabled="true"]')||element.closest('[inert],[hidden],[aria-hidden="true"]'))return false;
+ if(!element.matches('button,input,select,textarea,summary,a[href],[tabindex],[contenteditable="true"]'))return false;
+ for(let parent:HTMLElement|null=element;parent;parent=parent.parentElement){
+  const style=window.getComputedStyle(parent);
+  if(style.display==='none'||style.visibility==='hidden'||style.visibility==='collapse')return false;
+  if(parent.tagName==='DETAILS'&&!parent.hasAttribute('open')&&!parent.querySelector(':scope > summary')?.contains(element))return false;
+ }
+ return true;
+}
 
-export function SettingsDialog({ title, description, busy = false, onClose, children, className = '' }: { title: string; description?: string; busy?: boolean; onClose: () => void; children: ReactNode; className?: string }) {
+export function SettingsDialog({ title, description, busy = false, onClose, children, className = '',returnFocus,fallbackFocus }: { returnFocus?:HTMLElement|null; fallbackFocus?:HTMLElement|null; title: string; description?: string; busy?: boolean; onClose: () => void; children: ReactNode; className?: string }) {
  const { t } = useI18n();
  const titleID = useId(), ref = useRef<HTMLElement>(null),current=useRef({busy,onClose});current.current={busy,onClose};
  useLayoutEffect(() => {
@@ -71,7 +81,7 @@ export function SettingsDialog({ title, description, busy = false, onClose, chil
    const wasTop=topModal()===dialog;
    observer.disconnect();window.removeEventListener('keydown',key,true);document.removeEventListener('focusin',focus,true);window.removeEventListener('settings-navigate',guard);
    modals.splice(modals.indexOf(modal),1);blocked.forEach(restoreBackground);activeModal()?.refresh();
-   if(wasTop){const target=prior?.isConnected&&!prior.closest('[inert]')?prior:topModal();target?.focus({preventScroll:true});}
+   if(wasTop){const target=[returnFocus,fallbackFocus,prior,topModal()].find(canRestoreFocus);target?.focus({preventScroll:true});}
   };
  }, []);
  return <div className="setup-scrim runtime-dialog-scrim" onPointerDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
