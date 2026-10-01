@@ -3,15 +3,65 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
+
+func TestSelectedWorkerFlagsKeepExactUppercaseEnrollmentIdentity(t *testing.T) {
+	const id = "node-U2LZFVZMQOXHDBB4V3BEVGPWKI"
+	var selected selectedWorkers
+	for _, driver := range []string{"codex", "caelis"} {
+		if err := selected.Set(id + "/" + driver); err != nil {
+			t.Fatal("production-shaped enrolled ID rejected", err)
+		}
+	}
+	root := t.TempDir()
+	document := struct {
+		Version int                        `json:"version"`
+		Nodes   []backend.WorkerNodeConfig `json:"nodes"`
+	}{Version: 1}
+	for _, target := range selected {
+		if target.NodeID != id || target.Role != api.RoleWorker {
+			t.Fatal("selection normalized enrolled identity", target)
+		}
+		document.Nodes = append(document.Nodes, backend.WorkerNodeConfig{ID: id, Label: "Enrolled Worker", Backend: target.Backend, Transport: "registered-agent"})
+	}
+	b, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "worker-nodes.json"), b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.ValidateConfiguredWorkerTargets(root, selected); err != nil {
+		t.Fatal("selected native identity disagrees with saved Worker", err)
+	}
+	var lower selectedWorkers
+	if err := lower.Set(strings.ToLower(id) + "/codex"); err != nil {
+		t.Fatal(err)
+	}
+	if app.ValidateConfiguredWorkerTargets(root, lower) == nil {
+		t.Fatal("case-folded flag selected original enrolled Worker")
+	}
+	if selected.Set(id+"/codex") == nil {
+		t.Fatal("duplicate original selection accepted")
+	}
+	for _, value := range []string{"node/ESCAPE/codex", "node..ESCAPE/codex", "node_ESCAPE/codex", "-node/codex", "local/codex", strings.Repeat("A", 65) + "/codex"} {
+		var bad selectedWorkers
+		if bad.Set(value) == nil {
+			t.Fatal("unsafe or reserved selection accepted", value)
+		}
+	}
+}
 
 type startupFixture struct {
 	snapshot                             backend.WorkerNodeSetup
