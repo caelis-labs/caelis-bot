@@ -62,10 +62,20 @@ func (s *Session) FenceOwnedForBootstrap(ctx context.Context) error { return s.f
 func (s *Session) OwnsLiveRuntime() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.client == nil || s.client.rpc.stop == nil || s.client.Err() != nil {
+	return s.ownsLiveRuntimeLocked()
+}
+
+// The caller holds s.mu. Ownership comes from retained native handles, never
+// from installation, authentication, an endpoint or a configured settings flag.
+func (s *Session) ownsLiveRuntimeLocked() bool {
+	if !s.liveRuntimeLocked() || s.client.rpc.stop == nil {
 		return false
 	}
 	_, freezes := s.client.rpc.conn.(interface{ freezeOwned() error })
 	_, kills := s.client.rpc.conn.(interface{ forceKillOwned() error })
 	return freezes && kills
+}
+
+func (s *Session) liveRuntimeLocked() bool {
+	return !s.closed && !s.closing && s.client != nil && s.client.Err() == nil
 }

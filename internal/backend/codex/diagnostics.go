@@ -26,6 +26,13 @@ func (s *Session) DiagnosticStatus() map[string]any {
 			transport = "disconnected"
 		}
 	}
+	owned := s.ownsLiveRuntimeLocked()
+	terminalAvailable := false
+	if s.liveRuntimeLocked() {
+		endpoint, ok := s.client.rpc.conn.(interface{ terminalEndpoint() string })
+		terminalAvailable = ok && endpoint.terminalEndpoint() != ""
+	}
 	return map[string]any{"transport": transport, "bound": s.bound, "pendingSubmission": s.binding.Pending != nil, "errorLog": s.opts.Diagnostics.Status(),
-		"ownedWorkers": len(s.children), "activeWorkers": len(s.childRuns), "pagedHistory": s.historyPaged, "schemaBaseline": TestedVersion}
+		"ownedWorkers": len(s.children), "activeWorkers": len(s.childRuns), "pagedHistory": s.historyPaged, "schemaBaseline": TestedVersion,
+		"ownsLiveRuntime": owned, "fenceable": owned && OwnedRuntimeSupported(), "terminalEndpointAvailable": terminalAvailable}
 }
