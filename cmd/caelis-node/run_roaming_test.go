@@ -340,6 +340,10 @@ func testManagedForeground(t *testing.T, disable, startManaged bool) {
 		if e != nil || final.Version != "2" || final.Epoch != lease.Epoch {
 			t.Fatalf("closed native disable %+v %v", final, e)
 		}
+		durable, e := agentClient.ReconcileManagedDisable(ctx, request)
+		if e != nil || durable.Outcome != "accepted" || durable.Snapshot != final {
+			t.Fatalf("durable native disable %+v %v", durable, e)
+		}
 		repeated, e := agentClient.PrepareManagedDisable(ctx, request)
 		if e != nil || repeated != final {
 			t.Fatalf("disable original receipt %+v %v", repeated, e)

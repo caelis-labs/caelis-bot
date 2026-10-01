@@ -21,7 +21,7 @@ import (
 )
 
 func allowed(method, path string) bool {
-	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/managed-product" || path == "/v1/node/managed-disable" || path == "/v1/node/managed-status" || path == "/v1/node/managed-start" || path == "/v1/node/managed-product-proxy")
+	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/managed-product" || path == "/v1/node/managed-disable" || path == "/v1/node/managed-status" || path == "/v1/node/managed-start" || path == "/v1/node/managed-product-proxy" || path == "/v1/node/managed-disable-receipt")
 }
 func strictDecode(r io.Reader, v any) error {
 	d := json.NewDecoder(io.LimitReader(r, productrpc.MaxCommandBytes+1))
@@ -127,6 +127,18 @@ func Handler(agent nodeplane.CatalogAgent) http.Handler {
 				return
 			}
 			value, err = port.ProxyManagedProduct(r.Context(), input)
+		case "/v1/node/managed-disable-receipt":
+			var input ManagedDisableRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedProductPort)
+			if !ok {
+				http.Error(w, "managed receipt unavailable", 503)
+				return
+			}
+			value, err = port.ReconcileManagedDisable(r.Context(), input)
 		case "/v1/node/manage":
 			var input nodeplane.ManagementRequest
 			if strictDecode(r.Body, &input) != nil {

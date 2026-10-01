@@ -370,3 +370,14 @@ func (c *Client) StartManagedRoaming(ctx context.Context, r ManagedStartRequest)
 	}
 	return result, err
 }
+
+func (m *ManagedStarter) ReconcileManagedDisable(ctx context.Context, r ManagedDisableRequest) (ManagedDisableReceipt, error) {
+	if r.Target.NodeID != m.config.NodeID {
+		return ManagedDisableReceipt{}, errors.New("managed receipt node mismatch")
+	}
+	journal, err := OpenManagedDisableJournal(filepath.Join(m.config.Directory, "managed-control.json"), m.config.NodeID, r.Lease.BotID)
+	if err != nil {
+		return ManagedDisableReceipt{}, err
+	}
+	return journal.Lookup(ctx, r)
+}
