@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -23,6 +24,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/nodebroker"
 	"github.com/caelis-labs/caelis-bot/internal/nodecoord"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
 
 func TestNativeRoamingPlanBindsApprovalAndChangesWithoutEffects(t *testing.T) {
@@ -416,6 +418,256 @@ func TestDefaultNativeCatalogueAfterDisableKeepsTopologyAndNextPlan(t *testing.T
 	}
 }
 
+func TestDefaultNativeCatalogueReconnectsExactStagePeerAfterDisable(t *testing.T) {
+	f := roamingControlFixture(t)
+	if _, e := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); e != nil {
+		t.Fatal(e)
+	}
+	defaults := DefaultNodeRoamingOptions(f.a)
+	assembly := defaults.RefreshNodeManagement.LocalAgent.(roamingManagedCatalog).assembly
+	remote := singleNodeFixture("node-fixture")
+	remote.catalog.Revision = strings.Repeat("a", 64)
+	local := singleNodeFixture(api.LocalNodeID)
+	local.catalog.Revision = strings.Repeat("b", 64)
+	for _, fixture := range []*nodeManagementFixture{local, remote} {
+		fixture.catalog.Nodes[0].Runtimes = append(fixture.catalog.Nodes[0].Runtimes, api.NodeRuntime{Backend: api.NodeCodex, Authentication: api.NodeAuthenticated, Health: api.NodeHealthy, Roles: []api.NodeRoleCapability{{Role: api.RoleBot, Eligible: true}, {Role: api.RoleWorker, Eligible: true}}})
+	}
+	dial := func(id string, agent nodeplane.CatalogAgent) *nodeagent.Client {
+		left, right := net.Pipe()
+		go func() {
+			defer right.Close()
+			_ = productrpc.ServeNativeStream(t.Context(), right, right, nodeagent.Handler(agent), func(method, path string) bool { return method == http.MethodGet && path == "/v1/node/catalog" })
+		}()
+		client, e := nodeagent.NewClient(id, left)
+		if e != nil {
+			t.Fatal(e)
+		}
+		t.Cleanup(func() { _ = client.Close() })
+		return client
+	}
+	peer := dial("node-fixture", remote)
+	dir, e := os.MkdirTemp("/tmp", "nr-peer-")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer os.RemoveAll(dir)
+	dir, e = filepath.EvalSymlinks(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	listener, e := net.Listen("unix", filepath.Join(dir, "broker.sock"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer listener.Close()
+	if e = os.Chmod(filepath.Join(dir, "broker.sock"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	broker, e := nodebroker.DialUnix(filepath.Join(dir, "broker.sock"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	session := &roamingNativeSession{assembly: assembly, broker: broker, peers: map[string]*nodeagent.Client{"node-fixture": peer, api.LocalNodeID: dial(api.LocalNodeID, local)}}
+	assembly.sessions[broker] = session
+	f.c.stage.Close = session.close
+	refresh := *defaults.RefreshNodeManagement
+	// Keep the real default catalogue/local-generation wrapper, substituting
+	// only the existing SSH stream transport with contained native IPC.
+	fallbacks := 0
+	refresh.Dial = func(ctx context.Context, reg NodeRegistration) (nodeplane.CatalogAgent, error) {
+		if existing, e := assembly.managementPeer(ctx, reg.ID); e == nil {
+			return existing, nil
+		}
+		if assembly.freshLocal() == nil || reg.ID != "node-fixture" || reg.SSHDestination != "fixture-target" {
+			return nil, errors.New("original enrolled fresh-local route unavailable")
+		}
+		fallbacks++
+		return dial(reg.ID, remote), nil
+	}
+	// Broker liveness is exercised separately; this fixture's socket is only
+	// the stage observer being detached.
+	refresh.ExecutionState = func() (string, *api.WorkTarget) {
+		if assembly.freshLocal() != nil {
+			return api.LocalNodeID, nil
+		}
+		return "node-fixture", nil
+	}
+	refresh.BrokerStatus = nil
+	if e = AttachNodeManagement(f.a, refresh); e != nil {
+		t.Fatal(e)
+	}
+	if e = f.a.Backend.ConfigureNodeRoaming(f.c); e != nil {
+		t.Fatal(e)
+	}
+	catalog, e := f.a.Backend.NodeCatalog(t.Context())
+	if e != nil || len(catalog.Nodes) != 2 || len(catalog.Nodes[1].Runtimes) == 0 || fallbacks != 0 {
+		t.Fatal("active catalogue did not cache original paired peer", catalog, e, fallbacks)
+	}
+	controller, _ := backend.NativeNodeManagementController(f.a.Backend)
+	native := controller.(*nodeManagement).agent.(*nativeNodeManagement)
+	if native.clients["node-fixture"] != peer {
+		t.Fatal("fixture did not cache the exact stage client")
+	}
+	request := controlRequest("disable-original")
+	request.ExpectedCatalogRevision = catalog.Revision
+	if _, e = f.a.Backend.DisableNodeRoaming(t.Context(), request); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = peer.Catalog(t.Context()); e == nil {
+		t.Fatal("stage detach left original observation client open")
+	}
+	catalog, e = f.a.Backend.NodeCatalog(t.Context())
+	if e != nil || len(catalog.Nodes) != 2 || len(catalog.Nodes[1].Runtimes) == 0 || fallbacks != 1 || native.clients["node-fixture"] == peer {
+		t.Fatal("fresh local catalogue did not reconnect exact enrollment", catalog, e, fallbacks)
+	}
+	request = controlRequest("enable-next")
+	request.ExpectedCatalogRevision = catalog.Revision
+	state, e := f.a.Backend.EnableNodeRoaming(t.Context(), request)
+	if e != nil || !state.Enabled || f.staged.Load() != 2 {
+		t.Fatal("next enable could not use reconnected remote catalogue", state, e)
+	}
+}
+
+type nativeRecoveryProofFunc func(context.Context, api.WorkTarget) (nodeplane.RuntimeEligibility, error)
+
+func (f nativeRecoveryProofFunc) ReadRuntimeProof(ctx context.Context, target api.WorkTarget) (nodeplane.RuntimeEligibility, error) {
+	return f(ctx, target)
+}
+
+func TestDefaultNativeRecoverDisableBeforeDispatchObservesOriginalStage(t *testing.T) {
+	dir, e := os.MkdirTemp("/tmp", "nr-recover-")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer os.RemoveAll(dir)
+	dir, e = filepath.EvalSymlinks(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	a := nativeManagementApplication(t)
+	a.root = filepath.Join(dir, "app")
+	source := filepath.Join(dir, "source")
+	if e = os.MkdirAll(filepath.Join(source, "Notebook"), 0700); e != nil {
+		t.Fatal(e)
+	}
+	if e = localstate.Write(filepath.Join(source, "bot.json"), map[string]any{"version": 1, "personalVersion": 1, "id": "bot-fixture", "schedules": []any{}}); e != nil {
+		t.Fatal(e)
+	}
+	if e = localstate.Write(filepath.Join(source, "bot-initialization.json"), map[string]any{"version": 1, "id": "intro-original", "status": "accepted", "runtime": "codex"}); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(filepath.Join(source, "Notebook", "MEMORY.md"), []byte("# Complete fixture\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	payload, seed, e := memorytransfer.ExportNotebook(t.Context(), memorytransfer.NotebookExportOptions{Source: source, SourceStopped: true, Epoch: "0", Version: "1"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	owned := filepath.Join(dir, "owned")
+	coordinator, e := nodecoord.Open(nodecoord.Options{Directory: filepath.Join(owned, "broker"), BrokerNodeID: api.LocalNodeID, BotID: seed.BotID, ValidateSnapshot: memorytransfer.ValidateNotebookPayload, Verify: func(context.Context, nodeplane.ClaimRequest) error { return nil }})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer coordinator.Close()
+	if e = coordinator.SeedSnapshot(t.Context(), seed, payload); e != nil {
+		t.Fatal(e)
+	}
+	target := api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleBot}
+	lease, e := coordinator.Claim(t.Context(), nodeplane.ClaimRequest{BotID: seed.BotID, Target: target, Snapshot: seed, Proof: nodeplane.RuntimeProof{NodeID: api.LocalNodeID, Backend: api.NodeCodex, Epoch: "native-original", Controllable: true}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	payload, ref, e := memorytransfer.ExportNotebook(t.Context(), memorytransfer.NotebookExportOptions{Source: source, SourceStopped: true, Epoch: lease.Epoch, Version: "2"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = coordinator.PublishSnapshot(t.Context(), lease, ref, payload); e != nil {
+		t.Fatal(e)
+	}
+	brokerSocket := filepath.Join(owned, "broker.sock")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ready := make(chan struct{})
+	brokerDone := make(chan error, 1)
+	go func() { brokerDone <- nodebroker.ServeUnix(ctx, brokerSocket, coordinator, func() { close(ready) }) }()
+	select {
+	case <-ready:
+	case e := <-brokerDone:
+		t.Fatal(e)
+	case <-time.After(3 * time.Second):
+		t.Fatal("contained broker readiness exceeded")
+	}
+	unknown := false
+	if e = os.MkdirAll(filepath.Join(owned, "agent"), 0700); e != nil {
+		t.Fatal(e)
+	}
+	agent, e := nodeagent.New(nodeagent.Options{Directory: filepath.Join(owned, "agent"), NodeID: api.LocalNodeID, RuntimeOwner: nativeRecoveryProofFunc(func(_ context.Context, got api.WorkTarget) (nodeplane.RuntimeEligibility, error) {
+		if got != target {
+			return nodeplane.RuntimeEligibility{}, errors.New("owner scope changed")
+		}
+		return nodeplane.RuntimeEligibility{Proof: nodeplane.RuntimeProof{NodeID: api.LocalNodeID, Backend: api.NodeCodex, Epoch: "native-original", Controllable: true}, Snapshot: ref, LeaseEpoch: lease.Epoch, Pending: true, Unknown: unknown}, nil
+	})})
+	if e != nil {
+		t.Fatal(e)
+	}
+	agentSocket := filepath.Join(owned, "agent.sock")
+	listener, e := net.Listen("unix", agentSocket)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer listener.Close()
+	if e = os.Chmod(agentSocket, 0600); e != nil {
+		t.Fatal(e)
+	}
+	go func() { _ = nodeagent.Serve(ctx, listener, agent) }()
+	local := NodeRegistration{ID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal}
+	id := strings.Repeat("a", 64)
+	plan := NodeRoamingSupervisorPlan{Version: 1, PlanID: id, OperationID: "enable-original", NodeID: api.LocalNodeID, Helper: "/fixed/verified-helper", HelperSHA256: strings.Repeat("b", 64), Directory: owned, Broker: &NodeRoamingBrokerDeployment{BotID: ref.BotID, NodeID: api.LocalNodeID, Profile: filepath.Join(owned, "broker"), Socket: brokerSocket, PeersFile: filepath.Join(owned, "peers.json"), BootstrapPeersFile: filepath.Join(owned, "bootstrap.json")}, Managed: &NodeRoamingManagedDeployment{BotID: ref.BotID, NodeID: api.LocalNodeID, Backend: "codex", AgentDirectory: filepath.Join(owned, "agent"), GenerationRoot: filepath.Join(owned, "generations"), AuthFile: filepath.Join(owned, "token"), BrokerNodeID: api.LocalNodeID, BrokerSocket: brokerSocket}}
+	if e = nodeagent.WriteManagedPrivateJSON(filepath.Join(owned, "supervisor.json"), plan); e != nil {
+		t.Fatal(e)
+	}
+	saved := roamingNativePlan{ID: id, OperationID: plan.OperationID, BotID: ref.BotID, SourceNodeID: api.LocalNodeID, SourceBackend: "codex", Coordinator: local, Enrollment: []NodeRegistration{local}, Phase: "owners-ready", Nodes: []roamingNativeNode{{Registration: local, Plan: plan, HostHelper: plan.Helper, AgentSocket: agentSocket}}}
+	manifest := filepath.Join(a.root, "nodeplane", "roaming-deployment.json")
+	if e = os.MkdirAll(filepath.Dir(manifest), 0700); e != nil {
+		t.Fatal(e)
+	}
+	if e = nodeagent.WriteManagedPrivateJSON(manifest, saved); e != nil {
+		t.Fatal(e)
+	}
+	original, _ := os.ReadFile(manifest)
+	input := NodeRoamingRecoveryInput{OperationID: "disable-original", StageOperationID: saved.OperationID, OperationKind: "disable", Phase: "quiescing", SourceRetiredIntent: true, StageInput: NodeRoamingStageInput{ReviewedPlanID: id, BotID: ref.BotID, Coordinator: local, Nodes: []NodeRegistration{local}, SourceTarget: target, AllowPersistentExecution: true}}
+	options := DefaultNodeRoamingOptions(a)
+	for _, phase := range []string{"quiescing", "active"} {
+		input.Phase = phase
+		result, e := options.Recover(t.Context(), input)
+		if e != nil || result.OperationID != input.OperationID || result.Outcome != "rejected" || result.Phase != "active" || !validRoamingStage(result.Stage) || result.Local != nil {
+			t.Fatal("original pre-dispatch disable was not read-only rejected", result, e)
+		}
+		result.Stage.Close()
+	}
+	after, _ := os.ReadFile(manifest)
+	if string(after) != string(original) {
+		t.Fatal("recovery rewrote native execution intent")
+	}
+	if _, e = os.Lstat(filepath.Join(owned, "deployment-state.json")); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("recovery dispatched a supervisor mutation", e)
+	}
+	unknown = true
+	result, e := options.Recover(t.Context(), input)
+	if e == nil || result.Outcome != "unknown" || validRoamingStage(result.Stage) {
+		t.Fatal("unconfirmed actual owner was adopted", result, e)
+	}
+	unknown = false
+	saved.DisableOperationID = input.OperationID
+	if e = nodeagent.WriteManagedPrivateJSON(manifest, saved); e != nil {
+		t.Fatal(e)
+	}
+	result, e = options.Recover(t.Context(), input)
+	if e == nil || result.Outcome != "unknown" {
+		t.Fatal("recorded native disable was treated as undispatched", result, e)
+	}
+}
+
 func TestDefaultNativeDisableRecoveryFromPreparedColdGeneration(t *testing.T) {
 	a := nativeManagementApplication(t)
 	if e := os.Chmod(a.root, 0700); e != nil {
@@ -516,6 +768,12 @@ func TestDefaultNativeDisableRecoveryFromPreparedColdGeneration(t *testing.T) {
 		t.Fatal("re-enable crash did not preserve actual current source", result, e)
 	}
 	defer result.Local.Close()
+	reenable.Phase = "local"
+	recoveredAgain, e := options.Recover(t.Context(), reenable)
+	if e != nil || recoveredAgain.Outcome != "rejected" || recoveredAgain.Local == nil || recoveredAgain.Local.root != restore {
+		t.Fatal("durable rejected fresh-local source failed next restart", recoveredAgain, e)
+	}
+	defer recoveredAgain.Local.Close()
 	currentBody, _ := os.ReadFile(filepath.Join(restore, "Notebook", "MEMORY.md"))
 	if string(currentBody) != "# Edited local memory\n" {
 		t.Fatal("old Notebook bytes replaced current local source")
