@@ -1,5 +1,5 @@
-// Package leasepower binds Linux logind sleep preparation to the managed
-// runtime's native admission fence. It never starts services or resumes leases.
+// Package leasepower binds native sleep preparation to the managed runtime's
+// admission fence. It never starts services or resumes leases.
 package leasepower
 
 import (
@@ -42,17 +42,17 @@ func (e *UnavailableError) Is(target error) bool { return target == ErrUnavailab
 type Options struct {
 	// MinimumDelay may raise the required logind budget, never lower the native
 	// owner's four-second native freeze/kill confirmation plus delivery margin.
-	// No host setting changes.
+	// This option applies to Linux logind; no host setting changes are made.
 	MinimumDelay time.Duration
 }
 
-// Bind installs a private logind subscription and holds a sleep delay inhibitor
+// Bind installs a private logind delay inhibitor or Darwin IOKit subscription
 // before returning success. Suspend must synchronously fence and hard-stop the
 // native owner within four seconds, leaving a delivery margin in the required
 // five-second logind budget. Wake must revoke ownership, never resume it.
 // Callbacks are serialized and must not call the returned release function.
 // Cancellation or release also calls suspend before closing the inhibitor.
-// Only logind-mediated sleep is covered; kernel/privileged bypass is outside it.
+// Linux covers logind-mediated sleep; kernel/privileged bypass is outside it.
 func Bind(ctx context.Context, suspend, wake func()) (func(), error) {
 	return BindWithOptions(ctx, suspend, wake, Options{})
 }

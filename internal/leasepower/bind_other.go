@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && (!darwin || !cgo)
 
 package leasepower
 
@@ -14,5 +14,5 @@ func BindWithOptions(_ context.Context, suspend, wake func(), opts Options) (fun
 		return nil, err
 	}
 	suspend()
-	return nil, unavailable("logind sleep fencing is available only on Linux; bind the native platform owner", nil)
+	return nil, unavailable("native power fencing requires Linux logind or a Darwin build with cgo", nil)
 }
