@@ -38,7 +38,7 @@ func ValidateCatalog(c api.NodeCatalog) error {
 		if _, exists := nodes[n.ID]; exists {
 			return errors.New("duplicate node identity")
 		}
-		if n.OS != api.NodeDarwin && n.OS != api.NodeLinux && n.OS != api.NodeWindows {
+		if n.OS != api.NodeDarwin && n.OS != api.NodeLinux && n.OS != api.NodeWindows && n.OS != api.NodeOSUnknown {
 			return errors.New("unsupported node OS")
 		}
 		if n.Join != api.NodeLocal && n.Join != api.NodeSSH && n.Join != api.NodeOutgoing {

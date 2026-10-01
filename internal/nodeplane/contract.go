@@ -65,6 +65,20 @@ type RuntimeProofPort interface {
 	ReadRuntimeProof(context.Context, api.WorkTarget) (RuntimeEligibility, error)
 }
 
+// WorkLeaseRef is native dispatch attestation paired with a trusted broker
+// reader. Source names the resident publisher, not the target Worker machine.
+type WorkLeaseRef struct {
+	BotID, BrokerNodeID, SourceNode string
+	SourceBackend                   api.NodeBackend
+	Epoch                           string
+}
+
+type WorkLeaseReader interface {
+	// TTLMs is remaining lifetime at this fresh observation. Consumers use
+	// their local request start; the original grant's static TTL is not valid.
+	ReadWorkerLease(context.Context, WorkLeaseRef) (Lease, error)
+}
+
 type ClaimRequest struct {
 	BotID         string
 	Target        api.WorkTarget
