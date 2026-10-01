@@ -54,6 +54,9 @@ func NewWorker(opts WorkerOptions) *WorkerClient {
 	w := &WorkerClient{engine: s, target: opts.Target, source: opts.Source, open: openWorkerClient}
 	if opts.Lease != nil {
 		w.lease = newWorkerLeaseFence(w, *opts.Lease)
+		w.open = func(ctx context.Context, native Options) (*Client, func(), string, error) {
+			return openSupervisedWorkerClient(ctx, native, opts.Lease.HelperPath)
+		}
 		s.opts.Admission = w.lease
 		if opts.Socket != "" || !w.lease.valid() {
 			s.loadErr = errors.New("leased Worker requires pinned broker, power fence and isolated native process")
