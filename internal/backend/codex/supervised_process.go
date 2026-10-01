@@ -177,7 +177,14 @@ func (p *SupervisedProcess) Live() bool {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return !p.stopped
+	if p.stopped {
+		return false
+	}
+	if p.tools == nil {
+		return false
+	}
+	live, err := p.tools.watchdogRootLive()
+	return err == nil && live
 }
 func (p *SupervisedProcess) call(ctx context.Context, f supervisorFrame) (supervisorFrame, error) {
 	select {
@@ -291,9 +298,11 @@ func RunSupervisedRuntimeWithPower(ctx context.Context, control *os.File, bindPo
 	cmd := exec.Command(first.Binary, args...)
 	cmd.Dir = first.Directory
 	cmd.Env = ownedEnvironment(os.Environ())
-	cmd.Stdin = os.NewFile(4, "native-input")
-	cmd.Stdout = os.NewFile(5, "native-output")
-	cmd.Stderr = os.NewFile(6, "native-error")
+	ownerInput, ownerOutput, ownerError := os.NewFile(4, "native-input"), os.NewFile(5, "native-output"), os.NewFile(6, "native-error")
+	defer ownerInput.Close()
+	defer ownerOutput.Close()
+	defer ownerError.Close()
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = ownerInput, ownerOutput, ownerError
 	var nativeInput io.WriteCloser
 	var nativeOutput io.ReadCloser
 	if first.Kind == SupervisedCodexStdio {
@@ -381,8 +390,8 @@ func RunSupervisedRuntimeWithPower(ctx context.Context, control *os.File, bindPo
 	if nativeInput != nil {
 		defer nativeInput.Close()
 		defer nativeOutput.Close()
-		go func() { _, _ = io.Copy(nativeInput, os.NewFile(4, "owner-native-input")); breakPipe() }()
-		go func() { _, _ = io.Copy(os.NewFile(5, "owner-native-output"), nativeOutput); breakPipe() }()
+		go func() { _, _ = io.Copy(nativeInput, ownerInput); breakPipe() }()
+		go func() { _, _ = io.Copy(ownerOutput, nativeOutput); breakPipe() }()
 	}
 	go func() {
 		defer breakPipe()
