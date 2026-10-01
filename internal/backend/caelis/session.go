@@ -34,6 +34,9 @@ type Options struct {
 	ReviewerModel string
 }
 type Session struct {
+	owned                 *ownedHost
+	admission             api.ExecutionAdmission
+	dispatchSource        func(context.Context, api.WorkDispatchSource) (api.WorkDispatchSource, error)
 	workerOnly            bool
 	workerProtocol        WorkerProtocol
 	workerTarget          api.WorkTarget
@@ -92,8 +95,27 @@ func (*Session) ProviderInfo() api.ProviderInfo {
 	return api.ProviderInfo{ID: "caelis", Name: "Caelis", ConnectionKind: "local-host", HelpURL: "https://caelis.dev", ConnectionHint: "使用本机 Caelis；安装与模型凭据由运行时管理。"}
 }
 func (s *Session) Connect(ctx context.Context) error {
+	s.mu.Lock()
+	admission := s.admission
+	owned := s.owned
+	s.mu.Unlock()
+	ctx, release, err := api.BeginExecution(ctx, admission)
+	if err != nil {
+		return err
+	}
+	defer release()
 	s.step.Lock()
 	defer s.step.Unlock()
+	if admission != nil {
+		if err := admission.CheckContext(ctx); err != nil {
+			return err
+		}
+	}
+	if owned != nil {
+		if err := owned.check(ctx); err != nil {
+			return err
+		}
+	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -239,6 +261,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	host.admission = s.admission
 	defer host.http.CloseIdleConnections()
 	info, e := s.initialize(ctx, host)
 	if e != nil {
@@ -277,6 +300,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	scoped.admission = s.admission
 	ok := false
 	defer func() {
 		if !ok {
@@ -366,6 +390,9 @@ func (s *Session) Close(ctx context.Context) error {
 	defer s.step.Unlock()
 	if s.client != nil {
 		s.client.http.CloseIdleConnections()
+	}
+	if s.owned != nil {
+		return s.owned.stop(ctx)
 	}
 	return nil
 }

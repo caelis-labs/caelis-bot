@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -27,7 +28,13 @@ import (
 type ManagedNodeOptions struct {
 	// BrokerNodeID is the paired broker's inspected identity, supplied by native
 	// composition. It is never a tool or renderer parameter.
-	BrokerNodeID string
+	BrokerNodeID       string
+	WatchdogHelperPath string
+	CodexBinary        string
+	Backend            api.NodeBackend
+	CaelisHost         *caelis.OwnedHostOptions
+	Model              string
+	buildContext       context.Context
 }
 
 func NewManagedNode(root string, host Host, nodeID string, options ...ManagedNodeOptions) (*Application, *roaming.Guard, error) {
@@ -37,6 +44,12 @@ func NewManagedNode(root string, host Host, nodeID string, options ...ManagedNod
 	var configured ManagedNodeOptions
 	if len(options) == 1 {
 		configured = options[0]
+	}
+	if configured.Backend == "" {
+		configured.Backend = api.NodeCodex
+	}
+	if configured.Backend != api.NodeCodex && configured.Backend != api.NodeCaelis {
+		return nil, nil, errors.New("managed backend is unavailable")
 	}
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		return nil, nil, errors.New("this platform cannot confirm owned runtime shutdown")
@@ -63,9 +76,23 @@ func NewManagedNode(root string, host Host, nodeID string, options ...ManagedNod
 	if json.Unmarshal(stateBytes, &state) != nil || state.ID == "" || state.Wake != nil || len(state.Schedules) != 0 {
 		return nil, nil, errors.New("managed generation must have fresh portable identity without previous wake work")
 	}
+	if configured.Backend == api.NodeCaelis {
+		if configured.CaelisHost == nil || configured.CaelisHost.NodeID != nodeID {
+			return nil, nil, errors.New("managed Caelis needs the exact designated target-side owned host")
+		}
+		if err := localstate.Write(filepath.Join(root, "runtime.json"), api.RuntimeSettings{Runtime: "caelis", CLIPath: configured.CaelisHost.Binary, CaelisStore: configured.CaelisHost.Store}); err != nil {
+			return nil, nil, err
+		}
+		if err := os.MkdirAll(filepath.Join(root, "providers", "caelis"), 0700); err != nil {
+			return nil, nil, err
+		}
+		if err := localstate.Write(filepath.Join(root, "providers", "caelis", "execution.json"), api.ExecutionSettings{Model: configured.Model, ApprovalMode: "workspace-write"}); err != nil {
+			return nil, nil, err
+		}
+	}
 
 	resolve := func(id string) (providerFactory, error) {
-		if id != "codex" {
+		if id != string(configured.Backend) {
 			return providerFactory{}, errors.New("Caelis shared Host is not eligible for automatic Bot takeover")
 		}
 		f, err := resolveProvider(id)
@@ -73,10 +100,34 @@ func NewManagedNode(root string, host Host, nodeID string, options ...ManagedNod
 			return f, err
 		}
 		f.Open = func(c providerConfig) (api.Engine, error) {
+			if id == "caelis" {
+				ctx := configured.buildContext
+				if ctx == nil {
+					ctx = context.Background()
+				}
+				hostOwner := *configured.CaelisHost
+				hostOwner.WatchdogHelper = configured.WatchdogHelperPath
+				return caelis.NewOwned(ctx, caelis.Options{Diagnostics: c.Diagnostics, Directory: filepath.Dir(c.ConversationFile), Settings: c.Settings, Execution: c.Execution, WorkExecution: c.WorkExecution}, hostOwner)
+			}
 			if err := codex.ValidateSettings(c.Settings, c.Execution); err != nil {
 				return nil, err
 			}
-			return codex.NewSession(codex.SessionOptions{Diagnostics: c.Diagnostics, Binary: c.Settings.CLIPath, Execution: c.Execution, WorkExecution: c.WorkExecution, Directory: c.WorkDirectory, WorkRoot: c.WorkRoot, StateFile: c.ConversationFile, ForceOwned: true}), nil
+			binary := configured.CodexBinary
+			if binary == "" {
+				binary = c.Settings.CLIPath
+			}
+			if binary == "" {
+				binary = os.Getenv("CODEX_BIN")
+			}
+			session := codex.NewSession(codex.SessionOptions{Diagnostics: c.Diagnostics, Binary: binary, Execution: c.Execution, WorkExecution: c.WorkExecution, Directory: c.WorkDirectory, WorkRoot: c.WorkRoot, StateFile: c.ConversationFile, ForceOwned: true, WatchdogHelper: configured.WatchdogHelperPath})
+			ctx := configured.buildContext
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			if err := session.VerifyOwnedSupervisor(ctx); err != nil {
+				return nil, err
+			}
+			return session, nil
 		}
 		return f, nil
 	}
@@ -85,7 +136,7 @@ func NewManagedNode(root string, host Host, nodeID string, options ...ManagedNod
 		return nil, nil, err
 	}
 	owner := &managedNodeOwner{app: a, nodeID: nodeID, generation: rand.Text(), snapshot: snapshot}
-	guard := roaming.NewGuard(nodeID, api.NodeCodex, owner, true)
+	guard := roaming.NewGuard(nodeID, configured.Backend, owner, true)
 	if err := guard.ConfigureBroker(configured.BrokerNodeID); err != nil {
 		_ = a.Close()
 		return nil, nil, err
@@ -96,8 +147,10 @@ func NewManagedNode(root string, host Host, nodeID string, options ...ManagedNod
 	a.managed = owner
 	a.executionAdmission = guard
 	a.Backend.ConfigureExecutionAdmission(guard)
-	a.engine.(*codex.Session).ConfigureExecutionAdmission(guard)
-	a.engine.(*codex.Session).ConfigureDispatchSource(guard.AnnotateWorkSource)
+	a.engine.(interface{ ConfigureExecutionAdmission(api.ExecutionAdmission) }).ConfigureExecutionAdmission(guard)
+	a.engine.(interface {
+		ConfigureDispatchSource(func(context.Context, api.WorkDispatchSource) (api.WorkDispatchSource, error))
+	}).ConfigureDispatchSource(guard.AnnotateWorkSource)
 	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
 		if host.BindLeasePower == nil {
 			_ = a.Close()
@@ -148,6 +201,16 @@ func (o *managedNodeOwner) WithdrawWorkerGrants(ctx context.Context) error {
 		resident.Stop()
 	}
 	return nil
+}
+
+func (o *managedNodeOwner) ConfigureLeaseDeadline(ctx context.Context, lease nodeplane.Lease, deadline time.Time) error {
+	native, ok := o.app.engine.(interface {
+		ConfigureOwnedDeadline(context.Context, string, time.Time) error
+	})
+	if !ok {
+		return errors.New("native runtime has no independent lease watchdog")
+	}
+	return native.ConfigureOwnedDeadline(ctx, lease.Epoch, deadline)
 }
 func (o *managedNodeOwner) hardFence(ctx context.Context) error {
 	o.nativeFenceOnce.Do(func() {
@@ -200,13 +263,19 @@ func (a *Application) ReadRuntimeProof(ctx context.Context, target api.WorkTarge
 		snapshot = o.snapshot
 	}
 	a.mu.Unlock()
-	if o == nil || target.NodeID != o.nodeID || target.Backend != "codex" || target.Role != api.RoleBot {
+	backend := a.engine.(api.Provider).ProviderInfo().ID
+	if o == nil || target.NodeID != o.nodeID || target.Backend != backend || target.Role != api.RoleBot {
 		return nodeplane.RuntimeEligibility{}, errors.New("target has no managed native Bot owner")
+	}
+	if readiness, ok := a.engine.(interface{ OwnedRuntimeReady(context.Context) error }); ok {
+		if err := readiness.OwnedRuntimeReady(ctx); err != nil {
+			return nodeplane.RuntimeEligibility{}, err
+		}
 	}
 	lease, active := o.guard.Lease()
 	leaseEpoch := lease.Epoch
 	if !active {
-		lease = nodeplane.Lease{BotID: snapshot.BotID, NodeID: o.nodeID, Backend: api.NodeCodex, Epoch: o.generation}
+		lease = nodeplane.Lease{BotID: snapshot.BotID, NodeID: o.nodeID, Backend: api.NodeBackend(backend), Epoch: o.generation}
 	}
 	proof, err := o.guard.Proof(ctx, lease)
 	if err != nil {
@@ -248,7 +317,16 @@ func ManagedNodeFactory(host Host, options ...ManagedNodeOptions) roaming.Runtim
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		return NewManagedNode(profile, host, target.NodeID, options...)
+		var configured ManagedNodeOptions
+		if len(options) > 1 {
+			return nil, nil, errors.New("managed node accepts one native configuration")
+		}
+		if len(options) == 1 {
+			configured = options[0]
+		}
+		configured.Backend = api.NodeBackend(target.Backend)
+		configured.buildContext = ctx
+		return NewManagedNode(profile, host, target.NodeID, configured)
 	}
 }
 func (a *Application) PauseNotebook(ctx context.Context) (func(), error) {
@@ -263,7 +341,7 @@ func (a *Application) PauseNotebook(ctx context.Context) (func(), error) {
 	}
 	if err := a.managed.SafeIdle(ctx); err != nil {
 		a.CancelUpdate()
-		proof, proofErr := a.ReadRuntimeProof(ctx, api.WorkTarget{NodeID: a.managed.nodeID, Backend: "codex", Role: api.RoleBot})
+		proof, proofErr := a.ReadRuntimeProof(ctx, api.WorkTarget{NodeID: a.managed.nodeID, Backend: a.engine.(api.Provider).ProviderInfo().ID, Role: api.RoleBot})
 		if proofErr == nil && proof.Pending && !proof.Unknown {
 			return nil, errors.Join(roaming.ErrNotebookBusy, err)
 		}
@@ -313,18 +391,18 @@ func (a *Application) PrepareRoamingBootstrap(ctx context.Context, nodeID string
 		return nil, nodeplane.SnapshotRef{}, nil, err
 	}
 	if nodeID == "" {
-		return fail(errors.New("bootstrap requires the actual source node identity"))
+		return fail(errors.Join(ErrNodeRoamingPreflight, errors.New("bootstrap requires the actual source node identity")))
 	}
 	native, ok := a.engine.(*codex.Session)
 	if !ok || !native.OwnsLiveRuntime() {
-		return fail(errors.New("bootstrap requires this APP's live owned Codex runtime"))
+		return fail(errors.Join(ErrNodeRoamingPreflight, errors.New("bootstrap requires this APP's live owned Codex runtime")))
 	}
 	if err := a.PrepareUpdate(); err != nil {
-		return fail(err)
+		return fail(errors.Join(ErrNodeRoamingPreflight, err))
 	}
 	if err := a.guardRuntimeChange(); err != nil {
 		a.CancelUpdate()
-		return fail(err)
+		return fail(errors.Join(ErrNodeRoamingPreflight, err))
 	}
 	if err := native.FenceOwnedForBootstrap(ctx); err != nil {
 		_ = a.Close()

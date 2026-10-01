@@ -16,6 +16,55 @@ type ownerFixture struct {
 	stopErr, idleErr   error
 }
 
+type deadlineOwner struct {
+	*ownerFixture
+	entered, proceed chan struct{}
+	err              error
+	deadline         time.Time
+}
+
+func (o *deadlineOwner) ConfigureLeaseDeadline(ctx context.Context, l nodeplane.Lease, deadline time.Time) error {
+	o.deadline = deadline
+	close(o.entered)
+	select {
+	case <-o.proceed:
+		return o.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func TestLeaseAdmissionWaitsForIndependentNativeDeadline(t *testing.T) {
+	for _, failing := range []bool{false, true} {
+		t.Run(map[bool]string{false: "confirmed", true: "watchdog-failed"}[failing], func(t *testing.T) {
+			o := &deadlineOwner{ownerFixture: &ownerFixture{}, entered: make(chan struct{}), proceed: make(chan struct{})}
+			if failing {
+				o.err = errors.New("independent watcher unavailable")
+			}
+			g := NewGuard("owned-node", api.NodeCodex, o, true)
+			defer g.Revoke()
+			started := time.Now()
+			done := make(chan error, 1)
+			go func() { done <- g.Install(grant(), started) }()
+			<-o.entered
+			if _, _, err := g.Begin(t.Context()); !errors.Is(err, ErrFenced) {
+				t.Fatal("effects admitted before independent deadline confirmation", err)
+			}
+			close(o.proceed)
+			err := <-done
+			if failing != (err != nil) {
+				t.Fatal("wrong installation outcome", err)
+			}
+			if o.deadline != started.Add(45*time.Second) {
+				t.Fatal("watcher did not receive conservative request-start deadline")
+			}
+			_, active := g.Lease()
+			if active == failing {
+				t.Fatal("watcher failure retained grant")
+			}
+		})
+	}
+}
+
 func (o *ownerFixture) WithdrawWorkerGrants(context.Context) error { o.withdrawn.Add(1); return nil }
 func (o *ownerFixture) Stop(context.Context) error                 { o.stopped.Add(1); return o.stopErr }
 func (o *ownerFixture) SafeIdle(context.Context) error             { return o.idleErr }

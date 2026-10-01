@@ -46,6 +46,7 @@ type pendingSubmission struct {
 type SessionOptions struct {
 	// ForceOwned is reserved for isolated leased runtimes; default local discovery is unchanged.
 	ForceOwned                           bool
+	WatchdogHelper                       string
 	Admission                            api.ExecutionAdmission
 	DispatchSource                       func(context.Context, api.WorkDispatchSource) (api.WorkDispatchSource, error)
 	Diagnostics                          *diagnosticlog.Logger
@@ -63,6 +64,10 @@ type SessionOptions struct {
 // Session projects one internally bound conversation. Native facts remain
 // authoritative; a UI fetch, hidden window or character asset cannot execute it.
 type Session struct {
+	supervisor             ownedLeaseProcess
+	supervisorVerified     bool
+	ownedEpoch             string
+	ownedDeadline          time.Time
 	backgroundResultsDirty bool
 
 	residentExecution api.WorkExecutionSettings
@@ -117,6 +122,9 @@ func NewSession(opts SessionOptions) *Session {
 	s := &Session{opts: opts, binding: binding{Version: 1}, changed: make(chan struct{}), instance: rand.Text(), start: Start}
 	s.opts.BotTools = opts.BotTools.Clone()
 	s.life, s.cancelLife = context.WithCancel(context.Background())
+	if opts.ForceOwned {
+		s.start = s.startSupervised
+	}
 	s.resetProjection()
 	s.state.Connection = "offline"
 	s.state.Phase = "idle"
