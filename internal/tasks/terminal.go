@@ -80,11 +80,29 @@ func (m *Manager) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	}
 	work, err := m.recordRuntime(id)
 	if err != nil {
-		return api.TerminalTarget{}, err
+		return api.TerminalTarget{}, &api.TerminalObservationError{Message: m.text("host.taskTerminalNodeUnavailable"), Cause: errors.Join(api.ErrWorkTerminalOffline, err)}
 	}
 	p, ok := work.(api.WorkTerminalProvider)
 	if !ok {
 		return api.TerminalTarget{}, errors.New(m.text("host.runtimeNoTerminalObservation"))
 	}
-	return p.WorkTerminal(ctx, id)
+	m.mu.Lock()
+	r := m.state.Records[id]
+	expected, workspace := r.Target, r.View.Workspace
+	m.mu.Unlock()
+	target, err := p.WorkTerminal(ctx, id)
+	if err != nil {
+		if errors.Is(err, api.ErrRemoteWorkTerminal) {
+			return api.TerminalTarget{}, &api.TerminalObservationError{Message: m.text("host.remoteTaskTerminalUnavailable"), Cause: err}
+		}
+		return api.TerminalTarget{}, err
+	}
+	if target.Locality == api.TerminalRemote {
+		return api.TerminalTarget{}, &api.TerminalObservationError{Message: m.text("host.remoteTaskTerminalUnavailable"), Cause: api.ErrRemoteWorkTerminal}
+	}
+	if target.Locality != api.TerminalLocal || target.Generation == "" || target.Runtime != expected.Backend || target.Directory != workspace || target.Target != (api.WorkTarget{}) && target.Target != expected {
+		return api.TerminalTarget{}, &api.TerminalObservationError{Message: m.text("host.taskTerminalBindingChanged"), Cause: api.ErrWorkTerminalBinding}
+	}
+	target.Target = expected
+	return target, nil
 }
