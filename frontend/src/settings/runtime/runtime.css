@@ -145,3 +145,13 @@
 @media(max-width:560px) { .node-settings-heading { display:block; } .node-settings-selectors { margin-bottom:12px; } .node-settings-selectors label { flex:1; } .node-settings-selectors select { min-width:0; width:100%; } }
 .node-configuration { min-width:0; padding:0; margin:0; border:0; }
 .node-configuration:disabled .runtime-workspace { opacity:.7; }
+
+.runtime-batch-options { border: 0; padding: 0; margin: 16px 0; display: grid; gap: 10px; }
+.runtime-batch-options legend { margin-bottom: 10px; font-weight: 600; }
+.runtime-batch-result { padding: 12px 0; border-top: 1px solid var(--line); }
+.runtime-batch-result p { margin: 6px 0; }
+.runtime-batch-result button + button { margin-left: 10px; }
+
+.runtime-dialog .runtime-batch-options .runtime-check { display: flex; align-items: flex-start; gap: 10px; margin: 0; }
+.runtime-dialog .runtime-batch-options input[type="checkbox"] { width: 16px; height: 16px; padding: 0; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--ink); }
+.runtime-batch-options .runtime-check small { display: block; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }

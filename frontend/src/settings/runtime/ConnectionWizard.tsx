@@ -1,11 +1,12 @@
 import { useEffectEvent, useEffect, useId, useRef, useState } from 'react';
-import type { APIKeyOptions, ConnectAction, ConnectChoice, ConnectionCatalog, ConnectionFlow, ConnectionKind, FlowInput, RuntimeSettingsClient } from './types';
+import type { APIKeyOptions, ConnectAction, ConnectChoice, ConnectionCatalog, ConnectionFlow, ConnectionKind, ConnectInput, FlowInput, RuntimeSettingsClient } from './types';
 import { acceptConnectionProgress, messageOf, safeWebURL } from './state';
 import { SettingsDialog } from './SettingsDialog';
+import { publicConnectionTemplate, type ConnectionTemplate } from './batch';
 import { useI18n } from '../../i18n';
 
 const emptyCatalog: ConnectionCatalog = { choices: [], unavailable: '' };
-export function ConnectionWizard({ client, onClose, onConnected }: { client: RuntimeSettingsClient; onClose: () => void; onConnected: () => Promise<void> }) {
+export function ConnectionWizard({ client, onClose, onConnected, allowBatch=false }: { allowBatch?:boolean; client: RuntimeSettingsClient; onClose: () => void; onConnected: (template?:ConnectionTemplate) => Promise<void> }) {
  const { t, date } = useI18n();
  const actionFailed=useEffectEvent(()=>t('runtime.actionFailed'));
  const [kind, setKind] = useState<ConnectionKind>('account'), [catalog, setCatalog] = useState(emptyCatalog), [choice, setChoice] = useState<ConnectChoice | null>(null);
@@ -14,6 +15,7 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
  const [baseUrl, setBaseUrl] = useState(''), [model, setModel] = useState(''), [apiKey, setAPIKey] = useState(''), [command, setCommand] = useState('');
  const [flow, setFlow] = useState<ConnectionFlow | null>(null), [code, setCode] = useState(''), [method, setMethod] = useState(''), [destination, setDestination] = useState(''), [manual, setManual] = useState(false);
  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [canceling, setCanceling] = useState(false), [now, setNow] = useState(Date.now());
+ const templateDraft=useRef<ConnectionTemplate|undefined>(undefined);
  const finishing=useRef(false),cancelWorking=useRef(false),mountedClient=useRef(client);mountedClient.current=client;
  const alive = useRef(true), working = useRef(false), serial = useRef(0), abort = useRef<AbortController | null>(null), optionsSerial = useRef(0), modelListID = useId(), endpointListID = useId();
  useEffect(() => { const clear = () => { setAPIKey(''); setCode(''); }; window.addEventListener('settings-close', clear); return () => window.removeEventListener('settings-close', clear); }, []);
@@ -53,8 +55,10 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
   // URL, local storage, logs, operation key or a retry closure.
   const secret = apiKey; setAPIKey(''); setCode('');
   try {
+   const connectionInput:ConnectInput={ kind, choice: choice.id, ...(choice.custom ? { command } : {}), ...(kind === 'api-key' ? { baseUrl, model, apiKey: secret, ...(metadata ? { contextWindowTokens: Number(contextWindow), maxOutputTokens: Number(maxOutput), imageInput, reasoningLevels: reasoningLevels.split(',').map(s => s.trim()).filter(Boolean) } : {}) } : {}) };
+   if(!flow)templateDraft.current=choice.custom?undefined:publicConnectionTemplate(connectionInput);
    const next = flow && action ? await client.advanceConnection(flow, action, input, controller.signal, value => observe(seq, value)) :
-    await client.startConnection({ kind, choice: choice.id, ...(choice.custom ? { command } : {}), ...(kind === 'api-key' ? { baseUrl, model, apiKey: secret, ...(metadata ? { contextWindowTokens: Number(contextWindow), maxOutputTokens: Number(maxOutput), imageInput, reasoningLevels: reasoningLevels.split(',').map(s => s.trim()).filter(Boolean) } : {}) } : {}) }, controller.signal, value => observe(seq, value));
+    await client.startConnection(connectionInput, controller.signal, value => observe(seq, value));
    observe(seq, next);
   } catch {
    if (alive.current && seq === serial.current && !controller.signal.aborted) {
@@ -62,9 +66,9 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
    }
   } finally { if (alive.current && seq === serial.current) { working.current = false; setBusy(false); } }
  };
- const finish = async () => {
+ const finish = async (template?:ConnectionTemplate) => {
   if(finishing.current)return;finishing.current=true;setCanceling(true);setAPIKey('');setCode('');
-  try {await client.closeConnection?.();if(alive.current){onClose();await onConnected();}}
+  try {await client.closeConnection?.();if(alive.current){onClose();await onConnected(template);}}
   catch {if(alive.current)setError(t('connections.cancelNotConfirmed'));}
   finally {finishing.current=false;if(alive.current)setCanceling(false);}
  };
@@ -125,7 +129,7 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
    <button className="text-action" disabled={blocked} onClick={() => void run('refresh')}>{t('connections.checkAuthStatus')}</button>
   </>}
   {flow?.stage === 'models' && <><label>{t('connections.useModel')}<select disabled={blocked} value={model} onChange={e => setModel(e.target.value)}><option value="">{t('connections.selectModel')}</option>{flow.models?.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label><div className="setup-end"><button className="primary" disabled={blocked || !flow.models?.some(m => m.id === model)} onClick={() => void run('connect', { model })}>{t('connections.connectModel')}</button></div></>}
-  {flow && ['complete', 'failed', 'unknown'].includes(flow.stage) && <div className="setup-end">{flow.stage === 'unknown' && flow.id && <button disabled={blocked} onClick={() => void run('refresh')}>{t('connections.reconcileResult')}</button>}<button className={flow.stage === 'complete' ? 'primary' : ''} disabled={blocked} onClick={() => void finish()}>{flow.stage === 'complete' ? t('connections.done') : t('connections.closeAndRefresh')}</button></div>}
+  {flow && ['complete', 'failed', 'unknown'].includes(flow.stage) && <div className="setup-end">{flow.stage==='complete'&&allowBatch&&templateDraft.current&&<button disabled={blocked} onClick={()=>void finish(templateDraft.current)}>{t('runtime.batchApply')}</button>}{flow.stage === 'unknown' && flow.id && <button disabled={blocked} onClick={() => void run('refresh')}>{t('connections.reconcileResult')}</button>}<button className={flow.stage === 'complete' ? 'primary' : ''} disabled={blocked} onClick={() => void finish()}>{flow.stage === 'complete' ? t('connections.done') : t('connections.closeAndRefresh')}</button></div>}
   {flow?.id && !['complete', 'failed', 'unknown'].includes(flow.stage) && <button className="text-action" disabled={canceling} onClick={() => void cancel()}>{canceling ? t('connections.canceling') : t('connections.cancelConnection')}</button>}
   {error && <p role="alert" className="inline-error">{error}</p>}
  </SettingsDialog>;
