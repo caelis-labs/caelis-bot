@@ -105,6 +105,17 @@ support. A missing/inactive Runtime returns its exact installation guard and
 availability metadata rather than a different backend's settings. Configuration
 and installer availability are independently projected.
 
+A thin APP's Backend represents the remote Bot. Its local catalog therefore
+uses independent native SDK/configuration ports and a private local agent
+profile, never that Backend's model or preference methods. Local Caelis access
+requires an explicitly supplied local native profile. The existing product
+pairing remains read-only machine metadata until exact agent enrollment; its
+opaque current management binding is projected once as `PairedRuntime`.
+Offline bindings are empty and cannot mutate. The existing remote Runtime/model
+surface keeps that original product scope; local node selection cannot redirect
+it. A reconnect changes the binding and catalog revision. Machine OS/Worker
+routes absent from the product-only protocol remain unknown.
+
 `CloseNodeManagement` cancels optional management observers. Native runtime stop,
 lease withdrawal and Notebook staging remain separate owners. Aggregate catalog
 sorting copies source slices, so a read cannot corrupt a cached local catalog.
@@ -199,6 +210,12 @@ management intents, Unicode digest interoperability, delayed lease responses,
 large monotonic snapshot counters, old-snapshot rejection, Worker-only local
 defaults and unavailable broker/Windows Bot capability refusal. They do not
 qualify actual SSH/NAT execution, native epoch fencing or visual acceptance.
+
+Native management fixtures additionally cover verified enrollment before
+persistence, exact receipt routing after APP restart, corrupted pairing
+preservation, actual outgoing gateway identity, stale local preference CAS and
+thin APP reads/updates that make zero remote execution calls. Linux and Windows
+CGO-free APP test binaries compile; native Windows lifecycle is not qualified.
 
 The packaged Bot memory, memory reference and task guide were reviewed. These
 contracts add no model tool or changed Bot workflow, so they require no Bot skill

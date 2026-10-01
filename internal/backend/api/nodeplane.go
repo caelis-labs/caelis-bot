@@ -10,14 +10,19 @@ type NodeCatalog struct {
 	Nodes           []NodeInfo `json:"nodes"`
 	SelectedNodeID  string     `json:"selectedNodeId"`
 	ActiveBotNodeID string     `json:"activeBotNodeId"`
-	// The exact existing product pairing retains its pinned management scope.
-	// This field never implies node-agent enrollment or local authority.
-	PairedProductNodeID string      `json:"pairedProductNodeId"`
-	WorkerTarget        *WorkTarget `json:"workerTarget"`
-	Broker              *NodeBroker `json:"broker"`
+	// The existing product pairing retains its exact opaque management fence.
+	// It does not imply node-agent enrollment or local execution authority.
+	PairedRuntime *NodePairedRuntime `json:"pairedRuntime"`
+	WorkerTarget  *WorkTarget        `json:"workerTarget"`
+	Broker        *NodeBroker        `json:"broker"`
 	// Native journals expose original unresolved references after APP remount
 	// or restart, including installation operations with no readable config.
 	PendingOperations []NodeOperationRef `json:"pendingOperations"`
+}
+
+type NodePairedRuntime struct {
+	NodeID  string `json:"nodeId"`
+	Binding string `json:"binding"`
 }
 
 type NodeInfo struct {

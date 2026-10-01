@@ -13,6 +13,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
 
 func nativeManagementApplication(t *testing.T) *Application {
@@ -242,6 +243,9 @@ func TestThinNodeManagementLocalModelsNeverUseRemoteBotBackend(t *testing.T) {
 	if !paired {
 		t.Fatal("paired remote owner metadata absent or invented")
 	}
+	if catalog.PairedRuntime == nil || catalog.PairedRuntime.NodeID != a.product.pairing.NodeID || catalog.PairedRuntime.Binding != "" {
+		t.Fatal("offline thin APP invented a usable product binding")
+	}
 	view, err := a.Backend.NodeRuntimeConfiguration(t.Context(), "local", api.NodeCodex)
 	if err != nil || !view.ConfigurationAvailable || view.Conversation == nil || view.Conversation.Model != "" {
 		t.Fatal("independent local configuration unavailable", view, err)
@@ -264,5 +268,24 @@ func TestThinNodeManagementLocalModelsNeverUseRemoteBotBackend(t *testing.T) {
 	}
 	if _, err := a.Backend.NodeRuntimeConfiguration(t.Context(), a.product.pairing.NodeID, api.NodeCodex); err == nil {
 		t.Fatal("read-only product pairing became an enrolled management agent")
+	}
+	a.product.mu.Lock()
+	a.product.connection = "ready"
+	a.product.client = newThinClientFixture()
+	a.product.identity = productrpc.Identity{Scope: productrpc.Scope{BotID: a.product.pairing.BotID, Generation: "native-generation"}, Capabilities: productrpc.Capabilities{RuntimeManagement: true}}
+	a.product.mu.Unlock()
+	ready, err := a.Backend.NodeCatalog(t.Context())
+	if err != nil || ready.PairedRuntime == nil || ready.PairedRuntime.Binding == "" {
+		t.Fatal("ready native binding absent", err)
+	}
+	a.product.mu.Lock()
+	a.product.attempt++
+	a.product.mu.Unlock()
+	reconnected, err := a.Backend.NodeCatalog(t.Context())
+	if err != nil || reconnected.PairedRuntime.Binding == ready.PairedRuntime.Binding || reconnected.Revision == ready.Revision {
+		t.Fatal("new native binding retained stale view guard", err)
+	}
+	if remote.remoteCalls.Load() != 0 {
+		t.Fatal("reading paired native binding queried remote execution", remote.remoteCalls.Load())
 	}
 }

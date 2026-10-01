@@ -73,11 +73,16 @@ func ValidateCatalog(c api.NodeCatalog) error {
 		}
 		nodes[n.ID] = n
 	}
-	for _, id := range []string{c.SelectedNodeID, c.ActiveBotNodeID, c.PairedProductNodeID} {
+	for _, id := range []string{c.SelectedNodeID, c.ActiveBotNodeID} {
 		if id != "" {
 			if _, exists := nodes[id]; !exists {
 				return errors.New("catalog references unknown node")
 			}
+		}
+	}
+	if c.PairedRuntime != nil {
+		if _, exists := nodes[c.PairedRuntime.NodeID]; !exists {
+			return errors.New("paired product references unknown node")
 		}
 	}
 	if c.WorkerTarget != nil {
