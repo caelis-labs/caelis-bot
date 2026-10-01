@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -114,7 +115,8 @@ func (s *Session) refreshReferences(ctx context.Context, c *Client) {
 			}
 		}
 	}
-	if callDecode(ctx, c, "skills/list", map[string]any{"cwds": []string{s.opts.Directory}, "forceReload": false}, &response) != nil {
+	b, err := c.rpc.observe(ctx, "skills/list", map[string]any{"cwds": []string{s.opts.Directory}, "forceReload": false})
+	if err != nil || json.Unmarshal(b, &response) != nil {
 		return
 	}
 	s.mu.Lock()
