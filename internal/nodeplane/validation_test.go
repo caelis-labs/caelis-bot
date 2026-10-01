@@ -1,12 +1,40 @@
 package nodeplane
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
+
+func TestCoordinatorSourceRoutePresentationRequiresBoundedEnrolledSources(t *testing.T) {
+	ids := []string{"coordinator", "source", "local"}
+	valid := []api.NodeCoordinatorSourceRoute{{SourceNodeID: "source", SSHDestination: "existing-user@source-known-alias"}}
+	if err := ValidateCoordinatorSourceRoutes("coordinator", ids, valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, routes := range [][]api.NodeCoordinatorSourceRoute{
+		{{SourceNodeID: "missing", SSHDestination: "alias"}},
+		{{SourceNodeID: "coordinator", SSHDestination: "alias"}},
+		{{SourceNodeID: "source", SSHDestination: "one"}, {SourceNodeID: "source", SSHDestination: "two"}},
+		{{SourceNodeID: "source", SSHDestination: "alias\ncommand"}},
+	} {
+		if err := ValidateCoordinatorSourceRoutes("coordinator", ids, routes); err == nil {
+			t.Fatal("invalid route accepted", routes)
+		}
+	}
+	tooMany := []api.NodeCoordinatorSourceRoute{}
+	for i := range 17 {
+		id := fmt.Sprintf("source-%d", i)
+		ids = append(ids, id)
+		tooMany = append(tooMany, api.NodeCoordinatorSourceRoute{SourceNodeID: id, SSHDestination: "existing-alias"})
+	}
+	if err := ValidateCoordinatorSourceRoutes("coordinator", ids, tooMany); err == nil {
+		t.Fatal("unbounded route list accepted")
+	}
+}
 
 func configurationIntent(t *testing.T) ManagementRequest {
 	t.Helper()

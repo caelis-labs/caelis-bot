@@ -16,6 +16,8 @@ import (
 
 func validBackend(b api.NodeBackend) bool { return b == api.NodeCodex || b == api.NodeCaelis }
 
+var coordinatorSourceSSH = regexp.MustCompile(`^[A-Za-z0-9_.@:\[\]-]+$`)
+
 func validDigest(s string) bool {
 	if len(s) != sha256.Size*2 || strings.ToLower(s) != s {
 		return false
@@ -112,6 +114,13 @@ func ValidateCatalog(c api.NodeCatalog) error {
 		if c.Broker.AutomaticRoaming && (!c.Broker.Reachable || !eligibleBot) {
 			return errors.New("automatic roaming requires reachable broker and eligible Bot runtime")
 		}
+		ids := make([]string, 0, len(nodes))
+		for id := range nodes {
+			ids = append(ids, id)
+		}
+		if err := ValidateCoordinatorSourceRoutes(c.Broker.NodeID, ids, c.Broker.SourceRoutes); err != nil {
+			return err
+		}
 	}
 	enrollments := map[string]bool{}
 	if len(c.PendingEnrollments) > 128 {
@@ -140,6 +149,32 @@ func ValidateCatalog(c api.NodeCatalog) error {
 			return errors.New("pending operation runtime is unavailable or duplicated")
 		}
 		pending[ref] = true
+	}
+	return nil
+}
+
+// ValidateCoordinatorSourceRoutes bounds explicit management input and catalog
+// presentation. The native writer separately supplies its enrolled identities.
+func ValidateCoordinatorSourceRoutes(coordinator string, nodeIDs []string, routes []api.NodeCoordinatorSourceRoute) error {
+	if len(routes) > 16 {
+		return errors.New("coordinator source route limit")
+	}
+	known := make(map[string]bool, len(nodeIDs))
+	for _, id := range nodeIDs {
+		known[id] = true
+	}
+	if !known[coordinator] && len(routes) != 0 {
+		return errors.New("source route requires an enrolled coordinator")
+	}
+	seen := map[string]bool{}
+	for _, route := range routes {
+		if !known[route.SourceNodeID] || route.SourceNodeID == coordinator || seen[route.SourceNodeID] {
+			return errors.New("source route requires a distinct enrolled source")
+		}
+		if len(route.SSHDestination) > 256 || strings.HasPrefix(route.SSHDestination, "-") || !coordinatorSourceSSH.MatchString(route.SSHDestination) {
+			return errors.New("existing source SSH destination required")
+		}
+		seen[route.SourceNodeID] = true
 	}
 	return nil
 }

@@ -129,6 +129,7 @@ export interface NodeBroker {
   reachable: boolean;
   automaticRoaming: boolean;
   reason: string;
+  sourceRoutes?: Array<NodeCoordinatorSourceRoute>;
 }
 export interface NodeCatalog {
   revision: string;
@@ -144,6 +145,11 @@ export interface NodeCatalog {
 export interface NodeCoordinatorSelection {
   nodeId: string;
   expectedRevision: string;
+  sourceRoutes?: Array<NodeCoordinatorSourceRoute> | null;
+}
+export interface NodeCoordinatorSourceRoute {
+  sourceNodeId: string;
+  sshDestination: string;
 }
 export interface NodeEditGuard {
   nodeId: string;

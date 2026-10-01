@@ -20,7 +20,6 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 	"github.com/caelis-labs/caelis-bot/internal/runtimemanagement"
@@ -53,10 +52,11 @@ type NodeManagementNativeOptions struct {
 }
 
 type nodeManagementDocument struct {
-	Version     int
-	Revision    uint64
-	Nodes       []NodeRegistration
-	Coordinator string
+	Version      int
+	Revision     uint64
+	Nodes        []NodeRegistration
+	Coordinator  string
+	SourceRoutes []nodeCoordinatorSourceRoute `json:",omitempty"`
 }
 
 type nativeNodeManagement struct {
@@ -185,7 +185,7 @@ func loadNodeManagementDocument(path string) (nodeManagementDocument, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return nodeManagementDocument{Version: 1, Revision: 1, Nodes: []NodeRegistration{}}, nil
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 128*1024 {
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > nodeManagementDocumentLimit {
 		return nodeManagementDocument{}, errors.New("node pairing document is unavailable")
 	}
 	raw, err := os.ReadFile(path)
@@ -211,6 +211,9 @@ func loadNodeManagementDocument(path string) (nodeManagementDocument, error) {
 	}
 	if doc.Coordinator != "" && !seen[doc.Coordinator] {
 		return doc, errors.New("designated coordinator is not enrolled")
+	}
+	if err := validateNodeCoordinatorRoutes(doc); err != nil {
+		return doc, err
 	}
 	return doc, nil
 }
@@ -306,6 +309,7 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 	n.mu.Lock()
 	doc := n.document
 	doc.Nodes = append([]NodeRegistration(nil), doc.Nodes...)
+	doc.SourceRoutes = append([]nodeCoordinatorSourceRoute(nil), doc.SourceRoutes...)
 	n.mu.Unlock()
 	for _, r := range doc.Nodes {
 		fallback := api.NodeInfo{ID: r.ID, Label: r.Label, OS: api.NodeLinux, Join: r.Join, Runtimes: []api.NodeRuntime{}}
@@ -364,6 +368,7 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 				broker = b
 			}
 		}
+		broker.SourceRoutes = nodeCoordinatorRoutes(doc, doc.Coordinator)
 		c.Broker = &broker
 	}
 	data, _ := json.Marshal(struct {
@@ -535,7 +540,7 @@ func (n *nativeNodeManagement) addEnrollment(ctx context.Context, r api.NodeAddR
 	next := n.document
 	next.Nodes = append(append([]NodeRegistration(nil), next.Nodes...), reg)
 	next.Revision++
-	if err = localstate.Write(filepath.Join(n.directory, "config.json"), next); err != nil {
+	if err = writeNodeManagementDocument(filepath.Join(n.directory, "config.json"), next); err != nil {
 		return api.NodeAddResult{}, err
 	}
 	n.document = next
@@ -653,7 +658,11 @@ func (n *nativeNodeManagement) outgoingInstructions(_ context.Context, r NodeReg
 }
 
 func (n *nativeNodeManagement) SetCoordinator(ctx context.Context, r api.NodeCoordinatorSelection) (api.NodeCatalog, error) {
-	if err := GuardNodeRoamingCoordinator(n.app, r.NodeID); err != nil {
+	// Serialize configuration with enable/disable and original-operation
+	// recovery, including edits that retain the same coordinator identity.
+	unlock := lockNodeRoamingCoordinatorEdit(n.app)
+	defer unlock()
+	if err := guardNodeRoamingCoordinator(n.app, r.NodeID, r.SourceRoutes != nil); err != nil {
 		return api.NodeCatalog{}, err
 	}
 	n.controlMu.Lock()
@@ -676,10 +685,14 @@ func (n *nativeNodeManagement) SetCoordinator(ctx context.Context, r api.NodeCoo
 			return api.NodeCatalog{}, errors.New("coordinator requires an enrolled node agent")
 		}
 	}
-	next := n.document
+	next, err := replaceNodeCoordinatorRoutes(n.document, r.NodeID, r.SourceRoutes)
+	if err != nil {
+		n.mu.Unlock()
+		return api.NodeCatalog{}, err
+	}
 	next.Coordinator = r.NodeID
 	next.Revision++
-	err = localstate.Write(filepath.Join(n.directory, "config.json"), next)
+	err = writeNodeManagementDocument(filepath.Join(n.directory, "config.json"), next)
 	if err == nil {
 		n.document = next
 	}
