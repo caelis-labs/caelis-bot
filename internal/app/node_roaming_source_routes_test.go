@@ -46,7 +46,11 @@ func nativeLocalEnrollmentManagementFixture(t *testing.T) *nodeManagement {
 	t.Helper()
 	// This explicit Service enrollment fixture is outside the APP/source root.
 	// The plan must use its actual stored identity, never fabricate node.json.
-	service, err := nodeagent.New(nodeagent.Options{Directory: t.TempDir(), NodeID: "actual-native-local", Join: api.NodeLocal})
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	service, err := nodeagent.New(nodeagent.Options{Directory: directory, NodeID: "actual-native-local", Join: api.NodeLocal})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +99,11 @@ func TestNativeFrozenPlanUsesActualLocalIdentityAndRejectsTamperOrDowngrade(t *t
 	if p.CoordinatorIdentity.NodeID != "actual-native-local" || p.CoordinatorIdentity.Directory == p.Coordinator.Directory || p.Nodes[0].Plan.Managed.BrokerNodeID != api.LocalNodeID {
 		t.Fatal("public local alias or roaming directory replaced actual enrollment", p.CoordinatorIdentity)
 	}
-	filename := filepath.Join(t.TempDir(), "roaming-deployment.json")
+	recordDirectory := t.TempDir()
+	if err := os.Chmod(recordDirectory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Join(recordDirectory, "roaming-deployment.json")
 	write := func(p roamingNativePlan) {
 		t.Helper()
 		if err := nodeagent.WriteManagedPrivateJSON(filename, p); err != nil {

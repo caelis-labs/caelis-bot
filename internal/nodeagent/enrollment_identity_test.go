@@ -11,8 +11,18 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
-func TestClosedCoordinatorVerificationUsesActualEnrolledIdentityWithoutWrites(t *testing.T) {
+func enrollmentPrivateFixtureDirectory(t *testing.T) string {
+	t.Helper()
 	directory := t.TempDir()
+	// testing.TempDir guarantees cleanup, not the exact native enrollment mode.
+	if err := os.Chmod(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return directory
+}
+
+func TestClosedCoordinatorVerificationUsesActualEnrolledIdentityWithoutWrites(t *testing.T) {
+	directory := enrollmentPrivateFixtureDirectory(t)
 	service, err := New(Options{Directory: directory, NodeID: "actual-native-machine", Join: api.NodeLocal})
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +52,7 @@ func TestClosedCoordinatorVerificationUsesActualEnrolledIdentityWithoutWrites(t 
 func TestClosedCoordinatorVerificationRejectsUnownedOrUnboundState(t *testing.T) {
 	for _, reason := range []string{"missing", "wrong-id", "insecure-file", "insecure-directory", "symlink-file", "symlink-directory", "large", "extra-fields"} {
 		t.Run(reason, func(t *testing.T) {
-			directory := t.TempDir()
+			directory := enrollmentPrivateFixtureDirectory(t)
 			path := filepath.Join(directory, "node.json")
 			if err := localstate.Write(path, struct {
 				ID string `json:"id"`
@@ -95,7 +105,7 @@ func TestClosedCoordinatorVerificationRejectsUnownedOrUnboundState(t *testing.T)
 		})
 	}
 	// Legacy reverse-join permission checks retain their existing behavior.
-	if err := Run(t.Context(), []string{"verify-join-directory", "--directory", t.TempDir()}, nil, io.Discard); err != nil {
+	if err := Run(t.Context(), []string{"verify-join-directory", "--directory", enrollmentPrivateFixtureDirectory(t)}, nil, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 }
