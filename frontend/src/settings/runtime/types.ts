@@ -10,7 +10,7 @@ export type TeamState = { available: boolean; reason: string; revision: string; 
 export type ConnectionModel = { id: string; name: string; uses: string[]; unavailable: boolean };
 export type ConnectionGroup = { id: string; name: string; kind: 'provider' | 'agent'; detail: string; models: ConnectionModel[] };
 export type RuntimeView = {
- revision: string; profile: RuntimeSettings; setup: SetupState; pending: string;
+ local?: boolean; revision: string; profile: RuntimeSettings; setup: SetupState; pending: string;
  models: ModelOption[]; conversation: ModelSelection | ExecutionSettings | null; work: ModelSelection | null;
  main: ModelSelection | null; canEditMain: boolean; team: TeamState; connections: ConnectionGroup[];
 };
@@ -40,6 +40,8 @@ export type TeamChange =
 // No implementation may infer an auth URL, installation command or capability.
 export interface RuntimeSettingsClient {
  capture?(revision:string):RuntimeSettingsClient;
+ beginConnection?():Promise<RuntimeSettingsClient>;
+ closeConnection?():Promise<void>;
  read(): Promise<RuntimeView>;
  saveModel(scope: ModelScope, value: ModelSelection, revision?: string): Promise<void>;
  changeTeam(change: TeamChange, revision: string): Promise<void>;
