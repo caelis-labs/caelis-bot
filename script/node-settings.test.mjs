@@ -594,6 +594,64 @@ test('ordinary active local Runtime keeps original configuration, edits and conn
  assert.equal(calls.filter(c=>/NodeRuntimeConnection|NodeRuntimeSetupCatalog/.test(c[0])).length,0);
 });
 
+test('local model draft rejects a changed Bot owner before Save and preserves the selected value',async()=>{
+ const calls=[],profile={runtime:'caelis',cliPath:'/fixture/source-caelis',caelisStore:'/fixture/source-store'};
+ let activeBotNodeId='local';
+ const shared={...config('local','caelis').configuration,revision:'source-revision',main:{model:'source-store-model',effort:'high',serviceTier:''},models:[model('source-store-model'),model('source-store-other')]};
+ await mount(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return {...catalog(),activeBotNodeId};
+  if(method==='NodeRuntimeConfiguration')return config(...args);
+  if(method==='RuntimeSettings')return profile;
+  if(method==='SetupOverview')return {active:'caelis',pending:''};
+  if(method==='InspectSetup')return {settings:profile,state:'ready',message:'',installation:{installed:true,path:'',version:'1',latestVersion:'1',updateState:'',message:''},models:[],selectedModel:'',accountType:''};
+  if(method==='RuntimeConfiguration')return shared;
+  if(['ExecutionSettings','WorkExecutionSettings'].includes(method))return {model:'source-store-model',effort:'high',serviceTier:''};
+  if(method==='Models')return shared.models;
+  throw new Error('Unexpected fixture method');
+ });
+ await click(container.querySelectorAll('button.runtime-model-summary')[1]);
+ await click(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1]);
+ activeBotNodeId='other';
+ await click(buttons('Save')[0]);
+ assert.ok(container.querySelector('[role="dialog"]'));
+ assert.equal(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1].checked,true);
+ assert.ok(container.querySelector('[role="dialog"] [role="alert"]'));
+ assert.equal(calls.filter(c=>['ChangeRuntimeConfiguration','ChangeNodeConfiguration','SaveExecutionSettings','SaveWorkExecutionSettings'].includes(c[0])).length,0);
+});
+
+test('local adapter rechecks backend and profile for every global mutation and late inspection',async()=>{
+ const profile={runtime:'caelis',cliPath:'/fixture/source-caelis',caelisStore:'/fixture/source-store'};
+ for(const changed of [{...profile,runtime:'codex'},{...profile,caelisStore:'/fixture/another-store'}]){
+  let current=profile,mutations=0;
+  const owner=createNodeSettingsClient(async(method)=>{
+   if(method==='NodeCatalog')return {...catalog(),activeBotNodeId:'local'};
+   if(method==='RuntimeSettings')return current;
+   throw new Error('Unexpected fixture method');
+  });
+  owner.localRuntime=()=>({read:async()=>({profile,revision:'source-revision'}),saveModel:async()=>mutations++,changeTeam:async()=>mutations++,removeModel:async()=>mutations++,startConnection:async()=>mutations++});
+  const adapter=createNodeRuntimeClient(owner,{nodeId:'local',backend:'caelis',revision:'catalog-revision'},{defaultLocal:true});
+  await adapter.read();
+  const captured=adapter.capture('source-revision');current=changed;
+  await assert.rejects(()=>captured.saveModel('runtime',{model:'manual-model',effort:'',serviceTier:''},'source-revision'));
+  await assert.rejects(()=>captured.changeTeam({action:'reset',id:'role'},'source-revision'));
+  await assert.rejects(()=>captured.removeModel({id:'provider'}, {id:'model'},'source-revision'));
+  await assert.rejects(()=>captured.startConnection({kind:'api-key',choice:'provider',apiKey:'manual-fixture'},new AbortController().signal,()=>{}));
+  assert.equal(mutations,0);
+ }
+ const inspection=deferred();let activeBotNodeId='local';
+ const owner=createNodeSettingsClient(async(method)=>{
+  if(method==='NodeCatalog')return {...catalog(),activeBotNodeId};
+  if(method==='RuntimeSettings')return profile;
+  throw new Error('Unexpected fixture method');
+ });
+ owner.localRuntime=()=>({read:()=>inspection.promise});
+ const adapter=createNodeRuntimeClient(owner,{nodeId:'local',backend:'caelis',revision:'catalog-revision'},{defaultLocal:true});
+ const pending=adapter.read();await new Promise(resolve=>setImmediate(resolve));
+ activeBotNodeId='other';inspection.resolve({profile,revision:'source-revision'});
+ await assert.rejects(()=>pending);
+});
+
 
 test('StrictMode effect replay keeps explicitly opened Node owner until settings actually close',async()=>{
  const calls=[];
