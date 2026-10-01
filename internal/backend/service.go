@@ -230,7 +230,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 
 	// A thin APP forwards through the product authority instead of creating a
 	// second resident outbox or local draft lifecycle.
-	if _, remote := s.engine.(ProductDraftPort); remote {
+	if _, remote := s.productDraftPort(); remote {
 		var files []api.InputFile
 		if len(input.FileIDs) > 0 {
 			if s.files == nil {
