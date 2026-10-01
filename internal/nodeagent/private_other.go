@@ -2,7 +2,12 @@
 
 package nodeagent
 
-import "errors"
+import (
+	"errors"
+	"os"
+)
+
+func privateFileOwnedByCurrentUser(os.FileInfo) bool { return false }
 
 func CheckPrivateDirectory(string) error {
 	return errors.New("private node agent IPC unsupported on this platform")

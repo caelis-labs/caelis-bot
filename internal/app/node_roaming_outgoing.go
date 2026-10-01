@@ -180,7 +180,11 @@ func ExecuteJoinedRoamingDeployment(ctx context.Context, directory, nodeID strin
 			return result, errors.New("target preferences invalid")
 		}
 		// Existing outward authorization is checked before retiring the source.
-		if e = runRoamingSSH(ctx, m.JoinSSHDestination, nodeShellQuote(m.JoinHelper)+" verify-join-directory --directory "+nodeShellQuote(filepath.Dir(metadata.Route.Directory)), nil); e != nil {
+		verification, err := nodeagent.RoamingCoordinatorVerificationCommand(*m)
+		if err != nil {
+			return result, err
+		}
+		if e = runRoamingSSH(ctx, m.JoinSSHDestination, verification, nil); e != nil {
 			return result, errors.New("existing outbound coordinator authorization unavailable")
 		}
 		if r.Action == "preflight" {

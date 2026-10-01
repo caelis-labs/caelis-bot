@@ -49,7 +49,11 @@ func (s *Service) preflightJoinedDeployment(ctx context.Context, r RoamingDeploy
 	if e != nil {
 		return e
 	}
-	args = append(args, "-o", "ClearAllForwardings=yes", "--", metadata.Route.Target, shellQuote(metadata.Route.Helper)+" verify-join-directory --directory "+shellQuote(filepath.Dir(metadata.Route.Directory)))
+	verification, e := RoamingCoordinatorVerificationCommand(*m)
+	if e != nil {
+		return e
+	}
+	args = append(args, "-o", "ClearAllForwardings=yes", "--", metadata.Route.Target, verification)
 	command := exec.CommandContext(ctx, "ssh", args...)
 	command.Stdout, command.Stderr = io.Discard, io.Discard
 	if command.Run() != nil {

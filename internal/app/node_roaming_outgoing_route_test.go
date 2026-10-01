@@ -82,6 +82,7 @@ func TestOutgoingBuilderPreservesSourceRouteThroughPairedValidation(t *testing.T
 	n := &roamingNativeAssembly{app: a, original: management, options: NodeRoamingNativeOptions{Host: func() (string, error) { return helper, nil }, Artifact: func(string) (nodeagent.Artifact, error) { return artifact, nil }, LocalCodexBinary: "/usr/bin/true"}}
 	local := NodeRegistration{ID: api.LocalNodeID, Label: "Local source", Join: api.NodeLocal}
 	in := NodeRoamingStageInput{BotID: "fixture-bot", OperationID: "route-original", Coordinator: coordinator, Nodes: []NodeRegistration{local, coordinator, joined}, SourceTarget: api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleBot}}
+	in.SourceRoutes = []api.NodeCoordinatorSourceRoute{{SourceNodeID: joined.ID, SSHDestination: route.Target}}
 	p, err := n.build(t.Context(), in)
 	if err != nil {
 		t.Fatal(err)
@@ -118,6 +119,11 @@ func TestOutgoingBuilderPreservesSourceRouteThroughPairedValidation(t *testing.T
 	}
 	if target.Plan.Managed.JoinSSHDestination != route.Target || target.Plan.Managed.BrokerSSHDestination != route.Target || target.Plan.Managed.JoinHelper != route.Helper {
 		t.Fatal("builder did not freeze verified source route")
+	}
+	changedInput := in
+	changedInput.SourceRoutes = []api.NodeCoordinatorSourceRoute{{SourceNodeID: joined.ID, SSHDestination: "unpaired-third-alias"}}
+	if _, err := n.build(t.Context(), changedInput); err == nil || !strings.Contains(err.Error(), "configured source route differs") {
+		t.Fatal("product route input overrode authoritative outgoing metadata", err)
 	}
 	before, err := os.ReadFile(sshLog)
 	if err != nil {

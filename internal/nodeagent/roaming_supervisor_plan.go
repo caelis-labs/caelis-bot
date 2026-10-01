@@ -28,6 +28,7 @@ type RoamingManagedDeployment struct {
 	CaelisBinary, CaelisStore, Model                                                                string
 	BrokerNodeID, BrokerSocket, BrokerSSHDestination, BrokerHelper, WorkersFile                     string
 	JoinSSHDestination, JoinHelper, JoinDirectory                                                   string
+	CoordinatorIdentity                                                                             *NativeEnrollmentIdentity `json:",omitempty"`
 }
 
 func ValidateRoamingSupervisor(p RoamingSupervisorPlan, filename string) error {
@@ -54,6 +55,11 @@ func ValidateRoamingSupervisor(p RoamingSupervisorPlan, filename string) error {
 	}
 	if p.Managed != nil {
 		v := p.Managed
+		if v.CoordinatorIdentity != nil {
+			if err := ValidateRoamingCoordinatorIdentity(*v); err != nil {
+				return err
+			}
+		}
 		if v.NodeID != p.NodeID || v.BotID == "" || (v.Backend != "codex" && v.Backend != "caelis") || v.Backend == "caelis" && (!filepath.IsAbs(v.CaelisBinary) || !filepath.IsAbs(v.CaelisStore)) || v.BrokerNodeID == "" || !inside(v.AgentDirectory) || !inside(v.GenerationRoot) || !inside(v.AuthFile) || v.WorkersFile != "" && !inside(v.WorkersFile) || !filepath.IsAbs(v.BrokerSocket) || v.BrokerSSHDestination != "" && (!filepath.IsAbs(v.BrokerHelper) || v.JoinSSHDestination == "" || !filepath.IsAbs(v.JoinDirectory)) {
 			return errors.New("managed paths do not match exact approved native slot")
 		}
