@@ -93,16 +93,17 @@ func readSupervisor(r io.Reader) (supervisorFrame, error) {
 }
 
 type SupervisedProcess struct {
-	conn    net.Conn
-	cmd     *exec.Cmd
-	pid     int
-	tools   *ownedTools
-	gate    chan struct{}
-	exited  chan struct{}
-	next    atomic.Uint64
-	mu      sync.Mutex
-	stopped bool
-	stopErr error
+	conn     net.Conn
+	cmd      *exec.Cmd
+	pid      int
+	tools    *ownedTools
+	gate     chan struct{}
+	exited   chan struct{}
+	next     atomic.Uint64
+	mu       sync.Mutex
+	stopped  bool
+	stopOnce sync.Once
+	stopErr  error
 }
 
 func StartSupervisedProcess(ctx context.Context, o SupervisedProcessOptions) (*SupervisedProcess, error) {
@@ -225,33 +226,36 @@ func (p *SupervisedProcess) Renew(ctx context.Context, epoch string, remaining t
 	return err
 }
 func (p *SupervisedProcess) Stop(ctx context.Context) error {
+	p.stopOnce.Do(func() {
+		reply, err := p.call(ctx, supervisorFrame{Method: "stop"})
+		if err == nil && !reply.Stopped {
+			err = errors.New("owned watchdog stop unconfirmed")
+		}
+		_ = p.conn.Close()
+		if err == nil && p.tools != nil {
+			err = p.tools.killFencedChildren()
+		}
+		if err != nil && p.tools != nil {
+			live, readErr := p.tools.watchdogRootLive()
+			var freeze error
+			if readErr != nil {
+				freeze = readErr
+			} else if live {
+				freeze = (&pipeConnection{tools: p.tools}).freezeOwned()
+			}
+			p.tools.capture()
+			root := p.tools.watchdogForceRoot()
+			children := p.tools.killFencedChildren()
+			err = errors.Join(freeze, root, children, p.tools.failure())
+		}
+		p.mu.Lock()
+		p.stopped = true
+		p.stopErr = err
+		p.mu.Unlock()
+	})
 	p.mu.Lock()
-	done := p.stopped
-	prior := p.stopErr
-	p.mu.Unlock()
-	if done {
-		return prior
-	}
-	reply, err := p.call(ctx, supervisorFrame{Method: "stop"})
-	if err == nil && !reply.Stopped {
-		err = errors.New("owned watchdog stop unconfirmed")
-	}
-	_ = p.conn.Close()
-	if err == nil && p.tools != nil {
-		err = p.tools.killFencedChildren()
-	}
-	if err != nil && p.tools != nil {
-		freeze := (&pipeConnection{tools: p.tools}).freezeOwned()
-		p.tools.capture()
-		root := p.tools.watchdogForceRoot()
-		children := p.tools.killFencedChildren()
-		err = errors.Join(freeze, root, children, p.tools.failure())
-	}
-	p.mu.Lock()
-	p.stopped = true
-	p.stopErr = err
-	p.mu.Unlock()
-	return err
+	defer p.mu.Unlock()
+	return p.stopErr
 }
 
 // RunSupervisedRuntime owns one foreground child, its exact stable process
