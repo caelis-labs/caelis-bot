@@ -31,6 +31,9 @@ jobs:
       - name: Check headless product receipts and runtime management
         run: |
           go test -race -count=1 ./internal/productrpc ./internal/productmanagement ./internal/runtimemanagement ./cmd/caelis-node
+      - name: Check paired Worker source receipts and observer lifecycle
+        run: |
+          go test -race -count=1 ./internal/nodeworker ./internal/workerwire ./internal/nodes
   product:
     runs-on: macos-14
     timeout-minutes: 30

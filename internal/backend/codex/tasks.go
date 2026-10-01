@@ -15,26 +15,33 @@ import (
 // Task records and submission receipts share the atomic conversation binding.
 // A recorded unknown outcome is never permission to retry a mutation.
 type taskRecord struct {
-	OriginalPrompt string                     `json:"originalPrompt,omitempty"`
-	Execution      *api.WorkExecutionSettings `json:"execution,omitempty"`
-	ModelProvider  string                     `json:"modelProvider,omitempty"`
-	View           api.Task                   `json:"view"`
-	Thread         string                     `json:"thread"`
-	Run            string                     `json:"run"`
-	Fingerprint    string                     `json:"fingerprint"`
-	Source         string                     `json:"source"`
-	Requests       map[string]taskReceipt     `json:"requests"`
-	Pending        string                     `json:"pending,omitempty"`
-	ReportID       string                     `json:"reportId,omitempty"`
-	ReportState    string                     `json:"reportState,omitempty"`
-	SuppressReport bool                       `json:"suppressReport,omitempty"`
-	Instructions   string                     `json:"instructions,omitempty"`
+	WorkerStartID     string                     `json:"workerStartId,omitempty"`
+	WorkerStartDigest string                     `json:"workerStartDigest,omitempty"`
+	WorkerBinding     string                     `json:"workerBinding,omitempty"`
+	WorkerArtifacts   map[string]string          `json:"workerArtifacts,omitempty"`
+	WorkerSource      *api.WorkDispatchSource    `json:"workerSource,omitempty"`
+	OriginalPrompt    string                     `json:"originalPrompt,omitempty"`
+	Execution         *api.WorkExecutionSettings `json:"execution,omitempty"`
+	ModelProvider     string                     `json:"modelProvider,omitempty"`
+	View              api.Task                   `json:"view"`
+	Thread            string                     `json:"thread"`
+	Run               string                     `json:"run"`
+	Fingerprint       string                     `json:"fingerprint"`
+	Source            string                     `json:"source"`
+	Requests          map[string]taskReceipt     `json:"requests"`
+	Pending           string                     `json:"pending,omitempty"`
+	ReportID          string                     `json:"reportId,omitempty"`
+	ReportState       string                     `json:"reportState,omitempty"`
+	SuppressReport    bool                       `json:"suppressReport,omitempty"`
+	Instructions      string                     `json:"instructions,omitempty"`
 }
 type taskReceipt struct {
-	Fingerprint string `json:"fingerprint"`
-	Outcome     string `json:"outcome"`
-	PriorStatus string `json:"priorStatus,omitempty"`
-	PriorRun    string `json:"priorRun,omitempty"`
+	Source        *api.WorkDispatchSource `json:"dispatchSource,omitempty"`
+	RequestDigest string                  `json:"requestDigest,omitempty"`
+	Fingerprint   string                  `json:"fingerprint"`
+	Outcome       string                  `json:"outcome"`
+	PriorStatus   string                  `json:"priorStatus,omitempty"`
+	PriorRun      string                  `json:"priorRun,omitempty"`
 }
 
 func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
@@ -299,6 +306,10 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	return s.sendTask(ctx, t, in, true)
 }
 func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessage, resume bool) (api.Task, error) {
+	return s.sendTaskWithAdmission(ctx, t, in, resume, nil)
+}
+
+func (s *Session) sendTaskWithAdmission(ctx context.Context, t *taskRecord, in api.TaskMessage, resume bool, admit func() error) (api.Task, error) {
 	s.mu.Lock()
 	c := s.client
 	run := s.childRuns[t.Thread]
@@ -308,7 +319,12 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		return api.Task{}, errors.New("运行回合尚未确认，请先读取任务")
 	}
 	previousView, previousRun, previousPending, previousSuppression := t.View, t.Run, t.Pending, t.SuppressReport
-	t.Requests[in.RequestID] = taskReceipt{Fingerprint: opaque(in.Prompt), Outcome: "unknown", PriorStatus: t.View.Status, PriorRun: t.Run}
+	receipt := taskReceipt{Fingerprint: opaque(in.Prompt), Outcome: "unknown", PriorStatus: t.View.Status, PriorRun: t.Run, RequestDigest: in.RequestDigest}
+	if in.Source != (api.WorkDispatchSource{}) {
+		source := in.Source
+		receipt.Source = &source
+	}
+	t.Requests[in.RequestID] = receipt
 	t.Pending = in.RequestID
 	t.SuppressReport = false
 	if !wasActive {
@@ -359,6 +375,11 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		Turn   nativeTurn `json:"turn"`
 		TurnID string     `json:"turnId"`
 	}
+	if admit != nil {
+		if err := admit(); err != nil {
+			return s.taskSendResult(t, in.RequestID, nativeTurn{}, &RequestError{Method: method, Cause: err})
+		}
+	}
 	err := callDecode(ctx, c, method, params, &response)
 	if wasActive {
 		if err == nil && response.TurnID != run {
@@ -407,7 +428,7 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 		go s.watchChild(s.client, s.epoch, t.Thread)
 	}
 	if saveErr := s.save(); saveErr != nil {
-		err = saveErr
+		err = errors.Join(err, saveErr)
 	}
 	s.update()
 	return t.View, err
@@ -420,6 +441,7 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 	if turn.ID == "" {
 		return
 	}
+	changed = rememberWorkerArtifacts(t, turn) || changed
 	for _, item := range turn.Items {
 		if item.Type == "userMessage" {
 			if r, ok := t.Requests[item.ClientID]; ok {

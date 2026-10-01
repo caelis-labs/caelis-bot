@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 )
 
 // An explicit profile lets native acceptance use an isolated backend without
@@ -16,6 +17,10 @@ func applicationDataDirectory() (string, error) {
 		}
 		return filepath.Clean(root), nil
 	}
+	return defaultApplicationDataDirectory()
+}
+
+func defaultApplicationDataDirectory() (string, error) {
 	config, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -37,4 +42,34 @@ func environmentNotebookHomes() []string {
 		}
 	}
 	return paths
+}
+
+// Select the same profile before optional shell recovery, so an explicitly
+// paired thin APP never invokes local runtime shell discovery. Only the known
+// historical product Notebook override is interpreted; custom HOME is retained.
+func applicationDataDirectoryBeforeRuntimeEnvironment() (string, error) {
+	if _, explicit := os.LookupEnv("CAELIS_BOT_DATA_DIR"); explicit {
+		return applicationDataDirectory()
+	}
+	return defaultApplicationDataDirectoryBeforeRuntimeEnvironment()
+}
+
+func defaultApplicationDataDirectoryBeforeRuntimeEnvironment() (string, error) {
+	root, err := defaultApplicationDataDirectory()
+	if err != nil || runtime.GOOS != "darwin" {
+		return root, err
+	}
+	inherited := filepath.Clean(os.Getenv("HOME"))
+	for _, owned := range environmentNotebookHomes() {
+		if inherited != owned {
+			continue
+		}
+		account, err := user.Current()
+		if err != nil {
+			return "", err
+		}
+		name, _ := applicationIdentity()
+		return filepath.Join(account.HomeDir, "Library", "Application Support", name), nil
+	}
+	return root, nil
 }

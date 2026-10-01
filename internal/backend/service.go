@@ -50,6 +50,8 @@ type Service struct {
 	screenMediaError            error
 	workerNodes                 WorkerNodeController
 	workInteractions            *workerInteractions
+	productConnection           ProductConnectionController
+	remoteManagement            RemoteManagementController
 }
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string), openURL, reveal func(string) error) *Service {
@@ -212,6 +214,27 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	s.mu.Unlock()
 	if initializer != nil && initializer.Initialization().Status != "accepted" {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "请先完成 Bot 初始化，并等待介绍发送完成"}, nil
+	}
+
+	// A thin APP forwards through the product authority instead of creating a
+	// second resident outbox or local draft lifecycle.
+	if _, remote := s.engine.(ProductDraftPort); remote {
+		var files []api.InputFile
+		if len(input.FileIDs) > 0 {
+			if s.files == nil {
+				return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "attachment selection is unavailable"}, nil
+			}
+			var err error
+			files, err = s.files(input.FileIDs)
+			if err != nil {
+				return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "selected attachment is unavailable"}, nil
+			}
+		}
+		receipt, err := s.engine.Submit(ctx, input, files)
+		if receipt.Outcome == "accepted" && s.consumeFiles != nil {
+			s.consumeFiles(input.FileIDs)
+		}
+		return receipt, err
 	}
 
 	files, err := s.files(input.FileIDs)

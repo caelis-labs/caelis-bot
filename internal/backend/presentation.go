@@ -17,6 +17,9 @@ import (
 // Presentation state is shared by all renderers. It cannot approve or cancel work.
 // Drafts survive surface switches and normal restarts; restoration never sends.
 func (s *Service) Draft() api.Draft {
+	if remote, ok := s.engine.(ProductDraftPort); ok {
+		return remote.Draft()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	d := s.draft
@@ -25,6 +28,9 @@ func (s *Service) Draft() api.Draft {
 	return d
 }
 func (s *Service) SaveDraft(d api.Draft) (api.Draft, error) {
+	if remote, ok := s.engine.(ProductDraftPort); ok {
+		return remote.SaveDraft(d)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.draftLoadError != nil {
@@ -47,6 +53,9 @@ func (s *Service) SaveDraft(d api.Draft) (api.Draft, error) {
 	return d, nil
 }
 func (s *Service) clearDraft(input api.Submission) {
+	if _, ok := s.engine.(ProductDraftPort); ok {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.draft.Text == input.Text && slices.Equal(s.draft.ReferenceIDs, input.ReferenceIDs) {

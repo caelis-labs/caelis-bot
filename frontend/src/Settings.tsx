@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { desktop } from './desktop';
+import { desktop,backend } from './desktop';
+import {ProductConnectionSettings} from './ProductConnectionSettings';
+import {RemoteRuntimeSettings} from './RemoteRuntimeSettings';
+import type {ProductConnectionState} from './backend/contract';
 import { BotSetup } from './BotSetup';
 import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
@@ -21,6 +24,8 @@ type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean
 export function Settings() {
  const {t}=useI18n();
  const content=useRef<HTMLDivElement>(null);
+ const [productMode,setProductMode]=useState('');
+ useEffect(()=>{let alive=true;void backend<ProductConnectionState>('ProductConnection').then(value=>{if(alive)setProductMode(value.activeMode);}).catch(()=>{});return()=>{alive=false;};},[]);
  const [executionVisited,setExecutionVisited]=useState(false),[runtimeVisited,setRuntimeVisited]=useState(false);
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
  useEffect(()=>{
@@ -35,23 +40,24 @@ export function Settings() {
  return <main className="settings-window">
   <aside><nav aria-label={t('settings.navLabel')}>{sections.map(id=><button key={id} aria-current={section===id?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}>{t(`settings.${id}`)}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
   <div className="settings-content" ref={content}>
-   <div className="settings-page" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<><PermissionSettings embedded/><ScreenInputSettings/></>}<ExecutionSettings embedded/></>}</div>
-<div className="settings-page" hidden={section!=='runtime'}>{(runtimeVisited||section==='runtime')&&<RuntimeSettings active={section==='runtime'} refreshKey={opened}/>}</div>
+   <div className="settings-page" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&(productMode==='remote'?<><h1>{t('settings.permissions')}</h1><p className="settings-note">{t('settings.productRuntimeOnTarget')}</p></>:productMode==='local'?<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<><PermissionSettings embedded/><ScreenInputSettings/></>}<ExecutionSettings embedded/></>:null)}</div>
+<div className="settings-page" hidden={section!=='runtime'}>{(runtimeVisited||section==='runtime')&&(productMode==='remote'?<><RemoteRuntimeSettings active={section==='runtime'} refreshKey={opened}/><details className="settings-disclosure"><summary>{t('settings.productConnection')}</summary><ProductConnectionSettings/></details></>:productMode==='local'?<RuntimeSettings active={section==='runtime'} refreshKey={opened}/>:null)}</div>
    <div className="settings-page" key={section} hidden={section==='permissions'||section==='runtime'}>
-   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?null:section==='permissions'?null:<Updates key={opened} version={version}/>}
+   {section==='general'?<General key={opened} productMode={productMode}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?null:section==='permissions'?null:<Updates key={opened} version={version}/>}
    </div>
   </div>
  </main>;
 }
 
-function General() {
+function General({productMode}:{productMode:string}) {
  const {t}=useI18n();
  const [storageOpen,setStorageOpen]=useState(false),[tasksOpen,setTasksOpen]=useState(false);
  return <section className="general-settings">
   <h1>{t('settings.general')}</h1><LanguageSetting/>
   <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/><ShortcutSettings capture/><ShortcutSettings paste/></SettingGroup>
   <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
-  <details className="settings-disclosure" onToggle={e=>setTasksOpen(e.currentTarget.open)}><summary>{t('settings.advancedTasks')}</summary>{tasksOpen&&<TaskSettings/>}</details>
+  {productMode==='local'&&<details className="settings-disclosure" onToggle={e=>setTasksOpen(e.currentTarget.open)}><summary>{t('settings.advancedTasks')}</summary>{tasksOpen&&<TaskSettings/>}</details>}
+  <details className="settings-disclosure"><summary>{t('settings.productConnection')}</summary><ProductConnectionSettings/></details>
  </section>;
 }
 

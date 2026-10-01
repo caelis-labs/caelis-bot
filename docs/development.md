@@ -66,6 +66,14 @@ Developer ID / 公证流程完成。
 | Public release | Exact tag/source, signed public assets/feed, notarization/staples and independent Gatekeeper; see release.md |
 
 Run native launches only through `script/build_and_run.sh`; use `CAELIS_BOT_DATA_DIR` for synthetic data.
+An explicit profile has a stable native instance key derived from its canonical
+directory. Aliases of the same profile retain the same owner; explicitly selecting
+the default profile retains the default application key.
+If launchd reports that it cannot open the checkout's stdout path, an explicit
+`CAELIS_BOT_NATIVE_LOG` may select an absolute output file in an owned private
+directory, such as a fresh `mktemp -d` directory. The launcher rejects symlink
+directories/files and group/other access before touching any process. This only
+changes launch output; it does not change the bundle, profile or OS permissions.
 `--bubble-preview` provides a long Markdown/streaming fixture. Its “审批恢复回归” button checks that completed
 text and queued tails survive approval, review, notice and connection overlays in the mounted production Bubble;
 the result is saved to `.cache/bubble-preview.png.replay.json` (run with reduced motion off).

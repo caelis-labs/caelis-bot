@@ -18,7 +18,7 @@ func managementScope(s Scope) productmanagement.Scope {
 }
 func managementPath(path string) bool {
 	switch path {
-	case "/v1/management/capabilities", "/v1/management/releases", "/v1/management/status", "/v1/management/configuration", "/v1/management/resolve":
+	case "/v1/management/capabilities", "/v1/management/releases", "/v1/management/status", "/v1/management/configuration", "/v1/management/resolve", "/v1/management/execution":
 		return true
 	}
 	return false
@@ -99,7 +99,12 @@ func (s *Server) manageHTTP(w http.ResponseWriter, r *http.Request) {
 			caps = s.management.Capabilities()
 			caps.ConfigurationReceiptLookup = false
 		}
+		caps.Execution = s.execution != nil
 		s.write(w, caps)
+		return
+	}
+	if r.URL.Path == "/v1/management/execution" {
+		s.readExecution(w, r, query.Scope)
 		return
 	}
 	if s.management == nil {

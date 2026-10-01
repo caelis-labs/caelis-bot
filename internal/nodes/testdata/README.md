@@ -100,3 +100,35 @@ the original lost receipt. This supported v1 uncertainty behavior passed; receip
 recovery itself remains unsupported. Native setup/APP assembly must still select
 and present this policy explicitly before full APP acceptance is claimed.
 Real provider login/model and Host restart/HA remain outside this synthetic gate.
+
+## Actual APP background assembly and native primary source
+
+`internal/app/TestNativeCaelisWorkerAPPGate` closes the earlier static-source
+assembly gap. Run it only with the private SSH fixture descriptor above and
+`CAELIS_BOT_TEST_NATIVE_PRIMARY` naming an installed native Codex CLI. Its shared
+native-primary helper starts the actual `APP.New/Start`, Bot MCP bridge and Codex
+App Server under an isolated profile/CODEX_HOME, with a held synthetic loopback
+Responses provider. An actual user submission produces the native thread/turn
+exported by the actual engine's `WorkDispatchSource`; no fixture source is supplied.
+
+Start the remote supervisor with `--hold-artifact-completion` for this test. This
+optional test-only flag holds the final synthetic artifact response until the
+control endpoint releases `CASE_SSH_ARTIFACT`; ordinary fixture cases are unchanged.
+The real APP controller saves and connects an explicitly selected Caelis node,
+then its task manager dispatches one bounded native artifact task. Both private
+journals must retain the actual primary source and digest. The real fault proxy
+drops the committed prompt reply; exact receipt reconciliation and APP observer
+detach/reconnect must leave one native create and one prompt. The test waits for
+canonical active state after reconnect before releasing completion, reads only the
+owned canonical artifact with byte/digest/size checks, and rejects changed intent,
+cross-task artifact reads and fresh work after the primary native turn ends.
+
+Actual verification used Codex CLI 0.158.0 and official Caelis 0.65.0, with only
+synthetic loopback providers, and took 2.06 seconds with no skips. The sanitized
+source/native identity hashes and cleanup result are in
+`native_app_bounded_worker_065_evidence.json`. APP cleanup passed; explicit fixture
+cleanup confirmed its supervisor and one native Host child stopped before removing
+only its recorded random root. This proves background APP assembly, not GUI/CUA or
+real-provider/model acceptance. The prior shared-native skips and bounded generic
+cancel/approval receipt limitations remain unchanged. No product behavior or Bot
+skill guidance changed in this fixture-only addition.

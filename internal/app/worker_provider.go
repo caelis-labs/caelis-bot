@@ -20,6 +20,9 @@ func (a *Application) newWorkerNodeAdapter(config backend.WorkerNodeConfig, dire
 	if !ok {
 		return nil, errors.New("resident driver cannot attest Worker dispatch")
 	}
+	if config.Backend == "codex" {
+		return a.newCodexWorkerNode(config, source)
+	}
 	protocol := workerNodeProtocol(config)
 	ssh, err := nodes.NewSSHWorker(nodes.SSHConfig{Protocol: protocol, Target: config.SSH, Helper: config.Helper, Store: config.Store, WorkspaceRoot: config.WorkspaceRoot})
 	if err != nil {

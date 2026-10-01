@@ -22,6 +22,9 @@ import (
 )
 
 func run(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) > 0 && (args[0] == "serve-worker" || args[0] == "proxy-worker") {
+		return runWorker(ctx, args, out)
+	}
 	if len(args) > 0 && args[0] == "proxy-product" {
 		f := flag.NewFlagSet("proxy-product", flag.ContinueOnError)
 		f.SetOutput(out)
@@ -139,8 +142,14 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return productmanagement.New(scope, *runtimeDirectory, configuration)
 		}
 	}
+	var execution func(productmanagement.Scope) (productmanagement.ExecutionPort, error)
+	if application.Backend.ModelSettingsAvailable() {
+		execution = func(scope productmanagement.Scope) (productmanagement.ExecutionPort, error) {
+			return productmanagement.NewExecution(scope, application.Backend)
+		}
+	}
 	stopped := make(chan productrpc.Result, 1)
-	s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}, Management: management, OnStopped: func(r productrpc.Result) { stopped <- r }})
+	s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}, Management: management, Execution: execution, OnStopped: func(r productrpc.Result) { stopped <- r }})
 	if err != nil {
 		return err
 	}

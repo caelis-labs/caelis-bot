@@ -50,6 +50,12 @@ export interface BotIntroduction {
   name: string;
   description: string;
 }
+export interface Capabilities {
+  execution: boolean;
+  installation: boolean;
+  configuration: boolean;
+  configurationReceiptLookup: boolean;
+}
 export interface ChatUpdate {
   changed: boolean;
   snapshot: Snapshot;
@@ -104,6 +110,24 @@ export interface ModelOption {
   efforts: Array<string>;
   serviceTiers: Array<ServiceTier>;
 }
+export interface ProductConnectionState {
+  revision: number;
+  pairing: ProductPairing;
+  activeMode: string;
+  state: string;
+  issue: string;
+  restartRequired: boolean;
+}
+export interface ProductPairing {
+  mode: string;
+  label: string;
+  ssh: string;
+  helper: string;
+  endpoint: string;
+  authFile: string;
+  nodeId: string;
+  botId: string;
+}
 export interface ProviderInfo {
   id: string;
   name: string;
@@ -131,11 +155,63 @@ export interface Reference {
   description: string;
   kind: string;
 }
+export interface RemoteConfigurationRequest {
+  id: string;
+  binding: string;
+  change: RuntimeConfigurationChange;
+}
+export interface RemoteExecutionRequest {
+  id: string;
+  binding: string;
+  target: string;
+  expectedRevision: string;
+  selection: Selection;
+}
+export interface RemoteExecutionView {
+  binding: string;
+  conversationDefault: boolean;
+  conversation: Selection;
+  work?: Selection | null;
+  revision: string;
+  models: Array<ModelOption>;
+}
+export interface RemoteManagementResult {
+  id: string;
+  outcome: string;
+  code: string;
+  status?: Status | null;
+  configuration?: RuntimeMutationResult | null;
+}
+export interface RemoteRuntimePending {
+  id: string;
+  kind: string;
+  runtime?: RemoteRuntimeRequest | null;
+}
+export interface RemoteRuntimeRequest {
+  id: string;
+  binding: string;
+  action: string;
+  runtime: string;
+  version: string;
+  expectedVersion: string;
+}
+export interface RemoteRuntimeState {
+  binding: string;
+  label: string;
+  available: boolean;
+  capabilities: Capabilities;
+  releases: Array<ReviewedRelease>;
+  pending: Array<RemoteRuntimePending>;
+}
 export interface Review {
   id: string;
   status: string;
   action: string;
   rationale: string;
+}
+export interface ReviewedRelease {
+  runtime: string;
+  version: string;
 }
 export interface RuntimeAuthMethod {
   id: string;
@@ -298,6 +374,10 @@ export interface ScreenPresentation {
   application: string;
   images: Array<ScreenImage>;
 }
+export interface Selection {
+  model: string;
+  effort: string;
+}
 export interface ServiceTier {
   id: string;
   name: string;
@@ -360,6 +440,16 @@ export interface Snapshot {
   loginPending: boolean;
   lastReceipt: Receipt;
 }
+export interface Status {
+  runtime?: string;
+  installed: boolean;
+  version?: string;
+  latestVersion?: string;
+  updateState?: string;
+  requestId?: string;
+  outcome: string;
+  message: string;
+}
 export interface Submission {
   id: string;
   text: string;
@@ -417,6 +507,7 @@ export interface WorkerNodeConfig {
   ssh: string;
   helper: string;
   backend?: string;
+  socket?: string;
   store: string;
   workspaceRoot: string;
 }

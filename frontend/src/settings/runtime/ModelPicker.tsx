@@ -12,8 +12,8 @@ export function ModelSummary({ value, models, disabled, onClick, label, unbound 
  return <button className="runtime-model-summary" aria-label={t('runtime.configureModel', { label })} disabled={disabled} onClick={onClick}><span><strong>{summary.name}</strong>{showDetail && summary.detail && <small>{summary.detail}</small>}</span><span aria-hidden="true">›</span></button>;
 }
 
-export function ModelPicker({ title, description, value, models, inherited = false, requireEffort = false, onSave, onClose, onConnect, onReset, onReload }: {
- title: string; description?: string; value: ModelSelection; models: ModelOption[]; inherited?: boolean; requireEffort?: boolean;
+export function ModelPicker({ title, description, value, models, inherited = false, requireEffort = false, allowServiceTier = true, disabled = false, onSave, onClose, onConnect, onReset, onReload }: {
+ title: string; description?: string; value: ModelSelection; models: ModelOption[]; inherited?: boolean; requireEffort?: boolean; allowServiceTier?: boolean; disabled?:boolean;
  onSave: (value: ModelSelection) => Promise<void>; onClose: () => void; onConnect?: () => void; onReset?: () => Promise<void>; onReload?: () => Promise<void>;
 }) {
  const { t } = useI18n();
@@ -23,7 +23,7 @@ export function ModelPicker({ title, description, value, models, inherited = fal
  const dirty=draft.model!==value.model||draft.effort!==value.effort||draft.serviceTier!==value.serviceTier;
  const filtered = [...models].sort((a,b)=>Number(b.model===value.model)-Number(a.model===value.model)).filter(m => `${m.name} ${m.model} ${m.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
  const save = async (reset = false) => {
-  if (blocked || working.current || !reset && (!validSelection(draft, models, inherited) || requireEffort && !draft.effort)) return;
+  if (disabled || blocked || working.current || !reset && (!validSelection(draft, models, inherited) || requireEffort && !draft.effort)) return;
   working.current = true; setBusy(true); setError('');
   try { if (reset) await onReset?.(); else await onSave(draft); onClose(); } catch (e) { setError(messageOf(e, t('runtime.actionFailed'))); if(e instanceof ConfigurationError) setBlocked(e.unknown || e.receipt.outcome === 'conflicted'); } finally { working.current = false; setBusy(false); }
  };
@@ -40,12 +40,12 @@ export function ModelPicker({ title, description, value, models, inherited = fal
    <label>{t('runtime.reasoningEffort')}<select aria-label={t('runtime.reasoningEffort')} disabled={busy} value={draft.effort} onChange={e => setDraft({ ...draft, effort: e.target.value })}>
     {!requireEffort && <option value="">{t('runtime.effortDecidedByModel')}</option>}{draft.effort && !model.efforts.includes(draft.effort) && <option value={draft.effort}>{draft.effort} · {t('runtime.currentlyUnavailable')}</option>}{model.efforts.filter(Boolean).map(e => <option key={e} value={e}>{getEffortName(e, t)}</option>)}
    </select></label>
-   <label>{t('runtime.responseSpeed')}<select aria-label={t('runtime.responseSpeed')} disabled={busy} value={draft.serviceTier} onChange={e => setDraft({ ...draft, serviceTier: e.target.value })}>
+   {allowServiceTier && <label>{t('runtime.responseSpeed')}<select aria-label={t('runtime.responseSpeed')} disabled={busy} value={draft.serviceTier} onChange={e => setDraft({ ...draft, serviceTier: e.target.value })}>
     <option value="">{t('runtime.speedDecidedByRuntime')}</option>{draft.serviceTier && !model.serviceTiers.some(t => t.id === draft.serviceTier) && <option value={draft.serviceTier}>{draft.serviceTier} · {t('runtime.currentlyUnavailable')}</option>}{model.serviceTiers.filter(t => t.id).map(t => <option key={t.id} value={t.id}>{tierName(t.id, t.name)}</option>)}
-   </select></label>
+   </select></label>}
   </div></details>}
-  {onReset && <button disabled={busy || blocked} className="text-action" onClick={() => void save(true)}>{t('runtime.resetRoleDefaultBinding')}</button>}
+  {onReset && <button disabled={disabled || busy || blocked} className="text-action" onClick={() => void save(true)}>{t('runtime.resetRoleDefaultBinding')}</button>}
   {error && <p role="alert" className="inline-error">{error}{onReload && <button disabled={busy} className="text-action" onClick={() => { void onReload().then(() => { setError(''); setBlocked(false); }).catch(e=>setError(messageOf(e, t('runtime.actionFailed'))));  }}>{t('runtime.reloadKeepSelection')}</button>}</p>}
-  <div className="setup-end"><button disabled={busy} onClick={onClose}>{t('common.cancel')}</button><button className="primary" disabled={busy || blocked || !dirty || !validSelection(draft, models, inherited) || requireEffort && !draft.effort} onClick={() => void save()}>{busy ? t('runtime.saving') : t('common.save')}</button></div>
+  <div className="setup-end"><button disabled={busy} onClick={onClose}>{t('common.cancel')}</button><button className="primary" disabled={disabled || busy || blocked || !dirty || !validSelection(draft, models, inherited) || requireEffort && !draft.effort} onClick={() => void save()}>{busy ? t('runtime.saving') : t('common.save')}</button></div>
  </SettingsDialog>;
 }
