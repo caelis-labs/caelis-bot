@@ -407,7 +407,7 @@ func (n *nativeNodeManagement) Reconcile(ctx context.Context, r api.NodeOperatio
 	return c.Reconcile(ctx, r)
 }
 
-func (n *nativeNodeManagement) addEnrollment(ctx context.Context, r api.NodeAddRequest, beforeMutation func() error, prepared func(NodeRegistration, api.NodeAddResult) error) (api.NodeAddResult, error) {
+func (n *nativeNodeManagement) addEnrollment(ctx context.Context, r api.NodeAddRequest, beforeMutation func() error, candidate func(NodeRegistration) error, prepared func(NodeRegistration, api.NodeAddResult) error) (api.NodeAddResult, error) {
 	c, err := n.Catalog(ctx)
 	if err != nil {
 		return api.NodeAddResult{}, err
@@ -450,22 +450,46 @@ func (n *nativeNodeManagement) addEnrollment(ctx context.Context, r api.NodeAddR
 		if e = nodeagent.VerifyArtifact(artifact); e != nil {
 			return api.NodeAddResult{}, enrollmentPreflightError{"artifact"}
 		}
+		identity, e := nodeagent.ProbeSSHEnrollmentIdentity(ctx, ssh)
+		if e != nil {
+			return api.NodeAddResult{}, enrollmentPreflightError{"identity"}
+		}
+		n.mu.Lock()
+		conflict := false
+		for _, existing := range n.document.Nodes {
+			conflict = conflict || identity.NodeID != "" && existing.ID == identity.NodeID
+		}
+		n.mu.Unlock()
+		if conflict {
+			return api.NodeAddResult{}, enrollmentPreflightError{"identity-enrolled"}
+		}
 		if beforeMutation != nil {
 			if err = beforeMutation(); err != nil {
 				return api.NodeAddResult{}, err
 			}
 		}
 		dir, e := nodeagent.PrepareNodeDirectory(ctx, ssh)
-		if e != nil {
-			return api.NodeAddResult{}, e
+		if e != nil || dir != identity.Directory {
+			return api.NodeAddResult{}, errors.New("node enrollment directory changed")
+		}
+		id := identity.NodeID
+		if id == "" {
+			id = "node-" + rand.Text()
+		}
+		reg = NodeRegistration{ID: id, Label: r.Label, Join: r.Join, SSHDestination: r.SSHDestination, Directory: dir, HelperPath: filepath.Join(dir, "caelis-agent")}
+		if artifact.HostPath != "" {
+			reg.HostHelperPath = filepath.Join(dir, "caelis-node")
+		}
+		// Freeze the chosen physical identity before publication/foreground dial.
+		if candidate != nil {
+			if e = candidate(reg); e != nil {
+				return api.NodeAddResult{}, e
+			}
 		}
 		if e = nodeagent.InstallVerified(ctx, nodeagent.BootstrapPlan{SSH: ssh, Artifact: artifact, Directory: dir}); e != nil {
 			return api.NodeAddResult{}, e
 		}
-		reg = NodeRegistration{ID: "node-" + rand.Text(), Label: r.Label, Join: r.Join, SSHDestination: r.SSHDestination, Directory: dir, HelperPath: filepath.Join(dir, "caelis-agent")}
-		if artifact.HostPath != "" {
-			reg.HostHelperPath = filepath.Join(dir, "caelis-node")
-		}
+
 	} else {
 		if beforeMutation != nil {
 			if err = beforeMutation(); err != nil {
@@ -490,6 +514,12 @@ func (n *nativeNodeManagement) addEnrollment(ctx context.Context, r api.NodeAddR
 	if err = validateNodeRegistration(reg); err != nil {
 		return api.NodeAddResult{}, err
 	}
+	return n.completeEnrollment(ctx, reg, instructions, revision, prepared)
+}
+
+// Complete the exact verified pairing; recovery uses this without bootstrap.
+func (n *nativeNodeManagement) completeEnrollment(ctx context.Context, reg NodeRegistration, instructions *api.NodeJoinInstructions, revision uint64, prepared func(NodeRegistration, api.NodeAddResult) error) (api.NodeAddResult, error) {
+	var err error
 	var verified api.NodeInfo
 	var verifiedClient nodeplane.CatalogAgent
 	retained := false
@@ -528,13 +558,16 @@ func (n *nativeNodeManagement) addEnrollment(ctx context.Context, r api.NodeAddR
 			return api.NodeAddResult{}, err
 		}
 	}
+	if err = ctx.Err(); err != nil {
+		return api.NodeAddResult{}, err
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.document.Revision != revision {
+	if n.closed || n.document.Revision != revision {
 		return api.NodeAddResult{}, errors.New("node enrollment configuration changed during bootstrap")
 	}
 	for _, existing := range n.document.Nodes {
-		if existing.ID == reg.ID {
+		if existing.ID == reg.ID || reg.Join == api.NodeSSH && existing.SSHDestination == reg.SSHDestination {
 			return api.NodeAddResult{}, errors.New("node identity already enrolled")
 		}
 	}

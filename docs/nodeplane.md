@@ -109,7 +109,10 @@ restart. Temporary view selection is not persisted in that document.
 
 SSH Add probes the selected Linux architecture, resolves the APP-owned artifact
 manifest, verifies source revision/checksum/ELF architecture, prepares the target
-user's private directory and installs the verified agent bytes. It verifies the
+user's private directory and installs the verified agent bytes. A read-only check
+of the fixed SSH user's private `node.json` reuses an existing physical NodeID;
+a new ID is chosen only for an empty slot and journaled before foreground dial.
+The existing identity, Runtime data and Bot/session ownership are not replaced. It verifies the
 foreground agent's exact identity before publishing enrollment. The temporary
 management agent holds no Bot execution authority. Its observer closes on APP
 detach; node lifecycle owns any separately started Runtime.
@@ -119,8 +122,12 @@ enrollment journal before bootstrap can mutate a target. Read-only architecture,
 SSH authorization/host-key, and artifact checks can return a confirmed failure
 with a safe reason; raw SSH diagnostics stay native. Once bootstrap is admitted,
 lost delivery remains unknown until `ReconcileNodeEnrollment` can prove the
-original result from its exact journal and published pairing. This query never
-repeats bootstrap. Cancel keeps the original ID; Refresh and Check original
+original result from its exact journal and published pairing. For an SSH bootstrap
+without a published pairing, recovery checks the same user-owned fixed directory,
+persisted identity and existing foreground agent catalog, then publishes only the
+original local pairing. A saved candidate must match exactly; legacy journals
+without one require the original catalog guard and cannot select another path.
+This query never reinstalls helpers, creates a NodeID or starts/stops a Runtime. Cancel keeps the original ID; Refresh and Check original
 receipt query it, and `NodeCatalog.PendingEnrollments` restores it after settings
 remount or APP restart. Only a confirmed terminal result permits a new explicit
 Add. A still-unknown bootstrap requires original-receipt recovery or manual

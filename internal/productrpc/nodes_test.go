@@ -14,6 +14,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 	"github.com/caelis-labs/caelis-bot/internal/notebooksync"
 )
 
@@ -216,6 +217,32 @@ func TestNodeManagementWireRetainsAuthenticationScopeAndClosedPayloads(t *testin
 	body, _ = json.Marshal(in)
 	if post(body, "Bearer "+opts.Token, "") != http.StatusBadRequest {
 		t.Fatal("mixed command payload admitted")
+	}
+	configuration := api.NodeManagementRequest{Guard: api.NodeEditGuard{NodeID: "local", Backend: api.NodeCodex, Revision: strings.Repeat("a", 64)}, Ref: api.NodeOperationRef{NodeID: "local", Backend: api.NodeCodex, OperationID: "guard-test"}, Change: &api.RuntimeConfigurationChange{Action: "conversation-model", ExpectedRevision: strings.Repeat("a", 64), Selection: api.WorkExecutionSettings{Model: "fixture-model"}}}
+	configuration.Ref.RequestDigest, _ = nodeplane.ManagementDigest(configuration)
+	in.ID, in.NodeManagement = "guard-test", &NodeCommand{Action: "configure-node", Configuration: &configuration}
+	for _, invalid := range []string{"digest", "revision", "action", "shape"} {
+		copy := configuration
+		change := *configuration.Change
+		copy.Change = &change
+		switch invalid {
+		case "digest":
+			copy.Ref.RequestDigest = strings.Repeat("0", 64)
+		case "revision":
+			copy.Change.ExpectedRevision = "another-revision"
+		case "action":
+			copy.Change.Action = "arbitrary-call"
+		case "shape":
+			copy.Change.ID = "unrelated-role"
+		}
+		if invalid != "digest" {
+			copy.Ref.RequestDigest, _ = nodeplane.ManagementDigest(copy)
+		}
+		in.NodeManagement.Configuration = &copy
+		body, _ = json.Marshal(in)
+		if post(body, "Bearer "+opts.Token, "") != http.StatusBadRequest {
+			t.Fatal("invalid configuration admitted", invalid)
+		}
 	}
 	raw := `{"botId":"` + scope.BotID + `","generation":"` + scope.Generation + `","id":"unsafe-worker","kind":"manage-nodes","nodeManagement":{"action":"save-worker-node","worker":{"nodeId":"NODE-A","backend":"codex","revision":1,"helper":"/arbitrary/command"}}}`
 	if post([]byte(raw), "Bearer "+opts.Token, "") != http.StatusBadRequest || nodes.adds != 0 {

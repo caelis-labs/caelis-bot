@@ -166,6 +166,9 @@ Read via `POST /v1/management/nodes` with the currently inspected `botId` and
 - `configuration`: include `nodeId` and `backend` for target Runtime configuration,
   detection and reviewed installer versions.
 - `enrollment`: include `nodeId` equal to the original enrollment operation ID.
+  This is the authoritative native original receipt, including recovery of a
+  verified existing SSH Node after bootstrap observation loss. Do not resubmit
+  Add with a new ID; the outer command receipt remains a historical observation.
 - `operation`: include the unchanged original `operation` NodeOperationRef.
 
 Mutate through the existing `POST /v1/commands` journal, with one stable original
@@ -213,7 +216,10 @@ The product command's `outcome` and optional `nodeManagement` view confirm only
 that operation's existing result. An uncertain native switch remains `unknown`.
 A lost response must use `/v1/receipt` with the original ID, then re-read the
 relevant current state; replay never dispatches again. Stored receipts do not
-cache current node/Worker/Notebook views. Native enrollment/configuration unknown
+cache current node/Worker/Notebook views. Node configuration uses the native
+`nodeplane` semantic validator and length-prefixed digest. Copy the exact opaque
+`guard.revision` into `change.expectedRevision`; Codex may return a 64-character
+SHA256 revision. Both `conversation-model` and `worker-model` are supported. Native enrollment/configuration unknown
 outcomes use the original `enrollment`/`operation` lookup, not another command ID.
 
 After a confirmed headless source switch, official `stop-bot` closes that already

@@ -2,11 +2,15 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -15,6 +19,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
 
 func enrollmentNativeOwner(t *testing.T, a *Application, options NodeManagementNativeOptions) *nativeNodeManagement {
@@ -271,5 +276,125 @@ func TestNativeNodeEnrollmentUnavailablePrivateJournalRejectsBeforeBootstrap(t *
 	}
 	if _, err := os.Lstat(filepath.Join(native.directory, "config.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("unavailable journal published pairing", err)
+	}
+}
+
+// The SSH executable is a local fixture; native Service validates the existing
+// persisted physical Node identity. No network, runtime or model is started.
+func existingEnrollmentFixture(t *testing.T) (*nodeagent.Service, NodeManagementNativeOptions, string) {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	remote, err := nodeagent.New(nodeagent.Options{Directory: directory, NodeID: "node-EXISTING-UPPERCASE", Label: "Existing physical node", Join: api.NodeSSH})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(directory, "node.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := t.TempDir()
+	trace := filepath.Join(fixture, "calls")
+	probe := directory + "\nexisting\n1\n1\n" + string(body)
+	script := "#!/bin/sh\nfor arg do last=$arg; done\nprintf '%s\n' \"$last\" >> " + nodeShellQuote(trace) + "\ncase \"$last\" in\n'uname -sm') printf 'Linux x86_64\n';;\n*'for h in caelis-agent caelis-node'*) printf '%s' " + nodeShellQuote(probe) + ";;\n*'mkdir -p'*) printf '%s\n' " + nodeShellQuote(directory) + ";;\n*) cat >/dev/null;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(fixture, "ssh"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fixture+string(os.PathListSeparator)+os.Getenv("PATH"))
+	elf := make([]byte, 32)
+	copy(elf, "\x7fELF")
+	elf[4], elf[5] = 2, 1
+	binary.LittleEndian.PutUint16(elf[16:18], 2)
+	binary.LittleEndian.PutUint16(elf[18:20], 62)
+	artifactPath := filepath.Join(fixture, "agent")
+	if err := os.WriteFile(artifactPath, elf, 0700); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(elf)
+	artifact := nodeagent.Artifact{Path: artifactPath, ExpectedSHA256: hex.EncodeToString(digest[:]), Arch: "amd64", SourceRevision: strings.Repeat("a", 40), HostPath: artifactPath, HostExpectedSHA256: hex.EncodeToString(digest[:])}
+	options := NodeManagementNativeOptions{Artifact: func(string) (nodeagent.Artifact, error) { return artifact, nil }, Dial: func(_ context.Context, reg NodeRegistration) (nodeplane.CatalogAgent, error) {
+		if reg.ID != "node-EXISTING-UPPERCASE" || reg.Directory != directory {
+			return nil, errors.New("physical identity changed")
+		}
+		return remote, nil
+	}}
+	return remote, options, trace
+}
+func TestNativeNodeEnrollmentReusesExistingPhysicalIdentity(t *testing.T) {
+	_, options, trace := existingEnrollmentFixture(t)
+	a := nativeManagementApplication(t)
+	n := enrollmentNativeOwner(t, a, options)
+	request := enrollmentRequest(t, a, "reuse-original")
+	result, err := a.Backend.AddNode(t.Context(), request)
+	if err != nil || result.Outcome != "committed" || result.Node.ID != "node-EXISTING-UPPERCASE" {
+		t.Fatal(result, err)
+	}
+	record, err := readEnrollmentRecord(n.enrollmentPath(request.OperationID))
+	if err != nil || record.Candidate == nil || record.Candidate.ID != result.Node.ID {
+		t.Fatal(record, err)
+	}
+	identity, err := nodeagent.ReadNativeEnrollmentIdentity(record.Candidate.Directory, result.Node.ID)
+	if err != nil || identity.NodeID != result.Node.ID {
+		t.Fatal("existing identity overwritten", identity, err)
+	}
+	calls, err := os.ReadFile(trace)
+	if err != nil || !strings.Contains(string(calls), "for h in caelis-agent caelis-node") {
+		t.Fatal("missing identity preflight", err)
+	}
+}
+func TestNativeNodeEnrollmentRecoversLegacyBootstrapWithSameOriginalID(t *testing.T) {
+	for _, mismatch := range []bool{false, true} {
+		t.Run(fmt.Sprint("candidate-mismatch-", mismatch), func(t *testing.T) {
+			_, options, trace := existingEnrollmentFixture(t)
+			a := nativeManagementApplication(t)
+			n := enrollmentNativeOwner(t, a, options)
+			request := enrollmentRequest(t, a, "original-legacy-bootstrap")
+			record := nodeEnrollmentRecord{Version: 1, Request: request, Digest: enrollmentDigest(request), Phase: "bootstrap", Result: unknownEnrollment(request.OperationID)}
+			if mismatch {
+				record.Candidate = &NodeRegistration{ID: "node-DIFFERENT", Label: request.Label, Join: api.NodeSSH, SSHDestination: request.SSHDestination, Directory: "/different/node", HelperPath: "/different/node/caelis-agent"}
+			}
+			if err := os.Mkdir(filepath.Dir(n.enrollmentPath(request.OperationID)), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := nodeagent.WriteManagedPrivateJSON(n.enrollmentPath(request.OperationID), record); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.Backend.CloseNodeManagement(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			reopened := enrollmentRestart(a)
+			enrollmentNativeOwner(t, reopened, options)
+			view, err := enrollmentWireClient(t, reopened).NodeManagementState(t.Context(), productrpc.NodeQuery{Action: "enrollment", NodeID: request.OperationID})
+			if err != nil || view.Enrollment == nil {
+				t.Fatal(view, err)
+			}
+			result := *view.Enrollment
+			expected := "committed"
+			if mismatch {
+				expected = "unknown"
+			}
+			if result.Outcome != expected || result.OperationID != request.OperationID {
+				t.Fatal(result)
+			}
+			if !mismatch {
+				if result.Node.ID != "node-EXISTING-UPPERCASE" {
+					t.Fatal(result)
+				}
+				replay, err := reopened.Backend.AddNode(t.Context(), request)
+				if err != nil || !reflect.DeepEqual(replay, result) {
+					t.Fatal("original replay changed result", replay, err)
+				}
+				catalog, err := reopened.Backend.NodeCatalog(t.Context())
+				if err != nil || len(catalog.PendingEnrollments) != 0 || len(catalog.Nodes) != 2 {
+					t.Fatal(catalog, err)
+				}
+			}
+			calls, err := os.ReadFile(trace)
+			if err != nil || strings.Contains(string(calls), "mkdir") || strings.Contains(string(calls), "mv -f") || strings.Contains(string(calls), "uname -sm") || strings.Count(string(calls), "for h in caelis-agent caelis-node") != 1 {
+				t.Fatal("recovery redispatched bootstrap", err)
+			}
+		})
 	}
 }

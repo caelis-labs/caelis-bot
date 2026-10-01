@@ -8,6 +8,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 	"github.com/caelis-labs/caelis-bot/internal/notebooksync"
 )
 
@@ -123,11 +124,11 @@ func validNodeCommand(c NodeCommand, id string) bool {
 			return false
 		}
 		v := c.Configuration
-		if !identifier.MatchString(v.Guard.NodeID) || !nodeBackend(v.Guard.Backend) || v.Guard.Revision == "" || !publicManagementText(v.Guard.Revision, 256) || v.Ref.NodeID != v.Guard.NodeID || v.Ref.Backend != v.Guard.Backend || v.Ref.OperationID != id || len(v.Ref.RequestDigest) != 64 {
+		if !identifier.MatchString(v.Guard.NodeID) || !nodeBackend(v.Guard.Backend) || v.Guard.Revision == "" || !publicManagementText(v.Guard.Revision, 256) || v.Ref.NodeID != v.Guard.NodeID || v.Ref.Backend != v.Guard.Backend || v.Ref.OperationID != id || nodeplane.ValidateManagementRequest(*v) != nil {
 			return false
 		}
 		if v.Change != nil && v.Installation == nil {
-			return validConfiguration(*v.Change)
+			return validNodeConfiguration(*v.Change)
 		}
 		if v.Installation != nil && v.Change == nil {
 			switch v.Installation.Action {
@@ -135,6 +136,30 @@ func validNodeCommand(c NodeCommand, id string) bool {
 				return publicManagementText(v.Installation.Version, 128) && publicManagementText(v.Installation.ExpectedVersion, 128)
 			}
 		}
+	}
+	return false
+}
+
+// Node revisions are opaque Service edit guards, including Codex SHA256 values.
+// Preserve the public field bounds and closed payload shapes used by settings.
+func validNodeConfiguration(c api.RuntimeConfigurationChange) bool {
+	if !publicManagementText(c.ExpectedRevision, 256) || !publicManagementText(c.ID, 256) || !publicManagementText(c.Name, 256) || len(c.Description) > 8192 || strings.ContainsRune(c.Description, '\x00') || !publicManagementText(c.Selection.Model, 512) || !publicManagementText(c.Selection.Effort, 64) || !publicManagementText(c.Selection.ServiceTier, 64) {
+		return false
+	}
+	empty := c.Selection == (api.WorkExecutionSettings{})
+	switch c.Action {
+	case "conversation-model", "worker-model":
+		return c.ID == "" && c.Name == "" && c.Description == ""
+	case "main":
+		return c.Selection.Model != "" && c.ID == "" && c.Name == "" && c.Description == ""
+	case "bind":
+		return c.ID != "" && c.Selection.Model != "" && c.Name == "" && c.Description == ""
+	case "reset", "delete-role", "remove-model", "disconnect-agent":
+		return c.ID != "" && c.Name == "" && c.Description == "" && empty
+	case "create-role":
+		return c.ID != "" && c.Name == "" && empty
+	case "save-set", "apply-set", "delete-set":
+		return c.Name != "" && c.ID == "" && c.Description == "" && empty
 	}
 	return false
 }
@@ -147,7 +172,7 @@ func validNodeQuery(q NodeQuery) bool {
 	case "enrollment":
 		return identifier.MatchString(q.NodeID) && q.Backend == "" && q.Operation == nil
 	case "operation":
-		return q.NodeID == "" && q.Backend == "" && q.Operation != nil && identifier.MatchString(q.Operation.NodeID) && nodeBackend(q.Operation.Backend) && identifier.MatchString(q.Operation.OperationID) && len(q.Operation.RequestDigest) == 64
+		return q.NodeID == "" && q.Backend == "" && q.Operation != nil && identifier.MatchString(q.Operation.NodeID) && nodeBackend(q.Operation.Backend) && identifier.MatchString(q.Operation.OperationID) && nodeplane.ValidateOperationRef(*q.Operation) == nil
 	}
 	return false
 }
@@ -218,6 +243,14 @@ func (s *Server) nodesHTTP(w http.ResponseWriter, r *http.Request) {
 		x, err = p.ReconcileNodeOperation(r.Context(), *q.Operation)
 		v.Operation = &x
 	case "enrollment":
+		// Recovery can publish the original verified pairing, so serialize it
+		// with owner stop and other admitted settings actions.
+		s.commands.Lock()
+		defer s.commands.Unlock()
+		if s.stopping {
+			problem(w, 409, "node-management-unavailable")
+			return
+		}
 		var x api.NodeAddResult
 		x, err = p.ReconcileNodeEnrollment(r.Context(), q.NodeID)
 		v.Enrollment = &x

@@ -27,6 +27,7 @@ type nodeEnrollmentRecord struct {
 	Request      api.NodeAddRequest `json:"request"`
 	Digest       string             `json:"digest"`
 	Phase        string             `json:"phase"`
+	Candidate    *NodeRegistration  `json:"candidate,omitempty"`
 	Registration *NodeRegistration  `json:"registration,omitempty"`
 	Result       api.NodeAddResult  `json:"result"`
 }
@@ -64,6 +65,12 @@ func readEnrollmentRecord(path string) (record nodeEnrollmentRecord, err error) 
 	d.DisallowUnknownFields()
 	if d.Decode(&record) != nil || d.Decode(new(any)) != io.EOF || record.Version != 1 || !productIdentifier.MatchString(record.Request.OperationID) || record.Digest != enrollmentDigest(record.Request) || record.Result.OperationID != record.Request.OperationID || (record.Phase != "preflight" && record.Phase != "bootstrap") || (record.Result.Outcome != "unknown" && record.Result.Outcome != "failed" && record.Result.Outcome != "committed") {
 		return record, errors.New("private enrollment receipt invalid")
+	}
+	if candidate := record.Candidate; candidate != nil && (validateNodeRegistration(*candidate) != nil || candidate.Join != api.NodeSSH || candidate.Label != record.Request.Label || candidate.SSHDestination != record.Request.SSHDestination || candidate.HelperPath != filepath.Join(candidate.Directory, "caelis-agent") || candidate.HostHelperPath != "" && candidate.HostHelperPath != filepath.Join(candidate.Directory, "caelis-node")) {
+		return record, errors.New("original enrollment candidate changed")
+	}
+	if record.Candidate != nil && record.Registration != nil && *record.Candidate != *record.Registration {
+		return record, errors.New("original enrollment identity changed")
 	}
 	if record.Registration != nil && (validateNodeRegistration(*record.Registration) != nil || record.Registration.Label != record.Request.Label || record.Registration.Join != record.Request.Join || record.Registration.Join == api.NodeSSH && record.Registration.SSHDestination != record.Request.SSHDestination || record.Result.Node.ID != record.Registration.ID || record.Result.Node.Join != record.Registration.Join || record.Result.Node.Label != record.Registration.Label) {
 		return record, errors.New("original enrollment target changed")
@@ -128,7 +135,7 @@ func (n *nativeNodeManagement) addOriginalEnrollment(ctx context.Context, r api.
 		if prior.Request != r {
 			return unknownEnrollment(r.OperationID), nil
 		}
-		return n.reconcileEnrollment(prior)
+		return n.reconcileEnrollment(ctx, prior)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return unknownEnrollment(r.OperationID), nil
 	}
@@ -191,7 +198,14 @@ func (n *nativeNodeManagement) addOriginalEnrollment(ctx context.Context, r api.
 		record.Result = result
 		return write()
 	}
-	result, err := n.addEnrollment(life, r, beforeMutation, prepared)
+	candidate := func(reg NodeRegistration) error {
+		if err := life.Err(); err != nil {
+			return err
+		}
+		record.Candidate = &reg
+		return write()
+	}
+	result, err := n.addEnrollment(life, r, beforeMutation, candidate, prepared)
 	if err == nil {
 		result.OperationID = r.OperationID
 		result.Outcome = "committed"
@@ -213,8 +227,8 @@ func (n *nativeNodeManagement) addOriginalEnrollment(ctx context.Context, r api.
 	return record.Result, nil
 }
 
-// A query only reads the exact journal and published pairing. It never probes,
-// bootstraps, installs, allocates another NodeID or retries a remote mutation.
+// Reconcile checks the original journal and existing SSH identity/catalog.
+// It never installs, allocates another NodeID or restarts a Runtime/Bot owner.
 func (n *nativeNodeManagement) ReconcileEnrollment(ctx context.Context, id string) (api.NodeAddResult, error) {
 	if !productIdentifier.MatchString(id) {
 		return api.NodeAddResult{}, errors.New("invalid original enrollment identity")
@@ -228,9 +242,9 @@ func (n *nativeNodeManagement) ReconcileEnrollment(ctx context.Context, id strin
 	if err != nil {
 		return unknownEnrollment(id), nil
 	}
-	return n.reconcileEnrollment(record)
+	return n.reconcileEnrollment(ctx, record)
 }
-func (n *nativeNodeManagement) reconcileEnrollment(record nodeEnrollmentRecord) (api.NodeAddResult, error) {
+func (n *nativeNodeManagement) reconcileEnrollment(ctx context.Context, record nodeEnrollmentRecord) (api.NodeAddResult, error) {
 	if record.Result.Outcome != "unknown" {
 		return record.Result, nil
 	}
@@ -240,13 +254,53 @@ func (n *nativeNodeManagement) reconcileEnrollment(record nodeEnrollmentRecord) 
 		record.Result.Reason = "preflight"
 	} else if record.Registration != nil {
 		n.mu.Lock()
-		defer n.mu.Unlock()
 		for _, reg := range n.document.Nodes {
 			if reg == *record.Registration {
 				record.Result.Outcome = "committed"
 				record.Result.Reason = ""
 				break
 			}
+		}
+		n.mu.Unlock()
+	}
+	if record.Result.Outcome == "unknown" && record.Request.Join == api.NodeSSH && n.options.Bootstrap == nil {
+		// Older journals may lack a candidate after helper publication. Adopt
+		// only the same SSH user's private fixed slot, never an arbitrary path.
+		catalog, err := n.Catalog(ctx)
+		if err != nil || catalog.Revision != record.Request.ExpectedRevision {
+			return record.Result, nil
+		}
+		identity, err := nodeagent.ProbeSSHEnrollmentIdentity(ctx, nodeagent.SSHConfig{Target: record.Request.SSHDestination})
+		if err != nil || identity.NodeID == "" || !identity.AgentAvailable {
+			return record.Result, nil
+		}
+		reg := NodeRegistration{ID: identity.NodeID, Label: record.Request.Label, Join: api.NodeSSH, SSHDestination: record.Request.SSHDestination, Directory: identity.Directory, HelperPath: filepath.Join(identity.Directory, "caelis-agent")}
+		if identity.HostAvailable {
+			reg.HostHelperPath = filepath.Join(identity.Directory, "caelis-node")
+		}
+		if record.Candidate != nil && *record.Candidate != reg || record.Registration != nil && *record.Registration != reg {
+			return record.Result, nil
+		}
+		n.mu.Lock()
+		revision := n.document.Revision
+		blocked := n.closed || len(n.document.Nodes) >= 16
+		for _, existing := range n.document.Nodes {
+			blocked = blocked || existing.ID == reg.ID || existing.SSHDestination == reg.SSHDestination
+		}
+		n.mu.Unlock()
+		if blocked {
+			return record.Result, nil
+		}
+		prepared := func(reg NodeRegistration, result api.NodeAddResult) error {
+			record.Candidate, record.Registration = &reg, &reg
+			result.OperationID, result.Outcome, result.Reason = record.Request.OperationID, "unknown", "unknown"
+			record.Result = result
+			return nodeagent.WriteManagedPrivateJSON(n.enrollmentPath(record.Request.OperationID), record)
+		}
+		result, err := n.completeEnrollment(ctx, reg, nil, revision, prepared)
+		if err == nil {
+			result.OperationID, result.Outcome = record.Request.OperationID, "committed"
+			record.Result = result
 		}
 	}
 	if record.Result.Outcome != "unknown" && nodeagent.WriteManagedPrivateJSON(n.enrollmentPath(record.Request.OperationID), record) != nil {
