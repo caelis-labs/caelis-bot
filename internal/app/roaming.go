@@ -245,6 +245,10 @@ func (a *Application) PauseNotebook(ctx context.Context) (func(), error) {
 	}
 	if err := a.managed.SafeIdle(ctx); err != nil {
 		a.CancelUpdate()
+		proof, proofErr := a.ReadRuntimeProof(ctx, api.WorkTarget{NodeID: a.managed.nodeID, Backend: "codex", Role: api.RoleBot})
+		if proofErr == nil && proof.Pending && !proof.Unknown {
+			return nil, errors.Join(roaming.ErrNotebookBusy, err)
+		}
 		return nil, err
 	}
 	return a.CancelUpdate, nil

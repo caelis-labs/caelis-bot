@@ -16,6 +16,7 @@ import (
 // Broker is the authenticated single-user authority. CommitInstall must hold
 // latest CAS through the offline generation's final install; it is not UI state.
 var ErrSnapshotChanged = errors.New("latest Notebook changed; prepare a fresh generation")
+var ErrNotebookBusy = errors.New("native work is still active; retain the last complete Notebook")
 
 type Broker interface {
 	nodeplane.Coordinator
@@ -47,6 +48,7 @@ type RunnerOptions struct {
 }
 
 type Runner struct {
+	control  chan struct{}
 	opts     RunnerOptions
 	runtime  ManagedRuntime
 	guard    *Guard
@@ -58,8 +60,34 @@ func NewRunner(o RunnerOptions) (*Runner, error) {
 	if o.BotID == "" || o.Target.NodeID == "" || o.Target.Backend != "codex" || o.Target.Role != api.RoleBot || !filepath.IsAbs(o.GenerationRoot) || o.Broker == nil || o.Factory == nil || o.RegisterOwner == nil {
 		return nil, errors.New("managed roaming requires an exact paired native owner and coordinator")
 	}
-	return &Runner{opts: o}, nil
+	return &Runner{opts: o, control: make(chan struct{}, 1)}, nil
 }
+
+// Heartbeat serializes the broker's trusted proof read with the complete
+// publication/installed-marker transaction. Native deadline timers remain
+// independent; waiting for this gate never extends a grant.
+func (r *Runner) Heartbeat(ctx context.Context, lease nodeplane.Lease) (nodeplane.Lease, error) {
+	if err := r.lockControl(ctx); err != nil {
+		return nodeplane.Lease{}, err
+	}
+	defer r.unlockControl()
+	return r.opts.Broker.Heartbeat(ctx, lease)
+}
+func (r *Runner) Claim(ctx context.Context, req nodeplane.ClaimRequest) (nodeplane.Lease, error) {
+	return r.opts.Broker.Claim(ctx, req)
+}
+func (r *Runner) Release(ctx context.Context, lease nodeplane.Lease) error {
+	return r.opts.Broker.Release(ctx, lease)
+}
+func (r *Runner) lockControl(ctx context.Context) error {
+	select {
+	case r.control <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (r *Runner) unlockControl() { <-r.control }
 
 // Activate imports only the latest complete Notebook into an absent generation,
 // then obtains a lease before starting a fresh native session. No old operation,
@@ -158,7 +186,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	life, cancel := context.WithCancel(ctx)
 	defer cancel()
 	renewDone := make(chan error, 1)
-	go func() { renewDone <- r.guard.Maintain(life, r.opts.Broker) }()
+	go func() { renewDone <- r.guard.Maintain(life, r) }()
 	ticker := time.NewTicker(nodeplane.DefaultSnapshotInterval)
 	defer ticker.Stop()
 	for {
@@ -170,15 +198,21 @@ func (r *Runner) Run(ctx context.Context) error {
 			return <-renewDone
 		case <-ticker.C:
 			if err := r.Publish(ctx); err != nil {
-				if errors.Is(err, ErrFenced) {
-					cancel()
-					return <-renewDone
+				if errors.Is(err, ErrNotebookBusy) {
+					continue
 				}
+				cancel()
+				<-renewDone
+				return err
 			}
 		}
 	}
 }
 func (r *Runner) Publish(ctx context.Context) error {
+	if err := r.lockControl(ctx); err != nil {
+		return err
+	}
+	defer r.unlockControl()
 	lease, active := r.guard.Lease()
 	if !active {
 		return ErrFenced
@@ -208,9 +242,17 @@ func (r *Runner) Publish(ctx context.Context) error {
 		return err
 	}
 	if err = r.opts.Broker.PublishSnapshot(ctx, lease, ref, payload); err != nil {
+		r.guard.Revoke() // an RPC failure may follow a remote commit
 		return err
 	}
-	return r.runtime.SetNotebookSnapshot(ctx, lease, ref)
+	if err = r.runtime.SetNotebookSnapshot(ctx, lease, ref); err != nil {
+		// The broker already advanced. This native proof can no longer renew or
+		// safely publish; preserve that failure and close all effect admission.
+		r.guard.Revoke()
+		return err
+	}
+	r.snapshot = ref
+	return nil
 }
 
 // Stop withdraws the lease only after native termination and zero unresolved
