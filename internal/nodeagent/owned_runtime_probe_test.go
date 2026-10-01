@@ -9,11 +9,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync/atomic"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
 
@@ -33,9 +33,16 @@ func TestOwnedRuntimeProbeUsesCurrentNativeBindingWithoutAdoption(t *testing.T) 
 		return OwnedRuntimeSettings{Backend: api.NodeCaelis, Binary: binary, Store: store}, nil
 	}
 	probe, err := s.ProbeOwnedRuntime(t.Context(), s.options.NodeID, api.NodeCaelis)
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	if !codex.OwnedRuntimeSupported() {
 		if err != nil || probe.Eligible || probe.Reason != "unsupported-platform" || reads.Load() != 0 {
 			t.Fatal("unsupported host became ownable", probe, err)
+		}
+		probe, err = s.ProbeOwnedRuntime(t.Context(), s.options.NodeID, api.NodeCodex)
+		if err != nil || probe.Eligible || probe.Reason != "unsupported-platform" || reads.Load() != 0 {
+			t.Fatal("unsupported Codex probe read metadata or claimed ownership", probe, err)
+		}
+		if entries, err := os.ReadDir(store); err != nil || len(entries) != 0 {
+			t.Fatal("unsupported query changed Store", entries, err)
 		}
 		return
 	}
@@ -74,13 +81,13 @@ func TestOwnedRuntimeProbeCodexOwnershipIsSeparateFromHealthAndAuthentication(t 
 		return NativeHealth{}, nil
 	}
 	probe, err := s.ProbeOwnedRuntime(t.Context(), s.options.NodeID, api.NodeCodex)
-	supported := runtime.GOOS == "darwin" || runtime.GOOS == "linux"
+	supported := codex.OwnedRuntimeSupported()
 	if err != nil || probe.Eligible != supported || healthReads.Load() != 0 {
 		t.Fatal("ownability claimed authentication/health or unsupported execution", probe, err)
 	}
 	s.options.Binaries[api.NodeCodex] = filepath.Join(s.options.Directory, "missing-binary")
 	probe, err = s.ProbeOwnedRuntime(t.Context(), s.options.NodeID, api.NodeCodex)
-	if err != nil || probe.Eligible || supported && probe.Reason != "runtime-metadata-unavailable" {
+	if err != nil || probe.Eligible || supported && probe.Reason != "runtime-metadata-unavailable" || !supported && probe.Reason != "unsupported-platform" {
 		t.Fatal("absent binary became ownable", probe, err)
 	}
 }
@@ -104,7 +111,7 @@ func TestOwnedRuntimeProbeClosedInputsAndPinnedNativeIPC(t *testing.T) {
 	}
 	defer func() { _ = c.Close(); <-done }()
 	probe, err := c.ProbeOwnedRuntime(t.Context(), s.options.NodeID, api.NodeCodex)
-	if err != nil || probe.Eligible != (runtime.GOOS == "darwin" || runtime.GOOS == "linux") {
+	if err != nil || probe.Eligible != (codex.OwnedRuntimeSupported()) {
 		t.Fatal("closed ownability IPC failed", probe, err)
 	}
 	if _, err := c.ProbeOwnedRuntime(t.Context(), "foreign-node", api.NodeCodex); err == nil {

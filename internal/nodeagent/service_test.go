@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 	"github.com/caelis-labs/caelis-bot/internal/runtimemanagement"
@@ -454,5 +455,34 @@ func TestManagedInstallStateDoesNotAdoptOrOverwriteExternalCLI(t *testing.T) {
 	view, err = s.Configuration(t.Context(), s.options.NodeID, api.NodeCodex)
 	if err != nil || view.Installation == nil || !view.Installation.Installed || view.Installation.Version != "0.159.2" {
 		t.Fatal("managed detect not projected", view, err)
+	}
+}
+
+// Installation and even assembled healthy/authenticated metadata cannot provide
+// a compiled process/power fence that the current owner build does not have.
+func TestCatalogBotEligibilityRequiresCompiledOwnership(t *testing.T) {
+	service := agentFixture(t)
+	service.installation = &installationFixture{status: runtimemanagement.Status{Installed: true, Version: "installed-fixture"}}
+	service.options.Health = func(context.Context, api.NodeBackend) (NativeHealth, error) {
+		return NativeHealth{AuthenticationKnown: true, Authenticated: true, HealthKnown: true, Healthy: true, ManagedOwner: true, Fenceable: true, BotEligible: true}, nil
+	}
+	catalog, err := service.Catalog(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nodeplane.ValidateCatalog(catalog); err != nil {
+		t.Fatal(err)
+	}
+	for _, runtime := range catalog.Nodes[0].Runtimes {
+		if runtime.Version != "installed-fixture" || runtime.Health != api.NodeHealthy || runtime.Authentication != api.NodeAuthenticated {
+			t.Fatal("ownership availability overwrote independent native metadata", runtime)
+		}
+		bot := runtime.Roles[0]
+		if bot.Eligible != codex.OwnedRuntimeSupported() {
+			t.Fatal("catalog advertised ownership unavailable in this build", runtime)
+		}
+		if bot.Eligible && bot.Reason != "" || !bot.Eligible && bot.Reason == "" {
+			t.Fatal("catalog ownership reason disagrees with eligibility", bot)
+		}
 	}
 }
