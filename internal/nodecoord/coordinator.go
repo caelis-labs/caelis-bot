@@ -34,10 +34,12 @@ const MaxSnapshotBytes = 16 << 20
 type Verify func(context.Context, nodeplane.ClaimRequest) error
 
 type Options struct {
-	Directory string
-	BotID     string
-	Now       func() time.Time
-	Verify    Verify
+	BrokerNodeID    string
+	VerifyBootstrap func(context.Context, api.WorkTarget, nodeplane.SnapshotRef) error
+	Directory       string
+	BotID           string
+	Now             func() time.Time
+	Verify          Verify
 	// VerifyRenew proves the running owner still controls deadline fencing.
 	// If absent, conservative claim eligibility (safe idle) is rechecked.
 	VerifyRenew      func(context.Context, nodeplane.Lease, nodeplane.ClaimRequest) error
@@ -536,4 +538,80 @@ func atomicWrite(path string, b []byte) error {
 	}
 	defer d.Close()
 	return d.Sync()
+}
+
+// BrokerNodeID is native enrollment metadata, never a model request selector.
+func (c *Coordinator) BrokerNodeID() string { return c.opts.BrokerNodeID }
+
+// CurrentLease returns live authority after quarantine, expiry and a fresh
+// trusted owner observation. Busy/unknown work can remain controlled; it does
+// not make the owner safe for replacement. Recalculate after the paired read.
+func (c *Coordinator) CurrentLease(ctx context.Context, botID string) (nodeplane.Lease, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now, err := c.tick(ctx)
+	if err != nil {
+		return nodeplane.Lease{}, err
+	}
+	if botID != c.opts.BotID || !c.active(now) || !c.state.Claim.Proof.Controllable {
+		return nodeplane.Lease{}, ErrConflict
+	}
+	if c.opts.ReadOwnerEligibility != nil {
+		target := api.WorkTarget{NodeID: c.state.Lease.NodeID, Backend: string(c.state.Lease.Backend), Role: api.RoleBot}
+		p, err := c.opts.ReadOwnerEligibility(ctx, target)
+		if err != nil || !p.Proof.Controllable || p.Proof.NodeID != target.NodeID || string(p.Proof.Backend) != target.Backend || p.Proof != c.state.Claim.Proof || p.LeaseEpoch != c.state.Lease.Epoch || p.Snapshot != c.state.Latest {
+			return nodeplane.Lease{}, ErrIneligible
+		}
+	}
+	now, err = c.tick(ctx)
+	if err != nil {
+		return nodeplane.Lease{}, err
+	}
+	if !c.active(now) {
+		return nodeplane.Lease{}, ErrConflict
+	}
+	return c.grant(now), nil
+}
+func (c *Coordinator) ReadWorkerLease(ctx context.Context, ref nodeplane.WorkLeaseRef) (nodeplane.Lease, error) {
+	if c.opts.ReadOwnerEligibility == nil || c.opts.BrokerNodeID == "" || ref.BrokerNodeID != c.opts.BrokerNodeID || ref.SourceNode == "" || ref.Epoch == "" {
+		return nodeplane.Lease{}, ErrIneligible
+	}
+	l, err := c.CurrentLease(ctx, ref.BotID)
+	if err != nil {
+		return nodeplane.Lease{}, err
+	}
+	if l.NodeID != ref.SourceNode || l.Backend != ref.SourceBackend || l.Epoch != ref.Epoch {
+		return nodeplane.Lease{}, ErrConflict
+	}
+	return l, nil
+}
+
+// BootstrapSnapshot is the one genesis exception to leased publication. The
+// exact paired source must supply native stopped/idle proof; no request flag or
+// filesystem profile can authorize it. Existing epoch/cache state never resets.
+func (c *Coordinator) BootstrapSnapshot(ctx context.Context, target api.WorkTarget, ref nodeplane.SnapshotRef, payload []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, err := c.tick(ctx); err != nil {
+		return err
+	}
+	if c.state.Counter != "0" || c.state.Latest.BotID != "" || ref.Epoch != "0" {
+		return ErrConflict
+	}
+	if c.opts.VerifyBootstrap == nil || target.Role != api.RoleBot || c.opts.VerifyBootstrap(ctx, target, ref) != nil {
+		return ErrIneligible
+	}
+	if err := c.storeSnapshot(ctx, ref, payload); err != nil {
+		return err
+	}
+	if _, err := c.tick(ctx); err != nil {
+		return err
+	}
+	s := c.state
+	s.Latest = ref
+	if err := c.persist(s); err != nil {
+		return err
+	}
+	c.state = s
+	return nil
 }

@@ -59,7 +59,7 @@ func (r *PeerRegistry) VerifyRenew(ctx context.Context, l nodeplane.Lease, claim
 	if err != nil {
 		return err
 	}
-	if p.Snapshot != claim.Snapshot || p.LeaseEpoch != l.Epoch || p.Unknown || p.Proof.NodeID != l.NodeID || p.Proof.Backend != l.Backend {
+	if p.Snapshot != claim.Snapshot || p.LeaseEpoch != l.Epoch || p.Proof != claim.Proof {
 		return ErrIneligible
 	}
 	return nil
@@ -80,4 +80,21 @@ func (r *PeerRegistry) VerifyBootstrap(ctx context.Context, target api.WorkTarge
 		return ErrIneligible
 	}
 	return nil
+}
+
+// ReadOwnerEligibility reads only the explicitly paired exact native target.
+// Busy or unknown work remains visible; callers decide whether a safe reclaim
+// is permitted without revoking a still controlled owner merely for uncertainty.
+func (r *PeerRegistry) ReadOwnerEligibility(ctx context.Context, target api.WorkTarget) (nodeplane.RuntimeEligibility, error) {
+	return r.read(ctx, target)
+}
+func (r *PeerRegistry) HasNode(nodeID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for target := range r.peers {
+		if target.NodeID == nodeID {
+			return true
+		}
+	}
+	return false
 }
