@@ -57,6 +57,7 @@ type frame struct {
 }
 
 type State struct {
+	LeaseAware bool
 	Revision   uint64
 	Connection string
 	Tasks      []api.WorkState
@@ -143,6 +144,9 @@ func (s *Server) state() State {
 	state := State{Revision: v.Revision, Connection: v.Connection, Tasks: s.owner.Runtime().WorkStates(), Approvals: s.owner.Approvals().WorkApprovals()}
 	if catalog, ok := s.owner.Runtime().(api.WorkArtifactCatalog); ok {
 		state.Artifacts = catalog.WorkArtifacts()
+	}
+	if port, ok := s.owner.Runtime().(api.LeaseAwareWorkRuntime); ok {
+		state.LeaseAware = port.LeaseAwareAdmission()
 	}
 	return state
 }
@@ -334,6 +338,7 @@ func validRequest(in frame) bool {
 	case "decide":
 		expected.Approval = in.Approval
 		expected.Decision = in.Decision
+		expected.Current = in.Current
 	case "artifact":
 		expected.TaskID = in.TaskID
 		expected.ArtifactID = in.ArtifactID
