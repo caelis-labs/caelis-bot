@@ -43,6 +43,9 @@ type NodeManagementNativeOptions struct {
 	RuntimeOwner                           nodeplane.RuntimeProofPort
 	OutgoingSSHDestination, JoinHelperPath string
 	ExecutionState                         func() (string, *api.WorkTarget)
+	// Thin APP's Backend belongs to its remote Bot, never local discovery.
+	LocalCodexBinary    string
+	LocalCaelisSettings *api.RuntimeSettings
 }
 
 type nodeManagementDocument struct {
@@ -104,8 +107,51 @@ func AttachNodeManagement(a *Application, options ...NodeManagementNativeOptions
 		ports := map[api.NodeBackend]nodeagent.NativeConfiguration{}
 		ports[api.NodeCodex] = &nodeLocalCodexConfiguration{nodeLocalConfiguration{app: a, backend: api.NodeCodex}}
 		ports[api.NodeCaelis] = &nodeLocalConfiguration{app: a, backend: api.NodeCaelis}
-		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Configurations: ports, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
-			return nodeLocalHealth(ctx, a, b)
+		binaries := map[api.NodeBackend]string{}
+		var localHealth func(context.Context, api.NodeBackend) (nodeagent.NativeHealth, error)
+		if a.product != nil {
+			binary := o.LocalCodexBinary
+			if binary == "" {
+				binary = os.Getenv("CODEX_BIN")
+			}
+			codex := &nodeagent.CodexConfiguration{Directory: localDir, Binary: binary}
+			if binary != "" {
+				if !filepath.IsAbs(binary) {
+					cancel()
+					return errors.New("explicit local Codex executable must be absolute")
+				}
+				binaries[api.NodeCodex] = binary
+			}
+			ports = map[api.NodeBackend]nodeagent.NativeConfiguration{api.NodeCodex: codex}
+			var caelis *nodeagent.CaelisConfiguration
+			if o.LocalCaelisSettings != nil {
+				settings := *o.LocalCaelisSettings
+				if settings.Runtime != "caelis" || settings.CaelisStore == "" || !filepath.IsAbs(settings.CaelisStore) {
+					cancel()
+					return errors.New("explicit local Caelis profile is required")
+				}
+				caelis = &nodeagent.CaelisConfiguration{Settings: settings}
+				ports[api.NodeCaelis] = caelis
+				if settings.CLIPath != "" {
+					binaries[api.NodeCaelis] = settings.CLIPath
+				}
+			}
+			localHealth = func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+				if b == api.NodeCodex {
+					return codex.Health(ctx)
+				}
+				if caelis != nil {
+					return caelis.Health(ctx)
+				}
+				return nodeagent.NativeHealth{}, nil
+			}
+		} else {
+			localHealth = func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+				return nodeLocalHealth(ctx, a, b)
+			}
+		}
+		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Binaries: binaries, Configurations: ports, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+			return localHealth(ctx, b)
 		}})
 		if err != nil {
 			cancel()
@@ -255,7 +301,23 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 	}
 	sort.Slice(c.Nodes, func(i, j int) bool { return c.Nodes[i].ID < c.Nodes[j].ID })
 	c.ActiveBotNodeID = api.LocalNodeID
-	if n.app != nil && n.app.Backend != nil {
+	if n.app != nil && n.app.product != nil {
+		pairing := n.app.product.pairing
+		c.ActiveBotNodeID = pairing.NodeID
+		c.PairedProductNodeID = pairing.NodeID
+		c.WorkerTarget = nil // The product-only pairing does not attest Worker routes.
+		found := false
+		for _, node := range c.Nodes {
+			found = found || node.ID == pairing.NodeID
+		}
+		if !found && pairing.NodeID != "" {
+			label := pairing.Label
+			if label == "" {
+				label = "Connected Bot machine"
+			}
+			c.Nodes = append(c.Nodes, api.NodeInfo{ID: pairing.NodeID, Label: label, OS: api.NodeOSUnknown, Join: api.NodeSSH, Runtimes: []api.NodeRuntime{}})
+		}
+	} else if n.app != nil && n.app.Backend != nil {
 		backend := n.app.Backend.ProviderInfo().ID
 		if backend != "" {
 			c.WorkerTarget = &api.WorkTarget{NodeID: api.LocalNodeID, Backend: backend, Role: api.RoleWorker}
@@ -264,6 +326,7 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 	if n.options.ExecutionState != nil {
 		c.ActiveBotNodeID, c.WorkerTarget = n.options.ExecutionState()
 	}
+	sort.Slice(c.Nodes, func(i, j int) bool { return c.Nodes[i].ID < c.Nodes[j].ID })
 	c.Broker = nil
 	if doc.Coordinator != "" {
 		broker := api.NodeBroker{NodeID: doc.Coordinator, Reachable: false, Reason: "broker-unavailable"}
