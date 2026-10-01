@@ -44,7 +44,7 @@ func (s *Service) ChangeNodeExecutionScopes(ctx context.Context, r api.NodeManag
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	active := s.runtimeSettings.Runtime
-	if p, ok := s.engine.(api.Provider); ok {
+	if p, ok := s.capabilityEngine().(api.Provider); ok {
 		active = p.ProviderInfo().ID
 	}
 	if active != "codex" {

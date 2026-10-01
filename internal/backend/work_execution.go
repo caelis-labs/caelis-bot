@@ -43,7 +43,7 @@ func (s *Service) saveWorkExecutionSettingsLocked(ctx context.Context, v api.Wor
 	if err := api.ValidateExecutionSettings(v.Execution()); err != nil {
 		return err
 	}
-	e, ok := s.engine.(api.WorkExecutionProvider)
+	e, ok := s.capabilityEngine().(api.WorkExecutionProvider)
 	if !ok {
 		return errors.New("当前运行时不支持独立工作模型")
 	}

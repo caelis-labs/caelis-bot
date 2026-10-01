@@ -38,7 +38,7 @@ func (s *Service) ExecutionSettings() (api.ExecutionSettings, error) {
 	return s.executionSettingsLocked(context.Background())
 }
 func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
-	e, ok := s.engine.(api.ExecutionProvider)
+	e, ok := s.capabilityEngine().(api.ExecutionProvider)
 	if !ok {
 		return nil, errors.New("当前运行时不支持模型设置")
 	}
@@ -51,7 +51,7 @@ func (s *Service) SaveExecutionSettings(ctx context.Context, v api.ExecutionSett
 }
 
 func (s *Service) executionSettingsLocked(ctx context.Context) (api.ExecutionSettings, error) {
-	if source, ok := s.engine.(api.ExecutionSettingsSource); ok {
+	if source, ok := s.capabilityEngine().(api.ExecutionSettingsSource); ok {
 		return source.CurrentExecutionSettings(ctx)
 	}
 	return s.executionSettings, nil
@@ -61,7 +61,7 @@ func (s *Service) saveExecutionSettingsLocked(ctx context.Context, v api.Executi
 	if err := api.ValidateExecutionSettings(v); err != nil {
 		return err
 	}
-	e, ok := s.engine.(api.ExecutionProvider)
+	e, ok := s.capabilityEngine().(api.ExecutionProvider)
 	if !ok {
 		return errors.New("当前运行时不支持模型设置")
 	}
@@ -75,7 +75,7 @@ func (s *Service) saveExecutionSettingsLocked(ctx context.Context, v api.Executi
 }
 
 func (s *Service) ExecutionOptions() (api.ExecutionOptions, error) {
-	if e, ok := s.engine.(api.ExecutionProvider); ok {
+	if e, ok := s.capabilityEngine().(api.ExecutionProvider); ok {
 		return e.ExecutionOptions(), nil
 	}
 	return api.ExecutionOptions{}, errors.New("当前运行时不支持模型设置")

@@ -151,7 +151,7 @@ func (s *Service) DismissPreview(key string) error {
 	if key == "" || key != previewKey(v) {
 		return errors.New("消息已更新，请再试一次")
 	}
-	if consumer, ok := s.engine.(api.PresentationAcknowledger); ok {
+	if consumer, ok := s.capabilityEngine().(api.PresentationAcknowledger); ok {
 		if e := consumer.AcknowledgePresentation(context.Background(), v); e != nil {
 			return e
 		}
