@@ -471,6 +471,10 @@ export interface RuntimeInstallation {
   instructions: string;
   canInstall: boolean;
 }
+export interface RuntimeModelBinding {
+  profileId: string;
+  selector: string;
+}
 export interface RuntimeMutationResult {
   operationId: string;
   outcome: string;
@@ -507,6 +511,7 @@ export interface RuntimeTeam {
   sets: Array<RuntimeTeamSet>;
   activeSet: string;
   models: Array<ModelOption>;
+  modelBindings?: Array<RuntimeModelBinding>;
 }
 export interface RuntimeTeamSet {
   name: string;

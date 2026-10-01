@@ -144,6 +144,17 @@ func projectRuntimeConfiguration(status wire.AgentBindingStatus, candidates []wi
 		agents[value(a.AgentId)] = value(a.Name)
 	}
 	for _, m := range candidates {
+		// Only provider candidates have portable model semantics. ACP profile
+		// IDs are local identities and must never be copied between nodes.
+		if value(m.ModelConfigId) != "" && !value(m.NoAuth) {
+			for _, p := range status.Targets {
+				id := value(p.Id)
+				source := sources[id]
+				if source.Provider != nil && source.Provider.ModelConfigID == value(m.ModelConfigId) {
+					out.Team.ModelBindings = append(out.Team.ModelBindings, api.RuntimeModelBinding{ProfileID: id, Selector: m.Value})
+				}
+			}
+		}
 		groupID, kind, display := "models", "provider", "模型服务"
 		profileID := ""
 		for id, source := range sources {

@@ -1,4 +1,4 @@
-import type { ExecutionSettings, ModelOption, RuntimeSettings, SetupState, WorkExecutionSettings } from '../../backend/contract';
+import type { ExecutionSettings, ModelOption, RuntimeModelBinding, RuntimeSettings, SetupState, WorkExecutionSettings } from '../../backend/contract';
 
 // Renderer presentation models. These are not a replacement for the generated
 // Go contract or Caelis wire types. Native services own protocol projection.
@@ -6,7 +6,7 @@ export type ModelSelection = WorkExecutionSettings;
 export type ModelScope = 'conversation' | 'runtime' | 'work';
 export type TeamRole = { id: string; modelIds?: string[]; description: string; system: boolean; custom: boolean; selection: ModelSelection; inherited: boolean; problem?: string };
 export type TeamSet = { name: string; available: boolean; problem?: string };
-export type TeamState = { available: boolean; reason: string; revision: string; roles: TeamRole[]; sets: TeamSet[]; activeSet: string; models: ModelOption[] };
+export type TeamState = { available: boolean; reason: string; revision: string; roles: TeamRole[]; sets: TeamSet[]; activeSet: string; models: ModelOption[]; modelBindings?: RuntimeModelBinding[] };
 export type ConnectionModel = { id: string; name: string; uses: string[]; unavailable: boolean };
 export type ConnectionGroup = { id: string; name: string; kind: 'provider' | 'agent'; detail: string; models: ConnectionModel[] };
 export type RuntimeView = {
