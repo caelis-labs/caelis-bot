@@ -200,3 +200,116 @@ func TestHeartbeatPartitionStopsOwnerWithoutReclaimOrReplay(t *testing.T) {
 		t.Fatal("fenced publisher wrote snapshot", err)
 	}
 }
+
+type publicationBarrier struct {
+	*runnerBroker
+	native                             **runnerNative
+	published, heartbeat               chan struct{}
+	continuePublish, continueHeartbeat chan struct{}
+}
+
+func (b *publicationBarrier) PublishSnapshot(ctx context.Context, l nodeplane.Lease, ref nodeplane.SnapshotRef, payload []byte) error {
+	if err := b.runnerBroker.PublishSnapshot(ctx, l, ref, payload); err != nil {
+		return err
+	}
+	close(b.published)
+	if b.continuePublish != nil {
+		select {
+		case <-b.continuePublish:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+func (b *publicationBarrier) Heartbeat(ctx context.Context, l nodeplane.Lease) (nodeplane.Lease, error) {
+	close(b.heartbeat)
+	if b.continueHeartbeat != nil {
+		select {
+		case <-b.continueHeartbeat:
+		case <-ctx.Done():
+			return nodeplane.Lease{}, ctx.Err()
+		}
+	}
+	if (*b.native).ref != b.ref {
+		return nodeplane.Lease{}, errors.New("broker and native marker differ")
+	}
+	return l, nil
+}
+func TestRunnerSerializesTrustedHeartbeatWithWholePublication(t *testing.T) {
+	for _, publishFirst := range []bool{true, false} {
+		t.Run(map[bool]string{true: "publication-first", false: "heartbeat-first"}[publishFirst], func(t *testing.T) {
+			r, b, n := runnerFixture(t)
+			barrier := &publicationBarrier{runnerBroker: b, native: n, published: make(chan struct{}), heartbeat: make(chan struct{})}
+			if publishFirst {
+				barrier.continuePublish = make(chan struct{})
+			} else {
+				barrier.continueHeartbeat = make(chan struct{})
+			}
+			r.opts.Broker = barrier
+			if err := r.Activate(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			defer r.guard.Revoke()
+			lease, _ := r.guard.Lease()
+			publishDone, heartbeatDone := make(chan error, 1), make(chan error, 1)
+			publish := func() { publishDone <- r.Publish(t.Context()) }
+			heartbeat := func() { _, err := r.Heartbeat(t.Context(), lease); heartbeatDone <- err }
+			if publishFirst {
+				go publish()
+				<-barrier.published
+				go heartbeat()
+				select {
+				case <-barrier.heartbeat:
+					t.Fatal("heartbeat saw broker commit before native marker")
+				case <-time.After(25 * time.Millisecond):
+				}
+				close(barrier.continuePublish)
+			} else {
+				go heartbeat()
+				<-barrier.heartbeat
+				go publish()
+				select {
+				case <-barrier.published:
+					t.Fatal("publication bypassed active trusted proof read")
+				case <-time.After(25 * time.Millisecond):
+				}
+				close(barrier.continueHeartbeat)
+			}
+			if err := <-publishDone; err != nil {
+				t.Fatal(err)
+			}
+			if err := <-heartbeatDone; err != nil {
+				t.Fatal(err)
+			}
+			if (*n).ref != b.ref {
+				t.Fatal("native marker did not advance")
+			}
+		})
+	}
+}
+
+type failingMarker struct{ *runnerNative }
+
+func (n *failingMarker) SetNotebookSnapshot(context.Context, nodeplane.Lease, nodeplane.SnapshotRef) error {
+	return errors.New("disk marker failure")
+}
+func TestRunnerMarkerFailureRevokesCommittedOwner(t *testing.T) {
+	r, b, n := runnerFixture(t)
+	if err := r.Activate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.runtime = &failingMarker{*n}
+	if err := r.Publish(t.Context()); err == nil {
+		t.Fatal("committed marker failure was hidden")
+	}
+	if b.publishes != 1 {
+		t.Fatal("fixture did not commit")
+	}
+	if _, active := r.guard.Lease(); active {
+		t.Fatal("mismatched native proof retained effect admission")
+	}
+	if err := r.guard.WaitStopped(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
