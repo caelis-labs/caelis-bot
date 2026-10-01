@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func supervisorFaultFixture(t *testing.T, fault string, wrongID bool) (*SupervisedProcess, <-chan error) {
+func supervisorFaultFixture(t *testing.T, fault string, wrongID bool, changes ...func(*supervisorFrame)) (*SupervisedProcess, <-chan error) {
 	t.Helper()
 	owner, server := net.Pipe()
 	t.Cleanup(func() { _ = owner.Close(); _ = server.Close() })
@@ -23,7 +23,11 @@ func supervisorFaultFixture(t *testing.T, fault string, wrongID bool) (*Supervis
 			if wrongID {
 				id++
 			}
-			err = writeSupervisor(server, supervisorFrame{ID: id, Fault: fault})
+			reply := supervisorFrame{ID: id, Fault: fault}
+			for _, change := range changes {
+				change(&reply)
+			}
+			err = writeSupervisor(server, reply)
 		}
 		result <- err
 	}()
@@ -34,14 +38,22 @@ func TestSupervisorStopFaultRequiresExactOriginalReply(t *testing.T) {
 	for _, tc := range []struct {
 		name, method, fault string
 		wrongID, known      bool
+		change              func(*supervisorFrame)
 	}{
 		{name: "original stop proof", method: "stop", fault: "native-stop-unconfirmed", known: true},
 		{name: "different request", method: "stop", fault: "native-stop-unconfirmed", wrongID: true},
 		{name: "different fault", method: "stop", fault: "prepared-owner-revoked"},
 		{name: "different method", method: "renew", fault: "native-stop-unconfirmed"},
+		{name: "different reply method", method: "stop", fault: "native-stop-unconfirmed", change: func(f *supervisorFrame) { f.Method = "renew" }},
+		{name: "contradictory proof", method: "stop", fault: "native-stop-unconfirmed", change: func(f *supervisorFrame) { f.Stopped = true }},
+		{name: "unrelated native target", method: "stop", fault: "native-stop-unconfirmed", change: func(f *supervisorFrame) { f.PID = 42 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p, server := supervisorFaultFixture(t, tc.fault, tc.wrongID)
+			changes := []func(*supervisorFrame){}
+			if tc.change != nil {
+				changes = append(changes, tc.change)
+			}
+			p, server := supervisorFaultFixture(t, tc.fault, tc.wrongID, changes...)
 			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 			defer cancel()
 			reply, err := p.call(ctx, supervisorFrame{Method: tc.method})
