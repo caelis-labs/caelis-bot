@@ -24,6 +24,8 @@ import (
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "supervise-roaming", "control-roaming":
+			return runRoamingDeploy(ctx, args, out)
 		case "serve-broker", "proxy-broker":
 			return runBroker(ctx, args, out)
 		case "serve-agent", "proxy-agent", "join-agent", "verify-join-directory":
