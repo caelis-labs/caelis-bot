@@ -139,14 +139,44 @@ func TestNodeSetupProcessHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-func realNodeConnectionFixture(t *testing.T) (*Service, string) {
+// Contained target tests receive a native companion built and checksum-verified
+// on the source host. Supplying it must never require Go or project sources on
+// the target. An invalid explicit selection is a failure, never a fallback.
+func nodeConnectionFixtureCompanion(t *testing.T, directory string) string {
 	t.Helper()
-	directory, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	helper := filepath.Join(directory, "caelis-node")
+	if supplied := os.Getenv("CAELIS_BOT_TEST_HOST_BINARY"); supplied != "" {
+		if !cleanOwnedRuntimePath(supplied) {
+			t.Fatal("explicit native companion must be a clean absolute executable")
+		}
+		info, err := os.Lstat(supplied)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 || info.Mode().Perm()&0022 != 0 || info.Size() <= 0 || info.Size() > 256<<20 {
+			t.Fatal("explicit native companion unavailable")
+		}
+		body, err := os.ReadFile(supplied)
+		if err != nil {
+			t.Fatal("explicit native companion unavailable")
+		}
+		hash := sha256.Sum256(body)
+		digest := hex.EncodeToString(hash[:])
+		// The test runner may pin its transfer manifest digest as well as the exact
+		// explicitly selected native artifact. Never print artifact bytes on error.
+		if expected := os.Getenv("CAELIS_BOT_TEST_HOST_SHA256"); expected != "" && expected != digest {
+			t.Fatal("explicit native companion checksum mismatch")
+		}
+		if verifyReadinessCompanion(OwnedRuntimeCompanion{Path: supplied, SHA256: digest}) != nil {
+			t.Fatal("explicit native companion changed")
+		}
+		if err := os.WriteFile(helper, body, 0700); err != nil {
+			t.Fatal("fixture native companion unavailable")
+		}
+		if verifyReadinessCompanion(OwnedRuntimeCompanion{Path: helper, SHA256: digest}) != nil {
+			t.Fatal("fixture native companion checksum mismatch")
+		}
+		return helper
 	}
-	if err := os.Chmod(directory, 0700); err != nil {
-		t.Fatal(err)
+	if os.Getenv("CAELIS_BOT_TEST_HOST_SHA256") != "" {
+		t.Fatal("native companion checksum requires explicit executable")
 	}
 	watchdogBinary := filepath.Join(directory, "caelis-public-test")
 	build := exec.CommandContext(t.Context(), "go", "test", "-c", "-o", watchdogBinary, "./internal/backend/caelis")
@@ -159,18 +189,31 @@ func realNodeConnectionFixture(t *testing.T) (*Service, string) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatal("watchdog fixture build", err, string(output))
 	}
+	quote := func(v string) string { return "'" + strings.ReplaceAll(v, "'", "'\"'\"'") + "'" }
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexec "+quote(watchdogBinary)+" -test.run='^TestOwnedCaelisWatchdogHelper$' -- \"$@\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	return helper
+}
+
+func realNodeConnectionFixture(t *testing.T) (*Service, string) {
+	t.Helper()
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	quote := func(v string) string { return "'" + strings.ReplaceAll(v, "'", "'\"'\"'") + "'" }
 	binary := filepath.Join(directory, "caelis")
-	helper := filepath.Join(directory, "caelis-node")
+	nodeConnectionFixtureCompanion(t, directory)
 	body := "#!/bin/sh\nif [ \"$1\" = version ]; then printf '{\"version\":\"0.65.0\"}'; exit 0; fi\nexec " + quote(executable) + " -test.run='^TestNodeSetupProcessHelper$' -- \"$@\"\n"
 	if err := os.WriteFile(binary, []byte(body), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexec "+quote(watchdogBinary)+" -test.run='^TestOwnedCaelisWatchdogHelper$' -- \"$@\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	service, err := New(Options{Directory: directory, NodeID: "node-test", Binaries: map[api.NodeBackend]string{api.NodeCodex: "/absent-codex", api.NodeCaelis: binary}})
