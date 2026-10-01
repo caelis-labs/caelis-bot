@@ -112,3 +112,42 @@ func (s *Service) ApplyModelSettings(ctx context.Context, revision, target strin
 	}
 	return s.saveExecutionSettingsLocked(ctx, v)
 }
+
+// ApplyRuntimeExecutionSelection atomically compares the active native state
+// and applies the full private Node configuration selection for the next turn.
+func (s *Service) ApplyRuntimeExecutionSelection(ctx context.Context, revision, target string, selection api.WorkExecutionSettings) error {
+	s.configurationMu.Lock()
+	defer s.configurationMu.Unlock()
+	state, err := s.modelSettingsLocked(ctx)
+	if err != nil || !s.ModelSettingsAvailable() {
+		return productmanagement.ErrExecutionUnavailable
+	}
+	if productmanagement.ExecutionRevision(state) != revision {
+		return productmanagement.ErrExecutionConflict
+	}
+	if target != "conversation" && target != "work" || target == "work" && state.Work == nil {
+		return productmanagement.ErrExecutionInvalid
+	}
+	if api.ValidateExecutionSettings(selection.Execution()) != nil {
+		return productmanagement.ErrExecutionInvalid
+	}
+	models, err := s.Models(ctx)
+	if err != nil {
+		return errors.Join(productmanagement.ErrExecutionUnavailable, err)
+	}
+	if target == "conversation" && selection.Model == "" && !state.ConversationDefault {
+		return productmanagement.ErrExecutionInvalid
+	}
+	if err := api.ValidateWorkExecution(selection, models); err != nil {
+		return productmanagement.ErrExecutionInvalid
+	}
+	if ctx.Err() != nil {
+		return productmanagement.ErrExecutionCancelled
+	}
+	if target == "work" {
+		return s.saveWorkExecutionSettingsLocked(ctx, selection)
+	}
+	value := state.Conversation
+	value.Model, value.Effort, value.ServiceTier = selection.Model, selection.Effort, selection.ServiceTier
+	return s.saveExecutionSettingsLocked(ctx, value)
+}
