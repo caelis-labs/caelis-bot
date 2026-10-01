@@ -148,6 +148,15 @@ type NodeInstallationChange struct {
 	ExpectedVersion string                 `json:"expectedVersion"`
 }
 
+// NodeInstallationState describes only the native managed installer. A Runtime
+// found on PATH does not make Installed true. A nil state means unavailable or
+// unknown and cannot authorize an install/update precondition.
+type NodeInstallationState struct {
+	Installed     bool   `json:"installed"`
+	Version       string `json:"version"`
+	LatestVersion string `json:"latestVersion"`
+}
+
 // Exactly one semantic payload is allowed; there is no arbitrary RPC or command.
 type NodeManagementRequest struct {
 	Guard        NodeEditGuard               `json:"guard"`
@@ -165,6 +174,7 @@ type NodeRuntimeConfiguration struct {
 	Worker                 *WorkExecutionSettings `json:"worker"`
 	ConfigurationAvailable bool                   `json:"configurationAvailable"`
 	InstallerAvailable     bool                   `json:"installerAvailable"`
+	Installation           *NodeInstallationState `json:"installation"`
 	ReviewedVersions       []string               `json:"reviewedVersions"`
 }
 
