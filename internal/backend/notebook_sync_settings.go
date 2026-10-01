@@ -13,6 +13,7 @@ type NotebookBackupTarget struct {
 }
 type NotebookSyncSettings struct {
 	Enabled         bool                   `json:"enabled"`
+	SourceBackend   api.NodeBackend        `json:"sourceBackend,omitempty"`
 	SourceNodeID    string                 `json:"sourceNodeId"`
 	IntervalMinutes int                    `json:"intervalMinutes"`
 	Targets         []NotebookBackupTarget `json:"targets"`

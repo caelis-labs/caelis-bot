@@ -371,6 +371,12 @@ func (a *Application) HasRuntimeChoice() bool {
 	return e == nil && json.Unmarshal(b, &legacy) == nil && legacy.Version == 1 && legacy.PersonalVersion == 0
 }
 func (a *Application) PrepareRestart() error {
+	a.mu.Lock()
+	prepared := a.notebookRestartPrepared
+	a.mu.Unlock()
+	if prepared {
+		return nil
+	}
 	if active := ActiveNodeRoamingApplication(a); active != a {
 		return active.PrepareRestart()
 	}

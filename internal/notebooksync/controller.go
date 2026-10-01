@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+// ErrRestartRequired means the stopped source and final copy are confirmed, but
+// the target must still start through its normal APP entry point.
+var ErrRestartRequired = errors.New("restart APP to start the prepared local conversation")
+
 type NotebookSyncStatus struct {
 	NodeID      string `json:"nodeId"`
 	OperationID string `json:"operationId,omitempty"`
@@ -222,7 +226,10 @@ func (c *Controller) Switch(ctx context.Context, id string) error {
 	if err = h.SourceStopped(ctx); err != nil {
 		return c.fail(s, err)
 	}
-	if err = h.StartFresh(ctx, id); err != nil {
+	if err = h.StartFresh(ctx, id); errors.Is(err, ErrRestartRequired) {
+		s.Phase = "restart-required"
+		return c.store(s)
+	} else if err != nil {
 		return c.fail(s, err)
 	}
 	s.Phase = "switched"

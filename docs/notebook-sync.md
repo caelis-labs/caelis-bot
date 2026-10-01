@@ -27,15 +27,24 @@ migration or snapshot protocol is involved.
    the standby, performs the final copy, reconfirms the old stop and starts a new
    native conversation. The new owner's identity and existing product proxy must
    connect before a successful switch is recorded.
-6. Restart APP to use the saved ordinary product pairing. Reopening APP after a
-   failed or uncertain switch cannot restart the old local source. After a
-   confirmed move, explicitly save Notebook settings for the new active source;
-   direction is never reversed automatically. Remote-to-remote switches use
-   the same stop-first sequence and relay ordinary files through this APP.
+6. APP restarts through its existing normal entry point to use the saved pairing.
+   The active Bot automatically becomes the backup source and the previous source
+   becomes a stopped backup with its original Runtime. No settings rewrite is
+   needed after a confirmed move. Remote-to-remote moves use the same sequence.
+7. To return, choose **This machine → Switch to this node**. The remote owner must
+   confirm stopped, then the final ordinary-file copy returns to this exact APP
+   profile. The previous local Notebook is retained in full under
+   `Product/notebook-before-return-<original operation>/Notebook`. Old local native
+   conversation/Memory bindings are retained separately as for other fresh starts.
+   APP then restarts its normal in-process local Runtime using existing local
+   preferences/authentication. The return remains pending until that Runtime
+   actually reports ready; startup rechecks the original remote owner's stop.
+   SSH loss blocks local startup, and does not claim a completed return.
 
-The settings surface currently selects remote SSH standby nodes. Returning the
-Bot to the original local desktop profile is not exposed by this simple path;
-its original data and native binding remain preserved. Outgoing-only nodes lack
+Only the current APP profile is a local target; no arbitrary local path is
+accepted. Its retained native stop receipt and unlocked profile owner lock are
+required before a return. Use an isolated APP profile for acceptance so the
+original user's Bot/Host and Notebook are untouched. Outgoing-only nodes lack
 an ordinary direct file-transfer pairing and are explicitly unsupported here.
 Remote TaskDock interactive terminals remain unsupported and report that fact;
 they do not prevent ordinary task execution, backup or node switching.
@@ -131,6 +140,8 @@ The independent real-node acceptance should use a fresh isolated APP profile,
 current packaged helpers and normal new sessions. Verify SSH enrollment and
 Runtime setup, per-node batch results, an actual selected Worker task, timed and
 manual file backup, preserved overwritten files, and stop-first switch/reconnect.
+Verify local → remote → local with automatic backup source/target reversal,
+local old-Notebook retention, and a fresh local session without old binding.
 Also verify busy/unknown refusal and a lost SSH response without a second owner.
 Record each actual runtime owner/Worker result independently. The old QA thread's
 active-writer conflict is not evidence that its original session resumed.

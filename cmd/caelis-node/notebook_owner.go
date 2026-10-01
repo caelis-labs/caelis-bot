@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -298,38 +299,7 @@ func notebookOwnerEnvironment() []string {
 // Preserve target-native state in place before creating a new conversation.
 // These files never enter rsync and are never used to restore or replay work.
 func resetNotebookSession(profile, operation string) error {
-	archive := filepath.Join(profile, "Product", "retired-"+operation)
-	if err := os.Mkdir(archive, 0700); err != nil {
-		return err
-	}
-	for _, name := range []string{"conversation.json", "providers/caelis/application.json", "personal", "tasks.json", "dream-codex.json", "dream-caelis.json", "care.json", "preview.json", "draft.json", "Product/receipts.json", "Product/completed-handoff.json"} {
-		original := filepath.Join(profile, name)
-		info, err := os.Lstat(original)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 || (!info.Mode().IsRegular() && !info.IsDir()) {
-			return errors.New("target native state unsafe; originals preserved")
-		}
-		target := filepath.Join(archive, name)
-		if err = os.MkdirAll(filepath.Dir(target), 0700); err != nil {
-			return err
-		}
-		if err = os.Rename(original, target); err != nil {
-			return err
-		}
-	}
-	var identity bot.State
-	if err := readNotebookJSON(filepath.Join(profile, "bot.json"), &identity); err != nil {
-		return err
-	}
-	if err := localstate.Write(filepath.Join(archive, "bot.json"), identity); err != nil {
-		return err
-	}
-	return localstate.Write(filepath.Join(profile, "bot.json"), bot.State{Version: 1, PersonalVersion: 1, ID: identity.ID, Schedules: []bot.Schedule{}})
+	return app.PrepareFreshNotebookProfile(profile, operation)
 }
 func applyNotebookPreferences(profile string) error {
 	var runtime api.RuntimeSettings

@@ -80,10 +80,12 @@ type Application struct {
 	closeOnce          sync.Once
 	closeErr           error
 
-	notebookSync         *notebooksync.Controller
-	notebookSyncInterval time.Duration
-	notebookSyncCancel   context.CancelFunc
- notebookSyncRecovery bool
+	notebookSync            *notebooksync.Controller
+	notebookSyncInterval    time.Duration
+	notebookSyncCancel      context.CancelFunc
+	notebookSyncRecovery    bool
+	notebookReturn          *defaultNotebookSync
+	notebookRestartPrepared bool
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -469,6 +471,11 @@ func (a *Application) Start() (startErr error) {
 				return
 			}
 			revision = snapshot.Revision
+			if a.notebookReturn != nil {
+				if err := a.notebookReturn.observeReturn(ctx, snapshot); err != nil && a.host.ReportError != nil {
+					a.host.ReportError(err)
+				}
+			}
 			observer.Observe(snapshot)
 			if a.host.Observe != nil {
 				a.host.Observe(snapshot)

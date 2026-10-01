@@ -1,16 +1,16 @@
 import {useEffect,useState} from 'react';
-import {backend} from '../../desktop';
+import {backend,desktop} from '../../desktop';
 import type {NodeCatalog,NotebookSyncSettings as NotebookSyncPreferences,NotebookSyncState} from '../../backend/contract';
 import {useI18n} from '../../i18n';
 import {SettingsDialog} from './SettingsDialog';
 
-export function NotebookSyncSettings({catalog,call=backend,active=true}:{catalog:NodeCatalog;call?:typeof backend;active?:boolean}) {
+export function NotebookSyncSettings({catalog,call=backend,host=desktop,active=true}:{catalog:NodeCatalog;call?:typeof backend;host?:typeof desktop;active?:boolean}) {
  const {t}=useI18n();
  const [settings,setSettings]=useState<NotebookSyncPreferences|null>(null),[state,setState]=useState<NotebookSyncState|null>(null);
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[saved,setSaved]=useState(false),[switching,setSwitching]=useState('');
  const [dirty,setDirty]=useState(false);
  const source=catalog.activeBotNodeId||'local';
- const candidates=catalog.nodes.filter(node=>node.join==='ssh'&&node.id!==source);
+ const candidates=catalog.nodes.filter(node=>(node.join==='ssh'||node.join==='local')&&node.id!==source);
  const name=(id:string)=>catalog.nodes.find(node=>node.id===id)?.label||id;
  const reload=async()=>{
   try {
@@ -29,12 +29,13 @@ export function NotebookSyncSettings({catalog,call=backend,active=true}:{catalog
    if(kind==='save') {
     const preferences=await call<NotebookSyncPreferences>('SaveNotebookSyncSettings',settings);setSettings(preferences);setDirty(false);setSaved(true);
    } else { await call<NotebookSyncState>(kind==='sync'?'SyncNotebook':'SwitchNotebookNode',id);setSwitching(''); }
-   setState(await call<NotebookSyncState>('NotebookSyncState'));
+   const next=await call<NotebookSyncState>('NotebookSyncState');setState(next);
+   if(kind==='switch'&&next.targets.some(target=>target.phase==='switched'||target.phase==='restart-required'))await host('RestartForRuntime');
   } catch { setError(t(kind==='switch'?'runtime.notebookSwitchUnconfirmed':'runtime.notebookActionFailed'));try{setState(await call<NotebookSyncState>('NotebookSyncState'));}catch{} }
   finally { setBusy(false); }
  };
  const pending=state?.targets.some(target=>target.phase!=='ready');
- const moved=state?.targets.some(target=>target.phase==='switched'&&target.nodeId!==source);
+ const moved=state?.targets.some(target=>(target.phase==='switched'||target.phase==='restart-required')&&target.nodeId!==source);
  const locked=!!pending&&state?.sourceNodeId===source;
  return <details className="runtime-advanced notebook-sync-settings"><summary>{t('runtime.notebookTitle')}</summary>
   <p className="settings-note">{t('runtime.notebookDescription')}</p>
@@ -53,7 +54,7 @@ export function NotebookSyncSettings({catalog,call=backend,active=true}:{catalog
     </div>;
    })}
    {!candidates.length&&<p className="settings-note">{t('runtime.notebookAddNode')}</p>}
-   {moved&&<p role="status" className="runtime-callout">{t('runtime.notebookRestart')}</p>}
+   {moved&&<p role="status" className="runtime-callout">{t('runtime.notebookRestart')} <button disabled={busy} onClick={()=>void host('RestartForRuntime').catch(()=>setError(t('runtime.notebookActionFailed')))}>{t('runtime.switchAndRestart')}</button></p>}
    {locked&&!moved&&<p role="alert" className="runtime-callout">{t('runtime.notebookSwitchUnconfirmed')}</p>}
    <button disabled={busy||locked||settings.enabled&&(!settings.targets.length||!Number.isInteger(settings.intervalMinutes)||settings.intervalMinutes<1||settings.intervalMinutes>1440)} onClick={()=>void action('save')}>{busy?t('runtime.saving'):t('common.save')}</button>
    {saved&&<p role="status" className="settings-note">{t('runtime.notebookSaved')}</p>}

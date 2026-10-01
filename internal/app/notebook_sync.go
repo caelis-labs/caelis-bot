@@ -24,6 +24,8 @@ type NotebookSyncOptions struct {
 	Profiles     map[string]string
 	Interval     time.Duration
 	Hooks        notebooksync.Hooks
+	// BeforeFinalTransfer preserves a stopped local target before the final copy.
+	BeforeFinalTransfer func(context.Context, string) error
 	// CompletedHandoff is optional. It must verify the exact completed Dream and
 	// current digest after stopping. Missing/unfinished handoff returns no bytes.
 	CompletedHandoff func(context.Context) ([]byte, error)
@@ -122,6 +124,11 @@ func AttachNotebookSync(a *Application, o NotebookSyncOptions) error {
 		if NodeRoamingOwnsExecution(a) {
 			return errors.New("existing roaming owns execution; simple sync is paused")
 		}
+		if final && o.BeforeFinalTransfer != nil {
+			if err := o.BeforeFinalTransfer(ctx, id); err != nil {
+				return err
+			}
+		}
 		source, close, err := resolve(ctx, o.SourceNodeID)
 		if err != nil {
 			return err
@@ -179,6 +186,9 @@ func (a *Application) closeNotebookSync() {
 }
 
 func (a *Application) notebookSyncStartupGuard() error {
+	if a.notebookReturn != nil {
+		return a.notebookReturn.validateReturn(context.Background())
+	}
 	a.mu.Lock()
 	c := a.notebookSync
 	remote := a.product != nil

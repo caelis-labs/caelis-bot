@@ -265,6 +265,7 @@ export interface NotebookBackupTarget {
 }
 export interface NotebookSyncSettings {
   enabled: boolean;
+  sourceBackend?: string;
   sourceNodeId: string;
   intervalMinutes: number;
   targets: Array<NotebookBackupTarget>;

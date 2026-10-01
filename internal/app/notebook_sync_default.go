@@ -25,6 +25,7 @@ type defaultNotebookSync struct {
 	app       *Application
 	settings  backend.NotebookSyncSettings
 	state     notebooksync.State
+	returning *notebookLocalReturn
 	ownerCall func(context.Context, NodeRegistration, nodeagent.NotebookOwnerRequest) (nodeagent.NotebookOwnerState, error)
 }
 
@@ -65,12 +66,35 @@ func attachDefaultNotebookSync(a *Application) error {
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return e
 	}
+	if c.settings.SourceNodeID == api.LocalNodeID {
+		var runtime api.RuntimeSettings
+		if readNotebookPrivate(filepath.Join(a.root, "runtime.json"), &runtime) == nil {
+			c.settings.SourceBackend = api.NodeBackend(runtime.Runtime)
+		}
+	}
 	for _, s := range c.state.Targets {
+		if source == api.LocalNodeID && s.NodeID == source && (s.Phase == "starting" || s.Phase == "restart-required") {
+			var receipt notebookLocalReturn
+			if err := readNotebookPrivate(filepath.Join(a.root, "nodeplane", "notebook-local-return.json"), &receipt); err != nil {
+				return err
+			}
+			if receipt.OperationID != s.OperationID || receipt.SourceNodeID != c.state.SourceNodeID {
+				return errors.New("local return does not match original switch")
+			}
+			c.returning = &receipt
+			a.notebookReturn = c
+		}
+		if s.Phase == "switched" && s.NodeID == source && a.product != nil {
+			if err := c.activateSource(source); err != nil {
+				return err
+			}
+			break
+		}
 		if s.Phase != "ready" {
 			a.notebookSyncRecovery = true
 		}
 	}
-	if c.settings.Enabled && c.settings.SourceNodeID == source {
+	if c.settings.Enabled && c.settings.SourceNodeID == source && a.notebookSync == nil && c.returning == nil {
 		if err := c.assemble(context.Background(), false); err != nil {
 			return err
 		}
@@ -112,7 +136,19 @@ func (c *defaultNotebookSync) Switch(ctx context.Context, id string) error {
 	if c.app.notebookSync == nil {
 		return errors.New("choose Notebook backup nodes and save first")
 	}
-	return c.app.notebookSync.Switch(ctx, id)
+	if err := c.app.notebookSync.Switch(ctx, id); err != nil {
+		return err
+	}
+	c.state = c.app.notebookSync.State()
+	if id != api.LocalNodeID {
+		if err := c.rotate(id); err != nil {
+			return err
+		}
+	}
+	c.app.mu.Lock()
+	c.app.notebookRestartPrepared = true
+	c.app.mu.Unlock()
+	return nil
 }
 func (c *defaultNotebookSync) SaveSettings(ctx context.Context, in backend.NotebookSyncSettings) (backend.NotebookSyncSettings, error) {
 	c.mu.Lock()
@@ -129,6 +165,14 @@ func (c *defaultNotebookSync) SaveSettings(ctx context.Context, in backend.Noteb
 		return c.settings, errors.New("choose backup nodes and an interval from 1 to 1440 minutes")
 	}
 	in.SourceNodeID = source
+	in.SourceBackend = c.settings.SourceBackend
+	if source == api.LocalNodeID {
+		var runtime api.RuntimeSettings
+		if err := readNotebookPrivate(filepath.Join(a.root, "runtime.json"), &runtime); err != nil && in.Enabled {
+			return c.settings, err
+		}
+		in.SourceBackend = api.NodeBackend(runtime.Runtime)
+	}
 	if a.notebookSync != nil {
 		state := a.notebookSync.State()
 		for _, s := range state.Targets {
@@ -270,6 +314,21 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 	}
 	seen := map[string]bool{o.SourceNodeID: true}
 	for _, t := range c.settings.Targets {
+		if t.NodeID == api.LocalNodeID && !seen[t.NodeID] {
+			var runtime api.RuntimeSettings
+			if err := readNotebookPrivate(filepath.Join(a.root, "runtime.json"), &runtime); err != nil {
+				return o, err
+			}
+			if api.NodeBackend(runtime.Runtime) != t.Backend {
+				return o, errors.New("local standby must use its configured Runtime")
+			}
+			if err := c.localStandby(botID); err != nil {
+				return o, err
+			}
+			seen[t.NodeID] = true
+			o.Profiles[t.NodeID] = a.root
+			continue
+		}
 		r, ok := regs[t.NodeID]
 		if !ok || r.Join != api.NodeSSH || seen[t.NodeID] || (t.Backend != api.NodeCodex && t.Backend != api.NodeCaelis) {
 			return o, errors.New("choose distinct existing SSH backup nodes and their Runtime")
@@ -300,6 +359,9 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 	}
 
 	o.Hooks.TargetReady = func(ctx context.Context, id string) error {
+		if id == api.LocalNodeID {
+			return c.localStandby(botID)
+		}
 		var target backend.NotebookBackupTarget
 		for _, t := range c.settings.Targets {
 			if t.NodeID == id {
@@ -341,6 +403,9 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 		return nil
 	}
 	o.Hooks.StandbyStopped = func(ctx context.Context, id string) error {
+		if id == api.LocalNodeID {
+			return c.localStandby(botID)
+		}
 		state, e := request(ctx, id, "status", "")
 		if e != nil {
 			return e
@@ -349,6 +414,17 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 			return errors.New("backup Bot must be stopped")
 		}
 		return nil
+	}
+	if o.SourceNodeID == api.LocalNodeID {
+		local, completed := a.NotebookLocalSourceHooks()
+		o.Hooks.SourceActive, o.Hooks.SourceStopped = local.SourceActive, local.SourceStopped
+		o.CompletedHandoff = completed
+		o.Hooks.StopSource = func(ctx context.Context) error {
+			if err := local.StopSource(ctx); err != nil {
+				return err
+			}
+			return localstate.Write(filepath.Join(a.root, "nodeplane", "notebook-local-owner.json"), notebookLocalStop{BotID: botID, Stopped: true})
+		}
 	}
 	if o.SourceNodeID != api.LocalNodeID {
 		r, ok := regs[o.SourceNodeID]
@@ -403,7 +479,16 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 			return nil
 		}
 	}
+	o.BeforeFinalTransfer = func(ctx context.Context, id string) error {
+		if id == api.LocalNodeID {
+			return c.preserveLocalNotebook(botID, operation())
+		}
+		return nil
+	}
 	o.Hooks.StartFresh = func(ctx context.Context, id string) error {
+		if id == api.LocalNodeID {
+			return c.prepareLocalReturn(botID, operation())
+		}
 		state, e := request(ctx, id, "start", "notebook-start-"+operation())
 		if e != nil {
 			return e

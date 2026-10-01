@@ -14,9 +14,10 @@ let root,container;
 afterEach(async()=>{if(root)await act(async()=>root.unmount());container?.remove();root=null;});
 after(async()=>{await server.close();dom.window.close();});
 const catalog={revision:'1',activeBotNodeId:'local',nodes:[{id:'local',label:'This machine',join:'local',runtimes:[{backend:'codex'}]},{id:'backup',label:'Backup machine',join:'ssh',runtimes:[{backend:'codex'}]},{id:'outbound',label:'Outgoing only',join:'outgoing',runtimes:[{backend:'codex'}]}]};
-async function mount({phase='ready',fail=false}={}) {
+async function mount({phase='ready',fail=false,remote=false}={}) {
  let preferences={enabled:true,sourceNodeId:'local',intervalMinutes:5,targets:[{nodeId:'backup',backend:'codex'}]};
  let state={sourceNodeId:'local',targets:[{nodeId:'backup',phase,lastSuccess:'2026-10-01T10:00:00Z'}]};
+ if(remote){preferences.sourceNodeId='backup';preferences.targets=[{nodeId:'local',backend:'codex'}];state.sourceNodeId='backup';state.targets[0].nodeId='local';}
  const calls=[];
  const call=async(method,...args)=>{
   calls.push([method,...args]);
@@ -24,11 +25,11 @@ async function mount({phase='ready',fail=false}={}) {
   if(method==='NotebookSyncState')return structuredClone(state);
   if(method==='SaveNotebookSyncSettings'){preferences=args[0];return preferences;}
   if(method==='SyncNotebook'){state.targets[0].error='transfer-failed';if(fail)throw Error('synthetic');return state;}
-  if(method==='SwitchNotebookNode'){state.targets[0].phase=fail?'starting':'switched';if(fail)throw Error('synthetic');return state;}
+  if(method==='SwitchNotebookNode'){state.targets[0].phase=fail?'starting':remote?'restart-required':'switched';if(fail)throw Error('synthetic');return state;}
   throw Error('unexpected method');
  };
  container=document.createElement('div');document.body.append(container);root=createRoot(container);
- await act(async()=>root.render(React.createElement(NotebookSyncSettings,{catalog,call})));
+ await act(async()=>root.render(React.createElement(NotebookSyncSettings,{catalog:remote?{...catalog,activeBotNodeId:'backup'}:catalog,call,host:async method=>{calls.push([method]);}})));
  return {calls};
 }
 const button=name=>[...container.querySelectorAll('button')].find(value=>value.textContent===name);
@@ -55,4 +56,23 @@ test('already persisted non-ready intent disables new dispatch on reopening sett
  assert.equal(button('Back up now').disabled,true);
  assert.equal(button('Switch to this node').disabled,true);
  assert.equal(calls.some(([method])=>method==='SwitchNotebookNode'),false);
+});
+
+test('remote source exposes this machine return and restarts through the normal host entry point',async()=>{
+ const {calls}=await mount({remote:true});
+ assert.match(container.textContent,/This machine/);
+ await click(button('Switch to this node'));
+ const dialog=container.querySelector('[role="dialog"]');
+ await click([...dialog.querySelectorAll('button')].find(value=>value.textContent==='Switch to this node'));
+ assert.ok(calls.some(([method,node])=>method==='SwitchNotebookNode'&&node==='local'));
+ assert.ok(calls.some(([method])=>method==='RestartForRuntime'));
+ assert.match(container.textContent,/Backup direction follows the active Bot automatically/);
+ assert.equal(calls.some(([method])=>method==='SaveNotebookSyncSettings'),false);
+});
+test('confirmed remote move invokes normal APP relaunch',async()=>{
+ const {calls}=await mount();
+ await click(button('Switch to this node'));
+ const dialog=container.querySelector('[role="dialog"]');
+ await click([...dialog.querySelectorAll('button')].find(value=>value.textContent==='Switch to this node'));
+ assert.ok(calls.some(([method])=>method==='RestartForRuntime'));
 });
