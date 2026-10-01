@@ -22,6 +22,16 @@ var nodeAgentBuildRevision string
 // DefaultNativeJoinHelper is the signed standalone native protocol helper,
 // rather than the Wails APP executable. It accepts no renderer-selected path.
 func DefaultNativeJoinHelper() (string, error) {
+	return defaultNativeNodeExecutable("caelis-agent")
+}
+
+// DefaultNativeNodeHost is the independently signed headless owner. Its native
+// power/process adapter is built with cgo; it does not depend on the APP UI.
+func DefaultNativeNodeHost() (string, error) {
+	return defaultNativeNodeExecutable("caelis-node")
+}
+
+func defaultNativeNodeExecutable(program string) (string, error) {
 	executable, err := os.Executable()
 	if err != nil || nodeAgentBuildRevision == "" {
 		return "", errors.New("packaged native join helper unavailable")
@@ -37,10 +47,10 @@ func DefaultNativeJoinHelper() (string, error) {
 	if err != nil || len(b) > 16<<10 || json.Unmarshal(b, &manifest) != nil || manifest.Version != 1 || manifest.SourceRevision != nodeAgentBuildRevision {
 		return "", errors.New("packaged native join source mismatch")
 	}
-	name := "caelis-agent-darwin-" + runtime.GOARCH
+	name := program + "-darwin-" + runtime.GOARCH
 	var digest string
 	for _, entry := range manifest.Artifacts {
-		if entry.OS == "darwin" && entry.Arch == runtime.GOARCH {
+		if entry.OS == "darwin" && entry.Arch == runtime.GOARCH && entry.File == name {
 			if digest != "" || entry.File != name {
 				return "", errors.New("packaged native join manifest incompatible")
 			}
@@ -134,21 +144,31 @@ func readNodeAgentArtifact(directory, arch, revision string) (nodeagent.Artifact
 	if err != nil || len(b) > 16<<10 || json.Unmarshal(b, &manifest) != nil || manifest.Version != 1 || manifest.SourceRevision != revision {
 		return nodeagent.Artifact{}, errors.New("packaged node agent source mismatch")
 	}
-	var result nodeagent.Artifact
+	result := nodeagent.Artifact{Arch: arch, SourceRevision: revision}
 	for _, entry := range manifest.Artifacts {
 		if entry.OS != "linux" || entry.Arch != arch {
 			continue
-		}
-		if result.Path != "" || entry.File != "caelis-agent-linux-"+arch {
-			return nodeagent.Artifact{}, errors.New("packaged node agent manifest incompatible")
 		}
 		absolute, err := filepath.Abs(filepath.Join(directory, entry.File))
 		if err != nil {
 			return nodeagent.Artifact{}, err
 		}
-		result = nodeagent.Artifact{Path: absolute, Arch: arch, SourceRevision: revision, ExpectedSHA256: entry.SHA256}
+		switch entry.File {
+		case "caelis-agent-linux-" + arch:
+			if result.Path != "" {
+				return nodeagent.Artifact{}, errors.New("duplicate packaged node agent")
+			}
+			result.Path, result.ExpectedSHA256 = absolute, entry.SHA256
+		case "caelis-node-linux-" + arch:
+			if result.HostPath != "" {
+				return nodeagent.Artifact{}, errors.New("duplicate packaged node host")
+			}
+			result.HostPath, result.HostExpectedSHA256 = absolute, entry.SHA256
+		default:
+			return nodeagent.Artifact{}, errors.New("packaged node agent manifest incompatible")
+		}
 	}
-	if result.Path == "" {
+	if result.Path == "" || result.HostPath == "" {
 		return nodeagent.Artifact{}, errors.New("packaged node agent architecture unavailable")
 	}
 	if err := nodeagent.VerifyArtifact(result); err != nil {

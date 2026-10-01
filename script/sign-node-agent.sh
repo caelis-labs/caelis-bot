@@ -15,7 +15,7 @@ if [[ "$BOT_AGENT_IDENTITY" != - ]]; then
     BOT_AGENT_SIGN_ARGS+=(--timestamp --keychain "${BOT_SIGN_KEYCHAIN:?}")
   fi
 fi
-for BOT_AGENT_NATIVE in "$BOT_AGENT_DIRECTORY"/caelis-agent-darwin-*; do
+for BOT_AGENT_NATIVE in "$BOT_AGENT_DIRECTORY"/caelis-agent-darwin-* "$BOT_AGENT_DIRECTORY"/caelis-node-darwin-*; do
   [[ -f "$BOT_AGENT_NATIVE" ]] || { echo 'Native node helper missing.' >&2; exit 1; }
   codesign "${BOT_AGENT_SIGN_ARGS[@]}" "$BOT_AGENT_NATIVE"
   codesign --verify --strict "$BOT_AGENT_NATIVE"
@@ -27,8 +27,8 @@ import {join} from 'node:path';
 const directory=process.argv[2], file=join(directory,'manifest.json');
 const manifest=JSON.parse(readFileSync(file,'utf8'));
 manifest.artifacts=manifest.artifacts.filter(a=>a.os!=='darwin');
-for(const name of readdirSync(directory).filter(n=>/^caelis-agent-darwin-(amd64|arm64)$/.test(n))) {
- manifest.artifacts.push({os:'darwin',arch:name.slice('caelis-agent-darwin-'.length),file:name,sha256:createHash('sha256').update(readFileSync(join(directory,name))).digest('hex')});
+for(const name of readdirSync(directory).filter(n=>/^caelis-(agent|node)-darwin-(amd64|arm64)$/.test(n))) {
+ manifest.artifacts.push({os:'darwin',arch:name.split('-').at(-1),file:name,sha256:createHash('sha256').update(readFileSync(join(directory,name))).digest('hex')});
 }
 writeFileSync(file,JSON.stringify(manifest)+'\n');
 NODE
