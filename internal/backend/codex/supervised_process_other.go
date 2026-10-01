@@ -4,7 +4,6 @@ package codex
 
 import (
 	"context"
-	"errors"
 	"os"
 	"time"
 )
@@ -25,16 +24,16 @@ type SupervisedProcessOptions struct {
 type SupervisedProcess struct{}
 
 func StartSupervisedProcess(context.Context, SupervisedProcessOptions) (*SupervisedProcess, error) {
-	return nil, errors.New("independent owned runtime supervision unavailable on this platform")
+	return nil, ErrOwnedRuntimeUnsupported
 }
 func (*SupervisedProcess) PID() int   { return 0 }
 func (*SupervisedProcess) Live() bool { return false }
 func (*SupervisedProcess) Renew(context.Context, string, time.Duration) error {
-	return errors.New("independent owned runtime supervision unavailable on this platform")
+	return ErrOwnedRuntimeUnsupported
 }
 func (*SupervisedProcess) Stop(context.Context) error {
-	return errors.New("independent owned runtime supervision unavailable on this platform")
+	return ErrOwnedRuntimeUnsupported
 }
 func RunSupervisedRuntime(context.Context, *os.File) error {
-	return errors.New("independent owned runtime supervision unavailable on this platform")
+	return ErrOwnedRuntimeUnsupported
 }
