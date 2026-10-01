@@ -327,6 +327,9 @@ var _ api.RecordedWorkMessage = (*Client)(nil)
 
 // LeaseAwareAdmission reports the paired target owner’s negotiated native fence.
 func (c *Client) LeaseAwareAdmission() bool {
+	if !c.Ready() {
+		return false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.state.LeaseAware
