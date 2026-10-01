@@ -59,7 +59,7 @@ func assertLocalReceiptSource(t *testing.T, s *Session, task, request string, so
 		t.Fatal(loaded.loadErr)
 	}
 	r := loaded.binding.Tasks[task].Requests[request]
-	if r.Source == nil || *r.Source != source || len(r.RequestDigest) != 64 || r.Outcome != "unknown" {
+	if r.Source == nil || *r.Source != source || len(r.RequestDigest) != 64 || (r.Outcome != "unknown" && r.Outcome != "accepted") {
 		t.Fatal("native original receipt lost attestation", r)
 	}
 }
@@ -90,6 +90,11 @@ func TestRoutedLocalLegacyReceiptsAreNotBackfilledOnReconciliation(t *testing.T)
 	if _, err := routed.SendTask(testContext(t), msg); err != nil {
 		t.Fatal(err)
 	}
+	// The uncertain RPC already reached the native worker. Read the original
+	// user-message receipt so reconciliation is intentional, not scheduler timing.
+	if _, err := s.ReadWork(testContext(t), v.ID); err != nil {
+		t.Fatal(err)
+	}
 	loaded := NewSession(s.opts)
 	defer loaded.cancelLife()
 	if loaded.loadErr != nil {
@@ -97,8 +102,11 @@ func TestRoutedLocalLegacyReceiptsAreNotBackfilledOnReconciliation(t *testing.T)
 	}
 	for request, original := range map[string]taskReceipt{"legacy-local-start": originalStart, msg.RequestID: originalMessage} {
 		r := loaded.binding.Tasks[v.ID].Requests[request]
-		if r.Source != nil || r != original {
+		if r.Source != nil || r.RequestDigest != original.RequestDigest || r.Fingerprint != original.Fingerprint || r.PriorStatus != original.PriorStatus || r.PriorRun != original.PriorRun {
 			t.Fatal("legacy receipt acquired fabricated provenance", r)
+		}
+		if r.Outcome != "accepted" {
+			t.Fatal("original native receipt was not reconciled", r)
 		}
 	}
 	f.mu.Lock()
