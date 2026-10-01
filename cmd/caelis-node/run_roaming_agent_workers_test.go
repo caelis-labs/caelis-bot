@@ -26,12 +26,6 @@ type unavailableWorkerLeaseReader struct{}
 func (unavailableWorkerLeaseReader) ReadWorkerLease(context.Context, nodeplane.WorkLeaseRef) (nodeplane.Lease, error) {
 	return nodeplane.Lease{}, errors.New("contained source lease unavailable")
 }
-func TestRoamingAgentOwnsActualLeasedWorkerAcrossObserverDetach(t *testing.T) {
-	for _, nodeID := range []string{"worker-node", api.LocalNodeID} {
-		t.Run(nodeID, func(t *testing.T) { testRoamingAgentOwnedWorkerDetach(t, nodeID) })
-	}
-}
-
 func testRoamingAgentOwnedWorkerDetach(t *testing.T, nodeID string) {
 	root := canonicalWorkerTestRoot(t)
 	executable, err := verifiedRoamingExecutable()

@@ -3,14 +3,14 @@ package codex
 import (
 	"context"
 	"errors"
-	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
-	"github.com/caelis-labs/caelis-bot/internal/roaming"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/roaming"
 )
 
 func TestManagedSessionForcesOwnedProcessWhileDefaultDiscoveryIsUnchanged(t *testing.T) {
@@ -25,7 +25,13 @@ func TestManagedSessionForcesOwnedProcessWhileDefaultDiscoveryIsUnchanged(t *tes
 			}
 			return nil, errors.New("owned fixture startup denied")
 		}
-		_ = s.Connect(t.Context())
+		err := s.Connect(t.Context())
+		if managed && !OwnedRuntimeSupported() {
+			if called || !errors.Is(err, ErrOwnedRuntimeUnsupported) {
+				t.Fatal("unsupported managed ownership reached native process admission", called, err)
+			}
+			continue
+		}
 		if !called {
 			t.Fatal("did not reach native process admission")
 		}

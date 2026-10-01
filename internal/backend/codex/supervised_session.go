@@ -11,6 +11,9 @@ import (
 )
 
 func (s *Session) startSupervised(ctx context.Context, opts Options) (*Client, error) {
+	if !OwnedRuntimeSupported() {
+		return nil, ErrOwnedRuntimeUnsupported
+	}
 	s.mu.Lock()
 	helper, epoch, deadline := s.opts.WatchdogHelper, s.ownedEpoch, s.ownedDeadline
 	s.mu.Unlock()

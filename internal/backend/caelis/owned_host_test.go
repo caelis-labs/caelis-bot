@@ -1,4 +1,4 @@
-//go:build darwin || linux
+//go:build (darwin && cgo) || linux
 
 package caelis
 
@@ -6,10 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
-	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
-	"github.com/caelis-labs/caelis-bot/internal/roaming"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +17,11 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
+	"github.com/caelis-labs/caelis-bot/internal/roaming"
 )
 
 func TestOwnedCaelisWatchdogHelper(t *testing.T) {

@@ -107,6 +107,9 @@ type SupervisedProcess struct {
 }
 
 func StartSupervisedProcess(ctx context.Context, o SupervisedProcessOptions) (*SupervisedProcess, error) {
+	if !OwnedRuntimeSupported() {
+		return nil, ErrOwnedRuntimeUnsupported
+	}
 	if !filepath.IsAbs(o.HelperPath) || !filepath.IsAbs(o.Binary) || !filepath.IsAbs(o.Directory) {
 		return nil, errors.New("owned watchdog requires explicit native executable paths")
 	}
@@ -263,6 +266,9 @@ func (p *SupervisedProcess) Stop(ctx context.Context) error {
 // fences the native process even when the application owner is forcibly killed.
 // No PIDs, shell body, network listeners or auth/account operations are accepted.
 func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
+	if !OwnedRuntimeSupported() {
+		return ErrOwnedRuntimeUnsupported
+	}
 	return RunSupervisedRuntimeWithPower(ctx, control, leasepower.Bind)
 }
 
