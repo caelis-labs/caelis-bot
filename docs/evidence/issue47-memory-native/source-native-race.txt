@@ -1,0 +1,4 @@
+=== RUN   TestNativeStoppedMemoryHeadless
+--- PASS: TestNativeStoppedMemoryHeadless (0.91s)
+PASS
+ok  	github.com/caelis-labs/caelis-bot/internal/productrpc	2.234s

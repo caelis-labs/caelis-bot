@@ -53,6 +53,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	profile := f.String("profile", "", "explicit isolated application profile")
 	listen := f.String("listen", "127.0.0.1:0", "literal loopback listener")
 	auth := f.String("auth-file", "", "private application-local product token file (not Runtime credentials)")
+	var selected selectedWorkers
+	f.Var(&selected, "connect-worker", "explicit configured NODE/BACKEND Worker; repeat for each target")
 	runtimeDirectory := f.String("runtime-directory", "", "optional target-local managed Runtime directory inside user HOME; no automatic installation")
 	if err := f.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -71,6 +73,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	host, _, err := net.SplitHostPort(*listen)
 	if err != nil || net.ParseIP(host) == nil {
 		return errors.New("literal loopback listener required")
+	}
+	if err = app.ValidateConfiguredWorkerTargets(*profile, selected); err != nil {
+		return err
 	}
 	token, err := readProductToken(*auth)
 	if err != nil {
@@ -113,79 +118,79 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer application.Close()
-	if err = application.PreparePersonal(); err != nil {
-		return err
-	}
-	nodeID, botID, err := profileIdentity(*profile)
-	if err != nil {
-		return err
-	}
-	port := productrpc.ServicePort{Service: application.Backend, Stop: func(context.Context) error { return application.Close() }}
-	files.Artifacts = func(ctx context.Context, id string) (productrpc.Resource, io.ReadCloser, error) {
-		artifact, err := application.Backend.ReadProductArtifact(ctx, id)
+	return runResidentOwner(ctx, application, application.Backend, selected, func() (func() error, error) {
+		nodeID, botID, err := profileIdentity(*profile)
 		if err != nil {
-			return productrpc.Resource{}, nil, err
+			return nil, err
 		}
-		return productrpc.Resource{ID: id, Name: artifact.Name, Size: artifact.Size, SHA256: artifact.SHA256}, io.NopCloser(bytes.NewReader(artifact.Bytes)), nil
-	}
-	var management func(productmanagement.Scope) (productmanagement.Port, error)
-	if *runtimeDirectory != "" {
-		if !filepath.IsAbs(*runtimeDirectory) {
-			return errors.New("managed Runtime directory must be absolute")
-		}
-		management = func(scope productmanagement.Scope) (productmanagement.Port, error) {
-			var configuration productmanagement.Configuration
-			if application.Backend.RuntimeSettings().Runtime == "caelis" {
-				configuration = application.Backend
+		port := productrpc.ServicePort{Service: application.Backend, Stop: func(context.Context) error { return application.Close() }}
+		files.Artifacts = func(ctx context.Context, id string) (productrpc.Resource, io.ReadCloser, error) {
+			artifact, err := application.Backend.ReadProductArtifact(ctx, id)
+			if err != nil {
+				return productrpc.Resource{}, nil, err
 			}
-			return productmanagement.New(scope, *runtimeDirectory, configuration)
+			return productrpc.Resource{ID: id, Name: artifact.Name, Size: artifact.Size, SHA256: artifact.SHA256}, io.NopCloser(bytes.NewReader(artifact.Bytes)), nil
 		}
-	}
-	var execution func(productmanagement.Scope) (productmanagement.ExecutionPort, error)
-	if application.Backend.ModelSettingsAvailable() {
-		execution = func(scope productmanagement.Scope) (productmanagement.ExecutionPort, error) {
-			return productmanagement.NewExecution(scope, application.Backend)
+		var management func(productmanagement.Scope) (productmanagement.Port, error)
+		if *runtimeDirectory != "" {
+			if !filepath.IsAbs(*runtimeDirectory) {
+				return nil, errors.New("managed Runtime directory must be absolute")
+			}
+			management = func(scope productmanagement.Scope) (productmanagement.Port, error) {
+				var configuration productmanagement.Configuration
+				if application.Backend.RuntimeSettings().Runtime == "caelis" {
+					configuration = application.Backend
+				}
+				return productmanagement.New(scope, *runtimeDirectory, configuration)
+			}
 		}
-	}
-	stopped := make(chan productrpc.Result, 1)
-	s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}, Management: management, Execution: execution, OnStopped: func(r productrpc.Result) { stopped <- r }})
-	if err != nil {
-		return err
-	}
-	server.Store(s)
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return err
-	}
-	defer l.Close()
-	if err = application.Start(); err != nil {
-		return err
-	}
-	// Pairing metadata contains no credential/native session binding. The token
-	// stays in its target-local file; SSH authentication/forwarding is external.
-	if err = json.NewEncoder(out).Encode(struct {
-		Endpoint string              `json:"endpoint"`
-		Identity productrpc.Identity `json:"identity"`
-	}{"http://" + l.Addr().String(), s.Identity()}); err != nil {
-		return err
-	}
-	done := make(chan error, 1)
-	go func() { done <- s.Serve(l) }()
-	select {
-	case result := <-stopped:
-		_ = l.Close()
-		if result.Outcome != "accepted" {
-			return errors.New("product stop outcome unconfirmed: " + result.Code)
+		var execution func(productmanagement.Scope) (productmanagement.ExecutionPort, error)
+		if application.Backend.ModelSettingsAvailable() {
+			execution = func(scope productmanagement.Scope) (productmanagement.ExecutionPort, error) {
+				return productmanagement.NewExecution(scope, application.Backend)
+			}
 		}
-		return nil
-	case err = <-done:
-		return err
-	case <-ctx.Done():
-		// Signal shutdown is an owner action. Observer EOF never reaches this.
-		_ = l.Close()
-		return application.Close()
-	}
+		stopped := make(chan productrpc.Result, 1)
+		s, err := productrpc.NewServer(port, productrpc.Options{Context: ctx, NodeID: nodeID, BotID: botID, Token: token, JournalFile: filepath.Join(*profile, "Product", "receipts.json"), Resources: files, Capabilities: productrpc.Capabilities{Files: true, Interrupt: port.ExactInterruptAvailable()}, Management: management, Execution: execution, OnStopped: func(r productrpc.Result) { stopped <- r }})
+		if err != nil {
+			return nil, err
+		}
+		server.Store(s)
+		return func() error {
+			l, err := net.ListenTCP("tcp", addr)
+			if err != nil {
+				return err
+			}
+			defer l.Close()
+			if err = ctx.Err(); err != nil {
+				return err
+			}
+			// Pairing metadata contains no credential/native session binding. The token
+			// stays in its target-local file; SSH authentication/forwarding is external.
+			if err = json.NewEncoder(out).Encode(struct {
+				Endpoint string              `json:"endpoint"`
+				Identity productrpc.Identity `json:"identity"`
+			}{"http://" + l.Addr().String(), s.Identity()}); err != nil {
+				return err
+			}
+			done := make(chan error, 1)
+			go func() { done <- s.Serve(l) }()
+			select {
+			case result := <-stopped:
+				_ = l.Close()
+				if result.Outcome != "accepted" {
+					return errors.New("product stop outcome unconfirmed: " + result.Code)
+				}
+				return nil
+			case err = <-done:
+				return err
+			case <-ctx.Done():
+				// Signal shutdown is an owner action. Observer EOF never reaches this.
+				_ = l.Close()
+				return application.Close()
+			}
+		}, nil
+	})
 }
 
 // This resident-only entry point cannot recursively assemble a thin APP. Read

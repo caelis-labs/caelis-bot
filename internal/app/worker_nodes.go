@@ -1,13 +1,10 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -58,38 +55,10 @@ type workerNodeController struct {
 func openWorkerNodes(filename string, registry *nodes.Registry, factory workerNodeFactory) *workerNodeController {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &workerNodeController{path: filename, registry: registry, factory: factory, document: workerNodeDocument{Version: 1}, views: map[api.WorkTarget]backend.WorkerNodeView{}, active: map[api.WorkTarget]workerNodeAdapter{}, runtimes: map[api.WorkTarget]api.WorkRuntime{}, revision: 1, ctx: ctx, cancel: cancel}
-	info, err := os.Lstat(filename)
-	if errors.Is(err, os.ErrNotExist) {
-		return c
-	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 128*1024 {
+	document, err := loadWorkerNodeDocument(filename)
+	if err != nil {
 		c.issue = "config_unreadable"
 		return c
-	}
-	b, err := os.ReadFile(filename)
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	var document workerNodeDocument
-	if err != nil || decoder.Decode(&document) != nil || document.Version != 1 || len(document.Nodes) > 16 {
-		c.issue = "config_unreadable"
-		return c
-	}
-	var extra any
-	if decoder.Decode(&extra) != io.EOF {
-		c.issue = "config_unreadable"
-		return c
-	}
-	seen := map[api.WorkTarget]bool{}
-	machines := map[string]backend.WorkerNodeConfig{}
-	for _, config := range document.Nodes {
-		target := configuredWorkerTarget(config)
-		previous, exists := machines[config.ID]
-		if validateWorkerNode(config) != nil || seen[target] || exists && (previous.SSH != config.SSH || previous.Label != config.Label) {
-			c.issue = "config_unreadable"
-			return c
-		}
-		seen[target] = true
-		machines[config.ID] = config
 	}
 	c.document = document
 	for _, config := range document.Nodes {
