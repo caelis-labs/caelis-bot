@@ -212,7 +212,7 @@ func (p *SupervisedProcess) call(ctx context.Context, f supervisorFrame) (superv
 		return supervisorFrame{}, errors.New("owned watchdog fence unavailable")
 	}
 	if reply.Fault != "" {
-		if f.Method == "stop" && reply.Fault == "native-stop-unconfirmed" {
+		if f.Method == "stop" && reply == (supervisorFrame{ID: f.ID, Fault: "native-stop-unconfirmed"}) {
 			return reply, errWatchdogStopUnconfirmed
 		}
 		return supervisorFrame{}, errors.New("owned watchdog fence unavailable")
