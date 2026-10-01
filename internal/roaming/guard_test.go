@@ -122,6 +122,22 @@ func TestManagedWorkerGrantPreservesNativeSourceAndRequiresTargetCapability(t *t
 	if err = g.CheckWorkRuntime(ctx, remote, leaseWorkerFixture{aware: true}); err != nil {
 		t.Fatal(err)
 	}
+	direct := api.WorkTarget{NodeID: "owned-node", Backend: "codex", Role: api.RoleWorker}
+	if err = g.CheckWorkRuntime(ctx, direct, leaseWorkerFixture{aware: false}); err != nil {
+		t.Fatal("actual direct Worker rejected", err)
+	}
+	for _, node := range []string{"owned-node", api.LocalNodeID, "worker-node"} {
+		cross := api.WorkTarget{NodeID: node, Backend: "caelis", Role: api.RoleWorker}
+		if err = g.CheckWorkRuntime(ctx, cross, leaseWorkerFixture{aware: false}); err == nil {
+			t.Fatal("shared or unleased Caelis Worker admitted", cross)
+		}
+		if err = g.CheckWorkRuntime(ctx, cross, leaseWorkerFixture{aware: true}); err != nil {
+			t.Fatal("leased cross-backend Worker rejected", cross, err)
+		}
+	}
+	if err = g.CheckWorkRuntime(ctx, api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleWorker}, leaseWorkerFixture{aware: false}); err == nil {
+		t.Fatal("explicit Mac used direct exemption")
+	}
 	g.mu.Lock()
 	g.now = func() time.Time { return started.Add(46 * time.Second) }
 	g.mu.Unlock()

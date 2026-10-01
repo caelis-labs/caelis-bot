@@ -61,6 +61,7 @@ type Manager struct {
 	paused               bool // protected by op; updater admission fence
 	path, root, provider string
 	work                 api.WorkRuntime
+	nativeTarget         api.WorkTarget
 	router               api.WorkRouter
 	authorizer           api.WorkSourceProvider
 	reports              api.ReportSubmitter
@@ -118,6 +119,20 @@ func OpenRouted(path, root, provider string, work api.WorkRuntime, reports api.R
 		return nil, errors.New(i18n.Text(i18n.DefaultLocale, "host.taskHostConfigIncomplete", nil))
 	}
 	m := &Manager{now: time.Now, path: path, root: root, provider: provider, work: work, reports: reports, snapshot: snapshot, router: router, authorizer: authorizer, state: state{Version: 1, Records: map[string]*record{}}}
+	m.nativeTarget = localTarget(provider)
+	if router != nil {
+		var err error
+		m.nativeTarget, err = router.ResolveWorkTarget(nil)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateWorkerTarget(m.nativeTarget); err != nil {
+			return nil, err
+		}
+		if m.nativeTarget.Backend != provider {
+			return nil, errors.New("default Worker does not match resident backend")
+		}
+	}
 	if b, e := os.ReadFile(path); e == nil {
 		if json.Unmarshal(b, &m.state) != nil || m.state.Version != 1 || m.state.Records == nil {
 			return nil, errors.New(m.text("host.taskLedgerUnreadable"))
@@ -141,11 +156,11 @@ func OpenRouted(path, root, provider string, work api.WorkRuntime, reports api.R
 			} else if r.RequestDigest != requestDigest(id, r.Target, r.View.Workspace, r.Fingerprint, r.Source) {
 				return nil, errors.New("task ledger request binding conflicts")
 			}
-			if r.Target != localTarget(r.Provider) {
+			if r.Target != m.directTarget(r.Provider) {
 				if err := r.Source.Validate(); err != nil {
 					return nil, err
 				}
-				if r.Source.NodeID != api.LocalNodeID || r.Source.Backend != r.Provider {
+				if r.Source.NodeID != m.nativeTarget.NodeID || r.Source.Backend != r.Provider {
 					return nil, errors.New("task ledger source binding conflicts")
 				}
 			}
@@ -235,7 +250,7 @@ func (m *Manager) refresh() error {
 		if r == nil {
 			// Only the original local adapter can import pre-coordinator records.
 			// Other ports may project only tasks already bound by this ledger.
-			if v.Target != localTarget(m.provider) {
+			if v.Target != m.nativeTarget {
 				continue
 			}
 			r = &record{Provider: m.provider, Target: v.Target, Fingerprint: v.StartFingerprint, View: v.Task, Execution: v.ExecutionKey, ReportID: v.PreviousReportID, ReportState: v.PreviousReportState}
@@ -337,7 +352,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	if e := m.refresh(); e != nil {
 		return api.Task{}, e
 	}
-	target := localTarget(m.provider)
+	target := m.nativeTarget
 	if in.Target != nil {
 		target = *in.Target
 	}
@@ -386,7 +401,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	}
 	workspace := filepath.Join(m.root, id)
 	var targetWorkspace api.WorkWorkspaceProvider
-	if target.NodeID != api.LocalNodeID {
+	if target != m.nativeTarget {
 		var ok bool
 		targetWorkspace, ok = work.(api.WorkWorkspaceProvider)
 		if !ok {
@@ -552,7 +567,7 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 			return api.Task{}, err
 		}
 	}
-	if target != localTarget(m.provider) {
+	if target != m.nativeTarget {
 		in.Source, e = m.authorizeWork(ctx, target)
 		if e != nil {
 			return api.Task{}, e

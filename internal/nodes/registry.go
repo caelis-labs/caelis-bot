@@ -35,25 +35,33 @@ type entry struct {
 }
 
 type Registry struct {
-	mu      sync.RWMutex
-	local   api.WorkTarget
-	nodes   map[string]Node
-	entries map[api.WorkTarget]entry
+	mu            sync.RWMutex
+	defaultTarget api.WorkTarget
+	nodes         map[string]Node
+	entries       map[api.WorkTarget]entry
 }
 
 // New retains the direct in-process local Worker as the default. Construction
 // has no network, daemon, enrollment or runtime-discovery prerequisites.
 func New(backend string, local api.WorkRuntime) (*Registry, error) {
+	return NewAt(Node{ID: api.LocalNodeID, Label: "This machine"}, backend, local)
+}
+
+// NewAt binds the direct in-process Worker to its actual native machine identity.
+// The default target identity remains fixed as optional routes are registered.
+func NewAt(node Node, backend string, local api.WorkRuntime) (*Registry, error) {
 	if backend == "" || local == nil {
 		return nil, errors.New("local worker configuration is incomplete")
 	}
-	target := api.WorkTarget{NodeID: api.LocalNodeID, Backend: backend, Role: api.RoleWorker}
-	r := &Registry{local: target, nodes: map[string]Node{}, entries: map[api.WorkTarget]entry{}}
-	if err := r.Set(Node{ID: api.LocalNodeID, Label: "This machine"}, Capability{Target: target, State: Ready}, local); err != nil {
+	target := api.WorkTarget{NodeID: node.ID, Backend: backend, Role: api.RoleWorker}
+	r := &Registry{defaultTarget: target, nodes: map[string]Node{}, entries: map[api.WorkTarget]entry{}}
+	if err := r.Set(node, Capability{Target: target, State: Ready}, local); err != nil {
 		return nil, err
 	}
 	return r, nil
 }
+
+func (r *Registry) DefaultTarget() api.WorkTarget { return r.defaultTarget }
 
 // Set is a trusted assembly operation, after target identity/capability checks.
 // A candidate can be displayed without falsely advertising ready execution.
@@ -79,7 +87,7 @@ func (r *Registry) Set(node Node, capability Capability, runtime api.WorkRuntime
 }
 
 func (r *Registry) ResolveWorkTarget(requested *api.WorkTarget) (api.WorkTarget, error) {
-	target := r.local
+	target := r.defaultTarget
 	if requested != nil {
 		target = *requested
 	}
