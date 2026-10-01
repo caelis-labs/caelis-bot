@@ -22,3 +22,9 @@ func BeginExecution(ctx context.Context, port ExecutionAdmission) (context.Conte
 type WorkTargetAdmission interface {
 	CheckWorkTarget(context.Context, WorkTarget) error
 }
+
+// WorkRuntimeAdmission checks the actual resolved native adapter capability.
+// Catalog labels and renderer-supplied target metadata cannot enable it.
+type WorkRuntimeAdmission interface {
+	CheckWorkRuntime(context.Context, WorkTarget, WorkRuntime) error
+}
