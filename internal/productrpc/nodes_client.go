@@ -27,3 +27,10 @@ func (c *Client) SyncNotebook(ctx context.Context, id, node string) (Result, err
 func (c *Client) SwitchNotebookNode(ctx context.Context, id, node string) (Result, error) {
 	return c.ManageNodes(ctx, id, NodeCommand{Action: "switch-notebook-node", NodeID: node})
 }
+
+func (c *Client) UpdateNodeHelper(ctx context.Context, id string, in api.NodeHelperUpdateRequest) (Result, error) {
+	return c.ManageNodes(ctx, id, NodeCommand{Action: "update-node-helper", HelperUpdate: &in})
+}
+func (c *Client) SaveNodeRuntimeSettings(ctx context.Context, id string, in api.NodeRuntimeSettingsRequest) (Result, error) {
+	return c.ManageNodes(ctx, id, NodeCommand{Action: "save-node-runtime-settings", RuntimeSettings: &in})
+}

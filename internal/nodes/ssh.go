@@ -23,6 +23,7 @@ type SSHConfig struct {
 	Protocol                             caelis.WorkerProtocol
 	Target, Helper, Store, WorkspaceRoot string
 	Binary                               string
+	HelperArgs                           []string
 }
 type SSHWorker struct {
 	config   SSHConfig
@@ -65,7 +66,11 @@ func (s *SSHWorker) helper(ctx context.Context, req caelis.WorkerBootstrapReques
 	if err != nil {
 		return result, err
 	}
-	args := append(s.args(), "--", s.config.Target, sshQuote(s.config.Helper))
+	command := sshQuote(s.config.Helper)
+	for _, arg := range s.config.HelperArgs {
+		command += " " + sshQuote(arg)
+	}
+	args := append(s.args(), "--", s.config.Target, command)
 	cmd := exec.CommandContext(ctx, s.config.Binary, args...)
 	cmd.Stdin = bytes.NewReader(body)
 	// Bound stdout; never return stderr or command text (may contain private

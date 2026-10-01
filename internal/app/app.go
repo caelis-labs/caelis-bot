@@ -471,8 +471,11 @@ func (a *Application) Start() (startErr error) {
 				return
 			}
 			revision = snapshot.Revision
-			if a.notebookReturn != nil {
-				if err := a.notebookReturn.observeReturn(ctx, snapshot); err != nil && a.host.ReportError != nil {
+			a.mu.Lock()
+			returning := a.notebookReturn
+			a.mu.Unlock()
+			if returning != nil {
+				if err := returning.observeReturn(ctx, snapshot); err != nil && a.host.ReportError != nil {
 					a.host.ReportError(err)
 				}
 			}

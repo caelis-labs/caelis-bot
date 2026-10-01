@@ -341,5 +341,7 @@
   "nodeAddAuthentication": "SSH access was denied. Check your existing SSH authorization, then try again.",
   "nodeAddHostKey": "The SSH host key could not be verified. Check the destination and its trusted host key, then try again.",
   "nodeAddLimit": "No node was added because the enrollment history limit was reached. Existing operation receipts must be retained.",
-  "nodeAddReceiptUnavailable": "No node was added because its setup could not be safely recorded. Check the app’s private data location before trying again."
+  "nodeAddReceiptUnavailable": "No node was added because its setup could not be safely recorded. Check the app’s private data location before trying again.",
+  "nodeSupport": "Node support",
+  "nodeSupportUpdate": "Update node support"
 }

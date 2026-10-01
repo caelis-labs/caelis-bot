@@ -199,6 +199,8 @@ The remaining payloads map to the existing Service methods:
 | `action` | Sole payload | Existing method |
 | --- | --- | --- |
 | `detect-node` | `nodeId` | `DetectNode` |
+| `update-node-helper` | `helperUpdate: {nodeId, expectedRevision}` | `UpdateNodeHelper` |
+| `save-node-runtime-settings` | `runtimeSettings: {guard, settings: {runtime, cliPath, caelisStore}}` | `SaveNodeRuntimeSettings` |
 | `configure-node` | `configuration` (existing guard/ref and semantic change or installation) | `ChangeNodeConfiguration` |
 | `save-worker-node` | `worker: {nodeId, backend, revision}` | `SaveWorkerNode` |
 | `probe-worker-target` / `connect-worker-target` / `disconnect-worker-target` | same `worker` payload | Exact Worker target methods |
@@ -238,3 +240,39 @@ paths and artifact digests; it opens no profile, Runtime, credential or SSH chan
 APP executables resolve `Contents/Resources/NodeAgent`; standalone helpers resolve
 only their adjacent manifest. Build revision injection and all manifest/source/
 checksum/architecture checks apply to standalone host helpers as to APP.
+
+Ordinary APP and `NewOwnedResident` now assemble registered Worker lookup from
+that owner's retained SSH enrollment. Codex Connect explicitly starts or reuses
+the existing complete `serve-worker` Runtime on the target; no `serve-agent`
+WorkerProxy, snapshot or generation is required. Closing its SSH observer leaves
+that target owner and original tasks intact. An unconfirmed original start is
+retained and refused rather than silently starting another owner. Caelis reuses
+its existing bounded application Worker transport against the target's prepared,
+running native Host and designated Store. Direct local Worker remains the default.
+
+Before using new commands against an older enrolled helper, use Settings → AI &
+connections → the node → Programs → **Update node support**, or the authenticated
+`update-node-helper` command with a freshly read catalog revision. This publishes
+the reviewed packaged agent/host pair into the original native enrollment and
+returns `helperSourceRevision`. It closes only the retained management observer;
+it does not restart an existing Runtime or claim that a running owner changed
+source version. Original Node ID and enrollment/configuration receipts remain.
+Enrollment recovery never performs this update implicitly.
+
+Machine Runtime designation is a nonsecret native setting. Detection,
+configuration, ordinary Worker startup and Notebook standby preparation consume
+the same saved CLI path; otherwise standard CLI discovery includes `~/.local/bin`.
+For an explicitly selected path, read `configuration` for the exact node/backend
+and send `save-node-runtime-settings` with its unchanged opaque `guard`, the exact
+`runtime`, absolute `cliPath`, and empty `caelisStore` for Codex (an absolute target
+Store for Caelis). The executable's native version must pass before saving; an
+invalid designation preserves the prior value. This does not provision login,
+copy credentials, or change the user's global Runtime settings. Existing running
+owners retain their initial Runtime designation until their normal stop/start.
+
+Completed local return clears the pending return validator under the APP lock,
+so the next normal backup settings save can prepare the personal profile without
+re-entering the old return lock. Stop proof, final copy and fresh-start admission
+remain unchanged. Remote TaskDock terminals remain unsupported. Periodic backup
+and remote-source return after a switch require the ordinary desktop thin APP;
+`serve-bot` does not accept a profile paired to a remote source.

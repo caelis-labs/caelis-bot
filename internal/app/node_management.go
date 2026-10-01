@@ -385,3 +385,22 @@ func (m *nodeManagement) Close() error {
 	}
 	return nil
 }
+
+func (m *nodeManagement) SaveNodeRuntimeSettings(ctx context.Context, r api.NodeRuntimeSettingsRequest) (api.RuntimeCheck, error) {
+	port, ok := m.agent.(interface {
+		SaveNodeRuntimeSettings(context.Context, api.NodeRuntimeSettingsRequest) (api.RuntimeCheck, error)
+	})
+	if !ok {
+		return api.RuntimeCheck{}, errors.New("machine Runtime settings unavailable")
+	}
+	return port.SaveNodeRuntimeSettings(ctx, r)
+}
+func (m *nodeManagement) UpdateNodeHelper(ctx context.Context, r api.NodeHelperUpdateRequest) (api.NodeHelperUpdateResult, error) {
+	port, ok := m.setup.(interface {
+		UpdateNodeHelper(context.Context, api.NodeHelperUpdateRequest) (api.NodeHelperUpdateResult, error)
+	})
+	if !ok {
+		return api.NodeHelperUpdateResult{}, errors.New("node helper update unavailable")
+	}
+	return port.UpdateNodeHelper(ctx, r)
+}

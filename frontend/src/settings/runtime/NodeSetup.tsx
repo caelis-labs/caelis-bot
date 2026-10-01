@@ -71,6 +71,10 @@ export function NodePrograms({node,backendID,owner,call=backend,onChanged,refres
   if(pending.current)return;pending.current=true;setBusy(true);setError('');
   try{await call<NodeInfo>('DetectNode',node.id);onChanged();}catch{setError('settings.nodeCatalogFailed');}finally{pending.current=false;setBusy(false);}
  };
+ const updateSupport=async()=>{
+  if(pending.current)return;pending.current=true;setBusy(true);setError('');
+  try{const latest=await call<NodeCatalog>('NodeCatalog');await call('UpdateNodeHelper',{nodeId:node.id,expectedRevision:latest.revision});onChanged();}catch{setError('settings.nodeProgramFailed');}finally{pending.current=false;setBusy(false);}
+ };
  const apply=async()=>{
   if(pending.current||owner.pending(node.id,backendID)||!installer||!versions.includes(version))return;pending.current=true;setBusy(true);setError('');
   try{
@@ -85,6 +89,7 @@ export function NodePrograms({node,backendID,owner,call=backend,onChanged,refres
  };
  return <details className="settings-disclosure"><summary ref={programSummary}>{t('settings.productTargetPrograms')}</summary>
   <SettingRow label={t('settings.nodeDetectedProgram')}><span>{status.version||t(status.health==='missing'?'runtime.notInstalled':'runtime.unknownVersion')}</span><button disabled={busy} onClick={()=>void detect()}>{t('runtime.recheck')}</button></SettingRow>
+  {node.join==='ssh'&&<SettingRow label={t('settings.nodeSupport')}><button disabled={busy} onClick={()=>void updateSupport()}>{t('settings.nodeSupportUpdate')}</button></SettingRow>}
   <SettingRow label={t('settings.nodeManagedProgram')}><span>{managed?managed.installed?managed.version:t('runtime.notInstalled'):t('settings.nodeStateUnknown')}</span></SettingRow>
   {managed&&!managed.installed&&!!status.version&&<p className="settings-note">{t('settings.nodeManagedCopyHelp')}</p>}
   <p className="settings-note">{t(installer?'settings.nodeReviewedVersionHelp':'settings.nodeRemotePreparation')}</p>

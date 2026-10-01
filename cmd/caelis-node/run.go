@@ -16,6 +16,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/productmanagement"
@@ -25,6 +26,10 @@ import (
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "connect-enrolled-worker":
+			return connectEnrolledWorker(ctx, args[1:], os.Stdin, out)
+		case "worker-bootstrap":
+			return caelis.RunWorkerBootstrap(ctx, os.Stdin, out)
 		case "inspect-node-artifacts":
 			return inspectNodeArtifacts(args[1:], out)
 		case "notebook-owner":

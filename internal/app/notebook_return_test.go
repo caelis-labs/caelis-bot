@@ -146,6 +146,24 @@ func TestNotebookReturnPreservesOldProfileAndWaitsForOrdinaryRuntimeReady(t *tes
 	if err := pending.observeReturn(t.Context(), api.Snapshot{Connection: "ready"}); err != nil {
 		t.Fatal(err)
 	}
+	if reopened.notebookReturn != nil {
+		t.Fatal("completed return kept startup validator")
+	}
+	// The actual save path holds c.mu and enters PreparePersonal/startup guard.
+	// A contained stopped APP makes preparation return before opening native stores.
+	reopened.mu.Lock()
+	reopened.closed = true
+	reopened.mu.Unlock()
+	completedSave := make(chan struct{})
+	go func() {
+		_, _ = pending.SaveSettings(context.Background(), backend.NotebookSyncSettings{Enabled: true, IntervalMinutes: 5, Targets: []backend.NotebookBackupTarget{{NodeID: "remote", Backend: api.NodeCaelis}}})
+		close(completedSave)
+	}()
+	select {
+	case <-completedSave:
+	case <-time.After(2 * time.Second):
+		t.Fatal("save after completed return deadlocked")
+	}
 	t.Cleanup(func() { reopened.closeNotebookSync(); reopened.workers.Wait() })
 	prefs := pending.Settings()
 	if prefs.SourceNodeID != "local" || prefs.SourceBackend != api.NodeCodex || len(prefs.Targets) != 1 || prefs.Targets[0].NodeID != "remote" || prefs.Targets[0].Backend != api.NodeCaelis {

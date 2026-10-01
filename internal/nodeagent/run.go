@@ -87,8 +87,9 @@ func Run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if err != nil {
 			return err
 		}
-		if manager, ok := service.installation.(interface{ BinaryPath(string) (string, error) }); ok {
-			codexConfig.BinaryPath = func() (string, error) { return manager.BinaryPath("codex") }
+		codexConfig.BinaryPath = func() (string, error) {
+			value, err := service.readOwnedRuntimeSettings(context.Background(), service.options.NodeID, api.NodeCodex)
+			return value.Binary, err
 		}
 		if *managedConfig != "" {
 			if *stdio {

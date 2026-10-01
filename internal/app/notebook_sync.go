@@ -186,8 +186,11 @@ func (a *Application) closeNotebookSync() {
 }
 
 func (a *Application) notebookSyncStartupGuard() error {
-	if a.notebookReturn != nil {
-		return a.notebookReturn.validateReturn(context.Background())
+	a.mu.Lock()
+	returning := a.notebookReturn
+	a.mu.Unlock()
+	if returning != nil {
+		return returning.validateReturn(context.Background())
 	}
 	a.mu.Lock()
 	c := a.notebookSync

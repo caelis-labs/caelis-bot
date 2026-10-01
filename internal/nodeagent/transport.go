@@ -21,7 +21,7 @@ import (
 )
 
 func allowed(method, path string) bool {
-	return method == "POST" && allowedNodeConnection(path) || method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/managed-product" || path == "/v1/node/managed-disable" || path == "/v1/node/managed-status" || path == "/v1/node/managed-start" || path == "/v1/node/managed-product-proxy" || path == "/v1/node/managed-disable-receipt" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/roaming-deployment" || path == "/v1/node/check-owned-readiness" || path == "/v1/node/owned-readiness-receipt")
+	return method == "POST" && allowedNodeConnection(path) || method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/managed-product" || path == "/v1/node/managed-disable" || path == "/v1/node/managed-status" || path == "/v1/node/managed-start" || path == "/v1/node/managed-product-proxy" || path == "/v1/node/managed-disable-receipt" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/roaming-deployment" || path == "/v1/node/check-owned-readiness" || path == "/v1/node/owned-readiness-receipt")
 }
 func strictDecode(r io.Reader, v any) error {
 	d := json.NewDecoder(io.LimitReader(r, productrpc.MaxCommandBytes+1))
@@ -97,6 +97,16 @@ func Handler(agent nodeplane.CatalogAgent) http.Handler {
 				return
 			}
 			value, err = port.ProbeOwnedRuntime(r.Context(), input.NodeID, input.Backend)
+		case "/v1/node/runtime-settings":
+			var input api.NodeRuntimeSettingsRequest
+			port, ok := agent.(interface {
+				SaveOwnedRuntimeSettings(context.Context, api.NodeRuntimeSettingsRequest) (api.RuntimeCheck, error)
+			})
+			if !ok || strictDecode(r.Body, &input) != nil {
+				http.Error(w, "machine Runtime settings unavailable", 400)
+				return
+			}
+			value, err = port.SaveOwnedRuntimeSettings(r.Context(), input)
 		case "/v1/node/owned-runtime-settings":
 			var input ownedRuntimeSettingsRequest
 			if strictDecode(r.Body, &input) != nil {

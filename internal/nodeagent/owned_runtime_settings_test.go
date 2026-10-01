@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -76,6 +77,7 @@ func (i *ownedSettingsInstaller) BinaryPath(string) (string, error) { i.reads++;
 
 func TestOwnedRuntimeSettingsInstalledExecutableAndMissingAreHonest(t *testing.T) {
 	s := agentFixture(t)
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	installed := ownedSettingsBinary(t, s.options.Directory, "installed-caelis")
 	explicit := ownedSettingsBinary(t, s.options.Directory, "explicit-caelis")
@@ -103,6 +105,71 @@ func TestOwnedRuntimeSettingsInstalledExecutableAndMissingAreHonest(t *testing.T
 	s.options.Binaries[api.NodeCaelis] = explicit
 	if _, err := s.ReadOwnedRuntimeSettings(t.Context(), s.options.NodeID, api.NodeCaelis); err == nil {
 		t.Fatal("non-executable file became a runtime")
+	}
+}
+
+func TestMachineRuntimeSettingsUseLocalBinAndPersistDesignation(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("Python setup fixture unavailable")
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, ".local", "bin")
+	if err = os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile("testdata/codex_setup_fixture.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture = bytes.Replace(fixture, []byte("#!/usr/bin/env python3"), []byte("#!"+python), 1)
+	standard := filepath.Join(dir, "codex")
+	if err = os.WriteFile(standard, fixture, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, "empty-codex-home"))
+	t.Setenv("CODEX_BIN", "")
+	t.Setenv("PATH", t.TempDir())
+	s := agentFixture(t)
+	s.options.Binaries = map[api.NodeBackend]string{}
+	s.options.Configurations[api.NodeCodex] = &CodexConfiguration{Directory: s.options.Directory}
+	value, err := s.ReadOwnedRuntimeSettings(t.Context(), s.options.NodeID, api.NodeCodex)
+	if err != nil || value.Binary != standard {
+		t.Fatal("noninteractive local-bin discovery", value, err)
+	}
+	configuration, err := s.Configuration(t.Context(), s.options.NodeID, api.NodeCodex)
+	if err != nil || !configuration.Executable.Installed {
+		t.Fatal("native detection disagrees with resolved Runtime", err)
+	}
+	designated := filepath.Join(home, "designated-codex")
+	if err = os.WriteFile(designated, fixture, 0700); err != nil {
+		t.Fatal(err)
+	}
+	request := api.NodeRuntimeSettingsRequest{Guard: configuration.Guard, Settings: api.RuntimeSettings{Runtime: "codex", CLIPath: designated}}
+	if result, err := s.SaveOwnedRuntimeSettings(t.Context(), request); err != nil || !result.Saved {
+		t.Fatal("native designation save", result, err)
+	}
+	restarted, err := New(Options{Directory: s.options.Directory, NodeID: s.options.NodeID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err = restarted.ReadOwnedRuntimeSettings(t.Context(), s.options.NodeID, api.NodeCodex)
+	if err != nil || value.Binary != designated {
+		t.Fatal("restart lost designated machine CLI", value, err)
+	}
+	configuration, err = restarted.Configuration(t.Context(), s.options.NodeID, api.NodeCodex)
+	if err != nil || !configuration.Executable.Installed {
+		t.Fatal("restart detection lost designation", err)
+	}
+	request.Guard = configuration.Guard
+	request.Settings.CLIPath = filepath.Join(home, "missing")
+	if _, err = restarted.SaveOwnedRuntimeSettings(t.Context(), request); err == nil {
+		t.Fatal("missing designation was saved")
+	}
+	value, err = restarted.ReadOwnedRuntimeSettings(t.Context(), s.options.NodeID, api.NodeCodex)
+	if err != nil || value.Binary != designated {
+		t.Fatal("failed check replaced designated Runtime", value, err)
 	}
 }
 

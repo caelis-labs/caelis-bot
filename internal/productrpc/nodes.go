@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
@@ -23,12 +24,14 @@ type RegisteredWorkerSelection struct {
 // NodeCommand maps explicit settings actions to the existing Service methods.
 // Its outer Command supplies the inspected Bot scope and durable original ID.
 type NodeCommand struct {
-	Action           string                        `json:"action"`
-	NodeID           string                        `json:"nodeId,omitempty"`
-	Add              *api.NodeAddRequest           `json:"add,omitempty"`
-	Configuration    *api.NodeManagementRequest    `json:"configuration,omitempty"`
-	Worker           *RegisteredWorkerSelection    `json:"worker,omitempty"`
-	NotebookSettings *backend.NotebookSyncSettings `json:"notebookSettings,omitempty"`
+	RuntimeSettings  *api.NodeRuntimeSettingsRequest `json:"runtimeSettings,omitempty"`
+	HelperUpdate     *api.NodeHelperUpdateRequest    `json:"helperUpdate,omitempty"`
+	Action           string                          `json:"action"`
+	NodeID           string                          `json:"nodeId,omitempty"`
+	Add              *api.NodeAddRequest             `json:"add,omitempty"`
+	Configuration    *api.NodeManagementRequest      `json:"configuration,omitempty"`
+	Worker           *RegisteredWorkerSelection      `json:"worker,omitempty"`
+	NotebookSettings *backend.NotebookSyncSettings   `json:"notebookSettings,omitempty"`
 }
 type NodeQuery struct {
 	Scope
@@ -52,6 +55,8 @@ type RegisteredWorkerState struct {
 	Issue    string                 `json:"issue,omitempty"`
 }
 type NodeManagementView struct {
+	RuntimeCheck *api.RuntimeCheck           `json:"runtimeCheck,omitempty"`
+	HelperUpdate *api.NodeHelperUpdateResult `json:"helperUpdate,omitempty"`
 	Scope
 	Catalog          *api.NodeCatalog              `json:"catalog,omitempty"`
 	Node             *api.NodeInfo                 `json:"node,omitempty"`
@@ -66,6 +71,8 @@ type NodeManagementView struct {
 // Optional native port; the composed Service already implements these methods.
 // This is never a Bot tool, nor an alternate lifecycle/enrollment implementation.
 type NodeManagementPort interface {
+	SaveNodeRuntimeSettings(context.Context, api.NodeRuntimeSettingsRequest) (api.RuntimeCheck, error)
+	UpdateNodeHelper(context.Context, api.NodeHelperUpdateRequest) (api.NodeHelperUpdateResult, error)
 	NodeCatalog(context.Context) (api.NodeCatalog, error)
 	NodeRuntimeConfiguration(context.Context, string, api.NodeBackend) (api.NodeRuntimeConfiguration, error)
 	ReconcileNodeOperation(context.Context, api.NodeOperationRef) (api.NodeOperationReceipt, error)
@@ -85,10 +92,13 @@ type NodeManagementPort interface {
 	SwitchNotebookNode(context.Context, string) (notebooksync.State, error)
 }
 
+func cleanNodePath(v string) bool {
+	return len(v) <= 4096 && path.IsAbs(v) && path.Clean(v) == v && publicManagementText(v, 4096)
+}
 func nodeBackend(b api.NodeBackend) bool { return b == api.NodeCodex || b == api.NodeCaelis }
 func validNodeCommand(c NodeCommand, id string) bool {
 	n := 0
-	for _, set := range []bool{c.NodeID != "", c.Add != nil, c.Configuration != nil, c.Worker != nil, c.NotebookSettings != nil} {
+	for _, set := range []bool{c.RuntimeSettings != nil, c.HelperUpdate != nil, c.NodeID != "", c.Add != nil, c.Configuration != nil, c.Worker != nil, c.NotebookSettings != nil} {
 		if set {
 			n++
 		}
@@ -97,6 +107,14 @@ func validNodeCommand(c NodeCommand, id string) bool {
 		return false
 	}
 	switch c.Action {
+	case "update-node-helper":
+		return c.HelperUpdate != nil && identifier.MatchString(c.HelperUpdate.NodeID) && c.HelperUpdate.NodeID != api.LocalNodeID && c.HelperUpdate.ExpectedRevision != "" && publicManagementText(c.HelperUpdate.ExpectedRevision, 256)
+	case "save-node-runtime-settings":
+		if c.RuntimeSettings == nil {
+			return false
+		}
+		v := c.RuntimeSettings
+		return identifier.MatchString(v.Guard.NodeID) && nodeBackend(v.Guard.Backend) && v.Guard.Revision != "" && publicManagementText(v.Guard.Revision, 256) && v.Settings.Runtime == string(v.Guard.Backend) && cleanNodePath(v.Settings.CLIPath) && (v.Guard.Backend == api.NodeCodex && v.Settings.CaelisStore == "" || v.Guard.Backend == api.NodeCaelis && cleanNodePath(v.Settings.CaelisStore))
 	case "add-node":
 		return c.Add != nil && c.Add.OperationID == id && c.Add.Join == api.NodeSSH && publicManagementText(c.Add.Label, 128) && strings.TrimSpace(c.Add.Label) != "" && c.Add.SSHDestination != "" && publicManagementText(c.Add.SSHDestination, 256) && c.Add.ExpectedRevision != "" && publicManagementText(c.Add.ExpectedRevision, 256)
 	case "detect-node", "sync-notebook", "switch-notebook-node":
@@ -282,6 +300,14 @@ func (s *Server) executeNodes(ctx context.Context, c Command) Result {
 	result := Result{ID: c.ID, Outcome: "accepted"}
 	var err error
 	switch in.Action {
+	case "update-node-helper":
+		var x api.NodeHelperUpdateResult
+		x, err = p.UpdateNodeHelper(ctx, *in.HelperUpdate)
+		v.HelperUpdate = &x
+	case "save-node-runtime-settings":
+		var x api.RuntimeCheck
+		x, err = p.SaveNodeRuntimeSettings(ctx, *in.RuntimeSettings)
+		v.RuntimeCheck = &x
 	case "add-node":
 		var x api.NodeAddResult
 		x, err = p.AddNode(ctx, *in.Add)

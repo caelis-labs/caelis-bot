@@ -82,7 +82,9 @@ func attachDefaultNotebookSync(a *Application) error {
 				return errors.New("local return does not match original switch")
 			}
 			c.returning = &receipt
+			a.mu.Lock()
 			a.notebookReturn = c
+			a.mu.Unlock()
 		}
 		if s.Phase == "switched" && s.NodeID == source && a.product != nil {
 			if err := c.activateSource(source); err != nil {

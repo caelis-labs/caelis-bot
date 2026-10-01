@@ -248,3 +248,18 @@ type NodeManagementController interface {
 	NodeJoinInstructions(context.Context, string) (NodeJoinInstructions, error)
 	SetNodeCoordinator(context.Context, NodeCoordinatorSelection) (NodeCatalog, error)
 }
+
+// NodeRuntimeSettingsRequest retains the existing nonsecret machine settings.
+// It cannot supply credentials, a session binding or arbitrary process arguments.
+type NodeRuntimeSettingsRequest struct {
+	Guard    NodeEditGuard   `json:"guard"`
+	Settings RuntimeSettings `json:"settings"`
+}
+type NodeHelperUpdateRequest struct {
+	NodeID           string `json:"nodeId"`
+	ExpectedRevision string `json:"expectedRevision"`
+}
+type NodeHelperUpdateResult struct {
+	NodeID               string `json:"nodeId"`
+	HelperSourceRevision string `json:"helperSourceRevision"`
+}

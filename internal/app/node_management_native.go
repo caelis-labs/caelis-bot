@@ -34,6 +34,7 @@ type NodeRegistration struct {
 	SSHDestination, Directory, HelperPath, SocketPath string
 	BrokerNodeID                                      string
 	HostHelperPath                                    string
+	HelperSourceRevision                              string
 }
 
 type NodeManagementNativeOptions struct {
@@ -178,6 +179,12 @@ func AttachNodeManagement(a *Application, options ...NodeManagementNativeOptions
 		}
 	}
 	a.Backend.SetNodeManagementController(NewNodeManagement(n, n))
+	a.mu.Lock()
+	needsLookup := a.registeredWorkers == nil
+	a.mu.Unlock()
+	if needsLookup {
+		return a.ConfigureRegisteredWorkers(a.lookupEnrolledWorker)
+	}
 	return nil
 }
 

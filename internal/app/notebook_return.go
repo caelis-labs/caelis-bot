@@ -287,6 +287,11 @@ func (c *defaultNotebookSync) observeReturn(ctx context.Context, snapshot api.Sn
 		return err
 	}
 	c.returning = nil
+	c.app.mu.Lock()
+	if c.app.notebookReturn == c {
+		c.app.notebookReturn = nil
+	}
+	c.app.mu.Unlock()
 	c.app.startNotebookSync()
 	return nil
 }

@@ -129,6 +129,32 @@ func New(o Options) (*Service, error) {
 		}
 		copied[k] = v
 	}
+	if o.Configurations == nil {
+		o.Configurations = map[api.NodeBackend]NativeConfiguration{}
+	}
+	if o.OwnedRuntimeSettings == nil {
+		for _, b := range []api.NodeBackend{api.NodeCodex, api.NodeCaelis} {
+			settings, e := loadMachineRuntimeSettings(o.Directory, b)
+			if e != nil && !errors.Is(e, os.ErrNotExist) {
+				return nil, e
+			}
+			if e == nil {
+				copied[b] = settings.CLIPath
+				switch c := o.Configurations[b].(type) {
+				case *CodexConfiguration:
+					c.Binary = settings.CLIPath
+				case *CaelisConfiguration:
+					c.Settings = settings
+				default:
+					if b == api.NodeCaelis {
+						o.Configurations[b] = &CaelisConfiguration{Settings: settings}
+					} else {
+						o.Configurations[b] = &CodexConfiguration{Directory: o.Directory, Binary: settings.CLIPath}
+					}
+				}
+			}
+		}
+	}
 	o.Binaries = copied
 	s := &Service{options: o}
 	if o.RuntimeInstaller != nil {

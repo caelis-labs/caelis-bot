@@ -43,7 +43,10 @@ type nativePrimaryFixture struct {
 // resulting source attestation are real. No static native activation is supplied.
 func openNativePrimaryFixture(t *testing.T, binary, nodeID string) *nativePrimaryFixture {
 	t.Helper()
-	root := t.TempDir()
+	root, canonicalErr := filepath.EvalSymlinks(t.TempDir())
+	if canonicalErr != nil {
+		t.Fatal(canonicalErr)
+	}
 	home := filepath.Join(root, "codex-home")
 	if err := os.Mkdir(home, 0700); err != nil {
 		t.Fatal(err)

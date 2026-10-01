@@ -132,3 +132,30 @@ func (s *Service) SetNodeCoordinator(ctx context.Context, r api.NodeCoordinatorS
 	}
 	return c.SetNodeCoordinator(ctx, r)
 }
+
+func (s *Service) SaveNodeRuntimeSettings(ctx context.Context, r api.NodeRuntimeSettingsRequest) (api.RuntimeCheck, error) {
+	c, err := NativeNodeManagementController(s)
+	if err != nil {
+		return api.RuntimeCheck{}, err
+	}
+	port, ok := c.(interface {
+		SaveNodeRuntimeSettings(context.Context, api.NodeRuntimeSettingsRequest) (api.RuntimeCheck, error)
+	})
+	if !ok {
+		return api.RuntimeCheck{}, errors.New("machine Runtime settings unavailable")
+	}
+	return port.SaveNodeRuntimeSettings(ctx, r)
+}
+func (s *Service) UpdateNodeHelper(ctx context.Context, r api.NodeHelperUpdateRequest) (api.NodeHelperUpdateResult, error) {
+	c, err := NativeNodeManagementController(s)
+	if err != nil {
+		return api.NodeHelperUpdateResult{}, err
+	}
+	port, ok := c.(interface {
+		UpdateNodeHelper(context.Context, api.NodeHelperUpdateRequest) (api.NodeHelperUpdateResult, error)
+	})
+	if !ok {
+		return api.NodeHelperUpdateResult{}, errors.New("node helper update unavailable")
+	}
+	return port.UpdateNodeHelper(ctx, r)
+}
