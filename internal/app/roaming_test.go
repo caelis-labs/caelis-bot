@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 type fenceEngineFixture struct {
@@ -52,5 +54,35 @@ func TestManagedHardFenceIsIdempotentAndConfirmsOnlySuccessfulExit(t *testing.T)
 				}
 			}
 		})
+	}
+}
+
+func TestBootstrapRetirementPreservesFacadeAndRejectsOriginalRestart(t *testing.T) {
+	e := newTestEngine()
+	a, _ := fixtureApp(t, e, Host{})
+	facade := a.Backend
+	if err := a.PreparePersonal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.PrepareUpdate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.retireRoamingSource(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if a.Backend != facade || a.closed || !a.sourceRetired || a.personal != nil || a.notebook != nil {
+		t.Fatal("source retirement destroyed stable facade or retained writers")
+	}
+	if err := a.Start(); err == nil {
+		t.Fatal("retired native source restarted")
+	}
+	if _, err := a.Backend.Submit(t.Context(), api.Submission{ID: "after-source-retirement"}); err == nil {
+		t.Fatal("retired facade admission reopened before observer swap")
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !a.closed {
+		t.Fatal("final application close was consumed during retirement")
 	}
 }
