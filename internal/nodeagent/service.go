@@ -49,6 +49,7 @@ type Options struct {
 	ManagedProduct                             ManagedProductPort
 	ManagedStart                               ManagedStartPort
 	WorkerProxy                                *NativeWorkerProxy
+	OwnedRuntimeSettings                       func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error)
 }
 
 const MaxOperations = 4096
