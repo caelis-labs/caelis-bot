@@ -41,10 +41,18 @@ func (s *Session) fenceOwned(ctx context.Context, isolated bool) error {
 	}
 	forceErr := process.forceKillOwned()
 	client.Close()
-	if err := client.toolCleanupError(); err != nil {
-		return errors.Join(freezeErr, forceErr, err)
+	stopErr := errors.Join(freezeErr, forceErr, client.toolCleanupError())
+	if stopErr == nil {
+		// Native termination is already proven. Later application cleanup must
+		// not send graceful background-clean RPCs to the deliberately dead host.
+		// Pending/unknown operation state is retained for SafeIdle proof.
+		s.mu.Lock()
+		s.closed = true
+		s.state.Connection = "offline"
+		s.update()
+		s.mu.Unlock()
 	}
-	return errors.Join(freezeErr, forceErr)
+	return stopErr
 }
 
 // FenceOwnedForBootstrap is available only to an explicitly invoked native
