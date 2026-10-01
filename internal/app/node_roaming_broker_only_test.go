@@ -50,7 +50,7 @@ func TestNativeRemoteCoordinatorDoesNotRequireOrDeployRuntime(t *testing.T) {
 		t.Fatal(e)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	coordinator := NodeRegistration{ID: "ubuntu", Label: "Coordinator", Join: api.NodeSSH, SSHDestination: "fixture-ubuntu", Directory: "/home/admin/.local/share/caelis-bot/node-agent", HelperPath: "/home/admin/.local/share/caelis-bot/node-agent/agent", HostHelperPath: "/home/admin/.local/share/caelis-bot/node-agent/host"}
+	coordinator := NodeRegistration{ID: "ubuntu", Label: "Coordinator", Join: api.NodeSSH, SSHDestination: "fixture-ubuntu", Directory: "/home/coordinator/.local/share/caelis-bot/node-agent", HelperPath: "/home/coordinator/.local/share/caelis-bot/node-agent/agent", HostHelperPath: "/home/coordinator/.local/share/caelis-bot/node-agent/host"}
 	standby := coordinator
 	standby.ID = "fedora"
 	standby.Label = "Standby"
@@ -171,7 +171,7 @@ func TestNativeBrokerOnlyProvisionContainsOnlyCacheAndSupervisor(t *testing.T) {
 	}
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("BROKER_FIXTURE_LOG", log)
-	dir := "/home/admin/.local/share/caelis-bot/node-agent/roaming-" + nativeRoamingKey("original")
+	dir := "/home/coordinator/.local/share/caelis-bot/node-agent/roaming-" + nativeRoamingKey("original")
 	ipc := nodeagent.RoamingIPCDirectory(filepath.Dir(dir), "original")
 	node := roamingNativeNode{Registration: NodeRegistration{ID: "ubuntu", Join: api.NodeSSH, SSHDestination: "fixture-ubuntu", HelperPath: "/fixed/agent"}, Plan: NodeRoamingSupervisorPlan{Directory: dir, IPCDirectory: ipc, Broker: &NodeRoamingBrokerDeployment{NodeID: "ubuntu", BotID: "bot", Profile: filepath.Join(dir, "broker"), Socket: filepath.Join(ipc, "broker.sock")}}}
 	p := roamingNativePlan{BotID: "bot", SourceNodeID: api.LocalNodeID, SourceBackend: "codex", Nodes: []roamingNativeNode{node}, BootstrapDirectory: filepath.Join(ipc, "bootstrap"), BootstrapSocket: filepath.Join(ipc, "bootstrap", "agent.sock")}
@@ -197,7 +197,7 @@ func TestNativeBrokerOnlyProvisionContainsOnlyCacheAndSupervisor(t *testing.T) {
 
 func TestNativeBrokerOnlyUnknownRecoveryNeverReplaysOrReplacesOriginal(t *testing.T) {
 	a := nativeManagementApplication(t)
-	dir := "/home/admin/.local/share/caelis-bot/node-agent/roaming-" + nativeRoamingKey("enable-original")
+	dir := "/home/coordinator/.local/share/caelis-bot/node-agent/roaming-" + nativeRoamingKey("enable-original")
 	ipc := nodeagent.RoamingIPCDirectory(filepath.Dir(dir), "enable-original")
 	reg := NodeRegistration{ID: "ubuntu", Join: api.NodeSSH, SSHDestination: "unreachable-fixture", Directory: filepath.Dir(dir)}
 	id := strings.Repeat("a", 64)

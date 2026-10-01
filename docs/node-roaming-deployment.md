@@ -63,8 +63,8 @@ not a seeded or fabricated Runtime proof. Ubuntu's temporary management observer
 uses its original enrolled `E` metadata slot and never becomes a lease claimant.
 The actual journal contains the full paths; templates above do not authorize new
 paths. Every derived socket must be absolute, canonical and shorter than 100
-bytes before source retirement. For `/home/admin`, the former reverse socket was
-105 bytes; the separate IPC slot keeps it below the limit.
+bytes before source retirement. The former standard nested reverse socket could exceed this limit; the
+separate IPC slot keeps these inspected deployment paths below the limit.
 
 The Mac and Fedora product tokens are generated on their own target only at
 approved provisioning, stored privately, and never returned in the inspection
