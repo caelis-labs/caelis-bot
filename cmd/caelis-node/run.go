@@ -24,6 +24,8 @@ import (
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "supervise-roaming", "control-roaming":
+			return runRoamingDeploy(ctx, args, out)
 		case "serve-roaming":
 			return runRoaming(ctx, args, out)
 		case "owned-runtime-watchdog":

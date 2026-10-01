@@ -630,6 +630,7 @@ export interface WorkTargetInfo {
   state: string;
 }
 export interface WorkerNodeConfig {
+  transport?: string;
   id: string;
   label: string;
   ssh: string;
