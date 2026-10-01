@@ -19,7 +19,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodes"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/notebooksync"
@@ -256,7 +255,7 @@ func (a *Application) preparePersonalLocked() error {
 	// before introducing an offline-capable product identity.
 	if a.HasRuntimeChoice() {
 		if _, e := os.Stat(filepath.Join(a.root, "runtime.json")); errors.Is(e, os.ErrNotExist) {
-			if e = localstate.Write(filepath.Join(a.root, "runtime.json"), a.Backend.RuntimeSettings()); e != nil {
+			if e = backend.SaveRuntimeSettingsDocument(filepath.Join(a.root, "runtime.json"), a.Backend.RuntimeSettings()); e != nil {
 				return e
 			}
 		}

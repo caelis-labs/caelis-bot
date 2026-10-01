@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -182,7 +183,7 @@ func prepareNotebookProfile(profile, node string, r nodeagent.NotebookOwnerReque
 			return errors.New("backup Bot is active; Runtime unchanged")
 		}
 		defer release()
-		if e = localstate.Write(filepath.Join(profile, "runtime.json"), api.RuntimeSettings{Runtime: string(r.Runtime.Backend), CLIPath: r.Runtime.Binary, CaelisStore: r.Runtime.Store}); e != nil {
+		if e = backend.SaveRuntimeSettingsDocument(filepath.Join(profile, "runtime.json"), api.RuntimeSettings{Runtime: string(r.Runtime.Backend), CLIPath: r.Runtime.Binary, CaelisStore: r.Runtime.Store}); e != nil {
 			return e
 		}
 		return applyNotebookPreferences(profile)
@@ -197,7 +198,7 @@ func prepareNotebookProfile(profile, node string, r nodeagent.NotebookOwnerReque
 		return err
 	}
 	runtime := api.RuntimeSettings{Runtime: string(r.Runtime.Backend), CLIPath: r.Runtime.Binary, CaelisStore: r.Runtime.Store}
-	if err = localstate.Write(filepath.Join(profile, "runtime.json"), runtime); err != nil {
+	if err = backend.SaveRuntimeSettingsDocument(filepath.Join(profile, "runtime.json"), runtime); err != nil {
 		return err
 	}
 	provider := profile
@@ -302,8 +303,8 @@ func resetNotebookSession(profile, operation string) error {
 	return app.PrepareFreshNotebookProfile(profile, operation)
 }
 func applyNotebookPreferences(profile string) error {
-	var runtime api.RuntimeSettings
-	if err := readNotebookJSON(filepath.Join(profile, "runtime.json"), &runtime); err != nil {
+	runtime, err := app.ReadNotebookRuntimeSettings(profile)
+	if err != nil {
 		return err
 	}
 	prefs, err := nodeagent.ReadExecutionPreferences(filepath.Dir(profile))

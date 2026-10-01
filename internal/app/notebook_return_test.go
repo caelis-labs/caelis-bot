@@ -34,7 +34,9 @@ func returnFixture(t *testing.T) (*defaultNotebookSync, string, *bool) {
 			t.Fatal(err)
 		}
 	}
-	write("runtime.json", api.RuntimeSettings{Runtime: "codex", CLIPath: "/fixture/codex"})
+	if err := backend.SaveRuntimeSettingsDocument(filepath.Join(root, "runtime.json"), api.RuntimeSettings{Runtime: "codex", CLIPath: "/fixture/codex"}); err != nil {
+		t.Fatal(err)
+	}
 	write("bot.json", bot.State{Version: 1, PersonalVersion: 1, ID: "fixture-bot", Schedules: []bot.Schedule{}})
 	write("nodeplane/config.json", nodeManagementDocument{Version: 1, Revision: 1, Nodes: []NodeRegistration{r}})
 	write("nodeplane/notebook-local-owner.json", notebookLocalStop{BotID: "fixture-bot", Stopped: true})

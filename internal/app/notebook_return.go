@@ -54,6 +54,19 @@ func readNotebookPrivate(path string, out any) error {
 	return nil
 }
 
+// ReadNotebookRuntimeSettings retains Notebook's private-file and strict JSON
+// checks while sharing the normal setup/backend persisted schema and validation.
+func ReadNotebookRuntimeSettings(profile string) (api.RuntimeSettings, error) {
+	var doc backend.RuntimeDocument
+	if err := readNotebookPrivate(filepath.Join(profile, "runtime.json"), &doc); err != nil {
+		return api.RuntimeSettings{}, err
+	}
+	if err := doc.Validate(); err != nil {
+		return api.RuntimeSettings{}, err
+	}
+	return doc.RuntimeSettings, nil
+}
+
 // Refuse traversal through links or special native state before moving files.
 func notebookNativeParents(profile, name string) error {
 	for directory := filepath.Dir(filepath.Join(profile, name)); ; directory = filepath.Dir(directory) {

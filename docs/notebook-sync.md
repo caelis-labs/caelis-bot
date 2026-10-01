@@ -296,3 +296,19 @@ new Save action under the repaired build and current owner scope; this is not
 an automatic retry of the unknown command. If target preparation or effects
 cannot be ruled out, stop for native owner review. Reusing the original command
 ID returns its retained receipt and never dispatches it again.
+
+Notebook profile Runtime configuration uses the same canonical
+`backend.RuntimeDocument` as normal setup and backend persistence. Normal setup,
+standby creation and standby refresh write explicit `version: 1`; legacy flat
+profiles remain readable. Notebook source-save, source-backend recovery, local
+standby/return and target preference application share the private strict reader
+for that document, retaining permission, unknown-field, provider and version
+validation. No normal version field needs deleting or file repair.
+
+The local schema regression starts with actual `ActivateRuntime` setup output,
+reopens that complete profile, and uses the production default Notebook owner
+command to prepare and refresh a real contained standby. It also constructs the
+ordinary owned resident from that target profile, without starting a model or
+Runtime owner. Shared Bot state, owner publication and execution preference types
+were checked against their normal producers; their profile fields already match.
+This local acceptance does not replace real SSH sync/switch acceptance.

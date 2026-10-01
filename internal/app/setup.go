@@ -81,10 +81,7 @@ func (s *runtimeSetup) Profile(id string) (api.RuntimeSettings, error) {
 	return api.RuntimeSettings{Runtime: id}, nil
 }
 func (s *runtimeSetup) saveProfile(v api.RuntimeSettings) error {
-	return localstate.Write(filepath.Join(s.app.root, "runtime-profiles", v.Runtime+".json"), struct {
-		Version int `json:"version"`
-		api.RuntimeSettings
-	}{1, v})
+	return backend.SaveRuntimeSettingsDocument(filepath.Join(s.app.root, "runtime-profiles", v.Runtime+".json"), v)
 }
 func validSetup(v api.RuntimeSettings, locale ...i18n.Locale) error {
 	loc := i18n.English
@@ -324,10 +321,7 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 			return e
 		}
 	}
-	if e = localstate.Write(filepath.Join(s.app.root, "runtime.json"), struct {
-		Version int `json:"version"`
-		api.RuntimeSettings
-	}{1, v}); e != nil {
+	if e = backend.SaveRuntimeSettingsDocument(filepath.Join(s.app.root, "runtime.json"), v); e != nil {
 		return e
 	}
 	s.pending = v.Runtime

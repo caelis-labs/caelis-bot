@@ -67,8 +67,7 @@ func attachDefaultNotebookSync(a *Application) error {
 		return e
 	}
 	if c.settings.SourceNodeID == api.LocalNodeID {
-		var runtime api.RuntimeSettings
-		if readNotebookPrivate(filepath.Join(a.root, "runtime.json"), &runtime) == nil {
+		if runtime, err := ReadNotebookRuntimeSettings(a.root); err == nil {
 			c.settings.SourceBackend = api.NodeBackend(runtime.Runtime)
 		}
 	}
@@ -169,11 +168,13 @@ func (c *defaultNotebookSync) SaveSettings(ctx context.Context, in backend.Noteb
 	in.SourceNodeID = source
 	in.SourceBackend = c.settings.SourceBackend
 	if source == api.LocalNodeID {
-		var runtime api.RuntimeSettings
-		if err := readNotebookPrivate(filepath.Join(a.root, "runtime.json"), &runtime); err != nil && in.Enabled {
+		runtime, err := ReadNotebookRuntimeSettings(a.root)
+		if err != nil && in.Enabled {
 			return c.settings, err
 		}
-		in.SourceBackend = api.NodeBackend(runtime.Runtime)
+		if err == nil {
+			in.SourceBackend = api.NodeBackend(runtime.Runtime)
+		}
 	}
 	if a.notebookSync != nil {
 		state := a.notebookSync.State()
@@ -317,8 +318,8 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 	seen := map[string]bool{o.SourceNodeID: true}
 	for _, t := range c.settings.Targets {
 		if t.NodeID == api.LocalNodeID && !seen[t.NodeID] {
-			var runtime api.RuntimeSettings
-			if err := readNotebookPrivate(filepath.Join(a.root, "runtime.json"), &runtime); err != nil {
+			runtime, err := ReadNotebookRuntimeSettings(a.root)
+			if err != nil {
 				return o, err
 			}
 			if api.NodeBackend(runtime.Runtime) != t.Backend {

@@ -12,13 +12,29 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-// runtimeDocument accepts the legacy flat document and writes explicit v1.
-type runtimeDocument struct {
+// RuntimeDocument is the canonical persisted profile configuration. The legacy
+// flat document remains readable; all normal writers persist explicit v1.
+type RuntimeDocument struct {
 	Version int `json:"version"`
 	api.RuntimeSettings
 }
 
 var providerID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
+func (d RuntimeDocument) Validate() error {
+	if (d.Version != 0 && d.Version != 1) || !providerID.MatchString(d.Runtime) {
+		return errors.New("连接配置无法识别，请保留文件并重试")
+	}
+	return nil
+}
+
+func SaveRuntimeSettingsDocument(path string, settings api.RuntimeSettings) error {
+	doc := RuntimeDocument{Version: 1, RuntimeSettings: settings}
+	if err := doc.Validate(); err != nil {
+		return err
+	}
+	return localstate.Write(path, doc)
+}
 
 func LoadRuntimeSettings(path, defaultProvider string) (api.RuntimeSettings, error) {
 	settings := api.RuntimeSettings{Runtime: defaultProvider}
@@ -29,8 +45,8 @@ func LoadRuntimeSettings(path, defaultProvider string) (api.RuntimeSettings, err
 	if err != nil {
 		return settings, errors.New("无法读取连接配置")
 	}
-	var doc runtimeDocument
-	if json.Unmarshal(b, &doc) != nil || (doc.Version != 0 && doc.Version != 1) || !providerID.MatchString(doc.Runtime) {
+	var doc RuntimeDocument
+	if json.Unmarshal(b, &doc) != nil || doc.Validate() != nil {
 		return settings, errors.New("连接配置无法识别，请保留文件并重试")
 	}
 	return doc.RuntimeSettings, nil
@@ -76,7 +92,7 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 		if err := s.probeRuntime(ctx, value); err != nil {
 			return api.RuntimeCheck{}, err
 		}
-		if err := saveRuntimeSettings(s.runtimeFile, runtimeDocument{Version: 1, RuntimeSettings: value}); err != nil {
+		if err := SaveRuntimeSettingsDocument(s.runtimeFile, value); err != nil {
 			return api.RuntimeCheck{}, err
 		}
 		s.runtimeSettings = value
@@ -87,7 +103,7 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 		return api.RuntimeCheck{}, errors.New("当前后端不支持修改连接配置")
 	}
 	return e.ChangeRuntime(ctx, value, func() error {
-		if err := saveRuntimeSettings(s.runtimeFile, runtimeDocument{Version: 1, RuntimeSettings: value}); err != nil {
+		if err := SaveRuntimeSettingsDocument(s.runtimeFile, value); err != nil {
 			return errors.New("检测已通过，但连接配置未能保存")
 		}
 		s.runtimeSettings = value
