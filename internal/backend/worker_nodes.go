@@ -101,6 +101,9 @@ func (s *Service) ConfigureWorkerNodes(controller WorkerNodeController) {
 }
 
 func (s *Service) workerNodeController() (WorkerNodeController, error) {
+	if err := s.guardLocalConfiguration(); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.workerNodes == nil {

@@ -30,6 +30,9 @@ func (s *Service) modelSettingsLocked(ctx context.Context) (productmanagement.Ex
 }
 
 func (s *Service) ReadModelSettings(ctx context.Context) (productmanagement.ExecutionState, []api.ModelOption, error) {
+	if local := s.localGenerationService(); local != nil {
+		return local.ReadModelSettings(ctx)
+	}
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	if !s.ModelSettingsAvailable() {
@@ -46,6 +49,12 @@ func (s *Service) ReadModelSettings(ctx context.Context) (productmanagement.Exec
 // Compare, patch and existing validation/persistence share the local settings
 // mutex. A racing local save cannot silently replace permissions or tier.
 func (s *Service) ApplyModelSettings(ctx context.Context, revision, target string, selection productmanagement.Selection) error {
+	if err := s.guardLocalConfiguration(); err != nil {
+		return err
+	}
+	if local := s.localGenerationService(); local != nil {
+		return local.ApplyModelSettings(ctx, revision, target, selection)
+	}
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	if !s.ModelSettingsAvailable() {

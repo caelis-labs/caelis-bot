@@ -42,6 +42,7 @@ type Service struct {
 	dismissed, presentationFile string
 	initializer                 api.BotInitializer
 	engine                      api.Engine
+	localGeneration             *Service
 	submitUser                  func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	files                       func([]string) ([]api.InputFile, error)
 	consumeFiles                func([]string)
@@ -181,13 +182,13 @@ func (s *Service) LoadEarlier(ctx context.Context) error {
 	return errors.New("当前接入暂不支持读取更早消息")
 }
 func (s *Service) Connect(ctx context.Context) error {
+	s.admission.RLock()
+	defer s.admission.RUnlock()
 	ctx, release, err := api.BeginExecution(ctx, s.executionAdmission)
 	if err != nil {
 		return err
 	}
 	defer release()
-	s.admission.RLock()
-	defer s.admission.RUnlock()
 	if s.restarting || s.setupRequired {
 		return errors.New("请先完成运行时设置")
 	}
@@ -210,13 +211,13 @@ func (s *Service) OpenMessageLink(value string) error {
 	return s.openURL(u.String())
 }
 func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt, error) {
+	s.admission.RLock()
+	defer s.admission.RUnlock()
 	ctx, release, err := api.BeginExecution(ctx, s.executionAdmission)
 	if err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected"}, err
 	}
 	defer release()
-	s.admission.RLock()
-	defer s.admission.RUnlock()
 	if s.restarting || s.setupRequired {
 		return api.Receipt{}, errors.New("请先完成运行时设置")
 	}

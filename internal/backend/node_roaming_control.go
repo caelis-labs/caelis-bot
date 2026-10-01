@@ -204,16 +204,21 @@ func (p *NodeRoamingEngine) Close(ctx context.Context) error { return p.Current(
 // ActivateNodeRoamingProduct changes product callbacks after the original
 // lifecycle is stopped. Old durable source receipts and journals stay intact.
 func (s *Service) ActivateNodeRoamingProduct(engine api.Engine) error {
+	s.admission.Lock()
+	defer s.admission.Unlock()
+	return s.activateNodeRoamingProductLocked(engine)
+}
+
+func (s *Service) activateNodeRoamingProductLocked(engine api.Engine) error {
 	p, ok := s.engine.(*NodeRoamingEngine)
 	if !ok {
 		return errors.New("stable roaming engine not installed")
 	}
-	s.admission.Lock()
-	defer s.admission.Unlock()
 	if err := p.Replace(engine); err != nil {
 		return err
 	}
 	s.mu.Lock()
+	s.localGeneration = nil
 	s.submitUser = nil
 	s.botStatus = nil
 	s.beforeInterrupt = nil
@@ -248,20 +253,13 @@ func (s *Service) ActivateNodeRoamingLocal(other *Service) error {
 	if other == nil || other == s {
 		return errors.New("fresh local service required")
 	}
-	if err := s.ActivateNodeRoamingProduct(other.engine); err != nil {
-		return err
-	}
+	other.admission.RLock()
+	admission, restarting, setupRequired := other.executionAdmission, other.restarting, other.setupRequired
+	other.admission.RUnlock()
 	other.mu.Lock()
 	submit, status, before, init := other.submitUser, other.botStatus, other.beforeInterrupt, other.initializer
-	connection := other.productConnection
+	setup, workers, interactions, management := other.setup, other.workerNodes, other.workInteractions, other.remoteManagement
 	other.mu.Unlock()
-	s.mu.Lock()
-	s.submitUser = submit
-	s.botStatus = status
-	s.beforeInterrupt = before
-	s.initializer = init
-	s.productConnection = connection
-	s.mu.Unlock()
 	other.configurationMu.Lock()
 	runtimeFile, runtimeSettings := other.runtimeFile, other.runtimeSettings
 	executionFile, executionSettings := other.executionFile, other.executionSettings
@@ -269,6 +267,21 @@ func (s *Service) ActivateNodeRoamingLocal(other *Service) error {
 	providers := append([]api.ProviderInfo(nil), other.providers...)
 	probe, manage, guard := other.probeRuntime, other.manageRuntime, other.switchGuard
 	other.configurationMu.Unlock()
+
+	// Admit the fresh engine only with its complete native generation. Host
+	// callbacks, local presentation/draft/media, enrollment, roaming authority,
+	// and the outer product-connection controller remain on the stable facade.
+	s.admission.Lock()
+	defer s.admission.Unlock()
+	if err := s.activateNodeRoamingProductLocked(other.engine); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.submitUser, s.botStatus, s.beforeInterrupt, s.initializer = submit, status, before, init
+	s.setup, s.workerNodes, s.workInteractions, s.remoteManagement = setup, workers, interactions, management
+	s.localGeneration = other
+	s.mu.Unlock()
+	s.executionAdmission, s.restarting, s.setupRequired = admission, restarting, setupRequired
 	s.configurationMu.Lock()
 	s.runtimeFile, s.runtimeSettings = runtimeFile, runtimeSettings
 	s.executionFile, s.executionSettings = executionFile, executionSettings
@@ -342,4 +355,32 @@ func (m *nodeRoamingManagement) SetNodeCoordinator(ctx context.Context, r api.No
 		return catalog, nil
 	}
 	return m.NodeManagementController.SetNodeCoordinator(ctx, r)
+}
+
+// These native metadata checks never reconcile receipts or start recovery. They
+// run before taking Service/configuration locks, so native control can safely
+// publish ownership while configuration surfaces are open.
+func (s *Service) blockLocalConfiguration() bool {
+	controller, err := s.nodeRoamingController()
+	if err != nil {
+		return false
+	}
+	guard, ok := controller.(interface{ BlockLocalSetup() bool })
+	return ok && guard.BlockLocalSetup()
+}
+
+func (s *Service) guardLocalConfiguration() error {
+	if s.blockLocalConfiguration() {
+		return errors.New("local configuration unavailable during automatic roaming")
+	}
+	return nil
+}
+
+func (s *Service) localGenerationService() *Service {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.localGeneration == s {
+		return nil
+	}
+	return s.localGeneration
 }

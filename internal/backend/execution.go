@@ -33,11 +33,17 @@ func (s *Service) ConfigureExecution(path string, v api.ExecutionSettings) {
 	s.executionSettings = v
 }
 func (s *Service) ExecutionSettings() (api.ExecutionSettings, error) {
+	if local := s.localGenerationService(); local != nil {
+		return local.ExecutionSettings()
+	}
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	return s.executionSettingsLocked(context.Background())
 }
 func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
+	if local := s.localGenerationService(); local != nil {
+		return local.Models(ctx)
+	}
 	e, ok := s.capabilityEngine().(api.ExecutionProvider)
 	if !ok {
 		return nil, errors.New("当前运行时不支持模型设置")
@@ -45,6 +51,12 @@ func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
 	return e.Models(ctx)
 }
 func (s *Service) SaveExecutionSettings(ctx context.Context, v api.ExecutionSettings) error {
+	if err := s.guardLocalConfiguration(); err != nil {
+		return err
+	}
+	if local := s.localGenerationService(); local != nil {
+		return local.SaveExecutionSettings(ctx, v)
+	}
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	return s.saveExecutionSettingsLocked(ctx, v)
@@ -75,6 +87,9 @@ func (s *Service) saveExecutionSettingsLocked(ctx context.Context, v api.Executi
 }
 
 func (s *Service) ExecutionOptions() (api.ExecutionOptions, error) {
+	if local := s.localGenerationService(); local != nil {
+		return local.ExecutionOptions()
+	}
 	if e, ok := s.capabilityEngine().(api.ExecutionProvider); ok {
 		return e.ExecutionOptions(), nil
 	}

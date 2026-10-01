@@ -41,11 +41,20 @@ func (s *Service) ConfigureRuntime(path string, settings api.RuntimeSettings) {
 	s.runtimeFile, s.runtimeSettings = path, settings
 }
 func (s *Service) RuntimeSettings() api.RuntimeSettings {
+	if local := s.localGenerationService(); local != nil {
+		return local.RuntimeSettings()
+	}
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	return s.runtimeSettings
 }
 func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSettings) (api.RuntimeCheck, error) {
+	if err := s.guardLocalConfiguration(); err != nil {
+		return api.RuntimeCheck{}, err
+	}
+	if local := s.localGenerationService(); local != nil {
+		return local.SaveRuntimeSettings(ctx, value)
+	}
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	// Live provider replacement needs a separate ownership/migration transaction.
