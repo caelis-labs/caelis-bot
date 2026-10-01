@@ -46,11 +46,12 @@ func TestLeasedWorkerActualProcessStopsBeforeQueuedAdmission(t *testing.T) {
 	if err = os.WriteFile(binary, []byte(body), 0700); err != nil {
 		t.Fatal(err)
 	}
+	watchdog, _, _, _ := supervisorFixture(t)
 	grant := leaseFixtureGrant()
 	source := &workerSourceFixture{value: api.WorkDispatchSource{NodeID: "host", Backend: "codex", BindingID: "binding", OperationID: "op", Kind: "user", Lease: grant}}
 	reader := &leaseReaderFixture{lease: nodeplane.Lease{BotID: grant.BotID, NodeID: grant.SourceNodeID, Backend: api.NodeCodex, Epoch: grant.Epoch, TTLMs: 60000}}
 	var suspend func()
-	w := NewWorker(WorkerOptions{Target: api.WorkTarget{NodeID: "worker", Backend: "codex", Role: api.RoleWorker}, Directory: filepath.Join(dir, "worker"), Binary: binary, Source: source, Lease: &WorkerLeaseOptions{BrokerNodeID: "broker", BotID: "bot", SourceNode: "host", SourceBackend: "codex", Reader: reader, BindPower: func(ctx context.Context, s, w func()) (func(), error) { suspend = s; return func() {}, nil }}})
+	w := NewWorker(WorkerOptions{Target: api.WorkTarget{NodeID: "worker", Backend: "codex", Role: api.RoleWorker}, Directory: filepath.Join(dir, "worker"), Binary: binary, Source: source, Lease: &WorkerLeaseOptions{HelperPath: watchdog, BrokerNodeID: "broker", BotID: "bot", SourceNode: "host", SourceBackend: "codex", Reader: reader, BindPower: func(ctx context.Context, s, w func()) (func(), error) { suspend = s; return func() {}, nil }}})
 	defer w.Close(testContext(t))
 	if err = w.Connect(testContext(t)); err != nil {
 		t.Fatal(err)
@@ -113,6 +114,7 @@ func TestWorkerLeaseDeadlineAndOriginalReceiptRecovery(t *testing.T) {
 	d.w.lease = newWorkerLeaseFence(d.w, WorkerLeaseOptions{BrokerNodeID: "broker", BotID: "bot", SourceNode: "host-node", SourceBackend: "codex", Reader: reader, BindPower: func(context.Context, func(), func()) (func(), error) { return func() {}, nil }})
 	f := d.w.lease
 	f.enabled = true
+	f.renew = func(context.Context, string, time.Time) error { return nil }
 	if err = f.check(testContext(t), grant); err != nil {
 		t.Fatal(err)
 	}
