@@ -287,6 +287,10 @@ func (s *Service) configuration(ctx context.Context, nodeID string, b api.NodeBa
 	out := api.NodeRuntimeConfiguration{Guard: api.NodeEditGuard{NodeID: nodeID, Backend: b}, ReviewedVersions: []string{}}
 	if s.installation != nil {
 		out.InstallerAvailable = true
+		status, err := s.installation.Manage(ctx, runtimemanagement.Request{Action: "detect", Runtime: string(b)})
+		if err == nil && status.Outcome == "accepted" {
+			out.Installation = &api.NodeInstallationState{Installed: status.Installed, Version: status.Version, LatestVersion: status.LatestVersion}
+		}
 		for _, release := range runtimemanagement.Releases() {
 			if release.Arch == runtime.GOARCH && release.Runtime == string(b) {
 				out.ReviewedVersions = append(out.ReviewedVersions, release.Version)
@@ -369,9 +373,17 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 		result.Message = "catalog-revision-changed"
 		return result, nil
 	}
-	if r.Installation != nil && r.Installation.Action == api.NodeUpdate && s.installation != nil {
-		observed, err := s.installation.Manage(ctx, runtimemanagement.Request{Action: "detect", Runtime: string(r.Ref.Backend)})
-		if err != nil || !observed.Installed || r.Installation.ExpectedVersion == "" || observed.Version != r.Installation.ExpectedVersion {
+	if r.Installation != nil && (r.Installation.Action == api.NodeUpdate || r.Installation.Action == api.NodeInstall) && s.installation != nil {
+		observed := configuration.Installation
+		conflict := observed == nil
+		if observed != nil {
+			if r.Installation.Action == api.NodeUpdate {
+				conflict = !observed.Installed || r.Installation.ExpectedVersion == "" || observed.Version != r.Installation.ExpectedVersion
+			} else {
+				conflict = observed.Installed || r.Installation.ExpectedVersion != ""
+			}
+		}
+		if conflict {
 			result.Outcome = api.NodeConflicted
 			result.Message = "installation-version-changed"
 			return result, nil
