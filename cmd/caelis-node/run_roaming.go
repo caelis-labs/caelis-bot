@@ -324,7 +324,15 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	if c.CaelisBinary != "" {
 		binaries[api.NodeCaelis] = c.CaelisBinary
 	}
-	service, err := nodeagent.New(nodeagent.Options{Directory: c.AgentDirectory, NodeID: c.NodeID, Label: "Managed Bot node", Join: api.NodeSSH, Binaries: binaries, Configurations: map[api.NodeBackend]nodeagent.NativeConfiguration{api.NodeBackend(c.Backend): config}, RuntimeOwner: holder, ManagedProduct: control, WorkerProxy: workerProxy, Health: holder.Health})
+	companionDigest, err := roamingFileDigest(helper)
+	if err != nil {
+		return err
+	}
+	service, err := nodeagent.New(nodeagent.Options{Directory: c.AgentDirectory, NodeID: c.NodeID, Label: "Managed Bot node", Join: api.NodeSSH, Binaries: binaries, Configurations: map[api.NodeBackend]nodeagent.NativeConfiguration{api.NodeBackend(c.Backend): config}, RuntimeOwner: holder, ManagedProduct: control, WorkerProxy: workerProxy, NodeConnectionOwner: holder.nodeConnectionOwner, OwnedRuntimeCompanion: func(context.Context) (nodeagent.OwnedRuntimeCompanion, error) {
+		return nodeagent.OwnedRuntimeCompanion{Path: helper, SHA256: companionDigest}, nil
+	}, OwnedRuntimeSettings: func(_ context.Context, b api.NodeBackend) (nodeagent.OwnedRuntimeSettings, error) {
+		return roamingNodeRuntimeSettings(c, workerPlan, b)
+	}, Health: holder.Health})
 	if err != nil {
 		return err
 	}

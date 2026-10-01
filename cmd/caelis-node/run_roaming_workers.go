@@ -21,11 +21,12 @@ import (
 // The native deployment writes this private manifest from approved enrolled
 // pairs. Only Nodes reach product settings; agent sockets remain host-only.
 type roamingWorkerPlan struct {
-	Version  int                        `json:"version"`
-	Nodes    []backend.WorkerNodeConfig `json:"nodes"`
-	Agents   []roamingWorkerAgent       `json:"agents"`
-	Sources  []roamingWorkerSource      `json:"sources,omitempty"`
-	Runtimes []roamingWorkerRuntime     `json:"runtimes,omitempty"`
+	Version          int                        `json:"version"`
+	Nodes            []backend.WorkerNodeConfig `json:"nodes"`
+	Agents           []roamingWorkerAgent       `json:"agents"`
+	Sources          []roamingWorkerSource      `json:"sources,omitempty"`
+	Runtimes         []roamingWorkerRuntime     `json:"runtimes,omitempty"`
+	SettingsRuntimes []roamingWorkerRuntime     `json:"settingsRuntimes,omitempty"`
 }
 
 // Sources identify approved primary owners independently of Worker backends.
@@ -66,7 +67,7 @@ func loadRoamingWorkerPlan(filename string) (roamingWorkerPlan, error) {
 	}
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
-	if d.Decode(&document) != nil || d.Decode(&struct{}{}) != io.EOF || document.Version != 1 || len(document.Nodes) > 16 || len(document.Agents) != len(document.Nodes) || len(document.Sources) > 16 || len(document.Runtimes) > 2 {
+	if d.Decode(&document) != nil || d.Decode(&struct{}{}) != io.EOF || document.Version != 1 || len(document.Nodes) > 16 || len(document.Agents) != len(document.Nodes) || len(document.Sources) > 16 || len(document.Runtimes) > 2 || len(document.SettingsRuntimes) > 2 {
 		return document, errors.New("invalid private enrolled Worker plan")
 	}
 	seen := map[api.WorkTarget]bool{}
@@ -101,18 +102,33 @@ func loadRoamingWorkerPlan(filename string) (roamingWorkerPlan, error) {
 			seen[backend] = true
 		}
 	}
-	runtimes := map[string]bool{}
-	for _, native := range document.Runtimes {
-		if !validRoamingBackend(native.Backend) || runtimes[native.Backend] || !filepath.IsAbs(native.Binary) || filepath.Clean(native.Binary) != native.Binary || strings.ContainsAny(native.Binary, "\x00\r\n") {
-			return document, errors.New("invalid private target Runtime binding")
+	for _, bindings := range [][]roamingWorkerRuntime{document.Runtimes, document.SettingsRuntimes} {
+		runtimes := map[string]bool{}
+		for _, native := range bindings {
+			if !validRoamingBackend(native.Backend) || runtimes[native.Backend] || !filepath.IsAbs(native.Binary) || filepath.Clean(native.Binary) != native.Binary || strings.ContainsAny(native.Binary, "\x00\r\n") {
+				return document, errors.New("invalid private target Runtime binding")
+			}
+			runtimes[native.Backend] = true
+			if native.Backend == "codex" && native.Store != "" || native.Backend == "caelis" && (!filepath.IsAbs(native.Store) || filepath.Clean(native.Store) != native.Store || strings.ContainsAny(native.Store, "\x00\r\n")) || len(native.Model) > 256 || strings.ContainsAny(native.Model, "\x00\r\n") {
+				return document, errors.New("private target Runtime scope changed")
+			}
+			if native.Execution != nil {
+				if err := api.ValidateExecutionSettings(native.Execution.Execution()); err != nil {
+					return document, err
+				}
+			}
 		}
-		runtimes[native.Backend] = true
-		if native.Backend == "codex" && native.Store != "" || native.Backend == "caelis" && (!filepath.IsAbs(native.Store) || filepath.Clean(native.Store) != native.Store || strings.ContainsAny(native.Store, "\x00\r\n")) || len(native.Model) > 256 || strings.ContainsAny(native.Model, "\x00\r\n") {
-			return document, errors.New("private target Runtime scope changed")
-		}
-		if native.Execution != nil {
-			if err := api.ValidateExecutionSettings(native.Execution.Execution()); err != nil {
-				return document, err
+	}
+	if document.SettingsRuntimes != nil {
+		for _, admitted := range document.Runtimes {
+			matched := false
+			for _, settings := range document.SettingsRuntimes {
+				if settings.Backend == admitted.Backend {
+					matched = settings.Binary == admitted.Binary && settings.Store == admitted.Store
+				}
+			}
+			if !matched {
+				return document, errors.New("admitted Runtime differs from frozen target settings")
 			}
 		}
 	}

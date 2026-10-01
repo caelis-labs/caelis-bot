@@ -47,8 +47,12 @@ func TestNativeColdCaelisChecksAllModelsInOneOriginalAction(t *testing.T) {
 		t.Fatal("readiness changed frozen review bindings/model/hash")
 	}
 	encoded, _ := json.Marshal(nativeRoamingWorkers(p, node))
-	if strings.Contains(string(encoded), "target-worker") || strings.Contains(string(encoded), "/target/owned-store") {
-		t.Fatal("unavailable optional Worker was advertised", string(encoded))
+	var workers struct {
+		Runtimes []NodeRoamingWorkerRuntime `json:"runtimes"`
+		Settings []NodeRoamingWorkerRuntime `json:"settingsRuntimes"`
+	}
+	if e := json.Unmarshal(encoded, &workers); e != nil || len(workers.Runtimes) != 0 || len(workers.Settings) != 1 || workers.Settings[0].Store != "/target/owned-store" {
+		t.Fatal("optional Worker admission or frozen settings metadata changed", string(encoded), e)
 	}
 	confirmed = false
 	if e := n.confirmOwnedReadiness(t.Context(), &p); e == nil {
