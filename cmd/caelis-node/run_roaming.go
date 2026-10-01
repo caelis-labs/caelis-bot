@@ -225,7 +225,7 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	if err != nil {
 		return err
 	}
-	workerConfigs, err := loadRoamingWorkers(c.WorkersFile)
+	workerPlan, err := loadRoamingWorkerPlan(c.WorkersFile)
 	if err != nil {
 		return err
 	}
@@ -287,6 +287,8 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 	defer broker.Close()
 	life, cancel := context.WithCancel(ctx)
 	defer cancel()
+	workerAgents := newRoamingWorkerAgents(life, c, workerPlan)
+	defer workerAgents.Close()
 	target := api.WorkTarget{NodeID: c.NodeID, Backend: c.Backend, Role: api.RoleBot}
 	defaults := &nodeagent.CodexConfiguration{Directory: c.AgentDirectory, Binary: c.CodexBinary}
 	var configuration nodeagent.NativeConfiguration = defaults
@@ -379,7 +381,10 @@ func runRoamingCommand(ctx context.Context, c roamingCommand, out io.Writer, pow
 			_ = native.Close()
 			return nil, nil, errors.New("managed native application unavailable")
 		}
-		if err = connectRoamingWorkers(ctx, actual.Backend, workerConfigs); err != nil {
+		if err = actual.ConfigureRegisteredWorkers(workerAgents.lookup); err == nil {
+			err = connectRoamingWorkers(ctx, actual.Backend, workerPlan.Nodes)
+		}
+		if err != nil {
 			guard.Revoke()
 			_ = native.Close()
 			return nil, nil, err
