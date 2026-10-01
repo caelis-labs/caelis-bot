@@ -711,7 +711,18 @@ func (p *nodeLocalCodexConfiguration) ExecutionScopes(ctx context.Context) (api.
 	return conversation, worker, err
 }
 func nodeLocalHealth(ctx context.Context, a *Application, b api.NodeBackend) (nodeagent.NativeHealth, error) {
-	settings, err := a.Backend.SetupProfile(string(b))
+	var settings api.RuntimeSettings
+	var err error
+	if b == api.NodeCaelis && a.Backend.ProviderInfo().ID != "caelis" {
+		// An inactive Node Runtime must observe the same designated private slot
+		// as its configuration/setup ports. A blank ordinary alternate profile
+		// would otherwise discover the user's unrelated default Caelis Host.
+		settings, err = nodeLocalCaelisSettings(a, filepath.Join(a.root, "nodeplane", "local"), nil)
+	} else {
+		// Preserve ordinary active local Runtime semantics, including an
+		// explicitly selected default Caelis Store.
+		settings, err = a.Backend.SetupProfile(string(b))
+	}
 	if err != nil {
 		return nodeagent.NativeHealth{}, err
 	}
