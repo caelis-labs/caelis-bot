@@ -155,9 +155,43 @@ func (p *NodeRoamingEngine) Snapshot() api.Snapshot {
 	v.Revision += swaps << 32
 	return v
 }
-func (p *NodeRoamingEngine) Revision() uint64               { return p.Snapshot().Revision }
-func (p *NodeRoamingEngine) RecentSnapshot() api.Snapshot   { return p.Snapshot() }
-func (p *NodeRoamingEngine) ComposerSnapshot() api.Snapshot { return p.Snapshot() }
+func (p *NodeRoamingEngine) Revision() uint64 {
+	p.mu.RLock()
+	e, swaps := p.engine, p.swaps
+	p.mu.RUnlock()
+	if source, ok := e.(api.RevisionSource); ok {
+		return source.Revision() + (swaps << 32)
+	}
+	return p.Snapshot().Revision
+}
+func (p *NodeRoamingEngine) RecentSnapshot() api.Snapshot {
+	p.mu.RLock()
+	e, swaps := p.engine, p.swaps
+	p.mu.RUnlock()
+	if source, ok := e.(api.RecentSource); ok {
+		v := source.RecentSnapshot()
+		v.Revision += swaps << 32
+		return v
+	}
+	return p.Snapshot()
+}
+func (p *NodeRoamingEngine) ComposerSnapshot() api.Snapshot {
+	p.mu.RLock()
+	e, swaps := p.engine, p.swaps
+	p.mu.RUnlock()
+	if source, ok := e.(api.ComposerSource); ok {
+		v := source.ComposerSnapshot()
+		v.Revision += swaps << 32
+		return v
+	}
+	return p.Snapshot()
+}
+func (s *Service) RollbackNodeRoamingEngine(p *NodeRoamingEngine) {
+	if s.engine == p {
+		s.engine = p.Current()
+	}
+}
+
 func (p *NodeRoamingEngine) Submit(ctx context.Context, in api.Submission, f []api.InputFile) (api.Receipt, error) {
 	return p.Current().Submit(ctx, in, f)
 }
@@ -166,90 +200,6 @@ func (p *NodeRoamingEngine) Decide(ctx context.Context, d api.Decision) error {
 	return p.Current().Decide(ctx, d)
 }
 func (p *NodeRoamingEngine) Close(ctx context.Context) error { return p.Current().Close(ctx) }
-func (p *NodeRoamingEngine) ProviderInfo() api.ProviderInfo {
-	if e, ok := p.Current().(api.Provider); ok {
-		return e.ProviderInfo()
-	}
-	return api.ProviderInfo{}
-}
-func (p *NodeRoamingEngine) LoadEarlier(ctx context.Context) error {
-	if e, ok := p.Current().(api.HistorySource); ok {
-		return e.LoadEarlier(ctx)
-	}
-	return errors.New("history unavailable")
-}
-func (p *NodeRoamingEngine) ImageInput(ctx context.Context) (api.ImageInputCapability, error) {
-	if e, ok := p.Current().(api.ImageInputProvider); ok {
-		return e.ImageInput(ctx)
-	}
-	return api.ImageInputCapability{State: "unknown"}, nil
-}
-func (p *NodeRoamingEngine) Artifact(id string) (string, error) {
-	if e, ok := p.Current().(api.ArtifactResolver); ok {
-		return e.Artifact(id)
-	}
-	return "", errors.New("artifact unavailable")
-}
-func (p *NodeRoamingEngine) ApprovalURL(id string) (string, error) {
-	if e, ok := p.Current().(api.ApprovalNavigator); ok {
-		return e.ApprovalURL(id)
-	}
-	return "", errors.New("approval navigation unavailable")
-}
-func (p *NodeRoamingEngine) Login(ctx context.Context) (string, error) {
-	if e, ok := p.Current().(api.Authenticator); ok {
-		return e.Login(ctx)
-	}
-	return "", errors.New("login unavailable")
-}
-func (p *NodeRoamingEngine) CancelLogin(ctx context.Context) error {
-	if e, ok := p.Current().(api.Authenticator); ok {
-		return e.CancelLogin(ctx)
-	}
-	return nil
-}
-func (p *NodeRoamingEngine) ExecutionOptions() api.ExecutionOptions {
-	if e, ok := p.Current().(api.ExecutionProvider); ok {
-		return e.ExecutionOptions()
-	}
-	return api.ExecutionOptions{}
-}
-func (p *NodeRoamingEngine) Models(ctx context.Context) ([]api.ModelOption, error) {
-	if e, ok := p.Current().(api.ExecutionProvider); ok {
-		return e.Models(ctx)
-	}
-	return nil, errors.New("models unavailable")
-}
-func (p *NodeRoamingEngine) ChangeExecution(ctx context.Context, v api.ExecutionSettings, save func() error) error {
-	if e, ok := p.Current().(api.ExecutionProvider); ok {
-		return e.ChangeExecution(ctx, v, save)
-	}
-	return errors.New("execution configuration unavailable")
-}
-func (p *NodeRoamingEngine) ChangeWorkExecution(ctx context.Context, v api.WorkExecutionSettings, save func() error) error {
-	if e, ok := p.Current().(api.WorkExecutionProvider); ok {
-		return e.ChangeWorkExecution(ctx, v, save)
-	}
-	return errors.New("worker configuration unavailable")
-}
-func (p *NodeRoamingEngine) ChangeRuntime(ctx context.Context, v api.RuntimeSettings, save func() error) (api.RuntimeCheck, error) {
-	if e, ok := p.Current().(api.RuntimeConfigurator); ok {
-		return e.ChangeRuntime(ctx, v, save)
-	}
-	return api.RuntimeCheck{}, errors.New("runtime change unavailable")
-}
-func (p *NodeRoamingEngine) InterruptTurn(ctx context.Context, turn string, before func()) error {
-	if e, ok := p.Current().(exactTurnInterrupter); ok {
-		return e.InterruptTurn(ctx, turn, before)
-	}
-	return errors.New("exact turn interruption unavailable")
-}
-func (p *NodeRoamingEngine) AcknowledgePresentation(ctx context.Context, v api.Snapshot) error {
-	if e, ok := p.Current().(api.PresentationAcknowledger); ok {
-		return e.AcknowledgePresentation(ctx, v)
-	}
-	return nil
-}
 
 // ActivateNodeRoamingProduct changes product callbacks after the original
 // lifecycle is stopped. Old durable source receipts and journals stay intact.
@@ -312,6 +262,19 @@ func (s *Service) ActivateNodeRoamingLocal(other *Service) error {
 	s.initializer = init
 	s.productConnection = connection
 	s.mu.Unlock()
+	other.configurationMu.Lock()
+	runtimeFile, runtimeSettings := other.runtimeFile, other.runtimeSettings
+	executionFile, executionSettings := other.executionFile, other.executionSettings
+	workFile, workSettings := other.workExecutionFile, other.workExecutionSettings
+	providers := append([]api.ProviderInfo(nil), other.providers...)
+	probe, manage, guard := other.probeRuntime, other.manageRuntime, other.switchGuard
+	other.configurationMu.Unlock()
+	s.configurationMu.Lock()
+	s.runtimeFile, s.runtimeSettings = runtimeFile, runtimeSettings
+	s.executionFile, s.executionSettings = executionFile, executionSettings
+	s.workExecutionFile, s.workExecutionSettings = workFile, workSettings
+	s.providers, s.probeRuntime, s.manageRuntime, s.switchGuard = providers, probe, manage, guard
+	s.configurationMu.Unlock()
 	return nil
 }
 
@@ -326,4 +289,57 @@ func (s *Service) PrepareNodeRoaming(ctx context.Context, r NodeRoamingRequest) 
 		return NodeRoamingPlan{}, err
 	}
 	return c.PrepareNodeRoaming(ctx, r)
+}
+
+// Optional capabilities belong to the current concrete engine, rather than the
+// stable wrapper's method set. In particular unsupported local capabilities
+// stay unsupported, and Caelis settings continue to come from its native owner.
+func (s *Service) capabilityEngine() api.Engine {
+	e := s.engine
+	for {
+		p, ok := e.(*NodeRoamingEngine)
+		if !ok {
+			return e
+		}
+		e = p.Current()
+	}
+}
+func (s *Service) projectEngineRevision(revision uint64) uint64 {
+	if p, ok := s.engine.(*NodeRoamingEngine); ok {
+		p.mu.RLock()
+		swaps := p.swaps
+		p.mu.RUnlock()
+		return revision + (swaps << 32)
+	}
+	return revision
+}
+func (s *Service) projectEngineSnapshot(v api.Snapshot) api.Snapshot {
+	v.Revision = s.projectEngineRevision(v.Revision)
+	return v
+}
+
+func HasNativeNodeManagement(s *Service) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.nodeManagement != nil
+}
+func (m *nodeRoamingManagement) SetNodeCoordinator(ctx context.Context, r api.NodeCoordinatorSelection) (api.NodeCatalog, error) {
+	state, err := m.NodeRoamingController.NodeRoamingState(ctx)
+	if err != nil {
+		return api.NodeCatalog{}, err
+	}
+	if state.Enabled || state.Outcome == "unknown" {
+		if r.NodeID != state.CoordinatorNodeID {
+			return api.NodeCatalog{}, errors.New("disable automatic roaming before changing its coordinator")
+		}
+		catalog, err := m.NodeManagementController.NodeCatalog(ctx)
+		if err != nil {
+			return catalog, err
+		}
+		if r.ExpectedRevision != catalog.Revision {
+			return api.NodeCatalog{}, errors.New("node catalog changed")
+		}
+		return catalog, nil
+	}
+	return m.NodeManagementController.SetNodeCoordinator(ctx, r)
 }

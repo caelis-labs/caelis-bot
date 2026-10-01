@@ -11,18 +11,18 @@ import (
 
 // ModelSettingsAvailable observes an existing provider; it never opens a Runtime.
 func (s *Service) ModelSettingsAvailable() bool {
-	_, ok := s.engine.(api.ExecutionProvider)
+	_, ok := s.capabilityEngine().(api.ExecutionProvider)
 	return ok
 }
 
 func (s *Service) modelSettingsLocked(ctx context.Context) (productmanagement.ExecutionState, error) {
 	v, err := s.executionSettingsLocked(ctx)
 	activeProvider := s.runtimeSettings.Runtime
-	if p, ok := s.engine.(api.Provider); ok {
+	if p, ok := s.capabilityEngine().(api.Provider); ok {
 		activeProvider = p.ProviderInfo().ID
 	}
 	state := productmanagement.ExecutionState{Conversation: v, ConversationDefault: activeProvider == "caelis"}
-	if _, ok := s.engine.(api.WorkExecutionProvider); ok {
+	if _, ok := s.capabilityEngine().(api.WorkExecutionProvider); ok {
 		work := s.workExecutionSettings
 		state.Work = &work
 	}

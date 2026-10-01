@@ -51,7 +51,7 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 	// Live provider replacement needs a separate ownership/migration transaction.
 	// Never reuse the active engine's bindings for a different provider.
 	activeProvider := s.runtimeSettings.Runtime
-	if p, ok := s.engine.(api.Provider); ok {
+	if p, ok := s.capabilityEngine().(api.Provider); ok {
 		activeProvider = p.ProviderInfo().ID
 	}
 	if s.switchGuard != nil {
@@ -73,7 +73,7 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 		s.runtimeSettings = value
 		return api.RuntimeCheck{Saved: true, Message: "已检测并保存，下次启动切换运行时；当前对话保持原连接。"}, nil
 	}
-	e, ok := s.engine.(api.RuntimeConfigurator)
+	e, ok := s.capabilityEngine().(api.RuntimeConfigurator)
 	if !ok {
 		return api.RuntimeCheck{}, errors.New("当前后端不支持修改连接配置")
 	}
