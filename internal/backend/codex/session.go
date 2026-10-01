@@ -47,6 +47,7 @@ type SessionOptions struct {
 	// ForceOwned is reserved for isolated leased runtimes; default local discovery is unchanged.
 	ForceOwned                           bool
 	Admission                            api.ExecutionAdmission
+	DispatchSource                       func(context.Context, api.WorkDispatchSource) (api.WorkDispatchSource, error)
 	Diagnostics                          *diagnosticlog.Logger
 	WorkExecution                        api.WorkExecutionSettings
 	Execution                            api.ExecutionSettings

@@ -375,6 +375,11 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	if e != nil {
 		return api.Task{}, e
 	}
+	if gate, ok := m.executionAdmission.(api.WorkRuntimeAdmission); ok {
+		if err := gate.CheckWorkRuntime(ctx, target, work); err != nil {
+			return api.Task{}, err
+		}
+	}
 	source, e := m.authorizeWork(ctx, target)
 	if e != nil {
 		return api.Task{}, e
@@ -539,6 +544,11 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	m.mu.Unlock()
 	if gate, ok := m.executionAdmission.(api.WorkTargetAdmission); ok {
 		if err := gate.CheckWorkTarget(ctx, target); err != nil {
+			return api.Task{}, err
+		}
+	}
+	if gate, ok := m.executionAdmission.(api.WorkRuntimeAdmission); ok {
+		if err := gate.CheckWorkRuntime(ctx, target, work); err != nil {
 			return api.Task{}, err
 		}
 	}
