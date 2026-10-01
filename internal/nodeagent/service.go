@@ -48,6 +48,7 @@ type Options struct {
 	RuntimeOwner                               nodeplane.RuntimeProofPort
 	ManagedProduct                             ManagedProductPort
 	ManagedStart                               ManagedStartPort
+	OwnedRuntimeSettings                       func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error)
 }
 
 const MaxOperations = 4096
