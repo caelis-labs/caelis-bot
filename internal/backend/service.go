@@ -55,6 +55,7 @@ type Service struct {
 	productConnection           ProductConnectionController
 	remoteManagement            RemoteManagementController
 	nodeManagement              api.NodeManagementController
+	notebookSync                NotebookSyncController
 }
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string), openURL, reveal func(string) error) *Service {

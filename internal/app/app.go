@@ -22,6 +22,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodes"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
+	"github.com/caelis-labs/caelis-bot/internal/notebooksync"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 )
@@ -78,6 +79,10 @@ type Application struct {
 	initialization     *bot.Initializer
 	closeOnce          sync.Once
 	closeErr           error
+
+	notebookSync         *notebooksync.Controller
+	notebookSyncInterval time.Duration
+	notebookSyncCancel   context.CancelFunc
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -214,6 +219,9 @@ func requireAssistant(engine api.Engine, id string, loc ...i18n.Locale) error {
 // PreparePersonal makes local data available even before selecting/logging into
 // a Runtime. It starts no model, scheduler, tool transport or execution session.
 func (a *Application) PreparePersonal() error {
+	if err := a.notebookSyncStartupGuard(); err != nil {
+		return err
+	}
 	if active := ActiveNodeRoamingApplication(a); active != a {
 		return active.PreparePersonal()
 	}
@@ -319,7 +327,12 @@ func (a *Application) preparePersonalLocked() error {
 
 // Start runs only after native surfaces are ready. It binds the private tools
 // before connecting, then starts bounded observation and resident scheduling.
-func (a *Application) Start() error {
+func (a *Application) Start() (startErr error) {
+	defer func() {
+		if startErr == nil {
+			a.startNotebookSync()
+		}
+	}()
 	a.startMu.Lock()
 	defer a.startMu.Unlock()
 	a.mu.Lock()
@@ -330,6 +343,9 @@ func (a *Application) Start() error {
 	}
 	if started {
 		return nil
+	}
+	if err := a.notebookSyncStartupGuard(); err != nil {
+		return err
 	}
 	// Persisted native authority must be resolved before the original source
 	// can open personal data, bind tools, or connect to a Runtime.
@@ -515,6 +531,7 @@ func (a *Application) Close() error {
 		}
 		a.mu.Unlock()
 		a.startMu.Unlock()
+		a.closeNotebookSync()
 		if a.setup != nil {
 			a.setup.mu.Lock()
 			a.setup.codex.Close()

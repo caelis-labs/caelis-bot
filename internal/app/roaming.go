@@ -443,6 +443,9 @@ func (a *Application) PrepareRoamingBootstrap(ctx context.Context, nodeID string
 func (a *Application) retireRoamingSource(ctx context.Context) error {
 	a.mu.Lock()
 	a.sourceRetired = true
+	if a.notebookSyncCancel != nil {
+		a.notebookSyncCancel()
+	}
 	a.started = false
 	if a.cancel != nil {
 		a.cancel()

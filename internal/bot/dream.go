@@ -254,3 +254,22 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 	}
 	return r.engine.Submit(ctx, in, files)
 }
+
+// CompletedNotebookHandoff reads only the current confirmed Dream output while
+// the caller has paused admission. It never promotes a pending/edited temporary
+// file to portable context and does not create a Dream or consume the file.
+func (r *Runtime) CompletedNotebookHandoff() ([]byte, error) {
+	r.step.Lock()
+	defer r.step.Unlock()
+	d := r.dream
+	p, ok := r.engine.(api.ConversationRuntime)
+	if d == nil || !ok || d.state.Attempt == nil {
+		return nil, nil
+	}
+	a := d.state.Attempt
+	current := p.ConversationState()
+	if !a.Done || !a.Ready || a.Outcome != "accepted" || !current.Observed || current.Session != a.Session || current.Turn != a.Turn || current.Status != "completed" {
+		return nil, nil
+	}
+	return d.vault.CompletedHandoff(a.ID)
+}
