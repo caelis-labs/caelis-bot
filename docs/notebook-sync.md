@@ -223,3 +223,12 @@ restriction. The ordinary desktop APP remains the original profile's controller
 for remote source backup and return to this machine. A GUI automation blocker is
 therefore separate from successful authenticated headless control; do not claim
 full desktop round-trip acceptance using headless wire calls alone.
+
+Packaged enrollment artifact preflight can run without starting a Bot:
+`caelis-node inspect-node-artifacts`. It verifies both Linux architectures through
+`DefaultNodeAgentArtifact` and, on macOS, both signed native helpers through the
+existing checksum/Mach-O validators. It prints the verified build source, package
+paths and artifact digests; it opens no profile, Runtime, credential or SSH channel.
+APP executables resolve `Contents/Resources/NodeAgent`; standalone helpers resolve
+only their adjacent manifest. Build revision injection and all manifest/source/
+checksum/architecture checks apply to standalone host helpers as to APP.

@@ -31,12 +31,23 @@ func DefaultNativeNodeHost() (string, error) {
 	return defaultNativeNodeExecutable("caelis-node")
 }
 
+// Resolve only native executable-relative package locations: the desktop APP
+// uses Contents/Resources/NodeAgent; standalone helpers use their adjacent
+// manifest. There is no CWD/env/wire-selected fallback or manifest search.
+func nodeAgentArtifactDirectory(executable string) string {
+	directory := filepath.Dir(executable)
+	if filepath.Base(directory) == "MacOS" && filepath.Base(filepath.Dir(directory)) == "Contents" {
+		return filepath.Join(filepath.Dir(directory), "Resources", "NodeAgent")
+	}
+	return directory
+}
+
 func defaultNativeNodeExecutable(program string) (string, error) {
 	executable, err := os.Executable()
 	if err != nil || nodeAgentBuildRevision == "" {
 		return "", errors.New("packaged native join helper unavailable")
 	}
-	directory := filepath.Join(filepath.Dir(executable), "..", "Resources", "NodeAgent")
+	directory := nodeAgentArtifactDirectory(executable)
 	file := filepath.Join(directory, "manifest.json")
 	info, err := os.Lstat(file)
 	if err != nil || !info.Mode().IsRegular() || info.Size() > 16<<10 {
@@ -110,14 +121,15 @@ type nodeAgentManifestEntry struct {
 }
 
 // DefaultNodeAgentArtifact resolves only the verified headless payload in this
-// installed APP. Source checkouts without packaged payloads fail clearly; they
+// installed APP or adjacent standalone helper package. Source checkouts
+// without packaged payloads fail clearly; they
 // must use an explicitly reviewed native resolver for temporary acceptance.
 func DefaultNodeAgentArtifact(arch string) (nodeagent.Artifact, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return nodeagent.Artifact{}, errors.New("packaged node agent unavailable")
 	}
-	directory := filepath.Join(filepath.Dir(executable), "..", "Resources", "NodeAgent")
+	directory := nodeAgentArtifactDirectory(executable)
 	return readNodeAgentArtifact(directory, arch, nodeAgentBuildRevision)
 }
 

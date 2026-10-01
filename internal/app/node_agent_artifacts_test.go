@@ -88,3 +88,15 @@ func TestNodeAgentArtifactRejectsMixedSourceChangedBytesAndArchitecture(t *testi
 		t.Fatal("manifest path escape accepted")
 	}
 }
+
+func TestNodeAgentArtifactDirectorySupportsAppAndStandalonePackage(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"/App.app/Contents/MacOS/caelis-bot", "/App.app/Contents/Resources/NodeAgent"},
+		{"/App.app/Contents/Resources/NodeAgent/caelis-node-darwin-arm64", "/App.app/Contents/Resources/NodeAgent"},
+		{"/opt/caelis-node-package/caelis-node", "/opt/caelis-node-package"},
+	} {
+		if got := nodeAgentArtifactDirectory(pair[0]); got != pair[1] {
+			t.Fatalf("executable %s: got %s, want %s", pair[0], got, pair[1])
+		}
+	}
+}

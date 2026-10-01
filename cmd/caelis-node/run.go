@@ -25,6 +25,8 @@ import (
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "inspect-node-artifacts":
+			return inspectNodeArtifacts(args[1:], out)
 		case "notebook-owner":
 			return runNotebookOwner(ctx, args[1:], out)
 		case "deploy-joined-roaming":
