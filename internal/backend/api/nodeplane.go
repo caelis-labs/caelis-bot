@@ -17,7 +17,8 @@ type NodeCatalog struct {
 	Broker        *NodeBroker        `json:"broker"`
 	// Native journals expose original unresolved references after APP remount
 	// or restart, including installation operations with no readable config.
-	PendingOperations []NodeOperationRef `json:"pendingOperations"`
+	PendingOperations  []NodeOperationRef `json:"pendingOperations"`
+	PendingEnrollments []string           `json:"pendingEnrollments,omitempty"`
 }
 
 type NodePairedRuntime struct {
@@ -181,6 +182,7 @@ type NodeRuntimeConfiguration struct {
 // Enrollment accepts a user-selected SSH destination, not a filesystem path,
 // key, socket or runtime command. Outgoing enrollment uses native instructions.
 type NodeAddRequest struct {
+	OperationID      string   `json:"operationId,omitempty"`
 	Label            string   `json:"label"`
 	Join             NodeJoin `json:"join"`
 	SSHDestination   string   `json:"sshDestination"`
@@ -202,6 +204,9 @@ type NodeJoinInstructions struct {
 }
 
 type NodeAddResult struct {
+	OperationID      string                `json:"operationId,omitempty"`
+	Outcome          string                `json:"outcome,omitempty"`
+	Reason           string                `json:"reason,omitempty"`
 	Node             NodeInfo              `json:"node"`
 	JoinInstructions *NodeJoinInstructions `json:"joinInstructions"`
 }
@@ -220,6 +225,7 @@ type NodeManagementController interface {
 	ChangeNodeConfiguration(context.Context, NodeManagementRequest) (NodeOperationReceipt, error)
 	ReconcileNodeOperation(context.Context, NodeOperationRef) (NodeOperationReceipt, error)
 	AddNode(context.Context, NodeAddRequest) (NodeAddResult, error)
+	ReconcileNodeEnrollment(context.Context, string) (NodeAddResult, error)
 	DetectNode(context.Context, string) (NodeInfo, error)
 	NodeJoinInstructions(context.Context, string) (NodeJoinInstructions, error)
 	SetNodeCoordinator(context.Context, NodeCoordinatorSelection) (NodeCatalog, error)

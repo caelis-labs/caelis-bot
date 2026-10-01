@@ -262,6 +262,16 @@ func (m *nodeManagement) AddNode(ctx context.Context, r api.NodeAddRequest) (api
 	if m.setup == nil {
 		return api.NodeAddResult{}, errors.New("node enrollment is unavailable")
 	}
+	if r.OperationID != "" {
+		// Original native enrollment records are consulted before a live catalog
+		// guard: the first Add may already have changed that catalog.
+		if _, ok := m.setup.(interface {
+			ReconcileEnrollment(context.Context, string) (api.NodeAddResult, error)
+		}); ok {
+			return m.setup.Add(ctx, r)
+		}
+		return api.NodeAddResult{OperationID: r.OperationID, Outcome: "failed", Reason: "unavailable"}, nil
+	}
 	if r.Label == "" || (r.Join != api.NodeSSH && r.Join != api.NodeOutgoing) || (r.Join == api.NodeSSH && r.SSHDestination == "") || (r.Join == api.NodeOutgoing && r.SSHDestination != "") {
 		return api.NodeAddResult{}, errors.New("invalid node enrollment")
 	}
@@ -280,6 +290,18 @@ func (m *nodeManagement) AddNode(ctx context.Context, r api.NodeAddRequest) (api
 		return api.NodeAddResult{}, errors.New("enrollment did not establish a verified node")
 	}
 	return result, nil
+}
+
+func (m *nodeManagement) ReconcileNodeEnrollment(ctx context.Context, id string) (api.NodeAddResult, error) {
+	if !productIdentifier.MatchString(id) {
+		return api.NodeAddResult{}, errors.New("invalid original enrollment")
+	}
+	if port, ok := m.setup.(interface {
+		ReconcileEnrollment(context.Context, string) (api.NodeAddResult, error)
+	}); ok {
+		return port.ReconcileEnrollment(ctx, id)
+	}
+	return api.NodeAddResult{OperationID: id, Outcome: "unknown", Reason: "unavailable"}, nil
 }
 
 func (m *nodeManagement) DetectNode(ctx context.Context, nodeID string) (api.NodeInfo, error) {

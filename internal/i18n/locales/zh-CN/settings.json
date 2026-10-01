@@ -292,7 +292,7 @@
   "nodeJoinSSH": "已有 SSH 连接",
   "nodeJoinOutgoing": "主动连接",
   "nodeJoinWaiting": "等待该节点加入。",
-  "nodeAddUnknown": "尚未确认节点是否添加成功，请先刷新节点列表再操作。",
+  "nodeAddUnknown": "原节点添加操作的结果尚未确认。请先核对原操作回执，再添加其他节点。",
   "nodeProgramFailed": "尚未确认程序更改。如结果未知，请核对原操作。",
   "nodeReviewedVersionHelp": "选择要在此节点安装的已审核版本。",
   "nodeCoordinatorHelp": "选择一个保持在线的节点。自动切换还需要连接可达且运行程序符合条件。",
@@ -330,5 +330,11 @@
   "nodeRoamingStartBot": "准备就绪后，在 {name} 上启动 Bot。",
   "nodeRoamingPrepareService": "在 {name} 上准备已确认的服务。",
   "nodeRoamingConnectOutgoing": "连接已登记的主动接入节点 {name}。",
-  "nodeCoordinatorLocked": "请先停止自动切换，再修改常开节点。操作结果尚未确认时，请先查询原操作结果。"
+  "nodeCoordinatorLocked": "请先停止自动切换，再修改常开节点。操作结果尚未确认时，请先查询原操作结果。",
+  "nodeAddFailed": "节点未添加成功。请检查目标地址与已有 SSH 访问权限后重试。",
+  "nodeAddDNS": "无法解析 SSH 目标。请检查地址或 SSH 别名后重试。",
+  "nodeAddAuthentication": "SSH 访问被拒绝。请检查已有 SSH 授权后重试。",
+  "nodeAddHostKey": "无法验证 SSH 主机密钥。请检查目标地址与已信任的主机密钥后重试。",
+  "nodeAddLimit": "添加历史已达上限，本次未添加节点。已有操作回执需要保留。",
+  "nodeAddReceiptUnavailable": "无法安全保存添加记录，本次未添加节点。请检查应用的私有数据位置后重试。"
 }
