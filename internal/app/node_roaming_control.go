@@ -87,27 +87,28 @@ type nodeRoamingDocument struct {
 	Outcome                  string `json:"outcome"`
 }
 type nodeRoamingControl struct {
-	op                 sync.Mutex
-	mu                 sync.Mutex
-	app                *Application
-	options            NodeRoamingOptions
-	proxy              *backend.NodeRoamingEngine
-	doc                nodeRoamingDocument
-	state              backend.NodeRoamingState
-	stage              NodeRoamingStage
-	registrations      map[string]NodeRegistration
-	product            *productEngine
-	lease              nodeplane.Lease
-	location           NodeRoamingProductLocation
-	local              *Application
-	ctx                context.Context
-	cancel             context.CancelFunc
-	workers            sync.WaitGroup
-	closed             bool
-	prepareSource      func(context.Context, string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error)
-	clientFactory      productClientFactory
-	startLocal         func(context.Context, *Application) error
-	prepareLocalSource func(context.Context, *Application, string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error)
+	op                  sync.Mutex
+	mu                  sync.Mutex
+	app                 *Application
+	options             NodeRoamingOptions
+	proxy               *backend.NodeRoamingEngine
+	doc                 nodeRoamingDocument
+	state               backend.NodeRoamingState
+	stage               NodeRoamingStage
+	registrations       map[string]NodeRegistration
+	product             *productEngine
+	lease               nodeplane.Lease
+	location            NodeRoamingProductLocation
+	local               *Application
+	pendingLocalRestore bool
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	workers             sync.WaitGroup
+	closed              bool
+	prepareSource       func(context.Context, string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error)
+	clientFactory       productClientFactory
+	startLocal          func(context.Context, *Application) error
+	prepareLocalSource  func(context.Context, *Application, string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error)
 }
 
 // AttachNodeRoaming is called before APP Start or Wails service publication.
@@ -136,7 +137,7 @@ func AttachNodeRoaming(a *Application, o NodeRoamingOptions) error {
 		return err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &nodeRoamingControl{app: a, options: o, proxy: proxy, ctx: ctx, cancel: cancel, prepareSource: a.PrepareRoamingBootstrap, clientFactory: newSSHProductClient, doc: doc, registrations: map[string]NodeRegistration{}, startLocal: func(_ context.Context, a *Application) error { return a.Start() }, prepareLocalSource: func(ctx context.Context, a *Application, id string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error) {
+	c := &nodeRoamingControl{app: a, options: o, proxy: proxy, ctx: ctx, cancel: cancel, prepareSource: a.PrepareRoamingBootstrap, clientFactory: newSSHProductClient, doc: doc, registrations: map[string]NodeRegistration{}, pendingLocalRestore: doc.LocalGenerationDirectory != "", startLocal: func(_ context.Context, a *Application) error { return a.Start() }, prepareLocalSource: func(ctx context.Context, a *Application, id string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error) {
 		return a.PrepareRoamingBootstrap(ctx, id)
 	}}
 	c.state = backend.NodeRoamingState{Available: o.PreparePlan != nil && o.Preflight != nil && o.Stage != nil && o.ResolveProduct != nil && o.RestoreLocal != nil, State: "disabled", Enabled: doc.Enabled, CoordinatorNodeID: doc.CoordinatorNodeID, OperationID: doc.OperationID, Outcome: doc.Outcome}
@@ -204,6 +205,27 @@ func loadNodeRoamingDocument(filename string) (nodeRoamingDocument, error) {
 	}
 	if doc.Phase == "active" && (!doc.Enabled || doc.StageOperationID == "" || doc.BotID == "" || !doc.SourceRetiredIntent) {
 		return doc, errors.New("incomplete active roaming authority")
+	}
+	if doc.StageOperationID != "" && !productIdentifier.MatchString(doc.StageOperationID) {
+		return doc, errors.New("invalid original stage operation")
+	}
+	switch doc.Phase {
+	case "preparing":
+		if doc.Enabled || doc.OperationKind != "enable" || doc.Outcome != "unknown" || doc.SourceRetiredIntent || doc.StageOperationID == "" {
+			return doc, errors.New("inconsistent native preparation intent")
+		}
+	case "retiring-source", "staging":
+		if doc.Enabled || doc.OperationKind != "enable" || doc.Outcome != "unknown" || !doc.SourceRetiredIntent || doc.StageOperationID == "" || (doc.Phase == "staging" && doc.BotID == "") {
+			return doc, errors.New("inconsistent source retirement intent")
+		}
+	case "quiescing", "restoring-local":
+		if !doc.Enabled || doc.OperationKind != "disable" || doc.Outcome != "unknown" || !doc.SourceRetiredIntent || doc.StageOperationID == "" || doc.BotID == "" {
+			return doc, errors.New("inconsistent native disable intent")
+		}
+	case "local":
+		if doc.Enabled || (doc.SourceRetiredIntent && doc.LocalGenerationDirectory == "") {
+			return doc, errors.New("missing restored native generation")
+		}
 	}
 	if doc.SourceBackend != "" && doc.SourceBackend != "codex" && doc.SourceBackend != "caelis" {
 		return doc, errors.New("invalid original source backend")
@@ -582,6 +604,7 @@ func (c *nodeRoamingControl) installLocal(ctx context.Context, local *Applicatio
 	}
 	c.mu.Lock()
 	c.local = local
+	c.pendingLocalRestore = false
 	c.mu.Unlock()
 	return nil
 }
@@ -981,7 +1004,7 @@ func NodeRoamingOwnsExecution(a *Application) bool {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.state.Enabled || c.state.Outcome == "unknown" || c.local != nil
+	return c.state.Enabled || c.state.Outcome == "unknown" || c.local != nil || c.pendingLocalRestore
 }
 
 // GuardNodeRoamingCoordinator protects native configuration even when callers

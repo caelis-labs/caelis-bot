@@ -612,6 +612,9 @@ func (n *nativeNodeManagement) outgoingInstructions(_ context.Context, r NodeReg
 }
 
 func (n *nativeNodeManagement) SetCoordinator(ctx context.Context, r api.NodeCoordinatorSelection) (api.NodeCatalog, error) {
+	if err := GuardNodeRoamingCoordinator(n.app, r.NodeID); err != nil {
+		return api.NodeCatalog{}, err
+	}
 	n.controlMu.Lock()
 	defer n.controlMu.Unlock()
 	c, err := n.Catalog(ctx)
