@@ -20,6 +20,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
@@ -787,7 +788,16 @@ func nodeLocalHealth(ctx context.Context, a *Application, b api.NodeBackend) (no
 		_, err := a.nodeRegistry.WorkRuntimeFor(api.WorkTarget{NodeID: api.LocalNodeID, Backend: string(b), Role: api.RoleWorker})
 		workerEligible = err == nil
 	}
-	return nodeagent.NativeHealth{AuthenticationKnown: state.State == "ready" || state.State == "login" || state.State == "models", Authenticated: state.State == "ready", HealthKnown: state.Installation.Installed, Healthy: state.State == "ready", WorkerEligible: workerEligible, SharedHost: b == api.NodeCaelis}, nil
+	health := nodeagent.NativeHealth{AuthenticationKnown: state.State == "ready" || state.State == "login" || state.State == "models", Authenticated: state.State == "ready", HealthKnown: state.Installation.Installed, Healthy: state.State == "ready", WorkerEligible: workerEligible, SharedHost: b == api.NodeCaelis}
+	if b == api.NodeCodex && a.Backend.ProviderInfo().ID == "codex" {
+		if native, ok := a.engine.(*codex.Session); ok {
+			capabilities := native.ApplicationCapabilities()
+			health.ManagedOwner = native.OwnsLiveRuntime()
+			health.Fenceable = health.ManagedOwner && codex.OwnedRuntimeSupported()
+			health.BotEligible = health.Fenceable && capabilities.NativeFiles && capabilities.WorkerExecution && capabilities.ScheduledActivation
+		}
+	}
+	return health, nil
 }
 
 var _ nodeplane.CatalogAgent = (*nativeNodeManagement)(nil)
