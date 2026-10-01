@@ -14,10 +14,68 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/coder/websocket"
 )
+
+func TestBootstrapFenceUsesActualOwnedAttachableHandle(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	binary, pidFile := filepath.Join(dir, "codex"), filepath.Join(dir, "pid")
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
+	body := "#!/bin/sh\nexec " + quote(executable) + " -test.run='^TestWorkerProcessHelper$' -- " + quote(pidFile) + " \"$@\"\n"
+	if err = os.WriteFile(binary, []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	client, err := Start(testContext(t), Options{Binary: binary, Directory: dir, CLIOnly: true, Attachable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	s := NewSession(SessionOptions{})
+	s.client = client
+	if !s.OwnsLiveRuntime() {
+		t.Fatal("retained owned launch was not recognized")
+	}
+	pidData, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(pidData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := exec.Command("/bin/sleep", "60")
+	if err = other.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Process.Kill(); _ = other.Wait() }()
+	started := time.Now()
+	if err = s.FenceOwnedForBootstrap(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(started) >= 4*time.Second {
+		t.Fatal("owned stop exceeded power acknowledgment budget")
+	}
+	if err = syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatal("owned process exit was not confirmed", err)
+	}
+	if err = syscall.Kill(other.Process.Pid, 0); err != nil {
+		t.Fatal("unrelated process was targeted", err)
+	}
+	if s.OwnsLiveRuntime() {
+		t.Fatal("stopped owner remained a live source")
+	}
+	shared := NewSession(SessionOptions{})
+	if shared.FenceOwnedForBootstrap(testContext(t)) == nil {
+		t.Fatal("unowned session supplied stopped proof")
+	}
+}
 
 // This is a real child process and standard private Unix/WebSocket App Server
 // endpoint. No account secrets, external connection or model request are used.
