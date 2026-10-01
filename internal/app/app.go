@@ -69,6 +69,7 @@ type Application struct {
 	tasks              *tasks.Manager
 	nodeRegistry       *nodes.Registry
 	workerNodes        *workerNodeController
+	registeredWorkers  RegisteredWorkerAgentLookup
 	product            *productEngine
 	personal           *botmemory.Store
 	notebook           *notebook.Vault
