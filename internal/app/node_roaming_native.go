@@ -42,41 +42,20 @@ type NodeRoamingNativeOptions struct {
 	RuntimeSettings     func(context.Context, NodeRegistration, api.NodeBackend) (api.RuntimeSettings, error)
 }
 
-type NodeRoamingSupervisorPlan struct {
-	Version      int                           `json:"version"`
-	PlanID       string                        `json:"planId"`
-	OperationID  string                        `json:"operationId"`
-	NodeID       string                        `json:"nodeId"`
-	Helper       string                        `json:"helper"`
-	HelperSHA256 string                        `json:"helperSha256"`
-	Directory    string                        `json:"directory"`
-	Broker       *NodeRoamingBrokerDeployment  `json:"broker"`
-	Managed      *NodeRoamingManagedDeployment `json:"managed"`
-}
-type NodeRoamingBrokerDeployment struct {
-	BotID, NodeID, Profile, Socket, PeersFile, BootstrapPeersFile, PreferredNodeID string
-}
-type NodeRoamingManagedDeployment struct {
-	BotID, NodeID, Backend, AgentDirectory, GenerationRoot, AuthFile, CodexBinary, RuntimeDirectory string
-	CaelisBinary, CaelisStore, Model                                                                string
-	BrokerNodeID, BrokerSocket, BrokerSSHDestination, BrokerHelper, WorkersFile                     string
-	JoinSSHDestination, JoinHelper, JoinDirectory                                                   string
-}
-type NodeRoamingWorkerRuntime struct {
-	Backend   string                    `json:"backend"`
-	Binary    string                    `json:"binary"`
-	Store     string                    `json:"store,omitempty"`
-	Model     string                    `json:"model,omitempty"`
-	Execution api.WorkExecutionSettings `json:"execution"`
-}
+// The paired deployment port and SSH lifecycle use one closed native schema.
+type NodeRoamingSupervisorPlan = nodeagent.RoamingSupervisorPlan
+type NodeRoamingBrokerDeployment = nodeagent.RoamingBrokerDeployment
+type NodeRoamingManagedDeployment = nodeagent.RoamingManagedDeployment
+type NodeRoamingWorkerRuntime = nodeagent.RoamingWorkerRuntime
 type roamingNativeNode struct {
-	Registration     NodeRegistration
-	Plan             NodeRoamingSupervisorPlan
-	HostHelper       string
-	AgentSocket      string
-	BrokerPeerSocket string
-	RuntimeBindings  []NodeRoamingWorkerRuntime
-	Preferences      nodeagent.ExecutionPreferences
+	Registration      NodeRegistration
+	Plan              NodeRoamingSupervisorPlan
+	HostHelper        string
+	AgentSocket       string
+	BrokerPeerSocket  string
+	RuntimeBindings   []NodeRoamingWorkerRuntime
+	Preferences       nodeagent.ExecutionPreferences
+	CompanionArtifact *nodeagent.Artifact
 }
 type roamingNativePlan struct {
 	ID                                                             string
@@ -154,6 +133,18 @@ func DefaultNodeRoamingOptions(a *Application, options ...NodeRoamingNativeOptio
 		}
 		if r.Join == api.NodeSSH {
 			return nodeagent.NewSSHForegroundClient(ctx, nodeagent.SSHConfig{Target: r.SSHDestination}, r.HelperPath, r.Directory, r.ID)
+		}
+		if r.Join == api.NodeOutgoing {
+			port, close, e := n.outgoingPort(ctx, r.ID)
+			if e != nil {
+				return nil, e
+			}
+			peer, ok := port.(nodeplane.CatalogAgent)
+			if !ok {
+				close()
+				return nil, errors.New("paired outgoing catalog unavailable")
+			}
+			return peer, nil
 		}
 		return nil, errors.New("outgoing native catalog requires its independently registered route")
 	}, ExecutionState: func() (string, *api.WorkTarget) {
@@ -330,8 +321,30 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			return p, errors.New("duplicate native node enrollment")
 		}
 		seen[r.ID] = true
+		var outgoing *nodeagent.RoamingDeploymentMetadata
+		var companionArtifact *nodeagent.Artifact
 		if r.Join == api.NodeOutgoing {
-			return p, fmt.Errorf("node %s needs an independently configured managed starter before deployment", r.Label)
+			if in.Coordinator.Join != api.NodeSSH || r.ID == in.Coordinator.ID || r.BrokerNodeID != in.Coordinator.ID {
+				return p, errors.New("outgoing candidate must use its enrolled designated SSH coordinator")
+			}
+			metadata, err := n.outgoingMetadata(ctx, r.ID)
+			if err != nil || metadata.OS != "linux" {
+				return p, errors.Join(errors.New("outgoing native target ownership unavailable"), err)
+			}
+			artifact, err := n.options.Artifact(metadata.Architecture)
+			if err != nil || artifact.HostPath == "" || artifact.HostExpectedSHA256 == "" || metadata.HelperSHA256 != "" && artifact.HostExpectedSHA256 != metadata.HelperSHA256 || nodeagent.VerifyArtifact(artifact) != nil {
+				return p, errors.New("outgoing companion does not match verified packaged host bytes")
+			}
+			if metadata.Route.Target != r.SSHDestination || metadata.Route.Helper != in.Coordinator.HelperPath {
+				return p, errors.New("actual outward pairing differs from enrolled coordinator")
+			}
+			if metadata.HelperSHA256 == "" {
+				companionArtifact = &artifact
+				metadata.HelperSHA256 = artifact.HostExpectedSHA256
+			}
+			outgoing = &metadata
+			r.Directory = metadata.Directory
+			r.HostHelperPath = metadata.Helper
 		}
 		dir := filepath.Join(r.Directory, "roaming-"+nativeRoamingKey(in.OperationID))
 		helper := r.HostHelperPath
@@ -343,6 +356,8 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			r.Join = api.NodeLocal
 			r.Directory = filepath.Join(n.app.root, "nodeplane")
 			r.HelperPath, r.HostHelperPath = host, host
+		} else if outgoing != nil {
+			sha = outgoing.HelperSHA256
 		} else {
 			if validateNodeRegistration(r) != nil || r.Join != api.NodeSSH || helper == "" {
 				return p, fmt.Errorf("node %s needs a verified enrolled host companion", r.Label)
@@ -442,7 +457,7 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 				pref.Worker = configuration.Configuration.Main
 			}
 		}
-		p.Nodes = append(p.Nodes, roamingNativeNode{Registration: r, Plan: plan, HostHelper: helper, AgentSocket: filepath.Join(m.AgentDirectory, "agent.sock"), RuntimeBindings: bindings, Preferences: pref})
+		p.Nodes = append(p.Nodes, roamingNativeNode{Registration: r, Plan: plan, HostHelper: helper, AgentSocket: filepath.Join(m.AgentDirectory, "agent.sock"), RuntimeBindings: bindings, Preferences: pref, CompanionArtifact: companionArtifact})
 		foundCoordinator = foundCoordinator || r.ID == in.Coordinator.ID
 		if r.ID == in.Coordinator.ID {
 			p.Coordinator = r
@@ -611,6 +626,12 @@ func (n *roamingNativeAssembly) preflight(ctx context.Context, in NodeRoamingSta
 			}
 			continue
 		}
+		if x.Registration.Join == api.NodeOutgoing {
+			if e = n.prepareOutgoing(ctx, p, x, "preflight"); e != nil {
+				return e
+			}
+			continue
+		}
 		// Inspect the fixed enrolled helper and the target's own existing outbound
 		// authorization before any source fence or deployment write.
 		script := "test -x " + nodeShellQuote(x.HostHelper) + " && test \"$(sha256sum " + nodeShellQuote(x.HostHelper) + " | cut -d ' ' -f 1)\" = " + nodeShellQuote(x.Plan.HelperSHA256)
@@ -734,6 +755,15 @@ func (n *roamingNativeAssembly) provision(ctx context.Context, p roamingNativePl
 	}
 	bootstrap := peers{Version: 1, BotID: p.BotID, Peers: []peer{{p.SourceNodeID, api.NodeBackend(p.SourceBackend), p.BootstrapSocket}}}
 	for _, x := range p.Nodes {
+		if x.Registration.Join == api.NodeOutgoing {
+			if e := n.stageOutgoingCompanion(ctx, x); e != nil {
+				return e
+			}
+			if e := n.prepareOutgoing(ctx, p, x, "prepare"); e != nil {
+				return e
+			}
+			continue
+		}
 		workers := nativeRoamingWorkers(p, x)
 		files := map[string]any{"workers.json": workers, "supervisor.json": x.Plan, "agent/node.json": struct {
 			ID string `json:"id"`
@@ -815,6 +845,13 @@ func (n *roamingNativeAssembly) provision(ctx context.Context, p roamingNativePl
 }
 func (n *roamingNativeAssembly) launch(ctx context.Context, x roamingNativeNode) error {
 	planfile := filepath.Join(x.Plan.Directory, "supervisor.json")
+	if x.Registration.Join == api.NodeOutgoing {
+		result, e := n.outgoingDeployment(ctx, x, "start", "", "")
+		if e != nil || result.Outcome != "accepted" {
+			return errors.Join(errors.New("original outgoing supervisor start unconfirmed; reconcile without replay"), e)
+		}
+		return nil
+	}
 	if x.Registration.ID != api.LocalNodeID {
 		script := "umask 077; nohup " + nodeShellQuote(x.HostHelper) + " supervise-roaming --plan-file " + nodeShellQuote(planfile) + " < /dev/null > " + nodeShellQuote(filepath.Join(x.Plan.Directory, "supervisor.log")) + " 2>&1 &"
 		return runRoamingSSH(ctx, x.Registration.SSHDestination, script, nil)
@@ -847,7 +884,11 @@ func dialRoamingNode(ctx context.Context, x roamingNativeNode) (*nodeagent.Clien
 	if x.Registration.ID == api.LocalNodeID {
 		return nodeagent.Dial(ctx, x.AgentSocket, x.Registration.ID)
 	}
-	return nodeagent.NewSSHClient(ctx, nodeagent.SSHConfig{Target: x.Registration.SSHDestination}, x.Registration.HelperPath, x.AgentSocket, x.Registration.ID)
+	socket := x.AgentSocket
+	if x.Registration.Join == api.NodeOutgoing {
+		socket = x.BrokerPeerSocket
+	}
+	return nodeagent.NewSSHClient(ctx, nodeagent.SSHConfig{Target: x.Registration.SSHDestination}, x.Registration.HelperPath, socket, x.Registration.ID)
 }
 func boundedRoamingRetry(ctx context.Context, f func(context.Context) error) error {
 	deadline, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -1111,6 +1152,11 @@ func (s *roamingNativeSession) marker(ctx context.Context, state string) error {
 		if x.Registration.ID == api.LocalNodeID {
 			if e := SetNodeRoamingSupervisorState(filepath.Join(x.Plan.Directory, "supervisor.json"), s.plan.DisableOperationID, state); e != nil {
 				return e
+			}
+		} else if x.Registration.Join == api.NodeOutgoing {
+			result, e := s.assembly.outgoingDeployment(ctx, x, "control", s.plan.DisableOperationID, state)
+			if e != nil || result.Outcome != "accepted" {
+				return errors.Join(errors.New("original outgoing disable intent unconfirmed"), e)
 			}
 		} else {
 			command := nodeShellQuote(x.HostHelper) + " control-roaming --plan-file " + nodeShellQuote(filepath.Join(x.Plan.Directory, "supervisor.json")) + " --operation-id " + nodeShellQuote(s.plan.DisableOperationID) + " --state " + nodeShellQuote(state)
@@ -1395,34 +1441,7 @@ func nativeSupervisorState(p NodeRoamingSupervisorPlan) string {
 	return v.State
 }
 func validateNativeSupervisor(p NodeRoamingSupervisorPlan, filename string) error {
-	digest, e := hex.DecodeString(p.PlanID)
-	helperDigest, helperErr := hex.DecodeString(p.HelperSHA256)
-	if helperErr != nil || len(helperDigest) != 32 || e != nil || len(digest) != 32 || p.Version != 1 || !productIdentifier.MatchString(p.OperationID) || p.NodeID == "" || p.Broker == nil && p.Managed == nil || p.Directory != filepath.Dir(filename) || filename != filepath.Join(p.Directory, "supervisor.json") || !filepath.IsAbs(p.Helper) || len(p.HelperSHA256) != 64 {
-		return errors.New("exact approved supervisor identity required")
-	}
-	inside := func(path string) bool {
-		r, e := filepath.Rel(p.Directory, path)
-		return e == nil && r != "." && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) && filepath.IsAbs(path) && filepath.Clean(path) == path
-	}
-	if p.Broker != nil {
-		v := p.Broker
-		if v.NodeID != p.NodeID || v.BotID == "" || !inside(v.Profile) || !inside(v.Socket) || !inside(v.PeersFile) || !inside(v.BootstrapPeersFile) {
-			return errors.New("broker paths do not match exact approved native slot")
-		}
-	}
-	if p.Managed != nil {
-		v := p.Managed
-		if v.NodeID != p.NodeID || v.BotID == "" || (v.Backend != "codex" && v.Backend != "caelis") || v.Backend == "caelis" && (!filepath.IsAbs(v.CaelisBinary) || !filepath.IsAbs(v.CaelisStore)) || v.BrokerNodeID == "" || !inside(v.AgentDirectory) || !inside(v.GenerationRoot) || !inside(v.AuthFile) || v.WorkersFile != "" && !inside(v.WorkersFile) || !filepath.IsAbs(v.BrokerSocket) || v.BrokerSSHDestination != "" && (!filepath.IsAbs(v.BrokerHelper) || v.JoinSSHDestination == "" || !filepath.IsAbs(v.JoinDirectory)) {
-			return errors.New("managed paths do not match exact approved native slot")
-		}
-		if p.Broker != nil && (v.BrokerNodeID != p.NodeID || v.BrokerSocket != p.Broker.Socket) {
-			return errors.New("local broker/managed pairing mismatch")
-		}
-		if p.Broker != nil && v.BotID != p.Broker.BotID {
-			return errors.New("broker and managed Bot identities differ")
-		}
-	}
-	return nil
+	return nodeagent.ValidateRoamingSupervisor(p, filename)
 }
 func nativeBrokerArgs(v NodeRoamingBrokerDeployment) []string {
 	return []string{"serve-broker", "--profile", v.Profile, "--bot-id", v.BotID, "--node-id", v.NodeID, "--socket", v.Socket, "--peers-file", v.PeersFile, "--bootstrap-peers-file", v.BootstrapPeersFile, "--preferred-node", v.PreferredNodeID}
@@ -1830,6 +1849,8 @@ func (n *roamingNativeAssembly) confirmNoRestart(ctx context.Context, p roamingN
 		var e error
 		if node.Registration.ID == api.LocalNodeID {
 			value, e = ReadNodeRoamingSupervisorState(path, p.DisableOperationID)
+		} else if node.Registration.Join == api.NodeOutgoing {
+			value, e = n.readOutgoingSupervisor(ctx, node, p.DisableOperationID)
 		} else {
 			args, err := strictRoamingSSH(node.Registration.SSHDestination)
 			if err != nil {

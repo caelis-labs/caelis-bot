@@ -1,6 +1,7 @@
-// Package nodeagent is the optional foreground node catalog/installer owner.
-// It never assembles the desktop APP, starts a Bot, reads model credentials,
-// enrolls accounts or claims execution authority from an installed executable.
+// Package nodeagent owns the optional foreground node catalog/installer and
+// closed reviewed deployment transport. It never assembles the desktop APP,
+// reads model credentials, enrolls accounts or claims execution authority from
+// installed bytes; an explicit deployment delegates only to the verified host.
 package nodeagent
 
 import (

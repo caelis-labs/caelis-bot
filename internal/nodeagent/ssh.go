@@ -71,6 +71,12 @@ func Join(ctx context.Context, s SSHConfig, helper, remoteDirectory, localSocket
 	if verify.Run() != nil {
 		return errors.New("private join destination unavailable")
 	}
+	// Persist only the explicit nonsecret pairing after its existing authorization
+	// and private destination have been verified. The foreground serving agent
+	// can bind a reviewed deployment to this exact outbound route.
+	if err = WriteManagedPrivateJSON(filepath.Join(filepath.Dir(localSocket), "outgoing-route.json"), OutgoingRoute{s.Target, helper, remoteDirectory}); err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, s.binary(), args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, io.Discard, io.Discard
 	if cmd.Run() != nil {

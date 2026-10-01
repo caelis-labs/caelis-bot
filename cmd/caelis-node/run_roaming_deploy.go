@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"io"
+	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -50,4 +52,28 @@ func runRoamingDeploy(ctx context.Context, args []string, out io.Writer) error {
 		return errors.New("supervisor start cannot include disable control")
 	}
 	return app.RunNodeRoamingSupervisor(ctx, *plan)
+}
+
+func runJoinedRoamingDeploy(ctx context.Context, args []string, out io.Writer) error {
+	f := flag.NewFlagSet("deploy-joined-roaming", flag.ContinueOnError)
+	f.SetOutput(out)
+	directory := f.String("directory", "", "existing private enrolled agent directory")
+	nodeID := f.String("node-id", "", "exact existing enrolled identity")
+	if e := f.Parse(args[1:]); e != nil {
+		return e
+	}
+	if f.NArg() != 0 {
+		return errors.New("closed deployment arguments required")
+	}
+	var request nodeagent.RoamingDeploymentRequest
+	d := json.NewDecoder(io.LimitReader(os.Stdin, 1<<20))
+	d.DisallowUnknownFields()
+	if d.Decode(&request) != nil || d.Decode(new(any)) != io.EOF {
+		return errors.New("invalid closed joined deployment request")
+	}
+	result, e := app.ExecuteJoinedRoamingDeployment(ctx, *directory, *nodeID, request)
+	if e != nil {
+		return e
+	}
+	return json.NewEncoder(out).Encode(result)
 }
