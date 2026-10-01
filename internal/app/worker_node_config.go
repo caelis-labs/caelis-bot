@@ -58,7 +58,7 @@ func ValidateConfiguredWorkerTargets(root string, targets []api.WorkTarget) erro
 	}
 	seen := map[api.WorkTarget]bool{}
 	for _, target := range targets {
-		if target.Role != api.RoleWorker || (target.Backend != "caelis" && target.Backend != "codex") || !workerNodeID.MatchString(target.NodeID) || target.NodeID == api.LocalNodeID || seen[target] {
+		if target.Role != api.RoleWorker || (target.Backend != "caelis" && target.Backend != "codex") || !workerNodeID.MatchString(target.NodeID) || seen[target] {
 			return errors.New("invalid or repeated exact Worker target")
 		}
 		seen[target] = true

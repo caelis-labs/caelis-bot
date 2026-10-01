@@ -34,6 +34,9 @@ jobs:
       - name: Check paired Worker source receipts and observer lifecycle
         run: |
           go test -race -count=1 ./internal/nodeworker ./internal/workerwire ./internal/nodes
+      - name: Check owned Runtime leases and native paired controls
+        run: |
+          go test -race -count=1 ./internal/workerlease ./internal/backend/caelis ./internal/backend/codex
       - name: Check node roaming authority and complete Notebook snapshots
         run: |
           go test -race -count=1 ./internal/nodeplane ./internal/nodeagent ./internal/nodecoord ./internal/nodebroker ./internal/roaming ./internal/leasepower ./internal/memorytransfer

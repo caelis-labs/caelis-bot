@@ -13,6 +13,10 @@ import (
 func localTarget(provider string) api.WorkTarget {
 	return api.WorkTarget{NodeID: api.LocalNodeID, Backend: provider, Role: api.RoleWorker}
 }
+func (m *Manager) directTarget(provider string) api.WorkTarget {
+	return api.WorkTarget{NodeID: m.nativeTarget.NodeID, Backend: provider, Role: api.RoleWorker}
+}
+
 func targetPointer(target api.WorkTarget) *api.WorkTarget { return &target }
 func copyTask(task api.Task) api.Task {
 	if task.Target != nil {
@@ -45,7 +49,7 @@ func (m *Manager) runtimeFor(target api.WorkTarget) (api.WorkRuntime, error) {
 	if err := validateWorkerTarget(target); err != nil {
 		return nil, err
 	}
-	if target == localTarget(m.provider) {
+	if target == m.nativeTarget {
 		return m.work, nil
 	}
 	if m.router == nil {
@@ -66,14 +70,18 @@ func (m *Manager) recordRuntime(id string) (api.WorkRuntime, error) {
 	return m.runtimeFor(target)
 }
 
+// DefaultWorkerTarget identifies the direct owned Worker for native composition.
+// It is independent of labels or the optional APP machine's local alias.
+func (m *Manager) DefaultWorkerTarget() api.WorkTarget { return m.nativeTarget }
+
 // WorkRoutes exposes host ports for composition (approvals/resources), never
 // native credentials or an Engine whose resident lifecycle could be confused
 // with a Worker. The local route remains direct even without a registry.
 func (m *Manager) WorkRoutes() []api.WorkRoute {
-	out := []api.WorkRoute{{Target: localTarget(m.provider), Runtime: m.work}}
+	out := []api.WorkRoute{{Target: m.nativeTarget, Runtime: m.work}}
 	if m.router != nil {
 		for _, route := range m.router.WorkRoutes() {
-			if route.Target != localTarget(m.provider) {
+			if route.Target != m.nativeTarget {
 				out = append(out, route)
 			}
 		}
@@ -94,7 +102,7 @@ func (m *Manager) WorkTargets() []api.WorkTargetInfo {
 	if catalog, ok := m.router.(api.WorkTargetCatalog); ok {
 		return catalog.WorkTargets()
 	}
-	return []api.WorkTargetInfo{{Target: localTarget(m.provider), Label: "This machine", State: "ready"}}
+	return []api.WorkTargetInfo{{Target: m.nativeTarget, Label: "This machine", State: "ready"}}
 }
 
 // bindMessage commits remote continuation intent before any native call. A
@@ -146,7 +154,7 @@ func (m *Manager) workStates() ([]api.WorkState, error) {
 
 func (m *Manager) authorizeWork(ctx context.Context, target api.WorkTarget) (api.WorkDispatchSource, error) {
 	// The default local path retains its existing native admission semantics.
-	if target == localTarget(m.provider) {
+	if target == m.nativeTarget {
 		return api.WorkDispatchSource{}, m.work.WorkAdmission(ctx)
 	}
 	authorizer := m.authorizer
@@ -163,7 +171,7 @@ func (m *Manager) authorizeWork(ctx context.Context, target api.WorkTarget) (api
 	if err = source.Validate(); err != nil {
 		return api.WorkDispatchSource{}, err
 	}
-	if source.Backend != m.provider || (source.Lease == (api.WorkerLeaseGrant{}) && source.NodeID != api.LocalNodeID) {
+	if source.Backend != m.provider || source.NodeID != m.nativeTarget.NodeID {
 		return api.WorkDispatchSource{}, errors.New("worker source does not match resident driver")
 	}
 	if source.Lease != (api.WorkerLeaseGrant{}) {

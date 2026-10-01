@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"regexp"
@@ -20,7 +21,7 @@ import (
 const maxFrame = 24 << 20
 
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
-var errSourceMissing = errors.New("authenticated foreign native source missing")
+var errSourceMissing = fmt.Errorf("authenticated foreign native source missing: %w", api.ErrWorkSourceInactive)
 
 // Pair is trusted node/native-host configuration, not a claim accepted from a
 // request. Same-user strict SSH and a private target socket authenticate it.
@@ -111,6 +112,15 @@ func readFrame(r io.Reader) (frame, error) {
 // A caller cannot obtain an authenticated source by placing it in a normal
 // context. Only this paired protocol's dispatcher supplies the private key.
 type sourceKey struct{}
+type controlKey struct{}
+
+// PairedControl returns only the native server-installed principal for exact
+// existing-task controls. It does not create a WorkDispatchSource or activation.
+func PairedControl(ctx context.Context) (Pair, bool) {
+	pair, ok := ctx.Value(controlKey{}).(Pair)
+	return pair, ok
+}
+
 type foreignSource struct{}
 
 func SourceProvider() api.WorkSourceProvider { return foreignSource{} }
@@ -268,10 +278,12 @@ func (s *Server) dispatch(ctx context.Context, in frame) frame {
 		out.Task = &v
 		err = e
 	case "stop":
+		ctx = context.WithValue(ctx, controlKey{}, s.pair)
 		v, e := runtime.StopWork(ctx, in.TaskID)
 		out.Task = &v
 		err = e
 	case "decide":
+		ctx = context.WithValue(ctx, controlKey{}, s.pair)
 		if in.Approval == nil || in.Decision == nil || in.Approval.Target != s.pair.Target {
 			err = errors.New("invalid decision")
 		} else {
@@ -333,9 +345,13 @@ func validRequest(in frame) bool {
 		expected.Message = in.Message
 		expected.Source = in.Source
 		expected.Digest = in.Digest
-	case "read", "stop":
+	case "read":
 		expected.TaskID = in.TaskID
+	case "stop":
+		expected.TaskID = in.TaskID
+		expected.Current = in.Current
 	case "decide":
+		expected.Current = in.Current
 		expected.Approval = in.Approval
 		expected.Decision = in.Decision
 		expected.Current = in.Current

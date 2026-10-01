@@ -151,6 +151,9 @@ func (s *Session) checkWorkerSource(ctx context.Context, source api.WorkDispatch
 	if attested != source {
 		return errors.New("Worker dispatch source does not match the native request")
 	}
+	if s.workerLease != nil {
+		return s.workerLease.Admit(ctx, source)
+	}
 	return nil
 }
 func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
@@ -235,6 +238,15 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error) {
 	if w.Start == nil {
 		return w.Task, nil
+	}
+	if s.workerLease != nil {
+		var err error
+		var release func()
+		ctx, release, err = s.workerLease.BeginSource(ctx, w.Source)
+		if err != nil {
+			return w.Task, err
+		}
+		defer release()
 	}
 	s.mu.Lock()
 	c := s.client

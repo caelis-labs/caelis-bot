@@ -26,7 +26,8 @@ import (
 )
 
 // The native child fixture only initializes an App Server connection. Any
-// thread/turn/model command is a failure; it uses no account store or network.
+// thread/turn/model command is a failure unless the contained effect marker is present.
+// It uses no account store or external network.
 func TestWorkerCLINativeHelper(t *testing.T) {
 	sep := -1
 	for i, arg := range os.Args {
@@ -79,6 +80,18 @@ func TestWorkerCLINativeHelper(t *testing.T) {
 				result = map[string]string{"userAgent": "worker-cli-synthetic"}
 			case "initialized":
 				continue
+			case "config/read":
+				result = map[string]any{"config": map[string]any{"model": "fixture-model", "model_reasoning_effort": "medium"}}
+			case "thread/start", "thread/read", "thread/resume":
+				if _, err := os.Stat(args[0] + ".allow-effects"); err != nil {
+					os.Exit(6)
+				}
+				result = map[string]any{"thread": map[string]any{"id": "fixture-worker-thread", "status": map[string]string{"type": "idle"}}, "model": "fixture-model", "reasoningEffort": "medium"}
+			case "turn/start":
+				if _, err := os.Stat(args[0] + ".allow-effects"); err != nil {
+					os.Exit(6)
+				}
+				result = map[string]any{"turn": map[string]any{"id": "fixture-worker-turn", "status": "inProgress", "items": []any{}}}
 			case "account/read":
 				result = map[string]any{"account": map[string]string{"type": "chatgpt"}, "requiresOpenaiAuth": true}
 			default:
@@ -384,7 +397,7 @@ func TestWorkerLeaseConfigurationPinsNativeBroker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := workerConfiguration{Version: 1, Pair: workerwire.Pair{Target: api.WorkTarget{NodeID: "worker", Backend: "codex", Role: api.RoleWorker}, BotID: "raw-bot", SourceNode: "managed-source", SourceBackend: "codex"}, Directory: filepath.Join(dir, "worker"), Binary: binary, Socket: filepath.Join(dir, "worker", "worker.sock"), Lease: &workerLeaseConfiguration{BrokerNodeID: "broker", BrokerSocket: filepath.Join(dir, "broker.sock")}}
+	config := workerConfiguration{Version: 1, Pair: workerwire.Pair{Target: api.WorkTarget{NodeID: "worker", Backend: "codex", Role: api.RoleWorker}, BotID: api.ProfileBotID("raw-bot"), SourceNode: "managed-source", SourceBackend: "codex"}, Directory: filepath.Join(dir, "worker"), Binary: binary, Socket: filepath.Join(dir, "worker", "worker.sock"), Lease: &workerLeaseConfiguration{RawBotID: "raw-bot", BrokerNodeID: "broker", BrokerSocket: filepath.Join(dir, "broker.sock")}}
 	path := filepath.Join(dir, "worker.json")
 	write := func() {
 		b, _ := json.Marshal(config)
@@ -394,9 +407,15 @@ func TestWorkerLeaseConfigurationPinsNativeBroker(t *testing.T) {
 	}
 	write()
 	got, err := readWorkerConfiguration(path)
-	if err != nil || got.Lease == nil || got.Lease.BrokerNodeID != "broker" || got.Pair.BotID != "raw-bot" {
+	if err != nil || got.Lease == nil || got.Lease.BrokerNodeID != "broker" || got.Pair.BotID != api.ProfileBotID("raw-bot") {
 		t.Fatal("native lease scope unavailable", got, err)
 	}
+	config.Lease.RawBotID = "forged-other-bot"
+	write()
+	if _, err = readWorkerConfiguration(path); err == nil {
+		t.Fatal("raw Bot identity did not match product pairing")
+	}
+	config.Lease.RawBotID = "raw-bot"
 	config.Lease.BrokerSocket = config.Socket
 	write()
 	if _, err = readWorkerConfiguration(path); err == nil {

@@ -10,6 +10,9 @@ import (
 // WorkerNodeConfig is explicit connection setup, never model-visible discovery.
 // Authentication remains in the system SSH client and private native adapter.
 type WorkerNodeConfig struct {
+	// Registered-agent routes are resolved only by native enrolled-node assembly.
+	// They contain no SSH destination, executable, socket or workspace input.
+	Transport     string `json:"transport,omitempty"`
 	ID            string `json:"id"`
 	Label         string `json:"label"`
 	SSH           string `json:"ssh"`
@@ -98,6 +101,9 @@ func (s *Service) ConfigureWorkerNodes(controller WorkerNodeController) {
 }
 
 func (s *Service) workerNodeController() (WorkerNodeController, error) {
+	if err := s.guardLocalConfiguration(); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.workerNodes == nil {

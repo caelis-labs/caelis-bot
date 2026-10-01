@@ -10,23 +10,13 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/nodes"
-	"github.com/caelis-labs/caelis-bot/internal/productrpc"
-	"github.com/caelis-labs/caelis-bot/internal/workerwire"
 )
 
 func (a *Application) newCodexWorkerNode(config backend.WorkerNodeConfig, source api.WorkSourceProvider) (workerNodeAdapter, error) {
-	a.mu.Lock()
-	resident := a.companion
-	stopped := a.closed
-	a.mu.Unlock()
-	if stopped || resident == nil {
-		return nil, errors.New("primary Bot identity is unavailable")
+	pair, err := a.workerSourcePair(configuredWorkerTarget(config))
+	if err != nil {
+		return nil, err
 	}
-	provider, ok := a.engine.(api.Provider)
-	if !ok {
-		return nil, errors.New("primary native backend identity is unavailable")
-	}
-	pair := workerwire.Pair{Target: configuredWorkerTarget(config), BotID: productrpc.ProfileBotID(resident.State().ID), SourceNode: api.LocalNodeID, SourceBackend: provider.ProviderInfo().ID}
 	return &codexWorkerNodeAdapter{config: nodes.CodexSSHConfig{Destination: config.SSH, Helper: config.Helper, Socket: config.Socket, Pair: pair, Source: source}, root: config.WorkspaceRoot, connect: nodes.NewCodexSSHWorker}, nil
 }
 

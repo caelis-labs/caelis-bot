@@ -24,11 +24,17 @@ import (
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "deploy-joined-roaming":
+			return runJoinedRoamingDeploy(ctx, args, out)
+		case "supervise-roaming", "control-roaming", "inspect-roaming":
+			return runRoamingDeploy(ctx, args, out)
+		case "serve-roaming":
+			return runRoaming(ctx, args, out)
 		case "owned-runtime-watchdog":
 			return runOwnedWatchdog(ctx, args[1:], out)
 		case "serve-broker", "proxy-broker":
 			return runBroker(ctx, args, out)
-		case "serve-agent", "proxy-agent", "join-agent", "verify-join-directory":
+		case "serve-agent", "proxy-agent", "join-agent", "verify-join-directory", "prepare-owned-caelis-store":
 			return runAgent(ctx, args, out)
 		}
 	}

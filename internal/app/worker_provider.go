@@ -20,6 +20,9 @@ func (a *Application) newWorkerNodeAdapter(config backend.WorkerNodeConfig, dire
 	if !ok {
 		return nil, errors.New("resident driver cannot attest Worker dispatch")
 	}
+	if config.Transport == "registered-agent" {
+		return a.newRegisteredWorkerNode(config, source)
+	}
 	if config.Backend == "codex" {
 		return a.newCodexWorkerNode(config, source)
 	}

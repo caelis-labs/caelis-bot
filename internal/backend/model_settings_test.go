@@ -229,3 +229,28 @@ func TestModelSettingsUseActiveProviderAfterNextLaunchRuntimeSave(t *testing.T) 
 		})
 	}
 }
+
+func TestRuntimeExecutionSelectionChangesActualEngineWithCASAndTier(t *testing.T) {
+	e := &workModelSettingsEngine{}
+	service := modelSettingsFixture(t, e)
+	state, _, err := service.ReadModelSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := productmanagement.ExecutionRevision(state)
+	selection := api.WorkExecutionSettings{Model: "two", Effort: "high"}
+	if err = service.ApplyRuntimeExecutionSelection(t.Context(), old, "conversation", selection); err != nil {
+		t.Fatal(err)
+	}
+	current, _, err := service.ReadModelSettings(t.Context())
+	if err != nil || current.Conversation.Model != "two" || current.Conversation.Effort != "high" || current.Conversation.ServiceTier != "" || current.Conversation.ApprovalMode != "ask" || e.calls != 1 {
+		t.Fatalf("active native selection %+v calls=%d error=%v", current, e.calls, err)
+	}
+	if err = service.ApplyRuntimeExecutionSelection(t.Context(), old, "work", selection); !errors.Is(err, productmanagement.ErrExecutionConflict) || e.workCalls != 0 {
+		t.Fatalf("stale selection mutated actual engine: %v", err)
+	}
+	selection.ServiceTier = "priority"
+	if err = service.ApplyRuntimeExecutionSelection(t.Context(), productmanagement.ExecutionRevision(current), "work", selection); err != nil || e.work != selection {
+		t.Fatalf("actual native worker selection %+v %v", e.work, err)
+	}
+}

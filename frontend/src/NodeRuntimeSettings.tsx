@@ -6,6 +6,7 @@ import {RuntimeWorkspace} from './settings/runtime/RuntimeWorkspace';
 import {createNodeRuntimeClient,createNodeSettingsClient,nodeScopeKey,type NodeSettingsClient} from './settings/runtime/nodeClient';
 import {RuntimePreparation} from './RuntimePreparation';
 import {RemoteRuntimeSettings} from './RemoteRuntimeSettings';
+import {createNodeRoamingClient} from './settings/runtime/roamingClient';
 import {createPairedRuntimeInvoker} from './settings/runtime/pairedClient';
 import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
@@ -19,6 +20,7 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
  const {t}=useI18n();
  const translations=useRef(t);translations.current=t;
  const owner=useMemo(()=>provided??createNodeSettingsClient(call,key=>translations.current(key)),[provided,call]);
+ const roaming=useMemo(()=>createNodeRoamingClient(call),[call]);
  const [catalog,setCatalog]=useState<NodeCatalog|null>(null),[selected,setSelected]=useState(''),[runtime,setRuntime]=useState('');
  const [error,setError]=useState<MessageKey|''>(''),[loading,setLoading]=useState(false),[refresh,setRefresh]=useState(0),[notice,setNotice]=useState<MessageKey|''>('');
  const generation=useRef(0),pending=useRef(false);
@@ -66,7 +68,7 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
   {!pairedSelected&&node&&!healthy&&<p role="status" className="settings-note">{t('settings.nodeUnavailable')}</p>}
   {!pairedSelected&&node&&status&&<NodePrograms refreshKey={`${catalog?.revision}:${refresh}:${refreshKey}`} key={scope} node={node} backendID={backendID as 'codex'|'caelis'} owner={owner} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
   <NodeEnrollment catalog={catalog} call={call} onChanged={()=>setRefresh(value=>value+1)}/>
-  {catalog&&<NodeCoordinator key={catalog.broker?.nodeId??''} catalog={catalog} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
+  {catalog&&<NodeCoordinator catalog={catalog} roaming={roaming} refreshKey={refreshKey+refresh} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
   {notice&&<p role="status" className="settings-note">{t(notice)}</p>}
   {error&&<p role="alert" className="inline-error">{t(error)}</p>}
   <button className="text-action" disabled={loading} onClick={()=>setRefresh(value=>value+1)}>{t('runtime.refreshConfig')}</button>

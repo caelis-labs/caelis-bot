@@ -54,6 +54,9 @@ func RunWorkerBootstrap(ctx context.Context, in io.Reader, out io.Writer) error 
 	return json.NewEncoder(out).Encode(result)
 }
 func workerBootstrap(ctx context.Context, req WorkerBootstrapRequest) (WorkerBootstrapResult, error) {
+	return workerBootstrapAdmitted(ctx, req, nil)
+}
+func workerBootstrapAdmitted(ctx context.Context, req WorkerBootstrapRequest, admission api.ExecutionAdmission) (WorkerBootstrapResult, error) {
 	var out WorkerBootstrapResult
 	protocol, protocolErr := workerProtocol(req.Protocol)
 	if protocolErr != nil {
@@ -77,6 +80,7 @@ func workerBootstrap(ctx context.Context, req WorkerBootstrapRequest) (WorkerBoo
 	if err != nil {
 		return out, err
 	}
+	c.nativeWorkerDispatch = admission
 	defer c.http.CloseIdleConnections()
 	info, err := initializeCapabilities(ctx, c, workerProtocolCapabilities(protocol))
 	if err != nil {

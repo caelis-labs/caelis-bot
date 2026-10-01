@@ -20,6 +20,7 @@ import (
 )
 
 type WorkRouteOwner interface {
+	DefaultWorkerTarget() api.WorkTarget
 	WorkRoutes() []api.WorkRoute
 	OwnsWorkTarget(string, api.WorkTarget) bool
 	WorkTargets() []api.WorkTargetInfo
@@ -59,6 +60,9 @@ func (s *Service) ConfigureWorkRoutes(owner WorkRouteOwner, artifactDirectory st
 }
 
 func (s *Service) workerInteractions() *workerInteractions {
+	if s.blockLocalConfiguration() {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.workInteractions
@@ -69,7 +73,7 @@ func (s *Service) hasWorkerInteractions() bool {
 	if workers == nil || workers.owner == nil {
 		return false
 	}
-	return slices.ContainsFunc(workers.owner.WorkTargets(), func(info api.WorkTargetInfo) bool { return info.Target.NodeID != api.LocalNodeID })
+	return slices.ContainsFunc(workers.owner.WorkTargets(), func(info api.WorkTargetInfo) bool { return info.Target != workers.owner.DefaultWorkerTarget() })
 }
 
 func isWorkerApproval(id string) bool { return strings.HasPrefix(id, "work-approval:") }
@@ -104,7 +108,7 @@ func (w *workerInteractions) project(snapshot api.Snapshot) api.Snapshot {
 		labels[info.Target] = info.Label
 	}
 	for _, route := range w.owner.WorkRoutes() {
-		if route.Target.NodeID == api.LocalNodeID || route.Runtime == nil {
+		if route.Target == w.owner.DefaultWorkerTarget() || route.Runtime == nil {
 			continue
 		}
 		value := reflect.ValueOf(route.Runtime)

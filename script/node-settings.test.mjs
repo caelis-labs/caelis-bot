@@ -30,10 +30,10 @@ const click=async(el)=>{assert.ok(el);await act(async()=>el.dispatchEvent(new Mo
 const choose=async(el,value)=>{assert.ok(el);await act(async()=>{el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));});};
 const buttons=(name)=>[...container.querySelectorAll('button')].filter(el=>el.textContent.trim()===name);
 const select=(name)=>container.querySelector(`select[aria-label="${name}"]`);
-async function mount(invoke) {
+async function mount(invoke,call=async()=>({revision:1,nodes:[],issue:''})) {
  container=document.createElement('div');document.body.append(container);root=createRoot(container);
  const owner=createNodeSettingsClient(invoke);
- await act(async()=>root.render(React.createElement(NodeRuntimeSettings,{client:owner,call:async()=>({revision:1,nodes:[],issue:''})})));
+ await act(async()=>root.render(React.createElement(NodeRuntimeSettings,{client:owner,call})));
  return owner;
 }
 const defaultInvoke=async(method,...args)=>method==='NodeCatalog'?catalog():config(...args);
@@ -100,12 +100,12 @@ test('offline refresh retains committed model and disables edits; reconnect rest
  assert.equal(container.querySelector('button.runtime-model-summary').disabled,false);assert.match(container.textContent,/local-caelis-a/);
 });
 test('save uses inspected node guard and config revision; repeated DOM clicks produce one operation',async()=>{
- const write=deferred(),calls=[];await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='ChangeNodeConfiguration')return write.promise;return defaultInvoke(method,...args);});
+ const write=deferred(),dispatched=deferred(),calls=[];await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='ChangeNodeConfiguration'){dispatched.resolve();return write.promise;}return defaultInvoke(method,...args);});
  await click(container.querySelector('button.runtime-model-summary'));
  await click(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1]);
  const save=buttons('Save')[0];
  await act(async()=>{save.dispatchEvent(new MouseEvent('click',{bubbles:true}));save.dispatchEvent(new MouseEvent('click',{bubbles:true}));});
- await act(async()=>new Promise(resolve=>setImmediate(resolve)));
+ await act(async()=>dispatched.promise);
  const command=calls.find(call=>call[0]==='ChangeNodeConfiguration')[1];
  assert.deepEqual(command.guard,{nodeId:'local',backend:'caelis',revision:'guard-local-caelis'});
  assert.equal(command.change.expectedRevision,'config-local-caelis');
@@ -119,16 +119,19 @@ test('small window source uses wrapping bounded native selectors, without dashbo
 });
 
 test('native form draft blocks node switch; uncertain install exposes original receipt and does not resend',async()=>{
- const calls=[];await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='ChangeNodeConfiguration')throw new Error('delivery lost');if(method==='ReconcileNodeOperation')return {ref:args[0],outcome:'committed',revision:'new',message:''};return defaultInvoke(method,...args);});
+ const calls=[],dispatched=deferred(),delivery=deferred();await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='ChangeNodeConfiguration'){dispatched.resolve();return delivery.promise;}if(method==='ReconcileNodeOperation')return {ref:args[0],outcome:'committed',revision:'new',message:''};return defaultInvoke(method,...args);});
  const version=container.querySelector('#node-program-version');
  await choose(version,'2.0');
  await choose(select('Node'),'other');assert.equal(select('Node').value,'local');assert.equal(version.value,'2.0');
  await click(buttons('Update')[0]);
- await click(buttons('Confirm')[0]);
+ const dialog=container.querySelector('[role="dialog"]');assert.ok(dialog);
+ const confirm=[...dialog.querySelectorAll('button')].filter(button=>button.textContent.trim()==='Confirm');assert.equal(confirm.length,1);
+ await click(confirm[0]);
+ await act(async()=>{await dispatched.promise;delivery.reject(new Error('delivery lost'));});
  assert.match(container.textContent,/program change was not confirmed/);
  const command=calls.find(call=>call[0]==='ChangeNodeConfiguration')[1];assert.equal(command.installation.expectedVersion,'1.0');assert.equal(command.ref.nodeId,'local');
- assert.equal(buttons('Confirm')[0].disabled,true);
- await click([...container.querySelector('[role="dialog"]').querySelectorAll('button')].find(el=>el.textContent==='Cancel'));
+ assert.equal(confirm[0].disabled,true);
+ await click([...dialog.querySelectorAll('button')].find(el=>el.textContent==='Cancel'));
  await click(buttons('Check original receipt')[0]);
  assert.deepEqual(calls.find(call=>call[0]==='ReconcileNodeOperation')[1],command.ref);
  assert.equal(calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,1);
@@ -176,8 +179,8 @@ test('missing installer and configuration capability keep last native facts and 
 });
 
 test('background configuration refresh cannot advance a draft captured native guard or expected revision',async()=>{
- let revision=1;const calls=[];
- const invoke=async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return {...catalog(),revision:`catalog-${revision}`};if(method==='ChangeNodeConfiguration')return {ref:args[0].ref,outcome:'conflicted',revision:'2',message:'Draft conflict'};const value=config(...args);value.guard.revision=`guard-${revision}`;value.configuration.revision=`config-${revision}`;return value;};
+ let revision=1;const calls=[],dispatched=deferred(),delivery=deferred();
+ const invoke=async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return {...catalog(),revision:`catalog-${revision}`};if(method==='ChangeNodeConfiguration'){dispatched.resolve(args[0]);return delivery.promise;}const value=config(...args);value.guard.revision=`guard-${revision}`;value.configuration.revision=`config-${revision}`;return value;};
  const owner=await mount(invoke);
  await click(container.querySelector('button.runtime-model-summary'));
  await click(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1]);
@@ -185,11 +188,12 @@ test('background configuration refresh cannot advance a draft captured native gu
  await act(async()=>root.render(React.createElement(NodeRuntimeSettings,{client:owner,call:async()=>({}),refreshKey:1})));
  assert.ok(container.querySelector('[role="dialog"]'));
  await click(buttons('Save')[0]);
+ await act(async()=>{const command=await dispatched.promise;delivery.resolve({ref:command.ref,outcome:'conflicted',revision:'2',message:'Draft conflict'});});
  const command=calls.find(call=>call[0]==='ChangeNodeConfiguration')[1];
  assert.equal(command.guard.revision,'guard-1');assert.equal(command.change.expectedRevision,'config-1');assert.match(container.textContent,/Draft conflict/);
 });
 
-test('roaming availability needs both reachable coordinator and an eligible native Bot runtime',async()=>{
+test('catalog capability alone cannot advertise roaming without a native controller',async()=>{
  await mount(async(method,...args)=>{if(method==='NodeCatalog'){const value=catalog();value.broker={nodeId:'other',reachable:true,automaticRoaming:true,reason:''};for(const node of value.nodes)for(const runtime of node.runtimes)runtime.roles=runtime.roles.map(role=>({...role,eligible:role.role==='worker'}));return value;}return config(...args);});
  assert.match(container.textContent,/Automatic roaming is unavailable/);
  assert.doesNotMatch(container.textContent,/Connected · automatic roaming available/);
@@ -270,9 +274,10 @@ test('paired model response loss renders original receipt and reconcile never se
 });
 
 test('detected PATH runtime installs a separate managed copy with empty managed expected version',async()=>{
- const calls=[];await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog'){const value=catalog();value.nodes[0].runtimes[0].version='0.158.0';return value;}if(method==='ChangeNodeConfiguration')return {ref:args[0].ref,outcome:'committed',revision:'next',message:''};return {...config(...args),installation:{installed:false,version:'',latestVersion:'2.0'}};});
+ const calls=[],dispatched=deferred(),delivery=deferred();await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog'){const value=catalog();value.nodes[0].runtimes[0].version='0.158.0';return value;}if(method==='ChangeNodeConfiguration'){dispatched.resolve(args[0]);return delivery.promise;}return {...config(...args),installation:{installed:false,version:'',latestVersion:'2.0'}};});
  assert.match(container.textContent,/Detected program0.158.0/);assert.match(container.textContent,/Managed programNot installed/);assert.match(container.textContent,/separate managed copy/);
- await choose(container.querySelector('#node-program-version'),'2.0');await click(buttons('Install managed copy')[0]);await click(buttons('Confirm')[0]);
+ await choose(container.querySelector('#node-program-version'),'2.0');await click(buttons('Install managed copy')[0]);const dialog=container.querySelector('[role="dialog"]');await click([...dialog.querySelectorAll('button')].find(button=>button.textContent.trim()==='Confirm'));
+ await act(async()=>{const command=await dispatched.promise;delivery.resolve({ref:command.ref,outcome:'committed',revision:'next',message:''});});
  const command=calls.find(call=>call[0]==='ChangeNodeConfiguration')[1];
  assert.deepEqual(command.installation,{action:'install',version:'2.0',expectedVersion:''});
 });
@@ -296,10 +301,158 @@ test('thin paired shared-model configuration keeps its existing native binding a
 });
 test('paired read completion from a replaced native binding is rejected before populating a new view',async()=>{
  const {createPairedRuntimeInvoker}=await server.ssrLoadModule('/src/settings/runtime/pairedClient.ts');
- const read=deferred();let binding='original';const calls=[];
- const invoke=createPairedRuntimeInvoker(async(method,...args)=>{calls.push([method,...args]);if(method==='RemoteRuntime')return {binding,available:true,pending:[]};return read.promise;},'original',()=> 'Connection changed');
+ const read=deferred(),dispatched=deferred();let binding='original';const calls=[];
+ const invoke=createPairedRuntimeInvoker(async(method,...args)=>{calls.push([method,...args]);if(method==='RemoteRuntime')return {binding,available:true,pending:[]};dispatched.resolve();return read.promise;},'original',()=> 'Connection changed');
  const waiting=invoke('RemoteRuntimeConfiguration','original');waiting.catch(()=>{});
- await new Promise(resolve=>setImmediate(resolve));binding='replacement';read.resolve(config('remote','caelis').configuration);
+ await dispatched.promise;binding='replacement';read.resolve(config('remote','caelis').configuration);
  await assert.rejects(waiting,e=>e.receipt.outcome==='rejected');
  assert.deepEqual(calls.filter(call=>call[0]==='RemoteRuntimeConfiguration'),[['RemoteRuntimeConfiguration','original']]);
+});
+
+const {NodeCoordinator}=await server.ssrLoadModule('/src/settings/runtime/NodeSetup.tsx');
+const {createNodeRoamingClient}=await server.ssrLoadModule('/src/settings/runtime/roamingClient.ts');
+const roamingState=(fields={})=>({available:true,enabled:false,coordinatorNodeId:'other',activeBotNodeId:'',state:'disabled',reason:'',operationId:'',outcome:'accepted',...fields});
+const roamingPlan=(fields={})=>({id:'native-plan-1',coordinatorNodeId:'other',requiresConfirmation:true,actions:[{nodeId:'other',label:'Other',action:'prepare-coordinator'},{nodeId:'local',label:'Local',action:'stop-source'},{nodeId:'other',label:'Other',action:'start-bot'}],...fields});
+const coordinatorCatalog=()=>({...catalog(),broker:{nodeId:'other',reachable:false,automaticRoaming:false,reason:'broker-offline'}});
+async function mountCoordinator(call,value=coordinatorCatalog(),owner=createNodeRoamingClient(call)) {
+ container=document.createElement('div');document.body.append(container);root=createRoot(container);
+ await act(async()=>root.render(React.createElement(NodeCoordinator,{catalog:value,roaming:owner,call,onChanged:()=>{}})));
+ return owner;
+}
+
+test('roaming is explicit, requires a real controller and saved coordinator, but can prepare an offline coordinator',async()=>{
+ const calls=[];let ready=true;
+ const call=async(method,...args)=>{calls.push([method,...args]);if(method==='PrepareNodeRoaming')return roamingPlan();return roamingState({available:ready});};
+ const owner=await mountCoordinator(call);
+ const enable=buttons('Enable automatic roaming')[0];assert.equal(enable.disabled,false);
+ await choose(container.querySelector('#node-coordinator'),'local');
+ assert.equal(enable.disabled,true);assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
+ const nav=new Event('settings-navigate',{cancelable:true});assert.equal(window.dispatchEvent(nav),false);
+ await click(buttons('Cancel')[0]);assert.equal(container.querySelector('#node-coordinator').value,'other');assert.equal(enable.disabled,false);
+ ready=false;await act(async()=>owner.read());assert.equal(enable.disabled,true);
+ assert.doesNotMatch(container.textContent,/broker-offline/);
+});
+
+test('repeated roaming clicks keep one original operation; lost delivery is checked without replay and mismatched receipts stay blocked',async()=>{
+ const calls=[],delivery=deferred();let result=roamingState();
+ const call=async(method,...args)=>{calls.push([method,...args]);if(method==='PrepareNodeRoaming')return roamingPlan();if(method==='EnableNodeRoaming')return delivery.promise;return result;};
+ await mountCoordinator(call);
+ await click(buttons('Enable automatic roaming')[0]);
+ const confirm=buttons('Confirm')[0];
+ await act(async()=>{confirm.dispatchEvent(new MouseEvent('click',{bubbles:true}));confirm.dispatchEvent(new MouseEvent('click',{bubbles:true}));});
+ const commands=calls.filter(c=>c[0]==='EnableNodeRoaming');assert.equal(commands.length,1);
+ assert.equal(commands[0][1].expectedCatalogRevision,'catalog-1');assert.ok(commands[0][1].id);
+ const preparation=calls.find(c=>c[0]==='PrepareNodeRoaming');assert.equal(preparation[1].id,commands[0][1].id);assert.equal(preparation[1].allowPersistentExecution,false);assert.equal(preparation[1].reviewedPlanId,'');assert.equal(commands[0][1].reviewedPlanId,'native-plan-1');assert.equal(commands[0][1].allowPersistentExecution,true);
+ await act(async()=>delivery.reject(new Error('response lost')));
+ assert.equal(confirm.disabled,true);assert.match(container.textContent,/original operation is not confirmed/);
+ await click(buttons('Cancel')[0]);
+ result=roamingState({enabled:true,state:'ready',operationId:'different',activeBotNodeId:'other'});
+ await click(buttons('Check original receipt')[0]);assert.equal(buttons('Stop automatic roaming')[0].disabled,true);
+ result=roamingState({enabled:true,state:'waiting',operationId:commands[0][1].id});
+ await click(buttons('Check original receipt')[0]);assert.equal(buttons('Stop automatic roaming')[0].disabled,false);
+ assert.match(container.textContent,/Waiting for an available Bot node/);assert.doesNotMatch(container.textContent,/Bot is available on its confirmed node/);
+ assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,1);
+ assert.ok(calls.every(c=>!['ActivateRuntime','SelectWorkTarget'].includes(c[0])));
+});
+
+test('roaming confirmation captures catalog revision and cannot apply after node configuration changes',async()=>{
+ const calls=[],call=async(method,...args)=>{calls.push([method,...args]);if(method==='PrepareNodeRoaming')return roamingPlan();return roamingState();};
+ const owner=await mountCoordinator(call);await click(buttons('Enable automatic roaming')[0]);
+ await act(async()=>root.render(React.createElement(NodeCoordinator,{catalog:{...coordinatorCatalog(),revision:'catalog-2'},roaming:owner,call,onChanged:()=>{}})));
+ assert.equal(buttons('Confirm')[0].disabled,true);assert.match(container.textContent,/settings changed while this confirmation/);
+ await click(buttons('Confirm')[0]);assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
+});
+
+test('disconnect retains confirmed roaming state but disables changes; only matching eligible live owner is shown ready',async()=>{
+ let online=true;const call=async()=>{if(!online)throw new Error('offline');return roamingState({enabled:true,state:'ready',activeBotNodeId:'other'});};
+ const value=coordinatorCatalog();value.broker.reachable=true;value.broker.automaticRoaming=true;
+ const owner=await mountCoordinator(call,value);assert.match(container.textContent,/Bot is available on its confirmed node/);
+ online=false;await act(async()=>owner.read());assert.match(container.textContent,/last confirmed state is shown/);assert.equal(buttons('Stop automatic roaming')[0].disabled,true);
+ online=true;await act(async()=>owner.read());assert.equal(buttons('Stop automatic roaming')[0].disabled,false);
+ const ineligible={...value,nodes:value.nodes.map(node=>({...node,runtimes:node.runtimes.map(runtime=>({...runtime,roles:runtime.roles.map(role=>({...role,eligible:false}))}))}))};
+ await act(async()=>root.render(React.createElement(NodeCoordinator,{catalog:ineligible,roaming:owner,call,onChanged:()=>{}})));
+ assert.doesNotMatch(container.textContent,/Bot is available on its confirmed node/);assert.match(container.textContent,/Waiting for an available Bot node/);
+});
+
+test('native unknown roaming operation is recovered after renderer remount and never replaced with a fresh ID',async()=>{
+ const calls=[],call=async(method,...args)=>{calls.push([method,...args]);if(method==='PrepareNodeRoaming')return roamingPlan();return roamingState({enabled:true,state:'unknown',operationId:'native-original',outcome:'unknown'});};
+ const owner=await mountCoordinator(call);assert.equal(owner.snapshot().pending,'native-original');assert.equal(buttons('Stop automatic roaming')[0].disabled,true);
+ await click(buttons('Check original receipt')[0]);assert.equal(owner.snapshot().pending,'native-original');assert.equal(calls.length,2);assert.ok(calls.every(c=>c[0]==='NodeRoamingState'));
+});
+
+test('model drafts block explicit roaming confirmation and viewed-node selection never enables roaming',async()=>{
+ const calls=[],call=async(method,...args)=>{calls.push([method,...args]);if(method==='PrepareNodeRoaming')return roamingPlan();if(method==='NodeRoamingState')return roamingState();return defaultInvoke(method,...args);};
+ await mount(async(method,...args)=>method==='NodeCatalog'?coordinatorCatalog():config(...args),call);
+ await choose(select('Node'),'other');assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
+ await click(container.querySelector('button.runtime-model-summary'));
+ await click(buttons('Enable automatic roaming')[0]);assert.equal(container.querySelectorAll('[role="dialog"]').length,1);assert.match(container.textContent,/Finish or cancel/);
+ assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
+ await click(buttons('Cancel')[0]);await click(buttons('Enable automatic roaming')[0]);assert.match(container.querySelector('[role="dialog"]').textContent,/This changes where Bot runs/);
+});
+
+test('busy disable rejection preserves confirmed owner and uses one stable command ID',async()=>{
+ const calls=[],delivery=deferred();const call=async(method,...args)=>{calls.push([method,...args]);if(method==='DisableNodeRoaming')return delivery.promise;return roamingState({enabled:true,state:'waiting',activeBotNodeId:'other'});};
+ await mountCoordinator(call);await click(buttons('Stop automatic roaming')[0]);
+ const confirm=buttons('Confirm')[0];await act(async()=>{confirm.dispatchEvent(new MouseEvent('click',{bubbles:true}));confirm.dispatchEvent(new MouseEvent('click',{bubbles:true}));});
+ const command=calls.find(c=>c[0]==='DisableNodeRoaming');assert.equal(calls.filter(c=>c[0]==='DisableNodeRoaming').length,1);
+ await act(async()=>delivery.resolve(roamingState({enabled:true,state:'waiting',activeBotNodeId:'other',operationId:command[1].id,outcome:'rejected',reason:'source-busy'})));
+ assert.match(container.textContent,/change was not confirmed/);assert.doesNotMatch(container.textContent,/source-busy/);assert.match(container.textContent,/Waiting for an available Bot node/);
+ await click(buttons('Cancel')[0]);assert.equal(buttons('Stop automatic roaming')[0].disabled,false);
+ assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
+});
+
+test('deployment plan is read-only, human reviewed, and cancellation does not enable persistent execution',async()=>{
+ const calls=[],call=async(method,...args)=>{calls.push([method,...args]);return method==='PrepareNodeRoaming'?roamingPlan({actions:[{nodeId:'other',label:'Other',action:'prepare-coordinator'},{nodeId:'other',label:'Other',action:'connect-outgoing'},{nodeId:'local',label:'Local',action:'stop-source'}]}):roamingState();};
+ await mountCoordinator(call);await click(buttons('Enable automatic roaming')[0]);
+ const dialog=container.querySelector('[role='+'"dialog"'+']');assert.match(dialog.textContent,/Prepare the always-on service on Other/);assert.match(dialog.textContent,/Connect the enrolled outgoing node Other/);assert.match(dialog.textContent,/Safely stop the current Bot on Local/);
+ assert.doesNotMatch(dialog.textContent,/prepare-coordinator|connect-outgoing|native-plan-1/);
+ assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);await click(buttons('Cancel')[0]);assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
+});
+
+test('late or unrecognized deployment plans cannot be confirmed or execute a roaming change',async()=>{
+ const calls=[],late=deferred();let unknown=false;
+ const call=async(method,...args)=>{calls.push([method,...args]);return method==='PrepareNodeRoaming'?unknown?roamingPlan({actions:[{nodeId:'other',label:'Other',action:'raw-shell'}]}):late.promise:roamingState();};
+ const owner=await mountCoordinator(call);await click(buttons('Enable automatic roaming')[0]);
+ await act(async()=>root.render(React.createElement(NodeCoordinator,{catalog:{...coordinatorCatalog(),revision:'catalog-2'},roaming:owner,call,onChanged:()=>{}})));
+ await act(async()=>late.resolve(roamingPlan()));assert.equal(container.querySelector('[role="dialog"]'),null);assert.match(container.textContent,/Node settings changed/);
+ unknown=true;await click(buttons('Enable automatic roaming')[0]);assert.equal(container.querySelector('[role="dialog"]'),null);assert.match(container.textContent,/Could not prepare the deployment plan/);
+ assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
+});
+
+test('enabled and unresolved roaming lock coordinator clear/change; confirmed disabled state restores editing',async()=>{
+ const calls=[];let native=roamingState({enabled:true,state:'ready',activeBotNodeId:'other'});
+ const call=async(method,...args)=>{calls.push([method,...args]);return method==='NodeRoamingState'?native:coordinatorCatalog();};
+ const owner=await mountCoordinator(call);
+ for(const current of [native,roamingState({enabled:true,state:'waiting'}),roamingState({enabled:true,state:'unavailable'}),roamingState({state:'enabling'}),roamingState({enabled:true,state:'disabling'}),roamingState({state:'unknown',operationId:'original',outcome:'unknown'})]) {
+  native=current;await act(async()=>owner.read());
+  const coordinator=container.querySelector('#node-coordinator');assert.equal(coordinator.disabled,true,current.state);assert.equal(buttons('Save')[0].disabled,true,current.state);
+  await choose(coordinator,'');assert.equal(coordinator.value,'other');
+  await choose(coordinator,'local');assert.equal(coordinator.value,'other');await click(buttons('Save')[0]);
+  assert.match(container.textContent,/Stop automatic roaming before changing the always-on node/);
+ }
+ assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
+ native=roamingState({state:'disabled',operationId:'original',outcome:'accepted'});await act(async()=>owner.read());
+ assert.equal(container.querySelector('#node-coordinator').disabled,false);
+ await choose(container.querySelector('#node-coordinator'),'local');assert.equal(buttons('Save')[0].disabled,false);await click(buttons('Save')[0]);
+ await choose(container.querySelector('#node-coordinator'),'');await click(buttons('Save')[0]);
+ assert.deepEqual(calls.filter(call=>call[0]==='SetNodeCoordinator').map(call=>call[1]),[{nodeId:'local',expectedRevision:'catalog-1'},{nodeId:'',expectedRevision:'catalog-1'}]);
+});
+
+test('live roaming coordinator lock leaves viewed-node selection available and makes no roaming mutation',async()=>{
+ const calls=[],call=async(method,...args)=>{calls.push([method,...args]);return method==='NodeRoamingState'?roamingState({enabled:true,state:'waiting'}):defaultInvoke(method,...args);};
+ await mount(async(method,...args)=>method==='NodeCatalog'?coordinatorCatalog():config(...args),call);
+ assert.equal(container.querySelector('#node-coordinator').disabled,true);assert.equal(select('Node').disabled,false);
+ await choose(select('Node'),'other');assert.equal(select('Node').value,'other');assert.equal(container.querySelector('#node-coordinator').value,'other');
+ assert.ok(calls.every(call=>!['SetNodeCoordinator','EnableNodeRoaming','DisableNodeRoaming','ActivateRuntime'].includes(call[0])));
+});
+
+
+test('a coordinator draft stays cancellable when native roaming becomes enabled before save',async()=>{
+ const calls=[];let native=roamingState();const call=async(method,...args)=>{calls.push([method,...args]);return native;};
+ const owner=await mountCoordinator(call);await choose(container.querySelector('#node-coordinator'),'local');
+ native=roamingState({enabled:true,state:'waiting'});await act(async()=>owner.read());
+ assert.equal(buttons('Save')[0].disabled,true);assert.equal(container.querySelector('#node-coordinator').disabled,true);
+ assert.equal(buttons('Cancel')[0].disabled,false);await click(buttons('Cancel')[0]);
+ assert.equal(container.querySelector('#node-coordinator').value,'other');assert.equal(buttons('Stop automatic roaming')[0].disabled,false);
+ assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
 });

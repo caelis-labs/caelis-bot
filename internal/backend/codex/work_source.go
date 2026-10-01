@@ -15,6 +15,10 @@ func (s *Session) WorkDispatchSource(ctx context.Context) (api.WorkDispatchSourc
 		return api.WorkDispatchSource{}, err
 	}
 	s.mu.Lock()
+	if !s.closed && !s.closing && s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" && s.run == "" {
+		s.mu.Unlock()
+		return api.WorkDispatchSource{}, api.ErrWorkSourceInactive
+	}
 	if err := s.taskAdmission(); err != nil {
 		s.mu.Unlock()
 		return api.WorkDispatchSource{}, err

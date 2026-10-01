@@ -20,11 +20,13 @@ import (
 // credential provisioning, automatic remote copy or execution lease here.
 func Run(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: caelis-agent serve-agent|proxy-agent|join-agent|verify-join-directory")
+		return errors.New("usage: caelis-agent serve-agent|proxy-agent|join-agent|verify-join-directory|prepare-owned-caelis-store")
 	}
 	f := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	f.SetOutput(out)
 	switch args[0] {
+	case "prepare-owned-caelis-store":
+		return runPrepareOwnedCaelisStore(ctx, args[1:], out)
 	case "serve-agent":
 		stdio := f.Bool("stdio", false, "serve framed protocol over this foreground process stdin/stdout")
 		directory := f.String("directory", "", "existing private user-owned agent directory")
@@ -35,6 +37,7 @@ func Run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		codexBinary := f.String("codex-binary", "", "explicit target-local Codex executable")
 		caelisBinary := f.String("caelis-binary", "", "explicit target-local Caelis executable")
 		caelisStore := f.String("caelis-store", "", "explicit existing target-local Caelis Store; no credential transfer")
+		managedConfig := f.String("managed-config", "", "existing private verified native managed host and exact broker bindings")
 		nativeHealth := f.Bool("native-health", true, "inspect native authentication and service health without starting a task")
 		if err := f.Parse(args[1:]); err != nil {
 			return help(err)
@@ -85,6 +88,19 @@ func Run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 		if manager, ok := service.installation.(interface{ BinaryPath(string) (string, error) }); ok {
 			codexConfig.BinaryPath = func() (string, error) { return manager.BinaryPath("codex") }
+		}
+		if *managedConfig != "" {
+			if *stdio {
+				return errors.New("managed starts require an independent private Unix foreground owner, not an observer stdio lifetime")
+			}
+			starter, e := LoadManagedStarter(ctx, *directory, service.options.NodeID, *managedConfig)
+			if e != nil {
+				return e
+			}
+			defer starter.Close()
+			service.options.ManagedStart = starter
+			service.options.RuntimeOwner = starter
+			service.options.ManagedProduct = starter
 		}
 		if *stdio {
 			return productrpc.ServeNativeStream(ctx, in, out, Handler(service), allowed)

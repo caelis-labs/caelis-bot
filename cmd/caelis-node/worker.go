@@ -37,6 +37,7 @@ type workerConfiguration struct {
 }
 
 type workerLeaseConfiguration struct {
+	RawBotID     string `json:"rawBotId"`
 	BrokerNodeID string `json:"brokerNodeId"`
 	BrokerSocket string `json:"brokerSocket"`
 }
@@ -81,7 +82,7 @@ func readWorkerConfiguration(path string) (workerConfiguration, error) {
 		}
 	}
 	if config.Lease != nil {
-		if !workerIdentifier.MatchString(config.Lease.BrokerNodeID) || !filepath.IsAbs(config.Lease.BrokerSocket) || filepath.Clean(config.Lease.BrokerSocket) != config.Lease.BrokerSocket || strings.ContainsRune(config.Lease.BrokerSocket, '\x00') || config.Lease.BrokerSocket == config.Socket || (config.Pair.SourceBackend != "codex" && config.Pair.SourceBackend != "caelis") {
+		if strings.TrimSpace(config.Lease.RawBotID) == "" || len(config.Lease.RawBotID) > 512 || strings.ContainsRune(config.Lease.RawBotID, '\x00') || api.ProfileBotID(config.Lease.RawBotID) != config.Pair.BotID || !workerIdentifier.MatchString(config.Lease.BrokerNodeID) || !filepath.IsAbs(config.Lease.BrokerSocket) || filepath.Clean(config.Lease.BrokerSocket) != config.Lease.BrokerSocket || strings.ContainsRune(config.Lease.BrokerSocket, '\x00') || config.Lease.BrokerSocket == config.Socket || (config.Pair.SourceBackend != "codex" && config.Pair.SourceBackend != "caelis") {
 			return config, errors.New("leased Worker requires exact trusted broker identity and private socket")
 		}
 	}
@@ -185,7 +186,11 @@ func runWorker(ctx context.Context, args []string, out io.Writer) (returnErr err
 			return err
 		}
 		defer broker.Close()
-		leased = &codex.WorkerLeaseOptions{BrokerNodeID: config.Lease.BrokerNodeID, BotID: config.Pair.BotID, SourceNode: config.Pair.SourceNode, SourceBackend: config.Pair.SourceBackend, Reader: broker, BindPower: leasepower.Bind}
+		helper, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		leased = &codex.WorkerLeaseOptions{HelperPath: helper, BrokerNodeID: config.Lease.BrokerNodeID, RawBotID: config.Lease.RawBotID, SourceNode: config.Pair.SourceNode, SourceBackend: config.Pair.SourceBackend, Reader: broker, BindPower: leasepower.Bind}
 	}
 	native := codex.NewWorker(codex.WorkerOptions{Lease: leased, Target: config.Pair.Target, Pair: &config.Pair, Directory: config.Directory, WorkRoot: filepath.Join(config.Directory, "Tasks"), Binary: config.Binary, Execution: config.Execution, Source: workerwire.SourceProvider()})
 	owner := nodeworker.New(native)

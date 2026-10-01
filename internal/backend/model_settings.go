@@ -11,18 +11,18 @@ import (
 
 // ModelSettingsAvailable observes an existing provider; it never opens a Runtime.
 func (s *Service) ModelSettingsAvailable() bool {
-	_, ok := s.engine.(api.ExecutionProvider)
+	_, ok := s.capabilityEngine().(api.ExecutionProvider)
 	return ok
 }
 
 func (s *Service) modelSettingsLocked(ctx context.Context) (productmanagement.ExecutionState, error) {
 	v, err := s.executionSettingsLocked(ctx)
 	activeProvider := s.runtimeSettings.Runtime
-	if p, ok := s.engine.(api.Provider); ok {
+	if p, ok := s.capabilityEngine().(api.Provider); ok {
 		activeProvider = p.ProviderInfo().ID
 	}
 	state := productmanagement.ExecutionState{Conversation: v, ConversationDefault: activeProvider == "caelis"}
-	if _, ok := s.engine.(api.WorkExecutionProvider); ok {
+	if _, ok := s.capabilityEngine().(api.WorkExecutionProvider); ok {
 		work := s.workExecutionSettings
 		state.Work = &work
 	}
@@ -30,6 +30,9 @@ func (s *Service) modelSettingsLocked(ctx context.Context) (productmanagement.Ex
 }
 
 func (s *Service) ReadModelSettings(ctx context.Context) (productmanagement.ExecutionState, []api.ModelOption, error) {
+	if local := s.localGenerationService(); local != nil {
+		return local.ReadModelSettings(ctx)
+	}
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	if !s.ModelSettingsAvailable() {
@@ -46,6 +49,12 @@ func (s *Service) ReadModelSettings(ctx context.Context) (productmanagement.Exec
 // Compare, patch and existing validation/persistence share the local settings
 // mutex. A racing local save cannot silently replace permissions or tier.
 func (s *Service) ApplyModelSettings(ctx context.Context, revision, target string, selection productmanagement.Selection) error {
+	if err := s.guardLocalConfiguration(); err != nil {
+		return err
+	}
+	if local := s.localGenerationService(); local != nil {
+		return local.ApplyModelSettings(ctx, revision, target, selection)
+	}
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	if !s.ModelSettingsAvailable() {
@@ -111,4 +120,43 @@ func (s *Service) ApplyModelSettings(ctx context.Context, revision, target strin
 		}
 	}
 	return s.saveExecutionSettingsLocked(ctx, v)
+}
+
+// ApplyRuntimeExecutionSelection atomically compares the active native state
+// and applies the full private Node configuration selection for the next turn.
+func (s *Service) ApplyRuntimeExecutionSelection(ctx context.Context, revision, target string, selection api.WorkExecutionSettings) error {
+	s.configurationMu.Lock()
+	defer s.configurationMu.Unlock()
+	state, err := s.modelSettingsLocked(ctx)
+	if err != nil || !s.ModelSettingsAvailable() {
+		return productmanagement.ErrExecutionUnavailable
+	}
+	if productmanagement.ExecutionRevision(state) != revision {
+		return productmanagement.ErrExecutionConflict
+	}
+	if target != "conversation" && target != "work" || target == "work" && state.Work == nil {
+		return productmanagement.ErrExecutionInvalid
+	}
+	if api.ValidateExecutionSettings(selection.Execution()) != nil {
+		return productmanagement.ErrExecutionInvalid
+	}
+	models, err := s.Models(ctx)
+	if err != nil {
+		return errors.Join(productmanagement.ErrExecutionUnavailable, err)
+	}
+	if target == "conversation" && selection.Model == "" && !state.ConversationDefault {
+		return productmanagement.ErrExecutionInvalid
+	}
+	if err := api.ValidateWorkExecution(selection, models); err != nil {
+		return productmanagement.ErrExecutionInvalid
+	}
+	if ctx.Err() != nil {
+		return productmanagement.ErrExecutionCancelled
+	}
+	if target == "work" {
+		return s.saveWorkExecutionSettingsLocked(ctx, selection)
+	}
+	value := state.Conversation
+	value.Model, value.Effort, value.ServiceTier = selection.Model, selection.Effort, selection.ServiceTier
+	return s.saveExecutionSettingsLocked(ctx, value)
 }
