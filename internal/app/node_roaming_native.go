@@ -477,6 +477,11 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			continue
 		}
 		m := &NodeRoamingManagedDeployment{BotID: p.BotID, NodeID: r.ID, Backend: in.SourceTarget.Backend, AgentDirectory: filepath.Join(dir, "agent"), GenerationRoot: filepath.Join(dir, "generations"), AuthFile: filepath.Join(dir, "product.token"), WorkersFile: filepath.Join(dir, "workers.json"), BrokerNodeID: in.Coordinator.ID}
+		if outgoing != nil {
+			// This alias belongs to the joined source's existing SSH configuration,
+			// independently of the APP's management route to the same coordinator.
+			m.JoinSSHDestination, m.JoinHelper = outgoing.Route.Target, outgoing.Route.Helper
+		}
 		if r.ID == api.LocalNodeID {
 			m.CodexBinary = n.options.LocalCodexBinary
 			if m.CodexBinary == "" {
@@ -567,11 +572,13 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			x.BrokerPeerSocket = x.AgentSocket
 			continue
 		}
-		m.JoinSSHDestination = p.Coordinator.SSHDestination
-		m.JoinHelper = p.Coordinator.HelperPath
-		if p.Coordinator.ID == api.LocalNodeID {
-			m.JoinSSHDestination = n.options.LocalSSHDestination
-			m.JoinHelper = host
+		if x.Registration.Join != api.NodeOutgoing {
+			m.JoinSSHDestination = p.Coordinator.SSHDestination
+			m.JoinHelper = p.Coordinator.HelperPath
+			if p.Coordinator.ID == api.LocalNodeID {
+				m.JoinSSHDestination = n.options.LocalSSHDestination
+				m.JoinHelper = host
+			}
 		}
 		if _, e := strictRoamingSSH(m.JoinSSHDestination); e != nil {
 			return p, errors.New("existing outward SSH destination unavailable")
