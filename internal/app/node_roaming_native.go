@@ -1260,6 +1260,22 @@ func (s *roamingNativeSession) close() error {
 	s.assembly.mu.Lock()
 	delete(s.assembly.sessions, s.broker)
 	s.assembly.mu.Unlock()
+	// Management borrowed these observation clients from this exact stage.
+	// Evict only the matching pointers before closing them, so a later local
+	// generation reconnects through the preserved native enrollment.
+	if controller, e := backend.NativeNodeManagementController(s.assembly.app.Backend); e == nil {
+		if management, ok := controller.(*nodeManagement); ok {
+			if native, ok := management.agent.(*nativeNodeManagement); ok {
+				native.mu.Lock()
+				for id, peer := range s.peers {
+					if native.clients[id] == peer {
+						delete(native.clients, id)
+					}
+				}
+				native.mu.Unlock()
+			}
+		}
+	}
 	if s.detach != nil {
 		s.detach()
 	}
@@ -1500,7 +1516,7 @@ func (n *roamingNativeAssembly) recover(ctx context.Context, in NodeRoamingRecov
 	if e != nil {
 		return result, e
 	}
-	if in.LocalGenerationDirectory != "" && in.Phase == "preparing" && in.OperationKind == "enable" && !in.SourceRetiredIntent && in.OperationID == in.StageOperationID && productIdentifier.MatchString(in.OperationID) && p.OperationID != in.OperationID {
+	if in.LocalGenerationDirectory != "" && (in.Phase == "preparing" || in.Phase == "local") && in.OperationKind == "enable" && !in.SourceRetiredIntent && in.OperationID == in.StageOperationID && productIdentifier.MatchString(in.OperationID) && p.OperationID != in.OperationID {
 		base := filepath.Join(n.app.root, "nodeplane", "local-restores")
 		relative, e := filepath.Rel(base, p.RestoreDirectory)
 		if p.Phase != "restored-local" || p.RestoreDirectory != in.LocalGenerationDirectory || e != nil || relative == "." || relative == ".." || strings.Contains(relative, string(filepath.Separator)) || !strings.HasPrefix(relative, "generation-") {
@@ -1522,13 +1538,23 @@ func (n *roamingNativeAssembly) recover(ctx context.Context, in NodeRoamingRecov
 	if p.OperationID != in.StageOperationID || p.ID != in.StageInput.ReviewedPlanID || p.BotID != in.StageInput.BotID || p.Coordinator.ID != in.StageInput.Coordinator.ID {
 		return result, errors.New("original native recovery scope changed")
 	}
-	if in.OperationKind == "enable" && in.OperationID != p.OperationID || in.OperationKind == "disable" && in.OperationID != p.DisableOperationID {
+	// Disable records its original ID before changing any supervisor intent or
+	// touching an owner. An unchanged owners-ready record proves the controller
+	// crash preceded native dispatch; reconcile only by observing the retained
+	// original stage, never by reissuing its disable callback.
+	undispatchedDisable := in.OperationKind == "disable" && (in.Phase == "quiescing" || in.Phase == "active") && in.SourceRetiredIntent && productIdentifier.MatchString(in.OperationID) && in.OperationID != p.OperationID && p.Phase == "owners-ready" && p.DisableOperationID == "" && p.DisableLease == (nodeplane.Lease{})
+	if in.OperationKind == "enable" && in.OperationID != p.OperationID || in.OperationKind == "disable" && !undispatchedDisable && in.OperationID != p.DisableOperationID {
 		return result, errors.New("recovery requires the original native operation ID")
 	}
-	if in.OperationKind == "disable" && (p.DisableLease.BotID != p.BotID || p.DisableLease.Epoch == "" || !productIdentifier.MatchString(p.DisableOperationID)) {
+	if in.OperationKind == "disable" && !undispatchedDisable && (p.DisableLease.BotID != p.BotID || p.DisableLease.Epoch == "" || !productIdentifier.MatchString(p.DisableOperationID)) {
 		return result, errors.New("original stopped native authority receipt is incomplete")
 	}
-	if p.Phase == "owners-ready" && in.OperationKind == "enable" {
+	if p.Phase == "owners-ready" && (in.OperationKind == "enable" || undispatchedDisable) {
+		if undispatchedDisable {
+			if e = n.confirmSupervisorIntent(ctx, p, p.OperationID, "running"); e != nil {
+				return result, e
+			}
+		}
 		input := in.StageInput
 		input.OperationID = p.OperationID
 		input.Resume = true
@@ -1551,6 +1577,26 @@ func (n *roamingNativeAssembly) recover(ctx context.Context, in NodeRoamingRecov
 		if e != nil || verified != ref {
 			stage.Close()
 			return result, errors.New("native recovery lacks exact complete cold Notebook")
+		}
+		if undispatchedDisable {
+			lease, e := broker.CurrentLease(ctx, p.BotID)
+			n.mu.Lock()
+			session := n.sessions[broker]
+			n.mu.Unlock()
+			var owner *nodeagent.Client
+			if session != nil {
+				owner = session.peers[lease.NodeID]
+			}
+			if e != nil || owner == nil || lease.Epoch == "" || lease.TTLMs <= 0 || lease.BotID != p.BotID {
+				stage.Close()
+				return result, errors.New("original active owner authority is unconfirmed")
+			}
+			proof, e := owner.ReadRuntimeProof(ctx, api.WorkTarget{NodeID: lease.NodeID, Backend: string(lease.Backend), Role: api.RoleBot})
+			if e != nil || proof.Unknown || proof.LeaseEpoch != lease.Epoch || proof.Snapshot != ref {
+				stage.Close()
+				return result, errors.New("original active native owner proof changed")
+			}
+			return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "rejected", Phase: "active", Stage: stage}, nil
 		}
 		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "accepted", Phase: "active", Stage: stage}, nil
 	}
@@ -1799,6 +1845,9 @@ func ReadNodeRoamingSupervisorState(filename, operationID string) (NodeRoamingSu
 	}
 	marker := filepath.Join(p.Directory, "deployment-state.json")
 	info, e = os.Lstat(marker)
+	if errors.Is(e, os.ErrNotExist) && operationID == p.OperationID {
+		return NodeRoamingSupervisorState{PlanID: p.PlanID, NodeID: p.NodeID, OperationID: operationID, State: "running"}, nil
+	}
 	if e != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 4096 {
 		return result, errors.New("original no-restart receipt unavailable")
 	}
@@ -1824,18 +1873,25 @@ func (b *nativeRoamingBoundedOutput) Write(p []byte) (int, error) {
 	return b.Buffer.Write(p)
 }
 func (n *roamingNativeAssembly) confirmNoRestart(ctx context.Context, p roamingNativePlan, disabled bool) error {
+	states := []string{"disabled"}
+	if !disabled {
+		states = append(states, "disabling")
+	}
+	return n.confirmSupervisorIntent(ctx, p, p.DisableOperationID, states...)
+}
+func (n *roamingNativeAssembly) confirmSupervisorIntent(ctx context.Context, p roamingNativePlan, operationID string, states ...string) error {
 	for _, node := range p.Nodes {
 		path := filepath.Join(node.Plan.Directory, "supervisor.json")
 		var value NodeRoamingSupervisorState
 		var e error
 		if node.Registration.ID == api.LocalNodeID {
-			value, e = ReadNodeRoamingSupervisorState(path, p.DisableOperationID)
+			value, e = ReadNodeRoamingSupervisorState(path, operationID)
 		} else {
 			args, err := strictRoamingSSH(node.Registration.SSHDestination)
 			if err != nil {
 				return err
 			}
-			command := nodeShellQuote(node.HostHelper) + " inspect-roaming --plan-file " + nodeShellQuote(path) + " --operation-id " + nodeShellQuote(p.DisableOperationID)
+			command := nodeShellQuote(node.HostHelper) + " inspect-roaming --plan-file " + nodeShellQuote(path) + " --operation-id " + nodeShellQuote(operationID)
 			c := exec.CommandContext(ctx, "ssh", append(args, command)...)
 			var out nativeRoamingBoundedOutput
 			c.Stdout = &out
@@ -1849,7 +1905,11 @@ func (n *roamingNativeAssembly) confirmNoRestart(ctx context.Context, p roamingN
 				}
 			}
 		}
-		if e != nil || value.PlanID != p.ID || value.NodeID != node.Registration.ID || value.OperationID != p.DisableOperationID || (value.State != "disabled" && (disabled || value.State != "disabling")) {
+		allowed := false
+		for _, state := range states {
+			allowed = allowed || value.State == state
+		}
+		if e != nil || value.PlanID != p.ID || value.NodeID != node.Registration.ID || value.OperationID != operationID || !allowed {
 			return errors.Join(errors.New("original no-restart authority is unconfirmed"), e)
 		}
 	}
