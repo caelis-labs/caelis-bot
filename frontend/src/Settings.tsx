@@ -20,6 +20,10 @@ type Section = typeof sections[number] | 'setup';
 type Update = { state:string; current:string; latest:string; message:string };
 type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean };
 
+export function closeSettingsOnKey(event:KeyboardEvent,close:()=>void){
+ if(!event.defaultPrevented&&!event.isComposing&&!event.repeat&&(event.key==='Escape'||(event.metaKey&&event.key==='w'))){event.preventDefault();close();}
+}
+
 export function Settings() {
  const {t}=useI18n();
  const content=useRef<HTMLDivElement>(null);
@@ -29,7 +33,7 @@ export function Settings() {
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
  useEffect(()=>{
   const load=()=>{void desktop<string>('SettingsSection').then(value=>{const destination=({execution:'permissions',storage:'general',diagnostics:'updates'} as Record<string,string>)[value]??value;if((destination==='setup'||sections.some(id=>id===destination))&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(destination as Section);setOpened(n=>n+1);});};
-  const key=(event:KeyboardEvent)=>{if(!event.defaultPrevented&&!event.isComposing&&(event.key==='Escape'||(event.metaKey&&event.key==='w'))){event.preventDefault();void desktop('CloseSettings');}};
+  const key=(event:KeyboardEvent)=>closeSettingsOnKey(event,()=>{void desktop('CloseSettings');});
   load();void desktop<string>('AppVersion').then(setVersion);
   window.addEventListener('settings-open',load);window.addEventListener('keydown',key);
   return()=>{window.removeEventListener('settings-open',load);window.removeEventListener('keydown',key);};
