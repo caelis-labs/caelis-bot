@@ -346,6 +346,18 @@ func (m *nodeManagement) SetNodeCoordinator(ctx context.Context, r api.NodeCoord
 			return api.NodeCatalog{}, errors.New("designated coordinator node is unavailable")
 		}
 	}
+	if r.SourceRoutes != nil {
+		if r.NodeID == "" {
+			return api.NodeCatalog{}, errors.New("source routes require a selected coordinator")
+		}
+		ids := make([]string, 0, len(c.Nodes))
+		for _, node := range c.Nodes {
+			ids = append(ids, node.ID)
+		}
+		if err := nodeplane.ValidateCoordinatorSourceRoutes(r.NodeID, ids, *r.SourceRoutes); err != nil {
+			return api.NodeCatalog{}, err
+		}
+	}
 	v, err := m.setup.SetCoordinator(ctx, r)
 	if err != nil {
 		return v, err
@@ -358,6 +370,9 @@ func (m *nodeManagement) SetNodeCoordinator(ctx context.Context, r api.NodeCoord
 	}
 	if (r.NodeID == "" && v.Broker != nil) || (r.NodeID != "" && (v.Broker == nil || v.Broker.NodeID != r.NodeID)) {
 		return api.NodeCatalog{}, errors.New("coordinator selection was not confirmed")
+	}
+	if r.SourceRoutes != nil && !nodeCoordinatorRouteEntriesEqual(*r.SourceRoutes, v.Broker.SourceRoutes) {
+		return api.NodeCatalog{}, errors.New("coordinator source routes were not confirmed")
 	}
 	return m.view(v), nil
 }

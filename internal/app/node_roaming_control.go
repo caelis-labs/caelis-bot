@@ -1137,6 +1137,10 @@ func NodeRoamingOwnsExecution(a *Application) bool {
 // GuardNodeRoamingCoordinator protects native configuration even when callers
 // bypass the settings facade. Selection remains an independent read-only view.
 func GuardNodeRoamingCoordinator(a *Application, nodeID string) error {
+	return guardNodeRoamingCoordinator(a, nodeID, false)
+}
+
+func nodeRoamingCoordinatorControl(a *Application) *nodeRoamingControl {
 	if a == nil || a.Backend == nil {
 		return nil
 	}
@@ -1148,9 +1152,29 @@ func GuardNodeRoamingCoordinator(a *Application, nodeID string) error {
 	if !ok {
 		return nil
 	}
+	return c
+}
+
+// Native configuration holds this same operation fence until the private
+// revision/write is complete. No network or receipt reconciliation is invoked.
+func lockNodeRoamingCoordinatorEdit(a *Application) func() {
+	c := nodeRoamingCoordinatorControl(a)
+	if c == nil {
+		return func() {}
+	}
+	c.op.Lock()
+	return c.op.Unlock
+}
+
+func guardNodeRoamingCoordinator(a *Application, nodeID string, routeEdit bool) error {
+	c := nodeRoamingCoordinatorControl(a)
+	if c == nil {
+		return nil
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if (c.state.Enabled || c.state.Outcome == "unknown") && nodeID != c.state.CoordinatorNodeID {
+	locked := c.state.Enabled || c.state.Outcome == "unknown" || c.pendingLocalRestore || c.state.State == "enabling" || c.state.State == "disabling" || c.state.State == "unknown"
+	if c.closed || locked && (routeEdit || nodeID != c.state.CoordinatorNodeID) {
 		return errors.New("disable automatic roaming before changing its coordinator")
 	}
 	return nil
