@@ -77,13 +77,36 @@ export function createNodeRuntimeClient(owner:NodeSettingsClient,guard:NodeEditG
  const unavailable=async():Promise<never>=>{throw new Error(owner.text('settings.nodeRemotePreparation'));};
  const guards=new Map<string,NodeEditGuard>();
  let connectionGuard:NodeEditGuard|undefined,session:ReturnType<NodeSettingsClient['connection']>|undefined,local:RuntimeSettingsClient|undefined;
+ const scopedLocal=(profile:RuntimeSettings):RuntimeSettingsClient=>{
+  const captured={...profile},original=owner.localRuntime(captured);
+  const check=async()=>{
+   try{
+    const [catalog,current]=await Promise.all([owner.catalog(),owner.primarySettings()]);
+    if(catalog.activeBotNodeId===guard.nodeId&&catalog.nodes.some(node=>node.id===guard.nodeId&&node.join==='local')&&current.runtime===guard.backend&&current.runtime===captured.runtime&&current.cliPath===captured.cliPath&&current.caelisStore===captured.caelisStore)return;
+   }catch{/* A failed read cannot authorize a global settings mutation. */}
+   throw new ConfigurationError({operationId:'',outcome:'conflicted',message:owner.text('settings.nodeStateUnknown')});
+  };
+  const protectedLocal:RuntimeSettingsClient={
+   ...original,
+   capture:()=>protectedLocal,
+   async read(){await check();const view=await original.read();await check();return {...view,local:true};},
+   async saveModel(...args){await check();return original.saveModel(...args);},
+   async changeTeam(...args){await check();return original.changeTeam(...args);},
+   async removeModel(...args){await check();return original.removeModel(...args);},
+   async beginConnection(){await check();return protectedLocal;},
+   async catalog(...args){await check();return original.catalog(...args);},
+   async apiKeyOptions(...args){await check();return original.apiKeyOptions(...args);},
+   async startConnection(...args){await check();return original.startConnection(...args);},
+  };
+  return protectedLocal;
+ };
  const change=(fields:Partial<RuntimeConfigurationChange>,revision?:string)=>owner.change(guards.get(revision??'')??guard,{change:{action:'',id:'',name:'',description:'',selection:{model:'',effort:'',serviceTier:''},expectedRevision:revision??guard.revision,...fields},installation:null});
  const client:RuntimeSettingsClient={
   capture:revision=>local??createNodeRuntimeClient(owner,guards.get(revision)??guard,options),
   async read(){
    if(options.defaultLocal){
     const profile=await owner.primarySettings();
-    if(profile.runtime===guard.backend){local??=owner.localRuntime(profile);return {...await local.read(),local:true};}
+    if(profile.runtime===guard.backend){local??=scopedLocal(profile);return local.read();}
     local=undefined;
    }
    const read=await owner.configuration(guard).catch(()=>{throw new Error(owner.text('settings.nodeStateUnknown'));});
@@ -100,7 +123,7 @@ export function createNodeRuntimeClient(owner:NodeSettingsClient,guard:NodeEditG
   async changeTeam(fields,revision){if(local)return local.changeTeam(fields,revision);await change(fields,revision);},
   async removeModel(group,model,revision){if(local)return local.removeModel(group,model,revision);if(model.uses.length||group.kind==='agent'&&group.models.some(m=>m.uses.length))return unavailable();await change({action:group.kind==='agent'?'disconnect-agent':'remove-model',id:group.kind==='agent'?group.id:model.id},revision);},
   async beginConnection(){
-   if(local)return local;
+   if(local)return local.beginConnection!();
    if(!connectionGuard)throw new Error(owner.text('settings.nodeStateUnknown'));
    // Only the native target's observed guard can authorize explicit setup.
    const port=owner.connection({...connectionGuard});session=port;
