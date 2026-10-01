@@ -24,6 +24,8 @@ import (
 
 type SupervisedRuntimeKind string
 
+var errWatchdogStopUnconfirmed = errors.New("owned watchdog native stop unconfirmed")
+
 const (
 	SupervisedCodexStdio       SupervisedRuntimeKind = "codex-stdio"
 	SupervisedCodexUnix        SupervisedRuntimeKind = "codex-unix"
@@ -107,6 +109,9 @@ type SupervisedProcess struct {
 }
 
 func StartSupervisedProcess(ctx context.Context, o SupervisedProcessOptions) (*SupervisedProcess, error) {
+	if !OwnedRuntimeSupported() {
+		return nil, ErrOwnedRuntimeUnsupported
+	}
 	if !filepath.IsAbs(o.HelperPath) || !filepath.IsAbs(o.Binary) || !filepath.IsAbs(o.Directory) {
 		return nil, errors.New("owned watchdog requires explicit native executable paths")
 	}
@@ -203,7 +208,13 @@ func (p *SupervisedProcess) call(ctx context.Context, f supervisorFrame) (superv
 		return supervisorFrame{}, err
 	}
 	reply, err := readSupervisor(p.conn)
-	if err != nil || reply.ID != f.ID || reply.Fault != "" {
+	if err != nil || reply.ID != f.ID {
+		return supervisorFrame{}, errors.New("owned watchdog fence unavailable")
+	}
+	if reply.Fault != "" {
+		if f.Method == "stop" && reply == (supervisorFrame{ID: f.ID, Fault: "native-stop-unconfirmed"}) {
+			return reply, errWatchdogStopUnconfirmed
+		}
 		return supervisorFrame{}, errors.New("owned watchdog fence unavailable")
 	}
 	return reply, nil
@@ -236,6 +247,8 @@ func (p *SupervisedProcess) Stop(ctx context.Context) error {
 			err = p.tools.killFencedChildren()
 		}
 		if err != nil && p.tools != nil {
+			nativeProofFailed := errors.Is(err, errWatchdogStopUnconfirmed)
+			originalErr := err
 			live, readErr := p.tools.watchdogRootLive()
 			var freeze error
 			if readErr != nil {
@@ -247,6 +260,9 @@ func (p *SupervisedProcess) Stop(ctx context.Context) error {
 			root := p.tools.watchdogForceRoot()
 			children := p.tools.killFencedChildren()
 			err = errors.Join(freeze, root, children, p.tools.failure())
+			if nativeProofFailed {
+				err = errors.Join(originalErr, err)
+			}
 		}
 		p.mu.Lock()
 		p.stopped = true
@@ -263,6 +279,9 @@ func (p *SupervisedProcess) Stop(ctx context.Context) error {
 // fences the native process even when the application owner is forcibly killed.
 // No PIDs, shell body, network listeners or auth/account operations are accepted.
 func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
+	if !OwnedRuntimeSupported() {
+		return ErrOwnedRuntimeUnsupported
+	}
 	return RunSupervisedRuntimeWithPower(ctx, control, leasepower.Bind)
 }
 
@@ -326,6 +345,9 @@ func RunSupervisedRuntimeWithPower(ctx context.Context, control *os.File, bindPo
 		home := filepath.Join(first.Store, ".native-home")
 		cmd.Env = ownedEnvironment([]string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + home, "XDG_CONFIG_HOME=" + home, "TMPDIR=" + os.TempDir()})
 	}
+	if err = prepareWatchdogReaping(); err != nil {
+		return err
+	}
 	if err = cmd.Start(); err != nil {
 		return errors.New("owned watchdog native process unavailable")
 	}
@@ -333,7 +355,8 @@ func RunSupervisedRuntimeWithPower(ctx context.Context, control *os.File, bindPo
 	tools.capture()
 	exited := make(chan struct{})
 	var waitOnce sync.Once
-	startWait := func() { waitOnce.Do(func() { go func() { _ = cmd.Wait(); close(exited) }() }) }
+	var nativeWaitErr error
+	startWait := func() { waitOnce.Do(func() { go func() { nativeWaitErr = cmd.Wait(); close(exited) }() }) }
 	defer startWait()
 	var stopOnce sync.Once
 	var stoppedErr error
@@ -350,16 +373,23 @@ func RunSupervisedRuntimeWithPower(ctx context.Context, control *os.File, bindPo
 				killErr = nil
 			}
 
-			for range 100 {
-				live, err := tools.watchdogRootLive()
-				if err != nil {
-					killErr = errors.Join(killErr, err)
-					break
+			// Native exit and parent reaping are separate facts on Linux. Drain
+			// the original Cmd before returning a confirmed stop receipt.
+			startWait()
+			reaped := false
+			timer := time.NewTimer(2 * time.Second)
+			select {
+			case <-exited:
+				reaped = true
+			case <-timer.C:
+				killErr = errors.Join(killErr, errors.New("owned watchdog native reaping unconfirmed"))
+			}
+			timer.Stop()
+			if reaped {
+				if cmd.ProcessState == nil {
+					killErr = errors.Join(killErr, errors.New("owned watchdog native reaping unconfirmed"), nativeWaitErr)
 				}
-				if !live {
-					break
-				}
-				time.Sleep(10 * time.Millisecond)
+				killErr = errors.Join(killErr, tools.reapWatchdogChildren())
 			}
 			live, err := tools.watchdogRootLive()
 			if err != nil || live {

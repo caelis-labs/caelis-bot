@@ -18,6 +18,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/memorytransfer"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
@@ -374,7 +375,11 @@ func TestDefaultNativeRuntimeMetadataReusesExactRetainedPair(t *testing.T) {
 		t.Fatal("metadata query created target Host configuration", e)
 	}
 	eligible, reason, e := assembly.ownedRuntimeProbe(t.Context(), reg, api.NodeCaelis)
-	if e != nil || eligible || reason != "owned-store-setup-required" {
+	expectedReason := "owned-store-setup-required"
+	if !codex.OwnedRuntimeSupported() {
+		expectedReason = "unsupported-platform"
+	}
+	if e != nil || eligible || reason != expectedReason {
 		t.Fatal("default native pairing inferred owned Host from metadata", eligible, reason, e)
 	}
 	if _, e = os.Lstat(store); !errors.Is(e, os.ErrNotExist) {

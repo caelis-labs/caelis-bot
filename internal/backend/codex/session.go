@@ -295,6 +295,9 @@ func (s *Session) Connect(ctx context.Context) error {
 	return s.connect(ctx)
 }
 func (s *Session) connect(ctx context.Context) error {
+	if s.opts.ForceOwned && !OwnedRuntimeSupported() {
+		return ErrOwnedRuntimeUnsupported
+	}
 	ctx, cancel := s.operation(ctx, 30*time.Second)
 	defer cancel()
 	s.mu.Lock()

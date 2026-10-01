@@ -48,6 +48,13 @@ retains the draft. Host drafts persist across surfaces/restart but are not an au
 never sends. Screen submission has its own durable receipt and cannot consume the composer draft.
 Read-only Composer/Recent snapshots avoid serializing all history; older-page loading does not own lifecycle.
 
+Independent owned Runtime/Worker supervision is available on Linux, including cgo-free builds,
+and on macOS builds with cgo for the IOKit system-power fence. macOS without cgo reports
+unsupported before launching a helper or preparing owned runtime state. Both the owner and
+its watchdog need this capability; a native companion cannot supply the parent's missing fence.
+The packaged macOS node agent enables cgo for this headless system binding without APP/Wails
+or AppKit composition.
+
 Codex owns only the server it launched. Explicit stop/quit interrupts exact owned work, asks native terminal
 cleanup, then reaps that process. macOS descendant fallback uses captured PID plus birth identity; no global
 process-name kill. Closing/hiding UI has none of this authority. Shared Caelis Host/Workers survive Bot detach;

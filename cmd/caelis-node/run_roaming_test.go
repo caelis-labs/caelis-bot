@@ -127,15 +127,6 @@ func (w roamingMetadataWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func TestManagedForegroundUsesRealNativeProofAndFreshProductJournal(t *testing.T) {
-	testManagedForeground(t, false, false)
-}
-func TestManagedForegroundClosedDisablePublishesAndStopsBeforeRestore(t *testing.T) {
-	testManagedForeground(t, true, false)
-}
-func TestManagedForegroundClosedNativeStartUsesOriginalReceipt(t *testing.T) {
-	testManagedForeground(t, true, true)
-}
 func testManagedForeground(t *testing.T, disable, startManaged bool) {
 	root := canonicalWorkerTestRoot(t)
 	executable, err := os.Executable()

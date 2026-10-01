@@ -32,6 +32,9 @@ func (c *supervisedSocketConnection) renewOwnedLease(ctx context.Context, epoch 
 }
 func (c *supervisedSocketConnection) ownedSupervisorLive() bool { return c.supervisor.Live() }
 func openSupervisedWorkerClient(ctx context.Context, opts Options, helper string) (*Client, func(), string, error) {
+	if !OwnedRuntimeSupported() {
+		return nil, nil, "", ErrOwnedRuntimeUnsupported
+	}
 	if opts.Socket != "" {
 		return nil, nil, "", errors.New("supervised Worker cannot adopt an existing native endpoint")
 	}

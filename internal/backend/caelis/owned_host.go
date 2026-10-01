@@ -21,6 +21,9 @@ func startOwnedHost(ctx context.Context, o OwnedHostOptions) (*ownedHost, error)
 }
 
 func startOwnedHostWithStore(ctx context.Context, o OwnedHostOptions, requireExisting bool) (*ownedHost, error) {
+	if !codex.OwnedRuntimeSupported() {
+		return nil, codex.ErrOwnedRuntimeUnsupported
+	}
 	if o.NodeID == "" || !filepath.IsAbs(o.Store) {
 		return nil, errors.New("owned Caelis requires a designated absolute node store")
 	}

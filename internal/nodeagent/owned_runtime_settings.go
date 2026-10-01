@@ -43,15 +43,21 @@ func validateOwnedRuntimeSettings(value OwnedRuntimeSettings, expected api.NodeB
 // ReadOwnedRuntimeSettings reads designated native paths only. It never probes
 // account state, reads a Store, creates directories, or starts a native Host.
 func (s *Service) ReadOwnedRuntimeSettings(ctx context.Context, nodeID string, b api.NodeBackend) (OwnedRuntimeSettings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.readOwnedRuntimeSettings(ctx, nodeID, b)
+}
+
+// readOwnedRuntimeSettings runs under the native configuration/catalog lock;
+// configuration callbacks use it without reacquiring that same lock.
+func (s *Service) readOwnedRuntimeSettings(ctx context.Context, nodeID string, b api.NodeBackend) (OwnedRuntimeSettings, error) {
 	if err := ctx.Err(); err != nil {
 		return OwnedRuntimeSettings{}, err
 	}
 	if nodeID != s.options.NodeID || !backend(b) {
 		return OwnedRuntimeSettings{}, errors.New("native owned runtime scope changed")
 	}
-	s.mu.Lock()
 	options, installation := s.options, s.installation
-	s.mu.Unlock()
 	value := OwnedRuntimeSettings{Backend: b}
 	var err error
 	if options.OwnedRuntimeSettings != nil {

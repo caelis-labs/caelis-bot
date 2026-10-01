@@ -62,14 +62,15 @@ func Run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 		codexConfig := &CodexConfiguration{Directory: *directory, Binary: *codexBinary}
 		configurations := map[api.NodeBackend]NativeConfiguration{api.NodeCodex: codexConfig}
-		var caelisConfig *CaelisConfiguration
-		if *caelisStore != "" {
-			if !filepath.IsAbs(*caelisStore) {
-				return errors.New("Caelis Store must be an explicit native absolute path")
-			}
-			caelisConfig = &CaelisConfiguration{Settings: api.RuntimeSettings{Runtime: "caelis", CLIPath: *caelisBinary, CaelisStore: *caelisStore}}
-			configurations[api.NodeCaelis] = caelisConfig
+		store := *caelisStore
+		if store == "" {
+			store = filepath.Join(*directory, "caelis-store")
 		}
+		if !filepath.IsAbs(store) {
+			return errors.New("Caelis Store must be an explicit native absolute path")
+		}
+		caelisConfig := &CaelisConfiguration{Settings: api.RuntimeSettings{Runtime: "caelis", CLIPath: *caelisBinary, CaelisStore: store}}
+		configurations[api.NodeCaelis] = caelisConfig
 		o := Options{Directory: *directory, RuntimeDirectory: *runtimeDirectory, NodeID: *id, Label: *label, Join: api.NodeJoin(*join), Binaries: binaries, Configurations: configurations}
 		if *nativeHealth {
 			o.Health = func(ctx context.Context, b api.NodeBackend) (NativeHealth, error) {

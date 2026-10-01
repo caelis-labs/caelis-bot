@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
@@ -151,7 +152,7 @@ func AttachNodeManagement(a *Application, options ...NodeManagementNativeOptions
 				return nodeLocalHealth(ctx, a, b)
 			}
 		}
-		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Binaries: binaries, Configurations: ports, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Binaries: binaries, Configurations: ports, OwnedRuntimeSettings: n.localOwnedRuntimeSettings, OwnedRuntimeCompanion: n.localOwnedRuntimeCompanion, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
 			return localHealth(ctx, b)
 		}})
 		if err != nil {
@@ -686,7 +687,7 @@ func (p *nodeLocalConfiguration) Read(ctx context.Context) (api.RuntimeConfigura
 		}
 		return api.RuntimeConfiguration{Revision: rev, Main: conversation, Models: models, Team: api.RuntimeTeam{Available: false, Revision: rev, Models: models, Reason: "native-team-configuration-unavailable"}}, nil
 	}
-	settings, err := p.app.Backend.SetupProfile("caelis")
+	settings, err := nodeLocalCaelisSettings(p.app, filepath.Join(p.app.root, "nodeplane", "local"), nil)
 	if err != nil {
 		return api.RuntimeConfiguration{}, err
 	}
@@ -696,7 +697,7 @@ func (p *nodeLocalConfiguration) Change(ctx context.Context, r nodeplane.Managem
 	if p.backend == api.NodeCodex {
 		return p.app.Backend.ChangeNodeExecutionScopes(ctx, r)
 	}
-	settings, err := p.app.Backend.SetupProfile("caelis")
+	settings, err := nodeLocalCaelisSettings(p.app, filepath.Join(p.app.root, "nodeplane", "local"), nil)
 	if err != nil {
 		return api.RuntimeMutationResult{}, err
 	}
@@ -713,6 +714,18 @@ func nodeLocalHealth(ctx context.Context, a *Application, b api.NodeBackend) (no
 	settings, err := a.Backend.SetupProfile(string(b))
 	if err != nil {
 		return nodeagent.NativeHealth{}, err
+	}
+	if b == api.NodeCaelis {
+		state, err := caelis.InspectNodeRuntimeHealth(ctx, settings)
+		if err != nil {
+			return nodeagent.NativeHealth{}, err
+		}
+		workerEligible := false
+		if state.AuthenticationKnown && state.Authenticated && state.HealthKnown && state.Healthy && a.nodeRegistry != nil {
+			_, err := a.nodeRegistry.WorkRuntimeFor(api.WorkTarget{NodeID: api.LocalNodeID, Backend: string(b), Role: api.RoleWorker})
+			workerEligible = err == nil
+		}
+		return nodeagent.NativeHealth{AuthenticationKnown: state.AuthenticationKnown, Authenticated: state.Authenticated, HealthKnown: state.HealthKnown, Healthy: state.Healthy, WorkerEligible: workerEligible, SharedHost: true}, nil
 	}
 	state, err := a.Backend.InspectSetup(ctx, settings)
 	if err != nil {

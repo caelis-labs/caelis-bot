@@ -78,7 +78,9 @@ and pins the inspected native broker identity; it installs no SSH configuration.
 
 `serve-roaming` is the optional foreground headless composition. It requires an
 existing exact enrollment, pinned broker identity, target-private product token,
-and an owned Codex installation. It combines the real managed application,
+and an owned Codex or Caelis installation. The APP’s first bootstrap still
+requires its live owned Codex source; an ordinary shared Caelis source cannot
+establish native stop authority. It combines the real managed application,
 request-start deadline guard, dynamic paired proof agent, Notebook Runner and
 existing product protocol. Standby keeps the same prepared native generation
 across ordinary claim conflicts, waits for an absent genesis snapshot, and
@@ -202,3 +204,11 @@ Worker directory, socket and receipt namespace. A persistent private generation
 ledger retains original task/request IDs; those IDs cannot dispatch through the
 new owner. Unconfirmed stop or missing original generation evidence blocks
 replacement. Original task outcomes and old native receipts remain unchanged.
+
+Native stop confirmation waits for the original launched root to be reaped. On
+Linux, the dedicated watchdog is a child subreaper and reaps only captured, exited
+pidfds; it never adopts processes by name or scans with unrestricted `waitpid`.
+A native stop fault stays visible even when exact process cleanup succeeds. An
+uncertain or non-waitable descendant cannot produce a confirmed stop receipt.
+Darwin owned-runtime support requires the native cgo lifecycle helper; unsupported
+builds report that capability before launching or preparing state.

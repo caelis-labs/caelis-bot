@@ -12,7 +12,9 @@ for BOT_AGENT_ARCH in amd64 arm64; do
   CGO_ENABLED=0 GOOS=linux GOARCH="$BOT_AGENT_ARCH" go build -trimpath -o "$BOT_AGENT_OUTPUT/caelis-node-linux-$BOT_AGENT_ARCH" ./cmd/caelis-node
 done
 BOT_AGENT_NATIVE_ARCH=$(go env GOARCH)
-CGO_ENABLED=0 GOOS=darwin GOARCH="$BOT_AGENT_NATIVE_ARCH" go build -trimpath -o "$BOT_AGENT_OUTPUT/caelis-agent-darwin-$BOT_AGENT_NATIVE_ARCH" ./cmd/caelis-agent
+# The agent itself owns readiness/setup foregrounds: its IOKit power fence
+# needs cgo. This target imports no APP, desktop, AppKit or Wails assembly.
+CGO_ENABLED=1 GOOS=darwin GOARCH="$BOT_AGENT_NATIVE_ARCH" go build -trimpath -o "$BOT_AGENT_OUTPUT/caelis-agent-darwin-$BOT_AGENT_NATIVE_ARCH" ./cmd/caelis-agent
 CGO_ENABLED=1 GOOS=darwin GOARCH="$BOT_AGENT_NATIVE_ARCH" go build -trimpath -o "$BOT_AGENT_OUTPUT/caelis-node-darwin-$BOT_AGENT_NATIVE_ARCH" ./cmd/caelis-node
 node --input-type=module - "$BOT_AGENT_OUTPUT" "$BOT_AGENT_SOURCE" <<'NODE'
 import {createHash} from 'node:crypto';

@@ -124,6 +124,9 @@ func openWorkerClient(ctx context.Context, opts Options) (*Client, func(), strin
 // Connect bounds only startup. Native process and observation lifetime are
 // owned by this target object and survive caller/observer context cancellation.
 func (w *WorkerClient) Connect(ctx context.Context) error {
+	if w.lease != nil && !OwnedRuntimeSupported() {
+		return ErrOwnedRuntimeUnsupported
+	}
 	s := w.engine
 	s.op.Lock()
 	defer s.op.Unlock()

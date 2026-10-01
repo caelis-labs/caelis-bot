@@ -17,7 +17,7 @@ const {createRoot}=await import('react-dom/client');
 const {act}=React;
 const server=await createServer({server:{middlewareMode:true,ws:false},appType:'custom'});
 const {NodeRuntimeSettings}=await server.ssrLoadModule('/src/NodeRuntimeSettings.tsx');
-const {createNodeSettingsClient,managementDigestInput}=await server.ssrLoadModule('/src/settings/runtime/nodeClient.ts');
+const {createNodeSettingsClient,createNodeRuntimeClient,managementDigestInput}=await server.ssrLoadModule('/src/settings/runtime/nodeClient.ts');
 let root,container;
 afterEach(async()=>{if(root)await act(async()=>root.unmount());container?.remove();root=null;});
 after(async()=>{await server.close();dom.window.close();});
@@ -30,10 +30,10 @@ const click=async(el)=>{assert.ok(el);await act(async()=>el.dispatchEvent(new Mo
 const choose=async(el,value)=>{assert.ok(el);await act(async()=>{el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));});};
 const buttons=(name)=>[...container.querySelectorAll('button')].filter(el=>el.textContent.trim()===name);
 const select=(name)=>container.querySelector(`select[aria-label="${name}"]`);
-async function mount(invoke,call=async()=>({revision:1,nodes:[],issue:''})) {
+async function mount(invoke,call=async()=>({revision:1,nodes:[],issue:''}),strict=false) {
  container=document.createElement('div');document.body.append(container);root=createRoot(container);
  const owner=createNodeSettingsClient(invoke);
- await act(async()=>root.render(React.createElement(NodeRuntimeSettings,{client:owner,call})));
+ await act(async()=>{const page=React.createElement(NodeRuntimeSettings,{client:owner,call});root.render(strict?React.createElement(React.StrictMode,null,page):page);});
  return owner;
 }
 const defaultInvoke=async(method,...args)=>method==='NodeCatalog'?catalog():config(...args);
@@ -455,4 +455,221 @@ test('a coordinator draft stays cancellable when native roaming becomes enabled 
  assert.equal(buttons('Cancel')[0].disabled,false);await click(buttons('Cancel')[0]);
  assert.equal(container.querySelector('#node-coordinator').value,'other');assert.equal(buttons('Stop automatic roaming')[0].disabled,false);
  assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
+});
+
+// Synthetic DOM and native DTO fixtures only; these checks do not claim GUI,
+// native authentication, installed Runtime or remote process acceptance.
+const flow=(stage='complete',sequence=1)=>({id:'original-flow',revision:`flow-${sequence}`,sequence,stage,title:'Node connection',message:'',installation:null,authorization:null,launchers:[],methods:[],models:[]});
+const enter=async(el,value)=>{assert.ok(el);await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));});};
+const coldCatalog=()=>{const value=catalog();value.selectedNodeId='other';value.nodes[1].runtimes[0]={...runtime(),health:'unavailable',authentication:'required'};return value;};
+const coldConfig=(nodeId,backend)=>{const value=config(nodeId,backend);return {...value,configurationAvailable:false,configuration:{...value.configuration,main:null,models:[],connections:[],team:{...value.configuration.team,roles:null,sets:null,models:null}}};};
+const nativeRef=(guard,operationId)=>({nodeId:guard.nodeId,backend:guard.backend,operationId});
+
+test('cold Node wizard forwards manual auth through one pinned native reference and rejects late scope callbacks',async()=>{
+ const calls=[],oldWait=deferred();
+ const invoke=async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return coldCatalog();
+  if(method==='NodeRuntimeConfiguration')return coldConfig(...args);
+  if(method==='BeginNodeRuntimeConnection')return nativeRef(...args);
+  if(method==='NodeRuntimeConnectionCatalog')return {choices:[{id:'provider',name:'Fixture provider',description:'',custom:false}],unavailable:''};
+  if(method==='NodeRuntimeSetupCatalog')return args[1]==='endpoints'?[{value:'https://fixture.invalid/v1',label:'Endpoint',noAuth:false}]:[{value:'fixture-model',label:'Model',noAuth:false}];
+  if(method==='StartNodeRuntimeConnection')return {...flow('authorization'),authorization:{url:'https://fixture.invalid/auth',inputLabel:'Authorization code',canSubmit:true}};
+  if(method==='WaitNodeRuntimeConnection')return oldWait.promise;
+  if(method==='AdvanceNodeRuntimeConnection')return flow('complete',2);
+  if(method==='CloseNodeRuntimeConnection'||method==='OpenMessageLink')return;
+  throw new Error('Unexpected fixture method');
+ };
+ await mount(invoke);
+ assert.equal(calls.filter(c=>c[0].includes('NodeRuntimeConnection')).length,0,'passive viewing started setup');
+ assert.match(container.textContent,/Authentication|credentials|Set up/i);
+ const add=buttons('Add connection')[0];assert.equal(add.disabled,false);
+ await act(async()=>{add.dispatchEvent(new MouseEvent('click',{bubbles:true}));add.dispatchEvent(new MouseEvent('click',{bubbles:true}));});
+ assert.ok(container.querySelector('[role="dialog"]'));
+ const begin=calls.find(c=>c[0]==='BeginNodeRuntimeConnection');
+ assert.deepEqual(begin[1],{nodeId:'other',backend:'caelis',revision:'guard-other-caelis'});
+ assert.equal(calls.filter(c=>c[0]==='BeginNodeRuntimeConnection').length,1);
+ const ref=nativeRef(begin[1],begin[2]);
+ await click(buttons('API Key')[0]);await click(buttons('Fixture provider')[0]??[...container.querySelectorAll('button')].find(b=>b.textContent.includes('Fixture provider')));
+ const password=container.querySelector('input[type="password"]');assert.equal(password.autocomplete,'off');
+ await enter(container.querySelector('input[list]:not([type="url"])'),'fixture-model');
+ await enter(password,'manual-fixture-key');
+ await choose(select('Node'),'local');assert.equal(select('Node').value,'other');assert.equal(password.value,'manual-fixture-key');
+ const connect=buttons('Connect')[0];assert.equal(connect.disabled,false);
+ await act(async()=>{connect.dispatchEvent(new MouseEvent('click',{bubbles:true}));connect.dispatchEvent(new MouseEvent('click',{bubbles:true}));});
+ const start=calls.find(c=>c[0]==='StartNodeRuntimeConnection');
+ assert.equal(calls.filter(c=>c[0]==='StartNodeRuntimeConnection').length,1);
+ assert.deepEqual(start[1],ref);assert.equal(start[2].settings,null);assert.equal(start[2].apiKey,'manual-fixture-key');
+ assert.equal(container.querySelector('input[type="password"]').value,'');
+ await click(buttons('Open login page')[0]);assert.deepEqual(calls.find(c=>c[0]==='OpenMessageLink'),['OpenMessageLink','https://fixture.invalid/auth']);
+ await enter(container.querySelector('input[type="password"]'),'manual-fixture-code');
+ await click(buttons('Submit authorization information')[0]??container.querySelector('[role="dialog"] form button'));
+ const advance=calls.find(c=>c[0]==='AdvanceNodeRuntimeConnection');
+ assert.deepEqual(advance[1],ref);assert.equal(advance[2].id,'original-flow');assert.equal(advance[2].input.code,'manual-fixture-code');
+ await click(buttons('Done')[0]);
+ assert.equal(container.querySelector('[role="dialog"]'),null);
+ assert.equal(calls.filter(c=>c[0]==='CloseNodeRuntimeConnection').length,1);
+ assert.deepEqual(calls.find(c=>c[0]==='CloseNodeRuntimeConnection')[1],ref);
+ await choose(select('Node'),'local');
+ await act(async()=>oldWait.resolve({...flow('authorization',99),title:'Late stale authorization'}));
+ assert.doesNotMatch(container.textContent,/Late stale authorization|manual-fixture-key|manual-fixture-code/);
+ assert.ok(calls.filter(c=>['NodeRuntimeConnectionCatalog','NodeRuntimeSetupCatalog','WaitNodeRuntimeConnection'].includes(c[0])).every(c=>JSON.stringify(c[1])===JSON.stringify(ref)));
+});
+
+test('dismissal before Start closes the original Node setup exactly once',async()=>{
+ const calls=[];
+ await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return coldCatalog();if(method==='NodeRuntimeConfiguration')return coldConfig(...args);if(method==='BeginNodeRuntimeConnection')return nativeRef(...args);if(method==='NodeRuntimeConnectionCatalog')return {choices:[],unavailable:''};if(method==='CloseNodeRuntimeConnection')return;throw new Error('Unexpected fixture method');});
+ await click(buttons('Add connection')[0]);
+ await click(container.querySelector('button.runtime-close'));
+ assert.equal(container.querySelector('[role="dialog"]'),null);
+ assert.equal(calls.filter(c=>c[0]==='StartNodeRuntimeConnection').length,0);
+ assert.equal(calls.filter(c=>c[0]==='CloseNodeRuntimeConnection').length,1);
+});
+
+test('late Begin after unmount closes its original owner and never mounts a stale wizard',async()=>{
+ const begin=deferred(),calls=[];
+ await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return coldCatalog();if(method==='NodeRuntimeConfiguration')return coldConfig(...args);if(method==='BeginNodeRuntimeConnection')return begin.promise;if(method==='CloseNodeRuntimeConnection')return;throw new Error('Unexpected fixture method');});
+ await click(buttons('Add connection')[0]);
+ await choose(select('Node'),'local');assert.equal(select('Node').value,'other');
+ await act(async()=>root.unmount());root=null;
+ const original=calls.find(c=>c[0]==='BeginNodeRuntimeConnection');
+ await act(async()=>begin.resolve(nativeRef(original[1],original[2])));
+ assert.equal(calls.filter(c=>c[0]==='CloseNodeRuntimeConnection').length,1);
+ assert.deepEqual(calls.find(c=>c[0]==='CloseNodeRuntimeConnection')[1],nativeRef(original[1],original[2]));
+ assert.equal(calls.filter(c=>c[0]==='NodeRuntimeConnectionCatalog').length,0);
+});
+
+test('lost Begin and cleanup keep the original scope blocked without leaking SDK errors or restarting',async()=>{
+ const calls=[];
+ await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return coldCatalog();if(method==='NodeRuntimeConfiguration')return coldConfig(...args);if(['BeginNodeRuntimeConnection','CloseNodeRuntimeConnection'].includes(method))throw new Error('RAW-SDK-BODY-MUST-STAY-PRIVATE');throw new Error('Unexpected fixture method');});
+ await click(buttons('Add connection')[0]);await click(buttons('Add connection')[0]);
+ assert.equal(calls.filter(c=>c[0]==='BeginNodeRuntimeConnection').length,1);
+ assert.equal(calls.filter(c=>c[0]==='CloseNodeRuntimeConnection').length,1);
+ assert.equal(container.querySelector('[role="dialog"]'),null);
+ assert.doesNotMatch(container.textContent,/RAW-SDK-BODY-MUST-STAY-PRIVATE/);
+});
+
+test('Node cancel and unknown Start preserve original native flow without duplicate actions',async()=>{
+ const calls=[],delivery=deferred();
+ const owner=createNodeSettingsClient(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeRuntimeConfiguration')return coldConfig(...args);if(method==='BeginNodeRuntimeConnection')return nativeRef(...args);if(method==='StartNodeRuntimeConnection')return delivery.promise;if(method==='CancelNodeRuntimeConnection'||method==='CloseNodeRuntimeConnection')return;throw new Error('Unexpected fixture method');});
+ const view=createNodeRuntimeClient(owner,{nodeId:'other',backend:'caelis',revision:'catalog-revision'});await view.read();
+ const client=await view.beginConnection(),signal=new AbortController().signal;
+ const first=client.startConnection({kind:'account',choice:'fixture'},signal,()=>{});first.catch(()=>{});
+ const again=client.startConnection({kind:'account',choice:'other'},signal,()=>{});again.catch(()=>{});
+ delivery.reject(new Error('private-native-response-loss'));
+ await assert.rejects(first,e=>e.unknown);await assert.rejects(again,e=>e.unknown);
+ await assert.rejects(client.startConnection({kind:'account',choice:'fresh'},signal,()=>{}),e=>e.unknown);
+ assert.equal(calls.filter(c=>c[0]==='StartNodeRuntimeConnection').length,1);
+ await Promise.all([client.cancelConnection(flow('unknown')),client.cancelConnection(flow('unknown'))]);
+ assert.equal(calls.filter(c=>c[0]==='CancelNodeRuntimeConnection').length,1);
+ await Promise.all([client.closeConnection(),client.closeConnection()]);
+ assert.equal(calls.filter(c=>c[0]==='CloseNodeRuntimeConnection').length,1);
+});
+
+test('ordinary active local Runtime keeps original configuration, edits and connection wizard without a Node agent',async()=>{
+ const calls=[],profile={runtime:'caelis',cliPath:'/fixture/source-caelis',caelisStore:'/fixture/source-store'};
+ const shared={...config('local','caelis').configuration,revision:'source-revision',main:{model:'source-store-model',effort:'high',serviceTier:''},models:[model('source-store-model'),model('source-store-other')]};
+ await mount(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return {...catalog(),activeBotNodeId:'local'};
+  if(method==='NodeRuntimeConfiguration')return {...config(...args),configuration:{...config(...args).configuration,main:{model:'private-node-slot',effort:'high',serviceTier:''}}};
+  if(method==='RuntimeSettings')return profile;
+  if(method==='SetupOverview')return {active:'caelis',pending:''};
+  if(method==='InspectSetup')return {settings:profile,state:'ready',message:'',installation:{installed:true,path:'',version:'1',latestVersion:'1',updateState:'',message:''},models:[],selectedModel:'',accountType:''};
+  if(method==='RuntimeConfiguration')return shared;
+  if(['ExecutionSettings','WorkExecutionSettings'].includes(method))return {model:'source-store-model',effort:'high',serviceTier:''};
+  if(method==='Models')return shared.models;
+  if(method==='ChangeRuntimeConfiguration')return {operationId:'local-original',outcome:'committed',message:''};
+  if(method==='RuntimeConnectionCatalog')return {choices:[{id:'fixture',name:'Original local provider',description:'',custom:false}],unavailable:''};
+  if(method==='StartRuntimeConnection')return flow();
+  throw new Error('Unexpected fixture method');
+ });
+ assert.match(container.textContent,/source-store-model/);assert.doesNotMatch(container.textContent,/private-node-slot/);
+ await click(container.querySelectorAll('button.runtime-model-summary')[1]);
+ await click(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1]);await click(buttons('Save')[0]);
+ assert.equal(calls.filter(c=>c[0]==='ChangeRuntimeConfiguration').length,1);assert.equal(calls.filter(c=>c[0]==='ChangeNodeConfiguration').length,0);
+ await click(buttons('Add connection')[0]);await click([...container.querySelectorAll('button')].find(b=>b.textContent.includes('Original local provider')));await click(buttons('Continue login')[0]);await click(buttons('Done')[0]);
+ assert.equal(calls.filter(c=>c[0]==='StartRuntimeConnection').length,1);
+ assert.deepEqual(calls.find(c=>c[0]==='StartRuntimeConnection')[1].settings,profile);
+ assert.equal(calls.filter(c=>/NodeRuntimeConnection|NodeRuntimeSetupCatalog/.test(c[0])).length,0);
+});
+
+test('local model draft rejects a changed Bot owner before Save and preserves the selected value',async()=>{
+ const calls=[],profile={runtime:'caelis',cliPath:'/fixture/source-caelis',caelisStore:'/fixture/source-store'};
+ let activeBotNodeId='local';
+ const shared={...config('local','caelis').configuration,revision:'source-revision',main:{model:'source-store-model',effort:'high',serviceTier:''},models:[model('source-store-model'),model('source-store-other')]};
+ await mount(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return {...catalog(),activeBotNodeId};
+  if(method==='NodeRuntimeConfiguration')return config(...args);
+  if(method==='RuntimeSettings')return profile;
+  if(method==='SetupOverview')return {active:'caelis',pending:''};
+  if(method==='InspectSetup')return {settings:profile,state:'ready',message:'',installation:{installed:true,path:'',version:'1',latestVersion:'1',updateState:'',message:''},models:[],selectedModel:'',accountType:''};
+  if(method==='RuntimeConfiguration')return shared;
+  if(['ExecutionSettings','WorkExecutionSettings'].includes(method))return {model:'source-store-model',effort:'high',serviceTier:''};
+  if(method==='Models')return shared.models;
+  throw new Error('Unexpected fixture method');
+ });
+ await click(container.querySelectorAll('button.runtime-model-summary')[1]);
+ await click(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1]);
+ activeBotNodeId='other';
+ await click(buttons('Save')[0]);
+ assert.ok(container.querySelector('[role="dialog"]'));
+ assert.equal(container.querySelectorAll('[role="dialog"] input[type="radio"]')[1].checked,true);
+ assert.ok(container.querySelector('[role="dialog"] [role="alert"]'));
+ assert.equal(calls.filter(c=>['ChangeRuntimeConfiguration','ChangeNodeConfiguration','SaveExecutionSettings','SaveWorkExecutionSettings'].includes(c[0])).length,0);
+});
+
+test('local adapter rechecks backend and profile for every global mutation and late inspection',async()=>{
+ const profile={runtime:'caelis',cliPath:'/fixture/source-caelis',caelisStore:'/fixture/source-store'};
+ for(const changed of [{...profile,runtime:'codex'},{...profile,caelisStore:'/fixture/another-store'}]){
+  let current=profile,mutations=0;
+  const owner=createNodeSettingsClient(async(method)=>{
+   if(method==='NodeCatalog')return {...catalog(),activeBotNodeId:'local'};
+   if(method==='RuntimeSettings')return current;
+   throw new Error('Unexpected fixture method');
+  });
+  owner.localRuntime=()=>({read:async()=>({profile,revision:'source-revision'}),saveModel:async()=>mutations++,changeTeam:async()=>mutations++,removeModel:async()=>mutations++,startConnection:async()=>mutations++});
+  const adapter=createNodeRuntimeClient(owner,{nodeId:'local',backend:'caelis',revision:'catalog-revision'},{defaultLocal:true});
+  await adapter.read();
+  const captured=adapter.capture('source-revision');current=changed;
+  await assert.rejects(()=>captured.saveModel('runtime',{model:'manual-model',effort:'',serviceTier:''},'source-revision'));
+  await assert.rejects(()=>captured.changeTeam({action:'reset',id:'role'},'source-revision'));
+  await assert.rejects(()=>captured.removeModel({id:'provider'}, {id:'model'},'source-revision'));
+  await assert.rejects(()=>captured.startConnection({kind:'api-key',choice:'provider',apiKey:'manual-fixture'},new AbortController().signal,()=>{}));
+  assert.equal(mutations,0);
+ }
+ const inspection=deferred();let activeBotNodeId='local';
+ const owner=createNodeSettingsClient(async(method)=>{
+  if(method==='NodeCatalog')return {...catalog(),activeBotNodeId};
+  if(method==='RuntimeSettings')return profile;
+  throw new Error('Unexpected fixture method');
+ });
+ owner.localRuntime=()=>({read:()=>inspection.promise});
+ const adapter=createNodeRuntimeClient(owner,{nodeId:'local',backend:'caelis',revision:'catalog-revision'},{defaultLocal:true});
+ const pending=adapter.read();await new Promise(resolve=>setImmediate(resolve));
+ activeBotNodeId='other';inspection.resolve({profile,revision:'source-revision'});
+ await assert.rejects(()=>pending);
+});
+
+
+test('StrictMode effect replay keeps explicitly opened Node owner until settings actually close',async()=>{
+ const calls=[];
+ await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog')return coldCatalog();if(method==='NodeRuntimeConfiguration')return coldConfig(...args);if(method==='BeginNodeRuntimeConnection')return nativeRef(...args);if(method==='NodeRuntimeConnectionCatalog')return {choices:[],unavailable:''};if(method==='CloseNodeRuntimeConnection')return;throw new Error('Unexpected fixture method');},async()=>({revision:1,nodes:[],issue:''}),true);
+ await click(buttons('Add connection')[0]);
+ assert.ok(container.querySelector('[role="dialog"]'));
+ assert.equal(calls.filter(c=>c[0]==='BeginNodeRuntimeConnection').length,1);
+ assert.equal(calls.filter(c=>c[0]==='CloseNodeRuntimeConnection').length,0);
+ await act(async()=>window.dispatchEvent(new Event('settings-close')));
+ assert.equal(container.querySelector('[role="dialog"]'),null);
+ assert.equal(calls.filter(c=>c[0]==='CloseNodeRuntimeConnection').length,1);
+});
+
+test('missing Node Runtime remains honest and cannot start authentication before installation',async()=>{
+ const calls=[];
+ await mount(async(method,...args)=>{calls.push([method,...args]);if(method==='NodeCatalog'){const value=coldCatalog();value.nodes[1].runtimes[0].health='missing';value.nodes[1].runtimes[0].authentication='unknown';return value;}const value=coldConfig(...args);value.installation.installed=false;return value;});
+ assert.match(container.textContent,/Not installed/);
+ assert.equal(buttons('Add connection')[0].disabled,true);
+ await click(buttons('Add connection')[0]);
+ assert.equal(calls.filter(c=>c[0]==='BeginNodeRuntimeConnection').length,0);
 });

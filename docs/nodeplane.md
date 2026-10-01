@@ -69,6 +69,36 @@ followed by action, version and expected version. Empty fields remain present.
 The operation ID and digest itself are excluded; Ref Node/backend must match the
 guard separately. Cross-language Unicode coverage lives in the source tests.
 
+## Explicit node connection setup
+
+The existing connection/model workspace uses the original local Runtime client
+when viewing its active local profile. Other enrolled targets retain an exact
+Node/backend/reference through the same connection wizard. Viewing or switching
+a Node never starts a setup Host. Unsaved drafts and late native results retain
+their original scope; changed local ownership or profile blocks global writes.
+
+An explicit Caelis connection Begin validates the displayed native guard and
+verified companion before preparing the fixed target-private Store. A cold
+setup owns a bounded foreground Host using the existing public SDK; it needs no
+configured model, application enrollment, Bot activation or model request.
+Warm setup borrows only the exact live owned Host/generation and detaches on
+wizard close, leaving the Bot running. Shared Hosts are never adopted.
+
+The original Begin is journaled before dispatch. Unknown Begin, SDK flow start
+or cleanup cannot launch a replacement under a new ID. Closed paired methods
+accept the original reference and no endpoint, Store path or Runtime settings
+override. Authentication inputs are entered by the user in the existing password
+controls and delivered to that target's native SDK. No source-store secret copy,
+autofill, credential receipt or generic credential-transfer method is provided.
+SDK failures expose safe typed uncertainty; cleanup errors remain visible.
+Transient challenge/flow references are released after cleanup.
+
+Native setup metadata persists separately from admitted Worker bindings so an
+unconfigured alternate Caelis installation retains its designated Store across
+generations without granting Worker authority. The APP's first roaming bootstrap
+currently requires its live owned Codex source. Managed targets can use either
+Codex or Caelis; the ordinary shared Caelis source remains ineligible.
+
 ## Ownership and safe admission
 
 `AttachNodeManagement` creates the in-process local catalog agent and loads a

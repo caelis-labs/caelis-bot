@@ -1,7 +1,8 @@
 // Package nodeagent owns the optional foreground node catalog/installer and
 // closed reviewed deployment transport. It never assembles the desktop APP,
-// reads model credentials, enrolls accounts or claims execution authority from
-// installed bytes; an explicit deployment delegates only to the verified host.
+// transfers model credentials or claims execution authority from installed
+// bytes. Explicit user connection setup delegates transient inputs to the
+// target native SDK; deployment delegates only to the verified host.
 package nodeagent
 
 import (
@@ -22,6 +23,8 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 	"github.com/caelis-labs/caelis-bot/internal/runtimemanagement"
@@ -52,6 +55,10 @@ type Options struct {
 	WorkerProxy                                *NativeWorkerProxy
 	OwnedRuntimeSettings                       func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error)
 	OwnedRuntimeCompanion                      func(context.Context) (OwnedRuntimeCompanion, error)
+	// NodeConnectionOwner delegates only an already owned exact native Host.
+	// Its Close detaches setup and never stops a warm managed runtime.
+	// Returning nil,nil proves no warm Caelis owner; cold setup remains explicit.
+	NodeConnectionOwner func(context.Context, OwnedRuntimeSettings) (NodeConnectionOwner, error)
 }
 
 const MaxOperations = 4096
@@ -61,6 +68,9 @@ type Service struct {
 	installation   installer
 	mu             sync.Mutex
 	readinessCheck ownedReadinessCheck
+	connectionsMu  sync.Mutex
+	connections    map[string]*nodeConnectionSession
+	beginSetup     func(context.Context, caelis.OwnedHostOptions) (NodeConnectionOwner, error)
 }
 
 var _ nodeplane.CatalogAgent = (*Service)(nil)
@@ -119,6 +129,28 @@ func New(o Options) (*Service, error) {
 			return nil, err
 		}
 	}
+	configs := make(map[api.NodeBackend]NativeConfiguration, len(o.Configurations)+1)
+	for b, c := range o.Configurations {
+		configs[b] = c
+	}
+	if configs[api.NodeCaelis] == nil {
+		configs[api.NodeCaelis] = &CaelisConfiguration{Settings: api.RuntimeSettings{Runtime: "caelis", CLIPath: o.Binaries[api.NodeCaelis], CaelisStore: filepath.Join(o.Directory, "caelis-store")}}
+	}
+	s.options.Configurations = configs
+	if c, ok := configs[api.NodeCaelis].(*CaelisConfiguration); ok && c != nil {
+		if c.Settings.Runtime == "" {
+			c.Settings.Runtime = "caelis"
+		}
+		if c.Settings.CaelisStore == "" {
+			c.Settings.CaelisStore = filepath.Join(o.Directory, "caelis-store")
+		}
+		if c.BinaryPath == nil {
+			c.BinaryPath = func() (string, error) {
+				v, err := s.readOwnedRuntimeSettings(context.Background(), s.options.NodeID, api.NodeCaelis)
+				return v.Binary, err
+			}
+		}
+	}
 	return s, nil
 }
 func backend(b api.NodeBackend) bool { return b == api.NodeCodex || b == api.NodeCaelis }
@@ -161,7 +193,7 @@ func (s *Service) catalog(ctx context.Context) (api.NodeCatalog, error) {
 					}
 				}
 				controlled := h.ManagedOwner && h.Fenceable && !h.SharedHost && h.HealthKnown && h.Healthy && h.AuthenticationKnown && h.Authenticated
-				r.Roles[0].Eligible = controlled && h.BotEligible && runtime.GOOS != "windows"
+				r.Roles[0].Eligible = controlled && h.BotEligible && codex.OwnedRuntimeSupported()
 				r.Roles[1].Eligible = h.WorkerEligible && h.HealthKnown && h.Healthy && h.AuthenticationKnown && h.Authenticated
 				if r.Roles[0].Eligible {
 					r.Roles[0].Reason = ""
@@ -169,6 +201,8 @@ func (s *Service) catalog(ctx context.Context) (api.NodeCatalog, error) {
 					r.Roles[0].Reason = "shared-runtime-not-fenceable"
 				} else if runtime.GOOS == "windows" && b == api.NodeCodex {
 					r.Roles[0].Reason = "windows-process-ownership-unsupported"
+				} else if !codex.OwnedRuntimeSupported() {
+					r.Roles[0].Reason = "owned-runtime-unsupported"
 				}
 				if r.Roles[1].Eligible {
 					r.Roles[1].Reason = ""
@@ -286,7 +320,7 @@ func (s *Service) Configuration(ctx context.Context, nodeID string, b api.NodeBa
 	defer s.mu.Unlock()
 	return s.configuration(ctx, nodeID, b)
 }
-func (s *Service) configuration(ctx context.Context, nodeID string, b api.NodeBackend) (api.NodeRuntimeConfiguration, error) {
+func (s *Service) configuration(ctx context.Context, nodeID string, b api.NodeBackend) (out api.NodeRuntimeConfiguration, resultErr error) {
 	if nodeID != s.options.NodeID || !backend(b) {
 		return api.NodeRuntimeConfiguration{}, errors.New("configuration scope changed")
 	}
@@ -296,7 +330,24 @@ func (s *Service) configuration(ctx context.Context, nodeID string, b api.NodeBa
 		}
 	}
 	port := s.options.Configurations[b]
-	out := api.NodeRuntimeConfiguration{Guard: api.NodeEditGuard{NodeID: nodeID, Backend: b}, ReviewedVersions: []string{}}
+	out = api.NodeRuntimeConfiguration{Guard: api.NodeEditGuard{NodeID: nodeID, Backend: b}, ReviewedVersions: []string{}}
+	defer func() {
+		if b != api.NodeCaelis || resultErr != nil {
+			return
+		}
+		metadata, err := s.readOwnedRuntimeSettings(ctx, nodeID, b)
+		if err != nil {
+			return
+		}
+		// A cold private Store still has a stable guard. Installed executable
+		// and designated Store changes invalidate it before explicit Begin.
+		nativeRevision := ""
+		if out.ConfigurationAvailable {
+			nativeRevision = out.Configuration.Revision
+		}
+		h := sha256.Sum256([]byte(connectionBinding(metadata) + "\x00" + nativeRevision))
+		out.Guard.Revision = hex.EncodeToString(h[:])
+	}()
 	if s.installation != nil {
 		out.InstallerAvailable = true
 		status, err := s.installation.Manage(ctx, runtimemanagement.Request{Action: "detect", Runtime: string(b)})
