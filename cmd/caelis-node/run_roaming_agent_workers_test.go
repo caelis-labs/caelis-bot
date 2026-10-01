@@ -27,6 +27,12 @@ func (unavailableWorkerLeaseReader) ReadWorkerLease(context.Context, nodeplane.W
 	return nodeplane.Lease{}, errors.New("contained source lease unavailable")
 }
 func TestRoamingAgentOwnsActualLeasedWorkerAcrossObserverDetach(t *testing.T) {
+	for _, nodeID := range []string{"worker-node", api.LocalNodeID} {
+		t.Run(nodeID, func(t *testing.T) { testRoamingAgentOwnedWorkerDetach(t, nodeID) })
+	}
+}
+
+func testRoamingAgentOwnedWorkerDetach(t *testing.T, nodeID string) {
 	root := canonicalWorkerTestRoot(t)
 	executable, err := verifiedRoamingExecutable()
 	if err != nil {
@@ -42,7 +48,7 @@ func TestRoamingAgentOwnsActualLeasedWorkerAcrossObserverDetach(t *testing.T) {
 	if err = os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
-	c := roamingCommand{NodeID: "worker-node", BotID: "raw-native-bot", Backend: "codex", AgentDirectory: directory, CodexBinary: binary, BrokerNodeID: "paired-broker"}
+	c := roamingCommand{NodeID: nodeID, BotID: "raw-native-bot", Backend: "codex", AgentDirectory: directory, CodexBinary: binary, BrokerNodeID: "paired-broker"}
 	plan := roamingWorkerPlan{Nodes: []backend.WorkerNodeConfig{{ID: "primary-node", Backend: "caelis", Transport: "registered-agent", Label: "Approved primary"}}}
 	life, cancel := context.WithCancel(t.Context())
 	defer cancel()

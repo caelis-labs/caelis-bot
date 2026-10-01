@@ -353,6 +353,9 @@ func TestManagedBotDefaultAndExplicitMacWorkerKeepExactBindings(t *testing.T) {
 	if filepath.Dir(remote.Workspace) == m.root {
 		t.Fatal("Mac workspace allocated on managed machine")
 	}
+	if got := m.DefaultWorkerTarget(); got != router.DefaultTarget() {
+		t.Fatal("native default port changed", got)
+	}
 	if got := m.WorkRoutes(); len(got) != 2 {
 		t.Fatal(got)
 	}

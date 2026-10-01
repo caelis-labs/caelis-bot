@@ -61,3 +61,31 @@ func TestWorkerStartupOfflinePreflightUsesExistingPrivateSchema(t *testing.T) {
 		t.Fatal("linked config accepted")
 	}
 }
+
+func TestLocalStartupTargetRequiresExactEnrolledTransport(t *testing.T) {
+	root := t.TempDir()
+	configs := []backend.WorkerNodeConfig{
+		{ID: api.LocalNodeID, Label: "Mac", Backend: "codex", Transport: "registered-agent"},
+		{ID: api.LocalNodeID, Label: "Mac", Backend: "caelis", Transport: "registered-agent"},
+	}
+	selected := []api.WorkTarget{configuredWorkerTarget(configs[0]), configuredWorkerTarget(configs[1])}
+	check := func(want bool) {
+		t.Helper()
+		data, _ := json.Marshal(workerNodeDocument{Version: 1, Nodes: configs})
+		if err := os.WriteFile(filepath.Join(root, "worker-nodes.json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateConfiguredWorkerTargets(root, selected); (err == nil) != want {
+			t.Fatal("wrong exact local preflight", want, err)
+		}
+	}
+	check(true)
+	configs[0].SSH = "foreign-host"
+	check(false)
+	configs[0].SSH = ""
+	configs[0].Transport = ""
+	configs[0].SSH = "fixture-host"
+	configs[0].Socket = "/private/native.sock"
+	configs[0].WorkspaceRoot = "/private/work"
+	check(false)
+}

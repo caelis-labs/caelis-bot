@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/app"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -137,5 +139,82 @@ func TestRoamingUnavailableOptionalWorkerPreservesPrimaryStartup(t *testing.T) {
 	}
 	if len(s.calls) != 2 || !s.snapshot.Nodes[1].Connected || s.snapshot.Nodes[0].Connected {
 		t.Fatalf("optional handshake prevented healthy route %+v", s)
+	}
+}
+
+func TestProductionLocalWorkerManifestPreservesBothBackendsAndNativeCLIIdentity(t *testing.T) {
+	root := t.TempDir()
+	filename := filepath.Join(root, "workers.json")
+	plan := roamingWorkerPlan{Version: 1,
+		Nodes: []backend.WorkerNodeConfig{
+			{ID: api.LocalNodeID, Label: "Mac", Backend: "codex", Transport: "registered-agent"},
+			{ID: api.LocalNodeID, Label: "Mac", Backend: "caelis", Transport: "registered-agent"},
+		},
+		Agents: []roamingWorkerAgent{
+			{NodeID: api.LocalNodeID, Backend: "codex", Socket: "/private/mac/agent.sock"},
+			{NodeID: api.LocalNodeID, Backend: "caelis", Socket: "/private/mac/agent.sock"},
+		},
+		Sources:  []roamingWorkerSource{{NodeID: "linux-primary", Backends: []string{"codex", "caelis"}}, {NodeID: api.LocalNodeID, Backends: []string{"codex", "caelis"}}},
+		Runtimes: []roamingWorkerRuntime{{Backend: "codex", Binary: "/native/codex"}, {Backend: "caelis", Binary: "/native/caelis", Store: "/native/caelis-store"}},
+	}
+	data, _ := json.Marshal(plan)
+	if err := os.WriteFile(filename, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadRoamingWorkerPlan(filename)
+	if err != nil || loaded.Nodes[0].ID != api.LocalNodeID || loaded.Agents[1].NodeID != api.LocalNodeID || len(loaded.Runtimes) != 2 {
+		t.Fatal("production manifest rejected or renamed local", loaded, err)
+	}
+	privateConfig, _ := json.Marshal(struct {
+		Version int                        `json:"version"`
+		Nodes   []backend.WorkerNodeConfig `json:"nodes"`
+	}{Version: 1, Nodes: loaded.Nodes})
+	if err := os.WriteFile(filepath.Join(root, "worker-nodes.json"), privateConfig, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.ValidateConfiguredWorkerTargets(root, []api.WorkTarget{loaded.Agents[0].target(), loaded.Agents[1].target()}); err != nil {
+		t.Fatal("native APP preflight rejected production manifest", err)
+	}
+	for _, nativeBackend := range []string{"codex", "caelis"} {
+		args := []string{"serve-roaming", "--node-id", "linux-primary", "--bot-id", "native-bot", "--broker-node-id", api.LocalNodeID, "--agent-directory", "/private/linux-agent", "--generations", "/private/generations", "--broker-socket", "/private/broker.sock", "--auth-file", "/private/auth", "--workers-file", filename, "--backend", nativeBackend}
+		if nativeBackend == "caelis" {
+			args = append(args, "--caelis-binary", "/native/caelis", "--caelis-store", "/native/caelis-store")
+		}
+		command, err := parseRoamingCommand(args, io.Discard)
+		if err != nil || command.BrokerNodeID != api.LocalNodeID || command.NodeID != "linux-primary" {
+			t.Fatal(command, err)
+		}
+		lookup := newRoamingWorkerAgents(t.Context(), command, loaded)
+		calls := 0
+		sentinel := errors.New("contained unavailable Mac agent")
+		lookup.dial = func(_ context.Context, agent roamingWorkerAgent) (*nodeagent.Client, error) {
+			calls++
+			if agent.NodeID != api.LocalNodeID || agent.Socket != "/private/mac/agent.sock" {
+				t.Fatal("native route renamed", agent)
+			}
+			return nil, sentinel
+		}
+		for _, agent := range loaded.Agents {
+			pair := workerwire.Pair{Target: agent.target(), BotID: api.ProfileBotID(command.BotID), SourceNode: command.NodeID, SourceBackend: nativeBackend}
+			if _, err := lookup.lookup(t.Context(), pair); !errors.Is(err, sentinel) {
+				t.Fatal("exact local route unavailable to native lookup", pair, err)
+			}
+			wrong := pair
+			wrong.SourceNode = api.LocalNodeID
+			before := calls
+			if _, err := lookup.lookup(t.Context(), wrong); err == nil || calls != before {
+				t.Fatal("APP alias replaced actual source", wrong, err)
+			}
+		}
+	}
+	// Matching local fields never authorize legacy SSH transport or paths.
+	plan.Nodes[0].Transport = ""
+	plan.Nodes[0].SSH = "foreign-host"
+	data, _ = json.Marshal(plan)
+	if err := os.WriteFile(filename, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadRoamingWorkerPlan(filename); err == nil {
+		t.Fatal("legacy local SSH route admitted")
 	}
 }
