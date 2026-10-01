@@ -1,11 +1,12 @@
 import {useEffect,useRef,useState} from 'react';
 import {backend} from '../../desktop';
-import type {NodeAddResult,NodeCatalog,NodeInfo,NodeJoinInstructions,NodeEditGuard,NodeInstallationState} from '../../backend/contract';
+import type {NodeAddResult,NodeCatalog,NodeInfo,NodeJoinInstructions,NodeEditGuard,NodeInstallationState,NodeRoamingRequest,NodeRoamingPlan} from '../../backend/contract';
 import {SettingRow} from '../../SettingsUI';
 import {SettingsDialog} from './SettingsDialog';
 import {useI18n} from '../../i18n';
 import type {MessageKey} from '../../i18n/catalogs';
 import type {NodeSettingsClient} from './nodeClient';
+import type {NodeRoamingClient} from './roamingClient';
 
 export function NodeEnrollment({catalog,call=backend,onChanged}:{catalog:NodeCatalog|null;call?:typeof backend;onChanged:()=>void}) {
  const {t}=useI18n();
@@ -77,18 +78,56 @@ export function NodePrograms({node,backendID,owner,call=backend,onChanged,refres
  </details>;
 }
 
-export function NodeCoordinator({catalog,call=backend,onChanged}:{catalog:NodeCatalog;call?:typeof backend;onChanged:()=>void}) {
+export function NodeCoordinator({catalog,roaming,onChanged,call=backend,refreshKey=0}:{catalog:NodeCatalog;roaming:NodeRoamingClient;call?:typeof backend;onChanged:()=>void;refreshKey?:number}) {
  const {t}=useI18n();
- const [selected,setSelected]=useState(catalog.broker?.nodeId??''),[busy,setBusy]=useState(false),[error,setError]=useState<MessageKey|''>('');
- const pending=useRef(false),revision=useRef(catalog.revision);
+ const committed=catalog.broker?.nodeId??'';
+ const [selected,setSelected]=useState(committed),[busy,setBusy]=useState(false),[error,setError]=useState<MessageKey|''>('');
+ const [confirmation,setConfirmation]=useState<{enable:boolean;revision:string;coordinator:string;reviewed?:{request:NodeRoamingRequest;plan:NodeRoamingPlan}}|null>(null);
+ const [,render]=useState(0),[attempted,setAttempted]=useState(false);
+ const pending=useRef(false),revision=useRef(catalog.revision),draft=useRef(false),current=useRef(catalog);current.current=catalog;
+ const state=roaming.snapshot(),dirty=selected!==committed;
+ useEffect(()=>roaming.subscribe(()=>render(value=>value+1)),[roaming]);
+ useEffect(()=>{void roaming.read();},[roaming,catalog.revision,refreshKey]);
+ useEffect(()=>{if(!draft.current){setSelected(committed);revision.current=catalog.revision;}},[committed,catalog.revision]);
+ useEffect(()=>{const guard=(event:Event)=>{if(dirty||busy)event.preventDefault();};window.addEventListener('settings-navigate',guard);return()=>window.removeEventListener('settings-navigate',guard);},[dirty,busy]);
  const save=async()=>{
-  if(pending.current)return;pending.current=true;setBusy(true);setError('');
-  try{await call<NodeCatalog>('SetNodeCoordinator',{nodeId:selected,expectedRevision:revision.current});onChanged();}catch{setError('settings.nodeCoordinatorFailed');}finally{pending.current=false;setBusy(false);}
+  if(pending.current||state.busy||state.pending)return;pending.current=true;setBusy(true);setError('');
+  try{await call<NodeCatalog>('SetNodeCoordinator',{nodeId:selected,expectedRevision:revision.current});draft.current=false;onChanged();}catch{setError('settings.nodeCoordinatorFailed');}finally{pending.current=false;setBusy(false);}
  };
+ const open=async()=>{
+  if(!window.dispatchEvent(new Event('settings-navigate',{cancelable:true}))){setError('settings.nodeFinishEditing');return;}
+  if(pending.current)return;pending.current=true;setBusy(true);setError('');
+  try{
+   const enable=!state.value?.enabled;const reviewed=enable?await roaming.prepare(catalog.revision):undefined;
+   if(current.current.revision!==catalog.revision||current.current.broker?.nodeId!==committed||reviewed&&reviewed.plan.coordinatorNodeId!==committed){setError('settings.nodeRoamingChanged');return;}
+   setAttempted(false);setConfirmation({enable,revision:catalog.revision,coordinator:committed,reviewed});
+  }catch{setError('settings.nodeRoamingPlanFailed');}
+  finally{pending.current=false;setBusy(false);}
+ };
+ const apply=async()=>{
+  if(pending.current||attempted||!confirmation||confirmation.revision!==catalog.revision||confirmation.coordinator!==committed)return;
+  pending.current=true;setAttempted(true);setBusy(true);setError('');
+  try{if(await roaming.change(confirmation.enable,confirmation.revision,confirmation.reviewed)){setConfirmation(null);onChanged();}else setError('settings.nodeRoamingFailed');}
+  finally{pending.current=false;setBusy(false);}
+ };
+ const phase=state.value?.state;
+ const changing=phase==='enabling'||phase==='disabling'||phase==='unknown';
+ const enabled=!!state.value?.enabled;
+ const blocked=busy||state.busy||!!state.pending||state.failed||!state.value?.available||dirty||changing||!enabled&&!committed;
+ const ready=phase==='ready'&&enabled&&catalog.broker?.reachable&&catalog.broker.automaticRoaming&&state.value?.activeBotNodeId===catalog.activeBotNodeId&&catalog.nodes.some(node=>node.id===state.value?.activeBotNodeId&&node.runtimes.some(runtime=>runtime.roles.some(role=>role.role==='bot'&&role.eligible)));
+ const status:MessageKey=state.pending||phase==='unknown'?'settings.nodeRoamingUnknown':ready?'settings.nodeRoamingReady':phase==='enabling'?'settings.nodeRoamingPreparing':phase==='waiting'||phase==='ready'?'settings.nodeRoamingWaiting':phase==='disabling'?'settings.nodeRoamingStopping':phase==='disabled'?'settings.nodeRoamingDisabled':'settings.nodeRoamingControllerUnavailable';
  return <details className="settings-disclosure"><summary>{t('settings.nodeAlwaysOn')}</summary>
   <p className="settings-note">{t('settings.nodeCoordinatorHelp')}</p>
-  <SettingRow label={t('settings.nodeAlwaysOn')} htmlFor="node-coordinator"><select id="node-coordinator" value={selected} disabled={busy} onChange={event=>{revision.current=catalog.revision;setSelected(event.target.value);}}><option value="">{t('settings.nodeCoordinatorNone')}</option>{catalog.nodes.map(node=><option key={node.id} value={node.id}>{node.label}</option>)}</select><button disabled={busy||selected===(catalog.broker?.nodeId??'')} onClick={()=>void save()}>{t('common.save')}</button></SettingRow>
-  <p role="status" className="settings-note">{t(catalog.broker?.reachable&&catalog.broker.automaticRoaming&&catalog.nodes.some(node=>node.runtimes.some(runtime=>runtime.roles.some(role=>role.role==='bot'&&role.eligible)))?'settings.nodeRoamingAvailable':'settings.nodeRoamingUnavailable')}</p>
-  {catalog.broker?.reason&&<p className="settings-note">{catalog.broker.reason}</p>}{error&&<p role="alert" className="inline-error">{t(error)}</p>}
+  <SettingRow label={t('settings.nodeAlwaysOn')} htmlFor="node-coordinator"><select id="node-coordinator" value={selected} disabled={busy||state.busy||!!state.pending||changing} onChange={event=>{revision.current=catalog.revision;draft.current=true;setSelected(event.target.value);}}><option value="">{t('settings.nodeCoordinatorNone')}</option>{catalog.nodes.map(node=><option key={node.id} value={node.id}>{node.label}</option>)}</select><button disabled={busy||state.busy||!!state.pending||!dirty||changing} onClick={()=>void save()}>{t('common.save')}</button>{dirty&&<button disabled={busy} onClick={()=>{draft.current=false;setSelected(committed);revision.current=catalog.revision;setError('');}}>{t('common.cancel')}</button>}</SettingRow>
+  <SettingRow label={t('settings.nodeRoamingLabel')}><button disabled={blocked} onClick={()=>void open()}>{t(enabled?'settings.nodeRoamingDisable':'settings.nodeRoamingEnable')}</button></SettingRow>
+  <p role="status" className="settings-note">{t(status)}</p>
+  {(state.pending||state.failed||changing||phase==='waiting')&&<button disabled={busy||state.busy} onClick={()=>{setError('');void roaming.read();}}>{t(state.pending?'settings.productCheckOriginalReceipt':'runtime.recheck')}</button>}
+  {state.failed&&<p role="alert" className="inline-error">{t('settings.nodeRoamingReadFailed')}</p>}
+  {error&&!confirmation&&<p role="alert" className="inline-error">{t(error)}</p>}
+  {confirmation&&<SettingsDialog title={t(confirmation.enable?'settings.nodeRoamingEnable':'settings.nodeRoamingDisable')} busy={busy||state.busy} onClose={()=>setConfirmation(null)}><p>{t(confirmation.enable?'settings.nodeRoamingEnableConfirm':'settings.nodeRoamingDisableConfirm')}</p>{confirmation.reviewed&&<><p className="settings-note">{t('settings.nodeRoamingPlanHelp')}</p><ul>{confirmation.reviewed.plan.actions.map((action,index)=><li key={`${action.nodeId}:${index}`}>{t(roamingActionLabel(action.action),{name:catalog.nodes.find(node=>node.id===action.nodeId)?.label||action.label})}</li>)}</ul></>}{error&&<p role="alert" className="inline-error">{t(error)}</p>}{confirmation.revision!==catalog.revision&&<p role="alert" className="inline-error">{t('settings.nodeRoamingChanged')}</p>}<div className="setup-end"><button disabled={busy||state.busy} onClick={()=>setConfirmation(null)}>{t('common.cancel')}</button><button disabled={blocked||attempted||confirmation.revision!==catalog.revision||confirmation.coordinator!==committed} onClick={()=>void apply()}>{t('runtime.confirm')}</button></div></SettingsDialog>}
  </details>;
+}
+
+function roamingActionLabel(action:string):MessageKey {
+ return action==='prepare-coordinator'?'settings.nodeRoamingPrepareCoordinator':action==='prepare-node'?'settings.nodeRoamingPrepareNode':action==='connect-outgoing'?'settings.nodeRoamingConnectOutgoing':action==='stop-source'?'settings.nodeRoamingStopSource':action==='start-bot'?'settings.nodeRoamingStartBot':'settings.nodeRoamingPrepareService';
 }
