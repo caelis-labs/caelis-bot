@@ -235,6 +235,7 @@ export interface NodeRuntimeConfiguration {
   worker: WorkExecutionSettings | null;
   configurationAvailable: boolean;
   installerAvailable: boolean;
+  executable?: NodeRuntimeExecutable | null;
   installation: NodeInstallationState | null;
   reviewedVersions: Array<string>;
 }
@@ -242,6 +243,10 @@ export interface NodeRuntimeConnectionRef {
   nodeId: string;
   backend: string;
   operationId: string;
+}
+export interface NodeRuntimeExecutable {
+  installed: boolean;
+  version: string;
 }
 export interface ProductConnectionState {
   revision: number;

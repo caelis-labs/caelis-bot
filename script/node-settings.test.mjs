@@ -763,3 +763,36 @@ test('missing Node Runtime remains honest and cannot start authentication before
  await click(buttons('Add connection')[0]);
  assert.equal(calls.filter(c=>c[0]==='BeginNodeRuntimeConnection').length,0);
 });
+
+test('cold external Caelis executable enables explicit Node connection without a managed copy or authenticated account',async()=>{
+ const calls=[];
+ await mount(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return coldCatalog();
+  if(method==='NodeRuntimeConfiguration')return {...coldConfig(...args),configurationAvailable:false,installerAvailable:true,installation:{installed:false,version:'',latestVersion:'0.65.0'},executable:{installed:true,version:'0.65.0'},reviewedVersions:['0.65.0']};
+  if(method==='BeginNodeRuntimeConnection')return nativeRef(...args);
+  if(method==='NodeRuntimeConnectionCatalog')return {choices:[],unavailable:''};
+  if(method==='CloseNodeRuntimeConnection')return;
+  throw new Error('Unexpected fixture method');
+ });
+ assert.equal(buttons('Add connection')[0].disabled,false);
+ assert.equal(calls.filter(call=>call[0]==='BeginNodeRuntimeConnection').length,0);
+ assert.equal(calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,0);
+ assert.match(container.textContent,/Not connected|Not currently connected/i);
+ await click(buttons('Add connection')[0]);
+ assert.ok(container.querySelector('[role="dialog"]'));
+ assert.equal(calls.filter(call=>call[0]==='BeginNodeRuntimeConnection').length,1);
+ await act(async()=>window.dispatchEvent(new Event('settings-close')));
+ assert.equal(calls.filter(call=>call[0]==='CloseNodeRuntimeConnection').length,1);
+});
+
+test('managed-copy metadata cannot conceal an explicitly missing executable',async()=>{
+ const owner=createNodeSettingsClient(async(method,...args)=>{
+  if(method==='NodeRuntimeConfiguration')return {...coldConfig(...args),installation:{installed:true,version:'0.65.0',latestVersion:'0.65.0'},executable:{installed:false,version:''}};
+  throw new Error('Unexpected fixture method');
+ });
+ const client=createNodeRuntimeClient(owner,{nodeId:'other',backend:'caelis',revision:''});
+ const view=await client.read();
+ assert.equal(view.setup.installation.installed,false);
+ assert.equal(view.setup.state,'installation');
+});

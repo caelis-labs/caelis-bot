@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/runtimemanagement"
 )
 
 // NodeRegistration is private native pairing, never a renderer DTO. Source
@@ -58,17 +60,18 @@ type nodeManagementDocument struct {
 }
 
 type nativeNodeManagement struct {
-	app       *Application
-	directory string
-	options   NodeManagementNativeOptions
-	local     nodeplane.CatalogAgent
-	mu        sync.Mutex
-	controlMu sync.Mutex
-	document  nodeManagementDocument
-	clients   map[string]nodeplane.CatalogAgent
-	ownerCtx  context.Context
-	cancel    context.CancelFunc
-	closed    bool
+	app            *Application
+	directory      string
+	options        NodeManagementNativeOptions
+	local          nodeplane.CatalogAgent
+	localInstaller nodeagent.RuntimeInstaller
+	mu             sync.Mutex
+	controlMu      sync.Mutex
+	document       nodeManagementDocument
+	clients        map[string]nodeplane.CatalogAgent
+	ownerCtx       context.Context
+	cancel         context.CancelFunc
+	closed         bool
 }
 
 // AttachNodeManagement is called once after the ordinary local Backend/setup
@@ -105,6 +108,19 @@ func AttachNodeManagement(a *Application, options ...NodeManagementNativeOptions
 		if err = os.MkdirAll(localDir, 0700); err != nil {
 			cancel()
 			return err
+		}
+		canonical, e := filepath.EvalSymlinks(localDir)
+		if e != nil {
+			cancel()
+			return e
+		}
+		localDir = canonical
+		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+			n.localInstaller, err = runtimemanagement.NewLocalNode(localDir)
+			if err != nil {
+				cancel()
+				return err
+			}
 		}
 		ports := map[api.NodeBackend]nodeagent.NativeConfiguration{}
 		ports[api.NodeCodex] = &nodeLocalCodexConfiguration{nodeLocalConfiguration{app: a, backend: api.NodeCodex}}
@@ -152,7 +168,7 @@ func AttachNodeManagement(a *Application, options ...NodeManagementNativeOptions
 				return nodeLocalHealth(ctx, a, b)
 			}
 		}
-		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Binaries: binaries, Configurations: ports, OwnedRuntimeSettings: n.localOwnedRuntimeSettings, OwnedRuntimeCompanion: n.localOwnedRuntimeCompanion, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, RuntimeInstaller: n.localInstaller, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Binaries: binaries, Configurations: ports, OwnedRuntimeSettings: n.localOwnedRuntimeSettings, OwnedRuntimeCompanion: n.localOwnedRuntimeCompanion, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
 			return localHealth(ctx, b)
 		}})
 		if err != nil {
