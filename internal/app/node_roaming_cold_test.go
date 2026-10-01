@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
@@ -92,8 +93,12 @@ func TestDefaultNativeColdCaelisPrimaryUsesMarkedTargetAndCurrentDefault(t *test
 		}
 	}
 	selected, e := n.candidateBackend(t.Context(), reg, "codex")
-	if e != nil || selected != "caelis" {
-		t.Fatal("marked cold target was excluded as provisional primary", selected, e)
+	if codex.OwnedRuntimeSupported() {
+		if e != nil || selected != "caelis" {
+			t.Fatal("marked cold target was excluded as provisional primary", selected, e)
+		}
+	} else if e == nil || selected != "" {
+		t.Fatal("unsupported build advertised marked cold target as provisional primary", selected, e)
 	}
 	preferences, e := n.targetPreferences(t.Context(), reg, api.NodeCaelis)
 	if e != nil || preferences.Conversation != (api.WorkExecutionSettings{}) || preferences.Worker != (api.WorkExecutionSettings{}) {
