@@ -616,6 +616,20 @@ func (w *WorkerClient) Close(ctx context.Context) error {
 		w.lease.releasePower()
 	}
 	s := w.engine
+	// The leased watchdog has already stopped and verified the exact owned
+	// process tree. Asking that dead native connection to list/clean terminals
+	// would turn confirmed native cleanup into a spurious unknown stop. Retain
+	// every task receipt and use the independent process proof for this close.
+	if w.lease != nil && w.owned != nil && w.lease.stopErr == nil && w.owned.toolCleanupError() == nil {
+		// Drain admitted journal writers after the fence cancels native work.
+		s.op.Lock()
+		s.mu.Lock()
+		s.closed = true
+		s.state.Connection = "stopped"
+		s.update()
+		s.mu.Unlock()
+		s.op.Unlock()
+	}
 	err := s.Close(ctx)
 	s.op.Lock()
 	defer s.op.Unlock()
