@@ -21,7 +21,7 @@ import (
 )
 
 func allowed(method, path string) bool {
-	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close")
+	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close")
 }
 func strictDecode(r io.Reader, v any) error {
 	d := json.NewDecoder(io.LimitReader(r, productrpc.MaxCommandBytes+1))
@@ -46,6 +46,18 @@ func Handler(agent nodeplane.CatalogAgent) http.Handler {
 		switch r.URL.Path {
 		case "/v1/node/catalog":
 			value, err = agent.Catalog(r.Context())
+		case "/v1/node/probe-owned-runtime":
+			var input ownedRuntimeSettingsRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ownedRuntimeProbePort)
+			if !ok {
+				http.Error(w, "native ownability probe unavailable", 503)
+				return
+			}
+			value, err = port.ProbeOwnedRuntime(r.Context(), input.NodeID, input.Backend)
 		case "/v1/node/owned-runtime-settings":
 			var input ownedRuntimeSettingsRequest
 			if strictDecode(r.Body, &input) != nil {
