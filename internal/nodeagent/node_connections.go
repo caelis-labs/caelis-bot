@@ -35,6 +35,7 @@ type nodeConnectionRecord struct {
 	Outcome          string                       `json:"outcome"`
 	CleanupConfirmed bool                         `json:"cleanupConfirmed"`
 	FlowDispatched   bool                         `json:"flowDispatched"`
+	Rejected         bool                         `json:"rejected,omitempty"`
 }
 type nodeConnectionSession struct {
 	mu       sync.Mutex
@@ -72,10 +73,24 @@ func (s *Service) connectionRecord(ref api.NodeRuntimeConnectionRef) (nodeConnec
 	if err != nil {
 		return r, err
 	}
-	if r.Schema != 1 || r.Ref != ref || !validConnectionRef(r.Ref) || r.Guard.NodeID != ref.NodeID || r.Guard.Backend != ref.Backend || r.Guard.Revision == "" || len(r.Binding) != 64 || (r.Outcome != "intent" && r.Outcome != "active" && r.Outcome != "closed" && r.Outcome != "unknown") || (r.CleanupConfirmed != (r.Outcome == "closed")) {
+	if r.Schema != 1 || r.Ref != ref || !validConnectionRef(r.Ref) || r.Guard.NodeID != ref.NodeID || r.Guard.Backend != ref.Backend || r.Guard.Revision == "" || len(r.Binding) != 64 || (r.Outcome != "intent" && r.Outcome != "active" && r.Outcome != "closed" && r.Outcome != "unknown") || (r.CleanupConfirmed != (r.Outcome == "closed")) || r.Rejected && (r.Outcome != "closed" || r.FlowDispatched) {
 		return r, errors.New("original setup record invalid")
 	}
 	return r, nil
+}
+
+// Store initialization is allowed only for an absent designated path. A warm
+// native owner may prove a busy marked Store, but never an unmarked directory.
+func connectionStoreAvailable(nodeID, store string, warmOwner bool) bool {
+	eligible, reason := caelis.ProbeOwnedStore(nodeID, store)
+	if eligible {
+		return true
+	}
+	if reason == "owned-store-setup-required" {
+		_, err := os.Lstat(store)
+		return errors.Is(err, os.ErrNotExist)
+	}
+	return warmOwner && (reason == "owned-store-controller-busy" || reason == "owned-store-discovery-present")
 }
 
 // NodeConnectionError exposes only a fixed nonsecret code and uncertainty.
@@ -124,6 +139,9 @@ func (s *Service) BeginNodeRuntimeConnection(ctx context.Context, guard api.Node
 		if prior.Guard != guard {
 			return ref, connectionError("original intent changed")
 		}
+		if prior.Rejected {
+			return ref, connectionError("begin rejected")
+		}
 		if prior.Outcome == "active" && s.connections[ref.OperationID] != nil {
 			return ref, nil
 		}
@@ -149,12 +167,7 @@ func (s *Service) BeginNodeRuntimeConnection(ctx context.Context, guard api.Node
 	if err != nil || verifyReadinessCompanion(companion) != nil {
 		return ref, connectionError("verified companion unavailable")
 	}
-	if s.options.NodeConnectionOwner == nil {
-		eligible, reason := caelis.ProbeOwnedStore(ref.NodeID, metadata.Store)
-		if !eligible && reason != "owned-store-setup-required" {
-			return ref, connectionError("private store unavailable")
-		}
-	}
+	storeAvailable := connectionStoreAvailable(ref.NodeID, metadata.Store, s.options.NodeConnectionOwner != nil)
 	binding := connectionBinding(metadata)
 	parent := filepath.Dir(s.connectionPath(ref))
 	if err := os.Mkdir(parent, 0700); err != nil && !errors.Is(err, os.ErrExist) {
@@ -174,6 +187,11 @@ func (s *Service) BeginNodeRuntimeConnection(ctx context.Context, guard api.Node
 		}
 	}
 	record := nodeConnectionRecord{Schema: 1, Ref: ref, Guard: guard, Binding: binding, Outcome: "intent"}
+	if !storeAvailable {
+		// This terminal receipt proves nothing was dispatched. A lost rejection
+		// response can be recovered through Close with the original reference.
+		record.Outcome, record.CleanupConfirmed, record.Rejected = "closed", true, true
+	}
 	if writeState(s.connectionPath(ref), record) != nil {
 		return ref, connectionError("journal unavailable")
 	}
@@ -185,6 +203,9 @@ func (s *Service) BeginNodeRuntimeConnection(ctx context.Context, guard api.Node
 	if e != nil {
 		return ref, connectionError("journal unavailable")
 	}
+	if record.Rejected {
+		return ref, connectionError("begin rejected")
+	}
 	// Admission now belongs to the native owner, independently of the RPC observer.
 	life, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	session := &nodeConnectionSession{record: record, metadata: metadata, flows: map[string]bool{}, cancel: cancel, done: make(chan struct{}), sdk: &caelis.Connections{}}
@@ -194,10 +215,12 @@ func (s *Service) BeginNodeRuntimeConnection(ctx context.Context, guard api.Node
 	s.connections[ref.OperationID] = session
 	// Recheck the exact frozen native binding after the durable admission.
 	latest, e := s.ReadOwnedRuntimeSettings(life, ref.NodeID, ref.Backend)
+	effectsPossible := false
 	if e != nil || latest != metadata || verifyReadinessCompanion(companion) != nil {
 		e = connectionError("native binding changed")
 	}
 	if e == nil && s.options.NodeConnectionOwner != nil {
+		effectsPossible = true
 		session.owner, e = s.options.NodeConnectionOwner(life, metadata)
 	}
 	// A trusted hook may prove there is no active Caelis owner by returning
@@ -208,6 +231,7 @@ func (s *Service) BeginNodeRuntimeConnection(ctx context.Context, guard api.Node
 			// Only an absent designated Store may be initialized. PrepareOwnedStore
 			// rejects races, symlinks, shared defaults and every existing Store.
 			if _, statErr := os.Lstat(metadata.Store); errors.Is(statErr, os.ErrNotExist) {
+				effectsPossible = true
 				e = caelis.PrepareOwnedStore(ref.NodeID, metadata.Store)
 			} else {
 				e = connectionError("private store unavailable")
@@ -216,6 +240,7 @@ func (s *Service) BeginNodeRuntimeConnection(ctx context.Context, guard api.Node
 			e = connectionError("private store unavailable")
 		}
 		if e == nil {
+			effectsPossible = true
 			if s.beginSetup != nil {
 				session.owner, e = s.beginSetup(life, caelis.OwnedHostOptions{NodeID: ref.NodeID, Binary: metadata.Binary, Store: metadata.Store, WatchdogHelper: companion.Path})
 			} else {
@@ -226,8 +251,21 @@ func (s *Service) BeginNodeRuntimeConnection(ctx context.Context, guard api.Node
 	if e != nil || session.owner == nil {
 		cancel()
 		session.record.Outcome = "unknown"
-		_ = writeState(s.connectionPath(ref), session.record)
-		close(session.done)
+		if !effectsPossible {
+			session.record.Outcome, session.record.CleanupConfirmed, session.record.Rejected = "closed", true, true
+		}
+		persistErr := writeState(s.connectionPath(ref), session.record)
+		if session.owner != nil {
+			go s.closeConnectionSession(session)
+		} else {
+			close(session.done)
+			if session.record.Rejected {
+				delete(s.connections, ref.OperationID)
+			}
+		}
+		if session.record.Rejected && persistErr == nil {
+			return ref, connectionError("begin rejected")
+		}
 		return ref, connectionError("begin outcome unconfirmed")
 	}
 	e = session.owner.Check(life)
