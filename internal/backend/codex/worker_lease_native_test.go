@@ -99,7 +99,8 @@ func TestLeasedWorkerActualProcessStopsBeforeQueuedAdmission(t *testing.T) {
 		t.Fatal("hard stop waited for ordinary operation queue")
 	}
 	if err = syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-		t.Fatal("native owned process alive", err)
+		stat, statErr := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+		t.Fatal("native owned process alive", pid, err, "kernel stat", string(stat), statErr)
 	}
 	if err = syscall.Kill(other.Process.Pid, 0); err != nil {
 		t.Fatal("unrelated process targeted", err)

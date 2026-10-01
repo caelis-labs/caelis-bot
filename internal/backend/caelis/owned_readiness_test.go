@@ -196,7 +196,8 @@ func assertReadinessStopped(t *testing.T, opts OwnedHostOptions) {
 	t.Helper()
 	for _, pid := range ownedReadinessPIDs(t, opts.Store) {
 		if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-			t.Fatal("readiness returned before exact native root/tool exit", pid, err)
+			stat, statErr := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+			t.Fatal("readiness returned before exact native root/tool exit", pid, err, "kernel stat", string(stat), statErr)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(opts.Store, "runtime/service/discovery.json")); !errors.Is(err, os.ErrNotExist) {

@@ -262,7 +262,8 @@ func TestOwnedCaelisForegroundFencesOnlyPrivateNativeTree(t *testing.T) {
 	for _, raw := range strings.Fields(string(data)) {
 		pid, _ := strconv.Atoi(raw)
 		if err = syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-			t.Fatal("owned root/child remained", pid, err)
+			stat, statErr := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+			t.Fatal("owned root/child remained", pid, err, "kernel stat", string(stat), statErr)
 		}
 	}
 	if err = syscall.Kill(other.Process.Pid, 0); err != nil {
