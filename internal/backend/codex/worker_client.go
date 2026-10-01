@@ -61,7 +61,7 @@ func NewWorker(opts WorkerOptions) *WorkerClient {
 	}
 	if opts.Pair != nil {
 		w.pair = *opts.Pair
-		if opts.Lease != nil && (opts.Lease.BotID != w.pair.BotID || opts.Lease.SourceNode != w.pair.SourceNode || opts.Lease.SourceBackend != w.pair.SourceBackend) {
+		if opts.Lease != nil && (api.ProfileBotID(opts.Lease.RawBotID) != w.pair.BotID || opts.Lease.SourceNode != w.pair.SourceNode || opts.Lease.SourceBackend != w.pair.SourceBackend) {
 			s.loadErr = errors.New("Worker lease pin differs from native origin pairing")
 		}
 		if w.pair.Target != opts.Target {

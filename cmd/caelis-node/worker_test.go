@@ -384,7 +384,7 @@ func TestWorkerLeaseConfigurationPinsNativeBroker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := workerConfiguration{Version: 1, Pair: workerwire.Pair{Target: api.WorkTarget{NodeID: "worker", Backend: "codex", Role: api.RoleWorker}, BotID: "raw-bot", SourceNode: "managed-source", SourceBackend: "codex"}, Directory: filepath.Join(dir, "worker"), Binary: binary, Socket: filepath.Join(dir, "worker", "worker.sock"), Lease: &workerLeaseConfiguration{BrokerNodeID: "broker", BrokerSocket: filepath.Join(dir, "broker.sock")}}
+	config := workerConfiguration{Version: 1, Pair: workerwire.Pair{Target: api.WorkTarget{NodeID: "worker", Backend: "codex", Role: api.RoleWorker}, BotID: api.ProfileBotID("raw-bot"), SourceNode: "managed-source", SourceBackend: "codex"}, Directory: filepath.Join(dir, "worker"), Binary: binary, Socket: filepath.Join(dir, "worker", "worker.sock"), Lease: &workerLeaseConfiguration{RawBotID: "raw-bot", BrokerNodeID: "broker", BrokerSocket: filepath.Join(dir, "broker.sock")}}
 	path := filepath.Join(dir, "worker.json")
 	write := func() {
 		b, _ := json.Marshal(config)
@@ -394,9 +394,15 @@ func TestWorkerLeaseConfigurationPinsNativeBroker(t *testing.T) {
 	}
 	write()
 	got, err := readWorkerConfiguration(path)
-	if err != nil || got.Lease == nil || got.Lease.BrokerNodeID != "broker" || got.Pair.BotID != "raw-bot" {
+	if err != nil || got.Lease == nil || got.Lease.BrokerNodeID != "broker" || got.Pair.BotID != api.ProfileBotID("raw-bot") {
 		t.Fatal("native lease scope unavailable", got, err)
 	}
+	config.Lease.RawBotID = "forged-other-bot"
+	write()
+	if _, err = readWorkerConfiguration(path); err == nil {
+		t.Fatal("raw Bot identity did not match product pairing")
+	}
+	config.Lease.RawBotID = "raw-bot"
 	config.Lease.BrokerSocket = config.Socket
 	write()
 	if _, err = readWorkerConfiguration(path); err == nil {

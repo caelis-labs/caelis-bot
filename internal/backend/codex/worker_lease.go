@@ -13,9 +13,10 @@ import (
 // WorkerLeaseOptions is trusted target-native configuration. A dispatch frame
 // can supply an epoch, never the broker endpoint, pairing or power binder.
 type WorkerLeaseOptions struct {
-	BrokerNodeID, BotID, SourceNode, SourceBackend string
-	Reader                                         nodeplane.WorkLeaseReader
-	BindPower                                      func(context.Context, func(), func()) (func(), error)
+	BrokerNodeID, RawBotID, SourceNode, SourceBackend string
+	HelperPath                                        string
+	Reader                                            nodeplane.WorkLeaseReader
+	BindPower                                         func(context.Context, func(), func()) (func(), error)
 }
 type workerLeaseFence struct {
 	w                *WorkerClient
@@ -29,6 +30,7 @@ type workerLeaseFence struct {
 	release          func()
 	stopOnce         sync.Once
 	stopErr          error
+	renew            func(context.Context, string, time.Time) error
 }
 type workerLeaseTicket struct{}
 
@@ -37,7 +39,7 @@ func newWorkerLeaseFence(w *WorkerClient, opts WorkerLeaseOptions) *workerLeaseF
 	return &workerLeaseFence{w: w, opts: opts, life: life, cancel: cancel}
 }
 func (f *workerLeaseFence) valid() bool {
-	return f.opts.Reader != nil && f.opts.BindPower != nil && f.opts.BrokerNodeID != "" && f.opts.BotID != "" && f.opts.SourceNode != "" && (f.opts.SourceBackend == "codex" || f.opts.SourceBackend == "caelis")
+	return f.opts.HelperPath != "" && f.opts.Reader != nil && f.opts.BindPower != nil && f.opts.BrokerNodeID != "" && f.opts.RawBotID != "" && f.opts.SourceNode != "" && (f.opts.SourceBackend == "codex" || f.opts.SourceBackend == "caelis")
 }
 func (f *workerLeaseFence) activate(ctx context.Context) error {
 	f.mu.Lock()
@@ -63,6 +65,15 @@ func (f *workerLeaseFence) activate(ctx context.Context) error {
 		f.revoke()
 		return errors.New("leased Worker immediate owned process fence unavailable")
 	}
+	port, ok := owned.rpc.conn.(interface {
+		renewOwnedLease(context.Context, string, time.Time) error
+		ownedSupervisorLive() bool
+	})
+	if !ok || !port.ownedSupervisorLive() {
+		f.revoke()
+		return errors.New("leased Worker independent watchdog unavailable")
+	}
+	f.renew = port.renewOwnedLease
 	if err := owned.toolCleanupError(); err != nil {
 		f.revoke()
 		return err
@@ -92,6 +103,16 @@ func (w *WorkerClient) LeaseAwareAdmission() bool {
 	if w.lease == nil {
 		return false
 	}
+	w.engine.mu.Lock()
+	owned := w.owned
+	ready := !w.engine.closing && w.engine.client != nil && w.engine.client.Err() == nil
+	w.engine.mu.Unlock()
+	if !ready || owned == nil {
+		return false
+	}
+	if supervisor, ok := owned.rpc.conn.(interface{ ownedSupervisorLive() bool }); !ok || !supervisor.ownedSupervisorLive() {
+		return false
+	}
 	w.lease.mu.Lock()
 	defer w.lease.mu.Unlock()
 	return w.lease.enabled && !w.lease.revoked
@@ -106,7 +127,7 @@ func (w *WorkerClient) checkWorkerLease(ctx context.Context, s api.WorkDispatchS
 	return w.lease.check(ctx, s.Lease)
 }
 func (f *workerLeaseFence) check(ctx context.Context, g api.WorkerLeaseGrant) error {
-	if g.Validate() != nil || g == (api.WorkerLeaseGrant{}) || g.BotID != f.opts.BotID || g.BrokerNodeID != f.opts.BrokerNodeID || g.SourceNodeID != f.opts.SourceNode || g.Backend != f.opts.SourceBackend {
+	if g.Validate() != nil || g == (api.WorkerLeaseGrant{}) || g.BotID != f.opts.RawBotID || g.BrokerNodeID != f.opts.BrokerNodeID || g.SourceNodeID != f.opts.SourceNode || g.Backend != f.opts.SourceBackend {
 		return errors.New("Worker source lease differs from trusted native pairing")
 	}
 	f.mu.Lock()
@@ -121,6 +142,7 @@ func (f *workerLeaseFence) check(ctx context.Context, g api.WorkerLeaseGrant) er
 	defer func() { stop(); cancel() }()
 	l, err := f.opts.Reader.ReadWorkerLease(bounded, nodeplane.WorkLeaseRef{BotID: g.BotID, BrokerNodeID: g.BrokerNodeID, SourceNode: g.SourceNodeID, SourceBackend: api.NodeBackend(g.Backend), Epoch: g.Epoch})
 	if err != nil {
+		f.revoke()
 		return err
 	}
 	if l.BotID != g.BotID || l.NodeID != g.SourceNodeID || string(l.Backend) != g.Backend || l.Epoch != g.Epoch || l.TTLMs <= 15000 || l.TTLMs > 60000 {
@@ -128,6 +150,13 @@ func (f *workerLeaseFence) check(ctx context.Context, g api.WorkerLeaseGrant) er
 		return errors.New("Worker broker returned no exact live source lease")
 	}
 	deadline := start.Add(time.Duration(l.TTLMs)*time.Millisecond - 15*time.Second)
+	if f.renew == nil {
+		return errors.New("Worker watchdog deadline port unavailable")
+	}
+	if err = f.renew(ctx, g.Epoch, deadline); err != nil {
+		f.revoke()
+		return err
+	}
 	f.mu.Lock()
 	invalid = f.revoked || !time.Now().Before(deadline) || (f.grant != (api.WorkerLeaseGrant{}) && f.grant != g)
 	if !invalid {
@@ -168,6 +197,10 @@ func (f *workerLeaseFence) maintain() {
 	defer tick.Stop()
 	nextRefresh := time.Now().Add(10 * time.Second)
 	for {
+		if !f.w.LeaseAwareAdmission() {
+			f.revoke()
+			return
+		}
 		select {
 		case <-f.life.Done():
 			return
@@ -176,6 +209,13 @@ func (f *workerLeaseFence) maintain() {
 			g, deadline := f.grant, f.deadline
 			f.mu.Unlock()
 			if g == (api.WorkerLeaseGrant{}) {
+				if !now.Before(nextRefresh) {
+					nextRefresh = now.Add(10 * time.Second)
+					if f.renew == nil || f.renew(f.life, "", now.Add(45*time.Second)) != nil {
+						f.revoke()
+						return
+					}
+				}
 				continue
 			}
 			if !now.Before(deadline) {
