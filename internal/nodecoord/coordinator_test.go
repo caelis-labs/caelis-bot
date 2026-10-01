@@ -280,3 +280,84 @@ func TestDeletedDurableEpochCannotResetBroker(t *testing.T) {
 		t.Fatal("deleted durable epoch reset broker")
 	}
 }
+
+func TestLiveWorkerLeaseReadsRecheckPairedOwnerAndDeadline(t *testing.T) {
+	c, cl, s := fixture(t)
+	r := claim("n1", s, "")
+	p := &ownedPeer{state: nodeplane.RuntimeEligibility{Proof: r.Proof, Snapshot: s, SafeIdle: true}}
+	registry := NewPeerRegistry()
+	if e := registry.Register(r.Target, p); e != nil {
+		t.Fatal(e)
+	}
+	c.opts.Verify = registry.VerifyClaim
+	c.opts.VerifyRenew = registry.VerifyRenew
+	c.opts.ReadOwnerEligibility = registry.ReadOwnerEligibility
+	c.opts.BrokerNodeID = "broker"
+	ctx := context.Background()
+	l, e := c.Claim(ctx, r)
+	if e != nil {
+		t.Fatal(e)
+	}
+	p.state.LeaseEpoch = l.Epoch
+	p.state.Unknown = true
+	cl.advance(17 * time.Second)
+	ref := nodeplane.WorkLeaseRef{BotID: "bot", BrokerNodeID: "broker", SourceNode: "n1", SourceBackend: api.NodeCodex, Epoch: l.Epoch}
+	live, e := c.ReadWorkerLease(ctx, ref)
+	if e != nil || live.TTLMs != 43000 {
+		t.Fatalf("fresh remaining %+v %v", live, e)
+	}
+	foreign := ref
+	foreign.BrokerNodeID = "other"
+	_, e = c.ReadWorkerLease(ctx, foreign)
+	requireError(t, e, ErrIneligible)
+	foreign = ref
+	foreign.Epoch = "other"
+	_, e = c.ReadWorkerLease(ctx, foreign)
+	requireError(t, e, ErrConflict)
+	c.opts.ReadOwnerEligibility = func(context.Context, api.WorkTarget) (nodeplane.RuntimeEligibility, error) {
+		cl.advance(43 * time.Second)
+		return p.state, nil
+	}
+	_, e = c.ReadWorkerLease(ctx, ref)
+	requireError(t, e, ErrConflict)
+}
+
+func TestGenesisRequiresExactPairedStoppedSourceAndNeverResets(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	b, ref := payload("0", "1", "authoritative genesis")
+	r := claim("source", ref, "")
+	peer := &ownedPeer{state: nodeplane.RuntimeEligibility{Proof: r.Proof, Snapshot: ref, SafeIdle: true}}
+	registry := NewPeerRegistry()
+	if err = registry.Register(r.Target, peer); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Open(Options{Directory: dir, BotID: "bot", Verify: registry.VerifyClaim, VerifyBootstrap: registry.VerifyBootstrap, ValidateSnapshot: validate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx := context.Background()
+	foreign := r.Target
+	foreign.NodeID = "foreign"
+	requireError(t, c.BootstrapSnapshot(ctx, foreign, ref, b), ErrIneligible)
+	peer.state.Unknown = true
+	requireError(t, c.BootstrapSnapshot(ctx, r.Target, ref, b), ErrIneligible)
+	peer.state.Unknown = false
+	requireError(t, c.BootstrapSnapshot(ctx, r.Target, ref, append(append([]byte{}, b...), byte('x'))), ErrSnapshot)
+	if _, err = c.LatestSnapshot(ctx, "bot"); !errors.Is(err, ErrSnapshot) {
+		t.Fatalf("failed genesis installed: %v", err)
+	}
+	if err = c.BootstrapSnapshot(ctx, r.Target, ref, b); err != nil {
+		t.Fatal(err)
+	}
+	requireError(t, c.BootstrapSnapshot(ctx, r.Target, ref, b), ErrConflict)
+	if got, err := c.ReadSnapshot(ctx, ref); err != nil || string(got) != string(b) {
+		t.Fatalf("complete genesis unavailable: %v", err)
+	}
+}

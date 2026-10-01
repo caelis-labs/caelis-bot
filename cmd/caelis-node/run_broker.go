@@ -100,12 +100,26 @@ func loadBrokerPeers(path, botID string) (*nodecoord.PeerRegistry, error) {
 // runBroker owns a foreground single broker and cold Notebook cache. No flag
 // installs a service, changes SSH configuration, or grants an unmanaged Host.
 func runBroker(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "proxy-broker" {
+		f := flag.NewFlagSet("proxy-broker", flag.ContinueOnError)
+		f.SetOutput(out)
+		socket := f.String("socket", "", "pre-existing private target-local broker socket")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if f.NArg() != 0 {
+			return errors.New("unexpected broker proxy argument")
+		}
+		return nodebroker.ProxyUnix(ctx, os.Stdin, out, *socket)
+	}
 	if len(args) == 0 || args[0] != "serve-broker" {
 		return errors.New("usage: caelis-node serve-broker --profile ABS --bot-id ID --socket ABS [--peers-file PRIVATE]")
 	}
 	f := flag.NewFlagSet("serve-broker", flag.ContinueOnError)
 	f.SetOutput(out)
 	profile := f.String("profile", "", "explicit isolated private broker state directory")
+	brokerID := f.String("node-id", "", "exact inspected enrolled broker machine identity for native Worker lease attestation")
+	preferred := f.String("preferred-node", "", "explicit paired native node preferred after stable safe idle")
 	botID := f.String("bot-id", "", "stable Bot identity in Notebook snapshot, not product transport hash")
 	socket := f.String("socket", "", "explicit same-user private Unix socket")
 	peers := f.String("peers-file", "", "optional private versioned exact node/backend/socket pairing file")
@@ -124,7 +138,10 @@ func runBroker(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	owner, err := nodecoord.Open(nodecoord.Options{Directory: *profile, BotID: *botID, Verify: registry.VerifyClaim, VerifyRenew: registry.VerifyRenew, ValidateSnapshot: memorytransfer.ValidateNotebookPayload})
+	if *preferred != "" && !registry.HasNode(*preferred) {
+		return errors.New("preferred node must be explicitly paired")
+	}
+	owner, err := nodecoord.Open(nodecoord.Options{Directory: *profile, BotID: *botID, BrokerNodeID: *brokerID, PreferredNodeID: *preferred, ReadOwnerEligibility: registry.ReadOwnerEligibility, VerifyBootstrap: registry.VerifyBootstrap, Verify: registry.VerifyClaim, VerifyRenew: registry.VerifyRenew, ValidateSnapshot: memorytransfer.ValidateNotebookPayload})
 	if err != nil {
 		return err
 	}

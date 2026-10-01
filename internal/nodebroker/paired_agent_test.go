@@ -86,14 +86,11 @@ func TestPrivateBrokerQueriesPairedRealAgentNativeOwner(t *testing.T) {
 	if e = registry.VerifyBootstrap(ctx, r.Target, ref); e != nil {
 		t.Fatal(e)
 	}
-	c, e := nodecoord.Open(nodecoord.Options{Directory: filepath.Join(dir, "cache"), BotID: "bot", Verify: registry.VerifyClaim, VerifyRenew: registry.VerifyRenew, ValidateSnapshot: testValidate})
+	c, e := nodecoord.Open(nodecoord.Options{Directory: filepath.Join(dir, "cache"), BotID: "bot", BrokerNodeID: "broker", ReadOwnerEligibility: registry.ReadOwnerEligibility, VerifyBootstrap: registry.VerifyBootstrap, Verify: registry.VerifyClaim, VerifyRenew: registry.VerifyRenew, ValidateSnapshot: testValidate})
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer c.Close()
-	if e = c.SeedSnapshot(ctx, ref, b); e != nil {
-		t.Fatal(e)
-	}
 	ready := make(chan struct{})
 	brokerDone := make(chan error, 1)
 	socket := filepath.Join(dir, "broker.sock")
@@ -105,11 +102,21 @@ func TestPrivateBrokerQueriesPairedRealAgentNativeOwner(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("broker fixture startup exceeded")
 	}
-	client, e := DialUnix(socket)
+	client, e := DialUnixForBroker(ctx, socket, "broker")
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer client.Close()
+	if wrong, err := DialUnixForBroker(ctx, socket, "foreign"); err == nil {
+		wrong.Close()
+		t.Fatal("foreign broker enrollment admitted")
+	}
+	if e = client.BootstrapSnapshot(ctx, r.Target, ref, b); e != nil {
+		t.Fatal(e)
+	}
+	if e = client.BootstrapSnapshot(ctx, r.Target, ref, b); !errors.Is(e, nodecoord.ErrConflict) {
+		t.Fatalf("genesis reset: %v", e)
+	}
 	forged := r
 	forged.Proof.Epoch = "wire-self-reported"
 	if _, e = client.Claim(ctx, forged); !errors.Is(e, nodecoord.ErrIneligible) {
@@ -124,8 +131,16 @@ func TestPrivateBrokerQueriesPairedRealAgentNativeOwner(t *testing.T) {
 		t.Fatal(e)
 	}
 	native.uncertain()
-	if _, e = client.Heartbeat(ctx, l); !errors.Is(e, nodecoord.ErrIneligible) {
-		t.Fatalf("unknown renewed: %v", e)
+	workerRef := nodeplane.WorkLeaseRef{BotID: l.BotID, BrokerNodeID: "broker", SourceNode: l.NodeID, SourceBackend: l.Backend, Epoch: l.Epoch}
+	if live, err := client.ReadWorkerLease(ctx, workerRef); err != nil || live.Epoch != l.Epoch || live.TTLMs <= 0 {
+		t.Fatalf("worker authority %+v %v", live, err)
+	}
+	workerRef.SourceNode = "foreign"
+	if _, err := client.ReadWorkerLease(ctx, workerRef); !errors.Is(err, nodecoord.ErrConflict) {
+		t.Fatalf("foreign source: %v", err)
+	}
+	if _, e = client.Heartbeat(ctx, l); e != nil {
+		t.Fatalf("controlled unknown owner lost lease: %v", e)
 	}
 	cancel()
 	for _, done := range []chan error{agentDone, brokerDone} {
