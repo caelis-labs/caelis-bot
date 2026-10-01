@@ -37,12 +37,24 @@ func (a *Application) configureSetup() {
 	a.Backend.RequireSetup(!a.HasRuntimeChoice())
 }
 func (a *Application) NeedsSetup() bool {
+	if active := ActiveNodeRoamingApplication(a); active != a {
+		return active.NeedsSetup()
+	}
+	if NodeRoamingOwnsExecution(a) {
+		return false
+	}
 	if a.product != nil {
 		return false
 	}
 	return a.initialization.Initialization().Required || a.setup.Overview().Onboarding
 }
 func (a *Application) ProviderDirectory() string {
+	if active := ActiveNodeRoamingApplication(a); active != a {
+		return active.ProviderDirectory()
+	}
+	if NodeRoamingOwnsExecution(a) {
+		return filepath.Join(a.root, "ProductClientResources")
+	}
 	if a.product != nil {
 		return filepath.Join(a.root, "ProductClientResources")
 	}
@@ -335,6 +347,12 @@ func (s *runtimeSetup) Dismiss() error {
 }
 
 func (a *Application) HasRuntimeChoice() bool {
+	if active := ActiveNodeRoamingApplication(a); active != a {
+		return active.HasRuntimeChoice()
+	}
+	if NodeRoamingOwnsExecution(a) {
+		return true
+	}
 	if a.product != nil {
 		return true
 	}
@@ -352,4 +370,12 @@ func (a *Application) HasRuntimeChoice() bool {
 	b, e := os.ReadFile(filepath.Join(a.root, "bot.json"))
 	return e == nil && json.Unmarshal(b, &legacy) == nil && legacy.Version == 1 && legacy.PersonalVersion == 0
 }
-func (a *Application) PrepareRestart() error { return a.Backend.PrepareRestart(a.guardRuntimeChange) }
+func (a *Application) PrepareRestart() error {
+	if active := ActiveNodeRoamingApplication(a); active != a {
+		return active.PrepareRestart()
+	}
+	if NodeRoamingOwnsExecution(a) {
+		return errors.New("disable automatic roaming before restarting the local Runtime")
+	}
+	return a.Backend.PrepareRestart(a.guardRuntimeChange)
+}

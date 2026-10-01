@@ -474,6 +474,12 @@ func TestNodeRoamingControlDisabledRestartUsesRecordedFreshLocalGeneration(t *te
 		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "accepted", Phase: "local", Local: &Application{root: dir, engine: engine, Backend: backend.NewService(engine, func([]string) ([]api.InputFile, error) { return nil, nil }, func([]string) {}, nil, nil)}}, nil
 	}
 	a, c := attachControlRestart(t, f, o)
+	if !NodeRoamingOwnsExecution(a) {
+		t.Fatal("saved fresh generation lost native ownership before startup restore")
+	}
+	if err := a.PreparePersonal(); err != nil || a.personal != nil {
+		t.Fatal("startup preparation reopened the original source", err)
+	}
 	owned, err := RestoreNodeRoaming(t.Context(), a)
 	if !owned || err != nil || c.local == nil || c.local.root != dir || c.proxy.Current() != engine {
 		t.Fatal("disabled restart reverted original root", owned, err)
@@ -554,5 +560,21 @@ func TestNodeRoamingControlCoordinatorGuardBlocksChangesButNotViewSelection(t *t
 	}
 	if _, err := f.a.Backend.SelectNode(t.Context(), "node-fixture", "catalog-1"); err != nil {
 		t.Fatal("view selection blocked", err)
+	}
+}
+
+func TestNodeRoamingControlContradictorySavedPhasesNeverFallbackToOriginal(t *testing.T) {
+	for _, phase := range []string{"preparing", "retiring-source", "staging", "quiescing", "restoring-local", "local"} {
+		t.Run(phase, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "roaming.json")
+			doc := nodeRoamingDocument{Version: 1, Phase: phase, Outcome: "accepted", SourceRetiredIntent: true, OperationKind: "enable", OperationID: "original", StageOperationID: "original", ReviewedPlanID: "reviewed", AllowPersistentExecution: true, CoordinatorNodeID: "local", BotID: "bot"}
+			if err := localstate.Write(path, doc); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadNodeRoamingDocument(path); err == nil {
+				t.Fatal("contradictory phase accepted for startup")
+			}
+		})
 	}
 }
