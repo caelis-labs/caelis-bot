@@ -48,6 +48,7 @@ type Options struct {
 	RuntimeOwner                               nodeplane.RuntimeProofPort
 	ManagedProduct                             ManagedProductPort
 	ManagedStart                               ManagedStartPort
+	WorkerProxy                                *NativeWorkerProxy
 }
 type Service struct {
 	options      Options
