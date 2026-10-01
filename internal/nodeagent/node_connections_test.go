@@ -352,6 +352,13 @@ func TestNodeConnectionsColdExplicitBeginRealFramedSDKAndConfirmedClose(t *testi
 	if err := s.CloseNodeRuntimeConnection(t.Context(), ref); err != nil {
 		t.Fatal("original Close not reconciled", err)
 	}
+	s.connectionsMu.Lock()
+	retained := s.connections[ref.OperationID] != nil
+	s.connectionsMu.Unlock()
+	if retained {
+		t.Fatal("closed setup retained transient SDK interaction")
+	}
+
 	journal, err := os.ReadFile(s.connectionPath(ref))
 	if err != nil {
 		t.Fatal(err)
