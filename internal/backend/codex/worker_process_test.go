@@ -71,6 +71,9 @@ func TestBootstrapFenceUsesActualOwnedAttachableHandle(t *testing.T) {
 	if s.OwnsLiveRuntime() {
 		t.Fatal("stopped owner remained a live source")
 	}
+	if err = s.Close(testContext(t)); err != nil {
+		t.Fatal("confirmed hardstop retried dead native graceful cleanup", err)
+	}
 	shared := NewSession(SessionOptions{})
 	if shared.FenceOwnedForBootstrap(testContext(t)) == nil {
 		t.Fatal("unowned session supplied stopped proof")
