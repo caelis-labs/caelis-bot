@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -11,8 +12,8 @@ import (
 
 func TestWorkSourceRequiresNativeActivationAndPreservesOpaqueBinding(t *testing.T) {
 	s, _ := sessionPair(t, "hold")
-	if _, err := s.WorkDispatchSource(t.Context()); err == nil {
-		t.Fatal("idle conversation attested authority")
+	if _, err := s.WorkDispatchSource(t.Context()); !errors.Is(err, api.ErrWorkSourceInactive) {
+		t.Fatal("connected idle source was not classified", err)
 	}
 	sendSynthetic(t, s, "source-parent-request")
 	source, err := s.WorkDispatchSource(t.Context())
@@ -50,5 +51,12 @@ func TestManagedWorkSourceAnnotationPreservesNativeActivation(t *testing.T) {
 	source, err := s.WorkDispatchSource(t.Context())
 	if err != nil || source.NodeID != "managed-node" || source.Lease.SourceNodeID != "managed-node" {
 		t.Fatal(source, err)
+	}
+}
+
+func TestWorkSourceDisconnectedIsNotIdleControlAuthority(t *testing.T) {
+	s := NewSession(SessionOptions{})
+	if _, err := s.WorkDispatchSource(t.Context()); err == nil || errors.Is(err, api.ErrWorkSourceInactive) {
+		t.Fatal("disconnected source became idle authority", err)
 	}
 }

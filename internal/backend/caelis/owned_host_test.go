@@ -75,6 +75,21 @@ func TestOwnedCaelisProcessHelper(t *testing.T) {
 		return wire.ApplicationConnection{ApplicationId: "worker-app", ConnectionId: "worker-connection", PrincipalId: "fixture-owner", ExpiresAt: time.Now().Add(time.Hour)}
 	}
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/api/control/v1")
+		if path == "/sessions/owned-worker-session/reconnect" {
+			fixtureMu.Lock()
+			allowed := r.Header.Get("Authorization") == "Bearer SYNTHETIC_PRIVATE_TOKEN" || applicationSecret != "" && r.Header.Get("Authorization") == "Bearer "+applicationSecret
+			fixtureMu.Unlock()
+			if !allowed {
+				w.WriteHeader(401)
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(200)
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			return
+		}
 		fixtureMu.Lock()
 		defer fixtureMu.Unlock()
 		if r.Header.Get("Authorization") != "Bearer SYNTHETIC_PRIVATE_TOKEN" && (applicationSecret == "" || r.Header.Get("Authorization") != "Bearer "+applicationSecret) {
@@ -93,7 +108,49 @@ func TestOwnedCaelisProcessHelper(t *testing.T) {
 				return
 			}
 			applicationSecret = req.Credential
+			_ = os.WriteFile(filepath.Join(store, "worker-enrolled"), []byte("enrolled"), 0600)
 			writeFixture(w, life())
+		case "/sessions/owned-worker-session/state":
+			mode, _ := os.ReadFile(filepath.Join(store, "fixture-control-mode"))
+			state := wire.SessionState{SessionId: "owned-worker-session", Run: wire.RunState{Status: pointer("completed")}}
+			if len(mode) > 0 {
+				state.Run = wire.RunState{Active: pointer(true), Status: pointer("running"), HandleId: pointer("h"), RunId: pointer("r"), TurnId: pointer("t")}
+			}
+			if strings.Contains(string(mode), "new-turn") {
+				state.Run.HandleId = pointer("new-h")
+				state.Run.RunId = pointer("new-r")
+				state.Run.TurnId = pointer("new-t")
+			}
+			if strings.Contains(string(mode), "decision") {
+				state.Approval.Active = testApproval()
+			}
+			writeFixture(w, state)
+		case "/sessions/owned-worker-session/cancel":
+			var req wire.CancelRequest
+			if json.NewDecoder(r.Body).Decode(&req) != nil || value(req.SessionId) != "owned-worker-session" || req.Target != (wire.TurnTarget{HandleId: "h", RunId: "r", TurnId: "t"}) {
+				w.WriteHeader(400)
+				return
+			}
+			recordOwnedControl(store, "cancel", req)
+			mode, _ := os.ReadFile(filepath.Join(store, "fixture-control-mode"))
+			outcome := wire.Outcome("committed")
+			if strings.Contains(string(mode), "unknown") {
+				outcome = "unknown"
+			}
+			writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: outcome})
+		case "/sessions/owned-worker-session/approvals/approval/resolve":
+			var req wire.ResolveApprovalRequest
+			if json.NewDecoder(r.Body).Decode(&req) != nil || value(req.SessionId) != "owned-worker-session" || req.ApprovalRequestId != "approval" || value(req.OptionId) != "native-allow" || req.Target != (wire.TurnTarget{HandleId: "h", RunId: "r", TurnId: "t"}) {
+				w.WriteHeader(400)
+				return
+			}
+			recordOwnedControl(store, "decision", req)
+			mode, _ := os.ReadFile(filepath.Join(store, "fixture-control-mode"))
+			outcome := wire.Outcome("committed")
+			if strings.Contains(string(mode), "unknown") {
+				outcome = "unknown"
+			}
+			writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: outcome})
 		case "/application/connection":
 			writeFixture(w, life())
 		case "/application/sessions":
@@ -216,4 +273,13 @@ func TestOwnedCaelisForegroundFencesOnlyPrivateNativeTree(t *testing.T) {
 	if err = New(Options{}).FenceStop(t.Context()); err == nil {
 		t.Fatal("shared host gained stop authority")
 	}
+}
+
+func recordOwnedControl(store, kind string, request any) {
+	path := filepath.Join(store, "worker-"+kind+"-count")
+	data, _ := os.ReadFile(path)
+	count, _ := strconv.Atoi(string(data))
+	_ = os.WriteFile(path, []byte(strconv.Itoa(count+1)), 0600)
+	data, _ = json.Marshal(request)
+	_ = os.WriteFile(filepath.Join(store, "worker-"+kind+"-request"), data, 0600)
 }

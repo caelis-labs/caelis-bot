@@ -8,6 +8,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/workerwire"
 )
 
 // WorkerLeaseOptions is trusted target-native configuration. A dispatch frame
@@ -171,6 +172,9 @@ func (f *workerLeaseFence) check(ctx context.Context, g api.WorkerLeaseGrant) er
 	return ctx.Err()
 }
 func (f *workerLeaseFence) Begin(ctx context.Context) (context.Context, func(), error) {
+	if g, ok := ctx.Value(workerLeaseTicket{}).(api.WorkerLeaseGrant); ok {
+		return f.beginGrant(ctx, g)
+	}
 	s, err := f.w.source.WorkDispatchSource(ctx)
 	if err != nil {
 		return ctx, func() {}, err
@@ -178,10 +182,16 @@ func (f *workerLeaseFence) Begin(ctx context.Context) (context.Context, func(), 
 	if err = s.Validate(); err != nil {
 		return ctx, func() {}, err
 	}
-	if err = f.w.checkWorkerLease(ctx, s); err != nil {
+	return f.beginGrant(ctx, s.Lease)
+}
+func (f *workerLeaseFence) beginGrant(ctx context.Context, g api.WorkerLeaseGrant) (context.Context, func(), error) {
+	if err := ctx.Err(); err != nil {
 		return ctx, func() {}, err
 	}
-	child, cancel := context.WithCancel(context.WithValue(ctx, workerLeaseTicket{}, s.Lease))
+	if err := f.check(ctx, g); err != nil {
+		return ctx, func() {}, err
+	}
+	child, cancel := context.WithCancel(context.WithValue(ctx, workerLeaseTicket{}, g))
 	stop := context.AfterFunc(f.life, cancel)
 	return child, func() { stop(); cancel() }, nil
 }
@@ -272,4 +282,34 @@ func (f *workerLeaseFence) releasePower() {
 	if r != nil {
 		r()
 	}
+}
+
+// beginControl derives a private native ticket only for an authenticated exact
+// existing-task control. It never creates a resident activation or new epoch.
+func (w *WorkerClient) beginControl(ctx context.Context, id string) (context.Context, func(), error) {
+	if w.lease == nil {
+		return ctx, func() {}, nil
+	}
+	w.engine.mu.Lock()
+	task := w.engine.binding.Tasks[id]
+	var original api.WorkDispatchSource
+	if task != nil && task.WorkerSource != nil && task.View.Target != nil && *task.View.Target == w.target {
+		original = *task.WorkerSource
+	}
+	w.engine.mu.Unlock()
+	if original.Validate() != nil || original.Lease == (api.WorkerLeaseGrant{}) {
+		return ctx, func() {}, errors.New("Worker control has no original owned lease")
+	}
+	current, err := w.source.WorkDispatchSource(ctx)
+	if err != nil {
+		pair, paired := workerwire.PairedControl(ctx)
+		if !errors.Is(err, api.ErrWorkSourceInactive) || !paired || pair != w.pair || pair.Target != w.target || pair.BotID != api.ProfileBotID(original.Lease.BotID) || pair.SourceNode != original.NodeID || pair.SourceBackend != original.Backend {
+			return ctx, func() {}, err
+		}
+		current = original
+	}
+	if current.Validate() != nil || current.Lease != original.Lease || current.NodeID != original.NodeID || current.Backend != original.Backend {
+		return ctx, func() {}, errors.New("Worker control differs from original lease generation")
+	}
+	return w.lease.beginGrant(ctx, original.Lease)
 }

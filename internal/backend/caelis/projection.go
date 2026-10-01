@@ -60,7 +60,7 @@ func (s *Session) WaitSnapshot(ctx context.Context, rev uint64) (api.Snapshot, e
 }
 func (s *Session) snapshotLocked() api.Snapshot {
 	out := api.Snapshot{Revision: s.revision, Connection: "offline", ConnectionIssue: "connection_lost", Phase: "disconnected", Message: s.issue, Items: []api.Item{}, Approvals: []api.Approval{}, Reviews: []api.Review{}, References: []api.Reference{}, LastReceipt: s.state.LastReceipt}
-	if s.connected && !s.closed {
+	if (s.connected || s.workerOnly && s.workerPrepared) && !s.closed {
 		out.Connection = "ready"
 		out.ConnectionIssue = ""
 		out.Phase = "idle"

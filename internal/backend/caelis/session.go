@@ -39,6 +39,7 @@ type Session struct {
 	admission             api.ExecutionAdmission
 	dispatchSource        func(context.Context, api.WorkDispatchSource) (api.WorkDispatchSource, error)
 	workerLease           *workerlease.Fence
+	workerPrepared        bool
 	workerOnly            bool
 	workerProtocol        WorkerProtocol
 	workerTarget          api.WorkTarget

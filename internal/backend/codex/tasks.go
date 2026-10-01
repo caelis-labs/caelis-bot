@@ -19,6 +19,7 @@ type taskRecord struct {
 	WorkerStartDigest string                     `json:"workerStartDigest,omitempty"`
 	WorkerBinding     string                     `json:"workerBinding,omitempty"`
 	WorkerArtifacts   map[string]string          `json:"workerArtifacts,omitempty"`
+	WorkerStop        *workerStopReceipt         `json:"workerStop,omitempty"`
 	WorkerSource      *api.WorkDispatchSource    `json:"workerSource,omitempty"`
 	OriginalPrompt    string                     `json:"originalPrompt,omitempty"`
 	Execution         *api.WorkExecutionSettings `json:"execution,omitempty"`
@@ -35,6 +36,12 @@ type taskRecord struct {
 	SuppressReport    bool                       `json:"suppressReport,omitempty"`
 	Instructions      string                     `json:"instructions,omitempty"`
 }
+type workerStopReceipt struct {
+	Thread  string `json:"thread"`
+	Run     string `json:"run"`
+	Outcome string `json:"outcome"`
+}
+
 type taskReceipt struct {
 	Source        *api.WorkDispatchSource `json:"dispatchSource,omitempty"`
 	RequestDigest string                  `json:"requestDigest,omitempty"`
