@@ -21,7 +21,7 @@ import (
 )
 
 func allowed(method, path string) bool {
-	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof")
+	return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/managed-product" || path == "/v1/node/managed-disable" || path == "/v1/node/managed-status" || path == "/v1/node/managed-start" || path == "/v1/node/managed-product-proxy")
 }
 func strictDecode(r io.Reader, v any) error {
 	d := json.NewDecoder(io.LimitReader(r, productrpc.MaxCommandBytes+1))
@@ -65,6 +65,68 @@ func Handler(agent nodeplane.CatalogAgent) http.Handler {
 				return
 			}
 			value, err = port.ReadRuntimeProof(r.Context(), input)
+		case "/v1/node/managed-product":
+			var input api.WorkTarget
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedProductPort)
+			if !ok {
+				http.Error(w, "managed product unavailable", 503)
+				return
+			}
+			value, err = port.ReadManagedProduct(r.Context(), input)
+		case "/v1/node/managed-disable":
+			var input ManagedDisableRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedProductPort)
+			if !ok {
+				http.Error(w, "managed control unavailable", 503)
+				return
+			}
+			value, err = port.PrepareManagedDisable(r.Context(), input)
+		case "/v1/node/managed-status":
+			var input struct {
+				NodeID string `json:"nodeId"`
+			}
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedStartPort)
+			if !ok {
+				http.Error(w, "managed start unavailable", 503)
+				return
+			}
+			value, err = port.ManagedRoamingStatus(r.Context(), input.NodeID)
+		case "/v1/node/managed-start":
+			var input ManagedStartRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedStartPort)
+			if !ok {
+				http.Error(w, "managed start unavailable", 503)
+				return
+			}
+			value, err = port.StartManagedRoaming(r.Context(), input)
+		case "/v1/node/managed-product-proxy":
+			var input ManagedProductRequest
+			if strictDecode(r.Body, &input) != nil {
+				http.Error(w, "invalid node request", 400)
+				return
+			}
+			port, ok := agent.(ManagedProductPort)
+			if !ok {
+				http.Error(w, "managed proxy unavailable", 503)
+				return
+			}
+			value, err = port.ProxyManagedProduct(r.Context(), input)
 		case "/v1/node/manage":
 			var input nodeplane.ManagementRequest
 			if strictDecode(r.Body, &input) != nil {
