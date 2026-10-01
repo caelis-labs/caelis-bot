@@ -165,6 +165,13 @@ type NodeManagementRequest struct {
 	Installation *NodeInstallationChange     `json:"installation"`
 }
 
+// NodeRuntimeExecutable describes installed target-native bytes independently
+// of a managed-copy receipt. It grants no authentication or execution role.
+type NodeRuntimeExecutable struct {
+	Installed bool   `json:"installed"`
+	Version   string `json:"version"`
+}
+
 type NodeRuntimeConfiguration struct {
 	Guard         NodeEditGuard        `json:"guard"`
 	Configuration RuntimeConfiguration `json:"configuration"`
@@ -174,6 +181,7 @@ type NodeRuntimeConfiguration struct {
 	Worker                 *WorkExecutionSettings `json:"worker"`
 	ConfigurationAvailable bool                   `json:"configurationAvailable"`
 	InstallerAvailable     bool                   `json:"installerAvailable"`
+	Executable             *NodeRuntimeExecutable `json:"executable,omitempty"`
 	Installation           *NodeInstallationState `json:"installation"`
 	ReviewedVersions       []string               `json:"reviewedVersions"`
 }

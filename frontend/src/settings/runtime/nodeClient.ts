@@ -113,11 +113,13 @@ export function createNodeRuntimeClient(owner:NodeSettingsClient,guard:NodeEditG
    if(read.guard.nodeId!==guard.nodeId||read.guard.backend!==guard.backend)throw new Error(owner.text('settings.nodeStateUnknown'));
    connectionGuard={...read.guard};
    const shared=read.configuration,available=read.configurationAvailable;
+   const executableInstalled=read.executable?.installed??read.installation?.installed??false;
+   const executableVersion=read.executable?.version??read.installation?.version??'';
    const sourceTeam=shared.team??{available:false,reason:'',revision:'',roles:[],sets:[],activeSet:'',models:[]};
    const team={...sourceTeam,roles:sourceTeam.roles??[],sets:sourceTeam.sets??[],models:sourceTeam.models??[]};
    guards.set(shared.revision,read.guard);guards.set(team.revision,read.guard);guards.set(read.guard.revision,read.guard);
    const profile={runtime:guard.backend,cliPath:'',caelisStore:''};
-   return {revision:shared.revision||read.guard.revision,profile,setup:{settings:profile,state:available?'ready':read.installation?.installed?'models':'installation',message:available?'':owner.text('runtime.notConnected'),serviceUpdateAvailable:false,serviceVersion:'',serviceState:'',selectedModel:'',installation:{installed:read.installation?.installed??false,path:'',version:read.installation?.version??'',latestVersion:read.installation?.latestVersion??'',updateState:'',message:''},models:[],loginPending:false,accountType:''},pending:'',models:shared.models??[],conversation:read.conversation,work:read.worker,main:available?shared.main:null,canEditMain:available,team,connections:(shared.connections??[]).map(group=>({...group,kind:group.kind as 'provider'|'agent'}))};
+   return {revision:shared.revision||read.guard.revision,profile,setup:{settings:profile,state:available?'ready':executableInstalled?'models':'installation',message:available?'':owner.text('runtime.notConnected'),serviceUpdateAvailable:false,serviceVersion:'',serviceState:'',selectedModel:'',installation:{installed:executableInstalled,path:'',version:executableVersion,latestVersion:read.installation?.latestVersion??'',updateState:'',message:''},models:[],loginPending:false,accountType:''},pending:'',models:shared.models??[],conversation:read.conversation,work:read.worker,main:available?shared.main:null,canEditMain:available,team,connections:(shared.connections??[]).map(group=>({...group,kind:group.kind as 'provider'|'agent'}))};
   },
   async saveModel(scope,selection,revision){if(local)return local.saveModel(scope,selection,revision);await change({action:scope==='conversation'?'conversation-model':scope==='work'?'worker-model':'main',selection:{model:selection.model,effort:selection.effort,serviceTier:selection.serviceTier}},revision);},
   async changeTeam(fields,revision){if(local)return local.changeTeam(fields,revision);await change(fields,revision);},
