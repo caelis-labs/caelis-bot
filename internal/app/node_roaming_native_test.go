@@ -345,6 +345,11 @@ func TestDefaultNativeRecoverPreparingCrashRejectsOnlyBeforeRetirement(t *testin
 func TestDefaultNativeRuntimeMetadataReusesExactRetainedPair(t *testing.T) {
 	a := nativeManagementApplication(t)
 	dir := t.TempDir()
+	var e error
+	dir, e = filepath.EvalSymlinks(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
 	if e := os.Chmod(dir, 0700); e != nil {
 		t.Fatal(e)
 	}
@@ -367,6 +372,13 @@ func TestDefaultNativeRuntimeMetadataReusesExactRetainedPair(t *testing.T) {
 	}
 	if _, e = os.Lstat(store); !errors.Is(e, os.ErrNotExist) {
 		t.Fatal("metadata query created target Host configuration", e)
+	}
+	eligible, reason, e := assembly.ownedRuntimeProbe(t.Context(), reg, api.NodeCaelis)
+	if e != nil || eligible || reason != "owned-store-setup-required" {
+		t.Fatal("default native pairing inferred owned Host from metadata", eligible, reason, e)
+	}
+	if _, e = os.Lstat(store); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("default native ownability probe created target store", e)
 	}
 	reg.ID = "replacement-node"
 	if _, e = assembly.runtimeSettings(t.Context(), reg, api.NodeCaelis); e == nil {
@@ -815,5 +827,92 @@ func TestNativeWorkerRosterPreservesBothBackendsAndSameNodeAlternative(t *testin
 	}
 	if result.Runtimes[1].Store != "/native/owned-store" || result.Runtimes[0].Execution.Model != "target-codex" {
 		t.Fatal("target-native settings not retained", result.Runtimes)
+	}
+}
+
+func TestNativeCaelisCandidateRequiresOwnedStoreProbeBeforeRetirement(t *testing.T) {
+	registration := NodeRegistration{ID: "node-target", Label: "Target", Join: api.NodeSSH}
+	settings := api.RuntimeSettings{Runtime: "caelis", CLIPath: "/native/target/caelis", CaelisStore: "/native/target/owned-store"}
+	node := roamingNativeNode{Registration: registration, Plan: NodeRoamingSupervisorPlan{Managed: &NodeRoamingManagedDeployment{Backend: "caelis", CaelisBinary: settings.CLIPath, CaelisStore: settings.CaelisStore}}}
+	eligible := false
+	probes := 0
+	assembly := &roamingNativeAssembly{options: NodeRoamingNativeOptions{OwnedRuntimeProbe: func(_ context.Context, reg NodeRegistration, b api.NodeBackend) (bool, string, error) {
+		probes++
+		if reg != registration || b != api.NodeCaelis {
+			t.Fatal("candidate probe lost target pairing")
+		}
+		return eligible, "shared-host-store", nil
+	}, RuntimeSettings: func(context.Context, NodeRegistration, api.NodeBackend) (api.RuntimeSettings, error) {
+		return settings, nil
+	}}}
+	if e := assembly.confirmCandidateRuntime(t.Context(), node); e == nil || !strings.Contains(e.Error(), "shared-host-store") {
+		t.Fatal("authenticated installed metadata bypassed owned Host gate", e)
+	}
+	eligible = true
+	if e := assembly.confirmCandidateRuntime(t.Context(), node); e != nil {
+		t.Fatal("designated owned target was refused", e)
+	}
+	settings.CaelisStore = "/changed/target/store"
+	if e := assembly.confirmCandidateRuntime(t.Context(), node); e == nil {
+		t.Fatal("probe for changed target slot authorized frozen deployment")
+	}
+	node.Plan.Managed.Backend = "codex"
+	if e := assembly.confirmCandidateRuntime(t.Context(), node); e != nil || probes != 3 {
+		t.Fatal("Caelis alternative gated primary Codex candidate", e, probes)
+	}
+}
+
+func TestNativeWorkerBindingsOmitUnavailableCaelisAndStaleCodexStore(t *testing.T) {
+	a := nativeManagementApplication(t)
+	agent := singleNodeFixture(api.LocalNodeID)
+	agent.catalog.Nodes[0].Runtimes = append(agent.catalog.Nodes[0].Runtimes, api.NodeRuntime{Backend: api.NodeCodex, Authentication: api.NodeAuthenticated, Health: api.NodeHealthy})
+	a.Backend.SetNodeManagementController(NewNodeManagement(agent, nil))
+	reads := 0
+	assembly := &roamingNativeAssembly{app: a, options: NodeRoamingNativeOptions{OwnedRuntimeProbe: func(context.Context, NodeRegistration, api.NodeBackend) (bool, string, error) {
+		return false, "shared-host-store", nil
+	}, RuntimeSettings: func(_ context.Context, _ NodeRegistration, b api.NodeBackend) (api.RuntimeSettings, error) {
+		reads++
+		return api.RuntimeSettings{Runtime: string(b), CLIPath: "/native/" + string(b), CaelisStore: "/stale/cross-backend/store"}, nil
+	}}}
+	bindings := assembly.workerBindings(t.Context(), roamingNativePlan{SourceBackend: "codex", LocalWorkExecution: api.WorkExecutionSettings{Model: "local-configured-worker"}}, NodeRegistration{ID: api.LocalNodeID}, &NodeRoamingManagedDeployment{Backend: "codex"})
+	if len(bindings) != 1 || bindings[0].Backend != "codex" || bindings[0].Store != "" || bindings[0].Execution.Model != "local-configured-worker" || reads != 1 {
+		t.Fatal("unowned alternative or stale cross-backend native settings escaped", bindings, reads)
+	}
+}
+
+func TestDefaultNativeLocalCaelisProbeUsesActualProfileStore(t *testing.T) {
+	store, e := filepath.EvalSymlinks(t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = os.Chmod(store, 0700); e != nil {
+		t.Fatal(e)
+	}
+	marker := filepath.Join(store, ".caelis-bot-node-owner.json")
+	if e = localstate.Write(marker, map[string]string{"nodeId": api.LocalNodeID}); e != nil {
+		t.Fatal(e)
+	}
+	a := nativeManagementApplication(t)
+	options := DefaultNodeRoamingOptions(a, NodeRoamingNativeOptions{RuntimeSettings: func(_ context.Context, reg NodeRegistration, b api.NodeBackend) (api.RuntimeSettings, error) {
+		if reg.ID != api.LocalNodeID || b != api.NodeCaelis {
+			t.Fatal("local native profile probe lost scope")
+		}
+		return api.RuntimeSettings{Runtime: "caelis", CLIPath: "/native/local/caelis", CaelisStore: store}, nil
+	}})
+	assembly := options.RefreshNodeManagement.LocalAgent.(roamingManagedCatalog).assembly
+	eligible, reason, e := assembly.ownedRuntimeProbe(t.Context(), NodeRegistration{ID: api.LocalNodeID}, api.NodeCaelis)
+	if e != nil || !eligible || reason != "" {
+		t.Fatal("actual marked local Store was replaced by generic agent fallback", eligible, reason, e)
+	}
+	if e = localstate.Write(marker, map[string]string{"nodeId": "different-node"}); e != nil {
+		t.Fatal(e)
+	}
+	eligible, reason, e = assembly.ownedRuntimeProbe(t.Context(), NodeRegistration{ID: api.LocalNodeID}, api.NodeCaelis)
+	if e != nil || eligible || reason != "owned-store-node-mismatch" {
+		t.Fatal("foreign local Store marker was adopted", eligible, reason, e)
+	}
+	files, e := os.ReadDir(store)
+	if e != nil || len(files) != 1 || files[0].Name() != filepath.Base(marker) {
+		t.Fatal("read-only local probe initialized native Host state", files, e)
 	}
 }
