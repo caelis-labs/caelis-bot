@@ -106,6 +106,7 @@ type nodeRoamingControl struct {
 	cancel              context.CancelFunc
 	workers             sync.WaitGroup
 	closed              bool
+	observerStarted     bool
 	prepareSource       func(context.Context, string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error)
 	clientFactory       productClientFactory
 	startLocal          func(context.Context, *Application) error
@@ -254,14 +255,14 @@ func RestoreNodeRoaming(ctx context.Context, a *Application) (bool, error) {
 	}
 	c.op.Lock()
 	defer c.op.Unlock()
-	if c.doc.Outcome == "unknown" || c.doc.Phase == "quiescing" || c.doc.Phase == "restoring-local" || c.doc.LocalGenerationDirectory != "" {
+	if c.doc.Outcome == "unknown" || c.doc.Phase == "quiescing" || c.doc.Phase == "restoring-local" || (!c.doc.Enabled && c.doc.LocalGenerationDirectory != "") || (c.doc.OperationKind == "disable" && c.doc.Outcome == "rejected" && c.doc.Phase == "active") {
 		if err := c.recoverOriginal(ctx); err != nil {
 			return true, err
 		}
 		if c.doc.Outcome == "unknown" {
 			return true, errors.New("saved original roaming operation requires native reconciliation")
 		}
-		if c.local != nil {
+		if c.local != nil || (c.doc.Enabled && validRoamingStage(c.stage)) {
 			return true, nil
 		}
 	}
@@ -651,9 +652,39 @@ func (c *nodeRoamingControl) recoverOriginal(ctx context.Context) error {
 		return errors.New("original roaming recovery identity mismatch")
 	}
 	if result.Outcome == "unknown" {
-		return nil
+		return errors.New("original native roaming recovery remains unknown")
 	}
 	switch {
+	case result.Outcome == "rejected" && result.Phase == "active" && c.doc.OperationKind == "disable" && (c.doc.Phase == "quiescing" || (c.doc.Phase == "active" && c.doc.Outcome == "rejected")) && c.doc.Enabled && c.doc.SourceRetiredIntent && validRoamingStage(result.Stage):
+		// Native evidence proves the original disable was never dispatched.
+		// Reconnect only to its existing managed owner; retain the rejected
+		// disable receipt and original enable/stage authority without replay.
+		c.doc.Phase = "active"
+		c.doc.Outcome = "rejected"
+		if err := c.save(); err != nil {
+			_ = result.Stage.Close()
+			return err
+		}
+		previous := c.stage
+		c.stage = result.Stage
+		for _, reg := range input.StageInput.Nodes {
+			c.registrations[reg.ID] = reg
+		}
+		c.mu.Lock()
+		c.state.Enabled = true
+		c.state.Outcome = "rejected"
+		c.state.State = "waiting"
+		c.state.Reason = "native-disable-not-dispatched"
+		c.mu.Unlock()
+		if err := c.app.Backend.ActivateNodeRoamingProduct(roamingWaitingEngine{}); err != nil {
+			return err
+		}
+		c.app.Backend.ConfigureProductConnection(c)
+		if previous.Close != nil {
+			_ = previous.Close()
+		}
+		c.startObserver()
+		_ = c.followOwner(ctx)
 	case result.Outcome == "accepted" && result.Phase == "active" && c.doc.OperationKind == "enable" && validRoamingStage(result.Stage):
 		c.doc.Enabled = true
 		c.doc.Phase = "active"
@@ -707,6 +738,57 @@ func (c *nodeRoamingControl) recoverOriginal(ctx context.Context) error {
 		c.state.Reason = ""
 		c.mu.Unlock()
 	case result.Outcome == "rejected" && result.Phase == "source-active":
+		// A refusal confirms only the untouched source of this exact request.
+		// After an earlier disable that source is the recorded fresh generation,
+		// never the concrete APP originally retired for roaming.
+		if c.doc.OperationKind != "enable" || c.doc.SourceRetiredIntent || (c.doc.Phase != "preparing" && !(c.doc.Phase == "local" && c.doc.Outcome == "rejected")) {
+			return errors.New("rejected recovery did not confirm an untouched source")
+		}
+		c.mu.Lock()
+		freshRequired := c.pendingLocalRestore || c.local != nil
+		c.mu.Unlock()
+		freshRequired = freshRequired || c.doc.LocalGenerationDirectory != ""
+		if result.Local != nil {
+			local := result.Local
+			if !freshRequired || c.doc.LocalGenerationDirectory == "" || local == c.app || local.Backend == nil || local.Backend == c.app.Backend || local.root == c.app.root || local.root != c.doc.LocalGenerationDirectory {
+				return errors.New("rejected recovery source generation mismatch")
+			}
+			local.mu.Lock()
+			cold := !local.started && !local.closed && !local.sourceRetired
+			local.mu.Unlock()
+			if !cold {
+				_ = local.Close()
+				return errors.New("rejected recovery local candidate is not cold")
+			}
+			c.doc.Enabled = false
+			c.doc.Phase = "local"
+			c.doc.SourceRetiredIntent = false
+			c.doc.Outcome = "rejected"
+			if err := c.save(); err != nil {
+				_ = local.Close()
+				return err
+			}
+			if err := c.installLocal(ctx, local); err != nil {
+				_ = local.Close()
+				c.setState("unknown", "local-start-unconfirmed")
+				_ = c.save()
+				return err
+			}
+			c.mu.Lock()
+			c.state.Enabled = false
+			c.state.Outcome = "rejected"
+			c.state.State = "disabled"
+			c.state.ActiveBotNodeID = api.LocalNodeID
+			c.state.Reason = "native-preparation-refused"
+			c.mu.Unlock()
+			return nil
+		}
+		c.app.mu.Lock()
+		retired := c.app.sourceRetired
+		c.app.mu.Unlock()
+		if freshRequired || retired {
+			return errors.New("rejected recovery requires the verified fresh source generation")
+		}
 		if c.proxy.Current() != c.app.engine {
 			if err := c.app.Backend.ActivateNodeRoamingProduct(c.app.engine); err != nil {
 				return err
@@ -859,6 +941,10 @@ func (c *nodeRoamingControl) withdrawObserver(reason string) error {
 	return errors.New(reason)
 }
 func (c *nodeRoamingControl) startObserver() {
+	if c.observerStarted {
+		return
+	}
+	c.observerStarted = true
 	c.workers.Add(1)
 	go func() {
 		defer c.workers.Done()

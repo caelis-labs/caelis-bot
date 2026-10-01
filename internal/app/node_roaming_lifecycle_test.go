@@ -11,6 +11,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/care"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 func TestNodeRoamingStartRestoresBeforeRetiredSourceAndIsIdempotent(t *testing.T) {
@@ -254,5 +255,207 @@ func TestNodeRoamingUnknownPairingCannotReachLocalController(t *testing.T) {
 	}
 	if _, err := f.a.Backend.SaveProductPairing(backend.ProductPairing{Mode: "local"}, state.Revision); err == nil {
 		t.Fatal("pairing bypassed unknown native authority")
+	}
+}
+
+func TestNodeRoamingPreparingReenableRecoveryKeepsVerifiedFreshSource(t *testing.T) {
+	f := roamingControlFixture(t)
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.a.Backend.DisableNodeRoaming(t.Context(), controlRequest("disable-original")); err != nil {
+		t.Fatal(err)
+	}
+	freshRoot := f.c.local.root
+	current := api.RuntimeSettings{Runtime: "codex", CLIPath: "/fixture/current-choice"}
+	if err := localstate.Write(filepath.Join(freshRoot, "runtime.json"), current); err != nil {
+		t.Fatal(err)
+	}
+	f.preflightErr = errors.New("process disappeared during native preparation")
+	if state, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-next-original")); err == nil || state.Outcome != "unknown" || f.c.doc.Phase != "preparing" || f.c.doc.SourceRetiredIntent {
+		t.Fatal("fixture did not stop before retiring the fresh source", state, err)
+	}
+	if err := f.c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	o := f.c.options
+	recoveries, starts := 0, 0
+	o.Recover = func(_ context.Context, in NodeRoamingRecoveryInput) (NodeRoamingRecovery, error) {
+		recoveries++
+		if in.OperationID != "enable-next-original" || in.StageOperationID != "enable-next-original" || in.OperationKind != "enable" || in.SourceRetiredIntent || in.LocalGenerationDirectory != freshRoot || (in.Phase != "preparing" && in.Phase != "local") {
+			t.Fatal("recovery changed the original request or source generation", in)
+		}
+		settings, err := backend.LoadRuntimeSettings(filepath.Join(freshRoot, "runtime.json"), "codex")
+		if err != nil || settings != current {
+			t.Fatal("recovery replaced the current source preferences", settings, err)
+		}
+		engine := &controlLocalEngine{}
+		local := &Application{root: freshRoot, engine: engine, Backend: backend.NewService(engine, func([]string) ([]api.InputFile, error) { return nil, nil }, func([]string) {}, nil, nil)}
+		local.Backend.ConfigureRuntime(filepath.Join(freshRoot, "runtime.json"), settings)
+		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "rejected", Phase: "source-active", Local: local}, nil
+	}
+	for range 2 {
+		a, c := attachControlRestart(t, f, o)
+		a.sourceRetired = true
+		c.startLocal = func(_ context.Context, local *Application) error {
+			starts++
+			saved, err := loadNodeRoamingDocument(c.filename())
+			if err != nil || saved.Enabled || saved.Phase != "local" || saved.Outcome != "rejected" || saved.OperationID != "enable-next-original" || saved.LocalGenerationDirectory != freshRoot {
+				t.Fatal("source admission opened before durable original rejection", saved, err)
+			}
+			local.mu.Lock()
+			local.started = true
+			local.mu.Unlock()
+			return nil
+		}
+		for range 2 {
+			if err := a.Start(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if c.local == nil || c.local.root != freshRoot || c.proxy.Current() != c.local.engine || c.proxy.Current() == a.engine || a.personal != nil || a.tasks != nil || a.companion != nil {
+			t.Fatal("preparing re-enable recovery reopened the retired original APP")
+		}
+		if a.Backend.RuntimeSettings() != current || c.doc.OperationID != "enable-next-original" || c.doc.StageOperationID != "enable-next-original" || c.doc.Outcome != "rejected" || c.state.Enabled || c.state.ActiveBotNodeID != api.LocalNodeID {
+			t.Fatal("verified source did not retain its current configuration and original receipt")
+		}
+		if _, err := a.Backend.Submit(t.Context(), api.Submission{ID: "fresh-submit", Text: "fixture"}); err != nil || a.engine.(*controlLocalEngine).submits.Load() != 0 || c.local.engine.(*controlLocalEngine).submits.Load() != 1 {
+			t.Fatal("recovered source did not own new submissions", err)
+		}
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if recoveries != 2 || starts != 2 || f.prepared.Load() != 1 || f.staged.Load() != 1 || f.disabled.Load() != 1 {
+		t.Fatal("recovery replayed native preparation, enable, disable, or startup", recoveries, starts)
+	}
+}
+
+func TestNodeRoamingPreparingReenableRejectsUnverifiedFreshSource(t *testing.T) {
+	for _, missing := range []bool{true, false} {
+		t.Run(map[bool]string{true: "missing", false: "different-generation"}[missing], func(t *testing.T) {
+			f := roamingControlFixture(t)
+			if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.a.Backend.DisableNodeRoaming(t.Context(), controlRequest("disable-original")); err != nil {
+				t.Fatal(err)
+			}
+			f.preflightErr = errors.New("preparation response lost")
+			if state, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-next-original")); err == nil || state.Outcome != "unknown" {
+				t.Fatal(state, err)
+			}
+			o := f.c.options
+			o.Recover = func(_ context.Context, in NodeRoamingRecoveryInput) (NodeRoamingRecovery, error) {
+				result := NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "rejected", Phase: "source-active"}
+				if !missing {
+					engine := &controlLocalEngine{}
+					result.Local = &Application{root: t.TempDir(), engine: engine, Backend: backend.NewService(engine, nil, nil, nil, nil)}
+				}
+				return result, nil
+			}
+			a, c := attachControlRestart(t, f, o)
+			if err := a.Start(); err == nil {
+				t.Fatal("unverified generation admitted original local startup")
+			}
+			if a.started || a.personal != nil || a.tasks != nil || c.local != nil || c.proxy.Current() == a.engine || c.doc.Outcome != "unknown" || f.prepared.Load() != 1 || f.staged.Load() != 1 {
+				t.Fatal("failed recovery reopened or replayed the original source")
+			}
+		})
+	}
+}
+
+func TestNodeRoamingUndispatchedDisableRecoveryKeepsOriginalActiveAuthority(t *testing.T) {
+	f := roamingControlFixture(t)
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.a.Backend.DisableNodeRoaming(t.Context(), controlRequest("disable-original")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-next")); err != nil {
+		t.Fatal(err)
+	}
+	// Model the exact crash after syncing the original disable intent, before
+	// its native stage.Disable callback can dispatch a stop or change authority.
+	f.c.doc.OperationID = "disable-next-original"
+	f.c.doc.OperationKind = "disable"
+	f.c.doc.Phase = "quiescing"
+	f.c.doc.Outcome = "unknown"
+	if err := f.c.save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	o := f.c.options
+	recoveries := 0
+	o.Recover = func(_ context.Context, in NodeRoamingRecoveryInput) (NodeRoamingRecovery, error) {
+		recoveries++
+		if in.OperationID != "disable-next-original" || in.StageOperationID != "enable-next" || in.OperationKind != "disable" || (in.Phase != "quiescing" && in.Phase != "active") || !in.SourceRetiredIntent || in.LocalGenerationDirectory == "" || in.StageInput.OperationID != "enable-next" {
+			t.Fatal("recovery changed the original disable or active enable authority", in)
+		}
+		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "rejected", Phase: "active", Stage: NodeRoamingStage{
+			Broker: f.broker,
+			Disable: func(context.Context, string) error {
+				t.Fatal("recovery replayed native disable")
+				return nil
+			},
+			Close: func() error { return nil },
+		}}, nil
+	}
+	for restart := range 2 {
+		a, c := attachControlRestart(t, f, o)
+		a.sourceRetired = true
+		for range 2 {
+			if err := a.Start(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if c.doc.OperationID != "disable-next-original" || c.doc.StageOperationID != "enable-next" || c.doc.Outcome != "rejected" || c.doc.Phase != "active" || !c.doc.Enabled || !c.state.Enabled || c.state.ActiveBotNodeID != "node-fixture" {
+			t.Fatal("recovery changed the original rejected disable or active owner", c.doc, c.state)
+		}
+		if a.personal != nil || a.tasks != nil || a.companion != nil || c.proxy.Current() == a.engine || c.local != nil {
+			t.Fatal("rejected disable reopened a local source")
+		}
+		if f.prepared.Load() != 2 || f.disabled.Load() != 1 || f.staged.Load() != 2 || recoveries != restart+1 {
+			t.Fatal("recovery replayed native authority instead of reconnecting", restart, f.prepared.Load(), f.disabled.Load(), f.staged.Load(), recoveries)
+		}
+		if _, err := a.Backend.Submit(t.Context(), api.Submission{ID: "active-owner", Text: "fixture"}); err != nil || a.engine.(*controlLocalEngine).submits.Load() != 0 {
+			t.Fatal("recovered active authority did not own the product command", err)
+		}
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestNodeRoamingRejectedDisableUnknownRecoveryNeverResumes(t *testing.T) {
+	f := roamingControlFixture(t)
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+		t.Fatal(err)
+	}
+	f.c.doc.OperationID = "disable-original"
+	f.c.doc.OperationKind = "disable"
+	f.c.doc.Outcome = "rejected"
+	if err := f.c.save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	o := f.c.options
+	o.Recover = func(_ context.Context, in NodeRoamingRecoveryInput) (NodeRoamingRecovery, error) {
+		if in.OperationID != "disable-original" || in.StageOperationID != "enable-original" || in.Phase != "active" {
+			t.Fatal("recovery changed original authority", in)
+		}
+		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "unknown"}, nil
+	}
+	a, c := attachControlRestart(t, f, o)
+	if err := a.Start(); err == nil {
+		t.Fatal("unknown recovery resumed a previously rejected disable")
+	}
+	if a.started || a.personal != nil || a.tasks != nil || c.local != nil || c.proxy.Current() == a.engine || f.staged.Load() != 1 {
+		t.Fatal("unknown recovery replayed the old stage or reopened the original source")
 	}
 }
