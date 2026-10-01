@@ -106,8 +106,8 @@ func (s *Service) SetBotStatus(f func() string) { s.mu.Lock(); s.botStatus = f; 
 // explicit request; a new user message starts a new preview boundary.
 func (s *Service) PetSnapshot() api.Snapshot {
 	var snapshot api.Snapshot
-	if recent, ok := s.engine.(api.RecentSource); ok {
-		snapshot = s.decorate(recent.RecentSnapshot())
+	if recent, ok := s.capabilityEngine().(api.RecentSource); ok {
+		snapshot = s.decorate(s.projectEngineSnapshot(recent.RecentSnapshot()))
 	} else {
 		snapshot = s.Snapshot()
 	}
@@ -160,7 +160,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	s.mu.Lock()
 	hasOutgoing := len(s.outbox) > 0
 	s.mu.Unlock()
-	if source, ok := s.engine.(api.RevisionSource); ok && !hasOutgoing && !s.hasWorkerInteractions() && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
+	if source, ok := s.capabilityEngine().(api.RevisionSource); ok && !hasOutgoing && !s.hasWorkerInteractions() && revision != 0 && s.projectEngineRevision(source.Revision()) == revision && currentStatus == botStatus {
 		return api.ChatUpdate{}
 	}
 	v := s.Snapshot()
@@ -175,7 +175,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	return api.ChatUpdate{Changed: true, Snapshot: v}
 }
 func (s *Service) LoadEarlier(ctx context.Context) error {
-	if source, ok := s.engine.(api.HistorySource); ok {
+	if source, ok := s.capabilityEngine().(api.HistorySource); ok {
 		return source.LoadEarlier(ctx)
 	}
 	return errors.New("当前接入暂不支持读取更早消息")
@@ -197,7 +197,7 @@ func (s *Service) OpenConnectionHelp() error {
 	return s.OpenMessageLink(s.ProviderInfo().HelpURL)
 }
 func (s *Service) ProviderInfo() api.ProviderInfo {
-	if provider, ok := s.engine.(api.Provider); ok {
+	if provider, ok := s.capabilityEngine().(api.Provider); ok {
 		return provider.ProviderInfo()
 	}
 	return api.ProviderInfo{}
@@ -300,7 +300,7 @@ func (s *Service) Decide(ctx context.Context, d api.Decision) error {
 	return s.engine.Decide(ctx, d)
 }
 func (s *Service) Login(ctx context.Context) error {
-	auth, ok := s.engine.(api.Authenticator)
+	auth, ok := s.capabilityEngine().(api.Authenticator)
 	if !ok {
 		return errors.New("当前后端不支持在此登录")
 	}
@@ -311,7 +311,7 @@ func (s *Service) Login(ctx context.Context) error {
 	return s.openURL(u)
 }
 func (s *Service) CancelLogin(ctx context.Context) error {
-	if auth, ok := s.engine.(api.Authenticator); ok {
+	if auth, ok := s.capabilityEngine().(api.Authenticator); ok {
 		return auth.CancelLogin(ctx)
 	}
 	return errors.New("当前后端没有登录流程")
@@ -320,7 +320,7 @@ func (s *Service) RevealArtifact(id string) error {
 	if isWorkerArtifact(id) {
 		return s.revealWorkerArtifact(id)
 	}
-	resolver, ok := s.engine.(api.ArtifactResolver)
+	resolver, ok := s.capabilityEngine().(api.ArtifactResolver)
 	if !ok {
 		return errors.New("当前后端不支持打开产物")
 	}
@@ -342,7 +342,7 @@ func (s *Service) OpenApprovalURL(id string) error {
 		}
 		return s.OpenMessageLink(link)
 	}
-	navigator, ok := s.engine.(api.ApprovalNavigator)
+	navigator, ok := s.capabilityEngine().(api.ApprovalNavigator)
 	if !ok {
 		return errors.New("当前后端不支持打开外部审批")
 	}
@@ -359,8 +359,8 @@ func (s *Service) Shutdown() error {
 }
 
 func (s *Service) ComposerSnapshot() api.Snapshot {
-	if source, ok := s.engine.(api.ComposerSource); ok {
-		return s.decorate(source.ComposerSnapshot())
+	if source, ok := s.capabilityEngine().(api.ComposerSource); ok {
+		return s.decorate(s.projectEngineSnapshot(source.ComposerSnapshot()))
 	}
 	return s.Snapshot()
 }

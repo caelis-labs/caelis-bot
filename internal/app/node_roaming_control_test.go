@@ -58,6 +58,7 @@ type controlFixture struct {
 func roamingControlFixture(t *testing.T) *controlFixture {
 	t.Helper()
 	f := &controlFixture{local: &controlLocalEngine{}, client: newThinClientFixture(), broker: &controlBroker{lease: nodeplane.Lease{BotID: "bot-fixture", NodeID: "node-fixture", Backend: api.NodeCodex, Epoch: "1", ExpiresAt: time.Now().Add(time.Minute), TTLMs: 60000}}}
+	f.client.state.BotID = productrpc.ProfileBotID("bot-fixture")
 	f.a = &Application{root: t.TempDir(), engine: f.local, Backend: backend.NewService(f.local, func([]string) ([]api.InputFile, error) { return nil, nil }, func([]string) {}, nil, nil)}
 	agent := newNodeManagementFixture()
 	agent.catalog.Broker = &api.NodeBroker{NodeID: "local", Reachable: true}
@@ -80,17 +81,19 @@ func roamingControlFixture(t *testing.T) *controlFixture {
 					t.Error("missing concrete stopped source proof")
 				}
 			}
-			return NodeRoamingStage{Broker: f.broker, Disable: func(context.Context) error { f.disabled.Add(1); return f.disableErr }, Close: func() error { f.stageClosed.Add(1); return nil }}, f.stageErr
+			return NodeRoamingStage{Broker: f.broker, Disable: func(context.Context, string) error { f.disabled.Add(1); return f.disableErr }, Close: func() error { f.stageClosed.Add(1); return nil }}, f.stageErr
 		},
 		ResolveProduct: func(context.Context, nodeplane.Lease, NodeRegistration) (NodeRoamingProductLocation, error) {
 			f.client.mu.Lock()
 			gen := f.client.state.Generation
 			f.client.mu.Unlock()
-			return NodeRoamingProductLocation{Pairing: thinPairing(), Generation: gen}, nil
+			pairing := thinPairing()
+			pairing.BotID = productrpc.ProfileBotID("bot-fixture")
+			return NodeRoamingProductLocation{Pairing: pairing, Generation: gen}, nil
 		},
 		RestoreLocal: func(context.Context, NodeRoamingStage) (*Application, error) {
 			engine := &controlLocalEngine{}
-			return &Application{root: t.TempDir(), engine: engine, started: true, Backend: backend.NewService(engine, nil, nil, nil, nil)}, nil
+			return &Application{root: t.TempDir(), engine: engine, Backend: backend.NewService(engine, nil, nil, nil, nil)}, nil
 		},
 	}
 	if err := AttachNodeRoaming(f.a, o); err != nil {
@@ -101,6 +104,25 @@ func roamingControlFixture(t *testing.T) *controlFixture {
 		t.Fatal(err)
 	}
 	f.c = port.(*nodeRoamingControl)
+	f.c.startLocal = func(_ context.Context, a *Application) error {
+		if f.c.doc.Phase != "local" || f.c.doc.Outcome != "accepted" {
+			t.Error("local admission opened before durable disable")
+		}
+		saved, err := loadNodeRoamingDocument(f.c.filename())
+		if err != nil || saved.Enabled || saved.Outcome != "accepted" {
+			t.Error("local admission opened before accepted durable barrier", err)
+		}
+		a.mu.Lock()
+		a.started = true
+		a.mu.Unlock()
+		return nil
+	}
+	f.c.prepareLocalSource = func(ctx context.Context, a *Application, id string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error) {
+		if a == f.a {
+			t.Error("retired original source selected")
+		}
+		return f.c.prepareSource(ctx, id)
+	}
 	f.c.prepareSource = func(ctx context.Context, id string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error) {
 		f.prepared.Add(1)
 		ref := nodeplane.SnapshotRef{BotID: "bot-fixture", Epoch: "0", Version: "1", Digest: "fixture"}
@@ -149,6 +171,48 @@ func TestNodeRoamingControlPreflightFailureDoesNotRetireSource(t *testing.T) {
 		t.Fatal("source retired before native preparation")
 	}
 }
+
+func TestNodeRoamingControlPlanPreparationRequiresExplicitReviewBeforeRetirement(t *testing.T) {
+	f := roamingControlFixture(t)
+	r := controlRequest("enable-original")
+	plan, err := f.a.Backend.PrepareNodeRoaming(t.Context(), r)
+	if err != nil || plan.ID != "reviewed-plan" || !plan.RequiresConfirmation || f.prepared.Load() != 0 || f.preflight.Load() != 0 || f.staged.Load() != 0 {
+		t.Fatal("plan preparation mutated lifecycle", plan, err)
+	}
+	r.AllowPersistentExecution = false
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), r); err == nil {
+		t.Fatal("plan executed without review confirmation")
+	}
+	r.AllowPersistentExecution = true
+	r.ReviewedPlanID = "stale-reviewed-plan"
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), r); err == nil {
+		t.Fatal("stale plan executed")
+	}
+	if f.prepared.Load() != 0 || f.preflight.Load() != 0 || f.staged.Load() != 0 {
+		t.Fatal("unreviewed plan retired source")
+	}
+}
+
+func TestNodeRoamingControlSavedUnknownNeverStartsOriginalSource(t *testing.T) {
+	f := roamingControlFixture(t)
+	f.c.doc = nodeRoamingDocument{Phase: "staging", OperationKind: "enable", StageOperationID: "original-unknown", SourceRetiredIntent: true, ReviewedPlanID: "reviewed-plan", AllowPersistentExecution: true, Version: 1, OperationID: "original-unknown", Outcome: "unknown", CoordinatorNodeID: "local", BotID: "bot-fixture"}
+	if err := f.c.save(); err != nil {
+		t.Fatal(err)
+	}
+	engine := &controlLocalEngine{}
+	a := &Application{root: f.a.root, engine: engine, Backend: backend.NewService(engine, nil, nil, nil, nil)}
+	agent := newNodeManagementFixture()
+	agent.catalog.Broker = &api.NodeBroker{NodeID: "local", Reachable: true}
+	a.Backend.SetNodeManagementController(NewNodeManagement(agent, nil))
+	if err := AttachNodeRoaming(a, f.c.options); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Backend.CloseNodeManagement(context.Background()) })
+	owned, err := RestoreNodeRoaming(t.Context(), a)
+	if !owned || err == nil || !NodeRoamingOwnsExecution(a) || f.staged.Load() != 0 || f.prepared.Load() != 0 {
+		t.Fatal("unknown restart revived source or replayed native stage", owned, err)
+	}
+}
 func TestNodeRoamingControlEnableUsesConcreteStageAndStableService(t *testing.T) {
 	f := roamingControlFixture(t)
 	service := f.a.Backend
@@ -194,6 +258,7 @@ func TestNodeRoamingControlGenerationChangeRetainsUnknownOriginalReceipt(t *test
 	}
 	_, _ = f.a.Backend.Submit(t.Context(), api.Submission{ID: "old-original", Text: "fixture"})
 	fresh := newThinClientFixture()
+	fresh.state.BotID = productrpc.ProfileBotID("bot-fixture")
 	fresh.state.Generation = "generation-two"
 	fresh.state.Cursor.Generation = "generation-two"
 	f.client = fresh
