@@ -72,7 +72,7 @@ func loadRoamingWorkerPlan(filename string) (roamingWorkerPlan, error) {
 	seen := map[api.WorkTarget]bool{}
 	for _, config := range document.Nodes {
 		target := startupTarget(config)
-		if target.Validate() != nil || target.NodeID == api.LocalNodeID || seen[target] || config.Transport != "registered-agent" || (target.Backend != "codex" && target.Backend != "caelis") || config.SSH != "" || config.Helper != "" || config.Socket != "" || config.Store != "" || config.WorkspaceRoot != "" {
+		if target.Validate() != nil || seen[target] || config.Transport != "registered-agent" || (target.Backend != "codex" && target.Backend != "caelis") || config.SSH != "" || config.Helper != "" || config.Socket != "" || config.Store != "" || config.WorkspaceRoot != "" {
 			return document, errors.New("managed Worker requires exact enrolled node/backend metadata")
 		}
 		seen[target] = true

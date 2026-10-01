@@ -70,6 +70,10 @@ func (m *Manager) recordRuntime(id string) (api.WorkRuntime, error) {
 	return m.runtimeFor(target)
 }
 
+// DefaultWorkerTarget identifies the direct owned Worker for native composition.
+// It is independent of labels or the optional APP machine's local alias.
+func (m *Manager) DefaultWorkerTarget() api.WorkTarget { return m.nativeTarget }
+
 // WorkRoutes exposes host ports for composition (approvals/resources), never
 // native credentials or an Engine whose resident lifecycle could be confused
 // with a Worker. The local route remains direct even without a registry.

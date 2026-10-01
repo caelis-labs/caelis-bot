@@ -14,8 +14,16 @@ import (
 )
 
 type workerRouteFixture struct {
-	routes []api.WorkRoute
-	owned  map[string]api.WorkTarget
+	defaultTarget api.WorkTarget
+	routes        []api.WorkRoute
+	owned         map[string]api.WorkTarget
+}
+
+func (o *workerRouteFixture) DefaultWorkerTarget() api.WorkTarget {
+	if o.defaultTarget != (api.WorkTarget{}) {
+		return o.defaultTarget
+	}
+	return api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleWorker}
 }
 
 func (o *workerRouteFixture) WorkRoutes() []api.WorkRoute { return o.routes }
@@ -173,5 +181,82 @@ func TestProductArtifactUsesCurrentOpaqueOwnedResourceAndRejectsDetachDuringRead
 	w.afterRead = func() { owner.routes = nil }
 	if _, err := s.ReadProductArtifact(t.Context(), handle); err == nil {
 		t.Fatal("detached route retained resource authority during read")
+	}
+}
+
+func TestWorkerInteractionsUseExactNativeDefaultAcrossMacAndAlternateBackend(t *testing.T) {
+	for _, direct := range []api.WorkTarget{
+		{NodeID: "managed-linux", Backend: "codex", Role: api.RoleWorker},
+		{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleWorker},
+	} {
+		t.Run(direct.NodeID, func(t *testing.T) {
+			bytes := []byte("exact owned resource")
+			sum := sha256.Sum256(bytes)
+			makeWorker := func(target api.WorkTarget, task string) *interactionWorker {
+				return &interactionWorker{
+					approvals: []api.WorkApproval{{TaskID: task, Target: target, Approval: api.Approval{ID: "approval-" + task, Status: "pending", Choices: []api.Choice{{ID: "once"}}}}},
+					artifacts: []api.WorkArtifactRef{{TaskID: task, Target: target, Artifact: api.Artifact{ID: "artifact-" + task, Name: "output.txt"}}},
+					data:      api.WorkArtifact{ID: "artifact-" + task, Name: "output.txt", Bytes: bytes, Size: int64(len(bytes)), SHA256: hex.EncodeToString(sum[:])},
+				}
+			}
+			native := makeWorker(direct, "direct")
+			owner := &workerRouteFixture{defaultTarget: direct, routes: []api.WorkRoute{{Target: direct, Runtime: native}}, owned: map[string]api.WorkTarget{"direct": direct}}
+			base := api.Snapshot{Approvals: []api.Approval{{ID: "native-default-approval", Status: "pending"}}, Items: []api.Item{{ID: "native-default-item", Artifacts: []api.Artifact{{ID: "native-default-artifact"}}}}}
+			s := NewService(snapshotEngine{value: base}, nil, nil, nil, nil)
+			s.ConfigureWorkRoutes(owner, t.TempDir())
+			if s.hasWorkerInteractions() {
+				t.Fatal("direct route advertised optional interactions")
+			}
+			got := s.Snapshot()
+			if len(got.Approvals) != 1 || len(got.Items) != 1 || got.Approvals[0].ID != base.Approvals[0].ID || got.Items[0].Artifacts[0].ID != "native-default-artifact" {
+				t.Fatal("direct interactions duplicated or rewritten", got)
+			}
+			// Same machine with another backend is always a separate owned port.
+			alternate := api.WorkTarget{NodeID: direct.NodeID, Backend: "caelis", Role: api.RoleWorker}
+			targets := []api.WorkTarget{alternate}
+			if direct.NodeID != api.LocalNodeID {
+				targets = append(targets, api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleWorker})
+			}
+			workers := []*interactionWorker{}
+			for i, target := range targets {
+				task := []string{"alternate", "mac"}[i]
+				worker := makeWorker(target, task)
+				workers = append(workers, worker)
+				owner.routes = append(owner.routes, api.WorkRoute{Target: target, Runtime: worker})
+				owner.owned[task] = target
+			}
+			if !s.hasWorkerInteractions() {
+				t.Fatal("non-direct route omitted from interaction polling")
+			}
+			got = s.Snapshot()
+			if len(got.Approvals) != 1+len(workers) || len(got.Items) != 1+len(workers) {
+				t.Fatal("exact Mac or alternate interactions absent", got)
+			}
+			approvalHandles, artifactHandles := []string{}, []string{}
+			for i, worker := range workers {
+				approval := got.Approvals[i+1].ID
+				artifact := got.Items[i+1].Artifacts[0].ID
+				approvalHandles = append(approvalHandles, approval)
+				artifactHandles = append(artifactHandles, artifact)
+				if err := s.Decide(t.Context(), api.Decision{ID: approval, Choice: "once"}); err != nil || worker.decisions != 1 || worker.decision.ID != worker.approvals[0].Approval.ID {
+					t.Fatal("decision lost exact native port", err)
+				}
+				if result, err := s.ReadProductArtifact(t.Context(), artifact); err != nil || string(result.Bytes) != string(bytes) || worker.taskRead != worker.artifacts[0].TaskID {
+					t.Fatal("artifact lost owned task/backend", result, err)
+				}
+			}
+			if native.decisions != 0 || native.artifactRead != "" {
+				t.Fatal("optional interaction fell back to direct native Worker")
+			}
+			owner.routes = owner.routes[:1]
+			for i := range approvalHandles {
+				if s.Decide(t.Context(), api.Decision{ID: approvalHandles[i], Choice: "once"}) == nil {
+					t.Fatal("detached decision retained authority")
+				}
+				if _, err := s.ReadProductArtifact(t.Context(), artifactHandles[i]); err == nil {
+					t.Fatal("detached artifact retained authority")
+				}
+			}
+		})
 	}
 }
