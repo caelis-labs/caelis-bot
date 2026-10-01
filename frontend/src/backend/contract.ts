@@ -189,6 +189,33 @@ export interface NodePairedRuntime {
   nodeId: string;
   binding: string;
 }
+export interface NodeRoamingPlan {
+  id: string;
+  coordinatorNodeId: string;
+  actions: Array<NodeRoamingPlanAction>;
+  requiresConfirmation: boolean;
+}
+export interface NodeRoamingPlanAction {
+  nodeId: string;
+  label: string;
+  action: string;
+}
+export interface NodeRoamingRequest {
+  reviewedPlanId: string;
+  allowPersistentExecution: boolean;
+  id: string;
+  expectedCatalogRevision: string;
+}
+export interface NodeRoamingState {
+  available: boolean;
+  operationId: string;
+  outcome: string;
+  enabled: boolean;
+  coordinatorNodeId: string;
+  activeBotNodeId: string;
+  state: string;
+  reason: string;
+}
 export interface NodeRoleCapability {
   role: string;
   eligible: boolean;
