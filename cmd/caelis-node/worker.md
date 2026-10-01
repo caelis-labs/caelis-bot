@@ -50,3 +50,23 @@ acceptance; the owned-process fixture exercises initialization, private pairing,
 real proxy EOF/reconnect and exact signal shutdown without a model request.
 Bot skill guidance is unchanged because these are native connection/lifecycle
 entry points, not new model tools or authorization workflows.
+
+A leased resident must use a target that negotiated `LeaseAwareAdmission` from
+its concrete owned process and active native power binder. To opt in, the target
+user's private configuration adds `"lease": {"brokerNodeId": "broker-node",
+"brokerSocket": "/home/user/private-broker/broker.sock"}`. This socket is an
+already paired private broker endpoint, including an explicitly established SSH
+forward. Frames cannot select a broker endpoint. In this mode Pair.BotID is the
+broker's exact raw persistent Bot ID; source node/backend must be its current
+native leased publisher. No controller epoch substitutes for the broker epoch.
+
+The target reads fresh remaining TTL from the pinned broker before effects,
+uses local monotonic request start with a fifteen-second margin, and hard-stops
+its own process and captured tools on deadline or native sleep. Observer detach
+retains this deadline. A revoked generation cannot accept another lease epoch.
+Unknown original receipts stay readable and are never automatically resent.
+Linux requires a functioning native logind sleep fence; a missing power binder
+rejects leased startup. The no-cgo Darwin helper currently has no native power
+binder and rejects this opt-in. Shared sockets and shared Caelis Hosts remain
+ineligible. This foreground fence does not claim descendant cleanup after a
+SIGKILL of the owning helper; that requires an independent owned watchdog.

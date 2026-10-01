@@ -78,10 +78,37 @@ func TestLeasedWorkerActualProcessStopsBeforeQueuedAdmission(t *testing.T) {
 	}
 	defer func() { _ = other.Process.Kill(); _ = other.Wait() }()
 	// Hold the ordinary native operation queue. Native sleep loss must bypass it.
+	taskID := "task-00000000000000000000000000000001"
+	workspace, err := w.ResolveWorkWorkspace(testContext(t), taskID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = w.PrepareWorkWorkspace(testContext(t), taskID, workspace, false); err != nil {
+		t.Fatal(err)
+	}
+	target := w.target
+	source.mu.Lock()
+	attested := source.value
+	source.mu.Unlock()
+	intent := api.WorkStart{TaskStart: api.TaskStart{RequestID: "queued-start", Title: "Fixture", Prompt: "Synthetic queued effect", Target: &target}, ID: taskID, Workspace: workspace, Instructions: "Fixture worker policy", Source: attested, RequestDigest: strings.Repeat("a", 64)}
 	w.engine.op.Lock()
+	queued := make(chan struct{})
+	result := make(chan error, 1)
+	go func() { close(queued); _, err := w.StartWork(testContext(t), intent); result <- err }()
+	<-queued
 	started := time.Now()
 	suspend()
 	w.engine.op.Unlock()
+	if err = <-result; err == nil {
+		t.Fatal("queued effect admitted after power loss")
+	}
+	w.engine.mu.Lock()
+	intents := len(w.engine.binding.Tasks)
+	w.engine.mu.Unlock()
+	if intents != 0 {
+		t.Fatal("queued effect persisted or dispatched after lease loss")
+	}
+
 	if time.Since(started) >= 4*time.Second {
 		t.Fatal("hard stop waited for ordinary operation queue")
 	}

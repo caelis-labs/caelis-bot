@@ -57,7 +57,7 @@ type frame struct {
 }
 
 type State struct {
-	LeaseAware bool
+	LeaseAware bool `json:",omitempty"`
 	Revision   uint64
 	Connection string
 	Tasks      []api.WorkState
