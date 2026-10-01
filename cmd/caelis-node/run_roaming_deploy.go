@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
@@ -15,7 +16,7 @@ import (
 // Deployment is an explicit reviewed native operation. This command cannot
 // choose credentials, configure SSH, install a service or accept shell text.
 func runRoamingDeploy(ctx context.Context, args []string, out io.Writer) error {
-	if len(args) == 0 || args[0] != "supervise-roaming" && args[0] != "control-roaming" {
+	if len(args) == 0 || args[0] != "supervise-roaming" && args[0] != "control-roaming" && args[0] != "inspect-roaming" {
 		return errors.New("native deployment supervisor command required")
 	}
 	if args[0] == "supervise-roaming" {
@@ -31,6 +32,16 @@ func runRoamingDeploy(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if f.NArg() != 0 || !filepath.IsAbs(*plan) {
 		return errors.New("explicit absolute approved native plan required")
+	}
+	if args[0] == "inspect-roaming" {
+		if *state != "" {
+			return errors.New("read-only supervisor receipt cannot include state mutation")
+		}
+		result, e := app.ReadNodeRoamingSupervisorState(*plan, *op)
+		if e != nil {
+			return e
+		}
+		return json.NewEncoder(out).Encode(result)
 	}
 	if args[0] == "control-roaming" {
 		return app.SetNodeRoamingSupervisorState(*plan, *op, *state)

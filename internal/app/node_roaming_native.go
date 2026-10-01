@@ -62,12 +62,21 @@ type NodeRoamingManagedDeployment struct {
 	BrokerNodeID, BrokerSocket, BrokerSSHDestination, BrokerHelper, WorkersFile                     string
 	JoinSSHDestination, JoinHelper, JoinDirectory                                                   string
 }
+type NodeRoamingWorkerRuntime struct {
+	Backend   string                    `json:"backend"`
+	Binary    string                    `json:"binary"`
+	Store     string                    `json:"store,omitempty"`
+	Model     string                    `json:"model,omitempty"`
+	Execution api.WorkExecutionSettings `json:"execution"`
+}
 type roamingNativeNode struct {
 	Registration     NodeRegistration
 	Plan             NodeRoamingSupervisorPlan
 	HostHelper       string
 	AgentSocket      string
 	BrokerPeerSocket string
+	RuntimeBindings  []NodeRoamingWorkerRuntime
+	Preferences      nodeagent.ExecutionPreferences
 }
 type roamingNativePlan struct {
 	ID                                                             string
@@ -85,11 +94,14 @@ type roamingNativePlan struct {
 	DisableLease                                                   nodeplane.Lease
 }
 type roamingNativeAssembly struct {
-	app      *Application
-	options  NodeRoamingNativeOptions
-	mu       sync.Mutex
-	plans    map[string]roamingNativePlan
-	sessions map[*nodebroker.Client]*roamingNativeSession
+	app        *Application
+	options    NodeRoamingNativeOptions
+	original   *nodeManagement
+	localApp   *Application
+	localAgent nodeplane.CatalogAgent
+	mu         sync.Mutex
+	plans      map[string]roamingNativePlan
+	sessions   map[*nodebroker.Client]*roamingNativeSession
 }
 type roamingNativeSession struct {
 	assembly    *roamingNativeAssembly
@@ -111,6 +123,11 @@ func attachDefaultNodeRoaming(a *Application) error {
 
 func DefaultNodeRoamingOptions(a *Application, options ...NodeRoamingNativeOptions) NodeRoamingOptions {
 	n := &roamingNativeAssembly{app: a, plans: map[string]roamingNativePlan{}, sessions: map[*nodebroker.Client]*roamingNativeSession{}}
+	if a != nil && a.Backend != nil {
+		if controller, e := backend.NativeNodeManagementController(a.Backend); e == nil {
+			n.original, _ = controller.(*nodeManagement)
+		}
+	}
 	if len(options) == 1 {
 		n.options = options[0]
 	}
@@ -120,12 +137,25 @@ func DefaultNodeRoamingOptions(a *Application, options ...NodeRoamingNativeOptio
 	if n.options.Artifact == nil {
 		n.options.Artifact = DefaultNodeAgentArtifact
 	}
+	if n.options.RuntimeSettings == nil {
+		n.options.RuntimeSettings = n.runtimeSettings
+	}
 	if n.options.LocalSSHDestination == "" {
 		n.options.LocalSSHDestination = os.Getenv("CAELIS_BOT_NODE_OUTGOING_SSH_TARGET")
 	}
 	o := NodeRoamingOptions{PreparePlan: n.prepare, Preflight: n.preflight, Stage: n.stage, ResolveProduct: n.resolve, RestoreLocal: n.restore, Recover: n.recover}
 	o.RefreshNodeManagement = &NodeManagementNativeOptions{LocalAgent: roamingManagedCatalog{assembly: n}, Dial: func(ctx context.Context, r NodeRegistration) (nodeplane.CatalogAgent, error) {
-		return n.managementPeer(ctx, r.ID)
+		peer, e := n.managementPeer(ctx, r.ID)
+		if e == nil {
+			return peer, nil
+		}
+		if n.freshLocal() == nil {
+			return nil, e
+		}
+		if r.Join == api.NodeSSH {
+			return nodeagent.NewSSHForegroundClient(ctx, nodeagent.SSHConfig{Target: r.SSHDestination}, r.HelperPath, r.Directory, r.ID)
+		}
+		return nil, errors.New("outgoing native catalog requires its independently registered route")
 	}, ExecutionState: func() (string, *api.WorkTarget) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -136,6 +166,9 @@ func DefaultNodeRoamingOptions(a *Application, options ...NodeRoamingNativeOptio
 		}
 		n.mu.Unlock()
 		if s == nil {
+			if actual := n.freshLocal(); actual != nil {
+				return api.LocalNodeID, nil
+			}
 			return "", nil
 		}
 		lease, e := s.broker.CurrentLease(ctx, s.plan.BotID)
@@ -196,6 +229,53 @@ func (n *roamingNativeAssembly) catalogNode(ctx context.Context, id string) (api
 		}
 	}
 	return api.NodeInfo{}, errors.New("exact enrolled Runtime catalog unavailable")
+}
+
+func (n *roamingNativeAssembly) runtimeSettings(ctx context.Context, reg NodeRegistration, b api.NodeBackend) (api.RuntimeSettings, error) {
+	if reg.ID == api.LocalNodeID {
+		actual := ActiveNodeRoamingApplication(n.app)
+		if actual == nil {
+			return api.RuntimeSettings{}, errors.New("actual local native Runtime unavailable")
+		}
+		settings, e := actual.Backend.SetupProfile(string(b))
+		if e != nil {
+			return api.RuntimeSettings{}, e
+		}
+		if settings.CLIPath == "" {
+			settings.CLIPath, _ = exec.LookPath(string(b))
+		}
+		if !filepath.IsAbs(settings.CLIPath) {
+			return api.RuntimeSettings{}, errors.New("installed local native Runtime binary unavailable")
+		}
+		return settings, nil
+	}
+	controller, e := backend.NativeNodeManagementController(n.app.Backend)
+	if e != nil {
+		return api.RuntimeSettings{}, e
+	}
+	management, ok := controller.(*nodeManagement)
+	if !ok {
+		return api.RuntimeSettings{}, errors.New("retained native node management is unavailable")
+	}
+	native, ok := management.agent.(*nativeNodeManagement)
+	if !ok {
+		return api.RuntimeSettings{}, errors.New("exact target native pairing is unavailable")
+	}
+	peer, e := native.agent(reg.ID)
+	if e != nil {
+		return api.RuntimeSettings{}, e
+	}
+	reader, ok := peer.(interface {
+		ReadOwnedRuntimeSettings(context.Context, string, api.NodeBackend) (nodeagent.OwnedRuntimeSettings, error)
+	})
+	if !ok {
+		return api.RuntimeSettings{}, errors.New("target native Runtime metadata is unavailable")
+	}
+	value, e := reader.ReadOwnedRuntimeSettings(ctx, reg.ID, b)
+	if e != nil || value.Backend != b {
+		return api.RuntimeSettings{}, errors.Join(errors.New("exact target Runtime metadata is unconfirmed"), e)
+	}
+	return api.RuntimeSettings{Runtime: string(b), CLIPath: value.Binary, CaelisStore: value.Store}, nil
 }
 func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageInput) (roamingNativePlan, error) {
 	var p roamingNativePlan
@@ -324,9 +404,45 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 			}
 			m.CaelisBinary, m.CaelisStore = settings.CLIPath, settings.CaelisStore
 			m.CodexBinary, m.RuntimeDirectory = "", ""
+			if r.ID == api.LocalNodeID {
+				m.Model = p.LocalExecution.Model
+			} else {
+				configuration, e := n.app.Backend.NodeRuntimeConfiguration(ctx, r.ID, api.NodeCaelis)
+				if e != nil || !configuration.ConfigurationAvailable {
+					return p, errors.New("target Caelis model configuration is unavailable")
+				}
+				m.Model = configuration.Configuration.Main.Model
+			}
 		}
 		plan.Managed = m
-		p.Nodes = append(p.Nodes, roamingNativeNode{Registration: r, Plan: plan, HostHelper: helper, AgentSocket: filepath.Join(m.AgentDirectory, "agent.sock")})
+		bindings := n.workerBindings(ctx, p, r, m)
+		for _, binding := range bindings {
+			if binding.Backend == m.Backend && m.Backend == "codex" {
+				m.CodexBinary = binding.Binary
+				m.RuntimeDirectory = ""
+			}
+		}
+		pref := nodeagent.ExecutionPreferences{Schema: 1, Revision: 1}
+		if r.ID == api.LocalNodeID {
+			pref.Conversation = api.WorkExecutionSettings{Model: p.LocalExecution.Model, Effort: p.LocalExecution.Effort, ServiceTier: p.LocalExecution.ServiceTier}
+			pref.Worker = p.LocalWorkExecution
+		} else {
+			configuration, e := n.app.Backend.NodeRuntimeConfiguration(ctx, r.ID, api.NodeBackend(m.Backend))
+			if e != nil || !configuration.ConfigurationAvailable {
+				return p, errors.New("target Runtime preferences cannot be frozen for review")
+			}
+			if configuration.Conversation != nil {
+				pref.Conversation = *configuration.Conversation
+			} else if m.Backend == "caelis" {
+				pref.Conversation = configuration.Configuration.Main
+			}
+			if configuration.Worker != nil {
+				pref.Worker = *configuration.Worker
+			} else if m.Backend == "caelis" {
+				pref.Worker = configuration.Configuration.Main
+			}
+		}
+		p.Nodes = append(p.Nodes, roamingNativeNode{Registration: r, Plan: plan, HostHelper: helper, AgentSocket: filepath.Join(m.AgentDirectory, "agent.sock"), RuntimeBindings: bindings, Preferences: pref})
 		foundCoordinator = foundCoordinator || r.ID == in.Coordinator.ID
 		if r.ID == in.Coordinator.ID {
 			p.Coordinator = r
@@ -384,6 +500,55 @@ func (n *roamingNativeAssembly) build(ctx context.Context, in NodeRoamingStageIn
 	}
 	return p, nil
 }
+func (n *roamingNativeAssembly) workerBindings(ctx context.Context, p roamingNativePlan, r NodeRegistration, m *NodeRoamingManagedDeployment) []NodeRoamingWorkerRuntime {
+	ready := map[string]bool{}
+	if info, e := n.catalogNode(ctx, r.ID); e == nil {
+		for _, v := range info.Runtimes {
+			if v.Authentication == api.NodeAuthenticated && v.Health == api.NodeHealthy {
+				ready[string(v.Backend)] = true
+			}
+		}
+	}
+	// The actual local source's owned readiness is separately enforced by Preflight.
+	if r.ID == api.LocalNodeID {
+		ready[m.Backend] = true
+	}
+	result := []NodeRoamingWorkerRuntime{}
+	for _, b := range []api.NodeBackend{api.NodeCodex, api.NodeCaelis} {
+		if !ready[string(b)] {
+			continue
+		}
+		var settings api.RuntimeSettings
+		var e error
+		if n.options.RuntimeSettings != nil {
+			settings, e = n.options.RuntimeSettings(ctx, r, b)
+		} else {
+			e = errors.New("target Runtime metadata unavailable")
+		}
+		if e != nil || settings.Runtime != string(b) || !filepath.IsAbs(settings.CLIPath) || b == api.NodeCaelis && !filepath.IsAbs(settings.CaelisStore) {
+			continue
+		}
+		execution := api.WorkExecutionSettings{}
+		if r.ID == api.LocalNodeID && string(b) == p.SourceBackend {
+			execution = p.LocalWorkExecution
+		} else {
+			configuration, e := n.app.Backend.NodeRuntimeConfiguration(ctx, r.ID, b)
+			if e != nil || !configuration.ConfigurationAvailable {
+				continue
+			}
+			if configuration.Worker != nil {
+				execution = *configuration.Worker
+			} else if b == api.NodeCaelis {
+				execution = configuration.Configuration.Main
+			} else {
+				continue
+			}
+		}
+		result = append(result, NodeRoamingWorkerRuntime{Backend: string(b), Binary: settings.CLIPath, Store: settings.CaelisStore, Model: execution.Model, Execution: execution})
+	}
+	return result
+}
+
 func (n *roamingNativeAssembly) prepare(ctx context.Context, in NodeRoamingStageInput) (backend.NodeRoamingPlan, error) {
 	p, e := n.build(ctx, in)
 	if e != nil {
@@ -513,6 +678,45 @@ func nativeRoamingPrivateDir(path string) error {
 	}
 	return nodeagent.CheckPrivateDirectory(path)
 }
+func nativeRoamingWorkers(p roamingNativePlan, x roamingNativeNode) any {
+	type worker struct {
+		ID        string `json:"id"`
+		Label     string `json:"label"`
+		Backend   string `json:"backend"`
+		Transport string `json:"transport"`
+	}
+	type agentRoute struct {
+		NodeID  string `json:"nodeId"`
+		Backend string `json:"backend"`
+		Socket  string `json:"socket"`
+	}
+	type source struct {
+		NodeID   string   `json:"nodeId"`
+		Backends []string `json:"backends"`
+	}
+	workers := struct {
+		Version  int                        `json:"version"`
+		Nodes    []worker                   `json:"nodes"`
+		Agents   []agentRoute               `json:"agents"`
+		Sources  []source                   `json:"sources"`
+		Runtimes []NodeRoamingWorkerRuntime `json:"runtimes"`
+	}{Version: 1, Nodes: []worker{}, Agents: []agentRoute{}, Sources: []source{}, Runtimes: x.RuntimeBindings}
+	for _, other := range p.Nodes {
+		backends := []string{other.Plan.Managed.Backend}
+		for _, binding := range other.RuntimeBindings {
+			if binding.Backend != other.Plan.Managed.Backend {
+				backends = append(backends, binding.Backend)
+			}
+			if other.Registration.ID == x.Registration.ID && binding.Backend == x.Plan.Managed.Backend {
+				continue
+			}
+			workers.Nodes = append(workers.Nodes, worker{other.Registration.ID, other.Registration.Label, binding.Backend, "registered-agent"})
+			workers.Agents = append(workers.Agents, agentRoute{other.Registration.ID, binding.Backend, other.BrokerPeerSocket})
+		}
+		workers.Sources = append(workers.Sources, source{other.Registration.ID, backends})
+	}
+	return workers
+}
 func (n *roamingNativeAssembly) provision(ctx context.Context, p roamingNativePlan) error {
 	type peer struct {
 		NodeID  string          `json:"nodeId"`
@@ -530,51 +734,13 @@ func (n *roamingNativeAssembly) provision(ctx context.Context, p roamingNativePl
 	}
 	bootstrap := peers{Version: 1, BotID: p.BotID, Peers: []peer{{p.SourceNodeID, api.NodeBackend(p.SourceBackend), p.BootstrapSocket}}}
 	for _, x := range p.Nodes {
-		type worker struct {
-			ID        string `json:"id"`
-			Label     string `json:"label"`
-			Backend   string `json:"backend"`
-			Transport string `json:"transport"`
-		}
-		type agentRoute struct {
-			NodeID  string `json:"nodeId"`
-			Backend string `json:"backend"`
-			Socket  string `json:"socket"`
-		}
-		workers := struct {
-			Version int          `json:"version"`
-			Nodes   []worker     `json:"nodes"`
-			Agents  []agentRoute `json:"agents"`
-		}{Version: 1, Nodes: []worker{}, Agents: []agentRoute{}}
-		for _, other := range p.Nodes {
-			if other.Registration.ID != x.Registration.ID {
-				workers.Nodes = append(workers.Nodes, worker{other.Registration.ID, other.Registration.Label, other.Plan.Managed.Backend, "registered-agent"})
-				workers.Agents = append(workers.Agents, agentRoute{other.Registration.ID, other.Plan.Managed.Backend, other.BrokerPeerSocket})
-			}
-		}
+		workers := nativeRoamingWorkers(p, x)
 		files := map[string]any{"workers.json": workers, "supervisor.json": x.Plan, "agent/node.json": struct {
 			ID string `json:"id"`
 		}{x.Registration.ID}}
-		// Preferences are fetched from this exact target; Runtime auth and previous
-		// receipts are never exported or added to the Notebook.
-		pref := nodeagent.ExecutionPreferences{Schema: 1, Revision: 1}
-		if x.Registration.ID == api.LocalNodeID {
-			execution := p.LocalExecution
-			pref.Conversation = api.WorkExecutionSettings{Model: execution.Model, Effort: execution.Effort, ServiceTier: execution.ServiceTier}
-			pref.Worker = p.LocalWorkExecution
-		} else {
-			configuration, e := n.app.Backend.NodeRuntimeConfiguration(ctx, x.Registration.ID, api.NodeBackend(x.Plan.Managed.Backend))
-			if e != nil || !configuration.ConfigurationAvailable {
-				return errors.New("target Codex preferences could not be read")
-			}
-			if configuration.Conversation != nil {
-				pref.Conversation = *configuration.Conversation
-			}
-			if configuration.Worker != nil {
-				pref.Worker = *configuration.Worker
-			}
-		}
-		files["agent/execution.json"] = pref
+		// Preferences were frozen from this exact target before source retirement;
+		// Runtime authentication and receipts never enter this deployment document.
+		files["agent/execution.json"] = x.Preferences
 		if x.Plan.Broker != nil {
 			files["peers.json"] = roster
 			files["bootstrap-peers.json"] = bootstrap
@@ -829,6 +995,9 @@ func (n *roamingNativeAssembly) stage(ctx context.Context, in NodeRoamingStageIn
 			return NodeRoamingStage{}, e
 		}
 	}
+	if !in.Resume && n.original != nil {
+		_ = n.original.Close()
+	}
 	return NodeRoamingStage{Broker: broker, Disable: s.disable, Close: s.close}, nil
 }
 func (n *roamingNativeAssembly) bootstrapSource(ctx context.Context, p roamingNativePlan, source nodeplane.RuntimeProofPort) (func(), error) {
@@ -1022,6 +1191,9 @@ func (n *roamingNativeAssembly) restore(ctx context.Context, stage NodeRoamingSt
 	if s == nil || !s.disabled {
 		return nil, errors.New("independent claimants have not confirmed stopped authority")
 	}
+	if e := n.confirmNoRestart(ctx, s.plan, false); e != nil {
+		return nil, e
+	}
 	latest, e := broker.LatestSnapshot(ctx, s.plan.BotID)
 	if e != nil {
 		return nil, e
@@ -1031,6 +1203,9 @@ func (n *roamingNativeAssembly) restore(ctx context.Context, stage NodeRoamingSt
 		return nil, e
 	}
 	destination := filepath.Join(n.app.root, "nodeplane", "local-restores", "generation-"+rand.Text())
+	if e = nativeRoamingPrivateDir(filepath.Dir(destination)); e != nil {
+		return nil, e
+	}
 	result, e := memorytransfer.ApplyNotebook(ctx, memorytransfer.NotebookApplyOptions{Payload: payload, Destination: destination, DestinationStopped: true, Expected: latest, Commit: func(c context.Context, ref nodeplane.SnapshotRef, install func() error) error {
 		return broker.CommitInstall(c, ref, install)
 	}})
@@ -1050,6 +1225,12 @@ func (n *roamingNativeAssembly) restore(ctx context.Context, stage NodeRoamingSt
 		return nil, e
 	}
 	if e = localstate.Write(filepath.Join(destination, "work-execution.json"), s.plan.LocalWorkExecution); e != nil {
+		return nil, e
+	}
+	s.plan.Phase = "local-prepared"
+	s.plan.RestoreDirectory = destination
+	s.plan.RestoredSnapshot = latest
+	if e = nodeagent.WriteManagedPrivateJSON(filepath.Join(n.app.root, "nodeplane", "roaming-deployment.json"), s.plan); e != nil {
 		return nil, e
 	}
 	fresh, e := New(destination, n.app.host)
@@ -1237,6 +1418,9 @@ func validateNativeSupervisor(p NodeRoamingSupervisorPlan, filename string) erro
 		if p.Broker != nil && (v.BrokerNodeID != p.NodeID || v.BrokerSocket != p.Broker.Socket) {
 			return errors.New("local broker/managed pairing mismatch")
 		}
+		if p.Broker != nil && v.BotID != p.Broker.BotID {
+			return errors.New("broker and managed Bot identities differ")
+		}
 	}
 	return nil
 }
@@ -1301,15 +1485,48 @@ func readNativeRoamingPlan(filename string) (roamingNativePlan, error) {
 }
 func (n *roamingNativeAssembly) recover(ctx context.Context, in NodeRoamingRecoveryInput) (NodeRoamingRecovery, error) {
 	result := NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "unknown"}
-	p, e := readNativeRoamingPlan(filepath.Join(n.app.root, "nodeplane", "roaming-deployment.json"))
+	if n.app == nil {
+		return result, errors.New("original native application is unavailable")
+	}
+	manifest := filepath.Join(n.app.root, "nodeplane", "roaming-deployment.json")
+	// The controller syncs retirement intent before PrepareRoamingBootstrap can
+	// fence any writer. A crash in preparing with no such intent and no native
+	// deployment record therefore proves this original request did not retire
+	// its source. A missing later record never provides that proof.
+	if _, e := os.Lstat(manifest); errors.Is(e, os.ErrNotExist) && in.LocalGenerationDirectory == "" && in.Phase == "preparing" && in.OperationKind == "enable" && !in.SourceRetiredIntent && in.OperationID == in.StageOperationID && productIdentifier.MatchString(in.OperationID) {
+		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "rejected", Phase: "source-active"}, nil
+	}
+	p, e := readNativeRoamingPlan(manifest)
 	if e != nil {
 		return result, e
+	}
+	if in.LocalGenerationDirectory != "" && in.Phase == "preparing" && in.OperationKind == "enable" && !in.SourceRetiredIntent && in.OperationID == in.StageOperationID && productIdentifier.MatchString(in.OperationID) && p.OperationID != in.OperationID {
+		base := filepath.Join(n.app.root, "nodeplane", "local-restores")
+		relative, e := filepath.Rel(base, p.RestoreDirectory)
+		if p.Phase != "restored-local" || p.RestoreDirectory != in.LocalGenerationDirectory || e != nil || relative == "." || relative == ".." || strings.Contains(relative, string(filepath.Separator)) || !strings.HasPrefix(relative, "generation-") {
+			return result, errors.New("previous confirmed local source generation is unavailable")
+		}
+		ref, e := memorytransfer.ReadInstalledNotebookRef(ctx, p.RestoreDirectory)
+		if e != nil || ref != p.RestoredSnapshot || ref.BotID != p.BotID {
+			return result, errors.New("previous local source identity receipt changed")
+		}
+		// This is a normal restart of the previously accepted local source.
+		// Read its current native settings; never install old deployment settings
+		// or return the originally retired APP's concrete engine.
+		fresh, e := New(p.RestoreDirectory, n.app.host)
+		if e != nil {
+			return result, e
+		}
+		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "rejected", Phase: "source-active", Local: fresh}, nil
 	}
 	if p.OperationID != in.StageOperationID || p.ID != in.StageInput.ReviewedPlanID || p.BotID != in.StageInput.BotID || p.Coordinator.ID != in.StageInput.Coordinator.ID {
 		return result, errors.New("original native recovery scope changed")
 	}
 	if in.OperationKind == "enable" && in.OperationID != p.OperationID || in.OperationKind == "disable" && in.OperationID != p.DisableOperationID {
 		return result, errors.New("recovery requires the original native operation ID")
+	}
+	if in.OperationKind == "disable" && (p.DisableLease.BotID != p.BotID || p.DisableLease.Epoch == "" || !productIdentifier.MatchString(p.DisableOperationID)) {
+		return result, errors.New("original stopped native authority receipt is incomplete")
 	}
 	if p.Phase == "owners-ready" && in.OperationKind == "enable" {
 		input := in.StageInput
@@ -1337,24 +1554,63 @@ func (n *roamingNativeAssembly) recover(ctx context.Context, in NodeRoamingRecov
 		}
 		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "accepted", Phase: "active", Stage: stage}, nil
 	}
-	if p.Phase == "restored-local" && in.OperationKind == "disable" {
+	if p.Phase == "owners-stopped" && in.OperationKind == "disable" {
+		observerCtx, detach := context.WithCancel(context.Background())
+		broker, e := n.dialBroker(observerCtx, p)
+		if e != nil {
+			detach()
+			return result, e
+		}
+		s := &roamingNativeSession{assembly: n, plan: p, broker: broker, disabled: true, peers: map[string]*nodeagent.Client{}, observerCtx: observerCtx, detach: detach}
+		n.mu.Lock()
+		n.sessions[broker] = s
+		n.mu.Unlock()
+		defer s.close()
+		fresh, e := n.restore(ctx, NodeRoamingStage{Broker: broker})
+		if e != nil {
+			return result, e
+		}
+		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "accepted", Phase: "local", Local: fresh}, nil
+	}
+	if (p.Phase == "restored-local" || p.Phase == "local-prepared") && in.OperationKind == "disable" {
 		base := filepath.Join(n.app.root, "nodeplane", "local-restores")
 		relative, e := filepath.Rel(base, p.RestoreDirectory)
 		if e != nil || relative == "." || relative == ".." || strings.Contains(relative, string(filepath.Separator)) || !strings.HasPrefix(relative, "generation-") {
 			return result, errors.New("native restore generation is outside original scope")
 		}
 		ref, e := memorytransfer.ReadInstalledNotebookRef(ctx, p.RestoreDirectory)
-		if e != nil || ref != p.RestoredSnapshot || ref.BotID != p.BotID {
+		if e != nil || ref != p.RestoredSnapshot || ref.BotID != p.BotID || ref.Epoch != p.DisableLease.Epoch {
 			return result, errors.New("native local restore receipt is unconfirmed")
 		}
 		for _, node := range p.Nodes {
-			if node.Registration.ID == api.LocalNodeID && nativeSupervisorState(node.Plan) != "disabled" {
-				return result, errors.New("native claimant intent is not disabled")
+			if node.Registration.ID == api.LocalNodeID {
+				state := nativeSupervisorState(node.Plan)
+				if state != "disabled" && (p.Phase != "local-prepared" || state != "disabling") {
+					return result, errors.New("native claimant intent is not disabled")
+				}
 			}
+		}
+		if e = n.confirmNoRestart(ctx, p, p.Phase == "restored-local"); e != nil {
+			return result, e
 		}
 		fresh, e := New(p.RestoreDirectory, n.app.host)
 		if e != nil {
 			return result, e
+		}
+		if p.Phase == "local-prepared" {
+			// Complete only the original monotonic supervisor intent after the
+			// durable stopped-owner and installed-Notebook receipts are proved.
+			// No owner stop, claim, publication or user work is reissued.
+			s := &roamingNativeSession{assembly: n, plan: p}
+			if e = s.marker(ctx, "disabled"); e != nil {
+				fresh.Close()
+				return result, e
+			}
+			p.Phase = "restored-local"
+			if e = nodeagent.WriteManagedPrivateJSON(manifest, p); e != nil {
+				fresh.Close()
+				return result, e
+			}
 		}
 		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "accepted", Phase: "local", Local: fresh}, nil
 	}
@@ -1376,10 +1632,58 @@ func (n *roamingNativeAssembly) managementPeer(ctx context.Context, id string) (
 	return nil, errors.New("managed node agent is not paired")
 }
 
+func (n *roamingNativeAssembly) freshLocal() *Application {
+	actual := ActiveNodeRoamingApplication(n.app)
+	if actual == nil || actual == n.app {
+		return nil
+	}
+	actual.mu.Lock()
+	stopped := actual.closed || actual.sourceRetired
+	actual.mu.Unlock()
+	if stopped {
+		return nil
+	}
+	return actual
+}
+func (n *roamingNativeAssembly) localManagementPeer() (nodeplane.CatalogAgent, error) {
+	actual := n.freshLocal()
+	if actual == nil {
+		return nil, errors.New("fresh local native owner is unavailable")
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.localApp == actual && n.localAgent != nil {
+		return n.localAgent, nil
+	}
+	dir := filepath.Join(n.app.root, "nodeplane", "local")
+	if e := nativeRoamingPrivateDir(dir); e != nil {
+		return nil, e
+	}
+	ports := map[api.NodeBackend]nodeagent.NativeConfiguration{api.NodeCodex: &nodeLocalCodexConfiguration{nodeLocalConfiguration{app: actual, backend: api.NodeCodex}}, api.NodeCaelis: &nodeLocalConfiguration{app: actual, backend: api.NodeCaelis}}
+	peer, e := nodeagent.New(nodeagent.Options{Directory: dir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Configurations: ports, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+		return nodeLocalHealth(ctx, actual, b)
+	}})
+	if e != nil {
+		return nil, e
+	}
+	n.localApp, n.localAgent = actual, peer
+	return peer, nil
+}
+func (p roamingManagedCatalog) peer(ctx context.Context, id string) (nodeplane.CatalogAgent, error) {
+	peer, e := p.assembly.managementPeer(ctx, id)
+	if e == nil {
+		return peer, nil
+	}
+	if id == api.LocalNodeID {
+		return p.assembly.localManagementPeer()
+	}
+	return nil, e
+}
+
 type roamingManagedCatalog struct{ assembly *roamingNativeAssembly }
 
 func (p roamingManagedCatalog) Catalog(ctx context.Context) (api.NodeCatalog, error) {
-	peer, e := p.assembly.managementPeer(ctx, api.LocalNodeID)
+	peer, e := p.peer(ctx, api.LocalNodeID)
 	if e != nil {
 		return api.NodeCatalog{}, e
 	}
@@ -1397,21 +1701,21 @@ func (p roamingManagedCatalog) Catalog(ctx context.Context) (api.NodeCatalog, er
 	return c, nil
 }
 func (p roamingManagedCatalog) Configuration(ctx context.Context, id string, b api.NodeBackend) (api.NodeRuntimeConfiguration, error) {
-	peer, e := p.assembly.managementPeer(ctx, id)
+	peer, e := p.peer(ctx, id)
 	if e != nil {
 		return api.NodeRuntimeConfiguration{}, e
 	}
 	return peer.Configuration(ctx, id, b)
 }
 func (p roamingManagedCatalog) Manage(ctx context.Context, r nodeplane.ManagementRequest) (api.NodeOperationReceipt, error) {
-	peer, e := p.assembly.managementPeer(ctx, r.Ref.NodeID)
+	peer, e := p.peer(ctx, r.Ref.NodeID)
 	if e != nil {
 		return api.NodeOperationReceipt{}, e
 	}
 	return peer.Manage(ctx, r)
 }
 func (p roamingManagedCatalog) Reconcile(ctx context.Context, r api.NodeOperationRef) (api.NodeOperationReceipt, error) {
-	peer, e := p.assembly.managementPeer(ctx, r.NodeID)
+	peer, e := p.peer(ctx, r.NodeID)
 	if e != nil {
 		return api.NodeOperationReceipt{}, e
 	}
@@ -1453,8 +1757,101 @@ func SetNodeRoamingSupervisorState(filename, operationID, state string) error {
 		if json.Unmarshal(bytes, &v) != nil || v.PlanID != p.PlanID || v.OperationID != operationID || v.State == "disabled" && state != "disabled" {
 			return errors.New("supervisor disable intent changed; reconcile original operation")
 		}
+		if v.State == state {
+			return nil
+		}
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return e
 	}
 	return nodeagent.WriteManagedPrivateJSON(current, struct{ PlanID, OperationID, State string }{p.PlanID, operationID, state})
+}
+
+// NodeRoamingSupervisorState is a closed read-only receipt, with no paths,
+// credentials or native process authority in its wire projection.
+type NodeRoamingSupervisorState struct {
+	PlanID      string `json:"planId"`
+	NodeID      string `json:"nodeId"`
+	OperationID string `json:"operationId"`
+	State       string `json:"state"`
+}
+
+func ReadNodeRoamingSupervisorState(filename, operationID string) (NodeRoamingSupervisorState, error) {
+	var result NodeRoamingSupervisorState
+	if !productIdentifier.MatchString(operationID) {
+		return result, errors.New("original disable operation required")
+	}
+	info, e := os.Lstat(filename)
+	if e != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 64<<10 {
+		return result, errors.New("approved native supervisor record unavailable")
+	}
+	if e = nodeagent.CheckPrivateDirectory(filepath.Dir(filename)); e != nil {
+		return result, e
+	}
+	b, e := os.ReadFile(filename)
+	if e != nil {
+		return result, e
+	}
+	var p NodeRoamingSupervisorPlan
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.DisallowUnknownFields()
+	if d.Decode(&p) != nil || d.Decode(new(any)) != io.EOF || validateNativeSupervisor(p, filename) != nil {
+		return result, errors.New("original approved supervisor scope changed")
+	}
+	marker := filepath.Join(p.Directory, "deployment-state.json")
+	info, e = os.Lstat(marker)
+	if e != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 4096 {
+		return result, errors.New("original no-restart receipt unavailable")
+	}
+	b, e = os.ReadFile(marker)
+	if e != nil {
+		return result, e
+	}
+	var v struct{ PlanID, OperationID, State string }
+	d = json.NewDecoder(bytes.NewReader(b))
+	d.DisallowUnknownFields()
+	if d.Decode(&v) != nil || d.Decode(new(any)) != io.EOF || v.PlanID != p.PlanID || v.OperationID != operationID || (v.State != "disabling" && v.State != "disabled") {
+		return result, errors.New("original no-restart receipt changed")
+	}
+	return NodeRoamingSupervisorState{p.PlanID, p.NodeID, v.OperationID, v.State}, nil
+}
+
+type nativeRoamingBoundedOutput struct{ bytes.Buffer }
+
+func (b *nativeRoamingBoundedOutput) Write(p []byte) (int, error) {
+	if b.Len()+len(p) > 4096 {
+		return 0, errors.New("native receipt response exceeds limit")
+	}
+	return b.Buffer.Write(p)
+}
+func (n *roamingNativeAssembly) confirmNoRestart(ctx context.Context, p roamingNativePlan, disabled bool) error {
+	for _, node := range p.Nodes {
+		path := filepath.Join(node.Plan.Directory, "supervisor.json")
+		var value NodeRoamingSupervisorState
+		var e error
+		if node.Registration.ID == api.LocalNodeID {
+			value, e = ReadNodeRoamingSupervisorState(path, p.DisableOperationID)
+		} else {
+			args, err := strictRoamingSSH(node.Registration.SSHDestination)
+			if err != nil {
+				return err
+			}
+			command := nodeShellQuote(node.HostHelper) + " inspect-roaming --plan-file " + nodeShellQuote(path) + " --operation-id " + nodeShellQuote(p.DisableOperationID)
+			c := exec.CommandContext(ctx, "ssh", append(args, command)...)
+			var out nativeRoamingBoundedOutput
+			c.Stdout = &out
+			c.Stderr = io.Discard
+			e = c.Run()
+			if e == nil {
+				d := json.NewDecoder(bytes.NewReader(out.Bytes()))
+				d.DisallowUnknownFields()
+				if d.Decode(&value) != nil || d.Decode(new(any)) != io.EOF {
+					e = errors.New("invalid original native receipt")
+				}
+			}
+		}
+		if e != nil || value.PlanID != p.ID || value.NodeID != node.Registration.ID || value.OperationID != p.DisableOperationID || (value.State != "disabled" && (disabled || value.State != "disabling")) {
+			return errors.Join(errors.New("original no-restart authority is unconfirmed"), e)
+		}
+	}
+	return nil
 }
