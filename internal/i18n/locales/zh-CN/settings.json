@@ -300,7 +300,7 @@
   "nodePairedProductScope": "管理与本应用已配对的 Bot 的连接和模型。",
   "nodeOwnerUnavailableReason": "此节点的运行程序尚未准备好承担此角色。",
   "nodeSharedRuntimeReason": "使用此共享运行程序时，Bot 尚不能安全切换运行节点。",
-  "nodeWindowsWorkerOnlyReason": "此运行程序在 Windows 上可运行 Worker，暂不支持托管 Bot。",
+  "nodeWindowsWorkerOnlyReason": "暂不支持在 Windows 上托管 Bot，Worker 是否可用会单独检测。",
   "nodeRoleUnavailableReason": "此运行程序暂不支持此角色。",
   "nodeDetectedProgram": "检测到的程序",
   "nodeManagedProgram": "受管理的程序",
