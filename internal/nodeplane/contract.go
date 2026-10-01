@@ -79,6 +79,12 @@ type WorkLeaseReader interface {
 	ReadWorkerLease(context.Context, WorkLeaseRef) (Lease, error)
 }
 
+type ActiveLeaseReader interface {
+	// Read remaining lifetime freshly from the designated broker. A retained
+	// snapshot of the original grant cannot extend target admission.
+	CurrentLease(context.Context, string) (Lease, error)
+}
+
 type ClaimRequest struct {
 	BotID         string
 	Target        api.WorkTarget
