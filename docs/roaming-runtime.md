@@ -18,8 +18,11 @@ shutdown before expiry, and fails closed on wall/monotonic discontinuity. Renewa
 runs every ten seconds. A failed confirmation closes all new admission and
 cancels admitted operations without replaying the original request.
 
-Managed Codex always launches an owned stdio process and never attaches to a
-shared App Server. Hard fencing freezes the original process tree, kills only
+Managed Codex always launches an owned stdio process under a pinned, short-lived
+native watchdog and never attaches to a shared App Server. Native deadline
+confirmation precedes execution admission; renewal also updates the watchdog.
+The watchdog owns the native process independently, fences on owner descriptor
+EOF, and binds its own native sleep observer/inhibitor. Hard fencing freezes the original process tree, kills only
 captured descendants and the original owner, and confirms exit before reporting
 proof. Darwin uses PID plus captured birth identity; Linux uses retained pidfds.
 The immediate process fence has a four-second suspend budget. Longer application
@@ -34,15 +37,26 @@ source and process fixtures do not constitute live OS sleep acceptance.
 
 A sixty-second publication interval gates every owned writer with the same safe
 idle check, exports the whole Notebook, publishes against the exact current epoch
-and updates the installed descriptor. Busy work retains the last complete cold
+and updates the installed descriptor. Publication and trusted heartbeat proof
+reads are serialized; publication or marker failures revoke admission and remain
+visible to the caller. Busy work retains the last complete cold
 snapshot. Old history, task ledgers, receipts, wakes, native bindings, Memory DB
 and HANDOFF work are never imported or replayed.
 
-Current automatic runtime eligibility is owned Codex on Darwin/Linux. Existing
-Caelis adapters discover a shared Host and their `Close` only detaches; their
-controller epoch field is not a stop proof. Although the public CLI supports
-isolated foreground `serve`, a controlled supervisor and fresh target-side
-configuration are still required before it can participate in automatic takeover.
-Windows has no eligible native owner. Existing remote Worker observer detachment
-also does not fence native work; leased task admission currently permits only
-workers owned by the same local Codex process lifetime.
+Managed Caelis uses the public foreground `serve` command under the same independent
+watchdog. It requires an explicitly designated private node store, exclusive
+owner lock, exact foreground discovery, and a target-side authenticated model.
+Existing default or shared stores are never adopted or killed. Authentication
+stays on the target; no credentials or old application/session bindings are
+transported. The foreground host can serve explicit setup while prepared, but
+native execution requests require the installed lease. Default shared Caelis
+continues to detach observers and remains ineligible for automatic takeover.
+Windows has no eligible native owner.
+
+Remote Worker admission requires a pinned broker identity and the actual adapter's
+negotiated native lease capability. The native source retains its binding and
+operation and adds the actual managed node and live epoch. Catalog claims and
+renderer fields cannot grant that capability. Unknown external effects are not
+replayed. Process proof covers the original launched root and retained descendants;
+an unobserved deliberately orphaned process cannot be retroactively adopted or
+killed by PID/name, and must not be represented as a confirmed external outcome.

@@ -13,6 +13,12 @@ func (s *Session) WorkDispatchSource(ctx context.Context) (api.WorkDispatchSourc
 		return api.WorkDispatchSource{}, err
 	}
 	source := api.WorkDispatchSource{NodeID: api.LocalNodeID, Backend: "caelis", BindingID: call.SessionId, OperationID: call.Source.OperationId, Kind: call.Source.Kind}
+	s.mu.Lock()
+	annotate := s.dispatchSource
+	s.mu.Unlock()
+	if annotate != nil {
+		return annotate(ctx, source)
+	}
 	return source, source.Validate()
 }
 

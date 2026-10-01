@@ -57,7 +57,7 @@ type Runner struct {
 }
 
 func NewRunner(o RunnerOptions) (*Runner, error) {
-	if o.BotID == "" || o.Target.NodeID == "" || o.Target.Backend != "codex" || o.Target.Role != api.RoleBot || !filepath.IsAbs(o.GenerationRoot) || o.Broker == nil || o.Factory == nil || o.RegisterOwner == nil {
+	if o.BotID == "" || o.Target.NodeID == "" || (o.Target.Backend != "codex" && o.Target.Backend != "caelis") || o.Target.Role != api.RoleBot || !filepath.IsAbs(o.GenerationRoot) || o.Broker == nil || o.Factory == nil || o.RegisterOwner == nil {
 		return nil, errors.New("managed roaming requires an exact paired native owner and coordinator")
 	}
 	return &Runner{opts: o, control: make(chan struct{}, 1)}, nil

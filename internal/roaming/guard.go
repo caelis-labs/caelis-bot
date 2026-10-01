@@ -32,6 +32,7 @@ type ticket struct {
 }
 
 type Guard struct {
+	installMu    sync.Mutex
 	mu           sync.Mutex
 	runtime      OwnedRuntime
 	node         string
@@ -64,20 +65,33 @@ func NewGuard(node string, backend api.NodeBackend, runtime OwnedRuntime, eligib
 // RequestStart must be captured locally with time.Now; serialized wall times
 // cannot supply a monotonic lease. Only the same live epoch may be renewed.
 func (g *Guard) Install(lease nodeplane.Lease, requestStart time.Time) error {
+	g.installMu.Lock()
+	defer g.installMu.Unlock()
 	if requestStart == requestStart.Round(0) {
 		return errors.New("lease request start has no monotonic clock")
 	}
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	if !g.eligible || g.runtime == nil || g.stopped || lease.BotID == "" || lease.NodeID != g.node || lease.Backend != g.backend || lease.Epoch == "" || lease.TTLMs <= StopMargin.Milliseconds() || lease.TTLMs > 60000 {
-		return ErrFenced
+	if err := g.validateInstall(lease, requestStart); err != nil {
+		g.mu.Unlock()
+		return err
 	}
 	deadline := requestStart.Add(time.Duration(lease.TTLMs)*time.Millisecond - StopMargin)
-	if !g.now().Before(deadline) || !g.now().Round(0).Before(deadline.Round(0)) || requestStart.After(g.now()) {
-		return ErrFenced
+	g.mu.Unlock()
+	if native, ok := g.runtime.(interface {
+		ConfigureLeaseDeadline(context.Context, nodeplane.Lease, time.Time) error
+	}); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err := native.ConfigureLeaseDeadline(ctx, lease, deadline)
+		cancel()
+		if err != nil {
+			g.Revoke()
+			return err
+		}
 	}
-	if g.active && (!g.live(g.now()) || g.lease.BotID != lease.BotID || g.lease.Epoch != lease.Epoch || !requestStart.After(g.requestStart) || !deadline.After(g.deadline)) {
-		return ErrFenced
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err := g.validateInstall(lease, requestStart); err != nil {
+		return err
 	}
 	if !g.active {
 		g.life, g.cancel = context.WithCancel(context.Background())
@@ -88,9 +102,20 @@ func (g *Guard) Install(lease nodeplane.Lease, requestStart time.Time) error {
 		g.timer.Stop()
 	}
 	epoch, expected := lease.Epoch, deadline
-	g.timer = time.AfterFunc(time.Until(deadline), func() {
-		g.revokeIf(epoch, expected)
-	})
+	g.timer = time.AfterFunc(time.Until(deadline), func() { g.revokeIf(epoch, expected) })
+	return nil
+}
+func (g *Guard) validateInstall(lease nodeplane.Lease, requestStart time.Time) error {
+	if !g.eligible || g.runtime == nil || g.stopped || lease.BotID == "" || lease.NodeID != g.node || lease.Backend != g.backend || lease.Epoch == "" || lease.TTLMs <= StopMargin.Milliseconds() || lease.TTLMs > 60000 {
+		return ErrFenced
+	}
+	deadline := requestStart.Add(time.Duration(lease.TTLMs)*time.Millisecond - StopMargin)
+	if !g.now().Before(deadline) || !g.now().Round(0).Before(deadline.Round(0)) || requestStart.After(g.now()) {
+		return ErrFenced
+	}
+	if g.active && (!g.live(g.now()) || g.lease.BotID != lease.BotID || g.lease.Epoch != lease.Epoch || !requestStart.After(g.requestStart) || !deadline.After(g.deadline)) {
+		return ErrFenced
+	}
 	return nil
 }
 
