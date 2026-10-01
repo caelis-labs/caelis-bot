@@ -328,5 +328,6 @@
   "nodeRoamingStopSource": "安全停止 {name} 上当前运行的 Bot。",
   "nodeRoamingStartBot": "准备就绪后，在 {name} 上启动 Bot。",
   "nodeRoamingPrepareService": "在 {name} 上准备已确认的服务。",
-  "nodeRoamingConnectOutgoing": "连接已登记的主动接入节点 {name}。"
+  "nodeRoamingConnectOutgoing": "连接已登记的主动接入节点 {name}。",
+  "nodeCoordinatorLocked": "请先停止自动切换，再修改常开节点。操作结果尚未确认时，请先查询原操作结果。"
 }
