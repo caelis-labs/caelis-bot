@@ -242,9 +242,13 @@ JavaScript numeric rounding; owners compare the integer value internally.
 Version order continues across epochs. Reusing a version with changed epoch or
 digest is a conflict; replaying an identical reference is receipt recovery.
 
-Only the active leased owner publishes. Changed Notebook content receives a full
-snapshot within at most 60 seconds by the internal default; unchanged content
-does not require a new version. The broker validates publisher authority and
+Only the active leased owner publishes. The internal default attempts a complete
+snapshot every 60 seconds; unchanged content does not require a new version.
+Publication requires safe idle. Active or unresolved work skips that attempt and
+retains the last successfully published complete snapshot, which may be older
+than 60 seconds. This interval is not a bound on memory lost after a failure.
+Recovery uses that last successful version, not the time of the latest attempt.
+The broker validates publisher authority and
 version atomically. Publication and read ports pass bounded verified bundles;
 the transport and codec owners define their concrete byte limits and manifest.
 
@@ -256,6 +260,13 @@ Retain the last complete cold bundle when staging, checksum, lease or activation
 fails. Stop both source publication and destination admission as required by the
 codec/lifecycle owner before an explicit transfer. A verified download is not
 proof that destination Runtime activation succeeded.
+
+Real continuity acceptance must record the last successful version and its age
+at failure. Add and delete Notebook files while the owner is busy, disconnect it,
+then verify exactly which version the replacement restores. After a later safe
+idle publication, verify that deletion survives replacement and old-node return.
+Report unpublished edits explicitly; do not infer synchronization from a live
+heartbeat or from the 60-second attempt interval.
 
 ## Module ownership and verification
 
