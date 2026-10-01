@@ -34,7 +34,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return runOwnedWatchdog(ctx, args[1:], out)
 		case "serve-broker", "proxy-broker":
 			return runBroker(ctx, args, out)
-		case "serve-agent", "proxy-agent", "join-agent", "verify-join-directory":
+		case "serve-agent", "proxy-agent", "join-agent", "verify-join-directory", "prepare-owned-caelis-store":
 			return runAgent(ctx, args, out)
 		}
 	}

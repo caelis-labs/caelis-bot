@@ -30,6 +30,25 @@ native adapter on that machine. Missing native configuration returns its exact
 node/backend guard with `configurationAvailable:false`; Linux installation
 availability and reviewed versions remain independent.
 
+Before authenticating a new node-owned Caelis Store, run the explicit native
+command `caelis-agent prepare-owned-caelis-store --directory ABS --node-id ID`
+(or the same subcommand on `caelis-node`). It requires the existing private
+agent directory and its exact persisted node identity. The default Store is
+`caelis-store` beneath that directory; `--store ABS` selects a different absent
+Store under an existing user-owned parent. Preparation creates only a private
+Store, its exact node ownership marker and `.native-home`. It rejects every
+existing Store, including unmarked, shared, foreign or previously prepared
+Stores, and rejects redirected paths. A failed or repeated preparation never
+repairs or adopts that directory.
+
+The JSON receipt gives the nonsecret `store` and `nativeHome` locations. Perform
+human Caelis authentication and configuration on this machine using that Store
+and both `HOME` and `XDG_CONFIG_HOME` set to the returned native home, matching
+the owned Host's native environment. Configure `serve-agent --caelis-store` to
+that same Store. Preparation reads no model credentials, launches no Host and
+establishes no authentication, health or lease authority. Catalog and ownership
+probes remain read-only; live readiness is a separate explicit native action.
+
 A version command runs with a fresh empty HOME. Native authentication/health
 inspection returns only known states, never credentials, account identifiers or
 configuration paths. Installed binaries and a healthy shared Caelis Host do not

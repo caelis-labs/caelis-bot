@@ -35,13 +35,7 @@ func startOwnedHost(ctx context.Context, o OwnedHostOptions) (*ownedHost, error)
 	}
 	marker := filepath.Join(store, ".caelis-bot-node-owner.json")
 	if _, err = os.Lstat(store); errors.Is(err, os.ErrNotExist) {
-		if err = os.Mkdir(store, 0700); err != nil {
-			return nil, err
-		}
-		b, _ := json.Marshal(struct {
-			NodeID string `json:"nodeId"`
-		}{o.NodeID})
-		if err = os.WriteFile(marker, b, 0600); err != nil {
+		if err = PrepareOwnedStore(o.NodeID, store); err != nil {
 			return nil, err
 		}
 	} else {
