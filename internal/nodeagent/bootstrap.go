@@ -86,17 +86,30 @@ func verifyExecutable(path, checksum, arch, revision string) error {
 func ProbeArchitecture(ctx context.Context, s SSHConfig) (string, error) {
 	args, err := s.args()
 	if err != nil {
-		return "", err
+		return "", &ArchitectureProbeError{Reason: "invalid"}
 	}
 	args = append(args, "-o", "ClearAllForwardings=yes", "--", s.Target, "uname -sm")
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, s.binary(), args...)
 	var out boundedOutput
+	var failure boundedOutput
 	cmd.Stdout = &out
-	cmd.Stderr = io.Discard
+	cmd.Stderr = &failure
 	if cmd.Run() != nil {
-		return "", errors.New("SSH architecture probe unavailable")
+		// Only fixed codes escape this read-only probe. SSH diagnostics may
+		// contain private configuration, destinations or proxy output.
+		reason := "unavailable"
+		diagnostic := strings.ToLower(failure.String())
+		switch {
+		case strings.Contains(diagnostic, "could not resolve hostname"):
+			reason = "dns"
+		case strings.Contains(diagnostic, "host key verification failed"), strings.Contains(diagnostic, "remote host identification has changed"):
+			reason = "host-key"
+		case strings.Contains(diagnostic, "permission denied"):
+			reason = "authentication"
+		}
+		return "", &ArchitectureProbeError{Reason: reason}
 	}
 	switch strings.TrimSpace(out.String()) {
 	case "Linux x86_64":
@@ -104,7 +117,18 @@ func ProbeArchitecture(ctx context.Context, s SSHConfig) (string, error) {
 	case "Linux aarch64", "Linux arm64":
 		return "arm64", nil
 	}
-	return "", errors.New("headless agent requires Linux amd64 or arm64")
+	return "", &ArchitectureProbeError{Reason: "unsupported"}
+}
+
+type ArchitectureProbeError struct{ Reason string }
+
+func (e *ArchitectureProbeError) Error() string { return "SSH architecture probe " + e.Reason }
+func ArchitectureProbeReason(err error) string {
+	var probe *ArchitectureProbeError
+	if errors.As(err, &probe) {
+		return probe.Reason
+	}
+	return "unavailable"
 }
 
 // InstallVerified is the explicit node-add bootstrap action. It accepts no RPC

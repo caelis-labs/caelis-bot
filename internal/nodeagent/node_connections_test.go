@@ -269,6 +269,10 @@ func TestNodeConnectionsColdExplicitBeginRealFramedSDKAndConfirmedClose(t *testi
 	if err != nil || view.Guard.Revision == "" || view.ConfigurationAvailable {
 		t.Fatal("cold guard unavailable", view, err)
 	}
+	if view.Executable == nil || !view.Executable.Installed || view.Executable.Version != "0.65.0" || view.Installation != nil || view.InstallerAvailable {
+		t.Fatal("external executable not projected independently", view)
+	}
+
 	second, err := c.Configuration(t.Context(), s.options.NodeID, api.NodeCaelis)
 	if err != nil || second.Guard != view.Guard {
 		t.Fatal("cold guard unstable", second, err)
@@ -454,6 +458,9 @@ func TestNodeConnectionsUnknownBeginOrCloseNeverReplaysOrStartsNewID(t *testing.
 	for _, phase := range []string{"begin", "close"} {
 		t.Run(phase, func(t *testing.T) {
 			s, r, _ := readinessFixture(t)
+			if err := os.WriteFile(r.ExpectedBinary, []byte("#!/bin/sh\nprintf '{\"version\":\"0.65.0\"}'\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
 			s.options.Configurations[api.NodeCaelis] = nil
 			calls := new(atomic.Int32)
 			s.beginSetup = func(ctx context.Context, o caelis.OwnedHostOptions) (NodeConnectionOwner, error) {
@@ -550,8 +557,62 @@ func TestNodeConnectionsClosedInputsAndVerifiedHelperBeforeStorePreparation(t *t
 	}
 }
 
+func TestNodeConnectionsInvalidExecutableCannotPrepareStoreOrWriteIntent(t *testing.T) {
+	s := agentFixture(t)
+	s.options.Binaries[api.NodeCaelis] = "/usr/bin/false"
+	c, detach := framedConnectionClient(t, s)
+	defer detach()
+	view, err := c.Configuration(t.Context(), s.options.NodeID, api.NodeCaelis)
+	if err != nil || view.Executable == nil || view.Executable.Installed || view.Executable.Version != "" || view.Guard.Revision == "" {
+		t.Fatal("unidentified executable advertised as installed", view, err)
+	}
+	ref, err := c.BeginNodeRuntimeConnection(t.Context(), view.Guard, "invalid-executable-begin")
+	if err == nil {
+		t.Fatal("invalid executable admitted explicit begin")
+	}
+	for _, path := range []string{filepath.Join(s.options.Directory, "caelis-store"), s.connectionPath(ref)} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("invalid executable created native state", path, err)
+		}
+	}
+}
+
+func TestNodeConnectionsVerifiedVersionChangeInvalidatesColdGuard(t *testing.T) {
+	s := agentFixture(t)
+	binary := filepath.Join(s.options.Directory, "caelis")
+	writeVersion := func(version string) {
+		t.Helper()
+		if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '{\"version\":\""+version+"\"}'\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeVersion("0.64.0")
+	s.options.Binaries[api.NodeCaelis] = binary
+	prior, err := s.Configuration(t.Context(), s.options.NodeID, api.NodeCaelis)
+	if err != nil || prior.Executable == nil || !prior.Executable.Installed {
+		t.Fatal(prior, err)
+	}
+	writeVersion("0.65.0")
+	latest, err := s.Configuration(t.Context(), s.options.NodeID, api.NodeCaelis)
+	if err != nil || latest.Guard == prior.Guard || latest.Executable.Version != "0.65.0" {
+		t.Fatal("verified version did not change cold guard", latest, err)
+	}
+	ref, err := s.BeginNodeRuntimeConnection(t.Context(), prior.Guard, "stale-installed-version")
+	if err == nil {
+		t.Fatal("stale cold version admitted explicit begin")
+	}
+	for _, path := range []string{filepath.Join(s.options.Directory, "caelis-store"), s.connectionPath(ref)} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("stale version wrote native state", path, err)
+		}
+	}
+}
+
 func TestNodeConnectionsSDKFailureEchoIsSafeAndStartNeverRedispatches(t *testing.T) {
 	s, r, _ := readinessFixture(t)
+	if err := os.WriteFile(r.ExpectedBinary, []byte("#!/bin/sh\nprintf '{\"version\":\"0.65.0\"}'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	s.options.Configurations[api.NodeCaelis] = nil
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		path := strings.TrimPrefix(request.URL.Path, "/api/control/v1")

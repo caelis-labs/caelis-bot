@@ -18,6 +18,9 @@ const {act}=React;
 const server=await createServer({server:{middlewareMode:true,ws:false},appType:'custom'});
 const {NodeRuntimeSettings}=await server.ssrLoadModule('/src/NodeRuntimeSettings.tsx');
 const {createNodeSettingsClient,createNodeRuntimeClient,managementDigestInput}=await server.ssrLoadModule('/src/settings/runtime/nodeClient.ts');
+const {createNodeEnrollmentClient}=await server.ssrLoadModule('/src/settings/runtime/enrollmentClient.ts');
+const {I18nProvider}=await server.ssrLoadModule('/src/i18n/index.tsx');
+const {translator}=await server.ssrLoadModule('/src/i18n/core.ts');
 let root,container;
 afterEach(async()=>{if(root)await act(async()=>root.unmount());container?.remove();root=null;});
 after(async()=>{await server.close();dom.window.close();});
@@ -30,10 +33,10 @@ const click=async(el)=>{assert.ok(el);await act(async()=>el.dispatchEvent(new Mo
 const choose=async(el,value)=>{assert.ok(el);await act(async()=>{el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));});};
 const buttons=(name)=>[...container.querySelectorAll('button')].filter(el=>el.textContent.trim()===name);
 const select=(name)=>container.querySelector(`select[aria-label="${name}"]`);
-async function mount(invoke,call=async()=>({revision:1,nodes:[],issue:''}),strict=false) {
+async function mount(invoke,call=async()=>({revision:1,nodes:[],issue:''}),strict=false,locale) {
  container=document.createElement('div');document.body.append(container);root=createRoot(container);
- const owner=createNodeSettingsClient(invoke);
- await act(async()=>{const page=React.createElement(NodeRuntimeSettings,{client:owner,call});root.render(strict?React.createElement(React.StrictMode,null,page):page);});
+ const owner=createNodeSettingsClient(invoke,locale?translator(locale).t:undefined);
+ await act(async()=>{let page=React.createElement(NodeRuntimeSettings,{client:owner,call});if(locale)page=React.createElement(I18nProvider,{bridge:{read:async()=>({preference:locale,locale,revision:1}),subscribe:()=>()=>{}}},page);root.render(strict?React.createElement(React.StrictMode,null,page):page);});
  return owner;
 }
 const defaultInvoke=async(method,...args)=>method==='NodeCatalog'?catalog():config(...args);
@@ -288,7 +291,95 @@ test('missing managed installation status disables writes even when a PATH runti
 });
 test('closed role diagnostics render human capability explanations and never internal reason codes',async()=>{
  await mount(async(method,...args)=>{if(method==='NodeCatalog'){const value=catalog();value.nodes[0].runtimes[0].roles=[{role:'bot',eligible:false,reason:'shared-runtime-not-fenceable'},{role:'worker',eligible:false,reason:'runtime-owner-unavailable'}];return value;}return config(...args);});
- assert.match(container.textContent,/Bot cannot safely move between nodes/);assert.match(container.textContent,/not ready to handle this role/);assert.doesNotMatch(container.textContent,/shared-runtime-not-fenceable|runtime-owner-unavailable/);
+ assert.match(container.textContent,/Bot cannot safely move between nodes/);assert.match(container.textContent,/Worker unavailable · Runtime not ready/);assert.doesNotMatch(container.textContent,/shared-runtime-not-fenceable|runtime-owner-unavailable/);
+});
+
+function localCodexStatusFixture({health='unavailable',authentication='required',state='models',accountType=''}={}){
+ const profile={runtime:'codex',cliPath:'/usr/bin/false',caelisStore:''},calls=[];
+ const value={health,authentication,state,accountType},inspection={pending:null};
+ const invoke=async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return {revision:`catalog-${value.health}-${value.authentication}`,selectedNodeId:'local',activeBotNodeId:'local',workerTarget:{nodeId:'local',backend:'codex',role:'worker'},broker:null,pendingOperations:[],nodes:[{id:'local',label:'This machine',os:'darwin',join:'local',runtimes:[{...runtime('codex'),health:value.health,authentication:value.authentication,roles:['bot','worker'].map(role=>({role,eligible:value.health==='healthy',reason:value.health==='healthy'?'':'runtime-owner-unavailable'}))}]}]};
+  if(method==='RuntimeSettings')return profile;
+  if(method==='SetupOverview')return {active:'codex',pending:''};
+  if(method==='InspectSetup')return inspection.pending??{settings:profile,state:value.state,message:'',installation:{installed:true,path:'',version:'0.158.0',latestVersion:'',updateState:'',message:''},models:[],selectedModel:'',accountType:value.accountType};
+  if(['ExecutionSettings','WorkExecutionSettings'].includes(method))return null;
+  if(method==='Models')return [];
+  if(method==='NodeRuntimeConfiguration')return {...config(...args),configurationAvailable:false,conversation:null,worker:null,configuration:{revision:'',models:[],main:null,connections:[],team:null}};
+  throw new Error(`Unexpected fixture method: ${method}`);
+ };
+ return {invoke,calls,value,inspection,profile};
+}
+
+for(const locale of ['en','zh-CN'])test(`fresh local unconfigured Codex uses truthful account and concise role status (${locale})`,async()=>{
+ const fixture=localCodexStatusFixture(),t=translator(locale).t;
+ await mount(fixture.invoke,undefined,false,locale);
+ assert.equal(container.querySelector('.runtime-section-title h2').textContent,t('runtime.connectionsHeading'));
+ assert.ok(buttons(t('runtime.connectAccount'))[0]);assert.equal(buttons(t('runtime.manageAccount')).length,0);
+ assert.equal(buttons(t('runtime.connectAccount'))[0].disabled,false);
+ assert.ok(container.textContent.includes(t('runtime.notConnected')));
+ const roleRows=[...container.querySelectorAll('.runtime-active p')].filter(row=>row.textContent.includes(t('settings.nodeOwnerUnavailableReason')));
+ assert.equal(roleRows.length,1);
+ assert.ok(roleRows[0].textContent.includes(t('settings.nodeBotUnavailable')));
+ assert.ok(roleRows[0].textContent.includes(t('settings.nodeWorkerUnavailable')));
+ assert.ok(!container.textContent.includes(t('runtime.connectedViaChatGPT')));
+ assert.ok(!container.textContent.includes(t('runtime.connectedViaApiKey')));
+ assert.ok(fixture.calls.every(call=>!['BeginNodeRuntimeConnection','StartRuntimeConnection','StartNodeRuntimeConnection','ActivateRuntime','SaveExecutionSettings'].includes(call[0])));
+});
+
+test('unknown Node authentication never displays cached local account success',async()=>{
+ const fixture=localCodexStatusFixture({health:'unknown',authentication:'unknown',state:'ready',accountType:'chatgpt'});
+ await mount(fixture.invoke);
+ assert.ok(buttons('Connect account')[0]);assert.equal(buttons('Manage account').length,0);
+ assert.ok(container.textContent.includes(translator('en').t('runtime.connectionUnknown')));
+ assert.ok(!container.textContent.includes(translator('en').t('runtime.connectedViaChatGPT')));
+ assert.equal(container.querySelectorAll('button.runtime-model-summary').length,0);
+});
+
+test('disconnected Node suppresses cached login success while local inspection is still pending',async()=>{
+ const fixture=localCodexStatusFixture({health:'healthy',authentication:'authenticated',state:'ready',accountType:'chatgpt'});
+ await mount(fixture.invoke);
+ assert.ok(buttons('Manage account')[0]);assert.ok(container.textContent.includes(translator('en').t('runtime.connectedViaChatGPT')));
+ const pending=deferred();fixture.value.health='unavailable';fixture.value.authentication='required';fixture.inspection.pending=pending.promise;
+ await click(container.querySelector('.node-runtime-settings > button.text-action'));
+ assert.ok(buttons('Connect account')[0]);assert.equal(buttons('Manage account').length,0);
+ assert.ok(!container.textContent.includes(translator('en').t('runtime.connectedViaChatGPT')));
+ await act(async()=>pending.resolve({settings:fixture.profile,state:'ready',message:'',installation:{installed:true,path:'',version:'0.158.0',latestVersion:'',updateState:'',message:''},models:[],selectedModel:'',accountType:'chatgpt'}));
+ assert.ok(buttons('Connect account')[0]);assert.equal(buttons('Manage account').length,0);
+ assert.ok(!container.textContent.includes(translator('en').t('runtime.connectedViaChatGPT')));
+});
+
+test('alternate local Caelis preparation never reads a global profile; active local Codex retains ordinary preparation',async()=>{
+ const calls=[],profile={runtime:'codex',cliPath:'/usr/bin/false',caelisStore:''};
+ const setup={settings:profile,state:'models',message:'',installation:{installed:true,path:'',version:'0.158.0',latestVersion:'',updateState:'',message:''},models:[],selectedModel:'',accountType:'',serviceState:'',serviceVersion:'',serviceUpdateAvailable:false,loginPending:false};
+ const invoke=async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return {...catalog(),activeBotNodeId:'local'};
+  if(method==='RuntimeSettings')return profile;
+  if(method==='NodeRuntimeConfiguration')return {...config(...args),configurationAvailable:false,configuration:{revision:'',models:[],main:null,connections:[],team:null}};
+  if(method==='SetupOverview')return {active:'codex',pending:''};
+  if(method==='InspectSetup')return setup;
+  if(method==='ComposerSnapshot')return {connection:'unavailable'};
+  if(method==='SetupProfile'){assert.equal(args[0],'codex');return profile;}
+  throw new Error(`Unexpected fixture method: ${method}`);
+ };
+ await mount(invoke,invoke);
+ assert.equal(select('Execution backend').value,'caelis');
+ await click(buttons('Manage')[0]);
+ assert.ok(container.querySelector('[role="dialog"]').textContent.includes(translator('en').t('settings.nodeScopedPreparation')));
+ assert.equal(calls.filter(call=>['SetupProfile','InspectSetup','SetupOverview'].includes(call[0])).length,0);
+ assert.equal(calls.filter(call=>/NodeRuntimeConnection/.test(call[0])).length,0);
+ await click(container.querySelector('[role="dialog"] button.runtime-close'));
+ await choose(select('Execution backend'),'codex');
+ await click(buttons('Connect account')[0]);
+ assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','codex']]);
+ assert.ok(calls.filter(call=>call[0]==='InspectSetup').every(call=>call[1].runtime==='codex'&&call[1].caelisStore===''));
+ await click(container.querySelector('[role="dialog"] button.runtime-close'));
+ await click(buttons(translator('en').t('runtime.switch'))[0]);
+ await click([...container.querySelectorAll('[role="dialog"] .runtime-choices button')].find(button=>button.querySelector('strong')?.textContent==='Caelis'));
+ assert.ok(container.querySelector('[role="dialog"]').textContent.includes(translator('en').t('settings.nodeScopedPreparation')));
+ assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','codex']]);
+ assert.ok(!calls.some(call=>call[0]==='ActivateRuntime'||call[0]==='ApplySetup'));
 });
 
 test('thin paired shared-model configuration keeps its existing native binding and revision',async()=>{
@@ -461,6 +552,79 @@ test('a coordinator draft stays cancellable when native roaming becomes enabled 
 // native authentication, installed Runtime or remote process acceptance.
 const flow=(stage='complete',sequence=1)=>({id:'original-flow',revision:`flow-${sequence}`,sequence,stage,title:'Node connection',message:'',installation:null,authorization:null,launchers:[],methods:[],models:[]});
 const enter=async(el,value)=>{assert.ok(el);await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));});};
+const enrollmentResult=(operationId,outcome='unknown',reason='unknown')=>({operationId,outcome,reason,node:{id:outcome==='committed'?'enrolled-original':'',label:'Fixture',os:'linux',join:'ssh',runtimes:[]},joinInstructions:null});
+
+test('enrollment client admits one original ID and receipt reads never resend Add',async()=>{
+ const calls=[],delivery=deferred();
+ const owner=createNodeEnrollmentClient(async(method,...args)=>{calls.push([method,...args]);if(method==='AddNode')return delivery.promise;return enrollmentResult(args[0],'failed','dns');});
+ const request={label:'Fixture',join:'ssh',sshDestination:'fixture.invalid',expectedRevision:'catalog-1'};
+ const first=owner.add(request);await owner.add(request);
+ const original=calls[0][1].operationId;assert.ok(original);assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+ delivery.reject(new Error('PRIVATE_SSH_DIAGNOSTIC'));await first;
+ assert.equal(owner.snapshot().pending,original);
+ await owner.add({...request,sshDestination:'another.invalid'});assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+ await owner.reconcile();assert.deepEqual(calls.at(-1),['ReconcileNodeEnrollment',original]);assert.equal(owner.snapshot().pending,'');
+ assert.equal(owner.snapshot().result.outcome,'failed');
+ owner.restore([original]);assert.equal(owner.snapshot().pending,'','stale catalog revived terminal original');
+ await owner.add({...request,sshDestination:'corrected.invalid'});assert.notEqual(calls.at(-1)[1].operationId,original,'explicit corrected input did not get a fresh identity after confirmed failure');
+});
+
+test('native pending enrollment rehydrates after remount and an unknown query blocks fresh Add',async()=>{
+ const calls=[],owner=createNodeEnrollmentClient(async(method,...args)=>{calls.push([method,...args]);return enrollmentResult(args[0]);});
+ owner.restore(['native-original']);await owner.reconcile();
+ assert.deepEqual(calls,[['ReconcileNodeEnrollment','native-original']]);
+ await owner.add({label:'Replacement',join:'ssh',sshDestination:'new.invalid',expectedRevision:'2'});
+ assert.equal(calls.length,1);assert.equal(owner.snapshot().pending,'native-original');
+});
+
+test('native concurrency barrier restores the admitted original enrollment ID',async()=>{
+ const calls=[],owner=createNodeEnrollmentClient(async(method,...args)=>{calls.push([method,...args]);return enrollmentResult('other-surface-original','unknown','original-pending');});
+ await owner.add({label:'Second surface',join:'ssh',sshDestination:'fixture.invalid',expectedRevision:'1'});
+ assert.equal(owner.snapshot().pending,'other-surface-original');
+ await owner.reconcile();assert.deepEqual(calls.at(-1),['ReconcileNodeEnrollment','other-surface-original']);
+ assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+});
+
+test('an enrollment receipt for another ID or an unrecognized outcome cannot release the original barrier',async()=>{
+ const calls=[],owner=createNodeEnrollmentClient(async(method,...args)=>{calls.push([method,...args]);return method==='AddNode'?{...enrollmentResult('another-original','committed'),node:{id:'other',join:'ssh'}}:enrollmentResult(args[0],'unexpected');});
+ await owner.add({label:'Fixture',join:'ssh',sshDestination:'fixture.invalid',expectedRevision:'1'});
+ const original=calls[0][1].operationId;assert.equal(owner.snapshot().pending,original);assert.equal(owner.snapshot().result.outcome,'unknown');
+ await owner.reconcile();assert.deepEqual(calls.at(-1),['ReconcileNodeEnrollment',original]);assert.equal(owner.snapshot().pending,original);
+ await owner.add({label:'Replacement',join:'ssh',sshDestination:'new.invalid',expectedRevision:'1'});assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+});
+
+test('enrollment double submit stays single-flight; Cancel and root Refresh reconcile the original failed DNS receipt',async()=>{
+ const calls=[],delivery=deferred();let original;
+ await mount(defaultInvoke,async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='AddNode'){original=args[0].operationId;return delivery.promise;}
+  if(method==='ReconcileNodeEnrollment')return enrollmentResult(args[0],'failed','dns');
+  return {revision:1,nodes:[],issue:''};
+ });
+ await click(buttons(translator('en').t('settings.nodeAdd'))[0]);
+ const form=container.querySelector('[role="dialog"] form');
+ await enter(form.querySelectorAll('input')[0],'Fixture machine');await enter(form.querySelectorAll('input')[1],'fixture.invalid');
+ await act(async()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});
+ assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+ await act(async()=>delivery.reject(new Error('PRIVATE_SSH_DIAGNOSTIC')));
+ assert.ok(container.textContent.includes(translator('en').t('settings.nodeAddUnknown')));
+ await click(buttons('Cancel')[0]);assert.equal(container.querySelector('[role="dialog"]'),null);
+ await click(buttons(translator('en').t('runtime.refreshConfig')).at(-1));
+ assert.deepEqual(calls.filter(call=>call[0]==='ReconcileNodeEnrollment'),[['ReconcileNodeEnrollment',original]]);
+ assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+ assert.ok(container.textContent.includes(translator('en').t('settings.nodeAddDNS')));assert.doesNotMatch(container.textContent,/PRIVATE_SSH_DIAGNOSTIC/);
+ await click(buttons(translator('en').t('settings.nodeAdd'))[0]);assert.equal(container.querySelector('[role="dialog"] input').disabled,false);
+});
+
+test('known pre-dispatch capacity failure stays explanatory and allows explicit correction',async()=>{
+ const calls=[];await mount(defaultInvoke,async(method,...args)=>{calls.push([method,...args]);return method==='AddNode'?enrollmentResult(args[0].operationId,'failed','limit'):{revision:1,nodes:[],issue:''};});
+ await click(buttons(translator('en').t('settings.nodeAdd'))[0]);const form=container.querySelector('[role="dialog"] form');
+ await enter(form.querySelectorAll('input')[0],'Fixture machine');await enter(form.querySelectorAll('input')[1],'fixture.invalid');
+ await act(async()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+ assert.ok(container.textContent.includes(translator('en').t('settings.nodeAddLimit')));
+ assert.equal(form.querySelector('input').disabled,false);assert.equal(buttons('Check original receipt').length,0);
+ assert.equal(calls.filter(call=>call[0]==='AddNode').length,1);
+});
 const coldCatalog=()=>{const value=catalog();value.selectedNodeId='other';value.nodes[1].runtimes[0]={...runtime(),health:'unavailable',authentication:'required'};return value;};
 const coldConfig=(nodeId,backend)=>{const value=config(nodeId,backend);return {...value,configurationAvailable:false,configuration:{...value.configuration,main:null,models:[],connections:[],team:{...value.configuration.team,roles:null,sets:null,models:null}}};};
 const nativeRef=(guard,operationId)=>({nodeId:guard.nodeId,backend:guard.backend,operationId});
@@ -672,4 +836,37 @@ test('missing Node Runtime remains honest and cannot start authentication before
  assert.equal(buttons('Add connection')[0].disabled,true);
  await click(buttons('Add connection')[0]);
  assert.equal(calls.filter(c=>c[0]==='BeginNodeRuntimeConnection').length,0);
+});
+
+test('cold external Caelis executable enables explicit Node connection without a managed copy or authenticated account',async()=>{
+ const calls=[];
+ await mount(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog')return coldCatalog();
+  if(method==='NodeRuntimeConfiguration')return {...coldConfig(...args),configurationAvailable:false,installerAvailable:true,installation:{installed:false,version:'',latestVersion:'0.65.0'},executable:{installed:true,version:'0.65.0'},reviewedVersions:['0.65.0']};
+  if(method==='BeginNodeRuntimeConnection')return nativeRef(...args);
+  if(method==='NodeRuntimeConnectionCatalog')return {choices:[],unavailable:''};
+  if(method==='CloseNodeRuntimeConnection')return;
+  throw new Error('Unexpected fixture method');
+ });
+ assert.equal(buttons('Add connection')[0].disabled,false);
+ assert.equal(calls.filter(call=>call[0]==='BeginNodeRuntimeConnection').length,0);
+ assert.equal(calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,0);
+ assert.match(container.textContent,/Not connected|Not currently connected/i);
+ await click(buttons('Add connection')[0]);
+ assert.ok(container.querySelector('[role="dialog"]'));
+ assert.equal(calls.filter(call=>call[0]==='BeginNodeRuntimeConnection').length,1);
+ await act(async()=>window.dispatchEvent(new Event('settings-close')));
+ assert.equal(calls.filter(call=>call[0]==='CloseNodeRuntimeConnection').length,1);
+});
+
+test('managed-copy metadata cannot conceal an explicitly missing executable',async()=>{
+ const owner=createNodeSettingsClient(async(method,...args)=>{
+  if(method==='NodeRuntimeConfiguration')return {...coldConfig(...args),installation:{installed:true,version:'0.65.0',latestVersion:'0.65.0'},executable:{installed:false,version:''}};
+  throw new Error('Unexpected fixture method');
+ });
+ const client=createNodeRuntimeClient(owner,{nodeId:'other',backend:'caelis',revision:''});
+ const view=await client.read();
+ assert.equal(view.setup.installation.installed,false);
+ assert.equal(view.setup.state,'installation');
 });

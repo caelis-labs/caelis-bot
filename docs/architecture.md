@@ -260,6 +260,17 @@ A confirmed exited TUI client can reconnect in the same owned GUI instance; do n
 No automatic reconnect, task prompt replay or idle instance cleanup. Closing a terminal does not stop a Worker.
 Hide/show, placement and still preview are optional driver capabilities; unsupported actions preserve ownership.
 
+Terminal attachment resolves the task ledger's original Node/backend/Worker target and workspace.
+The native adapter explicitly stamps endpoint locality; opaque Node IDs and local-looking paths do not
+establish it. Missing locality, changed backend/workspace or a conflicting target fail before launch.
+The current paired Worker/product streams provide no remote TTY attachment channel: SSH, outgoing
+and broker routes report that absence without copying target credentials, executing a local substitute,
+starting a new task or moving the original work. Local in-process terminals remain independent of
+the machine's Node ID. Terminal settings and application-window ownership retain their existing scope.
+An attached GUI instance retains its original endpoint and native Thread/Session binding; a task-card
+show/hide gesture revalidates that exact target before mutating the window. Node disconnection or a
+changed attach generation preserves the existing window, while explicit close remains available.
+
 ## Optional remote APP
 
 `product-connection.json` is an explicit client connection choice, loaded before

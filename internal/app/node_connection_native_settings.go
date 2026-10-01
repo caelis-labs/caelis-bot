@@ -76,6 +76,13 @@ func (n *nativeNodeManagement) localOwnedRuntimeSettings(ctx context.Context, b 
 	} else {
 		e = errors.New("unsupported local native Runtime")
 	}
+	if e == nil && n.localInstaller != nil {
+		// Explicitly installed Node-owned bytes affect this native slot only;
+		// ordinary APP/provider profiles and the user's external CLI stay intact.
+		if binary, err := n.localInstaller.BinaryPath(string(b)); err == nil {
+			settings.CLIPath = binary
+		}
+	}
 	store := ""
 	if b == api.NodeCaelis {
 		store = settings.CaelisStore

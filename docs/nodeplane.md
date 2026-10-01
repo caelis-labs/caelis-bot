@@ -114,6 +114,19 @@ foreground agent's exact identity before publishing enrollment. The temporary
 management agent holds no Bot execution authority. Its observer closes on APP
 detach; node lifecycle owns any separately started Runtime.
 
+Each Add records its original `OperationID` and immutable request in a private
+enrollment journal before bootstrap can mutate a target. Read-only architecture,
+SSH authorization/host-key, and artifact checks can return a confirmed failure
+with a safe reason; raw SSH diagnostics stay native. Once bootstrap is admitted,
+lost delivery remains unknown until `ReconcileNodeEnrollment` can prove the
+original result from its exact journal and published pairing. This query never
+repeats bootstrap. Cancel keeps the original ID; Refresh and Check original
+receipt query it, and `NodeCatalog.PendingEnrollments` restores it after settings
+remount or APP restart. Only a confirmed terminal result permits a new explicit
+Add. A still-unknown bootstrap requires original-receipt recovery or manual
+inspection of that target. The private journal retains at most 128 receipts;
+capacity or unavailable private storage rejects new enrollment before mutation.
+
 Outgoing Add requires a designated coordinator. An enrolled SSH coordinator
 gets a separate private join slot rather than replacing its existing agent
 socket. The outgoing client subsequently reaches the joined Node through that
@@ -156,6 +169,26 @@ routes absent from the product-only protocol remain unknown.
 lease withdrawal and Notebook staging remain separate owners. Aggregate catalog
 sorting copies source slices, so a read cannot corrupt a cached local catalog.
 
+
+A remote designated coordinator is deployed as a broker and cold Notebook cache
+only. It does not need an installed or authenticated model Runtime. Its reviewed
+plan prepares the coordinator without a Start Bot action, product token, Runtime
+generation or Worker binding. The local source remains a managed candidate; a
+local coordinator continues to combine those roles. Other enrolled candidates
+must independently qualify for their selected Runtime. Actual installed,
+authentication and health metadata remain visible through a separate enrolled
+management observer. Catalog capability describes the machine; the exact reviewed
+runtime roster and live ownership proof determine admission to this deployment.
+The coordinator is absent from that roster even if it later authenticates a model.
+
+Durable cache and supervisor/configuration files remain in the enrolled user’s
+deployment directory. Native IPC uses a separately frozen short private slot:
+standard SSH enrollment uses that HOME’s `.caelis-bot-joins` namespace, and local
+IPC uses canonical `/tmp` with a deterministic same-user 0700 directory. Exact
+broker, agent and reverse-forward sockets are included in the reviewed private
+plan and checked against the existing 100-byte limit before source retirement.
+Existing permissions and symlinks are checked, never repaired; stored legacy
+plans retain their original paths. Neither namespace is renderer path authority.
 
 The broker is optional, designated by this single user, and defaults to the local
 machine when explicitly enabled. It is a single point of availability rather

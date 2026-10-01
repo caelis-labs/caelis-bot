@@ -138,6 +138,9 @@ func (s *Service) BeginNodeRuntimeConnection(ctx context.Context, guard api.Node
 	if err != nil || view.Guard != guard {
 		return ref, connectionError("settings changed before begin")
 	}
+	if view.Executable == nil || !view.Executable.Installed {
+		return ref, connectionError("runtime unavailable")
+	}
 	metadata, err := s.ReadOwnedRuntimeSettings(ctx, ref.NodeID, ref.Backend)
 	if err != nil {
 		return ref, connectionError("runtime unavailable")

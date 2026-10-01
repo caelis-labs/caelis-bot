@@ -111,12 +111,16 @@ export interface ModelOption {
   serviceTiers: Array<ServiceTier>;
 }
 export interface NodeAddRequest {
+  operationId?: string;
   label: string;
   join: string;
   sshDestination: string;
   expectedRevision: string;
 }
 export interface NodeAddResult {
+  operationId?: string;
+  outcome?: string;
+  reason?: string;
   node: NodeInfo;
   joinInstructions: NodeJoinInstructions | null;
 }
@@ -135,6 +139,7 @@ export interface NodeCatalog {
   workerTarget: WorkTarget | null;
   broker: NodeBroker | null;
   pendingOperations: Array<NodeOperationRef>;
+  pendingEnrollments?: Array<string>;
 }
 export interface NodeCoordinatorSelection {
   nodeId: string;
@@ -235,6 +240,7 @@ export interface NodeRuntimeConfiguration {
   worker: WorkExecutionSettings | null;
   configurationAvailable: boolean;
   installerAvailable: boolean;
+  executable?: NodeRuntimeExecutable | null;
   installation: NodeInstallationState | null;
   reviewedVersions: Array<string>;
 }
@@ -242,6 +248,10 @@ export interface NodeRuntimeConnectionRef {
   nodeId: string;
   backend: string;
   operationId: string;
+}
+export interface NodeRuntimeExecutable {
+  installed: boolean;
+  version: string;
 }
 export interface ProductConnectionState {
   revision: number;

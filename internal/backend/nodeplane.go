@@ -101,6 +101,14 @@ func (s *Service) AddNode(ctx context.Context, r api.NodeAddRequest) (api.NodeAd
 	return c.AddNode(ctx, r)
 }
 
+func (s *Service) ReconcileNodeEnrollment(ctx context.Context, id string) (api.NodeAddResult, error) {
+	c, err := s.nodeManagementController()
+	if err != nil {
+		return api.NodeAddResult{}, err
+	}
+	return c.ReconcileNodeEnrollment(ctx, id)
+}
+
 func (s *Service) DetectNode(ctx context.Context, nodeID string) (api.NodeInfo, error) {
 	c, err := s.nodeManagementController()
 	if err != nil {

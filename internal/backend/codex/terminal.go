@@ -6,6 +6,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarget, error) {
@@ -33,5 +34,5 @@ func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	if !filepath.IsAbs(home) {
 		home = os.Getenv("CODEX_HOME")
 	}
-	return api.TerminalTarget{Runtime: "codex", Binary: binary, Endpoint: endpoint.terminalEndpoint(), Thread: task.Thread, Directory: task.View.Workspace, CodexHome: home}, nil
+	return api.TerminalTarget{Locality: api.TerminalLocal, Generation: strconv.FormatUint(s.epoch, 10), Runtime: "codex", Binary: binary, Endpoint: endpoint.terminalEndpoint(), Thread: task.Thread, Directory: task.View.Workspace, CodexHome: home}, nil
 }

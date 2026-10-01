@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/runtimemanagement"
 )
 
 // NodeRegistration is private native pairing, never a renderer DTO. Source
@@ -58,17 +60,18 @@ type nodeManagementDocument struct {
 }
 
 type nativeNodeManagement struct {
-	app       *Application
-	directory string
-	options   NodeManagementNativeOptions
-	local     nodeplane.CatalogAgent
-	mu        sync.Mutex
-	controlMu sync.Mutex
-	document  nodeManagementDocument
-	clients   map[string]nodeplane.CatalogAgent
-	ownerCtx  context.Context
-	cancel    context.CancelFunc
-	closed    bool
+	app            *Application
+	directory      string
+	options        NodeManagementNativeOptions
+	local          nodeplane.CatalogAgent
+	localInstaller nodeagent.RuntimeInstaller
+	mu             sync.Mutex
+	controlMu      sync.Mutex
+	document       nodeManagementDocument
+	clients        map[string]nodeplane.CatalogAgent
+	ownerCtx       context.Context
+	cancel         context.CancelFunc
+	closed         bool
 }
 
 // AttachNodeManagement is called once after the ordinary local Backend/setup
@@ -105,6 +108,19 @@ func AttachNodeManagement(a *Application, options ...NodeManagementNativeOptions
 		if err = os.MkdirAll(localDir, 0700); err != nil {
 			cancel()
 			return err
+		}
+		canonical, e := filepath.EvalSymlinks(localDir)
+		if e != nil {
+			cancel()
+			return e
+		}
+		localDir = canonical
+		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+			n.localInstaller, err = runtimemanagement.NewLocalNode(localDir)
+			if err != nil {
+				cancel()
+				return err
+			}
 		}
 		ports := map[api.NodeBackend]nodeagent.NativeConfiguration{}
 		ports[api.NodeCodex] = &nodeLocalCodexConfiguration{nodeLocalConfiguration{app: a, backend: api.NodeCodex}}
@@ -152,7 +168,7 @@ func AttachNodeManagement(a *Application, options ...NodeManagementNativeOptions
 				return nodeLocalHealth(ctx, a, b)
 			}
 		}
-		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Binaries: binaries, Configurations: ports, OwnedRuntimeSettings: n.localOwnedRuntimeSettings, OwnedRuntimeCompanion: n.localOwnedRuntimeCompanion, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
+		n.local, err = nodeagent.New(nodeagent.Options{Directory: localDir, RuntimeInstaller: n.localInstaller, NodeID: api.LocalNodeID, Label: "This machine", Join: api.NodeLocal, Binaries: binaries, Configurations: ports, OwnedRuntimeSettings: n.localOwnedRuntimeSettings, OwnedRuntimeCompanion: n.localOwnedRuntimeCompanion, RuntimeOwner: o.RuntimeOwner, Health: func(ctx context.Context, b api.NodeBackend) (nodeagent.NativeHealth, error) {
 			return localHealth(ctx, b)
 		}})
 		if err != nil {
@@ -283,6 +299,10 @@ func (n *nativeNodeManagement) Catalog(ctx context.Context) (api.NodeCatalog, er
 	// Sorting/appending aggregation must not mutate a cached source catalog.
 	c.Nodes = append([]api.NodeInfo(nil), c.Nodes...)
 	c.PendingOperations = append([]api.NodeOperationRef(nil), c.PendingOperations...)
+	c.PendingEnrollments, err = n.pendingEnrollments()
+	if err != nil {
+		return api.NodeCatalog{}, err
+	}
 	n.mu.Lock()
 	doc := n.document
 	doc.Nodes = append([]NodeRegistration(nil), doc.Nodes...)
@@ -381,9 +401,7 @@ func (n *nativeNodeManagement) Reconcile(ctx context.Context, r api.NodeOperatio
 	return c.Reconcile(ctx, r)
 }
 
-func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (api.NodeAddResult, error) {
-	n.controlMu.Lock()
-	defer n.controlMu.Unlock()
+func (n *nativeNodeManagement) addEnrollment(ctx context.Context, r api.NodeAddRequest, beforeMutation func() error, prepared func(NodeRegistration, api.NodeAddResult) error) (api.NodeAddResult, error) {
 	c, err := n.Catalog(ctx)
 	if err != nil {
 		return api.NodeAddResult{}, err
@@ -407,19 +425,29 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 	var reg NodeRegistration
 	var instructions *api.NodeJoinInstructions
 	if n.options.Bootstrap != nil {
+		if beforeMutation != nil {
+			if err = beforeMutation(); err != nil {
+				return api.NodeAddResult{}, err
+			}
+		}
 		reg, err = n.options.Bootstrap(ctx, r)
 	} else if r.Join == api.NodeSSH {
 		ssh := nodeagent.SSHConfig{Target: r.SSHDestination}
 		arch, e := nodeagent.ProbeArchitecture(ctx, ssh)
 		if e != nil {
-			return api.NodeAddResult{}, e
+			return api.NodeAddResult{}, enrollmentPreflightError{nodeagent.ArchitectureProbeReason(e)}
 		}
 		artifact, e := n.options.Artifact(arch)
 		if e != nil {
-			return api.NodeAddResult{}, e
+			return api.NodeAddResult{}, enrollmentPreflightError{"artifact"}
 		}
 		if e = nodeagent.VerifyArtifact(artifact); e != nil {
-			return api.NodeAddResult{}, e
+			return api.NodeAddResult{}, enrollmentPreflightError{"artifact"}
+		}
+		if beforeMutation != nil {
+			if err = beforeMutation(); err != nil {
+				return api.NodeAddResult{}, err
+			}
 		}
 		dir, e := nodeagent.PrepareNodeDirectory(ctx, ssh)
 		if e != nil {
@@ -433,6 +461,11 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 			reg.HostHelperPath = filepath.Join(dir, "caelis-node")
 		}
 	} else {
+		if beforeMutation != nil {
+			if err = beforeMutation(); err != nil {
+				return api.NodeAddResult{}, err
+			}
+		}
 		reg = NodeRegistration{ID: "node-" + rand.Text(), Label: r.Label, Join: api.NodeOutgoing}
 		var i api.NodeJoinInstructions
 		if n.options.PrepareOutgoing != nil {
@@ -445,7 +478,7 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 	if err != nil {
 		return api.NodeAddResult{}, err
 	}
-	if reg.Join != r.Join || reg.Label != r.Label {
+	if reg.Join != r.Join || reg.Label != r.Label || reg.Join == api.NodeSSH && reg.SSHDestination != r.SSHDestination {
 		return api.NodeAddResult{}, errors.New("bootstrap changed node enrollment intent")
 	}
 	if err = validateNodeRegistration(reg); err != nil {
@@ -478,6 +511,17 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 		verified.Label = reg.Label
 		verified.Join = reg.Join
 	}
+	// Retain the exact verified registration/result before publishing its local
+	// pairing, so an original receipt can prove success after response loss.
+	if verified.ID == "" {
+		verified = api.NodeInfo{ID: reg.ID, Label: reg.Label, OS: api.NodeLinux, Join: reg.Join, Runtimes: []api.NodeRuntime{}}
+	}
+	result := api.NodeAddResult{Node: verified, JoinInstructions: instructions}
+	if prepared != nil {
+		if err = prepared(reg, result); err != nil {
+			return api.NodeAddResult{}, err
+		}
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.document.Revision != revision {
@@ -499,11 +543,7 @@ func (n *nativeNodeManagement) Add(ctx context.Context, r api.NodeAddRequest) (a
 		n.clients[reg.ID] = verifiedClient
 		retained = true
 	}
-	// Detection is a separate explicit action for outgoing waiting joins.
-	if verified.ID == "" {
-		verified = api.NodeInfo{ID: reg.ID, Label: reg.Label, OS: api.NodeLinux, Join: reg.Join, Runtimes: []api.NodeRuntime{}}
-	}
-	return api.NodeAddResult{Node: verified, JoinInstructions: instructions}, nil
+	return result, nil
 }
 
 func (n *nativeNodeManagement) Detect(ctx context.Context, id string) (api.NodeInfo, error) {
@@ -711,7 +751,18 @@ func (p *nodeLocalCodexConfiguration) ExecutionScopes(ctx context.Context) (api.
 	return conversation, worker, err
 }
 func nodeLocalHealth(ctx context.Context, a *Application, b api.NodeBackend) (nodeagent.NativeHealth, error) {
-	settings, err := a.Backend.SetupProfile(string(b))
+	var settings api.RuntimeSettings
+	var err error
+	if b == api.NodeCaelis && a.Backend.ProviderInfo().ID != "caelis" {
+		// An inactive Node Runtime must observe the same designated private slot
+		// as its configuration/setup ports. A blank ordinary alternate profile
+		// would otherwise discover the user's unrelated default Caelis Host.
+		settings, err = nodeLocalCaelisSettings(a, filepath.Join(a.root, "nodeplane", "local"), nil)
+	} else {
+		// Preserve ordinary active local Runtime semantics, including an
+		// explicitly selected default Caelis Store.
+		settings, err = a.Backend.SetupProfile(string(b))
+	}
 	if err != nil {
 		return nodeagent.NativeHealth{}, err
 	}
@@ -725,7 +776,7 @@ func nodeLocalHealth(ctx context.Context, a *Application, b api.NodeBackend) (no
 			_, err := a.nodeRegistry.WorkRuntimeFor(api.WorkTarget{NodeID: api.LocalNodeID, Backend: string(b), Role: api.RoleWorker})
 			workerEligible = err == nil
 		}
-		return nodeagent.NativeHealth{AuthenticationKnown: state.AuthenticationKnown, Authenticated: state.Authenticated, HealthKnown: state.HealthKnown, Healthy: state.Healthy, WorkerEligible: workerEligible, SharedHost: true}, nil
+		return nodeagent.NativeHealth{AuthenticationKnown: state.AuthenticationKnown, Authenticated: state.Authenticated, HealthKnown: state.HealthKnown, Healthy: state.Healthy, WorkerEligible: workerEligible, SharedHost: state.HealthKnown && state.Healthy}, nil
 	}
 	state, err := a.Backend.InspectSetup(ctx, settings)
 	if err != nil {

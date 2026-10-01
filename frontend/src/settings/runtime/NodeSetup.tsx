@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {backend} from '../../desktop';
 import type {NodeAddResult,NodeCatalog,NodeInfo,NodeJoinInstructions,NodeEditGuard,NodeInstallationState,NodeRoamingRequest,NodeRoamingPlan} from '../../backend/contract';
 import {SettingRow} from '../../SettingsUI';
@@ -7,35 +7,51 @@ import {useI18n} from '../../i18n';
 import type {MessageKey} from '../../i18n/catalogs';
 import type {NodeSettingsClient} from './nodeClient';
 import type {NodeRoamingClient} from './roamingClient';
+import {createNodeEnrollmentClient} from './enrollmentClient';
 
 export function NodeEnrollment({catalog,call=backend,onChanged}:{catalog:NodeCatalog|null;call?:typeof backend;onChanged:()=>void}) {
  const {t}=useI18n();
  const [open,setOpen]=useState(false),[label,setLabel]=useState(''),[join,setJoin]=useState<'ssh'|'outgoing'>('ssh'),[ssh,setSSH]=useState('');
- const [instructions,setInstructions]=useState<NodeJoinInstructions|null>(null),[error,setError]=useState<MessageKey|''>(''),[busy,setBusy]=useState(false),[unknown,setUnknown]=useState(false);
+ const [instructions,setInstructions]=useState<NodeJoinInstructions|null>(null),[error,setError]=useState<MessageKey|''>(''),[checking,setChecking]=useState(false);
+ const owner=useMemo(()=>createNodeEnrollmentClient(call),[call]);
+ const [,render]=useState(0),alive=useRef(true),currentOwner=useRef(owner);currentOwner.current=owner;
+ useEffect(()=>owner.subscribe(()=>render(value=>value+1)),[owner]);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+ const state=owner.snapshot(),busy=state.busy||checking,unknown=!!state.pending;
+ const receiptError=(next:NodeAddResult):MessageKey=>next.outcome==='unknown'?'settings.nodeAddUnknown':next.reason==='dns'?'settings.nodeAddDNS':next.reason==='authentication'?'settings.nodeAddAuthentication':next.reason==='host-key'?'settings.nodeAddHostKey':next.reason==='limit'?'settings.nodeAddLimit':next.reason==='receipt-unavailable'?'settings.nodeAddReceiptUnavailable':'settings.nodeAddFailed';
+ const accept=(next:NodeAddResult|null)=>{
+  if(!alive.current||currentOwner.current!==owner||!next)return;
+  if(next.outcome==='committed'){setInstructions(next.joinInstructions);setOpen(false);setLabel('');setSSH('');setError('');onChanged();}
+  else setError(receiptError(next));
+ };
+ // Refresh reads the original receipt, even when the catalog still lists only
+ // this machine. Catalog absence is never proof that bootstrap did not happen.
+ useEffect(()=>{owner.restore(catalog?.pendingEnrollments??[]);if(owner.snapshot().pending&&!owner.snapshot().busy)void owner.reconcile().then(accept);},[owner,catalog]);
  const pending=useRef(false),revision=useRef('');
  const submit=async()=>{
-  if(pending.current||!catalog||unknown)return;pending.current=true;setBusy(true);setError('');
-  try{const next=await call<NodeAddResult>('AddNode',{label:label.trim(),join,sshDestination:join==='ssh'?ssh.trim():'',expectedRevision:revision.current});setInstructions(next.joinInstructions);setOpen(false);setLabel('');setSSH('');onChanged();}
-  catch{setError('settings.nodeAddUnknown');setUnknown(true);}
-  finally{pending.current=false;setBusy(false);}
+  if(pending.current||!catalog||unknown)return;pending.current=true;setError('');
+  try{accept(await owner.add({label:label.trim(),join,sshDestination:join==='ssh'?ssh.trim():'',expectedRevision:revision.current}));}
+  finally{pending.current=false;}
  };
  const check=async()=>{
-  if(pending.current||!instructions)return;pending.current=true;setBusy(true);setError('');
+  if(pending.current||!instructions)return;pending.current=true;setChecking(true);setError('');
   try{setInstructions(await call<NodeJoinInstructions>('NodeJoinInstructions',instructions.nodeId));onChanged();}
   catch{setError('settings.nodeCatalogFailed');}
-  finally{pending.current=false;setBusy(false);}
+  finally{pending.current=false;setChecking(false);}
  };
  return <details className="settings-disclosure"><summary>{t('settings.nodeAdd')}</summary>
   <p className="settings-note">{t('settings.nodeOutgoingHelp')}</p>
   <button disabled={!catalog} onClick={()=>{revision.current=catalog?.revision??'';setOpen(true);}}>{t('settings.nodeAdd')}</button>
   {instructions&&<div role="status"><p>{t(instructions.state==='connected'?'settings.nodeHealthy':instructions.state==='waiting'?'settings.nodeJoinWaiting':'settings.nodeUnavailable')}</p><p className="runtime-install-instructions">{instructions.instructions}</p><button disabled={busy} onClick={()=>void check()}>{t('runtime.recheck')}</button></div>}
   {!open&&error&&<p className="inline-error" role="alert">{t(error)}</p>}
+  {!open&&unknown&&<button disabled={busy} onClick={()=>void owner.reconcile().then(accept)}>{t('settings.productCheckOriginalReceipt')}</button>}
   {open&&<SettingsDialog title={t('settings.nodeAdd')} busy={busy} onClose={()=>setOpen(false)}><form onSubmit={event=>{event.preventDefault();void submit();}}>
    <label>{t('settings.workerNodeLabel')}<input required value={label} maxLength={128} disabled={busy||unknown} onChange={event=>setLabel(event.target.value)}/></label>
    <label>{t('settings.nodeJoinMethod')}<select value={join} disabled={busy||unknown} onChange={event=>setJoin(event.target.value as 'ssh'|'outgoing')}><option value="ssh">{t('settings.nodeJoinSSH')}</option><option value="outgoing">{t('settings.nodeJoinOutgoing')}</option></select></label>
    {join==='ssh'&&<label>{t('settings.workerNodeSSH')}<input required value={ssh} maxLength={256} autoComplete="off" spellCheck={false} disabled={busy||unknown} onChange={event=>setSSH(event.target.value)}/></label>}
    <p className="settings-note">{t(join==='ssh'?'settings.workerNodeSSHHelp':'settings.nodeOutgoingHelp')}</p>
    {error&&<p role="alert" className="inline-error">{t(error)}</p>}
+   {unknown&&!busy&&<button type="button" onClick={()=>void owner.reconcile().then(accept)}>{t('settings.productCheckOriginalReceipt')}</button>}
    <div className="setup-end"><button type="button" disabled={busy} onClick={()=>setOpen(false)}>{t('common.cancel')}</button><button className="primary" disabled={busy||unknown||!label.trim()||join==='ssh'&&!ssh.trim()}>{t('settings.nodeAdd')}</button></div>
   </form></SettingsDialog>}
  </details>;

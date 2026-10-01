@@ -11,7 +11,16 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
+	"github.com/caelis-labs/caelis-bot/internal/runtimemanagement"
 )
+
+type installedNodeRuntimeFixture struct{ binary string }
+
+func (f installedNodeRuntimeFixture) BinaryPath(string) (string, error)             { return f.binary, nil }
+func (f installedNodeRuntimeFixture) ReviewedReleases() []runtimemanagement.Release { return nil }
+func (f installedNodeRuntimeFixture) Manage(context.Context, runtimemanagement.Request) (runtimemanagement.Status, error) {
+	return runtimemanagement.Status{}, errors.New("not used by metadata fixture")
+}
 
 func TestNativeNodeCaelisPrivateSlotDoesNotChangeOrdinaryLocalProfile(t *testing.T) {
 	dir, e := filepath.EvalSymlinks(t.TempDir())
@@ -64,6 +73,14 @@ func TestNativeNodeCaelisPrivateSlotDoesNotChangeOrdinaryLocalProfile(t *testing
 	}
 	metadata, e := service.ReadOwnedRuntimeSettings(t.Context(), api.LocalNodeID, api.NodeCaelis)
 	expectedStore := filepath.Join(root, "nodeplane", "local", "caelis-store")
+	view, viewErr := service.Configuration(t.Context(), api.LocalNodeID, api.NodeCaelis)
+	if viewErr != nil || view.Executable == nil || !view.Executable.Installed || view.Executable.Version != "0.1.0" || !view.InstallerAvailable || view.Installation == nil || view.Installation.Installed || len(view.ReviewedVersions) == 0 || view.ConfigurationAvailable || view.Guard.Revision == "" {
+		t.Fatal("external cold executable disappeared or became authenticated/managed", view, viewErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, "nodeplane", "local", "runtime")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatal("passive native assembly initialized managed installation", statErr)
+	}
+
 	if e != nil || metadata.Binary != binary || metadata.Store != expectedStore {
 		t.Fatal("local private node designation mismatch", metadata, e)
 	}
@@ -86,6 +103,22 @@ func TestNativeNodeCaelisPrivateSlotDoesNotChangeOrdinaryLocalProfile(t *testing
 	}
 	if _, e = os.Lstat(expectedStore); !errors.Is(e, os.ErrNotExist) {
 		t.Fatal("passive native metadata created Caelis Store", e)
+	}
+	managedBinary := filepath.Join(dir, "node-managed-caelis")
+	if e = os.WriteFile(managedBinary, []byte("#!/bin/sh\nprintf '{\"version\":\"0.2.0\"}'\n"), 0700); e != nil {
+		t.Fatal(e)
+	}
+	originalInstaller := controller.localInstaller
+	controller.localInstaller = installedNodeRuntimeFixture{binary: managedBinary}
+	installedMetadata, e := service.ReadOwnedRuntimeSettings(t.Context(), api.LocalNodeID, api.NodeCaelis)
+	installedView, viewErr := service.Configuration(t.Context(), api.LocalNodeID, api.NodeCaelis)
+	controller.localInstaller = originalInstaller
+	if e != nil || installedMetadata.Binary != managedBinary || installedMetadata.Store != expectedStore || viewErr != nil || installedView.Executable == nil || !installedView.Executable.Installed || installedView.Executable.Version != "0.2.0" {
+		t.Fatal("explicit Node installation did not update its native binary", installedMetadata, installedView, e, viewErr)
+	}
+	ordinary, e := a.Backend.SetupProfile("caelis")
+	if e != nil || ordinary != before || a.Backend.RuntimeSettings() != sourceBefore {
+		t.Fatal("Node-owned installation changed ordinary local runtime profile", ordinary, e)
 	}
 	explicit := settings
 	explicit.CaelisStore = filepath.Join(dir, "explicit-unmarked")

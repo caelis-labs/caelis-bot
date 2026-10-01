@@ -1,6 +1,6 @@
 package runtimemanagement
 
-// Release is a reviewed official Linux artifact. Requests select a version;
+// Release is a reviewed official platform artifact. Requests select a version;
 // callers cannot supply archive URLs, checksums, scripts or executable paths.
 type Release struct {
 	Runtime string `json:"runtime"`
@@ -26,3 +26,11 @@ var officialReleases = []Release{
 }
 
 func Releases() []Release { return append([]Release(nil), officialReleases...) }
+
+// Reviewed macOS artifacts use the same public checksum manifest. They are
+// selected only by the trusted in-process local Node constructor; remote Linux
+// installation keeps its existing releases and HOME policy.
+var darwinReleases = []Release{
+	{Runtime: "caelis", Version: "0.65.0", Arch: "amd64", URL: "https://releases.caelis.dev/releases/v0.65.0/caelis_0.65.0_darwin_amd64.tar.gz", SHA256: "21bb8efb68f2a569fd8ede6829ccef6f8adf2a4ec1c395e00c152e098ab0da20", Binary: "caelis"},
+	{Runtime: "caelis", Version: "0.65.0", Arch: "arm64", URL: "https://releases.caelis.dev/releases/v0.65.0/caelis_0.65.0_darwin_arm64.tar.gz", SHA256: "38e7b00c45cd0920e848f00bca3b9dfe6f5290a4d78a6380bf279d56949f80e7", Binary: "caelis"},
+}

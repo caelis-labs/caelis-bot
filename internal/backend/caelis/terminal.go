@@ -41,5 +41,5 @@ func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	if err != nil {
 		return api.TerminalTarget{}, err
 	}
-	return api.TerminalTarget{Runtime: "caelis", Binary: binary, Endpoint: d.Endpoint, Session: w.Binding.SessionId, Directory: w.Task.Workspace, Store: store, TokenFile: filepath.Join(store, "runtime/service/auth.token")}, nil
+	return api.TerminalTarget{Locality: api.TerminalLocal, Generation: instance, Runtime: "caelis", Binary: binary, Endpoint: d.Endpoint, Session: w.Binding.SessionId, Directory: w.Task.Workspace, Store: store, TokenFile: filepath.Join(store, "runtime/service/auth.token")}, nil
 }

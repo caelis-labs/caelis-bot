@@ -482,7 +482,10 @@ func (a *Application) WorkTerminal(ctx context.Context, id string) (api.Terminal
 		return active.WorkTerminal(ctx, id)
 	}
 	if NodeRoamingOwnsExecution(a) {
-		return api.TerminalTarget{}, errors.New("native local operation unavailable during roaming")
+		return api.TerminalTarget{}, &api.TerminalObservationError{Message: a.text("remoteTaskTerminalUnavailable"), Cause: api.ErrRemoteWorkTerminal}
+	}
+	if a.product != nil {
+		return api.TerminalTarget{}, &api.TerminalObservationError{Message: a.text("remoteTaskTerminalUnavailable"), Cause: api.ErrRemoteWorkTerminal}
 	}
 	a.mu.Lock()
 	m, stopped := a.tasks, a.closed

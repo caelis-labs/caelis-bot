@@ -52,7 +52,7 @@ func TestCustomTerminalUsesTheSameExecutionReceipt(t *testing.T) {
 	l := New(filepath.Join(dir, "launch"), func(ctx context.Context, path string) error { return LaunchCustom(ctx, "/bin/sh {script}", path) })
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
-	if err := l.Open(ctx, "owned", api.TerminalTarget{Runtime: "codex", Binary: binary, Directory: dir, Endpoint: "unix:///tmp/local.sock", Thread: "owned"}); err != nil {
+	if err := l.Open(ctx, "owned", api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "codex", Binary: binary, Directory: dir, Endpoint: "unix:///tmp/local.sock", Thread: "owned"}); err != nil {
 		t.Fatal(err)
 	}
 	for {

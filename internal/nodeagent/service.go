@@ -32,6 +32,13 @@ import (
 
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
+// RuntimeInstaller is a trusted native assembly port; no RPC supplies its root.
+type RuntimeInstaller interface {
+	Manage(context.Context, runtimemanagement.Request) (runtimemanagement.Status, error)
+	BinaryPath(string) (string, error)
+	ReviewedReleases() []runtimemanagement.Release
+}
+
 type installer interface {
 	Manage(context.Context, runtimemanagement.Request) (runtimemanagement.Status, error)
 }
@@ -45,6 +52,7 @@ type NativeHealth struct {
 }
 type Options struct {
 	Directory, RuntimeDirectory, NodeID, Label string
+	RuntimeInstaller                           RuntimeInstaller
 	Join                                       api.NodeJoin
 	Binaries                                   map[api.NodeBackend]string
 	Health                                     func(context.Context, api.NodeBackend) (NativeHealth, error)
@@ -123,6 +131,12 @@ func New(o Options) (*Service, error) {
 	}
 	o.Binaries = copied
 	s := &Service{options: o}
+	if o.RuntimeInstaller != nil {
+		if o.RuntimeDirectory != "" {
+			return nil, errors.New("one native installation owner required")
+		}
+		s.installation = o.RuntimeInstaller
+	}
 	if o.RuntimeDirectory != "" {
 		s.installation, err = runtimemanagement.New(o.RuntimeDirectory)
 		if err != nil {
@@ -220,14 +234,14 @@ func (s *Service) catalog(ctx context.Context) (api.NodeCatalog, error) {
 	return api.NodeCatalog{Revision: hex.EncodeToString(hash[:]), Nodes: []api.NodeInfo{node}, SelectedNodeID: node.ID, PendingOperations: pending}, nil
 }
 func (s *Service) detectVersion(ctx context.Context, b api.NodeBackend) (string, error) {
-	path := s.options.Binaries[b]
-	if path == "" {
-		var err error
-		path, err = exec.LookPath(string(b))
-		if err != nil {
-			return "", nil
-		}
+	metadata, err := s.readOwnedRuntimeSettings(ctx, s.options.NodeID, b)
+	if err != nil {
+		return "", err
 	}
+	path := metadata.Binary
+	return s.detectExecutableVersion(ctx, b, path)
+}
+func (s *Service) detectExecutableVersion(ctx context.Context, b api.NodeBackend, path string) (string, error) {
 	home, err := os.MkdirTemp(s.options.Directory, ".probe-")
 	if err != nil {
 		return "", err
@@ -345,20 +359,38 @@ func (s *Service) configuration(ctx context.Context, nodeID string, b api.NodeBa
 		if out.ConfigurationAvailable {
 			nativeRevision = out.Configuration.Revision
 		}
-		h := sha256.Sum256([]byte(connectionBinding(metadata) + "\x00" + nativeRevision))
+		executableRevision := "unavailable"
+		if out.Executable != nil && out.Executable.Installed {
+			executableRevision = out.Executable.Version
+		}
+		h := sha256.Sum256([]byte(connectionBinding(metadata) + "\x00" + executableRevision + "\x00" + nativeRevision))
 		out.Guard.Revision = hex.EncodeToString(h[:])
 	}()
 	if s.installation != nil {
-		out.InstallerAvailable = true
-		status, err := s.installation.Manage(ctx, runtimemanagement.Request{Action: "detect", Runtime: string(b)})
-		if err == nil && status.Outcome == "accepted" {
-			out.Installation = &api.NodeInstallationState{Installed: status.Installed, Version: status.Version, LatestVersion: status.LatestVersion}
+		releases := runtimemanagement.Releases()
+		if provider, ok := s.installation.(interface {
+			ReviewedReleases() []runtimemanagement.Release
+		}); ok {
+			releases = provider.ReviewedReleases()
 		}
-		for _, release := range runtimemanagement.Releases() {
+		for _, release := range releases {
 			if release.Arch == runtime.GOARCH && release.Runtime == string(b) {
 				out.ReviewedVersions = append(out.ReviewedVersions, release.Version)
 			}
 		}
+		out.InstallerAvailable = len(out.ReviewedVersions) > 0
+		status, err := s.installation.Manage(ctx, runtimemanagement.Request{Action: "detect", Runtime: string(b)})
+		if err == nil && status.Outcome == "accepted" {
+			out.Installation = &api.NodeInstallationState{Installed: status.Installed, Version: status.Version, LatestVersion: status.LatestVersion}
+		}
+	}
+	// A successfully identified executable is independent of the managed receipt.
+	// This probe runs only --version in an empty HOME, never a Host or auth flow.
+	if metadata, err := s.readOwnedRuntimeSettings(ctx, nodeID, b); err == nil {
+		version, probeErr := s.detectExecutableVersion(ctx, b, metadata.Binary)
+		out.Executable = &api.NodeRuntimeExecutable{Installed: probeErr == nil, Version: version}
+	} else {
+		out.Executable = &api.NodeRuntimeExecutable{Installed: false}
 	}
 	if catalog, err := s.catalog(ctx); err == nil {
 		out.Guard.Revision = catalog.Revision

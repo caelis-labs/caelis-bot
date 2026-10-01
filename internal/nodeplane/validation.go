@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -111,6 +112,16 @@ func ValidateCatalog(c api.NodeCatalog) error {
 		if c.Broker.AutomaticRoaming && (!c.Broker.Reachable || !eligibleBot) {
 			return errors.New("automatic roaming requires reachable broker and eligible Bot runtime")
 		}
+	}
+	enrollments := map[string]bool{}
+	if len(c.PendingEnrollments) > 128 {
+		return errors.New("pending enrollment limit")
+	}
+	for _, id := range c.PendingEnrollments {
+		if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`).MatchString(id) || enrollments[id] {
+			return errors.New("invalid original enrollment reference")
+		}
+		enrollments[id] = true
 	}
 	pending := map[api.NodeOperationRef]bool{}
 	for _, ref := range c.PendingOperations {
