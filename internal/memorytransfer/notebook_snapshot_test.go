@@ -256,7 +256,7 @@ func TestNotebookSnapshotRejectsUnsafeFilesReferencesAndUngatedApply(t *testing.
 	if err := json.Unmarshal(payload, &base); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{"../escape.md", "Notebook/../escape.md", "Notebook/HANDOFF.md", "Notebook/INDEX.md", "personal/index.json", "personal/memory/memory.db", "providers/token", "Notebook/secret-token.png"} {
+	for _, p := range []string{"../escape.md", "Notebook/../escape.md", "Notebook/HANDOFF.md", "Notebook/handoff.md", "Notebook/INDEX.md", "Notebook/index.md", "personal/index.json", "personal/memory/memory.db", "providers/token", "Notebook/secret-token.png"} {
 		t.Run(p, func(t *testing.T) {
 			s := base
 			s.Files = append(append([]NotebookFile{}, base.Files...), NotebookFile{File: File{Path: p}, Body: []byte("unsafe")})
@@ -264,6 +264,11 @@ func TestNotebookSnapshotRejectsUnsafeFilesReferencesAndUngatedApply(t *testing.
 				t.Fatal("unsafe file accepted")
 			}
 		})
+	}
+	caseAlias := base
+	caseAlias.Files = append(append([]NotebookFile{}, base.Files...), NotebookFile{File: File{Path: "Notebook/memory.md"}, Body: []byte("colliding body")})
+	if _, _, err := EncodeNotebook(t.Context(), caseAlias); err == nil {
+		t.Fatal("case alias accepted for a macOS target")
 	}
 	for _, v := range []string{"0", "01", "+1", "-1", "18446744073709551616"} {
 		s := base
