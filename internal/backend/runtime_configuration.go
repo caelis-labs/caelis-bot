@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) runtimeConfigurationController() (api.RuntimeConfigurationController, error) {
-	controller, ok := s.setup.(api.RuntimeConfigurationController)
+	controller, ok := s.setupController().(api.RuntimeConfigurationController)
 	if !ok {
 		return nil, errors.New("运行时配置不可用")
 	}

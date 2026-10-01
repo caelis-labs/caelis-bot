@@ -100,6 +100,7 @@ type nodeRoamingControl struct {
 	lease               nodeplane.Lease
 	location            NodeRoamingProductLocation
 	local               *Application
+	sourceConnection    backend.ProductConnectionController
 	pendingLocalRestore bool
 	ctx                 context.Context
 	cancel              context.CancelFunc
@@ -137,7 +138,7 @@ func AttachNodeRoaming(a *Application, o NodeRoamingOptions) error {
 		return err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &nodeRoamingControl{app: a, options: o, proxy: proxy, ctx: ctx, cancel: cancel, prepareSource: a.PrepareRoamingBootstrap, clientFactory: newSSHProductClient, doc: doc, registrations: map[string]NodeRegistration{}, pendingLocalRestore: doc.LocalGenerationDirectory != "", startLocal: func(_ context.Context, a *Application) error { return a.Start() }, prepareLocalSource: func(ctx context.Context, a *Application, id string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error) {
+	c := &nodeRoamingControl{app: a, options: o, proxy: proxy, ctx: ctx, cancel: cancel, prepareSource: a.PrepareRoamingBootstrap, clientFactory: newSSHProductClient, doc: doc, registrations: map[string]NodeRegistration{}, sourceConnection: backend.NativeProductConnectionController(a.Backend), pendingLocalRestore: doc.LocalGenerationDirectory != "", startLocal: func(_ context.Context, a *Application) error { return a.Start() }, prepareLocalSource: func(ctx context.Context, a *Application, id string) ([]byte, nodeplane.SnapshotRef, nodeplane.RuntimeProofPort, error) {
 		return a.PrepareRoamingBootstrap(ctx, id)
 	}}
 	c.state = backend.NodeRoamingState{Available: o.PreparePlan != nil && o.Preflight != nil && o.Stage != nil && o.ResolveProduct != nil && o.RestoreLocal != nil, State: "disabled", Enabled: doc.Enabled, CoordinatorNodeID: doc.CoordinatorNodeID, OperationID: doc.OperationID, Outcome: doc.Outcome}
@@ -156,6 +157,7 @@ func AttachNodeRoaming(a *Application, o NodeRoamingOptions) error {
 		if err := a.Backend.ActivateNodeRoamingProduct(roamingWaitingEngine{}); err != nil {
 			return err
 		}
+		a.Backend.ConfigureProductConnection(c)
 	}
 	return nil
 }
@@ -389,6 +391,7 @@ func (c *nodeRoamingControl) EnableNodeRoaming(ctx context.Context, r backend.No
 	c.state.Outcome = "unknown"
 	c.state.State = "enabling"
 	c.mu.Unlock()
+	c.app.Backend.ConfigureProductConnection(c)
 	if err := c.options.Preflight(ctx, input); err != nil {
 		if errors.Is(err, ErrNodeRoamingPreflight) {
 			c.doc.Outcome = "rejected"
@@ -941,18 +944,53 @@ func (c *nodeRoamingControl) PrepareNodeRoaming(ctx context.Context, r backend.N
 	return plan, err
 }
 
+func (c *nodeRoamingControl) localProductConnection() backend.ProductConnectionController {
+	c.mu.Lock()
+	local, port := c.local, c.sourceConnection
+	remote := c.state.Enabled || c.state.Outcome == "unknown" || c.pendingLocalRestore
+	c.mu.Unlock()
+	if remote {
+		return nil
+	}
+	if local != nil {
+		if local == c.app || local.Backend == c.app.Backend {
+			return nil
+		}
+		port = backend.NativeProductConnectionController(local.Backend)
+	}
+	if port == c {
+		return nil
+	}
+	return port
+}
+
 func (c *nodeRoamingControl) ConnectionState() backend.ProductConnectionState {
+	if port := c.localProductConnection(); port != nil {
+		return port.ConnectionState()
+	}
 	c.mu.Lock()
 	state := c.state
 	c.mu.Unlock()
-	return backend.ProductConnectionState{Revision: c.proxy.Revision(), ActiveMode: "remote", Pairing: backend.ProductPairing{Mode: "remote"}, State: state.State, Issue: state.Reason}
+	mode := "local"
+	if state.Enabled || state.Outcome == "unknown" {
+		mode = "remote"
+	}
+	return backend.ProductConnectionState{Revision: c.proxy.Revision(), ActiveMode: mode, Pairing: backend.ProductPairing{Mode: mode}, State: state.State, Issue: state.Reason}
 }
-func (c *nodeRoamingControl) SavePairing(backend.ProductPairing, uint64) (backend.ProductConnectionState, error) {
+func (c *nodeRoamingControl) SavePairing(pairing backend.ProductPairing, revision uint64) (backend.ProductConnectionState, error) {
+	c.op.Lock()
+	defer c.op.Unlock()
+	if port := c.localProductConnection(); port != nil {
+		return port.SavePairing(pairing, revision)
+	}
 	return c.ConnectionState(), errors.New("disable automatic roaming before replacing product pairing")
 }
 func (c *nodeRoamingControl) Reconnect(ctx context.Context) error {
 	c.op.Lock()
 	defer c.op.Unlock()
+	if port := c.localProductConnection(); port != nil {
+		return port.Reconnect(ctx)
+	}
 	if !c.doc.Enabled || c.doc.Phase != "active" || c.doc.Outcome == "unknown" || c.stage.Broker == nil {
 		return errors.New("automatic roaming unavailable")
 	}
@@ -961,6 +999,9 @@ func (c *nodeRoamingControl) Reconnect(ctx context.Context) error {
 func (c *nodeRoamingControl) Disconnect(ctx context.Context) error {
 	c.op.Lock()
 	defer c.op.Unlock()
+	if port := c.localProductConnection(); port != nil {
+		return port.Disconnect(ctx)
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -1027,4 +1068,12 @@ func GuardNodeRoamingCoordinator(a *Application, nodeID string) error {
 		return errors.New("disable automatic roaming before changing its coordinator")
 	}
 	return nil
+}
+
+// BlockLocalSetup is pure native ownership metadata. Backend configuration
+// checks must not call NodeRoamingState, which can reconcile native receipts.
+func (c *nodeRoamingControl) BlockLocalSetup() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.state.Enabled || c.state.Outcome == "unknown" || c.pendingLocalRestore
 }

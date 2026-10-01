@@ -59,6 +59,9 @@ func (s *Service) ConfigureWorkRoutes(owner WorkRouteOwner, artifactDirectory st
 }
 
 func (s *Service) workerInteractions() *workerInteractions {
+	if s.blockLocalConfiguration() {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.workInteractions

@@ -6,48 +6,70 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-func (s *Service) ConfigureSetup(v api.SetupController) { s.setup = v }
-func (s *Service) SetupOverview() api.SetupOverview {
-	if s.setup == nil {
-		return api.SetupOverview{}
-	}
-	return s.setup.Overview()
+func (s *Service) ConfigureSetup(v api.SetupController) {
+	s.mu.Lock()
+	s.setup = v
+	s.mu.Unlock()
 }
-func (s *Service) SetupProfile(id string) (api.RuntimeSettings, error) {
-	if s.setup == nil {
-		return api.RuntimeSettings{}, errors.New("运行时管理不可用")
-	}
-	return s.setup.Profile(id)
-}
-func (s *Service) InspectSetup(ctx context.Context, v api.RuntimeSettings) (api.SetupState, error) {
-	if s.setup == nil {
-		return api.SetupState{}, errors.New("运行时管理不可用")
-	}
-	return s.setup.Inspect(ctx, v)
-}
-func (s *Service) SetupCatalog(ctx context.Context, v api.SetupRequest) ([]api.SetupChoice, error) {
-	if s.setup == nil {
-		return nil, errors.New("运行时管理不可用")
-	}
-	return s.setup.Catalog(ctx, v)
-}
-func (s *Service) ApplySetup(ctx context.Context, v api.SetupRequest) (api.SetupState, error) {
-	if s.setup == nil {
-		return api.SetupState{}, errors.New("运行时管理不可用")
-	}
-	return s.setup.Apply(ctx, v)
-}
-func (s *Service) ActivateRuntime(ctx context.Context, v api.RuntimeSettings) error {
-	if s.setup == nil {
-		return errors.New("运行时管理不可用")
-	}
-	return s.setup.Activate(ctx, v)
-}
-func (s *Service) DismissSetup() error {
-	if s.setup == nil {
+func (s *Service) setupController() api.SetupController {
+	if s.blockLocalConfiguration() {
 		return nil
 	}
-	return s.setup.Dismiss()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.setup
+}
+func (s *Service) SetupOverview() api.SetupOverview {
+	controller := s.setupController()
+	if controller == nil {
+		return api.SetupOverview{}
+	}
+	return controller.Overview()
+}
+func (s *Service) SetupProfile(id string) (api.RuntimeSettings, error) {
+	controller := s.setupController()
+	if controller == nil {
+		return api.RuntimeSettings{}, errors.New("运行时管理不可用")
+	}
+	return controller.Profile(id)
+}
+func (s *Service) InspectSetup(ctx context.Context, v api.RuntimeSettings) (api.SetupState, error) {
+	controller := s.setupController()
+	if controller == nil {
+		return api.SetupState{}, errors.New("运行时管理不可用")
+	}
+	return controller.Inspect(ctx, v)
+}
+func (s *Service) SetupCatalog(ctx context.Context, v api.SetupRequest) ([]api.SetupChoice, error) {
+	controller := s.setupController()
+	if controller == nil {
+		return nil, errors.New("运行时管理不可用")
+	}
+	return controller.Catalog(ctx, v)
+}
+func (s *Service) ApplySetup(ctx context.Context, v api.SetupRequest) (api.SetupState, error) {
+	controller := s.setupController()
+	if controller == nil {
+		return api.SetupState{}, errors.New("运行时管理不可用")
+	}
+	return controller.Apply(ctx, v)
+}
+func (s *Service) ActivateRuntime(ctx context.Context, v api.RuntimeSettings) error {
+	controller := s.setupController()
+	if controller == nil {
+		return errors.New("运行时管理不可用")
+	}
+	return controller.Activate(ctx, v)
+}
+func (s *Service) DismissSetup() error {
+	if err := s.guardLocalConfiguration(); err != nil {
+		return err
+	}
+	controller := s.setupController()
+	if controller == nil {
+		return nil
+	}
+	return controller.Dismiss()
 }
 
 // Freeze new conversation admission before the native host begins relaunch.

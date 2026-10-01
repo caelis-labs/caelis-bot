@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/care"
 )
@@ -160,5 +161,98 @@ func TestNativeCoordinatorGuardRejectsBeforeCatalogOrDocumentMutation(t *testing
 	n := &nativeNodeManagement{app: f.a}
 	if _, err := n.SetCoordinator(t.Context(), api.NodeCoordinatorSelection{NodeID: "different"}); err == nil || !strings.Contains(err.Error(), "disable automatic roaming") {
 		t.Fatal("direct native coordinator mutation escaped the guard", err)
+	}
+}
+
+func TestNodeRoamingStableBackendUsesFreshSetupAndTasksAfterDisableAndRestart(t *testing.T) {
+	f := roamingControlFixture(t)
+	freshEngine := newTestEngine()
+	fresh, freshRoot := fixtureApp(t, freshEngine, Host{})
+	f.c.options.RestoreLocal = func(context.Context, NodeRoamingStage) (*Application, error) { return fresh, nil }
+	f.c.startLocal = func(_ context.Context, a *Application) error { return a.Start() }
+	if _, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.a.Backend.SaveProductPairing(backend.ProductPairing{Mode: "local"}, f.a.Backend.ProductConnection().Revision); err == nil {
+		t.Fatal("pairing bypassed enabled roaming authority")
+	}
+	if _, err := f.a.Backend.DisableNodeRoaming(t.Context(), controlRequest("disable-original")); err != nil {
+		t.Fatal(err)
+	}
+	waitSignal(t, freshEngine.connectSeen)
+	task, err := fresh.tasks.StartTask(t.Context(), api.TaskStart{RequestID: "fresh-work", Title: "Fresh task", Prompt: "Fixture work"})
+	if err == nil || task.ID == "" || task.Status != "unknown" {
+		t.Fatal("fixture did not retain its uncertain fresh work", task, err)
+	}
+	assertFresh := func(a, owner *Application) {
+		t.Helper()
+		if rows := a.Backend.TaskSummaries(); len(rows) != 1 || rows[0].ID != task.ID {
+			t.Fatal("stable renderer task port did not follow fresh work", rows)
+		}
+		guardErr := owner.guardRuntimeChange()
+		if err := a.Backend.ActivateRuntime(t.Context(), api.RuntimeSettings{Runtime: "caelis"}); guardErr == nil || err == nil || err.Error() != guardErr.Error() {
+			t.Fatal("renderer activation bypassed actual fresh work", guardErr, err)
+		}
+		if a.Backend.SetupOverview().Active != "fixture" {
+			t.Fatal("renderer setup retained the original source")
+		}
+		state := a.Backend.ProductConnection()
+		if state.ActiveMode != "local" || state.Pairing.Mode != "local" {
+			t.Fatal("disabled local generation projected remote pairing", state)
+		}
+		if port := backend.NativeProductConnectionController(a.Backend); port != backend.NativeProductConnectionController(owner.Backend) {
+			if _, ok := port.(*nodeRoamingControl); !ok {
+				t.Fatal("outer roaming controller was replaced")
+			}
+		}
+		if _, err := a.Backend.SaveProductPairing(backend.ProductPairing{Mode: "local"}, state.Revision); err != nil {
+			t.Fatal("disabled pairing did not delegate to fresh CAS authority", err)
+		}
+		if err := a.Backend.DismissSetup(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertFresh(f.a, fresh)
+	for _, name := range []string{"setup.json", "product-connection.json"} {
+		if _, err := os.Stat(filepath.Join(freshRoot, name)); err != nil {
+			t.Fatal("renderer action missed the fresh generation", name, err)
+		}
+		if _, err := os.Stat(filepath.Join(f.a.root, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("renderer action mutated the retired source", name, err)
+		}
+	}
+	if err := f.c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := newApplication(freshRoot, Host{}, func(id string) (providerFactory, error) {
+		return providerFactory{ID: id, Open: func(providerConfig) (api.Engine, error) { return newTestEngine(), nil }}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	o := f.c.options
+	o.Recover = func(_ context.Context, in NodeRoamingRecoveryInput) (NodeRoamingRecovery, error) {
+		return NodeRoamingRecovery{OperationID: in.OperationID, Outcome: "accepted", Phase: "local", Local: reopened}, nil
+	}
+	a, _ := attachControlRestart(t, f, o)
+	if err := a.Start(); err != nil {
+		t.Fatal(err)
+	}
+	assertFresh(a, reopened)
+}
+
+func TestNodeRoamingUnknownPairingCannotReachLocalController(t *testing.T) {
+	f := roamingControlFixture(t)
+	f.stageErr = errors.New("native response lost")
+	if state, err := f.a.Backend.EnableNodeRoaming(t.Context(), controlRequest("enable-original")); err != nil || state.Outcome != "unknown" {
+		t.Fatal(state, err)
+	}
+	state := f.a.Backend.ProductConnection()
+	if state.ActiveMode != "remote" || state.Pairing.Mode != "remote" {
+		t.Fatal("unknown roaming authority projected local mode", state)
+	}
+	if _, err := f.a.Backend.SaveProductPairing(backend.ProductPairing{Mode: "local"}, state.Revision); err == nil {
+		t.Fatal("pairing bypassed unknown native authority")
 	}
 }

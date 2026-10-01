@@ -49,6 +49,18 @@ func (s *Service) ConfigureProductConnection(controller ProductConnectionControl
 	s.mu.Unlock()
 }
 
+// NativeProductConnectionController is a native lifecycle port, not a Wails
+// method. It lets a roaming facade delegate to a fresh local pairing authority
+// without recursively traversing another Service facade.
+func NativeProductConnectionController(s *Service) ProductConnectionController {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.productConnection
+}
+
 func (s *Service) ProductConnection() ProductConnectionState {
 	s.mu.Lock()
 	controller := s.productConnection

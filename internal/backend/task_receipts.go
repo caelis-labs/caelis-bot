@@ -5,6 +5,9 @@ import "github.com/caelis-labs/caelis-bot/internal/backend/api"
 // TaskSummaries exposes bounded product facts for native presentation. It does
 // not resolve a receipt, issue a mutation, or export execution bindings/paths.
 func (s *Service) TaskSummaries() []api.TaskSummary {
+	if source, ok := s.capabilityEngine().(interface{ TaskSummaries() []api.TaskSummary }); ok {
+		return source.TaskSummaries()
+	}
 	workers := s.workerInteractions()
 	if workers == nil || workers.owner == nil {
 		return []api.TaskSummary{}
