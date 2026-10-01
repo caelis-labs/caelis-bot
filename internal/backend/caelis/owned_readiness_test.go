@@ -108,6 +108,25 @@ func TestOwnedReadinessProcessHelper(t *testing.T) {
 				return
 			}
 			if string(mode) == "metadata-cancel" {
+				// Test-only parent barrier: signal after entering the actual native
+				// metadata handler, before waiting for its request cancellation.
+				if callback, err := os.ReadFile(filepath.Join(store, "fixture-metadata-entered-url")); err == nil {
+					req, err := http.NewRequestWithContext(r.Context(), "GET", string(callback), nil)
+					if err != nil {
+						w.WriteHeader(502)
+						return
+					}
+					response, err := http.DefaultClient.Do(req)
+					if err != nil {
+						w.WriteHeader(502)
+						return
+					}
+					_ = response.Body.Close()
+					if response.StatusCode != http.StatusNoContent {
+						w.WriteHeader(502)
+						return
+					}
+				}
 				<-r.Context().Done()
 				return
 			}
