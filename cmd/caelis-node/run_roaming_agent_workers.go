@@ -65,7 +65,9 @@ func newRoamingOwnedWorkers(life context.Context, c roamingCommand, p roamingWor
 			}
 		}
 	}
-	if len(p.Runtimes) == 0 {
+	// Only legacy manifests without either modern metadata field inherit the
+	// primary binding. Explicit empty Runtime approval must remain empty.
+	if p.Runtimes == nil && p.Sources == nil {
 		native := roamingWorkerRuntime{Backend: c.Backend, Binary: c.CodexBinary}
 		if c.Backend == "caelis" {
 			native.Binary, native.Store, native.Model = c.CaelisBinary, c.CaelisStore, c.Model

@@ -127,3 +127,70 @@ func testRoamingAgentOwnedWorkerDetach(t *testing.T, nodeID string) {
 		t.Fatal("detached stream retained observer authority")
 	}
 }
+
+func TestModernEmptyWorkerRuntimeApprovalRejectsBeforeLaunch(t *testing.T) {
+	// Write actual JSON so omitempty cannot turn explicit [] into absence.
+	base := `{"version":1,"nodes":[{"id":"linux-primary","label":"Approved source","backend":"codex","transport":"registered-agent"}],"agents":[{"nodeId":"linux-primary","backend":"codex","socket":"/private/source/agent.sock"}]`
+	for name, metadata := range map[string]string{
+		"empty runtimes with sources":         `,"sources":[{"nodeId":"linux-primary","backends":["codex","caelis"]}],"runtimes":[]`,
+		"omitted runtimes with sources":       `,"sources":[{"nodeId":"linux-primary","backends":["codex","caelis"]}]`,
+		"empty runtimes without sources":      `,"runtimes":[]`,
+		"empty sources with omitted runtimes": `,"sources":[]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			filename := filepath.Join(root, "workers.json")
+			if err := os.WriteFile(filename, []byte(base+metadata+`}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := loadRoamingWorkerPlan(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, primaryBackend := range []string{"codex", "caelis"} {
+				command := roamingCommand{NodeID: api.LocalNodeID, BotID: "native-bot", Backend: primaryBackend, BrokerNodeID: api.LocalNodeID, AgentDirectory: filepath.Join(root, "absent-agent"), CodexBinary: "/private/unapproved-codex", CaelisBinary: "/private/unapproved-caelis", CaelisStore: "/private/unapproved-store"}
+				workers := newRoamingOwnedWorkers(t.Context(), command, plan, "/private/unapproved-helper", unavailableWorkerLeaseReader{}, func(context.Context, func(), func()) (func(), error) {
+					t.Error("unapproved runtime reached native power binding")
+					return func() {}, nil
+				})
+				if len(workers.runtimes) != 0 {
+					t.Fatal("empty approval recreated primary Runtime", workers.runtimes)
+				}
+				for _, targetBackend := range []string{"codex", "caelis"} {
+					pair := workerwire.Pair{Target: api.WorkTarget{NodeID: api.LocalNodeID, Backend: targetBackend, Role: api.RoleWorker}, BotID: api.ProfileBotID(command.BotID), SourceNode: "linux-primary", SourceBackend: "codex"}
+					if _, err := workers.resolve(t.Context(), pair); err == nil || err.Error() != "target Worker backend has no approved native Runtime binding" {
+						t.Fatal("unapproved Worker proceeded beyond binding preflight", pair, err)
+					}
+				}
+				if len(workers.workers) != 0 {
+					t.Fatal("rejected route allocated native Worker")
+				}
+				if _, err := os.Lstat(command.AgentDirectory); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("runtime denial wrote native generation", err)
+				}
+			}
+		})
+	}
+}
+
+func TestLegacyWorkerManifestAloneInheritsPrimaryRuntimeBinding(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "legacy-workers.json")
+	if err := os.WriteFile(filename, []byte(`{"version":1,"nodes":[],"agents":[]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := loadRoamingWorkerPlan(filename)
+	if err != nil || plan.Runtimes != nil || plan.Sources != nil {
+		t.Fatal("legacy metadata changed", plan, err)
+	}
+	for _, backend := range []string{"codex", "caelis"} {
+		command := roamingCommand{NodeID: api.LocalNodeID, Backend: backend, CodexBinary: "/native/codex", CaelisBinary: "/native/caelis", CaelisStore: "/native/store", Model: "owned-model"}
+		workers := newRoamingOwnedWorkers(t.Context(), command, plan, "", nil, nil)
+		want := roamingWorkerRuntime{Backend: backend, Binary: command.CodexBinary}
+		if backend == "caelis" {
+			want.Binary, want.Store, want.Model = command.CaelisBinary, command.CaelisStore, command.Model
+		}
+		if len(workers.runtimes) != 1 || workers.runtimes[backend] != want {
+			t.Fatal("legacy primary binding changed", workers.runtimes, want)
+		}
+	}
+}
