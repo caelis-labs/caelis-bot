@@ -46,6 +46,7 @@ type Options struct {
 	Health                                     func(context.Context, api.NodeBackend) (NativeHealth, error)
 	Configurations                             map[api.NodeBackend]NativeConfiguration
 	RuntimeOwner                               nodeplane.RuntimeProofPort
+	WorkerProxy                                *NativeWorkerProxy
 }
 
 const MaxOperations = 4096
