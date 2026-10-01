@@ -11,7 +11,7 @@ export type ConnectionModel = { id: string; name: string; uses: string[]; unavai
 export type ConnectionGroup = { id: string; name: string; kind: 'provider' | 'agent'; detail: string; models: ConnectionModel[] };
 export type RuntimeView = {
  revision: string; profile: RuntimeSettings; setup: SetupState; pending: string;
- models: ModelOption[]; conversation: ExecutionSettings | null; work: ModelSelection | null;
+ models: ModelOption[]; conversation: ModelSelection | ExecutionSettings | null; work: ModelSelection | null;
  main: ModelSelection | null; canEditMain: boolean; team: TeamState; connections: ConnectionGroup[];
 };
 export type ConnectionKind = 'account' | 'api-key' | 'agent';
@@ -39,6 +39,7 @@ export type TeamChange =
 // A frontend seam for the user-owned settings surface, never a model tool.
 // No implementation may infer an auth URL, installation command or capability.
 export interface RuntimeSettingsClient {
+ capture?(revision:string):RuntimeSettingsClient;
  read(): Promise<RuntimeView>;
  saveModel(scope: ModelScope, value: ModelSelection, revision?: string): Promise<void>;
  changeTeam(change: TeamChange, revision: string): Promise<void>;

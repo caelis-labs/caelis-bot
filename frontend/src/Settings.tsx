@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { desktop,backend } from './desktop';
 import {ProductConnectionSettings} from './ProductConnectionSettings';
-import {RemoteRuntimeSettings} from './RemoteRuntimeSettings';
 import type {ProductConnectionState} from './backend/contract';
 import { BotSetup } from './BotSetup';
 import { AppearanceSettings } from './AppearanceSettings';
@@ -41,7 +40,7 @@ export function Settings() {
   <aside><nav aria-label={t('settings.navLabel')}>{sections.map(id=><button key={id} aria-current={section===id?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}>{t(`settings.${id}`)}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
   <div className="settings-content" ref={content}>
    <div className="settings-page" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&(productMode==='remote'?<><h1>{t('settings.permissions')}</h1><p className="settings-note">{t('settings.productRuntimeOnTarget')}</p></>:productMode==='local'?<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<><PermissionSettings embedded/><ScreenInputSettings/></>}<ExecutionSettings embedded/></>:null)}</div>
-<div className="settings-page" hidden={section!=='runtime'}>{(runtimeVisited||section==='runtime')&&(productMode==='remote'?<><RemoteRuntimeSettings active={section==='runtime'} refreshKey={opened}/><details className="settings-disclosure"><summary>{t('settings.productConnection')}</summary><ProductConnectionSettings/></details></>:productMode==='local'?<RuntimeSettings active={section==='runtime'} refreshKey={opened}/>:null)}</div>
+<div className="settings-page" hidden={section!=='runtime'}>{(runtimeVisited||section==='runtime')&&(productMode?<><RuntimeSettings active={section==='runtime'} refreshKey={opened}/>{productMode==='remote'&&<details className="settings-disclosure"><summary>{t('settings.productConnection')}</summary><ProductConnectionSettings/></details>}</>:null)}</div>
    <div className="settings-page" key={section} hidden={section==='permissions'||section==='runtime'}>
    {section==='general'?<General key={opened} productMode={productMode}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?null:section==='permissions'?null:<Updates key={opened} version={version}/>}
    </div>

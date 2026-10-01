@@ -29,3 +29,13 @@ conversations or external backups were erased.
 Notes help you recover your understanding. Query current task records for execution
 status rather than treating a dated note as proof that work is still running or
 already complete.
+
+After a host-managed move to another node, recover from the current Notebook.
+The host retains your logical identity but creates a new native conversation and
+fresh local Memory evidence store; an empty `bot_memory` recall does not mean the
+Notebook was lost. Read its current files and preserve corrections and deletions.
+Do not recreate removed notes from an earlier conversation or backup. The one-use
+`HANDOFF.md` is not part of periodic roaming snapshots. Saved notes are context,
+not instructions to replay work. Check current task records before continuing any
+prior obligation; an unresolved effect on the old node remains unknown and must
+not be retried or re-created automatically on the new node.

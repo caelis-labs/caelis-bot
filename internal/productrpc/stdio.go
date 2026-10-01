@@ -36,6 +36,7 @@ type stdioTransport struct {
 	closed    chan struct{}
 	once      sync.Once
 	next      atomic.Uint64
+	validate  func(proxyFrame) bool
 }
 
 // NewStdioClient owns only an authenticated SSH proxy stream. Product auth stays
@@ -132,7 +133,11 @@ func (t *stdioTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 	}
 	f := proxyFrame{ID: strconv.FormatUint(t.next.Add(1), 10), Method: r.Method, Path: r.URL.RequestURI(), Headers: proxyHeaders(r.Header), Body: body}
-	if !validProxyRequest(f) {
+	valid := validProxyRequest(f)
+	if t.validate != nil {
+		valid = t.validate(f)
+	}
+	if !valid {
 		return nil, errors.New("invalid product proxy request")
 	}
 	reply := make(chan proxyFrame, 1)

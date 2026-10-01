@@ -92,6 +92,48 @@ Local public Memory round-trip tests and Linux builds do not prove SSH or remote
 login. The opt-in synthetic native fixture below covers a stopped source and a
 fresh target; real account setup and paid-model behavior remain separate gates.
 
+## Notebook roaming snapshots
+
+The host-only `internal/memorytransfer` Notebook codec uses the separate
+`caelis.bot-notebook.v1` format. It does not change the CLI or the complete cold
+Memory bundle above. `ExportNotebook` returns canonical bounded bytes and a
+`nodeplane.SnapshotRef`; `ValidateNotebookPayload` checks those bytes before they
+enter the coordinator cache. The descriptor binds the stable Bot ID, publisher
+epoch, positive decimal version and SHA-256 of the complete payload. Each sorted
+file entry also contains its size and SHA-256. The snapshot is a complete file
+set, so deletions are carried by absence rather than merging older generations.
+
+This format contains sanitized `bot.json` identity with empty schedules, an
+accepted introduction marker when present, the migration barrier, authored
+Notebook Markdown and explicitly allowlisted referenced attachments. It excludes
+generated `INDEX.md` and consume-once `HANDOFF.md`. No periodic snapshot converts
+or revives a handoff. Pending introductions or wake effects must be reconciled
+before export. Source Memory SQLite, mutation receipts, provider bindings,
+authentication, tasks, native history and machine paths are not copied. Supported
+local references follow the same Notebook attachment checks as the cold bundle.
+
+`ApplyNotebook` stages a new **absent** profile generation with a target-owned
+empty Memory database and an empty matching `personal/index.json`, then rebuilds
+Notebook INDEX. The caller must hold the actual stopped/standby writer fence and
+provide a commit callback that checks the coordinator's exact latest descriptor
+under its CAS lock before invoking the atomic installation. Validation at the
+start of staging alone is insufficient: a stale node must resynchronize the
+latest full snapshot before becoming eligible. The lifecycle owner adopts the
+new generation only after successful installation and creates its own native
+conversation; old generations are preserved locally and never merged. Failed
+staging or commit returns the retained inactive path for recovery.
+The installed `notebook-snapshot.json` receipt binds the imported descriptor to
+`bot.json`; `ReadInstalledNotebookRef` checks that binding. This receipt supplies
+installation evidence only. A node still needs the latest broker descriptor and
+an execution lease before admitting work.
+
+Periodic payloads are limited to 16 MiB of canonical JSON, 10 MiB of decoded
+file data, 8 MiB per file and 4,096 entries. Core MEMORY remains within the
+128 KiB new-session context limit. Use clean canonical absolute local paths;
+receiver paths, including existing ancestors, reject symlinks. These limits and
+the stopped writer fence are independent of the larger offline bundle limits.
+The codec starts no model, scheduler, transport or persistent service.
+
 ## Synthetic native acceptance
 
 `internal/productrpc/testdata/memory_headless_fixture.py` extends the isolated
