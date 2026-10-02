@@ -63,7 +63,7 @@ func (e *productEngine) ChangeRemoteExecutionSettings(parent context.Context, re
 		return backend.RemoteManagementResult{ID: request.ID, Outcome: "unknown"}, errors.New("target connection ended before a model receipt was observed")
 	}
 	result, err := execution.ChangeExecutionSettings(ctx, command)
-	if result.Scope != scope || !e.managementCurrent(request.Binding, client) {
+	if err == nil && (result.Scope != scope || !e.managementCurrent(request.Binding, client)) {
 		err = errors.New("target model receipt connection changed")
 	}
 	return e.finishManagement(request.ID, backend.RemoteManagementResult{ID: result.ID, Outcome: result.Outcome, Code: result.Code}, err)

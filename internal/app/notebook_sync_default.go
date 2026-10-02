@@ -465,6 +465,9 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 			}
 			state, e := request(ctx, r.ID, "stop", "notebook-stop-"+operation())
 			if e != nil {
+				if errors.Is(e, api.ErrStopNotDispatched) {
+					a.CancelUpdate()
+				}
 				return e
 			}
 			if !state.Stopped {

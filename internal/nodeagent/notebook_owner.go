@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
 
@@ -21,10 +22,11 @@ type NotebookOwnerRequest struct {
 	Runtime     *OwnedRuntimeSettings `json:"runtime,omitempty"`
 }
 type NotebookOwnerState struct {
-	Stopped  bool                `json:"stopped"`
-	Handoff  []byte              `json:"handoff,omitempty"`
-	Endpoint string              `json:"endpoint,omitempty"`
-	Identity productrpc.Identity `json:"identity"`
+	StopResult *productrpc.Result  `json:"stopResult,omitempty"`
+	Stopped    bool                `json:"stopped"`
+	Handoff    []byte              `json:"handoff,omitempty"`
+	Endpoint   string              `json:"endpoint,omitempty"`
+	Identity   productrpc.Identity `json:"identity"`
 }
 
 func NotebookOwnerProfile(directory string) string { return filepath.Join(directory, "notebook-bot") }
@@ -57,6 +59,14 @@ func NotebookOwner(ctx context.Context, ssh SSHConfig, helper, directory, node s
 	d.DisallowUnknownFields()
 	if d.Decode(&state) != nil || d.Decode(new(any)) != io.EOF || state.Identity.NodeID != node || state.Identity.BotID != productrpc.ProfileBotID(request.BotID) {
 		return NotebookOwnerState{}, errors.New("Notebook owner identity differs")
+	}
+
+	if state.StopResult != nil {
+		result := state.StopResult
+		if request.Action != "stop" || result.ID != request.OperationID || state.Stopped || result.Outcome != "rejected" || result.Code != productrpc.StopNotDispatchedCode {
+			return NotebookOwnerState{}, errors.New("Notebook stop rejection does not match original request")
+		}
+		return state, api.ErrStopNotDispatched
 	}
 	return state, nil
 }

@@ -321,6 +321,11 @@ func (w *WorkerClient) Reconnect(ctx context.Context) error {
 	w.engine.mu.Unlock()
 	return w.Connect(ctx)
 }
+func (w *WorkerClient) Ready() bool {
+	w.engine.mu.Lock()
+	defer w.engine.mu.Unlock()
+	return w.engine.connected && !w.engine.closed
+}
 func (w *WorkerClient) Close(ctx context.Context) error         { return w.engine.Close(ctx) }
 func (w *WorkerClient) WorkAdmission(ctx context.Context) error { return w.engine.WorkAdmission(ctx) }
 func (w *WorkerClient) WorkStates() []api.WorkState             { return w.engine.WorkStates() }

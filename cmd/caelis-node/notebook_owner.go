@@ -89,6 +89,10 @@ func runNotebookOwner(ctx context.Context, args []string, out io.Writer) error {
 		}
 		defer client.Close()
 		result, err := client.Command(ctx, productrpc.Command{ID: request.OperationID, Kind: "stop-bot"})
+		if err == nil && result.Outcome == "rejected" && result.Code == productrpc.StopNotDispatchedCode {
+			state.StopResult = &result
+			break
+		}
 		if err != nil || result.Outcome != "accepted" {
 			return errors.New("source stop unconfirmed; do not launch a second Bot")
 		}

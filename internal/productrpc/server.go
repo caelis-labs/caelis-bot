@@ -525,6 +525,11 @@ func (s *Server) execute(ctx context.Context, c Command) Result {
 	case "stop-bot":
 		s.stopping = true
 		err = s.port.StopBot(ctx)
+		if errors.Is(err, api.ErrStopNotDispatched) {
+			s.stopping = false
+			r.Outcome, r.Code = "rejected", StopNotDispatchedCode
+			return r
+		}
 	}
 	if err != nil {
 		if errors.Is(err, ErrUnsupported) {

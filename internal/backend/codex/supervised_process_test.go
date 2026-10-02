@@ -232,11 +232,16 @@ func TestSupervisedDeadlineAndWatchdogDeath(t *testing.T) {
 				case <-time.After(time.Second):
 					t.Fatal("watchdog death not observed")
 				}
-				if err = p.Stop(testContext(t)); err != nil {
-					t.Fatal("independent owner fallback failed", err)
+				if err = p.Stop(testContext(t)); err == nil {
+					t.Fatal("watchdog death lost unconfirmed descendant proof")
 				}
 			}
 			assertOwnedExited(t, root, tool)
+			if scenario == "deadline" {
+				if err = p.Stop(testContext(t)); err != nil {
+					t.Fatal("complete autonomous stop receipt lost", err)
+				}
+			}
 			if p.Live() {
 				t.Fatal("expired supervision advertised live")
 			}

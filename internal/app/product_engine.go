@@ -406,13 +406,12 @@ func (e *productEngine) commandWithDigest(ctx context.Context, command productrp
 		}
 	}
 	result, err := client.Command(ctx, command)
-	var rejected *productrpc.ProtocolError
-	if errors.As(err, &rejected) && rejected.Status == 400 && rejected.Code == "invalid-command" {
+	if productrpc.CommandNotDispatched(err) {
 		delete(e.receipts.Pending, command.ID)
 		if saveErr := e.writeReceipts(); saveErr != nil {
 			return productrpc.Result{ID: command.ID, Outcome: "rejected"}, saveErr
 		}
-		return productrpc.Result{ID: command.ID, Outcome: "rejected", Code: rejected.Code}, err
+		return productrpc.Result{ID: command.ID, Outcome: "rejected", Code: "invalid-command"}, err
 	}
 	if err != nil || result.Outcome != "accepted" && result.Outcome != "rejected" {
 		e.mu.Lock()

@@ -95,17 +95,18 @@ func readSupervisor(r io.Reader) (supervisorFrame, error) {
 }
 
 type SupervisedProcess struct {
-	conn     net.Conn
-	cmd      *exec.Cmd
-	pid      int
-	tools    *ownedTools
-	gate     chan struct{}
-	exited   chan struct{}
-	next     atomic.Uint64
-	mu       sync.Mutex
-	stopped  bool
-	stopOnce sync.Once
-	stopErr  error
+	conn      net.Conn
+	cmd       *exec.Cmd
+	pid       int
+	tools     *ownedTools
+	gate      chan struct{}
+	exited    chan struct{}
+	next      atomic.Uint64
+	mu        sync.Mutex
+	stopped   bool
+	stopOnce  sync.Once
+	stopErr   error
+	finalStop supervisorFrame
 }
 
 func StartSupervisedProcess(ctx context.Context, o SupervisedProcessOptions) (*SupervisedProcess, error) {
@@ -135,7 +136,13 @@ func StartSupervisedProcess(ctx context.Context, o SupervisedProcessOptions) (*S
 		return nil, err
 	}
 	defer null.Close()
-	files := []*os.File{b, o.Stdin, o.Stdout, o.Stderr}
+	proofReader, proofWriter, err := os.Pipe()
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	defer proofWriter.Close()
+	files := []*os.File{b, o.Stdin, o.Stdout, o.Stderr, proofWriter}
 	for i := 1; i < len(files); i++ {
 		if files[i] == nil {
 			files[i] = null
@@ -152,10 +159,22 @@ func StartSupervisedProcess(ctx context.Context, o SupervisedProcessOptions) (*S
 	}
 	if err != nil {
 		conn.Close()
+		proofReader.Close()
 		return nil, errors.New("owned watchdog did not start")
 	}
 	p := &SupervisedProcess{conn: conn, cmd: cmd, gate: make(chan struct{}, 1), exited: make(chan struct{})}
-	go func() { _ = cmd.Wait(); close(p.exited); _ = conn.Close() }()
+	go func() {
+		_ = cmd.Wait()
+		proof, proofErr := readSupervisor(proofReader)
+		proofReader.Close()
+		if proofErr == nil {
+			p.mu.Lock()
+			p.finalStop = proof
+			p.mu.Unlock()
+		}
+		close(p.exited)
+		_ = conn.Close()
+	}()
 	reply, err := p.call(ctx, supervisorFrame{Method: "start", Kind: o.Kind, Binary: o.Binary, Directory: o.Directory, Socket: o.Socket, Store: o.Store})
 	if err != nil || reply.PID <= 1 {
 		_ = conn.Close()
@@ -166,6 +185,7 @@ func StartSupervisedProcess(ctx context.Context, o SupervisedProcessOptions) (*S
 	p.tools.capture()
 	if p.tools.failure() != nil {
 		_ = p.conn.Close()
+
 		p.tools.releaseHandles()
 		return nil, errors.New("owned watchdog parent stable proof unavailable")
 	}
@@ -245,11 +265,27 @@ func (p *SupervisedProcess) Stop(ctx context.Context) error {
 			err = errors.New("owned watchdog stop unconfirmed")
 		}
 		_ = p.conn.Close()
+		if err != nil && p.cmd != nil && !errors.Is(err, errWatchdogStopUnconfirmed) {
+			// Autonomous expiry can finish before an explicit stop request. Its
+			// independent final receipt still proves the complete owned tree;
+			// process exit, EOF, and parent-only cleanup do not.
+			timer := time.NewTimer(2 * time.Second)
+			select {
+			case <-p.exited:
+			case <-ctx.Done():
+			case <-timer.C:
+			}
+			timer.Stop()
+			p.mu.Lock()
+			if p.finalStop == (supervisorFrame{ID: 1, PID: p.pid, Stopped: true}) {
+				err = nil
+			}
+			p.mu.Unlock()
+		}
 		if err == nil && p.tools != nil {
 			err = p.tools.killFencedChildren()
 		}
 		if err != nil && p.tools != nil {
-			nativeProofFailed := errors.Is(err, errWatchdogStopUnconfirmed)
 			originalErr := err
 			live, readErr := p.tools.watchdogRootLive()
 			var freeze error
@@ -261,10 +297,10 @@ func (p *SupervisedProcess) Stop(ctx context.Context) error {
 			p.tools.capture()
 			root := p.tools.watchdogForceRoot()
 			children := p.tools.killFencedChildren()
-			err = errors.Join(freeze, root, children, p.tools.failure())
-			if nativeProofFailed {
-				err = errors.Join(originalErr, err)
-			}
+			// Parent-side handles can clean known processes, but cannot recover
+			// descendants already adopted by a lost watchdog. Only its complete
+			// original stop receipt can discharge that lifecycle uncertainty.
+			err = errors.Join(originalErr, freeze, root, children, p.tools.failure())
 		}
 		if p.tools != nil {
 			p.tools.releaseHandles()
@@ -293,6 +329,11 @@ func RunSupervisedRuntime(ctx context.Context, control *os.File) error {
 // RunSupervisedRuntimeWithPower permits native platform binding and deterministic
 // fixture injection; the production CLI always selects leasepower.Bind.
 func RunSupervisedRuntimeWithPower(ctx context.Context, control *os.File, bindPower func(context.Context, func(), func()) (func(), error)) error {
+	// Dedicated inherited receipt pipe. It cannot be written by the native
+	// Runtime, and remains usable after the command socket has reached EOF.
+	finalProof := os.NewFile(7, "watchdog-final-stop")
+	unix.CloseOnExec(7)
+	defer finalProof.Close()
 	conn, err := net.FileConn(control)
 	control.Close()
 	if err != nil {
@@ -404,7 +445,14 @@ func RunSupervisedRuntimeWithPower(ctx context.Context, control *os.File, bindPo
 		})
 		return stoppedErr
 	}
-	defer stopNative()
+	defer func() {
+		stopErr := stopNative()
+		proof := supervisorFrame{ID: first.ID, PID: cmd.Process.Pid, Stopped: stopErr == nil}
+		if stopErr != nil {
+			proof.Fault = "native-stop-unconfirmed"
+		}
+		_ = writeSupervisor(finalProof, proof)
+	}()
 	if err = tools.failure(); err != nil {
 		return err
 	}

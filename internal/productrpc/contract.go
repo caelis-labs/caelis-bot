@@ -131,3 +131,6 @@ type Resources interface {
 // TaskSummaryPort is a host-only composed watchlist observation. It carries
 // native terminal status and receipt uncertainty independently, never paths.
 type TaskSummaryPort interface{ TaskSummaries() []api.TaskSummary }
+
+// StopNotDispatchedCode is a durable rejection, never evidence of a stopped owner.
+const StopNotDispatchedCode = "stop-not-dispatched"

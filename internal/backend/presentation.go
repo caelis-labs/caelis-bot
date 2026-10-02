@@ -101,19 +101,35 @@ func previewKey(v api.Snapshot) string {
 	// Stable across restarts and revision-only updates. A different outcome cannot
 	// inherit an acknowledgement made against an older result.
 	var lastUser, lastAssistant string
+	var workerArtifacts []string
 	for _, i := range v.Items {
 		if i.Kind == "user" {
 			lastUser = i.ID
 			lastAssistant = ""
 		}
 		if i.Kind == "assistant" {
-			lastAssistant = i.ID + "\x00" + i.Text
+			encoded, _ := json.Marshal(struct {
+				ID, Turn, Text string
+				Artifacts      []api.Artifact
+			}{i.ID, i.TurnKey, i.Text, i.Artifacts})
+			if isWorkerArtifact(i.ID) {
+				workerArtifacts = append(workerArtifacts, string(encoded))
+			} else {
+				lastAssistant = string(encoded)
+			}
 		}
 	}
-	if lastUser == "" && lastAssistant == "" {
+	if lastUser == "" && lastAssistant == "" && len(workerArtifacts) == 0 {
 		return ""
 	}
-	h := sha256.Sum256([]byte(lastUser + "\x00" + lastAssistant))
+	// Worker outputs are appended after native history. Keep their identity
+	// separate so an old output cannot hide a new scheduled assistant result.
+	slices.Sort(workerArtifacts)
+	encoded, _ := json.Marshal(struct {
+		User, Assistant string
+		WorkerArtifacts []string
+	}{lastUser, lastAssistant, workerArtifacts})
+	h := sha256.Sum256(encoded)
 	return hex.EncodeToString(h[:])
 }
 func (s *Service) presentation(v api.Snapshot) api.Snapshot {
@@ -138,8 +154,17 @@ func (s *Service) ConfigurePresentation(path string) error {
 	}
 	return json.Unmarshal(b, &s.dismissed)
 }
+
+// Read and dismissal share the same history window before pet payload trimming.
+func (s *Service) previewSnapshot() api.Snapshot {
+	if recent, ok := s.engine.(api.RecentSource); ok {
+		return s.decorate(recent.RecentSnapshot())
+	}
+	return s.Snapshot()
+}
+
 func (s *Service) DismissPreview(key string) error {
-	v := s.Snapshot()
+	v := s.previewSnapshot()
 	if v.CanInterrupt || v.Phase == "unknown" || v.Phase == "sending" {
 		return errors.New("当前工作尚未结束")
 	}

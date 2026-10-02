@@ -54,6 +54,10 @@ unsupported before launching a helper or preparing owned runtime state. Both the
 its watchdog need this capability; a native companion cannot supply the parent's missing fence.
 The packaged macOS node agent enables cgo for this headless system binding without APP/Wails
 or AppKit composition.
+The watchdog confirms the complete owned process tree, including adopted Linux children,
+before issuing a stop receipt. A separate inherited pipe preserves that receipt after autonomous
+expiry closes the command channel. Missing receipts remain unknown even when the parent cleans
+its known processes; a watchdog's exit or an empty parent capture is not complete stop proof.
 
 Codex owns only the server it launched. Explicit stop/quit interrupts exact owned work, asks native terminal
 cleanup, then reaps that process. macOS descendant fallback uses captured PID plus birth identity; no global

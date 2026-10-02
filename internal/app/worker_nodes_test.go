@@ -10,6 +10,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/backend/caelis"
 	"github.com/caelis-labs/caelis-bot/internal/nodes"
 )
 
@@ -358,5 +359,28 @@ func TestWorkerNodeBackendSelectionPreservesLegacyScope(t *testing.T) {
 		if _, err = c.Save(bad, bounded.Revision); err == nil {
 			t.Fatal("unsupported backend accepted", unsupported)
 		}
+	}
+}
+
+func TestExplicitConnectReplacesUnavailableCaelisWorker(t *testing.T) {
+	c, _, adapter := nodeFixture(t)
+	saved, err := c.Save(nodeConfig(), c.Snapshot().Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = c.Connect(t.Context(), "rocky", saved.Revision); err != nil {
+		t.Fatal(err)
+	}
+	// Retain the production Caelis runtime type at the controller boundary. Its
+	// connection has ended; explicit Connect must invoke the adapter again.
+	unavailable := caelis.NewWorker(caelis.WorkerOptions{Directory: t.TempDir(), Target: workerTarget("rocky")})
+	if err = unavailable.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	c.mu.Lock()
+	c.runtimes[workerTarget("rocky")] = unavailable
+	c.mu.Unlock()
+	if _, err = c.ConnectTarget(t.Context(), workerTarget("rocky"), c.Snapshot().Revision); err != nil || adapter.connects != 2 || adapter.closes != 1 {
+		t.Fatal("explicit Connect reused unavailable Caelis runtime", err, adapter.connects, adapter.closes)
 	}
 }

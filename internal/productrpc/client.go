@@ -36,6 +36,13 @@ type ProtocolError struct {
 
 func (e *ProtocolError) Error() string { return "product connection: " + e.Code }
 
+// CommandNotDispatched recognizes only the server's pre-journal validation
+// rejection. Transport failures and missing receipts cannot prove non-dispatch.
+func CommandNotDispatched(err error) bool {
+	var rejected *ProtocolError
+	return errors.As(err, &rejected) && rejected.Status == 400 && rejected.Code == "invalid-command"
+}
+
 func NewClient(opts ClientOptions) (*Client, error) {
 	u, err := url.Parse(opts.URL)
 	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || !net.ParseIP(u.Hostname()).IsLoopback() || !identifier.MatchString(opts.ExpectedNode) || !identifier.MatchString(opts.ExpectedBot) || len(opts.Token) < 32 || len(opts.Token) > 256 {

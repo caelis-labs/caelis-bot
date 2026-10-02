@@ -277,3 +277,163 @@ func TestLinuxWatchdogCapturesDaemonAdoptedBetweenScans(t *testing.T) {
 		t.Fatal("unrelated process affected", err)
 	}
 }
+
+func TestLinuxDaemonizingRuntimeHelper(t *testing.T) {
+	args := helperArgs()
+	if len(args) == 0 {
+		return
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(args[0] + ".spawn"); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("launch barrier unavailable")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	launcher := exec.Command("/bin/sh", "-c", `sleep 60 >/dev/null 2>&1 & echo $! > "$1"`, "fixture", args[0]+".tool")
+	if err := launcher.Run(); err != nil {
+		t.Fatal(err)
+	}
+	TestWorkerProcessHelper(t)
+}
+
+func TestLinuxWatchdogLossFixtureHelper(t *testing.T) {
+	args := helperArgs()
+	if len(args) == 0 {
+		return
+	}
+	if err := prepareWatchdogReaping(); err != nil {
+		t.Fatal(err)
+	}
+	helper, native, dir, pidFile := supervisorFixture(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
+	body := "#!/bin/sh\nexec " + quote(executable) + " -test.run='^TestLinuxDaemonizingRuntimeHelper$' -- " + quote(pidFile) + " \"$@\"\n"
+	if err = os.WriteFile(native, []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "native.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logFile.Close()
+	p, err := StartSupervisedProcess(t.Context(), SupervisedProcessOptions{HelperPath: helper, Binary: native, Directory: dir, Socket: filepath.Join(dir, "runtime.sock"), Kind: SupervisedCodexUnix, Stdout: logFile, Stderr: logFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop(context.Background())
+	if err = os.WriteFile(pidFile+".spawn", nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	daemon := 0
+	for range 300 {
+		raw, _ := os.ReadFile(pidFile + ".tool")
+		daemon, _ = strconv.Atoi(strings.TrimSpace(string(raw)))
+		if daemon > 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if daemon < 1 {
+		body, _ := os.ReadFile(logPath)
+		t.Fatalf("native daemon barrier missing, live=%v, output=%s", p.Live(), body)
+	}
+	identity, err := readLinuxProcess(daemon)
+	if err != nil || identity.parent != p.cmd.Process.Pid {
+		t.Fatal("daemon not adopted by actual watchdog", identity, err)
+	}
+	fd, err := unix.PidfdOpen(daemon, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(fd)
+	defer func() {
+		_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
+		var info unix.Siginfo
+		_ = unix.Waitid(unix.P_PIDFD, fd, &info, unix.WEXITED, nil)
+	}()
+	p.tools.capture()
+	if _, known := p.tools.children[daemon]; known {
+		t.Fatal("parent fixture accidentally captured adopted daemon")
+	}
+	unrelated := exec.Command("/bin/sleep", "60")
+	if err = unrelated.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unrelated.Process.Kill(); _ = unrelated.Wait() }()
+	killed := args[0] == "killed"
+	if args[0] == "deadline" {
+		if err = p.Renew(t.Context(), "fixture-deadline", 2*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-p.exited:
+		case <-time.After(4 * time.Second):
+			t.Fatal("autonomous watchdog stop did not finish")
+		}
+	}
+	if killed {
+		if err = p.cmd.Process.Kill(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-p.exited:
+		case <-time.After(3 * time.Second):
+			t.Fatal("watchdog did not exit")
+		}
+	}
+	stop, cancel := context.WithTimeout(t.Context(), 4*time.Second)
+	defer cancel()
+	err = p.Stop(stop)
+	if killed {
+		if err == nil {
+			t.Fatal("incomplete parent capture manufactured stop proof")
+		}
+		if again := p.Stop(t.Context()); again != err {
+			t.Fatal("unknown stop result was replaced", again, err)
+		}
+		if !sameLiveProcess(daemon, identity.born) {
+			t.Fatal("fixture no longer proves missing descendant")
+		}
+	} else if err != nil {
+		t.Fatal("live watchdog could not prove complete stop", err)
+	}
+	if live, e := readLinuxProcess(p.PID()); e == nil && live.state != "Z" && live.state != "X" {
+		t.Fatal("fallback did not clean the known native root", live)
+	}
+	if !killed {
+		if _, err = readLinuxProcess(daemon); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("live watchdog did not reap adopted daemon", err)
+		}
+	}
+	if err = unix.Kill(unrelated.Process.Pid, 0); err != nil {
+		t.Fatal("unrelated fixture process affected", err)
+	}
+	// After watchdog death this dedicated test subreaper owns any root zombie.
+	var info unix.Siginfo
+	_ = unix.Waitid(unix.P_PID, p.PID(), &info, unix.WEXITED|unix.WNOHANG, nil)
+}
+
+func TestLinuxWatchdogLossCannotEraseAdoptedDaemonUncertainty(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"live", "killed", "deadline"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, executable, "-test.run=^TestLinuxWatchdogLossFixtureHelper$", "--", mode)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("watchdog %s fixture failed: %v\n%s", mode, err, output)
+			}
+		})
+	}
+}

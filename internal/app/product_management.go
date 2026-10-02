@@ -11,6 +11,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/productmanagement"
+	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 	"github.com/caelis-labs/caelis-bot/internal/runtimemanagement"
 )
 
@@ -134,6 +135,14 @@ func (e *productEngine) RemoteRuntimeConfiguration(parent context.Context, bindi
 }
 
 func (e *productEngine) finishManagement(id string, result backend.RemoteManagementResult, err error) (backend.RemoteManagementResult, error) {
+	if productrpc.CommandNotDispatched(err) {
+		delete(e.receipts.Pending, id)
+		result = backend.RemoteManagementResult{ID: id, Outcome: "rejected", Code: "invalid-command"}
+		if saveErr := e.writeReceipts(); saveErr != nil {
+			return result, saveErr
+		}
+		return result, err
+	}
 	if err != nil || result.ID != id || result.Outcome != "accepted" && result.Outcome != "rejected" {
 		e.mu.Lock()
 		e.offlineLocked("outcome_unknown")
@@ -148,6 +157,18 @@ func (e *productEngine) finishManagement(id string, result backend.RemoteManagem
 }
 
 func (e *productEngine) reserveManagement(id, kind string, scope productmanagement.Scope, intent any, runtime *backend.RemoteRuntimeRequest) error {
+	command := productrpc.Command{Scope: productrpc.Scope{BotID: scope.BotID, Generation: scope.Generation}, ID: id, Kind: kind}
+	switch value := intent.(type) {
+	case productmanagement.RuntimeCommand:
+		command.RuntimeManagement = &value
+	case productmanagement.ConfigurationCommand:
+		command.Configuration = &value
+	case productmanagement.ExecutionCommand:
+		command.Execution = &value
+	}
+	if err := productrpc.ValidateCommand(command); err != nil {
+		return err
+	}
 	if !productIdentifier.MatchString(id) {
 		return errors.New("stable product operation identity is required")
 	}
@@ -205,10 +226,10 @@ func (e *productEngine) ManageRemoteRuntime(parent context.Context, request back
 		return backend.RemoteManagementResult{ID: request.ID, Outcome: "unknown"}, errors.New("target connection ended before an operation receipt was observed")
 	}
 	result, err := managed.ManageRuntime(ctx, command)
-	if result.Scope != expectedReceiptScope && result.Outcome != "unknown" {
+	if err == nil && result.Scope != expectedReceiptScope && result.Outcome != "unknown" {
 		err = errors.New("target installation receipt identity changed")
 	}
-	if result.Outcome == "accepted" && (result.Status.Runtime != request.Runtime || result.Status.RequestID != request.ID || result.Status.Outcome != "accepted") {
+	if err == nil && result.Outcome == "accepted" && (result.Status.Runtime != request.Runtime || result.Status.RequestID != request.ID || result.Status.Outcome != "accepted") {
 		err = errors.New("target installation receipt does not confirm the original operation")
 	}
 	status := result.Status
@@ -236,10 +257,10 @@ func (e *productEngine) ChangeRemoteRuntimeConfiguration(parent context.Context,
 		return backend.RemoteManagementResult{ID: request.ID, Outcome: "unknown"}, errors.New("target connection ended before a settings receipt was observed")
 	}
 	result, err := managed.ChangeRuntimeConfiguration(ctx, command)
-	if result.Scope != scope {
+	if err == nil && result.Scope != scope {
 		err = errors.New("target settings receipt identity changed")
 	}
-	if result.Outcome == "accepted" && result.Native.Outcome != "committed" || result.Outcome == "rejected" && result.Native.Outcome != "" && result.Native.Outcome != "conflicted" && result.Native.Outcome != "rejected" {
+	if err == nil && (result.Outcome == "accepted" && result.Native.Outcome != "committed" || result.Outcome == "rejected" && result.Native.Outcome != "" && result.Native.Outcome != "conflicted" && result.Native.Outcome != "rejected") {
 		err = errors.New("target settings receipt outcome is inconsistent")
 	}
 	native := result.Native

@@ -90,29 +90,96 @@ func writeFrame(w io.Writer, f frame) error {
 	return nil
 }
 
-// Send one coherent snapshot in bounded pages. The native journal remains
-// complete; the client publishes state only after receiving every page.
+// Send one coherent snapshot in pages bounded by both record count and the
+// complete encoded frame, including reply payloads and base64 artifact data.
+// Plan every page before sending any of them; an oversized record cannot expose
+// a prefix of a snapshot or erase the complete native journal.
 func writeStateFrames(w io.Writer, f frame) error {
 	if f.State == nil {
 		return writeFrame(w, f)
 	}
 	state := *f.State
-	pages := max(1, (len(state.Tasks)+1023)/1024, (len(state.Approvals)+1023)/1024, (len(state.Artifacts)+8191)/8192)
-	if pages == 1 {
-		return writeFrame(w, f)
+	part := state
+	part.Tasks = []api.WorkState{}
+	part.Approvals = []api.WorkApproval{}
+	part.Artifacts = []api.WorkArtifactRef{}
+	// There cannot be more nonempty pages than records. Reserve the largest
+	// possible page-number encoding while measuring the invariant envelope.
+	bound := max(2, len(state.Tasks)+len(state.Approvals)+len(state.Artifacts))
+	part.Page, part.Pages = bound, bound
+	f.State = &part
+	envelope, err := json.Marshal(f)
+	if err != nil || len(envelope) > maxFrame {
+		return writeFrame(w, frame{Version: f.Version, ID: f.ID, Pair: f.Pair, Fault: "state-envelope-too-large"})
 	}
-	for page := 0; page < pages; page++ {
-		part := state
-		part.Page, part.Pages = page+1, pages
-		part.Tasks = state.Tasks[min(page*1024, len(state.Tasks)):min((page+1)*1024, len(state.Tasks))]
-		part.Approvals = state.Approvals[min(page*1024, len(state.Approvals)):min((page+1)*1024, len(state.Approvals))]
-		part.Artifacts = state.Artifacts[min(page*8192, len(state.Artifacts)):min((page+1)*8192, len(state.Artifacts))]
-		f.State = &part
+	budget := maxFrame - len(envelope)
+	var pages []State
+	for {
+		available := budget
+		tasks, err := statePageCount(state.Tasks, 1024, &available)
+		if err != nil {
+			return err
+		}
+		approvals, err := statePageCount(state.Approvals, 1024, &available)
+		if err != nil {
+			return err
+		}
+		artifacts, err := statePageCount(state.Artifacts, 8192, &available)
+		if err != nil {
+			return err
+		}
+		if tasks+approvals+artifacts == 0 && len(state.Tasks)+len(state.Approvals)+len(state.Artifacts) > 0 {
+			return writeFrame(w, frame{Version: f.Version, ID: f.ID, Pair: f.Pair, Fault: "state-record-too-large"})
+		}
+		part.Tasks, state.Tasks = state.Tasks[:tasks], state.Tasks[tasks:]
+		part.Approvals, state.Approvals = state.Approvals[:approvals], state.Approvals[approvals:]
+		part.Artifacts, state.Artifacts = state.Artifacts[:artifacts], state.Artifacts[artifacts:]
+		// The byte calculation uses [] rather than null for empty arrays.
+		if part.Tasks == nil {
+			part.Tasks = []api.WorkState{}
+		}
+		if part.Approvals == nil {
+			part.Approvals = []api.WorkApproval{}
+		}
+		if part.Artifacts == nil {
+			part.Artifacts = []api.WorkArtifactRef{}
+		}
+		pages = append(pages, part)
+		if len(state.Tasks)+len(state.Approvals)+len(state.Artifacts) == 0 {
+			break
+		}
+	}
+	for i := range pages {
+		pages[i].Page, pages[i].Pages = 0, 0
+		if len(pages) > 1 {
+			pages[i].Page, pages[i].Pages = i+1, len(pages)
+		}
+		f.State = &pages[i]
 		if err := writeFrame(w, f); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func statePageCount[T any](records []T, limit int, available *int) (int, error) {
+	count := 0
+	for _, record := range records[:min(limit, len(records))] {
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			return 0, err
+		}
+		size := len(encoded)
+		if count > 0 {
+			size++
+		} // Array separator.
+		if size > *available {
+			break
+		}
+		*available -= size
+		count++
+	}
+	return count, nil
 }
 
 func readFrame(r io.Reader) (frame, error) {

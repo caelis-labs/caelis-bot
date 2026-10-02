@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"sync"
 	"time"
 )
@@ -18,7 +19,7 @@ var ErrPreparationUnconfirmed = errors.New("target preparation stop is unconfirm
 
 // ErrStopNotDispatched is returned only by the source owner when admission
 // failed before any native stop. Other stop failures retain the durable fence.
-var ErrStopNotDispatched = errors.New("source stop was not dispatched")
+var ErrStopNotDispatched = api.ErrStopNotDispatched
 
 type NotebookSyncStatus struct {
 	NodeID      string `json:"nodeId"`

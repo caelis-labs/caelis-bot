@@ -1,6 +1,13 @@
 package api
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrStopNotDispatched proves rejection before any native stop was issued.
+// Transport loss or an attempted stop must never use this classification.
+var ErrStopNotDispatched = errors.New("source stop was not dispatched")
 
 // ExecutionAdmission is host-installed execution authority. Begin derives a
 // cancellable context for a single operation; Check is repeated after queueing

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -270,7 +271,7 @@ type historyWorker struct {
 func (w historyWorker) WorkStates() []api.WorkState { return w.states }
 func TestWorkerHistoryPagesReconnectBeyond1024Tasks(t *testing.T) {
 	pair := testPair()
-	for _, count := range []int{1024, 1025, 2050} {
+	for _, count := range []int{900, 1024, 1025, 2050} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			runtime := historyWorker{lastingWorker: lastingWorker{pair: pair}}
 			for i := 0; i < count; i++ {
@@ -278,7 +279,7 @@ func TestWorkerHistoryPagesReconnectBeyond1024Tasks(t *testing.T) {
 				if i == count-1 {
 					status = "working"
 				}
-				runtime.states = append(runtime.states, api.WorkState{Target: pair.Target, Task: api.Task{ID: fmt.Sprintf("task-%d", i), Target: &pair.Target, Status: status}})
+				runtime.states = append(runtime.states, api.WorkState{Target: pair.Target, OriginalPrompt: strings.Repeat("p", 24000), Task: api.Task{ID: fmt.Sprintf("task-%d", i), Target: &pair.Target, Status: status, Result: strings.Repeat("r", 6000)}})
 			}
 			owner := nodeworker.New(runtime)
 			server, err := NewServer(owner, pair)
@@ -351,5 +352,70 @@ func TestPagedStateNeverPublishesIncompleteOrMixedSnapshot(t *testing.T) {
 				t.Fatal("incoherent snapshot replaced original state")
 			}
 		})
+	}
+}
+
+func TestStatePagesBudgetIncludesEncodedReplyAndArtifactData(t *testing.T) {
+	pair := testPair()
+	state := State{Revision: 7, Connection: "ready"}
+	// Escaped text expands sixfold; artifact bytes expand with base64. Neither
+	// raw field sizes nor just the State encoding are the complete frame budget.
+	for i := 0; i < 600; i++ {
+		state.Tasks = append(state.Tasks, api.WorkState{Target: pair.Target, OriginalPrompt: strings.Repeat("<", 6000), Task: api.Task{ID: fmt.Sprint(i), Target: &pair.Target}})
+	}
+	reply := frame{Version: 1, ID: 1, Pair: pair, Data: make([]byte, 8<<20), Task: &api.Task{ID: "reply", Target: &pair.Target, Result: strings.Repeat("r", 6000)}, State: &state}
+	var encoded bytes.Buffer
+	if err := writeStateFrames(&encoded, reply); err != nil {
+		t.Fatal(err)
+	}
+	count, pages := 0, 0
+	for encoded.Len() > 0 {
+		part, err := readFrame(&encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(part)
+		if len(raw) > maxFrame || part.State == nil || len(part.Data) != len(reply.Data) || part.Task.ID != "reply" {
+			t.Fatal("invalid complete encoded page", len(raw))
+		}
+		count += len(part.State.Tasks)
+		pages++
+		if part.State.Page != pages {
+			t.Fatal("page sequence changed")
+		}
+	}
+	if count != 600 || pages < 2 || len(state.Tasks) != 600 {
+		t.Fatal("lost original snapshot", count, pages)
+	}
+}
+func TestOversizedStateRecordFailsBeforeAnyPartialSnapshot(t *testing.T) {
+	pair := testPair()
+	state := State{Connection: "ready", Tasks: []api.WorkState{{Target: pair.Target, Task: api.Task{ID: "small", Target: &pair.Target}}, {Target: pair.Target, OriginalPrompt: strings.Repeat("x", maxFrame), Task: api.Task{ID: "large", Target: &pair.Target}}}}
+	var encoded bytes.Buffer
+	if err := writeStateFrames(&encoded, frame{Version: 1, ID: 1, Pair: pair, State: &state}); err != nil {
+		t.Fatal(err)
+	}
+	failure, err := readFrame(&encoded)
+	if err != nil || failure.Fault != "state-record-too-large" || failure.State != nil || encoded.Len() != 0 {
+		t.Fatal("partial snapshot emitted before oversize rejection", failure.Fault, err)
+	}
+	runtime := historyWorker{lastingWorker: lastingWorker{pair: pair}, states: state.Tasks}
+	server, err := NewServer(nodeworker.New(runtime), pair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, right := net.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(t.Context(), right) }()
+	client, err := NewClient(t.Context(), pair, SourceProvider(), left)
+	if client != nil {
+		client.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "encoded frame limit") {
+		t.Fatal("oversized record did not produce explicit client error", err)
+	}
+	<-done
+	if len(runtime.states) != 2 {
+		t.Fatal("journal was truncated")
 	}
 }

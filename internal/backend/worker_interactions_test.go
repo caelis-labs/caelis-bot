@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/activation"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
@@ -278,5 +279,92 @@ func TestWorkerArtifactPreviewDismissUsesProjectedIdentity(t *testing.T) {
 	w.artifacts[0].Artifact.ID = "new-report"
 	if s.PetSnapshot().PreviewDismissed || s.DismissPreview(view.PreviewKey) == nil {
 		t.Fatal("stale preview acknowledged new artifact")
+	}
+}
+
+// Use the adapter's real scheduled-history projection before the Service adds
+// persistent Worker artifacts; activation inputs do not become user messages.
+type scheduledPreviewEngine struct {
+	snapshotEngine
+	scheduled map[string]string
+}
+
+func (e *scheduledPreviewEngine) Snapshot() api.Snapshot {
+	return activation.Present(e.value, e.scheduled, false)
+}
+func TestOldWorkerArtifactCannotHideNewScheduledPreview(t *testing.T) {
+	s, _, w, target := interactionFixture(t)
+	w.approvals = nil
+	w.artifacts = []api.WorkArtifactRef{{Target: target, TaskID: "owned-task", Artifact: api.Artifact{ID: "report", Name: "report.txt"}}}
+	engine := &scheduledPreviewEngine{snapshotEngine: snapshotEngine{value: api.Snapshot{Connection: "ready", Phase: "completed", Items: []api.Item{{ID: "first", Kind: "assistant", Text: "previous result"}}}}, scheduled: map[string]string{}}
+	s.engine = engine
+	old := s.PetSnapshot()
+	if err := s.DismissPreview(old.PreviewKey); err != nil {
+		t.Fatal(err)
+	}
+	engine.value.CurrentTurn = "schedule-turn"
+	engine.value.Items = append(engine.value.Items, api.Item{ID: "activation", Kind: "activation", TurnKey: "schedule-turn"}, api.Item{ID: "scheduled-result", Kind: "assistant", Text: "new scheduled reply", TurnKey: "schedule-turn"})
+	engine.scheduled["schedule-turn"] = "completed"
+	view := s.PetSnapshot()
+	if view.Quiet || view.PreviewDismissed || view.PreviewKey == old.PreviewKey {
+		t.Fatal("new visible scheduled result inherited old dismissal", view)
+	}
+	if err := s.DismissPreview(old.PreviewKey); err == nil {
+		t.Fatal("stale dismissal accepted")
+	}
+	if err := s.DismissPreview(view.PreviewKey); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		engine.value.Revision++
+		if current := s.PetSnapshot(); !current.PreviewDismissed || current.PreviewKey != view.PreviewKey {
+			t.Fatal("unchanged result resurfaced", current)
+		}
+	}
+	// An invisible quiet activation must not invalidate a visible acknowledgement.
+	engine.value.CurrentTurn = "silent-turn"
+	engine.scheduled["silent-turn"] = "completed"
+	engine.value.Items = append(engine.value.Items, api.Item{ID: "silent-input", Kind: "activation", TurnKey: "silent-turn"}, api.Item{ID: "silent-output", Kind: "assistant", Text: api.SilentReminder, TurnKey: "silent-turn"})
+	if current := s.PetSnapshot(); !current.Quiet || !current.PreviewDismissed || current.PreviewKey != view.PreviewKey {
+		t.Fatal("hidden activation changed preview identity", current)
+	}
+}
+
+// Codex's recent window begins at the last native input, including activations.
+type recentScheduledPreviewEngine struct{ *scheduledPreviewEngine }
+
+func (e recentScheduledPreviewEngine) RecentSnapshot() api.Snapshot {
+	v := e.value
+	for i := len(v.Items) - 1; i >= 0; i-- {
+		if v.Items[i].Kind == "user" || v.Items[i].Kind == "activation" {
+			v.Items = v.Items[i:]
+			break
+		}
+	}
+	return activation.Present(v, e.scheduled, false)
+}
+func TestScheduledPreviewDismissUsesSameRecentHistoryWindow(t *testing.T) {
+	s, _, w, target := interactionFixture(t)
+	w.approvals = nil
+	w.artifacts = []api.WorkArtifactRef{{Target: target, TaskID: "owned-task", Artifact: api.Artifact{ID: "old-report", Name: "old.txt"}}}
+	engine := &scheduledPreviewEngine{snapshotEngine: snapshotEngine{value: api.Snapshot{Connection: "ready", Phase: "completed", CurrentTurn: "scheduled", Items: []api.Item{
+		{ID: "old-user", Kind: "user", TurnKey: "previous", Text: "old question"},
+		{ID: "old-reply", Kind: "assistant", TurnKey: "previous", Text: "old answer"},
+		{ID: "activation", Kind: "activation", TurnKey: "scheduled"},
+		{ID: "new-reply", Kind: "assistant", TurnKey: "scheduled", Text: "new scheduled answer"},
+	}}}, scheduled: map[string]string{"scheduled": "completed"}}
+	s.engine = recentScheduledPreviewEngine{engine}
+	view := s.PetSnapshot()
+	if view.Quiet || len(view.Items) != 1 || view.Items[0].Text != "new scheduled answer" {
+		t.Fatal("pet did not show current scheduled result", view)
+	}
+	if err := s.DismissPreview(view.PreviewKey); err != nil {
+		t.Fatal("recent/full history identity mismatch", err)
+	}
+	for range 3 {
+		engine.value.Revision++
+		if !s.PetSnapshot().PreviewDismissed {
+			t.Fatal("same visible result resurfaced")
+		}
 	}
 }

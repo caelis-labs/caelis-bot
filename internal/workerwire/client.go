@@ -212,6 +212,9 @@ func (c *Client) callAdmitted(ctx context.Context, f frame, admit func() error) 
 				return frame{}, errors.New("Worker original task receipt mismatch")
 			}
 		}
+		if f.Fault == "state-record-too-large" || f.Fault == "state-envelope-too-large" {
+			return f, errors.New("Worker state exceeds the encoded frame limit; original operation outcome remains unconfirmed")
+		}
 		if f.Fault != "" {
 			return f, errors.New("Worker operation unavailable or unconfirmed")
 		}

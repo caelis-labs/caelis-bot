@@ -107,12 +107,7 @@ func (s *Service) SetBotStatus(f func() string) { s.mu.Lock(); s.botStatus = f; 
 // PetSnapshot bounds the default surface payload. History remains available on
 // explicit request; a new user message starts a new preview boundary.
 func (s *Service) PetSnapshot() api.Snapshot {
-	var snapshot api.Snapshot
-	if recent, ok := s.engine.(api.RecentSource); ok {
-		snapshot = s.decorate(recent.RecentSnapshot())
-	} else {
-		snapshot = s.Snapshot()
-	}
+	snapshot := s.previewSnapshot()
 	items := make([]api.Item, 0, 3)
 	for _, item := range snapshot.Items {
 		if snapshot.CurrentTurn != "" && item.TurnKey != snapshot.CurrentTurn {

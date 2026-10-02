@@ -117,7 +117,7 @@ func (s *SSHWorker) Endpoint(ctx context.Context) (caelis.WorkerEndpoint, error)
 	if ready.StoreID == "" || ready.InstanceID == "" || ready.PrincipalID == "" {
 		return caelis.WorkerEndpoint{}, errors.New("SSH Worker identity unavailable")
 	}
-	if s.expected.StoreID != "" && !sameSSHIdentity(s.expected, ready) {
+	if s.expected.StoreID != "" && (s.expected.StoreID != ready.StoreID || s.expected.PrincipalID != ready.PrincipalID) {
 		return caelis.WorkerEndpoint{}, errors.New("SSH Worker identity changed")
 	}
 	if s.tunnel != nil {
@@ -129,10 +129,11 @@ func (s *SSHWorker) Endpoint(ctx context.Context) (caelis.WorkerEndpoint, error)
 	}
 	s.expected = ready
 	s.tunnel = tunnel
+	// This enrollment belongs to this probe, even if another reconnect changes
+	// the current Host instance before the closure is used.
+	enrollment := s.request("enroll")
 	return caelis.WorkerEndpoint{Capabilities: ready.Capabilities, Origin: tunnel.Origin(), StoreID: ready.StoreID, InstanceID: ready.InstanceID, PrincipalID: ready.PrincipalID, Execution: ready.Execution, ModelConfigured: ready.ModelConfigured, ModelAuth: ready.ModelAuth, Enroll: func(ctx context.Context, op, secret string) (wire.ApplicationConnection, error) {
-		s.mu.Lock()
-		req := s.request("enroll")
-		s.mu.Unlock()
+		req := enrollment
 		req.OperationID = op
 		req.AppCredential = secret
 		out, err := s.helper(ctx, req)

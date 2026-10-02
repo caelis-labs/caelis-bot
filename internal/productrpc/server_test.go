@@ -499,3 +499,31 @@ func TestNativeOwnerStopHookFollowsDurableReceiptAndResponse(t *testing.T) {
 		t.Fatal("explicit stop did not reach native owner")
 	}
 }
+
+type refusedStopPort struct{ Port }
+
+func (p refusedStopPort) StopBot(context.Context) error { return api.ErrStopNotDispatched }
+
+func TestStopAdmissionRejectionKeepsOwnerAndOriginalReceipt(t *testing.T) {
+	s, c, _, _, _ := fixture(t)
+	s.port = refusedStopPort{s.port}
+	stopped := make(chan Result, 1)
+	s.opts.OnStopped = func(result Result) { stopped <- result }
+	result, err := c.Command(bounded(t), Command{ID: "busy-stop", Kind: "stop-bot"})
+	if err != nil || result.Outcome != "rejected" || result.Code != StopNotDispatchedCode {
+		t.Fatal(result, err)
+	}
+	receipt, err := c.Receipt(bounded(t), "busy-stop")
+	if err != nil || receipt.Outcome != "rejected" || receipt.Code != StopNotDispatchedCode {
+		t.Fatal(receipt, err)
+	}
+	result, err = c.Command(bounded(t), Command{ID: "after-busy-stop", Kind: "load-earlier"})
+	if err != nil || result.Code == "bot-stopping" {
+		t.Fatal("rejection froze owner", result, err)
+	}
+	select {
+	case r := <-stopped:
+		t.Fatal("rejection ended owner lifetime", r)
+	default:
+	}
+}
