@@ -1004,6 +1004,31 @@ test('managed-copy metadata cannot conceal an explicitly missing executable',asy
 });
 
 const {WorkerNodeSettings}=await server.ssrLoadModule('/src/WorkerNodeSettings.tsx');
+test('first SSH Codex connection does not require an already bound Worker role',async()=>{
+ container=document.createElement('div');document.body.append(container);root=createRoot(container);
+ const nodes=catalog();
+ const candidate={...runtime('codex'),roles:[{role:'bot',eligible:false,reason:'runtime-owner-unavailable'},{role:'worker',eligible:false,reason:'runtime-owner-unavailable'}]};
+ nodes.nodes[1]={...nodes.nodes[1],join:'ssh',runtimes:[candidate]};
+ const calls=[],connection=deferred();let setup={revision:4,nodes:[],issue:''};
+ const call=async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='SaveWorkerNode')setup={...setup,revision:5,nodes:[{config:args[0],state:'candidate',connected:false,issue:''}]};
+  if(method==='ConnectWorkerTarget')return connection.promise;
+  return setup;
+ };
+ await act(async()=>root.render(React.createElement(WorkerNodeSettings,{catalog:nodes,call})));
+ assert.equal(buttons('Connect Worker')[0].disabled,false);
+ assert.doesNotMatch(container.textContent,/not authenticated/i);
+ await click(buttons('Connect Worker')[0]);
+ assert.deepEqual(calls.find(call=>call[0]==='ConnectWorkerTarget'),['ConnectWorkerTarget',{nodeId:'other',backend:'codex',role:'worker'},5]);
+ assert.equal(buttons('Disconnect').length,0,'metadata cannot claim a connected Worker');
+ await act(async()=>connection.resolve({...setup,revision:6,nodes:setup.nodes.map(node=>({...node,connected:true,state:'ready'}))}));
+ assert.equal(buttons('Disconnect').length,1);
+ for(const change of [{authentication:'required'},{authentication:'unknown'},{health:'unavailable'},{backend:'caelis'},{roles:[{role:'worker',eligible:false,reason:'unsupported-platform'}]}]){
+  await act(async()=>root.render(React.createElement(WorkerNodeSettings,{catalog:{...nodes,nodes:[nodes.nodes[0],{...nodes.nodes[1],id:'candidate',runtimes:[{...candidate,...change}]}]},call})));
+  assert.equal(buttons('Connect Worker').at(-1).disabled,true,JSON.stringify(change));
+ }
+});
 test('an empty Worker setup connects the enrolled SSH machine without a second machine form',async()=>{
  container=document.createElement('div');document.body.append(container);root=createRoot(container);
  const nodes=catalog();nodes.nodes[1]={...nodes.nodes[1],join:'ssh',runtimes:[runtime('codex'),runtime('caelis')]};

@@ -53,7 +53,10 @@ target requires connection setup or recovery; it does not authorize a substitute
 machine. Do not promise a remote location before its complete path is ready.
 Guide the user to Settings > AI & connections > Worker locations for explicit Worker
 connection setup. Choose a registered SSH machine and its Runtime there; a
-machine is enrolled only once. Do not install a runtime or copy your local credentials to make
+machine is enrolled only once. An authenticated Codex machine may need its first
+Worker connection; installed/authenticated metadata alone does not mean the
+Worker is ready. Use the connection result and refreshed task target catalog.
+Do not install a runtime or copy your local credentials to make
 a target ready. The target runtime authenticates independently. Disconnecting its
 connection stops observation and delegation through that connection; it does not
 stop the underlying Worker. Use `bot_task_stop` for an authorized cancellation.
