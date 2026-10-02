@@ -21,8 +21,8 @@ function go(args, target = {}, capture = false) {
 
 console.log('Running shared core and unsupported-host tests on this host (CGO=0).');
 go(['test', './...']);
-// Windows is an interface/compile guard only until macOS ships. Linux is not planned.
-for (const [GOOS, GOARCH] of [['darwin', 'arm64'], ['darwin', 'amd64'], ['windows', 'amd64'], ['windows', 'arm64']]) {
+// Windows remains an interface guard. Linux qualifies headless compile paths only.
+for (const [GOOS, GOARCH] of [['darwin', 'arm64'], ['darwin', 'amd64'], ['windows', 'amd64'], ['windows', 'arm64'], ['linux','amd64'], ['linux','arm64']]) {
   const target = { GOOS, GOARCH }, name = `${GOOS}-${GOARCH}`, ext = GOOS === 'windows' ? '.exe' : '';
   // Catch accidental OS/Wails imports leaking into the core, even if the code
   // would happen to compile on the author's current workstation.
@@ -36,5 +36,10 @@ for (const [GOOS, GOARCH] of [['darwin', 'arm64'], ['darwin', 'amd64'], ['window
   go(['test', '-c', '-o', join(output, `bot-${name}${ext}`), './internal/bot'], target);
   go(['test', '-c', '-o', join(output, `app-${name}${ext}`), './internal/app'], target);
   go(['build', '-o', join(output, `unsupported-${name}${ext}`), '.'], target);
+  if (GOOS === 'linux') {
+    go(['build', '-o', join(output, `caelis-node-${name}`), './cmd/caelis-node'], target);
+    go(['build', '-o', join(output, `caelis-agent-${name}`), './cmd/caelis-agent'], target);
+    console.log(`${name}: headless node and agent commands compiled.`);
+  }
   console.log(`${name}: core test binary + unsupported bootstrap compiled; native GUI NOT qualified.`);
 }

@@ -34,6 +34,19 @@ type Options struct {
 	ReviewerModel string
 }
 type Session struct {
+	owned                 *ownedHost
+	admission             api.ExecutionAdmission
+	dispatchSource        func(context.Context, api.WorkDispatchSource) (api.WorkDispatchSource, error)
+	workerPrepared        bool
+	workerOnly            bool
+	workerProtocol        WorkerProtocol
+	workerTarget          api.WorkTarget
+	workerUseDefault      bool
+	workerModelConfigured bool
+	workerModelAuth       string
+	workerEndpoint        func(context.Context) (WorkerEndpoint, error)
+	workerSource          func(context.Context) (api.WorkDispatchSource, error)
+
 	sendingScheduled      string
 	scheduledPreviousTurn string
 	diagnostics           *diagnosticlog.Logger
@@ -83,8 +96,27 @@ func (*Session) ProviderInfo() api.ProviderInfo {
 	return api.ProviderInfo{ID: "caelis", Name: "Caelis", ConnectionKind: "local-host", HelpURL: "https://caelis.dev", ConnectionHint: "使用本机 Caelis；安装与模型凭据由运行时管理。"}
 }
 func (s *Session) Connect(ctx context.Context) error {
+	s.mu.Lock()
+	admission := s.admission
+	owned := s.owned
+	s.mu.Unlock()
+	ctx, release, err := api.BeginExecution(ctx, admission)
+	if err != nil {
+		return err
+	}
+	defer release()
 	s.step.Lock()
 	defer s.step.Unlock()
+	if admission != nil {
+		if err := admission.CheckContext(ctx); err != nil {
+			return err
+		}
+	}
+	if owned != nil {
+		if err := owned.check(ctx); err != nil {
+			return err
+		}
+	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -159,6 +191,9 @@ var required = []string{"shared-native-workers-v1", "turn-steering-receipts-v1",
 var errBotIncompatible = errors.New("Caelis 应用协议不兼容，请更新运行时并重启 Caelis 服务")
 
 func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
+	return initializeCapabilities(ctx, c, required)
+}
+func initializeCapabilities(ctx context.Context, c *client, capabilities []string) (wire.ServerInfo, error) {
 	var i wire.ServerInfo
 	e := c.json(ctx, "GET", "/initialize", nil, &i, "", "")
 	if e != nil {
@@ -167,7 +202,7 @@ func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
 	if i.ProtocolVersion != 1 || i.ApiVersion != "v1" || i.EnvelopeVersion != "caelis.control.envelope/v1" || value(i.StoreId) == "" || value(i.InstanceId) == "" {
 		return i, errBotIncompatible
 	}
-	for _, cap := range required {
+	for _, cap := range capabilities {
 		if !slices.Contains(i.Capabilities, cap) {
 			return i, errBotIncompatible
 		}
@@ -216,6 +251,9 @@ type credential struct {
 }
 
 func (s *Session) connect(ctx context.Context) error {
+	if s.workerOnly {
+		return s.connectWorker(ctx)
+	}
 	d, token, e := Discover(s.settings)
 	if e != nil {
 		return e
@@ -224,8 +262,9 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	host.admission = s.admission
 	defer host.http.CloseIdleConnections()
-	info, e := initialize(ctx, host)
+	info, e := s.initialize(ctx, host)
 	if e != nil {
 		return e
 	}
@@ -262,6 +301,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	scoped.admission = s.admission
 	ok := false
 	defer func() {
 		if !ok {
@@ -351,6 +391,9 @@ func (s *Session) Close(ctx context.Context) error {
 	defer s.step.Unlock()
 	if s.client != nil {
 		s.client.http.CloseIdleConnections()
+	}
+	if s.owned != nil {
+		return s.owned.stop(ctx)
 	}
 	return nil
 }

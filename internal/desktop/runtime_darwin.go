@@ -36,24 +36,47 @@ import (
 var appIcon []byte
 
 func Run(assets fs.FS) error {
-	env, report, envErr := runtimeenv.ResolveWithReport(context.Background(), os.Environ(), environmentNotebookHomes()...)
-	if err := runtimeenv.Install(env); err != nil {
-		envErr = err
-	}
-
 	appName, appID := applicationIdentity()
-	root, err := applicationDataDirectory()
+	root, err := applicationDataDirectoryBeforeRuntimeEnvironment()
+	if err != nil {
+		return err
+	}
+	instanceID := appID
+	if _, explicit := os.LookupEnv("CAELIS_BOT_DATA_DIR"); explicit {
+		defaultProfile, err := defaultApplicationDataDirectoryBeforeRuntimeEnvironment()
+		if err != nil {
+			return err
+		}
+		instanceID, err = profileInstanceID(appID, root, defaultProfile)
+		if err != nil {
+			return err
+		}
+	}
+	remoteProduct, err := app.RemoteProductSelected(root)
 	if err != nil {
 		return err
 	}
 	diagnostics := diagnosticlog.New(filepath.Join(root, "Logs"))
-	if envErr != nil {
-		// Resolve returns only locally generated causes, never shell output/values.
-		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
-	} else if report.HomeRestored || report.RecoveredPathEntries > 0 {
-		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_recovered", Reason: fmt.Sprintf("account home restored: %t; inherited PATH entries recovered: %d", report.HomeRestored, report.RecoveredPathEntries)})
+	if !remoteProduct {
+		env, report, envErr := runtimeenv.ResolveWithReport(context.Background(), os.Environ(), environmentNotebookHomes()...)
+		if err := runtimeenv.Install(env); err != nil {
+			envErr = err
+		}
+		root, err = applicationDataDirectory()
+		if err != nil {
+			return err
+		}
+		diagnostics = diagnosticlog.New(filepath.Join(root, "Logs"))
+		if envErr != nil {
+			// Resolve returns only locally generated causes, never shell output/values.
+			diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
+		} else if report.HomeRestored || report.RecoveredPathEntries > 0 {
+			diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_recovered", Reason: fmt.Sprintf("account home restored: %t; inherited PATH entries recovered: %d", report.HomeRestored, report.RecoveredPathEntries)})
+		} else {
+			diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_loaded", Reason: "user login and interactive shell exports loaded for native runtimes"})
+		}
 	} else {
-		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_loaded", Reason: "user login and interactive shell exports loaded for native runtimes"})
+		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "remote_product", Reason: "explicit thin APP connection; local runtime environment discovery skipped"})
 	}
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configurePermissionGuide(filepath.Join(root, "permission-guide.json"))
@@ -67,7 +90,7 @@ func Run(assets fs.FS) error {
 	}
 
 	var controlDriver api.ApplicationTools
-	if desktopWorldSupported() {
+	if !remoteProduct && desktopWorldSupported() {
 		if bundled := desktopcontrol.Bundled(); bundled != nil {
 			controlDriver = bundled
 			defer bundled.Close()
@@ -77,7 +100,7 @@ func Run(assets fs.FS) error {
 		DesktopControl: controlDriver,
 		OpenURL:        func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 		RevealFile:     func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
-		TrashFile:      trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError, CareSample: macCareSample})
+		TrashFile:      trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ObserveTaskReceipts: s.observeTaskReceipts, ReportError: logError, CareSample: macCareSample})
 	if err != nil {
 		return err
 	}
@@ -179,7 +202,7 @@ func Run(assets fs.FS) error {
 			logError(core.Close())
 			s.shutdown()
 		},
-		SingleInstance: &application.SingleInstanceOptions{UniqueID: appID, OnSecondInstanceLaunch: func(application.SecondInstanceData) { _ = s.SetVisible(true) }},
+		SingleInstance: &application.SingleInstanceOptions{UniqueID: instanceID, OnSecondInstanceLaunch: func(application.SecondInstanceData) { _ = s.SetVisible(true) }},
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test, after } from 'node:test';
 import { createServer } from 'vite';
 import { readFileSync } from 'node:fs';
-const server = await createServer({server:{middlewareMode:true},appType:'custom'});
+const server = await createServer({server:{middlewareMode:true,ws:false},appType:'custom'});
 after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
 const {chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
@@ -90,4 +90,70 @@ test('preview covers built-in/custom, Antigravity preparation, terminal capabili
 test('production entry has no preview import or fake success fallback',()=>{
  const main=readFileSync('frontend/src/main.tsx','utf8');const client=readFileSync('frontend/src/settings/runtime/client.ts','utf8');
  assert.doesNotMatch(main,/preview\//);assert.doesNotMatch(client,/createPreviewClient|preview\/client/);
+});
+
+test('same machine runtime actions retain exact target and reuse machine association',async()=>{
+ const {callWorkerTarget,workerTargetKey}=await server.ssrLoadModule('/src/workerNodeTargets.ts');
+ const legacy={id:'machine-a',label:'Build machine',ssh:'existing-alias',backend:'',helper:'',store:'/native/store',workspaceRoot:'/workspace'};
+ const codex={...legacy,backend:'codex',store:'',socket:'/native/worker.sock'};
+ const nodes=[{config:legacy},{config:codex}];
+ const calls=[];
+ const call=async(method,...args)=>{calls.push([method,...args]);return {nodes,revision:42};};
+ await callWorkerTarget(call,'ConnectWorkerTarget',legacy,42);
+ await callWorkerTarget(call,'DisconnectWorkerTarget',codex,42);
+ assert.deepEqual(calls,[['ConnectWorkerTarget',{nodeId:'machine-a',backend:'caelis',role:'worker'},42],['DisconnectWorkerTarget',{nodeId:'machine-a',backend:'codex',role:'worker'},42]]);
+ assert.notEqual(workerTargetKey(legacy),workerTargetKey(codex));
+ const ui=readFileSync('frontend/src/WorkerNodeSettings.tsx','utf8');
+ assert.doesNotMatch(ui,/worker-node-ssh|worker-node-store|worker-node-root/);
+ assert.doesNotMatch(ui,/perform\('(?:Probe|Connect|Disconnect)WorkerNode'/);
+});
+
+test('remote model edits preserve inspected binding and strip protected settings',async()=>{
+ const {createRemoteExecutionClient}=await server.ssrLoadModule('/src/settings/runtime/remoteExecutionClient.ts');
+ let state={available:true,binding:'owned-binding',capabilities:{execution:true},pending:[]};
+ const view={binding:'owned-binding',conversationDefault:false,conversation:{model:'p/a',effort:'high'},revision:'native-revision',models:[model]};
+ const calls=[];let changed=0;
+ const client=createRemoteExecutionClient(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='RemoteRuntime')return state;
+  if(method==='RemoteExecutionSettings')return view;
+  return {id:args[0].id,outcome:'accepted'};
+ },'owned-binding','Unknown original operation',()=>changed++);
+ assert.deepEqual(await client.read(),view);
+ await client.save('conversation',{...selection,approvalMode:'never'},view.revision);
+ const command=calls.find(call=>call[0]==='ChangeRemoteExecutionSettings')[1];
+ assert.deepEqual({...command,id:'stable-id'},{id:'stable-id',binding:'owned-binding',target:'conversation',expectedRevision:'native-revision',selection:{model:'p/a',effort:'high'}});
+ assert.equal(changed,1);
+ state={...state,pending:[{id:command.id,kind:'configure-execution'}]};
+ await client.read(); // A matching model read cannot clear the original receipt.
+ await assert.rejects(client.save('work',selection,view.revision),e=>e.unknown);
+ assert.equal(calls.filter(call=>call[0]==='ChangeRemoteExecutionSettings').length,1);
+ state={...state,binding:'new-binding',pending:[]};
+ await assert.rejects(client.read());await assert.rejects(client.save('conversation',selection,view.revision));
+ assert.equal(calls.filter(call=>call[0]==='ChangeRemoteExecutionSettings').length,1);
+});
+
+test('remote model response loss admits one original command and keeps unknown',async()=>{
+ const {createRemoteExecutionClient}=await server.ssrLoadModule('/src/settings/runtime/remoteExecutionClient.ts');
+ let calls=0,changed=0,pending=[];
+ const client=createRemoteExecutionClient(async(method,...args)=>{
+  if(method==='RemoteRuntime')return {available:true,binding:'binding',capabilities:{execution:true},pending};
+  calls++;pending=[{id:args[0].id,kind:'configure-execution'}];throw new Error('response lost');
+ },'binding','Unknown',()=>changed++);
+ await assert.rejects(client.save('work',{model:'',effort:'',serviceTier:''},'revision'),e=>e.unknown);
+ await assert.rejects(client.save('work',selection,'revision'),e=>e.unknown);
+ assert.equal(calls,1);assert.equal(changed,1);
+});
+
+test('remote picker hides tier while local picker keeps its existing controls',async()=>{
+ const React=await import('react');
+ const {renderToStaticMarkup}=await import('react-dom/server');
+ const {ModelPicker}=await server.ssrLoadModule('/src/settings/runtime/ModelPicker.tsx');
+ const props={title:'Model',value:selection,models:[model],onSave:async()=>{},onClose:()=>{}};
+ const local=renderToStaticMarkup(React.createElement(ModelPicker,props));
+ const remote=renderToStaticMarkup(React.createElement(ModelPicker,{...props,value:{...selection,serviceTier:''},allowServiceTier:false,disabled:true}));
+ assert.match(local,/aria-label="Response speed"/);
+ assert.doesNotMatch(remote,/aria-label="Response speed"/);
+ assert.match(remote,/aria-label="Reasoning effort"/);
+ assert.match(remote,/class="primary" disabled=""/);
 });

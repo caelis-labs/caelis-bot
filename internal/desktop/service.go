@@ -53,6 +53,7 @@ type Service struct {
 	language            LanguageState
 	languageChanged     func(LanguageState)
 	taskPreviews        []api.TaskPreview
+	taskOutcomes        map[string]string
 	taskPreviewJSON     string
 	taskError           func(string, error)
 	needsIntroduction   func() bool

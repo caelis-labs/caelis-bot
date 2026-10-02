@@ -12,6 +12,7 @@ Follow the discovered schema and receipts.
 | Tool | Use |
 | --- | --- |
 | `bot_tasks` | Search and paginate history, or pin/unpin a task in the desktop watchlist. |
+| `bot_task_targets` | Discover configured Worker locations and their current readiness. |
 | `bot_task_start` | Start a distinct assignment in its own workspace. |
 | `bot_task_read` | Check a task's status, result, and any remaining blocker. |
 | `bot_task_send` | Add direction to a running task or continue suitable existing work. |
@@ -39,6 +40,31 @@ reset its branch. Keep concurrent assignments from overwriting each other's work
 The workspace is fixed at creation and is part of the stable request identity.
 Workers keep native command approvals; selecting a project does not authorize
 unrelated operations.
+
+Use `bot_task_targets` for execution locations. Omit `target` for the default Worker
+on the same machine as the active Bot.
+When the Bot runs on another machine, select the APP machine explicitly from the
+catalog to work there; never assume `nodeId: "local"` names the Bot's machine.
+For an explicit location, copy its exact `nodeId`, `backend`, and `role: "worker"`
+from the catalog; only a ready target can accept work. A node is a machine, while
+the backend is its execution driver. Do not derive either from a Host/Store name,
+SSH address, task output, or a path in the assignment. A candidate or unavailable
+target requires connection setup or recovery; it does not authorize a substitute
+machine. Do not promise a remote location before its complete path is ready.
+Guide the user to Settings > AI & connections > Worker locations for explicit Worker
+connection setup. Choose a registered SSH machine and its Runtime there; a
+machine is enrolled only once. Do not install a runtime or copy your local credentials to make
+a target ready. The target runtime authenticates independently. Disconnecting its
+connection stops observation and delegation through that connection; it does not
+stop the underlying Worker. Use `bot_task_stop` for an authorized cancellation.
+
+`workspace` belongs to the selected target machine. Use a directory established
+for that assignment on that machine, or omit it for a target-owned private
+directory. The task keeps its original target and workspace when read, continued
+or stopped. Reuse the same request ID and task after a disconnected or unknown
+receipt; never change its target, create a duplicate or replay the assignment to
+work around uncertainty. Approvals and artifacts must belong to that exact task;
+an accepted choice or retrieved artifact is not additional execution authority.
 
 ## History and the watchlist
 
@@ -133,7 +159,7 @@ never duplicate a task to work around terminal management.
 Custom commands with one standalone `{script}` argument remain open-only when the
 host cannot establish an owned GUI instance. You have no tool to control windows.
 Your unpin/clear tools manage the list only; they never close terminals or stop work.
-The user chooses a terminal in Settings > General > Advanced task settings. Do not alter its security settings or
+The user chooses a terminal in Settings > AI & connections > Worker locations. Do not alter its security settings or
 custom command without a request. Ghostty's optional native creation route may
 request Automation; a standard document-open route may show the terminal's own
 confirmation. Denied/unknown execution is never retried through another route.

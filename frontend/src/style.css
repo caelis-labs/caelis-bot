@@ -200,7 +200,7 @@ summary { cursor:pointer; }
 .setting-label p { margin:4px 0 0; color:var(--muted); font-size:12px; }
 .setting-control { display:flex; flex:0 1 auto; align-items:center; justify-content:flex-end; min-width:0; max-width:68%; gap:8px; }
 .settings-window button:not(nav button) { border:1px solid var(--line); border-radius:8px; padding:7px 11px; background:var(--surface); white-space:nowrap; font-size:12px; }
-.settings-window button:not(nav button):hover { background:var(--wash); }
+.settings-window button:not(nav button):not(.primary):hover { background:var(--wash); }
 .settings-window button.primary { background:var(--ink); color:var(--bg); border-color:transparent; }
 .settings-window button.text-action { border-color:transparent; background:transparent; padding-inline:0; color:var(--muted); }
 .settings-window select,.runtime-path input { min-width:0; max-width:100%; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:12px; }
@@ -386,3 +386,10 @@ summary { cursor:pointer; }
 .dream-indicator{color:var(--muted);font-style:normal}
 @keyframes dream-breathe{0%,100%{opacity:.65;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
 @media(prefers-reduced-motion:reduce){.pet-dream{animation:none}}
+/* Worker connections remain inside advanced task settings. */
+.worker-node-entry{border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:8px}
+.worker-node-facts{display:block;margin-top:3px}
+.worker-node-form,.worker-node-advanced{padding:10px 0}
+.worker-node-form>summary,.worker-node-advanced>summary{cursor:pointer;font-size:13px}
+.worker-node-form>.setting-row,.worker-node-advanced>.setting-row{padding-left:0;padding-right:0}
+.worker-node-form>.settings-note{margin:12px 0}

@@ -27,7 +27,7 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
  const visibleError=ready&&!validTaskLimit(limit)?'settings.taskLimitInvalid':error;
  const availableChoices=choices.filter(c=>c.available);
  const terminalAvailable=availableChoices.some(c=>c.id===terminal);
- return <SettingGroup title={t('settings.backgroundTasks')}>
+ return <><SettingGroup title={t('settings.backgroundTasks')}>
   <SettingRow label={t('settings.maxBackgroundTasks')} htmlFor="max-background-tasks" description={t('settings.maxBackgroundTasksHelp')}>
    <input id="max-background-tasks" className="task-limit" type="number" min="1" step="1" value={limit} disabled={!ready} aria-invalid={ready&&!validTaskLimit(limit)} onBlur={flush} onChange={e=>{
     const value=e.target.value;setLimit(value);if(timer.current)clearTimeout(timer.current);
@@ -49,5 +49,5 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
    <label className="custom-terminal-enable"><input type="checkbox" checked={terminal==='custom'} disabled={!ready||!custom.trim()} onChange={e=>{const value=e.target.checked?'custom':'system';setTerminal(value);saver.current?.change({terminal:value});flush();}}/>{t('settings.useCustomTerminal')}</label>
   </details>
   {(visibleError||busy)&&<p className={`task-settings-feedback ${visibleError?'inline-error':'settings-note'}`} role={visibleError?'alert':'status'}>{t(visibleError||'settings.taskPreferencesSaving')}</p>}
- </SettingGroup>;
+ </SettingGroup></>;
 }

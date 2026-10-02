@@ -84,6 +84,7 @@ type binding struct {
 	Connection        wire.ApplicationConnection               `json:"connection"`
 	Session           wire.ApplicationBinding                  `json:"session"`
 	CreateID          string                                   `json:"createID"`
+	CreationNonce     string                                   `json:"creationNonce,omitempty"`
 	Operations        map[string]journal                       `json:"operations"`
 	Views             map[string]*view                         `json:"views"`
 	Calls             map[string]callRecord                    `json:"calls"`

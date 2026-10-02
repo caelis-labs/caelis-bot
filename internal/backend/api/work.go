@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -24,12 +25,15 @@ type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }
 
 type WorkStart struct {
 	TaskStart
+	Source                      WorkDispatchSource `json:"-"`
+	RequestDigest               string             `json:"-"`
 	ID, Workspace, Instructions string
 }
 
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque
 // native generation, never a product-generated inference from assistant prose.
 type WorkState struct {
+	Target         WorkTarget
 	Task           Task
 	OriginalPrompt string
 	ExecutionKey   string
@@ -45,17 +49,50 @@ type WorkState struct {
 type WorkTerminalProvider interface {
 	WorkTerminal(context.Context, string) (TerminalTarget, error)
 }
+
+// Locality is established by the native adapter which owns the attach endpoint.
+// Node IDs are opaque identities and do not determine filesystem locality.
+type TerminalLocality string
+
+const (
+	TerminalLocal  TerminalLocality = "local"
+	TerminalRemote TerminalLocality = "remote"
+)
+
+var ErrRemoteWorkTerminal = errors.New("this node has no verified remote terminal observation route")
+var ErrWorkTerminalOffline = errors.New("the task's original node is unavailable")
+var ErrWorkTerminalBinding = errors.New("the task's original terminal binding changed")
+
+// TerminalObservationError preserves a typed native cause while the product
+// boundary supplies the user's locale. Error text contains no private paths.
+type TerminalObservationError struct {
+	Message string
+	Cause   error
+}
+
+func (e *TerminalObservationError) Error() string { return e.Message }
+func (e *TerminalObservationError) Unwrap() error { return e.Cause }
+
 type TerminalTarget struct {
+	// Target is stamped by the task ledger. Locality is a native adapter fact,
+	// never inferred from a path, node label, active settings or an absent stamp.
+	Target   WorkTarget
+	Locality TerminalLocality
+	// Generation is the adapter's native connection/Host generation, independent
+	// of the task's current Turn or completion-report key.
+	Generation                                              string
 	Runtime, Binary, Endpoint, Thread, Directory, CodexHome string
 	// Caelis attaches with the local user credential file; never embed its bytes.
 	Session, Store, TokenFile string
 }
 type TaskPreview struct {
-	Locked   bool   `json:"locked"`
-	Provider string `json:"provider,omitempty"`
-	ID       string `json:"id"`
-	Prompt   string `json:"prompt"`
-	Status   string `json:"status"`
+	Target      *WorkTarget `json:"target,omitempty"`
+	TargetLabel string      `json:"targetLabel,omitempty"`
+	Locked      bool        `json:"locked"`
+	Provider    string      `json:"provider,omitempty"`
+	ID          string      `json:"id"`
+	Prompt      string      `json:"prompt"`
+	Status      string      `json:"status"`
 }
 
 // ReportSubmitter appends a bounded application notice only when idle. It must

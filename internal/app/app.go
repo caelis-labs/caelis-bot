@@ -19,8 +19,9 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
-	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/nodes"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
+	"github.com/caelis-labs/caelis-bot/internal/notebooksync"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 )
@@ -32,49 +33,85 @@ type Host struct {
 	CareSample     func() care.Sample
 	CareSources    []care.Source
 	// Locale is read when presenting host-generated UI, never during model execution.
-	Locale       func() i18n.Locale
-	Diagnostics  *diagnosticlog.Logger
-	ResolveFiles func([]string) ([]api.InputFile, error)
-	ConsumeFiles func([]string)
-	OpenURL      func(string) error
-	RevealFile   func(string) error
-	TrashFile    func(string) error
-	Gesture      func(string) error
-	Notify       func(id, title, body string, reminder bool)
-	Observe      func(api.Snapshot)
-	ObserveTasks func([]api.TaskPreview)
-	ReportError  func(error)
+	Locale              func() i18n.Locale
+	Diagnostics         *diagnosticlog.Logger
+	ResolveFiles        func([]string) ([]api.InputFile, error)
+	ConsumeFiles        func([]string)
+	OpenURL             func(string) error
+	RevealFile          func(string) error
+	TrashFile           func(string) error
+	Gesture             func(string) error
+	Notify              func(id, title, body string, reminder bool)
+	Observe             func(api.Snapshot)
+	ObserveTasks        func([]api.TaskPreview)
+	ObserveTaskReceipts func([]api.TaskSummary)
+	ReportError         func(error)
 }
 
 type Application struct {
-	taskPreferences *tasks.PreferencesStore
-	setup           *runtimeSetup
-	Backend         *backend.Service
-	engine          api.Engine
-	host            Host
-	root            string
-	mu              sync.Mutex
-	started, closed bool
-	cancel          context.CancelFunc
-	workers         sync.WaitGroup
-	companion       *bot.Runtime
-	bridge          *bot.Bridge
-	tasks           *tasks.Manager
-	personal        *botmemory.Store
-	notebook        *notebook.Vault
-	skillPath       string
-	initialization  *bot.Initializer
-	closeOnce       sync.Once
-	closeErr        error
+	executionAdmission api.ExecutionAdmission
+	taskPreferences    *tasks.PreferencesStore
+	setup              *runtimeSetup
+	Backend            *backend.Service
+	engine             api.Engine
+	host               Host
+	root               string
+	mu                 sync.Mutex
+	startMu            sync.Mutex
+	started, closed    bool
+	sourceRetired      bool
+	cancel             context.CancelFunc
+	workers            sync.WaitGroup
+	companion          *bot.Runtime
+	bridge             *bot.Bridge
+	tasks              *tasks.Manager
+	nodeRegistry       *nodes.Registry
+	workerNodes        *workerNodeController
+	registeredWorkers  RegisteredWorkerAgentLookup
+	residentNodeID     string
+	product            *productEngine
+	personal           *botmemory.Store
+	notebook           *notebook.Vault
+	skillPath          string
+	initialization     *bot.Initializer
+	closeOnce          sync.Once
+	closeErr           error
+
+	notebookSync            *notebooksync.Controller
+	notebookSyncInterval    time.Duration
+	notebookSyncCancel      context.CancelFunc
+	notebookSyncRecovery    bool
+	notebookReturn          *defaultNotebookSync
+	notebookRestartPrepared bool
 }
 
 func New(root string, host Host) (*Application, error) {
-	return newApplication(root, host, resolveProvider)
+	a, err := newApplication(root, host, resolveProvider)
+	if err != nil {
+		return nil, err
+	}
+	// Node assembly starts no network service or daemon.
+	if err = AttachNodeManagement(a); err != nil && host.ReportError != nil {
+		host.ReportError(err)
+	}
+
+	if err = attachDefaultNotebookSync(a); err != nil {
+		_ = a.Close()
+		return nil, err
+	}
+	return a, nil
 }
 
 func newApplication(root string, host Host, resolve factoryResolver) (*Application, error) {
 	if !filepath.IsAbs(root) {
 		return nil, errors.New(i18n.Text(i18n.DefaultLocale, "host.appDataDirMustBeFullPath", nil))
+	}
+	pairing, err := loadProductPairing(root)
+	if err != nil {
+		return nil, err
+	}
+	if pairing.Mode == "remote" {
+		return newRemoteApplication(root, host, pairing)
 	}
 	if host.Diagnostics == nil {
 		host.Diagnostics = diagnosticlog.New(filepath.Join(root, "Logs"))
@@ -140,8 +177,16 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	service.ConfigureRuntime(settingsFile, settings)
 	service.ConfigureExecution(executionFile, execution)
 	service.ConfigureWorkExecution(workExecutionFile, workExecution)
+	app.nodeRegistry, err = nodes.New(factory.ID, engine.(api.WorkRuntime))
+	if err != nil {
+		_ = service.Shutdown()
+		return nil, err
+	}
+	app.workerNodes = openWorkerNodes(filepath.Join(root, "worker-nodes.json"), app.nodeRegistry, app.newWorkerNodeAdapter)
+	service.ConfigureWorkerNodes(app.workerNodes)
 	app.configureRuntimeManagement()
 	app.configureSetup()
+	service.ConfigureProductConnection(newProductPairingController(root, pairing, nil))
 	return app, nil
 }
 
@@ -174,6 +219,13 @@ func requireAssistant(engine api.Engine, id string, loc ...i18n.Locale) error {
 // PreparePersonal makes local data available even before selecting/logging into
 // a Runtime. It starts no model, scheduler, tool transport or execution session.
 func (a *Application) PreparePersonal() error {
+	if err := a.notebookSyncStartupGuard(); err != nil {
+		return err
+	}
+
+	if a.product != nil {
+		return nil
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.preparePersonalLocked()
@@ -182,6 +234,9 @@ func (a *Application) preparePersonalLocked() error {
 	if a.closed {
 		return errors.New(a.text("host.appStopped"))
 	}
+	if a.sourceRetired {
+		return errors.New("original native source was retired for Notebook switching")
+	}
 	if a.personal != nil {
 		return nil
 	}
@@ -189,7 +244,7 @@ func (a *Application) preparePersonalLocked() error {
 	// before introducing an offline-capable product identity.
 	if a.HasRuntimeChoice() {
 		if _, e := os.Stat(filepath.Join(a.root, "runtime.json")); errors.Is(e, os.ErrNotExist) {
-			if e = localstate.Write(filepath.Join(a.root, "runtime.json"), a.Backend.RuntimeSettings()); e != nil {
+			if e = backend.SaveRuntimeSettingsDocument(filepath.Join(a.root, "runtime.json"), a.Backend.RuntimeSettings()); e != nil {
 				return e
 			}
 		}
@@ -260,13 +315,42 @@ func (a *Application) preparePersonalLocked() error {
 		return bot.DreamEnvironment{Available: sample.Available(), Epoch: sample.Epoch, DraftRevision: a.Backend.Draft().Revision}
 	})
 	resident.ConfigureDreamDiagnostics(a.host.Diagnostics)
+	resident.ConfigureExecutionAdmission(a.executionAdmission)
 	a.companion, a.personal, a.notebook, a.skillPath = resident, personal, vault, skillPath
 	return nil
 }
 
 // Start runs only after native surfaces are ready. It binds the private tools
 // before connecting, then starts bounded observation and resident scheduling.
-func (a *Application) Start() error {
+func (a *Application) Start() (startErr error) {
+	defer func() {
+		if startErr == nil {
+			a.startNotebookSync()
+		}
+	}()
+	a.startMu.Lock()
+	defer a.startMu.Unlock()
+	a.mu.Lock()
+	closed, started, retired := a.closed, a.started, a.sourceRetired
+	a.mu.Unlock()
+	if closed {
+		return errors.New(a.text("host.appStopped"))
+	}
+	if started {
+		return nil
+	}
+	if err := a.notebookSyncStartupGuard(); err != nil {
+		return err
+	}
+	// Persisted native authority must be resolved before the original source
+	// can open personal data, bind tools, or connect to a Runtime.
+
+	if retired {
+		return errors.New("original native source was retired for Notebook switching")
+	}
+	if a.product != nil {
+		return a.startRemoteProduct()
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {
@@ -275,13 +359,16 @@ func (a *Application) Start() error {
 	if a.started {
 		return nil
 	}
-	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.engine.(api.WorkRuntime), a.engine.(api.ReportSubmitter), a.engine.Snapshot)
+	authorizer, _ := a.engine.(api.WorkSourceProvider)
+	manager, err := tasks.OpenRouted(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.engine.(api.WorkRuntime), a.engine.(api.ReportSubmitter), a.engine.Snapshot, a.nodeRegistry, authorizer)
 	if err != nil {
 		return err
 	}
+	manager.ConfigureExecutionAdmission(a.executionAdmission)
 	manager.SetLocale(a.locale)
 	manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 	manager.ObserveWatchlist(a.host.ObserveTasks)
+	a.Backend.ConfigureWorkRoutes(manager, filepath.Join(a.root, "WorkerArtifacts"))
 	if err = a.preparePersonalLocked(); err != nil {
 		return err
 	}
@@ -341,6 +428,9 @@ func (a *Application) Start() error {
 				if err := manager.RefreshWatchlist(); err != nil && a.host.ReportError != nil {
 					a.host.ReportError(err)
 				}
+				if a.host.ObserveTaskReceipts != nil {
+					a.host.ObserveTaskReceipts(a.Backend.TaskSummaries())
+				}
 			}
 		}
 	}()
@@ -355,6 +445,14 @@ func (a *Application) Start() error {
 				return
 			}
 			revision = snapshot.Revision
+			a.mu.Lock()
+			returning := a.notebookReturn
+			a.mu.Unlock()
+			if returning != nil {
+				if err := returning.observeReturn(ctx, snapshot); err != nil && a.host.ReportError != nil {
+					a.host.ReportError(err)
+				}
+			}
 			observer.Observe(snapshot)
 			if a.host.Observe != nil {
 				a.host.Observe(snapshot)
@@ -385,6 +483,10 @@ func (a *Application) text(key string, args ...map[string]any) string {
 }
 
 func (a *Application) WorkTerminal(ctx context.Context, id string) (api.TerminalTarget, error) {
+
+	if a.product != nil {
+		return api.TerminalTarget{}, &api.TerminalObservationError{Message: a.text("remoteTaskTerminalUnavailable"), Cause: api.ErrRemoteWorkTerminal}
+	}
 	a.mu.Lock()
 	m, stopped := a.tasks, a.closed
 	a.mu.Unlock()
@@ -397,7 +499,9 @@ func (a *Application) WorkTerminal(ctx context.Context, id string) (api.Terminal
 // Close is the explicit application-exit boundary. Cancellation stops wakeups
 // before the adapter cleans only owned work; shared servers remain alive.
 func (a *Application) Close() error {
+
 	a.closeOnce.Do(func() {
+		a.startMu.Lock()
 		a.mu.Lock()
 		a.closed = true
 		if a.cancel != nil {
@@ -408,13 +512,19 @@ func (a *Application) Close() error {
 			resident.Stop()
 		}
 		a.mu.Unlock()
+		a.startMu.Unlock()
+		a.closeNotebookSync()
 		if a.setup != nil {
 			a.setup.mu.Lock()
 			a.setup.codex.Close()
 			a.setup.connections.Close()
 			a.setup.mu.Unlock()
 		}
-		a.closeErr = a.Backend.Shutdown()
+		if a.workerNodes != nil {
+			a.closeErr = errors.Join(a.closeErr, a.workerNodes.Close())
+		}
+		a.closeErr = errors.Join(a.closeErr, a.Backend.CloseNodeManagement(context.Background()))
+		a.closeErr = errors.Join(a.closeErr, a.Backend.Shutdown())
 		if resident != nil {
 			resident.Close()
 		}
@@ -433,6 +543,7 @@ func (a *Application) Close() error {
 }
 
 func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
+
 	media, err := backend.ScreenMediaStorage(a.Backend, false, nil)
 	if err != nil {
 		return media, err
@@ -453,6 +564,7 @@ func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
 	return media, nil
 }
 func (a *Application) CleanAttachments(ctx context.Context) (api.AttachmentStorage, error) {
+
 	if err := a.guardRuntimeChange(); err != nil {
 		return api.AttachmentStorage{}, err
 	}

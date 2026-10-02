@@ -20,6 +20,7 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 | `internal/backend/api` | Product DTOs and explicit engine/capability ports; host-only ToolConnection stays private |
 | `internal/backend/{codex,caelis}` | Native protocol projection, identity, execution policy, receipts, replay and recovery |
 | `internal/bot`, `care`, `tasks` | Persistent identity, introduction, scheduling, care budget, delegation ledger and reports |
+| `internal/nodes` | Machine/Backend/Role capability registry; exact optional Worker routes, no native credentials or resident lifecycle |
 | `internal/notebook`, `botmemory`, `botskills` | Markdown, embedded Memory and packaged application-scoped English skills |
 | `internal/taskterminal` | Owned external terminal application instance and connection receipt lifecycle |
 | `internal/desktopcontrol` | Desktop World Go host, independent turn grants, original receipts and bounded content |
@@ -47,6 +48,17 @@ retains the draft. Host drafts persist across surfaces/restart but are not an au
 never sends. Screen submission has its own durable receipt and cannot consume the composer draft.
 Read-only Composer/Recent snapshots avoid serializing all history; older-page loading does not own lifecycle.
 
+Independent owned Runtime/Worker supervision is available on Linux, including cgo-free builds,
+and on macOS builds with cgo for the IOKit system-power fence. macOS without cgo reports
+unsupported before launching a helper or preparing owned runtime state. Both the owner and
+its watchdog need this capability; a native companion cannot supply the parent's missing fence.
+The packaged macOS node agent enables cgo for this headless system binding without APP/Wails
+or AppKit composition.
+The watchdog confirms the complete owned process tree, including adopted Linux children,
+before issuing a stop receipt. A separate inherited pipe preserves that receipt after autonomous
+expiry closes the command channel. Missing receipts remain unknown even when the parent cleans
+its known processes; a watchdog's exit or an empty parent capture is not complete stop proof.
+
 Codex owns only the server it launched. Explicit stop/quit interrupts exact owned work, asks native terminal
 cleanup, then reaps that process. macOS descendant fallback uses captured PID plus birth identity; no global
 process-name kill. Closing/hiding UI has none of this authority. Shared Caelis Host/Workers survive Bot detach;
@@ -73,7 +85,9 @@ Notebook has `MEMORY.md`, generated `INDEX.md`, optional `HANDOFF.md`, and local
 Only INDEX is automatically rebuilt; it indexes Markdown paths/titles, ignores hidden directories/symlinks,
 and refreshes at startup, before submit and on completion. No background model or body database owns notes.
 User edits/deletions persist. Legacy personal data is copied once with a marker outside Notebook; conflicts
-stop migration and preserve both sides. No automatic Git commit or cloud sync.
+stop migration and preserve both sides. No automatic Git commit or cloud sync. Opt-in ordinary-file SSH backups and manual
+stop-first node switching are assembled by APP; see [Notebook backup](notebook-sync.md).
+They transfer neither native session bindings nor SQLite/authentication.
 
 Embedded public Memory provides recall/remember/correct/forget in a stable Bot scope. Mutation request IDs
 and receipt chains prevent forgotten evidence returning on replay. This does not erase chat, Git or backups.
@@ -172,6 +186,80 @@ Product tasks own directories, ordering, visibility/locks and finite reports. Na
 permissions and worker history. New worker instructions do not inherit resident skills/private tool endpoints.
 Reports are application notifications, not new user authority; execution status comes from native events.
 
+Worker location is separate from the resident Bot driver. `WorkTarget` binds a machine NodeID,
+native backend and Bot/Worker role; a Host, Store, instance ID or SSH destination is not a NodeID.
+The default APP plus local Runtime still calls its in-process adapter directly, with no node daemon,
+SSH, enrollment or probe prerequisite. Optional targets are candidate/ready/unavailable from trusted
+native assembly; selecting an unavailable target fails without moving work to another machine/backend.
+
+One configured machine may expose both Codex and Caelis Workers. Native setup keys connection state
+and actions by the exact NodeID/backend/Worker target; ID-only compatibility actions reject a machine
+with multiple backends. The shared machine label and configured SSH association stay consistent,
+while each backend retains its own immutable scope. Legacy empty-backend Caelis configuration keeps
+its original protocol and private binding directory; adding Codex does not adopt or replace that binding.
+
+`tasks.OpenRouted` adds optional Worker ports while preserving resident-provider watchlist/report scope.
+The product ledger retains TaskID, exact target, target-owned workspace, request digest and source;
+native adapters retain their original Thread/Session/Turn receipts. Old records acquire `local` plus
+their existing backend/Worker role without changing IDs, native generations or prior completion receipts.
+A repeated request cannot change target or task intent. Unknown starts return the original ledger entry;
+read/continue/stop use its exact route. Remote state cannot adopt unrelated native workers or change a
+record's target/workspace. A reconnected remote Worker may still project exact-route history
+from another resident provider; those records remain inert under that original provider and do not
+block current work. Current native-adapter ownership and target/workspace conflicts still reject.
+Registry disconnection preserves the ledger rather than declaring cancellation.
+
+Cross-target mutation requires `WorkSourceProvider` attestation from the resident native invocation;
+model/renderer task arguments cannot supply it. Codex reports `native_activation` under its existing
+native admission gate, because its current binding does not retain a distinct user/background kind.
+Remote continuation intent is persisted before dispatch; reconciliation preserves its original source
+and request digest. Output, completion notices, labels and target discovery are not authorization.
+
+Remote workspaces use a target port: resolve canonical paths without mutation, persist intent, then
+prepare/revalidate the exact directory. Client filesystem checks cannot validate a Linux path. Optional
+Worker approval and artifact ports carry exact owned task/target bindings; approvals preserve original
+native IDs/choices and reject stale bindings. Artifacts are bounded bytes from that task's projected IDs,
+not arbitrary Host filesystem paths. The application owns any local download destination.
+
+Linux scope is headless Runtime/Worker hosting behind these optional ports. This contract slice provides
+fixture-covered routing foundations; SSH setup, native remote approvals/resources and actual Linux
+execution require their own adapter/assembly and live acceptance. It adds no Linux desktop product,
+high availability, ownership epochs, session transfer or identity/memory migration. macOS remains the
+complete desktop release target; a remote Worker does not establish a remote resident Bot or thin APP.
+
+`codex.WorkerClient` is a target-side Worker-only native client. It performs the standard
+handshake/account projection without creating a resident Bot thread or inventing a resident activation.
+Fresh mutations require the authenticated host invocation's exact native source; the private journal
+retains original source, request digest and native binding. Receipt queries can reconcile that original
+intent after the host advances to a new activation. Unknown native thread creation cannot be adopted or
+redispatched. Work model defaults come from explicit target settings or the target's native config.
+
+`internal/nodeworker.Owner` holds this client independently of observers: `Observer.Detach` cancels
+observation only; explicit `Owner.Stop` interrupts owned turns, checks tool cleanup and stops its retained
+native process. A native observation socket failure retains the original private endpoint; reconnect
+restores exact retained threads and never silently launches a replacement process. The persistent node
+service must own this owner. This slice supplies native protocol/process fixtures and Linux compilation;
+Worker role RPC assembly, supervisor restart and Mac-to-Linux live acceptance remain separate gates.
+
+`internal/workerwire` is a separate closed typed Worker stream with bounded versioned frames,
+correlated requests and cancellation of admitted partial writes by closing that observer stream.
+Large state snapshots span bounded sequential frames and become visible only when every frame
+arrives with the same revision and request identity. Per-frame limits do not truncate the native
+journal or impose a cumulative task-count limit. Interrupted or mixed snapshots remain unpublished.
+Its configured pairing fixes WorkTarget, origin product Bot identity and allowed source Node/Backend.
+Strict SSH plus a same-user private Unix socket authenticate the native entry; the target treats the
+source as paired foreign attestation, never claims its Codex CLI can inspect a Mac native thread.
+The node profile persists that pairing and its dedicated journal directory before exposing the socket.
+Source is private wire metadata generated by the resident native port, excluded from model/renderer
+TaskStart JSON. Target calls receive it through private per-call context, with no mutable shared source.
+Exact original receipt queries need no new activation; only a missing intent can request the host's
+fresh native attestation. Reads/cancel/decisions/resources accept task-owned identities, no arbitrary
+Thread ID or shell command. Codex downloadable artifacts come only from completed native fileChange
+projections inside that task workspace, read through a bounded root handle, never from assistant prose.
+`nodes.CodexSSHWorker` consumes the frozen Worker ports and closes only its SSH helper/observer.
+`Server.ServeUnix` and `ProxyUnix` likewise do not stop the persistent owner. Supervisor service/root
+assembly and actual Mac-to-Linux model execution remain separate from these fixture-covered ports.
+
 A task card owns a dedicated GUI application instance established by LaunchServices completion and PID/birth,
 not window title, TTY, foreground state or count. A single controller serializes intent. An existing app returned
 by launch is rejected. Open Documents delivers a one-use attach script; its receipt proves command delivery,
@@ -183,6 +271,38 @@ retry. Concurrent claimed receipt wins. Unknown launch retains its pending owner
 A confirmed exited TUI client can reconnect in the same owned GUI instance; do not inject into its old shell.
 No automatic reconnect, task prompt replay or idle instance cleanup. Closing a terminal does not stop a Worker.
 Hide/show, placement and still preview are optional driver capabilities; unsupported actions preserve ownership.
+
+Terminal attachment resolves the task ledger's original Node/backend/Worker target and workspace.
+The native adapter explicitly stamps endpoint locality; opaque Node IDs and local-looking paths do not
+establish it. Missing locality, changed backend/workspace or a conflicting target fail before launch.
+The current paired Worker/product streams provide no remote TTY attachment channel: remote routes report that absence without copying target credentials, executing a local substitute,
+starting a new task or moving the original work. Local in-process terminals remain independent of
+the machine's Node ID. Terminal settings and application-window ownership retain their existing scope.
+An attached GUI instance retains its original endpoint and native Thread/Session binding; a task-card
+show/hide gesture revalidates that exact target before mutating the window. Node disconnection or a
+changed attach generation preserves the existing window, while explicit close remains available.
+
+## Optional remote APP
+
+`product-connection.json` is an explicit client connection choice, loaded before
+local Runtime, Memory, Notebook, resident Bot or task initialization. Missing
+pairing selects the existing in-process local path. Remote mode binds a pinned
+Bot/Node/backend/role and generation through standard SSH and the closed F2
+product stream; it does not start a local Runtime or remote owner.
+
+The remote Bot owns conversation, tasks and memory. APP owns presentation
+acknowledgements and user-selected attachment metadata. Closing or quitting APP
+closes its SSH observer and detaches; only the separately authorized target owner
+stop terminates the remote Bot. Reconnect is explicit. Pending original sends and
+management requests retain their IDs and scopes; uncertainty blocks a replacement
+mutation until the original receipt is resolved. A new owner generation is not
+proof that an old command had no effect.
+
+Remote management uses typed, capability-advertised target operations and the
+existing configuration presentation. It has no generic method dispatcher or
+credential-transfer action. Authentication entry belongs to the user on the
+target Runtime. Linux desktop operations report unsupported; transport acceptance,
+native APP readiness, visual GUI and authenticated model acceptance are separate.
 
 ## Desktop and presentation
 

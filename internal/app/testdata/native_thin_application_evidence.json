@@ -1,0 +1,52 @@
+{
+  "test_source_commit": "f847f620fa228acec23f89cf5308b222b73d7da0",
+  "base_commit": "109ca44ef55c441bb6b5553393900be3768f674c",
+  "test": "TestNativeThinApplicationOverSSH",
+  "official_native_version": "0.65.0",
+  "official_source_commit": "8430bff9c36187d4cfaa33576ff238cd36c94c06",
+  "official_archive_sha256": "25e5124d746c34e0496aa933f8cf33da338338a489e7e8f23489bc9879193286",
+  "artifacts_sha256": {
+    "caelis": "06ee2ebf8f1ba896b33bad0f9714189b31e02c6cfbba98ffe1f8619745e37206",
+    "caelis-node": "396638871eb370bf084ee0c0b9859c389f019c78a200c467cd96219ac1d0fcb7",
+    "fixture.py": "85c3fcd543d9244846755fc4186cbdb24145a8eaeb1cab84fffa59583c81232b"
+  },
+  "test_source_sha256": "f300d083d752b3db27db8f96eefc9c1bafa4036fff9d74c7d9a744ebf9412f9b",
+  "test_stdout_sha256": "25f573d67a7bbdbc6ec5cd6a80b9cfc9c76d1e34ba15fbae08acc7608a9e00b9",
+  "fixture_driver_sha256": "23909121723784be85c9894ae5d8e157b948d50af11d14a3f7db2e1d217bdc8d",
+  "test_exit_code": 0,
+  "fixture_exit_code": 0,
+  "actual_test_seconds": 1.75,
+  "race_package_seconds": 3.453,
+  "runtime": "real pinned official Linux arm64 Caelis Core; target-loopback synthetic provider only",
+  "application": "real Mac application New(root, Host{}) and Start; actual SSH product client; no GUI",
+  "verified": {
+    "local_provider_discovery_skipped_despite_invalid_runtime_preferences": true,
+    "local_runtime_binary_fixed_missing": true,
+    "local_resident_components_not_created": true,
+    "public_product_connection_remote_ready": true,
+    "native_primary_bot_initialization": true,
+    "typed_configuration_read_and_main_change_committed": true,
+    "lost_original_submission_response_unknown": true,
+    "original_receipt_reconciled_after_disconnect_reconnect": true,
+    "native_input_dispatch_count_one": true,
+    "disconnect_keeps_remote_owner_alive": true,
+    "application_close_detaches_during_native_work": true,
+    "original_accepted_receipt_retained_after_application_close": true,
+    "explicit_owner_stop_releases_bot_and_listener": true,
+    "separate_core_host_not_stopped_by_app_close_or_bot_stop": true,
+    "owned_native_children_reaped": true,
+    "owned_supervisor_reaped": true,
+    "owned_temporary_directory_removed": true
+  },
+  "scope_limits": {
+    "gui_acceptance": false,
+    "paid_real_model_acceptance": false,
+    "user_credentials_access": false,
+    "security_changes": false,
+    "persistent_install": false,
+    "new_core_changes": false,
+    "independent_descendant_birth_identity_census": false
+  },
+  "bot_skill_update": "Not needed: test-only acceptance of existing native application/product/configuration paths; no Bot tools or workflows changed.",
+  "process_reap_evidence": "Exact directly owned Bot/Core/supervisor Popen poll/wait; does not claim an independent census of arbitrary descendants."
+}

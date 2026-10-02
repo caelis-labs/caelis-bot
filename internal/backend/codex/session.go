@@ -44,6 +44,11 @@ type pendingSubmission struct {
 	TurnID string `json:"turnId"`
 }
 type SessionOptions struct {
+	// ForceOwned is reserved for isolated leased runtimes; default local discovery is unchanged.
+	ForceOwned                           bool
+	WatchdogHelper                       string
+	Admission                            api.ExecutionAdmission
+	DispatchSource                       func(context.Context, api.WorkDispatchSource) (api.WorkDispatchSource, error)
 	Diagnostics                          *diagnosticlog.Logger
 	WorkExecution                        api.WorkExecutionSettings
 	Execution                            api.ExecutionSettings
@@ -59,6 +64,10 @@ type SessionOptions struct {
 // Session projects one internally bound conversation. Native facts remain
 // authoritative; a UI fetch, hidden window or character asset cannot execute it.
 type Session struct {
+	supervisor             ownedLeaseProcess
+	supervisorVerified     bool
+	ownedEpoch             string
+	ownedDeadline          time.Time
 	backgroundResultsDirty bool
 
 	residentExecution api.WorkExecutionSettings
@@ -106,12 +115,16 @@ type Session struct {
 	life              context.Context
 	cancelLife        context.CancelFunc
 	start             func(context.Context, Options) (*Client, error)
+	writeBinding      func(string, []byte) error
 }
 
 func NewSession(opts SessionOptions) *Session {
 	s := &Session{opts: opts, binding: binding{Version: 1}, changed: make(chan struct{}), instance: rand.Text(), start: Start}
 	s.opts.BotTools = opts.BotTools.Clone()
 	s.life, s.cancelLife = context.WithCancel(context.Background())
+	if opts.ForceOwned {
+		s.start = s.startSupervised
+	}
 	s.resetProjection()
 	s.state.Connection = "offline"
 	s.state.Phase = "idle"
@@ -223,19 +236,35 @@ func (s *Session) save() error {
 	if s.opts.StateFile == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.opts.StateFile), 0700); err != nil {
-		return err
-	}
 	b, err := json.Marshal(s.binding)
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(s.opts.StateFile), ".binding-*")
+	if s.writeBinding != nil {
+		return s.writeBinding(s.opts.StateFile, b)
+	}
+	return writeBindingFile(s.opts.StateFile, b, (*os.File).Sync)
+}
+
+// Both the contents and the replacement directory entry must be durable before
+// callers admit a native mutation. A publication error never proves that an
+// already dispatched native operation did not execute.
+func writeBindingFile(path string, data []byte, syncDirectory func(*os.File) error) error {
+	parent := filepath.Dir(path)
+	if err := os.MkdirAll(parent, 0700); err != nil {
+		return err
+	}
+	dir, err := os.Open(parent)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	f, err := os.CreateTemp(parent, ".binding-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(f.Name())
-	if _, err = f.Write(b); err == nil {
+	if _, err = f.Write(data); err == nil {
 		err = f.Sync()
 	}
 	closeErr := f.Close()
@@ -243,16 +272,32 @@ func (s *Session) save() error {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(f.Name(), s.opts.StateFile)
+		err = os.Rename(f.Name(), path)
+	}
+	if err == nil {
+		err = syncDirectory(dir)
 	}
 	return err
 }
 func (s *Session) Connect(ctx context.Context) error {
+	ctx, release, err := api.BeginExecution(ctx, s.opts.Admission)
+	if err != nil {
+		return err
+	}
+	defer release()
 	s.op.Lock()
 	defer s.op.Unlock()
+	if s.opts.Admission != nil {
+		if err := s.opts.Admission.CheckContext(ctx); err != nil {
+			return err
+		}
+	}
 	return s.connect(ctx)
 }
 func (s *Session) connect(ctx context.Context) error {
+	if s.opts.ForceOwned && !OwnedRuntimeSupported() {
+		return ErrOwnedRuntimeUnsupported
+	}
 	ctx, cancel := s.operation(ctx, 30*time.Second)
 	defer cancel()
 	s.mu.Lock()
@@ -354,7 +399,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if err := os.MkdirAll(s.opts.Directory, 0700); err != nil {
 		return s.connectionError("无法准备工作文件夹", err)
 	}
-	c, err := s.start(ctx, Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true})
+	c, err := s.start(ctx, Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: !s.opts.ForceOwned, CLIOnly: s.opts.ForceOwned})
 	if err != nil {
 		return s.connectionError("无法连接本机 Codex，请检查连接设置后重试", err)
 	}
@@ -572,8 +617,18 @@ func (s *Session) submit(ctx context.Context, in api.Submission, files []api.Inp
 	return s.submitWithSource(ctx, in, files, onlyIfIdle, false)
 }
 func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files []api.InputFile, onlyIfIdle, report bool) (api.Receipt, error) {
+	ctx, release, err := api.BeginExecution(ctx, s.opts.Admission)
+	if err != nil {
+		return api.Receipt{ID: in.ID, Outcome: "rejected"}, err
+	}
+	defer release()
 	s.op.Lock()
 	defer s.op.Unlock()
+	if s.opts.Admission != nil {
+		if err := s.opts.Admission.CheckContext(ctx); err != nil {
+			return api.Receipt{ID: in.ID, Outcome: "rejected"}, err
+		}
+	}
 	ctx, cancel := s.operation(ctx, 45*time.Second)
 	defer cancel()
 	r := api.Receipt{ID: in.ID, Outcome: "rejected"}

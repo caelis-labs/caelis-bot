@@ -1,0 +1,265 @@
+package api
+
+import "context"
+
+// NodeCatalog is read-only management presentation. Selection never changes
+// the active Bot owner or the exact Worker target. Credentials and machine paths
+// are deliberately absent. Revisions, epochs and versions are opaque strings.
+type NodeCatalog struct {
+	Revision        string     `json:"revision"`
+	Nodes           []NodeInfo `json:"nodes"`
+	SelectedNodeID  string     `json:"selectedNodeId"`
+	ActiveBotNodeID string     `json:"activeBotNodeId"`
+	// The existing product pairing retains its exact opaque management fence.
+	// It does not imply node-agent enrollment or local execution authority.
+	PairedRuntime *NodePairedRuntime `json:"pairedRuntime"`
+	WorkerTarget  *WorkTarget        `json:"workerTarget"`
+	Broker        *NodeBroker        `json:"broker"`
+	// Native journals expose original unresolved references after APP remount
+	// or restart, including installation operations with no readable config.
+	PendingOperations  []NodeOperationRef `json:"pendingOperations"`
+	PendingEnrollments []string           `json:"pendingEnrollments,omitempty"`
+}
+
+type NodePairedRuntime struct {
+	NodeID  string `json:"nodeId"`
+	Binding string `json:"binding"`
+}
+
+type NodeInfo struct {
+	ID       string        `json:"id"`
+	Label    string        `json:"label"`
+	OS       NodeOS        `json:"os"`
+	Join     NodeJoin      `json:"join"`
+	Runtimes []NodeRuntime `json:"runtimes"`
+}
+
+type NodeOS string
+
+const (
+	NodeDarwin    NodeOS = "darwin"
+	NodeLinux     NodeOS = "linux"
+	NodeWindows   NodeOS = "windows"
+	NodeOSUnknown NodeOS = "unknown"
+)
+
+type NodeJoin string
+
+const (
+	NodeLocal    NodeJoin = "local"
+	NodeSSH      NodeJoin = "ssh"
+	NodeOutgoing NodeJoin = "outgoing"
+)
+
+type NodeBackend string
+
+const (
+	NodeCodex  NodeBackend = "codex"
+	NodeCaelis NodeBackend = "caelis"
+)
+
+type NodeAuthentication string
+
+const (
+	NodeAuthUnknown   NodeAuthentication = "unknown"
+	NodeAuthRequired  NodeAuthentication = "required"
+	NodeAuthenticated NodeAuthentication = "authenticated"
+)
+
+type NodeHealth string
+
+const (
+	NodeHealthUnknown NodeHealth = "unknown"
+	NodeHealthy       NodeHealth = "healthy"
+	NodeUnavailable   NodeHealth = "unavailable"
+	NodeMissing       NodeHealth = "missing"
+)
+
+// Eligibility is native negotiated role capability, not inferred from install,
+// authentication or a reachable broker. Windows Codex remains Worker-only.
+type NodeRuntime struct {
+	Backend        NodeBackend          `json:"backend"`
+	Version        string               `json:"version"`
+	Authentication NodeAuthentication   `json:"authentication"`
+	Health         NodeHealth           `json:"health"`
+	Roles          []NodeRoleCapability `json:"roles"`
+}
+
+type NodeRoleCapability struct {
+	Role     WorkRole `json:"role"`
+	Eligible bool     `json:"eligible"`
+	Reason   string   `json:"reason"`
+}
+
+// The designated single-user broker is optional. It is a single point of
+// availability; automatic roaming is available only with an eligible node and
+// a reachable broker. Its absence preserves direct in-process local operation.
+type NodeBroker struct {
+	NodeID           string                       `json:"nodeId"`
+	Reachable        bool                         `json:"reachable"`
+	AutomaticRoaming bool                         `json:"automaticRoaming"`
+	Reason           string                       `json:"reason"`
+	SourceRoutes     []NodeCoordinatorSourceRoute `json:"sourceRoutes,omitempty"`
+}
+
+// NodeEditGuard is captured when editing starts. Async completion must match
+// this exact node, backend and revision before applying to the displayed state.
+type NodeEditGuard struct {
+	NodeID   string      `json:"nodeId"`
+	Backend  NodeBackend `json:"backend"`
+	Revision string      `json:"revision"`
+}
+
+// NodeOperationRef identifies the original per-node mutation. Unknown outcomes
+// reconcile this reference; they never resend or move to the selected node.
+type NodeOperationRef struct {
+	NodeID        string      `json:"nodeId"`
+	Backend       NodeBackend `json:"backend"`
+	OperationID   string      `json:"operationId"`
+	RequestDigest string      `json:"requestDigest"`
+}
+
+type NodeOperationOutcome string
+
+const (
+	NodeCommitted  NodeOperationOutcome = "committed"
+	NodeRejected   NodeOperationOutcome = "rejected"
+	NodeConflicted NodeOperationOutcome = "conflicted"
+	NodeUnknown    NodeOperationOutcome = "unknown"
+)
+
+type NodeOperationReceipt struct {
+	Ref      NodeOperationRef     `json:"ref"`
+	Outcome  NodeOperationOutcome `json:"outcome"`
+	Revision string               `json:"revision"`
+	Message  string               `json:"message"`
+}
+
+type NodeInstallationAction string
+
+const (
+	NodeInstall     NodeInstallationAction = "install"
+	NodeUpdate      NodeInstallationAction = "update"
+	NodeCheckUpdate NodeInstallationAction = "check-update"
+	NodeDetect      NodeInstallationAction = "detect"
+)
+
+type NodeInstallationChange struct {
+	Action          NodeInstallationAction `json:"action"`
+	Version         string                 `json:"version"`
+	ExpectedVersion string                 `json:"expectedVersion"`
+}
+
+// NodeInstallationState describes only the native managed installer. A Runtime
+// found on PATH does not make Installed true. A nil state means unavailable or
+// unknown and cannot authorize an install/update precondition.
+type NodeInstallationState struct {
+	Installed     bool   `json:"installed"`
+	Version       string `json:"version"`
+	LatestVersion string `json:"latestVersion"`
+}
+
+// Exactly one semantic payload is allowed; there is no arbitrary RPC or command.
+type NodeManagementRequest struct {
+	Guard        NodeEditGuard               `json:"guard"`
+	Ref          NodeOperationRef            `json:"ref"`
+	Change       *RuntimeConfigurationChange `json:"change"`
+	Installation *NodeInstallationChange     `json:"installation"`
+}
+
+// NodeRuntimeExecutable describes installed target-native bytes independently
+// of a managed-copy receipt. It grants no authentication or execution role.
+type NodeRuntimeExecutable struct {
+	Installed bool   `json:"installed"`
+	Version   string `json:"version"`
+}
+
+type NodeRuntimeConfiguration struct {
+	Guard         NodeEditGuard        `json:"guard"`
+	Configuration RuntimeConfiguration `json:"configuration"`
+	// Codex conversation and Worker preferences are separate scopes. A null
+	// scope is unavailable; never infer it from a shared Runtime main model.
+	Conversation           *WorkExecutionSettings `json:"conversation"`
+	Worker                 *WorkExecutionSettings `json:"worker"`
+	ConfigurationAvailable bool                   `json:"configurationAvailable"`
+	InstallerAvailable     bool                   `json:"installerAvailable"`
+	Executable             *NodeRuntimeExecutable `json:"executable,omitempty"`
+	Installation           *NodeInstallationState `json:"installation"`
+	ReviewedVersions       []string               `json:"reviewedVersions"`
+}
+
+// Enrollment accepts a user-selected SSH destination, not a filesystem path,
+// key, socket or runtime command. Outgoing enrollment uses native instructions.
+type NodeAddRequest struct {
+	OperationID      string   `json:"operationId,omitempty"`
+	Label            string   `json:"label"`
+	Join             NodeJoin `json:"join"`
+	SSHDestination   string   `json:"sshDestination"`
+	ExpectedRevision string   `json:"expectedRevision"`
+}
+
+type NodeJoinState string
+
+const (
+	NodeJoinWaiting     NodeJoinState = "waiting"
+	NodeJoinConnected   NodeJoinState = "connected"
+	NodeJoinUnavailable NodeJoinState = "unavailable"
+)
+
+type NodeJoinInstructions struct {
+	NodeID       string        `json:"nodeId"`
+	State        NodeJoinState `json:"state"`
+	Instructions string        `json:"instructions"`
+}
+
+type NodeAddResult struct {
+	OperationID      string                `json:"operationId,omitempty"`
+	Outcome          string                `json:"outcome,omitempty"`
+	Reason           string                `json:"reason,omitempty"`
+	Node             NodeInfo              `json:"node"`
+	JoinInstructions *NodeJoinInstructions `json:"joinInstructions"`
+}
+
+// This existing SSH destination is interpreted on the named source machine.
+// Native enrollment supplies the coordinator identity, helper and directory.
+type NodeCoordinatorSourceRoute struct {
+	SourceNodeID   string `json:"sourceNodeId"`
+	SSHDestination string `json:"sshDestination"`
+}
+
+type NodeCoordinatorSelection struct {
+	NodeID           string `json:"nodeId"`
+	ExpectedRevision string `json:"expectedRevision"`
+	// Omitted/null preserves routes; [] clears only this coordinator's routes.
+	SourceRoutes *[]NodeCoordinatorSourceRoute `json:"sourceRoutes,omitempty"`
+}
+
+// These methods are explicit user management actions, never model tools.
+// SelectNode changes presentation only and returns the new view revision.
+type NodeManagementController interface {
+	NodeCatalog(context.Context) (NodeCatalog, error)
+	NodeRuntimeConfiguration(context.Context, string, NodeBackend) (NodeRuntimeConfiguration, error)
+	SelectNode(context.Context, string, string) (NodeCatalog, error)
+	ChangeNodeConfiguration(context.Context, NodeManagementRequest) (NodeOperationReceipt, error)
+	ReconcileNodeOperation(context.Context, NodeOperationRef) (NodeOperationReceipt, error)
+	AddNode(context.Context, NodeAddRequest) (NodeAddResult, error)
+	ReconcileNodeEnrollment(context.Context, string) (NodeAddResult, error)
+	DetectNode(context.Context, string) (NodeInfo, error)
+	NodeJoinInstructions(context.Context, string) (NodeJoinInstructions, error)
+	SetNodeCoordinator(context.Context, NodeCoordinatorSelection) (NodeCatalog, error)
+}
+
+// NodeRuntimeSettingsRequest retains the existing nonsecret machine settings.
+// It cannot supply credentials, a session binding or arbitrary process arguments.
+type NodeRuntimeSettingsRequest struct {
+	Guard    NodeEditGuard   `json:"guard"`
+	Settings RuntimeSettings `json:"settings"`
+}
+type NodeHelperUpdateRequest struct {
+	NodeID           string `json:"nodeId"`
+	ExpectedRevision string `json:"expectedRevision"`
+}
+type NodeHelperUpdateResult struct {
+	NodeID               string `json:"nodeId"`
+	HelperSourceRevision string `json:"helperSourceRevision"`
+}

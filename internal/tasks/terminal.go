@@ -11,12 +11,13 @@ import (
 // TaskPreviews reads the product ledger; it never polls a Worker or reads a
 // transcript. Stable handle ordering also survives process restarts.
 func (m *Manager) TaskPreviews() []api.TaskPreview {
-	if _, ok := m.work.(api.WorkTerminalProvider); !ok {
-		return nil
+	labels := map[api.WorkTarget]string{}
+	for _, info := range m.WorkTargets() {
+		labels[info.Target] = info.Label
 	}
 	// Read the adapter's in-memory projection, not its transcript. Native events
 	// can precede the coordinator's final write of a start receipt.
-	states := m.work.WorkStates()
+	states, _ := m.workStates()
 	latest := make(map[string]api.WorkState, len(states))
 	for _, state := range states {
 		latest[state.Task.ID] = state
@@ -26,6 +27,7 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 	out := []api.TaskPreview{}
 	for id, r := range m.state.Records {
 		state, current := latest[id]
+		current = current && state.Target == r.Target && state.Task.Workspace == r.View.Workspace
 		newRun := current && ((r.Execution != "" && state.ExecutionKey != "" && state.ExecutionKey != r.Execution) || (terminal(r.View.Status) && !terminal(state.Task.Status)))
 		if r.Provider != m.provider || (!newRun && (r.Pinned == nil || !*r.Pinned)) {
 			continue
@@ -38,7 +40,12 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 		if current {
 			status = state.Task.Status
 		}
-		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: r.Provider, Locked: r.Locked})
+		preview := api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: r.Target.Backend, Locked: r.Locked}
+		if r.Target != m.nativeTarget {
+			preview.Target = targetPointer(r.Target)
+			preview.TargetLabel = labels[r.Target]
+		}
+		out = append(out, preview)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
@@ -71,9 +78,31 @@ func (m *Manager) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	if err := m.owned(id); err != nil {
 		return api.TerminalTarget{}, err
 	}
-	p, ok := m.work.(api.WorkTerminalProvider)
+	work, err := m.recordRuntime(id)
+	if err != nil {
+		return api.TerminalTarget{}, &api.TerminalObservationError{Message: m.text("host.taskTerminalNodeUnavailable"), Cause: errors.Join(api.ErrWorkTerminalOffline, err)}
+	}
+	p, ok := work.(api.WorkTerminalProvider)
 	if !ok {
 		return api.TerminalTarget{}, errors.New(m.text("host.runtimeNoTerminalObservation"))
 	}
-	return p.WorkTerminal(ctx, id)
+	m.mu.Lock()
+	r := m.state.Records[id]
+	expected, workspace := r.Target, r.View.Workspace
+	m.mu.Unlock()
+	target, err := p.WorkTerminal(ctx, id)
+	if err != nil {
+		if errors.Is(err, api.ErrRemoteWorkTerminal) {
+			return api.TerminalTarget{}, &api.TerminalObservationError{Message: m.text("host.remoteTaskTerminalUnavailable"), Cause: err}
+		}
+		return api.TerminalTarget{}, err
+	}
+	if target.Locality == api.TerminalRemote {
+		return api.TerminalTarget{}, &api.TerminalObservationError{Message: m.text("host.remoteTaskTerminalUnavailable"), Cause: api.ErrRemoteWorkTerminal}
+	}
+	if target.Locality != api.TerminalLocal || target.Generation == "" || target.Runtime != expected.Backend || target.Directory != workspace || target.Target != (api.WorkTarget{}) && target.Target != expected {
+		return api.TerminalTarget{}, &api.TerminalObservationError{Message: m.text("host.taskTerminalBindingChanged"), Cause: api.ErrWorkTerminalBinding}
+	}
+	target.Target = expected
+	return target, nil
 }

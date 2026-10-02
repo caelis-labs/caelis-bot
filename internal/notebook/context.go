@@ -117,3 +117,19 @@ func (v *Vault) DreamReady(id string) (bool, error) {
 	first, body, found := strings.Cut(string(b), "\n")
 	return len(b) <= 16<<10 && found && strings.TrimSuffix(first, "\r") == DreamMarker(id) && strings.TrimSpace(body) != "", nil
 }
+
+// CompletedHandoff is a read-only export for a host-confirmed completed Dream.
+// The caller must also prove native completion and pause further Bot admission.
+func (v *Vault) CompletedHandoff(id string) ([]byte, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	b, err := v.contextFile(HandoffName)
+	if err != nil {
+		return nil, err
+	}
+	first, body, found := strings.Cut(string(b), "\n")
+	if id == "" || len(b) > 16<<10 || !found || strings.TrimSuffix(first, "\r") != DreamMarker(id) || strings.TrimSpace(body) == "" {
+		return nil, nil
+	}
+	return b, nil
+}

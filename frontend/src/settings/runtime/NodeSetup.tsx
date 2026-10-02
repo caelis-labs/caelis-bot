@@ -1,0 +1,99 @@
+import {useEffect,useMemo,useRef,useState} from 'react';
+import {backend} from '../../desktop';
+import type {NodeAddResult,NodeCatalog,NodeInfo,NodeJoinInstructions,NodeEditGuard,NodeInstallationState} from '../../backend/contract';
+import {SettingRow} from '../../SettingsUI';
+import {SettingsDialog} from './SettingsDialog';
+import {useI18n} from '../../i18n';
+import type {MessageKey} from '../../i18n/catalogs';
+import type {NodeSettingsClient} from './nodeClient';
+import {createNodeEnrollmentClient} from './enrollmentClient';
+
+export function NodeEnrollment({catalog,call=backend,onChanged}:{catalog:NodeCatalog|null;call?:typeof backend;onChanged:()=>void}) {
+ const {t}=useI18n();
+ const [open,setOpen]=useState(false),[label,setLabel]=useState(''),[ssh,setSSH]=useState('');
+ const [instructions,setInstructions]=useState<NodeJoinInstructions|null>(null),[error,setError]=useState<MessageKey|''>(''),[checking,setChecking]=useState(false);
+ const owner=useMemo(()=>createNodeEnrollmentClient(call),[call]);
+ const [,render]=useState(0),alive=useRef(true),currentOwner=useRef(owner);currentOwner.current=owner;
+ useEffect(()=>owner.subscribe(()=>render(value=>value+1)),[owner]);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+ const state=owner.snapshot(),busy=state.busy||checking,unknown=!!state.pending;
+ const receiptError=(next:NodeAddResult):MessageKey=>next.outcome==='unknown'?'settings.nodeAddUnknown':next.reason==='dns'?'settings.nodeAddDNS':next.reason==='authentication'?'settings.nodeAddAuthentication':next.reason==='host-key'?'settings.nodeAddHostKey':next.reason==='limit'?'settings.nodeAddLimit':next.reason==='receipt-unavailable'?'settings.nodeAddReceiptUnavailable':'settings.nodeAddFailed';
+ const accept=(next:NodeAddResult|null)=>{
+  if(!alive.current||currentOwner.current!==owner||!next)return;
+  if(next.outcome==='committed'){setInstructions(next.joinInstructions);setOpen(false);setLabel('');setSSH('');setError('');onChanged();}
+  else setError(receiptError(next));
+ };
+ // Refresh reads the original receipt, even when the catalog still lists only
+ // this machine. Catalog absence is never proof that bootstrap did not happen.
+ useEffect(()=>{owner.restore(catalog?.pendingEnrollments??[]);if(owner.snapshot().pending&&!owner.snapshot().busy)void owner.reconcile().then(accept);},[owner,catalog]);
+ const pending=useRef(false),revision=useRef('');
+ const submit=async()=>{
+  if(pending.current||!catalog||unknown)return;pending.current=true;setError('');
+  try{accept(await owner.add({label:label.trim(),join:'ssh',sshDestination:ssh.trim(),expectedRevision:revision.current}));}
+  finally{pending.current=false;}
+ };
+ const check=async()=>{
+  if(pending.current||!instructions)return;pending.current=true;setChecking(true);setError('');
+  try{setInstructions(await call<NodeJoinInstructions>('NodeJoinInstructions',instructions.nodeId));onChanged();}
+  catch{setError('settings.nodeCatalogFailed');}
+  finally{pending.current=false;setChecking(false);}
+ };
+ return <details className="settings-disclosure"><summary>{t('settings.nodeAdd')}</summary>
+  <p className="settings-note">{t('settings.workerNodeSSHHelp')}</p>
+  <button disabled={!catalog} onClick={()=>{revision.current=catalog?.revision??'';setOpen(true);}}>{t('settings.nodeAdd')}</button>
+  {instructions&&<div role="status"><p>{t(instructions.state==='connected'?'settings.nodeHealthy':instructions.state==='waiting'?'settings.nodeJoinWaiting':'settings.nodeUnavailable')}</p><p className="runtime-install-instructions">{instructions.instructions}</p><button disabled={busy} onClick={()=>void check()}>{t('runtime.recheck')}</button></div>}
+  {!open&&error&&<p className="inline-error" role="alert">{t(error)}</p>}
+  {!open&&unknown&&<button disabled={busy} onClick={()=>void owner.reconcile().then(accept)}>{t('settings.productCheckOriginalReceipt')}</button>}
+  {open&&<SettingsDialog title={t('settings.nodeAdd')} busy={busy} onClose={()=>setOpen(false)}><form onSubmit={event=>{event.preventDefault();void submit();}}>
+   <label>{t('settings.workerNodeLabel')}<input required value={label} maxLength={128} disabled={busy||unknown} onChange={event=>setLabel(event.target.value)}/></label>
+   <label>{t('settings.workerNodeSSH')}<input required value={ssh} maxLength={256} autoComplete="off" spellCheck={false} disabled={busy||unknown} onChange={event=>setSSH(event.target.value)}/></label>
+   <p className="settings-note">{t('settings.workerNodeSSHHelp')}</p>
+   {error&&<p role="alert" className="inline-error">{t(error)}</p>}
+   {unknown&&!busy&&<button type="button" onClick={()=>void owner.reconcile().then(accept)}>{t('settings.productCheckOriginalReceipt')}</button>}
+   <div className="setup-end"><button type="button" disabled={busy} onClick={()=>setOpen(false)}>{t('common.cancel')}</button><button className="primary" disabled={busy||unknown||!label.trim()||!ssh.trim()}>{t('settings.nodeAdd')}</button></div>
+  </form></SettingsDialog>}
+ </details>;
+}
+
+export function NodePrograms({node,backendID,owner,call=backend,onChanged,refreshKey=0}:{refreshKey?:number|string;node:NodeInfo;backendID:'codex'|'caelis';owner:NodeSettingsClient;call?:typeof backend;onChanged:()=>void}) {
+ const {t}=useI18n();
+ const [installer,setInstaller]=useState(false),[versions,setVersions]=useState<string[]>([]),[managed,setManaged]=useState<NodeInstallationState|null>(null);
+ const [version,setVersion]=useState(''),[confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState<MessageKey|''>('');
+ const pending=useRef(false);
+ const confirmationTrigger=useRef<HTMLButtonElement|null>(null),programSummary=useRef<HTMLElement|null>(null);
+ const status=node.runtimes.find(value=>value.backend===backendID)!;
+ const installationGuard=useRef<NodeEditGuard|null>(null),draftSnapshot=useRef<{guard:NodeEditGuard;installation:NodeInstallationState}|null>(null);
+ useEffect(()=>{let active=true;installationGuard.current=null;setInstaller(false);void owner.configuration({nodeId:node.id,backend:backendID,revision:''}).then(read=>{if(active&&read.guard.nodeId===node.id&&read.guard.backend===backendID){installationGuard.current=read.guard;setManaged(read.installation);setInstaller(read.installerAvailable&&!!read.installation);setVersions(read.reviewedVersions??[]);}}).catch(()=>{});return()=>{active=false;};},[owner,node.id,backendID,status.version,refreshKey]);
+ useEffect(()=>{const guard=(event:Event)=>{if(version&&version!==(managed?.version??''))event.preventDefault();};window.addEventListener('settings-navigate',guard);return()=>window.removeEventListener('settings-navigate',guard);},[version,managed?.version]);
+ const detect=async()=>{
+  if(pending.current)return;pending.current=true;setBusy(true);setError('');
+  try{await call<NodeInfo>('DetectNode',node.id);onChanged();}catch{setError('settings.nodeCatalogFailed');}finally{pending.current=false;setBusy(false);}
+ };
+ const updateSupport=async()=>{
+  if(pending.current)return;pending.current=true;setBusy(true);setError('');
+  try{const latest=await call<NodeCatalog>('NodeCatalog');await call('UpdateNodeHelper',{nodeId:node.id,expectedRevision:latest.revision});onChanged();}catch{setError('settings.nodeProgramFailed');}finally{pending.current=false;setBusy(false);}
+ };
+ const apply=async()=>{
+  if(pending.current||owner.pending(node.id,backendID)||!installer||!versions.includes(version))return;pending.current=true;setBusy(true);setError('');
+  try{
+   // Installation obtains its native guard from the target read. A catalog
+   // revision is not a substitute for that target's configuration revision.
+   const snapshot=draftSnapshot.current;
+   if(!snapshot)throw new Error('Node inspection is required before changing the program.');
+   await owner.change(snapshot.guard,{change:null,installation:{action:snapshot.installation.installed?'update':'install',version:version.trim(),expectedVersion:snapshot.installation.installed?snapshot.installation.version:''}});
+   setConfirm(false);setVersion('');draftSnapshot.current=null;onChanged();
+  }catch{setError('settings.nodeProgramFailed');}
+  finally{pending.current=false;setBusy(false);}
+ };
+ return <details className="settings-disclosure"><summary ref={programSummary}>{t('settings.productTargetPrograms')}</summary>
+  <SettingRow label={t('settings.nodeDetectedProgram')}><span>{status.version||t(status.health==='missing'?'runtime.notInstalled':'runtime.unknownVersion')}</span><button disabled={busy} onClick={()=>void detect()}>{t('runtime.recheck')}</button></SettingRow>
+  {node.join==='ssh'&&<SettingRow label={t('settings.nodeSupport')}><button disabled={busy} onClick={()=>void updateSupport()}>{t('settings.nodeSupportUpdate')}</button></SettingRow>}
+  <SettingRow label={t('settings.nodeManagedProgram')}><span>{managed?managed.installed?managed.version:t('runtime.notInstalled'):t('settings.nodeStateUnknown')}</span></SettingRow>
+  {managed&&!managed.installed&&!!status.version&&<p className="settings-note">{t('settings.nodeManagedCopyHelp')}</p>}
+  <p className="settings-note">{t(installer?'settings.nodeReviewedVersionHelp':'settings.nodeRemotePreparation')}</p>
+  {version&&<button disabled={busy} className="text-action" onClick={()=>{setVersion('');draftSnapshot.current=null;}}>{t('common.cancel')}</button>}
+  <SettingRow label={t('settings.productReviewedVersion')} htmlFor="node-program-version"><select id="node-program-version" value={version} onChange={event=>{setVersion(event.target.value);draftSnapshot.current=installationGuard.current&&managed?{guard:{...installationGuard.current},installation:{...managed}}:null;}} disabled={!installer||busy||!!owner.pending(node.id,backendID)}><option value="" disabled>{t('settings.productSelectVersion')}</option>{versions.map(value=><option key={value} value={value}>{value}</option>)}</select><button disabled={!installer||busy||!!owner.pending(node.id,backendID)||!versions.includes(version)||managed?.installed&&version===managed.version} onClick={event=>{confirmationTrigger.current=event.currentTarget;setConfirm(true);}}>{t(managed?.installed?'runtime.update':'settings.nodeInstallManagedCopy',{name:backendID==='codex'?'Codex':'Caelis'})}</button></SettingRow>
+  {confirm&&<SettingsDialog title={t('runtime.confirm')} busy={busy} returnFocus={confirmationTrigger.current} fallbackFocus={programSummary.current} onClose={()=>setConfirm(false)}><p>{t('settings.productConfirmInstall',{name:backendID==='codex'?'Codex':'Caelis',version,target:node.label})}</p>{error&&<p role="alert" className="inline-error">{t(error)}</p>}<div className="setup-end"><button disabled={busy} onClick={()=>setConfirm(false)}>{t('common.cancel')}</button><button disabled={busy||!!owner.pending(node.id,backendID)} onClick={()=>void apply()}>{t('runtime.confirm')}</button></div></SettingsDialog>}
+  {!confirm&&error&&<p role="alert" className="inline-error">{t(error)}</p>}
+ </details>;
+}
