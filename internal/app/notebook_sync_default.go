@@ -159,9 +159,7 @@ func (c *defaultNotebookSync) SaveSettings(ctx context.Context, in backend.Noteb
 	if a.product != nil {
 		source = a.product.pairing.NodeID
 	}
-	if NodeRoamingOwnsExecution(a) {
-		return c.settings, errors.New("existing roaming owns this Bot")
-	}
+
 	if in.IntervalMinutes < 1 || in.IntervalMinutes > 1440 || len(in.Targets) > 16 || in.Enabled && len(in.Targets) == 0 {
 		return c.settings, errors.New("choose backup nodes and an interval from 1 to 1440 minutes")
 	}
@@ -339,7 +337,7 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 		seen[t.NodeID] = true
 		o.Profiles[t.NodeID] = nodeagent.NotebookOwnerProfile(r.Directory)
 		if prepare {
-			n := &roamingNativeAssembly{app: a}
+			n := &nodeRuntimeMetadata{app: a}
 			settings, e := n.runtimeSettings(ctx, r, t.Backend)
 			if e != nil {
 				return o, e
@@ -372,7 +370,7 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 			}
 		}
 		r := regs[id]
-		n := &roamingNativeAssembly{app: a}
+		n := &nodeRuntimeMetadata{app: a}
 		settings, e := n.runtimeSettings(ctx, r, target.Backend)
 		if e != nil {
 			return e
@@ -384,7 +382,10 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 			}
 			readiness, e := n.ownedRuntimeReadiness(ctx, r, nodeagent.OwnedRuntimeReadinessRequest{NodeID: id, Backend: target.Backend, OperationID: "notebook-ready-" + operation(), ExpectedBinary: settings.CLIPath, ExpectedStore: settings.CaelisStore, Model: preferences.Conversation.Model})
 			if e != nil || !readiness.Ready || !readiness.StopConfirmed || readiness.Outcome != "ready" {
-				return errors.Join(errors.New("target Caelis Runtime readiness or stopped proof unconfirmed"), e)
+				if !readiness.StopConfirmed {
+					return errors.Join(notebooksync.ErrPreparationUnconfirmed, errors.New("target Caelis stopped proof unconfirmed"), e)
+				}
+				return errors.Join(errors.New("target Caelis Runtime readiness failed"), e)
 			}
 		} else {
 			node, e := n.catalogNode(ctx, id)

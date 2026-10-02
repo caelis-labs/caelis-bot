@@ -56,7 +56,7 @@ func (s *Session) startSupervised(ctx context.Context, opts Options) (*Client, e
 	s.mu.Lock()
 	s.supervisor = p
 	s.mu.Unlock()
-	owned := newOwnedTools(p.PID())
+	owned := p.tools
 	conn := &pipeConnection{in: inWrite, out: outRead, tools: owned, forceStop: func() error {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		defer cancel()

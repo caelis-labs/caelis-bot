@@ -397,11 +397,7 @@ test('background configuration refresh cannot advance a draft captured native gu
  assert.equal(command.guard.revision,'guard-1');assert.equal(command.change.expectedRevision,'config-1');assert.match(container.textContent,/Draft conflict/);
 });
 
-test('catalog capability alone cannot advertise roaming without a native controller',async()=>{
- await mount(async(method,...args)=>{if(method==='NodeCatalog'){const value=catalog();value.broker={nodeId:'other',reachable:true,automaticRoaming:true,reason:''};for(const node of value.nodes)for(const runtime of node.runtimes)runtime.roles=runtime.roles.map(role=>({...role,eligible:role.role==='worker'}));return value;}return config(...args);});
- assert.match(container.textContent,/Automatic roaming is unavailable/);
- assert.doesNotMatch(container.textContent,/Connected · automatic roaming available/);
-});
+
 
 test('paired product invoker retains original unknown id and refuses another remote mutation',async()=>{
  const {createPairedRuntimeInvoker}=await server.ssrLoadModule('/src/settings/runtime/pairedClient.ts');
@@ -415,7 +411,7 @@ test('paired product invoker retains original unknown id and refuses another rem
  assert.deepEqual(calls.at(-1),['ReconcileRemoteManagement','paired-binding','original']);
  state.binding='different-binding';
  await assert.rejects(invoke('RemoteExecutionSettings','paired-binding'));
- assert.equal(calls.filter(call=>call[0]==='RemoteExecutionSettings').length,0);
+ assert.equal(calls.filter(call=>call[0]==='RemoteExecutionSettings').length,1);
 });
 
 function pairedFixture() {
@@ -550,7 +546,7 @@ test('disconnected Node suppresses cached login success while local inspection i
  assert.ok(!container.textContent.includes(translator('en').t('runtime.connectedViaChatGPT')));
 });
 
-test('alternate local Caelis preparation never reads a global profile; active local Codex retains ordinary preparation',async()=>{
+test('local runtime chooser retains explicit preparation for both Codex and Caelis',async()=>{
  const calls=[],profile={runtime:'codex',cliPath:'/usr/bin/false',caelisStore:''};
  const setup={settings:profile,state:'models',message:'',installation:{installed:true,path:'',version:'0.158.0',latestVersion:'',updateState:'',message:''},models:[],selectedModel:'',accountType:'',serviceState:'',serviceVersion:'',serviceUpdateAvailable:false,loginPending:false};
  const invoke=async(method,...args)=>{
@@ -559,28 +555,39 @@ test('alternate local Caelis preparation never reads a global profile; active lo
   if(method==='RuntimeSettings')return profile;
   if(method==='NodeRuntimeConfiguration')return {...config(...args),configurationAvailable:false,configuration:{revision:'',models:[],main:null,connections:[],team:null}};
   if(method==='SetupOverview')return {active:'codex',pending:''};
-  if(method==='InspectSetup')return setup;
+  if(method==='InspectSetup')return {...setup,settings:args[0]};
   if(method==='ComposerSnapshot')return {connection:'unavailable'};
-  if(method==='SetupProfile'){assert.equal(args[0],'codex');return profile;}
-  throw new Error(`Unexpected fixture method: ${method}`);
+  if(method==='SetupProfile')return {...profile,runtime:args[0]};
+  return {revision:1,nodes:[],issue:''};
+ };
+ await mount(invoke,invoke);await click(buttons('Manage')[0]);
+ assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','caelis']]);
+ assert.ok(!container.querySelector('[role="dialog"]').textContent.includes(translator('en').t('settings.nodeScopedPreparation')));
+ await click(container.querySelector('[role="dialog"] button.runtime-close'));await choose(select('Execution backend'),'codex');await click(buttons('Connect account')[0]);
+ assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','caelis'],['SetupProfile','codex']]);
+ await click(container.querySelector('[role="dialog"] button.runtime-close'));await click(buttons(translator('en').t('runtime.switch'))[0]);
+ await click([...container.querySelectorAll('[role="dialog"] .runtime-choices button')].find(button=>button.querySelector('strong')?.textContent==='Caelis'));
+ assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','caelis'],['SetupProfile','codex'],['SetupProfile','caelis']]);
+ assert.ok(!calls.some(call=>call[0]==='ActivateRuntime'||call[0]==='ApplySetup'));
+});
+
+test('local model read failure preserves setup and permits refresh without exposing redundant node controls',async()=>{
+ const calls=[],profile={runtime:'codex',cliPath:'/usr/bin/false',caelisStore:''};let readable=false;
+ const invoke=async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog'){const value=catalog();return {...value,nodes:[value.nodes[0]],activeBotNodeId:'local'};}
+  if(method==='NodeRuntimeConfiguration'){if(!readable)throw new Error('models unavailable before connection');return config(...args);}
+  if(method==='RuntimeSettings'||method==='SetupProfile')return profile;
+  if(method==='SetupOverview')return {active:'codex',pending:''};
+  return {revision:1,nodes:[],issue:''};
  };
  await mount(invoke,invoke);
- assert.equal(select('Execution backend').value,'caelis');
- await click(buttons('Manage')[0]);
- assert.ok(container.querySelector('[role="dialog"]').textContent.includes(translator('en').t('settings.nodeScopedPreparation')));
- assert.equal(calls.filter(call=>['SetupProfile','InspectSetup','SetupOverview'].includes(call[0])).length,0);
- assert.equal(calls.filter(call=>/NodeRuntimeConnection/.test(call[0])).length,0);
+ assert.equal(select('Node'),null);assert.doesNotMatch(container.textContent,/Bot running on:|Worker: Local/);
+ await click(buttons(translator('en').t('runtime.completeSetup'))[0]);
+ assert.ok(container.querySelector('[role="dialog"] .runtime-choices'));
  await click(container.querySelector('[role="dialog"] button.runtime-close'));
- await choose(select('Execution backend'),'codex');
- await click(buttons('Connect account')[0]);
- assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','codex']]);
- assert.ok(calls.filter(call=>call[0]==='InspectSetup').every(call=>call[1].runtime==='codex'&&call[1].caelisStore===''));
- await click(container.querySelector('[role="dialog"] button.runtime-close'));
- await click(buttons(translator('en').t('runtime.switch'))[0]);
- await click([...container.querySelectorAll('[role="dialog"] .runtime-choices button')].find(button=>button.querySelector('strong')?.textContent==='Caelis'));
- assert.ok(container.querySelector('[role="dialog"]').textContent.includes(translator('en').t('settings.nodeScopedPreparation')));
- assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','codex']]);
- assert.ok(!calls.some(call=>call[0]==='ActivateRuntime'||call[0]==='ApplySetup'));
+ readable=true;await click(buttons(translator('en').t('runtime.reload'))[0]);
+ assert.match(container.textContent,/local-caelis-a/);
 });
 
 test('thin paired shared-model configuration keeps its existing native binding and revision',async()=>{
@@ -591,211 +598,18 @@ test('thin paired shared-model configuration keeps its existing native binding a
  assert.equal(command.binding,'paired-binding');assert.equal(command.change.action,'main');assert.equal(command.change.expectedRevision,'config-paired-caelis');assert.equal(command.change.selection.model,'paired-b');
  assert.equal(fixture.calls.filter(call=>call[0]==='ChangeNodeConfiguration').length,0);
 });
-test('paired read completion from a replaced native binding is rejected before populating a new view',async()=>{
+test('paired read relies on the native binding guard and avoids repeated state fetches',async()=>{
  const {createPairedRuntimeInvoker}=await server.ssrLoadModule('/src/settings/runtime/pairedClient.ts');
- const read=deferred(),dispatched=deferred();let binding='original';const calls=[];
- const invoke=createPairedRuntimeInvoker(async(method,...args)=>{calls.push([method,...args]);if(method==='RemoteRuntime')return {binding,available:true,pending:[]};dispatched.resolve();return read.promise;},'original',()=> 'Connection changed');
- const waiting=invoke('RemoteRuntimeConfiguration','original');waiting.catch(()=>{});
- await dispatched.promise;binding='replacement';read.resolve(config('remote','caelis').configuration);
- await assert.rejects(waiting,e=>e.receipt.outcome==='rejected');
- assert.deepEqual(calls.filter(call=>call[0]==='RemoteRuntimeConfiguration'),[['RemoteRuntimeConfiguration','original']]);
-});
-
-const {NodeCoordinator}=await server.ssrLoadModule('/src/settings/runtime/NodeSetup.tsx');
-const {createNodeRoamingClient}=await server.ssrLoadModule('/src/settings/runtime/roamingClient.ts');
-const roamingState=(fields={})=>({available:true,enabled:false,coordinatorNodeId:'other',activeBotNodeId:'',state:'disabled',reason:'',operationId:'',outcome:'accepted',...fields});
-const roamingPlan=(fields={})=>({id:'native-plan-1',coordinatorNodeId:'other',requiresConfirmation:true,actions:[{nodeId:'other',label:'Other',action:'prepare-coordinator'},{nodeId:'local',label:'Local',action:'stop-source'},{nodeId:'other',label:'Other',action:'start-bot'}],...fields});
-const coordinatorCatalog=()=>({...catalog(),broker:{nodeId:'other',reachable:false,automaticRoaming:false,reason:'broker-offline'}});
-async function mountCoordinator(call,value=coordinatorCatalog(),owner=createNodeRoamingClient(call)) {
- container=document.createElement('div');document.body.append(container);root=createRoot(container);
- await act(async()=>root.render(React.createElement(NodeCoordinator,{catalog:value,roaming:owner,call,onChanged:()=>{}})));
- return owner;
-}
-
-test('roaming is explicit, requires a real controller and saved coordinator, but can prepare an offline coordinator',async()=>{
- const calls=[];let ready=true;
- const call=async(method,...args)=>{calls.push([method,...args]);if(method==='PrepareNodeRoaming')return roamingPlan();return roamingState({available:ready});};
- const owner=await mountCoordinator(call);
- const enable=buttons('Enable automatic roaming')[0];assert.equal(enable.disabled,false);
- await choose(container.querySelector('#node-coordinator'),'local');
- assert.equal(enable.disabled,true);assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
- const nav=new Event('settings-navigate',{cancelable:true});assert.equal(window.dispatchEvent(nav),false);
- await click(buttons('Cancel')[0]);assert.equal(container.querySelector('#node-coordinator').value,'other');assert.equal(enable.disabled,false);
- ready=false;await act(async()=>owner.read());assert.equal(enable.disabled,true);
- assert.doesNotMatch(container.textContent,/broker-offline/);
-});
-
-test('repeated roaming clicks keep one original operation; lost delivery is checked without replay and mismatched receipts stay blocked',async()=>{
- const calls=[],delivery=deferred();let result=roamingState();
- const call=async(method,...args)=>{calls.push([method,...args]);if(method==='PrepareNodeRoaming')return roamingPlan();if(method==='EnableNodeRoaming')return delivery.promise;return result;};
- await mountCoordinator(call);
- await click(buttons('Enable automatic roaming')[0]);
- const confirm=buttons('Confirm')[0];
- await act(async()=>{confirm.dispatchEvent(new MouseEvent('click',{bubbles:true}));confirm.dispatchEvent(new MouseEvent('click',{bubbles:true}));});
- const commands=calls.filter(c=>c[0]==='EnableNodeRoaming');assert.equal(commands.length,1);
- assert.equal(commands[0][1].expectedCatalogRevision,'catalog-1');assert.ok(commands[0][1].id);
- const preparation=calls.find(c=>c[0]==='PrepareNodeRoaming');assert.equal(preparation[1].id,commands[0][1].id);assert.equal(preparation[1].allowPersistentExecution,false);assert.equal(preparation[1].reviewedPlanId,'');assert.equal(commands[0][1].reviewedPlanId,'native-plan-1');assert.equal(commands[0][1].allowPersistentExecution,true);
- await act(async()=>delivery.reject(new Error('response lost')));
- assert.equal(confirm.disabled,true);assert.match(container.textContent,/original operation is not confirmed/);
- await click(buttons('Cancel')[0]);
- result=roamingState({enabled:true,state:'ready',operationId:'different',activeBotNodeId:'other'});
- await click(buttons('Check original receipt')[0]);assert.equal(buttons('Stop automatic roaming')[0].disabled,true);
- result=roamingState({enabled:true,state:'waiting',operationId:commands[0][1].id});
- await click(buttons('Check original receipt')[0]);assert.equal(buttons('Stop automatic roaming')[0].disabled,false);
- assert.match(container.textContent,/Waiting for an available Bot node/);assert.doesNotMatch(container.textContent,/Bot is available on its confirmed node/);
- assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,1);
- assert.ok(calls.every(c=>!['ActivateRuntime','SelectWorkTarget'].includes(c[0])));
-});
-
-test('roaming confirmation captures catalog revision and cannot apply after node configuration changes',async()=>{
- const calls=[],call=async(method,...args)=>{calls.push([method,...args]);if(method==='PrepareNodeRoaming')return roamingPlan();return roamingState();};
- const owner=await mountCoordinator(call);await click(buttons('Enable automatic roaming')[0]);
- await act(async()=>root.render(React.createElement(NodeCoordinator,{catalog:{...coordinatorCatalog(),revision:'catalog-2'},roaming:owner,call,onChanged:()=>{}})));
- assert.equal(buttons('Confirm')[0].disabled,true);assert.match(container.textContent,/settings changed while this confirmation/);
- await click(buttons('Confirm')[0]);assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
-});
-
-test('disconnect retains confirmed roaming state but disables changes; only matching eligible live owner is shown ready',async()=>{
- let online=true;const call=async()=>{if(!online)throw new Error('offline');return roamingState({enabled:true,state:'ready',activeBotNodeId:'other'});};
- const value=coordinatorCatalog();value.broker.reachable=true;value.broker.automaticRoaming=true;
- const owner=await mountCoordinator(call,value);assert.match(container.textContent,/Bot is available on its confirmed node/);
- online=false;await act(async()=>owner.read());assert.match(container.textContent,/last confirmed state is shown/);assert.equal(buttons('Stop automatic roaming')[0].disabled,true);
- online=true;await act(async()=>owner.read());assert.equal(buttons('Stop automatic roaming')[0].disabled,false);
- const ineligible={...value,nodes:value.nodes.map(node=>({...node,runtimes:node.runtimes.map(runtime=>({...runtime,roles:runtime.roles.map(role=>({...role,eligible:false}))}))}))};
- await act(async()=>root.render(React.createElement(NodeCoordinator,{catalog:ineligible,roaming:owner,call,onChanged:()=>{}})));
- assert.doesNotMatch(container.textContent,/Bot is available on its confirmed node/);assert.match(container.textContent,/Waiting for an available Bot node/);
-});
-
-test('native unknown roaming operation is recovered after renderer remount and never replaced with a fresh ID',async()=>{
- const calls=[],call=async(method,...args)=>{calls.push([method,...args]);if(method==='PrepareNodeRoaming')return roamingPlan();return roamingState({enabled:true,state:'unknown',operationId:'native-original',outcome:'unknown'});};
- const owner=await mountCoordinator(call);assert.equal(owner.snapshot().pending,'native-original');assert.equal(buttons('Stop automatic roaming')[0].disabled,true);
- await click(buttons('Check original receipt')[0]);assert.equal(owner.snapshot().pending,'native-original');assert.equal(calls.length,2);assert.ok(calls.every(c=>c[0]==='NodeRoamingState'));
-});
-
-test('model drafts block explicit roaming confirmation and viewed-node selection never enables roaming',async()=>{
- const calls=[],call=async(method,...args)=>{calls.push([method,...args]);if(method==='PrepareNodeRoaming')return roamingPlan();if(method==='NodeRoamingState')return roamingState();return defaultInvoke(method,...args);};
- await mount(async(method,...args)=>method==='NodeCatalog'?coordinatorCatalog():config(...args),call);
- await choose(select('Node'),'other');assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
- await click(container.querySelector('button.runtime-model-summary'));
- await click(buttons('Enable automatic roaming')[0]);assert.equal(container.querySelectorAll('[role="dialog"]').length,1);assert.match(container.textContent,/Finish or cancel/);
- assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
- await click(buttons('Cancel')[0]);await click(buttons('Enable automatic roaming')[0]);assert.match(container.querySelector('[role="dialog"]').textContent,/This changes where Bot runs/);
-});
-
-test('busy disable rejection preserves confirmed owner and uses one stable command ID',async()=>{
- const calls=[],delivery=deferred();const call=async(method,...args)=>{calls.push([method,...args]);if(method==='DisableNodeRoaming')return delivery.promise;return roamingState({enabled:true,state:'waiting',activeBotNodeId:'other'});};
- await mountCoordinator(call);await click(buttons('Stop automatic roaming')[0]);
- const confirm=buttons('Confirm')[0];await act(async()=>{confirm.dispatchEvent(new MouseEvent('click',{bubbles:true}));confirm.dispatchEvent(new MouseEvent('click',{bubbles:true}));});
- const command=calls.find(c=>c[0]==='DisableNodeRoaming');assert.equal(calls.filter(c=>c[0]==='DisableNodeRoaming').length,1);
- await act(async()=>delivery.resolve(roamingState({enabled:true,state:'waiting',activeBotNodeId:'other',operationId:command[1].id,outcome:'rejected',reason:'source-busy'})));
- assert.match(container.textContent,/change was not confirmed/);assert.doesNotMatch(container.textContent,/source-busy/);assert.match(container.textContent,/Waiting for an available Bot node/);
- await click(buttons('Cancel')[0]);assert.equal(buttons('Stop automatic roaming')[0].disabled,false);
- assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
-});
-
-test('deployment plan is read-only, human reviewed, and cancellation does not enable persistent execution',async()=>{
- const calls=[],call=async(method,...args)=>{calls.push([method,...args]);return method==='PrepareNodeRoaming'?roamingPlan({actions:[{nodeId:'other',label:'Other',action:'prepare-coordinator'},{nodeId:'other',label:'Other',action:'connect-outgoing'},{nodeId:'local',label:'Local',action:'stop-source'}]}):roamingState();};
- await mountCoordinator(call);await click(buttons('Enable automatic roaming')[0]);
- const dialog=container.querySelector('[role='+'"dialog"'+']');assert.match(dialog.textContent,/Prepare the always-on service on Other/);assert.match(dialog.textContent,/Connect the enrolled outgoing node Other/);assert.match(dialog.textContent,/Safely stop the current Bot on Local/);
- assert.doesNotMatch(dialog.textContent,/prepare-coordinator|connect-outgoing|native-plan-1/);
- assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);await click(buttons('Cancel')[0]);assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
-});
-
-test('late or unrecognized deployment plans cannot be confirmed or execute a roaming change',async()=>{
- const calls=[],late=deferred();let unknown=false;
- const call=async(method,...args)=>{calls.push([method,...args]);return method==='PrepareNodeRoaming'?unknown?roamingPlan({actions:[{nodeId:'other',label:'Other',action:'raw-shell'}]}):late.promise:roamingState();};
- const owner=await mountCoordinator(call);await click(buttons('Enable automatic roaming')[0]);
- await act(async()=>root.render(React.createElement(NodeCoordinator,{catalog:{...coordinatorCatalog(),revision:'catalog-2'},roaming:owner,call,onChanged:()=>{}})));
- await act(async()=>late.resolve(roamingPlan()));assert.equal(container.querySelector('[role="dialog"]'),null);assert.match(container.textContent,/Node settings changed/);
- unknown=true;await click(buttons('Enable automatic roaming')[0]);assert.equal(container.querySelector('[role="dialog"]'),null);assert.match(container.textContent,/Could not prepare the deployment plan/);
- assert.equal(calls.filter(c=>c[0]==='EnableNodeRoaming').length,0);
-});
-
-test('enabled and unresolved roaming lock coordinator clear/change; confirmed disabled state restores editing',async()=>{
- const calls=[];let native=roamingState({enabled:true,state:'ready',activeBotNodeId:'other'});
- const call=async(method,...args)=>{calls.push([method,...args]);return method==='NodeRoamingState'?native:coordinatorCatalog();};
- const owner=await mountCoordinator(call);
- for(const current of [native,roamingState({enabled:true,state:'waiting'}),roamingState({enabled:true,state:'unavailable'}),roamingState({state:'enabling'}),roamingState({enabled:true,state:'disabling'}),roamingState({state:'unknown',operationId:'original',outcome:'unknown'})]) {
-  native=current;await act(async()=>owner.read());
-  const coordinator=container.querySelector('#node-coordinator');assert.equal(coordinator.disabled,true,current.state);assert.equal(buttons('Save')[0].disabled,true,current.state);
-  await choose(coordinator,'');assert.equal(coordinator.value,'other');
-  await choose(coordinator,'local');assert.equal(coordinator.value,'other');await click(buttons('Save')[0]);
-  assert.match(container.textContent,/Stop automatic roaming before changing the always-on node/);
- }
- assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
- native=roamingState({state:'disabled',operationId:'original',outcome:'accepted'});await act(async()=>owner.read());
- assert.equal(container.querySelector('#node-coordinator').disabled,false);
- await choose(container.querySelector('#node-coordinator'),'local');assert.equal(buttons('Save')[0].disabled,false);await click(buttons('Save')[0]);
- await choose(container.querySelector('#node-coordinator'),'');await click(buttons('Save')[0]);
- assert.deepEqual(calls.filter(call=>call[0]==='SetNodeCoordinator').map(call=>call[1]),[{nodeId:'local',expectedRevision:'catalog-1'},{nodeId:'',expectedRevision:'catalog-1'}]);
-});
-
-test('live roaming coordinator lock leaves viewed-node selection available and makes no roaming mutation',async()=>{
- const calls=[],call=async(method,...args)=>{calls.push([method,...args]);return method==='NodeRoamingState'?roamingState({enabled:true,state:'waiting'}):defaultInvoke(method,...args);};
- await mount(async(method,...args)=>method==='NodeCatalog'?coordinatorCatalog():config(...args),call);
- assert.equal(container.querySelector('#node-coordinator').disabled,true);assert.equal(select('Node').disabled,false);
- await choose(select('Node'),'other');assert.equal(select('Node').value,'other');assert.equal(container.querySelector('#node-coordinator').value,'other');
- assert.ok(calls.every(call=>!['SetNodeCoordinator','EnableNodeRoaming','DisableNodeRoaming','ActivateRuntime'].includes(call[0])));
+ const calls=[],invoke=createPairedRuntimeInvoker(async(method,...args)=>{calls.push([method,...args]);throw new Error('native binding changed');},'original',()=> 'Connection changed');
+ await assert.rejects(invoke('RemoteRuntimeConfiguration','original'),/native binding changed/);
+ assert.deepEqual(calls,[['RemoteRuntimeConfiguration','original']]);
+ await assert.rejects(invoke('RemoteRuntimeConfiguration','replacement'));assert.equal(calls.length,1);
 });
 
 
-test('a coordinator draft stays cancellable when native roaming becomes enabled before save',async()=>{
- const calls=[];let native=roamingState();const call=async(method,...args)=>{calls.push([method,...args]);return native;};
- const owner=await mountCoordinator(call);await choose(container.querySelector('#node-coordinator'),'local');
- native=roamingState({enabled:true,state:'waiting'});await act(async()=>owner.read());
- assert.equal(buttons('Save')[0].disabled,true);assert.equal(container.querySelector('#node-coordinator').disabled,true);
- assert.equal(buttons('Cancel')[0].disabled,false);await click(buttons('Cancel')[0]);
- assert.equal(container.querySelector('#node-coordinator').value,'other');assert.equal(buttons('Stop automatic roaming')[0].disabled,false);
- assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
-});
-
-// Synthetic DOM and native DTO fixtures only; these checks do not claim GUI,
-// native authentication, installed Runtime or remote process acceptance.
 const flow=(stage='complete',sequence=1)=>({id:'original-flow',revision:`flow-${sequence}`,sequence,stage,title:'Node connection',message:'',installation:null,authorization:null,launchers:[],methods:[],models:[]});
 const enter=async(el,value)=>{assert.ok(el);await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));});};
 
-test('coordinator source route is an explicit scoped draft and saves through the supported product request',async()=>{
- const calls=[],value=coordinatorCatalog();value.broker.sourceRoutes=[{sourceNodeId:'local',sshDestination:'source-original-coordinator'}];
- const call=async(method,...args)=>{calls.push([method,...args]);return method==='NodeRoamingState'?roamingState():value;};
- await mountCoordinator(call,value);
- const field=container.querySelector('#node-coordinator-route-local');assert.equal(field.value,'source-original-coordinator');
- for(let parent=field.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
- assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
- assert.ok(calls.every(call=>!['PrepareNodeRoaming','EnableNodeRoaming','BeginNodeRuntimeConnection'].includes(call[0])));
- await enter(field,'source-edited-coordinator');assert.equal(container.querySelector('#node-coordinator').disabled,true);
- assert.equal(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})),false);
- await click(buttons('Save')[0]);
- assert.deepEqual(calls.filter(call=>call[0]==='SetNodeCoordinator').map(call=>call[1]),[{nodeId:'other',expectedRevision:'catalog-1',sourceRoutes:[{sourceNodeId:'local',sshDestination:'source-edited-coordinator'}]}]);
- assert.equal(select('Node'),null);assert.equal(value.activeBotNodeId,'other');assert.equal(value.workerTarget.nodeId,'local');
-});
-
-test('coordinator source route cancel preserves original metadata and explicit clear sends an empty list',async()=>{
- const calls=[],value=coordinatorCatalog();value.broker.sourceRoutes=[{sourceNodeId:'local',sshDestination:'source-original-coordinator'}];
- const call=async(method,...args)=>{calls.push([method,...args]);return method==='NodeRoamingState'?roamingState():value;};
- await mountCoordinator(call,value);
- const field=container.querySelector('#node-coordinator-route-local');
- for(let parent=field.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
- await enter(field,'discarded-source-draft');await click(buttons('Cancel')[0]);
- assert.equal(field.value,'source-original-coordinator');assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,0);
- assert.equal(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})),true);
- await enter(field,'');await click(buttons('Save')[0]);
- assert.deepEqual(calls.filter(call=>call[0]==='SetNodeCoordinator').map(call=>call[1]),[{nodeId:'other',expectedRevision:'catalog-1',sourceRoutes:[]}]);
-});
-
-test('coordinator route draft keeps its original revision after refresh and cannot save while roaming becomes unknown',async()=>{
- const calls=[],value=coordinatorCatalog();let native=roamingState();
- const call=async(method,...args)=>{calls.push([method,...args]);if(method==='SetNodeCoordinator')throw Error('fixture stale revision');return method==='NodeRoamingState'?native:value;};
- const owner=await mountCoordinator(call,value);
- let field=container.querySelector('#node-coordinator-route-local');await enter(field,'original-source-draft');
- const refreshed={...value,revision:'catalog-2'};
- await act(async()=>root.render(React.createElement(NodeCoordinator,{catalog:refreshed,roaming:owner,call,onChanged:()=>{}})));
- field=container.querySelector('#node-coordinator-route-local');await enter(field,'edited-source-draft');await click(buttons('Save')[0]);
- assert.equal(calls.find(call=>call[0]==='SetNodeCoordinator')[1].expectedRevision,'catalog-1');assert.equal(field.value,'edited-source-draft');
- native=roamingState({enabled:true,state:'unknown',outcome:'unknown'});await act(async()=>owner.read());
- assert.equal(field.disabled,true);assert.equal(buttons('Save')[0].disabled,true);
- await enter(field,'unapproved-late-edit');assert.equal(field.value,'edited-source-draft');await click(buttons('Save')[0]);
- assert.equal(calls.filter(call=>call[0]==='SetNodeCoordinator').length,1);
-});
 const enrollmentResult=(operationId,outcome='unknown',reason='unknown')=>({operationId,outcome,reason,node:{id:outcome==='committed'?'enrolled-original':'',label:'Fixture',os:'linux',join:'ssh',runtimes:[]},joinInstructions:null});
 
 test('enrollment client admits one original ID and receipt reads never resend Add',async()=>{
@@ -1187,4 +1001,17 @@ test('managed-copy metadata cannot conceal an explicitly missing executable',asy
  const view=await client.read();
  assert.equal(view.setup.installation.installed,false);
  assert.equal(view.setup.state,'installation');
+});
+
+const {WorkerNodeSettings}=await server.ssrLoadModule('/src/WorkerNodeSettings.tsx');
+test('an empty Worker setup connects the enrolled SSH machine without a second machine form',async()=>{
+ container=document.createElement('div');document.body.append(container);root=createRoot(container);
+ const nodes=catalog();nodes.nodes[1]={...nodes.nodes[1],join:'ssh',runtimes:[runtime('codex'),runtime('caelis')]};
+ const calls=[];let setup={revision:4,nodes:[],issue:''};const call=async(method,...args)=>{calls.push([method,...args]);if(method==='SaveWorkerNode')setup={...setup,revision:5,nodes:[{config:args[0],state:'candidate',connected:false,issue:''}]};if(method==='ConnectWorkerTarget')setup={...setup,revision:6,nodes:setup.nodes.map(node=>({...node,connected:true,state:'ready'}))};return setup;};
+ await act(async()=>root.render(React.createElement(WorkerNodeSettings,{catalog:nodes,call})));
+ assert.equal(container.querySelector('#worker-node-location').value,'other');assert.equal(container.querySelectorAll('input').length,0);
+ await choose(container.querySelector('#worker-node-backend'),'caelis');await click(buttons('Connect Worker')[0]);
+ const saved=calls.find(call=>call[0]==='SaveWorkerNode');assert.equal(saved[1].transport,'registered-agent');assert.equal(saved[1].ssh,'');assert.equal(saved[1].workspaceRoot,'');
+ assert.deepEqual(calls.find(call=>call[0]==='ConnectWorkerTarget'),['ConnectWorkerTarget',{nodeId:'other',backend:'caelis',role:'worker'},5]);
+ assert.equal(buttons('Disconnect').length,1);assert.equal(calls.filter(call=>call[0]==='SaveWorkerNode').length,1);
 });

@@ -126,13 +126,7 @@ func (s *Service) BeginNodeRuntimeConnection(ctx context.Context, guard api.Node
 	if err := ctx.Err(); err != nil {
 		return ref, err
 	}
-	if port, delegated, err := s.managedNodeConnections(ctx, ref.NodeID, ref.Backend); delegated {
-		if err != nil {
-			return ref, err
-		}
-		defer closeManagedNodeConnectionController(port)
-		return port.BeginNodeRuntimeConnection(ctx, guard, operationID)
-	}
+
 	s.connectionsMu.Lock()
 	defer s.connectionsMu.Unlock()
 	if prior, err := s.connectionRecord(ref); err == nil {
@@ -360,13 +354,7 @@ func (s *Service) NodeRuntimeConnectionCatalog(ctx context.Context, ref api.Node
 	if !validConnectionRef(ref) || ref.NodeID != s.options.NodeID {
 		return api.RuntimeConnectionCatalog{}, connectionError("scope changed")
 	}
-	if port, delegated, err := s.managedNodeConnections(ctx, ref.NodeID, ref.Backend); delegated {
-		if err != nil {
-			return api.RuntimeConnectionCatalog{}, err
-		}
-		defer closeManagedNodeConnectionController(port)
-		return port.NodeRuntimeConnectionCatalog(ctx, ref, kind)
-	}
+
 	if kind != "account" && kind != "api-key" && kind != "agent" {
 		return api.RuntimeConnectionCatalog{}, connectionError("catalog unavailable")
 	}
@@ -388,13 +376,7 @@ func (s *Service) NodeRuntimeSetupCatalog(ctx context.Context, ref api.NodeRunti
 	if !validConnectionRef(ref) || ref.NodeID != s.options.NodeID {
 		return nil, connectionError("scope changed")
 	}
-	if port, delegated, err := s.managedNodeConnections(ctx, ref.NodeID, ref.Backend); delegated {
-		if err != nil {
-			return nil, err
-		}
-		defer closeManagedNodeConnectionController(port)
-		return port.NodeRuntimeSetupCatalog(ctx, ref, action, provider, baseURL)
-	}
+
 	if action != "providers" && action != "endpoints" && action != "models" || len(provider) > 512 || len(baseURL) > 4096 {
 		return nil, connectionError("catalog unavailable")
 	}
@@ -425,13 +407,7 @@ func (s *Service) StartNodeRuntimeConnection(ctx context.Context, ref api.NodeRu
 	if !validConnectionRef(ref) || ref.NodeID != s.options.NodeID {
 		return api.RuntimeFlow{}, connectionError("scope changed")
 	}
-	if port, delegated, err := s.managedNodeConnections(ctx, ref.NodeID, ref.Backend); delegated {
-		if err != nil {
-			return api.RuntimeFlow{}, err
-		}
-		defer closeManagedNodeConnectionController(port)
-		return port.StartNodeRuntimeConnection(ctx, ref, input)
-	}
+
 	if input.Settings != nil || input.Kind != "account" && input.Kind != "api-key" && input.Kind != "agent" || len(input.APIKey) > 16384 || len(input.BaseURL) > 4096 || len(input.Choice) > 512 || len(input.Model) > 512 || len(input.Command) > 4096 {
 		return api.RuntimeFlow{}, connectionError("input unavailable")
 	}
@@ -500,13 +476,7 @@ func (s *Service) AdvanceNodeRuntimeConnection(ctx context.Context, ref api.Node
 	if !validConnectionRef(ref) || ref.NodeID != s.options.NodeID {
 		return api.RuntimeFlow{}, connectionError("scope changed")
 	}
-	if port, delegated, err := s.managedNodeConnections(ctx, ref.NodeID, ref.Backend); delegated {
-		if err != nil {
-			return api.RuntimeFlow{}, err
-		}
-		defer closeManagedNodeConnectionController(port)
-		return port.AdvanceNodeRuntimeConnection(ctx, ref, action)
-	}
+
 	session, err := s.connectionFlow(ctx, ref, action.ID)
 	if err != nil {
 		return api.RuntimeFlow{}, err
@@ -521,13 +491,7 @@ func (s *Service) WaitNodeRuntimeConnection(ctx context.Context, ref api.NodeRun
 	if !validConnectionRef(ref) || ref.NodeID != s.options.NodeID {
 		return api.RuntimeFlow{}, connectionError("scope changed")
 	}
-	if port, delegated, err := s.managedNodeConnections(ctx, ref.NodeID, ref.Backend); delegated {
-		if err != nil {
-			return api.RuntimeFlow{}, err
-		}
-		defer closeManagedNodeConnectionController(port)
-		return port.WaitNodeRuntimeConnection(ctx, ref, id, after)
-	}
+
 	if after < 0 {
 		return api.RuntimeFlow{}, connectionError("flow scope changed")
 	}
@@ -545,13 +509,7 @@ func (s *Service) CancelNodeRuntimeConnection(ctx context.Context, ref api.NodeR
 	if !validConnectionRef(ref) || ref.NodeID != s.options.NodeID {
 		return connectionError("scope changed")
 	}
-	if port, delegated, err := s.managedNodeConnections(ctx, ref.NodeID, ref.Backend); delegated {
-		if err != nil {
-			return err
-		}
-		defer closeManagedNodeConnectionController(port)
-		return port.CancelNodeRuntimeConnection(ctx, ref, id)
-	}
+
 	session, err := s.connectionFlow(ctx, ref, id)
 	if err != nil {
 		return err
@@ -565,13 +523,7 @@ func (s *Service) CloseNodeRuntimeConnection(ctx context.Context, ref api.NodeRu
 	if !validConnectionRef(ref) || ref.NodeID != s.options.NodeID {
 		return connectionError("scope changed")
 	}
-	if port, delegated, err := s.managedNodeConnections(ctx, ref.NodeID, ref.Backend); delegated {
-		if err != nil {
-			return err
-		}
-		defer closeManagedNodeConnectionController(port)
-		return port.CloseNodeRuntimeConnection(ctx, ref)
-	}
+
 	s.connectionsMu.Lock()
 	record, err := s.connectionRecord(ref)
 	session := s.connections[ref.OperationID]

@@ -16,20 +16,13 @@ func (s *Service) ConfigureRuntimeManagement(providers []api.ProviderInfo, probe
 	s.switchGuard = guard
 }
 func (s *Service) RuntimeProviders() []api.ProviderInfo {
-	if local := s.localGenerationService(); local != nil {
-		return local.RuntimeProviders()
-	}
+
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	return append([]api.ProviderInfo(nil), s.providers...)
 }
 func (s *Service) ManageRuntime(ctx context.Context, action string, settings api.RuntimeSettings) (api.RuntimeStatus, error) {
-	if err := s.guardLocalConfiguration(); err != nil {
-		return api.RuntimeStatus{}, err
-	}
-	if local := s.localGenerationService(); local != nil {
-		return local.ManageRuntime(ctx, action, settings)
-	}
+
 	s.configurationMu.Lock()
 	fn := s.manageRuntime
 	guard := s.switchGuard

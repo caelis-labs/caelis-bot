@@ -20,13 +20,7 @@ func main() {
 		return
 	}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
-	if len(os.Args) > 1 && os.Args[1] == "supervise-roaming" {
-		// An explicitly approved independent node must survive its initiating
-		// SSH client. Preserve nohup semantics instead of registering SIGHUP.
-		signal.Ignore(syscall.SIGHUP)
-	} else {
-		signals = append(signals, syscall.SIGHUP)
-	}
+	signals = append(signals, syscall.SIGHUP)
 	ctx, stop := signal.NotifyContext(context.Background(), signals...)
 	defer stop()
 	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {

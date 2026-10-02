@@ -256,5 +256,7 @@
   "notebookUnavailable": "Notebook backup settings are unavailable.",
   "notebookSaved": "Backup settings saved.",
   "notebookSwitchTitle": "Switch Bot to {name}",
-  "notebookSwitchDescription": "Stop the current Bot, confirm its stop, copy the latest Notebook, then start a fresh conversation on this node. Active or uncertain work blocks switching. Extra old notes on the target must be reviewed first."
+  "notebookSwitchDescription": "Stop the current Bot, confirm its stop, copy the latest Notebook, then start a fresh conversation on this node. Active or uncertain work blocks switching. Extra old notes on the target must be reviewed first.",
+  "codexModelsNeedConnection": "Connect Codex to load models. Check the connection in the conversation window.",
+  "codexModelCatalogUnavailable": "The Codex model catalog is unavailable. Refresh to retry; your selected model is preserved."
 }

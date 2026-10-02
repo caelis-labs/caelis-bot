@@ -56,22 +56,8 @@ func (s *Service) NativeEnrollmentIdentity() (NativeEnrollmentIdentity, error) {
 	return ReadNativeEnrollmentIdentity(s.options.Directory, s.options.NodeID)
 }
 
-func ValidateRoamingCoordinatorIdentity(m RoamingManagedDeployment) error {
-	identity := m.CoordinatorIdentity
-	if identity == nil || !identifier.MatchString(identity.NodeID) || !filepath.IsAbs(identity.Directory) || filepath.Clean(identity.Directory) != identity.Directory || m.BrokerNodeID == "" || m.BrokerNodeID != api.LocalNodeID && identity.NodeID != m.BrokerNodeID {
-		return errors.New("exact enrolled coordinator identity required")
-	}
-	return nil
-}
-
 // The helper and directory come only from frozen native enrollment. This is
 // one closed read-only command, not a command-bearing RPC or renderer input.
-func RoamingCoordinatorVerificationCommand(m RoamingManagedDeployment) (string, error) {
-	if err := ValidateRoamingCoordinatorIdentity(m); err != nil || !filepath.IsAbs(m.JoinHelper) || filepath.Clean(m.JoinHelper) != m.JoinHelper {
-		return "", errors.New("fixed enrolled coordinator helper required")
-	}
-	return shellQuote(m.JoinHelper) + " verify-join-directory --directory " + shellQuote(m.CoordinatorIdentity.Directory) + " --node-id " + shellQuote(m.CoordinatorIdentity.NodeID), nil
-}
 
 // SSHEnrollmentIdentity inspects only this SSH user's fixed native Node slot.
 // It neither creates an identity nor adopts a Bot/session/Runtime owner.

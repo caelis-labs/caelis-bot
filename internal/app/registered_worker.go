@@ -37,10 +37,11 @@ func (a *Application) workerSourcePair(target api.WorkTarget) (workerwire.Pair, 
 	a.mu.Lock()
 	stopped, resident := a.closed, a.companion
 	var rawBotID string
-	sourceNode := api.LocalNodeID
-	if a.managed != nil {
-		rawBotID, sourceNode = a.managed.snapshot.BotID, a.managed.nodeID
+	sourceNode := a.residentNodeID
+	if sourceNode == "" {
+		sourceNode = api.LocalNodeID
 	}
+
 	a.mu.Unlock()
 	if rawBotID == "" && resident != nil {
 		rawBotID = resident.State().ID
@@ -61,22 +62,21 @@ func (a *Application) newRegisteredWorkerNode(config backend.WorkerNodeConfig, s
 		return nil, errors.New("registered Worker cannot replace the source's direct native Worker")
 	}
 	a.mu.Lock()
-	lookup, requireLease := a.registeredWorkers, a.managed != nil
+	lookup := a.registeredWorkers
 	a.mu.Unlock()
 	if lookup == nil {
 		return nil, errors.New("registered Worker has no trusted enrolled-node transport")
 	}
-	return &registeredWorkerAdapter{pair: pair, lookup: lookup, source: source, requireLease: requireLease}, nil
+	return &registeredWorkerAdapter{pair: pair, lookup: lookup, source: source}, nil
 }
 
 type registeredWorkerAdapter struct {
-	mu           sync.Mutex
-	pair         workerwire.Pair
-	lookup       RegisteredWorkerAgentLookup
-	source       api.WorkSourceProvider
-	requireLease bool
-	worker       *workerwire.Client
-	closed       bool
+	mu     sync.Mutex
+	pair   workerwire.Pair
+	lookup RegisteredWorkerAgentLookup
+	source api.WorkSourceProvider
+	worker *workerwire.Client
+	closed bool
 }
 
 func (w *registeredWorkerAdapter) open(ctx context.Context) (*workerwire.Client, error) {
@@ -96,9 +96,9 @@ func (w *registeredWorkerAdapter) open(ctx context.Context) (*workerwire.Client,
 	// This lookup is read-only, and never allocates or replays a task. Canonical
 	// workspace authority comes from the paired native owner, not settings.
 	workspace, err := client.ResolveWorkWorkspace(ctx, "task-"+strings.Repeat("0", 32), "")
-	if err != nil || !path.IsAbs(workspace) || path.Clean(workspace) != workspace || path.Base(workspace) != "task-"+strings.Repeat("0", 32) || (w.requireLease && !client.LeaseAwareAdmission()) {
+	if err != nil || !path.IsAbs(workspace) || path.Clean(workspace) != workspace || path.Base(workspace) != "task-"+strings.Repeat("0", 32) {
 		client.Close()
-		return nil, errors.New("enrolled Worker has no canonical workspace or native lease admission")
+		return nil, errors.New("enrolled Worker has no canonical workspace")
 	}
 	return client, nil
 }

@@ -10,12 +10,7 @@ import (
 // PublishCareEvent accepts data only from in-process host adapters declared in
 // Host.CareSources. It is not a renderer, HTTP, MCP or shell event-ingress API.
 func (a *Application) PublishCareEvent(ctx context.Context, event care.Event) error {
-	if active := ActiveNodeRoamingApplication(a); active != a {
-		return active.PublishCareEvent(ctx, event)
-	}
-	if NodeRoamingOwnsExecution(a) {
-		return errors.New("local care events unavailable during roaming")
-	}
+
 	a.mu.Lock()
 	r, ready := a.companion, a.started && !a.closed
 	a.mu.Unlock()

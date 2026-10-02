@@ -32,10 +32,6 @@ func TestUnsupportedOwnedRuntimeRefusesBeforeHelperOrState(t *testing.T) {
 	if err := session.Connect(t.Context()); !errors.Is(err, ErrOwnedRuntimeUnsupported) {
 		t.Fatal(err)
 	}
-	worker := &WorkerClient{lease: &workerLeaseFence{}}
-	if err := worker.Connect(t.Context()); !errors.Is(err, ErrOwnedRuntimeUnsupported) {
-		t.Fatal(err)
-	}
 	if err := RunSupervisedRuntime(t.Context(), nil); !errors.Is(err, ErrOwnedRuntimeUnsupported) {
 		t.Fatal(err)
 	}

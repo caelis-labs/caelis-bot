@@ -124,3 +124,49 @@ func TestCancelledPeriodicWaitDoesNotBlockStoppedSourceCleanup(t *testing.T) {
 		t.Fatal("cancelled timer blocked behind switch operation")
 	}
 }
+
+func TestConfirmedReadinessFailureKeepsSourceAndAllowsCorrection(t *testing.T) {
+	c, trace := fixture(t, "")
+	c.hooks.TargetReady = func(context.Context, string) error { return errors.New("missing model") }
+	if err := c.Switch(t.Context(), "backup"); err == nil {
+		t.Fatal("readiness failure hidden")
+	}
+	failed := c.State().Targets[0]
+	if failed.Phase != "ready" || failed.OperationID == "" {
+		t.Fatal(failed)
+	}
+	for _, v := range *trace {
+		if v == "stop" {
+			t.Fatal("source stopped before target readiness")
+		}
+	}
+	restored, err := New(c.State(), c.hooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored.hooks.TargetReady = func(context.Context, string) error { return nil }
+	if err = restored.Switch(t.Context(), "backup"); err != nil {
+		t.Fatal(err)
+	}
+	if restored.State().Targets[0].OperationID == failed.OperationID {
+		t.Fatal("correction reused previous attempt")
+	}
+}
+func TestUnknownPreparationRetainsOriginalFenceAcrossRestart(t *testing.T) {
+	c, trace := fixture(t, "")
+	c.hooks.TargetReady = func(context.Context, string) error { return ErrPreparationUnconfirmed }
+	if err := c.Switch(t.Context(), "backup"); !errors.Is(err, ErrPreparationUnconfirmed) {
+		t.Fatal(err)
+	}
+	if c.State().Targets[0].Phase != "preparing" {
+		t.Fatal(c.State())
+	}
+	length := len(*trace)
+	restored, err := New(c.State(), c.hooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restored.Switch(t.Context(), "backup"); err == nil || len(*trace) != length {
+		t.Fatal("unconfirmed original replaced", err)
+	}
+}

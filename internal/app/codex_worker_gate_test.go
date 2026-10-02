@@ -149,7 +149,7 @@ func TestNativeCodexWorkerSSHGate(t *testing.T) {
 	if err != nil {
 		t.Fatal("explicit APP node setup failed", err)
 	}
-	setup, err = primary.app.Backend.ConnectWorkerNode(ctx, node.ID, setup.Revision)
+	setup, err = primary.app.Backend.ConnectWorkerTarget(ctx, configuredWorkerTarget(node), setup.Revision)
 	if err != nil || len(setup.Nodes) != 1 || setup.Nodes[0].State != "ready" {
 		t.Fatal("exact paired APP route unavailable")
 	}
@@ -161,11 +161,11 @@ func TestNativeCodexWorkerSSHGate(t *testing.T) {
 	}
 	initialID := task.ID
 	// Disconnect the APP observer while native execution owns the request.
-	setup, err = primary.app.Backend.DisconnectWorkerNode(ctx, node.ID, setup.Revision)
+	setup, err = primary.app.Backend.DisconnectWorkerTarget(ctx, configuredWorkerTarget(node), setup.Revision)
 	if err != nil {
 		t.Fatal("APP observer detach failed")
 	}
-	setup, err = primary.app.Backend.ConnectWorkerNode(ctx, node.ID, setup.Revision)
+	setup, err = primary.app.Backend.ConnectWorkerTarget(ctx, configuredWorkerTarget(node), setup.Revision)
 	if err != nil || setup.Nodes[0].State != "ready" {
 		t.Fatal("exact native owner reconnect failed")
 	}

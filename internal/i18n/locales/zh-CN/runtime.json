@@ -255,5 +255,7 @@
   "notebookUnavailable": "Notebook 备份设置暂不可用。",
   "notebookSaved": "备份设置已保存。",
   "notebookSwitchTitle": "将 Bot 切换到 {name}",
-  "notebookSwitchDescription": "停止当前 Bot 并确认，复制最新 Notebook，再在此节点启动新会话。进行中或结果不明的任务会阻止切换。目标上多余的旧笔记需要先处理。"
+  "notebookSwitchDescription": "停止当前 Bot 并确认，复制最新 Notebook，再在此节点启动新会话。进行中或结果不明的任务会阻止切换。目标上多余的旧笔记需要先处理。",
+  "codexModelsNeedConnection": "连接 Codex 后可加载模型；请在对话窗口检查连接",
+  "codexModelCatalogUnavailable": "Codex 模型目录暂不可用，请刷新；不会自动换用其他模型"
 }

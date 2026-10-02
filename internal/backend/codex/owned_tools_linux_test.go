@@ -143,3 +143,24 @@ func TestLinuxProcessReadClassifiesDisappearingIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestLinuxOwnedHandlesAreReleasedIdempotently(t *testing.T) {
+	child := exec.Command("/bin/sleep", "60")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = child.Process.Kill(); _ = child.Wait() }()
+	owner := newOwnedTools(child.Process.Pid)
+	if err := owner.failure(); err != nil {
+		t.Fatal(err)
+	}
+	fd := owner.rootHandle
+	owner.releaseHandles()
+	owner.releaseHandles()
+	if _, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); !errors.Is(err, unix.EBADF) {
+		t.Fatal("stable handle leaked", err)
+	}
+	if owner.rootHandle != -1 || len(owner.handles) != 0 || !owner.closed {
+		t.Fatal("cleanup was not final")
+	}
+}

@@ -40,7 +40,7 @@ func (s *Service) ImageInput(ctx context.Context) (api.ImageInputCapability, err
 	if s.restarting || s.setupRequired {
 		return api.ImageInputCapability{State: "unknown"}, nil
 	}
-	if p, ok := s.capabilityEngine().(api.ImageInputProvider); ok {
+	if p, ok := s.engine.(api.ImageInputProvider); ok {
 		return p.ImageInput(ctx)
 	}
 	return api.ImageInputCapability{State: "unknown"}, nil
@@ -61,7 +61,7 @@ func SubmitScreen(ctx context.Context, s *Service, input api.Submission, files [
 	if initializer != nil && initializer.Initialization().Status != "accepted" {
 		return r, errors.New("Bot initialization required")
 	}
-	p, ok := s.capabilityEngine().(api.ImageInputProvider)
+	p, ok := s.engine.(api.ImageInputProvider)
 	if !ok {
 		return r, errors.New("image input capability unavailable")
 	}

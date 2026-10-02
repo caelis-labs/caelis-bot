@@ -29,8 +29,6 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
-	// BindLeasePower is invoked only by a managed leased generation.
-	BindLeasePower func(suspend func(), wake func()) (func(), error)
 	DesktopControl api.ApplicationTools // optional private native desktop driver
 	CareSample     func() care.Sample
 	CareSources    []care.Source
@@ -51,7 +49,6 @@ type Host struct {
 }
 
 type Application struct {
-	managed            *managedNodeOwner
 	executionAdmission api.ExecutionAdmission
 	taskPreferences    *tasks.PreferencesStore
 	setup              *runtimeSetup
@@ -71,6 +68,7 @@ type Application struct {
 	nodeRegistry       *nodes.Registry
 	workerNodes        *workerNodeController
 	registeredWorkers  RegisteredWorkerAgentLookup
+	residentNodeID     string
 	product            *productEngine
 	personal           *botmemory.Store
 	notebook           *notebook.Vault
@@ -92,15 +90,11 @@ func New(root string, host Host) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Node assembly starts no network service or daemon. Persisted roaming
-	// authority must be validated before publishing the local or thin APP.
+	// Node assembly starts no network service or daemon.
 	if err = AttachNodeManagement(a); err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}
-	if err = attachDefaultNodeRoaming(a); err != nil {
-		_ = a.Close()
-		return nil, err
-	}
+
 	if err = attachDefaultNotebookSync(a); err != nil {
 		_ = a.Close()
 		return nil, err
@@ -228,12 +222,7 @@ func (a *Application) PreparePersonal() error {
 	if err := a.notebookSyncStartupGuard(); err != nil {
 		return err
 	}
-	if active := ActiveNodeRoamingApplication(a); active != a {
-		return active.PreparePersonal()
-	}
-	if NodeRoamingOwnsExecution(a) {
-		return nil
-	}
+
 	if a.product != nil {
 		return nil
 	}
@@ -246,7 +235,7 @@ func (a *Application) preparePersonalLocked() error {
 		return errors.New(a.text("host.appStopped"))
 	}
 	if a.sourceRetired {
-		return errors.New("original native source was retired for roaming")
+		return errors.New("original native source was retired for Notebook switching")
 	}
 	if a.personal != nil {
 		return nil
@@ -355,23 +344,9 @@ func (a *Application) Start() (startErr error) {
 	}
 	// Persisted native authority must be resolved before the original source
 	// can open personal data, bind tools, or connect to a Runtime.
-	if _, err := backend.NativeNodeRoamingController(a.Backend); err == nil {
-		owned, err := RestoreNodeRoaming(context.Background(), a)
-		if err != nil {
-			return err
-		}
-		if owned {
-			a.mu.Lock()
-			defer a.mu.Unlock()
-			if a.closed {
-				return errors.New(a.text("host.appStopped"))
-			}
-			a.started = true
-			return nil
-		}
-	}
+
 	if retired {
-		return errors.New("original native source was retired for roaming")
+		return errors.New("original native source was retired for Notebook switching")
 	}
 	if a.product != nil {
 		return a.startRemoteProduct()
@@ -508,12 +483,7 @@ func (a *Application) text(key string, args ...map[string]any) string {
 }
 
 func (a *Application) WorkTerminal(ctx context.Context, id string) (api.TerminalTarget, error) {
-	if active := ActiveNodeRoamingApplication(a); active != a {
-		return active.WorkTerminal(ctx, id)
-	}
-	if NodeRoamingOwnsExecution(a) {
-		return api.TerminalTarget{}, &api.TerminalObservationError{Message: a.text("remoteTaskTerminalUnavailable"), Cause: api.ErrRemoteWorkTerminal}
-	}
+
 	if a.product != nil {
 		return api.TerminalTarget{}, &api.TerminalObservationError{Message: a.text("remoteTaskTerminalUnavailable"), Cause: api.ErrRemoteWorkTerminal}
 	}
@@ -529,9 +499,7 @@ func (a *Application) WorkTerminal(ctx context.Context, id string) (api.Terminal
 // Close is the explicit application-exit boundary. Cancellation stops wakeups
 // before the adapter cleans only owned work; shared servers remain alive.
 func (a *Application) Close() error {
-	if a.managed != nil {
-		a.managed.guard.Revoke()
-	}
+
 	a.closeOnce.Do(func() {
 		a.startMu.Lock()
 		a.mu.Lock()
@@ -575,12 +543,7 @@ func (a *Application) Close() error {
 }
 
 func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
-	if active := ActiveNodeRoamingApplication(a); active != a {
-		return active.AttachmentStorage()
-	}
-	if NodeRoamingOwnsExecution(a) {
-		return api.AttachmentStorage{}, errors.New("native local operation unavailable during roaming")
-	}
+
 	media, err := backend.ScreenMediaStorage(a.Backend, false, nil)
 	if err != nil {
 		return media, err
@@ -601,12 +564,7 @@ func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
 	return media, nil
 }
 func (a *Application) CleanAttachments(ctx context.Context) (api.AttachmentStorage, error) {
-	if active := ActiveNodeRoamingApplication(a); active != a {
-		return active.CleanAttachments(ctx)
-	}
-	if NodeRoamingOwnsExecution(a) {
-		return api.AttachmentStorage{}, errors.New("native local operation unavailable during roaming")
-	}
+
 	if err := a.guardRuntimeChange(); err != nil {
 		return api.AttachmentStorage{}, err
 	}

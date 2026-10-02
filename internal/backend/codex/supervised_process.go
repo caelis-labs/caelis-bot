@@ -166,10 +166,12 @@ func StartSupervisedProcess(ctx context.Context, o SupervisedProcessOptions) (*S
 	p.tools.capture()
 	if p.tools.failure() != nil {
 		_ = p.conn.Close()
+		p.tools.releaseHandles()
 		return nil, errors.New("owned watchdog parent stable proof unavailable")
 	}
 	if _, err = p.call(ctx, supervisorFrame{Method: "bound"}); err != nil {
 		_ = p.conn.Close()
+		p.tools.releaseHandles()
 		return nil, err
 	}
 	return p, nil
@@ -263,6 +265,9 @@ func (p *SupervisedProcess) Stop(ctx context.Context) error {
 			if nativeProofFailed {
 				err = errors.Join(originalErr, err)
 			}
+		}
+		if p.tools != nil {
+			p.tools.releaseHandles()
 		}
 		p.mu.Lock()
 		p.stopped = true

@@ -471,7 +471,7 @@ func (c *workerNodeController) Close() error {
 }
 
 var _ backend.WorkerNodeController = (*workerNodeController)(nil)
-var _ backend.WorkerNodeTargetController = (*workerNodeController)(nil)
+
 
 func privateWorkerDirectory(directory string) error {
 	for _, candidate := range []string{filepath.Dir(directory), directory} {

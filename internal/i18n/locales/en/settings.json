@@ -114,7 +114,7 @@
   "taskPreferencesSaveFailed": "Could not save. Edit the value to try again.",
   "taskLimitInvalid": "Enter a positive whole number.",
   "taskPreferencesSaving": "Saving…",
-  "advancedTerminal": "Advanced",
+  "advancedTerminal": "Custom terminal command",
   "customTerminal": "Custom command",
   "customTerminalCommand": "Terminal command",
   "customTerminalHelp": "Use {script} as a separate argument. Compatibility is not guaranteed; configure and verify your command. Shell operators are not expanded.",
@@ -343,5 +343,16 @@
   "nodeAddLimit": "No node was added because the enrollment history limit was reached. Existing operation receipts must be retained.",
   "nodeAddReceiptUnavailable": "No node was added because its setup could not be safely recorded. Check the app’s private data location before trying again.",
   "nodeSupport": "Node support",
-  "nodeSupportUpdate": "Update node support"
+  "nodeSupportUpdate": "Update node support",
+  "workerRegisteredHelp": "Use a registered machine for independent tasks. Each machine keeps its own Runtime and sign-in.",
+  "workerRegisteredEmpty": "Add an SSH machine, then connect its Worker here.",
+  "policyAuto": "Automatic review",
+  "policyAutoDescription": "Keep the workspace write sandbox. Codex automatically reviews operations that need additional access.",
+  "policyAsk": "Ask me",
+  "policyAskDescription": "Keep the workspace write sandbox. Ask you before operations that need additional access.",
+  "policyReadOnly": "Read-only sandbox",
+  "policyReadOnlyDescription": "Run local commands in a read-only sandbox without requesting elevated access. Connectors and Bot tools retain their own authorization.",
+  "policyFullAccess": "Full access",
+  "policyFullAccessDescription": "Disable the command sandbox and execution prompts. Use only when you explicitly need this access.",
+  "policyGuardianDescription": "Guardian reviews additional access for new conversations. Keep the sandbox; existing conversations retain their original review configuration."
 }

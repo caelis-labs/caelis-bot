@@ -147,3 +147,5 @@ func (o *ownedTools) terminate() {
 	}
 }
 func (o *ownedTools) failure() error { o.mu.Lock(); defer o.mu.Unlock(); return o.err }
+
+func (o *ownedTools) releaseHandles() {}

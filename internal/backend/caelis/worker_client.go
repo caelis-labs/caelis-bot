@@ -173,9 +173,7 @@ func (s *Session) connectWorker(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	if s.workerLease != nil {
-		c.nativeWorkerDispatch = s.workerLease
-	}
+
 	ok := false
 	defer func() {
 		if !ok {
@@ -283,15 +281,7 @@ func (s *Session) connectWorker(ctx context.Context) error {
 }
 func (w *WorkerClient) Connect(ctx context.Context) error {
 	s := w.engine
-	if s.workerLease != nil {
-		var err error
-		var release func()
-		ctx, release, err = s.workerLease.Begin(ctx)
-		if err != nil {
-			return err
-		}
-		defer release()
-	}
+
 	s.step.Lock()
 	defer s.step.Unlock()
 	s.mu.Lock()

@@ -22,7 +22,7 @@ func (a *Application) newWorkerNodeAdapter(config backend.WorkerNodeConfig, dire
 		return nil, errors.New("resident driver cannot attest Worker dispatch")
 	}
 	if config.Transport == "registered-agent" {
-		if config.Backend == "caelis" && a.managed == nil {
+		if config.Backend == "caelis" {
 			return a.newEnrolledCaelisWorker(config, directory, source)
 		}
 		return a.newRegisteredWorkerNode(config, source)
@@ -100,7 +100,7 @@ func (a *Application) newEnrolledCaelisWorker(config backend.WorkerNodeConfig, d
 	if err != nil || reg.Join != api.NodeSSH || reg.HostHelperPath == "" {
 		return nil, errors.New("update enrolled Caelis node support before connecting")
 	}
-	settings, err := (&roamingNativeAssembly{app: a}).runtimeSettings(context.Background(), reg, api.NodeCaelis)
+	settings, err := (&nodeRuntimeMetadata{app: a}).runtimeSettings(context.Background(), reg, api.NodeCaelis)
 	if err != nil {
 		return nil, err
 	}

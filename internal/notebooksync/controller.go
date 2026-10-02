@@ -13,6 +13,9 @@ import (
 // the target must still start through its normal APP entry point.
 var ErrRestartRequired = errors.New("restart APP to start the prepared local conversation")
 
+// ErrPreparationUnconfirmed retains the fence when target preparation may still own a Runtime.
+var ErrPreparationUnconfirmed = errors.New("target preparation stop is unconfirmed")
+
 type NotebookSyncStatus struct {
 	NodeID      string `json:"nodeId"`
 	OperationID string `json:"operationId,omitempty"`
@@ -193,6 +196,15 @@ func (c *Controller) Switch(ctx context.Context, id string) error {
 			return err
 		}
 		if err = h.TargetReady(ctx, id); err != nil {
+			// No source stop has been dispatched. A confirmed stopped target
+			// permits configuration repair and another explicit attempt.
+			if !errors.Is(err, ErrPreparationUnconfirmed) {
+				if stopped := h.StandbyStopped(ctx, id); stopped == nil {
+					s.Phase = "ready"
+				} else {
+					err = errors.Join(err, stopped)
+				}
+			}
 			return c.fail(s, err)
 		}
 	}

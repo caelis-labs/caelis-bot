@@ -190,7 +190,7 @@ func TestNativeNodeEnrollmentPublishedPairingProvesOriginalCommitAfterLostReceip
 	}
 	record.Result.Outcome = "unknown"
 	record.Result.Reason = "unknown"
-	if err = nodeagent.WriteManagedPrivateJSON(native.enrollmentPath(request.OperationID), record); err != nil {
+	if err = nodeagent.WritePrivateJSON(native.enrollmentPath(request.OperationID), record); err != nil {
 		t.Fatal(err)
 	}
 	if err = a.Backend.CloseNodeManagement(t.Context()); err != nil {
@@ -224,7 +224,7 @@ func TestNativeNodeEnrollmentCapacityIsFailedBeforeBootstrap(t *testing.T) {
 		r := request
 		r.OperationID = fmt.Sprintf("terminal-%d", i)
 		record := nodeEnrollmentRecord{Version: 1, Request: r, Digest: enrollmentDigest(r), Phase: "preflight", Result: failedEnrollment(r.OperationID, "preflight")}
-		if err := nodeagent.WriteManagedPrivateJSON(native.enrollmentPath(r.OperationID), record); err != nil {
+		if err := nodeagent.WritePrivateJSON(native.enrollmentPath(r.OperationID), record); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -358,7 +358,7 @@ func TestNativeNodeEnrollmentRecoversLegacyBootstrapWithSameOriginalID(t *testin
 			if err := os.Mkdir(filepath.Dir(n.enrollmentPath(request.OperationID)), 0700); err != nil {
 				t.Fatal(err)
 			}
-			if err := nodeagent.WriteManagedPrivateJSON(n.enrollmentPath(request.OperationID), record); err != nil {
+			if err := nodeagent.WritePrivateJSON(n.enrollmentPath(request.OperationID), record); err != nil {
 				t.Fatal(err)
 			}
 			if err := a.Backend.CloseNodeManagement(t.Context()); err != nil {

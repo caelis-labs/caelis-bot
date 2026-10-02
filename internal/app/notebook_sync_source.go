@@ -28,8 +28,8 @@ func (a *Application) NotebookLocalSourceHooks() (notebooksync.Hooks, func(conte
 		a.mu.Lock()
 		active := a.started && !a.closed && !a.sourceRetired && a.product == nil
 		a.mu.Unlock()
-		if !active || NodeRoamingOwnsExecution(a) {
-			return errors.New("this APP is not the active Notebook source")
+		if !active {
+			return errors.New("retained native source is not active")
 		}
 		return nil
 	}
@@ -69,7 +69,7 @@ func (a *Application) NotebookLocalSourceHooks() (notebooksync.Hooks, func(conte
 		if err != nil {
 			return err
 		}
-		if err = a.retireRoamingSource(ctx); err != nil {
+		if err = a.retireNotebookSource(ctx); err != nil {
 			return err
 		}
 		if err = a.guardRuntimeChange(); err != nil {

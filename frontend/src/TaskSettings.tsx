@@ -5,7 +5,6 @@ import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
 import {TaskPreferencesSaver,validTaskLimit} from './task-preferences';
 import type {TaskPreferences} from './task-preferences';
-import {WorkerNodeSettings} from './WorkerNodeSettings';
 
 type Choice={id:string;name:string;available:boolean};
 export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
@@ -50,5 +49,5 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
    <label className="custom-terminal-enable"><input type="checkbox" checked={terminal==='custom'} disabled={!ready||!custom.trim()} onChange={e=>{const value=e.target.checked?'custom':'system';setTerminal(value);saver.current?.change({terminal:value});flush();}}/>{t('settings.useCustomTerminal')}</label>
   </details>
   {(visibleError||busy)&&<p className={`task-settings-feedback ${visibleError?'inline-error':'settings-note'}`} role={visibleError?'alert':'status'}>{t(visibleError||'settings.taskPreferencesSaving')}</p>}
- </SettingGroup><WorkerNodeSettings/></>;
+ </SettingGroup></>;
 }

@@ -1,70 +1,66 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {backend} from './desktop';
-import {SettingGroup, SettingRow} from './SettingsUI';
+import {SettingRow} from './SettingsUI';
 import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
-import type {WorkerNodeConfig, WorkerNodeSetup} from './backend/contract';
-import {callWorkerTarget,workerBackend,workerBackends,workerTargetKey,workerLocations,workerDraftForLocation,type WorkerTargetAction} from './workerNodeTargets';
+import type {NodeCatalog,WorkerNodeSetup,WorkerNodeConfig} from './backend/contract';
+import {callWorkerTarget,workerTargetKey,type WorkerTargetAction} from './workerNodeTargets';
 
-const emptyNode:WorkerNodeConfig={backend:'caelis',id:'',label:'',ssh:'',helper:'',store:'',workspaceRoot:''};
-
-export function WorkerNodeSettings({call=backend}:{call?:typeof backend}) {
+// Machines are enrolled once. Worker setup selects that exact machine/backend;
+// paths, SSH details and authentication remain in native node management.
+export function WorkerNodeSettings({catalog:provided,call=backend}:{catalog?:NodeCatalog;call?:typeof backend}) {
  const {t}=useI18n();
- const [setup,setSetup]=useState<WorkerNodeSetup|null>(null);
- const [draft,setDraft]=useState<WorkerNodeConfig>(emptyNode);
+ const [catalog,setCatalog]=useState<NodeCatalog|null>(provided??null),[setup,setSetup]=useState<WorkerNodeSetup|null>(null);
+ const [nodeID,setNodeID]=useState(''),[runtime,setRuntime]=useState('codex');
  const [busy,setBusy]=useState(false),[error,setError]=useState<MessageKey|''>('');
- const pending=useRef(false),active=useRef(true);
+ const pending=useRef(false),alive=useRef(true);
+ useEffect(()=>{if(provided)setCatalog(provided);},[provided]);
  useEffect(()=>{
-  active.current=true;
-  void call<WorkerNodeSetup>('WorkerNodes').then(value=>{if(active.current)setSetup(value);}).catch(()=>{if(active.current)setError('settings.workerNodeLoadFailed');});
-  return()=>{active.current=false;};
+  alive.current=true;
+  void Promise.all([call<WorkerNodeSetup>('WorkerNodes'),provided?Promise.resolve(provided):call<NodeCatalog>('NodeCatalog')]).then(([workers,nodes])=>{if(!Array.isArray(workers.nodes))throw new Error("Worker setup unavailable");if(alive.current){setSetup(workers);setCatalog(nodes);}}).catch(()=>{if(alive.current)setError('settings.workerNodeLoadFailed');});
+  return()=>{alive.current=false;};
  },[call]);
- const refresh=async()=>{const next=await call<WorkerNodeSetup>('WorkerNodes');if(active.current)setSetup(next);};
- const perform=async(method:WorkerTargetAction,config:WorkerNodeConfig)=>{
+ const machines=catalog?.nodes.filter(node=>node.join==='ssh')??[];
+ const selected=machines.find(node=>node.id===nodeID)??machines[0];
+ const selectedRuntime=selected?.runtimes.find(value=>value.backend===runtime)??selected?.runtimes[0];
+ const eligible=!!selectedRuntime?.roles.some(role=>role.role==='worker'&&role.eligible);
+ const action=async(method:WorkerTargetAction,config:WorkerNodeConfig)=>{
   if(pending.current||!setup)return;
   pending.current=true;setBusy(true);setError('');
-  try{const next=await callWorkerTarget(call,method,config,setup.revision);if(active.current)setSetup(next);}
-  catch{if(active.current)setError('settings.workerNodeActionFailed');await refresh().catch(()=>{});}
-  finally{pending.current=false;if(active.current)setBusy(false);}
+  try{const next=await callWorkerTarget(call,method,config,setup.revision);if(alive.current)setSetup(next);}
+  catch{if(alive.current)setError('settings.workerNodeActionFailed');await refresh();}
+  finally{pending.current=false;if(alive.current)setBusy(false);}
  };
- const save=async()=>{
-  if(pending.current||!setup)return;
+ const refresh=async()=>{try{const next=await call<WorkerNodeSetup>('WorkerNodes');if(alive.current)setSetup(next);}catch{/* Keep the original failure visible. */}};
+ const connect=async()=>{
+  if(pending.current||!setup||!selected||!selectedRuntime)return;
   pending.current=true;setBusy(true);setError('');
-  const config={...draft,label:draft.label.trim(),ssh:draft.ssh.trim(),helper:draft.helper.trim(),store:draft.store.trim(),socket:(draft.socket??'').trim(),workspaceRoot:draft.workspaceRoot.trim()};
-  try{const next=await call<WorkerNodeSetup>('SaveWorkerNode',config,setup.revision);if(active.current){setSetup(next);setDraft(emptyNode);}}
-  catch{if(active.current)setError('settings.workerNodeSaveFailed');await refresh().catch(()=>{});}
-  finally{pending.current=false;if(active.current)setBusy(false);}
+  const config:WorkerNodeConfig={transport:'registered-agent',id:selected.id,label:selected.label,backend:selectedRuntime.backend,ssh:'',helper:'',store:'',workspaceRoot:''};
+  try{
+   let next=setup;
+   if(!next.nodes.some(node=>workerTargetKey(node.config)===workerTargetKey(config)))next=await call<WorkerNodeSetup>('SaveWorkerNode',config,next.revision);
+   if(alive.current)setSetup(next);
+   next=await callWorkerTarget(call,'ConnectWorkerTarget',config,next.revision);
+   if(alive.current)setSetup(next);
+  }catch{if(alive.current)setError('settings.workerNodeActionFailed');await refresh();}
+  finally{pending.current=false;if(alive.current)setBusy(false);}
  };
  const editable=!!setup&&!setup.issue&&!busy;
- const locations=workerLocations(setup?.nodes??[]);
- const available=workerBackends(setup?.nodes??[],draft.id);
- const selectLocation=(id:string)=>setDraft(workerDraftForLocation(setup?.nodes??[],id));
  const stateKey=(state:string):MessageKey=>state==='ready'?'settings.workerNodeReady':state==='unavailable'?'settings.workerNodeUnavailable':'settings.workerNodeCandidate';
- const issueKey=(issue:string):MessageKey=>issue==='model_setup_required'?'settings.workerNodeModelSetup':issue==='authentication_required'?'settings.workerNodeAuthSetup':issue==='detached'?'settings.workerNodeDetached':'settings.workerNodeNeedsHost';
- return <SettingGroup title={t('settings.workerNodes')}>
-  <p className="settings-note">{t('settings.workerNodesHelp')}</p>
+ return <section className="worker-node-settings"><h2>{t('settings.workerNodes')}</h2>
+  <p className="settings-note">{t('settings.workerRegisteredHelp')}</p>
   {setup?.nodes.map(node=><div className="worker-node-entry" key={workerTargetKey(node.config)}>
-   <SettingRow label={node.config.label} description={<><span>{t(stateKey(node.state))} · {node.config.backend==='codex'?'Codex':'Caelis'}</span>{node.facts.os&&<span className="worker-node-facts">{[node.facts.os,node.facts.arch,node.facts.version].filter(Boolean).join(' · ')}</span>}</>}>
-    <button disabled={!editable||node.connected} onClick={()=>void perform('ProbeWorkerTarget',node.config)}>{t('settings.workerNodeCheck')}</button>
-    <button disabled={!editable} onClick={()=>void perform(node.connected?'DisconnectWorkerTarget':'ConnectWorkerTarget',node.config)}>{t(node.connected?'settings.workerNodeDisconnect':'settings.workerNodeConnect')}</button>
+   <SettingRow label={node.config.label} description={`${t(stateKey(node.state))} · ${node.config.backend==='codex'?'Codex':'Caelis'}`}>
+    <button disabled={!editable} onClick={()=>void action(node.connected?'DisconnectWorkerTarget':'ConnectWorkerTarget',node.config)}>{t(node.connected?'settings.workerNodeDisconnect':'settings.workerNodeConnect')}</button>
    </SettingRow>
-   {node.issue&&<p className="settings-note" role="status">{t(issueKey(node.issue))}</p>}
+   {node.issue&&<p className="setting-feedback" role="status">{t('settings.workerNodeUnavailable')}</p>}
   </div>)}
-  <details className="worker-node-form">
-   <summary>{t('settings.workerNodeAdd')}</summary>
-   <p className="settings-note">{t('settings.workerNodePreparation')}</p>
-   <SettingRow label={t('settings.workerNodeLocation')} htmlFor="worker-node-location"><select id="worker-node-location" value={draft.id} disabled={!editable} onChange={e=>selectLocation(e.target.value)}><option value="">{t('settings.workerNodeNewLocation')}</option>{locations.map(config=><option key={config.id} value={config.id} disabled={!workerBackends(setup?.nodes??[],config.id).length}>{config.label}</option>)}</select></SettingRow>
-   <SettingRow label={t('settings.workerNodeBackend')} htmlFor="worker-node-backend"><select id="worker-node-backend" value={workerBackend(draft)} disabled={!editable||!available.length} onChange={e=>setDraft({...draft,backend:e.target.value,store:'',socket:'',helper:''})}><option value="caelis" disabled={!available.includes('caelis')}>Caelis</option><option value="codex" disabled={!available.includes('codex')}>Codex</option></select></SettingRow>
-   <SettingRow label={t('settings.workerNodeLabel')} htmlFor="worker-node-label"><input id="worker-node-label" value={draft.label} disabled={!editable||!!draft.id} maxLength={128} onChange={e=>setDraft({...draft,label:e.target.value})}/></SettingRow>
-   <SettingRow label={t('settings.workerNodeSSH')} htmlFor="worker-node-ssh" description={t('settings.workerNodeSSHHelp')}><input id="worker-node-ssh" value={draft.ssh} disabled={!editable||!!draft.id} autoComplete="off" spellCheck={false} maxLength={256} onChange={e=>setDraft({...draft,ssh:e.target.value})}/></SettingRow>
-   <SettingRow label={t('settings.workerNodeWorkspace')} htmlFor="worker-node-workspace" description={t('settings.workerNodeWorkspaceHelp')}><input id="worker-node-workspace" value={draft.workspaceRoot} disabled={!editable} autoComplete="off" spellCheck={false} onChange={e=>setDraft({...draft,workspaceRoot:e.target.value})}/></SettingRow>
-   <details className="worker-node-advanced"><summary>{t('settings.workerNodeAdvanced')}</summary>
-    {draft.backend==='codex'?<SettingRow label={t('settings.workerNodeSocket')} htmlFor="worker-node-socket" description={t('settings.workerNodeSocketHelp')}><input id="worker-node-socket" value={draft.socket??''} disabled={!editable} autoComplete="off" spellCheck={false} onChange={e=>setDraft({...draft,socket:e.target.value})}/></SettingRow>:<SettingRow label={t('settings.workerNodeStore')} htmlFor="worker-node-store" description={t('settings.workerNodeStoreHelp')}><input id="worker-node-store" value={draft.store} disabled={!editable} autoComplete="off" spellCheck={false} onChange={e=>setDraft({...draft,store:e.target.value})}/></SettingRow>}
-    <SettingRow label={t('settings.workerNodeHelper')} htmlFor="worker-node-helper" description={t('settings.workerNodeHelperHelp')}><input id="worker-node-helper" value={draft.helper} disabled={!editable} autoComplete="off" spellCheck={false} onChange={e=>setDraft({...draft,helper:e.target.value})}/></SettingRow>
-   </details>
-   <button disabled={!editable||!available.includes(workerBackend(draft))||!draft.label.trim()||!draft.ssh.trim()||!draft.workspaceRoot.trim()||draft.backend==='codex'&&!draft.socket?.trim()} onClick={()=>void save()}>{t('settings.workerNodeSave')}</button>
-  </details>
-  {setup?.issue&&<p className="inline-error" role="alert">{t('settings.workerNodeConfigUnreadable')}</p>}
+  {machines.length>0?<div className="worker-enrolled-form">
+   <SettingRow label={t('settings.workerNodeLocation')} htmlFor="worker-node-location"><select id="worker-node-location" value={selected?.id??''} disabled={!editable} onChange={event=>{setNodeID(event.target.value);setRuntime('codex');}}>{machines.map(node=><option key={node.id} value={node.id}>{node.label}</option>)}</select></SettingRow>
+   <SettingRow label={t('settings.workerNodeBackend')} htmlFor="worker-node-backend"><select id="worker-node-backend" value={selectedRuntime?.backend??''} disabled={!editable} onChange={event=>setRuntime(event.target.value)}>{selected?.runtimes.map(value=><option key={value.backend} value={value.backend}>{value.backend==='codex'?'Codex':'Caelis'}</option>)}</select></SettingRow>
+   <div className="settings-footer"><span className="settings-note">{!eligible&&t('settings.workerNodeAuthSetup')}</span><button disabled={!editable||!eligible||setup?.nodes.some(node=>node.connected&&node.config.id===selected?.id&&node.config.backend===selectedRuntime?.backend)} onClick={()=>void connect()}>{t('settings.workerNodeConnect')}</button></div>
+  </div>:<p className="settings-note">{t('settings.workerRegisteredEmpty')}</p>}
+  {setup?.issue&&<p role="alert" className="inline-error">{t('settings.workerNodeConfigUnreadable')}</p>}
   {(error||busy)&&<p className={error?'inline-error':'settings-note'} role={error?'alert':'status'}>{t(error||'settings.workerNodeWorking')}</p>}
- </SettingGroup>;
+ </section>;
 }

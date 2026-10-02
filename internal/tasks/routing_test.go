@@ -390,3 +390,39 @@ func TestManagedBotDefaultAndExplicitMacWorkerKeepExactBindings(t *testing.T) {
 		t.Fatal("recovery accepted a different source machine")
 	}
 }
+
+func (f *remoteFixture) WorkMessageRecorded(in api.TaskMessage) bool {
+	old, ok := f.requests[in.RequestID]
+	return ok && old == in
+}
+func TestRemoteContinuationAtCapacityReconcilesPersistedAuthorization(t *testing.T) {
+	m, _, remote, source, _, target := routedFixture(t)
+	m.ConfigureLimit(func() int { return 2 })
+	in := input("original-capacity-task")
+	in.Target = &target
+	task, err := m.StartTask(t.Context(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := api.TaskMessage{ID: task.ID, RequestID: "original-continuation", Prompt: "Continue"}
+	if _, err = m.SendTask(t.Context(), message); err != nil {
+		t.Fatal(err)
+	}
+	original := remote.lastMessage
+	remote.complete(task.ID)
+	for _, request := range []string{"busy-first", "busy-second"} {
+		in.RequestID = request
+		if _, err = m.StartTask(t.Context(), in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := source.calls
+	source.err = api.ErrWorkSourceInactive
+	if _, err = m.SendTask(t.Context(), message); err != nil || remote.sends != 1 || remote.lastMessage != original || source.calls != calls {
+		t.Fatal("original reconciliation required new turn or capacity", err)
+	}
+	message.RequestID = "new-continuation"
+	if _, err = m.SendTask(t.Context(), message); err == nil {
+		t.Fatal("new continuation ignored capacity")
+	}
+}

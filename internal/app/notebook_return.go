@@ -31,12 +31,17 @@ type notebookLocalStop struct {
 	Stopped bool   `json:"stopped"`
 }
 
-func readNotebookPrivate(path string, out any) error {
+func readNotebookPrivate(path string, out any) error { return ReadNotebookOwnerRecord(path, out) }
+
+// ReadNotebookOwnerRecord shares private metadata validation with the node helper.
+// Bot state contains schedules and has no 64 KiB producer limit.
+func ReadNotebookOwnerRecord(path string, out any) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 64<<10 {
+	_, botState := out.(*bot.State)
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || !botState && info.Size() > 64<<10 {
 		return errors.New("private Notebook owner record unavailable")
 	}
 	body, err := os.ReadFile(path)

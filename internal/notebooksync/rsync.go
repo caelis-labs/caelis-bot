@@ -164,7 +164,7 @@ func (r Rsync) inspect(ctx context.Context, e Endpoint, requireMemory, final boo
 
 // Hidden paths (including rsync conflict copies), indexes, runtime artifacts,
 // common credential names and temporary files are never portable Notebook data.
-var excludes = []string{".*", "INDEX.md", "HANDOFF.md", "*.db", "*.db-*", "*.sqlite", "*.sqlite-*", "*.sqlite3", "*.sqlite3-*", "*.lock", "*.sock", "*.tmp", "*.temp", "*~", "auth.json", "credentials*", "*token*", "*.pem", "*.key", "personal/", "providers/", "sessions/", "tasks/", "history/", "cache/", "CODEX_HOME/"}
+var excludes = []string{".*", "INDEX.md", "HANDOFF.md", "*.db", "*.db-*", "*.sqlite", "*.sqlite-*", "*.sqlite3", "*.sqlite3-*", "*.lock", "*.sock", "*.tmp", "*.temp", "*~", "auth.json", "credentials.json", "credentials", "token.json", "tokens.json", "token", "tokens", "*.pem", "*.key", "personal/", "providers/", "sessions/", "tasks/", "history/", "cache/", "CODEX_HOME/"}
 
 func caseFoldPattern(p string) string {
 	var b strings.Builder

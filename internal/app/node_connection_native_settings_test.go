@@ -54,11 +54,6 @@ func TestNativeNodeCaelisPrivateSlotDoesNotChangeOrdinaryLocalProfile(t *testing
 		t.Fatal(e)
 	}
 	sourceBefore := a.Backend.RuntimeSettings()
-	port, e := backend.NativeNodeRoamingController(a.Backend)
-	if e != nil {
-		t.Fatal(e)
-	}
-	roaming := port.(*nodeRoamingControl)
 	if e = AttachNodeManagement(a, NodeManagementNativeOptions{JoinHelperPath: helper}); e != nil {
 		t.Fatal(e)
 	}
@@ -87,11 +82,6 @@ func TestNativeNodeCaelisPrivateSlotDoesNotChangeOrdinaryLocalProfile(t *testing
 	settings, e := nodeLocalCaelisSettings(a, filepath.Join(root, "nodeplane", "local"), nil)
 	if e != nil || settings.CaelisStore != metadata.Store {
 		t.Fatal("SDK local designation disagrees with metadata", settings, e)
-	}
-	assembly := &roamingNativeAssembly{app: a}
-	alternative, e := assembly.runtimeSettings(t.Context(), NodeRegistration{ID: api.LocalNodeID}, api.NodeCaelis)
-	if e != nil || alternative.CLIPath != binary || alternative.CaelisStore != metadata.Store {
-		t.Fatal("roaming alternate chose a different local SDK slot", alternative, e)
 	}
 	companion, e := controller.localOwnedRuntimeCompanion(t.Context())
 	if e != nil || companion.Path != helper || companion.SHA256 == "" {
@@ -128,26 +118,6 @@ func TestNativeNodeCaelisPrivateSlotDoesNotChangeOrdinaryLocalProfile(t *testing
 	}
 	if _, e = os.Lstat(explicit.CaelisStore); !errors.Is(e, os.ErrNotExist) {
 		t.Fatal("explicit unmarked profile implicitly initialized", e)
-	}
-	// A restored Notebook generation has no alternate provider profile. Keep
-	// the exact original machine slot rather than selecting its empty profile.
-	fresh, e := New(filepath.Join(dir, "fresh-generation"), Host{})
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer fresh.Close()
-	if e = a.Backend.ConfigureNodeRoaming(roaming); e != nil {
-		t.Fatal(e)
-	}
-	roaming.local = fresh
-	roaming.doc.LocalGenerationDirectory = fresh.root
-	retainedMetadata, e := service.ReadOwnedRuntimeSettings(t.Context(), api.LocalNodeID, api.NodeCaelis)
-	if e != nil || retainedMetadata != metadata {
-		t.Fatal("fresh generation lost original node setup designation", retainedMetadata, e)
-	}
-	alternative, e = assembly.runtimeSettings(t.Context(), NodeRegistration{ID: api.LocalNodeID}, api.NodeCaelis)
-	if e != nil || alternative.CLIPath != metadata.Binary || alternative.CaelisStore != metadata.Store {
-		t.Fatal("restored alternate Runtime replaced original slot", alternative, e)
 	}
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()

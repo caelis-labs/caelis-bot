@@ -172,7 +172,7 @@ func (s *Server) Serve(ctx context.Context, stream io.ReadWriteCloser) error {
 	slots := make(chan struct{}, 8)
 	var workers sync.WaitGroup
 	defer func() { cancel(); workers.Wait() }()
-	seen := map[uint64]bool{}
+	var lastID uint64
 	for {
 		request, err := readFrame(stream)
 		if err != nil {
@@ -181,13 +181,10 @@ func (s *Server) Serve(ctx context.Context, stream io.ReadWriteCloser) error {
 			}
 			return err
 		}
-		if request.Pair != s.pair || seen[request.ID] || !validRequest(request) {
+		if request.Pair != s.pair || request.ID <= lastID || !validRequest(request) {
 			return errors.New("Worker pairing/request mismatch")
 		}
-		if len(seen) >= 8192 {
-			return errors.New("Worker stream request limit; reconnect exact owner")
-		}
-		seen[request.ID] = true
+		lastID = request.ID
 		select {
 		case slots <- struct{}{}:
 		case <-ctx.Done():

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ConnectionGroup, ConnectionModel, ModelScope, RuntimeSettingsClient, RuntimeView } from './types';
-import { formatModelUse, messageOf } from './state';
+import { formatModelUse, messageOf, runtimeErrorCopy } from './state';
 import { ConfigurationError, runtimeSettingsClient } from './client';
 import { ModelPicker, ModelSummary } from './ModelPicker';
 import { SettingsDialog } from './SettingsDialog';
@@ -71,7 +71,7 @@ export function RuntimeWorkspace({ batch, client = runtimeSettingsClient, prepar
  const selection = editingSelection.current;
  return <section className="runtime-workspace">
   {heading&&<h1>{t(remoteView?'settings.productTargetRuntime':'runtime.runtimeAndModelsTitle')}</h1>}
-  {!view ? <div className="runtime-empty"><p role="status">{loading ? t('runtime.loadingRuntime') : t('runtime.loadRuntimeFailed')}</p>{error && <p role="alert" className="inline-error">{error}</p>}<button disabled={loading||readOnly||!!error} onClick={() => void refresh()}>{t('runtime.reload')}</button>{!remoteView&&!loading&&<button className="text-action" onClick={()=>setSwitching('')}>{t('runtime.completeSetup')}</button>}</div> : <>
+  {!view ? <div className="runtime-empty"><p role="status">{loading ? t('runtime.loadingRuntime') : t('runtime.loadRuntimeFailed')}</p>{error && <p role="alert" className="inline-error">{runtimeErrorCopy(error,t)}</p>}<button disabled={loading} onClick={() => void refresh()}>{t('runtime.reload')}</button>{!remoteView&&!loading&&<button className="text-action" onClick={()=>setSwitching('')}>{t('runtime.completeSetup')}</button>}</div> : <>
    <div className="runtime-active"><span className="runtime-monogram" aria-hidden="true">{caelis ? 'C' : '⌘'}</span><div><strong>{name}</strong><p>{remoteView ? t('settings.productHostConfiguration') : connected ? t('runtime.connected') : connectionState&&connectionState!=='connected'?connectionMessage:view.setup.message || t('runtime.setupRequired')}{view.pending && t('runtime.pendingSwitch', { runtime: view.pending })}</p></div></div>
    {!remoteView && view.setup.state !== 'ready' && <p className="settings-note"><button className="text-action" onClick={() => setSwitching(view.profile.runtime)}>{t('runtime.completeSetup')}</button></p>}
 
@@ -97,8 +97,8 @@ export function RuntimeWorkspace({ batch, client = runtimeSettingsClient, prepar
     {(!remoteView||nodeManaged) && caelis && view.work && <div className="runtime-setting-row"><strong>{t('runtime.dedicatedWorkModel')}</strong><ModelSummary disabled={readOnly||!!error} value={view.work} models={view.models} label={` ${t('runtime.dedicatedWorkModel')}`} onClick={() => edit('work')}/></div>}
     {caelis && <TeamSettings disabled={readOnly||!!error} team={view.team} models={view.team.models} client={client} onRefresh={async()=>{await refresh(true);}}/>}
    </details>
-   <div className="runtime-page-footer"><span role="status">{loading ? t('runtime.refreshing') : notice}</span><button className="text-action" disabled={loading||readOnly||!!error} onClick={() => void refresh()}>{t('runtime.refreshConfig')}</button></div>
-   {error && <p role="alert" className="inline-error">{error}</p>}
+   <div className="runtime-page-footer"><span role="status">{loading ? t('runtime.refreshing') : notice}</span><button className="text-action" disabled={loading} onClick={() => void refresh()}>{t('runtime.refreshConfig')}</button></div>
+   {error && <p role="alert" className="inline-error">{runtimeErrorCopy(error,t)}</p>}
   </>}
   {editing && selection && view && <ModelPicker disabled={readOnly||!!error} title={editing === 'conversation' ? t('runtime.botConversationModel') : editing === 'runtime' ? t('runtime.caelisMainModel') : t('runtime.workModel')} description={editing === 'work' ? t('runtime.dedicatedWorkModelDescription') : undefined} value={selection} models={view.models} onReload={async()=>{const next=await refresh(true);if(next){editingRevision.current=next.revision;editingClient.current=client.capture?.(next.revision)??client;}}} inherited={editing !== 'runtime'} onSave={async value => { await editingClient.current.saveModel(editing, value, editingRevision.current); setNotice(t('runtime.modelSaved')); await refresh(); }} onClose={() => setEditing(null)} onConnect={(!remoteView||nodeManaged) && caelis && !connectionReadOnly ? () => { setEditing(null); void connect(); } : undefined}/>}
   {batchView&&batch?.(batchView.view,batchView.connection,()=>{setBatchView(null);void refresh();})}

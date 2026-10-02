@@ -33,8 +33,7 @@ type NotebookSyncOptions struct {
 
 // AttachNotebookSync is opt-in native assembly, before APP Start or through the
 // serialized default settings controller after closing the old timer. It reuses
-// enrolled SSH pairings and starts only an APP-scoped timer. Existing roaming
-// and cold migration remain available; they cannot own execution concurrently.
+// enrolled SSH pairings and starts only an APP-scoped timer.
 func AttachNotebookSync(a *Application, o NotebookSyncOptions) error {
 	if a == nil || a.Backend == nil || o.Interval < time.Minute {
 		return errors.New("invalid Notebook sync assembly")
@@ -42,9 +41,10 @@ func AttachNotebookSync(a *Application, o NotebookSyncOptions) error {
 	a.mu.Lock()
 	busy := a.closed || a.notebookSync != nil
 	a.mu.Unlock()
-	if busy || NodeRoamingOwnsExecution(a) {
-		return errors.New("Notebook sync requires one native owner and no existing controller")
+	if busy {
+		return errors.New("Notebook sync already attached or APP closed")
 	}
+
 	if o.SourceNodeID == api.LocalNodeID && o.Hooks.SourceActive == nil && o.Hooks.StopSource == nil && o.Hooks.SourceStopped == nil {
 		local, completed := a.NotebookLocalSourceHooks()
 		o.Hooks.SourceActive, o.Hooks.StopSource, o.Hooks.SourceStopped = local.SourceActive, local.StopSource, local.SourceStopped
@@ -121,9 +121,7 @@ func AttachNotebookSync(a *Application, o NotebookSyncOptions) error {
 	}
 	hooks := o.Hooks
 	hooks.Transfer = func(ctx context.Context, id string, final bool) error {
-		if NodeRoamingOwnsExecution(a) {
-			return errors.New("existing roaming owns execution; simple sync is paused")
-		}
+
 		if final && o.BeforeFinalTransfer != nil {
 			if err := o.BeforeFinalTransfer(ctx, id); err != nil {
 				return err

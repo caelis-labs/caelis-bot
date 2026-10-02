@@ -77,4 +77,7 @@ macOS 是当前完整桌面发行目标；Windows 保留接口，原生驱动/�
 Linux 范围是可选的无桌面 Runtime/Worker 宿主；不包含 Linux 桌面产品。本机 APP + Runtime
 默认仍直接进程内装配，不需要 SSH 或节点守护服务。远端 Worker、远端主 Bot 与薄 APP
 按各自完整链路验收，路由合同或编译通过不代表远端能力已交付。
+Issue #47 的首版范围是本机 Bot、已登记 SSH 机器上的独立 Worker，以及默认关闭的普通
+Notebook 文件备份和显式停止源端后手动切换/返回。每个节点使用自己的 Runtime 与登录；
+自动漫游/故障转移、broker 租约、Git 同步、多个前端及 Telegram 后置。
 最低系统、多显示器与真实模型效果的验证边界见[开发与验证](development.md)。

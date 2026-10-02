@@ -699,13 +699,6 @@ func (n *nativeNodeManagement) outgoingInstructions(_ context.Context, r NodeReg
 }
 
 func (n *nativeNodeManagement) SetCoordinator(ctx context.Context, r api.NodeCoordinatorSelection) (api.NodeCatalog, error) {
-	// Serialize configuration with enable/disable and original-operation
-	// recovery, including edits that retain the same coordinator identity.
-	unlock := lockNodeRoamingCoordinatorEdit(n.app)
-	defer unlock()
-	if err := guardNodeRoamingCoordinator(n.app, r.NodeID, r.SourceRoutes != nil); err != nil {
-		return api.NodeCatalog{}, err
-	}
 	n.controlMu.Lock()
 	defer n.controlMu.Unlock()
 	c, err := n.Catalog(ctx)

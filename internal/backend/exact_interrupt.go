@@ -13,7 +13,7 @@ type exactTurnInterrupter interface {
 }
 
 func (s *Service) ExactInterruptAvailable() bool {
-	_, ok := s.capabilityEngine().(exactTurnInterrupter)
+	_, ok := s.engine.(exactTurnInterrupter)
 	return ok
 }
 
@@ -21,7 +21,7 @@ func (s *Service) InterruptTurn(ctx context.Context, expectedNativeTurn string) 
 	if expectedNativeTurn == "" {
 		return errors.New("interrupt requires the observed turn target")
 	}
-	engine, ok := s.capabilityEngine().(exactTurnInterrupter)
+	engine, ok := s.engine.(exactTurnInterrupter)
 	if !ok {
 		return errors.New("exact turn interruption is unavailable")
 	}

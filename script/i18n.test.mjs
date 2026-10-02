@@ -57,3 +57,21 @@ test('approval translation changes only Bot copy, preserving raw labels and deci
  assert.deepEqual(value,before);
  assert.equal(approvalTitle({...value,titleKey:'unknown.key'},'en'),value.title);
 });
+
+test('execution policy follows the displayed language while retaining native choice identity',async()=>{
+ const {executionMode}=await import('../frontend/src/execution-presentation.ts');
+ const native={id:'full-access',name:'完全访问',description:'原始说明',dangerous:true};
+ const translated=executionMode(native,translator('en').t);
+ assert.equal(translated.name,'Full access');assert.equal(translated.id,native.id);assert.equal(translated.dangerous,true);
+ assert.equal(executionMode(native,translator('zh-CN').t).name,'完全访问');
+ const unknown={...native,id:'external-policy'};assert.equal(executionMode(unknown,translator('en').t),unknown);
+ assert.match(executionMode({...native,id:'workspace-write'},translator('en').t).description,/Guardian/);
+});
+
+test('built-in model read errors follow language changes without replacing provider details',async()=>{
+ const {runtimeErrorCopy}=await import('../frontend/src/settings/runtime/state.ts');
+ const message='连接 Codex 后可加载模型；请在对话窗口检查连接';
+ assert.match(runtimeErrorCopy(message,translator('en').t),/^Connect Codex/);
+ assert.equal(runtimeErrorCopy(message,translator('zh-CN').t),message);
+ assert.equal(runtimeErrorCopy('Original provider failure',translator('en').t),'Original provider failure');
+});

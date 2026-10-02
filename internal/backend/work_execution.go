@@ -28,21 +28,14 @@ func (s *Service) ConfigureWorkExecution(path string, v api.WorkExecutionSetting
 }
 
 func (s *Service) WorkExecutionSettings() api.WorkExecutionSettings {
-	if local := s.localGenerationService(); local != nil {
-		return local.WorkExecutionSettings()
-	}
+
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	return s.workExecutionSettings
 }
 
 func (s *Service) SaveWorkExecutionSettings(ctx context.Context, v api.WorkExecutionSettings) error {
-	if err := s.guardLocalConfiguration(); err != nil {
-		return err
-	}
-	if local := s.localGenerationService(); local != nil {
-		return local.SaveWorkExecutionSettings(ctx, v)
-	}
+
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	return s.saveWorkExecutionSettingsLocked(ctx, v)
@@ -52,7 +45,7 @@ func (s *Service) saveWorkExecutionSettingsLocked(ctx context.Context, v api.Wor
 	if err := api.ValidateExecutionSettings(v.Execution()); err != nil {
 		return err
 	}
-	e, ok := s.capabilityEngine().(api.WorkExecutionProvider)
+	e, ok := s.engine.(api.WorkExecutionProvider)
 	if !ok {
 		return errors.New("当前运行时不支持独立工作模型")
 	}

@@ -21,7 +21,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
-	"github.com/caelis-labs/caelis-bot/internal/roaming"
 )
 
 func TestOwnedCaelisWatchdogHelper(t *testing.T) {
@@ -232,9 +231,9 @@ func TestOwnedCaelisForegroundFencesOnlyPrivateNativeTree(t *testing.T) {
 	if err = s.OwnedRuntimeReady(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	guard := roaming.NewGuard("owned-node", api.NodeCaelis, ownedTestOwner{}, true)
+	guard := closedOwnedAdmission{}
 	s.ConfigureExecutionAdmission(guard)
-	if err = s.Connect(t.Context()); !errors.Is(err, roaming.ErrFenced) {
+	if err = s.Connect(t.Context()); !errors.Is(err, api.ErrWorkSourceInactive) {
 		t.Fatal("prepared host created native session without lease", err)
 	}
 	if _, err = os.Stat(filepath.Join(store, "unexpected-execution-call")); !errors.Is(err, os.ErrNotExist) {
@@ -285,3 +284,11 @@ func recordOwnedControl(store, kind string, request any) {
 	data, _ = json.Marshal(request)
 	_ = os.WriteFile(filepath.Join(store, "worker-"+kind+"-request"), data, 0600)
 }
+
+type closedOwnedAdmission struct{}
+
+func (closedOwnedAdmission) Begin(ctx context.Context) (context.Context, func(), error) {
+	return ctx, func() {}, api.ErrWorkSourceInactive
+}
+
+func (closedOwnedAdmission) CheckContext(context.Context) error { return api.ErrWorkSourceInactive }

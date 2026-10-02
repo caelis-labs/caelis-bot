@@ -166,7 +166,7 @@ func (n *nativeNodeManagement) addOriginalEnrollment(ctx context.Context, r api.
 		return failedEnrollment(r.OperationID, "limit"), nil
 	}
 	record := nodeEnrollmentRecord{Version: 1, Request: r, Digest: enrollmentDigest(r), Phase: "preflight", Result: unknownEnrollment(r.OperationID)}
-	write := func() error { return nodeagent.WriteManagedPrivateJSON(n.enrollmentPath(r.OperationID), record) }
+	write := func() error { return nodeagent.WritePrivateJSON(n.enrollmentPath(r.OperationID), record) }
 	if write() != nil {
 		return failedEnrollment(r.OperationID, "receipt-unavailable"), nil
 	}
@@ -295,7 +295,7 @@ func (n *nativeNodeManagement) reconcileEnrollment(ctx context.Context, record n
 			record.Candidate, record.Registration = &reg, &reg
 			result.OperationID, result.Outcome, result.Reason = record.Request.OperationID, "unknown", "unknown"
 			record.Result = result
-			return nodeagent.WriteManagedPrivateJSON(n.enrollmentPath(record.Request.OperationID), record)
+			return nodeagent.WritePrivateJSON(n.enrollmentPath(record.Request.OperationID), record)
 		}
 		result, err := n.completeEnrollment(ctx, reg, nil, revision, prepared)
 		if err == nil {
@@ -303,7 +303,7 @@ func (n *nativeNodeManagement) reconcileEnrollment(ctx context.Context, record n
 			record.Result = result
 		}
 	}
-	if record.Result.Outcome != "unknown" && nodeagent.WriteManagedPrivateJSON(n.enrollmentPath(record.Request.OperationID), record) != nil {
+	if record.Result.Outcome != "unknown" && nodeagent.WritePrivateJSON(n.enrollmentPath(record.Request.OperationID), record) != nil {
 		if record.Phase == "preflight" {
 			return record.Result, nil
 		}

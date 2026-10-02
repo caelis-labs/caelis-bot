@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 )
@@ -84,8 +83,6 @@ func (f *nodeConnectionFixture) CloseNodeRuntimeConnection(_ context.Context, r 
 	return nil
 }
 
-type nodeConnectionRoamingFixture struct{ backend.NodeRoamingController }
-
 func nodeConnectionBridge(t *testing.T) (*Application, *nodeConnectionFixture, *nodeConnectionFixture) {
 	t.Helper()
 	a := nativeManagementApplication(t)
@@ -93,13 +90,10 @@ func nodeConnectionBridge(t *testing.T) (*Application, *nodeConnectionFixture, *
 	target := &nodeConnectionFixture{nodeManagementFixture: singleNodeFixture("target")}
 	native := &nativeNodeManagement{app: a, local: local, options: NodeManagementNativeOptions{ExecutionState: func() (string, *api.WorkTarget) { return "", nil }}, document: nodeManagementDocument{Version: 1, Nodes: []NodeRegistration{{ID: "target", Label: "Target", Join: api.NodeSSH, Directory: "/private/target", SSHDestination: "existing-target", HelperPath: "/paired/helper"}}}, clients: map[string]nodeplane.CatalogAgent{"target": target}}
 	a.Backend.SetNodeManagementController(NewNodeManagement(native, native))
-	if e := a.Backend.ConfigureNodeRoaming(&nodeConnectionRoamingFixture{}); e != nil {
-		t.Fatal(e)
-	}
 	return a, local, target
 }
 
-func TestNodeConnectionBridgeKeepsOriginalTargetAcrossSelectionAndRoamingFacade(t *testing.T) {
+func TestNodeConnectionBridgeKeepsOriginalTargetAcrossSelectionAndSelection(t *testing.T) {
 	a, local, target := nodeConnectionBridge(t)
 	ctx := t.Context()
 	read, e := a.Backend.NodeRuntimeConfiguration(ctx, "target", api.NodeCaelis)

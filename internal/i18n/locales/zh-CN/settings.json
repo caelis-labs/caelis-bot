@@ -113,7 +113,7 @@
   "taskPreferencesSaveFailed": "未能保存，请重新修改以重试。",
   "taskLimitInvalid": "请输入大于 0 的整数。",
   "taskPreferencesSaving": "正在保存…",
-  "advancedTerminal": "高级",
+  "advancedTerminal": "自定义终端命令",
   "customTerminal": "自定义命令",
   "customTerminalCommand": "终端命令",
   "customTerminalHelp": "将 {script} 作为独立参数。兼容性不作保证，请自行配置和验证；不展开 Shell 运算符。",
@@ -342,5 +342,16 @@
   "nodeAddLimit": "添加历史已达上限，本次未添加节点。已有操作回执需要保留。",
   "nodeAddReceiptUnavailable": "无法安全保存添加记录，本次未添加节点。请检查应用的私有数据位置后重试。",
   "nodeSupport": "节点支持",
-  "nodeSupportUpdate": "更新节点支持"
+  "nodeSupportUpdate": "更新节点支持",
+  "workerRegisteredHelp": "使用已添加的机器执行独立任务。每台机器使用自己的 Runtime 和登录。",
+  "workerRegisteredEmpty": "先添加 SSH 工作机器，再在这里连接 Worker。",
+  "policyAuto": "自动审查",
+  "policyAutoDescription": "保持工作目录写入沙箱，由 Codex 自动审查需要额外权限的操作。",
+  "policyAsk": "由我确认",
+  "policyAskDescription": "保持工作目录写入沙箱，需要额外权限时向你确认。",
+  "policyReadOnly": "只读沙箱",
+  "policyReadOnlyDescription": "本地命令使用只读沙箱，不申请提升权限；连接器和 Bot 工具仍遵循各自的授权。",
+  "policyFullAccess": "完全访问",
+  "policyFullAccessDescription": "关闭命令沙箱并不再询问执行权限。只在你明确需要时使用。",
+  "policyGuardianDescription": "新对话由 Guardian 自动审查额外访问；保留沙箱，现有对话使用创建时的审查配置。"
 }

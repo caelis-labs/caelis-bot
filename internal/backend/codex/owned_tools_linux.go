@@ -219,16 +219,8 @@ func (o *ownedTools) terminate() {
 		return
 	}
 	o.closed = true
-	defer func() {
-		if o.rootHandle >= 0 {
-			_ = unix.Close(o.rootHandle)
-			o.rootHandle = -1
-		}
-		for pid, fd := range o.handles {
-			_ = unix.Close(fd)
-			delete(o.handles, pid)
-		}
-	}()
+	defer o.releaseHandlesLocked()
+
 	for pid, born := range o.children {
 		fd, ok := o.handles[pid]
 		if !ok {
@@ -334,4 +326,22 @@ func linuxOwnedHandleLive(fd, pid int, born uint64) (bool, error) {
 		return false, errors.New("owned descendant cleanup unconfirmed")
 	}
 	return p.born == born && p.state != "Z" && p.state != "X", nil
+}
+
+// releaseHandles does not signal a process. Stop owns the final exit proof.
+func (o *ownedTools) releaseHandles() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.closed = true
+	o.releaseHandlesLocked()
+}
+func (o *ownedTools) releaseHandlesLocked() {
+	if o.rootHandle >= 0 {
+		_ = unix.Close(o.rootHandle)
+		o.rootHandle = -1
+	}
+	for pid, fd := range o.handles {
+		_ = unix.Close(fd)
+		delete(o.handles, pid)
+	}
 }

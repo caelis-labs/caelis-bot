@@ -69,7 +69,7 @@ func TestNativeCaelisWorkerAPPGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	setup, err = primary.app.Backend.ConnectWorkerNode(ctx, node.ID, setup.Revision)
+	setup, err = primary.app.Backend.ConnectWorkerTarget(ctx, configuredWorkerTarget(node), setup.Revision)
 	if err != nil || len(setup.Nodes) != 1 || setup.Nodes[0].State != "ready" {
 		t.Fatal("actual APP native Worker route not ready", err)
 	}
@@ -96,14 +96,14 @@ func TestNativeCaelisWorkerAPPGate(t *testing.T) {
 	if !found {
 		t.Fatal("actual committed prompt reply loss was not exercised")
 	}
-	setup, err = primary.app.Backend.DisconnectWorkerNode(ctx, node.ID, setup.Revision)
+	setup, err = primary.app.Backend.DisconnectWorkerTarget(ctx, configuredWorkerTarget(node), setup.Revision)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if control("GET", "state")["host_alive"] != true {
 		t.Fatal("APP detach stopped native Host")
 	}
-	setup, err = primary.app.Backend.ConnectWorkerNode(ctx, node.ID, setup.Revision)
+	setup, err = primary.app.Backend.ConnectWorkerTarget(ctx, configuredWorkerTarget(node), setup.Revision)
 	if err != nil || setup.Nodes[0].State != "ready" {
 		t.Fatal("APP same-owner reconnect failed", err)
 	}

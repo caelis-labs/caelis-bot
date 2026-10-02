@@ -64,7 +64,7 @@ func (n *nativeNodeManagement) localOwnedRuntimeSettings(ctx context.Context, b 
 	if b == api.NodeCaelis {
 		settings, e = nodeLocalCaelisSettings(n.app, filepath.Join(n.directory, "local"), n.options.LocalCaelisSettings)
 	} else if b == api.NodeCodex {
-		actual := ActiveNodeRoamingApplication(n.app)
+		actual := n.app
 		if n.options.LocalCodexBinary != "" {
 			settings.CLIPath = n.options.LocalCodexBinary
 		} else if actual != nil && actual.Backend != nil {
@@ -101,6 +101,6 @@ func (n *nativeNodeManagement) localOwnedRuntimeCompanion(ctx context.Context) (
 	if e != nil {
 		return nodeagent.OwnedRuntimeCompanion{}, e
 	}
-	digest, e := nativeRoamingDigest(path)
+	digest, e := nativeCompanionDigest(path)
 	return nodeagent.OwnedRuntimeCompanion{Path: path, SHA256: digest}, e
 }

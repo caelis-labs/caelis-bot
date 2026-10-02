@@ -18,8 +18,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/codex"
-	"github.com/caelis-labs/caelis-bot/internal/leasepower"
-	"github.com/caelis-labs/caelis-bot/internal/nodebroker"
+
 	"github.com/caelis-labs/caelis-bot/internal/nodeworker"
 	"github.com/caelis-labs/caelis-bot/internal/workerwire"
 )
@@ -27,19 +26,13 @@ import (
 // workerConfiguration is trusted target-native configuration. It is never a
 // Worker frame, model input or renderer DTO; credentials have no fields here.
 type workerConfiguration struct {
-	Version   int                       `json:"version"`
-	Lease     *workerLeaseConfiguration `json:"lease,omitempty"`
+	Version int `json:"version"`
+
 	Pair      workerwire.Pair           `json:"pair"`
 	Directory string                    `json:"directory"`
 	Binary    string                    `json:"binary"`
 	Socket    string                    `json:"socket"`
 	Execution api.WorkExecutionSettings `json:"execution"`
-}
-
-type workerLeaseConfiguration struct {
-	RawBotID     string `json:"rawBotId"`
-	BrokerNodeID string `json:"brokerNodeId"`
-	BrokerSocket string `json:"brokerSocket"`
 }
 
 var workerIdentifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
@@ -81,11 +74,7 @@ func readWorkerConfiguration(path string) (workerConfiguration, error) {
 			return config, errors.New("Worker paths must be explicit absolute native paths")
 		}
 	}
-	if config.Lease != nil {
-		if strings.TrimSpace(config.Lease.RawBotID) == "" || len(config.Lease.RawBotID) > 512 || strings.ContainsRune(config.Lease.RawBotID, '\x00') || api.ProfileBotID(config.Lease.RawBotID) != config.Pair.BotID || !workerIdentifier.MatchString(config.Lease.BrokerNodeID) || !filepath.IsAbs(config.Lease.BrokerSocket) || filepath.Clean(config.Lease.BrokerSocket) != config.Lease.BrokerSocket || strings.ContainsRune(config.Lease.BrokerSocket, '\x00') || config.Lease.BrokerSocket == config.Socket || (config.Pair.SourceBackend != "codex" && config.Pair.SourceBackend != "caelis") {
-			return config, errors.New("leased Worker requires exact trusted broker identity and private socket")
-		}
-	}
+
 	if filepath.Dir(config.Socket) != config.Directory {
 		return config, errors.New("Worker socket must belong to its private owner directory")
 	}
@@ -179,20 +168,7 @@ func runWorker(ctx context.Context, args []string, out io.Writer) (returnErr err
 	if _, err = os.Lstat(config.Socket); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("Worker wire endpoint already present; original ownership retained")
 	}
-	var leased *codex.WorkerLeaseOptions
-	if config.Lease != nil {
-		broker, err := nodebroker.DialUnixForBroker(ctx, config.Lease.BrokerSocket, config.Lease.BrokerNodeID)
-		if err != nil {
-			return err
-		}
-		defer broker.Close()
-		helper, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		leased = &codex.WorkerLeaseOptions{HelperPath: helper, BrokerNodeID: config.Lease.BrokerNodeID, RawBotID: config.Lease.RawBotID, SourceNode: config.Pair.SourceNode, SourceBackend: config.Pair.SourceBackend, Reader: broker, BindPower: leasepower.Bind}
-	}
-	native := codex.NewWorker(codex.WorkerOptions{Lease: leased, Target: config.Pair.Target, Pair: &config.Pair, Directory: config.Directory, WorkRoot: filepath.Join(config.Directory, "Tasks"), Binary: config.Binary, Execution: config.Execution, Source: workerwire.SourceProvider()})
+	native := codex.NewWorker(codex.WorkerOptions{Target: config.Pair.Target, Pair: &config.Pair, Directory: config.Directory, WorkRoot: filepath.Join(config.Directory, "Tasks"), Binary: config.Binary, Execution: config.Execution, Source: workerwire.SourceProvider()})
 	owner := nodeworker.New(native)
 	defer func() {
 		shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)

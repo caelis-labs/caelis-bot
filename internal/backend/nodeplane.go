@@ -47,9 +47,7 @@ func NativeNodeManagementController(s *Service) (api.NodeManagementController, e
 		return nil, errors.New("node management is unavailable")
 	}
 	c, err := s.nodeManagementController()
-	if wrapper, ok := c.(*nodeRoamingManagement); ok {
-		c = wrapper.NodeManagementController
-	}
+
 	return c, err
 }
 

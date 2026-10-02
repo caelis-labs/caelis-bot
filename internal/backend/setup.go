@@ -12,9 +12,7 @@ func (s *Service) ConfigureSetup(v api.SetupController) {
 	s.mu.Unlock()
 }
 func (s *Service) setupController() api.SetupController {
-	if s.blockLocalConfiguration() {
-		return nil
-	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.setup
@@ -62,9 +60,7 @@ func (s *Service) ActivateRuntime(ctx context.Context, v api.RuntimeSettings) er
 	return controller.Activate(ctx, v)
 }
 func (s *Service) DismissSetup() error {
-	if err := s.guardLocalConfiguration(); err != nil {
-		return err
-	}
+
 	controller := s.setupController()
 	if controller == nil {
 		return nil

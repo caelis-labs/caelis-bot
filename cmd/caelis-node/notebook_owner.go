@@ -22,22 +22,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
 
-func readNotebookJSON(path string, out any) error {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > 64<<10 {
-		return errors.New("private Notebook owner metadata unavailable")
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.DisallowUnknownFields()
-	if d.Decode(out) != nil || d.Decode(new(any)) != io.EOF {
-		return errors.New("invalid Notebook owner metadata")
-	}
-	return nil
-}
+func readNotebookJSON(path string, out any) error { return app.ReadNotebookOwnerRecord(path, out) }
 
 func runNotebookOwner(ctx context.Context, args []string, out io.Writer) error {
 	f := flag.NewFlagSet("notebook-owner", flag.ContinueOnError)

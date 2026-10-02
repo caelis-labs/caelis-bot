@@ -46,7 +46,7 @@ func (s *Service) DiagnosticReport() ([]byte, error) {
 		"loadedItems": len(v.Items), "approvalCount": len(v.Approvals), "reviewCount": len(v.Reviews), "hasEarlierMessages": v.HasEarlier,
 		"draftPresent": draftPresent, "draftStorageIssue": draftIssue,
 	}
-	if detail, ok := s.capabilityEngine().(api.DiagnosticSource); ok {
+	if detail, ok := s.engine.(api.DiagnosticSource); ok {
 		report["backend"] = detail.DiagnosticStatus()
 	}
 	return json.MarshalIndent(report, "", "  ")

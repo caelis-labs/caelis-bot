@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -24,7 +23,7 @@ type Client struct {
 	state   State
 	closed  chan struct{}
 	once    sync.Once
-	next    atomic.Uint64
+	next    uint64
 	life    context.Context
 	cancel  context.CancelFunc
 }
@@ -128,7 +127,6 @@ func (c *Client) callAdmitted(ctx context.Context, f frame, admit func() error) 
 		return frame{}, err
 	}
 	f.Version = 1
-	f.ID = c.next.Add(1)
 	f.Pair = c.pair
 	expectedTaskID := f.TaskID
 	if f.Start != nil {
@@ -137,11 +135,6 @@ func (c *Client) callAdmitted(ctx context.Context, f frame, admit func() error) 
 	if f.Message != nil {
 		expectedTaskID = f.Message.ID
 	}
-	reply := make(chan frame, 1)
-	c.mu.Lock()
-	c.pending[f.ID] = reply
-	c.mu.Unlock()
-	defer func() { c.mu.Lock(); delete(c.pending, f.ID); c.mu.Unlock() }()
 	select {
 	case c.gate <- struct{}{}:
 	case <-ctx.Done():
@@ -159,6 +152,18 @@ func (c *Client) callAdmitted(ctx context.Context, f frame, admit func() error) 
 			return frame{}, err
 		}
 	}
+	c.next++
+	if c.next == 0 {
+		<-c.gate
+		c.Close()
+		return frame{}, errors.New("Worker request sequence exhausted")
+	}
+	f.ID = c.next
+	reply := make(chan frame, 1)
+	c.mu.Lock()
+	c.pending[f.ID] = reply
+	c.mu.Unlock()
+	defer func() { c.mu.Lock(); delete(c.pending, f.ID); c.mu.Unlock() }()
 	stopWrite := context.AfterFunc(ctx, c.Close)
 	err := writeFrame(c.stream, f)
 	stopWrite()

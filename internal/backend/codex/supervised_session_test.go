@@ -78,7 +78,10 @@ func TestManagedSessionLaunchesUnderIndependentLeaseDeadline(t *testing.T) {
 
 func TestSupervisedAuthPreflightCreatesNoNativeTurn(t *testing.T) {
 	binary, pid := fixtureBinary(t, "owned-tool")
-	if _, err := ProbeSupervisedAuth(t.Context(), managedSessionHelper(t), binary, t.TempDir()); err != nil {
+	helper := managedSessionHelper(t)
+	if _, err := ProbeSupervisedAuth(t.Context(), helper, binary, t.TempDir()); err != nil {
+		log, _ := os.ReadFile(helper + ".log")
+		t.Log(string(log))
 		t.Fatal(err)
 	}
 	assertReaped(t, pid)

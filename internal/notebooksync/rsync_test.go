@@ -229,3 +229,34 @@ func TestUnknownRemoteArgumentModeFailsBeforeTransfer(t *testing.T) {
 		}
 	}
 }
+
+func TestTokenTopicsRemainPortableAndCredentialBasenamesStayExcluded(t *testing.T) {
+	if _, err := exec.LookPath("rsync"); err != nil {
+		t.Skip("rsync unavailable")
+	}
+	for _, final := range []bool{false, true} {
+		src, dst := profile(t), profile(t)
+		put(t, src, "MEMORY.md", "memory")
+		ordinary := []string{"token-budget.md", "tokenizer.md", "Tokenization/design.md", "credentials-guide.md"}
+		secrets := []string{"token", "tokens.json", "TOKEN.JSON", "credentials.json", "nested/tokens.json"}
+		for _, name := range ordinary {
+			put(t, src, name, "ordinary note")
+		}
+		for _, name := range secrets {
+			put(t, src, name, "synthetic credential")
+		}
+		if err := (Rsync{}).Sync(t.Context(), Endpoint{Profile: src}, Endpoint{Profile: dst}, "topic", final, nil); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range ordinary {
+			if read(t, dst, name) != "ordinary note" {
+				t.Fatal(name)
+			}
+		}
+		for _, name := range secrets {
+			if _, err := os.Stat(filepath.Join(dst, "Notebook", name)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("credential transferred", name, err)
+			}
+		}
+	}
+}

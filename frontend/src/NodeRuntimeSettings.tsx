@@ -1,14 +1,14 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {backend} from './desktop';
 import type {NodeCatalog,NodeInfo} from './backend/contract';
-import {NodeEnrollment,NodePrograms,NodeCoordinator} from './settings/runtime/NodeSetup';
+import {NodeEnrollment,NodePrograms} from './settings/runtime/NodeSetup';
 import {BatchSettings} from './settings/runtime/BatchSettings';
 import {NotebookSyncSettings} from './settings/runtime/NotebookSyncSettings';
 import {RuntimeWorkspace} from './settings/runtime/RuntimeWorkspace';
 import {createNodeRuntimeClient,createNodeSettingsClient,nodeScopeKey,type NodeSettingsClient} from './settings/runtime/nodeClient';
 import {RuntimePreparation} from './RuntimePreparation';
+import {WorkerNodeSettings} from './WorkerNodeSettings';
 import {RemoteRuntimeSettings} from './RemoteRuntimeSettings';
-import {createNodeRoamingClient} from './settings/runtime/roamingClient';
 import {createPairedRuntimeInvoker} from './settings/runtime/pairedClient';
 import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
@@ -22,7 +22,6 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
  const {t}=useI18n();
  const translations=useRef(t);translations.current=t;
  const owner=useMemo(()=>provided??createNodeSettingsClient(call,key=>translations.current(key)),[provided,call]);
- const roaming=useMemo(()=>createNodeRoamingClient(call),[call]);
  const [catalog,setCatalog]=useState<NodeCatalog|null>(null),[selected,setSelected]=useState(''),[runtime,setRuntime]=useState('');
  const [error,setError]=useState<MessageKey|''>(''),[loading,setLoading]=useState(false),[refresh,setRefresh]=useState(0),[notice,setNotice]=useState<MessageKey|''>('');
  const generation=useRef(0),pending=useRef(false);
@@ -61,20 +60,20 @@ export function NodeRuntimeSettings({active=true,refreshKey=0,client:provided,ca
  const local=node?.join==='local';
  return <section className="runtime-workspace node-runtime-settings">
   <div className="node-settings-heading"><h1>{t('runtime.runtimeAndModelsTitle')}</h1><div className="node-settings-selectors">
-   <label>{t('settings.nodeSelected')}<select aria-label={t('settings.nodeSelected')} disabled={!catalog||loading} value={selected} onChange={event=>select(event.target.value,'')}>{catalog?.nodes.map(value=><option key={value.id} value={value.id}>{value.label}</option>)}</select></label>
+   {catalog&&catalog.nodes.length>1&&<label>{t('settings.nodeSelected')}<select aria-label={t('settings.nodeSelected')} disabled={!catalog||loading} value={selected} onChange={event=>select(event.target.value,'')}>{catalog?.nodes.map(value=><option key={value.id} value={value.id}>{value.label}</option>)}</select></label>}
    {node&&node.runtimes.length>0&&<label>{t('settings.workerNodeBackend')}<select aria-label={t('settings.workerNodeBackend')} value={backendID} onChange={event=>select(selected,event.target.value)}>{node.runtimes.map(value=><option key={value.backend} value={value.backend}>{value.backend==='codex'?'Codex':'Caelis'}</option>)}</select></label>}
   </div></div>
   {notice&&<p role="status" className="settings-note">{t(notice)}</p>}
-  <p className="settings-note">{t('settings.nodeViewOnly')}</p>
-  {catalog&&<p className="settings-note node-owner-context">{t('settings.nodeBotOwner',{name:displayName(catalog,catalog.activeBotNodeId)||t('runtime.notConnected')})}{catalog.workerTarget&&<><br/>{t('settings.nodeWorkerTarget',{name:displayName(catalog,catalog.workerTarget.nodeId),backend:catalog.workerTarget.backend==='codex'?'Codex':'Caelis'})}</>}</p>}
-  {node&&status&&<NodeStatus node={node} backendID={backendID}/>}
+  {catalog&&catalog.nodes.length>1&&<p className="settings-note">{t('settings.nodeViewOnly')}</p>}
+  {catalog&&catalog.nodes.length>1&&<p className="settings-note node-owner-context">{t('settings.nodeBotOwner',{name:displayName(catalog,catalog.activeBotNodeId)||t('runtime.notConnected')})}{catalog.workerTarget&&<><br/>{t('settings.nodeWorkerTarget',{name:displayName(catalog,catalog.workerTarget.nodeId),backend:catalog.workerTarget.backend==='codex'?'Codex':'Caelis'})}</>}</p>}
+  {node&&status&&(!healthy||!defaultLocal&&status.roles.some(role=>!role.eligible))&&<NodeStatus node={node} backendID={backendID}/>}
   {owner.pending(selected,backendID)&&<div role="status" className="runtime-callout"><p>{t('settings.nodeOperationUnknown')}</p><button disabled={loading} onClick={()=>void recover()}>{t('settings.productCheckOriginalReceipt')}</button></div>}
-  {pairedSelected?<><p className="settings-note">{t('settings.nodePairedProductScope')}</p><RemoteRuntimeSettings key={`${selected}:${paired.binding}`} call={pairedCall} heading={false} active={active} refreshKey={refresh}/></>:catalog&&node?<div className="node-configuration"><RuntimeWorkspace batch={(view,connection,onClose)=><BatchSettings catalog={catalog} owner={owner} sourceId={selected} view={view} connection={connection} onClose={onClose} onSelect={id=>{setTimeout(()=>select(id,backendID),0);}}/>} nodeManaged connectionState={connectionState} connectionReadOnly={!!error||!!owner.pending(selected,backendID)||status?.health==='missing'} readOnly={!!error||!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy,defaultLocalView)=>local&&defaultLocal&&defaultLocalView&&id===backendID?<RuntimePreparation initialRuntime={id} onBusy={onBusy} viewOnly call={call}/>:<p className="settings-note">{t(local?'settings.nodeScopedPreparation':'settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
+  {pairedSelected?<><p className="settings-note">{t('settings.nodePairedProductScope')}</p><RemoteRuntimeSettings key={`${selected}:${paired.binding}`} call={pairedCall} heading={false} active={active} refreshKey={refresh}/></>:catalog&&node?<div className="node-configuration"><RuntimeWorkspace batch={(view,connection,onClose)=><BatchSettings catalog={catalog} owner={owner} sourceId={selected} view={view} connection={connection} onClose={onClose} onSelect={id=>{setTimeout(()=>select(id,backendID),0);}}/>} nodeManaged connectionState={connectionState} connectionReadOnly={!!error||!!owner.pending(selected,backendID)||status?.health==='missing'} readOnly={!!error||!healthy||!!owner.pending(selected,backendID)} key={scope} heading={false} remote={!defaultLocal||!!owner.pending(selected,backendID)} client={scoped} active={active} refreshKey={refresh} preparation={(id,onBusy)=>local&&defaultLocal?<RuntimePreparation initialRuntime={id} onBusy={onBusy} call={call}/>:<p className="settings-note">{t(local?'settings.nodeScopedPreparation':'settings.nodeRemotePreparation')}</p>}/></div>:<p role="status" className="settings-note">{loading?t('runtime.loadingRuntime'):t('settings.nodeUnavailable')}</p>}
   {!pairedSelected&&node&&!healthy&&<p role="status" className="settings-note">{t('settings.nodeUnavailable')}</p>}
   {!pairedSelected&&node&&status&&<NodePrograms refreshKey={`${catalog?.revision}:${refresh}:${refreshKey}`} key={scope} node={node} backendID={backendID as 'codex'|'caelis'} owner={owner} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
-  {catalog&&<NotebookSyncSettings catalog={catalog} call={call} active={active}/>}
   <NodeEnrollment catalog={catalog} call={call} onChanged={()=>setRefresh(value=>value+1)}/>
-  {catalog&&<NodeCoordinator catalog={catalog} roaming={roaming} refreshKey={refreshKey+refresh} call={call} onChanged={()=>setRefresh(value=>value+1)}/>}
+  {catalog&&<WorkerNodeSettings catalog={catalog} call={call}/>}
+  {catalog&&<NotebookSyncSettings catalog={catalog} call={call} active={active}/>}
   {error&&<p role="alert" className="inline-error">{t(error)}</p>}
   <button className="text-action" disabled={loading} onClick={()=>setRefresh(value=>value+1)}>{t('runtime.refreshConfig')}</button>
  </section>;

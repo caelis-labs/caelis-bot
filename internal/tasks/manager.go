@@ -547,17 +547,21 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	m.mu.Lock()
 	restarting := terminal(m.state.Records[in.ID].View.Status)
 	active := m.activeLocked()
+	target := m.state.Records[in.ID].Target
+	previous, boundMessage := m.state.Messages[in.RequestID]
 	m.mu.Unlock()
+	if boundMessage {
+		if previous.TaskID != in.ID || previous.Fingerprint != hash(in.Prompt) {
+			return api.Task{}, errors.New("same request ID names different worker continuation")
+		}
+		in.Source, in.RequestDigest = previous.Source, previous.RequestDigest
+	}
 	if restarting && active >= m.maximumRunning() {
 		replay, ok := work.(api.RecordedWorkMessage)
 		if !ok || !replay.WorkMessageRecorded(in) {
 			return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
 		}
 	}
-	m.mu.Lock()
-	target := m.state.Records[in.ID].Target
-	_, boundMessage := m.state.Messages[in.RequestID]
-	m.mu.Unlock()
 	if gate, ok := m.executionAdmission.(api.WorkTargetAdmission); ok {
 		if err := gate.CheckWorkTarget(ctx, target); err != nil {
 			return api.Task{}, err
@@ -576,7 +580,9 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 			legacyReceipt = replay.WorkMessageRecorded(in)
 		}
 	}
-	if target != m.nativeTarget || m.authorizer != nil && !legacyReceipt {
+	if boundMessage {
+		// Reconcile only the original persisted authorization.
+	} else if target != m.nativeTarget || m.authorizer != nil && !legacyReceipt {
 		in.Source, e = m.authorizeWork(ctx, target)
 		if e != nil {
 			return api.Task{}, e

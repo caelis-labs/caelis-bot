@@ -12,19 +12,17 @@ export function createPairedRuntimeInvoker(invoke:Invoke,binding:string,message:
  return async<T>(method:string,...args:unknown[]):Promise<T>=>{
   const failure=(outcome='rejected',id='')=>new ConfigurationError({operationId:id,outcome,message:message()});
   if(!binding)throw failure();
+  if(reads.has(method)){
+   if(args[0]!==binding)throw failure();
+   const result=await invoke<T>(method,...args);
+   if(method==='RemoteExecutionSettings'&&(result as {binding:string}).binding!==binding)throw failure();
+   return result;
+  }
   const state=await invoke<RemoteRuntimeState>('RemoteRuntime');
   if(state.binding!==binding)throw failure();
   const nativePending=(state.pending??[]).filter(item=>!terminal.has(item.id));
   if(method==='RemoteRuntime')return {...state,pending:[...nativePending,...[...unresolved.values()].filter(item=>!nativePending.some(native=>native.id===item.id))]} as T;
   if(!state.available)throw failure();
-  if(reads.has(method)){
-   if(args[0]!==binding)throw failure();
-   const result=await invoke<T>(method,...args);
-   if(method==='RemoteExecutionSettings'&&(result as {binding:string}).binding!==binding)throw failure();
-   const current=await invoke<RemoteRuntimeState>('RemoteRuntime');
-   if(!current.available||current.binding!==binding)throw failure();
-   return result;
-  }
   const request=args[0] as {id?:string;binding?:string;action?:string};
   const recovery=method==='ReconcileRemoteManagement'||method==='ManageRemoteRuntime'&&request.action==='resolve';
   if(!changes.has(method)&&method!=='ReconcileRemoteManagement')throw failure();

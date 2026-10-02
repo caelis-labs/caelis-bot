@@ -52,8 +52,8 @@ func TestWorkerNodeBackendsHaveIndependentBindingsAndDetach(t *testing.T) {
 	service := &backend.Service{}
 	service.ConfigureWorkerNodes(c)
 	revision, calls := c.Snapshot().Revision, factoryCalls
-	for _, action := range []func(context.Context, string, uint64) (backend.WorkerNodeSetup, error){service.ProbeWorkerNode, service.ConnectWorkerNode, service.DisconnectWorkerNode} {
-		if snapshot, err := action(t.Context(), caelis.ID, revision); err == nil || snapshot.Revision != revision {
+	for _, action := range []func(context.Context, api.WorkTarget, uint64) (backend.WorkerNodeSetup, error){service.ProbeWorkerTarget, service.ConnectWorkerTarget, service.DisconnectWorkerTarget} {
+		if snapshot, err := action(t.Context(), api.WorkTarget{NodeID: caelis.ID}, revision); err == nil || snapshot.Revision != revision {
 			t.Fatal("ambiguous legacy action mutated setup", snapshot, err)
 		}
 	}

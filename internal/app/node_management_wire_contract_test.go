@@ -15,7 +15,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
 
-type nodeWireExecutionEngine struct{ *controlLocalEngine }
+type nodeWireExecutionEngine struct{ *nodeWireEngine }
 
 func (*nodeWireExecutionEngine) Models(context.Context) ([]api.ModelOption, error) {
 	return []api.ModelOption{{Model: "fixture-model", Efforts: []string{"medium", "high"}}}, nil
@@ -53,7 +53,7 @@ func enrollmentWireClient(t *testing.T, a *Application) *productrpc.Client {
 }
 func TestNodeConfigurationOfficialWireUsesActualServiceHashRevision(t *testing.T) {
 	a := nativeManagementApplication(t)
-	engine := &nodeWireExecutionEngine{&controlLocalEngine{}}
+	engine := &nodeWireExecutionEngine{&nodeWireEngine{}}
 	a.Backend = backend.NewService(engine, nil, nil, nil, nil)
 	a.Backend.ConfigureRuntime(filepath.Join(a.root, "runtime.json"), api.RuntimeSettings{Runtime: "codex"})
 	a.Backend.ConfigureExecution(filepath.Join(a.root, "execution.json"), api.ExecutionSettings{Model: "fixture-model", Effort: "medium", ApprovalMode: "auto"})
@@ -101,3 +101,17 @@ func TestNodeConfigurationOfficialWireUsesActualServiceHashRevision(t *testing.T
 		t.Fatal(conversation, err)
 	}
 }
+
+type nodeWireEngine struct{}
+
+func (*nodeWireEngine) Connect(context.Context) error { return nil }
+func (*nodeWireEngine) Snapshot() api.Snapshot {
+	return api.Snapshot{Connection: "ready", CanSend: true, Revision: 1}
+}
+func (*nodeWireEngine) Submit(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+	return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+}
+func (*nodeWireEngine) Interrupt(context.Context) error            { return nil }
+func (*nodeWireEngine) Decide(context.Context, api.Decision) error { return nil }
+func (*nodeWireEngine) Close(context.Context) error                { return nil }
+func (*nodeWireEngine) ProviderInfo() api.ProviderInfo             { return api.ProviderInfo{ID: "codex"} }

@@ -17,7 +17,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
-	"github.com/caelis-labs/caelis-bot/internal/workerlease"
 )
 
 type Options struct {
@@ -38,7 +37,6 @@ type Session struct {
 	owned                 *ownedHost
 	admission             api.ExecutionAdmission
 	dispatchSource        func(context.Context, api.WorkDispatchSource) (api.WorkDispatchSource, error)
-	workerLease           *workerlease.Fence
 	workerPrepared        bool
 	workerOnly            bool
 	workerProtocol        WorkerProtocol

@@ -58,11 +58,10 @@ type Options struct {
 	Health                                     func(context.Context, api.NodeBackend) (NativeHealth, error)
 	Configurations                             map[api.NodeBackend]NativeConfiguration
 	RuntimeOwner                               nodeplane.RuntimeProofPort
-	ManagedProduct                             ManagedProductPort
-	ManagedStart                               ManagedStartPort
-	WorkerProxy                                *NativeWorkerProxy
-	OwnedRuntimeSettings                       func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error)
-	OwnedRuntimeCompanion                      func(context.Context) (OwnedRuntimeCompanion, error)
+
+	WorkerProxy           *NativeWorkerProxy
+	OwnedRuntimeSettings  func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error)
+	OwnedRuntimeCompanion func(context.Context) (OwnedRuntimeCompanion, error)
 	// NodeConnectionOwner delegates only an already owned exact native Host.
 	// Its Close detaches setup and never stops a warm managed runtime.
 	// Returning nil,nil proves no warm Caelis owner; cold setup remains explicit.
@@ -364,11 +363,7 @@ func (s *Service) configuration(ctx context.Context, nodeID string, b api.NodeBa
 	if nodeID != s.options.NodeID || !backend(b) {
 		return api.NodeRuntimeConfiguration{}, errors.New("configuration scope changed")
 	}
-	if managed, ok := s.options.ManagedStart.(ManagedConfigurationPort); ok {
-		if configuration, delegated, err := managed.ReadManagedConfiguration(ctx, nodeID, b); delegated {
-			return configuration, err
-		}
-	}
+
 	port := s.options.Configurations[b]
 	out = api.NodeRuntimeConfiguration{Guard: api.NodeEditGuard{NodeID: nodeID, Backend: b}, ReviewedVersions: []string{}}
 	defer func() {
@@ -454,11 +449,7 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 		return result, nil
 	}
 	if r.Change != nil {
-		if managed, ok := s.options.ManagedStart.(ManagedConfigurationPort); ok {
-			if receipt, delegated, err := managed.ChangeManagedConfiguration(ctx, r); delegated {
-				return receipt, err
-			}
-		}
+
 	}
 	path := s.operationPath(r.Ref.OperationID)
 	var prior operation

@@ -32,6 +32,7 @@ func NewOwnedResident(ctx context.Context, root string, host Host, nodeID, helpe
 	if err != nil {
 		return nil, err
 	}
+	a.residentNodeID = nodeID
 	if err = AttachNodeManagement(a); err != nil {
 		_ = a.Close()
 		return nil, err

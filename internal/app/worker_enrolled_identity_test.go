@@ -1,7 +1,6 @@
 package app
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -56,22 +55,6 @@ func assertEnrolledWorkerSaveLoad(t *testing.T, config backend.WorkerNodeConfig)
 	if _, err := registry.ResolveWorkTarget(&target); err == nil {
 		t.Fatal("saving identity advertised native readiness")
 	}
-}
-
-func TestEnrolledWorkerIdentityFromNativeRoamingProjectionLoadsExactly(t *testing.T) {
-	local := roamingNativeNode{Registration: NodeRegistration{ID: api.LocalNodeID, Label: "Local"}, Plan: NodeRoamingSupervisorPlan{Managed: &NodeRoamingManagedDeployment{Backend: "codex"}}}
-	remote := roamingNativeNode{Registration: NodeRegistration{ID: enrolledWorkerID, Label: "Enrolled Worker"}, Plan: NodeRoamingSupervisorPlan{Managed: &NodeRoamingManagedDeployment{Backend: "codex"}}, RuntimeBindings: []NodeRoamingWorkerRuntime{{Backend: "codex", Binary: "/native/codex"}}, BrokerPeerSocket: "/private/agent.sock"}
-	wire, err := json.Marshal(nativeRoamingWorkers(roamingNativePlan{Nodes: []roamingNativeNode{local, remote}}, local))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var roster struct {
-		Nodes []backend.WorkerNodeConfig `json:"nodes"`
-	}
-	if err := json.Unmarshal(wire, &roster); err != nil || len(roster.Nodes) != 1 || roster.Nodes[0].ID != enrolledWorkerID || roster.Nodes[0].Transport != "registered-agent" {
-		t.Fatal("native roaming roster changed enrolled identity", roster, err)
-	}
-	assertEnrolledWorkerSaveLoad(t, roster.Nodes[0])
 }
 
 func TestEnrolledWorkerIdentityStillRejectsUnsafeCharactersAndLength(t *testing.T) {

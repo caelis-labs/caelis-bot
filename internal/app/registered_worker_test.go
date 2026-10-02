@@ -8,7 +8,8 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/nodes"
 	"github.com/caelis-labs/caelis-bot/internal/nodeworker"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
@@ -50,13 +51,13 @@ func TestRegisteredWorkerRejectsMachinePathsAndUntrustedEnrollment(t *testing.T)
 		}
 	}
 	primary := &nodePrimarySource{testEngine: newTestEngine()}
-	a := &Application{engine: primary, managed: &managedNodeOwner{nodeID: "actual-source", snapshot: nodeplane.SnapshotRef{BotID: "stable-bot"}}}
+	a := &Application{engine: primary, residentNodeID: "actual-source", companion: registeredBot(t)}
 	if _, err := a.newWorkerNodeAdapter(config, t.TempDir()); err == nil {
 		t.Fatal("untrusted registered route dispatched")
 	}
 	pair, err := a.workerSourcePair(configuredWorkerTarget(config))
 	if err != nil || pair.SourceNode != "actual-source" || pair.BotID != api.ProfileBotID("stable-bot") {
-		t.Fatal("pre-start managed identity changed", pair, err)
+		t.Fatal("pre-start resident identity changed", pair, err)
 	}
 }
 
@@ -91,7 +92,7 @@ func TestRegisteredWorkerProbeAndDetachDoNotStopOwner(t *testing.T) {
 
 func TestRegisteredWorkerLocalMeansExplicitMacAndCannotReplaceNativeDefault(t *testing.T) {
 	primary := &nodePrimarySource{testEngine: newTestEngine()}
-	a := &Application{engine: primary, managed: &managedNodeOwner{nodeID: "managed-linux", snapshot: nodeplane.SnapshotRef{BotID: "stable-bot"}}}
+	a := &Application{engine: primary, residentNodeID: "managed-linux", companion: registeredBot(t)}
 	if err := a.ConfigureRegisteredWorkers(func(context.Context, workerwire.Pair) (RegisteredWorkerAgent, error) { return nil, nil }); err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +173,7 @@ func (a registeredLeasedAgentFixture) OpenWorkerStream(_ context.Context, pair w
 	return left, nil
 }
 
-func TestManagedRegisteredMacWorkerStreamKeepsActualSourceAndIndependentDefault(t *testing.T) {
+func TestResidentRegisteredMacWorkerStreamKeepsActualSourceAndIndependentDefault(t *testing.T) {
 	root := t.TempDir()
 	primary := &registeredOwnedPrimary{nodePrimarySource: &nodePrimarySource{testEngine: newTestEngine(), value: api.WorkDispatchSource{NodeID: "managed-linux", Backend: "fixture", BindingID: "original-thread", OperationID: "original-turn", Kind: "native_activation"}}}
 	macRoot, err := filepath.EvalSymlinks(t.TempDir())
@@ -180,7 +181,7 @@ func TestManagedRegisteredMacWorkerStreamKeepsActualSourceAndIndependentDefault(
 		t.Fatal(err)
 	}
 	mac := &wireNodeFixture{root: macRoot, revision: 1, changed: make(chan struct{}), tasks: map[string]api.Task{}, intents: map[string]api.WorkStart{}}
-	a := &Application{root: root, engine: primary, managed: &managedNodeOwner{nodeID: "managed-linux", snapshot: nodeplane.SnapshotRef{BotID: "stable-bot"}}}
+	a := &Application{root: root, engine: primary, residentNodeID: "managed-linux", companion: registeredBot(t)}
 	if err := a.ConfigureRegisteredWorkers(func(_ context.Context, pair workerwire.Pair) (RegisteredWorkerAgent, error) {
 		if pair.SourceNode != "managed-linux" || pair.BotID != api.ProfileBotID("stable-bot") || pair.Target.NodeID != api.LocalNodeID {
 			t.Fatal("route changed", pair)
@@ -249,4 +250,17 @@ func TestManagedRegisteredMacWorkerStreamKeepsActualSourceAndIndependentDefault(
 	if mac.starts != 1 || mac.stops != 0 || mac.closes != 0 {
 		t.Fatal("observer detach mutated owner", mac.starts, mac.stops, mac.closes)
 	}
+}
+
+func registeredBot(t *testing.T) *bot.Runtime {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "bot.json")
+	if err := localstate.Write(p, bot.State{Version: 1, ID: "stable-bot"}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := bot.New(p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

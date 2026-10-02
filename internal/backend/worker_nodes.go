@@ -43,51 +43,31 @@ type WorkerNodeSetup struct {
 	Issue    string           `json:"issue"`
 }
 
-// WorkerNodeController lives in native assembly. Inspect never enrolls; Connect
-// is the explicit action that establishes scoped ownership. Disconnect detaches.
+// WorkerNodeController has one exact machine/backend/role addressing contract.
 type WorkerNodeController interface {
 	Snapshot() WorkerNodeSetup
 	Save(WorkerNodeConfig, uint64) (WorkerNodeSetup, error)
-	Probe(context.Context, string, uint64) (WorkerNodeSetup, error)
-	Connect(context.Context, string, uint64) (WorkerNodeSetup, error)
-	Disconnect(context.Context, string, uint64) (WorkerNodeSetup, error)
-}
-
-// WorkerNodeTargetController addresses one machine/backend/Worker capability.
-// The legacy NodeID actions remain compatible only while that node is unambiguous.
-type WorkerNodeTargetController interface {
 	ProbeTarget(context.Context, api.WorkTarget, uint64) (WorkerNodeSetup, error)
 	ConnectTarget(context.Context, api.WorkTarget, uint64) (WorkerNodeSetup, error)
 	DisconnectTarget(context.Context, api.WorkTarget, uint64) (WorkerNodeSetup, error)
 }
 
-func (s *Service) workerTargetController() (WorkerNodeTargetController, error) {
-	controller, err := s.workerNodeController()
-	if err != nil {
-		return nil, err
-	}
-	exact, ok := controller.(WorkerNodeTargetController)
-	if !ok {
-		return nil, errors.New("exact Worker target actions are unavailable")
-	}
-	return exact, nil
-}
 func (s *Service) ProbeWorkerTarget(ctx context.Context, target api.WorkTarget, revision uint64) (WorkerNodeSetup, error) {
-	controller, err := s.workerTargetController()
+	controller, err := s.workerNodeController()
 	if err != nil {
 		return WorkerNodeSetup{}, err
 	}
 	return controller.ProbeTarget(ctx, target, revision)
 }
 func (s *Service) ConnectWorkerTarget(ctx context.Context, target api.WorkTarget, revision uint64) (WorkerNodeSetup, error) {
-	controller, err := s.workerTargetController()
+	controller, err := s.workerNodeController()
 	if err != nil {
 		return WorkerNodeSetup{}, err
 	}
 	return controller.ConnectTarget(ctx, target, revision)
 }
 func (s *Service) DisconnectWorkerTarget(ctx context.Context, target api.WorkTarget, revision uint64) (WorkerNodeSetup, error) {
-	controller, err := s.workerTargetController()
+	controller, err := s.workerNodeController()
 	if err != nil {
 		return WorkerNodeSetup{}, err
 	}
@@ -101,9 +81,7 @@ func (s *Service) ConfigureWorkerNodes(controller WorkerNodeController) {
 }
 
 func (s *Service) workerNodeController() (WorkerNodeController, error) {
-	if err := s.guardLocalConfiguration(); err != nil {
-		return nil, err
-	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.workerNodes == nil {
@@ -126,28 +104,4 @@ func (s *Service) SaveWorkerNode(config WorkerNodeConfig, revision uint64) (Work
 		return WorkerNodeSetup{}, err
 	}
 	return controller.Save(config, revision)
-}
-
-func (s *Service) ProbeWorkerNode(ctx context.Context, id string, revision uint64) (WorkerNodeSetup, error) {
-	controller, err := s.workerNodeController()
-	if err != nil {
-		return WorkerNodeSetup{}, err
-	}
-	return controller.Probe(ctx, id, revision)
-}
-
-func (s *Service) ConnectWorkerNode(ctx context.Context, id string, revision uint64) (WorkerNodeSetup, error) {
-	controller, err := s.workerNodeController()
-	if err != nil {
-		return WorkerNodeSetup{}, err
-	}
-	return controller.Connect(ctx, id, revision)
-}
-
-func (s *Service) DisconnectWorkerNode(ctx context.Context, id string, revision uint64) (WorkerNodeSetup, error) {
-	controller, err := s.workerNodeController()
-	if err != nil {
-		return WorkerNodeSetup{}, err
-	}
-	return controller.Disconnect(ctx, id, revision)
 }

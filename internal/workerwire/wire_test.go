@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/nodeworker"
 	"io"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -213,4 +215,48 @@ func TestNativeSourceIsRecheckedAfterFrameAdmission(t *testing.T) {
 		t.Fatal("no-dispatch source rejection closed another observer")
 	default:
 	}
+}
+
+type lastingWorker struct {
+	nodeworker.Client
+	pair Pair
+}
+
+func (w lastingWorker) WorkerPair() Pair     { return w.pair }
+func (lastingWorker) Snapshot() api.Snapshot { return api.Snapshot{Connection: "ready", Revision: 1} }
+func (lastingWorker) WaitSnapshot(ctx context.Context, _ uint64) (api.Snapshot, error) {
+	<-ctx.Done()
+	return api.Snapshot{}, ctx.Err()
+}
+func (lastingWorker) WorkStates() []api.WorkState       { return nil }
+func (lastingWorker) WorkApprovals() []api.WorkApproval { return nil }
+func TestResidentStreamSurvivesMoreThan8192RequestsAndConcurrentWrites(t *testing.T) {
+	pair := testPair()
+	server, err := NewServer(nodeworker.New(lastingWorker{pair: pair}), pair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	go func() { _ = server.Serve(t.Context(), right) }()
+	c, err := NewClient(t.Context(), pair, SourceProvider(), left)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for i := 0; i < 8300; i++ {
+		if _, err = c.call(t.Context(), frame{Method: "state"}); err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 64; i++ {
+		wg.Go(func() {
+			if _, err := c.call(t.Context(), frame{Method: "state"}); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
 }

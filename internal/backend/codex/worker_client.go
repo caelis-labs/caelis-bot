@@ -26,15 +26,13 @@ type WorkerOptions struct {
 	Execution                           api.WorkExecutionSettings
 	Source                              api.WorkSourceProvider
 	Pair                                *workerwire.Pair // Trusted originating Bot pairing for a foreign-source owner.
-	Lease                               *WorkerLeaseOptions
-	RequireApproval                     bool // Tighten policy for isolated native acceptance fixtures.
+	RequireApproval                     bool             // Tighten policy for isolated native acceptance fixtures.
 }
 
 // WorkerClient exposes no resident Submit/Interrupt or Bot lifecycle. The private
 // Session value reuses native projections/receipts, with an empty resident ID.
 // Its native server belongs to the persistent target owner, not an observer.
 type WorkerClient struct {
-	lease    *workerLeaseFence
 	engine   *Session
 	target   api.WorkTarget
 	source   api.WorkSourceProvider
@@ -52,21 +50,10 @@ func NewWorker(opts WorkerOptions) *WorkerClient {
 	}
 	s := NewSession(SessionOptions{Directory: opts.Directory, StateFile: filepath.Join(opts.Directory, "worker-bindings.json"), WorkRoot: root, Binary: opts.Binary, Socket: opts.Socket, WorkExecution: opts.Execution, RequireApproval: opts.RequireApproval})
 	w := &WorkerClient{engine: s, target: opts.Target, source: opts.Source, open: openWorkerClient}
-	if opts.Lease != nil {
-		w.lease = newWorkerLeaseFence(w, *opts.Lease)
-		w.open = func(ctx context.Context, native Options) (*Client, func(), string, error) {
-			return openSupervisedWorkerClient(ctx, native, opts.Lease.HelperPath)
-		}
-		s.opts.Admission = w.lease
-		if opts.Socket != "" || !w.lease.valid() {
-			s.loadErr = errors.New("leased Worker requires pinned broker, power fence and isolated native process")
-		}
-	}
+
 	if opts.Pair != nil {
 		w.pair = *opts.Pair
-		if opts.Lease != nil && (api.ProfileBotID(opts.Lease.RawBotID) != w.pair.BotID || opts.Lease.SourceNode != w.pair.SourceNode || opts.Lease.SourceBackend != w.pair.SourceBackend) {
-			s.loadErr = errors.New("Worker lease pin differs from native origin pairing")
-		}
+
 		if w.pair.Target != opts.Target {
 			s.loadErr = errors.New("Worker native pairing target mismatch")
 		}
@@ -124,9 +111,7 @@ func openWorkerClient(ctx context.Context, opts Options) (*Client, func(), strin
 // Connect bounds only startup. Native process and observation lifetime are
 // owned by this target object and survive caller/observer context cancellation.
 func (w *WorkerClient) Connect(ctx context.Context) error {
-	if w.lease != nil && !OwnedRuntimeSupported() {
-		return ErrOwnedRuntimeUnsupported
-	}
+
 	s := w.engine
 	s.op.Lock()
 	defer s.op.Unlock()
@@ -238,11 +223,7 @@ func (w *WorkerClient) Connect(ctx context.Context) error {
 		}
 	}
 	s.mu.Unlock()
-	if w.lease != nil {
-		if err = w.lease.activate(ctx); err != nil {
-			return err
-		}
-	}
+
 	go s.listen(c, epoch)
 	// Restore only retained native bindings; never create a replacement thread.
 	for _, id := range ids {
@@ -497,19 +478,14 @@ func (w *WorkerClient) StopWork(ctx context.Context, id string) (api.Task, error
 	}
 	run, c := s.childRuns[task.Thread], s.client
 	view := copyWorkerTask(s.taskView(task))
-	if w.lease != nil && task.WorkerStop != nil && task.WorkerStop.Outcome == "unknown" {
-		s.mu.Unlock()
-		return view, errors.New("original Worker cancellation remains unconfirmed")
-	}
+
 	if run == "" {
 		s.mu.Unlock()
 		return view, errors.New("Worker active native turn is unconfirmed")
 	}
 	previousStop, previousReceipt := task.SuppressReport, task.WorkerStop
 	task.SuppressReport = true
-	if w.lease != nil {
-		task.WorkerStop = &workerStopReceipt{Thread: task.Thread, Run: run, Outcome: "unknown"}
-	}
+
 	err = s.save()
 	if err != nil {
 		task.SuppressReport = previousStop
@@ -525,10 +501,7 @@ func (w *WorkerClient) StopWork(ctx context.Context, id string) (api.Task, error
 	cancelErr := s.cancelElicitations(ctx, c, thread, run)
 	err = errors.Join(cancelErr, callDecode(ctx, c, "turn/interrupt", map[string]string{"threadId": thread, "turnId": run}, nil))
 	s.mu.Lock()
-	if w.lease != nil && err == nil {
-		task.WorkerStop.Outcome = "accepted"
-		err = s.save()
-	}
+
 	view = copyWorkerTask(s.taskView(task))
 	s.mu.Unlock()
 	return view, err
@@ -552,11 +525,7 @@ func (w *WorkerClient) workRoot() string {
 	return w.engine.workRoot()
 }
 func (w *WorkerClient) PrepareWorkWorkspace(ctx context.Context, id, workspace string, selected bool) error {
-	if w.lease != nil {
-		if err := w.WorkAdmission(ctx); err != nil {
-			return err
-		}
-	}
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -639,25 +608,13 @@ func (w *WorkerClient) Snapshot() api.Snapshot { return w.engine.Snapshot() }
 // Close is explicit target-owner shutdown. Observer detachment must never call
 // it; the retained process stop runs even if the native observation socket died.
 func (w *WorkerClient) Close(ctx context.Context) error {
-	if w.lease != nil {
-		w.lease.revoke()
-		w.lease.releasePower()
-	}
+
 	s := w.engine
 	// The leased watchdog has already stopped and verified the exact owned
 	// process tree. Asking that dead native connection to list/clean terminals
 	// would turn confirmed native cleanup into a spurious unknown stop. Retain
 	// every task receipt and use the independent process proof for this close.
-	if w.lease != nil && w.owned != nil && w.lease.stopErr == nil && w.owned.toolCleanupError() == nil {
-		// Drain admitted journal writers after the fence cancels native work.
-		s.op.Lock()
-		s.mu.Lock()
-		s.closed = true
-		s.state.Connection = "stopped"
-		s.update()
-		s.mu.Unlock()
-		s.op.Unlock()
-	}
+
 	err := s.Close(ctx)
 	s.op.Lock()
 	defer s.op.Unlock()
@@ -674,9 +631,7 @@ func (w *WorkerClient) Close(ctx context.Context) error {
 	if w.owned != nil {
 		err = errors.Join(err, w.owned.toolCleanupError())
 	}
-	if w.lease != nil {
-		err = errors.Join(err, w.lease.stopErr)
-	}
+
 	return err
 }
 
