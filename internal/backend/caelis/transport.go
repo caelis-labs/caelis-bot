@@ -14,18 +14,14 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
 type client struct {
-	origin, token        string
-	http                 *http.Client
-	admission            api.ExecutionAdmission
-	nativeWorkerDispatch api.ExecutionAdmission
+	origin, token string
+	http          *http.Client
 }
 type remoteError struct {
 	Status       int
@@ -54,27 +50,6 @@ func (c *client) request(ctx context.Context, method, path string, body any, op,
 	return c.requestMedia(ctx, method, path, body, op, revision, "", lastEvent...)
 }
 func (c *client) requestMedia(ctx context.Context, method, path string, body any, op, revision, accept string, lastEvent ...string) (*http.Response, error) {
-	if c == nil {
-		return nil, errors.New("Caelis 尚未连接")
-	}
-	ctx, release, err := api.BeginExecution(ctx, c.admission)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if release != nil {
-			release()
-		}
-	}()
-	if method != "GET" && c.nativeWorkerDispatch != nil {
-		workerCtx, workerRelease, workerErr := c.nativeWorkerDispatch.Begin(ctx)
-		if workerErr != nil {
-			return nil, workerErr
-		}
-		ctx = workerCtx
-		previousRelease := release
-		release = func() { workerRelease(); previousRelease() }
-	}
 	var r io.Reader
 	if body != nil {
 		b, e := json.Marshal(body)
@@ -108,32 +83,12 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 	if revision != "" {
 		req.Header.Set("If-Match", `"`+revision+`"`)
 	}
-	if c.admission != nil {
-		if err := c.admission.CheckContext(ctx); err != nil {
-			return nil, err
-		}
-	}
-	if method != "GET" && c.nativeWorkerDispatch != nil {
-		if err := c.nativeWorkerDispatch.CheckContext(ctx); err != nil {
-			return nil, err
-		}
-	}
 	res, e := c.http.Do(req)
 	if e != nil {
 		return nil, errors.New("Caelis 连接中断，操作结果需要核对")
 	}
-	res.Body = &admittedBody{ReadCloser: res.Body, release: release}
-	release = nil
 	return res, nil
 }
-
-type admittedBody struct {
-	io.ReadCloser
-	release func()
-	once    sync.Once
-}
-
-func (b *admittedBody) Close() error { err := b.ReadCloser.Close(); b.once.Do(b.release); return err }
 func (c *client) json(ctx context.Context, method, path string, body, out any, op, rev string) error {
 	return c.jsonTimeout(ctx, method, path, body, out, op, rev, 30*time.Second)
 }

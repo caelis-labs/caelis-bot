@@ -50,12 +50,6 @@ export interface BotIntroduction {
   name: string;
   description: string;
 }
-export interface Capabilities {
-  execution: boolean;
-  installation: boolean;
-  configuration: boolean;
-  configurationReceiptLookup: boolean;
-}
 export interface ChatUpdate {
   changed: boolean;
   snapshot: Snapshot;
@@ -110,169 +104,6 @@ export interface ModelOption {
   efforts: Array<string>;
   serviceTiers: Array<ServiceTier>;
 }
-export interface NodeAddRequest {
-  operationId?: string;
-  label: string;
-  join: string;
-  sshDestination: string;
-  expectedRevision: string;
-}
-export interface NodeAddResult {
-  operationId?: string;
-  outcome?: string;
-  reason?: string;
-  node: NodeInfo;
-  joinInstructions: NodeJoinInstructions | null;
-}
-export interface NodeBroker {
-  nodeId: string;
-  reachable: boolean;
-  automaticRoaming: boolean;
-  reason: string;
-  sourceRoutes?: Array<NodeCoordinatorSourceRoute>;
-}
-export interface NodeCatalog {
-  revision: string;
-  nodes: Array<NodeInfo>;
-  selectedNodeId: string;
-  activeBotNodeId: string;
-  pairedRuntime: NodePairedRuntime | null;
-  workerTarget: WorkTarget | null;
-  broker: NodeBroker | null;
-  pendingOperations: Array<NodeOperationRef>;
-  pendingEnrollments?: Array<string>;
-}
-export interface NodeCoordinatorSelection {
-  nodeId: string;
-  expectedRevision: string;
-  sourceRoutes?: Array<NodeCoordinatorSourceRoute> | null;
-}
-export interface NodeCoordinatorSourceRoute {
-  sourceNodeId: string;
-  sshDestination: string;
-}
-export interface NodeEditGuard {
-  nodeId: string;
-  backend: string;
-  revision: string;
-}
-export interface NodeInfo {
-  id: string;
-  label: string;
-  os: string;
-  join: string;
-  runtimes: Array<NodeRuntime>;
-}
-export interface NodeInstallationChange {
-  action: string;
-  version: string;
-  expectedVersion: string;
-}
-export interface NodeInstallationState {
-  installed: boolean;
-  version: string;
-  latestVersion: string;
-}
-export interface NodeJoinInstructions {
-  nodeId: string;
-  state: string;
-  instructions: string;
-}
-export interface NodeManagementRequest {
-  guard: NodeEditGuard;
-  ref: NodeOperationRef;
-  change: RuntimeConfigurationChange | null;
-  installation: NodeInstallationChange | null;
-}
-export interface NodeOperationReceipt {
-  ref: NodeOperationRef;
-  outcome: string;
-  revision: string;
-  message: string;
-}
-export interface NodeOperationRef {
-  nodeId: string;
-  backend: string;
-  operationId: string;
-  requestDigest: string;
-}
-export interface NodePairedRuntime {
-  nodeId: string;
-  binding: string;
-}
-export interface NodeRoleCapability {
-  role: string;
-  eligible: boolean;
-  reason: string;
-}
-export interface NodeRuntime {
-  backend: string;
-  version: string;
-  authentication: string;
-  health: string;
-  roles: Array<NodeRoleCapability>;
-}
-export interface NodeRuntimeConfiguration {
-  guard: NodeEditGuard;
-  configuration: RuntimeConfiguration;
-  conversation: WorkExecutionSettings | null;
-  worker: WorkExecutionSettings | null;
-  configurationAvailable: boolean;
-  installerAvailable: boolean;
-  executable?: NodeRuntimeExecutable | null;
-  installation: NodeInstallationState | null;
-  reviewedVersions: Array<string>;
-}
-export interface NodeRuntimeConnectionRef {
-  nodeId: string;
-  backend: string;
-  operationId: string;
-}
-export interface NodeRuntimeExecutable {
-  installed: boolean;
-  version: string;
-}
-export interface NotebookBackupTarget {
-  nodeId: string;
-  backend: string;
-}
-export interface NotebookSyncSettings {
-  enabled: boolean;
-  sourceBackend?: string;
-  sourceNodeId: string;
-  intervalMinutes: number;
-  targets: Array<NotebookBackupTarget>;
-}
-export interface NotebookSyncState {
-  sourceNodeId: string;
-  targets: Array<NotebookSyncStatus>;
-}
-export interface NotebookSyncStatus {
-  nodeId: string;
-  operationId?: string;
-  lastSuccess?: string;
-  lastAttempt?: string;
-  error?: string;
-  phase: string;
-}
-export interface ProductConnectionState {
-  revision: number;
-  pairing: ProductPairing;
-  activeMode: string;
-  state: string;
-  issue: string;
-  restartRequired: boolean;
-}
-export interface ProductPairing {
-  mode: string;
-  label: string;
-  ssh: string;
-  helper: string;
-  endpoint: string;
-  authFile: string;
-  nodeId: string;
-  botId: string;
-}
 export interface ProviderInfo {
   id: string;
   name: string;
@@ -300,63 +131,11 @@ export interface Reference {
   description: string;
   kind: string;
 }
-export interface RemoteConfigurationRequest {
-  id: string;
-  binding: string;
-  change: RuntimeConfigurationChange;
-}
-export interface RemoteExecutionRequest {
-  id: string;
-  binding: string;
-  target: string;
-  expectedRevision: string;
-  selection: Selection;
-}
-export interface RemoteExecutionView {
-  binding: string;
-  conversationDefault: boolean;
-  conversation: Selection;
-  work?: Selection | null;
-  revision: string;
-  models: Array<ModelOption>;
-}
-export interface RemoteManagementResult {
-  id: string;
-  outcome: string;
-  code: string;
-  status?: Status | null;
-  configuration?: RuntimeMutationResult | null;
-}
-export interface RemoteRuntimePending {
-  id: string;
-  kind: string;
-  runtime?: RemoteRuntimeRequest | null;
-}
-export interface RemoteRuntimeRequest {
-  id: string;
-  binding: string;
-  action: string;
-  runtime: string;
-  version: string;
-  expectedVersion: string;
-}
-export interface RemoteRuntimeState {
-  binding: string;
-  label: string;
-  available: boolean;
-  capabilities: Capabilities;
-  releases: Array<ReviewedRelease>;
-  pending: Array<RemoteRuntimePending>;
-}
 export interface Review {
   id: string;
   status: string;
   action: string;
   rationale: string;
-}
-export interface ReviewedRelease {
-  runtime: string;
-  version: string;
 }
 export interface RuntimeAuthMethod {
   id: string;
@@ -467,10 +246,6 @@ export interface RuntimeInstallation {
   instructions: string;
   canInstall: boolean;
 }
-export interface RuntimeModelBinding {
-  profileId: string;
-  selector: string;
-}
 export interface RuntimeMutationResult {
   operationId: string;
   outcome: string;
@@ -507,7 +282,6 @@ export interface RuntimeTeam {
   sets: Array<RuntimeTeamSet>;
   activeSet: string;
   models: Array<ModelOption>;
-  modelBindings?: Array<RuntimeModelBinding>;
 }
 export interface RuntimeTeamSet {
   name: string;
@@ -523,10 +297,6 @@ export interface ScreenImage {
 export interface ScreenPresentation {
   application: string;
   images: Array<ScreenImage>;
-}
-export interface Selection {
-  model: string;
-  effort: string;
 }
 export interface ServiceTier {
   id: string;
@@ -590,92 +360,14 @@ export interface Snapshot {
   loginPending: boolean;
   lastReceipt: Receipt;
 }
-export interface Status {
-  runtime?: string;
-  installed: boolean;
-  version?: string;
-  latestVersion?: string;
-  updateState?: string;
-  requestId?: string;
-  outcome: string;
-  message: string;
-}
 export interface Submission {
   id: string;
   text: string;
   fileIds: Array<string>;
   referenceIds: Array<string>;
 }
-export interface Task {
-  target?: WorkTarget | null;
-  id: string;
-  title: string;
-  workspace: string;
-  status: string;
-  outcome?: string;
-  result?: string;
-}
-export interface TaskMessage {
-  id: string;
-  requestId: string;
-  prompt: string;
-}
-export interface TaskPreview {
-  target?: WorkTarget | null;
-  targetLabel?: string;
-  locked: boolean;
-  provider?: string;
-  id: string;
-  prompt: string;
-  status: string;
-}
-export interface TaskStart {
-  target?: WorkTarget | null;
-  requestId: string;
-  title: string;
-  prompt: string;
-  workspace?: string;
-}
 export interface WorkExecutionSettings {
   model: string;
   effort: string;
   serviceTier: string;
-}
-export interface WorkTarget {
-  nodeId: string;
-  backend: string;
-  role: string;
-}
-export interface WorkTargetInfo {
-  target: WorkTarget;
-  label: string;
-  state: string;
-}
-export interface WorkerNodeConfig {
-  transport?: string;
-  id: string;
-  label: string;
-  ssh: string;
-  helper: string;
-  backend?: string;
-  socket?: string;
-  store: string;
-  workspaceRoot: string;
-}
-export interface WorkerNodeFacts {
-  os: string;
-  arch: string;
-  version: string;
-}
-export interface WorkerNodeSetup {
-  revision: number;
-  nodes: Array<WorkerNodeView>;
-  issue: string;
-}
-export interface WorkerNodeView {
-  config: WorkerNodeConfig;
-  state: string;
-  issue: string;
-  facts: WorkerNodeFacts;
-  connected: boolean;
 }

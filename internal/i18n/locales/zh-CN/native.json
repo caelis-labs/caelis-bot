@@ -145,8 +145,5 @@
   "capture.includeBackground": "同时发送整屏",
   "capture.selectionOnly": "仅发送选区",
   "capture.clipboardOnly": "仅发送剪贴板图片",
-  "capture.fullScreenIncluded": "已附带整屏",
-  "taskReceiptUnconfirmed": "回执未确认",
-  "taskInterrupted": "已停止",
-  "taskFailed": "失败"
+  "capture.fullScreenIncluded": "已附带整屏"
 }

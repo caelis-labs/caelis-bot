@@ -45,8 +45,8 @@ export function createPreviewClient(): RuntimeSettingsClient {
   },
   async removeModel(group,model){state.connections=state.connections.map(g=>g.id===group.id?{...g,models:g.models.filter(m=>m.id!==model.id)}:g).filter(g=>g.models.length);},
   async catalog(kind){return {unavailable:'',choices:kind==='account'?[{id:'openai-codex',name:'GPT / Codex',description:'ChatGPT 账号 · 浏览器授权'},{id:'grok',name:'Grok',description:'Grok 账号 · 支持授权码'}]:kind==='api-key'?[{id:'openai-compatible',name:'OpenAI Compatible',description:'API Key 与自定义服务地址'},{id:'xiaomi',name:'小米',description:'MiMo 系列模型'}]:[
-   {id:'codex',name:'Codex CLI (built in)',description:'Codex CLI through the Caelis built-in app-server adapter'}, {id:'antigravity',name:'Google Antigravity',description:"Google’s coding agent through its official standalone ACP runtime"},
-   ...[['grok','Grok Build'],['kimi','Kimi CLI'],['opencode','OpenCode'],['copilot','GitHub Copilot'],['gemini','Gemini CLI'],['qwen-code','Qwen Code']].map(([id,name])=>({id,name,description:`${name} coding agent with a native ACP stdio command`})),
+   {id:'codex',name:'Codex',description:'内置 · 本机 Codex'}, {id:'antigravity',name:'Antigravity',description:'内置 · 官方 ACP 运行时'},
+   ...[['grok','Grok'],['kimi','Kimi'],['opencode','OpenCode'],['copilot','GitHub Copilot'],['gemini','Gemini CLI'],['qwen-code','Qwen Code']].map(([id,name])=>({id,name,description:'内置 · ACP Agent'})),
    {id:'custom',name:'自定义 Agent',description:'使用已安装的 ACP 程序',custom:true},
   ]};},
   async apiKeyOptions(){return {endpoints:[{value:'https://api.example.invalid/v1',name:'示例地址',reuseAuth:false}],models:[{value:'example-model',name:'示例模型'}]};},

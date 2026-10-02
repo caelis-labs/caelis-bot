@@ -33,13 +33,14 @@ func (s *Service) ConfigureExecution(path string, v api.ExecutionSettings) {
 	s.executionSettings = v
 }
 func (s *Service) ExecutionSettings() (api.ExecutionSettings, error) {
-
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
-	return s.executionSettingsLocked(context.Background())
+	if source, ok := s.engine.(api.ExecutionSettingsSource); ok {
+		return source.CurrentExecutionSettings(context.Background())
+	}
+	return s.executionSettings, nil
 }
 func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
-
 	e, ok := s.engine.(api.ExecutionProvider)
 	if !ok {
 		return nil, errors.New("当前运行时不支持模型设置")
@@ -47,20 +48,8 @@ func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
 	return e.Models(ctx)
 }
 func (s *Service) SaveExecutionSettings(ctx context.Context, v api.ExecutionSettings) error {
-
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
-	return s.saveExecutionSettingsLocked(ctx, v)
-}
-
-func (s *Service) executionSettingsLocked(ctx context.Context) (api.ExecutionSettings, error) {
-	if source, ok := s.engine.(api.ExecutionSettingsSource); ok {
-		return source.CurrentExecutionSettings(ctx)
-	}
-	return s.executionSettings, nil
-}
-
-func (s *Service) saveExecutionSettingsLocked(ctx context.Context, v api.ExecutionSettings) error {
 	if err := api.ValidateExecutionSettings(v); err != nil {
 		return err
 	}
@@ -78,7 +67,6 @@ func (s *Service) saveExecutionSettingsLocked(ctx context.Context, v api.Executi
 }
 
 func (s *Service) ExecutionOptions() (api.ExecutionOptions, error) {
-
 	if e, ok := s.engine.(api.ExecutionProvider); ok {
 		return e.ExecutionOptions(), nil
 	}

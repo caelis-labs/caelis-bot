@@ -66,14 +66,6 @@ Developer ID / 公证流程完成。
 | Public release | Exact tag/source, signed public assets/feed, notarization/staples and independent Gatekeeper; see release.md |
 
 Run native launches only through `script/build_and_run.sh`; use `CAELIS_BOT_DATA_DIR` for synthetic data.
-An explicit profile has a stable native instance key derived from its canonical
-directory. Aliases of the same profile retain the same owner; explicitly selecting
-the default profile retains the default application key.
-If launchd reports that it cannot open the checkout's stdout path, an explicit
-`CAELIS_BOT_NATIVE_LOG` may select an absolute output file in an owned private
-directory, such as a fresh `mktemp -d` directory. The launcher rejects symlink
-directories/files and group/other access before touching any process. This only
-changes launch output; it does not change the bundle, profile or OS permissions.
 `--bubble-preview` provides a long Markdown/streaming fixture. Its “审批恢复回归” button checks that completed
 text and queued tails survive approval, review, notice and connection overlays in the mounted production Bubble;
 the result is saved to `.cache/bubble-preview.png.replay.json` (run with reduced motion off).
@@ -87,16 +79,7 @@ history reopening. It also offers Dream/running/approval/completion controls and
 surfaces to inspect napping, input priority and status cleanup. Its capture button saves `.cache/chat-preview.png` and `.cache/chat-preview.png.json`
 (frame text/timing, control state, scroll position and final HTML). Both previews use synthetic data and never
 connect to the daily Bot or call a model. `--terminal-smoke` uses synthetic scripts without
-loading the Bot store/model. After building, run `script/build_and_run.sh --terminal-smoke terminal`
-in an idle disposable checkout; use `iterm2` or `ghostty` for those installed terminals.
-An optional `--confirm-open` or `--confirm-close` argument immediately after `--terminal-smoke`
-exercises manual cancellation/retry.
-The launcher replaces only the checkout bundle's existing process. The fixture explicitly stamps a
-local synthetic Worker binding, starts its own temporary client, ends that client, normally quits only
-its owned terminal instances and removes its temporary directory. It exercises the production
-WindowManager/native terminal driver, without creating task records. It does not exercise Bot delegation
-or TaskDock-to-Worker routing; `--task-dock-preview` uses simulated terminal windows separately.
-Observe physical focus/hit regions and light/dark appearance before claiming visual
+loading the Bot store/model. Observe physical focus/hit regions and light/dark appearance before claiming visual
 acceptance. Avoid logging credentials or full private conversations. Generated `.cache` logs are local evidence,
 not public reproducibility prerequisites.
 
@@ -282,9 +265,7 @@ Native bubble/Glass/F1 theme and setup preview were inspected on a single Retina
 Minimum macOS 12 deployment target and Intel/mixed-DPI/multi-display behavior are not qualified by compilation.
 Desktop World alpha requires macOS 14+ and arm64; ScreenCaptureKit selection requires 14+. Older systems return unsupported
 for those capabilities. Windows shared-core cross-compilation is checked; native GUI/IPC/distribution is absent.
-Linux desktop is outside scope; optional headless Runtime/Worker hosting needs its own live acceptance.
-Node/target routing fixtures do not prove SSH or remote native execution. Sparkle fixture tests do not
-prove two-version public install/relaunch with active work.
+Linux is outside scope. Sparkle fixture tests do not prove two-version public install/relaunch with active work.
 
 Real Guardian quality/cost, long-term Dream summary/memory quality and cache benefits remain usage evaluations.
 Keep these limits separate from regressions, synthetic protocol coverage and public signature verification.

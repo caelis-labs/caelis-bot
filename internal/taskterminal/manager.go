@@ -22,7 +22,6 @@ type managedEntry struct {
 	unmanaged     bool
 	dismissCancel context.CancelFunc // Protected by manager.mu.
 	dismissDone   chan struct{}
-	target        *api.TerminalTarget // Exact original attach generation, guarded by manager.mu.
 }
 
 // WindowManager owns one controller and one receipt/binding store per task.
@@ -75,24 +74,11 @@ func (m *WindowManager) entry(id string) (*managedEntry, error) {
 		if err != nil {
 			return nil, err
 		}
-		m.mu.Lock()
-		if e.target != nil && *e.target != target {
-			m.mu.Unlock()
-			return nil, api.ErrWorkTerminalBinding
-		}
-		pinned := target
-		e.target = &pinned
-		m.mu.Unlock()
 		err = l.Open(ctx, id, target)
 		l.mu.Lock()
 		w := l.windows[id]
 		e.unmanaged = l.unmanaged[id]
 		l.mu.Unlock()
-		if err != nil && w == nil && errors.Is(err, ErrLaunchNotSubmitted) {
-			m.mu.Lock()
-			e.target = nil // Proven pre-launch rejection grants no attach authority.
-			m.mu.Unlock()
-		}
 		var controlled ControlledWindow
 		if cw, ok := w.(ControlledWindow); ok {
 			controlled = &controlledBinding{launcher: l, id: id, window: cw}
@@ -114,26 +100,11 @@ func (m *WindowManager) Click(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	// Revalidate inside the existing task actor before showing/hiding an attached
-	// window. Reusing a GUI instance cannot turn TaskID into authority for a new
-	// node, workspace or native attach generation. Dismiss remains independent.
-	validate := func(ctx context.Context, _ ControlledWindow) error {
-		target, err := m.resolve(ctx, id)
-		if err != nil {
-			return err
-		}
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		if e.target != nil && *e.target != target {
-			return api.ErrWorkTerminalBinding
-		}
-		return nil
-	}
 	if pending {
 		shown := goalShown
-		return e.controller.request(ctx, &shown, validate)
+		return e.controller.request(ctx, &shown, nil)
 	}
-	return e.controller.request(ctx, nil, validate)
+	return e.controller.request(ctx, nil, nil)
 }
 
 // A click during native confirmation takes over the observation wait and brings

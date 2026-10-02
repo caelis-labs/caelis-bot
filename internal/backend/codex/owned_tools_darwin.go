@@ -64,30 +64,15 @@ func (o *ownedTools) capture() {
 		}
 	}
 }
-func ownedDarwinProcessLive(pid int, born unix.Timeval) (bool, error) {
-	p, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
-	if errors.Is(err, syscall.ESRCH) || (errors.Is(err, syscall.EIO) && errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)) {
-		return false, nil
-	}
-	if err != nil {
-		return false, errors.New("owned descendant exit observation unavailable")
-	}
-	return p.Proc.P_starttime == born && p.Proc.P_stat != 5, nil
-}
 func sameLiveProcess(pid int, born unix.Timeval) bool {
-	live, err := ownedDarwinProcessLive(pid, born)
-	return err == nil && live
+	p, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	return err == nil && p.Proc.P_starttime == born && p.Proc.P_stat != 5 // SZOMB is already exited.
 }
 func (o *ownedTools) terminate() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	for pid, born := range o.children {
-		live, err := ownedDarwinProcessLive(pid, born)
-		if err != nil {
-			o.err = err
-			continue
-		}
-		if live {
+		if sameLiveProcess(pid, born) {
 			if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 				o.err = err
 			}
@@ -100,12 +85,10 @@ func (o *ownedTools) terminate() {
 	for {
 		live := false
 		for pid, born := range o.children {
-			running, err := ownedDarwinProcessLive(pid, born)
-			if err != nil {
-				o.err = err
-				running = true
+			if sameLiveProcess(pid, born) {
+				live = true
+				break
 			}
-			live = live || running
 		}
 		if !live {
 			return
@@ -120,32 +103,8 @@ func (o *ownedTools) terminate() {
 					}
 				}
 			}
-			// SIGKILL dispatch is not exit proof. Recheck the captured birth
-			// identities and fail closed if observation or termination is uncertain.
-			for range 100 {
-				live = false
-				for pid, born := range o.children {
-					p, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
-					if errors.Is(err, syscall.ESRCH) || (errors.Is(err, syscall.EIO) && errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)) {
-						continue
-					}
-					if err != nil {
-						o.err = errors.New("owned descendant exit observation unavailable")
-						live = true
-						continue
-					}
-					live = live || (p.Proc.P_starttime == born && p.Proc.P_stat != 5)
-				}
-				if !live {
-					return
-				}
-				<-ticker.C
-			}
-			o.err = errors.New("owned descendant cleanup unconfirmed")
 			return
 		}
 	}
 }
 func (o *ownedTools) failure() error { o.mu.Lock(); defer o.mu.Unlock(); return o.err }
-
-func (o *ownedTools) releaseHandles() {}

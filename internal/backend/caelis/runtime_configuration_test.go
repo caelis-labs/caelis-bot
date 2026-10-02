@@ -59,9 +59,6 @@ func TestRuntimeConfigurationSelectorsAndRevision(t *testing.T) {
 	if len(view.Team.Roles) != 2 || len(view.Team.Roles[0].ModelIDs) != 1 || view.Team.Roles[0].ModelIDs[0] != "profile-provider" || view.Team.Roles[0].Selection.Model != "profile-provider" || view.Team.Roles[0].Selection.ServiceTier != "fast" || !view.Team.Roles[1].Inherited {
 		t.Fatalf("team must retain native profile IDs, no writable self: %+v", view.Team)
 	}
-	if len(view.Team.ModelBindings) != 1 || view.Team.ModelBindings[0].ProfileID != "profile-provider" || view.Team.ModelBindings[0].Selector != "provider/vendor/model" {
-		t.Fatalf("missing portable provider/model mapping: %+v", view.Team.ModelBindings)
-	}
 	if len(view.Connections) != 2 || view.Connections[1].ID != "agent-native" || view.Connections[1].Kind != "agent" || len(view.Connections[0].Models[0].Uses) != 2 {
 		t.Fatalf("incorrect connection ownership: %+v", view.Connections)
 	}
@@ -112,25 +109,5 @@ func TestRuntimeMutationCASAndAmbiguousEffects(t *testing.T) {
 				t.Fatalf("receipt = %+v, %v, posts=%d", result, err, posts.Load())
 			}
 		})
-	}
-}
-
-func TestRuntimeTeamMappingPreservesAmbiguityAndExcludesUnauthenticatedAndACP(t *testing.T) {
-	var status wire.AgentBindingStatus
-	if err := json.Unmarshal([]byte(`{"targets":[{"id":"first","backend":{"provider":{"model_config_id":"stored"}}},{"id":"second","backend":{"provider":{"model_config_id":"stored"}}},{"id":"missing-auth","backend":{"provider":{"model_config_id":"unauth"}}},{"id":"local-acp","backend":{"acp":{"agent_id":"agent"}}}]}`), &status); err != nil {
-		t.Fatal(err)
-	}
-	out := projectRuntimeConfiguration(status, []wire.SlashArgCandidate{
-		{Value: "provider/vendor/model", ModelConfigId: pointer("stored")},
-		{Value: "provider/vendor/unavailable", ModelConfigId: pointer("unauth"), NoAuth: pointer(true)},
-		{Value: "local-acp"},
-	}, wire.DisconnectCandidatesSnapshot{}, wire.StatusSnapshot{})
-	if len(out.Team.ModelBindings) != 2 || out.Team.ModelBindings[0].ProfileID != "first" || out.Team.ModelBindings[1].ProfileID != "second" {
-		t.Fatalf("must preserve all provider profiles for target ambiguity validation: %+v", out.Team.ModelBindings)
-	}
-	for _, binding := range out.Team.ModelBindings {
-		if binding.Selector != "provider/vendor/model" {
-			t.Fatalf("nonportable or unauthenticated binding projected: %+v", binding)
-		}
 	}
 }

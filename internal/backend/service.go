@@ -14,7 +14,6 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
-	executionAdmission          api.ExecutionAdmission
 	admission                   sync.RWMutex
 	restarting                  bool
 	setupRequired               bool
@@ -42,20 +41,13 @@ type Service struct {
 	dismissed, presentationFile string
 	initializer                 api.BotInitializer
 	engine                      api.Engine
-
-	submitUser        func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
-	files             func([]string) ([]api.InputFile, error)
-	consumeFiles      func([]string)
-	openURL           func(string) error
-	reveal            func(string) error
-	screenMedia       *screeninput.Media
-	screenMediaError  error
-	workerNodes       WorkerNodeController
-	workInteractions  *workerInteractions
-	productConnection ProductConnectionController
-	remoteManagement  RemoteManagementController
-	nodeManagement    api.NodeManagementController
-	notebookSync      NotebookSyncController
+	submitUser                  func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
+	files                       func([]string) ([]api.InputFile, error)
+	consumeFiles                func([]string)
+	openURL                     func(string) error
+	reveal                      func(string) error
+	screenMedia                 *screeninput.Media
+	screenMediaError            error
 }
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string), openURL, reveal func(string) error) *Service {
@@ -97,9 +89,6 @@ func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 			v.Items[i].Screen.Images = s.screenMedia.Images(v.Items[i].RequestID)
 		}
 	}
-	if workers := s.workerInteractions(); workers != nil {
-		v = workers.project(v)
-	}
 	return s.presentation(v)
 }
 func (s *Service) SetBotStatus(f func() string) { s.mu.Lock(); s.botStatus = f; s.mu.Unlock() }
@@ -107,7 +96,12 @@ func (s *Service) SetBotStatus(f func() string) { s.mu.Lock(); s.botStatus = f; 
 // PetSnapshot bounds the default surface payload. History remains available on
 // explicit request; a new user message starts a new preview boundary.
 func (s *Service) PetSnapshot() api.Snapshot {
-	snapshot := s.previewSnapshot()
+	var snapshot api.Snapshot
+	if recent, ok := s.engine.(api.RecentSource); ok {
+		snapshot = s.decorate(recent.RecentSnapshot())
+	} else {
+		snapshot = s.Snapshot()
+	}
 	items := make([]api.Item, 0, 3)
 	for _, item := range snapshot.Items {
 		if snapshot.CurrentTurn != "" && item.TurnKey != snapshot.CurrentTurn {
@@ -157,7 +151,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	s.mu.Lock()
 	hasOutgoing := len(s.outbox) > 0
 	s.mu.Unlock()
-	if source, ok := s.engine.(api.RevisionSource); ok && !hasOutgoing && !s.hasWorkerInteractions() && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
+	if source, ok := s.engine.(api.RevisionSource); ok && !hasOutgoing && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
 		return api.ChatUpdate{}
 	}
 	v := s.Snapshot()
@@ -180,11 +174,6 @@ func (s *Service) LoadEarlier(ctx context.Context) error {
 func (s *Service) Connect(ctx context.Context) error {
 	s.admission.RLock()
 	defer s.admission.RUnlock()
-	ctx, release, err := api.BeginExecution(ctx, s.executionAdmission)
-	if err != nil {
-		return err
-	}
-	defer release()
 	if s.restarting || s.setupRequired {
 		return errors.New("请先完成运行时设置")
 	}
@@ -209,11 +198,6 @@ func (s *Service) OpenMessageLink(value string) error {
 func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt, error) {
 	s.admission.RLock()
 	defer s.admission.RUnlock()
-	ctx, release, err := api.BeginExecution(ctx, s.executionAdmission)
-	if err != nil {
-		return api.Receipt{ID: input.ID, Outcome: "rejected"}, err
-	}
-	defer release()
 	if s.restarting || s.setupRequired {
 		return api.Receipt{}, errors.New("请先完成运行时设置")
 	}
@@ -223,27 +207,6 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	s.mu.Unlock()
 	if initializer != nil && initializer.Initialization().Status != "accepted" {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "请先完成 Bot 初始化，并等待介绍发送完成"}, nil
-	}
-
-	// A thin APP forwards through the product authority instead of creating a
-	// second resident outbox or local draft lifecycle.
-	if _, remote := s.productDraftPort(); remote {
-		var files []api.InputFile
-		if len(input.FileIDs) > 0 {
-			if s.files == nil {
-				return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "attachment selection is unavailable"}, nil
-			}
-			var err error
-			files, err = s.files(input.FileIDs)
-			if err != nil {
-				return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "selected attachment is unavailable"}, nil
-			}
-		}
-		receipt, err := s.engine.Submit(ctx, input, files)
-		if receipt.Outcome == "accepted" && s.consumeFiles != nil {
-			s.consumeFiles(input.FileIDs)
-		}
-		return receipt, err
 	}
 
 	files, err := s.files(input.FileIDs)
@@ -286,16 +249,7 @@ func (s *Service) Interrupt(ctx context.Context) error {
 	}
 	return s.engine.Interrupt(ctx)
 }
-func (s *Service) Decide(ctx context.Context, d api.Decision) error {
-	if isWorkerApproval(d.ID) {
-		workers := s.workerInteractions()
-		if workers == nil {
-			return errors.New("worker approval is no longer available")
-		}
-		return workers.decide(ctx, d)
-	}
-	return s.engine.Decide(ctx, d)
-}
+func (s *Service) Decide(ctx context.Context, d api.Decision) error { return s.engine.Decide(ctx, d) }
 func (s *Service) Login(ctx context.Context) error {
 	auth, ok := s.engine.(api.Authenticator)
 	if !ok {
@@ -314,9 +268,6 @@ func (s *Service) CancelLogin(ctx context.Context) error {
 	return errors.New("当前后端没有登录流程")
 }
 func (s *Service) RevealArtifact(id string) error {
-	if isWorkerArtifact(id) {
-		return s.revealWorkerArtifact(id)
-	}
 	resolver, ok := s.engine.(api.ArtifactResolver)
 	if !ok {
 		return errors.New("当前后端不支持打开产物")
@@ -328,17 +279,6 @@ func (s *Service) RevealArtifact(id string) error {
 	return s.reveal(p)
 }
 func (s *Service) OpenApprovalURL(id string) error {
-	if isWorkerApproval(id) {
-		workers := s.workerInteractions()
-		if workers == nil {
-			return errors.New("worker approval is no longer available")
-		}
-		link, err := workers.approvalURL(id)
-		if err != nil {
-			return err
-		}
-		return s.OpenMessageLink(link)
-	}
 	navigator, ok := s.engine.(api.ApprovalNavigator)
 	if !ok {
 		return errors.New("当前后端不支持打开外部审批")

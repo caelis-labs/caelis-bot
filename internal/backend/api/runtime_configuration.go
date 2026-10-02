@@ -13,21 +13,13 @@ type RuntimeConfiguration struct {
 	OAuthAvailable bool                     `json:"oauthAvailable"`
 }
 type RuntimeTeam struct {
-	Available     bool                  `json:"available"`
-	Reason        string                `json:"reason"`
-	Revision      string                `json:"revision"`
-	Roles         []RuntimeRole         `json:"roles"`
-	Sets          []RuntimeTeamSet      `json:"sets"`
-	ActiveSet     string                `json:"activeSet"`
-	Models        []ModelOption         `json:"models"`
-	ModelBindings []RuntimeModelBinding `json:"modelBindings,omitempty"`
-}
-
-// RuntimeModelBinding joins a public provider/model selector to a target-local
-// Team profile. No credentials, Store IDs or machine paths are projected.
-type RuntimeModelBinding struct {
-	ProfileID string `json:"profileId"`
-	Selector  string `json:"selector"`
+	Available bool             `json:"available"`
+	Reason    string           `json:"reason"`
+	Revision  string           `json:"revision"`
+	Roles     []RuntimeRole    `json:"roles"`
+	Sets      []RuntimeTeamSet `json:"sets"`
+	ActiveSet string           `json:"activeSet"`
+	Models    []ModelOption    `json:"models"`
 }
 type RuntimeRole struct {
 	ID          string                `json:"id"`

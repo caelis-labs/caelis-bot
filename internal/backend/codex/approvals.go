@@ -275,18 +275,8 @@ func (s *Session) addPrompt(event Notification) {
 	s.state.Phase = "attention"
 }
 func (s *Session) Decide(ctx context.Context, d api.Decision) error {
-	ctx, release, admissionErr := api.BeginExecution(ctx, s.opts.Admission)
-	if admissionErr != nil {
-		return admissionErr
-	}
-	defer release()
 	s.op.Lock()
 	defer s.op.Unlock()
-	if s.opts.Admission != nil {
-		if err := s.opts.Admission.CheckContext(ctx); err != nil {
-			return err
-		}
-	}
 	s.mu.Lock()
 	p, ok := s.prompts[d.ID]
 	if !ok || p.view.Status != "pending" || s.state.Connection != "ready" {
@@ -338,17 +328,10 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 // requested. User Stop also cancels those outstanding decisions; it never grants
 // access. The caller holds s.op, and transport generation checks fence stale IDs.
 func (s *Session) cancelPendingElicitations(ctx context.Context, c *Client) {
-	_ = s.cancelElicitations(ctx, c, "", "")
-}
-
-// Empty thread/run retains resident shutdown's existing all-owned scope. Worker
-// Stop supplies both exact identities and cannot cancel another task's request.
-// The caller holds s.op; native response sequence checks fence stale requests.
-func (s *Session) cancelElicitations(ctx context.Context, c *Client, thread, run string) error {
 	s.mu.Lock()
 	pending := map[string]*prompt{}
 	for id, p := range s.prompts {
-		if p.method == "mcpServer/elicitation/request" && p.view.Status == "pending" && (thread == "" || p.thread == thread && p.turn == run) {
+		if p.method == "mcpServer/elicitation/request" && p.view.Status == "pending" {
 			pending[id] = p
 			p.view.Status = "sending"
 			s.replacePrompt(id, p.view)
@@ -356,10 +339,8 @@ func (s *Session) cancelElicitations(ctx context.Context, c *Client, thread, run
 	}
 	s.update()
 	s.mu.Unlock()
-	var result error
 	for id, p := range pending {
 		err := c.rpc.respond(ctx, p.id, p.sequence, p.choices["cancel"], nil)
-		result = errors.Join(result, err)
 		s.mu.Lock()
 		if s.prompts[id] == p {
 			p.view.Status = "sent"
@@ -371,7 +352,6 @@ func (s *Session) cancelElicitations(ctx context.Context, c *Client, thread, run
 		}
 		s.mu.Unlock()
 	}
-	return result
 }
 
 func questionAnswers(p *prompt, answers map[string][]string) (any, error) {

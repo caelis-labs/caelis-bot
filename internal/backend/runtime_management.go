@@ -16,13 +16,11 @@ func (s *Service) ConfigureRuntimeManagement(providers []api.ProviderInfo, probe
 	s.switchGuard = guard
 }
 func (s *Service) RuntimeProviders() []api.ProviderInfo {
-
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
 	return append([]api.ProviderInfo(nil), s.providers...)
 }
 func (s *Service) ManageRuntime(ctx context.Context, action string, settings api.RuntimeSettings) (api.RuntimeStatus, error) {
-
 	s.configurationMu.Lock()
 	fn := s.manageRuntime
 	guard := s.switchGuard

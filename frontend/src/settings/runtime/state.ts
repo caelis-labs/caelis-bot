@@ -1,18 +1,10 @@
 import type { ModelOption, SetupChoice } from '../../backend/contract';
 import type { ConnectionFlow, ConnectionGroup, ModelSelection, RuntimeView } from './types';
-import type {MessageKey} from '../../i18n/catalogs';
 
 export const inheritedSelection: ModelSelection = { model: '', effort: '', serviceTier: '' };
 export const effortName: Record<string, string> = { none: '无', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最高', ultra: '超高' };
 export const tierName = (id: string, name: string) => id === 'fast' || name.toLowerCase() === 'fast' ? 'Fast' : name || id;
 export const messageOf = (error: unknown, fallback = '操作未完成，请稍后重试') => error instanceof Error ? error.message : fallback;
-// Built-in model-read errors are presentation copy. Unknown provider text and
-// native outcomes remain unchanged; translating never selects another model.
-export function runtimeErrorCopy(message:string,t:(key:MessageKey)=>string) {
- if(message==='连接 Codex 后可加载模型；请在对话窗口检查连接')return t('runtime.codexModelsNeedConnection');
- if(message==='Codex 模型目录暂不可用，请刷新；不会自动换用其他模型')return t('runtime.codexModelCatalogUnavailable');
- return message;
-}
 
 export function getEffortName(effort: string, t?: (key: any) => string): string {
  if (t && effort) {

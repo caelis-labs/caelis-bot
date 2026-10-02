@@ -144,17 +144,6 @@ func projectRuntimeConfiguration(status wire.AgentBindingStatus, candidates []wi
 		agents[value(a.AgentId)] = value(a.Name)
 	}
 	for _, m := range candidates {
-		// Only provider candidates have portable model semantics. ACP profile
-		// IDs are local identities and must never be copied between nodes.
-		if value(m.ModelConfigId) != "" && !value(m.NoAuth) {
-			for _, p := range status.Targets {
-				id := value(p.Id)
-				source := sources[id]
-				if source.Provider != nil && source.Provider.ModelConfigID == value(m.ModelConfigId) {
-					out.Team.ModelBindings = append(out.Team.ModelBindings, api.RuntimeModelBinding{ProfileID: id, Selector: m.Value})
-				}
-			}
-		}
 		groupID, kind, display := "models", "provider", "模型服务"
 		profileID := ""
 		for id, source := range sources {
@@ -227,15 +216,6 @@ func mutationResult(op string, result wire.CommandResult, err error) api.Runtime
 // ChangeRuntimeConfiguration fences every shared mutation to the displayed
 // revision. Native validation, side effects and idempotency remain in Caelis.
 func ChangeRuntimeConfiguration(ctx context.Context, settings api.RuntimeSettings, change api.RuntimeConfigurationChange) (api.RuntimeMutationResult, error) {
-	return ChangeRuntimeConfigurationOperation(ctx, settings, change, "settings-"+rand.Text())
-}
-
-// ChangeRuntimeConfigurationOperation preserves an owning native journal ID.
-// It never retries an unknown configuration operation.
-func ChangeRuntimeConfigurationOperation(ctx context.Context, settings api.RuntimeSettings, change api.RuntimeConfigurationChange, op string) (api.RuntimeMutationResult, error) {
-	if op == "" || len(op) > 128 || strings.ContainsAny(op, "\x00\r\n/") {
-		return api.RuntimeMutationResult{}, errors.New("invalid original configuration operation")
-	}
 	if _, err := strconv.ParseUint(change.ExpectedRevision, 10, 64); err != nil {
 		return api.RuntimeMutationResult{}, errors.New("配置版本无效，请刷新")
 	}
@@ -244,6 +224,7 @@ func ChangeRuntimeConfigurationOperation(ctx context.Context, settings api.Runti
 		return api.RuntimeMutationResult{}, err
 	}
 	defer c.http.CloseIdleConnections()
+	op := "settings-" + rand.Text()
 	rev := wire.Uint64Decimal(change.ExpectedRevision)
 	var body any
 	path := ""

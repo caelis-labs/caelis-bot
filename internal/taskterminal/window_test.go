@@ -34,7 +34,7 @@ func TestManagedWindowKeepsAcceptedLaunchAfterLostCreationReply(t *testing.T) {
 		}
 		return w, ErrWindowIdentity
 	})
-	target := api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
+	target := api.TerminalTarget{Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
 	if err := l.Open(t.Context(), "owned", target); !errors.Is(err, ErrWindowIdentity) {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestManagedWindowRecoversOnlyConfirmedLaunchActivation(t *testing.T) {
 				}
 				return w, tc.launchErr
 			})
-			target := api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
+			target := api.TerminalTarget{Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
 			if err := l.Open(t.Context(), "owned", target); !errors.Is(err, tc.wantErr) {
 				t.Fatalf("open: got %v want %v", err, tc.wantErr)
 			}
@@ -100,7 +100,7 @@ func TestManagedWindowCancellationRevokesUnstartedWindow(t *testing.T) {
 	w := &fakeWindow{}
 	ctx, cancel := context.WithCancel(t.Context())
 	l := NewManaged(t.TempDir(), func(context.Context, string) (Window, error) { cancel(); return w, nil })
-	target := api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
+	target := api.TerminalTarget{Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
 	if err := l.Open(ctx, "owned", target); !errors.Is(err, ErrUnconfirmed) {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestDuplicateLaunchCannotOverwriteAcceptedClient(t *testing.T) {
 		}
 		return w, nil
 	})
-	target := api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
+	target := api.TerminalTarget{Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
 	if err := l.Open(t.Context(), "owned", target); err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestOwnedInstanceSurvivesMissingReceiptWithoutReplayingScript(t *testing.T)
 	ctx, cancel := context.WithCancel(t.Context())
 	var script string
 	l := NewManaged(t.TempDir(), func(_ context.Context, path string) (Window, error) { script = path; cancel(); return w, nil })
-	target := api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
+	target := api.TerminalTarget{Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
 	if err := l.Open(ctx, "owned", target); !errors.Is(err, ErrUnconfirmed) {
 		t.Fatal(err)
 	}

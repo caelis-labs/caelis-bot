@@ -15,47 +15,11 @@ import (
 
 func testManager(t *testing.T, open func(context.Context, string) (Window, error)) *WindowManager {
 	t.Helper()
-	workspace := t.TempDir()
 	m := NewWindowManager(t.TempDir(), open, func(context.Context, string) (api.TerminalTarget, error) {
-		return api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "codex", Binary: "/usr/bin/true", Directory: workspace, Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}, nil
+		return api.TerminalTarget{Runtime: "codex", Binary: "/usr/bin/true", Directory: t.TempDir(), Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}, nil
 	}, nil, nil)
 	t.Cleanup(m.Close)
 	return m
-}
-
-func TestAttachedTerminalRevalidatesOriginalBindingBeforeWindowMutation(t *testing.T) {
-	original := api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Target: api.WorkTarget{NodeID: "opaque-node", Backend: "codex", Role: api.RoleWorker}, Runtime: "codex", Binary: "/native/codex", Directory: "/native/original-task", Endpoint: "unix:///private/original-generation.sock", Thread: "original-thread"}
-	current := original
-	var unavailable error
-	resolves := 0
-	m := NewWindowManager(t.TempDir(), nil, func(context.Context, string) (api.TerminalTarget, error) { resolves++; return current, unavailable }, nil, nil)
-	defer m.Close()
-	e, err := m.entry("original-task")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, w := controllerFixture(WindowBackground)
-	immediateWindow(w)
-	e.controller.window = w
-	e.target = &original
-	current.Thread = "replacement-thread"
-	if err = m.Click(t.Context(), "original-task"); !errors.Is(err, api.ErrWorkTerminalBinding) || len(w.calls()) != 0 {
-		t.Fatal("TaskID reused new native binding to mutate original terminal", err, w.calls())
-	}
-	current = original
-	current.Generation = "replacement-native-generation"
-	if err = m.Click(t.Context(), "original-task"); !errors.Is(err, api.ErrWorkTerminalBinding) || len(w.calls()) != 0 {
-		t.Fatal("native generation fence bypassed", err, w.calls())
-	}
-	current = original
-	unavailable = api.ErrWorkTerminalOffline
-	if err = m.Click(t.Context(), "original-task"); !errors.Is(err, api.ErrWorkTerminalOffline) || len(w.calls()) != 0 {
-		t.Fatal("attached terminal bypassed offline original node", err, w.calls())
-	}
-	before := resolves
-	if err = m.Dismiss(t.Context(), "original-task"); err != nil || resolves != before {
-		t.Fatal("offline observation prevented cleanup of original GUI owner", err)
-	}
 }
 func TestManagerSlowWindowDoesNotBlockOtherTask(t *testing.T) {
 	m := testManager(t, nil)

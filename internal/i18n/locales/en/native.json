@@ -145,8 +145,5 @@
   "capture.includeBackground": "Also send full screen",
   "capture.selectionOnly": "Selection only",
   "capture.clipboardOnly": "Clipboard image only",
-  "capture.fullScreenIncluded": "Full screen included",
-  "taskReceiptUnconfirmed": "Receipt unconfirmed",
-  "taskInterrupted": "Stopped",
-  "taskFailed": "Failed"
+  "capture.fullScreenIncluded": "Full screen included"
 }

@@ -16,23 +16,11 @@ type taskDriver interface {
 	taskOpening(string, string)
 }
 
-func (s *Service) observeTaskReceipts(tasks []api.TaskSummary) {
-	s.mu.Lock()
-	s.taskOutcomes = make(map[string]string, len(tasks))
-	for _, task := range tasks {
-		s.taskOutcomes[task.ID] = task.Outcome
-	}
-	previews := slices.Clone(s.taskPreviews)
-	s.mu.Unlock()
-	s.observeTasks(previews)
-}
-
 func (s *Service) observeTasks(tasks []api.TaskPreview) {
 	// Terminal app choice is desktop presentation metadata, not backend state.
 	type presentation struct {
 		api.TaskPreview
 		Terminal string `json:"terminal,omitempty"`
-		Outcome  string `json:"outcome,omitempty"`
 	}
 	views := make([]presentation, len(tasks))
 	terminal := ""
@@ -46,9 +34,6 @@ func (s *Service) observeTasks(tasks []api.TaskPreview) {
 	defer s.mu.Unlock()
 	if s.stopped {
 		return
-	}
-	for i := range views {
-		views[i].Outcome = s.taskOutcomes[views[i].ID]
 	}
 	data, _ := json.Marshal(views)
 	if string(data) == s.taskPreviewJSON {

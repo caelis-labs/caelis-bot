@@ -45,19 +45,12 @@ func TestExecutionSettingsReachNewTurnsAndRejectInvalidChanges(t *testing.T) {
 		}
 	}
 	before := s.Snapshot()
-	applied := v
 	v.ServiceTier = ""
 	if err = s.ChangeExecution(testContext(t), v, persist); err == nil {
 		t.Fatal("changed policy during active work")
 	}
 	after := s.Snapshot()
-	s.mu.Lock()
-	live := s.opts.Execution
-	s.mu.Unlock()
-	// A queued native turn/started event can advance the projection revision
-	// independently of this rejected settings mutation. Check its actual
-	// authority boundaries: configuration, persistence and dispatch receipt.
-	if live != applied || saved != 1 || after.LastReceipt != before.LastReceipt {
+	if after.Revision != before.Revision || after.LastReceipt != before.LastReceipt {
 		t.Fatal("rejected preferences changed live execution")
 	}
 	receipt, err = s.Submit(testContext(t), api.Submission{ID: "preferences-steer", Text: "synthetic"}, nil)

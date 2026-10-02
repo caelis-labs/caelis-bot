@@ -6,7 +6,6 @@
 | [Product](product.md) | User experience, persistent identity and direction |
 | [Architecture](architecture.md) | Ownership, durable state, recovery, tasks, care and desktop contracts |
 | [Runtime integration](caelis-integration.md) | Codex/Caelis compatibility, environment, Guardian and Core release conditions |
-| [Notebook backup](notebook-sync.md) | Ordinary-file backup, manual stop-first switch and live acceptance boundaries |
 | [Development](development.md) | Setup/signing, tests, native verification, localization and evidence limits |
 | [Content packs](content-packs.md) | Creator format, official asset delivery, licenses and runtime responsibilities |
 | [Release](release.md) | Protected release automation, credentials, recovery and public artifact acceptance |

@@ -6,66 +6,48 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-func (s *Service) ConfigureSetup(v api.SetupController) {
-	s.mu.Lock()
-	s.setup = v
-	s.mu.Unlock()
-}
-func (s *Service) setupController() api.SetupController {
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.setup
-}
+func (s *Service) ConfigureSetup(v api.SetupController) { s.setup = v }
 func (s *Service) SetupOverview() api.SetupOverview {
-	controller := s.setupController()
-	if controller == nil {
+	if s.setup == nil {
 		return api.SetupOverview{}
 	}
-	return controller.Overview()
+	return s.setup.Overview()
 }
 func (s *Service) SetupProfile(id string) (api.RuntimeSettings, error) {
-	controller := s.setupController()
-	if controller == nil {
+	if s.setup == nil {
 		return api.RuntimeSettings{}, errors.New("运行时管理不可用")
 	}
-	return controller.Profile(id)
+	return s.setup.Profile(id)
 }
 func (s *Service) InspectSetup(ctx context.Context, v api.RuntimeSettings) (api.SetupState, error) {
-	controller := s.setupController()
-	if controller == nil {
+	if s.setup == nil {
 		return api.SetupState{}, errors.New("运行时管理不可用")
 	}
-	return controller.Inspect(ctx, v)
+	return s.setup.Inspect(ctx, v)
 }
 func (s *Service) SetupCatalog(ctx context.Context, v api.SetupRequest) ([]api.SetupChoice, error) {
-	controller := s.setupController()
-	if controller == nil {
+	if s.setup == nil {
 		return nil, errors.New("运行时管理不可用")
 	}
-	return controller.Catalog(ctx, v)
+	return s.setup.Catalog(ctx, v)
 }
 func (s *Service) ApplySetup(ctx context.Context, v api.SetupRequest) (api.SetupState, error) {
-	controller := s.setupController()
-	if controller == nil {
+	if s.setup == nil {
 		return api.SetupState{}, errors.New("运行时管理不可用")
 	}
-	return controller.Apply(ctx, v)
+	return s.setup.Apply(ctx, v)
 }
 func (s *Service) ActivateRuntime(ctx context.Context, v api.RuntimeSettings) error {
-	controller := s.setupController()
-	if controller == nil {
+	if s.setup == nil {
 		return errors.New("运行时管理不可用")
 	}
-	return controller.Activate(ctx, v)
+	return s.setup.Activate(ctx, v)
 }
 func (s *Service) DismissSetup() error {
-
-	controller := s.setupController()
-	if controller == nil {
+	if s.setup == nil {
 		return nil
 	}
-	return controller.Dismiss()
+	return s.setup.Dismiss()
 }
 
 // Freeze new conversation admission before the native host begins relaunch.

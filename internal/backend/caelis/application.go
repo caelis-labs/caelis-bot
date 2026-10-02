@@ -2,7 +2,6 @@ package caelis
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -110,30 +109,6 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	s.mu.Lock()
 	b := s.state.Session
 	op := s.state.CreateID
-	if b.SessionId == "" && op == "" {
-		// Older versions could persist the initial command just before CreateID.
-		// Honor that exact journal before assigning a new binding generation.
-		legacy := "create-" + digest([]byte(s.state.Connection.ConnectionId))
-		if _, exists := s.state.Operations[legacy]; exists {
-			op = legacy
-		}
-	}
-	// A new binding has a new creation identity even if its application
-	// credential survives a Notebook move. Persist it before any dispatch.
-	if b.SessionId == "" && op == "" {
-		if s.state.CreationNonce == "" {
-			s.state.CreationNonce = rand.Text()
-		}
-		if err := s.saveLocked(); err != nil {
-			s.mu.Unlock()
-			return err
-		}
-		candidate := "create-" + digest([]byte(s.state.Connection.ConnectionId+"\x00"+s.state.CreationNonce))
-		if _, exists := s.state.Operations[candidate]; exists {
-			op = candidate // recover a crash between command intent and CreateID
-		}
-	}
-	nonce := s.state.CreationNonce
 	c := s.client
 	life := s.state.Connection
 	s.mu.Unlock()
@@ -180,9 +155,9 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 				return errors.New("请先连接并选择一个 Caelis 模型")
 			}
 			s.configureReviewer(&profile)
-			// Stable within this binding; a fresh binding must not replay a
-			// previous session belonging to the retained application credential.
-			op = "create-" + digest([]byte(life.ConnectionId+"\x00"+nonce))
+			// Deterministic operation from the connection: persisting CreateID then
+			// command intent cannot generate a second session across a crash.
+			op = "create-" + digest([]byte(life.ConnectionId))
 			req := wire.CreateApplicationSessionRequest{OperationId: &op, Profile: profile}
 			out, e := s.command(ctx, op, "/application/sessions", req)
 			s.mu.Lock()

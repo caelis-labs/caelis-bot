@@ -31,7 +31,6 @@
     "@types/three": "0.186.0",
     "@vitejs/plugin-react": "6.1.1",
     "gltf-validator": "2.0.0-dev.3.10",
-    "jsdom": "26.1.0",
     "typescript": "7.0.2",
     "vite": "8.3.1"
   }
