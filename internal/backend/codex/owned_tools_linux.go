@@ -56,7 +56,17 @@ func parseLinuxProcess(data []byte) (linuxProcess, error) {
 }
 
 func readLinuxProcess(pid int) (linuxProcess, error) {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	return readLinuxProcessWithReadFile(pid, os.ReadFile)
+}
+
+func readLinuxProcessWithReadFile(pid int, readFile func(string) ([]byte, error)) (linuxProcess, error) {
+	data, err := readFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	// procfs may return ESRCH after enumeration when the process exits during
+	// this read. Classify that vanished identity as missing, retaining the native
+	// cause; permission and other observation failures must remain uncertain.
+	if errors.Is(err, unix.ESRCH) {
+		err = errors.Join(os.ErrNotExist, err)
+	}
 	if err != nil {
 		return linuxProcess{}, err
 	}

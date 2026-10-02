@@ -117,3 +117,29 @@ func TestLinuxUncapturedParentExitPreservesCleanupUncertainty(t *testing.T) {
 		t.Fatal("parent exit before capture silently claimed complete cleanup")
 	}
 }
+
+// procfs can report ESRCH when an enumerated process exits during the read.
+// It proves a vanished identity, while permission failures remain uncertain.
+func TestLinuxProcessReadClassifiesDisappearingIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		gone bool
+	}{
+		{"removed", os.ErrNotExist, true},
+		{"exited during read", unix.ESRCH, true},
+		{"permission denied", unix.EACCES, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := readLinuxProcessWithReadFile(42, func(path string) ([]byte, error) {
+				if path != "/proc/42/stat" {
+					t.Fatalf("read changed original process target: %q", path)
+				}
+				return nil, &os.PathError{Op: "read", Path: path, Err: tc.err}
+			})
+			if errors.Is(err, os.ErrNotExist) != tc.gone || !errors.Is(err, tc.err) {
+				t.Fatalf("process disappearance classification: gone=%v err=%v", errors.Is(err, os.ErrNotExist), err)
+			}
+		})
+	}
+}
