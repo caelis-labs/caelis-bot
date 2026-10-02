@@ -89,8 +89,5 @@
   "invalidBackendId": "无效的后端标识",
   "taskQueryInvalid": "任务检索条件或分页大小无效（每页 1–50 项）。",
   "taskCursorInvalid": "分页游标与当前检索条件不符，请从第一页重新查询。",
-  "taskPinsFull": "关注清单最多固定 8 项任务，请先移除一项再添加。",
-  "remoteTaskTerminalUnavailable": "当前连接尚不支持此节点的终端观察。任务仍保留在原节点上。",
-  "taskTerminalNodeUnavailable": "任务所在的原节点暂不可用，请检查该节点的连接。",
-  "taskTerminalBindingChanged": "任务的原终端连接已变化，请先关闭其现有终端后再试。"
+  "taskPinsFull": "关注清单最多固定 8 项任务，请先移除一项再添加。"
 }

@@ -163,8 +163,6 @@ adapter 用 map 表达显式空数组，避免生成类型的 `omitempty` 把清
 原生记录保存在 `providers/caelis/application.json` 和独立的 `application-credential.json`。
 旧 Bot Mode 的 `binding.json` 等文件原样保留，不迁移到新协议。注册前持久化应用凭据与操作 ID，
 此后执行请求使用应用 credential，Host credential 仅用于 enrollment、发现与显式模型配置。
-归档旧 binding 后，新 binding 先持久化独立的创建 nonce，再创建 Session；保留的应用凭据不会重放旧 Session 的创建操作。
-同一个 binding 的重启仍按原 journal 恢复，不因响应丢失创建第二个 Session。
 
 所有 mutation 先持久化 intent；未知 prompt/create 查询原操作，不改 ID 重发。
 worker 启动分阶段保存创建配置、原授权和 prompt，重启后可在确认前一步回执后继续；
@@ -175,10 +173,6 @@ SSE replacement 完成后原子切换，游标保持不透明；稳定订阅期�
 ## Shared native Workers and steering
 
 The adapter requires `shared-native-workers-v1` and `turn-steering-receipts-v1`.
-Worker reconnect verifies the persistent Store, principal, application connection and original
-task grants. A normal restart may change Host InstanceID; the freshly discovered endpoint and
-initialize reply must agree on that current instance, but the old instance is not a credential
-ownership constraint. An unavailable original grant still blocks reconnect.
 New workers use `POST /application/workers`, then the ordinary Session prompt,
 steer and reconnect APIs. They use the Host's normal environment, tools, MCP,
 plugins and permissions; resident Bot profiles and private Memory are not copied.

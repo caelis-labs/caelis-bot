@@ -13,8 +13,7 @@ import (
 
 type ownedSocketConnection struct {
 	*socketConnection
-	tools     *ownedTools
-	forceStop func() error
+	tools *ownedTools
 }
 
 func (c *ownedSocketConnection) captureTools()           { c.tools.capture() }
@@ -72,20 +71,7 @@ func startAttachableProcess(ctx context.Context, opts Options) (connection, func
 			}
 			conn, e := dialExisting(ctx, path)
 			if e == nil {
-				forceStop := func() error {
-					err := owned.killFencedChildren()
-					killErr := cmd.Process.Kill()
-					if !errors.Is(killErr, os.ErrProcessDone) {
-						err = errors.Join(err, killErr)
-					}
-					select {
-					case <-exited:
-					case <-time.After(time.Second):
-						err = errors.Join(err, errors.New("fenced runtime exit unconfirmed"))
-					}
-					return err
-				}
-				return &ownedSocketConnection{conn, owned, forceStop}, stop, nil
+				return &ownedSocketConnection{conn, owned}, stop, nil
 			}
 		}
 		select {
@@ -98,14 +84,4 @@ func startAttachableProcess(ctx context.Context, opts Options) (connection, func
 		case <-ticker.C:
 		}
 	}
-}
-
-func (c *ownedSocketConnection) freezeOwned() error {
-	return (&pipeConnection{tools: c.tools}).freezeOwned()
-}
-func (c *ownedSocketConnection) forceKillOwned() error {
-	if c.forceStop == nil {
-		return errors.New("owned immediate termination port unavailable")
-	}
-	return c.forceStop()
 }

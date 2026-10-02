@@ -24,7 +24,7 @@ func TestLaunchPreservesArgumentsAndCleansConfirmedAttempts(t *testing.T) {
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CAPTURE_ARGS\"\nprintf '%s\\n' \"$PWD\" \"$CODEX_HOME\" > \"$CAPTURE_ENV\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	target := api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "codex", Binary: binary, Endpoint: "unix:///tmp/runtime ' $(touch unexpected).sock", Thread: "owned-worker-1", Directory: workspace, CodexHome: filepath.Join(dir, "home ' $(touch unexpected)")}
+	target := api.TerminalTarget{Runtime: "codex", Binary: binary, Endpoint: "unix:///tmp/runtime ' $(touch unexpected).sock", Thread: "owned-worker-1", Directory: workspace, CodexHome: filepath.Join(dir, "home ' $(touch unexpected)")}
 	var paths []string
 	l := New(filepath.Join(dir, "launch"), func(ctx context.Context, path string) error {
 		paths = append(paths, path)
@@ -64,7 +64,7 @@ func TestTerminalWaitsForExecutionAndRevokesLateConsent(t *testing.T) {
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf done > "+quote(marker)+"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	target := api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "codex", Binary: binary, Directory: dir, Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
+	target := api.TerminalTarget{Runtime: "codex", Binary: binary, Directory: dir, Endpoint: "unix:///tmp/fixture.sock", Thread: "owned"}
 	for _, consent := range []bool{true, false} {
 		t.Run(fmt.Sprint(consent), func(t *testing.T) {
 			_ = os.Remove(marker)
@@ -120,23 +120,14 @@ func TestTerminalWaitsForExecutionAndRevokesLateConsent(t *testing.T) {
 }
 
 func TestRejectInvalidTargetBeforeOpening(t *testing.T) {
-	valid := api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "codex", Binary: "/bin/codex", Directory: "/tmp", Endpoint: "unix:///tmp/private.sock", Thread: "owned-worker"}
-	for _, change := range []func(*api.TerminalTarget){func(v *api.TerminalTarget) { v.Binary = "codex" }, func(v *api.TerminalTarget) { v.Endpoint = "ws://host" }, func(v *api.TerminalTarget) { v.Thread = "--last" }, func(v *api.TerminalTarget) { v.CodexHome = "x\x00" }, func(v *api.TerminalTarget) { v.Locality = "" }, func(v *api.TerminalTarget) { v.Generation = "" }, func(v *api.TerminalTarget) { v.Locality = api.TerminalRemote }, func(v *api.TerminalTarget) {
-		v.Target = api.WorkTarget{NodeID: "actual-node", Backend: "codex", Role: api.RoleBot}
-	}} {
+	valid := api.TerminalTarget{Runtime: "codex", Binary: "/bin/codex", Directory: "/tmp", Endpoint: "unix:///tmp/private.sock", Thread: "owned-worker"}
+	for _, change := range []func(*api.TerminalTarget){func(v *api.TerminalTarget) { v.Binary = "codex" }, func(v *api.TerminalTarget) { v.Endpoint = "ws://host" }, func(v *api.TerminalTarget) { v.Thread = "--last" }, func(v *api.TerminalTarget) { v.CodexHome = "x\x00" }} {
 		v := valid
 		change(&v)
 		l := New(t.TempDir(), func(context.Context, string) error { t.Fatal("invalid target launched"); return nil })
 		if l.Open(context.Background(), "task", v) == nil {
 			t.Fatal("invalid target accepted")
 		}
-	}
-}
-
-func TestRemoteTerminalStampCannotBecomeLocalFromNodeAliasOrPaths(t *testing.T) {
-	target := api.TerminalTarget{Locality: api.TerminalRemote, Target: api.WorkTarget{NodeID: api.LocalNodeID, Backend: "codex", Role: api.RoleWorker}, Runtime: "codex", Binary: "/bin/codex", Directory: "/tmp", Endpoint: "unix:///tmp/private.sock", Thread: "original-thread"}
-	if script, e := Script(target); !errors.Is(e, api.ErrRemoteWorkTerminal) || script != "" {
-		t.Fatal("local alias converted remote native paths to local command", script, e)
 	}
 }
 
@@ -147,7 +138,7 @@ func TestCaelisAttachUsesExistingSessionAndCredentialPath(t *testing.T) {
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CAPTURE_ARGS\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	target := api.TerminalTarget{Generation: "fixture-generation", Locality: api.TerminalLocal, Runtime: "caelis", Binary: binary, Directory: dir, Endpoint: "http://127.0.0.1:9876", Session: "worker-123", Store: filepath.Join(dir, "store ' special"), TokenFile: filepath.Join(dir, "host ' token")}
+	target := api.TerminalTarget{Runtime: "caelis", Binary: binary, Directory: dir, Endpoint: "http://127.0.0.1:9876", Session: "worker-123", Store: filepath.Join(dir, "store ' special"), TokenFile: filepath.Join(dir, "host ' token")}
 	launcher := New(filepath.Join(dir, "launch"), func(ctx context.Context, path string) error {
 		cmd := exec.CommandContext(ctx, "/bin/sh", path)
 		cmd.Env = append(os.Environ(), "CAPTURE_ARGS="+capture)

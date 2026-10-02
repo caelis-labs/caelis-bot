@@ -3,9 +3,7 @@ package caelis
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -248,112 +246,5 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 	worker := s.state.Workers["job"]
 	if creates.Load() != 1 || prompts.Load() != 1 || grants.Load() != 0 || worker.Binding.SessionId != "worker" || worker.Start != nil || worker.Task.Outcome != "accepted" {
 		t.Fatal("worker recovery lost identity or repeated dispatch", creates.Load(), prompts.Load(), grants.Load(), worker)
-	}
-}
-
-func TestFreshBindingCreatesNewSessionWithRetainedConnection(t *testing.T) {
-	sessions := map[string]wire.ApplicationBinding{}
-	operations := map[string]string{}
-	var creates []string
-	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/api/control/v1")
-		if r.Method == "POST" && r.URL.Path == "/application/sessions" {
-			var req wire.CreateApplicationSessionRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Error(err)
-			}
-			op := value(req.OperationId)
-			sid := operations[op]
-			if sid == "" {
-				sid = fmt.Sprintf("session-%d", len(operations)+1)
-				operations[op] = sid
-				sessions[sid] = wire.ApplicationBinding{SessionId: sid, ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Profile: req.Profile}
-			}
-			creates = append(creates, op)
-			writeFixture(w, wire.CommandResult{OperationId: op, Outcome: "committed", SessionId: &sid})
-			return
-		}
-		for sid, b := range sessions {
-			switch r.URL.Path {
-			case "/application/sessions/" + sid:
-				writeFixture(w, b)
-				return
-			case "/application/sessions/" + sid + "/reviewer-state":
-				writeFixture(w, wire.ApplicationReviewerState{SessionId: sid, ApprovalMode: "manual", Status: "manual"})
-				return
-			case "/application/sessions/" + sid + "/configuration":
-				writeFixture(w, wire.ApplicationConfiguration{SessionId: sid, Revision: "1", Profile: b.Profile})
-				return
-			}
-		}
-		t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
-		w.WriteHeader(404)
-	})
-	s.state.Session = wire.ApplicationBinding{}
-	s.requireApproval = true
-	s.execution.Model = "fixture"
-	s.profile.Execution = s.executionMode
-	if err := s.ensureSession(t.Context(), s.client); err != nil {
-		t.Fatal(err)
-	}
-	first := s.state.Session.SessionId
-	// Keep the exact credential/connection, retiring only the session binding.
-	archive := s.path + ".retired"
-	if err := os.Rename(s.path, archive); err != nil {
-		t.Fatal(err)
-	}
-	fresh := New(Options{Directory: filepath.Dir(s.path)})
-	fresh.client = s.client
-	fresh.state.Connection = s.state.Connection
-	fresh.requireApproval = true
-	fresh.execution = s.execution
-	fresh.profile = s.profile
-	if err := fresh.ensureSession(t.Context(), fresh.client); err != nil {
-		t.Fatal(err)
-	}
-	if fresh.state.Session.SessionId == first || len(creates) != 2 || creates[0] == creates[1] {
-		t.Fatal("fresh binding replayed old creation", creates)
-	}
-	restored := New(Options{Directory: filepath.Dir(fresh.path)})
-	if restored.state.CreationNonce == "" || restored.state.CreationNonce != fresh.state.CreationNonce {
-		t.Fatal("creation identity was not durable")
-	}
-}
-
-func TestInitialCreationRecoversJournalBeforeCreateIDSaved(t *testing.T) {
-	for _, legacy := range []bool{false, true} {
-		t.Run(fmt.Sprint("legacy=", legacy), func(t *testing.T) {
-			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == "POST" {
-					t.Error("initial creation was redispatched")
-				}
-				switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
-				case "/application/sessions/recovered":
-					writeFixture(w, wire.ApplicationBinding{SessionId: "recovered", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Profile: wire.ApplicationProfile{Execution: "workspace-write"}})
-				case "/application/sessions/recovered/reviewer-state":
-					writeFixture(w, wire.ApplicationReviewerState{SessionId: "recovered", ApprovalMode: "manual", Status: "manual"})
-				case "/application/sessions/recovered/configuration":
-					writeFixture(w, wire.ApplicationConfiguration{SessionId: "recovered", Revision: "1", Profile: wire.ApplicationProfile{Execution: "workspace-write"}})
-				default:
-					t.Errorf("unexpected recovery request %s", r.URL.Path)
-					w.WriteHeader(404)
-				}
-			})
-			s.state.Session = wire.ApplicationBinding{}
-			s.state.CreationNonce = "durable-nonce"
-			creationID := "create-" + digest([]byte("client\x00durable-nonce"))
-			if legacy {
-				s.state.CreationNonce = ""
-				creationID = "create-" + digest([]byte("client"))
-			}
-			s.state.Operations[creationID] = journal{Path: "/application/sessions", Outcome: "committed", Resource: "recovered"}
-			s.executionMode = "workspace-write"
-			if err := s.ensureSession(t.Context(), s.client); err != nil {
-				t.Fatal(err)
-			}
-			if s.state.Session.SessionId != "recovered" {
-				t.Fatal("original session not recovered")
-			}
-		})
 	}
 }

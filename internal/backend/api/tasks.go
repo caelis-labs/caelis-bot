@@ -52,29 +52,23 @@ type TaskPage struct {
 }
 
 type Task struct {
-	Target    *WorkTarget `json:"target,omitempty"`
-	ID        string      `json:"id"`
-	Title     string      `json:"title"`
-	Workspace string      `json:"workspace"`
-	Status    string      `json:"status"`
-	Outcome   string      `json:"outcome,omitempty"`
-	Result    string      `json:"result,omitempty"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Workspace string `json:"workspace"`
+	Status    string `json:"status"`
+	Outcome   string `json:"outcome,omitempty"`
+	Result    string `json:"result,omitempty"`
 }
 type TaskStart struct {
-	Target    *WorkTarget `json:"target,omitempty"`
-	RequestID string      `json:"requestId"`
-	Title     string      `json:"title"`
-	Prompt    string      `json:"prompt"`
-	Workspace string      `json:"workspace,omitempty"`
+	RequestID string `json:"requestId"`
+	Title     string `json:"title"`
+	Prompt    string `json:"prompt"`
+	Workspace string `json:"workspace,omitempty"`
 }
 type TaskMessage struct {
-	// Source is filled by the native coordinator after authorization. JSON input
-	// cannot create or override dispatch authority.
-	Source        WorkDispatchSource `json:"-"`
-	RequestDigest string             `json:"-"`
-	ID            string             `json:"id"`
-	RequestID     string             `json:"requestId"`
-	Prompt        string             `json:"prompt"`
+	ID        string `json:"id"`
+	RequestID string `json:"requestId"`
+	Prompt    string `json:"prompt"`
 }
 
 // TaskReporter delivers a finite completion notification to the secretary. It

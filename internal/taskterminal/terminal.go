@@ -38,19 +38,10 @@ func New(directory string, open func(context.Context, string) error) *Launcher {
 }
 func quote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
 func Script(t api.TerminalTarget) (string, error) {
-	if t.Locality == api.TerminalRemote {
-		return "", api.ErrRemoteWorkTerminal
-	}
-	if t.Locality != api.TerminalLocal || t.Generation == "" {
-		return "", api.ErrWorkTerminalBinding
-	}
-	if t.Target != (api.WorkTarget{}) && (t.Target.Validate() != nil || t.Target.Role != api.RoleWorker || t.Target.Backend != t.Runtime) {
-		return "", api.ErrWorkTerminalBinding
-	}
 	if !filepath.IsAbs(t.Binary) || !filepath.IsAbs(t.Directory) {
 		return "", errors.New("invalid native terminal target")
 	}
-	for _, v := range []string{t.Binary, t.Directory, t.Endpoint, t.Thread, t.CodexHome, t.Session, t.Store, t.TokenFile, t.Generation} {
+	for _, v := range []string{t.Binary, t.Directory, t.Endpoint, t.Thread, t.CodexHome, t.Session, t.Store, t.TokenFile} {
 		if strings.ContainsRune(v, 0) {
 			return "", errors.New("invalid terminal argument")
 		}

@@ -4,9 +4,6 @@ package app
 // native updater closes the application. Busy/uncertain work is never cancelled
 // merely to install an update. The caller must Close or CancelUpdate on success.
 func (a *Application) PrepareUpdate() error {
-	if a.product != nil {
-		return a.Backend.PrepareRestart(func() error { return nil })
-	}
 	return a.Backend.PrepareRestart(func() error {
 		a.mu.Lock()
 		resident, tasks := a.companion, a.tasks

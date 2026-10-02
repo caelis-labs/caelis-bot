@@ -55,33 +55,32 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
-	executionAdmission api.ExecutionAdmission
-	desktopTurn        string
-	desktopContext     context.Context
-	desktopCancel      context.CancelFunc
-	desktopControl     api.ApplicationTools // owned by native host, never by workers
-	desktopLifecycle   sync.Mutex           // serializes turn activation and independent revocation
-	dream              *dreamController     // guarded by step
-	care               *care.Engine
-	careLoadErr        error
-	careSample         func() care.Sample
-	careSources        care.SourcesTracker
-	stopped            bool
-	mu                 sync.Mutex
-	step               sync.Mutex
-	paused             bool // guarded by step; fences update shutdown against wakeups
-	path               string
-	state              State
-	now                func() time.Time
-	engine             Engine
-	provider           string
-	personal           api.PersonalTools
-	initialization     *Initializer
-	tasks              api.TaskProvider
-	reports            api.TaskReporter
-	action             func(string) error
-	done               chan struct{}
-	cancel             context.CancelFunc
+	desktopTurn      string
+	desktopContext   context.Context
+	desktopCancel    context.CancelFunc
+	desktopControl   api.ApplicationTools // owned by native host, never by workers
+	desktopLifecycle sync.Mutex           // serializes turn activation and independent revocation
+	dream            *dreamController     // guarded by step
+	care             *care.Engine
+	careLoadErr      error
+	careSample       func() care.Sample
+	careSources      care.SourcesTracker
+	stopped          bool
+	mu               sync.Mutex
+	step             sync.Mutex
+	paused           bool // guarded by step; fences update shutdown against wakeups
+	path             string
+	state            State
+	now              func() time.Time
+	engine           Engine
+	provider         string
+	personal         api.PersonalTools
+	initialization   *Initializer
+	tasks            api.TaskProvider
+	reports          api.TaskReporter
+	action           func(string) error
+	done             chan struct{}
+	cancel           context.CancelFunc
 }
 
 func New(path string, action func(string) error) (*Runtime, error) {
@@ -349,18 +348,8 @@ func (r *Runtime) ResumeAfterUpdate() {
 // Tick uses wall time after wake. It dispatches authorized schedules and at most
 // one Dream after new conversation activity, never an endless idle model loop.
 func (r *Runtime) Tick(ctx context.Context) (err error) {
-	ctx, release, admissionErr := api.BeginExecution(ctx, r.executionAdmission)
-	if admissionErr != nil {
-		return admissionErr
-	}
-	defer release()
 	r.step.Lock()
 	defer r.step.Unlock()
-	if r.executionAdmission != nil {
-		if err := r.executionAdmission.CheckContext(ctx); err != nil {
-			return err
-		}
-	}
 	if r.paused {
 		return nil
 	}

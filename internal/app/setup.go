@@ -37,17 +37,9 @@ func (a *Application) configureSetup() {
 	a.Backend.RequireSetup(!a.HasRuntimeChoice())
 }
 func (a *Application) NeedsSetup() bool {
-
-	if a.product != nil {
-		return false
-	}
 	return a.initialization.Initialization().Required || a.setup.Overview().Onboarding
 }
 func (a *Application) ProviderDirectory() string {
-
-	if a.product != nil {
-		return filepath.Join(a.root, "ProductClientResources")
-	}
 	p, _ := providerDirectory(a.root, a.engine.(api.Provider).ProviderInfo().ID)
 	return p
 }
@@ -71,7 +63,10 @@ func (s *runtimeSetup) Profile(id string) (api.RuntimeSettings, error) {
 	return api.RuntimeSettings{Runtime: id}, nil
 }
 func (s *runtimeSetup) saveProfile(v api.RuntimeSettings) error {
-	return backend.SaveRuntimeSettingsDocument(filepath.Join(s.app.root, "runtime-profiles", v.Runtime+".json"), v)
+	return localstate.Write(filepath.Join(s.app.root, "runtime-profiles", v.Runtime+".json"), struct {
+		Version int `json:"version"`
+		api.RuntimeSettings
+	}{1, v})
 }
 func validSetup(v api.RuntimeSettings, locale ...i18n.Locale) error {
 	loc := i18n.English
@@ -311,7 +306,10 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 			return e
 		}
 	}
-	if e = backend.SaveRuntimeSettingsDocument(filepath.Join(s.app.root, "runtime.json"), v); e != nil {
+	if e = localstate.Write(filepath.Join(s.app.root, "runtime.json"), struct {
+		Version int `json:"version"`
+		api.RuntimeSettings
+	}{1, v}); e != nil {
 		return e
 	}
 	s.pending = v.Runtime
@@ -331,10 +329,6 @@ func (s *runtimeSetup) Dismiss() error {
 }
 
 func (a *Application) HasRuntimeChoice() bool {
-
-	if a.product != nil {
-		return true
-	}
 	for _, name := range []string{"runtime.json", "conversation.json"} {
 		if _, e := os.Stat(filepath.Join(a.root, name)); !os.IsNotExist(e) {
 			return true
@@ -349,13 +343,4 @@ func (a *Application) HasRuntimeChoice() bool {
 	b, e := os.ReadFile(filepath.Join(a.root, "bot.json"))
 	return e == nil && json.Unmarshal(b, &legacy) == nil && legacy.Version == 1 && legacy.PersonalVersion == 0
 }
-func (a *Application) PrepareRestart() error {
-	a.mu.Lock()
-	prepared := a.notebookRestartPrepared
-	a.mu.Unlock()
-	if prepared {
-		return nil
-	}
-
-	return a.Backend.PrepareRestart(a.guardRuntimeChange)
-}
+func (a *Application) PrepareRestart() error { return a.Backend.PrepareRestart(a.guardRuntimeChange) }

@@ -91,7 +91,7 @@ func smokeTerminalInstance(dir, terminal string, confirmClose, confirmOpen bool)
 		}
 		return w, err
 	}, func(context.Context, string) (api.TerminalTarget, error) {
-		return terminalSmokeTarget(dir, binary), nil
+		return api.TerminalTarget{Runtime: "codex", Binary: binary, Directory: dir, Endpoint: "unix:///tmp/unused-smoke.sock", Thread: "synthetic"}, nil
 	}, func(_ string, event taskterminal.WindowEvent) {
 		last = event.State
 		log.Printf("TERMINAL E2E %s phase=%s state=%s error=%v", terminal, event.Phase, event.State, event.Err)

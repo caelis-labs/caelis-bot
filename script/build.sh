@@ -21,8 +21,7 @@ trap 'rm -rf "$BOT_SPARKLE_DIR"' EXIT
 BOT_SOURCE_COMMIT=$(git rev-parse HEAD)
 # Wails beta.23 otherwise leaves WKWebView opaque above transparent native windows.
 # This opts into Wails' guarded drawsBackground bridge for the pet/prop/materials.
-CGO_ENABLED=1 go build -tags production,private_mac_apis -ldflags "-X github.com/caelis-labs/caelis-bot/internal/updates.Version=$BOT_RELEASE_VERSION -X github.com/caelis-labs/caelis-bot/internal/desktop.buildChannel=$BOT_BUILD_CHANNEL -X github.com/caelis-labs/caelis-bot/internal/app.nodeAgentBuildRevision=$BOT_SOURCE_COMMIT" -trimpath -o "$BOT_BUNDLE/Contents/MacOS/caelis-bot" .
-bash script/build-node-agent.sh "$BOT_BUNDLE/Contents/Resources/NodeAgent" "$BOT_SOURCE_COMMIT"
+CGO_ENABLED=1 go build -tags production,private_mac_apis -ldflags "-X github.com/caelis-labs/caelis-bot/internal/updates.Version=$BOT_RELEASE_VERSION -X github.com/caelis-labs/caelis-bot/internal/desktop.buildChannel=$BOT_BUILD_CHANNEL" -trimpath -o "$BOT_BUNDLE/Contents/MacOS/caelis-bot" .
 cp resources/macos/Info.plist "$BOT_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set CFBundleIdentifier $BOT_APP_ID" "$BOT_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set CFBundleName $BOT_APP_NAME" "$BOT_BUNDLE/Contents/Info.plist"
@@ -45,7 +44,6 @@ node script/configure-updates.mjs "$BOT_BUNDLE/Contents/Info.plist"
 bash script/desktop-world-runtime.sh "$BOT_BUNDLE"
 bash script/sign-desktop-world.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_IDENTITY" "$BOT_BUILD_SIGN_MODE"
 bash script/sign-sparkle.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_IDENTITY" "$BOT_BUILD_SIGN_MODE"
-bash script/sign-node-agent.sh "$BOT_BUNDLE" "$BOT_BUILD_SIGN_IDENTITY" "$BOT_BUILD_SIGN_MODE"
 BOT_BUILD_SIGN_ARGS=(--force --sign "$BOT_BUILD_SIGN_IDENTITY" --identifier "$BOT_APP_ID" --entitlements "$BOT_ROOT/resources/macos/entitlements.plist")
 if [[ "$BOT_BUILD_SIGN_MODE" == development ]]; then BOT_BUILD_SIGN_ARGS+=(--options runtime --timestamp=none); fi
 codesign "${BOT_BUILD_SIGN_ARGS[@]}" "$BOT_BUNDLE"

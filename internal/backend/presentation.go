@@ -17,9 +17,6 @@ import (
 // Presentation state is shared by all renderers. It cannot approve or cancel work.
 // Drafts survive surface switches and normal restarts; restoration never sends.
 func (s *Service) Draft() api.Draft {
-	if remote, ok := s.productDraftPort(); ok {
-		return remote.Draft()
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	d := s.draft
@@ -28,9 +25,6 @@ func (s *Service) Draft() api.Draft {
 	return d
 }
 func (s *Service) SaveDraft(d api.Draft) (api.Draft, error) {
-	if remote, ok := s.productDraftPort(); ok {
-		return remote.SaveDraft(d)
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.draftLoadError != nil {
@@ -53,9 +47,6 @@ func (s *Service) SaveDraft(d api.Draft) (api.Draft, error) {
 	return d, nil
 }
 func (s *Service) clearDraft(input api.Submission) {
-	if _, ok := s.productDraftPort(); ok {
-		return
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.draft.Text == input.Text && slices.Equal(s.draft.ReferenceIDs, input.ReferenceIDs) {
@@ -101,35 +92,19 @@ func previewKey(v api.Snapshot) string {
 	// Stable across restarts and revision-only updates. A different outcome cannot
 	// inherit an acknowledgement made against an older result.
 	var lastUser, lastAssistant string
-	var workerArtifacts []string
 	for _, i := range v.Items {
 		if i.Kind == "user" {
 			lastUser = i.ID
 			lastAssistant = ""
 		}
 		if i.Kind == "assistant" {
-			encoded, _ := json.Marshal(struct {
-				ID, Turn, Text string
-				Artifacts      []api.Artifact
-			}{i.ID, i.TurnKey, i.Text, i.Artifacts})
-			if isWorkerArtifact(i.ID) {
-				workerArtifacts = append(workerArtifacts, string(encoded))
-			} else {
-				lastAssistant = string(encoded)
-			}
+			lastAssistant = i.ID + "\x00" + i.Text
 		}
 	}
-	if lastUser == "" && lastAssistant == "" && len(workerArtifacts) == 0 {
+	if lastUser == "" && lastAssistant == "" {
 		return ""
 	}
-	// Worker outputs are appended after native history. Keep their identity
-	// separate so an old output cannot hide a new scheduled assistant result.
-	slices.Sort(workerArtifacts)
-	encoded, _ := json.Marshal(struct {
-		User, Assistant string
-		WorkerArtifacts []string
-	}{lastUser, lastAssistant, workerArtifacts})
-	h := sha256.Sum256(encoded)
+	h := sha256.Sum256([]byte(lastUser + "\x00" + lastAssistant))
 	return hex.EncodeToString(h[:])
 }
 func (s *Service) presentation(v api.Snapshot) api.Snapshot {
@@ -154,17 +129,8 @@ func (s *Service) ConfigurePresentation(path string) error {
 	}
 	return json.Unmarshal(b, &s.dismissed)
 }
-
-// Read and dismissal share the same history window before pet payload trimming.
-func (s *Service) previewSnapshot() api.Snapshot {
-	if recent, ok := s.engine.(api.RecentSource); ok {
-		return s.decorate(recent.RecentSnapshot())
-	}
-	return s.Snapshot()
-}
-
 func (s *Service) DismissPreview(key string) error {
-	v := s.previewSnapshot()
+	v := s.engine.Snapshot()
 	if v.CanInterrupt || v.Phase == "unknown" || v.Phase == "sending" {
 		return errors.New("当前工作尚未结束")
 	}

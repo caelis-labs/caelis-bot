@@ -1,4 +1,4 @@
-//go:build !darwin && !linux
+//go:build !darwin
 
 package codex
 
@@ -8,5 +8,5 @@ import (
 )
 
 func startProcess(context.Context, Options) (connection, func(), error) {
-	return nil, nil, errors.New("native Codex process ownership is implemented for macOS and Linux only")
+	return nil, nil, errors.New("native Codex process ownership is implemented for macOS only")
 }

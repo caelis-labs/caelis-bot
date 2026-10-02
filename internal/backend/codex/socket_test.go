@@ -16,8 +16,8 @@ import (
 )
 
 func TestExistingServerNeedsNoCLIAndCloseDoesNotStopServer(t *testing.T) {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		t.Skip("local Unix sockets require macOS or Linux")
+	if runtime.GOOS != "darwin" {
+		t.Skip("local socket discovery is macOS only")
 	}
 	// Darwin Unix socket names are short; ordinary test temp paths can exceed it.
 	dir, err := os.MkdirTemp("/tmp", "cb-socket-")
