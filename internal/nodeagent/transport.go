@@ -21,7 +21,7 @@ import (
 )
 
 func allowed(method, path string) bool {
-	return method == "POST" && allowedNodeConnection(path) || method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/worker/open" || path == "/v1/node/worker/write" || path == "/v1/node/worker/read" || path == "/v1/node/worker/close" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/check-owned-readiness" || path == "/v1/node/owned-readiness-receipt")
+	return method == "POST" && allowedNodeConnection(path) || method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/configuration" || path == "/v1/node/manage" || path == "/v1/node/receipt" || path == "/v1/node/proof" || path == "/v1/node/owned-runtime-settings" || path == "/v1/node/runtime-settings" || path == "/v1/node/probe-owned-runtime" || path == "/v1/node/check-owned-readiness" || path == "/v1/node/owned-readiness-receipt")
 }
 func strictDecode(r io.Reader, v any) error {
 	d := json.NewDecoder(io.LimitReader(r, productrpc.MaxCommandBytes+1))
@@ -39,9 +39,6 @@ func Handler(agent nodeplane.CatalogAgent) http.Handler {
 			return
 		}
 		if handleNodeConnections(agent, w, r) {
-			return
-		}
-		if handleNativeWorkerProxy(agent, w, r) {
 			return
 		}
 		var value any
@@ -225,7 +222,8 @@ func NewClient(expectedNode string, stream io.ReadWriteCloser) (*Client, error) 
 	}
 	return &Client{expected: expectedNode, http: &http.Client{Transport: t, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("node redirect refused") }}, transport: t}, nil
 }
-func (c *Client) Close() error { c.transport.CloseIdleConnections(); return nil }
+func (c *Client) Done() <-chan struct{} { return c.transport.Done() }
+func (c *Client) Close() error          { c.transport.CloseIdleConnections(); return nil }
 func (c *Client) request(ctx context.Context, method, path string, input, output any) error {
 	var body []byte
 	if input != nil {

@@ -261,7 +261,16 @@ func (n *nativeNodeManagement) agent(id string) (nodeplane.CatalogAgent, error) 
 		return n.local, nil
 	}
 	if c := n.clients[id]; c != nil {
-		return c, nil
+		if terminal, ok := c.(interface{ Done() <-chan struct{} }); ok {
+			select {
+			case <-terminal.Done():
+				delete(n.clients, id)
+			default:
+				return c, nil
+			}
+		} else {
+			return c, nil
+		}
 	}
 	var r NodeRegistration
 	for _, candidate := range n.document.Nodes {

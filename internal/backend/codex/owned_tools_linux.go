@@ -19,6 +19,7 @@ import (
 type ownedTools struct {
 	mu         sync.Mutex
 	root       int
+	reaper     linuxProcess
 	born       uint64
 	children   map[int]uint64
 	handles    map[int]int
@@ -109,13 +110,17 @@ func (o *ownedTools) capture() {
 		o.err = err
 		return
 	}
-	if ready {
+	if ready && o.reaper.pid == 0 {
 		if !o.captured {
 			o.err = errors.New("owned descendant discovery unavailable after parent exit")
 		}
 		return
 	}
 	root, err := readLinuxProcess(o.root)
+	if errors.Is(err, os.ErrNotExist) && o.reaper.pid != 0 {
+		root = linuxProcess{pid: o.root, born: o.born}
+		err = nil
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return
 	}
@@ -124,7 +129,10 @@ func (o *ownedTools) capture() {
 		return
 	}
 	if root.born != o.born {
-		return
+		if o.reaper.pid == 0 {
+			return
+		}
+		root = linuxProcess{pid: o.root, born: o.born}
 	}
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
@@ -132,6 +140,14 @@ func (o *ownedTools) capture() {
 		return
 	}
 	processes := map[int]linuxProcess{o.root: root}
+	if o.reaper.pid != 0 {
+		current, err := readLinuxProcess(o.reaper.pid)
+		if err != nil || current.born != o.reaper.born {
+			o.err = errors.New("owned watchdog identity unavailable")
+			return
+		}
+		processes[current.pid] = current
+	}
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
 		if err != nil || pid <= 1 || pid == o.root {
@@ -149,6 +165,9 @@ func (o *ownedTools) capture() {
 		processes[pid] = p
 	}
 	owned := map[int]bool{o.root: true}
+	if o.reaper.pid != 0 {
+		owned[o.reaper.pid] = true
+	}
 	for changed := true; changed; {
 		changed = false
 		for pid, p := range processes {

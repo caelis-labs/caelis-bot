@@ -486,3 +486,43 @@ func TestCatalogBotEligibilityRequiresCompiledOwnership(t *testing.T) {
 		}
 	}
 }
+
+func (c *casConfigurationFixture) Read(context.Context) (api.RuntimeConfiguration, error) {
+	return api.RuntimeConfiguration{Revision: "7"}, nil
+}
+
+type casConfigurationFixture struct{ calls int }
+
+func (c *casConfigurationFixture) Change(_ context.Context, r nodeplane.ManagementRequest) (api.RuntimeMutationResult, error) {
+	c.calls++
+	if r.Change.ExpectedRevision != "7" {
+		return api.RuntimeMutationResult{}, errors.New("native CAS must remain decimal")
+	}
+	return api.RuntimeMutationResult{OperationID: r.Ref.OperationID, Outcome: "committed"}, nil
+}
+func TestCaelisConfigurationSeparatesBindingGuardAndNativeCAS(t *testing.T) {
+	s := agentFixture(t)
+	native := &casConfigurationFixture{}
+	s.options.OwnedRuntimeSettings = func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error) {
+		return OwnedRuntimeSettings{Backend: api.NodeCaelis, Binary: "/bin/echo", Store: filepath.Join(s.options.Directory, "store")}, nil
+	}
+	s.options.Configurations = map[api.NodeBackend]NativeConfiguration{api.NodeCaelis: native}
+	view, err := s.Configuration(t.Context(), s.options.NodeID, api.NodeCaelis)
+	if err != nil || !view.ConfigurationAvailable || view.Configuration.Revision != "7" || len(view.Guard.Revision) != 64 {
+		t.Fatal(view, err)
+	}
+	for _, tc := range []struct {
+		name, revision string
+		outcome        api.NodeOperationOutcome
+	}{{"correct", "7", api.NodeCommitted}, {"stale", "6", api.NodeConflicted}, {"guard-as-cas", view.Guard.Revision, api.NodeConflicted}} {
+		r := nodeplane.ManagementRequest{Guard: view.Guard, Ref: api.NodeOperationRef{NodeID: s.options.NodeID, Backend: api.NodeCaelis, OperationID: tc.name}, Change: &api.RuntimeConfigurationChange{Action: "main", ExpectedRevision: tc.revision, Selection: api.WorkExecutionSettings{Model: "fixture"}}}
+		r.Ref.RequestDigest = RequestDigest(r)
+		result, err := s.Manage(t.Context(), r)
+		if err != nil || result.Outcome != tc.outcome {
+			t.Fatal(tc.name, result, err)
+		}
+	}
+	if native.calls != 1 {
+		t.Fatal("conflicting native CAS dispatched", native.calls)
+	}
+}

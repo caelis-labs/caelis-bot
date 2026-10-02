@@ -238,7 +238,7 @@ func (m *Manager) refresh() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, v := range states {
-		if r := m.state.Records[v.Task.ID]; r != nil && (r.Provider != m.provider || r.Target != v.Target || r.View.Workspace != v.Task.Workspace) {
+		if r := m.state.Records[v.Task.ID]; r != nil && (r.Target != v.Target || r.View.Workspace != v.Task.Workspace || r.Provider != m.provider && v.Target == m.nativeTarget) {
 			return errors.New(m.text("host.taskConflictOtherRuntime"))
 		}
 	}
@@ -258,7 +258,7 @@ func (m *Manager) refresh() error {
 			m.state.Records[v.Task.ID] = r
 		}
 		if r.Provider != m.provider {
-			return errors.New(m.text("host.taskConflictOtherRuntime"))
+			continue // exact-route historical tasks remain owned by their original provider
 		}
 		if (r.Execution != "" && v.ExecutionKey != "" && r.Execution != v.ExecutionKey) || (terminal(r.View.Status) && !terminal(v.Task.Status)) {
 			pin := true

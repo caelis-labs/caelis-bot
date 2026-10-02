@@ -16,6 +16,10 @@ var ErrRestartRequired = errors.New("restart APP to start the prepared local con
 // ErrPreparationUnconfirmed retains the fence when target preparation may still own a Runtime.
 var ErrPreparationUnconfirmed = errors.New("target preparation stop is unconfirmed")
 
+// ErrStopNotDispatched is returned only by the source owner when admission
+// failed before any native stop. Other stop failures retain the durable fence.
+var ErrStopNotDispatched = errors.New("source stop was not dispatched")
+
 type NotebookSyncStatus struct {
 	NodeID      string `json:"nodeId"`
 	OperationID string `json:"operationId,omitempty"`
@@ -214,6 +218,9 @@ func (c *Controller) Switch(ctx context.Context, id string) error {
 		return err
 	}
 	if err = h.StopSource(ctx); err != nil {
+		if errors.Is(err, ErrStopNotDispatched) {
+			s.Phase = "ready"
+		}
 		return c.fail(s, err)
 	}
 	if err = h.SourceStopped(ctx); err != nil {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -363,6 +364,7 @@ func (e *productEngine) commandWithDigest(ctx context.Context, command productrp
 	defer e.op.Unlock()
 	e.mu.Lock()
 	client, ready := e.client, e.connection == "ready"
+	scope := e.identity.Scope
 	e.mu.Unlock()
 	if client == nil || !ready {
 		return productrpc.Result{ID: command.ID, Outcome: "rejected", Code: "offline"}, errors.New("reconnect the remote Bot before continuing")
@@ -372,6 +374,11 @@ func (e *productEngine) commandWithDigest(ctx context.Context, command productrp
 	}
 	if !productIdentifier.MatchString(command.ID) {
 		return productrpc.Result{}, errors.New("product command identity is invalid")
+	}
+	validation := command
+	validation.Scope = scope
+	if err := productrpc.ValidateCommand(validation); err != nil {
+		return productrpc.Result{ID: command.ID, Outcome: "rejected", Code: "invalid-command"}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
@@ -399,6 +406,14 @@ func (e *productEngine) commandWithDigest(ctx context.Context, command productrp
 		}
 	}
 	result, err := client.Command(ctx, command)
+	var rejected *productrpc.ProtocolError
+	if errors.As(err, &rejected) && rejected.Status == 400 && rejected.Code == "invalid-command" {
+		delete(e.receipts.Pending, command.ID)
+		if saveErr := e.writeReceipts(); saveErr != nil {
+			return productrpc.Result{ID: command.ID, Outcome: "rejected"}, saveErr
+		}
+		return productrpc.Result{ID: command.ID, Outcome: "rejected", Code: rejected.Code}, err
+	}
 	if err != nil || result.Outcome != "accepted" && result.Outcome != "rejected" {
 		e.mu.Lock()
 		e.offlineLocked("outcome_unknown")
@@ -643,3 +658,24 @@ func (e *productEngine) Close(ctx context.Context) error {
 var _ api.Engine = (*productEngine)(nil)
 var _ api.BotInitializer = (*productEngine)(nil)
 var _ backend.ProductDraftPort = (*productEngine)(nil)
+
+// Resolve only a still-pending approval from the currently connected Bot. The
+// native desktop service owns opening this URL on the user's Mac.
+func (e *productEngine) ApprovalURL(id string) (string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.connection != "ready" {
+		return "", errors.New("remote Bot is offline")
+	}
+	for _, approval := range e.state.Snapshot.Approvals {
+		if approval.ID == id && approval.Status == "pending" {
+			parsed, err := url.Parse(approval.URL)
+			if err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http") && parsed.Host != "" && parsed.User == nil {
+				return approval.URL, nil
+			}
+		}
+	}
+	return "", errors.New("remote approval link is no longer available")
+}
+
+var _ api.ApprovalNavigator = (*productEngine)(nil)

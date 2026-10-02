@@ -17,10 +17,26 @@ func prepareWatchdogReaping() error {
 	return nil
 }
 
-// Reap only the already captured, exited process handles after the native root
-// Cmd has been waited. No numeric PID or newly discovered orphan grants any
-// authority, and waitid cannot consume an unrelated process's exit status.
+// Only the dedicated watchdog can claim its adopted children. Ordinary APP
+// process tracking never gains authority over unrelated children of the APP.
+func newWatchdogTools(pid int) *ownedTools {
+	o := newOwnedTools(pid)
+	reaper, err := readLinuxProcess(os.Getpid())
+	if err != nil {
+		o.err = errors.New("owned watchdog identity unavailable")
+	} else {
+		o.reaper = reaper
+	}
+	return o
+}
+
+// After the native root Cmd has been waited, capture any final adoption by
+// this dedicated watchdog and reap only exited stable handles. Mere numeric
+// PIDs do not grant authority over unrelated processes.
 func (o *ownedTools) reapWatchdogChildren() error {
+	if o.reaper.pid != 0 {
+		o.capture()
+	} // include adoption after the native root exits
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	var result error
@@ -56,5 +72,25 @@ func (o *ownedTools) reapWatchdogChildren() error {
 			result = errors.Join(result, errors.New("owned descendant reaping unavailable"), err)
 		}
 	}
+	if o.reaper.pid != 0 {
+		result = errors.Join(result, confirmWatchdogChildrenReaped())
+	}
 	return result
+}
+
+// /proc enumeration can race one last adoption. Only ECHILD from this dedicated
+// subreaper proves no executing or unreaped child remains. WNOWAIT observes
+// without claiming an uncaptured exit status; WALL includes clone children.
+func confirmWatchdogChildrenReaped() error {
+	for {
+		var info unix.Siginfo
+		err := unix.Waitid(unix.P_ALL, 0, &info, unix.WEXITED|unix.WNOHANG|unix.WNOWAIT|unix.WALL, nil)
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if errors.Is(err, unix.ECHILD) {
+			return nil
+		}
+		return errors.Join(errors.New("owned watchdog child reaping unconfirmed"), err)
+	}
 }

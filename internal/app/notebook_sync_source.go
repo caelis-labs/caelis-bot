@@ -35,14 +35,14 @@ func (a *Application) NotebookLocalSourceHooks() (notebooksync.Hooks, func(conte
 	}
 	hooks.StopSource = func(ctx context.Context) error {
 		if err := hooks.SourceActive(ctx); err != nil {
-			return err
+			return errors.Join(notebooksync.ErrStopNotDispatched, err)
 		}
 		if err := a.PrepareUpdate(); err != nil {
-			return err
+			return errors.Join(notebooksync.ErrStopNotDispatched, err)
 		}
 		if err := a.guardRuntimeChange(); err != nil {
 			a.CancelUpdate()
-			return err
+			return errors.Join(notebooksync.ErrStopNotDispatched, err)
 		}
 		a.mu.Lock()
 		resident := a.companion
@@ -51,7 +51,7 @@ func (a *Application) NotebookLocalSourceHooks() (notebooksync.Hooks, func(conte
 			body, err := resident.CompletedNotebookHandoff()
 			if err != nil {
 				a.CancelUpdate()
-				return err
+				return errors.Join(notebooksync.ErrStopNotDispatched, err)
 			}
 			mu.Lock()
 			handoff = body
@@ -64,7 +64,8 @@ func (a *Application) NotebookLocalSourceHooks() (notebooksync.Hooks, func(conte
 		} else if native, ok := a.engine.(interface{ FenceStop(context.Context) error }); ok {
 			err = native.FenceStop(ctx)
 		} else {
-			err = errors.New("this Runtime cannot provide stopped ownership proof")
+			a.CancelUpdate()
+			return errors.Join(notebooksync.ErrStopNotDispatched, errors.New("this Runtime cannot provide stopped ownership proof"))
 		}
 		if err != nil {
 			return err

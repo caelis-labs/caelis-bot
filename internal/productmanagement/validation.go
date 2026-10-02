@@ -38,7 +38,8 @@ func publicText(value string, limit int) bool {
 	return len(value) <= limit && !strings.ContainsAny(value, "\x00\r\n")
 }
 
-func validConfigurationChange(change api.RuntimeConfigurationChange) bool {
+// ValidConfigurationChange validates the shared native Host configuration boundary.
+func ValidConfigurationChange(change api.RuntimeConfigurationChange) bool {
 	if change.ExpectedRevision == "" || len(change.ExpectedRevision) > 20 {
 		return false
 	}

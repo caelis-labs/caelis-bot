@@ -200,7 +200,10 @@ native adapters retain their original Thread/Session/Turn receipts. Old records 
 their existing backend/Worker role without changing IDs, native generations or prior completion receipts.
 A repeated request cannot change target or task intent. Unknown starts return the original ledger entry;
 read/continue/stop use its exact route. Remote state cannot adopt unrelated native workers or change a
-record's target/workspace. Registry disconnection preserves the ledger rather than declaring cancellation.
+record's target/workspace. A reconnected remote Worker may still project exact-route history
+from another resident provider; those records remain inert under that original provider and do not
+block current work. Current native-adapter ownership and target/workspace conflicts still reject.
+Registry disconnection preserves the ledger rather than declaring cancellation.
 
 Cross-target mutation requires `WorkSourceProvider` attestation from the resident native invocation;
 model/renderer task arguments cannot supply it. Codex reports `native_activation` under its existing
@@ -236,6 +239,9 @@ Worker role RPC assembly, supervisor restart and Mac-to-Linux live acceptance re
 
 `internal/workerwire` is a separate closed typed Worker stream with bounded versioned frames,
 correlated requests and cancellation of admitted partial writes by closing that observer stream.
+Large state snapshots span bounded sequential frames and become visible only when every frame
+arrives with the same revision and request identity. Per-frame limits do not truncate the native
+journal or impose a cumulative task-count limit. Interrupted or mixed snapshots remain unpublished.
 Its configured pairing fixes WorkTarget, origin product Bot identity and allowed source Node/Backend.
 Strict SSH plus a same-user private Unix socket authenticate the native entry; the target treats the
 source as paired foreign attestation, never claims its Codex CLI can inspect a Mac native thread.

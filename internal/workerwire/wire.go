@@ -58,6 +58,8 @@ type frame struct {
 }
 
 type State struct {
+	Page       int  `json:",omitempty"`
+	Pages      int  `json:",omitempty"`
 	LeaseAware bool `json:",omitempty"`
 	Revision   uint64
 	Connection string
@@ -87,6 +89,32 @@ func writeFrame(w io.Writer, f frame) error {
 	}
 	return nil
 }
+
+// Send one coherent snapshot in bounded pages. The native journal remains
+// complete; the client publishes state only after receiving every page.
+func writeStateFrames(w io.Writer, f frame) error {
+	if f.State == nil {
+		return writeFrame(w, f)
+	}
+	state := *f.State
+	pages := max(1, (len(state.Tasks)+1023)/1024, (len(state.Approvals)+1023)/1024, (len(state.Artifacts)+8191)/8192)
+	if pages == 1 {
+		return writeFrame(w, f)
+	}
+	for page := 0; page < pages; page++ {
+		part := state
+		part.Page, part.Pages = page+1, pages
+		part.Tasks = state.Tasks[min(page*1024, len(state.Tasks)):min((page+1)*1024, len(state.Tasks))]
+		part.Approvals = state.Approvals[min(page*1024, len(state.Approvals)):min((page+1)*1024, len(state.Approvals))]
+		part.Artifacts = state.Artifacts[min(page*8192, len(state.Artifacts)):min((page+1)*8192, len(state.Artifacts))]
+		f.State = &part
+		if err := writeFrame(w, f); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func readFrame(r io.Reader) (frame, error) {
 	var prefix [4]byte
 	if _, err := io.ReadFull(r, prefix[:]); err != nil {
@@ -203,7 +231,7 @@ func (s *Server) Serve(ctx context.Context, stream io.ReadWriteCloser) error {
 				return
 			}
 			stopWrite := context.AfterFunc(ctx, func() { _ = stream.Close() })
-			err := writeFrame(stream, reply)
+			err := writeStateFrames(stream, reply)
 			stopWrite()
 			if err != nil {
 				cancel()

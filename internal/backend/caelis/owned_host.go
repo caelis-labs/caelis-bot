@@ -110,10 +110,10 @@ func startOwnedHostWithStore(ctx context.Context, o OwnedHostOptions, requireExi
 		}
 		d, _, e := Discover(h.settings)
 		if e == nil {
+			h.instance = d.InstanceID // retain launch identity even if handshake fails
 			c, e := setupClient(ready, h.settings)
 			if e == nil {
 				c.http.CloseIdleConnections()
-				h.instance = d.InstanceID
 				return h, nil
 			}
 		}

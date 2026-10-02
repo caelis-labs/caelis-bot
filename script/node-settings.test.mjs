@@ -546,7 +546,7 @@ test('disconnected Node suppresses cached login success while local inspection i
  assert.ok(!container.textContent.includes(translator('en').t('runtime.connectedViaChatGPT')));
 });
 
-test('local runtime chooser retains explicit preparation for both Codex and Caelis',async()=>{
+test('local runtime chooser preserves primary preparation while inactive management stays scoped',async()=>{
  const calls=[],profile={runtime:'codex',cliPath:'/usr/bin/false',caelisStore:''};
  const setup={settings:profile,state:'models',message:'',installation:{installed:true,path:'',version:'0.158.0',latestVersion:'',updateState:'',message:''},models:[],selectedModel:'',accountType:'',serviceState:'',serviceVersion:'',serviceUpdateAvailable:false,loginPending:false};
  const invoke=async(method,...args)=>{
@@ -561,13 +561,13 @@ test('local runtime chooser retains explicit preparation for both Codex and Cael
   return {revision:1,nodes:[],issue:''};
  };
  await mount(invoke,invoke);await click(buttons('Manage')[0]);
- assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','caelis']]);
- assert.ok(!container.querySelector('[role="dialog"]').textContent.includes(translator('en').t('settings.nodeScopedPreparation')));
+ assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[]);
+ assert.ok(container.querySelector('[role="dialog"]').textContent.includes(translator('en').t('settings.nodeScopedPreparation')));
  await click(container.querySelector('[role="dialog"] button.runtime-close'));await choose(select('Execution backend'),'codex');await click(buttons('Connect account')[0]);
- assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','caelis'],['SetupProfile','codex']]);
+ assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','codex']]);
  await click(container.querySelector('[role="dialog"] button.runtime-close'));await click(buttons(translator('en').t('runtime.switch'))[0]);
  await click([...container.querySelectorAll('[role="dialog"] .runtime-choices button')].find(button=>button.querySelector('strong')?.textContent==='Caelis'));
- assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','caelis'],['SetupProfile','codex'],['SetupProfile','caelis']]);
+ assert.deepEqual(calls.filter(call=>call[0]==='SetupProfile'),[['SetupProfile','codex'],['SetupProfile','caelis']]);
  assert.ok(!calls.some(call=>call[0]==='ActivateRuntime'||call[0]==='ApplySetup'));
 });
 
@@ -1014,4 +1014,25 @@ test('an empty Worker setup connects the enrolled SSH machine without a second m
  const saved=calls.find(call=>call[0]==='SaveWorkerNode');assert.equal(saved[1].transport,'registered-agent');assert.equal(saved[1].ssh,'');assert.equal(saved[1].workspaceRoot,'');
  assert.deepEqual(calls.find(call=>call[0]==='ConnectWorkerTarget'),['ConnectWorkerTarget',{nodeId:'other',backend:'caelis',role:'worker'},5]);
  assert.equal(buttons('Disconnect').length,1);assert.equal(calls.filter(call=>call[0]==='SaveWorkerNode').length,1);
+});
+
+test('inactive local Caelis uses scoped connection and never prepares the shared Store',async()=>{
+ const calls=[];
+ const invoke=async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='NodeCatalog'){const v=catalog();v.activeBotNodeId='local';return v;}
+  if(method==='RuntimeSettings')return {runtime:'codex',cliPath:'',caelisStore:''};
+  if(method==='NodeRuntimeConfiguration')return {...config(...args),configurationAvailable:false,executable:{installed:true,version:'0.65.0'}};
+  if(method==='BeginNodeRuntimeConnection')return nativeRef(...args);
+  if(method==='NodeRuntimeConnectionCatalog')return {choices:[],unavailable:''};
+  if(method==='CloseNodeRuntimeConnection')return;
+  if(method==='RegisteredWorkers')return {revision:1,nodes:[],issue:''};
+  throw new Error(`Unexpected fixture method ${method}`);
+ };
+ await mount(invoke,invoke);
+ assert.equal(buttons('Complete connection setup').length,0);
+ await click(buttons('Add connection')[0]);
+ const begin=calls.find(call=>call[0]==='BeginNodeRuntimeConnection');
+ assert.equal(begin[1].nodeId,'local');assert.equal(begin[1].backend,'caelis');
+ assert.ok(calls.every(call=>!['SetupProfile','ApplySetup','StartRuntimeConnection'].includes(call[0])));
 });

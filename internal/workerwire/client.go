@@ -64,12 +64,44 @@ func (c *Client) Ready() bool {
 }
 func (c *Client) read() {
 	defer c.Close()
+	var staged *State
+	var stagedID uint64
 	for {
 		f, err := readFrame(c.stream)
 		if err != nil || f.Pair != c.pair || f.Method != "" {
 			return
 		}
 		if f.State != nil && !c.validState(*f.State) {
+			return
+		}
+		if f.State != nil && f.State.Pages != 0 {
+			part := f.State
+			if part.Pages < 2 || part.Page < 1 || part.Page > part.Pages {
+				return
+			}
+			if part.Page == 1 {
+				if staged != nil {
+					return
+				}
+				copy := *part
+				staged = &copy
+				stagedID = f.ID
+			} else {
+				if staged == nil || stagedID != f.ID || staged.Page+1 != part.Page || staged.Pages != part.Pages || staged.Revision != part.Revision || staged.Connection != part.Connection || staged.LeaseAware != part.LeaseAware {
+					return
+				}
+				staged.Tasks = append(staged.Tasks, part.Tasks...)
+				staged.Approvals = append(staged.Approvals, part.Approvals...)
+				staged.Artifacts = append(staged.Artifacts, part.Artifacts...)
+				staged.Page = part.Page
+			}
+			if part.Page < part.Pages {
+				continue
+			}
+			staged.Page, staged.Pages = 0, 0
+			f.State = staged
+			staged = nil
+		} else if staged != nil || f.State != nil && f.State.Page != 0 {
 			return
 		}
 		c.mu.Lock()

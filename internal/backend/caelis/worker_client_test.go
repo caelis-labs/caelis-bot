@@ -31,6 +31,8 @@ func TestWorkerOnlyScopedEnrollmentReceiptsApprovalCancelAndReconnect(t *testing
 	var enrolled, creates, prompts, resolves, cancels, steers, downloads atomic.Int32
 	var corruptArtifact atomic.Bool
 	var missingGrant atomic.Bool
+	var instance atomic.Value
+	instance.Store("instance")
 	artifactBytes := []byte("bounded native artifact")
 	var secret string
 	approval := testApproval()
@@ -41,7 +43,7 @@ func TestWorkerOnlyScopedEnrollmentReceiptsApprovalCancelAndReconnect(t *testing
 		p := strings.TrimPrefix(r.URL.Path, "/api/control/v1")
 		switch {
 		case p == "/initialize":
-			writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("store"), InstanceId: pointer("instance"), Capabilities: workerRequired})
+			writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("store"), InstanceId: pointer(instance.Load().(string)), Capabilities: workerRequired})
 		case p == "/application/connection":
 			writeFixture(w, wire.ApplicationConnection{ApplicationId: "worker-app", ConnectionId: "worker-connection", PrincipalId: "owner", ExpiresAt: time.Now().Add(time.Hour)})
 		case p == "/application/workers" && r.Method == "POST":
@@ -106,7 +108,7 @@ func TestWorkerOnlyScopedEnrollmentReceiptsApprovalCancelAndReconnect(t *testing
 	}))
 	defer server.Close()
 	endpoint := func(context.Context) (WorkerEndpoint, error) {
-		return WorkerEndpoint{Capabilities: workerRequired, Origin: server.URL, StoreID: "store", InstanceID: "instance", PrincipalID: "owner", Execution: api.WorkExecutionSettings{Model: "fixture"}, ModelConfigured: true, ModelAuth: "reported_ready", Enroll: func(_ context.Context, op, token string) (wire.ApplicationConnection, error) {
+		return WorkerEndpoint{Capabilities: workerRequired, Origin: server.URL, StoreID: "store", InstanceID: instance.Load().(string), PrincipalID: "owner", Execution: api.WorkExecutionSettings{Model: "fixture"}, ModelConfigured: true, ModelAuth: "reported_ready", Enroll: func(_ context.Context, op, token string) (wire.ApplicationConnection, error) {
 			raw, err := privateRead(workerSecretPath(filepath.Join(directory, "worker-application.json")), 65536)
 			if err != nil || !strings.Contains(string(raw), token) {
 				t.Error("enrollment dispatched before durable credential")
@@ -252,6 +254,12 @@ func TestWorkerOnlyScopedEnrollmentReceiptsApprovalCancelAndReconnect(t *testing
 	if err = wrongTarget.engine.connectWorker(ctx); err == nil || enrolled.Load() != 1 {
 		t.Fatal("private Worker connection adopted another target")
 	}
+	instance.Store("restarted-instance")
+	restarted := newClient()
+	if err = restarted.engine.connectWorker(ctx); err != nil || enrolled.Load() != 1 || restarted.engine.state.InstanceID != "restarted-instance" {
+		t.Fatal("same Store restart rejected or changed enrollment", err)
+	}
+	defer restarted.Close(ctx)
 	changedHost := NewWorker(WorkerOptions{Directory: directory, Target: target, Endpoint: func(ctx context.Context) (WorkerEndpoint, error) {
 		ep, err := endpoint(ctx)
 		ep.InstanceID = "replacement"

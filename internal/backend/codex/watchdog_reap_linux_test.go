@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -193,5 +194,86 @@ func TestLinuxWatchdogReapingPreservesNonWaitableZombieFailure(t *testing.T) {
 	reaped = true
 	if _, err := readLinuxProcess(pid); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("original native parent failed to reap fixture zombie", err)
+	}
+}
+
+// Run the subreaper in its own process; the test runner's children are unrelated.
+func TestLinuxWatchdogAdoptionHelper(t *testing.T) {
+	if len(helperArgs()) == 0 {
+		return
+	}
+	if err := prepareWatchdogReaping(); err != nil {
+		t.Fatal(err)
+	}
+	pidFile := filepath.Join(t.TempDir(), "daemon.pid")
+	root := exec.Command("/bin/sh", "-c", `sleep 60 >/dev/null 2>&1 & echo $! > "$1"`, "fixture", pidFile)
+	if err := root.Start(); err != nil {
+		t.Fatal(err)
+	}
+	tools := newWatchdogTools(root.Process.Pid)
+	defer tools.releaseHandles()
+	if err := root.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := confirmWatchdogChildrenReaped(); err == nil {
+		t.Fatal("unobserved adopted child accepted as fully reaped")
+	}
+	// This daemon was never seen while it was a descendant of the original root.
+	identity, err := readLinuxProcess(pid)
+	if err != nil || identity.parent != os.Getpid() {
+		t.Fatal("fixture was not adopted", identity, err)
+	}
+	fd, err := unix.PidfdOpen(pid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(fd)
+	defer func() {
+		_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
+		var info unix.Siginfo
+		_ = unix.Waitid(unix.P_PIDFD, fd, &info, unix.WEXITED, nil)
+	}()
+	if err := (&pipeConnection{tools: tools}).freezeOwned(); err != nil {
+		t.Fatal(err)
+	}
+	if tools.children[pid] != identity.born {
+		t.Fatal("adopted daemon not captured")
+	}
+	if err := tools.killFencedChildren(); err != nil {
+		t.Fatal(err)
+	}
+	if err := tools.reapWatchdogChildren(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readLinuxProcess(pid); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("stop preceded adopted child reaping", err)
+	}
+}
+func TestLinuxWatchdogCapturesDaemonAdoptedBetweenScans(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrelated := exec.Command("/bin/sleep", "60")
+	if err = unrelated.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unrelated.Process.Kill(); _ = unrelated.Wait() }()
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, executable, "-test.run=^TestLinuxWatchdogAdoptionHelper$", "--", "adoption")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("adoption fixture failed: %v\n%s", err, output)
+	}
+	if err := unix.Kill(unrelated.Process.Pid, 0); err != nil {
+		t.Fatal("unrelated process affected", err)
 	}
 }

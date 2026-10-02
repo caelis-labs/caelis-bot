@@ -229,7 +229,7 @@ func TestNodeManagementWireRetainsAuthenticationScopeAndClosedPayloads(t *testin
 		case "digest":
 			copy.Ref.RequestDigest = strings.Repeat("0", 64)
 		case "revision":
-			copy.Change.ExpectedRevision = "another-revision"
+			copy.Change.ExpectedRevision = ""
 		case "action":
 			copy.Change.Action = "arbitrary-call"
 		case "shape":

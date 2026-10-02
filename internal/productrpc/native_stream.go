@@ -16,6 +16,7 @@ import (
 type NativeStreamTransport interface {
 	http.RoundTripper
 	CloseIdleConnections()
+	Done() <-chan struct{}
 }
 
 func nativeRequest(f proxyFrame, allow func(string, string) bool) bool {

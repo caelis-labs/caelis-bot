@@ -293,3 +293,6 @@ func ProxyStdio(ctx context.Context, in io.Reader, out io.Writer, endpoint, toke
 		}(f)
 	}
 }
+
+// Done closes only when the framed transport is terminal, not for request cancellation.
+func (t *stdioTransport) Done() <-chan struct{} { return t.closed }

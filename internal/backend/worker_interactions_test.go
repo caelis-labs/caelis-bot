@@ -260,3 +260,23 @@ func TestWorkerInteractionsUseExactNativeDefaultAcrossMacAndAlternateBackend(t *
 		})
 	}
 }
+
+func TestWorkerArtifactPreviewDismissUsesProjectedIdentity(t *testing.T) {
+	s, _, w, target := interactionFixture(t)
+	w.approvals = nil
+	w.artifacts = []api.WorkArtifactRef{{Target: target, TaskID: "owned-task", Artifact: api.Artifact{ID: "report", Name: "report.txt"}}}
+	view := s.PetSnapshot()
+	if view.PreviewKey == "" {
+		t.Fatal("artifact missing from pet preview")
+	}
+	if err := s.DismissPreview(view.PreviewKey); err != nil {
+		t.Fatal(err)
+	}
+	if !s.PetSnapshot().PreviewDismissed {
+		t.Fatal("projected preview dismissal was not retained")
+	}
+	w.artifacts[0].Artifact.ID = "new-report"
+	if s.PetSnapshot().PreviewDismissed || s.DismissPreview(view.PreviewKey) == nil {
+		t.Fatal("stale preview acknowledged new artifact")
+	}
+}

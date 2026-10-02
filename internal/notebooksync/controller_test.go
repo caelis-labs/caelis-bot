@@ -170,3 +170,28 @@ func TestUnknownPreparationRetainsOriginalFenceAcrossRestart(t *testing.T) {
 		t.Fatal("unconfirmed original replaced", err)
 	}
 }
+
+func TestRejectedStopBeforeDispatchRestoresReadyAcrossRestart(t *testing.T) {
+	c, trace := fixture(t, "")
+	c.hooks.StopSource = func(context.Context) error { return errors.Join(ErrStopNotDispatched, errors.New("busy")) }
+	if err := c.Switch(t.Context(), "backup"); !errors.Is(err, ErrStopNotDispatched) {
+		t.Fatal(err)
+	}
+	if c.State().Targets[0].Phase != "ready" {
+		t.Fatal(c.State())
+	}
+	if !reflect.DeepEqual(*trace, []string{"active", "standby"}) {
+		t.Fatal("stop rejection transferred or started target", *trace)
+	}
+	restored, err := New(c.State(), c.hooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = restored.Sync(t.Context(), "backup"); err != nil {
+		t.Fatal("backup blocked after rejected stop", err)
+	}
+	restored.hooks.StopSource = func(context.Context) error { return nil }
+	if err = restored.Switch(t.Context(), "backup"); err != nil {
+		t.Fatal("new switch blocked after rejected stop", err)
+	}
+}

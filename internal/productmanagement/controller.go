@@ -130,7 +130,7 @@ func (c *Controller) RuntimeConfiguration(ctx context.Context, scope Scope) (api
 
 func (c *Controller) ChangeRuntimeConfiguration(ctx context.Context, command ConfigurationCommand) (ConfigurationResult, error) {
 	result := ConfigurationResult{Scope: c.scope, ID: command.ID, Outcome: "rejected", Code: "invalid-command"}
-	if c.check(command.Scope) != nil || !identifier.MatchString(command.ID) || !validConfigurationChange(command.Change) {
+	if c.check(command.Scope) != nil || !identifier.MatchString(command.ID) || !ValidConfigurationChange(command.Change) {
 		return result, nil
 	}
 	if c.configuration == nil {

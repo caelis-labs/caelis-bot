@@ -303,8 +303,10 @@ func ValidateManagementRequest(r ManagementRequest) error {
 		return errors.New("operation payload digest mismatch")
 	}
 	if c := r.Change; c != nil {
-		if c.ExpectedRevision != r.Guard.Revision {
-			return errors.New("configuration revision differs from edit guard")
+		// The edit guard binds the node/Store/executable; ExpectedRevision is
+		// the backend's native CAS token. They need not use the same encoding.
+		if c.ExpectedRevision == "" {
+			return errors.New("native configuration revision is required")
 		}
 		switch c.Action {
 		case "main", "bind", "reset", "create-role", "delete-role", "save-set", "apply-set", "delete-set", "remove-model", "disconnect-agent", "conversation-model", "worker-model":

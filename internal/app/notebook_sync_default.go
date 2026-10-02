@@ -461,7 +461,7 @@ func (c *defaultNotebookSync) options(ctx context.Context, prepare bool) (Notebo
 		}
 		o.Hooks.StopSource = func(ctx context.Context) error {
 			if e := a.PrepareUpdate(); e != nil {
-				return e
+				return errors.Join(notebooksync.ErrStopNotDispatched, e)
 			}
 			state, e := request(ctx, r.ID, "stop", "notebook-stop-"+operation())
 			if e != nil {

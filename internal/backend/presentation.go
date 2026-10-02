@@ -139,7 +139,7 @@ func (s *Service) ConfigurePresentation(path string) error {
 	return json.Unmarshal(b, &s.dismissed)
 }
 func (s *Service) DismissPreview(key string) error {
-	v := s.engine.Snapshot()
+	v := s.Snapshot()
 	if v.CanInterrupt || v.Phase == "unknown" || v.Phase == "sending" {
 		return errors.New("当前工作尚未结束")
 	}

@@ -74,6 +74,10 @@ func TestOwnedReadinessProcessHelper(t *testing.T) {
 		mode, _ := os.ReadFile(filepath.Join(store, "fixture-mode"))
 		switch path {
 		case "/initialize":
+			if string(mode) == "initialize-fail" {
+				w.WriteHeader(503)
+				return
+			}
 			writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("native-owned-store"), InstanceId: pointer("owned-readiness-fixture"), Capabilities: required})
 		case "/status":
 			if r.Method != "GET" {

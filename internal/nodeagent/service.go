@@ -59,7 +59,6 @@ type Options struct {
 	Configurations                             map[api.NodeBackend]NativeConfiguration
 	RuntimeOwner                               nodeplane.RuntimeProofPort
 
-	WorkerProxy           *NativeWorkerProxy
 	OwnedRuntimeSettings  func(context.Context, api.NodeBackend) (OwnedRuntimeSettings, error)
 	OwnedRuntimeCompanion func(context.Context) (OwnedRuntimeCompanion, error)
 	// NodeConnectionOwner delegates only an already owned exact native Host.
@@ -448,9 +447,6 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 	if !validRequest(r) || r.Ref.NodeID != s.options.NodeID {
 		return result, nil
 	}
-	if r.Change != nil {
-
-	}
 	path := s.operationPath(r.Ref.OperationID)
 	var prior operation
 	if err := readPrivateJSON(path, &prior); err == nil {
@@ -490,6 +486,11 @@ func (s *Service) Manage(ctx context.Context, r nodeplane.ManagementRequest) (ap
 	if revision != r.Guard.Revision {
 		result.Outcome = api.NodeConflicted
 		result.Message = "catalog-revision-changed"
+		return result, nil
+	}
+	if r.Change != nil && r.Change.ExpectedRevision != configuration.Configuration.Revision {
+		result.Outcome = api.NodeConflicted
+		result.Message = "configuration-revision-changed"
 		return result, nil
 	}
 	if r.Installation != nil && (r.Installation.Action == api.NodeUpdate || r.Installation.Action == api.NodeInstall) && s.installation != nil {

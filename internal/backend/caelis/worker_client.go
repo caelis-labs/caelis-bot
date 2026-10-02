@@ -142,7 +142,7 @@ func (s *Session) connectWorker(ctx context.Context) error {
 	s.workerModelAuth = ep.ModelAuth
 	oldBinding := s.state
 	s.mu.Unlock()
-	if oldBinding.Session.SessionId != "" || oldBinding.StoreID != "" && (oldBinding.StoreID != ep.StoreID || oldBinding.PrincipalID != ep.PrincipalID || oldBinding.InstanceID != ep.InstanceID) {
+	if oldBinding.Session.SessionId != "" || oldBinding.StoreID != "" && (oldBinding.StoreID != ep.StoreID || oldBinding.PrincipalID != ep.PrincipalID) {
 		return errors.New("Worker Host identity changed; original binding retained")
 	}
 	if err := s.workerTarget.Validate(); err != nil || s.workerTarget.Backend != "caelis" || s.workerTarget.Role != api.RoleWorker {
@@ -162,7 +162,7 @@ func (s *Session) connectWorker(ctx context.Context) error {
 		}
 	} else if e != nil {
 		return e
-	} else if json.Unmarshal(raw, &key) != nil || key.StoreID != ep.StoreID || key.PrincipalID != ep.PrincipalID || key.Token == "" || key.OperationID == "" || key.Target != s.workerTarget || key.InstanceID != ep.InstanceID {
+	} else if json.Unmarshal(raw, &key) != nil || key.StoreID != ep.StoreID || key.PrincipalID != ep.PrincipalID || key.Token == "" || key.OperationID == "" || key.Target != s.workerTarget {
 		return errors.New("Worker credential binding mismatch")
 	}
 	pinnedProtocol, protocolErr := workerProtocol(key.Protocol)

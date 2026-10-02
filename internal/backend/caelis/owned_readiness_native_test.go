@@ -176,3 +176,27 @@ func TestOwnedReadinessPinnedCoreOmittedFalseIsRealCurrentAuthMetadata(t *testin
 		t.Fatal("actual owned preparation still rejects non-reasoning current model", err)
 	}
 }
+
+func TestOwnedHandshakeFailureCleansDiscoveryBeforeRetry(t *testing.T) {
+	options := ownedReadinessFixture(t, "initialize-fail")
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	if host, err := startOwnedHost(ctx, options); err == nil {
+		_ = host.stop(context.Background())
+		t.Fatal("failed handshake reported ready")
+	}
+	discovery := filepath.Join(options.Store, "runtime/service/discovery.json")
+	if _, err := os.Lstat(discovery); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("failed launch retained discovery", err)
+	}
+	if err := os.WriteFile(filepath.Join(options.Store, "fixture-mode"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	host, err := startOwnedHost(t.Context(), options)
+	if err != nil {
+		t.Fatal("first handshake failure poisoned Store", err)
+	}
+	if err = host.stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -41,31 +40,6 @@ func validRuntimeManagement(c productmanagement.RuntimeCommand, resolve bool) bo
 }
 func publicManagementText(v string, n int) bool {
 	return len(v) <= n && !strings.ContainsAny(v, "\x00\r\n")
-}
-func validConfiguration(c api.RuntimeConfigurationChange) bool {
-	if len(c.ExpectedRevision) == 0 || len(c.ExpectedRevision) > 20 {
-		return false
-	}
-	if _, err := strconv.ParseUint(c.ExpectedRevision, 10, 64); err != nil {
-		return false
-	}
-	if !publicManagementText(c.ID, 256) || !publicManagementText(c.Name, 256) || len(c.Description) > 8192 || strings.ContainsRune(c.Description, '\x00') || !publicManagementText(c.Selection.Model, 512) || !publicManagementText(c.Selection.Effort, 64) || !publicManagementText(c.Selection.ServiceTier, 64) {
-		return false
-	}
-	empty := c.Selection == (api.WorkExecutionSettings{})
-	switch c.Action {
-	case "main":
-		return c.Selection.Model != "" && c.ID == "" && c.Name == "" && c.Description == ""
-	case "bind":
-		return c.ID != "" && c.Selection.Model != "" && c.Name == "" && c.Description == ""
-	case "reset", "delete-role", "remove-model", "disconnect-agent":
-		return c.ID != "" && c.Name == "" && c.Description == "" && empty
-	case "create-role":
-		return c.ID != "" && c.Name == "" && empty
-	case "save-set", "apply-set", "delete-set":
-		return c.Name != "" && c.ID == "" && c.Description == "" && empty
-	}
-	return false
 }
 func receiptOutcome(v string) bool { return v == "accepted" || v == "rejected" || v == "unknown" }
 

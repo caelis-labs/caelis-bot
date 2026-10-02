@@ -17,7 +17,7 @@ export function RuntimeWorkspace({ batch, client = runtimeSettingsClient, prepar
  const [error, setError] = useState(''), [notice, setNotice] = useState(''), [loading, setLoading] = useState(true);
  const [editing, setEditing] = useState<ModelScope | null>(null), [connecting, setConnecting] = useState(false), [switching, setSwitching] = useState<string | null>(null);
  const [removing, setRemoving] = useState<{ group: ConnectionGroup; model: ConnectionModel } | null>(null), [removeError, setRemoveError] = useState(''), [busy, setBusy] = useState(false);
- const [preparationBusy, setPreparationBusy] = useState(false);
+ const [preparationBusy, setPreparationBusy] = useState(false), [switchingPrimary, setSwitchingPrimary] = useState(false);
  const [connectionClient,setConnectionClient]=useState<RuntimeSettingsClient|null>(null),[connectionStarting,setConnectionStarting]=useState(false),[connectionError,setConnectionError]=useState('');
  const connectionWorking=useRef(false),connectionOwner=useRef<RuntimeSettingsClient|null>(null),connectionEpoch=useRef(0),alive=useRef(true);
  const generation = useRef(0), working = useRef(false);
@@ -63,7 +63,7 @@ export function RuntimeWorkspace({ batch, client = runtimeSettingsClient, prepar
   catch { setRemoveError(t('runtime.removeConfirmFailed')); }
   finally { working.current = false; setBusy(false); }
  };
- const remoteView=remote&&!view?.local;
+ const remoteView=(remote||nodeManaged&&view!==null)&&!view?.local;
  const caelis = view?.profile.runtime === 'caelis', name = caelis ? 'Caelis' : 'Codex';
  const connected=!error&&view?.setup.state==='ready'&&(connectionState===undefined||connectionState==='connected');
  const connectionMessage=error||connectionState==='unknown'?t('runtime.connectionUnknown'):t('runtime.notConnected');
@@ -104,6 +104,6 @@ export function RuntimeWorkspace({ batch, client = runtimeSettingsClient, prepar
   {batchView&&batch?.(batchView.view,batchView.connection,()=>{setBatchView(null);void refresh();})}
   {connecting && connectionClient && <ConnectionWizard allowBatch={!!batch} client={connectionClient} onClose={() => {setConnecting(false);setConnectionClient(null);}} onConnected={async template => { if(alive.current){setConnecting(false);const next=await refresh();if(template&&next)setBatchView({view:next,connection:template});} }}/ >}
   {removing && <SettingsDialog title={removing.group.kind === 'agent' ? t('runtime.disconnectAgentPrompt', { name: removing.group.name }) : t('runtime.removeModelPrompt', { name: removing.model.name })} busy={busy} onClose={() => setRemoving(null)}><p className="settings-note">{removing.group.kind === 'agent' ? t('runtime.disconnectAgentNote', { count: removing.group.models.length }) : t('runtime.removeModelNote')}</p>{removeError && <p role="alert" className="inline-error">{removeError}</p>}<div className="setup-end"><button disabled={busy} onClick={() => { setRemoving(null); if (removeError) void refresh(); }}>{removeError ? t('runtime.closeAndRefresh') : t('common.cancel')}</button><button disabled={readOnly||!!error||busy || !!removeError} onClick={() => void remove()}>{busy ? t('runtime.removing') : t('runtime.remove')}</button></div></SettingsDialog>}
-  {switching !== null && <SettingsDialog busy={preparationBusy} title={switching ? (switching === 'caelis' ? t('runtime.manageCaelis') : t('runtime.manageCodex')) : t('runtime.switchRuntime')} description={switching ? undefined : t('runtime.switchRuntimeDescription')} onClose={() => { setSwitching(null); void refresh(); }}>{switching ? preparation(switching, setPreparationBusy, view?.local===true) : <div className="runtime-choices">{['caelis', 'codex'].map(id => <button key={id} onClick={() => setSwitching(id)}><div><strong>{id === 'caelis' ? 'Caelis' : 'Codex'}</strong><span>{id === view?.profile.runtime ? t('runtime.currentInUse') : id === 'caelis' ? t('runtime.caelisOptionDescription') : t('runtime.codexOptionDescription')}</span></div><span aria-hidden="true">→</span></button>)}</div>}</SettingsDialog>}
+  {switching !== null && <SettingsDialog busy={preparationBusy} title={switching ? (switching === 'caelis' ? t('runtime.manageCaelis') : t('runtime.manageCodex')) : t('runtime.switchRuntime')} description={switching ? undefined : t('runtime.switchRuntimeDescription')} onClose={() => { setSwitching(null); setSwitchingPrimary(false); void refresh(); }}>{switching ? preparation(switching, setPreparationBusy, switchingPrimary||view?.local===true) : <div className="runtime-choices">{['caelis', 'codex'].map(id => <button key={id} onClick={() => {setSwitchingPrimary(true);setSwitching(id);}}><div><strong>{id === 'caelis' ? 'Caelis' : 'Codex'}</strong><span>{id === view?.profile.runtime ? t('runtime.currentInUse') : id === 'caelis' ? t('runtime.caelisOptionDescription') : t('runtime.codexOptionDescription')}</span></div><span aria-hidden="true">→</span></button>)}</div>}</SettingsDialog>}
  </section>;
 }

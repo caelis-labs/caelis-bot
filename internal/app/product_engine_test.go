@@ -379,3 +379,71 @@ func TestThinProductUnknownOriginalReceiptFencesNewSendAfterReadyIdleReconnect(t
 		t.Fatal("unknown original was silently replaced", receipt, err)
 	}
 }
+
+func TestRemoteApprovalURLAndOversizedAnswerStayUsable(t *testing.T) {
+	c := newThinClientFixture()
+	c.state.ApprovalTargets = map[string]string{"approval": "target"}
+	c.state.Snapshot.Approvals = []api.Approval{{ID: "approval", Target: "target", Status: "pending", URL: "https://example.com/authorize", Choices: []api.Choice{{ID: "allow"}}}}
+	c.command = func(_ context.Context, command productrpc.Command) (productrpc.Result, error) {
+		return productrpc.Result{ID: command.ID, Outcome: "accepted"}, nil
+	}
+	e, err := newProductEngine(t.TempDir(), thinPairing(), func(backend.ProductPairing) (nativeProductClient, io.Closer, error) {
+		return c, &thinCloserFixture{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = e.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close(context.Background())
+	opened := ""
+	service := backend.NewService(e, nil, nil, func(url string) error { opened = url; return nil }, nil)
+	if err := service.OpenApprovalURL("approval"); err != nil || opened != "https://example.com/authorize" {
+		t.Fatal(opened, err)
+	}
+
+	for _, invalid := range []api.Approval{
+		{ID: "approval", Status: "resolved", URL: "https://example.com/authorize"},
+		{ID: "approval", Status: "pending", URL: "file:///tmp/fixture"},
+		{ID: "approval", Status: "pending", URL: "https://user:password@example.com/authorize"},
+	} {
+		e.mu.Lock()
+		e.state.Snapshot.Approvals = []api.Approval{invalid}
+		e.mu.Unlock()
+		if err := service.OpenApprovalURL("approval"); err == nil {
+			t.Fatal("invalid approval link opened")
+		}
+	}
+	e.mu.Lock()
+	e.state.Snapshot.Approvals = c.state.Snapshot.Approvals
+	e.mu.Unlock()
+	answer := api.Decision{ID: "approval", Choice: "allow", Answers: map[string][]string{"question": {strings.Repeat("x", 16385)}}}
+	if err = e.Decide(t.Context(), answer); err == nil {
+		t.Fatal("oversized answer admitted")
+	}
+	if len(e.receipts.Pending) != 0 || len(c.commands) != 0 {
+		t.Fatal("pre-dispatch rejection left pending intent")
+	}
+	answer.Answers["question"] = []string{"short"}
+	if err = e.Decide(t.Context(), answer); err != nil {
+		t.Fatal("valid answer blocked", err)
+	}
+
+	c.command = func(context.Context, productrpc.Command) (productrpc.Result, error) {
+		return productrpc.Result{}, &productrpc.ProtocolError{Status: 400, Code: "invalid-command"}
+	}
+	if err = e.Decide(t.Context(), answer); err == nil || len(e.receipts.Pending) != 0 {
+		t.Fatal("explicit pre-journal rejection retained pending", err)
+	}
+	c.command = nil
+	if err = e.Decide(t.Context(), answer); err != nil {
+		t.Fatal("pre-journal rejection blocked next decision", err)
+	}
+	e.mu.Lock()
+	e.state.Snapshot.Approvals = nil
+	e.mu.Unlock()
+	if _, err = e.ApprovalURL("approval"); err == nil {
+		t.Fatal("stale approval URL accepted")
+	}
+}

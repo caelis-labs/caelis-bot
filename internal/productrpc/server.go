@@ -266,6 +266,19 @@ func (s *Server) watch(w http.ResponseWriter, r *http.Request, cursor Cursor) {
 	s.state(w, false)
 }
 
+// ValidateCommand is shared by the APP outbox and the server's pre-journal
+// boundary so a locally rejectable request cannot become a durable unknown.
+func ValidateCommand(c Command) error {
+	if !validCommand(c) {
+		return errors.New("invalid product command")
+	}
+	b, err := json.Marshal(c)
+	if err != nil || len(b) > MaxCommandBytes {
+		return errors.New("product command limit")
+	}
+	return nil
+}
+
 func validCommand(c Command) bool {
 	if !identifier.MatchString(c.ID) {
 		return false
@@ -284,7 +297,7 @@ func validCommand(c Command) bool {
 	case "configure-execution":
 		return n == 1 && c.Execution != nil && c.Execution.ID == c.ID && c.Execution.Scope == managementScope(c.Scope) && productmanagement.ValidExecutionCommand(*c.Execution)
 	case "configure-runtime":
-		return n == 1 && c.Configuration != nil && c.Configuration.ID == c.ID && c.Configuration.Scope == managementScope(c.Scope) && validConfiguration(c.Configuration.Change)
+		return n == 1 && c.Configuration != nil && c.Configuration.ID == c.ID && c.Configuration.Scope == managementScope(c.Scope) && productmanagement.ValidConfigurationChange(c.Configuration.Change)
 	case "submit":
 		return n == 1 && c.Submission != nil && c.Submission.ID == c.ID && len(c.Submission.Text) <= 256<<10 && validIDs(c.Submission.FileIDs, 8) && validIDs(c.Submission.ReferenceIDs, 64)
 	case "decide":
@@ -331,7 +344,7 @@ func validDecision(d ApprovalDecision) bool {
 }
 
 func (s *Server) command(w http.ResponseWriter, r *http.Request, command Command) {
-	if !validCommand(command) {
+	if ValidateCommand(command) != nil {
 		problem(w, 400, "invalid-command")
 		return
 	}

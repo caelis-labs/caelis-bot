@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"github.com/caelis-labs/caelis-bot/internal/nodeworker"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/nodeworker"
 )
 
 func testPair() Pair {
@@ -259,4 +260,96 @@ func TestResidentStreamSurvivesMoreThan8192RequestsAndConcurrentWrites(t *testin
 		})
 	}
 	wg.Wait()
+}
+
+type historyWorker struct {
+	lastingWorker
+	states []api.WorkState
+}
+
+func (w historyWorker) WorkStates() []api.WorkState { return w.states }
+func TestWorkerHistoryPagesReconnectBeyond1024Tasks(t *testing.T) {
+	pair := testPair()
+	for _, count := range []int{1024, 1025, 2050} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			runtime := historyWorker{lastingWorker: lastingWorker{pair: pair}}
+			for i := 0; i < count; i++ {
+				status := "completed"
+				if i == count-1 {
+					status = "working"
+				}
+				runtime.states = append(runtime.states, api.WorkState{Target: pair.Target, Task: api.Task{ID: fmt.Sprintf("task-%d", i), Target: &pair.Target, Status: status}})
+			}
+			owner := nodeworker.New(runtime)
+			server, err := NewServer(owner, pair)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				left, right := net.Pipe()
+				done := make(chan error, 1)
+				go func() { done <- server.Serve(t.Context(), right) }()
+				client, err := NewClient(t.Context(), pair, SourceProvider(), left)
+				if err != nil {
+					t.Fatal(err)
+				}
+				states := client.WorkStates()
+				if len(states) != count || states[count-1].Task.Status != "working" {
+					t.Fatal("snapshot lost active/history tasks", len(states))
+				}
+				client.Close()
+				<-done
+			}
+			if len(runtime.states) != count {
+				t.Fatal("projection removed journal history")
+			}
+		})
+	}
+}
+
+func TestPagedStateNeverPublishesIncompleteOrMixedSnapshot(t *testing.T) {
+	for _, broken := range []string{"disconnect", "revision", "sequence"} {
+		t.Run(broken, func(t *testing.T) {
+			left, right := net.Pipe()
+			life, cancel := context.WithCancel(context.Background())
+			c := &Client{stream: left, pair: testPair(), pending: map[uint64]chan frame{}, closed: make(chan struct{}), life: life, cancel: cancel, state: State{Revision: 1, Connection: "ready"}}
+			defer c.Close()
+			defer right.Close()
+			go c.read()
+			first := frame{Version: 1, ID: 1, Pair: testPair(), State: &State{Revision: 2, Connection: "ready", Page: 1, Pages: 2}}
+			if err := writeFrame(right, first); err != nil {
+				t.Fatal(err)
+			}
+			c.mu.Lock()
+			revision := c.state.Revision
+			c.mu.Unlock()
+			if revision != 1 {
+				t.Fatal("partial state was published")
+			}
+			if broken != "disconnect" {
+				last := *first.State
+				last.Page = 2
+				if broken == "revision" {
+					last.Revision = 3
+				} else {
+					last.Page = 1
+				}
+				first.State = &last
+				if err := writeFrame(right, first); err != nil {
+					t.Fatal(err)
+				}
+			}
+			right.Close()
+			select {
+			case <-c.Done():
+			case <-time.After(time.Second):
+				t.Fatal("invalid stream remained open")
+			}
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			if c.state.Revision != 1 {
+				t.Fatal("incoherent snapshot replaced original state")
+			}
+		})
+	}
 }

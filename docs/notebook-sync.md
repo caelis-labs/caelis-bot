@@ -70,6 +70,8 @@ Private local settings are `nodeplane/notebook-settings.json`. The backup and
 original switch intent are `nodeplane/notebook-sync.json`. These are native
 records, not files transferred by rsync. An uncertain action keeps its original
 switch ID and non-ready phase; no new stop or start is dispatched to retry it.
+An admission rejection proven to precede stop dispatch restores `ready`; busy
+work can finish and the user can try again without retiring the source.
 
 The native one-shot `caelis-node notebook-owner --directory <enrolled directory>
 --node-id <exact enrolled ID>` command accepts a closed JSON request through the
@@ -228,8 +230,10 @@ A lost response must use `/v1/receipt` with the original ID, then re-read the
 relevant current state; replay never dispatches again. Stored receipts do not
 cache current node/Worker/Notebook views. Node configuration uses the native
 `nodeplane` semantic validator and length-prefixed digest. Copy the exact opaque
-`guard.revision` into `change.expectedRevision`; Codex may return a 64-character
-SHA256 revision. Both `conversation-model` and `worker-model` are supported. Native enrollment/configuration unknown
+`configuration.revision` into `change.expectedRevision` and preserve the separate
+`guard.revision` unchanged. The guard binds the selected machine, program and Store;
+the configuration revision is the backend CAS token (decimal for Caelis and an
+opaque SHA256 value for Codex). Both `conversation-model` and `worker-model` are supported. Native enrollment/configuration unknown
 outcomes use the original `enrollment`/`operation` lookup, not another command ID.
 
 After a confirmed headless source switch, official `stop-bot` closes that already

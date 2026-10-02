@@ -426,3 +426,42 @@ func TestRemoteContinuationAtCapacityReconcilesPersistedAuthorization(t *testing
 		t.Fatal("new continuation ignored capacity")
 	}
 }
+
+func TestNewProviderIgnoresExactRemoteHistoricalTask(t *testing.T) {
+	m, _, remote, _, _, target := routedFixture(t)
+	in := input("old-runtime-work")
+	in.Target = &target
+	original, err := m.StartTask(t.Context(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote.complete(original.ID)
+	if err = m.refresh(); err != nil {
+		t.Fatal(err)
+	}
+	local := newRuntime()
+	router, err := nodes.New("caelis", local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = router.Set(nodes.Node{ID: target.NodeID, Label: "Linux A", OS: "linux"}, nodes.Capability{Target: target, State: nodes.Ready}, remote); err != nil {
+		t.Fatal(err)
+	}
+	source := &sourceFixture{source: api.WorkDispatchSource{NodeID: api.LocalNodeID, Backend: "caelis", Kind: "native_activation", BindingID: "new-resident", OperationID: "new-turn"}}
+	next, err := OpenRouted(remote.ledger, m.root, "caelis", local, local, local.Snapshot, router, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = next.StartTask(t.Context(), input("new-local-task")); err != nil {
+		t.Fatal("old remote history blocked new local work", err)
+	}
+	if next.state.Records[original.ID].Provider != "codex" {
+		t.Fatal("history was adopted by new provider")
+	}
+	changed := remote.states[original.ID]
+	changed.Task.Workspace = "/another/workspace"
+	remote.states[original.ID] = changed
+	if err = next.refresh(); err == nil {
+		t.Fatal("actual historical target conflict was hidden")
+	}
+}

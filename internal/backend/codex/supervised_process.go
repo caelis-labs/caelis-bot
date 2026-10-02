@@ -356,7 +356,7 @@ func RunSupervisedRuntimeWithPower(ctx context.Context, control *os.File, bindPo
 	if err = cmd.Start(); err != nil {
 		return errors.New("owned watchdog native process unavailable")
 	}
-	tools := newOwnedTools(cmd.Process.Pid)
+	tools := newWatchdogTools(cmd.Process.Pid)
 	tools.capture()
 	exited := make(chan struct{})
 	var waitOnce sync.Once

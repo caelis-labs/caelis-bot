@@ -3,15 +3,18 @@ package app
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/nodeagent"
 	"github.com/caelis-labs/caelis-bot/internal/nodeplane"
 	"github.com/caelis-labs/caelis-bot/internal/productrpc"
 )
@@ -287,5 +290,65 @@ func TestThinNodeManagementLocalModelsNeverUseRemoteBotBackend(t *testing.T) {
 	}
 	if remote.remoteCalls.Load() != 0 {
 		t.Fatal("reading paired native binding queried remote execution", remote.remoteCalls.Load())
+	}
+}
+
+func TestNativeNodeReconnectsTerminalStreamAndQueriesOriginalReceipt(t *testing.T) {
+	remote := singleNodeFixture("remote")
+	remote.catalog.Revision = strings.Repeat("a", 64)
+	registration := NodeRegistration{ID: "remote", Label: "Remote", Join: api.NodeSSH, SSHDestination: "enrolled-alias", Directory: "/fixture", HelperPath: "/fixture/helper"}
+	n := &nativeNodeManagement{ownerCtx: t.Context(), document: nodeManagementDocument{Nodes: []NodeRegistration{registration}}, clients: map[string]nodeplane.CatalogAgent{}}
+	var streams []net.Conn
+	var clients []*nodeagent.Client
+	dials := 0
+	n.options.Dial = func(ctx context.Context, r NodeRegistration) (nodeplane.CatalogAgent, error) {
+		if r != registration {
+			t.Fatal("reconnect changed enrolled destination")
+		}
+		dials++
+		local, peer := net.Pipe()
+		streams = append(streams, peer)
+		go func() {
+			_ = productrpc.ServeNativeStream(ctx, peer, peer, nodeagent.Handler(remote), func(method, path string) bool {
+				return method == "GET" && path == "/v1/node/catalog" || method == "POST" && (path == "/v1/node/manage" || path == "/v1/node/receipt")
+			})
+		}()
+		c, err := nodeagent.NewClient(r.ID, local)
+		if err != nil {
+			return nil, err
+		}
+		clients = append(clients, c)
+		return c, nil
+	}
+	defer func() {
+		for _, c := range clients {
+			_ = c.Close()
+		}
+		for _, s := range streams {
+			_ = s.Close()
+		}
+	}()
+	if _, err := n.Detect(t.Context(), "remote"); err != nil {
+		t.Fatal(err)
+	}
+	intent := nodeIntent(t, "remote", "original")
+	if _, err := clients[0].Manage(t.Context(), intent); err == nil {
+		t.Fatal("fixture should lose original response")
+	}
+	_ = streams[0].Close()
+	select {
+	case <-clients[0].Done():
+	case <-time.After(time.Second):
+		t.Fatal("EOF not terminal")
+	}
+	if _, err := n.Detect(t.Context(), "remote"); err != nil {
+		t.Fatal("Detect reused dead stream", err)
+	}
+	receipt, err := n.Reconcile(t.Context(), intent.Ref)
+	if err != nil || receipt.Ref != intent.Ref || receipt.Outcome != api.NodeCommitted || dials != 2 {
+		t.Fatal(receipt, err, dials)
+	}
+	if remote.manageCalls != 1 || remote.reconcileCalls != 1 {
+		t.Fatal("reconnect redispatched mutation", remote.manageCalls, remote.reconcileCalls)
 	}
 }
