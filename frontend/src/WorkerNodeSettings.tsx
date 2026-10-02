@@ -28,6 +28,7 @@ export function WorkerNodeSettings({catalog:provided,call=backend}:{catalog?:Nod
  // validates its exact binding. Healthy account metadata permits that attempt;
  // only the native connection result may mark the Worker ready.
  const canConnect=eligible||selectedRuntime?.backend==='codex'&&selectedRuntime.authentication==='authenticated'&&selectedRuntime.health==='healthy'&&selectedRuntime.roles.some(role=>role.role==='worker'&&role.reason==='runtime-owner-unavailable');
+ const connected=!!setup?.nodes.some(node=>node.connected&&node.config.id===selected?.id&&node.config.backend===selectedRuntime?.backend);
  const connectionHint:MessageKey=canConnect?'settings.workerNodeCandidate':selectedRuntime?.authentication==='required'?'settings.workerNodeAuthSetup':'settings.workerNodeUnavailable';
  const action=async(method:WorkerTargetAction,config:WorkerNodeConfig)=>{
   if(pending.current||!setup)return;
@@ -63,7 +64,7 @@ export function WorkerNodeSettings({catalog:provided,call=backend}:{catalog?:Nod
   {machines.length>0?<div className="worker-enrolled-form">
    <SettingRow label={t('settings.workerNodeLocation')} htmlFor="worker-node-location"><select id="worker-node-location" value={selected?.id??''} disabled={!editable} onChange={event=>{setNodeID(event.target.value);setRuntime('codex');}}>{machines.map(node=><option key={node.id} value={node.id}>{node.label}</option>)}</select></SettingRow>
    <SettingRow label={t('settings.workerNodeBackend')} htmlFor="worker-node-backend"><select id="worker-node-backend" value={selectedRuntime?.backend??''} disabled={!editable} onChange={event=>setRuntime(event.target.value)}>{selected?.runtimes.map(value=><option key={value.backend} value={value.backend}>{value.backend==='codex'?'Codex':'Caelis'}</option>)}</select></SettingRow>
-   <div className="settings-footer"><span className="settings-note">{!eligible&&t(connectionHint)}</span><button disabled={!editable||!canConnect||setup?.nodes.some(node=>node.connected&&node.config.id===selected?.id&&node.config.backend===selectedRuntime?.backend)} onClick={()=>void connect()}>{t('settings.workerNodeConnect')}</button></div>
+   <div className="settings-footer"><span className="settings-note">{!eligible&&!connected&&t(connectionHint)}</span><button disabled={!editable||!canConnect||connected} onClick={()=>void connect()}>{t('settings.workerNodeConnect')}</button></div>
   </div>:<p className="settings-note">{t('settings.workerRegisteredEmpty')}</p>}
   {setup?.issue&&<p role="alert" className="inline-error">{t('settings.workerNodeConfigUnreadable')}</p>}
   {(error||busy)&&<p className={error?'inline-error':'settings-note'} role={error?'alert':'status'}>{t(error||'settings.workerNodeWorking')}</p>}

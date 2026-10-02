@@ -1024,6 +1024,10 @@ test('first SSH Codex connection does not require an already bound Worker role',
  assert.equal(buttons('Disconnect').length,0,'metadata cannot claim a connected Worker');
  await act(async()=>connection.resolve({...setup,revision:6,nodes:setup.nodes.map(node=>({...node,connected:true,state:'ready'}))}));
  assert.equal(buttons('Disconnect').length,1);
+ assert.equal(container.querySelector('.settings-footer .settings-note').textContent,'','connected exact target must not retain preparation hint');
+ await act(async()=>root.render(React.createElement(WorkerNodeSettings,{catalog:{...nodes,nodes:[nodes.nodes[0],{...nodes.nodes[1],id:'candidate'}]},call})));
+ assert.notEqual(container.querySelector('.settings-footer .settings-note').textContent,'','another candidate retains its own preparation hint');
+ assert.equal(buttons('Connect Worker').at(-1).disabled,false);
  for(const change of [{authentication:'required'},{authentication:'unknown'},{health:'unavailable'},{backend:'caelis'},{roles:[{role:'worker',eligible:false,reason:'unsupported-platform'}]}]){
   await act(async()=>root.render(React.createElement(WorkerNodeSettings,{catalog:{...nodes,nodes:[nodes.nodes[0],{...nodes.nodes[1],id:'candidate',runtimes:[{...candidate,...change}]}]},call})));
   assert.equal(buttons('Connect Worker').at(-1).disabled,true,JSON.stringify(change));
