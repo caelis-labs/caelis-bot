@@ -252,6 +252,7 @@
   "notebookAddNode": "Add an existing SSH node to choose a backup.",
   "notebookRestart": "Latest Notebook copied and the previous Bot stopped. Restart the app to start the selected fresh conversation. Backup direction follows the active Bot automatically.",
   "notebookSwitchUnconfirmed": "The switch is unconfirmed. Check the original node owner before starting another Bot. Do not repeat the switch.",
+  "notebookSwitchBlocked": "The switch was blocked before stopping the Bot. Finish current work and check the target Runtime before trying again.",
   "notebookActionFailed": "Notebook backup could not complete. Check the selected node and its existing Runtime; original files remain intact.",
   "notebookUnavailable": "Notebook backup settings are unavailable.",
   "notebookSaved": "Backup settings saved.",

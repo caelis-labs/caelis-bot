@@ -8,6 +8,7 @@ export function NotebookSyncSettings({catalog,call=backend,host=desktop,active=t
  const {t}=useI18n();
  const [settings,setSettings]=useState<NotebookSyncPreferences|null>(null),[state,setState]=useState<NotebookSyncState|null>(null);
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[saved,setSaved]=useState(false),[switching,setSwitching]=useState('');
+ const [unconfirmedSwitch,setUnconfirmedSwitch]=useState(false);
  const [dirty,setDirty]=useState(false);
  const source=catalog.activeBotNodeId||'local';
  const candidates=catalog.nodes.filter(node=>(node.join==='ssh'||node.join==='local')&&node.id!==source);
@@ -25,18 +26,30 @@ export function NotebookSyncSettings({catalog,call=backend,host=desktop,active=t
  const edit=(next:NotebookSyncPreferences)=>{setSettings(next);setDirty(true);setSaved(false);};
  const action=async(kind:'save'|'sync'|'switch',id='')=>{
   if(busy||!settings)return;setBusy(true);setError('');setSaved(false);
+  const previousOperation=state?.targets.find(target=>target.nodeId===id)?.operationId;
   try {
    if(kind==='save') {
     const preferences=await call<NotebookSyncPreferences>('SaveNotebookSyncSettings',settings);setSettings(preferences);setDirty(false);setSaved(true);
    } else { await call<NotebookSyncState>(kind==='sync'?'SyncNotebook':'SwitchNotebookNode',id);setSwitching(''); }
    const next=await call<NotebookSyncState>('NotebookSyncState');setState(next);
    if(kind==='switch'&&next.targets.some(target=>target.phase==='switched'||target.phase==='restart-required'))await host('RestartForRuntime');
-  } catch { setError(t(kind==='switch'?'runtime.notebookSwitchUnconfirmed':'runtime.notebookActionFailed'));try{setState(await call<NotebookSyncState>('NotebookSyncState'));}catch{} }
+  } catch {
+   let blocked=false;
+   try {
+    const next=await call<NotebookSyncState>('NotebookSyncState');setState(next);
+    const target=next.targets.find(target=>target.nodeId===id);
+    // Only this attempt's confirmed pre-stop return to ready permits retry.
+    // A stale ready observation cannot resolve a lost switch response.
+    blocked=next.sourceNodeId===source&&target?.phase==='ready'&&!!target.operationId&&target.operationId!==previousOperation;
+   } catch {/* Preserve uncertainty if the original outcome cannot be read. */}
+   if(kind==='switch')setUnconfirmedSwitch(!blocked);
+   setError(t(kind==='switch'?(blocked?'runtime.notebookSwitchBlocked':'runtime.notebookSwitchUnconfirmed'):'runtime.notebookActionFailed'));
+  }
   finally { setBusy(false); }
  };
  const pending=state?.targets.some(target=>target.phase!=='ready');
  const moved=state?.targets.some(target=>(target.phase==='switched'||target.phase==='restart-required')&&target.nodeId!==source);
- const locked=!!pending&&state?.sourceNodeId===source;
+ const locked=unconfirmedSwitch||!!pending&&state?.sourceNodeId===source;
  return <details className="runtime-advanced notebook-sync-settings"><summary>{t('runtime.notebookTitle')}</summary>
   <p className="settings-note">{t('runtime.notebookDescription')}</p>
   {settings&&<>
@@ -59,7 +72,7 @@ export function NotebookSyncSettings({catalog,call=backend,host=desktop,active=t
    <button disabled={busy||locked||settings.enabled&&(!settings.targets.length||!Number.isInteger(settings.intervalMinutes)||settings.intervalMinutes<1||settings.intervalMinutes>1440)} onClick={()=>void action('save')}>{busy?t('runtime.saving'):t('common.save')}</button>
    {saved&&<p role="status" className="settings-note">{t('runtime.notebookSaved')}</p>}
   </>}
-  {error&&<p role="alert" className="inline-error">{error}</p>}
-  {switching&&<SettingsDialog title={t('runtime.notebookSwitchTitle',{name:name(switching)})} busy={busy} onClose={()=>setSwitching('')}><p className="settings-note">{t('runtime.notebookSwitchDescription')}</p><div className="setup-end"><button disabled={busy} onClick={()=>setSwitching('')}>{t('common.cancel')}</button><button disabled={busy} onClick={()=>void action('switch',switching)}>{t('runtime.notebookSwitch')}</button></div></SettingsDialog>}
+  {error&&!switching&&<p role="alert" className="inline-error">{error}</p>}
+  {switching&&<SettingsDialog title={t('runtime.notebookSwitchTitle',{name:name(switching)})} busy={busy} onClose={()=>setSwitching('')}><p className="settings-note">{t('runtime.notebookSwitchDescription')}</p>{error&&<p role="alert" className="inline-error">{error}</p>}<div className="setup-end"><button disabled={busy} onClick={()=>setSwitching('')}>{t('common.cancel')}</button><button disabled={busy||locked} onClick={()=>void action('switch',switching)}>{t('runtime.notebookSwitch')}</button></div></SettingsDialog>}
  </details>;
 }

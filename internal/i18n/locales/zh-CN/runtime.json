@@ -251,6 +251,7 @@
   "notebookAddNode": "添加现有 SSH 节点后可选择备份。",
   "notebookRestart": "最新 Notebook 已复制，原 Bot 已停止。重启 APP 进入所选节点的新会话；备份来源会自动跟随当前 Bot。",
   "notebookSwitchUnconfirmed": "换机尚未确认。启动另一个 Bot 前请检查原节点的 owner，不要重复切换。",
+  "notebookSwitchBlocked": "切换在停止 Bot 前被阻止。请先完成当前工作并检查目标 Runtime，再重试。",
   "notebookActionFailed": "Notebook 备份未完成。请检查所选节点及现有 Runtime，原文件仍保留。",
   "notebookUnavailable": "Notebook 备份设置暂不可用。",
   "notebookSaved": "备份设置已保存。",
