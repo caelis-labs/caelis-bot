@@ -6,6 +6,14 @@ configuration and authentication. The default APP + local Runtime needs no SSH,
 broker, node daemon or background deployment. No automatic failover, session
 migration or snapshot protocol is involved.
 
+Remote copies read the local rsync implementation once per sync. Openrsync and
+rsync 2 retain quoted remote-shell paths; rsync 3 uses `-s` with literal filenames
+sent through its protocol, including the final handoff. Rsync pattern characters
+are escaped so a similarly named sibling cannot replace the original profile.
+This protected mode also
+requires rsync 3 or later on the SSH peer. Unsupported versions fail without an
+old-argument/trust-sender fallback; paths never become shell commands.
+
 ## Product entry points
 
 1. Open **Settings → Runtime and models**. Add an existing SSH node, then detect

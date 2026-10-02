@@ -2,6 +2,7 @@ package nodeagent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,11 +69,19 @@ func TestNotebookSSHProxyJumpUsesOriginalAliasForRsync(t *testing.T) {
 			t.Fatal("Notebook replaced native alias namespace")
 		}
 	}
-	source, target := filepath.Join(root, "source"), filepath.Join(root, "target")
+	source, target := filepath.Join(root, "source profile"), filepath.Join(root, "target 'quoted' [literal] profile")
 	for _, profile := range []string{source, target} {
 		if err = os.MkdirAll(filepath.Join(profile, "Notebook"), 0700); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// A glob-like path must not select this unrelated sibling during final readback.
+	unrelated := filepath.Join(root, "target 'quoted' l profile", "Notebook")
+	if err = os.MkdirAll(unrelated, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(unrelated, "must-not-copy.md"), []byte("unrelated fixture"), 0600); err != nil {
+		t.Fatal(err)
 	}
 	for name, value := range map[string]string{"MEMORY.md": "fixture ordinary memory\n", "note.md": "fixture portable bytes\n"} {
 		if err = os.WriteFile(filepath.Join(source, "Notebook", name), []byte(value), 0600); err != nil {
@@ -95,7 +104,11 @@ func TestNotebookSSHProxyJumpUsesOriginalAliasForRsync(t *testing.T) {
 			}
 		}
 		cmd := exec.CommandContext(ctx, binary, args...)
-		return cmd.Run()
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("contained fixture command failed: %w: %s", err, output)
+		}
+		return nil
 	}
 	if err = (notebooksync.Rsync{Binary: rsync, Run: runner}).Sync(t.Context(), notebooksync.Endpoint{Profile: source}, notebooksync.Endpoint{Profile: target, Target: "fixture-notebook", Shell: shell}, "proxyjump-fixture", false, nil); err != nil {
 		t.Fatal("actual contained rsync", err)
@@ -111,6 +124,17 @@ func TestNotebookSSHProxyJumpUsesOriginalAliasForRsync(t *testing.T) {
 	if err != nil || !strings.Contains(string(invocation), "fixture-notebook\nrsync\n--server\n") {
 		t.Fatal("rsync did not use original enrolled alias", err)
 	}
+
+	// The final host-confirmed handoff uses the same filename mode as backups.
+	handoff := []byte("<!-- caelis-dream: completed -->\nContained fixture handoff.\n")
+	if err = (notebooksync.Rsync{Binary: rsync, Run: runner}).Sync(t.Context(), notebooksync.Endpoint{Profile: source}, notebooksync.Endpoint{Profile: target, Target: "fixture-notebook", Shell: shell}, "proxyjump-final-fixture", true, handoff); err != nil {
+		t.Fatal("actual contained final handoff", err)
+	}
+	b, err = os.ReadFile(filepath.Join(target, "Notebook", "HANDOFF.md"))
+	if err != nil || string(b) != string(handoff) {
+		t.Fatal("final handoff bytes missing", err)
+	}
+
 	// Check the hop's own independent native Host block, without connecting.
 	hop, err := exec.CommandContext(t.Context(), ssh, "-F", config, "-T", "-G", "fixture-hop").Output()
 	if err != nil || !strings.Contains(string(hop), "hostname jump.invalid\n") || !strings.Contains(string(hop), "port 2222\n") {

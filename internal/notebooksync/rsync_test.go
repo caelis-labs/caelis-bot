@@ -131,7 +131,7 @@ func TestRemotePathsAreQuotedAndUseProvidedSSH(t *testing.T) {
 	put(t, src, "MEMORY.md", "memory")
 	remote := Endpoint{Profile: "/srv/APP profile", Target: "existing-node", Shell: []string{"ssh", "-F", "/tmp/existing config", "-o", "BatchMode=yes"}}
 	rsyncCalls := 0
-	r := Rsync{Run: func(_ context.Context, b string, args ...string) error {
+	r := Rsync{Version: func(context.Context, string) ([]byte, error) { return []byte("openrsync: protocol version 29"), nil }, Run: func(_ context.Context, b string, args ...string) error {
 		if b == "ssh" {
 			if args[len(args)-2] != "existing-node" || !strings.Contains(args[len(args)-1], "'/srv/APP profile/Notebook'") {
 				t.Fatal("remote inspection not quoted")
@@ -164,5 +164,68 @@ func TestRemotePathsAreQuotedAndUseProvidedSSH(t *testing.T) {
 	}
 	if err := r.Sync(t.Context(), remote, remote2, "remote", false, nil); err != nil || rsyncCalls != 2 {
 		t.Fatalf("relay: %v calls=%d", err, rsyncCalls)
+	}
+}
+
+func TestRemoteArgumentModesPreserveRoutesAndFinalHandoff(t *testing.T) {
+	for _, tc := range []struct {
+		name, version string
+		secluded      bool
+	}{
+		{"openrsync", "openrsync: protocol version 29", false},
+		{"rsync2", "rsync  version 2.6.9  protocol version 29", false},
+		{"rsync3", "rsync  version 3.4.1  protocol version 32", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := profile(t)
+			put(t, src, "MEMORY.md", "fixture memory")
+			remote := Endpoint{Profile: "/srv/APP 'quoted' [literal] profile", Target: "exact-alias", Shell: []string{"ssh", "-o", "BatchMode=yes"}}
+			copies, handoffs := 0, 0
+			r := Rsync{Version: func(context.Context, string) ([]byte, error) { return []byte(tc.version), nil }, Run: func(_ context.Context, binary string, args ...string) error {
+				if binary == "ssh" {
+					return nil
+				}
+				joined := strings.Join(args, " ")
+				if strings.Contains(joined, "--delete") || strings.Contains(joined, "--old-args") || strings.Contains(joined, "--trust-sender") {
+					t.Fatal("transfer safety weakened")
+				}
+				last := args[len(args)-1]
+				if strings.HasPrefix(last, "exact-alias:") {
+					copies++
+					hasSecluded := false
+					for _, arg := range args {
+						hasSecluded = hasSecluded || arg == "-s"
+					}
+					path := "/srv/APP 'quoted' \\[literal\\] profile/Notebook/"
+					if !tc.secluded {
+						path = quote(remote.Profile + "/Notebook/")
+					}
+					if hasSecluded != tc.secluded || last != "exact-alias:"+path || !strings.Contains(joined, "'ssh' '-o' 'BatchMode=yes'") {
+						t.Fatalf("wrong mode/route/path: %q", args)
+					}
+					if strings.Contains(joined, "--ignore-existing") {
+						handoffs++
+					}
+				}
+				return nil
+			}}
+			if err := r.Sync(t.Context(), Endpoint{Profile: src}, remote, "mode-fixture", true, []byte("<!-- caelis-dream: completed -->\nFixture handoff.\n")); err != nil {
+				t.Fatal(err)
+			}
+			if copies != 2 || handoffs != 1 {
+				t.Fatalf("remote copy/handoff coverage: %d/%d", copies, handoffs)
+			}
+		})
+	}
+}
+func TestUnknownRemoteArgumentModeFailsBeforeTransfer(t *testing.T) {
+	src := profile(t)
+	put(t, src, "MEMORY.md", "fixture")
+	for _, failure := range []error{nil, errors.New("fixture probe failure")} {
+		calls := 0
+		r := Rsync{Version: func(context.Context, string) ([]byte, error) { return []byte("unknown implementation"), failure }, Run: func(context.Context, string, ...string) error { calls++; return nil }}
+		if err := r.Sync(t.Context(), Endpoint{Profile: src}, Endpoint{Profile: "/srv/backup", Target: "exact-alias", Shell: []string{"ssh"}}, "unknown", false, nil); err == nil || calls != 0 {
+			t.Fatalf("unconfirmed argument mode transferred files: calls=%d err=%v", calls, err)
+		}
 	}
 }

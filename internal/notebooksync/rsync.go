@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -25,8 +26,10 @@ type Endpoint struct {
 type Runner func(context.Context, string, ...string) error
 
 type Rsync struct {
-	Binary string
-	Run    Runner
+	Binary       string
+	Run          Runner
+	Version      func(context.Context, string) ([]byte, error)
+	secludedArgs bool
 }
 
 var targetPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9@._:-]{0,253}$`)
@@ -48,6 +51,49 @@ func (e Endpoint) notebook() (string, error) {
 	}
 	return filepath.Join(e.Profile, "Notebook"), nil
 }
+
+// Modern rsync passes secluded filenames through its protocol, so shell quotes
+// must not become literal path bytes. Openrsync/rsync 2 retain shell quoting.
+func (r Rsync) remoteArgumentMode(ctx context.Context) (bool, error) {
+	binary := r.Binary
+	if binary == "" {
+		binary = "rsync"
+	}
+	read := r.Version
+	if read == nil {
+		read = func(ctx context.Context, binary string) ([]byte, error) {
+			return exec.CommandContext(ctx, binary, "--version").Output()
+		}
+	}
+	output, err := read(ctx, binary)
+	if err != nil {
+		return false, errors.New("Notebook rsync version unavailable")
+	}
+	text := string(output)
+	if strings.HasPrefix(text, "openrsync:") {
+		return false, nil
+	}
+	version := regexp.MustCompile(`(?m)^rsync\s+version\s+([0-9]+)\.`).FindStringSubmatch(text)
+	if len(version) != 2 {
+		return false, errors.New("Notebook rsync argument mode unavailable")
+	}
+	major, err := strconv.Atoi(version[1])
+	if err != nil || major < 2 {
+		return false, errors.New("Notebook rsync argument mode unavailable")
+	}
+	return major >= 3, nil
+}
+func (r Rsync) remotePath(target, path string) string {
+	if r.secludedArgs {
+		// Secluded arguments bypass the shell but rsync still expands patterns.
+		// Escape its pattern syntax so only the original profile can be selected.
+		path = strings.NewReplacer("\\", "\\\\", "*", "\\*", "?", "\\?", "[", "\\[", "]", "\\]").Replace(path)
+	} else {
+		path = quote(path)
+	}
+	return target + ":" + path
+}
+
 func command(ctx context.Context, binary string, args ...string) error {
 	c := exec.CommandContext(ctx, binary, args...)
 	c.Stdout, c.Stderr = io.Discard, io.Discard
@@ -153,14 +199,17 @@ func (r Rsync) copy(ctx context.Context, from, to Endpoint, fromDir, toDir, atte
 		remote = to
 	}
 	if remote.Target != "" {
+		if r.secludedArgs {
+			args = append(args, "-s")
+		}
 		args = append(args, "-e", shell(remote.Shell))
 	}
 	src, dst := fromDir+"/", toDir+"/"
 	if from.Target != "" {
-		src = from.Target + ":" + quote(src)
+		src = r.remotePath(from.Target, src)
 	}
 	if to.Target != "" {
-		dst = to.Target + ":" + quote(dst)
+		dst = r.remotePath(to.Target, dst)
 	}
 	binary := r.Binary
 	if binary == "" {
@@ -196,6 +245,12 @@ func (r Rsync) Sync(ctx context.Context, source, destination Endpoint, attempt s
 	dst, err := destination.notebook()
 	if err != nil {
 		return err
+	}
+	if source.Target != "" || destination.Target != "" {
+		r.secludedArgs, err = r.remoteArgumentMode(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	if src == dst && source.Target == destination.Target {
 		return errors.New("source and backup must differ")
@@ -264,8 +319,11 @@ func (r Rsync) Sync(ctx context.Context, source, destination Endpoint, attempt s
 		args := []string{"-rt", "--ignore-existing", "--no-links"}
 		target := dst + "/"
 		if destination.Target != "" {
+			if r.secludedArgs {
+				args = append(args, "-s")
+			}
 			args = append(args, "-e", shell(destination.Shell))
-			target = destination.Target + ":" + quote(target)
+			target = r.remotePath(destination.Target, target)
 		}
 		if err = r.run(ctx, binary, append(args, "--", filepath.Join(stage, "HANDOFF.md"), target)...); err != nil {
 			return errors.New("final handoff transfer failed")
