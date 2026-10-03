@@ -51,7 +51,7 @@ body[data-surface="history"] { background:var(--bg); }
 .portrait-avatar { position:relative; flex-basis:40px; width:40px; height:40px; border-radius:50%; overflow:hidden; background:#eef1e9; }
 .portrait-avatar img,.portrait-avatar canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
 .portrait-avatar:has(canvas[data-ready="true"]) img { visibility:hidden; }
-.message-row:has(.portrait-avatar)>.message.assistant { max-width:calc(100% - 50px); }
+.message-row:has(.portrait-avatar)>.message.assistant { min-height:40px; max-width:calc(100% - 50px); }
 .working-message { align-items:center; }
 .message.assistant.working-indicator { min-height:40px; padding:10px 16px; display:flex; align-items:center; gap:10px; }
 .loading-dots { display:flex; align-items:center; gap:5px; height:18px; }
@@ -66,7 +66,7 @@ body[data-surface="history"] { background:var(--bg); }
 .message p { white-space:pre-wrap; margin:0; }
 .message.user,.message.assistant { width:fit-content; max-width:87%; padding:10px 44px 10px 15px; }
 .message.user { margin-left:auto; border-radius:18px 18px 5px 18px; background:var(--wash); }
-.message.assistant { max-width:calc(100% - 42px); margin-right:auto; border-radius:5px 18px 18px 18px; background:var(--surface); border:1px solid var(--line); }
+.message.assistant { min-height:40px; max-width:calc(100% - 42px); margin-right:auto; border-radius:5px 18px 18px 18px; background:var(--surface); border:1px solid var(--line); }
 .message.assistant.state-bubble { padding:14px 18px; }
 .message.assistant.approval-bubble { width:480px; }
 .state-bubble .approval,.state-bubble .connection-card { margin:0; padding:0; }
@@ -386,3 +386,6 @@ summary { cursor:pointer; }
 .dream-indicator{color:var(--muted);font-style:normal}
 @keyframes dream-breathe{0%,100%{opacity:.65;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
 @media(prefers-reduced-motion:reduce){.pet-dream{animation:none}}
+
+/* Delivery status lives below the pill; acknowledgement does not resize it. */
+.message.user .outgoing-status{position:absolute;top:calc(100% + 3px);right:4px;max-width:100%;font-size:10px;line-height:16px;color:var(--muted)}

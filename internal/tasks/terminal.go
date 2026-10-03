@@ -27,7 +27,7 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 	for id, r := range m.state.Records {
 		state, current := latest[id]
 		newRun := current && ((r.Execution != "" && state.ExecutionKey != "" && state.ExecutionKey != r.Execution) || (terminal(r.View.Status) && !terminal(state.Task.Status)))
-		if r.Provider != m.provider || (!newRun && (r.Pinned == nil || !*r.Pinned)) {
+		if !m.owns(r) || (!newRun && (r.Pinned == nil || !*r.Pinned)) {
 			continue
 		}
 		prompt := r.OriginalPrompt
@@ -38,7 +38,11 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 		if current {
 			status = state.Task.Status
 		}
-		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: r.Provider, Locked: r.Locked})
+		provider := r.Runtime
+		if provider == "" {
+			provider = r.Provider
+		}
+		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: provider, Locked: r.Locked, TargetLabel: firstMachineLabel(state.Task.MachineName, r.View.MachineName)})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
@@ -76,4 +80,11 @@ func (m *Manager) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 		return api.TerminalTarget{}, errors.New(m.text("host.runtimeNoTerminalObservation"))
 	}
 	return p.WorkTerminal(ctx, id)
+}
+
+func firstMachineLabel(current, retained string) string {
+	if current != "" {
+		return current
+	}
+	return retained
 }

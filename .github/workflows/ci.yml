@@ -36,7 +36,7 @@ jobs:
       - name: Check desktop authority, receipts and projection races
         run: |
           source script/env.sh
-          go test -race ./internal/desktopcontrol ./internal/bot ./internal/backend/caelis ./internal/backend/codex
+          go test -race ./internal/desktopcontrol ./internal/bot ./internal/backend/caelis ./internal/backend/codex ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal
       - run: npm run smoke:assets
       - name: Build independent Dev app with Desktop World
         run: make build
@@ -57,3 +57,20 @@ jobs:
             dist/releases/Caelis-Bot-Dev-*.dmg.sha256
           if-no-files-found: error
           retention-days: 7
+  linux-headless:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check native remote ownership and recovery races
+        run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal ./cmd/caelis-remote
+      - name: Build Linux amd64 and arm64 helpers
+        run: bash script/build-remote-helper.sh "$PWD/.cache/ci-remote-helper"

@@ -1,3 +1,4 @@
+import {SettingsChevron} from './SettingsIcons';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {desktop} from './desktop';
 import {useI18n} from './i18n';
@@ -74,14 +75,14 @@ export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?
    <div className="permission-list">
     {state.permissions.filter(p=>p.id==='accessibility'||p.id==='screenCapture'||p.id==='notifications').map(permissionRow)}
    </div>
-   {!onDone&&<details className="permission-more"><summary>{t('settings.morePermissions')}</summary><div className="permission-list">{state.permissions.filter(p=>p.id==='automation').map(permissionRow)}</div></details>}
+   {!onDone&&<details className="permission-more"><summary><SettingsChevron/>{t('settings.morePermissions')}</summary><div className="permission-list">{state.permissions.filter(p=>p.id==='automation').map(permissionRow)}</div></details>}
    <p className="permission-system-note">{t('settings.permissionSwitchHelp')}</p>
    <section className="permission-privacy" aria-labelledby="permission-privacy-title">
     <h2 id="permission-privacy-title">{t('settings.permissionPrivacyTitle')}</h2>
     <p>{t('settings.permissionPrivacyBody')}</p>
    </section>
    {!onDone&&<details className="permission-repair">
-    <summary>{t('settings.permissionRepairTitle')}</summary>
+    <summary><SettingsChevron/>{t('settings.permissionRepairTitle')}</summary>
     <p className="settings-note">{t('settings.permissionMissingApp')}</p>
     <div className="permission-app-path"><code>{state.appPath}</code><button disabled={!!busy} onClick={()=>void perform('reveal',()=>call('RevealPermissionApp'))}>{t('settings.permissionReveal')}</button></div>
     <p className="settings-note">{t('settings.permissionRepairHelp')}</p>

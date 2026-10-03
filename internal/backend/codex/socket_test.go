@@ -115,3 +115,23 @@ func TestExistingServerNeedsNoCLIAndCloseDoesNotStopServer(t *testing.T) {
 		t.Fatal("interrupt recycled an existing server connection")
 	}
 }
+
+func TestRequiredOriginalSocketNeverStartsReplacement(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "cb-original-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	marker := filepath.Join(dir, "replacement")
+	binary := filepath.Join(dir, "codex")
+	if err = os.WriteFile(binary, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Start(testContext(t), Options{Binary: binary, Socket: filepath.Join(dir, "absent.sock"), RequiredSocket: true})
+	if err == nil {
+		t.Fatal("missing owner accepted")
+	}
+	if _, err = os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("launched a replacement native process")
+	}
+}

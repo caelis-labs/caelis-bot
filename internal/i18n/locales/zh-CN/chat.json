@@ -162,5 +162,6 @@
   "screenCopy": "复制图片",
   "screenCopyFailed": "暂时无法复制这张图片。",
   "dreaming": "打个盹，整理一下刚才的内容… zzz",
-  "dreamHint": "你随时可以继续说。"
+  "dreamHint": "你随时可以继续说。",
+  "sentDraftSyncFailed": "消息已发送，输入框同步失败。请重新打开聊天，避免重复发送。"
 }

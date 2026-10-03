@@ -1,3 +1,4 @@
+import {SettingsChevron} from './SettingsIcons';
 import { useEffectEvent, useEffect, useState } from 'react';
 import { desktop } from './desktop';
 import { SettingRow } from './SettingsUI';
@@ -22,7 +23,7 @@ export function ShortcutSettings({tasks=false,capture=false,paste=false}:{tasks?
  useEffect(()=>{void desktop<State>(prefix+'ShortcutSettings').then(s=>{setValue(s.shortcut);setMessage(s.message);setReady(true);}).catch(()=>setMessage(loadFailed()));},[prefix]);
  const save=async(v:Shortcut)=>{setBusy(true);setRecording(false);setMessage('');try{const s=await desktop<State>('Save'+prefix+'Shortcut',v);setValue(s.shortcut);setMessage(s.message||(s.registered?t('settings.shortcutSaved'):t('settings.shortcutDisabled')));}catch(e){setMessage(e instanceof Error?e.message:t('settings.shortcutSaveFailed'));}finally{setBusy(false);}};
  return <div className="shortcut-setting">
-  <SettingRow label={t(title)}><button className="shortcut-summary" aria-expanded={expanded} aria-controls={`${toggleID}-editor`} onClick={()=>{setExpanded(v=>!v);setRecording(false);}}><kbd>{value.enabled?label(value):t('settings.shortcutOff')}</kbd><span aria-hidden="true">{expanded?'⌃':'›'}</span></button></SettingRow>
+  <SettingRow label={t(title)}><button className="shortcut-summary" aria-expanded={expanded} aria-controls={`${toggleID}-editor`} onClick={()=>{setExpanded(v=>!v);setRecording(false);}}><kbd>{value.enabled?label(value):t('settings.shortcutOff')}</kbd><SettingsChevron open={expanded}/></button></SettingRow>
   {expanded&&<div className="shortcut-editor" id={`${toggleID}-editor`}>
   <SettingRow label={t(toggle)} description={t(description)} htmlFor={toggleID}><input id={toggleID} type="checkbox" role="switch" className="settings-switch" checked={value.enabled} disabled={!ready||busy} onChange={e=>void save({...value,enabled:e.target.checked})}/></SettingRow>
   <SettingRow label={t('settings.shortcutKeyLabel')}><div className="shortcut-actions"><button className="shortcut-recorder" disabled={!ready||busy} aria-label={recording?t('settings.shortcutRecordingAria'):t('settings.shortcutCurrentAria',{label:label(value)})} onClick={e=>{e.currentTarget.focus();setRecording(true);}} onBlur={()=>setRecording(false)} onKeyDown={e=>{

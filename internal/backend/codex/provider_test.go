@@ -33,7 +33,7 @@ func TestToolGrantIsCopiedAndTranslatedOnlyIntoNamedApprovals(t *testing.T) {
 		t.Fatal("server-wide approval introduced")
 	}
 	policy := p["tools"].(map[string]any)
-	if len(policy) != 8 || policy["foreign"] != nil || policy["bot_clock"] == nil || policy["bot_care"] != nil || policy["bot_task_start"] != nil || policy["bot_reminders_list"] == nil || policy["bot_notebook"] != nil || policy["bot_memory"] == nil {
+	if len(policy) != 4 || policy["foreign"] != nil || policy["bot_schedule"] == nil || policy["bot_care"] != nil || policy["bot_task_start"] != nil || policy["bot_schedule_update"] != nil || policy["bot_notebook"] != nil || policy["bot_memory"] == nil {
 		t.Fatal("grant alias or scope leak")
 	}
 	if p["env"].(map[string]string)["credential"] != "synthetic" || p["args"].([]string)[0] != "--bot-tools" {

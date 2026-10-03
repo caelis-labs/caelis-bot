@@ -19,7 +19,7 @@ var errExistingServer = errors.New("existing app server unavailable")
 // Prefer an already listening standard control socket. This does not launch an
 // app or daemon, inspect private app IPC, or require a CLI binary to connect.
 func connectExisting(ctx context.Context, path string) (connection, error) {
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == "darwin" || (runtime.GOOS == "linux" && path != "") {
 		if path == "" {
 			home := os.Getenv("CODEX_HOME")
 			if home == "" {

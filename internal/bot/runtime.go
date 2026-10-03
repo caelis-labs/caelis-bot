@@ -55,6 +55,7 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
+	desktopQueries   map[string]desktopQuery
 	desktopTurn      string
 	desktopContext   context.Context
 	desktopCancel    context.CancelFunc
@@ -536,7 +537,12 @@ func (r *Runtime) Perform(action string) error {
 }
 func (r *Runtime) Clock() map[string]string {
 	now := r.now()
-	return map[string]string{"now": now.Format(time.RFC3339), "timeZone": now.Location().String(), "scheduling": "应用常驻时触发；睡眠期间合并；退出后暂停"}
+	zone := clockZone(now.Location())
+	status := "known"
+	if zone == "" {
+		status = "unavailable"
+	}
+	return map[string]string{"now": now.Format(time.RFC3339), "timeZone": zone, "timeZoneStatus": status, "utcOffset": now.Format("-07:00"), "scheduling": "应用常驻时触发；睡眠期间合并；退出后暂停"}
 }
 
 func wakePrompt(messages []string) string {

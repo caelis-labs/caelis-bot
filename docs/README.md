@@ -14,3 +14,8 @@ These nine files replace historical design plans, handoffs and repeated acceptan
 remain in Git (`git show 43314d5:docs/<old-path>`), with implementation history in the corresponding PRs.
 Current contracts live here; executable schemas/tests and Bot-facing English skills keep their own source
 locations. Do not treat a historical acceptance result or a planned capability as current release evidence.
+
+Current implementation: [Remote machines v1 / 远端机器首版方案](remote-machines-v1-plan.md).
+The [acceptance record](evidence/remote-machines-v1/acceptance.md) separates verified
+native work and external-terminal lifecycle from the remaining terminal visual gate;
+no shipped release is claimed.

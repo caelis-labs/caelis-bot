@@ -162,5 +162,6 @@
   "screenCopy": "Copy image",
   "screenCopyFailed": "Could not copy this image.",
   "dreaming": "Taking a little nap to tidy up our conversation… zzz",
-  "dreamHint": "You can keep talking at any time."
+  "dreamHint": "You can keep talking at any time.",
+  "sentDraftSyncFailed": "Message sent. Reopen chat to refresh the draft before sending again."
 }

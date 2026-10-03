@@ -259,15 +259,15 @@ Session 和 Worker 继续由 Core 各自的原生配置负责，Bot 不改全局
 | 工具 / 操作 | 策略 | 原因 |
 | --- | --- | --- |
 | `bot_memory` 全部操作；Notebook 内文件 | 产品范围内直接执行 | Bot 工作区与低风险记忆，不增加 Guardian 成本；越界文件访问仍受原生政策约束 |
-| `bot_clock`、`bot_task_read`、`bot_reminders_list`、`bot_care_read`（list/test） | 直接读取 | 只读观察与纯条件测试不审批 |
-| `bot_gesture`、`bot_tasks` 的列表/固定/锁定/清理、`bot_task_stop` | 直接执行 | 本地呈现或停止已拥有的工作；不扩大执行权限，不删除任务历史 |
-| `bot_task_start`、`bot_task_send` | 每次派生 / 新指令由 Guardian 审查 | 新执行或扩大工作指令；审批后直接继续，Worker 内部仍有自己的 sandbox / reviewer |
-| `bot_reminders` save/remove、`bot_care` save/remove/configure | 修改持续安排时审查 | 审查未来工作授权；读取使用独立免审入口，匹配每次时钟事件不会再审查注册动作 |
-| `bot_desktop_observe` | 只读直通 | 有界元数据观察；不申请系统权限、不自动截图 |
-| `bot_desktop_authorize` | 每个 App、每个连续任务 Turn 审查一次 | Guardian 审查本次任务的 App 访问目的和已观察到的 App |
-| `bot_desktop_act` | 当前 Turn 内已获授权 App 免逐次 Guardian | helper 校验 App 授权和目标；最多 16 步顺序执行，返回交付与验证收据 |
-| `bot_desktop_capture` | 已获授权 App 内免逐次 Guardian | 仅显式请求截图；检查模型图片能力，图片最多 256 KiB |
-| `bot_desktop_read` / `sync` / `get` / `cancel` / `reconcile` | 明确列入免审目录 | 有界读取、增量与原请求恢复；不会自动重放输入 |
+| `bot_schedule` context/list/sources/test；`bot_tasks` list/read/machines | 直接读取 | 有界查询与纯条件测试不审批；能力不足时不展示相应分支 |
+| `bot_gesture`；`bot_tasks` watchlist/stop | 直接执行 | 本地呈现或停止已拥有的工作；清空展示不停止 Worker、不删除历史 |
+| `bot_delegate` start/continue | 每次派生 / 新指令由 Guardian 审查 | 新执行或扩大指令；Worker 保持原生 sandbox / reviewer，不继承 Bot 工具 |
+| `bot_schedule_update` save/remove/configure | 修改持续安排时审查 | 保留日历/事件的独立原生 grant、回执和撤销，不因合并而扩大权限 |
+| `bot_desktop_inspect` outline/text/delta | 只读直通 | 有界元数据与 Unicode 文本；不申请系统权限、不自动截图 |
+| `bot_desktop_authorize` | 每个 App、每个连续任务 Turn 审查一次 | 精确观察到的应用 Ref、名称和本次任务目的 |
+| `bot_desktop_act` | 当前 Turn 内已授权 App 免逐次 Guardian | helper 检查授权、新鲜目标及原请求身份；最多 16 个有类型的步骤 |
+| `bot_desktop_inspect` image | 已授权 App 内免逐次 Guardian | 显式截图仍检查模型图片能力和 helper grant；不会带入撤销后查询例外 |
+| `bot_desktop_result` status/cancel | 明确列入免审目录 | status 只查原回执；cancel 限当前有效 Turn，不能重放或撤销已发送输入 |
 | 未明确列出的 callback | `approval_policy: required` | 新能力不会默认为免审；Codex 同样只免审明确列出的工具 |
 
 Computer Use 授权属于当前连续任务，不向用户暴露 Session 概念。相同 App 的窗口共享授权，

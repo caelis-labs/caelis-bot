@@ -89,3 +89,10 @@ for (const [before, after] of [['e', 'e\u0301'], ['hello e', 'hello e\u0301'], [
   assert.equal(values.at(-1), after + ' next');
  });
 }
+
+test('the first visible reply contains a whole grapheme without dumping a chunk',()=>{
+ const reveal=new TextReveal();reveal.update('👩🏽‍💻正在处理。'.repeat(30),true,0);
+ assert.equal(reveal.value(0),'👩🏽‍💻');assert.ok(reveal.pending);
+ const counts=frames(reveal,0,500).map(text=>Array.from(new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(text)).length);
+ for(let i=1;i<counts.length;i++)assert.ok(counts[i]>=counts[i-1]&&counts[i]-counts[i-1]<=2);
+});

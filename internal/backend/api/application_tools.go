@@ -35,3 +35,7 @@ type ApplicationCapabilities struct {
 type ApplicationCapabilityProvider interface {
 	ApplicationCapabilities() ApplicationCapabilities
 }
+
+// LegacyToolProvider restores exact historical invocation bindings without
+// advertising their tools to new model turns.
+type LegacyToolProvider interface{ LegacyToolConnection() *ToolConnection }

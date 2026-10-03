@@ -20,6 +20,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/machines"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
@@ -47,6 +48,8 @@ type Host struct {
 }
 
 type Application struct {
+	localWork       *localWorkers
+	machines        *machines.Service
 	taskPreferences *tasks.PreferencesStore
 	setup           *runtimeSetup
 	Backend         *backend.Service
@@ -116,6 +119,10 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		}
 		return nil, err
 	}
+	if err = backend.SaveRuntimeProfile(root, settings); err != nil {
+		_ = backend.NewService(engine, nil, nil, nil, nil).Shutdown()
+		return nil, err
+	}
 	service := backend.NewService(engine, host.ResolveFiles, host.ConsumeFiles, host.OpenURL, host.RevealFile)
 	if err := backend.ConfigureScreenMedia(service, filepath.Join(root, "ScreenMedia")); err != nil && host.ReportError != nil {
 		host.ReportError(err)
@@ -142,6 +149,16 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	service.ConfigureWorkExecution(workExecutionFile, workExecution)
 	app.configureRuntimeManagement()
 	app.configureSetup()
+	if err = app.configureWorkers(); err != nil {
+		_ = service.Shutdown()
+		return nil, err
+	}
+	app.machines, err = machines.Open(filepath.Join(root, "Machines"), app.localWork, remoteArtifact)
+	if err != nil {
+		_ = service.Shutdown()
+		return nil, err
+	}
+	service.ConfigureMachines(app.machines)
 	return app, nil
 }
 
@@ -275,7 +292,7 @@ func (a *Application) Start() error {
 	if a.started {
 		return nil
 	}
-	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.engine.(api.WorkRuntime), a.engine.(api.ReportSubmitter), a.engine.Snapshot)
+	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.machines, a.engine.(api.ReportSubmitter), a.engine.Snapshot)
 	if err != nil {
 		return err
 	}
@@ -328,7 +345,9 @@ func (a *Application) Start() error {
 	a.Backend.SetInterruptObserver(resident.StopDesktopTurn)
 	resident.Start(a.engine)
 	a.Backend.SetUserSubmitter(resident.SubmitUser)
-	a.workers.Add(3)
+	a.workers.Add(5)
+	go func() { defer a.workers.Done(); a.localWork.Observe(ctx) }()
+	go func() { defer a.workers.Done(); a.machines.Observe(ctx) }()
 	go func() {
 		defer a.workers.Done()
 		ticker := time.NewTicker(15 * time.Second)
@@ -422,6 +441,9 @@ func (a *Application) Close() error {
 			bridge.Close()
 		}
 		a.workers.Wait()
+		if a.localWork != nil {
+			a.closeErr = errors.Join(a.closeErr, a.localWork.Close())
+		}
 		if a.notebook != nil {
 			a.closeErr = errors.Join(a.closeErr, a.notebook.Close())
 		}

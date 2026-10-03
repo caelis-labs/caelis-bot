@@ -1,8 +1,12 @@
+import './settings/settings.css';
+import {SettingsChevron} from './SettingsIcons';
 import { useEffect, useRef, useState } from 'react';
 import { desktop } from './desktop';
 import { BotSetup } from './BotSetup';
 import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
+import { MachineSettings } from './settings/runtime/MachineSettings';
+import { settingsSections as sections, settingsDestination, type SettingsSection as Section } from './settings-navigation';
 import { ScreenInputSettings } from './ScreenInputSettings';
 import { ShortcutSettings } from './ShortcutSettings';
 import { ExecutionSettings } from './ExecutionSettings';
@@ -13,8 +17,6 @@ import { useI18n } from './i18n';
 import { LanguageSetting } from './i18n/LanguageSetting';
 import { SettingGroup, SettingRow } from './SettingsUI';
 
-const sections = ['general','appearance','runtime','permissions','updates'] as const;
-type Section = typeof sections[number] | 'setup';
 type Update = { state:string; current:string; latest:string; message:string };
 type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean };
 
@@ -24,21 +26,22 @@ export function Settings() {
  const [executionVisited,setExecutionVisited]=useState(false),[runtimeVisited,setRuntimeVisited]=useState(false);
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
  useEffect(()=>{
-  const load=()=>{void desktop<string>('SettingsSection').then(value=>{const destination=({execution:'permissions',storage:'general',diagnostics:'updates'} as Record<string,string>)[value]??value;if((destination==='setup'||sections.some(id=>id===destination))&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(destination as Section);setOpened(n=>n+1);});};
+  const load=()=>{void desktop<string>('SettingsSection').then(value=>{const destination=settingsDestination(value);if(destination&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(destination);setOpened(n=>n+1);});};
   const key=(event:KeyboardEvent)=>{if(!event.defaultPrevented&&!event.isComposing&&(event.key==='Escape'||(event.metaKey&&event.key==='w'))){event.preventDefault();void desktop('CloseSettings');}};
   load();void desktop<string>('AppVersion').then(setVersion);
   window.addEventListener('settings-open',load);window.addEventListener('keydown',key);
   return()=>{window.removeEventListener('settings-open',load);window.removeEventListener('keydown',key);};
  },[]);
- useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='permissions')setExecutionVisited(true);if(section==='runtime')setRuntimeVisited(true);},[section]);
- if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup onDone={()=>{setSection('runtime');void desktop('CloseSettings');}}/></div></main>;
+ useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='permissions')setExecutionVisited(true);if(section==='models'||section==='connections')setRuntimeVisited(true);},[section]);
+ if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></div></main>;
  return <main className="settings-window">
   <aside><nav aria-label={t('settings.navLabel')}>{sections.map(id=><button key={id} aria-current={section===id?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}>{t(`settings.${id}`)}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
   <div className="settings-content" ref={content}>
    <div className="settings-page" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<><PermissionSettings embedded/><ScreenInputSettings/></>}<ExecutionSettings embedded/></>}</div>
-<div className="settings-page" hidden={section!=='runtime'}>{(runtimeVisited||section==='runtime')&&<RuntimeSettings active={section==='runtime'} refreshKey={opened}/>}</div>
-   <div className="settings-page" key={section} hidden={section==='permissions'||section==='runtime'}>
-   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:section==='runtime'?null:section==='permissions'?null:<Updates key={opened} version={version}/>}
+<div className="settings-page" hidden={section!=='models'&&section!=='connections'}>{(runtimeVisited||section==='models'||section==='connections')&&<RuntimeSettings page={section==='models'?'models':'connections'} active={section==='models'||section==='connections'} refreshKey={opened} onConnections={()=>setSection('connections')}/>}</div>
+   <div className="settings-page" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone/>}</div>
+   <div className="settings-page" key={section} hidden={['permissions','models','connections','machines'].includes(section)}>
+   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','machines','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
    </div>
   </div>
  </main>;
@@ -46,12 +49,11 @@ export function Settings() {
 
 function General() {
  const {t}=useI18n();
- const [storageOpen,setStorageOpen]=useState(false),[tasksOpen,setTasksOpen]=useState(false);
+ const [storageOpen,setStorageOpen]=useState(false);
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><LanguageSetting/>
+  <h1>{t('settings.general')}</h1><LanguageSetting/><TaskSettings/>
   <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/><ShortcutSettings capture/><ShortcutSettings paste/></SettingGroup>
-  <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
-  <details className="settings-disclosure" onToggle={e=>setTasksOpen(e.currentTarget.open)}><summary>{t('settings.advancedTasks')}</summary>{tasksOpen&&<TaskSettings/>}</details>
+  <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary><SettingsChevron/>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
  </section>;
 }
 

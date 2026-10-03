@@ -27,9 +27,36 @@ type WorkStart struct {
 	ID, Workspace, Instructions string
 }
 
+// WorkRouter freezes the native backend before preparation or dispatch. An empty
+// runtime resolves the current default; a nonempty runtime restores a ledger
+// binding. This is a host port, never a model-selectable task parameter.
+type WorkRouter interface {
+	BindWork(context.Context, TaskStart, string, string) (string, error)
+	OwnsWork(string) bool
+}
+
+// WorkPreparationRollback releases only a reservation that has never attempted
+// Worker dispatch. It must not discard unknown execution owners.
+type WorkPreparationRollback interface {
+	ReleaseWorkPreparation(string) error
+}
+
+type LocalWorkerSettings struct {
+	Runtime        string                 `json:"runtime"`
+	Ready          bool                   `json:"ready"`
+	Work           WorkExecutionSettings  `json:"work"`
+	Models         []ModelOption          `json:"models"`
+	RuntimeDefault *WorkExecutionSettings `json:"runtimeDefault"`
+}
+type LocalWorkerController interface {
+	InspectLocalWorker(context.Context, string) (LocalWorkerSettings, error)
+	SaveLocalWorkerModel(context.Context, WorkExecutionSettings) (LocalWorkerSettings, error)
+}
+
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque
 // native generation, never a product-generated inference from assistant prose.
 type WorkState struct {
+	Runtime        string
 	Task           Task
 	OriginalPrompt string
 	ExecutionKey   string
@@ -46,17 +73,32 @@ type WorkTerminalProvider interface {
 	WorkTerminal(context.Context, string) (TerminalTarget, error)
 }
 type TerminalTarget struct {
+	// SSH arguments are assembled by the native connection owner, never the renderer.
+	SSH                                                     []string
 	Runtime, Binary, Endpoint, Thread, Directory, CodexHome string
 	// Caelis attaches with the local user credential file; never embed its bytes.
 	Session, Store, TokenFile string
 }
 type TaskPreview struct {
-	Locked   bool   `json:"locked"`
-	Provider string `json:"provider,omitempty"`
-	ID       string `json:"id"`
-	Prompt   string `json:"prompt"`
-	Status   string `json:"status"`
+	TargetLabel string `json:"targetLabel,omitempty"`
+	Locked      bool   `json:"locked"`
+	Provider    string `json:"provider,omitempty"`
+	ID          string `json:"id"`
+	Prompt      string `json:"prompt"`
+	Status      string `json:"status"`
 }
+
+// RemoteWorkspaceRuntime resolves a target path without evaluating it locally.
+type RemoteWorkspaceRuntime interface {
+	PrepareRemoteWork(context.Context, TaskStart, string) (string, error)
+}
+type TaskMachine struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Runtime string `json:"runtime"`
+	Ready   bool   `json:"ready"`
+}
+type TaskMachineProvider interface{ TaskMachines() []TaskMachine }
 
 // ReportSubmitter appends a bounded application notice only when idle. It must
 // not promote that notice into a new user request or delegation authority.

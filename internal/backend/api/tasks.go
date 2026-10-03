@@ -52,14 +52,17 @@ type TaskPage struct {
 }
 
 type Task struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Workspace string `json:"workspace"`
-	Status    string `json:"status"`
-	Outcome   string `json:"outcome,omitempty"`
-	Result    string `json:"result,omitempty"`
+	MachineName string `json:"machineName,omitempty"`
+	Machine     string `json:"machine,omitempty"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Workspace   string `json:"workspace"`
+	Status      string `json:"status"`
+	Outcome     string `json:"outcome,omitempty"`
+	Result      string `json:"result,omitempty"`
 }
 type TaskStart struct {
+	Machine   string `json:"machine,omitempty"`
 	RequestID string `json:"requestId"`
 	Title     string `json:"title"`
 	Prompt    string `json:"prompt"`
@@ -74,3 +77,8 @@ type TaskMessage struct {
 // TaskReporter delivers a finite completion notification to the secretary. It
 // must never replay an uncertain submission or run a model to poll idle work.
 type TaskReporter interface{ DeliverTaskReport(context.Context) error }
+
+// TaskRequestReader resolves an already-owned original submission without replay.
+type TaskRequestReader interface {
+	ReadTaskRequest(context.Context, string) (Task, error)
+}

@@ -91,6 +91,21 @@ in the same JSON. This is native WebKit fixture evidence, not a live backend run
 The regression also waits past completion expiry, requires a static poster with zero queued frame
 callbacks, and checks that a later tool-only completion does not reanimate an older message.
 
+“发送回归” exercises the production composer and polling handoff with delayed acceptance,
+rejection, an unknown receipt, and accepted submission followed by a failed draft read.
+Capture records `send.ok`, submission/draft-read counts and frame samples in the same JSON.
+It checks one displayed user message, stable message height, no empty first-reply bubble,
+preserved uncertain drafts, and blocked duplicate sending after draft synchronization fails.
+These are synthetic native WebKit failure paths; qualify actual model interaction separately
+with an isolated Bot profile. Draft writes coalesce only pending full replacements, while
+submission waits for the newest saved draft. Snapshot reads are fenced by request order and
+visible-surface lifetime as well as backend revision.
+
+Settings separate AI models, Connections & accounts, and Remote machines. The model and
+account pages share one runtime settings owner; native `runtime` repair links still open
+Connections & accounts. `runtime-settings-preview.html` uses the same components with
+example data for narrow layouts, without modifying daily accounts or calling a model.
+
 ```sh
 source script/env.sh
 go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/bot ./internal/care ./internal/desktopcontrol
@@ -334,6 +349,33 @@ Diagnostic codes/logs and protocol enums stay stable, normally English. Display
 known errors with localized context; preserve unknown third-party error details.
 Do not classify protocol outcomes by matching translated strings.
 
+## Compact Bot tool acceptance
+
+The private Bot catalog has six base tools and four optional desktop tools.
+See [implementation and acceptance](bot-tools-acceptance.md) for the current
+contract, native evidence and verification limits.
+
+The opt-in real-model harness uses installed Runtime credentials and disposable
+Bot bindings. Choose an available model explicitly; it does not change the daily
+Bot's model or Worker defaults:
+
+```sh
+source script/env.sh
+BOT_ACCEPTANCE_RUNTIME=codex BOT_ACCEPTANCE_MODEL=gpt-6-luna \
+  BOT_ACCEPTANCE_EFFORT=medium go run ./cmd/bot-workflow-smoke --compact
+```
+
+Use `BOT_ACCEPTANCE_RUNTIME=caelis` with a configured Caelis model to exercise
+the same native application path. `BOT_ACCEPTANCE_EVIDENCE` optionally preserves
+private test bindings and a summary; otherwise temporary data is removed.
+The desktop phase is opt-in: launch the disposable fixture through
+`build_and_run.sh --desktop-control-preview`, then provide
+`BOT_ACCEPTANCE_DESKTOP_HELPER`, `BOT_ACCEPTANCE_DESKTOP_TITLE` and
+`BOT_ACCEPTANCE_DESKTOP_RESULT` for that exact fixture. Give it a unique title
+and result path; it must start with zero submissions. The model operates only
+that test application. The test's presence sample is synthetic and saved event
+conditions are false; its reminder wake uses real native user authorization.
+
 ## Content boundaries
 
 Never translate or rewrite user messages, task prompts, model responses, reasoning,
@@ -375,6 +417,119 @@ For release acceptance, verify English, Chinese and Follow System in native wind
 language persistence, simultaneous surfaces, minimum-size layout, pending approvals,
 failed-save drafts and connection progress. Run `make check`, owning race tests,
 `make smoke`, `make build` and the signing/notarization gates in [release.md](release.md).
+
+## Remote machine acceptance
+
+`make build` embeds checksum-pinned Linux amd64/arm64 headless helpers in
+`Contents/Resources/remote`. It does not bundle a Codex/Caelis Runtime. Native APP
+acceptance still uses `script/build_and_run.sh` with an explicit disposable
+`CAELIS_BOT_DATA_DIR`; never use the daily profile for connection/model experiments.
+The remote account must have its own installed and authenticated native Runtime.
+
+```sh
+bash script/build-remote-helper.sh "$PWD/.cache/remote-helper"
+CAELIS_BOT_TEST_SSH=fedora \
+CAELIS_BOT_REMOTE_HELPER_DIR="$PWD/.cache/remote-helper" \
+CAELIS_BOT_TEST_EVIDENCE="$PWD/.cache/remote-e2e" \
+GOWORK=off go test ./internal/machines -run TestFedoraNativeWorkers -count=1 -timeout=5m -v
+```
+
+This opt-in test performs real inference on the selected machine, allocates new
+private connection profiles, uses that machine's existing login, sets only the
+profile-local Codex work model, and writes a single marker in each task's private
+workspace. It verifies two native TUI observers, observer disconnect, controller
+reopen, original native binding and exact remote file bytes. It then continues,
+interrupts and resumes that same Worker and verifies the original native identity
+and one-Worker count. It does not change
+global model accounts or Team configuration. Raw evidence under `.cache` may contain
+native target paths/identities; publish only redacted summaries. Detached owners and
+native bindings remain on the target for original-task recovery.
+
+The machine connection editor first offers **Existing SSH config** or **New connection**.
+The existing route lists literal `Host` aliases from `~/.ssh/config`, the system config
+and bounded `Include` files; wildcard and negated patterns are not offered as machines.
+Search/refresh never edits those files. OpenSSH evaluates the selected alias and supplies
+its user, port, identities and supported single-hop `ProxyJump`; manual form defaults do
+not override it. Fingerprint confirmation and the app-owned known-hosts/control socket
+remain in force. Optional passwords/key passphrases stay write-only and use the existing
+explicit Keychain opt-in. `ProxyCommand` and multi-hop jumps remain unsupported.
+For a non-billable real connection acceptance, set `CAELIS_BOT_TEST_CONFIG_SSH=fedora`
+and `CAELIS_BOT_REMOTE_HELPER_DIR` to the built helper directory, then run
+`GOWORK=off go test ./internal/machines -run '^TestFedoraSSHConfigConnection$' -count=1 -v`.
+OpenSSH `-o` values are parsed again as config syntax: app-owned known-hosts paths
+are quoted and percent-escaped, including the daily macOS `Application Support` path.
+SSH host-verification failures use a bounded in-memory diagnostic and a typed error;
+raw stderr is never returned or logged. Connection acceptance must include a path
+with spaces, rather than only a temporary directory.
+
+Saved machines offer **Delete machine** in the fixed footer in both connection and
+work steps, including offline profiles. The confirmation only removes Bot registration
+and its remembered credential; user SSH config, remote files and runtimes are kept.
+Task-owned profiles still reject removal. Cancel/Escape retains the machine and draft.
+This settings-only workflow adds no Bot tool or changes to task routing, so Bot skill
+instructions do not need an update.
+
+Native OpenSSH authentication acceptance uses an isolated loopback SSH fixture,
+disposable keys/passwords and an independent agent. Set
+`CAELIS_BOT_SSH_AUTH_PYTHON` to an explicit Python with Paramiko and run
+`GOWORK=off go test ./internal/machines -run TestNativeSSHAuthentication -count=1 -v`.
+Do not add Python dependencies to the APP. The macOS Keychain canary lifecycle is
+opt-in via `CAELIS_BOT_KEYCHAIN_TEST=1`; it creates, updates and deletes only one
+uniquely named disposable item.
+
+The development-only `runtime-settings-preview.html?machine=login&lang=en` renders
+the same settings components with visual fixtures. Scenarios include `missing`,
+`offline`, `caelis`, and `caelis-advanced-error`; `lang=zh-CN` selects Chinese. The
+`caelis-advanced-reopen` scenario holds advanced reads until the fixture releases
+them. `bash script/machine-settings-native-test.sh` checks close/reopen on the same
+and a different machine, late-result isolation, and footer bounds in native WebKit
+at 860×640 in Chinese and English. It writes screenshots under
+`.cache/machine-settings-regression/` and runs in `make check`. These fixtures
+never access SSH or accounts and are not evidence of a real login. Inspect the native
+settings on the real node in both languages and wide/narrow layouts. Resize must
+keep the same draft; primary connection actions stay visible at the 860×640 minimum.
+Check private-key fields, trust confirmation, error messages, the collapsed optional
+Team section and its nested model dialog.
+
+Model parameters use one compact picker for Bot, work and Team bindings. Selecting
+the model opens a separate searchable list. Effort stops and Fast are projected
+from native model capabilities; a catalog recommendation is never presented as
+the user's configured default. The optional Team editor is a separate dialog, and
+the external terminal preference belongs to General settings.
+
+For a non-billable Fedora model/settings check, build the remote helper, then run
+`CAELIS_BOT_TEST_MODEL_SSH=fedora CAELIS_BOT_REMOTE_HELPER_DIR=<absolute-helper-dir>
+GOWORK=off go test ./internal/machines -run '^TestFedoraModelSettings$' -count=1 -v`.
+This checks Codex/Caelis capabilities, configured-default reads, node-local
+Effort/Fast save, reconnect and reset. It starts no inference and changes no global
+runtime model, account or Team. `CAELIS_BOT_TEST_MODEL_STORE` may name an empty,
+disposable controller directory retained for native settings QA; existing profiles
+are rejected. This metadata check does not replace the billable Worker acceptance.
+
+For an explicitly retained task in a disposable native acceptance profile, the
+developer-only `--remote-terminal-smoke <absolute-profile> <original-task> <terminal>`
+mode uses the production `WindowManager` and original SSH target without submitting
+or stopping work. Run it through `script/build_and_run.sh`. It checks two observer
+cycles, collapse/restore and retained bindings; inspect the actual external terminal
+window during the cycle. This requires access to the terminal GUI and any normal OS
+permissions. A launch request, window fixture, or remote tmux test alone does not
+qualify real external-terminal behavior. See the
+[current acceptance record](evidence/remote-machines-v1/acceptance.md), which retains
+this explicit gate instead of claiming all native window interactions passed.
+
+Worker-default switching acceptance uses one SSH profile with both native backends:
+`CAELIS_BOT_TEST_SSH=fedora CAELIS_BOT_REMOTE_HELPER_DIR="$PWD/.cache/remote-helper" GOWORK=off go test ./internal/machines -run '^TestFedoraDefaultSwitch$' -count=1 -timeout=10m -v`.
+It creates two private tasks and checks exact artifact bytes, controller reopen,
+old-task continuation/interrupt and unchanged terminal bindings across both defaults.
+
+Local native acceptance is opt-in and performs real inference in private WorkOwner
+bindings: `CAELIS_BOT_TEST_LOCAL_WORKERS=1 CAELIS_BOT_TEST_LOCAL_CODEX_MODEL=gpt-6-luna GOWORK=off go test ./internal/app -run '^TestLocalNativeDefaultSwitch$' -count=1 -timeout=7m -v`.
+The optional `CAELIS_BOT_TEST_LOCAL_CAELIS_STORE` and
+`CAELIS_BOT_TEST_LOCAL_CAELIS_MODEL` select an already configured runtime/model;
+no global account or model settings are changed. The explicit Codex model uses its
+catalog default effort. Selecting an available, authenticated model is distinct
+from proving task routing; an unusable runtime default can fail native inference.
+
 
 ## Documentation maintenance
 

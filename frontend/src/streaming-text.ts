@@ -28,7 +28,9 @@ export class TextReveal {
   this.ends = Array.from(segmenter.segment(text), part => part.index + part.segment.length);
   // A delta may complete a previously displayed grapheme (accent, ZWJ,
   // flag). Keep that visible prefix and reveal the rest of its cluster now.
-  this.count = this.displayed.length === 0 ? 0 : this.ends.findIndex(end => end >= this.displayed.length) + 1;
+  // Seed the first complete grapheme so a waiting row never hands off to an
+  // empty reply bubble. The remaining text keeps its existing paced budget.
+  this.count = this.displayed.length === 0 ? Math.min(1, this.ends.length) : this.ends.findIndex(end => end >= this.displayed.length) + 1;
   this.displayed = text.slice(0, this.count ? this.ends[this.count-1] : 0);
   // Keep the fractional character budget across deltas and completion. Starting
   // a new deadline on every snapshot causes bursts, pauses and lost progress.

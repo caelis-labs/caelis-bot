@@ -22,6 +22,8 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 | `internal/bot`, `care`, `tasks` | Persistent identity, introduction, scheduling, care budget, delegation ledger and reports |
 | `internal/notebook`, `botmemory`, `botskills` | Markdown, embedded Memory and packaged application-scoped English skills |
 | `internal/taskterminal` | Owned external terminal application instance and connection receipt lifecycle |
+| `internal/machines` | Native SSH profiles, host trust, machine identity, original task routing and cached observations |
+| `internal/remotework`, `cmd/caelis-remote` | Linux headless owner and bounded typed SSH operations; full native Worker execution |
 | `internal/desktopcontrol` | Desktop World Go host, independent turn grants, original receipts and bounded content |
 | `frontend/src` | Presentation, transient interactions, character render resources; never execution authority |
 
@@ -29,6 +31,94 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 Optional capabilities are discovered by typed ports and native negotiation, not by text or animation.
 Wails/AppKit/cgo remain behind macOS drivers. Unsupported hosts fail before writing preferences.
 Shared-core compilation does not prove native Windows behavior. `GOWORK=off`; no sibling private imports.
+
+Caelis atomic reconnect may prepare a large existing history before sending SSE
+headers. Its observation uses a separate transport with a two-minute header wait;
+the caller context owns cancellation and the idle stream lifetime. Ordinary JSON
+requests retain their existing deadlines. Repeated unchanged offline observations
+remain diagnostic facts without republishing the same product-state transition.
+
+Caelis initial display recovery requests eight complete recent Turns. Earlier
+history uses the existing chat pagination port and a separate native history token;
+it never advances the live cursor. Finite pages are staged until sync, then prepend
+only display items, preserving overlapping live output and current approval/run/
+operation authority. Each page has a 30-second context budget. Display windows do
+not bound model context or erase canonical history. Existing saved projections are
+retained on exact cursor resume; replacement refreshes the recent window while
+preserving original command-result evidence required by pending followups.
+
+Caelis callback recovery reads the full receipt snapshot once per connection /
+stream generation, including claimed calls. Subsequent reads use the native
+pending-call wait endpoint, with a 45-second cancellable idle wait, instead of
+polling completed tool payloads every 250 ms. The effect still runs only after a
+confirmed claim; unknown claims and original result receipts retain their recovery
+semantics. A retired connection cannot dispatch a response from its old wait.
+
+## Remote machines
+
+The resident adapter remains local. `machines.Service` multiplexes the existing
+`api.WorkRuntime` port by an explicitly selected machine; absent targets stay local.
+`tasks.Manager` persists the machine and actual backend before dispatch. `WorkRouter`
+freezes the backend before workspace preparation; retries never re-resolve a default. Remote
+workspaces are resolved on that machine, never through the controller filesystem.
+Remote request identity and ownership survive a resident adapter change. Existing
+task routes cannot be removed or retargeted by editing the SSH connection.
+
+Local `localWorkers` retains owned bindings from both provider directories. Its
+independent default is stored in `worker-runtime.json`; an inactive adapter exposes
+only Workers, never its resident conversation or Bot callbacks. The current resident
+still validates native delegation authority before any start or continuation. Per-
+provider settings preserve store identity, models and account ownership. Task backend
+bindings survive a resident change and remain visible if their owner is unavailable.
+
+Remote v1 routes migrate once from their locked profile runtime to a durable per-task
+backend map. Observation caches are keyed by machine and backend; reading, sending,
+stopping and terminal resolution explicitly address that retained backend. Changing
+a default keeps both owners alive and affects only newly bound requests.
+
+Native OpenSSH owns transport and authentication. Host keys require an explicit
+fingerprint confirmation and changed keys fail closed. Passwords/passphrases are
+write-only temporary inputs, optionally saved in the macOS Keychain. They are absent
+from readback DTOs, JSON state, command arguments and diagnostics. The short private
+multiplexing socket directory rejects symlinks and group/world permissions. Existing
+SSH aliases and a single configured ProxyJump are conveniences; direct host/user/port,
+agent, password and private-key inputs are first-class. Script ProxyCommand and
+multi-hop configuration are outside this slice.
+
+An explicit authenticated connection ships only the app-built, checksum-verified
+Linux amd64/arm64 helper into a private target directory. It installs no Runtime and
+copies no model credentials. The SSH proxy connects to a detached, per-profile owner
+over a private Unix socket. Fixed typed operations expose detection, readiness,
+node-local model settings, optional Caelis Team configuration and existing work ports;
+there is no arbitrary renderer/model-supplied command endpoint.
+
+Private Codex/Caelis `WorkOwner` wrappers expose only native worker contracts. They do
+not expose a resident Bot or Bot tools. Codex persists its original native endpoint
+before task dispatch and refuses replacement when that endpoint disappears. Caelis
+uses native application worker receipts and target-local credential references.
+Readiness checks account, model and native work admission separately from optional
+Team configuration. Model defaults are canonicalized through the native catalog;
+invalid persisted selections never silently revert to another model.
+
+Background observation reads native facts and projects lost connections as unknown
+work/offline machines. It snapshots routes under the machine lock, performs SSH
+and readiness checks outside it, and accepts results only for the unchanged
+profile and original backend. Local task operations do not wait for remote polls.
+New routes remain durable pre-dispatch reservations until the Worker dispatch
+fence; preparation or ledger failure releases only these reservations. Legacy and
+unknown dispatched owners are never released by preparation cleanup. A restart
+can remove an empty machine containing only pre-dispatch reservations.
+Reconnection reads original bindings; it never resends work.
+`TerminalTarget.SSH` is host-only, assembled by the connection owner. The terminal
+script allocates SSH PTY and runs the original `codex --remote ... resume ...` or
+`caelis attach ...` on the target. Remote paths and token-file references stay on the
+target. Closing the observer does not close the native Worker owner.
+
+The renderer uses one machine editor with responsive CSS, a stable draft, fixed
+connection action, guarded background navigation and scoped advanced failures.
+Node login remains a clear target-TUI/device-auth guide; OAuth/ACP flows that the
+native surface cannot complete have an explicit TUI placeholder. See the
+[acceptance record](evidence/remote-machines-v1/acceptance.md) for live and fixture limits.
 
 ## Execution and recovery
 
@@ -53,7 +143,8 @@ process-name kill. Closing/hiding UI has none of this authority. Shared Caelis H
 Bot neither stops the shared Host nor cancels native workers on ordinary close. Cancellation after dispatch
 may leave an unknown effect, which cannot be called “not executed.”
 
-Runtime switching is fenced by active work, approvals and unknown outcomes, then persisted for restart.
+Resident Runtime replacement is fenced by active work, approvals and unknown outcomes, then persisted for restart.
+Worker-default changes are live and have no task-state fence; existing tasks keep their native owners.
 A read-only check or selecting a settings tab does not change the execution owner. Model/effort/tier changes
 may apply to the next native request; directories, sandbox and inheritance are create-time configuration.
 
@@ -79,6 +170,32 @@ Embedded public Memory provides recall/remember/correct/forget in a stable Bot s
 and receipt chains prevent forgotten evidence returning on replay. This does not erase chat, Git or backups.
 Notebook is the resident writable workspace, not HOME; Workers have independent directories and instructions.
 Neither scope claims isolation from another process under the same OS user or from full-access execution.
+
+## Bot tool catalog
+
+The complete resident catalog contains ten tools: `bot_memory`, `bot_tasks`,
+`bot_delegate`, `bot_schedule`, `bot_schedule_update`, `bot_desktop_inspect`,
+`bot_desktop_authorize`, `bot_desktop_act`, `bot_desktop_result`, and `bot_gesture`.
+Unavailable Worker/scheduling/desktop capabilities remain absent. Typed request
+variants use application-owned schemas and native dispatch validation. Delegation,
+standing-arrangement writes and app grants remain separately reviewed; read/list,
+watchlist/stop and permitted desktop operations retain their original direct policy.
+
+The new catalog never advertises legacy aliases. Private MCP invocations carry a
+catalog generation, and Caelis restores the exact original legacy schema/policy
+version for old pending callbacks. This preserves original receipts without
+rerouting them to the current same-name schema or replaying mutations. Unknown
+catalog versions still fail closed. Task request lookup uses the owned ledger;
+missing/ambiguous records are unconfirmed. Old follow-ups without a recorded
+request identity still need their original task handle. Worker defaults, native
+bindings, approval policies, Notebook isolation and event/calendar grants have
+independent semantic owners.
+
+Base replies expose `ok`, bounded native `data`, retained `outcome`, and useful
+receipt-based `next` only where appropriate. Large structured replies avoid a
+second JSON copy; output overflow retains mutation identity and reports its
+budget limit rather than replaying. Task and arrangement lists are paged. Desktop
+receipts/pixels retain the public SDK's stricter projection contract.
 
 ## Skills and context handoff
 
@@ -187,8 +304,8 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 ## Desktop and presentation
 
 Desktop World is the resident desktop backend for both Codex and Caelis. The pinned
-public Go module and independently signed helper are v0.1.0-alpha.1, revision
-`5a2ae97ddf65579d2d0051e82a33efd588f17942`. The old Cua/Node driver, native focus
+public Go module and independently signed helper are v0.1.0-alpha.2, revision
+`cc50357f9f922712ef4e2bf4db4822381d10d71a`. The old Cua/Node driver, native focus
 ports and optional whole-desktop experiment are retired. F1 screen input and
 passive character context remain separate. Codex resident configuration denies
 native Computer Use app access when Desktop World is bound; ordinary sessions
@@ -197,18 +314,22 @@ and workers retain their own configuration.
 `desktopcontrol.Controller` lazily starts the bundled helper through the public
 `host` SDK. Data uses private stdio; independent FD 3/4 control pipes own
 BeginTurn/Grant/EndTurn. Neither model arguments nor the renderer can choose a
-helper, turn, process identity or startup grants. Only read/observe/sync/act/
-capture/get/cancel are exposed. `bot_desktop_authorize` is separately reviewed
+helper, turn, process identity or startup grants. The model sees `bot_desktop_inspect` (outline/text/delta/image),
+`bot_desktop_act`, and `bot_desktop_result` (status/cancel). Native typed operations
+stay separate below the application adapter. `bot_desktop_authorize` is separately reviewed
 and checks the exact observed application Ref/name before Grant. App × Turn
 approval covers all windows of that live application instance. Finish, interrupt,
 shutdown and runtime replacement cancel the tool context and revoke even idle
 grants with a fresh short control deadline. No native work executes in Wails.
 
-Each tool requires a stable `requestId`; the managed helper derives epoch and plan
-identity from its trusted turn and stable SDK envelope ID. Duplicate IDs with
-identical arguments return the original response;
-conflicting arguments fail. `bot_desktop_reconcile` remains available after a
-turn ends, reads the original receipt and never sends input. Unknown/partial
+Inspection IDs are host-generated. Only input/cancel use model-supplied stable
+`requestId`; the managed helper derives epoch and plan identity from its trusted
+turn and stable SDK envelope ID. Duplicate IDs with identical arguments return
+the original response; conflicting arguments fail. `bot_desktop_result.status`
+remains available after a turn ends, reads the original receipt and never sends
+input or new pixels. Cancellation cannot cross turn revocation. Outline
+continuations restore the original query from a turn-scoped host cache; model
+query fields cannot be mixed with a continuation. Unknown/partial
 results preserve their receipts. There is no automatic helper restart, backend
 fallback or mutation replay. The SDK bounds retained requests/turns to 4096;
 process restart loses prior receipt history and is not proof of no effect.

@@ -172,3 +172,21 @@ func TestModelBudgetPreservesReceiptAndDoesNotCapture(t *testing.T) {
 		t.Fatal("action captured image")
 	}
 }
+
+func TestRunStatusKeepsOriginalActReceiptAfterTurn(t *testing.T) {
+	c, f, ctx := fixtureController(t)
+	out := c.CallTool(ctx, Prefix+"act", json.RawMessage(`{"requestId":"original-run-action","args":{"steps":[{"id":"invoke","op":"invoke","target":{"ref":"button"}}]}}`))
+	if out.IsError {
+		t.Fatal(out)
+	}
+	c.CallTool(ctx, Prefix+"cancel", json.RawMessage(`{"requestId":"cancel-original-run","args":{"run_id":"run-1"}}`))
+	c.EndTurn("turn-one")
+	before := f.calls
+	got := c.ReadRun(t.Context(), "run-1")
+	if got.IsError || !strings.Contains(got.Content[0]["text"], "original-run-action") || f.calls != before {
+		t.Fatal("run status returned another request or dispatched", got)
+	}
+	if !c.ReadRun(t.Context(), "foreign-run").IsError || f.calls != before {
+		t.Fatal("unknown run adopted")
+	}
+}

@@ -17,12 +17,13 @@ type Client struct {
 	home string // Native handshake home, for attaching the user's TUI to this server.
 }
 type Options struct {
-	Diagnostics *diagnosticlog.Logger
-	Binary      string
-	Socket      string
-	Directory   string
-	CLIOnly     bool // Probe a selected executable without falling back to another source.
-	Attachable  bool // Owned session runtime exposes a private local Unix endpoint.
+	Diagnostics    *diagnosticlog.Logger
+	Binary         string
+	Socket         string
+	RequiredSocket bool // Recovery must use the original owner; no process fallback.
+	Directory      string
+	CLIOnly        bool // Probe a selected executable without falling back to another source.
+	Attachable     bool // Owned session runtime exposes a private local Unix endpoint.
 	// Session clients opt in for background-terminal cleanup and native requests.
 	Experimental   bool
 	HandleRequests bool
@@ -44,6 +45,9 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 			}
 		}
 		done()
+		if opts.RequiredSocket {
+			return nil, errExistingServer
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

@@ -1,3 +1,4 @@
+import {SettingsChevron} from './SettingsIcons';
 import type { ReactNode } from 'react';
 
 export function SettingGroup({title,children}:{title?:string;children:ReactNode}) {
@@ -7,5 +8,5 @@ export function SettingRow({label,description,htmlFor,children}:{label:string;de
  return <div className="setting-row"><div className="setting-label">{htmlFor?<label htmlFor={htmlFor}>{label}</label>:<span>{label}</span>}{description&&<p>{description}</p>}</div><div className="setting-control">{children}</div></div>;
 }
 export function SettingHelp({children}:{children:ReactNode}) {
- return <details className="setting-help"><summary>了解更多</summary><div>{children}</div></details>;
+ return <details className="setting-help"><summary><SettingsChevron/>了解更多</summary><div>{children}</div></details>;
 }

@@ -1,10 +1,12 @@
+import {SettingsChevron} from './SettingsIcons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { backend, desktop } from './desktop';
 import { SettingGroup, SettingRow } from './SettingsUI';
 import { ConnectionWizard } from './settings/runtime/ConnectionWizard';
 import { createRuntimeSettingsClient } from './settings/runtime/client';
 import { SettingsDialog } from './settings/runtime/SettingsDialog';
-import { RuntimeWorkspace } from './settings/runtime/RuntimeWorkspace';
+import { LocalWorkerSettings } from './settings/runtime/LocalWorkerSettings';
+import { RuntimeWorkspace, type RuntimePage } from './settings/runtime/RuntimeWorkspace';
 import type { RuntimeSettings as Profile, SetupState, SetupOverview, SetupRequest } from './backend/contract';
 import { useI18n } from './i18n';
 
@@ -12,8 +14,8 @@ const names: Record<string, string> = { caelis: 'Caelis', codex: 'Codex' };
 const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore: '' });
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
 
-export function RuntimeSettings({ onboarding = false, onDone,active=true,refreshKey=0 }: { onboarding?: boolean; onDone?: () => void; active?:boolean; refreshKey?:number }) {
- return onboarding ? <RuntimePreparation onboarding onDone={onDone}/> : <RuntimeWorkspace active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} onBusy={onBusy}/>}/>;
+export function RuntimeSettings({ onboarding = false, onDone,active=true,refreshKey=0,page='connections',onConnections }: { onboarding?: boolean; onDone?: () => void; active?:boolean; refreshKey?:number; page?:RuntimePage; onConnections?:()=>void }) {
+ return onboarding ? <RuntimePreparation onboarding onDone={onDone}/> : <RuntimeWorkspace workerSettings={<LocalWorkerSettings active={active && page === 'models'} onConnections={onConnections}/>} page={page} onConnections={onConnections} active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} onBusy={onBusy}/>}/>;
 }
 
 export function RuntimePreparation({ onboarding = false, onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
@@ -94,7 +96,7 @@ export function RuntimePreparation({ onboarding = false, onDone, initialRuntime 
    {id === 'caelis' && (onboarding || !state.models.length) && <SettingGroup title={t('runtime.modelConnections')}><SettingRow label={state.models.length ? t('runtime.connectedModels') : t('runtime.noModelsConnected')}><button disabled={blocked} onClick={() => setForm('model')}>{t('runtime.connectNewModel')}</button></SettingRow>{state.models.map(m => <SettingRow key={m.value} label={m.label} description={m.noAuth ? t('runtime.needsAuth') : m.value === state.selectedModel ? t('runtime.inUseByBot') : m.current ? t('runtime.caelisDefaultModel') : undefined}><div className="runtime-actions">{onboarding && <button disabled={blocked || m.noAuth || m.value === state.selectedModel} onClick={() => void run('use-model', { model: m.value })}>{t('runtime.use')}</button>}{!onboarding&&<button disabled={blocked || m.current || m.value === state.selectedModel} aria-label={t('runtime.removeModelLabel', { label: m.label })} onClick={() => setConfirm(request(profile, 'remove-model', { model: m.value }))}>{t('runtime.remove')}</button>}</div></SettingRow>)}</SettingGroup>}
 
   </>}
-  <details className="runtime-advanced" open={manual || undefined}><summary>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</summary>
+  <details className="runtime-advanced" open={manual || undefined}><summary><SettingsChevron/>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</summary>
    {onboarding && id === 'codex' && state?.state === 'ready' && state.models.length > 0 && <SettingGroup title={t('runtime.model')}><SettingRow label={t('runtime.botUseModel')} description={t('runtime.botUseModelDescription')}><select aria-label={t('runtime.botUseModel')} disabled={blocked} value={state.selectedModel} onChange={e => void run('use-model', { model: e.target.value })}><option value="" disabled>{t('runtime.selectModel')}</option>{state.models.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}</select></SettingRow></SettingGroup>}
    <SettingGroup><SettingRow label={t('runtime.programLocation')} description={state?.installation.path || t('runtime.autoDiscovery')}><button disabled={blocked} onClick={() => { setManual(v => !v); if (manual) { setProfile(p => ({ ...p, cliPath: '' })); setState(null); } }}>{manual ? t('runtime.useAutoDiscovery') : t('runtime.change')}</button></SettingRow>
     {manual && <div className="setup-path-field"><input aria-label={t('runtime.programPath')} disabled={blocked} value={profile.cliPath} placeholder={t('runtime.programPathPlaceholder')} onChange={e => { setProfile(p => ({ ...p, cliPath: e.target.value })); setState(null); }}/><button disabled={blocked} onClick={() => void pick()}>{t('runtime.chooseFile')}</button></div>}

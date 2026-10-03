@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-03",
+  "host": "fedora",
+  "test": "TestFedoraNativeWorkers",
+  "durationSeconds": 120.84,
+  "runtimes": [
+    {
+      "runtime": "codex",
+      "status": "completed",
+      "exactBytes": 14,
+      "sameNativeBinding": true,
+      "observerDisconnects": 2,
+      "controllerReopened": true,
+      "continued": true,
+      "interrupted": true,
+      "resumed": true,
+      "workerCount": 1,
+      "model": "gpt-6-luna"
+    },
+    {
+      "runtime": "caelis",
+      "status": "completed",
+      "exactBytes": 14,
+      "sameNativeBinding": true,
+      "observerDisconnects": 2,
+      "controllerReopened": true,
+      "continued": true,
+      "interrupted": true,
+      "resumed": true,
+      "workerCount": 1,
+      "model": ""
+    }
+  ]
+}

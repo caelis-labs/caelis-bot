@@ -26,9 +26,20 @@ export function ExecutionSettings({embedded=false}:{embedded?:boolean}) {
   catch { setError(t('settings.executionSaveFailed')); }
   finally { working.current = false; setBusy(false); }
  };
+ const modeText = (id:string, suffix:string, fallback:string) => {
+  const copy = {
+   auto:['settings.approvalAuto','settings.approvalAutoHelp'],
+   ask:['settings.approvalAsk','settings.approvalAskHelp'],
+   'read-only':['settings.approvalReadOnly','settings.approvalReadOnlyHelp'],
+   'full-access':['settings.approvalFullAccess','settings.approvalFullAccessHelp'],
+   'workspace-write':['settings.approvalGuardian','settings.approvalGuardianHelp'],
+  } as const;
+  const keys = copy[id as keyof typeof copy];
+  return keys ? t(keys[suffix?1:0]) : fallback;
+ };
  const mode = options?.approvalModes.find(m => m.id === value);
  return <section className="execution-settings">{!embedded&&<h1>{t('settings.execution')}</h1>}
-  {options && <SettingGroup title={t('settings.execution')}><SettingRow label={t('settings.executionApprovalMode')} htmlFor="execution-approval" description={<span className={mode?.dangerous ? 'permission-warning' : undefined}>{mode?.description || t('settings.executionModeUnavailable')}</span>}>{options.approvalModes.length===1&&mode?<span className="permission-badge">{mode.name}</span>:<select id="execution-approval" disabled={busy || !options.approvalModes.length} value={value} onChange={e => { setValue(e.target.value); setError(''); setNotice(''); }}>{!mode && <option value={value}>{value || t('settings.unavailable')}</option>}{options.approvalModes.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>}</SettingRow></SettingGroup>}
+  {options && <SettingGroup title={t('settings.execution')}><SettingRow label={t('settings.executionApprovalMode')} htmlFor="execution-approval" description={<span className={mode?.dangerous ? 'permission-warning' : undefined}>{mode ? modeText(mode.id,'Help',mode.description) : t('settings.executionModeUnavailable')}</span>}>{options.approvalModes.length===1&&mode?<span className="permission-badge">{modeText(mode.id,'',mode.name)}</span>:<select id="execution-approval" disabled={busy || !options.approvalModes.length} value={value} onChange={e => { setValue(e.target.value); setError(''); setNotice(''); }}>{!mode && <option value={value}>{value || t('settings.unavailable')}</option>}{options.approvalModes.map(m => <option key={m.id} value={m.id}>{modeText(m.id,'',m.name)}</option>)}</select>}</SettingRow></SettingGroup>}
 
   {error && <p role="alert" className="inline-error">{error}</p>}{notice && <p role="status" className="settings-note">{notice}</p>}
   {(!options||options.approvalModes.length>1||error)&&<div className="settings-footer"><button disabled={busy} onClick={() => void load()}>{busy ? t('common.loading') : t('settings.executionReload')}</button><button className="primary" disabled={busy || !mode || value === saved || !!error} onClick={() => void save()}>{t('settings.executionSave')}</button></div>}

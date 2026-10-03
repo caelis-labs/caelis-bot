@@ -48,6 +48,7 @@ type view struct {
 	State           wire.SessionState                `json:"state"`
 	Items           []api.Item                       `json:"items"`
 	Cursor          string                           `json:"cursor"`
+	HistoryBefore   string                           `json:"historyBefore,omitempty"`
 	Seen            map[string]bool                  `json:"seen"`
 	Failure         string                           `json:"failure,omitempty"`
 }
@@ -152,6 +153,7 @@ func loadBinding(path string) (binding, error) {
 			v.Reviews, v.LiveReviews = nil, nil
 			v.Items = []api.Item{}
 			v.Cursor = ""
+			v.HistoryBefore = ""
 			v.Seen = map[string]bool{}
 			v.Failure = ""
 			v.Turns = nil

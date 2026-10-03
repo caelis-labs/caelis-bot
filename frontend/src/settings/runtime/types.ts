@@ -12,7 +12,7 @@ export type ConnectionGroup = { id: string; name: string; kind: 'provider' | 'ag
 export type RuntimeView = {
  revision: string; profile: RuntimeSettings; setup: SetupState; pending: string;
  models: ModelOption[]; conversation: ExecutionSettings | null; work: ModelSelection | null;
- main: ModelSelection | null; canEditMain: boolean; team: TeamState; connections: ConnectionGroup[];
+ main: ModelSelection | null; runtimeDefault: ModelSelection | null; canEditMain: boolean; team: TeamState; connections: ConnectionGroup[];
 };
 export type ConnectionKind = 'account' | 'api-key' | 'agent';
 export type ConnectChoice = { id: string; name: string; description: string; custom?: boolean };

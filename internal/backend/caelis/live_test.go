@@ -186,7 +186,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 	h := &acceptanceTools{defs: defs("string")}
 	h.call = func(callCtx context.Context, name string, args json.RawMessage) api.ToolResult {
 		switch name {
-		case "bot_clock":
+		case "bot_schedule":
 			clockCalls.Add(1)
 			return resident.CallTool(callCtx, name, args)
 		case "LiveCheckpoint":
@@ -244,7 +244,7 @@ func TestConfiguredModelIntegration(t *testing.T) {
 	if !run("B01_B02_B06_notebook", func(t *testing.T) {
 		// Use the complete shipped catalog, including no-argument tools. A
 		// fixture-only schema missed a provider rejection in native onboarding.
-		submit(t, "live-product-catalog", "Call bot_clock exactly once, then reply CLOCK_COMPLETE. No other tools.")
+		submit(t, "live-product-catalog", "Call bot_schedule with request.type context exactly once, then reply CLOCK_COMPLETE. No other tools.")
 		if clockCalls.Load() != 1 {
 			t.Fatal("shipped no-argument tool did not complete through native callback")
 		}

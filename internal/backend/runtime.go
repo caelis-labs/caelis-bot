@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"regexp"
 
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -67,6 +68,12 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 		if err := s.probeRuntime(ctx, value); err != nil {
 			return api.RuntimeCheck{}, err
 		}
+		if err := SaveRuntimeProfile(filepath.Dir(s.runtimeFile), s.runtimeSettings); err != nil {
+			return api.RuntimeCheck{}, err
+		}
+		if err := SaveRuntimeProfile(filepath.Dir(s.runtimeFile), value); err != nil {
+			return api.RuntimeCheck{}, err
+		}
 		if err := saveRuntimeSettings(s.runtimeFile, runtimeDocument{Version: 1, RuntimeSettings: value}); err != nil {
 			return api.RuntimeCheck{}, err
 		}
@@ -78,6 +85,9 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 		return api.RuntimeCheck{}, errors.New("当前后端不支持修改连接配置")
 	}
 	return e.ChangeRuntime(ctx, value, func() error {
+		if err := SaveRuntimeProfile(filepath.Dir(s.runtimeFile), value); err != nil {
+			return err
+		}
 		if err := saveRuntimeSettings(s.runtimeFile, runtimeDocument{Version: 1, RuntimeSettings: value}); err != nil {
 			return errors.New("检测已通过，但连接配置未能保存")
 		}
@@ -86,3 +96,12 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 	})
 }
 func saveRuntimeSettings(path string, value any) error { return localstate.Write(path, value) }
+
+// Keep per-provider connection identity when the resident selection changes;
+// retained Workers must never reconnect through another provider's store.
+func SaveRuntimeProfile(root string, value api.RuntimeSettings) error {
+	if !providerID.MatchString(value.Runtime) {
+		return errors.New("invalid runtime profile")
+	}
+	return localstate.Write(filepath.Join(root, "runtime-profiles", value.Runtime+".json"), runtimeDocument{Version: 1, RuntimeSettings: value})
+}
