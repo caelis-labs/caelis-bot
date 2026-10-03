@@ -240,8 +240,8 @@
   "machineAdvancedTUI": "OAuth、ACP 及其他高级流程暂时需要在这台机器的 Caelis TUI 中完成。",
   "machineAdvancedFailed": "暂时无法读取高级配置。基础工作可以继续，也可以前往 TUI 配置。",
   "machineConnectionDetails": "SSH 连接",
-  "machineRemove": "移除此连接",
-  "machineRemoveConfirm": "确认移除此连接",
+  "machineRemove": "删除机器",
+  "machineRemoveConfirm": "确认删除",
   "machineEditConnection": "编辑连接",
   "machineChecking": "正在检查这台机器…",
   "machineCanStart": "可以在对话中指定这台机器工作。",
@@ -287,5 +287,8 @@
   "machineConfigSecret": "密码或密钥口令（如需要）",
   "machineError_ssh_config_read_failed": "无法读取 SSH 配置，请检查文件后刷新，或选择新建连接。",
   "machineError_ssh_config_host_missing": "这个 SSH 配置已不存在，请刷新并重新选择连接。",
-  "machineConfigConnectFailed": "无法使用已有 SSH 配置连接。请先在终端检查这个连接；如需密码或密钥口令，可在“可选连接设置”中填写。"
+  "machineConfigConnectFailed": "无法使用已有 SSH 配置连接。请先在终端检查这个连接；如需密码或密钥口令，可在“可选连接设置”中填写。",
+  "machineRemoveTitle": "删除这台机器？",
+  "machineRemoveNote": "仅从 Bot 移除连接。本机 SSH 配置、远端文件和工作工具均保留。",
+  "machineError_ssh_host_verification_failed": "SSH 主机身份校验失败，请重新连接并检查主机指纹；使用跳板机时，也需检查跳板机的主机信任。"
 }

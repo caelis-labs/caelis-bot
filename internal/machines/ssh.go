@@ -1,6 +1,7 @@
 package machines
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -15,6 +16,13 @@ import (
 )
 
 func quote(v string) string { return "'" + strings.ReplaceAll(v, "'", "'\"'\"'") + "'" }
+
+// -o values still pass through OpenSSH's config parser after argv parsing.
+// UserKnownHostsFile accepts multiple paths and expands percent tokens, so a
+// literal app-owned path needs both config quoting and percent escaping.
+func sshConfigPath(path string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, `%`, `%%`).Replace(path) + `"`
+}
 func validate(v api.MachineInput) error {
 	if v.Address == "" || len(v.Address) > 255 || strings.HasPrefix(v.Address, "-") || strings.ContainsAny(v.Address, " \t\r\n\x00/@;$`()\"") {
 		return errors.New("invalid_address")
@@ -177,7 +185,7 @@ func (s *Service) sshArgs(p profile, tty bool) ([]string, error) {
 	if tty {
 		a = []string{"-tt"}
 	}
-	a = append(a, "-p", strconv.Itoa(p.View.Port), "-l", p.View.User, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile="+filepath.Join(d, "known_hosts"), "-o", "GlobalKnownHostsFile=/dev/null", "-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "PermitLocalCommand=no", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=12", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ControlPath="+filepath.Join(controlDir, p.View.ID+".sock"), "-o", "UpdateHostKeys=no")
+	a = append(a, "-p", strconv.Itoa(p.View.Port), "-l", p.View.User, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile="+sshConfigPath(filepath.Join(d, "known_hosts")), "-o", "GlobalKnownHostsFile=/dev/null", "-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "PermitLocalCommand=no", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=12", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ControlPath="+filepath.Join(controlDir, p.View.ID+".sock"), "-o", "UpdateHostKeys=no")
 	switch p.View.Authentication {
 	case "agent":
 		batch := "yes"
@@ -200,7 +208,9 @@ func (s *Service) command(ctx context.Context, p profile, command string, input 
 	args = append(args, command)
 	cmd := exec.CommandContext(ctx, "/usr/bin/ssh", args...)
 	cmd.Stdin = input
-	cmd.Stderr = io.Discard
+	// Only retain a bounded diagnostic in memory, never return/log raw SSH output.
+	var diagnostic sshDiagnostic
+	cmd.Stderr = &diagnostic
 	secret := s.secrets[p.View.ID]
 	if secret == "" && p.View.Remember {
 		secret, _ = loadSecret(p.View.ID)
@@ -228,10 +238,28 @@ func (s *Service) command(ctx context.Context, p profile, command string, input 
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		var exit *exec.ExitError
+		if errors.As(e, &exit) && exit.ExitCode() == 255 && bytes.Contains(diagnostic.Bytes(), []byte("Host key verification failed")) {
+			return nil, errors.New("ssh_host_verification_failed")
+		}
 		return nil, errors.New("ssh_authentication_or_connection")
 	}
 	if len(b) > 8<<20 {
 		return nil, errors.New("remote_response_too_large")
 	}
 	return b, nil
+}
+
+type sshDiagnostic struct{ data []byte }
+
+func (d *sshDiagnostic) Bytes() []byte { return d.data }
+func (d *sshDiagnostic) Len() int      { return len(d.data) }
+
+func (d *sshDiagnostic) Write(p []byte) (int, error) {
+	const limit = 8 << 10
+	n := len(p)
+	if remaining := limit - d.Len(); remaining > 0 {
+		d.data = append(d.data, p[:min(n, remaining)]...)
+	}
+	return n, nil
 }

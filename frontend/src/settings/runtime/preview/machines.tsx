@@ -5,6 +5,7 @@ import { createPreviewClient } from './client';
 
 // Visual fixtures only. Never makes an SSH call or replaces native evidence.
 export function machinePreview(scenario:string) {
+ let removed=false;
  let machine:Machine={id:'visual-fixture',name:'Fedora',address:'192.168.1.20',port:22,user:'developer',authentication:'agent',sshConfig:false,privateKey:'',remember:false,state:'setup',issue:'',fingerprint:'SHA256:visual-fixture',runtime:scenario.startsWith('caelis')?'caelis':'codex',available:['codex','caelis'],setup:{state:'auth',models:[],message:'',accountType:'',loginPending:false,serviceUpdateAvailable:false,serviceVersion:'',serviceState:'',selectedModel:'',settings:{runtime:'codex',cliPath:'',caelisStore:''},installation:{installed:true,path:'',version:'',message:'',latestVersion:'',updateState:''}},work:{model:'',effort:'',serviceTier:''},models:[],runtimeDefault:null,advancedIssue:''};
  if(scenario==='missing')machine.setup.state='missing';
  if(scenario==='offline'){machine.state='offline';machine.issue='ssh_authentication_or_connection';}
@@ -12,7 +13,7 @@ export function machinePreview(scenario:string) {
  const previewClient=createPreviewClient();
  if(machine.state==='ready'){const model={model:'example-model',name:'Example model',description:'',default:true,defaultEffort:'medium',efforts:['low','medium','high','xhigh'],serviceTiers:[{id:'fast',name:'Fast',description:''}],imageInput:false};machine.models=[model];machine.runtimeDefault={model:model.model,effort:'medium',serviceTier:''};}
  const call=(async (method:string,...args:unknown[])=>{
-  if(method==='Machines')return [machine];
+  if(method==='Machines')return removed?[]:[machine];
   if(method==='SSHConfigHosts'){if(scenario==='ssh-read-error')throw new Error('Visual fixture only');return scenario==='ssh-empty'?[]:['benxi','fedora','orb','sw-tbj','wall'];}
   if(method==='ReadMachineAdvanced'){
    if(scenario==='caelis-advanced-error')return {...machine,advancedIssue:'configuration_unavailable'};
@@ -21,7 +22,7 @@ export function machinePreview(scenario:string) {
   if(method==='ConnectMachine'){const draft=args[0] as MachineInput;machine={...machine,...draft,issue:scenario==='offline'?'ssh_authentication_or_connection':''};return machine;}
   if(method==='InspectMachine')return machine;
   if(method==='SaveMachineModel'){machine={...machine,work:(args[0] as {selection:Machine['work']}).selection};return machine;}
-  if(method==='RemoveMachine')return undefined;
+  if(method==='RemoveMachine'){removed=true;return undefined;}
   throw new Error('Visual fixture only');
  }) as typeof backend;
  return <MachineSettings call={call} openTerminal={async()=>{throw new Error('Visual fixture only');}}/>;

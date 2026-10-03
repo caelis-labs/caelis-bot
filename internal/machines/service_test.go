@@ -3,8 +3,10 @@ package machines
 import (
 	"context"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -73,6 +75,48 @@ func TestOriginalMachineCannotBeRemoved(t *testing.T) {
 	}
 	if _, ok := s.state.Profiles["machine-owned"]; !ok {
 		t.Fatal("profile removed")
+	}
+}
+
+func TestOfflineMachineCanBeRemovedAndStaysRemoved(t *testing.T) {
+	s, err := Open(t.TempDir(), inert{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "machine-disposable-offline"
+	s.state.Profiles[id] = profile{View: api.Machine{ID: id, State: "offline", SSHConfig: true}}
+	s.secrets[id] = "disposable-secret"
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveMachine(t.Context(), id); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Machines()) != 0 || len(s.secrets) != 0 {
+		t.Fatal("offline profile or in-memory secret retained")
+	}
+	again, err := Open(s.root, inert{}, nil)
+	if err != nil || len(again.Machines()) != 0 {
+		t.Fatal("deleted profile returned after reopen", err)
+	}
+}
+
+func TestSSHDiagnosticIsBoundedAndDrainsStderr(t *testing.T) {
+	var diagnostic sshDiagnostic
+	for range 3 {
+		p := make([]byte, 32<<10)
+		if n, err := diagnostic.Write(p); err != nil || n != len(p) {
+			t.Fatal("SSH stderr must be fully drained", n, err)
+		}
+	}
+	if diagnostic.Len() != 8<<10 {
+		t.Fatal("SSH stderr exceeded diagnostic bound")
+	}
+	// os/exec drains stderr through io.Copy. Do not accidentally expose a
+	// ReaderFrom method that bypasses Write's bound.
+	n, err := io.Copy(&diagnostic, io.LimitReader(strings.NewReader(strings.Repeat("x", 32<<10)), 32<<10))
+	if err != nil || n != 32<<10 || diagnostic.Len() != 8<<10 {
+		t.Fatal("stderr copy bypassed diagnostic bound", n, err)
 	}
 }
 

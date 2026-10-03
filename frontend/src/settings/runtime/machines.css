@@ -6,7 +6,7 @@
 
 .machine-status-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 20px}.machine-status-actions .machine-ready-state{margin:0}
 
-.machine-remove{margin-top:18px}
+
 /* Remote inspector follows the same row hierarchy as local settings. */
 .settings-window .machine-editor .runtime-setting-row{flex-wrap:nowrap;padding:12px 0}
 .settings-window .machine-editor .runtime-model-summary{max-width:63%;min-width:0}
@@ -46,6 +46,13 @@
 .machine-host-message.inline-error{color:var(--error)}
 .settings-window .machine-config-note{margin:12px 0 0;font-size:12px;line-height:1.6}
 .machine-editor-body{flex:1}
-.settings-window .machine-extra>.machine-remove{margin:16px 0 4px 24px;color:#b0554e}
+
 .settings-window .machine-editor header>button{border:0;background:transparent;padding:6px;min-width:28px;min-height:28px}
 @media(min-width:1120px){.settings-window:has(.machine-editor)>.settings-content{padding-right:420px}.settings-window:has(.machine-editor) .runtime-workspace{min-width:0}.settings-window:has(.machine-editor) .runtime-setting-row{gap:12px}}
+
+.settings-window .machine-editor footer>.machine-remove{padding:6px 0;color:var(--error);font-size:12px;text-align:left}
+.machine-editor .machine-removal-confirm{display:block}
+.machine-removal-confirm strong{font-size:13px;font-weight:500}
+.machine-removal-confirm p{font-size:12px;color:var(--muted);line-height:1.6;margin:6px 0 14px}
+.machine-removal-confirm .machine-actions{justify-content:flex-end}
+.settings-window .machine-editor .machine-remove-primary{background:var(--error);border-color:var(--error);color:#fff}

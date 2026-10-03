@@ -55,7 +55,7 @@ func TestNativeSSHAuthentication(t *testing.T) {
 	if err != nil || fp == "" {
 		t.Fatal("native host-key scan", err)
 	}
-	s, err := Open(filepath.Join(root, "machines"), inert{}, nil)
+	s, err := Open(filepath.Join(root, `Application Support`, `Machines %h "quoted"\path`), inert{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestNativeSSHAuthentication(t *testing.T) {
 	if err = exec.Command("/usr/bin/ssh-add", filepath.Join(root, "client.plain")).Run(); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"password", "key", "passphrase", "agent", "config-password", "wrong-password"} {
+	for _, mode := range []string{"password", "key", "passphrase", "agent", "config-password", "wrong-password", "untrusted-host"} {
 		t.Run(mode, func(t *testing.T) {
 			id := "machine-" + rand.Text()
 			dir := filepath.Join(s.root, id)
@@ -119,8 +119,23 @@ func TestNativeSSHAuthentication(t *testing.T) {
 			case "wrong-password":
 				view.Authentication = "password"
 				s.secrets[id] = "wrong"
+			case "untrusted-host":
+				view.Authentication = "agent"
+				otherKey, err := exec.Command("/usr/bin/ssh-keygen", "-y", "-f", filepath.Join(root, "client.plain")).Output()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "known_hosts"), []byte(host+" "+strings.TrimSpace(string(otherKey))+"\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			b, err := s.command(ctx, profile{View: view}, "printf auth-proof", nil)
+			if mode == "untrusted-host" {
+				if err == nil || err.Error() != "ssh_host_verification_failed" {
+					t.Fatal("host verification failure must be rejected and distinguished from authentication", err)
+				}
+				return
+			}
 			if mode == "wrong-password" {
 				if err == nil {
 					t.Fatal("accepted incorrect password")

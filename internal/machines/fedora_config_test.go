@@ -18,7 +18,7 @@ func TestFedoraSSHConfigConnection(t *testing.T) {
 	}
 	helper := os.Getenv("CAELIS_BOT_REMOTE_HELPER_DIR")
 	artifact := func(arch string) ([]byte, error) { return os.ReadFile(filepath.Join(helper, "linux-"+arch)) }
-	s, err := Open(t.TempDir(), inert{}, artifact)
+	s, err := Open(filepath.Join(t.TempDir(), "Application Support", "Machines %h"), inert{}, artifact)
 	if err != nil {
 		t.Fatal(err)
 	}

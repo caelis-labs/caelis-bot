@@ -414,6 +414,16 @@ explicit Keychain opt-in. `ProxyCommand` and multi-hop jumps remain unsupported.
 For a non-billable real connection acceptance, set `CAELIS_BOT_TEST_CONFIG_SSH=fedora`
 and `CAELIS_BOT_REMOTE_HELPER_DIR` to the built helper directory, then run
 `GOWORK=off go test ./internal/machines -run '^TestFedoraSSHConfigConnection$' -count=1 -v`.
+OpenSSH `-o` values are parsed again as config syntax: app-owned known-hosts paths
+are quoted and percent-escaped, including the daily macOS `Application Support` path.
+SSH host-verification failures use a bounded in-memory diagnostic and a typed error;
+raw stderr is never returned or logged. Connection acceptance must include a path
+with spaces, rather than only a temporary directory.
+
+Saved machines offer **Delete machine** in the fixed footer in both connection and
+work steps, including offline profiles. The confirmation only removes Bot registration
+and its remembered credential; user SSH config, remote files and runtimes are kept.
+Task-owned profiles still reject removal. Cancel/Escape retains the machine and draft.
 This settings-only workflow adds no Bot tool or changes to task routing, so Bot skill
 instructions do not need an update.
 
