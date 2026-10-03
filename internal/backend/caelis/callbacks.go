@@ -16,6 +16,9 @@ func (s *Session) callLoop(ctx context.Context) {
 	defer s.wg.Done()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
+	var recoveredClient *client
+	var recoveredSession string
+	var recoveredGeneration uint64
 	for {
 		select {
 		case <-ctx.Done():
@@ -27,14 +30,65 @@ func (s *Session) callLoop(ctx context.Context) {
 		c := s.client
 		binding := s.state.Session
 		life := s.state.Connection
+		generation, observationCtx := s.generation, s.streamCtx
 		s.mu.Unlock()
 		if !ready || binding.SessionId == "" {
+			recoveredClient = nil
 			continue
 		}
-		if e := s.pollCalls(ctx, c, binding, life); e != nil && ctx.Err() == nil {
+		var e error
+		if recoveredClient != c || recoveredSession != binding.SessionId || recoveredGeneration != generation {
+			// Recovery includes claimed calls; waiting only returns new pending
+			// calls and must never replace this uncertain-effect reconciliation.
+			e = s.pollCalls(ctx, c, binding, life)
+			if e == nil {
+				recoveredClient, recoveredSession, recoveredGeneration = c, binding.SessionId, generation
+			}
+		} else {
+			if observationCtx == nil {
+				observationCtx = ctx
+			}
+			var calls []wire.ApplicationCall
+			calls, e = waitCalls(observationCtx, c, binding.SessionId)
+			s.mu.Lock()
+			current := s.connected && !s.closed && s.client == c && s.generation == generation && s.state.Session.SessionId == binding.SessionId
+			s.mu.Unlock()
+			if !current {
+				recoveredClient = nil
+				continue
+			}
+			if e == nil {
+				for _, call := range calls {
+					if call.State != "pending" {
+						e = errors.New("Caelis 等待调用返回无效状态")
+						break
+					}
+					if e = s.handleCall(ctx, c, binding, life, call); e != nil {
+						break
+					}
+				}
+			}
+		}
+		if e != nil && ctx.Err() == nil {
+			recoveredClient = nil
 			s.fail(e)
 		}
 	}
+}
+
+func waitCalls(ctx context.Context, c *client, sid string) ([]wire.ApplicationCall, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	observation, closeTransport := c.observationClient()
+	defer closeTransport()
+	var calls []wire.ApplicationCall
+	err := observation.jsonTimeout(ctx, "GET", "/application/sessions/"+idPath(sid)+"/calls?wait=true", nil, &calls, "", "", time.Minute)
+	// An idle read wait or replacement of its owning stream has no uncertain
+	// effect to reconcile and is not a disconnection. Other failures still are.
+	if err != nil && ctx.Err() != nil {
+		return nil, nil
+	}
+	return calls, err
 }
 func (s *Session) pollCalls(ctx context.Context, c *client, b wire.ApplicationBinding, life wire.ApplicationConnection) error {
 	var calls []wire.ApplicationCall

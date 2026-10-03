@@ -32,6 +32,28 @@ Optional capabilities are discovered by typed ports and native negotiation, not 
 Wails/AppKit/cgo remain behind macOS drivers. Unsupported hosts fail before writing preferences.
 Shared-core compilation does not prove native Windows behavior. `GOWORK=off`; no sibling private imports.
 
+Caelis atomic reconnect may prepare a large existing history before sending SSE
+headers. Its observation uses a separate transport with a two-minute header wait;
+the caller context owns cancellation and the idle stream lifetime. Ordinary JSON
+requests retain their existing deadlines. Repeated unchanged offline observations
+remain diagnostic facts without republishing the same product-state transition.
+
+Caelis initial display recovery requests eight complete recent Turns. Earlier
+history uses the existing chat pagination port and a separate native history token;
+it never advances the live cursor. Finite pages are staged until sync, then prepend
+only display items, preserving overlapping live output and current approval/run/
+operation authority. Each page has a 30-second context budget. Display windows do
+not bound model context or erase canonical history. Existing saved projections are
+retained on exact cursor resume; replacement refreshes the recent window while
+preserving original command-result evidence required by pending followups.
+
+Caelis callback recovery reads the full receipt snapshot once per connection /
+stream generation, including claimed calls. Subsequent reads use the native
+pending-call wait endpoint, with a 45-second cancellable idle wait, instead of
+polling completed tool payloads every 250 ms. The effect still runs only after a
+confirmed claim; unknown claims and original result receipts retain their recovery
+semantics. A retired connection cannot dispatch a response from its old wait.
+
 ## Remote machines
 
 The resident adapter remains local. `machines.Service` multiplexes the existing

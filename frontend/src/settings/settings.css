@@ -48,6 +48,8 @@
 .settings-window .runtime-active{padding:0 0 10px;margin-bottom:6px}
 .settings-window .runtime-active strong{font-size:17px}
 .settings-window .runtime-active p{font-size:12px}
+.settings-window .runtime-active>div:not(.runtime-active-actions){min-width:0}
+.settings-window .runtime-active-actions{flex-shrink:0}
 .settings-window .runtime-monogram{width:38px;height:38px}
 .settings-window .runtime-section-title{margin:20px 0 8px}
 .settings-window .runtime-model-section{margin-bottom:0}

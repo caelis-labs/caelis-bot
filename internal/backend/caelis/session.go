@@ -38,6 +38,7 @@ type Session struct {
 	scheduledPreviousTurn string
 	diagnostics           *diagnosticlog.Logger
 	mu                    sync.Mutex
+	historyMu             sync.Mutex
 	step                  sync.Mutex
 	path                  string
 	settings              api.RuntimeSettings
@@ -121,6 +122,9 @@ func (s *Session) fail(e error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "caelis", Code: "connection_unconfirmed", Thread: s.state.Session.SessionId, Reason: diagnosticlog.Reason(e.Error()), Fingerprint: diagnosticlog.Fingerprint([]byte(e.Error()))})
+	if !s.connected && s.issue == e.Error() {
+		return e
+	}
 	s.connected = false
 	s.issue = e.Error()
 	s.bumpLocked()

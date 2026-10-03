@@ -58,6 +58,7 @@
   "pendingSwitch": " · 待切换到 {runtime}",
   "manage": "管理",
   "switch": "更换",
+  "switchConnection": "更换连接",
   "completeSetup": "完成连接设置 →",
   "tabModelsAndTeam": "模型与 Team",
   "tabModels": "对话",

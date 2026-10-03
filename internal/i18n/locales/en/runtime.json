@@ -58,6 +58,7 @@
   "pendingSwitch": " · Pending switch to {runtime}",
   "manage": "Manage",
   "switch": "Change",
+  "switchConnection": "Change connection",
   "completeSetup": "Complete connection setup →",
   "tabModelsAndTeam": "Models & Team",
   "tabModels": "Conversation",

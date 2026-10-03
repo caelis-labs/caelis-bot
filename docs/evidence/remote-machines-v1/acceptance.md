@@ -64,6 +64,52 @@ The final pass qualified the normal native window and wide inspector. The exact
 Global Team saves, OAuth reauthentication and every optional ACP/provider editor
 were not repeated during this final presentation pass.
 
+## Resident reconnect and bounded history
+
+An existing heavy Caelis conversation reproduced a reconnect response-header wait
+of 40.526 seconds, beyond the Bot's former shared 20-second header deadline. The
+ordinary initialize/state/callback endpoints remained reachable. The fixed stream
+now has a separate cancellable header budget, and unchanged offline failures do
+not repeatedly publish the same product-state transition.
+
+Read-only measurements on the same existing history, with the server already warm:
+
+| Recovery window | Bytes through sync | Time through sync |
+| --- | ---: | ---: |
+| 64 complete Turns | 18,648,487 | 5.246 s |
+| 8 complete Turns | 2,439,857 | 0.715 s |
+| Exact saved-cursor resume | 3,183 | 0.038 s |
+
+The native adapter now requests eight complete recent Turns and uses the existing
+chat “load earlier” interaction for finite older pages. Read-only native acceptance
+with isolated projection writes recovered 150 display items and prepended another
+72, preserving the original live state, cursor and newer items. Fixture coverage
+includes both canonical replacement and exact-source pages, overlap, truncation,
+invalid page boundaries, replacement during a read, and original command evidence
+outside the display window. Existing saved projections remain intact on exact
+resume. The window bounds display recovery; it does not truncate model context or
+canonical history, and one unusually large Turn can still contain substantial data.
+
+Completed tool receipts also occupied roughly 16 MB per list response. The Bot now
+reads that full snapshot once on connection recovery to reconcile claimed calls,
+then uses the runtime's pending-call wait instead of repeatedly polling the full
+history. Idle read cancellation is not a connection failure. Fixtures retain the
+original claimed receipt and process a subsequent pending call through the native
+claim/result path.
+
+These warm measurements do not establish a cold-start timing bound for Core's
+reconnect preparation. No shared runtime restart, account reset or history deletion
+was used to manufacture a faster result. The top-level change-connection button
+was inspected in [Chinese](ui-switch-top-zh.png) and [English](ui-switch-top-en.png),
+including opening and cancelling the existing selection dialog.
+
+Required checks, owning race tests and real native Host/Guardian integration
+passed after these changes, including the 90-second review timeout that never
+dispatches an effect. The existing daily Bot profile resumed with unchanged
+runtime settings and no new connection-error records over more than two minutes.
+Bot-facing skill guidance needs no update: paging is display-only, and callback
+transport keeps the existing claim, receipt and uncertain-effect workflow.
+
 ## External-terminal lifecycle and remaining visual gate
 
 The first real Ghostty developer smoke reached its 90-second opening deadline
