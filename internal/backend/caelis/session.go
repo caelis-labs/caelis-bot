@@ -34,6 +34,7 @@ type Options struct {
 	ReviewerModel string
 }
 type Session struct {
+	retainedWorkers       bool
 	sendingScheduled      string
 	scheduledPreviousTurn string
 	diagnostics           *diagnosticlog.Logger
@@ -108,9 +109,12 @@ func (s *Session) Connect(ctx context.Context) error {
 	s.mu.Lock()
 	if s.cancel == nil {
 		s.ctx, s.cancel = context.WithCancel(context.Background())
-		s.wg.Add(2)
+		s.wg.Add(1)
 		go s.pollLoop(s.ctx)
-		go s.callLoop(s.ctx)
+		if !s.retainedWorkers {
+			s.wg.Add(1)
+			go s.callLoop(s.ctx)
+		}
 	}
 	s.connected = true
 	s.issue = ""

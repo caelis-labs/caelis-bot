@@ -24,6 +24,17 @@ func NewWorkOwner(opts Options) (*WorkOwner, error) {
 	}
 	return &WorkOwner{s}, nil
 }
+
+// Retained local Workers keep the exact application/session and credential
+// binding. Observation cannot rebind the inactive Bot's tools or run its calls.
+func NewRetainedWorkOwner(opts Options) (*WorkOwner, error) {
+	w, err := NewWorkOwner(opts)
+	if err != nil {
+		return nil, err
+	}
+	w.engine.retainedWorkers = true
+	return w, w.engine.loadErr
+}
 func (w *WorkOwner) Connect(ctx context.Context) error { return w.engine.Connect(ctx) }
 func (w *WorkOwner) Close(ctx context.Context) error   { return w.engine.Close(ctx) }
 func (w *WorkOwner) source(ctx context.Context, request string) context.Context {

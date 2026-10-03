@@ -638,7 +638,7 @@ func (s *Session) pollLoop(ctx context.Context) {
 			e = s.refresh(ctx)
 		}
 		s.step.Unlock()
-		if e == nil {
+		if e == nil && !s.retainedWorkers {
 			e = s.reportApprovedCommands(ctx)
 		}
 		if e != nil && ctx.Err() == nil {
@@ -695,6 +695,12 @@ func (s *Session) refresh(ctx context.Context) error {
 		s.mu.Lock()
 		s.state.Connection = renewed
 		s.mu.Unlock()
+	}
+	if s.retainedWorkers {
+		if err := s.refreshWorkers(ctx, c); err != nil {
+			return err
+		}
+		return s.recoverOperations(ctx)
 	}
 	s.mu.Lock()
 	before := s.state.Views[sid]
@@ -816,6 +822,9 @@ func (s *Session) needsRefreshLocked() bool {
 		}
 	}
 	for sid, v := range s.state.Views {
+		if s.retainedWorkers && sid == s.state.Session.SessionId {
+			continue
+		}
 		if slices.Contains(s.state.PastSessions, sid) {
 			continue
 		}
@@ -827,6 +836,9 @@ func (s *Session) needsRefreshLocked() bool {
 		if w.Start != nil || !s.streams[w.Binding.SessionId] {
 			return true
 		}
+	}
+	if s.retainedWorkers {
+		return false
 	}
 	v := s.state.Views[s.state.Session.SessionId]
 	if v == nil {

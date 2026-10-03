@@ -219,7 +219,7 @@
   "machineTrust": "Trust and connect",
   "machineConnecting": "Connecting…",
   "machineConnect": "Connect",
-  "machineRuntime": "Work with",
+  "machineRuntime": "Work tool for new tasks",
   "machineChooseRuntime": "Choose a work tool",
   "machineAccount": "Model account",
   "machineLoggedIn": "Connected on this machine",
@@ -256,7 +256,7 @@
   "machineError_unreachable": "This machine could not be reached. Check its address, port and network.",
   "machineError_ssh_authentication_or_connection": "SSH could not connect. Check your username, authentication and network, then reconnect.",
   "machineError_host_key_changed": "The host key has changed. The previous connection is preserved. Verify the machine outside this app before reconnecting.",
-  "machineError_machine_has_tasks": "This machine owns existing tasks. Keep its connection and runtime so those tasks remain accessible.",
+  "machineError_machine_has_tasks": "This machine owns tasks. Keep its SSH connection to access them. You can change the work tool at any time.",
   "machineError_unsupported_ssh_route": "Multi-hop ProxyJump and scripted ProxyCommand connections are not supported. Use a direct connection or a single existing jump host.",
   "machineError_unsupported_platform": "This version supports Linux machines with x86_64 or arm64 CPUs.",
   "machineError_target_identity_changed": "The remote machine identity has changed. Original tasks will not be moved or restarted.",
@@ -296,5 +296,8 @@
   "connections": "Connections & accounts",
   "machines": "Remote machines",
   "machinePageIntro": "Connect a remote machine and set up its work tools and accounts.",
-  "machineListTitle": "Your machines"
+  "machineListTitle": "Your machines",
+  "workerSwitchNote": "Existing tasks keep their original work tool.",
+  "localWorkerModelNote": "Default model for new local tasks",
+  "workerSetupRequired": "Set up this work tool in Connections & accounts first."
 }

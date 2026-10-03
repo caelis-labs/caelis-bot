@@ -58,10 +58,23 @@ semantics. A retired connection cannot dispatch a response from its old wait.
 
 The resident adapter remains local. `machines.Service` multiplexes the existing
 `api.WorkRuntime` port by an explicitly selected machine; absent targets stay local.
-`tasks.Manager` persists the machine with the original task before dispatch. Remote
+`tasks.Manager` persists the machine and actual backend before dispatch. `WorkRouter`
+freezes the backend before workspace preparation; retries never re-resolve a default. Remote
 workspaces are resolved on that machine, never through the controller filesystem.
 Remote request identity and ownership survive a resident adapter change. Existing
-task routes cannot be removed or retargeted by editing the connection.
+task routes cannot be removed or retargeted by editing the SSH connection.
+
+Local `localWorkers` retains owned bindings from both provider directories. Its
+independent default is stored in `worker-runtime.json`; an inactive adapter exposes
+only Workers, never its resident conversation or Bot callbacks. The current resident
+still validates native delegation authority before any start or continuation. Per-
+provider settings preserve store identity, models and account ownership. Task backend
+bindings survive a resident change and remain visible if their owner is unavailable.
+
+Remote v1 routes migrate once from their locked profile runtime to a durable per-task
+backend map. Observation caches are keyed by machine and backend; reading, sending,
+stopping and terminal resolution explicitly address that retained backend. Changing
+a default keeps both owners alive and affects only newly bound requests.
 
 Native OpenSSH owns transport and authentication. Host keys require an explicit
 fingerprint confirmation and changed keys fail closed. Passwords/passphrases are
@@ -123,7 +136,8 @@ process-name kill. Closing/hiding UI has none of this authority. Shared Caelis H
 Bot neither stops the shared Host nor cancels native workers on ordinary close. Cancellation after dispatch
 may leave an unknown effect, which cannot be called “not executed.”
 
-Runtime switching is fenced by active work, approvals and unknown outcomes, then persisted for restart.
+Resident Runtime replacement is fenced by active work, approvals and unknown outcomes, then persisted for restart.
+Worker-default changes are live and have no task-state fence; existing tasks keep their native owners.
 A read-only check or selecting a settings tab does not change the execution owner. Model/effort/tier changes
 may apply to the next native request; directories, sandbox and inheritance are create-time configuration.
 

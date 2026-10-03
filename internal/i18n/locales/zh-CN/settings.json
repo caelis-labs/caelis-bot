@@ -218,7 +218,7 @@
   "machineTrust": "信任并连接",
   "machineConnecting": "正在连接…",
   "machineConnect": "连接",
-  "machineRuntime": "工作工具",
+  "machineRuntime": "新任务工作工具",
   "machineChooseRuntime": "选择工作工具",
   "machineAccount": "模型账号",
   "machineLoggedIn": "已在这台机器上连接",
@@ -255,7 +255,7 @@
   "machineError_unreachable": "无法访问这台机器，请检查地址、端口与网络。",
   "machineError_ssh_authentication_or_connection": "SSH 未能连接，请检查用户名、认证信息与网络后重新连接。",
   "machineError_host_key_changed": "主机密钥已变化，原连接保持不变。请先在应用外核对这台机器的身份。",
-  "machineError_machine_has_tasks": "这台机器已有任务，请保留它的连接与 Runtime，以便继续访问原任务。",
+  "machineError_machine_has_tasks": "这台机器仍有关联任务，请保留原 SSH 连接，以便继续访问。工作工具可以随时切换。",
   "machineError_unsupported_ssh_route": "暂不支持多跳 ProxyJump 或脚本式 ProxyCommand。请直连，或使用已有的单跳连接。",
   "machineError_unsupported_platform": "首版支持 x86_64 或 arm64 的 Linux 机器。",
   "machineError_target_identity_changed": "远端机器身份已变化，原任务不会转移或重新启动。",
@@ -295,5 +295,8 @@
   "connections": "连接与账号",
   "machines": "远程机器",
   "machinePageIntro": "连接远程机器，并为它单独配置工作工具与账号。",
-  "machineListTitle": "已添加的机器"
+  "machineListTitle": "已添加的机器",
+  "workerSwitchNote": "仅影响新任务，已有任务继续使用原工作工具。",
+  "localWorkerModelNote": "本机新任务的默认模型",
+  "workerSetupRequired": "请先在「连接与账号」完成这个工作工具的配置。"
 }

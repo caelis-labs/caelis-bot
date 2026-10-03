@@ -139,3 +139,5 @@
 .runtime-page-footer{display:flex;align-items:center;gap:16px;margin-top:24px}
 .runtime-page-footer p{margin:0;font-size:12px}
 @media(max-width:620px){.runtime-connect-catalog{grid-template-columns:minmax(0,1fr)}}
+.local-worker-runtime .runtime-segments { width:180px; flex-shrink:0; }
+@media(max-width:680px){.local-worker-runtime { align-items:flex-start; flex-wrap:wrap; }.local-worker-runtime .runtime-segments{ width:100%; }}

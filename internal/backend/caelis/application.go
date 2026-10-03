@@ -192,6 +192,9 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	if e != nil {
 		return e
 	}
+	if s.retainedWorkers {
+		return nil
+	}
 	if e := s.checkReviewer(ctx, b); e != nil {
 		return e
 	}

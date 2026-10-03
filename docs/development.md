@@ -485,6 +485,20 @@ qualify real external-terminal behavior. See the
 [current acceptance record](evidence/remote-machines-v1/acceptance.md), which retains
 this explicit gate instead of claiming all native window interactions passed.
 
+Worker-default switching acceptance uses one SSH profile with both native backends:
+`CAELIS_BOT_TEST_SSH=fedora CAELIS_BOT_REMOTE_HELPER_DIR="$PWD/.cache/remote-helper" GOWORK=off go test ./internal/machines -run '^TestFedoraDefaultSwitch$' -count=1 -timeout=10m -v`.
+It creates two private tasks and checks exact artifact bytes, controller reopen,
+old-task continuation/interrupt and unchanged terminal bindings across both defaults.
+
+Local native acceptance is opt-in and performs real inference in private WorkOwner
+bindings: `CAELIS_BOT_TEST_LOCAL_WORKERS=1 CAELIS_BOT_TEST_LOCAL_CODEX_MODEL=gpt-6-luna GOWORK=off go test ./internal/app -run '^TestLocalNativeDefaultSwitch$' -count=1 -timeout=7m -v`.
+The optional `CAELIS_BOT_TEST_LOCAL_CAELIS_STORE` and
+`CAELIS_BOT_TEST_LOCAL_CAELIS_MODEL` select an already configured runtime/model;
+no global account or model settings are changed. The explicit Codex model uses its
+catalog default effort. Selecting an available, authenticated model is distinct
+from proving task routing; an unusable runtime default can fail native inference.
+
+
 ## Documentation maintenance
 
 Use the [documentation index](README.md). Keep current contracts, operator commands and explicit evidence

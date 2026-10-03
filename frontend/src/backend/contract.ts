@@ -94,6 +94,13 @@ export interface Item {
   artifacts: Array<Artifact>;
   screen?: ScreenPresentation | null;
 }
+export interface LocalWorkerSettings {
+  runtime: string;
+  ready: boolean;
+  work: WorkExecutionSettings;
+  models: Array<ModelOption>;
+  runtimeDefault: WorkExecutionSettings | null;
+}
 export interface Machine {
   id: string;
   name: string;

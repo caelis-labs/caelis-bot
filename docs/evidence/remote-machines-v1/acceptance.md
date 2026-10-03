@@ -160,3 +160,45 @@ reasons. No alternate automation bypassed that denial. Terminal contents and a
 fresh Dock screenshot therefore remain unqualified, despite the passed production
 observer lifecycle. Full external-terminal visual E2E and release readiness must
 not be claimed. See [reproduction and isolation requirements](../../development.md#remote-machine-acceptance).
+
+## Worker defaults and retained task backends
+
+The local and per-machine Codex/Caelis choice now selects only the default for
+new tasks. The task ledger and remote routes freeze each task's actual backend
+before dispatch. Old reads, continuations, stops, completion reports and terminal
+targets use that binding across subsequent selection changes. Local inactive
+adapters restore owned Workers without resuming a second resident Bot or rebinding
+its tools. The Bot task-tool schemas and explicit-machine routing remain unchanged.
+Tool consolidation remains a separate TODO in the implementation plan.
+
+`TestFedoraDefaultSwitch` passed against one fresh configured Fedora SSH profile
+with its existing ProxyJump. Two native tasks completed with exact file readback;
+controller reopen, Codex to Caelis to Codex, old Codex continuation/interrupt and
+old Caelis continuation retained both original terminal bindings. Local
+`TestLocalNativeDefaultSwitch` also passed with explicit Codex `gpt-6-luna` and the
+configured Caelis default, simultaneous owned tasks, exact bytes and old Caelis
+continuation under the Codex default. This local proof uses an explicit available
+model: the initial implicit Codex-default attempts reached native `failed` without
+a result and are not counted as passed inference acceptance. User account and
+global model settings were not changed.
+
+Fixtures cover working, completed, approval-waiting, interrupted and unknown
+tasks; durable migration, idempotent replay, both backend caches, original-owner
+unavailability, persistence failure, current-resident admission and exactly-once
+completion report delivery. Adapter wire fixtures confirm no inactive resident
+resume/rebind. Reopen and unavailable-owner recovery are covered. The Fedora
+acceptance also injected a failed native SSH read through a disposable unreachable
+endpoint and separate control socket, then recovered through the unchanged
+original profile. The Fedora network and user SSH config were not modified.
+
+Native Chinese and English settings were inspected with independent Bot/Worker
+choices, including the machine dialog's fixed actions and optional advanced
+section. A 620 by 760 browser fixture verified the local choice wraps cleanly,
+and its shared model drawer, Effort keyboard adjustment and save work. Example
+views: [local Chinese](ui-worker-default-local-zh.png),
+[remote English](ui-worker-default-remote-en.png),
+[compact English fixture](ui-worker-default-compact-en.png).
+
+Full `make check`, `make smoke`, affected ownership/adapter race tests and the
+native Dev build passed for this slice. These are local development checks,
+separate from exact-head CI and signed release acceptance.

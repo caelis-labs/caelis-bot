@@ -23,6 +23,21 @@ func NewWorkOwner(opts SessionOptions) (*WorkOwner, error) {
 	s.workerOnly = true
 	return &WorkOwner{s}, nil
 }
+
+// NewRetainedWorkOwner opens only the Workers in an inactive local provider's
+// existing binding. It never resumes or exposes that provider's resident chat.
+func NewRetainedWorkOwner(opts SessionOptions) (*WorkOwner, error) {
+	if opts.BotTools != nil {
+		return nil, errors.New("workers cannot inherit Bot tools")
+	}
+	s := NewSession(opts)
+	s.workerOnly = true
+	return &WorkOwner{s}, s.loadErr
+}
+func (w *WorkOwner) Close(ctx context.Context) error { return w.engine.Close(ctx) }
+func (w *WorkOwner) WorkMessageRecorded(in api.TaskMessage) bool {
+	return w.engine.WorkMessageRecorded(in)
+}
 func (w *WorkOwner) SetModel(ctx context.Context, v api.WorkExecutionSettings, persist func() error) error {
 	return w.engine.ChangeWorkExecution(ctx, v, persist)
 }

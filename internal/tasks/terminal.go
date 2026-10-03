@@ -38,7 +38,11 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 		if current {
 			status = state.Task.Status
 		}
-		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: r.Provider, Locked: r.Locked, TargetLabel: firstMachineLabel(state.Task.MachineName, r.View.MachineName)})
+		provider := r.Runtime
+		if provider == "" {
+			provider = r.Provider
+		}
+		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: provider, Locked: r.Locked, TargetLabel: firstMachineLabel(state.Task.MachineName, r.View.MachineName)})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]

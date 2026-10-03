@@ -88,6 +88,7 @@ export function MachineSettings({standalone=false, call = backend, openTerminal 
    </form>:<>
     <div className="machine-status-actions"><p className={`machine-ready-state ${selected?.state==='ready'?'ready':''}`} role="status">{selected&&status(selected)}</p><button className="text-action" disabled={busy||terminalBusy} onClick={()=>refresh()}><ArrowClockwiseIcon size={14} aria-hidden="true"/>{t('settings.machineRecheck')}</button></div>
     <div className="machine-runtime-row"><strong>{t('settings.machineRuntime')}</strong><div className="runtime-segments" role="group" aria-label={t('settings.machineRuntime')}>{(selected?.available?.length?selected.available:['codex','caelis']).map(id=><button key={id} disabled={busy} aria-pressed={selected?.runtime===id} onClick={()=>refresh(id)}>{id==='caelis'?'Caelis':'Codex'}</button>)}</div></div>
+    <p className="settings-note machine-switch-note">{t('settings.workerSwitchNote')}</p>
     {selected?.runtime&&<>
      {['ready','models'].includes(selected.setup?.state)?<>
       <div className="machine-account"><span>{t('settings.machineAccount')}</span><strong>{t('settings.machineLoggedIn')}</strong></div>

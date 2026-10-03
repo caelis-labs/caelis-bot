@@ -48,6 +48,7 @@ type Host struct {
 }
 
 type Application struct {
+	localWork       *localWorkers
 	machines        *machines.Service
 	taskPreferences *tasks.PreferencesStore
 	setup           *runtimeSetup
@@ -118,6 +119,10 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		}
 		return nil, err
 	}
+	if err = backend.SaveRuntimeProfile(root, settings); err != nil {
+		_ = backend.NewService(engine, nil, nil, nil, nil).Shutdown()
+		return nil, err
+	}
 	service := backend.NewService(engine, host.ResolveFiles, host.ConsumeFiles, host.OpenURL, host.RevealFile)
 	if err := backend.ConfigureScreenMedia(service, filepath.Join(root, "ScreenMedia")); err != nil && host.ReportError != nil {
 		host.ReportError(err)
@@ -144,8 +149,13 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	service.ConfigureWorkExecution(workExecutionFile, workExecution)
 	app.configureRuntimeManagement()
 	app.configureSetup()
-	app.machines, err = machines.Open(filepath.Join(root, "Machines"), engine.(api.WorkRuntime), remoteArtifact)
+	if err = app.configureWorkers(); err != nil {
+		_ = service.Shutdown()
+		return nil, err
+	}
+	app.machines, err = machines.Open(filepath.Join(root, "Machines"), app.localWork, remoteArtifact)
 	if err != nil {
+		_ = service.Shutdown()
 		return nil, err
 	}
 	service.ConfigureMachines(app.machines)
@@ -335,7 +345,8 @@ func (a *Application) Start() error {
 	a.Backend.SetInterruptObserver(resident.StopDesktopTurn)
 	resident.Start(a.engine)
 	a.Backend.SetUserSubmitter(resident.SubmitUser)
-	a.workers.Add(4)
+	a.workers.Add(5)
+	go func() { defer a.workers.Done(); a.localWork.Observe(ctx) }()
 	go func() { defer a.workers.Done(); a.machines.Observe(ctx) }()
 	go func() {
 		defer a.workers.Done()
@@ -430,6 +441,9 @@ func (a *Application) Close() error {
 			bridge.Close()
 		}
 		a.workers.Wait()
+		if a.localWork != nil {
+			a.closeErr = errors.Join(a.closeErr, a.localWork.Close())
+		}
 		if a.notebook != nil {
 			a.closeErr = errors.Join(a.closeErr, a.notebook.Close())
 		}

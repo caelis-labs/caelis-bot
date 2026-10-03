@@ -14,6 +14,7 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	localWorkers                api.LocalWorkerController
 	machines                    api.MachineController
 	admission                   sync.RWMutex
 	restarting                  bool

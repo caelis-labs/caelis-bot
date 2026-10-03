@@ -5,6 +5,7 @@ import { SettingGroup, SettingRow } from './SettingsUI';
 import { ConnectionWizard } from './settings/runtime/ConnectionWizard';
 import { createRuntimeSettingsClient } from './settings/runtime/client';
 import { SettingsDialog } from './settings/runtime/SettingsDialog';
+import { LocalWorkerSettings } from './settings/runtime/LocalWorkerSettings';
 import { RuntimeWorkspace, type RuntimePage } from './settings/runtime/RuntimeWorkspace';
 import type { RuntimeSettings as Profile, SetupState, SetupOverview, SetupRequest } from './backend/contract';
 import { useI18n } from './i18n';
@@ -14,7 +15,7 @@ const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
 
 export function RuntimeSettings({ onboarding = false, onDone,active=true,refreshKey=0,page='connections',onConnections }: { onboarding?: boolean; onDone?: () => void; active?:boolean; refreshKey?:number; page?:RuntimePage; onConnections?:()=>void }) {
- return onboarding ? <RuntimePreparation onboarding onDone={onDone}/> : <RuntimeWorkspace page={page} onConnections={onConnections} active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} onBusy={onBusy}/>}/>;
+ return onboarding ? <RuntimePreparation onboarding onDone={onDone}/> : <RuntimeWorkspace workerSettings={<LocalWorkerSettings active={active && page === 'models'} onConnections={onConnections}/>} page={page} onConnections={onConnections} active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} onBusy={onBusy}/>}/>;
 }
 
 export function RuntimePreparation({ onboarding = false, onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {

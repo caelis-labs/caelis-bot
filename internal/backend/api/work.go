@@ -27,9 +27,30 @@ type WorkStart struct {
 	ID, Workspace, Instructions string
 }
 
+// WorkRouter freezes the native backend before preparation or dispatch. An empty
+// runtime resolves the current default; a nonempty runtime restores a ledger
+// binding. This is a host port, never a model-selectable task parameter.
+type WorkRouter interface {
+	BindWork(context.Context, TaskStart, string, string) (string, error)
+	OwnsWork(string) bool
+}
+
+type LocalWorkerSettings struct {
+	Runtime        string                 `json:"runtime"`
+	Ready          bool                   `json:"ready"`
+	Work           WorkExecutionSettings  `json:"work"`
+	Models         []ModelOption          `json:"models"`
+	RuntimeDefault *WorkExecutionSettings `json:"runtimeDefault"`
+}
+type LocalWorkerController interface {
+	InspectLocalWorker(context.Context, string) (LocalWorkerSettings, error)
+	SaveLocalWorkerModel(context.Context, WorkExecutionSettings) (LocalWorkerSettings, error)
+}
+
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque
 // native generation, never a product-generated inference from assistant prose.
 type WorkState struct {
+	Runtime        string
 	Task           Task
 	OriginalPrompt string
 	ExecutionKey   string

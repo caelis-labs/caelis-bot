@@ -32,8 +32,10 @@ type disk struct {
 	ProfileID string             `json:"profileId"`
 	Profiles  map[string]profile `json:"profiles"`
 	Routes    map[string]string  `json:"routes"`
+	Runtimes  map[string]string  `json:"runtimes,omitempty"`
 }
 type Service struct {
+	request  func(context.Context, profile, remotework.Request) (remotework.Response, error)
 	mu       sync.Mutex
 	cacheMu  sync.RWMutex
 	root     string
@@ -59,6 +61,29 @@ func Open(root string, local api.WorkRuntime, artifact func(string) ([]byte, err
 	}
 	if e = os.MkdirAll(root, 0700); e != nil {
 		return nil, e
+	}
+	if s.state.Runtimes == nil {
+		s.state.Runtimes = map[string]string{}
+	}
+	// v1 profiles could not change runtime while owning tasks, so their retained
+	// runtime is the authoritative migration source. Persist before any switch.
+	changed := false
+	for id, machine := range s.state.Routes {
+		if s.state.Runtimes[id] == "" {
+			runtime := s.state.Profiles[machine].View.Runtime
+			if runtime != "codex" && runtime != "caelis" {
+				return nil, errors.New("original_task_runtime_unavailable")
+			}
+			s.state.Runtimes[id], changed = runtime, true
+		}
+		if runtime := s.state.Runtimes[id]; runtime != "codex" && runtime != "caelis" {
+			return nil, errors.New("original_task_runtime_unavailable")
+		}
+	}
+	if changed {
+		if e = s.save(); e != nil {
+			return nil, e
+		}
 	}
 	return s, nil
 }
@@ -194,6 +219,9 @@ func (s *Service) ConnectMachine(ctx context.Context, in api.MachineInput) (api.
 }
 func fmtPort(v int) string { return strings.TrimSpace(strconv.Itoa(v)) }
 func (s *Service) call(ctx context.Context, p profile, r remotework.Request) (remotework.Response, error) {
+	if s.request != nil {
+		return s.request(ctx, p, r)
+	}
 	r.Version = remotework.Version
 	r.Runtime = first(r.Runtime, p.View.Runtime)
 	b, _ := json.Marshal(r)
@@ -238,13 +266,7 @@ func (s *Service) inspectLocked(ctx context.Context, id, runtime string) (api.Ma
 	if runtime != "codex" && runtime != "caelis" {
 		return p.View, errors.New("unsupported_runtime")
 	}
-	if p.View.Runtime != "" && p.View.Runtime != runtime {
-		for _, route := range s.state.Routes {
-			if route == id {
-				return p.View, errors.New("machine_has_tasks")
-			}
-		}
-	}
+	old := p
 	r, e := s.call(ctx, p, remotework.Request{Action: "inspect", Runtime: runtime})
 	p.View.Runtime = runtime
 	p.View.Models = []api.ModelOption{}
@@ -265,7 +287,11 @@ func (s *Service) inspectLocked(ctx context.Context, id, runtime string) (api.Ma
 		}
 	}
 	s.state.Profiles[id] = p
-	return p.View, s.save()
+	if err := s.save(); err != nil {
+		s.state.Profiles[id] = old
+		return old.View, err
+	}
+	return p.View, nil
 }
 func (s *Service) SaveMachineModel(ctx context.Context, v api.MachineModel) (api.Machine, error) {
 	s.mu.Lock()

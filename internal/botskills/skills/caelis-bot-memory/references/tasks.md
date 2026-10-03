@@ -231,3 +231,16 @@ The remote task card opens the same native task through SSH in the user's extern
 terminal. If approval or a native login needs user interaction, direct them there.
 Closing this observer does not stop work. Read the original receipt after a lost
 connection; never infer completion from a terminal opening or reported prose.
+
+## Worker defaults and retained tasks
+
+Use the same task tools regardless of the configured work tool. The user chooses
+a default Codex or Caelis backend for new tasks on each machine; you do not select
+a backend per assignment. Omitting the machine still means local work.
+
+Each task retains its original machine, backend and native binding. A default
+change does not move, stop or replace existing work. Continue, read or stop an old
+task using its original handle, even when the current default is different. Do
+not ask the user to switch back just to access it. If its original owner is
+unavailable, report that condition and reconcile the same task; never create a
+replacement or retry through the new default to bypass an uncertain outcome.
