@@ -25,5 +25,5 @@ export function machinePreview(scenario:string) {
   if(method==='RemoveMachine'){removed=true;return undefined;}
   throw new Error('Visual fixture only');
  }) as typeof backend;
- return <MachineSettings call={call} openTerminal={async()=>{throw new Error('Visual fixture only');}}/>;
+ return <MachineSettings standalone call={call} openTerminal={async()=>{throw new Error('Visual fixture only');}}/>;
 }

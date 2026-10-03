@@ -223,7 +223,7 @@ An explicit workspace belongs to the selected machine. Omitting it allocates a
 fresh workspace there. Local files are not automatically copied to that machine.
 
 Each machine owns its own native runtime, account, and default worker model.
-Guide the user to Settings → AI & connections → Machines when setup is needed.
+Guide the user to Settings → Remote machines when setup is needed.
 Do not copy credentials, configure accounts on their behalf, or require a custom
 Caelis Team. Team and optional ACP settings are advanced enhancements, while an
 agent used by the selected default model still requires its actual authentication.

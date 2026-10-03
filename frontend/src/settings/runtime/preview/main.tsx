@@ -1,4 +1,6 @@
 import '../../../style.css';
+import { useState } from 'react';
+import { useI18n } from '../../../i18n';
 import { createRoot } from 'react-dom/client';
 import { RuntimePreparation } from '../../../RuntimeSettings';
 import { createPreparationPreview } from './preparation';
@@ -15,4 +17,10 @@ document.body.dataset.surface='settings';
 const client=createPreviewClient(), call=createPreparationPreview();
 const params=new URLSearchParams(location.search), scenario=params.get('machine')??'login', locale=params.get('lang')==='zh-CN'?'zh-CN':'en';
 const bridge:LanguageBridge={read:async()=>({preference:locale,locale,revision:1}),save:async preference=>({preference,locale,revision:2}),subscribe:()=>()=>{}};
-createRoot(document.getElementById('root')!).render(<I18nProvider bridge={bridge}><main className="settings-window"><aside><nav aria-label="设置分类">{['General','Appearance','AI & connections','Privacy & permissions','About & help'].map(label=><button key={label} aria-current={label==='AI & connections'?'page':undefined} disabled={label!=='AI & connections'}>{label}</button>)}</nav><small>Caelis Bot<br/>交互预览 · 示例数据</small></aside><div className="settings-content"><div className="settings-page"><RuntimeWorkspace client={client} machines={machinePreview(scenario)} preparation={(id,onBusy)=><RuntimePreparation initialRuntime={id} onBusy={onBusy} call={call} host={async()=>undefined as never}/> }/></div></div></main></I18nProvider>);
+function Preview() {
+ const {t}=useI18n();
+ const [page,setPage]=useState<'models'|'connections'|'machines'>('connections');
+ const navigate=(next:typeof page)=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setPage(next);};
+ return <main className="settings-window"><aside><nav aria-label={t('settings.navLabel')}>{['models','connections','machines'].map(id=><button key={id} aria-current={page===id?'page':undefined} onClick={()=>navigate(id as typeof page)}>{t(`settings.${id}` as Parameters<typeof t>[0])}</button>)}</nav><small>Caelis Bot<br/>Preview · example data</small></aside><div className="settings-content"><div className="settings-page" hidden={page==='machines'}><RuntimeWorkspace page={page==='models'?'models':'connections'} active={page!=='machines'} onConnections={()=>setPage('connections')} client={client} preparation={(id,onBusy)=><RuntimePreparation initialRuntime={id} onBusy={onBusy} call={call} host={async()=>undefined as never}/>}/></div><div className="settings-page" hidden={page!=='machines'}>{page==='machines'&&machinePreview(scenario)}</div></div></main>;
+}
+createRoot(document.getElementById('root')!).render(<I18nProvider bridge={bridge}><Preview/></I18nProvider>);

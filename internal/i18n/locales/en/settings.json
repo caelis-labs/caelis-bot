@@ -291,5 +291,10 @@
   "machineConfigConnectFailed": "Could not connect with this SSH config. Check it in your terminal; if a password or key passphrase is needed, enter it under Optional connection settings.",
   "machineRemoveTitle": "Delete this machine?",
   "machineRemoveNote": "Only removes the connection from Bot. Local SSH config, remote files and work tools are kept.",
-  "machineError_ssh_host_verification_failed": "SSH host verification failed. Reconnect and check the host fingerprint. If using a jump host, also check that it is trusted."
+  "machineError_ssh_host_verification_failed": "SSH host verification failed. Reconnect and check the host fingerprint. If using a jump host, also check that it is trusted.",
+  "models": "AI models",
+  "connections": "Connections & accounts",
+  "machines": "Remote machines",
+  "machinePageIntro": "Connect a remote machine and set up its work tools and accounts.",
+  "machineListTitle": "Your machines"
 }

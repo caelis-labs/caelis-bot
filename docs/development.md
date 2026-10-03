@@ -91,6 +91,21 @@ in the same JSON. This is native WebKit fixture evidence, not a live backend run
 The regression also waits past completion expiry, requires a static poster with zero queued frame
 callbacks, and checks that a later tool-only completion does not reanimate an older message.
 
+“发送回归” exercises the production composer and polling handoff with delayed acceptance,
+rejection, an unknown receipt, and accepted submission followed by a failed draft read.
+Capture records `send.ok`, submission/draft-read counts and frame samples in the same JSON.
+It checks one displayed user message, stable message height, no empty first-reply bubble,
+preserved uncertain drafts, and blocked duplicate sending after draft synchronization fails.
+These are synthetic native WebKit failure paths; qualify actual model interaction separately
+with an isolated Bot profile. Draft writes coalesce only pending full replacements, while
+submission waits for the newest saved draft. Snapshot reads are fenced by request order and
+visible-surface lifetime as well as backend revision.
+
+Settings separate AI models, Connections & accounts, and Remote machines. The model and
+account pages share one runtime settings owner; native `runtime` repair links still open
+Connections & accounts. `runtime-settings-preview.html` uses the same components with
+example data for narrow layouts, without modifying daily accounts or calling a model.
+
 ```sh
 source script/env.sh
 go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/bot ./internal/care ./internal/desktopcontrol

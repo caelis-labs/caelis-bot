@@ -219,5 +219,10 @@
   "otherSettings": "Other settings",
   "botConversationHint": "The model you chat with",
   "workModelHint": "Default model for local tasks",
-  "settingsIntro": "Configure your assistant and connect remote machines."
+  "settingsIntro": "Configure your assistant and connect remote machines.",
+  "modelsIntro": "Choose the models for conversation and work.",
+  "connectionsIntro": "Manage local work tools, model services and external agents.",
+  "manageConnections": "Manage connections",
+  "caelisWorkModelHint": "The default model for work in Caelis",
+  "dedicatedWorkModelHint": "Optional override for newly created independent tasks"
 }

@@ -11,6 +11,7 @@ import { animatedReplyID, type PortraitClip } from './avatar-presentation';
 import { AttachmentMenu } from './AttachmentMenu';
 import { ScreenMessage } from './ScreenMessage';
 import { ChatScroll } from './chat-scroll';
+import { ConversationOrder, SubmissionProgress, DraftQueue } from './chat-observation';
 import { useI18n } from './i18n';
 import { approvalChoice, approvalText, approvalTitle } from './approval-presentation';
 import type { MessageKey } from './i18n/catalogs';
@@ -113,18 +114,28 @@ function Message({ item, report, animate=false, reveal=false, clip }: { item: It
 export function useConversation(active: boolean, pet=false, chat=false, composer=false) {
  const [conversation,setConversation]=useState<{snapshot:Snapshot|null;liveReplies:Set<string>}>({snapshot:null,liveReplies:new Set()});
  const observation=useRef(conversation);
- const revision=useRef(0),botStatus=useRef('');
- const read=async()=>{if(chat){const update=await backend<ChatUpdate>('ChatSnapshot',revision.current,botStatus.current);if(!update.changed)return null;return update.snapshot;}return backend<Snapshot>(pet?'PetSnapshot':composer?'ComposerSnapshot':'Snapshot');};
- const accept=(next:Snapshot)=>{if(next.revision>=revision.current){revision.current=next.revision;botStatus.current=next.botStatus;observation.current={snapshot:next,liveReplies:liveReplyIDs(observation.current.snapshot,next,observation.current.liveReplies,pet)};setConversation(observation.current);}};
- const refresh=async()=>{const next=await read();if(next)accept(next);};
+ const order=useRef(new ConversationOrder()),botStatus=useRef(''),observing=useRef(active);observing.current=active;
+ const refresh=async()=>{
+  if(!observing.current)return;
+  const ticket=order.current.request(),expectedRevision=order.current.revision;
+  let next:Snapshot|null;
+  if(chat){const update=await backend<ChatUpdate>('ChatSnapshot',expectedRevision,botStatus.current);next=update.changed?update.snapshot:null;}
+  else next=await backend<Snapshot>(pet?'PetSnapshot':composer?'ComposerSnapshot':'Snapshot');
+  if(!next){order.current.accept(ticket,expectedRevision);return;}
+  if(observing.current&&order.current.accept(ticket,next.revision)){
+   botStatus.current=next.botStatus;
+   observation.current={snapshot:next,liveReplies:liveReplyIDs(observation.current.snapshot,next,observation.current.liveReplies,pet)};
+   setConversation(observation.current);
+  }
+ };
  useEffect(()=>{
+  order.current.reset();
   if(!active)return;
   observation.current={snapshot:null,liveReplies:new Set()};
-  // Always establish a fresh baseline when reopening, even without a revision change.
-  revision.current=0;
+  botStatus.current='';
   let stopped=false,timer=0;
-  const poll=async()=>{try{const next=await read();if(!stopped&&next)accept(next);}catch{/* Preserve confirmed state across a failed observation. */}finally{if(!stopped)timer=window.setTimeout(()=>void poll(),450);}};
-  void poll();return()=>{stopped=true;clearTimeout(timer);};
+  const poll=async()=>{try{await refresh();}catch{/* Preserve confirmed state across a failed observation. */}finally{if(!stopped)timer=window.setTimeout(()=>void poll(),450);}};
+  void poll();return()=>{stopped=true;clearTimeout(timer);order.current.reset();};
  },[active,pet,chat,composer]);
  return {...conversation,refresh};
 }
@@ -139,18 +150,20 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
  const visible=useRef(active);visible.current=active;
  useEffect(()=>{setExpanded(false);},[active,activation]);
- const pending=useRef<Submission|null>(null);
+ const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number}|null>(null);
+ const lifetime=useRef(0),working=useRef(false);
  const saved=useRef<Draft>({revision:0,text:'',referenceIds:[],notice:''});
- const writes=useRef<Promise<void>>(Promise.resolve()), conflicted=useRef(false);
+ const writes=useRef(new DraftQueue()), conflicted=useRef(false);
  const readFiles=()=>desktop<DraftFile[]>('DraftFiles').then(setFiles);
  useEffect(()=>{
   let mounted=true;
+  lifetime.current++;working.current=false;pending.current=null;setBusy(false);
   setLoaded(false);conflicted.current=false;
-  void writes.current.then(()=>backend<Draft>('Draft')).then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();}}).catch(()=>setError(draftLoadFailed()));
+  void writes.current.flush().then(()=>backend<Draft>('Draft')).then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();}}).catch(()=>setError(draftLoadFailed()));
   void readFiles();
   const changed=(event:Event)=>{void readFiles();setError((event as CustomEvent<string>).detail??'');};
   window.addEventListener('files-changed',changed);
-  return()=>{mounted=false;window.removeEventListener('files-changed',changed);};
+  return()=>{mounted=false;lifetime.current++;window.removeEventListener('files-changed',changed);};
  },[activation]);
  useEffect(()=>{if(active&&loaded&&!busy){input.current?.focus({preventScroll:true});if(quick){const frame=requestAnimationFrame(()=>void desktop('PanelReady',activation));return()=>cancelAnimationFrame(frame);}}},[active,loaded,busy,activation,focusRevision]);
  useEffect(()=>{
@@ -161,7 +174,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  },[quick,active,loaded]);
  const save=(text:string,referenceIds:string[])=>{
   setDraft(text);setRefs(referenceIds);
-  writes.current=writes.current.then(async()=>{
+  void writes.current.enqueue(async()=>{
    if(conflicted.current)return;
    try{saved.current=await backend<Draft>('SaveDraft',{revision:saved.current.revision,text,referenceIds});}
    catch(e){conflicted.current=true;setError(e instanceof Error?e.message:t('chat.draftSaveFailed'));}
@@ -169,32 +182,48 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  };
  useLayoutEffect(()=>{const editor=input.current;if(editor){editor.style.height='0px';editor.style.height=`${Math.max(27,Math.min(127,editor.scrollHeight))}px`;}},[draft]);
  const pick=async()=>{setExpanded(false);setBusy(true);setError('');try{setFiles(await desktop<DraftFile[]>('PickFiles'));setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
+ const accepted=async(attempt:NonNullable<typeof pending.current>)=>{
+  attempt.progress.observe('accepted');
+  onOutgoing?.({...attempt.outgoing,status:'accepted'});
+  await attempt.progress.synchronize(async()=>{
+   try{
+    const [next,nextFiles]=await Promise.all([backend<Draft>('Draft'),desktop<DraftFile[]>('DraftFiles')]);
+    if(lifetime.current!==attempt.generation||pending.current!==attempt)return;
+    saved.current=next;setDraft(next.text);setRefs(next.referenceIds??[]);setFiles(nextFiles);setError(next.notice);
+    if(quick)await desktop('ClosePanel');
+   }catch{
+    if(lifetime.current===attempt.generation&&pending.current===attempt){setLoaded(false);setError(t('chat.sentDraftSyncFailed'));}
+   }
+  });
+ };
  const submit=async()=>{
-  if(busy||!loaded||!canSubmit(snapshot)||(!draft.trim()&&!files.length))return;
-  setBusy(true);setError('');setExpanded(false);
+  if(working.current||busy||!loaded||!canSubmit(snapshot)||(!draft.trim()&&!files.length))return;
+  working.current=true;setBusy(true);setError('');setExpanded(false);
   const request:Submission={id:crypto.randomUUID(),text:draft,fileIds:files.map(f=>f.id),referenceIds:refs};
   const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,turnKey:'',kind:'user',text:[draft,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',activity:null,artifacts:[]};
-  onOutgoing?.(outgoing);
-  await writes.current;
-  if(conflicted.current){onOutgoing?.({...outgoing,status:'rejected'});setBusy(false);return;}
-  pending.current=request;
+  const attempt={request,outgoing,progress:new SubmissionProgress(),generation:lifetime.current};
+  pending.current=attempt;onOutgoing?.(outgoing);
   try{
-   const receipt=await backend<Receipt>('Submit',request);
-   onOutgoing?.({...outgoing,status:receipt.outcome||'unknown'});
-   if(receipt.outcome==='accepted'){
-    pending.current=null;
-    saved.current=await backend<Draft>('Draft');setDraft(saved.current.text);setRefs(saved.current.referenceIds??[]);setError(saved.current.notice);await readFiles();
-    if(quick)await desktop('ClosePanel');
-   }else setError(receipt.message||t('chat.sendPending'));
-  }catch{onOutgoing?.({...outgoing,status:'unknown'});setError(t('chat.sendPendingChat'));}
-  finally{setBusy(false);await refresh();}
+   await writes.current.flush();
+   if(lifetime.current!==attempt.generation)return;
+   if(conflicted.current){attempt.progress.observe('rejected');onOutgoing?.({...outgoing,status:'rejected'});return;}
+   let receipt:Receipt;
+   try{receipt=await backend<Receipt>('Submit',request);}
+   catch{receipt={id:request.id,outcome:'unknown',message:t('chat.sendPendingChat')};}
+   if(lifetime.current!==attempt.generation)return;
+   const outcome=attempt.progress.observe(receipt.outcome);
+   onOutgoing?.({...outgoing,status:outcome});
+   if(outcome==='accepted')await accepted(attempt);
+   else setError(receipt.message||t('chat.sendPending'));
+  }finally{
+   // Keep the disabled state until the authoritative send/stop action is fresh.
+   try{await refresh();}catch{/* A read failure does not change the send receipt. */}
+   if(lifetime.current===attempt.generation&&pending.current===attempt){working.current=false;setBusy(false);}
+  }
  };
  useEffect(()=>{
   const attempt=pending.current;
-  if(attempt&&snapshot?.lastReceipt.id===attempt.id&&snapshot.lastReceipt.outcome==='accepted'){
-   pending.current=null;
-   void backend<Draft>('Draft').then(d=>{saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);void readFiles();if(quick)void desktop('ClosePanel');});
-  }
+  if(attempt&&snapshot?.lastReceipt.id===attempt.request.id&&snapshot.lastReceipt.outcome==='accepted')void accepted(attempt);
  },[snapshot?.lastReceipt.id,snapshot?.lastReceipt.outcome]);
  const primaryAction=composerAction(snapshot,quick,!!(draft.trim()||files.length||refs.length));
  const stopping=snapshot?.phase==='interrupting';
@@ -247,7 +276,7 @@ export function History() {
  const [activation,setActivation]=useState(0);
  const {snapshot,liveReplies,refresh}=useConversation(active,false,true);
  const [outgoing,setOutgoing]=useState<Item[]>([]);
- const stage=(item:Item)=>setOutgoing(previous=>[...previous.filter(p=>p.requestId!==item.requestId),item]);
+ const stage=(item:Item)=>{if(item.status==='sending'){position.current?.latest();setUnread(false);}setOutgoing(previous=>{const prior=previous.find(p=>p.requestId===item.requestId);return [...previous.filter(p=>p.requestId!==item.requestId),prior?.status==='accepted'?prior:item];});};
  useEffect(()=>{const known=new Set(snapshot?.items.map(i=>i.requestId).filter(Boolean));setOutgoing(previous=>previous.filter(i=>!known.has(i.requestId)));},[snapshot]);
  const [earlierBusy,setEarlierBusy]=useState(false);
  const prepend=useRef<{id:string;top:number}|null>(null);

@@ -56,3 +56,6 @@
 .machine-removal-confirm p{font-size:12px;color:var(--muted);line-height:1.6;margin:6px 0 14px}
 .machine-removal-confirm .machine-actions{justify-content:flex-end}
 .settings-window .machine-editor .machine-remove-primary{background:var(--error);border-color:var(--error);color:#fff}
+
+.machine-section.machine-page{margin:0;border:0;padding:0;max-width:760px}
+.machine-page h1{font-size:24px}

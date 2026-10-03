@@ -11,7 +11,7 @@ import {SettingsChevron, DesktopTowerIcon, XIcon, ArrowClockwiseIcon, ArrowSquar
 
 type Invoke = typeof backend;
 const blank = (): MachineInput => ({id:'',name:'',address:'',port:22,user:'',authentication:'agent',sshConfig:true,privateKey:'',secret:'',remember:false,trustFingerprint:''});
-export function MachineSettings({ call = backend, openTerminal = (id: string) => desktop('OpenMachineTerminal', id), active = true }: {call?:Invoke;openTerminal?:(id:string)=>Promise<void>;active?:boolean}) {
+export function MachineSettings({standalone=false, call = backend, openTerminal = (id: string) => desktop('OpenMachineTerminal', id), active = true }: {standalone?:boolean;call?:Invoke;openTerminal?:(id:string)=>Promise<void>;active?:boolean}) {
  const {t} = useI18n();
  const [machines,setMachines]=useState<Machine[]>([]),[draft,setDraft]=useState<MachineInput|null>(null),[selected,setSelected]=useState<Machine|null>(null);
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[step,setStep]=useState<'connection'|'work'>('connection');
@@ -55,8 +55,9 @@ export function MachineSettings({ call = backend, openTerminal = (id: string) =>
  const status=(v:Machine)=>t(v.state==='ready'?'settings.machineReady':v.state==='offline'?'settings.machineOffline':'settings.machineSetup');
  const issue=(value:string)=>{if(value==='ssh_authentication_or_connection'&&draft?.sshConfig)return t('settings.machineConfigConnectFailed');const key=`settings.machineError_${value}`;const translated=t(key as Parameters<typeof t>[0]);return translated===key?t('settings.machineActionFailed'):translated;};
  const terminalLabel=selected?.setup?.state==='missing'?t('settings.machineOpenTerminal'):t('settings.machineOpenTUI');
- return <section className="machine-section">
-  <div className="runtime-section-title"><div><h2>{t('settings.machineTitle')}</h2><p className="settings-note">{t('settings.machineSubtitle')}</p></div><button onClick={()=>begin()}>{t('settings.machineAdd')}</button></div>
+ return <section className={`machine-section ${standalone?'machine-page':''}`}>
+  {standalone&&<><h1>{t('settings.machines')}</h1><p className="settings-page-intro">{t('settings.machinePageIntro')}</p></>}
+  <div className="runtime-section-title"><div><h2>{t(standalone?'settings.machineListTitle':'settings.machineTitle')}</h2>{!standalone&&<p className="settings-note">{t('settings.machineSubtitle')}</p>}</div><button onClick={()=>begin()}>{t('settings.machineAdd')}</button></div>
   {!machines.length?<p className="machine-empty">{t('settings.machineEmpty')}</p>:<ul className="machine-list">{machines.map(v=><li key={v.id}><button className="machine-row" onClick={()=>begin(v)}><span className="machine-icon" aria-hidden="true"><DesktopTowerIcon size={20}/></span><span><strong>{v.name}</strong><small>{v.runtime?v.runtime==='caelis'?'Caelis':'Codex':v.address}</small></span><span className={`machine-status ${v.state==='ready'?'ready':''}`}>{status(v)}</span><SettingsChevron/></button></li>)}</ul>}
   {draft&&<div className="machine-editor-layer" onPointerDown={e=>{if(e.target===e.currentTarget)close();}}><div ref={editor} className="machine-editor" role="dialog" aria-modal="true" aria-labelledby="machine-editor-title" tabIndex={-1} onKeyDown={e=>{
    if((e.target as HTMLElement).closest('.runtime-dialog'))return;
