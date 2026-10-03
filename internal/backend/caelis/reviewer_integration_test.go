@@ -417,7 +417,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 			}
 			return out
 		}}
-		config := &api.ToolConnection{Host: proxy, NotebookDirectory: notebook, ApprovedTools: append(botpolicy.ApprovedTools(), "bot_desktop_observe", "bot_desktop_act"), PrepareTurn: func(context.Context) error { resident.BeginDesktopTurn(); return nil }, FinishTurn: resident.StopDesktopTurn}
+		config := &api.ToolConnection{Host: proxy, NotebookDirectory: notebook, ApprovedTools: append(botpolicy.ApprovedTools(), desktopcontrol.ApprovedTools()...), PrepareTurn: func(context.Context) error { resident.BeginDesktopTurn(); return nil }, FinishTurn: resident.StopDesktopTurn}
 		if e = s.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
 		}
@@ -428,9 +428,9 @@ func TestGuardianHostIntegration(t *testing.T) {
 		if _, e = s.UpdateConfiguration(ctx, "desktop-review-catalog", string(current.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); e != nil {
 			t.Fatal(e)
 		}
-		observe := []modelStep{{Name: "bot_desktop_observe", Args: map[string]any{"requestId": "observe-fixture", "args": map[string]any{"scope": map[string]any{"desktop": true}}}}}
+		observe := []modelStep{{Name: "bot_desktop_inspect", Args: map[string]any{"request": map[string]any{"type": "outline", "scope": map[string]any{"desktop": true}}}}}
 		authorize := modelStep{Name: "bot_desktop_authorize", Args: map[string]any{"application": "fixture-app-ref", "name": "Fixture", "purpose": "Complete the requested fixture task"}}
-		perform := modelStep{Name: "bot_desktop_act", Args: map[string]any{"requestId": "fixture-input", "args": map[string]any{"steps": []any{map[string]any{"id": "invoke", "op": "invoke", "target": map[string]any{"ref": "fixture-button"}}}}}}
+		perform := modelStep{Name: "bot_desktop_act", Args: map[string]any{"requestId": "fixture-input", "steps": []any{map[string]any{"id": "invoke", "op": "invoke", "target": map[string]any{"ref": "fixture-button"}}}}}
 		countReviews := func() int { mu.Lock(); defer mu.Unlock(); return len(reviewRequests) }
 		configureReview(`{"option_id":"allow_once"}`, nil)
 		before := countReviews()
@@ -640,8 +640,10 @@ type reviewDesktopFixture struct {
 	granted bool
 }
 
-func (*reviewDesktopFixture) Definitions() []api.ToolDefinition { return desktopcontrol.Definitions() }
-func (d *reviewDesktopFixture) EndTurn(string)                  { d.mu.Lock(); d.granted = false; d.mu.Unlock() }
+func (*reviewDesktopFixture) Definitions() []api.ToolDefinition {
+	return desktopcontrol.LegacyDefinitions()
+}
+func (d *reviewDesktopFixture) EndTurn(string) { d.mu.Lock(); d.granted = false; d.mu.Unlock() }
 func (d *reviewDesktopFixture) CallTool(_ context.Context, name string, _ json.RawMessage) api.ToolResult {
 	d.mu.Lock()
 	defer d.mu.Unlock()

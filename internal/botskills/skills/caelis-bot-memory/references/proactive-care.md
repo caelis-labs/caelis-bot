@@ -1,20 +1,21 @@
 # Arrange condition-based care
 
-Use `bot_care` for a standing arrangement that should run only when a local
-condition matches. Use `bot_reminders` for an ordinary fixed-time reminder. Read
-`bot_care_read` with `operation: "list"` first: it returns the available sources, their
-fields, saved rules, queued outcomes, and current presence availability.
+Use `bot_schedule_update` for a condition-based standing arrangement, or a
+calendar trigger for an ordinary reminder. First call `bot_schedule` with
+`request:{"type":"sources"}` to discover registered source names/fields,
+presence and budget. Use `request:{"type":"list","kind":"event"}` for saved
+rules, policy and recent activation receipts.
 
-Use `on` for one source, or `onAny` for a nonempty list of registered sources.
-Any subscribed event evaluates the condition using only that event's fields; it
-does not merge data from other sources. Use `has(event.field)` for optional fields.
-All sources share one rule, pending activation, and cooldown.
+An event trigger uses a nonempty `sources` list and a CEL `condition`. Any
+subscribed event evaluates the condition using only that event's fields; it does
+not merge source data. Use `has(event.field)` for optional fields. All sources
+share one rule, pending activation and cooldown.
 
 Translate the user's request or standing arrangement into a short task and a CEL
 boolean condition. Test representative matching and non-matching data with
-`bot_care_read` with `operation: "test"` before saving. Testing neither registers a rule nor publishes
+`bot_schedule` with `request.type:"test"` before saving. Testing neither registers a rule nor publishes
 an event. Save with a stable ID, and confirm the returned enabled state. Identical
-saves preserve cooldown and pending work. Use `remove` to stop future callbacks.
+saves preserve cooldown and pending work. Remove the exact returned `event:<id>` automation handle to stop future callbacks.
 A Caelis registration or substantive change needs a user-originated request;
 report a rejected native grant rather than claiming the rule is active.
 
@@ -35,15 +36,15 @@ every 30 seconds, and clock conditions once per current minute.
 
 ## Small examples
 
-These are `bot_care` arguments. Adapt the purpose, timezone, application identifiers,
-and frequency to the actual arrangement. To try an example, change `operation` to
-`test` on `bot_care_read` and include the indicated `event` object, then save
-with `bot_care` without that sample.
+These are `bot_schedule_update` arguments. Adapt purpose, timezone and frequency
+to the user's request. To test, call `bot_schedule` with
+`request:{"type":"test","trigger":<event trigger below>,"event":<sample>}`.
+The test needs no save ID, label or prompt and never registers or publishes work.
 
 A brief break suggestion after two hours of active use during weekday daytime:
 
 ```json
-{"operation":"save","id":"work-break","label":"Work break","on":"desktop.usage","when":"event.activeSeconds >= 7200 && event.idleSeconds < 120 && local.weekday <= 5 && local.hour >= 9 && local.hour < 18","prompt":"Offer one brief break suggestion suited to my preferences. Skip it if it would interrupt something important.","timeZone":"Asia/Shanghai","cooldownSeconds":14400,"expiresSeconds":900}
+{"request":{"type":"save","id":"work-break","label":"Work break","prompt":"Offer one brief break suggestion suited to my preferences. Skip it if it would interrupt something important.","trigger":{"type":"event","sources":["desktop.usage"],"condition":"event.activeSeconds >= 7200 && event.idleSeconds < 120 && local.weekday <= 5 && local.hour >= 9 && local.hour < 18","timeZone":"Asia/Shanghai","cooldownSeconds":14400,"expiresSeconds":900}}}
 ```
 
 Test data: `{"activeSeconds":7300,"idleSeconds":20,"application":"com.apple.Terminal"}`.
@@ -53,7 +54,7 @@ also depends on when you run it.
 A greeting during a previously agreed date's morning window:
 
 ```json
-{"operation":"save","id":"special-date","label":"Special date","on":"clock.minute","when":"local.month == 9 && local.day == 25 && local.hour >= 9 && local.hour < 10","prompt":"Give the greeting we agreed for this date, using the relevant saved context.","timeZone":"Asia/Shanghai","cooldownSeconds":86400,"expiresSeconds":1800}
+{"request":{"type":"save","id":"special-date","label":"Special date","prompt":"Give the greeting we agreed for this date, using the relevant saved context.","trigger":{"type":"event","sources":["clock.minute"],"condition":"local.month == 9 && local.day == 25 && local.hour >= 9 && local.hour < 10","timeZone":"Asia/Shanghai","cooldownSeconds":86400,"expiresSeconds":1800}}}
 ```
 
 Test data: `{}`. Date matching alone does not establish that this is the user's
@@ -62,7 +63,7 @@ birthday or another personal occasion; obtain that meaning from their request.
 A contextual nudge on switching into an agreed work application:
 
 ```json
-{"operation":"save","id":"terminal-focus","label":"Terminal focus","on":"desktop.appChanged","when":"event.application == 'com.apple.Terminal' && local.weekday <= 5","prompt":"If there is a relevant unfinished commitment in our notes, briefly remind me of the next step. Otherwise stay quiet.","timeZone":"Asia/Shanghai","cooldownSeconds":14400,"expiresSeconds":300}
+{"request":{"type":"save","id":"terminal-focus","label":"Terminal focus","prompt":"If there is a relevant unfinished commitment in our notes, briefly remind me of the next step. Otherwise stay quiet.","trigger":{"type":"event","sources":["desktop.appChanged"],"condition":"event.application == 'com.apple.Terminal' && local.weekday <= 5","timeZone":"Asia/Shanghai","cooldownSeconds":14400,"expiresSeconds":300}}}
 ```
 
 Test data: `{"application":"com.apple.Terminal","previousApplication":"com.apple.finder"}`.
@@ -70,7 +71,7 @@ Test data: `{"application":"com.apple.Terminal","previousApplication":"com.apple
 ## Connector and command results
 
 Additional data sources can supply JSON to the same CEL conditions. Use them only
-when `list` actually advertises their name and fields. A locally installed command
+when `sources` actually advertises their name and fields. A locally installed command
 such as `gh`, or an available connector tool, does not by itself create a subscribed
 care source. Do not invent a source or replace a missing collector with a shell
 sleep loop.
@@ -112,7 +113,7 @@ unknown activation. `reserved` is not an interruption count. Migration reservati
 represent old attempt records without visibility evidence and expire after their
 original 24-hour window; unresolved submissions remain reserved separately.
 
-Only at the user's explicit request, use `configure` with a complete `policy`:
+Only at the user's explicit request, use `bot_schedule_update` with `request.type:"configure"` and a complete `policy`:
 `{"maximumInterruptionsPer24Hours":8,"minimumGapSeconds":300}`. Caelis requires
 a user-originated authorization. Never raise limits merely to get more work through.
 These settings do not change ordinary reminders, user messages, or approval handling.
