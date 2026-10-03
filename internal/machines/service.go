@@ -98,7 +98,7 @@ func (s *Service) ConnectMachine(ctx context.Context, in api.MachineInput) (api.
 			}
 		}
 	}
-	out := api.Machine{ID: id, Name: strings.TrimSpace(in.Name), Address: in.Address, Port: v.Port, User: v.User, Authentication: v.Authentication, PrivateKey: v.PrivateKey, Remember: v.Remember, Fingerprint: fp, State: "trust", Available: []string{}}
+	out := api.Machine{ID: id, Name: strings.TrimSpace(in.Name), Address: in.Address, Port: v.Port, User: v.User, Authentication: v.Authentication, SSHConfig: v.SSHConfig, PrivateKey: v.PrivateKey, Remember: v.Remember, Fingerprint: fp, State: "trust", Available: []string{}}
 	if out.Name == "" {
 		out.Name = in.Address
 	}

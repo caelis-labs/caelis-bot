@@ -101,6 +101,7 @@ export interface Machine {
   port: number;
   user: string;
   authentication: string;
+  sshConfig: boolean;
   privateKey: string;
   remember: boolean;
   state: string;
@@ -122,6 +123,7 @@ export interface MachineInput {
   port: number;
   user: string;
   authentication: string;
+  sshConfig: boolean;
   privateKey: string;
   secret: string;
   remember: boolean;

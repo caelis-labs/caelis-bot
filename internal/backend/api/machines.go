@@ -9,6 +9,7 @@ type MachineInput struct {
 	Port             int    `json:"port"`
 	User             string `json:"user"`
 	Authentication   string `json:"authentication"`
+	SSHConfig        bool   `json:"sshConfig"`
 	PrivateKey       string `json:"privateKey"`
 	Secret           string `json:"secret"`
 	Remember         bool   `json:"remember"`
@@ -21,6 +22,7 @@ type Machine struct {
 	Port           int                    `json:"port"`
 	User           string                 `json:"user"`
 	Authentication string                 `json:"authentication"`
+	SSHConfig      bool                   `json:"sshConfig"`
 	PrivateKey     string                 `json:"privateKey"`
 	Remember       bool                   `json:"remember"`
 	State          string                 `json:"state"`
@@ -45,6 +47,7 @@ type MachineTeamChange struct {
 }
 type MachineController interface {
 	Machines() []Machine
+	SSHConfigHosts() ([]string, error)
 	ConnectMachine(context.Context, MachineInput) (Machine, error)
 	InspectMachine(context.Context, string, string) (Machine, error)
 	SaveMachineModel(context.Context, MachineModel) (Machine, error)

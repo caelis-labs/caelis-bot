@@ -110,6 +110,33 @@ runtime settings and no new connection-error records over more than two minutes.
 Bot-facing skill guidance needs no update: paging is display-only, and callback
 transport keeps the existing claim, receipt and uncertain-effect workflow.
 
+## Existing SSH configuration
+
+The connection editor offers existing SSH config or a new connection before any
+manual fields. Native Host discovery reads user/system config and bounded Include
+files without rewriting them. Selecting an alias delegates effective user, port,
+identities and the supported jump route to OpenSSH. The new connection form starts
+with authentication, then address/user/port and conditional credential fields.
+
+A fresh Fedora controller passed configured-Host discovery, native fingerprint
+confirmation, authentication through the existing jump host, both runtime detection
+and a ready Codex inspection after reopening; no model call or remote account/model
+change was made. The native UI also completed search, selection, fingerprint and
+Codex readiness. Native password, key, encrypted-key, agent, optional configured-Host
+password and incorrect-password rejection passed against the isolated SSH fixture.
+Inventory regressions cover Includes/cycles, quoting, duplicates/patterns, refresh,
+missing files and read bounds; real OpenSSH projection preserves identity/jump settings
+and ignores stale manual user/port/key values in the existing-config route.
+
+Chinese/English native dialogs and wide inspectors, manual authentication fields,
+selection and empty-search states were inspected. Wide inspector actions now stay at
+the bottom with a scrollable body. Missing/unreadable config states were inspected
+with browser fixtures and keep refresh/new-connection available. Representative
+native views: [existing config](ui-ssh-config-zh.png),
+[wide inspector](ui-ssh-config-wide-zh.png). Required checks, smoke and affected race
+tests passed. Bot skill guidance is unchanged because this is user-facing connection
+setup and introduces no Bot tool or task-routing semantics.
+
 ## External-terminal lifecycle and remaining visual gate
 
 The first real Ghostty developer smoke reached its 90-second opening deadline

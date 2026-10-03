@@ -30,6 +30,22 @@
 .machine-connection-values dt{color:var(--muted);flex:none}
 .machine-connection-values dd{margin:0;text-align:right;overflow-wrap:anywhere;min-width:0}
 .machine-extra>.machine-actions{margin-left:24px}
+.settings-window .machine-source{margin:0 0 22px;padding:3px;gap:3px;border-radius:8px}
+.settings-window .machine-source button{flex:1;min-height:34px;font-size:12px;padding:6px 10px}
+.machine-host-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;font-size:13px}
+.machine-host-heading strong{font-weight:500}
+.settings-window .machine-host-heading button{padding:5px;min-height:28px;min-width:28px}
+.machine-host-search{margin-bottom:10px}
+.machine-host-list{max-height:224px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px;overscroll-behavior:contain}
+.settings-window .machine-host-list button{border:0;background:transparent;display:flex;align-items:center;gap:10px;width:100%;text-align:left;min-height:40px;padding:9px 10px;border-radius:5px;font-size:13px}
+.settings-window .machine-host-list button[aria-checked=true]{background:var(--wash);color:var(--ink)}
+.machine-host-list button>svg{flex:none;color:var(--muted)}
+.machine-host-list button>span:nth-child(2){flex:1;min-width:0;overflow-wrap:anywhere}
+.machine-host-check{width:16px;flex:none;text-align:center;color:var(--muted)}
+.machine-host-message{padding:22px 12px;margin:0;border:1px solid var(--line);border-radius:8px;text-align:center;font-size:12px;color:var(--muted);line-height:1.6}
+.machine-host-message.inline-error{color:var(--error)}
+.settings-window .machine-config-note{margin:12px 0 0;font-size:12px;line-height:1.6}
+.machine-editor-body{flex:1}
 .settings-window .machine-extra>.machine-remove{margin:16px 0 4px 24px;color:#b0554e}
 .settings-window .machine-editor header>button{border:0;background:transparent;padding:6px;min-width:28px;min-height:28px}
 @media(min-width:1120px){.settings-window:has(.machine-editor)>.settings-content{padding-right:420px}.settings-window:has(.machine-editor) .runtime-workspace{min-width:0}.settings-window:has(.machine-editor) .runtime-setting-row{gap:12px}}

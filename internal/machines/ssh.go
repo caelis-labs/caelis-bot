@@ -52,12 +52,40 @@ func validate(v api.MachineInput) error {
 	return nil
 }
 func resolve(ctx context.Context, v api.MachineInput) (api.MachineInput, string, error) {
+	if v.SSHConfig {
+		hosts, err := configuredSSHHosts()
+		if err != nil {
+			return v, "", err
+		}
+		found := false
+		for _, host := range hosts {
+			if strings.EqualFold(host, v.Address) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return v, "", errors.New("ssh_config_host_missing")
+		}
+	}
+	return resolveWithConfig(ctx, v, "")
+}
+
+// OpenSSH remains the authority for effective settings. Reusing a Host never
+// passes form defaults as -l/-p/-i overrides, including on reconnect.
+func resolveWithConfig(ctx context.Context, v api.MachineInput, config string) (api.MachineInput, string, error) {
 	jump := ""
 	originalAddress := v.Address
+	if v.SSHConfig {
+		v.Port, v.User, v.PrivateKey, v.Authentication = 22, "", "", "agent"
+	}
 	if e := validate(v); e != nil {
 		return v, jump, e
 	}
 	args := []string{"-G"}
+	if config != "" {
+		args = append(args, "-F", config)
+	}
 	if v.Port != 22 {
 		args = append(args, "-p", strconv.Itoa(v.Port))
 	}
@@ -80,7 +108,7 @@ func resolve(ctx context.Context, v api.MachineInput) (api.MachineInput, string,
 		case "user":
 			v.User = f[1]
 		case "port":
-			if v.Port == 22 && v.Address != originalAddress {
+			if v.SSHConfig || v.Port == 22 && v.Address != originalAddress {
 				v.Port, _ = strconv.Atoi(f[1])
 			}
 		case "proxyjump":
@@ -152,7 +180,11 @@ func (s *Service) sshArgs(p profile, tty bool) ([]string, error) {
 	a = append(a, "-p", strconv.Itoa(p.View.Port), "-l", p.View.User, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile="+filepath.Join(d, "known_hosts"), "-o", "GlobalKnownHostsFile=/dev/null", "-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "PermitLocalCommand=no", "-o", "ClearAllForwardings=yes", "-o", "ConnectTimeout=12", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ControlPath="+filepath.Join(controlDir, p.View.ID+".sock"), "-o", "UpdateHostKeys=no")
 	switch p.View.Authentication {
 	case "agent":
-		a = append(a, "-o", "BatchMode=yes")
+		batch := "yes"
+		if p.View.SSHConfig && (s.secrets[p.View.ID] != "" || p.View.Remember) {
+			batch = "no"
+		}
+		a = append(a, "-o", "BatchMode="+batch, "-o", "NumberOfPasswordPrompts=1")
 	case "key":
 		a = append(a, "-i", p.View.PrivateKey, "-o", "IdentitiesOnly=yes")
 	case "password":

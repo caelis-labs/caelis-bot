@@ -14,6 +14,12 @@ func (s *Service) Machines() []api.Machine {
 	}
 	return s.machines.Machines()
 }
+func (s *Service) SSHConfigHosts() ([]string, error) {
+	if s.machines == nil {
+		return nil, errors.New("machines unavailable")
+	}
+	return s.machines.SSHConfigHosts()
+}
 func (s *Service) machineContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 60*time.Second)
 }

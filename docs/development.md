@@ -403,6 +403,20 @@ global model accounts or Team configuration. Raw evidence under `.cache` may con
 native target paths/identities; publish only redacted summaries. Detached owners and
 native bindings remain on the target for original-task recovery.
 
+The machine connection editor first offers **Existing SSH config** or **New connection**.
+The existing route lists literal `Host` aliases from `~/.ssh/config`, the system config
+and bounded `Include` files; wildcard and negated patterns are not offered as machines.
+Search/refresh never edits those files. OpenSSH evaluates the selected alias and supplies
+its user, port, identities and supported single-hop `ProxyJump`; manual form defaults do
+not override it. Fingerprint confirmation and the app-owned known-hosts/control socket
+remain in force. Optional passwords/key passphrases stay write-only and use the existing
+explicit Keychain opt-in. `ProxyCommand` and multi-hop jumps remain unsupported.
+For a non-billable real connection acceptance, set `CAELIS_BOT_TEST_CONFIG_SSH=fedora`
+and `CAELIS_BOT_REMOTE_HELPER_DIR` to the built helper directory, then run
+`GOWORK=off go test ./internal/machines -run '^TestFedoraSSHConfigConnection$' -count=1 -v`.
+This settings-only workflow adds no Bot tool or changes to task routing, so Bot skill
+instructions do not need an update.
+
 Native OpenSSH authentication acceptance uses an isolated loopback SSH fixture,
 disposable keys/passwords and an independent agent. Set
 `CAELIS_BOT_SSH_AUTH_PYTHON` to an explicit Python with Paramiko and run

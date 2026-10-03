@@ -90,7 +90,7 @@ func TestNativeSSHAuthentication(t *testing.T) {
 	if err = exec.Command("/usr/bin/ssh-add", filepath.Join(root, "client.plain")).Run(); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"password", "key", "passphrase", "agent", "wrong-password"} {
+	for _, mode := range []string{"password", "key", "passphrase", "agent", "config-password", "wrong-password"} {
 		t.Run(mode, func(t *testing.T) {
 			id := "machine-" + rand.Text()
 			dir := filepath.Join(s.root, id)
@@ -105,6 +105,11 @@ func TestNativeSSHAuthentication(t *testing.T) {
 			switch mode {
 			case "password":
 				s.secrets[id] = "fixture-password"
+			case "config-password":
+				view.Authentication = "agent"
+				view.SSHConfig = true
+				s.secrets[id] = "fixture-password"
+				t.Setenv("SSH_AUTH_SOCK", "")
 			case "key":
 				view.PrivateKey = filepath.Join(root, "client.plain")
 			case "passphrase":
