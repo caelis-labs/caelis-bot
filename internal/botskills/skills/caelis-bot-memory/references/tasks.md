@@ -1,6 +1,6 @@
 # Arrange and continue independent work
 
-Prefer `bot_task_start` over native subagents for independent professional work, so the user can reach the work from the desktop watchlist. Use Bot tasks for work that benefits from sustained execution, a dedicated
+Prefer `bot_delegate` with `request.type:"start"` over native subagents for independent professional work, so the user can reach the work from the desktop watchlist. Use Bot tasks for work that benefits from sustained execution, a dedicated
 workspace, or parallel progress. Choose the decomposition yourself when it helps
 the user's goal or an existing commitment. The user does not need to ask for a
 thread explicitly.
@@ -9,13 +9,15 @@ Discover the tools you need through the available tool catalog. Use `tool_search
 when provided, or the native `ALL_TOOLS` name and description lookup in Code Mode.
 Follow the discovered schema and receipts.
 
-| Tool | Use |
+| Request | Use |
 | --- | --- |
-| `bot_tasks` | Search and paginate history, or pin/unpin a task in the desktop watchlist. |
-| `bot_task_start` | Start a distinct assignment in its own workspace. |
-| `bot_task_read` | Check a task's status, result, and any remaining blocker. |
-| `bot_task_send` | Add direction to a running task or continue suitable existing work. |
-| `bot_task_stop` | Stop the task the user wants interrupted. |
+| `bot_tasks.request.type: list` | Search paged history without transcripts. |
+| `bot_tasks.request.type: read` | Read an owned task or the original requestId receipt. |
+| `bot_tasks.request.type: watchlist` | Pin, unpin, lock, unlock or clear unlocked cards. |
+| `bot_tasks.request.type: machines` | Find the machine explicitly named by the user. |
+| `bot_tasks.request.type: stop` | Stop the exact task the user requests. |
+| `bot_delegate.request.type: start` | Start an independent assignment in its workspace. |
+| `bot_delegate.request.type: continue` | Steer or continue the original task. |
 
 Write the prompt as the assignment itself. Forward the original task directly
 when it is already sufficient; for a subtask, include the necessary goal, context,
@@ -26,12 +28,16 @@ Reuse a suitable task rather than starting duplicates. Keep a stable request ID
 for the same submission. If acceptance is uncertain, read the recorded state
 before deciding what to do; do not create another task to get around uncertainty.
 An accepted start means work has been arranged, not completed.
+If the task handle was lost, query `bot_tasks` with
+`request:{"type":"read","requestId":"<original submission requestId>"}`.
+A missing receipt remains unconfirmed; never replace it with a new submission.
+Historical follow-up requests may require the original task handle.
 Keep the user informed with frequent, brief updates about what you are doing and
 what comes next, especially while arranging or reviewing longer work. Avoid
 repeating unchanged status or creating extra monitoring turns just to narrate it.
 
 For work in an existing project, pass its absolute directory as `workspace` to
-`bot_task_start`. Use the directory requested by the user or established for that
+`bot_delegate` with `request.type:"start"`. Use the directory requested by the user or established for that
 assignment; a path in the prompt alone does not select the workspace. Omit
 `workspace` for a fresh private directory. The selected directory must already
 exist. This uses the directory directly; it does not create a Git worktree or
@@ -42,7 +48,7 @@ unrelated operations.
 
 ## History and the watchlist
 
-Start with `bot_tasks` using `operation: "list"`. The default page has 20 items,
+Start with `bot_tasks` using `request:{"type":"list"}`. The default page has 20 items,
 with a maximum of 50. Search by `query` (title, original assignment, or handle),
 optionally filter by exact `status` or `pinned`, and pass `nextCursor` as `cursor`
 with the same filters to continue. Results are ordered by creation, newest first;
@@ -68,15 +74,15 @@ for a previously removed item. Continue the same task instead of duplicating it.
 Examples of `bot_tasks` arguments:
 
 ```json
-{"operation":"list","query":"release review","limit":20}
+{"request":{"type":"list","query":"release review","limit":20}}
 ```
 
 ```json
-{"operation":"pin","id":"<task handle from search or start>"}
+{"request":{"type":"watchlist","action":"pin","task":"<returned task handle>"}}
 ```
 
 ```json
-{"operation":"unpin","id":"<task handle to remove from the watchlist>"}
+{"request":{"type":"watchlist","action":"unpin","task":"<returned task handle>"}}
 ```
 
 There is no watchlist capacity limit or displayed task counter. On macOS, the
@@ -215,9 +221,9 @@ the authority for work and visibility.
 ## Work on a connected machine
 
 Use local work by default. When the user explicitly asks to use a machine, call
-`bot_task_machines`, match its exact ID to the requested name, and require `ready`.
+`bot_tasks` with `request.type:"machines"`, match its exact ID to the requested name, and require `ready`.
 Ask for a choice if names are ambiguous. Set `machine` only on a new task; use
-`bot_task_send`, `bot_task_read`, or `bot_task_stop` with the original task handle
+`bot_delegate` with `request.type:"continue"`, `bot_tasks` with `request.type:"read"`, or `bot_tasks` with `request.type:"stop"` with the original task handle
 for continuation. Do not move work or create another task after a connection error.
 An explicit workspace belongs to the selected machine. Omitting it allocates a
 fresh workspace there. Local files are not automatically copied to that machine.

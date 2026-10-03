@@ -225,14 +225,14 @@ func TestBotApprovalIsAnExplicitToolAllowlist(t *testing.T) {
 	}
 	defer b.Close()
 	c := b.Config("synthetic")
-	if len(c.ApprovedTools) != 9 {
+	if len(c.ApprovedTools) != 4 {
 		t.Fatal("approval scope grew without review")
 	}
 	policy := map[string]bool{}
 	for _, name := range c.ApprovedTools {
 		policy[name] = true
 	}
-	for _, name := range []string{"bot_clock", "bot_gesture", "bot_tasks", "bot_task_read", "bot_memory", "bot_reminders_list", "bot_care_read", "bot_task_stop"} {
+	for _, name := range []string{"bot_schedule", "bot_gesture", "bot_tasks", "bot_memory"} {
 		if !policy[name] {
 			t.Fatal("owned tool approval missing", name)
 		}
@@ -314,7 +314,7 @@ func TestQueuedWakeRetainsRuntimeAcrossRestart(t *testing.T) {
 func TestApplicationToolHandlerHonorsCancellationAndShutdown(t *testing.T) {
 	r, _, _ := fixture(t)
 	defs := r.Definitions()
-	if len(defs) != 13 {
+	if len(defs) != 6 {
 		t.Fatal("incomplete application catalog")
 	}
 	defs[0].Name = "foreign"
@@ -323,14 +323,14 @@ func TestApplicationToolHandlerHonorsCancellationAndShutdown(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if out := r.CallTool(ctx, "bot_reminders", json.RawMessage(`{"operation":"save","id":"no-write","label":"no","prompt":"no","everyMinutes":1}`)); !out.IsError || len(r.State().Schedules) != 0 {
+	if out := r.callLegacyTool(ctx, "bot_reminders", json.RawMessage(`{"operation":"save","id":"no-write","label":"no","prompt":"no","everyMinutes":1}`)); !out.IsError || len(r.State().Schedules) != 0 {
 		t.Fatal("cancelled tool mutated state")
 	}
-	if out := r.CallTool(t.Context(), "bot_clock", json.RawMessage(`{}`)); out.IsError {
+	if out := r.callLegacyTool(t.Context(), "bot_clock", json.RawMessage(`{}`)); out.IsError {
 		t.Fatal(out)
 	}
 	r.Stop()
-	if out := r.CallTool(t.Context(), "bot_clock", json.RawMessage(`{}`)); !out.IsError {
+	if out := r.callLegacyTool(t.Context(), "bot_clock", json.RawMessage(`{}`)); !out.IsError {
 		t.Fatal("stopped host still callable")
 	}
 }
@@ -397,7 +397,7 @@ func TestReadOnlyToolsCannotCreateBackgroundWork(t *testing.T) {
 	r, engine, _ := fixture(t)
 	for _, name := range []string{"bot_reminders_list", "bot_care_read"} {
 		for _, args := range []string{`{"operation":"save","id":"injected","prompt":"not authorized"}`, `{"operation":"configure","policy":{}}`, `{"operation":"remove","id":"existing"}`} {
-			if out := r.CallTool(t.Context(), name, json.RawMessage(args)); !out.IsError {
+			if out := r.callLegacyTool(t.Context(), name, json.RawMessage(args)); !out.IsError {
 				t.Fatal("read-only route accepted mutation", name)
 			}
 		}
@@ -405,7 +405,7 @@ func TestReadOnlyToolsCannotCreateBackgroundWork(t *testing.T) {
 	if len(r.State().Schedules) != 0 || len(engine.submissions) != 0 {
 		t.Fatal("read-only path changed work")
 	}
-	if r.CallTool(t.Context(), "bot_reminders_list", json.RawMessage(`{}`)).IsError {
+	if r.callLegacyTool(t.Context(), "bot_reminders_list", json.RawMessage(`{}`)).IsError {
 		t.Fatal("read-only listing rejected")
 	}
 }

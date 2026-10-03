@@ -349,6 +349,33 @@ Diagnostic codes/logs and protocol enums stay stable, normally English. Display
 known errors with localized context; preserve unknown third-party error details.
 Do not classify protocol outcomes by matching translated strings.
 
+## Compact Bot tool acceptance
+
+The private Bot catalog has six base tools and four optional desktop tools.
+See [implementation and acceptance](bot-tools-acceptance.md) for the current
+contract, native evidence and verification limits.
+
+The opt-in real-model harness uses installed Runtime credentials and disposable
+Bot bindings. Choose an available model explicitly; it does not change the daily
+Bot's model or Worker defaults:
+
+```sh
+source script/env.sh
+BOT_ACCEPTANCE_RUNTIME=codex BOT_ACCEPTANCE_MODEL=gpt-6-luna \
+  BOT_ACCEPTANCE_EFFORT=medium go run ./cmd/bot-workflow-smoke --compact
+```
+
+Use `BOT_ACCEPTANCE_RUNTIME=caelis` with a configured Caelis model to exercise
+the same native application path. `BOT_ACCEPTANCE_EVIDENCE` optionally preserves
+private test bindings and a summary; otherwise temporary data is removed.
+The desktop phase is opt-in: launch the disposable fixture through
+`build_and_run.sh --desktop-control-preview`, then provide
+`BOT_ACCEPTANCE_DESKTOP_HELPER`, `BOT_ACCEPTANCE_DESKTOP_TITLE` and
+`BOT_ACCEPTANCE_DESKTOP_RESULT` for that exact fixture. Give it a unique title
+and result path; it must start with zero submissions. The model operates only
+that test application. The test's presence sample is synthetic and saved event
+conditions are false; its reminder wake uses real native user authorization.
+
 ## Content boundaries
 
 Never translate or rewrite user messages, task prompts, model responses, reasoning,

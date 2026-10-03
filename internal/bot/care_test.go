@@ -26,10 +26,10 @@ func configureCare(t *testing.T, r *Runtime) {
 func TestCareToolToScheduledSubmissionAndUpdateFence(t *testing.T) {
 	r, f, now := fixture(t)
 	configureCare(t, r)
-	if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(strings.Replace(careRule, `"save"`, `"test"`, 1))); out.IsError || len(r.care.Snapshot().Rules) != 0 || len(f.submissions) != 0 {
+	if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(strings.Replace(careRule, `"save"`, `"test"`, 1))); out.IsError || len(r.care.Snapshot().Rules) != 0 || len(f.submissions) != 0 {
 		t.Fatal("test had an effect", out)
 	}
-	if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
+	if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
 		t.Fatal(out)
 	}
 	if err := r.PauseIfIdle(func() error { return nil }); err != nil {
@@ -55,7 +55,7 @@ func TestCareToolToScheduledSubmissionAndUpdateFence(t *testing.T) {
 		t.Fatal("wrong submission path", f.submissions)
 	}
 	for _, op := range []string{"list", "remove"} {
-		out := r.CallTool(t.Context(), "bot_care", json.RawMessage(`{"operation":"`+op+`","id":"care-demo"}`))
+		out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(`{"operation":"`+op+`","id":"care-demo"}`))
 		if out.IsError {
 			t.Fatal(out)
 		}
@@ -96,7 +96,7 @@ func TestCareUsesNativeGrantAndRetainedReceipt(t *testing.T) {
 	configureCare(t, r)
 	f := &careGrantEngine{fakeEngine: base, deny: true}
 	r.engine = f
-	if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(careRule)); !out.IsError {
+	if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(careRule)); !out.IsError {
 		t.Fatal("native denial ignored")
 	}
 	_ = r.Tick(t.Context())
@@ -104,7 +104,7 @@ func TestCareUsesNativeGrantAndRetainedReceipt(t *testing.T) {
 		t.Fatal("ungranted registration dispatched")
 	}
 	f.deny = false
-	if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
+	if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
 		t.Fatal(out)
 	}
 	*now = now.Add(time.Minute)
@@ -119,7 +119,7 @@ func TestCareUsesNativeGrantAndRetainedReceipt(t *testing.T) {
 	if r.care.Status() != "" || len(base.submissions) != 1 {
 		t.Fatal("native read did not reconcile")
 	}
-	if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(`{"operation":"remove","id":"care-demo"}`)); out.IsError || f.revoked != f.authorized {
+	if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(`{"operation":"remove","id":"care-demo"}`)); out.IsError || f.revoked != f.authorized {
 		t.Fatal("grant not revoked", out)
 	}
 }
@@ -127,7 +127,7 @@ func TestCareUsesNativeGrantAndRetainedReceipt(t *testing.T) {
 func TestCareStorageFailureDoesNotBlockReminder(t *testing.T) {
 	r, f, now := fixture(t)
 	configureCare(t, r)
-	if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
+	if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
 		t.Fatal(out)
 	}
 	saveReminder(t, r, "water")
@@ -203,7 +203,7 @@ func TestReminderRecoveryPrecedesDueCare(t *testing.T) {
 			}
 			base.outcome = "accepted"
 			configureCare(t, r)
-			if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
+			if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
 				t.Fatal(out)
 			}
 			if err := r.Tick(t.Context()); err != nil {
@@ -252,7 +252,7 @@ func TestReminderRecoveryRequiresExactDurableAcceptance(t *testing.T) {
 			r.engine = f
 			base.view.LastReceipt = api.Receipt{ID: id, Outcome: "accepted"} // Exact provider evidence takes priority.
 			configureCare(t, r)
-			if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
+			if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(careRule)); out.IsError {
 				t.Fatal(out)
 			}
 			switch outcome {
@@ -285,21 +285,21 @@ func TestCareRejectsUnknownArguments(t *testing.T) {
 	r, _, _ := fixture(t)
 	configureCare(t, r)
 	for _, raw := range []string{`{"operation":"list","unlocked":true}`, `{"operation":"list"} {"operation":"save"}`} {
-		if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(raw)); !out.IsError {
+		if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(raw)); !out.IsError {
 			t.Fatal("invalid arguments accepted", raw)
 		}
 	}
 }
 func TestCareToolCannotForgePresenceOrPublishEvents(t *testing.T) {
 	r, base, _ := fixture(t)
-	if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(careRule)); !out.IsError {
+	if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(careRule)); !out.IsError {
 		t.Fatal("missing native source accepted")
 	}
 	if err := r.ConfigureCare(func() care.Sample { return care.Sample{Presence: care.Presence{Awake: true}} }); err != nil {
 		t.Fatal(err)
 	}
-	_ = r.CallTool(t.Context(), "bot_care", json.RawMessage(careRule))
-	if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(`{"operation":"publish","on":"clock.minute","event":{"unlocked":true}}`)); !out.IsError {
+	_ = r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(careRule))
+	if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(`{"operation":"publish","on":"clock.minute","event":{"unlocked":true}}`)); !out.IsError {
 		t.Fatal("public event ingress")
 	}
 	_ = r.Tick(t.Context())
@@ -308,7 +308,7 @@ func TestCareToolCannotForgePresenceOrPublishEvents(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if out := r.CallTool(ctx, "bot_care", json.RawMessage(careRule)); !out.IsError {
+	if out := r.callLegacyTool(ctx, "bot_care", json.RawMessage(careRule)); !out.IsError {
 		t.Fatal("cancel ignored")
 	}
 }
@@ -319,19 +319,19 @@ func TestCarePolicyConfigurationUsesUserGrantAndReportsEffectiveBudget(t *testin
 	f := &careGrantEngine{fakeEngine: base, deny: true}
 	r.engine = f
 	request := json.RawMessage(`{"operation":"configure","policy":{"maximumInterruptionsPer24Hours":12,"minimumGapSeconds":60}}`)
-	if out := r.CallTool(t.Context(), "bot_care", request); !out.IsError || r.care.Snapshot().Policy != care.DefaultPolicy() {
+	if out := r.callLegacyTool(t.Context(), "bot_care", request); !out.IsError || r.care.Snapshot().Policy != care.DefaultPolicy() {
 		t.Fatal("native denial bypassed", out)
 	}
 	f.deny = false
 	for _, invalid := range []string{`{"operation":"configure","policy":{"maximumInterruptionsPer24Hours":12}}`, `{"operation":"configure","policy":{"maximumInterruptionsPer24Hours":12,"minimumGapSeconds":null}}`} {
-		if out := r.CallTool(t.Context(), "bot_care", json.RawMessage(invalid)); !out.IsError {
+		if out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(invalid)); !out.IsError {
 			t.Fatal("incomplete policy accepted")
 		}
 	}
-	if out := r.CallTool(t.Context(), "bot_care", request); out.IsError || f.authorized != "care-policy:limits" {
+	if out := r.callLegacyTool(t.Context(), "bot_care", request); out.IsError || f.authorized != "care-policy:limits" {
 		t.Fatal(out)
 	}
-	out := r.CallTool(t.Context(), "bot_care", json.RawMessage(`{"operation":"list"}`))
+	out := r.callLegacyTool(t.Context(), "bot_care", json.RawMessage(`{"operation":"list"}`))
 	raw, _ := json.Marshal(out)
 	if out.IsError || !strings.Contains(string(raw), "maximumInterruptionsPer24Hours") || !strings.Contains(string(raw), "interruptionsUsed") {
 		t.Fatal(out)

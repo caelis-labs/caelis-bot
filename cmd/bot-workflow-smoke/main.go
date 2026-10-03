@@ -195,7 +195,11 @@ func main() {
 		}
 		return
 	}
-	if e := run(); e != nil {
+	accept := run
+	if len(os.Args) > 1 && os.Args[1] == "--compact" {
+		accept = runCompact
+	}
+	if e := accept(); e != nil {
 		fmt.Fprintln(os.Stderr, e)
 		os.Exit(1)
 	}

@@ -20,6 +20,7 @@ func (r *Runtime) BeginDesktopTurn() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.desktopTurn = rand.Text()
+	r.desktopQueries = nil
 	r.desktopContext, r.desktopCancel = context.WithCancel(context.Background())
 	if r.stopped {
 		r.desktopCancel()

@@ -11,7 +11,7 @@ import (
 
 const Prefix = "bot_desktop_"
 
-func Definitions() []api.ToolDefinition {
+func LegacyDefinitions() []api.ToolDefinition {
 	var out []api.ToolDefinition
 	for _, tool := range protocol.Tools() {
 		op := strings.TrimPrefix(strings.TrimPrefix(tool.Name, "world."), "run.")

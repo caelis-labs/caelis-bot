@@ -10,7 +10,7 @@ is generated for you; do not edit it. Newly written notes may be found by listin
 files before the index refreshes.
 
 Save decisions, progress, and results in `YYYY/MM/DD/` under a meaningful topic
-filename. Use the local date; discover and call `bot_clock` when you need to check
+filename. Use the local date; discover and call `bot_schedule` with `request:{"type":"context"}` when you need to check
 it. For ongoing work, record its goal, related task handles and artifacts, verified
 progress, open questions, and next steps. Record milestones as you work instead of
 waiting for a compaction warning.

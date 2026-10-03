@@ -29,18 +29,18 @@ func TestTaskToolRoutesBoundedQueriesAndPins(t *testing.T) {
 	if e := r.ConfigureTasks(f, nil); e != nil {
 		t.Fatal(e)
 	}
-	out := r.CallTool(t.Context(), "bot_tasks", json.RawMessage(`{"operation":"list","query":"review","pinned":false,"limit":10,"cursor":"cursor"}`))
+	out := r.callLegacyTool(t.Context(), "bot_tasks", json.RawMessage(`{"operation":"list","query":"review","pinned":false,"limit":10,"cursor":"cursor"}`))
 	if out.IsError || f.query.Limit != 10 || f.query.Pinned == nil || *f.query.Pinned || f.query.Cursor != "cursor" {
 		t.Fatal(out, f.query)
 	}
 	for _, op := range []string{"pin", "unpin"} {
-		out = r.CallTool(t.Context(), "bot_tasks", json.RawMessage(`{"operation":"`+op+`","id":"owned"}`))
+		out = r.callLegacyTool(t.Context(), "bot_tasks", json.RawMessage(`{"operation":"`+op+`","id":"owned"}`))
 		if out.IsError || f.pinned != "owned" {
 			t.Fatal(out)
 		}
 	}
 	for _, bad := range []string{`{"operation":"delete"}`, `{"operation":"list","workspace":"elsewhere"}`, `{} {}`} {
-		out = r.CallTool(t.Context(), "bot_tasks", json.RawMessage(bad))
+		out = r.callLegacyTool(t.Context(), "bot_tasks", json.RawMessage(bad))
 		if !out.IsError {
 			t.Fatal("unsupported mutation", bad)
 		}

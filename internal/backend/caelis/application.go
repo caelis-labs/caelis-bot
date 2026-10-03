@@ -85,6 +85,43 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 			return err
 		}
 	}
+	if provider, ok := c.Host.(api.LegacyToolProvider); ok {
+		legacy := provider.LegacyToolConnection()
+		if legacy != nil && legacy.Host != nil {
+			definitions := []wire.ApplicationToolDefinition{}
+			handlers := map[string]api.ApplicationTools{}
+			content := map[string]bool{}
+			for _, d := range legacy.Host.Definitions() {
+				var schema wire.JSONObject
+				if json.Unmarshal(d.InputSchema, &schema) != nil || schema == nil {
+					s.mu.Unlock()
+					return errors.New("invalid legacy tool schema")
+				}
+				policy := "required"
+				if slices.Contains(legacy.ApprovedTools, d.Name) {
+					policy = "direct"
+				}
+				item := wire.ApplicationToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema, ApprovalPolicy: &policy}
+				if d.ResultFormat != "" {
+					item.ResultFormat = pointer(d.ResultFormat)
+					content[d.Name] = true
+				}
+				definitions = append(definitions, item)
+				handlers[d.Name] = legacy.Host
+			}
+			sort.Slice(definitions, func(i, j int) bool { return definitions[i].Name < definitions[j].Name })
+			raw, _ := json.Marshal(definitions)
+			version := digest(raw)
+			s.catalogs[version] = handlers
+			if len(content) > 0 {
+				s.state.ContentCatalogs[version] = content
+				if err := s.saveLocked(); err != nil {
+					s.mu.Unlock()
+					return err
+				}
+			}
+		}
+	}
 	s.catalogs[profile.ToolsVersion] = catalog
 	s.catalog = catalog
 	s.profile = profile
@@ -100,7 +137,7 @@ func (s *Session) checkContentCapability(info wire.ServerInfo) error {
 	defer s.mu.Unlock()
 	for _, tool := range s.profile.Tools {
 		if value(tool.ResultFormat) == "content-v1" && !slices.Contains(info.Capabilities, "application-tool-result-content-v1") {
-			return errors.New("Desktop World requires Caelis application-tool-result-content-v1; update and restart the Host")
+			return errors.New("Bot tools require Caelis application-tool-result-content-v1; update and restart the Host")
 		}
 	}
 	return nil
