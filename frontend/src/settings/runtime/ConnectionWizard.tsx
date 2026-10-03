@@ -3,6 +3,7 @@ import type { APIKeyOptions, ConnectAction, ConnectChoice, ConnectionCatalog, Co
 import { acceptConnectionProgress, messageOf, safeWebURL } from './state';
 import { SettingsDialog } from './SettingsDialog';
 import { useI18n } from '../../i18n';
+import { SettingsChevron } from '../../SettingsIcons';
 
 const emptyCatalog: ConnectionCatalog = { choices: [], unavailable: '' };
 export function ConnectionWizard({ client, onClose, onConnected }: { client: RuntimeSettingsClient; onClose: () => void; onConnected: () => Promise<void> }) {
@@ -81,7 +82,7 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
    {loading && !choice && <p role="status">{t('connections.loadingChoices')}</p>}
    {catalog.unavailable && <p className="settings-note" role="status">{catalog.unavailable}</p>}
    {!loading && !catalog.unavailable && !catalog.choices.length && <p className="settings-note">{t('connections.noChoices')}</p>}
-   {!choice ? <div className="runtime-connect-catalog">{catalog.choices.map(c => <button key={c.id} disabled={busy} onClick={() => select(c)}><span><strong>{c.name}</strong><small>{c.description}</small></span><span aria-hidden="true">›</span></button>)}</div> : <>
+   {!choice ? <div className="runtime-connect-catalog">{catalog.choices.map(c => <button key={c.id} disabled={busy} onClick={() => select(c)}><span><strong>{c.name}</strong><small>{c.description}</small></span><SettingsChevron/></button>)}</div> : <>
     <button className="text-action" disabled={busy} onClick={() => { optionsSerial.current++; setChoice(null); setAPIKey(''); setError(''); }}>{t('connections.backToChoices')}</button>
     <h3 className="runtime-connect-choice">{choice.name}</h3>
     {choice.custom && <><label>{t('connections.startCommand')}<input disabled={busy} value={command} onChange={e => setCommand(e.target.value)} placeholder={t('connections.startCommandPlaceholder')}/></label></>}
@@ -95,7 +96,7 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
    </>}
   </>}
   {flow?.stage === 'preparing' && <p className="settings-note" role="status">{t('connections.waitingLocalCaelis')}</p>}
-  {flow?.stage === 'launcher' && <><div className="runtime-connect-catalog">{flow.launchers?.map(launcher => <button disabled={busy} key={launcher.id} onClick={() => void run('choose-launcher', { launcher: launcher.id })}><span><strong>{launcher.name || launcher.id}</strong><small>{launcher.description}</small></span><span aria-hidden="true">›</span></button>)}</div></>}
+  {flow?.stage === 'launcher' && <><div className="runtime-connect-catalog">{flow.launchers?.map(launcher => <button disabled={busy} key={launcher.id} onClick={() => void run('choose-launcher', { launcher: launcher.id })}><span><strong>{launcher.name || launcher.id}</strong><small>{launcher.description}</small></span><SettingsChevron/></button>)}</div></>}
   {flow?.stage === 'installation' && flow.installation && <>
    <div className="runtime-install-details"><strong>{flow.installation.platform}</strong>{flow.installation.source && <><p>{t('connections.installSource')}</p><button className="text-action runtime-url" onClick={() => void open(flow.installation!.source)}>{flow.installation.source}</button></>}</div>
    <label>{t('connections.installDirectory')}<input value={destination} disabled={busy} onChange={e => setDestination(e.target.value)}/></label>

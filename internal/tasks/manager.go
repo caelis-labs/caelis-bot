@@ -22,6 +22,7 @@ import (
 )
 
 type record struct {
+	Runtime        string   `json:"runtime,omitempty"`
 	Sequence       int64    `json:"sequence,omitempty"`
 	Locked         bool     `json:"locked,omitempty"`
 	CompletedAt    int64    `json:"completedAt,omitempty"`
@@ -114,6 +115,19 @@ func Open(path, root, provider string, work api.WorkRuntime, reports api.ReportS
 		return nil, e
 	}
 	m.write = m.save
+	if router, ok := work.(api.WorkRouter); ok {
+		for id, r := range m.state.Records {
+			runtime := r.Runtime
+			if runtime == "" && r.View.Machine == "" {
+				runtime = r.Provider
+			}
+			var err error
+			r.Runtime, err = router.BindWork(context.Background(), api.TaskStart{Machine: r.View.Machine}, id, runtime)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	if e := m.refresh(); e != nil {
 		return nil, e
 	}
@@ -162,15 +176,26 @@ func (m *Manager) save() error {
 	return e
 }
 
-// Only the selected adapter's already-owned executions can enter this ledger.
-// Unknown records from other providers remain inert; no native IDs are adopted.
+// Only already-owned executions can enter this ledger. The host router retains
+// both providers; an unregistered provider remains inert, with no adopted IDs.
 func (m *Manager) refresh() error {
 	states := m.work.WorkStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, v := range states {
-		if r := m.state.Records[v.Task.ID]; r != nil && r.Provider != m.provider {
+		if r := m.state.Records[v.Task.ID]; r != nil && (!m.owns(r) || r.View.Machine != v.Task.Machine || r.Runtime != "" && v.Runtime != "" && r.Runtime != v.Runtime) {
 			return errors.New(m.text("host.taskConflictOtherRuntime"))
+		}
+	}
+	if _, ok := m.work.(api.WorkRouter); ok {
+		observed := map[string]bool{}
+		for _, v := range states {
+			observed[v.Task.ID] = true
+		}
+		for id, r := range m.state.Records {
+			if m.owns(r) && r.Runtime != "" && !observed[id] && !terminal(r.View.Status) {
+				r.View.Status = "unknown"
+			}
 		}
 	}
 	for _, v := range states {
@@ -179,10 +204,10 @@ func (m *Manager) refresh() error {
 		}
 		r := m.state.Records[v.Task.ID]
 		if r == nil {
-			r = &record{Provider: m.provider, Fingerprint: v.StartFingerprint, View: v.Task, Execution: v.ExecutionKey, ReportID: v.PreviousReportID, ReportState: v.PreviousReportState}
+			r = &record{Runtime: v.Runtime, Provider: m.provider, Fingerprint: v.StartFingerprint, View: v.Task, Execution: v.ExecutionKey, ReportID: v.PreviousReportID, ReportState: v.PreviousReportState}
 			m.state.Records[v.Task.ID] = r
 		}
-		if r.Provider != m.provider {
+		if !m.owns(r) {
 			return errors.New(m.text("host.taskConflictOtherRuntime"))
 		}
 		if (r.Execution != "" && v.ExecutionKey != "" && r.Execution != v.ExecutionKey) || (terminal(r.View.Status) && !terminal(v.Task.Status)) {
@@ -192,13 +217,14 @@ func (m *Manager) refresh() error {
 			r.ActiveAt = m.now().UnixMilli()
 			m.promoteWatchLocked(v.Task.ID)
 		}
+		v.Task.Machine = r.View.Machine
 		r.View = v.Task
 		if r.OriginalPrompt == "" {
 			r.OriginalPrompt = v.OriginalPrompt
 		}
 		if v.ExecutionKey != "" && (r.Execution != v.ExecutionKey || r.ReportID == "") {
 			r.Execution = v.ExecutionKey
-			r.ReportID = "task-report-" + hash(m.provider, v.Task.ID, v.ExecutionKey)
+			r.ReportID = "task-report-" + hash(r.Provider, v.Task.ID, v.ExecutionKey)
 			r.ReportState = "pending"
 		}
 		if v.StopRequested {
@@ -209,6 +235,18 @@ func (m *Manager) refresh() error {
 	return m.write()
 }
 
+// A registered host route owns its retained backend independently of the
+// resident adapter. Direct single-provider fixtures keep their existing scope.
+func (m *Manager) owns(r *record) bool {
+	if r == nil {
+		return false
+	}
+	if r.Provider == m.provider || r.View.Machine != "" {
+		return true
+	}
+	p, ok := m.work.(api.WorkRouter)
+	return ok && r.Runtime != "" && p.OwnsWork(r.Runtime)
+}
 func (m *Manager) ListTasks() []api.Task {
 	m.op.Lock()
 	defer m.op.Unlock()
@@ -219,7 +257,7 @@ func (m *Manager) ListTasks() []api.Task {
 	defer m.mu.Unlock()
 	out := []api.Task{}
 	for _, r := range m.state.Records {
-		if r.Provider == m.provider {
+		if m.owns(r) {
 			v := r.View
 			v.Result = ""
 			out = append(out, v)
@@ -255,7 +293,7 @@ func prepareWorkspace(root, id string, loc ...i18n.Locale) (string, error) {
 	return filepath.Join(root, id), nil
 }
 
-func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, error) {
+func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Task, err error) {
 	if !valid(in.RequestID, in.Prompt) || strings.TrimSpace(in.Title) == "" || len(in.Title) > 160 {
 		return api.Task{}, errors.New(m.text("host.taskRequiresParams"))
 	}
@@ -268,18 +306,37 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 		return api.Task{}, e
 	}
 	id, fp := "task-"+hash(m.provider, in.RequestID), hash(in.Title, in.Prompt)
+	if in.Machine != "" {
+		id = "task-" + hash("remote", in.Machine, in.RequestID)
+		fp = hash(in.Title, in.Prompt, in.Machine)
+	}
 	if in.Workspace != "" {
 		fp = hash(in.Title, in.Prompt, in.Workspace)
+		if in.Machine != "" {
+			fp = hash(in.Title, in.Prompt, in.Workspace, in.Machine)
+		}
 	}
 	m.mu.Lock()
+	if _, ok := m.work.(api.WorkRouter); ok && in.Machine == "" {
+		// Stable requests survive a default/secretary switch. Legacy provider IDs
+		// remain recognizable; a retry cannot allocate a second native Worker.
+		id = "task-" + hash("local", in.RequestID)
+		for _, provider := range []string{"codex", "caelis", m.provider} {
+			candidate := "task-" + hash(provider, in.RequestID)
+			if r := m.state.Records[candidate]; r != nil && m.owns(r) {
+				id = candidate
+				break
+			}
+		}
+	}
 	legacyID := "task-" + hash(in.RequestID)
-	if r := m.state.Records[legacyID]; r != nil && r.Provider == m.provider {
+	if r := m.state.Records[legacyID]; r != nil && m.owns(r) {
 		id = legacyID
 	}
 	if r := m.state.Records[id]; r != nil {
 		v := r.View
 		m.mu.Unlock()
-		if r.Provider != m.provider || r.Fingerprint != fp {
+		if !m.owns(r) || r.Fingerprint != fp {
 			return v, errors.New(m.text("host.sameRequestIdDifferentTask"))
 		}
 		return v, nil
@@ -292,8 +349,36 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	if e := m.work.WorkAdmission(ctx); e != nil {
 		return api.Task{}, e
 	}
+	runtime := ""
+	if router, ok := m.work.(api.WorkRouter); ok {
+		var err error
+		runtime, err = router.BindWork(ctx, in, id, "")
+		if err != nil {
+			return api.Task{}, err
+		}
+	}
+	// Until the task ledger is durable, failures are pre-dispatch. Release only
+	// explicit reservations; legacy and unknown execution owners stay bound.
+	ledgerWritten := false
+	defer func() {
+		if !ledgerWritten {
+			if rollback, ok := m.work.(api.WorkPreparationRollback); ok {
+				err = errors.Join(err, rollback.ReleaseWorkPreparation(id))
+			}
+		}
+	}()
 	workspace := filepath.Join(m.root, id)
-	if in.Workspace != "" {
+	if in.Machine != "" {
+		p, ok := m.work.(api.RemoteWorkspaceRuntime)
+		if !ok {
+			return api.Task{}, errors.New("remote work unavailable")
+		}
+		var err error
+		workspace, err = p.PrepareRemoteWork(ctx, in, id)
+		if err != nil {
+			return api.Task{}, err
+		}
+	} else if in.Workspace != "" {
 		var err error
 		workspace, err = api.ResolveTaskWorkspace(in.Workspace)
 		if err != nil {
@@ -302,7 +387,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	}
 	m.mu.Lock()
 	pinned := true
-	r := &record{ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
+	r := &record{Runtime: runtime, ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Machine: in.Machine, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
 	m.state.Sequence++
 	r.Sequence = m.state.Sequence
 	m.promoteWatchLocked(id)
@@ -316,8 +401,9 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 		return api.Task{}, e
 	}
 	// Publish the durable pin even if native admission later becomes uncertain.
+	ledgerWritten = true
 	defer m.notifyWatchlist()
-	if in.Workspace == "" {
+	if in.Workspace == "" && in.Machine == "" {
 		workspace, e = prepareWorkspace(m.root, id, m.currentLocale())
 	}
 	if e != nil {
@@ -356,7 +442,7 @@ func (m *Manager) owned(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r := m.state.Records[id]
-	if r == nil || r.Provider != m.provider {
+	if r == nil || !m.owns(r) {
 		return errors.New(m.text("host.onlyOperateBotCreatedTasks"))
 	}
 	return nil
@@ -430,7 +516,7 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	s := m.snapshot()
 	m.mu.Lock()
 	for _, r := range m.state.Records {
-		if r.Provider == m.provider && r.ReportState == "dispatching" && s.LastReceipt.ID == r.ReportID && s.LastReceipt.Outcome == "accepted" {
+		if m.owns(r) && r.ReportState == "dispatching" && s.LastReceipt.ID == r.ReportID && s.LastReceipt.Outcome == "accepted" {
 			r.ReportState = "delivered"
 		}
 	}
@@ -450,7 +536,7 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	var selected *record
 	for _, id := range ids {
 		r := m.state.Records[id]
-		if r.Provider == m.provider && terminal(r.View.Status) && r.ReportState == "pending" && r.ReportID != "" {
+		if m.owns(r) && terminal(r.View.Status) && r.ReportState == "pending" && r.ReportID != "" {
 			selected = r
 			break
 		}
@@ -481,3 +567,10 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 
 var _ api.TaskProvider = (*Manager)(nil)
 var _ api.TaskReporter = (*Manager)(nil)
+
+func (m *Manager) TaskMachines() []api.TaskMachine {
+	if p, ok := m.work.(api.TaskMachineProvider); ok {
+		return p.TaskMachines()
+	}
+	return []api.TaskMachine{}
+}

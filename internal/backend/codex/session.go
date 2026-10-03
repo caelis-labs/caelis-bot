@@ -49,6 +49,7 @@ type SessionOptions struct {
 	Execution                            api.ExecutionSettings
 	Binary, Socket, Directory, StateFile string
 	WorkRoot                             string
+	RequiredSocket                       bool
 	// RequireApproval tightens policy for isolated acceptance runs. The desktop
 	// defaults to on-request; this flag can never weaken its sandbox.
 	RequireApproval bool
@@ -59,6 +60,7 @@ type SessionOptions struct {
 // Session projects one internally bound conversation. Native facts remain
 // authoritative; a UI fetch, hidden window or character asset cannot execute it.
 type Session struct {
+	workerOnly             bool // trusted target owner; no resident API is exposed
 	backgroundResultsDirty bool
 
 	residentExecution api.WorkExecutionSettings
@@ -354,7 +356,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if err := os.MkdirAll(s.opts.Directory, 0700); err != nil {
 		return s.connectionError("无法准备工作文件夹", err)
 	}
-	c, err := s.start(ctx, Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true})
+	c, err := s.start(ctx, Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, RequiredSocket: s.opts.RequiredSocket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true})
 	if err != nil {
 		return s.connectionError("无法连接本机 Codex，请检查连接设置后重试", err)
 	}
@@ -373,6 +375,26 @@ func (s *Session) connect(ctx context.Context) error {
 		s.loading = false
 		s.state.Connection = "login"
 		s.state.Message = "登录 Codex 后即可开始"
+		s.update()
+		s.mu.Unlock()
+		return nil
+	}
+	if s.workerOnly {
+		s.mu.Lock()
+		s.state.Connection, s.state.Phase, s.loading = "ready", "idle", false
+		for _, event := range s.buffer {
+			s.applyEvent(event)
+		}
+		s.buffer = nil
+		for _, task := range s.binding.Tasks {
+			if task.Thread != "" {
+				if !terminal(task.View.Status) {
+					s.childRuns[task.Thread] = task.Run
+				}
+				s.childWatching[task.Thread] = true
+				go s.watchChild(c, epoch, task.Thread)
+			}
+		}
 		s.update()
 		s.mu.Unlock()
 		return nil

@@ -97,7 +97,7 @@ func TestReplacementIsAtomicAndCursorIsOpaque(t *testing.T) {
 	for _, valid := range []bool{false, true} {
 		t.Run(fmt.Sprint(valid), func(t *testing.T) {
 			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Query().Get("after") != "opaque+/=" {
+				if r.URL.Query().Get("after") != "opaque+/=" || r.URL.Query().Get("history_turns") != "8" {
 					t.Error("cursor was changed")
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -115,10 +115,11 @@ func TestReplacementIsAtomicAndCursorIsOpaque(t *testing.T) {
 					end = 2
 				}
 				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "replace_end", Source: "replacement", SnapshotId: pointer("s"), Page: &end})
-				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "sync", Source: "exact", NextCursor: pointer("next")})
+				send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "sync", Source: "exact", NextCursor: pointer("next"), HistoryBefore: pointer("older")})
 			})
 			s.state.Views["main"].Items = []api.Item{{ID: "old", Text: "old"}}
 			s.state.Views["main"].Cursor = "opaque+/="
+			s.state.Views["main"].CommandResults = map[string]commandResultEvidence{"original": {TurnID: "old-turn", Handle: "original-handle", TurnEnded: true}}
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
 			_ = s.watch(ctx, s.client, "main", "instance")
@@ -127,7 +128,7 @@ func TestReplacementIsAtomicAndCursorIsOpaque(t *testing.T) {
 				t.Fatal("partial replacement enabled command followup")
 			}
 			if valid {
-				if len(v.Items) != 1 || v.Items[0].Text != "new" || v.Cursor != "next" {
+				if len(v.Items) != 1 || v.Items[0].Text != "new" || v.Cursor != "next" || v.HistoryBefore != "older" || v.CommandResults["original"].Handle != "original-handle" {
 					t.Fatal("replacement missing")
 				}
 			} else if v.Items[0].Text != "old" || v.Cursor != "opaque+/=" {

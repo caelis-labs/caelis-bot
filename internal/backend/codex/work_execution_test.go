@@ -134,3 +134,24 @@ func TestWorkFallbackUsesNativeResidentModelWithoutBotOverride(t *testing.T) {
 		t.Fatal("fallback did not use the resident Bot model", p)
 	}
 }
+
+func TestRuntimeDefaultDoesNotUseBotOrWorkOverrides(t *testing.T) {
+	s, f, d, _ := taskPair(t)
+	s.opts.Execution.Model = "bot-override"
+	s.opts.WorkExecution.Model = "work-override"
+	f.mu.Lock()
+	d.config = map[string]any{"config": map[string]any{"model": "configured-runtime", "model_reasoning_effort": "xhigh", "service_tier": "priority"}}
+	f.mu.Unlock()
+	got, err := s.RuntimeDefault(t.Context())
+	want := api.WorkExecutionSettings{Model: "configured-runtime", Effort: "xhigh", ServiceTier: "priority"}
+	if err != nil || got != want {
+		t.Fatalf("default = %+v, %v", got, err)
+	}
+	f.mu.Lock()
+	d.config = map[string]any{"config": map[string]any{"model": nil}}
+	f.mu.Unlock()
+	got, err = s.RuntimeDefault(t.Context())
+	if err != nil || got.Model != "" {
+		t.Fatal("unconfigured model was replaced by an override", got, err)
+	}
+}

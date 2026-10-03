@@ -41,7 +41,7 @@ func (m *Manager) maximumRunning() int {
 func (m *Manager) activeLocked() int {
 	n := 0
 	for _, r := range m.state.Records {
-		if r.Provider == m.provider && !terminal(r.View.Status) {
+		if m.owns(r) && !terminal(r.View.Status) {
 			n++
 		}
 	}
@@ -72,7 +72,7 @@ func (m *Manager) metadataLocked() {
 			p := !terminal(r.View.Status)
 			r.Pinned = &p
 		}
-		if r.Provider != m.provider {
+		if !m.owns(r) {
 			continue
 		}
 		if !terminal(r.View.Status) {
@@ -141,7 +141,7 @@ func (m *Manager) QueryTasks(q api.TaskQuery) (api.TaskPage, error) {
 	var matches []*record
 	for _, r := range m.state.Records {
 		v := summary(r)
-		if r.Provider != m.provider || q.Status != "" && v.Status != q.Status || q.Pinned != nil && v.Pinned != *q.Pinned || q.Query != "" && !strings.Contains(strings.ToLower(v.ID+"\n"+v.Title+"\n"+r.OriginalPrompt), q.Query) {
+		if !m.owns(r) || q.Status != "" && v.Status != q.Status || q.Pinned != nil && v.Pinned != *q.Pinned || q.Query != "" && !strings.Contains(strings.ToLower(v.ID+"\n"+v.Title+"\n"+r.OriginalPrompt), q.Query) {
 			continue
 		}
 		page.Total++
@@ -250,7 +250,7 @@ func (m *Manager) ClearTasks() error {
 	m.mu.Lock()
 	previous := map[string]*bool{}
 	for id, r := range m.state.Records {
-		if r.Provider == m.provider && !r.Locked && r.Pinned != nil && *r.Pinned {
+		if m.owns(r) && !r.Locked && r.Pinned != nil && *r.Pinned {
 			previous[id] = r.Pinned
 			pin := false
 			r.Pinned = &pin

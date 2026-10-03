@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-03",
+  "kind": "synthetic-native-webkit",
+  "ok": true,
+  "results": [
+    {
+      "mode": "accepted",
+      "submissions": 1,
+      "acceptedDraftReads": 1,
+      "sampledFrames": 211,
+      "emptyReplyFrames": 0,
+      "maximumUserMessages": 1,
+      "userBubbleHeights": [
+        69
+      ]
+    },
+    {
+      "mode": "rejected",
+      "submissions": 1,
+      "acceptedDraftReads": 0,
+      "sampledFrames": 212,
+      "emptyReplyFrames": 0,
+      "maximumUserMessages": 1,
+      "userBubbleHeights": [
+        69
+      ]
+    },
+    {
+      "mode": "unknown",
+      "submissions": 1,
+      "acceptedDraftReads": 0,
+      "sampledFrames": 211,
+      "emptyReplyFrames": 0,
+      "maximumUserMessages": 1,
+      "userBubbleHeights": [
+        69
+      ]
+    },
+    {
+      "mode": "draft-failure",
+      "submissions": 1,
+      "acceptedDraftReads": 1,
+      "sampledFrames": 212,
+      "emptyReplyFrames": 0,
+      "maximumUserMessages": 1,
+      "userBubbleHeights": [
+        69
+      ]
+    }
+  ]
+}

@@ -13,6 +13,15 @@ import (
 var assets embed.FS
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--remote-terminal-smoke" {
+		if len(os.Args) != 5 {
+			log.Fatal("specify disposable data directory, owned task and terminal")
+		}
+		if err := desktop.RunRemoteTerminalSmoke(os.Args[2], os.Args[3], os.Args[4]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--terminal-smoke" {
 		if err := desktop.RunTerminalSmoke(os.Args[2:]); err != nil {
 			log.Fatal(err)

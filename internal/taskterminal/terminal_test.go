@@ -48,7 +48,7 @@ func TestLaunchPreservesArgumentsAndCleansConfirmedAttempts(t *testing.T) {
 	}
 	args, _ := os.ReadFile(filepath.Join(dir, "args"))
 	env, _ := os.ReadFile(filepath.Join(dir, "env"))
-	if string(args) != "--remote\n"+target.Endpoint+"\nresume\n"+target.Thread+"\n" || string(env) != workspace+"\n"+target.CodexHome+"\n" {
+	if string(args) != "-c\ncheck_for_update_on_startup=false\n--remote\n"+target.Endpoint+"\nresume\n"+target.Thread+"\n" || string(env) != workspace+"\n"+target.CodexHome+"\n" {
 		t.Fatalf("arguments changed: %q %q", args, env)
 	}
 	files, _ := os.ReadDir(l.directory)

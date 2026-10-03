@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-03",
+  "host": "fedora",
+  "codex": "0.159.2",
+  "caelis": "0.66.0",
+  "poc": {
+    "observerDisconnectsPerRuntime": 2,
+    "bothDisconnectedWhileWorking": true,
+    "codexOriginalTurnCount": 1,
+    "codexUpdatePromptDisabled": true
+  },
+  "artifacts": {
+    "codex": {
+      "bytes": 20,
+      "sha256": "df5dab383760d1dfaca8f9bf9ead131d307a1a59e27f5e04eac4e12e91d42c3b",
+      "exactReadback": true
+    },
+    "caelis": {
+      "bytes": 21,
+      "sha256": "3d73f009bb0a4f9092d9f71e3e73e64889e26785c5a8b61f4354017e4a880fb0",
+      "exactReadback": true
+    }
+  }
+}

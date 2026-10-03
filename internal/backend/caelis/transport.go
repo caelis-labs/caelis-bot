@@ -169,7 +169,13 @@ func readFrame(scan *bufio.Scanner) (frame, error) {
 	return f, io.EOF
 }
 func (c *client) stream(ctx context.Context, path, cursor string, apply func(frame) error) error {
-	res, e := c.request(ctx, "GET", path, nil, "", "", cursor)
+	// Reconnect prepares an atomic history snapshot before sending headers. Large
+	// existing conversations can exceed the ordinary JSON request's header wait.
+	// Give this observation its own bounded wait without changing the shared
+	// transport or imposing a deadline on a healthy, idle event stream.
+	observation, closeTransport := c.observationClient()
+	defer closeTransport()
+	res, e := observation.requestMedia(ctx, "GET", path, nil, "", "", "text/event-stream", cursor)
 	if e != nil {
 		return e
 	}
@@ -189,5 +195,17 @@ func (c *client) stream(ctx context.Context, path, cursor string, apply func(fra
 			return e
 		}
 	}
+}
+
+// Observation waits share neither ordinary request deadlines nor transport
+// mutation retries. Their parent context always owns cancellation.
+func (c *client) observationClient() (*client, func()) {
+	transport := c.http.Transport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 2 * time.Minute
+	httpClient := *c.http
+	httpClient.Transport, httpClient.Timeout = transport, 0
+	observation := *c
+	observation.http = &httpClient
+	return &observation, transport.CloseIdleConnections
 }
 func idPath(id string) string { return url.PathEscape(id) }

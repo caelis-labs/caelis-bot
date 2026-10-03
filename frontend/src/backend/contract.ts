@@ -94,6 +94,56 @@ export interface Item {
   artifacts: Array<Artifact>;
   screen?: ScreenPresentation | null;
 }
+export interface LocalWorkerSettings {
+  runtime: string;
+  ready: boolean;
+  work: WorkExecutionSettings;
+  models: Array<ModelOption>;
+  runtimeDefault: WorkExecutionSettings | null;
+}
+export interface Machine {
+  id: string;
+  name: string;
+  address: string;
+  port: number;
+  user: string;
+  authentication: string;
+  sshConfig: boolean;
+  privateKey: string;
+  remember: boolean;
+  state: string;
+  issue: string;
+  fingerprint: string;
+  runtime: string;
+  available: Array<string>;
+  setup: SetupState;
+  work: WorkExecutionSettings;
+  models: Array<ModelOption>;
+  runtimeDefault: WorkExecutionSettings | null;
+  configuration?: RuntimeConfiguration | null;
+  advancedIssue: string;
+}
+export interface MachineInput {
+  id: string;
+  name: string;
+  address: string;
+  port: number;
+  user: string;
+  authentication: string;
+  sshConfig: boolean;
+  privateKey: string;
+  secret: string;
+  remember: boolean;
+  trustFingerprint: string;
+}
+export interface MachineModel {
+  id: string;
+  selection: WorkExecutionSettings;
+}
+export interface MachineTeamChange {
+  id: string;
+  change: RuntimeConfigurationChange;
+}
 export interface ModelOption {
   imageInput: boolean | null;
   model: string;

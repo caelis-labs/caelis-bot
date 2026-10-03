@@ -34,10 +34,12 @@ type Options struct {
 	ReviewerModel string
 }
 type Session struct {
+	retainedWorkers       bool
 	sendingScheduled      string
 	scheduledPreviousTurn string
 	diagnostics           *diagnosticlog.Logger
 	mu                    sync.Mutex
+	historyMu             sync.Mutex
 	step                  sync.Mutex
 	path                  string
 	settings              api.RuntimeSettings
@@ -107,9 +109,12 @@ func (s *Session) Connect(ctx context.Context) error {
 	s.mu.Lock()
 	if s.cancel == nil {
 		s.ctx, s.cancel = context.WithCancel(context.Background())
-		s.wg.Add(2)
+		s.wg.Add(1)
 		go s.pollLoop(s.ctx)
-		go s.callLoop(s.ctx)
+		if !s.retainedWorkers {
+			s.wg.Add(1)
+			go s.callLoop(s.ctx)
+		}
 	}
 	s.connected = true
 	s.issue = ""
@@ -121,6 +126,9 @@ func (s *Session) fail(e error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "caelis", Code: "connection_unconfirmed", Thread: s.state.Session.SessionId, Reason: diagnosticlog.Reason(e.Error()), Fingerprint: diagnosticlog.Fingerprint([]byte(e.Error()))})
+	if !s.connected && s.issue == e.Error() {
+		return e
+	}
 	s.connected = false
 	s.issue = e.Error()
 	s.bumpLocked()

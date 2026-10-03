@@ -258,6 +258,9 @@ func definiteTaskRejection(err error) bool {
 	return errors.As(err, &native) || (errors.As(err, &request) && !request.OutcomeUnknown)
 }
 func (s *Session) taskAdmission() error {
+	if s.workerOnly && !s.closed && !s.closing && s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" {
+		return nil
+	}
 	if s.closed || s.closing || s.client == nil || s.state.Connection != "ready" || s.run == "" || s.binding.DelegationText == "" {
 		return errors.New("只能在用户请求或已授权提醒激活的 Bot 回合中安排工作")
 	}

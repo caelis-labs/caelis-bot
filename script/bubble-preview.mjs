@@ -175,6 +175,56 @@ window.fixtureAvatarRegression=async()=>{
   return window.fixtureAvatarResult={ok:true,samples};
  }catch(error){return window.fixtureAvatarResult={ok:false,error:String(error),samples};}
 };
+// Exercise actual typing, submission, delayed receipts and the draft/outbox
+// handoff. All bridge facts and input are disposable synthetic data.
+let draft={text:'',referenceIds:[],notice:'',revision:1},sendMode='',sendCount=0,draftReads=0,acceptedReads=0,staleHeld=false;
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+window.fixtureSendSetup=mode=>{
+ clearInterval(streamTimer);cancelAnimationFrame(recordFrame);sendMode=mode;sendCount=0;draftReads=0;acceptedReads=0;staleHeld=false;
+ draft={text:'',referenceIds:[],notice:'',revision:draft.revision+1};
+ Object.assign(snapshot,{items:[],phase:'idle',currentTurn:'',activity:null,canInterrupt:false,canSteer:false,canSend:true,approvals:[],reviews:[],message:'',quiet:false,maintenance:'',lastReceipt:{id:'',outcome:'',message:''}});
+ window.dispatchEvent(new Event('history-close'));setTimeout(()=>window.dispatchEvent(new Event('history-open')),50);
+};
+window.fixtureSendRegression=async()=>{
+ const results=[];
+ const wait=async(test)=>{const deadline=performance.now()+8000;while(!test()){if(performance.now()>deadline)throw Error('send fixture timeout');await delay(20);}};
+ try{
+  for(const mode of ['accepted','rejected','unknown','draft-failure']){
+   window.fixtureSendSetup(mode);
+   await wait(()=>!!document.querySelector('textarea:not(:disabled)')&&snapshot.canSend);
+   await delay(550);
+   const editor=document.querySelector('textarea');
+   const text='检查发送体验。\n多行内容也应稳定。';
+   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(editor,text);editor.dispatchEvent(new Event('input',{bubbles:true}));
+   await wait(()=>!!document.querySelector('.send:not(:disabled)'));
+   const frames=[],started=performance.now();let recording=true;
+   const record=()=>{
+    const users=[...document.querySelectorAll('.message-row.user')],reply=document.querySelector('.message-row.assistant .markdown-body');
+    frames.push({time:performance.now()-started,users:users.length,userHeight:users[0]?.getBoundingClientRect().height??0,emptyReply:!!reply&&!reply.textContent,editor:editor.value,disabled:editor.disabled,stop:!!document.querySelector('.composer-stop'),reply:reply?.textContent??''});
+    if(recording)requestAnimationFrame(record);
+   };requestAnimationFrame(record);
+   document.querySelector('.send').click();
+   await delay(3500);recording=false;
+   if(sendCount!==1)throw Error(mode+' dispatched '+sendCount+' submissions');
+   if(frames.some(frame=>frame.users>1))throw Error(mode+' duplicated the outgoing message');
+   const heights=frames.filter(frame=>frame.users).map(frame=>frame.userHeight);
+   if(Math.max(...heights)-Math.min(...heights)>1)throw Error(mode+' acknowledgement resized the outgoing bubble');
+   if(frames.some(frame=>frame.emptyReply))throw Error(mode+' showed an empty reply bubble');
+   if(mode==='accepted'){
+    if(acceptedReads!==1)throw Error('accepted draft read '+acceptedReads+' times');
+    if(editor.value!=='')throw Error('accepted draft was restored');
+    const settled=frames.findIndex(frame=>frame.editor==='');
+    if(frames.slice(settled).some(frame=>frame.editor!==''))throw Error('cleared draft flashed back');
+    if(!frames.some(frame=>frame.stop&&!frame.disabled))throw Error('stop action never became available');
+    if(!document.querySelector('.markdown-body')?.textContent.includes('合成回复'))throw Error('reply missing');
+   }else if(mode==='draft-failure'){
+    if(!editor.disabled||!document.querySelector('.input-error')?.textContent.includes('消息已发送'))throw Error('accepted draft failure permits resending');
+   }else if(editor.value!==text)throw Error(mode+' lost the unsent draft');
+   results.push({mode,sendCount,acceptedReads,frames});
+  }
+  return window.fixtureSendResult={ok:true,results};
+ }catch(error){return window.fixtureSendResult={ok:false,error:String(error),results};}
+};
 export const Call={ByName:async(name,...args)=>{
  const method=name.split('.').at(-1);
  if(method==='LanguagePreferences')return {preference:'zh-CN',locale:'zh-CN',revision:1};
@@ -182,8 +232,26 @@ export const Call={ByName:async(name,...args)=>{
  if(method==='CharacterActivity')return petState;
  if(method==='Placement')return {visible:true,x:0,y:0,scale:1};
  if(method==='PetSnapshot'||method==='Snapshot')return {...snapshot,revision:++revision};
- if(method==='ChatSnapshot')return {changed:true,snapshot:{...snapshot,revision:++revision}};
- if(method==='Draft')return {text:'',referenceIds:[],notice:'',revision:1};
+ if(method==='ChatSnapshot'){
+  const value=structuredClone({...snapshot,revision:sendMode?revision:++revision});
+  if(sendMode==='accepted'&&sendCount&&!staleHeld){staleHeld=true;await delay(1200);}
+  return {changed:true,snapshot:value};
+ }
+ if(method==='SaveDraft'){draft={...args[0],revision:draft.revision+1,notice:''};return {...draft};}
+ if(method==='Submit'){
+  sendCount++;const input=args[0],outgoing={id:'outgoing:'+input.id,requestId:input.id,turnKey:'',kind:'user',text:input.text,status:'sending',artifacts:[]};snapshot.items=[outgoing];
+  await delay(600);
+  const outcome=sendMode==='rejected'?'rejected':sendMode==='unknown'?'unknown':'accepted';
+  snapshot.lastReceipt={id:input.id,outcome,message:outcome==='accepted'?'':'合成发送未确认'};outgoing.status=outcome;
+  if(outcome==='accepted'){
+   draft={text:'',referenceIds:[],notice:'',revision:draft.revision+1};
+   Object.assign(snapshot,{phase:'working',currentTurn:input.id,canInterrupt:true,canSend:false,canSteer:true});
+   snapshot.items=[{...outgoing,id:'native-user:'+input.id,status:'completed'}];
+   setTimeout(()=>{snapshot.items.push({id:'reply:'+input.id,turnKey:input.id,kind:'assistant',text:'这是合成回复。发送和首段回复现在可以连续衔接。',status:'inProgress',artifacts:[]});},2000);
+  }
+  await delay(300);return {...snapshot.lastReceipt};
+ }
+ if(method==='Draft'){draftReads++;if(sendCount&&snapshot.lastReceipt.outcome==='accepted'){acceptedReads++;await delay(200);if(sendMode==='draft-failure')throw Error('Synthetic draft read failure');}return {...draft};}
  if(method==='DraftFiles')return [];
  if(method==='HistoryVisible')return true;
  if(method==='Interrupt')window.fixtureSet('stop');

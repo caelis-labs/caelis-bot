@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,6 +67,8 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		out.Phase = "idle"
 	}
 	v := s.state.Views[s.state.Session.SessionId]
+	_, history := s.earlierViewLocked()
+	out.HasEarlier = history != nil
 	if v != nil {
 		out.Items = clone(v.Items)
 		s.correlateSessionInputs(&out, s.state.Session.SessionId)
@@ -442,7 +445,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 		cursor = old.Cursor
 	}
 	s.mu.Unlock()
-	path := "/sessions/" + idPath(sid) + "/reconnect?history_turns=64"
+	path := "/sessions/" + idPath(sid) + "/reconnect?history_turns=" + strconv.Itoa(historyPageTurns)
 	if cursor != "" {
 		path += "&after=" + url.QueryEscape(cursor)
 	}
@@ -526,6 +529,16 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 					staged.CommandResults[id] = f
 				}
 			}
+			// Display history is bounded; original command followups still own
+			// their durable evidence, including results outside this window.
+			for id, f := range v.CommandResults {
+				if _, exists := staged.CommandResults[id]; !exists {
+					if staged.CommandResults == nil {
+						staged.CommandResults = map[string]commandResultEvidence{}
+					}
+					staged.CommandResults[id] = f
+				}
+			}
 			staged.State = *bootstrap
 			staged.ApprovalDirty = false
 			v = staged
@@ -552,6 +565,9 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 		}
 		if d.Kind == "sync" {
 			v.CommandCaughtUp = true
+			if cursor == "" || snapshotID != "" || d.HistoryBefore != nil {
+				v.HistoryBefore = value(d.HistoryBefore)
+			}
 		}
 		v.Observed++
 		if d.NextCursor != nil {
@@ -622,7 +638,7 @@ func (s *Session) pollLoop(ctx context.Context) {
 			e = s.refresh(ctx)
 		}
 		s.step.Unlock()
-		if e == nil {
+		if e == nil && !s.retainedWorkers {
 			e = s.reportApprovedCommands(ctx)
 		}
 		if e != nil && ctx.Err() == nil {
@@ -679,6 +695,12 @@ func (s *Session) refresh(ctx context.Context) error {
 		s.mu.Lock()
 		s.state.Connection = renewed
 		s.mu.Unlock()
+	}
+	if s.retainedWorkers {
+		if err := s.refreshWorkers(ctx, c); err != nil {
+			return err
+		}
+		return s.recoverOperations(ctx)
 	}
 	s.mu.Lock()
 	before := s.state.Views[sid]
@@ -800,6 +822,9 @@ func (s *Session) needsRefreshLocked() bool {
 		}
 	}
 	for sid, v := range s.state.Views {
+		if s.retainedWorkers && sid == s.state.Session.SessionId {
+			continue
+		}
 		if slices.Contains(s.state.PastSessions, sid) {
 			continue
 		}
@@ -811,6 +836,9 @@ func (s *Session) needsRefreshLocked() bool {
 		if w.Start != nil || !s.streams[w.Binding.SessionId] {
 			return true
 		}
+	}
+	if s.retainedWorkers {
+		return false
 	}
 	v := s.state.Views[s.state.Session.SessionId]
 	if v == nil {

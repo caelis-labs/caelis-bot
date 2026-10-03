@@ -40,6 +40,15 @@ func (s *Session) resolveWorkExecution(ctx context.Context, fallback wire.Applic
 	if v.Model != "" {
 		return v, nil
 	}
+	return s.readRuntimeDefault(ctx, fallback)
+}
+
+func (s *Session) RuntimeDefault(ctx context.Context) (api.WorkExecutionSettings, error) {
+	return s.readRuntimeDefault(ctx, wire.ApplicationProfile{})
+}
+
+func (s *Session) readRuntimeDefault(ctx context.Context, fallback wire.ApplicationProfile) (api.WorkExecutionSettings, error) {
+	var v api.WorkExecutionSettings
 	c, err := setupClient(ctx, s.settings)
 	if err != nil {
 		return v, err
