@@ -169,7 +169,7 @@ func (m *Manager) refresh() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, v := range states {
-		if r := m.state.Records[v.Task.ID]; r != nil && r.Provider != m.provider {
+		if r := m.state.Records[v.Task.ID]; r != nil && (!m.owns(r) || r.View.Machine != v.Task.Machine) {
 			return errors.New(m.text("host.taskConflictOtherRuntime"))
 		}
 	}
@@ -182,7 +182,7 @@ func (m *Manager) refresh() error {
 			r = &record{Provider: m.provider, Fingerprint: v.StartFingerprint, View: v.Task, Execution: v.ExecutionKey, ReportID: v.PreviousReportID, ReportState: v.PreviousReportState}
 			m.state.Records[v.Task.ID] = r
 		}
-		if r.Provider != m.provider {
+		if !m.owns(r) {
 			return errors.New(m.text("host.taskConflictOtherRuntime"))
 		}
 		if (r.Execution != "" && v.ExecutionKey != "" && r.Execution != v.ExecutionKey) || (terminal(r.View.Status) && !terminal(v.Task.Status)) {
@@ -192,13 +192,14 @@ func (m *Manager) refresh() error {
 			r.ActiveAt = m.now().UnixMilli()
 			m.promoteWatchLocked(v.Task.ID)
 		}
+		v.Task.Machine = r.View.Machine
 		r.View = v.Task
 		if r.OriginalPrompt == "" {
 			r.OriginalPrompt = v.OriginalPrompt
 		}
 		if v.ExecutionKey != "" && (r.Execution != v.ExecutionKey || r.ReportID == "") {
 			r.Execution = v.ExecutionKey
-			r.ReportID = "task-report-" + hash(m.provider, v.Task.ID, v.ExecutionKey)
+			r.ReportID = "task-report-" + hash(r.Provider, v.Task.ID, v.ExecutionKey)
 			r.ReportState = "pending"
 		}
 		if v.StopRequested {
@@ -209,6 +210,11 @@ func (m *Manager) refresh() error {
 	return m.write()
 }
 
+// Remote ownership belongs to the retained machine, independently of the
+// controller's resident adapter. Local bindings remain provider-scoped.
+func (m *Manager) owns(r *record) bool {
+	return r != nil && (r.Provider == m.provider || r.View.Machine != "")
+}
 func (m *Manager) ListTasks() []api.Task {
 	m.op.Lock()
 	defer m.op.Unlock()
@@ -219,7 +225,7 @@ func (m *Manager) ListTasks() []api.Task {
 	defer m.mu.Unlock()
 	out := []api.Task{}
 	for _, r := range m.state.Records {
-		if r.Provider == m.provider {
+		if m.owns(r) {
 			v := r.View
 			v.Result = ""
 			out = append(out, v)
@@ -268,18 +274,25 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 		return api.Task{}, e
 	}
 	id, fp := "task-"+hash(m.provider, in.RequestID), hash(in.Title, in.Prompt)
+	if in.Machine != "" {
+		id = "task-" + hash("remote", in.Machine, in.RequestID)
+		fp = hash(in.Title, in.Prompt, in.Machine)
+	}
 	if in.Workspace != "" {
 		fp = hash(in.Title, in.Prompt, in.Workspace)
+		if in.Machine != "" {
+			fp = hash(in.Title, in.Prompt, in.Workspace, in.Machine)
+		}
 	}
 	m.mu.Lock()
 	legacyID := "task-" + hash(in.RequestID)
-	if r := m.state.Records[legacyID]; r != nil && r.Provider == m.provider {
+	if r := m.state.Records[legacyID]; r != nil && m.owns(r) {
 		id = legacyID
 	}
 	if r := m.state.Records[id]; r != nil {
 		v := r.View
 		m.mu.Unlock()
-		if r.Provider != m.provider || r.Fingerprint != fp {
+		if !m.owns(r) || r.Fingerprint != fp {
 			return v, errors.New(m.text("host.sameRequestIdDifferentTask"))
 		}
 		return v, nil
@@ -293,7 +306,17 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 		return api.Task{}, e
 	}
 	workspace := filepath.Join(m.root, id)
-	if in.Workspace != "" {
+	if in.Machine != "" {
+		p, ok := m.work.(api.RemoteWorkspaceRuntime)
+		if !ok {
+			return api.Task{}, errors.New("remote work unavailable")
+		}
+		var err error
+		workspace, err = p.PrepareRemoteWork(ctx, in, id)
+		if err != nil {
+			return api.Task{}, err
+		}
+	} else if in.Workspace != "" {
 		var err error
 		workspace, err = api.ResolveTaskWorkspace(in.Workspace)
 		if err != nil {
@@ -302,7 +325,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	}
 	m.mu.Lock()
 	pinned := true
-	r := &record{ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
+	r := &record{ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Machine: in.Machine, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
 	m.state.Sequence++
 	r.Sequence = m.state.Sequence
 	m.promoteWatchLocked(id)
@@ -317,7 +340,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 	}
 	// Publish the durable pin even if native admission later becomes uncertain.
 	defer m.notifyWatchlist()
-	if in.Workspace == "" {
+	if in.Workspace == "" && in.Machine == "" {
 		workspace, e = prepareWorkspace(m.root, id, m.currentLocale())
 	}
 	if e != nil {
@@ -356,7 +379,7 @@ func (m *Manager) owned(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r := m.state.Records[id]
-	if r == nil || r.Provider != m.provider {
+	if r == nil || !m.owns(r) {
 		return errors.New(m.text("host.onlyOperateBotCreatedTasks"))
 	}
 	return nil
@@ -430,7 +453,7 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	s := m.snapshot()
 	m.mu.Lock()
 	for _, r := range m.state.Records {
-		if r.Provider == m.provider && r.ReportState == "dispatching" && s.LastReceipt.ID == r.ReportID && s.LastReceipt.Outcome == "accepted" {
+		if m.owns(r) && r.ReportState == "dispatching" && s.LastReceipt.ID == r.ReportID && s.LastReceipt.Outcome == "accepted" {
 			r.ReportState = "delivered"
 		}
 	}
@@ -450,7 +473,7 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	var selected *record
 	for _, id := range ids {
 		r := m.state.Records[id]
-		if r.Provider == m.provider && terminal(r.View.Status) && r.ReportState == "pending" && r.ReportID != "" {
+		if m.owns(r) && terminal(r.View.Status) && r.ReportState == "pending" && r.ReportID != "" {
 			selected = r
 			break
 		}
@@ -481,3 +504,10 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 
 var _ api.TaskProvider = (*Manager)(nil)
 var _ api.TaskReporter = (*Manager)(nil)
+
+func (m *Manager) TaskMachines() []api.TaskMachine {
+	if p, ok := m.work.(api.TaskMachineProvider); ok {
+		return p.TaskMachines()
+	}
+	return []api.TaskMachine{}
+}

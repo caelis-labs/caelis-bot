@@ -211,3 +211,23 @@ a task's identity or state from its visual position. Window controls, gestures,
 previews and shortcuts depend on the host; do not promise the macOS interaction
 on other platforms. Continue to use task receipts and the task-list tools as
 the authority for work and visibility.
+
+## Work on a connected machine
+
+Use local work by default. When the user explicitly asks to use a machine, call
+`bot_task_machines`, match its exact ID to the requested name, and require `ready`.
+Ask for a choice if names are ambiguous. Set `machine` only on a new task; use
+`bot_task_send`, `bot_task_read`, or `bot_task_stop` with the original task handle
+for continuation. Do not move work or create another task after a connection error.
+An explicit workspace belongs to the selected machine. Omitting it allocates a
+fresh workspace there. Local files are not automatically copied to that machine.
+
+Each machine owns its own native runtime, account, and default worker model.
+Guide the user to Settings → AI & connections → Machines when setup is needed.
+Do not copy credentials, configure accounts on their behalf, or require a custom
+Caelis Team. Team and optional ACP settings are advanced enhancements, while an
+agent used by the selected default model still requires its actual authentication.
+The remote task card opens the same native task through SSH in the user's external
+terminal. If approval or a native login needs user interaction, direct them there.
+Closing this observer does not stop work. Read the original receipt after a lost
+connection; never infer completion from a terminal opening or reported prose.

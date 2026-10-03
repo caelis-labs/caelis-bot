@@ -376,6 +376,76 @@ language persistence, simultaneous surfaces, minimum-size layout, pending approv
 failed-save drafts and connection progress. Run `make check`, owning race tests,
 `make smoke`, `make build` and the signing/notarization gates in [release.md](release.md).
 
+## Remote machine acceptance
+
+`make build` embeds checksum-pinned Linux amd64/arm64 headless helpers in
+`Contents/Resources/remote`. It does not bundle a Codex/Caelis Runtime. Native APP
+acceptance still uses `script/build_and_run.sh` with an explicit disposable
+`CAELIS_BOT_DATA_DIR`; never use the daily profile for connection/model experiments.
+The remote account must have its own installed and authenticated native Runtime.
+
+```sh
+bash script/build-remote-helper.sh "$PWD/.cache/remote-helper"
+CAELIS_BOT_TEST_SSH=fedora \
+CAELIS_BOT_REMOTE_HELPER_DIR="$PWD/.cache/remote-helper" \
+CAELIS_BOT_TEST_EVIDENCE="$PWD/.cache/remote-e2e" \
+GOWORK=off go test ./internal/machines -run TestFedoraNativeWorkers -count=1 -timeout=5m -v
+```
+
+This opt-in test performs real inference on the selected machine, allocates new
+private connection profiles, uses that machine's existing login, sets only the
+profile-local Codex work model, and writes a single marker in each task's private
+workspace. It verifies two native TUI observers, observer disconnect, controller
+reopen, original native binding and exact remote file bytes. It then continues,
+interrupts and resumes that same Worker and verifies the original native identity
+and one-Worker count. It does not change
+global model accounts or Team configuration. Raw evidence under `.cache` may contain
+native target paths/identities; publish only redacted summaries. Detached owners and
+native bindings remain on the target for original-task recovery.
+
+Native OpenSSH authentication acceptance uses an isolated loopback SSH fixture,
+disposable keys/passwords and an independent agent. Set
+`CAELIS_BOT_SSH_AUTH_PYTHON` to an explicit Python with Paramiko and run
+`GOWORK=off go test ./internal/machines -run TestNativeSSHAuthentication -count=1 -v`.
+Do not add Python dependencies to the APP. The macOS Keychain canary lifecycle is
+opt-in via `CAELIS_BOT_KEYCHAIN_TEST=1`; it creates, updates and deletes only one
+uniquely named disposable item.
+
+The development-only `runtime-settings-preview.html?machine=login&lang=en` renders
+the same settings components with visual fixtures. Scenarios include `missing`,
+`offline`, `caelis`, and `caelis-advanced-error`; `lang=zh-CN` selects Chinese. They
+never access SSH or accounts and are not evidence of a real login. Inspect the native
+settings on the real node in both languages and wide/narrow layouts. Resize must
+keep the same draft; primary connection actions stay visible at the 860×640 minimum.
+Check private-key fields, trust confirmation, error messages, the collapsed optional
+Team section and its nested model dialog.
+
+Model parameters use one compact picker for Bot, work and Team bindings. Selecting
+the model opens a separate searchable list. Effort stops and Fast are projected
+from native model capabilities; a catalog recommendation is never presented as
+the user's configured default. The optional Team editor is a separate dialog, and
+the external terminal preference belongs to General settings.
+
+For a non-billable Fedora model/settings check, build the remote helper, then run
+`CAELIS_BOT_TEST_MODEL_SSH=fedora CAELIS_BOT_REMOTE_HELPER_DIR=<absolute-helper-dir>
+GOWORK=off go test ./internal/machines -run '^TestFedoraModelSettings$' -count=1 -v`.
+This checks Codex/Caelis capabilities, configured-default reads, node-local
+Effort/Fast save, reconnect and reset. It starts no inference and changes no global
+runtime model, account or Team. `CAELIS_BOT_TEST_MODEL_STORE` may name an empty,
+disposable controller directory retained for native settings QA; existing profiles
+are rejected. This metadata check does not replace the billable Worker acceptance.
+
+For an explicitly retained task in a disposable native acceptance profile, the
+developer-only `--remote-terminal-smoke <absolute-profile> <original-task> <terminal>`
+mode uses the production `WindowManager` and original SSH target without submitting
+or stopping work. Run it through `script/build_and_run.sh`. It checks two observer
+cycles, collapse/restore and retained bindings; inspect the actual external terminal
+window during the cycle. This requires access to the terminal GUI and any normal OS
+permissions. A launch request, window fixture, or remote tmux test alone does not
+qualify real external-terminal behavior. See the
+[current acceptance record](evidence/remote-machines-v1/acceptance.md), which retains
+this explicit gate instead of claiming all native window interactions passed.
+
 ## Documentation maintenance
 
 Use the [documentation index](README.md). Keep current contracts, operator commands and explicit evidence

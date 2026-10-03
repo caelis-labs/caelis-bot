@@ -22,6 +22,8 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 | `internal/bot`, `care`, `tasks` | Persistent identity, introduction, scheduling, care budget, delegation ledger and reports |
 | `internal/notebook`, `botmemory`, `botskills` | Markdown, embedded Memory and packaged application-scoped English skills |
 | `internal/taskterminal` | Owned external terminal application instance and connection receipt lifecycle |
+| `internal/machines` | Native SSH profiles, host trust, machine identity, original task routing and cached observations |
+| `internal/remotework`, `cmd/caelis-remote` | Linux headless owner and bounded typed SSH operations; full native Worker execution |
 | `internal/desktopcontrol` | Desktop World Go host, independent turn grants, original receipts and bounded content |
 | `frontend/src` | Presentation, transient interactions, character render resources; never execution authority |
 
@@ -29,6 +31,52 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 Optional capabilities are discovered by typed ports and native negotiation, not by text or animation.
 Wails/AppKit/cgo remain behind macOS drivers. Unsupported hosts fail before writing preferences.
 Shared-core compilation does not prove native Windows behavior. `GOWORK=off`; no sibling private imports.
+
+## Remote machines
+
+The resident adapter remains local. `machines.Service` multiplexes the existing
+`api.WorkRuntime` port by an explicitly selected machine; absent targets stay local.
+`tasks.Manager` persists the machine with the original task before dispatch. Remote
+workspaces are resolved on that machine, never through the controller filesystem.
+Remote request identity and ownership survive a resident adapter change. Existing
+task routes cannot be removed or retargeted by editing the connection.
+
+Native OpenSSH owns transport and authentication. Host keys require an explicit
+fingerprint confirmation and changed keys fail closed. Passwords/passphrases are
+write-only temporary inputs, optionally saved in the macOS Keychain. They are absent
+from readback DTOs, JSON state, command arguments and diagnostics. The short private
+multiplexing socket directory rejects symlinks and group/world permissions. Existing
+SSH aliases and a single configured ProxyJump are conveniences; direct host/user/port,
+agent, password and private-key inputs are first-class. Script ProxyCommand and
+multi-hop configuration are outside this slice.
+
+An explicit authenticated connection ships only the app-built, checksum-verified
+Linux amd64/arm64 helper into a private target directory. It installs no Runtime and
+copies no model credentials. The SSH proxy connects to a detached, per-profile owner
+over a private Unix socket. Fixed typed operations expose detection, readiness,
+node-local model settings, optional Caelis Team configuration and existing work ports;
+there is no arbitrary renderer/model-supplied command endpoint.
+
+Private Codex/Caelis `WorkOwner` wrappers expose only native worker contracts. They do
+not expose a resident Bot or Bot tools. Codex persists its original native endpoint
+before task dispatch and refuses replacement when that endpoint disappears. Caelis
+uses native application worker receipts and target-local credential references.
+Readiness checks account, model and native work admission separately from optional
+Team configuration. Model defaults are canonicalized through the native catalog;
+invalid persisted selections never silently revert to another model.
+
+Background observation reads native facts and projects lost connections as unknown
+work/offline machines. Reconnection reads original bindings; it never resends work.
+`TerminalTarget.SSH` is host-only, assembled by the connection owner. The terminal
+script allocates SSH PTY and runs the original `codex --remote ... resume ...` or
+`caelis attach ...` on the target. Remote paths and token-file references stay on the
+target. Closing the observer does not close the native Worker owner.
+
+The renderer uses one machine editor with responsive CSS, a stable draft, fixed
+connection action, guarded background navigation and scoped advanced failures.
+Node login remains a clear target-TUI/device-auth guide; OAuth/ACP flows that the
+native surface cannot complete have an explicit TUI placeholder. See the
+[acceptance record](evidence/remote-machines-v1/acceptance.md) for live and fixture limits.
 
 ## Execution and recovery
 

@@ -26,14 +26,26 @@ export function formatModelUse(use: string, t: (key: any) => string): string {
  return use;
 }
 
-export function selectionSummary(selection: ModelSelection, models: ModelOption[], t?: (key: any) => string) {
- const model = models.find(m => m.model === selection.model);
- if (!selection.model) return { name: t ? t('runtime.default') : '默认', detail: '' };
- const effortLabel = getEffortName(selection.effort, t);
+export function defaultModel(models: ModelOption[], configured?: ModelSelection | null) {
+ // Catalog recommendations do not identify the user's configured default.
+ // Show a model name only when native configuration supplies it.
+ return configured?.model ? models.find(m => m.model === configured.model) : undefined;
+}
+export function fastTier(model?: ModelOption) {
+ return model?.serviceTiers.find(t => t.id === 'fast' || t.name.toLowerCase() === 'fast');
+}
+export function selectionSummary(selection: ModelSelection, models: ModelOption[], t?: (key: any) => string, configured?: ModelSelection | null) {
+ const fallback = !selection.model, model = fallback ? defaultModel(models, configured) : models.find(m => m.model === selection.model);
+ const inherited = fallback && model;
+ const effort = selection.effort || (inherited ? configured?.effort || model.defaultEffort : '');
+ const serviceTier = selection.serviceTier || (inherited ? configured?.serviceTier || '' : '');
  return {
-  name: model?.name || selection.model,
-  detail: [effortLabel, selection.serviceTier ? tierName(selection.serviceTier, model?.serviceTiers.find(t => t.id === selection.serviceTier)?.name || selection.serviceTier) : ''].filter(Boolean).join(' · '),
+  name: model?.name || selection.model || (t ? t('runtime.default') : '默认'),
+  detail: [inherited ? (t ? t('runtime.default') : '默认') : '', getEffortName(effort, t), serviceTier ? tierName(serviceTier, model?.serviceTiers.find(t => t.id === serviceTier)?.name || serviceTier) : ''].filter(Boolean).join(' · '),
  };
+}
+export function changeModelParameters(selection: ModelSelection, model: ModelOption, patch: Partial<ModelSelection>, configured?: ModelSelection | null): ModelSelection {
+ return { ...(!selection.model ? { ...chooseModel(model), effort: configured?.effort || model.defaultEffort, serviceTier: configured?.serviceTier || '' } : selection), ...patch };
 }
 export function chooseModel(model: ModelOption): ModelSelection {
  return { model: model.model, effort: model.defaultEffort, serviceTier: '' };

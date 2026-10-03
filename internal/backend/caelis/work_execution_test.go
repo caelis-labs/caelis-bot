@@ -72,6 +72,17 @@ func TestWorkModelResolvesHostDefaultWithoutInheritingBot(t *testing.T) {
 			if err != nil || got != tc.want {
 				t.Fatalf("got %+v, %v; want %+v", got, err, tc.want)
 			}
+			if tc.custom.Model == "" {
+				s.workExecution = api.WorkExecutionSettings{Model: "work-override"}
+				configured, readErr := s.RuntimeDefault(t.Context())
+				expected := tc.want
+				if tc.name == "runtime unset" {
+					expected = api.WorkExecutionSettings{}
+				}
+				if readErr != nil || configured != expected {
+					t.Fatalf("configured default = %+v, %v; want %+v", configured, readErr, expected)
+				}
+			}
 		})
 	}
 }

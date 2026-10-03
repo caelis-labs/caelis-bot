@@ -1,3 +1,4 @@
+import {SettingsChevron} from './SettingsIcons';
 import {useEffect,useRef,useState} from 'react';
 import {desktop} from './desktop';
 import {SettingGroup,SettingRow} from './SettingsUI';
@@ -42,7 +43,7 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
    </select>
   </SettingRow>
   <details className="task-terminal-advanced">
-   <summary>{t('settings.advancedTerminal')}</summary>
+   <summary><SettingsChevron/>{t('settings.advancedTerminal')}</summary>
    <label htmlFor="custom-terminal-command">{t('settings.customTerminalCommand')}</label>
    <textarea id="custom-terminal-command" rows={2} value={custom} disabled={!ready} spellCheck={false} placeholder={'"/path/to/terminal" --execute /bin/sh {script}'} onBlur={flush} onChange={e=>{setCustom(e.target.value);saver.current?.change({customCommand:e.target.value});if(timer.current)clearTimeout(timer.current);timer.current=setTimeout(flush,350);}}/>
    <p className="settings-note">{t('settings.customTerminalHelp',{script:'{script}'})}</p>

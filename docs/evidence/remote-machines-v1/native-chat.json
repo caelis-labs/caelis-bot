@@ -1,0 +1,13 @@
+{
+  "runtime": "codex",
+  "entry": "native Bot chat",
+  "workerCount": 1,
+  "machineExplicit": true,
+  "status": "completed",
+  "exactReadback": true,
+  "bytes": 20,
+  "sha256": "173d1c441d06fd1e7c92fb018ac45290d596f3398f2f69a1465678bbe488643e",
+  "files": [
+    "native-ui-proof.txt"
+  ]
+}

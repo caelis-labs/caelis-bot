@@ -225,7 +225,7 @@ func TestBotApprovalIsAnExplicitToolAllowlist(t *testing.T) {
 	}
 	defer b.Close()
 	c := b.Config("synthetic")
-	if len(c.ApprovedTools) != 8 {
+	if len(c.ApprovedTools) != 9 {
 		t.Fatal("approval scope grew without review")
 	}
 	policy := map[string]bool{}
@@ -314,7 +314,7 @@ func TestQueuedWakeRetainsRuntimeAcrossRestart(t *testing.T) {
 func TestApplicationToolHandlerHonorsCancellationAndShutdown(t *testing.T) {
 	r, _, _ := fixture(t)
 	defs := r.Definitions()
-	if len(defs) != 12 {
+	if len(defs) != 13 {
 		t.Fatal("incomplete application catalog")
 	}
 	defs[0].Name = "foreign"

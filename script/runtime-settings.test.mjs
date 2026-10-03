@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const server = await createServer({server:{middlewareMode:true},appType:'custom'});
 after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
-const {chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
+const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
@@ -90,4 +90,21 @@ test('preview covers built-in/custom, Antigravity preparation, terminal capabili
 test('production entry has no preview import or fake success fallback',()=>{
  const main=readFileSync('frontend/src/main.tsx','utf8');const client=readFileSync('frontend/src/settings/runtime/client.ts','utf8');
  assert.doesNotMatch(main,/preview\//);assert.doesNotMatch(client,/createPreviewClient|preview\/client/);
+});
+
+// Runtime configuration is distinct from a catalog's recommended model.
+test('default labels use actual configured identity; unreadable defaults stay generic',()=>{
+ const inherited={model:'',effort:'',serviceTier:''};
+ assert.equal(defaultModel([model]),undefined);
+ assert.equal(selectionSummary(inherited,[model]).name,'默认');
+ assert.deepEqual(selectionSummary(inherited,[model],undefined,selection),{name:'A',detail:'默认 · 高 · Fast'});
+ assert.equal(selectionSummary(inherited,[model],undefined,{...selection,model:'missing'}).name,'默认');
+});
+test('editing inherited parameters pins the actual model and preserves other effective parameters',()=>{
+ const inherited={model:'',effort:'',serviceTier:''};
+ assert.deepEqual(changeModelParameters(inherited,model,{effort:'low'},selection),{model:'p/a',effort:'low',serviceTier:'priority'});
+ assert.deepEqual(changeModelParameters(inherited,model,{serviceTier:''},selection),{model:'p/a',effort:'high',serviceTier:''});
+ assert.equal(fastTier(model).id,'priority');
+ assert.equal(fastTier({...model,serviceTiers:[]}),undefined);
+ assert.deepEqual(changeModelParameters(selection,model,{effort:'low'}),{...selection,effort:'low'});
 });

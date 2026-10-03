@@ -1,3 +1,5 @@
+import './settings/settings.css';
+import {SettingsChevron} from './SettingsIcons';
 import { useEffect, useRef, useState } from 'react';
 import { desktop } from './desktop';
 import { BotSetup } from './BotSetup';
@@ -46,12 +48,11 @@ export function Settings() {
 
 function General() {
  const {t}=useI18n();
- const [storageOpen,setStorageOpen]=useState(false),[tasksOpen,setTasksOpen]=useState(false);
+ const [storageOpen,setStorageOpen]=useState(false);
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><LanguageSetting/>
+  <h1>{t('settings.general')}</h1><LanguageSetting/><TaskSettings/>
   <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/><ShortcutSettings capture/><ShortcutSettings paste/></SettingGroup>
-  <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
-  <details className="settings-disclosure" onToggle={e=>setTasksOpen(e.currentTarget.open)}><summary>{t('settings.advancedTasks')}</summary>{tasksOpen&&<TaskSettings/>}</details>
+  <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary><SettingsChevron/>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
  </section>;
 }
 

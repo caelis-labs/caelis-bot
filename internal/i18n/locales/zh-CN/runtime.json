@@ -27,7 +27,7 @@
   "closeDialog": "关闭面板",
   "updateCaelisForRoleModels": "请更新并重启 Caelis，以读取此角色的可用模型。",
   "delete": "删除",
-  "agentTeam": "Agent team",
+  "agentTeam": "成员",
   "teamScheme": "Team 方案",
   "addAgent": "添加 Agent",
   "add": "添加",
@@ -209,5 +209,13 @@
   "recheck": "重新检测",
   "connectionService": "连接服务",
   "modelParameters": "推理与速度",
-  "advancedConnection": "高级连接设置"
+  "advancedConnection": "高级连接设置",
+  "fastMode": "快速模式 Fast",
+  "resetParameters": "恢复默认",
+  "teamOptional": "可选，不影响正常工作",
+  "teamSettings": "工作 Team",
+  "otherSettings": "其他设置",
+  "botConversationHint": "与你沟通的模型",
+  "workModelHint": "本机任务的默认模型",
+  "settingsIntro": "配置本机助手，连接用于工作的远端机器。"
 }

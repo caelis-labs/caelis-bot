@@ -36,9 +36,10 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
    const setup = await invoke<SetupState>('InspectSetup', profile);
    let conversation: ExecutionSettings | null = null, work: WorkExecutionSettings | null = null, models: ModelOption[] = [];
    if (setup.state === 'ready') [conversation, work, models] = await Promise.all([invoke<ExecutionSettings>('ExecutionSettings'), invoke<WorkExecutionSettings>('WorkExecutionSettings'), invoke<ModelOption[]>('Models')]);
-   const shared = profile.runtime==='caelis' && ['ready','models'].includes(setup.state) ? await invoke<RuntimeConfiguration>('RuntimeConfiguration') : null;
+   const runtimeDefault = setup.state === 'ready' ? await invoke<WorkExecutionSettings | null>('RuntimeDefaultModel').catch(() => null) : null;
+   const shared = profile.runtime==='caelis' && ['ready','models'].includes(setup.state) ? await invoke<RuntimeConfiguration>('RuntimeConfiguration').catch(()=>null) : null;
    const view = { profile, setup, pending: overview.pending, models:shared?.models ?? models, conversation, work,
-    revision:shared?.revision ?? '', main:shared?.main ?? null, canEditMain:!!shared,
+    runtimeDefault, revision:shared?.revision ?? '', main:shared?.main ?? null, canEditMain:!!shared,
     team:shared?.team ?? { available:false,reason:'连接 Caelis 后可以配置 Team。',revision:'',roles:[],sets:[],activeSet:'',models:[] },
     connections:shared?.connections.map(g=>({...g,kind:g.kind as 'provider'|'agent',models:g.models.map(m=>({...m,uses:[...m.uses,...(m.id===conversation?.model?['Bot 对话']:[])]}))})) ?? groupLegacyModels(setup.models, setup.selectedModel),
    };

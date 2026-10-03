@@ -14,6 +14,7 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	machines                    api.MachineController
 	admission                   sync.RWMutex
 	restarting                  bool
 	setupRequired               bool
@@ -300,4 +301,22 @@ func (s *Service) ComposerSnapshot() api.Snapshot {
 		return s.decorate(source.ComposerSnapshot())
 	}
 	return s.Snapshot()
+}
+
+// RuntimeDefaultModel is a read-only display hint, independent of Bot/Worker
+// overrides. Unknown defaults stay null and never cause configuration writes.
+func (s *Service) RuntimeDefaultModel() *api.WorkExecutionSettings {
+	provider, ok := s.engine.(interface {
+		RuntimeDefault(context.Context) (api.WorkExecutionSettings, error)
+	})
+	if !ok {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	v, err := provider.RuntimeDefault(ctx)
+	if err != nil || v.Model == "" {
+		return nil
+	}
+	return &v
 }

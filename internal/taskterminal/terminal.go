@@ -38,7 +38,7 @@ func New(directory string, open func(context.Context, string) error) *Launcher {
 }
 func quote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
 func Script(t api.TerminalTarget) (string, error) {
-	if !filepath.IsAbs(t.Binary) || !filepath.IsAbs(t.Directory) {
+	if (t.Binary != "" || t.Runtime != "setup") && !filepath.IsAbs(t.Binary) || !filepath.IsAbs(t.Directory) {
 		return "", errors.New("invalid native terminal target")
 	}
 	for _, v := range []string{t.Binary, t.Directory, t.Endpoint, t.Thread, t.CodexHome, t.Session, t.Store, t.TokenFile} {
@@ -48,6 +48,12 @@ func Script(t api.TerminalTarget) (string, error) {
 	}
 	script := "#!/bin/sh\nunset NO_COLOR\n"
 	switch t.Runtime {
+	case "setup":
+		if t.Binary == "" {
+			script += "exec /bin/sh -l\n"
+		} else {
+			script += "cd " + quote(t.Directory) + " || exit 1\nexec " + quote(t.Binary) + "\n"
+		}
 	case "codex":
 		if !strings.HasPrefix(t.Endpoint, "unix:///") || t.Thread == "" || strings.HasPrefix(t.Thread, "-") {
 			return "", errors.New("invalid Codex terminal target")
@@ -55,7 +61,7 @@ func Script(t api.TerminalTarget) (string, error) {
 		if t.CodexHome != "" {
 			script += "export CODEX_HOME=" + quote(t.CodexHome) + "\n"
 		}
-		script += "cd " + quote(t.Directory) + " || exit 1\nexec " + quote(t.Binary) + " --remote " + quote(t.Endpoint) + " resume " + quote(t.Thread) + "\n"
+		script += "cd " + quote(t.Directory) + " || exit 1\nexec " + quote(t.Binary) + " -c check_for_update_on_startup=false --remote " + quote(t.Endpoint) + " resume " + quote(t.Thread) + "\n"
 	case "caelis":
 		u, err := url.Parse(t.Endpoint)
 		if err != nil || u.Scheme != "http" || !net.ParseIP(u.Hostname()).IsLoopback() || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || t.Session == "" || strings.HasPrefix(t.Session, "-") || !filepath.IsAbs(t.Store) || !filepath.IsAbs(t.TokenFile) {
@@ -65,6 +71,18 @@ func Script(t api.TerminalTarget) (string, error) {
 		script += "cd " + quote(t.Directory) + " || exit 1\nexec " + quote(t.Binary) + " attach --control-url " + quote(t.Endpoint) + " --session " + quote(t.Session) + " --store-dir " + quote(t.Store) + " --control-token-file " + quote(t.TokenFile) + "\n"
 	default:
 		return "", errors.New("unsupported terminal runtime")
+	}
+	if len(t.SSH) > 0 {
+		for _, arg := range t.SSH {
+			if strings.ContainsRune(arg, 0) || strings.ContainsAny(arg, "\r\n") {
+				return "", errors.New("invalid SSH terminal target")
+			}
+		}
+		command := "exec /usr/bin/ssh"
+		for _, arg := range t.SSH {
+			command += " " + quote(arg)
+		}
+		script = "#!/bin/sh\nunset NO_COLOR\n" + command + " " + quote(strings.TrimPrefix(script, "#!/bin/sh\n")) + "\n"
 	}
 	return script, nil
 }

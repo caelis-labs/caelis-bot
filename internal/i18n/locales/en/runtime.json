@@ -27,7 +27,7 @@
   "closeDialog": "Close dialog",
   "updateCaelisForRoleModels": "Update and restart Caelis to load models for this role.",
   "delete": "Delete",
-  "agentTeam": "Agent team",
+  "agentTeam": "Agents",
   "teamScheme": "Team scheme",
   "addAgent": "Add Agent",
   "add": "Add",
@@ -210,5 +210,13 @@
   "recheck": "Re-detect",
   "connectionService": "Connection service",
   "modelParameters": "Reasoning & speed",
-  "advancedConnection": "Advanced connection settings"
+  "advancedConnection": "Advanced connection settings",
+  "fastMode": "Fast mode",
+  "resetParameters": "Restore defaults",
+  "teamOptional": "Optional; work runs without a custom Team.",
+  "teamSettings": "Work Team",
+  "otherSettings": "Other settings",
+  "botConversationHint": "The model you chat with",
+  "workModelHint": "Default model for local tasks",
+  "settingsIntro": "Configure your assistant and connect remote machines."
 }

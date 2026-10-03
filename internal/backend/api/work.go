@@ -46,17 +46,32 @@ type WorkTerminalProvider interface {
 	WorkTerminal(context.Context, string) (TerminalTarget, error)
 }
 type TerminalTarget struct {
+	// SSH arguments are assembled by the native connection owner, never the renderer.
+	SSH                                                     []string
 	Runtime, Binary, Endpoint, Thread, Directory, CodexHome string
 	// Caelis attaches with the local user credential file; never embed its bytes.
 	Session, Store, TokenFile string
 }
 type TaskPreview struct {
-	Locked   bool   `json:"locked"`
-	Provider string `json:"provider,omitempty"`
-	ID       string `json:"id"`
-	Prompt   string `json:"prompt"`
-	Status   string `json:"status"`
+	TargetLabel string `json:"targetLabel,omitempty"`
+	Locked      bool   `json:"locked"`
+	Provider    string `json:"provider,omitempty"`
+	ID          string `json:"id"`
+	Prompt      string `json:"prompt"`
+	Status      string `json:"status"`
 }
+
+// RemoteWorkspaceRuntime resolves a target path without evaluating it locally.
+type RemoteWorkspaceRuntime interface {
+	PrepareRemoteWork(context.Context, TaskStart, string) (string, error)
+}
+type TaskMachine struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Runtime string `json:"runtime"`
+	Ready   bool   `json:"ready"`
+}
+type TaskMachineProvider interface{ TaskMachines() []TaskMachine }
 
 // ReportSubmitter appends a bounded application notice only when idle. It must
 // not promote that notice into a new user request or delegation authority.

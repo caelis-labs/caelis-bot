@@ -21,7 +21,7 @@ function go(args, target = {}, capture = false) {
 
 console.log('Running shared core and unsupported-host tests on this host (CGO=0).');
 go(['test', './...']);
-// Windows is an interface/compile guard only until macOS ships. Linux is not planned.
+// GUI distribution remains macOS. Linux compiles only the headless SSH owner.
 for (const [GOOS, GOARCH] of [['darwin', 'arm64'], ['darwin', 'amd64'], ['windows', 'amd64'], ['windows', 'arm64']]) {
   const target = { GOOS, GOARCH }, name = `${GOOS}-${GOARCH}`, ext = GOOS === 'windows' ? '.exe' : '';
   // Catch accidental OS/Wails imports leaking into the core, even if the code
@@ -37,4 +37,11 @@ for (const [GOOS, GOARCH] of [['darwin', 'arm64'], ['darwin', 'amd64'], ['window
   go(['test', '-c', '-o', join(output, `app-${name}${ext}`), './internal/app'], target);
   go(['build', '-o', join(output, `unsupported-${name}${ext}`), '.'], target);
   console.log(`${name}: core test binary + unsupported bootstrap compiled; native GUI NOT qualified.`);
+}
+
+for (const GOARCH of ['amd64','arm64']) {
+ const target={GOOS:'linux',GOARCH};
+ go(['build','-o',join(output,`remote-linux-${GOARCH}`),'./cmd/caelis-remote'],target);
+ go(['test','-c','-o',join(output,`codex-linux-${GOARCH}`),'./internal/backend/codex'],target);
+ console.log(`linux-${GOARCH}: headless native Worker owner compiled; GUI NOT qualified.`);
 }

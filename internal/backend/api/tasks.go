@@ -52,14 +52,17 @@ type TaskPage struct {
 }
 
 type Task struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Workspace string `json:"workspace"`
-	Status    string `json:"status"`
-	Outcome   string `json:"outcome,omitempty"`
-	Result    string `json:"result,omitempty"`
+	MachineName string `json:"machineName,omitempty"`
+	Machine     string `json:"machine,omitempty"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Workspace   string `json:"workspace"`
+	Status      string `json:"status"`
+	Outcome     string `json:"outcome,omitempty"`
+	Result      string `json:"result,omitempty"`
 }
 type TaskStart struct {
+	Machine   string `json:"machine,omitempty"`
 	RequestID string `json:"requestId"`
 	Title     string `json:"title"`
 	Prompt    string `json:"prompt"`

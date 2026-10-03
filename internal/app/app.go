@@ -20,6 +20,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/machines"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
@@ -47,6 +48,7 @@ type Host struct {
 }
 
 type Application struct {
+	machines        *machines.Service
 	taskPreferences *tasks.PreferencesStore
 	setup           *runtimeSetup
 	Backend         *backend.Service
@@ -142,6 +144,11 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	service.ConfigureWorkExecution(workExecutionFile, workExecution)
 	app.configureRuntimeManagement()
 	app.configureSetup()
+	app.machines, err = machines.Open(filepath.Join(root, "Machines"), engine.(api.WorkRuntime), remoteArtifact)
+	if err != nil {
+		return nil, err
+	}
+	service.ConfigureMachines(app.machines)
 	return app, nil
 }
 
@@ -275,7 +282,7 @@ func (a *Application) Start() error {
 	if a.started {
 		return nil
 	}
-	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.engine.(api.WorkRuntime), a.engine.(api.ReportSubmitter), a.engine.Snapshot)
+	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.machines, a.engine.(api.ReportSubmitter), a.engine.Snapshot)
 	if err != nil {
 		return err
 	}
@@ -328,7 +335,8 @@ func (a *Application) Start() error {
 	a.Backend.SetInterruptObserver(resident.StopDesktopTurn)
 	resident.Start(a.engine)
 	a.Backend.SetUserSubmitter(resident.SubmitUser)
-	a.workers.Add(3)
+	a.workers.Add(4)
+	go func() { defer a.workers.Done(); a.machines.Observe(ctx) }()
 	go func() {
 		defer a.workers.Done()
 		ticker := time.NewTicker(15 * time.Second)

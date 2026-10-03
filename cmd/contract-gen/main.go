@@ -38,7 +38,7 @@ func main() {
 			panic("unsupported contract type: " + t.String())
 		}
 	}
-	for _, v := range []any{api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.RuntimeStatus{}, api.ExecutionSettings{}, api.WorkExecutionSettings{}, api.ModelOption{}, api.ProviderInfo{}, api.ExecutionOptions{}, api.SetupRequest{}, api.SetupState{}, api.SetupChoice{}, api.SetupOverview{}, api.BotInitialization{}, api.BotIntroduction{}, api.RuntimeConfiguration{}, api.RuntimeConfigurationChange{}, api.RuntimeMutationResult{}, api.RuntimeConnectionCatalog{}, api.RuntimeConnectionInput{}, api.RuntimeFlow{}, api.RuntimeFlowAction{}} {
+	for _, v := range []any{api.Machine{},api.MachineInput{},api.MachineModel{},api.MachineTeamChange{},api.Snapshot{}, api.ChatUpdate{}, api.AttachmentStorage{}, api.Submission{}, api.Receipt{}, api.Decision{}, api.Draft{}, api.RuntimeSettings{}, api.RuntimeCheck{}, api.RuntimeStatus{}, api.ExecutionSettings{}, api.WorkExecutionSettings{}, api.ModelOption{}, api.ProviderInfo{}, api.ExecutionOptions{}, api.SetupRequest{}, api.SetupState{}, api.SetupChoice{}, api.SetupOverview{}, api.BotInitialization{}, api.BotIntroduction{}, api.RuntimeConfiguration{}, api.RuntimeConfigurationChange{}, api.RuntimeMutationResult{}, api.RuntimeConnectionCatalog{}, api.RuntimeConnectionInput{}, api.RuntimeFlow{}, api.RuntimeFlowAction{}} {
 		ts(reflect.TypeOf(v))
 	}
 	for previous := 0; previous != len(types); {

@@ -43,6 +43,29 @@ func (s *Session) resolveWorkExecution(ctx context.Context, workspace string) (a
 	if v.Model != "" {
 		return v, nil
 	}
+	native, err := readRuntimeDefault(ctx, c, workspace)
+	if err != nil {
+		return v, err
+	}
+	if native.Model == "" {
+		return fallback, nil
+	}
+	return native, nil
+}
+
+// RuntimeDefault reads configured model metadata only. A native built-in or an
+// unreadable default stays absent; model/list's recommendation is not a default.
+func (s *Session) RuntimeDefault(ctx context.Context) (api.WorkExecutionSettings, error) {
+	s.mu.Lock()
+	c, workspace := s.client, s.opts.Directory
+	s.mu.Unlock()
+	if c == nil {
+		return api.WorkExecutionSettings{}, errors.New("Codex unavailable")
+	}
+	return readRuntimeDefault(ctx, c, workspace)
+}
+
+func readRuntimeDefault(ctx context.Context, c *Client, workspace string) (api.WorkExecutionSettings, error) {
 	var response struct {
 		Config *struct {
 			Model       json.RawMessage `json:"model"`
@@ -51,14 +74,14 @@ func (s *Session) resolveWorkExecution(ctx context.Context, workspace string) (a
 		} `json:"config"`
 	}
 	if err := callDecode(ctx, c, "config/read", map[string]any{"includeLayers": false, "cwd": workspace}, &response); err != nil || response.Config == nil {
-		return v, errors.New("无法读取 Codex 默认模型；请检查连接后重试，或手动指定工作模型")
+		return api.WorkExecutionSettings{}, errors.New("无法读取 Codex 默认模型；请检查连接后重试，或手动指定工作模型")
 	}
 	var model string
 	if json.Unmarshal(response.Config.Model, &model) != nil {
-		return v, errors.New("Codex 默认模型配置不完整，请重试或手动指定工作模型")
+		return api.WorkExecutionSettings{}, errors.New("Codex 默认模型配置不完整，请重试或手动指定工作模型")
 	}
 	if model == "" {
-		return fallback, nil
+		return api.WorkExecutionSettings{}, nil
 	}
 	return api.WorkExecutionSettings{Model: model, Effort: response.Config.Effort, ServiceTier: response.Config.ServiceTier}, nil
 }

@@ -33,6 +33,7 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	openMachineTerminal func(string) error
 	capture             captureState
 	permissionGuide     permissionGuide
 	taskPreferences     func() tasks.Preferences
@@ -92,6 +93,7 @@ type Service struct {
 	updatePreferences   func() UpdatePreferences
 	setAutomaticUpdates func(bool) error
 	checkNativeUpdates  func() error
+	pickSSHKey          func() (string, error)
 	pickRuntimeCLI      func() (string, error)
 	copyText            func(string) bool
 	storage             func() (api.AttachmentStorage, error)
@@ -108,6 +110,12 @@ func (s *Service) CopyText(text string) error {
 	return nil
 }
 
+func (s *Service) PickSSHKey() (string, error) {
+	if s.pickSSHKey == nil {
+		return "", errors.New("file picker unavailable")
+	}
+	return s.pickSSHKey()
+}
 func (s *Service) PickRuntimeCLI() (string, error) {
 	if s.pickRuntimeCLI == nil {
 		return "", errors.New("文件选择暂不可用")
@@ -503,4 +511,11 @@ func (s *Service) Gesture(action string) error {
 		return nil
 	}
 	return errors.New("角色动作暂不可用")
+}
+
+func (s *Service) OpenMachineTerminal(id string) error {
+	if s.openMachineTerminal == nil {
+		return errors.New("terminal unavailable")
+	}
+	return s.openMachineTerminal(id)
 }
