@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.6.0](https://github.com/caelis-labs/caelis-bot/compare/v0.5.0...v0.6.0) (2026-10-03)
+
+
+### Features
+
+* add activity-linked chat portraits and polish desktop interactions ([#42](https://github.com/caelis-labs/caelis-bot/issues/42)) ([c96a774](https://github.com/caelis-labs/caelis-bot/commit/c96a774e0e18b2434b545bc893f09ebf82453d07))
+* connect remote runtimes and refine chat and settings ([#67](https://github.com/caelis-labs/caelis-bot/issues/67)) ([0d2752e](https://github.com/caelis-labs/caelis-bot/commit/0d2752e848c571f45c7d767911bb05cb12e18cea))
+* coordinate SSH Workers and Notebook backup from a local Mac Bot ([#63](https://github.com/caelis-labs/caelis-bot/issues/63)) ([5789b32](https://github.com/caelis-labs/caelis-bot/commit/5789b328f4923ffc7e3cfb957fd3994bb208c33b))
+* **desktop:** migrate Bot to Desktop World and retire legacy Computer Use ([#46](https://github.com/caelis-labs/caelis-bot/issues/46)) ([a64202f](https://github.com/caelis-labs/caelis-bot/commit/a64202f3ad157284c233b07b375d8998a29bcb63))
+* smooth chat streaming and make idle Dream context-aware ([#41](https://github.com/caelis-labs/caelis-bot/issues/41)) ([b028136](https://github.com/caelis-labs/caelis-bot/commit/b028136e18a3d5f1e876626dcf71710c2d5c2ff6))
+
+
+### Bug Fixes
+
+* allow the first authenticated SSH Codex Worker connection ([#64](https://github.com/caelis-labs/caelis-bot/issues/64)) ([d35a2f8](https://github.com/caelis-labs/caelis-bot/commit/d35a2f81605226889816315e65f7b89423f924d7))
+* **codex:** preserve cleanup during reference cancellation ([#48](https://github.com/caelis-labs/caelis-bot/issues/48)) ([08e94c3](https://github.com/caelis-labs/caelis-bot/commit/08e94c37507552328910ebf877671e14355f4f6f))
+* restore actionable Computer Use across macOS apps ([#39](https://github.com/caelis-labs/caelis-bot/issues/39)) ([a894aa9](https://github.com/caelis-labs/caelis-bot/commit/a894aa9846181e9f9b58c0eb934c03469e1b0c7a))
+
+
+### Reverts
+
+* pause multi-node work and restore 08e94c3 ([#66](https://github.com/caelis-labs/caelis-bot/issues/66)) ([fc4d6c4](https://github.com/caelis-labs/caelis-bot/commit/fc4d6c423fb3745289d1200bc9da867a44f53dc7))
+
 ## [0.5.0](https://github.com/caelis-labs/caelis-bot/compare/v0.4.0...v0.5.0) (2026-09-28)
 
 
