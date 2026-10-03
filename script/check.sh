@@ -13,6 +13,7 @@ node --test script/permission-actions.test.mjs script/task-preferences.test.mjs 
 bash script/bubble-hover-native-test.sh
 bash script/capture-native-test.sh
 bash script/task-dock-native-test.sh
+bash script/machine-settings-native-test.sh
 bash script/ghostty-native-test.sh
 bash script/instance-native-test.sh
 bash script/care-native-test.sh

@@ -11,13 +11,21 @@ export function machinePreview(scenario:string) {
  if(scenario==='offline'){machine.state='offline';machine.issue='ssh_authentication_or_connection';}
  if(scenario.startsWith('caelis')){machine.state='ready';machine.setup.state='ready';machine.setup.models=[{value:'example-model',label:'Example model',noAuth:false,current:false}];}
  const previewClient=createPreviewClient();
+ const advancedReopen=scenario==='caelis-advanced-reopen';
+ let advancedRequests=0;
  if(machine.state==='ready'){const model={model:'example-model',name:'Example model',description:'',default:true,defaultEffort:'medium',efforts:['low','medium','high','xhigh'],serviceTiers:[{id:'fast',name:'Fast',description:''}],imageInput:false};machine.models=[model];machine.runtimeDefault={model:model.model,effort:'medium',serviceTier:''};}
  const call=(async (method:string,...args:unknown[])=>{
-  if(method==='Machines')return removed?[]:[machine];
+  if(method==='Machines')return removed?[]:advancedReopen?[machine,{...machine,id:'visual-fixture-2',name:'Second machine'}]:[machine];
   if(method==='SSHConfigHosts'){if(scenario==='ssh-read-error')throw new Error('Visual fixture only');return scenario==='ssh-empty'?[]:['benxi','fedora','orb','sw-tbj','wall'];}
   if(method==='ReadMachineAdvanced'){
+   const source=args[0]==='visual-fixture-2'?{...machine,id:'visual-fixture-2',name:'Second machine'}:machine;
+   if(advancedReopen){
+    const request=++advancedRequests;document.documentElement.dataset.machineRequests=String(request);
+    await new Promise<void>(resolve=>{const finish=(event:Event)=>{if((event as CustomEvent<number>).detail!==request)return;window.removeEventListener('machine-fixture-release',finish);resolve();};window.addEventListener('machine-fixture-release',finish);});
+   }
    if(scenario==='caelis-advanced-error')return {...machine,advancedIssue:'configuration_unavailable'};
-   const view=await previewClient.read();machine={...machine,configuration:{revision:view.revision,team:{...view.team,roles:view.team.roles.map(role=>({...role,modelIds:role.modelIds??[],problem:role.problem??''})),sets:view.team.sets.map(set=>({...set,problem:set.problem??''}))},main:view.main!,models:view.team.models,connections:[],oauthAvailable:false}};return machine;
+   const view=await previewClient.read();const result={...source,configuration:{revision:view.revision,team:{...view.team,roles:view.team.roles.map(role=>({...role,modelIds:role.modelIds??[],problem:role.problem??''})),sets:view.team.sets.map(set=>({...set,problem:set.problem??''}))},main:view.main!,models:view.team.models,connections:[],oauthAvailable:false}};
+   if(!advancedReopen)machine=result;return result;
   }
   if(method==='ConnectMachine'){const draft=args[0] as MachineInput;machine={...machine,...draft,issue:scenario==='offline'?'ssh_authentication_or_connection':''};return machine;}
   if(method==='InspectMachine')return machine;

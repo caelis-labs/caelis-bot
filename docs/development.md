@@ -452,7 +452,12 @@ uniquely named disposable item.
 
 The development-only `runtime-settings-preview.html?machine=login&lang=en` renders
 the same settings components with visual fixtures. Scenarios include `missing`,
-`offline`, `caelis`, and `caelis-advanced-error`; `lang=zh-CN` selects Chinese. They
+`offline`, `caelis`, and `caelis-advanced-error`; `lang=zh-CN` selects Chinese. The
+`caelis-advanced-reopen` scenario holds advanced reads until the fixture releases
+them. `bash script/machine-settings-native-test.sh` checks close/reopen on the same
+and a different machine, late-result isolation, and footer bounds in native WebKit
+at 860×640 in Chinese and English. It writes screenshots under
+`.cache/machine-settings-regression/` and runs in `make check`. These fixtures
 never access SSH or accounts and are not evidence of a real login. Inspect the native
 settings on the real node in both languages and wide/narrow layouts. Resize must
 keep the same draft; primary connection actions stay visible at the 860×640 minimum.

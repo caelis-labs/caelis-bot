@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/remotework"
+	"reflect"
 	"time"
 )
 
@@ -41,6 +42,7 @@ func (s *Service) cacheResponse(id, name, runtime string, states []api.WorkState
 		states[i].Task.MachineName = name
 	}
 	s.cacheMu.Lock()
+	s.cacheRevision[id+"\x00"+runtime]++
 	s.cache[id+"\x00"+runtime] = states
 	s.cacheMu.Unlock()
 }
@@ -59,7 +61,7 @@ func (s *Service) PrepareRemoteWork(ctx context.Context, in api.TaskStart, id st
 	}
 	r, e := s.call(ctx, p, remotework.Request{Action: "prepare", Runtime: runtime, ID: id, Start: api.WorkStart{TaskStart: in}})
 	if e != nil {
-		return "", e
+		return "", errors.Join(e, s.releasePreparationLocked(id))
 	}
 	return r.Task.Workspace, nil
 }
@@ -76,12 +78,106 @@ func (s *Service) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	if e != nil {
 		return api.Task{}, e
 	}
+	// Crossing this fence makes the route an owner even if dispatch's outcome is
+	// unknown. Preparation cleanup must never release it after this point.
+	if s.state.Reservations[in.ID] {
+		delete(s.state.Reservations, in.ID)
+		if e = s.save(); e != nil {
+			s.state.Reservations[in.ID] = true
+			return api.Task{}, e
+		}
+	}
 	p := s.state.Profiles[in.Machine]
 	r, e := s.call(ctx, p, remotework.Request{Action: "start", Runtime: runtime, Start: in})
 	r.Task.Machine = in.Machine
 	r.Task.MachineName = p.View.Name
 	s.refreshCacheLocked(ctx, in.Machine, p, runtime)
 	return r.Task, e
+}
+
+type workPoll struct {
+	id, runtime string
+	profile     profile
+	revision    uint64
+}
+
+func (s *Service) workPolls() []workPoll {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]bool{}
+	out := []workPoll{}
+	for task, id := range s.state.Routes {
+		if s.state.Reservations[task] {
+			continue
+		}
+		runtime := s.state.Runtimes[task]
+		key := id + "\x00" + runtime
+		if p, ok := s.state.Profiles[id]; ok && !seen[key] {
+			seen[key] = true
+			out = append(out, workPoll{id, runtime, p, s.cacheRevision[key]})
+		}
+	}
+	return out
+}
+
+// Network observation must never own the global route/configuration lock.
+// Apply only to the unchanged profile and still-owned backend; a late response
+// cannot restore a deleted machine or overwrite a newly selected default.
+func (s *Service) pollWork(ctx context.Context, poll workPoll) {
+	r, err := s.call(ctx, poll.profile, remotework.Request{Action: "states", Runtime: poll.runtime})
+	var inspected remotework.Response
+	var inspectErr error
+	recheck := err == nil && poll.profile.View.Runtime == poll.runtime && poll.profile.View.State == "offline"
+	if recheck {
+		inspected, inspectErr = s.call(ctx, poll.profile, remotework.Request{Action: "inspect", Runtime: poll.runtime})
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, exists := s.state.Profiles[poll.id]
+	if !exists || !reflect.DeepEqual(p, poll.profile) || s.cacheRevision[poll.id+"\x00"+poll.runtime] != poll.revision {
+		return
+	}
+	owned := false
+	for task, machine := range s.state.Routes {
+		if machine == poll.id && s.state.Runtimes[task] == poll.runtime && !s.state.Reservations[task] {
+			owned = true
+			break
+		}
+	}
+	if !owned {
+		return
+	}
+	if err == nil {
+		s.cacheResponse(poll.id, p.View.Name, poll.runtime, r.States)
+		if recheck {
+			next := inspectedProfile(p, poll.runtime, inspected, inspectErr)
+			s.state.Profiles[poll.id] = next
+			if s.save() != nil {
+				s.state.Profiles[poll.id] = p
+			}
+		}
+		return
+	}
+	if p.View.Runtime == poll.runtime && (p.View.State != "offline" || p.View.Issue != err.Error()) {
+		next := p
+		next.View.State, next.View.Issue = "offline", err.Error()
+		s.state.Profiles[poll.id] = next
+		if s.save() != nil {
+			s.state.Profiles[poll.id] = p
+		}
+	}
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.cacheRevision[poll.id+"\x00"+poll.runtime]++
+	for i := range s.cache[poll.id+"\x00"+poll.runtime] {
+		state := &s.cache[poll.id+"\x00"+poll.runtime][i]
+		if status := state.Task.Status; status != "completed" && status != "failed" && status != "interrupted" && status != "cancelled" {
+			state.Task.Status = "unknown"
+		}
+	}
 }
 func (s *Service) remote(ctx context.Context, id, action string, message api.TaskMessage) (api.Task, error) {
 	s.mu.Lock()
@@ -167,6 +263,7 @@ func (s *Service) refreshCacheLocked(ctx context.Context, id string, p profile, 
 			_ = s.save()
 		}
 		s.cacheMu.Lock()
+		s.cacheRevision[id+"\x00"+runtime]++
 		for i := range s.cache[id+"\x00"+runtime] {
 			if status := s.cache[id+"\x00"+runtime][i].Task.Status; status != "completed" && status != "failed" && status != "interrupted" && status != "cancelled" {
 				s.cache[id+"\x00"+runtime][i].Task.Status = "unknown"
@@ -187,21 +284,11 @@ func (s *Service) Observe(ctx context.Context) {
 			return
 		default:
 		}
-		s.mu.Lock()
-		seen := map[string]bool{}
-		for task, id := range s.state.Routes {
-			runtime := s.state.Runtimes[task]
-			key := id + "\x00" + runtime
-			if !seen[key] {
-				seen[key] = true
-				if p, ok := s.state.Profiles[id]; ok {
-					c, cancel := context.WithTimeout(ctx, 15*time.Second)
-					s.refreshCacheLocked(c, id, p, runtime)
-					cancel()
-				}
-			}
+		for _, poll := range s.workPolls() {
+			c, cancel := context.WithTimeout(ctx, 15*time.Second)
+			s.pollWork(c, poll)
+			cancel()
 		}
-		s.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			return

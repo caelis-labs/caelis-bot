@@ -8,6 +8,8 @@ import (
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,9 +142,12 @@ func scanKey(ctx context.Context, v api.MachineInput, jump string) (string, stri
 	if jump == "" {
 		b, e = exec.CommandContext(ctx, "/usr/bin/ssh-keyscan", "-T", "8", "-p", strconv.Itoa(v.Port), "-t", "ed25519,ecdsa,rsa", v.Address).Output()
 	} else {
-		jump = strings.ReplaceAll(strings.ReplaceAll(jump, "[", ""), "]", "")
+		args, err := jumpArgs(jump)
+		if err != nil {
+			return "", "", err
+		}
 		command := "ssh-keyscan -T 8 -p " + strconv.Itoa(v.Port) + " -t ed25519,ecdsa,rsa " + quote(v.Address)
-		b, e = exec.CommandContext(ctx, "/usr/bin/ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ForwardAgent=no", "-o", "ConnectTimeout=8", "--", jump, command).Output()
+		b, e = exec.CommandContext(ctx, "/usr/bin/ssh", append(args, command)...).Output()
 	}
 	if e != nil {
 		return "", "", errors.New("unreachable")
@@ -162,6 +167,78 @@ func scanKey(ctx context.Context, v api.MachineInput, jump string) (string, stri
 		}
 	}
 	return "", "", errors.New("host_key_unavailable")
+}
+
+// ProxyJump's [user@]host[:port] and ssh:// URI syntax is not a normal SSH
+// destination. Split only explicit overrides; keep Host aliases native.
+func jumpArgs(jump string) ([]string, error) {
+	host, user, port := jump, "", ""
+	if strings.HasPrefix(jump, "ssh://") {
+		u, err := url.Parse(jump)
+		if err != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+			return nil, errors.New("unsupported_ssh_route")
+		}
+		host, port = u.Hostname(), u.Port()
+		if u.User != nil {
+			if _, password := u.User.Password(); password {
+				return nil, errors.New("unsupported_ssh_route")
+			}
+			user = u.User.Username()
+		}
+	} else {
+		if u, h, ok := strings.Cut(host, "@"); ok {
+			user, host = u, h
+			if user == "" {
+				return nil, errors.New("unsupported_ssh_route")
+			}
+		}
+		if strings.HasPrefix(host, "[") {
+			end := strings.IndexByte(host, ']')
+			if end < 0 || net.ParseIP(host[1:end]) == nil {
+				return nil, errors.New("unsupported_ssh_route")
+			}
+			rest := host[end+1:]
+			host = host[1:end]
+			if rest != "" {
+				if !strings.HasPrefix(rest, ":") || len(rest) == 1 {
+					return nil, errors.New("unsupported_ssh_route")
+				}
+				port = rest[1:]
+			}
+		} else if strings.Count(host, ":") == 1 {
+			host, port, _ = strings.Cut(host, ":")
+			if port == "" {
+				return nil, errors.New("unsupported_ssh_route")
+			}
+		} else if strings.Contains(host, ":") && net.ParseIP(host) == nil {
+			return nil, errors.New("unsupported_ssh_route")
+		}
+	}
+	input := api.MachineInput{Address: host, User: user, Port: 22, Authentication: "agent"}
+	if port != "" {
+		var err error
+		input.Port, err = strconv.Atoi(port)
+		if err != nil {
+			return nil, errors.New("unsupported_ssh_route")
+		}
+	}
+	if validate(input) != nil || strings.ContainsAny(host, "[],") || strings.ContainsAny(user, ":[],") {
+		return nil, errors.New("unsupported_ssh_route")
+	}
+	a := []string{"-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ForwardAgent=no", "-o", "ConnectTimeout=8"}
+	if user != "" {
+		a = append(a, "-l", user)
+	}
+	if port != "" {
+		a = append(a, "-p", strconv.Itoa(input.Port))
+	}
+	return append(a, "--", host), nil
+}
+
+func (s *Service) secret(id string) string {
+	s.secretMu.RLock()
+	defer s.secretMu.RUnlock()
+	return s.secrets[id]
 }
 func (s *Service) controlDirectory() (string, error) {
 	sum := sha256.Sum256([]byte(s.root))
@@ -189,7 +266,7 @@ func (s *Service) sshArgs(p profile, tty bool) ([]string, error) {
 	switch p.View.Authentication {
 	case "agent":
 		batch := "yes"
-		if p.View.SSHConfig && (s.secrets[p.View.ID] != "" || p.View.Remember) {
+		if p.View.SSHConfig && (s.secret(p.View.ID) != "" || p.View.Remember) {
 			batch = "no"
 		}
 		a = append(a, "-o", "BatchMode="+batch, "-o", "NumberOfPasswordPrompts=1")
@@ -211,7 +288,7 @@ func (s *Service) command(ctx context.Context, p profile, command string, input 
 	// Only retain a bounded diagnostic in memory, never return/log raw SSH output.
 	var diagnostic sshDiagnostic
 	cmd.Stderr = &diagnostic
-	secret := s.secrets[p.View.ID]
+	secret := s.secret(p.View.ID)
 	if secret == "" && p.View.Remember {
 		secret, _ = loadSecret(p.View.ID)
 	}

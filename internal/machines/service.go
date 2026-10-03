@@ -12,6 +12,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/remotework"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,24 +34,28 @@ type disk struct {
 	Profiles  map[string]profile `json:"profiles"`
 	Routes    map[string]string  `json:"routes"`
 	Runtimes  map[string]string  `json:"runtimes,omitempty"`
+	// Reservations have never dispatched a Worker. Legacy routes are owners.
+	Reservations map[string]bool `json:"reservations,omitempty"`
 }
 type Service struct {
-	request  func(context.Context, profile, remotework.Request) (remotework.Response, error)
-	mu       sync.Mutex
-	cacheMu  sync.RWMutex
-	root     string
-	state    disk
-	secrets  map[string]string
-	cache    map[string][]api.WorkState
-	local    api.WorkRuntime
-	artifact func(string) ([]byte, error)
+	request       func(context.Context, profile, remotework.Request) (remotework.Response, error)
+	mu            sync.Mutex
+	secretMu      sync.RWMutex
+	cacheMu       sync.RWMutex
+	root          string
+	state         disk
+	secrets       map[string]string
+	cache         map[string][]api.WorkState
+	cacheRevision map[string]uint64 // guarded by mu; fences late observations
+	local         api.WorkRuntime
+	artifact      func(string) ([]byte, error)
 }
 
 func Open(root string, local api.WorkRuntime, artifact func(string) ([]byte, error)) (*Service, error) {
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("machine store requires absolute path")
 	}
-	s := &Service{root: root, local: local, artifact: artifact, secrets: map[string]string{}, cache: map[string][]api.WorkState{}, state: disk{Version: 1, ProfileID: rand.Text(), Profiles: map[string]profile{}, Routes: map[string]string{}}}
+	s := &Service{root: root, local: local, artifact: artifact, secrets: map[string]string{}, cache: map[string][]api.WorkState{}, cacheRevision: map[string]uint64{}, state: disk{Version: 1, ProfileID: rand.Text(), Profiles: map[string]profile{}, Routes: map[string]string{}}}
 	b, e := os.ReadFile(filepath.Join(root, "machines.json"))
 	if e == nil {
 		if json.Unmarshal(b, &s.state) != nil || s.state.Version != 1 || s.state.Profiles == nil || s.state.Routes == nil {
@@ -64,6 +69,9 @@ func Open(root string, local api.WorkRuntime, artifact func(string) ([]byte, err
 	}
 	if s.state.Runtimes == nil {
 		s.state.Runtimes = map[string]string{}
+	}
+	if s.state.Reservations == nil {
+		s.state.Reservations = map[string]bool{}
 	}
 	// v1 profiles could not change runtime while owning tasks, so their retained
 	// runtime is the authoritative migration source. Persist before any switch.
@@ -117,8 +125,8 @@ func (s *Service) ConnectMachine(ctx context.Context, in api.MachineInput) (api.
 	}
 	old, exists := s.state.Profiles[id]
 	if exists && (old.View.Address != in.Address || old.View.Port != v.Port || old.View.User != v.User) {
-		for _, route := range s.state.Routes {
-			if route == id {
+		for task, route := range s.state.Routes {
+			if route == id && !s.state.Reservations[task] {
 				return old.View, errors.New("machine_has_tasks")
 			}
 		}
@@ -154,7 +162,9 @@ func (s *Service) ConnectMachine(ctx context.Context, in api.MachineInput) (api.
 	p.View = out
 	p.View.Runtime = old.View.Runtime
 	if in.Secret != "" {
+		s.secretMu.Lock()
 		s.secrets[id] = in.Secret
+		s.secretMu.Unlock()
 	}
 	if in.Secret != "" && in.Remember {
 		if e = saveSecret(id, in.Secret); e != nil {
@@ -268,6 +278,16 @@ func (s *Service) inspectLocked(ctx context.Context, id, runtime string) (api.Ma
 	}
 	old := p
 	r, e := s.call(ctx, p, remotework.Request{Action: "inspect", Runtime: runtime})
+	p = inspectedProfile(p, runtime, r, e)
+	s.state.Profiles[id] = p
+	if err := s.save(); err != nil {
+		s.state.Profiles[id] = old
+		return old.View, err
+	}
+	return p.View, nil
+}
+
+func inspectedProfile(p profile, runtime string, r remotework.Response, e error) profile {
 	p.View.Runtime = runtime
 	p.View.Models = []api.ModelOption{}
 	p.View.RuntimeDefault = nil
@@ -286,12 +306,7 @@ func (s *Service) inspectLocked(ctx context.Context, id, runtime string) (api.Ma
 			p.View.State = "ready"
 		}
 	}
-	s.state.Profiles[id] = p
-	if err := s.save(); err != nil {
-		s.state.Profiles[id] = old
-		return old.View, err
-	}
-	return p.View, nil
+	return p
 }
 func (s *Service) SaveMachineModel(ctx context.Context, v api.MachineModel) (api.Machine, error) {
 	s.mu.Lock()
@@ -349,15 +364,35 @@ func (s *Service) MachineTerminal(ctx context.Context, id string) (api.TerminalT
 func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, route := range s.state.Routes {
-		if route == id {
+	for task, route := range s.state.Routes {
+		if route == id && !s.state.Reservations[task] {
 			return errors.New("machine_has_tasks")
 		}
 	}
 	if err := deleteSecret(id); err != nil {
 		return err
 	}
+	old := s.state
+	s.state.Profiles = maps.Clone(old.Profiles)
+	s.state.Routes = maps.Clone(old.Routes)
+	s.state.Runtimes = maps.Clone(old.Runtimes)
+	s.state.Reservations = maps.Clone(old.Reservations)
 	delete(s.state.Profiles, id)
+	// An interrupted pre-dispatch reservation must not make an otherwise empty
+	// machine undeletable after restart. No remote Worker exists for these IDs.
+	for task, route := range s.state.Routes {
+		if route == id {
+			delete(s.state.Routes, task)
+			delete(s.state.Runtimes, task)
+			delete(s.state.Reservations, task)
+		}
+	}
+	if err := s.save(); err != nil {
+		s.state = old
+		return err
+	}
+	s.secretMu.Lock()
 	delete(s.secrets, id)
-	return s.save()
+	s.secretMu.Unlock()
+	return nil
 }

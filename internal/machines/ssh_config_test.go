@@ -74,3 +74,44 @@ func TestSSHConfigOverridesFormDefaultsThroughNativeOpenSSH(t *testing.T) {
 		t.Fatal("config identity or route lost in actual SSH arguments", err)
 	}
 }
+
+func TestProxyJumpDestinationThroughNativeOpenSSH(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/ssh"); err != nil {
+		t.Skip("native OpenSSH unavailable")
+	}
+	config := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(config, []byte("Host bastion\n HostName 192.0.2.10\n User configured\n Port 22022\n IdentityFile /fixture/jump-key\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ jump, host, user, port string }{
+		{"bastion", "192.0.2.10", "configured", "22022"},
+		{"alice@bastion:2222", "192.0.2.10", "alice", "2222"},
+		{"bastion:2222", "192.0.2.10", "configured", "2222"},
+		{"alice@[2001:db8::1]:2222", "2001:db8::1", "alice", "2222"},
+		{"alice@[2001:db8::1]", "2001:db8::1", "alice", "22"},
+		{"ssh://alice@bastion:2222", "192.0.2.10", "alice", "2222"},
+		{"ssh://alice@[2001:db8::1]:2222", "2001:db8::1", "alice", "2222"},
+	} {
+		t.Run(tc.jump, func(t *testing.T) {
+			args, err := jumpArgs(tc.jump)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Exercise the same destination/options used by scanKey, including
+			// native alias identity and the strict trust policy, without a network.
+			args = append([]string{"-G", "-F", config}, args...)
+			b, err := exec.CommandContext(t.Context(), "/usr/bin/ssh", args...).Output()
+			if err != nil || !contains(b, []byte("hostname "+tc.host+"\n")) || !contains(b, []byte("user "+tc.user+"\n")) || !contains(b, []byte("port "+tc.port+"\n")) || !contains(b, []byte("stricthostkeychecking true\n")) || !contains(b, []byte("forwardagent no\n")) {
+				t.Fatal("jump destination or trust policy lost", err)
+			}
+			if tc.host == "192.0.2.10" && !contains(b, []byte("identityfile /fixture/jump-key\n")) {
+				t.Fatal("native alias identity lost")
+			}
+		})
+	}
+	for _, bad := range []string{"", "-oProxyCommand=bad", "a,b", "alice@host:", "host:0", "host:65536", "host:bad", "alice@[::1]:bad", "alice@[::1", "alice@host;touch", "ssh://alice:secret@host:22", "ssh://host/path", "ssh://host?x=1"} {
+		if _, err := jumpArgs(bad); err == nil {
+			t.Fatalf("accepted invalid jump %q", bad)
+		}
+	}
+}

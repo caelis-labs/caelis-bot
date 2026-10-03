@@ -101,7 +101,14 @@ Team configuration. Model defaults are canonicalized through the native catalog;
 invalid persisted selections never silently revert to another model.
 
 Background observation reads native facts and projects lost connections as unknown
-work/offline machines. Reconnection reads original bindings; it never resends work.
+work/offline machines. It snapshots routes under the machine lock, performs SSH
+and readiness checks outside it, and accepts results only for the unchanged
+profile and original backend. Local task operations do not wait for remote polls.
+New routes remain durable pre-dispatch reservations until the Worker dispatch
+fence; preparation or ledger failure releases only these reservations. Legacy and
+unknown dispatched owners are never released by preparation cleanup. A restart
+can remove an empty machine containing only pre-dispatch reservations.
+Reconnection reads original bindings; it never resends work.
 `TerminalTarget.SSH` is host-only, assembled by the connection owner. The terminal
 script allocates SSH PTY and runs the original `codex --remote ... resume ...` or
 `caelis attach ...` on the target. Remote paths and token-file references stay on the

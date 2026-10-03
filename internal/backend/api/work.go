@@ -35,6 +35,12 @@ type WorkRouter interface {
 	OwnsWork(string) bool
 }
 
+// WorkPreparationRollback releases only a reservation that has never attempted
+// Worker dispatch. It must not discard unknown execution owners.
+type WorkPreparationRollback interface {
+	ReleaseWorkPreparation(string) error
+}
+
 type LocalWorkerSettings struct {
 	Runtime        string                 `json:"runtime"`
 	Ready          bool                   `json:"ready"`

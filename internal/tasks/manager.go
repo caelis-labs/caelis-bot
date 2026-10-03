@@ -293,7 +293,7 @@ func prepareWorkspace(root, id string, loc ...i18n.Locale) (string, error) {
 	return filepath.Join(root, id), nil
 }
 
-func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, error) {
+func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Task, err error) {
 	if !valid(in.RequestID, in.Prompt) || strings.TrimSpace(in.Title) == "" || len(in.Title) > 160 {
 		return api.Task{}, errors.New(m.text("host.taskRequiresParams"))
 	}
@@ -357,6 +357,16 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 			return api.Task{}, err
 		}
 	}
+	// Until the task ledger is durable, failures are pre-dispatch. Release only
+	// explicit reservations; legacy and unknown execution owners stay bound.
+	ledgerWritten := false
+	defer func() {
+		if !ledgerWritten {
+			if rollback, ok := m.work.(api.WorkPreparationRollback); ok {
+				err = errors.Join(err, rollback.ReleaseWorkPreparation(id))
+			}
+		}
+	}()
 	workspace := filepath.Join(m.root, id)
 	if in.Machine != "" {
 		p, ok := m.work.(api.RemoteWorkspaceRuntime)
@@ -391,6 +401,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (api.Task, er
 		return api.Task{}, e
 	}
 	// Publish the durable pin even if native admission later becomes uncertain.
+	ledgerWritten = true
 	defer m.notifyWatchlist()
 	if in.Workspace == "" && in.Machine == "" {
 		workspace, e = prepareWorkspace(m.root, id, m.currentLocale())
