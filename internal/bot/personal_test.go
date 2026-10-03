@@ -44,7 +44,7 @@ func TestPersonalToolsShareProductStoreAndKeepFixedInstructions(t *testing.T) {
 	before := bridge.Config("synthetic")
 	invoke := func(r *Runtime, name, raw string) api.ToolResult {
 		t.Helper()
-		v := r.CallTool(t.Context(), name, json.RawMessage(raw))
+		v := r.callLegacyTool(t.Context(), name, json.RawMessage(raw))
 		if v.IsError {
 			t.Fatal(v)
 		}
@@ -77,18 +77,18 @@ func TestPersonalToolsShareProductStoreAndKeepFixedInstructions(t *testing.T) {
 		`{"operation":"confirm","text":"claim"}`,
 		`{"operation":"forget","id":"foreign"}`,
 	} {
-		if out := first.CallTool(t.Context(), "bot_memory", json.RawMessage(raw)); !out.IsError {
+		if out := first.callLegacyTool(t.Context(), "bot_memory", json.RawMessage(raw)); !out.IsError {
 			t.Fatal("model controlled memory governance")
 		}
 	}
-	if out := first.CallTool(t.Context(), "bot_notebook", json.RawMessage(`{"operation":"read","id":"../outside"}`)); !out.IsError {
+	if out := first.callLegacyTool(t.Context(), "bot_notebook", json.RawMessage(`{"operation":"read","id":"../outside"}`)); !out.IsError {
 		t.Fatal("model path escaped")
 	}
 	if denied := forward(before.Env["CAELIS_BOT_ENDPOINT"], toolRequest{Token: "wrong-instance", Name: "bot_memory", Arguments: json.RawMessage(`{"operation":"recall"}`)}); !denied.IsError {
 		t.Fatal("foreign bridge gained personal data")
 	}
 	first.Close()
-	if out := first.CallTool(t.Context(), "bot_memory", json.RawMessage(`{"operation":"recall"}`)); !out.IsError {
+	if out := first.callLegacyTool(t.Context(), "bot_memory", json.RawMessage(`{"operation":"recall"}`)); !out.IsError {
 		t.Fatal("closed tools admitted request")
 	}
 }

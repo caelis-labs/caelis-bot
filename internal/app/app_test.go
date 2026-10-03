@@ -412,7 +412,7 @@ func TestDesktopWorldAssemblyOwnsResidentDesktop(t *testing.T) {
 	for _, d := range config.Host.Definitions() {
 		names = append(names, d.Name)
 	}
-	for _, name := range []string{"bot_desktop_observe", "bot_desktop_act", "bot_desktop_capture", "bot_desktop_authorize", "bot_desktop_reconcile"} {
+	for _, name := range []string{"bot_desktop_inspect", "bot_desktop_act", "bot_desktop_authorize", "bot_desktop_result"} {
 		if !slices.Contains(names, name) || slices.Contains(config.ApprovedTools, name) != (name != "bot_desktop_authorize") {
 			t.Fatalf("wrong ownership for %s", name)
 		}

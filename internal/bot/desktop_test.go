@@ -35,7 +35,10 @@ func TestDesktopTurnRevokesIdleAndRunningWork(t *testing.T) {
 	r.ConfigureDesktopControl(d)
 	r.BeginDesktopTurn()
 	done := make(chan struct{})
-	go func() { defer close(done); r.CallTool(context.Background(), "bot_desktop_act", json.RawMessage(`{}`)) }()
+	go func() {
+		defer close(done)
+		r.callLegacyTool(context.Background(), "bot_desktop_act", json.RawMessage(`{}`))
+	}()
 	<-d.entered
 	r.StopDesktopTurn()
 	select {
@@ -44,10 +47,10 @@ func TestDesktopTurnRevokesIdleAndRunningWork(t *testing.T) {
 		t.Fatal("input did not cancel")
 	}
 	<-done
-	if !r.CallTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{}`)).IsError {
+	if !r.callLegacyTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{}`)).IsError {
 		t.Fatal("stopped turn remained active")
 	}
-	if r.CallTool(t.Context(), "bot_desktop_reconcile", json.RawMessage(`{}`)).IsError {
+	if r.callLegacyTool(t.Context(), "bot_desktop_reconcile", json.RawMessage(`{}`)).IsError {
 		t.Fatal("recovery blocked after stop")
 	}
 	d.mu.Lock()
@@ -62,7 +65,7 @@ func TestDesktopTurnRevokesIdleAndRunningWork(t *testing.T) {
 	d.mu.Unlock()
 	r.Stop()
 	r.BeginDesktopTurn()
-	if !r.CallTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{}`)).IsError {
+	if !r.callLegacyTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{}`)).IsError {
 		t.Fatal("shutdown reactivated")
 	}
 }
@@ -71,13 +74,13 @@ func TestDesktopCaptureRequiresImageModelButSemanticInputDoesNot(t *testing.T) {
 	d := &desktopFixture{}
 	r.ConfigureDesktopControl(d)
 	r.BeginDesktopTurn()
-	if !r.CallTool(t.Context(), "bot_desktop_capture", json.RawMessage(`{}`)).IsError {
+	if !r.callLegacyTool(t.Context(), "bot_desktop_capture", json.RawMessage(`{}`)).IsError {
 		t.Fatal("image support not required")
 	}
 	if d.calls != 0 {
 		t.Fatal("unsupported image reached helper")
 	}
-	if r.CallTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{}`)).IsError || d.calls != 1 {
+	if r.callLegacyTool(t.Context(), "bot_desktop_observe", json.RawMessage(`{}`)).IsError || d.calls != 1 {
 		t.Fatal("read unnecessarily depends on images")
 	}
 }

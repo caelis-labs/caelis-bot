@@ -171,6 +171,32 @@ and receipt chains prevent forgotten evidence returning on replay. This does not
 Notebook is the resident writable workspace, not HOME; Workers have independent directories and instructions.
 Neither scope claims isolation from another process under the same OS user or from full-access execution.
 
+## Bot tool catalog
+
+The complete resident catalog contains ten tools: `bot_memory`, `bot_tasks`,
+`bot_delegate`, `bot_schedule`, `bot_schedule_update`, `bot_desktop_inspect`,
+`bot_desktop_authorize`, `bot_desktop_act`, `bot_desktop_result`, and `bot_gesture`.
+Unavailable Worker/scheduling/desktop capabilities remain absent. Typed request
+variants use application-owned schemas and native dispatch validation. Delegation,
+standing-arrangement writes and app grants remain separately reviewed; read/list,
+watchlist/stop and permitted desktop operations retain their original direct policy.
+
+The new catalog never advertises legacy aliases. Private MCP invocations carry a
+catalog generation, and Caelis restores the exact original legacy schema/policy
+version for old pending callbacks. This preserves original receipts without
+rerouting them to the current same-name schema or replaying mutations. Unknown
+catalog versions still fail closed. Task request lookup uses the owned ledger;
+missing/ambiguous records are unconfirmed. Old follow-ups without a recorded
+request identity still need their original task handle. Worker defaults, native
+bindings, approval policies, Notebook isolation and event/calendar grants have
+independent semantic owners.
+
+Base replies expose `ok`, bounded native `data`, retained `outcome`, and useful
+receipt-based `next` only where appropriate. Large structured replies avoid a
+second JSON copy; output overflow retains mutation identity and reports its
+budget limit rather than replaying. Task and arrangement lists are paged. Desktop
+receipts/pixels retain the public SDK's stricter projection contract.
+
 ## Skills and context handoff
 
 `internal/botskills/skills/` is the sole English Bot behavior source. Install complete directories into private
@@ -278,8 +304,8 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 ## Desktop and presentation
 
 Desktop World is the resident desktop backend for both Codex and Caelis. The pinned
-public Go module and independently signed helper are v0.1.0-alpha.1, revision
-`5a2ae97ddf65579d2d0051e82a33efd588f17942`. The old Cua/Node driver, native focus
+public Go module and independently signed helper are v0.1.0-alpha.2, revision
+`cc50357f9f922712ef4e2bf4db4822381d10d71a`. The old Cua/Node driver, native focus
 ports and optional whole-desktop experiment are retired. F1 screen input and
 passive character context remain separate. Codex resident configuration denies
 native Computer Use app access when Desktop World is bound; ordinary sessions
@@ -288,18 +314,22 @@ and workers retain their own configuration.
 `desktopcontrol.Controller` lazily starts the bundled helper through the public
 `host` SDK. Data uses private stdio; independent FD 3/4 control pipes own
 BeginTurn/Grant/EndTurn. Neither model arguments nor the renderer can choose a
-helper, turn, process identity or startup grants. Only read/observe/sync/act/
-capture/get/cancel are exposed. `bot_desktop_authorize` is separately reviewed
+helper, turn, process identity or startup grants. The model sees `bot_desktop_inspect` (outline/text/delta/image),
+`bot_desktop_act`, and `bot_desktop_result` (status/cancel). Native typed operations
+stay separate below the application adapter. `bot_desktop_authorize` is separately reviewed
 and checks the exact observed application Ref/name before Grant. App × Turn
 approval covers all windows of that live application instance. Finish, interrupt,
 shutdown and runtime replacement cancel the tool context and revoke even idle
 grants with a fresh short control deadline. No native work executes in Wails.
 
-Each tool requires a stable `requestId`; the managed helper derives epoch and plan
-identity from its trusted turn and stable SDK envelope ID. Duplicate IDs with
-identical arguments return the original response;
-conflicting arguments fail. `bot_desktop_reconcile` remains available after a
-turn ends, reads the original receipt and never sends input. Unknown/partial
+Inspection IDs are host-generated. Only input/cancel use model-supplied stable
+`requestId`; the managed helper derives epoch and plan identity from its trusted
+turn and stable SDK envelope ID. Duplicate IDs with identical arguments return
+the original response; conflicting arguments fail. `bot_desktop_result.status`
+remains available after a turn ends, reads the original receipt and never sends
+input or new pixels. Cancellation cannot cross turn revocation. Outline
+continuations restore the original query from a turn-scoped host cache; model
+query fields cannot be mixed with a continuation. Unknown/partial
 results preserve their receipts. There is no automatic helper restart, backend
 fallback or mutation replay. The SDK bounds retained requests/turns to 4096;
 process restart loses prior receipt history and is not proof of no effect.

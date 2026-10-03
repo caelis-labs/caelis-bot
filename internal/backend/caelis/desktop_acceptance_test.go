@@ -87,7 +87,7 @@ func desktopHostAcceptance(t *testing.T, ctx context.Context, s *Session, model 
 	if _, err = s.UpdateConfiguration(ctx, "desktop-world-tools", string(current.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); err != nil {
 		t.Fatal(err)
 	}
-	model.set("CASE_DESKTOP_CAPTURE", modelStep{Name: "bot_desktop_capture", Args: map[string]any{"requestId": "capture-fixture", "args": map[string]any{"kind": "visible_region", "target": "fixture-window"}}}, modelStep{Reply: "DESKTOP_IMAGE_RECEIVED"})
+	model.set("CASE_DESKTOP_CAPTURE", modelStep{Name: "bot_desktop_inspect", Args: map[string]any{"request": map[string]any{"type": "image", "kind": "visible_region", "target": "fixture-window"}}}, modelStep{Reply: "DESKTOP_IMAGE_RECEIVED"})
 	submitAcceptance(t, ctx, s, "CASE_DESKTOP_CAPTURE")
 	requests := model.seen("CASE_DESKTOP_CAPTURE")
 	if len(requests) != 2 {

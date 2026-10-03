@@ -45,13 +45,30 @@ func TestExecutionSettingsReachNewTurnsAndRejectInvalidChanges(t *testing.T) {
 		}
 	}
 	before := s.Snapshot()
+	executionBefore := v
 	v.ServiceTier = ""
 	if err = s.ChangeExecution(testContext(t), v, persist); err == nil {
 		t.Fatal("changed policy during active work")
 	}
-	after := s.Snapshot()
-	if after.Revision != before.Revision || after.LastReceipt != before.LastReceipt {
-		t.Fatal("rejected preferences changed live execution")
+	// Native progress can advance the view while a preference edit is rejected.
+	// Fence on the real event projection instead of relying on goroutine timing.
+	f.emit(wireMessage{Method: "item/agentMessage/delta", Params: raw(map[string]any{"threadId": "thread-native", "turnId": "run-native", "itemId": "preference-progress", "delta": "synthetic progress"})})
+	after := awaitState(t, s, func(view api.Snapshot) bool {
+		for _, item := range view.Items {
+			if item.Text == "synthetic progress" {
+				return true
+			}
+		}
+		return false
+	})
+	s.mu.Lock()
+	executionAfter := s.opts.Execution
+	s.mu.Unlock()
+	if executionAfter != executionBefore || saved != 1 {
+		t.Fatalf("rejected preferences changed execution or persisted: settings %+v, saves %d", executionAfter, saved)
+	}
+	if after.LastReceipt != before.LastReceipt || after.CurrentTurn != before.CurrentTurn || !after.CanSteer {
+		t.Fatal("rejected preferences changed the accepted turn")
 	}
 	receipt, err = s.Submit(testContext(t), api.Submission{ID: "preferences-steer", Text: "synthetic"}, nil)
 	if err != nil || receipt.Outcome != "accepted" {

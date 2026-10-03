@@ -47,7 +47,7 @@ concurrency:
 jobs:
   build:
     if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     outputs:
       sha: ${{ steps.source.outputs.sha }}
@@ -101,7 +101,7 @@ jobs:
           retention-days: 1
   package:
     needs: build
-    runs-on: macos-14
+    runs-on: macos-15
     environment: macos-release
     timeout-minutes: 150
     outputs:

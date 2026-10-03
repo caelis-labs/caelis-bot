@@ -1,8 +1,23 @@
 # Arrange future work
 
-Discover `bot_clock` to check local time and scheduling availability, and
-`bot_reminders_list` to read reminders, and `bot_reminders` to create, update, or remove them. Use the current tool
-schema rather than assuming a schedule format.
+Use `bot_schedule` with `request:{"type":"context"}` for fresh local time and
+timezone; use `request:{"type":"list","kind":"calendar"}` for saved reminders.
+Use `bot_schedule_update` to save or remove an arrangement. Follow the actual schema:
+
+```json
+{"request":{"type":"save","id":"work-break","label":"Work break","prompt":"Offer the break reminder we agreed.","trigger":{"type":"calendar","timeZone":"Asia/Shanghai","schedule":{"type":"interval","everyMinutes":60}}}}
+```
+
+Calendar schedules choose exactly one type: `at` with an RFC3339 timestamp,
+`interval` with `everyMinutes`, `daily` with HH:MM, or `times` with a list of HH:MM.
+Use the named IANA timezone from fresh context unless the user specified another.
+If timeZoneStatus is unavailable, obtain the intended timezone; never use Local
+or infer a named zone from an offset. Weekdays
+and allowed time windows belong to the calendar trigger. Confirm the actual
+next time and enabled state. To remove, use the exact returned automation handle:
+`request:{"type":"remove","automation":"calendar:work-break"}`.
+List supports label/ID search, 20 entries by default, 50 maximum and `nextCursor`;
+keep filters unchanged when continuing.
 
 Turn the requested timing and purpose into a clear reminder. Resolve ambiguity
 when it would change when or why the reminder runs. For work arising from a standing

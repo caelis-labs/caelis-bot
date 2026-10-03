@@ -77,3 +77,8 @@ type TaskMessage struct {
 // TaskReporter delivers a finite completion notification to the secretary. It
 // must never replay an uncertain submission or run a model to poll idle work.
 type TaskReporter interface{ DeliverTaskReport(context.Context) error }
+
+// TaskRequestReader resolves an already-owned original submission without replay.
+type TaskRequestReader interface {
+	ReadTaskRequest(context.Context, string) (Task, error)
+}

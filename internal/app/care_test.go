@@ -82,8 +82,11 @@ func TestCareLoadFailureDoesNotPreventPersonalPreparationOrStart(t *testing.T) {
 			if !strings.Contains(a.Backend.Snapshot().BotStatus, "care") {
 				t.Fatal("care failure absent from the product snapshot")
 			}
-			for _, args := range []string{`{"operation":"list"}`, `{"operation":"remove","id":"break"}`, `{"operation":"save","id":"break"}`} {
-				out := a.companion.CallTool(t.Context(), "bot_care", json.RawMessage(args))
+			for name, args := range map[string]string{
+				"bot_schedule":        `{"request":{"type":"sources"}}`,
+				"bot_schedule_update": `{"request":{"type":"remove","automation":"event:break"}}`,
+			} {
+				out := a.companion.CallTool(t.Context(), name, json.RawMessage(args))
 				if !out.IsError || !strings.Contains(out.Content[0]["text"], "care") {
 					t.Fatal("unavailable care tool hid its load failure", out)
 				}
@@ -121,23 +124,22 @@ func TestRegisteredCareAdapterUsesApplicationLifecycle(t *testing.T) {
 	if err := a.Start(); err != nil {
 		t.Fatal(err)
 	}
-	args := json.RawMessage(`{"operation":"save","id":"ci","label":"CI failures","on":"repository.checks","when":"event.failed > 0","prompt":"Check CI failures","timeZone":"UTC"}`)
-	if out := a.companion.CallTool(t.Context(), "bot_care", args); out.IsError {
+	args := json.RawMessage(`{"request":{"type":"save","id":"ci","label":"CI failures","prompt":"Check CI failures","trigger":{"type":"event","sources":["repository.checks"],"condition":"event.failed > 0","timeZone":"UTC"}}}`)
+	if out := a.companion.CallTool(t.Context(), "bot_schedule_update", args); out.IsError {
 		t.Fatal(out)
 	}
 	if err := a.PublishCareEvent(t.Context(), event); err != nil {
 		t.Fatal(err)
 	}
-	out := a.companion.CallTool(t.Context(), "bot_care", json.RawMessage(`{"operation":"list"}`))
-	var listed struct {
-		State   care.State
-		Sources []care.Source
+	sources := a.companion.CallTool(t.Context(), "bot_schedule", json.RawMessage(`{"request":{"type":"sources"}}`))
+	out := a.companion.CallTool(t.Context(), "bot_schedule", json.RawMessage(`{"request":{"type":"list","kind":"event"}}`))
+	if sources.IsError || out.IsError {
+		t.Fatal(sources, out)
 	}
-	if out.IsError || json.Unmarshal([]byte(out.Content[0]["text"]), &listed) != nil {
-		t.Fatal(out)
-	}
-	if len(listed.Sources) != 4 || len(listed.State.Activations) != 1 || listed.State.Activations[0].Status != "pending" {
-		t.Fatal("registered adapter did not enter the production queue", listed)
+	advertised := sources.StructuredContent["data"].(map[string]any)["sources"].([]care.Source)
+	activations := out.StructuredContent["data"].(map[string]any)["activations"].([]map[string]any)
+	if len(advertised) != 4 || len(activations) != 1 || activations[0]["status"] != "pending" {
+		t.Fatal("registered adapter did not enter the production queue", out)
 	}
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
