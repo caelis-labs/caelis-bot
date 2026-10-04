@@ -335,27 +335,41 @@ fallback or mutation replay. The SDK bounds retained requests/turns to 4096;
 process restart loses prior receipt history and is not proof of no effect.
 
 Observations use scope/fields/budgets and native cursor sync (upserts/removals,
-coverage and reset_required). Reads default to 60 objects/8 KiB when no budget
+coverage and reset_required). Reads default to 32 objects/8 KiB when no budget
 is supplied. Ordered act plans support up to 16 steps and local predicates;
-new dialogs require new observations before targeting their controls. Actions
+unknown future dialogs require new observations; known uniquely scoped controls
+can use native bind within one plan. Actions
 return receipts, not implicit full trees or screenshots. `host.Content` bounds
 text plus structured JSON to 32 KiB with a receipt-preserving overflow notice.
-Caelis content-v1 suppresses only identical JSON text duplication.
+The Bot retains bounded step delivery/verification facts on overflow in addition
+to original IDs, outcome, seat health and input restoration. Full evidence stays
+in the original host receipt. Caelis content-v1 suppresses identical JSON text duplication.
+
+The trusted host fixes `InputModeCooperative` and `InputShared`; neither is a model
+argument. Semantic desired-state operations verify automatically without physical
+fallback. A cooperative physical plan borrows focus for known click/keyboard/submit
+steps together, then restores the prior app/window or yields to an app switch by
+the user. The whole plan is checked before dispatch for 256 UTF-16-unit text bursts,
+500ms drags and no raw Points. The helper owns the 1-second input budget, hit-test
+convergence and cleanup. No plan splitting, truncation, mode fallback or replay is
+automatic. Restoration failure remains unknown/fenced, not a success claim.
 
 Only explicit capture returns pixels, after checking model image support and
 application authorization. The helper writes to a private temporary asset root;
 Bot reads only that root, strips paths, validates tile dimensions, preserves the
 image transform and compresses one image to at most 256 KiB. Multi-tile or
 oversized captures require a narrower request. Reconciliation returns metadata,
-never captures again. Capture is visible-region evidence; window_content and
-unobscured background composition remain capability-dependent. Managed raw
-points are forbidden; use object Refs or bounded object anchors.
+never captures again. App-scoped `capture_windows` returns dedicated capture Refs;
+`window_content` requires one of those, a full target, no region/cursor and preserves
+`image_to_target` without inventing a desktop mapping. Capture Refs cannot be used
+for AX traversal or input. Visible-region evidence can include occluding apps,
+requiring their grants. Hidden/minimized windows and capture capability remain
+explicit native limits. Managed raw points are forbidden; use object Refs or anchors.
 
-Prefer semantic invoke/set_value operations when supported. The alpha shares
-system focus and pointer; it provides neither a virtual mouse nor a universal
-background delivery mode. Functionality takes priority over avoiding activation,
-without promising that focus stays unchanged. Delivery is distinct from verified
-postconditions. Desktop World frame/topology units are independent of the pet's
+Prefer supported semantic desired-state operations. Cooperative input temporarily
+uses system focus/pointer; it provides neither a virtual mouse nor universal
+background delivery. Same-app human input is best effort; restoration is reported
+in the receipt, not promised. Delivery is distinct from verified postconditions. Desktop World frame/topology units are independent of the pet's
 native placement coordinates below.
 
 The managed JavaScript bridge is not part of this first Go host integration. The

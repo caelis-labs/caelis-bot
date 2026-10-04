@@ -80,7 +80,8 @@ they are relevant to the work:
 - [Screen input](references/screen-input.md): when the user points at screen
   content, sends a screenshot snapshot, or corrects your interpretation of it.
 - [Desktop World](references/desktop-observation.md): when you need to observe or operate
-  an application through the resident Desktop World tools, including authorization and receipt recovery.
+  an application through the resident tools; its conditional guides cover known
+  action plans, explicit images and receipt recovery.
 - [Tasks](references/tasks.md): before creating, continuing, stopping, or reviewing
   independent work, selecting its workspace, managing desktop pins, or handling a
   task or delayed command completion notice.

@@ -58,7 +58,8 @@ type Controller struct {
 func New(executable, assets string) *Controller {
 	c := &Controller{assets: assets, ended: map[string]bool{}, requests: map[string]*request{}, apps: map[dw.Ref]string{}}
 	c.start = func(ctx context.Context) (client, dw.Epoch, error) {
-		h, err := host.Start(ctx, host.Options{Executable: executable, AssetsDir: assets})
+		h, err := host.Start(ctx, host.Options{Executable: executable, AssetsDir: assets,
+			InputMode: dw.InputModeCooperative, InputPolicy: dw.InputShared})
 		if err != nil {
 			return nil, "", err
 		}
@@ -159,6 +160,42 @@ func content(reply host.Reply, id string) api.ToolResult {
 	p := host.Content(reply)
 	var v map[string]any
 	_ = json.Unmarshal(p.StructuredContent, &v)
+	if e, ok := v["error"].(map[string]any); ok && e["code"] == "model_output_budget" {
+		// The full original receipt stays in the host. Retain bounded step
+		// delivery/verification facts so a partial plan is never mistaken for
+		// a no-effect failure merely because its evidence exceeded the budget.
+		var receipt dw.Receipt
+		if protocol.Decode(reply.Result, &receipt) == nil && len(receipt.Steps) <= 16 {
+			steps := make([]map[string]any, 0, len(receipt.Steps))
+			for _, s := range receipt.Steps {
+				if len(s.ID) > 128 || len(s.Target) > 512 || len(s.Channel) > 64 || len(s.State) > 64 || len(s.Delivery) > 64 || len(s.Verification) > 64 {
+					steps = nil
+					break
+				}
+				step := map[string]any{"id": s.ID, "target": s.Target, "channel": s.Channel, "state": s.State,
+					"delivery": s.Delivery, "verification": s.Verification}
+				if s.AcceptedInputEvents != nil {
+					step["accepted_input_events"] = *s.AcceptedInputEvents
+				}
+				if s.RequestedInputEvents != nil {
+					step["requested_input_events"] = *s.RequestedInputEvents
+				}
+				if s.Fault != nil && len(s.Fault.Code) <= 128 && len(s.Fault.RetryClass) <= 64 {
+					step["fault"] = map[string]any{"code": s.Fault.Code, "retry_class": s.Fault.RetryClass}
+				}
+				steps = append(steps, step)
+			}
+			if steps != nil {
+				v["steps"] = steps
+				body, _ := json.Marshal(v)
+				if 2*len(body)+1024 <= 32<<10 {
+					p.Content[0].Text = string(body)
+				} else {
+					delete(v, "steps")
+				}
+			}
+		}
+	}
 	out := api.ToolResult{IsError: p.IsError, StructuredContent: v}
 	for _, b := range p.Content {
 		out.Content = append(out.Content, map[string]string{"type": b.Type, "text": b.Text})
@@ -201,6 +238,15 @@ func (c *Controller) CallTool(ctx context.Context, name string, raw json.RawMess
 		}
 		return c.reconcile(ctx, in.RequestID)
 	}
+	if op == "act" {
+		if err := cooperativePlan(in.Args); err != nil {
+			out := failure("invalid_request", err.Error(), in.RequestID)
+			out.StructuredContent["outcome"] = "rejected"
+			b, _ := json.Marshal(out.StructuredContent)
+			out.Content[0]["text"] = string(b)
+			return out
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	h, _, err := c.ensure(ctx, turn, op == "observe")
@@ -212,7 +258,7 @@ func (c *Controller) CallTool(ctx context.Context, name string, raw json.RawMess
 			args["fields"] = []string{"name", "role", "app", "window"}
 		}
 		if _, ok := args["budget"]; !ok {
-			args["budget"] = map[string]any{"max_results": 60, "max_output_bytes": 8192}
+			args["budget"] = map[string]any{"max_results": 32, "max_output_bytes": 8192}
 		}
 	}
 	if op == "sync" {

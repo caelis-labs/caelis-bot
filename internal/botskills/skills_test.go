@@ -58,6 +58,15 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 		if e != nil || string(packaged) != string(installed) {
 			t.Errorf("incomplete bundle: %s %v", name, e)
 		}
+		// Conditional desktop workflows must resolve from the installed body,
+		// not depend on checkout paths or eager injection into the catalog.
+		if strings.HasSuffix(name, ".md") {
+			for _, link := range regexp.MustCompile(`\]\(([^):]+\.md)\)`).FindAllSubmatch(installed, -1) {
+				if _, err := os.ReadFile(filepath.Join(root, "app-skills", filepath.Dir(strings.TrimPrefix(name, "skills/")), string(link[1]))); err != nil {
+					t.Errorf("broken progressive link in %s: %s: %v", name, link[1], err)
+				}
+			}
+		}
 		return nil
 	})
 	if err != nil {
