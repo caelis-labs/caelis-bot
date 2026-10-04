@@ -11,5 +11,5 @@ if [[ "$BOT_DW_SIGN_MODE" != adhoc ]]; then
   if [[ "$BOT_DW_SIGN_MODE" == development ]]; then BOT_DW_SIGN_ARGS+=(--timestamp=none); else BOT_DW_SIGN_ARGS+=(--timestamp); fi
 fi
 # The helper is independent native code signed with the host identity.
-codesign "${BOT_DW_SIGN_ARGS[@]}" "$BOT_DW_SIGN_ROOT/bin/desktop-world"
-codesign --verify --strict "$BOT_DW_SIGN_ROOT/bin/desktop-world"
+codesign "${BOT_DW_SIGN_ARGS[@]}" "$BOT_DW_SIGN_ROOT/bin/dtw"
+codesign --verify --strict "$BOT_DW_SIGN_ROOT/bin/dtw"

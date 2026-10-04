@@ -6,12 +6,13 @@ const [directory,binaryJSON]=process.argv.slice(2).filter(arg=>arg!=='--bundled'
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
 const pinned=JSON.parse(readFileSync(resolve(root,'resources/desktop-world/release.json'),'utf8'));
 if(process.argv.includes('--bundled')) {
- assert.deepEqual(readdirSync(directory).sort(),['NOTICE','bin','manifest.json'],'unexpected helper payload');
- assert.deepEqual(readdirSync(resolve(directory,'bin')),['desktop-world'],'only the native helper is bundled');
+ assert.deepEqual(readdirSync(directory).sort(),['NOTICE','THIRD_PARTY_NOTICES.md','bin','manifest.json'],'unexpected helper payload');
+ assert.deepEqual(readdirSync(resolve(directory,'bin')),['dtw'],'only the native helper is bundled');
 }
 const manifest=JSON.parse(readFileSync(resolve(directory,'manifest.json'),'utf8'));
 for (const [key,value] of Object.entries({version:pinned.version,'vcs.revision':pinned.revision,'vcs.modified':'false',os:'darwin',arch:'arm64',protocol:'desktop-world/helper-v0.1',host_control:'desktop-world/host-control-v0.1',minimum_macos:pinned.minimum_macos,license:'no-open-source-license-granted'})) assert.equal(manifest[key],value,key);
 assert.match(readFileSync(resolve(directory,'NOTICE'),'utf8'),/No open-source license is granted/);
+assert.match(readFileSync(resolve(directory,'THIRD_PARTY_NOTICES.md'),'utf8'),/MIT License[\s\S]*Permission is hereby granted[\s\S]*THE SOFTWARE IS PROVIDED/);
 
 if(binaryJSON) {
  const actual=JSON.parse(binaryJSON);

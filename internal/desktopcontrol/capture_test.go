@@ -24,7 +24,7 @@ func TestCaptureReadsOnlyOwnedImageAndReconcileDoesNotAttachPixels(t *testing.T)
 		Capture dw.CaptureResult
 		Files   []map[string]any
 	}{
-		Capture: dw.CaptureResult{ExpiresAt: time.Now().Add(time.Minute), Tiles: []dw.CaptureTile{{Asset: "image", PixelWidth: 1000, PixelHeight: 600}}},
+		Capture: dw.CaptureResult{ExpiresAt: time.Now().Add(time.Minute), Tiles: []dw.CaptureTile{{Asset: "image", Kind: "window_content", Target: "capture-window", ImageToTarget: dw.Transform2D{A: 0.5, D: 0.5}, PixelWidth: 1000, PixelHeight: 600}}},
 		Files:   []map[string]any{{"asset": "image", "path": path, "bytes": len(data)}},
 	}
 	b, _ := protocol.Marshal(saved)
@@ -36,6 +36,12 @@ func TestCaptureReadsOnlyOwnedImageAndReconcileDoesNotAttachPixels(t *testing.T)
 	raw, _ := json.Marshal(result.StructuredContent)
 	if strings.Contains(string(raw), path) {
 		t.Fatal("private path exposed")
+	}
+	var envelope struct{ Result json.RawMessage }
+	json.Unmarshal(raw, &envelope)
+	var projected dw.CaptureResult
+	if protocol.Decode(envelope.Result, &projected) != nil || projected.Tiles[0].ImageToTarget.A != 0.5 || projected.Tiles[0].DesktopFrame != "" || projected.Tiles[0].ImageToDesktop != (dw.Transform2D{}) {
+		t.Fatal("target-local transform changed or gained desktop input authority", string(raw))
 	}
 	recovered := c.project(reply, "capture-request", "reconcile")
 	if recovered.IsError || len(recovered.Content) != 1 {

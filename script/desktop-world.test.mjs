@@ -20,8 +20,9 @@ test('Desktop World payload validates source, binary metadata, notice and native
     {encoding: 'utf8', timeout: 10000});
   try {
     mkdirSync(join(directory, 'bin'));
-    writeFileSync(join(directory, 'bin', 'desktop-world'), 'fixture');
+    writeFileSync(join(directory, 'bin', 'dtw'), 'fixture');
     writeFileSync(join(directory, 'NOTICE'), 'No open-source license is granted.');
+    writeFileSync(join(directory, 'THIRD_PARTY_NOTICES.md'), 'MIT License\nPermission is hereby granted\nTHE SOFTWARE IS PROVIDED');
     write();
     let result = verify();
     assert.equal(result.status, 0, result.stderr);
@@ -36,6 +37,9 @@ test('Desktop World payload validates source, binary metadata, notice and native
     writeFileSync(join(directory, 'NOTICE'), 'Different notice');
     assert.notEqual(verify().status, 0, 'notice must preserve upstream license boundary');
     writeFileSync(join(directory, 'NOTICE'), 'No open-source license is granted.');
+    rmSync(join(directory, 'THIRD_PARTY_NOTICES.md'));
+    assert.notEqual(verify().status, 0, 'third-party notice must ship');
+    writeFileSync(join(directory, 'THIRD_PARTY_NOTICES.md'), 'MIT License\nPermission is hereby granted\nTHE SOFTWARE IS PROVIDED');
     writeFileSync(join(directory, 'bin', 'node'), 'retired runtime');
     assert.notEqual(verify().status, 0, 'unexpected runtime must not ship');
     rmSync(join(directory, 'bin', 'node'));

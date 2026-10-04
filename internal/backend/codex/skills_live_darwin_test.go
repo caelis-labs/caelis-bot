@@ -71,10 +71,15 @@ func TestNativeProgressiveSkill(t *testing.T) {
 				p = dreamPath
 			}
 			command := "cat '" + strings.ReplaceAll(p, "'", "'\"'\"'") + "'"
+			if n == 2 {
+				for _, ref := range []string{"desktop-actions.md", "desktop-images.md", "desktop-recovery.md"} {
+					command += " '" + strings.ReplaceAll(filepath.Join(filepath.Dir(p), ref), "'", "'\"'\"'") + "'"
+				}
+			}
 			if n == 5 {
 				command = "printf '%s\\n' '<!-- caelis-dream: native-dream -->' 'Finished the skill check; nothing pending.' > '" + strings.ReplaceAll(handoffPath, "'", "'\"'\"'") + "'"
 			}
-			args, _ := json.Marshal(map[string]any{"cmd": command, "max_output_tokens": 4000})
+			args, _ := json.Marshal(map[string]any{"cmd": command, "max_output_tokens": 8000})
 			item = map[string]any{"id": id, "type": "function_call", "name": "exec_command", "call_id": id, "arguments": string(args)}
 		} else {
 			item = map[string]any{"id": id, "type": "message", "role": "assistant", "status": "completed", "phase": "final_answer", "content": []any{map[string]any{"type": "output_text", "text": "skill-read-complete", "annotations": []any{}}}}
@@ -125,11 +130,16 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if !strings.Contains(initial[0], "You are Caelis Bot, a persistent personal assistant.") || strings.Contains(initial[0], "# Restore your context") {
 		t.Fatal("metadata absent or eager body injection")
 	}
-	if !strings.Contains(initial[1], "# Restore your context") || strings.Contains(initial[1], "# Desktop World") || !strings.Contains(initial[2], "# Desktop World") {
+	if !strings.Contains(initial[1], "# Restore your context") || strings.Contains(initial[1], "# Observe the desktop narrowly") || !strings.Contains(initial[2], "# Observe the desktop narrowly") {
 		t.Fatal("native file tools did not progressively load skill")
 	}
-	if strings.Contains(initial[1], "## Observe narrowly, then follow changes") || !strings.Contains(initial[2], "## Observe narrowly, then follow changes") {
+	if strings.Contains(initial[1], "# Perform known desktop actions") || !strings.Contains(initial[2], "# Perform known desktop actions") {
 		t.Fatal("desktop policy reference was not progressively loaded")
+	}
+	for _, marker := range []string{"# Capture explicit evidence", "# Read the original desktop receipt"} {
+		if strings.Contains(initial[1], marker) || !strings.Contains(initial[2], marker) {
+			t.Fatal("conditional guide did not load", marker)
+		}
 	}
 	correlated := false
 	for _, item := range s.Snapshot().Items {

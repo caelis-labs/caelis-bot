@@ -13,7 +13,7 @@ import (
 
 const MaxImageBytes = 256 << 10
 
-// Keep Desktop World's exact pixel dimensions and image-to-desktop transform.
+// Keep exact pixel dimensions and the native desktop or target-local transform.
 // Prefer lossless PNG, then the highest JPEG quality fitting the image budget.
 func boundImages(result *api.ToolResult) error {
 	count := 0

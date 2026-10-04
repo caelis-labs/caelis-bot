@@ -18,6 +18,12 @@ and checks assets; it does not create a conversation or call a model. `make buil
 `make package` adds a verified read-only DMG/checksum, using pinned Python dmgbuild in `.cache/dmg-tools`.
 First builds fetch pinned Sparkle and Desktop World artifacts; versions/hashes remain source-controlled.
 
+The current Desktop World SDK and packaged `bin/dtw` helper are pinned together
+to v0.1.0-alpha.6 / `887b863809f2ba532675668e37e91bde4dac758d`.
+The archive checksum is in `resources/desktop-world/release.json`; bundle validation
+requires both upstream NOTICE and THIRD_PARTY_NOTICES.md. Historical uptake
+records below retain the version and evidence of their original runs.
+
 ## Native development
 
 
@@ -124,6 +130,17 @@ explicit environment opt-ins. Synthetic provider results prove transport/behavio
 Never copy daily credentials into logs or use a shared Store for destructive fixtures.
 
 ## Current evidence and limits
+
+Desktop World alpha.6 (2026-10-04): pin/package validation, semantic state operations,
+bounded observation/capture and trusted cooperative input are aligned. The four
+desktop tools remain; conditional Bot guides cover action plans, target-local
+images and original-receipt recovery. Dev Bot real-model AppKit/Chrome acceptance
+and its independent fixture evidence are in
+[desktop-world-alpha6](evidence/desktop-world-alpha6/README.md). The record also
+includes native 8→16-node continuation, explicit false/no-op, partial/skipped
+recovery, and a delivered plan with failed cleanup correctly retained as
+unknown/fenced without replay. Restoration reliability and the documented
+hardware/platform gaps remain open. The following dated records are historical.
 
 The 2026-09-29 candidate passed check/smoke/build and affected race suites. Downloaded and checksum-verified
 Core v0.65.0 darwin-arm64 passed NativeHost and GuardianHost integration, including real 90-second timeout,

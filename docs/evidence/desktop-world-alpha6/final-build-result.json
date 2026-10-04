@@ -1,0 +1,16 @@
+{
+  "behavior_commit": "3588a15",
+  "fixture_log": {
+    "submissions": 3,
+    "text": "Final alpha6 build 🌍 PASS"
+  },
+  "independent_native_ax": {
+    "checked": false,
+    "submitted": 3,
+    "visible_tasks": 3,
+    "text": "Final alpha6 build 🌍 PASS"
+  },
+  "receipt_restoration": "failed",
+  "receipt_outcome": "unknown",
+  "receipt_seat_health": "fenced"
+}

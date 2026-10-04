@@ -1,0 +1,26 @@
+{
+  "id": "read-ANDTK7ERW5JC4N6DTZGAVVR4YK",
+  "protocol": "desktop-world/helper-v0.1",
+  "result": {
+    "expires_at": "2026-10-04T15:09:42.256611Z",
+    "partial": false,
+    "related_revision": "623",
+    "tiles": [
+      {
+        "asset": "asset-38e09a5201aff81e735bba01",
+        "captured_at": "2026-10-04T15:08:42.256633Z",
+        "image_frame": "image-6568dda2c6fa02d29b1df173",
+        "image_to_target": {
+          "a": 0.6206206206206206,
+          "d": 0.6205450733752621
+        },
+        "kind": "window_content",
+        "pixel_height": 954,
+        "pixel_width": 999,
+        "target": "r-0bc95d1cb150d9cc03826c9b-24a",
+        "topology": "1"
+      }
+    ]
+  },
+  "world": "e-0bc95d1cb150d9cc03826c9b"
+}

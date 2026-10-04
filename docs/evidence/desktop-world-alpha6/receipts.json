@@ -1,0 +1,937 @@
+[
+  {
+    "requestId": "alpha6-chrome-activate",
+    "steps": [
+      {
+        "completion": "dispatch",
+        "id": "activate-example-domain-tab",
+        "op": "invoke",
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-4ab"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "2201",
+      "epoch": "e-0bc95d1cb150d9cc03826c9b",
+      "expires_at": "2026-10-04T15:22:23.522807Z",
+      "input": {
+        "mode": "cooperative",
+        "restoration": "not_borrowed"
+      },
+      "outcome": "completed",
+      "request_id": "e-0bc95d1cb150d9cc03826c9b:BMH6BV64RND2AK33QUQRVIR3IG:data-61",
+      "run_id": "run-2a7f223c1cb9060ef627404f",
+      "seat_health": "ready",
+      "start_revision": "2200",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "2201",
+          "finished_at": "2026-10-04T15:17:23.522722Z",
+          "id": "activate-example-domain-tab",
+          "start_revision": "2200",
+          "started_at": "2026-10-04T15:17:23.491941Z",
+          "state": "dispatched",
+          "target": "r-0bc95d1cb150d9cc03826c9b-4ab",
+          "verification": "not_requested"
+        }
+      ]
+    }
+  },
+  {
+    "requestId": "alpha6-chrome-navigation",
+    "steps": [
+      {
+        "click": {
+          "button": "left",
+          "count": 1
+        },
+        "id": "click-omnibox",
+        "op": "pointer.click",
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-49a"
+        }
+      },
+      {
+        "id": "select-all",
+        "op": "keyboard.press",
+        "press": {
+          "key": "A",
+          "modifiers": [
+            "primary"
+          ]
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-49a"
+        }
+      },
+      {
+        "id": "type-url",
+        "op": "keyboard.type_text",
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-49a"
+        },
+        "type_text": {
+          "text": "https://example.com/?caelis-alpha6=20261004"
+        }
+      },
+      {
+        "id": "press-enter",
+        "op": "keyboard.press",
+        "press": {
+          "key": "Enter",
+          "modifiers": []
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-49a"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "2211",
+      "epoch": "e-0bc95d1cb150d9cc03826c9b",
+      "expires_at": "2026-10-04T15:22:31.761602Z",
+      "input": {
+        "foreground_ms": 451,
+        "mode": "cooperative",
+        "restoration": "restored"
+      },
+      "outcome": "completed",
+      "request_id": "e-0bc95d1cb150d9cc03826c9b:BMH6BV64RND2AK33QUQRVIR3IG:data-63",
+      "run_id": "run-ae7a51a651736031d61be0af",
+      "seat_health": "ready",
+      "start_revision": "2207",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "2208",
+          "finished_at": "2026-10-04T15:17:31.433811Z",
+          "id": "click-omnibox",
+          "start_revision": "2207",
+          "started_at": "2026-10-04T15:17:31.296506Z",
+          "state": "dispatched",
+          "target": "r-0bc95d1cb150d9cc03826c9b-49a",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "2210",
+          "finished_at": "2026-10-04T15:17:31.502618Z",
+          "id": "select-all",
+          "start_revision": "2208",
+          "started_at": "2026-10-04T15:17:31.433825Z",
+          "state": "dispatched",
+          "target": "r-0bc95d1cb150d9cc03826c9b-49a",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "2210",
+          "finished_at": "2026-10-04T15:17:31.566157Z",
+          "id": "type-url",
+          "start_revision": "2210",
+          "started_at": "2026-10-04T15:17:31.502628Z",
+          "state": "dispatched",
+          "target": "r-0bc95d1cb150d9cc03826c9b-49a",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "2211",
+          "finished_at": "2026-10-04T15:17:31.672546Z",
+          "id": "press-enter",
+          "start_revision": "2210",
+          "started_at": "2026-10-04T15:17:31.566168Z",
+          "state": "dispatched",
+          "target": "r-0bc95d1cb150d9cc03826c9b-49a",
+          "verification": "not_requested"
+        }
+      ]
+    }
+  },
+  {
+    "requestId": "alpha6-chrome-reveal",
+    "steps": [
+      {
+        "id": "reveal-learn-more",
+        "op": "scroll_into_view",
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-4d8"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "2263",
+      "epoch": "e-0bc95d1cb150d9cc03826c9b",
+      "expires_at": "2026-10-04T15:22:41.337479Z",
+      "input": {
+        "mode": "cooperative",
+        "restoration": "not_borrowed"
+      },
+      "outcome": "completed",
+      "request_id": "e-0bc95d1cb150d9cc03826c9b:BMH6BV64RND2AK33QUQRVIR3IG:data-67",
+      "run_id": "run-0de6bc44a63015aad993b3fc",
+      "seat_health": "ready",
+      "start_revision": "2262",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "semantic",
+          "delivery": "not_applicable",
+          "end_revision": "2263",
+          "evidence": [
+            {
+              "equals_bool": false,
+              "property": "offscreen",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-4d8"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:17:41.337438Z",
+          "id": "reveal-learn-more",
+          "start_revision": "2262",
+          "started_at": "2026-10-04T15:17:41.311645Z",
+          "state": "satisfied",
+          "target": "r-0bc95d1cb150d9cc03826c9b-4d8",
+          "verification": "verified"
+        }
+      ]
+    }
+  },
+  {
+    "requestId": "alpha6-cooperative-once",
+    "steps": [
+      {
+        "click": {
+          "button": "left",
+          "count": 1
+        },
+        "id": "click-verification-text",
+        "op": "pointer.click",
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+        }
+      },
+      {
+        "id": "select-all",
+        "op": "keyboard.press",
+        "press": {
+          "key": "A",
+          "modifiers": [
+            "primary"
+          ]
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+        }
+      },
+      {
+        "id": "type-text",
+        "op": "keyboard.type_text",
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+        },
+        "type_text": {
+          "text": "Cooperative 实机 🌍 OK"
+        }
+      },
+      {
+        "completion": "dispatch",
+        "id": "submit-once",
+        "op": "invoke",
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-38"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "615",
+      "epoch": "e-0bc95d1cb150d9cc03826c9b",
+      "expires_at": "2026-10-04T15:12:02.329852Z",
+      "input": {
+        "foreground_ms": 408,
+        "mode": "cooperative",
+        "restoration": "restored"
+      },
+      "outcome": "completed",
+      "request_id": "e-0bc95d1cb150d9cc03826c9b:BYJDYU5JMZ2HZUC6VUFJLTBTN4:data-15",
+      "run_id": "run-a847aa6b7225eeb248df6f79",
+      "seat_health": "ready",
+      "start_revision": "614",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "614",
+          "finished_at": "2026-10-04T15:07:02.034595Z",
+          "id": "click-verification-text",
+          "start_revision": "614",
+          "started_at": "2026-10-04T15:07:01.887976Z",
+          "state": "dispatched",
+          "target": "r-0bc95d1cb150d9cc03826c9b-3b",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "615",
+          "finished_at": "2026-10-04T15:07:02.092162Z",
+          "id": "select-all",
+          "start_revision": "614",
+          "started_at": "2026-10-04T15:07:02.034629Z",
+          "state": "dispatched",
+          "target": "r-0bc95d1cb150d9cc03826c9b-3b",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "615",
+          "finished_at": "2026-10-04T15:07:02.154622Z",
+          "id": "type-text",
+          "start_revision": "615",
+          "started_at": "2026-10-04T15:07:02.092173Z",
+          "state": "dispatched",
+          "target": "r-0bc95d1cb150d9cc03826c9b-3b",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "615",
+          "finished_at": "2026-10-04T15:07:02.268213Z",
+          "id": "submit-once",
+          "start_revision": "615",
+          "started_at": "2026-10-04T15:07:02.154656Z",
+          "state": "dispatched",
+          "target": "r-0bc95d1cb150d9cc03826c9b-38",
+          "verification": "not_requested"
+        }
+      ]
+    }
+  },
+  {
+    "requestId": "alpha6-final-build-once",
+    "steps": [
+      {
+        "completion": "verify",
+        "id": "uncheck-only-incomplete",
+        "op": "set_checked",
+        "set_checked": {
+          "checked": false
+        },
+        "target": {
+          "ref": "r-953acfdb2cc5e195e0addfe3-39"
+        }
+      },
+      {
+        "click": {
+          "button": "left",
+          "count": 1
+        },
+        "id": "click-verification-text",
+        "op": "pointer.click",
+        "target": {
+          "ref": "r-953acfdb2cc5e195e0addfe3-3d"
+        }
+      },
+      {
+        "id": "select-all",
+        "op": "keyboard.press",
+        "press": {
+          "key": "A",
+          "modifiers": [
+            "primary"
+          ]
+        },
+        "target": {
+          "ref": "r-953acfdb2cc5e195e0addfe3-3d"
+        }
+      },
+      {
+        "id": "type-text",
+        "op": "keyboard.type_text",
+        "target": {
+          "ref": "r-953acfdb2cc5e195e0addfe3-3d"
+        },
+        "type_text": {
+          "text": "Final alpha6 build 🌍 PASS"
+        }
+      },
+      {
+        "completion": "dispatch",
+        "id": "submit-once",
+        "op": "invoke",
+        "target": {
+          "ref": "r-953acfdb2cc5e195e0addfe3-3a"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "138",
+      "epoch": "e-953acfdb2cc5e195e0addfe3",
+      "expires_at": "2026-10-04T15:38:45.664415Z",
+      "fault": {
+        "code": "input_restoration_failed",
+        "message": "foreground cleanup could not be confirmed",
+        "retry_class": "never_automatically"
+      },
+      "input": {
+        "foreground_ms": 397,
+        "mode": "cooperative",
+        "restoration": "failed"
+      },
+      "outcome": "unknown",
+      "request_id": "e-953acfdb2cc5e195e0addfe3:BFSZDEN4PZAQBH77JP2Y4TSJ2K:data-6",
+      "run_id": "run-99a506da51df37f19f99c944",
+      "seat_health": "fenced",
+      "start_revision": "133",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "135",
+          "evidence": [
+            {
+              "equals_bool": false,
+              "property": "checked",
+              "target": {
+                "ref": "r-953acfdb2cc5e195e0addfe3-39"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:33:45.243425Z",
+          "id": "uncheck-only-incomplete",
+          "start_revision": "133",
+          "started_at": "2026-10-04T15:33:45.122427Z",
+          "state": "satisfied",
+          "target": "r-953acfdb2cc5e195e0addfe3-39",
+          "verification": "verified"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "136",
+          "finished_at": "2026-10-04T15:33:45.395123Z",
+          "id": "click-verification-text",
+          "start_revision": "135",
+          "started_at": "2026-10-04T15:33:45.243431Z",
+          "state": "dispatched",
+          "target": "r-953acfdb2cc5e195e0addfe3-3d",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "137",
+          "finished_at": "2026-10-04T15:33:45.45553Z",
+          "id": "select-all",
+          "start_revision": "136",
+          "started_at": "2026-10-04T15:33:45.395136Z",
+          "state": "dispatched",
+          "target": "r-953acfdb2cc5e195e0addfe3-3d",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "137",
+          "finished_at": "2026-10-04T15:33:45.516681Z",
+          "id": "type-text",
+          "start_revision": "137",
+          "started_at": "2026-10-04T15:33:45.455541Z",
+          "state": "dispatched",
+          "target": "r-953acfdb2cc5e195e0addfe3-3d",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "138",
+          "finished_at": "2026-10-04T15:33:45.629626Z",
+          "id": "submit-once",
+          "start_revision": "137",
+          "started_at": "2026-10-04T15:33:45.516691Z",
+          "state": "dispatched",
+          "target": "r-953acfdb2cc5e195e0addfe3-3a",
+          "verification": "not_requested"
+        }
+      ]
+    }
+  },
+  {
+    "requestId": "alpha6-partial-probe",
+    "steps": [
+      {
+        "after": [
+          {
+            "equals_string": "INTENTIONALLY_NOT_MATCHED",
+            "property": "value",
+            "target": {
+              "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+            }
+          }
+        ],
+        "completion": "verify",
+        "id": "write-verification-text",
+        "op": "set_value",
+        "set_value": {
+          "text": "Partial receipt probe 🌍"
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+        },
+        "timeout_ms": 300
+      },
+      {
+        "completion": "dispatch",
+        "id": "submit-once",
+        "op": "invoke",
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-38"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "2266",
+      "epoch": "e-0bc95d1cb150d9cc03826c9b",
+      "expires_at": "2026-10-04T15:23:46.449354Z",
+      "fault": {
+        "code": "verification_timeout",
+        "message": "verification_timeout",
+        "retry_class": "never_automatically"
+      },
+      "input": {
+        "mode": "cooperative",
+        "restoration": "not_borrowed"
+      },
+      "outcome": "partial",
+      "request_id": "e-0bc95d1cb150d9cc03826c9b:WBEVQM4OG5AYA4WCSZ6IC7DVMK:data-74",
+      "run_id": "run-50ae5f62df9f54ea1c4f008f",
+      "seat_health": "ready",
+      "start_revision": "2265",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "2266",
+          "evidence": [
+            {
+              "equals_string": "INTENTIONALLY_NOT_MATCHED",
+              "property": "value",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+              }
+            },
+            {
+              "equals_string": "Partial receipt probe 🌍",
+              "property": "value",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+              }
+            }
+          ],
+          "fault": {
+            "code": "verification_timeout",
+            "message": "verification_timeout",
+            "retry_class": "never_automatically"
+          },
+          "finished_at": "2026-10-04T15:18:46.449232Z",
+          "id": "write-verification-text",
+          "start_revision": "2265",
+          "started_at": "2026-10-04T15:18:46.14909Z",
+          "state": "failed",
+          "target": "r-0bc95d1cb150d9cc03826c9b-3b",
+          "verification": "not_met"
+        },
+        {
+          "channel": "semantic",
+          "delivery": "none",
+          "id": "submit-once",
+          "state": "skipped",
+          "verification": "not_requested"
+        }
+      ]
+    }
+  },
+  {
+    "requestId": "alpha6-semantic-once",
+    "steps": [
+      {
+        "completion": "verify",
+        "id": "check-only-incomplete",
+        "op": "set_checked",
+        "set_checked": {
+          "checked": true
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-37"
+        }
+      },
+      {
+        "completion": "verify",
+        "id": "write-verification-text",
+        "op": "set_value",
+        "set_value": {
+          "text": "Alpha6 语义验收 🌍 2026-10-04"
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+        }
+      },
+      {
+        "completion": "dispatch",
+        "id": "submit-once",
+        "op": "invoke",
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-38"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "136",
+      "epoch": "e-0bc95d1cb150d9cc03826c9b",
+      "expires_at": "2026-10-04T15:10:48.320481Z",
+      "input": {
+        "mode": "cooperative",
+        "restoration": "not_borrowed"
+      },
+      "outcome": "completed",
+      "request_id": "e-0bc95d1cb150d9cc03826c9b:7D2K2YPC3EU4PWNKGKCNMYLTQF:data-7",
+      "run_id": "run-963c022367b6b04f7bea1705",
+      "seat_health": "ready",
+      "start_revision": "131",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "133",
+          "evidence": [
+            {
+              "equals_bool": true,
+              "property": "checked",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-37"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:05:48.163938Z",
+          "id": "check-only-incomplete",
+          "start_revision": "131",
+          "started_at": "2026-10-04T15:05:48.042664Z",
+          "state": "satisfied",
+          "target": "r-0bc95d1cb150d9cc03826c9b-37",
+          "verification": "verified"
+        },
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "135",
+          "evidence": [
+            {
+              "equals_string": "Alpha6 语义验收 🌍 2026-10-04",
+              "property": "value",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:05:48.204747Z",
+          "id": "write-verification-text",
+          "start_revision": "133",
+          "started_at": "2026-10-04T15:05:48.163943Z",
+          "state": "satisfied",
+          "target": "r-0bc95d1cb150d9cc03826c9b-3b",
+          "verification": "verified"
+        },
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "136",
+          "finished_at": "2026-10-04T15:05:48.320425Z",
+          "id": "submit-once",
+          "start_revision": "135",
+          "started_at": "2026-10-04T15:05:48.204753Z",
+          "state": "dispatched",
+          "target": "r-0bc95d1cb150d9cc03826c9b-38",
+          "verification": "not_requested"
+        }
+      ]
+    }
+  },
+  {
+    "requestId": "alpha6-states-false",
+    "steps": [
+      {
+        "id": "expand-details",
+        "op": "set_expanded",
+        "set_expanded": {
+          "expanded": false
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-250"
+        }
+      },
+      {
+        "id": "select-row80",
+        "op": "set_selected",
+        "set_selected": {
+          "selected": false
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-2a5"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "809",
+      "epoch": "e-0bc95d1cb150d9cc03826c9b",
+      "expires_at": "2026-10-04T15:18:09.025047Z",
+      "input": {
+        "mode": "cooperative",
+        "restoration": "not_borrowed"
+      },
+      "outcome": "completed",
+      "request_id": "e-0bc95d1cb150d9cc03826c9b:KBA4LXJNBNH4E2QUQIZC5I5C2W:data-32",
+      "run_id": "run-c43373201d0ebf343d80a3ab",
+      "seat_health": "ready",
+      "start_revision": "807",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "808",
+          "evidence": [
+            {
+              "equals_bool": false,
+              "property": "expanded",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-250"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:13:09.005464Z",
+          "id": "expand-details",
+          "start_revision": "807",
+          "started_at": "2026-10-04T15:13:08.9832Z",
+          "state": "satisfied",
+          "target": "r-0bc95d1cb150d9cc03826c9b-250",
+          "verification": "verified"
+        },
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "809",
+          "evidence": [
+            {
+              "equals_bool": false,
+              "property": "selected",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-2a5"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:13:09.025014Z",
+          "id": "select-row80",
+          "start_revision": "808",
+          "started_at": "2026-10-04T15:13:09.005476Z",
+          "state": "satisfied",
+          "target": "r-0bc95d1cb150d9cc03826c9b-2a5",
+          "verification": "verified"
+        }
+      ]
+    }
+  },
+  {
+    "requestId": "alpha6-states-noop",
+    "steps": [
+      {
+        "id": "expand-details",
+        "op": "set_expanded",
+        "set_expanded": {
+          "expanded": false
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-250"
+        }
+      },
+      {
+        "id": "select-row80",
+        "op": "set_selected",
+        "set_selected": {
+          "selected": false
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-2a5"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "809",
+      "epoch": "e-0bc95d1cb150d9cc03826c9b",
+      "expires_at": "2026-10-04T15:18:11.309914Z",
+      "input": {
+        "mode": "cooperative",
+        "restoration": "not_borrowed"
+      },
+      "outcome": "completed",
+      "request_id": "e-0bc95d1cb150d9cc03826c9b:KBA4LXJNBNH4E2QUQIZC5I5C2W:data-33",
+      "run_id": "run-0f25fc8b4315e5d7fb02add2",
+      "seat_health": "ready",
+      "start_revision": "809",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "semantic",
+          "delivery": "not_applicable",
+          "end_revision": "809",
+          "evidence": [
+            {
+              "equals_bool": false,
+              "property": "expanded",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-250"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:13:11.293403Z",
+          "id": "expand-details",
+          "start_revision": "809",
+          "started_at": "2026-10-04T15:13:11.274507Z",
+          "state": "satisfied",
+          "target": "r-0bc95d1cb150d9cc03826c9b-250",
+          "verification": "verified"
+        },
+        {
+          "channel": "semantic",
+          "delivery": "not_applicable",
+          "end_revision": "809",
+          "evidence": [
+            {
+              "equals_bool": false,
+              "property": "selected",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-2a5"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:13:11.309881Z",
+          "id": "select-row80",
+          "start_revision": "809",
+          "started_at": "2026-10-04T15:13:11.29341Z",
+          "state": "satisfied",
+          "target": "r-0bc95d1cb150d9cc03826c9b-2a5",
+          "verification": "verified"
+        }
+      ]
+    }
+  },
+  {
+    "requestId": "alpha6-states-true",
+    "steps": [
+      {
+        "id": "expand-details",
+        "op": "set_expanded",
+        "set_expanded": {
+          "expanded": true
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-250"
+        }
+      },
+      {
+        "id": "select-row80",
+        "op": "set_selected",
+        "set_selected": {
+          "selected": true
+        },
+        "target": {
+          "ref": "r-0bc95d1cb150d9cc03826c9b-2a5"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "807",
+      "epoch": "e-0bc95d1cb150d9cc03826c9b",
+      "expires_at": "2026-10-04T15:18:06.97382Z",
+      "input": {
+        "mode": "cooperative",
+        "restoration": "not_borrowed"
+      },
+      "outcome": "completed",
+      "request_id": "e-0bc95d1cb150d9cc03826c9b:KBA4LXJNBNH4E2QUQIZC5I5C2W:data-31",
+      "run_id": "run-190b236fe08fd3248eed88db",
+      "seat_health": "ready",
+      "start_revision": "803",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "805",
+          "evidence": [
+            {
+              "equals_bool": true,
+              "property": "expanded",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-250"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:13:06.925402Z",
+          "id": "expand-details",
+          "start_revision": "803",
+          "started_at": "2026-10-04T15:13:06.905431Z",
+          "state": "satisfied",
+          "target": "r-0bc95d1cb150d9cc03826c9b-250",
+          "verification": "verified"
+        },
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "807",
+          "evidence": [
+            {
+              "equals_bool": true,
+              "property": "selected",
+              "target": {
+                "ref": "r-0bc95d1cb150d9cc03826c9b-2a5"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:13:06.973785Z",
+          "id": "select-row80",
+          "start_revision": "805",
+          "started_at": "2026-10-04T15:13:06.925408Z",
+          "state": "satisfied",
+          "target": "r-0bc95d1cb150d9cc03826c9b-2a5",
+          "verification": "verified"
+        }
+      ]
+    }
+  }
+]
