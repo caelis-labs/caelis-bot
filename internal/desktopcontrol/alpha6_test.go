@@ -50,7 +50,7 @@ func TestSemanticStateContractsPreserveFalse(t *testing.T) {
 	}
 }
 
-func TestCooperativeWholePlanRejectedBeforeAnyDispatch(t *testing.T) {
+func TestCooperativeLocalPreflightRejectsBeforeRegistration(t *testing.T) {
 	c, f, ctx := fixtureController(t)
 	for _, suffix := range []string{
 		`{"id":"text","op":"keyboard.type_text","target":{"ref":"field"},"type_text":{"text":"` + strings.Repeat("😀", 129) + `"}}`,
@@ -62,8 +62,11 @@ func TestCooperativeWholePlanRejectedBeforeAnyDispatch(t *testing.T) {
 		if !out.IsError || out.StructuredContent["outcome"] != "rejected" || f.calls != 1 {
 			t.Fatal("prefix dispatched", out, f.calls)
 		}
+		if _, recorded := c.requests["correctable-plan"]; recorded {
+			t.Fatal("local preflight reserved the request ID")
+		}
 	}
-	// A rejected plan reserves no ID. The corrected exact boundary is sent once.
+	// Only this unrecorded local rejection permits corrected arguments under the same ID.
 	raw := json.RawMessage(`{"requestId":"correctable-plan","args":{"steps":[{"id":"text","op":"keyboard.type_text","target":{"ref":"field"},"type_text":{"text":"` + strings.Repeat("😀", 128) + `"}}]}}`)
 	if out := c.CallTool(ctx, Prefix+"act", raw); out.IsError || f.calls != 2 {
 		t.Fatal(out, f.calls)

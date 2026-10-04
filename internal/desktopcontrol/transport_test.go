@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -32,7 +34,16 @@ func protocolFixture() {
 	revoked := make(chan struct{})
 	once := sync.Once{}
 	output := json.NewEncoder(os.Stdout)
+	writeReply := func(reply host.Reply) {
+		body, err := protocol.Marshal(reply)
+		if err != nil {
+			os.Exit(8)
+		}
+		// Fault fields use the published wire codec, not Go's capitalized names.
+		output.Encode(json.RawMessage(body))
+	}
 	mode, policy := dw.InputModeShared, dw.InputShared
+	assets := ""
 	for i, arg := range os.Args {
 		if i+1 < len(os.Args) {
 			switch arg {
@@ -40,6 +51,8 @@ func protocolFixture() {
 				mode = dw.InputMode(os.Args[i+1])
 			case "--input-policy":
 				policy = dw.InputPolicy(os.Args[i+1])
+			case "--assets-dir":
+				assets = os.Args[i+1]
 			}
 		}
 	}
@@ -90,11 +103,39 @@ func protocolFixture() {
 			if protocol.Decode(r.Args, &plan) != nil || plan.Epoch != "" || plan.RequestID != "" {
 				os.Exit(4)
 			}
+			// Match the pinned helper's identity injection and whole-plan
+			// validation gate, before any fixture input can be delivered.
+			plan.Epoch = "fixture-epoch"
+			plan.RequestID = dw.RequestID("fixture-epoch:" + r.Turn + ":" + r.ID)
+			if err := plan.Validate(); err != nil {
+				if !errors.As(err, &reply.Error) {
+					reply.Error = dw.Invalid(err.Error())
+				}
+				writeReply(reply)
+				continue
+			}
 			mu.Lock()
 			allowed := grant && active == r.Turn
 			mu.Unlock()
 			if !allowed {
 				reply.Error = &dw.Fault{Code: "unauthorized", Message: "fixture grant required"}
+			} else if _, err := os.Stat(filepath.Join(assets, "fixture-complete-plans")); err == nil {
+				// Explicit fixture mode: independent event evidence, not native UI.
+				events, err := os.OpenFile(filepath.Join(assets, "fixture-input-events"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+				if err != nil {
+					os.Exit(5)
+				}
+				receipt := dw.Receipt{RunID: dw.RunID("fixture-run-" + r.ID), Outcome: "completed", State: "terminal", SeatHealth: "ready"}
+				for _, step := range plan.Steps {
+					if err := json.NewEncoder(events).Encode(map[string]string{"id": step.ID, "op": step.Op}); err != nil {
+						os.Exit(6)
+					}
+					receipt.Steps = append(receipt.Steps, dw.StepResult{ID: step.ID, Channel: "semantic", State: "dispatched", Delivery: dw.DeliveryComplete, Verification: dw.Verification("not_requested")})
+				}
+				if events.Close() != nil {
+					os.Exit(7)
+				}
+				reply.Result, _ = protocol.Marshal(receipt)
 			} else {
 				// Publish a fixture-only fence after reading and authorizing the
 				// data request; EndTurn is tested while that request is blocked.
@@ -107,7 +148,82 @@ func protocolFixture() {
 				reply.Result = json.RawMessage(`{"run_id":"fixture-run","outcome":"cancelled","seat_health":"ready"}`)
 			}
 		}
-		output.Encode(reply)
+		writeReply(reply)
+	}
+}
+
+func TestPublishedHostHelperValidationRequiresNewIDForCorrectedPlan(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("alpha managed host is Unix only")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assets := t.TempDir()
+	if err := os.WriteFile(filepath.Join(assets, "fixture-complete-plans"), []byte("enabled"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c := New(exe, assets)
+	t.Cleanup(c.Close)
+	ctx, cancel := context.WithTimeout(WithTurn(t.Context(), "validation-turn"), 8*time.Second)
+	defer cancel()
+	if r := c.CallTool(ctx, Prefix+"observe", json.RawMessage(`{"requestId":"validation-observe","args":{"scope":{"desktop":true}}}`)); r.IsError {
+		t.Fatal(r)
+	}
+	if r := c.CallTool(ctx, Prefix+"authorize", json.RawMessage(`{"application":"fixture-app","name":"Fixture","purpose":"controlled validation fixture"}`)); r.IsError {
+		t.Fatal(r)
+	}
+	bad := `{"requestId":"helper-original","args":{"steps":[{"id":"one","op":"invoke","target":{"ref":"fixture-button"}},{"id":"one","op":"invoke","target":{"ref":"fixture-button"}}]}}`
+	first := c.CallTool(ctx, Prefix+"act", json.RawMessage(bad))
+	if !first.IsError || !strings.Contains(first.Content[0]["text"], "empty or duplicate step id") {
+		t.Fatal("duplicate step IDs did not reach the helper's validator", first)
+	}
+	recorded := c.requests["helper-original"]
+	if recorded == nil || recorded.reply.Error == nil || recorded.reply.Error.Code != "invalid_argument" {
+		t.Fatal("helper rejection was mistaken for an unrecorded local preflight")
+	}
+	if _, err := os.Stat(filepath.Join(assets, "fixture-input-events")); !os.IsNotExist(err) {
+		t.Fatal("rejected plan delivered fixture input", err)
+	}
+	corrected := strings.Replace(bad, `},{"id":"one"`, `},{"id":"two"`, 1)
+	conflict := c.CallTool(ctx, Prefix+"act", json.RawMessage(corrected))
+	if !conflict.IsError || conflict.StructuredContent["error"].(map[string]any)["code"] != "request_conflict" {
+		t.Fatal("helper request ID permitted changed arguments", conflict)
+	}
+	if same := c.CallTool(ctx, Prefix+"act", json.RawMessage(bad)); !same.IsError || same.Content[0]["text"] != first.Content[0]["text"] {
+		t.Fatal("identical retry lost the original helper rejection", same)
+	}
+	corrected = strings.Replace(corrected, "helper-original", "helper-corrected", 1)
+	if r := c.CallTool(ctx, Prefix+"act", json.RawMessage(corrected)); r.IsError {
+		t.Fatal("corrected plan under a new ID failed", r)
+	}
+	events, err := os.ReadFile(filepath.Join(assets, "fixture-input-events"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var delivered []string
+	scan := bufio.NewScanner(strings.NewReader(string(events)))
+	for scan.Scan() {
+		var event map[string]string
+		if err := json.Unmarshal(scan.Bytes(), &event); err != nil {
+			t.Fatal(err)
+		}
+		delivered = append(delivered, event["id"]+":"+event["op"])
+	}
+	if err := scan.Err(); err != nil || strings.Join(delivered, ",") != "one:invoke,two:invoke" {
+		t.Fatal("corrected plan did not deliver exactly two ordered fixture events", delivered, err)
+	}
+	c.EndTurn("validation-turn")
+	// Both Controller and the actual published SDK retain the first rejection.
+	got := c.CallTool(t.Context(), Prefix+"reconcile", json.RawMessage(`{"requestId":"helper-original"}`))
+	sdk, err := c.client.Reconcile(t.Context(), "validation-turn", "helper-original")
+	if !got.IsError || got.Content[0]["text"] != first.Content[0]["text"] || err != nil || sdk.Error == nil || sdk.Error.Code != "invalid_argument" {
+		t.Fatal("original helper rejection lost after correction/end", got, sdk, err)
+	}
+	after, err := os.ReadFile(filepath.Join(assets, "fixture-input-events"))
+	if err != nil || string(after) != string(events) {
+		t.Fatal("receipt recovery replayed input", string(after), err)
 	}
 }
 func TestPublishedHostPrivateControlCanStopPendingDataAndReconcile(t *testing.T) {

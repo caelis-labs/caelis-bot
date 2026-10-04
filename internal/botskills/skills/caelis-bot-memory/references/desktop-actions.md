@@ -53,8 +53,16 @@ requires a fresh observation; never predict its Ref. Use explicit `before` and
 `after` predicates where useful, and local `wait` for known conditions instead
 of model polling. `completion:"verify"` for other writes requires nonempty
 `after` predicates. To invoke without one use `completion:"dispatch"` and inspect
-the result separately. A validation rejection before dispatch is correctable
-using the original ID; it is different from uncertain input.
+the result separately.
+
+Only confirmed Bot-local validation before the request is recorded permits
+correcting arguments under the same ID (local preflight returns top-level
+`outcome:"rejected"`). Once sent to the helper, preserve the original ID and
+arguments even for validation errors. If the original reply confirms the whole
+plan was rejected before any input, submit the corrected plan with a new ID.
+A generic error or missing receipt does not prove no input. For partial/unknown
+outcomes, query the original receipt through [Recovery](desktop-recovery.md);
+never replay them with corrected arguments or a new ID.
 
 # Verify the user result
 

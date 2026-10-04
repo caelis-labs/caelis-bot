@@ -35,8 +35,18 @@ identities are synthetic evidence, not user-facing navigation. Raw Runtime
 bindings, conversations, private windows/tabs and credentials are excluded.
 The image is the actual Desktop World window-content tool image seen by the Bot.
 The earlier counter-2 files record their point in time; `final-build-result.json`
-records the final counter-3 readback. The final commit after `3588a15` adds only
-tests and this evidence, without changing the qualified runtime or skills.
+records the final counter-3 readback. Commit `77437cf` added tests and evidence
+after `3588a15`, without changing that qualified runtime or its skills.
+
+The 2026-10-05 review follow-up narrows the validation-recovery guide: only an
+unrecorded local preflight rejection permits corrected arguments under the old
+ID; a helper rejection keeps the old ID/body immutable. A corrected plan needs
+a new ID only after whole-plan rejection with no input is confirmed. Separate
+protocol regressions use the published SDK/validator and an independent fixture
+event log; the actual packaged helper also rejects duplicate step IDs and keeps
+the original rejection recoverable. These checks grant no native application and
+send no UI input. Controller/request recording is unchanged; the Computer Use
+outcomes above remain evidence from their original run.
 
 ![Captured fixture after cooperative input](window-content.png)
 
