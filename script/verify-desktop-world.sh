@@ -7,7 +7,7 @@ BOT_DW_VERIFY_ROOT="$BOT_DW_VERIFY_BUNDLE/Contents/Resources/DesktopWorld"
 BOT_DW_VERIFY_VERSION=$(/usr/libexec/PlistBuddy -c 'Print CaelisDesktopWorldVersion' "$BOT_DW_VERIFY_BUNDLE/Contents/Info.plist" 2>/dev/null || true)
 [[ -n "$BOT_DW_VERIFY_VERSION" && -d "$BOT_DW_VERIFY_ROOT" ]] || { echo 'Missing Desktop World payload or bundle version marker.' >&2; exit 1; }
 case "$BOT_DW_VERIFY_MODE" in adhoc|development|developer-id) ;; *) exit 1 ;; esac
-for BOT_DW_VERIFY_FILE in bin/desktop-world manifest.json NOTICE; do
+for BOT_DW_VERIFY_FILE in bin/dtw manifest.json NOTICE THIRD_PARTY_NOTICES.md; do
  test -s "$BOT_DW_VERIFY_ROOT/$BOT_DW_VERIFY_FILE"
 done
 node "$(dirname "$0")/verify-desktop-world-manifest.mjs" "$BOT_DW_VERIFY_ROOT" --bundled
@@ -37,7 +37,7 @@ while IFS= read -r -d '' BOT_DW_VERIFY_NATIVE; do
   # Absolute Homebrew/local dependencies would break on a clean user's Mac.
   bash "$(dirname "$0")/verify-native-dependencies.sh" "$BOT_DW_VERIFY_ARCH" "$BOT_DW_VERIFY_NATIVE"
   BOT_DW_VERIFY_COUNT=$((BOT_DW_VERIFY_COUNT+1))
-done < <(find "$BOT_DW_VERIFY_ROOT/bin" -type f -name desktop-world -print0)
+done < <(find "$BOT_DW_VERIFY_ROOT/bin" -type f -name dtw -print0)
 [[ "$BOT_DW_VERIFY_COUNT" -eq 1 ]]
 # Executing version only: no desktop observation, permission request or input.
-node "$(dirname "$0")/verify-desktop-world-manifest.mjs" "$BOT_DW_VERIFY_ROOT" "$("$BOT_DW_VERIFY_ROOT/bin/desktop-world" version)" --bundled
+node "$(dirname "$0")/verify-desktop-world-manifest.mjs" "$BOT_DW_VERIFY_ROOT" "$("$BOT_DW_VERIFY_ROOT/bin/dtw" version)" --bundled

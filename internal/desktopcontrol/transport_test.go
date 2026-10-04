@@ -32,7 +32,18 @@ func protocolFixture() {
 	revoked := make(chan struct{})
 	once := sync.Once{}
 	output := json.NewEncoder(os.Stdout)
-	output.Encode(map[string]any{"type": "hello", "protocol": "desktop-world/helper-v0.1", "managed": true, "environment": map[string]any{"epoch": "fixture-epoch", "platform": "darwin"}})
+	mode, policy := dw.InputModeShared, dw.InputShared
+	for i, arg := range os.Args {
+		if i+1 < len(os.Args) {
+			switch arg {
+			case "--input-mode":
+				mode = dw.InputMode(os.Args[i+1])
+			case "--input-policy":
+				policy = dw.InputPolicy(os.Args[i+1])
+			}
+		}
+	}
+	output.Encode(map[string]any{"type": "hello", "protocol": "desktop-world/helper-v0.1", "managed": true, "input_mode": mode, "input_policy": policy, "environment": map[string]any{"epoch": "fixture-epoch", "platform": "darwin", "input_mode": mode}})
 	go func() {
 		control := bufio.NewScanner(os.NewFile(3, "host-control"))
 		responses := json.NewEncoder(os.NewFile(4, "control-responses"))

@@ -304,8 +304,8 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 ## Desktop and presentation
 
 Desktop World is the resident desktop backend for both Codex and Caelis. The pinned
-public Go module and independently signed helper are v0.1.0-alpha.2, revision
-`cc50357f9f922712ef4e2bf4db4822381d10d71a`. The old Cua/Node driver, native focus
+public Go module and independently signed `dtw` helper are v0.1.0-alpha.6, revision
+`887b863809f2ba532675668e37e91bde4dac758d`. The old Cua/Node driver, native focus
 ports and optional whole-desktop experiment are retired. F1 screen input and
 passive character context remain separate. Codex resident configuration denies
 native Computer Use app access when Desktop World is bound; ordinary sessions
@@ -362,7 +362,7 @@ The managed JavaScript bridge is not part of this first Go host integration. The
 upstream Node CLI uses a different startup authorization route and must not be
 launched as an alternative writer. Distribution is currently macOS arm64 / 14+;
 Bot re-signs its nested helper. Public preview availability grants no open-source
-license; preserve the upstream NOTICE and separate Bot licensing.
+license; preserve the upstream NOTICE, THIRD_PARTY_NOTICES.md and separate Bot licensing.
 
 Native logical coordinates use primary-display bottom-left origin, Y up, including negative coordinates.
 Device pixels/DPI do not belong in saved character scale. AppKit owns nonactivating panels, hit masks, drag,

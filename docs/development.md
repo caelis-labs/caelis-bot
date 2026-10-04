@@ -18,6 +18,12 @@ and checks assets; it does not create a conversation or call a model. `make buil
 `make package` adds a verified read-only DMG/checksum, using pinned Python dmgbuild in `.cache/dmg-tools`.
 First builds fetch pinned Sparkle and Desktop World artifacts; versions/hashes remain source-controlled.
 
+The current Desktop World SDK and packaged `bin/dtw` helper are pinned together
+to v0.1.0-alpha.6 / `887b863809f2ba532675668e37e91bde4dac758d`.
+The archive checksum is in `resources/desktop-world/release.json`; bundle validation
+requires both upstream NOTICE and THIRD_PARTY_NOTICES.md. Historical uptake
+records below retain the version and evidence of their original runs.
+
 ## Native development
 
 

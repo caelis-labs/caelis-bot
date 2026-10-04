@@ -71,7 +71,7 @@ func Bundled() *Controller {
 	if err != nil {
 		return nil
 	}
-	helper := filepath.Join(filepath.Dir(exe), "..", "Resources", "DesktopWorld", "bin", "desktop-world")
+	helper := filepath.Join(filepath.Dir(exe), "..", "Resources", "DesktopWorld", "bin", "dtw")
 	if info, err := os.Stat(helper); err != nil || !info.Mode().IsRegular() {
 		return nil
 	}

@@ -318,7 +318,7 @@ Real model, long-running memory quality and cross-Runtime daily Notebook usage n
 ## Desktop World integration
 
 Both resident backends use the public Desktop World Go host SDK and independent
-native helper, pinned together to `v0.1.0-alpha.1` / `5a2ae97ddf65579d2d0051e82a33efd588f17942`.
+native `dtw` helper, pinned together to `v0.1.0-alpha.6` / `887b863809f2ba532675668e37e91bde4dac758d`.
 There is one desktop writer. No alternate driver, bundled JavaScript runtime or
 native-capability fallback remains. F1 screen input and passive desktop context
 are separate product services.
@@ -347,7 +347,7 @@ SHA-256, source revision, protocol and licensing metadata, then sign the helper 
 the app identity. CI verifies the real packaged helper without app grants or UI input.
 Current signing and packaging require Desktop World; use an historical tag's own
 release tooling for historical payloads. Upstream is a public preview with no
-open-source license grant; preserve its NOTICE separately from Bot licensing.
+open-source license grant; preserve its NOTICE and THIRD_PARTY_NOTICES.md separately from Bot licensing.
 
 See [architecture](architecture.md#desktop-and-presentation) for the ownership
 contract and [development](development.md#current-evidence-and-limits) for real Bot,
