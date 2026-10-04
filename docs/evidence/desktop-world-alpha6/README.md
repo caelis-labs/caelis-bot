@@ -27,12 +27,16 @@ with hardened runtime; this is not notarized public-release evidence.
 | Chrome scroll-into-view | `alpha6-chrome-reveal` | Supported visible link already onscreen; verified semantic no-op, no link activation |
 | Delivered prefix + skipped suffix | `alpha6-partial-probe`, `fixture-result.json` | `set_value` delivered, intentional predicate timeout; submit skipped, counter stays 2; no replay |
 | Original receipt in next turn | `recovery.json` | Exactly one status tool in that turn; same run/outcome/step facts, no observation/grant/input |
+| Final behavior build `3588a15`: false checkbox + keyboard text + one submit | `alpha6-final-build-once`, `final-build-result.json`, `cleanup-recovery.json` | All five steps delivered; false verified; independent native AX and fixture log confirm exact Unicode text / Visible tasks: 3 / Submitted: 3. Cleanup was **not confirmed**: 397ms, restoration failed, outcome unknown, seat fenced. Bot queried only the original receipt and did not replay or restart |
 
 `receipts.json` contains only curated original desktop action arguments/receipts;
 `recovery.json` contains the same-turn and next-turn status results. These native
 identities are synthetic evidence, not user-facing navigation. Raw Runtime
 bindings, conversations, private windows/tabs and credentials are excluded.
 The image is the actual Desktop World window-content tool image seen by the Bot.
+The earlier counter-2 files record their point in time; `final-build-result.json`
+records the final counter-3 readback. The final commit after `3588a15` adds only
+tests and this evidence, without changing the qualified runtime or skills.
 
 ![Captured fixture after cooperative input](window-content.png)
 
@@ -41,7 +45,7 @@ The image is the actual Desktop World window-content tool image seen by the Bot.
 Four desktop tools and ten resident tools remain. Catalog JSON is 33384 bytes
 (the internal legacy comparison is 39410 bytes); these are bytes, not tokens.
 Observation defaults are 32 objects / 8KiB, without eager values/states/capabilities.
-The observation guide is 51 lines, routing input/images/recovery on demand.
+The observation guide is 50 lines, routing input/images/recovery on demand.
 
 The semantic task used 5 inspections, 1 grant and 1 action; the cooperative task
 used 4 inspections, 2 grant attempts and 1 action (the first grant was refused
@@ -53,10 +57,14 @@ benchmark. Guidance now explicitly requires the current-turn application object,
 window-scoped tab discovery and routine activation of the requested observed tab.
 No model token/latency saving is claimed.
 
-Native receipt restoration succeeded in two physical plans. Human app-switch
-interruption, same-app competing input, actual offscreen scrolling, mixed checkbox,
-cleanup failure, IME/multiple displays/locked screen, macOS 14 and amd64 remain
-unqualified here. Contract/transport tests cover invalid plans, independent
+Native receipt restoration succeeded in two physical plans and failed in the
+final-build plan. The native helper could not confirm restoring the previous
+window/focused element; it fenced input, preserved all delivered steps, and the
+Bot reported uncertainty without repeating them. The receipt does not identify
+which restoration check failed, so no precise root cause or restoration
+reliability claim is made. Human app-switch interruption, same-app competing
+input, actual offscreen scrolling, mixed checkbox, IME/multiple displays/locked
+screen, macOS 14 and amd64 remain unqualified here. Contract/transport tests cover invalid plans, independent
 revocation, unknown recovery, oversized receipts, image gating/geometry and
 continuation turn isolation. No Windows Bot adapter or new release is delivered.
 

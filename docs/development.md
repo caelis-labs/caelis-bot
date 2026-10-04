@@ -138,7 +138,9 @@ images and original-receipt recovery. Dev Bot real-model AppKit/Chrome acceptanc
 and its independent fixture evidence are in
 [desktop-world-alpha6](evidence/desktop-world-alpha6/README.md). The record also
 includes native 8→16-node continuation, explicit false/no-op, partial/skipped
-recovery and current hardware limits. The following dated records are historical.
+recovery, and a delivered plan with failed cleanup correctly retained as
+unknown/fenced without replay. Restoration reliability and the documented
+hardware/platform gaps remain open. The following dated records are historical.
 
 The 2026-09-29 candidate passed check/smoke/build and affected race suites. Downloaded and checksum-verified
 Core v0.65.0 darwin-arm64 passed NativeHost and GuardianHost integration, including real 90-second timeout,

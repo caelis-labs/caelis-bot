@@ -325,6 +325,157 @@
     }
   },
   {
+    "requestId": "alpha6-final-build-once",
+    "steps": [
+      {
+        "completion": "verify",
+        "id": "uncheck-only-incomplete",
+        "op": "set_checked",
+        "set_checked": {
+          "checked": false
+        },
+        "target": {
+          "ref": "r-953acfdb2cc5e195e0addfe3-39"
+        }
+      },
+      {
+        "click": {
+          "button": "left",
+          "count": 1
+        },
+        "id": "click-verification-text",
+        "op": "pointer.click",
+        "target": {
+          "ref": "r-953acfdb2cc5e195e0addfe3-3d"
+        }
+      },
+      {
+        "id": "select-all",
+        "op": "keyboard.press",
+        "press": {
+          "key": "A",
+          "modifiers": [
+            "primary"
+          ]
+        },
+        "target": {
+          "ref": "r-953acfdb2cc5e195e0addfe3-3d"
+        }
+      },
+      {
+        "id": "type-text",
+        "op": "keyboard.type_text",
+        "target": {
+          "ref": "r-953acfdb2cc5e195e0addfe3-3d"
+        },
+        "type_text": {
+          "text": "Final alpha6 build 🌍 PASS"
+        }
+      },
+      {
+        "completion": "dispatch",
+        "id": "submit-once",
+        "op": "invoke",
+        "target": {
+          "ref": "r-953acfdb2cc5e195e0addfe3-3a"
+        }
+      }
+    ],
+    "receipt": {
+      "bindings": {},
+      "end_revision": "138",
+      "epoch": "e-953acfdb2cc5e195e0addfe3",
+      "expires_at": "2026-10-04T15:38:45.664415Z",
+      "fault": {
+        "code": "input_restoration_failed",
+        "message": "foreground cleanup could not be confirmed",
+        "retry_class": "never_automatically"
+      },
+      "input": {
+        "foreground_ms": 397,
+        "mode": "cooperative",
+        "restoration": "failed"
+      },
+      "outcome": "unknown",
+      "request_id": "e-953acfdb2cc5e195e0addfe3:BFSZDEN4PZAQBH77JP2Y4TSJ2K:data-6",
+      "run_id": "run-99a506da51df37f19f99c944",
+      "seat_health": "fenced",
+      "start_revision": "133",
+      "state": "terminal",
+      "steps": [
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "135",
+          "evidence": [
+            {
+              "equals_bool": false,
+              "property": "checked",
+              "target": {
+                "ref": "r-953acfdb2cc5e195e0addfe3-39"
+              }
+            }
+          ],
+          "finished_at": "2026-10-04T15:33:45.243425Z",
+          "id": "uncheck-only-incomplete",
+          "start_revision": "133",
+          "started_at": "2026-10-04T15:33:45.122427Z",
+          "state": "satisfied",
+          "target": "r-953acfdb2cc5e195e0addfe3-39",
+          "verification": "verified"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "136",
+          "finished_at": "2026-10-04T15:33:45.395123Z",
+          "id": "click-verification-text",
+          "start_revision": "135",
+          "started_at": "2026-10-04T15:33:45.243431Z",
+          "state": "dispatched",
+          "target": "r-953acfdb2cc5e195e0addfe3-3d",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "137",
+          "finished_at": "2026-10-04T15:33:45.45553Z",
+          "id": "select-all",
+          "start_revision": "136",
+          "started_at": "2026-10-04T15:33:45.395136Z",
+          "state": "dispatched",
+          "target": "r-953acfdb2cc5e195e0addfe3-3d",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "foreground_transaction",
+          "delivery": "complete",
+          "end_revision": "137",
+          "finished_at": "2026-10-04T15:33:45.516681Z",
+          "id": "type-text",
+          "start_revision": "137",
+          "started_at": "2026-10-04T15:33:45.455541Z",
+          "state": "dispatched",
+          "target": "r-953acfdb2cc5e195e0addfe3-3d",
+          "verification": "not_requested"
+        },
+        {
+          "channel": "semantic",
+          "delivery": "complete",
+          "end_revision": "138",
+          "finished_at": "2026-10-04T15:33:45.629626Z",
+          "id": "submit-once",
+          "start_revision": "137",
+          "started_at": "2026-10-04T15:33:45.516691Z",
+          "state": "dispatched",
+          "target": "r-953acfdb2cc5e195e0addfe3-3a",
+          "verification": "not_requested"
+        }
+      ]
+    }
+  },
+  {
     "requestId": "alpha6-partial-probe",
     "steps": [
       {

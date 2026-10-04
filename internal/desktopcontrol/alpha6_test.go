@@ -130,3 +130,34 @@ func TestOversizeReceiptKeepsPartialStepAndRestorationAfterTurn(t *testing.T) {
 		t.Fatal("partial evidence lost", out)
 	}
 }
+
+func TestDeliveredPlanWithFailedRestorationStaysUnknownAfterTurn(t *testing.T) {
+	c, f, ctx := fixtureController(t)
+	fault := dw.NewFault("input_restoration_failed", "foreground cleanup could not be confirmed", "never_automatically")
+	b, err := protocol.Marshal(dw.Receipt{
+		RunID: "cleanup-run", State: "terminal", Outcome: "unknown", SeatHealth: "fenced", Fault: fault,
+		Input: &dw.InputReport{Mode: "cooperative", ForegroundMS: 397, Restoration: "failed"},
+		Steps: []dw.StepResult{{ID: "submit", Channel: "semantic", State: "dispatched", Delivery: dw.DeliveryComplete, Verification: dw.Verification("not_requested")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.reply = host.Reply{Result: b, Error: fault}
+	first := c.CallTool(ctx, Prefix+"act", json.RawMessage(`{"requestId":"cleanup-original","args":{"steps":[{"id":"submit","op":"invoke","target":{"ref":"button"}}]}}`))
+	c.EndTurn("turn-one")
+	before := f.calls
+	got := c.ReadRun(t.Context(), "cleanup-run")
+	a, _ := json.Marshal(first)
+	z, _ := json.Marshal(got)
+	if !first.IsError || !got.IsError || string(a) != string(z) || f.calls != before {
+		t.Fatal("cleanup failure lost its original receipt or replayed input", first, got)
+	}
+	var receipt dw.Receipt
+	raw, _ := json.Marshal(got.StructuredContent["result"])
+	if err := protocol.Decode(raw, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Outcome != "unknown" || receipt.SeatHealth != "fenced" || receipt.Input == nil || receipt.Input.Restoration != "failed" || len(receipt.Steps) != 1 || receipt.Steps[0].Delivery != dw.DeliveryComplete || receipt.Fault == nil || receipt.Fault.RetryClass != "never_automatically" {
+		t.Fatal("delivered input was misrepresented as no effect", receipt)
+	}
+}
