@@ -1,0 +1,168 @@
+[
+  {
+    "request": {
+      "request": {
+        "requestId": "alpha6-partial-probe",
+        "type": "status"
+      }
+    },
+    "receipt": {
+      "error": {
+        "Code": "verification_timeout",
+        "Details": null,
+        "Message": "verification_timeout",
+        "NativeCode": "",
+        "RetryClass": "never_automatically"
+      },
+      "id": "alpha6-partial-probe",
+      "protocol": "desktop-world/helper-v0.1",
+      "result": {
+        "bindings": {},
+        "end_revision": "2266",
+        "epoch": "e-0bc95d1cb150d9cc03826c9b",
+        "expires_at": "2026-10-04T15:23:46.449354Z",
+        "fault": {
+          "code": "verification_timeout",
+          "message": "verification_timeout",
+          "retry_class": "never_automatically"
+        },
+        "input": {
+          "mode": "cooperative",
+          "restoration": "not_borrowed"
+        },
+        "outcome": "partial",
+        "request_id": "e-0bc95d1cb150d9cc03826c9b:WBEVQM4OG5AYA4WCSZ6IC7DVMK:data-74",
+        "run_id": "run-50ae5f62df9f54ea1c4f008f",
+        "seat_health": "ready",
+        "start_revision": "2265",
+        "state": "terminal",
+        "steps": [
+          {
+            "channel": "semantic",
+            "delivery": "complete",
+            "end_revision": "2266",
+            "evidence": [
+              {
+                "equals_string": "INTENTIONALLY_NOT_MATCHED",
+                "property": "value",
+                "target": {
+                  "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+                }
+              },
+              {
+                "equals_string": "Partial receipt probe 🌍",
+                "property": "value",
+                "target": {
+                  "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+                }
+              }
+            ],
+            "fault": {
+              "code": "verification_timeout",
+              "message": "verification_timeout",
+              "retry_class": "never_automatically"
+            },
+            "finished_at": "2026-10-04T15:18:46.449232Z",
+            "id": "write-verification-text",
+            "start_revision": "2265",
+            "started_at": "2026-10-04T15:18:46.14909Z",
+            "state": "failed",
+            "target": "r-0bc95d1cb150d9cc03826c9b-3b",
+            "verification": "not_met"
+          },
+          {
+            "channel": "semantic",
+            "delivery": "none",
+            "id": "submit-once",
+            "state": "skipped",
+            "verification": "not_requested"
+          }
+        ]
+      },
+      "world": "e-0bc95d1cb150d9cc03826c9b"
+    }
+  },
+  {
+    "request": {
+      "request": {
+        "requestId": "alpha6-partial-probe",
+        "type": "status"
+      }
+    },
+    "receipt": {
+      "error": {
+        "Code": "verification_timeout",
+        "Details": null,
+        "Message": "verification_timeout",
+        "NativeCode": "",
+        "RetryClass": "never_automatically"
+      },
+      "id": "alpha6-partial-probe",
+      "protocol": "desktop-world/helper-v0.1",
+      "result": {
+        "bindings": {},
+        "end_revision": "2266",
+        "epoch": "e-0bc95d1cb150d9cc03826c9b",
+        "expires_at": "2026-10-04T15:23:46.449354Z",
+        "fault": {
+          "code": "verification_timeout",
+          "message": "verification_timeout",
+          "retry_class": "never_automatically"
+        },
+        "input": {
+          "mode": "cooperative",
+          "restoration": "not_borrowed"
+        },
+        "outcome": "partial",
+        "request_id": "e-0bc95d1cb150d9cc03826c9b:WBEVQM4OG5AYA4WCSZ6IC7DVMK:data-74",
+        "run_id": "run-50ae5f62df9f54ea1c4f008f",
+        "seat_health": "ready",
+        "start_revision": "2265",
+        "state": "terminal",
+        "steps": [
+          {
+            "channel": "semantic",
+            "delivery": "complete",
+            "end_revision": "2266",
+            "evidence": [
+              {
+                "equals_string": "INTENTIONALLY_NOT_MATCHED",
+                "property": "value",
+                "target": {
+                  "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+                }
+              },
+              {
+                "equals_string": "Partial receipt probe 🌍",
+                "property": "value",
+                "target": {
+                  "ref": "r-0bc95d1cb150d9cc03826c9b-3b"
+                }
+              }
+            ],
+            "fault": {
+              "code": "verification_timeout",
+              "message": "verification_timeout",
+              "retry_class": "never_automatically"
+            },
+            "finished_at": "2026-10-04T15:18:46.449232Z",
+            "id": "write-verification-text",
+            "start_revision": "2265",
+            "started_at": "2026-10-04T15:18:46.14909Z",
+            "state": "failed",
+            "target": "r-0bc95d1cb150d9cc03826c9b-3b",
+            "verification": "not_met"
+          },
+          {
+            "channel": "semantic",
+            "delivery": "none",
+            "id": "submit-once",
+            "state": "skipped",
+            "verification": "not_requested"
+          }
+        ]
+      },
+      "world": "e-0bc95d1cb150d9cc03826c9b"
+    }
+  }
+]

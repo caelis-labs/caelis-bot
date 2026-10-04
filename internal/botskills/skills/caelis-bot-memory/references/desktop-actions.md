@@ -42,6 +42,11 @@ one observed window. Use Refs/target anchors; raw Points are unavailable.
 The helper enforces a 1-second input budget; it is not a total-call time promise.
 Never split, truncate or replay a rejected/partial plan automatically.
 
+For a task naming a document or tab, activating that observed target is a routine
+part of the task. If a shared address/editor field belongs to another active tab,
+select the requested tab first and observe its controls again before typing.
+Search within the observed window; a same-name menu item is not a tab identity.
+
 Batch only known targets and effects. A known future menu/dialog can use a
 unique, narrowly scoped `bind` and its alias within that plan. Unknown future UI
 requires a fresh observation; never predict its Ref. Use explicit `before` and

@@ -1,0 +1,164 @@
+[
+  {
+    "request": {
+      "request": {
+        "budget": {
+          "max_output_bytes": 3000,
+          "max_results": 3,
+          "max_visited_nodes": 1000
+        },
+        "fields": [
+          "name",
+          "role",
+          "states",
+          "capabilities"
+        ],
+        "projection": "outline",
+        "scope": {
+          "desktop": false,
+          "refs": [
+            "r-0bc95d1cb150d9cc03826c9b-24d"
+          ]
+        },
+        "type": "outline"
+      }
+    },
+    "object_count": 1,
+    "coverage": {
+      "complete": false,
+      "continuation": "p-ffb894d77ee57f89b15d8666",
+      "dirty": false,
+      "fields": [
+        "name",
+        "role",
+        "states",
+        "capabilities"
+      ],
+      "max_depth": 3,
+      "sample_end": "2026-10-04T15:12:48.104879Z",
+      "sample_start": "2026-10-04T15:12:47.913537Z",
+      "scope": {
+        "refs": [
+          "r-0bc95d1cb150d9cc03826c9b-24d"
+        ]
+      },
+      "truncated": true,
+      "unavailable_sources": [],
+      "visited_nodes": 174
+    }
+  },
+  {
+    "request": {
+      "request": {
+        "continuation": "p-ffb894d77ee57f89b15d8666",
+        "type": "outline"
+      }
+    },
+    "object_count": 1,
+    "coverage": {
+      "complete": false,
+      "continuation": "p-374ba44ee7f343746e5800bb",
+      "dirty": false,
+      "fields": [
+        "name",
+        "role",
+        "states",
+        "capabilities"
+      ],
+      "max_depth": 3,
+      "sample_end": "2026-10-04T15:12:48.104879Z",
+      "sample_start": "2026-10-04T15:12:47.913537Z",
+      "scope": {
+        "refs": [
+          "r-0bc95d1cb150d9cc03826c9b-24d"
+        ]
+      },
+      "truncated": true,
+      "unavailable_sources": [],
+      "visited_nodes": 174
+    }
+  },
+  {
+    "request": {
+      "request": {
+        "budget": {
+          "max_depth": 10,
+          "max_output_bytes": 2000,
+          "max_results": 3,
+          "max_visited_nodes": 8
+        },
+        "fields": [
+          "name",
+          "role"
+        ],
+        "match": {
+          "max_depth": 10,
+          "name_equals": "Acceptance row 80",
+          "within": "r-0bc95d1cb150d9cc03826c9b-24d"
+        },
+        "projection": "outline",
+        "scope": {
+          "desktop": false,
+          "refs": [
+            "r-0bc95d1cb150d9cc03826c9b-24d"
+          ]
+        },
+        "type": "outline"
+      }
+    },
+    "object_count": 0,
+    "coverage": {
+      "complete": false,
+      "continuation": "p-342cb3730a49f6d6ab9cd36a",
+      "dirty": false,
+      "fields": [
+        "name",
+        "role"
+      ],
+      "max_depth": 10,
+      "sample_end": "2026-10-04T15:22:17.018515Z",
+      "sample_start": "2026-10-04T15:22:16.988724Z",
+      "scope": {
+        "refs": [
+          "r-0bc95d1cb150d9cc03826c9b-24d"
+        ]
+      },
+      "truncated": true,
+      "unavailable_sources": [
+        "ax_node_budget"
+      ],
+      "visited_nodes": 8
+    }
+  },
+  {
+    "request": {
+      "request": {
+        "continuation": "p-342cb3730a49f6d6ab9cd36a",
+        "type": "outline"
+      }
+    },
+    "object_count": 0,
+    "coverage": {
+      "complete": false,
+      "continuation": "p-b25a4cf2b8b82f2e00aa970a",
+      "dirty": true,
+      "fields": [
+        "name",
+        "role"
+      ],
+      "max_depth": 10,
+      "sample_end": "2026-10-04T15:22:19.179358Z",
+      "sample_start": "2026-10-04T15:22:19.169064Z",
+      "scope": {
+        "refs": [
+          "r-0bc95d1cb150d9cc03826c9b-24d"
+        ]
+      },
+      "truncated": true,
+      "unavailable_sources": [
+        "ax_node_budget"
+      ],
+      "visited_nodes": 16
+    }
+  }
+]
