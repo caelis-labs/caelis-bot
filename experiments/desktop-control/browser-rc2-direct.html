@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>RC2 Browser Direct Host Diagnostic</title>
+<style>body{font:20px system-ui;margin:48px}label{display:block;padding:24px;border:1px solid #777;max-width:480px}</style></head>
+<body>
+<h1>RC2 Browser Direct Host Diagnostic</h1>
+<p>Disposable independent page for direct published host SDK comparison.</p>
+<label><input id="direct-check" type="checkbox" aria-label="Direct host checkbox"> Direct host checkbox</label>
+<p id="direct-status">Checked: false; input events: 0; change events: 0</p>
+<script>
+const box=document.getElementById('direct-check');const status=document.getElementById('direct-status');
+let inputs=0,changes=0;
+function render(){status.textContent=`Checked: ${box.checked}; input events: ${inputs}; change events: ${changes}`}
+box.addEventListener('input',()=>{inputs++;render()});
+box.addEventListener('change',()=>{changes++;render()});
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>RC2 Browser Pointer Diagnostic</title>
+<style>body{font:20px system-ui;margin:48px}button{font:22px system-ui;padding:20px}</style></head>
+<body><h1>RC2 Browser Pointer Diagnostic</h1>
+<p>Independent disposable button; no checkbox or prior semantic target.</p>
+<button id="pointer-button" aria-label="Pointer acceptance button">Pointer acceptance button</button>
+<p id="pointer-status">Clicks: 0</p>
+<script>
+let count=0;
+document.getElementById('pointer-button').addEventListener('click',()=>{
+  document.getElementById('pointer-status').textContent=`Clicks: ${++count}`;
+});
+</script></body></html>

@@ -1,0 +1,84 @@
+{
+  "scope": "macOS arm64; published rc.2 bundled helper; isolated fixtures only",
+  "browser_direct": {
+    "host": "macOS 27.0.1 (26A434); Chrome 154.0.8037.98",
+    "helper_protocol": "desktop-world/helper-v0.1",
+    "input_mode": "cooperative",
+    "input_policy": "shared_input",
+    "grant": "active",
+    "target_role": "checkbox",
+    "capability": "supported/available",
+    "original_receipt": {
+      "outcome": "partial",
+      "state": "failed",
+      "delivery": "complete",
+      "verification": "not_met",
+      "fault": "verification_timeout",
+      "retry_class": "never_automatically"
+    },
+    "same_request_reconcile": true,
+    "independent_dom_before": {
+      "checked": false,
+      "status": "Checked: false; input events: 0; change events: 0"
+    },
+    "independent_dom_after": {
+      "checked": false,
+      "status": "Checked: false; input events: 0; change events: 0"
+    },
+    "attempts": 1
+  },
+  "supported_scroll": {
+    "target": "standard WebKit offscreen button",
+    "capability": "supported/available",
+    "offscreen_before": true,
+    "receipt": "completed",
+    "app_event": "scrolled:true",
+    "offscreen_after": false,
+    "attempts": 1
+  },
+  "menu": {
+    "target": "isolated AppKit menu item",
+    "capability": "supported/available",
+    "first_plan": "invalid_argument before delivery: verify requires after predicates",
+    "corrected_plan": "dispatch completed with new ID after confirmed pre-input rejection",
+    "app_event": "menu_count:1",
+    "attempts_delivered": 1
+  },
+  "electron": {
+    "runtime": "standalone Electron 44.5.1",
+    "profile": "fresh private temp profile",
+    "target": "isolated synthetic button",
+    "capability": "invoke supported/available",
+    "receipt": "completed",
+    "app_event": "action_count:1",
+    "attempts": 1
+  },
+  "lifecycle": {
+    "cancel": "original receipt stopped; same-ID reconcile; no app effect",
+    "owner_eof": "helper clean exit; no app effect",
+    "new_session": "old request absent; no app effect",
+    "target_instance_exit": "original and same-ID reconcile outcome unknown; no late app effect; no replay"
+  },
+  "capture": {
+    "target": "isolated Electron window",
+    "operation": "capture_windows before pixel request",
+    "helper_fault": "permission_denied",
+    "macos_screen_capture": "not_requested",
+    "image_accepted": false
+  },
+  "future_app_grant": {
+    "before_launch": "exact window title pending, application ref empty",
+    "after_one_standard_launch": "same grant ID active and bound to unique observed window",
+    "after_exact_fixture_exit": "same grant ID expired, reason application_exited",
+    "input_sent": false
+  },
+  "browser_pointer": {
+    "scenario": "new isolated Chrome page and button; distinct from all semantic failures",
+    "input_mode": "cooperative",
+    "target": "observed enabled and onscreen AX button with known bounds",
+    "original_receipt": "completed",
+    "independent_dom_before": "Clicks: 0",
+    "independent_dom_after": "Clicks: 1",
+    "attempts": 1
+  }
+}
