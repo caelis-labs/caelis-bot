@@ -137,3 +137,107 @@ func TestNativePACRoutesHTTPRequestThroughResolvedProxy(t *testing.T) {
 		t.Fatal("request bypassed PAC proxy")
 	}
 }
+
+func TestNativeFailedDiscoveryUsesSystemDirectCandidate(t *testing.T) {
+	for _, fixture := range []struct {
+		name, script string
+		status       int
+	}{
+		{"invalid script", "invalid javascript", http.StatusOK},
+		{"script error", `function FindProxyForURL(url, host) { throw new Error(url); }`, http.StatusOK},
+		{"missing PAC", "", http.StatusNotFound},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(fixture.status)
+				fmt.Fprint(w, fixture.script)
+			}))
+			defer server.Close()
+			proxy, err := resolveProxyCandidates(t.Context(), "https://api.telegram.org/botPRIVATE_FIXTURE/getUpdates", server.URL, true)
+			if err != nil || proxy != nil {
+				t.Fatal("failed discovery ignored subsequent system DIRECT", err)
+			}
+		})
+	}
+}
+
+func TestNativeDiscoveryStillPrefersWorkingPACProxy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `function FindProxyForURL(url, host) { return "PROXY 127.0.0.1:7890"; }`)
+	}))
+	defer server.Close()
+	proxy, err := resolveProxyCandidates(t.Context(), "https://api.telegram.org/", server.URL, true)
+	if err != nil || proxy == nil || proxy.String() != "http://127.0.0.1:7890" {
+		t.Fatal("DIRECT displaced working PAC proxy", err)
+	}
+}
+
+func TestNativeStalledDiscoveryFallsThroughButCancellationDoesNot(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancelled=%v", cancelled), func(t *testing.T) {
+			requested, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				once.Do(func() { close(requested) })
+				<-release
+				fmt.Fprint(w, `function FindProxyForURL(url, host) { return "DIRECT"; }`)
+			}))
+			defer server.Close()
+			defer close(release)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				proxy, err := resolveProxyCandidates(ctx, "https://api.telegram.org/", server.URL, true)
+				if proxy != nil {
+					done <- errors.New("unexpected proxy")
+					return
+				}
+				done <- err
+			}()
+			select {
+			case <-requested:
+			case <-time.After(2 * time.Second):
+				t.Fatal("PAC fetch did not start")
+			}
+			limit := 5 * time.Second
+			if cancelled {
+				cancel()
+				limit = time.Second
+			}
+			select {
+			case err := <-done:
+				if cancelled && !errors.Is(err, context.Canceled) {
+					t.Fatal("cancellation became DIRECT", err)
+				}
+				if !cancelled && err != nil {
+					t.Fatal("stalled PAC blocked system DIRECT", err)
+				}
+			case <-time.After(limit):
+				t.Fatal("PAC did not terminate within its budget")
+			}
+		})
+	}
+}
+
+func TestNativeFailedDiscoveryCanReachHTTPDestination(t *testing.T) {
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer destination.Close()
+	pac := httptest.NewServer(http.NotFoundHandler())
+	defer pac.Close()
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = func(req *http.Request) (*url.URL, error) {
+		return resolveProxyCandidates(req.Context(), req.URL.String(), pac.URL, true)
+	}
+	defer transport.CloseIdleConnections()
+	h := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, destination.URL, nil)
+	response, err := h.Do(req)
+	if err != nil {
+		t.Fatal("failed discovery blocked usable direct candidate", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatal("destination not reached")
+	}
+}

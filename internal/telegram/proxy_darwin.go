@@ -36,6 +36,7 @@ static void telegram_pac_result(void *info,CFArrayRef proxies,CFErrorRef error) 
  CFRunLoopStop(CFRunLoopGetCurrent());
 }
 static CFArrayRef telegram_pac(CFDictionaryRef proxy,CFURLRef target,TelegramProxyTask *task) {
+ task->done=0;
  CFStringRef type=CFDictionaryGetValue(proxy,kCFProxyTypeKey);
  CFStreamClientContext context={0,task,NULL,NULL,NULL};
  CFRunLoopSourceRef source=NULL;
@@ -50,9 +51,10 @@ static CFArrayRef telegram_pac(CFDictionaryRef proxy,CFURLRef target,TelegramPro
  CFStringRef mode=CFSTR("dev.caelis.bot.telegram.proxy");
  CFRunLoopRef loop=CFRunLoopGetCurrent();
  CFRunLoopAddSource(loop,source,mode);
- // The Go context supplies the deadline. Invalidate the source before returning
- // on cancellation; no callback may retain the task past this call.
- while(!task->done&&!atomic_load(&task->cancelled))CFRunLoopRunInMode(mode,0.05,0);
+ // A stalled discovery candidate must leave time to try the system's next
+ // candidate. Request cancellation still stops the entire resolution.
+ CFAbsoluteTime deadline=CFAbsoluteTimeGetCurrent()+3.0;
+ while(!task->done&&!atomic_load(&task->cancelled)&&CFAbsoluteTimeGetCurrent()<deadline)CFRunLoopRunInMode(mode,0.05,0);
  CFRunLoopSourceInvalidate(source);
  CFRunLoopRemoveSource(loop,source,mode);
  CFRelease(source);
@@ -60,7 +62,7 @@ static CFArrayRef telegram_pac(CFDictionaryRef proxy,CFURLRef target,TelegramPro
  return result;
 }
 // Preserve preference order. Only an explicit None/DIRECT result means direct;
-// unresolved or invalid PAC settings must not silently bypass the user's proxy.
+// failed PAC candidates fall through only to subsequent system candidates.
 static char *telegram_proxy_list(CFArrayRef proxies,CFURLRef target,TelegramProxyTask *task,int depth,int *status) {
  if(!proxies||depth>1)return NULL;
  for(CFIndex index=0;index<CFArrayGetCount(proxies);index++) {
@@ -73,7 +75,8 @@ static char *telegram_proxy_list(CFArrayRef proxies,CFURLRef target,TelegramProx
    CFArrayRef resolved=telegram_pac(p,target,task);
    char *result=telegram_proxy_list(resolved,target,task,depth+1,status);
    if(resolved)CFRelease(resolved);
-   return result;
+   if(*status==0)return result;
+   continue;
   }
   const char *scheme=NULL;
   if(CFEqual(type,kCFProxyTypeHTTP)||CFEqual(type,kCFProxyTypeHTTPS))scheme="http";
@@ -91,25 +94,41 @@ static char *telegram_proxy_list(CFArrayRef proxies,CFURLRef target,TelegramProx
  }
  return NULL;
 }
+// Native fixtures supply explicit ordered candidates. Initialize CFNetwork's
+// PAC machinery with CopyProxiesForURL, just as the production path does.
+static CFArrayRef telegram_proxy_fixture(CFURLRef target,const char *pac,int fallback) {
+ CFDictionaryRef settings=CFDictionaryCreate(NULL,NULL,NULL,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+ CFArrayRef initial=CFNetworkCopyProxiesForURL(target,settings);
+ if(initial)CFRelease(initial);CFRelease(settings);
+ CFURLRef url=telegram_proxy_url(pac);
+ if(!url)return NULL;
+ CFMutableArrayRef proxies=CFArrayCreateMutable(NULL,0,&kCFTypeArrayCallBacks);
+ CFMutableDictionaryRef candidate=CFDictionaryCreateMutable(NULL,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+ CFDictionarySetValue(candidate,kCFProxyTypeKey,kCFProxyTypeAutoConfigurationURL);
+ CFDictionarySetValue(candidate,kCFProxyAutoConfigurationURLKey,url);
+ CFArrayAppendValue(proxies,candidate);CFRelease(candidate);CFRelease(url);
+ if(fallback) {
+  const void *keys[]={kCFProxyTypeKey};const void *values[]={kCFProxyTypeNone};
+  CFDictionaryRef direct=CFDictionaryCreate(NULL,keys,values,1,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+  CFArrayAppendValue(proxies,direct);CFRelease(direct);
+ }
+ return proxies;
+}
 // Read settings on demand, including exclusions. An optional PAC URL supplies
-// isolated settings for native regression tests, without changing the Mac.
-static char *telegram_system_proxy(const char *address,const char *pac,TelegramProxyTask *task,int *status) {
+// isolated ordered candidates for native tests, without changing the Mac.
+static char *telegram_system_proxy(const char *address,const char *pac,int fallback,TelegramProxyTask *task,int *status) {
  *status=1;
  CFURLRef url=telegram_proxy_url(address);
  if(!url)return NULL;
- CFDictionaryRef settings=NULL;
+ CFArrayRef proxies=NULL;
  if(pac&&pac[0]) {
-  CFMutableDictionaryRef configured=CFDictionaryCreateMutable(NULL,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
-  int enabled=1;CFNumberRef number=CFNumberCreate(NULL,kCFNumberIntType,&enabled);
-  CFStringRef value=CFStringCreateWithCString(NULL,pac,kCFStringEncodingUTF8);
-  CFDictionarySetValue(configured,kCFNetworkProxiesProxyAutoConfigEnable,number);
-  CFDictionarySetValue(configured,kCFNetworkProxiesProxyAutoConfigURLString,value);
-  CFRelease(number);CFRelease(value);settings=configured;
- } else settings=CFNetworkCopySystemProxySettings();
- CFArrayRef proxies=settings?CFNetworkCopyProxiesForURL(url,settings):NULL;
+  proxies=telegram_proxy_fixture(url,pac,fallback);
+ } else {
+  CFDictionaryRef settings=CFNetworkCopySystemProxySettings();
+  if(settings){proxies=CFNetworkCopyProxiesForURL(url,settings);CFRelease(settings);}
+ }
  char *result=telegram_proxy_list(proxies,url,task,0,status);
  if(proxies)CFRelease(proxies);
- if(settings)CFRelease(settings);
  CFRelease(url);return result;
 }
 */
@@ -135,6 +154,12 @@ func systemProxy(req *http.Request) (*url.URL, error) {
 }
 
 func resolveSystemProxy(ctx context.Context, address, pacURL string) (*url.URL, error) {
+	return resolveProxyCandidates(ctx, address, pacURL, false)
+}
+
+// PAC/DIRECT overrides are isolated native candidate fixtures; empty PAC reads
+// the current system configuration, preserving proxy exclusions and ordering.
+func resolveProxyCandidates(ctx context.Context, address, pacURL string, fallback bool) (*url.URL, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	select {
@@ -165,7 +190,11 @@ func resolveSystemProxy(ctx context.Context, address, pacURL string) (*url.URL, 
 	defer C.free(unsafe.Pointer(target))
 	defer C.free(unsafe.Pointer(pac))
 	var status C.int
-	value := C.telegram_system_proxy(target, pac, task, &status)
+	var direct C.int
+	if fallback {
+		direct = 1
+	}
+	value := C.telegram_system_proxy(target, pac, direct, task, &status)
 	if value != nil {
 		defer C.free(unsafe.Pointer(value))
 	}

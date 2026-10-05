@@ -69,8 +69,12 @@ accepted. One cancellable output worker coalesces snapshots independently of inp
 and control actions; configuration changes join both workers. Attachment identity
 uses the submission and attachment index, preserving distinct same-named files.
 The native macOS proxy resolver executes automatic configuration through CFNetwork,
-honors explicit DIRECT results and cancels PAC work with the HTTP request. Failed
-PAC resolution reports a network failure instead of silently connecting directly.
+honors the ordered system candidates and cancels PAC work with the HTTP request.
+Failed or stalled PAC resolution continues to subsequent system candidates; DIRECT
+is used only when explicitly present in that list. A PAC attempt has a three-second
+budget, independent of request cancellation. Exhausted candidates report a network
+failure. App-level DIRECT retains OS routing, including third-party TUN proxies.
+This selection happens before dispatch and does not replay uncertain HTTP writes.
 
 ## Remote machines
 
