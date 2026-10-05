@@ -1,5 +1,5 @@
-import { useEffectEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { backend, desktop, type DraftFile } from './desktop';
+import { useEffectEvent, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent } from 'react';
+import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Review, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { CopyText, MessageContent } from './MessageContent';
@@ -18,6 +18,23 @@ import { approvalChoice, approvalText, approvalTitle } from './approval-presenta
 import type { MessageKey } from './i18n/catalogs';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
+
+function DraftThumbnail({file}:{file:DraftFile}) {
+ const [url,setURL]=useState('');
+ useEffect(()=>{
+  let active=true;setURL('');
+  if(!file.image||file.unavailable)return;
+  void desktop<string>('DraftImage',file.id).then(value=>{if(active&&/^data:image\/(png|jpeg|webp);base64,/.test(value))setURL(value)}).catch(()=>{});
+  return()=>{active=false};
+ },[file.id,file.image,file.unavailable]);
+ return url?<img className="draft-thumbnail" src={url} alt=""/>:<Icon name="paperclip"/>;
+}
+
+function draftSize(bytes:number):string {
+ if(bytes<1024)return `${bytes} B`;
+ const divisor=bytes<1024*1024?1024:1024*1024;
+ return `${new Intl.NumberFormat(undefined,{maximumFractionDigits:1}).format(bytes/divisor)} ${divisor===1024?'KB':'MB'}`;
+}
 
 export function getReviewLabel(status: string, t: (key: MessageKey) => string): string {
  switch (status) {
@@ -51,7 +68,7 @@ function ReviewNotice({value}:{value:Review}) {
  const {t} = useI18n();
  const statusText = getReviewLabel(value.status, t);
  return <section className="review-notice" aria-label={statusText}>
-  <strong>{statusText}</strong>
+  <strong>{value.taskTitle?`${value.taskTitle} · ${statusText}`:statusText}</strong>
   {value.rationale&&<p>{value.rationale}</p>}
   {value.action&&<details><summary>{t('chat.reviewActionDetails')}</summary><pre>{value.action}</pre></details>}
  </section>;
@@ -149,6 +166,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null),composer=useRef<HTMLDivElement>(null);
  const [draft,setDraft]=useState(''),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
+ const [dragging,setDragging]=useState(false),[feedback,setFeedback]=useState('');
  const visible=useRef(active);visible.current=active;
  useEffect(()=>{setExpanded(false);},[active,activation]);
  const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number}|null>(null);
@@ -162,7 +180,12 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   setLoaded(false);conflicted.current=false;
   void writes.current.flush().then(()=>backend<Draft>('Draft')).then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();}}).catch(()=>setError(draftLoadFailed()));
   void readFiles();
-  const changed=(event:Event)=>{void readFiles();setError((event as CustomEvent<string>).detail??'');};
+  const changed=(event:Event)=>{
+   const detail=(event as CustomEvent<string|{error:string;added:number}>).detail;
+   void readFiles();setDragging(false);
+   const failure=typeof detail==='string'?detail:detail?.error??'';
+   setError(failure);setFeedback(!failure&&typeof detail==='object'&&detail.added>0?t('chat.importedAttachments',{count:detail.added}):'');
+  };
   window.addEventListener('files-changed',changed);
   return()=>{mounted=false;lifetime.current++;window.removeEventListener('files-changed',changed);};
  },[activation]);
@@ -182,7 +205,23 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   });
  };
  useLayoutEffect(()=>{const editor=input.current;if(editor){editor.style.height='0px';editor.style.height=`${Math.max(27,Math.min(127,editor.scrollHeight))}px`;}},[draft]);
- const pick=async()=>{setExpanded(false);setBusy(true);setError('');try{setFiles(await desktop<DraftFile[]>('PickFiles'));setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
+ const pick=async()=>{setExpanded(false);setBusy(true);setError('');setFeedback('');try{const before=files.length;const selected=await desktop<DraftFile[]>('PickFiles');setFiles(selected);if(selected.length>before)setFeedback(t('chat.importedAttachments',{count:selected.length-before}));setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
+ const paste=async(e:ClipboardEvent<HTMLTextAreaElement>)=>{
+  const types=Array.from(e.clipboardData.types);
+  if(!e.clipboardData.files.length&&!types.some(type=>type==='Files'||type==='text/uri-list'||type==='public.file-url'||type.startsWith('image/')))return;
+  e.preventDefault();
+  const text=e.clipboardData.getData('text/plain');
+  const start=e.currentTarget.selectionStart,end=e.currentTarget.selectionEnd,generation=lifetime.current;
+  setBusy(true);setError('');setFeedback('');
+  try{
+   const result=await desktop<PasteResult>('PasteAttachments');
+   if(generation!==lifetime.current)return;
+   if(result.handled){const before=files.length;setFiles(result.files);setFeedback(result.files.length>before?t('chat.importedAttachments',{count:result.files.length-before}):t('chat.attachmentAlreadyAdded'));}
+   else if(text){save(draft.slice(0,start)+text+draft.slice(end),refs);requestAnimationFrame(()=>input.current?.setSelectionRange(start+text.length,start+text.length));}
+   else setError(t('chat.clipboardNoFiles'));
+  }catch(err){if(generation===lifetime.current)setError(err instanceof Error?err.message:t('chat.pasteFailed'));}
+  finally{if(generation===lifetime.current){setBusy(false);input.current?.focus();}}
+ };
  const accepted=async(attempt:NonNullable<typeof pending.current>)=>{
   attempt.progress.observe('accepted');
   onOutgoing?.({...attempt.outgoing,status:'accepted'});
@@ -240,15 +279,20 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   }
  };
  const actionLabel=primaryAction==='stop'?(stopping?t('chat.stopping'):t('chat.stopWork')):snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerWork'):t('chat.send');
- return <div ref={composer} className="compose-area" data-file-drop-target>
+ return <div ref={composer} className={`compose-area${dragging?' file-dragging':''}`} data-file-drop-target
+  onDragEnter={e=>{if(e.dataTransfer.types.includes('Files'))setDragging(true)}}
+  onDragOver={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true)}}}
+  onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDragging(false)}}
+  onDrop={()=>setDragging(false)}>
   <div className="capsule">
    <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
-   <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
+   <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onPaste={e=>void paste(e)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
    <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-label={actionLabel} title={actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
   {!!error&&<p role="alert" className="input-error">{error}</p>}
+  {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):feedback}</p>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
-   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><Icon name="paperclip"/><span title={f.name}>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>void desktop<DraftFile[]>('RemoveFile',f.id).then(setFiles).catch(()=>setError(t('chat.attachmentUpdateFailed')))}><Icon name="xmark"/></button></li>)}
+   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><DraftThumbnail file={f}/><span className="attachment-details" title={f.name}><strong>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</strong><small>{f.type||t('chat.fileTypeUnknown')} · {draftSize(f.size)}</small></span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>void desktop<DraftFile[]>('RemoveFile',f.id).then(setFiles).catch(()=>setError(t('chat.attachmentUpdateFailed')))}><Icon name="xmark"/></button></li>)}
    {refs.map(id=><li key={id}><span>{snapshot?.references.find(r=>r.id===id)?.name??t('chat.referenceDefault')}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
   </ul>}
   {expanded&&<AttachmentMenu trigger={add} composer={composer} quick={quick} activation={activation} references={snapshot?.references??[]} selected={refs}

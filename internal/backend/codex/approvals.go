@@ -109,7 +109,7 @@ func (s *Session) addPrompt(event Notification) {
 	}
 	id := opaque(s.instance, fmt.Sprint(s.epoch), fmt.Sprint(event.Sequence), string(event.RequestID))
 	p := &prompt{id: event.RequestID, sequence: event.Sequence, method: event.Method, thread: n.ThreadID, turn: n.TurnID, item: n.ItemID, choices: map[string]any{}}
-	p.view = api.Approval{ID: id, Description: n.Reason, Status: "pending", Choices: []api.Choice{}, Questions: []api.Question{}}
+	p.view = api.Approval{ID: id, TurnKey: opaque(n.TurnID), Description: n.Reason, Status: "pending", Choices: []api.Choice{}, Questions: []api.Question{}}
 	add := func(id, labelKey string, value any) {
 		p.view.Choices = append(p.view.Choices, api.Choice{ID: id, LabelKey: labelKey})
 		p.choices[id] = value
@@ -272,7 +272,9 @@ func (s *Session) addPrompt(event Notification) {
 	s.prompts[id] = p
 	s.promptHandles[string(event.RequestID)] = id
 	s.replacePrompt(id, p.view)
-	s.state.Phase = "attention"
+	if s.hasConversationPrompt() {
+		s.state.Phase = "attention"
+	}
 }
 func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	s.op.Lock()
@@ -327,11 +329,11 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 // A native MCP call can wait for an elicitation even after turn/interrupt is
 // requested. User Stop also cancels those outstanding decisions; it never grants
 // access. The caller holds s.op, and transport generation checks fence stale IDs.
-func (s *Session) cancelPendingElicitations(ctx context.Context, c *Client) {
+func (s *Session) cancelPendingElicitations(ctx context.Context, c *Client, targets map[string]string) {
 	s.mu.Lock()
 	pending := map[string]*prompt{}
 	for id, p := range s.prompts {
-		if p.method == "mcpServer/elicitation/request" && p.view.Status == "pending" {
+		if run, owned := targets[p.thread]; owned && (run == "" || run == p.turn) && p.method == "mcpServer/elicitation/request" && p.view.Status == "pending" {
 			pending[id] = p
 			p.view.Status = "sending"
 			s.replacePrompt(id, p.view)

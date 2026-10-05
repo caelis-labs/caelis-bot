@@ -9,6 +9,7 @@ export interface Approval {
   taskTitle: string;
   sections: Array<ApprovalSection>;
   id: string;
+  turnKey: string;
   title: string;
   action: string;
   target: string;
@@ -195,6 +196,9 @@ export interface Reference {
 }
 export interface Review {
   id: string;
+  turnKey: string;
+  owner?: string;
+  taskTitle?: string;
   status: string;
   action: string;
   rationale: string;

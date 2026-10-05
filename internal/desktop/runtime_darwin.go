@@ -132,6 +132,7 @@ func Run(assets fs.FS) error {
 		return v.Required || v.Status == "rejected" || v.Status == "unknown"
 	}
 	logError(s.configureSelection(filepath.Join(core.ProviderDirectory(), "draft-files.json")))
+	s.readClipboard = readMacClipboard
 	s.storage, s.cleanStorage = core.AttachmentStorage, core.CleanAttachments
 	s.diagnosticReport = back.DiagnosticReport
 	s.activate = func() {
@@ -395,13 +396,15 @@ func Run(assets fs.FS) error {
 	for _, window := range []*application.WebviewWindow{panel, history} {
 		window.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
 			s.mu.Lock()
+			before := len(s.files)
 			_, err := s.stageFiles(e.Context().DroppedFiles())
+			added := len(s.files) - before
 			s.mu.Unlock()
 			message := ""
 			if err != nil {
 				message = err.Error()
 			}
-			encoded, _ := json.Marshal(message)
+			encoded, _ := json.Marshal(map[string]any{"error": message, "added": added})
 			window.ExecJS("window.dispatchEvent(new CustomEvent('files-changed',{detail:" + string(encoded) + "}))")
 		})
 	}

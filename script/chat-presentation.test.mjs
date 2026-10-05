@@ -29,6 +29,17 @@ test('waiting excludes approvals, recovery and terminal states, even with a rema
  assert.equal(chatActivity({...running,reviews:[{status:'inProgress'}]}),'reviewing');
 });
 
+test('worker and historical reviews never animate the current conversation',()=>{
+ const active={...running,reviews:[{status:'inProgress',turnKey:'worker'}],approvals:[{status:'pending',turnKey:'worker'}]};
+ assert.equal(chatActivity(active),'thinking');
+ assert.equal(composerAction({...active,canInterrupt:false,canSend:true,currentTurn:''},false,false),'send');
+ const replying={...active,items:[{id:'answer',kind:'assistant',turnKey:'current',text:'answer',status:'inProgress'}]};
+ assert.equal(activeReplyID(replying),'answer');
+ assert.equal(chatActivity(replying),null);
+ assert.equal(chatActivity({...active,reviews:[{status:'inProgress',turnKey:'current'}]}),'reviewing');
+ assert.equal(chatActivity({...active,phase:'completed',currentTurn:''}),null);
+});
+
 test('streaming reply takes the place of dots; empty, earlier or completed messages do not hide tool waiting', () => {
  const item={id:'answer',kind:'assistant',turnKey:'current',text:'正在回复',status:'inProgress'};
  assert.equal(chatActivity({...running,items:[item]}),null);

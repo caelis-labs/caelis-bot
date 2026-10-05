@@ -6,6 +6,8 @@ import {resolve,extname} from 'node:path';
 
 const runtime=String.raw`
 let revision=1,streamTimer=0,recordFrame=0,petState='idle';
+const previewParams=new URLSearchParams(location.search);
+let draftFiles=previewParams.get('fixture')==='attachments'?[{id:'fixture-image',name:'Pasted image.png',size:184320,type:'image/png',image:true,unavailable:false},{id:'fixture-file',name:'project-notes.pdf',size:2457600,type:'application/pdf',image:false,unavailable:false}]:[];
 window.fixtureFrames=[];
 // Fixture-only frame accounting verifies that completed portraits release RAFs.
 const requestFrame=window.requestAnimationFrame.bind(window),cancelFrame=window.cancelAnimationFrame.bind(window);
@@ -39,6 +41,8 @@ window.fixtureSet=kind=>{
 
 };
 window.fixtureSet('short');
+if(draftFiles.length){Object.assign(snapshot,{phase:'idle',canSend:true,canSteer:false,canInterrupt:false,activity:null});}
+if(previewParams.get('surface')==='panel')setTimeout(()=>window.dispatchEvent(new CustomEvent('panel-open',{detail:{activation:1}})),200);
 // Runs against the mounted production Bubble, including its 450ms polling and
 // real animation frames. Also callable from the native preview's regression button.
 window.fixtureBubbleReplay=async()=>{
@@ -231,11 +235,11 @@ window.fixtureSendRegression=async()=>{
 };
 export const Call={ByName:async(name,...args)=>{
  const method=name.split('.').at(-1);
- if(method==='LanguagePreferences')return {preference:'zh-CN',locale:'zh-CN',revision:1};
+ if(method==='LanguagePreferences')return {preference:previewParams.get('lang')==='en'?'en':'zh-CN',locale:previewParams.get('lang')==='en'?'en':'zh-CN',revision:1};
  if(method==='Appearance')return {revision:1,selection:{character:'builtin:caelis',avatar:'follow'},model:'',avatar:'',basic:false,key:'builtin:caelis'};
  if(method==='CharacterActivity')return petState;
  if(method==='Placement')return {visible:true,x:0,y:0,scale:1};
- if(method==='PetSnapshot'||method==='Snapshot')return {...snapshot,revision:++revision};
+ if(method==='PetSnapshot'||method==='Snapshot'||method==='ComposerSnapshot')return {...snapshot,revision:++revision};
  if(method==='ChatSnapshot'){
   const value=structuredClone({...snapshot,revision:sendMode?revision:++revision});
   if(sendMode==='accepted'&&sendCount&&!staleHeld){staleHeld=true;await delay(1200);}
@@ -256,7 +260,11 @@ export const Call={ByName:async(name,...args)=>{
   await delay(300);return {...snapshot.lastReceipt};
  }
  if(method==='Draft'){draftReads++;if(sendCount&&snapshot.lastReceipt.outcome==='accepted'){acceptedReads++;await delay(200);if(sendMode==='draft-failure')throw Error('Synthetic draft read failure');}return {...draft};}
- if(method==='DraftFiles')return [];
+ if(method==='DraftFiles')return draftFiles;
+ if(method==='DraftImage')return '__MEDIA_ONE__';
+ if(method==='RemoveFile'){draftFiles=draftFiles.filter(file=>file.id!==args[0]);return draftFiles;}
+ if(method==='PickFiles')return draftFiles;
+ if(method==='PasteAttachments')return {handled:true,files:draftFiles};
  if(method==='MediaImage')return args[0]==='media-fixture-one'?'__MEDIA_ONE__':'__MEDIA_TWO__';
  if(method==='HistoryVisible')return true;
  if(method==='Interrupt')window.fixtureSet('stop');
@@ -276,4 +284,4 @@ const server=createServer((req,res)=>{
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}
  catch{res.writeHead(404);res.end();}
 });
-server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble');writeFileSync(process.argv[2],url);console.log(url);});
+server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'');writeFileSync(process.argv[2],url);console.log(url);});

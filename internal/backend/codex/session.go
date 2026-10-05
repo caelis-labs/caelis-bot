@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -22,12 +24,15 @@ type binding struct {
 	RuntimeVersion    string                          `json:"runtimeVersion,omitempty"`
 	BackgroundResults map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
-	Context       contextseed.State      `json:"context,omitempty"`
-	ContextInputs map[string]int         `json:"contextInputs,omitempty"`
-	Dreams        map[string]dreamRecord `json:"dreams,omitempty"`
-	PastThreads   []string               `json:"pastThreads,omitempty"`
-	RenewedBy     string                 `json:"renewedBy,omitempty"`
-	Scheduled     map[string]string      `json:"scheduled,omitempty"` // accepted client IDs to native turn IDs
+	Context        contextseed.State      `json:"context,omitempty"`
+	ContextInputs  map[string]int         `json:"contextInputs,omitempty"`
+	Dreams         map[string]dreamRecord `json:"dreams,omitempty"`
+	PastThreads    []string               `json:"pastThreads,omitempty"`
+	RenewedBy      string                 `json:"renewedBy,omitempty"`
+	Scheduled      map[string]string      `json:"scheduled,omitempty"` // accepted client IDs to native turn IDs
+	CleanupTargets []string               `json:"cleanupTargets,omitempty"`
+	StopState      string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
+	StopRuns       map[string]string      `json:"stopRuns,omitempty"`
 
 	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
 	DelegationText string                 `json:"delegationText,omitempty"`
@@ -185,9 +190,9 @@ func opaque(parts ...string) string {
 	return hex.EncodeToString(h[:16])
 }
 func (s *Session) update() {
-	if len(s.prompts) > 0 && s.state.Connection == "ready" {
+	if s.hasConversationPrompt() && s.state.Connection == "ready" && s.state.Phase != "unknown" {
 		s.state.Phase = "attention"
-	} else if len(s.childRuns) > 0 && s.state.Phase != "unknown" && s.state.Phase != "interrupting" {
+	} else if s.hasBlockingChildren() && s.state.Phase != "unknown" && s.state.Phase != "interrupting" {
 		s.state.Phase = "working"
 	}
 	s.state.CurrentTurn = ""
@@ -206,9 +211,9 @@ func (s *Session) update() {
 		}
 	}
 	s.state.Revision++
-	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && s.run == "" && !s.hasBlockingChildren() && len(s.prompts) == 0 && s.state.Phase != "unknown" && !s.closed && !s.closing
-	s.state.CanSteer = s.state.Connection == "ready" && s.binding.Pending == nil && s.run != "" && s.state.Phase == "working" && len(s.prompts) == 0 && !s.closed && !s.closing
-	s.state.CanInterrupt = s.state.Connection == "ready" && (s.run != "" || len(s.childRuns) > 0) && !s.closed && !s.closing
+	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase != "unknown" && !s.closed && !s.closing
+	s.state.CanSteer = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run != "" && s.state.Phase == "working" && !s.hasConversationPrompt() && !s.closed && !s.closing
+	s.state.CanInterrupt = s.state.Connection == "ready" && (len(s.binding.CleanupTargets) == 0 || s.binding.StopState == "prepared") && (s.run != "" || s.hasBlockingChildren()) && !s.closed && !s.closing
 	close(s.changed)
 	s.changed = make(chan struct{})
 }
@@ -269,6 +274,7 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	if s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" {
 		c, id, pending := s.client, s.binding.ThreadID, s.binding.Pending != nil
+		cleanup := append([]string(nil), s.binding.CleanupTargets...)
 		for _, task := range s.binding.Tasks {
 			if task.Thread != "" && !s.childWatching[task.Thread] {
 				s.childWatching[task.Thread] = true
@@ -282,6 +288,11 @@ func (s *Session) connect(ctx context.Context) error {
 			}
 		}
 		s.mu.Unlock()
+		if len(cleanup) > 0 {
+			if err := s.reconcileTerminalCleanup(ctx, c); err != nil {
+				return err
+			}
+		}
 		if !pending {
 			return nil
 		}
@@ -316,7 +327,7 @@ func (s *Session) connect(ctx context.Context) error {
 		if s.binding.Pending == nil {
 			s.state.Message = ""
 			if s.run != "" {
-				if len(s.prompts) > 0 {
+				if s.hasConversationPrompt() {
 					s.state.Phase = "attention"
 				} else {
 					s.state.Phase = "working"
@@ -332,8 +343,18 @@ func (s *Session) connect(ctx context.Context) error {
 	old := s.client
 	// A live owner in another state may still own background tools.
 	if old != nil && old.Err() == nil && s.bound {
+		if !old.UsesSharedServer() && s.hasUnresolvedTasks() {
+			s.mu.Unlock()
+			return errors.New("独立任务仍在运行，暂不替换其连接；请等待任务状态核对")
+		}
+		cleanupTargets := []string{s.binding.ThreadID}
+		for id := range s.childRuns {
+			if s.taskByThread(id) == nil {
+				cleanupTargets = append(cleanupTargets, id)
+			}
+		}
 		s.mu.Unlock()
-		if err := s.cleanTerminals(ctx, old); err != nil {
+		if err := s.cleanTerminals(ctx, old, cleanupTargets...); err != nil {
 			return errors.New("原连接的后台工具尚未确认清理，请重试")
 		}
 		s.mu.Lock()
@@ -499,7 +520,13 @@ func (s *Session) connect(ctx context.Context) error {
 		}
 	}
 	s.update()
+	needsCleanup := len(s.binding.CleanupTargets) > 0
 	s.mu.Unlock()
+	if needsCleanup {
+		if err := s.reconcileTerminalCleanup(ctx, c); err != nil {
+			return err
+		}
+	}
 	go func() {
 		ctx, cancel := s.operation(context.Background(), 8*time.Second)
 		defer cancel()
@@ -711,6 +738,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 			if in.Scheduled {
 				s.binding.Scheduled[in.ID] = response.Turn.ID
 			}
+			s.lastTurn = response.Turn.ID
 			s.applyTurn(response.Turn, false)
 		}
 		s.binding.Pending = nil
@@ -747,7 +775,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	s.state.LastReceipt = r
 	if r.Outcome != "unknown" {
 		if s.run != "" {
-			if len(s.prompts) > 0 {
+			if s.hasConversationPrompt() {
 				s.state.Phase = "attention"
 			} else {
 				s.state.Phase = "working"
@@ -763,44 +791,89 @@ func (s *Session) Interrupt(ctx context.Context) error {
 	s.op.Lock()
 	defer s.op.Unlock()
 	s.mu.Lock()
-	for _, task := range s.binding.Tasks {
-		task.SuppressReport = true
-		task.ReportState = "observed"
-	}
-	if err := s.save(); err != nil {
+	retryUnsent := len(s.binding.CleanupTargets) > 0 && s.binding.StopState == "prepared"
+	if len(s.binding.CleanupTargets) > 0 && !retryUnsent {
 		s.mu.Unlock()
-		return err
+		return errors.New("上次停止与清理结果尚未确认，请重新连接核对")
+	}
+	targets := s.conversationTargets()
+	if retryUnsent {
+		targets = maps.Clone(s.binding.StopRuns)
+	}
+	if len(targets) == 0 && !retryUnsent {
+		s.mu.Unlock()
+		return nil
 	}
 	s.mu.Unlock()
-	ctx, cancel := s.operation(ctx, 20*time.Second)
-	defer cancel()
 	s.mu.Lock()
 	current := s.client
 	s.mu.Unlock()
-	if current != nil {
-		s.cancelPendingElicitations(ctx, current)
-		current.captureTools()
-		_ = s.cleanTerminals(ctx, current)
+	threadIDs := make([]string, 0, len(targets))
+	for id := range targets {
+		threadIDs = append(threadIDs, id)
 	}
-	if err := s.interrupt(ctx); err != nil {
+	slices.Sort(threadIDs)
+	if !retryUnsent {
+		s.mu.Lock()
+		s.binding.CleanupTargets = append([]string(nil), threadIDs...)
+		s.binding.StopState = "prepared"
+		s.binding.StopRuns = maps.Clone(targets)
+		if err := s.save(); err != nil {
+			s.binding.CleanupTargets = nil
+			s.binding.StopState = ""
+			s.binding.StopRuns = nil
+			s.mu.Unlock()
+			return err
+		}
+		s.mu.Unlock()
+	}
+	if current != nil && !retryUnsent {
+		preCtx, cancelPre := s.operation(ctx, 2*time.Second)
+		s.cancelPendingElicitations(preCtx, current, targets)
+		_ = s.cleanTerminals(preCtx, current, threadIDs...)
+		cancelPre()
+	}
+	ctx, cancel := s.operation(ctx, 20*time.Second)
+	defer cancel()
+	if err := s.interruptWithStopRecord(ctx, false, true, targets); err != nil {
+		s.mu.Lock()
+		attempted := s.binding.StopState == "attempted"
+		if !attempted {
+			s.state.Phase = "working"
+			s.state.Message = "停止请求尚未下发，请重试停止"
+			s.update()
+		}
+		s.mu.Unlock()
+		if !attempted {
+			return errors.New("停止请求尚未下发，请重试停止")
+		}
+		s.markCleanupUnknown("停止结果尚未确认，后台工具清理也尚未确认")
 		return err
 	}
 	for {
 		s.mu.Lock()
-		active, c, changed := s.run != "" || len(s.childRuns) > 0, s.client, s.changed
+		active, c, changed := s.run != "" || s.hasBlockingChildren(), s.client, s.changed
+		independent := s.hasUnresolvedTasks()
 		s.mu.Unlock()
 		if !active {
 			if c == nil {
-				return nil
+				s.markCleanupUnknown("工作已停止，但后台工具清理尚未确认")
+				return errors.New("连接已断开，后台工具清理尚未确认")
 			}
-			if c.UsesSharedServer() {
+			s.mu.Lock()
+			unsent := s.binding.StopState == "prepared"
+			s.mu.Unlock()
+			if unsent {
+				return s.reconcileTerminalCleanup(ctx, c)
+			}
+			if c.UsesSharedServer() || independent {
 				// Shared server lifecycle belongs to its host. Native cleanup is
 				// scoped to our bound threads; never recycle that process.
-				cleanupErr := s.cleanTerminals(ctx, c)
+				cleanupErr := s.reconcileTerminalCleanup(ctx, c)
 				s.mu.Lock()
-				s.state.Phase = "interrupted"
 				if cleanupErr != nil {
 					s.state.Message = "工作已停止，但后台工具清理尚未确认"
+					s.state.Phase = "unknown"
 				}
 				s.update()
 				s.mu.Unlock()
@@ -814,7 +887,8 @@ func (s *Session) Interrupt(ctx context.Context) error {
 			// process owner captures descendants before interruption/EOF. Recycle
 			// only this owned server after the native cleanup attempt, then restore
 			// observation of the same binding. Never replay the interrupted turn.
-			_ = s.cleanTerminals(ctx, c)
+			c.captureTools()
+			_ = s.cleanTerminals(ctx, c, threadIDs...)
 			s.mu.Lock()
 			s.client = nil
 			s.epoch++
@@ -829,36 +903,64 @@ func (s *Session) Interrupt(ctx context.Context) error {
 			if err := s.connect(ctx); err != nil {
 				return err
 			}
-			s.mu.Lock()
-			if s.run == "" && s.state.Connection == "ready" {
-				s.state.Phase = "interrupted"
-			}
-			s.update()
-			s.mu.Unlock()
 			return nil
 		}
 		select {
 		case <-changed:
 		case <-ctx.Done():
+			s.markCleanupUnknown("停止结果尚未确认，后台工具清理也尚未确认")
 			return errors.New("停止结果尚未确认，请重新连接核对")
 		case <-c.Done():
+			s.markCleanupUnknown("停止结果尚未确认，后台工具清理也尚未确认")
 			return errors.New("连接已断开，停止结果尚未确认")
 		}
 	}
 }
-func (s *Session) interrupt(ctx context.Context) error {
-	s.mu.Lock()
-	c := s.client
+
+// conversationTargets is called with s.mu held. A task has its own stop and
+// report lifecycle, even when it uses a child thread of the resident Bot.
+func (s *Session) conversationTargets() map[string]string {
 	targets := map[string]string{}
 	if s.run != "" {
 		targets[s.binding.ThreadID] = s.run
 	}
 	for id, run := range s.childRuns {
-		targets[id] = run
+		if s.taskByThread(id) == nil {
+			targets[id] = run
+		}
+	}
+	return targets
+}
+
+func (s *Session) interrupt(ctx context.Context, all bool) error {
+	return s.interruptWithStopRecord(ctx, all, false, nil)
+}
+
+func (s *Session) interruptWithStopRecord(ctx context.Context, all, recordStop bool, expected map[string]string) error {
+	s.mu.Lock()
+	c := s.client
+	targets := s.conversationTargets()
+	if all {
+		for id, run := range s.childRuns {
+			targets[id] = run
+		}
 	}
 	s.mu.Unlock()
-	if c == nil || len(targets) == 0 {
+	if expected != nil {
+		for id, run := range targets {
+			original, owned := expected[id]
+			if !owned {
+				delete(targets, id)
+			} else if original != "" && run != original {
+				return errors.New("原工作状态已变化，停止请求尚未下发，请重新连接核对")
+			}
+		}
+	}
+	if len(targets) == 0 {
 		return nil
+	}
+	if c == nil {
+		return errors.New("连接已断开，停止请求尚未下发")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -886,65 +988,252 @@ func (s *Session) interrupt(ctx context.Context) error {
 				continue
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if recordStop {
+			s.mu.Lock()
+			previous := s.binding.StopState
+			s.binding.StopState = "attempted"
+			err := s.save()
+			if err != nil {
+				s.binding.StopState = previous
+			}
+			s.mu.Unlock()
+			if err != nil {
+				return err
+			}
+		}
 		if err := callDecode(ctx, c, "turn/interrupt", map[string]string{"threadId": id, "turnId": run}, nil); err != nil {
 			return errors.New("停止结果尚未确认，请重新连接核对")
 		}
 	}
 	s.mu.Lock()
-	if s.run != "" || len(s.childRuns) > 0 {
+	if s.run != "" || (!all && s.hasBlockingChildren()) || (all && len(s.childRuns) > 0) {
 		s.state.Phase = "interrupting"
 		s.update()
 	}
 	s.mu.Unlock()
 	return nil
 }
-func (s *Session) cleanTerminals(ctx context.Context, c *Client) error {
+
+// cleanTerminals only acts on explicit targets during a conversation Stop.
+// Without targets it is used for whole-owner shutdown/replacement; old child
+// threads may no longer be loaded and cannot block current-turn cleanup.
+func (s *Session) cleanTerminals(ctx context.Context, c *Client, targets ...string) error {
 	s.mu.Lock()
 	if !s.bound {
 		s.mu.Unlock()
 		return nil
 	}
-	ids := []string{s.binding.ThreadID}
-	for child := range s.children {
-		ids = append(ids, child)
+	ids := targets
+	if targets == nil {
+		ids = []string{s.binding.ThreadID}
+		for child := range s.children {
+			ids = append(ids, child)
+		}
 	}
+	current := s.binding.ThreadID
 	s.mu.Unlock()
-	var last error
+	seenThreads := map[string]bool{}
 	for _, id := range ids {
-		if id == "" {
+		if id == "" || seenThreads[id] {
 			continue
 		}
+		seenThreads[id] = true
+		processes, err := listBackgroundTerminals(ctx, c, id)
+		if err != nil {
+			if targets == nil && id != current && nativeThreadError(err, "thread not loaded: ", id) {
+				continue
+			}
+			return s.cleanupError("list", err)
+		}
+		for _, process := range processes {
+			var result struct {
+				Terminated bool `json:"terminated"`
+			}
+			// Natural exit is common; the final list, not this reply, decides.
+			_ = callDecode(ctx, c, "thread/backgroundTerminals/terminate", map[string]string{"threadId": id, "processId": process}, &result)
+		}
+		// Clean may succeed after a terminate error or the process may exit
+		// naturally. Re-list before deciding whether a warning is warranted.
+		cleanErr := callDecode(ctx, c, "thread/backgroundTerminals/clean", map[string]string{"threadId": id}, nil)
+		remaining, readErr := listBackgroundTerminals(ctx, c, id)
+		if readErr != nil {
+			return s.cleanupError("verify", readErr)
+		}
+		if len(remaining) > 0 {
+			return s.cleanupError("remaining", errors.New("background terminals remain"))
+		}
+		if cleanErr != nil {
+			// The post-clean list is authoritative for absence of residue.
+			s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "terminal_cleanup_reconciled", Reason: cleanupReason(cleanErr), Phase: "verify"})
+		}
+	}
+	return nil
+}
+
+func listBackgroundTerminals(ctx context.Context, c *Client, thread string) ([]string, error) {
+	var processes []string
+	seenProcesses, seenCursors := map[string]bool{}, map[string]bool{}
+	cursor := ""
+	for page := 0; page < 100; page++ {
 		var response struct {
 			Data []struct {
 				ProcessID string `json:"processId"`
 			} `json:"data"`
 			NextCursor string `json:"nextCursor"`
 		}
-		var cursor any
-		for {
-			if err := callDecode(ctx, c, "thread/backgroundTerminals/list", map[string]any{"threadId": id, "limit": 100, "cursor": cursor}, &response); err != nil {
-				last = err
-				break
-			}
-			for _, process := range response.Data {
-				var result struct {
-					Terminated bool `json:"terminated"`
-				}
-				if err := callDecode(ctx, c, "thread/backgroundTerminals/terminate", map[string]string{"threadId": id, "processId": process.ProcessID}, &result); err != nil {
-					last = err
-				}
-			}
-			if response.NextCursor == "" {
-				break
-			}
-			cursor = response.NextCursor
+		if err := callDecode(ctx, c, "thread/backgroundTerminals/list", map[string]any{"threadId": thread, "limit": 100, "cursor": cursorOrNil(cursor)}, &response); err != nil {
+			return nil, err
 		}
-		if err := callDecode(ctx, c, "thread/backgroundTerminals/clean", map[string]string{"threadId": id}, nil); err != nil {
-			last = err
+		if response.Data == nil {
+			return nil, ErrProtocol
+		}
+		for _, process := range response.Data {
+			if process.ProcessID == "" {
+				return nil, ErrProtocol
+			}
+			if !seenProcesses[process.ProcessID] {
+				seenProcesses[process.ProcessID] = true
+				processes = append(processes, process.ProcessID)
+			}
+		}
+		if response.NextCursor == "" {
+			return processes, nil
+		}
+		if seenCursors[response.NextCursor] {
+			return nil, ErrProtocol
+		}
+		seenCursors[response.NextCursor] = true
+		cursor = response.NextCursor
+	}
+	return nil, ErrProtocol
+}
+
+func cleanupReason(err error) string {
+	if err == nil {
+		return "none"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	if unsupportedHistory(err) {
+		return "unsupported"
+	}
+	var native *NativeError
+	if errors.As(err, &native) {
+		return "native"
+	}
+	if errors.Is(err, ErrProtocol) {
+		return "protocol"
+	}
+	return "transport"
+}
+func (s *Session) cleanupError(stage string, err error) error {
+	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "warn", Component: "codex", Code: "terminal_cleanup_unconfirmed", Reason: cleanupReason(err), Phase: stage})
+	return errors.New("后台工具清理尚未确认")
+}
+
+func (s *Session) markCleanupUnknown(message string) {
+	s.mu.Lock()
+	s.state.Phase = "unknown"
+	s.state.Message = message
+	s.update()
+	s.mu.Unlock()
+}
+
+// Recheck only the exact targets recorded before Stop. This read/clean path
+// never resends a user message, review choice, or turn interruption.
+func (s *Session) reconcileTerminalCleanup(ctx context.Context, c *Client) error {
+	s.mu.Lock()
+	targets := append([]string(nil), s.binding.CleanupTargets...)
+	prepared := s.binding.StopState == "prepared"
+	s.mu.Unlock()
+	if len(targets) == 0 {
+		return nil
+	}
+	if c == nil {
+		if prepared {
+			s.markCleanupUnknown("停止请求尚未下发，原工作状态尚未确认；请重新连接后重试停止")
+		} else {
+			s.markCleanupUnknown("工作已停止，但后台工具清理尚未确认")
+		}
+		return errors.New("后台工具清理尚未确认")
+	}
+	// A resumed thread may reveal a still running turn after local interruption
+	// events were lost. Never clean terminals before this same-thread read.
+	for _, id := range targets {
+		var observed struct {
+			Thread nativeThread `json:"thread"`
+		}
+		if err := callDecode(ctx, c, "thread/read", map[string]any{"threadId": id, "includeTurns": true}, &observed); err != nil || observed.Thread.ID != id {
+			if err == nil {
+				err = ErrProtocol
+			}
+			if prepared {
+				s.markCleanupUnknown("停止请求尚未下发，原工作状态尚未确认；请重新连接后重试停止")
+			} else {
+				s.markCleanupUnknown("停止结果尚未确认，后台工具清理也尚未确认")
+			}
+			return s.cleanupError("read", err)
+		}
+		s.mu.Lock()
+		for _, turn := range observed.Thread.Turns {
+			if id == s.binding.ThreadID && turn.ID == s.run && terminal(turn.Status) {
+				s.applyTurn(turn, true)
+			} else if id != s.binding.ThreadID && terminal(turn.Status) {
+				if current, known := s.childRuns[id]; known && (current == "" || current == turn.ID) {
+					delete(s.childRuns, id)
+				}
+				s.childTerminals[opaque(id, turn.ID)] = true
+			}
+		}
+		_, childActive := s.childRuns[id]
+		active := observed.Thread.Status.Type == "active" || id == s.binding.ThreadID && s.run != "" || id != s.binding.ThreadID && childActive
+		s.mu.Unlock()
+		if active {
+			if prepared {
+				s.markCleanupUnknown("停止请求尚未下发，原工作仍在运行；可重试停止")
+			} else {
+				s.markCleanupUnknown("停止结果尚未确认，后台工具清理也尚未确认")
+			}
+			return errors.New("停止结果尚未确认，请重新连接核对")
 		}
 	}
-
-	return last
+	if err := s.cleanTerminals(ctx, c, targets...); err != nil {
+		s.markCleanupUnknown("工作已停止，但后台工具清理尚未确认")
+		return err
+	}
+	s.mu.Lock()
+	previousStop, previousRuns := s.binding.StopState, s.binding.StopRuns
+	s.binding.CleanupTargets = nil
+	s.binding.StopState, s.binding.StopRuns = "", nil
+	if err := s.save(); err != nil {
+		s.binding.CleanupTargets = targets
+		s.binding.StopState, s.binding.StopRuns = previousStop, previousRuns
+		s.state.Phase = "unknown"
+		s.state.Message = "后台工具已核对，但结果记录保存失败，请重试连接"
+		s.update()
+		s.mu.Unlock()
+		return errors.New("后台工具清理记录未能保存")
+	}
+	if s.state.Connection == "ready" && s.run == "" && !s.hasBlockingChildren() {
+		if terminal(s.runs[s.lastTurn]) {
+			s.state.Phase = s.runs[s.lastTurn]
+		} else if previousStop == "prepared" {
+			s.state.Phase = "idle"
+		} else {
+			s.state.Phase = "interrupted"
+		}
+	}
+	s.state.Message = ""
+	s.update()
+	s.mu.Unlock()
+	return nil
 }
 func (s *Session) Close(ctx context.Context) error {
 	s.mu.Lock()
@@ -969,7 +1258,7 @@ func (s *Session) Close(ctx context.Context) error {
 		return nil
 	}
 	c.captureTools()
-	_ = s.interrupt(ctx)
+	_ = s.interrupt(ctx, true)
 	// Wait for the native terminal fact, not merely interrupt's acknowledgement.
 	for {
 		s.mu.Lock()

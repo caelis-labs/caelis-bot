@@ -19,6 +19,13 @@ Follow the discovered schema and receipts.
 | `bot_delegate.request.type: start` | Start an independent assignment in its workspace. |
 | `bot_delegate.request.type: continue` | Steer or continue the original task. |
 
+The chat Stop control interrupts the current conversation and its blocking
+child work. It does not stop independent Bot tasks, their terminal clients or
+their completion reports. To stop an independent task, use `bot_tasks` with
+`request.type:"stop"` and its exact task handle. An automatic review denial
+is an operation decision, not proof that the containing turn has ended; read
+the task or conversation state before reporting completion or retrying work.
+
 Write the prompt as the assignment itself. Forward the original task directly
 when it is already sufficient; for a subtask, include the necessary goal, context,
 expected deliverable, and relevant user constraints. Avoid repeated request

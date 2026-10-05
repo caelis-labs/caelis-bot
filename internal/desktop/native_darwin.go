@@ -8,12 +8,14 @@ package desktop
 #include "native_darwin.h"
 #include "material_darwin.h"
 #include "capture_darwin.h"
+#include "attachment_clipboard_darwin.h"
 #include <stdlib.h>
 */
 import "C"
 import (
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"runtime/cgo"
@@ -25,6 +27,43 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+func readMacClipboard() ([]string, []byte, error) {
+	raw := application.InvokeSyncWithResult(func() string {
+		value := C.bot_attachment_clipboard()
+		if value == nil {
+			return ""
+		}
+		defer C.free(unsafe.Pointer(value))
+		return C.GoString(value)
+	})
+	var payload struct {
+		Paths    []string `json:"paths"`
+		Image    string   `json:"image"`
+		TooLarge bool     `json:"tooLarge"`
+		Invalid  bool     `json:"invalid"`
+	}
+	if raw == "" || json.Unmarshal([]byte(raw), &payload) != nil {
+		return nil, nil, errors.New("clipboard unavailable")
+	}
+	if len(payload.Paths) > 0 {
+		return payload.Paths, nil, nil
+	}
+	if payload.TooLarge {
+		return nil, nil, errClipboardTooLarge
+	}
+	if payload.Invalid {
+		return nil, nil, errClipboardInvalid
+	}
+	if payload.Image == "" {
+		return nil, nil, nil
+	}
+	if len(payload.Image) > (maxDraftFile+2)/3*4+4 {
+		return nil, nil, errClipboardTooLarge
+	}
+	image, err := base64.StdEncoding.DecodeString(payload.Image)
+	return nil, image, err
+}
 
 //go:embed assets/status-icon.png
 var statusIcon []byte

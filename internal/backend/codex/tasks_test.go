@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -165,8 +166,8 @@ func TestTaskDelegationOwnsWorkspaceAndPreservesNativePolicy(t *testing.T) {
 	}
 	finishRoot(f)
 	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend })
-	if !s.Snapshot().CanInterrupt {
-		t.Fatal("secretary availability lost task stop")
+	if v := s.Snapshot(); v.CanInterrupt || v.Phase != "completed" {
+		t.Fatal("independent task kept the conversation busy", v.Phase, v.CanInterrupt)
 	}
 	for _, item := range s.Snapshot().Items {
 		if strings.Contains(item.Text, "Synthetic result") {
@@ -255,7 +256,7 @@ func TestUncertainTaskDispatchDoesNotReplayAndReadReconciles(t *testing.T) {
 		t.Fatal("task registry not durable")
 	}
 }
-func TestTaskReadAcknowledgesCompletionAndStopDoesNotWakeAgain(t *testing.T) {
+func TestTaskReadAcknowledgesCompletionAndIdleChatStopPreservesReport(t *testing.T) {
 	s, f, _, m := taskPair(t)
 	sendSynthetic(t, s, "task-parent-user")
 	v := newTask(t, m, "task-read-complete")
@@ -279,8 +280,58 @@ func TestTaskReadAcknowledgesCompletionAndStopDoesNotWakeAgain(t *testing.T) {
 	s.mu.Lock()
 	suppressed := s.binding.Tasks[v.ID].SuppressReport
 	s.mu.Unlock()
-	if !suppressed {
-		t.Fatal("Stop allows completion wakeups")
+	if suppressed {
+		t.Fatal("idle chat Stop suppressed independent task reports")
+	}
+}
+
+func TestChatStopLeavesIndependentWorkerTerminalAndReport(t *testing.T) {
+	s, f, _, m := taskPair(t)
+	sendSynthetic(t, s, "root-with-worker")
+	task := newTask(t, m, "independent-stop")
+	s.mu.Lock()
+	thread, run := s.binding.Tasks[task.ID].Thread, s.binding.Tasks[task.ID].Run
+	s.mu.Unlock()
+	var workerCalls atomic.Int32
+	f.mu.Lock()
+	original := f.handle
+	f.handle = func(message wireMessage) (any, bool) {
+		if message.Method == "turn/interrupt" || strings.HasPrefix(message.Method, "thread/backgroundTerminals/") {
+			var p struct {
+				ThreadID string `json:"threadId"`
+			}
+			_ = json.Unmarshal(message.Params, &p)
+			if p.ThreadID == thread {
+				workerCalls.Add(1)
+			}
+		}
+		return original(message)
+	}
+	f.mu.Unlock()
+	if err := s.Interrupt(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	v := s.Snapshot()
+	s.mu.Lock()
+	active := s.childRuns[thread] == run
+	suppressed := s.binding.Tasks[task.ID].SuppressReport
+	s.mu.Unlock()
+	f.mu.Lock()
+	connections := f.connections
+	f.mu.Unlock()
+	if v.Phase != "interrupted" || !v.CanSend || v.CanInterrupt || !active || suppressed || workerCalls.Load() != 0 || connections != 1 {
+		t.Fatalf("chat stop crossed task boundary: phase=%s send=%v interrupt=%v active=%v suppressed=%v workerCalls=%d connections=%d", v.Phase, v.CanSend, v.CanInterrupt, active, suppressed, workerCalls.Load(), connections)
+	}
+	finishTask(s, f, task.ID, "completed")
+	awaitState(t, s, func(v api.Snapshot) bool { return s.WorkStates()[0].Task.Status == "completed" })
+	if err := m.DeliverTaskReport(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	starts := f.starts
+	f.mu.Unlock()
+	if starts != 2 {
+		t.Fatal("completed worker report did not wake the conversation", starts)
 	}
 }
 func TestTaskFollowupReusesWorkspaceAndFencesActiveTurn(t *testing.T) {

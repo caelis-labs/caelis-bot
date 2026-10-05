@@ -23,6 +23,8 @@ type fakeClient struct {
 	mu                               sync.Mutex
 	sends, edits, documents, answers int
 	texts                            []string
+	messages                         []outgoingText
+	editIDs                          []int
 	documentBytes                    []string
 	sendErr                          error
 	webhook                          bool
@@ -46,18 +48,21 @@ func (f *fakeClient) Updates(ctx context.Context, _ int) ([]tg.Update, error) {
 		return nil, ctx.Err()
 	}
 }
-func (f *fakeClient) Send(_ context.Context, _ int64, text string, _ *tg.InlineKeyboardMarkup) (int, error) {
+func (f *fakeClient) Send(_ context.Context, _ int64, message outgoingText, _ *tg.InlineKeyboardMarkup) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sends++
-	f.texts = append(f.texts, text)
+	f.texts = append(f.texts, message.Text)
+	f.messages = append(f.messages, message)
 	return f.sends, f.sendErr
 }
-func (f *fakeClient) Edit(_ context.Context, _ int64, _ int, text string) error {
+func (f *fakeClient) Edit(_ context.Context, _ int64, id int, message outgoingText) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.edits++
-	f.texts = append(f.texts, text)
+	f.editIDs = append(f.editIDs, id)
+	f.texts = append(f.texts, message.Text)
+	f.messages = append(f.messages, message)
 	return nil
 }
 func (f *fakeClient) Document(_ context.Context, _ int64, path string) error {
@@ -181,6 +186,9 @@ func TestStreamingEditsOneMessageAndChunksUnicode(t *testing.T) {
 	if f.sends != 1 || f.edits != 1 {
 		t.Fatal("stream did not coalesce on stable message", f.sends, f.edits)
 	}
+	if f.messages[0].Text != "first" || f.messages[1].Text != "first and final" || len(f.messages[0].Entities) != 0 || len(f.messages[1].Entities) != 0 {
+		t.Fatal("assistant stream gained a heading or leaked entities")
+	}
 	text := strings.Repeat("🦉你好", 1500)
 	parts := splitText(text)
 	if strings.Join(parts, "") != text {
@@ -191,6 +199,176 @@ func TestStreamingEditsOneMessageAndChunksUnicode(t *testing.T) {
 			t.Fatal("UTF16 Telegram limit exceeded")
 		}
 	}
+}
+
+func TestMirroredMacIdentityAndPlainAssistantOnSendAndEdit(t *testing.T) {
+	for _, tc := range []struct {
+		name, title string
+		chinese     bool
+	}{
+		{"English", "You · from Mac", false},
+		{"Chinese", "你 · 来自 Mac", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, f := testBridge(t, Host{Chinese: func() bool { return tc.chinese }})
+			paired(b)
+			body := "first 🦉 line\n`code` <tag> & https://example.com/a?x=1&y=2"
+			reply := "Reply 🧭\n**literal Markdown**"
+			items := []api.Item{{ID: "mac", Kind: "user", RequestID: "desktop:1", Text: body}, {ID: "reply", Kind: "assistant", Text: reply}}
+			b.mirror(t.Context(), f, api.Snapshot{Items: items})
+			b.mirror(t.Context(), f, api.Snapshot{Items: items})
+			if f.sends != 2 || f.edits != 0 {
+				t.Fatalf("duplicate role publication: sends=%d edits=%d", f.sends, f.edits)
+			}
+			checkMacUserMessage(t, f.messages[0], tc.title, body)
+			checkPlainAssistantMessage(t, f.messages[1], reply)
+			items[0].Text += "\nupdated"
+			items[1].Text += "!"
+			b.mirror(t.Context(), f, api.Snapshot{Items: items})
+			if f.sends != 2 || f.edits != 2 {
+				t.Fatalf("role edit changed identity: sends=%d edits=%d", f.sends, f.edits)
+			}
+			checkMacUserMessage(t, f.messages[2], tc.title, items[0].Text)
+			checkPlainAssistantMessage(t, f.messages[3], items[1].Text)
+		})
+	}
+}
+
+func checkMacUserMessage(t *testing.T, message outgoingText, title, body string) {
+	t.Helper()
+	if message.Text != title+"\n"+body || len(message.Entities) != 2 {
+		t.Fatalf("role text/entities changed: %#v", message)
+	}
+	if entity := message.Entities[0]; entity.Type != tg.EntityTypeBold || entity.Offset != 0 || entity.Length != utf16Length(title) {
+		t.Fatalf("wrong title entity: %#v", entity)
+	}
+	entity := message.Entities[1]
+	if entity.Type != tg.EntityTypeBlockquote || entity.Offset != utf16Length(title+"\n") || entity.Length != utf16Length(body) {
+		t.Fatalf("wrong body entity: %#v", entity)
+	}
+	if utf16Length(message.Text) > 4000 {
+		t.Fatalf("Telegram text limit exceeded: %d", utf16Length(message.Text))
+	}
+}
+
+func checkPlainAssistantMessage(t *testing.T, message outgoingText, body string) {
+	t.Helper()
+	if message.Text != body || len(message.Entities) != 0 || utf16Length(message.Text) > 4000 {
+		t.Fatalf("assistant body was decorated, truncated, or oversized: %#v", message)
+	}
+}
+
+func TestLongMacPartsKeepIdentityAndAssistantPartsStayPlain(t *testing.T) {
+	for _, tc := range []struct {
+		role, title string
+	}{
+		{"user", "You · from Mac"},
+		{"assistant", ""},
+	} {
+		t.Run(tc.role, func(t *testing.T) {
+			b, f := testBridge(t, Host{})
+			paired(b)
+			body := strings.Repeat("🦉<>&`https://example.com`\n", 350)
+			item := api.Item{ID: "long", Kind: tc.role, Text: body}
+			b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{item}})
+			if f.sends < 2 || f.edits != 0 {
+				t.Fatalf("long message did not split: sends=%d edits=%d", f.sends, f.edits)
+			}
+			var restored strings.Builder
+			for _, message := range f.messages {
+				chunk := message.Text
+				if tc.role == "user" {
+					chunk = strings.TrimPrefix(message.Text, tc.title+"\n")
+					checkMacUserMessage(t, message, tc.title, chunk)
+				} else {
+					checkPlainAssistantMessage(t, message, chunk)
+				}
+				restored.WriteString(chunk)
+			}
+			if restored.String() != body {
+				t.Fatal("long body changed during role-aware splitting")
+			}
+			b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{item}})
+			if f.sends != len(f.messages) || f.edits != 0 {
+				t.Fatal("repeated long snapshot published again")
+			}
+		})
+	}
+}
+
+func TestAssistantPlainUTF16BoundaryKeepsAllTextWithoutEntities(t *testing.T) {
+	b, f := testBridge(t, Host{})
+	paired(b)
+	body := strings.Repeat("🦉", 2000) // Exactly 4000 UTF-16 units.
+	item := api.Item{ID: "boundary", Kind: "assistant", Text: body}
+	b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{item}})
+	if f.sends != 1 || f.edits != 0 {
+		t.Fatal("plain assistant body was split before its original limit")
+	}
+	checkPlainAssistantMessage(t, f.messages[0], body)
+	item.Text += "尾"
+	b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{item}})
+	if f.sends != 2 || f.edits != 0 {
+		t.Fatal("streaming across the original limit lost the first part identity")
+	}
+	checkPlainAssistantMessage(t, f.messages[1], "尾")
+	b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{item}})
+	if f.sends != 2 || f.edits != 0 {
+		t.Fatal("unchanged assistant boundary was republished")
+	}
+}
+
+func TestPreviouslyDecoratedAssistantPartsEditInPlaceWithoutLeavingHeader(t *testing.T) {
+	b, f := testBridge(t, Host{})
+	paired(b)
+	body := strings.Repeat("🦉", 1995) // One plain part, two with the former heading.
+	oldChunks := splitTextLimit(body, 4000-utf16Length("Caelis Bot\n"))
+	if len(oldChunks) != 2 {
+		t.Fatal("fixture does not cross former heading boundary")
+	}
+	record := delivery{IDs: []int{51, 52}}
+	for _, chunk := range oldChunks {
+		record.Hashes = append(record.Hashes, outgoingDigest(outgoingText{
+			Text:     "Caelis Bot\n" + chunk,
+			Entities: []tg.MessageEntity{{Type: tg.EntityTypeBold, Offset: 0, Length: utf16Length("Caelis Bot")}},
+		}))
+	}
+	b.state.Messages["item:old-decorated"] = record
+	item := api.Item{ID: "old-decorated", Kind: "assistant", Text: body}
+	b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{item}})
+	if f.sends != 0 || f.edits != 2 || f.editIDs[0] != 51 || f.editIDs[1] != 52 {
+		t.Fatal("former assistant parts were recreated or left stale", f.sends, f.edits, f.editIDs)
+	}
+	var restored strings.Builder
+	for _, message := range f.messages {
+		checkPlainAssistantMessage(t, message, message.Text)
+		restored.WriteString(message.Text)
+	}
+	if restored.String() != body {
+		t.Fatal("former heading migration truncated assistant text")
+	}
+	b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{item}})
+	if f.sends != 0 || f.edits != 2 {
+		t.Fatal("migrated assistant history was republished")
+	}
+}
+
+func TestLegacyRoleDigestDoesNotRepublishHistoryButChangedStreamEditsOriginal(t *testing.T) {
+	b, f := testBridge(t, Host{})
+	paired(b)
+	b.state.Messages["input:desktop:old"] = delivery{IDs: []int{51}, Hashes: []string{digest("From Mac: unchanged")}}
+	b.state.Messages["item:stream"] = delivery{IDs: []int{52}, Hashes: []string{digest("old reply")}}
+	items := []api.Item{{ID: "old", Kind: "user", RequestID: "desktop:old", Text: "unchanged"}, {ID: "stream", Kind: "assistant", Text: "old reply"}}
+	b.mirror(t.Context(), f, api.Snapshot{Items: items})
+	if f.sends != 0 || f.edits != 0 {
+		t.Fatal("unchanged pre-format history was republished")
+	}
+	items[1].Text = "old reply, now complete"
+	b.mirror(t.Context(), f, api.Snapshot{Items: items})
+	if f.sends != 0 || f.edits != 1 {
+		t.Fatal("changed stream did not edit existing Telegram ID")
+	}
+	checkPlainAssistantMessage(t, f.messages[0], items[1].Text)
 }
 func TestUnknownTelegramCreateIsNotRetried(t *testing.T) {
 	b, f := testBridge(t, Host{})

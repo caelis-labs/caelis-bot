@@ -64,6 +64,12 @@ independent. Token storage uses the macOS Keychain; pairing requires a short-liv
 link and desktop account confirmation. Polling cursors, original input outcomes,
 Telegram message IDs and text digests are saved privately. Uncertain creates and
 inputs are never replayed; streamed edits are coalesced and rate limits respected.
+The Telegram adapter renders mirrored Mac user items with a source heading and
+quoted body. Each long Mac user-message part carries its heading and UTF-16 entity
+ranges. Assistant replies retain their plain original text, including edits and
+long-message parts. Display labels never enter Bot input or change native request/
+item identity. Existing plain-text delivery digests are honored so a formatting
+upgrade does not republish history.
 Backend recovery establishes the private history boundary before remote input is
 accepted. One cancellable output worker coalesces snapshots independently of input
 and control actions; configuration changes join both workers. Attachment identity
@@ -169,6 +175,10 @@ cleanup, then reaps that process. macOS descendant fallback uses captured PID pl
 process-name kill. Closing/hiding UI has none of this authority. Shared Caelis Host/Workers survive Bot detach;
 Bot neither stops the shared Host nor cancels native workers on ordinary close. Cancellation after dispatch
 may leave an unknown effect, which cannot be called “not executed.”
+Conversation Stop records exact native targets before a bounded pre-cleanup attempt. A durable prepared state
+means no turn interruption was dispatched and permits an explicit retry of those targets; once dispatch is
+attempted, reconnect only observes the original native turn and cleanup result. Terminal native status remains
+authoritative when a prepared Stop was never sent.
 
 Resident Runtime replacement is fenced by active work, approvals and unknown outcomes, then persisted for restart.
 Worker-default changes are live and have no task-state fence; existing tasks keep their native owners.

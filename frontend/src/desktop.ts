@@ -13,4 +13,5 @@ async function host<T>(service: string,method: string,...args: unknown[]): Promi
   return (await runtime).Call.ByName<T>(`github.com/caelis-labs/caelis-bot/internal/${service}.Service.${method}`, ...args);
 }
 export type Placement = { x: number; y: number; scale: number; visible: boolean; positioned: boolean };
-export type DraftFile = { id: string; name: string; size: number; unavailable: boolean };
+export type DraftFile = { id: string; name: string; size: number; type: string; image: boolean; unavailable: boolean };
+export type PasteResult = { handled: boolean; files: DraftFile[] };

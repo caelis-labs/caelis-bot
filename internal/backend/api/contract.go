@@ -51,6 +51,9 @@ type AttachmentStorage struct {
 // Review is a native automatic-review fact, never an actionable approval.
 type Review struct {
 	ID        string `json:"id"`
+	TurnKey   string `json:"turnKey"`
+	Owner     string `json:"owner,omitempty"`
+	TaskTitle string `json:"taskTitle,omitempty"`
 	Status    string `json:"status"`
 	Action    string `json:"action"`
 	Rationale string `json:"rationale"`
@@ -137,6 +140,7 @@ type Approval struct {
 	TaskTitle   string            `json:"taskTitle"`
 	Sections    []ApprovalSection `json:"sections"`
 	ID          string            `json:"id"`
+	TurnKey     string            `json:"turnKey"`
 	Title       string            `json:"title"`
 	Action      string            `json:"action"`
 	Target      string            `json:"target"`

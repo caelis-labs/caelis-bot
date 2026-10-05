@@ -76,6 +76,7 @@ type Service struct {
 	started             bool
 	stopped             bool
 	pickFiles           func() ([]string, error)
+	readClipboard       func() ([]string, []byte, error)
 	picking             bool
 	files               []draftFile
 	nextFile            uint64

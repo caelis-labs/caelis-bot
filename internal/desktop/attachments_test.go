@@ -1,13 +1,125 @@
 package desktop
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func pastePNG(t *testing.T) []byte {
+	t.Helper()
+	value := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	value.Set(0, 0, color.RGBA{R: 230, A: 255})
+	var output bytes.Buffer
+	if err := png.Encode(&output, value); err != nil {
+		t.Fatal(err)
+	}
+	return output.Bytes()
+}
+
+func TestClipboardImageDraftRestoresPreviewsAndCleansAfterRemoval(t *testing.T) {
+	root := t.TempDir()
+	selection := filepath.Join(root, "draft-files.json")
+	s, _, _ := setup()
+	if err := s.configureSelection(selection); err != nil {
+		t.Fatal(err)
+	}
+	s.readClipboard = func() ([]string, []byte, error) { return nil, pastePNG(t), nil }
+	result, err := s.PasteAttachments()
+	if err != nil || !result.Handled || len(result.Files) != 1 || !result.Files[0].Image || result.Files[0].Type != "image/png" {
+		t.Fatalf("image paste: %+v %v", result, err)
+	}
+	jsonBytes, _ := json.Marshal(result)
+	if strings.Contains(string(jsonBytes), root) {
+		t.Fatal("host path escaped into renderer DTO")
+	}
+	imageURL, err := s.DraftImage(result.Files[0].ID)
+	if err != nil || !strings.HasPrefix(imageURL, "data:image/jpeg;base64,") {
+		t.Fatalf("thumbnail: %v %q", err, imageURL)
+	}
+	path := s.files[0].path
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("clipboard image missing from private draft storage", err)
+	}
+	restarted, _, _ := setup()
+	if err := restarted.configureSelection(selection); err != nil {
+		t.Fatal(err)
+	}
+	if files := restarted.DraftFiles(); len(files) != 1 || files[0].ID != result.Files[0].ID || files[0].Unavailable {
+		t.Fatalf("restart draft: %+v", files)
+	}
+	if _, err := restarted.RemoveFile(result.Files[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("removed draft bytes remain: %v", err)
+	}
+}
+
+func TestClipboardFileURLsTakePrecedenceAndBatchFailurePreservesDraft(t *testing.T) {
+	root := t.TempDir()
+	selection := filepath.Join(root, "draft-files.json")
+	a, b := filepath.Join(root, "one.txt"), filepath.Join(root, "two.txt")
+	for _, path := range []string{a, b} {
+		if err := os.WriteFile(path, []byte("data"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, _, _ := setup()
+	if err := s.configureSelection(selection); err != nil {
+		t.Fatal(err)
+	}
+	s.readClipboard = func() ([]string, []byte, error) { return []string{a, a, b}, pastePNG(t), nil }
+	result, err := s.PasteAttachments()
+	if err != nil || len(result.Files) != 2 || result.Files[0].Image || result.Files[1].Image {
+		t.Fatalf("multiple clipboard representations imported twice: %+v %v", result, err)
+	}
+	s.readClipboard = func() ([]string, []byte, error) { return []string{a, root}, nil, nil }
+	if _, err := s.PasteAttachments(); err == nil || len(s.DraftFiles()) != 2 {
+		t.Fatal("invalid Finder batch changed draft")
+	}
+	s.readClipboard = func() ([]string, []byte, error) { return nil, nil, nil }
+	if empty, err := s.PasteAttachments(); err != nil || empty.Handled {
+		t.Fatalf("plain-text clipboard intercepted: %+v %v", empty, err)
+	}
+}
+
+func TestAcceptedClipboardImageDeletesBytesAndRestartRemovesOrphans(t *testing.T) {
+	root := t.TempDir()
+	selection := filepath.Join(root, "draft-files.json")
+	s, _, _ := setup()
+	if err := s.configureSelection(selection); err != nil {
+		t.Fatal(err)
+	}
+	s.readClipboard = func() ([]string, []byte, error) { return nil, pastePNG(t), nil }
+	result, err := s.PasteAttachments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := s.files[0].path
+	s.consumeDraftFiles([]string{result.Files[0].ID})
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("accepted draft bytes remain: %v", err)
+	}
+	orphan := filepath.Join(root, "draft-images", "paste-orphan.png")
+	if err := os.WriteFile(orphan, pastePNG(t), 0600); err != nil {
+		t.Fatal(err)
+	}
+	restarted, _, _ := setup()
+	if err := restarted.configureSelection(selection); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Fatalf("orphan survived restart: %v", err)
+	}
+}
 
 func TestFileSelectionIsLocalAtomicAndDeduplicated(t *testing.T) {
 	s, _, _ := setup()

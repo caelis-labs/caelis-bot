@@ -216,6 +216,17 @@ func (f *sessionFixture) serve(peer net.Conn) {
 				TurnID   string `json:"turnId"`
 			}
 			_ = json.Unmarshal(m.Params, &params)
+			f.mu.Lock()
+			if worker, known := f.workers[params.ThreadID]; known {
+				worker.Status.Type = "idle"
+				for i := range worker.Turns {
+					if worker.Turns[i].ID == params.TurnID {
+						worker.Turns[i].Status = "interrupted"
+					}
+				}
+				f.workers[params.ThreadID] = worker
+			}
+			f.mu.Unlock()
 			f.emitTo(peer, wireMessage{Method: "turn/completed", Params: raw(map[string]any{"threadId": params.ThreadID, "turn": nativeTurn{ID: params.TurnID, Status: "interrupted"}})})
 		case "thread/backgroundTerminals/list":
 			result = map[string]any{"data": []any{}, "nextCursor": nil}

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -586,7 +587,7 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 				b.candidate = m
 			}
 			b.mu.Unlock()
-			_, _ = c.Send(ctx, m.Chat.ID, b.text("Confirm this account in Caelis Bot on your Mac to finish connecting.", "请在 Mac 的 Caelis Bot 中确认这是你的账号，即可完成连接。"), nil)
+			_, _ = c.Send(ctx, m.Chat.ID, plainText(b.text("Confirm this account in Caelis Bot on your Mac to finish connecting.", "请在 Mac 的 Caelis Bot 中确认这是你的账号，即可完成连接。")), nil)
 		}
 		return true
 	}
@@ -613,10 +614,10 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 	outcome := "handled"
 	switch strings.Split(m.Text, " ")[0] {
 	case "/start":
-		_, _ = c.Send(ctx, chat, b.text("Connected. Send a message or file. /stop stops work; /status checks it.", "已连接。直接发送消息或文件即可。/stop 停止工作，/status 查看状态。"), nil)
+		_, _ = c.Send(ctx, chat, plainText(b.text("Connected. Send a message or file. /stop stops work; /status checks it.", "已连接。直接发送消息或文件即可。/stop 停止工作，/status 查看状态。")), nil)
 	case "/stop":
 		if b.host.Interrupt(ctx) != nil {
-			_, _ = c.Send(ctx, chat, b.text("Could not stop work. Check Caelis Bot on your Mac.", "未能停止，请在 Mac 的 Caelis Bot 中查看。"), nil)
+			_, _ = c.Send(ctx, chat, plainText(b.text("Could not stop work. Check Caelis Bot on your Mac.", "未能停止，请在 Mac 的 Caelis Bot 中查看。")), nil)
 		}
 	case "/status":
 		s := b.host.Snapshot()
@@ -624,12 +625,12 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 		if s.CanInterrupt {
 			text = b.text("Caelis Bot is working.", "Caelis Bot 正在工作。")
 		}
-		_, _ = c.Send(ctx, chat, text, nil)
+		_, _ = c.Send(ctx, chat, plainText(text), nil)
 	default:
 		files, stickerNote, e := b.download(ctx, c, request, m)
 		if e != nil {
 			outcome = "rejected"
-			_, _ = c.Send(ctx, chat, b.downloadNotice(e), nil)
+			_, _ = c.Send(ctx, chat, plainText(b.downloadNotice(e)), nil)
 		} else {
 			text := m.Text
 			if text == "" {
@@ -640,7 +641,7 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 			}
 			if strings.TrimSpace(text) == "" && len(files) == 0 {
 				outcome = "rejected"
-				_, _ = c.Send(ctx, chat, b.text("Send text, a photo or a file.", "请发送文字、图片或文件。"), nil)
+				_, _ = c.Send(ctx, chat, plainText(b.text("Send text, a photo or a file.", "请发送文字、图片或文件。")), nil)
 			} else {
 				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text}, files)
 				outcome = receipt.Outcome
@@ -656,7 +657,7 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 					if outcome == "unknown" {
 						notice = b.text("Delivery is uncertain. Check the original message on your Mac; it will not be sent again automatically.", "发送结果暂不确定。请在 Mac 查看原消息，系统不会自动重复发送。")
 					}
-					_, _ = c.Send(ctx, chat, notice, nil)
+					_, _ = c.Send(ctx, chat, plainText(notice), nil)
 				}
 			}
 		}
@@ -868,12 +869,10 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		if i.Text == api.SilentReminder {
 			continue
 		}
-		text := i.Text
 		if i.Kind == "user" {
-			text = b.text("From Mac: ", "Mac：") + text
-		}
-		if i.Kind == "user" || i.Kind == "assistant" {
-			b.sendText(ctx, c, itemKey(i), chat, text, nil)
+			b.sendMacUserText(ctx, c, itemKey(i), chat, i.Text)
+		} else if i.Kind == "assistant" {
+			b.sendAssistantText(ctx, c, itemKey(i), chat, i.Text)
 		}
 		for _, a := range i.Artifacts {
 			b.mu.Lock()
@@ -947,12 +946,14 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		b.sendText(ctx, c, "approval:"+a.ID, chat, text, keys)
 	}
 }
-func splitText(text string) []string {
+func splitText(text string) []string { return splitTextLimit(text, 4000) }
+
+func splitTextLimit(text string, limit int) []string {
 	var parts []string
 	start, size := 0, 0
 	for pos, r := range text {
 		width := utf16.RuneLen(r)
-		if size+width > 4000 {
+		if size+width > limit {
 			parts = append(parts, text[start:pos])
 			start = pos
 			size = 0
@@ -964,15 +965,145 @@ func splitText(text string) []string {
 	}
 	return parts
 }
+
+func utf16Length(text string) int { return len(utf16.Encode([]rune(text))) }
+
+// macUserText labels the source without claiming to send as the Telegram user.
+// Bot replies remain unformatted plain text.
+func macUserText(title, body string) []outgoingText {
+	header := title + "\n"
+	chunks := splitTextLimit(body, 4000-utf16Length(header))
+	if len(chunks) == 0 {
+		chunks = []string{""} // Preserve an attachment-only Mac user item.
+	}
+	result := make([]outgoingText, 0, len(chunks))
+	for _, chunk := range chunks {
+		visible := header + chunk
+		if chunk == "" {
+			visible = title
+		}
+		message := outgoingText{
+			Text:     visible,
+			Entities: []tg.MessageEntity{{Type: tg.EntityTypeBold, Offset: 0, Length: utf16Length(title)}},
+		}
+		if chunk != "" {
+			message.Entities = append(message.Entities, tg.MessageEntity{
+				Type: tg.EntityTypeBlockquote, Offset: utf16Length(header), Length: utf16Length(chunk),
+			})
+		}
+		result = append(result, message)
+	}
+	return result
+}
+
+func (b *Bridge) sendMacUserText(ctx context.Context, c client, key string, chat int64, body string) {
+	title := b.text("You · from Mac", "你 · 来自 Mac")
+	old := splitText(b.text("From Mac: ", "Mac：") + body)
+	legacyParts := make([]outgoingText, len(old))
+	for i, part := range old {
+		legacyParts[i] = plainText(part)
+	}
+	b.sendRenderedText(ctx, c, key, chat, macUserText(title, body), legacyParts, nil)
+}
+
+func (b *Bridge) sendAssistantText(ctx context.Context, c client, key string, chat int64, body string) {
+	parts := splitText(body)
+	b.mu.Lock()
+	record := b.state.Messages[key]
+	b.mu.Unlock()
+	// Reuse every confirmed part when a streamed reply contracts. In particular,
+	// this removes the heading from each part sent by the previous formatter
+	// without leaving a stale trailing Telegram message at the split boundary.
+	if len(record.IDs) > len(parts) {
+		confirmed := true
+		for _, id := range record.IDs {
+			if id <= 0 {
+				confirmed = false
+				break
+			}
+		}
+		if confirmed {
+			parts = splitTextAtLeast(parts, len(record.IDs))
+		}
+	}
+	messages := make([]outgoingText, len(parts))
+	for i, part := range parts {
+		messages[i] = plainText(part)
+	}
+	b.sendRenderedText(ctx, c, key, chat, messages, nil, nil)
+}
+
+func splitTextAtLeast(parts []string, minimum int) []string {
+	for len(parts) < minimum {
+		longest := -1
+		for i, part := range parts {
+			if utf8.RuneCountInString(part) > 1 && (longest < 0 || utf16Length(part) > utf16Length(parts[longest])) {
+				longest = i
+			}
+		}
+		if longest < 0 {
+			break
+		}
+		part := parts[longest]
+		half := utf16Length(part) / 2
+		split, units := 0, 0
+		for pos, r := range part {
+			if units >= half && pos > 0 {
+				split = pos
+				break
+			}
+			units += utf16.RuneLen(r)
+		}
+		if split == 0 {
+			break
+		}
+		parts = append(parts[:longest+1], append([]string{part[split:]}, parts[longest+1:]...)...)
+		parts[longest] = part[:split]
+	}
+	return parts
+}
+
+func outgoingDigest(message outgoingText) string {
+	if len(message.Entities) == 0 {
+		return digest(message.Text) // Existing plain-text delivery digests remain valid.
+	}
+	encoded, _ := json.Marshal(message)
+	return digest(string(encoded))
+}
+
 func (b *Bridge) sendText(ctx context.Context, c client, key string, chat int64, text string, keys *tg.InlineKeyboardMarkup) {
+	parts := splitText(text)
+	messages := make([]outgoingText, len(parts))
+	for i, part := range parts {
+		messages[i] = plainText(part)
+	}
+	b.sendRenderedText(ctx, c, key, chat, messages, nil, keys)
+}
+
+func (b *Bridge) sendRenderedText(ctx context.Context, c client, key string, chat int64, messages, legacy []outgoingText, keys *tg.InlineKeyboardMarkup) {
 	if b.backingOff() {
 		return
 	}
-	for part, value := range splitText(text) {
+	// An unchanged pre-role delivery must stay in place on upgrade/reconnect.
+	// A changed streaming item can still edit its original Telegram message ID.
+	b.mu.Lock()
+	record := b.state.Messages[key]
+	oldUnchanged := len(legacy) > 0 && len(record.IDs) == len(legacy) && len(record.Hashes) == len(legacy)
+	for part, message := range legacy {
+		if !oldUnchanged || record.IDs[part] <= 0 || record.Hashes[part] != outgoingDigest(message) {
+			oldUnchanged = false
+			break
+		}
+	}
+	b.mu.Unlock()
+	if oldUnchanged {
+		return
+	}
+	for part, value := range messages {
 		if ctx.Err() != nil {
 			return
 		}
-		hash := digest(value)
+		hash := outgoingDigest(value)
 		b.mu.Lock()
 		record := b.state.Messages[key]
 		if record.Skip {

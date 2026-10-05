@@ -9,6 +9,11 @@ import (
 func TestOwnedWorkerApprovalRoutesWithoutLeakingWorkerMessages(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	sendSynthetic(t, s, "root-prompt")
+	worker := nativeThread{ID: "worker", ParentThreadID: "thread-native", Turns: []nativeTurn{{ID: "worker-turn", Status: "inProgress"}}}
+	worker.Status.Type = "active"
+	f.mu.Lock()
+	f.workers = map[string]nativeThread{"worker": worker}
+	f.mu.Unlock()
 	f.emit(wireMessage{Method: "thread/started", Params: raw(map[string]any{"thread": nativeThread{ID: "worker", ParentThreadID: "thread-native"}})})
 	f.emit(wireMessage{Method: "turn/started", Params: raw(map[string]any{"threadId": "worker", "turn": nativeTurn{ID: "worker-turn", Status: "inProgress"}})})
 	f.emit(wireMessage{Method: "item/agentMessage/delta", Params: raw(map[string]any{"threadId": "worker", "turnId": "worker-turn", "itemId": "private", "delta": "private worker chatter"})})
@@ -101,27 +106,53 @@ func TestV2WorkerActivityOwnsTargetAndObservesNativeIdle(t *testing.T) {
 }
 
 func TestWorkerObservationFailureCanReconnectWithoutReplaying(t *testing.T) {
-	s, f := sessionPair(t, "hold")
-	sendSynthetic(t, s, "root-prompt")
-	f.emit(wireMessage{Method: "item/completed", Params: raw(map[string]any{"threadId": "thread-native", "turnId": "run-native", "item": nativeItem{ID: "spawn", Type: "subAgentActivity", AgentThreadID: "worker-v2", ActivityKind: "started"}})})
-	// Fixture returns the root for this missing worker: reject mismatched identity.
-	v := awaitState(t, s, func(v api.Snapshot) bool { return v.Phase == "unknown" })
-	if v.CanSend {
-		t.Fatal("unconfirmed worker permitted new work")
-	}
-	worker := nativeThread{ID: "worker-v2", Turns: []nativeTurn{{ID: "w", Status: "completed"}}}
-	worker.Status.Type = "idle"
-	f.mu.Lock()
-	f.workers = map[string]nativeThread{"worker-v2": worker}
-	starts := f.starts
-	f.mu.Unlock()
-	if err := s.Connect(testContext(t)); err != nil {
-		t.Fatal(err)
-	}
-	awaitState(t, s, func(v api.Snapshot) bool { return v.Phase == "working" && v.Message == "" })
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.starts != starts {
-		t.Fatal("reconnect replayed input")
+	for _, status := range []string{"active", "idle"} {
+		t.Run(status, func(t *testing.T) {
+			s, f := sessionPair(t, "hold")
+			sendSynthetic(t, s, "root-prompt")
+			awaitState(t, s, func(v api.Snapshot) bool { return v.CurrentTurn == opaque("run-native") })
+			resumeStarted, releaseResume := make(chan struct{}), make(chan struct{})
+			f.mu.Lock()
+			f.handle = func(m wireMessage) (any, bool) {
+				if m.Method == "thread/resume" && strings.Contains(string(m.Params), `"threadId":"worker-v2"`) {
+					close(resumeStarted)
+					<-releaseResume
+					return map[string]any{"thread": nativeThread{ID: "wrong-thread"}}, true
+				}
+				return nil, false
+			}
+			f.mu.Unlock()
+			f.emit(wireMessage{Method: "item/completed", Params: raw(map[string]any{"threadId": "thread-native", "turnId": "run-native", "item": nativeItem{ID: "spawn", Type: "subAgentActivity", AgentThreadID: "worker-v2", ActivityKind: "started"}})})
+			<-resumeStarted
+			finishRoot(f)
+			awaitState(t, s, func(v api.Snapshot) bool { return v.CurrentTurn == "" })
+			close(releaseResume)
+			v := awaitState(t, s, func(v api.Snapshot) bool { return v.Phase == "unknown" })
+			if v.CanSend {
+				t.Fatal("unconfirmed worker permitted new work")
+			}
+			worker := nativeThread{ID: "worker-v2", Turns: []nativeTurn{{ID: "w", Status: "inProgress"}}}
+			worker.Status.Type = "active"
+			wantPhase, wantSend := "working", false
+			if status == "idle" {
+				worker.Status.Type = "idle"
+				worker.Turns[0].Status = "completed"
+				wantPhase, wantSend = "completed", true
+			}
+			f.mu.Lock()
+			f.handle = nil
+			f.workers = map[string]nativeThread{"worker-v2": worker}
+			starts := f.starts
+			f.mu.Unlock()
+			if err := s.Connect(testContext(t)); err != nil {
+				t.Fatal(err)
+			}
+			awaitState(t, s, func(v api.Snapshot) bool { return v.Phase == wantPhase && v.CanSend == wantSend && v.Message == "" })
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.starts != starts {
+				t.Fatal("reconnect replayed input")
+			}
+		})
 	}
 }

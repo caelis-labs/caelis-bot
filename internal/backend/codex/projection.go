@@ -84,7 +84,7 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 	}
 	_, knownTurn := s.runs[turn.ID]
 	s.runs[turn.ID] = turn.Status
-	if !knownTurn || s.lastTurn == "" || turn.Status == "inProgress" || history {
+	if (!knownTurn && !terminal(turn.Status)) || s.lastTurn == "" || turn.Status == "inProgress" || history {
 		s.lastTurn = turn.ID
 	}
 	for _, item := range turn.Items {
@@ -98,7 +98,7 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 		if s.run == turn.ID {
 			s.run = ""
 		}
-		if !history && s.run == "" {
+		if !history && s.run == "" && s.lastTurn == turn.ID {
 			s.state.Phase = turn.Status
 			if turn.Error != nil {
 				s.applyFailure(*turn.Error)
@@ -385,6 +385,17 @@ func (s *Session) applyEvent(event Notification) {
 			s.applyTurn(n.Turn, false)
 		}
 	case "item/started", "item/completed":
+		if terminal(s.runs[target.TurnID]) {
+			if event.Method == "item/completed" {
+				var n struct {
+					Item nativeItem `json:"item"`
+				}
+				if s.decodeEvent(event, &n, false) && n.Item.Status == "failed" {
+					s.logEvent(event, "tool_failed", "native tool failed; execution remains runtime-owned")
+				}
+			}
+			return
+		}
 		var n struct {
 			Item nativeItem `json:"item"`
 		}

@@ -55,7 +55,12 @@ func (s *Session) applyReview(event Notification) {
 	case "writeStdin":
 		action = "向运行中的命令输入内容"
 	}
-	review := api.Review{ID: id, Status: n.Review.Status, Action: action, Rationale: n.Review.Rationale}
+	review := api.Review{ID: id, TurnKey: opaque(n.TurnID), Status: n.Review.Status, Action: action, Rationale: n.Review.Rationale}
+	if task := s.taskByThread(n.ThreadID); task != nil {
+		review.Owner, review.TaskTitle = "task", task.View.Title
+	} else {
+		review.Owner = "conversation"
+	}
 	for i, old := range s.state.Reviews {
 		if old.ID == id {
 			if old.Status != "inProgress" && review.Status == "inProgress" {
