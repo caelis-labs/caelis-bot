@@ -321,6 +321,11 @@ func (a *Application) Start() error {
 	if err != nil {
 		return err
 	}
+	if importer, ok := a.engine.(interface{ ImportHostReportIDs([]string) error }); ok {
+		if err := importer.ImportHostReportIDs(manager.HostReportIDs()); err != nil {
+			return err
+		}
+	}
 	manager.SetLocale(a.locale)
 	manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 	manager.ObserveWatchlist(a.host.ObserveTasks)

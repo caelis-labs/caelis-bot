@@ -168,6 +168,9 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 			}
 		}
 		view.Text = strings.Join(text, "\n")
+		if s.binding.HostReports[item.ClientID] {
+			view.Kind = "hostNotice"
+		}
 		if _, scheduled := s.binding.Scheduled[item.ClientID]; scheduled || legacyWakeID.MatchString(item.ClientID) {
 			if s.binding.Scheduled == nil {
 				s.binding.Scheduled = map[string]string{}

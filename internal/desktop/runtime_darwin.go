@@ -58,6 +58,7 @@ func Run(assets fs.FS) error {
 	}
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configurePermissionGuide(filepath.Join(root, "permission-guide.json"))
+	s.configureFeatureGuide(filepath.Join(root, "feature-guide.json"))
 	s.configureShortcut(filepath.Join(root, "shortcut.json"))
 	s.configureTaskShortcut(filepath.Join(root, "task-shortcut.json"))
 	logError(s.configureCapture(filepath.Join(root, "Captures")))

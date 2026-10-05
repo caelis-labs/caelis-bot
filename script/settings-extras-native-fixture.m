@@ -32,7 +32,12 @@
      [web evaluateJavaScript:@"JSON.stringify(window.__fixtureResult)" completionHandler:^(id result,NSError *error){
       if(error||![result isKindOfClass:NSString.class]){fprintf(stderr,"Fixture result missing\n");exit(1);}
       [[result dataUsingEncoding:NSUTF8StringEncoding] writeToFile:[self.output stringByAppendingString:@".json"] atomically:YES];
-      fprintf(stdout,"Captured %s\n",self.output.UTF8String);exit(0);
+      [web takeSnapshotWithConfiguration:nil completionHandler:^(NSImage *after,NSError *snapshotError){
+       if(!after){fprintf(stderr,"Post-interaction snapshot failed\n");exit(1);}
+       NSBitmapImageRep *afterBitmap=[[NSBitmapImageRep alloc] initWithData:after.TIFFRepresentation];
+       if(![[afterBitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:[self.output stringByAppendingString:@".after.png"] atomically:YES])exit(1);
+       fprintf(stdout,"Captured %s\n",self.output.UTF8String);exit(0);
+      }];
      }];
     });
    }];}else{fprintf(stdout,"Captured %s\n",self.output.UTF8String);exit(0);}

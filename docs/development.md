@@ -107,18 +107,25 @@ with an isolated Bot profile. Draft writes coalesce only pending full replacemen
 submission waits for the newest saved draft. Snapshot reads are fenced by request order and
 visible-surface lifetime as well as backend revision.
 
-Settings separate AI models, AI accounts, Chat connections, Remote machines,
+Settings separate AI models, AI accounts, Messaging, Remote machines,
 Extras and Privacy & permissions. The model and AI account pages share one runtime
 settings owner; native `runtime` and `connections` repair links still open AI accounts.
-`telegram`, `chat` and `capture` links open their corresponding destinations.
+`telegram` opens Telegram detail, `chat` opens the channel overview and `capture`
+opens Extras.
 `runtime-settings-preview.html` uses the same components with
 example data for narrow layouts, without modifying daily accounts or calling a model.
-The development-only `settings-extras-preview.html` mounts Telegram, Extras and
-first-run components with synthetic statuses. `bash script/settings-extras-native-fixture.sh
-after telegram pairing en dark 860` captures an isolated WKWebView screenshot under
-`.cache/settings-extras-fixture/`. Use `extras on|off` and `setup permission-on|permission-off`
-for the other states; the final argument selects a 640 or 860 point window. The
-fixture neither sends Telegram messages nor uses the daily Bot profile. Screenshots
+The development-only `settings-extras-preview.html` mounts production Settings
+and first-run navigation with synthetic native statuses. `bash script/settings-extras-native-fixture.sh
+after overview connected en dark 860` captures an isolated WKWebView screenshot under
+`.cache/settings-extras-fixture/`. Use `telegram pairing`, `extras on|off` and
+`setup feature-on|feature-off|permission-on|permission-off` for other states; the
+final argument selects a 640 or 860 point window. `node script/settings-extras-navigation-regression.mjs`
+exercises overview, detail, return and temporary token draft; `node script/settings-extras-parent-regression.mjs`
+exercises the real first-run parent polling, save ordering and Telegram load recovery.
+`node script/settings-extras-flow-regression.mjs` covers back/change, ready Runtime
+recovery, connecting feedback and removal confirmation.
+An interaction also saves `.after.png`. The fixture neither sends Telegram messages
+nor uses the daily Bot profile. Screenshots
 show layout and state rendering; native shortcut/menu and persistence behavior need
 the separate desktop tests and real app acceptance.
 

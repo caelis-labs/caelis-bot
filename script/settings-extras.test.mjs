@@ -20,8 +20,11 @@ test('Telegram uses native facts to distinguish setup, pairing, connection and r
 test('first-run choice saves before guide completion and failed save keeps guide pending',async()=>{
  const calls=[];
  await finishCaptureChoice(async(method,...args)=>{calls.push([method,...args])},false,()=>calls.push(['done']));
- assert.deepEqual(calls,[['SetCaptureEnabled',false],['FinishPermissionGuide'],['done']]);
+ assert.deepEqual(calls,[['SetCaptureEnabled',false],['FinishFeatureGuide'],['done']]);
  const failed=[];
  await assert.rejects(finishCaptureChoice(async(method,...args)=>{failed.push([method,...args]);throw Error('write failed')},false,()=>failed.push(['done'])));
  assert.deepEqual(failed,[['SetCaptureEnabled',false]]);
+ const markerFailed=[];
+ await assert.rejects(finishCaptureChoice(async(method,...args)=>{markerFailed.push([method,...args]);if(method==='FinishFeatureGuide')throw Error('marker failed')},false,()=>markerFailed.push(['done'])));
+ assert.deepEqual(markerFailed,[['SetCaptureEnabled',false],['FinishFeatureGuide']]);
 });

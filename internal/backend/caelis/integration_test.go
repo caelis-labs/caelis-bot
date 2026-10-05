@@ -898,7 +898,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		requests := model.seen("CASE_APPROVAL")
 		payload, _ := json.Marshal(requests[2])
-		if !strings.Contains(string(payload), "application completion notice") {
+		if !strings.Contains(string(payload), "Command "+handle+" is completed.") {
 			t.Fatal("no completion-driven model followup")
 		}
 		if len(s.Snapshot().Approvals) != 0 {

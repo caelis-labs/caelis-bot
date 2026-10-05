@@ -9,20 +9,25 @@ function run(page,state,script){
  return JSON.parse(readFileSync(path,'utf8'));
 }
 
-for(const state of ['permission-on','permission-fail']){
+for(const state of ['feature-on','feature-fail','feature-off','feature-ready']){
  const result=run('setup',state,'script/settings-extras-setup-regression.js');
- assert.equal(result.screenBefore,true);
- assert.equal(result.screenAfter,false);
- assert.equal(result.offAfterPolls,true,'BotSetup polling replaced the unsaved choice');
+ assert.equal(result.defaultChoice,state!=='feature-off');
+ assert.equal(result.draftAfterPolls,false,'BotSetup polling replaced the unsaved choice');
  assert.ok(result.botPolls>=3,'fixture did not exercise repeated parent refresh');
  assert.equal(result.preferenceReads,1,'a new onDone callback restarted preference loading');
- assert.equal(result.savedOff,true);
- assert.ok(result.save>=0);
- if(state==='permission-on'){
-  assert.ok(result.finish>result.save,'guide completed before capture choice was saved');
+ assert.equal(result.savedValue,false);
+ assert.ok(result.saved>=0);
+ if(state!=='feature-fail'){
+  assert.ok(result.featureFinished>result.saved,'feature step finished before capture choice was saved');
+  assert.ok(result.permissionFinished>result.featureFinished,'permission step finished before feature step');
+  assert.equal(result.permissionStep,true);
+  assert.equal(result.screenOnPermission,false,'disabled capture requested screen permission');
+  assert.equal(result.featureOnPermission,false,'feature control remained in permissions');
+  if(state==='feature-ready')assert.ok(result.calls.includes('OpenHistory'),'ready Runtime bypassed feature choice or failed to resume');
  }else{
-  assert.equal(result.finish,-1,'failed save completed the guide');
-  assert.equal(result.stillOnStep,true);
+  assert.equal(result.featureFinished,-1,'failed save completed feature step');
+  assert.equal(result.permissionFinished,-1,'failed save completed permission step');
+  assert.equal(result.stillOnFeature,true);
   assert.equal(result.errorVisible,true);
  }
 }

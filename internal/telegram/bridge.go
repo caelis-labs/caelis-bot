@@ -866,6 +866,9 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 	}
 	b.mu.Unlock()
 	for _, i := range s.Items {
+		if i.Kind == "hostNotice" || i.Kind == "activation" {
+			continue // Never mirror internal trigger text or attached bytes.
+		}
 		if i.Text == api.SilentReminder {
 			continue
 		}

@@ -178,7 +178,7 @@ func (s *Session) correlateSessionInputs(out *api.Snapshot, sid string) {
 		}
 		for i := range out.Items {
 			item := &out.Items[i]
-			if item.Kind == "user" && item.RequestID == "" && item.TurnKey == j.TurnID {
+			if (item.Kind == "user" || item.Kind == "hostNotice") && item.RequestID == "" && item.TurnKey == j.TurnID {
 				item.RequestID = id
 			}
 		}
@@ -192,7 +192,7 @@ func (s *Session) correlateSessionInputs(out *api.Snapshot, sid string) {
 	}
 	for index := range out.Items {
 		item := &out.Items[index]
-		if item.Kind == "user" {
+		if item.Kind == "user" || item.Kind == "hostNotice" {
 			if n := s.state.ContextInputs[item.RequestID]; n > 0 {
 				if len(item.Text) >= n {
 					item.Text = item.Text[n:]
@@ -347,6 +347,9 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		if len(scheduled) > 0 && scheduled[0] {
 			kind = "activation"
 		}
+		if len(scheduled) > 1 && scheduled[1] {
+			kind = "hostNotice"
+		}
 	case "agent_message_chunk":
 		kind = "assistant"
 		if value(e.Final) {
@@ -365,7 +368,7 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 	}
 	id := turn + "/" + kind
 	requestID := ""
-	if kind == "user" || kind == "activation" {
+	if kind == "user" || kind == "activation" || kind == "hostNotice" {
 		requestID = value(e.InputOperationId)
 		if requestID != "" {
 			id += "/" + requestID

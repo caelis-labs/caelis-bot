@@ -1,7 +1,10 @@
 # Help the user connect Telegram
 
 Treat Telegram as another place to use the same assistant and conversation.
-Help a beginner complete the short setup in **Settings → Chat connections → Telegram**.
+Help a beginner complete the short setup in **Settings → Messaging → Telegram**.
+Messaging is the channel overview; it shows the actual Telegram connection state.
+The Telegram detail has a return link to that overview. AI accounts and models
+are separate settings destinations. Older direct Telegram links still open the detail.
 Do not ask for a token in conversation or put one in notes, files, commands, screenshots,
 logs, or tool arguments. The user pastes it into the masked Bot token field; the app
 stores it in the macOS Keychain. Never claim setup succeeded until the app says Connected.

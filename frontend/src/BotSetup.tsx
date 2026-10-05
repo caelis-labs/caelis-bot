@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { backend, desktop } from './desktop';
 import { PermissionSettings } from './PermissionSettings';
+import { SetupExtras } from './SetupExtras';
 import { RuntimeSettings } from './RuntimeSettings';
 import type { BotInitialization, BotIntroduction, Snapshot } from './backend/contract';
 import { useI18n } from './i18n';
@@ -9,19 +10,21 @@ import { useI18n } from './i18n';
 // this form does not create a second identity settings store.
 export function BotSetup({ onDone }: { onDone: () => void }) {
  const {t}=useI18n();
- const [pending,setPending]=useState<boolean|null>(null);
+ const [pending,setPending]=useState<{features:boolean;permissions:boolean}|null>(null);
  const [failed,setFailed]=useState(false);
- useEffect(()=>{let active=true;void desktop<boolean>('PermissionGuidePending').then(value=>{if(active)setPending(value);}).catch(()=>{if(active)setFailed(true);});return()=>{active=false;};},[]);
+ useEffect(()=>{let active=true;void Promise.all([desktop<boolean>('FeatureGuidePending'),desktop<boolean>('PermissionGuidePending')]).then(([features,permissions])=>{if(active)setPending({features,permissions})}).catch(()=>{if(active)setFailed(true)});return()=>{active=false}},[]);
  if(pending===null)return <p role="status">{t(failed?'settings.permissionLoadFailed':'common.loading')}</p>;
- return <BotIntroductionSetup permissionsPending={pending} onPermissionsDone={()=>setPending(false)} onDone={onDone}/>;
+ return <BotIntroductionSetup featuresPending={pending.features} permissionsPending={pending.permissions} onFeaturesDone={()=>setPending(current=>current&&{...current,features:false})} onFeaturesBack={()=>setPending(current=>current&&{...current,features:true})} onPermissionsDone={()=>setPending(current=>current&&{...current,permissions:false})} onPermissionsBack={()=>setPending(current=>current&&{...current,permissions:true})} onDone={onDone}/>;
 }
-function BotIntroductionSetup({ onDone,permissionsPending,onPermissionsDone }: { onDone: () => void;permissionsPending:boolean;onPermissionsDone:()=>void }) {
+function BotIntroductionSetup({ onDone,featuresPending,permissionsPending,onFeaturesDone,onFeaturesBack,onPermissionsDone,onPermissionsBack }: { onDone: () => void;featuresPending:boolean;permissionsPending:boolean;onFeaturesDone:()=>void;onFeaturesBack:()=>void;onPermissionsDone:()=>void;onPermissionsBack:()=>void }) {
   const {t} = useI18n();
   const [state, setState] = useState<BotInitialization | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const opening = useRef(false), latestDone = useRef(onDone);
+  latestDone.current = onDone;
 
   useEffect(() => {
     let alive = true;
@@ -38,13 +41,27 @@ function BotIntroductionSetup({ onDone,permissionsPending,onPermissionsDone }: {
     return () => { alive = false; clearInterval(timer); };
   }, [t]);
 
+  useEffect(() => {
+    if (!state || state.required || state.status === 'rejected' || state.status === 'unknown' || featuresPending || permissionsPending || opening.current) return;
+    let active = true;
+    void backend<Snapshot>('Snapshot').then(async snapshot => {
+      if (!active || snapshot.connection !== 'ready' || opening.current) return;
+      opening.current = true;
+      try { await desktop('OpenHistory'); if (active) latestDone.current(); }
+      catch (e) { opening.current = false; if (active) setError(e instanceof Error ? e.message : t('chat.setupLoadFailed')); }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [state?.required, state?.status, featuresPending, permissionsPending, t]);
+
   const openConversation = async () => {
-    await desktop('OpenHistory');
-    onDone();
+    if (opening.current) return;
+    opening.current = true;
+    try { await desktop('OpenHistory'); latestDone.current(); }
+    catch (e) { opening.current = false; setError(e instanceof Error ? e.message : t('chat.setupLoadFailed')); }
   };
   const continueWhenReady = async () => {
     const snapshot = await backend<Snapshot>('Snapshot');
-    if (!permissionsPending && snapshot.connection === 'ready') await openConversation();
+    if (!featuresPending && !permissionsPending && snapshot.connection === 'ready') await openConversation();
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -82,8 +99,9 @@ function BotIntroductionSetup({ onDone,permissionsPending,onPermissionsDone }: {
     </div>
     {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;
-  if (!state.required && permissionsPending) return <div className="setup-flow"><SetupProgress step={1}/><PermissionSettings onDone={()=>{onPermissionsDone();void backend<Snapshot>('Snapshot').then(s=>{if(s.connection==='ready')void openConversation();}).catch(()=>{});}}/></div>;
-  if (!state.required) return <div className="setup-flow"><SetupProgress step={2}/>
+  if (!state.required && featuresPending) return <div className="setup-flow"><SetupProgress step={1}/><SetupExtras onDone={onFeaturesDone}/></div>;
+  if (!state.required && permissionsPending) return <div className="setup-flow"><SetupProgress step={2}/><PermissionSettings onBack={onFeaturesBack} onDone={onPermissionsDone}/></div>;
+  if (!state.required) return <div className="setup-flow"><SetupProgress step={3}/><button type="button" className="text-action setup-back" onClick={onPermissionsBack}>{t('settings.setupBack')}</button>
     {state.message && <p className="setup-introduction-status" role="status">{state.message}</p>}
     <RuntimeSettings onboarding onDone={onDone} />
   </div>;
@@ -112,5 +130,5 @@ function BotIntroductionSetup({ onDone,permissionsPending,onPermissionsDone }: {
 
 function SetupProgress({step}:{step:number}) {
  const {t}=useI18n();
- return <ol className="setup-progress" aria-label={t('settings.setupProgress')}>{(['setupIdentity','setupPermissions','setupConnection'] as const).map((key,index)=><li key={key} aria-current={index===step?'step':undefined}><span aria-hidden="true">{index<step?'✓':index+1}</span>{t(`settings.${key}`)}</li>)}</ol>;
+ return <ol className="setup-progress" aria-label={t('settings.setupProgress')}>{(['setupIdentity','setupExtras','setupPermissions','setupConnection'] as const).map((key,index)=><li key={key} aria-current={index===step?'step':undefined}><span aria-hidden="true">{index<step?'✓':index+1}</span>{t(`settings.${key}`)}</li>)}</ol>;
 }

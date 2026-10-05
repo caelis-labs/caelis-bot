@@ -136,8 +136,15 @@
 .settings-window .runtime-team-dialog .runtime-section-title h2{font-size:13px;font-weight:500;margin:0}
 
 .telegram-page{max-width:620px}
+.telegram-back{border:0;background:transparent;color:var(--muted);padding:0;margin:0 0 22px}
+.messaging-settings{max-width:620px}
+.messaging-channel{display:flex;align-items:center;text-align:left;width:100%;gap:16px;padding:20px 4px;border:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0;background:transparent;color:var(--ink)}
+.messaging-channel:hover{background:var(--wash)}
+.messaging-channel-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:5px}
+.messaging-channel-copy strong{font-size:15px}.messaging-channel-copy>span{font-size:13px;color:var(--muted)}
+.messaging-chevron{font-size:24px;line-height:1;color:var(--muted)}
 .telegram-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding-bottom:22px;border-bottom:1px solid var(--line)}
-.telegram-heading h2{font-size:17px;margin:0 0 7px}
+.telegram-heading h1{font-size:22px;margin:0 0 7px}
 .telegram-heading p,.telegram-step p,.telegram-notice p,.telegram-forget p{font-size:13px;line-height:1.6;margin:0 0 14px;color:var(--muted)}
 .telegram-state{flex:none;font-size:12px;font-weight:600;padding:5px 9px;border-radius:999px;background:var(--wash);color:var(--ink)}
 .telegram-state-connected{color:var(--accent)}
@@ -160,7 +167,8 @@
 .setup-capture-choice{padding:14px 0 22px;border-bottom:1px solid var(--line)}
 .setup-capture-choice label{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600}
 .setup-capture-choice p{font-size:12px;line-height:1.6;color:var(--muted);margin:8px 0 0 28px}
+.setup-extras{padding-bottom:76px}
+.setup-extras .setup-end,.setup-flow .permission-settings .setup-end{position:fixed;bottom:0;left:0;right:0;z-index:2;background:var(--settings-bg);padding:10px max(24px,calc((100vw - 560px)/2));border-top:1px solid var(--line)}
 .setup-flow .permission-settings{padding-bottom:70px}
-.setup-flow .permission-settings .setup-end{position:fixed;bottom:0;left:0;right:0;z-index:2;background:var(--settings-bg);padding:10px max(24px,calc((100vw - 560px)/2));border-top:1px solid var(--line)}
 .setup-flow .permission-privacy>summary{font-size:12px;color:var(--muted);padding:8px 0}
 @media(max-width:650px){.telegram-heading{flex-wrap:wrap}.telegram-state{margin-left:0}.telegram-page{min-width:0}}

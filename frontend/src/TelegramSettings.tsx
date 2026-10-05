@@ -7,7 +7,7 @@ import {telegramPhase,type TelegramStatus} from './telegram-state';
 const issues=new Set(['invalid_token','network','occupied','webhook','keychain','storage','blocked','unavailable','setup_failed','open_failed','pairing_failed','pairing_expired','delivery_uncertain','file_delivery_uncertain','file_unavailable','rate_limited','telegram_error','sync_busy']);
 function issueKey(issue:string):MessageKey {return `settings.telegramIssue_${issues.has(issue)?issue:'setup_failed'}` as MessageKey;}
 
-export function TelegramSettings(){
+export function TelegramSettings({onBack}:{onBack?:()=>void}={}){
  const {t}=useI18n();
  const [status,setStatus]=useState<TelegramStatus|null>(null),[token,setToken]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [route,setRoute]=useState<'new'|'existing'>('new'),[confirmForget,setConfirmForget]=useState(false);
@@ -31,7 +31,8 @@ export function TelegramSettings(){
  const hasToken=token.trim().length>0;
  const showToken=phase==='unconfigured'||issue==='invalid_token'||issue==='keychain'||issue==='webhook';
  return <section className="telegram-page" aria-labelledby="telegram-title">
-  <div className="telegram-heading"><div><h2 id="telegram-title">{t('settings.telegramTitle')}</h2><p>{t('settings.telegramDescription')}</p></div><span className={`telegram-state telegram-state-${phase}`} role="status">{t(`settings.telegramState_${phase}` as MessageKey)}</span></div>
+  {onBack&&<button type="button" className="text-action telegram-back" onClick={onBack}>‹ {t('settings.chatConnections')}</button>}
+  <div className="telegram-heading"><div><h1 id="telegram-title">{t('settings.telegramTitle')}</h1><p>{t('settings.telegramDescription')}</p></div><span className={`telegram-state telegram-state-${phase}`} role="status">{t(`settings.telegramState_${phase}` as MessageKey)}</span></div>
   {phase==='loading'&&<p role="status">{t('common.loading')}</p>}
   {phase==='connecting'&&<p role="status" className="telegram-feedback">{t('settings.telegramConnectingHelp')}</p>}
   {phase==='unconfigured'&&<div className="telegram-step">

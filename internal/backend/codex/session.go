@@ -29,7 +29,8 @@ type binding struct {
 	Dreams         map[string]dreamRecord `json:"dreams,omitempty"`
 	PastThreads    []string               `json:"pastThreads,omitempty"`
 	RenewedBy      string                 `json:"renewedBy,omitempty"`
-	Scheduled      map[string]string      `json:"scheduled,omitempty"` // accepted client IDs to native turn IDs
+	Scheduled      map[string]string      `json:"scheduled,omitempty"`   // accepted client IDs to native turn IDs
+	HostReports    map[string]bool        `json:"hostReports,omitempty"` // host-only completion inputs, keyed by exact submitted ID
 	CleanupTargets []string               `json:"cleanupTargets,omitempty"`
 	StopState      string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
 	StopRuns       map[string]string      `json:"stopRuns,omitempty"`
@@ -132,6 +133,16 @@ func NewSession(opts SessionOptions) *Session {
 	if s.binding.Scheduled == nil {
 		s.binding.Scheduled = map[string]string{}
 	}
+	if s.binding.HostReports == nil {
+		s.binding.HostReports = map[string]bool{}
+	}
+	// Older adapter task records carry typed report identities. The product task
+	// ledger is imported separately because it can derive a different report ID.
+	for _, task := range s.binding.Tasks {
+		if task != nil && task.ReportID != "" {
+			s.binding.HostReports[task.ReportID] = true
+		}
+	}
 	if s.binding.LastReceipt != nil {
 		s.state.LastReceipt = *s.binding.LastReceipt
 	}
@@ -149,6 +160,30 @@ func NewSession(opts SessionOptions) *Session {
 		s.state.Message = s.loadErr.Error()
 	}
 	return s
+}
+
+// ImportHostReportIDs migrates submitted report identities from the native
+// product task ledger before conversation history is projected. It is not a
+// renderer command and never infers origin from prose or an ID pattern.
+func (s *Session) ImportHostReportIDs(ids []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	added := []string{}
+	for _, id := range ids {
+		if id != "" && !s.binding.HostReports[id] {
+			s.binding.HostReports[id] = true
+			added = append(added, id)
+		}
+	}
+	if len(added) > 0 {
+		if err := s.save(); err != nil {
+			for _, id := range added {
+				delete(s.binding.HostReports, id)
+			}
+			return err
+		}
+	}
+	return nil
 }
 func (s *Session) resetProjection() {
 	s.usage, s.usageTurn, s.usageTotal = api.ContextUsage{}, "", 0
@@ -684,6 +719,12 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	}
 	s.binding.Unsubmitted = false
 	s.binding.Pending = &pendingSubmission{ID: in.ID, TurnID: run}
+	if report {
+		if s.binding.HostReports == nil {
+			s.binding.HostReports = map[string]bool{}
+		}
+		s.binding.HostReports[in.ID] = true
+	}
 	if in.Scheduled {
 		s.binding.Scheduled[in.ID] = ""
 	}
@@ -698,6 +739,9 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	}
 	if err = s.save(); err != nil {
 		s.binding.Pending = nil
+		if report {
+			delete(s.binding.HostReports, in.ID)
+		}
 		s.binding.Context.Resolve(in.ID, "rejected")
 		s.mu.Unlock()
 		r.Message = "无法保存发送记录，消息未发送"

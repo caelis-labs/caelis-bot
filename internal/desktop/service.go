@@ -39,6 +39,7 @@ type Service struct {
 	openMachineTerminal func(string) error
 	capture             captureState
 	permissionGuide     permissionGuide
+	featureGuide        permissionGuide
 	taskPreferences     func() tasks.Preferences
 	saveTaskPreferences func(tasks.Preferences) (tasks.Preferences, error)
 	terminalChoices     func() []taskterminal.Choice

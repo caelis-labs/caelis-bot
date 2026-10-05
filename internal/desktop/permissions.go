@@ -50,6 +50,33 @@ func (s *Service) FinishPermissionGuide() error {
 	s.permissionGuide.Seen = true
 	return nil
 }
+// Existing installations completed the old combined guide. Only a genuinely
+// pending first-run flow needs the new independent feature step.
+func (s *Service) configureFeatureGuide(file string) {
+	s.featureGuide.file = file
+	data, err := os.ReadFile(file)
+	if err == nil {
+		_ = json.Unmarshal(data, &s.featureGuide)
+	} else if errors.Is(err, os.ErrNotExist) && !s.PermissionGuidePending() {
+		s.featureGuide.Seen = true
+	}
+}
+func (s *Service) FeatureGuidePending() bool {
+	s.featureGuide.mu.Lock()
+	defer s.featureGuide.mu.Unlock()
+	return !s.featureGuide.Seen
+}
+func (s *Service) FinishFeatureGuide() error {
+	s.featureGuide.mu.Lock()
+	defer s.featureGuide.mu.Unlock()
+	if err := localstate.Write(s.featureGuide.file, struct {
+		Seen bool `json:"seen"`
+	}{true}); err != nil {
+		return err
+	}
+	s.featureGuide.Seen = true
+	return nil
+}
 func (s *Service) OpenSystemPermissions() { s.showSettings("permissions") }
 func (s *Service) SystemPermissions() SystemPermissionState {
 	state := systemPermissionState(s.permissionTerminal())

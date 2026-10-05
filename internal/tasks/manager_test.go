@@ -19,6 +19,7 @@ type fixtureRuntime struct {
 	unknownStart, unknownReport bool
 	snapshot                    api.Snapshot
 	lastStart                   api.WorkStart
+	lastReport                  api.Submission
 }
 
 func newRuntime() *fixtureRuntime {
@@ -65,6 +66,7 @@ func (f *fixtureRuntime) StopWork(_ context.Context, id string) (api.Task, error
 }
 func (f *fixtureRuntime) SubmitReport(_ context.Context, in api.Submission) (api.Receipt, error) {
 	f.reports++
+	f.lastReport = in
 	out := api.Receipt{ID: in.ID, Outcome: "accepted"}
 	if f.unknownReport {
 		out.Outcome = "unknown"
@@ -170,6 +172,9 @@ func TestReportPersistsAndUnknownDeliveryNeverReplays(t *testing.T) {
 		t.Fatal(e)
 	}
 	id := f.snapshot.LastReceipt.ID
+	if f.lastReport.ID != id || f.lastReport.Text != fmt.Sprintf("Task %s is completed.", v.ID) {
+		t.Fatal("completion notice lost exact handle or state", f.lastReport)
+	}
 	m = openFixture(t, root, "fixture", f)
 	for range 3 {
 		if e := m.DeliverTaskReport(t.Context()); e != nil {
