@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/caelis-labs/caelis-bot/compare/v0.6.0...v0.7.0) (2026-10-05)
+
+
+### Features
+
+* add Telegram companion chat ([#71](https://github.com/caelis-labs/caelis-bot/issues/71)) ([69a35fe](https://github.com/caelis-labs/caelis-bot/commit/69a35fe67e696dfb38edfa95baa7bc58be16b25a))
+
 ## [0.6.0](https://github.com/caelis-labs/caelis-bot/compare/v0.5.0...v0.6.0) (2026-10-03)
 
 
