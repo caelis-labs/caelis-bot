@@ -14,10 +14,14 @@ import (
 	tg "github.com/mymmrac/telego"
 )
 
+type fixtureTransport func(*http.Request) (*http.Response, error)
+
+func (f fixtureTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 	const fixtureToken = "123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	methods := []string{}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method := filepath.Base(r.URL.Path)
 		methods = append(methods, method)
 		if !strings.HasPrefix(r.URL.Path, "/bot"+fixtureToken+"/") {
@@ -37,12 +41,29 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 		case "sendMessage":
 			var p tg.SendMessageParams
 			json.NewDecoder(r.Body).Decode(&p)
-			if p.ChatID.ID != 10 || p.Text != "plain **text**" || p.ParseMode != "" {
+			if p.ChatID.ID != 10 || p.ParseMode != "" {
 				t.Error("plaintext or chat contract lost")
+			}
+			if p.Text == "plain **text**" {
+				if len(p.Entities) != 0 {
+					t.Error("plain message unexpectedly formatted")
+				}
+			} else {
+				assertSDKRoleEntities(t, p.Text, p.Entities)
 			}
 			io.WriteString(w, `{"ok":true,"result":{"message_id":101,"date":1,"chat":{"id":10,"type":"private"},"text":"plain **text**"}}`)
 		case "editMessageText":
-			io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: message is not modified"}`)
+			var p tg.EditMessageTextParams
+			json.NewDecoder(r.Body).Decode(&p)
+			if p.Text == "plain **text**" {
+				io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: message is not modified"}`)
+			} else {
+				if p.ChatID.ID != 10 || p.MessageID != 101 || p.ParseMode != "" {
+					t.Error("role edit target or parse mode changed")
+				}
+				assertSDKRoleEntities(t, p.Text, p.Entities)
+				io.WriteString(w, `{"ok":true,"result":{"message_id":101,"date":1,"chat":{"id":10,"type":"private"},"text":"updated"}}`)
+			}
 		case "sendDocument":
 			if e := r.ParseMultipartForm(1 << 20); e != nil {
 				t.Error(e)
@@ -61,13 +82,17 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 		default:
 			io.WriteString(w, `{"ok":false,"error_code":401,"description":"private token and message must never escape"}`)
 		}
-	}))
-	defer server.Close()
-	bot, e := tg.NewBot(fixtureToken, tg.WithHTTPClient(server.Client()), tg.WithAPIServer(server.URL), tg.WithDiscardLogger())
+	})
+	fixtureHTTP := &http.Client{Transport: fixtureTransport(func(r *http.Request) (*http.Response, error) {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w.Result(), nil
+	})}
+	bot, e := tg.NewBot(fixtureToken, tg.WithHTTPClient(fixtureHTTP), tg.WithAPIServer("https://telegram.fixture.invalid"), tg.WithDiscardLogger())
 	if e != nil {
 		t.Fatal("fixture SDK configuration failed")
 	}
-	c := &sdkClient{bot: bot, http: server.Client()}
+	c := &sdkClient{bot: bot, http: fixtureHTTP}
 	ctx := context.Background()
 	if u, e := c.Me(ctx); e != nil || u.Username != "fixture_bot" {
 		t.Fatal("SDK getMe failed")
@@ -75,11 +100,18 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 	if v, e := c.Updates(ctx, 15); e != nil || len(v) != 1 || v[0].Message.Text != "hi" {
 		t.Fatal("SDK updates failed")
 	}
-	if id, e := c.Send(ctx, 10, "plain **text**", nil); e != nil || id != 101 {
+	if id, e := c.Send(ctx, 10, plainText("plain **text**"), nil); e != nil || id != 101 {
 		t.Fatal("SDK message failed")
 	}
-	if e := c.Edit(ctx, 10, 101, "plain **text**"); e != nil {
+	if e := c.Edit(ctx, 10, 101, plainText("plain **text**")); e != nil {
 		t.Fatal("an already applied edit did not reconcile")
+	}
+	role := roleText("你 · 来自 Mac", "🦉\n`code` & https://example.com", true)[0]
+	if _, e := c.Send(ctx, 10, role, nil); e != nil {
+		t.Fatal("SDK role message failed", e)
+	}
+	if e := c.Edit(ctx, 10, 101, role); e != nil {
+		t.Fatal("SDK role edit failed", e)
 	}
 	path := filepath.Join(t.TempDir(), "attachment.txt")
 	os.WriteFile(path, []byte("exact file bytes"), 0600)
@@ -89,7 +121,21 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 	if _, e := c.Webhook(ctx); e == nil || e.Error() != "invalid_token" {
 		t.Fatal("private API response escaped sanitized error")
 	}
-	if len(methods) != 6 {
+	if len(methods) != 8 {
 		t.Fatal("unexpected SDK calls")
+	}
+}
+
+func assertSDKRoleEntities(t *testing.T, text string, entities []tg.MessageEntity) {
+	t.Helper()
+	title := "你 · 来自 Mac"
+	body := "🦉\n`code` & https://example.com"
+	if text != title+"\n"+body || len(entities) != 2 {
+		t.Errorf("SDK lost role text or entities: %q %#v", text, entities)
+		return
+	}
+	if entities[0].Type != tg.EntityTypeBold || entities[0].Offset != 0 || entities[0].Length != utf16Length(title) ||
+		entities[1].Type != tg.EntityTypeBlockquote || entities[1].Offset != utf16Length(title+"\n") || entities[1].Length != utf16Length(body) {
+		t.Errorf("SDK changed UTF-16 role entities: %#v", entities)
 	}
 }

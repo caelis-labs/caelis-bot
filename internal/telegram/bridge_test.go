@@ -23,6 +23,7 @@ type fakeClient struct {
 	mu                               sync.Mutex
 	sends, edits, documents, answers int
 	texts                            []string
+	messages                         []outgoingText
 	documentBytes                    []string
 	sendErr                          error
 	webhook                          bool
@@ -46,18 +47,20 @@ func (f *fakeClient) Updates(ctx context.Context, _ int) ([]tg.Update, error) {
 		return nil, ctx.Err()
 	}
 }
-func (f *fakeClient) Send(_ context.Context, _ int64, text string, _ *tg.InlineKeyboardMarkup) (int, error) {
+func (f *fakeClient) Send(_ context.Context, _ int64, message outgoingText, _ *tg.InlineKeyboardMarkup) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sends++
-	f.texts = append(f.texts, text)
+	f.texts = append(f.texts, message.Text)
+	f.messages = append(f.messages, message)
 	return f.sends, f.sendErr
 }
-func (f *fakeClient) Edit(_ context.Context, _ int64, _ int, text string) error {
+func (f *fakeClient) Edit(_ context.Context, _ int64, _ int, message outgoingText) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.edits++
-	f.texts = append(f.texts, text)
+	f.texts = append(f.texts, message.Text)
+	f.messages = append(f.messages, message)
 	return nil
 }
 func (f *fakeClient) Document(_ context.Context, _ int64, path string) error {
@@ -191,6 +194,117 @@ func TestStreamingEditsOneMessageAndChunksUnicode(t *testing.T) {
 			t.Fatal("UTF16 Telegram limit exceeded")
 		}
 	}
+}
+
+func TestMirroredRolesPreserveBodyAndEntitiesOnSendAndEdit(t *testing.T) {
+	for _, tc := range []struct {
+		name, title string
+		chinese     bool
+	}{
+		{"English", "You · from Mac", false},
+		{"Chinese", "你 · 来自 Mac", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, f := testBridge(t, Host{Chinese: func() bool { return tc.chinese }})
+			paired(b)
+			body := "first 🦉 line\n`code` <tag> & https://example.com/a?x=1&y=2"
+			reply := "Reply 🧭\n**literal Markdown**"
+			items := []api.Item{{ID: "mac", Kind: "user", RequestID: "desktop:1", Text: body}, {ID: "reply", Kind: "assistant", Text: reply}}
+			b.mirror(t.Context(), f, api.Snapshot{Items: items})
+			b.mirror(t.Context(), f, api.Snapshot{Items: items})
+			if f.sends != 2 || f.edits != 0 {
+				t.Fatalf("duplicate role publication: sends=%d edits=%d", f.sends, f.edits)
+			}
+			checkRoleMessage(t, f.messages[0], tc.title, body, true)
+			checkRoleMessage(t, f.messages[1], "Caelis Bot", reply, false)
+			items[0].Text += "\nupdated"
+			items[1].Text += "!"
+			b.mirror(t.Context(), f, api.Snapshot{Items: items})
+			if f.sends != 2 || f.edits != 2 {
+				t.Fatalf("role edit changed identity: sends=%d edits=%d", f.sends, f.edits)
+			}
+			checkRoleMessage(t, f.messages[2], tc.title, items[0].Text, true)
+			checkRoleMessage(t, f.messages[3], "Caelis Bot", items[1].Text, false)
+		})
+	}
+}
+
+func checkRoleMessage(t *testing.T, message outgoingText, title, body string, quote bool) {
+	t.Helper()
+	if message.Text != title+"\n"+body || len(message.Entities) != 1+boolInt(quote) {
+		t.Fatalf("role text/entities changed: %#v", message)
+	}
+	if entity := message.Entities[0]; entity.Type != tg.EntityTypeBold || entity.Offset != 0 || entity.Length != utf16Length(title) {
+		t.Fatalf("wrong title entity: %#v", entity)
+	}
+	if quote {
+		entity := message.Entities[1]
+		if entity.Type != tg.EntityTypeBlockquote || entity.Offset != utf16Length(title+"\n") || entity.Length != utf16Length(body) {
+			t.Fatalf("wrong body entity: %#v", entity)
+		}
+	}
+	if utf16Length(message.Text) > 4000 {
+		t.Fatalf("Telegram text limit exceeded: %d", utf16Length(message.Text))
+	}
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func TestLongMirroredRolesHaveCompleteBodyAndHeaderInEveryPart(t *testing.T) {
+	for _, tc := range []struct {
+		role, title string
+		quote       bool
+	}{
+		{"user", "You · from Mac", true},
+		{"assistant", "Caelis Bot", false},
+	} {
+		t.Run(tc.role, func(t *testing.T) {
+			b, f := testBridge(t, Host{})
+			paired(b)
+			body := strings.Repeat("🦉<>&`https://example.com`\n", 350)
+			item := api.Item{ID: "long", Kind: tc.role, Text: body}
+			b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{item}})
+			if f.sends < 2 || f.edits != 0 {
+				t.Fatalf("long message did not split: sends=%d edits=%d", f.sends, f.edits)
+			}
+			var restored strings.Builder
+			for _, message := range f.messages {
+				chunk := strings.TrimPrefix(message.Text, tc.title+"\n")
+				checkRoleMessage(t, message, tc.title, chunk, tc.quote)
+				restored.WriteString(chunk)
+			}
+			if restored.String() != body {
+				t.Fatal("long body changed during role-aware splitting")
+			}
+			b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{item}})
+			if f.sends != len(f.messages) || f.edits != 0 {
+				t.Fatal("repeated long snapshot published again")
+			}
+		})
+	}
+}
+
+func TestLegacyRoleDigestDoesNotRepublishHistoryButChangedStreamEditsOriginal(t *testing.T) {
+	b, f := testBridge(t, Host{})
+	paired(b)
+	b.state.Messages["input:desktop:old"] = delivery{IDs: []int{51}, Hashes: []string{digest("From Mac: unchanged")}}
+	b.state.Messages["item:stream"] = delivery{IDs: []int{52}, Hashes: []string{digest("old reply")}}
+	items := []api.Item{{ID: "old", Kind: "user", RequestID: "desktop:old", Text: "unchanged"}, {ID: "stream", Kind: "assistant", Text: "old reply"}}
+	b.mirror(t.Context(), f, api.Snapshot{Items: items})
+	if f.sends != 0 || f.edits != 0 {
+		t.Fatal("unchanged pre-format history was republished")
+	}
+	items[1].Text = "old reply, now complete"
+	b.mirror(t.Context(), f, api.Snapshot{Items: items})
+	if f.sends != 0 || f.edits != 1 {
+		t.Fatal("changed stream did not edit existing Telegram ID")
+	}
+	checkRoleMessage(t, f.messages[0], "Caelis Bot", items[1].Text, false)
 }
 func TestUnknownTelegramCreateIsNotRetried(t *testing.T) {
 	b, f := testBridge(t, Host{})
@@ -587,7 +701,7 @@ func TestDelayedBackendRecoveryBaselinesBeforeQueuedInput(t *testing.T) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.texts) != 1 || f.texts[0] != "fresh reply" {
+	if len(f.texts) != 1 || f.texts[0] != "Caelis Bot\nfresh reply" {
 		t.Fatal("fresh reply missing or private history published")
 	}
 }
@@ -738,7 +852,7 @@ func TestRemoteInputCannotEchoDuringConcurrentOutput(t *testing.T) {
 	b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{{ID: "user", Kind: "user", RequestID: in.ID, Text: in.Text}, {ID: "reply", Kind: "assistant", Text: "reply while submit completes"}}})
 	close(release)
 	<-done
-	if f.sends != 1 || len(f.texts) != 1 || f.texts[0] != "reply while submit completes" {
+	if f.sends != 1 || len(f.texts) != 1 || f.texts[0] != "Caelis Bot\nreply while submit completes" {
 		t.Fatal("concurrent output echoed Telegram input")
 	}
 }

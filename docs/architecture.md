@@ -64,6 +64,11 @@ independent. Token storage uses the macOS Keychain; pairing requires a short-liv
 link and desktop account confirmation. Polling cursors, original input outcomes,
 Telegram message IDs and text digests are saved privately. Uncertain creates and
 inputs are never replayed; streamed edits are coalesced and rate limits respected.
+The Telegram adapter renders mirrored Mac user items with a source heading and
+quoted body, and assistant items with a distinct Bot heading. Each long-message
+part carries its role label and UTF-16 entity ranges; these display labels never
+enter Bot input or change the native request/item identity. Existing plain-text
+delivery digests are honored so a formatting upgrade does not republish history.
 Backend recovery establishes the private history boundary before remote input is
 accepted. One cancellable output worker coalesces snapshots independently of input
 and control actions; configuration changes join both workers. Attachment identity

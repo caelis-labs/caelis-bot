@@ -23,13 +23,23 @@ type client interface {
 	Webhook(context.Context) (bool, error)
 	TakeOver(context.Context) error
 	Updates(context.Context, int) ([]tg.Update, error)
-	Send(context.Context, int64, string, *tg.InlineKeyboardMarkup) (int, error)
-	Edit(context.Context, int64, int, string) error
+	Send(context.Context, int64, outgoingText, *tg.InlineKeyboardMarkup) (int, error)
+	Edit(context.Context, int64, int, outgoingText) error
 	Document(context.Context, int64, string) error
 	Download(context.Context, string, string) error
 	Answer(context.Context, string, string) error
 	Commands(context.Context) error
 }
+
+// outgoingText keeps display entities in the Telegram adapter. Its Text is the
+// exact visible text; entity offsets and lengths use UTF-16 code units.
+type outgoingText struct {
+	Text     string
+	Entities []tg.MessageEntity
+}
+
+func plainText(text string) outgoingText { return outgoingText{Text: text} }
+
 type transportError struct {
 	issue       string
 	code, retry int
@@ -105,8 +115,8 @@ func (s *sdkClient) Updates(ctx context.Context, offset int) ([]tg.Update, error
 	v, e := s.bot.GetUpdates(ctx, &tg.GetUpdatesParams{Offset: offset, Timeout: 25, AllowedUpdates: []string{"message", "callback_query"}})
 	return v, safeError(e)
 }
-func (s *sdkClient) Send(ctx context.Context, chat int64, text string, keys *tg.InlineKeyboardMarkup) (int, error) {
-	p := &tg.SendMessageParams{ChatID: tg.ChatID{ID: chat}, Text: text}
+func (s *sdkClient) Send(ctx context.Context, chat int64, message outgoingText, keys *tg.InlineKeyboardMarkup) (int, error) {
+	p := &tg.SendMessageParams{ChatID: tg.ChatID{ID: chat}, Text: message.Text, Entities: message.Entities}
 	if keys != nil {
 		p.ReplyMarkup = keys
 	}
@@ -116,8 +126,8 @@ func (s *sdkClient) Send(ctx context.Context, chat int64, text string, keys *tg.
 	}
 	return v.MessageID, nil
 }
-func (s *sdkClient) Edit(ctx context.Context, chat int64, id int, text string) error {
-	_, e := s.bot.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, Text: text})
+func (s *sdkClient) Edit(ctx context.Context, chat int64, id int, message outgoingText) error {
+	_, e := s.bot.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, Text: message.Text, Entities: message.Entities})
 	err := safeError(e)
 	if err != nil && issueOf(err) == "unchanged" {
 		return nil
