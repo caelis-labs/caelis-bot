@@ -12,6 +12,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
+	"github.com/caelis-labs/caelis-bot/internal/telegram"
 )
 
 // driver owns native interaction, coordinate conversion and OS-thread dispatch.
@@ -33,6 +34,8 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	telegram            *telegram.Bridge
+	openExternalURL     func(string) error
 	openMachineTerminal func(string) error
 	capture             captureState
 	permissionGuide     permissionGuide

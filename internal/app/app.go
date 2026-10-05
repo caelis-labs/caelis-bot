@@ -23,6 +23,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/machines"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
+	"github.com/caelis-labs/caelis-bot/internal/telegram"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 )
 
@@ -53,6 +54,7 @@ type Application struct {
 	taskPreferences *tasks.PreferencesStore
 	setup           *runtimeSetup
 	Backend         *backend.Service
+	Telegram        *telegram.Bridge
 	engine          api.Engine
 	host            Host
 	root            string
@@ -159,6 +161,26 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		return nil, err
 	}
 	service.ConfigureMachines(app.machines)
+	if app.Telegram == nil {
+		remote, remoteErr := telegram.Open(app.root, telegram.Host{
+			Snapshot: app.Backend.Snapshot,
+			Submit: func(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+				return backend.SubmitRemote(ctx, app.Backend, in, files)
+			},
+			Interrupt: app.Backend.Interrupt, Decide: app.Backend.Decide,
+			Artifact:    func(id string) (string, error) { return backend.ResolveRemoteArtifact(app.Backend, id) },
+			ScreenImage: func(id string) ([]byte, error) { return backend.ScreenImageBytes(app.Backend, id) },
+			Chinese:     func() bool { return app.locale() == i18n.Chinese },
+		})
+		if remoteErr != nil {
+			if app.host.ReportError != nil {
+				app.host.ReportError(remoteErr)
+			}
+		} else {
+			app.Telegram = remote
+			backend.ObserveSubmissions(app.Backend, remote.Accepted)
+		}
+	}
 	return app, nil
 }
 
@@ -345,6 +367,9 @@ func (a *Application) Start() error {
 	a.Backend.SetInterruptObserver(resident.StopDesktopTurn)
 	resident.Start(a.engine)
 	a.Backend.SetUserSubmitter(resident.SubmitUser)
+	if a.Telegram != nil {
+		a.Telegram.Start()
+	}
 	a.workers.Add(5)
 	go func() { defer a.workers.Done(); a.localWork.Observe(ctx) }()
 	go func() { defer a.workers.Done(); a.machines.Observe(ctx) }()
@@ -427,6 +452,9 @@ func (a *Application) Close() error {
 			resident.Stop()
 		}
 		a.mu.Unlock()
+		if a.Telegram != nil {
+			a.Telegram.Close()
+		}
 		if a.setup != nil {
 			a.setup.mu.Lock()
 			a.setup.codex.Close()

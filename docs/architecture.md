@@ -54,6 +54,28 @@ polling completed tool payloads every 250 ms. The effect still runs only after a
 confirmed claim; unknown claims and original result receipts retain their recovery
 semantics. A retired connection cannot dispatch a response from its old wait.
 
+## Telegram companion chat
+
+`internal/telegram` mirrors one paired private chat through pinned Telego. It uses
+native `backend.SubmitRemote` and the existing resident submission, interruption,
+approval and artifact ports. It does not add transport information to Bot context
+or change conversation identity. Desktop drafts and attachment selection remain
+independent. Token storage uses the macOS Keychain; pairing requires a short-lived
+link and desktop account confirmation. Polling cursors, original input outcomes,
+Telegram message IDs and text digests are saved privately. Uncertain creates and
+inputs are never replayed; streamed edits are coalesced and rate limits respected.
+Backend recovery establishes the private history boundary before remote input is
+accepted. One cancellable output worker coalesces snapshots independently of input
+and control actions; configuration changes join both workers. Attachment identity
+uses the submission and attachment index, preserving distinct same-named files.
+The native macOS proxy resolver executes automatic configuration through CFNetwork,
+honors the ordered system candidates and cancels PAC work with the HTTP request.
+Failed or stalled PAC resolution continues to subsequent system candidates; DIRECT
+is used only when explicitly present in that list. A PAC attempt has a three-second
+budget, independent of request cancellation. Exhausted candidates report a network
+failure. App-level DIRECT retains OS routing, including third-party TUN proxies.
+This selection happens before dispatch and does not replay uncertain HTTP writes.
+
 ## Remote machines
 
 The resident adapter remains local. `machines.Service` multiplexes the existing

@@ -8,14 +8,40 @@
 
 `main` requires a pull request, the **product** GitHub Actions check against the current base, resolved conversations and linear history. Administrators are included; force pushes and deletion are blocked. The current single-maintainer setup requires zero independent approvals, so a sole maintainer can merge after checks. Only squash merges are enabled; merged branches are deleted automatically. A tag ruleset prevents updates/deletion of `v*` tags while allowing new release tags.
 
-Product CI runs on native Apple Silicon (`macos-14`) for every PR and main push:
+Product CI runs on code PRs and manual requests. The required **product** check
+joins the macOS (`macos-15`) and Linux headless results; failed, cancelled or
+unexpectedly skipped jobs cannot pass it. The strict current-base PR gate checks
+the combined source before merging, so a main push does not repeat that suite.
+
+Documentation-only changes under `docs/`, `README.md` and `CHANGELOG.md` use a
+lightweight check, retaining the public-tree boundary guard. Release metadata uses
+the same path only when the actual diff
+changes version values in `package.json`, `package-lock.json` and the manifest,
+with matching valid versions and no other JSON changes. Dependencies, scripts,
+Bot skills, workflow changes and unknown paths always receive full checks. Bot
+author, labels and branch name do not determine this routing.
+
+Full checks retain:
 
 - Pinned actionlint validates workflow syntax and expressions.
 - `npm ci` uses the lockfile; Node and Go come from repository pins.
 - `make check`: public/private boundary, finished asset hashes, TypeScript/build, focused frontend contracts, Go tests/vet and shared-core portability guards.
 - `npm run smoke:assets`: validate, parse and animate the delivered GLBs.
-- `make package`: compile and ad-hoc sign the app; build a compressed read-only DMG; mount it and verify the enclosed signature, executable, license and Finder layout. The installer uses a 660×430 window, 128-point icons and a left-to-right Applications drag target. Pinned dmgbuild dependencies are isolated in `.cache/dmg-tools` (Python 3 required); no Finder automation is used.
-- Keep the DMG and checksum as a seven-day CI artifact. These are development builds, not published releases.
+- `make build` and the packaged Desktop World contract test: compile and ad-hoc sign the Dev app, verify native dependencies and exercise the delivered helper.
+- Linux native ownership/recovery race tests and both helper architectures.
+
+Go cache restoration uses the same `.cache/go-build` directory as project scripts;
+the cache key includes `go.sum` and `script/env.sh` to refresh the old cache layout.
+The release build shares that layout, and its main-branch cache can seed later PRs.
+
+Packaging-related changes also build and mount a compressed read-only Dev DMG,
+verifying the enclosed signature, executable, license and Finder layout. Other
+PRs do not create/upload an installer. To request one, manually run **Product
+checks** with `preview=true`; its DMG and checksum are retained for seven days.
+These are development builds, not published releases. The installer uses a
+660×430 window, 128-point icons and a left-to-right Applications drag target.
+Pinned dmgbuild dependencies are isolated in `.cache/dmg-tools` (Python 3 required);
+no Finder automation is used.
 
 `make smoke` additionally checks a locally installed Codex runtime without a model call. CI does not log into Codex or exercise a real conversation. Packaging is not interactive desktop acceptance; see [native acceptance](development.md) and [backend acceptance](caelis-integration.md). Intel and Windows GUI releases are not currently qualified.
 
@@ -26,9 +52,9 @@ Dependabot checks Actions, npm and Go dependencies weekly. Dependency PRs use th
 Use Conventional Commit PR titles, for example `feat: add reminders` or `fix: keep approvals visible`. The squash title becomes the commit title. `feat` and `fix` trigger versioning; `chore` and `docs` alone do not create a product release.
 
 1. A main push runs `release-please`. It maintains one version PR, updating `package.json`, `package-lock.json`, `CHANGELOG.md` and `.release-please-manifest.json`.
-2. Review and merge that PR after its native **product** check. Version PRs are not auto-merged.
+2. Review and merge that PR after its **product** check. A version-only PR uses the content-validated metadata path; source or dependency changes still run full checks. Version PRs are not auto-merged.
 3. release-please creates a `vX.Y.Z` tag and **draft** GitHub release. The reusable **Release DMG** workflow checks that the tag belongs to main and exactly matches `package.json`.
-4. Re-run checks and build from that exact tagged commit without signing credentials. The application embeds its full release version and source SHA; its macOS short version stays numeric. A separate `macos-release` environment job uses the current workflow commit for operational signing/packaging tools, verifies the downloaded app’s embedded tag SHA, and signs the app with Developer ID and a secure timestamp, enables hardened runtime, submits it to Apple and staples its notarization ticket.
+4. Build from that exact tagged commit without signing credentials. Source tests have already passed the strict PR merge gate; this stage runs the updater and delivered-asset checks and qualifies the actual release build. The application embeds its full release version and source SHA; its macOS short version stays numeric. A separate `macos-release` environment job uses the current workflow commit for operational signing/packaging tools, verifies the downloaded app’s embedded tag SHA, and signs the app with Developer ID and a secure timestamp, enables hardened runtime, submits it to Apple and staples its notarization ticket.
 5. Package the stapled app, mount the DMG and verify the enclosed app. Sign the DMG itself, submit it to Apple, staple its ticket, verify both its signature and Gatekeeper acceptance, then calculate the final SHA-256. Both the app and DMG carry tickets for offline validation.
 6. Upload `Caelis-Bot-X.Y.Z-macos-arm64.dmg` and `.dmg.sha256`. Only after all signature, notarization, Gatekeeper and checksum gates succeed is the draft published. Stable tags become GitHub's latest release; tags containing a prerelease suffix stay prereleases.
 

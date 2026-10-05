@@ -134,3 +134,12 @@
 .runtime-effort-track{padding:0}
 .settings-window .machine-row{border-radius:0}
 .settings-window .runtime-team-dialog .runtime-section-title h2{font-size:13px;font-weight:500;margin:0}
+
+.telegram-setup,.telegram-notice {padding:16px 20px;border-top:1px solid var(--border-color,rgba(128,128,128,.18));}
+.telegram-setup ol {padding-left:22px;line-height:1.7;}
+.telegram-setup label {display:block;margin:12px 0 8px;font-weight:500;}
+.telegram-token-row,.telegram-actions {display:flex;gap:8px;align-items:center;}
+.telegram-token-row input {min-width:0;flex:1;}
+.telegram-setup .settings-description {font-size:12px;opacity:.7;line-height:1.6;}
+.telegram-confirm {margin-top:14px;}
+.telegram-notice p {font-size:13px;line-height:1.6;margin:0 0 10px;}

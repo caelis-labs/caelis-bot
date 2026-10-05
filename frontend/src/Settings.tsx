@@ -5,6 +5,7 @@ import { desktop } from './desktop';
 import { BotSetup } from './BotSetup';
 import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
+import { TelegramSettings } from './TelegramSettings';
 import { MachineSettings } from './settings/runtime/MachineSettings';
 import { settingsSections as sections, settingsDestination, type SettingsSection as Section } from './settings-navigation';
 import { ScreenInputSettings } from './ScreenInputSettings';
@@ -38,7 +39,7 @@ export function Settings() {
   <aside><nav aria-label={t('settings.navLabel')}>{sections.map(id=><button key={id} aria-current={section===id?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}>{t(`settings.${id}`)}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
   <div className="settings-content" ref={content}>
    <div className="settings-page" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<><PermissionSettings embedded/><ScreenInputSettings/></>}<ExecutionSettings embedded/></>}</div>
-<div className="settings-page" hidden={section!=='models'&&section!=='connections'}>{(runtimeVisited||section==='models'||section==='connections')&&<RuntimeSettings page={section==='models'?'models':'connections'} active={section==='models'||section==='connections'} refreshKey={opened} onConnections={()=>setSection('connections')}/>}</div>
+<div className="settings-page" hidden={section!=='models'&&section!=='connections'}>{(runtimeVisited||section==='models'||section==='connections')&&<RuntimeSettings page={section==='models'?'models':'connections'} active={section==='models'||section==='connections'} refreshKey={opened} onConnections={()=>setSection('connections')}/>} {section==='connections'&&<TelegramSettings/>}</div>
    <div className="settings-page" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone/>}</div>
    <div className="settings-page" key={section} hidden={['permissions','models','connections','machines'].includes(section)}>
    {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','machines','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
