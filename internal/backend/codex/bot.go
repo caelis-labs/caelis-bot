@@ -150,6 +150,10 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) {
 			s.state.Message = ""
 			if s.run != "" || s.hasBlockingChildren() {
 				s.state.Phase = "working"
+			} else if terminal(s.runs[s.lastTurn]) {
+				s.state.Phase = s.runs[s.lastTurn]
+			} else {
+				s.state.Phase = "idle"
 			}
 		}
 	}

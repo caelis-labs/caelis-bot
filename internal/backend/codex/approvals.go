@@ -272,7 +272,9 @@ func (s *Session) addPrompt(event Notification) {
 	s.prompts[id] = p
 	s.promptHandles[string(event.RequestID)] = id
 	s.replacePrompt(id, p.view)
-	s.state.Phase = "attention"
+	if s.hasConversationPrompt() {
+		s.state.Phase = "attention"
+	}
 }
 func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	s.op.Lock()

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -76,6 +77,124 @@ func TestWorkerReviewAndApprovalDoNotBlockConversation(t *testing.T) {
 	v = s.Snapshot()
 	if !v.CanSteer || v.Phase != "working" {
 		t.Fatal("worker decision blocked the main turn", v.Phase, v.CanSteer)
+	}
+}
+
+func TestWorkerNativeApprovalDoesNotChangeMainTurnPhase(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	sendSynthetic(t, s, "root-with-worker-approval")
+	s.mu.Lock()
+	s.rememberChild("worker")
+	s.binding.Tasks = map[string]*taskRecord{"task": {Thread: "worker", View: api.Task{Status: "working", Title: "worker"}}}
+	s.childRuns["worker"] = "worker-turn"
+	s.update()
+	s.mu.Unlock()
+	f.emit(wireMessage{ID: raw("worker-request"), Method: "item/commandExecution/requestApproval", Params: raw(map[string]any{
+		"threadId": "worker", "turnId": "worker-turn", "itemId": "command", "command": "echo worker", "availableDecisions": []string{"accept", "decline"},
+	})})
+	v := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
+	if v.Phase != "working" || !v.CanSteer || v.Approvals[0].Status != "pending" {
+		t.Fatal("worker approval changed main turn", v.Phase, v.CanSteer, v.Approvals)
+	}
+	if err := s.Decide(testContext(t), api.Decision{ID: v.Approvals[0].ID, Choice: v.Approvals[0].Choices[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	if answer := <-f.answers; string(answer.ID) != `"worker-request"` {
+		t.Fatal("decision lost native request identity", string(answer.ID))
+	}
+	f.emit(approvalMessage("main-request"))
+	v = awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 2 })
+	if v.Phase != "attention" || v.CanSteer {
+		t.Fatal("main approval did not block its turn", v.Phase, v.CanSteer)
+	}
+}
+
+func TestStopPrecleanupTimeoutStillDispatchesInterrupt(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	sendSynthetic(t, s, "slow-precleanup")
+	var interrupts atomic.Int32
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		switch m.Method {
+		case "thread/backgroundTerminals/list":
+			time.Sleep(2500 * time.Millisecond)
+			return map[string]any{"data": []any{}}, true
+		case "turn/interrupt":
+			var target struct {
+				ThreadID string `json:"threadId"`
+				TurnID   string `json:"turnId"`
+			}
+			_ = json.Unmarshal(m.Params, &target)
+			if target.ThreadID == "thread-native" && target.TurnID == "run-native" {
+				interrupts.Add(1)
+			}
+			return map[string]any{}, true // Keep the native turn active after the acknowledgement.
+		}
+		return nil, false
+	}
+	f.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	_ = s.Interrupt(ctx)
+	if interrupts.Load() != 1 {
+		t.Fatal("precleanup consumed the stop deadline before turn/interrupt was sent")
+	}
+	if v := s.Snapshot(); v.CurrentTurn == "" {
+		t.Fatal("fixture did not keep the native turn active")
+	}
+}
+
+func TestExplicitRetryAfterStopWasDefinitelyNotDispatched(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	sendSynthetic(t, s, "retry-unsent-stop")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.Interrupt(ctx); err == nil {
+		t.Fatal("cancelled stop was reported successful")
+	}
+	if err := s.Connect(testContext(t)); err == nil {
+		t.Fatal("active original turn was mistaken for a completed stop")
+	}
+	if v := s.Snapshot(); !v.CanInterrupt || v.CanSend || v.CanSteer || !strings.Contains(v.Message, "尚未下发") {
+		t.Fatal("definitely unsent stop is not explicitly retryable", v.Phase, v.CanInterrupt)
+	}
+	if err := s.Interrupt(testContext(t)); err != nil {
+		t.Fatal("explicit same-turn retry failed", err)
+	}
+	if v := s.Snapshot(); !v.CanSend || v.CanInterrupt || v.Phase != "interrupted" {
+		t.Fatal("retry did not observe native terminal", v.Phase, v.CanSend, v.CanInterrupt)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.starts != 1 {
+		t.Fatal("stop retry replayed the user turn", f.starts)
+	}
+}
+
+func TestUnsentStopDoesNotRelabelNaturalCompletion(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	sendSynthetic(t, s, "natural-after-unsent-stop")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.Interrupt(ctx); err == nil {
+		t.Fatal("cancelled stop was reported successful")
+	}
+	var interrupts atomic.Int32
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method == "turn/interrupt" {
+			interrupts.Add(1)
+		}
+		return nil, false
+	}
+	f.mu.Unlock()
+	finishRoot(f)
+	awaitState(t, s, func(v api.Snapshot) bool { return v.CurrentTurn == "" })
+	if err := s.Interrupt(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	if v := s.Snapshot(); v.Phase != "completed" || !v.CanSend || interrupts.Load() != 0 {
+		t.Fatal("never-dispatched stop changed native completion", v.Phase, v.CanSend, interrupts.Load())
 	}
 }
 
