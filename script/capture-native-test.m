@@ -87,6 +87,12 @@ static void checkInteraction(NSString *root) {
     owner=[BotCapture new];owner.preparing=YES;[owner capture];assert(!owner.preparing&&!owner.overlay);
     owner.overlay=capturePanel(NSMakeRect(100,100,800,600),YES);[owner capture];assert(!owner.overlay&&deliveries==before+1);
     [owner stop];deliveries=before;
+    // Disabling the manual tool cancels selection and blocks every native entry.
+    owner=[BotCapture new];owner.overlay=capturePanel(NSMakeRect(100,100,800,600),YES);
+    owner.preparing=YES;NSUInteger generation=owner.generation;
+    [owner setEnabled:NO];assert(!owner.overlay&&!owner.preparing&&owner.generation>generation);
+    [owner capture];[owner paste];[owner togglePins];assert(!owner.overlay&&owner.pins.count==0&&deliveries==before);
+    [owner stop];
 }
 static void checkRedaction(NSBitmapImageRep *rep,NSInteger x,NSInteger y) {
     NSColor *color=[[rep colorAtX:x y:y] colorUsingColorSpace:NSColorSpace.deviceRGBColorSpace];

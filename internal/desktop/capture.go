@@ -31,6 +31,7 @@ type captureState struct {
 	mu             sync.Mutex
 	refreshing     bool
 	sending        map[string]bool
+	active         map[string]context.CancelFunc // admitted sends; guarded by Service.mu
 	capability     func(context.Context) (api.ImageInputCapability, error)
 	submit         func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	snapshot       func() api.Snapshot
@@ -48,7 +49,7 @@ func (s *Service) configureCaptureBackend(back *backend.Service) {
 func (s *Service) configureCapture(root string) error {
 	s.capture.root = root
 	s.capture.preferenceFile = filepath.Join(filepath.Dir(root), "screen-input.json")
-	s.capture.preferences.IncludeBackground = true
+	s.capture.preferences = CapturePreferences{Enabled: true, IncludeBackground: true}
 	if data, err := os.ReadFile(s.capture.preferenceFile); err == nil {
 		if json.Unmarshal(data, &s.capture.preferences) != nil {
 			s.capture.preferences = CapturePreferences{Notice: "unreadable"}
@@ -57,6 +58,7 @@ func (s *Service) configureCapture(root string) error {
 		s.capture.preferences = CapturePreferences{Notice: "unreadable"}
 	}
 	s.capture.sending = map[string]bool{}
+	s.capture.active = map[string]context.CancelFunc{}
 	for i, key := range []string{"F1", "F3"} {
 		s.capture.files[i] = filepath.Join(filepath.Dir(root), []string{"capture-shortcut.json", "paste-shortcut.json"}[i])
 		v := Shortcut{Enabled: true, Key: key}
@@ -72,6 +74,7 @@ func (s *Service) configureCapture(root string) error {
 }
 
 type CapturePreferences struct {
+	Enabled           bool   `json:"enabled"`
 	IncludeBackground bool   `json:"includeBackground"`
 	Notice            string `json:"notice"`
 }
@@ -79,6 +82,7 @@ type capturePreferencesDriver interface {
 	capturePreferences(bool)
 	copyCaptureImage([]byte) bool
 }
+type captureEnabledDriver interface{ captureEnabled(bool) }
 
 func (s *Service) CapturePreferences() CapturePreferences {
 	s.mu.Lock()
@@ -89,6 +93,7 @@ func (s *Service) SaveCapturePreferences(v CapturePreferences) (CapturePreferenc
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	v.Notice = ""
+	v.Enabled = s.capture.preferences.Enabled // Context cannot change the feature gate.
 	if err := localstate.Write(s.capture.preferenceFile, v); err != nil {
 		return s.capture.preferences, err
 	}
@@ -97,6 +102,71 @@ func (s *Service) SaveCapturePreferences(v CapturePreferences) (CapturePreferenc
 		d.capturePreferences(v.IncludeBackground)
 	}
 	return v, nil
+}
+
+// SetCaptureEnabled owns the complete manual capture/pin tool. It does not change
+// ordinary chat attachments or Desktop World task capture.
+func (s *Service) SetCaptureEnabled(enabled bool) (CapturePreferences, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old := s.capture.preferences
+	if old.Enabled == enabled {
+		if err := localstate.Write(s.capture.preferenceFile, old); err != nil {
+			return old, err
+		}
+		return old, nil
+	}
+	d, ok := s.native.(captureDriver)
+	if !ok || !s.started || s.stopped {
+		return old, errors.New(s.text("native.shortcutUnavailable", nil))
+	}
+	registered := [2]bool{s.capture.shortcuts[0].Registered, s.capture.shortcuts[1].Registered}
+	for i := range s.capture.shortcuts {
+		v := s.capture.shortcuts[i].Shortcut
+		v.Enabled = enabled && v.Enabled
+		if v.Enabled && s.captureShortcutConflict(v, i+2) {
+			s.rollbackCaptureRegistration(d, registered)
+			return old, errors.New(s.text("native.shortcutConflict", nil))
+		}
+		if err := d.registerCaptureShortcut(v, i); err != nil {
+			s.rollbackCaptureRegistration(d, registered)
+			return old, err
+		}
+		s.capture.shortcuts[i].Registered = v.Enabled
+	}
+	next := old
+	next.Enabled = enabled
+	next.Notice = ""
+	if err := localstate.Write(s.capture.preferenceFile, next); err != nil {
+		s.rollbackCaptureRegistration(d, registered)
+		return old, err
+	}
+	s.capture.preferences = next
+	if !enabled {
+		for _, cancel := range s.capture.active {
+			cancel()
+		}
+	}
+	if gate, ok := s.native.(captureEnabledDriver); ok {
+		gate.captureEnabled(enabled)
+	}
+	if enabled {
+		d.restoreCaptures(screeninput.Pending(s.capture.root))
+	}
+	return next, nil
+}
+func (s *Service) rollbackCaptureRegistration(d captureDriver, registered [2]bool) {
+	for i := range s.capture.shortcuts {
+		v := s.capture.shortcuts[i].Shortcut
+		v.Enabled = registered[i]
+		if err := d.registerCaptureShortcut(v, i); err != nil {
+			v.Enabled = false
+			_ = d.registerCaptureShortcut(v, i)
+			s.capture.shortcuts[i].Registered = false
+		} else {
+			s.capture.shortcuts[i].Registered = registered[i]
+		}
+	}
 }
 func (s *Service) CopyScreenImage(id string) error {
 	s.mu.Lock()
@@ -167,11 +237,15 @@ func (s *Service) saveCaptureShortcut(v Shortcut, kind int) (ShortcutState, erro
 	if s.captureShortcutConflict(v, kind+2) {
 		return old, errors.New(s.text("native.shortcutConflict", nil))
 	}
-	if err := d.registerCaptureShortcut(v, kind); err != nil {
+	active := v
+	active.Enabled = v.Enabled && s.capture.preferences.Enabled
+	if err := d.registerCaptureShortcut(active, kind); err != nil {
 		return old, err
 	}
 	if err := saveShortcut(s.capture.files[kind], v); err != nil {
-		if rollback := d.registerCaptureShortcut(old.Shortcut, kind); rollback != nil {
+		previous := old.Shortcut
+		previous.Enabled = old.Registered
+		if rollback := d.registerCaptureShortcut(previous, kind); rollback != nil {
 			disabled := v
 			disabled.Enabled = false
 			_ = d.registerCaptureShortcut(disabled, kind)
@@ -179,7 +253,7 @@ func (s *Service) saveCaptureShortcut(v Shortcut, kind int) (ShortcutState, erro
 		}
 		return s.capture.shortcuts[kind], err
 	}
-	s.capture.shortcuts[kind] = ShortcutState{Shortcut: v, Registered: v.Enabled}
+	s.capture.shortcuts[kind] = ShortcutState{Shortcut: v, Registered: active.Enabled}
 	return s.capture.shortcuts[kind], nil
 }
 func (s *Service) CaptureScreen()   { s.captureCommand(0) }
@@ -188,7 +262,7 @@ func (s *Service) ToggleImagePins() { s.captureCommand(2) }
 func (s *Service) captureCommand(kind int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if d, ok := s.native.(captureDriver); ok && !s.stopped {
+	if d, ok := s.native.(captureDriver); ok && !s.stopped && s.capture.preferences.Enabled {
 		d.captureCommand(kind)
 	}
 }
@@ -244,7 +318,7 @@ func (s *Service) refreshCapture() {
 }
 func (s *Service) sendCapture(id string) {
 	s.mu.Lock()
-	stopped := s.stopped
+	stopped := s.stopped || !s.capture.preferences.Enabled
 	s.mu.Unlock()
 	if stopped {
 		return
@@ -275,6 +349,13 @@ func (s *Service) sendCapture(id string) {
 		s.finishCapture(r, r.Outcome)
 		return
 	}
+	s.mu.Lock()
+	active := !s.stopped && s.capture.preferences.Enabled
+	s.mu.Unlock()
+	if !active {
+		s.publishCaptureReceipt(id, "draft", "native.capture.unavailable")
+		return
+	}
 	files, err := screeninput.Files(s.capture.root, r)
 	if err != nil {
 		s.failCapturePreflight(id)
@@ -284,13 +365,22 @@ func (s *Service) sendCapture(id string) {
 		s.publishCaptureReceipt(id, "rejected", "native.capture.unavailable")
 		return
 	}
+	s.mu.Lock()
+	if s.stopped || !s.capture.preferences.Enabled {
+		s.mu.Unlock()
+		s.publishCaptureReceipt(id, "draft", "native.capture.unavailable")
+		return
+	}
 	r, err = screeninput.Begin(s.capture.root, r)
 	if err != nil {
+		s.mu.Unlock()
 		s.publishCaptureReceipt(id, "rejected", "native.capture.saveFailed")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+	s.capture.active[id] = cancel
+	s.mu.Unlock()
+	defer func() { s.mu.Lock(); delete(s.capture.active, id); s.mu.Unlock(); cancel() }()
 	receipt, _ := s.capture.submit(ctx, api.Submission{ID: r.RequestID, Text: screeninput.Prompt(r.Snapshot), ScreenInput: true}, files)
 	outcome := receipt.Outcome
 	if outcome != "accepted" && outcome != "rejected" {

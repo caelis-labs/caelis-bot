@@ -38,11 +38,13 @@ export function Settings() {
  return <main className="settings-window">
   <aside><nav aria-label={t('settings.navLabel')}>{sections.map(id=><button key={id} aria-current={section===id?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}>{t(`settings.${id}`)}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
   <div className="settings-content" ref={content}>
-   <div className="settings-page" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<><PermissionSettings embedded/><ScreenInputSettings/></>}<ExecutionSettings embedded/></>}</div>
-<div className="settings-page" hidden={section!=='models'&&section!=='connections'}>{(runtimeVisited||section==='models'||section==='connections')&&<RuntimeSettings page={section==='models'?'models':'connections'} active={section==='models'||section==='connections'} refreshKey={opened} onConnections={()=>setSection('connections')}/>} {section==='connections'&&<TelegramSettings/>}</div>
+   <div className="settings-page" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<PermissionSettings embedded/>}<ExecutionSettings embedded/></>}</div>
+   <div className="settings-page" hidden={section!=='models'&&section!=='connections'}>{(runtimeVisited||section==='models'||section==='connections')&&<RuntimeSettings page={section==='models'?'models':'connections'} active={section==='models'||section==='connections'} refreshKey={opened} onConnections={()=>setSection('connections')}/>}</div>
+   <div className="settings-page" hidden={section!=='chatConnections'}>{section==='chatConnections'&&<><h1>{t('settings.chatConnections')}</h1><TelegramSettings/></>}</div>
+   <div className="settings-page" hidden={section!=='extras'}>{section==='extras'&&<><h1>{t('settings.extras')}</h1><ScreenInputSettings/></>}</div>
    <div className="settings-page" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone/>}</div>
-   <div className="settings-page" key={section} hidden={['permissions','models','connections','machines'].includes(section)}>
-   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','machines','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
+   <div className="settings-page" key={section} hidden={['permissions','models','connections','chatConnections','machines','extras'].includes(section)}>
+   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','chatConnections','machines','extras','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
    </div>
   </div>
  </main>;
@@ -53,7 +55,7 @@ function General() {
  const [storageOpen,setStorageOpen]=useState(false);
  return <section className="general-settings">
   <h1>{t('settings.general')}</h1><LanguageSetting/><TaskSettings/>
-  <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/><ShortcutSettings capture/><ShortcutSettings paste/></SettingGroup>
+  <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/></SettingGroup>
   <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary><SettingsChevron/>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
  </section>;
 }

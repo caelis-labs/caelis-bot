@@ -10,6 +10,7 @@
 @property(nonatomic,copy) NSDictionary *language;
 @property(nonatomic,copy) NSArray<NSWindow *> *excludedWindows;
 @property(nonatomic) BOOL includeBackground;
+@property(nonatomic) BOOL enabled;
 - (void)capture;
 - (void)paste;
 - (void)togglePins;

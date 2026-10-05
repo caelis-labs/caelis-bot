@@ -107,10 +107,20 @@ with an isolated Bot profile. Draft writes coalesce only pending full replacemen
 submission waits for the newest saved draft. Snapshot reads are fenced by request order and
 visible-surface lifetime as well as backend revision.
 
-Settings separate AI models, Connections & accounts, and Remote machines. The model and
-account pages share one runtime settings owner; native `runtime` repair links still open
-Connections & accounts. `runtime-settings-preview.html` uses the same components with
+Settings separate AI models, AI accounts, Chat connections, Remote machines,
+Extras and Privacy & permissions. The model and AI account pages share one runtime
+settings owner; native `runtime` and `connections` repair links still open AI accounts.
+`telegram`, `chat` and `capture` links open their corresponding destinations.
+`runtime-settings-preview.html` uses the same components with
 example data for narrow layouts, without modifying daily accounts or calling a model.
+The development-only `settings-extras-preview.html` mounts Telegram, Extras and
+first-run components with synthetic statuses. `bash script/settings-extras-native-fixture.sh
+after telegram pairing en dark 860` captures an isolated WKWebView screenshot under
+`.cache/settings-extras-fixture/`. Use `extras on|off` and `setup permission-on|permission-off`
+for the other states; the final argument selects a 640 or 860 point window. The
+fixture neither sends Telegram messages nor uses the daily Bot profile. Screenshots
+show layout and state rendering; native shortcut/menu and persistence behavior need
+the separate desktop tests and real app acceptance.
 
 ```sh
 source script/env.sh

@@ -462,6 +462,16 @@ cannot change scope. Ask Bot rechecks negotiated model image support immediately
 never resends; unreadable receipts remain uncertain. Attachment maintenance uses native Trash, protects originals,
 selected/active files and symlinks, and never constitutes image resubmission.
 
+The optional Extras gate owns only the manual F1 selection/annotation/Ask Bot and
+F3 clipboard pin tools. Native admission, Carbon shortcuts, menu commands and
+in-flight selection share the persisted gate; disabling cancels admitted sends
+and keeps their original uncertain receipts if dispatch already began. It closes
+temporary panels without deleting retained chat attachments or capture records.
+Re-enabling restores saved child shortcuts and recoverable capture records. The
+gate does not govern ordinary chat images or Desktop World task observation and
+capture. Screen Recording remains a separate macOS permission; preference reads
+and disabling never request it.
+
 Ordinary received images have a separate App-owned presentation store keyed by
 the original submission ID. Local and remote submissions save bounded bytes before
 native dispatch; saved user items and pending outbox rows resolve the same opaque

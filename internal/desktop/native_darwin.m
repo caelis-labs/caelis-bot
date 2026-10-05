@@ -52,6 +52,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @end
 @interface BotHost : NSObject <NSMenuDelegate, UNUserNotificationCenterDelegate>
 @property BotCapture *capture;
+@property BOOL captureEnabled;
 @property NSArray<BotHotkeySlot *> *hotkeys;
 @property BotInputPanel *pet;
 @property NSWindow *panel;
@@ -242,7 +243,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     [menu addItem:NSMenuItem.separatorItem];
     for(NSArray *entry in @[@[@"capture.start",NSStringFromSelector(@selector(startCapture:))],@[@"capture.paste",NSStringFromSelector(@selector(pasteCapture:))],@[@"capture.togglePins",NSStringFromSelector(@selector(toggleCapturePins:))]]) {
         NSMenuItem *item=[menu addItemWithTitle:[self text:entry[0]] action:NSSelectorFromString(entry[1]) keyEquivalent:@""];
-        item.target=self;
+        item.target=self;item.enabled=self.captureEnabled;
     }
     [menu addItem:NSMenuItem.separatorItem];
     NSMenuItem *settings = [menu addItemWithTitle:[self text:@"settings"] action:@selector(openSettings:) keyEquivalent:@","];
@@ -254,9 +255,9 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     quit.target = self;
     return menu;
 }
-- (void)startCapture:(id)sender {[self.capture capture];}
-- (void)pasteCapture:(id)sender {[self.capture paste];}
-- (void)toggleCapturePins:(id)sender {[self.capture togglePins];}
+- (void)startCapture:(id)sender {if(self.captureEnabled)[self.capture capture];}
+- (void)pasteCapture:(id)sender {if(self.captureEnabled)[self.capture paste];}
+- (void)toggleCapturePins:(id)sender {if(self.captureEnabled)[self.capture togglePins];}
 - (void)installPreviewMenu {
     // Explicit developer opt-in belongs in the application menu bar, never on the pet.
     if ([NSProcessInfo.processInfo.environment[@"CAELIS_BOT_BEHAVIOR_PREVIEW"] isEqualToString:@"1"]) {
@@ -829,8 +830,8 @@ static OSStatus bot_hotkey(EventHandlerCallRef next, EventRef event, void *conte
     if(slot.down==down)return noErr;slot.down=down;
     if(kind==1){[host.taskDock setShortcutHeld:down];return noErr;}
     if(!down)return noErr;
-    if(kind==2){[host.capture capture];return noErr;}
-    if(kind==3){[host.capture paste];return noErr;}
+    if(kind==2){if(host.captureEnabled)[host.capture capture];return noErr;}
+    if(kind==3){if(host.captureEnabled)[host.capture paste];return noErr;}
     if(host.handle){host.interactionStart=NSProcessInfo.processInfo.systemUptime;[host trace:@"shortcut"];desktopEvent(host.handle,11,0,0,0);}
     return noErr;
 }
@@ -867,10 +868,16 @@ int bot_shortcut(void *pointer,char *rawKey,int flags,int enabled,int kind) {
 }
 void bot_bind_capture(void *pointer,void *capture) {
     BotHost *host=(__bridge BotHost *)pointer;host.capture=(__bridge BotCapture *)capture;
+    host.captureEnabled=YES;
     NSMutableArray *excluded=[NSMutableArray new];
     for(id window in @[host.pet?:NSNull.null,host.panel?:NSNull.null,host.bubble?:NSNull.null,host.prop?:NSNull.null,host.taskDock.window?:NSNull.null])if([window isKindOfClass:NSWindow.class])[excluded addObject:window];
     host.capture.excludedWindows=excluded;
     host.capture.language=host.language;
+}
+void bot_capture_enabled(void *pointer,int enabled) {
+    BotHost *host=(__bridge BotHost *)pointer;
+    host.captureEnabled=enabled!=0;
+    host.capture.enabled=enabled!=0;
 }
 void bot_panel_ready(void *pointer,int activation){
     BotHost *host=(__bridge BotHost *)pointer;

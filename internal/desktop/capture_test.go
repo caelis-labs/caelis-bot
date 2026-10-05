@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/png"
 	"os"
@@ -21,13 +22,24 @@ type captureFake struct {
 	receipts     []map[string]string
 	restored     []screeninput.Record
 	availability string
+	commands     []int
+	enabled      bool
+	failKind     int
 }
 
-func (d *captureFake) registerCaptureShortcut(v Shortcut, k int) error { d.keys[k] = v; return nil }
-func (d *captureFake) captureCommand(int)                              {}
-func (d *captureFake) captureAvailability(v any)                       { d.availability = v.(map[string]string)["state"] }
-func (d *captureFake) captureReceipt(v any)                            { d.receipts = append(d.receipts, v.(map[string]string)) }
-func (d *captureFake) restoreCaptures(v []screeninput.Record)          { d.restored = v }
+func (d *captureFake) registerCaptureShortcut(v Shortcut, k int) error {
+	if d.failKind == k+1 {
+		d.failKind = 0
+		return errors.New("registration failed")
+	}
+	d.keys[k] = v
+	return nil
+}
+func (d *captureFake) captureCommand(k int)                   { d.commands = append(d.commands, k) }
+func (d *captureFake) captureEnabled(v bool)                  { d.enabled = v }
+func (d *captureFake) captureAvailability(v any)              { d.availability = v.(map[string]string)["state"] }
+func (d *captureFake) captureReceipt(v any)                   { d.receipts = append(d.receipts, v.(map[string]string)) }
+func (d *captureFake) restoreCaptures(v []screeninput.Record) { d.restored = v }
 func captureFixture(t *testing.T) (*Service, *captureFake, string) {
 	t.Helper()
 	s := newService(&memoryStore{value: defaults()})
@@ -78,6 +90,125 @@ func TestCaptureDefaultsAndShortcutCollisions(t *testing.T) {
 	s.capture.files[0] = filepath.Join(blocker, "settings.json")
 	if _, err := s.SaveCaptureShortcut(Shortcut{Enabled: true, Key: "F2"}); err == nil || d.keys[0] != old {
 		t.Fatal("failed preference save displaced shortcut")
+	}
+}
+func TestCaptureFeatureGatePersistsAndRetainsHistory(t *testing.T) {
+	s, d, id := captureFixture(t)
+	if !s.CapturePreferences().Enabled {
+		t.Fatal("new install should be enabled")
+	}
+	s.CaptureScreen()
+	s.PasteImage()
+	s.ToggleImagePins()
+	if len(d.commands) != 3 {
+		t.Fatal("enabled commands missing", d.commands)
+	}
+	if _, err := s.SetCaptureEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	if d.enabled || d.keys[0].Enabled || d.keys[1].Enabled || s.CapturePreferences().Enabled {
+		t.Fatal("native capture still enabled")
+	}
+	s.CaptureScreen()
+	s.PasteImage()
+	s.ToggleImagePins()
+	if len(d.commands) != 3 {
+		t.Fatal("disabled command reached native")
+	}
+	s.capture.submit = func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+		t.Fatal("disabled capture dispatched")
+		return api.Receipt{}, nil
+	}
+	s.sendCapture(id)
+	if _, err := os.Stat(filepath.Join(s.capture.root, id)); err != nil {
+		t.Fatal("unsent document removed", err)
+	}
+	if _, err := s.SaveCaptureShortcut(Shortcut{Enabled: true, Key: "F2"}); err != nil {
+		t.Fatal(err)
+	}
+	if d.keys[0].Enabled {
+		t.Fatal("shortcut reactivated through editor")
+	}
+	restarted := newService(&memoryStore{value: defaults()})
+	if err := restarted.configureCapture(s.capture.root); err != nil {
+		t.Fatal(err)
+	}
+	next := &captureFake{shortcutFake: shortcutFake{fakeDriver: fakeDriver{displays: []Rect{{0, 0, 1440, 900}}}}}
+	restarted.start(next)
+	if restarted.CapturePreferences().Enabled || next.keys[0].Enabled || next.keys[1].Enabled {
+		t.Fatal("disabled restart restored entry")
+	}
+	if _, err := restarted.SetCaptureEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	if !next.enabled || !next.keys[0].Enabled || !next.keys[1].Enabled || next.keys[0].Key != "F2" {
+		t.Fatal("reopen did not restore saved shortcuts", next.keys)
+	}
+}
+func TestCaptureEnableFailureRollsBack(t *testing.T) {
+	s, d, _ := captureFixture(t)
+	if _, err := s.SetCaptureEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	d.failKind = 2
+	if _, err := s.SetCaptureEnabled(true); err == nil {
+		t.Fatal("expected native registration failure")
+	}
+	if s.CapturePreferences().Enabled || d.keys[0].Enabled || d.keys[1].Enabled {
+		t.Fatal("failed enable leaked registration")
+	}
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.capture.preferenceFile = filepath.Join(blocker, "settings.json")
+	if _, err := s.SetCaptureEnabled(true); err == nil {
+		t.Fatal("expected durable save failure")
+	}
+	if s.CapturePreferences().Enabled || d.keys[0].Enabled || d.keys[1].Enabled {
+		t.Fatal("failed save enabled capture")
+	}
+}
+func TestCaptureDisableCancelsAdmittedSendWithoutRetry(t *testing.T) {
+	s, _, id := captureFixture(t)
+	s.capture.capability = func(context.Context) (api.ImageInputCapability, error) {
+		return api.ImageInputCapability{State: "supported"}, nil
+	}
+	entered := make(chan struct{})
+	done := make(chan struct{})
+	calls := 0
+	s.capture.submit = func(ctx context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+		calls++
+		close(entered)
+		<-ctx.Done()
+		return api.Receipt{ID: in.ID, Outcome: "unknown"}, ctx.Err()
+	}
+	go func() { s.sendCapture(id); close(done) }()
+	<-entered
+	if _, err := s.SetCaptureEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	r, err := screeninput.Load(s.capture.root, id)
+	if err != nil || r.Outcome != "unknown" || r.RequestID == "" {
+		t.Fatal("cancelled remote write lost its uncertain receipt", r, err)
+	}
+	s.sendCapture(id)
+	if calls != 1 {
+		t.Fatal("disabled send replayed uncertain write", calls)
+	}
+}
+func TestCaptureLegacyPreferenceRetainsEnablement(t *testing.T) {
+	s, _, _ := captureFixture(t)
+	if err := os.WriteFile(s.capture.preferenceFile, []byte(`{"includeBackground":false}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	restored := newService(&memoryStore{value: defaults()})
+	if err := restored.configureCapture(s.capture.root); err != nil {
+		t.Fatal(err)
+	}
+	if !restored.CapturePreferences().Enabled || restored.CapturePreferences().IncludeBackground {
+		t.Fatal("legacy preference changed", restored.CapturePreferences())
 	}
 }
 func TestCaptureUnknownNeverResendsAndReconcilesExactIdentity(t *testing.T) {

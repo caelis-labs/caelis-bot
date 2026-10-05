@@ -137,6 +137,7 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 	})
 	d.language(s.LanguagePreferences().Locale)
 	d.capturePreferences(s.CapturePreferences().IncludeBackground)
+	d.captureEnabled(s.CapturePreferences().Enabled)
 	return d
 }
 
@@ -146,6 +147,11 @@ func (d *macDriver) capturePreferences(include bool) {
 		value = 1
 	}
 	application.InvokeSync(func() { C.bot_capture_preferences(d.capture, value) })
+}
+func (d *macDriver) captureEnabled(enabled bool) {
+	value := C.int(0)
+	if enabled { value = 1 }
+	application.InvokeSync(func() { C.bot_capture_enabled(d.pointer,value) })
 }
 func (d *macDriver) copyCaptureImage(data []byte) bool {
 	if len(data) == 0 || len(data) > 8<<20 {
