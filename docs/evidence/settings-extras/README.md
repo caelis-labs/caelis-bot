@@ -54,3 +54,9 @@ The fixture confirms rendering and synthetic interaction order. Live Telegram
 pairing, Keychain ownership, webhook takeover with a real account, physical
 F1/F3 delivery, actual TCC prompts, and a full app window launched with an
 isolated Bot profile remain unverified. The running user Bot was not touched.
+
+The follow-up `node script/settings-extras-parent-regression.mjs` mounts the
+real BotSetup parent. It waits through multiple BotInitialization polls after
+turning capture off, then checks the unsaved choice, save-before-finish order
+and failed-save retention. It also verifies that a later Telegram status poll
+clears a transient load error while retaining an explicit open-action error.

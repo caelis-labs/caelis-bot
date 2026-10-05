@@ -15,11 +15,14 @@ const outcomes:Record<PermissionRequestResult['state'],MessageKey>={requested:'s
 
 export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?:()=>void;embedded?:boolean;call?:typeof desktop}) {
  const {t}=useI18n();
+ const onboarding=!!onDone;
  const [state,setState]=useState<PermissionState|null>(null),[busy,setBusy]=useState(''),[error,setError]=useState<MessageKey|''>(''),[notice,setNotice]=useState(false);
  const [feedback,setFeedback]=useState<{id:PermissionID;state:PermissionRequestResult['state']}|null>(null);
  const [repair,setRepair]=useState<PermissionID>('accessibility'),[confirmed,setConfirmed]=useState(false);
  const [captureChoice,setCaptureChoice]=useState<boolean|null>(onDone?null:true);
  const alive=useRef(true),loading=useRef<Promise<void>|null>(null),acting=useRef(false);
+ const choiceEdited=useRef(false),latestDone=useRef(onDone);
+ latestDone.current=onDone;
  const refresh=useCallback(async()=>{
   if(loading.current){await loading.current;return;}
   loading.current=(async()=>{
@@ -33,7 +36,7 @@ export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?
   const focus=()=>{void refresh();};const timer=setInterval(()=>{if(document.hasFocus()&&!acting.current)void refresh();},2500);
   window.addEventListener('focus',focus);return()=>{alive.current=false;clearInterval(timer);window.removeEventListener('focus',focus);};
  },[refresh]);
- useEffect(()=>{if(!onDone)return;let live=true;void call<{enabled:boolean}>('CapturePreferences').then(v=>{if(live)setCaptureChoice(v.enabled)}).catch(()=>{if(live)setError('settings.screenPreferencesFailed')});return()=>{live=false}},[call,onDone]);
+ useEffect(()=>{if(!onboarding)return;let live=true;void call<{enabled:boolean}>('CapturePreferences').then(v=>{if(live&&!choiceEdited.current)setCaptureChoice(v.enabled)}).catch(()=>{if(live)setError('settings.screenPreferencesFailed')});return()=>{live=false}},[call,onboarding]);
  const perform=async(id:string,action:()=>Promise<unknown>)=>{
   if(acting.current)return;acting.current=true;setBusy(id);setError('');
   try{
@@ -72,7 +75,7 @@ export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?
  return <section className="permission-settings">
   {embedded?<h2 className="settings-section-title">{t('settings.systemPermissions')}</h2>:<h1>{t(onDone?'settings.permissionGuideTitle':'settings.permissions')}</h1>}
   <p className="permission-intro">{t(onDone?'settings.permissionOptionalIntro':'settings.permissionIntroduction')}</p>
-  {onDone&&<div className="setup-capture-choice"><label htmlFor="setup-capture-enabled"><input id="setup-capture-enabled" type="checkbox" role="switch" checked={captureChoice??true} disabled={captureChoice===null||!!busy} onChange={e=>setCaptureChoice(e.target.checked)}/>{t('settings.extrasCaptureToggle')}</label><p>{t('settings.extrasCaptureDescription')}</p></div>}
+  {onDone&&<div className="setup-capture-choice"><label htmlFor="setup-capture-enabled"><input id="setup-capture-enabled" type="checkbox" role="switch" checked={captureChoice??true} disabled={captureChoice===null||!!busy} onChange={e=>{choiceEdited.current=true;setCaptureChoice(e.target.checked)}}/>{t('settings.extrasCaptureToggle')}</label><p>{t('settings.extrasCaptureDescription')}</p></div>}
   {!state&&<p role="status">{t('common.loading')}</p>}
   {state&&!state.supported&&<p>{t('settings.permissionUnsupported')}</p>}
   {state?.supported&&<>
@@ -104,6 +107,6 @@ export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?
    </details>}
   </>}
   {error&&<p className="inline-error" role="alert">{t(error)}</p>}
-  {onDone&&<div className="setup-end"><button className="primary" disabled={!!busy||captureChoice===null} onClick={()=>void perform('finish',()=>finishCaptureChoice(call,captureChoice!,onDone))}>{t('settings.permissionContinue')}</button></div>}
+  {onDone&&<div className="setup-end"><button className="primary" disabled={!!busy||captureChoice===null} onClick={()=>void perform('finish',()=>finishCaptureChoice(call,captureChoice!,()=>latestDone.current?.()))}>{t('settings.permissionContinue')}</button></div>}
  </section>;
 }

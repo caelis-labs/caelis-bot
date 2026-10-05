@@ -28,7 +28,7 @@
    if(![[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:self.output atomically:YES])exit(1);
    if(self.script.length){[web evaluateJavaScript:self.script completionHandler:^(id value,NSError *failure){
     if(failure){fprintf(stderr,"Fixture interaction failed\n");exit(1);}
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,500*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,4500*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
      [web evaluateJavaScript:@"JSON.stringify(window.__fixtureResult)" completionHandler:^(id result,NSError *error){
       if(error||![result isKindOfClass:NSString.class]){fprintf(stderr,"Fixture result missing\n");exit(1);}
       [[result dataUsingEncoding:NSUTF8StringEncoding] writeToFile:[self.output stringByAppendingString:@".json"] atomically:YES];

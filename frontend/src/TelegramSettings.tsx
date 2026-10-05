@@ -14,7 +14,7 @@ export function TelegramSettings(){
  const alive=useRef(false),revision=useRef(0),acting=useRef(false);
  useEffect(()=>{
   alive.current=true;
-  const load=()=>{if(acting.current)return;const current=++revision.current;void desktop<TelegramStatus>('TelegramStatus').then(s=>{if(alive.current&&current===revision.current)setStatus(s)}).catch(()=>{if(alive.current&&current===revision.current)setError('unavailable')});};
+  const load=()=>{if(acting.current)return;const current=++revision.current;void desktop<TelegramStatus>('TelegramStatus').then(s=>{if(alive.current&&current===revision.current){setStatus(s);setError(previous=>previous==='unavailable'?'':previous)}}).catch(()=>{if(alive.current&&current===revision.current)setError(previous=>previous||'unavailable')});};
   load();const timer=window.setInterval(load,2000);
   return()=>{alive.current=false;revision.current++;clearInterval(timer)};
  },[]);
