@@ -49,6 +49,9 @@ jobs:
     if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
     runs-on: macos-15
     timeout-minutes: 30
+    env:
+      GOWORK: "off"
+      GOCACHE: ${{ github.workspace }}/.cache/go-build
     outputs:
       sha: ${{ steps.source.outputs.sha }}
       name: ${{ steps.source.outputs.name }}
@@ -81,8 +84,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            script/env.sh
       - run: npm ci
-      - run: make check
+      # Source checks run at the strict, up-to-date PR merge gate. This job
+      # qualifies the release-mode artifact built from the immutable main tag.
       - run: make check-updater
       - run: npm run smoke:assets
       - name: Build without release credentials
