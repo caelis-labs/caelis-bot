@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -868,8 +869,10 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		if i.Text == api.SilentReminder {
 			continue
 		}
-		if i.Kind == "user" || i.Kind == "assistant" {
-			b.sendRoleText(ctx, c, itemKey(i), chat, i.Kind, i.Text)
+		if i.Kind == "user" {
+			b.sendMacUserText(ctx, c, itemKey(i), chat, i.Text)
+		} else if i.Kind == "assistant" {
+			b.sendAssistantText(ctx, c, itemKey(i), chat, i.Text)
 		}
 		for _, a := range i.Artifacts {
 			b.mu.Lock()
@@ -965,12 +968,12 @@ func splitTextLimit(text string, limit int) []string {
 
 func utf16Length(text string) int { return len(utf16.Encode([]rune(text))) }
 
-// roleText formats only mirrored conversation items. Telegram still sends each
-// message from the paired Bot account; the heading describes the source.
-func roleText(title, body string, quote bool) []outgoingText {
+// macUserText labels the source without claiming to send as the Telegram user.
+// Bot replies remain unformatted plain text.
+func macUserText(title, body string) []outgoingText {
 	header := title + "\n"
 	chunks := splitTextLimit(body, 4000-utf16Length(header))
-	if len(chunks) == 0 && quote {
+	if len(chunks) == 0 {
 		chunks = []string{""} // Preserve an attachment-only Mac user item.
 	}
 	result := make([]outgoingText, 0, len(chunks))
@@ -983,7 +986,7 @@ func roleText(title, body string, quote bool) []outgoingText {
 			Text:     visible,
 			Entities: []tg.MessageEntity{{Type: tg.EntityTypeBold, Offset: 0, Length: utf16Length(title)}},
 		}
-		if quote && chunk != "" {
+		if chunk != "" {
 			message.Entities = append(message.Entities, tg.MessageEntity{
 				Type: tg.EntityTypeBlockquote, Offset: utf16Length(header), Length: utf16Length(chunk),
 			})
@@ -993,19 +996,71 @@ func roleText(title, body string, quote bool) []outgoingText {
 	return result
 }
 
-func (b *Bridge) sendRoleText(ctx context.Context, c client, key string, chat int64, role, body string) {
-	title, quote := "Caelis Bot", false
-	legacy := body
-	if role == "user" {
-		title, quote = b.text("You · from Mac", "你 · 来自 Mac"), true
-		legacy = b.text("From Mac: ", "Mac：") + body
-	}
-	old := splitText(legacy)
+func (b *Bridge) sendMacUserText(ctx context.Context, c client, key string, chat int64, body string) {
+	title := b.text("You · from Mac", "你 · 来自 Mac")
+	old := splitText(b.text("From Mac: ", "Mac：") + body)
 	legacyParts := make([]outgoingText, len(old))
 	for i, part := range old {
 		legacyParts[i] = plainText(part)
 	}
-	b.sendRenderedText(ctx, c, key, chat, roleText(title, body, quote), legacyParts, nil)
+	b.sendRenderedText(ctx, c, key, chat, macUserText(title, body), legacyParts, nil)
+}
+
+func (b *Bridge) sendAssistantText(ctx context.Context, c client, key string, chat int64, body string) {
+	parts := splitText(body)
+	b.mu.Lock()
+	record := b.state.Messages[key]
+	b.mu.Unlock()
+	// Reuse every confirmed part when a streamed reply contracts. In particular,
+	// this removes the heading from each part sent by the previous formatter
+	// without leaving a stale trailing Telegram message at the split boundary.
+	if len(record.IDs) > len(parts) {
+		confirmed := true
+		for _, id := range record.IDs {
+			if id <= 0 {
+				confirmed = false
+				break
+			}
+		}
+		if confirmed {
+			parts = splitTextAtLeast(parts, len(record.IDs))
+		}
+	}
+	messages := make([]outgoingText, len(parts))
+	for i, part := range parts {
+		messages[i] = plainText(part)
+	}
+	b.sendRenderedText(ctx, c, key, chat, messages, nil, nil)
+}
+
+func splitTextAtLeast(parts []string, minimum int) []string {
+	for len(parts) < minimum {
+		longest := -1
+		for i, part := range parts {
+			if utf8.RuneCountInString(part) > 1 && (longest < 0 || utf16Length(part) > utf16Length(parts[longest])) {
+				longest = i
+			}
+		}
+		if longest < 0 {
+			break
+		}
+		part := parts[longest]
+		half := utf16Length(part) / 2
+		split, units := 0, 0
+		for pos, r := range part {
+			if units >= half && pos > 0 {
+				split = pos
+				break
+			}
+			units += utf16.RuneLen(r)
+		}
+		if split == 0 {
+			break
+		}
+		parts = append(parts[:longest+1], append([]string{part[split:]}, parts[longest+1:]...)...)
+		parts[longest] = part[:split]
+	}
+	return parts
 }
 
 func outgoingDigest(message outgoingText) string {

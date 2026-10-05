@@ -56,6 +56,9 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 			var p tg.EditMessageTextParams
 			json.NewDecoder(r.Body).Decode(&p)
 			if p.Text == "plain **text**" {
+				if len(p.Entities) != 0 || p.ParseMode != "" {
+					t.Error("plain assistant edit leaked display entities")
+				}
 				io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: message is not modified"}`)
 			} else {
 				if p.ChatID.ID != 10 || p.MessageID != 101 || p.ParseMode != "" {
@@ -106,7 +109,7 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 	if e := c.Edit(ctx, 10, 101, plainText("plain **text**")); e != nil {
 		t.Fatal("an already applied edit did not reconcile")
 	}
-	role := roleText("你 · 来自 Mac", "🦉\n`code` & https://example.com", true)[0]
+	role := macUserText("你 · 来自 Mac", "🦉\n`code` & https://example.com")[0]
 	if _, e := c.Send(ctx, 10, role, nil); e != nil {
 		t.Fatal("SDK role message failed", e)
 	}
