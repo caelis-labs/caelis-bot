@@ -148,10 +148,12 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) {
 		}
 		if !unresolved {
 			s.state.Message = ""
-			s.state.Phase = "working"
+			if s.run != "" || s.hasBlockingChildren() {
+				s.state.Phase = "working"
+			}
 		}
 	}
-	if s.run == "" && len(s.childRuns) == 0 && len(s.prompts) == 0 && s.state.Phase == "working" {
+	if s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase == "working" {
 		s.state.Phase = "completed"
 	}
 	_ = s.save()
@@ -246,7 +248,7 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 			}
 		}
 	}
-	if s.run == "" && len(s.childRuns) == 0 && len(s.prompts) == 0 && s.state.Phase == "working" {
+	if s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase == "working" {
 		s.state.Phase = "completed"
 	}
 }
@@ -255,8 +257,8 @@ func (s *Session) resolvePrompt(id string, p *prompt) {
 	s.replacePrompt(id, p.view)
 	delete(s.prompts, id)
 	delete(s.promptHandles, string(p.id))
-	if len(s.prompts) == 0 && s.state.Phase == "attention" {
-		if s.run != "" || len(s.childRuns) > 0 {
+	if !s.hasConversationPrompt() && s.state.Phase == "attention" {
+		if s.run != "" || s.hasBlockingChildren() {
 			s.state.Phase = "working"
 		} else {
 			s.state.Phase = "idle"

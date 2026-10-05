@@ -57,7 +57,7 @@ export function Bubble() {
  const activity=chatActivity(snapshot);
  const dreaming=activity==='dreaming';
  const progress=dreaming?t('chat.dreaming'):activity==='tool'&&snapshot?.activity?activityLabel(snapshot.activity,t):activity==='stopping'?t('chat.stopping'):activity==='reviewing'?t('chat.reviewing'):activity==='thinking'?t('chat.bubbleThinking'):'';
- const review=snapshot?.reviews?.filter(r=>r.status!=='approved').at(-1);
+ const review=snapshot?.reviews?.filter(r=>r.owner!=='task'&&r.status!=='approved').at(-1);
  const reviewText=review&&(review.status!=='inProgress'||working)?getReviewLabel(review.status, t):'';
  const attention=!!prompt||snapshot?.connection==='login'||snapshot?.connection==='offline'||snapshot?.phase==='unknown';
  const terminal=snapshot?.phase==='interrupted'?t('chat.statusInterrupted'):snapshot?.phase==='failed'?t('chat.terminalFailed'):snapshot?.phase==='completed'?t('chat.statusCompleted'):'';

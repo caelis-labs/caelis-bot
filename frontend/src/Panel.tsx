@@ -68,7 +68,7 @@ function ReviewNotice({value}:{value:Review}) {
  const {t} = useI18n();
  const statusText = getReviewLabel(value.status, t);
  return <section className="review-notice" aria-label={statusText}>
-  <strong>{statusText}</strong>
+  <strong>{value.taskTitle?`${value.taskTitle} · ${statusText}`:statusText}</strong>
   {value.rationale&&<p>{value.rationale}</p>}
   {value.action&&<details><summary>{t('chat.reviewActionDetails')}</summary><pre>{value.action}</pre></details>}
  </section>;

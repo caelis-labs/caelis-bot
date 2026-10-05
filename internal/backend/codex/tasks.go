@@ -75,6 +75,22 @@ func (s *Session) hasBlockingChildren() bool {
 	}
 	return false
 }
+func (s *Session) hasUnresolvedTasks() bool {
+	for _, task := range s.binding.Tasks {
+		if task != nil && (task.Pending != "" || !terminal(task.View.Status)) {
+			return true
+		}
+	}
+	return false
+}
+func (s *Session) hasConversationPrompt() bool {
+	for _, p := range s.prompts {
+		if p.thread == s.binding.ThreadID || s.taskByThread(p.thread) == nil {
+			return true
+		}
+	}
+	return false
+}
 func (s *Session) WorkStates() []api.WorkState {
 	s.mu.Lock()
 	defer s.mu.Unlock()

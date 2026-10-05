@@ -9,6 +9,11 @@ import (
 func TestOwnedWorkerApprovalRoutesWithoutLeakingWorkerMessages(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	sendSynthetic(t, s, "root-prompt")
+	worker := nativeThread{ID: "worker", ParentThreadID: "thread-native", Turns: []nativeTurn{{ID: "worker-turn", Status: "inProgress"}}}
+	worker.Status.Type = "active"
+	f.mu.Lock()
+	f.workers = map[string]nativeThread{"worker": worker}
+	f.mu.Unlock()
 	f.emit(wireMessage{Method: "thread/started", Params: raw(map[string]any{"thread": nativeThread{ID: "worker", ParentThreadID: "thread-native"}})})
 	f.emit(wireMessage{Method: "turn/started", Params: raw(map[string]any{"threadId": "worker", "turn": nativeTurn{ID: "worker-turn", Status: "inProgress"}})})
 	f.emit(wireMessage{Method: "item/agentMessage/delta", Params: raw(map[string]any{"threadId": "worker", "turnId": "worker-turn", "itemId": "private", "delta": "private worker chatter"})})
