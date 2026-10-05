@@ -36,9 +36,10 @@ click Try connecting again; do not keep reconnecting competing clients.
 
 ## Use and troubleshoot
 
-- Send text, a photo, or a file to the paired private chat. Incoming files are
+- Send text, a photo, a sticker, or a file to the paired private chat. Incoming files are
   limited to 8 MB each so both supported runtimes can accept them. The Bot uses
-  its existing tools and capabilities to interpret attachments.
+  its existing tools and capabilities to interpret attachments. Animated and
+  video stickers arrive as a single preview frame when one is available.
 - Replies update progressively in Telegram. Long replies span multiple messages.
   Desktop messages and attachments also appear there. Earlier private history is
   not copied when an account is first paired.

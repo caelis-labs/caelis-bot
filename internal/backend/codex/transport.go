@@ -9,17 +9,30 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
 var (
-	ErrClosed        = errors.New("app server connection closed")
-	ErrProtocol      = errors.New("invalid app server message")
-	ErrEventOverflow = errors.New("app server notification consumer fell behind")
+	ErrClosed           = errors.New("app server connection closed")
+	ErrProtocol         = errors.New("invalid app server message")
+	ErrEventOverflow    = errors.New("app server notification consumer fell behind")
+	ErrFrameTooLarge    = errors.New("app server frame too large")
+	ErrJSONDecode       = errors.New("app server JSON decode failed")
+	ErrDuplicateRequest = errors.New("duplicate app server request ID")
+	ErrIO               = errors.New("app server I/O failure")
+	ErrWebSocketClose   = errors.New("app server WebSocket closed")
+	ErrWebSocketReset   = errors.New("app server WebSocket reset")
 )
+
+const maxWireFrame = 8 * 1024 * 1024
+
+var nextTransportGeneration atomic.Uint64
 
 // NativeError preserves the original error without putting private backend text
 // into ordinary logs. Callers must deliberately project Message/Data for the UI.
@@ -98,6 +111,7 @@ type transport struct {
 	handleRequests bool
 	serverPending  map[string]serverRequestState
 	serverSequence uint64
+	generation     uint64
 }
 type serverRequestState struct {
 	sequence uint64
@@ -114,12 +128,16 @@ func newTransportLogged(conn connection, stop func(), requests bool, diagnostics
 	t := &transport{conn: conn, pending: make(map[string]chan response), done: make(chan struct{}),
 		stopped: make(chan struct{}), readDone: make(chan struct{}), writeToken: make(chan struct{}, 1), events: make(chan Notification, 64), stop: stop, diagnostics: diagnostics}
 	t.handleRequests = requests
+	t.generation = nextTransportGeneration.Add(1)
 	t.serverPending = make(map[string]serverRequestState)
 	t.writeToken <- struct{}{}
 	go t.read()
 	return t
 }
 func (t *transport) fail(err error) {
+	t.failWith(err, "operation", 0)
+}
+func (t *transport) failWith(err error, phase string, size int) {
 	t.mu.Lock()
 	if t.terminal != nil {
 		t.mu.Unlock()
@@ -128,15 +146,9 @@ func (t *transport) fail(err error) {
 	t.terminal = err
 	close(t.done)
 	t.mu.Unlock()
-	if !errors.Is(err, ErrClosed) {
-		reason := "transport disconnected; pending outcomes require reconciliation"
-		if errors.Is(err, ErrEventOverflow) {
-			reason = "notification queue overflow; execution observation incomplete"
-		}
-		if errors.Is(err, ErrProtocol) {
-			reason = "invalid native wire envelope"
-		}
-		t.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "transport_failed", Reason: reason})
+	if phase == "read" || !errors.Is(err, ErrClosed) {
+		t.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: transportCode(err),
+			Reason: "pending outcomes require original-request reconciliation", Generation: t.generation, Phase: phase, Bytes: size, Limit: maxWireFrame})
 	}
 	_ = t.conn.Close() // Releases a blocked writer/reader, including cancellation.
 	go func() {
@@ -145,6 +157,42 @@ func (t *transport) fail(err error) {
 		}
 		close(t.stopped)
 	}()
+}
+func transportCode(err error) string {
+	switch {
+	case errors.Is(err, ErrFrameTooLarge):
+		return "frame_too_large"
+	case errors.Is(err, ErrJSONDecode):
+		return "json_decode_failed"
+	case errors.Is(err, ErrDuplicateRequest):
+		return "duplicate_server_request"
+	case errors.Is(err, ErrProtocol):
+		return "invalid_envelope"
+	case errors.Is(err, ErrWebSocketReset):
+		return "websocket_reset"
+	case errors.Is(err, ErrWebSocketClose):
+		return "websocket_close"
+	case errors.Is(err, ErrIO):
+		return "io_failure"
+	case errors.Is(err, ErrEventOverflow):
+		return "event_overflow"
+	case errors.Is(err, ErrClosed):
+		return "closed_eof"
+	default:
+		return "disconnected"
+	}
+}
+func classifyReadError(err error) error {
+	switch {
+	case errors.Is(err, ErrFrameTooLarge), errors.Is(err, ErrProtocol), errors.Is(err, ErrWebSocketClose), errors.Is(err, ErrWebSocketReset), errors.Is(err, ErrIO), errors.Is(err, ErrClosed):
+		return err
+	case errors.Is(err, syscall.ECONNRESET):
+		return ErrWebSocketReset
+	case errors.Is(err, io.EOF), errors.Is(err, io.ErrClosedPipe):
+		return ErrClosed
+	default:
+		return ErrIO
+	}
 }
 func (t *transport) close()       { t.fail(ErrClosed); <-t.stopped; <-t.readDone }
 func (t *transport) cause() error { t.mu.Lock(); defer t.mu.Unlock(); return t.terminal }
@@ -261,24 +309,23 @@ func (t *transport) read() {
 	defer close(t.readDone)
 	defer close(t.events)
 	scan := bufio.NewScanner(t.conn)
-	scan.Buffer(make([]byte, 64*1024), 8*1024*1024)
+	scan.Buffer(make([]byte, 64*1024), maxWireFrame)
 	for scan.Scan() {
 		var m wireMessage
 		if err := json.Unmarshal(scan.Bytes(), &m); err != nil {
-			t.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "wire_decode_failed", Reason: diagnosticlog.DecodeReason(err), Fingerprint: diagnosticlog.Fingerprint(scan.Bytes()), Bytes: len(scan.Bytes())})
-			t.fail(ErrProtocol)
+			t.failWith(errors.Join(ErrProtocol, ErrJSONDecode), "read", len(scan.Bytes()))
 			return
 		}
 		if m.Method != "" {
 			if len(m.Result) > 0 || m.Error != nil {
-				t.fail(ErrProtocol)
+				t.failWith(ErrProtocol, "read", len(scan.Bytes()))
 				return
 			}
 			if len(m.ID) > 0 {
 				// Plain transport clients reject requests using the ORIGINAL ID.
 				// Session clients opt into ordered, generation-checked handling.
 				if !validID(m.ID) {
-					t.fail(ErrProtocol)
+					t.failWith(ErrProtocol, "read", len(scan.Bytes()))
 					return
 				}
 				if t.handleRequests {
@@ -289,13 +336,13 @@ func (t *transport) read() {
 					t.serverPending[string(m.ID)] = serverRequestState{sequence: sequence}
 					t.mu.Unlock()
 					if duplicate {
-						t.fail(ErrProtocol)
+						t.failWith(errors.Join(ErrProtocol, ErrDuplicateRequest), "read", len(scan.Bytes()))
 						return
 					}
 					select {
 					case t.events <- Notification{Method: m.Method, Params: m.Params, RequestID: m.ID, Sequence: sequence}:
 					default:
-						t.fail(ErrEventOverflow)
+						t.failWith(ErrEventOverflow, "read", len(scan.Bytes()))
 						return
 					}
 					continue
@@ -321,14 +368,14 @@ func (t *transport) read() {
 				select {
 				case t.events <- Notification{Method: m.Method, Params: m.Params, ReceivedAt: time.Now().Round(0), EmittedAtMS: m.EmittedAtMS}:
 				default:
-					t.fail(ErrEventOverflow)
+					t.failWith(ErrEventOverflow, "read", len(scan.Bytes()))
 					return
 				}
 			}
 			continue
 		}
 		if !validID(m.ID) || (len(m.Result) == 0) == (m.Error == nil) {
-			t.fail(ErrProtocol)
+			t.failWith(ErrProtocol, "read", len(scan.Bytes()))
 			return
 		}
 		t.mu.Lock()
@@ -342,10 +389,14 @@ func (t *transport) read() {
 		}
 		t.mu.Unlock()
 	}
-	if scan.Err() != nil {
-		t.fail(ErrProtocol)
+	if err := scan.Err(); err != nil {
+		if strings.Contains(err.Error(), "token too long") {
+			t.failWith(ErrFrameTooLarge, "read", maxWireFrame)
+		} else {
+			t.failWith(classifyReadError(err), "read", 0)
+		}
 	} else {
-		t.fail(ErrClosed)
+		t.failWith(ErrClosed, "read", 0)
 	}
 }
 

@@ -93,6 +93,7 @@ export interface Item {
   activity: Activity | null;
   artifacts: Array<Artifact>;
   screen?: ScreenPresentation | null;
+  media?: MediaPresentation | null;
 }
 export interface LocalWorkerSettings {
   runtime: string;
@@ -143,6 +144,17 @@ export interface MachineModel {
 export interface MachineTeamChange {
   id: string;
   change: RuntimeConfigurationChange;
+}
+export interface MediaImage {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  unavailable?: boolean;
+}
+export interface MediaPresentation {
+  images: Array<MediaImage>;
+  caption?: string;
 }
 export interface ModelOption {
   imageInput: boolean | null;

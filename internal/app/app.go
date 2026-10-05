@@ -129,6 +129,9 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	if err := backend.ConfigureScreenMedia(service, filepath.Join(root, "ScreenMedia")); err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}
+	if err := backend.ConfigureMessageMedia(service, filepath.Join(root, "MessageMedia")); err != nil && host.ReportError != nil {
+		host.ReportError(err)
+	}
 	initialization, err := bot.OpenInitializer(filepath.Join(root, "bot-initialization.json"))
 	if err != nil {
 		_ = service.Shutdown()

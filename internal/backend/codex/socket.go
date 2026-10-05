@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 
 	"github.com/coder/websocket"
 )
@@ -75,14 +76,23 @@ func (s *socketConnection) Read(b []byte) (int, error) {
 	if len(s.buffer) == 0 {
 		kind, data, err := s.ws.Read(s.ctx)
 		if err != nil {
-			return 0, err
+			switch {
+			case errors.Is(err, websocket.ErrMessageTooBig):
+				return 0, ErrFrameTooLarge
+			case errors.Is(err, syscall.ECONNRESET):
+				return 0, ErrWebSocketReset
+			case websocket.CloseStatus(err) != -1:
+				return 0, ErrWebSocketClose
+			default:
+				return 0, classifyReadError(err)
+			}
 		}
 		if kind != websocket.MessageText {
 			return 0, ErrProtocol
 		}
 		var compact bytes.Buffer
 		if json.Compact(&compact, data) != nil {
-			return 0, ErrProtocol
+			return 0, errors.Join(ErrProtocol, ErrJSONDecode)
 		}
 		s.buffer = append(compact.Bytes(), '\n')
 	}

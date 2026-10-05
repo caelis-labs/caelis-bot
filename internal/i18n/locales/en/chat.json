@@ -36,6 +36,8 @@
   "approvalUnknown": "Connection or result pending confirmation. Reconnect to verify.",
   "revealInFinder": "Show in Finder",
   "artifactUnavailable": "File no longer available",
+  "mediaOpen": "View {name}",
+  "mediaUnavailable": "Image preview unavailable",
   "draftLoadFailed": "Could not load draft",
   "draftSaveFailed": "Draft not saved. Keep current text and reopen.",
   "pickFilesFailed": "Could not choose files",

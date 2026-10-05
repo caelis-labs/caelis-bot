@@ -31,7 +31,11 @@ func (s *Service) stageOutgoing(input api.Submission, files []api.InputFile) {
 	if len(v.Items) > 0 {
 		after = v.Items[len(v.Items)-1].ID
 	}
-	s.outbox = append(s.outbox, outgoingMessage{item: api.Item{ID: "outgoing:" + input.ID, RequestID: input.ID, Kind: "user", Text: strings.TrimSpace(text), Status: "sending", Artifacts: []api.Artifact{}}, after: after})
+	item := api.Item{ID: "outgoing:" + input.ID, RequestID: input.ID, Kind: "user", Text: strings.TrimSpace(text), Status: "sending", Artifacts: []api.Artifact{}}
+	if !input.ScreenInput {
+		item.Media = s.messageMedia.Presentation(input.ID)
+	}
+	s.outbox = append(s.outbox, outgoingMessage{item: item, after: after})
 }
 
 func (s *Service) finishOutgoing(id string, receipt api.Receipt) {
@@ -44,6 +48,7 @@ func (s *Service) finishOutgoing(id string, receipt api.Receipt) {
 				status = "unknown"
 			}
 			s.outbox[i].item.Status = status
+			_ = s.messageMedia.Mark(id, s.outbox[i].item.Text, status)
 		}
 	}
 }
@@ -65,6 +70,7 @@ func (s *Service) presentOutgoing(v api.Snapshot) api.Snapshot {
 			}
 		}
 		if confirmed {
+			s.messageMedia.Resolve(pending.item.RequestID)
 			continue
 		}
 		if v.LastReceipt.ID == pending.item.RequestID && v.LastReceipt.Outcome != "" {
@@ -74,6 +80,9 @@ func (s *Service) presentOutgoing(v api.Snapshot) api.Snapshot {
 		at := len(items)
 		if pending.after == "" {
 			at = 0
+		}
+		if pending.after == restoredOutgoingTail {
+			at = len(items)
 		}
 		for i, item := range items {
 			if item.ID == pending.after || item.RequestID != "" && "outgoing:"+item.RequestID == pending.after {

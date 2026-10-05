@@ -32,6 +32,9 @@ type Record struct {
 	Turn        string    `json:"turn,omitempty"`
 	Item        string    `json:"item,omitempty"`
 	Sequence    uint64    `json:"sequence,omitempty"`
+	Generation  uint64    `json:"generation,omitempty"`
+	Phase       string    `json:"phase,omitempty"`
+	Limit       int       `json:"limit,omitempty"`
 	Server      string    `json:"server,omitempty"`
 	Reason      string    `json:"reason,omitempty"` // Only classified/locally generated descriptions.
 	Fingerprint string    `json:"fingerprint,omitempty"`

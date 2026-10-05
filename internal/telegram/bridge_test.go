@@ -1,8 +1,12 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +29,8 @@ type fakeClient struct {
 	takeovers                        int
 	updates                          chan []tg.Update
 	download                         []byte
+	downloadErr                      error
+	downloadIDs                      []string
 }
 
 func (f *fakeClient) Me(context.Context) (*tg.User, error) {
@@ -65,7 +71,11 @@ func (f *fakeClient) Document(_ context.Context, _ int64, path string) error {
 	f.documentBytes = append(f.documentBytes, string(data))
 	return nil
 }
-func (f *fakeClient) Download(_ context.Context, _ string, path string) error {
+func (f *fakeClient) Download(_ context.Context, id string, path string) error {
+	f.downloadIDs = append(f.downloadIDs, id)
+	if f.downloadErr != nil {
+		return f.downloadErr
+	}
 	return os.WriteFile(path, f.download, 0600)
 }
 func (f *fakeClient) Answer(context.Context, string, string) error {
@@ -224,6 +234,156 @@ func TestAttachmentDownloadIsBoundedAndFilenameCannotEscape(t *testing.T) {
 	u.Message.Document = &tg.Document{FileID: "large", FileName: "big.txt", FileSize: maxInputBytes + 1}
 	if !b.input(t.Context(), f, u) || b.state.Inputs["telegram:123:2"] != "rejected" {
 		t.Fatal("oversized attachment accepted")
+	}
+}
+func TestStickerInputUsesImageBytesAndOriginalReceipt(t *testing.T) {
+	var imageBytes bytes.Buffer
+	if err := png.Encode(&imageBytes, image.NewRGBA(image.Rect(0, 0, 12, 12))); err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"static", "animated", "video"} {
+		t.Run(format, func(t *testing.T) {
+			visual := imageBytes.Bytes()
+			if format == "animated" {
+				var sample bytes.Buffer
+				if err := jpeg.Encode(&sample, image.NewRGBA(image.Rect(0, 0, 12, 12)), nil); err != nil {
+					t.Fatal(err)
+				}
+				visual = sample.Bytes()
+			} else if format == "static" || format == "video" {
+				var err error
+				visual, err = os.ReadFile("../../frontend/public/portraits/caelis-sage-v1/focus.webp")
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			calls := 0
+			b, f := testBridge(t, Host{Submit: func(_ context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+				calls++
+				if in.ID != "telegram:123:1" || len(files) != 1 {
+					t.Fatal(in, files)
+				}
+				data, err := os.ReadFile(files[0].Path)
+				if err != nil || !bytes.Equal(data, visual) {
+					t.Fatal("visual bytes lost", err)
+				}
+				if format != "static" && !strings.Contains(in.Text, "单帧预览") {
+					t.Fatal("motion limitation omitted", in.Text)
+				}
+				if !strings.Contains(in.Text, "🙂") {
+					t.Fatal("emoji metadata omitted", in.Text)
+				}
+				return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+			}})
+			paired(b)
+			f.download = visual
+			u := message(1, 10, 20, "")
+			u.Message.Sticker = &tg.Sticker{FileID: "original", FileSize: len(visual), Emoji: "🙂", IsAnimated: format == "animated", IsVideo: format == "video"}
+			if format != "static" {
+				u.Message.Sticker.Thumbnail = &tg.PhotoSize{FileID: "preview", FileSize: imageBytes.Len()}
+			}
+			if !b.input(t.Context(), f, u) || calls != 1 || b.state.Inputs["telegram:123:1"] != "accepted" {
+				t.Fatal("sticker not accepted")
+			}
+			want := "original"
+			if format != "static" {
+				want = "preview"
+			}
+			if len(f.downloadIDs) != 1 || f.downloadIDs[0] != want {
+				t.Fatal("wrong Telegram visual source", f.downloadIDs)
+			}
+			b.input(t.Context(), f, u)
+			if calls != 1 {
+				t.Fatal("original sticker replayed")
+			}
+		})
+	}
+}
+func TestTelegramPhotoWithCaptionKeepsVisualAndOriginalMessageID(t *testing.T) {
+	var picture bytes.Buffer
+	if err := png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 7, 7))); err != nil {
+		t.Fatal(err)
+	}
+	var got api.Submission
+	b, f := testBridge(t, Host{Submit: func(_ context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+		got = in
+		if len(files) != 1 || files[0].Name != "photo.jpg" {
+			t.Fatal(files)
+		}
+		data, err := os.ReadFile(files[0].Path)
+		if err != nil || !bytes.Equal(data, picture.Bytes()) {
+			t.Fatal(err)
+		}
+		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+	}})
+	paired(b)
+	f.download = picture.Bytes()
+	u := message(12, 10, 20, "")
+	u.Message.Caption = "What is in this picture?"
+	u.Message.Photo = []tg.PhotoSize{{FileID: "photo-small", FileSize: 40}, {FileID: "photo-large", FileSize: picture.Len()}}
+	if !b.input(t.Context(), f, u) || got.ID != "telegram:123:12" || got.Text != u.Message.Caption || len(f.downloadIDs) != 1 || f.downloadIDs[0] != "photo-large" {
+		t.Fatal(got, f.downloadIDs)
+	}
+}
+func TestStickerWithoutFrameDownloadFailureAndSizeRejectBeforeSubmit(t *testing.T) {
+	for _, issue := range []string{"missing", "download", "oversize"} {
+		t.Run(issue, func(t *testing.T) {
+			calls := 0
+			b, f := testBridge(t, Host{Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+				calls++
+				return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+			}})
+			paired(b)
+			u := message(1, 10, 20, "")
+			u.Message.Sticker = &tg.Sticker{FileID: "animation", IsAnimated: true}
+			if issue != "missing" {
+				u.Message.Sticker.Thumbnail = &tg.PhotoSize{FileID: "preview", FileSize: 100}
+			}
+			if issue == "download" {
+				f.downloadErr = errors.New("PRIVATE_TOKEN")
+			}
+			if issue == "oversize" {
+				u.Message.Sticker.Thumbnail.FileSize = maxInputBytes + 1
+			}
+			if !b.input(t.Context(), f, u) || calls != 0 || b.state.Inputs["telegram:123:1"] != "rejected" {
+				t.Fatal("invalid sticker dispatched")
+			}
+			if strings.Contains(strings.Join(f.texts, " "), "PRIVATE_TOKEN") {
+				t.Fatal("private transport error shown")
+			}
+		})
+	}
+}
+func TestTelegramSubmissionRefusalShowsOnlySafeReasonAndUnknownDoesNotReplay(t *testing.T) {
+	for _, tc := range []struct{ message, outcome, want string }{
+		{"当前无法发送，请先处理待确认事项或恢复连接", "rejected", "恢复 Codex 连接"},
+		{"private /Users/example/token=secret", "rejected", "Bot 拒绝"},
+		{"", "unknown", "结果暂不确定"},
+	} {
+		t.Run(tc.outcome+tc.want, func(t *testing.T) {
+			calls := 0
+			b, f := testBridge(t, Host{Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+				calls++
+				return api.Receipt{ID: in.ID, Outcome: tc.outcome, Message: tc.message}, nil
+			}, Chinese: func() bool { return true }})
+			paired(b)
+			u := message(1, 10, 20, "caption")
+			b.input(t.Context(), f, u)
+			b.input(t.Context(), f, u)
+			if calls != 1 || b.state.Inputs["telegram:123:1"] != tc.outcome || !strings.Contains(strings.Join(f.texts, " "), tc.want) || strings.Contains(strings.Join(f.texts, " "), "secret") {
+				t.Fatal(f.texts, b.state.Inputs, calls)
+			}
+		})
+	}
+}
+func TestTelegramEarlyRejectedErrorIsNotPresentedAsUnknown(t *testing.T) {
+	b, f := testBridge(t, Host{Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+		return api.Receipt{ID: in.ID, Outcome: "rejected"}, errors.New("runtime setup required")
+	}, Chinese: func() bool { return true }})
+	paired(b)
+	b.input(t.Context(), f, message(1, 10, 20, "hello"))
+	if b.state.Inputs["telegram:123:1"] != "rejected" || !strings.Contains(strings.Join(f.texts, " "), "运行时连接设置") {
+		t.Fatal(b.state.Inputs, f.texts)
 	}
 }
 func TestApprovalUsesNativeChoiceAndStaleButtonDoesNotApprove(t *testing.T) {
