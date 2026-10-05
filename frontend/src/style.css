@@ -30,8 +30,14 @@ body[data-surface="panel"] .input-surface { position:relative; top:var(--compose
 .action-row { border:0; color:inherit; width:100%; display:flex; gap:12px; align-items:center; text-align:left; padding:10px 12px; border-radius:12px; background:transparent; font-size:13px; }
 .action-row:hover { background:var(--wash); }
 .attachments { list-style:none; padding:0 24px 12px; margin:0; display:flex; gap:6px; flex-wrap:wrap; max-height:100px; overflow-y:auto; }
-.attachments li { display:flex; align-items:center; gap:4px; min-width:0; max-width:100%; padding:4px 7px; border-radius:10px; background:var(--wash); font-size:11px; }
+.attachments li { display:flex; align-items:center; gap:7px; min-width:0; max-width:100%; padding:5px 7px; border-radius:10px; background:var(--wash); font-size:11px; }
 .attachments li span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.attachments .attachment-details { display:flex; flex-direction:column; min-width:0; max-width:180px; gap:2px; }
+.attachment-details strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+.attachment-details small { color:var(--muted); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.draft-thumbnail { width:42px; height:42px; border-radius:7px; object-fit:cover; background:var(--surface); }
+.compose-area.file-dragging { outline:2px solid var(--accent); outline-offset:-3px; border-radius:inherit; }
+.input-feedback { margin:0; padding:0 24px 10px; font-size:12px; color:var(--muted); }
 .attachments button { display:grid; place-items:center; width:22px; height:22px; border:0; border-radius:50%; background:transparent; }
 .attachments button .symbol { width:12px; height:12px; }
 .input-error { margin:0; padding:0 24px 12px; font-size:12px; color:var(--error); }
