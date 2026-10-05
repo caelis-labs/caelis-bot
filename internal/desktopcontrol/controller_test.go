@@ -22,6 +22,7 @@ type fakeClient struct {
 	entered             chan struct{}
 	uncertain           bool
 	reply               host.Reply
+	declarations        []host.ApplicationGrant
 }
 
 func (*fakeClient) BeginTurn(context.Context, string) error { return nil }
@@ -37,8 +38,40 @@ func (f *fakeClient) EndTurn(ctx context.Context, _ string) error {
 func (f *fakeClient) Grant(context.Context, string, dw.Ref) error {
 	f.mu.Lock()
 	f.grants++
+	f.declarations = append(f.declarations, host.ApplicationGrant{ID: "grant-ref", Application: "app-1", State: "active"})
 	f.mu.Unlock()
 	return nil
+}
+func (f *fakeClient) Declare(_ context.Context, _, name, title string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.declarations = append(f.declarations, host.ApplicationGrant{ID: "grant-pending", Name: name, WindowTitle: title, State: "pending", Reason: "application_not_running"})
+	return nil
+}
+func (f *fakeClient) Revoke(_ context.Context, _ string, app dw.Ref) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.declarations {
+		if f.declarations[i].Application == app {
+			f.declarations[i].State = "revoked"
+		}
+	}
+	return nil
+}
+func (f *fakeClient) RevokeGrant(_ context.Context, _, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.declarations {
+		if f.declarations[i].ID == id {
+			f.declarations[i].State = "revoked"
+		}
+	}
+	return nil
+}
+func (f *fakeClient) Grants(_ context.Context, turn string) (host.GrantStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return host.GrantStatus{Turn: turn, Grants: append([]host.ApplicationGrant(nil), f.declarations...)}, nil
 }
 func (f *fakeClient) Call(ctx context.Context, _, _, op string, args any) (host.Reply, error) {
 	f.mu.Lock()

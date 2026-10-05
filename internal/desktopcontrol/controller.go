@@ -29,6 +29,10 @@ type client interface {
 	BeginTurn(context.Context, string) error
 	EndTurn(context.Context, string) error
 	Grant(context.Context, string, dw.Ref) error
+	Declare(context.Context, string, string, string) error
+	Revoke(context.Context, string, dw.Ref) error
+	RevokeGrant(context.Context, string, string) error
+	Grants(context.Context, string) (host.GrantStatus, error)
 	Call(context.Context, string, string, string, any) (host.Reply, error)
 	Reconcile(context.Context, string, string) (host.Reply, error)
 	Close()
@@ -369,9 +373,34 @@ func (c *Controller) authorize(ctx context.Context, raw json.RawMessage) api.Too
 		Application dw.Ref `json:"application"`
 		Name        string `json:"name"`
 		Purpose     string `json:"purpose"`
+		Operation   string `json:"operation"`
+		WindowTitle string `json:"windowTitle"`
+		GrantID     string `json:"grantId"`
 	}
-	if decode(raw, &in) != nil || in.Application == "" || in.Name == "" || len(in.Name) > 300 || strings.TrimSpace(in.Purpose) == "" || len(in.Purpose) > 2000 {
-		return failure("invalid_request", "Use exact observed application Ref, name and task purpose.", "")
+	if decode(raw, &in) != nil || len(in.Name) > 300 || len(in.WindowTitle) > 512 || strings.TrimSpace(in.Purpose) == "" || len(in.Purpose) > 2000 {
+		return failure("invalid_request", "Use one exact grant, declaration or revocation with a task purpose.", "")
+	}
+	if in.Operation == "grant" {
+		return failure("invalid_request", "Use the exact observed Ref/name grant form without an operation field.", "")
+	}
+	if in.Operation == "" {
+		in.Operation = "grant"
+	}
+	switch in.Operation {
+	case "grant":
+		if in.Application == "" || in.Name == "" || in.WindowTitle != "" || in.GrantID != "" {
+			return failure("invalid_request", "Grant requires exact observed application Ref and name.", "")
+		}
+	case "declare":
+		if in.Application != "" || in.GrantID != "" || (in.Name == "") == (in.WindowTitle == "") {
+			return failure("invalid_request", "Declare requires one exact app name or window title.", "")
+		}
+	case "revoke":
+		if in.Name != "" || in.WindowTitle != "" || (in.Application == "") == (in.GrantID == "") {
+			return failure("invalid_request", "Revoke requires one application Ref or returned grant ID.", "")
+		}
+	default:
+		return failure("invalid_request", "Unsupported authorization operation.", "")
 	}
 	turn, _ := ctx.Value(turnKey{}).(string)
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -380,16 +409,54 @@ func (c *Controller) authorize(ctx context.Context, raw json.RawMessage) api.Too
 	if err != nil {
 		return failure("desktop_unavailable", err.Error(), "")
 	}
+	var controlErr error
+	switch in.Operation {
+	case "grant":
+		c.mu.Lock()
+		observed := c.apps[in.Application]
+		c.mu.Unlock()
+		if observed != in.Name {
+			return failure("application_not_observed", "Approval must match application Ref and name observed in this turn.", "")
+		}
+		controlErr = h.Grant(ctx, turn, in.Application)
+	case "declare":
+		controlErr = h.Declare(ctx, turn, in.Name, in.WindowTitle)
+	case "revoke":
+		if in.GrantID != "" {
+			controlErr = h.RevokeGrant(ctx, turn, in.GrantID)
+		} else {
+			controlErr = h.Revoke(ctx, turn, in.Application)
+		}
+	}
+	if controlErr != nil {
+		return failure("grant_refused", controlErr.Error(), "")
+	}
+	// A declaration can remain pending, ambiguous or unresolved. Never call it
+	// authorized merely because the helper accepted the selector.
+	status, err := h.Grants(ctx, turn)
+	if err != nil {
+		return failure("grant_status_unknown", "Control mutation may have taken effect; inspect grants in this turn. "+err.Error(), "")
+	}
+	b, _ := protocol.Marshal(status)
+	return content(host.Reply{Result: b}, "")
+}
+
+// GrantStatus is read-only and never starts a helper or creates a turn.
+func (c *Controller) GrantStatus(ctx context.Context) api.ToolResult {
+	turn, _ := ctx.Value(turnKey{}).(string)
 	c.mu.Lock()
-	observed := c.apps[in.Application]
+	h, active := c.client, c.turn == turn && !c.ended[turn] && !c.closed
 	c.mu.Unlock()
-	if observed != in.Name {
-		return failure("application_not_observed", "Approval must match application Ref and name observed in this turn.", "")
+	if !active || h == nil || ctx.Err() != nil {
+		return failure("desktop_unavailable", "No active desktop turn for grant status.", "")
 	}
-	if err := h.Grant(ctx, turn, in.Application); err != nil {
-		return failure("grant_refused", err.Error(), "")
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	status, err := h.Grants(ctx, turn)
+	if err != nil {
+		return failure("grant_status_unknown", err.Error(), "")
 	}
-	b, _ := json.Marshal(map[string]any{"application": in.Application, "name": in.Name, "authorized": true, "scope": "current Bot turn"})
+	b, _ := protocol.Marshal(status)
 	return content(host.Reply{Result: b}, "")
 }
 func (c *Controller) Close() {

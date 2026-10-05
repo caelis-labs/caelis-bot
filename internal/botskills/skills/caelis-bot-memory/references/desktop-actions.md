@@ -32,6 +32,13 @@ previous transaction left your target active. Focus an observed window or
 focusable UI Ref, not an application. Keyboard actions must target the verified
 focused object belonging to the intended app/window within that transaction.
 
+When a preceding click or focus changes the focused control inside an already
+observed window, use `{"id":"bind-input","op":"bind_focus","bind_focus":{"name":"input","within":"OBSERVED_WINDOW_REF"}}`
+inside that same plan, then target later keyboard steps with
+`{"bound":"input"}`. The binding resolves current focus only within that
+window; it does not activate a window, search by guessed text, or repair a stale
+Ref. If the focus change is unknown, stop and observe a new plan instead.
+
 Use `keyboard.type_text` with `type_text:{"text":...}` (at most 256 UTF-16 units,
 so emoji can count as two), or `keyboard.press` with
 `press:{"key":"Enter","modifiers":[]}`. `primary` means Command on macOS;

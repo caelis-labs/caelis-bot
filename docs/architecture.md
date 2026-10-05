@@ -351,8 +351,8 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 ## Desktop and presentation
 
 Desktop World is the resident desktop backend for both Codex and Caelis. The pinned
-public Go module and independently signed `dtw` helper are v0.1.0-alpha.6, revision
-`887b863809f2ba532675668e37e91bde4dac758d`. The old Cua/Node driver, native focus
+public Go module and packaged `dtw` helper are v0.1.0-rc.2, revision
+`e7b53a1812fe3892cf8e4b903479d208dfaa0104`. The old Cua/Node driver, native focus
 ports and optional whole-desktop experiment are retired. F1 screen input and
 passive character context remain separate. Codex resident configuration denies
 native Computer Use app access when Desktop World is bound; ordinary sessions
@@ -360,12 +360,16 @@ and workers retain their own configuration.
 
 `desktopcontrol.Controller` lazily starts the bundled helper through the public
 `host` SDK. Data uses private stdio; independent FD 3/4 control pipes own
-BeginTurn/Grant/EndTurn. Neither model arguments nor the renderer can choose a
-helper, turn, process identity or startup grants. The model sees `bot_desktop_inspect` (outline/text/delta/image),
+BeginTurn/Grant/Declare/Revoke/Grants/EndTurn. Neither model arguments nor the renderer can choose a
+helper, turn, process identity or startup grants. The model sees `bot_desktop_inspect` (outline/text/delta/image/grants),
 `bot_desktop_act`, and `bot_desktop_result` (status/cancel). Native typed operations
 stay separate below the application adapter. `bot_desktop_authorize` is separately reviewed
-and checks the exact observed application Ref/name before Grant. App × Turn
-approval covers all windows of that live application instance. Finish, interrupt,
+and checks the exact observed application Ref/name before Grant. It may instead
+declare one exact app name or window title through the same reviewed tool for an
+app not yet running; the helper exposes pending/ambiguous/unresolved/active state
+and binds only after complete unique discovery. A reviewed revocation removes a
+specific grant during the turn. App × Turn approval covers all windows of that
+live application instance. Finish, interrupt,
 shutdown and runtime replacement cancel the tool context and revoke even idle
 grants with a fresh short control deadline. No native work executes in Wails.
 
@@ -385,7 +389,7 @@ Observations use scope/fields/budgets and native cursor sync (upserts/removals,
 coverage and reset_required). Reads default to 32 objects/8 KiB when no budget
 is supplied. Ordered act plans support up to 16 steps and local predicates;
 unknown future dialogs require new observations; known uniquely scoped controls
-can use native bind within one plan. Actions
+can use native bind or `bind_focus` within one plan. Actions
 return receipts, not implicit full trees or screenshots. `host.Content` bounds
 text plus structured JSON to 32 KiB with a receipt-preserving overflow notice.
 The Bot retains bounded step delivery/verification facts on overflow in addition

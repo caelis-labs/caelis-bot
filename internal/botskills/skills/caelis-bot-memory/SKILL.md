@@ -64,6 +64,8 @@ tests; `bot_schedule_update` changes arrangements or the care budget.
 `bot_memory` owns personal facts and `bot_gesture` accompanies your response.
 For desktop work use `bot_desktop_inspect`, separately reviewed
 `bot_desktop_authorize`, `bot_desktop_act` and `bot_desktop_result`.
+Read the desktop guide before declaring an app that may start later or borrowing
+focus for a keyboard plan; neither step grants operating system permission.
 
 Use the discovered typed schema, not an invented operation or a legacy alias.
 Read-only inspection IDs are supplied by the host. For delegation and desktop

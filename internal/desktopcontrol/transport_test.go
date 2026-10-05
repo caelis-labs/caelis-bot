@@ -62,8 +62,8 @@ func protocolFixture() {
 		responses := json.NewEncoder(os.NewFile(4, "control-responses"))
 		for control.Scan() {
 			var r struct {
-				ID, Op, Turn string
-				Application  dw.Ref
+				ID, Op, Turn, Name, WindowTitle, GrantID string
+				Application                              dw.Ref
 			}
 			if protocol.Decode(control.Bytes(), &r) != nil {
 				os.Exit(2)
@@ -79,9 +79,16 @@ func protocolFixture() {
 				active = ""
 				grant = false
 				once.Do(func() { close(revoked) })
+			case "grants":
+				if active != r.Turn {
+					responses.Encode(host.Reply{ID: r.ID, Protocol: "desktop-world/host-control-v0.1", World: "fixture-epoch", Error: dw.NewFault("turn_expired", "no active turn", "never_automatically")})
+					mu.Unlock()
+					continue
+				}
 			}
+			status, _ := protocol.Marshal(host.GrantStatus{Turn: active})
 			mu.Unlock()
-			responses.Encode(host.Reply{ID: r.ID, Protocol: "desktop-world/host-control-v0.1", World: "fixture-epoch"})
+			responses.Encode(host.Reply{ID: r.ID, Protocol: "desktop-world/host-control-v0.1", World: "fixture-epoch", Result: status})
 		}
 		os.Exit(0) // Private control EOF fences the fixture just like the helper.
 	}()
