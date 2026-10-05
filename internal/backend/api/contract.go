@@ -67,6 +67,21 @@ type Item struct {
 	Activity  *Activity           `json:"activity"`
 	Artifacts []Artifact          `json:"artifacts"`
 	Screen    *ScreenPresentation `json:"screen,omitempty"`
+	Media     *MediaPresentation  `json:"media,omitempty"`
+}
+
+// MediaPresentation is an App-owned, request-correlated display projection.
+// IDs are opaque byte handles; paths and model inputs never enter the renderer.
+type MediaPresentation struct {
+	Images  []MediaImage `json:"images"`
+	Caption string       `json:"caption,omitempty"`
+}
+type MediaImage struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	Unavailable bool   `json:"unavailable,omitempty"`
 }
 
 // ScreenPresentation is host-owned display metadata, never delivery evidence.

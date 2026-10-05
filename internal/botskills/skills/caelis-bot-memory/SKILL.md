@@ -79,6 +79,8 @@ they are relevant to the work:
   knowledge, correcting preferences, or preparing to resume substantial work.
 - [Screen input](references/screen-input.md): when the user points at screen
   content, sends a screenshot snapshot, or corrects your interpretation of it.
+- [Received media](references/received-media.md): when the user supplies an image,
+  sticker, or a sampled frame and asks you to interpret it.
 - [Desktop World](references/desktop-observation.md): when you need to observe or operate
   an application through the resident tools; its conditional guides cover known
   action plans, explicit images and receipt recovery.

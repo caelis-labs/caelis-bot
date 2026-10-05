@@ -68,6 +68,11 @@ Backend recovery establishes the private history boundary before remote input is
 accepted. One cancellable output worker coalesces snapshots independently of input
 and control actions; configuration changes join both workers. Attachment identity
 uses the submission and attachment index, preserving distinct same-named files.
+Static stickers use their downloaded image bytes. Animated and video stickers use
+the Telegram thumbnail as one explicitly labelled frame; a missing or invalid
+thumbnail is a rejected input, never a claimed understanding of the animation.
+The adapter supplies ordinary Bot image input and retains the original Telegram
+message request ID, receipt and no-replay rule.
 The native macOS proxy resolver executes automatic configuration through CFNetwork,
 honors the ordered system candidates and cancels PAC work with the HTTP request.
 Failed or stalled PAC resolution continues to subsequent system candidates; DIRECT
@@ -446,6 +451,18 @@ opaque handles. Capture preferences freeze at acquisition; redaction affects bot
 cannot change scope. Ask Bot rechecks negotiated model image support immediately before dispatch. Unknown delivery
 never resends; unreadable receipts remain uncertain. Attachment maintenance uses native Trash, protects originals,
 selected/active files and symlinks, and never constitutes image resubmission.
+
+Ordinary received images have a separate App-owned presentation store keyed by
+the original submission ID. Local and remote submissions save bounded bytes before
+native dispatch; saved user items and pending outbox rows resolve the same opaque
+image IDs after history load or restart. The renderer reads only validated IDs
+through `MediaImage`, never file paths. It does not label ordinary images as screen
+captures, alter native model input, or infer acceptance from displayed bytes.
+The saved caption is distinct from attachment filenames, so restored cards show
+the user's text once alongside each image name.
+PNG/JPEG/GIF tiles use a bounded retained JPEG thumbnail and load original bytes
+only when opened. WebP uses its retained original for both views because the
+renderer decodes it directly. Missing or invalid images show an unavailable tile.
 
 System permissions are independent fresh OS facts. Explicit requests may prompt; background reads/capture never
 request consent. Ordinary enable does not reset TCC; the separate repair action requires a checkbox and targets

@@ -344,6 +344,7 @@ func (s *Session) connect(ctx context.Context) error {
 	s.epoch++
 	epoch := s.epoch
 	s.state.Connection = "connecting"
+	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "recovery_started", Generation: epoch, Phase: "binding_recovery"})
 	s.state.ConnectionIssue = ""
 	s.state.Message = ""
 	s.loading = true
@@ -486,6 +487,7 @@ func (s *Session) connect(ctx context.Context) error {
 		s.state.Phase = "unknown"
 		s.state.Message = "上次发送结果尚未确认。请重新连接核对，草稿已保留，不会自动重发。"
 	}
+	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "recovery_ready", Generation: epoch, Phase: "receipt_reconciliation"})
 	s.update()
 	for _, task := range s.binding.Tasks {
 		if task.Thread != "" && !s.childWatching[task.Thread] {
@@ -526,6 +528,7 @@ func (s *Session) connectionError(message string, cause error) error {
 	if s.run != "" || s.binding.Pending != nil {
 		s.state.Phase = "unknown"
 	}
+	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "recovery_failed", Reason: transportCode(cause), Generation: s.epoch, Phase: "awaiting_manual_reconnect"})
 	s.update()
 	return errors.New(message) // No native error payloads in Wails logs.
 }
@@ -581,6 +584,7 @@ func (s *Session) listen(c *Client, epoch uint64) {
 	if s.run != "" || s.binding.Pending != nil {
 		s.state.Phase = "unknown"
 	}
+	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "session_offline", Reason: transportCode(c.Err()), Generation: epoch, Phase: "awaiting_manual_reconnect"})
 	for id, p := range s.prompts {
 		p.view.Status = "unavailable"
 		s.replacePrompt(id, p.view)

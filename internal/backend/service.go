@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/messageimage"
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 )
 
@@ -51,6 +52,8 @@ type Service struct {
 	reveal                      func(string) error
 	screenMedia                 *screeninput.Media
 	screenMediaError            error
+	messageMedia                *messageimage.Store
+	messageMediaError           error
 }
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string), openURL, reveal func(string) error) *Service {
@@ -90,6 +93,8 @@ func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 		v.Items[i] = screeninput.Present(v.Items[i])
 		if v.Items[i].Screen != nil {
 			v.Items[i].Screen.Images = s.screenMedia.Images(v.Items[i].RequestID)
+		} else if v.Items[i].Kind == "user" {
+			v.Items[i].Media = s.messageMedia.Presentation(v.Items[i].RequestID)
 		}
 	}
 	return s.presentation(v)
@@ -215,6 +220,9 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	files, err := s.files(input.FileIDs)
 	if err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
+	}
+	if err := s.retainMessageMedia(input, files); err != nil {
+		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "图片预览存储暂不可用，消息未发送"}, nil
 	}
 	s.mu.Lock()
 	s.pendingDraft = &input

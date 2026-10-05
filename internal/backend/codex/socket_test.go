@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -14,6 +15,63 @@ import (
 
 	"github.com/coder/websocket"
 )
+
+func TestSharedServiceReplacementLeavesOriginalMutationUnknownUntilExplicitRead(t *testing.T) {
+	if runtime.GOOS!="darwin" { t.Skip("Unix control socket fixture") }
+	dir,err:=os.MkdirTemp("/tmp","cb-replace-")
+	if err!=nil {t.Fatal(err)}
+	t.Cleanup(func(){_ = os.RemoveAll(dir)})
+	path:=filepath.Join(dir,"server.sock")
+	serve:=func(handler func(*websocket.Conn)) func(){
+		listener,err:=net.Listen("unix",path)
+		if err!=nil {t.Fatal(err)}
+		server:=&http.Server{Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+			ws,err:=websocket.Accept(w,r,nil)
+			if err!=nil{return}
+			defer ws.CloseNow()
+			handler(ws)
+		})}
+		go func(){_ = server.Serve(listener)}()
+		return func(){_ = server.Close();_ = listener.Close();_ = os.Remove(path)}
+	}
+	methods:=make(chan string,2)
+	stopFirst:=serve(func(ws *websocket.Conn){
+		_,data,err:=ws.Read(context.Background())
+		if err!=nil{return}
+		var request wireMessage
+		if json.Unmarshal(data,&request)!=nil{return}
+		methods<-request.Method
+		_ = ws.Close(websocket.StatusServiceRestart,"PRIVATE_SENTINEL")
+	})
+	ctx,cancel:=context.WithTimeout(context.Background(),5*time.Second)
+	defer cancel()
+	first,err:=dialExisting(ctx,path)
+	if err!=nil {t.Fatal(err)}
+	rpc:=newTransport(first,nil)
+	_,err=rpc.call(ctx,"turn/start",map[string]string{"clientId":"original-request"})
+	var requestErr *RequestError
+	if !errors.As(err,&requestErr)||!requestErr.OutcomeUnknown||!errors.Is(err,ErrWebSocketClose) {t.Fatal("replacement did not retain uncertainty",err)}
+	if method:=<-methods;method!="turn/start" {t.Fatal(method)}
+	rpc.close();stopFirst()
+	stopSecond:=serve(func(ws *websocket.Conn){
+		_,data,err:=ws.Read(context.Background())
+		if err!=nil{return}
+		var request wireMessage
+		if json.Unmarshal(data,&request)!=nil{return}
+		methods<-request.Method
+		response,_:=json.Marshal(wireMessage{ID:request.ID,Result:json.RawMessage(`{"clientId":"original-request","status":"accepted"}`)})
+		_ = ws.Write(context.Background(),websocket.MessageText,response)
+		<-ctx.Done()
+	})
+	defer stopSecond()
+	second,err:=dialExisting(ctx,path)
+	if err!=nil {t.Fatal(err)}
+	reconnected:=newTransport(second,nil)
+	defer reconnected.close()
+	result,err:=reconnected.call(ctx,"thread/read",map[string]string{"originalRequest":"original-request"})
+	if err!=nil||string(result)!=`{"clientId":"original-request","status":"accepted"}` {t.Fatal("original result was not read",string(result),err)}
+	if method:=<-methods;method!="thread/read" {t.Fatal("mutation replayed",method)}
+}
 
 func TestExistingServerNeedsNoCLIAndCloseDoesNotStopServer(t *testing.T) {
 	if runtime.GOOS != "darwin" {

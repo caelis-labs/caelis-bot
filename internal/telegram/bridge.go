@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -625,26 +626,33 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 		}
 		_, _ = c.Send(ctx, chat, text, nil)
 	default:
-		files, e := b.download(ctx, c, request, m)
+		files, stickerNote, e := b.download(ctx, c, request, m)
 		if e != nil {
 			outcome = "rejected"
-			_, _ = c.Send(ctx, chat, b.text("The attachment could not be received. Send one file of up to 8 MB, or send text.", "附件未能接收。请发送单个不超过 8 MB 的文件，或直接发送文字。"), nil)
+			_, _ = c.Send(ctx, chat, b.downloadNotice(e), nil)
 		} else {
 			text := m.Text
 			if text == "" {
 				text = m.Caption
 			}
+			if stickerNote != "" {
+				text = strings.TrimSpace(text + "\n" + stickerNote)
+			}
 			if strings.TrimSpace(text) == "" && len(files) == 0 {
 				outcome = "rejected"
 				_, _ = c.Send(ctx, chat, b.text("Send text, a photo or a file.", "请发送文字、图片或文件。"), nil)
 			} else {
-				receipt, _ := b.host.Submit(ctx, api.Submission{ID: request, Text: text}, files)
+				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text}, files)
 				outcome = receipt.Outcome
-				if outcome == "" {
+				if outcome != "accepted" && outcome != "rejected" && outcome != "unknown" {
 					outcome = "unknown"
 				}
 				if outcome != "accepted" {
-					notice := b.text("The message was not accepted. Check Caelis Bot on your Mac before resending.", "消息尚未被接收，请先在 Mac 的 Caelis Bot 中查看后再决定是否重发。")
+					reason := receipt.Message
+					if reason == "" && submitErr != nil && outcome == "rejected" {
+						reason = submitErr.Error() // Only an exact allowlisted code is projected.
+					}
+					notice := b.rejectionNotice(reason)
 					if outcome == "unknown" {
 						notice = b.text("Delivery is uncertain. Check the original message on your Mac; it will not be sent again automatically.", "发送结果暂不确定。请在 Mac 查看原消息，系统不会自动重复发送。")
 					}
@@ -663,7 +671,10 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 	b.mu.Unlock()
 	return e == nil
 }
-func (b *Bridge) download(ctx context.Context, c client, request string, m *tg.Message) ([]api.InputFile, error) {
+func (b *Bridge) download(ctx context.Context, c client, request string, m *tg.Message) ([]api.InputFile, string, error) {
+	if m.Sticker != nil {
+		return b.downloadSticker(ctx, c, request, m.Sticker)
+	}
 	id, name, size := "", "", int64(0)
 	switch {
 	case m.Document != nil:
@@ -679,24 +690,111 @@ func (b *Bridge) download(ctx context.Context, c client, request string, m *tg.M
 		id, name, size = m.Video.FileID, m.Video.FileName, m.Video.FileSize
 	}
 	if id == "" {
-		return nil, nil
+		return nil, "", nil
 	}
 	if size > maxInputBytes {
-		return nil, errors.New("file_too_large")
+		return nil, "", errors.New("file_too_large")
 	}
 	dir := filepath.Join(b.root, "incoming", digest(request))
 	if e := os.MkdirAll(dir, 0700); e != nil {
-		return nil, e
+		return nil, "", e
 	}
 	path := filepath.Join(dir, safeName(name))
 	if e := c.Download(ctx, id, path); e != nil {
-		return nil, e
+		return nil, "", e
 	}
 	info, e := os.Stat(path)
-	if e != nil || !info.Mode().IsRegular() || info.Size() > maxInputBytes {
-		return nil, errors.New("file_too_large")
+	if e != nil || !info.Mode().IsRegular() {
+		return nil, "", errors.New("download_failed")
 	}
-	return []api.InputFile{{Name: filepath.Base(path), Path: path}}, nil
+	if info.Size() > maxInputBytes {
+		return nil, "", errors.New("file_too_large")
+	}
+	return []api.InputFile{{Name: filepath.Base(path), Path: path}}, "", nil
+}
+
+func (b *Bridge) downloadSticker(ctx context.Context, c client, request string, sticker *tg.Sticker) ([]api.InputFile, string, error) {
+	id, size := sticker.FileID, int64(sticker.FileSize)
+	name := "sticker.webp"
+	note := "贴纸"
+	if sticker.IsAnimated || sticker.IsVideo {
+		if sticker.Thumbnail == nil || sticker.Thumbnail.FileID == "" {
+			return nil, "", errors.New("sticker_preview_unavailable")
+		}
+		id, size = sticker.Thumbnail.FileID, int64(sticker.Thumbnail.FileSize)
+		name = "sticker-preview"
+		if sticker.IsVideo {
+			note = "视频贴纸的单帧预览；无法据此判断完整动作"
+		} else {
+			note = "动画贴纸的单帧预览；无法据此判断完整动作"
+		}
+	}
+	if size > maxInputBytes {
+		return nil, "", errors.New("file_too_large")
+	}
+	dir := filepath.Join(b.root, "incoming", digest(request))
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, "", err
+	}
+	path := filepath.Join(dir, name)
+	if err := c.Download(ctx, id, path); err != nil {
+		return nil, "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, "", errors.New("download_failed")
+	}
+	if len(data) > maxInputBytes {
+		return nil, "", errors.New("file_too_large")
+	}
+	mime := http.DetectContentType(data)
+	ext := map[string]string{"image/webp": ".webp", "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif"}[mime]
+	if ext == "" || len(data) < 16 {
+		return nil, "", errors.New("sticker_preview_invalid")
+	}
+	if filepath.Ext(path) != ext {
+		target := filepath.Join(dir, "sticker-preview"+ext)
+		if err := os.Rename(path, target); err != nil {
+			return nil, "", err
+		}
+		path = target
+	}
+	if sticker.Emoji != "" {
+		note += "（关联 emoji：" + sticker.Emoji + "）"
+	}
+	return []api.InputFile{{Name: filepath.Base(path), Path: path}}, note, nil
+}
+
+func (b *Bridge) downloadNotice(err error) string {
+	switch err.Error() {
+	case "sticker_preview_unavailable":
+		return b.text("This animated sticker has no viewable preview frame. Please send an image instead.", "这张动态贴纸没有可查看的预览帧，请改发图片。")
+	case "sticker_preview_invalid":
+		return b.text("The sticker preview is not a supported image.", "贴纸预览不是可识别的图片。")
+	case "file_too_large":
+		return b.text("The attachment exceeds the 8 MB limit.", "附件超过 8 MB 限制。")
+	default:
+		return b.text("The attachment could not be downloaded. No message was sent to Bot.", "附件下载失败，消息未发送给 Bot。")
+	}
+}
+
+// Only Bot-owned, exact refusal messages may be projected to the companion.
+// Native errors can contain private paths or provider output and are never sent.
+func (b *Bridge) rejectionNotice(message string) string {
+	switch message {
+	case "当前无法发送，请先处理待确认事项或恢复连接":
+		return b.text("Not sent: reconnect Codex or resolve the pending decision in Caelis Bot on your Mac.", "未发送：请在 Mac 的 Caelis Bot 恢复 Codex 连接或处理待确认事项。")
+	case "请先完成 Bot 初始化，并等待介绍发送完成", "Bot initialization required":
+		return b.text("Not sent: finish Bot setup on your Mac first.", "未发送：请先在 Mac 完成 Bot 初始化。")
+	case "runtime setup required", "请先完成运行时设置":
+		return b.text("Not sent: finish Runtime connection setup on your Mac first.", "未发送：请先在 Mac 完成运行时连接设置。")
+	case "当前 Bot 模型的图片能力不可用，请切换到支持图片的模型":
+		return b.text("Not sent: the current Bot model does not support image input.", "未发送：当前 Bot 模型不支持图片输入。")
+	case "图片预览存储暂不可用，消息未发送":
+		return b.text("Not sent: image storage is unavailable on your Mac.", "未发送：Mac 上的图片存储暂不可用。")
+	default:
+		return b.text("Not sent: Bot rejected the message. Check the original request on your Mac before trying again.", "未发送：Bot 拒绝了消息。再次尝试前请在 Mac 核对原请求。")
+	}
 }
 func callbackID(id, choice string) string { return "a:" + digest(id + "\x00" + choice)[:40] }
 func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bool {

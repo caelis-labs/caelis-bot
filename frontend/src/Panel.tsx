@@ -10,6 +10,7 @@ import { useAvatarPresentation } from './use-avatar-presentation';
 import { animatedReplyID, type PortraitClip } from './avatar-presentation';
 import { AttachmentMenu } from './AttachmentMenu';
 import { ScreenMessage } from './ScreenMessage';
+import { MediaMessage } from './MediaMessage';
 import { ChatScroll } from './chat-scroll';
 import { ConversationOrder, SubmissionProgress, DraftQueue } from './chat-observation';
 import { useI18n } from './i18n';
@@ -103,7 +104,7 @@ function Message({ item, report, animate=false, reveal=false, clip }: { item: It
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
    {item.kind==='assistant'&&<BotAvatar animate={animate} clip={clip}/>}
    <div className={`message ${item.kind}`}>
-    {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal}/> : <p>{item.text}</p>}
+    {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal}/> : <p>{item.text}</p>}
     {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}
     {!!item.text&&item.kind!=='activity'&&<div className="message-actions"><CopyText text={item.text} report={report}/></div>}
     {item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)&&<small className="outgoing-status" role="status">{statusLabel}</small>}

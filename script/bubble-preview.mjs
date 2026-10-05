@@ -121,6 +121,10 @@ window.fixtureChat=kind=>{
  if(kind==='instant')push();else streamTimer=setInterval(push,450);
 };
 window.fixtureReopen=()=>{window.dispatchEvent(new Event('history-close'));setTimeout(()=>window.dispatchEvent(new Event('history-open')),100);};
+window.fixtureMedia=()=>{
+ clearInterval(streamTimer);cancelAnimationFrame(recordFrame);
+ Object.assign(snapshot,{items:[{id:'media-fixture',requestId:'media-fixture-request',turnKey:'fixture',kind:'user',text:'请看这两张图片。\nfirst.png\nsecond.png',status:'completed',artifacts:[],media:{caption:'请看这两张图片。',images:[{id:'media-fixture-one',name:'first.png',width:180,height:180},{id:'media-fixture-two',name:'second.png',width:180,height:180}]}}],phase:'completed',currentTurn:'',canInterrupt:false,canSend:true,activity:null});
+};
 window.fixtureAvatar=kind=>{
  clearInterval(streamTimer);cancelAnimationFrame(recordFrame);
  if(kind==='stream'){
@@ -253,6 +257,7 @@ export const Call={ByName:async(name,...args)=>{
  }
  if(method==='Draft'){draftReads++;if(sendCount&&snapshot.lastReceipt.outcome==='accepted'){acceptedReads++;await delay(200);if(sendMode==='draft-failure')throw Error('Synthetic draft read failure');}return {...draft};}
  if(method==='DraftFiles')return [];
+ if(method==='MediaImage')return args[0]==='media-fixture-one'?'__MEDIA_ONE__':'__MEDIA_TWO__';
  if(method==='HistoryVisible')return true;
  if(method==='Interrupt')window.fixtureSet('stop');
  if(method==='DismissPreview')snapshot.previewDismissed=true;
@@ -265,7 +270,7 @@ export const Call={ByName:async(name,...args)=>{
 const root=resolve('frontend/dist');
 const server=createServer((req,res)=>{
  const path=new URL(req.url,'http://127.0.0.1').pathname;
- if(path==='/wails/runtime.js'){res.setHeader('Content-Type','text/javascript');res.end(runtime);return;}
+ if(path==='/wails/runtime.js'){res.setHeader('Content-Type','text/javascript');res.end(runtime.replace('__MEDIA_ONE__','data:image/png;base64,'+readFileSync('frontend/public/portraits/caelis-sage-v1/poster.png').toString('base64')).replace('__MEDIA_TWO__','data:image/png;base64,'+readFileSync('frontend/public/icons/caelis-avatar.png').toString('base64')));return;}
  const file=resolve(root,'.'+(path==='/'?'/index.html':path));
  if(!file.startsWith(root+'/')){res.writeHead(403);res.end();return;}
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}
