@@ -4,7 +4,6 @@ import {readFileSync,writeFileSync,lstatSync,readdirSync,mkdirSync,copyFileSync,
 import {resolve,dirname,join,relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
-import validator from 'gltf-validator';
 import {validateAvatarSVG} from './avatar-svg.mjs';
 
 export const manifestPath='resources/character-pack.json';
@@ -81,6 +80,9 @@ export async function verifyPack(root='.',{strict=false}={}){
   assert.ok(size>0&&size<=16*1024*1024,`asset size: ${f.path}`);total+=size;
   const bytes=readFileSync(path);assert.equal(sha256(bytes),f.sha256,`hash mismatch: ${f.path}`);
   if(f.path.endsWith('.glb')){
+   // Metadata/public-tree checks need no installed npm dependencies. Load the
+   // validator only for the full binary asset verification path.
+   const {default:validator}=await import('gltf-validator');
    assert.equal(bytes.readUInt32LE(0),0x46546c67);assert.equal(bytes.readUInt32LE(4),2);assert.equal(bytes.readUInt32LE(8),bytes.length);
    const doc=JSON.parse(bytes.subarray(20,20+bytes.readUInt32LE(12)));
    function check(o){

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {classifyChanges, requireResults} from './ci-scope.mjs';
@@ -93,5 +93,19 @@ test('CLI classifies the real git diff and writes bounded step outputs', () => {
     writeFileSync(output, '');
     execFileSync(process.execPath, [resolve('script/ci-scope.mjs')], {cwd: directory, env: {...process.env, CI_BASE_SHA: base, GITHUB_OUTPUT: output}});
     assert.equal(readFileSync(output, 'utf8'), 'kind=full\npreview=false\n');
+  } finally {rmSync(directory, {recursive: true, force: true});}
+});
+
+test('lightweight public-tree guard runs without installing the GLB validator', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'bot-ci-public-tree-'));
+  try {
+    for (const folder of ['script', 'resources', 'frontend/public/models', 'node_modules/gltf-validator']) mkdirSync(join(directory, folder), {recursive: true});
+    for (const path of ['script/check-public-tree.mjs', 'script/asset-pack.mjs', 'script/avatar-svg.mjs', 'resources/character-pack.json']) copyFileSync(path, join(directory, path));
+    // If a static/transitive import reaches this package, Node must fail.
+    writeFileSync(join(directory, 'node_modules/gltf-validator/package.json'), JSON.stringify({name: 'gltf-validator', type: 'module', exports: './not-installed.mjs'}));
+    const pack = JSON.parse(readFileSync('resources/character-pack.json', 'utf8'));
+    for (const file of pack.files.filter(file => file.path.startsWith('frontend/public/models/'))) writeFileSync(join(directory, file.path), 'public fixture');
+    execFileSync('git', ['init', '-q'], {cwd: directory});
+    execFileSync(process.execPath, ['script/check-public-tree.mjs'], {cwd: directory, encoding: 'utf8'});
   } finally {rmSync(directory, {recursive: true, force: true});}
 });
