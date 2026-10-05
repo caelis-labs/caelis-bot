@@ -79,6 +79,16 @@ the Telegram thumbnail as one explicitly labelled frame; a missing or invalid
 thumbnail is a rejected input, never a claimed understanding of the animation.
 The adapter supplies ordinary Bot image input and retains the original Telegram
 message request ID, receipt and no-replay rule.
+Host task and command completion reports enter through `SubmitReport` as internal
+inputs. Codex persists their exact client IDs in the native binding and imports
+delivered or uncertain IDs from the existing native product task ledger before
+history projection; Caelis persists `application_summary` in its command
+journal and correlates the canonical turn. Both project the input as `hostNotice`
+through live updates, reconnect and older history. Presentation and Telegram
+skip that kind before reading text or attachments; the subsequent assistant
+result remains visible. No prose pattern or renderer-supplied flag establishes
+this source. Unknown command admission fences uncorrelated input until the
+original receipt identifies it.
 The native macOS proxy resolver executes automatic configuration through CFNetwork,
 honors the ordered system candidates and cancels PAC work with the HTTP request.
 Failed or stalled PAC resolution continues to subsequent system candidates; DIRECT
@@ -461,6 +471,22 @@ opaque handles. Capture preferences freeze at acquisition; redaction affects bot
 cannot change scope. Ask Bot rechecks negotiated model image support immediately before dispatch. Unknown delivery
 never resends; unreadable receipts remain uncertain. Attachment maintenance uses native Trash, protects originals,
 selected/active files and symlinks, and never constitutes image resubmission.
+
+The optional Extras gate owns only the manual F1 selection/annotation/Ask Bot and
+F3 clipboard pin tools. Native admission, Carbon shortcuts, menu commands and
+in-flight selection share the persisted gate; disabling cancels admitted sends
+and keeps their original uncertain receipts if dispatch already began. It closes
+temporary panels without deleting retained chat attachments or capture records.
+Re-enabling restores saved child shortcuts and recoverable capture records. The
+gate does not govern ordinary chat images or Desktop World task observation and
+capture. Screen Recording remains a separate macOS permission; preference reads
+and disabling never request it.
+First-run feature selection has its own native completion marker, separate from
+the permission guide. New installs save the chosen capture gate before marking
+the feature step complete; an old completed permission guide migrates without
+repeating the feature step or changing existing capture preferences. The
+permission step reads the confirmed gate only to omit an unnecessary Screen
+Recording prompt. A ready Runtime can resume setup after both markers complete.
 
 Ordinary received images have a separate App-owned presentation store keyed by
 the original submission ID. Local and remote submissions save bounded bytes before

@@ -667,6 +667,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
 @implementation BotCapture
 - (instancetype)init {
     if((self=[super init])) {
+        _enabled=YES;
         _includeBackground=YES;_pins=[NSMutableArray new];_availability=@{@"state":@"unknown"};_language=@{};_excludedWindows=@[];_observers=[NSMutableArray new];
         __weak BotCapture *weak=self;
         _refreshTimer=[NSTimer scheduledTimerWithTimeInterval:3 repeats:YES block:^(NSTimer *timer){
@@ -705,7 +706,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self.canvas updateAvailability];for(NSWindow *pin in self.pins)[(BotCaptureCanvas *)pin.contentView updateAvailability];
 }
 - (void)capture {
-    if(self.stopped)return;
+    if(self.stopped||!self.enabled)return;
     if(self.overlay||self.preparing) {[self finish:YES];return;}
     [self refresh];
     self.previousApp=NSWorkspace.sharedWorkspace.frontmostApplication;
@@ -790,6 +791,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self.pins addObject:pin];[pin orderFrontRegardless];
 }
 - (void)paste {
+    if(!self.enabled)return;
     if(self.overlay){[self.canvas pin];return;}
     if(self.stopped)return;
     NSImage *image=[[NSImage alloc] initWithPasteboard:NSPasteboard.generalPasteboard];if(!image)return;
@@ -801,10 +803,12 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     [self pinDocument:doc at:NSEvent.mouseLocation];[self refresh];
 }
 - (void)togglePins {
+    if(!self.enabled)return;
     BOOL any=NO;for(NSWindow *pin in self.pins)if(pin.visible)any=YES;
     for(NSWindow *pin in self.pins){if(any){[((BotCaptureCanvas *)pin.contentView).toolbarPanel orderOut:nil];[pin orderOut:nil];}else [pin orderFrontRegardless];}
 }
 - (void)ask:(BotCaptureCanvas *)canvas {
+    if(!self.enabled)return;
     if(![self.availability[@"state"] isEqual:@"supported"]){[canvas updateAvailability];return;}
     BotCaptureDocument *doc=canvas.document;
     if([doc.outcome isEqual:@"unknown"]||[doc.outcome isEqual:@"accepted"]||NSIsEmptyRect(doc.selection))return;
@@ -845,6 +849,7 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     }
 }
 - (void)restore:(NSArray *)records {
+    if(!self.enabled)return;
     for(NSDictionary *record in records) {
         NSDictionary *meta=record[@"snapshot"];NSString *identifier=meta[@"id"];
         BOOL exists=NO;for(NSWindow *pin in self.pins)if([((BotCaptureCanvas *)pin.contentView).document.identifier isEqual:identifier])exists=YES;
@@ -862,6 +867,15 @@ static BotCapturePanel *capturePanel(NSRect frame,BOOL overlay) {
     for(NSWindow *pin in self.pins){[((BotCaptureCanvas *)pin.contentView).toolbarPanel close];[pin close];}[self.pins removeAllObjects];
     for(id observer in self.observers){[NSNotificationCenter.defaultCenter removeObserver:observer];[NSWorkspace.sharedWorkspace.notificationCenter removeObserver:observer];}
     [self.observers removeAllObjects];
+}
+- (void)setEnabled:(BOOL)enabled {
+    if(_enabled==enabled)return;
+    _enabled=enabled;
+    if(!enabled){
+        [self finish:NO];
+        for(NSWindow *pin in self.pins){[((BotCaptureCanvas *)pin.contentView).toolbarPanel close];[pin close];}
+        [self.pins removeAllObjects];
+    }
 }
 @end
 

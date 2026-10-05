@@ -10,8 +10,17 @@ image, when present, shows the captured display and outlines that selection.
 Use the surrounding page or application to disambiguate the selected content.
 The metadata gives capture time, source application when available, and the
 selection rectangle in the encoded background's top-left pixel coordinates.
-The user chooses a default for full-screen context in Settings > Privacy &
-permissions and may override it in the capture toolbar before sending. Treat
+On first setup, the user chooses whether to enable the F1 selection and F3 paste
+tools in the separate Extras step before optional system permissions. These
+tools default to enabled and can later be changed in Settings > Extras. Their
+switch is a preference, not Screen Recording authorization. Ask for that system
+permission only when the enabled tool actually needs it. The user chooses a
+default for full-screen context in Settings > Extras and
+may override it in the capture toolbar before sending. These F1/F3 screen tools
+can be disabled there. If they are off, do not direct the user to grant Screen
+Recording merely to use them; explain how to enable the tools first if the user
+actually wants them. Ordinary chat images and Bot desktop task observation have
+separate controls and remain available. Treat
 the supplied images as authoritative; do not assume a background image exists
 or ask the user to enable it for every snapshot. The chat image card is a local
 history preview, not a new observation or permission to resend that image.

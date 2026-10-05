@@ -39,6 +39,7 @@ type Service struct {
 	openMachineTerminal func(string) error
 	capture             captureState
 	permissionGuide     permissionGuide
+	featureGuide        permissionGuide
 	taskPreferences     func() tasks.Preferences
 	saveTaskPreferences func(tasks.Preferences) (tasks.Preferences, error)
 	terminalChoices     func() []taskterminal.Choice
@@ -157,15 +158,19 @@ func (s *Service) start(d driver) {
 	if capture, ok := d.(captureDriver); ok {
 		for i := range s.capture.shortcuts {
 			state := &s.capture.shortcuts[i]
-			if s.captureShortcutConflict(state.Shortcut, i+2) {
+			active := state.Shortcut
+			active.Enabled = active.Enabled && s.capture.preferences.Enabled
+			if s.captureShortcutConflict(active, i+2) {
 				state.Message = s.text("native.shortcutConflict", nil)
-			} else if err := capture.registerCaptureShortcut(state.Shortcut, i); err != nil {
+			} else if err := capture.registerCaptureShortcut(active, i); err != nil {
 				state.Message = err.Error()
 			} else {
-				state.Registered = state.Shortcut.Enabled
+				state.Registered = active.Enabled
 			}
 		}
-		capture.restoreCaptures(screeninput.Pending(s.capture.root))
+		if s.capture.preferences.Enabled {
+			capture.restoreCaptures(screeninput.Pending(s.capture.root))
+		}
 	}
 	d.apply(s.placement)
 	close(s.ready)

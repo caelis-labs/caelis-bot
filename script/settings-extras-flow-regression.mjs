@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+function run(page,state,script){
+ execFileSync('bash',['script/settings-extras-native-fixture.sh','flow',page,state,'en','light','860',script],{stdio:'pipe',timeout:30000});
+ return JSON.parse(readFileSync(resolve('.cache/settings-extras-fixture/flow',`${page}-${state}-en-light-860.png.json`),'utf8'));
+}
+const back=run('setup','permission-on','script/settings-extras-back-regression.js');
+assert.equal(back.featureReturned,true);
+assert.equal(back.initialOn,true);
+assert.equal(back.savedOff,true);
+assert.equal(back.permissionReturned,true);
+assert.equal(back.screenHidden,true);
+const ready=run('setup','ready','script/settings-extras-ready-regression.js');
+assert.equal(ready.opened,1);
+assert.equal(ready.closed,1);
+assert.equal(ready.featureFinished,false);
+assert.equal(ready.permissionFinished,false);
+const loaded=run('setup','feature-load-fail','script/settings-extras-load-regression.js');
+assert.equal(loaded.initialError,true);
+assert.equal(loaded.initialDisabled,true);
+assert.equal(loaded.recovered,true);
+assert.equal(loaded.reads,2);
+const connecting=run('telegram','connecting','script/settings-extras-telegram-connecting.js');
+assert.equal(connecting.connecting,true);
+assert.equal(connecting.password,true);
+assert.equal(connecting.masked,true);
+const forget=run('telegram','forget','script/settings-extras-telegram-forget.js');
+assert.equal(forget.confirmation,true);
+assert.equal(forget.forgot,false);
+process.stdout.write('Back/change, ready recovery, connecting feedback and forget confirmation passed\n');

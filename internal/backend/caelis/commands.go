@@ -53,7 +53,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		j.Dream = scheduled[1]
 		s.state.Operations[op] = j
 	}
-	if path == "/application/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" && source.Kind == "user" && !s.state.Operations[op].Scheduled {
+	if path == "/application/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" && (source.Kind == "user" || source.Kind == "application_summary") && !s.state.Operations[op].Scheduled {
 		pending := &pendingInput{VisibleIDs: []string{}}
 		if v := s.state.Views[s.state.Session.SessionId]; v != nil {
 			for _, item := range v.Items {

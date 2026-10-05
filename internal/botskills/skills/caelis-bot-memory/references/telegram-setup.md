@@ -1,9 +1,12 @@
 # Help the user connect Telegram
 
 Treat Telegram as another place to use the same assistant and conversation.
-Help a beginner complete the short setup in **Settings → Connections → Telegram**.
+Help a beginner complete the short setup in **Settings → Messaging → Telegram**.
+Messaging is the channel overview; it shows the actual Telegram connection state.
+The Telegram detail has a return link to that overview. AI accounts and models
+are separate settings destinations. Older direct Telegram links still open the detail.
 Do not ask for a token in conversation or put one in notes, files, commands, screenshots,
-logs, or tool arguments. The user pastes it into the masked Bot Token field; the app
+logs, or tool arguments. The user pastes it into the masked Bot token field; the app
 stores it in the macOS Keychain. Never claim setup succeeded until the app says Connected.
 
 ## Create a Bot with BotFather
@@ -51,6 +54,11 @@ click Try connecting again; do not keep reconnecting competing clients.
   until it reconnects.
 - If the pairing link expires, click Try connecting again. Only the account
   confirmed on the Mac is allowed to send work to the assistant.
+- Distinguish Not set up, Connecting, Waiting for pairing, Confirm your account,
+  Connected, Paused, Reconnecting and Needs attention. A waiting screen or a
+  successful status read is not pairing confirmation. Follow the single action
+  shown for the current state; do not repeatedly submit a token or request a new
+  link while the original connection action is unresolved.
 - For network errors, check internet access and the Mac's proxy/VPN. For a blocked
   Bot, unblock it in Telegram. For Keychain access errors, allow Caelis Bot access
   or paste the token again in settings.
@@ -66,4 +74,5 @@ click Try connecting again; do not keep reconnecting competing clients.
 - An uncertain delivery is not permission to repeat it. Inspect the original
   message on the Mac and Telegram before deciding whether to send anything again.
 - Pause retains the saved pairing and token. Remove connection clears the pairing
-  and deletes this app's saved token. It does not delete the Telegram Bot.
+  and deletes this app's saved token after an explicit confirmation. It does not
+  delete the Telegram Bot.

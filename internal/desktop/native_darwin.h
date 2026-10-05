@@ -41,6 +41,7 @@ int bot_launch_plane(void *host, char *id, double x, double y);
 void bot_finish_plane(void *host, char *id, int completed);
 
 int bot_shortcut(void *host, char *key, int flags, int enabled, int tasks);
+void bot_capture_enabled(void *host,int enabled);
 void bot_toggle_tasks(void *host);
 void bot_panel_ready(void *host, int activation);
 

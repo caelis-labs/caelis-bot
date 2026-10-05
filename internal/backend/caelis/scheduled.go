@@ -15,11 +15,20 @@ func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope) {
 	id := value(e.InputOperationId)
 	j := s.state.Operations[id]
 	scheduled := turn != "" && j.Scheduled
+	hostNotice := j.Source.Kind == "application_summary"
+	if !hostNotice && id == "" && turn != "" {
+		for _, candidate := range s.state.Operations {
+			if candidate.TurnID == turn && candidate.Source.Kind == "application_summary" {
+				hostNotice = true
+				break
+			}
+		}
+	}
 	if scheduled {
 		j.TurnID = turn
 		s.state.Operations[id] = j
 	}
-	applyEnvelope(v, e, scheduled)
+	applyEnvelope(v, e, scheduled, hostNotice)
 	if turn != "" && e.Lifecycle != nil && e.Kind == "caelis/lifecycle" && value(e.ApprovalRequestId) == "" && (value(e.Scope) == "" || value(e.Scope) == "main") {
 		if v.Turns == nil {
 			v.Turns = map[string]string{}
@@ -30,7 +39,15 @@ func (s *Session) applyScheduledEnvelope(v *view, e wire.Envelope) {
 func (s *Session) presentScheduled(out api.Snapshot, v *view) api.Snapshot {
 	turns := map[string]string{}
 	dreams := map[string]string{}
-	for _, j := range s.state.Operations {
+	for id, j := range s.state.Operations {
+		if j.Source.Kind == "application_summary" {
+			for index := range out.Items {
+				item := &out.Items[index]
+				if item.Kind == "user" && item.RequestID == id {
+					item.Kind = "hostNotice"
+				}
+			}
+		}
 		if j.Scheduled && j.TurnID != "" {
 			status := ""
 			for sid, history := range s.state.Views {

@@ -12,12 +12,16 @@ const descriptions:Record<PermissionID,MessageKey>={accessibility:'settings.perm
 const statuses:Record<string,MessageKey>={authorized:'settings.permissionAuthorized',permissionRequired:'settings.permissionRequired',notDetermined:'settings.permissionRequired',denied:'settings.permissionDenied',notRunning:'settings.permissionNotRunning',unsupported:'settings.permissionUnsupported',unavailable:'settings.permissionUnknown'};
 const outcomes:Record<PermissionRequestResult['state'],MessageKey>={requested:'settings.permissionRequested',authorized:'settings.permissionRefreshNeeded',settingsRequired:'settings.permissionNeedsSettings',settingsOpened:'settings.permissionChangeInSystem'};
 
-export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?:()=>void;embedded?:boolean;call?:typeof desktop}) {
+export function PermissionSettings({onDone,onBack,embedded=false,call=desktop}:{onDone?:()=>void;onBack?:()=>void;embedded?:boolean;call?:typeof desktop}) {
  const {t}=useI18n();
+ const onboarding=!!onDone;
  const [state,setState]=useState<PermissionState|null>(null),[busy,setBusy]=useState(''),[error,setError]=useState<MessageKey|''>(''),[notice,setNotice]=useState(false);
  const [feedback,setFeedback]=useState<{id:PermissionID;state:PermissionRequestResult['state']}|null>(null);
  const [repair,setRepair]=useState<PermissionID>('accessibility'),[confirmed,setConfirmed]=useState(false);
+ const [captureEnabled,setCaptureEnabled]=useState<boolean|null>(onDone?null:true);
  const alive=useRef(true),loading=useRef<Promise<void>|null>(null),acting=useRef(false);
+ const latestDone=useRef(onDone);
+ latestDone.current=onDone;
  const refresh=useCallback(async()=>{
   if(loading.current){await loading.current;return;}
   loading.current=(async()=>{
@@ -31,6 +35,7 @@ export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?
   const focus=()=>{void refresh();};const timer=setInterval(()=>{if(document.hasFocus()&&!acting.current)void refresh();},2500);
   window.addEventListener('focus',focus);return()=>{alive.current=false;clearInterval(timer);window.removeEventListener('focus',focus);};
  },[refresh]);
+ useEffect(()=>{if(!onboarding)return;let live=true;void call<{enabled:boolean}>('CapturePreferences').then(v=>{if(live)setCaptureEnabled(v.enabled)}).catch(()=>{if(live)setError('settings.screenPreferencesFailed')});return()=>{live=false}},[call,onboarding]);
  const perform=async(id:string,action:()=>Promise<unknown>)=>{
   if(acting.current)return;acting.current=true;setBusy(id);setError('');
   try{
@@ -73,14 +78,14 @@ export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?
   {state&&!state.supported&&<p>{t('settings.permissionUnsupported')}</p>}
   {state?.supported&&<>
    <div className="permission-list">
-    {state.permissions.filter(p=>p.id==='accessibility'||p.id==='screenCapture'||p.id==='notifications').map(permissionRow)}
+    {state.permissions.filter(p=>p.id==='accessibility'||p.id==='notifications'||p.id==='screenCapture'&&(!onDone||captureEnabled===true)).map(permissionRow)}
    </div>
    {!onDone&&<details className="permission-more"><summary><SettingsChevron/>{t('settings.morePermissions')}</summary><div className="permission-list">{state.permissions.filter(p=>p.id==='automation').map(permissionRow)}</div></details>}
    <p className="permission-system-note">{t('settings.permissionSwitchHelp')}</p>
-   <section className="permission-privacy" aria-labelledby="permission-privacy-title">
+   {onDone?<details className="permission-privacy"><summary>{t('settings.permissionPrivacyTitle')}</summary><p>{t('settings.permissionPrivacyBody')}</p></details>:<section className="permission-privacy" aria-labelledby="permission-privacy-title">
     <h2 id="permission-privacy-title">{t('settings.permissionPrivacyTitle')}</h2>
     <p>{t('settings.permissionPrivacyBody')}</p>
-   </section>
+   </section>}
    {!onDone&&<details className="permission-repair">
     <summary><SettingsChevron/>{t('settings.permissionRepairTitle')}</summary>
     <p className="settings-note">{t('settings.permissionMissingApp')}</p>
@@ -100,6 +105,6 @@ export function PermissionSettings({onDone,embedded=false,call=desktop}:{onDone?
    </details>}
   </>}
   {error&&<p className="inline-error" role="alert">{t(error)}</p>}
-  {onDone&&<div className="setup-end"><button className="primary" disabled={!!busy} onClick={()=>void perform('finish',async()=>{await call('FinishPermissionGuide');onDone();})}>{t('settings.permissionContinue')}</button></div>}
+  {onDone&&<div className="setup-end">{onBack&&<button type="button" disabled={!!busy} onClick={onBack}>{t('settings.setupBack')}</button>}<button className="primary" disabled={!!busy} onClick={()=>void perform('finish',async()=>{await call('FinishPermissionGuide');latestDone.current?.()})}>{t('settings.permissionContinue')}</button></div>}
  </section>;
 }

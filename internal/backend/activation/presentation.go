@@ -35,7 +35,7 @@ func Present(v api.Snapshot, scheduled map[string]string, pending bool) api.Snap
 	out := make([]api.Item, 0, len(v.Items))
 	visible := false
 	for _, i := range v.Items {
-		if i.Kind == "activation" {
+		if i.Kind == "activation" || i.Kind == "hostNotice" {
 			continue
 		}
 		status, owned := scheduled[i.TurnKey]

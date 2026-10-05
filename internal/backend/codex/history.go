@@ -72,6 +72,7 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 	}
 	ready := s.state.Connection == "ready"
 	scheduled := maps.Clone(s.binding.Scheduled)
+	reports := maps.Clone(s.binding.HostReports)
 	inputs := maps.Clone(s.binding.ContextInputs)
 	s.mu.Unlock()
 	if !ready || c == nil {
@@ -92,7 +93,7 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 	if err != nil {
 		return errors.New("更早消息暂时无法读取，请重试")
 	}
-	projection := &Session{opts: s.opts, binding: binding{Scheduled: scheduled, ContextInputs: inputs}}
+	projection := &Session{opts: s.opts, binding: binding{Scheduled: scheduled, HostReports: reports, ContextInputs: inputs}}
 	projection.resetProjection()
 	for _, turn := range chronological(page.Data) {
 		projection.runs[turn.ID] = turn.Status

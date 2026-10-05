@@ -50,9 +50,17 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 	}
 	c, instance, generation, before := s.client, s.state.InstanceID, s.generation, original.HistoryBefore
 	scheduled := map[string]bool{}
+	hostNotices := map[string]bool{}
+	hostTurns := map[string]bool{}
 	for id, op := range s.state.Operations {
 		if op.Scheduled {
 			scheduled[id] = true
+		}
+		if op.Source.Kind == "application_summary" {
+			hostNotices[id] = true
+			if op.TurnID != "" {
+				hostTurns[op.TurnID] = true
+			}
 		}
 	}
 	s.mu.Unlock()
@@ -89,7 +97,7 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 			}
 			page++
 			for _, e := range d.Events {
-				applyEnvelope(projection, e, scheduled[value(e.InputOperationId)])
+				applyEnvelope(projection, e, scheduled[value(e.InputOperationId)], hostNotices[value(e.InputOperationId)] || value(e.InputOperationId) == "" && hostTurns[value(e.TurnId)])
 			}
 		case "replace_end":
 			if snapshot == "" || replaced || d.Source != "replacement" || value(d.SnapshotId) != snapshot || value(d.Page) != page || len(d.Events) != 0 {
@@ -102,7 +110,7 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 			}
 			appended = true
 			for _, e := range d.Events {
-				applyEnvelope(projection, e, scheduled[value(e.InputOperationId)])
+				applyEnvelope(projection, e, scheduled[value(e.InputOperationId)], hostNotices[value(e.InputOperationId)] || value(e.InputOperationId) == "" && hostTurns[value(e.TurnId)])
 			}
 		case "sync":
 			if snapshot != "" && !replaced || d.Source != "exact" || value(d.SnapshotId) != "" || len(d.Events) != 0 || value(d.HistoryBefore) == before {

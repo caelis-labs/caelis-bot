@@ -201,6 +201,31 @@ func TestStreamingEditsOneMessageAndChunksUnicode(t *testing.T) {
 	}
 }
 
+func TestHostNoticeNeverMirrorsTextOrFilesButSameTextUserAndReportDo(t *testing.T) {
+	artifactReads, imageReads := 0, 0
+	b, f := testBridge(t, Host{
+		Artifact:    func(string) (string, error) { artifactReads++; return "", errors.New("unexpected host file read") },
+		ScreenImage: func(string) ([]byte, error) { imageReads++; return nil, errors.New("unexpected host image read") },
+	})
+	paired(b)
+	const notice = "Task task-42 is completed."
+	items := []api.Item{
+		{ID: "internal", Kind: "hostNotice", Text: notice, Artifacts: []api.Artifact{{ID: "private-file", Name: "private.txt"}}, Screen: &api.ScreenPresentation{Images: []api.ScreenImage{{ID: "private-image"}}}},
+		{ID: "report", Kind: "assistant", Text: "The requested work is ready."},
+		{ID: "human", Kind: "user", RequestID: "desktop-human", Text: notice},
+	}
+	b.mirror(t.Context(), f, api.Snapshot{Items: items})
+	b.mirror(t.Context(), f, api.Snapshot{Items: items})
+	if f.sends != 2 || f.edits != 0 || f.documents != 0 || artifactReads != 0 || imageReads != 0 {
+		t.Fatalf("host notice leaked or visible replies lost: sends=%d edits=%d documents=%d artifactReads=%d imageReads=%d", f.sends, f.edits, f.documents, artifactReads, imageReads)
+	}
+	checkPlainAssistantMessage(t, f.messages[0], "The requested work is ready.")
+	checkMacUserMessage(t, f.messages[1], "You · from Mac", notice)
+	if _, exists := b.state.Messages["internal"]; exists {
+		t.Fatal("host notice was journaled as a Telegram delivery")
+	}
+}
+
 func TestMirroredMacIdentityAndPlainAssistantOnSendAndEdit(t *testing.T) {
 	for _, tc := range []struct {
 		name, title string
