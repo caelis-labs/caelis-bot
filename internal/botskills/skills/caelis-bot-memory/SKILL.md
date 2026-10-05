@@ -91,3 +91,6 @@ they are relevant to the work:
   care, evaluating event data, or responding to a care activation.
 - [Expression](references/expression.md): when using a desktop gesture to accompany
   a response or draw attention to a result.
+- [Telegram setup](references/telegram-setup.md): when the user wants to chat from
+  Telegram, create or reuse a Telegram Bot, connect their account, or troubleshoot
+  that connection. Ordinary conversations need no transport-specific guidance.

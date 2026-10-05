@@ -36,7 +36,7 @@ jobs:
       - name: Check desktop authority, receipts and projection races
         run: |
           source script/env.sh
-          go test -race ./internal/desktopcontrol ./internal/bot ./internal/backend/caelis ./internal/backend/codex ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal
+          go test -race ./internal/desktopcontrol ./internal/bot ./internal/backend ./internal/backend/caelis ./internal/backend/codex ./internal/app ./internal/telegram ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal
       - run: npm run smoke:assets
       - name: Build independent Dev app with Desktop World
         run: make build

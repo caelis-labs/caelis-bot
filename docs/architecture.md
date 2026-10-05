@@ -54,6 +54,17 @@ polling completed tool payloads every 250 ms. The effect still runs only after a
 confirmed claim; unknown claims and original result receipts retain their recovery
 semantics. A retired connection cannot dispatch a response from its old wait.
 
+## Telegram companion chat
+
+`internal/telegram` mirrors one paired private chat through pinned Telego. It uses
+native `backend.SubmitRemote` and the existing resident submission, interruption,
+approval and artifact ports. It does not add transport information to Bot context
+or change conversation identity. Desktop drafts and attachment selection remain
+independent. Token storage uses the macOS Keychain; pairing requires a short-lived
+link and desktop account confirmation. Polling cursors, original input outcomes,
+Telegram message IDs and text digests are saved privately. Uncertain creates and
+inputs are never replayed; streamed edits are coalesced and rate limits respected.
+
 ## Remote machines
 
 The resident adapter remains local. `machines.Service` multiplexes the existing

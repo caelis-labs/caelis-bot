@@ -62,20 +62,24 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		emit := func(v any) { b, _ := json.Marshal(v); fmt.Fprintf(w, "data: %s\n\n", b); w.(http.Flusher).Flush() }
 		emit(map[string]any{"type": "response.created", "response": map[string]any{"id": id, "status": "in_progress", "output": []any{}}})
 		var item map[string]any
-		if n <= 2 || n == 4 || n == 5 {
-			p := skillPath
-			if n == 2 {
-				p = filepath.Join(filepath.Dir(skillPath), "references", "desktop-observation.md")
+		if n == 2 {
+			var items []any
+			for index, ref := range []string{"desktop-observation.md", "desktop-actions.md", "desktop-images.md", "desktop-recovery.md", "telegram-setup.md"} {
+				path := filepath.Join(filepath.Dir(skillPath), "references", ref)
+				args, _ := json.Marshal(map[string]any{"cmd": "cat '" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'", "max_output_tokens": 8000})
+				item := map[string]any{"id": fmt.Sprintf("%s-%d", id, index), "type": "function_call", "name": "exec_command", "call_id": fmt.Sprintf("%s-%d", id, index), "arguments": string(args)}
+				items = append(items, item)
+				emit(map[string]any{"type": "response.output_item.done", "output_index": index, "item": item})
 			}
+			emit(map[string]any{"type": "response.completed", "response": map[string]any{"id": id, "status": "completed", "output": items, "usage": map[string]any{"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}})
+			return
+		}
+		if n == 1 || n == 4 || n == 5 {
+			p := skillPath
 			if n == 4 {
 				p = dreamPath
 			}
 			command := "cat '" + strings.ReplaceAll(p, "'", "'\"'\"'") + "'"
-			if n == 2 {
-				for _, ref := range []string{"desktop-actions.md", "desktop-images.md", "desktop-recovery.md"} {
-					command += " '" + strings.ReplaceAll(filepath.Join(filepath.Dir(p), ref), "'", "'\"'\"'") + "'"
-				}
-			}
 			if n == 5 {
 				command = "printf '%s\\n' '<!-- caelis-dream: native-dream -->' 'Finished the skill check; nothing pending.' > '" + strings.ReplaceAll(handoffPath, "'", "'\"'\"'") + "'"
 			}
@@ -136,7 +140,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if strings.Contains(initial[1], "# Perform known desktop actions") || !strings.Contains(initial[2], "# Perform known desktop actions") {
 		t.Fatal("desktop policy reference was not progressively loaded")
 	}
-	for _, marker := range []string{"# Capture explicit evidence", "# Read the original desktop receipt"} {
+	for _, marker := range []string{"# Capture explicit evidence", "# Read the original desktop receipt", "# Help the user connect Telegram"} {
 		if strings.Contains(initial[1], marker) || !strings.Contains(initial[2], marker) {
 			t.Fatal("conditional guide did not load", marker)
 		}

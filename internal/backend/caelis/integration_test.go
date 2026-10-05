@@ -333,7 +333,7 @@ func TestNativeHostIntegration(t *testing.T) {
 	}
 	if !t.Run("B00_progressive_skill", func(t *testing.T) {
 		steps := []modelStep{{Name: "Read", Args: map[string]string{"path": skillPath}}, {Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")}}}
-		for _, ref := range []string{"desktop-observation.md", "desktop-actions.md", "desktop-images.md", "desktop-recovery.md"} {
+		for _, ref := range []string{"desktop-observation.md", "desktop-actions.md", "desktop-images.md", "desktop-recovery.md", "telegram-setup.md"} {
 			steps = append(steps, modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", ref)}})
 		}
 		model.set("CASE_SKILL", steps...)
@@ -348,7 +348,7 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("native user input did not preserve submission identity")
 		}
 		requests := model.seen("CASE_SKILL")
-		if len(requests) != 7 {
+		if len(requests) != 8 {
 			t.Fatalf("skill/reference loading did not complete: %d requests", len(requests))
 		}
 		first, _ := json.Marshal(requests[0])
@@ -364,7 +364,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		if strings.Contains(string(third), "# Observe the desktop narrowly") || !strings.Contains(string(fourth), "# Observe the desktop narrowly") {
 			t.Fatal("desktop policy reference was not progressively loaded")
 		}
-		for i, marker := range []string{"# Perform known desktop actions", "# Capture explicit evidence", "# Read the original desktop receipt"} {
+		for i, marker := range []string{"# Perform known desktop actions", "# Capture explicit evidence", "# Read the original desktop receipt", "# Help the user connect Telegram"} {
 			before, _ := json.Marshal(requests[i+3])
 			after, _ := json.Marshal(requests[i+4])
 			if strings.Contains(string(before), marker) || !strings.Contains(string(after), marker) {

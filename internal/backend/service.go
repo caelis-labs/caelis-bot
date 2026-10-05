@@ -46,6 +46,7 @@ type Service struct {
 	submitUser                  func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	files                       func([]string) ([]api.InputFile, error)
 	consumeFiles                func([]string)
+	submissionObserver          func(api.Submission, []api.InputFile, api.Receipt)
 	openURL                     func(string) error
 	reveal                      func(string) error
 	screenMedia                 *screeninput.Media
@@ -235,11 +236,19 @@ func (s *Service) SetUserSubmitter(f func(context.Context, api.Submission, []api
 func (s *Service) submit(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 	s.mu.Lock()
 	submit := s.submitUser
+	observer := s.submissionObserver
 	s.mu.Unlock()
+	var receipt api.Receipt
+	var err error
 	if submit != nil {
-		return submit(ctx, in, files)
+		receipt, err = submit(ctx, in, files)
+	} else {
+		receipt, err = s.engine.Submit(ctx, in, files)
 	}
-	return s.engine.Submit(ctx, in, files)
+	if observer != nil && receipt.Outcome == "accepted" {
+		observer(in, files, receipt)
+	}
+	return receipt, err
 }
 func (s *Service) SetInterruptObserver(f func()) { s.mu.Lock(); s.beforeInterrupt = f; s.mu.Unlock() }
 func (s *Service) Interrupt(ctx context.Context) error {

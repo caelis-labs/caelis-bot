@@ -84,6 +84,8 @@ func Run(assets fs.FS) error {
 	}
 	defer core.Close()
 	back := core.Backend
+	s.telegram = core.Telegram
+	s.openExternalURL = back.OpenMessageLink
 	s.configureCaptureBackend(back)
 	s.taskPreferences = core.TaskPreferences
 	s.saveTaskPreferences = core.SaveTaskPreferences
