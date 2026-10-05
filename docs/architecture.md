@@ -64,6 +64,13 @@ independent. Token storage uses the macOS Keychain; pairing requires a short-liv
 link and desktop account confirmation. Polling cursors, original input outcomes,
 Telegram message IDs and text digests are saved privately. Uncertain creates and
 inputs are never replayed; streamed edits are coalesced and rate limits respected.
+Backend recovery establishes the private history boundary before remote input is
+accepted. One cancellable output worker coalesces snapshots independently of input
+and control actions; configuration changes join both workers. Attachment identity
+uses the submission and attachment index, preserving distinct same-named files.
+The native macOS proxy resolver executes automatic configuration through CFNetwork,
+honors explicit DIRECT results and cancels PAC work with the HTTP request. Failed
+PAC resolution reports a network failure instead of silently connecting directly.
 
 ## Remote machines
 

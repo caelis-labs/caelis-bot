@@ -330,8 +330,9 @@ func (b *Bridge) Accepted(in api.Submission, files []api.InputFile, _ api.Receip
 	if !active {
 		return
 	}
-	for _, f := range files {
-		path, err := b.copyFile(in.ID, f)
+	for index, f := range files {
+		key := fmt.Sprintf("upload:%s:%d", in.ID, index)
+		path, err := b.copyFile(key, f)
 		if err != nil {
 			b.setIssue("file_unavailable")
 			continue
@@ -352,7 +353,7 @@ func (b *Bridge) Accepted(in api.Submission, files []api.InputFile, _ api.Receip
 		if b.state.PendingFiles == nil {
 			b.state.PendingFiles = map[string]string{}
 		}
-		b.state.PendingFiles["upload:"+in.ID+":"+f.Name] = relative
+		b.state.PendingFiles[key] = relative
 		_ = b.saveLocked()
 		b.mu.Unlock()
 	}
@@ -434,13 +435,12 @@ type pollResult struct {
 }
 
 func (b *Bridge) run(ctx context.Context, c client) {
-	initial := b.host.Snapshot()
-	baseline := ready(initial)
-	if baseline {
-		b.mu.Lock()
-		b.baselineLocked(initial)
-		_ = b.saveLocked()
-		b.mu.Unlock()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// Recovery must establish the private history boundary before any remote
+	// submission can create a reply. Telegram retains updates until we poll them.
+	if !b.waitBaseline(ctx) {
+		return
 	}
 	poll := make(chan pollResult)
 	b.mu.Lock()
@@ -464,18 +464,16 @@ func (b *Bridge) run(ctx context.Context, c client) {
 			}
 		}
 	}()
-	defer func() { // The session context is canceled by the lifecycle owner before Close waits.
-		b.mu.Lock()
-		cancel := b.cancel
-		b.mu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
-		<-pollDone
+	outputDone := make(chan struct{})
+	go func() {
+		defer close(outputDone)
+		b.output(ctx, c)
 	}()
-	_ = c.Commands(ctx)
-	ticker := time.NewTicker(1100 * time.Millisecond)
-	defer ticker.Stop()
+	defer func() {
+		cancel()
+		<-pollDone
+		<-outputDone
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -498,6 +496,9 @@ func (b *Bridge) run(ctx context.Context, c client) {
 				continue
 			}
 			for _, u := range r.updates {
+				if ctx.Err() != nil {
+					return
+				}
 				if !b.input(ctx, c, u) {
 					return
 				}
@@ -516,20 +517,51 @@ func (b *Bridge) run(ctx context.Context, c client) {
 			}
 			b.mu.Unlock()
 			r.ack <- offset
+		}
+	}
+}
+
+func (b *Bridge) waitBaseline(ctx context.Context) bool {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for ctx.Err() == nil {
+		s := b.host.Snapshot()
+		if ready(s) {
+			b.mu.Lock()
+			b.baselineLocked(s)
+			err := b.saveLocked()
+			b.mu.Unlock()
+			return err == nil
+		}
+		select {
+		case <-ctx.Done():
+			return false
 		case <-ticker.C:
-			s := b.host.Snapshot()
-			if !baseline && ready(s) {
-				b.mu.Lock()
-				b.baselineLocked(s)
-				_ = b.saveLocked()
-				b.mu.Unlock()
-				baseline = true
-			}
-			if !baseline || b.backingOff() {
+		}
+	}
+	return false
+}
+
+// One output worker bounds concurrency and reads the newest snapshot on each
+// tick, coalescing stream edits without accumulating work. Slow sends/uploads
+// cannot block incoming stop, status or approval actions. Both workers join on
+// cancellation before the lifecycle owner replaces their configuration.
+func (b *Bridge) output(ctx context.Context, c client) {
+	_ = c.Commands(ctx)
+	ticker := time.NewTicker(1100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if ctx.Err() != nil || b.backingOff() {
 				continue
 			}
-			b.mirror(ctx, c, s)
-			b.flushFiles(ctx, c)
+			b.mirror(ctx, c, b.host.Snapshot())
+			if ctx.Err() == nil {
+				b.flushFiles(ctx, c)
+			}
 		}
 	}
 }
@@ -542,7 +574,7 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 		return true
 	}
 	b.mu.Lock()
-	chat, owner := b.state.ChatID, b.state.UserID
+	chat, owner, bot := b.state.ChatID, b.state.UserID, b.state.BotID
 	nonce := b.nonce
 	expires := b.expires
 	b.mu.Unlock()
@@ -560,11 +592,14 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 	if m.Chat.ID != chat || m.From.ID != owner {
 		return true
 	}
-	request := fmt.Sprintf("telegram:%d:%d", b.state.BotID, m.MessageID)
+	request := fmt.Sprintf("telegram:%d:%d", bot, m.MessageID)
 	b.mu.Lock()
 	_, exists := b.state.Inputs[request]
 	if !exists {
 		b.state.Inputs[request] = "dispatching"
+		// Output may observe the native user item while Submit is still running.
+		// Record its Telegram origin before dispatch so it cannot echo back as Mac input.
+		b.state.Messages["input:"+request] = delivery{Skip: true}
 		if b.saveLocked() != nil {
 			b.mu.Unlock()
 			return false
@@ -836,6 +871,9 @@ func (b *Bridge) sendText(ctx context.Context, c client, key string, chat int64,
 		return
 	}
 	for part, value := range splitText(text) {
+		if ctx.Err() != nil {
+			return
+		}
 		hash := digest(value)
 		b.mu.Lock()
 		record := b.state.Messages[key]
@@ -894,7 +932,7 @@ func (b *Bridge) sendText(ctx context.Context, c client, key string, chat int64,
 	}
 }
 func (b *Bridge) sendFile(ctx context.Context, c client, key, path string) {
-	if b.backingOff() {
+	if ctx.Err() != nil || b.backingOff() {
 		return
 	}
 	b.mu.Lock()
@@ -940,6 +978,9 @@ func (b *Bridge) flushFiles(ctx context.Context, c client) {
 	}
 	b.mu.Unlock()
 	for key, relative := range pending {
+		if ctx.Err() != nil {
+			return
+		}
 		if !filepath.IsLocal(relative) {
 			b.setIssue("storage")
 			continue

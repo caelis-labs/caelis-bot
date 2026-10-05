@@ -19,6 +19,7 @@ type fakeClient struct {
 	mu                               sync.Mutex
 	sends, edits, documents, answers int
 	texts                            []string
+	documentBytes                    []string
 	sendErr                          error
 	webhook                          bool
 	takeovers                        int
@@ -53,12 +54,27 @@ func (f *fakeClient) Edit(_ context.Context, _ int64, _ int, text string) error 
 	f.texts = append(f.texts, text)
 	return nil
 }
-func (f *fakeClient) Document(context.Context, int64, string) error { f.documents++; return nil }
+func (f *fakeClient) Document(_ context.Context, _ int64, path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.documents++
+	f.documentBytes = append(f.documentBytes, string(data))
+	return nil
+}
 func (f *fakeClient) Download(_ context.Context, _ string, path string) error {
 	return os.WriteFile(path, f.download, 0600)
 }
-func (f *fakeClient) Answer(context.Context, string, string) error { f.answers++; return nil }
-func (f *fakeClient) Commands(context.Context) error               { return nil }
+func (f *fakeClient) Answer(context.Context, string, string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answers++
+	return nil
+}
+func (f *fakeClient) Commands(context.Context) error { return nil }
 func testBridge(t *testing.T, h Host) (*Bridge, *fakeClient) {
 	t.Helper()
 	if h.Snapshot == nil {
@@ -346,5 +362,223 @@ func TestOwnedArtifactsExportOnceAndEarlierPaginationStaysPrivate(t *testing.T) 
 	b.mirror(t.Context(), f, s)
 	if f.sends != 1 || f.documents != 1 {
 		t.Fatal("pagination leaked or artifact duplicated", f.sends, f.documents)
+	}
+}
+
+func awaitBridge(t *testing.T, check func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if check() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("bridge did not reach expected state")
+}
+
+func TestDelayedBackendRecoveryBaselinesBeforeQueuedInput(t *testing.T) {
+	var mu sync.Mutex
+	view := api.Snapshot{Connection: "connecting"}
+	unready := make(chan struct{}, 1)
+	b, f := testBridge(t, Host{
+		Snapshot: func() api.Snapshot {
+			mu.Lock()
+			defer mu.Unlock()
+			if !ready(view) {
+				select {
+				case unready <- struct{}{}:
+				default:
+				}
+			}
+			return view
+		},
+		Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			view.Items = append(view.Items, api.Item{ID: "fresh", Kind: "assistant", Text: "fresh reply"})
+			return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+		},
+	})
+	paired(b)
+	f.updates <- []tg.Update{message(1, 10, 20, "new work")}
+	b.launch(f)
+	select {
+	case <-unready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("startup did not inspect backend")
+	}
+	b.mu.Lock()
+	acceptedBeforeRecovery := len(b.state.Inputs) != 0
+	b.mu.Unlock()
+	if acceptedBeforeRecovery {
+		t.Fatal("input was dispatched before recovery boundary")
+	}
+	mu.Lock()
+	view = api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "old", Kind: "assistant", Text: "private recovered history"}}}
+	mu.Unlock()
+	// Submit publishes its reply immediately, before the first output tick.
+	awaitBridge(t, func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.sends == 1 })
+	b.Close()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.state.Messages["item:old"].Skip || b.state.Messages["item:fresh"].Skip || b.state.Inputs["telegram:123:1"] != "accepted" {
+		t.Fatal("recovered history and fresh reply were not separated")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.texts) != 1 || f.texts[0] != "fresh reply" {
+		t.Fatal("fresh reply missing or private history published")
+	}
+}
+
+func TestDesktopSameNamedAttachmentsKeepSeparateBytesAndCleanup(t *testing.T) {
+	b, f := testBridge(t, Host{})
+	paired(b)
+	files := make([]api.InputFile, 2)
+	for index, data := range []string{"first report", "second report"} {
+		path := filepath.Join(t.TempDir(), "report.txt")
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+		files[index] = api.InputFile{Name: "report.txt", Path: path}
+	}
+	b.Accepted(api.Submission{ID: "two-files"}, files, api.Receipt{Outcome: "accepted"})
+	if len(b.state.PendingFiles) != 2 {
+		t.Fatal("same-name attachments collapsed")
+	}
+	var staged []string
+	for _, relative := range b.state.PendingFiles {
+		staged = append(staged, filepath.Join(b.root, relative))
+	}
+	if staged[0] == staged[1] || filepath.Base(staged[0]) != "report.txt" || filepath.Base(staged[1]) != "report.txt" {
+		t.Fatal("attachment identity or display name lost")
+	}
+	for _, file := range files {
+		os.Remove(file.Path)
+	}
+	b.flushFiles(t.Context(), f)
+	b.flushFiles(t.Context(), f)
+	if f.documents != 2 || len(b.state.PendingFiles) != 0 {
+		t.Fatal("attachments not delivered exactly once")
+	}
+	seen := map[string]bool{}
+	for _, data := range f.documentBytes {
+		seen[data] = true
+	}
+	if !seen["first report"] || !seen["second report"] {
+		t.Fatal("same-name bytes overwritten")
+	}
+	for _, path := range staged {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("private upload copy was not cleaned")
+		}
+	}
+}
+
+type blockedDocumentClient struct {
+	*fakeClient
+	started, finished chan struct{}
+}
+
+func (f *blockedDocumentClient) Document(ctx context.Context, _ int64, _ string) error {
+	close(f.started)
+	defer close(f.finished)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestBlockedUploadDoesNotBlockControlsAndCloseJoinsWorkers(t *testing.T) {
+	stopped := make(chan struct{}, 1)
+	decided := make(chan api.Decision, 1)
+	b, f := testBridge(t, Host{
+		Snapshot: func() api.Snapshot {
+			return api.Snapshot{Connection: "ready", Approvals: []api.Approval{{ID: "pending", Status: "pending", Choices: []api.Choice{{ID: "once", Label: "Allow once"}}}}}
+		},
+		Interrupt: func(context.Context) error { stopped <- struct{}{}; return nil },
+		Decide:    func(_ context.Context, d api.Decision) error { decided <- d; return nil },
+	})
+	paired(b)
+	source := filepath.Join(t.TempDir(), "upload.txt")
+	os.WriteFile(source, []byte("fixture"), 0600)
+	b.Accepted(api.Submission{ID: "desktop-upload"}, []api.InputFile{{Name: "upload.txt", Path: source}}, api.Receipt{Outcome: "accepted"})
+	blocked := &blockedDocumentClient{f, make(chan struct{}), make(chan struct{})}
+	b.launch(blocked)
+	select {
+	case <-blocked.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("upload did not start")
+	}
+	f.updates <- []tg.Update{
+		message(1, 10, 20, "/stop"), message(2, 10, 20, "/status"),
+		{UpdateID: 3, CallbackQuery: &tg.CallbackQuery{ID: "choice", From: tg.User{ID: 20}, Message: &tg.Message{Chat: tg.Chat{ID: 10}}, Data: callbackID("pending", "once")}},
+	}
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("slow upload blocked interrupt")
+	}
+	select {
+	case d := <-decided:
+		if d.ID != "pending" || d.Choice != "once" {
+			t.Fatal("approval identity lost")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("slow upload blocked approval")
+	}
+	awaitBridge(t, func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.answers == 1 && f.sends == 2 })
+	select {
+	case <-blocked.finished:
+		t.Fatal("upload finished before controls were handled")
+	default:
+	}
+	done := make(chan struct{})
+	go func() { b.Close(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not cancel and join workers")
+	}
+	select {
+	case <-blocked.finished:
+	default:
+		t.Fatal("Close returned while upload was still running")
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.state.Offset != 4 || b.state.Inputs["telegram:123:1"] != "handled" || b.state.Messages["upload:desktop-upload:0"].IDs[0] != -1 {
+		t.Fatal("control offset or uncertain upload receipt lost")
+	}
+}
+
+func TestCloseCancelsWaitingForBackendRecovery(t *testing.T) {
+	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "connecting"} }})
+	b.launch(f)
+	done := make(chan struct{})
+	go func() { b.Close(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Close blocked on backend recovery")
+	}
+}
+
+func TestRemoteInputCannotEchoDuringConcurrentOutput(t *testing.T) {
+	published := make(chan api.Submission, 1)
+	release := make(chan struct{})
+	b, f := testBridge(t, Host{Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+		published <- in
+		<-release
+		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+	}})
+	paired(b)
+	done := make(chan struct{})
+	go func() { defer close(done); b.input(t.Context(), f, message(1, 10, 20, "remote input")) }()
+	in := <-published
+	b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{{ID: "user", Kind: "user", RequestID: in.ID, Text: in.Text}, {ID: "reply", Kind: "assistant", Text: "reply while submit completes"}}})
+	close(release)
+	<-done
+	if f.sends != 1 || len(f.texts) != 1 || f.texts[0] != "reply while submit completes" {
+		t.Fatal("concurrent output echoed Telegram input")
 	}
 }

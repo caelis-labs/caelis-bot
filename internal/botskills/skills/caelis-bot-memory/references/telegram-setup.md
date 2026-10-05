@@ -53,6 +53,12 @@ click Try connecting again; do not keep reconnecting competing clients.
 - For network errors, check internet access and the Mac's proxy/VPN. For a blocked
   Bot, unblock it in Telegram. For Keychain access errors, allow Caelis Bot access
   or paste the token again in settings.
+- After restarting the Mac app, messages wait until its existing conversation is
+  recovered. Do not ask the user to resend while it is reconnecting. Sending a
+  large outgoing attachment does not prevent `/stop`, `/status`, or approval choices.
+- The app uses the Mac's system proxy, including automatic configuration (PAC).
+  If that configuration cannot load or run, help the user check the proxy/VPN;
+  do not advise bypassing it or exposing the token to diagnose connectivity.
 - An uncertain delivery is not permission to repeat it. Inspect the original
   message on the Mac and Telegram before deciding whether to send anything again.
 - Pause retains the saved pairing and token. Remove connection clears the pairing
