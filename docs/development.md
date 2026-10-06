@@ -19,14 +19,15 @@ and checks assets; it does not create a conversation or call a model. `make buil
 First builds fetch pinned Sparkle and Desktop World artifacts; versions/hashes remain source-controlled.
 
 The current Desktop World SDK and packaged `bin/dtw` helper are pinned together
-to v0.1.0-rc.2 / `e7b53a1812fe3892cf8e4b903479d208dfaa0104`.
+to v0.1.0-rc.3 / `43172bb1f3dd26b90a88c346bc9978cbabab5785`.
 The archive checksum is in `resources/desktop-world/release.json`; bundle validation
 requires upstream LICENSE, NOTICE, THIRD_PARTY_NOTICES.md and corresponding
 source/ under the MPL-2.0 release. The macOS archive is ad-hoc signed and not
 notarized; app distribution has its own signing and Gatekeeper gates. Historical uptake
 records below retain the version and evidence of their original runs.
-The rc.2 Bot integration matrix and its unqualified paths are recorded in
-`docs/evidence/desktop-world-rc2/README.md`.
+The rc.3 delta acceptance and its remaining limits are recorded in
+`docs/evidence/desktop-world-rc3/README.md`; the historical rc.2 matrix
+remains in `docs/evidence/desktop-world-rc2/README.md`.
 
 ## Native development
 

@@ -16,6 +16,13 @@ Semantic state changes have no automatic pointer/keyboard fallback. Unknown or
 mixed checked state is not false. Selection follows the provider's rules and
 may affect other items; do not clear siblings yourself.
 
+For a browser checkbox, first confirm one current target, a known checked
+state, and `set_checked` as `supported/available`. Repeating an already met
+desired state may verify with `delivery:not_applicable`; it does not imply a
+second browser event. A disabled or read-only refusal is a stop before input,
+not a reason to switch to pointer input. Inspect the resulting state and the
+application's own visible effect when the user task depends on its event.
+
 A Ref and a capability establish identity/support, not what an unnamed button
 does. Use an observed menu, documented in-app shortcut, or pixels when needed.
 After creating a document verify its identity and initial content; closing a
@@ -61,6 +68,10 @@ requires a fresh observation; never predict its Ref. Use explicit `before` and
 of model polling. `completion:"verify"` for other writes requires nonempty
 `after` predicates. To invoke without one use `completion:"dispatch"` and inspect
 the result separately.
+`ambiguous_target` from `bind` means its bounded query did not yield exactly
+one object. Preserve that receipt, observe the actual menu or dialog, and
+form a new narrowly scoped plan only after you know the unique target. Do not
+infer that a menu command ran when binding stopped before delivery.
 
 Only confirmed Bot-local validation before the request is recorded permits
 correcting arguments under the same ID (local preflight returns top-level

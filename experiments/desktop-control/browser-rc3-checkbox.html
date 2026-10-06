@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Bot RC3 Chrome Checkbox Fixture</title>
+<style>body{font:18px system-ui;margin:40px}label{display:block;margin:20px 0}</style>
+<h1>Disposable Bot rc.3 checkbox fixture</h1>
+<p>No network, storage, accounts or external effects.</p>
+<label><input id="box" type="checkbox" aria-label="Bot RC3 checkbox"> Bot RC3 checkbox</label>
+<label><input id="disabled" type="checkbox" disabled aria-label="Bot RC3 disabled checkbox"> Bot RC3 disabled checkbox</label>
+<pre id="status"></pre>
+<script>
+const run = new URLSearchParams(location.search).get('run');
+if (!run || !/^[a-z0-9-]+$/.test(run)) throw Error('unique fixture run required');
+document.title = `Bot RC3 Chrome Checkbox Fixture ${run}`;
+const box = document.getElementById('box');
+const events = [];
+for (const type of ['input', 'change']) {
+  box.addEventListener(type, () => { events.push({type, checked: box.checked}); render(); });
+}
+function evidence() { return {title: document.title, checked: box.checked,
+  disabledChecked: document.getElementById('disabled').checked, events}; }
+function render() { document.getElementById('status').textContent = JSON.stringify(evidence()); }
+window.botRC3Evidence = evidence;
+render();
+</script>
+</html>

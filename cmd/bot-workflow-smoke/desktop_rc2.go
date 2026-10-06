@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -19,7 +20,12 @@ import (
 // This opt-in acceptance uses the installed native Codex login, but owns a
 // fresh Bot store, Codex thread, App Server process and synthetic UI fixture.
 // It never attaches to the standard shared App Server socket.
-func runDesktopRC2() error {
+func runDesktopRC2() error { return runDesktopAcceptance("rc2") }
+func runDesktopRC3() error { return runDesktopAcceptance("rc3") }
+
+func runDesktopAcceptance(release string) error {
+	expectedText := strings.ToUpper(release) + "_MODEL_DESKTOP_OK"
+	requestID := release + "-model-desktop-once"
 	base := os.Getenv("BOT_ACCEPTANCE_EVIDENCE")
 	helper := os.Getenv("BOT_ACCEPTANCE_DESKTOP_HELPER")
 	title := os.Getenv("BOT_ACCEPTANCE_DESKTOP_TITLE")
@@ -83,7 +89,7 @@ func runDesktopRC2() error {
 		defer done()
 		_ = s.Close(closeCtx)
 	}()
-	proof := map[string]any{"nativeIdentity": "installed login (not copied)", "appServer": "private owned instance via absent dedicated socket", "botData": "new private directory", "fixtureTitle": title, "expectedToolCatalog": []string{"bot_desktop_inspect", "bot_desktop_authorize", "bot_desktop_act", "bot_desktop_result"}, "requestId": "rc2-model-desktop-once"}
+	proof := map[string]any{"nativeIdentity": "installed login (not copied)", "appServer": "private owned instance via absent dedicated socket", "botData": "new private directory", "fixtureTitle": title, "expectedToolCatalog": []string{"bot_desktop_inspect", "bot_desktop_authorize", "bot_desktop_act", "bot_desktop_result"}, "requestId": requestID, "desktopWorld": release}
 	save := func(status string) error {
 		v := s.Snapshot()
 		proof["status"] = status
@@ -126,8 +132,8 @@ func runDesktopRC2() error {
 	if _, err := os.Stat(resultPath); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("synthetic fixture result must be absent before the only model request")
 	}
-	prompt := fmt.Sprintf(`Use the four compact Bot desktop tools and the supplied skill. You may read only that skill and its linked desktop references with the native file reader. Find only the existing disposable window titled %q in the Caelis Desktop Control Fixture application. Inspect narrowly, authorize exactly that observed application for this task, set its "Verification text" field to RC2_MODEL_DESKTOP_OK, invoke "Submit once" exactly once, then query the original action receipt and independently read back the field and Submitted: 1. If native approval is required, wait for it; never imply it was granted. If any action has partial or unknown outcome, query only its original requestId and stop. Do not touch any other application or use a shell for interaction.`, title)
-	receipt, err := s.Submit(ctx, api.Submission{ID: "rc2-model-desktop-once", Text: prompt}, nil)
+	prompt := fmt.Sprintf(`Use the four compact Bot desktop tools and the supplied skill. You may read only that skill and its linked desktop references with the native file reader. Find only the existing disposable window titled %q in the Caelis Desktop Control Fixture application. Inspect narrowly, authorize exactly that observed application for this task, set its "Verification text" field to %s, invoke "Submit once" exactly once, then query the original action receipt and independently read back the field and Submitted: 1. If native approval is required, wait for it; never imply it was granted. If any action has partial or unknown outcome, query only its original requestId and stop. Do not touch any other application or use a shell for interaction.`, title, expectedText)
+	receipt, err := s.Submit(ctx, api.Submission{ID: requestID, Text: prompt}, nil)
 	if err != nil || receipt.Outcome != "accepted" {
 		proof["submissionOutcome"] = receipt.Outcome
 		_ = save("submission_unconfirmed")
@@ -147,7 +153,7 @@ func runDesktopRC2() error {
 				Text        string `json:"text"`
 			}
 			b, err := os.ReadFile(resultPath)
-			if err != nil || json.Unmarshal(b, &actual) != nil || actual.Submissions != 1 || actual.Text != "RC2_MODEL_DESKTOP_OK" {
+			if err != nil || json.Unmarshal(b, &actual) != nil || actual.Submissions != 1 || actual.Text != expectedText {
 				_ = save("completed_without_app_effect")
 				return errors.New("model turn completed without independently verified exact-once app effect")
 			}

@@ -24,6 +24,6 @@ rm -rf "$BOT_DW_DEST"
 mkdir -p "$BOT_DW_DEST/bin"
 cp "$BOT_DW_SOURCE/bin/dtw" "$BOT_DW_DEST/bin/dtw"
 cp "$BOT_DW_SOURCE/manifest.json" "$BOT_DW_SOURCE/LICENSE" "$BOT_DW_SOURCE/NOTICE" "$BOT_DW_SOURCE/THIRD_PARTY_NOTICES.md" "$BOT_DW_DEST/"
-# The rc.2 helper is MPL-2.0. Preserve its corresponding source in the app.
+# The pinned helper is MPL-2.0. Preserve its corresponding source in the app.
 cp -R "$BOT_DW_SOURCE/source" "$BOT_DW_DEST/source"
 /usr/libexec/PlistBuddy -c "Add CaelisDesktopWorldVersion string $BOT_DW_VERSION" "$BOT_DW_BUNDLE/Contents/Info.plist"

@@ -1,8 +1,8 @@
 {
-  "version": "v0.1.0-rc.2",
-  "revision": "e7b53a1812fe3892cf8e4b903479d208dfaa0104",
+  "version": "v0.1.0-rc.3",
+  "revision": "43172bb1f3dd26b90a88c346bc9978cbabab5785",
   "module": "github.com/caelis-labs/desktop-world",
-  "archive": "desktop-world-v0.1.0-rc.2-darwin-arm64.tar.gz",
-  "sha256": "7ff6a44ec7cd8cba63f6f799a3729141d384afd8d2e5154dee69cb9d546e95cc",
+  "archive": "desktop-world-v0.1.0-rc.3-darwin-arm64.tar.gz",
+  "sha256": "9bf246b352c37f4e7f719fc222ab528221abc8e0fcba83ab61b03ba715b9fbd9",
   "minimum_macos": "14.0"
 }
