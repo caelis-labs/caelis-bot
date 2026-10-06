@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.0](https://github.com/caelis-labs/caelis-bot/compare/v0.7.0...v0.8.0) (2026-10-06)
+
+
+### Features
+
+* make native approvals actionable across Bot channels ([#83](https://github.com/caelis-labs/caelis-bot/issues/83)) ([8fb5cdb](https://github.com/caelis-labs/caelis-bot/commit/8fb5cdbecf670da0d4c92fd41cbb5c467cad0aa1))
+
+
+### Bug Fixes
+
+* chat lifecycle, clipboard attachments and Telegram user identity ([#80](https://github.com/caelis-labs/caelis-bot/issues/80)) ([5a43015](https://github.com/caelis-labs/caelis-bot/commit/5a43015d5694b08a2d46d331164bb2a7a9a21768))
+* sticker input, chat image previews and disconnect diagnostics ([#78](https://github.com/caelis-labs/caelis-bot/issues/78)) ([9fb2448](https://github.com/caelis-labs/caelis-bot/commit/9fb244837b598f33fcd2bb638702e6a06d1ac980))
+
 ## [0.7.0](https://github.com/caelis-labs/caelis-bot/compare/v0.6.0...v0.7.0) (2026-10-05)
 
 
