@@ -182,7 +182,7 @@ func TestFileStoreRecovery(t *testing.T) {
 	// separate user-profile ACL verification; do not claim this check covers it.
 	if runtime.GOOS != "windows" {
 		info, err := os.Stat(store.path)
-		if err != nil || info.Mode().Perm() != 0600 {
+		if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 			t.Fatal("preferences permissions too broad", err)
 		}
 	}

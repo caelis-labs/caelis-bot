@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,13 @@ type fakeEngine struct {
 	view        api.Snapshot
 	outcome     string
 	submissions []api.Submission
+}
+
+func requireNativeIPC(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows Named Pipe adapter is explicitly unsupported until native acceptance")
+	}
 }
 
 func (f *fakeEngine) Snapshot() api.Snapshot { return f.view }
@@ -168,6 +176,7 @@ func TestDailyScheduleUsesZoneAcrossDST(t *testing.T) {
 	}
 }
 func TestPrivateBridgeRejectsWrongTokenAndRoundTripsRealMCP(t *testing.T) {
+	requireNativeIPC(t)
 	r, _, _ := fixture(t)
 	b, e := Serve(r)
 	if e != nil {
@@ -218,6 +227,7 @@ func TestGestureAllowlist(t *testing.T) {
 }
 
 func TestBotApprovalIsAnExplicitToolAllowlist(t *testing.T) {
+	requireNativeIPC(t)
 	r, _, _ := fixture(t)
 	b, err := Serve(r)
 	if err != nil {

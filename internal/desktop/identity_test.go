@@ -12,7 +12,7 @@ func TestDevelopmentAndReleaseIdentityAndDataStaySeparate(t *testing.T) {
 	// Preserve any caller override while exercising the default profile path.
 	t.Setenv("CAELIS_BOT_DATA_DIR", "")
 	_ = os.Unsetenv("CAELIS_BOT_DATA_DIR")
-	config, err := os.UserConfigDir()
+	config, err := nativeDataDirectoryBase()
 	if err != nil {
 		t.Fatal(err)
 	}

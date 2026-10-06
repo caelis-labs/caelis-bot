@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -112,7 +113,14 @@ func waitSignal(t *testing.T, ch <-chan struct{}) {
 		t.Fatal("lifecycle did not advance")
 	}
 }
+func requireNativeIPC(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows Named Pipe adapter is explicitly unsupported until native acceptance")
+	}
+}
 func TestProductLifecycleBindsBeforeConnectObservesAndClosesOnce(t *testing.T) {
+	requireNativeIPC(t)
 	e := newTestEngine()
 	observed := make(chan struct{})
 	a, _ := fixtureApp(t, e, Host{Observe: func(s api.Snapshot) {
@@ -168,6 +176,7 @@ func TestCloseBeforeNativeReadyDoesNotCreateResidentState(t *testing.T) {
 	}
 }
 func TestToolBindingFailureDoesNotConnectAndReleasesEndpoint(t *testing.T) {
+	requireNativeIPC(t)
 	e := newTestEngine()
 	e.bindErr = errors.New("unsupported tool binding")
 	a, _ := fixtureApp(t, e, Host{})
@@ -340,6 +349,7 @@ func TestPersonalInitializationPreservesLegacyRuntimeChoice(t *testing.T) {
 }
 
 func TestNotebookSkillIsResidentOnlyAndRegeneratesExternalNotes(t *testing.T) {
+	requireNativeIPC(t)
 	e := newTestEngine()
 	a, root := fixtureApp(t, e, Host{})
 	defer a.Close()
@@ -399,6 +409,7 @@ func (d *neverDesktop) CallTool(context.Context, string, json.RawMessage) api.To
 	return api.ToolResult{}
 }
 func TestDesktopWorldAssemblyOwnsResidentDesktop(t *testing.T) {
+	requireNativeIPC(t)
 	e := newTestEngine()
 	desktop := &neverDesktop{}
 	a, _ := fixtureApp(t, e, Host{DesktopControl: desktop})

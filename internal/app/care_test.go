@@ -13,6 +13,7 @@ import (
 )
 
 func TestCareLoadFailureDoesNotPreventPersonalPreparationOrStart(t *testing.T) {
+	requireNativeIPC(t)
 	for _, fault := range []string{"invalid-json", "invalid-rule", "unsupported-version", "unreadable", "directory"} {
 		t.Run(fault, func(t *testing.T) {
 			e := newTestEngine()
@@ -113,6 +114,7 @@ func TestCareLoadFailureDoesNotPreventPersonalPreparationOrStart(t *testing.T) {
 }
 
 func TestRegisteredCareAdapterUsesApplicationLifecycle(t *testing.T) {
+	requireNativeIPC(t)
 	a, _ := fixtureApp(t, newTestEngine(), Host{
 		CareSample:  func() care.Sample { return care.Sample{} },
 		CareSources: []care.Source{{Name: "repository.checks", Description: "Fixture collector", Fields: map[string]string{"failed": "integer"}}},

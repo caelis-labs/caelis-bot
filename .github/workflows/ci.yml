@@ -134,7 +134,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Run portable product contracts
-        run: go test ./internal/app ./internal/backend/api ./internal/bot ./internal/desktop ./internal/localipc ./internal/runtimeenv ./internal/updates
+        run: go test ./internal/app ./internal/backend/api ./internal/bot ./internal/care ./internal/desktop ./internal/localipc ./internal/localstate ./internal/runtimeenv ./internal/updates
   windows-product:
     needs: scope
     if: contains(fromJSON('["full","shared","windows"]'), needs.scope.outputs.kind)
@@ -159,7 +159,7 @@ jobs:
       - name: Run native Windows shared and platform contracts
         shell: pwsh
         run: |
-          go test ./internal/app ./internal/backend/api ./internal/bot ./internal/desktop ./internal/localipc ./internal/runtimeenv ./internal/updates ./internal/tasks ./internal/taskterminal
+          go test ./internal/app ./internal/backend/api ./internal/bot ./internal/care ./internal/desktop ./internal/localipc ./internal/localstate ./internal/runtimeenv ./internal/updates ./internal/tasks ./internal/taskterminal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test script/ci-scope.test.mjs script/release-version.test.mjs script/update.test.mjs script/publication.test.mjs script/desktop-world.test.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

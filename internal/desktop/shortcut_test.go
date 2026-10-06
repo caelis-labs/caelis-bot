@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -69,7 +70,7 @@ func TestShortcutConflictPersistenceAndHiddenPet(t *testing.T) {
 		t.Fatal("late shortcut reopened chat after shutdown")
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatal("preferences permissions", err)
 	}
 }

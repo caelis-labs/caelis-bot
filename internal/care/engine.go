@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"sync"
@@ -69,12 +68,7 @@ func durableWrite(path string, value any) error {
 	if err := localstate.Write(path, value); err != nil {
 		return err
 	}
-	d, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return localstate.SyncParent(path)
 }
 func Open(path string) (*Engine, error) { return OpenWithSources(path, NativeSources()) }
 func OpenWithSources(path string, sources []Source) (*Engine, error) {

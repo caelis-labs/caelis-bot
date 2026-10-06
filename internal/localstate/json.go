@@ -28,7 +28,7 @@ func Write(path string, value any) error {
 		err = closed
 	}
 	if err == nil {
-		err = os.Rename(f.Name(), path)
+		err = renameStateFile(f.Name(), path)
 	}
 	return err
 }

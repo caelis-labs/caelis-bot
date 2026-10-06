@@ -1,3 +1,5 @@
+//go:build !windows
+
 package localipc
 
 import (
@@ -9,8 +11,8 @@ import (
 )
 
 func Listen() (*Listener, error) {
-	// A short private directory avoids Darwin's Unix-socket path limit; the
-	// user's macOS TMPDIR can already consume most of that limit.
+	// A short private directory avoids Unix-socket path limits; the user's
+	// TMPDIR can already consume most of that limit.
 	dir, err := os.MkdirTemp("/tmp", "caelis-bot-")
 	if err != nil {
 		return nil, err

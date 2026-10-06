@@ -12,7 +12,7 @@
 - `internal/desktop/assembly.go` owns the one `app.Application` and binds the desktop/backend services. `runtime_darwin.go` keeps native windows, tray, AppKit lifecycle, relaunch and updater. Windows must call the shared assembly once; do not copy the Mac runtime or create a second product core.
 - `internal/app.Host` is the small effect port for URLs, files, trash, notifications, observation and Desktop World. `internal/desktop/feature_capabilities.go` and `frontend/src/capabilities.ts` distinguish `supported`, `available`, saved `enabled`, and OS `permission`; user choices and OS grants stay separate.
 - `internal/secretstore.Store` is consumed by Telegram and SSH machine profiles. Native Mac adapters still use the existing Keychain scopes. Implement Windows Credential Manager per consumer and keep secrets out of renderer state and logs.
-- `internal/localipc.Endpoint` names transport. Darwin still uses a private Unix socket; Windows `Listen/Dial` deliberately return unsupported. `internal/taskterminal/arguments.go` has bounded argv for local task observation; the POSIX script/receipt implementation is excluded on Windows and its stub fails explicitly.
+- `internal/localipc.Endpoint` names transport. Darwin and Linux headless use a private Unix socket; Windows `Listen/Dial` deliberately return unsupported. `internal/localstate` uses a flushed temporary file and Windows `MoveFileEx` write-through replacement for durable care/receipt state; native ACL enforcement remains a Windows acceptance gate. `internal/taskterminal/arguments.go` has bounded argv for local task observation; the POSIX script/receipt implementation is excluded on Windows and its stub fails explicitly.
 - `internal/desktop/data_directory_windows.go` selects `%LOCALAPPDATA%/Caelis Bot` or `Caelis Bot Dev`; an explicit absolute `CAELIS_BOT_DATA_DIR` remains the isolated test profile. The final Windows preview identity should have its own package and data root.
 - `resources/desktop-world/release.json` pins rc.3 at revision `43172bb1f3dd26b90a88c346bc9978cbabab5785` for Darwin arm64 and Windows amd64. The official Windows zip SHA-256 is `c847a4b5068cbe49bcc7527fbd546584e16989e8138a365116128c0b1f850a63`; `script/stage-desktop-world-windows.ps1` checks archive, binary, manifest, source and licenses. No Windows desktop action is claimed from that packaging check.
 - `.github/workflows/ci.yml` routes shared/frontend/protocol/dependency changes to macOS and native Windows, platform-only edits to their own runner plus shared sanity, unknown paths to all. `product` remains fail closed; Linux headless checks remain. Windows currently builds an unsupported bootstrap, deliberately.
@@ -34,7 +34,7 @@
 ```powershell
 $env:GOWORK = 'off'
 $env:CGO_ENABLED = '0' # shared-core tests only; native Wails build uses its required toolchain
-go test ./internal/app ./internal/backend/api ./internal/bot ./internal/desktop ./internal/localipc ./internal/runtimeenv ./internal/updates ./internal/tasks ./internal/taskterminal
+go test ./internal/app ./internal/backend/api ./internal/bot ./internal/care ./internal/desktop ./internal/localipc ./internal/localstate ./internal/runtimeenv ./internal/updates ./internal/tasks ./internal/taskterminal
 npm ci
 npm run check
 node --test script/ci-scope.test.mjs script/release-version.test.mjs script/update.test.mjs script/publication.test.mjs script/desktop-world.test.mjs

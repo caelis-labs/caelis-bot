@@ -5,6 +5,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -35,7 +36,7 @@ func TestSelectedWorkspaceAndAutomaticPins(t *testing.T) {
 				t.Fatal(v, err, changes)
 			}
 			info, _ := os.Stat(selected)
-			if info.Mode().Perm() != 0755 {
+			if runtime.GOOS != "windows" && info.Mode().Perm() != 0755 {
 				t.Fatal("changed project permissions")
 			}
 			if b, _ := os.ReadFile(filepath.Join(selected, "sentinel")); string(b) != "keep" {

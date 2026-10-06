@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -217,7 +218,7 @@ func TestSelectedFilesSurviveRestartAndMissingFilesRemainRemovable(t *testing.T)
 		t.Fatal("removed file restored", err)
 	}
 	info, _ := os.Stat(selection)
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatal("selection path metadata not private")
 	}
 }

@@ -3,6 +3,7 @@ package desktop
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestLanguagePersistenceAndPublication(t *testing.T) {
 		t.Fatal(state, err, events)
 	}
 	stat, _ := os.Stat(file)
-	if stat.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && stat.Mode().Perm() != 0600 {
 		t.Fatal(stat.Mode())
 	}
 	restarted := newService(&memoryStore{})
