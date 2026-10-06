@@ -5,7 +5,13 @@
 
 ### Features
 
-* make native approvals actionable across Bot channels ([#83](https://github.com/caelis-labs/caelis-bot/issues/83)) ([8fb5cdb](https://github.com/caelis-labs/caelis-bot/commit/8fb5cdbecf670da0d4c92fd41cbb5c467cad0aa1))
+* show Runtime-native approval choices on the desktop and as actionable Telegram buttons; retain original receipts through competing decisions and reconnects ([#83](https://github.com/caelis-labs/caelis-bot/pull/83)) ([8fb5cdb](https://github.com/caelis-labs/caelis-bot/commit/8fb5cdbecf670da0d4c92fd41cbb5c467cad0aa1))
+
+
+### Other Changes
+
+* simplify messaging setup, make screen capture optional, and keep internal task notices out of chat ([#81](https://github.com/caelis-labs/caelis-bot/pull/81))
+* pin the macOS Desktop World SDK and bundled helper to public v0.1.0-rc.3, with dynamic app authorization and cooperative desktop input ([#82](https://github.com/caelis-labs/caelis-bot/pull/82))
 
 
 ### Bug Fixes
