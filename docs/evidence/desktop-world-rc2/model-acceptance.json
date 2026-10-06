@@ -1,0 +1,30 @@
+{
+  "scope": "one synthetic AppKit window, one isolated Bot profile and owned Codex App Server, existing native ChatGPT login",
+  "model_cli": "codex-cli 0.160.0",
+  "first_dry_run": "stopped before any desktop tool: test instruction prevented required read-only skill loading; no fixture result file",
+  "successful_turn": {
+    "actual_bot_tool_calls_from_exact_synthetic_native_rollout": {
+      "bot_desktop_inspect": 9,
+      "bot_desktop_authorize": 1,
+      "bot_desktop_act": 2,
+      "bot_desktop_result": 1
+    },
+    "native_grant": "active for the observed synthetic application",
+    "first_act": "Bot-local invalid_arguments: set_value missing text; rejected before helper request registration or input",
+    "second_act": {
+      "original_request_id": "rc2-model-desktop-20261006-0820-submit-001",
+      "receipt_outcome": "completed",
+      "set_value": "delivery complete; verification verified",
+      "invoke": "delivery complete; verification not_requested by dispatch completion",
+      "input_mode": "cooperative"
+    },
+    "same_id_result": "same run ID and completed receipt",
+    "fresh_ax_readback": "Verification text: RC2_MODEL_DESKTOP_OK; Submitted: 1",
+    "app_owned_result": {
+      "submissions": 1,
+      "text": "RC2_MODEL_DESKTOP_OK"
+    },
+    "pending_native_approvals_at_completion": 0
+  },
+  "limitations": "This proves a model-driven synthetic Bot turn and active native authorization, not a human approval UI flow, real capture permission, or the Chrome semantic checkbox failure. The native reviewer decision details were not retained by the test harness."
+}

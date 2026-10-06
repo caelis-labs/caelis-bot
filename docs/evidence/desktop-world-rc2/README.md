@@ -2,9 +2,9 @@
 
 Scope: macOS arm64, isolated native and browser/Electron fixtures, the actual
 rc.2 release helper bundled in a local **ad-hoc signed** Dev app, and Bot
-contract/Runtime fixtures. An isolated Dev Bot with fresh Bot data and empty
-Codex home reached its actual first-use window; that Codex home reported `Not
-logged in`, so no model request was sent. This is not a public release,
+contract/Runtime fixtures. A subsequent isolated Bot acceptance used the
+installed native Codex login with a fresh Bot profile, synthetic native thread,
+private owned App Server and disposable AppKit window. This is not a public release,
 notarization acceptance, or Windows GUI acceptance. No personal Bot/Codex
 application, message, account or TCC setting was operated. An attempted VS Code
 fixture with a private profile still accessed its user-level shared storage at
@@ -43,7 +43,7 @@ was triggered.
 
 | Path | Result and independent evidence |
 | --- | --- |
-| Four compact Bot tools, schema, original IDs, turn ownership and review routing | Contract, transport, Runtime and skill-loader fixtures passed under `make check` and targeted race. The added `grants` inspect and reviewed grant/declare/revoke share existing compact entrypoints. No model-driven Bot run was made. |
+| Four compact Bot tools, schema, original IDs, turn ownership and review routing | Contract, transport, Runtime and skill-loader fixtures passed under `make check` and targeted race. The added `grants` inspect and reviewed grant/declare/revoke share existing compact entrypoints. A real Codex model used all four tools in one isolated synthetic task; details are in `model-acceptance.json`. Human approval UI remains a separate unaccepted flow. |
 | Observe app/window/AX; bounded incomplete scan and continuation; read and sync | Published helper found exact isolated fixture windows, controls and zero-match incomplete scan; continuation remained usable. Native text read and cursor sync passed. |
 | Observed-app grant, future-app declaration, dynamic revocation and turn end | Published helper granted the observed AppKit app and bound an exact window-title declaration to the running fixture. On a separate fresh fixture, the Bot first observed the desktop, declared an exact **unlaunched** window, and saw pending with no app Ref; one standard native launch bound the same grant ID to one observed app/window, and exit of its self-reported PID changed that ID to expired/application_exited. The earlier live revoke, deny-after-revoke and post-turn receipt checks passed. Current-turn `grants` reports helper state; declaration acceptance alone is not active authority. Receipt/history time-based expiry remains fixture-tested only. |
 | `set_checked`, `set_value`, `invoke` | One AppKit plan completed. The fixture's own file recorded exactly one submission and the Unicode value; a repeated identical request did not submit again. |
@@ -54,9 +54,9 @@ was triggered.
 | Synthetic Chrome browser provider | Initial Bot `set_checked` + `invoke` returned `verification_timeout`; the original receipt was queried, with no replay. On a new isolated page, one Bot semantic write again timed out. On a third independent page, **direct published host SDK without Bot** reproduced `outcome:partial`, semantic `delivery:complete`, `verification:not_met`, fault `verification_timeout/never_automatically`; same-ID reconcile matched the run. Its private-page DOM stayed unchecked with zero input/change events. A fourth, distinct pointer-only page had a unique enabled, onscreen button and known bounds; one cooperative Bot `pointer.click` completed and independent page DOM changed `Clicks: 0`→`Clicks: 1`. This isolates the semantic checkbox failure to the rc.2 helper's Chrome path on macOS 27.0.1 / Chrome 154.0.8037.98; it does not prove all Chrome versions fail. Browser observation, grant and pointer click are accepted; semantic checkbox input is **not accepted**. |
 | Screenshot/capture, image path and geometry | Contract fixture covers image ownership, bounded geometry, output and status redaction. Real packaged-helper `capture_windows` for the isolated Electron app returned `permission_denied` before pixels. `doctor` reported Screen Capture `not_requested`; no real image, image path or geometry success claim. |
 | Menu interaction | No explicit menu op exists in the catalog. A unique isolated AppKit menu item advertised `invoke=supported/available`; one `dispatch` invoke completed, and the app-owned log recorded `menu_count:1`. An earlier `verify` plan was rejected during helper argument validation before delivery; it retained its original ID and caused no event. |
-| Native instance exit, EOF, restart, cancellation, original request conflict and unknown recovery | Transport/Controller fixtures cover fencing and conflict. With the published helper, a pending `wait` before a would-be menu invoke was cancelled: its same-ID receipt was `stopped`, with no app effect. Owner-pipe EOF exited cleanly; a new helper session did not inherit the request, and the app log remained unchanged. Terminating the exact disposable app PID during another pending wait produced `outcome:unknown` on the original and same-ID reconcile, with no later app event; it was not replayed. The EOF call's returned receipt fields were not saved, so EOF receipt classification is not claimed. |
+| Native instance exit, EOF, restart, cancellation, original request conflict and unknown recovery | Transport/Controller fixtures cover fencing and conflict. With the published helper, a pending `wait` before a would-be menu invoke was cancelled: its same-ID receipt was `stopped`, with no app effect. A new independent EOF fixture confirmed the request was still in flight before owner-pipe closure; the helper exited cleanly. Its original reply and same-ID reconciliation had the same run and `outcome:stopped`, `verification_timeout`; the would-be invoke was `skipped`, and the app log had zero effects. A new helper session did not inherit the old request. Terminating the exact disposable app PID during another pending wait produced `outcome:unknown` on the original and same-ID reconcile, with no later app event; it was not replayed. |
 | Electron provider | A standalone Electron 44.5.1 runtime, fresh temporary profile and synthetic page exposed a unique `invoke=supported/available` button. The packaged helper completed exactly one invocation; Electron's main-process event log independently recorded `action_count:1`, and the original receipt remained available after turn end. |
-| Model-driven Bot pipe | The final Dev bundle launched through `script/build_and_run.sh --restart` with a private Bot data directory and empty Codex home; its actual first-use settings window was inspected and native host logged ready. `codex login status` under that same empty home said `Not logged in`. No account login or model request was made, so model-driven desktop routing and live native approval remain **unaccepted**. |
+| Model-driven Bot pipe | The Dev bundle first launched through `script/build_and_run.sh --restart` with private Bot data and an empty Codex home; its first-use window was inspected, but that artificial home was unauthenticated. The later targeted harness used the host's existing native login without copying credentials, a new Bot data directory and an absent private socket selector that started an owned App Server. On a new synthetic window the real model loaded the Bot skill, called inspect/authorize/act/result, obtained an active grant, reconciled the original completed run and read back `Submitted: 1`. The app-owned file independently recorded exactly one submission and the target text. The first model dry run ended before any desktop call because the harness forbade reading its skill; this was corrected only on a new fixture. The second run's first act failed Bot-local argument validation (`set_value` missing text) before helper registration, then a corrected single helper act completed. No human approval UI flow was exercised. |
 
 The first state fixture run stopped after `scroll_into_view` was refused. Its
 second run completed the remaining state writes but failed only because the
@@ -78,6 +78,8 @@ receipt shows that delivery/verification split precisely. The independent DOM
 readback proves the synthetic page's checkbox and event counters did not
 change, but cannot exclude an unobserved transient AX delivery. There is no
 Bot-side retry or fallback that can safely repair this unknown effect.
+A publication-ready local issue draft is in `chrome-semantic-issue-draft.md`;
+no upstream issue or PR was sent.
 
 ## macOS capture gate
 
@@ -102,16 +104,21 @@ implicit approval, or permission request was performed.
 `GOWORK=off make check`, `make smoke`, `make build`, targeted
 `go test -race ./internal/desktopcontrol ./internal/bot ./internal/botskills`,
 manifest validator tests, app signature verification and the published helper
-live tests passed. The first final `make check` in the restricted sandbox failed
+live tests passed. After the EOF/model evidence additions, all three required
+gates and strict Dev app/helper signature verification passed again. The first
+final `make check` in the restricted sandbox failed
 an unrelated synthetic LAContext assertion; the isolated test and full check
 passed with native macOS access. The final `make check` includes the new native
 tests in skipped default mode; all native input tests are explicit opt-ins. Build cross
 compiles Windows and other platform binaries but does not qualify Windows GUI.
 
 `native-fixture-result.json`, `state-events.jsonl`, `pointer-readback.json`,
-`browser-after.json` and `live-acceptance.json`
+`browser-after.json`, `live-acceptance.json` and `model-acceptance.json`
 contain only isolated business-state readbacks. `browser-after.json` came from
 the synthetic page's own loopback DevTools endpoint in its private profile,
 independent of Desktop World. Raw desktop inventory, window screenshots,
 personal paths, account data and conversations are not published. Native
 fixture windows were also inspected visually through their exact app paths.
+The new EOF receipt's full original and same-ID result were retained only in
+the private local `.cache/desktop-world-rc2/eof-inflight.json`; the committed
+matrix carries its sanitized outcome and no opaque instance identifiers.

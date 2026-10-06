@@ -55,7 +55,7 @@
   },
   "lifecycle": {
     "cancel": "original receipt stopped; same-ID reconcile; no app effect",
-    "owner_eof": "helper clean exit; no app effect",
+    "owner_eof": "new independent in-flight wait: helper clean exit; original and same-ID reconcile same run/outcome stopped, verification_timeout; would-invoke skipped; no app effect",
     "new_session": "old request absent; no app effect",
     "target_instance_exit": "original and same-ID reconcile outcome unknown; no late app effect; no replay"
   },
@@ -80,5 +80,15 @@
     "independent_dom_before": "Clicks: 0",
     "independent_dom_after": "Clicks: 1",
     "attempts": 1
+  },
+  "model_pipeline": {
+    "runtime": "native Codex CLI 0.160.0 with existing login and private owned App Server",
+    "scope": "fresh Bot data, native thread, synthetic AppKit window",
+    "actual_compact_calls": "inspect 9, authorize 1, act 2 (first local preflight invalid, one helper action), result 1",
+    "authorization": "active native app grant; no human approval UI prompt recorded",
+    "original_action": "set_value verified, invoke delivered; completed",
+    "same_id_result": "same run and completed receipt",
+    "app_owned_readback": "submissions 1, text RC2_MODEL_DESKTOP_OK",
+    "fresh_ax_readback": "Verification text RC2_MODEL_DESKTOP_OK; Submitted: 1"
   }
 }
