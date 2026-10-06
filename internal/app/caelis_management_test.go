@@ -87,6 +87,22 @@ func main() {
 			a, _ := fixtureApp(t, newTestEngine(), Host{})
 			defer a.Close()
 			result, err := a.manageCaelis(t.Context(), "update", api.RuntimeSettings{Runtime: "caelis", CLIPath: binary, CaelisStore: dir})
+			if runtime.GOOS == "windows" {
+				// The Caelis service discovery file is deliberately inaccessible
+				// until its native Windows owner/ACL adapter is implemented. Verify
+				// that an update cannot reach the installer through this boundary.
+				if err == nil {
+					t.Fatal("unsupported Windows Caelis service replacement was admitted", result)
+				}
+				if raw, readErr := os.ReadFile(calls); readErr == nil && len(raw) > 0 {
+					t.Fatal("unsupported Windows Caelis service replacement ran the CLI", string(raw))
+				}
+				if err := a.PrepareUpdate(); err != nil {
+					t.Fatal("rejected operation left admission frozen", err)
+				}
+				a.CancelUpdate()
+				return
+			}
 			if (err == nil) != (mode == "ready") {
 				t.Fatal(mode, result, err)
 			}

@@ -38,6 +38,11 @@ function fixture(fn) {
       const path=args[3], name=basename(path);
       assets.set(name,readFileSync(path));
       release.assets=[...assets.keys()].map(name=>({name}));
+      if (controls.concurrentOnUpload) {
+        const other=controls.concurrentOnUpload;
+        delete controls.concurrentOnUpload;
+        other();
+      }
       if (controls.unknownUpload===name) { delete controls.unknownUpload; throw new Error('unknown upload result'); }
       return '';
     }
@@ -66,6 +71,16 @@ test('first verified platform publishes; late Windows preview appends without ch
   assert.equal(f.calls.filter(call=>call[1]==='edit').length,before);
   assert.equal(f.release.prerelease,false);
   assert.ok(f.assets.has(mac.receipt));
+  assert.ok(f.assets.has('Caelis-Bot-1.2.3-windows-amd64-preview.publication.json'));
+}));
+
+test('interleaved platform publishers reconcile one shared draft and retain both receipts',()=>fixture(f=>{
+  f.controls.concurrentOnUpload=()=>publishPlatform(f.directory,f.win,f.run);
+  publishPlatform(f.directory,f.mac,f.run);
+  assert.equal(f.release.draft,false);
+  assert.equal(f.release.prerelease,false);
+  assert.equal(f.calls.filter(call=>call[1]==='release' && call[2]==='edit').length,1);
+  assert.ok(f.assets.has('Caelis-Bot-1.2.3-macos-arm64-stable.publication.json'));
   assert.ok(f.assets.has('Caelis-Bot-1.2.3-windows-amd64-preview.publication.json'));
 }));
 
