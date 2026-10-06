@@ -156,7 +156,9 @@ func (s *Service) PetSnapshot() api.Snapshot {
 		}
 	}
 	snapshot.Approvals = approvals
-	return snapshot
+	// The bubble acknowledges only the bounded, visible preview. Computing its
+	// key before the current-turn filter can fence an invisible older result.
+	return s.presentation(snapshot)
 }
 func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate {
 	s.mu.Lock()

@@ -76,6 +76,82 @@ func TestPreviewAcknowledgementPersistsAndCannotDismissWorkOrNewResult(t *testin
 	}
 }
 
+func TestPetPreviewDismissUsesDisplayedResultWithOutgoingReceipts(t *testing.T) {
+	e := &snapshotEngine{value: api.Snapshot{Phase: "completed", Items: []api.Item{
+		{ID: "user-1", Kind: "user", RequestID: "request-1"},
+		{ID: "reply-1", Kind: "assistant", Text: "answer"},
+	}}}
+	s := NewService(e, nil, nil, nil, nil)
+	if err := ConfigureMessageMedia(s, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "ack.json")
+	if err := s.ConfigurePresentation(path); err != nil {
+		t.Fatal(err)
+	}
+	first := s.PetSnapshot().PreviewKey
+	e.value.Revision++
+	if first != s.PetSnapshot().PreviewKey {
+		t.Fatal("unrelated revision changed the displayed result")
+	}
+	// An uncertain original request is kept under its original ID. A native
+	// reply appearing after it is the last visible result, across both views.
+	e.value.Items = e.value.Items[:1]
+	s.stageOutgoing(api.Submission{ID: "uncertain", Text: "pending"}, nil)
+	s.finishOutgoing("uncertain", api.Receipt{ID: "uncertain", Outcome: "unknown"})
+	e.value.Items = append(e.value.Items, api.Item{ID: "reply-1", Kind: "assistant", Text: "answer"})
+	key := s.PetSnapshot().PreviewKey
+	if err := s.DismissPreview(key); err != nil {
+		t.Fatal("displayed answer was rejected:", err)
+	}
+	restored := NewService(e, nil, nil, nil, nil)
+	if err := ConfigureMessageMedia(restored, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := restored.ConfigurePresentation(path); err != nil || !restored.PetSnapshot().PreviewDismissed {
+		t.Fatal("acknowledgement did not persist", err)
+	}
+	e.value.Items = append(e.value.Items, api.Item{ID: "user-2", Kind: "user", RequestID: "request-2", Text: "next"})
+	if restored.PetSnapshot().PreviewDismissed || restored.DismissPreview(key) == nil {
+		t.Fatal("old acknowledgement hid a new request")
+	}
+	e.value.Approvals = []api.Approval{{ID: "approve", Status: "pending"}}
+	if restored.DismissPreview(restored.PetSnapshot().PreviewKey) == nil {
+		t.Fatal("pending approval was dismissed")
+	}
+}
+
+func TestPetPreviewPreservesAssistantIdentityAcrossOriginalReceiptOutcomes(t *testing.T) {
+	for _, outcome := range []string{"unknown", "rejected", "accepted"} {
+		t.Run(outcome, func(t *testing.T) {
+			e := &snapshotEngine{value: api.Snapshot{Phase: "completed", Items: []api.Item{{ID: "first", Kind: "user", RequestID: "first-request"}}}}
+			s := NewService(e, nil, nil, nil, nil)
+			if err := ConfigureMessageMedia(s, t.TempDir()); err != nil {
+				t.Fatal(err)
+			}
+			s.stageOutgoing(api.Submission{ID: "original-request", Text: "same prompt"}, nil)
+			s.finishOutgoing("original-request", api.Receipt{ID: "original-request", Outcome: outcome})
+			e.value.Items = append(e.value.Items, api.Item{ID: "answer", Kind: "assistant", Text: "same result"})
+			key := s.PetSnapshot().PreviewKey
+			if err := s.DismissPreview(key); err != nil {
+				t.Fatal(err)
+			}
+			if outcome == "rejected" {
+				e.value.Items = append(e.value.Items, api.Item{ID: "later", Kind: "assistant", Text: "new result"})
+				if s.PetSnapshot().PreviewDismissed {
+					t.Fatal("rejected input's later independent result inherited the old acknowledgement")
+				}
+				return
+			}
+			// Materialization removes the local bubble by exact request ID.
+			e.value.Items = []api.Item{{ID: "first", Kind: "user", RequestID: "first-request"}, {ID: "native", Kind: "user", RequestID: "original-request"}, {ID: "answer", Kind: "assistant", Text: "same result"}}
+			if got := s.PetSnapshot(); got.PreviewKey != key || !got.PreviewDismissed || len(s.outbox) != 0 {
+				t.Fatalf("original receipt was replayed or changed the same answer: %+v", got.Items)
+			}
+		})
+	}
+}
+
 func TestMissingOptionalCapabilitiesReturnUnavailable(t *testing.T) {
 	s := NewService(snapshotEngine{}, nil, nil, nil, nil)
 	ctx := context.Background()
