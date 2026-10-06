@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"sync"
 	"time"
@@ -18,6 +19,9 @@ type Service struct {
 	localWorkers                api.LocalWorkerController
 	machines                    api.MachineController
 	admission                   sync.RWMutex
+	recoveryMu                  sync.Mutex
+	recoveryFlight              *recoveryFlight
+	recoveryGeneration          uint64
 	restarting                  bool
 	setupRequired               bool
 	setup                       api.SetupController
@@ -54,6 +58,12 @@ type Service struct {
 	screenMediaError            error
 	messageMedia                *messageimage.Store
 	messageMediaError           error
+}
+
+type recoveryFlight struct {
+	done   chan struct{}
+	cancel context.CancelFunc
+	err    error
 }
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string), openURL, reveal func(string) error) *Service {
@@ -180,12 +190,84 @@ func (s *Service) LoadEarlier(ctx context.Context) error {
 	return errors.New("当前接入暂不支持读取更早消息")
 }
 func (s *Service) Connect(ctx context.Context) error {
+	return s.connect(ctx, "")
+}
+
+// RecoveryState is a host-only view of the current Runtime owner. Its fence
+// changes on native reconnect and on every manual admission attempt.
+func (s *Service) RecoveryState() api.RecoveryState {
+	s.recoveryMu.Lock()
+	defer s.recoveryMu.Unlock()
+	return s.recoveryStateLocked()
+}
+
+func (s *Service) recoveryStateLocked() api.RecoveryState {
+	source, ok := s.engine.(api.RecoverySource)
+	if !ok {
+		return api.RecoveryState{}
+	}
+	state := source.RecoveryState()
+	if state.Fence == "" {
+		return api.RecoveryState{}
+	}
+	state.Fence = fmt.Sprintf("%s:%d", state.Fence, s.recoveryGeneration)
+	if s.recoveryFlight != nil {
+		state.InProgress = true
+		state.Manual = false
+	}
+	return state
+}
+
+// RecoverIfCurrent applies one manually selected original-owner recovery.
+// Stale channel buttons cannot turn a newer Runtime generation into an action.
+func (s *Service) RecoverIfCurrent(ctx context.Context, fence string) error {
+	if fence == "" {
+		return errors.New("recovery_target_changed")
+	}
+	return s.connect(ctx, fence)
+}
+
+func (s *Service) connect(ctx context.Context, fence string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	if s.restarting || s.setupRequired {
 		return errors.New("请先完成运行时设置")
 	}
-	return s.engine.Connect(ctx)
+	s.recoveryMu.Lock()
+	state := s.recoveryStateLocked()
+	if fence != "" && (!state.Manual || state.Fence != fence) {
+		s.recoveryMu.Unlock()
+		return errors.New("recovery_target_changed")
+	}
+	if state.Automatic {
+		s.recoveryMu.Unlock()
+		return errors.New("automatic_recovery_in_progress")
+	}
+	if flight := s.recoveryFlight; flight != nil {
+		s.recoveryMu.Unlock()
+		select {
+		case <-flight.done:
+			return flight.err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	workCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	flight := &recoveryFlight{done: make(chan struct{}), cancel: cancel}
+	s.recoveryFlight = flight
+	s.recoveryGeneration++
+	s.recoveryMu.Unlock()
+	err := s.engine.Connect(workCtx)
+	cancel()
+	s.recoveryMu.Lock()
+	flight.err = err
+	s.recoveryFlight = nil
+	close(flight.done)
+	s.recoveryMu.Unlock()
+	return err
 }
 func (s *Service) OpenConnectionHelp() error {
 	return s.OpenMessageLink(s.ProviderInfo().HelpURL)
@@ -309,6 +391,11 @@ func (s *Service) OpenApprovalURL(id string) error {
 	return s.openURL(u)
 }
 func (s *Service) Shutdown() error {
+	s.recoveryMu.Lock()
+	if s.recoveryFlight != nil {
+		s.recoveryFlight.cancel()
+	}
+	s.recoveryMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return s.engine.Close(ctx)

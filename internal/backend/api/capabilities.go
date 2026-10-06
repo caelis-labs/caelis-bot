@@ -31,6 +31,16 @@ type ComposerSource interface{ ComposerSnapshot() Snapshot }
 type RevisionSource interface{ Revision() uint64 }
 type HistorySource interface{ LoadEarlier(context.Context) error }
 type DiagnosticSource interface{ DiagnosticStatus() map[string]any }
+
+// RecoveryState is a host-only, opaque fence for one Runtime connection owner.
+// A channel may offer manual recovery only after automatic recovery stops.
+type RecoveryState struct {
+	Fence      string
+	Automatic  bool
+	InProgress bool
+	Manual     bool
+}
+type RecoverySource interface{ RecoveryState() RecoveryState }
 type RuntimeConfigurator interface {
 	// Serialize with native submission/approval, reject busy or uncertain work,
 	// validate independently, then persist before replacing the connection.

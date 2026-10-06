@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -328,6 +329,16 @@ func (s *Session) Connect(ctx context.Context) error {
 	s.op.Lock()
 	defer s.op.Unlock()
 	return s.connect(ctx)
+}
+
+func (s *Session) RecoveryState() api.RecoveryState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return api.RecoveryState{
+		Fence:     fmt.Sprintf("codex:%s:%d", s.instance, s.epoch),
+		Automatic: s.reconnectActive,
+		Manual:    s.epoch > 0 && s.state.Connection == "offline" && !s.reconnectActive && !s.closed && !s.closing,
+	}
 }
 func (s *Session) connect(ctx context.Context) error {
 	ctx, cancel := s.operation(ctx, 30*time.Second)

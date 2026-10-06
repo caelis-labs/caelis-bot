@@ -62,6 +62,12 @@ reconciles the saved conversation and worker receipts, and confirms needed live
 subscriptions before reporting ready. An unavailable endpoint never authorizes
 a replacement owner or a replay of an uncertain input. Diagnostics name the
 process-wide transport generation and the owner-local session epoch separately.
+Telegram keeps polling its paired private chat while that local Runtime is offline.
+After automatic recovery ends, a message-bound, short-lived button can request
+one bounded reconnect through the same Control admission as the desktop. The
+current owner and generation are checked again before connecting; ordinary chat
+input waits for the recovered history boundary. The button cannot wake a sleeping
+or quit Mac app, replace a Runtime owner, or resend an unknown receipt.
 
 Caelis atomic reconnect may prepare a large existing history before sending SSE
 headers. Its observation uses a separate transport with a two-minute header wait;

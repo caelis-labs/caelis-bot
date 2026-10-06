@@ -103,6 +103,13 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 				t.Error("file name or bytes changed")
 			}
 			io.WriteString(w, `{"ok":true,"result":{"message_id":102,"date":1,"chat":{"id":10,"type":"private"}}}`)
+		case "answerCallbackQuery":
+			var p tg.AnswerCallbackQueryParams
+			json.NewDecoder(r.Body).Decode(&p)
+			if p.CallbackQueryID != "original-callback" || p.Text == "" {
+				t.Error("callback acknowledgement lost its original ID or text")
+			}
+			io.WriteString(w, `{"ok":true,"result":true}`)
 		default:
 			io.WriteString(w, `{"ok":false,"error_code":401,"description":"private token and message must never escape"}`)
 		}
@@ -152,10 +159,13 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 	if e := c.Document(ctx, 10, path); e != nil {
 		t.Fatal("SDK document failed")
 	}
+	if e := c.Answer(ctx, "original-callback", "Checking original connection"); e != nil {
+		t.Fatal("SDK callback acknowledgement failed", e)
+	}
 	if _, e := c.Webhook(ctx); e == nil || e.Error() != "invalid_token" {
 		t.Fatal("private API response escaped sanitized error")
 	}
-	if len(methods) != 11 {
+	if len(methods) != 12 {
 		t.Fatal("unexpected SDK calls")
 	}
 }

@@ -167,6 +167,8 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	if app.Telegram == nil {
 		remote, remoteErr := telegram.Open(app.root, telegram.Host{
 			Snapshot: app.Backend.Snapshot,
+			Recovery: app.Backend.RecoveryState,
+			Recover:  app.Backend.RecoverIfCurrent,
 			Submit: func(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 				return backend.SubmitRemote(ctx, app.Backend, in, files)
 			},

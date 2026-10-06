@@ -29,6 +29,8 @@ import (
 
 type Host struct {
 	Snapshot    func() api.Snapshot
+	Recovery    func() api.RecoveryState
+	Recover     func(context.Context, string) error
 	Submit      func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	Interrupt   func(context.Context) error
 	Decide      func(context.Context, api.Decision) error
@@ -81,10 +83,14 @@ type Bridge struct {
 	secrets             secretstore.Store
 	retryUntil          time.Time
 	closed              bool
+	baselineReady       bool
+	recoveryNonce       string
+	recoveryClaim       string
+	recoveryWait        sync.WaitGroup
 }
 
 func Open(root string, host Host) (*Bridge, error) {
-	b := &Bridge{path: filepath.Join(root, "telegram.json"), root: filepath.Join(root, "Telegram"), account: digest(root), host: host, newClient: newClient,
+	b := &Bridge{path: filepath.Join(root, "telegram.json"), root: filepath.Join(root, "Telegram"), account: digest(root), host: host, newClient: newClient, recoveryNonce: rand.Text(),
 		secrets: secretstore.Functions{SaveFunc: saveSecret, LoadFunc: loadSecret, DeleteFunc: deleteSecret}}
 	b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
 	data, e := os.ReadFile(b.path)
@@ -240,6 +246,9 @@ func (b *Bridge) launch(c client) {
 	ctx, cancel := context.WithCancel(context.Background())
 	b.cancel = cancel
 	b.done = make(chan struct{})
+	b.baselineReady = false
+	b.recoveryNonce = rand.Text()
+	b.recoveryClaim = ""
 	done := b.done
 	if b.state.ChatID == 0 {
 		var data [18]byte
@@ -467,11 +476,8 @@ type pollResult struct {
 func (b *Bridge) run(ctx context.Context, c client) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	// Recovery must establish the private history boundary before any remote
-	// submission can create a reply. Telegram retains updates until we poll them.
-	if !b.waitBaseline(ctx) {
-		return
-	}
+	// Poll control actions while the local Runtime is offline. Ordinary input
+	// still waits for the private history boundary before native submission.
 	poll := make(chan pollResult)
 	b.mu.Lock()
 	offset := b.state.Offset
@@ -503,6 +509,7 @@ func (b *Bridge) run(ctx context.Context, c client) {
 		cancel()
 		<-pollDone
 		<-outputDone
+		b.recoveryWait.Wait()
 	}()
 	for {
 		select {
@@ -551,25 +558,21 @@ func (b *Bridge) run(ctx context.Context, c client) {
 	}
 }
 
-func (b *Bridge) waitBaseline(ctx context.Context) bool {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for ctx.Err() == nil {
-		s := b.host.Snapshot()
-		if ready(s) {
-			b.mu.Lock()
-			b.baselineLocked(s)
-			err := b.saveLocked()
-			b.mu.Unlock()
-			return err == nil
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-ticker.C:
-		}
+func (b *Bridge) ensureBaseline(s api.Snapshot) bool {
+	if !ready(s) {
+		return false
 	}
-	return false
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.baselineReady {
+		return true
+	}
+	b.baselineLocked(s)
+	if b.saveLocked() != nil {
+		return false
+	}
+	b.baselineReady = true
+	return true
 }
 
 // One output worker bounds concurrency and reads the newest snapshot on each
@@ -580,6 +583,7 @@ func (b *Bridge) output(ctx context.Context, c client) {
 	_ = c.Commands(ctx)
 	ticker := time.NewTicker(1100 * time.Millisecond)
 	defer ticker.Stop()
+	b.reflectOutput(ctx, c)
 	for {
 		select {
 		case <-ctx.Done():
@@ -588,10 +592,21 @@ func (b *Bridge) output(ctx context.Context, c client) {
 			if ctx.Err() != nil || b.backingOff() {
 				continue
 			}
-			b.mirror(ctx, c, b.host.Snapshot())
-			if ctx.Err() == nil {
-				b.flushFiles(ctx, c)
-			}
+			b.reflectOutput(ctx, c)
+		}
+	}
+}
+
+func (b *Bridge) reflectOutput(ctx context.Context, c client) {
+	if ctx.Err() != nil || b.backingOff() {
+		return
+	}
+	s := b.host.Snapshot()
+	b.mirrorRecovery(ctx, c, s)
+	if b.ensureBaseline(s) {
+		b.mirror(ctx, c, s)
+		if ctx.Err() == nil {
+			b.flushFiles(ctx, c)
 		}
 	}
 }
@@ -649,12 +664,26 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 		}
 	case "/status":
 		s := b.host.Snapshot()
-		text := b.text("Caelis Bot is online.", "Caelis Bot 在线。")
-		if s.CanInterrupt {
-			text = b.text("Caelis Bot is working.", "Caelis Bot 正在工作。")
+		if state := b.recoveryState(); state.Manual {
+			b.mirrorRecovery(ctx, c, s)
+		} else {
+			text := b.text("Telegram is connected; the local Runtime is connecting.", "Telegram 已连接，本机 Runtime 正在连接。")
+			if ready(s) {
+				text = b.text("Caelis Bot is online.", "Caelis Bot 在线。")
+				if s.Phase == "working" || s.Phase == "sending" {
+					text = b.text("Caelis Bot is working.", "Caelis Bot 正在工作。")
+				}
+			} else if !state.Automatic && !state.InProgress {
+				text = b.text("Telegram is connected; the local Runtime is offline. Check Caelis Bot on your Mac.", "Telegram 已连接，本机 Runtime 离线；请在 Mac 的 Caelis Bot 中查看。")
+			}
+			_, _ = c.Send(ctx, chat, plainText(text), nil)
 		}
-		_, _ = c.Send(ctx, chat, plainText(text), nil)
 	default:
+		if !b.ensureBaseline(b.host.Snapshot()) {
+			outcome = "rejected"
+			_, _ = c.Send(ctx, chat, plainText(b.text("The local Runtime is not connected yet. Check /status or Caelis Bot on your Mac; this message was not sent to the Runtime.", "本机 Runtime 尚未连接。请查看 /status 或 Mac 上的 Caelis Bot；这条消息未发送给 Runtime。")), nil)
+			break
+		}
 		files, stickerNote, e := b.download(ctx, c, request, m)
 		if e != nil {
 			outcome = "rejected"
@@ -874,6 +903,9 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 	m, ok := q.Message.(*tg.Message)
 	if !ok || q.From.ID != owner || m.Chat.ID != chat {
 		return true
+	}
+	if isRecoveryButton(q.Data) {
+		return b.recoveryCallback(ctx, c, q, m)
 	}
 	for _, a := range b.host.Snapshot().Approvals {
 		if a.Status != "pending" || len(a.Questions) > 0 || a.URL != "" {
