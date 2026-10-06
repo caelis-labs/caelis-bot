@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0](https://github.com/caelis-labs/caelis-bot/compare/v0.8.0...v0.9.0) (2026-10-06)
+
+
+### Features
+
+* prepare cross-platform desktop foundation and independent releases ([#84](https://github.com/caelis-labs/caelis-bot/issues/84)) ([c02f4f1](https://github.com/caelis-labs/caelis-bot/commit/c02f4f1b65bb1e4b8ae0391dcdd391b9bf938051))
+
+
+### Bug Fixes
+
+* recover Codex event bursts and render native Telegram approvals ([#93](https://github.com/caelis-labs/caelis-bot/issues/93)) ([4ac48c2](https://github.com/caelis-labs/caelis-bot/commit/4ac48c2199ae32c865bf287d4e7c5e44610f9e7b))
+* retire idle worker subscriptions ([#86](https://github.com/caelis-labs/caelis-bot/issues/86)) ([#89](https://github.com/caelis-labs/caelis-bot/issues/89)) ([ab00843](https://github.com/caelis-labs/caelis-bot/commit/ab00843028e14bcb4e71ebb90fec3bea2b6c497c))
+
 ## [0.8.0](https://github.com/caelis-labs/caelis-bot/compare/v0.7.0...v0.8.0) (2026-10-06)
 
 
