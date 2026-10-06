@@ -206,6 +206,14 @@ func (d *dreamController) renew(ctx context.Context, p api.ConversationRuntime) 
 func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 	r.step.Lock()
 	defer r.step.Unlock()
+	if in.NativeIngressFence != "" {
+		if source, ok := r.engine.(api.RecoverySource); ok {
+			state := source.RecoveryState()
+			if state.Automatic || state.InProgress || state.Fence != in.NativeIngressFence {
+				return api.Receipt{}, api.ErrRecoveryPending
+			}
+		}
+	}
 	rejected := api.Receipt{ID: in.ID, Outcome: "rejected"}
 	if r.paused {
 		rejected.Message = "应用正在更新，请稍后发送"

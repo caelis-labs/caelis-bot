@@ -37,16 +37,19 @@ func (b *Bridge) mirrorRecovery(ctx context.Context, c client, snapshot api.Snap
 		return
 	}
 	text := b.text("The local Runtime is connected.", "本机 Runtime 已连接。")
-	if ready(snapshot) && snapshot.Phase == "unknown" {
+	if state.Automatic || state.InProgress {
+		text = b.text("Telegram is connected; checking the original Runtime connection. The Mac app must remain running.", "Telegram 已连接，正在核对原 Runtime 连接；Mac 应用需保持运行。")
+	}
+	if !state.Automatic && !state.InProgress && ready(snapshot) && snapshot.Phase == "unknown" {
 		text = b.text("The local Runtime is connected; the original request outcome is still uncertain. Check it on your Mac before resending.", "本机 Runtime 已连接，但原请求结果仍不确定。再次发送前请在 Mac 核对。")
 	}
 	var keys *tg.InlineKeyboardMarkup
-	if state.Manual && state.Fence != "" && b.host.Recover != nil && !ready(snapshot) {
+	if state.Manual && !state.Automatic && !state.InProgress && state.Fence != "" && b.host.Recover != nil && !ready(snapshot) {
 		text = b.recoveryMessage(snapshot)
 		keys = &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{{
 			Text: b.text("Reconnect", "重新连接"), CallbackData: recoveryCallbackID(nonce, state.Fence, recoveryWindow()),
 		}}}}
-	} else if snapshot.Connection == "login" {
+	} else if !state.Automatic && !state.InProgress && snapshot.Connection == "login" {
 		text = b.text("Sign in to the local Runtime on your Mac to continue recovery.", "请先在 Mac 登录本机 Runtime，再继续恢复。")
 	} else if !ready(snapshot) {
 		text = b.text("Telegram is connected; checking the original Runtime connection. The Mac app must remain running.", "Telegram 已连接，正在核对原 Runtime 连接；Mac 应用需保持运行。")

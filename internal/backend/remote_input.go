@@ -17,6 +17,16 @@ func SubmitRemote(ctx context.Context, s *Service, in api.Submission, files []ap
 	if s.restarting || s.setupRequired {
 		return r, errors.New("runtime setup required")
 	}
+	// Read the Control generation and native owner in one recovery observation.
+	// The adapter rechecks NativeIngressFence under its submission lock, closing
+	// the race between this preflight and native dispatch.
+	s.recoveryMu.Lock()
+	state, nativeFence := s.recoveryStateWithNativeLocked()
+	s.recoveryMu.Unlock()
+	if state.Automatic || state.InProgress || in.IngressFence != "" && in.IngressFence != state.Fence {
+		return api.Receipt{}, api.ErrRecoveryPending
+	}
+	in.NativeIngressFence = nativeFence
 	s.mu.Lock()
 	initializer := s.initializer
 	s.mu.Unlock()
@@ -28,8 +38,14 @@ func SubmitRemote(ctx context.Context, s *Service, in api.Submission, files []ap
 		r.Message = "图片预览存储暂不可用，消息未发送"
 		return r, nil
 	}
-	s.stageOutgoing(in, files)
+	staged := s.stageOutgoing(in, files)
 	r, err := s.submit(ctx, in, files)
+	if errors.Is(err, api.ErrRecoveryPending) {
+		if staged {
+			s.discardOutgoing(in.ID)
+		}
+		return api.Receipt{}, err
+	}
 	s.finishOutgoing(in.ID, r)
 	return r, err
 }

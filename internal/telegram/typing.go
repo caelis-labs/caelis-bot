@@ -46,7 +46,8 @@ func (b *Bridge) typing(ctx context.Context, c client) {
 		if currentChat != chat {
 			chat, active, next = currentChat, false, time.Time{}
 		}
-		working := enabled && chat != 0 && typingForMainTurn(b.host.Snapshot())
+		recovery := b.recoveryState()
+		working := enabled && chat != 0 && !recovery.Automatic && !recovery.InProgress && typingForMainTurn(b.host.Snapshot())
 		if !working {
 			active = false
 		} else if !time.Now().Before(rateLimitUntil) && (!active || !time.Now().Before(next)) {

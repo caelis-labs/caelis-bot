@@ -202,20 +202,26 @@ func (s *Service) RecoveryState() api.RecoveryState {
 }
 
 func (s *Service) recoveryStateLocked() api.RecoveryState {
+	state, _ := s.recoveryStateWithNativeLocked()
+	return state
+}
+
+func (s *Service) recoveryStateWithNativeLocked() (api.RecoveryState, string) {
 	source, ok := s.engine.(api.RecoverySource)
 	if !ok {
-		return api.RecoveryState{}
+		return api.RecoveryState{}, ""
 	}
 	state := source.RecoveryState()
 	if state.Fence == "" {
-		return api.RecoveryState{}
+		return api.RecoveryState{}, ""
 	}
+	nativeFence := state.Fence
 	state.Fence = fmt.Sprintf("%s:%d", state.Fence, s.recoveryGeneration)
 	if s.recoveryFlight != nil {
 		state.InProgress = true
 		state.Manual = false
 	}
-	return state
+	return state, nativeFence
 }
 
 // RecoverIfCurrent applies one manually selected original-owner recovery.

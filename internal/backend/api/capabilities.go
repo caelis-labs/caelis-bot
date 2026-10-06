@@ -1,6 +1,13 @@
 package api
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrRecoveryPending means the original ingress was refused before native
+// dispatch. Its request ID may be retried after the same owner's recovery settles.
+var ErrRecoveryPending = errors.New("runtime_recovery_pending")
 
 // ProviderInfo is safe product metadata, never native configuration or authority.
 type ProviderInfo struct {

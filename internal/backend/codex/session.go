@@ -787,6 +787,10 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		return r, nil
 	}
 	s.mu.Lock()
+	if in.NativeIngressFence != "" && (s.reconnectActive || in.NativeIngressFence != fmt.Sprintf("codex:%s:%d", s.instance, s.epoch)) {
+		s.mu.Unlock()
+		return api.Receipt{}, api.ErrRecoveryPending
+	}
 	if s.state.LastReceipt.ID == in.ID {
 		r = s.state.LastReceipt
 		s.mu.Unlock()

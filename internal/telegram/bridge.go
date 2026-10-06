@@ -548,8 +548,19 @@ func (b *Bridge) run(ctx context.Context, c client) {
 				if ctx.Err() != nil {
 					return
 				}
-				if !b.input(ctx, c, u) {
-					return
+				for {
+					ok, deferred := b.inputResult(ctx, c, u)
+					if !ok {
+						return
+					}
+					if !deferred {
+						break
+					}
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(100 * time.Millisecond):
+					}
 				}
 				offset = u.UpdateID + 1 // Telegram can randomize the sequence after a quiet week.
 				b.mu.Lock()
@@ -575,11 +586,19 @@ func (b *Bridge) waitPollBoundary(ctx context.Context) bool {
 	defer ticker.Stop()
 	for ctx.Err() == nil {
 		s := b.host.Snapshot()
+		recovery := b.recoveryState()
+		if recovery.Automatic || recovery.InProgress {
+			select {
+			case <-ctx.Done():
+				return false
+			case <-ticker.C:
+			}
+			continue
+		}
 		if ready(s) {
 			return b.ensureBaseline(s)
 		}
-		recovery := b.recoveryState()
-		if s.Connection != "" && s.Connection != "connecting" && !recovery.Automatic && !recovery.InProgress {
+		if s.Connection != "" && s.Connection != "connecting" {
 			return true
 		}
 		select {
@@ -636,6 +655,9 @@ func (b *Bridge) reflectOutput(ctx context.Context, c client) {
 	}
 	s := b.host.Snapshot()
 	b.mirrorRecovery(ctx, c, s)
+	if state := b.recoveryState(); state.Automatic || state.InProgress {
+		return
+	}
 	if b.ensureBaseline(s) {
 		b.mirror(ctx, c, s)
 		if ctx.Err() == nil {
@@ -644,12 +666,19 @@ func (b *Bridge) reflectOutput(ctx context.Context, c client) {
 	}
 }
 func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
+	ok, _ := b.inputResult(ctx, c, u)
+	return ok
+}
+
+// inputResult leaves the polled update unacknowledged only after a proven
+// pre-dispatch recovery refusal. The original Telegram update is retried.
+func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, bool) {
 	if q := u.CallbackQuery; q != nil {
-		return b.callback(ctx, c, q)
+		return b.callback(ctx, c, q), false
 	}
 	m := u.Message
 	if m == nil || m.From == nil || m.From.IsBot || m.Chat.Type != "private" {
-		return true
+		return true, false
 	}
 	b.mu.Lock()
 	chat, owner, bot := b.state.ChatID, b.state.UserID, b.state.BotID
@@ -665,14 +694,24 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 			b.mu.Unlock()
 			_, _ = c.Send(ctx, m.Chat.ID, plainText(b.text("Confirm this account in Caelis Bot on your Mac to finish connecting.", "请在 Mac 的 Caelis Bot 中确认这是你的账号，即可完成连接。")), nil)
 		}
-		return true
+		return true, false
 	}
 	if m.Chat.ID != chat || m.From.ID != owner {
-		return true
+		return true, false
+	}
+	command := strings.Split(m.Text, " ")[0]
+	var ingressFence string
+	if command != "/start" && command != "/stop" && command != "/status" {
+		state := b.recoveryState()
+		if state.Automatic || state.InProgress {
+			return true, true
+		}
+		ingressFence = state.Fence
 	}
 	request := fmt.Sprintf("telegram:%d:%d", bot, m.MessageID)
 	b.mu.Lock()
-	_, exists := b.state.Inputs[request]
+	previous := b.state.Inputs[request]
+	exists := previous != "" && previous != "deferred"
 	if !exists {
 		b.state.Inputs[request] = "dispatching"
 		// Output may observe the native user item while Submit is still running.
@@ -680,15 +719,15 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 		b.state.Messages["input:"+request] = delivery{Skip: true}
 		if b.saveLocked() != nil {
 			b.mu.Unlock()
-			return false
+			return false, false
 		}
 	}
 	b.mu.Unlock()
 	if exists {
-		return true
+		return true, false
 	}
 	outcome := "handled"
-	switch strings.Split(m.Text, " ")[0] {
+	switch command {
 	case "/start":
 		_, _ = c.Send(ctx, chat, plainText(b.text("Connected. Send a message or file. /stop stops work; /status checks it.", "已连接。直接发送消息或文件即可。/stop 停止工作，/status 查看状态。")), nil)
 	case "/stop":
@@ -701,7 +740,7 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 			b.mirrorRecovery(ctx, c, s)
 		} else {
 			text := b.text("Telegram is connected; the local Runtime is connecting.", "Telegram 已连接，本机 Runtime 正在连接。")
-			if ready(s) {
+			if ready(s) && !state.Automatic && !state.InProgress {
 				text = b.text("Caelis Bot is online.", "Caelis Bot 在线。")
 				if s.Phase == "working" || s.Phase == "sending" {
 					text = b.text("Caelis Bot is working.", "Caelis Bot 正在工作。")
@@ -733,7 +772,15 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 				outcome = "rejected"
 				_, _ = c.Send(ctx, chat, plainText(b.text("Send text, a photo or a file.", "请发送文字、图片或文件。")), nil)
 			} else {
-				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text}, files)
+				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text, IngressFence: ingressFence}, files)
+				if errors.Is(submitErr, api.ErrRecoveryPending) {
+					b.mu.Lock()
+					b.state.Inputs[request] = "deferred"
+					delete(b.state.Messages, "input:"+request)
+					e := b.saveLocked()
+					b.mu.Unlock()
+					return e == nil, true
+				}
 				outcome = receipt.Outcome
 				if outcome != "accepted" && outcome != "rejected" && outcome != "unknown" {
 					outcome = "unknown"
@@ -760,7 +807,7 @@ func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 	b.state.Messages["input:"+request] = delivery{Skip: true}
 	e := b.saveLocked()
 	b.mu.Unlock()
-	return e == nil
+	return e == nil, false
 }
 func (b *Bridge) download(ctx context.Context, c client, request string, m *tg.Message) ([]api.InputFile, string, error) {
 	if m.Sticker != nil {

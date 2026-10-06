@@ -41,7 +41,11 @@ func TestTypingOnlyTracksConnectedMainTurn(t *testing.T) {
 func TestTypingRenewsOnceAndStopsOnCompletionPauseAndCancel(t *testing.T) {
 	var mu sync.Mutex
 	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "main", Phase: "sending"}
-	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { mu.Lock(); defer mu.Unlock(); return snapshot }})
+	recovery := api.RecoveryState{Fence: "owner:9"}
+	b, f := testBridge(t, Host{
+		Snapshot: func() api.Snapshot { mu.Lock(); defer mu.Unlock(); return snapshot },
+		Recovery: func() api.RecoveryState { mu.Lock(); defer mu.Unlock(); return recovery },
+	})
 	paired(b)
 	b.typingPoll, b.typingRenew = 5*time.Millisecond, 25*time.Millisecond
 	ctx, cancel := context.WithCancel(t.Context())
@@ -50,10 +54,23 @@ func TestTypingRenewsOnceAndStopsOnCompletionPauseAndCancel(t *testing.T) {
 	defer func() { cancel(); <-done }()
 	waitFakeActions(t, f, 3)
 	mu.Lock()
-	snapshot.Phase = "completed"
+	recovery.Automatic = true
 	mu.Unlock()
 	time.Sleep(15 * time.Millisecond)
 	count := fakeActionCount(f)
+	time.Sleep(70 * time.Millisecond)
+	if got := fakeActionCount(f); got != count {
+		t.Fatalf("ready snapshot kept typing during automatic recovery: %d -> %d", count, got)
+	}
+	mu.Lock()
+	recovery.Automatic = false
+	mu.Unlock()
+	waitFakeActions(t, f, count+1)
+	mu.Lock()
+	snapshot.Phase = "completed"
+	mu.Unlock()
+	time.Sleep(15 * time.Millisecond)
+	count = fakeActionCount(f)
 	time.Sleep(70 * time.Millisecond)
 	if got := fakeActionCount(f); got != count {
 		t.Fatalf("typing renewed after completion: %d -> %d", count, got)

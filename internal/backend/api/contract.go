@@ -176,6 +176,11 @@ type RuntimeCheck struct {
 	Message   string `json:"message"`
 }
 type Submission struct {
+	// IngressFence is a Control-owned generation selected by a remote channel.
+	// NativeIngressFence is set by Control and checked under the adapter's
+	// submission lock immediately before any native dispatch.
+	IngressFence       string `json:"-"`
+	NativeIngressFence string `json:"-"`
 	// Dream is host-only provenance, never an option supplied by the renderer.
 	Dream bool `json:"-"`
 	// ScreenInput is host-only acquisition provenance, not an instruction or

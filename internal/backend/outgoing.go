@@ -13,7 +13,7 @@ type outgoingMessage struct {
 	after string
 }
 
-func (s *Service) stageOutgoing(input api.Submission, files []api.InputFile) {
+func (s *Service) stageOutgoing(input api.Submission, files []api.InputFile) bool {
 	v := s.engine.Snapshot()
 	text := input.Text
 	for _, f := range files {
@@ -24,7 +24,7 @@ func (s *Service) stageOutgoing(input api.Submission, files []api.InputFile) {
 	v = s.presentOutgoing(v)
 	for _, pending := range s.outbox {
 		if pending.item.RequestID == input.ID {
-			return
+			return false
 		}
 	}
 	after := ""
@@ -36,6 +36,7 @@ func (s *Service) stageOutgoing(input api.Submission, files []api.InputFile) {
 		item.Media = s.messageMedia.Presentation(input.ID)
 	}
 	s.outbox = append(s.outbox, outgoingMessage{item: item, after: after})
+	return true
 }
 
 func (s *Service) finishOutgoing(id string, receipt api.Receipt) {
@@ -51,6 +52,19 @@ func (s *Service) finishOutgoing(id string, receipt api.Receipt) {
 			_ = s.messageMedia.Mark(id, s.outbox[i].item.Text, status)
 		}
 	}
+}
+
+// A proven pre-dispatch recovery refusal must leave no local sending bubble.
+func (s *Service) discardOutgoing(id string) {
+	s.mu.Lock()
+	for i := 0; i < len(s.outbox); i++ {
+		if s.outbox[i].item.RequestID == id {
+			s.outbox = append(s.outbox[:i], s.outbox[i+1:]...)
+			break
+		}
+	}
+	s.mu.Unlock()
+	s.messageMedia.Resolve(id)
 }
 
 // Called under mu. Match request identities, never message text (two identical

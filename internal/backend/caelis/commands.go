@@ -165,6 +165,10 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		return receipt, nil
 	}
 	s.mu.Lock()
+	if in.NativeIngressFence != "" && in.NativeIngressFence != fmt.Sprintf("caelis:%s:%d", s.recoveryInstance, s.recoveryGeneration) {
+		s.mu.Unlock()
+		return api.Receipt{}, api.ErrRecoveryPending
+	}
 	v := s.snapshotLocked()
 	_, retry := s.state.Operations[in.ID]
 	sid := s.state.Session.SessionId
