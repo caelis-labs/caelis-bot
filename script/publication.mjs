@@ -67,7 +67,20 @@ export function publishPlatform(directory, options, run = (command, args) => exe
   const {tag, os, channel} = receipt.key;
   const commit = JSON.parse(run('gh', ['api', `repos/${repository}/commits/${tag}`]));
   if (commit.sha !== receipt.source) throw new Error('Immutable release tag source mismatch');
-  const release = () => JSON.parse(run('gh', ['api', `repos/${repository}/releases/tags/${tag}`]));
+  const release = () => {
+    try {
+      return JSON.parse(run('gh', ['api', `repos/${repository}/releases/tags/${tag}`]));
+    } catch (error) {
+      // GitHub's release-by-tag endpoint can return 404 for an authenticated
+      // draft. Only that response may fall back to the newest release page;
+      // the exact tag and draft state still have to match before any upload.
+      if (!String(error.stderr || error).includes('HTTP 404')) throw error;
+      const releases = JSON.parse(run('gh', ['api', `repos/${repository}/releases?per_page=100`]));
+      const matches = releases.filter(candidate => candidate.tag_name === tag && candidate.draft);
+      if (matches.length !== 1) throw error;
+      return matches[0];
+    }
+  };
   let current = release();
   if (current.tag_name !== tag || (!current.draft && current.prerelease !== tag.includes('-'))) {
     // A published stable release must not be changed into a prerelease by a
