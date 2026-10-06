@@ -7,7 +7,7 @@ limits live in [development](development.md). Source contracts remain authoritat
 ## Ownership
 
 ```text
-macOS surfaces → internal/app → backend.Service → adapter → native Runtime
+native desktop surfaces → internal/desktop assembly → internal/app → backend.Service → adapter → native Runtime
                         ├── bot / care / tasks / notebook / botmemory
                         └── desktopcontrol → private Desktop World Go helper
 renderer → typed product DTOs; no credentials, native IDs or local paths as authority
@@ -29,8 +29,17 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 
 `app.Host` injects OS actions. Desktop does not import concrete adapters. Unknown providers fail explicitly.
 Optional capabilities are discovered by typed ports and native negotiation, not by text or animation.
-Wails/AppKit/cgo remain behind macOS drivers. Unsupported hosts fail before writing preferences.
-Shared-core compilation does not prove native Windows behavior. `GOWORK=off`; no sibling private imports.
+`internal/desktop/assembly.go` constructs the sole `app.Application` and service
+bindings without Wails/cgo. The macOS runtime owns Wails/AppKit windows, lifecycle,
+restart, clipboard, native permissions and updater. `app.Host` supplies small
+effect callbacks; `internal/secretstore.Store`, `localipc.Endpoint` and the
+terminal script boundary keep OS authority local to their consumers. Frontend
+feature DTOs distinguish supported, available, enabled and permission state;
+permissions never overwrite a saved product choice. Unsupported hosts fail before
+writing preferences. Windows 11 x64 native drivers, current-user Named Pipe,
+Credential Manager, Job Objects and GUI acceptance remain the next stage.
+Shared-core compilation and native Windows CI do not prove Windows GUI behavior.
+`GOWORK=off`; no sibling private imports.
 
 Caelis atomic reconnect may prepare a large existing history before sending SSE
 headers. Its observation uses a separate transport with a two-minute header wait;

@@ -12,6 +12,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/remotework"
+	"github.com/caelis-labs/caelis-bot/internal/secretstore"
 	"maps"
 	"os"
 	"path/filepath"
@@ -41,6 +42,7 @@ type Service struct {
 	request       func(context.Context, profile, remotework.Request) (remotework.Response, error)
 	mu            sync.Mutex
 	secretMu      sync.RWMutex
+	secretStore   secretstore.Store
 	cacheMu       sync.RWMutex
 	root          string
 	state         disk
@@ -55,7 +57,9 @@ func Open(root string, local api.WorkRuntime, artifact func(string) ([]byte, err
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("machine store requires absolute path")
 	}
-	s := &Service{root: root, local: local, artifact: artifact, secrets: map[string]string{}, cache: map[string][]api.WorkState{}, cacheRevision: map[string]uint64{}, state: disk{Version: 1, ProfileID: rand.Text(), Profiles: map[string]profile{}, Routes: map[string]string{}}}
+	s := &Service{root: root, local: local, artifact: artifact, secrets: map[string]string{},
+		secretStore: secretstore.Functions{SaveFunc: saveSecret, LoadFunc: loadSecret, DeleteFunc: deleteSecret},
+		cache:       map[string][]api.WorkState{}, cacheRevision: map[string]uint64{}, state: disk{Version: 1, ProfileID: rand.Text(), Profiles: map[string]profile{}, Routes: map[string]string{}}}
 	b, e := os.ReadFile(filepath.Join(root, "machines.json"))
 	if e == nil {
 		if json.Unmarshal(b, &s.state) != nil || s.state.Version != 1 || s.state.Profiles == nil || s.state.Routes == nil {
@@ -167,11 +171,11 @@ func (s *Service) ConnectMachine(ctx context.Context, in api.MachineInput) (api.
 		s.secretMu.Unlock()
 	}
 	if in.Secret != "" && in.Remember {
-		if e = saveSecret(id, in.Secret); e != nil {
+		if e = s.secretStore.Save(id, in.Secret); e != nil {
 			return out, e
 		}
 	} else if !in.Remember {
-		if e = deleteSecret(id); e != nil {
+		if e = s.secretStore.Delete(id); e != nil {
 			return out, e
 		}
 	}
@@ -369,7 +373,7 @@ func (s *Service) RemoveMachine(ctx context.Context, id string) error {
 			return errors.New("machine_has_tasks")
 		}
 	}
-	if err := deleteSecret(id); err != nil {
+	if err := s.secretStore.Delete(id); err != nil {
 		return err
 	}
 	old := s.state

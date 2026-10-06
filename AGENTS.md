@@ -27,8 +27,9 @@
 
 ## Architecture
 
-- Ship a complete macOS release first. Preserve interfaces for a future Windows
-  adapter, but do not implement it before macOS ships. Linux is outside the current plan.
+- macOS is the shipped product. Prepare the shared foundation and native Windows
+  adapter for a Windows 11 x64 product next; Linux desktop remains outside scope.
+  Do not claim Windows GUI or distribution support from cross-build or CI alone.
 - Codex App Server is the first backend; Caelis adapts to the same contract later.
 - Discover the user's local Codex installation and connect through the standard
   App Server handshake. Do not bundle or silently install a Codex runtime.
@@ -52,7 +53,7 @@
 
 ## Current implementation and evidence
 
-- P1's native shell is implemented; keep remaining hardware/release gates explicit.
+- P1's macOS native shell is implemented; keep remaining hardware/release gates explicit.
 - P2's real Codex workflow is connected: conversation, tools, files, approvals,
   interrupt and recovery. Keep live evidence separate from fixture coverage.
 - Use `docs/development.md` for current commands and verification limits; do not restart

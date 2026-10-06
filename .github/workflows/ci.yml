@@ -41,7 +41,7 @@ jobs:
           git diff --check
   macos-product:
     needs: scope
-    if: needs.scope.outputs.kind == 'full'
+    if: contains(fromJSON('["full","shared","macos"]'), needs.scope.outputs.kind)
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -96,7 +96,7 @@ jobs:
           retention-days: 7
   linux-headless:
     needs: scope
-    if: needs.scope.outputs.kind == 'full'
+    if: contains(fromJSON('["full","shared"]'), needs.scope.outputs.kind)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -117,10 +117,72 @@ jobs:
         run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal ./cmd/caelis-remote
       - name: Build Linux amd64 and arm64 helpers
         run: bash script/build-remote-helper.sh "$PWD/.cache/ci-remote-helper"
+  shared-sanity:
+    needs: scope
+    if: contains(fromJSON('["full","shared","macos","windows"]'), needs.scope.outputs.kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOWORK: "off"
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run portable product contracts
+        run: go test ./internal/app ./internal/backend/api ./internal/bot ./internal/care ./internal/desktop ./internal/localipc ./internal/localstate ./internal/runtimeenv ./internal/updates
+  windows-product:
+    needs: scope
+    if: contains(fromJSON('["full","shared","windows"]'), needs.scope.outputs.kind)
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      GOWORK: "off"
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: npm ci
+      - name: Run native Windows shared and platform contracts
+        shell: pwsh
+        run: |
+          go test ./internal/app ./internal/backend/api ./internal/bot ./internal/care ./internal/desktop ./internal/localipc ./internal/localstate ./internal/runtimeenv ./internal/updates ./internal/tasks ./internal/taskterminal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test script/ci-scope.test.mjs script/release-version.test.mjs script/update.test.mjs script/publication.test.mjs script/desktop-world.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -o .cache/caelis-bot-unsupported.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $message = & .cache/caelis-bot-unsupported.exe 2>&1 | Out-String
+          if ($LASTEXITCODE -eq 0 -or $message -notmatch 'desktop is not implemented') { throw 'Windows GUI bootstrap must report unsupported' }
+          exit 0
+      - name: Verify pinned Windows Desktop World payload
+        shell: pwsh
+        run: |
+          & ./script/stage-desktop-world-windows.ps1 -Destination .cache/ci-desktop-world
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = & .cache/ci-desktop-world/bin/dtw.exe version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node script/verify-desktop-world-manifest.mjs .cache/ci-desktop-world "$version" --target windows-amd64 --bundled
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   # Keep the existing required check name. Failed/cancelled/missing jobs must
   # fail this gate; only content-validated docs/version changes may skip builds.
   product:
-    needs: [scope, macos-product, linux-headless]
+    needs: [scope, macos-product, windows-product, shared-sanity, linux-headless]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -141,5 +203,7 @@ jobs:
           CI_KIND: ${{ needs.scope.outputs.kind }}
           CI_SCOPE_RESULT: ${{ needs.scope.result }}
           CI_MACOS_RESULT: ${{ needs.macos-product.result }}
+          CI_WINDOWS_RESULT: ${{ needs.windows-product.result }}
+          CI_SHARED_RESULT: ${{ needs.shared-sanity.result }}
           CI_LINUX_RESULT: ${{ needs.linux-headless.result }}
         run: node script/ci-scope.mjs --gate

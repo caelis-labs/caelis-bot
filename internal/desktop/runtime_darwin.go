@@ -47,7 +47,25 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
-	diagnostics := diagnosticlog.New(filepath.Join(root, "Logs"))
+	var controlDriver api.ApplicationTools
+	if desktopWorldSupported() {
+		if bundled := desktopcontrol.Bundled(); bundled != nil {
+			controlDriver = bundled
+			defer bundled.Close()
+		}
+	}
+	assembly, err := newProductAssembly(root, macPreferredLanguages(), func(s *Service) app.Host {
+		return app.Host{DesktopControl: controlDriver,
+			OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
+			RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
+			TrashFile:  trashNativePath, CareSample: macCareSample}
+	})
+	if err != nil {
+		return err
+	}
+	s, core, diagnostics := assembly.Service, assembly.Core, assembly.Diagnostics
+	defer core.Close()
+	back := core.Backend
 	if envErr != nil {
 		// Resolve returns only locally generated causes, never shell output/values.
 		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
@@ -56,45 +74,7 @@ func Run(assets fs.FS) error {
 	} else {
 		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_loaded", Reason: "user login and interactive shell exports loaded for native runtimes"})
 	}
-	s := newService(fileStore{filepath.Join(root, "placement.json")})
-	s.configurePermissionGuide(filepath.Join(root, "permission-guide.json"))
-	s.configureFeatureGuide(filepath.Join(root, "feature-guide.json"))
-	s.configureShortcut(filepath.Join(root, "shortcut.json"))
-	s.configureTaskShortcut(filepath.Join(root, "task-shortcut.json"))
-	logError(s.configureCapture(filepath.Join(root, "Captures")))
-	logError(s.configureLanguage(filepath.Join(root, "language.json"), macPreferredLanguages()))
-	s.content, err = contentpack.NewRegistry(filepath.Join(root, "content"))
-	if err != nil {
-		logError(err)
-	}
-
-	var controlDriver api.ApplicationTools
-	if desktopWorldSupported() {
-		if bundled := desktopcontrol.Bundled(); bundled != nil {
-			controlDriver = bundled
-			defer bundled.Close()
-		}
-	}
-	core, err := app.New(root, app.Host{Locale: func() i18n.Locale { return s.LanguagePreferences().Locale }, Diagnostics: diagnostics, ResolveFiles: s.resolveDraftFiles, ConsumeFiles: s.consumeDraftFiles,
-		DesktopControl: controlDriver,
-		OpenURL:        func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
-		RevealFile:     func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
-		TrashFile:      trashNativePath, Gesture: s.Gesture, Notify: s.Notify, Observe: s.observeCharacter, ObserveTasks: s.observeTasks, ReportError: logError, CareSample: macCareSample})
-	if err != nil {
-		return err
-	}
-	defer core.Close()
-	back := core.Backend
-	s.telegram = core.Telegram
-	s.openExternalURL = back.OpenMessageLink
-	s.configureCaptureBackend(back)
-	s.taskPreferences = core.TaskPreferences
-	s.saveTaskPreferences = core.SaveTaskPreferences
 	s.terminalChoices = func() []taskterminal.Choice { return taskterminal.Choices(terminalInstalled) }
-	s.removeTaskPin = func(id string) error { _, err := core.PinTask(id, false); return err }
-	s.lockTaskPin = func(id string, locked bool) error { _, err := core.LockTask(id, locked); return err }
-	s.clearTaskPins = core.ClearTasks
-	s.moveTaskPin = core.MoveTask
 	terminalWindows := taskterminal.NewWindowManager(filepath.Join(root, "Terminal"), func(ctx context.Context, path string) (taskterminal.Window, error) {
 		p, err := s.TaskPreferences()
 		if err != nil {
@@ -128,33 +108,7 @@ func Run(assets fs.FS) error {
 	s.taskError = func(id string, err error) {
 		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "terminal", Code: "task_open_failed", Item: id, Reason: diagnosticlog.Reason(err.Error()), Fingerprint: diagnosticlog.Fingerprint([]byte(err.Error()))})
 	}
-	s.needsIntroduction = func() bool {
-		v := back.BotInitialization()
-		return v.Required || v.Status == "rejected" || v.Status == "unknown"
-	}
-	logError(s.configureSelection(filepath.Join(core.ProviderDirectory(), "draft-files.json")))
 	s.readClipboard = readMacClipboard
-	s.storage, s.cleanStorage = core.AttachmentStorage, core.CleanAttachments
-	s.diagnosticReport = back.DiagnosticReport
-	s.activate = func() {
-		if core.NeedsSetup() || !core.HasRuntimeChoice() {
-			s.showSettings("setup")
-			return
-		}
-		v := back.ComposerSnapshot()
-		for _, a := range v.Approvals {
-			if a.Status != "resolved" {
-				s.OpenApproval()
-				return
-			}
-		}
-		if v.CanSend {
-			s.CloseHistory()
-			s.TogglePanel()
-		} else {
-			s.OpenHistory()
-		}
-	}
 	var nativeApp *application.App
 	var closeContextWindow func()
 	var quitting, finished atomic.Bool
@@ -469,26 +423,10 @@ func Run(assets fs.FS) error {
 			logError(core.Close())
 			finished.Store(true)
 		})
-		if err := core.PreparePersonal(); err != nil {
-			logError(err)
-			quit()
-			return
-		}
-		if core.NeedsSetup() {
-			s.showSettings("setup")
-		}
-		if !core.HasRuntimeChoice() {
-			return
-		}
-		if err := core.Start(); err != nil {
+		if err := assembly.Start(); err != nil {
 			logError(err)
 			quit()
 		}
 	})
 	return nativeApp.Run()
-}
-func logError(err error) {
-	if err != nil {
-		log.Print(err)
-	}
 }

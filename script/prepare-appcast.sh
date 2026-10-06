@@ -7,13 +7,22 @@ trap 'rm -rf "$BOT_SPARKLE_DIR"' EXIT
 : "${BOT_SPARKLE_PRIVATE_KEY:?Missing Sparkle signing key}"
 : "${BOT_SPARKLE_PUBLIC_KEY:?Missing Sparkle public key}"
 version=$(node --input-type=module -e 'import {validateTag} from "./script/release-version.mjs";console.log(validateTag(process.env.BOT_RELEASE_TAG))')
-[[ "$version" != *-* ]] || { echo 'Preview releases do not replace the stable update feed.'; exit 0; }
 bundle="${1:-$BOT_ROOT/dist/Caelis Bot.app}"
 test "$(/usr/libexec/PlistBuddy -c 'Print SUPublicEDKey' "$bundle/Contents/Info.plist")" = "$BOT_SPARKLE_PUBLIC_KEY"
-test "$(/usr/libexec/PlistBuddy -c 'Print CaelisAutoUpdatesEnabled' "$bundle/Contents/Info.plist")" = true
-test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$bundle/Contents/Info.plist")" = "$version"
 directory="${2:-$BOT_ROOT/dist/releases}"
 name="Caelis-Bot-$version-macos-arm64.dmg"
+if [[ "$version" == *-* ]]; then
+  # Preview is a signed manual-download pointer in its own channel. The app
+  # itself has automatic updates disabled and never reads the stable appcast.
+  test "$(/usr/libexec/PlistBuddy -c 'Print CaelisAutoUpdatesEnabled' "$bundle/Contents/Info.plist")" = false
+  test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$bundle/Contents/Info.plist")" = "${version%%-*}"
+  node script/update-manifest.mjs create "$directory"
+  printf '%s' "$BOT_SPARKLE_PRIVATE_KEY" | "$BOT_SPARKLE_DIR/bin/sign_update" --ed-key-file - -p "$directory/latest.json" > "$directory/latest.json.sig"
+  node script/update-manifest.mjs verify "$directory"
+  exit 0
+fi
+test "$(/usr/libexec/PlistBuddy -c 'Print CaelisAutoUpdatesEnabled' "$bundle/Contents/Info.plist")" = true
+test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$bundle/Contents/Info.plist")" = "$version"
 # Never edit the signed feed after this tool has produced it. No delta/history retention.
 printf '%s' "$BOT_SPARKLE_PRIVATE_KEY" | "$BOT_SPARKLE_DIR/bin/generate_appcast" \
   --ed-key-file - --maximum-versions 1 --maximum-deltas 0 \

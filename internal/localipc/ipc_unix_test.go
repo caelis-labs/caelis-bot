@@ -1,3 +1,5 @@
+//go:build !windows
+
 package localipc
 
 import (
@@ -15,6 +17,9 @@ func TestPrivateEndpointRoundTripPermissionsAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer listener.Close()
+	if address := listener.Address(); address.Transport != UnixSocket || address.Address != listener.Endpoint() {
+		t.Fatalf("wrong native endpoint: %+v", address)
+	}
 	for path, mode := range map[string]os.FileMode{listener.Endpoint(): 0600, filepath.Dir(listener.Endpoint()): 0700} {
 		st, err := os.Stat(path)
 		if err != nil || st.Mode().Perm() != mode {

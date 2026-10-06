@@ -27,7 +27,7 @@ test('version and changelog updates use the fast path, independent of author or 
   }).kind, 'release');
 });
 
-test('dependencies, lock contents, commands and extra manifest entries require full checks', () => {
+test('dependencies, lock contents, commands and extra manifest entries require both desktop platforms', () => {
   for (const modify of [
     data => {data['package.json'].dependencies.react = '20.0.0';},
     data => {data['package.json'].scripts.build = 'different command';},
@@ -37,43 +37,48 @@ test('dependencies, lock contents, commands and extra manifest entries require f
     data => {data['package-lock.json'].packages[''].version = '0.8.0';},
     data => {delete data['package-lock.json'].packages;},
     data => {data['package.json'].version = 'not-semver';},
-  ]) assert.equal(scope(files, modify).kind, 'full');
-  assert.equal(scope([...files, 'internal/bot/bot.go']).kind, 'full');
-  assert.equal(scope(['release-please-config.json']).kind, 'full');
+  ]) assert.equal(scope(files, modify).kind, 'shared');
+  assert.equal(scope([...files, 'internal/bot/bot.go']).kind, 'shared');
+  assert.equal(scope(['release-please-config.json']).kind, 'shared');
 });
 
 test('unreadable or newly added version metadata cannot take the fast path', () => {
-  assert.equal(classifyChanges(files, () => {throw new Error('missing');}, () => '{}').kind, 'full');
-  assert.equal(classifyChanges(files, () => '{broken', () => '{broken').kind, 'full');
+  assert.equal(classifyChanges(files, () => {throw new Error('missing');}, () => '{}').kind, 'shared');
+  assert.equal(classifyChanges(files, () => '{broken', () => '{broken').kind, 'shared');
 });
 
 test('only product documentation skips builds; Bot skills and runtime resources still build', () => {
   assert.equal(scope(['README.md', 'docs/architecture.md', 'docs/evidence/image.png']).kind, 'docs');
-  for (const paths of [[], ['AGENTS.md'], ['internal/botskills/skills/caelis-bot-memory/SKILL.md'], ['resources/character-pack.json'], ['.github/workflows/ci.yml']]) {
-    assert.equal(scope(paths).kind, 'full');
-  }
+  assert.equal(scope([]).kind, 'full');
+  for (const paths of [['AGENTS.md'], ['internal/botskills/skills/caelis-bot-memory/SKILL.md'], ['resources/character-pack.json'], ['.github/workflows/ci.yml']]) assert.equal(scope(paths).kind, 'shared');
 });
 
 test('packaging changes exercise the DMG while an ordinary transport change does not', () => {
-  for (const path of ['script/package.sh', 'script/build.sh', 'script/dmg-settings.py', 'script/verify-dmg-layout.py', 'resources/macos/Info.plist', '.github/workflows/release.yml']) {
-    assert.deepEqual(scope([path]), {kind: 'full', preview: true});
+  for (const path of ['script/package.sh', 'script/build.sh', 'script/dmg-settings.py', 'script/verify-dmg-layout.py', 'script/prepare-appcast.sh', 'script/publication.mjs', 'script/publish-r2.mjs', 'script/stage-desktop-world-windows.ps1', 'resources/macos/Info.plist', '.github/workflows/release.yml']) {
+    assert.equal(scope([path]).preview, true);
   }
-  assert.deepEqual(scope(['internal/telegram/proxy_darwin.go']), {kind: 'full', preview: false});
+  assert.deepEqual(scope(['internal/telegram/proxy_darwin.go']), {kind: 'macos', preview: false});
+  assert.deepEqual(scope(['internal/desktop/runtime_windows.go']), {kind: 'windows', preview: false});
+  assert.deepEqual(scope(['frontend/src/Panel.tsx']), {kind: 'shared', preview: false});
+  assert.deepEqual(scope(['unknown-path']), {kind: 'full', preview: false});
 });
 
 test('required product gate rejects failed, cancelled, missing or unexpectedly skipped jobs', () => {
-  requireResults('full', 'success', 'success', 'success');
-  for (const kind of ['docs', 'release']) requireResults(kind, 'success', 'skipped', 'skipped');
+  const all={shared:'success',macos:'success',windows:'success',linux:'success'};
+  requireResults('full', 'success', all);
+  requireResults('shared', 'success', all);
+  requireResults('macos', 'success', {...all,windows:'skipped',linux:'skipped'});
+  requireResults('windows', 'success', {...all,macos:'skipped',linux:'skipped'});
+  for (const kind of ['docs', 'release']) requireResults(kind, 'success', Object.fromEntries(Object.keys(all).map(k=>[k,'skipped'])));
   for (const kind of ['full', 'docs', 'release', '', 'unknown']) {
     for (const status of ['failure', 'cancelled', '', 'skipped']) {
-      assert.throws(() => requireResults(kind, status, 'success', 'success'));
+      assert.throws(() => requireResults(kind, status, all));
     }
   }
   for (const status of ['failure', 'cancelled', '', 'skipped']) {
-    assert.throws(() => requireResults('full', 'success', status, 'success'));
-    assert.throws(() => requireResults('full', 'success', 'success', status));
+    for (const job of Object.keys(all)) assert.throws(() => requireResults('full', 'success', {...all,[job]:status}));
   }
-  assert.throws(() => requireResults('release', 'success', 'success', 'skipped'));
+  assert.throws(() => requireResults('release', 'success', all));
 });
 
 test('CLI classifies the real git diff and writes bounded step outputs', () => {
@@ -88,8 +93,8 @@ test('CLI classifies the real git diff and writes bounded step outputs', () => {
     const output = join(directory, 'output');
     execFileSync(process.execPath, [resolve('script/ci-scope.mjs')], {cwd: directory, env: {...process.env, CI_BASE_SHA: base, GITHUB_OUTPUT: output}});
     assert.equal(readFileSync(output, 'utf8'), 'kind=release\npreview=false\n');
-    writeFileSync(join(directory, 'runtime change\n.js'), 'changed');
-    git(['add', 'runtime change\n.js']); git(['commit', '-qm', 'runtime']);
+    writeFileSync(join(directory, 'runtime 变更.js'), 'changed');
+    git(['add', 'runtime 变更.js']); git(['commit', '-qm', 'runtime']);
     writeFileSync(output, '');
     execFileSync(process.execPath, [resolve('script/ci-scope.mjs')], {cwd: directory, env: {...process.env, CI_BASE_SHA: base, GITHUB_OUTPUT: output}});
     assert.equal(readFileSync(output, 'utf8'), 'kind=full\npreview=false\n');

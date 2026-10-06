@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"sync"
@@ -69,12 +68,7 @@ func durableWrite(path string, value any) error {
 	if err := localstate.Write(path, value); err != nil {
 		return err
 	}
-	d, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return localstate.SyncParent(path)
 }
 func Open(path string) (*Engine, error) { return OpenWithSources(path, NativeSources()) }
 func OpenWithSources(path string, sources []Source) (*Engine, error) {
@@ -85,12 +79,14 @@ func OpenWithSources(path string, sources []Source) (*Engine, error) {
 	e := &Engine{sources: catalog, path: path, write: durableWrite, programs: map[string]condition{}, state: State{Version: 2, Policy: DefaultPolicy(), Interruptions: []time.Time{}, Rules: []Registration{}, Activations: []Activation{}, Watermarks: map[string]time.Time{}, Attempts: []time.Time{}}}
 	f, err := os.Open(path)
 	if err == nil {
-		defer f.Close()
 		info, err := f.Stat()
 		if err != nil || !info.Mode().IsRegular() || info.Size() > 2<<20 {
+			_ = f.Close()
 			return nil, errors.New("invalid care state file")
 		}
-		if json.NewDecoder(f).Decode(&e.state) != nil || (e.state.Version != 1 && e.state.Version != 2) || e.state.Watermarks == nil || len(e.state.Rules) > MaxRules || len(e.state.Activations) > 256 || len(e.state.Attempts) > 256 || (e.state.Version == 1 && len(e.state.Attempts) > 8) || !e.state.Policy.valid() || len(e.state.Interruptions) > 256 || len(e.state.LegacyAttempts) > 8 {
+		decodeErr := json.NewDecoder(f).Decode(&e.state)
+		closeErr := f.Close()
+		if decodeErr != nil || closeErr != nil || (e.state.Version != 1 && e.state.Version != 2) || e.state.Watermarks == nil || len(e.state.Rules) > MaxRules || len(e.state.Activations) > 256 || len(e.state.Attempts) > 256 || (e.state.Version == 1 && len(e.state.Attempts) > 8) || !e.state.Policy.valid() || len(e.state.Interruptions) > 256 || len(e.state.LegacyAttempts) > 8 {
 			return nil, errors.New("invalid care state")
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {

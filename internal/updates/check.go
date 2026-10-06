@@ -38,9 +38,12 @@ type release struct {
 }
 
 func Check(ctx context.Context, loc ...i18n.Locale) Result {
-	return check(ctx, &http.Client{Timeout: 12 * time.Second}, Version, runtime.GOARCH, loc...)
+	return checkTarget(ctx, &http.Client{Timeout: 12 * time.Second}, Version, runtime.GOOS, runtime.GOARCH, loc...)
 }
 func check(ctx context.Context, client *http.Client, current, arch string, loc ...i18n.Locale) Result {
+	return checkTarget(ctx, client, current, "darwin", arch, loc...)
+}
+func checkTarget(ctx context.Context, client *http.Client, current, targetOS, arch string, loc ...i18n.Locale) Result {
 	l := i18n.DefaultLocale
 	if len(loc) > 0 && loc[0] != "" {
 		l = loc[0]
@@ -73,9 +76,7 @@ func check(ctx context.Context, client *http.Client, current, arch string, loc .
 		result.Message = i18n.Text(l, "host.updatesDevBuild", nil)
 		return result
 	}
-	if arch == "amd64" {
-		arch = "x86_64"
-	}
+	assetSuffix := targetAssetSuffix(targetOS, arch)
 	var latest []string
 	for _, release := range releases {
 		v := parseVersion(release.Tag)
@@ -84,7 +85,7 @@ func check(ctx context.Context, client *http.Client, current, arch string, loc .
 		}
 		compatible := false
 		for _, asset := range release.Assets {
-			if strings.HasPrefix(asset.Name, "Caelis-Bot-") && strings.HasSuffix(asset.Name, "-macos-"+arch+".dmg") {
+			if assetSuffix != "" && strings.HasPrefix(asset.Name, "Caelis-Bot-") && strings.HasSuffix(asset.Name, assetSuffix) {
 				compatible = true
 				break
 			}
@@ -107,6 +108,19 @@ func check(ctx context.Context, client *http.Client, current, arch string, loc .
 		result.Message = i18n.Text(l, "host.updatesCurrent", nil)
 	}
 	return result
+}
+
+func targetAssetSuffix(targetOS, arch string) string {
+	switch {
+	case targetOS == "darwin" && arch == "arm64":
+		return "-macos-arm64.dmg"
+	case targetOS == "darwin" && arch == "amd64":
+		return "-macos-x86_64.dmg"
+	case targetOS == "windows" && arch == "amd64":
+		return "-windows-amd64.msix"
+	default:
+		return ""
+	}
 }
 
 var versionPattern = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)

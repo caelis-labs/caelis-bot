@@ -10,7 +10,7 @@ case "$BOT_DW_VERIFY_MODE" in adhoc|development|developer-id) ;; *) exit 1 ;; es
 for BOT_DW_VERIFY_FILE in bin/dtw manifest.json LICENSE NOTICE THIRD_PARTY_NOTICES.md source/go.mod source/host/client.go; do
  test -s "$BOT_DW_VERIFY_ROOT/$BOT_DW_VERIFY_FILE"
 done
-node "$(dirname "$0")/verify-desktop-world-manifest.mjs" "$BOT_DW_VERIFY_ROOT" --bundled
+node "$(dirname "$0")/verify-desktop-world-manifest.mjs" "$BOT_DW_VERIFY_ROOT" --target darwin-arm64 --bundled
 [[ "$BOT_DW_VERIFY_VERSION" == "$(node -p 'require(process.argv[1]).version' "$BOT_DW_VERIFY_ROOT/manifest.json")" ]]
 BOT_DW_VERIFY_ARCH=$(lipo -archs "$BOT_DW_VERIFY_BUNDLE/Contents/MacOS/caelis-bot")
 case "$BOT_DW_VERIFY_ARCH" in arm64|x86_64) ;; *) echo 'Unsupported host architecture.' >&2; exit 1 ;; esac
@@ -40,4 +40,4 @@ while IFS= read -r -d '' BOT_DW_VERIFY_NATIVE; do
 done < <(find "$BOT_DW_VERIFY_ROOT/bin" -type f -name dtw -print0)
 [[ "$BOT_DW_VERIFY_COUNT" -eq 1 ]]
 # Executing version only: no desktop observation, permission request or input.
-node "$(dirname "$0")/verify-desktop-world-manifest.mjs" "$BOT_DW_VERIFY_ROOT" "$("$BOT_DW_VERIFY_ROOT/bin/dtw" version)" --bundled
+node "$(dirname "$0")/verify-desktop-world-manifest.mjs" "$BOT_DW_VERIFY_ROOT" "$("$BOT_DW_VERIFY_ROOT/bin/dtw" version)" --target darwin-arm64 --bundled

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -120,7 +121,7 @@ func TestSameProductPolicyForDifferentRuntimeAdapters(t *testing.T) {
 				t.Fatal("host did not own role/workspace")
 			}
 			info, e := os.Stat(v.Workspace)
-			if e != nil || info.Mode().Perm() != 0700 {
+			if e != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0700) {
 				t.Fatal("workspace not private", e)
 			}
 			if again := start(t, m, "first-request"); again.ID != v.ID || f.starts != 1 {

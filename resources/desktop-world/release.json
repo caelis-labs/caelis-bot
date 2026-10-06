@@ -2,7 +2,23 @@
   "version": "v0.1.0-rc.3",
   "revision": "43172bb1f3dd26b90a88c346bc9978cbabab5785",
   "module": "github.com/caelis-labs/desktop-world",
-  "archive": "desktop-world-v0.1.0-rc.3-darwin-arm64.tar.gz",
-  "sha256": "9bf246b352c37f4e7f719fc222ab528221abc8e0fcba83ab61b03ba715b9fbd9",
-  "minimum_macos": "14.0"
+  "source": {
+    "archive": "desktop-world-v0.1.0-rc.3-source.tar.gz",
+    "sha256": "359fa2215cbead13cdc516551a4e56488d3e2847f3fcbf097cd829b8724b593d"
+  },
+  "targets": {
+    "darwin-arm64": {
+      "archive": "desktop-world-v0.1.0-rc.3-darwin-arm64.tar.gz",
+      "sha256": "9bf246b352c37f4e7f719fc222ab528221abc8e0fcba83ab61b03ba715b9fbd9",
+      "binary_sha256": "51424f2fd5cc3c24750225383b88cd16eae981868478d47d501f25e83995287c",
+      "binary": "bin/dtw",
+      "minimum_macos": "14.0"
+    },
+    "windows-amd64": {
+      "archive": "desktop-world-v0.1.0-rc.3-windows-amd64.zip",
+      "sha256": "c847a4b5068cbe49bcc7527fbd546584e16989e8138a365116128c0b1f850a63",
+      "binary_sha256": "2d2b8e1602cdb25191540139b4f5050226be02eee774d181c9a79ae5dd5ccea2",
+      "binary": "bin/dtw.exe"
+    }
+  }
 }
