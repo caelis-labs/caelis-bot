@@ -411,10 +411,16 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	if err == nil {
 		r.Outcome = "accepted"
 		t.Pending = ""
+		// The native acceptance has settled this exact request before the
+		// returned turn is projected; keep the unknown guard for other requests.
+		t.Requests[request] = r
 		// Notifications may have already completed this turn or started a later
 		// human turn. A delayed RPC receipt must not rewind that live state.
 		if t.Run == "" || t.Run == turn.ID {
 			s.observeTaskTurn(t, turn)
+			if status := s.childTerminalStatus[opaque(t.Thread, turn.ID)]; status != "" && t.Run == turn.ID && !terminal(t.View.Status) {
+				s.observeTaskTurn(t, nativeTurn{ID: turn.ID, Status: status})
+			}
 			if !s.childTerminals[opaque(t.Thread, turn.ID)] && !terminal(t.View.Status) {
 				s.childRuns[t.Thread] = turn.ID
 			}
@@ -465,6 +471,19 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 				}
 			}
 		}
+	}
+	if terminal(turn.Status) {
+		s.childTerminalStatus[opaque(t.Thread, turn.ID)] = turn.Status
+	}
+	// A terminal fact for an earlier run cannot settle a later submission whose
+	// original client identity has not appeared in this native thread snapshot.
+	if t.Pending != "" || taskHasUnknownReceipt(t) {
+		if t.Run == "" {
+			t.Run = turn.ID
+		}
+		t.View.Status = "unknown"
+		t.View.Outcome = "unknown"
+		return
 	}
 	if t.Run != turn.ID {
 		if s.childTerminals[opaque(t.Thread, turn.ID)] {

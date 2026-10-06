@@ -31,6 +31,8 @@ var (
 )
 
 const maxWireFrame = 8 * 1024 * 1024
+const maxQueuedEvents = 512
+const maxQueuedEventBytes = 16 * 1024 * 1024
 
 var nextTransportGeneration atomic.Uint64
 
@@ -105,13 +107,22 @@ type transport struct {
 	done           chan struct{}
 	stopped        chan struct{}
 	readDone       chan struct{}
+	pumpDone       chan struct{}
 	writeToken     chan struct{}
 	events         chan Notification
+	queueMu        sync.Mutex
+	queue          []Notification
+	queueBytes     int
+	queueHighWater int
+	eventKinds     [4]uint64
+	queueWake      chan struct{}
 	stop           func()
+	stopOnce       sync.Once
 	handleRequests bool
 	serverPending  map[string]serverRequestState
 	serverSequence uint64
 	generation     uint64
+	sessionEpoch   atomic.Uint64
 }
 type serverRequestState struct {
 	sequence uint64
@@ -126,11 +137,12 @@ func newTransportOptions(conn connection, stop func(), requests bool) *transport
 }
 func newTransportLogged(conn connection, stop func(), requests bool, diagnostics *diagnosticlog.Logger) *transport {
 	t := &transport{conn: conn, pending: make(map[string]chan response), done: make(chan struct{}),
-		stopped: make(chan struct{}), readDone: make(chan struct{}), writeToken: make(chan struct{}, 1), events: make(chan Notification, 64), stop: stop, diagnostics: diagnostics}
+		stopped: make(chan struct{}), readDone: make(chan struct{}), pumpDone: make(chan struct{}), writeToken: make(chan struct{}, 1), events: make(chan Notification), queueWake: make(chan struct{}, 1), stop: stop, diagnostics: diagnostics}
 	t.handleRequests = requests
 	t.generation = nextTransportGeneration.Add(1)
 	t.serverPending = make(map[string]serverRequestState)
 	t.writeToken <- struct{}{}
+	go t.pump()
 	go t.read()
 	return t
 }
@@ -147,19 +159,17 @@ func (t *transport) failWith(err error, phase string, size int) {
 	close(t.done)
 	t.mu.Unlock()
 	if phase == "read" || !errors.Is(err, ErrClosed) {
+		depth, queued := t.queueStats()
 		t.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: transportCode(err),
-			Reason: "pending outcomes require original-request reconciliation", Generation: t.generation, Phase: phase, Bytes: size, Limit: maxWireFrame})
+			Reason: "pending outcomes require original-request reconciliation", Generation: t.generation, TransportGeneration: t.generation,
+			SessionEpoch: t.sessionEpoch.Load(), Phase: phase, Bytes: size, Limit: maxWireFrame, QueueDepth: depth, QueueBytes: queued})
 	}
 	_ = t.conn.Close() // Releases a blocked writer/reader, including cancellation.
-	go func() {
-		if t.stop != nil {
-			t.stop()
-		}
-		close(t.stopped)
-	}()
 }
 func transportCode(err error) string {
 	switch {
+	case resourceExhausted(err):
+		return "resource_exhausted"
 	case errors.Is(err, ErrFrameTooLarge):
 		return "frame_too_large"
 	case errors.Is(err, ErrJSONDecode):
@@ -191,11 +201,121 @@ func classifyReadError(err error) error {
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrClosedPipe):
 		return ErrClosed
 	default:
-		return ErrIO
+		return errors.Join(ErrIO, err)
 	}
 }
-func (t *transport) close()       { t.fail(ErrClosed); <-t.stopped; <-t.readDone }
+func (t *transport) close()  { t.shutdown(true) }
+func (t *transport) detach() { t.shutdown(false) }
+func (t *transport) shutdown(stopOwner bool) {
+	t.fail(ErrClosed)
+	if stopOwner {
+		t.stopOnce.Do(func() {
+			if t.stop != nil {
+				t.stop()
+			}
+			close(t.stopped)
+		})
+	}
+	<-t.readDone
+	<-t.pumpDone
+}
 func (t *transport) cause() error { t.mu.Lock(); defer t.mu.Unlock(); return t.terminal }
+
+func (t *transport) queueStats() (int, int) {
+	t.queueMu.Lock()
+	defer t.queueMu.Unlock()
+	return len(t.queue), t.queueBytes
+}
+
+func eventKind(n Notification) int {
+	if len(n.RequestID) != 0 {
+		return 0
+	} // Native approval or input request.
+	if strings.HasPrefix(n.Method, "turn/") || strings.HasPrefix(n.Method, "serverRequest/") || strings.HasPrefix(n.Method, "thread/status/") {
+		return 1
+	}
+	if strings.Contains(n.Method, "/delta") || strings.Contains(n.Method, "tokenUsage") {
+		return 2
+	}
+	return 3
+}
+
+var eventKindNames = [4]string{"server_request", "lifecycle", "delta", "other"}
+
+func (t *transport) eventStats() (int, [4]uint64) {
+	t.queueMu.Lock()
+	defer t.queueMu.Unlock()
+	return t.queueHighWater, t.eventKinds
+}
+
+func (t *transport) enqueue(n Notification) bool {
+	if n.ReceivedAt.IsZero() {
+		n.ReceivedAt = time.Now().Round(0)
+	}
+	size := len(n.Params) + len(n.Method) + len(n.RequestID)
+	t.queueMu.Lock()
+	if len(t.queue) >= maxQueuedEvents || t.queueBytes+size > maxQueuedEventBytes {
+		depth, bytes := len(t.queue), t.queueBytes
+		t.queueMu.Unlock()
+		t.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "event_queue_saturated", Method: n.Method,
+			Generation: t.generation, SessionEpoch: t.sessionEpoch.Load(), TransportGeneration: t.generation,
+			Phase: eventKindNames[eventKind(n)], QueueDepth: depth, QueueBytes: bytes, Bytes: size, Limit: maxQueuedEventBytes})
+		return false
+	}
+	t.queue = append(t.queue, n)
+	t.queueBytes += size
+	t.eventKinds[eventKind(n)]++
+	if len(t.queue) > t.queueHighWater {
+		t.queueHighWater = len(t.queue)
+	}
+	depth, bytes := len(t.queue), t.queueBytes
+	t.queueMu.Unlock()
+	if depth == 64 || depth%128 == 0 {
+		t.diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "event_queue_depth", Method: n.Method,
+			Generation: t.generation, TransportGeneration: t.generation, SessionEpoch: t.sessionEpoch.Load(), QueueDepth: depth, QueueBytes: bytes})
+	}
+	select {
+	case t.queueWake <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+// The wire reader never waits for the projection. A separate pump preserves
+// order and holds at most one additional event while the consumer is slow.
+func (t *transport) pump() {
+	defer close(t.pumpDone)
+	defer close(t.events)
+	for {
+		t.queueMu.Lock()
+		var n Notification
+		has := len(t.queue) > 0
+		if has {
+			n = t.queue[0]
+		}
+		t.queueMu.Unlock()
+		if !has {
+			select {
+			case <-t.done:
+				return
+			case <-t.readDone:
+				return
+			case <-t.queueWake:
+				continue
+			}
+		}
+		select {
+		case <-t.done:
+			return
+		case t.events <- n:
+			t.queueMu.Lock()
+			t.queue[0] = Notification{}
+			t.queue = t.queue[1:]
+			t.queueBytes -= len(n.Params) + len(n.Method) + len(n.RequestID)
+			t.queueMu.Unlock()
+		}
+	}
+}
 
 // send serializes JSONL writes. A context can cancel a blocked pipe write without
 // leaving a goroutine holding the writer lock or interleaving another message.
@@ -307,7 +427,6 @@ func (t *transport) request(ctx context.Context, method string, params any, fini
 }
 func (t *transport) read() {
 	defer close(t.readDone)
-	defer close(t.events)
 	scan := bufio.NewScanner(t.conn)
 	scan.Buffer(make([]byte, 64*1024), maxWireFrame)
 	for scan.Scan() {
@@ -339,9 +458,7 @@ func (t *transport) read() {
 						t.failWith(errors.Join(ErrProtocol, ErrDuplicateRequest), "read", len(scan.Bytes()))
 						return
 					}
-					select {
-					case t.events <- Notification{Method: m.Method, Params: m.Params, RequestID: m.ID, Sequence: sequence}:
-					default:
+					if !t.enqueue(Notification{Method: m.Method, Params: m.Params, RequestID: m.ID, Sequence: sequence}) {
 						t.failWith(ErrEventOverflow, "read", len(scan.Bytes()))
 						return
 					}
@@ -365,9 +482,7 @@ func (t *transport) read() {
 						t.mu.Unlock()
 					}
 				}
-				select {
-				case t.events <- Notification{Method: m.Method, Params: m.Params, ReceivedAt: time.Now().Round(0), EmittedAtMS: m.EmittedAtMS}:
-				default:
+				if !t.enqueue(Notification{Method: m.Method, Params: m.Params, EmittedAtMS: m.EmittedAtMS}) {
 					t.failWith(ErrEventOverflow, "read", len(scan.Bytes()))
 					return
 				}

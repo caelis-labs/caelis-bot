@@ -52,6 +52,17 @@ reads unresolved workers without loading completed historical tasks; explicit
 continuation resumes the same native thread and request ledger. Diagnostics
 distinguish Bot subscription retirement from later native `thread/closed` unload.
 
+Codex wire reads dispatch correlated RPC responses independently of a bounded,
+ordered notification queue (512 events, 16 MiB). The temporary recovery buffer
+has the same limits. Exhaustion closes that observer with an explicit overflow
+diagnostic; no approval, completion or receipt event is silently coalesced. A
+single cancellable coordinator retries recoverable disconnects with a finite
+backoff budget. It reconnects a private runtime only at its original endpoint,
+reconciles the saved conversation and worker receipts, and confirms needed live
+subscriptions before reporting ready. An unavailable endpoint never authorizes
+a replacement owner or a replay of an uncertain input. Diagnostics name the
+process-wide transport generation and the owner-local session epoch separately.
+
 Caelis atomic reconnect may prepare a large existing history before sending SSE
 headers. Its observation uses a separate transport with a two-minute header wait;
 the caller context owns cancellation and the idle stream lifetime. Ordinary JSON

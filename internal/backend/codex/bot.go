@@ -69,14 +69,14 @@ func (s *Session) trackWorkerActivity(item nativeItem) {
 // terminal, idle worker later relinquishes only this connection's subscription.
 const workerUnconfirmed = "后台工作的状态尚未确认，请重新连接核对"
 
-func (s *Session) watchChild(c *Client, epoch uint64, id string) {
+func (s *Session) watchChild(c *Client, epoch uint64, id string) bool {
 	if c == nil {
-		return
+		return false
 	}
 	s.mu.Lock()
 	if s.client != c || s.epoch != epoch || s.closed {
 		s.mu.Unlock()
-		return
+		return false
 	}
 	revision := s.childRevision[id]
 	params := map[string]any{"threadId": id}
@@ -94,7 +94,7 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.client != c || s.epoch != epoch || s.closed {
-		return
+		return false
 	}
 	if err != nil || response.Thread.ID != id {
 		if err == nil {
@@ -109,14 +109,14 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) {
 		}
 		s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "worker_subscription_failed", Method: "thread/resume", Thread: id, Reason: diagnosticlog.Reason(err.Error()), Fingerprint: diagnosticlog.Fingerprint([]byte(err.Error()))})
 		s.update()
-		return
+		return false
 	}
 	s.childSubscribed[id] = true
 	delete(s.childRetired, id)
 	// Live notifications that arrived during resume supersede its snapshot.
 	if revision != s.childRevision[id] {
 		go s.recoverChild(c, epoch, id)
-		return
+		return false
 	}
 	active := response.Thread.Status.Type == "active"
 	run := ""
@@ -167,6 +167,7 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) {
 	}
 	_ = s.save()
 	s.update()
+	return true
 }
 
 func (s *Session) ownsThread(id string) bool {

@@ -49,6 +49,8 @@ func (s *Session) ChangeCLI(ctx context.Context, path string, persist func() err
 	}
 	s.mu.Lock()
 	s.opts.Binary = path
+	s.retainedOwner = nil // Explicit runtime selection may choose a new owner.
+	s.forceNewOwner = true
 	s.state.Connection = "offline"
 	s.update()
 	s.mu.Unlock()

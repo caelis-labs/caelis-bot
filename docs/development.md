@@ -16,6 +16,18 @@ make build
 lifecycle fixtures, Go vet/tests and shared-core portability. `make smoke` only handshakes the installed Codex
 and checks assets; it does not create a conversation or call a model. `make build` creates an ad-hoc Dev app.
 `make package` adds a verified read-only DMG/checksum, using pinned Python dmgbuild in `.cache/dmg-tools`.
+
+Codex reconnect fixtures exercise more than 64 ordered events, a stalled session
+consumer with concurrent RPC responses, approval/completion delivery, original
+receipt reconciliation, private-owner endpoint pinning, bounded retries and
+shutdown cancellation. The transport queue and handshake buffer each cap at
+512 events / 16 MiB; saturation reports `event_overflow` and leaves unresolved
+work unknown for original-ID reconciliation. Diagnostic status exposes queue
+depth/high-water, four event-kind counters, reconnect attempts and both
+`transportGeneration` (process-wide) and `sessionEpoch` (per owner). These
+fixtures do not measure the live Bot's producer burst, FD pressure, or a native
+slow persistence path. A passing fixture or `make smoke` is not evidence that
+the daily Bot instance was replaced or recovered.
 First builds fetch pinned Sparkle and Desktop World artifacts; versions/hashes remain source-controlled.
 
 The current Desktop World SDK and packaged `bin/dtw` helper are pinned together

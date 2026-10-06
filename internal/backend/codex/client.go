@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
@@ -13,8 +14,17 @@ import (
 const TestedVersion = "0.153.4"
 
 type Client struct {
-	rpc  *transport
-	home string // Native handshake home, for attaching the user's TUI to this server.
+	rpc   *transport
+	home  string // Native handshake home, for attaching the user's TUI to this server.
+	owner retainedNativeOwner
+}
+
+// An attachable private server remains the same owner across a socket
+// reconnect. The observer's failed transport must not terminate its work.
+type retainedNativeOwner interface {
+	captureTools()
+	toolCleanupError() error
+	terminalEndpoint() string
 }
 type Options struct {
 	Diagnostics    *diagnosticlog.Logger
@@ -46,7 +56,7 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 		}
 		done()
 		if opts.RequiredSocket {
-			return nil, errExistingServer
+			return nil, errors.Join(errExistingServer, err)
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -60,6 +70,9 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 }
 func initializeClient(ctx context.Context, conn connection, stop func(), opts Options) (*Client, error) {
 	c := &Client{rpc: newTransportLogged(conn, stop, opts.HandleRequests, opts.Diagnostics)}
+	if owner, ok := conn.(retainedNativeOwner); ok {
+		c.owner = owner
+	}
 	params := map[string]any{"clientInfo": map[string]any{"name": "caelis_bot", "title": "Caelis Bot", "version": "0.0.1"},
 		"capabilities": map[string]any{"experimentalApi": opts.Experimental, "requestAttestation": false}}
 	result, err := c.rpc.call(ctx, "initialize", params)
@@ -86,10 +99,26 @@ func initializeClient(ctx context.Context, conn connection, stop func(), opts Op
 	}
 	return c, nil
 }
-func (c *Client) Close()                             { c.rpc.close() }
+func (c *Client) Close()              { c.rpc.close() }
+func (c *Client) detachForReconnect() { c.rpc.detach() }
+func (c *Client) adoptOwner(old *Client) {
+	if old != nil && old.owner != nil {
+		c.owner = old.owner
+		c.rpc.stop = old.rpc.stop
+	}
+}
+func (c *Client) retainedSocket() string {
+	if c.owner == nil {
+		return ""
+	}
+	return c.owner.terminalEndpoint()
+}
 func (c *Client) Notifications() <-chan Notification { return c.rpc.events }
 func (c *Client) Done() <-chan struct{}              { return c.rpc.done }
-func (c *Client) UsesSharedServer() bool             { _, shared := c.rpc.conn.(*socketConnection); return shared }
+func (c *Client) UsesSharedServer() bool {
+	_, shared := c.rpc.conn.(*socketConnection)
+	return shared && c.owner == nil
+}
 
 // Err reports the terminal connection cause after Done closes, or nil while open.
 func (c *Client) Err() error { return c.rpc.cause() }
@@ -139,11 +168,18 @@ func projectAuth(b []byte) (AuthStatus, error) {
 }
 
 func (c *Client) captureTools() {
+	if c.owner != nil {
+		c.owner.captureTools()
+		return
+	}
 	if owner, ok := c.rpc.conn.(interface{ captureTools() }); ok {
 		owner.captureTools()
 	}
 }
 func (c *Client) toolCleanupError() error {
+	if c.owner != nil {
+		return c.owner.toolCleanupError()
+	}
 	if owner, ok := c.rpc.conn.(interface{ toolCleanupError() error }); ok {
 		return owner.toolCleanupError()
 	}

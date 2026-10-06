@@ -36,7 +36,7 @@ func connectExisting(ctx context.Context, path string) (connection, error) {
 			}
 			conn, err := dialExisting(ctx, path)
 			if err != nil {
-				return nil, errExistingServer
+				return nil, errors.Join(errExistingServer, err)
 			}
 			return conn, nil // Closing this client must never stop the shared server.
 		}
