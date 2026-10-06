@@ -290,7 +290,7 @@ func (s *Service) command(ctx context.Context, p profile, command string, input 
 	cmd.Stderr = &diagnostic
 	secret := s.secret(p.View.ID)
 	if secret == "" && p.View.Remember {
-		secret, _ = loadSecret(p.View.ID)
+		secret, _ = s.secretStore.Load(p.View.ID)
 	}
 	var cleanup func()
 	if secret != "" {

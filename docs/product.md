@@ -75,7 +75,10 @@ Computer Use 统一采用自研 Desktop World，优先使用对象语义操作�
 不代表生产合同。先用第二种明显不同的身体验证抽象，再决定公共 Character SDK；复杂语义地图、
 市场和留存研究后置。制作源属于私有资产仓库，公开仓库只消费成品。
 
-macOS 是当前完整发行目标；Windows 保留接口，原生驱动/安装包另行实施，Linux 桌面端不在计划内。
+macOS 已是完整发行目标；下一阶段在 Windows 11 x64 实机完成原生托盘、可见可拖动的最小桌宠、
+气泡与按需聊天/设置/history/审批/附件，并接上已有 Runtime、记忆、任务、Telegram 协议及 Desktop World。
+Mac 上先完成共享装配、安全边界、CI 与独立发布合同。Windows 原生驱动、安装包、签名和交互验收
+未完成前不展示为已支持。无需先做 Windows arm64、Linux GUI 或全部 macOS 视觉细节等同。
 最低系统、多显示器与真实模型效果的验证边界见[开发与验证](development.md)。
 
 ## 远端机器

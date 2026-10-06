@@ -4,7 +4,7 @@
 
 ## 下载与校验
 
-从[最新稳定版](https://github.com/caelis-labs/caelis-bot/releases/latest)下载。目前只发行 Apple Silicon（`arm64`），尚未发行 Intel 包。CI 在 macOS 14 构建；交互实机验收范围为 Apple Silicon / macOS 27，不能据此声称所有旧系统都已验收。历史 preview 包不再作为当前安装入口。
+打开[发行历史](https://github.com/caelis-labs/caelis-bot/releases)，选择含有 `Caelis-Bot-<版本>-macos-arm64.dmg` 及同名校验文件的最新稳定条目。[已签名的 macOS 更新清单](https://releases.caelis.dev/caelis-bot/latest.json)独立标识当前 macOS arm64 版本，不依赖 GitHub 的全局 Latest 标记。目前只发行 Apple Silicon（`arm64`），尚未发行 Intel 包。CI 在 macOS 14 构建；交互实机验收范围为 Apple Silicon / macOS 27，不能据此声称所有旧系统都已验收。历史 preview 包不再作为当前安装入口。
 
 将 `.dmg` 及同名 `.dmg.sha256` 下载到“下载”目录。下面整段命令可直接粘贴：选择最近下载的 Caelis DMG，核验其对应校验值，只读挂载，安装到 `~/Applications`。安装前先退出已运行的 Caelis Bot；应用仍运行或目标已存在时会停止。升级时先将旧 `.app` 移到废纸篓，保留 `~/Library/Application Support/Caelis Bot/` 中的应用数据。
 

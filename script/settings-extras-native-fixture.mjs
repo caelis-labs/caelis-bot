@@ -26,6 +26,7 @@ export const Call={ByName:async(name,...args)=>{
  case 'CloseSettings':return;
  case 'SystemPermissions':return {supported:true,appPath:'/Fixture.app',development:true,permissions:[{id:'accessibility',status:'notDetermined'},{id:'screenCapture',status:'notDetermined'},{id:'notifications',status:'notDetermined'}]};
  case 'CapturePreferences':if(${state==='feature-load-fail'}&&++preferenceReads===1)throw Error('fixture preference read failed');return {enabled,includeBackground:true,notice:''};
+ case 'FeatureCapabilities':return {capture:{supported:true,available:true,enabled,permission:'notDetermined'},paste:{supported:true,available:true,enabled}};
  case 'SetCaptureEnabled':if(${state==='feature-fail'})throw Error('fixture save failed');enabled=args[0];return {enabled,includeBackground:true,notice:''};
  case 'CaptureShortcutSettings':return {shortcut:{enabled:true,key:'F1',control:false,alt:false,shift:false,meta:false},registered:enabled,message:''};
  case 'PasteShortcutSettings':return {shortcut:{enabled:true,key:'F3',control:false,alt:false,shift:false,meta:false},registered:enabled,message:''};

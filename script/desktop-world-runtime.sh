@@ -5,8 +5,8 @@ BOT_DW_BUNDLE=${1:?bundle required}
 [[ "$(uname -m)" == arm64 ]] || { echo 'Desktop World helper is qualified for macOS arm64 only.' >&2; exit 1; }
 BOT_DW_CACHE="$BOT_ROOT/.cache/desktop-world-runtime"
 BOT_DW_VERSION=$(node -p 'require("./resources/desktop-world/release.json").version')
-BOT_DW_ARCHIVE=$(node -p 'require("./resources/desktop-world/release.json").archive')
-BOT_DW_HASH=$(node -p 'require("./resources/desktop-world/release.json").sha256')
+BOT_DW_ARCHIVE=$(node "$BOT_ROOT/script/desktop-world-pin.mjs" darwin-arm64 archive)
+BOT_DW_HASH=$(node "$BOT_ROOT/script/desktop-world-pin.mjs" darwin-arm64 sha256)
 mkdir -p "$BOT_DW_CACHE"
 if [[ ! -f "$BOT_DW_CACHE/$BOT_DW_ARCHIVE" ]]; then
   curl --fail --location --retry 3 "https://github.com/caelis-labs/desktop-world/releases/download/$BOT_DW_VERSION/$BOT_DW_ARCHIVE" -o "$BOT_DW_CACHE/$BOT_DW_ARCHIVE.partial"
@@ -18,7 +18,7 @@ trap 'rm -rf "$BOT_DW_STAGE"' EXIT
 # The exact verified archive is trusted; no model-selected paths or downloads.
 tar -xzf "$BOT_DW_CACHE/$BOT_DW_ARCHIVE" -C "$BOT_DW_STAGE"
 BOT_DW_SOURCE="$BOT_DW_STAGE/${BOT_DW_ARCHIVE%.tar.gz}"
-node "$BOT_ROOT/script/verify-desktop-world-manifest.mjs" "$BOT_DW_SOURCE"
+node "$BOT_ROOT/script/verify-desktop-world-manifest.mjs" "$BOT_DW_SOURCE" --target darwin-arm64
 BOT_DW_DEST="$BOT_DW_BUNDLE/Contents/Resources/DesktopWorld"
 rm -rf "$BOT_DW_DEST"
 mkdir -p "$BOT_DW_DEST/bin"

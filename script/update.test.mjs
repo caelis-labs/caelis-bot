@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import {publish, cleanupKeys, compareStable} from './publish-r2.mjs';
 import {digest, verifyDirectory} from './update-manifest.mjs';
 import {validateUpdateKey} from './configure-updates.mjs';
+import {receiptFor} from './publication.mjs';
 
 function fixture(fn) {
   const directory=mkdtempSync(join(tmpdir(),'bot-updates-test-'));
@@ -27,11 +28,17 @@ function fixture(fn) {
   const objects=new Map([['caelis-bot/releases/v1.0.0/Caelis-Bot-1.0.0-macos-arm64.dmg',Buffer.from('old')],['releases/v1.0.0/caelis.tar.gz',Buffer.from('core')]]);
   const calls=[];
   const controls={};
+  const receipt=receiptFor(directory,{tag,source,os:'macos',arch:'arm64',channel:'stable',validation:'developer-id-notarized-stapled-gatekeeper'});
+  const receiptName=receipt.receipt;
   let checks=0;
   const run=(cmd,args)=>{
     calls.push([cmd,...args]);
     if(cmd==='gh') {
-      if(args[1].endsWith('/latest')) return JSON.stringify({tag_name:++checks===2&&controls.moved?'v1.3.0':controls.latest??tag,draft:false,prerelease:false});
+      if(args[0]==='release' && args[1]==='download') {
+        writeFileSync(join(args[args.indexOf('--dir')+1],receiptName),JSON.stringify(receipt));
+        return '';
+      }
+      if(args[1].includes('/releases/tags/')) return JSON.stringify({tag_name:tag,draft:++checks===2&&controls.moved,prerelease:false,assets:[{name:receiptName}]});
       return JSON.stringify({sha:controls.source??source});
     }
     const value=name=>args[args.indexOf(name)+1];
@@ -56,14 +63,13 @@ function fixture(fn) {
   finally {rmSync(directory,{recursive:true,force:true});}
 }
 
-test('R2 commits only verified bytes, then cleans only Bot versions; retry is idempotent',()=>fixture(f=>{
+test('R2 commits verified bytes and retains old immutable URLs for cached clients; retry is idempotent',()=>fixture(f=>{
   assert.match(publish(f.directory,f.env,f.run),/Published/);
   assert.ok(f.objects.has('releases/v1.0.0/caelis.tar.gz'));
-  assert.ok(![...f.objects.keys()].some(k=>k.startsWith('caelis-bot/releases/v1.0.0/')));
+  assert.ok([...f.objects.keys()].some(k=>k.startsWith('caelis-bot/releases/v1.0.0/')));
   assert.ok(f.objects.has('caelis-bot/appcast.xml'));
-  const deletion=f.calls.findIndex(c=>c[2]==='delete-object');
-  const feed=f.calls.findIndex(c=>c[2]==='get-object'&&c.includes('caelis-bot/appcast.xml'));
-  assert.ok(deletion>feed);
+  assert.ok(f.objects.has('caelis-bot/feeds/macos/arm64/stable/appcast.xml'));
+  assert.ok(!f.calls.some(c=>c[2]==='delete-object'));
   assert.match(publish(f.directory,f.env,f.run),/Published/);
 }));
 
@@ -81,17 +87,15 @@ test('corrupt readback cannot switch feed or delete previous release',()=>fixtur
   assert.ok(!f.objects.has('caelis-bot/appcast.xml'));
   assert.ok(!f.calls.some(c=>c[2]==='delete-object'));
 }));
-test('changed GitHub latest during upload preserves the active feed',()=>fixture(f=>{
+test('release becoming unpublished during upload preserves the active feed',()=>fixture(f=>{
   f.controls.moved=true;
-  assert.match(publish(f.directory,f.env,f.run),/latest changed/);
+  assert.throws(()=>publish(f.directory,f.env,f.run),/unpublished/);
   assert.ok(!f.objects.has('caelis-bot/appcast.xml'));
   assert.ok(!f.calls.some(c=>c[2]==='delete-object'));
 }));
-test('old queued job and preview cannot mutate R2',()=>fixture(f=>{
-  f.controls.latest='v1.3.0';
-  assert.match(publish(f.directory,f.env,f.run),/unchanged/);
-  assert.ok(!f.calls.some(c=>c[0]==='aws'));
+test('preview cannot mutate stable R2',()=>fixture(f=>{
   assert.match(publish(f.directory,{...f.env,BOT_RELEASE_TAG:'v1.3.0-preview.1'},f.run),/unchanged/);
+  assert.ok(!f.calls.some(c=>c[0]==='aws'));
 }));
 test('R2 refuses rollback even if GitHub latest was moved backwards',()=>fixture(f=>{
   f.objects.set('caelis-bot/latest.json',Buffer.from(JSON.stringify({...f.manifest,tag:'v2.0.0',version:'2.0.0',file:'Caelis-Bot-2.0.0-macos-arm64.dmg'})));

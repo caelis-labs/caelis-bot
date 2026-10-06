@@ -4,7 +4,7 @@
 
 ## Download and verify
 
-Use the [latest stable release](https://github.com/caelis-labs/caelis-bot/releases/latest). Current builds are Apple Silicon (`arm64`); Intel packages are not published yet. CI builds on macOS 14; interactive acceptance has been on Apple Silicon / macOS 27, not every older OS. Historical preview releases are not the current installation path.
+Open the [release history](https://github.com/caelis-labs/caelis-bot/releases) and choose the newest stable entry that has `Caelis-Bot-<version>-macos-arm64.dmg` and its matching checksum. The [signed macOS update manifest](https://releases.caelis.dev/caelis-bot/latest.json) identifies the current macOS arm64 version independently of GitHub's global Latest label. Current builds are Apple Silicon (`arm64`); Intel packages are not published yet. CI builds on macOS 14; interactive acceptance has been on Apple Silicon / macOS 27, not every older OS. Historical preview releases are not the current installation path.
 
 Download the `.dmg` and its same-named `.dmg.sha256` into `~/Downloads`. The following block selects the most recently downloaded Caelis DMG, verifies its exact sibling checksum, mounts it read-only and installs it into your user Applications folder. Quit an existing Caelis Bot first; the commands stop if it is running or already installed. For an upgrade, move just the old `.app` to Trash first. Your data under `~/Library/Application Support/Caelis Bot/` is preserved.
 

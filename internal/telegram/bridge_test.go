@@ -16,6 +16,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/secretstore"
 	tg "github.com/mymmrac/telego"
 )
 
@@ -111,9 +112,11 @@ func testBridge(t *testing.T, h Host) (*Bridge, *fakeClient) {
 	}
 	f := &fakeClient{updates: make(chan []tg.Update, 10), download: []byte("attachment fixture")}
 	b.newClient = func(string) (client, error) { return f, nil }
-	b.saveSecret = func(string, string) error { return nil }
-	b.loadSecret = func(string) (string, error) { return "fixture-token", nil }
-	b.deleteSecret = func(string) error { return nil }
+	b.secrets = secretstore.Functions{
+		SaveFunc:   func(string, string) error { return nil },
+		LoadFunc:   func(string) (string, error) { return "fixture-token", nil },
+		DeleteFunc: func(string) error { return nil },
+	}
 	t.Cleanup(b.Close)
 	return b, f
 }

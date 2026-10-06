@@ -21,6 +21,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/secretstore"
 	tg "github.com/mymmrac/telego"
 )
 
@@ -74,15 +75,14 @@ type Bridge struct {
 	cancel              context.CancelFunc
 	done                chan struct{}
 	newClient           func(string) (client, error)
-	saveSecret          func(string, string) error
-	loadSecret          func(string) (string, error)
-	deleteSecret        func(string) error
+	secrets             secretstore.Store
 	retryUntil          time.Time
 	closed              bool
 }
 
 func Open(root string, host Host) (*Bridge, error) {
-	b := &Bridge{path: filepath.Join(root, "telegram.json"), root: filepath.Join(root, "Telegram"), account: digest(root), host: host, newClient: newClient, saveSecret: saveSecret, loadSecret: loadSecret, deleteSecret: deleteSecret}
+	b := &Bridge{path: filepath.Join(root, "telegram.json"), root: filepath.Join(root, "Telegram"), account: digest(root), host: host, newClient: newClient,
+		secrets: secretstore.Functions{SaveFunc: saveSecret, LoadFunc: loadSecret, DeleteFunc: deleteSecret}}
 	b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
 	data, e := os.ReadFile(b.path)
 	if e != nil && !errors.Is(e, os.ErrNotExist) {
@@ -140,7 +140,7 @@ func (b *Bridge) Start() {
 	}
 }
 func (b *Bridge) resume() {
-	token, e := b.loadSecret(b.account)
+	token, e := b.secrets.Load(b.account)
 	if e != nil {
 		b.setIssue("keychain")
 		return
@@ -178,7 +178,7 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 	token = strings.TrimSpace(token)
 	if token == "" {
 		var e error
-		token, e = b.loadSecret(b.account)
+		token, e = b.secrets.Load(b.account)
 		if e != nil {
 			b.setIssue("keychain")
 			return b.Status(), errors.New("keychain")
@@ -210,7 +210,7 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 			return b.Status(), errors.New(issueOf(e))
 		}
 	}
-	if e = b.saveSecret(b.account, token); e != nil {
+	if e = b.secrets.Save(b.account, token); e != nil {
 		b.setIssue("keychain")
 		return b.Status(), errors.New("keychain")
 	}
@@ -293,7 +293,7 @@ func (b *Bridge) Forget() (Status, error) {
 	b.configMu.Lock()
 	defer b.configMu.Unlock()
 	b.stop()
-	if e := b.deleteSecret(b.account); e != nil {
+	if e := b.secrets.Delete(b.account); e != nil {
 		return b.Status(), errors.New("keychain")
 	}
 	b.mu.Lock()

@@ -53,18 +53,18 @@ Use Conventional Commit PR titles, for example `feat: add reminders` or `fix: ke
 
 1. A main push runs `release-please`. It maintains one version PR, updating `package.json`, `package-lock.json`, `CHANGELOG.md` and `.release-please-manifest.json`.
 2. Review and merge that PR after its **product** check. A version-only PR uses the content-validated metadata path; source or dependency changes still run full checks. Version PRs are not auto-merged.
-3. release-please creates a `vX.Y.Z` tag and **draft** GitHub release. The reusable **Release DMG** workflow checks that the tag belongs to main and exactly matches `package.json`.
+3. release-please creates one `vX.Y.Z` tag, changelog and **draft** GitHub release. The macOS workflow checks that the tag belongs to main and exactly matches `package.json`. Future platform workflows use the same immutable source tag.
 4. Build from that exact tagged commit without signing credentials. Source tests have already passed the strict PR merge gate; this stage runs the updater and delivered-asset checks and qualifies the actual release build. The application embeds its full release version and source SHA; its macOS short version stays numeric. A separate `macos-release` environment job uses the current workflow commit for operational signing/packaging tools, verifies the downloaded app’s embedded tag SHA, and signs the app with Developer ID and a secure timestamp, enables hardened runtime, submits it to Apple and staples its notarization ticket.
 5. Package the stapled app, mount the DMG and verify the enclosed app. Sign the DMG itself, submit it to Apple, staple its ticket, verify both its signature and Gatekeeper acceptance, then calculate the final SHA-256. Both the app and DMG carry tickets for offline validation.
-6. Upload `Caelis-Bot-X.Y.Z-macos-arm64.dmg` and `.dmg.sha256`. Only after all signature, notarization, Gatekeeper and checksum gates succeed is the draft published. Stable tags become GitHub's latest release; tags containing a prerelease suffix stay prereleases.
+6. Reconcile `Caelis-Bot-X.Y.Z-macos-arm64.dmg`, its checksum and stable update assets by exact bytes, add a `macos-arm64-stable` or `macos-arm64-preview` publication receipt, then publish the draft if this is the first qualified platform. A later platform may append its own namespaced assets and receipt without changing the tag, source, existing bytes or the release's prerelease state. Global GitHub `latest` is not a platform feed.
 
-A failed build remains a draft. A notarization submission still `In Progress` is reported as a successful **pending checkpoint**, with `verified=false` and publication skipped. It is not reported as an artifact rejection. Published release assets are never overwritten by the workflow. To start or rebuild a failed draft from the same tag, copy:
+A failed first-platform build remains a draft; failure of a later platform leaves an already published platform available. A notarization submission still `In Progress` is a pending checkpoint, with `verified=false` and publication skipped. Published assets and receipts are immutable. To retry the exact tag, copy:
 
 ```sh
 gh workflow run release.yml --repo caelis-labs/caelis-bot --ref main -f tag=v0.1.0
 ```
 
-Substitute the failed draft's exact tag. The recovery workflow rejects a tag outside main or a version mismatch. The final publication job, which alone has Contents write permission, verifies that the release is still a draft before uploading anything; read-only build tokens cannot see unpublished GitHub release drafts. It can replace incomplete assets **in a draft**. The app retains the tagged source even if main has moved. Recovery can apply a reviewed fix to signing/packaging tools from the immutable workflow commit without rebuilding app code from main or moving the release tag. Packaging checks the app version against the requested tag; the credential-free build job checks that tag against its own package.json.
+The recovery workflow rejects a tag outside main or a version mismatch. `script/publication.mjs` checks the release tag's source SHA, downloads any existing asset to compare its full digest, uploads only missing assets, rereads the release, then records the platform receipt. An unknown upload result is reconciled against the same asset; changed bytes fail closed, even in a draft. The app retains the tagged source if main moves. A reviewed operational signing fix may use the current workflow commit without moving the tag or rebuilding application code from main.
 
 When a run retained a `notarization-checkpoint`, resume its exact signed artifacts and Apple submission IDs instead of signing or uploading them again:
 
@@ -150,21 +150,23 @@ feed and an independent manifest binding tag, source SHA, DMG hash/size and feed
 These files are attached to GitHub. Only after publication can the R2 job run, with
 read-only GitHub access and R2 credentials scoped to that step.
 
-The publisher verifies signatures/source, checks GitHub latest, uploads under
-`caelis-bot/releases/vX.Y.Z/`, and downloads each object to verify its full SHA-256.
-It rechecks GitHub latest, switches `caelis-bot/appcast.xml` and `latest.json`/signature,
-then removes older objects strictly within the Bot release prefix. It never deletes
-core's `releases/` or `latest.txt`. Publishers share one CI concurrency group, refuse
-rollback, preflight every deletion key, and refuse changed immutable bytes. Failures
-preserve old artifacts; a failure after switching the feed can temporarily leave both
-versions until retry. Clients with a cached older feed may need to check again after
-pruning. GitHub release history remains available; R2 keeps only the latest version.
+The macOS publisher verifies signed bytes, source and its GitHub publication receipt.
+It does not consult global GitHub `latest`. It uploads immutable versioned assets under
+`caelis-bot/releases/vX.Y.Z/`, writes the macOS arm64 stable feed under
+`caelis-bot/feeds/macos/arm64/stable/`, and continues updating legacy
+`caelis-bot/appcast.xml`, `latest.json` and `latest.json.sig` for installed Mac clients.
+Its concurrency group and ownership allowlist belong only to macOS arm64 stable;
+Windows and other channels must use separate ownership and never prune these keys.
+Rollback and same-version byte changes are rejected. Older immutable R2 versions
+are retained so a client with a cached appcast can still download its exact DMG.
+Any later pruning requires a separate reviewed cache horizon and platform-scoped
+retention test; publication itself does not delete release bytes.
 
 If only R2 failed, do **not** rerun notarization or republish a non-draft. This dedicated
 retry downloads and verifies the latest release's signed artifacts:
 
 ```sh
-gh workflow run sync-r2.yml --repo caelis-labs/caelis-bot --ref main
+gh workflow run sync-r2.yml --repo caelis-labs/caelis-bot --ref main -f tag=vX.Y.Z
 ```
 
 `make check` covers publication ordering, signatures, tamper rejection, rollback and

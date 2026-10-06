@@ -4,6 +4,7 @@ import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {test} from 'node:test';
+import {digest} from './update-manifest.mjs';
 
 test('Desktop World payload validates source, binary metadata, notice and native-only contents', () => {
   const directory = mkdtempSync(join(tmpdir(), 'desktop-world-manifest-'));
@@ -11,8 +12,8 @@ test('Desktop World payload validates source, binary metadata, notice and native
   const manifest = {
     version: pin.version, 'vcs.revision': pin.revision, 'vcs.modified': 'false',
     os: 'darwin', arch: 'arm64', protocol: 'desktop-world/helper-v0.1',
-    host_control: 'desktop-world/host-control-v0.1', minimum_macos: pin.minimum_macos,
-    license: 'MPL-2.0', signing: 'ad-hoc', notarized: false,
+    host_control: 'desktop-world/host-control-v0.1', minimum_macos: pin.targets['darwin-arm64'].minimum_macos,
+    license: 'MPL-2.0', signing: 'ad-hoc', notarized: false, binary_sha256: digest(Buffer.from('fixture')),
   };
   const write = (value = manifest) => writeFileSync(join(directory, 'manifest.json'), JSON.stringify(value));
   const verify = (binary = manifest) => spawnSync(process.execPath,

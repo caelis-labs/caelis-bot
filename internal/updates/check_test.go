@@ -43,6 +43,21 @@ func TestPublishedReleaseSelection(t *testing.T) {
 		})
 	}
 }
+func TestTargetPlatformRequiresItsPublishedPackage(t *testing.T) {
+	body := `[{"tag_name":"v1.2.0","assets":[{"name":"Caelis-Bot-1.2.0-macos-arm64.dmg"}]},{"tag_name":"v1.1.0","assets":[{"name":"Caelis-Bot-1.1.0-windows-amd64.msix"}]}]`
+	client := &http.Client{Transport: transport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	if result := checkTarget(context.Background(), client, "1.0.0", "windows", "amd64"); result.Latest != "v1.1.0" || result.State != "available" {
+		t.Fatalf("Windows selected another platform: %+v", result)
+	}
+	if result := checkTarget(context.Background(), client, "1.0.0", "darwin", "arm64"); result.Latest != "v1.2.0" {
+		t.Fatalf("Mac selected another platform: %+v", result)
+	}
+	if result := checkTarget(context.Background(), client, "1.0.0", "windows", "arm64"); result.State != "unpublished" {
+		t.Fatalf("unshipped architecture looked available: %+v", result)
+	}
+}
 func TestVersionOrdering(t *testing.T) {
 	versions := []string{"0.0.1-alpha.2", "0.0.1-alpha.10", "0.0.1-preview", "v0.0.1", "0.0.2", "0.1.0", "1.0.0", "10.0.0"}
 	for i := 1; i < len(versions); i++ {

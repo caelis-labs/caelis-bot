@@ -6,9 +6,15 @@ import {validateTag} from './release-version.mjs';
 
 const releaseFiles = new Set(['package.json', 'package-lock.json', '.release-please-manifest.json', 'CHANGELOG.md']);
 const documentation = path => path === 'README.md' || path === 'CHANGELOG.md' || path.startsWith('docs/');
-const packaging = path => path.startsWith('resources/macos/') ||
+const packaging = path => path.startsWith('resources/macos/') || path.startsWith('resources/desktop-world/') ||
   /^script\/(?:build|package|dmg|sign|verify|sparkle|desktop-world-runtime)[^/]*\.(?:sh|mjs|py|swift)$/.test(path) ||
-  path === '.github/workflows/release.yml';
+  path === '.github/workflows/release.yml' || path === '.github/workflows/release-please.yml';
+const macosOnly = path => path.startsWith('resources/macos/') || /_darwin\.(?:go|m|h)$/.test(path) ||
+  /^script\/(?:dmg|sign|notariz|sparkle|package|build_and_run|app-identity|development-signing|verify-signature|verify-dmg|updater-native)[^/]*\.(?:sh|mjs|py|swift)$/.test(path);
+const windowsOnly = path => path.startsWith('resources/windows/') || /_windows\.(?:go|rc)$/.test(path) ||
+  /^script\/windows-[^/]*\.(?:ps1|mjs)$/.test(path);
+const shared = path => /^(?:internal|frontend|resources|script|cmd)\//.test(path) ||
+  ['go.mod','go.sum','package.json','package-lock.json','Makefile','.node-version','.release-please-manifest.json','CHANGELOG.md','.github/workflows/ci.yml','.github/workflows/release.yml','.github/workflows/release-please.yml','release-please-config.json','AGENTS.md'].includes(path);
 
 // Only version values may differ. Labels, authors and branch names never grant
 // a fast path: a release PR that changes a dependency or script gets full checks.
@@ -38,20 +44,38 @@ export function classifyChanges(paths, readBase, readHead) {
       // Unknown or malformed metadata must go through the normal checks.
     }
   }
+  if (paths.length && paths.every(macosOnly)) return {kind: 'macos', preview};
+  if (paths.length && paths.every(windowsOnly)) return {kind: 'windows', preview};
+  if (paths.length && paths.every(shared)) return {kind: 'shared', preview};
   return {kind: 'full', preview};
 }
 
-export function requireResults(kind, scope, macos, linux) {
-  if (scope !== 'success') throw new Error('CI scope validation did not pass');
-  const expected = kind === 'full' ? 'success' : ['docs', 'release'].includes(kind) ? 'skipped' : null;
-  if (!expected || macos !== expected || linux !== expected) {
-    throw new Error(`Required checks did not pass for ${kind}: macOS=${macos}, Linux=${linux}`);
+export function requiredJobs(kind) {
+  switch (kind) {
+    case 'docs': case 'release': return [];
+    case 'macos': return ['shared', 'macos'];
+    case 'windows': return ['shared', 'windows'];
+    case 'shared': case 'full': return ['shared', 'macos', 'windows', 'linux'];
+    default: throw new Error(`Unknown CI scope: ${kind}`);
   }
+}
+
+export function requireResults(kind, scope, results) {
+  if (scope !== 'success') throw new Error('CI scope validation did not pass');
+  const required = requiredJobs(kind);
+  for (const [job, result] of Object.entries(results)) {
+    const expected = required.includes(job) ? 'success' : 'skipped';
+    if (result !== expected) throw new Error(`Required ${job} check for ${kind}: expected ${expected}, got ${result}`);
+  }
+  if (Object.keys(results).sort().join(',') !== 'linux,macos,shared,windows') throw new Error('Missing CI job result');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv[2] === '--gate') {
-    requireResults(process.env.CI_KIND, process.env.CI_SCOPE_RESULT, process.env.CI_MACOS_RESULT, process.env.CI_LINUX_RESULT);
+    requireResults(process.env.CI_KIND, process.env.CI_SCOPE_RESULT, {
+      shared:process.env.CI_SHARED_RESULT, macos:process.env.CI_MACOS_RESULT,
+      windows:process.env.CI_WINDOWS_RESULT, linux:process.env.CI_LINUX_RESULT,
+    });
     console.log('Required product checks passed.');
   } else {
     const base = process.env.CI_BASE_SHA;

@@ -26,7 +26,7 @@ func Listen() (*Listener, error) {
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
-	return &Listener{Listener: socket, endpoint: endpoint, cleanup: func() error {
+	return &Listener{Listener: socket, endpoint: endpoint, transport: UnixSocket, cleanup: func() error {
 		return errors.Join(socket.Close(), os.RemoveAll(dir))
 	}}, nil
 }

@@ -1,10 +1,15 @@
 name: Retry R2 sync
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact published stable tag to reconcile for macOS arm64
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
-  group: caelis-bot-r2-latest
+  group: caelis-bot-r2-macos-arm64-stable
   cancel-in-progress: false
 jobs:
   sync:
@@ -19,16 +24,18 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-      - name: Download the latest published signed update
+      - name: Download this platform's published signed update
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          tag=$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)
+          tag="$RELEASE_TAG"
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(gh api "repos/$GH_REPO/releases/tags/$tag" --jq .draft)" = false
           echo "BOT_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
-          gh release download "$tag" --dir release --pattern '*.dmg' --pattern '*.dmg.sha256' --pattern appcast.xml --pattern latest.json --pattern latest.json.sig
+          gh release download "$tag" --dir release --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg" --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg.sha256" --pattern appcast.xml --pattern latest.json --pattern latest.json.sig
       - name: Verify signatures and synchronize R2
         env:
           GH_TOKEN: ${{ github.token }}

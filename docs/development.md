@@ -20,7 +20,10 @@ First builds fetch pinned Sparkle and Desktop World artifacts; versions/hashes r
 
 The current Desktop World SDK and packaged `bin/dtw` helper are pinned together
 to v0.1.0-rc.3 / `43172bb1f3dd26b90a88c346bc9978cbabab5785`.
-The archive checksum is in `resources/desktop-world/release.json`; bundle validation
+The per-target archives and checksums are in `resources/desktop-world/release.json`;
+the official rc.3 Windows archive is `windows-amd64.zip` and is staged by
+`script/stage-desktop-world-windows.ps1` with full SHA-256, manifest, source and
+license checks. This validates package inputs, not Windows desktop behavior. Bundle validation
 requires upstream LICENSE, NOTICE, THIRD_PARTY_NOTICES.md and corresponding
 source/ under the MPL-2.0 release. The macOS archive is ad-hoc signed and not
 notarized; app distribution has its own signing and Gatekeeper gates. Historical uptake
@@ -85,6 +88,13 @@ Desktop World 的实机截图验收可在已签名 Dev 包上使用
 | UI/character/permissions | Native `script/build_and_run.sh`, actual window observation, lifecycle/resource fixtures |
 | Packaging | Dev build/package/mount, nested native component verification |
 | Public release | Exact tag/source, signed public assets/feed, notarization/staples and independent Gatekeeper; see release.md |
+| Windows foundation | Native Windows CI executes shared Go/TS/Node contracts, pinned helper verification and an explicitly unsupported GUI bootstrap; Windows 11 interaction and installer signing remain separate gates |
+
+The required `product` CI check routes shared/frontend/protocol/dependency changes to
+both macOS and Windows, keeps Linux headless checks, and runs a shared sanity job for
+platform-only edits. Unknown paths take the full route. Windows runner results are
+native shared-contract evidence, not Windows GUI acceptance. `script/ci-scope.mjs`
+owns the fail-closed route and gate.
 
 Run native launches only through `script/build_and_run.sh`; use `CAELIS_BOT_DATA_DIR` for synthetic data.
 `--bubble-preview` provides a long Markdown/streaming fixture. Its “审批恢复回归” button checks that completed
@@ -327,8 +337,8 @@ own regression evidence, and subsequent Core releases need the same external acc
 
 Native bubble/Glass/F1 theme and setup preview were inspected on a single Retina Apple Silicon Mac.
 Minimum macOS 12 deployment target and Intel/mixed-DPI/multi-display behavior are not qualified by compilation.
-Desktop World alpha requires macOS 14+ and arm64; ScreenCaptureKit selection requires 14+. Older systems return unsupported
-for those capabilities. Windows shared-core cross-compilation is checked; native GUI/IPC/distribution is absent.
+Desktop World rc.3 requires macOS 14+ and arm64 for the shipped Mac helper; ScreenCaptureKit selection requires 14+. Older systems return unsupported
+for those capabilities. Windows CI now executes native shared tests, but GUI/IPC/distribution remains absent until the Windows 11 x64 handoff is completed.
 Linux is outside scope. Sparkle fixture tests do not prove two-version public install/relaunch with active work.
 
 Real Guardian quality/cost, long-term Dream summary/memory quality and cache benefits remain usage evaluations.
