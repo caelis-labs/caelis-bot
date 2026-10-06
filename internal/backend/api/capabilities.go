@@ -1,6 +1,13 @@
 package api
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrRecoveryPending means the original ingress was refused before native
+// dispatch. Its request ID may be retried after the same owner's recovery settles.
+var ErrRecoveryPending = errors.New("runtime_recovery_pending")
 
 // ProviderInfo is safe product metadata, never native configuration or authority.
 type ProviderInfo struct {
@@ -31,6 +38,16 @@ type ComposerSource interface{ ComposerSnapshot() Snapshot }
 type RevisionSource interface{ Revision() uint64 }
 type HistorySource interface{ LoadEarlier(context.Context) error }
 type DiagnosticSource interface{ DiagnosticStatus() map[string]any }
+
+// RecoveryState is a host-only, opaque fence for one Runtime connection owner.
+// A channel may offer manual recovery only after automatic recovery stops.
+type RecoveryState struct {
+	Fence      string
+	Automatic  bool
+	InProgress bool
+	Manual     bool
+}
+type RecoverySource interface{ RecoveryState() RecoveryState }
 type RuntimeConfigurator interface {
 	// Serialize with native submission/approval, reject busy or uncertain work,
 	// validate independently, then persist before replacing the connection.

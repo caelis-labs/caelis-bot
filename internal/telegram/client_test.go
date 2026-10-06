@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +22,7 @@ func (f fixtureTransport) RoundTrip(r *http.Request) (*http.Response, error) { r
 func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 	const fixtureToken = "123456:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	methods := []string{}
+	chatActions := 0
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method := filepath.Base(r.URL.Path)
 		methods = append(methods, method)
@@ -103,6 +105,26 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 				t.Error("file name or bytes changed")
 			}
 			io.WriteString(w, `{"ok":true,"result":{"message_id":102,"date":1,"chat":{"id":10,"type":"private"}}}`)
+		case "sendChatAction":
+			chatActions++
+			var p tg.SendChatActionParams
+			json.NewDecoder(r.Body).Decode(&p)
+			if p.ChatID.ID != 10 || p.Action != tg.ChatActionTyping {
+				t.Error("typing action lost its private chat or action")
+			}
+			if chatActions == 2 {
+				w.WriteHeader(http.StatusTooManyRequests)
+				io.WriteString(w, `{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":2}}`)
+			} else {
+				io.WriteString(w, `{"ok":true,"result":true}`)
+			}
+		case "answerCallbackQuery":
+			var p tg.AnswerCallbackQueryParams
+			json.NewDecoder(r.Body).Decode(&p)
+			if p.CallbackQueryID != "original-callback" || p.Text == "" {
+				t.Error("callback acknowledgement lost its original ID or text")
+			}
+			io.WriteString(w, `{"ok":true,"result":true}`)
 		default:
 			io.WriteString(w, `{"ok":false,"error_code":401,"description":"private token and message must never escape"}`)
 		}
@@ -152,10 +174,20 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 	if e := c.Document(ctx, 10, path); e != nil {
 		t.Fatal("SDK document failed")
 	}
+	if e := c.ChatAction(ctx, 10); e != nil {
+		t.Fatal("SDK typing action failed", e)
+	}
+	var limited *transportError
+	if e := c.ChatAction(ctx, 10); !errors.As(e, &limited) || limited.code != 429 || limited.retry != 2 {
+		t.Fatal("SDK lost typing retry_after", e)
+	}
+	if e := c.Answer(ctx, "original-callback", "Checking original connection"); e != nil {
+		t.Fatal("SDK callback acknowledgement failed", e)
+	}
 	if _, e := c.Webhook(ctx); e == nil || e.Error() != "invalid_token" {
 		t.Fatal("private API response escaped sanitized error")
 	}
-	if len(methods) != 11 {
+	if len(methods) != 14 {
 		t.Fatal("unexpected SDK calls")
 	}
 }

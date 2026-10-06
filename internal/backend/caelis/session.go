@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -66,6 +67,8 @@ type Session struct {
 	streamCtx             context.Context
 	streamCancel          context.CancelFunc
 	generation            uint64
+	recoveryGeneration    uint64
+	recoveryInstance      string
 	wake                  chan struct{}
 	streams               map[string]bool
 	projectionSavedAt     time.Time
@@ -79,7 +82,7 @@ func New(opts Options) *Session {
 	if opts.ToolsOnly {
 		mode = "tools-only"
 	}
-	return &Session{requireApproval: opts.RequireApproval, reviewerModel: opts.ReviewerModel, diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1)}
+	return &Session{requireApproval: opts.RequireApproval, reviewerModel: opts.ReviewerModel, diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1), recoveryInstance: rand.Text()}
 }
 func (*Session) ProviderInfo() api.ProviderInfo {
 	return api.ProviderInfo{ID: "caelis", Name: "Caelis", ConnectionKind: "local-host", HelpURL: "https://caelis.dev", ConnectionHint: "使用本机 Caelis；安装与模型凭据由运行时管理。"}
@@ -88,6 +91,7 @@ func (s *Session) Connect(ctx context.Context) error {
 	s.step.Lock()
 	defer s.step.Unlock()
 	s.mu.Lock()
+	s.recoveryGeneration++
 	if s.closed {
 		s.mu.Unlock()
 		return errors.New("连接已停止")
@@ -121,6 +125,15 @@ func (s *Session) Connect(ctx context.Context) error {
 	s.bumpLocked()
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *Session) RecoveryState() api.RecoveryState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return api.RecoveryState{
+		Fence:  fmt.Sprintf("caelis:%s:%d", s.recoveryInstance, s.recoveryGeneration),
+		Manual: s.recoveryGeneration > 0 && !s.connected && !s.closed,
+	}
 }
 func (s *Session) fail(e error) error {
 	s.mu.Lock()
