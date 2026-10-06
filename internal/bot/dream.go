@@ -206,49 +206,64 @@ func (d *dreamController) renew(ctx context.Context, p api.ConversationRuntime) 
 func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 	r.step.Lock()
 	defer r.step.Unlock()
-	if in.NativeIngressFence != "" {
-		if source, ok := r.engine.(api.RecoverySource); ok {
-			state := source.RecoveryState()
-			if state.Automatic || state.InProgress || state.Fence != in.NativeIngressFence {
-				return api.Receipt{}, api.ErrRecoveryPending
-			}
-		}
+	if r.remoteRecoveryPending(in) {
+		return api.Receipt{}, api.ErrRecoveryPending
 	}
 	rejected := api.Receipt{ID: in.ID, Outcome: "rejected"}
+	reject := func() (api.Receipt, error) {
+		// Dream and handoff checks may race a reconnect after the initial
+		// observation. They have not dispatched this user input yet.
+		if r.remoteRecoveryPending(in) {
+			return api.Receipt{}, api.ErrRecoveryPending
+		}
+		return rejected, nil
+	}
 	if r.paused {
 		rejected.Message = "应用正在更新，请稍后发送"
-		return rejected, nil
+		return reject()
 	}
 	if err := r.tickDream(ctx, false); err != nil {
 		rejected.Message = "交接状态暂不可用，请重试"
-		return rejected, nil
+		return reject()
 	}
 	if p, ok := r.engine.(api.ConversationRuntime); ok && r.dream != nil {
 		d := r.dream
 		if a := d.state.Attempt; a != nil {
 			if !p.ConversationState().Observed {
 				rejected.Message = "正在恢复对话，消息未发送，请稍后重试"
-				return rejected, nil
+				return reject()
 			}
 			if !a.Done {
 				if err := p.CancelDream(ctx, a.ID); err != nil {
 					rejected.Message = "正在结束上下文整理，请稍后重试"
-					return rejected, nil
+					return reject()
 				}
 				a.Done, a.Ready = true, false
 			}
 			if a.Ready {
 				if err := d.renew(ctx, p); err != nil {
 					rejected.Message = "新上下文尚未准备好，消息未发送，请重试"
-					return rejected, nil
+					return reject()
 				}
 				a.Ready = false
 			}
 			if err := d.save(); err != nil {
 				rejected.Message = "交接记录保存失败，消息未发送"
-				return rejected, nil
+				return reject()
 			}
 		}
 	}
 	return r.engine.Submit(ctx, in, files)
+}
+
+func (r *Runtime) remoteRecoveryPending(in api.Submission) bool {
+	if in.NativeIngressFence == "" {
+		return false
+	}
+	source, ok := r.engine.(api.RecoverySource)
+	if !ok {
+		return false
+	}
+	state := source.RecoveryState()
+	return state.Automatic || state.InProgress || state.Fence != in.NativeIngressFence
 }
