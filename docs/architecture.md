@@ -363,8 +363,8 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 ## Desktop and presentation
 
 Desktop World is the resident desktop backend for both Codex and Caelis. The pinned
-public Go module and packaged `dtw` helper are v0.1.0-rc.2, revision
-`e7b53a1812fe3892cf8e4b903479d208dfaa0104`. The old Cua/Node driver, native focus
+public Go module and packaged `dtw` helper are v0.1.0-rc.3, revision
+`43172bb1f3dd26b90a88c346bc9978cbabab5785`. The old Cua/Node driver, native focus
 ports and optional whole-desktop experiment are retired. F1 screen input and
 passive character context remain separate. Codex resident configuration denies
 native Computer Use app access when Desktop World is bound; ordinary sessions
