@@ -72,6 +72,14 @@ the result separately.
 one object. Preserve that receipt, observe the actual menu or dialog, and
 form a new narrowly scoped plan only after you know the unique target. Do not
 infer that a menu command ran when binding stopped before delivery.
+For a newly opened Electron or browser context menu, the first same-plan
+`bind` can run before its accessibility item appears. If the receipt confirms
+the opening click was delivered and the bound `invoke` was skipped, inspect
+the now-visible menu. Once exactly one actionable item is observed, submit
+only a new `bind` / `invoke` plan for that item. Do not reopen the menu,
+repeat the partial plan, or guess whether the failed query saw zero or several
+items. If the opening input or later effect is uncertain, query its original
+receipt and stop.
 
 Only confirmed Bot-local validation before the request is recorded permits
 correcting arguments under the same ID (local preflight returns top-level

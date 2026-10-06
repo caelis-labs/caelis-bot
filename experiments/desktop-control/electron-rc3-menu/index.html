@@ -1,0 +1,37 @@
+<!doctype html><meta charset="utf-8"><title>RC3 Electron Menu Fixture</title>
+<style>body{font:16px system-ui;margin:24px}input,textarea{display:block;width:400px;margin:12px}#canvas{width:430px;height:180px;background:#333;color:white;touch-action:none;user-select:none}#menu{position:absolute;background:white;padding:20px;border:1px solid;z-index:2}button{margin:12px}</style>
+<label>Order note<input id="note" aria-label="POC text" oninput="send('text',this.value)"></label>
+<label>Document<textarea id="multi" rows="3" aria-label="POC multiline" oninput="send('multiline',this.value)"></textarea></label>
+<div id="canvas" tabindex="0" role="img" aria-label="POC Canvas">Drag the marker</div>
+<button aria-label="POC submit" onclick="send('submit',note.value)">Save note</button>
+<button aria-label="POC dialog" onclick="modal.showModal();send('dialog_open')">Confirm order</button>
+<div id="menu" role="menu" hidden><button role="menuitem" aria-label="POC menu commit" onclick="send('menu_commit');menu.hidden=true;send('menu_visible','false')">Commit order</button></div>
+<dialog id="modal"><input id="dialogtext" aria-label="POC dialog text"><button aria-label="POC confirm" onclick="send('dialog_text',dialogtext.value);send('dialog_confirm');modal.close()">Confirm</button></dialog>
+<script>
+document.title = new URLSearchParams(location.search).get('title') || document.title;
+const canvas = document.querySelector('#canvas');
+const menu = document.querySelector('#menu');
+function send(event, value = '') { window.fixture.record(event, value); }
+document.addEventListener('focusin', event => send('focus', event.target.getAttribute('aria-label') || event.target.id));
+let origin = null;
+canvas.onmousemove = event => { if (origin) send('drag'); else send('move'); };
+canvas.onmousedown = event => {
+  origin = [event.clientX, event.clientY];
+  send(event.button === 1 ? 'middle' : event.button === 2 ? 'right' : 'click', event.detail);
+};
+canvas.onmouseup = event => {
+  if (origin) send('drop', Math.round(event.clientX - origin[0]) + ',' + Math.round(event.clientY - origin[1]));
+  origin = null;
+};
+canvas.ondblclick = () => send('double');
+canvas.onwheel = event => { event.preventDefault(); send('scroll', event.deltaX + ',' + event.deltaY); };
+canvas.oncontextmenu = event => {
+  event.preventDefault();
+  menu.hidden = false;
+  menu.style.left = event.clientX + 'px';
+  menu.style.top = event.clientY + 'px';
+  send('right');
+  send('menu_visible', 'true');
+};
+canvas.onkeydown = event => send('canvas_key', event.key);
+</script>

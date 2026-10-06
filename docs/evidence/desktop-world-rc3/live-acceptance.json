@@ -45,6 +45,16 @@
     "webkit": "new standard scroll fixture advertised supported/available and known offscreen=true; one scroll completed; app callback and fresh offscreen=false AX readback",
     "electron": "new private Electron profile; one invoke completed; app-owned action_count=1; same request receipt after turn",
     "electron_bind_refusal": "Bot compact bind for an absent context command returned stopped/ambiguous_target before delivery, next invoke skipped, same-run reconciliation and unchanged app-owned log",
+    "electron_context_menu": {
+      "runtime": "Electron 44.5.1, fresh private profiles, original POC-style ARIA menu markup and app-owned event log",
+      "fresh_open": "one right-click completed and same-run reconciled; exact original window/name/role/depth query complete with one menu_item and supported/available invoke",
+      "immediate_plan_control": "a separate fresh-page right-click/bind/invoke plan completed and app log recorded exactly one menu_commit",
+      "full_pre_menu": "eleven original pre-menu operation types completed in a fresh profile through Bot compact tools; each had a new once marker, same-run receipt and independent app event; keyboard shortcut used bind_focus after a separate direct-field target refusal before key delivery",
+      "original_immediate_bind_reproduction": "after the eleven operations, right-click delivery complete, bind failed ambiguous_target, invoke skipped, original outcome partial and same-run reconciled; menu_visible=true and menu_commit=0",
+      "fresh_after_failure": "the exact original within-window/name_equals/role=menu_item/max_depth=12 query was complete with exactly one candidate; a broader same-name window query also found one; invoke supported/available",
+      "explicit_completion": "new bind/invoke request on the still-open observed menu completed and same-run reconciled; app-owned log recorded exactly one menu_commit and menu close; no repeated right-click, unknown replay or pointer fallback",
+      "classification": "the released provider behavior is consistent with transient immediate-bind AX visibility; fixed selector ambiguity and Bot adapter omission were not observed; the receipt does not expose the instantaneous failing candidate count"
+    },
     "cancellation": "fresh pending native wait cancelled; original request reconciled as unknown with no later app event; no replay",
     "eof": "separate fresh pending wait; helper exited cleanly; original and same-ID receipt stopped with later invoke skipped, app effect count zero; new session did not inherit request",
     "signed_capture": {
@@ -67,8 +77,8 @@
   },
   "gates": ["make check", "make smoke", "make build", "focused race Bot/DesktopControl/BotSkills", "local Dev DMG mounted verification"],
   "limits": [
-    "The upstream rc.3 Electron full-operation script stopped at a context-menu ambiguous_target bind and remains unaccepted. This Bot test established fail-closed behavior for a separate zero-match binding; it cannot identify that upstream script's exact candidate set.",
+    "The upstream rc.3 Electron full-operation script remains a stopped historical run. Bot independently reproduced its immediate-bind ambiguity after eleven operations, then completed the menu task through fresh observation and a new bind/invoke request. The released rc.3 receipt does not expose whether the failing instant had zero or multiple candidates; no literal upstream full-script pass is claimed.",
     "Prior rc.2 Bot operation coverage is retained as historical evidence; operations outside the rc.3 delta were not all repeated on rc.3.",
-    "Human approval panel interaction, Windows GUI, Developer ID, notarization and public Bot release are not claimed."
+    "Human approval panel interaction is a separate scheduled product follow-up; Windows GUI, Developer ID, notarization and public Bot release are outside this macOS dependency acceptance."
   ]
 }
