@@ -18,6 +18,7 @@
 @end
 
 extern void botUpdaterPrepare(void);
+extern void botUpdaterAborted(void);
 @interface BotUpdateDelegate : NSObject
 @property(nonatomic, copy) void (^installHandler)(void);
 @property(nonatomic, strong) NSTimer *timer;
@@ -34,6 +35,7 @@ extern void botUpdaterPrepare(void);
 }
 - (void)updater:(id)updater didAbortWithError:(NSError *)error {
     [self.timer invalidate]; self.timer = nil; self.installHandler = nil;
+    botUpdaterAborted();
 }
 @end
 
@@ -71,12 +73,26 @@ bool bot_updater_claim(void) {
     [updateDelegate.timer invalidate]; updateDelegate.timer = nil;
     return true;
 }
-void bot_updater_finish(void) {
+bool bot_updater_finish(void) {
     void (^handler)(void) = updateDelegate.installHandler;
     [updateDelegate.timer invalidate]; updateDelegate.timer = nil; updateDelegate.installHandler = nil;
-    if (handler) handler();
-    else [NSApp terminate:nil]; // Explicit quit/cancel after cleanup cannot strand a closed backend.
+    if (!handler) return false;
+    handler();
+    return true;
 }
+void bot_updater_fail(const char *message) {
+    [updateDelegate.timer invalidate]; updateDelegate.timer = nil;
+    // Never invoke a postponed install after a failed durability or shutdown
+    // handoff. The failure is shown immediately, even if Settings is closed.
+    updateDelegate.installHandler = nil;
+    NSAlert *alert = [NSAlert new];
+    BOOL chinese = [[NSLocale preferredLanguages].firstObject hasPrefix:@"zh"];
+    alert.messageText = chinese ? @"Caelis Bot 更新未能继续" : @"Caelis Bot could not continue the update";
+    alert.informativeText = message ? [NSString stringWithUTF8String:message] : (chinese ? @"请检查应用状态后重试。" : @"Check the app status and try again.");
+    [NSApp activateIgnoringOtherApps:YES];
+    [alert runModal];
+}
+void bot_updater_quit_after_failure(void) { [NSApp terminate:nil]; }
 void bot_updater_stop(void) {
     [updateDelegate.timer invalidate]; updateDelegate.timer = nil; updateDelegate.installHandler = nil;
     controller = nil; updateDelegate = nil;

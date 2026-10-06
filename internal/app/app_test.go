@@ -190,7 +190,7 @@ func TestToolBindingFailureDoesNotConnectAndReleasesEndpoint(t *testing.T) {
 		t.Fatal("failed startup leaked endpoint")
 	}
 }
-func TestUnknownProviderNeverFallsBackOrRewritesBindings(t *testing.T) {
+func TestUnknownProviderKeepsShellWithoutAdmittingGuessedOwnerOrRewritingBindings(t *testing.T) {
 	root := t.TempDir()
 	settings := []byte(`{"runtime":"not-implemented","cliPath":""}`)
 	sentinel := []byte(`{"version":1,"threadId":"existing-owned-thread"}`)
@@ -199,8 +199,13 @@ func TestUnknownProviderNeverFallsBackOrRewritesBindings(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := New(root, Host{}); err == nil {
-		t.Fatal("unimplemented provider admitted")
+	a, err := New(root, Host{})
+	if err != nil {
+		t.Fatal("unsupported provider disabled shell", err)
+	}
+	defer a.Close()
+	if err := a.Backend.Connect(t.Context()); err == nil {
+		t.Fatal("unimplemented provider admitted as a native execution owner")
 	}
 	for name, value := range map[string][]byte{"runtime.json": settings, "conversation.json": sentinel} {
 		got, err := os.ReadFile(filepath.Join(root, name))

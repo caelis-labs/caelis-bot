@@ -42,6 +42,7 @@ func (s *Session) decodeEvent(event Notification, out any, blocking bool) bool {
 	if err := json.Unmarshal(event.Params, out); err != nil {
 		s.logEvent(event, "event_decode_failed", diagnosticlog.DecodeReason(err))
 		if blocking {
+			s.residentSyncNeeded = true
 			// Only an owned lifecycle/decision failure makes execution uncertain.
 			s.state.Phase = "unknown"
 			s.state.Message = "无法确认当前工作的状态，请重新连接核对"

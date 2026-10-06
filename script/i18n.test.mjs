@@ -48,6 +48,15 @@ test('approval translation changes only Bot copy, preserving raw labels and deci
  const choice={...native,labelKey:'chat.allowOnce'};
  assert.equal(approvalChoice(choice,'en'),'Allow once');
  assert.equal(approvalChoice(choice,'zh-CN'),'允许这一次');
+	const computerUse=[
+	 {id:'accept',labelKey:'chat.allowOnce',scope:'once'},
+	 {id:'accept-session',labelKey:'chat.allowSession',scope:'session'},
+	 {id:'accept-always',labelKey:'chat.allowAlways',scope:'always'},
+	 {id:'cancel',labelKey:'chat.decline',scope:'deny'},
+	];
+	assert.deepEqual(computerUse.map(c=>approvalChoice(c,'en')),['Allow once','Allow for this session','Always allow','Decline']);
+	assert.deepEqual(computerUse.map(c=>approvalChoice(c,'zh-CN')),['允许这一次','允许本次会话','总是允许','拒绝']);
+	assert.deepEqual(computerUse.map(c=>c.id),['accept','accept-session','accept-always','cancel']);
  assert.equal(choice.id,'native-allow');
  assert.equal(choice.details,'原始参数');
  const value={id:'same-request',title:'原始 Server {name}',titleKey:'chat.serverConfirmationRequired',description:'模型的原因',action:'echo 中文',target:'/private/原始'};

@@ -131,6 +131,8 @@
   "networkTargets": "网络目标",
   "additionalPermissions": "额外权限",
   "allowOnce": "允许这一次",
+  "allowSession": "允许本次会话",
+  "allowAlways": "总是允许",
   "allowConversation": "在本次对话中允许",
   "decline": "拒绝",
   "cancelOperation": "取消此操作",
@@ -148,6 +150,7 @@
   "submitApproval": "提交",
   "cancelApproval": "取消",
   "unsupportedApprovalForm": "此表单格式尚不支持，可取消后重试其他方式。",
+  "nativeOptionsUnavailable": "Runtime 未提供此请求可用的选项，请在 Runtime 中核对。",
   "approvalTask": "任务：{name}",
   "caelisApproval": "Caelis 请求执行授权",
   "workerApproval": "独立工作任务请求授权",
@@ -171,5 +174,6 @@
   "screenCopyFailed": "暂时无法复制这张图片。",
   "dreaming": "打个盹，整理一下刚才的内容… zzz",
   "dreamHint": "你随时可以继续说。",
-  "sentDraftSyncFailed": "消息已发送，输入框同步失败。请重新打开聊天，避免重复发送。"
+  "sentDraftSyncFailed": "消息已发送，输入框同步失败。请重新打开聊天，避免重复发送。",
+  "surfaceRecovering": "此窗口正在恢复。Bot 仍在运行，原请求已保留。"
 }

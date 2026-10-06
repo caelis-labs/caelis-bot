@@ -89,22 +89,22 @@ func (s *Service) ConfigureDraft(path string) error {
 	return nil
 }
 func previewKey(v api.Snapshot) string {
-	// Stable across restarts and revision-only updates. A different outcome cannot
-	// inherit an acknowledgement made against an older result.
-	var lastUser, lastAssistant string
+	// A preview acknowledges the last visible result. An outgoing user item
+	// inserted before an already visible assistant result must not change that
+	// result's identity. A newer user item or changed assistant result must.
+	var result string
 	for _, i := range v.Items {
 		if i.Kind == "user" {
-			lastUser = i.ID
-			lastAssistant = ""
+			result = "user\x00" + i.ID + "\x00" + i.RequestID + "\x00" + i.Text
 		}
 		if i.Kind == "assistant" {
-			lastAssistant = i.ID + "\x00" + i.Text
+			result = "assistant\x00" + i.ID + "\x00" + i.Text
 		}
 	}
-	if lastUser == "" && lastAssistant == "" {
+	if result == "" {
 		return ""
 	}
-	h := sha256.Sum256([]byte(lastUser + "\x00" + lastAssistant))
+	h := sha256.Sum256([]byte(result))
 	return hex.EncodeToString(h[:])
 }
 func (s *Service) presentation(v api.Snapshot) api.Snapshot {
@@ -130,7 +130,10 @@ func (s *Service) ConfigurePresentation(path string) error {
 	return json.Unmarshal(b, &s.dismissed)
 }
 func (s *Service) DismissPreview(key string) error {
-	v := s.engine.Snapshot()
+	// Validate the exact product projection supplied to the bubble. Local
+	// outbox items and RecentSource are part of that projection, whereas the
+	// engine's raw Snapshot is not what the user acknowledged.
+	v := s.PetSnapshot()
 	if v.CanInterrupt || v.Phase == "unknown" || v.Phase == "sending" {
 		return errors.New("当前工作尚未结束")
 	}
@@ -143,7 +146,7 @@ func (s *Service) DismissPreview(key string) error {
 		return errors.New("消息已更新，请再试一次")
 	}
 	if consumer, ok := s.engine.(api.PresentationAcknowledger); ok {
-		if e := consumer.AcknowledgePresentation(context.Background(), v); e != nil {
+		if e := consumer.AcknowledgePresentation(context.Background(), s.engine.Snapshot()); e != nil {
 			return e
 		}
 	}

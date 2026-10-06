@@ -26,8 +26,27 @@ export class SubmissionProgress {
  }
  synchronize(action: () => Promise<void>) {
   if (this.outcome !== 'accepted') throw new Error('Submission is not accepted');
-  return this.completion ??= Promise.resolve().then(action);
+  if (!this.completion) {
+   const attempt=Promise.resolve().then(action).catch(error=>{
+    if(this.completion===attempt)this.completion=null;
+    throw error;
+   });
+   this.completion=attempt;
+  }
+  return this.completion;
  }
+}
+
+// Only retry observations. Cancellation fences late results, and success stops
+// the loop. Native sends, approvals and draft writes do not use this helper.
+export function retryRead<T>(read:()=>Promise<T>,accept:(value:T)=>void,failed:()=>void=()=>{},delay=3000) {
+ let active=true,timer:ReturnType<typeof setTimeout>|undefined;
+ const attempt=async()=>{
+  try{const value=await read();if(active)accept(value);}
+  catch{if(active){failed();timer=setTimeout(()=>void attempt(),delay);}}
+ };
+ void attempt();
+ return()=>{active=false;if(timer!==undefined)clearTimeout(timer);};
 }
 
 // The native draft is a full replacement. While a write is in flight, only its

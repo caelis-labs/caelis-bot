@@ -48,7 +48,18 @@ func (s *Session) ChangeCLI(ctx context.Context, path string, persist func() err
 		return api.RuntimeCheck{}, err
 	}
 	s.mu.Lock()
+	previousBinary := s.opts.Binary
 	s.opts.Binary = path
+	// This explicit idle owner switch is the only path allowed to release the
+	// previous endpoint. An update or automatic recovery must retain it.
+	previousEndpoint := s.binding.OwnerEndpoint
+	s.binding.OwnerEndpoint = ""
+	if err := s.save(); err != nil {
+		s.opts.Binary = previousBinary
+		s.binding.OwnerEndpoint = previousEndpoint
+		s.mu.Unlock()
+		return api.RuntimeCheck{}, err
+	}
 	s.retainedOwner = nil // Explicit runtime selection may choose a new owner.
 	s.forceNewOwner = true
 	s.state.Connection = "offline"

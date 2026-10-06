@@ -41,7 +41,9 @@ type dreamController struct {
 }
 
 func (r *Runtime) ConfigureDream(vault *notebook.Vault, coreSkill string) error {
-	r.step.Lock()
+	if !r.step.TryLock() {
+		return errors.New("Dream recovery waits for current work")
+	}
 	defer r.step.Unlock()
 	if vault == nil {
 		return errors.New("Dream 需要可写笔记本")

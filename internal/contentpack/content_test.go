@@ -14,7 +14,31 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestUnavailableContentStoreUsesBuiltinAndRecoversOriginalStore(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(root, []byte("obstruction"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r := NewRecoveringRegistry(root)
+	if state := r.State(); state.Appearance.Selection.Character != "builtin:caelis" || state.Notice == "" {
+		t.Fatal("missing available builtin fallback", state)
+	}
+	if err := os.Remove(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	r.mu.Lock()
+	r.retryAt = time.Time{}
+	r.mu.Unlock()
+	if state := r.State(); r.loadErr != nil || state.Notice != "" || state.Appearance.Revision <= 1 {
+		t.Fatal("original content store did not recover", state)
+	}
+}
 
 func testPack(t *testing.T) *Pack {
 	t.Helper()

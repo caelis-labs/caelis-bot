@@ -84,7 +84,7 @@ func TestWireFailuresAreJSONEnvelopeDuplicateOrFrameLimit(t *testing.T) {
 		{"json", `{"id":1,"result":`, "json_decode_failed", ErrJSONDecode, false},
 		{"envelope", `{"id":1,"result":1,"error":{"code":1,"message":"PRIVATE_SENTINEL"}}`, "invalid_envelope", ErrProtocol, false},
 		{"duplicate", `{"id":7,"method":"approval","params":{}}` + "\n" + `{"id":7,"method":"approval","params":{}}`, "duplicate_server_request", ErrDuplicateRequest, true},
-		{"oversize", strings.Repeat("x", maxWireFrame), "frame_too_large", ErrFrameTooLarge, false},
+		{"invalid large bytes", strings.Repeat("x", maxWireFrame), "json_decode_failed", ErrJSONDecode, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client, server := net.Pipe()

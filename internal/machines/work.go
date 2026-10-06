@@ -6,6 +6,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/remotework"
 	"reflect"
+	"sync"
 	"time"
 )
 
@@ -284,11 +285,26 @@ func (s *Service) Observe(ctx context.Context) {
 			return
 		default:
 		}
+		var observations sync.WaitGroup
+		s.mu.Lock()
+		s.reloadLocked()
+		s.mu.Unlock()
+		limit := make(chan struct{}, 4)
 		for _, poll := range s.workPolls() {
-			c, cancel := context.WithTimeout(ctx, 15*time.Second)
-			s.pollWork(c, poll)
-			cancel()
+			select {
+			case limit <- struct{}{}:
+			case <-ctx.Done():
+				observations.Wait()
+				return
+			}
+			observations.Go(func() {
+				defer func() { <-limit }()
+				c, cancel := context.WithTimeout(ctx, 15*time.Second)
+				defer cancel()
+				s.pollWork(c, poll)
+			})
 		}
+		observations.Wait()
 		select {
 		case <-ctx.Done():
 			return

@@ -15,6 +15,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 type prompt struct {
@@ -98,7 +99,8 @@ func (s *Session) addPrompt(event Notification) {
 		URL         string                     `json:"url"`
 		Schema      json.RawMessage            `json:"requestedSchema"`
 		Meta        struct {
-			ApprovalKind string `json:"codex_approval_kind"`
+			ApprovalKind string          `json:"codex_approval_kind"`
+			Persist      json.RawMessage `json:"persist"`
 		} `json:"_meta"`
 	}
 	if err := json.Unmarshal(event.Params, &n); err != nil {
@@ -123,6 +125,7 @@ func (s *Session) addPrompt(event Notification) {
 		p.view.Action = n.Command
 		p.view.Target = n.Cwd
 
+		networkRequested := pretty(n.Network) != ""
 		if value := pretty(n.Network); value != "" {
 			p.view.TitleKey = "chat.approveNetwork"
 			p.view.Sections = append(p.view.Sections, api.ApprovalSection{TitleKey: "chat.networkTargets", Text: value})
@@ -130,16 +133,17 @@ func (s *Session) addPrompt(event Notification) {
 		if value := pretty(n.Additional); value != "" {
 			p.view.Sections = append(p.view.Sections, api.ApprovalSection{TitleKey: "chat.additionalPermissions", Text: value})
 		}
-		decisions := n.Decisions
-		if decisions == nil {
-			decisions = []json.RawMessage{json.RawMessage(`"accept"`), json.RawMessage(`"acceptForSession"`), json.RawMessage(`"decline"`), json.RawMessage(`"cancel"`)}
-		}
-		for i, d := range decisions {
+		// availableDecisions is the ordered native offer. A missing list is
+		// not permission to invent a session grant.
+		for i, d := range n.Decisions {
 			var choice string
 			_ = json.Unmarshal(d, &choice)
 			detail := ""
 			scope := map[string]string{"accept": "once", "acceptForSession": "conversation", "decline": "deny", "cancel": "deny"}[choice]
 			label := map[string]string{"accept": "chat.allowOnce", "acceptForSession": "chat.allowConversation", "decline": "chat.decline", "cancel": "chat.cancelOperation"}[choice]
+			if choice == "acceptForSession" && !networkRequested {
+				label, scope = "chat.allowSession", "session"
+			}
 			if label == "" {
 				var object map[string]json.RawMessage
 				if json.Unmarshal(d, &object) != nil {
@@ -158,6 +162,9 @@ func (s *Session) addPrompt(event Notification) {
 			add(fmt.Sprintf("decision-%d", i), label, map[string]any{"decision": d})
 			p.view.Choices[len(p.view.Choices)-1].Scope = scope
 			p.view.Choices[len(p.view.Choices)-1].Details = detail
+		}
+		if len(p.view.Choices) == 0 {
+			p.view.NoticeKey = "chat.nativeOptionsUnavailable"
 		}
 	case "item/fileChange/requestApproval":
 		p.view.TitleKey = "chat.approveFiles"
@@ -209,6 +216,7 @@ func (s *Session) addPrompt(event Notification) {
 		p.view.Title = n.ServerName
 		p.view.TitleKey = "chat.serverConfirmationRequired"
 		p.view.Description = n.Message
+		messageOnly := false
 		if n.Mode == "url" && safeWebURL(n.URL) {
 			p.view.URL = n.URL
 			add("accept", "chat.authorizationDone", map[string]any{"action": "accept", "content": nil, "_meta": nil})
@@ -216,7 +224,12 @@ func (s *Session) addPrompt(event Notification) {
 			var form formSchema
 			decoder := json.NewDecoder(bytes.NewReader(n.Schema))
 			decoder.DisallowUnknownFields()
-			if decoder.Decode(&form) == nil && form.Type == "object" {
+			// Codex also uses a null schema for message-only elicitation.
+			if len(n.Schema) == 0 || bytes.Equal(bytes.TrimSpace(n.Schema), []byte("null")) {
+				form = formSchema{Type: "object", Properties: map[string]formField{}}
+				messageOnly = true
+			}
+			if messageOnly || decoder.Decode(&form) == nil && form.Type == "object" {
 				valid := true
 				keys := make([]string, 0, len(form.Properties))
 				for k := range form.Properties {
@@ -251,13 +264,19 @@ func (s *Session) addPrompt(event Notification) {
 				}
 				if valid {
 					p.form = &form
-					label := "chat.submitApproval"
-					if n.Meta.ApprovalKind == "mcp_tool_call" && len(form.Properties) == 0 && len(form.Required) == 0 {
-						label = "chat.allowOnce"
-					}
-					add("accept", label, nil)
-					if label == "chat.allowOnce" {
+					messageOnly = len(form.Properties) == 0 && len(form.Required) == 0
+					if messageOnly {
+						add("accept", "chat.allowOnce", nil)
 						p.view.Choices[len(p.view.Choices)-1].Scope = "once"
+						for _, mode := range []struct{ value, label string }{{"session", "chat.allowSession"}, {"always", "chat.allowAlways"}} {
+							if !approvalPersistOffered(n.Meta.Persist, mode.value) {
+								continue
+							}
+							add("accept-"+mode.value, mode.label, map[string]any{"action": "accept", "content": map[string]any{}, "_meta": map[string]string{"persist": mode.value}})
+							p.view.Choices[len(p.view.Choices)-1].Scope = mode.value
+						}
+					} else {
+						add("accept", "chat.submitApproval", nil)
 					}
 				} else {
 					p.view.Questions = nil
@@ -269,8 +288,17 @@ func (s *Session) addPrompt(event Notification) {
 				p.view.NoticeKey = "chat.unsupportedApprovalForm"
 			}
 		}
-		add("decline", "chat.decline", map[string]any{"action": "decline", "content": nil, "_meta": nil})
-		add("cancel", "chat.cancelApproval", map[string]any{"action": "cancel", "content": nil, "_meta": nil})
+		// A tool-call approval's refusal cancels that call. Other elicitations
+		// expose distinct decline and cancel actions in the native TUI.
+		if n.Meta.ApprovalKind != "mcp_tool_call" || !messageOnly {
+			add("decline", "chat.decline", map[string]any{"action": "decline", "content": nil, "_meta": nil})
+		}
+		cancelLabel := "chat.cancelApproval"
+		if n.Meta.ApprovalKind == "mcp_tool_call" && messageOnly {
+			cancelLabel = "chat.decline"
+		}
+		add("cancel", cancelLabel, map[string]any{"action": "cancel", "content": nil, "_meta": nil})
+		p.view.Choices[len(p.view.Choices)-1].Scope = "deny"
 	default:
 		s.rejectRequest(event)
 		s.state.Message = "后端请求了尚不支持的交互，已明确拒绝；任务结果请以后端回执为准。"
@@ -286,10 +314,33 @@ func (s *Session) addPrompt(event Notification) {
 		s.state.Phase = "attention"
 	}
 }
+
+func approvalPersistOffered(raw json.RawMessage, mode string) bool {
+	var value string
+	if json.Unmarshal(raw, &value) == nil {
+		return value == mode
+	}
+	var values []json.RawMessage
+	if json.Unmarshal(raw, &values) != nil {
+		return false
+	}
+	for _, entry := range values {
+		if json.Unmarshal(entry, &value) == nil && value == mode {
+			return true
+		}
+	}
+	return false
+}
 func (s *Session) Decide(ctx context.Context, d api.Decision) error {
-	s.op.Lock()
+	ctx, stop := s.operation(ctx, 15*time.Second)
+	defer stop()
+	if err := lockwait.Lock(ctx, &s.op); err != nil {
+		return err
+	}
 	defer s.op.Unlock()
-	s.mu.Lock()
+	if err := lockwait.Lock(ctx, &s.mu); err != nil {
+		return err
+	}
 	p, ok := s.prompts[d.ID]
 	if !ok || p.view.Status != "pending" || s.state.Connection != "ready" {
 		s.mu.Unlock()

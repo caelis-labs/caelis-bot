@@ -56,6 +56,8 @@ type entry struct {
 	Size     int64
 }
 type Registry struct {
+	loadErr    error
+	retryAt    time.Time
 	cacheMu    sync.Mutex
 	cache      map[string]*Pack
 	cacheOrder []string
@@ -66,6 +68,16 @@ type Registry struct {
 	selection Selection
 	revision  uint64
 	notice    string
+}
+
+// Product presentation can always use built-in resources. Reopen only this
+// original store after a transient failure; no selection/write is replayed.
+func NewRecoveringRegistry(root string) *Registry {
+	r, err := NewRegistry(root)
+	if err == nil {
+		return r
+	}
+	return &Registry{root: root, entries: map[string]entry{}, selection: defaultSelection(), revision: 1, notice: "外观存储暂不可用，已使用内置形象；将自动重试", loadErr: err}
 }
 
 func defaultSelection() Selection { return Selection{Character: "builtin:caelis", Avatar: "follow"} }
@@ -173,7 +185,19 @@ func (r *Registry) snapshot() State {
 	}
 	return s
 }
-func (r *Registry) State() State { r.mu.Lock(); defer r.mu.Unlock(); return r.snapshot() }
+func (r *Registry) State() State {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.loadErr != nil && time.Now().After(r.retryAt) {
+		r.retryAt = time.Now().Add(5 * time.Second)
+		if restored, err := NewRegistry(r.root); err == nil {
+			r.entries, r.selection, r.notice = restored.entries, restored.selection, restored.notice
+			r.loadErr = nil
+			r.revision++
+		}
+	}
+	return r.snapshot()
+}
 func (r *Registry) read(e entry) (*Pack, error) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()

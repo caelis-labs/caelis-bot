@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -144,7 +143,7 @@ func TestStopPrecleanupTimeoutStillDispatchesInterrupt(t *testing.T) {
 	}
 }
 
-func TestExplicitRetryAfterStopWasDefinitelyNotDispatched(t *testing.T) {
+func TestCancelledStopAdmissionKeepsOriginalTurnInterruptible(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	sendSynthetic(t, s, "retry-unsent-stop")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -152,10 +151,10 @@ func TestExplicitRetryAfterStopWasDefinitelyNotDispatched(t *testing.T) {
 	if err := s.Interrupt(ctx); err == nil {
 		t.Fatal("cancelled stop was reported successful")
 	}
-	if err := s.Connect(testContext(t)); err == nil {
-		t.Fatal("active original turn was mistaken for a completed stop")
+	if err := s.Connect(testContext(t)); err != nil {
+		t.Fatal("cancelled admission damaged the healthy connection", err)
 	}
-	if v := s.Snapshot(); !v.CanInterrupt || v.CanSend || v.CanSteer || !strings.Contains(v.Message, "尚未下发") {
+	if v := s.Snapshot(); !v.CanInterrupt || v.CanSend || v.CurrentTurn == "" {
 		t.Fatal("definitely unsent stop is not explicitly retryable", v.Phase, v.CanInterrupt)
 	}
 	if err := s.Interrupt(testContext(t)); err != nil {

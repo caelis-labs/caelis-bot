@@ -20,7 +20,7 @@ import { LanguageSetting } from './i18n/LanguageSetting';
 import { SettingGroup, SettingRow } from './SettingsUI';
 
 type Update = { state:string; current:string; latest:string; message:string };
-type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean };
+type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean; state?:string; message?:string };
 
 export function Settings() {
  const {t}=useI18n();
@@ -81,11 +81,16 @@ function Updates({version}:{version:string}) {
   try{await desktop('SetAutomaticUpdates',value);setPreferences(await desktop<UpdatePreferences>('UpdatePreferences'));}
   catch{setError(t('settings.updatePreferencesSaveFailed'));}finally{setBusy(false);}
  };
+ const updateStatus=preferences?.state==='failed'?`${t('settings.updateHandoffFailed')}: ${preferences.message||t('settings.updateCheckFailed')}`:
+  preferences?.state==='preparing'?t('settings.updatePreparing'):
+  preferences?.state==='closing'?t('settings.updateClosing'):
+  preferences?.state==='restarting'?t('settings.updateRestarting'):
+  preferences?.waiting?t('settings.updateWaiting'):busy?t('common.loading'):result?.message||t('settings.checkNewVersion');
  return <section className="update-settings">
   <h1>{t('settings.updates')}</h1>
   <div className="about-identity"><img src="/icons/caelis-avatar.png" alt="" width="64" height="64"/><div><h2>Caelis Bot</h2><p>{result?.current||version}</p></div></div>
   <SettingGroup>{preferences?.available&&<SettingRow label={t('settings.autoUpdateLabel')} htmlFor="automatic-updates" description={t('settings.autoUpdateDescription')}><input id="automatic-updates" className="settings-switch" role="switch" type="checkbox" checked={preferences.automatic} disabled={busy} onChange={event=>void automatic(event.target.checked)}/></SettingRow>}
-  <SettingRow label={t('settings.softwareUpdate')} description={<span role="status">{error||(preferences?.waiting?t('settings.updateWaiting'):busy?t('common.loading'):result?.message||t('settings.checkNewVersion'))}</span>}><button disabled={busy||preferences?.waiting} onClick={()=>void check()}>{t('settings.checkUpdatesButton')}</button></SettingRow>
+  <SettingRow label={t('settings.softwareUpdate')} description={<span role="status">{error||updateStatus}</span>}><button disabled={busy||preferences?.waiting} onClick={()=>void check()}>{t('settings.checkUpdatesButton')}</button></SettingRow>
   <SettingRow label={result?.state==='available'?t('settings.newVersionAvailable',{version:result.latest}):t('settings.releaseAndInstall')}><button onClick={()=>void desktop('OpenReleasePage').catch(()=>setError(t('settings.openReleasePageFailed')))}>{result?.state==='available'?t('settings.downloadNewVersion'):t('settings.viewReleasePage')}</button></SettingRow></SettingGroup>
   <p className="settings-note">{preferences?.available?t('settings.updateNoteAvailable'):t('settings.updateNoteManual')}</p><Maintenance storage={false} embedded/>
  </section>;

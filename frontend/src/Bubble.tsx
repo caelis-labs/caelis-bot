@@ -12,12 +12,14 @@ export function Bubble() {
  const {t,locale} = useI18n();
  const [visible,setVisible]=useState(false),[expanded,setExpanded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[index,setIndex]=useState(0);
  const surface=useRef<HTMLDivElement>(null);
+ const errorTimer=useRef(0);
  const [reading,setReading]=useState(false);
  const leaveTimer=useRef(0);
  const nativeHover=useRef<boolean|null>(null);
  const read=()=>{window.clearTimeout(leaveTimer.current);setReading(true);};
  const unread=()=>{window.clearTimeout(leaveTimer.current);leaveTimer.current=window.setTimeout(()=>setReading(false),180);};
  useEffect(()=>()=>window.clearTimeout(leaveTimer.current),[]);
+ useEffect(()=>()=>window.clearTimeout(errorTimer.current),[]);
  const [notice,dispatchNotice]=useReducer(reduceBubbleNotice,null);
  const noticeID=useRef(0);
  const {snapshot,liveReplies,refresh}=useConversation(visible,true);
@@ -71,7 +73,17 @@ export function Bubble() {
  useEffect(()=>{if(!prompt&&expanded)void desktop('CollapseBubble');},[prompt?.id,expanded]);
  useEffect(()=>{const resize=new ResizeObserver(()=>{if(surface.current)void desktop('SetBubbleHeight',Math.max(68,Math.min(480,Math.ceil(surface.current.getBoundingClientRect().height))));});resize.observe(surface.current!);return()=>resize.disconnect();},[]);
  const open=()=>void desktop(showNotice?'ToggleTaskDock':prompt?'OpenApproval':'OpenHistory');
- const action=async(method:string,...args:unknown[])=>{setBusy(true);setError('');try{await backend(method,...args);await refresh();}catch(e){setError(e instanceof Error?e.message:t('chat.actionFailed'));}finally{setBusy(false);}};
+ const action=async(method:string,...args:unknown[])=>{
+  setBusy(true);window.clearTimeout(errorTimer.current);setError('');
+  try{await backend(method,...args);await refresh();}
+  catch(e){
+   // A stale preview key means the underlying message changed. Fetch that
+   // message now, and keep the failure visible for a bounded time only.
+   try{await refresh();}catch{/* Preserve the original action error. */}
+   setError(e instanceof Error?e.message:t('chat.actionFailed'));
+   errorTimer.current=window.setTimeout(()=>setError(''),5000);
+  }finally{setBusy(false);}
+ };
  const actionText=showNotice?t('chat.bubbleOpenTasks'):prompt?t('chat.bubbleReviewAndDecide'):t('chat.bubbleOpenChat');
  return <div ref={surface} className="bubble-shell" onMouseEnter={()=>{if(nativeHover.current===null)read();}} onMouseLeave={()=>{if(nativeHover.current===null)unread();}} onFocusCapture={read} onBlurCapture={e=>{if(!nativeHover.current&&!e.currentTarget.contains(e.relatedTarget))unread();}}><main className={`message-bubble ${expanded&&prompt?'expanded':''} ${readingMessage?'reading':''}`} aria-label={t('chat.bubbleAriaLabel')} title={dreaming?t('chat.dreamHint'):undefined}>
   <div className="bubble-summary">

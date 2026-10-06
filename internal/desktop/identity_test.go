@@ -6,6 +6,21 @@ import (
 	"testing"
 )
 
+func TestExplicitDevelopmentProfileIsolatesInstanceLockOnly(t *testing.T) {
+	old := buildChannel
+	t.Cleanup(func() { buildChannel = old })
+	t.Setenv("CAELIS_BOT_DATA_DIR", "/private/tmp/fixture")
+	buildChannel = "development"
+	a, b := applicationInstanceID("/private/tmp/fixture"), applicationInstanceID("/private/tmp/other")
+	if a == b || a != applicationInstanceID("/private/tmp/fixture") {
+		t.Fatal("fixture instance isolation missing")
+	}
+	buildChannel = "release"
+	if applicationInstanceID("/private/tmp/fixture") != "dev.caelis.bot" {
+		t.Fatal("release identity changed")
+	}
+}
+
 func TestDevelopmentAndReleaseIdentityAndDataStaySeparate(t *testing.T) {
 	old := buildChannel
 	t.Cleanup(func() { buildChannel = old })

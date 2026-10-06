@@ -9,8 +9,20 @@ export async function backend<T = void>(method: string, ...args: unknown[]): Pro
 }
 async function host<T>(service: string,method: string,...args: unknown[]): Promise<T> {
   const url = '/wails/runtime.js';
-  runtime ??= import(/* @vite-ignore */ url) as Promise<Runtime>;
-  return (await runtime).Call.ByName<T>(`github.com/caelis-labs/caelis-bot/internal/${service}.Service.${method}`, ...args);
+  if(!runtime) {
+    const loading=import(/* @vite-ignore */ url) as Promise<Runtime>;
+    runtime=loading;
+    void loading.catch(()=>{if(runtime===loading)runtime=undefined;});
+  }
+  const reading=/Snapshot$|Preferences$|Status$/.test(method)||['Draft','DraftFiles','DraftImage','HistoryVisible'].includes(method);
+  const timeout=reading?5000:40000;
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  try {
+    return await Promise.race([
+      (async()=> (await runtime!).Call.ByName<T>(`github.com/caelis-labs/caelis-bot/internal/${service}.Service.${method}`, ...args))(),
+      new Promise<T>((_,reject)=>{timer=setTimeout(()=>reject(new Error('The operation has not been confirmed yet. Its original request is retained.')),timeout);}),
+    ]);
+  } finally { if(timer!==undefined)clearTimeout(timer); }
 }
 export type Placement = { x: number; y: number; scale: number; visible: boolean; positioned: boolean };
 export type DraftFile = { id: string; name: string; size: number; type: string; image: boolean; unavailable: boolean };

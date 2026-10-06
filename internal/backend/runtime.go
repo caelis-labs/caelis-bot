@@ -41,6 +41,11 @@ func (s *Service) ConfigureRuntime(path string, settings api.RuntimeSettings) {
 	defer s.configurationMu.Unlock()
 	s.runtimeFile, s.runtimeSettings = path, settings
 }
+func (s *Service) ConfigureRuntimeReadError(err error) {
+	s.configurationMu.Lock()
+	defer s.configurationMu.Unlock()
+	s.runtimeLoadError = err
+}
 func (s *Service) RuntimeSettings() api.RuntimeSettings {
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
@@ -78,6 +83,7 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 			return api.RuntimeCheck{}, err
 		}
 		s.runtimeSettings = value
+		s.runtimeLoadError = nil
 		return api.RuntimeCheck{Saved: true, Message: "已检测并保存，下次启动切换运行时；当前对话保持原连接。"}, nil
 	}
 	e, ok := s.engine.(api.RuntimeConfigurator)
@@ -92,6 +98,7 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 			return errors.New("检测已通过，但连接配置未能保存")
 		}
 		s.runtimeSettings = value
+		s.runtimeLoadError = nil
 		return nil
 	})
 }

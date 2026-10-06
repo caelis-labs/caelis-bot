@@ -20,23 +20,30 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 type record struct {
-	Requests       []string `json:"requests,omitempty"`
-	Runtime        string   `json:"runtime,omitempty"`
-	Sequence       int64    `json:"sequence,omitempty"`
-	Locked         bool     `json:"locked,omitempty"`
-	CompletedAt    int64    `json:"completedAt,omitempty"`
-	ActiveAt       int64    `json:"activeAt,omitempty"`
-	Pinned         *bool    `json:"pinned,omitempty"`
-	OriginalPrompt string   `json:"originalPrompt,omitempty"`
-	View           api.Task `json:"view"`
-	Provider       string   `json:"provider"`
-	Fingerprint    string   `json:"fingerprint,omitempty"`
-	Execution      string   `json:"execution,omitempty"`
-	ReportID       string   `json:"reportId,omitempty"`
-	ReportState    string   `json:"reportState,omitempty"`
+	Requests          []string        `json:"requests,omitempty"`
+	RetiredExecutions []string        `json:"retiredExecutions,omitempty"`
+	PreviousReports   []reportReceipt `json:"previousReports,omitempty"`
+	Runtime           string          `json:"runtime,omitempty"`
+	Sequence          int64           `json:"sequence,omitempty"`
+	Locked            bool            `json:"locked,omitempty"`
+	CompletedAt       int64           `json:"completedAt,omitempty"`
+	ActiveAt          int64           `json:"activeAt,omitempty"`
+	Pinned            *bool           `json:"pinned,omitempty"`
+	OriginalPrompt    string          `json:"originalPrompt,omitempty"`
+	View              api.Task        `json:"view"`
+	Provider          string          `json:"provider"`
+	Fingerprint       string          `json:"fingerprint,omitempty"`
+	Execution         string          `json:"execution,omitempty"`
+	ReportID          string          `json:"reportId,omitempty"`
+	ReportState       string          `json:"reportState,omitempty"`
+}
+type reportReceipt struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
 }
 type state struct {
 	WatchOrder map[string][]string `json:"watchOrder,omitempty"`
@@ -46,6 +53,7 @@ type state struct {
 }
 
 type Manager struct {
+	quarantined          map[string]*record
 	now                  func() time.Time
 	maxRunning           func() int
 	watchlistChanged     func([]api.TaskPreview)
@@ -106,9 +114,11 @@ func Open(path, root, provider string, work api.WorkRuntime, reports api.ReportS
 		if json.Unmarshal(b, &m.state) != nil || m.state.Version != 1 || m.state.Records == nil {
 			return nil, errors.New(m.text("host.taskLedgerUnreadable"))
 		}
+		m.quarantined = map[string]*record{}
 		for id, r := range m.state.Records {
 			if r == nil || r.View.ID != id || r.Provider == "" {
-				return nil, errors.New(m.text("host.taskLedgerInvalidOwner"))
+				m.quarantined[id] = r
+				delete(m.state.Records, id)
 			}
 		}
 		encoded, _ := json.MarshalIndent(m.state, "", "  ")
@@ -124,13 +134,17 @@ func Open(path, root, provider string, work api.WorkRuntime, reports api.ReportS
 				runtime = r.Provider
 			}
 			var err error
-			r.Runtime, err = router.BindWork(context.Background(), api.TaskStart{Machine: r.View.Machine}, id, runtime)
+			resolved, bindErr := router.BindWork(context.Background(), api.TaskStart{Machine: r.View.Machine}, id, runtime)
+			err = bindErr
+			if err == nil {
+				r.Runtime = resolved
+			}
 			if err != nil {
-				return nil, err
+				r.View.Status = "unknown"
 			}
 		}
 	}
-	if e := m.refresh(); e != nil {
+	if e := m.refresh(); e != nil && !errors.As(e, new(*observationConflict)) {
 		return nil, e
 	}
 	return m, nil
@@ -147,32 +161,24 @@ func valid(id, text string) bool {
 	return len(id) >= 8 && len(id) <= 128 && strings.TrimSpace(text) != "" && len(text) <= 24000
 }
 func (m *Manager) save() error {
-	if e := os.MkdirAll(filepath.Dir(m.path), 0700); e != nil {
-		return e
+	state := m.state
+	if len(m.quarantined) > 0 {
+		state.Records = make(map[string]*record, len(m.state.Records)+len(m.quarantined))
+		for id, r := range m.state.Records {
+			state.Records[id] = r
+		}
+		for id, r := range m.quarantined {
+			state.Records[id] = r
+		}
 	}
-	b, e := json.MarshalIndent(m.state, "", "  ")
+	b, e := json.MarshalIndent(state, "", "  ")
 	if e != nil {
 		return e
 	}
 	if string(b) == m.persisted {
 		return nil
 	}
-	f, e := os.CreateTemp(filepath.Dir(m.path), ".tasks-*")
-	if e != nil {
-		return e
-	}
-	defer os.Remove(f.Name())
-	if _, e = f.Write(b); e == nil {
-		e = f.Sync()
-	}
-	closeErr := f.Close()
-	if e == nil {
-		e = closeErr
-	}
-	if e == nil {
-		e = os.Rename(f.Name(), m.path)
-	}
-	if e == nil {
+	if e = localstate.Write(m.path, state); e == nil {
 		m.persisted = string(b)
 	}
 	return e
@@ -184,9 +190,13 @@ func (m *Manager) refresh() error {
 	states := m.work.WorkStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var conflict error
 	for _, v := range states {
 		if r := m.state.Records[v.Task.ID]; r != nil && (!m.owns(r) || r.View.Machine != v.Task.Machine || r.Runtime != "" && v.Runtime != "" && r.Runtime != v.Runtime) {
-			return errors.New(m.text("host.taskConflictOtherRuntime"))
+			// Preserve the original owner; one conflicting observation cannot
+			// prevent unrelated tasks and the resident conversation from refreshing.
+			r.View.Status = "unknown"
+			conflict = &observationConflict{m.text("host.taskConflictOtherRuntime")}
 		}
 	}
 	if _, ok := m.work.(api.WorkRouter); ok {
@@ -209,8 +219,21 @@ func (m *Manager) refresh() error {
 			r = &record{Runtime: v.Runtime, Provider: m.provider, Fingerprint: v.StartFingerprint, View: v.Task, Execution: v.ExecutionKey, ReportID: v.PreviousReportID, ReportState: v.PreviousReportState}
 			m.state.Records[v.Task.ID] = r
 		}
-		if !m.owns(r) {
-			return errors.New(m.text("host.taskConflictOtherRuntime"))
+		if !m.owns(r) || r.View.Machine != v.Task.Machine || r.Runtime != "" && v.Runtime != "" && r.Runtime != v.Runtime {
+			continue
+		}
+		if v.ExecutionKey != "" && slices.Contains(r.RetiredExecutions, v.ExecutionKey) {
+			continue // A late old native snapshot cannot republish its report.
+		}
+		if r.Execution != "" && v.ExecutionKey != "" && r.Execution != v.ExecutionKey {
+			r.RetiredExecutions = append(r.RetiredExecutions, r.Execution)
+			if r.ReportID != "" {
+				state := r.ReportState
+				if state == "pending" {
+					state = "observed" // superseded before dispatch
+				}
+				r.PreviousReports = append(r.PreviousReports, reportReceipt{ID: r.ReportID, State: state})
+			}
 		}
 		if (r.Execution != "" && v.ExecutionKey != "" && r.Execution != v.ExecutionKey) || (terminal(r.View.Status) && !terminal(v.Task.Status)) {
 			pin := true
@@ -229,13 +252,20 @@ func (m *Manager) refresh() error {
 			r.ReportID = "task-report-" + hash(r.Provider, v.Task.ID, v.ExecutionKey)
 			r.ReportState = "pending"
 		}
-		if v.StopRequested {
+		if v.StopRequested && r.ReportState == "pending" {
 			r.ReportState = "observed"
 		}
 	}
 	m.metadataLocked()
-	return m.write()
+	if err := m.write(); err != nil {
+		return err
+	}
+	return conflict
 }
+
+type observationConflict struct{ message string }
+
+func (e *observationConflict) Error() string { return e.message }
 
 // A registered host route owns its retained backend independently of the
 // resident adapter. Direct single-provider fixtures keep their existing scope.
@@ -260,6 +290,13 @@ func (m *Manager) HostReportIDs() []string {
 	for _, r := range m.state.Records {
 		if r != nil && r.ReportID != "" && (r.ReportState == "delivered" || r.ReportState == "dispatching") {
 			ids = append(ids, r.ReportID)
+		}
+		if r != nil {
+			for _, report := range r.PreviousReports {
+				if report.ID != "" && (report.State == "delivered" || report.State == "dispatching") {
+					ids = append(ids, report.ID)
+				}
+			}
 		}
 	}
 	sort.Strings(ids)
@@ -475,7 +512,9 @@ func (m *Manager) ReadTask(ctx context.Context, id string) (api.Task, error) {
 	v, e = m.capture(id, v, e)
 	if e == nil && terminal(v.Status) {
 		m.mu.Lock()
-		m.state.Records[id].ReportState = "observed"
+		if m.state.Records[id].ReportState == "pending" {
+			m.state.Records[id].ReportState = "observed"
+		}
 		e = m.write()
 		m.mu.Unlock()
 	}
@@ -547,6 +586,13 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	for _, r := range m.state.Records {
 		if m.owns(r) && r.ReportState == "dispatching" && s.LastReceipt.ID == r.ReportID && s.LastReceipt.Outcome == "accepted" {
 			r.ReportState = "delivered"
+		}
+		if m.owns(r) && s.LastReceipt.Outcome == "accepted" {
+			for i := range r.PreviousReports {
+				if r.PreviousReports[i].State == "dispatching" && r.PreviousReports[i].ID == s.LastReceipt.ID {
+					r.PreviousReports[i].State = "delivered"
+				}
+			}
 		}
 	}
 	if e := m.write(); e != nil {

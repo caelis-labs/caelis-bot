@@ -418,24 +418,55 @@ func (t *transport) request(ctx context.Context, method string, params any, fini
 }
 func (t *transport) read() {
 	defer close(t.readDone)
-	scan := bufio.NewScanner(t.conn)
-	scan.Buffer(make([]byte, 64*1024), maxWireFrame)
-	for scan.Scan() {
-		var m wireMessage
-		if err := json.Unmarshal(scan.Bytes(), &m); err != nil {
-			t.failWith(errors.Join(ErrProtocol, ErrJSONDecode), "read", len(scan.Bytes()))
+	reader := bufio.NewReaderSize(t.conn, 64*1024)
+	_, framed := t.conn.(interface{ framedJSON() })
+	for {
+		// Idle connections have no timeout. Once a frame begins, a stalled or
+		// endless payload cannot monopolize the observer indefinitely.
+		for {
+			prefix, err := reader.Peek(1)
+			if err != nil {
+				t.failWith(classifyReadError(err), "read", 0)
+				return
+			}
+			if !strings.ContainsRune(" \r\n\t", rune(prefix[0])) {
+				break
+			}
+			_, _ = reader.Discard(1)
+		}
+		deadline := time.AfterFunc(15*time.Second, func() { t.failWith(ErrIO, "frame_timeout", 0) })
+		m, err := readProjectedWire(reader, framed)
+		deadline.Stop()
+		if errors.Is(err, ErrFrameTooLarge) && (len(m.ID) > 0 || m.Method != "") {
+			// A fully drained oversized display/RPC payload is local to that
+			// request. Keep consuming approvals, terminal facts and later replies.
+			t.mu.Lock()
+			if ch := t.pending[string(m.ID)]; ch != nil {
+				delete(t.pending, string(m.ID))
+				ch <- response{err: ErrFrameTooLarge}
+			}
+			t.mu.Unlock()
+			t.diagnostics.Write(diagnosticlog.Record{Level: "warning", Component: "codex", Code: "payload_omitted", Method: m.Method, Limit: maxWireFrame})
+			if m.Method != "" {
+				params, _ := json.Marshal(map[string]any{"method": m.Method, "requestId": m.ID})
+				_ = t.enqueue(Notification{Method: "bot/projection/omitted", Params: params})
+			}
+			continue
+		}
+		if err != nil {
+			t.failWith(classifyReadError(err), "read", 0)
 			return
 		}
 		if m.Method != "" {
 			if len(m.Result) > 0 || m.Error != nil {
-				t.failWith(ErrProtocol, "read", len(scan.Bytes()))
+				t.failWith(ErrProtocol, "read", 0)
 				return
 			}
 			if len(m.ID) > 0 {
 				// Plain transport clients reject requests using the ORIGINAL ID.
 				// Session clients opt into ordered, generation-checked handling.
 				if !validID(m.ID) {
-					t.failWith(ErrProtocol, "read", len(scan.Bytes()))
+					t.failWith(ErrProtocol, "read", 0)
 					return
 				}
 				if t.handleRequests {
@@ -446,11 +477,11 @@ func (t *transport) read() {
 					t.serverPending[string(m.ID)] = serverRequestState{sequence: sequence}
 					t.mu.Unlock()
 					if duplicate {
-						t.failWith(errors.Join(ErrProtocol, ErrDuplicateRequest), "read", len(scan.Bytes()))
+						t.failWith(errors.Join(ErrProtocol, ErrDuplicateRequest), "read", 0)
 						return
 					}
 					if !t.enqueue(Notification{Method: m.Method, Params: m.Params, RequestID: m.ID, Sequence: sequence}) {
-						t.failWith(ErrEventOverflow, "read", len(scan.Bytes()))
+						t.failWith(ErrEventOverflow, "read", 0)
 						return
 					}
 					continue
@@ -474,14 +505,14 @@ func (t *transport) read() {
 					}
 				}
 				if !t.enqueue(Notification{Method: m.Method, Params: m.Params, EmittedAtMS: m.EmittedAtMS}) {
-					t.failWith(ErrEventOverflow, "read", len(scan.Bytes()))
+					t.failWith(ErrEventOverflow, "read", 0)
 					return
 				}
 			}
 			continue
 		}
 		if !validID(m.ID) || (len(m.Result) == 0) == (m.Error == nil) {
-			t.failWith(ErrProtocol, "read", len(scan.Bytes()))
+			t.failWith(ErrProtocol, "read", 0)
 			return
 		}
 		t.mu.Lock()
@@ -495,15 +526,7 @@ func (t *transport) read() {
 		}
 		t.mu.Unlock()
 	}
-	if err := scan.Err(); err != nil {
-		if strings.Contains(err.Error(), "token too long") {
-			t.failWith(ErrFrameTooLarge, "read", maxWireFrame)
-		} else {
-			t.failWith(classifyReadError(err), "read", 0)
-		}
-	} else {
-		t.failWith(ErrClosed, "read", 0)
-	}
+
 }
 
 // Claim an exact native request once. A failed write is never retried as approval.

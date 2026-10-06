@@ -28,6 +28,7 @@ type localWorkers struct {
 	settingsMu     sync.Mutex
 	path, root     string
 	defaultRuntime string
+	loadErr        error
 	mu             sync.Mutex
 	active         string
 	resident       api.WorkRuntime
@@ -48,18 +49,22 @@ func (a *Application) configureWorkers() error {
 			Runtime string `json:"runtime"`
 		}
 		if json.Unmarshal(b, &v) != nil || v.Version != 1 || !a.localWork.OwnsWork(v.Runtime) {
-			return errors.New("worker settings invalid")
+			a.localWork.loadErr = errors.New("worker settings invalid")
 		}
-		a.localWork.defaultRuntime = v.Runtime
+		if a.localWork.loadErr == nil {
+			a.localWork.defaultRuntime = v.Runtime
+		}
 	} else {
 		if !os.IsNotExist(err) {
-			return err
+			a.localWork.loadErr = err
 		}
-		if err = localstate.Write(a.localWork.path, struct {
-			Version int    `json:"version"`
-			Runtime string `json:"runtime"`
-		}{1, active}); err != nil {
-			return err
+		if a.localWork.loadErr == nil {
+			if err = localstate.Write(a.localWork.path, struct {
+				Version int    `json:"version"`
+				Runtime string `json:"runtime"`
+			}{1, active}); err != nil {
+				a.localWork.loadErr = err
+			}
 		}
 	}
 	a.localWork.open = func(id string) (retainedWorker, error) {
@@ -84,7 +89,7 @@ func (a *Application) configureWorkers() error {
 		return nil, errors.New("original_task_runtime_unavailable")
 	}
 	a.Backend.ConfigureLocalWorkers(a.localWork)
-	return nil
+	return a.localWork.loadErr
 }
 
 func (w *localWorkers) OwnsWork(id string) bool {
@@ -93,6 +98,10 @@ func (w *localWorkers) OwnsWork(id string) bool {
 func (w *localWorkers) BindWork(_ context.Context, _ api.TaskStart, id, runtime string) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.reloadSettingsLocked()
+	if runtime == "" && w.loadErr != nil {
+		return "", w.loadErr
+	}
 	if old := w.routes[id]; old != "" {
 		if runtime != "" && old != runtime {
 			return "", errors.New("task_target_conflict")
@@ -226,21 +235,36 @@ func (w *localWorkers) Observe(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		w.mu.Lock()
+		w.reloadSettingsLocked()
 		owners := []retainedWorker{}
 		for _, owner := range w.owners {
 			owners = append(owners, owner)
 		}
 		w.mu.Unlock()
+		var observations sync.WaitGroup
 		for _, owner := range owners {
-			c, cancel := context.WithTimeout(ctx, 10*time.Second)
-			_ = owner.Connect(c)
-			cancel()
+			observations.Go(func() { c, cancel := context.WithTimeout(ctx, 10*time.Second); defer cancel(); _ = owner.Connect(c) })
 		}
+		observations.Wait()
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+func (w *localWorkers) reloadSettingsLocked() {
+	if w.loadErr == nil {
+		return
+	}
+	b, err := os.ReadFile(w.path)
+	var v struct {
+		Version int    `json:"version"`
+		Runtime string `json:"runtime"`
+	}
+	if err == nil && json.Unmarshal(b, &v) == nil && v.Version == 1 && w.OwnsWork(v.Runtime) {
+		w.defaultRuntime, w.loadErr = v.Runtime, nil
 	}
 }
 func (w *localWorkers) Close() error {
@@ -250,6 +274,60 @@ func (w *localWorkers) Close() error {
 	for _, owner := range w.owners {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		err = errors.Join(err, owner.Close(ctx))
+		cancel()
+	}
+	return err
+}
+
+func (w *localWorkers) CanDetachForUpdate() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, owner := range w.owners {
+		if _, ok := owner.(interface{ DetachForUpdate(context.Context) error }); ok {
+			if preparer, ok := owner.(interface{ PrepareDetachForUpdate(context.Context) error }); ok {
+				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				err := preparer.PrepareDetachForUpdate(ctx)
+				cancel()
+				if err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		for _, state := range owner.WorkStates() {
+			switch state.Task.Status {
+			case "completed", "failed", "cancelled", "interrupted":
+			default:
+				return errors.New("原任务 Runtime 无法保存活跃工作以完成更新")
+			}
+		}
+	}
+	return nil
+}
+
+func (w *localWorkers) CloseForUpdate() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var err error
+	for _, owner := range w.owners {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		if detacher, ok := owner.(interface{ DetachForUpdate(context.Context) error }); ok {
+			err = errors.Join(err, detacher.DetachForUpdate(ctx))
+		} else {
+			busy := false
+			for _, state := range owner.WorkStates() {
+				switch state.Task.Status {
+				case "completed", "failed", "cancelled", "interrupted":
+				default:
+					busy = true
+				}
+			}
+			if busy {
+				err = errors.Join(err, errors.New("原任务 Runtime 无法保存活跃工作以完成更新"))
+			} else {
+				err = errors.Join(err, owner.Close(ctx))
+			}
+		}
 		cancel()
 	}
 	return err

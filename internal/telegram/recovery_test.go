@@ -2,7 +2,10 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,6 +15,30 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	tg "github.com/mymmrac/telego"
 )
+
+func TestDurableCallbackReloadRetainsOriginalIdentityWithoutFrameSizeGate(t *testing.T) {
+	root := t.TempDir()
+	query := recoveryQuery("original-callback", "original-native-choice", 31)
+	query.Message.(*tg.Message).Date = 1
+	doc := document{Version: 1, Inputs: map[string]string{"original-decision": "unknown"}, Messages: map[string]delivery{}, Ingress: []tg.Update{{UpdateID: 17, CallbackQuery: query}}}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Valid private metadata is independent of any Runtime wire-frame limit.
+	body = append(body, []byte(strings.Repeat(" ", 9<<20))...)
+	if err := os.WriteFile(filepath.Join(root, "telegram.json"), body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	b, err := Open(root, Host{})
+	if err != nil || len(b.state.Ingress) != 1 || b.state.Inputs["original-decision"] != "unknown" {
+		t.Fatal("durable control update lost", err)
+	}
+	u := b.state.Ingress[0]
+	if ingressKind(u) != 0 || u.CallbackQuery.ID != "original-callback" || u.CallbackQuery.Data != "original-native-choice" || u.CallbackQuery.Message.(*tg.Message).MessageID != 31 {
+		t.Fatal("callback identity changed")
+	}
+}
 
 func recoveryQuery(id, data string, messageID int) *tg.CallbackQuery {
 	return &tg.CallbackQuery{ID: id, Data: data, From: tg.User{ID: 20}, Message: &tg.Message{
@@ -78,12 +105,12 @@ func TestRecoveryRacePersistsOriginalUpdateAcrossBridgeRestart(t *testing.T) {
 		b.mu.Lock()
 		state, offset = b.state.Inputs["telegram:123:1"], b.state.Offset
 		b.mu.Unlock()
-		if state == "deferred" && offset == 0 {
+		if state == "deferred" && offset == 2 {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if state != "deferred" || offset != 0 {
+	if state != "deferred" || offset != 2 {
 		t.Fatalf("predispatch refusal consumed original update: %s/%d", state, offset)
 	}
 	b.Close()
@@ -100,7 +127,7 @@ func TestRecoveryRacePersistsOriginalUpdateAcrossBridgeRestart(t *testing.T) {
 	reloaded.mu.Lock()
 	state, offset = reloaded.state.Inputs["telegram:123:1"], reloaded.state.Offset
 	reloaded.mu.Unlock()
-	if state != "deferred" || offset != 0 {
+	if state != "deferred" || offset != 2 {
 		t.Fatal("restart consumed input while recovery still active", state, offset)
 	}
 	e.mu.Lock()
@@ -148,7 +175,7 @@ func TestReadyRecoveryQueuesOriginalInputUntilFinalSuccessAndRestart(t *testing.
 	}
 	e.mu.Unlock()
 	b.mu.Lock()
-	if len(b.state.Inputs) != 0 || b.state.Offset != 0 {
+	if len(b.state.Inputs) != 0 || b.state.Offset != 2 || len(b.state.Ingress) != 1 {
 		b.mu.Unlock()
 		t.Fatal("original update was consumed during recovery")
 	}

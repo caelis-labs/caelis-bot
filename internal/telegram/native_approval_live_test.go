@@ -118,7 +118,7 @@ func TestNativeCodexApprovalThroughTelegramCallback(t *testing.T) {
 	}
 	query := &tg.CallbackQuery{ID: "synthetic-callback-one", From: tg.User{ID: 20},
 		Message: &tg.Message{MessageID: record.IDs[len(record.IDs)-1], Chat: tg.Chat{ID: 10, Type: "private"}},
-		Data:    callbackID(approval.ID, once)}
+		Data:    callbackID(approval, once)}
 	if !b.callback(ctx, client, query) {
 		t.Fatal("native decision through Bot callback was not acknowledged")
 	}
@@ -148,5 +148,10 @@ func TestNativeCodexApprovalThroughTelegramCallback(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Log("native App Server MCP approval -> Bot snapshot -> Telegram button fixture -> exact once decision -> one independent tool effect")
+	b.mirror(ctx, client, s.Snapshot())
+	card := b.state.Messages["approval:"+approval.ID]
+	if !card.Closed || card.Keyboard != "" || client.edits == 0 {
+		t.Fatalf("native result did not settle the original Telegram fixture card: %+v", card)
+	}
+	t.Log("native App Server MCP approval -> Bot snapshot -> Telegram button fixture -> exact once decision -> resolved card -> one independent tool effect")
 }

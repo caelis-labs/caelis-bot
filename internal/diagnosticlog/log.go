@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -48,18 +49,41 @@ type Record struct {
 }
 
 type Logger struct {
-	mu       sync.Mutex
-	dir      string
-	maxBytes int64
-	maxFiles int
-	maxAge   time.Duration
-	now      func() time.Time
-	written  uint64
-	failed   uint64
+	queue     chan Record
+	dropped   atomic.Uint64
+	stop      chan struct{}
+	closeOnce sync.Once
+	mu        sync.Mutex
+	dir       string
+	maxBytes  int64
+	maxFiles  int
+	maxAge    time.Duration
+	now       func() time.Time
+	written   uint64
+	failed    uint64
 }
 
 func New(directory string) *Logger {
 	return &Logger{dir: directory, maxBytes: MaxBytes, maxFiles: MaxFiles, maxAge: MaxAge, now: time.Now}
+}
+
+// Native product diagnostics cannot hold a protocol or control lock on disk IO.
+// A bounded queue sheds diagnostic records, never native execution receipts.
+func NewAsync(directory string) *Logger {
+	l := New(directory)
+	l.queue = make(chan Record, 128)
+	l.stop = make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-l.stop:
+				return
+			case r := <-l.queue:
+				l.write(r)
+			}
+		}
+	}()
+	return l
 }
 
 func Fingerprint(b []byte) string {
@@ -121,6 +145,26 @@ func (l *Logger) Write(r Record) {
 	if l == nil {
 		return
 	}
+	if l.queue != nil {
+		select {
+		case <-l.stop:
+		case l.queue <- r:
+		default:
+			l.dropped.Add(1)
+		}
+		return
+	}
+	l.write(r)
+}
+
+// Close never waits on diagnostic disk IO. An in-flight write may finish, but
+// logging cannot block application shutdown or updater handoff.
+func (l *Logger) Close() {
+	if l != nil && l.stop != nil {
+		l.closeOnce.Do(func() { close(l.stop) })
+	}
+}
+func (l *Logger) write(r Record) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	r.Time = l.now().UTC()
@@ -145,9 +189,11 @@ func (l *Logger) Status() map[string]any {
 	if l == nil {
 		return map[string]any{"enabled": false}
 	}
-	l.mu.Lock()
+	if !l.mu.TryLock() {
+		return map[string]any{"enabled": true, "pending": true, "dropped": l.dropped.Load()}
+	}
 	defer l.mu.Unlock()
-	return map[string]any{"enabled": true, "written": l.written, "failedWrites": l.failed, "maxFileBytes": l.maxBytes, "maxFiles": l.maxFiles, "retentionDays": int(l.maxAge.Hours() / 24)}
+	return map[string]any{"enabled": true, "written": l.written, "failedWrites": l.failed, "dropped": l.dropped.Load(), "maxFileBytes": l.maxBytes, "maxFiles": l.maxFiles, "retentionDays": int(l.maxAge.Hours() / 24)}
 }
 
 func (l *Logger) path(index int) string {

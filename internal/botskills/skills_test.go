@@ -41,7 +41,7 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 		t.Fatal("metadata missing or body eagerly injected", catalog)
 	}
 	links := regexp.MustCompile(`\]\((references/[^)]+)\)`).FindAllSubmatch(body, -1)
-	if len(links) != 9 {
+	if len(links) != 10 || !strings.Contains(string(body), "references/recovery.md") {
 		t.Fatal("missing progressive routes")
 	}
 	for _, link := range links {

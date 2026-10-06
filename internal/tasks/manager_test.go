@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -228,6 +229,88 @@ func TestReadAndStopSuppressReportsButNewTurnReportsOnce(t *testing.T) {
 	_ = m.DeliverTaskReport(t.Context())
 	if f.reports != 1 {
 		t.Fatal("stopped task woke secretary")
+	}
+}
+
+func TestLatePreviousExecutionCannotReplaceResultOrRepeatNotice(t *testing.T) {
+	root := t.TempDir()
+	f := newRuntime()
+	m := openFixture(t, root, "fixture", f)
+	v := start(t, m, "generation-report-start")
+	f.complete(v.ID)
+	if err := m.DeliverTaskReport(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	firstID := f.lastReport.ID
+	if firstID == "" || f.reports != 1 {
+		t.Fatal("first generation was not reported")
+	}
+	if _, err := m.SendTask(t.Context(), api.TaskMessage{ID: v.ID, RequestID: "generation-report-next", Prompt: "Produce B"}); err != nil {
+		t.Fatal(err)
+	}
+	stateB := f.states[v.ID]
+	if stateB.ExecutionKey == "native-turn-1" {
+		t.Fatal("fixture did not advance execution")
+	}
+	if page, err := m.QueryTasks(api.TaskQuery{}); err != nil || page.Running != 1 {
+		t.Fatal("old completion remained active while B worked", page, err)
+	}
+	f.complete(v.ID)
+	stateB = f.states[v.ID]
+	stateB.Task.Result = "result B"
+	f.states[v.ID] = stateB
+	if err := m.DeliverTaskReport(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	secondID := f.lastReport.ID
+	if secondID == firstID || f.reports != 2 {
+		t.Fatal("B notice missing or reused old receipt", firstID, secondID, f.reports)
+	}
+	lateA := stateB
+	lateA.ExecutionKey = "native-turn-1"
+	lateA.Task.Result = "result A"
+	f.states[v.ID] = lateA
+	m = openFixture(t, root, "fixture", f)
+	view, err := m.ReadTask(t.Context(), v.ID)
+	if err != nil || view.Result != "result B" || view.Status != "completed" {
+		t.Fatal("late A replaced persisted B after restart", view, err)
+	}
+	if err := m.DeliverTaskReport(t.Context()); err != nil || f.reports != 2 {
+		t.Fatal("late A resent completion", err, f.reports)
+	}
+	ids := m.HostReportIDs()
+	if !slices.Contains(ids, firstID) || !slices.Contains(ids, secondID) {
+		t.Fatal("historical report receipts were discarded", firstID, secondID, ids, m.state.Records[v.ID].PreviousReports)
+	}
+}
+
+func TestSupersededUnknownNoticeKeepsOriginalReceiptWithoutReplay(t *testing.T) {
+	root := t.TempDir()
+	f := newRuntime()
+	m := openFixture(t, root, "fixture", f)
+	v := start(t, m, "unknown-report-generation-a")
+	f.complete(v.ID)
+	f.unknownReport = true
+	if err := m.DeliverTaskReport(t.Context()); err != nil || f.reports != 1 {
+		t.Fatal("A notice was not attempted once", err, f.reports)
+	}
+	firstID := f.lastReport.ID
+	if _, err := m.SendTask(t.Context(), api.TaskMessage{ID: v.ID, RequestID: "unknown-report-generation-b", Prompt: "Continue B"}); err != nil {
+		t.Fatal(err)
+	}
+	m = openFixture(t, root, "fixture", f)
+	if err := m.DeliverTaskReport(t.Context()); err != nil || f.reports != 1 {
+		t.Fatal("unknown A notice was replayed after B", err, f.reports)
+	}
+	if reports := m.state.Records[v.ID].PreviousReports; len(reports) != 1 || reports[0].ID != firstID || reports[0].State != "dispatching" {
+		t.Fatal("original unknown receipt lost", reports)
+	}
+	f.snapshot.LastReceipt = api.Receipt{ID: firstID, Outcome: "accepted"}
+	if err := m.DeliverTaskReport(t.Context()); err != nil || f.reports != 1 {
+		t.Fatal("receipt reconciliation redispatched A", err, f.reports)
+	}
+	if reports := m.state.Records[v.ID].PreviousReports; reports[0].State != "delivered" {
+		t.Fatal("accepted original receipt not reconciled", reports)
 	}
 }
 func TestFailedPersistenceCannotDispatchAndIsRetried(t *testing.T) {

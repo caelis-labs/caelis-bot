@@ -12,7 +12,7 @@ import { AttachmentMenu } from './AttachmentMenu';
 import { ScreenMessage } from './ScreenMessage';
 import { MediaMessage } from './MediaMessage';
 import { ChatScroll } from './chat-scroll';
-import { ConversationOrder, SubmissionProgress, DraftQueue } from './chat-observation';
+import { ConversationOrder, SubmissionProgress, DraftQueue, retryRead } from './chat-observation';
 import { useI18n } from './i18n';
 import { approvalChoice, approvalText, approvalTitle } from './approval-presentation';
 import type { MessageKey } from './i18n/catalogs';
@@ -87,8 +87,6 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     catch (e) { setError(e instanceof Error ? e.message : t('chat.approvalFailed')); }
     finally { setBusy(false); refresh(); }
   };
-  const advanced = value.choices.filter(c => c.scope === 'rule' || c.scope === 'conversation');
-  const immediate = value.choices.filter(c => !advanced.includes(c));
   const button = (c: typeof value.choices[number]) => <button key={c.id} className={c.scope === 'once' || c.scope === 'allow_once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{approvalChoice(c,locale)}</button>;
   return <section className="approval" aria-label={title}>
     <p className="event-eyebrow">{t('chat.approvalEyebrow')}</p>
@@ -110,8 +108,8 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     </label>)}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {value.status === 'pending' ? <>
-      <div className="approval-choices">{immediate.map(button)}</div>
-      {advanced.length > 0 && <details className="advanced-permission"><summary>{t('chat.approvalAdvanced')}</summary>{advanced.map(c => <div key={c.id} className="permission-option"><p>{c.scope === 'rule' ? t('chat.approvalRuleScope') : t('chat.approvalConversationScope')}</p>{c.details && <pre>{c.details}</pre>}{button(c)}</div>)}</details>}
+      <div className="approval-choices">{value.choices.map(c => c.scope === 'rule' || c.scope === 'conversation' ?
+        <div key={c.id} className="permission-option"><p>{c.scope === 'rule' ? t('chat.approvalRuleScope') : t('chat.approvalConversationScope')}</p>{c.details && <pre>{c.details}</pre>}{button(c)}</div> : button(c))}</div>
     </> : <p className="quiet" role="status">{value.status === 'resolved' ? t('chat.approvalResolved') : value.status === 'sent' || value.status === 'sending' ? t('chat.approvalSent') : t('chat.approvalUnknown')}</p>}
   </section>;
 }
@@ -171,23 +169,24 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  useEffect(()=>{setExpanded(false);},[active,activation]);
  const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number}|null>(null);
  const lifetime=useRef(0),working=useRef(false);
+ const syncRetry=useRef<number|undefined>(undefined);
  const saved=useRef<Draft>({revision:0,text:'',referenceIds:[],notice:''});
  const writes=useRef(new DraftQueue()), conflicted=useRef(false);
- const readFiles=()=>desktop<DraftFile[]>('DraftFiles').then(setFiles);
  useEffect(()=>{
-  let mounted=true;
   lifetime.current++;working.current=false;pending.current=null;setBusy(false);
   setLoaded(false);conflicted.current=false;
-  void writes.current.flush().then(()=>backend<Draft>('Draft')).then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();}}).catch(()=>setError(draftLoadFailed()));
-  void readFiles();
+  const stopDraft=retryRead(()=>writes.current.flush().then(()=>backend<Draft>('Draft')),d=>{saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
+  let stopFiles=()=>{};
+  const readFiles=()=>{stopFiles();stopFiles=retryRead(()=>desktop<DraftFile[]>('DraftFiles'),setFiles);};
+  readFiles();
   const changed=(event:Event)=>{
    const detail=(event as CustomEvent<string|{error:string;added:number}>).detail;
-   void readFiles();setDragging(false);
+   readFiles();setDragging(false);
    const failure=typeof detail==='string'?detail:detail?.error??'';
    setError(failure);setFeedback(!failure&&typeof detail==='object'&&detail.added>0?t('chat.importedAttachments',{count:detail.added}):'');
   };
   window.addEventListener('files-changed',changed);
-  return()=>{mounted=false;lifetime.current++;window.removeEventListener('files-changed',changed);};
+  return()=>{lifetime.current++;stopDraft();stopFiles();clearTimeout(syncRetry.current);window.removeEventListener('files-changed',changed);};
  },[activation]);
  useEffect(()=>{if(active&&loaded&&!busy){input.current?.focus({preventScroll:true});if(quick){const frame=requestAnimationFrame(()=>void desktop('PanelReady',activation));return()=>cancelAnimationFrame(frame);}}},[active,loaded,busy,activation,focusRevision]);
  useEffect(()=>{
@@ -225,16 +224,14 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  const accepted=async(attempt:NonNullable<typeof pending.current>)=>{
   attempt.progress.observe('accepted');
   onOutgoing?.({...attempt.outgoing,status:'accepted'});
-  await attempt.progress.synchronize(async()=>{
-   try{
+  try{await attempt.progress.synchronize(async()=>{
     const [next,nextFiles]=await Promise.all([backend<Draft>('Draft'),desktop<DraftFile[]>('DraftFiles')]);
     if(lifetime.current!==attempt.generation||pending.current!==attempt)return;
-    saved.current=next;setDraft(next.text);setRefs(next.referenceIds??[]);setFiles(nextFiles);setError(next.notice);
-    if(quick)await desktop('ClosePanel');
-   }catch{
-    if(lifetime.current===attempt.generation&&pending.current===attempt){setLoaded(false);setError(t('chat.sentDraftSyncFailed'));}
-   }
-  });
+    clearTimeout(syncRetry.current);saved.current=next;setDraft(next.text);setRefs(next.referenceIds??[]);setFiles(nextFiles);setError(next.notice);setLoaded(true);
+    if(quick)await desktop('ClosePanel').catch(()=>{});
+  });}catch{
+   if(lifetime.current===attempt.generation&&pending.current===attempt){setLoaded(false);setError(t('chat.sentDraftSyncFailed'));clearTimeout(syncRetry.current);syncRetry.current=window.setTimeout(()=>{if(lifetime.current===attempt.generation&&pending.current===attempt)void accepted(attempt);},3000);}
+  }
  };
  const submit=async()=>{
   if(working.current||busy||!loaded||!canSubmit(snapshot)||(!draft.trim()&&!files.length))return;
@@ -318,6 +315,7 @@ export function Panel() {
 export function History() {
  const {t} = useI18n();
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
+ const [connectionError,setConnectionError]=useState('');
  const [activation,setActivation]=useState(0);
  const {snapshot,liveReplies,refresh}=useConversation(active,false,true);
  const [outgoing,setOutgoing]=useState<Item[]>([]);
@@ -330,10 +328,10 @@ export function History() {
  useEffect(()=>{
   const opened=()=>{setActive(true);setActivation(value=>value+1);},visible=()=>setActive(true),closed=()=>setActive(false);
   let mounted=true;
-  void desktop<boolean>('HistoryVisible').then(v=>{if(mounted&&v)visible();});
+  const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
   const key=(e:KeyboardEvent)=>{if(!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void desktop('CloseHistory');}};
   window.addEventListener('history-open',opened);window.addEventListener('history-visible',visible);window.addEventListener('history-close',closed);window.addEventListener('keydown',key);
-  return()=>{mounted=false;window.removeEventListener('history-open',opened);window.removeEventListener('history-visible',visible);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
+  return()=>{mounted=false;stopVisibility();window.removeEventListener('history-open',opened);window.removeEventListener('history-visible',visible);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
  },[]);
  useLayoutEffect(()=>{
   if(!active)return;
@@ -354,6 +352,7 @@ export function History() {
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
  const connection=snapshot&&snapshot.connection!=='ready';
+ useEffect(()=>{if(snapshot?.connection==='ready')setConnectionError('');},[snapshot?.connection]);
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  useLayoutEffect(()=>{
   const el=scroll.current;if(!el||!active)return;
@@ -365,18 +364,18 @@ export function History() {
   }else if(position.current!.following){position.current!.layout();setUnread(false);}else setUnread(true);
  },[contentKey,promptKey,activity,snapshot?.connection,snapshot?.phase,snapshot?.message,snapshot?.hasEarlier,earlierBusy]);
  const earlier=async()=>{if(earlierBusy)return;setEarlierBusy(true);setError('');const el=scroll.current!;position.current!.following=false;const anchor=Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(item=>item.getBoundingClientRect().bottom>el.getBoundingClientRect().top);if(anchor)prepend.current={id:anchor.dataset.messageId!,top:anchor.getBoundingClientRect().top};try{await backend('LoadEarlier');await refresh();}catch{prepend.current=null;setError(t('chat.loadEarlierFailed'));}finally{setEarlierBusy(false);}};
- const action=async(method:string)=>{setBusy(true);setError('');try{await backend(method);}catch(e){setError(e instanceof Error?e.message:t('chat.actionFailed'));}finally{setBusy(false);await refresh();}};
+ const action=async(method:string)=>{setBusy(true);setError('');setConnectionError('');try{await backend(method);}catch(e){setConnectionError(e instanceof Error?e.message:t('chat.actionFailed'));}finally{setBusy(false);try{await refresh();}catch{setConnectionError(previous=>previous||t('chat.actionFailed'));}}};
  return <main className="history-surface" aria-label={t('chat.historyAriaLabel')}>
   <div className="chat-scroll" ref={scroll} onScroll={()=>{if(active&&position.current?.scrolled())setUnread(false);}}>
    <div className="chat-content" ref={content}>
    {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
-   {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy||snapshot.connection!=='ready'} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
+   {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
    <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply} clip={i.id===avatar.completion?'delight':avatar.clip} reveal={active&&liveReplies.has(i.id)}/>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
    {(!!prompts.length||!!reviews.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
     <div className={`message assistant state-bubble ${prompts.length?'approval-bubble':''}`}>
-   {prompts.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh()}/>)}
+   {prompts.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh().catch(()=>{})}/>)}
    {reviews.map(r=><ReviewNotice key={r.id} value={r}/>)}
    {connection&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
     <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
@@ -384,9 +383,9 @@ export function History() {
     <div className="connection-actions">
      {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Login')}>{t('chat.loginInBrowser')}</button>}
      {snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('CancelLogin')}>{t('chat.cancelLogin')}</button>}
-     {snapshot.connection!=='connecting'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Connect')}>{setup?t('chat.recheckSetup'):t('chat.reconnect')}</button>}
+     {!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Connect')}>{busy?t('chat.connectingTitle'):setup?t('chat.recheckSetup'):t('chat.reconnect')}</button>}
      {setup&&<button className="text-action" onClick={()=>void action('OpenConnectionHelp')}>{t('chat.setupHelp')}</button>}
-     {snapshot.connection!=='connecting'&&<button className="text-action" onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}
+     {<button className="text-action" onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}
     </div>
    </section>}
    {!connection&&!!snapshot?.message&&<p className="connection-message" role="status">{snapshot.message}</p>}
@@ -395,7 +394,7 @@ export function History() {
    </div>}
     </div>
    </article>}
-   {!!error&&<p className="inline-error" role="alert">{error}</p>}
+   {!!(error||connectionError)&&<p className="inline-error" role="alert">{error||connectionError}</p>}
    </div>
   </div>
   {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>{t('chat.viewNewMessages')}</button>}

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/care"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 type Schedule struct {
@@ -117,7 +117,9 @@ func NewForRuntime(path, provider string, action func(string) error) (*Runtime, 
 		if !s.Next.After(now) {
 			next, err := nextTime(s, now)
 			if err != nil {
-				return nil, err
+				s.Next = now.Add(time.Minute)
+				r.state.Schedules[i] = s
+				continue
 			}
 			s.Next = next
 			s.Enabled = s.Enabled && !next.IsZero()
@@ -143,31 +145,7 @@ func (r *Runtime) State() State {
 	_ = json.Unmarshal(b, &out)
 	return out
 }
-func (r *Runtime) saveLocked() error {
-	if err := os.MkdirAll(filepath.Dir(r.path), 0700); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(r.state, "", "  ")
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(r.path), ".bot-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err = f.Write(b); err == nil {
-		err = f.Sync()
-	}
-	c := f.Close()
-	if err == nil {
-		err = c
-	}
-	if err == nil {
-		err = os.Rename(f.Name(), r.path)
-	}
-	return err
-}
+func (r *Runtime) saveLocked() error { return localstate.Write(r.path, r.state) }
 
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
@@ -273,7 +251,7 @@ func (r *Runtime) Remove(id string) error {
 func (r *Runtime) ConfigureTasks(provider api.TaskProvider, reports api.TaskReporter) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.cancel != nil || r.stopped {
+	if r.stopped || r.cancel != nil && r.tasks != nil {
 		return errors.New("任务宿主须在启动前绑定")
 	}
 	r.tasks = provider
@@ -420,6 +398,9 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 			}
 			if len(strings.Join(texts, "\n"))+len(s.Prompt) > 96000 {
 				break
+			}
+			if _, err := nextTime(s, now); err != nil {
+				continue
 			}
 			if !scheduleAllowed(s, now) {
 				next, err := nextTime(s, now)

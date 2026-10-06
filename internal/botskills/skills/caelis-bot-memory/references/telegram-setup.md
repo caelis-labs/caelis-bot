@@ -68,7 +68,7 @@ click Try connecting again; do not keep reconnecting competing clients.
   Bot, unblock it in Telegram. For Keychain access errors, allow Caelis Bot access
   or paste the token again in settings.
 - After restarting the Mac app, messages wait until its existing conversation is
-  recovered. Do not ask the user to resend while it is reconnecting. Sending a
+  ready for native input. Local chat messages remain visible independently. Do not ask the user to resend while it is reconnecting. Sending a
   large outgoing attachment does not prevent `/stop`, `/status`, or approval choices.
 - The app uses the Mac's system proxy, including automatic configuration (PAC).
   If automatic discovery fails, it follows the Mac's remaining connection choices.
@@ -81,3 +81,11 @@ click Try connecting again; do not keep reconnecting competing clients.
 - Pause retains the saved pairing and token. Remove connection clears the pairing
   and deletes this app's saved token after an explicit confirmation. It does not
   delete the Telegram Bot.
+
+A Runtime disconnect or a failed background subscription does not mean the Bot
+app stopped. Keep helping the user through available controls. `/status` and
+reconnect/approval buttons provide receipt feedback while native work is checked.
+Treat an unconfirmed background task as that task's uncertainty; read its original
+handle and receipt rather than creating a replacement. A recent-message sync or
+attachment display failure is not evidence that a native task failed. Never ask
+the user to delete a Session or replay an action to clear a display error.

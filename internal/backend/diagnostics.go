@@ -49,5 +49,8 @@ func (s *Service) DiagnosticReport() ([]byte, error) {
 	if detail, ok := s.engine.(api.DiagnosticSource); ok {
 		report["backend"] = detail.DiagnosticStatus()
 	}
+	if s.chat != nil {
+		report["localMessages"] = map[string]any{"storageIssue": s.chat.Status() != nil}
+	}
 	return json.MarshalIndent(report, "", "  ")
 }

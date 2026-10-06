@@ -57,7 +57,7 @@ func (b *Bridge) mirrorRecovery(ctx context.Context, c client, snapshot api.Snap
 	if existing && record.Skip {
 		return
 	}
-	b.sendText(ctx, c, recoveryMessageKey, chat, text, keys)
+	b.sendCriticalText(ctx, c, recoveryMessageKey, chat, text, keys)
 }
 
 func (b *Bridge) recoveryMessage(snapshot api.Snapshot) string {
@@ -106,7 +106,20 @@ func (b *Bridge) recoveryCallback(ctx context.Context, c client, q *tg.CallbackQ
 		defer b.recoveryWait.Done()
 		workCtx, stop := context.WithTimeout(ctx, 35*time.Second)
 		defer stop()
-		_ = b.host.Recover(workCtx, state.Fence)
+		err := b.host.Recover(workCtx, state.Fence)
+		b.mu.Lock()
+		if err != nil && b.recoveryClaim == state.Fence {
+			b.recoveryClaim = ""
+		}
+		b.mu.Unlock()
+		text := b.text("Reconnect finished. Check /status for the original work.", "本次重连已结束，请查看 /status 核对原工作。")
+		if err != nil {
+			text = b.text("Reconnect could not finish. Bot is online; the original work is retained and recovery can be retried.", "本次重连未能完成。Bot 在线，原工作已保留，可以继续重试恢复。")
+		}
+		feedback, finish := context.WithTimeout(ctx, 3*time.Second)
+		defer finish()
+		b.sendCriticalText(feedback, c, "recovery-result:"+state.Fence, message.Chat.ID, text, nil)
+		b.mirrorRecovery(feedback, c, b.host.Snapshot())
 	}()
 	return true
 }

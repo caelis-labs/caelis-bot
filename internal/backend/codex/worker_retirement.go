@@ -64,10 +64,7 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(s.life, 10*time.Second)
 	defer cancel()
-	var response struct {
-		Thread nativeThread `json:"thread"`
-	}
-	err := callDecode(ctx, c, "thread/read", map[string]any{"threadId": id, "includeTurns": true}, &response)
+	thread, err := readThreadState(ctx, c, id)
 	s.mu.Lock()
 	if s.client != c || s.epoch != epoch || s.closed {
 		s.mu.Unlock()
@@ -78,25 +75,30 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		s.mu.Unlock()
 		return false
 	}
-	if err != nil || response.Thread.ID != id {
+	if err != nil || thread.ID != id {
 		delete(s.childWatching, id)
+		s.childObservationFailed[id] = true
 		if task := s.taskByThread(id); task != nil {
 			task.View.Status = "unknown"
 			_ = s.save()
 		} else if _, knownActive := s.childRuns[id]; knownActive {
-			s.state.Phase, s.state.Message = "unknown", workerUnconfirmed
+			s.state.Message = workerUnconfirmed
 		}
 		s.update()
 		s.mu.Unlock()
 		return false
 	}
-	active := response.Thread.Status.Type == "active"
+	active := thread.Status.Type == "active"
 	latestTerminal := false
-	for _, turn := range response.Thread.Turns {
+	latestRun := ""
+	for _, turn := range thread.Turns {
+		if turn.ID != "" {
+			latestRun = turn.ID
+		}
 		if task := s.taskByThread(id); task != nil {
 			s.observeTaskTurn(task, turn)
 		}
-		if turn.Status == "inProgress" {
+		if turn.Status == "inProgress" && !s.supersededTaskRun(id, turn.ID) {
 			active = true
 			s.childRuns[id] = turn.ID
 		}
@@ -105,6 +107,7 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 			s.childTerminals[opaque(id, turn.ID)] = true
 		}
 	}
+	delete(s.childObservationFailed, id)
 	subscribe := false
 	if active {
 		if _, known := s.childRuns[id]; !known {
@@ -115,6 +118,9 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		}
 	} else {
 		delete(s.childRuns, id)
+		if task := s.taskByThread(id); task != nil && task.View.Status == "working" {
+			task.View.Status = "unknown"
+		}
 		if s.childSubscribed[id] {
 			s.scheduleChildRetirement(id)
 		} else {
@@ -122,13 +128,13 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		}
 		// Idle and notLoaded are native execution facts; an unrecognized status
 		// must not turn an uncertain task into a confirmed completion.
-		if response.Thread.Status.Type != "idle" && response.Thread.Status.Type != "notLoaded" {
+		if thread.Status.Type != "idle" && thread.Status.Type != "notLoaded" {
 			if task := s.taskByThread(id); task != nil {
 				task.View.Status = "unknown"
 			}
 		}
-		confirmedIdle := (response.Thread.Status.Type == "idle" || response.Thread.Status.Type == "notLoaded") && latestTerminal
-		if task := s.taskByThread(id); task != nil && (task.Pending != "" || taskHasUnknownReceipt(task)) {
+		confirmedIdle := (thread.Status.Type == "idle" || thread.Status.Type == "notLoaded") && latestTerminal
+		if task := s.taskByThread(id); task != nil && (task.Pending != "" || taskHasUnknownReceipt(task) || task.Run == "" || task.Run != latestRun) {
 			confirmedIdle = false
 		}
 		if confirmedIdle && s.state.Message == workerUnconfirmed {
@@ -243,18 +249,16 @@ func (s *Session) retireChild(c *Client, epoch uint64, id string, seq uint64) {
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(s.life, 8*time.Second)
 	defer cancel()
-	var read struct {
-		Thread nativeThread `json:"thread"`
-	}
-	if err := callDecode(ctx, c, "thread/read", map[string]any{"threadId": id, "includeTurns": true}, &read); err != nil || read.Thread.ID != id {
+	thread, err := readThreadState(ctx, c, id)
+	if err != nil {
 		s.retirementFailure(c, epoch, id, seq, "thread/read", err)
 		return
 	}
-	if read.Thread.Status.Type != "idle" && read.Thread.Status.Type != "notLoaded" {
+	if thread.Status.Type != "idle" && thread.Status.Type != "notLoaded" {
 		return
 	}
 	var last nativeTurn
-	for _, turn := range read.Thread.Turns {
+	for _, turn := range thread.Turns {
 		if turn.ID != "" {
 			last = turn
 		}

@@ -63,7 +63,14 @@ func (a *Application) guardConversationChange() error {
 		return err
 	}
 	v := a.engine.Snapshot()
-	if v.CanInterrupt || len(v.Approvals) > 0 || v.Phase == "unknown" || v.Phase == "sending" {
+	pendingApproval := false
+	for _, approval := range v.Approvals {
+		if approval.Status != "resolved" {
+			pendingApproval = true
+			break
+		}
+	}
+	if v.CanInterrupt || pendingApproval || v.Phase == "unknown" || v.Phase == "sending" {
 		return errors.New(a.text("waitWorkEndReconcile", nil))
 	}
 	return nil

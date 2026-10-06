@@ -42,7 +42,7 @@ func Run(assets fs.FS) error {
 		envErr = err
 	}
 
-	appName, appID := applicationIdentity()
+	appName, _ := applicationIdentity()
 	root, err := applicationDataDirectory()
 	if err != nil {
 		return err
@@ -154,7 +154,7 @@ func Run(assets fs.FS) error {
 			logError(core.Close())
 			s.shutdown()
 		},
-		SingleInstance: &application.SingleInstanceOptions{UniqueID: appID, OnSecondInstanceLaunch: func(application.SecondInstanceData) { _ = s.SetVisible(true) }},
+		SingleInstance: &application.SingleInstanceOptions{UniqueID: applicationInstanceID(root), OnSecondInstanceLaunch: func(application.SecondInstanceData) { _ = s.SetVisible(true) }},
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
@@ -418,14 +418,20 @@ func Run(assets fs.FS) error {
 		}
 		s.start(newMacDriver(pet, panel, bubble, history, prop, s, quit))
 		styleMacSettings(settings)
-		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() {
+		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() error {
 			quitting.Store(true)
-			logError(core.Close())
+			err := core.Close()
+			terminalWindows.CancelAll()
+			terminalWindows.Close()
+			s.shutdown()
+			// Sparkle owns the following Apple quit event. Wails must permit
+			// that exact event after native shutdown, without sending its own
+			// competing Quit before invoking Sparkle's install handler.
 			finished.Store(true)
+			return err
 		})
 		if err := assembly.Start(); err != nil {
 			logError(err)
-			quit()
 		}
 	})
 	return nativeApp.Run()

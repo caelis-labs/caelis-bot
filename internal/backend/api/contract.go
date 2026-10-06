@@ -116,8 +116,10 @@ type Choice struct {
 	// LabelKey is set only for Bot-owned copy. Presenters resolve it in their
 	// display locale, without changing ID or inventing an unavailable choice.
 	LabelKey string `json:"labelKey"`
-	Scope    string `json:"scope"`
-	Details  string `json:"details"`
+	// Scope records the native decision's reach (for example once, session,
+	// always, turn, or rule). Adapters determine it; presenters never promote it.
+	Scope   string `json:"scope"`
+	Details string `json:"details"`
 }
 type Question struct {
 	ID       string   `json:"id"`

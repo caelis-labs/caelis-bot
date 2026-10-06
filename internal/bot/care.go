@@ -14,9 +14,13 @@ import (
 )
 
 func (r *Runtime) ConfigureCare(sample func() care.Sample, extra ...care.Source) error {
+	if !r.step.TryLock() {
+		return errors.New("care configuration is waiting for the current operation")
+	}
+	defer r.step.Unlock()
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.cancel != nil || r.stopped {
+	if r.stopped || r.cancel != nil && r.care != nil {
 		return errors.New("care must be configured before start")
 	}
 	if sample == nil {

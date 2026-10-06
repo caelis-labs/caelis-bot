@@ -9,21 +9,33 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 func (s *Session) Snapshot() api.Snapshot {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.snapshotLocked()
+	if s.mu.TryLock() {
+		out := s.snapshotLocked()
+		s.cached.Store(&out)
+		s.mu.Unlock()
+		return out
+	}
+	if snapshot := s.cached.Load(); snapshot != nil {
+		return clone(*snapshot)
+	}
+	return api.Snapshot{Connection: "connecting", Phase: "idle", Items: []api.Item{}, Approvals: []api.Approval{}}
 }
-func (s *Session) Revision() uint64 { s.mu.Lock(); defer s.mu.Unlock(); return s.revision }
+func (s *Session) Revision() uint64 {
+	if v := s.cached.Load(); v != nil {
+		return v.Revision
+	}
+	return 0
+}
 
 // Idle state snapshots may omit the active target. Transcript TurnKey values
 // come from canonical envelopes; retain that identity for presentation and
@@ -138,7 +150,14 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	}
 	unknown := v != nil && value(v.State.Run.Status) == "unknown"
 	for id, j := range s.state.Operations {
-		if j.Outcome == "unknown" && id != s.sendingScheduled {
+		workerOperation := false
+		for _, worker := range s.state.Workers {
+			if sid := worker.Binding.SessionId; sid != "" && sid != s.state.Session.SessionId && strings.HasPrefix(j.Path, "/application/sessions/"+idPath(sid)+"/") {
+				workerOperation = true
+				break
+			}
+		}
+		if j.Outcome == "unknown" && id != s.sendingScheduled && !workerOperation {
 			unknown = true
 			break
 		}
@@ -435,9 +454,21 @@ func (s *Session) ensureStreamLocked(sid string) {
 			}
 			s.mu.Unlock()
 		}()
-		if err := s.watch(ctx, c, sid, instance); err != nil && ctx.Err() == nil {
-			s.fail(err)
+		for attempt := 0; ctx.Err() == nil; attempt++ {
+			err := s.watch(ctx, c, sid, instance)
+			if ctx.Err() != nil {
+				return
+			}
+			s.componentError("session_observation", sid, err)
+			timer := time.NewTimer(time.Second * time.Duration(1<<min(attempt, 4)))
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
 		}
+
 	}()
 }
 func (s *Session) watch(ctx context.Context, c *client, sid, instance string) error {
@@ -448,7 +479,7 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 		cursor = old.Cursor
 	}
 	s.mu.Unlock()
-	path := "/sessions/" + idPath(sid) + "/reconnect?history_turns=" + strconv.Itoa(historyPageTurns)
+	path := "/sessions/" + idPath(sid) + "/reconnect?history_turns=" + "1"
 	if cursor != "" {
 		path += "&after=" + url.QueryEscape(cursor)
 	}
@@ -636,13 +667,20 @@ func (s *Session) pollLoop(ctx context.Context) {
 		needed := s.needsRefreshLocked()
 		s.mu.Unlock()
 		var e error
-		s.step.Lock()
+		work, cancel := context.WithTimeout(ctx, 15*time.Second)
+		if e = lockwait.Lock(work, &s.step); e != nil {
+			cancel()
+			continue
+		}
 		if needed {
-			e = s.refresh(ctx)
+			e = s.refresh(work)
 		}
 		s.step.Unlock()
+		cancel()
 		if e == nil && !s.retainedWorkers {
-			e = s.reportApprovedCommands(ctx)
+			if err := s.reportApprovedCommands(ctx); err != nil {
+				s.componentError("command_followup", "", err)
+			}
 		}
 		if e != nil && ctx.Err() == nil {
 			_ = s.fail(e)
@@ -666,6 +704,9 @@ func (s *Session) refresh(ctx context.Context) error {
 	sid := s.state.Session.SessionId
 	s.mu.Unlock()
 	if c == nil || !connected {
+		if e := s.reloadOriginal(); e != nil {
+			return e
+		}
 		if e := s.connect(ctx); e != nil {
 			return e
 		}
@@ -701,9 +742,12 @@ func (s *Session) refresh(ctx context.Context) error {
 	}
 	if s.retainedWorkers {
 		if err := s.refreshWorkers(ctx, c); err != nil {
-			return err
+			s.componentError("worker_state", "", err)
 		}
-		return s.recoverOperations(ctx)
+		if err := s.recoverOperations(ctx); err != nil {
+			s.componentError("operation_receipts", "", err)
+		}
+		return nil
 	}
 	s.mu.Lock()
 	before := s.state.Views[sid]
@@ -748,13 +792,16 @@ func (s *Session) refresh(ctx context.Context) error {
 	if finished && s.tools != nil && s.tools.FinishTurn != nil {
 		s.tools.FinishTurn()
 	}
-	if e = s.refreshWorkers(ctx, c); e != nil {
-		return e
+	if err := s.refreshWorkers(ctx, c); err != nil {
+		s.componentError("worker_state", "", err)
 	}
-	if e = s.recoverConfigurations(ctx); e != nil {
-		return e
+	if err := s.recoverConfigurations(ctx); err != nil {
+		s.componentError("configuration", "", err)
 	}
-	return s.recoverOperations(ctx)
+	if err := s.recoverOperations(ctx); err != nil {
+		s.componentError("operation_receipts", "", err)
+	}
+	return nil
 }
 
 func (s *Session) recoverOperations(ctx context.Context) error {

@@ -131,6 +131,8 @@
   "networkTargets": "Network targets",
   "additionalPermissions": "Additional permissions",
   "allowOnce": "Allow once",
+  "allowSession": "Allow for this session",
+  "allowAlways": "Always allow",
   "allowConversation": "Allow for this conversation",
   "decline": "Decline",
   "cancelOperation": "Cancel operation",
@@ -148,6 +150,7 @@
   "submitApproval": "Submit",
   "cancelApproval": "Cancel",
   "unsupportedApprovalForm": "This form is not supported. Cancel and try another method.",
+  "nativeOptionsUnavailable": "The Runtime did not provide a usable choice for this request. Check it in the Runtime.",
   "approvalTask": "Task: {name}",
   "caelisApproval": "Caelis requests permission to proceed.",
   "workerApproval": "A delegated task requests permission to proceed.",
@@ -171,5 +174,6 @@
   "screenCopyFailed": "Could not copy this image.",
   "dreaming": "Taking a little nap to tidy up our conversation… zzz",
   "dreamHint": "You can keep talking at any time.",
-  "sentDraftSyncFailed": "Message sent. Reopen chat to refresh the draft before sending again."
+  "sentDraftSyncFailed": "Message sent. Reopen chat to refresh the draft before sending again.",
+  "surfaceRecovering": "This window is recovering. Bot is still running; original requests are retained."
 }

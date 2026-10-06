@@ -330,6 +330,7 @@ func (s *Session) refreshWorkers(ctx context.Context, c *client) error {
 	s.mu.Lock()
 	workers := clone(s.state.Workers)
 	s.mu.Unlock()
+	var failures error
 	for id, w := range workers {
 		if w.Start != nil {
 			// Unknown worker admission must not disconnect an otherwise usable
@@ -353,10 +354,12 @@ func (s *Session) refreshWorkers(ctx context.Context, c *client) error {
 		s.mu.Unlock()
 		var v wire.SessionState
 		if e := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &v, "", ""); e != nil {
-			return e
+			failures = errors.Join(failures, e)
+			continue
 		}
 		if v.SessionId != sid {
-			return errors.New("工作状态来源不匹配")
+			failures = errors.Join(failures, errors.New("工作状态来源不匹配"))
+			continue
 		}
 		s.mu.Lock()
 		p := s.state.Views[sid]
@@ -375,8 +378,8 @@ func (s *Session) refreshWorkers(ctx context.Context, c *client) error {
 		e := s.saveLocked()
 		s.mu.Unlock()
 		if e != nil {
-			return e
+			failures = errors.Join(failures, e)
 		}
 	}
-	return nil
+	return failures
 }

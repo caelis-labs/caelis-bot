@@ -52,37 +52,53 @@ reads unresolved workers without loading completed historical tasks; explicit
 continuation resumes the same native thread and request ledger. Diagnostics
 distinguish Bot subscription retirement from later native `thread/closed` unload.
 
-Codex wire reads dispatch correlated RPC responses independently of a bounded,
-ordered notification queue (512 events, 16 MiB). The temporary recovery buffer
-has the same limits. Exhaustion closes that observer with an explicit overflow
-diagnostic; no approval, completion or receipt event is silently coalesced. A
-single cancellable coordinator retries recoverable disconnects with a finite
-backoff budget. It reconnects a private runtime only at its original endpoint,
-reconciles the saved conversation and worker receipts, and confirms needed live
-subscriptions before reporting ready. An unavailable endpoint never authorizes
-a replacement owner or a replay of an uncertain input. Diagnostics name the
-process-wide transport generation and the owner-local session epoch separately.
-Telegram keeps polling its paired private chat while that local Runtime is offline.
-After automatic recovery ends, a message-bound, short-lived button can request
-one bounded reconnect through the same Control admission as the desktop. The
-current owner and generation are checked again before connecting; ordinary chat
-input waits for the recovered history boundary. The button cannot wake a sleeping
-or quit Mac app, replace a Runtime owner, or resend an unknown receipt.
+The Bot IM transcript is a private local SQLite message log containing only user
+and assistant messages with their original request/item identities. It loads a
+200-message window and explicitly pages older **local** messages, including while
+the Runtime is offline. Streamed text updates the same item; tool payloads are
+never chat history. Disk failure retains the live cache and retries independently;
+a corrupt display database is preserved as a damaged copy and rebuilt. Runtime
+sessions, execution state and original action receipts stay with their native owners.
 
-Caelis atomic reconnect may prepare a large existing history before sending SSE
-headers. Its observation uses a separate transport with a two-minute header wait;
-the caller context owns cancellation and the idle stream lifetime. Ordinary JSON
-requests retain their existing deadlines. Repeated unchanged offline observations
-remain diagnostic facts without republishing the same product-state transition.
+Codex connects with `thread/resume(excludeTurns:true)`, reads execution metadata
+with `thread/read(includeTurns:false)`, and optionally synchronizes one latest Turn
+through `thread/turns/list(itemsView:summary, limit:1)`. It never requests full
+history or traverses past Runtime sessions. Optional display sync failure does not
+block connection or input. Worker observation uses the same lightweight path and
+retries separately; a failed Worker subscription cannot detach the resident observer.
 
-Caelis initial display recovery requests eight complete recent Turns. Earlier
-history uses the existing chat pagination port and a separate native history token;
-it never advances the live cursor. Finite pages are staged until sync, then prepend
-only display items, preserving overlapping live output and current approval/run/
-operation authority. Each page has a 30-second context budget. Display windows do
-not bound model context or erase canonical history. Existing saved projections are
-retained on exact cursor resume; replacement refreshes the recent window while
-preserving original command-result evidence required by pending followups.
+Wire projection drains tool output and inline image bytes before JSON decoding or
+queue admission. Native approval schemas, scopes and decisions remain intact.
+The 8 MiB projection bound is an allocation safeguard for a single projected value,
+not a Runtime/Worker history limit. A completely drained oversized value fails only
+its correlated read/display operation; subsequent approvals, completions and RPCs
+continue on the same connection. Partial/invalid framing or notification queue
+exhaustion restarts only that observer, retaining original owners and uncertain
+receipts. Queues remain bounded (512 events, 16 MiB); fast reconnect uses finite
+backoff, followed by quiet periodic retries. Started frames have a bounded parsing
+time while idle connections can remain open.
+
+Control snapshots use immutable caches, so slow component disk IO cannot hold
+status reads. Native control admission has context deadlines; local atomic writes
+have a bounded wait and never claim durability after a timeout. Logging has its own
+bounded best-effort queue. Optional feature assembly runs after native surfaces are
+ready and retries without quitting the application. Invalid native identities or
+receipt journals are preserved and reopened after repair; they never authorize
+replacement owners or uncertain-effect replay. Window rendering failures remount
+presentation independently of native work and other windows.
+
+Telegram checkpoints each received update and its original input in a durable
+inbox before advancing its polling offset. Callback, control and ordinary-input
+lanes are independent, so recovery, inference and downloads cannot stop polling or
+`/status`. Callback receipt feedback precedes disk/native waits and grants no
+execution authority. Approval claims remain durable-before-dispatch; their original
+cards converge to submitted, uncertain or terminal state. Reconnect completion and
+failure have explicit feedback. An unavailable Runtime keeps original messages
+queued for admission after recovery. A quit/sleeping Mac still cannot receive them.
+
+Caelis display recovery requests one recent Turn, preserving its exact cursor and
+command evidence. Stream and Worker failures retry independently of the resident
+connection; original commands/callback receipts retain their native recovery rules.
 
 Caelis callback recovery reads the full receipt snapshot once per connection /
 stream generation, including claimed calls. Subsequent reads use the native
@@ -113,8 +129,8 @@ ranges. Assistant replies retain their plain original text, including edits and
 long-message parts. Display labels never enter Bot input or change native request/
 item identity. Existing plain-text delivery digests are honored so a formatting
 upgrade does not republish history.
-Backend recovery establishes the private history boundary before remote input is
-accepted. One cancellable output worker coalesces snapshots independently of input
+Backend recovery establishes native input authority before remote input is
+accepted; local display history is independent. One cancellable output worker coalesces snapshots independently of input
 and control actions. A separate cancellable worker sends Telegram typing actions
 only while the connected main Turn is sending or working. It renews at a bounded
 rate, stops for approvals, uncertain or terminal outcomes and disconnects, and

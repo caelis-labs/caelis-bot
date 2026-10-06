@@ -20,10 +20,39 @@ cat > "$directory/main.m" <<'OBJC'
 #include <assert.h>
 static int preparations;
 void botUpdaterPrepare(void) { preparations++; }
-int main(void) {
+void botUpdaterAborted(void) {}
+@interface BotQuitProbe : NSObject <NSApplicationDelegate>
+@property(nonatomic) BOOL updateReady;
+@property(nonatomic) int denied;
+@property(nonatomic, copy) NSString *marker;
+@end
+@implementation BotQuitProbe
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
+  if (!self.updateReady) { self.denied++; return NSTerminateCancel; }
+  [@"updater-quit-allowed" writeToFile:self.marker atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  return NSTerminateNow;
+}
+@end
+int main(int argc, const char *argv[]) {
   @autoreleasepool {
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    if (argc > 1) {
+      BotQuitProbe *probe = [BotQuitProbe new];
+      probe.marker = [NSString stringWithUTF8String:argv[1]];
+      NSApp.delegate = probe;
+      updateDelegate = [BotUpdateDelegate new];
+      [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:NO block:^(NSTimer *timer) {
+        [NSApp terminate:nil]; // Ordinary quit remains cancelled.
+        assert(probe.denied == 1);
+        probe.updateReady = YES;
+        [updateDelegate updater:nil shouldPostponeRelaunchForUpdate:nil untilInvokingBlock:^{ [NSApp terminate:nil]; }];
+        assert(bot_updater_claim());
+        assert(bot_updater_finish()); // Sparkle's handler sends the Apple quit.
+      }];
+      [NSApp run];
+      return 2; // A permitted updater quit must leave the AppKit run loop.
+    }
     [NSUserDefaults.standardUserDefaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
     assert(bot_updater_start() == 1);
     assert(bot_updater_automatic());
@@ -33,10 +62,10 @@ int main(void) {
     assert([updateDelegate updater:nil shouldPostponeRelaunchForUpdate:nil untilInvokingBlock:^{ installs++; }]);
     assert(preparations == 1 && installs == 0 && bot_updater_waiting());
     [updateDelegate updater:nil didAbortWithError:nil];
-    assert(!bot_updater_waiting() && !bot_updater_claim() && installs == 0);
+    assert(!bot_updater_waiting() && !bot_updater_claim() && !bot_updater_finish() && installs == 0);
     [updateDelegate updater:nil shouldPostponeRelaunchForUpdate:nil untilInvokingBlock:^{ installs++; }];
     assert(bot_updater_claim());
-    bot_updater_finish();
+    assert(bot_updater_finish());
     assert(installs == 1 && !bot_updater_waiting());
     bot_updater_stop();
     [NSUserDefaults.standardUserDefaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
@@ -49,3 +78,6 @@ clang -fobjc-arc -fblocks -I "$BOT_ROOT/internal/desktop" -framework Cocoa "$dir
 bash script/sign-sparkle.sh "$bundle" -
 codesign --force --sign - "$bundle"
 "$bundle/Contents/MacOS/fixture"
+"$bundle/Contents/MacOS/fixture" "$directory/quit-marker"
+test "$(cat "$directory/quit-marker")" = updater-quit-allowed
+echo 'AppKit ordinary quit cancelled; updater-ready Apple quit accepted.'

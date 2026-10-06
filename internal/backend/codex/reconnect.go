@@ -21,7 +21,8 @@ func recoverableDisconnect(err error) bool {
 		return false
 	}
 	return errors.Is(err, ErrClosed) || errors.Is(err, ErrWebSocketClose) ||
-		errors.Is(err, ErrWebSocketReset) || errors.Is(err, ErrIO) || errors.Is(err, ErrEventOverflow)
+		errors.Is(err, ErrWebSocketReset) || errors.Is(err, ErrIO) || errors.Is(err, ErrEventOverflow) ||
+		errors.Is(err, ErrJSONDecode) || errors.Is(err, ErrFrameTooLarge) || errors.Is(err, ErrProtocol)
 }
 
 func (s *Session) retryDelay(attempt int) time.Duration {

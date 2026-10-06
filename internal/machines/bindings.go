@@ -24,6 +24,9 @@ func (s *Service) BindWork(ctx context.Context, in api.TaskStart, id, runtime st
 }
 
 func (s *Service) bindLocked(in api.TaskStart, id, runtime string) (string, error) {
+	if s.loadErr != nil {
+		return "", s.loadErr
+	}
 	if old, exists := s.state.Routes[id]; exists {
 		bound := s.state.Runtimes[id]
 		if old != in.Machine || bound == "" || runtime != "" && runtime != bound {

@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -139,6 +140,7 @@ func (f *sessionFixture) serve(peer net.Conn) {
 		case "thread/turns/list":
 			var p struct {
 				Cursor        string `json:"cursor"`
+				ThreadID      string `json:"threadId"`
 				Limit         int    `json:"limit"`
 				SortDirection string `json:"sortDirection"`
 				ItemsView     string `json:"itemsView"`
@@ -148,12 +150,37 @@ func (f *sessionFixture) serve(peer net.Conn) {
 			page, ok := f.pages[p.Cursor]
 			fail := f.failPage
 			f.pageCalls = append(f.pageCalls, p.Cursor)
+			if p.ItemsView == "summary" && p.Limit == 1 {
+				turns := f.history
+				if w, exists := f.workers[p.ThreadID]; exists {
+					turns = w.Turns
+				}
+				if ok {
+					turns = page.Data
+					if len(turns) > 1 {
+						turns = turns[:1]
+					}
+				} else if len(turns) > 0 {
+					turns = turns[len(turns)-1:]
+				}
+				data := make([]nativeTurn, len(turns))
+				for n, turn := range turns {
+					data[n] = turn
+					data[n].Items = nil
+					for _, item := range turn.Items {
+						if item.Type == "userMessage" || item.Type == "agentMessage" {
+							data[n].Items = append(data[n].Items, item)
+						}
+					}
+				}
+				page, ok = turnPage{Data: data}, true
+			}
 			f.mu.Unlock()
 			if !ok {
 				f.emitTo(peer, wireMessage{ID: m.ID, Error: &NativeError{Code: -32601, Message: "unsupported"}})
 				continue
 			}
-			if fail || p.Limit != historyPageSize || p.SortDirection != "desc" || p.ItemsView != "full" {
+			if fail || p.Limit != 1 || p.SortDirection != "desc" || p.ItemsView != "summary" {
 				f.emitTo(peer, wireMessage{ID: m.ID, Error: &NativeError{Code: -32000, Message: "synthetic read failure"}})
 				continue
 			}
@@ -428,10 +455,9 @@ func TestComputerUseElicitationUsesOriginalNativeRequestAndOfferedChoices(t *tes
 	})})
 	view := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
 	a := view.Approvals[0]
-	if a.Title != "cua_repl" || a.Description != "Allow Computer Use for this synthetic task?" || len(a.Choices) != 3 ||
+	if a.Title != "cua_repl" || a.Description != "Allow Computer Use for this synthetic task?" || len(a.Choices) != 2 ||
 		a.Choices[0].ID != "accept" || a.Choices[0].Label != "" || a.Choices[0].LabelKey != "chat.allowOnce" || a.Choices[0].Scope != "once" ||
-		a.Choices[1].ID != "decline" || a.Choices[1].LabelKey != "chat.decline" ||
-		a.Choices[2].ID != "cancel" || a.Choices[2].LabelKey != "chat.cancelApproval" {
+		a.Choices[1].ID != "cancel" || a.Choices[1].LabelKey != "chat.decline" || a.Choices[1].Scope != "deny" {
 		t.Fatalf("native elicitation was not projected: %+v", a)
 	}
 	if err := s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: "acceptForSession"}); err == nil {
@@ -446,6 +472,110 @@ func TestComputerUseElicitationUsesOriginalNativeRequestAndOfferedChoices(t *tes
 	}
 	if err := s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: "accept"}); err == nil {
 		t.Fatal("Computer Use elicitation replayed")
+	}
+}
+func TestComputerUseNativePersistChoicesKeepOrderScopeAndResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name, choice, response string
+		persist                any
+	}{
+		{"once", "accept", `{"_meta":null,"action":"accept","content":{}}`, []string{"session", "always"}},
+		{"session", "accept-session", `{"_meta":{"persist":"session"},"action":"accept","content":{}}`, []string{"session", "always"}},
+		{"always", "accept-always", `{"_meta":{"persist":"always"},"action":"accept","content":{}}`, []string{"session", "always"}},
+		{"refuse", "cancel", `{"_meta":null,"action":"cancel","content":null}`, []string{"session", "always"}},
+		{"session-only", "accept-session", `{"_meta":{"persist":"session"},"action":"accept","content":{}}`, "session"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, f := sessionPair(t, "hold")
+			sendSynthetic(t, s, "synthetic-computer-use")
+			f.emit(wireMessage{ID: raw("cua-persist-elicitation"), Method: "mcpServer/elicitation/request", Params: raw(map[string]any{
+				"threadId": "thread-native", "turnId": "run-native", "mode": "form", "serverName": "cua_repl",
+				"_meta":   map[string]any{"codex_approval_kind": "mcp_tool_call", "persist": tc.persist},
+				"message": "Allow Computer Use for this synthetic task?", "requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+			})})
+			view := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
+			a := view.Approvals[0]
+			wantIDs := []string{"accept", "accept-session", "accept-always", "cancel"}
+			wantScopes := []string{"once", "session", "always", "deny"}
+			if tc.name == "session-only" {
+				wantIDs = []string{"accept", "accept-session", "cancel"}
+				wantScopes = []string{"once", "session", "deny"}
+			}
+			if len(a.Choices) != len(wantIDs) {
+				t.Fatalf("native options lost or invented: %+v", a.Choices)
+			}
+			for i, c := range a.Choices {
+				if c.ID != wantIDs[i] || c.Scope != wantScopes[i] {
+					t.Fatalf("native option %d changed order or scope: %+v", i, a.Choices)
+				}
+			}
+			if tc.name == "session-only" && s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: "accept-always"}) == nil {
+				t.Fatal("unoffered persistent authorization accepted")
+			}
+			if err := s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: tc.choice}); err != nil {
+				t.Fatal(err)
+			}
+			answer := <-f.answers
+			if string(answer.ID) != `"cua-persist-elicitation"` || string(answer.Result) != tc.response {
+				t.Fatalf("original native request or scope changed: %s", answer.Result)
+			}
+			f.emit(wireMessage{Method: "serverRequest/resolved", Params: raw(map[string]any{"threadId": "thread-native", "requestId": "cua-persist-elicitation"})})
+			awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 && v.Approvals[0].Status == "resolved" })
+			if s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: tc.choice}) == nil {
+				t.Fatal("resolved native request was replayed")
+			}
+		})
+	}
+}
+func TestCommandApprovalOnlyOffersOrderedNativeDecisions(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		decisions any
+		want      []string
+	}{
+		{"ordered", []string{"decline", "acceptForSession", "accept"}, []string{"decline", "acceptForSession", "accept"}},
+		{"missing", nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, f := sessionPair(t, "hold")
+			sendSynthetic(t, s, "synthetic-command")
+			f.emit(wireMessage{ID: raw("command-native-offer"), Method: "item/commandExecution/requestApproval", Params: raw(map[string]any{
+				"threadId": "thread-native", "turnId": "run-native", "itemId": "command", "command": "echo synthetic", "availableDecisions": tc.decisions,
+			})})
+			view := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
+			a := view.Approvals[0]
+			if len(a.Choices) != len(tc.want) {
+				t.Fatalf("native decisions lost or invented: %+v", a.Choices)
+			}
+			for i, c := range a.Choices {
+				if c.ID != "decision-"+strconv.Itoa(i) || c.LabelKey == "" {
+					t.Fatalf("native order or label lost: %+v", a.Choices)
+				}
+			}
+			if tc.name == "missing" {
+				if a.NoticeKey != "chat.nativeOptionsUnavailable" || s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: "acceptForSession"}) == nil {
+					t.Fatal("missing native offer invented a grant", a)
+				}
+			} else if a.Choices[1].Scope != "session" || a.Choices[1].LabelKey != "chat.allowSession" {
+				t.Fatal("session option lost native scope", a.Choices)
+			}
+		})
+	}
+}
+func TestComputerUsePersistMetadataMatchesNativeTUIConditions(t *testing.T) {
+	for _, tc := range []struct {
+		meta            string
+		session, always bool
+	}{
+		{`"session"`, true, false},
+		{`"always"`, false, true},
+		{`["unknown",7,"always","session"]`, true, true},
+		{`["unknown",null]`, false, false},
+		{`{"session":true,"always":true}`, false, false},
+	} {
+		if approvalPersistOffered(json.RawMessage(tc.meta), "session") != tc.session || approvalPersistOffered(json.RawMessage(tc.meta), "always") != tc.always {
+			t.Fatalf("native persist advertisement changed: %s", tc.meta)
+		}
 	}
 }
 func TestTransportGenerationPreventsApprovalRaceAfterNativeIDReuse(t *testing.T) {
