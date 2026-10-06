@@ -14,7 +14,7 @@ async function host<T>(service: string,method: string,...args: unknown[]): Promi
     runtime=loading;
     void loading.catch(()=>{if(runtime===loading)runtime=undefined;});
   }
-  const reading=/Snapshot$|Preferences$|Status$/.test(method);
+  const reading=/Snapshot$|Preferences$|Status$/.test(method)||['Draft','DraftFiles','DraftImage','HistoryVisible'].includes(method);
   const timeout=reading?5000:40000;
   let timer:ReturnType<typeof setTimeout>|undefined;
   try {

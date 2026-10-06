@@ -19,6 +19,7 @@ receipt. Self-recovery must never replay that action or replace its owner.
 | Telegram Runtime outage/download stall | Durable incoming queue with separate callback, command and ordinary-message lanes; immediate callback feedback | Durable-before-offset, ingress recovery and priority fixtures |
 | Telegram approval/card update error | Preserve original native decision; retry idempotent edits on the original message; stale controls cannot grant authority | Native persist choices, card convergence and edit-recovery fixtures |
 | Renderer/resource failure | Recover the affected surface/asset; local history and native work survive remount | Surface boundary, native window inspection, existing window lifecycle fixtures |
+| Initial visibility/draft read or post-send draft sync failure | Retry only the read, cancel hidden-surface retries, retain accepted send receipt and restore the composer after successful observation | Read retry, cancellation and accepted-send synchronization fixtures |
 | Caelis stream/callback/Worker failure | Retry the original cursor/receipt independently; only failed Runtime-owner facts change owner connectivity | Component watcher and native protocol fixtures |
 
 Local IM storage contains only user/assistant display messages and attachment

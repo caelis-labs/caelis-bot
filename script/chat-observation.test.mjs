@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ConversationOrder,SubmissionProgress,DraftQueue} from '../frontend/src/chat-observation.ts';
+import {ConversationOrder,SubmissionProgress,DraftQueue,retryRead} from '../frontend/src/chat-observation.ts';
 import {settingsDestination,settingsSections} from '../frontend/src/settings-navigation.ts';
 
 test('a late poll cannot replace a refreshed outbox at the same backend revision',()=>{
@@ -24,13 +24,31 @@ test('polling and direct acceptance consume the draft once, including delayed co
  assert.equal(poll,direct);await Promise.resolve();assert.equal(count,1);
  resolve();await Promise.all([poll,direct]);assert.equal(state.observe('unknown'),'accepted');
 });
-test('an accepted send is not downgraded or retried after draft synchronization fails',async()=>{
+test('accepted send remains accepted while only failed draft reads recover',async()=>{
  const state=new SubmissionProgress();let reads=0;
  assert.throws(()=>state.synchronize(async()=>{}));state.observe('accepted');
  const read=()=>{reads++;return Promise.reject(new Error('draft offline'));};
  await assert.rejects(state.synchronize(read));assert.equal(state.outcome,'accepted');
- await assert.rejects(state.synchronize(read));assert.equal(reads,1);
+ await assert.rejects(state.synchronize(read));assert.equal(reads,2);
+ await state.synchronize(async()=>{reads++;});
+ await state.synchronize(read);assert.equal(reads,3);
  assert.equal(state.observe('rejected'),'accepted');
+});
+test('a failed initial observation recovers without reopening the surface and stops after success',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout']});let reads=0,failures=0;const observed=[];
+ const cancel=retryRead(async()=>{if(++reads===1)throw new Error('host unavailable');return 'original draft';},v=>observed.push(v),()=>failures++);
+ await Promise.resolve();await Promise.resolve();assert.equal(failures,1);
+ t.mock.timers.tick(3000);await Promise.resolve();await Promise.resolve();
+ assert.deepEqual(observed,['original draft']);assert.equal(reads,2);
+ t.mock.timers.tick(6000);await Promise.resolve();assert.equal(reads,2);cancel();
+});
+test('closing a surface cancels retries and rejects a delayed original read',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout']});let resolve,reads=0;const observed=[];
+ const cancel=retryRead(()=>{reads++;return new Promise(r=>resolve=r);},v=>observed.push(v));
+ cancel();resolve('old draft');await Promise.resolve();assert.deepEqual(observed,[]);
+ const stop=retryRead(async()=>{reads++;throw new Error('offline');},v=>observed.push(v));
+ await Promise.resolve();await Promise.resolve();stop();t.mock.timers.tick(6000);await Promise.resolve();
+ assert.equal(reads,2);assert.deepEqual(observed,[]);
 });
 test('uncertain submissions stay uncertain until that exact request is confirmed',()=>{
  const state=new SubmissionProgress();assert.equal(state.observe(''),'unknown');

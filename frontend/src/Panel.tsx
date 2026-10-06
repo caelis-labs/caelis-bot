@@ -12,7 +12,7 @@ import { AttachmentMenu } from './AttachmentMenu';
 import { ScreenMessage } from './ScreenMessage';
 import { MediaMessage } from './MediaMessage';
 import { ChatScroll } from './chat-scroll';
-import { ConversationOrder, SubmissionProgress, DraftQueue } from './chat-observation';
+import { ConversationOrder, SubmissionProgress, DraftQueue, retryRead } from './chat-observation';
 import { useI18n } from './i18n';
 import { approvalChoice, approvalText, approvalTitle } from './approval-presentation';
 import type { MessageKey } from './i18n/catalogs';
@@ -169,23 +169,24 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  useEffect(()=>{setExpanded(false);},[active,activation]);
  const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number}|null>(null);
  const lifetime=useRef(0),working=useRef(false);
+ const syncRetry=useRef<number|undefined>(undefined);
  const saved=useRef<Draft>({revision:0,text:'',referenceIds:[],notice:''});
  const writes=useRef(new DraftQueue()), conflicted=useRef(false);
- const readFiles=()=>desktop<DraftFile[]>('DraftFiles').then(setFiles);
  useEffect(()=>{
-  let mounted=true;
   lifetime.current++;working.current=false;pending.current=null;setBusy(false);
   setLoaded(false);conflicted.current=false;
-  void writes.current.flush().then(()=>backend<Draft>('Draft')).then(d=>{if(mounted){saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();}}).catch(()=>setError(draftLoadFailed()));
-  void readFiles();
+  const stopDraft=retryRead(()=>writes.current.flush().then(()=>backend<Draft>('Draft')),d=>{saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
+  let stopFiles=()=>{};
+  const readFiles=()=>{stopFiles();stopFiles=retryRead(()=>desktop<DraftFile[]>('DraftFiles'),setFiles);};
+  readFiles();
   const changed=(event:Event)=>{
    const detail=(event as CustomEvent<string|{error:string;added:number}>).detail;
-   void readFiles();setDragging(false);
+   readFiles();setDragging(false);
    const failure=typeof detail==='string'?detail:detail?.error??'';
    setError(failure);setFeedback(!failure&&typeof detail==='object'&&detail.added>0?t('chat.importedAttachments',{count:detail.added}):'');
   };
   window.addEventListener('files-changed',changed);
-  return()=>{mounted=false;lifetime.current++;window.removeEventListener('files-changed',changed);};
+  return()=>{lifetime.current++;stopDraft();stopFiles();clearTimeout(syncRetry.current);window.removeEventListener('files-changed',changed);};
  },[activation]);
  useEffect(()=>{if(active&&loaded&&!busy){input.current?.focus({preventScroll:true});if(quick){const frame=requestAnimationFrame(()=>void desktop('PanelReady',activation));return()=>cancelAnimationFrame(frame);}}},[active,loaded,busy,activation,focusRevision]);
  useEffect(()=>{
@@ -223,16 +224,14 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  const accepted=async(attempt:NonNullable<typeof pending.current>)=>{
   attempt.progress.observe('accepted');
   onOutgoing?.({...attempt.outgoing,status:'accepted'});
-  await attempt.progress.synchronize(async()=>{
-   try{
+  try{await attempt.progress.synchronize(async()=>{
     const [next,nextFiles]=await Promise.all([backend<Draft>('Draft'),desktop<DraftFile[]>('DraftFiles')]);
     if(lifetime.current!==attempt.generation||pending.current!==attempt)return;
-    saved.current=next;setDraft(next.text);setRefs(next.referenceIds??[]);setFiles(nextFiles);setError(next.notice);
-    if(quick)await desktop('ClosePanel');
-   }catch{
-    if(lifetime.current===attempt.generation&&pending.current===attempt){setLoaded(false);setError(t('chat.sentDraftSyncFailed'));}
-   }
-  });
+    clearTimeout(syncRetry.current);saved.current=next;setDraft(next.text);setRefs(next.referenceIds??[]);setFiles(nextFiles);setError(next.notice);setLoaded(true);
+    if(quick)await desktop('ClosePanel').catch(()=>{});
+  });}catch{
+   if(lifetime.current===attempt.generation&&pending.current===attempt){setLoaded(false);setError(t('chat.sentDraftSyncFailed'));clearTimeout(syncRetry.current);syncRetry.current=window.setTimeout(()=>{if(lifetime.current===attempt.generation&&pending.current===attempt)void accepted(attempt);},3000);}
+  }
  };
  const submit=async()=>{
   if(working.current||busy||!loaded||!canSubmit(snapshot)||(!draft.trim()&&!files.length))return;
@@ -329,10 +328,10 @@ export function History() {
  useEffect(()=>{
   const opened=()=>{setActive(true);setActivation(value=>value+1);},visible=()=>setActive(true),closed=()=>setActive(false);
   let mounted=true;
-  void desktop<boolean>('HistoryVisible').then(v=>{if(mounted&&v)visible();});
+  const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
   const key=(e:KeyboardEvent)=>{if(!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void desktop('CloseHistory');}};
   window.addEventListener('history-open',opened);window.addEventListener('history-visible',visible);window.addEventListener('history-close',closed);window.addEventListener('keydown',key);
-  return()=>{mounted=false;window.removeEventListener('history-open',opened);window.removeEventListener('history-visible',visible);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
+  return()=>{mounted=false;stopVisibility();window.removeEventListener('history-open',opened);window.removeEventListener('history-visible',visible);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
  },[]);
  useLayoutEffect(()=>{
   if(!active)return;

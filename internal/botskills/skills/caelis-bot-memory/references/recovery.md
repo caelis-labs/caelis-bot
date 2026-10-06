@@ -8,6 +8,9 @@ A failed recent-message sync or Worker observation does not mean Bot is offline
 or that the task failed. Inspect the existing task/receipt and preserve its native
 owner. Keep responding to the user while that component retries observation.
 
+A failed display or draft refresh does not undo an accepted send. The surface
+retries its reads independently; never resend the message to repair its display.
+
 When an approval or send has an unknown outcome, query the original request;
 never repeat its effects under a new ID. Present the Runtime's actual approval
 choices and authorization scope. Do not invent a broader choice or ask the user
