@@ -3,7 +3,7 @@
 ## Source and scope
 
 - Base: `origin/main` at `cf9071982563eddb9926f1ba7a09062148f9ad26` (`v0.8.0`).
-- Foundation branch: `feat/platform-foundation`. PR/head and final CI results are filled in at handoff.
+- Foundation branch: `feat/platform-foundation`, [integration PR #84](https://github.com/caelis-labs/caelis-bot/pull/84). Implementation commits: `ef1cf20` (shared assembly, ports, CI and release framework), `77640d7` (native portable contracts), `7694840` (Windows CI fixtures and channel-isolated preview feed). Use the PR's final head SHA and its matching Checks run when opening this Issue; earlier CI runs have superseded failures and are not acceptance evidence.
 - Complete the first Windows 11 x64 product in the existing long-lived Bot identity. Do not add a dashboard, workspace/session navigation, Windows arm64 or Linux GUI. Exact macOS visual parity is not a release gate.
 - A native Windows runner, cross-compiled binary, staged Desktop World package and synthetic fixtures are preparation evidence. They do not certify Windows GUI, OS permissions, installation, signing or public release.
 
