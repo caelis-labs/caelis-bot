@@ -79,3 +79,23 @@ func TestOutgoingKeepsSubmissionOrderDuringDelayedNativeMessages(t *testing.T) {
 		t.Fatalf("native reconciliation moved pending input: %+v", v.Items)
 	}
 }
+
+func TestTerminalOutgoingDoesNotMoveToTailAfterHistoryReplacement(t *testing.T) {
+	e := &delayedInput{view: api.Snapshot{Items: []api.Item{{ID: "anchor", Kind: "assistant", Text: "old"}}}}
+	s := NewService(e, nil, nil, nil, nil)
+	s.stageOutgoing(api.Submission{ID: "rejected-original", Text: "failed input"}, nil)
+	s.finishOutgoing("rejected-original", api.Receipt{ID: "rejected-original", Outcome: "rejected"})
+	if got := s.Snapshot().Items; len(got) != 2 || got[1].Status != "rejected" {
+		t.Fatalf("original terminal display missing: %+v", got)
+	}
+	e.view.Items = []api.Item{{ID: "newer", Kind: "assistant", Text: "recent history"}}
+	if got := s.Snapshot().Items; len(got) != 1 || got[0].ID != "newer" || len(s.outbox) != 0 {
+		t.Fatalf("rejected input reappeared after bounded history replacement: %+v", got)
+	}
+	s.stageOutgoing(api.Submission{ID: "unknown-original", Text: "uncertain input"}, nil)
+	s.finishOutgoing("unknown-original", api.Receipt{ID: "unknown-original", Outcome: "unknown"})
+	e.view.Items = []api.Item{{ID: "latest", Kind: "assistant", Text: "later history"}}
+	if got := s.Snapshot().Items; len(got) != 2 || got[1].RequestID != "unknown-original" || got[1].Status != "unknown" {
+		t.Fatalf("unknown original receipt was erased or replayed: %+v", got)
+	}
+}

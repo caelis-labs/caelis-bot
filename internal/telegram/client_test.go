@@ -55,7 +55,12 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 		case "editMessageText":
 			var p tg.EditMessageTextParams
 			json.NewDecoder(r.Body).Decode(&p)
-			if p.Text == "plain **text**" {
+			if p.Text == "keyboard" {
+				if p.ReplyMarkup == nil || len(p.ReplyMarkup.InlineKeyboard) != 1 || p.ReplyMarkup.InlineKeyboard[0][0].CallbackData != "choice" {
+					t.Error("edited approval lost its actionable keyboard")
+				}
+				io.WriteString(w, `{"ok":true,"result":{"message_id":101,"date":1,"chat":{"id":10,"type":"private"},"text":"keyboard"}}`)
+			} else if p.Text == "plain **text**" {
 				if len(p.Entities) != 0 || p.ParseMode != "" {
 					t.Error("plain assistant edit leaked display entities")
 				}
@@ -67,6 +72,13 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 				assertSDKRoleEntities(t, p.Text, p.Entities)
 				io.WriteString(w, `{"ok":true,"result":{"message_id":101,"date":1,"chat":{"id":10,"type":"private"},"text":"updated"}}`)
 			}
+		case "editMessageReplyMarkup":
+			var p tg.EditMessageReplyMarkupParams
+			json.NewDecoder(r.Body).Decode(&p)
+			if p.ChatID.ID != 10 || p.MessageID != 101 || p.ReplyMarkup == nil || len(p.ReplyMarkup.InlineKeyboard) != 1 || p.ReplyMarkup.InlineKeyboard[0][0].CallbackData != "choice" {
+				t.Error("native markup edit lost its original message or choice")
+			}
+			io.WriteString(w, `{"ok":true,"result":{"message_id":101,"date":1,"chat":{"id":10,"type":"private"},"text":"keyboard"}}`)
 		case "sendDocument":
 			if e := r.ParseMultipartForm(1 << 20); e != nil {
 				t.Error(e)
@@ -106,15 +118,22 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 	if id, e := c.Send(ctx, 10, plainText("plain **text**"), nil); e != nil || id != 101 {
 		t.Fatal("SDK message failed")
 	}
-	if e := c.Edit(ctx, 10, 101, plainText("plain **text**")); e != nil {
+	if e := c.Edit(ctx, 10, 101, plainText("plain **text**"), nil); e != nil {
 		t.Fatal("an already applied edit did not reconcile")
 	}
 	role := macUserText("你 · 来自 Mac", "🦉\n`code` & https://example.com")[0]
 	if _, e := c.Send(ctx, 10, role, nil); e != nil {
 		t.Fatal("SDK role message failed", e)
 	}
-	if e := c.Edit(ctx, 10, 101, role); e != nil {
+	if e := c.Edit(ctx, 10, 101, role, nil); e != nil {
 		t.Fatal("SDK role edit failed", e)
+	}
+	keys := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{{Text: "Allow once", CallbackData: "choice"}}}}
+	if e := c.Edit(ctx, 10, 101, plainText("keyboard"), keys); e != nil {
+		t.Fatal("SDK approval keyboard edit failed", e)
+	}
+	if e := c.EditMarkup(ctx, 10, 101, keys); e != nil {
+		t.Fatal("SDK markup-only approval edit failed", e)
 	}
 	path := filepath.Join(t.TempDir(), "attachment.txt")
 	os.WriteFile(path, []byte("exact file bytes"), 0600)
@@ -124,7 +143,7 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 	if _, e := c.Webhook(ctx); e == nil || e.Error() != "invalid_token" {
 		t.Fatal("private API response escaped sanitized error")
 	}
-	if len(methods) != 8 {
+	if len(methods) != 10 {
 		t.Fatal("unexpected SDK calls")
 	}
 }

@@ -43,9 +43,10 @@ type Status struct {
 	Issue     string `json:"issue"`
 }
 type delivery struct {
-	IDs    []int    `json:"ids,omitempty"`
-	Hashes []string `json:"hashes,omitempty"`
-	Skip   bool     `json:"skip,omitempty"`
+	IDs      []int    `json:"ids,omitempty"`
+	Hashes   []string `json:"hashes,omitempty"`
+	Keyboard string   `json:"keyboard,omitempty"`
+	Skip     bool     `json:"skip,omitempty"`
 }
 type document struct {
 	Version      int                 `json:"version"`
@@ -420,6 +421,30 @@ func (b *Bridge) baselineLocked(s api.Snapshot) {
 			b.state.Messages[key] = delivery{Skip: true}
 		}
 	}
+	if key := phaseNoticeKey(s); key != "" {
+		if _, exists := b.state.Messages[key]; !exists {
+			b.state.Messages[key] = delivery{Skip: true}
+		}
+	}
+}
+
+// LastReceipt can predate the current Runtime turn. A lifecycle status is
+// attributable only when its original user request is in that exact turn.
+func phaseNoticeKey(s api.Snapshot) string {
+	if s.LastReceipt.ID == "" || s.CurrentTurn == "" {
+		return ""
+	}
+	switch s.Phase {
+	case "failed", "interrupted", "unknown":
+	default:
+		return ""
+	}
+	for _, item := range s.Items {
+		if item.Kind == "user" && item.RequestID == s.LastReceipt.ID && item.TurnKey == s.CurrentTurn {
+			return "status:" + s.CurrentTurn + ":" + s.Phase
+		}
+	}
+	return ""
 }
 func ready(s api.Snapshot) bool { return s.Connection == "ready" || s.Connection == "connected" }
 
@@ -812,10 +837,12 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 		}
 		for _, choice := range a.Choices {
 			if q.Data == callbackID(a.ID, choice.ID) {
-				key := "callback:" + q.ID
+				key := "approval-decision:" + a.ID
 				b.mu.Lock()
+				record := b.state.Messages["approval:"+a.ID]
+				fromButton := len(record.IDs) > 0 && record.IDs[len(record.IDs)-1] > 0 && record.IDs[len(record.IDs)-1] == m.MessageID
 				_, used := b.state.Inputs[key]
-				if !used {
+				if fromButton && !used {
 					b.state.Inputs[key] = "dispatching"
 					if b.saveLocked() != nil {
 						b.mu.Unlock()
@@ -823,7 +850,8 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 					}
 				}
 				b.mu.Unlock()
-				if used {
+				if used || !fromButton {
+					_ = c.Answer(ctx, q.ID, b.text("This request has changed. Check your Mac.", "此请求已变化，请在 Mac 查看。"))
 					return true
 				}
 				e := b.host.Decide(ctx, api.Decision{ID: a.ID, Choice: choice.ID})
@@ -868,6 +896,9 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 	for _, i := range s.Items {
 		if i.Kind == "hostNotice" || i.Kind == "activation" {
 			continue // Never mirror internal trigger text or attached bytes.
+		}
+		if i.Kind == "user" && (i.Status == "sending" || i.Status == "rejected" || i.Status == "unknown") {
+			continue // A local presentation bubble is not a delivered native input.
 		}
 		if i.Text == api.SilentReminder {
 			continue
@@ -917,7 +948,7 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 			}
 		}
 	}
-	if s.LastReceipt.ID != "" {
+	if key := phaseNoticeKey(s); key != "" {
 		notice := ""
 		switch s.Phase {
 		case "failed":
@@ -928,7 +959,7 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 			notice = b.text("The result is uncertain. Check the original request on your Mac before resending.", "结果暂不确定。请在 Mac 查看原请求后再决定是否重发。")
 		}
 		if notice != "" {
-			b.sendText(ctx, c, "status:"+s.LastReceipt.ID+":"+s.Phase, chat, notice, nil)
+			b.sendText(ctx, c, key, chat, notice, nil)
 		}
 	}
 
@@ -936,9 +967,12 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		if a.Status == "resolved" {
 			continue
 		}
-		text := strings.Join([]string{a.Title, a.Action, a.Target, a.Description, a.Details}, "\n")
+		text := approvalMessageText(a)
+		if text == "" {
+			text = b.text("Decision needed.", "需要决定。")
+		}
 		var keys *tg.InlineKeyboardMarkup
-		if len(a.Questions) == 0 && a.URL == "" {
+		if len(a.Questions) == 0 && a.URL == "" && len(a.Choices) > 0 {
 			keys = &tg.InlineKeyboardMarkup{}
 			for _, choice := range a.Choices {
 				keys.InlineKeyboard = append(keys.InlineKeyboard, []tg.InlineKeyboardButton{{Text: choice.Label, CallbackData: callbackID(a.ID, choice.ID)}})
@@ -948,6 +982,18 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		}
 		b.sendText(ctx, c, "approval:"+a.ID, chat, text, keys)
 	}
+}
+func approvalMessageText(a api.Approval) string {
+	parts := make([]string, 0, 5)
+	seen := map[string]bool{}
+	for _, value := range []string{a.Title, a.Action, a.Target, a.Description, a.Details} {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			parts = append(parts, value)
+			seen[value] = true
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 func splitText(text string) []string { return splitTextLimit(text, 4000) }
 
@@ -1107,6 +1153,13 @@ func (b *Bridge) sendRenderedText(ctx context.Context, c client, key string, cha
 			return
 		}
 		hash := outgoingDigest(value)
+		var partKeys *tg.InlineKeyboardMarkup
+		keyboard := ""
+		if part == len(messages)-1 && keys != nil {
+			partKeys = keys
+			encoded, _ := json.Marshal(keys)
+			keyboard = digest(string(encoded))
+		}
 		b.mu.Lock()
 		record := b.state.Messages[key]
 		if record.Skip {
@@ -1115,10 +1168,12 @@ func (b *Bridge) sendRenderedText(ctx context.Context, c client, key string, cha
 		}
 		for len(record.IDs) <= part {
 			record.IDs = append(record.IDs, 0)
+		}
+		for len(record.Hashes) <= part {
 			record.Hashes = append(record.Hashes, "")
 		}
 		id := record.IDs[part]
-		if id < 0 || record.Hashes[part] == hash {
+		if id < 0 || record.Hashes[part] == hash && (part != len(messages)-1 || record.Keyboard == keyboard) {
 			b.mu.Unlock()
 			continue
 		}
@@ -1132,14 +1187,19 @@ func (b *Bridge) sendRenderedText(ctx context.Context, c client, key string, cha
 			return
 		}
 		if id == 0 {
-			id, e = c.Send(ctx, chat, value, keys)
+			id, e = c.Send(ctx, chat, value, partKeys)
+		} else if record.Hashes[part] == hash {
+			e = c.EditMarkup(ctx, chat, id, partKeys)
 		} else {
-			e = c.Edit(ctx, chat, id, value)
+			e = c.Edit(ctx, chat, id, value, partKeys)
 		}
 		b.mu.Lock()
 		record = b.state.Messages[key]
 		if e == nil {
 			record.IDs[part], record.Hashes[part] = id, hash
+			if part == len(messages)-1 {
+				record.Keyboard = keyboard
+			}
 			if b.issue == "network" || b.issue == "rate_limited" {
 				b.issue = ""
 			}

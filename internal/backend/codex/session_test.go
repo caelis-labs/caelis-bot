@@ -418,6 +418,33 @@ func TestApprovalKeepsNativeTargetChoicesAndRejectsStaleOrDuplicateButtons(t *te
 		t.Fatal("stale button approved new request")
 	}
 }
+func TestComputerUseElicitationUsesOriginalNativeRequestAndOfferedChoices(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	sendSynthetic(t, s, "synthetic-computer-use")
+	f.emit(wireMessage{ID: raw("cua-elicitation"), Method: "mcpServer/elicitation/request", Params: raw(map[string]any{
+		"threadId": "thread-native", "turnId": "run-native", "mode": "form", "serverName": "cua_repl",
+		"_meta":   map[string]any{"codex_approval_kind": "mcp_tool_call"},
+		"message": "Allow Computer Use for this synthetic task?", "requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	})})
+	view := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
+	a := view.Approvals[0]
+	if a.Title != "cua_repl" || a.Description != "Allow Computer Use for this synthetic task?" || len(a.Choices) != 3 || a.Choices[0].LabelKey != "chat.allowOnce" || a.Choices[0].Scope != "once" {
+		t.Fatalf("native elicitation was not projected: %+v", a)
+	}
+	if err := s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: "acceptForSession"}); err == nil {
+		t.Fatal("unoffered persistent grant accepted")
+	}
+	if err := s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: "accept"}); err != nil {
+		t.Fatal(err)
+	}
+	answer := <-f.answers
+	if string(answer.ID) != `"cua-elicitation"` || string(answer.Result) != `{"_meta":null,"action":"accept","content":{}}` {
+		t.Fatalf("Computer Use approval lost original native request: %s", answer.Result)
+	}
+	if err := s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: "accept"}); err == nil {
+		t.Fatal("Computer Use elicitation replayed")
+	}
+}
 func TestTransportGenerationPreventsApprovalRaceAfterNativeIDReuse(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close()

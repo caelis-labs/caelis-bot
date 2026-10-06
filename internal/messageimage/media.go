@@ -291,7 +291,10 @@ func (s *Store) Pending() []api.Item {
 			continue
 		}
 		r, err := s.record(dir.Name())
-		if err != nil || r.Request == "" || r.Status == "" {
+		// Only uncertain input needs a restored presentation. Accepted and
+		// rejected are terminal receipts, not new conversation input after a
+		// Runtime reconnect or Bot upgrade.
+		if err != nil || r.Request == "" || r.Status != "sending" && r.Status != "unknown" {
 			continue
 		}
 		status := r.Status

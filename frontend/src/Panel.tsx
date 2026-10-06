@@ -89,14 +89,14 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
   };
   const advanced = value.choices.filter(c => c.scope === 'rule' || c.scope === 'conversation');
   const immediate = value.choices.filter(c => !advanced.includes(c));
-  const button = (c: typeof value.choices[number]) => <button key={c.id} className={c.scope === 'once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{approvalChoice(c,locale)}</button>;
+  const button = (c: typeof value.choices[number]) => <button key={c.id} className={c.scope === 'once' || c.scope === 'allow_once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{approvalChoice(c,locale)}</button>;
   return <section className="approval" aria-label={title}>
     <p className="event-eyebrow">{t('chat.approvalEyebrow')}</p>
     <h3>{title}</h3>
     {value.taskTitle && <p>{t('chat.approvalTask',{name:value.taskTitle})}</p>}
     {value.noticeKey && <p>{approvalText(locale,value.noticeKey,'')}</p>}
     {value.description && <p>{value.description}</p>}
-    {value.action && <pre className="approval-action">{value.action}</pre>}
+    {value.action && value.action !== title && <pre className="approval-action">{value.action}</pre>}
     {value.target && <p className="approval-target"><span>{t('chat.approvalTarget')}</span>{value.target}</p>}
     {value.details && <details open={!value.action}><summary>{t('chat.approvalDetails')}</summary><pre>{value.details}</pre></details>}
     {value.sections?.map((section,index)=><details key={index} open={!value.action}><summary>{approvalText(locale,section.titleKey,t('chat.approvalDetails'))}</summary><pre>{section.text}</pre></details>)}

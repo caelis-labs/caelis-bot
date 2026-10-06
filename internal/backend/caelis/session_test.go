@@ -93,6 +93,63 @@ func TestApprovalUsesNativeChoicesAndRejectsChangedTarget(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestComputerUseApprovalPreservesEveryNativeOptionAndSingleResolution(t *testing.T) {
+	a := testApproval()
+	a.RequestId = "computer-use-request"
+	a.Permission = map[string]any{"tool_call": map[string]any{"id": "cua-repl", "name": "cua_repl", "title": "Allow Computer Use", "raw_input": map[string]any{"fixture": true}}, "options": []any{
+		map[string]any{"id": "once", "name": "Allow once", "kind": "allow_once"},
+		map[string]any{"id": "session", "name": "Allow this session", "kind": "allow_always"},
+		map[string]any{"id": "always", "name": "Always allow", "kind": "allow_always"},
+		map[string]any{"id": "deny", "name": "Deny", "kind": "reject_once"},
+	}}
+	var posts atomic.Int32
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			writeFixture(w, wire.SessionState{SessionId: "main", Approval: wire.ApprovalState{Active: a}})
+			return
+		}
+		posts.Add(1)
+		var req wire.ResolveApprovalRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		chosen := value(req.OptionId)
+		approved := chosen == "session" || chosen == "always"
+		if req.ApprovalRequestId != a.RequestId || chosen != "session" && chosen != "always" && chosen != "deny" || req.Approved != approved || req.Target != *a.Target {
+			t.Error("native Computer Use decision lost exact option or target")
+		}
+		writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: "committed"})
+	})
+	s.state.Views["main"].State.Approval.Active = a
+	approval := s.Snapshot().Approvals[0]
+	for i, want := range []string{"once", "session", "always", "deny"} {
+		if approval.Choices[i].ID != want || approval.Choices[i].Label == "" {
+			t.Fatalf("native choice %d lost: %+v", i, approval.Choices)
+		}
+	}
+	if err := s.Decide(t.Context(), api.Decision{ID: approval.ID, Choice: "invented-forever"}); err == nil || posts.Load() != 0 {
+		t.Fatal("unoffered persistent permission was accepted")
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, option := range []string{"session", "always"} {
+		go func(option string) {
+			<-start
+			results <- s.Decide(t.Context(), api.Decision{ID: approval.ID, Choice: option})
+		}(option)
+	}
+	close(start)
+	first, second := <-results, <-results
+	if (first == nil) == (second == nil) || posts.Load() != 1 {
+		t.Fatal("competing clients resolved more than one native option", first, second, posts.Load())
+	}
+	a = clone(a)
+	a.RequestId = "computer-use-deny"
+	s.state.Views["main"].State.Approval.Active = a
+	denial := s.Snapshot().Approvals[0]
+	if err := s.Decide(t.Context(), api.Decision{ID: denial.ID, Choice: "deny"}); err != nil || posts.Load() != 2 {
+		t.Fatal("native denial was not passed as an unapproved selection", err)
+	}
+}
 func TestReplacementIsAtomicAndCursorIsOpaque(t *testing.T) {
 	for _, valid := range []bool{false, true} {
 		t.Run(fmt.Sprint(valid), func(t *testing.T) {
