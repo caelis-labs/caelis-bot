@@ -158,13 +158,13 @@ func (t *transport) failWith(err error, phase string, size int) {
 	t.terminal = err
 	close(t.done)
 	t.mu.Unlock()
+	_ = t.conn.Close() // Release the wire before any diagnostic disk I/O.
 	if phase == "read" || !errors.Is(err, ErrClosed) {
 		depth, queued := t.queueStats()
 		t.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: transportCode(err),
 			Reason: "pending outcomes require original-request reconciliation", Generation: t.generation, TransportGeneration: t.generation,
 			SessionEpoch: t.sessionEpoch.Load(), Phase: phase, Bytes: size, Limit: maxWireFrame, QueueDepth: depth, QueueBytes: queued})
 	}
-	_ = t.conn.Close() // Releases a blocked writer/reader, including cancellation.
 }
 func transportCode(err error) string {
 	switch {
@@ -255,11 +255,7 @@ func (t *transport) enqueue(n Notification) bool {
 	size := len(n.Params) + len(n.Method) + len(n.RequestID)
 	t.queueMu.Lock()
 	if len(t.queue) >= maxQueuedEvents || t.queueBytes+size > maxQueuedEventBytes {
-		depth, bytes := len(t.queue), t.queueBytes
 		t.queueMu.Unlock()
-		t.diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "event_queue_saturated", Method: n.Method,
-			Generation: t.generation, SessionEpoch: t.sessionEpoch.Load(), TransportGeneration: t.generation,
-			Phase: eventKindNames[eventKind(n)], QueueDepth: depth, QueueBytes: bytes, Bytes: size, Limit: maxQueuedEventBytes})
 		return false
 	}
 	t.queue = append(t.queue, n)
@@ -268,12 +264,7 @@ func (t *transport) enqueue(n Notification) bool {
 	if len(t.queue) > t.queueHighWater {
 		t.queueHighWater = len(t.queue)
 	}
-	depth, bytes := len(t.queue), t.queueBytes
 	t.queueMu.Unlock()
-	if depth == 64 || depth%128 == 0 {
-		t.diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "event_queue_depth", Method: n.Method,
-			Generation: t.generation, TransportGeneration: t.generation, SessionEpoch: t.sessionEpoch.Load(), QueueDepth: depth, QueueBytes: bytes})
-	}
 	select {
 	case t.queueWake <- struct{}{}:
 	default:
