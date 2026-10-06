@@ -87,8 +87,6 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     catch (e) { setError(e instanceof Error ? e.message : t('chat.approvalFailed')); }
     finally { setBusy(false); refresh(); }
   };
-  const advanced = value.choices.filter(c => c.scope === 'rule' || c.scope === 'conversation');
-  const immediate = value.choices.filter(c => !advanced.includes(c));
   const button = (c: typeof value.choices[number]) => <button key={c.id} className={c.scope === 'once' || c.scope === 'allow_once' || c.id === 'allow' || c.id === 'answer' || c.id === 'accept' ? 'primary-decision' : ''} disabled={!enabled} onClick={() => void decide(c.id)}>{approvalChoice(c,locale)}</button>;
   return <section className="approval" aria-label={title}>
     <p className="event-eyebrow">{t('chat.approvalEyebrow')}</p>
@@ -110,8 +108,8 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     </label>)}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {value.status === 'pending' ? <>
-      <div className="approval-choices">{immediate.map(button)}</div>
-      {advanced.length > 0 && <details className="advanced-permission"><summary>{t('chat.approvalAdvanced')}</summary>{advanced.map(c => <div key={c.id} className="permission-option"><p>{c.scope === 'rule' ? t('chat.approvalRuleScope') : t('chat.approvalConversationScope')}</p>{c.details && <pre>{c.details}</pre>}{button(c)}</div>)}</details>}
+      <div className="approval-choices">{value.choices.map(c => c.scope === 'rule' || c.scope === 'conversation' ?
+        <div key={c.id} className="permission-option"><p>{c.scope === 'rule' ? t('chat.approvalRuleScope') : t('chat.approvalConversationScope')}</p>{c.details && <pre>{c.details}</pre>}{button(c)}</div> : button(c))}</div>
     </> : <p className="quiet" role="status">{value.status === 'resolved' ? t('chat.approvalResolved') : value.status === 'sent' || value.status === 'sending' ? t('chat.approvalSent') : t('chat.approvalUnknown')}</p>}
   </section>;
 }
