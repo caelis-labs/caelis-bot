@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/caelis-labs/caelis-bot/compare/v0.9.0...v0.9.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* keep Bot online with local IM and recover isolated failures (v0.9.1) ([4384ba8](https://github.com/caelis-labs/caelis-bot/commit/4384ba85e0aa2adf8067141049acbce58a01337f)), closes [#96](https://github.com/caelis-labs/caelis-bot/issues/96) [#97](https://github.com/caelis-labs/caelis-bot/issues/97) [#98](https://github.com/caelis-labs/caelis-bot/issues/98) [#100](https://github.com/caelis-labs/caelis-bot/issues/100)
+
 ## [0.9.0](https://github.com/caelis-labs/caelis-bot/compare/v0.8.0...v0.9.0) (2026-10-06)
 
 ### Release highlights / 发布要点
