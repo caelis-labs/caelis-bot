@@ -172,16 +172,29 @@ func loadBinding(path string) (binding, error) {
 	return b, nil
 }
 func (s *Session) saveLocked() error {
+	if s.loadErr != nil {
+		return s.loadErr
+	}
 	s.captureBackgroundResultsLocked()
 	if e := privateWrite(s.path, s.state); e != nil {
-		s.issue = "Caelis 连接记录未能保存，已暂停发送"
-		s.connected = false
+		s.issue = "Caelis 连接记录暂未保存；原请求已保留，将自动重试"
 		return e
+	}
+	if s.issue == "Caelis 连接记录暂未保存；原请求已保留，将自动重试" {
+		s.issue = ""
 	}
 	return nil
 }
-func (s *Session) bumpLocked() { s.revision++; close(s.changed); s.changed = make(chan struct{}) }
-func clone[T any](v T) T       { b, _ := json.Marshal(v); var out T; _ = json.Unmarshal(b, &out); return out }
+func (s *Session) bumpLocked() {
+	s.revision++
+	out := s.snapshotLocked()
+	s.cached.Store(&out)
+	recovery := s.recoveryLocked()
+	s.cachedRecovery.Store(&recovery)
+	close(s.changed)
+	s.changed = make(chan struct{})
+}
+func clone[T any](v T) T { b, _ := json.Marshal(v); var out T; _ = json.Unmarshal(b, &out); return out }
 func value[T any](p *T) (z T) {
 	if p != nil {
 		return *p
@@ -225,11 +238,6 @@ func privateWrite(path string, v any) error {
 	if e := localstate.Write(path, v); e != nil {
 		return e
 	}
-	// Flush the renamed journal entry before a native side effect is permitted.
-	f, e := os.Open(dir)
-	if e != nil {
-		return e
-	}
-	defer f.Close()
-	return f.Sync()
+	// localstate.Write includes the parent-directory durability barrier.
+	return nil
 }

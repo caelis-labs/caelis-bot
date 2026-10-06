@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/chatlog"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"github.com/caelis-labs/caelis-bot/internal/messageimage"
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 )
@@ -16,6 +19,7 @@ import (
 // Service is the Wails boundary. Engine owns execution; desktop owns surfaces and
 // selection. Neither panel visibility nor renderer lifetime closes this service.
 type Service struct {
+	chat                        *chatlog.Log
 	localWorkers                api.LocalWorkerController
 	machines                    api.MachineController
 	admission                   sync.RWMutex
@@ -36,6 +40,7 @@ type Service struct {
 	configurationMu             sync.Mutex
 	runtimeFile                 string
 	runtimeSettings             api.RuntimeSettings
+	runtimeLoadError            error
 	pendingDraft                *api.Submission
 	outbox                      []outgoingMessage
 	botStatus                   func() string
@@ -71,7 +76,19 @@ func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error)
 }
 func (s *Service) Snapshot() api.Snapshot {
 	v := s.engine.Snapshot()
-	return s.decorate(v)
+	v = s.decorate(v)
+	if s.chat != nil {
+		s.chat.Observe(v.Items)
+		items, earlier := s.chat.Snapshot()
+		for _, item := range v.Items {
+			if item.Kind != "user" && item.Kind != "assistant" {
+				items = append(items, item)
+			}
+		}
+		v.Items, v.HasEarlier = items, earlier
+		v.Revision += s.chat.Revision()
+	}
+	return v
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 	v.Activity = currentActivity(v)
@@ -171,7 +188,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	s.mu.Lock()
 	hasOutgoing := len(s.outbox) > 0
 	s.mu.Unlock()
-	if source, ok := s.engine.(api.RevisionSource); ok && !hasOutgoing && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
+	if source, ok := s.engine.(api.RevisionSource); s.chat == nil && ok && !hasOutgoing && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
 		return api.ChatUpdate{}
 	}
 	v := s.Snapshot()
@@ -185,7 +202,17 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	v.Items = items
 	return api.ChatUpdate{Changed: true, Snapshot: v}
 }
+func (s *Service) ConfigureChat(path string) { s.chat = chatlog.Open(path) }
+func (s *Service) ObserveChat(v api.Snapshot) {
+	if s.chat != nil {
+		s.chat.Observe(v.Items)
+	}
+}
+
 func (s *Service) LoadEarlier(ctx context.Context) error {
+	if s.chat != nil {
+		return s.chat.LoadEarlier(ctx)
+	}
 	if source, ok := s.engine.(api.HistorySource); ok {
 		return source.LoadEarlier(ctx)
 	}
@@ -239,8 +266,26 @@ func (s *Service) connect(ctx context.Context, fence string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	s.admission.RLock()
+	ctx, stop := context.WithTimeout(ctx, 35*time.Second)
+	defer stop()
+	if err := lockwait.RLock(ctx, &s.admission); err != nil {
+		return err
+	}
 	defer s.admission.RUnlock()
+	if err := lockwait.Lock(ctx, &s.configurationMu); err != nil {
+		return err
+	}
+	configErr := s.runtimeLoadError
+	if configErr != nil {
+		_, exists := os.Stat(s.runtimeFile)
+		if restored, err := LoadRuntimeSettings(s.runtimeFile, s.runtimeSettings.Runtime); exists == nil && err == nil && restored == s.runtimeSettings {
+			s.runtimeLoadError, configErr = nil, nil
+		}
+	}
+	s.configurationMu.Unlock()
+	if configErr != nil {
+		return configErr
+	}
 	if s.restarting || s.setupRequired {
 		return errors.New("请先完成运行时设置")
 	}
@@ -399,6 +444,7 @@ func (s *Service) OpenApprovalURL(id string) error {
 	return s.openURL(u)
 }
 func (s *Service) Shutdown() error {
+	defer s.chat.Close()
 	s.recoveryMu.Lock()
 	if s.recoveryFlight != nil {
 		s.recoveryFlight.cancel()

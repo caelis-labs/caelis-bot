@@ -49,30 +49,34 @@ type Host struct {
 }
 
 type Application struct {
-	localWork       *localWorkers
-	machines        *machines.Service
-	taskPreferences *tasks.PreferencesStore
-	setup           *runtimeSetup
-	Backend         *backend.Service
-	Telegram        *telegram.Bridge
-	engine          api.Engine
-	host            Host
-	root            string
-	mu              sync.Mutex
-	updateMu        sync.Mutex
-	started, closed bool
-	updatePrepared  bool
-	cancel          context.CancelFunc
-	workers         sync.WaitGroup
-	companion       *bot.Runtime
-	bridge          *bot.Bridge
-	tasks           *tasks.Manager
-	personal        *botmemory.Store
-	notebook        *notebook.Vault
-	skillPath       string
-	initialization  *bot.Initializer
-	closeOnce       sync.Once
-	closeErr        error
+	localWork             *localWorkers
+	machines              *machines.Service
+	taskPreferences       *tasks.PreferencesStore
+	setup                 *runtimeSetup
+	Backend               *backend.Service
+	Telegram              *telegram.Bridge
+	engine                api.Engine
+	host                  Host
+	root                  string
+	mu                    sync.Mutex
+	updateMu              sync.Mutex
+	started, closed       bool
+	updatePrepared        bool
+	cancel                context.CancelFunc
+	startupCancel         context.CancelFunc
+	dreamReady            bool
+	dreamEnvironmentReady bool
+	careReady             bool
+	workers               sync.WaitGroup
+	companion             *bot.Runtime
+	bridge                *bot.Bridge
+	tasks                 *tasks.Manager
+	personal              *botmemory.Store
+	notebook              *notebook.Vault
+	skillPath             string
+	initialization        *bot.Initializer
+	closeOnce             sync.Once
+	closeErr              error
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -84,16 +88,22 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		return nil, errors.New(i18n.Text(i18n.DefaultLocale, "host.appDataDirMustBeFullPath", nil))
 	}
 	if host.Diagnostics == nil {
-		host.Diagnostics = diagnosticlog.New(filepath.Join(root, "Logs"))
+		host.Diagnostics = diagnosticlog.NewAsync(filepath.Join(root, "Logs"))
 	}
 	settingsFile := filepath.Join(root, "runtime.json")
 	settings, err := backend.LoadRuntimeSettings(settingsFile, "codex")
-	if err != nil {
-		return nil, err
+	runtimeReadErr := err
+	if err != nil && host.ReportError != nil {
+		host.ReportError(err)
 	}
 	factory, err := resolve(settings.Runtime)
 	if err != nil {
-		return nil, err
+		runtimeReadErr = errors.Join(runtimeReadErr, err)
+		settings = api.RuntimeSettings{Runtime: "codex"}
+		factory, err = resolve("codex")
+		if err != nil {
+			return nil, err
+		}
 	}
 	if factory.ID != settings.Runtime || factory.Open == nil {
 		return nil, errors.New(i18n.Text(i18n.DefaultLocale, "host.backendFactoryMismatch", nil))
@@ -105,17 +115,32 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	executionFile := filepath.Join(directory, "execution.json")
 	execution, err := backend.LoadExecutionSettings(executionFile, factory.Defaults)
 	if err != nil {
-		return nil, err
+		execution = factory.Defaults
+		if factory.ID == "codex" {
+			execution.ApprovalMode = "ask"
+		}
+		if host.ReportError != nil {
+			host.ReportError(err)
+		}
 	}
 	workExecutionFile := filepath.Join(directory, "work-execution.json")
 	workExecution, err := backend.LoadWorkExecutionSettings(workExecutionFile)
 	if err != nil {
-		return nil, err
+		workExecution = api.WorkExecutionSettings{}
+		if host.ReportError != nil {
+			host.ReportError(err)
+		}
 	}
 	engine, err := factory.Open(providerConfig{Diagnostics: host.Diagnostics, Settings: settings, Execution: execution, WorkExecution: workExecution,
 		WorkDirectory: filepath.Join(directory, "Work"), WorkRoot: filepath.Join(root, "Tasks"), ConversationFile: filepath.Join(directory, "conversation.json")})
 	if err != nil {
-		return nil, err
+		runtimeReadErr = errors.Join(runtimeReadErr, err)
+		settings = api.RuntimeSettings{Runtime: factory.ID}
+		engine, err = factory.Open(providerConfig{Diagnostics: host.Diagnostics, Settings: settings, Execution: execution, WorkExecution: workExecution,
+			WorkDirectory: filepath.Join(directory, "Work"), WorkRoot: filepath.Join(root, "Tasks"), ConversationFile: filepath.Join(directory, "conversation.json")})
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err = requireAssistant(engine, factory.ID); err != nil {
 		if engine != nil {
@@ -123,11 +148,13 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		}
 		return nil, err
 	}
-	if err = backend.SaveRuntimeProfile(root, settings); err != nil {
-		_ = backend.NewService(engine, nil, nil, nil, nil).Shutdown()
-		return nil, err
+	if runtimeReadErr == nil {
+		if err = backend.SaveRuntimeProfile(root, settings); err != nil && host.ReportError != nil {
+			host.ReportError(err)
+		}
 	}
 	service := backend.NewService(engine, host.ResolveFiles, host.ConsumeFiles, host.OpenURL, host.RevealFile)
+	service.ConfigureChat(filepath.Join(root, "chat.sqlite"))
 	if err := backend.ConfigureScreenMedia(service, filepath.Join(root, "ScreenMedia")); err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}
@@ -136,14 +163,18 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	}
 	initialization, err := bot.OpenInitializer(filepath.Join(root, "bot-initialization.json"))
 	if err != nil {
-		_ = service.Shutdown()
-		return nil, err
+		initialization = bot.UnavailableInitializer(filepath.Join(root, "bot-initialization.json"), err)
+		if host.ReportError != nil {
+			host.ReportError(err)
+		}
 	}
 	app := &Application{Backend: service, engine: engine, root: root, host: host, initialization: initialization}
 	app.taskPreferences, err = tasks.OpenPreferences(filepath.Join(root, "task-preferences.json"))
 	if err != nil {
-		_ = service.Shutdown()
-		return nil, err
+		app.taskPreferences = tasks.UnavailablePreferences(filepath.Join(root, "task-preferences.json"))
+		if host.ReportError != nil {
+			host.ReportError(err)
+		}
 	}
 	service.ConfigureInitialization(initialization)
 	for _, err := range []error{service.ConfigurePresentation(filepath.Join(directory, "preview.json")), service.ConfigureDraft(filepath.Join(directory, "draft.json"))} {
@@ -152,18 +183,17 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		}
 	}
 	service.ConfigureRuntime(settingsFile, settings)
+	service.ConfigureRuntimeReadError(runtimeReadErr)
 	service.ConfigureExecution(executionFile, execution)
 	service.ConfigureWorkExecution(workExecutionFile, workExecution)
 	app.configureRuntimeManagement()
 	app.configureSetup()
-	if err = app.configureWorkers(); err != nil {
-		_ = service.Shutdown()
-		return nil, err
+	if err = app.configureWorkers(); err != nil && host.ReportError != nil {
+		host.ReportError(err)
 	}
 	app.machines, err = machines.Open(filepath.Join(root, "Machines"), app.localWork, remoteArtifact)
-	if err != nil {
-		_ = service.Shutdown()
-		return nil, err
+	if err != nil && host.ReportError != nil {
+		host.ReportError(err)
 	}
 	service.ConfigureMachines(app.machines)
 	if app.Telegram == nil {
@@ -183,7 +213,8 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 			if app.host.ReportError != nil {
 				app.host.ReportError(remoteErr)
 			}
-		} else {
+		}
+		if remote != nil {
 			app.Telegram = remote
 			backend.ObserveSubmissions(app.Backend, remote.Accepted)
 		}
@@ -228,85 +259,108 @@ func (a *Application) preparePersonalLocked() error {
 	if a.closed {
 		return errors.New(a.text("host.appStopped"))
 	}
-	if a.personal != nil {
-		return nil
-	}
-	// Preserve an earlier runtime choice represented solely by legacy bot.json
-	// before introducing an offline-capable product identity.
-	if a.HasRuntimeChoice() {
-		if _, e := os.Stat(filepath.Join(a.root, "runtime.json")); errors.Is(e, os.ErrNotExist) {
-			if e = localstate.Write(filepath.Join(a.root, "runtime.json"), a.Backend.RuntimeSettings()); e != nil {
-				return e
+	if a.companion == nil {
+		// Preserve a legacy choice before upgrading the offline identity.
+		if a.HasRuntimeChoice() {
+			if _, e := os.Stat(filepath.Join(a.root, "runtime.json")); errors.Is(e, os.ErrNotExist) {
+				if e = localstate.Write(filepath.Join(a.root, "runtime.json"), a.Backend.RuntimeSettings()); e != nil {
+					return e
+				}
 			}
 		}
+		resident, err := bot.NewForRuntime(filepath.Join(a.root, "bot.json"), a.engine.(api.Provider).ProviderInfo().ID, a.host.Gesture)
+		if err != nil {
+			return err
+		}
+		a.companion = resident
+		resident.ConfigureDesktopControl(a.host.DesktopControl)
+		resident.ConfigureInitialization(a.initialization)
 	}
-	resident, err := bot.NewForRuntime(filepath.Join(a.root, "bot.json"), a.engine.(api.Provider).ProviderInfo().ID, a.host.Gesture)
-	if err != nil {
-		return err
-	}
-	// Desktop World is the single resident desktop backend for both adapters.
-	resident.ConfigureDesktopControl(a.host.DesktopControl)
-	if err = resident.ConfigureCare(a.host.CareSample, a.host.CareSources...); err != nil {
-		// Care has its own journal. Keep it unavailable, with its saved state
-		// untouched, without preventing chat, personal data or reminders from starting.
-		if a.host.ReportError != nil {
+	resident := a.companion
+	report := func(err error) {
+		if err != nil && a.host.ReportError != nil {
 			a.host.ReportError(err)
 		}
 	}
-	personal, err := botmemory.Open(context.Background(), filepath.Join(a.root, "personal"), resident.State().ID)
-	if err != nil {
-		resident.Close()
-		return err
+	if !a.careReady {
+		if err := resident.ConfigureCare(a.host.CareSample, a.host.CareSources...); err != nil {
+			report(err)
+		} else {
+			a.careReady = true
+		}
 	}
-	if err = resident.ConfigurePersonal(personal); err != nil {
-		personal.Close()
-		resident.Close()
-		return err
-	}
-	vault, err := notebook.OpenVault(filepath.Join(a.root, "Notebook"))
-	if err != nil {
-		personal.Close()
-		resident.Close()
-		return err
-	}
-	fail := func(err error) error { vault.Close(); personal.Close(); resident.Close(); return err }
-	marker := filepath.Join(a.root, "notebook-migration.json")
-	if _, err = os.Stat(marker); errors.Is(err, os.ErrNotExist) {
-		var profile string
-		profile, err = personal.LegacyProfile(context.Background())
+	if a.personal == nil {
+		personal, err := botmemory.Open(context.Background(), filepath.Join(a.root, "personal"), resident.State().ID)
+		if err == nil {
+			err = resident.ConfigurePersonal(personal)
+		}
 		if err != nil {
-			return fail(err)
+			if personal != nil {
+				personal.Close()
+			}
+			report(err)
+		} else {
+			a.personal = personal
 		}
-		if err = vault.Migrate(filepath.Join(a.root, "personal", "notebook"), marker, profile, time.Now()); err != nil {
-			return fail(err)
+	}
+	if a.notebook == nil {
+		vault, err := notebook.OpenVault(filepath.Join(a.root, "Notebook"))
+		if err == nil {
+			marker := filepath.Join(a.root, "notebook-migration.json")
+			if _, e := os.Stat(marker); errors.Is(e, os.ErrNotExist) && a.personal != nil {
+				profile, e := a.personal.LegacyProfile(context.Background())
+				err = e
+				if err == nil {
+					err = vault.Migrate(filepath.Join(a.root, "personal", "notebook"), marker, profile, time.Now())
+				}
+			} else if e == nil {
+				err = vault.Migrate("", marker, "", time.Now())
+			} else if e != nil && !errors.Is(e, os.ErrNotExist) {
+				err = e
+			}
+			if err == nil {
+				err = vault.Refresh(context.Background(), time.Now())
+			}
 		}
-	} else if err != nil {
-		return fail(err)
-	} else if err = vault.Migrate("", marker, "", time.Now()); err != nil {
-		return fail(err)
+		if err != nil {
+			if vault != nil {
+				vault.Close()
+			}
+			report(err)
+		} else {
+			a.notebook = vault
+		}
 	}
-	if err = vault.Refresh(context.Background(), time.Now()); err != nil {
-		return fail(err)
+	if a.skillPath == "" {
+		path, err := botskills.Install(a.root)
+		if err != nil {
+			report(err)
+		} else {
+			a.skillPath = path
+		}
 	}
-	skillPath, err := botskills.Install(a.root)
-	if err != nil {
-		return fail(err)
+	if a.notebook != nil && a.skillPath != "" && !a.dreamReady {
+		if err := resident.ConfigureDream(a.notebook, a.skillPath); err != nil {
+			report(err)
+		} else {
+			a.dreamReady = true
+		}
 	}
-	resident.ConfigureInitialization(a.initialization)
-	if err = resident.ConfigureDream(vault, skillPath); err != nil {
-		return fail(err)
-	}
+
 	// Sample independently of care rules and its store. Drafts are read under
 	// the backend presentation lock; no renderer timer can authorize maintenance.
-	resident.ConfigureDreamEnvironment(func() bot.DreamEnvironment {
-		if a.host.CareSample == nil {
-			return bot.DreamEnvironment{}
-		}
-		sample := a.host.CareSample()
-		return bot.DreamEnvironment{Available: sample.Available(), Epoch: sample.Epoch, DraftRevision: a.Backend.Draft().Revision}
-	})
-	resident.ConfigureDreamDiagnostics(a.host.Diagnostics)
-	a.companion, a.personal, a.notebook, a.skillPath = resident, personal, vault, skillPath
+	if a.dreamReady && !a.dreamEnvironmentReady {
+		resident.ConfigureDreamEnvironment(func() bot.DreamEnvironment {
+			if a.host.CareSample == nil {
+				return bot.DreamEnvironment{}
+			}
+			sample := a.host.CareSample()
+			return bot.DreamEnvironment{Available: sample.Available(), Epoch: sample.Epoch, DraftRevision: a.Backend.Draft().Revision}
+		})
+		resident.ConfigureDreamDiagnostics(a.host.Diagnostics)
+		a.dreamEnvironmentReady = true
+	}
+	a.companion = resident
 	return nil
 }
 
@@ -319,25 +373,30 @@ func (a *Application) Start() error {
 		return errors.New(a.text("host.appStopped"))
 	}
 	if a.started {
-		return nil
+		return a.repairFeaturesLocked()
 	}
 	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.machines, a.engine.(api.ReportSubmitter), a.engine.Snapshot)
-	if err != nil {
-		return err
+	if err != nil && a.host.ReportError != nil {
+		a.host.ReportError(err)
 	}
-	if importer, ok := a.engine.(interface{ ImportHostReportIDs([]string) error }); ok {
-		if err := importer.ImportHostReportIDs(manager.HostReportIDs()); err != nil {
-			return err
+	if importer, ok := a.engine.(interface{ ImportHostReportIDs([]string) error }); ok && manager != nil {
+		if err := importer.ImportHostReportIDs(manager.HostReportIDs()); err != nil && a.host.ReportError != nil {
+			a.host.ReportError(err)
 		}
 	}
 	manager.SetLocale(a.locale)
-	manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
-	manager.ObserveWatchlist(a.host.ObserveTasks)
+	if manager != nil {
+		manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
+		manager.ObserveWatchlist(a.host.ObserveTasks)
+	}
 	if err = a.preparePersonalLocked(); err != nil {
 		return err
 	}
 	resident := a.companion
-	if err = resident.ConfigureTasks(manager, manager); err != nil {
+	if manager != nil {
+		err = resident.ConfigureTasks(manager, manager)
+	}
+	if err != nil && manager != nil {
 		return err
 	}
 	bridge, err := bot.Serve(resident)
@@ -346,22 +405,59 @@ func (a *Application) Start() error {
 		executable, err = os.Executable()
 		if err == nil {
 			config := bridge.Config(executable)
-			config.Instructions += botskills.Instructions(a.skillPath)
-			config.NotebookDirectory = a.notebook.Path()
+			if a.skillPath != "" {
+				config.Instructions += botskills.Instructions(a.skillPath)
+			}
+			config.NotebookDirectory = filepath.Join(a.root, "Notebook")
 			config.RuntimeVersion = updates.Version
-			config.PrepareContext = a.notebook.PrepareContext
-			config.ConsumeContext = a.notebook.ConsumeContext
+			config.PrepareContext = func(ctx context.Context) (api.ContextSeed, error) {
+				a.mu.Lock()
+				vault := a.notebook
+				a.mu.Unlock()
+				if vault == nil {
+					return api.ContextSeed{}, nil
+				}
+				seed, err := vault.PrepareContext(ctx)
+				if err != nil {
+					if a.host.ReportError != nil {
+						a.host.ReportError(err)
+					}
+					return api.ContextSeed{}, nil
+				}
+				return seed, nil
+			}
+			config.ConsumeContext = func(seed api.ContextSeed) error {
+				a.mu.Lock()
+				vault := a.notebook
+				a.mu.Unlock()
+				if vault != nil {
+					if err := vault.ConsumeContext(seed); err != nil && a.host.ReportError != nil {
+						a.host.ReportError(err)
+					}
+				}
+				return nil
+			}
 			config.PrepareTurn = func(ctx context.Context) error {
-				if err := a.notebook.Refresh(ctx, time.Now()); err != nil {
-					return err
+				a.mu.Lock()
+				vault := a.notebook
+				a.mu.Unlock()
+				if vault != nil {
+					if err := vault.Refresh(ctx, time.Now()); err != nil && a.host.ReportError != nil {
+						a.host.ReportError(err)
+					}
 				}
 				resident.BeginDesktopTurn()
 				return nil
 			}
 			config.FinishTurn = func() {
 				resident.StopDesktopTurn()
-				if e := a.notebook.Refresh(context.Background(), time.Now()); e != nil && a.host.ReportError != nil {
-					a.host.ReportError(e)
+				a.mu.Lock()
+				vault := a.notebook
+				a.mu.Unlock()
+				if vault != nil {
+					if e := vault.Refresh(context.Background(), time.Now()); e != nil && a.host.ReportError != nil {
+						a.host.ReportError(e)
+					}
 				}
 			}
 			err = a.engine.(api.BotToolBinder).ConfigureBotTools(config)
@@ -394,8 +490,13 @@ func (a *Application) Start() error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := manager.RefreshWatchlist(); err != nil && a.host.ReportError != nil {
-					a.host.ReportError(err)
+				a.mu.Lock()
+				manager := a.tasks
+				a.mu.Unlock()
+				if manager != nil {
+					if err := manager.RefreshWatchlist(); err != nil && a.host.ReportError != nil {
+						a.host.ReportError(err)
+					}
 				}
 			}
 		}
@@ -407,16 +508,33 @@ func (a *Application) Start() error {
 		var revision uint64
 		for {
 			snapshot, err := a.engine.(api.SnapshotObserver).WaitSnapshot(ctx, revision)
-			if err != nil || ctx.Err() != nil {
+			if ctx.Err() != nil {
 				return
 			}
+			if err != nil {
+				if a.host.ReportError != nil {
+					a.host.ReportError(err)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
+				continue
+			}
 			revision = snapshot.Revision
+			a.Backend.ObserveChat(snapshot)
 			observer.Observe(snapshot)
 			if a.host.Observe != nil {
 				a.host.Observe(snapshot)
 			}
 			if a.host.ObserveTasks != nil {
-				a.host.ObserveTasks(manager.TaskPreviews())
+				a.mu.Lock()
+				manager := a.tasks
+				a.mu.Unlock()
+				if manager != nil {
+					a.host.ObserveTasks(manager.TaskPreviews())
+				}
 			}
 		}
 	}()
@@ -453,11 +571,15 @@ func (a *Application) WorkTerminal(ctx context.Context, id string) (api.Terminal
 // Close is the explicit application-exit boundary. Cancellation stops wakeups
 // before the adapter cleans only owned work; shared servers remain alive.
 func (a *Application) Close() error {
+	defer a.host.Diagnostics.Close()
 	a.updateMu.Lock()
 	defer a.updateMu.Unlock()
 	a.closeOnce.Do(func() {
 		a.mu.Lock()
 		a.closed = true
+		if a.startupCancel != nil {
+			a.startupCancel()
+		}
 		if a.cancel != nil {
 			a.cancel()
 		}

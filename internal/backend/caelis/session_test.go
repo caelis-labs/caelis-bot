@@ -154,7 +154,7 @@ func TestReplacementIsAtomicAndCursorIsOpaque(t *testing.T) {
 	for _, valid := range []bool{false, true} {
 		t.Run(fmt.Sprint(valid), func(t *testing.T) {
 			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Query().Get("after") != "opaque+/=" || r.URL.Query().Get("history_turns") != "8" {
+				if r.URL.Query().Get("after") != "opaque+/=" || r.URL.Query().Get("history_turns") != "1" {
 					t.Error("cursor was changed")
 				}
 				w.Header().Set("Content-Type", "text/event-stream")

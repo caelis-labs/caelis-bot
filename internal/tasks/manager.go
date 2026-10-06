@@ -53,6 +53,7 @@ type state struct {
 }
 
 type Manager struct {
+	quarantined          map[string]*record
 	now                  func() time.Time
 	maxRunning           func() int
 	watchlistChanged     func([]api.TaskPreview)
@@ -113,9 +114,11 @@ func Open(path, root, provider string, work api.WorkRuntime, reports api.ReportS
 		if json.Unmarshal(b, &m.state) != nil || m.state.Version != 1 || m.state.Records == nil {
 			return nil, errors.New(m.text("host.taskLedgerUnreadable"))
 		}
+		m.quarantined = map[string]*record{}
 		for id, r := range m.state.Records {
 			if r == nil || r.View.ID != id || r.Provider == "" {
-				return nil, errors.New(m.text("host.taskLedgerInvalidOwner"))
+				m.quarantined[id] = r
+				delete(m.state.Records, id)
 			}
 		}
 		encoded, _ := json.MarshalIndent(m.state, "", "  ")
@@ -131,13 +134,17 @@ func Open(path, root, provider string, work api.WorkRuntime, reports api.ReportS
 				runtime = r.Provider
 			}
 			var err error
-			r.Runtime, err = router.BindWork(context.Background(), api.TaskStart{Machine: r.View.Machine}, id, runtime)
+			resolved, bindErr := router.BindWork(context.Background(), api.TaskStart{Machine: r.View.Machine}, id, runtime)
+			err = bindErr
+			if err == nil {
+				r.Runtime = resolved
+			}
 			if err != nil {
-				return nil, err
+				r.View.Status = "unknown"
 			}
 		}
 	}
-	if e := m.refresh(); e != nil {
+	if e := m.refresh(); e != nil && !errors.As(e, new(*observationConflict)) {
 		return nil, e
 	}
 	return m, nil
@@ -154,35 +161,24 @@ func valid(id, text string) bool {
 	return len(id) >= 8 && len(id) <= 128 && strings.TrimSpace(text) != "" && len(text) <= 24000
 }
 func (m *Manager) save() error {
-	if e := os.MkdirAll(filepath.Dir(m.path), 0700); e != nil {
-		return e
+	state := m.state
+	if len(m.quarantined) > 0 {
+		state.Records = make(map[string]*record, len(m.state.Records)+len(m.quarantined))
+		for id, r := range m.state.Records {
+			state.Records[id] = r
+		}
+		for id, r := range m.quarantined {
+			state.Records[id] = r
+		}
 	}
-	b, e := json.MarshalIndent(m.state, "", "  ")
+	b, e := json.MarshalIndent(state, "", "  ")
 	if e != nil {
 		return e
 	}
 	if string(b) == m.persisted {
 		return nil
 	}
-	f, e := os.CreateTemp(filepath.Dir(m.path), ".tasks-*")
-	if e != nil {
-		return e
-	}
-	defer os.Remove(f.Name())
-	if _, e = f.Write(b); e == nil {
-		e = f.Sync()
-	}
-	closeErr := f.Close()
-	if e == nil {
-		e = closeErr
-	}
-	if e == nil {
-		e = os.Rename(f.Name(), m.path)
-	}
-	if e == nil {
-		e = localstate.SyncParent(m.path)
-	}
-	if e == nil {
+	if e = localstate.Write(m.path, state); e == nil {
 		m.persisted = string(b)
 	}
 	return e
@@ -194,9 +190,13 @@ func (m *Manager) refresh() error {
 	states := m.work.WorkStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var conflict error
 	for _, v := range states {
 		if r := m.state.Records[v.Task.ID]; r != nil && (!m.owns(r) || r.View.Machine != v.Task.Machine || r.Runtime != "" && v.Runtime != "" && r.Runtime != v.Runtime) {
-			return errors.New(m.text("host.taskConflictOtherRuntime"))
+			// Preserve the original owner; one conflicting observation cannot
+			// prevent unrelated tasks and the resident conversation from refreshing.
+			r.View.Status = "unknown"
+			conflict = &observationConflict{m.text("host.taskConflictOtherRuntime")}
 		}
 	}
 	if _, ok := m.work.(api.WorkRouter); ok {
@@ -219,8 +219,8 @@ func (m *Manager) refresh() error {
 			r = &record{Runtime: v.Runtime, Provider: m.provider, Fingerprint: v.StartFingerprint, View: v.Task, Execution: v.ExecutionKey, ReportID: v.PreviousReportID, ReportState: v.PreviousReportState}
 			m.state.Records[v.Task.ID] = r
 		}
-		if !m.owns(r) {
-			return errors.New(m.text("host.taskConflictOtherRuntime"))
+		if !m.owns(r) || r.View.Machine != v.Task.Machine || r.Runtime != "" && v.Runtime != "" && r.Runtime != v.Runtime {
+			continue
 		}
 		if v.ExecutionKey != "" && slices.Contains(r.RetiredExecutions, v.ExecutionKey) {
 			continue // A late old native snapshot cannot republish its report.
@@ -257,8 +257,15 @@ func (m *Manager) refresh() error {
 		}
 	}
 	m.metadataLocked()
-	return m.write()
+	if err := m.write(); err != nil {
+		return err
+	}
+	return conflict
 }
+
+type observationConflict struct{ message string }
+
+func (e *observationConflict) Error() string { return e.message }
 
 // A registered host route owns its retained backend independently of the
 // resident adapter. Direct single-provider fixtures keep their existing scope.

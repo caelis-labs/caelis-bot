@@ -19,7 +19,7 @@ type productAssembly struct {
 }
 
 func newProductAssembly(root string, languages []string, effects func(*Service) app.Host) (*productAssembly, error) {
-	diagnostics := diagnosticlog.New(filepath.Join(root, "Logs"))
+	diagnostics := diagnosticlog.NewAsync(filepath.Join(root, "Logs"))
 	s := newService(fileStore{filepath.Join(root, "placement.json")})
 	s.configurePermissionGuide(filepath.Join(root, "permission-guide.json"))
 	s.configureFeatureGuide(filepath.Join(root, "feature-guide.json"))
@@ -27,12 +27,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	s.configureTaskShortcut(filepath.Join(root, "task-shortcut.json"))
 	logError(s.configureCapture(filepath.Join(root, "Captures")))
 	logError(s.configureLanguage(filepath.Join(root, "language.json"), languages))
-	content, err := contentpack.NewRegistry(filepath.Join(root, "content"))
-	if err != nil {
-		logError(err)
-	} else {
-		s.content = content
-	}
+	s.content = contentpack.NewRecoveringRegistry(filepath.Join(root, "content"))
 	host := effects(s)
 	host.Locale = func() i18n.Locale { return s.LanguagePreferences().Locale }
 	host.Diagnostics = diagnostics
@@ -87,16 +82,11 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 }
 
 func (p *productAssembly) Start() error {
-	if err := p.Core.PreparePersonal(); err != nil {
-		return err
-	}
 	if p.Core.NeedsSetup() {
 		p.Service.showSettings("setup")
 	}
-	if !p.Core.HasRuntimeChoice() {
-		return nil
-	}
-	return p.Core.Start()
+	p.Core.StartBackground()
+	return nil
 }
 
 func logError(err error) {

@@ -140,6 +140,7 @@ func (f *sessionFixture) serve(peer net.Conn) {
 		case "thread/turns/list":
 			var p struct {
 				Cursor        string `json:"cursor"`
+				ThreadID      string `json:"threadId"`
 				Limit         int    `json:"limit"`
 				SortDirection string `json:"sortDirection"`
 				ItemsView     string `json:"itemsView"`
@@ -149,12 +150,37 @@ func (f *sessionFixture) serve(peer net.Conn) {
 			page, ok := f.pages[p.Cursor]
 			fail := f.failPage
 			f.pageCalls = append(f.pageCalls, p.Cursor)
+			if p.ItemsView == "summary" && p.Limit == 1 {
+				turns := f.history
+				if w, exists := f.workers[p.ThreadID]; exists {
+					turns = w.Turns
+				}
+				if ok {
+					turns = page.Data
+					if len(turns) > 1 {
+						turns = turns[:1]
+					}
+				} else if len(turns) > 0 {
+					turns = turns[len(turns)-1:]
+				}
+				data := make([]nativeTurn, len(turns))
+				for n, turn := range turns {
+					data[n] = turn
+					data[n].Items = nil
+					for _, item := range turn.Items {
+						if item.Type == "userMessage" || item.Type == "agentMessage" {
+							data[n].Items = append(data[n].Items, item)
+						}
+					}
+				}
+				page, ok = turnPage{Data: data}, true
+			}
 			f.mu.Unlock()
 			if !ok {
 				f.emitTo(peer, wireMessage{ID: m.ID, Error: &NativeError{Code: -32601, Message: "unsupported"}})
 				continue
 			}
-			if fail || p.Limit != historyPageSize || p.SortDirection != "desc" || p.ItemsView != "full" {
+			if fail || p.Limit != 1 || p.SortDirection != "desc" || p.ItemsView != "summary" {
 				f.emitTo(peer, wireMessage{ID: m.ID, Error: &NativeError{Code: -32000, Message: "synthetic read failure"}})
 				continue
 			}

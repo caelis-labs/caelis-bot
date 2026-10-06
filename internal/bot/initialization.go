@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -26,10 +27,12 @@ type introductionState struct {
 // Initializer persists one ordinary user message until native acceptance. An
 // uncertain send is reconciled, never automatically replayed on another Runtime.
 type Initializer struct {
-	mu    sync.Mutex
-	step  sync.Mutex
-	path  string
-	state introductionState
+	loadErr error
+	retryAt time.Time
+	mu      sync.Mutex
+	step    sync.Mutex
+	path    string
+	state   introductionState
 }
 
 func OpenInitializer(path string) (*Initializer, error) {
@@ -61,9 +64,20 @@ func OpenInitializer(path string) (*Initializer, error) {
 	}
 	return i, nil
 }
+func UnavailableInitializer(path string, err error) *Initializer {
+	return &Initializer{path: path, loadErr: err, state: introductionState{Version: 1, Status: "unknown", Message: "Bot 介绍记录暂时不可用；原文件已保留，将自动重试读取。"}}
+}
 func (i *Initializer) Initialization() api.BotInitialization {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	if i.loadErr != nil && time.Now().After(i.retryAt) {
+		i.retryAt = time.Now().Add(5 * time.Second)
+		_, exists := os.Stat(i.path)
+		if recovered, err := OpenInitializer(i.path); exists == nil && err == nil {
+			i.state = recovered.state
+			i.loadErr = nil
+		}
+	}
 	return i.view()
 }
 func (i *Initializer) view() api.BotInitialization {
@@ -86,6 +100,9 @@ func (i *Initializer) view() api.BotInitialization {
 func (i *Initializer) Initialize(ctx context.Context, in api.BotIntroduction) (api.BotInitialization, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	if i.loadErr != nil {
+		return i.view(), i.loadErr
+	}
 	if err := ctx.Err(); err != nil {
 		return i.view(), err
 	}

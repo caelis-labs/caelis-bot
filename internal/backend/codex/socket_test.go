@@ -149,6 +149,8 @@ func TestExistingServerNeedsNoCLIAndCloseDoesNotStopServer(t *testing.T) {
 				result = map[string]any{}
 			case "thread/read":
 				result = map[string]any{"thread": nativeThread{ID: "fixture", Turns: []nativeTurn{{ID: "turn", Status: "interrupted"}}}}
+			case "thread/turns/list":
+				result = turnPage{Data: []nativeTurn{{ID: "turn", Status: "interrupted"}}}
 			case "turn/interrupt":
 				event, _ := json.Marshal(wireMessage{Method: "turn/completed", Params: raw(map[string]any{"threadId": "fixture", "turn": nativeTurn{ID: "turn", Status: "interrupted"}})})
 				if ws.Write(r.Context(), websocket.MessageText, event) != nil {

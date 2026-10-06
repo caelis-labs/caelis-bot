@@ -10,19 +10,21 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/contextseed"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 type binding struct {
+	Artifacts map[string]string `json:"artifacts,omitempty"`
 	// Exact native owner used by this binding. An update detaches its observer;
 	// the next process must reconcile here before accepting new work.
 	OwnerEndpoint      string                          `json:"ownerEndpoint,omitempty"`
@@ -72,73 +74,79 @@ type SessionOptions struct {
 // Session projects one internally bound conversation. Native facts remain
 // authoritative; a UI fetch, hidden window or character asset cannot execute it.
 type Session struct {
+	cached                 atomic.Pointer[api.Snapshot]
+	cachedComposer         atomic.Pointer[api.Snapshot]
+	cachedRecovery         atomic.Pointer[api.RecoveryState]
+	residentSyncNeeded     bool
 	workerOnly             bool // trusted target owner; no resident API is exposed
 	backgroundResultsDirty bool
 
-	residentExecution   api.WorkExecutionSettings
-	usage               api.ContextUsage
-	usageTurn           string
-	usageTotal          int64
-	historyMu           sync.Mutex
-	op                  sync.Mutex
-	mu                  sync.Mutex
-	opts                SessionOptions
-	client              *Client
-	retainedOwner       *Client
-	forceNewOwner       bool
-	bound               bool
-	epoch               uint64
-	reconnectSeq        uint64
-	reconnectActive     bool
-	reconnectCancel     context.CancelFunc
-	reconnectAttempts   int
-	reconnectDelay      func(int) time.Duration
-	lastConnectCause    error
-	state               api.Snapshot
-	binding             binding
-	loadErr             error
-	loading             bool
-	buffer              []Notification
-	bufferBytes         int
-	run                 string
-	runs                map[string]string
-	items               map[string]int
-	nativeItems         map[string]nativeItem
-	reviewOrigins       map[string]reviewOrigin
-	prompts             map[string]*prompt
-	promptHandles       map[string]string
-	instance            string
-	refs                map[string]nativeReference
-	artifacts           map[string]string
-	historyCursor       string
-	historyThread       string
-	historyPrevious     int
-	lastTurn            string
-	historyPaged        bool
-	children            map[string]bool
-	childRuns           map[string]string
-	childTerminals      map[string]bool
-	childTerminalStatus map[string]string
-	childWatching       map[string]bool
-	childSubscribed     map[string]bool
-	childRetireSeq      map[string]uint64
-	childRetired        map[string]bool
-	workerIdleDelay     time.Duration
-	retireUnsupported   bool
-	retireFailures      uint64
-	retiredWorkers      uint64
-	nativeUnloads       uint64
-	nativeResources     nativeResourceSnapshot
-	childRevision       map[string]uint64
-	loginID             string
-	loginStarting       bool
-	earlyLogin          map[string]bool
-	changed             chan struct{}
-	closed              bool
-	closing             bool
-	life                context.Context
-	cancelLife          context.CancelFunc
-	start               func(context.Context, Options) (*Client, error)
+	residentExecution      api.WorkExecutionSettings
+	usage                  api.ContextUsage
+	usageTurn              string
+	usageTotal             int64
+	historyMu              sync.Mutex
+	op                     sync.Mutex
+	mu                     sync.Mutex
+	opts                   SessionOptions
+	client                 *Client
+	retainedOwner          *Client
+	forceNewOwner          bool
+	bound                  bool
+	epoch                  uint64
+	reconnectSeq           uint64
+	reconnectActive        bool
+	reconnectCancel        context.CancelFunc
+	reconnectAttempts      int
+	reconnectDelay         func(int) time.Duration
+	lastConnectCause       error
+	state                  api.Snapshot
+	binding                binding
+	loadErr                error
+	loading                bool
+	buffer                 []Notification
+	bufferBytes            int
+	run                    string
+	runs                   map[string]string
+	items                  map[string]int
+	nativeItems            map[string]nativeItem
+	reviewOrigins          map[string]reviewOrigin
+	prompts                map[string]*prompt
+	promptHandles          map[string]string
+	instance               string
+	refs                   map[string]nativeReference
+	artifacts              map[string]string
+	historyCursor          string
+	historyThread          string
+	historyPrevious        int
+	lastTurn               string
+	historyPaged           bool
+	children               map[string]bool
+	childRuns              map[string]string
+	childTerminals         map[string]bool
+	childTerminalStatus    map[string]string
+	childWatching          map[string]bool
+	childSubscribed        map[string]bool
+	childObservationFailed map[string]bool
+	childRetireSeq         map[string]uint64
+	childRetired           map[string]bool
+	workerIdleDelay        time.Duration
+	retireUnsupported      bool
+	retireFailures         uint64
+	retiredWorkers         uint64
+	nativeUnloads          uint64
+	nativeResources        nativeResourceSnapshot
+	childRevision          map[string]uint64
+	loginID                string
+	loginStarting          bool
+	earlyLogin             map[string]bool
+	changed                chan struct{}
+	closed                 bool
+	closing                bool
+	life                   context.Context
+	cancelLife             context.CancelFunc
+	supervisorOnce         sync.Once
+	start                  func(context.Context, Options) (*Client, error)
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -164,9 +172,14 @@ func NewSession(opts SessionOptions) *Session {
 	// Older adapter task records carry typed report identities. The product task
 	// ledger is imported separately because it can derive a different report ID.
 	for _, task := range s.binding.Tasks {
+		settlePreparedTask(task)
 		if task != nil && task.ReportID != "" {
 			s.binding.HostReports[task.ReportID] = true
 		}
+	}
+	s.artifacts = maps.Clone(s.binding.Artifacts)
+	if s.artifacts == nil {
+		s.artifacts = map[string]string{}
 	}
 	if s.binding.LastReceipt != nil {
 		s.state.LastReceipt = *s.binding.LastReceipt
@@ -184,6 +197,7 @@ func NewSession(opts SessionOptions) *Session {
 	if s.loadErr != nil {
 		s.state.Message = s.loadErr.Error()
 	}
+	s.publishSnapshot()
 	return s
 }
 
@@ -218,13 +232,16 @@ func (s *Session) resetProjection() {
 	s.prompts = map[string]*prompt{}
 	s.promptHandles = map[string]string{}
 	s.refs = map[string]nativeReference{}
-	s.artifacts = map[string]string{}
+	s.artifacts = maps.Clone(s.binding.Artifacts)
+	if s.artifacts == nil {
+		s.artifacts = map[string]string{}
+	}
 	s.children = map[string]bool{}
 	for _, id := range s.binding.Children {
 		s.children[id] = true
 	}
 	for _, task := range s.binding.Tasks {
-		if task.Thread != "" {
+		if task != nil && task.Thread != "" {
 			s.children[task.Thread] = true
 		}
 	}
@@ -233,6 +250,7 @@ func (s *Session) resetProjection() {
 	s.childTerminalStatus = map[string]string{}
 	s.childWatching = map[string]bool{}
 	s.childSubscribed = map[string]bool{}
+	s.childObservationFailed = map[string]bool{}
 	s.childRetireSeq = map[string]uint64{}
 	s.childRetired = map[string]bool{}
 	s.retireUnsupported = false
@@ -259,6 +277,17 @@ func opaque(parts ...string) string {
 	return hex.EncodeToString(h[:16])
 }
 func (s *Session) update() {
+	if s.run == "" && len(s.state.Items) > 200 {
+		drop := len(s.state.Items) - 200
+		for _, item := range s.state.Items[:drop] {
+			delete(s.items, item.ID)
+			delete(s.nativeItems, item.ID)
+		}
+		s.state.Items = slices.Clone(s.state.Items[drop:])
+		for n, item := range s.state.Items {
+			s.items[item.ID] = n
+		}
+	}
 	if s.hasConversationPrompt() && s.state.Connection == "ready" && s.state.Phase != "unknown" {
 		s.state.Phase = "attention"
 	} else if s.hasBlockingChildren() && s.state.Phase != "unknown" && s.state.Phase != "interrupting" {
@@ -273,8 +302,7 @@ func (s *Session) update() {
 	}
 	if s.backgroundResultsDirty {
 		if err := s.save(); err != nil {
-			s.state.Phase = "unknown"
-			s.state.Message = "后台结果记录保存失败，请恢复连接核对"
+			s.state.Message = "后台结果暂未保存；功能仍可用，将自动重试"
 		} else {
 			s.backgroundResultsDirty = false
 		}
@@ -283,71 +311,72 @@ func (s *Session) update() {
 	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase != "unknown" && !s.closed && !s.closing
 	s.state.CanSteer = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run != "" && s.state.Phase == "working" && !s.hasConversationPrompt() && !s.closed && !s.closing
 	s.state.CanInterrupt = s.state.Connection == "ready" && (len(s.binding.CleanupTargets) == 0 || s.binding.StopState == "prepared") && (s.run != "" || s.hasBlockingChildren()) && !s.closed && !s.closing
+	s.publishSnapshot()
 	close(s.changed)
 	s.changed = make(chan struct{})
 }
-func (s *Session) Snapshot() api.Snapshot {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// Return owned immutable data to concurrent Wails JSON encoders.
+func (s *Session) publishSnapshot() {
 	b, _ := json.Marshal(s.state)
 	var out api.Snapshot
 	_ = json.Unmarshal(b, &out)
-	return s.presentScheduled(out)
+	out = s.presentScheduled(out)
+	s.cached.Store(&out)
+	composer := s.composerLocked()
+	s.cachedComposer.Store(&composer)
+	recovery := api.RecoveryState{Fence: fmt.Sprintf("codex:%s:%d", s.instance, s.epoch), Automatic: s.reconnectActive, Manual: s.state.Connection == "offline" && !s.reconnectActive && !s.closed && !s.closing}
+	s.cachedRecovery.Store(&recovery)
 }
-func (s *Session) save() error {
-	if s.opts.StateFile == "" {
-		return nil
+func (s *Session) Snapshot() api.Snapshot {
+	if s.mu.TryLock() {
+		s.publishSnapshot()
+		s.mu.Unlock()
 	}
-	if err := os.MkdirAll(filepath.Dir(s.opts.StateFile), 0700); err != nil {
-		return err
+	if snapshot := s.cached.Load(); snapshot != nil {
+		b, _ := json.Marshal(snapshot)
+		var out api.Snapshot
+		_ = json.Unmarshal(b, &out)
+		return out
 	}
-	b, err := json.Marshal(s.binding)
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(s.opts.StateFile), ".binding-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err = f.Write(b); err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Rename(f.Name(), s.opts.StateFile)
-	}
-	if err == nil {
-		err = localstate.SyncParent(s.opts.StateFile)
-	}
-	return err
-}
-func (s *Session) Connect(ctx context.Context) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.publishSnapshot()
+	return *s.cached.Load()
+}
+
+func (s *Session) save() error {
+	if s.loadErr != nil {
+		return s.loadErr
+	}
+	return localstate.Write(s.opts.StateFile, s.binding)
+}
+
+func (s *Session) Connect(ctx context.Context) error {
+	s.supervisorOnce.Do(func() { go s.supervise() })
+	ctx, stop := s.operation(ctx, 30*time.Second)
+	defer stop()
+	if err := lockwait.Lock(ctx, &s.mu); err != nil {
+		return err
+	}
 	s.reconnectSeq++
 	if s.reconnectCancel != nil {
 		s.reconnectCancel()
 	}
 	s.reconnectActive = false
 	s.mu.Unlock()
-	s.op.Lock()
+	if err := lockwait.Lock(ctx, &s.op); err != nil {
+		return err
+	}
 	defer s.op.Unlock()
 	return s.connect(ctx)
 }
 
 func (s *Session) RecoveryState() api.RecoveryState {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return api.RecoveryState{
-		Fence:     fmt.Sprintf("codex:%s:%d", s.instance, s.epoch),
-		Automatic: s.reconnectActive,
-		Manual:    s.epoch > 0 && s.state.Connection == "offline" && !s.reconnectActive && !s.closed && !s.closing,
+	if state := s.cachedRecovery.Load(); state != nil {
+		return *state
 	}
+	return api.RecoveryState{}
 }
+
 func (s *Session) connect(ctx context.Context) error {
 	ctx, cancel := s.operation(ctx, 30*time.Second)
 	defer cancel()
@@ -355,6 +384,9 @@ func (s *Session) connect(ctx context.Context) error {
 	if s.closed || s.closing {
 		s.mu.Unlock()
 		return errors.New("应用正在退出")
+	}
+	if s.loadErr != nil {
+		s.reloadBindingLocked()
 	}
 	if s.loadErr != nil {
 		err := s.loadErr
@@ -375,14 +407,13 @@ func (s *Session) connect(ctx context.Context) error {
 			return nil
 		}
 		// Observe a live owner in place. Restarting it could abandon a dispatched tool.
-		var response struct {
-			Thread nativeThread `json:"thread"`
+		thread, err := readThreadState(ctx, c, id)
+		if err != nil {
+			return errors.New("暂时无法核对发送结果；连接仍可用，将继续核对原请求")
 		}
-		if err := callDecode(ctx, c, "thread/read", map[string]any{"threadId": id, "includeTurns": true}, &response); err != nil || response.Thread.ID != id {
-			return errors.New("暂时无法核对发送结果，请稍后重新连接")
-		}
+
 		s.mu.Lock()
-		for _, turn := range response.Thread.Turns {
+		for _, turn := range thread.Turns {
 			if terminal(turn.Status) {
 				s.applyTurn(turn, true)
 				continue
@@ -529,10 +560,10 @@ func (s *Session) connect(ctx context.Context) error {
 		s.buffer = nil
 		s.bufferBytes = 0
 		s.mu.Unlock()
-		if !s.reconcileRecoveryWorkers(c, epoch) {
-			c.detachForReconnect()
-			return s.connectionError("后台工作订阅尚未确认；原任务已保留", ErrIO)
-		}
+		s.mu.Lock()
+		s.recoverUnresolvedChildren(c, epoch)
+		s.mu.Unlock()
+
 		s.mu.Lock()
 		if s.client != c || s.epoch != epoch || c.Err() != nil {
 			s.mu.Unlock()
@@ -554,15 +585,9 @@ func (s *Session) connect(ctx context.Context) error {
 	if threadID != "" {
 		method = "thread/resume"
 		params["threadId"] = threadID
-		// Probe the optional read interface, not the user's CLI release number.
-		if _, pageErr := readTurnPage(ctx, c, threadID, ""); pageErr == nil {
-			paged = true
-			params["excludeTurns"] = true
-		} else if !unsupportedHistory(pageErr) && !nativeThreadError(pageErr, "thread not loaded: ", threadID) {
-			closeAttempt()
-			return s.connectionError("暂时无法读取最近消息，请重新连接", pageErr)
-		}
+		params["excludeTurns"] = true
 	}
+
 	var response threadExecutionResponse
 	err = callDecode(ctx, c, method, params, &response)
 	// Codex may not persist a thread until its first turn. Only an explicit
@@ -581,20 +606,21 @@ func (s *Session) connect(ctx context.Context) error {
 		return s.connectionError("后端返回了不匹配的对话", ErrProtocol)
 	}
 	var firstPage turnPage
-	if paged {
-		// Read after subscribing so concurrent live events are buffered and replayed.
-		firstPage, err = readTurnPage(ctx, c, threadID, "")
-		if err != nil {
-			closeAttempt()
-			return s.connectionError("暂时无法读取最近消息，请重新连接", err)
+	// Recent messages are optional display sync, never a connection gate.
+	var recentErr error
+	if threadID != "" {
+		var thread nativeThread
+		thread, recentErr = readThreadState(ctx, c, threadID)
+		if recentErr == nil && len(thread.Turns) > 0 {
+			response.Thread.Turns = thread.Turns
 		}
-		response.Thread.Turns = chronological(firstPage.Data)
 	}
+
 	s.mu.Lock()
 	s.resetProjection()
 	s.residentExecution = *response.execution()
 	s.historyPaged, s.historyCursor = paged, firstPage.NextCursor
-	s.state.HasEarlier = firstPage.NextCursor != "" || len(s.binding.PastThreads) > 0
+	s.state.HasEarlier = false
 	s.binding.ThreadID = response.Thread.ID
 	if method == "thread/start" && s.opts.BotTools != nil {
 		s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion
@@ -635,10 +661,14 @@ func (s *Session) connect(ctx context.Context) error {
 	s.update()
 	needsCleanup := len(s.binding.CleanupTargets) > 0
 	s.mu.Unlock()
-	if !s.reconcileRecoveryWorkers(c, epoch) {
-		c.detachForReconnect()
-		return s.connectionError("后台工作订阅尚未确认；原任务已保留", ErrIO)
+	s.mu.Lock()
+	s.recoverUnresolvedChildren(c, epoch)
+	s.residentSyncNeeded = recentErr != nil
+	if recentErr != nil {
+		s.state.Message = "最近消息暂时未同步；连接可用，将自动重试"
 	}
+	s.mu.Unlock()
+
 	if needsCleanup {
 		// Exact cleanup targets fence new input. A definitely-unsent stop
 		// remains explicitly retryable while its original turn is read.
@@ -705,7 +735,13 @@ func (s *Session) connectionError(message string, cause error) error {
 	return errors.New(message) // No native error payloads in Wails logs.
 }
 func callDecode(ctx context.Context, c *Client, method string, params, result any) error {
-	b, err := c.rpc.call(ctx, method, params)
+	request := c.rpc.call
+	// Read cancellation must finish an admitted frame. It cannot corrupt the
+	// shared writer used by approvals, cleanup and the next control request.
+	if strings.HasSuffix(method, "/read") || strings.HasSuffix(method, "/list") || method == "server/diagnostics" {
+		request = c.rpc.observe
+	}
+	b, err := request(ctx, method, params)
 	if err != nil {
 		return err
 	}
@@ -968,9 +1004,15 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	return r, nil
 }
 func (s *Session) Interrupt(ctx context.Context) error {
-	s.op.Lock()
+	ctx, stop := s.operation(ctx, 15*time.Second)
+	defer stop()
+	if err := lockwait.Lock(ctx, &s.op); err != nil {
+		return err
+	}
 	defer s.op.Unlock()
-	s.mu.Lock()
+	if err := lockwait.Lock(ctx, &s.mu); err != nil {
+		return err
+	}
 	retryUnsent := len(s.binding.CleanupTargets) > 0 && s.binding.StopState == "prepared"
 	if len(s.binding.CleanupTargets) > 0 && !retryUnsent {
 		s.mu.Unlock()
@@ -1146,19 +1188,17 @@ func (s *Session) interruptWithStopRecord(ctx context.Context, all, recordStop b
 	defer cancel()
 	for id, run := range targets {
 		if run == "" {
-			var response struct {
-				Thread nativeThread `json:"thread"`
-			}
-			if err := callDecode(ctx, c, "thread/read", map[string]any{"threadId": id, "includeTurns": true}, &response); err != nil || response.Thread.ID != id {
+			thread, err := readThreadState(ctx, c, id)
+			if err != nil {
 				return errors.New("后台工作尚未确认，无法确认停止")
 			}
-			for _, turn := range response.Thread.Turns {
+			for _, turn := range thread.Turns {
 				if turn.Status == "inProgress" {
 					run = turn.ID
 				}
 			}
 			if run == "" {
-				if response.Thread.Status.Type == "active" {
+				if thread.Status.Type == "active" {
 					return errors.New("后台工作正在启动，请稍后重试停止")
 				}
 				s.mu.Lock()
@@ -1347,10 +1387,8 @@ func (s *Session) reconcileTerminalCleanup(ctx context.Context, c *Client) error
 	// A resumed thread may reveal a still running turn after local interruption
 	// events were lost. Never clean terminals before this same-thread read.
 	for _, id := range targets {
-		var observed struct {
-			Thread nativeThread `json:"thread"`
-		}
-		if err := callDecode(ctx, c, "thread/read", map[string]any{"threadId": id, "includeTurns": true}, &observed); err != nil || observed.Thread.ID != id {
+		thread, err := readThreadState(ctx, c, id)
+		if err != nil {
 			if err == nil {
 				err = ErrProtocol
 			}
@@ -1362,7 +1400,7 @@ func (s *Session) reconcileTerminalCleanup(ctx context.Context, c *Client) error
 			return s.cleanupError("read", err)
 		}
 		s.mu.Lock()
-		for _, turn := range observed.Thread.Turns {
+		for _, turn := range thread.Turns {
 			if id == s.binding.ThreadID && turn.ID == s.run && terminal(turn.Status) {
 				s.applyTurn(turn, true)
 			} else if id != s.binding.ThreadID && terminal(turn.Status) {
@@ -1373,7 +1411,7 @@ func (s *Session) reconcileTerminalCleanup(ctx context.Context, c *Client) error
 			}
 		}
 		_, childActive := s.childRuns[id]
-		active := observed.Thread.Status.Type == "active" || id == s.binding.ThreadID && s.run != "" || id != s.binding.ThreadID && childActive
+		active := thread.Status.Type == "active" || id == s.binding.ThreadID && s.run != "" || id != s.binding.ThreadID && childActive
 		s.mu.Unlock()
 		if active {
 			if prepared {

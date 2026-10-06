@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
@@ -20,9 +21,11 @@ type Preferences struct {
 	CustomCommand string `json:"customCommand"`
 }
 type PreferencesStore struct {
-	mu    sync.Mutex
-	path  string
-	value Preferences
+	mu          sync.Mutex
+	path        string
+	value       Preferences
+	unavailable bool
+	retryAt     time.Time
 }
 
 func OpenPreferences(path string) (*PreferencesStore, error) {
@@ -37,6 +40,9 @@ func OpenPreferences(path string) (*PreferencesStore, error) {
 	}
 	return s, nil
 }
+func UnavailablePreferences(path string) *PreferencesStore {
+	return &PreferencesStore{path: path, unavailable: true, value: Preferences{MaxRunning: DefaultMaxRunning, Terminal: "system", Revision: 1}}
+}
 func validPreferences(p Preferences) bool {
 	if p.MaxRunning < 1 || len(p.CustomCommand) > 4096 {
 		return false
@@ -47,7 +53,17 @@ func validPreferences(p Preferences) bool {
 	}
 	return p.Terminal == "system" || p.Terminal == "terminal" || p.Terminal == "iterm2" || p.Terminal == "ghostty"
 }
-func (s *PreferencesStore) Snapshot() Preferences { s.mu.Lock(); defer s.mu.Unlock(); return s.value }
+func (s *PreferencesStore) Snapshot() Preferences {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.unavailable && time.Now().After(s.retryAt) {
+		s.retryAt = time.Now().Add(5 * time.Second)
+		if restored, err := OpenPreferences(s.path); err == nil {
+			s.value, s.unavailable = restored.value, false
+		}
+	}
+	return s.value
+}
 func (s *PreferencesStore) Save(p Preferences) (Preferences, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -62,5 +78,6 @@ func (s *PreferencesStore) Save(p Preferences) (Preferences, error) {
 		return s.value, err
 	}
 	s.value = p
+	s.unavailable = false
 	return p, nil
 }

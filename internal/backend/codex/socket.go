@@ -1,10 +1,9 @@
 package codex
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -50,7 +49,7 @@ type socketConnection struct {
 	ws     *websocket.Conn
 	ctx    context.Context
 	cancel context.CancelFunc
-	buffer []byte
+	frame  io.Reader
 }
 
 func dialExisting(ctx context.Context, path string) (*socketConnection, error) {
@@ -63,7 +62,9 @@ func dialExisting(ctx context.Context, path string) (*socketConnection, error) {
 	}
 	life, cancel := context.WithCancel(context.Background())
 	conn := websocket.NetConn(life, ws, websocket.MessageText)
-	ws.SetReadLimit(8 * 1024 * 1024)
+	// Native tool payload size does not limit Bot availability. Stream frames;
+	// the wire projector discards tool bytes before allocating an envelope.
+	ws.SetReadLimit(-1)
 	return &socketConnection{Conn: conn, ws: ws, ctx: life, cancel: cancel, endpoint: "unix://" + path}, nil
 }
 
@@ -73,8 +74,8 @@ func (s *socketConnection) terminalEndpoint() string { return s.endpoint }
 // delimiter only at this adapter boundary so the existing correlated RPC reader
 // retains its limits and server-request sequencing.
 func (s *socketConnection) Read(b []byte) (int, error) {
-	if len(s.buffer) == 0 {
-		kind, data, err := s.ws.Read(s.ctx)
+	if s.frame == nil {
+		kind, data, err := s.ws.Reader(s.ctx)
 		if err != nil {
 			switch {
 			case errors.Is(err, websocket.ErrMessageTooBig):
@@ -90,16 +91,20 @@ func (s *socketConnection) Read(b []byte) (int, error) {
 		if kind != websocket.MessageText {
 			return 0, ErrProtocol
 		}
-		var compact bytes.Buffer
-		if json.Compact(&compact, data) != nil {
-			return 0, errors.Join(ErrProtocol, ErrJSONDecode)
-		}
-		s.buffer = append(compact.Bytes(), '\n')
+		s.frame = data
 	}
-	n := copy(b, s.buffer)
-	s.buffer = s.buffer[n:]
-	return n, nil
+	n, err := s.frame.Read(b)
+	if errors.Is(err, io.EOF) {
+		s.frame = nil
+		if n == 0 {
+			b[0] = '\n'
+			return 1, nil
+		}
+		return n, nil
+	}
+	return n, err
 }
+func (s *socketConnection) framedJSON() {}
 func (s *socketConnection) Close() error {
 	s.cancel()
 	_ = s.ws.CloseNow()

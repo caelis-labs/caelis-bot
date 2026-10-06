@@ -67,7 +67,7 @@ func (s *Session) trackWorkerActivity(item nativeItem) {
 
 // One subscribe/reconciliation request per owned thread and connection. A
 // terminal, idle worker later relinquishes only this connection's subscription.
-const workerUnconfirmed = "后台工作的状态尚未确认，请重新连接核对"
+const workerUnconfirmed = "后台工作状态暂未确认，将自动核对；连接仍可用"
 
 func (s *Session) watchChild(c *Client, epoch uint64, id string) bool {
 	if c == nil {
@@ -79,10 +79,11 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) bool {
 		return false
 	}
 	revision := s.childRevision[id]
-	params := map[string]any{"threadId": id}
+	params := map[string]any{"threadId": id, "excludeTurns": true}
 	if task := s.taskByThread(id); task != nil {
 		params = s.workerParams(task.View.Workspace, task.Instructions, task)
 		params["threadId"] = id
+		params["excludeTurns"] = true
 	}
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(s.life, 10*time.Second)
@@ -91,6 +92,11 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) bool {
 		Thread nativeThread `json:"thread"`
 	}
 	err := callDecode(ctx, c, "thread/resume", params, &response)
+	if err == nil && response.Thread.ID == id {
+		if recent, readErr := readThreadState(ctx, c, id); readErr == nil {
+			response.Thread = recent
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.client != c || s.epoch != epoch || s.closed {
@@ -101,17 +107,22 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) bool {
 			err = ErrProtocol
 		}
 		delete(s.childWatching, id)
+		s.childObservationFailed[id] = true
+		if s.run == "" && terminal(s.runs[s.lastTurn]) {
+			s.state.Phase = s.runs[s.lastTurn]
+		}
 		if task := s.taskByThread(id); task != nil {
 			task.View.Status = "unknown"
 			_ = s.save()
 		} else {
-			s.state.Phase, s.state.Message = "unknown", workerUnconfirmed
+			s.state.Message = workerUnconfirmed
 		}
 		s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "worker_subscription_failed", Method: "thread/resume", Thread: id, Reason: diagnosticlog.Reason(err.Error()), Fingerprint: diagnosticlog.Fingerprint([]byte(err.Error()))})
 		s.update()
 		return false
 	}
 	s.childSubscribed[id] = true
+	delete(s.childObservationFailed, id)
 	delete(s.childRetired, id)
 	// Live notifications that arrived during resume supersede its snapshot.
 	if revision != s.childRevision[id] {
@@ -218,7 +229,7 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 			if task := s.taskByThread(thread); task != nil {
 				task.View.Status = "unknown"
 			} else {
-				s.state.Phase, s.state.Message = "unknown", workerUnconfirmed
+				s.state.Message = workerUnconfirmed
 			}
 		}
 		return
@@ -313,7 +324,7 @@ func (s *Session) ConfigureBotTools(config *api.ToolConnection) error {
 	}
 	s.opts.BotTools = config.Clone()
 	for _, t := range s.binding.Tasks {
-		if t.Instructions == "" {
+		if t != nil && t.Instructions == "" {
 			t.Instructions = config.WorkerInstructions
 		}
 	}

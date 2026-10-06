@@ -12,12 +12,14 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 type Options struct {
@@ -35,6 +37,8 @@ type Options struct {
 	ReviewerModel string
 }
 type Session struct {
+	cached                atomic.Pointer[api.Snapshot]
+	cachedRecovery        atomic.Pointer[api.RecoveryState]
 	retainedWorkers       bool
 	sendingScheduled      string
 	scheduledPreviousTurn string
@@ -82,13 +86,19 @@ func New(opts Options) *Session {
 	if opts.ToolsOnly {
 		mode = "tools-only"
 	}
-	return &Session{requireApproval: opts.RequireApproval, reviewerModel: opts.ReviewerModel, diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1), recoveryInstance: rand.Text()}
+	s := &Session{requireApproval: opts.RequireApproval, reviewerModel: opts.ReviewerModel, diagnostics: opts.Diagnostics, path: p, settings: opts.Settings, execution: opts.Execution, workExecution: opts.WorkExecution, executionMode: mode, state: b, loadErr: e, revision: 1, changed: make(chan struct{}), streams: map[string]bool{}, wake: make(chan struct{}, 1), recoveryInstance: rand.Text()}
+	s.bumpLocked()
+	return s
 }
 func (*Session) ProviderInfo() api.ProviderInfo {
 	return api.ProviderInfo{ID: "caelis", Name: "Caelis", ConnectionKind: "local-host", HelpURL: "https://caelis.dev", ConnectionHint: "使用本机 Caelis；安装与模型凭据由运行时管理。"}
 }
 func (s *Session) Connect(ctx context.Context) error {
-	s.step.Lock()
+	ctx, stop := context.WithTimeout(ctx, 30*time.Second)
+	defer stop()
+	if err := lockwait.Lock(ctx, &s.step); err != nil {
+		return err
+	}
 	defer s.step.Unlock()
 	s.mu.Lock()
 	s.recoveryGeneration++
@@ -101,14 +111,8 @@ func (s *Session) Connect(ctx context.Context) error {
 		return nil
 	}
 	s.mu.Unlock()
-	if s.loadErr != nil {
-		return s.fail(s.loadErr)
-	}
 	if s.tools == nil {
 		return s.fail(errors.New("应用工具尚未配置"))
-	}
-	if e := s.connect(ctx); e != nil {
-		return s.fail(e)
 	}
 	s.mu.Lock()
 	if s.cancel == nil {
@@ -120,6 +124,14 @@ func (s *Session) Connect(ctx context.Context) error {
 			go s.callLoop(s.ctx)
 		}
 	}
+	s.mu.Unlock()
+	if e := s.reloadOriginal(); e != nil {
+		return s.fail(e)
+	}
+	if e := s.connect(ctx); e != nil {
+		return s.fail(e)
+	}
+	s.mu.Lock()
 	s.connected = true
 	s.issue = ""
 	s.bumpLocked()
@@ -127,14 +139,35 @@ func (s *Session) Connect(ctx context.Context) error {
 	return nil
 }
 
+func (s *Session) reloadOriginal() error {
+	if s.loadErr == nil {
+		return nil
+	}
+	if _, err := os.Stat(s.path); err != nil {
+		return s.loadErr
+	}
+	restored, err := loadBinding(s.path)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.state, s.loadErr = restored, nil
+	s.mu.Unlock()
+	return nil
+}
+
 func (s *Session) RecoveryState() api.RecoveryState {
+	if state := s.cachedRecovery.Load(); state != nil {
+		return *state
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return api.RecoveryState{
-		Fence:  fmt.Sprintf("caelis:%s:%d", s.recoveryInstance, s.recoveryGeneration),
-		Manual: s.recoveryGeneration > 0 && !s.connected && !s.closed,
-	}
+	return s.recoveryLocked()
 }
+func (s *Session) recoveryLocked() api.RecoveryState {
+	return api.RecoveryState{Fence: fmt.Sprintf("caelis:%s:%d", s.recoveryInstance, s.recoveryGeneration), Manual: s.recoveryGeneration > 0 && !s.connected && !s.closed}
+}
+
 func (s *Session) fail(e error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -369,8 +402,16 @@ func (s *Session) Close(ctx context.Context) error {
 	}
 	s.bumpLocked()
 	s.mu.Unlock()
-	s.wg.Wait()
-	s.step.Lock()
+	done := make(chan struct{})
+	go func() { s.wg.Wait(); close(done) }()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-done:
+	}
+	if err := lockwait.Lock(ctx, &s.step); err != nil {
+		return err
+	}
 	defer s.step.Unlock()
 	if s.client != nil {
 		s.client.http.CloseIdleConnections()

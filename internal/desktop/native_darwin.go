@@ -150,8 +150,10 @@ func (d *macDriver) capturePreferences(include bool) {
 }
 func (d *macDriver) captureEnabled(enabled bool) {
 	value := C.int(0)
-	if enabled { value = 1 }
-	application.InvokeSync(func() { C.bot_capture_enabled(d.pointer,value) })
+	if enabled {
+		value = 1
+	}
+	application.InvokeSync(func() { C.bot_capture_enabled(d.pointer, value) })
 }
 func (d *macDriver) copyCaptureImage(data []byte) bool {
 	if len(data) == 0 || len(data) > 8<<20 {

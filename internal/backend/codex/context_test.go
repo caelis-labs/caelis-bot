@@ -181,36 +181,24 @@ func TestDreamCancelTargetsOnlyMaintenanceTurn(t *testing.T) {
 	delete(s.childRuns, "worker") // fixture teardown owns only its normal thread.
 }
 
-func TestEarlierHistoryCrossesSessionWithoutReplayingLifecycle(t *testing.T) {
+func TestLocalHistoryDoesNotTraversePastRuntimeSessions(t *testing.T) {
 	s, f := sessionPair(t, "normal")
 	s.mu.Lock()
 	s.binding.PastThreads = []string{"past-thread"}
-	s.binding.ContextInputs = map[string]int{"past-input": len("saved context\n")}
-	s.historyPrevious, s.historyThread = 0, s.binding.ThreadID
 	s.lastTurn = "current-turn"
 	s.runs["current-turn"] = "completed"
+	s.update()
 	s.mu.Unlock()
 	f.mu.Lock()
-	f.handle = func(m wireMessage) (any, bool) {
-		if m.Method != "thread/turns/list" {
-			return nil, false
-		}
-		var p struct {
-			Thread string `json:"threadId"`
-		}
-		json.Unmarshal(m.Params, &p)
-		if p.Thread != "past-thread" {
-			t.Error("wrong history target", p.Thread)
-		}
-		return turnPage{Data: []nativeTurn{{ID: "past-turn", Status: "completed", Items: []nativeItem{{ID: "old-message", Type: "userMessage", ClientID: "past-input", Content: []nativeInput{{Type: "text", Text: "saved context\nprevious topic"}}}}}}}, true
-	}
+	calls := len(f.pageCalls)
 	f.mu.Unlock()
 	if err := s.LoadEarlier(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	v := s.Snapshot()
-	if len(v.Items) != 1 || v.Items[0].Text != "previous topic" || v.HasEarlier || !v.CanSend || s.ConversationState().Turn != "current-turn" {
-		t.Fatal("history corrupted current conversation", v)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.pageCalls) != calls || s.ConversationState().Turn != "current-turn" {
+		t.Fatal("IM history affected native session")
 	}
 }
 

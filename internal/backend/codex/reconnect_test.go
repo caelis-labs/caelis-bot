@@ -292,7 +292,7 @@ func TestResourceExhaustionStopsRetryAndPreservesOriginalOwner(t *testing.T) {
 	}
 }
 
-func TestSubscriptionFailureNeverReportsReadyOrCompletesUnknownTask(t *testing.T) {
+func TestSubscriptionFailureKeepsResidentReadyAndOriginalTaskUnknown(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	s.reconnectDelay = func(int) time.Duration { return time.Millisecond }
 	worker := nativeThread{ID: "worker-original", Turns: []nativeTurn{{ID: "run-original", Status: "inProgress"}}}
@@ -323,7 +323,7 @@ func TestSubscriptionFailureNeverReportsReadyOrCompletesUnknownTask(t *testing.T
 	f.peer.Close()
 	f.mu.Unlock()
 	awaitState(t, s, func(v api.Snapshot) bool {
-		return v.Connection == "offline" && s.DiagnosticStatus()["autoReconnectActive"] == false && s.DiagnosticStatus()["autoReconnectAttempts"] == maxAutoReconnectAttempts
+		return v.Connection == "ready" && s.DiagnosticStatus()["autoReconnectActive"] == false
 	})
 	s.mu.Lock()
 	task := s.binding.Tasks["task-original"]

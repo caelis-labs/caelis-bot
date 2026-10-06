@@ -50,6 +50,7 @@ func (s *Service) FinishPermissionGuide() error {
 	s.permissionGuide.Seen = true
 	return nil
 }
+
 // Existing installations completed the old combined guide. Only a genuinely
 // pending first-run flow needs the new independent feature step.
 func (s *Service) configureFeatureGuide(file string) {

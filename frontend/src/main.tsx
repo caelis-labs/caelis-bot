@@ -6,18 +6,25 @@ import { desktop } from './desktop';
 import { Panel, History } from './Panel';
 import { Bubble } from './Bubble';
 import { Settings } from './Settings';
+import { SurfaceBoundary } from './SurfaceBoundary';
 
 function Pet() {
   const { t } = useI18n();
   const canvas = useRef<HTMLCanvasElement>(null);
   const [scale, setScale] = useState(window.innerWidth / 180);
   const [failed, setFailed] = useState(false);
+	const [assetAttempt, setAssetAttempt] = useState(0);
+	useEffect(()=>{
+		if(!failed)return;
+		const timer=window.setTimeout(()=>{setFailed(false);setAssetAttempt(n=>n+1);},Math.min(30000,3000*2**Math.min(assetAttempt,4)));
+		return()=>window.clearTimeout(timer);
+	},[failed,assetAttempt]);
   const [dreaming,setDreaming]=useState(false);
   useEffect(()=>{
     let events=0,stopped=false;
     const change=(e:Event)=>{events++;setDreaming((e as CustomEvent<string>).detail==='dreaming');};
     window.addEventListener('pet-activity',change);
-    void desktop<string>('CharacterActivity').then(value=>{if(!stopped&&!events)setDreaming(value==='dreaming');});
+    void desktop<string>('CharacterActivity').then(value=>{if(!stopped&&!events)setDreaming(value==='dreaming');}).catch(()=>{});
     return()=>{stopped=true;window.removeEventListener('pet-activity',change);};
   },[]);
   useEffect(() => {
@@ -26,7 +33,7 @@ function Pet() {
     let dispose: (() => void) | undefined, stopped=false;
     void import('./character/pet').then(({mountPet})=>{if(!stopped)dispose=mountPet(canvas.current!,()=>setFailed(true));}).catch(()=>{if(!stopped)setFailed(true);});
     return () => { stopped=true;dispose?.(); window.removeEventListener('resize', resize); };
-  }, []);
+  }, [assetAttempt]);
   return <main className="pet-stage" style={{ transform: `scale(${scale})` }}>
     <canvas ref={canvas} width="180" height="240" aria-hidden="true" />
     {dreaming&&<span className="pet-dream" role="status" aria-label={t('chat.dreaming')} title={t('chat.dreamHint')}>zzz</span>}
@@ -44,4 +51,4 @@ function Prop() {
 }
 const surface = new URLSearchParams(location.search).get('surface');
 document.body.dataset.surface = surface ?? 'pet';
-createRoot(document.getElementById('root')!).render(<I18nProvider>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'panel' ? <Panel /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <Settings /> : <Pet />}</React.StrictMode>}</I18nProvider>);
+createRoot(document.getElementById('root')!).render(<I18nProvider><SurfaceBoundary>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'panel' ? <Panel /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <Settings /> : <Pet />}</React.StrictMode>}</SurfaceBoundary></I18nProvider>);

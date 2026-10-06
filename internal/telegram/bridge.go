@@ -65,7 +65,8 @@ type document struct {
 	UserID       int64               `json:"userId"`
 	Owner        string              `json:"owner"`
 	Offset       int                 `json:"offset"`
-	Inputs       map[string]string   `json:"inputs"` // Original stable request and native receipt outcome only.
+	Ingress      []tg.Update         `json:"ingress,omitempty"` // Durable receive queue, independent of Runtime dispatch.
+	Inputs       map[string]string   `json:"inputs"`            // Original stable request and native receipt outcome only.
 	PendingFiles map[string]string   `json:"pendingFiles,omitempty"`
 	Messages     map[string]delivery `json:"messages"` // Telegram IDs and digests, never transcript text.
 }
@@ -76,6 +77,7 @@ type Bridge struct {
 	host                Host
 	state               document
 	issue               string
+	loadErr             error
 	candidate           *tg.Message
 	nonce               string
 	expires             time.Time
@@ -97,23 +99,37 @@ func Open(root string, host Host) (*Bridge, error) {
 	b := &Bridge{path: filepath.Join(root, "telegram.json"), root: filepath.Join(root, "Telegram"), account: digest(root), host: host, newClient: newClient, recoveryNonce: rand.Text(),
 		secrets: secretstore.Functions{SaveFunc: saveSecret, LoadFunc: loadSecret, DeleteFunc: deleteSecret}}
 	b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
-	data, e := os.ReadFile(b.path)
+	f, e := os.Open(b.path)
 	if e != nil && !errors.Is(e, os.ErrNotExist) {
-		return nil, errors.New("telegram_state_unavailable")
+		b.loadErr = errors.New("telegram_state_unavailable")
 	}
-	if e == nil && (len(data) > 8<<20 || json.Unmarshal(data, &b.state) != nil || b.state.Version != 1 || b.state.Inputs == nil || b.state.Messages == nil) {
-		return nil, errors.New("telegram_state_unavailable")
+	if e == nil {
+		decoder := json.NewDecoder(f)
+		if decoder.Decode(&b.state) != nil || decoder.Decode(new(any)) != io.EOF || b.state.Version != 1 || b.state.Inputs == nil || b.state.Messages == nil {
+			b.loadErr = errors.New("telegram_state_unavailable")
+		}
+		_ = f.Close()
+	}
+	if b.loadErr != nil {
+		b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
+		b.issue = "storage"
 	}
 	if b.state.PendingFiles == nil {
 		b.state.PendingFiles = map[string]string{}
 	}
-	return b, nil
+	return b, b.loadErr
 }
 func digest(s string) string { v := sha256.Sum256([]byte(s)); return hex.EncodeToString(v[:]) }
 func (b *Bridge) saveLocked() error {
+	if b.loadErr != nil {
+		return b.loadErr
+	}
 	if e := localstate.Write(b.path, b.state); e != nil {
 		b.issue = "storage"
 		return errors.New("storage")
+	}
+	if b.issue == "storage" {
+		b.issue = ""
 	}
 	return nil
 }
@@ -146,7 +162,21 @@ func (b *Bridge) Start() {
 	b.configMu.Lock()
 	defer b.configMu.Unlock()
 	b.mu.Lock()
-	enabled := b.state.Enabled
+	if b.loadErr != nil {
+		_, exists := os.Stat(b.path)
+		restored, err := Open(filepath.Dir(b.path), b.host)
+		if exists == nil && err == nil {
+			b.state, b.loadErr, b.issue = restored.state, nil, ""
+		}
+	}
+	enabled := b.state.Enabled && !b.closed
+	if enabled && b.done != nil {
+		select {
+		case <-b.done:
+		default:
+			enabled = false
+		}
+	}
 	b.mu.Unlock()
 	if enabled {
 		b.resume()
@@ -480,12 +510,6 @@ type pollResult struct {
 func (b *Bridge) run(ctx context.Context, c client) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	// Keep queued input at Telegram until an initial connection either recovers
-	// its private history boundary or settles offline. Once offline, poll control
-	// actions so the owner can request a bounded reconnect.
-	if !b.waitPollBoundary(ctx) {
-		return
-	}
 	poll := make(chan pollResult)
 	b.mu.Lock()
 	offset := b.state.Offset
@@ -518,11 +542,18 @@ func (b *Bridge) run(ctx context.Context, c client) {
 		defer close(typingDone)
 		b.typing(ctx, c)
 	}()
+	queueDone := make(chan struct{})
+	var queueWorkers sync.WaitGroup
+	for _, kind := range []int{0, 1, 2} {
+		queueWorkers.Go(func() { b.processIngress(ctx, c, kind) })
+	}
+	go func() { queueWorkers.Wait(); close(queueDone) }()
 	defer func() {
 		cancel()
 		<-pollDone
 		<-outputDone
 		<-typingDone
+		<-queueDone
 		b.recoveryWait.Wait()
 	}()
 	for {
@@ -546,33 +577,49 @@ func (b *Bridge) run(ctx context.Context, c client) {
 				r.ack <- offset
 				continue
 			}
+			// Acknowledge receipt before any disk or native admission wait. This
+			// neutral callback answer grants no authority and sends no native effect.
 			for _, u := range r.updates {
-				if ctx.Err() != nil {
-					return
-				}
-				for {
-					ok, deferred := b.inputResult(ctx, c, u)
-					if !ok {
-						return
-					}
-					if !deferred {
-						break
-					}
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(100 * time.Millisecond):
-					}
-				}
-				offset = u.UpdateID + 1 // Telegram can randomize the sequence after a quiet week.
-				b.mu.Lock()
-				b.state.Offset = offset
-				e := b.saveLocked()
-				b.mu.Unlock()
-				if e != nil {
-					return
+				if u.CallbackQuery != nil {
+					b.answer(ctx, c, u.CallbackQuery.ID, b.text("Received; checking this action.", "已收到，正在核对此操作。"))
 				}
 			}
+			b.mu.Lock()
+			seen := map[int]bool{}
+			for _, u := range b.state.Ingress {
+				seen[u.UpdateID] = true
+			}
+			next := offset
+			for _, u := range r.updates {
+				if !seen[u.UpdateID] {
+					b.state.Ingress = append(b.state.Ingress, u)
+					seen[u.UpdateID] = true
+				}
+				next = u.UpdateID + 1
+			}
+			prior := b.state.Offset
+			b.state.Offset = next
+			err := b.saveLocked()
+			if err != nil {
+				b.state.Offset = prior
+			} else {
+				offset = next
+			}
+			b.mu.Unlock()
+			if err != nil {
+				// Keep polling/control feedback alive without acknowledging lost input.
+				for _, u := range r.updates {
+					if u.CallbackQuery != nil {
+						b.answer(ctx, c, u.CallbackQuery.ID, b.text("Storage is temporarily unavailable; this action was not sent. It will be checked again.", "本地存储暂时不可用；此操作尚未发送，将继续核对。"))
+					}
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
+			}
+
 			b.mu.Lock()
 			if b.issue == "network" {
 				b.issue = ""
@@ -705,7 +752,8 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	var ingressFence string
 	if command != "/start" && command != "/stop" && command != "/status" {
 		state := b.recoveryState()
-		if state.Automatic || state.InProgress {
+		connecting := b.host.Snapshot != nil && b.host.Snapshot().Connection == "connecting"
+		if state.Automatic || state.InProgress || connecting {
 			return true, true
 		}
 		ingressFence = state.Fence
@@ -720,6 +768,12 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		// Record its Telegram origin before dispatch so it cannot echo back as Mac input.
 		b.state.Messages["input:"+request] = delivery{Skip: true}
 		if b.saveLocked() != nil {
+			if previous == "" {
+				delete(b.state.Inputs, request)
+			} else {
+				b.state.Inputs[request] = previous
+			}
+			delete(b.state.Messages, "input:"+request)
 			b.mu.Unlock()
 			return false, false
 		}
@@ -733,25 +787,44 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	case "/start":
 		_, _ = c.Send(ctx, chat, plainText(b.text("Connected. Send a message or file. /stop stops work; /status checks it.", "已连接。直接发送消息或文件即可。/stop 停止工作，/status 查看状态。")), nil)
 	case "/stop":
-		if b.host.Interrupt(ctx) != nil {
-			_, _ = c.Send(ctx, chat, plainText(b.text("Could not stop work. Check Caelis Bot on your Mac.", "未能停止，请在 Mac 的 Caelis Bot 中查看。")), nil)
-		}
+		b.recoveryWait.Add(1)
+		go func() {
+			defer b.recoveryWait.Done()
+			work, stop := context.WithTimeout(ctx, 25*time.Second)
+			defer stop()
+			err := b.host.Interrupt(work)
+			text := b.text("Stop requested. Checking the original work.", "停止请求已提交，正在核对原工作。")
+			outcome := "handled"
+			if err != nil {
+				outcome = "unknown"
+				text = b.text("Stop could not be confirmed yet. Bot is online; check the original work with /status.", "停止结果暂未确认。Bot 在线，请用 /status 核对原工作。")
+			}
+			b.mu.Lock()
+			b.state.Inputs[request] = outcome
+			_ = b.saveLocked()
+			b.mu.Unlock()
+			feedback, finish := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			defer finish()
+			_, _ = c.Send(feedback, chat, plainText(text), nil)
+		}()
+		return true, false
 	case "/status":
 		s := b.host.Snapshot()
-		if state := b.recoveryState(); state.Manual {
-			b.mirrorRecovery(ctx, c, s)
-		} else {
-			text := b.text("Telegram is connected; the local Runtime is connecting.", "Telegram 已连接，本机 Runtime 正在连接。")
-			if ready(s) && !state.Automatic && !state.InProgress {
-				text = b.text("Caelis Bot is online.", "Caelis Bot 在线。")
-				if s.Phase == "working" || s.Phase == "sending" {
-					text = b.text("Caelis Bot is working.", "Caelis Bot 正在工作。")
-				}
-			} else if !state.Automatic && !state.InProgress {
-				text = b.text("Telegram is connected; the local Runtime is offline. Check Caelis Bot on your Mac.", "Telegram 已连接，本机 Runtime 离线；请在 Mac 的 Caelis Bot 中查看。")
+		state := b.recoveryState()
+		text := b.text("Caelis Bot is online; the Runtime is connecting.", "Caelis Bot 在线，Runtime 正在连接。")
+		if ready(s) && !state.Automatic && !state.InProgress {
+			text = b.text("Caelis Bot is online.", "Caelis Bot 在线。")
+			if s.Phase == "working" || s.Phase == "sending" {
+				text = b.text("Caelis Bot is online and working.", "Caelis Bot 在线，正在工作。")
 			}
-			_, _ = c.Send(ctx, chat, plainText(text), nil)
+		} else if !state.Automatic && !state.InProgress {
+			text = b.text("Caelis Bot is online; the Runtime is temporarily offline. Recovery remains available.", "Caelis Bot 在线，Runtime 暂时离线；可以继续恢复连接。")
 		}
+		_, _ = c.Send(ctx, chat, plainText(text), nil)
+		if state.Manual {
+			b.mirrorRecovery(ctx, c, s)
+		}
+
 	default:
 		if !b.ensureBaseline(b.host.Snapshot()) {
 			outcome = "rejected"
@@ -1014,7 +1087,7 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 	}
 	snapshot := b.host.Snapshot()
 	if !ready(snapshot) {
-		_ = c.Answer(ctx, q.ID, b.text("The Runtime is not ready. Check the original request on your Mac.", "Runtime 尚未就绪，请在 Mac 核对原请求。"))
+		b.answer(ctx, c, q.ID, b.text("The Runtime is not ready. Check the original request on your Mac.", "Runtime 尚未就绪，请在 Mac 核对原请求。"))
 		return true
 	}
 	for _, a := range snapshot.Approvals {
@@ -1035,32 +1108,42 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 				if fromButton && !used {
 					b.state.Inputs[key] = "dispatching"
 					if b.saveLocked() != nil {
+						delete(b.state.Inputs, key)
 						b.mu.Unlock()
+						b.answer(ctx, c, q.ID, b.text("Storage is unavailable; the decision was not sent. Retry shortly.", "本地存储暂时不可用，审批尚未发送；请稍后重试。"))
 						return false
 					}
 				}
 				b.mu.Unlock()
 				if used || !fromButton {
-					_ = c.Answer(ctx, q.ID, b.text("This request has changed. Check your Mac.", "此请求已变化，请在 Mac 查看。"))
+					b.answer(ctx, c, q.ID, b.text("This request has changed. Check your Mac.", "此请求已变化，请在 Mac 查看。"))
 					return true
 				}
-				e := b.host.Decide(ctx, api.Decision{ID: a.ID, Choice: choice.ID})
-				notice := b.text("Submitted; waiting for the Runtime result.", "已提交，等待 Runtime 确认结果。")
-				outcome := "handled"
-				if e != nil {
-					notice = b.text("Check this request on your Mac.", "请在 Mac 查看此请求。")
-					outcome = "unknown"
-				}
-				_ = c.Answer(ctx, q.ID, notice)
-				b.mu.Lock()
-				b.state.Inputs[key] = outcome
-				e = b.saveLocked()
-				b.mu.Unlock()
-				return e == nil
+				b.answer(ctx, c, q.ID, b.text("Received; checking the Runtime result.", "已收到，正在核对 Runtime 审批结果。"))
+				b.recoveryWait.Add(1)
+				go func() {
+					defer b.recoveryWait.Done()
+					work, stop := context.WithTimeout(ctx, 16*time.Second)
+					defer stop()
+					err := b.host.Decide(work, api.Decision{ID: a.ID, Choice: choice.ID})
+					outcome := "handled"
+					if err != nil {
+						outcome = "unknown"
+					}
+					b.mu.Lock()
+					b.state.Inputs[key] = outcome
+					_ = b.saveLocked()
+					b.mu.Unlock()
+					feedback, finish := context.WithTimeout(ctx, 3*time.Second)
+					defer finish()
+					b.mirror(feedback, c, b.host.Snapshot())
+				}()
+				return true
+
 			}
 		}
 	}
-	_ = c.Answer(ctx, q.ID, b.text("This request has changed. Check your Mac.", "此请求已变化，请在 Mac 查看。"))
+	b.answer(ctx, c, q.ID, b.text("This request has changed. Check your Mac.", "此请求已变化，请在 Mac 查看。"))
 	return true
 }
 func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
@@ -1163,6 +1246,7 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		}
 		b.mu.Lock()
 		closed := b.state.Messages["approval:"+a.ID].Closed
+		decision := b.state.Inputs["approval-decision:"+a.ID]
 		b.mu.Unlock()
 		if closed {
 			continue // A terminal fence cannot be reopened by stale recovery state.
@@ -1172,7 +1256,13 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 			text = b.text("Decision needed.", "需要决定。")
 		}
 		var keys *tg.InlineKeyboardMarkup
-		if a.Status == "pending" && len(a.Questions) == 0 && a.URL == "" && len(a.Choices) > 0 {
+		if a.Status == "pending" && decision != "" {
+			if decision == "unknown" {
+				text += "\n" + b.text("The decision result is uncertain. The original request is retained; check /status.", "审批结果暂未确认，原请求已保留；请查看 /status。")
+			} else {
+				text += "\n" + b.text("Submitted; waiting for the Runtime result.", "已提交，等待 Runtime 确认结果。")
+			}
+		} else if a.Status == "pending" && len(a.Questions) == 0 && a.URL == "" && len(a.Choices) > 0 {
 			var valid bool
 			keys, valid = b.approvalKeyboard(a)
 			if !valid {
@@ -1396,7 +1486,18 @@ func (b *Bridge) sendText(ctx context.Context, c client, key string, chat int64,
 }
 
 func (b *Bridge) sendRenderedText(ctx context.Context, c client, key string, chat int64, messages, legacy []outgoingText, keys *tg.InlineKeyboardMarkup) {
-	if b.backingOff() {
+	b.sendRenderedTextPriority(ctx, c, key, chat, messages, legacy, keys, false)
+}
+func (b *Bridge) sendCriticalText(ctx context.Context, c client, key string, chat int64, text string, keys *tg.InlineKeyboardMarkup) {
+	parts := splitText(text)
+	messages := make([]outgoingText, len(parts))
+	for i, part := range parts {
+		messages[i] = plainText(part)
+	}
+	b.sendRenderedTextPriority(ctx, c, key, chat, messages, nil, keys, true)
+}
+func (b *Bridge) sendRenderedTextPriority(ctx context.Context, c client, key string, chat int64, messages, legacy []outgoingText, keys *tg.InlineKeyboardMarkup, priority bool) {
+	if !priority && b.backingOff() {
 		return
 	}
 	// An unchanged pre-role delivery must stay in place on upgrade/reconnect.
@@ -1499,7 +1600,9 @@ func (b *Bridge) sendRenderedText(ctx context.Context, c client, key string, cha
 			} else {
 				b.issue = "delivery_uncertain"
 				if id > 0 {
-					record.Skip = true // Unknown edit must not be sent again.
+					// Updating the same original message is idempotent display work.
+					// Retry it locally; never turn it into a new Send or native decision.
+					b.retryUntil = time.Now().Add(2 * time.Second)
 				}
 			}
 		}

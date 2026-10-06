@@ -31,6 +31,7 @@ func (s *Service) CanDetachForUpdate() error {
 }
 
 func (s *Service) ShutdownForUpdate() error {
+	defer s.chat.Close()
 	if err := s.CanDetachForUpdate(); err != nil {
 		return err
 	}

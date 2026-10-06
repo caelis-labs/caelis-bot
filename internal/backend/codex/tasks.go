@@ -41,6 +41,7 @@ type taskReceipt struct {
 	PriorRun        string `json:"priorRun,omitempty"`
 	PriorResult     string `json:"priorResult,omitempty"`
 	PriorSuppressed bool   `json:"priorSuppressed,omitempty"`
+	Phase           string `json:"phase,omitempty"`
 }
 
 func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
@@ -67,7 +68,7 @@ func (s *Session) workerParams(workspace, instructions string, t *taskRecord) ma
 
 func (s *Session) taskByThread(id string) *taskRecord {
 	for _, t := range s.binding.Tasks {
-		if t.Thread == id && id != "" {
+		if t != nil && t.Thread == id && id != "" {
 			return t
 		}
 	}
@@ -75,7 +76,7 @@ func (s *Session) taskByThread(id string) *taskRecord {
 }
 func (s *Session) hasBlockingChildren() bool {
 	for id := range s.childRuns {
-		if s.taskByThread(id) == nil {
+		if s.taskByThread(id) == nil && !s.childObservationFailed[id] {
 			return true
 		}
 	}
@@ -344,7 +345,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	}
 	previousView, previousRun, previousPending, previousSuppression := t.View, t.Run, t.Pending, t.SuppressReport
 	previousSuperseded := append([]string(nil), t.SupersededRuns...)
-	t.Requests[in.RequestID] = taskReceipt{Fingerprint: opaque(in.Prompt), Outcome: "unknown", PriorStatus: t.View.Status, PriorRun: t.Run, PriorResult: t.View.Result, PriorSuppressed: t.SuppressReport}
+	t.Requests[in.RequestID] = taskReceipt{Fingerprint: opaque(in.Prompt), Outcome: "unknown", Phase: "prepared", PriorStatus: t.View.Status, PriorRun: t.Run, PriorResult: t.View.Result, PriorSuppressed: t.SuppressReport}
 	t.Pending = in.RequestID
 	t.SuppressReport = false
 	if !wasActive {
@@ -370,12 +371,13 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 	if resume && !wasActive {
 		p := s.workerParams(t.View.Workspace, t.Instructions, t)
 		p["threadId"] = t.Thread
+		p["excludeTurns"] = true
 		var response threadExecutionResponse
 		if err := callDecode(ctx, c, "thread/resume", p, &response); err != nil || response.Thread.ID != t.Thread || response.Model == "" {
 			if err == nil {
 				err = ErrProtocol
 			}
-			return s.taskSendResult(t, in.RequestID, nativeTurn{}, err)
+			return s.taskSendResult(t, in.RequestID, nativeTurn{}, &RequestError{Method: "turn/start", OutcomeUnknown: false, Cause: err})
 		}
 		s.mu.Lock()
 		s.childWatching[t.Thread] = true
@@ -386,8 +388,17 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		err := s.save()
 		s.mu.Unlock()
 		if err != nil {
-			return s.taskSendResult(t, in.RequestID, nativeTurn{}, err)
+			return s.taskSendResult(t, in.RequestID, nativeTurn{}, &RequestError{Method: "turn/start", OutcomeUnknown: false, Cause: err})
 		}
+	}
+	s.mu.Lock()
+	record := t.Requests[in.RequestID]
+	record.Phase = "dispatching"
+	t.Requests[in.RequestID] = record
+	phaseErr := s.save()
+	s.mu.Unlock()
+	if phaseErr != nil {
+		return s.taskSendResult(t, in.RequestID, nativeTurn{}, &RequestError{Method: "turn/start", Cause: phaseErr})
 	}
 	method := "turn/start"
 	if wasActive {
@@ -421,6 +432,7 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	r := t.Requests[request]
 	if err == nil {
 		r.Outcome = "accepted"
+		r.Phase = "settled"
 		t.Pending = ""
 		// The native acceptance has settled this exact request before the
 		// returned turn is projected; keep the unknown guard for other requests.
@@ -438,6 +450,7 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 		}
 	} else if definiteTaskRejection(err) {
 		r.Outcome = "rejected"
+		r.Phase = "settled"
 		t.Pending = ""
 		if t.Run == "" || t.Run == r.PriorRun {
 			t.View.Status, t.View.Result, t.Run, t.SuppressReport = r.PriorStatus, r.PriorResult, r.PriorRun, r.PriorSuppressed
@@ -478,6 +491,7 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 			if r, ok := t.Requests[item.ClientID]; ok {
 				changed = changed || r.Outcome != "accepted"
 				r.Outcome = "accepted"
+				r.Phase = "settled"
 				t.Requests[item.ClientID] = r
 				if item.ClientID == t.Pending {
 					t.Pending = ""
@@ -532,6 +546,24 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 	}
 	return
 }
+
+// A prepared receipt was durably recorded before any native send was admitted.
+// Crashes here can settle as unsent. Legacy/dispatching receipts remain unknown.
+func settlePreparedTask(t *taskRecord) {
+	if t == nil || t.Pending == "" {
+		return
+	}
+	r, ok := t.Requests[t.Pending]
+	if !ok || r.Phase != "prepared" || r.Outcome != "unknown" {
+		return
+	}
+	r.Outcome, r.Phase = "rejected", "settled"
+	t.Requests[t.Pending] = r
+	t.Pending = ""
+	t.Run, t.View.Status, t.View.Result, t.SuppressReport = r.PriorRun, r.PriorStatus, r.PriorResult, r.PriorSuppressed
+	t.View.Outcome = "rejected"
+	t.SupersededRuns = slices.DeleteFunc(t.SupersededRuns, func(id string) bool { return id == r.PriorRun })
+}
 func (s *Session) supersededTaskRun(thread, run string) bool {
 	t := s.taskByThread(thread)
 	return t != nil && slices.Contains(t.SupersededRuns, run)
@@ -545,8 +577,6 @@ func boundedText(text string, limit int) string {
 }
 
 func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
-	s.op.Lock()
-	defer s.op.Unlock()
 	ctx, cancel := s.operation(ctx, 8*time.Second)
 	defer cancel()
 	s.mu.Lock()
@@ -563,35 +593,32 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	}
 	revision := s.childRevision[t.Thread]
 	s.mu.Unlock()
-	var response struct {
-		Thread nativeThread `json:"thread"`
-	}
-	err := callDecode(ctx, c, "thread/read", map[string]any{"threadId": t.Thread, "includeTurns": true}, &response)
+	thread, err := readThreadState(ctx, c, t.Thread)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err != nil {
 		return t.View, err
 	}
-	if response.Thread.ID != t.Thread {
+	if thread.ID != t.Thread {
 		return t.View, ErrProtocol
 	}
 	if revision == s.childRevision[t.Thread] {
-		for _, turn := range response.Thread.Turns {
+		for _, turn := range thread.Turns {
 			s.observeTaskTurn(t, turn)
 		}
 		// An idle native thread with no terminal fact for the current run
 		// cannot confirm the continuation's result, even if older turns are
 		// complete. A newer live event supersedes this read entirely.
-		if (response.Thread.Status.Type == "idle" || response.Thread.Status.Type == "notLoaded") && t.View.Status == "working" {
+		if (thread.Status.Type == "idle" || thread.Status.Type == "notLoaded") && t.View.Status == "working" {
 			t.View.Status = "unknown"
 		}
 	}
-	if response.Thread.Status.Type == "active" {
+	if thread.Status.Type == "active" {
 		if !s.childWatching[t.Thread] {
 			s.childWatching[t.Thread] = true
 			go s.watchChild(c, s.epoch, t.Thread)
 		}
-	} else if (response.Thread.Status.Type == "idle" || response.Thread.Status.Type == "notLoaded") && terminal(t.View.Status) {
+	} else if (thread.Status.Type == "idle" || thread.Status.Type == "notLoaded") && terminal(t.View.Status) {
 		delete(s.childRuns, t.Thread)
 		s.scheduleChildRetirement(t.Thread)
 	}

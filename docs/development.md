@@ -109,6 +109,13 @@ native shared-contract evidence, not Windows GUI acceptance. `script/ci-scope.mj
 owns the fail-closed route and gate.
 
 Run native launches only through `script/build_and_run.sh`; use `CAELIS_BOT_DATA_DIR` for synthetic data.
+An explicit development data directory also namespaces the native instance lock;
+it can coexist with the daily Dev app. Release instances retain one product lock.
+Use the [availability fault matrix](availability.md) for recovery changes: test
+large unused tool/image frames followed by an approval/terminal fact, local IM
+storage failures, original receipts and independent Telegram control lanes.
+Recent conversation recovery reads the local IM database and optionally one
+latest native summary; it must not traverse full Runtime or Worker history.
 `--bubble-preview` provides a long Markdown/streaming fixture. Its “审批恢复回归” button checks that completed
 text and queued tails survive approval, review, notice and connection overlays in the mounted production Bubble;
 the result is saved to `.cache/bubble-preview.png.replay.json` (run with reduced motion off).

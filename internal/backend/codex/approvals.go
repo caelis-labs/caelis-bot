@@ -15,6 +15,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 )
 
 type prompt struct {
@@ -331,9 +332,15 @@ func approvalPersistOffered(raw json.RawMessage, mode string) bool {
 	return false
 }
 func (s *Session) Decide(ctx context.Context, d api.Decision) error {
-	s.op.Lock()
+	ctx, stop := s.operation(ctx, 15*time.Second)
+	defer stop()
+	if err := lockwait.Lock(ctx, &s.op); err != nil {
+		return err
+	}
 	defer s.op.Unlock()
-	s.mu.Lock()
+	if err := lockwait.Lock(ctx, &s.mu); err != nil {
+		return err
+	}
 	p, ok := s.prompts[d.ID]
 	if !ok || p.view.Status != "pending" || s.state.Connection != "ready" {
 		s.mu.Unlock()

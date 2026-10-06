@@ -39,6 +39,7 @@ type disk struct {
 	Reservations map[string]bool `json:"reservations,omitempty"`
 }
 type Service struct {
+	loadErr       error
 	request       func(context.Context, profile, remotework.Request) (remotework.Response, error)
 	mu            sync.Mutex
 	secretMu      sync.RWMutex
@@ -63,13 +64,14 @@ func Open(root string, local api.WorkRuntime, artifact func(string) ([]byte, err
 	b, e := os.ReadFile(filepath.Join(root, "machines.json"))
 	if e == nil {
 		if json.Unmarshal(b, &s.state) != nil || s.state.Version != 1 || s.state.Profiles == nil || s.state.Routes == nil {
-			return nil, errors.New("machine store invalid")
+			s.loadErr = errors.New("machine store invalid")
+			s.state = disk{Version: 1, Profiles: map[string]profile{}, Routes: map[string]string{}}
 		}
 	} else if !os.IsNotExist(e) {
-		return nil, e
+		s.loadErr = e
 	}
 	if e = os.MkdirAll(root, 0700); e != nil {
-		return nil, e
+		s.loadErr = e
 	}
 	if s.state.Runtimes == nil {
 		s.state.Runtimes = map[string]string{}
@@ -84,33 +86,67 @@ func Open(root string, local api.WorkRuntime, artifact func(string) ([]byte, err
 		if s.state.Runtimes[id] == "" {
 			runtime := s.state.Profiles[machine].View.Runtime
 			if runtime != "codex" && runtime != "caelis" {
-				return nil, errors.New("original_task_runtime_unavailable")
+				s.loadErr = errors.New("original_task_runtime_unavailable")
+				continue
 			}
 			s.state.Runtimes[id], changed = runtime, true
 		}
 		if runtime := s.state.Runtimes[id]; runtime != "codex" && runtime != "caelis" {
-			return nil, errors.New("original_task_runtime_unavailable")
+			s.loadErr = errors.New("original_task_runtime_unavailable")
+			continue
 		}
 	}
-	if changed {
+	if changed && s.loadErr == nil {
 		if e = s.save(); e != nil {
-			return nil, e
+			s.loadErr = e
 		}
 	}
-	return s, nil
+	return s, s.loadErr
 }
 func (s *Service) save() error {
+	if s.loadErr != nil {
+		return s.loadErr
+	}
 	return localstate.Write(filepath.Join(s.root, "machines.json"), s.state)
 }
 func (s *Service) Machines() []api.Machine {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reloadLocked()
 	out := []api.Machine{}
 	for _, p := range s.state.Profiles {
 		out = append(out, p.View)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// Adopt only the repaired original registry. Removing an unreadable registry
+// cannot authorize replacing its owners/routes with a fresh profile.
+func (s *Service) reloadLocked() {
+	if s.loadErr == nil {
+		return
+	}
+	b, err := os.ReadFile(filepath.Join(s.root, "machines.json"))
+	var restored disk
+	if err != nil || json.Unmarshal(b, &restored) != nil || restored.Version != 1 || restored.ProfileID == "" || restored.Profiles == nil || restored.Routes == nil {
+		return
+	}
+	if restored.Runtimes == nil {
+		restored.Runtimes = map[string]string{}
+	}
+	for id, machine := range restored.Routes {
+		if restored.Runtimes[id] == "" {
+			restored.Runtimes[id] = restored.Profiles[machine].View.Runtime
+		}
+		if restored.Runtimes[id] != "codex" && restored.Runtimes[id] != "caelis" {
+			return
+		}
+	}
+	if restored.Reservations == nil {
+		restored.Reservations = map[string]bool{}
+	}
+	s.state, s.loadErr = restored, nil
 }
 func (s *Service) ConnectMachine(ctx context.Context, in api.MachineInput) (api.Machine, error) {
 	s.mu.Lock()

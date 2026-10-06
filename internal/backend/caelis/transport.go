@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/wirejson"
 )
 
 type client struct {
@@ -168,6 +169,67 @@ func readFrame(scan *bufio.Scanner) (frame, error) {
 	}
 	return f, io.EOF
 }
+
+// Stream JSON data without retaining native tool images or output. Lifecycle,
+// cursor, approval and command evidence stay in the canonical envelope.
+func readThinFrame(r *bufio.Reader) (frame, error) {
+	var f frame
+	for {
+		peek, err := r.Peek(1)
+		if err != nil {
+			return f, err
+		}
+		if peek[0] == '\n' || peek[0] == '\r' {
+			b, _ := r.ReadByte()
+			if b == '\r' {
+				if next, e := r.Peek(1); e == nil && next[0] == '\n' {
+					_, _ = r.ReadByte()
+				}
+			}
+			if len(f.data) > 0 {
+				return f, nil
+			}
+			continue
+		}
+		line, err := r.ReadSlice(':')
+		if err != nil {
+			return f, err
+		}
+		field := strings.TrimSpace(string(line[:len(line)-1]))
+		if field == "data" {
+			data, _, err := wirejson.Read(r)
+			if err != nil {
+				return f, err
+			}
+			f.data = append(f.data, data...)
+			// Canonical delivery is one JSON value; consume its line terminator.
+			if _, err = r.ReadString('\n'); err != nil {
+				return f, err
+			}
+		} else {
+			value, err := r.ReadString('\n')
+			if err != nil {
+				return f, err
+			}
+			if field == "event" {
+				f.event = strings.TrimSpace(value)
+			}
+			if field == "id" {
+				f.id = strings.TrimSpace(value)
+			}
+		}
+		peek, err = r.Peek(1)
+		if err != nil {
+			return f, err
+		}
+		if peek[0] == '\n' {
+			_, _ = r.ReadByte()
+			if len(f.data) > 0 {
+				return f, nil
+			}
+		}
+	}
+}
 func (c *client) stream(ctx context.Context, path, cursor string, apply func(frame) error) error {
 	// Reconnect prepares an atomic history snapshot before sending headers. Large
 	// existing conversations can exceed the ordinary JSON request's header wait.
@@ -184,10 +246,9 @@ func (c *client) stream(ctx context.Context, path, cursor string, apply func(fra
 	if res.StatusCode != 200 || kind != "text/event-stream" {
 		return errors.New("Caelis 状态订阅不可用")
 	}
-	scan := bufio.NewScanner(res.Body)
-	scan.Buffer(make([]byte, 65536), 8<<20)
+	reader := bufio.NewReaderSize(res.Body, 65536)
 	for {
-		f, e := readFrame(scan)
+		f, e := readThinFrame(reader)
 		if e != nil {
 			return e
 		}

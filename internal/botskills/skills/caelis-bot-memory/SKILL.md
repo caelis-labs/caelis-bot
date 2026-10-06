@@ -77,6 +77,9 @@ receipt instead of repeating work. An accepted request is not a completed result
 Read the matching guide when its situation arises. Load other guides only when
 they are relevant to the work:
 
+- [Recovery](references/recovery.md): when a connection, message sync, approval
+  or Worker observation fails or an original action has an unknown outcome.
+
 - [Memory](references/memory.md): when recalling earlier context, recording useful
   knowledge, correcting preferences, or preparing to resume substantial work.
 - [Screen input](references/screen-input.md): when the user points at screen

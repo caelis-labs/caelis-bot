@@ -71,7 +71,7 @@ func (s *Session) callLoop(ctx context.Context) {
 		}
 		if e != nil && ctx.Err() == nil {
 			recoveredClient = nil
-			s.fail(e)
+			s.componentError("application_calls", binding.SessionId, e)
 		}
 	}
 }

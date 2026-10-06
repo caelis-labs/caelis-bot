@@ -162,6 +162,11 @@ func TestUpdateDetachesRetainedWorkerAndReconcilesOriginalRequest(t *testing.T) 
 	if err := w.Connect(testContext(t)); err != nil {
 		t.Fatal(err)
 	}
+	awaitState(t, w.engine, func(_ api.Snapshot) bool {
+		w.engine.mu.Lock()
+		defer w.engine.mu.Unlock()
+		return w.engine.binding.Tasks["worker-task"].Requests["worker-request"].Outcome == "accepted"
+	})
 	if err := w.PrepareDetachForUpdate(testContext(t)); err != nil {
 		t.Fatal(err)
 	}

@@ -471,7 +471,7 @@ func TestApprovalDeliveryClassifiesBotRejectionAndUnknownResult(t *testing.T) {
 	}
 }
 
-func TestUnknownApprovalMarkupEditIsNotReplayed(t *testing.T) {
+func TestUnknownApprovalMarkupEditRetriesOnlyOriginalMessage(t *testing.T) {
 	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{{ID: "edit-original", Title: "Computer Use", Status: "pending"}}}
 	decisions := 0
 	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, Decide: func(context.Context, api.Decision) error { decisions++; return nil }})
@@ -481,7 +481,7 @@ func TestUnknownApprovalMarkupEditIsNotReplayed(t *testing.T) {
 	f.editErr = &transportError{issue: "network", code: 0}
 	b.mirror(t.Context(), f, snapshot)
 	record := b.state.Messages["approval:edit-original"]
-	if f.sends != 1 || f.edits != 1 || !record.Skip || b.Status().Issue != "delivery_uncertain" {
+	if f.sends != 1 || f.edits != 1 || record.Skip || record.IDs[0] != 1 || b.Status().Issue != "delivery_uncertain" {
 		t.Fatal("uncertain edit did not retain the original receipt", f.sends, f.edits, record, b.Status())
 	}
 	f.editErr = nil
@@ -491,8 +491,14 @@ func TestUnknownApprovalMarkupEditIsNotReplayed(t *testing.T) {
 	}
 	query := &tg.CallbackQuery{ID: "uncertain-edit-click", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: record.IDs[0], Chat: tg.Chat{ID: 10}}, Data: callbackID(snapshot.Approvals[0], "accept")}
 	b.callback(t.Context(), f, query)
+	b.recoveryWait.Wait()
 	if decisions != 0 || b.state.Inputs["approval-decision:edit-original"] != "" {
 		t.Fatal("unknown edit allowed a callback", decisions, b.state.Inputs)
+	}
+	b.retryUntil = time.Time{}
+	b.mirror(t.Context(), f, snapshot)
+	if f.edits != 2 || f.sends != 1 || b.state.Messages["approval:edit-original"].IDs[0] != record.IDs[0] {
+		t.Fatal("original display edit did not recover")
 	}
 }
 
@@ -707,13 +713,16 @@ func TestApprovalUsesNativeChoiceAndStaleButtonDoesNotApprove(t *testing.T) {
 	b.mirror(t.Context(), f, snapshot)
 	q := &tg.CallbackQuery{ID: "cb", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: 1, Chat: tg.Chat{ID: 10}}, Data: callbackID(snapshot.Approvals[0], "once")}
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	if calls != 1 || decision.ID != "native-request" || decision.Choice != "once" {
 		t.Fatal("native choice or dedupe lost")
 	}
 	snapshot.Approvals[0].Status = "resolved"
 	q.ID = "cb2"
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	if calls != 1 {
 		t.Fatal("stale button approved")
 	}
@@ -761,8 +770,10 @@ func TestNativeComputerUseChoiceKeysRenderAndDecideOriginalRequest(t *testing.T)
 			}
 			query := &tg.CallbackQuery{ID: "original-click", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: record.IDs[0], Chat: tg.Chat{ID: 10}}, Data: callbackID(approval, "accept")}
 			b.callback(t.Context(), f, query)
+			b.recoveryWait.Wait()
 			query.ID, query.Data = "competing-click", callbackID(approval, "cancel")
 			b.callback(t.Context(), f, query)
+			b.recoveryWait.Wait()
 			if len(decisions) != 1 || decisions[0].ID != approval.ID || decisions[0].Choice != "accept" {
 				t.Fatal("native approval was replayed or changed", decisions)
 			}
@@ -786,6 +797,7 @@ func TestApprovalSubmittedThenNativeResolvedClosesOriginalCard(t *testing.T) {
 	card := b.state.Messages["approval:native-once"]
 	q := &tg.CallbackQuery{ID: "first", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: card.IDs[0], Chat: tg.Chat{ID: 10}}, Data: callbackID(snapshot.Approvals[0], "accept")}
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	b.mirror(t.Context(), f, snapshot)
 	if decisions != 1 || f.edits != 1 || f.keyboards[len(f.keyboards)-1] != nil || !strings.Contains(f.texts[len(f.texts)-1], "Submitted; waiting") || strings.Contains(f.texts[len(f.texts)-1], "Complete this request") {
 		t.Fatalf("wire write was misreported as failure or final result: decisions=%d texts=%v", decisions, f.texts)
@@ -803,6 +815,7 @@ func TestApprovalSubmittedThenNativeResolvedClosesOriginalCard(t *testing.T) {
 	}
 	q.ID = "late"
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	if decisions != 1 {
 		t.Fatal("resolved card dispatched twice")
 	}
@@ -821,6 +834,7 @@ func TestVanishedApprovalFencesOldButtonAcrossRecovery(t *testing.T) {
 	snapshot.Connection = "offline"
 	b.mirror(t.Context(), f, snapshot)
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	if b.state.Messages["approval:native-vanished"].Closed || decisions != 0 {
 		t.Fatal("offline absence was treated as a native terminal result or allowed input")
 	}
@@ -854,6 +868,7 @@ func TestApprovalChoiceScopeFingerprintRejectsOldButton(t *testing.T) {
 	snapshot.Approvals[0].Choices[0].Scope = "always" // Same ID and label, different native reach.
 	q := &tg.CallbackQuery{ID: "old", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: 1, Chat: tg.Chat{ID: 10}}, Data: old}
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	if decisions != 0 {
 		t.Fatal("old scope was accepted before keyboard reconciliation")
 	}
@@ -863,14 +878,16 @@ func TestApprovalChoiceScopeFingerprintRejectsOldButton(t *testing.T) {
 	}
 	q.ID, q.Data = "current", f.keyboards[1].InlineKeyboard[0][0].CallbackData
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	q.ID = "repeat"
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	if decisions != 1 {
 		t.Fatal("current keyboard was not exact-once", decisions)
 	}
 }
 
-func TestUnknownTerminalMarkupEditIsNotReplayedOrAuthorized(t *testing.T) {
+func TestUnknownTerminalMarkupEditRecoversWithoutRestoringAuthority(t *testing.T) {
 	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{{ID: "uncertain-close", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce", Scope: "once"}}}}}
 	calls := 0
 	host := Host{Snapshot: func() api.Snapshot { return snapshot }, Decide: func(context.Context, api.Decision) error { calls++; return nil }}
@@ -882,24 +899,26 @@ func TestUnknownTerminalMarkupEditIsNotReplayedOrAuthorized(t *testing.T) {
 	snapshot.Approvals[0].Status = "resolved"
 	b.mirror(t.Context(), f, snapshot)
 	card := b.state.Messages["approval:uncertain-close"]
-	if !card.Closed || !card.Skip || f.edits != 1 {
+	if !card.Closed || card.Skip || card.IDs[0] != 1 || f.edits != 1 {
 		t.Fatalf("unknown original edit was not fenced: %+v", card)
 	}
 	f.editErr = nil
+	b.retryUntil = time.Time{}
 	b.mirror(t.Context(), f, snapshot)
 	snapshot.Approvals = nil
 	b.mirror(t.Context(), f, snapshot)
 	snapshot.Approvals = []api.Approval{{ID: "uncertain-close", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce", Scope: "once"}}}}
 	q := &tg.CallbackQuery{ID: "stale", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: card.IDs[0], Chat: tg.Chat{ID: 10}}, Data: old}
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	restored, err := Open(filepath.Dir(b.path), host)
 	if err != nil {
 		t.Fatal(err)
 	}
 	q.ID = "after-restart"
 	restored.callback(t.Context(), f, q)
-	if calls != 0 || f.edits != 1 || f.sends != 1 {
-		t.Fatal("unknown terminal edit replayed or restored old authority", calls, f.edits, f.sends)
+	if calls != 0 || f.edits != 2 || f.sends != 1 || b.state.Messages["approval:uncertain-close"].IDs[0] != card.IDs[0] {
+		t.Fatal("terminal edit did not recover on original message or restored old authority", calls, f.edits, f.sends)
 	}
 }
 
@@ -930,6 +949,7 @@ func TestUnrenderableApprovalChoiceFailsClosedAndRepairsOriginalMessage(t *testi
 	}
 	query := &tg.CallbackQuery{ID: "forged", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: record.IDs[0], Chat: tg.Chat{ID: 10}}, Data: callbackID(snapshot.Approvals[0], "accept")}
 	b.callback(t.Context(), f, query)
+	b.recoveryWait.Wait()
 	if decisions != 0 {
 		t.Fatal("text-only approval accepted a callback")
 	}
@@ -941,6 +961,7 @@ func TestUnrenderableApprovalChoiceFailsClosedAndRepairsOriginalMessage(t *testi
 	query.ID = "valid"
 	query.Data = callbackID(snapshot.Approvals[0], "accept") // The repaired keyboard has a new fingerprint.
 	b.callback(t.Context(), f, query)
+	b.recoveryWait.Wait()
 	if decisions != 1 {
 		t.Fatal("repaired original approval could not decide")
 	}
@@ -991,6 +1012,7 @@ func TestExpiredOrUnknownApprovalCannotUseOldTelegramButton(t *testing.T) {
 	for _, status := range []string{"unknown", "sending", "resolved"} {
 		snapshot.Approvals[0].Status = status
 		b.callback(t.Context(), f, query)
+		b.recoveryWait.Wait()
 	}
 	if decisionCalls != 0 || b.state.Inputs["approval-decision:original"] != "" {
 		t.Fatal("expired or uncertain native approval was dispatched", decisionCalls, b.state.Inputs)
@@ -1048,8 +1070,10 @@ func TestApprovalKeyboardAppearsOnExistingMessageAndOnlyOriginalButtonCanDecide(
 	}
 	q := &tg.CallbackQuery{ID: "first", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: 1, Chat: tg.Chat{ID: 10}}, Data: callbackID(snapshot.Approvals[0], "session")}
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	q.ID, q.Data = "competing", callbackID(snapshot.Approvals[0], "always")
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	if len(got) != 1 || got[0].ID != "computer-use-request" || got[0].Choice != "session" {
 		t.Fatalf("approval raced or changed native decision: %+v", got)
 	}
@@ -1107,6 +1131,7 @@ func TestUnknownApprovalDecisionIsNeverRepeatedAfterBridgeRestart(t *testing.T) 
 	b.mirror(t.Context(), f, snapshot)
 	q := &tg.CallbackQuery{ID: "first", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: 1, Chat: tg.Chat{ID: 10}}, Data: callbackID(snapshot.Approvals[0], "once")}
 	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
 	if calls != 1 || b.state.Inputs["approval-decision:exact-approval"] != "unknown" {
 		t.Fatal("unknown original decision was not retained")
 	}
@@ -1396,7 +1421,7 @@ func TestBlockedUploadDoesNotBlockControlsAndCloseJoinsWorkers(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("slow upload blocked approval")
 	}
-	awaitBridge(t, func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.answers == 1 && f.sends >= 1 })
+	awaitBridge(t, func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.answers >= 1 && f.sends >= 1 })
 	select {
 	case <-blocked.finished:
 		t.Fatal("upload finished before controls were handled")

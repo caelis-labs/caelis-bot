@@ -136,6 +136,14 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 	if complete && item.Status == "" {
 		item.Status = "completed"
 	}
+	// Retain identities and current activity only; raw tool data belongs to Runtime.
+	item.Arguments, item.Result, item.Error = nil, nil, nil
+	item.Output = ""
+	for n := range item.Changes {
+		if len(item.Changes[n].Diff) > 64<<10 {
+			item.Changes[n].Diff = ""
+		}
+	}
 	s.nativeItems[key] = item
 	view := api.Item{TurnKey: opaque(run), ID: key, Status: item.Status, Artifacts: []api.Artifact{}}
 	view.Activity = itemActivity(item)
@@ -281,6 +289,7 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 		view.Kind = "activity"
 		view.Text = "处理任务"
 	}
+	view.Details = ""
 	if index, ok := s.items[key]; ok {
 		s.state.Items[index] = view
 	} else {
@@ -301,6 +310,10 @@ func (s *Session) addArtifact(view *api.Item, path string) {
 	path = filepath.Clean(path)
 	id := opaque("artifact", path)
 	s.artifacts[id] = path
+	if s.binding.Artifacts == nil {
+		s.binding.Artifacts = map[string]string{}
+	}
+	s.binding.Artifacts[id] = path
 	view.Artifacts = append(view.Artifacts, api.Artifact{ID: id, Name: filepath.Base(path)})
 }
 func (s *Session) applyEvent(event Notification) {
@@ -311,6 +324,22 @@ func (s *Session) applyEvent(event Notification) {
 	// Select the native method before decoding its payload. Same-named fields
 	// (notably error) have different types in unrelated notifications.
 	switch event.Method {
+	case "bot/projection/omitted":
+		s.residentSyncNeeded = true
+		var notice struct {
+			Method    string          `json:"method"`
+			RequestID json.RawMessage `json:"requestId"`
+		}
+		_ = json.Unmarshal(event.Params, &notice)
+		if len(notice.RequestID) > 0 && string(notice.RequestID) != "null" {
+			// Keep the native request pending. No response/choice can be inferred
+			// from an omitted authority payload; other controls remain available.
+			s.state.Message = "有一项原生请求暂时无法显示；Bot 仍在线，请在 Runtime 核对原请求。"
+		} else {
+			s.state.Message = "最近消息暂时未同步；连接可用，将自动重试"
+		}
+		s.recoverUnresolvedChildren(s.client, s.epoch)
+		return
 	case "account/login/completed":
 		var n struct {
 			LoginID string `json:"loginId"`
@@ -454,6 +483,14 @@ func (s *Session) applyEvent(event Notification) {
 		if event.Method == "item/commandExecution/outputDelta" {
 			if item.ID != "" {
 				item.Output += n.Delta
+				// Retain identities and current activity only; raw tool data belongs to Runtime.
+				item.Arguments, item.Result, item.Error = nil, nil, nil
+				item.Output = ""
+				for n := range item.Changes {
+					if len(item.Changes[n].Diff) > 64<<10 {
+						item.Changes[n].Diff = ""
+					}
+				}
 				s.nativeItems[key] = item
 			}
 			return

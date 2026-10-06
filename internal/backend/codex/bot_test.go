@@ -127,9 +127,9 @@ func TestWorkerObservationFailureCanReconnectWithoutReplaying(t *testing.T) {
 			finishRoot(f)
 			awaitState(t, s, func(v api.Snapshot) bool { return v.CurrentTurn == "" })
 			close(releaseResume)
-			v := awaitState(t, s, func(v api.Snapshot) bool { return v.Phase == "unknown" })
-			if v.CanSend {
-				t.Fatal("unconfirmed worker permitted new work")
+			v := awaitState(t, s, func(v api.Snapshot) bool { return v.Message == workerUnconfirmed })
+			if !v.CanSend || v.Connection != "ready" {
+				t.Fatal("worker observation failure blocked resident control")
 			}
 			worker := nativeThread{ID: "worker-v2", Turns: []nativeTurn{{ID: "w", Status: "inProgress"}}}
 			worker.Status.Type = "active"

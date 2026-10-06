@@ -88,25 +88,17 @@ func TestOldProductTaskLedgerImportsExactHostReportID(t *testing.T) {
 	}
 }
 
-func TestHostReportIsHiddenInOlderCodexPage(t *testing.T) {
-	s, f := sessionPair(t, "")
+func TestHostReportIsHiddenInRecentHumanSummary(t *testing.T) {
+	s, _ := sessionPair(t, "")
 	const notice = "Task task-42 is completed."
 	s.mu.Lock()
 	s.binding.HostReports["host-report-42"] = true
-	s.historyCursor = "older"
-	s.state.HasEarlier = true
+	s.applyTurn(nativeTurn{ID: "older-turn", Status: "completed", Items: []nativeItem{{ID: "host", Type: "userMessage", ClientID: "host-report-42", Content: []nativeInput{{Type: "text", Text: notice}}}, {ID: "answer", Type: "agentMessage", Text: "Reported result"}}}, true)
+	s.applyTurn(nativeTurn{ID: "human-turn", Status: "completed", Items: []nativeItem{{ID: "human", Type: "userMessage", ClientID: "human-request", Content: []nativeInput{{Type: "text", Text: notice}}}}}, true)
+	s.update()
 	s.mu.Unlock()
-	f.mu.Lock()
-	f.pages = map[string]turnPage{"older": {Data: []nativeTurn{{ID: "older-turn", Status: "completed", Items: []nativeItem{
-		{ID: "host", Type: "userMessage", ClientID: "host-report-42", Content: []nativeInput{{Type: "text", Text: notice}}},
-		{ID: "answer", Type: "agentMessage", Text: "Reported result"},
-	}}, {ID: "human-turn", Status: "completed", Items: []nativeItem{{ID: "human", Type: "userMessage", ClientID: "human-request", Content: []nativeInput{{Type: "text", Text: notice}}}}}}}}
-	f.mu.Unlock()
-	if err := s.LoadEarlier(testContext(t)); err != nil {
-		t.Fatal(err)
-	}
 	got := s.Snapshot()
-	if len(got.Items) != 2 || got.Items[0].Kind != "user" || got.Items[0].Text != notice || got.Items[1].Kind != "assistant" || got.Items[1].Text != "Reported result" {
-		t.Fatal("older page leaked host report or hid ordinary content", got.Items)
+	if len(got.Items) != 2 || got.Items[0].Kind != "assistant" || got.Items[1].Kind != "user" || got.Items[1].Text != notice {
+		t.Fatal(got.Items)
 	}
 }

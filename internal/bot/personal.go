@@ -13,7 +13,7 @@ import (
 func (r *Runtime) ConfigurePersonal(store api.PersonalTools) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.cancel != nil || r.stopped {
+	if r.stopped || r.cancel != nil && r.personal != nil {
 		return errors.New("个人空间须在连接前绑定")
 	}
 	if store == nil {

@@ -42,7 +42,7 @@ func Run(assets fs.FS) error {
 		envErr = err
 	}
 
-	appName, appID := applicationIdentity()
+	appName, _ := applicationIdentity()
 	root, err := applicationDataDirectory()
 	if err != nil {
 		return err
@@ -154,7 +154,7 @@ func Run(assets fs.FS) error {
 			logError(core.Close())
 			s.shutdown()
 		},
-		SingleInstance: &application.SingleInstanceOptions{UniqueID: appID, OnSecondInstanceLaunch: func(application.SecondInstanceData) { _ = s.SetVisible(true) }},
+		SingleInstance: &application.SingleInstanceOptions{UniqueID: applicationInstanceID(root), OnSecondInstanceLaunch: func(application.SecondInstanceData) { _ = s.SetVisible(true) }},
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
@@ -432,7 +432,6 @@ func Run(assets fs.FS) error {
 		})
 		if err := assembly.Start(); err != nil {
 			logError(err)
-			quit()
 		}
 	})
 	return nativeApp.Run()
