@@ -95,6 +95,12 @@ independent. Token storage uses the macOS Keychain; pairing requires a short-liv
 link and desktop account confirmation. Polling cursors, original input outcomes,
 Telegram message IDs and text digests are saved privately. Uncertain creates and
 inputs are never replayed; streamed edits are coalesced and rate limits respected.
+Approval buttons use the same `api.Choice` values as the native panel: provider
+`Label` remains literal, while Bot-owned `LabelKey` resolves through the shared
+display catalog. An unreadable or ambiguous choice leaves the entire approval
+keyboard unavailable and directs the user to the Mac. Telegram callbacks require
+the original delivered message, a current pending approval, and an offered choice;
+the durable decision claim prevents a second native submission.
 The Telegram adapter renders mirrored Mac user items with a source heading and
 quoted body. Each long Mac user-message part carries its heading and UTF-16 entity
 ranges. Assistant replies retain their plain original text, including edits and

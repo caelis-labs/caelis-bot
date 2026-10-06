@@ -28,7 +28,7 @@ type fakeClient struct {
 	editIDs                                       []int
 	keyboards                                     []*tg.InlineKeyboardMarkup
 	documentBytes                                 []string
-	sendErr                                       error
+	sendErr, editErr, markupErr                   error
 	webhook                                       bool
 	takeovers                                     int
 	updates                                       chan []tg.Update
@@ -57,7 +57,10 @@ func (f *fakeClient) Send(_ context.Context, _ int64, message outgoingText, keys
 	f.texts = append(f.texts, message.Text)
 	f.messages = append(f.messages, message)
 	f.keyboards = append(f.keyboards, keys)
-	return f.sends, f.sendErr
+	if f.sendErr != nil {
+		return 0, f.sendErr
+	}
+	return f.sends, nil
 }
 func (f *fakeClient) Edit(_ context.Context, _ int64, id int, message outgoingText, keys *tg.InlineKeyboardMarkup) error {
 	f.mu.Lock()
@@ -67,14 +70,14 @@ func (f *fakeClient) Edit(_ context.Context, _ int64, id int, message outgoingTe
 	f.texts = append(f.texts, message.Text)
 	f.messages = append(f.messages, message)
 	f.keyboards = append(f.keyboards, keys)
-	return nil
+	return f.editErr
 }
 func (f *fakeClient) EditMarkup(_ context.Context, _ int64, _ int, keys *tg.InlineKeyboardMarkup) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.markupEdits++
 	f.keyboards = append(f.keyboards, keys)
-	return nil
+	return f.markupErr
 }
 func (f *fakeClient) Document(_ context.Context, _ int64, path string) error {
 	data, err := os.ReadFile(path)
@@ -423,6 +426,91 @@ func TestUnknownTelegramCreateIsNotRetried(t *testing.T) {
 		t.Fatal("unknown send duplicated")
 	}
 }
+
+func TestApprovalDeliveryClassifiesBotRejectionAndUnknownResult(t *testing.T) {
+	approval := api.Approval{ID: "delivery-original", Title: "Computer Use", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce"}}}
+	for _, tc := range []struct {
+		name, issue string
+		code        int
+		initialID   int
+	}{
+		{"Bot API rejection", "telegram_error", 400, -2},
+		{"network unknown", "delivery_uncertain", 0, -1},
+		{"Bot API server unknown", "delivery_uncertain", 500, -1},
+		{"Bot API timeout unknown", "delivery_uncertain", 408, -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snapshot := api.Snapshot{Approvals: []api.Approval{approval}}
+			b, f := testBridge(t, Host{})
+			paired(b)
+			f.sendErr = &transportError{issue: "telegram_error", code: tc.code}
+			b.mirror(t.Context(), f, snapshot)
+			record := b.state.Messages["approval:"+approval.ID]
+			if f.sends != 1 || len(record.IDs) != 1 || record.IDs[0] != tc.initialID || b.Status().Issue != tc.issue {
+				t.Fatal("delivery result was misclassified", f.sends, record, b.Status())
+			}
+			f.sendErr = nil
+			b.mirror(t.Context(), f, snapshot)
+			if f.sends != 1 {
+				t.Fatal("original unconfirmed or rejected create was replayed", f.sends)
+			}
+			snapshot.Approvals[0].Choices[0].Label = "Runtime revised choice"
+			b.mirror(t.Context(), f, snapshot)
+			if tc.code == 400 && f.sends != 2 || tc.code != 400 && f.sends != 1 {
+				t.Fatal("revised known rejection was not distinguishable from unknown create", f.sends)
+			}
+		})
+	}
+}
+
+func TestUnknownApprovalMarkupEditIsNotReplayed(t *testing.T) {
+	snapshot := api.Snapshot{Approvals: []api.Approval{{ID: "edit-original", Title: "Computer Use", Status: "pending"}}}
+	decisions := 0
+	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, Decide: func(context.Context, api.Decision) error { decisions++; return nil }})
+	paired(b)
+	b.mirror(t.Context(), f, snapshot) // Original text-only message is confirmed.
+	snapshot.Approvals[0].Choices = []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce"}}
+	f.editErr = &transportError{issue: "network", code: 0}
+	b.mirror(t.Context(), f, snapshot)
+	record := b.state.Messages["approval:edit-original"]
+	if f.sends != 1 || f.edits != 1 || !record.Skip || b.Status().Issue != "delivery_uncertain" {
+		t.Fatal("uncertain edit did not retain the original receipt", f.sends, f.edits, record, b.Status())
+	}
+	f.editErr = nil
+	b.mirror(t.Context(), f, snapshot)
+	if f.edits != 1 || f.sends != 1 {
+		t.Fatal("unknown edit was replayed", f.sends, f.edits)
+	}
+	query := &tg.CallbackQuery{ID: "uncertain-edit-click", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: record.IDs[0], Chat: tg.Chat{ID: 10}}, Data: callbackID("edit-original", "accept")}
+	b.callback(t.Context(), f, query)
+	if decisions != 0 || b.state.Inputs["approval-decision:edit-original"] != "" {
+		t.Fatal("unknown edit allowed a callback", decisions, b.state.Inputs)
+	}
+}
+
+func TestRejectedApprovalMarkupEditRetriesOnlyAfterCorrection(t *testing.T) {
+	chinese := false
+	snapshot := api.Snapshot{Approvals: []api.Approval{{ID: "rejected-edit", Title: "Computer Use", Status: "pending"}}}
+	b, f := testBridge(t, Host{Chinese: func() bool { return chinese }})
+	paired(b)
+	b.mirror(t.Context(), f, snapshot)
+	snapshot.Approvals[0].Choices = []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce"}}
+	f.editErr = &transportError{issue: "telegram_error", code: 400}
+	b.mirror(t.Context(), f, snapshot)
+	if f.edits != 1 || b.Status().Issue != "telegram_error" {
+		t.Fatal("Bot API rejection was misclassified", f.edits, b.Status())
+	}
+	f.editErr = nil
+	b.mirror(t.Context(), f, snapshot)
+	if f.edits != 1 {
+		t.Fatal("identical rejected markup edit was retried", f.edits)
+	}
+	chinese = true
+	b.mirror(t.Context(), f, snapshot)
+	if f.edits != 2 || f.markupEdits != 0 || f.sends != 1 || b.state.Messages["approval:rejected-edit"].Keyboard == "" || b.Status().Issue != "" {
+		t.Fatal("corrected markup did not update original message", f.sends, f.edits, f.markupEdits, b.Status())
+	}
+}
 func TestAttachmentDownloadIsBoundedAndFilenameCannotEscape(t *testing.T) {
 	for _, name := range []string{".", "..", "../..", "\\..", "\x00"} {
 		if !filepath.IsLocal(safeName(name)) || safeName(name) == "." {
@@ -626,6 +714,153 @@ func TestApprovalUsesNativeChoiceAndStaleButtonDoesNotApprove(t *testing.T) {
 	b.mirror(t.Context(), f, snapshot)
 	if f.sends != 1 {
 		t.Fatal("automatic review exposed as approval")
+	}
+}
+
+func TestNativeComputerUseChoiceKeysRenderAndDecideOriginalRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name, allow, decline, cancel string
+		chinese                      bool
+	}{
+		{"English", "Allow once", "Decline", "Cancel", false},
+		{"Chinese", "允许这一次", "拒绝", "取消", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var decisions []api.Decision
+			approval := api.Approval{ID: "native-cua-request", Title: "cua_repl", Description: "Allow Computer Use for the fixture?", Status: "pending", Choices: []api.Choice{
+				{ID: "accept", LabelKey: "chat.allowOnce", Scope: "once"},
+				{ID: "decline", LabelKey: "chat.decline", Scope: "deny"},
+				{ID: "cancel", LabelKey: "chat.cancelApproval", Scope: "deny"},
+			}}
+			snapshot := api.Snapshot{Approvals: []api.Approval{approval}}
+			b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, Chinese: func() bool { return tc.chinese },
+				Decide: func(_ context.Context, d api.Decision) error { decisions = append(decisions, d); return nil }})
+			paired(b)
+			b.mirror(t.Context(), f, snapshot)
+			if f.sends != 1 || len(f.keyboards) != 1 || f.keyboards[0] == nil || len(f.keyboards[0].InlineKeyboard) != 3 {
+				t.Fatal("native choices did not reach Telegram keyboard", f.keyboards)
+			}
+			for i, expected := range []string{tc.allow, tc.decline, tc.cancel} {
+				button := f.keyboards[0].InlineKeyboard[i][0]
+				if button.Text != expected || button.CallbackData != callbackID(approval.ID, approval.Choices[i].ID) {
+					t.Fatalf("native choice %d lost label or original identity: %+v", i, button)
+				}
+			}
+			record := b.state.Messages["approval:"+approval.ID]
+			if record.Keyboard == "" || len(record.IDs) != 1 || record.IDs[0] <= 0 {
+				t.Fatal("actionable keyboard was not confirmed on its original message", record)
+			}
+			query := &tg.CallbackQuery{ID: "original-click", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: record.IDs[0], Chat: tg.Chat{ID: 10}}, Data: callbackID(approval.ID, "accept")}
+			b.callback(t.Context(), f, query)
+			query.ID, query.Data = "competing-click", callbackID(approval.ID, "decline")
+			b.callback(t.Context(), f, query)
+			if len(decisions) != 1 || decisions[0].ID != approval.ID || decisions[0].Choice != "accept" {
+				t.Fatal("native approval was replayed or changed", decisions)
+			}
+		})
+	}
+}
+
+func TestUnrenderableApprovalChoiceFailsClosedAndRepairsOriginalMessage(t *testing.T) {
+	decisions := 0
+	snapshot := api.Snapshot{Approvals: []api.Approval{{ID: "original-approval", Title: "Computer Use", Status: "pending", Choices: []api.Choice{
+		{ID: "accept", LabelKey: "chat.allowOnce"}, {ID: "decline", LabelKey: "chat.noSuchChoice"},
+	}}}}
+	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, Decide: func(context.Context, api.Decision) error { decisions++; return nil }})
+	paired(b)
+	b.mirror(t.Context(), f, snapshot)
+	record := b.state.Messages["approval:original-approval"]
+	if f.sends != 1 || f.keyboards[0] != nil || record.Keyboard != "" || b.Status().Issue != "approval_unavailable" ||
+		!strings.Contains(f.texts[0], "Approval options are unavailable") {
+		t.Fatal("unreadable choice was presented as actionable", f.keyboards, record, b.Status(), f.texts)
+	}
+	query := &tg.CallbackQuery{ID: "forged", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: record.IDs[0], Chat: tg.Chat{ID: 10}}, Data: callbackID("original-approval", "accept")}
+	b.callback(t.Context(), f, query)
+	if decisions != 0 {
+		t.Fatal("text-only approval accepted a callback")
+	}
+	snapshot.Approvals[0].Choices[1].LabelKey = "chat.decline"
+	b.mirror(t.Context(), f, snapshot)
+	if f.sends != 1 || f.edits != 1 || f.editIDs[0] != record.IDs[0] || f.keyboards[1] == nil || b.Status().Issue != "" {
+		t.Fatal("readable native choices did not repair the original message", f.sends, f.edits, f.editIDs, b.Status())
+	}
+	query.ID = "valid"
+	b.callback(t.Context(), f, query)
+	if decisions != 1 {
+		t.Fatal("repaired original approval could not decide")
+	}
+}
+
+func TestUnavailableApprovalIssueSurvivesAnotherValidApproval(t *testing.T) {
+	snapshot := api.Snapshot{Approvals: []api.Approval{
+		{ID: "unavailable", Title: "Computer Use", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.missing"}}},
+		{ID: "valid", Title: "Another decision", Status: "pending", Choices: []api.Choice{{ID: "decline", LabelKey: "chat.decline"}}},
+	}}
+	b, f := testBridge(t, Host{})
+	paired(b)
+	b.mirror(t.Context(), f, snapshot)
+	if f.sends != 2 || b.Status().Issue != "approval_unavailable" {
+		t.Fatal("valid approval masked an unavailable native choice", f.sends, b.Status())
+	}
+	snapshot.Approvals = snapshot.Approvals[1:]
+	b.mirror(t.Context(), f, snapshot)
+	if b.Status().Issue != "" {
+		t.Fatal("resolved unavailable approval left stale connection issue", b.Status())
+	}
+}
+
+func TestApprovalChoiceLabelPreservesProviderTextAndRejectsInvisibleLabels(t *testing.T) {
+	b, _ := testBridge(t, Host{})
+	for _, choice := range []api.Choice{{ID: "provider", Label: "Provider's exact choice", LabelKey: "chat.allowOnce"}} {
+		if label, ok := b.approvalChoiceText(choice); !ok || label != choice.Label {
+			t.Fatal("provider label was translated", label, ok)
+		}
+	}
+	for _, choice := range []api.Choice{{ID: "empty", Label: "\u200b"}, {ID: "line", Label: "Allow\nAlways"}, {ID: "unknown", LabelKey: "chat.notInCatalog"}, {ID: "", LabelKey: "chat.allowOnce"}} {
+		if label, ok := b.approvalChoiceText(choice); ok {
+			t.Fatal("unsafe native choice became a button", label)
+		}
+	}
+	if _, ok := b.approvalKeyboard(api.Approval{ID: "duplicate", Choices: []api.Choice{{ID: "same", LabelKey: "chat.allowOnce"}, {ID: "same", LabelKey: "chat.decline"}}}); ok {
+		t.Fatal("duplicate native choice IDs produced ambiguous callback buttons")
+	}
+}
+
+func TestExpiredOrUnknownApprovalCannotUseOldTelegramButton(t *testing.T) {
+	decisionCalls := 0
+	snapshot := api.Snapshot{Approvals: []api.Approval{{ID: "original", Title: "Computer Use", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce"}}}}}
+	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, Decide: func(context.Context, api.Decision) error { decisionCalls++; return nil }})
+	paired(b)
+	b.mirror(t.Context(), f, snapshot)
+	query := &tg.CallbackQuery{ID: "stale", From: tg.User{ID: 20}, Message: &tg.Message{MessageID: 1, Chat: tg.Chat{ID: 10}}, Data: callbackID("original", "accept")}
+	for _, status := range []string{"unknown", "sending", "resolved"} {
+		snapshot.Approvals[0].Status = status
+		b.callback(t.Context(), f, query)
+	}
+	if decisionCalls != 0 || b.state.Inputs["approval-decision:original"] != "" {
+		t.Fatal("expired or uncertain native approval was dispatched", decisionCalls, b.state.Inputs)
+	}
+}
+
+func TestApprovalKeyboardLocaleChangeEditsMarkupAndReconnectDoesNotResend(t *testing.T) {
+	chinese := false
+	snapshot := api.Snapshot{Approvals: []api.Approval{{ID: "locale-approval", Title: "Computer Use", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce"}}}}}
+	host := Host{Snapshot: func() api.Snapshot { return snapshot }, Chinese: func() bool { return chinese }}
+	b, f := testBridge(t, host)
+	paired(b)
+	b.mirror(t.Context(), f, snapshot)
+	chinese = true
+	b.mirror(t.Context(), f, snapshot)
+	if f.sends != 1 || f.edits != 0 || f.markupEdits != 1 || f.keyboards[1].InlineKeyboard[0][0].Text != "允许这一次" {
+		t.Fatal("locale change resent text instead of editing original markup", f.sends, f.edits, f.markupEdits)
+	}
+	restored, err := Open(filepath.Dir(b.path), host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored.mirror(t.Context(), f, snapshot)
+	if f.sends != 1 || f.markupEdits != 1 {
+		t.Fatal("reconnect duplicated a confirmed approval keyboard", f.sends, f.markupEdits)
 	}
 }
 

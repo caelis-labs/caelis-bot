@@ -4,7 +4,7 @@ import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
 import {telegramPhase,type TelegramStatus} from './telegram-state';
 
-const issues=new Set(['invalid_token','network','occupied','webhook','keychain','storage','blocked','unavailable','setup_failed','open_failed','pairing_failed','pairing_expired','delivery_uncertain','file_delivery_uncertain','file_unavailable','rate_limited','telegram_error','sync_busy']);
+const issues=new Set(['invalid_token','network','occupied','webhook','keychain','storage','blocked','unavailable','setup_failed','open_failed','pairing_failed','pairing_expired','delivery_uncertain','file_delivery_uncertain','file_unavailable','rate_limited','telegram_error','sync_busy','approval_unavailable']);
 function issueKey(issue:string):MessageKey {return `settings.telegramIssue_${issues.has(issue)?issue:'setup_failed'}` as MessageKey;}
 
 export function TelegramSettings({onBack}:{onBack?:()=>void}={}){

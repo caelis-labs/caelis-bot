@@ -117,6 +117,17 @@ func Text(locale Locale, key string, args map[string]any) string {
 	})
 }
 
+// Lookup resolves only catalogued Bot copy. Channel presenters use the bool to
+// avoid showing an unknown key as if it were an actionable choice label.
+func Lookup(locale Locale, key string, args map[string]any) (string, bool) {
+	if _, ok := catalogs[locale][key]; !ok {
+		if _, ok = catalogs[English][key]; !ok {
+			return "", false
+		}
+	}
+	return Text(locale, key, args), true
+}
+
 // Namespace supplies translated strings for a native menu bridge. Returned maps
 // are independent; callers must not turn catalog keys into execution authority.
 func Namespace(locale Locale, namespace string) map[string]string {

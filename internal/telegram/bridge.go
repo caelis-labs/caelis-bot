@@ -16,10 +16,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
 	tg "github.com/mymmrac/telego"
@@ -44,8 +46,9 @@ type Status struct {
 	Issue     string `json:"issue"`
 }
 type delivery struct {
-	IDs      []int    `json:"ids,omitempty"`
+	IDs      []int    `json:"ids,omitempty"` // -1 unknown create, -2 definitely rejected create.
 	Hashes   []string `json:"hashes,omitempty"`
+	Rejected []string `json:"rejected,omitempty"` // Exact known-rejected edit; retry only if content/markup changes.
 	Keyboard string   `json:"keyboard,omitempty"`
 	Skip     bool     `json:"skip,omitempty"`
 }
@@ -823,6 +826,47 @@ func (b *Bridge) rejectionNotice(message string) string {
 	}
 }
 func callbackID(id, choice string) string { return "a:" + digest(id + "\x00" + choice)[:40] }
+
+func (b *Bridge) approvalChoiceText(choice api.Choice) (string, bool) {
+	label := choice.Label // Runtime-provided labels are display text, never keys.
+	if strings.TrimSpace(label) == "" && choice.LabelKey != "" {
+		locale := i18n.English
+		if b.host.Chinese != nil && b.host.Chinese() {
+			locale = i18n.Chinese
+		}
+		var found bool
+		label, found = i18n.Lookup(locale, choice.LabelKey, nil)
+		if !found {
+			return "", false
+		}
+	}
+	if strings.TrimSpace(choice.ID) == "" || !utf8.ValidString(label) {
+		return "", false
+	}
+	visible := false
+	for _, r := range label {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
+			return "", false
+		}
+		visible = visible || unicode.IsGraphic(r) && !unicode.IsSpace(r)
+	}
+	return label, visible
+}
+
+func (b *Bridge) approvalKeyboard(a api.Approval) (*tg.InlineKeyboardMarkup, bool) {
+	keys := &tg.InlineKeyboardMarkup{}
+	seen := make(map[string]bool, len(a.Choices))
+	for _, choice := range a.Choices {
+		label, ok := b.approvalChoiceText(choice)
+		if !ok || seen[choice.ID] {
+			return nil, false // Never silently omit an offered native decision.
+		}
+		seen[choice.ID] = true
+		keys.InlineKeyboard = append(keys.InlineKeyboard, []tg.InlineKeyboardButton{{Text: label, CallbackData: callbackID(a.ID, choice.ID)}})
+	}
+	return keys, len(keys.InlineKeyboard) > 0
+}
+
 func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bool {
 	b.mu.Lock()
 	owner, chat := b.state.UserID, b.state.ChatID
@@ -832,7 +876,10 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 		return true
 	}
 	for _, a := range b.host.Snapshot().Approvals {
-		if a.Status == "resolved" || len(a.Questions) > 0 || a.URL != "" {
+		if a.Status != "pending" || len(a.Questions) > 0 || a.URL != "" {
+			continue
+		}
+		if _, valid := b.approvalKeyboard(a); !valid {
 			continue
 		}
 		for _, choice := range a.Choices {
@@ -840,7 +887,7 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 				key := "approval-decision:" + a.ID
 				b.mu.Lock()
 				record := b.state.Messages["approval:"+a.ID]
-				fromButton := len(record.IDs) > 0 && record.IDs[len(record.IDs)-1] > 0 && record.IDs[len(record.IDs)-1] == m.MessageID
+				fromButton := !record.Skip && record.Keyboard != "" && len(record.IDs) > 0 && record.IDs[len(record.IDs)-1] > 0 && record.IDs[len(record.IDs)-1] == m.MessageID
 				_, used := b.state.Inputs[key]
 				if fromButton && !used {
 					b.state.Inputs[key] = "dispatching"
@@ -963,6 +1010,7 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		}
 	}
 
+	unavailable := false
 	for _, a := range s.Approvals {
 		if a.Status == "resolved" {
 			continue
@@ -972,16 +1020,24 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 			text = b.text("Decision needed.", "需要决定。")
 		}
 		var keys *tg.InlineKeyboardMarkup
-		if len(a.Questions) == 0 && a.URL == "" && len(a.Choices) > 0 {
-			keys = &tg.InlineKeyboardMarkup{}
-			for _, choice := range a.Choices {
-				keys.InlineKeyboard = append(keys.InlineKeyboard, []tg.InlineKeyboardButton{{Text: choice.Label, CallbackData: callbackID(a.ID, choice.ID)}})
+		if a.Status == "pending" && len(a.Questions) == 0 && a.URL == "" && len(a.Choices) > 0 {
+			var valid bool
+			keys, valid = b.approvalKeyboard(a)
+			if !valid {
+				unavailable = true
+				b.setIssue("approval_unavailable")
+				text += "\n" + b.text("Approval options are unavailable here. Complete this request in Caelis Bot on your Mac.", "此处无法显示审批选项，请在 Mac 的 Caelis Bot 中完成此请求。")
 			}
 		} else {
 			text += "\n" + b.text("Complete this request in Caelis Bot on your Mac.", "请在 Mac 的 Caelis Bot 中完成此请求。")
 		}
 		b.sendText(ctx, c, "approval:"+a.ID, chat, text, keys)
 	}
+	b.mu.Lock()
+	if !unavailable && b.issue == "approval_unavailable" {
+		b.issue = ""
+	}
+	b.mu.Unlock()
 }
 func approvalMessageText(a api.Approval) string {
 	parts := make([]string, 0, 5)
@@ -1172,10 +1228,18 @@ func (b *Bridge) sendRenderedText(ctx context.Context, c client, key string, cha
 		for len(record.Hashes) <= part {
 			record.Hashes = append(record.Hashes, "")
 		}
+		for len(record.Rejected) <= part {
+			record.Rejected = append(record.Rejected, "")
+		}
 		id := record.IDs[part]
-		if id < 0 || record.Hashes[part] == hash && (part != len(messages)-1 || record.Keyboard == keyboard) {
+		attempt := hash + ":" + keyboard
+		unchanged := record.Hashes[part] == hash && (part != len(messages)-1 || record.Keyboard == keyboard)
+		if id == -1 || (id == -2 || id > 0) && unchanged || record.Rejected[part] == attempt {
 			b.mu.Unlock()
 			continue
+		}
+		if id == -2 { // Revised content/keyboard may retry a proven pre-send rejection.
+			id = 0
 		}
 		if id == 0 {
 			record.IDs[part] = -1
@@ -1197,22 +1261,37 @@ func (b *Bridge) sendRenderedText(ctx context.Context, c client, key string, cha
 		record = b.state.Messages[key]
 		if e == nil {
 			record.IDs[part], record.Hashes[part] = id, hash
+			record.Rejected[part] = ""
 			if part == len(messages)-1 {
 				record.Keyboard = keyboard
 			}
-			if b.issue == "network" || b.issue == "rate_limited" {
+			if b.issue == "network" || b.issue == "rate_limited" || b.issue == "telegram_error" {
 				b.issue = ""
 			}
 		} else {
 			b.issue = issueOf(e)
 			var transport *transportError
-			if errors.As(e, &transport) && transport.code == 429 {
+			classified := errors.As(e, &transport)
+			if classified && transport.code == 429 {
 				b.retryUntil = time.Now().Add(time.Duration(max(transport.retry, 1)) * time.Second)
 				if record.IDs[part] < 0 {
 					record.IDs[part] = 0
 				}
-			} else if id == 0 || record.IDs[part] < 0 {
+			} else if classified && definiteBotRejection(transport.code) {
+				if id == 0 {
+					record.IDs[part] = -2
+					record.Hashes[part] = hash
+					if part == len(messages)-1 {
+						record.Keyboard = keyboard
+					}
+				} else {
+					record.Rejected[part] = attempt
+				}
+			} else {
 				b.issue = "delivery_uncertain"
+				if id > 0 {
+					record.Skip = true // Unknown edit must not be sent again.
+				}
 			}
 		}
 		b.state.Messages[key] = record
@@ -1223,6 +1302,15 @@ func (b *Bridge) sendRenderedText(ctx context.Context, c client, key string, cha
 		}
 	}
 }
+
+func definiteBotRejection(code int) bool {
+	switch code {
+	case 400, 401, 403, 404, 409:
+		return true
+	}
+	return false // Timeouts and unrecognized responses have an unknown outcome.
+}
+
 func (b *Bridge) sendFile(ctx context.Context, c client, key, path string) {
 	if ctx.Err() != nil || b.backingOff() {
 		return
