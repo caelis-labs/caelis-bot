@@ -8,7 +8,7 @@ require (
 	github.com/caelis-labs/memory v0.6.1
 	github.com/coder/websocket v1.8.15
 	github.com/mymmrac/telego v1.12.1
-	github.com/wailsapp/wails/v3 v3.0.0-beta.26
+	github.com/wailsapp/wails/v3 v3.0.0-beta.27
 	golang.org/x/sys v0.48.0
 	modernc.org/sqlite v1.53.0
 )
