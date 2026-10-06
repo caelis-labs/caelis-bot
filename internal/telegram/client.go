@@ -29,6 +29,7 @@ type client interface {
 	Document(context.Context, int64, string) error
 	Download(context.Context, string, string) error
 	Answer(context.Context, string, string) error
+	ChatAction(context.Context, int64) error
 	Commands(context.Context) error
 }
 
@@ -190,6 +191,9 @@ func (s *sdkClient) Download(ctx context.Context, id, path string) error {
 }
 func (s *sdkClient) Answer(ctx context.Context, id, text string) error {
 	return safeError(s.bot.AnswerCallbackQuery(ctx, &tg.AnswerCallbackQueryParams{CallbackQueryID: id, Text: text}))
+}
+func (s *sdkClient) ChatAction(ctx context.Context, chat int64) error {
+	return safeError(s.bot.SendChatAction(ctx, &tg.SendChatActionParams{ChatID: tg.ChatID{ID: chat}, Action: tg.ChatActionTyping}))
 }
 func (s *sdkClient) Commands(ctx context.Context) error {
 	return safeError(s.bot.SetMyCommands(ctx, &tg.SetMyCommandsParams{Commands: []tg.BotCommand{{Command: "stop", Description: "Stop current work / 停止当前工作"}, {Command: "status", Description: "Connection and work status / 查看状态"}}}))

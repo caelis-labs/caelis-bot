@@ -115,7 +115,12 @@ item identity. Existing plain-text delivery digests are honored so a formatting
 upgrade does not republish history.
 Backend recovery establishes the private history boundary before remote input is
 accepted. One cancellable output worker coalesces snapshots independently of input
-and control actions; configuration changes join both workers. Attachment identity
+and control actions. A separate cancellable worker sends Telegram typing actions
+only while the connected main Turn is sending or working. It renews at a bounded
+rate, stops for approvals, uncertain or terminal outcomes and disconnects, and
+does not persist actions as conversation history or receipts. Rate limits and
+transport failures cannot delay input, decisions or recovery. Configuration
+changes join both workers. Attachment identity
 uses the submission and attachment index, preserving distinct same-named files.
 Static stickers use their downloaded image bytes. Animated and video stickers use
 the Telegram thumbnail as one explicitly labelled frame; a missing or invalid

@@ -87,6 +87,8 @@ type Bridge struct {
 	recoveryNonce       string
 	recoveryClaim       string
 	recoveryWait        sync.WaitGroup
+	typingPoll          time.Duration
+	typingRenew         time.Duration
 }
 
 func Open(root string, host Host) (*Bridge, error) {
@@ -505,10 +507,16 @@ func (b *Bridge) run(ctx context.Context, c client) {
 		defer close(outputDone)
 		b.output(ctx, c)
 	}()
+	typingDone := make(chan struct{})
+	go func() {
+		defer close(typingDone)
+		b.typing(ctx, c)
+	}()
 	defer func() {
 		cancel()
 		<-pollDone
 		<-outputDone
+		<-typingDone
 		b.recoveryWait.Wait()
 	}()
 	for {

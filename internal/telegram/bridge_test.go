@@ -23,6 +23,8 @@ import (
 type fakeClient struct {
 	mu                                            sync.Mutex
 	sends, edits, markupEdits, documents, answers int
+	chatActions                                   []int64
+	chatActionErr                                 error
 	texts                                         []string
 	messages                                      []outgoingText
 	editIDs                                       []int
@@ -102,6 +104,12 @@ func (f *fakeClient) Answer(context.Context, string, string) error {
 	defer f.mu.Unlock()
 	f.answers++
 	return nil
+}
+func (f *fakeClient) ChatAction(_ context.Context, chat int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.chatActions = append(f.chatActions, chat)
+	return f.chatActionErr
 }
 func (f *fakeClient) Commands(context.Context) error { return nil }
 func testBridge(t *testing.T, h Host) (*Bridge, *fakeClient) {
