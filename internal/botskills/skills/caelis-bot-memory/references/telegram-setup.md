@@ -47,8 +47,13 @@ click Try connecting again; do not keep reconnecting competing clients.
   Desktop messages and attachments also appear there. Earlier private history is
   not copied when an account is first paired.
 - `/stop` stops current work; `/status` reports whether the Mac is online and busy.
-  Simple approval choices can be answered using Telegram buttons. Requests needing
-  forms, secrets, or external login direct the user to the Mac.
+  An approval with Runtime-provided choices, including Computer Use, can be answered
+  using its Telegram buttons. Show the choices actually offered for that request;
+  a session or lasting permission is available only when the Runtime offers it.
+  Requests needing forms, secrets, or external login direct the user to the Mac.
+  An old button may expire after a decision, reconnect, or change of task. If a
+  decision's result is uncertain, check the original request on the Mac; do not
+  tap a different option to repeat it.
 - Keep Caelis Bot running and the Mac online. Closing its conversation window
   does not stop the connection. A sleeping or offline Mac cannot receive messages
   until it reconnects.

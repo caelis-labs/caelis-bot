@@ -97,6 +97,9 @@ func (s *Session) addPrompt(event Notification) {
 		ServerName  string                     `json:"serverName"`
 		URL         string                     `json:"url"`
 		Schema      json.RawMessage            `json:"requestedSchema"`
+		Meta        struct {
+			ApprovalKind string `json:"codex_approval_kind"`
+		} `json:"_meta"`
 	}
 	if err := json.Unmarshal(event.Params, &n); err != nil {
 		s.logEvent(event, "server_request_decode_failed", diagnosticlog.DecodeReason(err))
@@ -248,7 +251,14 @@ func (s *Session) addPrompt(event Notification) {
 				}
 				if valid {
 					p.form = &form
-					add("accept", "chat.submitApproval", nil)
+					label := "chat.submitApproval"
+					if n.Meta.ApprovalKind == "mcp_tool_call" && len(form.Properties) == 0 && len(form.Required) == 0 {
+						label = "chat.allowOnce"
+					}
+					add("accept", label, nil)
+					if label == "chat.allowOnce" {
+						p.view.Choices[len(p.view.Choices)-1].Scope = "once"
+					}
 				} else {
 					p.view.Questions = nil
 

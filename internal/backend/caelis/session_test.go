@@ -93,6 +93,47 @@ func TestApprovalUsesNativeChoicesAndRejectsChangedTarget(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestComputerUseApprovalPreservesEveryNativeOptionAndSingleResolution(t *testing.T) {
+	a := testApproval()
+	a.RequestId = "computer-use-request"
+	a.Permission = map[string]any{"tool_call": map[string]any{"id": "cua-repl", "name": "cua_repl", "title": "Allow Computer Use", "raw_input": map[string]any{"fixture": true}}, "options": []any{
+		map[string]any{"id": "once", "name": "Allow once", "kind": "allow_once"},
+		map[string]any{"id": "session", "name": "Allow this session", "kind": "allow_always"},
+		map[string]any{"id": "always", "name": "Always allow", "kind": "allow_always"},
+		map[string]any{"id": "deny", "name": "Deny", "kind": "reject_once"},
+	}}
+	var posts atomic.Int32
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			writeFixture(w, wire.SessionState{SessionId: "main", Approval: wire.ApprovalState{Active: a}})
+			return
+		}
+		posts.Add(1)
+		var req wire.ResolveApprovalRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.ApprovalRequestId != a.RequestId || value(req.OptionId) != "session" || !req.Approved || req.Target != *a.Target {
+			t.Error("native Computer Use decision lost exact option or target")
+		}
+		writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: "committed"})
+	})
+	s.state.Views["main"].State.Approval.Active = a
+	approval := s.Snapshot().Approvals[0]
+	for i, want := range []string{"once", "session", "always", "deny"} {
+		if approval.Choices[i].ID != want || approval.Choices[i].Label == "" {
+			t.Fatalf("native choice %d lost: %+v", i, approval.Choices)
+		}
+	}
+	if err := s.Decide(t.Context(), api.Decision{ID: approval.ID, Choice: "invented-forever"}); err == nil || posts.Load() != 0 {
+		t.Fatal("unoffered persistent permission was accepted")
+	}
+	if err := s.Decide(t.Context(), api.Decision{ID: approval.ID, Choice: "session"}); err != nil || posts.Load() != 1 {
+		t.Fatal("native session option was not resolved exactly once", err)
+	}
+	if err := s.Decide(t.Context(), api.Decision{ID: approval.ID, Choice: "always"}); err == nil || posts.Load() != 1 {
+		t.Fatal("competing choice changed an already claimed request")
+	}
+}
 func TestReplacementIsAtomicAndCursorIsOpaque(t *testing.T) {
 	for _, valid := range []bool{false, true} {
 		t.Run(fmt.Sprint(valid), func(t *testing.T) {

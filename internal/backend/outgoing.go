@@ -76,6 +76,23 @@ func (s *Service) presentOutgoing(v api.Snapshot) api.Snapshot {
 		if v.LastReceipt.ID == pending.item.RequestID && v.LastReceipt.Outcome != "" {
 			pending.item.Status = v.LastReceipt.Outcome
 		}
+		// A terminal local bubble may remain beside its original anchor, but
+		// a bounded history replacement must not append it as new input.
+		if pending.item.Status == "accepted" || pending.item.Status == "rejected" {
+			anchored := false
+			for _, item := range v.Items {
+				if item.ID == pending.after || item.RequestID != "" && "outgoing:"+item.RequestID == pending.after {
+					anchored = true
+					break
+				}
+			}
+			if pending.after == "" {
+				anchored = len(v.Items) == 0
+			}
+			if !anchored {
+				continue
+			}
+		}
 		remaining = append(remaining, pending)
 		at := len(items)
 		if pending.after == "" {

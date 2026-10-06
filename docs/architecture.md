@@ -89,6 +89,13 @@ skip that kind before reading text or attachments; the subsequent assistant
 result remains visible. No prose pattern or renderer-supplied flag establishes
 this source. Unknown command admission fences uncorrelated input until the
 original receipt identifies it.
+Approval keyboards use the pending native option IDs and the Telegram message
+ID that carried them. A text-only approval gains buttons by editing that same
+message when choices arrive. The first callback claims the original approval
+durably; later callbacks, stale message IDs and unknown decision results fail
+closed. The native head and option check remains authoritative. Recovery
+baselines terminal status notices; a lifecycle notice is tied to its original
+user receipt in the current Turn so an old receipt cannot label new work.
 The native macOS proxy resolver executes automatic configuration through CFNetwork,
 honors the ordered system candidates and cancels PAC work with the HTTP request.
 Failed or stalled PAC resolution continues to subsequent system candidates; DIRECT
@@ -178,6 +185,11 @@ configuration revision, tools version and invocation; an unavailable old handler
 Outbox bubbles use client IDs or exact native receipt targets, never matching prose. Rejected/unknown input
 retains the draft. Host drafts persist across surfaces/restart but are not an automatic outbox; restoration
 never sends. Screen submission has its own durable receipt and cannot consume the composer draft.
+Terminal local bubbles stay beside their original history anchor while visible
+and retire if bounded Runtime replacement removes it. Image presentation
+restores only unknown or in-flight input; accepted/rejected image receipts stay
+available for canonical history by original request ID without resurfacing as
+new tail messages after restart.
 Read-only Composer/Recent snapshots avoid serializing all history; older-page loading does not own lifecycle.
 
 Codex owns only the server it launched. Explicit stop/quit interrupts exact owned work, asks native terminal

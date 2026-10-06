@@ -30,7 +30,7 @@
   "no": "否",
   "approvalAdvanced": "更多授权方式",
   "approvalRuleScope": "保存规则会影响后续相同操作，请核对范围。",
-  "approvalConversationScope": "授权将继续用于 Bot 的后续请求，直到后台对话结束。",
+  "approvalConversationScope": "适用于当前 Runtime 会话。",
   "approvalResolved": "已处理",
   "approvalSent": "已提交，等待确认",
   "approvalUnknown": "连接或结果待确认，请重新连接核对",

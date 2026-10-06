@@ -76,8 +76,12 @@ func TestOrdinaryImagePresentationFollowsReceiptAndRestoresByRequest(t *testing.
 				t.Fatal(err)
 			}
 			pendingAfterRestart := recoveredPending.Snapshot().Items
-			if len(pendingAfterRestart) != 1 || pendingAfterRestart[0].Status != outcome || pendingAfterRestart[0].RequestID != id || pendingAfterRestart[0].Media.Caption != "caption" || len(pendingAfterRestart[0].Media.Images) != 2 {
-				t.Fatalf("unconfirmed display row lost on restart: %+v", pendingAfterRestart)
+			if outcome == "unknown" {
+				if len(pendingAfterRestart) != 1 || pendingAfterRestart[0].Status != outcome || pendingAfterRestart[0].RequestID != id || pendingAfterRestart[0].Media.Caption != "caption" || len(pendingAfterRestart[0].Media.Images) != 2 {
+					t.Fatalf("unknown original receipt lost on restart: %+v", pendingAfterRestart)
+				}
+			} else if len(pendingAfterRestart) != 0 {
+				t.Fatalf("terminal receipt resurfaced as fresh input: %+v", pendingAfterRestart)
 			}
 			e.mu.Lock()
 			e.view.Items = []api.Item{{ID: "native-" + id, Kind: "user", RequestID: id, Text: "caption", Status: "completed"}}

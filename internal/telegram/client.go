@@ -24,7 +24,8 @@ type client interface {
 	TakeOver(context.Context) error
 	Updates(context.Context, int) ([]tg.Update, error)
 	Send(context.Context, int64, outgoingText, *tg.InlineKeyboardMarkup) (int, error)
-	Edit(context.Context, int64, int, outgoingText) error
+	Edit(context.Context, int64, int, outgoingText, *tg.InlineKeyboardMarkup) error
+	EditMarkup(context.Context, int64, int, *tg.InlineKeyboardMarkup) error
 	Document(context.Context, int64, string) error
 	Download(context.Context, string, string) error
 	Answer(context.Context, string, string) error
@@ -126,8 +127,16 @@ func (s *sdkClient) Send(ctx context.Context, chat int64, message outgoingText, 
 	}
 	return v.MessageID, nil
 }
-func (s *sdkClient) Edit(ctx context.Context, chat int64, id int, message outgoingText) error {
-	_, e := s.bot.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, Text: message.Text, Entities: message.Entities})
+func (s *sdkClient) Edit(ctx context.Context, chat int64, id int, message outgoingText, keys *tg.InlineKeyboardMarkup) error {
+	_, e := s.bot.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, Text: message.Text, Entities: message.Entities, ReplyMarkup: keys})
+	err := safeError(e)
+	if err != nil && issueOf(err) == "unchanged" {
+		return nil
+	}
+	return err
+}
+func (s *sdkClient) EditMarkup(ctx context.Context, chat int64, id int, keys *tg.InlineKeyboardMarkup) error {
+	_, e := s.bot.EditMessageReplyMarkup(ctx, &tg.EditMessageReplyMarkupParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, ReplyMarkup: keys})
 	err := safeError(e)
 	if err != nil && issueOf(err) == "unchanged" {
 		return nil

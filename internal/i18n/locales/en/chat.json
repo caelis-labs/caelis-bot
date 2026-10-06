@@ -30,7 +30,7 @@
   "no": "No",
   "approvalAdvanced": "More authorization options",
   "approvalRuleScope": "Saving this rule applies to matching future actions. Check the scope.",
-  "approvalConversationScope": "Authorization continues for Bot requests until the background conversation ends.",
+  "approvalConversationScope": "Applies to the current Runtime session.",
   "approvalResolved": "Resolved",
   "approvalSent": "Submitted, waiting for confirmation",
   "approvalUnknown": "Connection or result pending confirmation. Reconnect to verify.",

@@ -41,6 +41,16 @@ window.fixtureSet=kind=>{
 
 };
 window.fixtureSet('short');
+if(previewParams.get('fixture')==='approval'){
+ window.fixtureSet('approval');
+ snapshot.approvals[0]={id:'synthetic-computer-use',title:'Allow Computer Use',action:'Allow Computer Use',status:'pending',description:'Synthetic window only',details:'',target:'',questions:[],choices:[
+  {id:'once',label:'Allow once',scope:'allow_once'},
+  {id:'session',label:'Allow this session',scope:'allow_always'},
+  {id:'always',label:'Always allow',scope:'allow_always'},
+  {id:'deny',label:'Deny',scope:'reject_once'}
+ ]};
+ snapshot.phase='waiting_approval';
+}
 if(draftFiles.length){Object.assign(snapshot,{phase:'idle',canSend:true,canSteer:false,canInterrupt:false,activity:null});}
 if(previewParams.get('surface')==='panel')setTimeout(()=>window.dispatchEvent(new CustomEvent('panel-open',{detail:{activation:1}})),200);
 // Runs against the mounted production Bubble, including its 450ms polling and
