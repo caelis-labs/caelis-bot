@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-06",
+  "scope": "macOS arm64; public rc.3 helper in a locally Apple Development signed Dev bundle; disposable native, WebKit, Chrome and Electron fixtures",
+  "release": {
+    "version": "v0.1.0-rc.3",
+    "revision": "43172bb1f3dd26b90a88c346bc9978cbabab5785",
+    "go_module_sum": "h1:uo6BBK0m1YjC2ep7LNCRyFt3cP+4gtINGfzUqWKgDO0=",
+    "darwin_archive_sha256": "9bf246b352c37f4e7f719fc222ab528221abc8e0fcba83ab61b03ba715b9fbd9",
+    "source_tar_sha256": "359fa2215cbead13cdc516551a4e56488d3e2847f3fcbf097cd829b8724b593d",
+    "acceptance_json_sha256": "16ee01ca8a065681d5ce7c79733d7808d482fa7b9903067d58545020b2ba5eee",
+    "published_binary_sha256": "51424f2fd5cc3c24750225383b88cd16eae981868478d47d501f25e83995287c",
+    "all_six_release_assets_downloaded": true,
+    "all_sha256sums_entries_match": true,
+    "packaged_source_files_equal_git_tag_and_source_tar": 396
+  },
+  "packaging": {
+    "bot_code_commit": "1610d60dde5c2a505520afc2a7a944a5e6e51029",
+    "app_identifier": "dev.caelis.bot.dev",
+    "authority": "Apple Development",
+    "team_identifier": "64KZ67PM5J",
+    "hardened_runtime": true,
+    "signed_app_executable_sha256_before_and_after_capture": "39e019e00d44ee20ecfd265d71d12f28e8fcabff9d0847589c39df78cfdbbd7e",
+    "signed_packaged_helper_sha256_before_and_after_capture": "c93da60367f79d0e43374b937bd8972f889b3305252265adfab0f3bb9c1226bc",
+    "local_verified_dev_dmg_sha256": "c6aaa197454c5725c294d37583f9ff7929cceeff8e03d9137dd359f6294675ce",
+    "mounted_app_signature_and_helper_manifest_verified": true
+  },
+  "bot_chrome_compact": {
+    "tool_chain": ["bot_desktop_inspect", "bot_desktop_authorize", "bot_desktop_act", "bot_desktop_result"],
+    "profile": "new private Chrome profile; one synthetic file page",
+    "false_to_true": "completed; semantic delivery complete; verified; same-run reconcile",
+    "true_to_true": "completed; delivery not_applicable; verified; same-run reconcile",
+    "true_to_false": "completed; semantic delivery complete; verified; same-run reconcile",
+    "disabled_refusal": "stopped; capability_unavailable; delivery none; same-run reconcile",
+    "independent_dom_final_checked": false,
+    "independent_dom_events": [
+      {"type": "input", "checked": true},
+      {"type": "change", "checked": true},
+      {"type": "input", "checked": false},
+      {"type": "change", "checked": false}
+    ],
+    "automatic_retry_or_pointer_fallback": false
+  },
+  "other_live_providers": {
+    "appkit": "new fixture; rc.3 helper set_checked/set_value/invoke completed; app-owned file recorded exactly one submit and exact test text; original receipt survived turn end",
+    "webkit": "new standard scroll fixture advertised supported/available and known offscreen=true; one scroll completed; app callback and fresh offscreen=false AX readback",
+    "electron": "new private Electron profile; one invoke completed; app-owned action_count=1; same request receipt after turn",
+    "electron_bind_refusal": "Bot compact bind for an absent context command returned stopped/ambiguous_target before delivery, next invoke skipped, same-run reconciliation and unchanged app-owned log",
+    "cancellation": "fresh pending native wait cancelled; original request reconciled as unknown with no later app event; no replay",
+    "eof": "separate fresh pending wait; helper exited cleanly; original and same-ID receipt stopped with later invoke skipped, app effect count zero; new session did not inherit request",
+    "signed_capture": {
+      "dev_app_screen_capture_status": "authorized",
+      "capture_attempts": 1,
+      "image_accepted": true,
+      "pixels": "502x480 PNG, 62157 bytes",
+      "png_sha256": "b8a8513f73846741d34695ed383b4c5aa8e2607fa8af14e4489757d243efb0fe",
+      "geometry": "target-local positive transform; no desktop mapping; PNG dimensions match tile",
+      "visual_readback": "synthetic AppKit window, checkbox on, Submitted: 1, no personal content"
+    }
+  },
+  "model_pipe": {
+    "isolation": "new Bot data directory, owned App Server and synthetic native window; existing native login, no credential copy",
+    "submission": "accepted",
+    "phase": "completed",
+    "native_authorization_review": "approved",
+    "pending_native_approvals_at_end": 0,
+    "app_owned_result": {"submissions": 1, "text": "RC3_MODEL_DESKTOP_OK"}
+  },
+  "gates": ["make check", "make smoke", "make build", "focused race Bot/DesktopControl/BotSkills", "local Dev DMG mounted verification"],
+  "limits": [
+    "The upstream rc.3 Electron full-operation script stopped at a context-menu ambiguous_target bind and remains unaccepted. This Bot test established fail-closed behavior for a separate zero-match binding; it cannot identify that upstream script's exact candidate set.",
+    "Prior rc.2 Bot operation coverage is retained as historical evidence; operations outside the rc.3 delta were not all repeated on rc.3.",
+    "Human approval panel interaction, Windows GUI, Developer ID, notarization and public Bot release are not claimed."
+  ]
+}
