@@ -124,7 +124,7 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) bool {
 		if task := s.taskByThread(id); task != nil {
 			s.observeTaskTurn(task, turn)
 		}
-		if turn.Status == "inProgress" && !s.childTerminals[opaque(id, turn.ID)] {
+		if turn.Status == "inProgress" && !s.childTerminals[opaque(id, turn.ID)] && !s.supersededTaskRun(id, turn.ID) {
 			active = true
 			run = turn.ID
 		}
@@ -142,6 +142,9 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) bool {
 		s.childRetireSeq[id]++
 	} else {
 		delete(s.childRuns, id)
+		if task := s.taskByThread(id); task != nil && task.View.Status == "working" {
+			task.View.Status = "unknown"
+		}
 		s.scheduleChildRetirement(id)
 	}
 	if s.state.Message == workerUnconfirmed && s.binding.Pending == nil {
@@ -232,7 +235,7 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 				_ = s.save()
 			}
 		}
-		if n.Turn.Status == "inProgress" && !s.childTerminals[opaque(thread, n.Turn.ID)] {
+		if n.Turn.Status == "inProgress" && !s.childTerminals[opaque(thread, n.Turn.ID)] && !s.supersededTaskRun(thread, n.Turn.ID) {
 			s.childRuns[thread] = n.Turn.ID
 		}
 		if terminal(n.Turn.Status) {

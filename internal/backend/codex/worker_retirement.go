@@ -92,11 +92,15 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 	}
 	active := response.Thread.Status.Type == "active"
 	latestTerminal := false
+	latestRun := ""
 	for _, turn := range response.Thread.Turns {
+		if turn.ID != "" {
+			latestRun = turn.ID
+		}
 		if task := s.taskByThread(id); task != nil {
 			s.observeTaskTurn(task, turn)
 		}
-		if turn.Status == "inProgress" {
+		if turn.Status == "inProgress" && !s.supersededTaskRun(id, turn.ID) {
 			active = true
 			s.childRuns[id] = turn.ID
 		}
@@ -115,6 +119,9 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		}
 	} else {
 		delete(s.childRuns, id)
+		if task := s.taskByThread(id); task != nil && task.View.Status == "working" {
+			task.View.Status = "unknown"
+		}
 		if s.childSubscribed[id] {
 			s.scheduleChildRetirement(id)
 		} else {
@@ -128,7 +135,7 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 			}
 		}
 		confirmedIdle := (response.Thread.Status.Type == "idle" || response.Thread.Status.Type == "notLoaded") && latestTerminal
-		if task := s.taskByThread(id); task != nil && (task.Pending != "" || taskHasUnknownReceipt(task)) {
+		if task := s.taskByThread(id); task != nil && (task.Pending != "" || taskHasUnknownReceipt(task) || task.Run == "" || task.Run != latestRun) {
 			confirmedIdle = false
 		}
 		if confirmedIdle && s.state.Message == workerUnconfirmed {

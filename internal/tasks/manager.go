@@ -23,20 +23,26 @@ import (
 )
 
 type record struct {
-	Requests       []string `json:"requests,omitempty"`
-	Runtime        string   `json:"runtime,omitempty"`
-	Sequence       int64    `json:"sequence,omitempty"`
-	Locked         bool     `json:"locked,omitempty"`
-	CompletedAt    int64    `json:"completedAt,omitempty"`
-	ActiveAt       int64    `json:"activeAt,omitempty"`
-	Pinned         *bool    `json:"pinned,omitempty"`
-	OriginalPrompt string   `json:"originalPrompt,omitempty"`
-	View           api.Task `json:"view"`
-	Provider       string   `json:"provider"`
-	Fingerprint    string   `json:"fingerprint,omitempty"`
-	Execution      string   `json:"execution,omitempty"`
-	ReportID       string   `json:"reportId,omitempty"`
-	ReportState    string   `json:"reportState,omitempty"`
+	Requests          []string        `json:"requests,omitempty"`
+	RetiredExecutions []string        `json:"retiredExecutions,omitempty"`
+	PreviousReports   []reportReceipt `json:"previousReports,omitempty"`
+	Runtime           string          `json:"runtime,omitempty"`
+	Sequence          int64           `json:"sequence,omitempty"`
+	Locked            bool            `json:"locked,omitempty"`
+	CompletedAt       int64           `json:"completedAt,omitempty"`
+	ActiveAt          int64           `json:"activeAt,omitempty"`
+	Pinned            *bool           `json:"pinned,omitempty"`
+	OriginalPrompt    string          `json:"originalPrompt,omitempty"`
+	View              api.Task        `json:"view"`
+	Provider          string          `json:"provider"`
+	Fingerprint       string          `json:"fingerprint,omitempty"`
+	Execution         string          `json:"execution,omitempty"`
+	ReportID          string          `json:"reportId,omitempty"`
+	ReportState       string          `json:"reportState,omitempty"`
+}
+type reportReceipt struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
 }
 type state struct {
 	WatchOrder map[string][]string `json:"watchOrder,omitempty"`
@@ -212,6 +218,19 @@ func (m *Manager) refresh() error {
 		if !m.owns(r) {
 			return errors.New(m.text("host.taskConflictOtherRuntime"))
 		}
+		if v.ExecutionKey != "" && slices.Contains(r.RetiredExecutions, v.ExecutionKey) {
+			continue // A late old native snapshot cannot republish its report.
+		}
+		if r.Execution != "" && v.ExecutionKey != "" && r.Execution != v.ExecutionKey {
+			r.RetiredExecutions = append(r.RetiredExecutions, r.Execution)
+			if r.ReportID != "" {
+				state := r.ReportState
+				if state == "pending" {
+					state = "observed" // superseded before dispatch
+				}
+				r.PreviousReports = append(r.PreviousReports, reportReceipt{ID: r.ReportID, State: state})
+			}
+		}
 		if (r.Execution != "" && v.ExecutionKey != "" && r.Execution != v.ExecutionKey) || (terminal(r.View.Status) && !terminal(v.Task.Status)) {
 			pin := true
 			r.Pinned = &pin
@@ -229,7 +248,7 @@ func (m *Manager) refresh() error {
 			r.ReportID = "task-report-" + hash(r.Provider, v.Task.ID, v.ExecutionKey)
 			r.ReportState = "pending"
 		}
-		if v.StopRequested {
+		if v.StopRequested && r.ReportState == "pending" {
 			r.ReportState = "observed"
 		}
 	}
@@ -260,6 +279,13 @@ func (m *Manager) HostReportIDs() []string {
 	for _, r := range m.state.Records {
 		if r != nil && r.ReportID != "" && (r.ReportState == "delivered" || r.ReportState == "dispatching") {
 			ids = append(ids, r.ReportID)
+		}
+		if r != nil {
+			for _, report := range r.PreviousReports {
+				if report.ID != "" && (report.State == "delivered" || report.State == "dispatching") {
+					ids = append(ids, report.ID)
+				}
+			}
 		}
 	}
 	sort.Strings(ids)
@@ -475,7 +501,9 @@ func (m *Manager) ReadTask(ctx context.Context, id string) (api.Task, error) {
 	v, e = m.capture(id, v, e)
 	if e == nil && terminal(v.Status) {
 		m.mu.Lock()
-		m.state.Records[id].ReportState = "observed"
+		if m.state.Records[id].ReportState == "pending" {
+			m.state.Records[id].ReportState = "observed"
+		}
 		e = m.write()
 		m.mu.Unlock()
 	}
@@ -547,6 +575,13 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	for _, r := range m.state.Records {
 		if m.owns(r) && r.ReportState == "dispatching" && s.LastReceipt.ID == r.ReportID && s.LastReceipt.Outcome == "accepted" {
 			r.ReportState = "delivered"
+		}
+		if m.owns(r) && s.LastReceipt.Outcome == "accepted" {
+			for i := range r.PreviousReports {
+				if r.PreviousReports[i].State == "dispatching" && r.PreviousReports[i].ID == s.LastReceipt.ID {
+					r.PreviousReports[i].State = "delivered"
+				}
+			}
 		}
 	}
 	if e := m.write(); e != nil {

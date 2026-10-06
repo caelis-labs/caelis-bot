@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -21,20 +22,25 @@ type taskRecord struct {
 	View           api.Task                   `json:"view"`
 	Thread         string                     `json:"thread"`
 	Run            string                     `json:"run"`
-	Fingerprint    string                     `json:"fingerprint"`
-	Source         string                     `json:"source"`
-	Requests       map[string]taskReceipt     `json:"requests"`
-	Pending        string                     `json:"pending,omitempty"`
-	ReportID       string                     `json:"reportId,omitempty"`
-	ReportState    string                     `json:"reportState,omitempty"`
-	SuppressReport bool                       `json:"suppressReport,omitempty"`
-	Instructions   string                     `json:"instructions,omitempty"`
+	// Native turn IDs displaced by a later, durably recorded continuation. Keep
+	// these across reconnects: an old terminal event is not the new result.
+	SupersededRuns []string               `json:"supersededRuns,omitempty"`
+	Fingerprint    string                 `json:"fingerprint"`
+	Source         string                 `json:"source"`
+	Requests       map[string]taskReceipt `json:"requests"`
+	Pending        string                 `json:"pending,omitempty"`
+	ReportID       string                 `json:"reportId,omitempty"`
+	ReportState    string                 `json:"reportState,omitempty"`
+	SuppressReport bool                   `json:"suppressReport,omitempty"`
+	Instructions   string                 `json:"instructions,omitempty"`
 }
 type taskReceipt struct {
-	Fingerprint string `json:"fingerprint"`
-	Outcome     string `json:"outcome"`
-	PriorStatus string `json:"priorStatus,omitempty"`
-	PriorRun    string `json:"priorRun,omitempty"`
+	Fingerprint     string `json:"fingerprint"`
+	Outcome         string `json:"outcome"`
+	PriorStatus     string `json:"priorStatus,omitempty"`
+	PriorRun        string `json:"priorRun,omitempty"`
+	PriorResult     string `json:"priorResult,omitempty"`
+	PriorSuppressed bool   `json:"priorSuppressed,omitempty"`
 }
 
 func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
@@ -337,17 +343,22 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		return api.Task{}, errors.New("运行回合尚未确认，请先读取任务")
 	}
 	previousView, previousRun, previousPending, previousSuppression := t.View, t.Run, t.Pending, t.SuppressReport
-	t.Requests[in.RequestID] = taskReceipt{Fingerprint: opaque(in.Prompt), Outcome: "unknown", PriorStatus: t.View.Status, PriorRun: t.Run}
+	previousSuperseded := append([]string(nil), t.SupersededRuns...)
+	t.Requests[in.RequestID] = taskReceipt{Fingerprint: opaque(in.Prompt), Outcome: "unknown", PriorStatus: t.View.Status, PriorRun: t.Run, PriorResult: t.View.Result, PriorSuppressed: t.SuppressReport}
 	t.Pending = in.RequestID
 	t.SuppressReport = false
 	if !wasActive {
+		if t.Run != "" && !slices.Contains(t.SupersededRuns, t.Run) {
+			t.SupersededRuns = append(t.SupersededRuns, t.Run)
+		}
 		t.Run = ""
 	}
 	t.View.Status = "unknown"
 	t.View.Outcome = "unknown"
+	t.View.Result = ""
 	if err := s.save(); err != nil {
 		delete(t.Requests, in.RequestID)
-		t.View, t.Run, t.Pending, t.SuppressReport = previousView, previousRun, previousPending, previousSuppression
+		t.View, t.Run, t.Pending, t.SuppressReport, t.SupersededRuns = previousView, previousRun, previousPending, previousSuppression, previousSuperseded
 		s.mu.Unlock()
 		return api.Task{}, err
 	}
@@ -416,7 +427,7 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 		t.Requests[request] = r
 		// Notifications may have already completed this turn or started a later
 		// human turn. A delayed RPC receipt must not rewind that live state.
-		if t.Run == "" || t.Run == turn.ID {
+		if t.Run == "" || t.Run == turn.ID || slices.Contains(t.SupersededRuns, t.Run) {
 			s.observeTaskTurn(t, turn)
 			if status := s.childTerminalStatus[opaque(t.Thread, turn.ID)]; status != "" && t.Run == turn.ID && !terminal(t.View.Status) {
 				s.observeTaskTurn(t, nativeTurn{ID: turn.ID, Status: status})
@@ -429,7 +440,10 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 		r.Outcome = "rejected"
 		t.Pending = ""
 		if t.Run == "" || t.Run == r.PriorRun {
-			t.View.Status, t.Run = r.PriorStatus, r.PriorRun
+			t.View.Status, t.View.Result, t.Run, t.SuppressReport = r.PriorStatus, r.PriorResult, r.PriorRun, r.PriorSuppressed
+			if r.PriorRun != "" && terminal(r.PriorStatus) {
+				t.SupersededRuns = slices.DeleteFunc(t.SupersededRuns, func(run string) bool { return run == r.PriorRun })
+			}
 			if t.View.Status == "unknown" && t.Run == "" {
 				t.View.Status = "failed"
 			}
@@ -475,6 +489,9 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 	if terminal(turn.Status) {
 		s.childTerminalStatus[opaque(t.Thread, turn.ID)] = turn.Status
 	}
+	if slices.Contains(t.SupersededRuns, turn.ID) {
+		return
+	}
 	// A terminal fact for an earlier run cannot settle a later submission whose
 	// original client identity has not appeared in this native thread snapshot.
 	if t.Pending != "" || taskHasUnknownReceipt(t) {
@@ -514,6 +531,10 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 		}
 	}
 	return
+}
+func (s *Session) supersededTaskRun(thread, run string) bool {
+	t := s.taskByThread(thread)
+	return t != nil && slices.Contains(t.SupersededRuns, run)
 }
 func boundedText(text string, limit int) string {
 	r := []rune(text)
@@ -557,6 +578,12 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	if revision == s.childRevision[t.Thread] {
 		for _, turn := range response.Thread.Turns {
 			s.observeTaskTurn(t, turn)
+		}
+		// An idle native thread with no terminal fact for the current run
+		// cannot confirm the continuation's result, even if older turns are
+		// complete. A newer live event supersedes this read entirely.
+		if (response.Thread.Status.Type == "idle" || response.Thread.Status.Type == "notLoaded") && t.View.Status == "working" {
+			t.View.Status = "unknown"
 		}
 	}
 	if response.Thread.Status.Type == "active" {
