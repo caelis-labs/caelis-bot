@@ -150,6 +150,10 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		s.mu.Unlock()
 		return api.Task{}, err
 	}
+	if s.subscribedWorkerCount() >= workerSubscriptionLimit {
+		s.mu.Unlock()
+		return api.Task{}, errors.New("当前运行中的工作连接过多，请等待已完成任务释放资源后重试")
+	}
 	s.mu.Unlock()
 	execution, err := s.resolveWorkExecution(ctx, in.Workspace)
 	if err != nil {
@@ -159,6 +163,10 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	if err := s.taskAdmission(); err != nil {
 		s.mu.Unlock()
 		return api.Task{}, err
+	}
+	if s.subscribedWorkerCount() >= workerSubscriptionLimit {
+		s.mu.Unlock()
+		return api.Task{}, errors.New("当前运行中的工作连接过多，请等待已完成任务释放资源后重试")
 	}
 	workspace := in.Workspace
 	t := &taskRecord{View: api.Task{ID: id, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fingerprint, Source: s.binding.DelegationText, Requests: map[string]taskReceipt{}, Instructions: in.Instructions, Execution: &execution}
@@ -198,6 +206,8 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	t.Execution, t.ModelProvider = response.execution(), response.ModelProvider
 	s.children[t.Thread] = true
 	s.childWatching[t.Thread] = true // thread/start already subscribed this client.
+	s.childSubscribed[t.Thread] = true
+	delete(s.childRetired, t.Thread)
 	// Ownership is durable before dispatch, so approvals cannot race adoption.
 	if err = s.save(); err != nil {
 		v := t.View
@@ -357,6 +367,10 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 			return s.taskSendResult(t, in.RequestID, nativeTurn{}, err)
 		}
 		s.mu.Lock()
+		s.childWatching[t.Thread] = true
+		s.childSubscribed[t.Thread] = true
+		delete(s.childRetired, t.Thread)
+		s.childRetireSeq[t.Thread]++
 		t.Execution, t.ModelProvider = response.execution(), response.ModelProvider
 		err := s.save()
 		s.mu.Unlock()
@@ -421,7 +435,7 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	t.Requests[request] = r
 	t.View.Outcome = r.Outcome
 	// Reconcile an uncertain receipt once; normal progress is subscription-driven.
-	if t.Thread != "" && err != nil {
+	if t.Thread != "" && err != nil && !s.childWatching[t.Thread] {
 		s.childWatching[t.Thread] = true
 		go s.watchChild(s.client, s.epoch, t.Thread)
 	}
@@ -525,6 +539,15 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		for _, turn := range response.Thread.Turns {
 			s.observeTaskTurn(t, turn)
 		}
+	}
+	if response.Thread.Status.Type == "active" {
+		if !s.childWatching[t.Thread] {
+			s.childWatching[t.Thread] = true
+			go s.watchChild(c, s.epoch, t.Thread)
+		}
+	} else if (response.Thread.Status.Type == "idle" || response.Thread.Status.Type == "notLoaded") && terminal(t.View.Status) {
+		delete(s.childRuns, t.Thread)
+		s.scheduleChildRetirement(t.Thread)
 	}
 	if err = s.save(); err != nil {
 		return t.View, err

@@ -41,6 +41,17 @@ Credential Manager, Job Objects and GUI acceptance remain the next stage.
 Shared-core compilation and native Windows CI do not prove Windows GUI behavior.
 `GOWORK=off`; no sibling private imports.
 
+Codex worker execution, saved task receipts, terminal observation, and Bot
+subscriptions have separate lifetimes. A terminal turn starts a short Bot idle
+grace; the adapter then uses read-only `thread/read` to confirm the exact last
+turn and native idle state before calling `thread/unsubscribe` on its own
+connection. The App Server retains the loaded runtime until its own
+no-subscriber/no-activity grace expires; another client's subscription or a
+running turn prevents that unload. Neither path archives history. Reconnection
+reads unresolved workers without loading completed historical tasks; explicit
+continuation resumes the same native thread and request ledger. Diagnostics
+distinguish Bot subscription retirement from later native `thread/closed` unload.
+
 Caelis atomic reconnect may prepare a large existing history before sending SSE
 headers. Its observation uses a separate transport with a two-minute header wait;
 the caller context owns cancellation and the idle stream lifetime. Ordinary JSON

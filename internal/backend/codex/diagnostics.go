@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 func (s *Session) DiagnosticStatus() map[string]any {
@@ -38,6 +39,24 @@ func (s *Session) DiagnosticStatus() map[string]any {
 			transport = "disconnected"
 		}
 	}
-	return map[string]any{"transport": transport, "bound": s.bound, "pendingSubmission": s.binding.Pending != nil, "errorLog": s.opts.Diagnostics.Status(),
-		"ownedWorkers": len(s.children), "activeWorkers": len(s.childRuns), "pagedHistory": s.historyPaged, "schemaBaseline": TestedVersion}
+	report := map[string]any{"transport": transport, "bound": s.bound, "pendingSubmission": s.binding.Pending != nil, "errorLog": s.opts.Diagnostics.Status(),
+		"ownedWorkers": len(s.children), "activeWorkers": len(s.childRuns), "subscribedWorkers": s.subscribedWorkerCount(),
+		"workerSubscriptionLimit": workerSubscriptionLimit, "workerRetirementFailures": s.retireFailures,
+		"retiredWorkerSubscriptions": s.retiredWorkers, "nativeWorkerUnloads": s.nativeUnloads,
+		"workerRetirementSupported": !s.retireUnsupported, "pagedHistory": s.historyPaged, "schemaBaseline": TestedVersion}
+	if snapshot := s.nativeResources; !snapshot.ObservedAt.IsZero() {
+		resources := map[string]any{"observedAt": snapshot.ObservedAt.Format(time.RFC3339), "loadedThreads": snapshot.LoadedThreads,
+			"loadedOwnedWorkers": snapshot.LoadedOwnedWorkers}
+		if snapshot.LiveThreads != nil {
+			resources["liveThreads"] = *snapshot.LiveThreads
+		}
+		if snapshot.MCPConnections != nil {
+			resources["mcpConnections"] = *snapshot.MCPConnections
+		}
+		if snapshot.PhysicalFootprintBytes != nil {
+			resources["physicalFootprintBytes"] = *snapshot.PhysicalFootprintBytes
+		}
+		report["nativeResources"] = resources
+	}
+	return report
 }
