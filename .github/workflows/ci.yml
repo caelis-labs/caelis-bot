@@ -163,7 +163,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test script/ci-scope.test.mjs script/release-version.test.mjs script/update.test.mjs script/publication.test.mjs script/desktop-world.test.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run check
+          npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go build -o .cache/caelis-bot-unsupported.exe .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
