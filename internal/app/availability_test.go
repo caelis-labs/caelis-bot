@@ -3,6 +3,8 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,15 +33,24 @@ func TestCorruptOptionalStoresKeepApplicationAndControlsAvailable(t *testing.T) 
 		t.Fatal("optional error prevented shell assembly", err)
 	}
 	defer a.Close()
-	if err := a.Start(); err != nil {
-		t.Fatal("optional error prevented runtime observation", err)
+	startErr := a.Start()
+	if runtime.GOOS == "windows" {
+		// The private Named Pipe adapter is still explicitly unsupported. Exercise
+		// shell assembly and preserved stores here without claiming native IPC.
+		if startErr == nil || !strings.Contains(startErr.Error(), "private Bot IPC") {
+			t.Fatal("unexpected Windows startup result", startErr)
+		}
+	} else if startErr != nil {
+		t.Fatal("optional error prevented runtime observation", startErr)
 	}
-	waitSignal(t, e.connectSeen)
+	if runtime.GOOS != "windows" {
+		waitSignal(t, e.connectSeen)
+	}
 	started := time.Now()
 	_ = a.Backend.Snapshot()
 	_ = a.Backend.RecoveryState()
 	_ = a.Telegram.Status()
-	if time.Since(started) > time.Second || !a.started || a.tasks != nil {
+	if time.Since(started) > time.Second || (runtime.GOOS != "windows" && !a.started) || a.tasks != nil {
 		t.Fatal("optional fault disabled controls")
 	}
 	for _, name := range []string{"bot-initialization.json", "tasks.json", "worker-runtime.json", "telegram.json", "Machines/machines.json"} {
