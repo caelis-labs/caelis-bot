@@ -35,8 +35,9 @@ func NewRetainedWorkOwner(opts Options) (*WorkOwner, error) {
 	w.engine.retainedWorkers = true
 	return w, w.engine.loadErr
 }
-func (w *WorkOwner) Connect(ctx context.Context) error { return w.engine.Connect(ctx) }
-func (w *WorkOwner) Close(ctx context.Context) error   { return w.engine.Close(ctx) }
+func (w *WorkOwner) Connect(ctx context.Context) error         { return w.engine.Connect(ctx) }
+func (w *WorkOwner) Close(ctx context.Context) error           { return w.engine.Close(ctx) }
+func (w *WorkOwner) DetachForUpdate(ctx context.Context) error { return w.engine.DetachForUpdate(ctx) }
 func (w *WorkOwner) source(ctx context.Context, request string) context.Context {
 	s := w.engine
 	s.mu.Lock()

@@ -179,8 +179,11 @@ prefix ownership with fixture storage. `make check-updater` uses the pinned fram
 an isolated AppKit host, disposable keys and an ad-hoc DMG to test the native API,
 postponed/cancelled installation and real feed signing. Neither substitutes for a
 two-version Developer ID installation/relaunch test from public R2. Run that after
-credentials and the first updater-enabled releases exist; verify preserved data and
-active-work deferral. Integration follows [Sparkle's official documentation](https://sparkle-project.org/documentation/).
+credentials and the first updater-enabled releases exist; verify preserved data,
+original task/approval receipts, active-owner detach, the actual Apple quit and
+relaunch through the single-instance gate. A user-confirmed update freezes new
+admission and preserves unresolved work for recovery; active work alone does not
+defer that update indefinitely. Integration follows [Sparkle's official documentation](https://sparkle-project.org/documentation/).
 
 ## Credentials and least privilege
 

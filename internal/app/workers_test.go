@@ -17,6 +17,13 @@ type workerFixture struct {
 	reject                                    bool
 }
 
+type detachableWorkerFixture struct {
+	*workerFixture
+	detached int
+}
+
+func (w *detachableWorkerFixture) DetachForUpdate(context.Context) error { w.detached++; return nil }
+
 func (w *workerFixture) Connect(context.Context) error { w.connections++; return nil }
 func (w *workerFixture) Close(context.Context) error   { w.closed++; return nil }
 func (w *workerFixture) WorkAdmission(context.Context) error {
@@ -69,6 +76,26 @@ func (w *workerFixture) SubmitReport(_ context.Context, in api.Submission) (api.
 }
 func workPool(root, active string, owners map[string]*workerFixture) *localWorkers {
 	return &localWorkers{root: root, path: filepath.Join(root, "worker-runtime.json"), defaultRuntime: active, active: active, resident: owners[active], owners: map[string]retainedWorker{}, routes: map[string]string{}, open: func(runtime string) (retainedWorker, error) { return owners[runtime], nil }}
+}
+
+func TestUpdateClosesRetainedOwnersByOriginalDetachCapability(t *testing.T) {
+	active := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
+	legacy := &workerFixture{runtime: "codex", states: map[string]api.WorkState{"work": {Task: api.Task{ID: "work", Status: "working"}}}}
+	pool := &localWorkers{active: "caelis", owners: map[string]retainedWorker{"codex": legacy}}
+	if err := pool.CanDetachForUpdate(); err == nil {
+		t.Fatal("active original owner without detach was admitted")
+	}
+	if err := pool.CloseForUpdate(); err == nil || legacy.closed != 0 {
+		t.Fatal("active original owner was interrupted", err, legacy.closed)
+	}
+	detachable := &detachableWorkerFixture{workerFixture: active}
+	pool.owners["codex"] = detachable
+	if err := pool.CanDetachForUpdate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.CloseForUpdate(); err != nil || detachable.detached != 1 || active.closed != 0 {
+		t.Fatal("original owner was not detached", err, detachable.detached, active.closed)
+	}
 }
 func TestLocalDefaultSwitchAndResidentSwitchKeepTaskOwnership(t *testing.T) {
 	root := t.TempDir()

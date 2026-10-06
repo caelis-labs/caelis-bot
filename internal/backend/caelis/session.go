@@ -351,6 +351,8 @@ func isRemoteStatus(e error, status int) bool {
 }
 
 // Detaching observation does not revoke a lease, cancel a turn or stop the Host.
+func (s *Session) DetachForUpdate(ctx context.Context) error { return s.Close(ctx) }
+
 func (s *Session) Close(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closed {

@@ -59,7 +59,9 @@ type Application struct {
 	host            Host
 	root            string
 	mu              sync.Mutex
+	updateMu        sync.Mutex
 	started, closed bool
+	updatePrepared  bool
 	cancel          context.CancelFunc
 	workers         sync.WaitGroup
 	companion       *bot.Runtime
@@ -451,6 +453,8 @@ func (a *Application) WorkTerminal(ctx context.Context, id string) (api.Terminal
 // Close is the explicit application-exit boundary. Cancellation stops wakeups
 // before the adapter cleans only owned work; shared servers remain alive.
 func (a *Application) Close() error {
+	a.updateMu.Lock()
+	defer a.updateMu.Unlock()
 	a.closeOnce.Do(func() {
 		a.mu.Lock()
 		a.closed = true
@@ -458,6 +462,7 @@ func (a *Application) Close() error {
 			a.cancel()
 		}
 		resident, bridge := a.companion, a.bridge
+		updating := a.updatePrepared
 		if resident != nil {
 			resident.Stop()
 		}
@@ -471,7 +476,11 @@ func (a *Application) Close() error {
 			a.setup.connections.Close()
 			a.setup.mu.Unlock()
 		}
-		a.closeErr = a.Backend.Shutdown()
+		if updating {
+			a.closeErr = a.Backend.ShutdownForUpdate()
+		} else {
+			a.closeErr = a.Backend.Shutdown()
+		}
 		if resident != nil {
 			resident.Close()
 		}
@@ -480,7 +489,11 @@ func (a *Application) Close() error {
 		}
 		a.workers.Wait()
 		if a.localWork != nil {
-			a.closeErr = errors.Join(a.closeErr, a.localWork.Close())
+			if updating {
+				a.closeErr = errors.Join(a.closeErr, a.localWork.CloseForUpdate())
+			} else {
+				a.closeErr = errors.Join(a.closeErr, a.localWork.Close())
+			}
 		}
 		if a.notebook != nil {
 			a.closeErr = errors.Join(a.closeErr, a.notebook.Close())

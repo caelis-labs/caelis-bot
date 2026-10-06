@@ -61,9 +61,11 @@ func (s *Service) CheckUpdates(ctx context.Context) updates.Result {
 }
 
 type UpdatePreferences struct {
-	Available bool `json:"available"`
-	Automatic bool `json:"automatic"`
-	Waiting   bool `json:"waiting"`
+	Available bool   `json:"available"`
+	Automatic bool   `json:"automatic"`
+	Waiting   bool   `json:"waiting"`
+	State     string `json:"state,omitempty"`
+	Message   string `json:"message,omitempty"`
 }
 
 func (s *Service) UpdatePreferences() UpdatePreferences {

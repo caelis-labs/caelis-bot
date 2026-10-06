@@ -254,3 +254,49 @@ func (w *localWorkers) Close() error {
 	}
 	return err
 }
+
+func (w *localWorkers) CanDetachForUpdate() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, owner := range w.owners {
+		if _, ok := owner.(interface{ DetachForUpdate(context.Context) error }); ok {
+			continue
+		}
+		for _, state := range owner.WorkStates() {
+			switch state.Task.Status {
+			case "completed", "failed", "cancelled", "interrupted":
+			default:
+				return errors.New("原任务 Runtime 无法保存活跃工作以完成更新")
+			}
+		}
+	}
+	return nil
+}
+
+func (w *localWorkers) CloseForUpdate() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var err error
+	for _, owner := range w.owners {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		if detacher, ok := owner.(interface{ DetachForUpdate(context.Context) error }); ok {
+			err = errors.Join(err, detacher.DetachForUpdate(ctx))
+		} else {
+			busy := false
+			for _, state := range owner.WorkStates() {
+				switch state.Task.Status {
+				case "completed", "failed", "cancelled", "interrupted":
+				default:
+					busy = true
+				}
+			}
+			if busy {
+				err = errors.Join(err, errors.New("原任务 Runtime 无法保存活跃工作以完成更新"))
+			} else {
+				err = errors.Join(err, owner.Close(ctx))
+			}
+		}
+		cancel()
+	}
+	return err
+}

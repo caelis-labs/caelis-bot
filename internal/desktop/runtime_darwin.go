@@ -418,10 +418,17 @@ func Run(assets fs.FS) error {
 		}
 		s.start(newMacDriver(pet, panel, bubble, history, prop, s, quit))
 		styleMacSettings(settings)
-		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() {
+		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() error {
 			quitting.Store(true)
-			logError(core.Close())
+			err := core.Close()
+			terminalWindows.CancelAll()
+			terminalWindows.Close()
+			s.shutdown()
+			// Sparkle owns the following Apple quit event. Wails must permit
+			// that exact event after native shutdown, without sending its own
+			// competing Quit before invoking Sparkle's install handler.
 			finished.Store(true)
+			return err
 		})
 		if err := assembly.Start(); err != nil {
 			logError(err)
