@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -9,7 +10,8 @@ import (
 func TestConnectionProfileBeforeActivation(t *testing.T) {
 	// Preparing another Runtime must not depend on the active Bot backend.
 	setup := &runtimeSetup{}
-	want := api.RuntimeSettings{Runtime: "caelis", CLIPath: "/fixture/caelis", CaelisStore: "/fixture/store"}
+	root := t.TempDir()
+	want := api.RuntimeSettings{Runtime: "caelis", CLIPath: filepath.Join(root, "caelis"), CaelisStore: filepath.Join(root, "store")}
 	got, err := setup.connectionProfile(&want)
 	if err != nil || got != want {
 		t.Fatalf("connection profile = %+v, %v; want %+v", got, err, want)

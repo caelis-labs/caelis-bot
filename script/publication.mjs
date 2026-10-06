@@ -28,6 +28,7 @@ export function receiptFor(directory, {tag, source, os, arch, channel, validatio
   const names = [file, `${file}.sha256`];
   if (os === 'windows') names.push(windowsAcceptanceName(tag, channel));
   if (os === 'macos' && channel === 'stable') names.push('appcast.xml', 'latest.json', 'latest.json.sig');
+  if (os === 'macos' && channel === 'preview') names.push('latest.json', 'latest.json.sig');
   const assets = names.map(name => {
     const bytes = readFileSync(join(directory, name));
     if (bytes.length === 0) throw new Error(`Empty release asset: ${name}`);
@@ -36,10 +37,11 @@ export function receiptFor(directory, {tag, source, os, arch, channel, validatio
   const checksum = readFileSync(join(directory, `${file}.sha256`), 'utf8').trim();
   if (checksum !== `${assets[0].sha256}  ${file}`) throw new Error('Release checksum mismatch');
   if (os === 'windows') validateWindowsAcceptance(directory, {tag, source, channel, artifact:file, sha256:assets[0].sha256});
-  if (os === 'macos' && channel === 'stable') {
+  if (os === 'macos') {
     const manifest = JSON.parse(readFileSync(join(directory, 'latest.json')));
     if (manifest.tag !== tag || manifest.source !== source || manifest.sha256 !== assets[0].sha256 ||
-        manifest.appcastSHA256 !== assets[2].sha256) throw new Error('Mac feed source or asset mismatch');
+        (channel === 'stable' ? manifest.appcastSHA256 !== assets[2].sha256 || manifest.channel !== undefined :
+          manifest.channel !== 'preview' || manifest.appcastSHA256 !== undefined)) throw new Error('Mac feed source or asset mismatch');
   }
   return {schema: 1, key: {tag, os, arch, channel}, source, validation,
     state: 'published', assets, receipt: key};

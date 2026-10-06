@@ -3,13 +3,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Exact published stable tag to reconcile for macOS arm64
+        description: Exact published macOS arm64 tag and channel to reconcile
         required: true
         type: string
 permissions:
   contents: read
 concurrency:
-  group: caelis-bot-r2-macos-arm64-stable
+  group: caelis-bot-r2-macos-arm64-${{ contains(inputs.tag, '-') && 'preview' || 'stable' }}
   cancel-in-progress: false
 jobs:
   sync:
@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
           test "$(gh api "repos/$GH_REPO/releases/tags/$tag" --jq .draft)" = false
           echo "BOT_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           gh release download "$tag" --dir release --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg" --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg.sha256" --pattern appcast.xml --pattern latest.json --pattern latest.json.sig

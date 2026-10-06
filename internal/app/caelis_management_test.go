@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,33 @@ import (
 )
 
 func TestCaelisUpdateRequiresLiveCompatibilityAndRefusesBusyHost(t *testing.T) {
+	fixtureRoot := t.TempDir()
+	binary := filepath.Join(fixtureRoot, "caelis-fixture")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
+	source := filepath.Join(fixtureRoot, "main.go")
+	program := `package main
+import ("fmt"; "os")
+func main() {
+ if len(os.Args)<2 { os.Exit(1) }
+ f,e:=os.OpenFile(os.Getenv("BOT_UPGRADE_CALLS"),os.O_CREATE|os.O_WRONLY|os.O_APPEND,0600);if e!=nil {os.Exit(1)}
+ second:="";if len(os.Args)>2 {second=os.Args[2]};fmt.Fprintln(f,os.Args[1],second);_ = f.Close()
+ switch os.Args[1] {
+ case "version":fmt.Println("{\"version\":\"v0.62.0\"}")
+ case "update":fmt.Println("caelis is up to date (v0.62.0)")
+ case "service":if os.Getenv("BOT_UPGRADE_MODE")=="start-failed" {os.Exit(1)};if os.WriteFile(os.Getenv("BOT_UPGRADE_MARKER"),[]byte("started"),0600)!=nil {os.Exit(1)};fmt.Println("{\"state\":\"running\"}")
+ default:os.Exit(1)
+ }
+}`
+	if err := os.WriteFile(source, []byte(program), 0600); err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command("go", "build", "-trimpath", "-o", binary, source)
+	build.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build portable runtime fixture: %v %s", err, output)
+	}
 	for _, mode := range []string{"ready", "busy", "becomes-busy", "incompatible", "start-failed"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
@@ -54,19 +82,6 @@ func TestCaelisUpdateRequiresLiveCompatibilityAndRefusesBusyHost(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(filepath.Join(service, "auth.token"), []byte("FIXTURE_HOST_TOKEN"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			binary := filepath.Join(dir, "caelis")
-			script := `#!/bin/sh
-printf '%s\n' "$1 $2" >> "$BOT_UPGRADE_CALLS"
-case "$1" in
-version) printf '{"version":"v0.62.0"}\n';;
-update) printf 'caelis is up to date (v0.62.0)\n';;
-service) [ "$BOT_UPGRADE_MODE" != start-failed ] || exit 1; touch "$BOT_UPGRADE_MARKER"; printf '{"state":"running"}\n';;
-*) exit 1;;
-esac
-`
-			if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
 				t.Fatal(err)
 			}
 			a, _ := fixtureApp(t, newTestEngine(), Host{})

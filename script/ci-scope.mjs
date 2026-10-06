@@ -7,7 +7,7 @@ import {validateTag} from './release-version.mjs';
 const releaseFiles = new Set(['package.json', 'package-lock.json', '.release-please-manifest.json', 'CHANGELOG.md']);
 const documentation = path => path === 'README.md' || path === 'CHANGELOG.md' || path.startsWith('docs/');
 const packaging = path => path.startsWith('resources/macos/') || path.startsWith('resources/desktop-world/') ||
-  /^script\/(?:build|package|dmg|sign|verify|sparkle|desktop-world-runtime)[^/]*\.(?:sh|mjs|py|swift)$/.test(path) ||
+  /^script\/(?:build|package|dmg|sign|verify|sparkle|desktop-world-runtime|prepare-appcast|publish-r2|publication|update-manifest|updater-feed-test|windows-acceptance|stage-desktop-world-windows)[^/]*\.(?:sh|mjs|py|swift|ps1)$/.test(path) ||
   path === '.github/workflows/release.yml' || path === '.github/workflows/release-please.yml';
 const macosOnly = path => path.startsWith('resources/macos/') || /_darwin\.(?:go|m|h)$/.test(path) ||
   /^script\/(?:dmg|sign|notariz|sparkle|package|build_and_run|app-identity|development-signing|verify-signature|verify-dmg|updater-native)[^/]*\.(?:sh|mjs|py|swift)$/.test(path);

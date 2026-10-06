@@ -17,11 +17,13 @@ export function verifySignature(data, signature, key) {
 }
 export function validateManifest(value, tag) {
   const version = validateTag(tag);
-  if (version.includes('-')) throw new Error('R2 only publishes stable releases');
+  const preview = version.includes('-');
   if (value.schema !== 1 || value.tag !== tag || value.version !== version ||
       value.file !== `Caelis-Bot-${version}-macos-arm64.dmg` ||
       !/^[a-f0-9]{40}$/.test(value.source) || !/^[a-f0-9]{64}$/.test(value.sha256) ||
-      !/^[a-f0-9]{64}$/.test(value.appcastSHA256) || !Number.isSafeInteger(value.length) || value.length <= 0) {
+      (preview ? value.channel !== 'preview' || value.appcastSHA256 !== undefined :
+        value.channel !== undefined || !/^[a-f0-9]{64}$/.test(value.appcastSHA256)) ||
+      !Number.isSafeInteger(value.length) || value.length <= 0) {
     throw new Error('Invalid update manifest');
   }
   return value;
@@ -38,10 +40,14 @@ export function verifyDirectory(directory, tag, key) {
   verifySignature(bytes, readFileSync(join(directory, 'latest.json.sig'),'utf8').trim(), key);
   const manifest = validateManifest(JSON.parse(bytes), tag);
   const dmg = readFileSync(join(directory, manifest.file));
-  const feed = readFileSync(join(directory, 'appcast.xml'));
-  if (digest(dmg) !== manifest.sha256 || dmg.length !== manifest.length || digest(feed) !== manifest.appcastSHA256) {
+  if (digest(dmg) !== manifest.sha256 || dmg.length !== manifest.length) {
     throw new Error('Update artifact digest mismatch');
   }
+  const checksum = readFileSync(join(directory, `${manifest.file}.sha256`),'utf8').trim();
+  if (checksum !== `${manifest.sha256}  ${manifest.file}`) throw new Error('DMG checksum mismatch');
+  if (manifest.channel === 'preview') return manifest;
+  const feed = readFileSync(join(directory, 'appcast.xml'));
+  if (digest(feed) !== manifest.appcastSHA256) throw new Error('Update feed digest mismatch');
   // Verify that the feed offers these exact bytes and that its archive signature
   // matches the public key embedded in the app (wrong CI key must fail closed).
   const xml = feed.toString('utf8');
@@ -52,8 +58,6 @@ export function verifyDirectory(directory, tag, key) {
     throw new Error('Appcast does not describe the verified release');
   }
   verifySignature(dmg, enclosure[0].match(/sparkle:edSignature="([^"]+)"/)?.[1] ?? '', key);
-  const checksum = readFileSync(join(directory, `${manifest.file}.sha256`),'utf8').trim();
-  if (checksum !== `${manifest.sha256}  ${manifest.file}`) throw new Error('DMG checksum mismatch');
   return manifest;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -61,8 +65,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (command === 'create') {
     const version = validateTag(tag), file = `Caelis-Bot-${version}-macos-arm64.dmg`;
     const bytes = readFileSync(join(directory, file));
+    const preview = version.includes('-');
     const manifest = validateManifest({schema:1, tag, version, file, source:process.env.BOT_RELEASE_SOURCE_SHA,
-      length:bytes.length, sha256:digest(bytes), appcastSHA256:digest(readFileSync(join(directory,'appcast.xml')))}, tag);
+      length:bytes.length, sha256:digest(bytes), ...(preview ? {channel:'preview'} :
+        {appcastSHA256:digest(readFileSync(join(directory,'appcast.xml')))} )}, tag);
     writeFileSync(join(directory, 'latest.json'), JSON.stringify(manifest, null, 2)+'\n');
   } else if (command === 'verify') {
     verifyDirectory(directory, tag, process.env.BOT_SPARKLE_PUBLIC_KEY);

@@ -56,7 +56,7 @@ Use Conventional Commit PR titles, for example `feat: add reminders` or `fix: ke
 3. release-please creates one `vX.Y.Z` tag, changelog and **draft** GitHub release. The macOS workflow checks that the tag belongs to main and exactly matches `package.json`. Future platform workflows use the same immutable source tag.
 4. Build from that exact tagged commit without signing credentials. Source tests have already passed the strict PR merge gate; this stage runs the updater and delivered-asset checks and qualifies the actual release build. The application embeds its full release version and source SHA; its macOS short version stays numeric. A separate `macos-release` environment job uses the current workflow commit for operational signing/packaging tools, verifies the downloaded app’s embedded tag SHA, and signs the app with Developer ID and a secure timestamp, enables hardened runtime, submits it to Apple and staples its notarization ticket.
 5. Package the stapled app, mount the DMG and verify the enclosed app. Sign the DMG itself, submit it to Apple, staple its ticket, verify both its signature and Gatekeeper acceptance, then calculate the final SHA-256. Both the app and DMG carry tickets for offline validation.
-6. Reconcile `Caelis-Bot-X.Y.Z-macos-arm64.dmg`, its checksum and stable update assets by exact bytes, add a `macos-arm64-stable` or `macos-arm64-preview` publication receipt, then publish the draft if this is the first qualified platform. A later platform may append its own namespaced assets and receipt without changing the tag, source, existing bytes or the release's prerelease state. Global GitHub `latest` is not a platform feed.
+6. Reconcile the macOS DMG, checksum and signed channel metadata by exact bytes, add a `macos-arm64-stable` or `macos-arm64-preview` publication receipt, then publish the draft if this is the first qualified platform. A later platform may append its own namespaced assets and receipt without changing the tag, source, existing bytes or the release's prerelease state. Global GitHub `latest` is not a platform feed.
 
 A failed first-platform build remains a draft; failure of a later platform leaves an already published platform available. A notarization submission still `In Progress` is a pending checkpoint, with `verified=false` and publication skipped. Published assets and receipts are immutable. To retry the exact tag, copy:
 
@@ -87,8 +87,9 @@ The signed app uses `https://releases.caelis.dev/caelis-bot/appcast.xml`, requir
 signed feed and validates archives before extraction. It checks daily by default;
 settings can disable checks. Downloads/installations require confirmation. Active,
 uncertain or delegated work postpones relaunch; user and scheduled admission are
-fenced before backend cleanup. Previews remain manual and never replace the stable
-feed. Existing v0.1.0 installations need one manual upgrade to the first updater-enabled
+fenced before backend cleanup. Previews remain manual; their signed JSON pointer
+lives under `caelis-bot/feeds/macos/arm64/preview/` and never replaces the stable
+appcast. Existing v0.1.0 installations need one manual upgrade to the first updater-enabled
 release. Already published apps are never modified.
 
 Configuration reuses Caelis core's bucket, endpoint and credential names. Store these
@@ -144,9 +145,11 @@ and update both R2 credential secrets together. Core's obsolete repository overr
 were removed; its earlier Cloudflare token was not revoked. This setup verification
 does not establish a successful production upload or app update.
 
-After `verified=true` (App + DMG notarization, staples and Gatekeeper), the package job
-uses `generate_appcast` with one version and no deltas. It signs the final stapled DMG,
-feed and an independent manifest binding tag, source SHA, DMG hash/size and feed hash.
+After `verified=true` (App + DMG notarization, staples and Gatekeeper), the stable
+package job uses `generate_appcast` with one version and no deltas. It signs the
+final stapled DMG, feed and an independent manifest binding tag, source SHA,
+DMG hash/size and feed hash. A preview signs a separate manual-download manifest
+for its own channel, with automatic updates disabled in the app.
 These files are attached to GitHub. Only after publication can the R2 job run, with
 read-only GitHub access and R2 credentials scoped to that step.
 
@@ -155,15 +158,17 @@ It does not consult global GitHub `latest`. It uploads immutable versioned asset
 `caelis-bot/releases/vX.Y.Z/`, writes the macOS arm64 stable feed under
 `caelis-bot/feeds/macos/arm64/stable/`, and continues updating legacy
 `caelis-bot/appcast.xml`, `latest.json` and `latest.json.sig` for installed Mac clients.
-Its concurrency group and ownership allowlist belong only to macOS arm64 stable;
-Windows and other channels must use separate ownership and never prune these keys.
+Mac preview assets live under `caelis-bot/previews/macos/arm64/vX.Y.Z-.../` and
+their signed pointer lives under `caelis-bot/feeds/macos/arm64/preview/`. Stable
+and preview have separate concurrency groups and neither publisher prunes older
+immutable bytes. Windows uses its own ownership and never mutates these Mac keys.
 Rollback and same-version byte changes are rejected. Older immutable R2 versions
 are retained so a client with a cached appcast can still download its exact DMG.
 Any later pruning requires a separate reviewed cache horizon and platform-scoped
 retention test; publication itself does not delete release bytes.
 
 If only R2 failed, do **not** rerun notarization or republish a non-draft. This dedicated
-retry downloads and verifies the latest release's signed artifacts:
+retry downloads and verifies the exact Mac release's signed artifacts:
 
 ```sh
 gh workflow run sync-r2.yml --repo caelis-labs/caelis-bot --ref main -f tag=vX.Y.Z

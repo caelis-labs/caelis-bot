@@ -173,8 +173,8 @@ jobs:
             security delete-keychain "$directory/release.keychain-db" >/dev/null 2>&1 || true
             rm -rf "$directory"
           done
-      - name: Sign the stable update feed after notarization
-        if: steps.verify.outputs.verified == 'true' && !contains(inputs.tag, '-')
+      - name: Sign this platform's update metadata after notarization
+        if: steps.verify.outputs.verified == 'true'
         env:
           BOT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           BOT_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
@@ -228,12 +228,12 @@ jobs:
         run: node script/publication.mjs release macos arm64 "$BOT_RELEASE_CHANNEL"
   r2:
     needs: [build, package, publish]
-    if: needs.package.outputs.verified == 'true' && !contains(inputs.tag, '-')
+    if: needs.package.outputs.verified == 'true'
     runs-on: ubuntu-latest
     environment: macos-release
     timeout-minutes: 20
     concurrency:
-      group: caelis-bot-r2-macos-arm64-stable
+      group: caelis-bot-r2-macos-arm64-${{ contains(inputs.tag, '-') && 'preview' || 'stable' }}
       cancel-in-progress: false
     permissions:
       contents: read
