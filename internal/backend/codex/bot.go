@@ -65,8 +65,8 @@ func (s *Session) trackWorkerActivity(item nativeItem) {
 	go s.watchChild(c, epoch, id)
 }
 
-// One subscribe/reconciliation request per owned thread and connection. Native
-// notifications remain subscribed across idle turns, including human TUI turns.
+// One subscribe/reconciliation request per owned thread and connection. A
+// terminal, idle worker later relinquishes only this connection's subscription.
 const workerUnconfirmed = "后台工作的状态尚未确认，请重新连接核对"
 
 func (s *Session) watchChild(c *Client, epoch uint64, id string) {
@@ -111,8 +111,11 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) {
 		s.update()
 		return
 	}
+	s.childSubscribed[id] = true
+	delete(s.childRetired, id)
 	// Live notifications that arrived during resume supersede its snapshot.
 	if revision != s.childRevision[id] {
+		go s.recoverChild(c, epoch, id)
 		return
 	}
 	active := response.Thread.Status.Type == "active"
@@ -136,8 +139,10 @@ func (s *Session) watchChild(c *Client, epoch uint64, id string) {
 	}
 	if active {
 		s.childRuns[id] = run
+		s.childRetireSeq[id]++
 	} else {
 		delete(s.childRuns, id)
+		s.scheduleChildRetirement(id)
 	}
 	if s.state.Message == workerUnconfirmed && s.binding.Pending == nil {
 		unresolved := false
@@ -192,6 +197,7 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 	switch event.Method {
 	case "item/completed", "turn/started", "turn/completed", "serverRequest/resolved", "thread/closed", "thread/deleted":
 		s.childRevision[thread]++
+		s.childRetireSeq[thread]++
 	default:
 		return
 	}
@@ -245,7 +251,14 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 			s.resolvePrompt(id, p)
 		}
 	case "thread/closed", "thread/deleted":
+		if event.Method == "thread/closed" && s.childRetired[thread] {
+			s.nativeUnloads++
+			go s.observeNativeResources(s.client, s.epoch)
+		}
+		delete(s.childRetired, thread)
 		delete(s.childRuns, thread)
+		delete(s.childSubscribed, thread)
+		delete(s.childWatching, thread)
 		for id, p := range s.prompts {
 			if p.thread == thread {
 				s.resolvePrompt(id, p)
@@ -254,6 +267,9 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 	}
 	if s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase == "working" {
 		s.state.Phase = "completed"
+	}
+	if event.Method == "turn/completed" || event.Method == "serverRequest/resolved" || event.Method == "item/completed" {
+		s.scheduleChildRetirement(thread)
 	}
 }
 func (s *Session) resolvePrompt(id string, p *prompt) {

@@ -327,6 +327,25 @@ func (s *Session) applyEvent(event Notification) {
 	case "mcpServer/startupStatus/updated", "mcpServer/oauthLogin/completed", "windowsSandbox/setupCompleted":
 		s.componentEvent(event)
 		return
+	case "thread/status/changed":
+		// This notification is global to initialized clients. Treat it only
+		// as a wakeup: thread/read must still establish execution and receipt
+		// facts before an unsubscribed worker is observed again.
+		var n struct {
+			ThreadID string `json:"threadId"`
+			Status   struct {
+				Type string `json:"type"`
+			} `json:"status"`
+		}
+		if s.decodeEvent(event, &n, false) && n.Status.Type == "active" && s.children[n.ThreadID] {
+			s.childRevision[n.ThreadID]++
+			s.childRetireSeq[n.ThreadID]++
+			if !s.childWatching[n.ThreadID] {
+				s.childWatching[n.ThreadID] = true
+				go s.recoverChild(s.client, s.epoch, n.ThreadID)
+			}
+		}
+		return
 	case "thread/started":
 		var n struct {
 			Thread struct {
@@ -348,7 +367,7 @@ func (s *Session) applyEvent(event Notification) {
 		"item/agentMessage/delta", "item/plan/delta", "item/commandExecution/outputDelta",
 		"item/mcpToolCall/progress", "serverRequest/resolved", "error", "thread/closed", "thread/deleted", "account/updated":
 		// Consumed below, with only this method's fields.
-	case "thread/status/changed", "account/rateLimits/updated",
+	case "account/rateLimits/updated",
 		"item/reasoning/textDelta", "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded",
 		"turn/diff/updated", "turn/plan/updated", "skills/changed", "thread/name/updated":
 		return // Native metadata has no Bot presentation or lifecycle effect.

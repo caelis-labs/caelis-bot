@@ -104,6 +104,15 @@ type Session struct {
 	childRuns         map[string]string
 	childTerminals    map[string]bool
 	childWatching     map[string]bool
+	childSubscribed   map[string]bool
+	childRetireSeq    map[string]uint64
+	childRetired      map[string]bool
+	workerIdleDelay   time.Duration
+	retireUnsupported bool
+	retireFailures    uint64
+	retiredWorkers    uint64
+	nativeUnloads     uint64
+	nativeResources   nativeResourceSnapshot
 	childRevision     map[string]uint64
 	loginID           string
 	loginStarting     bool
@@ -206,6 +215,14 @@ func (s *Session) resetProjection() {
 	s.childRuns = map[string]string{}
 	s.childTerminals = map[string]bool{}
 	s.childWatching = map[string]bool{}
+	s.childSubscribed = map[string]bool{}
+	s.childRetireSeq = map[string]uint64{}
+	s.childRetired = map[string]bool{}
+	s.retireUnsupported = false
+	s.nativeResources = nativeResourceSnapshot{}
+	if s.workerIdleDelay == 0 {
+		s.workerIdleDelay = workerRetirementDelay
+	}
 	s.childRevision = map[string]uint64{}
 	s.state.Items = []api.Item{}
 	s.state.Approvals = []api.Approval{}
@@ -310,18 +327,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" {
 		c, id, pending := s.client, s.binding.ThreadID, s.binding.Pending != nil
 		cleanup := append([]string(nil), s.binding.CleanupTargets...)
-		for _, task := range s.binding.Tasks {
-			if task.Thread != "" && !s.childWatching[task.Thread] {
-				s.childWatching[task.Thread] = true
-				go s.watchChild(c, s.epoch, task.Thread)
-			}
-		}
-		for child := range s.childRuns {
-			if !s.childWatching[child] {
-				s.childWatching[child] = true
-				go s.watchChild(c, s.epoch, child)
-			}
-		}
+		s.recoverUnresolvedChildren(c, s.epoch)
 		s.mu.Unlock()
 		if len(cleanup) > 0 {
 			if err := s.reconcileTerminalCleanup(ctx, c); err != nil {
@@ -443,15 +449,7 @@ func (s *Session) connect(ctx context.Context) error {
 			s.applyEvent(event)
 		}
 		s.buffer = nil
-		for _, task := range s.binding.Tasks {
-			if task.Thread != "" {
-				if !terminal(task.View.Status) {
-					s.childRuns[task.Thread] = task.Run
-				}
-				s.childWatching[task.Thread] = true
-				go s.watchChild(c, epoch, task.Thread)
-			}
-		}
+		s.recoverUnresolvedChildren(c, epoch)
 		s.update()
 		s.mu.Unlock()
 		return nil
@@ -545,15 +543,7 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "recovery_ready", Generation: epoch, Phase: "receipt_reconciliation"})
 	s.update()
-	for _, task := range s.binding.Tasks {
-		if task.Thread != "" && !s.childWatching[task.Thread] {
-			if !terminal(task.View.Status) {
-				s.childRuns[task.Thread] = task.Run
-			}
-			s.childWatching[task.Thread] = true
-			go s.watchChild(c, epoch, task.Thread)
-		}
-	}
+	s.recoverUnresolvedChildren(c, epoch)
 	s.update()
 	needsCleanup := len(s.binding.CleanupTargets) > 0
 	s.mu.Unlock()

@@ -41,6 +41,10 @@ func TestRetainedOwnerConnectsOriginalWorkerWithoutResidentResume(t *testing.T) 
 			_ = json.Unmarshal(m.Params, &p)
 			resumed <- p.ThreadID
 			return map[string]any{"thread": nativeThread{ID: p.ThreadID}}, true
+		case "thread/read":
+			thread := nativeThread{ID: "original-worker"}
+			thread.Status.Type = "notLoaded"
+			return map[string]any{"thread": thread}, true
 		}
 		return nil, false
 	}
@@ -55,11 +59,11 @@ func TestRetainedOwnerConnectsOriginalWorkerWithoutResidentResume(t *testing.T) 
 	}
 	select {
 	case id := <-resumed:
-		if id != "original-worker" {
-			t.Fatal("resumed inactive Bot instead of its Worker", id)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("original Worker was not reattached")
+		t.Fatal("completed historical Worker was loaded on connect", id)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := w.ReadWork(t.Context(), "original-task"); err != nil {
+		t.Fatal(err)
 	}
 	if got := w.WorkStates(); len(got) != 1 || got[0].Task.ID != "original-task" {
 		t.Fatal("retained task lost")
