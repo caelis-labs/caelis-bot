@@ -2,6 +2,12 @@
 
 ## [0.9.0](https://github.com/caelis-labs/caelis-bot/compare/v0.8.0...v0.9.0) (2026-10-06)
 
+### Release highlights / 发布要点
+
+* Telegram now offers a time-limited reconnect button to the paired owner when automatic recovery has stopped. It checks the original Runtime owner before reconnecting and never resends an uncertain request. Telegram also shows typing while the connected main conversation is working, then stops for approvals, completion, uncertainty or disconnect. / 自动恢复停止后，已配对用户可通过限时按钮核对并重连原 Runtime；结果未知的请求不会重发。主对话工作时 Telegram 显示输入状态，并在审批、结束、结果未知或断线时停止。 ([#91](https://github.com/caelis-labs/caelis-bot/issues/91), [#92](https://github.com/caelis-labs/caelis-bot/issues/92))
+* This release also retires idle worker subscriptions, bounds and orders Codex events, limits automatic recovery to the original owner, and renders native approval choices as Telegram buttons. / 本版还回收空闲 Worker 订阅、限定并保序处理 Codex 事件、在原连接上有限自动恢复，并将原生审批选项显示为 Telegram 按钮。 ([#85](https://github.com/caelis-labs/caelis-bot/issues/85), [#86](https://github.com/caelis-labs/caelis-bot/issues/86), [#87](https://github.com/caelis-labs/caelis-bot/issues/87))
+* The published desktop build remains macOS arm64. Windows groundwork does not imply a qualified Windows GUI release. Caelis Core #98 is a separate repository change and is not bundled here. / 正式桌面包仍为 macOS arm64；Windows 基础代码不代表已验收的 Windows GUI 发行版。Caelis Core #98 属于独立仓库，不随此版发行。
+
 
 ### Features
 
