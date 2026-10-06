@@ -48,6 +48,33 @@ test('local development signing pins a usable development identity; CI ignores i
   } finally {rmSync(directory,{recursive:true,force:true});}
 });
 
+test('linked worktree inherits only the main checkout explicit development pin', () => {
+  const directory=mkdtempSync(join(tmpdir(),'bot-signing-worktree-'));
+  try {
+    const main=join(directory,'main'), linked=join(directory,'linked'), fingerprint='A'.repeat(40);
+    const git=(...args)=>spawnSync('git',args,{encoding:'utf8',timeout:10000});
+    assert.equal(git('init','-q',main).status,0);
+    writeFileSync(join(main,'marker'),'fixture\n');
+    assert.equal(git('-C',main,'add','marker').status,0);
+    assert.equal(git('-C',main,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','base').status,0);
+    writeFileSync(join(main,'.development-signing-identity'),fingerprint+'\n');
+    assert.equal(git('-C',main,'worktree','add','--detach',linked,'HEAD').status,0);
+    writeFileSync(join(directory,'security'),'#!/bin/sh\nprintf \'  1) '+fingerprint+' "%s: Fixture (ABCDE12345)"\\n\' "$FIXTURE_IDENTITY_KIND"\n',{mode:0o755});
+    const run=(extra={})=>spawnSync('/bin/bash',['-c','set -euo pipefail; source "$1"; printf "%s %s" "$BOT_BUILD_SIGN_MODE" "$BOT_BUILD_SIGN_IDENTITY"','fixture',resolve('script/development-signing.sh')],{
+      encoding:'utf8',env:{...process.env,PATH:directory+':'+process.env.PATH,BOT_ROOT:linked,CI:'',BOT_DEVELOPMENT_IDENTITY:undefined,FIXTURE_IDENTITY_KIND:'Apple Development',...extra},timeout:10000,
+    });
+    let result=run();assert.equal(result.status,0,result.stderr);assert.equal(result.stdout,'development '+fingerprint);
+    result=run({CI:'true'});assert.equal(result.status,0);assert.equal(result.stdout,'adhoc -');
+    result=run({BOT_DEVELOPMENT_IDENTITY:'-'});assert.equal(result.status,0);assert.equal(result.stdout,'adhoc -');
+    writeFileSync(join(linked,'.development-signing-identity'),'-\n');
+    result=run();assert.equal(result.status,0);assert.equal(result.stdout,'adhoc -');
+    rmSync(join(linked,'.development-signing-identity'));
+    assert.notEqual(run({FIXTURE_IDENTITY_KIND:'Developer ID Application'}).status,0);
+    rmSync(join(main,'.development-signing-identity'));
+    result=run();assert.equal(result.status,0);assert.equal(result.stdout,'adhoc -');
+  } finally {rmSync(directory,{recursive:true,force:true});}
+});
+
 test('release signing cannot silently fall back when credentials are absent', {skip: process.platform !== 'darwin'}, () => {
   const result = spawnSync('/bin/bash', [resolve('script/sign-release.sh')], {
     encoding: 'utf8', timeout: 10000,

@@ -44,6 +44,9 @@ The rc.2 Bot integration matrix and its unqualified paths are recorded in
 2. 用 `security find-identity -v -p codesigning` 核对可用的 Apple Development 身份，
    将其 40 位证书指纹保存到 `.development-signing-identity`（一行，无引号）。
    该文件已被 Git 忽略，只保存公开指纹，不保存凭据。
+   同一 Git 仓库的 linked worktree 若没有自己的选择文件，会读取主 checkout 的
+   `.development-signing-identity`。worktree 内的显式选择优先；删除主 checkout
+   的选择后即回到 ad-hoc。不会因为钥匙串中存在证书而自动选择它。
 3. 用 `bash script/build_and_run.sh --verify` 构建并启动。构建会验证该身份类型、
    签署内部 Sparkle、Desktop World helper及应用、核验 Apple 签名链和应用标识。
    身份失效/缺少私钥时停止，不静默退回 ad-hoc 或发行证书。
@@ -60,6 +63,13 @@ Developer ID / 公证流程完成。
 先正常退出开发进程，再启动**同一份二进制**，不重新编译或签名。
 `--recall` 仅唤回已有应用，不刷新进程权限。普通用户可从 Bot 菜单退出后再打开。
 不要为解决“开关已开”而自动 reset 系统授权。
+
+Desktop World 的实机截图验收可在已签名 Dev 包上使用
+`bash script/build_and_run.sh --desktop-capture-smoke TITLE EVIDENCE_JSON PRIVATE_PNG ONCE_MARKER`。
+四个参数只用于隔离的临时窗口和忽略目录；此模式保留签名字节，在实际 Dev
+进程中检查授权，再由正式打包 helper 对唯一窗口执行一次截图。once 标记
+在输入前写入；结果未知时保持该标记，不在同一目标重复截图。原始 PNG
+留在私有忽略目录，不提交个人屏幕内容。
 
 稳定身份验证应比较两次不同代码的 `codesign -d -r-` designated requirement；
 它应保持相同且不依赖 cdhash。签名一致并不等于真实权限/窗口截图已验收，仍需
