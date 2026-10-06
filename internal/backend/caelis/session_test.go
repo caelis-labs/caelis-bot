@@ -112,7 +112,9 @@ func TestComputerUseApprovalPreservesEveryNativeOptionAndSingleResolution(t *tes
 		posts.Add(1)
 		var req wire.ResolveApprovalRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		if req.ApprovalRequestId != a.RequestId || value(req.OptionId) != "session" || !req.Approved || req.Target != *a.Target {
+		chosen := value(req.OptionId)
+		approved := chosen == "session" || chosen == "always"
+		if req.ApprovalRequestId != a.RequestId || chosen != "session" && chosen != "always" && chosen != "deny" || req.Approved != approved || req.Target != *a.Target {
 			t.Error("native Computer Use decision lost exact option or target")
 		}
 		writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: "committed"})
@@ -127,11 +129,25 @@ func TestComputerUseApprovalPreservesEveryNativeOptionAndSingleResolution(t *tes
 	if err := s.Decide(t.Context(), api.Decision{ID: approval.ID, Choice: "invented-forever"}); err == nil || posts.Load() != 0 {
 		t.Fatal("unoffered persistent permission was accepted")
 	}
-	if err := s.Decide(t.Context(), api.Decision{ID: approval.ID, Choice: "session"}); err != nil || posts.Load() != 1 {
-		t.Fatal("native session option was not resolved exactly once", err)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, option := range []string{"session", "always"} {
+		go func(option string) {
+			<-start
+			results <- s.Decide(t.Context(), api.Decision{ID: approval.ID, Choice: option})
+		}(option)
 	}
-	if err := s.Decide(t.Context(), api.Decision{ID: approval.ID, Choice: "always"}); err == nil || posts.Load() != 1 {
-		t.Fatal("competing choice changed an already claimed request")
+	close(start)
+	first, second := <-results, <-results
+	if (first == nil) == (second == nil) || posts.Load() != 1 {
+		t.Fatal("competing clients resolved more than one native option", first, second, posts.Load())
+	}
+	a = clone(a)
+	a.RequestId = "computer-use-deny"
+	s.state.Views["main"].State.Approval.Active = a
+	denial := s.Snapshot().Approvals[0]
+	if err := s.Decide(t.Context(), api.Decision{ID: denial.ID, Choice: "deny"}); err != nil || posts.Load() != 2 {
+		t.Fatal("native denial was not passed as an unapproved selection", err)
 	}
 }
 func TestReplacementIsAtomicAndCursorIsOpaque(t *testing.T) {
