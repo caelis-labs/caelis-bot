@@ -40,11 +40,20 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 			io.WriteString(w, `{"ok":true,"result":[{"update_id":15,"message":{"message_id":7,"from":{"id":20,"is_bot":false,"first_name":"Owner"},"chat":{"id":10,"type":"private"},"date":1,"text":"hi"}}]}`)
 		case "sendMessage":
 			var p tg.SendMessageParams
-			json.NewDecoder(r.Body).Decode(&p)
+			payload, _ := io.ReadAll(r.Body)
+			json.Unmarshal(payload, &p)
 			if p.ChatID.ID != 10 || p.ParseMode != "" {
 				t.Error("plaintext or chat contract lost")
 			}
-			if p.Text == "plain **text**" {
+			if p.Text == "approval-fixture" {
+				var serialized struct {
+					ReplyMarkup *tg.InlineKeyboardMarkup `json:"reply_markup"`
+				}
+				json.Unmarshal(payload, &serialized)
+				if serialized.ReplyMarkup == nil || len(serialized.ReplyMarkup.InlineKeyboard) != 1 || serialized.ReplyMarkup.InlineKeyboard[0][0].Text != "允许这一次" || serialized.ReplyMarkup.InlineKeyboard[0][0].CallbackData != "original-choice" {
+					t.Error("serialized native approval button lost its readable label or original choice")
+				}
+			} else if p.Text == "plain **text**" {
 				if len(p.Entities) != 0 {
 					t.Error("plain message unexpectedly formatted")
 				}
@@ -56,7 +65,7 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 			var p tg.EditMessageTextParams
 			json.NewDecoder(r.Body).Decode(&p)
 			if p.Text == "keyboard" {
-				if p.ReplyMarkup == nil || len(p.ReplyMarkup.InlineKeyboard) != 1 || p.ReplyMarkup.InlineKeyboard[0][0].CallbackData != "choice" {
+				if p.ReplyMarkup == nil || len(p.ReplyMarkup.InlineKeyboard) != 1 || p.ReplyMarkup.InlineKeyboard[0][0].Text != "Allow once" || p.ReplyMarkup.InlineKeyboard[0][0].CallbackData != "choice" {
 					t.Error("edited approval lost its actionable keyboard")
 				}
 				io.WriteString(w, `{"ok":true,"result":{"message_id":101,"date":1,"chat":{"id":10,"type":"private"},"text":"keyboard"}}`)
@@ -75,7 +84,7 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 		case "editMessageReplyMarkup":
 			var p tg.EditMessageReplyMarkupParams
 			json.NewDecoder(r.Body).Decode(&p)
-			if p.ChatID.ID != 10 || p.MessageID != 101 || p.ReplyMarkup == nil || len(p.ReplyMarkup.InlineKeyboard) != 1 || p.ReplyMarkup.InlineKeyboard[0][0].CallbackData != "choice" {
+			if p.ChatID.ID != 10 || p.MessageID != 101 || p.ReplyMarkup == nil || len(p.ReplyMarkup.InlineKeyboard) != 1 || p.ReplyMarkup.InlineKeyboard[0][0].Text != "Allow once" || p.ReplyMarkup.InlineKeyboard[0][0].CallbackData != "choice" {
 				t.Error("native markup edit lost its original message or choice")
 			}
 			io.WriteString(w, `{"ok":true,"result":{"message_id":101,"date":1,"chat":{"id":10,"type":"private"},"text":"keyboard"}}`)
@@ -129,6 +138,9 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 		t.Fatal("SDK role edit failed", e)
 	}
 	keys := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{{Text: "Allow once", CallbackData: "choice"}}}}
+	if _, e := c.Send(ctx, 10, plainText("approval-fixture"), &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{{Text: "允许这一次", CallbackData: "original-choice"}}}}); e != nil {
+		t.Fatal("SDK approval button send failed", e)
+	}
 	if e := c.Edit(ctx, 10, 101, plainText("keyboard"), keys); e != nil {
 		t.Fatal("SDK approval keyboard edit failed", e)
 	}
@@ -143,7 +155,7 @@ func TestSDKUsesTelegramContractsAndSanitizesPrivateErrors(t *testing.T) {
 	if _, e := c.Webhook(ctx); e == nil || e.Error() != "invalid_token" {
 		t.Fatal("private API response escaped sanitized error")
 	}
-	if len(methods) != 10 {
+	if len(methods) != 11 {
 		t.Fatal("unexpected SDK calls")
 	}
 }

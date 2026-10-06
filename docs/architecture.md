@@ -52,6 +52,17 @@ reads unresolved workers without loading completed historical tasks; explicit
 continuation resumes the same native thread and request ledger. Diagnostics
 distinguish Bot subscription retirement from later native `thread/closed` unload.
 
+Codex wire reads dispatch correlated RPC responses independently of a bounded,
+ordered notification queue (512 events, 16 MiB). The temporary recovery buffer
+has the same limits. Exhaustion closes that observer with an explicit overflow
+diagnostic; no approval, completion or receipt event is silently coalesced. A
+single cancellable coordinator retries recoverable disconnects with a finite
+backoff budget. It reconnects a private runtime only at its original endpoint,
+reconciles the saved conversation and worker receipts, and confirms needed live
+subscriptions before reporting ready. An unavailable endpoint never authorizes
+a replacement owner or a replay of an uncertain input. Diagnostics name the
+process-wide transport generation and the owner-local session epoch separately.
+
 Caelis atomic reconnect may prepare a large existing history before sending SSE
 headers. Its observation uses a separate transport with a two-minute header wait;
 the caller context owns cancellation and the idle stream lifetime. Ordinary JSON
@@ -84,6 +95,12 @@ independent. Token storage uses the macOS Keychain; pairing requires a short-liv
 link and desktop account confirmation. Polling cursors, original input outcomes,
 Telegram message IDs and text digests are saved privately. Uncertain creates and
 inputs are never replayed; streamed edits are coalesced and rate limits respected.
+Approval buttons use the same `api.Choice` values as the native panel: provider
+`Label` remains literal, while Bot-owned `LabelKey` resolves through the shared
+display catalog. An unreadable or ambiguous choice leaves the entire approval
+keyboard unavailable and directs the user to the Mac. Telegram callbacks require
+the original delivered message, a current pending approval, and an offered choice;
+the durable decision claim prevents a second native submission.
 The Telegram adapter renders mirrored Mac user items with a source heading and
 quoted body. Each long Mac user-message part carries its heading and UTF-16 entity
 ranges. Assistant replies retain their plain original text, including edits and

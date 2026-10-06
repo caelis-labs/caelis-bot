@@ -428,7 +428,10 @@ func TestComputerUseElicitationUsesOriginalNativeRequestAndOfferedChoices(t *tes
 	})})
 	view := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
 	a := view.Approvals[0]
-	if a.Title != "cua_repl" || a.Description != "Allow Computer Use for this synthetic task?" || len(a.Choices) != 3 || a.Choices[0].LabelKey != "chat.allowOnce" || a.Choices[0].Scope != "once" {
+	if a.Title != "cua_repl" || a.Description != "Allow Computer Use for this synthetic task?" || len(a.Choices) != 3 ||
+		a.Choices[0].ID != "accept" || a.Choices[0].Label != "" || a.Choices[0].LabelKey != "chat.allowOnce" || a.Choices[0].Scope != "once" ||
+		a.Choices[1].ID != "decline" || a.Choices[1].LabelKey != "chat.decline" ||
+		a.Choices[2].ID != "cancel" || a.Choices[2].LabelKey != "chat.cancelApproval" {
 		t.Fatalf("native elicitation was not projected: %+v", a)
 	}
 	if err := s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: "acceptForSession"}); err == nil {

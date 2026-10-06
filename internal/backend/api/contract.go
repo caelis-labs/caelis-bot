@@ -110,9 +110,11 @@ type Artifact struct {
 	Name string `json:"name"`
 }
 type Choice struct {
-	ID    string `json:"id"`
+	ID string `json:"id"`
+	// Label is provider-supplied display text and is never translated.
 	Label string `json:"label"`
-	// LabelKey is set only for Bot-owned copy, never provider-supplied options.
+	// LabelKey is set only for Bot-owned copy. Presenters resolve it in their
+	// display locale, without changing ID or inventing an unavailable choice.
 	LabelKey string `json:"labelKey"`
 	Scope    string `json:"scope"`
 	Details  string `json:"details"`

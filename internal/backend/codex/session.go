@@ -69,60 +69,70 @@ type Session struct {
 	workerOnly             bool // trusted target owner; no resident API is exposed
 	backgroundResultsDirty bool
 
-	residentExecution api.WorkExecutionSettings
-	usage             api.ContextUsage
-	usageTurn         string
-	usageTotal        int64
-	historyMu         sync.Mutex
-	op                sync.Mutex
-	mu                sync.Mutex
-	opts              SessionOptions
-	client            *Client
-	bound             bool
-	epoch             uint64
-	state             api.Snapshot
-	binding           binding
-	loadErr           error
-	loading           bool
-	buffer            []Notification
-	run               string
-	runs              map[string]string
-	items             map[string]int
-	nativeItems       map[string]nativeItem
-	reviewOrigins     map[string]reviewOrigin
-	prompts           map[string]*prompt
-	promptHandles     map[string]string
-	instance          string
-	refs              map[string]nativeReference
-	artifacts         map[string]string
-	historyCursor     string
-	historyThread     string
-	historyPrevious   int
-	lastTurn          string
-	historyPaged      bool
-	children          map[string]bool
-	childRuns         map[string]string
-	childTerminals    map[string]bool
-	childWatching     map[string]bool
-	childSubscribed   map[string]bool
-	childRetireSeq    map[string]uint64
-	childRetired      map[string]bool
-	workerIdleDelay   time.Duration
-	retireUnsupported bool
-	retireFailures    uint64
-	retiredWorkers    uint64
-	nativeUnloads     uint64
-	nativeResources   nativeResourceSnapshot
-	childRevision     map[string]uint64
-	loginID           string
-	loginStarting     bool
-	earlyLogin        map[string]bool
-	changed           chan struct{}
-	closed            bool
-	closing           bool
-	life              context.Context
-	cancelLife        context.CancelFunc
-	start             func(context.Context, Options) (*Client, error)
+	residentExecution   api.WorkExecutionSettings
+	usage               api.ContextUsage
+	usageTurn           string
+	usageTotal          int64
+	historyMu           sync.Mutex
+	op                  sync.Mutex
+	mu                  sync.Mutex
+	opts                SessionOptions
+	client              *Client
+	retainedOwner       *Client
+	forceNewOwner       bool
+	bound               bool
+	epoch               uint64
+	reconnectSeq        uint64
+	reconnectActive     bool
+	reconnectCancel     context.CancelFunc
+	reconnectAttempts   int
+	reconnectDelay      func(int) time.Duration
+	lastConnectCause    error
+	state               api.Snapshot
+	binding             binding
+	loadErr             error
+	loading             bool
+	buffer              []Notification
+	bufferBytes         int
+	run                 string
+	runs                map[string]string
+	items               map[string]int
+	nativeItems         map[string]nativeItem
+	reviewOrigins       map[string]reviewOrigin
+	prompts             map[string]*prompt
+	promptHandles       map[string]string
+	instance            string
+	refs                map[string]nativeReference
+	artifacts           map[string]string
+	historyCursor       string
+	historyThread       string
+	historyPrevious     int
+	lastTurn            string
+	historyPaged        bool
+	children            map[string]bool
+	childRuns           map[string]string
+	childTerminals      map[string]bool
+	childTerminalStatus map[string]string
+	childWatching       map[string]bool
+	childSubscribed     map[string]bool
+	childRetireSeq      map[string]uint64
+	childRetired        map[string]bool
+	workerIdleDelay     time.Duration
+	retireUnsupported   bool
+	retireFailures      uint64
+	retiredWorkers      uint64
+	nativeUnloads       uint64
+	nativeResources     nativeResourceSnapshot
+	childRevision       map[string]uint64
+	loginID             string
+	loginStarting       bool
+	earlyLogin          map[string]bool
+	changed             chan struct{}
+	closed              bool
+	closing             bool
+	life                context.Context
+	cancelLife          context.CancelFunc
+	start               func(context.Context, Options) (*Client, error)
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -214,6 +224,7 @@ func (s *Session) resetProjection() {
 	}
 	s.childRuns = map[string]string{}
 	s.childTerminals = map[string]bool{}
+	s.childTerminalStatus = map[string]string{}
 	s.childWatching = map[string]bool{}
 	s.childSubscribed = map[string]bool{}
 	s.childRetireSeq = map[string]uint64{}
@@ -307,6 +318,13 @@ func (s *Session) save() error {
 	return err
 }
 func (s *Session) Connect(ctx context.Context) error {
+	s.mu.Lock()
+	s.reconnectSeq++
+	if s.reconnectCancel != nil {
+		s.reconnectCancel()
+	}
+	s.reconnectActive = false
+	s.mu.Unlock()
 	s.op.Lock()
 	defer s.op.Unlock()
 	return s.connect(ctx)
@@ -382,6 +400,15 @@ func (s *Session) connect(ctx context.Context) error {
 		return nil
 	}
 	old := s.client
+	retained := s.retainedOwner
+	if s.forceNewOwner {
+		retained = nil
+		s.forceNewOwner = false
+	}
+	if old != nil && old.owner != nil && retained != nil {
+		retained = old
+		s.retainedOwner = old
+	}
 	// A live owner in another state may still own background tools.
 	if old != nil && old.Err() == nil && s.bound {
 		if !old.UsesSharedServer() && s.hasUnresolvedTasks() {
@@ -401,6 +428,7 @@ func (s *Session) connect(ctx context.Context) error {
 		s.mu.Lock()
 	}
 	s.loginID = ""
+	s.lastConnectCause = nil
 	s.state.LoginPending = false
 	s.client = nil
 	s.epoch++
@@ -411,26 +439,50 @@ func (s *Session) connect(ctx context.Context) error {
 	s.state.Message = ""
 	s.loading = true
 	s.buffer = nil
+	s.bufferBytes = 0
 	s.update()
 	s.mu.Unlock()
 	if old != nil {
-		old.Close()
+		if retained != nil && old == retained {
+			old.detachForReconnect()
+		} else {
+			old.Close()
+		}
 	}
 	if err := os.MkdirAll(s.opts.Directory, 0700); err != nil {
 		return s.connectionError("无法准备工作文件夹", err)
 	}
-	c, err := s.start(ctx, Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, RequiredSocket: s.opts.RequiredSocket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true})
+	startOptions := Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, RequiredSocket: s.opts.RequiredSocket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true}
+	if retained != nil && retained.retainedSocket() != "" {
+		startOptions.Socket = strings.TrimPrefix(retained.retainedSocket(), "unix://")
+		startOptions.RequiredSocket = true // Never replace an unavailable original owner.
+	}
+	c, err := s.start(ctx, startOptions)
 	if err != nil {
 		return s.connectionError("无法连接本机 Codex，请检查连接设置后重试", err)
 	}
+	if retained != nil {
+		c.adoptOwner(retained)
+	}
+	closeAttempt := func() {
+		if retained != nil {
+			c.detachForReconnect() // A failed handshake does not stop the original owner.
+		} else {
+			c.Close()
+		}
+	}
 	s.mu.Lock()
 	s.client = c
+	if c.owner != nil {
+		s.retainedOwner = c
+	}
 	s.bound = false
+	c.rpc.sessionEpoch.Store(epoch)
 	s.mu.Unlock()
 	go s.listen(c, epoch)
 	auth, err := c.ReadAuthStatus(ctx)
 	if err != nil {
-		c.Close()
+		closeAttempt()
 		return s.connectionError("无法读取连接状态，请重新连接", err)
 	}
 	if auth.RequiresOpenAIAuth && !auth.AccountPresent {
@@ -444,12 +496,24 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	if s.workerOnly {
 		s.mu.Lock()
-		s.state.Connection, s.state.Phase, s.loading = "ready", "idle", false
+		s.state.Phase, s.loading = "idle", false
 		for _, event := range s.buffer {
 			s.applyEvent(event)
 		}
 		s.buffer = nil
-		s.recoverUnresolvedChildren(c, epoch)
+		s.bufferBytes = 0
+		s.mu.Unlock()
+		if !s.reconcileRecoveryWorkers(c, epoch) {
+			c.detachForReconnect()
+			return s.connectionError("后台工作订阅尚未确认；原任务已保留", ErrIO)
+		}
+		s.mu.Lock()
+		if s.client != c || s.epoch != epoch || c.Err() != nil {
+			s.mu.Unlock()
+			return s.connectionError("恢复期间连接再次断开", ErrClosed)
+		}
+		s.state.Connection = "ready"
+		s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "recovery_ready", Generation: epoch, SessionEpoch: epoch, TransportGeneration: c.rpc.generation, Phase: "worker_reconciliation"})
 		s.update()
 		s.mu.Unlock()
 		return nil
@@ -469,7 +533,7 @@ func (s *Session) connect(ctx context.Context) error {
 			paged = true
 			params["excludeTurns"] = true
 		} else if !unsupportedHistory(pageErr) && !nativeThreadError(pageErr, "thread not loaded: ", threadID) {
-			c.Close()
+			closeAttempt()
 			return s.connectionError("暂时无法读取最近消息，请重新连接", pageErr)
 		}
 	}
@@ -483,11 +547,11 @@ func (s *Session) connect(ctx context.Context) error {
 		err = callDecode(ctx, c, method, params, &response)
 	}
 	if err != nil {
-		c.Close()
+		closeAttempt()
 		return s.connectionError("无法恢复对话；草稿已保留，请重新连接", err)
 	}
 	if response.Thread.ID == "" || (threadID != "" && response.Thread.ID != threadID) {
-		c.Close()
+		closeAttempt()
 		return s.connectionError("后端返回了不匹配的对话", ErrProtocol)
 	}
 	var firstPage turnPage
@@ -495,7 +559,7 @@ func (s *Session) connect(ctx context.Context) error {
 		// Read after subscribing so concurrent live events are buffered and replayed.
 		firstPage, err = readTurnPage(ctx, c, threadID, "")
 		if err != nil {
-			c.Close()
+			closeAttempt()
 			return s.connectionError("暂时无法读取最近消息，请重新连接", err)
 		}
 		response.Thread.Turns = chronological(firstPage.Data)
@@ -514,13 +578,13 @@ func (s *Session) connect(ctx context.Context) error {
 	s.bound = true
 	if err = s.save(); err != nil {
 		s.mu.Unlock()
-		c.Close()
+		closeAttempt()
 		return s.connectionError("无法保存对话绑定，暂不发送消息", err)
 	}
 	for _, turn := range response.Thread.Turns {
 		s.applyTurn(turn, true)
 	}
-	s.state.Connection = "ready"
+	s.state.Connection = "connecting"
 	s.state.Message = ""
 	s.state.Phase = "idle"
 	if turns := response.Thread.Turns; len(turns) > 0 && terminal(turns[len(turns)-1].Status) {
@@ -536,22 +600,44 @@ func (s *Session) connect(ctx context.Context) error {
 	// Restoration/replay never establishes a warm-cache opportunity.
 	s.usage, s.usageTurn, s.usageTotal = api.ContextUsage{}, "", 0
 	s.buffer = nil
+	s.bufferBytes = 0
 	s.cleanupContextLocked()
 	if s.binding.Pending != nil {
 		s.state.Phase = "unknown"
 		s.state.Message = "上次发送结果尚未确认。请重新连接核对，草稿已保留，不会自动重发。"
 	}
-	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "recovery_ready", Generation: epoch, Phase: "receipt_reconciliation"})
-	s.update()
-	s.recoverUnresolvedChildren(c, epoch)
 	s.update()
 	needsCleanup := len(s.binding.CleanupTargets) > 0
 	s.mu.Unlock()
+	if !s.reconcileRecoveryWorkers(c, epoch) {
+		c.detachForReconnect()
+		return s.connectionError("后台工作订阅尚未确认；原任务已保留", ErrIO)
+	}
 	if needsCleanup {
+		// Exact cleanup targets fence new input. A definitely-unsent stop
+		// remains explicitly retryable while its original turn is read.
+		s.mu.Lock()
+		if s.client != c || s.epoch != epoch || c.Err() != nil {
+			s.mu.Unlock()
+			return s.connectionError("恢复期间连接再次断开", ErrClosed)
+		}
+		s.state.Connection = "ready"
+		s.update()
+		s.mu.Unlock()
 		if err := s.reconcileTerminalCleanup(ctx, c); err != nil {
 			return err
 		}
 	}
+	s.mu.Lock()
+	if s.client != c || s.epoch != epoch || c.Err() != nil {
+		s.mu.Unlock()
+		return s.connectionError("恢复期间连接再次断开", ErrClosed)
+	}
+	s.state.Connection = "ready"
+	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "recovery_ready", Generation: epoch, SessionEpoch: epoch, TransportGeneration: c.rpc.generation, Phase: "receipt_and_worker_reconciliation"})
+	s.update()
+	s.mu.Unlock()
+	go s.observeNativeResources(c, epoch)
 	go func() {
 		ctx, cancel := s.operation(context.Background(), 8*time.Second)
 		defer cancel()
@@ -566,12 +652,16 @@ func (s *Session) connectionError(message string, cause error) error {
 	s.state.Connection = "offline"
 	s.usage, s.usageTurn = api.ContextUsage{}, ""
 	s.state.ConnectionIssue = "connection"
+	s.lastConnectCause = cause
 	if errors.Is(cause, errRuntimeMissing) {
 		s.state.ConnectionIssue = "runtime_missing"
 		message = "未找到本机 Codex。安装后点击重新检测；已有登录和对话会继续保留。"
 	} else if incompatibleProtocol(cause) {
 		s.state.ConnectionIssue = "runtime_protocol"
 		message = "本机 Codex 未能提供当前需要的连接接口。请更新 Codex 或选择兼容的安装后重新检测；原有对话和待确认发送会继续保留。"
+	} else if resourceExhausted(cause) {
+		s.state.ConnectionIssue = "resource_exhausted"
+		message = "本机连接资源暂时不足；原任务和待确认结果已保留。请释放资源后重新连接核对。"
 	} else if errors.Is(cause, errExistingServer) {
 		s.state.ConnectionIssue = "existing_server"
 		message = "发现了本机 Codex 连接入口，但暂时无法握手。请确认提供入口的应用仍在运行，再重新连接。"
@@ -580,7 +670,11 @@ func (s *Session) connectionError(message string, cause error) error {
 	if s.run != "" || s.binding.Pending != nil {
 		s.state.Phase = "unknown"
 	}
-	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "recovery_failed", Reason: transportCode(cause), Generation: s.epoch, Phase: "awaiting_manual_reconnect"})
+	phase := "awaiting_manual_reconnect"
+	if s.reconnectActive {
+		phase = "reconnect_retry"
+	}
+	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "recovery_failed", Reason: transportCode(cause), Generation: s.epoch, SessionEpoch: s.epoch, Phase: phase})
 	s.update()
 	return errors.New(message) // No native error payloads in Wails logs.
 }
@@ -600,6 +694,11 @@ func callDecode(ctx context.Context, c *Client, method string, params, result an
 func (s *Session) listen(c *Client, epoch uint64) {
 	for event := range c.Notifications() {
 		s.mu.Lock()
+		started := time.Now()
+		lag := time.Duration(0)
+		if !event.ReceivedAt.IsZero() {
+			lag = time.Since(event.ReceivedAt)
+		}
 		if epoch != s.epoch {
 			s.mu.Unlock()
 			continue
@@ -614,12 +713,24 @@ func (s *Session) listen(c *Client, epoch uint64) {
 			}
 		}
 		if s.loading {
+			size := len(event.Method) + len(event.Params) + len(event.RequestID)
+			if len(s.buffer) >= maxQueuedEvents || s.bufferBytes+size > maxQueuedEventBytes {
+				s.mu.Unlock()
+				c.rpc.failWith(ErrEventOverflow, "projection_buffer", size)
+				continue
+			}
 			s.buffer = append(s.buffer, event)
+			s.bufferBytes += size
 		} else {
 			s.applyEvent(event)
 			s.update()
 		}
 		s.mu.Unlock()
+		processing := time.Since(started)
+		if processing >= 100*time.Millisecond || lag >= 250*time.Millisecond {
+			s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "event_consumer_lag", Method: event.Method,
+				Generation: epoch, SessionEpoch: epoch, TransportGeneration: c.rpc.generation, Phase: eventKindNames[eventKind(event)], LagMS: lag.Milliseconds(), ProcessingMS: processing.Milliseconds()})
+		}
 		if finished != nil {
 			finished()
 		}
@@ -633,15 +744,20 @@ func (s *Session) listen(c *Client, epoch uint64) {
 	s.state.Message = "连接已断开；请重新连接核对结果。"
 	s.usage, s.usageTurn = api.ContextUsage{}, ""
 	s.state.ConnectionIssue = "connection"
+	if resourceExhausted(c.Err()) {
+		s.state.ConnectionIssue = "resource_exhausted"
+		s.state.Message = "本机连接资源暂时不足；原任务和待确认结果已保留，请检查资源后重新连接。"
+	}
 	if s.run != "" || s.binding.Pending != nil {
 		s.state.Phase = "unknown"
 	}
-	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "session_offline", Reason: transportCode(c.Err()), Generation: epoch, Phase: "awaiting_manual_reconnect"})
+	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "session_offline", Reason: transportCode(c.Err()), Generation: epoch, SessionEpoch: epoch, TransportGeneration: c.rpc.generation, Phase: "reconnect_pending"})
 	for id, p := range s.prompts {
 		p.view.Status = "unavailable"
 		s.replacePrompt(id, p.view)
 	}
 	s.update()
+	s.scheduleAutoReconnectLocked(c, epoch)
 }
 func (s *Session) Submit(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 	return s.submit(ctx, in, files, false)
@@ -1272,6 +1388,10 @@ func (s *Session) reconcileTerminalCleanup(ctx context.Context, c *Client) error
 func (s *Session) Close(ctx context.Context) error {
 	s.mu.Lock()
 	s.closing = true
+	s.reconnectSeq++
+	if s.reconnectCancel != nil {
+		s.reconnectCancel()
+	}
 	s.cancelLife()
 	s.update()
 	s.mu.Unlock()
@@ -1283,6 +1403,9 @@ func (s *Session) Close(ctx context.Context) error {
 		return nil
 	}
 	c := s.client
+	if c == nil {
+		c = s.retainedOwner
+	}
 	s.mu.Unlock()
 	if c == nil {
 		s.mu.Lock()

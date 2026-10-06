@@ -23,22 +23,28 @@ const (
 )
 
 type Record struct {
-	Time        time.Time `json:"time"`
-	Level       string    `json:"level"`
-	Component   string    `json:"component"`
-	Code        string    `json:"code"`
-	Method      string    `json:"method,omitempty"`
-	Thread      string    `json:"thread,omitempty"`
-	Turn        string    `json:"turn,omitempty"`
-	Item        string    `json:"item,omitempty"`
-	Sequence    uint64    `json:"sequence,omitempty"`
-	Generation  uint64    `json:"generation,omitempty"`
-	Phase       string    `json:"phase,omitempty"`
-	Limit       int       `json:"limit,omitempty"`
-	Server      string    `json:"server,omitempty"`
-	Reason      string    `json:"reason,omitempty"` // Only classified/locally generated descriptions.
-	Fingerprint string    `json:"fingerprint,omitempty"`
-	Bytes       int       `json:"bytes,omitempty"`
+	Time                time.Time `json:"time"`
+	Level               string    `json:"level"`
+	Component           string    `json:"component"`
+	Code                string    `json:"code"`
+	Method              string    `json:"method,omitempty"`
+	Thread              string    `json:"thread,omitempty"`
+	Turn                string    `json:"turn,omitempty"`
+	Item                string    `json:"item,omitempty"`
+	Sequence            uint64    `json:"sequence,omitempty"`
+	Generation          uint64    `json:"generation,omitempty"`
+	SessionEpoch        uint64    `json:"sessionEpoch,omitempty"`
+	TransportGeneration uint64    `json:"transportGeneration,omitempty"`
+	Phase               string    `json:"phase,omitempty"`
+	QueueDepth          int       `json:"queueDepth,omitempty"`
+	QueueBytes          int       `json:"queueBytes,omitempty"`
+	LagMS               int64     `json:"lagMs,omitempty"`
+	ProcessingMS        int64     `json:"processingMs,omitempty"`
+	Limit               int       `json:"limit,omitempty"`
+	Server              string    `json:"server,omitempty"`
+	Reason              string    `json:"reason,omitempty"` // Only classified/locally generated descriptions.
+	Fingerprint         string    `json:"fingerprint,omitempty"`
+	Bytes               int       `json:"bytes,omitempty"`
 }
 
 type Logger struct {

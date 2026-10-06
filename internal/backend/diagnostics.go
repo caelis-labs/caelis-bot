@@ -39,7 +39,7 @@ func (s *Service) DiagnosticReport() ([]byte, error) {
 		"platform":            map[string]string{"os": runtime.GOOS, "arch": runtime.GOARCH, "go": runtime.Version()},
 		"dependencies":        deps,
 		"connection":          diagnosticEnum(v.Connection, "offline", "connecting", "login", "ready"),
-		"connectionIssue":     diagnosticEnum(v.ConnectionIssue, "", "connection", "runtime_missing", "runtime_protocol", "existing_server", "authentication"),
+		"connectionIssue":     diagnosticEnum(v.ConnectionIssue, "", "connection", "runtime_missing", "runtime_protocol", "existing_server", "authentication", "resource_exhausted"),
 		"phase":               diagnosticEnum(v.Phase, "idle", "working", "sending", "attention", "interrupting", "completed", "failed", "interrupted", "unknown"),
 		"manualCLIConfigured": manual, "loginPending": v.LoginPending,
 		"canSend": v.CanSend, "canInterrupt": v.CanInterrupt,

@@ -54,11 +54,11 @@ func taskHasUnknownReceipt(task *taskRecord) bool {
 // Read does not load an unloaded persisted thread. Resume is reserved for a
 // positively active thread (or explicit continuation), not a status label in
 // the Bot ledger. A failed read leaves the original receipt unresolved.
-func (s *Session) recoverChild(c *Client, epoch uint64, id string) {
+func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 	s.mu.Lock()
 	if s.client != c || s.epoch != epoch || s.closed {
 		s.mu.Unlock()
-		return
+		return false
 	}
 	revision := s.childRevision[id]
 	s.mu.Unlock()
@@ -69,13 +69,14 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) {
 	}
 	err := callDecode(ctx, c, "thread/read", map[string]any{"threadId": id, "includeTurns": true}, &response)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.client != c || s.epoch != epoch || s.closed {
-		return
+		s.mu.Unlock()
+		return false
 	}
 	if s.childRevision[id] != revision {
 		go s.recoverChild(c, epoch, id)
-		return
+		s.mu.Unlock()
+		return false
 	}
 	if err != nil || response.Thread.ID != id {
 		delete(s.childWatching, id)
@@ -86,7 +87,8 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) {
 			s.state.Phase, s.state.Message = "unknown", workerUnconfirmed
 		}
 		s.update()
-		return
+		s.mu.Unlock()
+		return false
 	}
 	active := response.Thread.Status.Type == "active"
 	latestTerminal := false
@@ -103,12 +105,13 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) {
 			s.childTerminals[opaque(id, turn.ID)] = true
 		}
 	}
+	subscribe := false
 	if active {
 		if _, known := s.childRuns[id]; !known {
 			s.childRuns[id] = "" // Native active, turn identity not yet known.
 		}
 		if !s.childSubscribed[id] {
-			go s.watchChild(c, epoch, id)
+			subscribe = true
 		}
 	} else {
 		delete(s.childRuns, id)
@@ -150,6 +153,42 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) {
 	}
 	_ = s.save()
 	s.update()
+	s.mu.Unlock()
+	if subscribe {
+		return s.watchChild(c, epoch, id)
+	}
+	return true
+}
+
+// Connection recovery waits for exact active-thread subscriptions before the
+// resident is exposed as ready. Terminal history remains read-only under #86.
+func (s *Session) reconcileRecoveryWorkers(c *Client, epoch uint64) bool {
+	s.mu.Lock()
+	ids := make([]string, 0)
+	seen := map[string]bool{}
+	for _, task := range s.binding.Tasks {
+		if task == nil || task.Thread == "" || seen[task.Thread] || (terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task)) {
+			continue
+		}
+		seen[task.Thread] = true
+		ids = append(ids, task.Thread)
+	}
+	for id := range s.children {
+		if !seen[id] && s.taskByThread(id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	for _, id := range ids {
+		s.childWatching[id] = true
+	}
+	s.mu.Unlock()
+	ok := true
+	for _, id := range ids {
+		if !s.recoverChild(c, epoch, id) {
+			ok = false
+		}
+	}
+	return ok
 }
 
 func (s *Session) childMayRetire(id string) bool {

@@ -360,6 +360,7 @@
   "telegramIssue_file_unavailable": "A file could not be shared. Check the original attachment on your Mac.",
   "telegramIssue_rate_limited": "Telegram is busy. Message updates will resume shortly.",
   "telegramIssue_telegram_error": "Telegram rejected an update. Check the Bot connection.",
+  "telegramIssue_approval_unavailable": "An approval has no readable choices in Telegram. Complete it in Caelis Bot on your Mac.",
   "telegramIssue_sync_busy": "Too many files are waiting to sync. Check Telegram before resending missing files.",
   "telegramNewPairLink": "Get a new pairing link",
   "telegramChooseBot": "1 · Choose a Telegram Bot",

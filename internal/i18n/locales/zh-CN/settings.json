@@ -359,6 +359,7 @@
   "telegramIssue_file_unavailable": "一个附件未能同步，请在 Mac 查看原附件。",
   "telegramIssue_rate_limited": "Telegram 暂时繁忙，消息会稍后继续更新。",
   "telegramIssue_telegram_error": "Telegram 拒绝了一次更新，请检查机器人连接。",
+  "telegramIssue_approval_unavailable": "一项审批在 Telegram 中没有可读的选项，请在 Mac 的 Caelis Bot 中完成。",
   "telegramIssue_sync_busy": "待同步附件过多，请查看 Telegram 后再补发缺失的附件。",
   "telegramNewPairLink": "获取新的配对链接",
   "telegramChooseBot": "1 · 选择 Telegram Bot",

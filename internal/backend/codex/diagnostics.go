@@ -15,6 +15,8 @@ func (s *Session) DiagnosticStatus() map[string]any {
 		switch {
 		case err == nil:
 			transport = "connected"
+		case resourceExhausted(err):
+			transport = "resource_exhausted"
 		case errors.Is(err, ErrEventOverflow):
 			transport = "event_overflow"
 		case errors.Is(err, ErrJSONDecode):
@@ -40,10 +42,19 @@ func (s *Session) DiagnosticStatus() map[string]any {
 		}
 	}
 	report := map[string]any{"transport": transport, "bound": s.bound, "pendingSubmission": s.binding.Pending != nil, "errorLog": s.opts.Diagnostics.Status(),
+		"autoReconnectActive": s.reconnectActive, "autoReconnectAttempts": s.reconnectAttempts, "autoReconnectBudget": maxAutoReconnectAttempts,
 		"ownedWorkers": len(s.children), "activeWorkers": len(s.childRuns), "subscribedWorkers": s.subscribedWorkerCount(),
 		"workerSubscriptionLimit": workerSubscriptionLimit, "workerRetirementFailures": s.retireFailures,
 		"retiredWorkerSubscriptions": s.retiredWorkers, "nativeWorkerUnloads": s.nativeUnloads,
 		"workerRetirementSupported": !s.retireUnsupported, "pagedHistory": s.historyPaged, "schemaBaseline": TestedVersion}
+	if s.client != nil {
+		depth, bytes := s.client.rpc.queueStats()
+		high, kinds := s.client.rpc.eventStats()
+		report["eventQueueDepth"], report["eventQueueBytes"] = depth, bytes
+		report["eventQueueHighWater"] = high
+		report["eventKinds"] = map[string]uint64{"serverRequests": kinds[0], "lifecycle": kinds[1], "deltas": kinds[2], "other": kinds[3]}
+		report["transportGeneration"], report["sessionEpoch"] = s.client.rpc.generation, s.epoch
+	}
 	if snapshot := s.nativeResources; !snapshot.ObservedAt.IsZero() {
 		resources := map[string]any{"observedAt": snapshot.ObservedAt.Format(time.RFC3339), "loadedThreads": snapshot.LoadedThreads,
 			"loadedOwnedWorkers": snapshot.LoadedOwnedWorkers}

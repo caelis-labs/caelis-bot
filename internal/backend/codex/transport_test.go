@@ -186,16 +186,71 @@ func TestEOFAndMalformedMessagesDoNotReportSuccess(t *testing.T) {
 }
 func TestNotificationOverflowFailsInsteadOfSilentlyDropping(t *testing.T) {
 	rpc, server := pair(t)
-	for i := 0; i < 65; i++ {
-		writeWire(t, server, wireMessage{Method: "item/event"})
+	for i := 0; i < maxQueuedEvents+1; i++ {
+		_ = json.NewEncoder(server).Encode(wireMessage{Method: "item/event"})
 	}
 	select {
 	case <-rpc.done:
 		if !errors.Is(rpc.cause(), ErrEventOverflow) {
 			t.Fatal(rpc.cause())
 		}
+		depth, bytes := rpc.queueStats()
+		if depth > maxQueuedEvents || bytes > maxQueuedEventBytes {
+			t.Fatal(depth, bytes)
+		}
 	case <-testContext(t).Done():
 		t.Fatal("overflow not observed")
+	}
+}
+
+func TestNotificationBurstKeepsRPCResponsiveAndCriticalEventsOrdered(t *testing.T) {
+	a, b := net.Pipe()
+	rpc := newTransportOptions(a, nil, true)
+	t.Cleanup(func() { b.Close(); rpc.close() })
+	for i := 0; i < 160; i++ {
+		writeWire(t, b, wireMessage{Method: "item/agentMessage/delta", Params: raw(map[string]int{"index": i})})
+	}
+	ctx := testContext(t)
+	result := make(chan error, 1)
+	go func() {
+		_, err := rpc.call(ctx, "thread/read", map[string]string{"threadId": "original"})
+		result <- err
+	}()
+	req := readWire(t, json.NewDecoder(b))
+	if req.Method != "thread/read" {
+		t.Fatal(req.Method)
+	}
+	writeWire(t, b, wireMessage{ID: req.ID, Result: raw(map[string]string{"threadId": "original"})})
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("RPC response stalled behind event consumer")
+	}
+	writeWire(t, b, wireMessage{ID: raw("approval-original"), Method: "item/commandExecution/requestApproval", Params: raw(map[string]string{"threadId": "original"})})
+	writeWire(t, b, wireMessage{Method: "turn/completed", Params: raw(map[string]string{"threadId": "original"})})
+	for i := 0; i < 162; i++ {
+		select {
+		case event := <-rpc.events:
+			if i < 160 {
+				var data struct {
+					Index int `json:"index"`
+				}
+				if event.Method != "item/agentMessage/delta" || json.Unmarshal(event.Params, &data) != nil || data.Index != i {
+					t.Fatal(i, event.Method, string(event.Params))
+				}
+			} else if i == 160 {
+				if event.Method != "item/commandExecution/requestApproval" || string(event.RequestID) != `"approval-original"` {
+					t.Fatal(event)
+				}
+			} else if event.Method != "turn/completed" {
+				t.Fatal(event.Method)
+			}
+		case <-ctx.Done():
+			t.Fatal("ordered events were lost")
+		}
 	}
 }
 func TestAuthProjectionDoesNotExposePrivateIdentityOrInventReadiness(t *testing.T) {
