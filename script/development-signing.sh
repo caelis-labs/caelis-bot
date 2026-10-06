@@ -8,6 +8,18 @@ if [[ -z "${CI:-}" || "${CI:-}" == false ]]; then
     BOT_BUILD_SIGN_IDENTITY="$BOT_DEVELOPMENT_IDENTITY"
   elif [[ -f "$BOT_ROOT/.development-signing-identity" ]]; then
     BOT_BUILD_SIGN_IDENTITY=$(cat "$BOT_ROOT/.development-signing-identity")
+  elif [[ -f "$BOT_ROOT/.git" ]]; then
+    # A linked worktree has its own ignored files. Reuse only the main checkout's
+    # explicit local selection from this same Git repository; never pick a
+    # certificate merely because it happens to be installed.
+    BOT_BUILD_COMMON_DIR=$(git -C "$BOT_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+    if [[ "$BOT_BUILD_COMMON_DIR" == */.git && -d "$BOT_BUILD_COMMON_DIR" ]]; then
+      BOT_BUILD_MAIN_ROOT=${BOT_BUILD_COMMON_DIR%/.git}
+      if [[ "$BOT_BUILD_MAIN_ROOT" != "$BOT_ROOT" && -f "$BOT_BUILD_MAIN_ROOT/.development-signing-identity" ]]; then
+        BOT_BUILD_SIGN_IDENTITY=$(cat "$BOT_BUILD_MAIN_ROOT/.development-signing-identity")
+      fi
+    fi
+    unset BOT_BUILD_COMMON_DIR BOT_BUILD_MAIN_ROOT
   fi
 fi
 if [[ "$BOT_BUILD_SIGN_IDENTITY" != - ]]; then

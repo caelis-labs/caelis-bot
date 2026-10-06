@@ -28,6 +28,15 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "--desktop-capture-smoke" {
+		if len(os.Args) != 6 {
+			log.Fatal("specify exact disposable window title, private evidence/image paths and once marker")
+		}
+		if err := desktop.RunDesktopCaptureSmoke(os.Args[2], os.Args[3], os.Args[4], os.Args[5]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--bot-tools" {
 		if err := bot.RunStdio(os.Stdin, os.Stdout); err != nil {
 			os.Exit(1)

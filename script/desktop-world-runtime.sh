@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
 BOT_DW_BUNDLE=${1:?bundle required}
-[[ "$(uname -m)" == arm64 ]] || { echo 'Desktop World alpha helper is qualified for macOS arm64 only.' >&2; exit 1; }
+[[ "$(uname -m)" == arm64 ]] || { echo 'Desktop World helper is qualified for macOS arm64 only.' >&2; exit 1; }
 BOT_DW_CACHE="$BOT_ROOT/.cache/desktop-world-runtime"
 BOT_DW_VERSION=$(node -p 'require("./resources/desktop-world/release.json").version')
 BOT_DW_ARCHIVE=$(node -p 'require("./resources/desktop-world/release.json").archive')
@@ -23,5 +23,7 @@ BOT_DW_DEST="$BOT_DW_BUNDLE/Contents/Resources/DesktopWorld"
 rm -rf "$BOT_DW_DEST"
 mkdir -p "$BOT_DW_DEST/bin"
 cp "$BOT_DW_SOURCE/bin/dtw" "$BOT_DW_DEST/bin/dtw"
-cp "$BOT_DW_SOURCE/manifest.json" "$BOT_DW_SOURCE/NOTICE" "$BOT_DW_SOURCE/THIRD_PARTY_NOTICES.md" "$BOT_DW_DEST/"
+cp "$BOT_DW_SOURCE/manifest.json" "$BOT_DW_SOURCE/LICENSE" "$BOT_DW_SOURCE/NOTICE" "$BOT_DW_SOURCE/THIRD_PARTY_NOTICES.md" "$BOT_DW_DEST/"
+# The pinned helper is MPL-2.0. Preserve its corresponding source in the app.
+cp -R "$BOT_DW_SOURCE/source" "$BOT_DW_DEST/source"
 /usr/libexec/PlistBuddy -c "Add CaelisDesktopWorldVersion string $BOT_DW_VERSION" "$BOT_DW_BUNDLE/Contents/Info.plist"

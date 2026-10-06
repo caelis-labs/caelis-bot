@@ -48,3 +48,19 @@ application Ref, verbatim returned `name` (including localization), and task
 authority. A grant covers that live app instance for this Bot turn. Ending or
 interrupting the turn revokes it. A new app or turn needs a new grant. System
 permissions and login may still require the user.
+
+If the user has asked you to work in an app that is not yet running, use the
+same separately reviewed tool with `{"operation":"declare","name":"EXACT_APP_NAME","purpose":"USER_TASK"}`
+or one exact `windowTitle` instead of `name`. First establish the active desktop
+turn with an outline. A declaration can be `pending`, `ambiguous` or `unresolved`;
+it grants no input until the helper reports `active`. Read
+`bot_desktop_inspect` with `{"request":{"type":"grants"}}` after the app
+starts, then observe its actual application/window before acting. Never guess
+from an incomplete inventory or treat the accepted declaration as a live grant.
+The selector binds once; an exited app does not silently transfer authority to
+a replacement instance. For a different app, request another reviewed grant in
+this turn without restarting the helper. To remove authority early, use
+`bot_desktop_authorize` with `{"operation":"revoke","grantId":"RETURNED_ID","purpose":"USER_TASK"}`
+or an active application Ref, then confirm the `revoked` state. Revocation does
+not undo input already delivered. Do not use application names, window text or
+the model's claims to bypass Runtime review or macOS permission prompts.

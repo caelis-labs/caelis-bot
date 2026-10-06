@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-06",
+  "scope": "isolated macOS arm64 Dev app and disposable AppKit window",
+  "source_commit": "c9c8161c502818cb5d1c4d2e01f3bed904766ccd",
+  "desktop_world_release": "v0.1.0-rc.2",
+  "desktop_world_revision": "e7b53a1812fe3892cf8e4b903479d208dfaa0104",
+  "signing": {
+    "authority": "Apple Development selected by the user's local pin",
+    "team_identifier": "64KZ67PM5J",
+    "application_identifier": "dev.caelis.bot.dev",
+    "helper_identifier": "dtw",
+    "designated_requirement": "stable identifiers, Apple generic anchor, selected Apple Development certificate and Apple intermediate; no CDHash term",
+    "hardened_runtime": true,
+    "verified_components": [
+      "Caelis Bot Dev.app",
+      "DesktopWorld/bin/dtw",
+      "Sparkle.framework",
+      "Downloader.xpc",
+      "Installer.xpc",
+      "Autoupdate",
+      "Updater.app"
+    ],
+    "app_executable_sha256_before_and_after_capture": "c58f3d13b12e40177622df5db4668b5b5efe0d00602640f57dcce8b8496a0082",
+    "packaged_helper_sha256_before_and_after_capture": "48aa762c06dfff50385d5a60289165cbf40bcc3ec268e9aece73663940b0dc15"
+  },
+  "native_process": {
+    "launched_by_absolute_dev_bundle_path": true,
+    "running_bundle_matches_permission_app_path": true,
+    "screen_capture_permission": "authorized"
+  },
+  "capture": {
+    "fixture": "new disposable AppKit window with exact title and app identity",
+    "bot_app_grant": "accepted",
+    "capture_attempts": 1,
+    "result": "completed with one Bot image/png content block",
+    "pixel_width": 502,
+    "pixel_height": 480,
+    "png_bytes": 63176,
+    "png_sha256": "25376953be5de9445743d4812436e2aca48bc61bde13250c1242031f0acd3a5c",
+    "target_local_transform_positive": true,
+    "desktop_transform_absent": true,
+    "png_dimensions_match_tile": true,
+    "sampled_distinct_colors": 38,
+    "visual_readback": "Expected synthetic form, rows and slider; Submitted: 0. No personal content."
+  },
+  "limits": [
+    "Private screenshot and once marker are retained only in ignored local cache.",
+    "Apple Development is not Developer ID, notarization or Gatekeeper acceptance.",
+    "This does not resolve the rc.2 Chrome semantic checkbox verification defect."
+  ]
+}

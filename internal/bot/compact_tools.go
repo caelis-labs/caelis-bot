@@ -379,6 +379,17 @@ func (r *Runtime) callCompactDesktop(ctx context.Context, name string, args map[
 	case "bot_desktop_inspect":
 		q := args["request"].(map[string]any)
 		kind := str(q, "type")
+		if kind == "grants" {
+			p, ok := r.desktopControl.(interface {
+				GrantStatus(context.Context) api.ToolResult
+			})
+			if !ok {
+				return compactError("unavailable", errors.New("desktop grant status unavailable"))
+			}
+			turnCtx, cancel := r.desktopCallContext(ctx)
+			defer cancel()
+			return p.GrantStatus(turnCtx)
+		}
 		delete(q, "type")
 		legacy = "bot_desktop_" + map[string]string{"outline": "observe", "text": "read", "delta": "sync", "image": "capture"}[kind]
 		if kind == "outline" && str(q, "continuation") != "" {

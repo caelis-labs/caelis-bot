@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>RC2 Electron Synthetic Document</title>
+<style>body{font:20px system-ui;margin:32px}button,input{font:20px system-ui;padding:12px}</style></head><body>
+<h1>RC2 Electron Synthetic Document</h1>
+<p>Disposable local window. Actions only append to its own event log.</p>
+<button id="record">Record Electron action</button><p id="status">Actions: 0</p>
+<label>Fixture text <input id="text" value="baseline"></label>
+<script>
+let n=0;
+document.querySelector('#record').addEventListener('click',()=>{
+  n++;document.querySelector('#status').textContent='Actions: '+n;
+  window.fixture.record('action_count',n);
+});
+document.querySelector('#text').addEventListener('input',e=>window.fixture.record('text',e.target.value));
+</script></body></html>
