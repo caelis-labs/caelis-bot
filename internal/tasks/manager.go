@@ -20,6 +20,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 type record struct {
@@ -177,6 +178,9 @@ func (m *Manager) save() error {
 	}
 	if e == nil {
 		e = os.Rename(f.Name(), m.path)
+	}
+	if e == nil {
+		e = localstate.SyncParent(m.path)
 	}
 	if e == nil {
 		m.persisted = string(b)

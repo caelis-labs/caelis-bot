@@ -11,6 +11,11 @@ import (
 // must implement DetachForUpdate and retain their original recovery targets.
 func (s *Service) CanDetachForUpdate() error {
 	if _, ok := s.engine.(interface{ DetachForUpdate(context.Context) error }); ok {
+		if preparer, ok := s.engine.(interface{ PrepareDetachForUpdate(context.Context) error }); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			return preparer.PrepareDetachForUpdate(ctx)
+		}
 		return nil
 	}
 	v := s.engine.Snapshot()

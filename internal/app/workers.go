@@ -260,6 +260,14 @@ func (w *localWorkers) CanDetachForUpdate() error {
 	defer w.mu.Unlock()
 	for _, owner := range w.owners {
 		if _, ok := owner.(interface{ DetachForUpdate(context.Context) error }); ok {
+			if preparer, ok := owner.(interface{ PrepareDetachForUpdate(context.Context) error }); ok {
+				ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+				err := preparer.PrepareDetachForUpdate(ctx)
+				cancel()
+				if err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		for _, state := range owner.WorkStates() {

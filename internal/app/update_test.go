@@ -2,18 +2,41 @@ package app
 
 import (
 	"context"
+	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"testing"
 )
 
 type updateEngine struct {
 	*testEngine
-	snapshot api.Snapshot
-	detached int
+	snapshot   api.Snapshot
+	detached   int
+	prepareErr error
+	prepared   int
 }
 
 func (e *updateEngine) Snapshot() api.Snapshot                { return e.snapshot }
 func (e *updateEngine) DetachForUpdate(context.Context) error { e.detached++; return nil }
+func (e *updateEngine) PrepareDetachForUpdate(context.Context) error {
+	e.prepared++
+	return e.prepareErr
+}
+
+func TestUpdatePreparationFailureRestoresAdmission(t *testing.T) {
+	e := &updateEngine{testEngine: newTestEngine(), prepareErr: errors.New("disk full")}
+	a, _ := fixtureApp(t, e, Host{})
+	if err := a.PrepareUpdate(); err == nil || err.Error() != "disk full" {
+		t.Fatal("persistence failure was hidden", err)
+	}
+	if e.detached != 0 || a.updatePrepared {
+		t.Fatal("failed preparation detached owner or committed restart")
+	}
+	e.prepareErr = nil
+	if err := a.PrepareUpdate(); err != nil {
+		t.Fatal("admission did not recover", err)
+	}
+	a.CancelUpdate()
+}
 
 type legacyUpdateEngine struct {
 	*testEngine

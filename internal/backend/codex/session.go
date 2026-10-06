@@ -19,11 +19,16 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/contextseed"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 type binding struct {
-	RuntimeVersion    string                          `json:"runtimeVersion,omitempty"`
-	BackgroundResults map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
+	// Exact native owner used by this binding. An update detaches its observer;
+	// the next process must reconcile here before accepting new work.
+	OwnerEndpoint      string                          `json:"ownerEndpoint,omitempty"`
+	PendingApprovalIDs []string                        `json:"pendingApprovalIds,omitempty"`
+	RuntimeVersion     string                          `json:"runtimeVersion,omitempty"`
+	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
 	Context        contextseed.State      `json:"context,omitempty"`
 	ContextInputs  map[string]int         `json:"contextInputs,omitempty"`
@@ -316,6 +321,9 @@ func (s *Session) save() error {
 	if err == nil {
 		err = os.Rename(f.Name(), s.opts.StateFile)
 	}
+	if err == nil {
+		err = localstate.SyncParent(s.opts.StateFile)
+	}
 	return err
 }
 func (s *Session) Connect(ctx context.Context) error {
@@ -464,7 +472,10 @@ func (s *Session) connect(ctx context.Context) error {
 		return s.connectionError("无法准备工作文件夹", err)
 	}
 	startOptions := Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, RequiredSocket: s.opts.RequiredSocket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true}
-	if retained != nil && retained.retainedSocket() != "" {
+	if s.binding.OwnerEndpoint != "" {
+		startOptions.Socket = strings.TrimPrefix(s.binding.OwnerEndpoint, "unix://")
+		startOptions.RequiredSocket = true
+	} else if retained != nil && retained.retainedSocket() != "" {
 		startOptions.Socket = strings.TrimPrefix(retained.retainedSocket(), "unix://")
 		startOptions.RequiredSocket = true // Never replace an unavailable original owner.
 	}
@@ -495,6 +506,10 @@ func (s *Session) connect(ctx context.Context) error {
 	if err != nil {
 		closeAttempt()
 		return s.connectionError("无法读取连接状态，请重新连接", err)
+	}
+	if err := s.rememberNativeOwner(c); err != nil {
+		closeAttempt()
+		return s.connectionError("无法保存原生连接入口，暂不发送消息", err)
 	}
 	if auth.RequiresOpenAIAuth && !auth.AccountPresent {
 		s.mu.Lock()
@@ -1453,11 +1468,32 @@ cleanup:
 	defer cancel()
 	cleanupErr := s.cleanTerminals(cleanupCtx, c)
 	s.mu.Lock()
+	var endpointErr error
+	// Ordinary Close deliberately stops its private owner. An idle, fully
+	// reconciled binding must not pin the next launch to that dead socket.
+	unknownTaskReceipt := false
+	for _, task := range s.binding.Tasks {
+		if task != nil && taskHasUnknownReceipt(task) {
+			unknownTaskReceipt = true
+			break
+		}
+	}
+	if cleanupErr == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && s.binding.Pending == nil && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown") {
+		previous := s.binding.OwnerEndpoint
+		s.binding.OwnerEndpoint = ""
+		if err := s.save(); err != nil {
+			s.binding.OwnerEndpoint = previous
+			endpointErr = err
+		}
+	}
 	s.closed = true
 	s.state.Connection = "offline"
 	s.update()
 	s.mu.Unlock()
 	c.Close()
+	if endpointErr != nil {
+		return fmt.Errorf("连接已关闭，但原生 owner 绑定未能清除: %w", endpointErr)
+	}
 	if cleanupErr != nil || c.toolCleanupError() != nil {
 		return errors.New("连接已关闭，但后台工具的完整清理未能确认")
 	}

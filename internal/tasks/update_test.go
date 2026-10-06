@@ -3,8 +3,51 @@ package tasks
 import (
 	"errors"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestPauseForUpdatePreservesActiveReceiptAndRecoversAdmission(t *testing.T) {
+	f := newRuntime()
+	root := t.TempDir()
+	m := openFixture(t, root, "fixture", f)
+	v := start(t, m, "update-active-request")
+	guarded := false
+	if err := m.PauseForUpdate(func() error {
+		guarded = true
+		b, err := os.ReadFile(filepath.Join(root, "tasks.json"))
+		if err != nil || !strings.Contains(string(b), v.ID) || !strings.Contains(string(b), "update-active-request") {
+			t.Fatal("original owner and request were not saved before guard", err)
+		}
+		return nil
+	}); err != nil || !guarded {
+		t.Fatal(err, guarded)
+	}
+	if _, err := m.SendTask(t.Context(), api.TaskMessage{ID: v.ID, RequestID: "during-update", Prompt: "continue"}); err == nil {
+		t.Fatal("continuation crossed update fence")
+	}
+	if f.states[v.ID].Task.Status != "working" {
+		t.Fatal("active native work was stopped")
+	}
+	m.ResumeAfterUpdate()
+	if _, err := m.SendTask(t.Context(), api.TaskMessage{ID: v.ID, RequestID: "after-cancel", Prompt: "continue"}); err != nil {
+		t.Fatal("admission was not restored", err)
+	}
+}
+
+func TestPauseForUpdatePersistenceFailureDoesNotFreeze(t *testing.T) {
+	f := newRuntime()
+	m := openFixture(t, t.TempDir(), "fixture", f)
+	m.write = func() error { return errors.New("disk full") }
+	called := false
+	if err := m.PauseForUpdate(func() error { called = true; return nil }); err == nil || !strings.Contains(err.Error(), "disk full") || called {
+		t.Fatal("failed persistence admitted update", err, called)
+	}
+	m.write = m.save
+	start(t, m, "after-failed-update")
+}
 
 func TestUpdateFencesTaskStartContinuationAndReports(t *testing.T) {
 	f := newRuntime()

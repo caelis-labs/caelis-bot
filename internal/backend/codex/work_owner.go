@@ -35,6 +35,12 @@ func NewRetainedWorkOwner(opts SessionOptions) (*WorkOwner, error) {
 	return &WorkOwner{s}, s.loadErr
 }
 func (w *WorkOwner) Close(ctx context.Context) error { return w.engine.Close(ctx) }
+func (w *WorkOwner) PrepareDetachForUpdate(ctx context.Context) error {
+	return w.engine.PrepareDetachForUpdate(ctx)
+}
+func (w *WorkOwner) DetachForUpdate(ctx context.Context) error {
+	return w.engine.DetachForUpdate(ctx)
+}
 func (w *WorkOwner) WorkMessageRecorded(in api.TaskMessage) bool {
 	return w.engine.WorkMessageRecorded(in)
 }
