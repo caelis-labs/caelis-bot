@@ -148,6 +148,41 @@ func TestTelegramPollsRecoveryControlWhileRuntimeOffline(t *testing.T) {
 	}
 }
 
+func TestTelegramLeavesQueuedInputUntilAutomaticRecoveryEstablishesHistory(t *testing.T) {
+	var mu sync.Mutex
+	snapshot := api.Snapshot{Connection: "offline"}
+	recovery := api.RecoveryState{Fence: "owner:retry", Automatic: true}
+	var submissions atomic.Int32
+	b, f := testBridge(t, Host{
+		Snapshot: func() api.Snapshot { mu.Lock(); defer mu.Unlock(); return snapshot },
+		Recovery: func() api.RecoveryState { mu.Lock(); defer mu.Unlock(); return recovery },
+		Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+			submissions.Add(1)
+			return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+		},
+	})
+	paired(b)
+	f.updates <- []tg.Update{message(1, 10, 20, "queued during automatic recovery")}
+	b.launch(f)
+	time.Sleep(150 * time.Millisecond)
+	b.mu.Lock()
+	queued := len(b.state.Inputs) == 0
+	b.mu.Unlock()
+	if submissions.Load() != 0 || !queued {
+		t.Fatal("automatic recovery consumed queued input before the history boundary")
+	}
+	mu.Lock()
+	snapshot.Connection, recovery.Automatic = "ready", false
+	mu.Unlock()
+	deadline := time.Now().Add(time.Second)
+	for submissions.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if submissions.Load() != 1 {
+		t.Fatal("queued message was not submitted once after recovery")
+	}
+}
+
 func waitFakeSends(t *testing.T, f *fakeClient, want int) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)

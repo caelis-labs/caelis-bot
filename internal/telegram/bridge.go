@@ -478,8 +478,12 @@ type pollResult struct {
 func (b *Bridge) run(ctx context.Context, c client) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	// Poll control actions while the local Runtime is offline. Ordinary input
-	// still waits for the private history boundary before native submission.
+	// Keep queued input at Telegram until an initial connection either recovers
+	// its private history boundary or settles offline. Once offline, poll control
+	// actions so the owner can request a bounded reconnect.
+	if !b.waitPollBoundary(ctx) {
+		return
+	}
 	poll := make(chan pollResult)
 	b.mu.Lock()
 	offset := b.state.Offset
@@ -564,6 +568,27 @@ func (b *Bridge) run(ctx context.Context, c client) {
 			r.ack <- offset
 		}
 	}
+}
+
+func (b *Bridge) waitPollBoundary(ctx context.Context) bool {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for ctx.Err() == nil {
+		s := b.host.Snapshot()
+		if ready(s) {
+			return b.ensureBaseline(s)
+		}
+		recovery := b.recoveryState()
+		if s.Connection != "" && s.Connection != "connecting" && !recovery.Automatic && !recovery.InProgress {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+		}
+	}
+	return false
 }
 
 func (b *Bridge) ensureBaseline(s api.Snapshot) bool {
