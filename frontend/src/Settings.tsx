@@ -27,9 +27,10 @@ export function Settings() {
  const content=useRef<HTMLDivElement>(null);
  const [executionVisited,setExecutionVisited]=useState(false),[runtimeVisited,setRuntimeVisited]=useState(false),[telegramVisited,setTelegramVisited]=useState(false);
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
+ const sectionRef=useRef(section);sectionRef.current=section;
  useEffect(()=>{
   const load=()=>{void desktop<string>('SettingsSection').then(value=>{const destination=settingsDestination(value);if(destination&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(destination);setOpened(n=>n+1);});};
-  const key=(event:KeyboardEvent)=>{if(!event.defaultPrevented&&!event.isComposing&&(event.key==='Escape'||(event.metaKey&&event.key==='w'))){event.preventDefault();void desktop('CloseSettings');}};
+  const key=(event:KeyboardEvent)=>{if(event.defaultPrevented||event.isComposing)return;if(event.key==='Escape'&&sectionRef.current==='telegram'){event.preventDefault();if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection('chatConnections');return;}if(event.key==='Escape'||(event.metaKey&&event.key==='w')){event.preventDefault();void desktop('CloseSettings');}};
   load();void desktop<string>('AppVersion').then(setVersion);
   window.addEventListener('settings-open',load);window.addEventListener('keydown',key);
   return()=>{window.removeEventListener('settings-open',load);window.removeEventListener('keydown',key);};
@@ -42,7 +43,7 @@ export function Settings() {
    <div className="settings-page" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<PermissionSettings embedded/>}<ExecutionSettings embedded/></>}</div>
    <div className="settings-page" hidden={section!=='models'&&section!=='connections'}>{(runtimeVisited||section==='models'||section==='connections')&&<RuntimeSettings page={section==='models'?'models':'connections'} active={section==='models'||section==='connections'} refreshKey={opened} onConnections={()=>setSection('connections')}/>}</div>
    <div className="settings-page" hidden={section!=='chatConnections'}>{section==='chatConnections'&&<MessagingSettings openTelegram={()=>setSection('telegram')}/>}</div>
-   <div className="settings-page" hidden={section!=='telegram'}>{(telegramVisited||section==='telegram')&&<TelegramSettings onBack={()=>setSection('chatConnections')}/>}</div>
+   <div className="settings-page" hidden={section!=='telegram'}>{(telegramVisited||section==='telegram')&&<TelegramSettings active={section==='telegram'} onBack={()=>setSection('chatConnections')}/>}</div>
    <div className="settings-page" hidden={section!=='extras'}>{section==='extras'&&<><h1>{t('settings.extras')}</h1><ScreenInputSettings/></>}</div>
    <div className="settings-page" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone/>}</div>
    <div className="settings-page" key={section} hidden={['permissions','models','connections','chatConnections','telegram','machines','extras'].includes(section)}>

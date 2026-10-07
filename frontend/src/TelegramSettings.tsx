@@ -7,11 +7,12 @@ import {telegramPhase,type TelegramStatus} from './telegram-state';
 const issues=new Set(['invalid_token','network','occupied','webhook','keychain','storage','blocked','unavailable','setup_failed','open_failed','pairing_failed','pairing_expired','delivery_uncertain','file_delivery_uncertain','file_unavailable','rate_limited','telegram_error','sync_busy','approval_unavailable']);
 function issueKey(issue:string):MessageKey {return `settings.telegramIssue_${issues.has(issue)?issue:'setup_failed'}` as MessageKey;}
 
-export function TelegramSettings({onBack}:{onBack?:()=>void}={}){
+export function TelegramSettings({onBack,active=true}:{onBack?:()=>void;active?:boolean}={}){
  const {t}=useI18n();
  const [status,setStatus]=useState<TelegramStatus|null>(null),[token,setToken]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [route,setRoute]=useState<'new'|'existing'>('new'),[confirmForget,setConfirmForget]=useState(false);
  const alive=useRef(false),revision=useRef(0),acting=useRef(false);
+ useEffect(()=>{if(!active){setToken('');setConfirmForget(false)}},[active]);
  useEffect(()=>{
   alive.current=true;
   const load=()=>{if(acting.current)return;const current=++revision.current;void desktop<TelegramStatus>('TelegramStatus').then(s=>{if(alive.current&&current===revision.current){setStatus(s);setError(previous=>previous==='unavailable'?'':previous)}}).catch(()=>{if(alive.current&&current===revision.current)setError(previous=>previous||'unavailable')});};
@@ -29,9 +30,10 @@ export function TelegramSettings({onBack}:{onBack?:()=>void}={}){
  const issue=error||status?.issue||'';
  const phase=telegramPhase(status,busy,issue);
  const hasToken=token.trim().length>0;
+ const tokenInvalid=issue==='invalid_token'&&!hasToken;
  const showToken=phase==='unconfigured'||issue==='invalid_token'||issue==='keychain'||issue==='webhook';
  return <section className="telegram-page" aria-labelledby="telegram-title">
-  {onBack&&<button type="button" className="text-action telegram-back" onClick={onBack}>‹ {t('settings.chatConnections')}</button>}
+  {onBack&&<button type="button" className="text-action telegram-back" onClick={()=>{setToken('');onBack()}}>‹ {t('settings.chatConnections')}</button>}
   <div className="telegram-heading"><div><h1 id="telegram-title">{t('settings.telegramTitle')}</h1><p>{t('settings.telegramDescription')}</p></div><span className={`telegram-state telegram-state-${phase}`} role="status">{t(`settings.telegramState_${phase}` as MessageKey)}</span></div>
   {phase==='loading'&&<p role="status">{t('common.loading')}</p>}
   {phase==='connecting'&&<p role="status" className="telegram-feedback">{t('settings.telegramConnectingHelp')}</p>}
@@ -43,7 +45,8 @@ export function TelegramSettings({onBack}:{onBack?:()=>void}={}){
   </div>}
   {showToken&&<div className="telegram-step"><h3>{t('settings.telegramTokenStep')}</h3>
    <label htmlFor="telegram-token">{t('settings.telegramToken')}</label>
-   <input id="telegram-token" type="password" autoComplete="off" spellCheck={false} value={token} maxLength={512} placeholder={t('settings.telegramTokenPlaceholder')} disabled={busy} onChange={e=>setToken(e.target.value)}/>
+   <input id="telegram-token" type="password" autoComplete="off" spellCheck={false} value={token} maxLength={512} placeholder={t('settings.telegramTokenPlaceholder')} disabled={busy} aria-invalid={tokenInvalid} aria-describedby={tokenInvalid?'telegram-token-error':undefined} onChange={e=>{setToken(e.target.value);if(error==='invalid_token')setError('')}}/>
+   {tokenInvalid&&<p id="telegram-token-error" className="inline-error" role="alert">{t('settings.telegramIssue_invalid_token')}</p>}
    <p className="settings-description">{t('settings.telegramTokenPrivacy')}</p>
    <button type="button" className="primary" disabled={busy||!hasToken} onClick={()=>void act('ConnectTelegram',token,issue==='webhook')}>{t(issue==='webhook'?'settings.telegramTakeOver':'settings.telegramConnect')}</button>
   </div>}
@@ -51,13 +54,13 @@ export function TelegramSettings({onBack}:{onBack?:()=>void}={}){
   {phase==='candidate'&&<div className="telegram-step"><h3>{t('settings.telegramConfirmHeading')}</h3><p>{t('settings.telegramConfirmAccount',{account:status?.candidate??''})}</p><button type="button" className="primary" disabled={busy} onClick={()=>void act('ConfirmTelegram')}>{t('settings.telegramConfirm')}</button><p className="settings-description">{t('settings.telegramConfirmHelp')}</p></div>}
   {phase==='connected'&&<div className="telegram-step"><h3>@{status?.bot}</h3><p>{t('settings.telegramOwner',{account:status?.owner??''})}</p><button type="button" className="primary" disabled={busy} onClick={()=>void open(true)}>{t('settings.telegramOpenBot')}</button><p className="settings-description">{t('settings.telegramStayOnline')}</p></div>}
   {phase==='paused'&&<div className="telegram-step"><h3>@{status?.bot}</h3><p>{t('settings.telegramPausedHelp')}</p><button type="button" className="primary" disabled={busy} onClick={()=>void act('ConnectTelegram','',false)}>{t('settings.telegramResume')}</button></div>}
-  {issue&&<div className="telegram-notice" role="alert"><p>{t(issueKey(issue))}</p>
+  {issue&&issue!=='invalid_token'&&<div className="telegram-notice" role="alert"><p>{t(issueKey(issue))}</p>
    {(phase==='error'||phase==='reconnecting')&&!showToken&&<button type="button" className="primary" disabled={busy} onClick={()=>phase==='reconnecting'||issue==='unavailable'?void refresh():void act('ConnectTelegram','',false)}>{t(phase==='reconnecting'||issue==='unavailable'?'settings.telegramCheckAgain':'settings.telegramRetry')}</button>}
    {issue==='webhook'&&<p className="settings-description">{t('settings.telegramWebhookChoice')}</p>}
   </div>}
   {status?.bot&&phase!=='connecting'&&<div className="telegram-manage">
    {status.enabled&&<button type="button" disabled={busy} onClick={()=>void act('DisconnectTelegram')}>{t('settings.telegramPause')}</button>}
-   {!confirmForget?<button type="button" className="text-action" disabled={busy} onClick={()=>setConfirmForget(true)}>{t('settings.telegramForget')}</button>:<div className="telegram-forget" role="group" aria-label={t('settings.telegramForgetTitle')}><p>{t('settings.telegramForgetHelp')}</p><button type="button" disabled={busy} onClick={()=>void act('ForgetTelegram')}>{t('settings.telegramForgetConfirm')}</button><button type="button" disabled={busy} onClick={()=>setConfirmForget(false)}>{t('settings.telegramCancel')}</button></div>}
+   {!confirmForget?<button type="button" className="text-action" disabled={busy} onClick={()=>setConfirmForget(true)}>{t('settings.telegramForget')}</button>:<div className="telegram-forget" role="group" aria-label={t('settings.telegramForgetTitle')} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setConfirmForget(false)}}}><p>{t('settings.telegramForgetHelp')}</p><button type="button" disabled={busy} onClick={()=>void act('ForgetTelegram')}>{t('settings.telegramForgetConfirm')}</button><button type="button" autoFocus disabled={busy} onClick={()=>setConfirmForget(false)}>{t('settings.telegramCancel')}</button></div>}
   </div>}
  </section>;
 }
