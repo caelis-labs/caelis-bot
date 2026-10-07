@@ -42,6 +42,9 @@ type Service struct {
 	runtimeSettings             api.RuntimeSettings
 	runtimeLoadError            error
 	pendingDraft                *api.Submission
+	pendingDraftRevision        uint64
+	draftSend                   *draftSend
+	draftReconcileMu            sync.Mutex
 	outbox                      []outgoingMessage
 	botStatus                   func() string
 	beforeInterrupt             func()
@@ -55,7 +58,7 @@ type Service struct {
 	engine                      api.Engine
 	submitUser                  func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	files                       func([]string) ([]api.InputFile, error)
-	consumeFiles                func([]string)
+	consumeFiles                func([]string) error
 	submissionObserver          func(api.Submission, []api.InputFile, api.Receipt)
 	openURL                     func(string) error
 	reveal                      func(string) error
@@ -71,7 +74,7 @@ type recoveryFlight struct {
 	err    error
 }
 
-func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string), openURL, reveal func(string) error) *Service {
+func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string) error, openURL, reveal func(string) error) *Service {
 	return &Service{engine: engine, files: files, consumeFiles: consume, openURL: openURL, reveal: reveal, draft: api.Draft{ReferenceIDs: []string{}}}
 }
 func (s *Service) Snapshot() api.Snapshot {
@@ -93,8 +96,18 @@ func (s *Service) Snapshot() api.Snapshot {
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 	v.Activity = currentActivity(v)
 	s.mu.Lock()
+	var pendingSend draftSend
+	if s.draftSend != nil {
+		pendingSend = *s.draftSend
+	}
+	s.mu.Unlock()
+	if pendingSend.ID != "" && pendingSend.Outcome == "" {
+		s.reconcileDraftReceipt(draftReceipt(v, pendingSend.ID))
+	}
+	s.mu.Lock()
 	v = s.presentOutgoing(v)
 	pending := s.pendingDraft
+	pendingRevision := s.pendingDraftRevision
 	status := s.botStatus
 	if pending != nil && v.LastReceipt.ID == pending.ID && v.LastReceipt.Outcome == "accepted" {
 		s.pendingDraft = nil
@@ -106,7 +119,7 @@ func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 		if s.consumeFiles != nil {
 			s.consumeFiles(pending.FileIDs)
 		}
-		s.clearDraft(*pending)
+		s.clearDraftAtRevision(*pending, pendingRevision)
 	}
 	if status != nil {
 		v.BotStatus = status()
@@ -351,6 +364,12 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	if initializer != nil && initializer.Initialization().Status != "accepted" {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "请先完成 Bot 初始化，并等待介绍发送完成"}, nil
 	}
+	s.mu.Lock()
+	blocked := s.draftSend != nil && (len(input.FileIDs) > 0 || s.draftSend.ID == input.ID)
+	s.mu.Unlock()
+	if blocked {
+		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "先核对或清理上一条附件消息，不能再次发送原附件"}, nil
+	}
 
 	files, err := s.files(input.FileIDs)
 	if err != nil {
@@ -359,15 +378,54 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	if err := s.retainMessageMedia(input, files); err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "图片预览存储暂不可用，消息未发送"}, nil
 	}
+	if len(input.FileIDs) > 0 {
+		if err := s.reserveDraftSend(input); err != nil {
+			s.messageMedia.Resolve(input.ID)
+			return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
+		}
+	}
 	s.mu.Lock()
-	s.pendingDraft = &input
+	if len(input.FileIDs) == 0 {
+		s.pendingDraft = &input
+		s.pendingDraftRevision = s.draft.Revision
+	}
 	s.mu.Unlock()
 	s.stageOutgoing(input, files)
 	receipt, err := s.submit(ctx, input, files)
+	if errors.Is(err, api.ErrRecoveryPending) {
+		s.discardOutgoing(input.ID)
+		if len(input.FileIDs) > 0 {
+			s.reconcileDraftReceipt(api.Receipt{ID: input.ID, Outcome: "rejected"})
+		} else {
+			s.mu.Lock()
+			if s.pendingDraft != nil && s.pendingDraft.ID == input.ID {
+				s.pendingDraft = nil
+			}
+			s.mu.Unlock()
+		}
+		return receipt, err
+	}
 	s.finishOutgoing(input.ID, receipt)
+	if len(input.FileIDs) > 0 {
+		s.reconcileDraftReceipt(receipt)
+		return receipt, err
+	}
 	if receipt.Outcome == "accepted" {
-		s.consumeFiles(input.FileIDs)
-		s.clearDraft(input)
+		s.mu.Lock()
+		pending := s.pendingDraft
+		revision := s.pendingDraftRevision
+		if pending != nil && pending.ID == input.ID {
+			s.pendingDraft = nil
+		} else {
+			pending = nil
+		}
+		s.mu.Unlock()
+		if pending != nil {
+			if s.consumeFiles != nil {
+				s.consumeFiles(pending.FileIDs)
+			}
+			s.clearDraftAtRevision(*pending, revision)
+		}
 	}
 	return receipt, err
 }

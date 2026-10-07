@@ -117,6 +117,11 @@ independent. Token storage uses the macOS Keychain; pairing requires a short-liv
 link and desktop account confirmation. Polling cursors, original input outcomes,
 Telegram message IDs and text digests are saved privately. Uncertain creates and
 inputs are never replayed; streamed edits are coalesced and rate limits respected.
+Only approval deliveries retain bounded original card text in the private
+Telegram ledger, so a terminal edit can keep its request after recovery. The
+edit reuses the original message ID, removes buttons, and appends a decision
+label only when the original native request resolves with a correlated selected
+response. A resolution without that decision remains neutral.
 Approval buttons use the same `api.Choice` values as the native panel: provider
 `Label` remains literal, while Bot-owned `LabelKey` resolves through the shared
 display catalog. An unreadable or ambiguous choice leaves the entire approval

@@ -243,3 +243,84 @@ func TestAcceptedFileConsumptionPersists(t *testing.T) {
 		t.Fatal("accepted selection restored", err)
 	}
 }
+
+func TestAcceptedSelectionWriteFailureRetriesWithoutDeletingPastedBytes(t *testing.T) {
+	root := t.TempDir()
+	selection, blocked := filepath.Join(root, "draft-files.json"), filepath.Join(root, "blocked")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	s, _, _ := setup()
+	if err := s.configureSelection(selection); err != nil {
+		t.Fatal(err)
+	}
+	s.readClipboard = func() ([]string, []byte, error) { return nil, pastePNG(t), nil }
+	first, err := s.PasteAttachments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := s.files[0].path
+	s.selectionFile = blocked
+	if err := s.consumeDraftFilesChecked([]string{first.Files[0].ID}); err == nil {
+		t.Fatal("failed selection write reported success")
+	}
+	if len(s.DraftFiles()) != 1 {
+		t.Fatal("failed write erased selected metadata")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("failed write deleted pasted bytes", err)
+	}
+	s.selectionFile = selection
+	if err := s.consumeDraftFilesChecked([]string{first.Files[0].ID}); err != nil {
+		t.Fatal("recovered selection could not clear", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("consumed pasted bytes remain: %v", err)
+	}
+	restored, _, _ := setup()
+	if err := restored.configureSelection(selection); err != nil || len(restored.DraftFiles()) != 0 {
+		t.Fatalf("accepted file restored: %v %+v", err, restored.DraftFiles())
+	}
+}
+
+func TestAcceptedPastedImageConsumesOnlyOriginalBatchAcrossRestart(t *testing.T) {
+	root := t.TempDir()
+	selection := filepath.Join(root, "draft-files.json")
+	s, _, _ := setup()
+	if err := s.configureSelection(selection); err != nil {
+		t.Fatal(err)
+	}
+	s.readClipboard = func() ([]string, []byte, error) { return nil, pastePNG(t), nil }
+	first, err := s.PasteAttachments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstPath := s.files[0].path
+	second, err := s.PasteAttachments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Files) != 2 {
+		t.Fatalf("new image not staged: %+v", second.Files)
+	}
+	secondPath := s.files[1].path
+	s.consumeDraftFiles([]string{first.Files[0].ID})
+	s.consumeDraftFiles([]string{first.Files[0].ID}) // A second accepted observer is inert.
+	if _, err := os.Stat(firstPath); !os.IsNotExist(err) {
+		t.Fatalf("consumed image retained: %v", err)
+	}
+	if _, err := os.Stat(secondPath); err != nil {
+		t.Fatalf("newly staged image removed: %v", err)
+	}
+	restored, _, _ := setup()
+	if err := restored.configureSelection(selection); err != nil {
+		t.Fatal(err)
+	}
+	files := restored.DraftFiles()
+	if len(files) != 1 || files[0].ID != second.Files[1].ID {
+		t.Fatalf("restart lost new image or restored consumed one: %+v", files)
+	}
+	if _, err := restored.resolveDraftFiles([]string{first.Files[0].ID}); err == nil {
+		t.Fatal("next send could repeat consumed image")
+	}
+}

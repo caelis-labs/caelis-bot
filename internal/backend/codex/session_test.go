@@ -519,12 +519,39 @@ func TestComputerUseNativePersistChoicesKeepOrderScopeAndResponse(t *testing.T) 
 			if string(answer.ID) != `"cua-persist-elicitation"` || string(answer.Result) != tc.response {
 				t.Fatalf("original native request or scope changed: %s", answer.Result)
 			}
+			if pending := s.Snapshot().Approvals[0]; pending.Resolution != nil {
+				t.Fatalf("wire write was reported as a resolved choice: %+v", pending.Resolution)
+			}
 			f.emit(wireMessage{Method: "serverRequest/resolved", Params: raw(map[string]any{"threadId": "thread-native", "requestId": "cua-persist-elicitation"})})
-			awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 && v.Approvals[0].Status == "resolved" })
+			resolved := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 && v.Approvals[0].Status == "resolved" })
+			result := resolved.Approvals[0].Resolution
+			wantOutcome, wantScope := "allowed", map[string]string{"once": "once", "session": "session", "always": "always", "refuse": "deny", "session-only": "session"}[tc.name]
+			if tc.name == "refuse" {
+				wantOutcome = "cancelled"
+			}
+			if result == nil || result.ChoiceID != tc.choice || result.Outcome != wantOutcome || result.Scope != wantScope {
+				t.Fatalf("resolved decision lost original choice and scope: %+v", result)
+			}
 			if s.Decide(testContext(t), api.Decision{ID: a.ID, Choice: tc.choice}) == nil {
 				t.Fatal("resolved native request was replayed")
 			}
 		})
+	}
+}
+
+func TestExternalNativeApprovalResolutionHasNoInventedDecision(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	sendSynthetic(t, s, "external-approval")
+	f.emit(wireMessage{ID: raw("external-cua"), Method: "mcpServer/elicitation/request", Params: raw(map[string]any{
+		"threadId": "thread-native", "turnId": "run-native", "mode": "form", "serverName": "cua_repl",
+		"_meta":   map[string]any{"codex_approval_kind": "mcp_tool_call", "persist": []string{"session", "always"}},
+		"message": "Allow Computer Use?", "requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	})})
+	awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 && v.Approvals[0].Status == "pending" })
+	f.emit(wireMessage{Method: "serverRequest/resolved", Params: raw(map[string]any{"threadId": "thread-native", "requestId": "external-cua"})})
+	resolved := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 && v.Approvals[0].Status == "resolved" })
+	if resolved.Approvals[0].Resolution != nil {
+		t.Fatalf("native resolved event has no decision or scope: %+v", resolved.Approvals[0].Resolution)
 	}
 }
 func TestCommandApprovalOnlyOffersOrderedNativeDecisions(t *testing.T) {

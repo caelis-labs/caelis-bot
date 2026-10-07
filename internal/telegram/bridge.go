@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -48,13 +49,14 @@ type Status struct {
 	Issue     string `json:"issue"`
 }
 type delivery struct {
-	IDs      []int    `json:"ids,omitempty"` // -1 unknown create, -2 definitely rejected create.
-	Hashes   []string `json:"hashes,omitempty"`
-	Rejected []string `json:"rejected,omitempty"` // Exact known-rejected edit; retry only if content/markup changes.
-	Keyboard string   `json:"keyboard,omitempty"`
-	Closed   bool     `json:"closed,omitempty"`   // Native terminal/disappeared; old callback stays fenced.
-	Terminal string   `json:"terminal,omitempty"` // Generic terminal copy, no transcript or native payload.
-	Skip     bool     `json:"skip,omitempty"`
+	IDs          []int    `json:"ids,omitempty"` // -1 unknown create, -2 definitely rejected create.
+	Hashes       []string `json:"hashes,omitempty"`
+	Rejected     []string `json:"rejected,omitempty"` // Exact known-rejected edit; retry only if content/markup changes.
+	Keyboard     string   `json:"keyboard,omitempty"`
+	Closed       bool     `json:"closed,omitempty"`       // Native terminal/disappeared; old callback stays fenced.
+	Terminal     string   `json:"terminal,omitempty"`     // Short terminal status, not native payload.
+	ApprovalBody []string `json:"approvalBody,omitempty"` // Private, bounded original approval card parts for original-message edits.
+	Skip         bool     `json:"skip,omitempty"`
 }
 type document struct {
 	Version      int                 `json:"version"`
@@ -68,7 +70,7 @@ type document struct {
 	Ingress      []tg.Update         `json:"ingress,omitempty"` // Durable receive queue, independent of Runtime dispatch.
 	Inputs       map[string]string   `json:"inputs"`            // Original stable request and native receipt outcome only.
 	PendingFiles map[string]string   `json:"pendingFiles,omitempty"`
-	Messages     map[string]delivery `json:"messages"` // Telegram IDs and digests, never transcript text.
+	Messages     map[string]delivery `json:"messages"` // IDs and digests; approval cards also retain only their sent text.
 }
 type Bridge struct {
 	configMu            sync.Mutex
@@ -1241,7 +1243,7 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 	for _, a := range s.Approvals {
 		visible[a.ID] = true
 		if a.Status == "resolved" {
-			b.closeApproval(ctx, c, chat, a.ID, b.text("This request was handled. Check the Runtime result in Caelis Bot.", "此请求已处理，请在 Caelis Bot 查看 Runtime 结果。"))
+			b.closeApproval(ctx, c, chat, a.ID, approvalMessageText(a), b.approvalResultText(a.Resolution))
 			continue
 		}
 		b.mu.Lock()
@@ -1279,7 +1281,7 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		} else {
 			text += "\n" + b.text("Complete this request in Caelis Bot on your Mac.", "请在 Mac 的 Caelis Bot 中完成此请求。")
 		}
-		b.sendText(ctx, c, "approval:"+a.ID, chat, text, keys)
+		b.sendApprovalText(ctx, c, "approval:"+a.ID, chat, approvalMessageText(a), text, keys)
 	}
 	// Native resolution may remove a prompt from the snapshot entirely. A
 	// disconnected snapshot is not an authoritative absence.
@@ -1293,7 +1295,7 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		}
 		b.mu.Unlock()
 		for _, id := range vanished {
-			b.closeApproval(ctx, c, chat, id, b.text("This request is no longer pending. Check the original Runtime result in Caelis Bot.", "此请求已不再等待决定，请在 Caelis Bot 核对原 Runtime 结果。"))
+			b.closeApproval(ctx, c, chat, id, "", b.text("Handled", "已处理"))
 		}
 	}
 	b.mu.Lock()
@@ -1303,7 +1305,71 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 	b.mu.Unlock()
 }
 
-func (b *Bridge) closeApproval(ctx context.Context, c client, chat int64, id, status string) {
+func (b *Bridge) approvalResultText(r *api.ApprovalResolution) string {
+	if r == nil {
+		return b.text("Handled", "已处理")
+	}
+	switch r.Outcome {
+	case "allowed":
+		scope := map[string]string{"once": b.text("once", "一次"), "session": b.text("this session", "本会话"), "always": b.text("always", "始终"), "conversation": b.text("this conversation", "本次对话"), "turn": b.text("this turn", "本轮"), "rule": b.text("rule", "规则")}[r.Scope]
+		if scope != "" {
+			return b.text("✅ Allowed (", "✅ 已允许（") + scope + b.text(")", "）")
+		}
+		return b.text("✅ Allowed", "✅ 已允许")
+	case "declined":
+		return b.text("❌ Declined", "❌ 已拒绝")
+	case "cancelled":
+		return b.text("🚫 Cancelled", "🚫 已取消")
+	default:
+		return b.text("Handled", "已处理")
+	}
+}
+
+func approvalBodyParts(original string) []string {
+	// The private delivery ledger is a recovery aid, not a second transcript.
+	// Very large native payloads keep their original Telegram text and only
+	// lose the keyboard at terminal state.
+	if original == "" || utf16Length(original) > 16000 {
+		return nil
+	}
+	return splitTextLimit(original, 3800)
+}
+
+func (b *Bridge) sendApprovalText(ctx context.Context, c client, key string, chat int64, original, text string, keys *tg.InlineKeyboardMarkup) {
+	if original == "" {
+		original = b.text("Decision needed.", "需要决定。")
+	}
+	parts := approvalBodyParts(original)
+	b.mu.Lock()
+	record := b.state.Messages[key]
+	if !record.Closed {
+		if !slices.Equal(record.ApprovalBody, parts) {
+			record.ApprovalBody = append([]string(nil), parts...)
+			b.state.Messages[key] = record
+			if b.saveLocked() != nil {
+				b.mu.Unlock()
+				return
+			}
+		}
+	}
+	b.mu.Unlock()
+	if len(parts) == 0 {
+		b.sendText(ctx, c, key, chat, text, keys)
+		return
+	}
+	if suffix, ok := strings.CutPrefix(text, original); ok && utf16Length(parts[len(parts)-1])+utf16Length(suffix) <= 4000 {
+		parts[len(parts)-1] += suffix
+	} else {
+		parts = splitTextLimit(text, 3800)
+	}
+	messages := make([]outgoingText, len(parts))
+	for i, part := range parts {
+		messages[i] = plainText(part)
+	}
+	b.sendRenderedText(ctx, c, key, chat, messages, nil, keys)
+}
+
+func (b *Bridge) closeApproval(ctx context.Context, c client, chat int64, id, original, status string) {
 	key := "approval:" + id
 	b.mu.Lock()
 	record, exists := b.state.Messages[key]
@@ -1312,13 +1378,32 @@ func (b *Bridge) closeApproval(ctx context.Context, c client, chat int64, id, st
 		return
 	}
 	if record.Closed {
-		// Preserve the first terminal statement if later snapshots omit it.
-		if record.Terminal != "" {
+		changed := false
+		// A native resolution can race the local respond return. Upgrade a
+		// neutral terminal card only when the same approval later has a decision.
+		if (record.Terminal == "Handled" || record.Terminal == "已处理") && status != "Handled" && status != "已处理" {
+			record.Terminal = status
+			changed = true
+		} else if record.Terminal != "" {
 			status = record.Terminal
+		}
+		if len(record.ApprovalBody) == 0 && original != "" {
+			record.ApprovalBody = approvalBodyParts(original)
+			changed = true
+		}
+		if changed {
+			b.state.Messages[key] = record
+			if b.saveLocked() != nil {
+				b.mu.Unlock()
+				return
+			}
 		}
 	} else {
 		record.Closed = true
 		record.Terminal = status
+		if len(record.ApprovalBody) == 0 && original != "" {
+			record.ApprovalBody = approvalBodyParts(original)
+		}
 		b.state.Messages[key] = record
 		if b.saveLocked() != nil {
 			b.mu.Unlock()
@@ -1331,13 +1416,64 @@ func (b *Bridge) closeApproval(ctx context.Context, c client, chat int64, id, st
 			return // An unconfirmed part must not become a new terminal message.
 		}
 	}
-	// Preserve the original message IDs, including the last keyboard-bearing
-	// part when a long approval was split into several Telegram messages.
-	messages := make([]outgoingText, len(record.IDs))
-	for i := range messages {
-		messages[i] = plainText(status)
+	if len(record.ApprovalBody) != len(record.IDs) {
+		b.clearApprovalMarkup(ctx, c, key, chat, record)
+		return
+	}
+	// Original card parts stay on their original message IDs. Only the final
+	// part gains a short result; no terminal notification is sent separately.
+	messages := make([]outgoingText, len(record.ApprovalBody))
+	for i, part := range record.ApprovalBody {
+		messages[i] = plainText(part)
+	}
+	last := len(messages) - 1
+	if utf16Length(messages[last].Text)+utf16Length(status)+1 <= 4096 {
+		messages[last] = plainText(messages[last].Text + "\n" + status)
 	}
 	b.sendRenderedText(ctx, c, key, chat, messages, nil, nil)
+}
+
+// Legacy cards without a stored body can still lose their old keyboard safely
+// without replacing the unknown original text or creating a new message.
+func (b *Bridge) clearApprovalMarkup(ctx context.Context, c client, key string, chat int64, record delivery) {
+	if b.backingOff() {
+		return
+	}
+	if record.Keyboard == "" || len(record.IDs) == 0 {
+		return
+	}
+	part := len(record.IDs) - 1
+	if record.IDs[part] <= 0 {
+		return
+	}
+	if len(record.Rejected) > part && record.Rejected[part] == "terminal-markup" {
+		return
+	}
+	if err := c.EditMarkup(ctx, chat, record.IDs[part], nil); err != nil {
+		b.mu.Lock()
+		b.issue = issueOf(err)
+		var transport *transportError
+		if errors.As(err, &transport) && definiteBotRejection(transport.code) {
+			current := b.state.Messages[key]
+			for len(current.Rejected) <= part {
+				current.Rejected = append(current.Rejected, "")
+			}
+			current.Rejected[part] = "terminal-markup"
+			b.state.Messages[key] = current
+			_ = b.saveLocked()
+		} else {
+			b.issue = "delivery_uncertain"
+			b.retryUntil = time.Now().Add(2 * time.Second)
+		}
+		b.mu.Unlock()
+		return
+	}
+	b.mu.Lock()
+	current := b.state.Messages[key]
+	current.Keyboard = ""
+	b.state.Messages[key] = current
+	_ = b.saveLocked()
+	b.mu.Unlock()
 }
 func approvalMessageText(a api.Approval) string {
 	parts := make([]string, 0, 5)

@@ -16,6 +16,7 @@ export interface Approval {
   description: string;
   details: string;
   status: string;
+  resolution?: ApprovalResolution | null;
   choices: Array<Choice>;
   questions: Array<Question>;
   url: string;
@@ -25,6 +26,11 @@ export interface ApprovalMode {
   name: string;
   description: string;
   dangerous: boolean;
+}
+export interface ApprovalResolution {
+  choiceId: string;
+  outcome: string;
+  scope?: string;
 }
 export interface ApprovalSection {
   titleKey: string;
@@ -69,6 +75,10 @@ export interface Decision {
 }
 export interface Draft {
   notice: string;
+  cleanupPending?: boolean;
+  rejectedCleanupPending?: boolean;
+  pendingSend?: boolean;
+  consumedFileIds?: Array<string>;
   revision: number;
   text: string;
   referenceIds: Array<string>;

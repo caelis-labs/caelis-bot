@@ -215,19 +215,28 @@ func (s *Service) resolveDraftFiles(ids []string) ([]api.InputFile, error) {
 	return files, nil
 }
 func (s *Service) consumeDraftFiles(ids []string) {
+	_ = s.consumeDraftFilesChecked(ids)
+}
+func (s *Service) consumeDraftFilesChecked(ids []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.selectionFile == "" {
+		return errors.New(s.text("native.selectionNotSaved", nil))
+	}
 	if s.selectionError != nil {
-		return
+		return s.selectionError
 	}
 	files := slices.DeleteFunc(slices.Clone(s.files), func(f draftFile) bool { return slices.Contains(ids, f.ID) })
+	if len(files) == len(s.files) {
+		return nil
+	} // A second accepted observer cannot consume again.
 	if err := s.persistSelection(files, s.nextFile); err != nil {
-		s.selectionError = err
-		return
+		return err
 	}
 	old := s.files
 	s.files = files
 	s.removeOwnedFiles(old, files)
+	return nil
 }
 
 type savedSelection struct {

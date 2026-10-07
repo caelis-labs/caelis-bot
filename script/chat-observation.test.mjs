@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ConversationOrder,SubmissionProgress,DraftQueue,retryRead} from '../frontend/src/chat-observation.ts';
+import {ConversationOrder,FileObservationOrder,SubmissionProgress,DraftQueue,acceptedDraftSettled,visibleDraftFiles,readDraftAndFiles,retryRead} from '../frontend/src/chat-observation.ts';
 import {settingsDestination,settingsSections} from '../frontend/src/settings-navigation.ts';
 
 test('a late poll cannot replace a refreshed outbox at the same backend revision',()=>{
@@ -33,6 +33,37 @@ test('accepted send remains accepted while only failed draft reads recover',asyn
  await state.synchronize(async()=>{reads++;});
  await state.synchronize(read);assert.equal(reads,3);
  assert.equal(state.observe('rejected'),'accepted');
+});
+test('accepted image send settles from the backend journal even while selection persistence fails',()=>{
+ const request={text:'',fileIds:['pasted-image'],referenceIds:[]};
+ const old={revision:4,text:'',referenceIds:[]};
+ assert.equal(acceptedDraftSettled(request,4,old),false);
+ const failed={...old,revision:5,cleanupPending:true,consumedFileIds:['pasted-image'],notice:'cleanup not saved'};
+ assert.equal(acceptedDraftSettled(request,4,failed),true);
+ assert.equal(acceptedDraftSettled(request,4,{...failed,consumedFileIds:['other-image']}),false);
+ assert.deepEqual(visibleDraftFiles([{id:'pasted-image'},{id:'new-dropped-image'}],failed),[{id:'new-dropped-image'}]);
+ assert.equal(acceptedDraftSettled(request,4,{...old,revision:5}),true);
+ const captioned={text:'describe',fileIds:['dropped-file'],referenceIds:['reference-one']};
+ assert.equal(acceptedDraftSettled(captioned,7,{revision:8,text:'new draft',referenceIds:[]}),true);
+});
+test('a slow accepted Draft read cannot overwrite a newer files-changed selection',async()=>{
+ const order=new FileObservationOrder();let releaseDraft,releaseFiles;
+ const slowDraft=new Promise(resolve=>releaseDraft=resolve);
+ const acceptedTicket=order.request();
+ let fileReads=0;
+ const acceptedRead=readDraftAndFiles(()=>slowDraft,()=>{fileReads++;return new Promise(resolve=>releaseFiles=resolve);});
+ assert.equal(fileReads,0,'DraftFiles started before draft cleanup');
+ releaseDraft({revision:2,text:'',referenceIds:[]});
+ await Promise.resolve();
+ assert.equal(fileReads,1);
+ const eventTicket=order.request();
+ let visible=[];
+ if(order.accept(eventTicket))visible=[{id:'new-image'}];
+ releaseFiles([]); // The older in-flight native read returns after the event.
+ const [,oldFiles]=await acceptedRead;
+ if(order.accept(acceptedTicket))visible=oldFiles;
+ assert.deepEqual(visible,[{id:'new-image'}]);
+ order.reset();assert.equal(order.accept(eventTicket),false);
 });
 test('a failed initial observation recovers without reopening the surface and stops after success',async(t)=>{
  t.mock.timers.enable({apis:['setTimeout']});let reads=0,failures=0;const observed=[];

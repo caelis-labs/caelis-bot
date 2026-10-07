@@ -37,7 +37,7 @@ type Host struct {
 	Locale       func() i18n.Locale
 	Diagnostics  *diagnosticlog.Logger
 	ResolveFiles func([]string) ([]api.InputFile, error)
-	ConsumeFiles func([]string)
+	ConsumeFiles func([]string) error
 	OpenURL      func(string) error
 	RevealFile   func(string) error
 	TrashFile    func(string) error

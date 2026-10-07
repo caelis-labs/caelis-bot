@@ -42,7 +42,7 @@ test('late responses cannot undo a cross-window language change; formatting resp
 });
 
 test('approval translation changes only Bot copy, preserving raw labels and decision identity',async()=>{
- const {approvalChoice,approvalTitle}=await import('../frontend/src/approval-presentation.ts');
+ const {approvalChoice,approvalResult,approvalTitle}=await import('../frontend/src/approval-presentation.ts');
  const native={id:'native-allow',label:'chat.allowOnce',scope:'allow_once',details:'原始参数'};
  for(const locale of ['en','zh-CN'])assert.equal(approvalChoice(native,locale),native.label);
  const choice={...native,labelKey:'chat.allowOnce'};
@@ -65,4 +65,10 @@ test('approval translation changes only Bot copy, preserving raw labels and deci
  assert.equal(approvalTitle(value,'zh-CN'),'原始 Server {name} 需要确认');
  assert.deepEqual(value,before);
  assert.equal(approvalTitle({...value,titleKey:'unknown.key'},'en'),value.title);
+ const resolved={...value,status:'resolved'};
+ assert.equal(approvalResult(resolved,'zh-CN'),'已处理');
+ assert.equal(approvalResult({...resolved,resolution:{choiceId:'accept-session',outcome:'allowed',scope:'session'}},'en'),'Allowed (this session)');
+ assert.equal(approvalResult({...resolved,resolution:{choiceId:'accept-always',outcome:'allowed',scope:'always'}},'zh-CN'),'已允许（始终）');
+ assert.equal(approvalResult({...resolved,resolution:{choiceId:'decline',outcome:'declined',scope:'deny'}},'zh-CN'),'已拒绝');
+ assert.equal(approvalResult({...resolved,resolution:{choiceId:'cancel',outcome:'cancelled',scope:'deny'}},'en'),'Cancelled');
 });

@@ -271,6 +271,24 @@ func (s *Store) Resolve(request string) {
 	r.Request, r.Text, r.Status = "", "", ""
 	_ = localstate.Write(filepath.Join(s.root, k, "media.json"), r)
 }
+
+// ReceiptStatus is evidence from the original native submission that the
+// presentation store durably observed. It never creates or replays an input.
+func (s *Store) ReceiptStatus(request string) string {
+	if s == nil || request == "" {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.record(key(request))
+	if err != nil || r.Request != request {
+		return ""
+	}
+	if r.Status == "accepted" || r.Status == "rejected" {
+		return r.Status
+	}
+	return ""
+}
 func (s *Store) Pending() []api.Item {
 	if s == nil {
 		return nil
