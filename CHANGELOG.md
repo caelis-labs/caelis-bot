@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.10.0](https://github.com/caelis-labs/caelis-bot/compare/v0.9.1...v0.10.0) (2026-10-07)
+
+
+### Features
+
+* add macOS start at login ([20ea35f](https://github.com/caelis-labs/caelis-bot/commit/20ea35f7192832ac650e8d5de729162f0369ff22))
+* polish onboarding, chat, and settings with the Caelis theme ([9225b67](https://github.com/caelis-labs/caelis-bot/commit/9225b67d31b4b6d5d92cbf276c5111c3536bd859))
+
+
+### Bug Fixes
+
+* clear unsaved Telegram token drafts when settings closes ([9225b67](https://github.com/caelis-labs/caelis-bot/commit/9225b67d31b4b6d5d92cbf276c5111c3536bd859))
+* keep Runtime choice and connection states authoritative ([9225b67](https://github.com/caelis-labs/caelis-bot/commit/9225b67d31b4b6d5d92cbf276c5111c3536bd859))
+* preserve approval cards and settle accepted attachments ([#106](https://github.com/caelis-labs/caelis-bot/issues/106)) ([51ed983](https://github.com/caelis-labs/caelis-bot/commit/51ed983c829ea9c165f541d149de17443e4d1453))
+* restore Telegram typing after approvals without blocking on independent Worker approvals ([20ea35f](https://github.com/caelis-labs/caelis-bot/commit/20ea35f7192832ac650e8d5de729162f0369ff22))
+
 ## [0.9.1](https://github.com/caelis-labs/caelis-bot/compare/v0.9.0...v0.9.1) (2026-10-06)
 
 
