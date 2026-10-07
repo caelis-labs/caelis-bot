@@ -1,28 +1,29 @@
-:root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-synthesis: none; -webkit-font-smoothing: antialiased; --bg:#f4f6f3; --surface:#fff; --ink:#202722; --muted:#626f66; --line:#d8dfd9; --wash:#ecf1ec; --accent:#356a58; --on-accent:#fff; --error:#a33e38; --success:#356a58; --radius-control:8px; --radius-surface:14px; --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-6:24px; color:var(--ink); background:transparent; }
-@media(prefers-color-scheme:dark) { :root { --bg:#1b211d; --surface:#252d27; --ink:#edf3ee; --muted:#adbbb0; --line:#3d4940; --wash:#303a32; --accent:#9ad4b6; --on-accent:#17241b; --error:#eea698; --success:#9ad4b6; } .symbol { filter:invert(1); } .send:not(:disabled) .symbol { filter:none; } }
-@media(prefers-contrast:more) { :root { --line:#707d72; --muted:#445449; } }
-@media(prefers-contrast:more) and (prefers-color-scheme:dark) { :root { --line:#9daa9e; --muted:#cfdbd0; } }
+@import './theme/caelis.css';
+:root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-synthesis: none; -webkit-font-smoothing: antialiased; --radius-control:8px; --radius-surface:14px; --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-6:24px; color:var(--ink); background:transparent; }
+@media(prefers-color-scheme:dark) { .symbol { filter:invert(1); } .send:not(:disabled) .symbol { filter:none; } }
 * { box-sizing:border-box; }
 body { margin:0; overflow:hidden; }
 button,textarea,input,select { font:inherit; color:inherit; }
 button { cursor:pointer; }
-button:disabled { cursor:default; opacity:.45; }
-button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+button:disabled { cursor:default; color:var(--caelis-text-disabled); background:var(--caelis-disabled); }
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible { outline:2px solid var(--caelis-focus); outline-offset:3px; }
 .pet-stage { position:relative; width:180px; height:240px; transform-origin:top left; user-select:none; }
 .pet-stage canvas { display:block; width:180px; height:240px; }
 .pet-open { position:absolute; inset:0; border:0; padding:0; background:transparent; }
-.input-surface { width:100vw; min-height:64px; max-height:500px; overflow:hidden; border:1px solid var(--line); border-radius:31px; background:var(--surface); }
+.input-surface { width:100vw; min-height:64px; max-height:500px; overflow:hidden; border:1px solid var(--line); border-radius:31px; background:var(--caelis-composer); }
 .capsule { min-height:62px; display:flex; align-items:flex-end; gap:12px; padding:14px 17px; }
 .icon-button { flex:0 0 32px; width:32px; height:32px; display:grid; place-items:center; padding:0; border:0; border-radius:50%; background:var(--wash); }
 .icon-button:hover { box-shadow:inset 0 0 0 1px var(--line); }
 .symbol { width:18px; height:18px; opacity:.65; flex:0 0 18px; }
 textarea { flex:1; min-width:0; width:100%; height:27px; max-height:127px; overflow-y:auto; resize:none; background:transparent; font-size:15px; line-height:25px; border:0; padding:2px 0; outline:none; }
 textarea::placeholder { color:var(--muted); }
-.send:not(:disabled) { background:var(--accent); }
+.send:not(:disabled) { background:var(--accent); color:var(--on-accent); }
+.send:not(:disabled):hover { background:var(--caelis-action-hover); }
+.send:not(:disabled):active { background:var(--caelis-action-pressed); }
 .send:not(:disabled) img { opacity:1; }
 .composer-stop { width:11px; height:11px; border-radius:2px; background:var(--on-accent); }
 /* Portalled menus never participate in the composer layout. */
-.attachment-menu { position:fixed; z-index:50; width:380px; padding:6px; overflow-y:auto; overscroll-behavior:contain; border:1px solid var(--line); border-radius:18px; background:var(--bg); box-shadow:0 8px 24px #00000020,0 1px 4px #00000012; }
+.attachment-menu { position:fixed; z-index:50; width:380px; padding:6px; overflow-y:auto; overscroll-behavior:contain; border:1px solid var(--line); border-radius:18px; background:var(--caelis-popover); box-shadow:0 8px 24px #00000020,0 1px 4px #00000012; }
 .attachment-menu .action-row { min-height:40px; text-align:left; flex-shrink:0; }
 .attachment-menu .action-row span { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .attachment-menu small { display:block; color:var(--muted); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; margin-top:3px; font-size:11px; }
@@ -38,7 +39,7 @@ body[data-surface="panel"] .input-surface { position:relative; top:var(--compose
 .attachment-details strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
 .attachment-details small { color:var(--muted); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .draft-thumbnail { width:42px; height:42px; border-radius:7px; object-fit:cover; background:var(--surface); }
-.compose-area.file-dragging { outline:2px solid var(--accent); outline-offset:-3px; border-radius:inherit; }
+.compose-area.file-dragging { outline:2px solid var(--caelis-focus); outline-offset:-3px; border-radius:inherit; }
 .input-feedback { margin:0; padding:0 24px 10px; font-size:12px; color:var(--muted); }
 .composer-connection-hint { display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0 24px 10px;font-size:12px;color:var(--muted); }
 .composer-connection-hint button { font-size:12px; }
@@ -47,9 +48,9 @@ body[data-surface="panel"] .input-surface { position:relative; top:var(--compose
 .input-error { margin:0; padding:0 24px 12px; font-size:12px; color:var(--error); }
 .quiet,.menu-caption { color:var(--muted); font-size:11px; }
 .menu-caption { margin:10px 12px 5px; }
-.text-action { border:0; padding:5px 2px; background:transparent; font-size:12px; color:var(--accent); }
+.text-action { border:0; padding:5px 2px; background:transparent; font-size:12px; color:var(--muted); }
 .text-action:hover { text-decoration:underline; }
-body[data-surface="history"] { background:var(--bg); }
+body[data-surface="history"] { background:var(--caelis-chat); }
 .history-surface { height:100dvh; width:100%; min-width:0; display:flex; flex-direction:column; position:relative; }
 .chat-scroll { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:12px 28px 20px; }
 .chat-content { display:flow-root; }
@@ -58,7 +59,7 @@ body[data-surface="history"] { background:var(--bg); }
 .bot-avatar { flex:0 0 32px; width:32px; height:32px; border-radius:8px; object-fit:contain; user-select:none; }
 .animated-avatar { display:inline-flex; overflow:hidden; transform-origin:50% 75%; }
 .animated-avatar svg { display:block; width:100%; height:100%; }
-.portrait-avatar { position:relative; flex-basis:40px; width:40px; height:40px; border-radius:50%; overflow:hidden; background:#eef1e9; }
+.portrait-avatar { position:relative; flex-basis:40px; width:40px; height:40px; border-radius:50%; overflow:hidden; background:var(--caelis-hover); }
 .portrait-avatar img,.portrait-avatar canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
 .portrait-avatar:has(canvas[data-ready="true"]) img { visibility:hidden; }
 .message-row:has(.portrait-avatar)>.message.assistant { min-height:40px; max-width:calc(100% - 50px); }
@@ -75,7 +76,7 @@ body[data-surface="history"] { background:var(--bg); }
 .message { position:relative; min-width:0; font-size:14px; line-height:1.75; overflow-wrap:anywhere; }
 .message p { white-space:pre-wrap; margin:0; }
 .message.user,.message.assistant { width:fit-content; max-width:87%; padding:10px 44px 10px 15px; }
-.message.user { margin-left:auto; border-radius:18px 18px 5px 18px; background:var(--wash); }
+.message.user { margin-left:auto; border-radius:18px 18px 5px 18px; background:var(--caelis-user-bubble); }
 .message.assistant { min-height:40px; max-width:calc(100% - 42px); margin-right:auto; border-radius:5px 18px 18px 18px; background:var(--surface); border:1px solid var(--line); }
 .message.assistant.state-bubble { padding:14px 18px; }
 .message.assistant.approval-bubble { width:480px; }
@@ -85,8 +86,8 @@ body[data-surface="history"] { background:var(--bg); }
 .state-bubble .approval + .approval { margin-top:18px; padding-top:18px; border-top:1px solid var(--line); }
 .state-bubble .approval-choices { position:static; justify-content:flex-end; margin:12px 0 0; padding:0; background:transparent; }
 .state-bubble .connection-actions:last-child { margin-bottom:0; }
-.history-surface footer { flex-shrink:0; padding:8px 20px 18px; background:var(--bg); }
-.history-surface .compose-area { border:1px solid var(--line); border-radius:24px; background:var(--surface); }
+.history-surface footer { flex-shrink:0; padding:8px 20px 18px; background:var(--caelis-chat); }
+.history-surface .compose-area { border:1px solid var(--line); border-radius:24px; background:var(--caelis-composer); }
 .new-messages { align-self:center; border:1px solid var(--line); border-radius:18px; background:var(--wash); padding:7px 14px; font-size:12px; }
 .artifact { display:flex; align-items:center; gap:7px; max-width:100%; margin:10px 0; padding:9px 12px; background:var(--wash); border:1px solid var(--line); border-radius:10px; font-size:12px; overflow-wrap:anywhere; }
 .artifact span { font-size:10px; color:var(--muted); margin-left:auto; }
@@ -191,14 +192,14 @@ summary { cursor:pointer; }
 .maintenance-surface button { background:var(--wash); border:1px solid var(--line); border-radius:9px; padding:8px 12px; font-size:12px; }
 
 /* Settings use a quiet navigation rail and aligned rows, with secondary help on demand. */
-.settings-window { --settings-bg:var(--surface); display:flex; height:100dvh; background:var(--bg); font-size:13px; }
-.settings-window aside { display:flex; flex-direction:column; flex:0 0 190px; padding:24px 16px 16px; background:var(--bg); border-right:1px solid var(--line); user-select:none; }
+.settings-window { --settings-bg:var(--caelis-content); display:flex; height:100dvh; background:var(--caelis-window); font-size:13px; }
+.settings-window aside { display:flex; flex-direction:column; flex:0 0 190px; padding:24px 16px 16px; background:var(--caelis-sidebar); border-right:1px solid var(--line); user-select:none; }
 .settings-window nav { display:flex; flex-direction:column; gap:4px; }
 .settings-window nav button { text-align:left; border:0; border-radius:8px; padding:9px 12px; background:transparent; color:var(--ink); }
 .settings-window nav button:hover { background:var(--wash); }
-.settings-window nav button[aria-current] { background:var(--wash); color:var(--accent); font-weight:600; }
+.settings-window nav button[aria-current] { background:var(--caelis-selected); color:var(--caelis-selected-text); font-weight:600; }
 .settings-window aside small { margin-top:auto; padding:12px; color:var(--muted); line-height:1.7; font-size:11px; overflow-wrap:anywhere; }
-.settings-content { flex:1; min-width:0; overflow:auto; padding:38px 40px; background:var(--settings-bg); }
+.settings-content { flex:1; min-width:0; overflow:auto; padding:38px 40px; background:var(--caelis-content); }
 .settings-content > section { max-width:720px; margin:0 auto; }
 .settings-content h1 { font-size:23px; line-height:1.3; font-weight:600; margin:0 0 32px; letter-spacing:-.4px; }
 .settings-content p { line-height:1.55; }
@@ -251,21 +252,17 @@ summary { cursor:pointer; }
    native material still supplies blur/refraction; this translucent fill keeps
    text contrast stable when macOS changes the glass's active appearance. Leave
    the outer edge to the system, and never reduce the text's own opacity. */
-:root[data-native-material] { --glass-reading-fill:rgba(255,255,255,.54); }
+:root[data-native-material] { --glass-reading-fill:var(--caelis-glass-reading); }
 :root[data-native-material] .input-surface { background:var(--glass-reading-fill); background-clip:padding-box; border-color:transparent; }
-@media(prefers-color-scheme:dark) { :root[data-native-material] { --glass-reading-fill:rgba(32,32,32,.36); } }
-/* The bubble uses Clear glass plus the preview's neutral translucent fill,
-   slightly denser (94% vs 90%) to suppress distracting background text. */
-:root { --bubble-reading-fill:rgba(255,255,255,.94); }
-@media(prefers-color-scheme:dark) { :root { --bubble-reading-fill:rgba(37,45,39,.96); } }
+/* Keep reading surfaces opaque enough for text over native material. */
+:root { --bubble-reading-fill:var(--caelis-bubble-reading); }
 .message-bubble,:root[data-native-material] .message-bubble { background:var(--bubble-reading-fill); background-clip:padding-box; }
-:root[data-native-material="solid"] .message-bubble { background:var(--bg); }
-@media(prefers-reduced-transparency:reduce),(prefers-contrast:more) { .message-bubble,:root[data-native-material] .message-bubble { background:var(--bg); } }
-@media(prefers-color-scheme:dark) { .settings-window { --settings-bg:var(--surface); } }
+:root[data-native-material="solid"] .message-bubble { background:var(--caelis-raised); }
+@media(prefers-reduced-transparency:reduce),(prefers-contrast:more) { .message-bubble,:root[data-native-material] .message-bubble { background:var(--caelis-raised); } }
 :root[data-native-material] .settings-window { background:transparent; }
-:root[data-native-material] .settings-window aside { background:color-mix(in srgb,var(--bg) 66%,transparent); }
-:root[data-native-material="solid"] .settings-window aside { background:var(--bg); }
-@media(prefers-reduced-transparency:reduce),(prefers-contrast:more) { :root[data-native-material] .settings-window aside { background:var(--bg); } }
+:root[data-native-material] .settings-window aside { background:color-mix(in srgb,var(--caelis-sidebar) 82%,transparent); }
+:root[data-native-material="solid"] .settings-window aside { background:var(--caelis-sidebar); }
+@media(prefers-reduced-transparency:reduce),(prefers-contrast:more) { :root[data-native-material] .settings-window aside { background:var(--caelis-sidebar); } }
 @media(prefers-color-scheme:dark) { .message-bubble { box-shadow:0 1px 4px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.12); } }
 @media(max-width:820px) {
  .settings-content { padding:30px 24px; }
@@ -285,7 +282,7 @@ summary { cursor:pointer; }
 .settings-window button:not(nav button) { min-height:40px; padding:8px 14px; font-size:13px; }
 .settings-window select,.settings-window input:not([type=checkbox]):not([type=range]) { height:40px; padding:8px 12px; font-size:13px; border:1px solid var(--line); border-radius:9px; background:var(--surface); color:var(--ink); min-width:0; max-width:100%; }
 .settings-window select { appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m5 6 3 3 3-3' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E"); background-position:right 10px center; background-repeat:no-repeat; padding-right:32px; }
-.settings-window :is(button,input,select,summary):focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.settings-window :is(button,input,select,summary):focus-visible { outline:2px solid var(--caelis-focus); outline-offset:3px; }
 .setting-row { min-height:72px; }.setting-label {font-size:14px;}.setting-section h2{font-size:13px;}
 .settings-content h1 {font-size:26px;}.runtime-actions {display:flex;flex-wrap:wrap;gap:8px;}.runtime-selection{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;}.runtime-tabs {display:flex;gap:6px;}.settings-window .runtime-tabs button{border:0;background:transparent;color:var(--muted);}.settings-window .runtime-tabs button[aria-pressed=true]{background:var(--wash);color:var(--ink);}.runtime-switch:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px;}.settings-window .runtime-switch button:disabled{background:var(--wash);color:var(--muted);opacity:.6;pointer-events:none;}
 .runtime-advanced {margin:22px 0;color:var(--muted);font-size:12px;}.runtime-advanced summary{cursor:pointer;padding:8px 0;}.runtime-advanced .setting-section{margin-top:12px;color:var(--ink);}.setup-path{display:block;max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.setup-path-field{display:flex;gap:8px;padding:0 16px 16px;}.setup-path-field input{flex:1;}

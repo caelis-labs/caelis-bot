@@ -108,8 +108,8 @@
 .runtime-version-list>div { display:flex; align-items:center; justify-content:space-between; min-height:34px; gap:20px; }
 .runtime-version-list dt { color:var(--muted); }
 .runtime-version-list dd { display:flex; align-items:center; gap:8px; margin:0; }
-.runtime-status-dot { width:7px; height:7px; border-radius:50%; background:#ba853f; flex-shrink:0; }
-.runtime-status-dot.ready { background:#608a69; }
+.runtime-status-dot { width:7px; height:7px; border-radius:50%; background:var(--caelis-warning); flex-shrink:0; }
+.runtime-status-dot.ready { background:var(--success); }
 .runtime-program-actions { display:flex; gap:16px; margin-top:16px; align-items:center; }
 .runtime-management .runtime-advanced { margin:10px 0 0; }
 .runtime-program .runtime-update-hint { margin:10px 0 0; font-size:14px; }
