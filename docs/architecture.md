@@ -76,6 +76,9 @@ retries separately; a failed Worker subscription cannot detach the resident obse
 
 Wire projection drains tool output and inline image bytes before JSON decoding or
 queue admission. Native approval schemas, scopes and decisions remain intact.
+Approval projection also identifies the native owner: resident conversation and
+its blocking children share one gate, while only a confirmed independent task
+approval may coexist with resident Telegram typing. Missing owner stays blocking.
 The 8 MiB projection bound is an allocation safeguard for a single projected value,
 not a Runtime/Worker history limit. A completely drained oversized value fails only
 its correlated read/display operation; subsequent approvals, completions and RPCs

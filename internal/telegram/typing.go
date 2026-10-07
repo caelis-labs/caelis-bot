@@ -14,7 +14,9 @@ const (
 	defaultTypingRenew = 4 * time.Second
 )
 
-func typingForMainTurn(snapshot api.Snapshot) bool {
+// TypingForMainTurn evaluates the production gate for a resident turn.
+// Adapters, not turn-key comparisons in the transport, own approval scope.
+func TypingForMainTurn(snapshot api.Snapshot) bool {
 	return typingMainState(snapshot) == "active"
 }
 
@@ -31,8 +33,9 @@ func typingMainState(snapshot api.Snapshot) string {
 	}
 	for _, approval := range snapshot.Approvals {
 		// Resolved cards remain in native history after the main turn resumes.
-		// Every other status, including an unknown one, is still a pause.
-		if approval.Status != "resolved" {
+		// Only a backend-confirmed independent task may coexist with typing.
+		// Missing scope and main-conversation children still pause conservatively.
+		if approval.Status != "resolved" && approval.Owner != "task" {
 			return "approval_unresolved"
 		}
 	}

@@ -15,13 +15,13 @@ import (
 
 func TestTypingOnlyTracksConnectedMainTurn(t *testing.T) {
 	base := api.Snapshot{Connection: "ready", CurrentTurn: "main", Phase: "working"}
-	if !typingForMainTurn(base) {
+	if !TypingForMainTurn(base) {
 		t.Fatal("connected main work did not activate typing")
 	}
 	for _, phase := range []string{"completed", "interrupted", "failed", "unknown", "attention", "waiting_approval", "idle"} {
 		v := base
 		v.Phase = phase
-		if typingForMainTurn(v) {
+		if TypingForMainTurn(v) {
 			t.Fatalf("terminal or attention phase %q kept typing", phase)
 		}
 	}
@@ -32,24 +32,94 @@ func TestTypingOnlyTracksConnectedMainTurn(t *testing.T) {
 		{Connection: "ready", CurrentTurn: "main", Phase: "working", Approvals: []api.Approval{{ID: "pending"}}},
 		{Connection: "ready", CurrentTurn: "main", Phase: "working", LoginPending: true},
 	} {
-		if typingForMainTurn(v) {
+		if TypingForMainTurn(v) {
 			t.Fatalf("non-typing state activated chat action: %+v", v)
 		}
 	}
 	for _, status := range []string{"pending", "sending", "sent", "unknown", "unavailable", ""} {
 		v := base
 		v.Approvals = []api.Approval{{Status: "resolved"}, {Status: status}}
-		if typingForMainTurn(v) {
+		if TypingForMainTurn(v) {
 			t.Fatalf("unresolved approval status %q activated typing", status)
 		}
 	}
 	base.Approvals = []api.Approval{{Status: "resolved"}, {Status: "resolved"}}
-	if !typingForMainTurn(base) {
+	if !TypingForMainTurn(base) {
 		t.Fatal("resolved history suppressed the active main turn")
 	}
 	base.Phase = "sending"
-	if !typingForMainTurn(base) {
+	if !TypingForMainTurn(base) {
 		t.Fatal("confirmed sending did not activate typing")
+	}
+}
+
+func TestTypingApprovalOwnerRequiresBackendTaskAuthority(t *testing.T) {
+	base := api.Snapshot{Connection: "ready", CurrentTurn: "main", Phase: "working"}
+	for _, status := range []string{"pending", "sent", "unknown"} {
+		worker := base
+		worker.Approvals = []api.Approval{{TurnKey: "worker-turn", Owner: "task", Status: status}}
+		if !TypingForMainTurn(worker) {
+			t.Fatalf("independent task %s paused main typing", status)
+		}
+		for _, owner := range []string{"conversation", "", "unrecognized"} {
+			blocking := worker
+			blocking.Approvals = []api.Approval{{TurnKey: "child-turn", Owner: owner, Status: status}}
+			if TypingForMainTurn(blocking) {
+				t.Fatalf("%q owner %s bypassed the main approval gate", owner, status)
+			}
+		}
+	}
+	base.Approvals = []api.Approval{{TurnKey: "worker-turn", Owner: "task", Status: "pending"}}
+	base.CurrentTurn = ""
+	if TypingForMainTurn(base) {
+		t.Fatal("worker-only work emitted main-turn typing")
+	}
+}
+
+func TestTypingBridgeKeepsMainWorkActiveBesideTaskApproval(t *testing.T) {
+	var mu sync.Mutex
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "main", Phase: "working",
+		Approvals: []api.Approval{{ID: "worker-native", TurnKey: "worker-turn", Owner: "task", Status: "pending"}}}
+	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot {
+		mu.Lock()
+		defer mu.Unlock()
+		view := snapshot
+		view.Approvals = append([]api.Approval(nil), snapshot.Approvals...)
+		return view
+	}})
+	paired(b)
+	b.typingPoll, b.typingRenew = 5*time.Millisecond, 25*time.Millisecond
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); b.typing(ctx, f) }()
+	defer func() { cancel(); <-done }()
+	waitFakeActions(t, f, 2)
+	for _, status := range []string{"sent", "unknown"} {
+		mu.Lock()
+		snapshot.Approvals[0].Status = status
+		mu.Unlock()
+		waitFakeActions(t, f, fakeActionCount(f)+2)
+	}
+	mu.Lock()
+	snapshot.Approvals = append(snapshot.Approvals, api.Approval{ID: "main-native", TurnKey: "main", Owner: "conversation", Status: "pending"})
+	mu.Unlock()
+	assertTypingPaused(t, f)
+	mu.Lock()
+	snapshot.Approvals[1].Status = "unknown"
+	mu.Unlock()
+	assertTypingPaused(t, f)
+	mu.Lock()
+	snapshot.Approvals[1].Status = "resolved"
+	mu.Unlock()
+	waitFakeActions(t, f, fakeActionCount(f)+2)
+	mu.Lock()
+	snapshot.CurrentTurn = ""
+	mu.Unlock()
+	assertTypingPaused(t, f)
+	for _, chat := range fakeActionChats(f) {
+		if chat != 10 {
+			t.Fatalf("typing escaped paired chat: %d", chat)
+		}
 	}
 }
 
