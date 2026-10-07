@@ -41,6 +41,7 @@ type Record struct {
 	QueueBytes          int       `json:"queueBytes,omitempty"`
 	LagMS               int64     `json:"lagMs,omitempty"`
 	ProcessingMS        int64     `json:"processingMs,omitempty"`
+	HTTPStatus          int       `json:"httpStatus,omitempty"`
 	Limit               int       `json:"limit,omitempty"`
 	Server              string    `json:"server,omitempty"`
 	Reason              string    `json:"reason,omitempty"` // Only classified/locally generated descriptions.

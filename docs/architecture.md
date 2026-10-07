@@ -145,7 +145,7 @@ Backend recovery establishes native input authority before remote input is
 accepted; local display history is independent. One cancellable output worker coalesces snapshots independently of input
 and control actions. A separate cancellable worker sends Telegram typing actions
 only while the connected main Turn is sending or working. It renews at a bounded
-rate, stops for approvals, uncertain or terminal outcomes and disconnects, and
+rate, stops for unresolved approvals, uncertain or terminal outcomes and disconnects, and
 does not persist actions as conversation history or receipts. Rate limits and
 transport failures cannot delay input, decisions or recovery. Configuration
 changes join both workers. Attachment identity
