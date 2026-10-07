@@ -17,6 +17,7 @@ import { TaskSettings } from './TaskSettings';
 import { Maintenance } from './Maintenance';
 import { useI18n } from './i18n';
 import { LanguageSetting } from './i18n/LanguageSetting';
+import { LoginAtLoginSetting } from './LoginAtLoginSetting';
 import { SettingGroup, SettingRow } from './SettingsUI';
 
 type Update = { state:string; current:string; latest:string; message:string };
@@ -57,7 +58,7 @@ function General() {
  const {t}=useI18n();
  const [storageOpen,setStorageOpen]=useState(false);
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><LanguageSetting/><TaskSettings/>
+  <h1>{t('settings.general')}</h1><LanguageSetting/><LoginAtLoginSetting/><TaskSettings/>
   <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/></SettingGroup>
   <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary><SettingsChevron/>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
  </section>;

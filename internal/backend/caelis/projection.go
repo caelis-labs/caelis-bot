@@ -116,8 +116,16 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			summary := p.ToolCall.Title
 			details, _ := json.MarshalIndent(p.ToolCall.RawInput, "", "  ")
 			item := api.Approval{ID: approvalID(s.state.InstanceID, sid, a), Title: summary, Action: summary, NoticeKey: "chat.caelisApproval", Details: string(details), Status: "pending", Choices: []api.Choice{}}
-			if sid != s.state.Session.SessionId {
+			if sid != "" && sid == s.state.Session.SessionId {
+				item.Owner = "conversation"
+			} else if sid != "" {
 				item.NoticeKey = "chat.workerApproval"
+				for _, worker := range s.state.Workers {
+					if worker.Binding.SessionId == sid {
+						item.Owner = "task"
+						break
+					}
+				}
 			}
 			for _, o := range p.Options {
 				item.Choices = append(item.Choices, api.Choice{ID: o.ID, Label: o.Name, Scope: o.Kind})
@@ -145,8 +153,11 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		}
 	}
 	slices.SortFunc(out.Approvals, func(a, b api.Approval) int { return strings.Compare(a.ID, b.ID) })
-	if len(out.Approvals) > 0 {
-		out.Phase = "waiting_approval"
+	for _, approval := range out.Approvals {
+		if approval.Owner != "task" {
+			out.Phase = "waiting_approval"
+			break
+		}
 	}
 	unknown := v != nil && value(v.State.Run.Status) == "unknown"
 	for id, j := range s.state.Operations {

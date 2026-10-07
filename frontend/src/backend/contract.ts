@@ -7,6 +7,7 @@ export interface Approval {
   titleKey: string;
   noticeKey: string;
   taskTitle: string;
+  owner?: string;
   sections: Array<ApprovalSection>;
   id: string;
   turnKey: string;

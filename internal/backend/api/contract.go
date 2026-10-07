@@ -147,9 +147,12 @@ type ApprovalResolution struct {
 
 type Approval struct {
 	// Presentation keys never participate in approval identity or decisions.
-	TitleKey    string              `json:"titleKey"`
-	NoticeKey   string              `json:"noticeKey"`
-	TaskTitle   string              `json:"taskTitle"`
+	TitleKey  string `json:"titleKey"`
+	NoticeKey string `json:"noticeKey"`
+	TaskTitle string `json:"taskTitle"`
+	// Owner is set by the backend from the native session/thread binding.
+	// Empty means unknown and must not be treated as independent task work.
+	Owner       string              `json:"owner,omitempty"`
 	Sections    []ApprovalSection   `json:"sections"`
 	ID          string              `json:"id"`
 	TurnKey     string              `json:"turnKey"`

@@ -41,6 +41,13 @@ Credential Manager, Job Objects and GUI acceptance remain the next stage.
 Shared-core compilation and native Windows CI do not prove Windows GUI behavior.
 `GOWORK=off`; no sibling private imports.
 
+The General settings login switch reads macOS `SMAppService.mainApp` through a
+native desktop adapter. Registration and approval status is system-owned,
+separate from product feature preferences and permissions. A login launch skips
+only automatic first-run window presentation; the normal menu bar, pet, single
+instance owner and original-ID recovery still start. Unimplemented platform
+adapters report unsupported without a writable switch.
+
 Codex worker execution, saved task receipts, terminal observation, and Bot
 subscriptions have separate lifetimes. A terminal turn starts a short Bot idle
 grace; the adapter then uses read-only `thread/read` to confirm the exact last
@@ -69,6 +76,9 @@ retries separately; a failed Worker subscription cannot detach the resident obse
 
 Wire projection drains tool output and inline image bytes before JSON decoding or
 queue admission. Native approval schemas, scopes and decisions remain intact.
+Approval projection also identifies the native owner: resident conversation and
+its blocking children share one gate, while only a confirmed independent task
+approval may coexist with resident Telegram typing. Missing owner stays blocking.
 The 8 MiB projection bound is an allocation safeguard for a single projected value,
 not a Runtime/Worker history limit. A completely drained oversized value fails only
 its correlated read/display operation; subsequent approvals, completions and RPCs
@@ -138,7 +148,7 @@ Backend recovery establishes native input authority before remote input is
 accepted; local display history is independent. One cancellable output worker coalesces snapshots independently of input
 and control actions. A separate cancellable worker sends Telegram typing actions
 only while the connected main Turn is sending or working. It renews at a bounded
-rate, stops for approvals, uncertain or terminal outcomes and disconnects, and
+rate, stops for unresolved approvals, uncertain or terminal outcomes and disconnects, and
 does not persist actions as conversation history or receipts. Rate limits and
 transport failures cannot delay input, decisions or recovery. Configuration
 changes join both workers. Attachment identity

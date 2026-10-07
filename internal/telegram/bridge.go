@@ -22,6 +22,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
@@ -30,6 +31,7 @@ import (
 
 type Host struct {
 	Snapshot    func() api.Snapshot
+	Diagnostics func(diagnosticlog.Record)
 	Recovery    func() api.RecoveryState
 	Recover     func(context.Context, string) error
 	Submit      func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
