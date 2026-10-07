@@ -60,7 +60,7 @@ func TestRemoteRecoveryFenceRefusesBeforeDispatchAndDiscardsStagedInput(t *testi
 func TestRemoteInputUsesResidentAdmissionAndPreservesDesktopDraft(t *testing.T) {
 	consumed := 0
 	calls := 0
-	s := NewService(snapshotEngine{}, func([]string) ([]api.InputFile, error) { t.Fatal("remote accessed desktop selection"); return nil, nil }, func([]string) { consumed++ }, nil, nil)
+	s := NewService(snapshotEngine{}, func([]string) ([]api.InputFile, error) { t.Fatal("remote accessed desktop selection"); return nil, nil }, func([]string) error { consumed++; return nil }, nil, nil)
 	s.SaveDraft(api.Draft{Text: "unfinished desktop draft"})
 	s.SetUserSubmitter(func(_ context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 		calls++

@@ -171,10 +171,16 @@ type Reference struct {
 	Kind        string `json:"kind"`
 }
 type Draft struct {
-	Notice       string   `json:"notice"`
-	Revision     uint64   `json:"revision"`
-	Text         string   `json:"text"`
-	ReferenceIDs []string `json:"referenceIds"`
+	Notice string `json:"notice"`
+	// CleanupPending is a confirmed send whose local cleanup has not persisted.
+	// PendingSend is an original submission with no confirmed terminal receipt.
+	CleanupPending         bool     `json:"cleanupPending,omitempty"`
+	RejectedCleanupPending bool     `json:"rejectedCleanupPending,omitempty"`
+	PendingSend            bool     `json:"pendingSend,omitempty"`
+	ConsumedFileIDs        []string `json:"consumedFileIds,omitempty"`
+	Revision               uint64   `json:"revision"`
+	Text                   string   `json:"text"`
+	ReferenceIDs           []string `json:"referenceIds"`
 }
 type RuntimeSettings struct {
 	Runtime     string `json:"runtime"`

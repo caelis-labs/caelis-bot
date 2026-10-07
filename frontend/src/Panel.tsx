@@ -12,7 +12,7 @@ import { AttachmentMenu } from './AttachmentMenu';
 import { ScreenMessage } from './ScreenMessage';
 import { MediaMessage } from './MediaMessage';
 import { ChatScroll } from './chat-scroll';
-import { ConversationOrder, SubmissionProgress, DraftQueue, acceptedDraftSettled, retryRead } from './chat-observation';
+import { ConversationOrder, FileObservationOrder, SubmissionProgress, DraftQueue, acceptedDraftSettled, visibleDraftFiles, readDraftAndFiles, retryRead } from './chat-observation';
 import { useI18n } from './i18n';
 import { approvalChoice, approvalResult, approvalText, approvalTitle } from './approval-presentation';
 import { CheckIcon, XIcon } from './SettingsIcons';
@@ -166,29 +166,28 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null),composer=useRef<HTMLDivElement>(null);
  const [draft,setDraft]=useState(''),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
+ const [sendBlocked,setSendBlocked]=useState(false),[cleanupPending,setCleanupPending]=useState(false),[syncReadFailed,setSyncReadFailed]=useState(false),[filesLoaded,setFilesLoaded]=useState(false);
  const [dragging,setDragging]=useState(false),[feedback,setFeedback]=useState('');
  const visible=useRef(active);visible.current=active;
  useEffect(()=>{setExpanded(false);},[active,activation]);
  const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number;draftRevision:number}|null>(null);
  const lifetime=useRef(0),working=useRef(false);
- const syncRetry=useRef<number|undefined>(undefined);
+ const fileOrder=useRef(new FileObservationOrder()),editGeneration=useRef(0),unsavedAfterAccepted=useRef(false),stopFileRead=useRef<()=>void>(()=>{});
  const saved=useRef<Draft>({revision:0,text:'',referenceIds:[],notice:''});
  const writes=useRef(new DraftQueue()), conflicted=useRef(false);
  useEffect(()=>{
   lifetime.current++;working.current=false;pending.current=null;setBusy(false);
-  setLoaded(false);conflicted.current=false;
-  const stopDraft=retryRead(()=>writes.current.flush().then(()=>backend<Draft>('Draft')),d=>{saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
-  let stopFiles=()=>{};
-  const readFiles=()=>{stopFiles();stopFiles=retryRead(()=>desktop<DraftFile[]>('DraftFiles'),value=>{setFiles(value);if(!value.length)setFeedback('');});};
-  readFiles();
+  setLoaded(false);setFilesLoaded(false);setSendBlocked(false);setCleanupPending(false);setSyncReadFailed(false);unsavedAfterAccepted.current=false;conflicted.current=false;fileOrder.current.reset();
+  const readFiles=()=>{stopFileRead.current();const ticket=fileOrder.current.request();setFilesLoaded(false);stopFileRead.current=retryRead(()=>desktop<DraftFile[]>('DraftFiles'),value=>{if(!fileOrder.current.accept(ticket))return;const visible=visibleDraftFiles(value,saved.current);setFiles(visible);setFilesLoaded(true);setError(previous=>previous===t('chat.fileSelectionReadFailed')?(saved.current.cleanupPending?t('chat.acceptedCleanupPending'):saved.current.rejectedCleanupPending?t('chat.rejectedCleanupPending'):saved.current.pendingSend?t('chat.originalAttachmentPending'):saved.current.notice):previous);if(!visible.length)setFeedback('');},()=>setError(previous=>previous||t('chat.fileSelectionReadFailed')));};
+  const stopDraft=retryRead(()=>writes.current.flush().then(()=>backend<Draft>('Draft')),d=>{saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setFiles(old=>visibleDraftFiles(old,d));setError(d.cleanupPending?t('chat.acceptedCleanupPending'):d.rejectedCleanupPending?t('chat.rejectedCleanupPending'):d.pendingSend?t('chat.originalAttachmentPending'):d.notice);setSendBlocked(!!(d.pendingSend||d.rejectedCleanupPending));setCleanupPending(!!(d.cleanupPending||d.rejectedCleanupPending));setLoaded(true);readFiles();if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
   const changed=(event:Event)=>{
    const detail=(event as CustomEvent<string|{error:string;added:number}>).detail;
    readFiles();setDragging(false);
    const failure=typeof detail==='string'?detail:detail?.error??'';
-   setError(failure);setFeedback(!failure&&typeof detail==='object'&&detail.added>0?t('chat.importedAttachments',{count:detail.added}):'');
+   setError(previous=>previous===t('chat.sentDraftSyncFailed')?previous:failure||(saved.current.cleanupPending?t('chat.acceptedCleanupPending'):saved.current.rejectedCleanupPending?t('chat.rejectedCleanupPending'):saved.current.pendingSend?t('chat.originalAttachmentPending'):saved.current.notice));setFeedback(!failure&&typeof detail==='object'&&detail.added>0?t('chat.importedAttachments',{count:detail.added}):'');
   };
   window.addEventListener('files-changed',changed);
-  return()=>{lifetime.current++;stopDraft();stopFiles();clearTimeout(syncRetry.current);window.removeEventListener('files-changed',changed);};
+  return()=>{lifetime.current++;stopDraft();stopFileRead.current();fileOrder.current.reset();window.removeEventListener('files-changed',changed);};
  },[activation]);
  useEffect(()=>{if(active&&loaded&&!busy){input.current?.focus({preventScroll:true});if(quick){const frame=requestAnimationFrame(()=>void desktop('PanelReady',activation));return()=>cancelAnimationFrame(frame);}}},[active,loaded,busy,activation,focusRevision]);
  useEffect(()=>{
@@ -198,7 +197,9 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   return()=>{window.removeEventListener('panel-focus',focus);window.removeEventListener('focus',focus);};
  },[quick,active,loaded]);
  const save=(text:string,referenceIds:string[])=>{
+  editGeneration.current++;
   setDraft(text);setRefs(referenceIds);
+  if(syncReadFailed){unsavedAfterAccepted.current=true;setError(t('chat.sentDraftSyncFailed'));return;}
   void writes.current.enqueue(async()=>{
    if(conflicted.current)return;
    try{saved.current=await backend<Draft>('SaveDraft',{revision:saved.current.revision,text,referenceIds});}
@@ -206,18 +207,19 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   });
  };
  useLayoutEffect(()=>{const editor=input.current;if(editor){editor.style.height='0px';editor.style.height=`${Math.max(27,Math.min(127,editor.scrollHeight))}px`;}},[draft]);
- const pick=async()=>{setExpanded(false);setBusy(true);setError('');setFeedback('');try{const before=files.length;const selected=await desktop<DraftFile[]>('PickFiles');setFiles(selected);if(selected.length>before)setFeedback(t('chat.importedAttachments',{count:selected.length-before}));setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
+ const pick=async()=>{setExpanded(false);setBusy(true);setError('');setFeedback('');const ticket=fileOrder.current.request();try{const before=files.length;const selected=visibleDraftFiles(await desktop<DraftFile[]>('PickFiles'),saved.current);if(fileOrder.current.accept(ticket)){setFiles(selected);setFilesLoaded(true);if(selected.length>before)setFeedback(t('chat.importedAttachments',{count:selected.length-before}));}setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
  const paste=async(e:ClipboardEvent<HTMLTextAreaElement>)=>{
   const types=Array.from(e.clipboardData.types);
   if(!e.clipboardData.files.length&&!types.some(type=>type==='Files'||type==='text/uri-list'||type==='public.file-url'||type.startsWith('image/')))return;
   e.preventDefault();
   const text=e.clipboardData.getData('text/plain');
   const start=e.currentTarget.selectionStart,end=e.currentTarget.selectionEnd,generation=lifetime.current;
+  const fileTicket=fileOrder.current.request();
   setBusy(true);setError('');setFeedback('');
   try{
    const result=await desktop<PasteResult>('PasteAttachments');
    if(generation!==lifetime.current)return;
-   if(result.handled){const before=files.length;setFiles(result.files);setFeedback(result.files.length>before?t('chat.importedAttachments',{count:result.files.length-before}):t('chat.attachmentAlreadyAdded'));}
+   if(result.handled){const before=files.length;const visible=visibleDraftFiles(result.files,saved.current);if(fileOrder.current.accept(fileTicket)){setFiles(visible);setFilesLoaded(true);setFeedback(visible.length>before?t('chat.importedAttachments',{count:visible.length-before}):t('chat.attachmentAlreadyAdded'));}}
    else if(text){save(draft.slice(0,start)+text+draft.slice(end),refs);requestAnimationFrame(()=>input.current?.setSelectionRange(start+text.length,start+text.length));}
    else setError(t('chat.clipboardNoFiles'));
   }catch(err){if(generation===lifetime.current)setError(err instanceof Error?err.message:t('chat.pasteFailed'));}
@@ -228,17 +230,50 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   setFeedback('');
   onOutgoing?.({...attempt.outgoing,status:'accepted'});
   try{await attempt.progress.synchronize(async()=>{
-    const [next,nextFiles]=await Promise.all([backend<Draft>('Draft'),desktop<DraftFile[]>('DraftFiles')]);
+    stopFileRead.current();
+    const fileTicket=fileOrder.current.request(),editTicket=editGeneration.current;
+    const [next,nextFiles]=await readDraftAndFiles(()=>backend<Draft>('Draft'),()=>desktop<DraftFile[]>('DraftFiles'));
     if(lifetime.current!==attempt.generation||pending.current!==attempt)return;
-    if(!acceptedDraftSettled(attempt.request,attempt.draftRevision,next,nextFiles))throw new Error('accepted draft still settling');
-    clearTimeout(syncRetry.current);saved.current=next;setDraft(next.text);setRefs(next.referenceIds??[]);setFiles(nextFiles);setFeedback(nextFiles.length?t('chat.importedAttachments',{count:nextFiles.length}):'');setError(next.notice);setLoaded(true);
-    if(quick)await desktop('ClosePanel').catch(()=>{});
+    if(!acceptedDraftSettled(attempt.request,attempt.draftRevision,next))throw new Error('accepted draft still settling');
+    saved.current=next;
+    if(editTicket===editGeneration.current){setDraft(next.text);setRefs(next.referenceIds??[]);}
+    const filesCurrent=fileOrder.current.accept(fileTicket),visible=visibleDraftFiles(nextFiles,next);
+    if(filesCurrent){setFiles(visible);setFilesLoaded(true);setFeedback(visible.length?t('chat.importedAttachments',{count:visible.length}):'');}
+    setError(next.cleanupPending?t('chat.acceptedCleanupPending'):next.rejectedCleanupPending?t('chat.rejectedCleanupPending'):next.pendingSend?t('chat.originalAttachmentPending'):next.notice);setSendBlocked(!!(next.pendingSend||next.rejectedCleanupPending));setCleanupPending(!!(next.cleanupPending||next.rejectedCleanupPending));setSyncReadFailed(false);setLoaded(true);
+    if(quick&&filesCurrent&&!next.notice&&!next.cleanupPending&&!next.text&&!next.referenceIds?.length&&!visible.length)await desktop('ClosePanel').catch(()=>{});
   });}catch{
-   if(lifetime.current===attempt.generation&&pending.current===attempt){setLoaded(false);setError(t('chat.sentDraftSyncFailed'));clearTimeout(syncRetry.current);syncRetry.current=window.setTimeout(()=>{if(lifetime.current===attempt.generation&&pending.current===attempt)void accepted(attempt);},3000);}
+   if(lifetime.current===attempt.generation&&pending.current===attempt){
+    setDraft(current=>current===attempt.request.text?'':current);
+    setRefs(current=>current.length===attempt.request.referenceIds.length&&current.every((id,index)=>id===attempt.request.referenceIds[index])?[]:current);
+    setFiles(current=>current.filter(file=>!attempt.request.fileIds.includes(file.id)));
+    setFeedback('');setLoaded(true);setSendBlocked(true);setSyncReadFailed(true);setError(t('chat.sentDraftSyncFailed'));
+   }
   }
  };
+ const retryLocalCleanup=async()=>{
+  stopFileRead.current();
+  const generation=lifetime.current,fileTicket=fileOrder.current.request(),editTicket=editGeneration.current;
+  try{
+   await writes.current.flush();
+   let next=await backend<Draft>('Draft');
+   if(generation!==lifetime.current)return;
+   if(editTicket!==editGeneration.current){setError(t('chat.sentDraftSyncFailed'));return;}
+   if(syncReadFailed&&unsavedAfterAccepted.current&&next.pendingSend){setError(t('chat.sentDraftSyncFailed'));return;}
+   if(syncReadFailed&&unsavedAfterAccepted.current&&!next.pendingSend){
+    const local=await backend<Draft>('SaveDraft',{revision:next.revision,text:draft,referenceIds:refs});
+    saved.current=local;unsavedAfterAccepted.current=false;
+    next=await backend<Draft>('Draft');
+    if(generation!==lifetime.current||editTicket!==editGeneration.current)return;
+   }else if(!unsavedAfterAccepted.current){setDraft(next.text);setRefs(next.referenceIds??[]);}
+   saved.current=next;
+   const nextFiles=await desktop<DraftFile[]>('DraftFiles');
+   if(generation!==lifetime.current)return;
+   if(fileOrder.current.accept(fileTicket)){const visible=visibleDraftFiles(nextFiles,next);setFiles(visible);setFilesLoaded(true);if(!visible.length)setFeedback('');}
+   setError(next.cleanupPending?t('chat.acceptedCleanupPending'):next.rejectedCleanupPending?t('chat.rejectedCleanupPending'):next.pendingSend?t('chat.originalAttachmentPending'):next.notice);setSendBlocked(!!(next.pendingSend||next.rejectedCleanupPending));setCleanupPending(!!(next.cleanupPending||next.rejectedCleanupPending));setSyncReadFailed(false);conflicted.current=false;
+  }catch{if(generation===lifetime.current){setSendBlocked(true);setError(t(syncReadFailed||cleanupPending||pending.current?.progress.outcome==='accepted'?'chat.sentDraftSyncFailed':'chat.fileSelectionReadFailed'));}}
+ };
  const submit=async()=>{
-  if(working.current||busy||!loaded||!canSubmit(snapshot)||(!draft.trim()&&!files.length))return;
+  if(working.current||busy||!loaded||!filesLoaded||sendBlocked||(cleanupPending&&files.length>0)||!canSubmit(snapshot)||(!draft.trim()&&!files.length))return;
   working.current=true;setBusy(true);setError('');setExpanded(false);
   const request:Submission={id:crypto.randomUUID(),text:draft,fileIds:files.map(f=>f.id),referenceIds:refs};
   const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,turnKey:'',kind:'user',text:[draft,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',activity:null,artifacts:[]};
@@ -269,7 +304,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  },[snapshot?.lastReceipt.id,snapshot?.lastReceipt.outcome]);
  const primaryAction=composerAction(snapshot,quick,!!(draft.trim()||files.length||refs.length));
  const stopping=snapshot?.phase==='interrupting';
- const enabled=loaded&&!busy&&(primaryAction==='stop'?!stopping:canSubmit(snapshot)&&!!(draft.trim()||files.length));
+ const enabled=loaded&&!busy&&(primaryAction==='stop'?!stopping:filesLoaded&&!sendBlocked&&!(cleanupPending&&files.length>0)&&canSubmit(snapshot)&&!!(draft.trim()||files.length));
  const interrupt=async()=>{
   if(busy||!loaded||!snapshot?.canInterrupt||stopping)return;
   setBusy(true);setError('');
@@ -292,9 +327,10 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
    <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-label={actionLabel} title={actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
   {!!error&&<p role="alert" className="input-error">{error}</p>}
+  {(sendBlocked||cleanupPending||loaded&&!filesLoaded)&&<button className="quiet" type="button" onClick={()=>void retryLocalCleanup()}>{t('chat.retryDraftCleanup')}</button>}
   {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):feedback}</p>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
-   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><DraftThumbnail file={f}/><span className="attachment-details" title={f.name}><strong>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</strong><small>{f.type||t('chat.fileTypeUnknown')} · {draftSize(f.size)}</small></span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>void desktop<DraftFile[]>('RemoveFile',f.id).then(setFiles).catch(()=>setError(t('chat.attachmentUpdateFailed')))}><Icon name="xmark"/></button></li>)}
+   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><DraftThumbnail file={f}/><span className="attachment-details" title={f.name}><strong>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</strong><small>{f.type||t('chat.fileTypeUnknown')} · {draftSize(f.size)}</small></span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
    {refs.map(id=><li key={id}><span>{snapshot?.references.find(r=>r.id===id)?.name??t('chat.referenceDefault')}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
   </ul>}
   {expanded&&<AttachmentMenu trigger={add} composer={composer} quick={quick} activation={activation} references={snapshot?.references??[]} selected={refs}

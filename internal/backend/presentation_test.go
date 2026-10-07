@@ -22,7 +22,7 @@ func TestDurableDraftRestoresAndOnlyAcceptedSubmissionClears(t *testing.T) {
 		t.Run(outcome, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "draft.json")
 			create := func() *Service {
-				s := NewService(draftEngine{outcome: outcome}, func([]string) ([]api.InputFile, error) { return nil, nil }, func([]string) {}, nil, nil)
+				s := NewService(draftEngine{outcome: outcome}, func([]string) ([]api.InputFile, error) { return nil, nil }, func([]string) error { return nil }, nil, nil)
 				if err := s.ConfigureDraft(path); err != nil {
 					t.Fatal(err)
 				}

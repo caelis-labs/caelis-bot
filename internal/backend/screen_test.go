@@ -38,7 +38,7 @@ func TestSubmitScreenGatesCurrentModelAndPreservesComposer(t *testing.T) {
 			t.Run(state+"/"+outcome, func(t *testing.T) {
 				e := &screenEngine{state: state, outcome: outcome}
 				consumed := false
-				s := NewService(e, nil, func([]string) { consumed = true }, nil, nil)
+				s := NewService(e, nil, func([]string) error { consumed = true; return nil }, nil, nil)
 				draft, err := s.SaveDraft(api.Draft{Text: "unfinished ordinary prompt", ReferenceIDs: []string{"ref-one"}})
 				if err != nil {
 					t.Fatal(err)

@@ -75,6 +75,10 @@ export interface Decision {
 }
 export interface Draft {
   notice: string;
+  cleanupPending?: boolean;
+  rejectedCleanupPending?: boolean;
+  pendingSend?: boolean;
+  consumedFileIds?: Array<string>;
   revision: number;
   text: string;
   referenceIds: Array<string>;

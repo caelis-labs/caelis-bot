@@ -32,7 +32,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	host.Locale = func() i18n.Locale { return s.LanguagePreferences().Locale }
 	host.Diagnostics = diagnostics
 	host.ResolveFiles = s.resolveDraftFiles
-	host.ConsumeFiles = s.consumeDraftFiles
+	host.ConsumeFiles = s.consumeDraftFilesChecked
 	host.Gesture = s.Gesture
 	host.Notify = s.Notify
 	host.Observe = s.observeCharacter

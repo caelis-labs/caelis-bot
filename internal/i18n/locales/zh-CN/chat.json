@@ -184,6 +184,11 @@
   "screenCopyFailed": "暂时无法复制这张图片。",
   "dreaming": "打个盹，整理一下刚才的内容… zzz",
   "dreamHint": "你随时可以继续说。",
-  "sentDraftSyncFailed": "消息已发送，输入框同步失败。请重新打开聊天，避免重复发送。",
+  "sentDraftSyncFailed": "消息已发送，但本机草稿状态暂无法读取；新输入尚未保存，核对前请勿再次发送。",
+  "acceptedCleanupPending": "消息已发送，但本机草稿或附件清理尚未保存。重试本机核对不会再次发送。",
+  "originalAttachmentPending": "上一条附件消息的原发送结果尚未确认；核对前请勿再次发送附件。",
+  "rejectedCleanupPending": "附件消息已拒绝，草稿已保留，但本机状态尚未保存。请重试本机核对。",
+  "retryDraftCleanup": "重试本机核对",
+  "fileSelectionReadFailed": "暂无法核对附件；可以继续输入，发送前请重试本机核对。",
   "surfaceRecovering": "此窗口正在恢复。Bot 仍在运行，原请求已保留。"
 }
