@@ -22,6 +22,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/machines"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/telegram"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
@@ -75,6 +76,7 @@ type Application struct {
 	notebook              *notebook.Vault
 	skillPath             string
 	initialization        *bot.Initializer
+	plugins               *plugins.Manager
 	closeOnce             sync.Once
 	closeErr              error
 }
@@ -169,6 +171,10 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		}
 	}
 	app := &Application{Backend: service, engine: engine, root: root, host: host, initialization: initialization}
+	app.plugins, err = plugins.Open(filepath.Join(root, "Plugins"))
+	if err != nil && host.ReportError != nil {
+		host.ReportError(err)
+	}
 	app.taskPreferences, err = tasks.OpenPreferences(filepath.Join(root, "task-preferences.json"))
 	if err != nil {
 		app.taskPreferences = tasks.UnavailablePreferences(filepath.Join(root, "task-preferences.json"))
@@ -408,6 +414,10 @@ func (a *Application) Start() error {
 			config := bridge.Config(executable)
 			if a.skillPath != "" {
 				config.Instructions += botskills.Instructions(a.skillPath)
+				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath), filepath.Join(filepath.Dir(filepath.Dir(a.skillPath)), "caelis-dream")}
+			}
+			if a.plugins != nil {
+				config.Plugins = a.plugins.Selection()
 			}
 			config.NotebookDirectory = filepath.Join(a.root, "Notebook")
 			config.RuntimeVersion = updates.Version

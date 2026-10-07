@@ -44,6 +44,8 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	}
 	back := core.Backend
 	s.telegram = core.Telegram
+	s.pluginSnapshot = core.PluginSnapshot
+	s.pluginAction = core.PluginAction
 	s.openExternalURL = back.OpenMessageLink
 	s.configureCaptureBackend(back)
 	s.taskPreferences = core.TaskPreferences

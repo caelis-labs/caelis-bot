@@ -1,10 +1,43 @@
 package codex
 
 import (
+	"encoding/json"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"strings"
 	"testing"
 )
+
+func TestBuiltinMCPServiceScopesAndLegacyOwner(t *testing.T) {
+	defs := []api.ToolDefinition{
+		{Name: "bot_tasks", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "bot_schedule", InputSchema: json.RawMessage(`{"type":"object"}`)},
+	}
+	raw, _ := json.Marshal(defs)
+	c := &api.ToolConnection{Command: "/bin/false", Args: []string{"--bot-tools"}, Env: map[string]string{"CAELIS_BOT_TOOL_CATALOG": string(raw)}, ApprovedTools: []string{"bot_tasks", "bot_schedule"}, Services: []api.ToolService{{Name: "caelis_tasks", Tools: []string{"bot_tasks"}}, {Name: "caelis_schedule", Tools: []string{"bot_schedule"}}}}
+	s := NewSession(SessionOptions{Directory: t.TempDir(), BotTools: c})
+	config := s.connectionParams()["config"].(map[string]any)
+	if config["mcp_servers.caelis_bot"] != nil || config["mcp_servers.caelis_tasks"] == nil || config["mcp_servers.caelis_schedule"] == nil {
+		t.Fatal("new Bot thread did not use partitioned services")
+	}
+	tasks := config["mcp_servers.caelis_tasks"].(map[string]any)
+	var catalog []api.ToolDefinition
+	if err := json.Unmarshal([]byte(tasks["env"].(map[string]string)["CAELIS_BOT_TOOL_CATALOG"]), &catalog); err != nil || len(catalog) != 1 || catalog[0].Name != "bot_tasks" {
+		t.Fatal("task service gained another tool", catalog, err)
+	}
+	if approved := tasks["tools"].(map[string]any); len(approved) != 1 || approved["bot_tasks"] == nil {
+		t.Fatal("task approval list broadened", approved)
+	}
+	s.binding.ThreadID = "legacy-thread"
+	config = s.connectionParams()["config"].(map[string]any)
+	if config["mcp_servers.caelis_bot"] == nil || config["mcp_servers.caelis_tasks"] != nil {
+		t.Fatal("legacy thread exposed two owners")
+	}
+	s.binding.ToolLayout = 2
+	config = s.connectionParams()["config"].(map[string]any)
+	if config["mcp_servers.caelis_bot"] != nil || config["mcp_servers.caelis_tasks"] == nil {
+		t.Fatal("partitioned thread lost its owner")
+	}
+}
 
 func TestOwnedWorkerApprovalRoutesWithoutLeakingWorkerMessages(t *testing.T) {
 	s, f := sessionPair(t, "hold")

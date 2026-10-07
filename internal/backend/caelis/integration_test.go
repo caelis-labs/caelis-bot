@@ -24,6 +24,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
 
@@ -326,6 +327,48 @@ func TestNativeHostIntegration(t *testing.T) {
 	}
 	open()
 	defer func() { _ = s.Close(context.Background()) }()
+	if !t.Run("B00_reviewed_plugin_activation", func(t *testing.T) {
+		manager, err := plugins.Open(filepath.Join(root, "Plugins"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = manager.Mutate(ctx, "markdown-work", "install", s.UpdateBotPlugins); err != nil {
+			t.Fatal(err)
+		}
+		selected := manager.Selection()
+		configuration, err := s.Configuration(ctx)
+		if err != nil || len(selected.SkillRoots) != 1 || !slices.Equal(configuration.Profile.SkillRoots, selected.SkillRoots) {
+			t.Fatal("installed Skill was not committed through Core configuration", configuration.Profile.SkillRoots, err)
+		}
+		submitAcceptance(t, ctx, s, "CASE_PLUGIN")
+		requests := model.seen("CASE_PLUGIN")
+		if len(requests) != 1 || !strings.Contains(fmt.Sprint(requests[0]), "markdown-work") {
+			t.Fatal("installed Skill metadata did not reach the model", len(requests))
+		}
+		var status wire.ApplicationMCPStatus
+		sid := s.ConversationState().Session
+		if err = s.client.json(ctx, "GET", "/application/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		ready := false
+		for _, skill := range status.Skills {
+			if skill.Path == selected.SkillRoots[0] && skill.Status == "ready" {
+				ready = true
+			}
+		}
+		if !ready {
+			t.Fatal("installed Skill not ready", status.Skills)
+		}
+		if _, err = manager.Mutate(ctx, "markdown-work", "disable", s.UpdateBotPlugins); err != nil {
+			t.Fatal(err)
+		}
+		configuration, err = s.Configuration(ctx)
+		if err != nil || len(configuration.Profile.SkillRoots) != 0 || manager.Snapshot().Items[0].Enabled {
+			t.Fatal("disabled Skill remained active", configuration.Profile.SkillRoots, err)
+		}
+	}) {
+		return
+	}
 	if !t.Run("B00_execution_environment", func(t *testing.T) {
 		verifyExecutionConfiguration(t, ctx, s, host, model, root, vault.Path(), environment)
 	}) {
@@ -681,7 +724,7 @@ func TestNativeHostIntegration(t *testing.T) {
 				t.Fatal("terminal did not resolve owned native Worker", target, err)
 			}
 			script, err := taskterminal.Script(target)
-			if err != nil || !strings.Contains(script, " attach --control-url ") || strings.Contains(script, "CASE_WORKER") {
+			if err != nil || !strings.Contains(script, " 'attach' '--control-url' ") || strings.Contains(script, "CASE_WORKER") {
 				t.Fatal("terminal script did not attach without a prompt", err)
 			}
 			var state wire.SessionState
@@ -897,9 +940,9 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("approved command missing or repeated", err)
 		}
 		requests := model.seen("CASE_APPROVAL")
-		payload, _ := json.Marshal(requests[2])
-		if !strings.Contains(string(payload), "Command "+handle+" is completed.") {
-			t.Fatal("no completion-driven model followup")
+		payload, _ := json.Marshal(requests[2:])
+		if !strings.Contains(string(payload), "Command "+handle+" is completed.") && !strings.Contains(string(payload), "Command "+handle+" is waiting for its result after process exit.") {
+			t.Fatal("no post-exit model followup")
 		}
 		if len(s.Snapshot().Approvals) != 0 {
 			t.Fatal("settled approval remained visible")

@@ -9,6 +9,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
@@ -34,6 +35,8 @@ type driver interface {
 // Service owns surface state, never execution state. P2 attaches a separate backend service.
 // All operations (including native drag/display callbacks) serialize through mu.
 type Service struct {
+	pluginSnapshot      func(context.Context) (plugins.Snapshot, error)
+	pluginAction        func(context.Context, string, string) (plugins.Snapshot, error)
 	telegram            *telegram.Bridge
 	openExternalURL     func(string) error
 	openMachineTerminal func(string) error

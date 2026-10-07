@@ -34,7 +34,7 @@ func startProcess(ctx context.Context, opts Options) (connection, func(), error)
 	}
 	// CLI release numbers are not App Server protocol versions. Compatibility
 	// is established on the wire, using the same handshake as shared endpoints.
-	cmd := exec.Command(path, "app-server", "--listen", "stdio://")
+	cmd := exec.Command(path, appServerArgs(opts, "stdio://")...)
 	cmd.Dir = opts.Directory
 	cmd.Env = ownedEnvironment(cmd.Environ()) // Environ also sets PWD to the actual working directory.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

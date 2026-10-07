@@ -228,6 +228,12 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 	}
 	raw, _ := json.Marshal(b.runtime.Definitions())
 	config.Env["CAELIS_BOT_TOOL_CATALOG"] = string(raw)
+	config.Services = []api.ToolService{
+		{Name: "caelis_tasks", Tools: []string{"bot_tasks", "bot_delegate"}},
+		{Name: "caelis_schedule", Tools: []string{"bot_schedule", "bot_schedule_update"}},
+		{Name: "caelis_personal", Tools: []string{"bot_memory", "bot_gesture"}},
+		{Name: "caelis_desktop", Tools: []string{"bot_desktop_inspect", "bot_desktop_authorize", "bot_desktop_act", "bot_desktop_result"}},
+	}
 	return config
 }
 func (b *Bridge) Close() {
@@ -288,7 +294,11 @@ func RunStdio(in io.Reader, out io.Writer) error {
 		var rpcError any
 		switch req.Method {
 		case "initialize":
-			value = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "caelis-bot", "version": "0.1.0"}}
+			name := os.Getenv("CAELIS_BOT_SERVICE_NAME")
+			if name == "" {
+				name = "caelis-bot"
+			}
+			value = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": name, "version": "0.1.0"}}
 		case "ping":
 			value = map[string]any{}
 		default:

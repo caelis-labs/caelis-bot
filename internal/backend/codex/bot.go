@@ -18,13 +18,27 @@ func (s *Session) connectionParams() map[string]any {
 	config := map[string]any{}
 	if s.opts.BotTools != nil {
 		instructions = s.opts.BotTools.Instructions
-		config["mcp_servers.caelis_bot"] = toolConfig(s.opts.BotTools)
+		if len(s.opts.BotTools.Services) > 0 && (s.binding.ToolLayout == 2 || s.binding.ThreadID == "") {
+			for _, service := range s.opts.BotTools.Services {
+				if scoped := serviceToolConfig(s.opts.BotTools, service); scoped != nil {
+					config["mcp_servers."+service.Name] = scoped
+				}
+			}
+		} else {
+			// Schema-1 resident threads keep their one original MCP owner on
+			// resume. Do not expose the same effects through two namespaces.
+			config["mcp_servers.caelis_bot"] = toolConfig(s.opts.BotTools)
+		}
 		config["agents.enabled"] = false // Professional work goes through the owned task contract.
 		if s.opts.BotTools.Env["CAELIS_BOT_DESKTOP_WORLD"] == "1" {
 			// The resident has one desktop writer. Ordinary Codex sessions and
 			// worker configuration retain their native tool policies.
 			config["computer_use.default_app_access"] = "deny"
 			config["computer_use.macos.bundle_ids"] = map[string]any{}
+		}
+		plugins, _ := codexPluginConfigs(s.opts.BotTools.Plugins)
+		for name, item := range plugins {
+			config["mcp_servers."+name] = item
 		}
 	}
 	params := map[string]any{"runtimeWorkspaceRoots": []string{}, "developerInstructions": instructions, "cwd": s.opts.Directory, "sandbox": "workspace-write", "approvalPolicy": "on-request", "approvalsReviewer": "auto_review", "config": config}
@@ -322,6 +336,9 @@ func (s *Session) ConfigureBotTools(config *api.ToolConnection) error {
 		}
 		s.opts.Directory = config.NotebookDirectory
 	}
+	if err := projectCodexWorkspace(s.opts.Directory, config); err != nil {
+		return err
+	}
 	s.opts.BotTools = config.Clone()
 	for _, t := range s.binding.Tasks {
 		if t != nil && t.Instructions == "" {
@@ -342,4 +359,35 @@ func toolConfig(c *api.ToolConnection) map[string]any {
 	}
 	return map[string]any{"command": c.Command, "args": c.Args, "env": c.Env,
 		"tools": approved, "startup_timeout_sec": 10, "tool_timeout_sec": 15}
+}
+
+func serviceToolConfig(c *api.ToolConnection, service api.ToolService) map[string]any {
+	allowed := map[string]bool{}
+	for _, name := range service.Tools {
+		allowed[name] = true
+	}
+	var catalog []api.ToolDefinition
+	if json.Unmarshal([]byte(c.Env["CAELIS_BOT_TOOL_CATALOG"]), &catalog) != nil {
+		return nil
+	}
+	filtered := make([]api.ToolDefinition, 0, len(catalog))
+	for _, tool := range catalog {
+		if allowed[tool.Name] {
+			filtered = append(filtered, tool)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	copy := c.Clone()
+	raw, _ := json.Marshal(filtered)
+	copy.Env["CAELIS_BOT_TOOL_CATALOG"] = string(raw)
+	copy.Env["CAELIS_BOT_SERVICE_NAME"] = service.Name
+	copy.ApprovedTools = nil
+	for _, name := range c.ApprovedTools {
+		if allowed[name] {
+			copy.ApprovedTools = append(copy.ApprovedTools, name)
+		}
+	}
+	return toolConfig(copy)
 }
