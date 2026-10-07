@@ -221,6 +221,9 @@ func (s *Service) consumeDraftFiles(ids []string) {
 		return
 	}
 	files := slices.DeleteFunc(slices.Clone(s.files), func(f draftFile) bool { return slices.Contains(ids, f.ID) })
+	if len(files) == len(s.files) {
+		return
+	} // A second accepted observer cannot consume again.
 	if err := s.persistSelection(files, s.nextFile); err != nil {
 		s.selectionError = err
 		return

@@ -42,6 +42,7 @@ type Service struct {
 	runtimeSettings             api.RuntimeSettings
 	runtimeLoadError            error
 	pendingDraft                *api.Submission
+	pendingDraftRevision        uint64
 	outbox                      []outgoingMessage
 	botStatus                   func() string
 	beforeInterrupt             func()
@@ -95,6 +96,7 @@ func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 	s.mu.Lock()
 	v = s.presentOutgoing(v)
 	pending := s.pendingDraft
+	pendingRevision := s.pendingDraftRevision
 	status := s.botStatus
 	if pending != nil && v.LastReceipt.ID == pending.ID && v.LastReceipt.Outcome == "accepted" {
 		s.pendingDraft = nil
@@ -106,7 +108,7 @@ func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 		if s.consumeFiles != nil {
 			s.consumeFiles(pending.FileIDs)
 		}
-		s.clearDraft(*pending)
+		s.clearDraftAtRevision(*pending, pendingRevision)
 	}
 	if status != nil {
 		v.BotStatus = status()
@@ -361,13 +363,27 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	}
 	s.mu.Lock()
 	s.pendingDraft = &input
+	s.pendingDraftRevision = s.draft.Revision
 	s.mu.Unlock()
 	s.stageOutgoing(input, files)
 	receipt, err := s.submit(ctx, input, files)
 	s.finishOutgoing(input.ID, receipt)
 	if receipt.Outcome == "accepted" {
-		s.consumeFiles(input.FileIDs)
-		s.clearDraft(input)
+		s.mu.Lock()
+		pending := s.pendingDraft
+		revision := s.pendingDraftRevision
+		if pending != nil && pending.ID == input.ID {
+			s.pendingDraft = nil
+		} else {
+			pending = nil
+		}
+		s.mu.Unlock()
+		if pending != nil {
+			if s.consumeFiles != nil {
+				s.consumeFiles(pending.FileIDs)
+			}
+			s.clearDraftAtRevision(*pending, revision)
+		}
 	}
 	return receipt, err
 }

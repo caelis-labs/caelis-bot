@@ -48,8 +48,14 @@ func (s *Service) SaveDraft(d api.Draft) (api.Draft, error) {
 }
 func (s *Service) clearDraft(input api.Submission) {
 	s.mu.Lock()
+	revision := s.draft.Revision
+	s.mu.Unlock()
+	s.clearDraftAtRevision(input, revision)
+}
+func (s *Service) clearDraftAtRevision(input api.Submission, revision uint64) {
+	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.draft.Text == input.Text && slices.Equal(s.draft.ReferenceIDs, input.ReferenceIDs) {
+	if s.draft.Revision == revision && s.draft.Text == input.Text && slices.Equal(s.draft.ReferenceIDs, input.ReferenceIDs) {
 		d := api.Draft{Revision: s.draft.Revision + 1, ReferenceIDs: []string{}}
 		if s.draftLoadError != nil || s.persistDraft(d) != nil {
 			s.draftNotice = "消息已发送，但草稿清理未能保存；请勿重复发送。"

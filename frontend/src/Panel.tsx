@@ -12,7 +12,7 @@ import { AttachmentMenu } from './AttachmentMenu';
 import { ScreenMessage } from './ScreenMessage';
 import { MediaMessage } from './MediaMessage';
 import { ChatScroll } from './chat-scroll';
-import { ConversationOrder, SubmissionProgress, DraftQueue, retryRead } from './chat-observation';
+import { ConversationOrder, SubmissionProgress, DraftQueue, acceptedDraftSettled, retryRead } from './chat-observation';
 import { useI18n } from './i18n';
 import { approvalChoice, approvalResult, approvalText, approvalTitle } from './approval-presentation';
 import { CheckIcon, XIcon } from './SettingsIcons';
@@ -169,7 +169,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  const [dragging,setDragging]=useState(false),[feedback,setFeedback]=useState('');
  const visible=useRef(active);visible.current=active;
  useEffect(()=>{setExpanded(false);},[active,activation]);
- const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number}|null>(null);
+ const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number;draftRevision:number}|null>(null);
  const lifetime=useRef(0),working=useRef(false);
  const syncRetry=useRef<number|undefined>(undefined);
  const saved=useRef<Draft>({revision:0,text:'',referenceIds:[],notice:''});
@@ -179,7 +179,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   setLoaded(false);conflicted.current=false;
   const stopDraft=retryRead(()=>writes.current.flush().then(()=>backend<Draft>('Draft')),d=>{saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setError(d.notice);setLoaded(true);if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
   let stopFiles=()=>{};
-  const readFiles=()=>{stopFiles();stopFiles=retryRead(()=>desktop<DraftFile[]>('DraftFiles'),setFiles);};
+  const readFiles=()=>{stopFiles();stopFiles=retryRead(()=>desktop<DraftFile[]>('DraftFiles'),value=>{setFiles(value);if(!value.length)setFeedback('');});};
   readFiles();
   const changed=(event:Event)=>{
    const detail=(event as CustomEvent<string|{error:string;added:number}>).detail;
@@ -225,11 +225,13 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  };
  const accepted=async(attempt:NonNullable<typeof pending.current>)=>{
   attempt.progress.observe('accepted');
+  setFeedback('');
   onOutgoing?.({...attempt.outgoing,status:'accepted'});
   try{await attempt.progress.synchronize(async()=>{
     const [next,nextFiles]=await Promise.all([backend<Draft>('Draft'),desktop<DraftFile[]>('DraftFiles')]);
     if(lifetime.current!==attempt.generation||pending.current!==attempt)return;
-    clearTimeout(syncRetry.current);saved.current=next;setDraft(next.text);setRefs(next.referenceIds??[]);setFiles(nextFiles);setError(next.notice);setLoaded(true);
+    if(!acceptedDraftSettled(attempt.request,attempt.draftRevision,next,nextFiles))throw new Error('accepted draft still settling');
+    clearTimeout(syncRetry.current);saved.current=next;setDraft(next.text);setRefs(next.referenceIds??[]);setFiles(nextFiles);setFeedback(nextFiles.length?t('chat.importedAttachments',{count:nextFiles.length}):'');setError(next.notice);setLoaded(true);
     if(quick)await desktop('ClosePanel').catch(()=>{});
   });}catch{
    if(lifetime.current===attempt.generation&&pending.current===attempt){setLoaded(false);setError(t('chat.sentDraftSyncFailed'));clearTimeout(syncRetry.current);syncRetry.current=window.setTimeout(()=>{if(lifetime.current===attempt.generation&&pending.current===attempt)void accepted(attempt);},3000);}
@@ -240,11 +242,12 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   working.current=true;setBusy(true);setError('');setExpanded(false);
   const request:Submission={id:crypto.randomUUID(),text:draft,fileIds:files.map(f=>f.id),referenceIds:refs};
   const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,turnKey:'',kind:'user',text:[draft,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',activity:null,artifacts:[]};
-  const attempt={request,outgoing,progress:new SubmissionProgress(),generation:lifetime.current};
+  const attempt={request,outgoing,progress:new SubmissionProgress(),generation:lifetime.current,draftRevision:saved.current.revision};
   pending.current=attempt;onOutgoing?.(outgoing);
   try{
    await writes.current.flush();
    if(lifetime.current!==attempt.generation)return;
+   attempt.draftRevision=saved.current.revision;
    if(conflicted.current){attempt.progress.observe('rejected');onOutgoing?.({...outgoing,status:'rejected'});return;}
    let receipt:Receipt;
    try{receipt=await backend<Receipt>('Submit',request);}

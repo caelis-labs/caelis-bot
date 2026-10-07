@@ -2,11 +2,65 @@ package backend
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
+
+type acceptedDuringRead struct {
+	delayedInput
+	acknowledged chan struct{}
+	finish       chan struct{}
+}
+
+func (e *acceptedDuringRead) Submit(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+	r := api.Receipt{ID: in.ID, Outcome: "accepted"}
+	e.mu.Lock()
+	e.view.LastReceipt = r
+	e.mu.Unlock()
+	close(e.acknowledged)
+	<-e.finish
+	return r, nil
+}
+
+func TestAcceptedAttachmentBatchConsumedOnceAcrossSnapshotAndKeepsNewEdits(t *testing.T) {
+	e := &acceptedDuringRead{acknowledged: make(chan struct{}), finish: make(chan struct{})}
+	selected := []string{"pasted-image"}
+	consumeCalls := 0
+	s := NewService(e, func(ids []string) ([]api.InputFile, error) {
+		if !slices.Equal(ids, []string{"pasted-image"}) {
+			t.Fatalf("wrong staged batch: %v", ids)
+		}
+		return []api.InputFile{{Name: "pasted.png"}}, nil
+	}, func(ids []string) {
+		consumeCalls++
+		selected = slices.DeleteFunc(selected, func(id string) bool { return slices.Contains(ids, id) })
+	}, nil, nil)
+	if _, err := s.SaveDraft(api.Draft{Text: "caption"}); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan api.Receipt, 1)
+	go func() {
+		r, _ := s.Submit(t.Context(), api.Submission{ID: "original-image-send", Text: "caption", FileIDs: []string{"pasted-image"}})
+		done <- r
+	}()
+	<-e.acknowledged
+	selected = append(selected, "new-drop")
+	if _, err := s.SaveDraft(api.Draft{Revision: 1, Text: "new draft"}); err != nil {
+		t.Fatal(err)
+	}
+	before := s.Draft().Revision
+	s.Snapshot() // Native accepted receipt can arrive before Submit returns.
+	close(e.finish)
+	if r := <-done; r.Outcome != "accepted" {
+		t.Fatal(r)
+	}
+	if consumeCalls != 1 || !slices.Equal(selected, []string{"new-drop"}) || s.Draft().Text != "new draft" || s.Draft().Revision != before || s.pendingDraft != nil {
+		t.Fatalf("accepted batch consumed twice or newer input erased: calls=%d files=%v draft=%+v", consumeCalls, selected, s.Draft())
+	}
+}
 
 type delayedInput struct {
 	api.Engine

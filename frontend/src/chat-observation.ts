@@ -37,6 +37,18 @@ export class SubmissionProgress {
  }
 }
 
+// A receipt can be visible before the host finishes removing its selected
+// files. Keep observing the original accepted send until that exact batch is
+// absent; later attachments and draft edits belong to the next message.
+export function acceptedDraftSettled(request: {text:string;fileIds:string[];referenceIds:string[]}, revision:number,
+ next: {revision:number;text:string;referenceIds:string[]}, files: readonly {id:string}[]): boolean {
+ const consumed=new Set(request.fileIds);
+ if(files.some(file=>consumed.has(file.id)))return false;
+ const sameDraft=next.text===request.text && next.referenceIds.length===request.referenceIds.length &&
+  next.referenceIds.every((id,index)=>id===request.referenceIds[index]);
+ return !sameDraft || next.revision>revision;
+}
+
 // Only retry observations. Cancellation fences late results, and success stops
 // the loop. Native sends, approvals and draft writes do not use this helper.
 export function retryRead<T>(read:()=>Promise<T>,accept:(value:T)=>void,failed:()=>void=()=>{},delay=3000) {

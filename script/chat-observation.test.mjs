@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ConversationOrder,SubmissionProgress,DraftQueue,retryRead} from '../frontend/src/chat-observation.ts';
+import {ConversationOrder,SubmissionProgress,DraftQueue,acceptedDraftSettled,retryRead} from '../frontend/src/chat-observation.ts';
 import {settingsDestination,settingsSections} from '../frontend/src/settings-navigation.ts';
 
 test('a late poll cannot replace a refreshed outbox at the same backend revision',()=>{
@@ -33,6 +33,17 @@ test('accepted send remains accepted while only failed draft reads recover',asyn
  await state.synchronize(async()=>{reads++;});
  await state.synchronize(read);assert.equal(reads,3);
  assert.equal(state.observe('rejected'),'accepted');
+});
+test('accepted image send waits for its exact staged file removal and draft revision',()=>{
+ const request={text:'',fileIds:['pasted-image'],referenceIds:[]};
+ const old={revision:4,text:'',referenceIds:[]};
+ assert.equal(acceptedDraftSettled(request,4,old,[{id:'pasted-image'}]),false);
+ assert.equal(acceptedDraftSettled(request,4,old,[]),false);
+ assert.equal(acceptedDraftSettled(request,4,{...old,revision:5},[]),true);
+ assert.equal(acceptedDraftSettled(request,4,{...old,revision:5},[{id:'new-dropped-image'}]),true);
+ const captioned={text:'describe',fileIds:['dropped-file'],referenceIds:['reference-one']};
+ assert.equal(acceptedDraftSettled(captioned,7,{revision:8,text:'new draft',referenceIds:[]},[{id:'dropped-file'}]),false);
+ assert.equal(acceptedDraftSettled(captioned,7,{revision:8,text:'new draft',referenceIds:[]},[{id:'new-file'}]),true);
 });
 test('a failed initial observation recovers without reopening the surface and stops after success',async(t)=>{
  t.mock.timers.enable({apis:['setTimeout']});let reads=0,failures=0;const observed=[];
