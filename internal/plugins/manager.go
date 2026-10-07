@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
@@ -31,6 +33,7 @@ type catalog struct {
 type installed struct {
 	Version, Digest string
 	Enabled         bool
+	Root            string // immutable version directory; empty reads schema-1 state
 }
 type state struct {
 	Version   int
@@ -175,7 +178,25 @@ func (m *Manager) packageRoot(e Entry) string {
 	return filepath.Join(m.root, "versions", e.ID, e.Version+"-"+digest(e)[:16])
 }
 func (m *Manager) readInstalled(e Entry) (Package, error) {
-	root := m.packageRoot(e)
+	return m.readInstalledAt(e, "")
+}
+func (m *Manager) readInstalledAt(e Entry, rootName string) (Package, error) {
+	base := filepath.Base(m.packageRoot(e))
+	if rootName == "" {
+		rootName = base
+	}
+	if rootName != base {
+		suffix := strings.TrimPrefix(rootName, base+"-r")
+		if suffix == rootName || len(suffix) != 16 {
+			return Package{}, errors.New("invalid stored plugin generation")
+		}
+		for _, char := range suffix {
+			if !strings.ContainsRune("0123456789abcdef", char) {
+				return Package{}, errors.New("invalid stored plugin generation")
+			}
+		}
+	}
+	root := filepath.Join(m.root, "versions", e.ID, rootName)
 	if err := Verify(root, e.Files); err != nil {
 		return Package{}, err
 	}
@@ -199,7 +220,7 @@ func (m *Manager) selectionLocked(next state) Selection {
 			out.Issues = append(out.Issues, Issue{"package", id, "reviewed version unavailable"})
 			continue
 		}
-		p, err := m.readInstalled(e)
+		p, err := m.readInstalledAt(e, record.Root)
 		if err != nil {
 			out.Issues = append(out.Issues, Issue{"package", id, err.Error()})
 			continue
@@ -233,7 +254,7 @@ func (m *Manager) Snapshot() Snapshot {
 			}
 			if rec.Version != e.Version || rec.Digest != digest(e) {
 				item.Status = "update_available"
-			} else if p, err := m.readInstalled(e); err != nil {
+			} else if p, err := m.readInstalledAt(e, rec.Root); err != nil {
 				item.Status = "failed"
 				item.Issues = append(item.Issues, Issue{"package", e.ID, err.Error()})
 			} else {
@@ -274,12 +295,16 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 	switch action {
 	case "install":
 		if has && current.Version == e.Version && current.Digest == digest(e) {
+			if _, err := m.readInstalledAt(e, current.Root); err != nil {
+				return m.snapshotLocked(), fmt.Errorf("installed plugin verification failed: %w", err)
+			}
 			return m.snapshotLocked(), nil
 		}
-		if err := m.stage(e); err != nil {
+		rootName, err := m.stage(e)
+		if err != nil {
 			return m.snapshotLocked(), err
 		}
-		next.Installed[id] = installed{Version: e.Version, Digest: digest(e), Enabled: true}
+		next.Installed[id] = installed{Version: e.Version, Digest: digest(e), Enabled: true, Root: rootName}
 	case "enable":
 		if !has {
 			return m.snapshotLocked(), errors.New("plugin is not installed")
@@ -320,7 +345,12 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 	}
 	if err := m.save(next); err != nil {
 		if apply != nil {
-			_ = apply(ctx, m.selectionLocked(m.state))
+			recovery, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			rollbackErr := apply(recovery, m.selectionLocked(m.state))
+			cancel()
+			if rollbackErr != nil {
+				return m.snapshotLocked(), errors.Join(err, fmt.Errorf("plugin activation rollback failed: %w", rollbackErr))
+			}
 		}
 		return m.snapshotLocked(), err
 	}
@@ -342,50 +372,61 @@ func (m *Manager) snapshotLocked() Snapshot {
 	}
 	return out
 }
-func (m *Manager) stage(e Entry) error {
+func (m *Manager) stage(e Entry) (string, error) {
 	dest := m.packageRoot(e)
 	if err := Verify(dest, e.Files); err == nil {
 		_, err = m.readInstalled(e)
-		return err
+		return filepath.Base(dest), err
 	}
 	if err := ensureStoreDirectory(m.root, filepath.Dir(dest)); err != nil {
-		return err
+		return "", err
 	}
 	tmp, err := os.MkdirTemp(filepath.Dir(dest), ".staging-")
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer os.RemoveAll(tmp)
 	for name := range e.Files {
 		body, err := reviewed.ReadFile(filepath.ToSlash(filepath.Join("packages", e.ID, name)))
 		if err != nil {
-			return err
+			return "", err
 		}
 		path := filepath.Join(tmp, filepath.FromSlash(name))
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-			return err
+			return "", err
 		}
 		if err = os.WriteFile(path, body, 0600); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if err := Verify(tmp, e.Files); err != nil {
-		return err
+		return "", err
 	}
 	p, err := Load(tmp)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if p.Manifest.Name != e.ID || p.Manifest.Version != e.Version {
-		return errors.New("reviewed package identity mismatch")
+		return "", errors.New("reviewed package identity mismatch")
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		// A corrupt immutable root may still be held by an older Runtime
+		// snapshot. Keep it in place and install reviewed bytes in a new root.
+		var nonce [8]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return "", err
+		}
+		dest += "-r" + hex.EncodeToString(nonce[:])
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
 	}
 	if err := os.Rename(tmp, dest); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			return Verify(dest, e.Files)
+			return filepath.Base(dest), Verify(dest, e.Files)
 		}
-		return err
+		return "", err
 	}
-	return nil
+	return filepath.Base(dest), nil
 }
 
 func (m *Manager) DebugEntry(id string) (Entry, error) {

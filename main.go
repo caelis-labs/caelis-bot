@@ -45,10 +45,10 @@ func main() {
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--plugin-mcp" {
-		if len(os.Args) != 5 {
+		if len(os.Args) != 5 && len(os.Args) != 6 {
 			os.Exit(2)
 		}
-		if err := plugins.RunStdio(os.Args[2], os.Args[3], os.Args[4], os.Stdin, os.Stdout, os.Stderr); err != nil {
+		if err := plugins.RunStdio(os.Args[2], os.Args[3], os.Args[4], os.Stdin, os.Stdout, os.Stderr, os.Args[5:]...); err != nil {
 			os.Exit(1)
 		}
 		return

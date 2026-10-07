@@ -66,6 +66,40 @@ func TestReviewedInstallActivationRecoveryAndRollback(t *testing.T) {
 	}
 }
 
+func TestActivationPersistenceFailureUsesFreshRollbackContext(t *testing.T) {
+	root := t.TempDir()
+	m, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The adapter can complete before the caller's request is cancelled. A
+	// failed state write must still restore the confirmed selection.
+	if err := os.Mkdir(filepath.Join(root, "state.json"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls []Selection
+	rollbackCtxCanceled := false
+	apply := func(callCtx context.Context, selected Selection) error {
+		calls = append(calls, selected.Clone())
+		if len(calls) == 1 {
+			cancel()
+		} else if callCtx.Err() != nil {
+			rollbackCtxCanceled = true
+			return errors.New("rollback inherited cancelled request")
+		}
+		return nil
+	}
+	_, err = m.Mutate(ctx, "markdown-work", "install", apply)
+	if err == nil || rollbackCtxCanceled {
+		t.Fatal("persistence failure did not use a fresh rollback context", err)
+	}
+	if len(calls) != 2 || len(calls[0].SkillRoots) != 1 || len(calls[1].SkillRoots) != 0 || m.Snapshot().Items[0].Installed {
+		t.Fatal("failed persistence retained the new selection", calls)
+	}
+}
+
 func TestVerifiedBytesAndPathSafety(t *testing.T) {
 	m, err := Open(t.TempDir())
 	if err != nil {
@@ -94,6 +128,40 @@ func TestVerifiedBytesAndPathSafety(t *testing.T) {
 	}
 	if safeRelative("../escape") || safeRelative("/absolute") || safeRelative("skills\\escape") {
 		t.Fatal("unsafe path accepted")
+	}
+}
+
+func TestCorruptPackageReinstallKeepsOldVersionPath(t *testing.T) {
+	m, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := m.Mutate(ctx, "markdown-work", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	oldRoot := m.Selection().SkillRoots[0]
+	if err := os.WriteFile(filepath.Join(filepath.Dir(filepath.Dir(oldRoot)), "unexpected.txt"), []byte("corrupt"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Mutate(ctx, "markdown-work", "install", nil); err == nil {
+		t.Fatal("duplicate install falsely confirmed a corrupt package")
+	}
+	if _, err := m.Mutate(ctx, "markdown-work", "uninstall", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Mutate(ctx, "markdown-work", "install", nil); err != nil {
+		t.Fatal("reviewed package could not be reinstalled", err)
+	}
+	newRoot := m.Selection().SkillRoots[0]
+	if newRoot == oldRoot {
+		t.Fatal("reinstall replaced a path held by an old Runtime snapshot")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(filepath.Dir(oldRoot)), "unexpected.txt")); err != nil {
+		t.Fatal("old snapshot path was removed before drain", err)
+	}
+	if reopened, err := Open(m.Root()); err != nil || len(reopened.Selection().SkillRoots) != 1 || reopened.Selection().SkillRoots[0] != newRoot {
+		t.Fatal("reinstalled generation did not recover", err)
 	}
 }
 

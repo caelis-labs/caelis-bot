@@ -29,7 +29,7 @@ func corePlugins(selection plugins.Selection, binary string, builtins []string) 
 				continue
 			}
 			store := filepath.Dir(filepath.Dir(p.Data))
-			servers = append(servers, wire.ApplicationMCPServer{Name: name, Transport: "stdio", Command: &binary, Args: []string{"--plugin-mcp", store, p.PackageID, p.Name}, WorkDir: &p.Root})
+			servers = append(servers, wire.ApplicationMCPServer{Name: name, Transport: "stdio", Command: &binary, Args: []string{"--plugin-mcp", store, p.PackageID, p.Name, filepath.Base(p.Root)}, WorkDir: &p.Root})
 		case "streamable-http", "sse":
 			if len(s.Headers) > 0 {
 				issues = append(issues, plugins.Issue{Component: "server", Name: name, Message: "Remote headers need a Bot local connection proxy"})

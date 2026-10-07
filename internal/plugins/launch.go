@@ -24,7 +24,7 @@ func sha256Name(s string) string { sum := sha256.Sum256([]byte(s)); return hex.E
 // RunStdio is invoked by the Bot executable selected in a Core public MCP
 // profile. Only a byte-identical, build-reviewed package may be launched. Its
 // portable environment stays in this Bot process, never in Core's profile.
-func RunStdio(storeRoot, packageID, serverName string, in io.Reader, out, diagnostics io.Writer) error {
+func RunStdio(storeRoot, packageID, serverName string, in io.Reader, out, diagnostics io.Writer, generation ...string) error {
 	m, err := Open(storeRoot)
 	if err != nil {
 		return err
@@ -33,7 +33,14 @@ func RunStdio(storeRoot, packageID, serverName string, in io.Reader, out, diagno
 	if !ok {
 		return errors.New("unreviewed plugin")
 	}
-	p, err := m.readInstalled(e)
+	if len(generation) > 1 {
+		return errors.New("invalid plugin generation")
+	}
+	rootName := ""
+	if len(generation) == 1 {
+		rootName = generation[0]
+	}
+	p, err := m.readInstalledAt(e, rootName)
 	if err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@ func TestPublicCorePluginProjectionKeepsPortableEnvironmentPrivate(t *testing.T)
 	if len(servers) != 1 || len(skills) != 2 || len(issues) != 1 || issues[0].Component != "server" {
 		t.Fatal(servers, skills, issues)
 	}
-	if servers[0].Name != plugins.RuntimeName("sample", "local-validator") || *servers[0].Command != "/Applications/CaelisBotDev.app/Contents/MacOS/CaelisBot" || len(servers[0].Args) != 4 || servers[0].Args[0] != "--plugin-mcp" {
+	if servers[0].Name != plugins.RuntimeName("sample", "local-validator") || *servers[0].Command != "/Applications/CaelisBotDev.app/Contents/MacOS/CaelisBot" || len(servers[0].Args) != 5 || servers[0].Args[0] != "--plugin-mcp" || servers[0].Args[4] != "v1" {
 		t.Fatal(servers[0])
 	}
 	for _, arg := range servers[0].Args {
