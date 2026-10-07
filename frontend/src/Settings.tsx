@@ -18,6 +18,7 @@ import { Maintenance } from './Maintenance';
 import { useI18n } from './i18n';
 import { LanguageSetting } from './i18n/LanguageSetting';
 import { LoginAtLoginSetting } from './LoginAtLoginSetting';
+import { PluginSettings } from './PluginSettings';
 import { SettingGroup, SettingRow } from './SettingsUI';
 
 type Update = { state:string; current:string; latest:string; message:string };
@@ -46,9 +47,10 @@ export function Settings() {
    <div className="settings-page" data-section="chatConnections" hidden={section!=='chatConnections'}>{section==='chatConnections'&&<MessagingSettings openTelegram={()=>setSection('telegram')}/>}</div>
    <div className="settings-page" data-section="telegram" hidden={section!=='telegram'}>{(telegramVisited||section==='telegram')&&<TelegramSettings active={section==='telegram'} onBack={()=>setSection('chatConnections')}/>}</div>
    <div className="settings-page" data-section="extras" hidden={section!=='extras'}>{section==='extras'&&<><h1>{t('settings.extras')}</h1><ScreenInputSettings/></>}</div>
+   <div className="settings-page" data-section="plugins" hidden={section!=='plugins'}>{section==='plugins'&&<PluginSettings/>}</div>
    <div className="settings-page" data-section="machines" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone/>}</div>
-   <div className="settings-page" data-section={section} key={section} hidden={['permissions','models','connections','chatConnections','telegram','machines','extras'].includes(section)}>
-   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','chatConnections','telegram','machines','extras','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
+   <div className="settings-page" data-section={section} key={section} hidden={['permissions','models','connections','chatConnections','telegram','machines','extras','plugins'].includes(section)}>
+   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','chatConnections','telegram','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
    </div>
   </div>
  </main>;

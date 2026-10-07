@@ -1,4 +1,4 @@
-export const settingsSections = ['general', 'appearance', 'models', 'connections', 'chatConnections', 'machines', 'extras', 'permissions', 'updates'] as const;
+export const settingsSections = ['general', 'appearance', 'models', 'connections', 'chatConnections', 'plugins', 'machines', 'extras', 'permissions', 'updates'] as const;
 export type SettingsSection = typeof settingsSections[number] | 'telegram' | 'setup';
 
 // Native repair links and older callers still use the runtime destination.
