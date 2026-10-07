@@ -312,7 +312,7 @@
   "extrasIntro": "Capture and pin images on this computer. Chat attachments and desktop tasks have separate controls.",
   "extrasCaptureTitle": "Screen tools",
   "extrasCaptureToggle": "Capture and pin images",
-  "extrasCaptureDescription": "Use F1 to select, annotate, copy or Ask Bot; use F3 to pin an image. Turning this off stops these shortcuts and menu actions. Saved chat images stay available.",
+  "extrasCaptureDescription": "F1 captures or asks Bot; F3 pins an image. Turning this off stops these actions.",
   "machines": "Remote machines",
   "machinePageIntro": "Connect a remote machine and set up its work tools and accounts.",
   "machineListTitle": "Your machines",

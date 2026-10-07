@@ -311,7 +311,7 @@
   "extrasIntro": "在这台电脑上截图和贴图。聊天附件与桌面任务分别控制。",
   "extrasCaptureTitle": "截屏工具",
   "extrasCaptureToggle": "启用截屏与贴图",
-  "extrasCaptureDescription": "F1 选区、标注、复制或询问助手；F3 贴图。关闭后停用这些快捷键和菜单操作，已有聊天图片仍保留。",
+  "extrasCaptureDescription": "F1 截屏、标注或询问助手；F3 贴图。关闭后停用这些操作。",
   "machines": "远程机器",
   "machinePageIntro": "连接远程机器，并为它单独配置工作工具与账号。",
   "machineListTitle": "已添加的机器",
