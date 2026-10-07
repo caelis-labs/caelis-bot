@@ -792,7 +792,7 @@ int bot_trash_path(char *path) {
 void bot_style_settings(void *pointer) {
     NSWindow *window = (__bridge NSWindow *)pointer;
     window.backgroundColor = NSColor.windowBackgroundColor;
-    bot_install_material(window, 16, 184, 0);
+    bot_install_material(window, 16, 190, 0);
 }
 
 void bot_activity(void *pointer, char *activity) {

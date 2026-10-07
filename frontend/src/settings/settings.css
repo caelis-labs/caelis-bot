@@ -16,7 +16,7 @@
 .settings-window :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),select){padding:7px 10px}
 .settings-window .text-action{display:inline-flex;gap:6px;align-items:center;justify-content:center}
 .settings-window button:not(:disabled):hover{filter:none;background:var(--wash)}
-.settings-window button.primary:not(:disabled):hover{background:var(--ink);opacity:.88}
+.settings-window button.primary:not(:disabled):hover{background:var(--accent);filter:brightness(.91)}
 .settings-window svg{flex:none}
 .settings-chevron{color:var(--muted);transition:transform .16s ease;flex:none}
 .settings-chevron.is-open,details[open]>summary>.settings-chevron{transform:rotate(90deg)}
@@ -76,13 +76,13 @@
 .settings-window .runtime-popover-scrim{background:transparent;padding:0;display:block}
 .settings-window .runtime-popover-scrim>.runtime-dialog{position:fixed}
 /* This compact component is shared by conversation, work and Team bindings. */
-.settings-window .runtime-model-popover{width:308px;max-width:calc(100vw - 32px);padding:14px 16px;overflow:auto}
+.settings-window .runtime-model-popover{width:340px;max-width:calc(100vw - 32px);padding:14px 16px;overflow:auto}
 .settings-window .runtime-model-popover .runtime-dialog-heading{gap:8px;margin-bottom:10px}
 .settings-window .runtime-model-popover .runtime-dialog-heading h2{font-size:12px;font-weight:500;color:var(--muted)}
 .settings-window .runtime-model-popover .runtime-close,.settings-window .runtime-model-drawer .runtime-close{width:24px;height:24px;min-height:24px;padding:4px}
 .runtime-model-choice-row{display:flex;align-items:center;gap:7px;font-size:12px}
-.runtime-model-choice-row>span{margin-right:auto;flex:none;color:var(--muted)}
-.settings-window .runtime-current-model{display:flex;align-items:center;gap:5px;min-width:0;max-width:210px;min-height:30px;padding:5px 7px;font-size:12px;background:transparent}
+.runtime-model-choice-row>span{flex:none;color:var(--muted)}
+.settings-window .runtime-current-model{display:flex;align-items:center;gap:5px;flex:1;min-width:0;max-width:none;min-height:30px;padding:5px 7px;font-size:12px;background:transparent}
 .runtime-current-model>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .runtime-current-model small{font-size:10px;color:var(--muted)}
 .settings-window .runtime-fast-toggle{display:grid;place-items:center;width:30px;height:30px;min-height:30px;padding:5px;background:transparent;color:var(--muted)}
@@ -104,9 +104,9 @@
 .runtime-effort-labels>span{position:absolute;transform:translateX(-50%);white-space:nowrap}
 .runtime-effort-labels>span:first-child{transform:none}
 .runtime-effort-labels>span:last-child{transform:translateX(-100%)}
-.settings-window .runtime-model-actions{display:flex;gap:6px;align-items:center;padding-top:11px;margin-top:12px;border-top:1px solid var(--line);flex-wrap:nowrap}
-.settings-window .runtime-model-actions button{font-size:12px;min-height:30px;padding:5px 8px;white-space:nowrap}
-.settings-window .runtime-model-actions .runtime-reset-parameters{margin-right:auto;padding-left:0;color:var(--muted);gap:4px;font-size:11px}
+.settings-window .runtime-model-actions{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;align-items:center;padding-top:11px;margin-top:12px;border-top:1px solid var(--line)}
+.settings-window .runtime-model-actions button{font-size:12px;min-height:30px;padding:5px 8px;white-space:normal}
+.settings-window .runtime-model-actions .runtime-reset-parameters{justify-self:start;padding-left:0;color:var(--muted);gap:4px;font-size:11px}
 .settings-window .runtime-model-popover .runtime-reset-binding{font-size:11px;min-height:24px;margin-top:8px}
 .settings-window .runtime-extra-speed{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:14px 0 0;font-size:12px}
 .settings-window .runtime-extra-speed select{width:auto;max-width:180px;font-size:12px;min-height:30px;padding:4px 7px}
@@ -134,6 +134,12 @@
 .runtime-effort-track{padding:0}
 .settings-window .machine-row{border-radius:0}
 .settings-window .runtime-team-dialog .runtime-section-title h2{font-size:13px;font-weight:500;margin:0}
+.settings-window .runtime-worker-recovery{padding:14px 0 10px;border-bottom:1px solid var(--line)}
+.settings-window .runtime-worker-recovery .settings-note{margin:0 0 10px;line-height:1.55}
+.settings-window .runtime-worker-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.settings-window .runtime-active-actions{flex-wrap:wrap;justify-content:flex-end}
+.settings-window .setting-control{flex-wrap:wrap}
+@media(max-width:700px){.settings-window .runtime-model-actions{grid-template-columns:1fr 1fr}.settings-window .runtime-reset-parameters{grid-column:1/-1}.settings-window .runtime-active{align-items:flex-start;flex-wrap:wrap}.settings-window .runtime-active-actions{width:100%;justify-content:flex-start;padding-left:51px}}
 
 .telegram-page{max-width:620px}
 .telegram-back{border:0;background:transparent;color:var(--muted);padding:0;margin:0 0 22px}
