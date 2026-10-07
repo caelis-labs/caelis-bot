@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -90,9 +91,105 @@ func TestBotProjectRejectsEscapingLinksAndSymlinkDirectories(t *testing.T) {
 	}
 }
 
+func TestBotProjectLinkCollisionLeavesConfirmedConfig(t *testing.T) {
+	bot := t.TempDir()
+	old := &api.ToolConnection{}
+	if err := projectCodexWorkspace(bot, old); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(bot, ".codex", "config.toml")
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(t.TempDir(), "versions", "sample", "v1")
+	skill := filepath.Join(root, "skills", "useful")
+	if err := os.MkdirAll(skill, 0700); err != nil {
+		t.Fatal(err)
+	}
+	collision := filepath.Join(bot, ".agents", "skills", "plugin-sample-useful")
+	if err := os.WriteFile(collision, []byte("user content"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	next := &api.ToolConnection{Plugins: plugins.Selection{SkillRoots: []string{skill}, Servers: []plugins.SelectedServer{{PackageID: "sample", Name: "remote", Server: plugins.Server{Type: "streamable-http", URL: "https://example.com/mcp"}}}}}
+	if err := projectCodexWorkspace(bot, next); err == nil {
+		t.Fatal("Bot overwrote a colliding user Skill")
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil || string(after) != string(before) {
+		t.Fatal("failed projection changed the confirmed MCP config", err)
+	}
+}
+
 func TestWorkerCannotSelectBotWorkspace(t *testing.T) {
 	bot := filepath.Join(t.TempDir(), "Notebook")
 	if !withinBotWorkspace(bot, bot) || !withinBotWorkspace(bot, filepath.Join(bot, "subtask")) || withinBotWorkspace(bot, filepath.Join(filepath.Dir(bot), "Tasks", "task-1")) {
 		t.Fatal("Bot workspace overlap was not fenced")
+	}
+}
+
+func TestPluginChangeWaitsForDisconnectedBoundThread(t *testing.T) {
+	bot := t.TempDir()
+	state := filepath.Join(t.TempDir(), "binding.json")
+	tools := &api.ToolConnection{Command: "fixture", NotebookDirectory: bot}
+	seed := NewSession(SessionOptions{Directory: bot, StateFile: state})
+	seed.binding.ThreadID = "original-thread"
+	seed.binding.Pending = &pendingSubmission{ID: "original-unknown-receipt"}
+	if err := seed.save(); err != nil {
+		t.Fatal(err)
+	}
+	s := NewSession(SessionOptions{Directory: bot, StateFile: state})
+	if err := s.ConfigureBotTools(tools); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(bot, ".agents", "skills", ".caelis-bot-links.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := filepath.Join(t.TempDir(), "skills", "useful")
+	if err := os.MkdirAll(skill, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateBotPlugins(context.Background(), plugins.Selection{Revision: 2, SkillRoots: []string{skill}}); err == nil {
+		t.Fatal("changed plugins before the original thread was reconciled")
+	}
+	after, err := os.ReadFile(filepath.Join(bot, ".agents", "skills", ".caelis-bot-links.json"))
+	if err != nil || string(after) != string(before) {
+		t.Fatal("failed activation changed the Bot projection", err)
+	}
+	if s.binding.ThreadID != "original-thread" || s.binding.Pending == nil || s.binding.Pending.ID != "original-unknown-receipt" || len(s.opts.BotTools.Plugins.SkillRoots) != 0 {
+		t.Fatal("plugin change lost the original receipt or selection")
+	}
+	s.binding.Pending = nil
+	if err := s.UpdateBotPlugins(context.Background(), plugins.Selection{Revision: 2, SkillRoots: []string{skill}}); err == nil {
+		t.Fatal("changed a disconnected thread without confirming it was idle")
+	}
+
+	unbound := NewSession(SessionOptions{Directory: t.TempDir()})
+	if err := unbound.ConfigureBotTools(&api.ToolConnection{Command: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := unbound.UpdateBotPlugins(context.Background(), plugins.Selection{Revision: 2, SkillRoots: []string{skill}}); err != nil {
+		t.Fatal("first-use projection should be available before connection", err)
+	}
+}
+
+func TestPluginRollbackFailureFencesCodexConnection(t *testing.T) {
+	bot := t.TempDir()
+	s := NewSession(SessionOptions{Directory: bot})
+	if err := s.ConfigureBotTools(&api.ToolConnection{Command: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(bot, ".codex", "config.toml")
+	if err := os.WriteFile(configPath, []byte("# user config\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.state.Connection = "ready"
+	err := s.UpdateBotPlugins(context.Background(), plugins.Selection{Revision: 2})
+	if err == nil || !strings.Contains(err.Error(), "rollback failed") {
+		t.Fatal("uncertain rollback was not reported", err)
+	}
+	if s.state.Connection != "offline" || len(s.opts.BotTools.Plugins.SkillRoots) != 0 {
+		t.Fatal("uncertain projection still admitted Bot work")
 	}
 }

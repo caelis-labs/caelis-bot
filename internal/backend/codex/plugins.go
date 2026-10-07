@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -163,6 +164,31 @@ func projectCodexWorkspace(directory string, c *api.ToolConnection) error {
 			return errors.New("unsafe Bot Skill link manifest")
 		}
 	}
+	// Resolve collisions before replacing the MCP config. A failed Skill
+	// projection must leave the last confirmed config intact.
+	for name, target := range previous {
+		if desired[name] == target {
+			continue
+		}
+		actual, err := os.Readlink(filepath.Join(skillDir, name))
+		if err != nil || actual != target {
+			return errors.New("Bot skill link was changed externally")
+		}
+	}
+	for name, target := range desired {
+		link := filepath.Join(skillDir, name)
+		if actual, err := os.Readlink(link); err == nil {
+			if actual != target {
+				return errors.New("Bot skill link collision")
+			}
+			continue
+		}
+		if _, err := os.Lstat(link); err == nil {
+			return errors.New("Bot skill path collision")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
 	if err := writeProjectFile(configPath, []byte(body.String())); err != nil {
 		return err
 	}
@@ -229,6 +255,12 @@ func (s *Session) UpdateBotPlugins(ctx context.Context, selection plugins.Select
 		s.mu.Unlock()
 		return errors.New("Bot tools not configured")
 	}
+	// A disconnected resident may still own an unresolved native turn. Keep
+	// its confirmed projection until reconnect reconciles the original thread.
+	if s.client == nil && (s.binding.ThreadID != "" || s.binding.Pending != nil) {
+		s.mu.Unlock()
+		return errors.New("Bot is disconnected; reconnect and reconcile the original thread before changing plugins")
+	}
 	if s.client != nil && !s.maintenanceIdle() {
 		s.mu.Unlock()
 		return errors.New("Bot is working; retry plugin change after the current turn")
@@ -239,27 +271,39 @@ func (s *Session) UpdateBotPlugins(ctx context.Context, selection plugins.Select
 	c := s.client
 	dir := s.opts.Directory
 	s.mu.Unlock()
-	rollback := func() {
-		_ = projectCodexWorkspace(dir, old)
+	rollback := func() error {
+		var failures []error
+		if err := projectCodexWorkspace(dir, old); err != nil {
+			failures = append(failures, err)
+		}
 		if c != nil {
 			recovery, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			_ = callDecode(recovery, c, "config/mcpServer/reload", nil, nil)
-			_ = callDecode(recovery, c, "skills/list", map[string]any{"cwds": []string{dir}, "forceReload": true}, nil)
+			if err := callDecode(recovery, c, "config/mcpServer/reload", nil, nil); err != nil {
+				failures = append(failures, err)
+			}
+			if err := callDecode(recovery, c, "skills/list", map[string]any{"cwds": []string{dir}, "forceReload": true}, nil); err != nil {
+				failures = append(failures, err)
+			}
 		}
+		return errors.Join(failures...)
+	}
+	fail := func(err error) error {
+		if restoreErr := rollback(); restoreErr != nil {
+			_ = s.connectionError("插件状态未确认，请重新连接后核对", restoreErr)
+			return errors.Join(err, fmt.Errorf("plugin activation rollback failed: %w", restoreErr))
+		}
+		return err
 	}
 	if err := projectCodexWorkspace(dir, next); err != nil {
-		rollback()
-		return err
+		return fail(err)
 	}
 	if c != nil {
 		if err := callDecode(ctx, c, "config/mcpServer/reload", nil, nil); err != nil {
-			rollback()
-			return err
+			return fail(err)
 		}
 		if err := callDecode(ctx, c, "skills/list", map[string]any{"cwds": []string{dir}, "forceReload": true}, nil); err != nil {
-			rollback()
-			return err
+			return fail(err)
 		}
 	}
 	s.mu.Lock()
