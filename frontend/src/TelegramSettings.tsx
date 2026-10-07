@@ -46,7 +46,7 @@ export function TelegramSettings({onBack,active=true}:{onBack?:()=>void;active?:
    <h3>{t('settings.telegramChooseBot')}</h3>
    <div className="telegram-route" role="group" aria-label={t('settings.telegramChooseBot')}><button type="button" aria-pressed={route==='new'} onClick={()=>setRoute('new')}>{t('settings.telegramNewBot')}</button><button type="button" aria-pressed={route==='existing'} onClick={()=>setRoute('existing')}>{t('settings.telegramExistingBot')}</button></div>
    {route==='new'?<p>{t('settings.telegramCreateSimple')}</p>:<p>{t('settings.telegramExisting')}</p>}
-   <button type="button" className="text-action" onClick={()=>void open(false)}>{t('settings.telegramBotFather')}</button>
+   <button type="button" className="text-action link-action" onClick={()=>void open(false)}>{t('settings.telegramBotFather')}</button>
   </div>}
   {showToken&&<div className="telegram-step"><h3>{t('settings.telegramTokenStep')}</h3>
    <label htmlFor="telegram-token">{t('settings.telegramToken')}</label>

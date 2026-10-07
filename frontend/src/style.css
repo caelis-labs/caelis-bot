@@ -48,8 +48,9 @@ body[data-surface="panel"] .input-surface { position:relative; top:var(--compose
 .input-error { margin:0; padding:0 24px 12px; font-size:12px; color:var(--error); }
 .quiet,.menu-caption { color:var(--muted); font-size:11px; }
 .menu-caption { margin:10px 12px 5px; }
-.text-action { border:0; padding:5px 2px; background:transparent; font-size:12px; color:var(--muted); }
+.text-action { border:0; padding:5px 2px; background:transparent; font-size:12px; color:var(--ink); }
 .text-action:hover { text-decoration:underline; }
+.link-action { color:var(--caelis-link); text-decoration:underline; text-underline-offset:2px; }
 body[data-surface="history"] { background:var(--caelis-chat); }
 .history-surface { height:100dvh; width:100%; min-width:0; display:flex; flex-direction:column; position:relative; }
 .chat-scroll { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:12px 28px 20px; }
@@ -101,6 +102,9 @@ body[data-surface="history"] { background:var(--caelis-chat); }
 .approval-choices,.connection-actions,.question-options { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
 .approval-choices { position:sticky; bottom:0; background:var(--bg); padding:8px 0; }
 .approval-choices button,.connection-actions button,.question-options button,.permission-option button { background:var(--wash); border:1px solid var(--line); border-radius:11px; padding:8px 12px; font-size:12px; }
+.connection-actions button.primary { background:var(--accent); border-color:transparent; color:var(--on-accent); }
+.connection-actions button.primary:hover { background:var(--caelis-action-hover); }
+.connection-actions button.primary:active { background:var(--caelis-action-pressed); }
 .approval-choices .primary-decision { background:var(--accent); color:var(--on-accent); }
 .approval-result { display:flex; align-items:center; gap:6px; }
 .advanced-permission { color:var(--muted); font-size:11px; }
@@ -214,7 +218,8 @@ summary { cursor:pointer; }
 .settings-window button:not(nav button) { border:1px solid var(--line); border-radius:var(--radius-control); padding:7px 11px; background:var(--surface); white-space:normal; overflow-wrap:anywhere; font-size:12px; }
 .settings-window button:not(nav button):hover { background:var(--wash); }
 .settings-window button.primary { background:var(--accent); color:var(--on-accent); border-color:transparent; }
-.settings-window button.text-action { border-color:transparent; background:transparent; padding-inline:0; color:var(--muted); }
+.settings-window button.text-action { border-color:transparent; background:transparent; padding-inline:0; color:var(--ink); }
+.settings-window button.link-action { color:var(--caelis-link); text-decoration:underline; text-underline-offset:2px; }
 .settings-window select,.runtime-path input { min-width:0; max-width:100%; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:12px; }
 .settings-window select { width:200px; text-overflow:ellipsis; }
 .settings-window input.settings-switch { appearance:none; flex:none; position:relative; width:32px; height:20px; border:1px solid var(--line); border-radius:12px; background:var(--wash); margin:0; cursor:pointer; }
@@ -366,9 +371,11 @@ summary { cursor:pointer; }
 .character-preview canvas { display:block; width:100%; height:100%; }
 .character-preview figcaption { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); font-size:12px; }
 .permission-badge { display:inline-block; color:var(--muted); font-size:12px; text-align:right; line-height:1.5; }
-.permission-toggle { flex-direction:column; align-items:flex-end; gap:6px; }
-.permission-toggle > span { max-width:180px; }
+.permission-toggle { flex-direction:row; align-items:center; gap:12px; }
+.permission-toggle > span { max-width:160px; }
+.permission-toggle > span[data-status="authorized"] { color:var(--success); }
 .permission-toggle button { min-width:82px; }
+@media(max-width:700px) { .permission-toggle { flex-direction:column-reverse; align-items:flex-end; gap:6px; } }
 .setup-page { padding-top:28px; scrollbar-gutter:stable; }
 .setup-flow { max-width:560px; margin:auto; }
 .setup-progress { display:flex; justify-content:center; gap:26px; margin:0 auto 28px; padding:0; list-style:none; font-size:12px; color:var(--muted); }

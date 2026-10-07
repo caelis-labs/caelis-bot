@@ -15,11 +15,11 @@ const names: Record<string, string> = { caelis: 'Caelis', codex: 'Codex' };
 const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore: '' });
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
 
-export function RuntimeSettings({ onboarding = false, onDone,active=true,refreshKey=0,page='connections',onConnections }: { onboarding?: boolean; onDone?: () => void; active?:boolean; refreshKey?:number; page?:RuntimePage; onConnections?:()=>void }) {
- return onboarding ? <RuntimePreparation onboarding onDone={onDone}/> : <RuntimeWorkspace workerSettings={<LocalWorkerSettings active={active && page === 'models'} onConnections={onConnections}/>} page={page} onConnections={onConnections} active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} onBusy={onBusy}/>}/>;
+export function RuntimeSettings({ onboarding = false, onBack,onDone,active=true,refreshKey=0,page='connections',onConnections }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; active?:boolean; refreshKey?:number; page?:RuntimePage; onConnections?:()=>void }) {
+ return onboarding ? <RuntimePreparation onboarding onBack={onBack} onDone={onDone}/> : <RuntimeWorkspace workerSettings={<LocalWorkerSettings active={active && page === 'models'} onConnections={onConnections}/>} page={page} onConnections={onConnections} active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} onBusy={onBusy}/>}/>;
 }
 
-export function RuntimePreparation({ onboarding = false, onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
+export function RuntimePreparation({ onboarding = false, onBack,onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
  const { t } = useI18n();
  const errorText = (e: unknown) => e instanceof Error ? e.message : t('runtime.actionFailed');
  const [activeProfile, setActiveProfile] = useState<Profile | null>(null), [restartNeeded, setRestartNeeded] = useState(false);
@@ -69,7 +69,8 @@ export function RuntimePreparation({ onboarding = false, onDone, initialRuntime 
   <img className="setup-avatar" src="/icons/caelis-avatar.png" alt=""/>
   <h1>{t('runtime.prepareCaelisBot')}</h1><p className="setup-lead">{t('runtime.chooseRuntimeLead')}</p>
   <div className="runtime-choices">{['caelis', 'codex'].map(value => <button key={value} onClick={() => setID(value)}><div><strong>{t('runtime.useRuntime', { name: names[value] })}</strong><span>{value === 'caelis' ? t('runtime.caelisOnboardingLead') : t('runtime.codexOnboardingLead')}</span></div><span aria-hidden="true">→</span></button>)}</div>
-  <button className="text-action" onClick={() => void skip().catch(e => setError(errorText(e)))}>{t('runtime.setupLater')}</button>{error && <p role="alert" className="inline-error">{error}</p>}
+  {error && <p role="alert" className="inline-error">{error}</p>}
+  <div className="setup-end">{onBack&&<button type="button" onClick={onBack}>{t('settings.setupBack')}</button>}<button className="text-action" onClick={() => void skip().catch(e => setError(errorText(e)))}>{t('runtime.setupLater')}</button></div>
  </section>;
  const serviceNeedsApply = id === 'caelis' && !!state?.installation.installed && (state.state === 'service' || state.serviceUpdateAvailable || state.state === 'incompatible' && state.installation.updateState === 'current');
  const updateAvailable = state?.installation.updateState === 'available';
