@@ -63,7 +63,19 @@ type Package struct {
 }
 
 func safeRelative(name string) bool {
-	return name != "" && name != "." && !filepath.IsAbs(name) && filepath.Clean(name) == name && !strings.HasPrefix(name, ".."+string(os.PathSeparator)) && name != ".." && !strings.Contains(name, "\\")
+	if name == "" || name == "." || name == ".." || filepath.IsAbs(name) || filepath.VolumeName(name) != "" || filepath.Clean(name) != name {
+		return false
+	}
+	if strings.HasPrefix(name, ".."+string(os.PathSeparator)) || strings.Contains(name, ":") {
+		return false
+	}
+	return os.PathSeparator == '\\' || !strings.Contains(name, "\\")
+}
+
+// The reviewed inventory is portable slash syntax. Convert it to a native
+// relative path only after rejecting backslashes supplied by the inventory.
+func safeReviewedName(name string) bool {
+	return !strings.Contains(name, "\\") && safeRelative(filepath.FromSlash(name)) && filepath.ToSlash(filepath.FromSlash(name)) == name
 }
 
 // Verify checks every byte against a Bot-reviewed inventory before any path is
@@ -121,7 +133,7 @@ func Verify(root string, files map[string]string) error {
 		return err
 	}
 	for name := range files {
-		if !safeRelative(filepath.FromSlash(name)) || !seen[name] {
+		if !safeReviewedName(name) || !seen[name] {
 			return fmt.Errorf("missing or unsafe reviewed file: %s", name)
 		}
 	}

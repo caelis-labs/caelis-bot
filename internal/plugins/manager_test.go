@@ -126,7 +126,10 @@ func TestVerifiedBytesAndPathSafety(t *testing.T) {
 	if _, err = m.readInstalled(e); err == nil {
 		t.Fatal("modified manifest accepted")
 	}
-	if safeRelative("../escape") || safeRelative("/absolute") || safeRelative("skills\\escape") {
+	if !safeReviewedName("skills/markdown-work/SKILL.md") || !safeRelative(filepath.FromSlash("skills/markdown-work/SKILL.md")) {
+		t.Fatal("portable reviewed inventory did not resolve to a native relative path")
+	}
+	if safeRelative("../escape") || safeRelative("/absolute") || safeReviewedName("skills\\escape") {
 		t.Fatal("unsafe path accepted")
 	}
 }

@@ -120,7 +120,7 @@ func Open(root string) (*Manager, error) {
 		}
 		seen[e.ID] = true
 		for name, hash := range e.Files {
-			if !safeRelative(filepath.FromSlash(name)) || len(hash) != 64 {
+			if !safeReviewedName(name) || len(hash) != 64 {
 				return nil, errors.New("invalid reviewed plugin inventory")
 			}
 		}
