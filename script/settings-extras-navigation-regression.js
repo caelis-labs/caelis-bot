@@ -14,7 +14,7 @@
    const overviewReturned=!document.querySelector('.messaging-settings')?.closest('[hidden]');
    document.querySelector('.messaging-channel')?.click();
    setTimeout(()=>{
-    window.__fixtureResult={overviewStatus,detail,overviewReturned,draftRetained:document.querySelector('#telegram-token')?.value==='temporary-fixture-token',existingRetained:document.querySelector('.telegram-route button:nth-child(2)')?.getAttribute('aria-pressed')==='true',detailReturned:!document.querySelector('.telegram-page')?.closest('[hidden]')};
+    window.__fixtureResult={overviewStatus,detail,overviewReturned,draftCleared:document.querySelector('#telegram-token')?.value==='',existingRetained:document.querySelector('.telegram-route button:nth-child(2)')?.getAttribute('aria-pressed')==='true',detailReturned:!document.querySelector('.telegram-page')?.closest('[hidden]')};
    },250);
   },200);
  },200);

@@ -15,7 +15,7 @@ export const Call={ByName:async(name,...args)=>{
  switch(method){
  case 'TelegramStatus':if(${state==='load-recover'}&&++statusReads===1)throw Error('fixture status unavailable');return status;
  case 'OpenTelegramSetup':if(${state==='open-error'})throw Error('fixture open failed');return;
- case 'ConnectTelegram':if(${state==='connecting'})return new Promise(()=>{});return status;
+ case 'ConnectTelegram':if(${state==='connecting'})return new Promise(()=>{});if(${state==='invalid-late'})await new Promise(resolve=>setTimeout(resolve,700));if(${state==='invalid-token'||state==='invalid-late'})status={...status,issue:'invalid_token'};return status;
  case 'FeatureGuidePending':return featuresPending;
  case 'FinishFeatureGuide':featuresPending=false;return;
  case 'PermissionGuidePending':return permissionsPending;

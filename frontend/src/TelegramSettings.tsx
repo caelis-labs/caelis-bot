@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
+import {flushSync} from 'react-dom';
 import {desktop} from './desktop';
 import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
@@ -11,19 +12,23 @@ export function TelegramSettings({onBack,active=true}:{onBack?:()=>void;active?:
  const {t}=useI18n();
  const [status,setStatus]=useState<TelegramStatus|null>(null),[token,setToken]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [route,setRoute]=useState<'new'|'existing'>('new'),[confirmForget,setConfirmForget]=useState(false);
- const alive=useRef(false),revision=useRef(0),acting=useRef(false);
- useEffect(()=>{if(!active){setToken('');setConfirmForget(false)}},[active]);
+ const alive=useRef(false),revision=useRef(0),acting=useRef(false),tokenInput=useRef<HTMLInputElement|null>(null);
+ const clearToken=()=>{if(tokenInput.current)tokenInput.current.value='';setToken('')};
+ useEffect(()=>{if(!active){clearToken();setConfirmForget(false)}},[active]);
  useEffect(()=>{
   alive.current=true;
+  const close=()=>flushSync(()=>{clearToken();setConfirmForget(false)});
+  window.addEventListener('settings-close',close);
   const load=()=>{if(acting.current)return;const current=++revision.current;void desktop<TelegramStatus>('TelegramStatus').then(s=>{if(alive.current&&current===revision.current){setStatus(s);setError(previous=>previous==='unavailable'?'':previous)}}).catch(()=>{if(alive.current&&current===revision.current)setError(previous=>previous||'unavailable')});};
   load();const timer=window.setInterval(load,2000);
-  return()=>{alive.current=false;revision.current++;clearInterval(timer)};
+  return()=>{alive.current=false;revision.current++;clearInterval(timer);window.removeEventListener('settings-close',close)};
  },[]);
  const refresh=async()=>{const current=++revision.current;try{const s=await desktop<TelegramStatus>('TelegramStatus');if(alive.current&&current===revision.current){setStatus(s);setError('')}}catch{if(alive.current&&current===revision.current)setError('unavailable')}};
  const act=async(method:'ConnectTelegram'|'ConfirmTelegram'|'DisconnectTelegram'|'ForgetTelegram',...args:unknown[])=>{
   if(acting.current)return;acting.current=true;revision.current++;setBusy(true);setError('');
-  try{const s=await desktop<TelegramStatus>(method,...args);if(alive.current){setStatus(s);setConfirmForget(false);if(method==='ConnectTelegram')setToken('')}}
-  catch{if(alive.current){if(method==='ConnectTelegram')setToken('');const current=++revision.current;try{const s=await desktop<TelegramStatus>('TelegramStatus');if(alive.current&&current===revision.current){setStatus(s);setError(s.issue||'setup_failed')}}catch{if(alive.current&&current===revision.current)setError('unavailable')}}}
+  if(method==='ConnectTelegram')clearToken();
+  try{const s=await desktop<TelegramStatus>(method,...args);if(alive.current){setStatus(s);setConfirmForget(false)}}
+  catch{if(alive.current){const current=++revision.current;try{const s=await desktop<TelegramStatus>('TelegramStatus');if(alive.current&&current===revision.current){setStatus(s);setError(s.issue||'setup_failed')}}catch{if(alive.current&&current===revision.current)setError('unavailable')}}}
   finally{acting.current=false;if(alive.current)setBusy(false)}
  };
  const open=async(pair:boolean)=>{try{await desktop('OpenTelegramSetup',pair);if(alive.current)setError('')}catch{if(alive.current)setError('open_failed')}};
@@ -33,7 +38,7 @@ export function TelegramSettings({onBack,active=true}:{onBack?:()=>void;active?:
  const tokenInvalid=issue==='invalid_token'&&!hasToken;
  const showToken=phase==='unconfigured'||issue==='invalid_token'||issue==='keychain'||issue==='webhook';
  return <section className="telegram-page" aria-labelledby="telegram-title">
-  {onBack&&<button type="button" className="text-action telegram-back" onClick={()=>{setToken('');onBack()}}>‹ {t('settings.chatConnections')}</button>}
+  {onBack&&<button type="button" className="text-action telegram-back" onClick={()=>{clearToken();onBack()}}>‹ {t('settings.chatConnections')}</button>}
   <div className="telegram-heading"><div><h1 id="telegram-title">{t('settings.telegramTitle')}</h1><p>{t('settings.telegramDescription')}</p></div><span className={`telegram-state telegram-state-${phase}`} role="status">{t(`settings.telegramState_${phase}` as MessageKey)}</span></div>
   {phase==='loading'&&<p role="status">{t('common.loading')}</p>}
   {phase==='connecting'&&<p role="status" className="telegram-feedback">{t('settings.telegramConnectingHelp')}</p>}
@@ -45,7 +50,7 @@ export function TelegramSettings({onBack,active=true}:{onBack?:()=>void;active?:
   </div>}
   {showToken&&<div className="telegram-step"><h3>{t('settings.telegramTokenStep')}</h3>
    <label htmlFor="telegram-token">{t('settings.telegramToken')}</label>
-   <input id="telegram-token" type="password" autoComplete="off" spellCheck={false} value={token} maxLength={512} placeholder={t('settings.telegramTokenPlaceholder')} disabled={busy} aria-invalid={tokenInvalid} aria-describedby={tokenInvalid?'telegram-token-error':undefined} onChange={e=>{setToken(e.target.value);if(error==='invalid_token')setError('')}}/>
+   <input id="telegram-token" ref={tokenInput} type="password" autoComplete="off" spellCheck={false} value={token} maxLength={512} placeholder={t('settings.telegramTokenPlaceholder')} disabled={busy} aria-invalid={tokenInvalid} aria-describedby={tokenInvalid?'telegram-token-error':undefined} onChange={e=>{setToken(e.target.value);if(error==='invalid_token')setError('')}}/>
    {tokenInvalid&&<p id="telegram-token-error" className="inline-error" role="alert">{t('settings.telegramIssue_invalid_token')}</p>}
    <p className="settings-description">{t('settings.telegramTokenPrivacy')}</p>
    <button type="button" className="primary" disabled={busy||!hasToken} onClick={()=>void act('ConnectTelegram',token,issue==='webhook')}>{t(issue==='webhook'?'settings.telegramTakeOver':'settings.telegramConnect')}</button>

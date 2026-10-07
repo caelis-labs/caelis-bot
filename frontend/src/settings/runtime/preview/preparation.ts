@@ -3,23 +3,23 @@ import type { RuntimeSettings, SetupRequest, SetupState } from '../../../backend
 
 // Development-only transport for the actual installation component.
 export function createPreparationPreview(): typeof backend {
- const mode=new URLSearchParams(location.search).get('upgrade');
- let installed=['available','failure'].includes(mode??'')?'v0.61.0':'v0.62.0', service='v0.61.0';
+ const params=new URLSearchParams(location.search),scenario=params.get('state')??'',mode=params.get('upgrade');
+ let installed=scenario.includes('install')?'':['available','failure'].includes(mode??'')||scenario.includes('update')?'v0.61.0':'v0.62.0', service=scenario.includes('install')?'':scenario.startsWith('runtime-')?installed:'v0.61.0';
  let updateState='',latest='', failed=false;
  const profile:RuntimeSettings={runtime:'caelis',cliPath:'',caelisStore:''};
- const state=():SetupState=>({serviceUpdateAvailable:installed>service,settings:profile,selectedModel:'fixture/model',serviceVersion:service,serviceState:'running',installation:{installed:true,path:'/Users/demo/.local/bin/caelis',version:installed,message:'',latestVersion:latest,updateState},state:service==='v0.62.0'?'ready':'incompatible',message:service==='v0.62.0'?'Caelis 服务已就绪，连接验证通过':'运行中的服务尚未支持当前 Bot 协议',models:[{value:'fixture/model',label:'MiMo V2.6 Flash',noAuth:false,current:true}],loginPending:false,accountType:''});
+ const state=():SetupState=>({serviceUpdateAvailable:!!installed&&installed>service,settings:profile,selectedModel:'fixture/model',serviceVersion:service,serviceState:installed?'running':'stopped',installation:{installed:!!installed,path:installed?'/Users/demo/.local/bin/caelis':'',version:installed,message:'',latestVersion:latest,updateState},state:service==='v0.62.0'?'ready':installed?'incompatible':'install',message:'',models:[{value:'fixture/model',label:'MiMo V2.6 Flash',noAuth:false,current:true}],loginPending:false,accountType:''});
  return async<T>(method:string,...args:unknown[]):Promise<T>=>{
   let result:unknown;
   switch(method){
    case 'RuntimeSettings':case 'SetupProfile':result=profile;break;
-   case 'SetupOverview':result={active:'caelis',pending:'',onboarding:false};break;
-   case 'ComposerSnapshot':result={connection:'ready'};break;
+   case 'SetupOverview':result={active:scenario.includes('unselected')?'':'caelis',pending:'',onboarding:false};break;
+   case 'ComposerSnapshot':result={connection:scenario.match(/(?:offline|connecting|unknown|ready)$/)?.[0]??'ready'};break;
    case 'InspectSetup':updateState='';latest='';result=state();break;
    case 'ApplySetup':{
     const request=args[0] as SetupRequest;
     await new Promise(resolve=>setTimeout(resolve,350));
     if(request.action==='check-update'){latest='v0.62.0';updateState=installed===latest?'current':'available';}
-    else if(['update','apply-update','start'].includes(request.action)){
+    else if(['install','update','apply-update','start'].includes(request.action)){
      installed='v0.62.0';
      if(mode==='failure'&&!failed){failed=true;throw new Error('服务尚未启用，请重试。');}
      service=installed;updateState='';

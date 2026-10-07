@@ -10,7 +10,7 @@ import { useI18n } from '../../i18n';
 import './runtime.css';
 import {SettingsChevron, ArrowClockwiseIcon} from '../../SettingsIcons';
 import {backend} from '../../desktop';
-import {setupStatusKey} from './setup-status';
+import {botSessionStatusKey,setupStatusKey} from './setup-status';
 
 export type RuntimePage = 'models' | 'connections';
 
@@ -45,12 +45,11 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, preparation,a
   finally { working.current = false; setBusy(false); }
  };
  const caelis = view?.profile.runtime === 'caelis';
- const choiceRequired = view?.session?.issue === 'setup_required';
+ const choiceRequired = view?.activeRuntime === '' || view?.session?.issue === 'setup_required';
  const name = choiceRequired ? t('runtime.noConnection') : caelis ? 'Caelis' : 'Codex';
  const configured = view?.setup.state === 'ready' && !choiceRequired;
- const connected = configured && view?.session?.connection === 'ready';
  const reconnectable = configured && view?.session?.connection === 'offline' && view.session.issue !== 'setup_required';
- const sessionLabel = choiceRequired ? t('runtime.chooseConnection') : connected ? t('runtime.connected') : !configured && view ? t(setupStatusKey(view.setup)) : !view?.session ? t('runtime.statusUnknown') : view.session.connection === 'connecting' ? t('runtime.connecting') : view.session.connection === 'login' ? t('runtime.loginCodex') : t('runtime.sessionUnavailable');
+ const sessionLabel = view ? t(botSessionStatusKey(view.setup,view.session,!choiceRequired)) : t('runtime.statusUnknown');
  const reconnect = async () => {setLoading(true);let failed=false;try {await backend('Connect');}catch {failed=true;}await refresh();if(failed)setError(t('runtime.connectionFailed'));};
  const selection = editing === 'conversation' ? view?.conversation : editing === 'runtime' ? view?.main : view?.work;
  return <section className="runtime-workspace">

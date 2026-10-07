@@ -2,7 +2,7 @@ import type { ConnectionFlow, RuntimeSettingsClient, RuntimeView } from '../type
 
 // Explicit development fixture. This module is never imported by the desktop
 // entry point. It performs no network, credential, filesystem or process work.
-export function createPreviewClient(): RuntimeSettingsClient {
+export function createPreviewClient(sessionConnection?:string,selected=true): RuntimeSettingsClient {
  const models = [
   { imageInput:null, model:'openai-codex/gpt-6-astra', name:'GPT-6 Astra', description:'OpenAI · 账号连接', default:true, defaultEffort:'high', efforts:['low','medium','high','xhigh'], serviceTiers:[{id:'priority',name:'Fast',description:'优先处理'}] },
   { imageInput:null, model:'xiaomi/mimo-v2.6-flash', name:'MiMo V2.6 Flash', description:'小米 · API Key', default:false, defaultEffort:'medium', efforts:['low','medium','high'], serviceTiers:[] },
@@ -10,7 +10,7 @@ export function createPreviewClient(): RuntimeSettingsClient {
  ];
  const profile = {runtime:'caelis',cliPath:'',caelisStore:''}, selection={model:models[0].model,effort:'high',serviceTier:''};
  const state: RuntimeView = {
-  revision:'1',profile, pending:'', models,
+  revision:'1',profile, pending:'',activeRuntime:selected?'caelis':'',session:sessionConnection?{connection:sessionConnection,issue:''}:undefined, models,
   setup:{serviceUpdateAvailable:false,serviceVersion:"v0.62.0",serviceState:"running",settings:profile,selectedModel:models[1].model,state:'ready',message:'',loginPending:false,accountType:'',installation:{latestVersion:"",updateState:"",installed:true,path:'~/.local/bin/caelis',version:'开发预览',message:''},models:[]},
   conversation:{model:models[1].model,effort:'medium',serviceTier:'',approvalMode:'default'},work:{model:'',effort:'',serviceTier:''},main:selection,runtimeDefault:selection,canEditMain:true,
   team:{models,available:true,reason:'',revision:'1',activeSet:'日常开发',roles:[

@@ -10,7 +10,7 @@ export type TeamState = { available: boolean; reason: string; revision: string; 
 export type ConnectionModel = { id: string; name: string; uses: string[]; unavailable: boolean };
 export type ConnectionGroup = { id: string; name: string; kind: 'provider' | 'agent'; detail: string; models: ConnectionModel[] };
 export type RuntimeView = {
- revision: string; profile: RuntimeSettings; setup: SetupState; pending: string;
+ revision: string; profile: RuntimeSettings; setup: SetupState; pending: string; activeRuntime?:string;
  session?: { connection:string; issue:string } | null;
  models: ModelOption[]; conversation: ExecutionSettings | null; work: ModelSelection | null;
  main: ModelSelection | null; runtimeDefault: ModelSelection | null; canEditMain: boolean; team: TeamState; connections: ConnectionGroup[];
