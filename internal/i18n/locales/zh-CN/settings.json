@@ -192,7 +192,7 @@
   "setupConnection": "连接 AI",
   "setupExtrasTitle": "选择附加功能",
   "setupExtrasIntro": "选择是否使用快捷截屏与贴图。",
-  "setupExtrasLater": "以后可在「设置 → 附加功能」更改。关闭后普通聊天图片与附件仍可使用。",
+  "setupExtrasLater": "可在「设置 → 附加功能」更改。",
   "setupExtrasLoadFailed": "无法读取当前选择，请重试后继续。",
   "setupExtrasSaveFailed": "未能保存选择，请再次点击继续。",
   "setupExtrasRetry": "重试",

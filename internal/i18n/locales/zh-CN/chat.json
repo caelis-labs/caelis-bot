@@ -141,7 +141,7 @@
   "setupRetry": "重试发送",
   "setupOpenChat": "打开对话",
   "setupIntroTitle": "认识你的助手",
-  "setupSubtitle": "给桌面上的伙伴取个名字。更多喜好，之后在聊天中慢慢告诉它。",
+  "setupSubtitle": "给助手取个名字。",
   "setupNameLabel": "名字",
   "setupNamePlaceholder": "你想怎么称呼它",
   "setupDescLabel": "描述",

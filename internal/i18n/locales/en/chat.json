@@ -141,7 +141,7 @@
   "setupRetry": "Retry send",
   "setupOpenChat": "Open chat",
   "setupIntroTitle": "Meet your assistant",
-  "setupSubtitle": "Give your desktop companion a name. You can tell it more about yourself as you chat.",
+  "setupSubtitle": "Name your assistant.",
   "setupNameLabel": "Name",
   "setupNamePlaceholder": "What would you like to call it?",
   "setupDescLabel": "Description",
