@@ -35,6 +35,8 @@ func TestNativeReviewedPluginActivation(t *testing.T) {
 	t.Setenv("CODEX_HOME", home)
 	var mu sync.Mutex
 	var requests []string
+	var readSkillPath string
+	modelReceipt := os.Getenv("CAELIS_BOT_PLUGIN_MODEL_RECEIPT_ID")
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 		mu.Lock()
@@ -43,6 +45,11 @@ func TestNativeReviewedPluginActivation(t *testing.T) {
 		mu.Unlock()
 		id := fmt.Sprintf("plugin-%d", n)
 		item := map[string]any{"id": id, "type": "message", "role": "assistant", "status": "completed", "phase": "final_answer", "content": []any{map[string]any{"type": "output_text", "text": "PLUGIN_TURN_OK", "annotations": []any{}}}}
+		if n == 1 && modelReceipt != "" {
+			command := "cat '" + strings.ReplaceAll(readSkillPath, "'", "'\"'\"'") + "'"
+			args, _ := json.Marshal(map[string]any{"cmd": command, "max_output_tokens": 8000})
+			item = map[string]any{"id": id, "type": "function_call", "name": "exec_command", "call_id": id, "arguments": string(args)}
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		for _, event := range []any{
 			map[string]any{"type": "response.created", "response": map[string]any{"id": id, "status": "in_progress", "output": []any{}}},
@@ -92,6 +99,7 @@ for line in sys.stdin:
 		t.Fatal(err)
 	}
 	selection := manager.Selection()
+	readSkillPath = filepath.Join(selection.SkillRoots[0], "SKILL.md")
 	badSkill := filepath.Join(root, "versions", "test-bad", "v1", "skills", "bad")
 	if err = os.MkdirAll(badSkill, 0700); err != nil {
 		t.Fatal(err)
@@ -198,7 +206,6 @@ for line in sys.stdin:
 	}
 	// After an interrupted synthetic turn, verify the live protocol and reload
 	// without submitting another model request or replacing the original ID.
-	modelReceipt := os.Getenv("CAELIS_BOT_PLUGIN_MODEL_RECEIPT_ID")
 	if modelReceipt == "" || os.Getenv("CAELIS_BOT_PLUGIN_PROTOCOL_ONLY") == "1" {
 		disableAndCheck()
 		return
@@ -227,8 +234,8 @@ for line in sys.stdin:
 	mu.Lock()
 	first := append([]string(nil), requests...)
 	mu.Unlock()
-	if len(first) != 1 || !strings.Contains(first[0], "markdown-work") || strings.Contains(first[0], "Start with the user's purpose") {
-		t.Fatal("Skill metadata was not progressive", len(first))
+	if len(first) != 2 || !strings.Contains(first[0], "markdown-work") || strings.Contains(first[0], "Start with the user's purpose") || !strings.Contains(first[1], "Start with the user's purpose") {
+		t.Fatal("Skill body did not load only after the native file call", len(first))
 	}
 	disableAndCheck()
 }
