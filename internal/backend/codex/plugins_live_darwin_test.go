@@ -172,7 +172,10 @@ for line in sys.stdin:
 		}
 	}
 	disableAndCheck := func() {
-		if _, err = manager.Mutate(ctx, "markdown-work", "disable", s.UpdateBotPlugins); err != nil {
+		if err = s.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
+			_, err := manager.Mutate(ctx, "markdown-work", "disable", apply)
+			return err
+		}); err != nil {
 			t.Fatal(err)
 		}
 		if err = callDecode(ctx, s.client, "skills/list", map[string]any{"cwds": []string{workspace}, "forceReload": true}, &skills); err != nil {

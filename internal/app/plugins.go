@@ -44,11 +44,13 @@ func (a *Application) PluginAction(ctx context.Context, id, action string) (plug
 		return plugins.Snapshot{}, errors.New("runtime does not support Bot plugins")
 	}
 	a.mu.Lock()
-	var apply func(context.Context, plugins.Selection) error
-	if a.started {
-		apply = adapter.UpdateBotPlugins
-	}
-	_, mutationErr := a.plugins.Mutate(ctx, id, action, apply)
+	mutationErr := adapter.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
+		if !a.started {
+			apply = nil
+		}
+		_, err := a.plugins.Mutate(ctx, id, action, apply)
+		return err
+	})
 	a.mu.Unlock()
 	if mutationErr != nil {
 		snapshot, _ := a.PluginSnapshot(ctx)

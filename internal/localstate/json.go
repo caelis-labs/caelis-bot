@@ -42,6 +42,25 @@ func Write(path string, value any) error {
 	}
 }
 
+// WriteConfirmed waits for the durable filesystem result. Use it for a
+// publication boundary that must not release admission while a timed-out
+// writer could still commit later. The caller owns the wait if storage stalls.
+func WriteConfirmed(path string, value any) error {
+	if path == "" {
+		return nil
+	}
+	body, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	body = append(body, '\n')
+	entry, _ := writers.LoadOrStore(path, make(chan struct{}, 1))
+	gate := entry.(chan struct{})
+	gate <- struct{}{}
+	defer func() { <-gate }()
+	return writeBytes(path, body)
+}
+
 func writeBytes(path string, body []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err

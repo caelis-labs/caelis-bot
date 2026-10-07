@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
@@ -191,5 +192,43 @@ func TestPluginRollbackFailureFencesCodexConnection(t *testing.T) {
 	}
 	if s.state.Connection != "offline" || len(s.opts.BotTools.Plugins.SkillRoots) != 0 {
 		t.Fatal("uncertain projection still admitted Bot work")
+	}
+}
+
+func TestPluginTransactionHoldsCodexTurnAdmission(t *testing.T) {
+	s := NewSession(SessionOptions{Directory: t.TempDir()})
+	entered, release, transactionDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		_ = s.WithBotPluginAdmission(func(func(context.Context, plugins.Selection) error) error {
+			close(entered)
+			<-release
+			return nil
+		})
+		close(transactionDone)
+	}()
+	<-entered
+	attempted, submitted := make(chan struct{}), make(chan struct{})
+	go func() {
+		close(attempted)
+		_, _ = s.Submit(context.Background(), api.Submission{ID: "plugin-gate-check", Text: "fixture"}, nil)
+		close(submitted)
+	}()
+	<-attempted
+	select {
+	case <-submitted:
+		close(release)
+		t.Fatal("new Codex turn entered before the plugin transaction committed")
+	case <-time.After(40 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-transactionDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("plugin transaction did not release admission")
+	}
+	select {
+	case <-submitted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Codex turn did not resume after plugin transaction")
 	}
 }

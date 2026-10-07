@@ -250,6 +250,16 @@ func writeProjectFile(path string, body []byte) error {
 func (s *Session) UpdateBotPlugins(ctx context.Context, selection plugins.Selection) error {
 	s.op.Lock()
 	defer s.op.Unlock()
+	return s.updateBotPluginsLocked(ctx, selection)
+}
+
+func (s *Session) WithBotPluginAdmission(mutate func(func(context.Context, plugins.Selection) error) error) error {
+	s.op.Lock()
+	defer s.op.Unlock()
+	return mutate(s.updateBotPluginsLocked)
+}
+
+func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.Selection) error {
 	s.mu.Lock()
 	if s.opts.BotTools == nil {
 		s.mu.Unlock()

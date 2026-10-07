@@ -277,7 +277,7 @@ func cloneState(s state) state {
 	return n
 }
 func (m *Manager) save(next state) error {
-	return localstate.Write(filepath.Join(m.root, "state.json"), next)
+	return localstate.WriteConfirmed(filepath.Join(m.root, "state.json"), next)
 }
 
 // Mutate serializes installation and activation. The adapter applies the whole
@@ -344,15 +344,22 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 		}
 	}
 	if err := m.save(next); err != nil {
+		// A write may have reached rename before a later durability error.
+		// Restore the last confirmed document before releasing turn admission.
+		stateErr := m.save(m.state)
+		failures := []error{err}
+		if stateErr != nil {
+			failures = append(failures, fmt.Errorf("plugin state restoration failed: %w", stateErr))
+		}
 		if apply != nil {
 			recovery, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			rollbackErr := apply(recovery, m.selectionLocked(m.state))
 			cancel()
 			if rollbackErr != nil {
-				return m.snapshotLocked(), errors.Join(err, fmt.Errorf("plugin activation rollback failed: %w", rollbackErr))
+				failures = append(failures, fmt.Errorf("plugin activation rollback failed: %w", rollbackErr))
 			}
 		}
-		return m.snapshotLocked(), err
+		return m.snapshotLocked(), errors.Join(failures...)
 	}
 	m.state = next
 	return m.snapshotLocked(), nil

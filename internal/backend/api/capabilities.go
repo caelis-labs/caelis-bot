@@ -120,6 +120,9 @@ type ToolConnection struct {
 // documented admission boundary. Worker execution never receives this port.
 type PluginConfigurator interface {
 	UpdateBotPlugins(context.Context, plugins.Selection) error
+	// Hold the Runtime's turn-admission lock through application and durable
+	// Bot state confirmation. The supplied apply function already owns it.
+	WithBotPluginAdmission(func(func(context.Context, plugins.Selection) error) error) error
 	BotPluginHealth(context.Context) []plugins.Issue
 }
 type ToolService struct {

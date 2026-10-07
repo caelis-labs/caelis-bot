@@ -46,6 +46,16 @@ func corePlugins(selection plugins.Selection, binary string, builtins []string) 
 func (s *Session) UpdateBotPlugins(ctx context.Context, selection plugins.Selection) error {
 	s.step.Lock()
 	defer s.step.Unlock()
+	return s.updateBotPluginsLocked(ctx, selection)
+}
+
+func (s *Session) WithBotPluginAdmission(mutate func(func(context.Context, plugins.Selection) error) error) error {
+	s.step.Lock()
+	defer s.step.Unlock()
+	return mutate(s.updateBotPluginsLocked)
+}
+
+func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.Selection) error {
 	s.mu.Lock()
 	if s.tools == nil {
 		s.mu.Unlock()

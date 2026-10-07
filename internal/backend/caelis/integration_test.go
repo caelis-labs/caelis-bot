@@ -332,7 +332,13 @@ func TestNativeHostIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = manager.Mutate(ctx, "markdown-work", "install", s.UpdateBotPlugins); err != nil {
+		mutatePlugin := func(action string) error {
+			return s.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
+				_, err := manager.Mutate(ctx, "markdown-work", action, apply)
+				return err
+			})
+		}
+		if err = mutatePlugin("install"); err != nil {
 			t.Fatal(err)
 		}
 		selected := manager.Selection()
@@ -377,12 +383,26 @@ func TestNativeHostIntegration(t *testing.T) {
 		if !ready {
 			t.Fatal("installed Skill not ready", status.Skills)
 		}
-		if _, err = manager.Mutate(ctx, "markdown-work", "disable", s.UpdateBotPlugins); err != nil {
+		if err = mutatePlugin("disable"); err != nil {
 			t.Fatal(err)
 		}
 		configuration, err = s.Configuration(ctx)
-		if err != nil || len(configuration.Profile.SkillRoots) != 0 || manager.Snapshot().Items[0].Enabled {
-			t.Fatal("disabled Skill remained active", configuration.Profile.SkillRoots, err)
+		if err != nil || len(configuration.Profile.SkillRoots) != 0 || len(configuration.Profile.SkillDirs) != 0 || len(configuration.Profile.McpServers) != 0 || manager.Snapshot().Items[0].Enabled {
+			t.Fatal("disabled plugin selection remained active", configuration.Profile, err)
+		}
+		if err = mutatePlugin("enable"); err != nil {
+			t.Fatal(err)
+		}
+		configuration, err = s.Configuration(ctx)
+		if err != nil || !slices.Equal(configuration.Profile.SkillRoots, selected.SkillRoots) || !manager.Snapshot().Items[0].Enabled {
+			t.Fatal("reviewed Skill was not restored through Core configuration", configuration.Profile, err)
+		}
+		if err = mutatePlugin("disable"); err != nil {
+			t.Fatal(err)
+		}
+		configuration, err = s.Configuration(ctx)
+		if err != nil || len(configuration.Profile.SkillRoots) != 0 || len(configuration.Profile.SkillDirs) != 0 || len(configuration.Profile.McpServers) != 0 {
+			t.Fatal("restored Skill was not cleared again", configuration.Profile, err)
 		}
 	}) {
 		return
@@ -1020,6 +1040,9 @@ func TestNativeHostIntegration(t *testing.T) {
 		if after.Profile.ExecutionConfig == nil {
 			t.Fatal("restart lost execution configuration")
 		}
+		if len(after.Profile.SkillRoots) != 0 || len(after.Profile.SkillDirs) != 0 || len(after.Profile.McpServers) != 0 {
+			t.Fatal("restart restored a disabled plugin selection", after.Profile)
+		}
 		// An explicit runtime update reconnects this same adapter, without a Bot restart.
 		stop()
 		start()
@@ -1029,6 +1052,9 @@ func TestNativeHostIntegration(t *testing.T) {
 		after, e = s.Configuration(ctx)
 		if e != nil || after.Revision != before.Revision || s.state.Session.SessionId != sid {
 			t.Fatal("reconnect replaced binding", e)
+		}
+		if len(after.Profile.SkillRoots) != 0 || len(after.Profile.SkillDirs) != 0 || len(after.Profile.McpServers) != 0 {
+			t.Fatal("reconnect restored a disabled plugin selection", after.Profile)
 		}
 		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Items) == len(items) })
 	}) {
