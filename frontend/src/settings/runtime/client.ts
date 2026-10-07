@@ -1,5 +1,5 @@
 import { backend } from '../../desktop';
-import type { ExecutionSettings, ModelOption, RuntimeSettings, SetupChoice, SetupOverview, SetupRequest, SetupState, WorkExecutionSettings, RuntimeConfiguration, RuntimeMutationResult, RuntimeFlow } from '../../backend/contract';
+import type { ExecutionSettings, ModelOption, RuntimeSettings, SetupChoice, SetupOverview, SetupRequest, SetupState, Snapshot, WorkExecutionSettings, RuntimeConfiguration, RuntimeMutationResult, RuntimeFlow } from '../../backend/contract';
 import { groupLegacyModels, withWorkUsage } from './state';
 import type { ConnectionFlow, RuntimeSettingsClient } from './types';
 
@@ -35,10 +35,11 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
    const [profile, overview] = await Promise.all([currentProfile(), invoke<SetupOverview>('SetupOverview')]);
    const setup = await invoke<SetupState>('InspectSetup', profile);
    let conversation: ExecutionSettings | null = null, work: WorkExecutionSettings | null = null, models: ModelOption[] = [];
-   if (setup.state === 'ready') [conversation, work, models] = await Promise.all([invoke<ExecutionSettings>('ExecutionSettings'), invoke<WorkExecutionSettings>('WorkExecutionSettings'), invoke<ModelOption[]>('Models')]);
+   if (setup.state === 'ready') [conversation, work, models] = await Promise.all([invoke<ExecutionSettings>('ExecutionSettings').catch(()=>null), invoke<WorkExecutionSettings>('WorkExecutionSettings').catch(()=>null), invoke<ModelOption[]>('Models').catch(()=>[])]);
+   const session = await invoke<Snapshot>('ComposerSnapshot').then(v=>({connection:v.connection,issue:v.connectionIssue})).catch(()=>null);
    const runtimeDefault = setup.state === 'ready' ? await invoke<WorkExecutionSettings | null>('RuntimeDefaultModel').catch(() => null) : null;
    const shared = profile.runtime==='caelis' && ['ready','models'].includes(setup.state) ? await invoke<RuntimeConfiguration>('RuntimeConfiguration').catch(()=>null) : null;
-   const view = { profile, setup, pending: overview.pending, models:shared?.models ?? models, conversation, work,
+   const view = { profile, setup, session, pending: overview.pending, models:shared?.models ?? models, conversation, work,
     runtimeDefault, revision:shared?.revision ?? '', main:shared?.main ?? null, canEditMain:!!shared,
     team:shared?.team ?? { available:false,reason:'连接 Caelis 后可以配置 Team。',revision:'',roles:[],sets:[],activeSet:'',models:[] },
     connections:shared?.connections.map(g=>({...g,kind:g.kind as 'provider'|'agent',models:g.models.map(m=>({...m,uses:[...m.uses,...(m.id===conversation?.model?['Bot 对话']:[])]}))})) ?? groupLegacyModels(setup.models, setup.selectedModel),

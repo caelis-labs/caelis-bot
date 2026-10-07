@@ -9,6 +9,7 @@ import { LocalWorkerSettings } from './settings/runtime/LocalWorkerSettings';
 import { RuntimeWorkspace, type RuntimePage } from './settings/runtime/RuntimeWorkspace';
 import type { RuntimeSettings as Profile, SetupState, SetupOverview, SetupRequest } from './backend/contract';
 import { useI18n } from './i18n';
+import {setupStatusKey} from './settings/runtime/setup-status';
 
 const names: Record<string, string> = { caelis: 'Caelis', codex: 'Codex' };
 const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore: '' });
@@ -45,9 +46,9 @@ export function RuntimePreparation({ onboarding = false, onDone, initialRuntime 
    const v = action === 'detect' ? await call<SetupState>('InspectSetup', profile) : await call<SetupState>('ApplySetup', request(profile, action, fields));
    if (alive.current) {
     setState(v); setForm('');
-    if (action === 'detect') setNotice(v.state === 'ready' ? t('runtime.connectionCheckPassed') : v.message);
-    if (['install', 'update', 'apply-update', 'start'].includes(action)) setNotice(id === 'caelis' ? t('runtime.connected') : v.message);
-    if (action === 'check-update') setNotice(v.installation.updateState === 'available' ? '' : v.message);
+    if (action === 'detect') setNotice(v.state === 'ready' ? t('runtime.connectionCheckPassed') : t(setupStatusKey(v)));
+    if (['install', 'update', 'apply-update', 'start'].includes(action)) setNotice(t(setupStatusKey(v)));
+    if (action === 'check-update') setNotice(v.installation.updateState === 'available' ? '' : t(setupStatusKey(v)));
     if (profile.runtime === overview?.active && (['login', 'api-key', 'logout'].includes(action) || profile.runtime === 'codex' && ['update', 'install'].includes(action))) setRestartNeeded(true);
     if (profile.runtime === 'caelis' && ['update', 'apply-update', 'start'].includes(action) && v.state === 'ready') setRestartNeeded(false);
    }
@@ -72,7 +73,7 @@ export function RuntimePreparation({ onboarding = false, onDone, initialRuntime 
  const serviceNeedsApply = id === 'caelis' && !!state?.installation.installed && (state.state === 'service' || state.serviceUpdateAvailable || state.state === 'incompatible' && state.installation.updateState === 'current');
  const updateAvailable = state?.installation.updateState === 'available';
  const switchDisabled = blocked || state?.state !== 'ready';
- const switchHint = blocked ? t('runtime.waitCurrentAction') : state?.state === 'incompatible' ? t('runtime.incompatibleServiceHint', { name }) : state?.state === 'ready' ? t('runtime.switchTakesEffectRestart', { name }) : state?.message || t('runtime.switchAvailableAfterInstall');
+ const switchHint = blocked ? t('runtime.waitCurrentAction') : state?.state === 'incompatible' ? t('runtime.incompatibleServiceHint', { name }) : state?.state === 'ready' ? t('runtime.switchTakesEffectRestart', { name }) : state ? t(setupStatusKey(state)) : t('runtime.switchAvailableAfterInstall');
  return <section className={onboarding ? 'runtime-onboarding' : 'runtime-management'} aria-label={t('runtime.runtimeSettingsAria')}>
   {onboarding ? <><button className="text-action setup-back" disabled={blocked} onClick={() => setID('')}>{t('runtime.chooseOtherRuntime')}</button><h1>{t('runtime.prepareRuntime', { name })}</h1><p className="setup-lead">{t('runtime.prepareRuntimeLead', { name })}</p></> : <>
    {id && overview && id !== overview.active && <div className="runtime-selection"><p className="settings-note">{t('runtime.switchAfterInstallNote', { name })}</p><span className="runtime-switch" title={switchHint}><button className="primary" disabled={switchDisabled} onClick={() => setConfirm(request(profile, 'switch'))}>{t('runtime.switchToRuntime', { name })}</button></span></div>}
@@ -105,7 +106,7 @@ export function RuntimePreparation({ onboarding = false, onDone, initialRuntime 
    </SettingGroup>
   </details>
   {busy && <p className="settings-note" role="status">{busy === 'install' ? t('runtime.downloadingAndInstalling') : busy === 'update' ? (id === 'caelis' ? t('runtime.updatingCaelisNotice') : t('runtime.updatingCodexNotice')) : busy === 'apply-update' ? t('runtime.activatingServiceNotice') : busy === 'activate' ? t('runtime.preparingRestartNotice') : t('runtime.processing')}</p>}
-  {error ? <p className="inline-error" role="alert">{error}</p> : notice ? <p className="settings-note" role="status">{notice}</p> : state?.message && !serviceNeedsApply && !['ready', 'models'].includes(state.state) && (state.state !== 'incompatible' || onboarding || overview?.active === id) && <p className="settings-note" role="status">{state.state === 'incompatible' ? t('runtime.updateCaelisToContinue') : state.message}</p>}
+  {error ? <p className="inline-error" role="alert">{error}</p> : notice ? <p className="settings-note" role="status">{notice}</p> : state && !serviceNeedsApply && !['ready', 'models'].includes(state.state) && (state.state !== 'incompatible' || onboarding || overview?.active === id) && <p className="settings-note" role="status">{t(setupStatusKey(state))}</p>}
   {state?.state === 'ready' && (onboarding || (overview?.active === id && (restartNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))) && <div className="setup-end">{!onboarding && <span className="settings-note">{t('runtime.restartRequiredNote')}</span>}<button className={onboarding ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{onboarding ? t('runtime.restartAndStart') : t('runtime.restartAndApply')}</button></div>}
   {form === 'model' && <ConnectionWizard client={connectionClient} onClose={() => setForm('')} onConnected={async () => { setForm(''); await run('detect'); }}/>}
   {form === 'key' && <APIKeyForm busy={blocked} onClose={() => setForm('')} onSubmit={key => run('api-key', { apiKey: key })}/>}

@@ -94,6 +94,12 @@ func (s *Service) Snapshot() api.Snapshot {
 	return v
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
+	s.admission.RLock()
+	setupRequired := s.setupRequired
+	s.admission.RUnlock()
+	if setupRequired && v.Connection != "ready" {
+		v.ConnectionIssue = "setup_required"
+	}
 	v.Activity = currentActivity(v)
 	s.mu.Lock()
 	var pendingSend draftSend

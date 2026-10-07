@@ -11,6 +11,7 @@ export type ConnectionModel = { id: string; name: string; uses: string[]; unavai
 export type ConnectionGroup = { id: string; name: string; kind: 'provider' | 'agent'; detail: string; models: ConnectionModel[] };
 export type RuntimeView = {
  revision: string; profile: RuntimeSettings; setup: SetupState; pending: string;
+ session?: { connection:string; issue:string } | null;
  models: ModelOption[]; conversation: ExecutionSettings | null; work: ModelSelection | null;
  main: ModelSelection | null; runtimeDefault: ModelSelection | null; canEditMain: boolean; team: TeamState; connections: ConnectionGroup[];
 };

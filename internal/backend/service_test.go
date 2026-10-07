@@ -14,6 +14,18 @@ type snapshotEngine struct {
 
 func (e snapshotEngine) Snapshot() api.Snapshot { return e.value }
 
+func TestSetupRequiredProjectsExplicitConnectionIssue(t *testing.T) {
+	s := NewService(snapshotEngine{value: api.Snapshot{Connection: "offline"}}, nil, nil, nil, nil)
+	s.RequireSetup(true)
+	if got := s.Snapshot(); got.ConnectionIssue != "setup_required" || got.Connection != "offline" {
+		t.Fatalf("missing runtime choice projected as %+v", got)
+	}
+	s.RequireSetup(false)
+	if got := s.Snapshot(); got.ConnectionIssue != "" {
+		t.Fatalf("stale setup issue after configuration: %+v", got)
+	}
+}
+
 func TestPetPreviewDoesNotMixOldReplyWithNewRequest(t *testing.T) {
 	e := snapshotEngine{value: api.Snapshot{Items: []api.Item{
 		{ID: "old-user", Kind: "user", Text: "old"}, {ID: "old-reply", Kind: "assistant", Text: "old reply"},
