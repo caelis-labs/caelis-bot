@@ -137,9 +137,10 @@
 .settings-window .runtime-worker-recovery{padding:14px 0 10px;border-bottom:1px solid var(--line)}
 .settings-window .runtime-worker-recovery .settings-note{margin:0 0 10px;line-height:1.55}
 .settings-window .runtime-worker-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.settings-window .runtime-active-actions{flex-wrap:wrap;justify-content:flex-end}
+.settings-window .runtime-active .runtime-active-actions{flex:0 0 auto;min-width:0;max-width:56%;flex-wrap:wrap;justify-content:flex-end}
+.settings-window .runtime-active-actions button{white-space:nowrap}
 .settings-window .setting-control{flex-wrap:wrap}
-@media(max-width:700px){.settings-window .runtime-model-actions{grid-template-columns:1fr 1fr}.settings-window .runtime-reset-parameters{grid-column:1/-1}.settings-window .runtime-active{align-items:flex-start;flex-wrap:wrap}.settings-window .runtime-active-actions{width:100%;justify-content:flex-start;padding-left:51px}}
+@media(max-width:700px){.settings-window .runtime-model-actions{grid-template-columns:1fr 1fr}.settings-window .runtime-reset-parameters{grid-column:1/-1}.settings-window .runtime-active{align-items:flex-start;flex-wrap:wrap}.settings-window .runtime-active .runtime-active-actions{max-width:100%;width:100%;justify-content:flex-start;padding-left:51px}}
 
 .telegram-page{max-width:620px}
 .telegram-back{border:0;background:transparent;color:var(--muted);padding:0;margin:0 0 22px}

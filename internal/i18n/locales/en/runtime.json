@@ -61,6 +61,8 @@
   "incompatibleConnection": "Update the work tool to connect",
   "unavailableConnection": "Connection unavailable",
   "statusUnknown": "Connection status unavailable",
+  "noConnection": "No AI connection selected",
+  "chooseConnection": "Choose AI connection",
   "pendingSwitch": " · Pending switch to {runtime}",
   "manage": "Manage",
   "switch": "Change",

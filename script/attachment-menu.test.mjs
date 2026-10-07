@@ -12,7 +12,7 @@ test('history menu stays above the composer, including a narrow short viewport',
   assert.equal(menu.top+menu.height,top-8);
   assert.ok(menu.top>=12 && menu.left>=12 && menu.left+menu.width<=width-12);
   assert.ok(menu.height<=324);
-  assert.equal(menu.width,width-40);
+  assert.equal(menu.width,Math.min(width-40,380));
   assert.equal(menu.left,20);
  }
  const below=attachmentMenuLayout({left:500,top:30,bottom:94,width:400},{width:640,height:700},324);

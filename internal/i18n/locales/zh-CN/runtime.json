@@ -61,6 +61,8 @@
   "incompatibleConnection": "更新工作工具后连接",
   "unavailableConnection": "连接不可用",
   "statusUnknown": "无法读取连接状态",
+  "noConnection": "尚未选择 AI 连接",
+  "chooseConnection": "选择 AI 连接",
   "pendingSwitch": " · 待切换到 {runtime}",
   "manage": "管理",
   "switch": "更换",
