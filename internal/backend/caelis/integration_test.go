@@ -340,6 +340,24 @@ func TestNativeHostIntegration(t *testing.T) {
 		if err != nil || len(selected.SkillRoots) != 1 || !slices.Equal(configuration.Profile.SkillRoots, selected.SkillRoots) {
 			t.Fatal("installed Skill was not committed through Core configuration", configuration.Profile.SkillRoots, err)
 		}
+		// Creation uses the same public profile schema as the later CAS patch.
+		// An unreachable external MCP service must not block the resident Bot.
+		created := config.Clone()
+		created.Plugins = selected.Clone()
+		created.Plugins.Servers = append(created.Plugins.Servers, plugins.SelectedServer{PackageID: "fixture", Name: "unavailable", Root: root, Server: plugins.Server{Type: "streamable-http", URL: "http://127.0.0.1:1/mcp"}})
+		fresh := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot-plugin-create"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
+		if err = fresh.ConfigureBotTools(created); err != nil {
+			t.Fatal(err)
+		}
+		if err = fresh.Connect(ctx); err != nil {
+			t.Fatal("Core rejected the public atomic creation profile", err)
+		}
+		defer func() { _ = fresh.Close(context.Background()) }()
+		createdConfig, err := fresh.Configuration(ctx)
+		if err != nil || !slices.Equal(createdConfig.Profile.SkillRoots, selected.SkillRoots) || len(createdConfig.Profile.McpServers) != 1 || createdConfig.Profile.McpServers[0].Name != plugins.RuntimeName("fixture", "unavailable") {
+			t.Fatal("public creation/configuration roundtrip lost the atomic selection", createdConfig.Profile, err)
+		}
+		waitAcceptance(t, ctx, func() bool { return fresh.Snapshot().CanSend })
 		submitAcceptance(t, ctx, s, "CASE_PLUGIN")
 		requests := model.seen("CASE_PLUGIN")
 		if len(requests) != 1 || !strings.Contains(fmt.Sprint(requests[0]), "markdown-work") {
