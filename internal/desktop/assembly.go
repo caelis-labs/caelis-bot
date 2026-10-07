@@ -82,7 +82,11 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 }
 
 func (p *productAssembly) Start() error {
-	if p.Core.NeedsSetup() {
+	return p.StartForLaunch(false)
+}
+
+func (p *productAssembly) StartForLaunch(atLogin bool) error {
+	if !atLogin && p.Core.NeedsSetup() {
 		p.Service.showSettings("setup")
 	}
 	p.Core.StartBackground()

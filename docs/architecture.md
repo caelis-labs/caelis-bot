@@ -41,6 +41,13 @@ Credential Manager, Job Objects and GUI acceptance remain the next stage.
 Shared-core compilation and native Windows CI do not prove Windows GUI behavior.
 `GOWORK=off`; no sibling private imports.
 
+The General settings login switch reads macOS `SMAppService.mainApp` through a
+native desktop adapter. Registration and approval status is system-owned,
+separate from product feature preferences and permissions. A login launch skips
+only automatic first-run window presentation; the normal menu bar, pet, single
+instance owner and original-ID recovery still start. Unimplemented platform
+adapters report unsupported without a writable switch.
+
 Codex worker execution, saved task receipts, terminal observation, and Bot
 subscriptions have separate lifetimes. A terminal turn starts a short Bot idle
 grace; the adapter then uses read-only `thread/read` to confirm the exact last

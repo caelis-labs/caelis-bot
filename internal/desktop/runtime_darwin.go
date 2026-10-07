@@ -64,6 +64,7 @@ func Run(assets fs.FS) error {
 		return err
 	}
 	s, core, diagnostics := assembly.Service, assembly.Core, assembly.Diagnostics
+	s.loginAtLogin = newMacLoginAtLogin()
 	defer core.Close()
 	back := core.Backend
 	if envErr != nil {
@@ -412,6 +413,7 @@ func Run(assets fs.FS) error {
 			d.language(state.Locale)
 		}
 	}
+	macTrackLoginLaunch()
 	nativeApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		if !installMacAppIcon() {
 			log.Print("Desktop application icon could not be decoded")
@@ -430,7 +432,7 @@ func Run(assets fs.FS) error {
 			finished.Store(true)
 			return err
 		})
-		if err := assembly.Start(); err != nil {
+		if err := assembly.StartForLaunch(macLaunchedAtLogin()); err != nil {
 			logError(err)
 		}
 	})

@@ -46,6 +46,12 @@ remains in `docs/evidence/desktop-world-rc2/README.md`.
 
 ## Native development
 
+### Start at login
+
+macOS 13+ uses [`SMAppService.mainApp`](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp) for the current app bundle. The General settings switch reads [the system status](https://developer.apple.com/documentation/servicemanagement/smappservice/status-swift.enum), registers or unregisters only after a user action, and never stores a separate enabled preference. A fresh installation is off. macOS can disable a registered item in System Settings; this appears as off with a System Settings action, and the app does not register it again on launch or status polling. macOS 12 and unimplemented native hosts report unsupported.
+
+The Dev and release bundle identifiers and default data directories remain separate. Register from the stable installed app path; replacing that bundle in place preserves the system choice. After moving the app to a different path, turn the old login item off and re-enable it from the running copy so macOS targets that bundle. The app does not silently unregister and register an existing user choice during updates. A login-item launch is identified from Apple's [open-application Apple event](https://developer.apple.com/documentation/coreservices/1556410-launch_apple_event_constants/keyaelaunchedasloginitem); it starts the existing background owner and pet/menu bar without presenting first-run setup. Manual startup still presents incomplete setup. The existing single-instance lock and original request recovery remain the only execution owners.
+
 
 默认本地/PR 构建使用 **Caelis Bot Dev.app**，bundle ID 为 `dev.caelis.bot.dev`，
 单实例与默认数据目录 `~/Library/Application Support/Caelis Bot Dev` 独立于生产版。
