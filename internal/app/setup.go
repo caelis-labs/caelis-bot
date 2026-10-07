@@ -46,7 +46,7 @@ func (a *Application) ProviderDirectory() string {
 func (s *runtimeSetup) Overview() api.SetupOverview {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return api.SetupOverview{Active: s.app.engine.(api.Provider).ProviderInfo().ID, Pending: s.pending, Onboarding: s.fresh}
+	return api.SetupOverview{Active: s.app.engine.(api.Provider).ProviderInfo().ID, HasRuntimeChoice: s.app.HasRuntimeChoice(), Pending: s.pending, Onboarding: s.fresh}
 }
 func (s *runtimeSetup) Profile(id string) (api.RuntimeSettings, error) {
 	if id != "codex" && id != "caelis" {

@@ -17,7 +17,7 @@ export function setupStatusKey(state:SetupState):MessageKey {
 }
 
 export function botSessionStatusKey(state:SetupState,session:BotSession,selected:boolean):MessageKey {
- if(!selected||session?.issue==='setup_required')return 'runtime.chooseConnection';
+ if(!selected)return 'runtime.chooseConnection';
  if(state.state!=='ready')return setupStatusKey(state);
  if(!session)return 'runtime.statusUnknown';
  switch(session.connection){

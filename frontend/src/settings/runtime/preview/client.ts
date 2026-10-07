@@ -10,7 +10,7 @@ export function createPreviewClient(sessionConnection?:string,selected=true): Ru
  ];
  const profile = {runtime:'caelis',cliPath:'',caelisStore:''}, selection={model:models[0].model,effort:'high',serviceTier:''};
  const state: RuntimeView = {
-  revision:'1',profile, pending:'',activeRuntime:selected?'caelis':'',session:sessionConnection?{connection:sessionConnection,issue:''}:undefined, models,
+  revision:'1',profile, pending:'',activeRuntime:'caelis',hasRuntimeChoice:selected,session:sessionConnection?{connection:sessionConnection,issue:''}:undefined, models,
   setup:{serviceUpdateAvailable:false,serviceVersion:"v0.62.0",serviceState:"running",settings:profile,selectedModel:models[1].model,state:'ready',message:'',loginPending:false,accountType:'',installation:{latestVersion:"",updateState:"",installed:true,path:'~/.local/bin/caelis',version:'开发预览',message:''},models:[]},
   conversation:{model:models[1].model,effort:'medium',serviceTier:'',approvalMode:'default'},work:{model:'',effort:'',serviceTier:''},main:selection,runtimeDefault:selection,canEditMain:true,
   team:{models,available:true,reason:'',revision:'1',activeSet:'日常开发',roles:[

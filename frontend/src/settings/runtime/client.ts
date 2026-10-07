@@ -39,7 +39,7 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
    const session = await invoke<Snapshot>('ComposerSnapshot').then(v=>({connection:v.connection,issue:v.connectionIssue})).catch(()=>null);
    const runtimeDefault = setup.state === 'ready' ? await invoke<WorkExecutionSettings | null>('RuntimeDefaultModel').catch(() => null) : null;
    const shared = profile.runtime==='caelis' && ['ready','models'].includes(setup.state) ? await invoke<RuntimeConfiguration>('RuntimeConfiguration').catch(()=>null) : null;
-   const view = { profile, setup, session, pending: overview.pending, activeRuntime:overview.active, models:shared?.models ?? models, conversation, work,
+   const view = { profile, setup, session, pending: overview.pending, activeRuntime:overview.active, hasRuntimeChoice:overview.hasRuntimeChoice, models:shared?.models ?? models, conversation, work,
     runtimeDefault, revision:shared?.revision ?? '', main:shared?.main ?? null, canEditMain:!!shared,
     team:shared?.team ?? { available:false,reason:'连接 Caelis 后可以配置 Team。',revision:'',roles:[],sets:[],activeSet:'',models:[] },
     connections:shared?.connections.map(g=>({...g,kind:g.kind as 'provider'|'agent',models:g.models.map(m=>({...m,uses:[...m.uses,...(m.id===conversation?.model?['Bot 对话']:[])]}))})) ?? groupLegacyModels(setup.models, setup.selectedModel),

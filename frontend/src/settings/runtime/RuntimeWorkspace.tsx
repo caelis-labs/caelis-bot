@@ -45,7 +45,7 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, preparation,a
   finally { working.current = false; setBusy(false); }
  };
  const caelis = view?.profile.runtime === 'caelis';
- const choiceRequired = view?.activeRuntime === '' || view?.session?.issue === 'setup_required';
+ const choiceRequired = !view?.hasRuntimeChoice;
  const name = choiceRequired ? t('runtime.noConnection') : caelis ? 'Caelis' : 'Codex';
  const configured = view?.setup.state === 'ready' && !choiceRequired;
  const reconnectable = configured && view?.session?.connection === 'offline' && view.session.issue !== 'setup_required';

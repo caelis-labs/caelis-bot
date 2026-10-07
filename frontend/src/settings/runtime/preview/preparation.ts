@@ -12,7 +12,7 @@ export function createPreparationPreview(): typeof backend {
   let result:unknown;
   switch(method){
    case 'RuntimeSettings':case 'SetupProfile':result=profile;break;
-   case 'SetupOverview':result={active:scenario.includes('unselected')?'':'caelis',pending:'',onboarding:false};break;
+   case 'SetupOverview':result={active:'caelis',hasRuntimeChoice:!scenario.includes('unselected'),pending:'',onboarding:false};break;
    case 'ComposerSnapshot':result={connection:scenario.match(/(?:offline|connecting|unknown|ready)$/)?.[0]??'ready'};break;
    case 'InspectSetup':updateState='';latest='';result=state();break;
    case 'ApplySetup':{

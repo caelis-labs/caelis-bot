@@ -18,6 +18,9 @@ func TestFreshSetupDoesNotConnectAndDismissDoesNotChooseRuntime(t *testing.T) {
 	if !a.NeedsSetup() || a.HasRuntimeChoice() {
 		t.Fatal("fresh user bypassed choice")
 	}
+	if overview := a.setup.Overview(); overview.Active != "codex" || overview.HasRuntimeChoice {
+		t.Fatalf("default provider must not imply a selection: %+v", overview)
+	}
 	if e = a.Backend.Connect(t.Context()); e == nil {
 		t.Fatal("connected before selection")
 	}
@@ -34,6 +37,9 @@ func TestFreshSetupDoesNotConnectAndDismissDoesNotChooseRuntime(t *testing.T) {
 	defer b.Close()
 	if b.setup.Overview().Onboarding || b.HasRuntimeChoice() || !b.NeedsSetup() {
 		t.Fatal("dismiss not retained")
+	}
+	if overview := b.setup.Overview(); overview.Active != "codex" || overview.HasRuntimeChoice {
+		t.Fatalf("dismissed setup selected default provider: %+v", overview)
 	}
 }
 func TestRuntimeProfilesAndDraftsStaySeparate(t *testing.T) {
@@ -71,6 +77,9 @@ func TestRuntimeProfilesAndDraftsStaySeparate(t *testing.T) {
 	defer b.Close()
 	if b.ProviderDirectory() == root {
 		t.Fatal("Caelis used Codex draft directory")
+	}
+	if overview := b.setup.Overview(); overview.Active != "caelis" || !overview.HasRuntimeChoice {
+		t.Fatalf("persisted selection missing from overview: %+v", overview)
 	}
 	if v := b.Backend.Draft(); v.Text != "" {
 		t.Fatal("Codex draft crossed provider", v)
