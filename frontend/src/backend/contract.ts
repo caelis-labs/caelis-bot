@@ -387,6 +387,7 @@ export interface SetupChoice {
 }
 export interface SetupOverview {
   active: string;
+  hasRuntimeChoice: boolean;
   pending: string;
   onboarding: boolean;
 }

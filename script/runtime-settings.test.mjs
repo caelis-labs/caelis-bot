@@ -2,13 +2,52 @@ import assert from 'node:assert/strict';
 import { test, after } from 'node:test';
 import { createServer } from 'vite';
 import { readFileSync } from 'node:fs';
-const server = await createServer({server:{middlewareMode:true},appType:'custom'});
+const server = await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});
 after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
+const {setupStatusKey,botSessionStatusKey} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
 const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
+
+test('setup and session facts stay distinct when model or observation services fail',async()=>{
+ const setup={state:'ready',installation:{installed:true},models:[],selectedModel:''};
+ const client=createRuntimeSettingsClient(async method=>{
+  if(method==='RuntimeSettings')return {runtime:'codex',cliPath:''};
+  if(method==='SetupOverview')return {active:'codex',hasRuntimeChoice:true,pending:''};
+  if(method==='InspectSetup')return setup;
+  if(method==='ComposerSnapshot')return {connection:'offline',connectionIssue:'connection'};
+  throw Error('service unavailable');
+ });
+ const view=await client.read();
+ assert.equal(view.setup.state,'ready');
+ assert.equal(view.hasRuntimeChoice,true);
+ assert.deepEqual(view.session,{connection:'offline',issue:'connection'});
+ assert.equal(view.conversation,null);assert.equal(view.work,null);assert.deepEqual(view.models,[]);
+ assert.equal(setupStatusKey({...setup,state:'login'}),'runtime.loginCodex');
+ assert.equal(setupStatusKey({...setup,state:'models'}),'runtime.noModelsConnected');
+ assert.equal(setupStatusKey({...setup,installation:{installed:false}}),'runtime.notInstalled');
+});
+
+test('default Codex provider remains unselected when the session read fails',async()=>{
+ const setup={state:'ready',installation:{installed:true},models:[],selectedModel:''};
+ const calls=[];
+ const client=createRuntimeSettingsClient(async method=>{
+  calls.push(method);
+  if(method==='RuntimeSettings')return {runtime:'codex',cliPath:''};
+  if(method==='SetupOverview')return {active:'codex',hasRuntimeChoice:false,pending:'',onboarding:false};
+  if(method==='InspectSetup')return setup;
+  throw Error('synthetic service read failure');
+ });
+ const view=await client.read();
+ assert.equal(view.activeRuntime,'codex');
+ assert.equal(view.hasRuntimeChoice,false);
+ assert.equal(view.session,null);
+ assert.equal(botSessionStatusKey(view.setup,view.session,view.hasRuntimeChoice),'runtime.chooseConnection');
+ assert.ok(calls.includes('ComposerSnapshot'));
+ assert.equal(view.conversation,null);assert.equal(view.work,null);
+});
 
 test('switching models drops incompatible effort and speed; stale options cannot save',()=>{
  const next={...model,model:'p/b',defaultEffort:'low',serviceTiers:[]};

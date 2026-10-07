@@ -1,0 +1,84 @@
+/* Caelis is the built-in palette. Layout and type live with their components. */
+:root {
+ --caelis-window:#f4f5f7;
+ --caelis-sidebar:#eff1f4;
+ --caelis-content:#ffffff;
+ --caelis-raised:#ffffff;
+ --caelis-chat:#f5f6f8;
+ --caelis-composer:#ffffff;
+ --caelis-popover:#ffffff;
+ --caelis-user-bubble:#eaf0f7;
+ --caelis-text:#222831;
+ --caelis-text-secondary:#616b77;
+ --caelis-text-disabled:#9199a4;
+ --caelis-border:#dce1e7;
+ --caelis-focus:#286fb6;
+ --caelis-link:#205f9d;
+ --caelis-selected:#e6f0fa;
+ --caelis-selected-text:#205f9d;
+ --caelis-hover:#f0f3f7;
+ --caelis-pressed:#e5ebf2;
+ --caelis-disabled:#f3f5f7;
+ --caelis-action:#286fb6;
+ --caelis-action-hover:#205f9d;
+ --caelis-action-pressed:#184f85;
+ --caelis-action-disabled:#e9edf2;
+ --caelis-on-action:#ffffff;
+ --caelis-success:#267d59;
+ --caelis-error:#a83f3d;
+ --caelis-warning:#98651e;
+ --caelis-glass-reading:rgba(255,255,255,.76);
+ --caelis-bubble-reading:rgba(255,255,255,.96);
+ --bg:var(--caelis-window);
+ --surface:var(--caelis-content);
+ --ink:var(--caelis-text);
+ --muted:var(--caelis-text-secondary);
+ --line:var(--caelis-border);
+ --wash:var(--caelis-hover);
+ --accent:var(--caelis-action);
+ --on-accent:var(--caelis-on-action);
+ --error:var(--caelis-error);
+ --success:var(--caelis-success);
+}
+@media (prefers-color-scheme:dark) {
+ :root {
+  --caelis-window:#1d2025;
+  --caelis-sidebar:#22262c;
+  --caelis-content:#292d34;
+  --caelis-raised:#30353d;
+  --caelis-chat:#20242a;
+  --caelis-composer:#30353d;
+  --caelis-popover:#30353d;
+  --caelis-user-bubble:#343e4b;
+  --caelis-text:#f0f2f5;
+  --caelis-text-secondary:#b7bec8;
+  --caelis-text-disabled:#858f9b;
+  --caelis-border:#454b55;
+  --caelis-focus:#91c4f4;
+  --caelis-link:#a9d1f6;
+  --caelis-selected:#32465c;
+  --caelis-selected-text:#a9d1f6;
+  --caelis-hover:#363b43;
+  --caelis-pressed:#424a55;
+  --caelis-disabled:#30343a;
+  --caelis-action:#81b9ed;
+  --caelis-action-hover:#9ac8f2;
+  --caelis-action-pressed:#6da8df;
+  --caelis-action-disabled:#39414b;
+  --caelis-on-action:#10283e;
+  --caelis-success:#78c9a2;
+  --caelis-error:#f0a29e;
+  --caelis-warning:#e3b875;
+  --caelis-glass-reading:rgba(37,41,47,.78);
+  --caelis-bubble-reading:rgba(43,47,54,.96);
+ }
+}
+@media (prefers-contrast:more) {
+ :root { --caelis-border:#68717e; --caelis-text-secondary:#3f4a58; --caelis-focus:#125998; --caelis-link:#125998; --caelis-selected:#d7e9fa; }
+}
+@media (prefers-contrast:more) and (prefers-color-scheme:dark) {
+ :root { --caelis-border:#a0a8b4; --caelis-text-secondary:#d7dce3; --caelis-focus:#b7dbfa; --caelis-link:#b7dbfa; --caelis-selected:#405b75; }
+}
+@media (prefers-reduced-transparency:reduce) {
+ :root { --caelis-glass-reading:var(--caelis-composer); --caelis-bubble-reading:var(--caelis-raised); }
+}

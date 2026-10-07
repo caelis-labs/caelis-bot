@@ -32,9 +32,10 @@ type SetupState struct {
 	AccountType            string          `json:"accountType"`
 }
 type SetupOverview struct {
-	Active     string `json:"active"`
-	Pending    string `json:"pending"`
-	Onboarding bool   `json:"onboarding"`
+	Active           string `json:"active"`
+	HasRuntimeChoice bool   `json:"hasRuntimeChoice"`
+	Pending          string `json:"pending"`
+	Onboarding       bool   `json:"onboarding"`
 }
 type SetupController interface {
 	Overview() SetupOverview

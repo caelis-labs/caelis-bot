@@ -236,7 +236,7 @@ window.fixtureSendRegression=async()=>{
     if(!frames.some(frame=>frame.stop&&!frame.disabled))throw Error('stop action never became available');
     if(!document.querySelector('.markdown-body')?.textContent.includes('合成回复'))throw Error('reply missing');
    }else if(mode==='draft-failure'){
-    if(!editor.disabled||!document.querySelector('.input-error')?.textContent.includes('消息已发送'))throw Error('accepted draft failure permits resending');
+    if(editor.disabled||!document.querySelector('.input-error')?.textContent.includes('消息已发送')||!document.querySelector('.compose-area > .quiet')||!document.querySelector('.composer-stop'))throw Error('accepted draft failure lost its local recovery path');
    }else if(editor.value!==text)throw Error(mode+' lost the unsent draft');
    results.push({mode,sendCount,acceptedReads,frames});
   }

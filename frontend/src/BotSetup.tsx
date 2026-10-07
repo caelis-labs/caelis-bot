@@ -101,9 +101,9 @@ function BotIntroductionSetup({ onDone,featuresPending,permissionsPending,onFeat
   </section>;
   if (!state.required && featuresPending) return <div className="setup-flow"><SetupProgress step={1}/><SetupExtras onDone={onFeaturesDone}/></div>;
   if (!state.required && permissionsPending) return <div className="setup-flow"><SetupProgress step={2}/><PermissionSettings onBack={onFeaturesBack} onDone={onPermissionsDone}/></div>;
-  if (!state.required) return <div className="setup-flow"><SetupProgress step={3}/><button type="button" className="text-action setup-back" onClick={onPermissionsBack}>{t('settings.setupBack')}</button>
+  if (!state.required) return <div className="setup-flow"><SetupProgress step={3}/>
     {state.message && <p className="setup-introduction-status" role="status">{state.message}</p>}
-    <RuntimeSettings onboarding onDone={onDone} />
+    <RuntimeSettings onboarding onBack={onPermissionsBack} onDone={onDone} />
   </div>;
 
   return <div className="setup-flow"><SetupProgress step={0}/><section className="bot-introduction">

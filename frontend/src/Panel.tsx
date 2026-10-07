@@ -36,6 +36,12 @@ function draftSize(bytes:number):string {
  const divisor=bytes<1024*1024?1024:1024*1024;
  return `${new Intl.NumberFormat(undefined,{maximumFractionDigits:1}).format(bytes/divisor)} ${divisor===1024?'KB':'MB'}`;
 }
+function attachmentType(type:string,t:(key:MessageKey)=>string):string {
+ if(type.startsWith('image/'))return t('chat.imageFile');
+ if(type==='application/pdf')return t('chat.pdfFile');
+ if(type.startsWith('text/'))return t('chat.textFile');
+ return t('chat.fileTypeUnknown');
+}
 
 export function getReviewLabel(status: string, t: (key: MessageKey) => string): string {
  switch (status) {
@@ -167,7 +173,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
  const [draft,setDraft]=useState(''),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
  const [sendBlocked,setSendBlocked]=useState(false),[cleanupPending,setCleanupPending]=useState(false),[syncReadFailed,setSyncReadFailed]=useState(false),[filesLoaded,setFilesLoaded]=useState(false);
- const [dragging,setDragging]=useState(false),[feedback,setFeedback]=useState('');
+ const [dragging,setDragging]=useState(false),[feedback,setFeedback]=useState<'duplicate'|''>('');
  const visible=useRef(active);visible.current=active;
  useEffect(()=>{setExpanded(false);},[active,activation]);
  const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number;draftRevision:number}|null>(null);
@@ -184,7 +190,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
    const detail=(event as CustomEvent<string|{error:string;added:number}>).detail;
    readFiles();setDragging(false);
    const failure=typeof detail==='string'?detail:detail?.error??'';
-   setError(previous=>previous===t('chat.sentDraftSyncFailed')?previous:failure||(saved.current.cleanupPending?t('chat.acceptedCleanupPending'):saved.current.rejectedCleanupPending?t('chat.rejectedCleanupPending'):saved.current.pendingSend?t('chat.originalAttachmentPending'):saved.current.notice));setFeedback(!failure&&typeof detail==='object'&&detail.added>0?t('chat.importedAttachments',{count:detail.added}):'');
+   setError(previous=>previous===t('chat.sentDraftSyncFailed')?previous:failure||(saved.current.cleanupPending?t('chat.acceptedCleanupPending'):saved.current.rejectedCleanupPending?t('chat.rejectedCleanupPending'):saved.current.pendingSend?t('chat.originalAttachmentPending'):saved.current.notice));setFeedback('');
   };
   window.addEventListener('files-changed',changed);
   return()=>{lifetime.current++;stopDraft();stopFileRead.current();fileOrder.current.reset();window.removeEventListener('files-changed',changed);};
@@ -207,7 +213,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   });
  };
  useLayoutEffect(()=>{const editor=input.current;if(editor){editor.style.height='0px';editor.style.height=`${Math.max(27,Math.min(127,editor.scrollHeight))}px`;}},[draft]);
- const pick=async()=>{setExpanded(false);setBusy(true);setError('');setFeedback('');const ticket=fileOrder.current.request();try{const before=files.length;const selected=visibleDraftFiles(await desktop<DraftFile[]>('PickFiles'),saved.current);if(fileOrder.current.accept(ticket)){setFiles(selected);setFilesLoaded(true);if(selected.length>before)setFeedback(t('chat.importedAttachments',{count:selected.length-before}));}setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
+ const pick=async()=>{setExpanded(false);setBusy(true);setError('');setFeedback('');const ticket=fileOrder.current.request();try{const selected=visibleDraftFiles(await desktop<DraftFile[]>('PickFiles'),saved.current);if(fileOrder.current.accept(ticket)){setFiles(selected);setFilesLoaded(true);}setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
  const paste=async(e:ClipboardEvent<HTMLTextAreaElement>)=>{
   const types=Array.from(e.clipboardData.types);
   if(!e.clipboardData.files.length&&!types.some(type=>type==='Files'||type==='text/uri-list'||type==='public.file-url'||type.startsWith('image/')))return;
@@ -219,7 +225,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   try{
    const result=await desktop<PasteResult>('PasteAttachments');
    if(generation!==lifetime.current)return;
-   if(result.handled){const before=files.length;const visible=visibleDraftFiles(result.files,saved.current);if(fileOrder.current.accept(fileTicket)){setFiles(visible);setFilesLoaded(true);setFeedback(visible.length>before?t('chat.importedAttachments',{count:visible.length-before}):t('chat.attachmentAlreadyAdded'));}}
+   if(result.handled){const before=files.length;const visible=visibleDraftFiles(result.files,saved.current);if(fileOrder.current.accept(fileTicket)){setFiles(visible);setFilesLoaded(true);setFeedback(visible.length>before?'':'duplicate');}}
    else if(text){save(draft.slice(0,start)+text+draft.slice(end),refs);requestAnimationFrame(()=>input.current?.setSelectionRange(start+text.length,start+text.length));}
    else setError(t('chat.clipboardNoFiles'));
   }catch(err){if(generation===lifetime.current)setError(err instanceof Error?err.message:t('chat.pasteFailed'));}
@@ -238,7 +244,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
     saved.current=next;
     if(editTicket===editGeneration.current){setDraft(next.text);setRefs(next.referenceIds??[]);}
     const filesCurrent=fileOrder.current.accept(fileTicket),visible=visibleDraftFiles(nextFiles,next);
-    if(filesCurrent){setFiles(visible);setFilesLoaded(true);setFeedback(visible.length?t('chat.importedAttachments',{count:visible.length}):'');}
+    if(filesCurrent){setFiles(visible);setFilesLoaded(true);setFeedback('');}
     setError(next.cleanupPending?t('chat.acceptedCleanupPending'):next.rejectedCleanupPending?t('chat.rejectedCleanupPending'):next.pendingSend?t('chat.originalAttachmentPending'):next.notice);setSendBlocked(!!(next.pendingSend||next.rejectedCleanupPending));setCleanupPending(!!(next.cleanupPending||next.rejectedCleanupPending));setSyncReadFailed(false);setLoaded(true);
     if(quick&&filesCurrent&&!next.notice&&!next.cleanupPending&&!next.text&&!next.referenceIds?.length&&!visible.length)await desktop('ClosePanel').catch(()=>{});
   });}catch{
@@ -316,6 +322,7 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   }
  };
  const actionLabel=primaryAction==='stop'?(stopping?t('chat.stopping'):t('chat.stopWork')):snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerWork'):t('chat.send');
+ const needsConnection=loaded&&!!(draft.trim()||files.length)&&snapshot?.connection!=='ready'&&!snapshot?.canSteer;
  return <div ref={composer} className={`compose-area${dragging?' file-dragging':''}`} data-file-drop-target
   onDragEnter={e=>{if(e.dataTransfer.types.includes('Files'))setDragging(true)}}
   onDragOver={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true)}}}
@@ -324,13 +331,14 @@ function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0
   <div className="capsule">
    <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
    <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onPaste={e=>void paste(e)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
-   <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-label={actionLabel} title={actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
+   <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-label={actionLabel} title={needsConnection?t('chat.connectionUnavailableToSend'):actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
   {!!error&&<p role="alert" className="input-error">{error}</p>}
+  {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{t('chat.connectionUnavailableToSend')}</span>{quick&&<button className="text-action" onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}</div>}
   {(sendBlocked||cleanupPending||loaded&&!filesLoaded)&&<button className="quiet" type="button" onClick={()=>void retryLocalCleanup()}>{t('chat.retryDraftCleanup')}</button>}
-  {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):feedback}</p>}
+  {!error&&(dragging||feedback||files.length>0)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):feedback==='duplicate'?t('chat.attachmentAlreadyAdded'):t('chat.attachmentsSelected',{count:files.length})}</p>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
-   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><DraftThumbnail file={f}/><span className="attachment-details" title={f.name}><strong>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</strong><small>{f.type||t('chat.fileTypeUnknown')} · {draftSize(f.size)}</small></span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
+   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><DraftThumbnail file={f}/><span className="attachment-details" title={f.name}><strong>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</strong><small>{attachmentType(f.type,t)} · {draftSize(f.size)}</small></span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
    {refs.map(id=><li key={id}><span>{snapshot?.references.find(r=>r.id===id)?.name??t('chat.referenceDefault')}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
   </ul>}
   {expanded&&<AttachmentMenu trigger={add} composer={composer} quick={quick} activation={activation} references={snapshot?.references??[]} selected={refs}
@@ -397,6 +405,16 @@ export function History() {
  const connection=snapshot&&snapshot.connection!=='ready';
  useEffect(()=>{if(snapshot?.connection==='ready')setConnectionError('');},[snapshot?.connection]);
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
+ const chooseRuntime=snapshot?.connectionIssue==='setup_required';
+ const connectionText=chooseRuntime?t('chat.setupRequiredConnection'):
+  snapshot?.connection==='connecting'?t('chat.checkingConnection'):
+  snapshot?.connection==='login'?t('chat.loginRequiredConnection'):
+  snapshot?.connectionIssue==='runtime_missing'?t('chat.runtimeMissingConnection'):
+  snapshot?.connectionIssue==='runtime_protocol'?t('chat.runtimeProtocolConnection'):
+  snapshot?.connectionIssue==='resource_exhausted'?t('chat.resourceConnection'):
+  snapshot?.connectionIssue==='existing_server'?t('chat.existingServerConnection'):
+  snapshot?.connectionIssue==='connection'?t('chat.offlineConnection'):
+  snapshot?.message||t('chat.offlineConnection');
  useLayoutEffect(()=>{
   const el=scroll.current;if(!el||!active)return;
   if(prepend.current){
@@ -421,14 +439,14 @@ export function History() {
    {approvalCards.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh().catch(()=>{})}/>)}
    {reviews.map(r=><ReviewNotice key={r.id} value={r}/>)}
    {connection&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
-    <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
-    <p>{snapshot.message||t('chat.checkingConnection')}</p>
+    <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):chooseRuntime?t('chat.chooseRuntimeTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
+    <p>{connectionText}</p>
     <div className="connection-actions">
      {snapshot.connection==='login'&&!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Login')}>{t('chat.loginInBrowser')}</button>}
      {snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('CancelLogin')}>{t('chat.cancelLogin')}</button>}
-     {!snapshot.loginPending&&<button disabled={busy} onClick={()=>void action('Connect')}>{busy?t('chat.connectingTitle'):setup?t('chat.recheckSetup'):t('chat.reconnect')}</button>}
+     {!snapshot.loginPending&&!chooseRuntime&&snapshot.connection!=='connecting'&&<button disabled={busy} onClick={()=>void action('Connect')}>{busy?t('chat.connectingTitle'):setup?t('chat.recheckSetup'):t('chat.reconnect')}</button>}
      {setup&&<button className="text-action" onClick={()=>void action('OpenConnectionHelp')}>{t('chat.setupHelp')}</button>}
-     {<button className="text-action" onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}
+     {<button className={chooseRuntime?'primary':'text-action'} onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}
     </div>
    </section>}
    {!connection&&!!snapshot?.message&&<p className="connection-message" role="status">{snapshot.message}</p>}

@@ -61,7 +61,7 @@ export function PermissionSettings({onDone,onBack,embedded=false,call=desktop}:{
        {p.target&&<small>{t('settings.permissionTarget',{name:p.target})}</small>}
       </div>
       <div className="permission-toggle">
-       <span id={`permission-status-${p.id}`} role="status">{t(busy===p.id?'settings.permissionWaiting':statuses[p.status]??'settings.permissionUnknown')}</span>
+       <span id={`permission-status-${p.id}`} data-status={p.status} role="status">{t(busy===p.id?'settings.permissionWaiting':statuses[p.status]??'settings.permissionUnknown')}</span>
        <button id={`permission-${p.id}`} aria-label={`${t(names[p.id])} · ${t(action)}`}
         aria-describedby={`permission-description-${p.id} permission-status-${p.id}`} aria-busy={busy===p.id}
         disabled={!!busy||p.status==='unsupported'} onClick={()=>void change(p)}>{t(action)}</button>

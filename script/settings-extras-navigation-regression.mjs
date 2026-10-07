@@ -8,5 +8,5 @@ assert.equal(result.detail,true);
 assert.equal(result.overviewReturned,true);
 assert.equal(result.detailReturned,true);
 assert.equal(result.existingRetained,true);
-assert.equal(result.draftRetained,true);
-process.stdout.write('Messaging overview, detail, return and unsaved draft passed\n');
+assert.equal(result.draftCleared,true);
+process.stdout.write('Messaging overview, detail, return and cleared unsaved draft passed\n');
