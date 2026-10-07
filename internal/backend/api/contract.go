@@ -137,23 +137,32 @@ type ApprovalSection struct {
 	Text     string `json:"text"`
 }
 
+// ApprovalResolution is attached only after an original native request is
+// resolved and its selected response is known. Empty means no decision fact.
+type ApprovalResolution struct {
+	ChoiceID string `json:"choiceId"`
+	Outcome  string `json:"outcome"` // allowed, declined, cancelled, or handled.
+	Scope    string `json:"scope,omitempty"`
+}
+
 type Approval struct {
 	// Presentation keys never participate in approval identity or decisions.
-	TitleKey    string            `json:"titleKey"`
-	NoticeKey   string            `json:"noticeKey"`
-	TaskTitle   string            `json:"taskTitle"`
-	Sections    []ApprovalSection `json:"sections"`
-	ID          string            `json:"id"`
-	TurnKey     string            `json:"turnKey"`
-	Title       string            `json:"title"`
-	Action      string            `json:"action"`
-	Target      string            `json:"target"`
-	Description string            `json:"description"`
-	Details     string            `json:"details"`
-	Status      string            `json:"status"`
-	Choices     []Choice          `json:"choices"`
-	Questions   []Question        `json:"questions"`
-	URL         string            `json:"url"`
+	TitleKey    string              `json:"titleKey"`
+	NoticeKey   string              `json:"noticeKey"`
+	TaskTitle   string              `json:"taskTitle"`
+	Sections    []ApprovalSection   `json:"sections"`
+	ID          string              `json:"id"`
+	TurnKey     string              `json:"turnKey"`
+	Title       string              `json:"title"`
+	Action      string              `json:"action"`
+	Target      string              `json:"target"`
+	Description string              `json:"description"`
+	Details     string              `json:"details"`
+	Status      string              `json:"status"`
+	Resolution  *ApprovalResolution `json:"resolution,omitempty"`
+	Choices     []Choice            `json:"choices"`
+	Questions   []Question          `json:"questions"`
+	URL         string              `json:"url"`
 }
 type Reference struct {
 	ID          string `json:"id"`

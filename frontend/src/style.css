@@ -97,6 +97,7 @@ body[data-surface="history"] { background:var(--bg); }
 .approval-choices { position:sticky; bottom:0; background:var(--bg); padding:8px 0; }
 .approval-choices button,.connection-actions button,.question-options button,.permission-option button { background:var(--wash); border:1px solid var(--line); border-radius:11px; padding:8px 12px; font-size:12px; }
 .approval-choices .primary-decision { background:var(--accent); color:var(--on-accent); }
+.approval-result { display:flex; align-items:center; gap:6px; }
 .advanced-permission { color:var(--muted); font-size:11px; }
 summary { cursor:pointer; }
 .question { display:block; margin:12px 0; line-height:1.6; }

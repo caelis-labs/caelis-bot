@@ -520,6 +520,8 @@ func (s *Session) applyEvent(event Notification) {
 		}
 		id := s.promptHandles[string(n.RequestID)]
 		if p, ok := s.prompts[id]; ok {
+			p.nativeResolved = true
+			p.view.Resolution = resolvedDecision(p)
 			s.resolvePrompt(id, p)
 		}
 	case "error":

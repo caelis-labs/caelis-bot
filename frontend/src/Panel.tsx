@@ -14,7 +14,8 @@ import { MediaMessage } from './MediaMessage';
 import { ChatScroll } from './chat-scroll';
 import { ConversationOrder, SubmissionProgress, DraftQueue, retryRead } from './chat-observation';
 import { useI18n } from './i18n';
-import { approvalChoice, approvalText, approvalTitle } from './approval-presentation';
+import { approvalChoice, approvalResult, approvalText, approvalTitle } from './approval-presentation';
+import { CheckIcon, XIcon } from './SettingsIcons';
 import type { MessageKey } from './i18n/catalogs';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
@@ -77,6 +78,7 @@ function ReviewNotice({value}:{value:Review}) {
 export function Prompt({ value, refresh }: { value: Approval; refresh: () => void }) {
   const {t,locale} = useI18n();
   const title = approvalTitle(value,locale);
+  const resultLabel=approvalResult(value,locale);
   const [answers, setAnswers] = useState<Record<string,string[]>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -110,7 +112,7 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     {value.status === 'pending' ? <>
       <div className="approval-choices">{value.choices.map(c => c.scope === 'rule' || c.scope === 'conversation' ?
         <div key={c.id} className="permission-option"><p>{c.scope === 'rule' ? t('chat.approvalRuleScope') : t('chat.approvalConversationScope')}</p>{c.details && <pre>{c.details}</pre>}{button(c)}</div> : button(c))}</div>
-    </> : <p className="quiet" role="status">{value.status === 'resolved' ? t('chat.approvalResolved') : value.status === 'sent' || value.status === 'sending' ? t('chat.approvalSent') : t('chat.approvalUnknown')}</p>}
+    </> : <p className="quiet approval-result" role="status" aria-label={resultLabel}>{value.status==='resolved'&&value.resolution?.outcome==='allowed'?<CheckIcon aria-hidden="true" size={16}/>:value.status==='resolved'&&(value.resolution?.outcome==='declined'||value.resolution?.outcome==='cancelled')?<XIcon aria-hidden="true" size={16}/>:null}<span>{resultLabel}</span></p>}
   </section>;
 }
 function Message({ item, report, animate=false, reveal=false, clip }: { item: Item; report: (message: string) => void; animate?:boolean; reveal?:boolean; clip?:PortraitClip }) {
@@ -346,7 +348,9 @@ export function History() {
  const messages=withOutgoing(snapshot?.items??[],outgoing).filter(i=>i.kind==='user'||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length)));
  const contentKey=messages.map(i=>i.id+i.text).join('');
  const prompts=snapshot?.approvals.filter(p=>p.status!=='resolved')??[];
- const promptKey=prompts.map(p=>p.id+p.status).join('');
+ const settled=prompts.length?[]:snapshot?.approvals.filter(p=>p.status==='resolved'&&p.turnKey===snapshot.currentTurn).slice(-1)??[];
+ const approvalCards=[...prompts,...settled];
+ const promptKey=approvalCards.map(p=>p.id+p.status+p.resolution?.choiceId).join('');
  const reviews=snapshot?.reviews?.filter(r=>r.status==='denied'||r.status==='timedOut'||r.status==='aborted'||r.status==='failed')??[];
  const activity=chatActivity(snapshot);
  const avatar=useAvatarPresentation(snapshot,active);
@@ -372,10 +376,10 @@ export function History() {
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
    <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply} clip={i.id===avatar.completion?'delight':avatar.clip} reveal={active&&liveReplies.has(i.id)}/>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
-   {(!!prompts.length||!!reviews.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
+   {(!!approvalCards.length||!!reviews.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
-    <div className={`message assistant state-bubble ${prompts.length?'approval-bubble':''}`}>
-   {prompts.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh().catch(()=>{})}/>)}
+    <div className={`message assistant state-bubble ${approvalCards.length?'approval-bubble':''}`}>
+   {approvalCards.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh().catch(()=>{})}/>)}
    {reviews.map(r=><ReviewNotice key={r.id} value={r}/>)}
    {connection&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
     <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>

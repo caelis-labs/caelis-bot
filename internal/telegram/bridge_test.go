@@ -805,7 +805,7 @@ func TestApprovalSubmittedThenNativeResolvedClosesOriginalCard(t *testing.T) {
 	snapshot.Approvals[0].Status = "resolved"
 	b.mirror(t.Context(), f, snapshot)
 	card = b.state.Messages["approval:native-once"]
-	if !card.Closed || card.Keyboard != "" || f.edits != 2 || f.editIDs[1] != card.IDs[0] || !strings.Contains(f.texts[len(f.texts)-1], "handled") {
+	if !card.Closed || card.Keyboard != "" || f.edits != 2 || f.editIDs[1] != card.IDs[0] || !strings.Contains(f.texts[len(f.texts)-1], "Computer Use\nHandled") {
 		t.Fatalf("native resolution did not settle original card: %+v texts=%v", card, f.texts)
 	}
 	snapshot.Approvals = nil
@@ -818,6 +818,120 @@ func TestApprovalSubmittedThenNativeResolvedClosesOriginalCard(t *testing.T) {
 	b.recoveryWait.Wait()
 	if decisions != 1 {
 		t.Fatal("resolved card dispatched twice")
+	}
+}
+
+func TestResolvedApprovalEditsOriginalCardWithVerifiedOutcome(t *testing.T) {
+	for _, tc := range []struct{ name, outcome, scope, en, zh string }{
+		{"once", "allowed", "once", "✅ Allowed (once)", "✅ 已允许（一次）"},
+		{"session", "allowed", "session", "✅ Allowed (this session)", "✅ 已允许（本会话）"},
+		{"always", "allowed", "always", "✅ Allowed (always)", "✅ 已允许（始终）"},
+		{"deny", "declined", "deny", "❌ Declined", "❌ 已拒绝"},
+		{"cancel", "cancelled", "deny", "🚫 Cancelled", "🚫 已取消"},
+		{"external", "", "", "Handled", "已处理"},
+	} {
+		for _, chinese := range []bool{false, true} {
+			t.Run(tc.name+map[bool]string{true: "-zh", false: "-en"}[chinese], func(t *testing.T) {
+				a := api.Approval{ID: "original-native", Title: "cua_repl", Description: "Allow Computer Use for the fixture?", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce", Scope: "once"}}}
+				s := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+				b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return s }, Chinese: func() bool { return chinese }})
+				paired(b)
+				b.mirror(t.Context(), f, s)
+				original := b.state.Messages["approval:"+a.ID]
+				if len(original.IDs) != 1 || original.IDs[0] <= 0 || f.sends != 1 {
+					t.Fatalf("original card missing: %+v", original)
+				}
+				s.Approvals[0].Status = "resolved"
+				if tc.outcome != "" {
+					s.Approvals[0].Resolution = &api.ApprovalResolution{ChoiceID: "original-choice", Outcome: tc.outcome, Scope: tc.scope}
+				}
+				b.mirror(t.Context(), f, s)
+				want := tc.en
+				if chinese {
+					want = tc.zh
+				}
+				last := f.texts[len(f.texts)-1]
+				if f.sends != 1 || f.edits != 1 || f.editIDs[0] != original.IDs[0] || last != "cua_repl\nAllow Computer Use for the fixture?\n"+want || f.keyboards[len(f.keyboards)-1] != nil {
+					t.Fatalf("terminal card lost original context or native outcome: sends=%d edits=%v text=%q", f.sends, f.editIDs, last)
+				}
+				s.Approvals = nil
+				b.mirror(t.Context(), f, s)
+				restored, err := Open(filepath.Dir(b.path), b.host)
+				if err != nil {
+					t.Fatal(err)
+				}
+				restored.mirror(t.Context(), f, s)
+				if f.sends != 1 || f.edits != 1 || !restored.state.Messages["approval:"+a.ID].Closed {
+					t.Fatal("terminal edit replayed on restart", f.sends, f.edits)
+				}
+			})
+		}
+	}
+}
+
+func TestApprovalPendingAndUnknownNeverClaimPermission(t *testing.T) {
+	s := api.Snapshot{Connection: "ready", Approvals: []api.Approval{{ID: "pending-native", Title: "cua_repl", Description: "Permission?", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce", Scope: "once"}}}}}
+	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return s }})
+	paired(b)
+	b.mirror(t.Context(), f, s)
+	for _, status := range []string{"sent", "unknown"} {
+		s.Approvals[0].Status = status
+		b.mirror(t.Context(), f, s)
+		got := f.texts[len(f.texts)-1]
+		if !strings.Contains(got, "cua_repl\nPermission?") || strings.Contains(got, "✅") || strings.Contains(got, "❌") || f.sends != 1 {
+			t.Fatalf("%s falsely settled or replaced card: %q", status, got)
+		}
+	}
+}
+
+func TestApprovalResolutionRaceUpgradesNeutralCardWithoutNewMessage(t *testing.T) {
+	s := api.Snapshot{Connection: "ready", Approvals: []api.Approval{{ID: "race", Title: "Computer Use", Description: "Original request", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce", Scope: "once"}}}}}
+	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return s }})
+	paired(b)
+	b.mirror(t.Context(), f, s)
+	s.Approvals[0].Status = "resolved"
+	b.mirror(t.Context(), f, s)
+	if got := f.texts[len(f.texts)-1]; got != "Computer Use\nOriginal request\nHandled" {
+		t.Fatalf("premature decision inferred: %q", got)
+	}
+	s.Approvals[0].Resolution = &api.ApprovalResolution{ChoiceID: "accept", Outcome: "allowed", Scope: "once"}
+	b.mirror(t.Context(), f, s)
+	if got := f.texts[len(f.texts)-1]; got != "Computer Use\nOriginal request\n✅ Allowed (once)" || f.sends != 1 || f.edits != 2 || f.editIDs[0] != f.editIDs[1] {
+		t.Fatalf("late native decision was not promoted on same card: %q sends=%d edits=%v", got, f.sends, f.editIDs)
+	}
+}
+
+func TestVanishedApprovalAfterRestartKeepsStoredOriginalText(t *testing.T) {
+	s := api.Snapshot{Connection: "ready", Approvals: []api.Approval{{ID: "vanished-restart", Title: "Computer Use", Description: "Original request", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce", Scope: "once"}}}}}
+	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return s }})
+	paired(b)
+	b.mirror(t.Context(), f, s)
+	card := b.state.Messages["approval:vanished-restart"]
+	s.Approvals = nil
+	restored, err := Open(filepath.Dir(b.path), b.host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored.mirror(t.Context(), f, s)
+	if got := f.texts[len(f.texts)-1]; got != "Computer Use\nOriginal request\nHandled" || f.sends != 1 || f.editIDs[len(f.editIDs)-1] != card.IDs[0] || restored.state.Messages["approval:vanished-restart"].Keyboard != "" {
+		t.Fatalf("recovered terminal lost original card or kept keyboard: %q sends=%d edits=%v", got, f.sends, f.editIDs)
+	}
+}
+
+func TestOversizedApprovalKeepsOriginalAndOnlyRemovesKeyboard(t *testing.T) {
+	s := api.Snapshot{Connection: "ready", Approvals: []api.Approval{{ID: "oversized", Title: strings.Repeat("A", 16001), Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce", Scope: "once"}}}}}
+	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot { return s }})
+	paired(b)
+	b.mirror(t.Context(), f, s)
+	before := f.sends
+	if before < 2 || len(b.state.Messages["approval:oversized"].ApprovalBody) != 0 {
+		t.Fatal("oversized payload was stored unbounded or not delivered")
+	}
+	s.Approvals[0].Status = "resolved"
+	b.mirror(t.Context(), f, s)
+	card := b.state.Messages["approval:oversized"]
+	if !card.Closed || card.Keyboard != "" || f.sends != before || f.edits != 0 || f.markupEdits != 1 {
+		t.Fatalf("large original card was replaced or regained buttons: %+v sends=%d edits=%d markup=%d", card, f.sends, f.edits, f.markupEdits)
 	}
 }
 

@@ -16,6 +16,7 @@ export interface Approval {
   description: string;
   details: string;
   status: string;
+  resolution?: ApprovalResolution | null;
   choices: Array<Choice>;
   questions: Array<Question>;
   url: string;
@@ -25,6 +26,11 @@ export interface ApprovalMode {
   name: string;
   description: string;
   dangerous: boolean;
+}
+export interface ApprovalResolution {
+  choiceId: string;
+  outcome: string;
+  scope?: string;
 }
 export interface ApprovalSection {
   titleKey: string;

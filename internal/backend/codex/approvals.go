@@ -27,6 +27,8 @@ type prompt struct {
 	questions                  []nativeQuestion
 	form                       *formSchema
 	permissions                map[string]json.RawMessage
+	sentChoice                 string // Original response written; resolved is still required.
+	nativeResolved             bool
 }
 type nativeQuestion struct {
 	ID       string `json:"id"`
@@ -331,6 +333,67 @@ func approvalPersistOffered(raw json.RawMessage, mode string) bool {
 	}
 	return false
 }
+
+func resolvedDecision(p *prompt) *api.ApprovalResolution {
+	if p.sentChoice == "" {
+		return nil
+	}
+	result := &api.ApprovalResolution{ChoiceID: p.sentChoice, Outcome: "handled"}
+	for _, choice := range p.view.Choices {
+		if choice.ID == p.sentChoice {
+			result.Scope = choice.Scope
+			break
+		}
+	}
+	switch p.method {
+	case "mcpServer/elicitation/request":
+		switch p.sentChoice {
+		case "decline":
+			result.Outcome = "declined"
+		case "cancel":
+			result.Outcome = "cancelled"
+		case "accept", "accept-session", "accept-always":
+			if len(p.view.Questions) == 0 && p.view.URL == "" {
+				result.Outcome = "allowed"
+			}
+		}
+	case "item/commandExecution/requestApproval":
+		if payload, ok := p.choices[p.sentChoice].(map[string]any); ok {
+			var native string
+			value, _ := json.Marshal(payload["decision"])
+			if json.Unmarshal(value, &native) == nil {
+				switch native {
+				case "decline":
+					result.Outcome = "declined"
+				case "cancel":
+					result.Outcome = "cancelled"
+				case "accept", "acceptForSession":
+					result.Outcome = "allowed"
+				}
+			} else if result.Scope == "rule" {
+				result.Outcome = "allowed"
+			}
+		}
+	case "item/fileChange/requestApproval":
+		switch p.sentChoice {
+		case "accept", "acceptForSession":
+			result.Outcome = "allowed"
+		case "decline":
+			result.Outcome = "declined"
+		case "cancel":
+			result.Outcome = "cancelled"
+		}
+	case "item/permissions/requestApproval":
+		switch p.sentChoice {
+		case "allow":
+			result.Outcome = "allowed"
+		case "decline":
+			result.Outcome = "declined"
+		}
+	}
+	return result
+}
+
 func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	ctx, stop := s.operation(ctx, 15*time.Second)
 	defer stop()
@@ -373,11 +436,18 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	defer s.mu.Unlock()
 	if current, exists := s.prompts[d.ID]; exists && current == p {
 		if err == nil {
+			p.sentChoice = d.Choice
 			p.view.Status = "sent"
 		} else {
 			p.view.Status = "unknown"
 			s.state.Message = "确认结果尚未收到，请重新连接核对；不要重复授权"
 		}
+		s.replacePrompt(d.ID, p.view)
+		s.update()
+	} else if err == nil && p.nativeResolved {
+		// The native resolution may arrive before respond returns from its write.
+		p.sentChoice = d.Choice
+		p.view.Resolution = resolvedDecision(p)
 		s.replacePrompt(d.ID, p.view)
 		s.update()
 	}
@@ -409,7 +479,14 @@ func (s *Session) cancelPendingElicitations(ctx context.Context, c *Client, targ
 			p.view.Status = "sent"
 			if err != nil {
 				p.view.Status = "unknown"
+			} else {
+				p.sentChoice = "cancel"
 			}
+			s.replacePrompt(id, p.view)
+			s.update()
+		} else if err == nil && p.nativeResolved {
+			p.sentChoice = "cancel"
+			p.view.Resolution = resolvedDecision(p)
 			s.replacePrompt(id, p.view)
 			s.update()
 		}

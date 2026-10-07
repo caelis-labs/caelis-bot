@@ -15,3 +15,15 @@ export function approvalTitle(value: Approval, locale: Locale) {
 export function approvalChoice(value: Choice, locale: Locale) {
  return approvalText(locale, value.labelKey, value.label);
 }
+export function approvalResult(value: Approval, locale: Locale) {
+ if(value.status!=='resolved')return approvalText(locale,value.status==='sent'||value.status==='sending'?'chat.approvalSent':'chat.approvalUnknown','');
+ const result=value.resolution;
+ if(result?.outcome==='declined')return approvalText(locale,'chat.approvalDeclined','');
+ if(result?.outcome==='cancelled')return approvalText(locale,'chat.approvalCancelled','');
+ if(result?.outcome==='allowed'){
+  const scopeKey:Record<string,string>={once:'chat.approvalScopeOnce',session:'chat.approvalScopeSession',always:'chat.approvalScopeAlways',conversation:'chat.approvalScopeConversation',turn:'chat.approvalScopeTurn',rule:'chat.approvalScopeRule'};
+  const scope=approvalText(locale,scopeKey[result.scope??''],'');
+  return scope?approvalText(locale,'chat.approvalAllowedScope','',{scope}):approvalText(locale,'chat.approvalAllowed','');
+ }
+ return approvalText(locale,'chat.approvalResolved','');
+}
