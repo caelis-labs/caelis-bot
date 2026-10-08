@@ -270,6 +270,7 @@ restores only unknown or in-flight input; accepted/rejected image receipts stay
 available for canonical history by original request ID without resurfacing as
 new tail messages after restart.
 Read-only Composer/Recent snapshots avoid serializing all history; older-page loading does not own lifecycle.
+Caelis startup/reconnect requests only one recent Turn. Explicit older-page loads use the existing eight-Turn traversal and merge decided mirror reviews with messages at one persisted boundary. A bounded page failure retains the live cursor, seen watermark, approvals and receipts; historical reviews never become actionable approval targets.
 
 Codex owns only the server it launched. Explicit stop/quit interrupts exact owned work, asks native terminal
 cleanup, then reaps that process. macOS descendant fallback uses captured PID plus birth identity; no global

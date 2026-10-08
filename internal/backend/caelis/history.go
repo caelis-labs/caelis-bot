@@ -12,7 +12,12 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
-const historyPageTurns = 8
+const (
+	historyPageTurns = 8
+	// Each projected SSE frame is already limited to 8 MiB. Bound the whole
+	// user-requested page too, before it can grow the private transcript.
+	historyPageBytes = 16 << 20
+)
 
 // History tokens belong to a backward display traversal, never to the live
 // command cursor. Context renewal retains that traversal in its original view.
@@ -68,8 +73,13 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 	defer cancel()
 	projection := &view{State: wire.SessionState{SessionId: sid}, Seen: map[string]bool{}, Items: []api.Item{}}
 	next, snapshot, page, bootstrap, replaced, appended := "", "", 0, false, false, false
+	pageBytes := 0
 	path := "/sessions/" + idPath(sid) + "/reconnect?history_turns=" + strconv.Itoa(historyPageTurns) + "&history_before=" + url.QueryEscape(before)
 	err := c.stream(ctx, path, "", func(f frame) error {
+		pageBytes += len(f.data)
+		if pageBytes > historyPageBytes {
+			return errors.New("历史页面超过大小限制")
+		}
 		if !bootstrap {
 			var state wire.SessionState
 			if f.event != "caelis.control.bootstrap" || json.Unmarshal(f.data, &state) != nil || state.SessionId != sid || state.ProtocolVersion != 1 || state.ApiVersion != "v1" || state.EnvelopeVersion != "caelis.control.envelope/v1" {
@@ -142,12 +152,46 @@ func (s *Session) LoadEarlier(ctx context.Context) error {
 			seen[item.ID] = true
 		}
 	}
-	items := original.Items
+	items, reviews, liveReviews := original.Items, original.Reviews, original.LiveReviews
 	original.Items = append(older, original.Items...)
 	original.HistoryBefore = next
+	if len(projection.Reviews) > 0 {
+		merged := make(map[string]reviewFact, len(original.Reviews)+len(projection.Reviews))
+		for id, fact := range original.Reviews {
+			merged[id] = fact
+		}
+		var live map[string]reviewFact
+		for id, fact := range original.LiveReviews {
+			if live == nil {
+				live = make(map[string]reviewFact, len(original.LiveReviews))
+			}
+			live[id] = fact
+		}
+		for id, fact := range projection.Reviews {
+			if fact.Status != "approved" && fact.Status != "denied" || id != reviewID(sid, fact.TurnID, fact.ApprovalID) {
+				continue
+			}
+			if _, exists := merged[id]; !exists {
+				merged[id] = fact
+			}
+			delete(live, id)
+		}
+		original.Reviews, original.LiveReviews = merged, live
+	}
+	rollback := func() {
+		original.Items, original.HistoryBefore = items, before
+		original.Reviews, original.LiveReviews = reviews, liveReviews
+	}
+	// loadBinding refuses files above 64 MiB. Keep an explicit older-page load
+	// from persisting a document that would make the next normal start fail.
+	encoded, err := json.Marshal(s.state)
+	if err != nil || len(encoded) >= 64<<20 {
+		rollback()
+		return errors.New("历史页面超过本地保存限制")
+	}
 	// Display-only history must not run saveLocked's background-completion hooks.
 	if err := privateWrite(s.path, s.state); err != nil {
-		original.Items, original.HistoryBefore = items, before
+		rollback()
 		return err
 	}
 	s.bumpLocked()

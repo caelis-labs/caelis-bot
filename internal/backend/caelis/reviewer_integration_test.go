@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -357,7 +360,8 @@ func TestGuardianHostIntegration(t *testing.T) {
 		if e = s.Close(ctx); e != nil {
 			t.Fatal(e)
 		}
-		// Discard only Bot's derived review cache, forcing proof from public replay.
+		// Discard only Bot's derived display cache. Startup reads the most recent
+		// Turn; older decided reviews return only with explicit older-page loading.
 		s.mu.Lock()
 		v := s.state.Views[original]
 		v.Reviews, v.LiveReviews, v.Cursor, v.Seen = nil, nil, "", map[string]bool{}
@@ -372,7 +376,78 @@ func TestGuardianHostIntegration(t *testing.T) {
 		if s.state.Session.SessionId != original {
 			t.Fatal("reconnect replaced conversation")
 		}
-		waitAcceptance(t, ctx, func() bool { return reviewFor("approved", "allowed") && reviewFor("denied", "DENY") })
+		readyCtx, stopReady := context.WithTimeout(ctx, 10*time.Second)
+		defer stopReady()
+		waitAcceptance(t, readyCtx, func() bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return s.state.Views[original].CommandCaughtUp
+		})
+		if snapshot := s.Snapshot(); !snapshot.CanSend || !snapshot.HasEarlier {
+			t.Fatal("finite-window reconnect did not restore ready state and older-page boundary", snapshot.CanSend, snapshot.HasEarlier)
+		}
+		if reviewFor("approved", "allowed") || reviewFor("denied", "DENY") {
+			t.Fatal("older review appeared before its history page was requested")
+		}
+		noCalls()
+		noManual()
+		if effects.Load() != 1 {
+			t.Fatal("restart repeated callback")
+		}
+		s.mu.Lock()
+		cursor, seen, receipt, boundary := s.state.Views[original].Cursor, clone(s.state.Views[original].Seen), s.state.LastReceipt, s.state.Views[original].HistoryBefore
+		s.mu.Unlock()
+		// Check Core's persisted public facts separately from Bot's bounded
+		// display cache. This is one read-only eight-Turn page, never a scan.
+		publicReviews := map[string]wire.Envelope{}
+		e = s.client.stream(ctx, "/sessions/"+idPath(original)+"/reconnect?history_turns=8&history_before="+url.QueryEscape(boundary), "", func(f frame) error {
+			if f.event != "caelis.control.delivery" {
+				return nil
+			}
+			var delivery wire.SessionFeedDelivery
+			if err := json.Unmarshal(f.data, &delivery); err != nil {
+				return err
+			}
+			for _, event := range delivery.Events {
+				if event.Kind != "caelis/approval_review" || event.Delivery.Mode != wire.DeliveryModeMirror || event.ApprovalReview == nil {
+					continue
+				}
+				if status := value(event.ApprovalReview.Status); status == "approved" || status == "denied" {
+					publicReviews[reviewID(value(event.SessionId), value(event.TurnId), value(event.ApprovalRequestId))] = event
+				}
+			}
+			if delivery.Kind == "sync" {
+				return historyComplete
+			}
+			return nil
+		})
+		if !errors.Is(e, historyComplete) {
+			t.Fatal("Core older page did not finish", e)
+		}
+		for id, prior := range identities {
+			if prior.Status != "approved" && prior.Status != "denied" {
+				continue
+			}
+			event, ok := publicReviews[id]
+			if !ok || value(event.SessionId) != original || value(event.ApprovalReview.Status) != prior.Status || value(event.ApprovalReview.ItemId) != prior.ItemID || value(event.ApprovalReview.ToolCallId) != prior.ToolCallID {
+				t.Fatal("Core did not retain original decided review", id)
+			}
+		}
+		if len(publicReviews) == 0 || len(s.Snapshot().Reviews) != 0 {
+			t.Fatal("public historical decisions changed Bot's recent display window")
+		}
+		if e = s.LoadEarlier(ctx); e != nil {
+			t.Fatal("explicit older history did not load", e)
+		}
+		if !reviewFor("approved", "allowed") || !reviewFor("denied", "DENY") {
+			t.Fatal("loaded older page did not restore decided review facts")
+		}
+		s.mu.Lock()
+		preserved := s.state.Views[original].Cursor == cursor && reflect.DeepEqual(s.state.Views[original].Seen, seen) && reflect.DeepEqual(s.state.LastReceipt, receipt)
+		s.mu.Unlock()
+		if !preserved || !s.Snapshot().CanSend {
+			t.Fatal("older history changed live admission or receipt")
+		}
 		for _, prior := range identities {
 			if prior.Status == "approved" || prior.Status == "denied" {
 				assertIdentity(t, prior.Status, prior.Action)
@@ -631,7 +706,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 			t.Fatal("Application Guardian received ambient query tools")
 		}
 	}
-	t.Log("Guardian: public configuration/readiness, gated callback, native command/file allow+deny, failure, cancellation, exact receipt retry, restart replay, App x Turn authorization, real deadline and no manual fallback passed")
+	t.Log("Guardian selected subtests passed; see the executed subtest list")
 }
 
 // Reviewer fixture is deliberately semantic only; it never sends native input.
