@@ -28,6 +28,7 @@ type gatedPluginEngine struct {
 
 type inspectingPluginEngine struct {
 	*gatedPluginEngine
+	inspectMu  sync.Mutex
 	reads      int
 	generation uint64
 	fail       bool
@@ -36,6 +37,8 @@ type inspectingPluginEngine struct {
 }
 
 func (e *inspectingPluginEngine) BotPluginServer(context.Context, string) (plugins.ServerDetail, error) {
+	e.inspectMu.Lock()
+	defer e.inspectMu.Unlock()
 	e.reads++
 	if e.fail {
 		return plugins.ServerDetail{}, errors.New("fixture failure")
@@ -166,7 +169,19 @@ func TestPluginDetailEnrichesRuntimeNamesWithoutAddingUnpublishedTools(t *testin
 		t.Fatal("disabled service was probed", detail, err)
 	}
 }
-func (e *inspectingPluginEngine) BotPluginGeneration() uint64 { return e.generation }
+func (e *inspectingPluginEngine) BotPluginGeneration() uint64 {
+	e.inspectMu.Lock()
+	defer e.inspectMu.Unlock()
+	return e.generation
+}
+
+func (e *inspectingPluginEngine) setDirectory(state string, tools []plugins.Tool) {
+	e.inspectMu.Lock()
+	defer e.inspectMu.Unlock()
+	e.state = state
+	e.tools = append([]plugins.Tool(nil), tools...)
+	e.generation++
+}
 
 func TestPluginIndexTracksAuthoritativeConnectedDirectory(t *testing.T) {
 	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"notes","version":"1.0.0","description":"Find notes","author":{"name":"Example"}}`)
@@ -216,6 +231,77 @@ func TestPluginIndexTracksAuthoritativeConnectedDirectory(t *testing.T) {
 	body, err = os.ReadFile(path)
 	if err != nil || string(body) != "{\"services\":[]}\n" {
 		t.Fatalf("disabled service retained: %s %v", body, err)
+	}
+}
+
+func TestPluginIndexFreshSessionAndPostTurnDirectory(t *testing.T) {
+	requireNativeIPC(t)
+	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"notes","version":"1.0.0","description":"Find notes","author":{"name":"Example"}}`)
+	mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"search":{"type":"streamable-http","url":"https://example.com/mcp"}}}`)
+	files := fstest.MapFS{"packages/notes/plugin.json": {Data: manifest}, "packages/notes/mcp.json": {Data: mcp}}
+	hash := func(body []byte) string { sum := sha256.Sum256(body); return hex.EncodeToString(sum[:]) }
+	index := []byte(`{"name":"community","plugins":[{"name":"notes","source":{"source":"local","path":"./packages/notes"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"}}]}`)
+	m, err := plugins.OpenReviewedMarketplace(t.TempDir(), files, index, map[string]map[string]string{"notes": {"plugin.json": hash(manifest), "mcp.json": hash(mcp)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &inspectingPluginEngine{gatedPluginEngine: &gatedPluginEngine{testEngine: newTestEngine()}, state: "not_started"}
+	a, root := fixtureApp(t, e, Host{})
+	a.plugins = m
+	if _, err := a.PluginAction(t.Context(), "notes", "install"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start(); err != nil {
+		t.Fatal(err)
+	}
+	e.testEngine.mu.Lock()
+	prepare, finish := e.testEngine.tools.PrepareTurn, e.testEngine.tools.FinishTurn
+	e.testEngine.mu.Unlock()
+	path := filepath.Join(root, "app-skills", "mcp-tools.json")
+	if err := prepare(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		t.Helper()
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	if got := read(); got != "{\"services\":[]}\n" {
+		t.Fatalf("fresh inactive session advertised tools: %s", got)
+	}
+
+	// A Core manager can become ready during the first turn. Its full tools/list
+	// directory is then available before the next native ToolSearch invocation.
+	e.setDirectory("connected", []plugins.Tool{{Name: "lookup", Description: "Find notes"}, {Name: "update", Description: "Change a note"}})
+	finish()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		got := read()
+		if strings.Contains(got, `"name":"lookup"`) && strings.Contains(got, `"name":"update"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("post-turn connected directory incomplete: %s", got)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := prepare(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); !strings.Contains(got, `"name":"lookup"`) || !strings.Contains(got, `"name":"update"`) {
+		t.Fatalf("pre-search directory lost tools: %s", got)
+	}
+
+	// Dream's new Runtime generation cannot retain a prior session's index.
+	e.setDirectory("not_started", nil)
+	if err := prepare(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got != "{\"services\":[]}\n" {
+		t.Fatalf("fresh session retained prior directory: %s", got)
 	}
 }
 

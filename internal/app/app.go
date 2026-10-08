@@ -471,6 +471,18 @@ func (a *Application) Start() error {
 			}
 			config.FinishTurn = func() {
 				resident.StopDesktopTurn()
+				// Core can assemble a fresh MCP manager during this turn. Refresh
+				// the host index after readiness without delaying the Runtime's
+				// completion notification or replaying any tool operation.
+				if a.plugins != nil && len(a.plugins.Selection().Servers) != 0 {
+					go func() {
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						if err := a.syncPluginIndex(ctx); err != nil && a.host.ReportError != nil {
+							a.host.ReportError(err)
+						}
+					}()
+				}
 				a.mu.Lock()
 				vault := a.notebook
 				a.mu.Unlock()
