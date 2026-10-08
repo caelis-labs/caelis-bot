@@ -110,13 +110,20 @@ func relayRemoteContext(parent context.Context, server Server, spec *ConnectionS
 			scan := bufio.NewScanner(response.Body)
 			scan.Buffer(make([]byte, 64<<10), 16<<20)
 			var data []string
+			eventType := ""
+			matched := false
+			streamFailed := false
 			flush := func() {
+				if eventType == "error" {
+					streamFailed = true
+				}
 				if len(data) > 0 {
 					payload := strings.Join(data, "\n")
 					if json.Valid([]byte(payload)) {
 						var compact bytes.Buffer
 						if json.Compact(&compact, []byte(payload)) != nil {
 							data = nil
+							eventType = ""
 							return
 						}
 						if msg.Method == "initialize" {
@@ -125,19 +132,38 @@ func relayRemoteContext(parent context.Context, server Server, spec *ConnectionS
 						written.Write(compact.Bytes())
 						written.WriteByte('\n')
 						written.Flush()
+						matched = matched || sameRelayID(compact.Bytes(), msg.ID)
 					}
 					data = nil
 				}
+				eventType = ""
 			}
 			for scan.Scan() {
 				v := scan.Text()
 				if v == "" {
 					flush()
+					if matched || streamFailed {
+						break
+					}
 				} else if strings.HasPrefix(v, "data:") {
 					data = append(data, strings.TrimPrefix(strings.TrimPrefix(v, "data:"), " "))
+				} else if strings.HasPrefix(v, "event:") {
+					eventType = strings.TrimSpace(strings.TrimPrefix(v, "event:"))
 				}
 			}
-			flush()
+			if !matched && !streamFailed {
+				flush() // A final event need not have a trailing empty line.
+			}
+			if len(msg.ID) > 0 && !matched {
+				message := "MCP response unavailable"
+				if streamFailed || scan.Err() != nil {
+					message = "MCP stream failed"
+				}
+				if msg.Method == "tools/call" {
+					message += "; tool outcome is uncertain"
+				}
+				writeRelayError(written, msg.ID, message)
+			}
 		} else if strings.HasPrefix(ct, "application/json") {
 			body, e := io.ReadAll(io.LimitReader(response.Body, 16<<20+1))
 			if e == nil && len(body) <= 16<<20 && json.Valid(body) {
@@ -153,6 +179,9 @@ func relayRemoteContext(parent context.Context, server Server, spec *ConnectionS
 				written.Write(compact.Bytes())
 				written.WriteByte('\n')
 				written.Flush()
+				if len(msg.ID) > 0 && !sameRelayID(compact.Bytes(), msg.ID) {
+					writeRelayError(written, msg.ID, "MCP response unavailable")
+				}
 			} else if len(msg.ID) > 0 {
 				writeRelayError(written, msg.ID, "MCP response invalid")
 			}
@@ -163,6 +192,19 @@ func relayRemoteContext(parent context.Context, server Server, spec *ConnectionS
 		cancel()
 	}
 	return reader.Err()
+}
+
+func sameRelayID(payload []byte, requested json.RawMessage) bool {
+	if len(requested) == 0 {
+		return false
+	}
+	var message struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Result  json.RawMessage `json:"result"`
+		Error   json.RawMessage `json:"error"`
+	}
+	return json.Unmarshal(payload, &message) == nil && message.JSONRPC == "2.0" && (message.Result != nil || message.Error != nil) && bytes.Equal(bytes.TrimSpace(message.ID), bytes.TrimSpace(requested))
 }
 
 func negotiatedProtocol(body, fallback string) string {

@@ -44,9 +44,15 @@ func (m *Manager) ProbeServer(ctx context.Context, packageID, name string) Serve
 	m.mu.Unlock()
 	probe := &Manager{root: m.root, catalog: m.catalog, state: copyState, secrets: m.secrets}
 	probeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
 	inReader, inWriter := io.Pipe()
 	outReader, outWriter := io.Pipe()
+	closePipes := func(err error) {
+		inWriter.CloseWithError(err)
+		inReader.CloseWithError(err)
+		outReader.CloseWithError(err)
+		outWriter.CloseWithError(err)
+	}
+	stopClose := context.AfterFunc(probeCtx, func() { closePipes(probeCtx.Err()) })
 	done := make(chan error, 1)
 	go func() {
 		err := runStdio(probeCtx, probe, packageID, name, inReader, outWriter, io.Discard,
@@ -55,9 +61,10 @@ func (m *Manager) ProbeServer(ctx context.Context, packageID, name string) Serve
 		done <- err
 	}()
 	defer func() {
-		inWriter.Close()
-		outReader.Close()
+		cancel()
+		closePipes(io.EOF)
 		<-done
+		stopClose()
 	}()
 	encoder := json.NewEncoder(inWriter)
 	reader := bufio.NewScanner(outReader)
@@ -81,6 +88,12 @@ func (m *Manager) ProbeServer(ctx context.Context, packageID, name string) Serve
 				return nil, response.Error.Message, errors.New("MCP request failed")
 			}
 			return response.Result, "", nil
+		}
+		if err := probeCtx.Err(); err != nil {
+			return nil, "", err
+		}
+		if err := reader.Err(); err != nil {
+			return nil, "", err
 		}
 		return nil, "", errors.New("MCP response unavailable")
 	}

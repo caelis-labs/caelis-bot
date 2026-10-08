@@ -15,8 +15,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
 )
@@ -197,6 +199,144 @@ func TestProbeServerListsPagedToolsWithoutCallingTools(t *testing.T) {
 	}
 	if detail := m.ProbeServer(t.Context(), "fixture", "docs"); detail.State != "not_configured" || len(methods) != 4 {
 		t.Fatal("disabled service started", detail, methods)
+	}
+}
+
+func configuredProbeFixture(t *testing.T, handler http.HandlerFunc) *Manager {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"fixture","version":"1.0.0","description":"Fixture","author":{"name":"Fixture"}}`)
+	mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"docs":{"type":"streamable-http","url":"` + server.URL + `"}}}`)
+	hash := func(b []byte) string { sum := sha256.Sum256(b); return hex.EncodeToString(sum[:]) }
+	entry := Entry{ID: "fixture", Title: "Fixture", Version: "1.0.0", Description: "Fixture", Source: "https://example.test/source", Files: map[string]string{"plugin.json": hash(manifest), "mcp.json": hash(mcp)}, Connection: &ConnectionSpec{Server: "docs", Kind: "token", Placement: "header", Name: "Authorization"}}
+	m, err := openCatalog(t.TempDir(), []Entry{entry}, map[string]fs.FS{"fixture": fstest.MapFS{"plugin.json": &fstest.MapFile{Data: manifest}, "mcp.json": &fstest.MapFile{Data: mcp}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := map[string]string{}
+	m.secrets = secretstore.Functions{SaveFunc: func(id, value string) error { secrets[id] = value; return nil }, LoadFunc: func(id string) (string, error) { return secrets[id], nil }, DeleteFunc: func(id string) error { delete(secrets, id); return nil }}
+	if _, err := m.Mutate(t.Context(), "fixture", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ConfigureConnection(t.Context(), "fixture", "SYNTHETIC_PRIVATE_TOKEN", "", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func probeMCPMethod(t *testing.T, w http.ResponseWriter, r *http.Request) (string, int) {
+	t.Helper()
+	var request struct {
+		Method string `json:"method"`
+		ID     int    `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		t.Error(err)
+	}
+	if request.Method == "initialize" {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}}}}`, request.ID)
+	} else if request.Method == "notifications/initialized" {
+		w.WriteHeader(http.StatusAccepted)
+	}
+	return request.Method, request.ID
+}
+
+func TestProbeServerSSEEOFAndErrorDoNotWaitForInput(t *testing.T) {
+	for _, test := range []struct{ name, event string }{
+		{"unrelated response then EOF", "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":99,\"result\":{}}\n\n"},
+		{"SSE error event", "event: error\ndata: upstream unavailable\n\n"},
+		{"JSON SSE error event", "event: error\ndata: {\"reason\":\"upstream unavailable\"}\n\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := configuredProbeFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if method, _ := probeMCPMethod(t, w, r); method == "tools/list" {
+					w.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprint(w, test.event)
+				}
+			})
+			ctx, cancel := context.WithTimeout(t.Context(), 60*time.Millisecond)
+			defer cancel()
+			finished := make(chan ServerDetail, 1)
+			go func() { finished <- m.ProbeServer(ctx, "fixture", "docs") }()
+			select {
+			case detail := <-finished:
+				if detail.State != "failed" || len(detail.Tools) != 0 {
+					t.Fatal("incomplete SSE response appeared connected", detail)
+				}
+			case <-time.After(600 * time.Millisecond):
+				t.Fatal("probe waited for new input after SSE ended")
+			}
+		})
+	}
+}
+
+func TestRemoteMCPUnknownToolCallOutcomeIsNotRetried(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Error("unexpected method", r.Method)
+		}
+		calls.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":99,\"result\":{}}\n\n")
+	}))
+	defer server.Close()
+	var out bytes.Buffer
+	err := relayRemote(Server{Type: "streamable-http", URL: server.URL}, nil, "", "", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"write"}}`+"\n"), &out)
+	if err != nil || calls.Load() != 1 || !strings.Contains(out.String(), `"id":2`) || !strings.Contains(out.String(), "tool outcome is uncertain") {
+		t.Fatal("unknown tool call was lost or replayed", err, calls.Load(), out.String())
+	}
+}
+
+func TestProbeServerCancellationReapsRepeatedSSERequests(t *testing.T) {
+	var active atomic.Int32
+	m := configuredProbeFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if method, _ := probeMCPMethod(t, w, r); method == "tools/list" {
+			active.Add(1)
+			defer active.Add(-1)
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, ": waiting for tool result\n\n")
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		}
+	})
+	for i := 0; i < 12; i++ {
+		ctx, cancel := context.WithTimeout(t.Context(), 60*time.Millisecond)
+		started := time.Now()
+		detail := m.ProbeServer(ctx, "fixture", "docs")
+		cancel()
+		if detail.State != "failed" || time.Since(started) > 600*time.Millisecond {
+			t.Fatal("cancelled probe did not exit promptly", i, detail)
+		}
+	}
+	deadline := time.After(600 * time.Millisecond)
+	for active.Load() != 0 {
+		select {
+		case <-deadline:
+			t.Fatal("repeated probes left HTTP streams active", active.Load())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func TestProbeServerSSEUsesMatchingResponseAfterNotifications(t *testing.T) {
+	m := configuredProbeFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if method, id := probeMCPMethod(t, w, r); method == "tools/list" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\n\n")
+			fmt.Fprintf(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":{\"tools\":[{\"name\":\"lookup\"}]}}\n\n", id)
+			w.(http.Flusher).Flush()
+			<-r.Context().Done() // A held-open stream must not delay the matching result.
+		}
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	started := time.Now()
+	detail := m.ProbeServer(ctx, "fixture", "docs")
+	if detail.State != "connected" || len(detail.Tools) != 1 || detail.Tools[0].Name != "lookup" || time.Since(started) > 600*time.Millisecond {
+		t.Fatal("matching SSE result was not returned promptly", detail)
 	}
 }
 
