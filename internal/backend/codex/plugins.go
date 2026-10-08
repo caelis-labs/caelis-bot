@@ -470,5 +470,5 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 func (s *Session) BotPluginGeneration() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.epoch
+	return plugins.RuntimeDirectoryGeneration(s.epoch, s.binding.ThreadID)
 }

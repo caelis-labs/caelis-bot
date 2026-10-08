@@ -14,10 +14,23 @@ import (
 //go:embed skills
 var files embed.FS
 
-// Install materializes read-only guidance outside Notebook and worker roots.
+// Install replaces only the two host-managed skill directories. Other entries
+// under app-skills, Notebook, plugin packages, and custom skills are untouched.
 func Install(root string) (string, error) {
-	path := filepath.Join(root, "app-skills", "caelis-bot-memory", "SKILL.md")
-	err := fs.WalkDir(files, "skills", func(name string, entry fs.DirEntry, err error) error {
+	appRoot := filepath.Join(root, "app-skills")
+	if err := os.MkdirAll(appRoot, 0700); err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(appRoot)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("app-skills must be a real directory")
+	}
+	stage, err := os.MkdirTemp(appRoot, ".bundle-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(stage)
+	err = fs.WalkDir(files, "skills", func(name string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -28,9 +41,38 @@ func Install(root string) (string, error) {
 		if err != nil {
 			return err
 		}
-		return installFile(filepath.Join(root, "app-skills", filepath.FromSlash(strings.TrimPrefix(name, "skills/"))), body)
+		return installFile(filepath.Join(stage, filepath.FromSlash(strings.TrimPrefix(name, "skills/"))), body)
 	})
-	return path, err
+	if err != nil {
+		return "", err
+	}
+	for _, name := range []string{"bot-core", "bot-dream"} {
+		target := filepath.Join(appRoot, name)
+		backup := filepath.Join(stage, ".previous-"+name)
+		if _, err := os.Lstat(target); err == nil {
+			if err := os.Rename(target, backup); err != nil {
+				return "", err
+			}
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		if err := os.Rename(filepath.Join(stage, name), target); err != nil {
+			if _, oldErr := os.Lstat(backup); oldErr == nil {
+				_ = os.Rename(backup, target)
+			}
+			return "", err
+		}
+	}
+	for _, old := range []string{"caelis-bot-memory", "caelis-dream"} {
+		if err := os.RemoveAll(filepath.Join(appRoot, old)); err != nil {
+			return "", err
+		}
+	}
+	// A previous Runtime's confirmed directory is not evidence for this one.
+	if err := os.Remove(filepath.Join(appRoot, "mcp-tools.json")); err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	return filepath.Join(appRoot, "bot-core", "SKILL.md"), nil
 }
 
 func installFile(path string, body []byte) error {
@@ -65,7 +107,7 @@ func installFile(path string, body []byte) error {
 func Instructions(skillPath string) string {
 	var out strings.Builder
 	out.WriteString("\n## Skills\n\nSkills provide instructions in SKILL.md files. Read a skill's file when its description applies, then follow linked references only as needed. Resolve relative references from that skill's directory.\n\n")
-	for _, skill := range []string{"caelis-bot-memory", "caelis-dream"} {
+	for _, skill := range []string{"bot-core", "bot-dream"} {
 		body, err := files.ReadFile(path.Join("skills", skill, "SKILL.md"))
 		if err != nil {
 			panic(err)

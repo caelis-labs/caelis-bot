@@ -26,12 +26,18 @@ func TestConnectableReviewedPackagesAndLegacyMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := m.Snapshot().Items
-	if len(items) != 5 {
-		t.Fatalf("want five connectable packages, got %d", len(items))
+	if len(items) != 6 {
+		t.Fatalf("want six connectable packages, got %d", len(items))
 	}
 	for _, item := range items {
 		if len(item.Skills) != 0 || len(item.MCPServers) != 1 || item.Connection == nil {
 			t.Fatal("invented or missing contribution", item.ID)
+		}
+		if item.Connection.Kind == "oauth" && !oauthNativeSupported {
+			if _, err = m.Mutate(context.Background(), item.ID, "install", nil); err == nil {
+				t.Fatal("unsupported OAuth installed")
+			}
+			continue
 		}
 		if _, err = m.Mutate(context.Background(), item.ID, "install", nil); err != nil {
 			t.Fatal(item.ID, err)

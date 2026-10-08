@@ -43,7 +43,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	}
 	defer vault.Close()
 	os.WriteFile(filepath.Join(vault.Path(), "MEMORY.md"), []byte("# Memory\nNative core identity."), 0600)
-	dreamPath := filepath.Join(filepath.Dir(filepath.Dir(skillPath)), "caelis-dream", "SKILL.md")
+	dreamPath := filepath.Join(filepath.Dir(filepath.Dir(skillPath)), "bot-dream", "SKILL.md")
 	handoffPath := filepath.Join(vault.Path(), notebook.HandoffName)
 	var mu sync.Mutex
 	var requests []string
@@ -161,7 +161,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if _, err = vault.PrepareDream(); err != nil {
 		t.Fatal(err)
 	}
-	r, err = s.SubmitDream(ctx, api.Submission{ID: "native-dream", Text: "Explicit Bot host Dream request. Load caelis-dream and write the supplied handoff, then give a short recap."})
+	r, err = s.SubmitDream(ctx, api.Submission{ID: "native-dream", Text: "Explicit Bot host Dream request. Load bot-dream and write the supplied handoff, then give a short recap."})
 	if err != nil || r.Outcome != "accepted" {
 		t.Fatal(r, err)
 	}
@@ -196,7 +196,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	mu.Lock()
 	nextRequests := append([]string{}, requests...)
 	mu.Unlock()
-	if len(nextRequests) != 7 || !strings.Contains(nextRequests[3], "caelis-dream") || strings.Contains(nextRequests[3], "# Prepare the next conversation") || !strings.Contains(nextRequests[4], "# Prepare the next conversation") {
+	if len(nextRequests) != 7 || !strings.Contains(nextRequests[3], "bot-dream") || strings.Contains(nextRequests[3], "# Prepare the next conversation") || !strings.Contains(nextRequests[4], "# Prepare the next conversation") {
 		t.Fatal("Dream body did not load progressively")
 	}
 	if !strings.Contains(nextRequests[6], "Native core identity.") || !strings.Contains(nextRequests[6], "Finished the skill check") || strings.Contains(nextRequests[6], "Read the applicable guide and its desktop reference.") {

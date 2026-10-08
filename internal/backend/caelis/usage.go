@@ -2,6 +2,7 @@ package caelis
 
 import (
 	"encoding/json"
+	"math"
 	"strconv"
 	"time"
 
@@ -33,13 +34,38 @@ func applyLiveUsage(v *view, e wire.Envelope, now time.Time) {
 			return
 		}
 		v.ModelTurn, v.Usage.ModelAt = turn, e.OccurredAt.Round(0)
+		v.UsageEvidence = "awaiting_context_gauge"
+		if v.UsageTurn == turn {
+			if v.Usage.Window > 0 {
+				v.UsageEvidence = "live_gauge_and_provider"
+			} else {
+				v.UsageEvidence = "invalid_context_gauge"
+			}
+		}
+		if update.Cost != nil && update.Cost.Total != nil && !math.IsNaN(*update.Cost.Total) && !math.IsInf(*update.Cost.Total, 0) && *update.Cost.Total >= 0 {
+			v.Usage.LastProviderCost, v.Usage.LastProviderCostKnown = *update.Cost.Total, true
+			v.Usage.LastProviderCostCurrency = ""
+			if update.Cost.Currency != nil && len(*update.Cost.Currency) == 3 {
+				currency := *update.Cost.Currency
+				if currency[0] >= 'A' && currency[0] <= 'Z' && currency[1] >= 'A' && currency[1] <= 'Z' && currency[2] >= 'A' && currency[2] <= 'Z' {
+					v.Usage.LastProviderCostCurrency = currency
+				}
+			}
+		} else {
+			v.Usage.LastProviderCost, v.Usage.LastProviderCostKnown, v.Usage.LastProviderCostCurrency = 0, false, ""
+		}
 	case wire.UsageSemanticsContextGauge:
 		used, eu := strconv.ParseInt(string(update.Used), 10, 64)
 		window, ew := strconv.ParseInt(string(update.Size), 10, 64)
 		v.UsageTurn = turn
 		v.Usage.Used, v.Usage.Window = 0, 0
+		v.UsageEvidence = "invalid_context_gauge"
 		if eu == nil && ew == nil && used >= 0 && window > 0 {
 			v.Usage.Used, v.Usage.Window = used, window
+			v.UsageEvidence = "awaiting_provider_usage"
+			if v.ModelTurn == turn && !v.Usage.ModelAt.IsZero() {
+				v.UsageEvidence = "live_gauge_and_provider"
+			}
 		}
 	}
 }

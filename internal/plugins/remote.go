@@ -24,6 +24,10 @@ func relayRemote(server Server, spec *ConnectionSpec, secret, caPEM string, in i
 }
 
 func relayRemoteContext(parent context.Context, server Server, spec *ConnectionSpec, secret, caPEM string, in io.Reader, out io.Writer) error {
+	return relayRemoteWithOAuth(parent, server, spec, secret, caPEM, nil, in, out)
+}
+
+func relayRemoteWithOAuth(parent context.Context, server Server, spec *ConnectionSpec, secret, caPEM string, bearer func(context.Context, string) (string, error), in io.Reader, out io.Writer) error {
 	u, err := url.Parse(server.URL)
 	if err != nil {
 		return errors.New("invalid MCP endpoint")
@@ -51,6 +55,7 @@ func relayRemoteContext(parent context.Context, server Server, spec *ConnectionS
 	written := bufio.NewWriter(out)
 	defer written.Flush()
 	session, protocol := "", "2025-06-18"
+	rejected := ""
 	for reader.Scan() {
 		line := append([]byte(nil), reader.Bytes()...)
 		var msg struct {
@@ -76,6 +81,19 @@ func relayRemoteContext(parent context.Context, server Server, spec *ConnectionS
 		for k, v := range server.Headers {
 			req.Header.Set(k, v)
 		}
+		usedBearer := ""
+		if bearer != nil {
+			usedBearer, err = bearer(ctx, rejected)
+			if err != nil {
+				cancel()
+				if len(msg.ID) > 0 {
+					writeRelayError(written, msg.ID, "MCP authentication required")
+				}
+				continue
+			}
+			rejected = ""
+			req.Header.Set("Authorization", "Bearer "+usedBearer)
+		}
 		if spec != nil && spec.Placement == "header" {
 			req.Header.Set(spec.Name, spec.Prefix+secret)
 		}
@@ -93,6 +111,9 @@ func relayRemoteContext(parent context.Context, server Server, spec *ConnectionS
 			}
 		}
 		if response.StatusCode >= 400 {
+			if bearer != nil && response.StatusCode == http.StatusUnauthorized {
+				rejected = usedBearer
+			}
 			io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 			response.Body.Close()
 			cancel()

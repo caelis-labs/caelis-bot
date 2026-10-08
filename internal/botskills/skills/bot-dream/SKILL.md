@@ -1,5 +1,5 @@
 ---
-name: caelis-dream
+name: bot-dream
 description: Perform a bounded memory review and write a short handoff only when the Bot host explicitly sends a system Dream request with an output path and handoff marker. Never invoke this skill autonomously during ordinary work or conversation.
 ---
 
@@ -20,7 +20,12 @@ marker, completed or cancelled work, genuinely unfinished or waiting items,
 essential constraints and uncertainties, and links to useful notes or artifacts.
 Carry forward still-relevant obligations from the previous handoff. Say when
 nothing remains open. Completed work is background, not a new task to execute.
-Do not duplicate the full MEMORY.md or restore information the user removed.
+Keep original operation and Worker receipt IDs for unresolved actions; check
+their existing result after renewal and never issue the action again merely
+because its outcome is unknown. Do not copy ToolSearch outputs, tool schemas,
+credentials, full transcripts, or the full MEMORY.md into the handoff. Do not
+restore information the user removed. The new session can search for tools
+again when a later task needs them.
 Aim for at most 400 words. Use the current user's language for the recap. Do not
 send progress commentary during this maintenance turn; its final recap is the
 only routine user-facing message.

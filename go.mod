@@ -41,8 +41,10 @@ require (
 	github.com/valyala/fasthttp v1.73.0 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
 	github.com/vcaesar/cedar v0.30.0 // indirect
+	github.com/yuin/goldmark v1.8.6
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
+	golang.org/x/oauth2 v0.35.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240826202546-f6391c0de4c7 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect

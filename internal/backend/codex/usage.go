@@ -14,9 +14,11 @@ func (s *Session) applyUsage(event Notification) {
 		Turn   string `json:"turnId"`
 		Usage  struct {
 			Response struct {
-				Total  int64 `json:"totalTokens"`
-				Input  int64 `json:"inputTokens"`
-				Output int64 `json:"outputTokens"`
+				Total      int64 `json:"totalTokens"`
+				Input      int64 `json:"inputTokens"`
+				Output     int64 `json:"outputTokens"`
+				CacheRead  int64 `json:"cachedInputTokens"`
+				CacheWrite int64 `json:"cacheWriteInputTokens"`
 			} `json:"last"`
 			Total struct {
 				Tokens int64 `json:"totalTokens"`
@@ -29,18 +31,26 @@ func (s *Session) applyUsage(event Notification) {
 	}
 	u := n.Usage
 	if u.Total.Tokens <= s.usageTotal {
+		if s.usage.ModelAt.IsZero() {
+			s.usageReason = "nonincreasing_total"
+		}
 		return
 	}
 	s.usageTotal = u.Total.Tokens
-	if u.Window == nil || *u.Window <= 0 || u.Response.Input <= 0 || u.Response.Output < 0 || u.Response.Total < u.Response.Input {
+	if u.Window == nil || *u.Window <= 0 || u.Response.Input <= 0 || u.Response.Output < 0 || u.Response.Total < u.Response.Input || u.Response.CacheRead < 0 || u.Response.CacheWrite < 0 || u.Response.CacheRead > u.Response.Input || u.Response.CacheWrite > u.Response.Input {
 		s.usage = api.ContextUsage{}
+		s.usageReason = "invalid_token_usage"
 		return
 	}
 	when := event.ReceivedAt
 	if when.IsZero() {
+		s.usageReason = "missing_live_timestamp"
 		return
 	} // An un-timestamped fixture/replay is not live evidence.
-	s.usage = api.ContextUsage{Used: u.Response.Total, Window: *u.Window, ModelAt: when}
+	s.usage = api.ContextUsage{Used: u.Response.Total, Window: *u.Window, ModelAt: when,
+		InputTokens: u.Response.Input, OutputTokens: u.Response.Output,
+		CacheReadTokens: u.Response.CacheRead, CacheWriteTokens: u.Response.CacheWrite}
+	s.usageReason = "live_token_usage"
 	// Receive time is an upper bound when a server supplies no native timestamp.
 	// A supplied timestamp includes time spent asleep or queued in the transport.
 	if event.EmittedAtMS > 0 {

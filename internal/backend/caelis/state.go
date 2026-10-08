@@ -37,6 +37,7 @@ type view struct {
 	Usage           api.ContextUsage                 `json:"-"`
 	UsageTurn       string                           `json:"-"`
 	ModelTurn       string                           `json:"-"`
+	UsageEvidence   string                           `json:"-"`
 	Reviews         map[string]reviewFact            `json:"reviews,omitempty"`
 	LiveReviews     map[string]reviewFact            `json:"-"`
 	CommandCaughtUp bool                             `json:"-"`

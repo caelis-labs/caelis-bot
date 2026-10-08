@@ -79,6 +79,7 @@ type Application struct {
 	initialization        *bot.Initializer
 	plugins               *plugins.Manager
 	pluginDetailMu        sync.Mutex
+	pluginIndexMu         sync.Mutex
 	pluginDetailCache     map[string]pluginDetailCacheEntry
 	closeOnce             sync.Once
 	closeErr              error
@@ -362,10 +363,18 @@ func (a *Application) preparePersonalLocked() error {
 	if a.dreamReady && !a.dreamEnvironmentReady {
 		resident.ConfigureDreamEnvironment(func() bot.DreamEnvironment {
 			if a.host.CareSample == nil {
-				return bot.DreamEnvironment{}
+				return bot.DreamEnvironment{Reason: "sample_unavailable"}
 			}
 			sample := a.host.CareSample()
-			return bot.DreamEnvironment{Available: sample.Available(), Epoch: sample.Epoch, DraftRevision: a.Backend.Draft().Revision}
+			reason := "available"
+			if !sample.Presence.Awake {
+				reason = "not_awake"
+			} else if sample.Presence.Unlocked == nil {
+				reason = "unlock_unknown"
+			} else if !*sample.Presence.Unlocked {
+				reason = "locked"
+			}
+			return bot.DreamEnvironment{Available: sample.Available(), Reason: reason, Epoch: sample.Epoch, DraftRevision: a.Backend.Draft().Revision}
 		})
 		resident.ConfigureDreamDiagnostics(a.host.Diagnostics)
 		a.dreamEnvironmentReady = true
@@ -419,7 +428,7 @@ func (a *Application) Start() error {
 			config := bridge.Config(executable)
 			if a.skillPath != "" {
 				config.Instructions += botskills.Instructions(a.skillPath)
-				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath), filepath.Join(filepath.Dir(filepath.Dir(a.skillPath)), "caelis-dream")}
+				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath), filepath.Join(filepath.Dir(filepath.Dir(a.skillPath)), "bot-dream")}
 			}
 			if a.plugins != nil {
 				config.Plugins = a.plugins.Selection()
@@ -454,6 +463,9 @@ func (a *Application) Start() error {
 				return nil
 			}
 			config.PrepareTurn = func(ctx context.Context) error {
+				if err := a.syncPluginIndex(ctx); err != nil && a.host.ReportError != nil {
+					a.host.ReportError(err)
+				}
 				a.mu.Lock()
 				vault := a.notebook
 				a.mu.Unlock()
@@ -467,6 +479,18 @@ func (a *Application) Start() error {
 			}
 			config.FinishTurn = func() {
 				resident.StopDesktopTurn()
+				// Core can assemble a fresh MCP manager during this turn. Refresh
+				// the host index after readiness without delaying the Runtime's
+				// completion notification or replaying any tool operation.
+				if a.plugins != nil && len(a.plugins.Selection().Servers) != 0 {
+					go func() {
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						if err := a.syncPluginIndex(ctx); err != nil && a.host.ReportError != nil {
+							a.host.ReportError(err)
+						}
+					}()
+				}
 				a.mu.Lock()
 				vault := a.notebook
 				a.mu.Unlock()

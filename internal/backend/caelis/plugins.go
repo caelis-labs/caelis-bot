@@ -261,7 +261,7 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 func (s *Session) BotPluginGeneration() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.generation
+	return plugins.RuntimeDirectoryGeneration(s.generation, s.state.Session.SessionId)
 }
 func (s *Session) profileBinary() string {
 	s.mu.Lock()

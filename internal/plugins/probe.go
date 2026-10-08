@@ -26,7 +26,7 @@ func (m *Manager) ProbeServer(ctx context.Context, packageID, name string) Serve
 	if selected.Root == "" {
 		return ServerDetail{State: "not_configured", Tools: []Tool{}}
 	}
-	if selected.Server.Type != "streamable-http" {
+	if selected.Server.Type != "streamable-http" && selected.Server.Type != "stdio" {
 		return ServerDetail{State: "not_started", Tools: []Tool{}}
 	}
 	// Mutations replace m.state maps. The relay gets a fixed generation so a
@@ -165,7 +165,7 @@ func finishProbe(detail ServerDetail) ServerDetail {
 
 func probeFailure(message string) ServerDetail {
 	state := "failed"
-	if message == "MCP authentication failed" {
+	if message == "MCP authentication failed" || message == "MCP authentication required" {
 		state = "authentication_required"
 	}
 	return ServerDetail{State: state, Tools: []Tool{}}

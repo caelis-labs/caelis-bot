@@ -48,12 +48,17 @@ func (s *Session) conversationLocked() api.ConversationState {
 	if s.opts.BotTools != nil {
 		desired = s.opts.BotTools.RuntimeVersion
 	}
+	usageEvidence := s.usageReason
+	if usageEvidence == "" {
+		usageEvidence = "no_live_usage_event"
+	}
 	return api.ConversationState{
 		RuntimeVersion: s.binding.RuntimeVersion, DesiredRuntimeVersion: desired,
 		Session: s.binding.ThreadID, Turn: s.lastTurn, Status: s.runs[s.lastTurn],
-		Observed: s.bound && !s.loading && s.state.Connection == "ready" && !s.closed && !s.closing,
-		Idle:     s.state.CanSend && s.opts.Execution.ApprovalMode != "read-only",
-		Usage:    s.usage,
+		Observed:      s.bound && !s.loading && s.state.Connection == "ready" && !s.closed && !s.closing,
+		Idle:          s.state.CanSend && s.opts.Execution.ApprovalMode != "read-only",
+		Usage:         s.usage,
+		UsageEvidence: usageEvidence,
 	}
 }
 func (s *Session) ConversationState() api.ConversationState {
@@ -181,6 +186,7 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 	// Usage totals and freshness belong to the native thread, not the retained
 	// chat history. Reset only after the new binding is durably authoritative.
 	s.usage, s.usageTurn, s.usageTotal = api.ContextUsage{}, "", 0
+	s.usageReason = "new_session"
 	s.residentExecution = *response.execution()
 	s.lastTurn, s.run = "", ""
 	s.state.Phase, s.state.Message = "idle", ""

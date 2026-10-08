@@ -3560,6 +3560,22 @@
       }
     },
     {
+      "id": "notion",
+      "title": "Notion",
+      "version": "1.0.0",
+      "description": "Find and update pages in your Notion workspace",
+      "source": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
+      "connection": {
+        "Server": "notion",
+        "Kind": "oauth",
+        "HelpURL": "https://developers.notion.com/guides/mcp/build-mcp-client"
+      },
+      "files": {
+        "plugin.json": "899b45dfa21af933dfb687059ceccb6051329cb7140b0aecd93129ee792dc527",
+        "mcp.json": "8cf2989c891e877c31d89c5ee099ddffd18664ef1e0fd4e7a75359900b476197"
+      }
+    },
+    {
       "id": "obsidian",
       "title": "Obsidian",
       "version": "1.0.0",

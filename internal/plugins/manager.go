@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,6 +53,7 @@ type connectionRecord struct {
 type ConnectionView struct {
 	Kind    string `json:"kind"`
 	State   string `json:"state"`
+	Stored  bool   `json:"stored,omitempty"`
 	HelpURL string `json:"helpUrl,omitempty"`
 	TrustCA bool   `json:"trustCA,omitempty"`
 	HasCA   bool   `json:"hasCA,omitempty"`
@@ -124,6 +126,9 @@ type Manager struct {
 	sources       map[string]fs.FS
 	state         state
 	secrets       secretstore.Store
+	oauthFlows    map[string]*oauthFlow
+	oauthErrors   map[string]bool
+	oauthClient   *http.Client
 }
 
 func Open(root string) (*Manager, error) {
@@ -369,10 +374,10 @@ func (m *Manager) Snapshot() Snapshot {
 		}
 		m.decorate(&item)
 		m.decorateConnection(&item, e, m.state)
-		if !item.Installed && item.Connection != nil && item.Connection.State == "oauth_unavailable" {
+		if item.Connection != nil && item.Connection.State == "unsupported" {
 			item.Status = "unavailable"
 		}
-		if item.Enabled && item.Connection != nil && item.Connection.State != "configured" {
+		if item.Enabled && item.Connection != nil && item.Connection.State != "configured" && item.Connection.State != "unsupported" && !(item.Connection.State == "pending" && item.Connection.Stored) {
 			item.Status = "needs_connection"
 		}
 		out.Items = append(out.Items, item)
@@ -404,14 +409,30 @@ func (m *Manager) decorateConnection(item *Item, e Entry, st state) {
 	if e.Connection == nil {
 		return
 	}
-	state := "not_configured"
-	if e.Connection.Kind == "oauth" {
-		state = "oauth_unavailable"
+	if e.Connection.Kind == "oauth" && !oauthNativeSupported {
+		item.Connection = &ConnectionView{Kind: "oauth", State: "unsupported", Stored: st.Connections[e.ID].Configured, HelpURL: e.Connection.HelpURL}
+		return
 	}
+	state := "not_configured"
 	if st.Connections[e.ID].Configured {
 		state = "configured"
+		if e.Connection.Kind == "oauth" {
+			key := secretKey(m.root, e.ID, st.Connections[e.ID].Revision)
+			data, err := m.secrets.Load(key)
+			var grant OAuthGrant
+			if err != nil || json.Unmarshal([]byte(data), &grant) != nil || grant.AccessToken == "" {
+				state = "authentication_required"
+			}
+		}
 	}
-	item.Connection = &ConnectionView{Kind: e.Connection.Kind, State: state, HelpURL: e.Connection.HelpURL, TrustCA: e.Connection.TrustCA, HasCA: st.Connections[e.ID].HasCA}
+	if e.Connection.Kind == "oauth" {
+		if m.oauthFlows[e.ID] != nil {
+			state = "pending"
+		} else if m.oauthErrors[e.ID] && state != "configured" {
+			state = "authentication_required"
+		}
+	}
+	item.Connection = &ConnectionView{Kind: e.Connection.Kind, State: state, Stored: st.Connections[e.ID].Configured, HelpURL: e.Connection.HelpURL, TrustCA: e.Connection.TrustCA, HasCA: st.Connections[e.ID].HasCA}
 }
 func (m *Manager) save(next state) error {
 	return localstate.WriteConfirmed(filepath.Join(m.root, "state.json"), next)
@@ -432,8 +453,8 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 	next := cloneState(m.state)
 	switch action {
 	case "install":
-		if e.Connection != nil && e.Connection.Kind == "oauth" {
-			return m.snapshotLocked(), errors.New("OAuth connection unavailable")
+		if e.Connection != nil && e.Connection.Kind == "oauth" && !oauthNativeSupported {
+			return m.snapshotLocked(), errors.New("OAuth is unsupported on this platform")
 		}
 		if has && current.Version == e.Version && current.Digest == digest(e) {
 			if _, err := m.readInstalledAt(e, current.Root); err != nil {
@@ -506,10 +527,17 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 		return m.snapshotLocked(), errors.Join(failures...)
 	}
 	m.state = next
+	if action == "disable" || action == "uninstall" {
+		m.cancelOAuthLocked(id)
+	}
 	if action == "uninstall" && e.Connection != nil {
 		old := currentConnection
 		if old.Configured {
-			_ = m.secrets.Delete(secretKey(m.root, id, old.Revision))
+			if e.Connection.Kind == "oauth" {
+				_ = m.revokeOAuthKey(id, old.Revision)
+			} else {
+				_ = m.secrets.Delete(secretKey(m.root, id, old.Revision))
+			}
 			if old.HasCA {
 				_ = m.secrets.Delete(secretKey(m.root, id, old.Revision) + "-ca")
 			}
@@ -534,7 +562,10 @@ func (m *Manager) snapshotLocked() Snapshot {
 		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Installed: ok, Enabled: ok && rec.Enabled, Status: status, Issues: []Issue{}}
 		m.decorate(&item)
 		m.decorateConnection(&item, e, m.state)
-		if item.Enabled && item.Connection != nil && item.Connection.State != "configured" {
+		if item.Connection != nil && item.Connection.State == "unsupported" {
+			item.Status = "unavailable"
+		}
+		if item.Enabled && item.Connection != nil && item.Connection.State != "configured" && item.Connection.State != "unsupported" && !(item.Connection.State == "pending" && item.Connection.Stored) {
 			item.Status = "needs_connection"
 		}
 		out.Items = append(out.Items, item)

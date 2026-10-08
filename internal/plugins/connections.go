@@ -40,7 +40,7 @@ func (m *Manager) ConfigureConnection(ctx context.Context, id, secret, caPEM str
 	if !ok || e.Connection == nil {
 		return m.snapshotLocked(), errors.New("plugin has no credential connection")
 	}
-	if e.Connection.Kind == "oauth" {
+	if e.Connection.Kind == "oauth" && !clear {
 		return m.snapshotLocked(), errors.New("OAuth connection is not available")
 	}
 	if _, installed := m.state.Installed[id]; !installed {
@@ -122,6 +122,9 @@ func (m *Manager) ConfigureConnection(ctx context.Context, id, secret, caPEM str
 		return m.snapshotLocked(), errors.Join(failures...)
 	}
 	m.state = next
+	if clear {
+		m.cancelOAuthLocked(id)
+	}
 	if apply != nil {
 		if err := apply(ctx, m.selectionLocked(next)); err != nil {
 			// The adapter owns any Runtime rollback and uncertain operation
@@ -137,7 +140,11 @@ func (m *Manager) ConfigureConnection(ctx context.Context, id, secret, caPEM str
 	// Old workers keep the credential they loaded at process start. Revoking the
 	// old Keychain item prevents a stale profile from starting a new process.
 	if current.Configured {
-		_ = m.secrets.Delete(secretKey(m.root, id, current.Revision))
+		if e.Connection.Kind == "oauth" {
+			_ = m.revokeOAuthKey(id, current.Revision)
+		} else {
+			_ = m.secrets.Delete(secretKey(m.root, id, current.Revision))
+		}
 		if current.HasCA {
 			_ = m.secrets.Delete(secretKey(m.root, id, current.Revision) + "-ca")
 		}

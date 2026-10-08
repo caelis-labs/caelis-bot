@@ -14,15 +14,15 @@ func TestLiveUsageSeparatesContextGaugeFromBilling(t *testing.T) {
 	update := json.RawMessage(`{"sessionUpdate":"usage_update","used":"80000","size":"100000"}`)
 	e := wire.Envelope{EventId: pointer("gauge"), SessionId: pointer("resident"), TurnId: pointer("turn"), Scope: pointer("main"), OccurredAt: &now, Update: &update, UsageSemantics: wire.UsageSemanticsContextGauge}
 	applyLiveUsage(v, e, now)
-	if v.Usage.Used != 80000 || !v.Usage.ModelAt.IsZero() {
+	if v.Usage.Used != 80000 || !v.Usage.ModelAt.IsZero() || v.UsageEvidence != "awaiting_provider_usage" {
 		t.Fatal("gauge asserted model activity", v.Usage)
 	}
 	provider := e
 	provider.EventId, provider.UsageSemantics = pointer("provider"), wire.UsageSemanticsProviderUsage
-	billed := json.RawMessage(`{"sessionUpdate":"usage_update","used":"9000000","size":"100000"}`)
+	billed := json.RawMessage(`{"sessionUpdate":"usage_update","used":"9000000","size":"100000","cost":{"total":0.012,"currency":"USD"}}`)
 	provider.Update = &billed
 	applyLiveUsage(v, provider, now)
-	if v.Usage.Used != 80000 || !v.Usage.ModelAt.Equal(now) || v.ModelTurn != v.UsageTurn {
+	if v.Usage.Used != 80000 || !v.Usage.ModelAt.Equal(now) || v.ModelTurn != v.UsageTurn || v.UsageEvidence != "live_gauge_and_provider" || !v.Usage.LastProviderCostKnown || v.Usage.LastProviderCost != 0.012 || v.Usage.LastProviderCostCurrency != "USD" {
 		t.Fatal(v.Usage)
 	}
 	for _, kind := range []string{"duplicate", "worker", "child", "old", "missing-time", "unknown-semantics"} {
@@ -60,7 +60,7 @@ func TestLiveUsageSeparatesContextGaugeFromBilling(t *testing.T) {
 	if err = json.Unmarshal(bytes, &restored); err != nil {
 		t.Fatal(err)
 	}
-	if !restored.Usage.ModelAt.IsZero() || restored.Usage.Window != 0 {
+	if !restored.Usage.ModelAt.IsZero() || restored.Usage.Window != 0 || restored.UsageEvidence != "" {
 		t.Fatal("warmth persisted across restart")
 	}
 }

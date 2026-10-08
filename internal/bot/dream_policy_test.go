@@ -39,14 +39,51 @@ func TestDreamContextThresholds(t *testing.T) {
 		wait int
 		want bool
 	}{
-		{29999, 600, false}, {30000, 299, false}, {30000, 300, true},
-		{69999, 299, false}, {70000, 89, false}, {70000, 90, true},
+		{49999, 600, false}, {50000, 119, false}, {50000, 120, true},
+		{74999, 119, false}, {75000, 119, false}, {75000, 120, true},
 	} {
 		r, e, now, _ := warmDream(t, c.used)
 		dreamSeconds(t, r, now, c.wait)
 		if (len(e.dreams) == 1) != c.want {
 			t.Fatalf("used=%d wait=%d: %s", c.used, c.wait, r.dream.policy.reason)
 		}
+	}
+}
+
+func TestDreamIdleRestartsAfterResidentWorkOrUnknownState(t *testing.T) {
+	for _, kind := range []string{"user_input", "approval", "unknown_operation", "worker_report"} {
+		t.Run(kind, func(t *testing.T) {
+			r, e, now, _ := warmDream(t, 80000)
+			dreamSeconds(t, r, now, 90)
+			e.conversation.Idle = false
+			if kind == "unknown_operation" {
+				e.conversation.Status = "unknown"
+			} else {
+				e.conversation.Status = "running"
+			}
+			if kind == "user_input" || kind == "worker_report" {
+				e.conversation.Turn = kind
+			}
+			dreamSeconds(t, r, now, 30)
+			if len(e.dreams) != 0 {
+				t.Fatal("active resident work was interrupted")
+			}
+			e.conversation.Status, e.conversation.Idle = "completed", true
+			// A report without a fresh model response cannot create a new
+			// opportunity in the real adapters; the fixture models a later reply.
+			e.conversation.Usage.ModelAt = *now
+			if err := r.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			dreamSeconds(t, r, now, 119)
+			if len(e.dreams) != 0 {
+				t.Fatal("idle clock reused time before work settled")
+			}
+			dreamSeconds(t, r, now, 1)
+			if len(e.dreams) != 1 {
+				t.Fatal("fresh completed idle did not permit Dream", r.dream.policy.reason)
+			}
+		})
 	}
 }
 
@@ -81,7 +118,7 @@ func TestDreamSleepAndDiscontinuitiesConsumeOpportunity(t *testing.T) {
 			*now = now.Add(time.Second)
 			e.conversation.Usage.ModelAt = *now
 			_ = r.Tick(t.Context())
-			dreamSeconds(t, r, now, 90)
+			dreamSeconds(t, r, now, 120)
 			if len(e.dreams) != 1 {
 				t.Fatal("fresh conversation cannot dream", r.dream.policy.reason)
 			}
@@ -144,12 +181,12 @@ func TestDreamGrowthCooldownDraftAndCompaction(t *testing.T) {
 
 func TestDreamCooldownAndAttemptSurviveRestart(t *testing.T) {
 	r, e, now, env := warmDream(t, 80000)
-	dreamSeconds(t, r, now, 90)
+	dreamSeconds(t, r, now, 120)
 	e.conversation.Status, e.conversation.Idle = "failed", true
 	_ = r.Tick(t.Context())
 	r = restartDreamRuntime(t, r, e)
 	r.ConfigureDreamEnvironment(func() DreamEnvironment { return *env })
-	e.conversation.Turn = "new-content"
+	e.conversation.Turn, e.conversation.Status = "new-content", "completed"
 	*now = now.Add(time.Second)
 	e.conversation.Usage = api.ContextUsage{Used: 92000, Window: 100000, ModelAt: *now}
 	dreamSeconds(t, r, now, 300)
@@ -166,7 +203,7 @@ func TestDreamCompactionRegrowthAcrossRestart(t *testing.T) {
 	for _, restart := range []bool{false, true} {
 		t.Run(map[bool]string{false: "continuous", true: "restart"}[restart], func(t *testing.T) {
 			r, e, now, env := warmDream(t, 80000)
-			dreamSeconds(t, r, now, 90)
+			dreamSeconds(t, r, now, 120)
 			e.conversation.Status, e.conversation.Idle = "failed", true
 			if err := r.Tick(t.Context()); err != nil {
 				t.Fatal(err)
@@ -175,7 +212,7 @@ func TestDreamCompactionRegrowthAcrossRestart(t *testing.T) {
 			// lowers the context to 40k without creating another Dream attempt.
 			dreamSeconds(t, r, now, 30*60)
 			*now = now.Add(time.Second)
-			e.conversation.Turn = "after-compaction"
+			e.conversation.Turn, e.conversation.Status = "after-compaction", "completed"
 			e.conversation.Usage = api.ContextUsage{Used: 40000, Window: 100000, ModelAt: *now}
 			if err := r.Tick(t.Context()); err != nil {
 				t.Fatal(err)
@@ -195,7 +232,7 @@ func TestDreamCompactionRegrowthAcrossRestart(t *testing.T) {
 			e.conversation.Turn = "fresh-after-compaction"
 			e.conversation.Usage.ModelAt = *now
 			dreamSeconds(t, r, now, 300)
-			if len(e.dreams) != 1 || r.dream.policy.reason != "growth_small" {
+			if len(e.dreams) != 1 || r.dream.policy.reason != "context_small" {
 				t.Fatal("compaction alone admitted Dream", r.dream.policy.reason)
 			}
 			*now = now.Add(time.Second)

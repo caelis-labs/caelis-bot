@@ -456,7 +456,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		return
 	}
 	if !t.Run("B00_dream_handoff", func(t *testing.T) {
-		dreamSkill := filepath.Join(filepath.Dir(filepath.Dir(skillPath)), "caelis-dream", "SKILL.md")
+		dreamSkill := filepath.Join(filepath.Dir(filepath.Dir(skillPath)), "bot-dream", "SKILL.md")
 		output, err := vault.PrepareDream()
 		if err != nil {
 			t.Fatal(err)
@@ -464,7 +464,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		model.set("CASE_DREAM", modelStep{Name: "Read", Args: map[string]string{"path": dreamSkill}}, modelStep{Name: "Write", Args: map[string]string{"path": output, "content": notebook.DreamMarker("native-dream") + "\nCompleted the skill check; nothing pending."}}, modelStep{Reply: "The guide check is complete."})
 		old := s.ConversationState().Session
 		before := s.Snapshot().CurrentTurn
-		r, err := s.SubmitDream(ctx, api.Submission{ID: "native-dream", Text: "Explicit host Dream request: load caelis-dream, write the supplied handoff and give a recap. CASE_DREAM"})
+		r, err := s.SubmitDream(ctx, api.Submission{ID: "native-dream", Text: "Explicit host Dream request: load bot-dream, write the supplied handoff and give a recap. CASE_DREAM"})
 		if err != nil || r.Outcome != "accepted" {
 			t.Fatal(r, err)
 		}

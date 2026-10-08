@@ -152,6 +152,7 @@ func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, 
 	s.mu.Lock()
 	if s.opts.Execution.Model != v.Model {
 		s.usage, s.usageTurn = api.ContextUsage{}, ""
+		s.usageReason = "model_changed"
 	}
 	s.opts.Execution = v
 	s.mu.Unlock()
