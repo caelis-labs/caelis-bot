@@ -45,6 +45,7 @@ type view struct {
 	ApprovalDirty   bool                             `json:"approvalDirty,omitempty"`
 	ApprovalVersion uint64                           `json:"-"`
 	Turns           map[string]string                `json:"turns,omitempty"`
+	RetiredTurns    map[string]bool                  `json:"retiredTurns,omitempty"`
 	Observed        uint64                           `json:"-"`
 	State           wire.SessionState                `json:"state"`
 	Items           []api.Item                       `json:"items"`

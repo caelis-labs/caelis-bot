@@ -36,23 +36,40 @@ func (s *Service) observeTasks(tasks []api.TaskPreview) {
 		return
 	}
 	data, _ := json.Marshal(views)
-	if string(data) == s.taskPreviewJSON {
+	current := make(map[string]api.TaskPreview, len(tasks))
+	for _, task := range tasks {
+		current[task.ID] = task
+	}
+	generationChanged := false
+	for _, previous := range s.taskPreviews {
+		if next, exists := current[previous.ID]; exists && previous.NoticeGeneration != next.NoticeGeneration {
+			generationChanged = true
+			break
+		}
+	}
+	presentationChanged := string(data) != s.taskPreviewJSON
+	if !presentationChanged && !generationChanged {
 		return
 	}
 	if d, ok := s.native.(notificationDriver); ok {
-		current := make(map[string]string, len(tasks))
-		for _, task := range tasks {
-			current[task.ID] = task.Status
+		if len(s.taskPreviews) == 0 {
+			// A prior process can leave A's notice behind after B was saved.
+			for _, task := range tasks {
+				if task.Status == "unknown" && task.NoticeGeneration != "" && !task.NoticeClaimed {
+					d.dismissNotification("task-unknown-" + task.ID)
+				}
+			}
 		}
 		for _, previous := range s.taskPreviews {
-			if previous.Status == "unknown" && current[previous.ID] != "unknown" {
+			next := current[previous.ID]
+			if previous.Status == "unknown" && (next.Status != "unknown" || previous.NoticeGeneration != "" && next.NoticeGeneration != "" && previous.NoticeGeneration != next.NoticeGeneration) {
 				d.dismissNotification("task-unknown-" + previous.ID)
 			}
 		}
 	}
 	s.taskPreviewJSON = string(data)
 	s.taskPreviews = slices.Clone(tasks)
-	if d, ok := s.native.(taskDriver); ok {
+	if d, ok := s.native.(taskDriver); ok && presentationChanged {
 		d.tasks(string(data))
 	}
 }

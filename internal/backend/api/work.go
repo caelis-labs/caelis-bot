@@ -80,12 +80,16 @@ type TerminalTarget struct {
 	Session, Store, TokenFile string
 }
 type TaskPreview struct {
-	TargetLabel string `json:"targetLabel,omitempty"`
-	Locked      bool   `json:"locked"`
-	Provider    string `json:"provider,omitempty"`
-	ID          string `json:"id"`
-	Prompt      string `json:"prompt"`
-	Status      string `json:"status"`
+	// NoticeGeneration is host-only presentation identity. The native task
+	// execution and receipt IDs never enter the renderer's JSON payload.
+	NoticeGeneration string `json:"-"`
+	NoticeClaimed    bool   `json:"-"`
+	TargetLabel      string `json:"targetLabel,omitempty"`
+	Locked           bool   `json:"locked"`
+	Provider         string `json:"provider,omitempty"`
+	ID               string `json:"id"`
+	Prompt           string `json:"prompt"`
+	Status           string `json:"status"`
 }
 
 // RemoteWorkspaceRuntime resolves a target path without evaluating it locally.

@@ -24,6 +24,18 @@ func (m *Manager) notifyWatchlist() {
 	}
 }
 
+// The same opaque identity fences the durable claim and stale OS dismissal.
+func unknownNoticeKey(r *record, id string) string {
+	generation := r.Execution
+	if generation == "" {
+		generation = r.ReportID
+	}
+	if generation == "" {
+		generation = id
+	}
+	return hash(r.Provider, id, generation)
+}
+
 // ClaimUnknownNotices records one alert per original execution before asking
 // the native host to show it. A short grace lets automatic owner recovery finish;
 // an uncertain task is never retried or replaced to produce this notice.
@@ -44,14 +56,7 @@ func (m *Manager) ClaimUnknownNotices() ([]string, error) {
 		if !m.owns(r) || r.View.Status != "unknown" || r.UnknownSince == 0 || m.now().Sub(time.UnixMilli(r.UnknownSince)) < 30*time.Second {
 			continue
 		}
-		generation := r.Execution
-		if generation == "" {
-			generation = r.ReportID
-		}
-		if generation == "" {
-			generation = id
-		}
-		key := hash(r.Provider, id, generation)
+		key := unknownNoticeKey(r, id)
 		if r.UnknownNotice == key {
 			continue
 		}

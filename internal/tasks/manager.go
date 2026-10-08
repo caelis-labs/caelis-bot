@@ -250,6 +250,11 @@ func (m *Manager) refresh() error {
 			r.OriginalPrompt = v.OriginalPrompt
 		}
 		if v.ExecutionKey != "" && (r.Execution != v.ExecutionKey || r.ReportID == "") {
+			if r.Execution != v.ExecutionKey {
+				// The uncertainty window belongs to the native execution, not
+				// the reusable task handle. A new unknown run gets its own grace.
+				r.UnknownSince = 0
+			}
 			r.Execution = v.ExecutionKey
 			r.ReportID = "task-report-" + hash(r.Provider, v.Task.ID, v.ExecutionKey)
 			r.ReportState = "pending"

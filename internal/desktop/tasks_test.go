@@ -91,6 +91,32 @@ func TestTaskUnknownNotificationClearsWhenOriginalStatusRecovers(t *testing.T) {
 		t.Fatal("stale unknown notice remained", d.dismissed)
 	}
 }
+func TestTaskUnknownNotificationClearsOnNewExecutionButNotOldOutcome(t *testing.T) {
+	s, d := taskService(t)
+	a := api.TaskPreview{ID: "original", Status: "unknown", NoticeGeneration: "generation-A", NoticeClaimed: true}
+	b := api.TaskPreview{ID: "original", Status: "unknown", NoticeGeneration: "generation-B"}
+	s.observeTasks([]api.TaskPreview{a})
+	s.observeTasks([]api.TaskPreview{b}) // Same visible status, new original execution.
+	if len(d.dismissed) != 1 || d.dismissed[0] != "task-unknown-original" {
+		t.Fatal("old generation notice remained", d.dismissed)
+	}
+	s.observeTasks([]api.TaskPreview{b}) // A late A native outcome is fenced upstream.
+	if len(d.dismissed) != 1 {
+		t.Fatal("same generation dismissed twice", d.dismissed)
+	}
+	b.Status = "completed"
+	s.observeTasks([]api.TaskPreview{b})
+	if len(d.dismissed) != 2 || d.dismissed[1] != "task-unknown-original" {
+		t.Fatal("current generation recovery did not clear notice", d.dismissed)
+	}
+}
+func TestTaskUnknownNotificationClearsStalePriorGenerationOnRestart(t *testing.T) {
+	s, d := taskService(t)
+	s.observeTasks([]api.TaskPreview{{ID: "original", Status: "unknown", NoticeGeneration: "generation-B"}})
+	if len(d.dismissed) != 1 || d.dismissed[0] != "task-unknown-original" {
+		t.Fatal("prior process notice remained during B grace", d.dismissed)
+	}
+}
 func TestWindowClicksDoNotWaitForOptionalPreview(t *testing.T) {
 	s, _ := taskService(t)
 	s.observeTasks([]api.TaskPreview{{ID: "owned"}})

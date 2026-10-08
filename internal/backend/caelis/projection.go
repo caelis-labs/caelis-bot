@@ -54,6 +54,38 @@ func observedTurn(v *view) string {
 	}
 	return ""
 }
+
+func retireRunHead(v *view, next string) {
+	prior := value(v.State.Run.TurnId)
+	if prior == "" || next == "" || prior == next {
+		return
+	}
+	if v.RetiredTurns == nil {
+		v.RetiredTurns = map[string]bool{}
+	}
+	v.RetiredTurns[prior] = true
+}
+
+func retiredRunHead(v *view, turn string) bool {
+	return turn != "" && turn != value(v.State.Run.TurnId) && v.RetiredTurns[turn]
+}
+
+// Only a new running lifecycle can advance the projected head. Older terminal
+// facts remain on their own turn; they cannot complete an unresolved successor.
+func acceptsRunHead(v *view, e wire.Envelope) bool {
+	turn, current := value(e.TurnId), value(v.State.Run.TurnId)
+	if turn != "" && v.RetiredTurns[turn] {
+		return false
+	}
+	if turn == "" || current == "" || turn == current {
+		return true
+	}
+	if e.Kind == "caelis/lifecycle" && e.Lifecycle != nil && (e.Lifecycle.State == "running" || e.Lifecycle.State == "started") {
+		retireRunHead(v, turn)
+		return true
+	}
+	return false
+}
 func (s *Session) WaitSnapshot(ctx context.Context, rev uint64) (api.Snapshot, error) {
 	for {
 		s.mu.Lock()
@@ -284,10 +316,11 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		applyToolActivity(v, e)
 		return
 	}
-	if e.Kind == "caelis/error" && isMain {
+	head := isMain && acceptsRunHead(v, e)
+	if e.Kind == "caelis/error" && head {
 		v.Failure = value(e.Error)
 	}
-	if e.Lifecycle != nil && e.Kind == "caelis/lifecycle" && isMain {
+	if e.Lifecycle != nil && e.Kind == "caelis/lifecycle" && head {
 		switch e.Lifecycle.State {
 		case "running", "started":
 			v.State.Run.Active = pointer(true)
@@ -303,13 +336,16 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		}
 		v.State.Run.Status = &e.Lifecycle.State
 	}
-	if e.TurnId != nil && isMain {
+	if e.Lifecycle != nil && e.Kind == "caelis/lifecycle" && isMain && !head {
+		finishAssistantStream(v, value(e.TurnId))
+	}
+	if e.TurnId != nil && head {
 		v.State.Run.TurnId = e.TurnId
 	}
-	if e.HandleId != nil && isMain {
+	if e.HandleId != nil && head {
 		v.State.Run.HandleId = e.HandleId
 	}
-	if e.RunId != nil && isMain {
+	if e.RunId != nil && head {
 		v.State.Run.RunId = e.RunId
 	}
 	if !isMain || len(value(e.Update)) == 0 {
@@ -521,6 +557,10 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 				v = &view{Items: []api.Item{}, Seen: map[string]bool{}}
 				s.state.Views[sid] = v
 			}
+			if retiredRunHead(v, value(st.Run.TurnId)) {
+				return errors.New("恢复状态引用已被后续任务替代的 Turn")
+			}
+			retireRunHead(v, value(st.Run.TurnId))
 			v.State = st
 			v.Usage, v.UsageTurn, v.ModelTurn = api.ContextUsage{}, "", ""
 			v.CommandCaughtUp = false
@@ -585,6 +625,15 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 						staged.CommandResults = map[string]commandResultEvidence{}
 					}
 					staged.CommandResults[id] = f
+				}
+			}
+			retireRunHead(v, value(bootstrap.Run.TurnId))
+			if len(v.RetiredTurns) > 0 {
+				if staged.RetiredTurns == nil {
+					staged.RetiredTurns = map[string]bool{}
+				}
+				for turn := range v.RetiredTurns {
+					staged.RetiredTurns[turn] = true
 				}
 			}
 			staged.State = *bootstrap
@@ -785,7 +834,12 @@ func (s *Session) refresh(ctx context.Context) error {
 		s.state.Views[sid] = v
 	}
 	if v == before && v.Observed == observed || before == nil && v.Observed == 0 {
+		if retiredRunHead(v, value(state.Run.TurnId)) {
+			s.mu.Unlock()
+			return nil // A stale state read cannot replace the retained head.
+		}
 		approval := v.State.Approval
+		retireRunHead(v, value(state.Run.TurnId))
 		v.State = state
 		v.State.Approval = approval
 	}
