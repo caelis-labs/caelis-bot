@@ -36,6 +36,25 @@ func (s *Service) PluginConnection(id, secret, caPEM string, clear bool) (plugin
 	return snapshot.Public(), err
 }
 
+func (s *Service) PluginOAuthStart(id string) (plugins.Snapshot, error) {
+	if s.pluginOAuthStart == nil {
+		return plugins.Snapshot{}, errors.New("OAuth connection unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	snapshot, err := s.pluginOAuthStart(ctx, id)
+	return snapshot.Public(), err
+}
+func (s *Service) PluginOAuthCancel(id string) (plugins.Snapshot, error) {
+	if s.pluginOAuthCancel == nil {
+		return plugins.Snapshot{}, errors.New("OAuth connection unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := s.pluginOAuthCancel(ctx, id)
+	return snapshot.Public(), err
+}
+
 func (s *Service) PluginSkillDetail(id, skill string) (plugins.SkillDetail, error) {
 	if s.pluginSkillDetail == nil {
 		return plugins.SkillDetail{}, errors.New("plugin store unavailable")

@@ -47,6 +47,8 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	s.pluginSnapshot = core.PluginSnapshot
 	s.pluginAction = core.PluginAction
 	s.pluginConnection = core.PluginConnection
+	s.pluginOAuthStart = core.PluginOAuthStart
+	s.pluginOAuthCancel = core.PluginOAuthCancel
 	s.pluginSkillDetail = core.PluginSkillDetail
 	s.pluginServerDetail = core.PluginServerDetail
 	s.openExternalURL = back.OpenMessageLink

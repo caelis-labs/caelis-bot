@@ -69,10 +69,8 @@ func runStdio(ctx context.Context, m *Manager, packageID, serverName string, in 
 	}
 	secret := ""
 	caPEM := ""
+	var bearer func(context.Context, string) (string, error)
 	if e.Connection != nil && e.Connection.Server == serverName {
-		if e.Connection.Kind == "oauth" {
-			return errors.New("OAuth connection unavailable")
-		}
 		if len(generation) != 2 {
 			return errors.New("connection revision missing")
 		}
@@ -84,16 +82,22 @@ func runStdio(ctx context.Context, m *Manager, packageID, serverName string, in 
 		if !connection.Configured || connection.Revision != revision {
 			return errors.New("plugin connection is no longer active")
 		}
-		secret, err = m.secrets.Load(secretKey(m.root, packageID, revision))
-		if err != nil || !validCredential(secret) {
-			return errors.New("plugin credential unavailable")
-		}
-		if e.Connection.TrustCA {
-			caPEM, _ = m.secrets.Load(secretKey(m.root, packageID, revision) + "-ca")
+		if e.Connection.Kind == "oauth" {
+			bearer = func(callCtx context.Context, rejected string) (string, error) {
+				return m.oauthBearer(callCtx, packageID, revision, rejected)
+			}
+		} else {
+			secret, err = m.secrets.Load(secretKey(m.root, packageID, revision))
+			if err != nil || !validCredential(secret) {
+				return errors.New("plugin credential unavailable")
+			}
+			if e.Connection.TrustCA {
+				caPEM, _ = m.secrets.Load(secretKey(m.root, packageID, revision) + "-ca")
+			}
 		}
 	}
 	if selected.Type == "streamable-http" {
-		return relayRemoteContext(ctx, *selected, e.Connection, secret, caPEM, in, out)
+		return relayRemoteWithOAuth(ctx, *selected, e.Connection, secret, caPEM, bearer, in, out)
 	}
 	if selected.Type != "stdio" {
 		return errors.New("plugin service unavailable")

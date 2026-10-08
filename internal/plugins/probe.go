@@ -165,7 +165,7 @@ func finishProbe(detail ServerDetail) ServerDetail {
 
 func probeFailure(message string) ServerDetail {
 	state := "failed"
-	if message == "MCP authentication failed" {
+	if message == "MCP authentication failed" || message == "MCP authentication required" {
 		state = "authentication_required"
 	}
 	return ServerDetail{State: state, Tools: []Tool{}}

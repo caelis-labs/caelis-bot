@@ -44,6 +44,8 @@ import (
 	"unsafe"
 )
 
+const oauthNativeSupported = true
+
 func saveSecret(id, secret string) error {
 	a, b := C.CString(id), C.CString(secret)
 	defer C.free(unsafe.Pointer(a))

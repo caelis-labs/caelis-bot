@@ -273,6 +273,51 @@ func (a *Application) PluginConnection(ctx context.Context, id, secret, caPEM st
 	return a.PluginSnapshot(ctx)
 }
 
+func (a *Application) PluginOAuthStart(ctx context.Context, id string) (plugins.Snapshot, error) {
+	if a.plugins == nil {
+		return plugins.Snapshot{}, errors.New("plugin store unavailable")
+	}
+	if _, ok := a.engine.(api.PluginConfigurator); !ok {
+		return plugins.Snapshot{}, errors.New("runtime does not support Bot plugins")
+	}
+	return a.plugins.BeginOAuth(ctx, id, a.host.OpenURL, func(flowCtx context.Context, pluginID, state string, grant plugins.OAuthGrant) error {
+		adapter := a.engine.(api.PluginConfigurator)
+		a.pluginAdmission.Lock()
+		defer a.pluginAdmission.Unlock()
+		err := adapter.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
+			a.mu.Lock()
+			started, closed := a.started, a.closed
+			a.mu.Unlock()
+			if closed {
+				return errors.New("Bot has stopped")
+			}
+			if !started {
+				apply = nil
+			}
+			_, commitErr := a.plugins.ConfigureOAuthGrant(flowCtx, pluginID, state, grant, apply)
+			return commitErr
+		})
+		if err == nil {
+			a.pluginDetailMu.Lock()
+			a.pluginDetailCache = nil
+			a.pluginDetailMu.Unlock()
+			indexCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if syncErr := a.syncPluginIndex(indexCtx); syncErr != nil && a.host.ReportError != nil {
+				a.host.ReportError(syncErr)
+			}
+		}
+		return err
+	})
+}
+
+func (a *Application) PluginOAuthCancel(_ context.Context, id string) (plugins.Snapshot, error) {
+	if a.plugins == nil {
+		return plugins.Snapshot{}, errors.New("plugin store unavailable")
+	}
+	return a.plugins.CancelOAuth(id), nil
+}
+
 // syncPluginIndex reconciles only Runtime-confirmed connected services. It
 // never publishes a raw package declaration or a failed/unknown connection.
 func (a *Application) syncPluginIndex(ctx context.Context) error {
