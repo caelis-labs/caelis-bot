@@ -93,7 +93,7 @@ func runStdio(ctx context.Context, m *Manager, packageID, serverName string, in 
 		}
 	}
 	if selected.Type == "streamable-http" {
-		return relayRemote(*selected, e.Connection, secret, caPEM, in, out)
+		return relayRemoteContext(ctx, *selected, e.Connection, secret, caPEM, in, out)
 	}
 	if selected.Type != "stdio" {
 		return errors.New("plugin service unavailable")

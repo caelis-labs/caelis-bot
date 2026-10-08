@@ -42,12 +42,12 @@ func TestRemoteMCPProtocolBridgeListsAndCallsWithoutCredentialLeak(t *testing.T)
 		case "initialize":
 			w.Header().Set("Mcp-Session-Id", "fixture-session")
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fixture","version":"1"}}}`)
+			fmt.Fprint(w, "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"result\": {\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"fixture\",\"version\":\"1\"}}\n}")
 		case "notifications/initialized":
 			w.WriteHeader(http.StatusAccepted)
 		case "tools/list":
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprint(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"find\"}]}}\n\n")
+			fmt.Fprint(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\ndata: \"id\":2,\"result\":{\"tools\":[{\"name\":\"find\"}]}}\n\n")
 		case "tools/call":
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"fixture result"}]}}`)
@@ -63,6 +63,15 @@ func TestRemoteMCPProtocolBridgeListsAndCallsWithoutCredentialLeak(t *testing.T)
 	}
 	if strings.Contains(out.String(), "SYNTHETIC_PRIVATE_TOKEN") || !strings.Contains(out.String(), `"name":"find"`) || !strings.Contains(out.String(), "fixture result") || len(methods) != 4 {
 		t.Fatal("protocol bridge mismatch", out.String(), methods)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatal("stdio bridge split a JSON-RPC response across lines", len(lines))
+	}
+	for _, line := range lines {
+		if !json.Valid([]byte(line)) {
+			t.Fatal("stdio bridge emitted a non-JSON line")
+		}
 	}
 }
 
@@ -101,6 +110,93 @@ func TestReviewedPackageConnectionLaunchesHTTPDirectory(t *testing.T) {
 	err = runStdio(context.Background(), m, "fixture", "docs", strings.NewReader(input), &out, io.Discard, filepath.Base(selected.Root), strconv.FormatUint(selected.ConnectionRevision, 10))
 	if err != nil || !strings.Contains(out.String(), "list_docs") || strings.Contains(out.String(), "SYNTHETIC_PRIVATE_TOKEN") {
 		t.Fatal("package-to-HTTP chain failed", err, out.String())
+	}
+}
+
+func TestProbeServerListsPagedToolsWithoutCallingTools(t *testing.T) {
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "SYNTHETIC_PRIVATE_TOKEN" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var request struct {
+			ID     int             `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		methods = append(methods, request.Method)
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "initialize":
+			w.Header().Set("Mcp-Session-Id", "fixture-session")
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}}}}`, request.ID)
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			var params map[string]string
+			if len(request.Params) > 0 {
+				if err := json.Unmarshal(request.Params, &params); err != nil {
+					t.Error(err)
+				}
+			}
+			if r.Header.Get("Mcp-Session-Id") != "fixture-session" {
+				t.Error("MCP session lost")
+			}
+			if params["cursor"] == "" {
+				fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[{"name":"find","description":"Find documents","annotations":{"readOnlyHint":true}}],"nextCursor":"page-2"}}`, request.ID)
+			} else {
+				fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[{"name":"edit","description":"Edit documents"}]}}`, request.ID)
+			}
+		default:
+			t.Errorf("unexpected MCP method %s", request.Method)
+		}
+	}))
+	defer server.Close()
+	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"fixture","version":"1.0.0","description":"Fixture","author":{"name":"Fixture"}}`)
+	mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"docs":{"type":"streamable-http","url":"` + server.URL + `"}}}`)
+	hash := func(b []byte) string { sum := sha256.Sum256(b); return hex.EncodeToString(sum[:]) }
+	entry := Entry{ID: "fixture", Title: "Fixture", Version: "1.0.0", Description: "Fixture", Source: "https://example.test/source", Files: map[string]string{"plugin.json": hash(manifest), "mcp.json": hash(mcp)}, Connection: &ConnectionSpec{Server: "docs", Kind: "token", Placement: "header", Name: "Authorization"}}
+	m, err := openCatalog(t.TempDir(), []Entry{entry}, map[string]fs.FS{"fixture": fstest.MapFS{"plugin.json": &fstest.MapFile{Data: manifest}, "mcp.json": &fstest.MapFile{Data: mcp}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := map[string]string{}
+	m.secrets = secretstore.Functions{SaveFunc: func(id, value string) error { secrets[id] = value; return nil }, LoadFunc: func(id string) (string, error) { return secrets[id], nil }, DeleteFunc: func(id string) error { delete(secrets, id); return nil }}
+	if detail := m.ProbeServer(t.Context(), "fixture", "docs"); detail.State != "not_configured" || len(methods) != 0 {
+		t.Fatal("uninstalled package started", detail, methods)
+	}
+	if _, err := m.Mutate(t.Context(), "fixture", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	if detail := m.ProbeServer(t.Context(), "fixture", "docs"); detail.State != "not_configured" || len(methods) != 0 {
+		t.Fatal("unconfigured service started", detail, methods)
+	}
+	if _, err := m.ConfigureConnection(t.Context(), "fixture", "SYNTHETIC_PRIVATE_TOKEN", "", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	detail := m.ProbeServer(t.Context(), "fixture", "docs")
+	if detail.State != "connected" || len(detail.Tools) != 2 || detail.Tools[0].Name != "find" || detail.Tools[0].ReadOnlyHint == nil || !*detail.Tools[0].ReadOnlyHint || strings.Contains(fmt.Sprint(detail), "SYNTHETIC_PRIVATE_TOKEN") {
+		t.Fatal("real directory probe failed", detail)
+	}
+	if fmt.Sprint(methods) != "[initialize notifications/initialized tools/list tools/list]" {
+		t.Fatal("probe executed or skipped a method", methods)
+	}
+	if _, err := m.ConfigureConnection(t.Context(), "fixture", "INVALID_PRIVATE_TOKEN", "", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if detail := m.ProbeServer(t.Context(), "fixture", "docs"); detail.State != "authentication_required" || len(detail.Tools) != 0 || len(methods) != 4 {
+		t.Fatal("authentication failure was not isolated", detail, methods)
+	}
+	if _, err := m.Mutate(t.Context(), "fixture", "disable", nil); err != nil {
+		t.Fatal(err)
+	}
+	if detail := m.ProbeServer(t.Context(), "fixture", "docs"); detail.State != "not_configured" || len(methods) != 4 {
+		t.Fatal("disabled service started", detail, methods)
 	}
 }
 

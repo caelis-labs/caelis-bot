@@ -41,9 +41,10 @@ type Tool struct {
 }
 
 type ServerDetail struct {
-	State string `json:"state"`
-	Tools []Tool `json:"tools"`
-	Error string `json:"error,omitempty"`
+	State     string `json:"state"`
+	Tools     []Tool `json:"tools"`
+	Error     string `json:"error,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 type SkillDetail struct {

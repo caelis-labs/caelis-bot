@@ -69,6 +69,7 @@
   "pluginHintYes": "Yes",
   "pluginHintNo": "No",
   "pluginRefreshTools": "Refresh tools",
+  "pluginToolsTruncated": "Showing the first 128 tools",
   "pluginCancelRemove": "Cancel",
   "pluginBusy_install": "Installing…",
   "pluginBusy_enable": "Enabling…",

@@ -4,7 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -24,6 +28,7 @@ type inspectingPluginEngine struct {
 	reads      int
 	generation uint64
 	fail       bool
+	state      string
 }
 
 func (e *inspectingPluginEngine) BotPluginServer(context.Context, string) (plugins.ServerDetail, error) {
@@ -31,7 +36,65 @@ func (e *inspectingPluginEngine) BotPluginServer(context.Context, string) (plugi
 	if e.fail {
 		return plugins.ServerDetail{}, errors.New("fixture failure")
 	}
+	if e.state != "" {
+		return plugins.ServerDetail{State: e.state, Tools: []plugins.Tool{}}, nil
+	}
 	return plugins.ServerDetail{State: "connected", Tools: []plugins.Tool{{Name: "lookup", Description: "Find a note"}}}, nil
+}
+
+func TestPluginDetailProbesEnabledRemoteWithoutModelSession(t *testing.T) {
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			ID     int    `json:"id"`
+			Method string `json:"method"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		methods = append(methods, request.Method)
+		w.Header().Set("Content-Type", "application/json")
+		if request.Method == "initialize" {
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-06-18"}}`, request.ID)
+		} else if request.Method == "tools/list" {
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[{"name":"lookup"}]}}`, request.ID)
+		} else if request.Method != "notifications/initialized" {
+			t.Error("unexpected method", request.Method)
+		}
+	}))
+	defer server.Close()
+	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"notes","version":"1.0.0","description":"Find notes","author":{"name":"Example"}}`)
+	mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"search":{"type":"streamable-http","url":"` + server.URL + `"}}}`)
+	files := fstest.MapFS{"packages/notes/plugin.json": {Data: manifest}, "packages/notes/mcp.json": {Data: mcp}}
+	hash := func(body []byte) string { sum := sha256.Sum256(body); return hex.EncodeToString(sum[:]) }
+	index := []byte(`{"name":"community","plugins":[{"name":"notes","source":{"source":"local","path":"./packages/notes"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"}}]}`)
+	m, err := plugins.OpenReviewedMarketplace(t.TempDir(), files, index, map[string]map[string]string{"notes": {"plugin.json": hash(manifest), "mcp.json": hash(mcp)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &inspectingPluginEngine{gatedPluginEngine: &gatedPluginEngine{testEngine: newTestEngine()}, state: "not_started"}
+	a, _ := fixtureApp(t, e, Host{})
+	a.plugins = m
+	if _, err := a.PluginAction(t.Context(), "notes", "install"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		detail, err := a.PluginServerDetail(t.Context(), "notes", "search", false)
+		if err != nil || detail.State != "connected" || len(detail.Tools) != 1 || detail.Tools[0].Name != "lookup" {
+			t.Fatal(detail, err)
+		}
+	}
+	if fmt.Sprint(methods) != "[initialize notifications/initialized tools/list]" || e.reads != 1 {
+		t.Fatal("directory should be cached without a model session", methods, e.reads)
+	}
+	if _, err := a.PluginAction(t.Context(), "notes", "disable"); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := a.PluginServerDetail(t.Context(), "notes", "search", true)
+	if err != nil || detail.State != "disabled" || len(methods) != 3 {
+		t.Fatal("disabled service was probed", detail, methods, err)
+	}
 }
 func (e *inspectingPluginEngine) BotPluginGeneration() uint64 { return e.generation }
 

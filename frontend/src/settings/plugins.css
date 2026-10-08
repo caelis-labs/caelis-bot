@@ -54,7 +54,7 @@
 .settings-window .plugin-connect-editor input,.settings-window .plugin-connect-editor textarea{width:100%;min-width:0;color:var(--ink)}
 .plugin-connect-editor-actions{display:flex;justify-content:flex-end;gap:8px}
 .settings-window .plugin-connect-editor-actions button:first-child{background:transparent;color:var(--muted)}
-.settings-window .plugin-credential-help{margin-top:8px}
+.settings-window .plugin-credential-help{display:block;width:max-content;max-width:100%;margin-top:12px;text-align:left}
 .plugin-connect-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin:10px 0}
 .plugin-connect-actions label{display:grid;gap:6px;flex:1 1 220px;font-size:11px;color:var(--muted)}
 .settings-window .plugin-connect-actions input{width:100%;min-width:0;color:var(--ink)}
@@ -84,6 +84,7 @@
 .plugin-dialog>p{font-size:13px;line-height:1.6;color:var(--muted)}
 .plugin-skill-body{white-space:pre-wrap;overflow-wrap:anywhere;border-top:1px solid var(--line);padding-top:16px;margin-top:18px;font-size:12px;line-height:1.65;max-height:330px;overflow:auto}
 .plugin-connection-state{margin-top:18px;font-size:12px;color:var(--muted)}
+.plugin-tool-limit{margin:8px 0 0;font-size:12px;color:var(--muted)}
 .plugin-tool-list{margin-top:18px;border-top:1px solid var(--line);max-height:330px;overflow:auto}
 .plugin-tool-list details+details{border-top:1px solid var(--line)}
 .plugin-tool-list summary{cursor:pointer;padding:11px 2px;font-size:13px}

@@ -20,6 +20,10 @@ import (
 // It never interprets or retries tools/call. A lost response remains unknown
 // to the Runtime, which owns its original call receipt.
 func relayRemote(server Server, spec *ConnectionSpec, secret, caPEM string, in io.Reader, out io.Writer) error {
+	return relayRemoteContext(context.Background(), server, spec, secret, caPEM, in, out)
+}
+
+func relayRemoteContext(parent context.Context, server Server, spec *ConnectionSpec, secret, caPEM string, in io.Reader, out io.Writer) error {
 	u, err := url.Parse(server.URL)
 	if err != nil {
 		return errors.New("invalid MCP endpoint")
@@ -57,7 +61,7 @@ func relayRemote(server Server, spec *ConnectionSpec, secret, caPEM string, in i
 		if json.Unmarshal(line, &msg) != nil || msg.JSONRPC != "2.0" {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(line))
 		if err != nil {
 			cancel()
@@ -110,10 +114,15 @@ func relayRemote(server Server, spec *ConnectionSpec, secret, caPEM string, in i
 				if len(data) > 0 {
 					payload := strings.Join(data, "\n")
 					if json.Valid([]byte(payload)) {
+						var compact bytes.Buffer
+						if json.Compact(&compact, []byte(payload)) != nil {
+							data = nil
+							return
+						}
 						if msg.Method == "initialize" {
 							protocol = negotiatedProtocol(payload, protocol)
 						}
-						written.WriteString(payload)
+						written.Write(compact.Bytes())
 						written.WriteByte('\n')
 						written.Flush()
 					}
@@ -132,10 +141,16 @@ func relayRemote(server Server, spec *ConnectionSpec, secret, caPEM string, in i
 		} else if strings.HasPrefix(ct, "application/json") {
 			body, e := io.ReadAll(io.LimitReader(response.Body, 16<<20+1))
 			if e == nil && len(body) <= 16<<20 && json.Valid(body) {
+				var compact bytes.Buffer
+				if json.Compact(&compact, body) != nil {
+					response.Body.Close()
+					cancel()
+					return errors.New("MCP response invalid")
+				}
 				if msg.Method == "initialize" {
 					protocol = negotiatedProtocol(string(body), protocol)
 				}
-				written.Write(body)
+				written.Write(compact.Bytes())
 				written.WriteByte('\n')
 				written.Flush()
 			} else if len(msg.ID) > 0 {

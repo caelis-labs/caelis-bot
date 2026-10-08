@@ -64,20 +64,31 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 	if !selected {
 		return plugins.ServerDetail{State: "not_configured", Tools: []plugins.Tool{}}, nil
 	}
-	inspector, ok := a.engine.(api.PluginInspector)
-	if !ok {
-		return plugins.ServerDetail{State: "unknown", Tools: []plugins.Tool{}}, nil
+	inspector, hasInspector := a.engine.(api.PluginInspector)
+	var generation uint64
+	if hasInspector {
+		generation = inspector.BotPluginGeneration()
 	}
-	key := fmt.Sprintf("%d/%d/%s/%s/%s", snapshot.Revision, inspector.BotPluginGeneration(), id, item.Version, server)
+	key := fmt.Sprintf("%d/%d/%s/%s/%s", snapshot.Revision, generation, id, item.Version, server)
 	a.pluginDetailMu.Lock()
 	if cached, ok := a.pluginDetailCache[key]; !refresh && ok && time.Now().Before(cached.expires) {
 		a.pluginDetailMu.Unlock()
 		return cached.detail, nil
 	}
 	a.pluginDetailMu.Unlock()
-	detail, err := inspector.BotPluginServer(ctx, plugins.RuntimeName(id, server))
-	if err != nil {
-		return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, nil
+	detail := plugins.ServerDetail{State: "not_started", Tools: []plugins.Tool{}}
+	if hasInspector {
+		var err error
+		detail, err = inspector.BotPluginServer(ctx, plugins.RuntimeName(id, server))
+		if err != nil {
+			return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, nil
+		}
+	}
+	if detail.State == "not_started" {
+		detail = a.plugins.ProbeServer(ctx, id, server)
+	}
+	if a.plugins.Snapshot().Revision != snapshot.Revision {
+		return plugins.ServerDetail{State: "unknown", Tools: []plugins.Tool{}}, nil
 	}
 	if len(detail.Tools) > 128 {
 		detail.Tools = detail.Tools[:128]

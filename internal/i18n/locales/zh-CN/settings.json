@@ -69,6 +69,7 @@
   "pluginHintYes": "是",
   "pluginHintNo": "否",
   "pluginRefreshTools": "刷新工具",
+  "pluginToolsTruncated": "仅显示前 128 个工具",
   "pluginCancelRemove": "取消",
   "pluginBusy_install": "正在安装…",
   "pluginBusy_enable": "正在启用…",
