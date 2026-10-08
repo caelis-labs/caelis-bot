@@ -76,6 +76,18 @@ func TestReviewedDisplayRequiresVerifiedBytesAndSafePresentation(t *testing.T) {
 	}
 }
 
+func TestToolDescriptionKeepsNormalLongProseWithoutExposingConfiguration(t *testing.T) {
+	paragraph := strings.Repeat("Describe a document operation clearly. ", 12)
+	if len(paragraph) <= 240 || SafeDisplayText(paragraph) != "" || SafeDisplayDescription(paragraph) != strings.TrimSpace(paragraph) {
+		t.Fatal("normal MCP tool explanation was lost")
+	}
+	for _, unsafe := range []string{"Open /Users/private/notes", "Use token=SYNTHETIC_PRIVATE_TOKEN", "Read https://private.example/?key=secret"} {
+		if SafeDisplayDescription(unsafe) != "" {
+			t.Fatal("unsafe tool description reached the UI")
+		}
+	}
+}
+
 func TestBundledMarkdownDisplayFromReviewedCatalog(t *testing.T) {
 	m, err := Open(t.TempDir())
 	if err != nil {

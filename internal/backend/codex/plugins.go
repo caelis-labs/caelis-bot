@@ -458,7 +458,7 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 				if toolName == "" {
 					continue
 				}
-				out.Tools = append(out.Tools, plugins.Tool{Name: toolName, Title: plugins.SafeDisplayText(tool.Title), Description: plugins.SafeDisplayText(tool.Description), ReadOnlyHint: tool.Annotations.ReadOnlyHint, DestructiveHint: tool.Annotations.DestructiveHint, IdempotentHint: tool.Annotations.IdempotentHint, OpenWorldHint: tool.Annotations.OpenWorldHint})
+				out.Tools = append(out.Tools, plugins.Tool{Name: toolName, Title: plugins.SafeDisplayText(tool.Title), Description: plugins.SafeDisplayDescription(tool.Description), ReadOnlyHint: tool.Annotations.ReadOnlyHint, DestructiveHint: tool.Annotations.DestructiveHint, IdempotentHint: tool.Annotations.IdempotentHint, OpenWorldHint: tool.Annotations.OpenWorldHint})
 			}
 			sort.Slice(out.Tools, func(i, j int) bool { return out.Tools[i].Name < out.Tools[j].Name })
 		}

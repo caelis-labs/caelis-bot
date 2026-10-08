@@ -125,6 +125,12 @@ func displayTextBound(value string, limit int) string {
 // directory labels. A rejected value is omitted, never rendered as raw config.
 func SafeDisplayText(value string) string { return displayText(value) }
 
+// SafeDisplayDescription keeps normal MCP tool explanations that are longer
+// than a row label, while applying the same path and credential exclusions.
+func SafeDisplayDescription(value string) string {
+	return displayTextBound(strings.Join(strings.Fields(value), " "), 2048)
+}
+
 func displayURL(value string) string {
 	u, err := url.Parse(value)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
