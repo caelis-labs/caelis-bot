@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
@@ -109,5 +112,62 @@ func TestPluginActionUsesRuntimeAdmissionThroughStateConfirmation(t *testing.T) 
 	}
 	if !e.applied || a.plugins.Snapshot().Items[0].Enabled {
 		t.Fatal("Runtime admission did not cover active plugin mutation")
+	}
+}
+
+type lockOrderPluginEngine struct {
+	*testEngine
+	op             sync.Mutex
+	submitEntered  chan struct{}
+	continueSubmit chan struct{}
+	pluginEntered  chan struct{}
+}
+
+func (e *lockOrderPluginEngine) Submit(ctx context.Context, _ api.Submission, _ []api.InputFile) (api.Receipt, error) {
+	e.op.Lock()
+	defer e.op.Unlock()
+	close(e.submitEntered)
+	<-e.continueSubmit
+	e.mu.Lock()
+	prepare := e.tools.PrepareTurn
+	e.mu.Unlock()
+	return api.Receipt{}, prepare(ctx)
+}
+
+func (e *lockOrderPluginEngine) WithBotPluginAdmission(mutate func(func(context.Context, plugins.Selection) error) error) error {
+	close(e.pluginEntered)
+	e.op.Lock()
+	defer e.op.Unlock()
+	return mutate(func(context.Context, plugins.Selection) error { return nil })
+}
+func (e *lockOrderPluginEngine) UpdateBotPlugins(context.Context, plugins.Selection) error {
+	return errors.New("admission required")
+}
+func (e *lockOrderPluginEngine) BotPluginHealth(context.Context) []plugins.Issue { return nil }
+
+func TestPluginActionAndPrepareTurnUseRuntimeBeforeAppLock(t *testing.T) {
+	e := &lockOrderPluginEngine{testEngine: newTestEngine(), submitEntered: make(chan struct{}), continueSubmit: make(chan struct{}), pluginEntered: make(chan struct{})}
+	a, _ := fixtureApp(t, e, Host{})
+	if err := a.Start(); err != nil {
+		t.Fatal(err)
+	}
+	submitDone, pluginDone := make(chan error, 1), make(chan error, 1)
+	go func() {
+		_, err := e.Submit(t.Context(), api.Submission{ID: "lock-order", Text: "fixture"}, nil)
+		submitDone <- err
+	}()
+	<-e.submitEntered
+	go func() { _, err := a.PluginAction(t.Context(), "markdown-work", "install"); pluginDone <- err }()
+	<-e.pluginEntered
+	close(e.continueSubmit)
+	for _, done := range []<-chan error{submitDone, pluginDone} {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("runtime/app lock order deadlocked")
+		}
 	}
 }

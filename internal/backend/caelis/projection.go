@@ -160,6 +160,9 @@ func (s *Session) snapshotLocked() api.Snapshot {
 		}
 	}
 	unknown := v != nil && value(v.State.Run.Status) == "unknown"
+	if s.pluginConfigurationUnconfirmedLocked() {
+		unknown = true
+	}
 	for id, j := range s.state.Operations {
 		workerOperation := false
 		for _, worker := range s.state.Workers {

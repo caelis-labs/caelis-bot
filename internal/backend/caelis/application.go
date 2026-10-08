@@ -247,11 +247,14 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	}
 	// Read current configuration, not immutable creation profile. Rebind only the
 	// application-owned instructions/catalog; preserve user model changes.
-	if desired.Profile.ToolsVersion != s.profile.ToolsVersion || desired.Profile.Instructions != s.profile.Instructions || !slices.EqualFunc(desired.Profile.McpServers, s.profile.McpServers, func(a, b wire.ApplicationMCPServer) bool {
+	s.mu.Lock()
+	pendingPlugin := s.pluginConfigurationUnknownLocked()
+	s.mu.Unlock()
+	if !pendingPlugin && (desired.Profile.ToolsVersion != s.profile.ToolsVersion || desired.Profile.Instructions != s.profile.Instructions || !slices.EqualFunc(desired.Profile.McpServers, s.profile.McpServers, func(a, b wire.ApplicationMCPServer) bool {
 		left, _ := json.Marshal(a)
 		right, _ := json.Marshal(b)
 		return string(left) == string(right)
-	}) || !slices.Equal(desired.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(desired.Profile.SkillDirs, s.profile.SkillDirs) {
+	}) || !slices.Equal(desired.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(desired.Profile.SkillDirs, s.profile.SkillDirs)) {
 		_, e = s.updateConfiguration(ctx, b.SessionId, "rebind-"+digest([]byte(string(desired.Revision)+s.profile.ToolsVersion+s.profile.Instructions+fmt.Sprint(s.profile.McpServers, s.profile.SkillRoots, s.profile.SkillDirs))), string(desired.Revision), map[string]any{"instructions": s.profile.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools, "mcp_servers": s.profile.McpServers, "skill_roots": s.profile.SkillRoots, "skill_dirs": s.profile.SkillDirs})
 	}
 	return e

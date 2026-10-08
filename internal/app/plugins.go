@@ -133,15 +133,23 @@ func (a *Application) PluginAction(ctx context.Context, id, action string) (plug
 	if !ok {
 		return plugins.Snapshot{}, errors.New("runtime does not support Bot plugins")
 	}
-	a.mu.Lock()
+	a.pluginAdmission.Lock()
+	defer a.pluginAdmission.Unlock()
 	mutationErr := adapter.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
-		if !a.started {
+		// Runtime admission is acquired before the application lock, just as it
+		// is for PrepareTurn. Keep admission through the private store commit.
+		a.mu.Lock()
+		started, closed := a.started, a.closed
+		a.mu.Unlock()
+		if closed {
+			return errors.New("Bot has stopped")
+		}
+		if !started {
 			apply = nil
 		}
 		_, err := a.plugins.Mutate(ctx, id, action, apply)
 		return err
 	})
-	a.mu.Unlock()
 	if mutationErr != nil {
 		snapshot, _ := a.PluginSnapshot(ctx)
 		return snapshot, mutationErr

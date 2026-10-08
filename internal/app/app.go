@@ -60,6 +60,7 @@ type Application struct {
 	host                  Host
 	root                  string
 	mu                    sync.Mutex
+	pluginAdmission       sync.Mutex
 	updateMu              sync.Mutex
 	started, closed       bool
 	updatePrepared        bool
@@ -376,6 +377,8 @@ func (a *Application) preparePersonalLocked() error {
 // Start runs only after native surfaces are ready. It binds the private tools
 // before connecting, then starts bounded observation and resident scheduling.
 func (a *Application) Start() error {
+	a.pluginAdmission.Lock()
+	defer a.pluginAdmission.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {

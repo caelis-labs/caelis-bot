@@ -2,8 +2,9 @@ package caelis
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -13,6 +14,48 @@ import (
 )
 
 const atomicCapabilities = "application-atomic-capabilities-v1"
+
+// Called with s.mu. A lost plugin result stays fenced across reconnects.
+// Once its original receipt is resolved, the public configuration must match
+// the Bot-confirmed selection before the next turn can enter.
+func (s *Session) pluginConfigurationUnknownLocked() bool {
+	sid := s.state.Session.SessionId
+	for op, record := range s.state.Typed {
+		if strings.HasPrefix(op, "plugin-") && record.Path == "/application/sessions/"+idPath(sid)+"/configuration" && record.Outcome == "unknown" {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Session) pluginConfigurationUnconfirmedLocked() bool {
+	sid := s.state.Session.SessionId
+	seen := false
+	for op, record := range s.state.Typed {
+		if !strings.HasPrefix(op, "plugin-") || record.Path != "/application/sessions/"+idPath(sid)+"/configuration" || record.Outcome == "rejected" {
+			continue
+		}
+		seen = true
+		if record.Outcome != "committed" {
+			return true
+		}
+	}
+	if !seen {
+		return false
+	}
+	actual := s.state.Configurations[sid]
+	if actual.Revision == "" || len(actual.Profile.McpServers) != len(s.profile.McpServers) || !slices.Equal(actual.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(actual.Profile.SkillDirs, s.profile.SkillDirs) {
+		return true
+	}
+	for i, server := range actual.Profile.McpServers {
+		got, _ := json.Marshal(server)
+		want, _ := json.Marshal(s.profile.McpServers[i])
+		if string(got) != string(want) {
+			return true
+		}
+	}
+	return false
+}
 
 func corePlugins(selection plugins.Selection, binary string, builtins []string) ([]wire.ApplicationMCPServer, []string, []plugins.Issue) {
 	servers := []wire.ApplicationMCPServer{}
@@ -82,7 +125,9 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 		if err != nil {
 			return err
 		}
-		operation := "plugin-" + digest([]byte(sid+"/"+string(current.Revision)+"/"+fmt.Sprint(selection.Revision)))
+		// A new user action gets a fresh journaled ID. Unknown actions are
+		// recovered above by their original ID, never submitted again.
+		operation := "plugin-" + rand.Text()
 		_, err = s.updateConfiguration(ctx, sid, operation, string(current.Revision), map[string]any{"mcp_servers": servers, "skill_roots": roots, "skill_dirs": []string{}})
 		if err != nil {
 			var remote *remoteError
@@ -179,14 +224,12 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 		}
 		out := plugins.ServerDetail{State: "unknown", Tools: []plugins.Tool{}}
 		switch server.Status {
-		case "ready":
+		case "running":
 			out.State = "connected"
-		case "running", "pending":
+		case "inactive", "connecting":
 			out.State = "pending"
 		case "failed":
 			out.State = "failed"
-		case "disabled":
-			out.State = "disabled"
 		}
 		if out.State == "connected" {
 			for _, tool := range server.Tools {

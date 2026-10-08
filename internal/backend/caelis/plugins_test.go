@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,25 +17,38 @@ import (
 )
 
 func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
-	hits := 0
+	var hits atomic.Int32
+	var state atomic.Value
+	state.Store("running")
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		hits++
+		hits.Add(1)
 		if r.URL.Path != "/api/control/v1/application/sessions/main/mcp-status" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		writeFixture(w, map[string]any{"configuration_revision": "1", "session_id": "main", "skills": []any{}, "servers": []any{map[string]any{"name": plugins.RuntimeName("notes", "search"), "status": "ready", "tools": []string{"lookup"}}}})
+		writeFixture(w, map[string]any{"configuration_revision": "1", "session_id": "main", "skills": []any{}, "servers": []any{map[string]any{"name": plugins.RuntimeName("notes", "search"), "status": state.Load().(string), "tools": []string{"lookup"}}}})
 	})
 	s.info.Capabilities = []string{atomicCapabilities}
 	s.tools = &api.ToolConnection{Plugins: plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "notes", Name: "search"}}}}
 	name := plugins.RuntimeName("notes", "search")
 	detail, err := s.BotPluginServer(t.Context(), name)
-	if err != nil || detail.State != "connected" || len(detail.Tools) != 1 || detail.Tools[0].Name != "lookup" || detail.Tools[0].Description != "" || hits != 1 {
-		t.Fatal(detail, err, hits)
+	if err != nil || detail.State != "connected" || len(detail.Tools) != 1 || detail.Tools[0].Name != "lookup" || detail.Tools[0].Description != "" || hits.Load() != 1 {
+		t.Fatal(detail, err, hits.Load())
+	}
+	for _, status := range []string{"inactive", "connecting", "failed"} {
+		state.Store(status)
+		detail, err = s.BotPluginServer(t.Context(), name)
+		want := "pending"
+		if status == "failed" {
+			want = "failed"
+		}
+		if err != nil || detail.State != want || len(detail.Tools) != 0 {
+			t.Fatal(status, detail, err)
+		}
 	}
 	s.tools.Plugins.Servers = nil
 	detail, err = s.BotPluginServer(t.Context(), name)
-	if err != nil || detail.State != "not_configured" || hits != 1 {
-		t.Fatal("unselected MCP was queried", detail, err, hits)
+	if err != nil || detail.State != "not_configured" || hits.Load() != 4 {
+		t.Fatal("unselected MCP was queried", detail, err, hits.Load())
 	}
 }
 
@@ -121,5 +137,161 @@ func TestPublicCorePluginProjectionKeepsPortableEnvironmentPrivate(t *testing.T)
 		if arg == "RULES" || arg == "${PLUGIN_ROOT}/rules.json" {
 			t.Fatal("environment reached Core profile")
 		}
+	}
+}
+
+func TestPluginRejectedActionUsesFreshJournaledIDOnRetry(t *testing.T) {
+	var mu sync.Mutex
+	var ids []string
+	revision := wire.Uint64Decimal("1")
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.Method {
+		case "GET":
+			roots := []string{}
+			if revision == "2" {
+				roots = []string{"/reviewed/skill"}
+			}
+			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: revision, Profile: wire.ApplicationProfile{SkillRoots: roots, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+		case "POST":
+			ids = append(ids, r.Header.Get("Idempotency-Key"))
+			if len(ids) == 1 {
+				w.WriteHeader(400)
+				writeFixture(w, map[string]any{"error": "model temporarily unavailable"})
+				return
+			}
+			revision = "2"
+			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: revision, Profile: wire.ApplicationProfile{SkillRoots: []string{"/reviewed/skill"}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+		}
+	})
+	s.tools = &api.ToolConnection{}
+	s.info.Capabilities = []string{atomicCapabilities}
+	selection := plugins.Selection{Revision: 2, SkillRoots: []string{"/reviewed/skill"}}
+	if err := s.UpdateBotPlugins(t.Context(), selection); err == nil {
+		t.Fatal("first action should be explicitly rejected")
+	}
+	if err := s.UpdateBotPlugins(t.Context(), selection); err != nil {
+		t.Fatal("new user action reused rejected operation", err)
+	}
+	if len(ids) != 2 || ids[0] == ids[1] || !strings.HasPrefix(ids[0], "plugin-") || !strings.HasPrefix(ids[1], "plugin-") {
+		t.Fatal("retry did not dispatch with a new ID", ids)
+	}
+	if !s.Snapshot().CanSend {
+		t.Fatal("confirmed retry did not restore sending")
+	}
+}
+
+func TestPluginReceiptRecoveryReadsOriginalIDAndChecksRuntimeSelection(t *testing.T) {
+	var available atomic.Bool
+	var failReadback atomic.Bool
+	var posts atomic.Int32
+	var original atomic.Value
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			if posts.Add(1) == 1 {
+				original.Store(r.Header.Get("Idempotency-Key"))
+				drop(w)
+				return
+			}
+			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "3", Profile: wire.ApplicationProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/configuration-operations/") {
+			if r.URL.Path != "/api/control/v1/application/configuration-operations/"+original.Load().(string) {
+				t.Error("recovery queried a different receipt", r.URL.Path)
+			}
+			if !available.Load() {
+				w.WriteHeader(404)
+				writeFixture(w, map[string]any{"error": "receipt pending"})
+				return
+			}
+			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "2", Profile: wire.ApplicationProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+			return
+		}
+		if !available.Load() {
+			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+			return
+		}
+		if failReadback.Swap(false) {
+			w.WriteHeader(503)
+			writeFixture(w, map[string]any{"error": "temporary read failure"})
+			return
+		}
+		revision := wire.Uint64Decimal("2")
+		if posts.Load() >= 2 {
+			revision = "3"
+		}
+		writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: revision, Profile: wire.ApplicationProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+	})
+	s.tools = &api.ToolConnection{}
+	s.info.Capabilities = []string{atomicCapabilities}
+	s.profile = wire.ApplicationProfile{SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}
+	selection := plugins.Selection{Revision: 2, SkillRoots: []string{"/new/skill"}}
+	if err := s.UpdateBotPlugins(t.Context(), selection); err == nil {
+		t.Fatal("lost POST response was treated as committed")
+	}
+	op := original.Load().(string)
+	if op == "" || s.state.Typed[op].Outcome != "unknown" {
+		t.Fatal("original operation was not journaled", op)
+	}
+	s.connected = true // The public Connect path also restores this flag.
+	if s.Snapshot().CanSend {
+		t.Fatal("reconnect reopened sending before receipt recovery")
+	}
+	if err := s.recoverConfigurations(t.Context()); err == nil || s.Snapshot().CanSend {
+		t.Fatal("pending original receipt admitted work", err)
+	}
+	available.Store(true)
+	failReadback.Store(true)
+	if err := s.recoverConfigurations(t.Context()); err == nil || s.state.Typed[op].Outcome != "committed" || s.Snapshot().CanSend {
+		t.Fatal("committed receipt without configuration readback admitted work", err)
+	}
+	if err := s.recoverConfigurations(t.Context()); err != nil {
+		t.Fatal("committed receipt readback did not retry", err)
+	}
+	if posts.Load() != 1 || s.state.Typed[op].Outcome != "committed" || s.Snapshot().CanSend {
+		t.Fatal("resolved receipt bypassed private selection confirmation", posts.Load(), s.state.Typed[op].Outcome)
+	}
+	if err := s.UpdateBotPlugins(t.Context(), selection); err != nil {
+		t.Fatal("new user action could not confirm Bot selection", err)
+	}
+	if posts.Load() != 2 {
+		t.Fatal("new action did not send exactly once", posts.Load())
+	}
+	if !s.Snapshot().CanSend {
+		t.Fatal("matched public configuration did not release admission")
+	}
+}
+
+func TestPluginUnknownReceiptAndConfirmedSelectionGateSending(t *testing.T) {
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Fatal("unexpected HTTP", r.Method, r.URL.Path) })
+	s.profile = wire.ApplicationProfile{SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}
+	s.state.Configurations["main"] = wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: s.profile}
+	s.connected = true // public reconnect must not bypass the persisted typed receipt.
+	op := "plugin-original-unknown"
+	s.state.Typed[op] = typedRecord{Path: "/application/sessions/main/configuration", Outcome: "unknown"}
+	if s.Snapshot().CanSend {
+		t.Fatal("unresolved original plugin receipt admitted a new turn")
+	}
+	if err := s.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := loadBinding(s.path)
+	if err != nil || restored.Typed[op].Outcome != "unknown" {
+		t.Fatal("original receipt did not survive restart", err)
+	}
+	s.state.Typed[op] = typedRecord{Path: "/application/sessions/main/configuration", Outcome: "committed"}
+	delete(s.state.Configurations, "main")
+	if s.Snapshot().CanSend {
+		t.Fatal("committed receipt without public configuration readback admitted sending")
+	}
+	s.state.Configurations["main"] = wire.ApplicationConfiguration{SessionId: "main", Revision: "2", Profile: wire.ApplicationProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}}
+	if s.Snapshot().CanSend {
+		t.Fatal("runtime selection differed from confirmed Bot selection")
+	}
+	s.profile.SkillRoots = []string{"/new/skill"}
+	if !s.Snapshot().CanSend {
+		t.Fatal("matching public configuration did not release admission")
 	}
 }
