@@ -208,6 +208,13 @@ func Run(assets fs.FS) error {
 		Hidden: true, URL: "/?surface=history", EnableFileDrop: true, BackgroundColour: application.NewRGB(247, 247, 247),
 		Mac: application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
+	s.requestDraftFlush = func(surface string, id uint64) {
+		window := panel
+		if surface == "history" {
+			window = history
+		}
+		window.ExecJS(fmt.Sprintf("window.dispatchEvent(new CustomEvent('draft-flush-request',{detail:%d}))", id))
+	}
 	bubble := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "bubble", Title: s.text("native.bubbleTitle", nil), Width: 360, Height: 68, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=bubble", BackgroundType: application.BackgroundTypeTransparent,

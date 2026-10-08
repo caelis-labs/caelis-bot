@@ -122,6 +122,49 @@ test('draft debounce reduces rapid input to one durable replacement and switch f
  t.mock.timers.tick(1);await queue.flush();assert.deepEqual(saved,[35,36]);
 });
 
+test('continuous typing persists the latest full draft at every maximum interval',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const queue=new DraftQueue(),saved=[];
+ for(let n=1;n<=65;n++){
+  queue.enqueue(async()=>{saved.push(n);});
+  t.mock.timers.tick(100);
+  await Promise.resolve();await Promise.resolve();
+ }
+ assert.deepEqual(saved,[20,40,60]);
+ t.mock.timers.tick(400);await queue.flush();
+ assert.deepEqual(saved,[20,40,60,65]);
+});
+
+test('an expired maximum interval sends only the newest edit after an in-flight write',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const queue=new DraftQueue(),saved=[];let release;
+ queue.enqueue(async()=>{saved.push(1);await new Promise(resolve=>release=resolve);});
+ t.mock.timers.tick(400);await Promise.resolve();
+ for(let n=2;n<=26;n++){
+  queue.enqueue(async()=>{saved.push(n);});
+  t.mock.timers.tick(100);
+  await Promise.resolve();
+ }
+ assert.deepEqual(saved,[1]);
+ release();for(let n=0;n<5;n++)await Promise.resolve();
+ assert.deepEqual(saved,[1,26],'the expired deadline starts the pending write without an explicit flush');
+ await queue.flush();
+ assert.deepEqual(saved,[1,26]);
+});
+
+test('a failed replacement stays failed across a newer edit and cannot confirm a switch',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const queue=new DraftQueue();let release;
+ let stored='remote edit',revision=1;
+ const replace=async(text)=>{if(revision!==0)throw new Error('CAS conflict');stored=text;revision++;};
+ queue.enqueue(async()=>{await new Promise(resolve=>release=resolve);await replace('old local edit');});
+ t.mock.timers.tick(400);await Promise.resolve();
+ queue.enqueue(()=>replace('new local edit'));
+ const barrier=queue.flush();release();
+ await assert.rejects(barrier,/CAS conflict/);
+ assert.equal(stored,'remote edit');
+});
+
 test('history and streaming snapshots preserve Composer props until a control fact changes',()=>{
  const before={connection:'ready',phase:'working',maintenance:'',canSend:false,canSteer:true,canInterrupt:true,lastReceipt:{id:'original',outcome:'unknown'},references:[],items:[{id:'one',text:'first'}],revision:3};
  const stream={...before,revision:4,items:[{id:'one',text:'stream chunk'}]};

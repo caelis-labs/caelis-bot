@@ -191,7 +191,30 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
  const fileOrder=useRef(new FileObservationOrder()),editGeneration=useRef(0),unsavedAfterAccepted=useRef(false),stopFileRead=useRef<()=>void>(()=>{});
  const saved=useRef<Draft>({revision:0,text:'',referenceIds:[],notice:''});
  const writes=useRef(new DraftQueue()), conflicted=useRef(false),composing=useRef(false);
- useEffect(()=>{const flush=async()=>{await writes.current.flush();if(conflicted.current)throw new Error('draft save conflict');};flushVisibleComposer=flush;return()=>{if(flushVisibleComposer===flush)flushVisibleComposer=async()=>{};};},[]);
+ const registration=useRef<Promise<void>|null>(null);
+ const register=()=>{
+  if(!registration.current){
+   const attempt=desktop('RegisterDraftEditor',quick?'panel':'history');
+   registration.current=attempt;
+   void attempt.catch(()=>{if(registration.current===attempt)registration.current=null;});
+  }
+  return registration.current;
+ };
+ useEffect(()=>{
+  const flush=async()=>{
+   if(composing.current||unsavedAfterAccepted.current)throw new Error('draft is not ready for handoff');
+   await writes.current.flush();
+   if(conflicted.current)throw new Error('draft save conflict');
+  };
+  const handoff=(event:Event)=>{
+   const id=(event as CustomEvent<number>).detail;
+   if(!Number.isSafeInteger(id)||id<=0)return;
+   void flush().then(()=>desktop('ConfirmDraftFlush',id,true),()=>desktop('ConfirmDraftFlush',id,false)).catch(()=>{});
+  };
+  flushVisibleComposer=flush;
+  window.addEventListener('draft-flush-request',handoff);
+  return()=>{window.removeEventListener('draft-flush-request',handoff);if(flushVisibleComposer===flush)flushVisibleComposer=async()=>{};};
+ },[]);
  const flushDraft=useEffectEvent(async()=>{
   try{await writes.current.flush();}
   catch{setError(t('chat.draftSaveFailed'));}
@@ -208,9 +231,14 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
  },[quick]);
  useEffect(()=>{
   lifetime.current++;working.current=false;pending.current=null;setBusy(false);
-  setLoaded(false);setFilesLoaded(false);setSendBlocked(false);setCleanupPending(false);setSyncReadFailed(false);unsavedAfterAccepted.current=false;conflicted.current=false;fileOrder.current.reset();
+  setLoaded(false);setFilesLoaded(false);setSendBlocked(false);setCleanupPending(false);setSyncReadFailed(false);fileOrder.current.reset();
   const readFiles=()=>{stopFileRead.current();const ticket=fileOrder.current.request();setFilesLoaded(false);stopFileRead.current=retryRead(()=>desktop<DraftFile[]>('DraftFiles'),value=>{if(!fileOrder.current.accept(ticket))return;const visible=visibleDraftFiles(value,saved.current);setFiles(visible);setFilesLoaded(true);setError(previous=>previous===t('chat.fileSelectionReadFailed')?(saved.current.cleanupPending?t('chat.acceptedCleanupPending'):saved.current.rejectedCleanupPending?t('chat.rejectedCleanupPending'):saved.current.pendingSend?t('chat.originalAttachmentPending'):saved.current.notice):previous);if(!visible.length)setFeedback('');},()=>setError(previous=>previous||t('chat.fileSelectionReadFailed')));};
-  const stopDraft=retryRead(()=>writes.current.flush().then(()=>backend<Draft>('Draft')),d=>{saved.current=d;setDraft(d.text);setRefs(d.referenceIds??[]);setFiles(old=>visibleDraftFiles(old,d));setError(d.cleanupPending?t('chat.acceptedCleanupPending'):d.rejectedCleanupPending?t('chat.rejectedCleanupPending'):d.pendingSend?t('chat.originalAttachmentPending'):d.notice);setSendBlocked(!!(d.pendingSend||d.rejectedCleanupPending));setCleanupPending(!!(d.cleanupPending||d.rejectedCleanupPending));setLoaded(true);readFiles();if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
+  const stopDraft=retryRead(async()=>{
+   await register();
+   await writes.current.flush();
+   await desktop('FlushOtherDraft',quick?'panel':'history');
+   return backend<Draft>('Draft');
+  },d=>{saved.current=d;conflicted.current=false;unsavedAfterAccepted.current=false;setDraft(d.text);setRefs(d.referenceIds??[]);setFiles(old=>visibleDraftFiles(old,d));setError(d.cleanupPending?t('chat.acceptedCleanupPending'):d.rejectedCleanupPending?t('chat.rejectedCleanupPending'):d.pendingSend?t('chat.originalAttachmentPending'):d.notice);setSendBlocked(!!(d.pendingSend||d.rejectedCleanupPending));setCleanupPending(!!(d.cleanupPending||d.rejectedCleanupPending));setLoaded(true);readFiles();if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
   const changed=(event:Event)=>{
    const detail=(event as CustomEvent<string|{error:string;added:number}>).detail;
    readFiles();setDragging(false);
@@ -403,7 +431,8 @@ export function History() {
  const scroll=useRef<HTMLDivElement>(null),content=useRef<HTMLDivElement>(null),position=useRef<ChatScroll|null>(null);
  useLayoutEffect(()=>{position.current=new ChatScroll(scroll.current!);return()=>{position.current=null;};},[]);
  useEffect(()=>{
-  const opened=()=>{setActive(true);setActivation(value=>value+1);},visible=()=>setActive(true),closed=()=>setActive(false);
+  let activeNow=false;
+  const opened=()=>{activeNow=true;setActive(true);setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);};
   let mounted=true;
   const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
   const key=(e:KeyboardEvent)=>{if(!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};

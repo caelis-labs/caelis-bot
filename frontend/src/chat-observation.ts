@@ -94,24 +94,35 @@ export function sameComposerSnapshot(a:{connection:string;phase:string;maintenan
   JSON.stringify(a.references)===JSON.stringify(b.references);
 }
 
-// Full replacements are durable after a short quiet period. The latest pending
-// replacement wins while a write is in flight; flush is the send/switch barrier.
+// Full replacements save after a quiet period or a bounded typing burst. The
+// latest pending replacement wins while a write is in flight; flush is the
+// send/switch barrier.
 export class DraftQueue {
  private pending: (() => Promise<void>) | null = null;
  private writing: Promise<void> | null = null;
  private timer: ReturnType<typeof setTimeout> | null = null;
+ private maxTimer: ReturnType<typeof setTimeout> | null = null;
+ private maxDue = false;
  private flushing = false;
  private failure: unknown = null;
  private waiters: Array<{resolve:()=>void;reject:(error:unknown)=>void}> = [];
  private readonly delay: number;
- constructor(delay=400) {this.delay=delay;}
+ private readonly maxDelay: number;
+ constructor(delay=400,maxDelay=2000) {this.delay=delay;this.maxDelay=maxDelay;}
  enqueue(write: () => Promise<void>) {
   this.pending = write;
   if(this.timer!==null)clearTimeout(this.timer);
-  this.timer=setTimeout(()=>{this.timer=null;this.start();},this.delay);
+  if(!this.maxDue)this.timer=setTimeout(()=>{this.timer=null;this.start();},this.delay);
+  if(this.maxTimer===null&&!this.maxDue)this.maxTimer=setTimeout(()=>{
+   this.maxTimer=null;this.maxDue=true;
+   if(this.timer!==null){clearTimeout(this.timer);this.timer=null;}
+   this.start();
+  },this.maxDelay);
  }
  flush(): Promise<void> {
   if(this.timer!==null){clearTimeout(this.timer);this.timer=null;}
+  if(this.maxTimer!==null){clearTimeout(this.maxTimer);this.maxTimer=null;}
+  this.maxDue=false;
   this.flushing=true;
   this.start();
   if(!this.writing&&!this.pending){this.flushing=false;const failure=this.failure;this.failure=null;return failure===null?Promise.resolve():Promise.reject(failure);}
@@ -119,6 +130,9 @@ export class DraftQueue {
  }
  private start() {
   if(this.writing||!this.pending)return;
+  if(this.timer!==null){clearTimeout(this.timer);this.timer=null;}
+  if(this.maxTimer!==null){clearTimeout(this.maxTimer);this.maxTimer=null;}
+  this.maxDue=false;
   const write=this.pending;this.pending=null;
   this.writing=Promise.resolve().then(write).catch(error=>{this.failure=error;}).then(()=>{
    this.writing=null;
