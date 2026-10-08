@@ -16,6 +16,7 @@
 .plugin-chevron{color:var(--muted);flex:none}
 .plugin-row-status{font-size:12px;color:var(--muted);white-space:nowrap}
 .settings-window .plugin-row-action{flex:none;min-width:62px;padding:6px 12px;background:transparent;color:var(--accent);border:1px solid var(--line)}
+.settings-window .plugin-row-action:disabled{color:var(--muted);background:transparent}
 .plugin-empty{margin:24px 0;color:var(--muted);font-size:13px}
 .settings-window .plugin-back{display:inline-flex;align-items:center;gap:5px;padding:4px 0;margin:0 0 22px;border:0;background:transparent;color:var(--muted)}
 .settings-window .plugin-back:hover{color:var(--ink);background:transparent}
@@ -36,6 +37,17 @@
 .plugin-facts{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
 .plugin-facts>span+span:before{content:"·";margin-right:12px;color:var(--muted)}
 .plugin-status-failed{color:var(--error)}
+.plugin-connect{margin-top:28px}
+.plugin-connect h2{font-size:13px;font-weight:600;margin:0 0 8px}
+.plugin-connect p{font-size:12px;color:var(--muted);line-height:1.5;margin:0 0 10px}
+.plugin-connect p[role=alert]{color:var(--error);margin-top:8px}
+.plugin-connect-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin:10px 0}
+.plugin-connect-actions label{display:grid;gap:6px;flex:1 1 220px;font-size:11px;color:var(--muted)}
+.settings-window .plugin-connect-actions input{width:100%;min-width:0;color:var(--ink)}
+.plugin-connect-actions .plugin-ca-input{flex-basis:100%}
+.settings-window .plugin-connect-actions textarea{width:100%;min-width:0;resize:vertical;background:var(--caelis-raised);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px;font:11px/1.4 ui-monospace,SFMono-Regular,monospace}
+.settings-window .plugin-connect-actions button{min-height:34px}
+.settings-window .plugin-connect-actions .plugin-clear{background:transparent;color:var(--muted);border:1px solid var(--line)}
 .settings-window .plugin-link{min-height:0;padding:0;border:0;border-radius:0;background:transparent;color:var(--caelis-link);font-size:inherit;text-decoration:underline;text-underline-offset:2px}
 .settings-window .plugin-link:hover{background:transparent}
 .plugin-contributions{margin-top:34px}
