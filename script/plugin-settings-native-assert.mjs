@@ -9,6 +9,8 @@ const skill=read(views,'empty'),installed=read(views,'plugin-installed'),mcp=rea
 assert.deepEqual([skill.skills,skill.mcp,mcp.skills,mcp.mcp,mixed.skills,mixed.mcp],[1,0,0,1,1,1]);
 for(const item of [skill,installed,mcp,mixed,issue])assert.deepEqual(item.calls,[],'Viewing a package must not activate it');
 assert.equal(installed.rows,1);
+assert.equal(installed.statusInside,true);
+assert.equal(installed.chevronLast,true);
 assert.equal(failed.error,true);
 assert.deepEqual(failed.calls,[['PluginAction','markdown-work','disable']]);
 assert.equal(loading.loading,true);

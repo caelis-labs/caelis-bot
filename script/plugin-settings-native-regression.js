@@ -15,8 +15,9 @@
  const disabled=!!document.querySelector('.plugin-facts')?.textContent?.includes('已停用');
  click('启用');await pause();
  const enabled=!!document.querySelector('.plugin-facts')?.textContent?.includes('已启用');
+ document.querySelector('.plugin-more')?.click();await pause();
  click('卸载');await pause();
- const confirmed=!!document.querySelector('.plugin-bottom-action')?.textContent?.includes('确认卸载');
+ const confirmed=!!document.querySelector('.plugin-more-menu')?.textContent?.includes('确认卸载');
  click('卸载');await pause();
  window.__fixtureResult={opened,keyboardFocus,escapeFocus,detail,installed,disabled,enabled,confirmed,available:!!document.querySelector('.plugin-row-action'),calls:window.__fixtureCalls.filter(call=>call[0]==='PluginAction')};
  })().catch(error=>{window.__fixtureResult={error:String(error)}});
