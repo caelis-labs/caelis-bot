@@ -11,6 +11,7 @@ const (
 	dreamReserve           = 3 * time.Minute // two-minute execution budget plus margin
 	dreamCooldown          = 30 * time.Minute
 	dreamGrowth      int64 = 8000
+	dreamIdle              = 2 * time.Minute
 )
 
 // DreamEnvironment contains native metadata only. Unknown presence fails closed.
@@ -18,6 +19,7 @@ const (
 // between polls. DraftRevision only postpones admission while the user is editing.
 type DreamEnvironment struct {
 	Available     bool
+	Reason        string // Host-generated presence category; never application text.
 	Epoch         uint64
 	DraftRevision uint64
 }
@@ -27,6 +29,8 @@ type dreamPolicy struct {
 	previous, notBefore, stableAfter, idleSince, draftUntil time.Time
 	epoch, draftRevision                                    uint64
 	available                                               bool
+	environmentAvailable                                    bool
+	environmentReason                                       string
 	session                                                 string
 	window, lastUsed                                        int64
 	baseline                                                int64
@@ -43,7 +47,7 @@ func (r *Runtime) ConfigureDreamEnvironment(sample func() DreamEnvironment) {
 
 // Wall time intentionally includes system sleep (Go's monotonic clock may not).
 // A discontinuity consumes this opportunity; it never queues a catch-up request.
-func (p *dreamPolicy) observe(now time.Time, s api.ConversationState) bool {
+func (p *dreamPolicy) observe(now time.Time, s api.ConversationState) {
 	env := DreamEnvironment{}
 	if p.sample != nil {
 		env = p.sample()
@@ -73,8 +77,24 @@ func (p *dreamPolicy) observe(now time.Time, s api.ConversationState) bool {
 	} else if p.idleSince.IsZero() {
 		p.idleSince = now
 	}
-	p.previous, p.epoch, p.draftRevision, p.available = now, env.Epoch, env.DraftRevision, available
-	return available && !now.Before(p.stableAfter) && !now.Before(p.draftUntil)
+	p.previous, p.epoch, p.draftRevision, p.available, p.environmentAvailable = now, env.Epoch, env.DraftRevision, available, env.Available
+	p.environmentReason = env.Reason
+	if p.environmentReason == "" {
+		p.environmentReason = "unknown"
+	}
+}
+
+func (p *dreamPolicy) idleReason(now time.Time, s api.ConversationState, at time.Time) string {
+	if !p.available || now.Before(p.stableAfter) {
+		return "environment_unstable"
+	}
+	if !s.Idle || s.Turn == "" || s.Status != "completed" || p.idleSince.IsZero() || now.Before(p.draftUntil) {
+		return "busy"
+	}
+	if now.Sub(p.idleSince) < dreamIdle || now.Sub(at) < dreamIdle {
+		return "idle_short"
+	}
+	return "ready"
 }
 
 func (p *dreamPolicy) decide(now time.Time, s api.ConversationState, state dreamState) string {
@@ -93,11 +113,8 @@ func (p *dreamPolicy) decide(now time.Time, s api.ConversationState, state dream
 		}
 		p.window, p.lastUsed = u.Window, u.Used
 	}
-	if !p.available || now.Before(p.stableAfter) {
-		return "environment_unstable"
-	}
-	if !s.Idle || p.idleSince.IsZero() || now.Before(p.draftUntil) {
-		return "busy"
+	if reason := p.idleReason(now, s, state.At); reason != "ready" {
+		return reason
 	}
 	if !state.Dirty {
 		return "no_new_activity"
@@ -111,7 +128,7 @@ func (p *dreamPolicy) decide(now time.Time, s api.ConversationState, state dream
 	if now.Sub(u.ModelAt) >= dreamOpportunity-dreamReserve {
 		return "opportunity_expired"
 	}
-	if float64(u.Used)/float64(u.Window) < .3 {
+	if float64(u.Used)/float64(u.Window) < .5 {
 		return "context_small"
 	}
 	if u.Used-p.baseline < dreamGrowth {
@@ -119,13 +136,6 @@ func (p *dreamPolicy) decide(now time.Time, s api.ConversationState, state dream
 	}
 	if !state.LastAttempt.IsZero() && now.Sub(state.LastAttempt) < dreamCooldown {
 		return "cooldown"
-	}
-	idle := 5 * time.Minute
-	if float64(u.Used)/float64(u.Window) >= .7 {
-		idle = 90 * time.Second
-	}
-	if now.Sub(p.idleSince) < idle || now.Sub(state.At) < idle {
-		return "idle_short"
 	}
 	return "ready"
 }

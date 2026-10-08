@@ -88,7 +88,7 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 	}
 	current := p.ConversationState()
 	now := r.now().Round(0)
-	stable := d.policy.observe(now, current)
+	d.policy.observe(now, current)
 	if !current.Observed {
 		return nil
 	}
@@ -127,6 +127,8 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 		if err := errors.Join(handoffErr, d.save()); err != nil {
 			return err
 		}
+		d.log.Write(diagnosticlog.Record{Level: "info", Component: "dream", Code: "attempt_completed",
+			Reason: fmt.Sprintf("outcome=%s status=%s handoff_ready=%t context_used=%d context_window=%d input_tokens=%d output_tokens=%d cache_read_tokens=%d cache_write_tokens=%d last_provider_cost_known=%t last_provider_cost=%g cost_currency=%s duration_seconds=%d", a.Outcome, result.Status, a.Ready, current.Usage.Used, current.Usage.Window, current.Usage.InputTokens, current.Usage.OutputTokens, current.Usage.CacheReadTokens, current.Usage.CacheWriteTokens, current.Usage.LastProviderCostKnown, current.Usage.LastProviderCost, current.Usage.LastProviderCostCurrency, int64(now.Sub(a.Started).Seconds()))})
 		if upgrade && a.Ready {
 			return d.renew(ctx, p)
 		}
@@ -150,16 +152,29 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 	// A rejected/interrupted attempt waits for normal activity and idle maintenance.
 	startup := upgrade && (d.state.Attempt == nil || d.state.Attempt.UpgradeVersion != current.DesiredRuntimeVersion)
 	reason := d.policy.decide(now, current, d.state)
+	if startup {
+		// Version handoff skips the value threshold, but never the same
+		// post-turn idle and presence gate as ordinary maintenance.
+		reason = d.policy.idleReason(now, current, d.state.At)
+	}
 	if dispatch && reason != d.policy.reason && d.state.Dirty {
 		age := int64(-1)
 		if !current.Usage.ModelAt.IsZero() {
 			age = int64(now.Sub(current.Usage.ModelAt).Seconds())
 		}
+		idle := int64(0)
+		if !d.policy.idleSince.IsZero() {
+			idle = int64(now.Sub(d.policy.idleSince).Seconds())
+		}
+		watermark := int64(0)
+		if current.Usage.Window > 0 {
+			watermark = 100 * current.Usage.Used / current.Usage.Window
+		}
 		d.log.Write(diagnosticlog.Record{Level: "info", Component: "dream", Code: "admission_" + reason,
-			Reason: fmt.Sprintf("context_used=%d context_window=%d model_age_seconds=%d", current.Usage.Used, current.Usage.Window, age)})
+			Reason: fmt.Sprintf("context_used=%d context_window=%d watermark_percent=%d growth_tokens=%d model_age_seconds=%d idle_seconds=%d usage_evidence=%s observed=%t environment_available=%t environment_reason=%s idle=%t upgrade=%t", current.Usage.Used, current.Usage.Window, watermark, current.Usage.Used-d.policy.baseline, age, idle, current.UsageEvidence, current.Observed, d.policy.environmentAvailable, d.policy.environmentReason, current.Idle, startup)})
 	}
 	d.policy.reason = reason
-	if !dispatch || !current.Idle || (startup && d.policy.sample != nil && !stable) || (!startup && d.policy.reason != "ready") {
+	if !dispatch || reason != "ready" {
 		return nil
 	}
 	path, err := d.vault.PrepareDream()
@@ -167,6 +182,7 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 		return err
 	}
 	a := &dreamAttempt{ID: "dream-" + rand.Text(), Session: current.Session, Started: now, Outcome: "unknown"}
+	growth := current.Usage.Used - d.policy.baseline
 	if upgrade {
 		a.UpgradeVersion = current.DesiredRuntimeVersion
 	}
@@ -177,12 +193,21 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 	if err := d.save(); err != nil {
 		return err
 	}
+	band := "idle_value"
+	if current.Usage.Window > 0 && float64(current.Usage.Used)/float64(current.Usage.Window) >= .75 {
+		band = "high_water"
+	}
+	if startup {
+		band = "upgrade"
+	}
 	prompt := fmt.Sprintf("System Dream request from the Bot host. Explicitly load bot-dream at %q and follow it now. Write the handoff to exactly %q (the host has prepared this writable location), starting with this exact first line:\n%s\nOptionally update useful memory. Finish with only one short user-facing recap sentence. Do not start a new session or continue ordinary work.", d.skill, path, notebook.DreamMarker(a.ID))
 	receipt, err := p.SubmitDream(ctx, api.Submission{ID: a.ID, Text: prompt, Dream: true})
 	a.Outcome = receipt.Outcome
 	if receipt.Outcome == "rejected" {
 		a.Done = true
 	}
+	d.log.Write(diagnosticlog.Record{Level: "info", Component: "dream", Code: "attempt_dispatched",
+		Reason: fmt.Sprintf("band=%s outcome=%s context_used=%d context_window=%d growth_tokens=%d idle_seconds=%d", band, receipt.Outcome, current.Usage.Used, current.Usage.Window, growth, int64(now.Sub(d.policy.idleSince).Seconds()))})
 	return errors.Join(err, d.save())
 }
 

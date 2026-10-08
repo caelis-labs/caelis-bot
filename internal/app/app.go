@@ -363,10 +363,18 @@ func (a *Application) preparePersonalLocked() error {
 	if a.dreamReady && !a.dreamEnvironmentReady {
 		resident.ConfigureDreamEnvironment(func() bot.DreamEnvironment {
 			if a.host.CareSample == nil {
-				return bot.DreamEnvironment{}
+				return bot.DreamEnvironment{Reason: "sample_unavailable"}
 			}
 			sample := a.host.CareSample()
-			return bot.DreamEnvironment{Available: sample.Available(), Epoch: sample.Epoch, DraftRevision: a.Backend.Draft().Revision}
+			reason := "available"
+			if !sample.Presence.Awake {
+				reason = "not_awake"
+			} else if sample.Presence.Unlocked == nil {
+				reason = "unlock_unknown"
+			} else if !*sample.Presence.Unlocked {
+				reason = "locked"
+			}
+			return bot.DreamEnvironment{Available: sample.Available(), Reason: reason, Epoch: sample.Epoch, DraftRevision: a.Backend.Draft().Revision}
 		})
 		resident.ConfigureDreamDiagnostics(a.host.Diagnostics)
 		a.dreamEnvironmentReady = true

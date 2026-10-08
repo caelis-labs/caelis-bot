@@ -67,7 +67,7 @@ func beginDream(t *testing.T, r *Runtime, e *dreamEngine, now *time.Time) {
 	if err := r.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	for range 89 {
+	for range 119 {
 		*now = now.Add(time.Second)
 		if err := r.Tick(t.Context()); err != nil {
 			t.Fatal(err)
@@ -244,8 +244,9 @@ func TestDreamRestartWaitsForNativeConversationRestore(t *testing.T) {
 	}
 }
 
-func TestUpgradeHandoffWaitsForRestoreThenRunsOnceWithoutIdleDelay(t *testing.T) {
-	r, e, _ := dreamFixture(t)
+func TestUpgradeHandoffWaitsForRestoreAndPostTurnIdle(t *testing.T) {
+	r, e, now := dreamFixture(t)
+	r.ConfigureDreamEnvironment(func() DreamEnvironment { return DreamEnvironment{Available: true} })
 	e.conversation.RuntimeVersion, e.conversation.DesiredRuntimeVersion = "old-version", "new-version"
 	e.conversation.Observed = false
 	_ = r.Tick(t.Context())
@@ -258,8 +259,16 @@ func TestUpgradeHandoffWaitsForRestoreThenRunsOnceWithoutIdleDelay(t *testing.T)
 	if err := r.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	if len(e.dreams) != 0 {
+		t.Fatal("upgrade interrupted the post-turn idle window")
+	}
+	dreamSeconds(t, r, now, 119)
+	if len(e.dreams) != 0 {
+		t.Fatal("upgrade started before continuous idle completed")
+	}
+	dreamSeconds(t, r, now, 1)
 	if len(e.dreams) != 1 {
-		t.Fatal("upgrade waited for idle timer")
+		t.Fatal("upgrade did not start after idle")
 	}
 	id := e.dreams[0].ID
 	if err := os.WriteFile(filepath.Join(r.dream.vault.Path(), notebook.HandoffName), []byte(notebook.DreamMarker(id)+"\nRetain the existing assignment."), 0600); err != nil {
@@ -309,10 +318,9 @@ func TestUpgradeFailureDoesNotCreateMaintenanceLoop(t *testing.T) {
 	for _, outcome := range []string{"unknown", "rejected", "accepted"} {
 		t.Run(outcome, func(t *testing.T) {
 			r, e, now := dreamFixture(t)
+			r.ConfigureDreamEnvironment(func() DreamEnvironment { return DreamEnvironment{Available: true} })
 			e.conversation.DesiredRuntimeVersion, e.outcome = "new-version", outcome
-			if err := r.Tick(t.Context()); err != nil {
-				t.Fatal(err)
-			}
+			dreamSeconds(t, r, now, 121)
 			if outcome == "accepted" {
 				e.conversation.Status, e.conversation.Idle = "failed", true
 			}

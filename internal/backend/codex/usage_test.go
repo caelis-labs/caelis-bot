@@ -61,14 +61,20 @@ func TestUsageUsesLastContextAndLiveResidentEvidence(t *testing.T) {
 	s := NewSession(SessionOptions{})
 	s.binding.ThreadID = "resident"
 	start := Notification{Method: "turn/started", Params: json.RawMessage(`{"threadId":"resident","turn":{"id":"turn","status":"inProgress"}}`)}
-	usage := Notification{Method: "thread/tokenUsage/updated", ReceivedAt: time.Now().Round(0), Params: json.RawMessage(`{"threadId":"resident","turnId":"turn","tokenUsage":{"last":{"totalTokens":80000,"inputTokens":79000,"outputTokens":1000},"total":{"totalTokens":9000000},"modelContextWindow":100000}}`)}
+	usage := Notification{Method: "thread/tokenUsage/updated", ReceivedAt: time.Now().Round(0), Params: json.RawMessage(`{"threadId":"resident","turnId":"turn","tokenUsage":{"last":{"totalTokens":80000,"inputTokens":79000,"outputTokens":1000,"cachedInputTokens":12000,"cacheWriteInputTokens":500},"total":{"totalTokens":9000000},"modelContextWindow":100000}}`)}
 	s.applyEvent(usage)
 	if !s.usage.ModelAt.IsZero() {
 		t.Fatal("history without live turn became warm")
 	}
 	s.applyEvent(start)
+	invalid := usage
+	invalid.Params = json.RawMessage(`{"threadId":"resident","turnId":"turn","tokenUsage":{"last":{"totalTokens":1,"inputTokens":1,"outputTokens":0},"total":{"totalTokens":1}}}`)
+	s.applyEvent(invalid)
+	if s.usageReason != "invalid_token_usage" || !s.usage.ModelAt.IsZero() {
+		t.Fatal("invalid native gauge was not classified", s.usageReason, s.usage)
+	}
 	s.applyEvent(usage)
-	if s.usage.Used != 80000 || s.usage.Window != 100000 || !s.usage.ModelAt.Equal(usage.ReceivedAt) {
+	if s.usage.Used != 80000 || s.usage.Window != 100000 || !s.usage.ModelAt.Equal(usage.ReceivedAt) || s.usage.InputTokens != 79000 || s.usage.OutputTokens != 1000 || s.usage.CacheReadTokens != 12000 || s.usage.CacheWriteTokens != 500 || s.usageReason != "live_token_usage" {
 		t.Fatal(s.usage)
 	}
 	usage.ReceivedAt = usage.ReceivedAt.Add(time.Minute)
@@ -86,7 +92,7 @@ func TestUsageUsesLastContextAndLiveResidentEvidence(t *testing.T) {
 		t.Fatal("foreign usage affected context")
 	}
 	s.applyEvent(Notification{Method: "item/completed", Params: json.RawMessage(`{"threadId":"resident","turnId":"turn","item":{"id":"compact","type":"contextCompaction"}}`)})
-	if !s.usage.ModelAt.IsZero() {
+	if !s.usage.ModelAt.IsZero() || s.usageReason != "native_compaction" {
 		t.Fatal("compaction retained gauge")
 	}
 	usage.EmittedAtMS = usage.ReceivedAt.Add(-20 * time.Minute).UnixMilli()
@@ -96,7 +102,7 @@ func TestUsageUsesLastContextAndLiveResidentEvidence(t *testing.T) {
 	}
 	s.resetProjection()
 	s.applyEvent(usage)
-	if !s.usage.ModelAt.IsZero() {
+	if !s.usage.ModelAt.IsZero() || s.usageReason != "restore_requires_live_usage" {
 		t.Fatal("restore established cache warmth")
 	}
 }

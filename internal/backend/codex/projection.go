@@ -427,6 +427,7 @@ func (s *Session) applyEvent(event Notification) {
 			if event.Method == "turn/started" && target.ThreadID == s.binding.ThreadID && !terminal(s.runs[n.Turn.ID]) {
 				if s.usageTurn != n.Turn.ID {
 					s.usage = api.ContextUsage{}
+					s.usageReason = "awaiting_token_usage"
 				}
 				s.usageTurn = n.Turn.ID
 			}
@@ -459,6 +460,7 @@ func (s *Session) applyEvent(event Notification) {
 			}
 			if n.Item.Type == "contextCompaction" {
 				s.usage, s.usageTotal = api.ContextUsage{}, 0
+				s.usageReason = "native_compaction"
 			}
 			s.applyItem(target.TurnID, n.Item, complete)
 			if complete {

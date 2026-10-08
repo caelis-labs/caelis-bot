@@ -357,8 +357,7 @@ refresh model age. Codex uses the last response's total tokens (not cumulative b
 both explicit context_gauge and provider_usage evidence on the same live resident turn. Missing facts
 skip the opportunity. Native compaction/model changes invalidate or rebase the gauge.
 
-Defaults: below 30% context skips; 30–70% needs five continuous idle minutes; at least 70% needs 90 seconds.
-At least 8,000 tokens of growth since the last attempt are required, with a 30-minute attempt cooldown.
+Defaults: below 50% context skips; medium and high usage both require two continuous idle minutes after a completed resident turn. At least 8,000 tokens of growth since the last attempt are required, with a 30-minute attempt cooldown. Version upgrade handoffs skip the usage value threshold but use the same completed-turn and idle gate.
 The first observed conversation uses zero as its growth baseline; compaction rebases to the smaller gauge.
 One attempt consumes the dirty generation, including rejection/failure. Dream's own usage is excluded
 from subsequent growth when available. The host allows at most 15 wall-clock minutes since model activity,
@@ -369,11 +368,11 @@ Independent native presence sampling tracks sleep/wake and lock/unlock generatio
 disconnection, restart, clock reversal or a polling gap over 45 seconds requires fresh model activity;
 waking also requires 60 seconds of stability. Sleep counts against cache age, not continuous idle time.
 Draft edits postpone admission by 60 seconds. Expired opportunities never catch up after wake/cooldown.
-Admission diagnostics contain reason codes, token counts and model age, never conversation content.
+Admission diagnostics contain reason codes, watermark, growth, idle and model age; attempt completion records available token/cache counters, the last provider cost when supplied, and duration. They never record conversation content. These fixture and local counters do not prove cache savings on a live provider.
 
 Dream never starts during active/pending/unknown work. It reuses the resident Bot,
 explicitly loads the Dream skill, writes a marked HANDOFF, and emits a concise recap. Success requires native
-completion plus a matching nonempty handoff. Normal success only marks ready; next user text/screen request
+completion plus a matching nonempty handoff. The handoff carries goals, decisions and unresolved original receipts, not prior ToolSearch results or full schemas. Normal success only marks ready; next user text/screen request
 renews. An intervening background turn invalidates readiness. User input interrupts only the maintenance Turn;
 Workers continue. Maintenance over two minutes requests cancellation. Failure does not start an idle retry loop.
 

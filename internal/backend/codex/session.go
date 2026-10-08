@@ -84,6 +84,7 @@ type Session struct {
 
 	residentExecution      api.WorkExecutionSettings
 	usage                  api.ContextUsage
+	usageReason            string
 	usageTurn              string
 	usageTotal             int64
 	historyMu              sync.Mutex
@@ -227,6 +228,7 @@ func (s *Session) ImportHostReportIDs(ids []string) error {
 }
 func (s *Session) resetProjection() {
 	s.usage, s.usageTurn, s.usageTotal = api.ContextUsage{}, "", 0
+	s.usageReason = "restore_requires_live_usage"
 	s.runs = map[string]string{}
 	s.items = map[string]int{}
 	s.nativeItems = map[string]nativeItem{}
@@ -655,6 +657,7 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	// Restoration/replay never establishes a warm-cache opportunity.
 	s.usage, s.usageTurn, s.usageTotal = api.ContextUsage{}, "", 0
+	s.usageReason = "restore_requires_live_usage"
 	s.buffer = nil
 	s.bufferBytes = 0
 	s.cleanupContextLocked()
@@ -711,6 +714,7 @@ func (s *Session) connectionError(message string, cause error) error {
 	s.loading = false
 	s.state.Connection = "offline"
 	s.usage, s.usageTurn = api.ContextUsage{}, ""
+	s.usageReason = "offline"
 	s.state.ConnectionIssue = "connection"
 	s.lastConnectCause = cause
 	if errors.Is(cause, errRuntimeMissing) {
@@ -809,6 +813,7 @@ func (s *Session) listen(c *Client, epoch uint64) {
 	s.state.Connection = "offline"
 	s.state.Message = "连接已断开；请重新连接核对结果。"
 	s.usage, s.usageTurn = api.ContextUsage{}, ""
+	s.usageReason = "offline"
 	s.state.ConnectionIssue = "connection"
 	if resourceExhausted(c.Err()) {
 		s.state.ConnectionIssue = "resource_exhausted"

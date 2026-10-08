@@ -33,12 +33,20 @@ type ConversationState struct {
 	// Usage is a live resident-context gauge, never cumulative billed tokens.
 	// It is deliberately not persisted or restored from transcript history.
 	Usage ContextUsage
+	// UsageEvidence is an adapter-generated enum for anonymous diagnostics.
+	UsageEvidence string
 }
 
 type ContextUsage struct {
 	Used, Window int64
 	// ModelAt is the last confirmed model response, not a tool/UI update.
 	ModelAt time.Time
+	// The latest resident model response's billing counters, when supplied.
+	// These are observations for diagnostics, not an estimated session cost.
+	InputTokens, OutputTokens, CacheReadTokens, CacheWriteTokens int64
+	LastProviderCost                                             float64
+	LastProviderCostKnown                                        bool
+	LastProviderCostCurrency                                     string
 }
 
 // ConversationRuntime performs ordinary native session/turn operations. It has

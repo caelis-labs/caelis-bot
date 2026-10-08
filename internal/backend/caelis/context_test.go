@@ -72,12 +72,12 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
 		case "/application/sessions/main/configuration":
-			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{Model: "retained-model", Execution: "workspace-write", Permissions: &wire.ApplicationPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}}})
+			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{Model: "retained-model", Execution: "workspace-write", Permissions: &wire.ApplicationPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}, McpServers: []wire.ApplicationMCPServer{{Name: "notes", Transport: "stdio", Command: pointer("/fixture/mcp")}}}})
 		case "/application/sessions":
 			creates.Add(1)
 			var in wire.CreateApplicationSessionRequest
 			json.NewDecoder(r.Body).Decode(&in)
-			if in.Profile.Version != version || in.Profile.ExecutionConfig == nil || !value(in.Profile.ExecutionConfig.Environment.Inherit) || in.Profile.Model != "retained-model" || in.Profile.Reviewer == nil || in.Profile.Reviewer.Model != "retained-model" || value(in.Profile.Permissions.Mode) != "read-only" || value(in.Profile.Permissions.ApprovalMode) != "auto-review" {
+			if in.Profile.Version != version || in.Profile.ExecutionConfig == nil || !value(in.Profile.ExecutionConfig.Environment.Inherit) || in.Profile.Model != "retained-model" || in.Profile.Reviewer == nil || in.Profile.Reviewer.Model != "retained-model" || value(in.Profile.Permissions.Mode) != "read-only" || value(in.Profile.Permissions.ApprovalMode) != "auto-review" || len(in.Profile.McpServers) != 1 || in.Profile.McpServers[0].Name != "notes" {
 				t.Error("handoff lost model, sandbox or Guardian assembly")
 			}
 			created = in.Profile
@@ -112,13 +112,17 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 	v.Turns = map[string]string{"turn": "completed"}
 	v.Items = []api.Item{{ID: "old", Kind: "user", TurnKey: "user-turn", Text: "old topic"}, {ID: "recap", Kind: "assistant", TurnKey: "turn", Text: "All done."}}
 	s.state.Grants["reminder"] = grantRecord{Fingerprint: "same", Grant: wire.ApplicationBackgroundGrant{Id: "old-grant", SessionId: "main", Source: "schedule-source", AuthorizationOperationId: "original-user"}}
+	beforeGeneration := s.BotPluginGeneration()
 	if err := s.RenewConversation(t.Context(), "dream", "main"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RenewConversation(t.Context(), "dream", "main"); err != nil {
 		t.Fatal(err)
 	}
-	if s.ConversationState().RuntimeVersion != "new-version" || creates.Load() != 1 || grants.Load() != 1 || s.state.Grants["reminder"].Grant.Id != "new-grant" || len(s.Snapshot().Items) != 2 {
+	if s.BotPluginGeneration() == beforeGeneration {
+		t.Fatal("fresh application session retained the old MCP directory generation")
+	}
+	if s.ConversationState().RuntimeVersion != "new-version" || creates.Load() != 1 || grants.Load() != 1 || s.state.Grants["reminder"].Grant.Id != "new-grant" || len(s.Snapshot().Items) != 2 || len(s.state.Views["next"].Items) != 0 {
 		t.Fatal("lost continuity")
 	}
 }

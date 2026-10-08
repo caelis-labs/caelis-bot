@@ -28,6 +28,9 @@ func TestContextAcceptanceAndLazyRenewalRetainChat(t *testing.T) {
 	f.handle = func(m wireMessage) (any, bool) {
 		switch m.Method {
 		case "thread/start":
+			if strings.Contains(string(m.Params), "thread-native") || strings.Contains(string(m.Params), "tool_search_output") {
+				t.Error("fresh thread request copied old thread or search history")
+			}
 			starts.Add(1)
 			return map[string]any{"thread": nativeThread{ID: "next-thread"}, "model": "native-default"}, true
 		case "turn/start":
@@ -77,11 +80,15 @@ func TestContextAcceptanceAndLazyRenewalRetainChat(t *testing.T) {
 	if !view.Quiet || len(view.Items) != 5 || view.Items[4].Text != "Completed; no pending work." {
 		t.Fatal("recap projection", view)
 	}
+	beforeGeneration := s.BotPluginGeneration()
 	if err := s.RenewConversation(t.Context(), "dream-test", "thread-native"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RenewConversation(t.Context(), "dream-test", "thread-native"); err != nil || starts.Load() != 1 {
 		t.Fatal("duplicate rotation", err)
+	}
+	if s.BotPluginGeneration() == beforeGeneration {
+		t.Fatal("fresh thread retained the old MCP directory generation")
 	}
 	if len(s.Snapshot().Items) != 5 || s.binding.Context.Injected {
 		t.Fatal("chat lost or new context skipped")
