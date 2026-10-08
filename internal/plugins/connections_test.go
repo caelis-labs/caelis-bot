@@ -3,12 +3,16 @@ package plugins
 import (
 	"bytes"
 	"context"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -154,6 +158,159 @@ func TestConnectionRevisionPrivateStoreActivationAndClear(t *testing.T) {
 	}
 	if m.Selection().Servers[0].ConnectionRevision == confirmed || len(secrets) != 1 {
 		t.Fatal("retry did not replace and revoke confirmed credential")
+	}
+}
+
+func TestConnectionReloadCanLaunchNewRevisionFromDisk(t *testing.T) {
+	root := t.TempDir()
+	m, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := map[string]string{}
+	m.secrets = secretstore.Functions{SaveFunc: func(id, v string) error { secrets[id] = v; return nil }, LoadFunc: func(id string) (string, error) {
+		value, ok := secrets[id]
+		if !ok {
+			return "", errors.New("missing")
+		}
+		return value, nil
+	}, DeleteFunc: func(id string) error { delete(secrets, id); return nil }}
+	if _, err := m.Mutate(t.Context(), "github", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	launch := func(selection Selection) error {
+		if len(selection.Servers) != 1 {
+			return errors.New("new server was not selected")
+		}
+		fresh, err := Open(root) // The real --plugin-mcp child does not share m.state.
+		if err != nil {
+			return err
+		}
+		fresh.secrets = m.secrets
+		server := selection.Servers[0]
+		return runStdio(t.Context(), fresh, server.PackageID, server.Name, strings.NewReader(""), io.Discard, io.Discard, filepath.Base(server.Root), fmt.Sprint(server.ConnectionRevision))
+	}
+	applyCount := 0
+	apply := func(_ context.Context, selection Selection) error {
+		applyCount++
+		return launch(selection)
+	}
+	if _, err := m.ConfigureConnection(t.Context(), "github", "FIRST_SYNTHETIC_TOKEN", "", false, apply); err != nil {
+		t.Fatal("first reload could not launch from disk", err)
+	}
+	first := m.Selection()
+	if _, err := m.ConfigureConnection(t.Context(), "github", "SECOND_SYNTHETIC_TOKEN", "", false, apply); err != nil {
+		t.Fatal("rotation reload could not launch from disk", err)
+	}
+	if applyCount != 2 || launch(first) == nil || len(secrets) != 1 {
+		t.Fatal("old revision survived successful rotation", applyCount, secrets)
+	}
+	rejected := m.Selection().Revision + 1
+	if _, err := m.ConfigureConnection(t.Context(), "github", "THIRD_SYNTHETIC_TOKEN", "", false, func(_ context.Context, selection Selection) error {
+		applyCount++
+		if err := launch(selection); err != nil {
+			return err
+		}
+		return errors.New("runtime rejected reload")
+	}); err == nil {
+		t.Fatal("failed reload reported success")
+	}
+	if applyCount != 3 || m.Selection().Revision != rejected-1 || len(secrets) != 1 || secrets[secretKey(root, "github", rejected)] != "" {
+		t.Fatal("failed revision or secret remained active", applyCount, secrets)
+	}
+	restored, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Selection().Revision != m.Selection().Revision || launch(m.Selection()) != nil {
+		t.Fatal("confirmed revision was not restored on disk", err)
+	}
+	if _, err := m.ConfigureConnection(t.Context(), "github", "THIRD_SYNTHETIC_TOKEN", "", false, apply); err != nil || applyCount != 4 {
+		t.Fatal("same credential could not retry after a rejected reload", err, applyCount)
+	}
+}
+
+func TestConnectionFailuresRemoveNewSecretsAndKeepConfirmedCredential(t *testing.T) {
+	root := t.TempDir()
+	m, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := map[string]string{}
+	failCA := false
+	m.secrets = secretstore.Functions{SaveFunc: func(id, value string) error {
+		secrets[id] = value // Exercise a store that wrote before reporting failure.
+		if failCA && strings.HasSuffix(id, "-ca") {
+			return errors.New("CA write failed")
+		}
+		return nil
+	}, LoadFunc: func(id string) (string, error) {
+		value, ok := secrets[id]
+		if !ok {
+			return "", errors.New("missing")
+		}
+		return value, nil
+	}, DeleteFunc: func(id string) error { delete(secrets, id); return nil }}
+	if _, err := m.Mutate(t.Context(), "obsidian", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ConfigureConnection(t.Context(), "obsidian", "FIRST_SYNTHETIC_TOKEN", "", false, func(context.Context, Selection) error { return errors.New("runtime busy") }); err == nil || len(secrets) != 0 {
+		t.Fatal("first rejected connection left a secret", err, secrets)
+	}
+	if _, err := m.ConfigureConnection(t.Context(), "obsidian", "", "", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Mutate(t.Context(), "obsidian", "uninstall", nil); err != nil || len(secrets) != 0 {
+		t.Fatal("clear/uninstall retained a rejected secret", err, secrets)
+	}
+	if _, err := m.Mutate(t.Context(), "obsidian", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.ConfigureConnection(t.Context(), "obsidian", "FIRST_SYNTHETIC_TOKEN", "", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	confirmed := m.Selection().Servers[0].ConnectionRevision
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	ca := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
+	failCA = true
+	if _, err := m.ConfigureConnection(t.Context(), "obsidian", "SECOND_SYNTHETIC_TOKEN", ca, false, nil); err == nil {
+		t.Fatal("failed CA write reported success")
+	}
+	if len(secrets) != 1 || secrets[secretKey(root, "obsidian", confirmed)] != "FIRST_SYNTHETIC_TOKEN" || m.Selection().Servers[0].ConnectionRevision != confirmed {
+		t.Fatal("failed CA write lost confirmed credential or left new keys", secrets)
+	}
+}
+
+func TestConnectionStateWriteFailureCleansNewSecret(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory mode is not a Windows write barrier")
+	}
+	root := t.TempDir()
+	m, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := map[string]string{}
+	m.secrets = secretstore.Functions{SaveFunc: func(id, value string) error { secrets[id] = value; return nil }, LoadFunc: func(id string) (string, error) { return secrets[id], nil }, DeleteFunc: func(id string) error { delete(secrets, id); return nil }}
+	if _, err := m.Mutate(t.Context(), "github", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(root, 0700)
+	applyCount := 0
+	_, err = m.ConfigureConnection(t.Context(), "github", "SYNTHETIC_PRIVATE_TOKEN", "", false, func(context.Context, Selection) error { applyCount++; return nil })
+	if err == nil || applyCount != 0 || len(secrets) != 0 || m.state.Connections["github"].Configured {
+		t.Fatal("failed state write published a connection or retained a secret", err, applyCount, secrets)
+	}
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(root)
+	if err != nil || reopened.state.Connections["github"].Configured {
+		t.Fatal("failed state write changed confirmed disk state", err)
 	}
 }
 
