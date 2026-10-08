@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -97,6 +98,22 @@ func TestUnavailableReviewedSourceFailsWithoutPanic(t *testing.T) {
 	}
 	if _, err = m.Mutate(context.Background(), "missing", "install", nil); err == nil {
 		t.Fatal("missing source was staged")
+	}
+}
+
+func TestBundledSkillDetailPreservesLongGuidance(t *testing.T) {
+	m, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := m.SkillDetail("markdown-work", "markdown-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sentence := range []string{"Start with the user's purpose", "Preserve source facts", "Before handing over"} {
+		if !strings.Contains(detail.Body, sentence) {
+			t.Fatalf("long reviewed paragraph was omitted: %q", sentence)
+		}
 	}
 }
 

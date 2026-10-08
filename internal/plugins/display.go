@@ -98,8 +98,12 @@ func (snapshot Snapshot) Public() Snapshot {
 }
 
 func displayText(value string) string {
+	return displayTextBound(value, 240)
+}
+
+func displayTextBound(value string, limit int) string {
 	value = strings.TrimSpace(value)
-	if value == "" || len(value) > 240 || !utf8.ValidString(value) || strings.ContainsAny(value, "\\$=") || strings.Contains(value, "://") || displayPath.MatchString(value) {
+	if value == "" || len(value) > limit || !utf8.ValidString(value) || strings.ContainsAny(value, "\\$=") || strings.Contains(value, "://") || displayPath.MatchString(value) {
 		return ""
 	}
 	for _, r := range value {

@@ -34,18 +34,20 @@ func (m *Manager) SkillDetail(id, skill string) (SkillDetail, error) {
 		return SkillDetail{}, errors.New("skill instructions unavailable")
 	}
 	var lines []string
+	length := 0
 	for _, line := range strings.Split(instructions, "\n") {
+		length += len(line) + 1
+		if length > 8192 {
+			return SkillDetail{}, fmt.Errorf("skill preview exceeds display limit")
+		}
 		if line == "" {
 			lines = append(lines, "")
 			continue
 		}
-		if displayText(line) == "" {
+		if displayTextBound(line, 8192) == "" {
 			continue // Do not send local paths, environment values or secrets to UI.
 		}
 		lines = append(lines, line)
-		if len(strings.Join(lines, "\n")) > 8192 {
-			return SkillDetail{}, fmt.Errorf("skill preview exceeds display limit")
-		}
 	}
 	return SkillDetail{Body: strings.TrimSpace(strings.Join(lines, "\n"))}, nil
 }
