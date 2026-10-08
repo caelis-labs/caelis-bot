@@ -87,7 +87,10 @@
 .plugin-tool-limit{margin:8px 0 0;font-size:12px;color:var(--muted)}
 .plugin-tool-list{flex:1;min-height:0;margin-top:18px;border-top:1px solid var(--line);overflow:auto}
 .plugin-tool-list details+details{border-top:1px solid var(--line)}
-.plugin-tool-list summary{cursor:pointer;padding:11px 2px;font-size:13px}
+.settings-window .plugin-tool-list summary{display:grid;gap:3px;align-items:stretch;cursor:pointer;padding:11px 2px;font-size:13px}
+.plugin-tool-list summary>span{display:block;overflow-wrap:anywhere}
+.plugin-tool-list .plugin-tool-preview{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;margin-top:3px;font-size:12px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+.plugin-tool-list details[open] .plugin-tool-preview{display:none}
 .plugin-tool-list details>div{padding:0 8px 13px;font-size:12px;overflow-wrap:anywhere}
 .plugin-tool-list strong,.plugin-tool-list small{color:var(--muted);font-weight:400}
 .plugin-tool-list p{line-height:1.5}

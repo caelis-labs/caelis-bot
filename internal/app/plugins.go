@@ -54,10 +54,11 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 	if !item.Enabled {
 		return plugins.ServerDetail{State: "disabled", Tools: []plugins.Tool{}}, nil
 	}
-	selected := false
+	selected, selectedRemote := false, false
 	for _, entry := range a.plugins.Selection().Servers {
 		if entry.PackageID == id && entry.Name == server {
 			selected = true
+			selectedRemote = entry.Server.Type == "streamable-http"
 			break
 		}
 	}
@@ -86,12 +87,21 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 	}
 	if detail.State == "not_started" {
 		detail = a.plugins.ProbeServer(ctx, id, server)
+	} else if detail.State == "connected" && selectedRemote && needsToolMetadata(detail.Tools) {
+		// Core's mcp-status publishes authoritative tool names but not their
+		// descriptions. Read metadata only when this detail is explicitly opened,
+		// and never expose a tool absent from the Runtime's active directory.
+		if catalog := a.plugins.ProbeServer(ctx, id, server); catalog.State == "connected" {
+			detail.Tools = append([]plugins.Tool(nil), detail.Tools...)
+			enrichToolMetadata(detail.Tools, catalog.Tools)
+		}
 	}
 	if a.plugins.Snapshot().Revision != snapshot.Revision {
 		return plugins.ServerDetail{State: "unknown", Tools: []plugins.Tool{}}, nil
 	}
 	if len(detail.Tools) > 128 {
 		detail.Tools = detail.Tools[:128]
+		detail.Truncated = true
 	}
 	if detail.Tools == nil {
 		detail.Tools = []plugins.Tool{}
@@ -108,6 +118,46 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 		a.pluginDetailMu.Unlock()
 	}
 	return detail, nil
+}
+
+func needsToolMetadata(tools []plugins.Tool) bool {
+	for _, tool := range tools {
+		if tool.Description == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func enrichToolMetadata(active, discovered []plugins.Tool) {
+	byName := make(map[string]plugins.Tool, len(discovered))
+	for _, tool := range discovered {
+		byName[tool.Name] = tool
+	}
+	for i := range active {
+		metadata, ok := byName[active[i].Name]
+		if !ok {
+			continue
+		}
+		if active[i].Title == "" {
+			active[i].Title = metadata.Title
+		}
+		if active[i].Description == "" {
+			active[i].Description = metadata.Description
+		}
+		if active[i].ReadOnlyHint == nil {
+			active[i].ReadOnlyHint = metadata.ReadOnlyHint
+		}
+		if active[i].DestructiveHint == nil {
+			active[i].DestructiveHint = metadata.DestructiveHint
+		}
+		if active[i].IdempotentHint == nil {
+			active[i].IdempotentHint = metadata.IdempotentHint
+		}
+		if active[i].OpenWorldHint == nil {
+			active[i].OpenWorldHint = metadata.OpenWorldHint
+		}
+	}
 }
 
 func (a *Application) PluginSnapshot(ctx context.Context) (plugins.Snapshot, error) {

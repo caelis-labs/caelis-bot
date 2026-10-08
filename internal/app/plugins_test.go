@@ -29,6 +29,7 @@ type inspectingPluginEngine struct {
 	generation uint64
 	fail       bool
 	state      string
+	tools      []plugins.Tool
 }
 
 func (e *inspectingPluginEngine) BotPluginServer(context.Context, string) (plugins.ServerDetail, error) {
@@ -37,7 +38,7 @@ func (e *inspectingPluginEngine) BotPluginServer(context.Context, string) (plugi
 		return plugins.ServerDetail{}, errors.New("fixture failure")
 	}
 	if e.state != "" {
-		return plugins.ServerDetail{State: e.state, Tools: []plugins.Tool{}}, nil
+		return plugins.ServerDetail{State: e.state, Tools: e.tools}, nil
 	}
 	return plugins.ServerDetail{State: "connected", Tools: []plugins.Tool{{Name: "lookup", Description: "Find a note"}}}, nil
 }
@@ -94,6 +95,72 @@ func TestPluginDetailProbesEnabledRemoteWithoutModelSession(t *testing.T) {
 	detail, err := a.PluginServerDetail(t.Context(), "notes", "search", true)
 	if err != nil || detail.State != "disabled" || len(methods) != 3 {
 		t.Fatal("disabled service was probed", detail, methods, err)
+	}
+}
+
+func TestPluginDetailEnrichesRuntimeNamesWithoutAddingUnpublishedTools(t *testing.T) {
+	var mu sync.Mutex
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			ID     int    `json:"id"`
+			Method string `json:"method"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		mu.Lock()
+		methods = append(methods, request.Method)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "initialize":
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-06-18"}}`, request.ID)
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[{"name":"lookup","description":"Find matching notes","annotations":{"readOnlyHint":true}},{"name":"unpublished","description":"Not active in the Runtime"}]}}`, request.ID)
+		default:
+			t.Error("unexpected MCP method", request.Method)
+		}
+	}))
+	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"notes","version":"1.0.0","description":"Find notes","author":{"name":"Example"}}`)
+	mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"search":{"type":"streamable-http","url":"` + server.URL + `"}}}`)
+	files := fstest.MapFS{"packages/notes/plugin.json": {Data: manifest}, "packages/notes/mcp.json": {Data: mcp}}
+	hash := func(body []byte) string { sum := sha256.Sum256(body); return hex.EncodeToString(sum[:]) }
+	index := []byte(`{"name":"community","plugins":[{"name":"notes","source":{"source":"local","path":"./packages/notes"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"}}]}`)
+	m, err := plugins.OpenReviewedMarketplace(t.TempDir(), files, index, map[string]map[string]string{"notes": {"plugin.json": hash(manifest), "mcp.json": hash(mcp)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &inspectingPluginEngine{gatedPluginEngine: &gatedPluginEngine{testEngine: newTestEngine()}, state: "connected", tools: []plugins.Tool{{Name: "lookup"}, {Name: "runtime_only"}}}
+	a, _ := fixtureApp(t, e, Host{})
+	a.plugins = m
+	if _, err := a.PluginAction(t.Context(), "notes", "install"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		detail, err := a.PluginServerDetail(t.Context(), "notes", "search", false)
+		if err != nil || detail.State != "connected" || len(detail.Tools) != 2 || detail.Tools[0].Description != "Find matching notes" || detail.Tools[0].ReadOnlyHint == nil || !*detail.Tools[0].ReadOnlyHint || detail.Tools[1].Description != "" || e.tools[0].Description != "" {
+			t.Fatal("Runtime tool inventory was not safely enriched", detail, err)
+		}
+	}
+	mu.Lock()
+	gotMethods := append([]string(nil), methods...)
+	mu.Unlock()
+	if fmt.Sprint(gotMethods) != "[initialize notifications/initialized tools/list]" || e.reads != 1 {
+		t.Fatal("explicit detail should use one cached metadata probe", gotMethods, e.reads)
+	}
+	server.Close()
+	if detail, err := a.PluginServerDetail(t.Context(), "notes", "search", true); err != nil || detail.State != "connected" || len(detail.Tools) != 2 || detail.Tools[0].Name != "lookup" {
+		t.Fatal("metadata failure hid active Runtime tools", detail, err)
+	}
+	if _, err := a.PluginAction(t.Context(), "notes", "disable"); err != nil {
+		t.Fatal(err)
+	}
+	if detail, err := a.PluginServerDetail(t.Context(), "notes", "search", true); err != nil || detail.State != "disabled" {
+		t.Fatal("disabled service was probed", detail, err)
 	}
 }
 func (e *inspectingPluginEngine) BotPluginGeneration() uint64 { return e.generation }
