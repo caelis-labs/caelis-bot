@@ -146,6 +146,7 @@ func (e *lockOrderPluginEngine) UpdateBotPlugins(context.Context, plugins.Select
 func (e *lockOrderPluginEngine) BotPluginHealth(context.Context) []plugins.Issue { return nil }
 
 func TestPluginActionAndPrepareTurnUseRuntimeBeforeAppLock(t *testing.T) {
+	requireNativeIPC(t)
 	e := &lockOrderPluginEngine{testEngine: newTestEngine(), submitEntered: make(chan struct{}), continueSubmit: make(chan struct{}), pluginEntered: make(chan struct{})}
 	a, _ := fixtureApp(t, e, Host{})
 	if err := a.Start(); err != nil {
