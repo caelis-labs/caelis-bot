@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/caelis-labs/caelis",
-  "commit": "e8281aa7bb89b0ae330044eb5bd6a13916fd68fc",
-  "schemaSha256": "1eb8f4b8dc4e0d43c151f51b3e0df14dfb1d809b7a60930fd822fde99c4b4a6f",
-  "wireSha256": "4b828f510630cbad9dda789929343330dfe525b15fd00d871ea4a30265b49805"
+  "commit": "84c68a52288d10132d45bb80e2b91ecaca907291",
+  "schemaSha256": "e799f1b201a248559f7b72ca4c955a439e26ad5d5735e204e43ccb41c11eabe0",
+  "wireSha256": "920cb0e03e04169cf0f49cc7e87d0146e83d77ab1213ba7420505166daf8f0f0"
 }

@@ -33,7 +33,7 @@ func startAttachableProcess(ctx context.Context, opts Options) (connection, func
 		return nil, nil, errors.New("could not create private runtime socket directory")
 	}
 	path := filepath.Join(dir, "runtime.sock")
-	cmd := exec.Command(binary, "app-server", "--listen", "unix://"+path)
+	cmd := exec.Command(binary, appServerArgs(opts, "unix://"+path)...)
 	cmd.Dir = opts.Directory
 	cmd.Env = ownedEnvironment(cmd.Environ())
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

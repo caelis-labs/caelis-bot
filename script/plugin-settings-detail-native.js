@@ -1,0 +1,1 @@
+(()=>{document.querySelector('.plugin-row')?.click();setTimeout(()=>{window.__fixtureResult={detail:!!document.querySelector('.plugin-details'),state:document.querySelector('.plugin-details')?.textContent,actions:[...document.querySelectorAll('.plugin-actions button')].map(node=>node.textContent?.trim())};},180);return 'started'})()

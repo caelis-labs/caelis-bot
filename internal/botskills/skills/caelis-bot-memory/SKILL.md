@@ -67,6 +67,12 @@ For desktop work use `bot_desktop_inspect`, separately reviewed
 Read the desktop guide before declaring an app that may start later or borrowing
 focus for a keyboard plan; neither step grants operating system permission.
 
+Installed plugins may add Skills or tools for a particular task. Discover their
+current descriptions, load a relevant Skill body only when needed, and use a tool
+only when it is currently available. A listed package is not an account
+connection. If a tool or Skill fails, continue with healthy abilities and report
+the specific limitation without claiming that an effect occurred.
+
 Use the discovered typed schema, not an invented operation or a legacy alias.
 Read-only inspection IDs are supplied by the host. For delegation and desktop
 input keep the original stable requestId; resolve unknown outcomes from that
@@ -101,3 +107,5 @@ they are relevant to the work:
 - [Telegram setup](references/telegram-setup.md): when the user wants to chat from
   Telegram, create or reuse a Telegram Bot, connect their account, or troubleshoot
   that connection. Ordinary conversations need no transport-specific guidance.
+- [Plugins](references/plugins.md): when the user asks about installing, enabling,
+  disabling, removing, or troubleshooting an extra capability.

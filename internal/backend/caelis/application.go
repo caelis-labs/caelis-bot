@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"sort"
 
@@ -71,6 +72,8 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 		profile.Workspace = &wire.ApplicationWorkspace{Cwd: &c.NotebookDirectory}
 	}
 	profile.Permissions = &wire.ApplicationPermissions{Mode: pointer("workspace-write"), ApprovalMode: pointer("manual")}
+	profile.McpServers, profile.SkillRoots, _ = corePlugins(c.Plugins, c.Command, c.BuiltinSkillRoots)
+	profile.SkillDirs = []string{}
 	s.mu.Lock()
 	if s.catalogs == nil {
 		s.catalogs = map[string]map[string]api.ApplicationTools{}
@@ -139,6 +142,9 @@ func (s *Session) checkContentCapability(info wire.ServerInfo) error {
 		if value(tool.ResultFormat) == "content-v1" && !slices.Contains(info.Capabilities, "application-tool-result-content-v1") {
 			return errors.New("Bot tools require Caelis application-tool-result-content-v1; update and restart the Host")
 		}
+	}
+	if (len(s.profile.McpServers) > 0 || len(s.profile.SkillRoots) > 0) && !slices.Contains(info.Capabilities, atomicCapabilities) {
+		return errors.New("Bot plugins require Caelis application-atomic-capabilities-v1")
 	}
 	return nil
 }
@@ -241,8 +247,15 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	}
 	// Read current configuration, not immutable creation profile. Rebind only the
 	// application-owned instructions/catalog; preserve user model changes.
-	if desired.Profile.ToolsVersion != s.profile.ToolsVersion || desired.Profile.Instructions != s.profile.Instructions {
-		_, e = s.updateConfiguration(ctx, b.SessionId, "rebind-"+digest([]byte(string(desired.Revision)+s.profile.ToolsVersion+s.profile.Instructions)), string(desired.Revision), map[string]any{"instructions": s.profile.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools})
+	s.mu.Lock()
+	pendingPlugin := s.pluginConfigurationUnknownLocked()
+	s.mu.Unlock()
+	if !pendingPlugin && (desired.Profile.ToolsVersion != s.profile.ToolsVersion || desired.Profile.Instructions != s.profile.Instructions || !slices.EqualFunc(desired.Profile.McpServers, s.profile.McpServers, func(a, b wire.ApplicationMCPServer) bool {
+		left, _ := json.Marshal(a)
+		right, _ := json.Marshal(b)
+		return string(left) == string(right)
+	}) || !slices.Equal(desired.Profile.SkillRoots, s.profile.SkillRoots) || !slices.Equal(desired.Profile.SkillDirs, s.profile.SkillDirs)) {
+		_, e = s.updateConfiguration(ctx, b.SessionId, "rebind-"+digest([]byte(string(desired.Revision)+s.profile.ToolsVersion+s.profile.Instructions+fmt.Sprint(s.profile.McpServers, s.profile.SkillRoots, s.profile.SkillDirs))), string(desired.Revision), map[string]any{"instructions": s.profile.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools, "mcp_servers": s.profile.McpServers, "skill_roots": s.profile.SkillRoots, "skill_dirs": s.profile.SkillDirs})
 	}
 	return e
 }

@@ -24,7 +24,8 @@ import (
 )
 
 type binding struct {
-	Artifacts map[string]string `json:"artifacts,omitempty"`
+	ToolLayout int               `json:"toolLayout,omitempty"`
+	Artifacts  map[string]string `json:"artifacts,omitempty"`
 	// Exact native owner used by this binding. An update detaches its observer;
 	// the next process must reconcile here before accepting new work.
 	OwnerEndpoint      string                          `json:"ownerEndpoint,omitempty"`
@@ -502,7 +503,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if err := os.MkdirAll(s.opts.Directory, 0700); err != nil {
 		return s.connectionError("无法准备工作文件夹", err)
 	}
-	startOptions := Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, RequiredSocket: s.opts.RequiredSocket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true}
+	startOptions := Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, RequiredSocket: s.opts.RequiredSocket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true, TrustedProject: s.opts.BotTools != nil && s.opts.BotTools.NotebookDirectory != ""}
 	if s.binding.OwnerEndpoint != "" {
 		startOptions.Socket = strings.TrimPrefix(s.binding.OwnerEndpoint, "unix://")
 		startOptions.RequiredSocket = true
@@ -624,6 +625,9 @@ func (s *Session) connect(ctx context.Context) error {
 	s.binding.ThreadID = response.Thread.ID
 	if method == "thread/start" && s.opts.BotTools != nil {
 		s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion
+		if len(s.opts.BotTools.Services) > 0 {
+			s.binding.ToolLayout = 2
+		}
 	}
 	s.historyThread = response.Thread.ID
 	s.binding.Unsubmitted = (method == "thread/start" || unused) && len(response.Thread.Turns) == 0

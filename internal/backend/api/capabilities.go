@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
 // ErrRecoveryPending means the original ingress was refused before native
@@ -108,6 +109,32 @@ type ToolConnection struct {
 	Args           []string
 	Env            map[string]string
 	ApprovedTools  []string
+	// Services partitions the compact built-in catalog for new Codex resident
+	// threads. Names are protocol identities, never user-facing plugin titles.
+	Services          []ToolService
+	Plugins           plugins.Selection
+	BuiltinSkillRoots []string
+}
+
+// PluginConfigurator applies Bot-owned package selection at the Runtime's
+// documented admission boundary. Worker execution never receives this port.
+type PluginConfigurator interface {
+	UpdateBotPlugins(context.Context, plugins.Selection) error
+	// Hold the Runtime's turn-admission lock through application and durable
+	// Bot state confirmation. The supplied apply function already owns it.
+	WithBotPluginAdmission(func(func(context.Context, plugins.Selection) error) error) error
+	BotPluginHealth(context.Context) []plugins.Issue
+}
+
+// PluginInspector reads only a Bot-selected server's public directory. It must
+// never call a tool or start discovery for an unselected server.
+type PluginInspector interface {
+	BotPluginServer(context.Context, string) (plugins.ServerDetail, error)
+	BotPluginGeneration() uint64
+}
+type ToolService struct {
+	Name  string
+	Tools []string
 }
 type BotToolBinder interface{ ConfigureBotTools(*ToolConnection) error }
 
@@ -118,6 +145,12 @@ func (c *ToolConnection) Clone() *ToolConnection {
 	v := *c
 	v.Args = append([]string(nil), c.Args...)
 	v.ApprovedTools = append([]string(nil), c.ApprovedTools...)
+	v.Services = make([]ToolService, len(c.Services))
+	for i, service := range c.Services {
+		v.Services[i] = ToolService{Name: service.Name, Tools: append([]string(nil), service.Tools...)}
+	}
+	v.Plugins = c.Plugins.Clone()
+	v.BuiltinSkillRoots = append([]string(nil), c.BuiltinSkillRoots...)
 	v.Env = make(map[string]string, len(c.Env))
 	for key, value := range c.Env {
 		v.Env[key] = value

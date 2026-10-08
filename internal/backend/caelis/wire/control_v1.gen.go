@@ -432,11 +432,14 @@ type ApplicationConfiguration struct {
 
 type ApplicationConfigurationPatch struct {
 	Instructions    *string                     `json:"instructions,omitempty"`
+	McpServers      []ApplicationMCPServer      `json:"mcp_servers,omitzero"`
 	Model           *string                     `json:"model,omitempty"`
-	NativeTools     []string                    `json:"native_tools,omitempty"`
+	NativeTools     []string                    `json:"native_tools,omitzero"`
 	ReasoningEffort *string                     `json:"reasoning_effort,omitempty"`
 	ServiceTier     *string                     `json:"service_tier,omitempty"`
-	Tools           []ApplicationToolDefinition `json:"tools,omitempty"`
+	SkillDirs       []string                    `json:"skill_dirs,omitzero"`
+	SkillRoots      []string                    `json:"skill_roots,omitzero"`
+	Tools           []ApplicationToolDefinition `json:"tools,omitzero"`
 	ToolsVersion    *string                     `json:"tools_version,omitempty"`
 }
 
@@ -496,6 +499,29 @@ type ApplicationLegacyToolDefinition struct {
 	Name           string     `json:"name"`
 }
 
+type ApplicationMCPServer struct {
+	Args      []string `json:"args,omitempty"`
+	Command   *string  `json:"command,omitempty"`
+	Name      string   `json:"name"`
+	Transport string   `json:"transport"`
+	Url       *string  `json:"url,omitempty"`
+	WorkDir   *string  `json:"work_dir,omitempty"`
+}
+
+type ApplicationMCPServerStatus struct {
+	Name    string   `json:"name"`
+	Status  string   `json:"status"`
+	Tools   []string `json:"tools,omitempty"`
+	Warning *string  `json:"warning,omitempty"`
+}
+
+type ApplicationMCPStatus struct {
+	ConfigurationRevision Uint64Decimal                `json:"configuration_revision"`
+	Servers               []ApplicationMCPServerStatus `json:"servers"`
+	SessionId             string                       `json:"session_id"`
+	Skills                []ApplicationSkillStatus     `json:"skills"`
+}
+
 type ApplicationModelCapabilities struct {
 	ConfigurationRevision PositiveUint64Decimal `json:"configuration_revision"`
 	ImageInput            *bool                 `json:"image_input,omitempty"`
@@ -519,12 +545,15 @@ type ApplicationProfile struct {
 	ExecutionConfig *ExecutionConfig            `json:"execution_config,omitempty"`
 	Inherit         ApplicationInheritance      `json:"inherit"`
 	Instructions    string                      `json:"instructions"`
+	McpServers      []ApplicationMCPServer      `json:"mcp_servers,omitempty"`
 	Model           string                      `json:"model"`
-	NativeTools     []string                    `json:"native_tools,omitempty"`
+	NativeTools     []string                    `json:"native_tools,omitzero"`
 	Permissions     *ApplicationPermissions     `json:"permissions,omitempty"`
 	ReasoningEffort *string                     `json:"reasoning_effort,omitempty"`
 	Reviewer        *ApplicationReviewer        `json:"reviewer,omitempty"`
 	ServiceTier     *string                     `json:"service_tier,omitempty"`
+	SkillDirs       []string                    `json:"skill_dirs,omitempty"`
+	SkillRoots      []string                    `json:"skill_roots,omitempty"`
 	Tools           []ApplicationToolDefinition `json:"tools,omitempty"`
 	ToolsVersion    string                      `json:"tools_version"`
 	Version         string                      `json:"version"`
@@ -622,6 +651,14 @@ type ApplicationScope struct {
 	ApplicationId string `json:"application_id"`
 	ConnectionId  string `json:"connection_id"`
 	PrincipalId   string `json:"principal_id"`
+}
+
+type ApplicationSkillStatus struct {
+	Kind    string  `json:"kind"`
+	Name    *string `json:"name,omitempty"`
+	Path    string  `json:"path"`
+	Status  string  `json:"status"`
+	Warning *string `json:"warning,omitempty"`
 }
 
 type ApplicationSource struct {
@@ -2287,4 +2324,4 @@ type WriteBase struct {
 	SessionId               *string        `json:"session_id,omitempty"`
 }
 
-var OperationIDs = []string{"archiveApplicationSession", "cancelParticipant", "cancelSessionTurn", "claimApplicationCall", "closeSession", "compactSession", "completeApplicationCall", "completeFiles", "completeSessions", "completeSkills", "completeSlashArguments", "configureSessionControllerMode", "configureSessionMode", "configureSessionPresentation", "configureSessionPresentationMode", "createApplicationBackgroundGrant", "createApplicationResource", "createApplicationSession", "createSession", "createWorker", "getAgentStatus", "getApplicationBackgroundGrant", "getApplicationCall", "getApplicationConfiguration", "getApplicationConfigurationOperation", "getApplicationConnection", "getApplicationModelCapabilities", "getApplicationOperation", "getApplicationResource", "getApplicationReviewerState", "getApplicationSession", "getHostStatus", "getPresentationCapabilities", "getSessionPresentation", "getSessionState", "getSessionStatus", "getTerminalOutput", "handoffAgent", "hostAddMarketplace", "hostAddPluginPath", "hostApplyAgentBindingSet", "hostBindAgent", "hostCompleteFiles", "hostCompleteSessions", "hostCompleteSkills", "hostCompleteSlashArguments", "hostConnectACP", "hostConnectModel", "hostCreateAgentRole", "hostDeleteAgentBindingSet", "hostDeleteAgentRole", "hostDeleteModel", "hostDisablePlugin", "hostDisconnectACP", "hostEnablePlugin", "hostGetACPPreparation", "hostGetAgentBindingStatus", "hostGetAgentStatus", "hostInspectPlugin", "hostInstallPlugin", "hostListAgents", "hostListDisconnectCandidates", "hostListMarketplaces", "hostListPlugins", "hostPrepareACP", "hostPrepareACPAuthentication", "hostRemoveMarketplace", "hostRemovePlugin", "hostResetAgentBinding", "hostResolveSkill", "hostSaveAgentBindingSet", "hostUpdateMarketplace", "hostUseModel", "initializeClient", "inspectPlugin", "killTerminal", "listAgents", "listApplicationBackgroundGrants", "listApplicationCalls", "listApplicationSessions", "listMarketplaces", "listParticipantHandles", "listPlugins", "listSessionTasks", "listSessions", "listWorkers", "loadUIPreferences", "prepareSandbox", "promptApplicationSession", "promptParticipant", "promptSession", "readApplicationResource", "readTaskEvents", "reconnectSession", "refreshSandbox", "registerApplication", "releaseTerminal", "renewApplicationConnection", "repairSandbox", "resetSandbox", "resolveApproval", "resolveSkill", "revokeApplicationBackgroundGrant", "revokeApplicationConnection", "saveUIPreferences", "setSandboxBackend", "setWorkspaceTrust", "shutdownHost", "startParticipant", "steerSession", "subagentInputStatuses", "submitModelAuthenticationInput", "submitSubagentInput", "subscribeTaskEvents", "updateApplicationConfiguration", "useSessionModel", "waitTerminal", "watchSessionTaskDirectory"}
+var OperationIDs = []string{"archiveApplicationSession", "cancelParticipant", "cancelSessionTurn", "claimApplicationCall", "closeSession", "compactSession", "completeApplicationCall", "completeFiles", "completeSessions", "completeSkills", "completeSlashArguments", "configureSessionControllerMode", "configureSessionMode", "configureSessionPresentation", "configureSessionPresentationMode", "createApplicationBackgroundGrant", "createApplicationResource", "createApplicationSession", "createSession", "createWorker", "getAgentStatus", "getApplicationBackgroundGrant", "getApplicationCall", "getApplicationConfiguration", "getApplicationConfigurationOperation", "getApplicationConnection", "getApplicationMCPStatus", "getApplicationModelCapabilities", "getApplicationOperation", "getApplicationResource", "getApplicationReviewerState", "getApplicationSession", "getHostStatus", "getPresentationCapabilities", "getSessionPresentation", "getSessionState", "getSessionStatus", "getTerminalOutput", "handoffAgent", "hostAddMarketplace", "hostAddPluginPath", "hostApplyAgentBindingSet", "hostBindAgent", "hostCompleteFiles", "hostCompleteSessions", "hostCompleteSkills", "hostCompleteSlashArguments", "hostConnectACP", "hostConnectModel", "hostCreateAgentRole", "hostDeleteAgentBindingSet", "hostDeleteAgentRole", "hostDeleteModel", "hostDisablePlugin", "hostDisconnectACP", "hostEnablePlugin", "hostGetACPPreparation", "hostGetAgentBindingStatus", "hostGetAgentStatus", "hostInspectPlugin", "hostInstallPlugin", "hostListAgents", "hostListDisconnectCandidates", "hostListMarketplaces", "hostListPlugins", "hostPrepareACP", "hostPrepareACPAuthentication", "hostRemoveMarketplace", "hostRemovePlugin", "hostResetAgentBinding", "hostResolveSkill", "hostSaveAgentBindingSet", "hostUpdateMarketplace", "hostUseModel", "initializeClient", "inspectPlugin", "killTerminal", "listAgents", "listApplicationBackgroundGrants", "listApplicationCalls", "listApplicationSessions", "listMarketplaces", "listParticipantHandles", "listPlugins", "listSessionTasks", "listSessions", "listWorkers", "loadUIPreferences", "prepareSandbox", "promptApplicationSession", "promptParticipant", "promptSession", "readApplicationResource", "readTaskEvents", "reconnectSession", "refreshSandbox", "registerApplication", "releaseTerminal", "renewApplicationConnection", "repairSandbox", "resetSandbox", "resolveApproval", "resolveSkill", "revokeApplicationBackgroundGrant", "revokeApplicationConnection", "saveUIPreferences", "setSandboxBackend", "setWorkspaceTrust", "shutdownHost", "startParticipant", "steerSession", "subagentInputStatuses", "submitModelAuthenticationInput", "submitSubagentInput", "subscribeTaskEvents", "updateApplicationConfiguration", "useSessionModel", "waitTerminal", "watchSessionTaskDirectory"}

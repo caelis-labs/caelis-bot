@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
 // Task records and submission receipts share the atomic conversation binding.
@@ -59,9 +60,18 @@ func (s *Session) workerParams(workspace, instructions string, t *taskRecord) ma
 	// Codex validates transport even for disabled MCP servers. Supply an inert
 	// stdio transport, never the secretary's endpoint/token or approved tool list.
 	params := map[string]any{"cwd": workspace, "runtimeWorkspaceRoots": []string{workspace}, "developerInstructions": instructions, "config": map[string]any{
-		"mcp_servers.caelis_bot": map[string]any{"command": os.Args[0], "enabled": false},
-		"agents.enabled":         false,
+		"mcp_servers.caelis_bot":      map[string]any{"command": os.Args[0], "enabled": false},
+		"mcp_servers.caelis_tasks":    map[string]any{"command": os.Args[0], "enabled": false},
+		"mcp_servers.caelis_schedule": map[string]any{"command": os.Args[0], "enabled": false},
+		"mcp_servers.caelis_personal": map[string]any{"command": os.Args[0], "enabled": false},
+		"mcp_servers.caelis_desktop":  map[string]any{"command": os.Args[0], "enabled": false},
+		"agents.enabled":              false,
 	}}
+	if s.opts.BotTools != nil {
+		for _, server := range s.opts.BotTools.Plugins.Servers {
+			params["config"].(map[string]any)["mcp_servers."+plugins.RuntimeName(server.PackageID, server.Name)] = map[string]any{"command": os.Args[0], "enabled": false}
+		}
+	}
 	s.applyWorkExecution(params, true, t)
 	return params
 }
@@ -192,6 +202,9 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	if err := validateWorkWorkspace(s.workRoot(), workspace, in.TaskStart.Workspace != ""); err != nil {
 		return s.taskRejected(t, err)
 	}
+	if s.opts.BotTools != nil && withinBotWorkspace(s.opts.BotTools.NotebookDirectory, workspace) {
+		return s.taskRejected(t, errors.New("Worker 工作目录不能使用 Bot 私有工作区"))
+	}
 	params := s.workerParams(workspace, in.Instructions, t)
 	var response threadExecutionResponse
 	err = callDecode(ctx, c, "thread/start", params, &response)
@@ -223,6 +236,14 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 	}
 	s.mu.Unlock()
 	return s.sendTask(ctx, t, api.TaskMessage{ID: id, RequestID: in.RequestID, Prompt: in.Prompt}, false)
+}
+
+func withinBotWorkspace(bot, worker string) bool {
+	if bot == "" {
+		return false
+	}
+	rel, err := filepath.Rel(bot, worker)
+	return err == nil && (rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
 }
 
 func (s *Session) workRoot() string {

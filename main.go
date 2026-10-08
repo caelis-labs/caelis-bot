@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"log"
 	"os"
 
@@ -39,6 +40,15 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--bot-tools" {
 		if err := bot.RunStdio(os.Stdin, os.Stdout); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--plugin-mcp" {
+		if len(os.Args) != 5 && len(os.Args) != 6 {
+			os.Exit(2)
+		}
+		if err := plugins.RunStdio(os.Args[2], os.Args[3], os.Args[4], os.Stdin, os.Stdout, os.Stderr, os.Args[5:]...); err != nil {
 			os.Exit(1)
 		}
 		return

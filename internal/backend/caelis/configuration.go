@@ -82,6 +82,12 @@ func (s *Session) typedMutation(ctx context.Context, op, path, recovery string, 
 	old.Body = nil
 	s.mu.Lock()
 	s.state.Typed[op] = old
+	// A committed receipt and the old configuration must never be persisted
+	// together as if the old profile were current. A subsequent public GET
+	// establishes the actual configuration before sending is admitted.
+	if strings.HasSuffix(path, "/configuration") {
+		delete(s.state.Configurations, s.state.Session.SessionId)
+	}
 	e = s.saveLocked()
 	s.mu.Unlock()
 	return e
@@ -159,11 +165,35 @@ func (s *Session) recoverConfigurations(ctx context.Context) error {
 	records := clone(s.state.Typed)
 	s.mu.Unlock()
 	for op, r := range records {
-		if r.Outcome != "unknown" || !strings.HasSuffix(r.Path, "/configuration") {
+		if !strings.HasSuffix(r.Path, "/configuration") {
+			continue
+		}
+		if r.Outcome == "committed" && strings.HasPrefix(op, "plugin-") {
+			s.mu.Lock()
+			sid := s.state.Session.SessionId
+			missing := r.Path == "/application/sessions/"+idPath(sid)+"/configuration" && s.state.Configurations[sid].Revision == ""
+			s.mu.Unlock()
+			if missing {
+				if _, e := s.configuration(ctx, sid); e != nil {
+					return e
+				}
+			}
+			continue
+		}
+		if r.Outcome != "unknown" {
 			continue
 		}
 		var v wire.ApplicationConfiguration
 		if e := s.typedMutation(ctx, op, r.Path, "/application/configuration-operations/"+idPath(op), json.RawMessage(r.Body), &v); e != nil {
+			return e
+		}
+		s.mu.Lock()
+		sid := s.state.Session.SessionId
+		s.mu.Unlock()
+		if v.SessionId != sid || v.Revision == "" {
+			return errors.New("Caelis 配置恢复回执不匹配")
+		}
+		if _, e := s.configuration(ctx, v.SessionId); e != nil {
 			return e
 		}
 	}

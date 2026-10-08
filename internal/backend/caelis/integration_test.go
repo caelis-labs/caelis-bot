@@ -24,6 +24,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 )
 
@@ -326,6 +327,86 @@ func TestNativeHostIntegration(t *testing.T) {
 	}
 	open()
 	defer func() { _ = s.Close(context.Background()) }()
+	if !t.Run("B00_reviewed_plugin_activation", func(t *testing.T) {
+		manager, err := plugins.Open(filepath.Join(root, "Plugins"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutatePlugin := func(action string) error {
+			return s.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
+				_, err := manager.Mutate(ctx, "markdown-work", action, apply)
+				return err
+			})
+		}
+		if err = mutatePlugin("install"); err != nil {
+			t.Fatal(err)
+		}
+		selected := manager.Selection()
+		configuration, err := s.Configuration(ctx)
+		if err != nil || len(selected.SkillRoots) != 1 || !slices.Equal(configuration.Profile.SkillRoots, selected.SkillRoots) {
+			t.Fatal("installed Skill was not committed through Core configuration", configuration.Profile.SkillRoots, err)
+		}
+		// Creation uses the same public profile schema as the later CAS patch.
+		// An unreachable external MCP service must not block the resident Bot.
+		created := config.Clone()
+		created.Plugins = selected.Clone()
+		created.Plugins.Servers = append(created.Plugins.Servers, plugins.SelectedServer{PackageID: "fixture", Name: "unavailable", Root: root, Server: plugins.Server{Type: "streamable-http", URL: "http://127.0.0.1:1/mcp"}})
+		fresh := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot-plugin-create"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
+		if err = fresh.ConfigureBotTools(created); err != nil {
+			t.Fatal(err)
+		}
+		if err = fresh.Connect(ctx); err != nil {
+			t.Fatal("Core rejected the public atomic creation profile", err)
+		}
+		defer func() { _ = fresh.Close(context.Background()) }()
+		createdConfig, err := fresh.Configuration(ctx)
+		if err != nil || !slices.Equal(createdConfig.Profile.SkillRoots, selected.SkillRoots) || len(createdConfig.Profile.McpServers) != 1 || createdConfig.Profile.McpServers[0].Name != plugins.RuntimeName("fixture", "unavailable") {
+			t.Fatal("public creation/configuration roundtrip lost the atomic selection", createdConfig.Profile, err)
+		}
+		waitAcceptance(t, ctx, func() bool { return fresh.Snapshot().CanSend })
+		submitAcceptance(t, ctx, s, "CASE_PLUGIN")
+		requests := model.seen("CASE_PLUGIN")
+		if len(requests) != 1 || !strings.Contains(fmt.Sprint(requests[0]), "markdown-work") {
+			t.Fatal("installed Skill metadata did not reach the model", len(requests))
+		}
+		var status wire.ApplicationMCPStatus
+		sid := s.ConversationState().Session
+		if err = s.client.json(ctx, "GET", "/application/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		ready := false
+		for _, skill := range status.Skills {
+			if skill.Path == selected.SkillRoots[0] && skill.Status == "ready" {
+				ready = true
+			}
+		}
+		if !ready {
+			t.Fatal("installed Skill not ready", status.Skills)
+		}
+		if err = mutatePlugin("disable"); err != nil {
+			t.Fatal(err)
+		}
+		configuration, err = s.Configuration(ctx)
+		if err != nil || len(configuration.Profile.SkillRoots) != 0 || len(configuration.Profile.SkillDirs) != 0 || len(configuration.Profile.McpServers) != 0 || manager.Snapshot().Items[0].Enabled {
+			t.Fatal("disabled plugin selection remained active", configuration.Profile, err)
+		}
+		if err = mutatePlugin("enable"); err != nil {
+			t.Fatal(err)
+		}
+		configuration, err = s.Configuration(ctx)
+		if err != nil || !slices.Equal(configuration.Profile.SkillRoots, selected.SkillRoots) || !manager.Snapshot().Items[0].Enabled {
+			t.Fatal("reviewed Skill was not restored through Core configuration", configuration.Profile, err)
+		}
+		if err = mutatePlugin("disable"); err != nil {
+			t.Fatal(err)
+		}
+		configuration, err = s.Configuration(ctx)
+		if err != nil || len(configuration.Profile.SkillRoots) != 0 || len(configuration.Profile.SkillDirs) != 0 || len(configuration.Profile.McpServers) != 0 {
+			t.Fatal("restored Skill was not cleared again", configuration.Profile, err)
+		}
+	}) {
+		return
+	}
 	if !t.Run("B00_execution_environment", func(t *testing.T) {
 		verifyExecutionConfiguration(t, ctx, s, host, model, root, vault.Path(), environment)
 	}) {
@@ -681,7 +762,7 @@ func TestNativeHostIntegration(t *testing.T) {
 				t.Fatal("terminal did not resolve owned native Worker", target, err)
 			}
 			script, err := taskterminal.Script(target)
-			if err != nil || !strings.Contains(script, " attach --control-url ") || strings.Contains(script, "CASE_WORKER") {
+			if err != nil || !strings.Contains(script, " 'attach' '--control-url' ") || strings.Contains(script, "CASE_WORKER") {
 				t.Fatal("terminal script did not attach without a prompt", err)
 			}
 			var state wire.SessionState
@@ -897,9 +978,9 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("approved command missing or repeated", err)
 		}
 		requests := model.seen("CASE_APPROVAL")
-		payload, _ := json.Marshal(requests[2])
-		if !strings.Contains(string(payload), "Command "+handle+" is completed.") {
-			t.Fatal("no completion-driven model followup")
+		payload, _ := json.Marshal(requests[2:])
+		if !strings.Contains(string(payload), "Command "+handle+" is completed.") && !strings.Contains(string(payload), "Command "+handle+" is waiting for its result after process exit.") {
+			t.Fatal("no post-exit model followup")
 		}
 		if len(s.Snapshot().Approvals) != 0 {
 			t.Fatal("settled approval remained visible")
@@ -959,6 +1040,9 @@ func TestNativeHostIntegration(t *testing.T) {
 		if after.Profile.ExecutionConfig == nil {
 			t.Fatal("restart lost execution configuration")
 		}
+		if len(after.Profile.SkillRoots) != 0 || len(after.Profile.SkillDirs) != 0 || len(after.Profile.McpServers) != 0 {
+			t.Fatal("restart restored a disabled plugin selection", after.Profile)
+		}
 		// An explicit runtime update reconnects this same adapter, without a Bot restart.
 		stop()
 		start()
@@ -968,6 +1052,9 @@ func TestNativeHostIntegration(t *testing.T) {
 		after, e = s.Configuration(ctx)
 		if e != nil || after.Revision != before.Revision || s.state.Session.SessionId != sid {
 			t.Fatal("reconnect replaced binding", e)
+		}
+		if len(after.Profile.SkillRoots) != 0 || len(after.Profile.SkillDirs) != 0 || len(after.Profile.McpServers) != 0 {
+			t.Fatal("reconnect restored a disabled plugin selection", after.Profile)
 		}
 		waitAcceptance(t, ctx, func() bool { return len(s.Snapshot().Items) == len(items) })
 	}) {

@@ -34,6 +34,7 @@ type Options struct {
 	Directory      string
 	CLIOnly        bool // Probe a selected executable without falling back to another source.
 	Attachable     bool // Owned session runtime exposes a private local Unix endpoint.
+	TrustedProject bool // Trust only Bot's private, host-owned cwd for its project projection.
 	// Session clients opt in for background-terminal cleanup and native requests.
 	Experimental   bool
 	HandleRequests bool

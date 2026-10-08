@@ -9,8 +9,11 @@ advertised capabilities, including `shared-native-workers-v1` and
 compatible with strict clients that predate this extension.
 
 `internal/backend/caelis/wire/control_v1.gen.go` is copied from the public
-`control/appserver/wirev1/generated/control_v1.gen.go`, with only its package name
-changed to `wire`. Source license: Apache-2.0 (`LICENSE`). No sibling Go import,
+`control/appserver/wirev1/generated/control_v1.gen.go` at Core v0.67.1, with only
+its package name changed to `wire`. The published OpenAPI and generated Go/TS
+types include the three Application atomic selection fields. Bot tests their
+actual public HTTP contract.
+Source license: Apache-2.0 (`LICENSE`). No sibling Go import,
 module replace or go.work is used. `script/check-caelis-protocol.mjs` checks hashes.
 Review the consumed semantics and update both pins intentionally when upgrading.
 
