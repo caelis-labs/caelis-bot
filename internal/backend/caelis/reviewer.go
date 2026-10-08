@@ -70,6 +70,11 @@ func (s *Session) automaticApprovalLocked(sid string, a *wire.ActiveApproval) bo
 	if sid == s.state.Session.SessionId && p.Permissions != nil && value(p.Permissions.ApprovalMode) == "auto-review" {
 		return true
 	}
+	for _, worker := range s.state.Workers {
+		if worker.Binding.SessionId == sid && worker.Binding.Profile.Permissions != nil && value(worker.Binding.Profile.Permissions.ApprovalMode) == "auto-review" {
+			return true
+		}
+	}
 	v := s.state.Views[sid]
 	if v == nil || a == nil || a.Target == nil {
 		return false
@@ -82,6 +87,22 @@ func (s *Session) automaticApprovalLocked(sid string, a *wire.ActiveApproval) bo
 
 func reviewID(sid, turn, approval string) string {
 	return "review-" + digest([]byte(sid+"\x00"+turn+"\x00"+approval))
+}
+
+// Review history retains its native Session identity. The presentation owner is
+// derived from the durable Worker binding, never from review text or tool names.
+func (s *Session) ownedReview(sid string, review api.Review) api.Review {
+	if sid == s.state.Session.SessionId {
+		review.Owner = "conversation"
+		return review
+	}
+	for _, worker := range s.state.Workers {
+		if worker.Binding.SessionId == sid {
+			review.Owner, review.TaskTitle = "task", worker.Task.Title
+			return review
+		}
+	}
+	return review
 }
 
 type reviewFact struct {

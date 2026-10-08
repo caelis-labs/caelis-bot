@@ -15,10 +15,15 @@ type taskFakeDriver struct {
 	updates             int
 	failure, opening    string
 	confirmationPrompts int
+	dismissed           []string
 }
 
-func (d *taskFakeDriver) tasks(string)               { d.updates++ }
-func (d *taskFakeDriver) taskFailure(message string) { d.failure = message }
+func (d *taskFakeDriver) tasks(string)                        { d.updates++ }
+func (d *taskFakeDriver) notify(string, string, string, bool) {}
+func (d *taskFakeDriver) dismissNotification(id string)       { d.dismissed = append(d.dismissed, id) }
+func (d *taskFakeDriver) notificationStatus() string          { return "authorized" }
+func (d *taskFakeDriver) configureNotifications()             {}
+func (d *taskFakeDriver) taskFailure(message string)          { d.failure = message }
 func (d *taskFakeDriver) taskOpening(id, message string) {
 	d.opening = id
 	if id != "" && message != "" {
@@ -74,6 +79,16 @@ func TestTaskBubblesArePassiveAndDispatchOnlyOwnedTarget(t *testing.T) {
 	s.shutdown()
 	if s.openTask(t.Context(), "owned") == nil || clicks != 1 {
 		t.Fatal("stopped app dispatched work")
+	}
+}
+
+func TestTaskUnknownNotificationClearsWhenOriginalStatusRecovers(t *testing.T) {
+	s, d := taskService(t)
+	s.observeTasks([]api.TaskPreview{{ID: "original", Status: "unknown"}})
+	s.observeTasks([]api.TaskPreview{{ID: "original", Status: "working"}})
+	s.observeTasks([]api.TaskPreview{{ID: "original", Status: "completed"}})
+	if len(d.dismissed) != 1 || d.dismissed[0] != "task-unknown-original" {
+		t.Fatal("stale unknown notice remained", d.dismissed)
 	}
 }
 func TestWindowClicksDoNotWaitForOptionalPreview(t *testing.T) {

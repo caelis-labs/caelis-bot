@@ -10,7 +10,6 @@ export function activityPortrait(s:Snapshot|null):PortraitClip {
  if(s.approvals.some(p=>p.status!=='resolved'&&belongsToTurn(p,s.currentTurn))||['failed','unknown','attention'].includes(s.phase))return 'waiting';
  const activity=chatActivity(s);
  if(activity==='dreaming')return 'dreaming';
- if(activity==='reviewing')return 'focus';
  if(activeReplyID(s))return 'listen';
  if(activity==='tool'){
   if(['web','search','list'].includes(s.activity!.kind))return 'scan';
@@ -27,7 +26,7 @@ export function completedReply(previous:Snapshot|null,next:Snapshot):string|null
   !['sending','working'].includes(previous.phase)||next.phase!=='completed'||
   previous.quiet||next.quiet||previous.maintenance||next.maintenance||
   !previous.currentTurn||next.currentTurn&&next.currentTurn!==previous.currentTurn||
-  next.approvals.some(p=>p.status!=='resolved'&&belongsToTurn(p,previous.currentTurn))||next.reviews.some(r=>r.status==='inProgress'&&belongsToTurn(r,previous.currentTurn)))return null;
+  next.approvals.some(p=>p.status!=='resolved'&&belongsToTurn(p,previous.currentTurn)))return null;
  return next.items.slice().reverse().find(i=>i.kind==='assistant'&&i.turnKey===previous.currentTurn&&i.status==='completed'&&i.text.trim())?.id??null;
 }
 
@@ -35,8 +34,7 @@ export function animatedReplyID(snapshot:Snapshot|null,completion:string|null):s
  const streaming=activeReplyID(snapshot);
  if(streaming)return streaming;
  if(!completion||!snapshot||snapshot.connection!=='ready'||snapshot.phase!=='completed'||
-  snapshot.quiet||snapshot.maintenance||snapshot.message||snapshot.approvals.some(p=>p.status!=='resolved'&&belongsToTurn(p,snapshot.currentTurn))||
-  snapshot.reviews.some(r=>r.status==='inProgress'&&belongsToTurn(r,snapshot.currentTurn)))return null;
+  snapshot.quiet||snapshot.maintenance||snapshot.message||snapshot.approvals.some(p=>p.status!=='resolved'&&belongsToTurn(p,snapshot.currentTurn)))return null;
  return snapshot.items.find(i=>i.id===completion&&i.kind==='assistant'&&i.status==='completed'&&
   (!snapshot.currentTurn||i.turnKey===snapshot.currentTurn))?.id??null;
 }

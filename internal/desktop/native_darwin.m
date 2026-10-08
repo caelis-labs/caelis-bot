@@ -776,6 +776,13 @@ void bot_notify(void *pointer, char *identifier, char *title, char *body, int re
     }];
 }
 
+void bot_dismiss_notification(char *identifier) {
+    NSString *key = [NSString stringWithUTF8String:identifier];
+    if (!key.length) return;
+    [UNUserNotificationCenter.currentNotificationCenter removeDeliveredNotificationsWithIdentifiers:@[key]];
+    [UNUserNotificationCenter.currentNotificationCenter removePendingNotificationRequestsWithIdentifiers:@[key]];
+}
+
 int bot_notification_status(void *pointer) {
     BotHost *host = (__bridge BotHost *)pointer;
     [host refreshNotificationPermission];

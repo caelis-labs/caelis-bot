@@ -33,16 +33,17 @@ type binding struct {
 	RuntimeVersion     string                          `json:"runtimeVersion,omitempty"`
 	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
-	Context        contextseed.State      `json:"context,omitempty"`
-	ContextInputs  map[string]int         `json:"contextInputs,omitempty"`
-	Dreams         map[string]dreamRecord `json:"dreams,omitempty"`
-	PastThreads    []string               `json:"pastThreads,omitempty"`
-	RenewedBy      string                 `json:"renewedBy,omitempty"`
-	Scheduled      map[string]string      `json:"scheduled,omitempty"`   // accepted client IDs to native turn IDs
-	HostReports    map[string]bool        `json:"hostReports,omitempty"` // host-only completion inputs, keyed by exact submitted ID
-	CleanupTargets []string               `json:"cleanupTargets,omitempty"`
-	StopState      string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
-	StopRuns       map[string]string      `json:"stopRuns,omitempty"`
+	Context         contextseed.State      `json:"context,omitempty"`
+	ContextInputs   map[string]int         `json:"contextInputs,omitempty"`
+	Dreams          map[string]dreamRecord `json:"dreams,omitempty"`
+	PastThreads     []string               `json:"pastThreads,omitempty"`
+	RenewedBy       string                 `json:"renewedBy,omitempty"`
+	Scheduled       map[string]string      `json:"scheduled,omitempty"`       // accepted client IDs to native turn IDs
+	HostReports     map[string]bool        `json:"hostReports,omitempty"`     // host-only completion inputs, keyed by exact submitted ID
+	RecoveryNotices map[string]bool        `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
+	CleanupTargets  []string               `json:"cleanupTargets,omitempty"`
+	StopState       string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
+	StopRuns        map[string]string      `json:"stopRuns,omitempty"`
 
 	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
 	DelegationText string                 `json:"delegationText,omitempty"`
@@ -280,6 +281,9 @@ func opaque(parts ...string) string {
 	return hex.EncodeToString(h[:16])
 }
 func (s *Session) update() {
+	if s.state.Connection == "ready" {
+		s.state.RecoveryNoticeKey = ""
+	}
 	if s.run == "" && len(s.state.Items) > 200 {
 		drop := len(s.state.Items) - 200
 		for _, item := range s.state.Items[:drop] {

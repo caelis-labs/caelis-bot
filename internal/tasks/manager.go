@@ -40,6 +40,8 @@ type record struct {
 	Execution         string          `json:"execution,omitempty"`
 	ReportID          string          `json:"reportId,omitempty"`
 	ReportState       string          `json:"reportState,omitempty"`
+	UnknownSince      int64           `json:"unknownSince,omitempty"`
+	UnknownNotice     string          `json:"unknownNotice,omitempty"`
 }
 type reportReceipt struct {
 	ID    string `json:"id"`
@@ -254,6 +256,18 @@ func (m *Manager) refresh() error {
 		}
 		if v.StopRequested && r.ReportState == "pending" {
 			r.ReportState = "observed"
+		}
+	}
+	for _, r := range m.state.Records {
+		if !m.owns(r) {
+			continue
+		}
+		if r.View.Status == "unknown" {
+			if r.UnknownSince == 0 {
+				r.UnknownSince = m.now().UnixMilli()
+			}
+		} else {
+			r.UnknownSince = 0
 		}
 	}
 	m.metadataLocked()

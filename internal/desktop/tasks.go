@@ -39,6 +39,17 @@ func (s *Service) observeTasks(tasks []api.TaskPreview) {
 	if string(data) == s.taskPreviewJSON {
 		return
 	}
+	if d, ok := s.native.(notificationDriver); ok {
+		current := make(map[string]string, len(tasks))
+		for _, task := range tasks {
+			current[task.ID] = task.Status
+		}
+		for _, previous := range s.taskPreviews {
+			if previous.Status == "unknown" && current[previous.ID] != "unknown" {
+				d.dismissNotification("task-unknown-" + previous.ID)
+			}
+		}
+	}
 	s.taskPreviewJSON = string(data)
 	s.taskPreviews = slices.Clone(tasks)
 	if d, ok := s.native.(taskDriver); ok {

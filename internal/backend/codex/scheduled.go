@@ -66,7 +66,7 @@ func (s *Session) captureBackgroundResults() bool {
 		if old.Complete {
 			continue
 		}
-		approval := s.visibleReview(s.binding.ThreadID, turn)
+		approval := false
 		for _, p := range s.prompts {
 			if p.thread == s.binding.ThreadID && p.turn == turn && p.view.Status != "resolved" {
 				approval = true

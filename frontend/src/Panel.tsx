@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
-import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Review, Snapshot, Submission } from './backend/contract';
+import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { CopyText, MessageContent } from './MessageContent';
 import { canSubmit, chatActivity, composerAction, liveReplyIDs, withOutgoing } from './chat-presentation';
@@ -43,16 +43,6 @@ function attachmentType(type:string,t:(key:MessageKey)=>string):string {
  return t('chat.fileTypeUnknown');
 }
 
-export function getReviewLabel(status: string, t: (key: MessageKey) => string): string {
- switch (status) {
-  case 'inProgress': return t('chat.reviewInProgress');
-  case 'denied': return t('chat.reviewDenied');
-  case 'timedOut': return t('chat.reviewTimedOut');
-  case 'aborted': return t('chat.reviewAborted');
-  case 'failed': return t('chat.reviewFailed');
-  default: return t('chat.reviewPending');
- }
-}
 export function getItemStatusLabel(status: string, t: (key: MessageKey) => string): string {
  switch (status) {
   case 'working': return t('chat.statusWorking');
@@ -69,16 +59,6 @@ export function getItemStatusLabel(status: string, t: (key: MessageKey) => strin
   case 'rejected': return t('chat.statusDeclined');
   default: return '';
  }
-}
-
-function ReviewNotice({value}:{value:Review}) {
- const {t} = useI18n();
- const statusText = getReviewLabel(value.status, t);
- return <section className="review-notice" aria-label={statusText}>
-  <strong>{value.taskTitle?`${value.taskTitle} · ${statusText}`:statusText}</strong>
-  {value.rationale&&<p>{value.rationale}</p>}
-  {value.action&&<details><summary>{t('chat.reviewActionDetails')}</summary><pre>{value.action}</pre></details>}
- </section>;
 }
 
 export function Prompt({ value, refresh }: { value: Approval; refresh: () => void }) {
@@ -455,7 +435,6 @@ export function History() {
  const settled=prompts.length?[]:snapshot?.approvals.filter(p=>p.status==='resolved'&&p.turnKey===snapshot.currentTurn).slice(-1)??[];
  const approvalCards=[...prompts,...settled];
  const promptKey=approvalCards.map(p=>p.id+p.status+p.resolution?.choiceId).join('');
- const reviews=snapshot?.reviews?.filter(r=>r.status==='denied'||r.status==='timedOut'||r.status==='aborted'||r.status==='failed')??[];
  const activity=chatActivity(snapshot);
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
@@ -490,11 +469,10 @@ export function History() {
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
    <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)}/>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
-   {(!!approvalCards.length||!!reviews.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
+   {(!!approvalCards.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
     <div className={`message assistant state-bubble ${approvalCards.length?'approval-bubble':''}`}>
    {approvalCards.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh().catch(()=>{})}/>)}
-   {reviews.map(r=><ReviewNotice key={r.id} value={r}/>)}
    {connection&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
     <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):chooseRuntime?t('chat.chooseRuntimeTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
     <p>{connectionText}</p>

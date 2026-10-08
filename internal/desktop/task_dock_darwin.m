@@ -427,7 +427,7 @@ static NSPanel *taskPanel(NSString *title) {
         if(!button.enabled)button.pressed=NO;
         NSString *phase=button.tag>=0 ? self.transitions[self.tasks[button.tag][@"id"]] : nil;
         BOOL opening=button.tag<0 ? (self.transitions.count>0 || self.opening.length>0) : (phase.length>0 || [self.tasks[button.tag][@"id"] isEqual:self.opening]);
-        NSString *statusKey=[self activeStatus:status] ? @"taskRunning" : ([status isEqual:@"completed"] ? @"taskFinished" : ([status isEqual:@"waiting_approval"] ? @"taskApproval" : @"taskIdle"));
+        NSString *statusKey=[self activeStatus:status] ? @"taskRunning" : ([status isEqual:@"completed"] ? @"taskFinished" : ([status isEqual:@"waiting_approval"] || [status isEqual:@"awaiting_approval"] ? @"taskApproval" : ([status isEqual:@"unknown"] ? @"taskUnknown" : ([status isEqual:@"failed"] ? @"taskFailed" : ([status isEqual:@"interrupted"] ? @"taskInterrupted" : @"taskIdle")))));
         button.statusText=opening?[self text:[phase isEqual:@"closing"]?@"taskClosing":([phase isEqual:@"opening"]?@"taskOpening":@"taskSwitching")]:[self text:statusKey];
         if(button.tag>=0) {
             NSString *machine=self.tasks[button.tag][@"targetLabel"];

@@ -15,20 +15,37 @@ type NotificationObserver struct {
 	scheduledTurn      string
 	decisions          map[string]bool
 	Notify             func(id, title, body string, reminder bool)
+	Dismiss            func(id string)
+	recoveryNotice     string
+	recoveryCleared    bool
 }
 
 func (o *NotificationObserver) Observe(v api.Snapshot) {
-	if v.Connection != "ready" || o.Notify == nil {
+	if o.Notify == nil {
 		return
-	}
-	if o.decisions == nil {
-		o.decisions = map[string]bool{}
 	}
 	locale := i18n.English
 	if o.Locale != nil {
 		locale = o.Locale()
 	}
 	text := func(key string) string { return i18n.Text(locale, "host."+key, nil) }
+	if v.Connection != "ready" {
+		o.recoveryCleared = false
+		if v.RecoveryNoticeKey != "" && v.RecoveryNoticeKey != o.recoveryNotice {
+			o.recoveryNotice = v.RecoveryNoticeKey
+			o.Notify("runtime-recovery", text("runtimeRecoveryTitle"), text("runtimeRecoveryBody"), true)
+		}
+		return
+	}
+	if o.Dismiss != nil && !o.recoveryCleared {
+		// Also clear a delivered notice left by a previous application process.
+		o.Dismiss("runtime-recovery")
+	}
+	o.recoveryCleared = true
+	o.recoveryNotice = ""
+	if o.decisions == nil {
+		o.decisions = map[string]bool{}
+	}
 	user := ""
 	for _, i := range v.Items {
 		if i.Kind == "user" {

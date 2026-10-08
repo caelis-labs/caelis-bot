@@ -10,29 +10,32 @@ const SilentReminder = "[[CAELIS_REMINDER_SKIP]]"
 type Snapshot struct {
 	// Maintenance is presentation-only, derived from a confirmed native Dream
 	// turn. Empty during submission uncertainty, interruption and after completion.
-	Maintenance      string      `json:"maintenance,omitempty"`
-	Scheduled        bool        `json:"scheduled"`
-	Quiet            bool        `json:"quiet"`
-	BotStatus        string      `json:"botStatus"`
-	HasEarlier       bool        `json:"hasEarlier"`
-	CurrentTurn      string      `json:"currentTurn"`
-	PreviewKey       string      `json:"previewKey"`
-	PreviewDismissed bool        `json:"previewDismissed"`
-	Revision         uint64      `json:"revision"`
-	Connection       string      `json:"connection"`
-	ConnectionIssue  string      `json:"connectionIssue"`
-	Phase            string      `json:"phase"`
-	Message          string      `json:"message"`
-	Activity         *Activity   `json:"activity"`
-	CanSend          bool        `json:"canSend"`
-	CanSteer         bool        `json:"canSteer"`
-	CanInterrupt     bool        `json:"canInterrupt"`
-	Items            []Item      `json:"items"`
-	Approvals        []Approval  `json:"approvals"`
-	Reviews          []Review    `json:"reviews"`
-	References       []Reference `json:"references"`
-	LoginPending     bool        `json:"loginPending"`
-	LastReceipt      Receipt     `json:"lastReceipt"`
+	Maintenance      string `json:"maintenance,omitempty"`
+	Scheduled        bool   `json:"scheduled"`
+	Quiet            bool   `json:"quiet"`
+	BotStatus        string `json:"botStatus"`
+	HasEarlier       bool   `json:"hasEarlier"`
+	CurrentTurn      string `json:"currentTurn"`
+	PreviewKey       string `json:"previewKey"`
+	PreviewDismissed bool   `json:"previewDismissed"`
+	Revision         uint64 `json:"revision"`
+	Connection       string `json:"connection"`
+	ConnectionIssue  string `json:"connectionIssue"`
+	// RecoveryNoticeKey is an original-request keyed host notification edge. It
+	// carries no authority and is never a Runtime retry instruction.
+	RecoveryNoticeKey string      `json:"recoveryNoticeKey,omitempty"`
+	Phase             string      `json:"phase"`
+	Message           string      `json:"message"`
+	Activity          *Activity   `json:"activity"`
+	CanSend           bool        `json:"canSend"`
+	CanSteer          bool        `json:"canSteer"`
+	CanInterrupt      bool        `json:"canInterrupt"`
+	Items             []Item      `json:"items"`
+	Approvals         []Approval  `json:"approvals"`
+	Reviews           []Review    `json:"reviews"`
+	References        []Reference `json:"references"`
+	LoginPending      bool        `json:"loginPending"`
+	LastReceipt       Receipt     `json:"lastReceipt"`
 }
 
 type ChatUpdate struct {

@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { backend, desktop, type Placement } from './desktop';
-import { getReviewLabel, Prompt, useConversation } from './Panel';
+import { Prompt, useConversation } from './Panel';
 import { useI18n } from './i18n';
 import { approvalTitle } from './approval-presentation';
 import { bubblePresentation, reduceBubbleNotice } from './bubble-notice';
@@ -58,15 +58,13 @@ export function Bubble() {
  const working=!!snapshot?.canInterrupt;
  const activity=chatActivity(snapshot);
  const dreaming=activity==='dreaming';
- const progress=dreaming?t('chat.dreaming'):activity==='tool'&&snapshot?.activity?activityLabel(snapshot.activity,t):activity==='stopping'?t('chat.stopping'):activity==='reviewing'?t('chat.reviewing'):activity==='thinking'?t('chat.bubbleThinking'):'';
- const review=snapshot?.reviews?.filter(r=>r.owner!=='task'&&r.status!=='approved').at(-1);
- const reviewText=review&&(review.status!=='inProgress'||working)?getReviewLabel(review.status, t):'';
+ const progress=dreaming?t('chat.dreaming'):activity==='tool'&&snapshot?.activity?activityLabel(snapshot.activity,t):activity==='stopping'?t('chat.stopping'):activity==='thinking'?t('chat.bubbleThinking'):'';
  const attention=!!prompt||snapshot?.connection==='login'||snapshot?.connection==='offline'||snapshot?.phase==='unknown';
  const terminal=snapshot?.phase==='interrupted'?t('chat.statusInterrupted'):snapshot?.phase==='failed'?t('chat.terminalFailed'):snapshot?.phase==='completed'?t('chat.statusCompleted'):'';
- const conversationContent=error||(prompt&&approvalTitle(prompt,locale))||snapshot?.message||((working||!output?.text)&&reviewText)||(dreaming?progress:'')||output?.text||reviewText||progress||(working?t('chat.bubbleThinking'):terminal);
+ const conversationContent=error||(prompt&&approvalTitle(prompt,locale))||snapshot?.message||(dreaming?progress:'')||output?.text||progress||(working?t('chat.bubbleThinking'):terminal);
  const conversationWanted=(!snapshot?.quiet||dreaming||!!error||attention)&&!!conversationContent&&(working||attention||!snapshot?.previewDismissed);
  const {content,wanted,showNotice}=bubblePresentation(conversationContent,conversationWanted,attention||!!error,notice);
- const markdown=!showNotice&&!error&&!prompt&&!snapshot?.message&&!reviewText&&!!output?.text&&content===output.text;
+ const markdown=!showNotice&&!error&&!prompt&&!snapshot?.message&&!!output?.text&&content===output.text;
  const progressText=!showNotice&&!attention&&!error&&content!==progress?progress:'';
  const readingMessage=reading&&!prompt;
  useEffect(()=>{void desktop('SetBubbleVisible',wanted);},[wanted]);

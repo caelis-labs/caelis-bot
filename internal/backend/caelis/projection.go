@@ -133,12 +133,12 @@ func (s *Session) snapshotLocked() api.Snapshot {
 			out.Approvals = append(out.Approvals, item)
 		}
 	}
-	for _, view := range s.state.Views {
+	for sid, view := range s.state.Views {
 		for _, review := range view.Reviews {
-			out.Reviews = append(out.Reviews, review.Review)
+			out.Reviews = append(out.Reviews, s.ownedReview(sid, review.Review))
 		}
 		for _, review := range view.LiveReviews {
-			out.Reviews = append(out.Reviews, review.Review)
+			out.Reviews = append(out.Reviews, s.ownedReview(sid, review.Review))
 		}
 	}
 	slices.SortFunc(out.Reviews, func(a, b api.Review) int { return strings.Compare(a.ID, b.ID) })

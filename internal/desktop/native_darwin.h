@@ -27,6 +27,7 @@ void bot_bubble_height(void *host, int height);
 
 void bot_gesture(void *host, char *action);
 void bot_notify(void *host, char *identifier, char *title, char *body, int reminder);
+void bot_dismiss_notification(char *identifier);
 int bot_notification_status(void *host);
 void bot_configure_notifications(void *host);
 int bot_trash_path(char *path);

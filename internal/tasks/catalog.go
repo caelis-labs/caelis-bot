@@ -24,6 +24,50 @@ func (m *Manager) notifyWatchlist() {
 	}
 }
 
+// ClaimUnknownNotices records one alert per original execution before asking
+// the native host to show it. A short grace lets automatic owner recovery finish;
+// an uncertain task is never retried or replaced to produce this notice.
+func (m *Manager) ClaimUnknownNotices() ([]string, error) {
+	m.op.Lock()
+	defer m.op.Unlock()
+	if err := m.refresh(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var claimed []string
+	previous := map[string]string{}
+	for id, r := range m.state.Records {
+		if !m.owns(r) || r.View.Status != "unknown" || r.UnknownSince == 0 || m.now().Sub(time.UnixMilli(r.UnknownSince)) < 30*time.Second {
+			continue
+		}
+		generation := r.Execution
+		if generation == "" {
+			generation = r.ReportID
+		}
+		if generation == "" {
+			generation = id
+		}
+		key := hash(r.Provider, id, generation)
+		if r.UnknownNotice == key {
+			continue
+		}
+		previous[id] = r.UnknownNotice
+		r.UnknownNotice = key
+		claimed = append(claimed, id)
+	}
+	if len(claimed) > 0 {
+		if err := m.write(); err != nil {
+			for id, prior := range previous {
+				m.state.Records[id].UnknownNotice = prior
+			}
+			return nil, err
+		}
+		sort.Strings(claimed)
+	}
+	return claimed, nil
+}
+
 // ConfigureLimit changes admission only; reducing the preference never stops work.
 func (m *Manager) ConfigureLimit(read func() int) {
 	m.op.Lock()

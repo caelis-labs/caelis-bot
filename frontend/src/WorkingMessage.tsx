@@ -9,7 +9,7 @@ export function WorkingMessage({activity,active,tool,clip}:{activity:ChatActivit
  const {t} = useI18n();
  const dreaming=activity==='dreaming';
  const moving=active&&activity!=='stopping'&&!dreaming;
- const label=dreaming?t('chat.dreaming'):activity==='stopping'?t('chat.stopping'):activity==='reviewing'?t('chat.reviewing'):activity==='tool'&&tool?activityLabel(tool,t):t('chat.bubbleThinking');
+ const label=dreaming?t('chat.dreaming'):activity==='stopping'?t('chat.stopping'):activity==='tool'&&tool?activityLabel(tool,t):t('chat.bubbleThinking');
  return <article className={`message-row assistant working-message ${moving?'is-active':''}`}>
   <BotAvatar animate={active&&activity!=='stopping'} clip={clip}/>
   <div className={`message assistant working-indicator ${dreaming?'dream-indicator':''}`} role="status" aria-label={label} title={dreaming?t('chat.dreamHint'):undefined}>

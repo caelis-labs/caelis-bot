@@ -22,15 +22,20 @@ func TestDreamPresentationRequiresConfirmedRunningTurn(t *testing.T) {
 		func(v *api.Snapshot) { v.Message = "recovery required" },
 		func(v *api.Snapshot) { v.Phase = "interrupting" },
 		func(v *api.Snapshot) { v.Phase = "unknown" },
+		func(v *api.Snapshot) { v.Phase = "failed" },
 		func(v *api.Snapshot) { v.CurrentTurn = "user" },
 		func(v *api.Snapshot) { v.Approvals = []api.Approval{{Status: "pending"}} },
-		func(v *api.Snapshot) { v.Reviews = []api.Review{{Status: "denied"}} },
 	} {
 		v := base
 		change(&v)
 		if Dream(v, map[string]string{"dream": "running"}, false).Maintenance != "" {
 			t.Fatal("sleep masked attention", v)
 		}
+	}
+	review := base
+	review.Reviews = []api.Review{{Status: "timedOut"}}
+	if Dream(review, map[string]string{"dream": "running"}, false).Maintenance != "dreaming" {
+		t.Fatal("technical review interrupted quiet Dream")
 	}
 }
 
@@ -51,7 +56,7 @@ func TestDreamKeepsOnlyRecapAndPreservesApproval(t *testing.T) {
 	}
 }
 
-func TestScheduledReviewNoticesSurviveQuietProjection(t *testing.T) {
+func TestScheduledReviewFactsDoNotBreakQuietProjection(t *testing.T) {
 	for _, status := range []string{"denied", "timedOut", "aborted", "failed", "inProgress", "approved"} {
 		for _, dream := range []bool{false, true} {
 			t.Run(status+map[bool]string{false: "/care", true: "/dream"}[dream], func(t *testing.T) {
@@ -63,9 +68,8 @@ func TestScheduledReviewNoticesSurviveQuietProjection(t *testing.T) {
 				if dream {
 					out = Dream(out, turns, false)
 				}
-				visible := status != "inProgress" && status != "approved"
-				if out.Quiet == visible || (len(out.Reviews) == 1) != visible {
-					t.Fatalf("review notice visibility differs from quiet status: %+v", out)
+				if !out.Quiet {
+					t.Fatalf("technical review broke quiet status: %+v", out)
 				}
 				if len(out.Approvals) != 0 {
 					t.Fatal("review created manual approval authority")
