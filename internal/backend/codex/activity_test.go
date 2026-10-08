@@ -45,14 +45,19 @@ func TestNativeActivityUsesTypedActionsAndLifecycle(t *testing.T) {
 func TestRecentActivityRetainsToolBeforeSteeringInput(t *testing.T) {
 	s, _ := sessionPair(t, "normal")
 	s.mu.Lock()
+	s.run = "turn"
 	s.state.CurrentTurn = opaque("turn")
 	s.state.Items = []api.Item{
 		{ID: "old", Kind: "user", TurnKey: opaque("old")},
 		{ID: "tool", Kind: "activity", TurnKey: opaque("turn"), Status: "inProgress", Activity: &api.Activity{Kind: "read"}},
 		{ID: "steer", Kind: "user", TurnKey: opaque("turn")},
 	}
+	s.publishSnapshot()
 	s.mu.Unlock()
 	got := s.RecentSnapshot()
+	s.mu.Lock()
+	s.run = ""
+	s.mu.Unlock()
 	if len(got.Items) != 2 || got.Items[0].ID != "tool" {
 		t.Fatal("steering hid active tool owner", got.Items)
 	}
