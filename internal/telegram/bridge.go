@@ -1550,14 +1550,14 @@ func (b *Bridge) sendMacUserText(ctx context.Context, c client, key string, chat
 }
 
 func (b *Bridge) sendAssistantText(ctx context.Context, c client, key string, chat int64, body string) {
-	parts := splitText(body)
+	messages := assistantMessages(body)
 	b.mu.Lock()
 	record := b.state.Messages[key]
 	b.mu.Unlock()
 	// Reuse every confirmed part when a streamed reply contracts. In particular,
 	// this removes the heading from each part sent by the previous formatter
 	// without leaving a stale trailing Telegram message at the split boundary.
-	if len(record.IDs) > len(parts) {
+	if len(record.IDs) > len(messages) {
 		confirmed := true
 		for _, id := range record.IDs {
 			if id <= 0 {
@@ -1566,12 +1566,14 @@ func (b *Bridge) sendAssistantText(ctx context.Context, c client, key string, ch
 			}
 		}
 		if confirmed {
-			parts = splitTextAtLeast(parts, len(record.IDs))
+			// A contracted stream must keep its confirmed IDs. For this rare
+			// repartition, use plain text instead of breaking Markdown syntax.
+			parts := splitTextAtLeast(splitText(body), len(record.IDs))
+			messages = make([]outgoingText, len(parts))
+			for i, part := range parts {
+				messages[i] = plainText(part)
+			}
 		}
-	}
-	messages := make([]outgoingText, len(parts))
-	for i, part := range parts {
-		messages[i] = plainText(part)
 	}
 	b.sendRenderedText(ctx, c, key, chat, messages, nil, nil)
 }
