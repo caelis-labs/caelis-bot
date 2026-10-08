@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -82,5 +83,19 @@ func TestReviewedMarketplaceTwoPortablePackages(t *testing.T) {
 	}
 	if _, _, err := NormalizeMarketplace(files, []byte(`{"name":"community","plugins":[{"name":"writer","source":{"source":"local","path":"./../escape"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"}}]}`), approved); err == nil {
 		t.Fatal("escaping marketplace path accepted")
+	}
+}
+
+func TestUnavailableReviewedSourceFailsWithoutPanic(t *testing.T) {
+	e := Entry{ID: "missing", Title: "Missing", Version: "1.0.0", Description: "Missing", Source: "bundled:test", Files: map[string]string{"plugin.json": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+	m, err := openCatalog(t.TempDir(), []Entry{e}, map[string]fs.FS{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.SkillDetail("missing", "sample"); err == nil {
+		t.Fatal("missing source returned a skill")
+	}
+	if _, err = m.Mutate(context.Background(), "missing", "install", nil); err == nil {
+		t.Fatal("missing source was staged")
 	}
 }

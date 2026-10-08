@@ -19,6 +19,9 @@ func (m *Manager) SkillDetail(id, skill string) (SkillDetail, error) {
 	if !serviceName.MatchString(skill) {
 		return SkillDetail{}, errors.New("invalid skill")
 	}
+	if m.sources[e.ID] == nil {
+		return SkillDetail{}, errors.New("reviewed package source unavailable")
+	}
 	body, err := reviewedFile(m.sources[e.ID], e, name)
 	if err != nil {
 		return SkillDetail{}, err

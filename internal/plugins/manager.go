@@ -453,6 +453,9 @@ func (m *Manager) snapshotLocked() Snapshot {
 	return out
 }
 func (m *Manager) stage(e Entry) (string, error) {
+	if m.sources[e.ID] == nil {
+		return "", errors.New("reviewed package source unavailable")
+	}
 	dest := m.packageRoot(e)
 	if err := Verify(dest, e.Files); err == nil && verifyExecutableModes(dest, e) == nil {
 		if _, err = m.readInstalled(e); err == nil {
