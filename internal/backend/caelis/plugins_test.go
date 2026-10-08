@@ -3,6 +3,7 @@ package caelis
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,6 +12,29 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
+
+func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
+	hits := 0
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if r.URL.Path != "/api/control/v1/application/sessions/main/mcp-status" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		writeFixture(w, map[string]any{"configuration_revision": "1", "session_id": "main", "skills": []any{}, "servers": []any{map[string]any{"name": plugins.RuntimeName("notes", "search"), "status": "ready", "tools": []string{"lookup"}}}})
+	})
+	s.info.Capabilities = []string{atomicCapabilities}
+	s.tools = &api.ToolConnection{Plugins: plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "notes", Name: "search"}}}}
+	name := plugins.RuntimeName("notes", "search")
+	detail, err := s.BotPluginServer(t.Context(), name)
+	if err != nil || detail.State != "connected" || len(detail.Tools) != 1 || detail.Tools[0].Name != "lookup" || detail.Tools[0].Description != "" || hits != 1 {
+		t.Fatal(detail, err, hits)
+	}
+	s.tools.Plugins.Servers = nil
+	detail, err = s.BotPluginServer(t.Context(), name)
+	if err != nil || detail.State != "not_configured" || hits != 1 {
+		t.Fatal("unselected MCP was queried", detail, err, hits)
+	}
+}
 
 func TestPublicConfigurationPatchCanExplicitlyClearPluginSelection(t *testing.T) {
 	fields := []string{"mcp_servers", "skill_dirs", "skill_roots"}

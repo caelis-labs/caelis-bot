@@ -3,11 +3,101 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
+
+type pluginDetailCacheEntry struct {
+	detail  plugins.ServerDetail
+	expires time.Time
+}
+
+func (a *Application) PluginSkillDetail(_ context.Context, id, skill string) (plugins.SkillDetail, error) {
+	if a.plugins == nil {
+		return plugins.SkillDetail{}, errors.New("plugin store unavailable")
+	}
+	return a.plugins.SkillDetail(id, skill)
+}
+
+func (a *Application) PluginServerDetail(ctx context.Context, id, server string, refresh bool) (plugins.ServerDetail, error) {
+	if a.plugins == nil {
+		return plugins.ServerDetail{}, errors.New("plugin store unavailable")
+	}
+	snapshot := a.plugins.Snapshot()
+	var item *plugins.Item
+	for i := range snapshot.Items {
+		if snapshot.Items[i].ID == id {
+			item = &snapshot.Items[i]
+			break
+		}
+	}
+	if item == nil {
+		return plugins.ServerDetail{}, errors.New("plugin is not reviewed")
+	}
+	found := false
+	for _, contribution := range item.MCPServers {
+		if contribution.ID == server {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return plugins.ServerDetail{}, errors.New("server is not reviewed")
+	}
+	if !item.Installed {
+		return plugins.ServerDetail{State: "not_configured", Tools: []plugins.Tool{}}, nil
+	}
+	if !item.Enabled {
+		return plugins.ServerDetail{State: "disabled", Tools: []plugins.Tool{}}, nil
+	}
+	selected := false
+	for _, entry := range a.plugins.Selection().Servers {
+		if entry.PackageID == id && entry.Name == server {
+			selected = true
+			break
+		}
+	}
+	if !selected {
+		return plugins.ServerDetail{State: "not_configured", Tools: []plugins.Tool{}}, nil
+	}
+	inspector, ok := a.engine.(api.PluginInspector)
+	if !ok {
+		return plugins.ServerDetail{State: "unknown", Tools: []plugins.Tool{}}, nil
+	}
+	key := fmt.Sprintf("%d/%d/%s/%s/%s", snapshot.Revision, inspector.BotPluginGeneration(), id, item.Version, server)
+	a.pluginDetailMu.Lock()
+	if cached, ok := a.pluginDetailCache[key]; !refresh && ok && time.Now().Before(cached.expires) {
+		a.pluginDetailMu.Unlock()
+		return cached.detail, nil
+	}
+	a.pluginDetailMu.Unlock()
+	detail, err := inspector.BotPluginServer(ctx, plugins.RuntimeName(id, server))
+	if err != nil {
+		return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, nil
+	}
+	if len(detail.Tools) > 128 {
+		detail.Tools = detail.Tools[:128]
+	}
+	if detail.Tools == nil {
+		detail.Tools = []plugins.Tool{}
+	}
+	if detail.State == "connected" {
+		a.pluginDetailMu.Lock()
+		if len(a.pluginDetailCache) >= 32 {
+			a.pluginDetailCache = nil
+		}
+		if a.pluginDetailCache == nil {
+			a.pluginDetailCache = make(map[string]pluginDetailCacheEntry)
+		}
+		a.pluginDetailCache[key] = pluginDetailCacheEntry{detail: detail, expires: time.Now().Add(15 * time.Second)}
+		a.pluginDetailMu.Unlock()
+	}
+	return detail, nil
+}
 
 func (a *Application) PluginSnapshot(ctx context.Context) (plugins.Snapshot, error) {
 	if a.plugins == nil {
@@ -56,5 +146,8 @@ func (a *Application) PluginAction(ctx context.Context, id, action string) (plug
 		snapshot, _ := a.PluginSnapshot(ctx)
 		return snapshot, mutationErr
 	}
+	a.pluginDetailMu.Lock()
+	a.pluginDetailCache = nil
+	a.pluginDetailMu.Unlock()
 	return a.PluginSnapshot(ctx)
 }

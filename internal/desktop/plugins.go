@@ -26,3 +26,21 @@ func (s *Service) PluginAction(id, action string) (plugins.Snapshot, error) {
 	snapshot, err := s.pluginAction(ctx, id, action)
 	return snapshot.Public(), err
 }
+
+func (s *Service) PluginSkillDetail(id, skill string) (plugins.SkillDetail, error) {
+	if s.pluginSkillDetail == nil {
+		return plugins.SkillDetail{}, errors.New("plugin store unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return s.pluginSkillDetail(ctx, id, skill)
+}
+
+func (s *Service) PluginServerDetail(id, server string, refresh bool) (plugins.ServerDetail, error) {
+	if s.pluginServerDetail == nil {
+		return plugins.ServerDetail{}, errors.New("plugin store unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return s.pluginServerDetail(ctx, id, server, refresh)
+}

@@ -328,11 +328,10 @@ func (s *Session) BotPluginHealth(ctx context.Context) []plugins.Issue {
 		selection = s.opts.BotTools.Plugins.Clone()
 	}
 	c := s.client
-	thread := s.binding.ThreadID
 	dir := s.opts.Directory
 	s.mu.Unlock()
 	_, issues := codexPluginConfigs(selection)
-	if c == nil || thread == "" {
+	if c == nil {
 		return issues
 	}
 	var skills struct {
@@ -363,26 +362,93 @@ func (s *Session) BotPluginHealth(ctx context.Context) []plugins.Issue {
 			}
 		}
 	}
-	for _, item := range selection.Servers {
-		name := plugins.RuntimeName(item.PackageID, item.Name)
-		var status struct {
-			Data []struct {
-				Name, Status string
-				Error        *string
-			} `json:"data"`
-		}
-		if err := callDecode(ctx, c, "mcpServerStatus/list", map[string]any{"threadId": thread, "serverName": name}, &status); err != nil {
-			issues = append(issues, plugins.Issue{Component: "server", Name: name, Message: err.Error()})
-		}
-		for _, server := range status.Data {
-			if server.Status == "failed" {
-				message := "MCP failed"
-				if server.Error != nil {
-					message = *server.Error
-				}
-				issues = append(issues, plugins.Issue{Component: "server", Name: name, Message: message})
+	// App-server status discovery can initialize an MCP connection. Keep the
+	// settings snapshot cheap; the selected server is inspected on expansion.
+	return issues
+}
+
+func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.ServerDetail, error) {
+	empty := plugins.ServerDetail{State: "not_configured", Tools: []plugins.Tool{}}
+	s.mu.Lock()
+	selected := false
+	if s.opts.BotTools != nil {
+		for _, server := range s.opts.BotTools.Plugins.Servers {
+			if plugins.RuntimeName(server.PackageID, server.Name) == name {
+				selected = true
+				break
 			}
 		}
 	}
-	return issues
+	c, thread := s.client, s.binding.ThreadID
+	s.mu.Unlock()
+	if !selected {
+		return empty, nil
+	}
+	if c == nil || thread == "" {
+		empty.State = "pending"
+		return empty, nil
+	}
+	var response struct {
+		Data []struct {
+			Name, RuntimeStatus, AuthStatus string
+			ToolsError                      *string
+			Tools                           map[string]struct {
+				Name, Title, Description string
+				Annotations              struct {
+					ReadOnlyHint    *bool `json:"readOnlyHint"`
+					DestructiveHint *bool `json:"destructiveHint"`
+					IdempotentHint  *bool `json:"idempotentHint"`
+					OpenWorldHint   *bool `json:"openWorldHint"`
+				}
+			}
+		} `json:"data"`
+	}
+	if err := callDecode(ctx, c, "mcpServerStatus/list", map[string]any{"threadId": thread, "serverName": name, "detail": "toolsAndAuthOnly"}, &response); err != nil {
+		return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, err
+	}
+	for _, server := range response.Data {
+		if server.Name != name {
+			continue
+		}
+		out := plugins.ServerDetail{State: "unknown", Tools: []plugins.Tool{}}
+		switch server.RuntimeStatus {
+		case "connected":
+			out.State = "connected"
+		case "starting", "notStarted":
+			out.State = "pending"
+		case "authenticationRequired":
+			out.State = "authentication_required"
+		case "failed", "cancelled":
+			out.State = "failed"
+		case "disabled":
+			out.State = "disabled"
+		}
+		if server.AuthStatus == "notLoggedIn" {
+			out.State = "authentication_required"
+		}
+		if server.ToolsError != nil {
+			out.State = "failed"
+		}
+		if out.State == "connected" {
+			for key, tool := range server.Tools {
+				toolName := plugins.SafeDisplayText(tool.Name)
+				if toolName == "" {
+					toolName = plugins.SafeDisplayText(key)
+				}
+				if toolName == "" {
+					continue
+				}
+				out.Tools = append(out.Tools, plugins.Tool{Name: toolName, Title: plugins.SafeDisplayText(tool.Title), Description: plugins.SafeDisplayText(tool.Description), ReadOnlyHint: tool.Annotations.ReadOnlyHint, DestructiveHint: tool.Annotations.DestructiveHint, IdempotentHint: tool.Annotations.IdempotentHint, OpenWorldHint: tool.Annotations.OpenWorldHint})
+			}
+			sort.Slice(out.Tools, func(i, j int) bool { return out.Tools[i].Name < out.Tools[j].Name })
+		}
+		return out, nil
+	}
+	return empty, nil
+}
+
+func (s *Session) BotPluginGeneration() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.epoch
 }

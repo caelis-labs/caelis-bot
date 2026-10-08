@@ -145,6 +145,65 @@ func (s *Session) BotPluginHealth(ctx context.Context) []plugins.Issue {
 	}
 	return issues
 }
+
+func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.ServerDetail, error) {
+	empty := plugins.ServerDetail{State: "not_configured", Tools: []plugins.Tool{}}
+	s.mu.Lock()
+	selected := false
+	if s.tools != nil {
+		for _, server := range s.tools.Plugins.Servers {
+			if plugins.RuntimeName(server.PackageID, server.Name) == name {
+				selected = true
+				break
+			}
+		}
+	}
+	c := s.client
+	sid := s.state.Session.SessionId
+	capable := slices.Contains(s.info.Capabilities, atomicCapabilities)
+	s.mu.Unlock()
+	if !selected {
+		return empty, nil
+	}
+	if !capable || c == nil || sid == "" {
+		empty.State = "pending"
+		return empty, nil
+	}
+	var status wire.ApplicationMCPStatus
+	if err := c.json(ctx, "GET", "/application/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
+		return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, err
+	}
+	for _, server := range status.Servers {
+		if server.Name != name {
+			continue
+		}
+		out := plugins.ServerDetail{State: "unknown", Tools: []plugins.Tool{}}
+		switch server.Status {
+		case "ready":
+			out.State = "connected"
+		case "running", "pending":
+			out.State = "pending"
+		case "failed":
+			out.State = "failed"
+		case "disabled":
+			out.State = "disabled"
+		}
+		if out.State == "connected" {
+			for _, tool := range server.Tools {
+				if label := plugins.SafeDisplayText(tool); label != "" {
+					out.Tools = append(out.Tools, plugins.Tool{Name: label})
+				}
+			}
+		}
+		return out, nil
+	}
+	return empty, nil
+}
+func (s *Session) BotPluginGeneration() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.generation
+}
 func (s *Session) profileBinary() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

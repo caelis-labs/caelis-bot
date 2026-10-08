@@ -77,6 +77,8 @@ type Application struct {
 	skillPath             string
 	initialization        *bot.Initializer
 	plugins               *plugins.Manager
+	pluginDetailMu        sync.Mutex
+	pluginDetailCache     map[string]pluginDetailCacheEntry
 	closeOnce             sync.Once
 	closeErr              error
 }

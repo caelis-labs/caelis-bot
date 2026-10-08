@@ -88,7 +88,7 @@ for line in sys.stdin:
   request=json.loads(line); method=request.get("method"); rid=request.get("id")
   if rid is None: continue
   if method=="initialize": result={"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"fixture_"+domain,"version":"1"}}
-  elif method=="tools/list": result={"tools":[{"name":tool,"description":"Synthetic "+domain+" test tool","inputSchema":{"type":"object","properties":{}}}]}
+  elif method=="tools/list": result={"tools":[{"name":tool,"description":"Synthetic "+domain+" test tool","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":domain=="documents"}}]}
   elif method=="tools/call": result={"content":[{"type":"text","text":"FIXTURE_"+domain.upper()+"_OK"}],"isError":False}
   else: result={}
   sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":rid,"result":result})+"\n"); sys.stdout.flush()
@@ -161,6 +161,10 @@ for line in sys.stdin:
 		}
 		if !strings.Contains(string(payload), tool) {
 			t.Fatal("functional MCP service missing", domain)
+		}
+		inspected, inspectErr := s.BotPluginServer(ctx, name)
+		if inspectErr != nil || inspected.State != "connected" || len(inspected.Tools) != 1 || inspected.Tools[0].Name != tool || inspected.Tools[0].Description == "" || inspected.Tools[0].ReadOnlyHint == nil || *inspected.Tools[0].ReadOnlyHint != (domain == "documents") {
+			t.Fatal("Bot-scoped lazy tool directory mismatch", domain, inspected, inspectErr)
 		}
 		var result any
 		if err = callDecode(ctx, s.client, "mcpServer/tool/call", map[string]any{"threadId": s.binding.ThreadID, "server": name, "tool": tool, "arguments": map[string]any{}}, &result); err != nil {

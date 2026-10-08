@@ -125,6 +125,13 @@ type PluginConfigurator interface {
 	WithBotPluginAdmission(func(func(context.Context, plugins.Selection) error) error) error
 	BotPluginHealth(context.Context) []plugins.Issue
 }
+
+// PluginInspector reads only a Bot-selected server's public directory. It must
+// never call a tool or start discovery for an unselected server.
+type PluginInspector interface {
+	BotPluginServer(context.Context, string) (plugins.ServerDetail, error)
+	BotPluginGeneration() uint64
+}
 type ToolService struct {
 	Name  string
 	Tools []string
