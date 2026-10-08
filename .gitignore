@@ -1,6 +1,7 @@
 node_modules/
 .cache/
 dist/
+!/internal/plugins/packages/brave-search/upstream/dist/
 frontend/dist/
 .DS_Store
 .development-signing-identity
