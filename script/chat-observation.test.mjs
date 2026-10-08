@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ConversationOrder,FileObservationOrder,SubmissionProgress,DraftQueue,acceptedDraftSettled,visibleDraftFiles,readDraftAndFiles,retryRead} from '../frontend/src/chat-observation.ts';
+import {ConversationOrder,FileObservationOrder,SubmissionProgress,DraftQueue,acceptedDraftSettled,visibleDraftFiles,readDraftAndFiles,retryRead,sameComposerSnapshot} from '../frontend/src/chat-observation.ts';
 import {settingsDestination,settingsSections} from '../frontend/src/settings-navigation.ts';
 
 test('a late poll cannot replace a refreshed outbox at the same backend revision',()=>{
@@ -93,14 +93,48 @@ test('settings separate models, accounts and machines while native repair links 
  assert.equal(settingsDestination('invalid'),null);
 });
 
-test('typing coalesces only pending draft replacements and send flush waits for the newest revision',async()=>{
+test('typing waits for a quiet period, and send flush waits for the newest replacement',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout']});
  const queue=new DraftQueue(),writes=[];let release;
  queue.enqueue(async()=>{writes.push('first');await new Promise(resolve=>release=resolve);});
- await Promise.resolve();
+ t.mock.timers.tick(399);await Promise.resolve();assert.deepEqual(writes,[]);
+ t.mock.timers.tick(1);await Promise.resolve();assert.deepEqual(writes,['first']);
  queue.enqueue(async()=>{writes.push('intermediate');});
  queue.enqueue(async()=>{writes.push('newest');});
  let flushed=false;const sending=queue.flush().then(()=>flushed=true);
  await Promise.resolve();assert.equal(flushed,false);release();await sending;
  assert.deepEqual(writes,['first','newest']);assert.equal(flushed,true);
- await queue.enqueue(async()=>{writes.push('after send');});assert.equal(writes.at(-1),'after send');
+ queue.enqueue(async()=>{writes.push('after send');});
+ t.mock.timers.tick(400);await queue.flush();assert.equal(writes.at(-1),'after send');
+});
+
+test('draft debounce reduces rapid input to one durable replacement and switch flushes immediately',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const queue=new DraftQueue(),saved=[];
+ for(let n=1;n<=35;n++){
+  queue.enqueue(async()=>{saved.push(n);});
+  t.mock.timers.tick(32);
+ }
+ await Promise.resolve();assert.deepEqual(saved,[]);
+ await queue.flush();assert.deepEqual(saved,[35]);
+ queue.enqueue(async()=>{saved.push(36);});
+ t.mock.timers.tick(399);await Promise.resolve();assert.deepEqual(saved,[35]);
+ t.mock.timers.tick(1);await queue.flush();assert.deepEqual(saved,[35,36]);
+});
+
+test('history and streaming snapshots preserve Composer props until a control fact changes',()=>{
+ const before={connection:'ready',phase:'working',maintenance:'',canSend:false,canSteer:true,canInterrupt:true,lastReceipt:{id:'original',outcome:'unknown'},references:[],items:[{id:'one',text:'first'}],revision:3};
+ const stream={...before,revision:4,items:[{id:'one',text:'stream chunk'}]};
+ assert.equal(sameComposerSnapshot(before,stream),true);
+ assert.equal(sameComposerSnapshot(before,{...stream,lastReceipt:{id:'original',outcome:'accepted'}}),false);
+ assert.equal(sameComposerSnapshot(before,{...stream,canSend:true}),false);
+ assert.equal(sameComposerSnapshot(before,{...stream,references:[{id:'reference'}]}),false);
+});
+
+test('a failed draft write rejects the send and window-switch barrier',async()=>{
+ const queue=new DraftQueue();
+ queue.enqueue(async()=>{throw new Error('disk failed');});
+ await assert.rejects(queue.flush(),/disk failed/);
+ queue.enqueue(async()=>{});
+ await queue.flush();
 });

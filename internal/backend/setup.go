@@ -63,5 +63,14 @@ func (s *Service) PrepareRestart(guard func() error) error {
 	s.restarting = true
 	return nil
 }
-func (s *Service) CancelRestart()      { s.admission.Lock(); s.restarting = false; s.admission.Unlock() }
-func (s *Service) RequireSetup(v bool) { s.admission.Lock(); s.setupRequired = v; s.admission.Unlock() }
+func (s *Service) CancelRestart() { s.admission.Lock(); s.restarting = false; s.admission.Unlock() }
+func (s *Service) RequireSetup(v bool) {
+	s.admission.Lock()
+	if s.setupRequired != v {
+		s.setupRequired = v
+		s.mu.Lock()
+		s.presentationRevision++
+		s.mu.Unlock()
+	}
+	s.admission.Unlock()
+}

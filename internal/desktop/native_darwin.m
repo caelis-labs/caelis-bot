@@ -302,11 +302,11 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     if (!self.panel.visible || self.panel.attachedSheet) return;
     // Outside clicks keep their destination and its focus. Never activate the
     // previous app here: the user may have chosen a different app altogether.
+    bot_js(self.panel,@"window.dispatchEvent(new Event('panel-close'))");
     [self.panel orderOut:nil];
     self.panel.level = NSFloatingWindowLevel;
     self.panelMenuHeight = 0;
     self.previousApp = nil;
-    bot_js(self.panel,@"window.dispatchEvent(new Event('panel-close'))");
     [self updateBubble];
     [self trace:reason];
 }
@@ -660,12 +660,12 @@ void bot_panel(void *pointer, int visible) {
         bot_js(host.panel,[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('panel-open',{detail:{activation:%lu}}))",(unsigned long)host.activationID]);
     } else {
         BOOL restore = NSApp.active && host.panel.keyWindow;
+        bot_js(host.panel,@"window.dispatchEvent(new Event('panel-close'))");
         [host.panel orderOut:nil];
         host.panel.level = NSFloatingWindowLevel;
         host.panelMenuHeight = 0;
         if (restore && host.previousApp && !host.previousApp.terminated) [host.previousApp activateWithOptions:0];
         host.previousApp = nil;
-        bot_js(host.panel,@"window.dispatchEvent(new Event('panel-close'))");
     }
     [host updateBubble];
     [host trace:visible ? @"panel-open" : @"panel-close"];
