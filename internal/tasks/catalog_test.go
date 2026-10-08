@@ -91,6 +91,19 @@ func TestUnknownTaskAttentionKeepsOriginalExecutionAndDoesNotReplay(t *testing.T
 	if got, err := restored.ClaimUnknownNotices(); err != nil || len(got) != 1 || got[0] != v.ID {
 		t.Fatal("new execution was not alerted", got, err)
 	}
+	old := state
+	old.ExecutionKey = "native-turn-1"
+	old.Task.Status = "completed"
+	f.states[v.ID] = old // A late A result must not replace B or reopen its alert.
+	if err := restored.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := restored.ClaimUnknownNotices(); err != nil || len(got) != 0 {
+		t.Fatal("late old outcome created another alert", got, err)
+	}
+	if r := restored.state.Records[v.ID]; r.Execution != "new-native-execution" || r.View.Status != "unknown" {
+		t.Fatal("late old outcome replaced the current execution", r.Execution, r.View.Status)
+	}
 	if f.starts != 1 || f.reports != 0 {
 		t.Fatal("alert dispatched or reported work", f.starts, f.reports)
 	}

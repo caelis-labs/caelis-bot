@@ -356,6 +356,14 @@ int main(void) {
     [dock dragTask:last phase:0 point:point];[dock dragTask:last phase:2 point:point];
     assert([moved isEqual:last] && [beforeID isEqual:expected]);
   }
+  [dock collapse];
+  [dock setTasks:@[task(@"unknown",@"unknown"),task(@"failed",@"failed"),task(@"interrupted",@"interrupted"),task(@"approval",@"waiting_approval")]];
+  [dock expand];
+  NSDictionary *labels=@{@"unknown":@"状态未确认 · 请查看任务",@"failed":@"失败",@"interrupted":@"已中断",@"approval":@"等待审批"};
+  for(BotTaskButton *button in dock.buttons) {
+    NSString *identifier=dock.tasks[button.tag][@"id"];
+    assert([button.statusText isEqual:labels[identifier]]);
+  }
   [dock stop];
   puts("Adaptive bounds/negative-origin screens, dense stacks (12/30/100), bidirectional hover, controls, no scroll containers, vertical reorder and cancellation passed. Task dock: dots, stable frames, status, pointer order, close/swipe locks, desktop drop, cache cleanup and held shortcut passed.");
  }

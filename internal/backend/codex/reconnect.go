@@ -44,6 +44,13 @@ func (s *Session) scheduleAutoReconnectLocked(c *Client, epoch uint64) {
 	s.reconnectActive = true
 	s.reconnectCancel = cancel
 	s.reconnectAttempts = 0
+	s.reconnectNoticeID = s.run
+	if s.binding.Pending != nil {
+		s.reconnectNoticeID = s.binding.Pending.ID
+	}
+	if s.reconnectNoticeID == "" && s.state.Phase == "unknown" && s.binding.LastReceipt != nil {
+		s.reconnectNoticeID = s.binding.LastReceipt.ID
+	}
 	s.state.Message = "连接中断，正在核对原任务和发送结果。"
 	s.update()
 	go s.autoReconnect(ctx, seq, epoch)
@@ -107,28 +114,19 @@ func (s *Session) autoReconnect(ctx context.Context, seq, epoch uint64) {
 					s.state.Message = "本机连接资源暂时不足；原任务仍未确认。请释放资源后手动重试。"
 				}
 				s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "codex", Code: "reconnect_exhausted", Reason: transportCode(s.lastConnectCause), Generation: epoch, SessionEpoch: epoch, Phase: "awaiting_manual_reconnect", Sequence: uint64(attempt)})
-				// Task alerts are claimed by the task ledger; a resident request
-				// without a task owner still needs one host-only recovery reminder.
-				if !s.hasUnresolvedTasks() {
-					identity := s.run
-					if s.binding.Pending != nil {
-						identity = s.binding.Pending.ID
+				// Task alerts use their own execution ledger. A resident request
+				// also needs its original-request reminder when tasks are active.
+				if identity := s.reconnectNoticeID; identity != "" && !s.workerOnly {
+					key := opaque(s.binding.ThreadID, identity)
+					if s.binding.RecoveryNotices == nil {
+						s.binding.RecoveryNotices = map[string]bool{}
 					}
-					if identity == "" && s.binding.LastReceipt != nil && s.binding.LastReceipt.Outcome == "unknown" {
-						identity = s.binding.LastReceipt.ID
-					}
-					if identity != "" {
-						key := opaque(s.binding.ThreadID, identity)
-						if s.binding.RecoveryNotices == nil {
-							s.binding.RecoveryNotices = map[string]bool{}
-						}
-						if !s.binding.RecoveryNotices[key] {
-							s.binding.RecoveryNotices[key] = true
-							if s.save() == nil {
-								s.state.RecoveryNoticeKey = key
-							} else {
-								delete(s.binding.RecoveryNotices, key)
-							}
+					if !s.binding.RecoveryNotices[key] {
+						s.binding.RecoveryNotices[key] = true
+						if s.save() == nil {
+							s.state.RecoveryNoticeKey = key
+						} else {
+							delete(s.binding.RecoveryNotices, key)
 						}
 					}
 				}

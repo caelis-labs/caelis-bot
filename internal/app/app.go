@@ -539,9 +539,9 @@ func (a *Application) Start() error {
 						if a.host.ReportError != nil {
 							a.host.ReportError(err)
 						}
-						continue
 					}
-					if a.host.Notify != nil {
+					recovery := a.Backend.RecoveryState()
+					if a.host.Notify != nil && !recovery.Automatic && !recovery.InProgress {
 						ids, err := manager.ClaimUnknownNotices()
 						if err != nil {
 							if a.host.ReportError != nil {

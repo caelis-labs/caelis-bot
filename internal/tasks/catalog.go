@@ -31,7 +31,10 @@ func (m *Manager) ClaimUnknownNotices() ([]string, error) {
 	m.op.Lock()
 	defer m.op.Unlock()
 	if err := m.refresh(); err != nil {
-		return nil, err
+		var conflict *observationConflict
+		if !errors.As(err, &conflict) {
+			return nil, err
+		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -137,7 +140,8 @@ func (m *Manager) RefreshWatchlist() error {
 	m.op.Lock()
 	err := m.refresh()
 	m.op.Unlock()
-	if err == nil {
+	var conflict *observationConflict
+	if err == nil || errors.As(err, &conflict) {
 		m.notifyWatchlist()
 	}
 	return err

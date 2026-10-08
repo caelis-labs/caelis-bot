@@ -101,6 +101,7 @@ type Session struct {
 	reconnectActive        bool
 	reconnectCancel        context.CancelFunc
 	reconnectAttempts      int
+	reconnectNoticeID      string
 	reconnectDelay         func(int) time.Duration
 	lastConnectCause       error
 	state                  api.Snapshot
