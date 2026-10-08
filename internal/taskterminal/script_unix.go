@@ -69,7 +69,6 @@ func renderArguments(spec LaunchArguments) string {
 	return command + "\n"
 }
 func guardedScript(pending, acceptedPrefix, script string) (string, error) {
-	rejectedPrefix := filepath.Join(filepath.Dir(pending), "rejected-")
-	guard := "#!/bin/sh\nif ! /bin/mv " + quote(pending) + " " + quote(acceptedPrefix) + "\"$$\" 2>/dev/null; then\n  : > " + quote(rejectedPrefix) + "\"$$\"\n  printf '%s\\n' 'This terminal request has expired. Open the task again from Caelis Bot.'\n  exit 1\nfi\n"
+	guard := "#!/bin/sh\nif ! /bin/mv " + quote(pending) + " " + quote(acceptedPrefix) + "\"$$\" 2>/dev/null; then\n  printf '%s\\n' 'This terminal request has expired. Open the task again from Caelis Bot.'\n  exit 1\nfi\n"
 	return guard + strings.TrimPrefix(script, "#!/bin/sh\n"), nil
 }

@@ -149,45 +149,6 @@ func TestProvenUnsubmittedLaunchCleansScriptImmediately(t *testing.T) {
 	}
 }
 
-func TestRetainedAttemptLimitPersistsAcrossLauncherRestart(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "Terminal")
-	if err := os.Mkdir(root, 0700); err != nil {
-		t.Fatal(err)
-	}
-	var first string
-	for i := range maxRetainedAttempts {
-		directory := filepath.Join(root, attemptPrefix("owned")+fmt.Sprint(i))
-		if i == 0 {
-			first = directory
-		}
-		if err := os.Mkdir(directory, 0700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	launched := false
-	l := New(root, func(context.Context, string) error { launched = true; return nil })
-	target := api.TerminalTarget{Runtime: "setup", Binary: "/usr/bin/true", Directory: root}
-	if err := l.Open(t.Context(), "owned", target); !errors.Is(err, ErrRetainedAttempts) || !errors.Is(err, ErrLaunchNotSubmitted) {
-		t.Fatal("limit did not fail before native submission", err)
-	}
-	if launched {
-		t.Fatal("cap allowed another native submission")
-	}
-	if err := os.WriteFile(filepath.Join(first, "rejected-123"), nil, 0600); err != nil {
-		t.Fatal(err)
-	}
-	l.open = func(ctx context.Context, path string) error {
-		launched = true
-		return exec.CommandContext(ctx, "/bin/sh", path).Run()
-	}
-	if err := l.Open(t.Context(), "owned", target); err != nil || !launched {
-		t.Fatal("read rejected attempt did not free one slot", err)
-	}
-	if _, err := os.Stat(first); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("read rejected attempt was not cleaned", err)
-	}
-}
-
 func TestRejectInvalidTargetBeforeOpening(t *testing.T) {
 	valid := api.TerminalTarget{Runtime: "codex", Binary: "/bin/codex", Directory: "/tmp", Endpoint: "unix:///tmp/private.sock", Thread: "owned-worker"}
 	for _, change := range []func(*api.TerminalTarget){func(v *api.TerminalTarget) { v.Binary = "codex" }, func(v *api.TerminalTarget) { v.Endpoint = "ws://host" }, func(v *api.TerminalTarget) { v.Thread = "--last" }, func(v *api.TerminalTarget) { v.CodexHome = "x\x00" }} {

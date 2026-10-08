@@ -34,56 +34,43 @@ type Launcher struct {
 }
 
 var ErrUnconfirmed = errors.New("terminal launch was not confirmed")
-var ErrRetainedAttempts = errors.New("terminal has too many unconfirmed launch scripts")
-
-const maxRetainedAttempts = 32
 
 func attemptPrefix(id string) string {
 	sum := sha256.Sum256([]byte(id))
 	return ".launch-" + hex.EncodeToString(sum[:16]) + "-"
 }
 
-func (l *Launcher) attemptDirectories(id string) ([]string, error) {
-	entries, err := os.ReadDir(l.directory)
-	if err != nil {
-		return nil, err
+func cleanAttemptDirectories(root, prefix, except string) {
+	info, err := os.Lstat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return
 	}
-	var directories []string
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		log.Printf("Task terminal attempt: phase=cleanup_failed")
+		return
+	}
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		log.Printf("Task terminal attempt: phase=cleanup_failed")
+		return
+	}
 	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), attemptPrefix(id)) {
-			directories = append(directories, filepath.Join(l.directory, entry.Name()))
+		path := filepath.Join(root, entry.Name())
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), prefix) && path != except {
+			if err := os.RemoveAll(path); err != nil {
+				log.Printf("Task terminal attempt: id=%s phase=cleanup_failed", entry.Name())
+				continue
+			}
+			log.Printf("Task terminal attempt: id=%s phase=cleaned", entry.Name())
 		}
 	}
-	return directories, nil
 }
 
-// A rejected marker is written only after a late shell has opened the script.
-// Its open file descriptor remains valid when the pathname is removed. A GUI
-// exit alone does not prove that a previously spawned shell has read the file.
-func (l *Launcher) cleanReadAttempts(id string) error {
-	directories, err := l.attemptDirectories(id)
-	if err != nil {
-		return err
-	}
-	for _, directory := range directories {
-		entries, err := os.ReadDir(directory)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			if strings.HasPrefix(entry.Name(), "rejected-") {
-				if err := os.RemoveAll(directory); err != nil {
-					return err
-				}
-				log.Printf("Task terminal attempt: id=%s phase=cleaned", filepath.Base(directory))
-				break
-			}
-		}
-	}
-	return nil
+func (l *Launcher) cleanAttempts(id string) {
+	cleanAttemptDirectories(l.directory, attemptPrefix(id), "")
 }
 
 func New(directory string, open func(context.Context, string) error) *Launcher {
@@ -103,9 +90,7 @@ func (l *Launcher) Open(ctx context.Context, id string, t api.TerminalTarget) er
 		if o, err := cw.Observe(ctx); err == nil {
 			ended = o.ClientEnded && o.State != WindowClosed
 			if o.State == WindowClosed {
-				if err := l.cleanReadAttempts(id); err != nil {
-					return err
-				}
+				l.cleanAttempts(id)
 			}
 		}
 	}
@@ -141,22 +126,6 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 	}
 	if err = privateDirectory(l.directory); err != nil {
 		return err
-	}
-	directories, err := l.attemptDirectories(id)
-	if err != nil {
-		return err
-	}
-	if len(directories) >= maxRetainedAttempts {
-		if err := l.cleanReadAttempts(id); err != nil {
-			return err
-		}
-		directories, err = l.attemptDirectories(id)
-		if err != nil {
-			return err
-		}
-		if len(directories) >= maxRetainedAttempts {
-			return ErrRetainedAttempts
-		}
 	}
 	// Each explicit click gets a distinct receipt. A terminal may hold its
 	// consent dialog open after Launch Services has already returned success.
@@ -199,9 +168,7 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 			return err
 		}
 		if o.State == WindowClosed {
-			if err := l.cleanReadAttempts(id); err != nil {
-				return err
-			}
+			cleanAttemptDirectories(l.directory, attemptPrefix(id), directory)
 		}
 		if o.State != WindowClosed && !o.ClientEnded && !l.reconnect[id] {
 			return ErrWindowIdentity

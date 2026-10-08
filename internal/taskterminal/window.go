@@ -49,13 +49,13 @@ func (l *Launcher) lockOperation() {
 	l.observationMu.Unlock()
 }
 
-// Close releases observation handles and already-read revoked scripts. It never
+// Close releases observation handles and task attempt directories. It never
 // closes terminal windows or stops their clients; Runtime owns that decision.
 func (l *Launcher) Close() {
 	l.lockOperation()
 	defer l.mu.Unlock()
 	for id, w := range l.windows {
-		_ = l.cleanReadAttempts(id)
+		l.cleanAttempts(id)
 		w.Release()
 		delete(l.windows, id)
 	}
@@ -72,6 +72,7 @@ func (l *Launcher) Dismiss(ctx context.Context, id string) error {
 		if l.unmanaged[id] {
 			return ErrWindowIdentity
 		}
+		l.cleanAttempts(id)
 		return nil
 	}
 	a, ok := w.(interface{ Dismiss(context.Context) error })
@@ -81,9 +82,7 @@ func (l *Launcher) Dismiss(ctx context.Context, id string) error {
 	if err := a.Dismiss(ctx); err != nil {
 		return err
 	}
-	if err := l.cleanReadAttempts(id); err != nil {
-		return err
-	}
+	l.cleanAttempts(id)
 	w.Release()
 	delete(l.windows, id)
 	return nil

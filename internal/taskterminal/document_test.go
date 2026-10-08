@@ -146,7 +146,7 @@ func TestUnknownSubmittedOpenRetainsOwnerAndReadableRevokedScript(t *testing.T) 
 	}
 }
 
-func TestDismissKeepsUnreadCommandForPreviouslySpawnedShell(t *testing.T) {
+func TestDismissCleansUnreadCommandAtLifecycleEnd(t *testing.T) {
 	root := t.TempDir()
 	w := &dismissibleDocumentFixture{documentFixture: newDocumentFixture()}
 	var path string
@@ -161,15 +161,8 @@ func TestDismissKeepsUnreadCommandForPreviouslySpawnedShell(t *testing.T) {
 	if err := l.Dismiss(t.Context(), "owned"); err != nil {
 		t.Fatal(err)
 	}
-	// GUI exit alone does not prove a child shell has opened its pathname.
-	if out, err := exec.Command("/bin/sh", path).CombinedOutput(); err == nil || !strings.Contains(string(out), "expired") {
-		t.Fatal("late child could not safely read after GUI exit", string(out), err)
-	}
-	if err := l.cleanReadAttempts("owned"); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("read rejected attempt was not pruned", err)
+		t.Fatal("unread command survived owner release", err)
 	}
 }
 func TestReconnectReusesOwnedApplication(t *testing.T) {
