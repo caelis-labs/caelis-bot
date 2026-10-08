@@ -76,7 +76,7 @@
 .plugin-issues,.plugin-error{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:20px;font-size:12px;color:var(--error)}
 .settings-window .plugin-issues button,.settings-window .plugin-error button{min-height:0;padding:0;border:0;background:transparent;color:var(--caelis-link);text-decoration:underline}
 .plugin-dialog-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:24px;background:#0005}
-.plugin-dialog{width:min(550px,100%);max-height:min(80vh,700px);overflow:auto;border:1px solid var(--line);border-radius:16px;background:var(--caelis-raised);box-shadow:0 20px 60px #0003;padding:22px;color:var(--ink)}
+.plugin-dialog{display:flex;flex-direction:column;width:min(550px,100%);max-height:min(80vh,700px);overflow:hidden;border:1px solid var(--line);border-radius:16px;background:var(--caelis-raised);box-shadow:0 20px 60px #0003;padding:22px;color:var(--ink)}
 .plugin-dialog>header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
 .plugin-dialog>header small{color:var(--muted)}
 .plugin-dialog h2{margin:4px 0 0;font-size:20px}
@@ -85,7 +85,7 @@
 .plugin-skill-body{white-space:pre-wrap;overflow-wrap:anywhere;border-top:1px solid var(--line);padding-top:16px;margin-top:18px;font-size:12px;line-height:1.65;max-height:330px;overflow:auto}
 .plugin-connection-state{margin-top:18px;font-size:12px;color:var(--muted)}
 .plugin-tool-limit{margin:8px 0 0;font-size:12px;color:var(--muted)}
-.plugin-tool-list{margin-top:18px;border-top:1px solid var(--line);max-height:330px;overflow:auto}
+.plugin-tool-list{flex:1;min-height:0;margin-top:18px;border-top:1px solid var(--line);overflow:auto}
 .plugin-tool-list details+details{border-top:1px solid var(--line)}
 .plugin-tool-list summary{cursor:pointer;padding:11px 2px;font-size:13px}
 .plugin-tool-list details>div{padding:0 8px 13px;font-size:12px;overflow-wrap:anywhere}

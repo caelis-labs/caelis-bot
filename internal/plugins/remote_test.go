@@ -180,7 +180,7 @@ func TestProbeServerListsPagedToolsWithoutCallingTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	detail := m.ProbeServer(t.Context(), "fixture", "docs")
-	if detail.State != "connected" || len(detail.Tools) != 2 || detail.Tools[0].Name != "find" || detail.Tools[0].ReadOnlyHint == nil || !*detail.Tools[0].ReadOnlyHint || strings.Contains(fmt.Sprint(detail), "SYNTHETIC_PRIVATE_TOKEN") {
+	if detail.State != "connected" || len(detail.Tools) != 2 || detail.Tools[0].Name != "edit" || detail.Tools[1].Name != "find" || detail.Tools[1].ReadOnlyHint == nil || !*detail.Tools[1].ReadOnlyHint || strings.Contains(fmt.Sprint(detail), "SYNTHETIC_PRIVATE_TOKEN") {
 		t.Fatal("real directory probe failed", detail)
 	}
 	if fmt.Sprint(methods) != "[initialize notifications/initialized tools/list tools/list]" {

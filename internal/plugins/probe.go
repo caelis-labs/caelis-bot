@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -90,8 +91,9 @@ func (m *Manager) ProbeServer(ctx context.Context, packageID, name string) Serve
 		return probeFailure("")
 	}
 	detail := ServerDetail{State: "connected", Tools: []Tool{}}
+	seen := map[string]bool{}
 	cursor := ""
-	for page := 0; page < 8 && len(detail.Tools) < 128; page++ {
+	for page := 0; page < 8 && len(detail.Tools) < 512; page++ {
 		params := map[string]string{}
 		if cursor != "" {
 			params["cursor"] = cursor
@@ -115,19 +117,20 @@ func (m *Manager) ProbeServer(ctx context.Context, packageID, name string) Serve
 		if json.Unmarshal(result, &listing) != nil {
 			return probeFailure("")
 		}
-		if len(listing.Tools) > 128-len(detail.Tools) {
+		if len(listing.Tools) > 512-len(detail.Tools) {
 			detail.Truncated = true
 		}
 		for _, raw := range listing.Tools {
-			if len(detail.Tools) >= 128 {
+			if len(detail.Tools) >= 512 {
 				break
 			}
-			if name := SafeDisplayText(raw.Name); name != "" {
+			if name := SafeDisplayText(raw.Name); name != "" && !seen[name] {
+				seen[name] = true
 				detail.Tools = append(detail.Tools, Tool{Name: name, Title: SafeDisplayText(raw.Title), Description: SafeDisplayText(raw.Description), ReadOnlyHint: raw.Annotations.ReadOnlyHint, DestructiveHint: raw.Annotations.DestructiveHint, IdempotentHint: raw.Annotations.IdempotentHint, OpenWorldHint: raw.Annotations.OpenWorldHint})
 			}
 		}
 		if listing.NextCursor == "" {
-			return detail
+			return finishProbe(detail)
 		}
 		if len(listing.NextCursor) > 1024 || listing.NextCursor == cursor {
 			return probeFailure("")
@@ -135,6 +138,15 @@ func (m *Manager) ProbeServer(ctx context.Context, packageID, name string) Serve
 		cursor = listing.NextCursor
 	}
 	detail.Truncated = true
+	return finishProbe(detail)
+}
+
+func finishProbe(detail ServerDetail) ServerDetail {
+	sort.Slice(detail.Tools, func(i, j int) bool { return detail.Tools[i].Name < detail.Tools[j].Name })
+	if len(detail.Tools) > 128 {
+		detail.Truncated = true
+		detail.Tools = detail.Tools[:128]
+	}
 	return detail
 }
 
