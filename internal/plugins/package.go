@@ -26,6 +26,18 @@ var serviceName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 type Entry struct {
 	ID, Title, Version, Description, Source string
 	Files                                   map[string]string
+	Display                                 DisplayCatalog `json:"display,omitempty"`
+}
+type DisplayCatalog struct {
+	Publisher string                         `json:"publisher,omitempty"`
+	Skills    map[string]DisplayContribution `json:"skills,omitempty"`
+	Servers   map[string]DisplayContribution `json:"servers,omitempty"`
+}
+type DisplayContribution struct {
+	NameEn        string `json:"nameEn,omitempty"`
+	NameZh        string `json:"nameZh,omitempty"`
+	DescriptionEn string `json:"descriptionEn,omitempty"`
+	DescriptionZh string `json:"descriptionZh,omitempty"`
 }
 type Manifest struct {
 	Schema      string          `json:"$schema"`

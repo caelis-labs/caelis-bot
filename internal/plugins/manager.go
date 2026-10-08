@@ -41,15 +41,21 @@ type state struct {
 	Installed map[string]installed
 }
 type Item struct {
-	ID          string  `json:"id"`
-	Title       string  `json:"title"`
-	Version     string  `json:"version"`
-	Description string  `json:"description"`
-	Source      string  `json:"source"`
-	Installed   bool    `json:"installed"`
-	Enabled     bool    `json:"enabled"`
-	Status      string  `json:"status"`
-	Issues      []Issue `json:"issues"`
+	ID           string         `json:"id"`
+	Title        string         `json:"title"`
+	Version      string         `json:"version"`
+	Description  string         `json:"description"`
+	Source       string         `json:"source"`
+	Publisher    string         `json:"publisher,omitempty"`
+	PublisherURL string         `json:"publisherUrl,omitempty"`
+	SourceURL    string         `json:"sourceUrl,omitempty"`
+	Bundled      bool           `json:"bundled"`
+	Skills       []Contribution `json:"skills"`
+	MCPServers   []Contribution `json:"mcpServers"`
+	Installed    bool           `json:"installed"`
+	Enabled      bool           `json:"enabled"`
+	Status       string         `json:"status"`
+	Issues       []Issue        `json:"issues"`
 }
 type Snapshot struct {
 	Revision uint64 `json:"revision"`
@@ -87,10 +93,12 @@ func (s Selection) Clone() Selection {
 }
 
 type Manager struct {
-	mu      sync.Mutex
-	root    string
-	catalog []Entry
-	state   state
+	mu            sync.Mutex
+	root          string
+	catalog       []Entry
+	display       map[string]displayMetadata
+	displayIssues map[string]bool
+	state         state
 }
 
 func Open(root string) (*Manager, error) {
@@ -112,7 +120,7 @@ func Open(root string) (*Manager, error) {
 	if json.Unmarshal(body, &c) != nil || c.Version != 1 {
 		return nil, errors.New("invalid reviewed plugin catalog")
 	}
-	m := &Manager{root: root, catalog: c.Packages, state: state{Version: 1, Revision: 1, Installed: map[string]installed{}}}
+	m := &Manager{root: root, catalog: c.Packages, display: map[string]displayMetadata{}, displayIssues: map[string]bool{}, state: state{Version: 1, Revision: 1, Installed: map[string]installed{}}}
 	seen := map[string]bool{}
 	for _, e := range c.Packages {
 		if seen[e.ID] || !pluginName.MatchString(e.ID) || e.Version == "" || e.Source == "" || len(e.Files) == 0 {
@@ -123,6 +131,15 @@ func Open(root string) (*Manager, error) {
 			if !safeReviewedName(name) || len(hash) != 64 {
 				return nil, errors.New("invalid reviewed plugin inventory")
 			}
+		}
+		packageFiles, err := fs.Sub(reviewed, "packages/"+e.ID)
+		if err != nil {
+			m.displayIssues[e.ID] = true
+			continue
+		}
+		m.display[e.ID], err = reviewedDisplay(packageFiles, e)
+		if err != nil {
+			m.displayIssues[e.ID] = true
 		}
 	}
 	statePath := filepath.Join(root, "state.json")
@@ -264,9 +281,19 @@ func (m *Manager) Snapshot() Snapshot {
 				}
 			}
 		}
+		m.decorate(&item)
 		out.Items = append(out.Items, item)
 	}
 	return out
+}
+func (m *Manager) decorate(item *Item) {
+	detail := m.display[item.ID]
+	item.Publisher, item.PublisherURL, item.SourceURL, item.Bundled = detail.Publisher, detail.PublisherURL, detail.SourceURL, detail.Bundled
+	item.Skills = append([]Contribution{}, detail.Skills...)
+	item.MCPServers = append([]Contribution{}, detail.Servers...)
+	if m.displayIssues[item.ID] {
+		item.Issues = append(item.Issues, Issue{Component: "metadata", Name: item.ID, Message: "package details unavailable"})
+	}
 }
 func cloneState(s state) state {
 	n := s
@@ -375,7 +402,9 @@ func (m *Manager) snapshotLocked() Snapshot {
 				status = "ready"
 			}
 		}
-		out.Items = append(out.Items, Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Installed: ok, Enabled: ok && rec.Enabled, Status: status, Issues: []Issue{}})
+		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Installed: ok, Enabled: ok && rec.Enabled, Status: status, Issues: []Issue{}}
+		m.decorate(&item)
+		out.Items = append(out.Items, item)
 	}
 	return out
 }

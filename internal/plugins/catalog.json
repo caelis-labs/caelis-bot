@@ -5,8 +5,19 @@
       "id": "markdown-work",
       "title": "Markdown 写作",
       "version": "1.0.0",
-      "description": "在编写笔记、报告和 README 时提供按需指导。无需账号。",
+      "description": "编写笔记、报告和 README",
       "source": "bundled:caelis-bot/markdown-work",
+      "display": {
+        "publisher": "Caelis labs",
+        "skills": {
+          "markdown-work": {
+            "nameEn": "Markdown writing",
+            "nameZh": "Markdown 写作",
+            "descriptionEn": "Draft and improve notes, reports, and README files.",
+            "descriptionZh": "起草和修订笔记、报告与 README"
+          }
+        }
+      },
       "files": {
         "plugin.json": "d9eeaf6342de8ec4789b2b6da9d4c5b1abd6d89faa452513f633a8d54e9e0652",
         "skills/markdown-work/SKILL.md": "f11fc8d10ec6effa8b4aaf432ef55ae957304b3aeb8ee79f9f86bfb7997b8786"
