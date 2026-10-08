@@ -60,7 +60,7 @@ function General() {
  const {t}=useI18n();
  const [storageOpen,setStorageOpen]=useState(false);
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><LanguageSetting/><LoginAtLoginSetting/><TaskSettings/>
+  <h1>{t('settings.general')}</h1><div className="general-preferences"><LanguageSetting/><LoginAtLoginSetting/></div><TaskSettings/>
   <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/></SettingGroup>
   <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary><SettingsChevron/>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
  </section>;

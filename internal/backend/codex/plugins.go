@@ -403,7 +403,7 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 		return empty, nil
 	}
 	if c == nil || thread == "" {
-		empty.State = "pending"
+		empty.State = "not_started"
 		return empty, nil
 	}
 	var response struct {
@@ -432,8 +432,10 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 		switch server.RuntimeStatus {
 		case "connected":
 			out.State = "connected"
-		case "starting", "notStarted":
+		case "starting":
 			out.State = "pending"
+		case "notStarted":
+			out.State = "not_started"
 		case "authenticationRequired":
 			out.State = "authentication_required"
 		case "failed", "cancelled":

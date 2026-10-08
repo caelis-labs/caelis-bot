@@ -38,7 +38,9 @@ func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
 		state.Store(status)
 		detail, err = s.BotPluginServer(t.Context(), name)
 		want := "pending"
-		if status == "failed" {
+		if status == "inactive" {
+			want = "not_started"
+		} else if status == "failed" {
 			want = "failed"
 		}
 		if err != nil || detail.State != want || len(detail.Tools) != 0 {
@@ -49,6 +51,15 @@ func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
 	detail, err = s.BotPluginServer(t.Context(), name)
 	if err != nil || detail.State != "not_configured" || hits.Load() != 4 {
 		t.Fatal("unselected MCP was queried", detail, err, hits.Load())
+	}
+}
+
+func TestPluginServerWithoutCoreSessionIsNotConnectingForever(t *testing.T) {
+	s := New(Options{Directory: t.TempDir()})
+	s.tools = &api.ToolConnection{Plugins: plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "map", Name: "places"}}}}
+	detail, err := s.BotPluginServer(t.Context(), plugins.RuntimeName("map", "places"))
+	if err != nil || detail.State != "not_started" || len(detail.Tools) != 0 {
+		t.Fatal(detail, err)
 	}
 }
 

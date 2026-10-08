@@ -16,25 +16,20 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
 )
 
-func TestSixReviewedPackagesAndLegacyMigration(t *testing.T) {
+func TestConnectableReviewedPackagesAndLegacyMigration(t *testing.T) {
 	m, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	items := m.Snapshot().Items
-	if len(items) != 6 {
-		t.Fatalf("want six discoverable packages, got %d", len(items))
+	if len(items) != 5 {
+		t.Fatalf("want five connectable packages, got %d", len(items))
 	}
 	for _, item := range items {
 		if len(item.Skills) != 0 || len(item.MCPServers) != 1 || item.Connection == nil {
 			t.Fatal("invented or missing contribution", item.ID)
 		}
-		if _, err = m.Mutate(context.Background(), item.ID, "install", nil); item.ID == "notion" {
-			if err == nil {
-				t.Fatal("OAuth-only package falsely installable")
-			}
-			continue
-		} else if err != nil {
+		if _, err = m.Mutate(context.Background(), item.ID, "install", nil); err != nil {
 			t.Fatal(item.ID, err)
 		}
 		e, _ := m.entry(item.ID)

@@ -14,6 +14,15 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
+func TestPluginServerWithoutResidentThreadIsNotConnectingForever(t *testing.T) {
+	s := NewSession(SessionOptions{Directory: t.TempDir()})
+	s.opts.BotTools = &api.ToolConnection{Plugins: plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "map", Name: "places"}}}}
+	detail, err := s.BotPluginServer(t.Context(), plugins.RuntimeName("map", "places"))
+	if err != nil || detail.State != "not_started" || len(detail.Tools) != 0 {
+		t.Fatal(detail, err)
+	}
+}
+
 func TestBotProjectProjectionAndWorkerIsolation(t *testing.T) {
 	bot := t.TempDir()
 	worker := t.TempDir()

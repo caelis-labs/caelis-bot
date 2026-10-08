@@ -225,7 +225,7 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 		return empty, nil
 	}
 	if !capable || c == nil || sid == "" {
-		empty.State = "pending"
+		empty.State = "not_started"
 		return empty, nil
 	}
 	var status wire.ApplicationMCPStatus
@@ -240,7 +240,9 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 		switch server.Status {
 		case "running":
 			out.State = "connected"
-		case "inactive", "connecting":
+		case "inactive":
+			out.State = "not_started"
+		case "connecting":
 			out.State = "pending"
 		case "failed":
 			out.State = "failed"
