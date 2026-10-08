@@ -20,12 +20,13 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
+	"github.com/caelis-labs/caelis-bot/internal/secretstore"
 )
 
 // The source tree is a reviewed, build-owned catalog. Publishing a new entry
 // requires a Bot release; Settings cannot import arbitrary code or URLs.
 //
-//go:embed catalog.json packages
+//go:embed catalog.json all:packages
 var reviewed embed.FS
 
 type catalog struct {
@@ -38,26 +39,40 @@ type installed struct {
 	Root            string // immutable version directory; empty reads schema-1 state
 }
 type state struct {
-	Version   int
-	Revision  uint64
-	Installed map[string]installed
+	Version     int
+	Revision    uint64
+	Installed   map[string]installed
+	Connections map[string]connectionRecord
+}
+type connectionRecord struct {
+	Revision   uint64
+	Configured bool
+	HasCA      bool
+}
+type ConnectionView struct {
+	Kind    string `json:"kind"`
+	State   string `json:"state"`
+	HelpURL string `json:"helpUrl,omitempty"`
+	TrustCA bool   `json:"trustCA,omitempty"`
+	HasCA   bool   `json:"hasCA,omitempty"`
 }
 type Item struct {
-	ID           string         `json:"id"`
-	Title        string         `json:"title"`
-	Version      string         `json:"version"`
-	Description  string         `json:"description"`
-	Source       string         `json:"source"`
-	Publisher    string         `json:"publisher,omitempty"`
-	PublisherURL string         `json:"publisherUrl,omitempty"`
-	SourceURL    string         `json:"sourceUrl,omitempty"`
-	Bundled      bool           `json:"bundled"`
-	Skills       []Contribution `json:"skills"`
-	MCPServers   []Contribution `json:"mcpServers"`
-	Installed    bool           `json:"installed"`
-	Enabled      bool           `json:"enabled"`
-	Status       string         `json:"status"`
-	Issues       []Issue        `json:"issues"`
+	ID           string          `json:"id"`
+	Title        string          `json:"title"`
+	Version      string          `json:"version"`
+	Description  string          `json:"description"`
+	Source       string          `json:"source"`
+	Publisher    string          `json:"publisher,omitempty"`
+	PublisherURL string          `json:"publisherUrl,omitempty"`
+	SourceURL    string          `json:"sourceUrl,omitempty"`
+	Bundled      bool            `json:"bundled"`
+	Skills       []Contribution  `json:"skills"`
+	MCPServers   []Contribution  `json:"mcpServers"`
+	Installed    bool            `json:"installed"`
+	Enabled      bool            `json:"enabled"`
+	Status       string          `json:"status"`
+	Issues       []Issue         `json:"issues"`
+	Connection   *ConnectionView `json:"connection,omitempty"`
 }
 type Snapshot struct {
 	Revision uint64 `json:"revision"`
@@ -66,6 +81,8 @@ type Snapshot struct {
 type SelectedServer struct {
 	PackageID, Name, Root, Data string
 	Server                      Server
+	ConnectionRevision          uint64
+	Connection                  *ConnectionSpec
 }
 type Selection struct {
 	Revision   uint64
@@ -81,6 +98,10 @@ func (s Selection) Clone() Selection {
 	v.Servers = make([]SelectedServer, len(s.Servers))
 	for i, item := range s.Servers {
 		v.Servers[i] = item
+		if item.Connection != nil {
+			spec := *item.Connection
+			v.Servers[i].Connection = &spec
+		}
 		v.Servers[i].Server.Args = append([]string(nil), item.Server.Args...)
 		v.Servers[i].Server.Env = map[string]string{}
 		for k, value := range item.Server.Env {
@@ -102,6 +123,7 @@ type Manager struct {
 	displayIssues map[string]bool
 	sources       map[string]fs.FS
 	state         state
+	secrets       secretstore.Store
 }
 
 func Open(root string) (*Manager, error) {
@@ -134,13 +156,18 @@ func openCatalog(root string, entries []Entry, sources map[string]fs.FS) (*Manag
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, errors.New("plugin store must be a real directory")
 	}
-	m := &Manager{root: root, catalog: entries, sources: sources, display: map[string]displayMetadata{}, displayIssues: map[string]bool{}, state: state{Version: 1, Revision: 1, Installed: map[string]installed{}}}
+	m := &Manager{root: root, catalog: entries, sources: sources, display: map[string]displayMetadata{}, displayIssues: map[string]bool{}, secrets: secretstore.Functions{SaveFunc: saveSecret, LoadFunc: loadSecret, DeleteFunc: deleteSecret}, state: state{Version: 1, Revision: 1, Installed: map[string]installed{}, Connections: map[string]connectionRecord{}}}
 	seen := map[string]bool{}
 	for _, e := range entries {
 		if seen[e.ID] || !pluginName.MatchString(e.ID) || e.Version == "" || e.Source == "" || len(e.Files) == 0 {
 			return nil, errors.New("invalid reviewed plugin entry")
 		}
 		seen[e.ID] = true
+		if spec := e.Connection; spec != nil {
+			if !serviceName.MatchString(spec.Server) || !strings.Contains("|api-key|token|oauth|", "|"+spec.Kind+"|") || spec.Kind != "oauth" && (!strings.Contains("|env|header|query|", "|"+spec.Placement+"|") || spec.Name == "") {
+				return nil, errors.New("invalid reviewed plugin connection")
+			}
+		}
 		for name, hash := range e.Files {
 			if !safeReviewedName(name) || len(hash) != 64 {
 				return nil, errors.New("invalid reviewed plugin inventory")
@@ -174,6 +201,9 @@ func openCatalog(root string, entries []Entry, sources map[string]fs.FS) (*Manag
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
+	}
+	if m.state.Connections == nil {
+		m.state.Connections = map[string]connectionRecord{}
 	}
 	return m, nil
 }
@@ -289,11 +319,20 @@ func (m *Manager) selectionLocked(next state) Selection {
 		out.SkillRoots = append(out.SkillRoots, p.Skills...)
 		out.Issues = append(out.Issues, p.Issues...)
 		for _, s := range p.Servers {
-			out.Servers = append(out.Servers, SelectedServer{PackageID: id, Name: s.Name, Root: p.Root, Data: filepath.Join(m.root, "data", id), Server: s})
+			conn := next.Connections[id]
+			if e.Connection != nil && e.Connection.Server == s.Name && !conn.Configured {
+				continue
+			}
+			out.Servers = append(out.Servers, SelectedServer{PackageID: id, Name: s.Name, Root: p.Root, Data: filepath.Join(m.root, "data", id), Server: s, ConnectionRevision: conn.Revision, Connection: e.Connection})
 		}
 	}
 	sort.Strings(out.SkillRoots)
-	sort.Slice(out.Servers, func(i, j int) bool { return out.Servers[i].Name < out.Servers[j].Name })
+	sort.Slice(out.Servers, func(i, j int) bool {
+		if out.Servers[i].PackageID != out.Servers[j].PackageID {
+			return out.Servers[i].PackageID < out.Servers[j].PackageID
+		}
+		return out.Servers[i].Name < out.Servers[j].Name
+	})
 	return out
 }
 func (m *Manager) Selection() Selection {
@@ -307,6 +346,9 @@ func (m *Manager) Snapshot() Snapshot {
 	out := Snapshot{Revision: m.state.Revision, Items: []Item{}}
 	for _, e := range m.catalog {
 		rec, ok := m.state.Installed[e.ID]
+		if e.Legacy && !ok {
+			continue
+		}
 		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Installed: ok, Enabled: ok && rec.Enabled, Status: "available", Issues: []Issue{}}
 		if ok {
 			item.Status = "disabled"
@@ -326,6 +368,13 @@ func (m *Manager) Snapshot() Snapshot {
 			}
 		}
 		m.decorate(&item)
+		m.decorateConnection(&item, e, m.state)
+		if !item.Installed && item.Connection != nil && item.Connection.State == "oauth_unavailable" {
+			item.Status = "unavailable"
+		}
+		if item.Enabled && item.Connection != nil && item.Connection.State != "configured" {
+			item.Status = "needs_connection"
+		}
 		out.Items = append(out.Items, item)
 	}
 	return out
@@ -345,7 +394,24 @@ func cloneState(s state) state {
 	for k, v := range s.Installed {
 		n.Installed[k] = v
 	}
+	n.Connections = make(map[string]connectionRecord, len(s.Connections))
+	for k, v := range s.Connections {
+		n.Connections[k] = v
+	}
 	return n
+}
+func (m *Manager) decorateConnection(item *Item, e Entry, st state) {
+	if e.Connection == nil {
+		return
+	}
+	state := "not_configured"
+	if e.Connection.Kind == "oauth" {
+		state = "oauth_unavailable"
+	}
+	if st.Connections[e.ID].Configured {
+		state = "configured"
+	}
+	item.Connection = &ConnectionView{Kind: e.Connection.Kind, State: state, HelpURL: e.Connection.HelpURL, TrustCA: e.Connection.TrustCA, HasCA: st.Connections[e.ID].HasCA}
 }
 func (m *Manager) save(next state) error {
 	return localstate.WriteConfirmed(filepath.Join(m.root, "state.json"), next)
@@ -362,9 +428,13 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 		return Snapshot{}, errors.New("plugin is not in the reviewed catalog")
 	}
 	current, has := m.state.Installed[id]
+	currentConnection := m.state.Connections[id]
 	next := cloneState(m.state)
 	switch action {
 	case "install":
+		if e.Connection != nil && e.Connection.Kind == "oauth" {
+			return m.snapshotLocked(), errors.New("OAuth connection unavailable")
+		}
 		if has && current.Version == e.Version && current.Digest == digest(e) {
 			if _, err := m.readInstalledAt(e, current.Root); err != nil {
 				return m.snapshotLocked(), fmt.Errorf("installed plugin verification failed: %w", err)
@@ -399,6 +469,9 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 			return m.snapshotLocked(), nil
 		}
 		delete(next.Installed, id)
+		if next.Connections[id].Configured {
+			next.Connections[id] = connectionRecord{Revision: next.Revision + 1}
+		}
 	default:
 		return m.snapshotLocked(), errors.New("unsupported plugin action")
 	}
@@ -433,12 +506,24 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 		return m.snapshotLocked(), errors.Join(failures...)
 	}
 	m.state = next
+	if action == "uninstall" && e.Connection != nil {
+		old := currentConnection
+		if old.Configured {
+			_ = m.secrets.Delete(secretKey(m.root, id, old.Revision))
+			if old.HasCA {
+				_ = m.secrets.Delete(secretKey(m.root, id, old.Revision) + "-ca")
+			}
+		}
+	}
 	return m.snapshotLocked(), nil
 }
 func (m *Manager) snapshotLocked() Snapshot {
 	out := Snapshot{Revision: m.state.Revision, Items: []Item{}}
 	for _, e := range m.catalog {
 		rec, ok := m.state.Installed[e.ID]
+		if e.Legacy && !ok {
+			continue
+		}
 		status := "available"
 		if ok {
 			status = "disabled"
@@ -448,6 +533,10 @@ func (m *Manager) snapshotLocked() Snapshot {
 		}
 		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Installed: ok, Enabled: ok && rec.Enabled, Status: status, Issues: []Issue{}}
 		m.decorate(&item)
+		m.decorateConnection(&item, e, m.state)
+		if item.Enabled && item.Connection != nil && item.Connection.State != "configured" {
+			item.Status = "needs_connection"
+		}
 		out.Items = append(out.Items, item)
 	}
 	return out

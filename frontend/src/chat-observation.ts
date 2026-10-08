@@ -82,24 +82,65 @@ export function retryRead<T>(read:()=>Promise<T>,accept:(value:T)=>void,failed:(
  return()=>{active=false;if(timer!==undefined)clearTimeout(timer);};
 }
 
-// The native draft is a full replacement. While a write is in flight, only its
-// latest successor is needed; sending still waits until that successor is saved.
+// Chat rows and streaming text do not change the editor's controls. Compare only
+// the snapshot facts consumed by Composer, so a new history projection cannot
+// schedule an editor render.
+export function sameComposerSnapshot(a:{connection:string;phase:string;maintenance?:string;canSend:boolean;canSteer:boolean;canInterrupt:boolean;lastReceipt:{id:string;outcome:string};references:unknown[]}|null,b:typeof a):boolean {
+ if(a===b)return true;
+ if(!a||!b)return false;
+ return a.connection===b.connection&&a.phase===b.phase&&a.maintenance===b.maintenance&&
+  a.canSend===b.canSend&&a.canSteer===b.canSteer&&a.canInterrupt===b.canInterrupt&&
+  a.lastReceipt.id===b.lastReceipt.id&&a.lastReceipt.outcome===b.lastReceipt.outcome&&
+  JSON.stringify(a.references)===JSON.stringify(b.references);
+}
+
+// Full replacements save after a quiet period or a bounded typing burst. The
+// latest pending replacement wins while a write is in flight; flush is the
+// send/switch barrier.
 export class DraftQueue {
  private pending: (() => Promise<void>) | null = null;
  private writing: Promise<void> | null = null;
+ private timer: ReturnType<typeof setTimeout> | null = null;
+ private maxTimer: ReturnType<typeof setTimeout> | null = null;
+ private maxDue = false;
+ private flushing = false;
+ private failure: unknown = null;
+ private waiters: Array<{resolve:()=>void;reject:(error:unknown)=>void}> = [];
+ private readonly delay: number;
+ private readonly maxDelay: number;
+ constructor(delay=400,maxDelay=2000) {this.delay=delay;this.maxDelay=maxDelay;}
  enqueue(write: () => Promise<void>) {
   this.pending = write;
-  if (!this.writing) {
-   this.writing = Promise.resolve().then(async()=>{
-    try {
-     while (this.pending) {
-      const next=this.pending;this.pending=null;
-      await next();
-     }
-    } finally { this.writing=null; }
-   });
-  }
-  return this.writing;
+  if(this.timer!==null)clearTimeout(this.timer);
+  if(!this.maxDue)this.timer=setTimeout(()=>{this.timer=null;this.start();},this.delay);
+  if(this.maxTimer===null&&!this.maxDue)this.maxTimer=setTimeout(()=>{
+   this.maxTimer=null;this.maxDue=true;
+   if(this.timer!==null){clearTimeout(this.timer);this.timer=null;}
+   this.start();
+  },this.maxDelay);
  }
- flush() { return this.writing ?? Promise.resolve(); }
+ flush(): Promise<void> {
+  if(this.timer!==null){clearTimeout(this.timer);this.timer=null;}
+  if(this.maxTimer!==null){clearTimeout(this.maxTimer);this.maxTimer=null;}
+  this.maxDue=false;
+  this.flushing=true;
+  this.start();
+  if(!this.writing&&!this.pending){this.flushing=false;const failure=this.failure;this.failure=null;return failure===null?Promise.resolve():Promise.reject(failure);}
+  return new Promise((resolve,reject)=>this.waiters.push({resolve,reject}));
+ }
+ private start() {
+  if(this.writing||!this.pending)return;
+  if(this.timer!==null){clearTimeout(this.timer);this.timer=null;}
+  if(this.maxTimer!==null){clearTimeout(this.maxTimer);this.maxTimer=null;}
+  this.maxDue=false;
+  const write=this.pending;this.pending=null;
+  this.writing=Promise.resolve().then(write).catch(error=>{this.failure=error;}).then(()=>{
+   this.writing=null;
+   if(this.pending&&(this.flushing||this.timer===null)){this.start();return;}
+   if(this.pending)return;
+   this.flushing=false;
+   const waiters=this.waiters.splice(0),failure=this.failure;this.failure=null;
+   for(const waiter of waiters)failure===null?waiter.resolve():waiter.reject(failure);
+  });
+ }
 }

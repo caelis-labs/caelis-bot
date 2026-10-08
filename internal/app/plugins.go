@@ -54,33 +54,54 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 	if !item.Enabled {
 		return plugins.ServerDetail{State: "disabled", Tools: []plugins.Tool{}}, nil
 	}
-	selected := false
+	selected, selectedRemote := false, false
 	for _, entry := range a.plugins.Selection().Servers {
 		if entry.PackageID == id && entry.Name == server {
 			selected = true
+			selectedRemote = entry.Server.Type == "streamable-http"
 			break
 		}
 	}
 	if !selected {
 		return plugins.ServerDetail{State: "not_configured", Tools: []plugins.Tool{}}, nil
 	}
-	inspector, ok := a.engine.(api.PluginInspector)
-	if !ok {
-		return plugins.ServerDetail{State: "unknown", Tools: []plugins.Tool{}}, nil
+	inspector, hasInspector := a.engine.(api.PluginInspector)
+	var generation uint64
+	if hasInspector {
+		generation = inspector.BotPluginGeneration()
 	}
-	key := fmt.Sprintf("%d/%d/%s/%s/%s", snapshot.Revision, inspector.BotPluginGeneration(), id, item.Version, server)
+	key := fmt.Sprintf("%d/%d/%s/%s/%s", snapshot.Revision, generation, id, item.Version, server)
 	a.pluginDetailMu.Lock()
 	if cached, ok := a.pluginDetailCache[key]; !refresh && ok && time.Now().Before(cached.expires) {
 		a.pluginDetailMu.Unlock()
 		return cached.detail, nil
 	}
 	a.pluginDetailMu.Unlock()
-	detail, err := inspector.BotPluginServer(ctx, plugins.RuntimeName(id, server))
-	if err != nil {
-		return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, nil
+	detail := plugins.ServerDetail{State: "not_started", Tools: []plugins.Tool{}}
+	if hasInspector {
+		var err error
+		detail, err = inspector.BotPluginServer(ctx, plugins.RuntimeName(id, server))
+		if err != nil {
+			return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, nil
+		}
+	}
+	if detail.State == "not_started" {
+		detail = a.plugins.ProbeServer(ctx, id, server)
+	} else if detail.State == "connected" && selectedRemote && needsToolMetadata(detail.Tools) {
+		// Core's mcp-status publishes authoritative tool names but not their
+		// descriptions. Read metadata only when this detail is explicitly opened,
+		// and never expose a tool absent from the Runtime's active directory.
+		if catalog := a.plugins.ProbeServer(ctx, id, server); catalog.State == "connected" {
+			detail.Tools = append([]plugins.Tool(nil), detail.Tools...)
+			enrichToolMetadata(detail.Tools, catalog.Tools)
+		}
+	}
+	if a.plugins.Snapshot().Revision != snapshot.Revision {
+		return plugins.ServerDetail{State: "unknown", Tools: []plugins.Tool{}}, nil
 	}
 	if len(detail.Tools) > 128 {
 		detail.Tools = detail.Tools[:128]
+		detail.Truncated = true
 	}
 	if detail.Tools == nil {
 		detail.Tools = []plugins.Tool{}
@@ -97,6 +118,46 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 		a.pluginDetailMu.Unlock()
 	}
 	return detail, nil
+}
+
+func needsToolMetadata(tools []plugins.Tool) bool {
+	for _, tool := range tools {
+		if tool.Description == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func enrichToolMetadata(active, discovered []plugins.Tool) {
+	byName := make(map[string]plugins.Tool, len(discovered))
+	for _, tool := range discovered {
+		byName[tool.Name] = tool
+	}
+	for i := range active {
+		metadata, ok := byName[active[i].Name]
+		if !ok {
+			continue
+		}
+		if active[i].Title == "" {
+			active[i].Title = metadata.Title
+		}
+		if active[i].Description == "" {
+			active[i].Description = metadata.Description
+		}
+		if active[i].ReadOnlyHint == nil {
+			active[i].ReadOnlyHint = metadata.ReadOnlyHint
+		}
+		if active[i].DestructiveHint == nil {
+			active[i].DestructiveHint = metadata.DestructiveHint
+		}
+		if active[i].IdempotentHint == nil {
+			active[i].IdempotentHint = metadata.IdempotentHint
+		}
+		if active[i].OpenWorldHint == nil {
+			active[i].OpenWorldHint = metadata.OpenWorldHint
+		}
+	}
 }
 
 func (a *Application) PluginSnapshot(ctx context.Context) (plugins.Snapshot, error) {
@@ -153,6 +214,41 @@ func (a *Application) PluginAction(ctx context.Context, id, action string) (plug
 	if mutationErr != nil {
 		snapshot, _ := a.PluginSnapshot(ctx)
 		return snapshot, mutationErr
+	}
+	a.pluginDetailMu.Lock()
+	a.pluginDetailCache = nil
+	a.pluginDetailMu.Unlock()
+	return a.PluginSnapshot(ctx)
+}
+
+// PluginConnection is write-only at the desktop boundary. The credential
+// stays in Bot's native secret store; only a revision enters Runtime config.
+func (a *Application) PluginConnection(ctx context.Context, id, secret, caPEM string, clear bool) (plugins.Snapshot, error) {
+	if a.plugins == nil {
+		return plugins.Snapshot{}, errors.New("plugin store unavailable")
+	}
+	adapter, ok := a.engine.(api.PluginConfigurator)
+	if !ok {
+		return plugins.Snapshot{}, errors.New("runtime does not support Bot plugins")
+	}
+	a.pluginAdmission.Lock()
+	defer a.pluginAdmission.Unlock()
+	err := adapter.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
+		a.mu.Lock()
+		started, closed := a.started, a.closed
+		a.mu.Unlock()
+		if closed {
+			return errors.New("Bot has stopped")
+		}
+		if !started {
+			apply = nil
+		}
+		_, e := a.plugins.ConfigureConnection(ctx, id, secret, caPEM, clear, apply)
+		return e
+	})
+	if err != nil {
+		snapshot, _ := a.PluginSnapshot(ctx)
+		return snapshot, err
 	}
 	a.pluginDetailMu.Lock()
 	a.pluginDetailCache = nil

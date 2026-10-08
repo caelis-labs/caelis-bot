@@ -205,12 +205,18 @@ func TestOwnedInstanceSurvivesMissingReceiptWithoutReplayingScript(t *testing.T)
 	if l.windows["owned"] != w || w.releases != 0 {
 		t.Fatal("lost launched app just because its script was not confirmed")
 	}
-	if _, err := os.Stat(script); !os.IsNotExist(err) {
-		t.Fatal("late command was not revoked", err)
+	if _, err := os.Stat(script); err != nil {
+		t.Fatal("late shell lost its revoked entry point", err)
+	}
+	if out, err := exec.Command("/bin/sh", script).CombinedOutput(); err == nil || !strings.Contains(string(out), "expired") {
+		t.Fatal("late command did not safely reject", string(out), err)
 	}
 	// Keeping the handle allows later close/reconciliation; releasing it is not quit.
 	l.Close()
 	if w.releases != 1 {
 		t.Fatal("owned handle was not released")
+	}
+	if _, err := os.Stat(script); !os.IsNotExist(err) {
+		t.Fatal("read rejected attempt survived owner release", err)
 	}
 }

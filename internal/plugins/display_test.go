@@ -76,13 +76,28 @@ func TestReviewedDisplayRequiresVerifiedBytesAndSafePresentation(t *testing.T) {
 	}
 }
 
+func TestToolDescriptionKeepsNormalLongProseWithoutExposingConfiguration(t *testing.T) {
+	paragraph := strings.Repeat("Describe a document operation clearly. ", 12)
+	if len(paragraph) <= 240 || SafeDisplayText(paragraph) != "" || SafeDisplayDescription(paragraph) != strings.TrimSpace(paragraph) {
+		t.Fatal("normal MCP tool explanation was lost")
+	}
+	for _, unsafe := range []string{"Open /Users/private/notes", "Use token=SYNTHETIC_PRIVATE_TOKEN", "Read https://private.example/?key=secret"} {
+		if SafeDisplayDescription(unsafe) != "" {
+			t.Fatal("unsafe tool description reached the UI")
+		}
+	}
+}
+
 func TestBundledMarkdownDisplayFromReviewedCatalog(t *testing.T) {
 	m, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = m.Mutate(t.Context(), "markdown-work", "install", nil); err != nil {
+		t.Fatal(err)
+	}
 	items := m.Snapshot().Items
-	if len(items) != 1 || items[0].Publisher != "Caelis labs" || items[0].Description != "编写笔记、报告和 README" || !items[0].Bundled || len(items[0].Skills) != 1 || len(items[0].MCPServers) != 0 || items[0].Skills[0].ID != "markdown-work" {
+	if len(items) != 6 || items[0].Publisher != "Caelis labs" || items[0].Description != "编写笔记、报告和 README" || !items[0].Bundled || len(items[0].Skills) != 1 || len(items[0].MCPServers) != 0 || items[0].Skills[0].ID != "markdown-work" {
 		t.Fatal("bundled display differs from reviewed manifest and Skill", items)
 	}
 }

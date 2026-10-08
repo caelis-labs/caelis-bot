@@ -46,6 +46,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	s.telegram = core.Telegram
 	s.pluginSnapshot = core.PluginSnapshot
 	s.pluginAction = core.PluginAction
+	s.pluginConnection = core.PluginConnection
 	s.pluginSkillDetail = core.PluginSkillDetail
 	s.pluginServerDetail = core.PluginServerDetail
 	s.openExternalURL = back.OpenMessageLink

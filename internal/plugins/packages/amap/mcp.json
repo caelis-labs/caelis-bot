@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "amap": {
+      "type": "streamable-http",
+      "url": "https://mcp.amap.com/mcp"
+    }
+  }
+}

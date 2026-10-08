@@ -41,9 +41,10 @@ type Tool struct {
 }
 
 type ServerDetail struct {
-	State string `json:"state"`
-	Tools []Tool `json:"tools"`
-	Error string `json:"error,omitempty"`
+	State     string `json:"state"`
+	Tools     []Tool `json:"tools"`
+	Error     string `json:"error,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 type SkillDetail struct {
@@ -123,6 +124,12 @@ func displayTextBound(value string, limit int) string {
 // SafeDisplayText is the narrow presentation boundary for untrusted MCP
 // directory labels. A rejected value is omitted, never rendered as raw config.
 func SafeDisplayText(value string) string { return displayText(value) }
+
+// SafeDisplayDescription keeps normal MCP tool explanations that are longer
+// than a row label, while applying the same path and credential exclusions.
+func SafeDisplayDescription(value string) string {
+	return displayTextBound(strings.Join(strings.Fields(value), " "), 2048)
+}
 
 func displayURL(value string) string {
 	u, err := url.Parse(value)

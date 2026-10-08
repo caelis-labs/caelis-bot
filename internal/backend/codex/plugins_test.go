@@ -14,6 +14,15 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
+func TestPluginServerWithoutResidentThreadIsNotConnectingForever(t *testing.T) {
+	s := NewSession(SessionOptions{Directory: t.TempDir()})
+	s.opts.BotTools = &api.ToolConnection{Plugins: plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "map", Name: "places"}}}}
+	detail, err := s.BotPluginServer(t.Context(), plugins.RuntimeName("map", "places"))
+	if err != nil || detail.State != "not_started" || len(detail.Tools) != 0 {
+		t.Fatal(detail, err)
+	}
+}
+
 func TestBotProjectProjectionAndWorkerIsolation(t *testing.T) {
 	bot := t.TempDir()
 	worker := t.TempDir()
@@ -58,6 +67,42 @@ func TestBotProjectProjectionAndWorkerIsolation(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(worker, ".agents")); !os.IsNotExist(err) {
 		t.Fatal("Worker received Skills")
+	}
+}
+
+func TestCodexCredentialBridgeUsesBotOnlyProjectAndNoSecret(t *testing.T) {
+	bot, worker, root := t.TempDir(), t.TempDir(), t.TempDir()
+	selection := plugins.Selection{Revision: 42, Servers: []plugins.SelectedServer{{PackageID: "github", Name: "github", Root: filepath.Join(root, "versions", "github", "v1"), Data: filepath.Join(root, "data", "github"), Server: plugins.Server{Type: "streamable-http", URL: "https://api.githubcopilot.com/mcp/readonly"}, Connection: &plugins.ConnectionSpec{Server: "github", Kind: "token", Placement: "header", Name: "Authorization", Prefix: "Bearer "}, ConnectionRevision: 42}}}
+	c := &api.ToolConnection{Command: "/fixture/Bot", Plugins: selection, NotebookDirectory: bot}
+	s := NewSession(SessionOptions{Directory: bot})
+	if err := s.ConfigureBotTools(c); err != nil {
+		t.Fatal(err)
+	}
+	project, err := os.ReadFile(filepath.Join(bot, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(project), "--plugin-mcp") || !strings.Contains(string(project), `"42"`) || strings.Contains(string(project), "Authorization") || strings.Contains(string(project), "Bearer") || strings.Contains(string(project), "api.githubcopilot.com") {
+		t.Fatal("Bot-only project leaked connection", string(project))
+	}
+	params, _ := json.Marshal(s.connectionParams())
+	if strings.Contains(string(params), plugins.RuntimeName("github", "github")) {
+		t.Fatal("mutable plugin entered thread override")
+	}
+	child, _ := json.Marshal(s.workerParams(worker, "worker", &taskRecord{}))
+	if strings.Contains(string(child), "--plugin-mcp") || strings.Contains(string(child), "Authorization") || strings.Contains(string(child), "Bearer") {
+		t.Fatal("Worker inherited connection")
+	}
+	if _, err := os.Stat(filepath.Join(worker, ".codex")); !os.IsNotExist(err) {
+		t.Fatal("Worker received Bot project")
+	}
+	// The same resident project must remove the bridge on deactivation.
+	if err := projectCodexWorkspace(bot, &api.ToolConnection{Command: "/fixture/Bot"}); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := os.ReadFile(filepath.Join(bot, ".codex", "config.toml"))
+	if err != nil || strings.Contains(string(cleared), plugins.RuntimeName("github", "github")) {
+		t.Fatal("disabled service remained in Bot project", err)
 	}
 }
 

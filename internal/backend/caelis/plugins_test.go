@@ -38,7 +38,9 @@ func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
 		state.Store(status)
 		detail, err = s.BotPluginServer(t.Context(), name)
 		want := "pending"
-		if status == "failed" {
+		if status == "inactive" {
+			want = "not_started"
+		} else if status == "failed" {
 			want = "failed"
 		}
 		if err != nil || detail.State != want || len(detail.Tools) != 0 {
@@ -49,6 +51,15 @@ func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
 	detail, err = s.BotPluginServer(t.Context(), name)
 	if err != nil || detail.State != "not_configured" || hits.Load() != 4 {
 		t.Fatal("unselected MCP was queried", detail, err, hits.Load())
+	}
+}
+
+func TestPluginServerWithoutCoreSessionIsNotConnectingForever(t *testing.T) {
+	s := New(Options{Directory: t.TempDir()})
+	s.tools = &api.ToolConnection{Plugins: plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "map", Name: "places"}}}}
+	detail, err := s.BotPluginServer(t.Context(), plugins.RuntimeName("map", "places"))
+	if err != nil || detail.State != "not_started" || len(detail.Tools) != 0 {
+		t.Fatal(detail, err)
 	}
 }
 
@@ -127,7 +138,7 @@ func TestPublicCorePluginProjectionKeepsPortableEnvironmentPrivate(t *testing.T)
 		{PackageID: "sample", Name: "remote", Root: root, Data: data, Server: plugins.Server{Type: "streamable-http", URL: "https://example.com/mcp", Headers: map[string]string{"X-Tenant": "public"}}},
 	}}
 	servers, skills, issues := corePlugins(selection, "/Applications/CaelisBotDev.app/Contents/MacOS/CaelisBot", []string{filepath.Join(root, "built-in")})
-	if len(servers) != 1 || len(skills) != 2 || len(issues) != 1 || issues[0].Component != "server" {
+	if len(servers) != 2 || len(skills) != 2 || len(issues) != 0 {
 		t.Fatal(servers, skills, issues)
 	}
 	if servers[0].Name != plugins.RuntimeName("sample", "local-validator") || *servers[0].Command != "/Applications/CaelisBotDev.app/Contents/MacOS/CaelisBot" || len(servers[0].Args) != 5 || servers[0].Args[0] != "--plugin-mcp" || servers[0].Args[4] != "v1" {
@@ -137,6 +148,22 @@ func TestPublicCorePluginProjectionKeepsPortableEnvironmentPrivate(t *testing.T)
 		if arg == "RULES" || arg == "${PLUGIN_ROOT}/rules.json" {
 			t.Fatal("environment reached Core profile")
 		}
+	}
+	if servers[1].Transport != "stdio" || len(servers[1].Args) != 5 || servers[1].Args[3] != "remote" || servers[1].Url != nil {
+		t.Fatal("static HTTP headers were not kept in Bot transport", servers[1])
+	}
+}
+
+func TestCoreCredentialSelectionProjectsOnlyReference(t *testing.T) {
+	root := t.TempDir()
+	selection := plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "github", Name: "github", Root: filepath.Join(root, "versions", "github", "v1"), Data: filepath.Join(root, "data", "github"), Server: plugins.Server{Type: "streamable-http", URL: "https://api.githubcopilot.com/mcp/readonly"}, Connection: &plugins.ConnectionSpec{Server: "github", Kind: "token", Placement: "header", Name: "Authorization", Prefix: "Bearer "}, ConnectionRevision: 42}}}
+	servers, _, issues := corePlugins(selection, "/fixture/Bot", nil)
+	if len(issues) != 0 || len(servers) != 1 || len(servers[0].Args) != 6 || servers[0].Args[5] != "42" || servers[0].Transport != "stdio" {
+		t.Fatal(servers, issues)
+	}
+	data, _ := json.Marshal(servers)
+	if strings.Contains(string(data), "Authorization") || strings.Contains(string(data), "Bearer") || strings.Contains(string(data), "SYNTHETIC_PRIVATE_TOKEN") || strings.Contains(string(data), "api.githubcopilot.com") {
+		t.Fatal("credential or endpoint reached Core profile", string(data))
 	}
 }
 

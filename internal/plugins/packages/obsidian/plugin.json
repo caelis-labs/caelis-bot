@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "obsidian",
+  "version": "1.0.0",
+  "description": "Work with notes through Obsidian Local REST API",
+  "author": {
+    "name": "coddingtonbear",
+    "url": "https://github.com/coddingtonbear/obsidian-local-rest-api"
+  },
+  "homepage": "https://github.com/coddingtonbear/obsidian-local-rest-api",
+  "license": "MIT"
+}

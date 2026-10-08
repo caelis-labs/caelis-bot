@@ -3,14 +3,18 @@ package taskterminal
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 type Launcher struct {
@@ -31,6 +35,44 @@ type Launcher struct {
 
 var ErrUnconfirmed = errors.New("terminal launch was not confirmed")
 
+func attemptPrefix(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return ".launch-" + hex.EncodeToString(sum[:16]) + "-"
+}
+
+func cleanAttemptDirectories(root, prefix, except string) {
+	info, err := os.Lstat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		log.Printf("Task terminal attempt: phase=cleanup_failed")
+		return
+	}
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		log.Printf("Task terminal attempt: phase=cleanup_failed")
+		return
+	}
+	for _, entry := range entries {
+		path := filepath.Join(root, entry.Name())
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), prefix) && path != except {
+			if err := os.RemoveAll(path); err != nil {
+				log.Printf("Task terminal attempt: id=%s phase=cleanup_failed", entry.Name())
+				continue
+			}
+			log.Printf("Task terminal attempt: id=%s phase=cleaned", entry.Name())
+		}
+	}
+}
+
+func (l *Launcher) cleanAttempts(id string) {
+	cleanAttemptDirectories(l.directory, attemptPrefix(id), "")
+}
+
 func New(directory string, open func(context.Context, string) error) *Launcher {
 	return &Launcher{directory: directory, open: open}
 }
@@ -47,6 +89,9 @@ func (l *Launcher) Open(ctx context.Context, id string, t api.TerminalTarget) er
 	if controlled {
 		if o, err := cw.Observe(ctx); err == nil {
 			ended = o.ClientEnded && o.State != WindowClosed
+			if o.State == WindowClosed {
+				l.cleanAttempts(id)
+			}
 		}
 	}
 	err := l.openConnection(ctx, id, t)
@@ -62,6 +107,8 @@ func (l *Launcher) Open(ctx context.Context, id string, t api.TerminalTarget) er
 // before returning; another attempt cannot overlap command delivery.
 func (l *Launcher) openConnection(ctx context.Context, id string, t api.TerminalTarget) (result error) {
 	submitted := false
+	confirmed := false
+	revoked := false
 	defer func() {
 		if result != nil && !submitted {
 			result = NotLaunched(result)
@@ -82,11 +129,18 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 	}
 	// Each explicit click gets a distinct receipt. A terminal may hold its
 	// consent dialog open after Launch Services has already returned success.
-	directory, err := os.MkdirTemp(l.directory, ".launch-")
+	directory, err := os.MkdirTemp(l.directory, attemptPrefix(id))
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(directory)
+	defer func() {
+		if submitted && !confirmed && revoked && !errors.Is(result, ErrLaunchNotSubmitted) {
+			log.Printf("Task terminal attempt: id=%s phase=retained", filepath.Base(directory))
+			return
+		}
+		_ = os.RemoveAll(directory)
+		log.Printf("Task terminal attempt: id=%s phase=cleaned", filepath.Base(directory))
+	}()
 	path := filepath.Join(directory, "Caelis Bot.command")
 	pending := filepath.Join(directory, "pending")
 	acceptedPrefix := filepath.Join(directory, "accepted-")
@@ -102,6 +156,7 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 	if err = writeScript(directory, path, guarded); err != nil {
 		return err
 	}
+	log.Printf("Task terminal attempt: id=%s phase=published", filepath.Base(directory))
 	var window Window
 	if previous := l.windows[id]; previous != nil {
 		cw, ok := previous.(ControlledWindow)
@@ -111,6 +166,9 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 		o, err := cw.Observe(ctx)
 		if err != nil {
 			return err
+		}
+		if o.State == WindowClosed {
+			cleanAttemptDirectories(l.directory, attemptPrefix(id), directory)
 		}
 		if o.State != WindowClosed && !o.ClientEnded && !l.reconnect[id] {
 			return ErrWindowIdentity
@@ -123,7 +181,6 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 			delete(l.windows, id)
 		}
 	}
-	confirmed := false
 	defer func() {
 		if window != nil && !confirmed {
 			if _, ok := window.(DocumentWindow); ok {
@@ -137,6 +194,7 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 		}
 	}()
 	submitted = true // A callback may submit before returning an error or cancellation.
+	log.Printf("Task terminal attempt: id=%s phase=native_handoff", filepath.Base(directory))
 	if window != nil {
 		err = window.(DocumentWindow).OpenDocument(ctx, path)
 	} else if l.openWindow != nil {
@@ -163,6 +221,7 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 				continue
 			}
 			confirmed = true
+			log.Printf("Task terminal attempt: id=%s phase=read", filepath.Base(directory))
 			delete(l.reconnect, id)
 			next, err := strconv.Atoi(strings.TrimPrefix(entry.Name(), "accepted-"))
 			if err != nil || next <= 0 || pid != 0 {
@@ -187,6 +246,10 @@ func (l *Launcher) openConnection(ctx context.Context, id string, t api.Terminal
 	// Missing/unknown receipts alone never authorize resubmission.
 	revoke := func(reason error) error {
 		removed := os.Remove(pending)
+		if removed == nil {
+			revoked = true
+			log.Printf("Task terminal attempt: id=%s phase=revoked", filepath.Base(directory))
+		}
 		check := confirm()
 		if !errors.Is(check, os.ErrNotExist) {
 			if check != nil {

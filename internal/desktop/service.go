@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
@@ -37,6 +38,7 @@ type driver interface {
 type Service struct {
 	pluginSnapshot      func(context.Context) (plugins.Snapshot, error)
 	pluginAction        func(context.Context, string, string) (plugins.Snapshot, error)
+	pluginConnection    func(context.Context, string, string, string, bool) (plugins.Snapshot, error)
 	pluginSkillDetail   func(context.Context, string, string) (plugins.SkillDetail, error)
 	pluginServerDetail  func(context.Context, string, string, bool) (plugins.ServerDetail, error)
 	telegram            *telegram.Bridge
@@ -97,6 +99,10 @@ type Service struct {
 	restartRuntime      func() error
 	openSettings        func()
 	closeSettings       func()
+	requestDraftFlush   func(string, uint64)
+	draftEditors        map[string]bool
+	draftFlushes        map[uint64]chan bool
+	nextDraftFlush      uint64
 	settingsSection     string
 	characterActivity   string
 	openReleasePage     func() error
@@ -113,6 +119,80 @@ type Service struct {
 	diagnosticReport    func() ([]byte, error)
 	saveDiagnosticPath  func() (string, error)
 	exportMu            sync.Mutex
+}
+
+// The incoming editor calls this before its first Draft read. Registration
+// precedes enabling that editor, so an unregistered peer cannot have edits.
+func (s *Service) RegisterDraftEditor(surface string) error {
+	if surface != "panel" && surface != "history" {
+		return errors.New("invalid draft editor")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.draftEditors == nil {
+		s.draftEditors = make(map[string]bool)
+	}
+	s.draftEditors[surface] = true
+	return nil
+}
+
+// FlushOtherDraft is a host-confirmed handoff barrier. It applies to every
+// native way of revealing either editor, including hotkeys and Dock recall,
+// because each activation must wait here before reading the shared draft.
+func (s *Service) FlushOtherDraft(surface string) error {
+	if surface != "panel" && surface != "history" {
+		return errors.New("invalid draft editor")
+	}
+	other := "panel"
+	if surface == "panel" {
+		other = "history"
+	}
+	s.mu.Lock()
+	if !s.draftEditors[other] {
+		s.mu.Unlock()
+		return nil
+	}
+	request := s.requestDraftFlush
+	if request == nil {
+		s.mu.Unlock()
+		return errors.New("draft handoff unavailable")
+	}
+	s.nextDraftFlush++
+	id := s.nextDraftFlush
+	result := make(chan bool, 1)
+	if s.draftFlushes == nil {
+		s.draftFlushes = make(map[uint64]chan bool)
+	}
+	s.draftFlushes[id] = result
+	s.mu.Unlock()
+	// ExecJS may cross AppKit. Never hold the service lock while requesting it.
+	request(other, id)
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	var ok bool
+	select {
+	case ok = <-result:
+	case <-timer.C:
+	}
+	s.mu.Lock()
+	delete(s.draftFlushes, id)
+	s.mu.Unlock()
+	if !ok {
+		return errors.New("draft handoff was not confirmed")
+	}
+	return nil
+}
+
+func (s *Service) ConfirmDraftFlush(id uint64, ok bool) {
+	s.mu.Lock()
+	result := s.draftFlushes[id]
+	s.mu.Unlock()
+	if result != nil {
+		select {
+		case result <- ok:
+		default:
+		}
+	}
 }
 
 func (s *Service) CopyText(text string) error {

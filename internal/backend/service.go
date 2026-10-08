@@ -49,6 +49,7 @@ type Service struct {
 	botStatus                   func() string
 	beforeInterrupt             func()
 	mu                          sync.Mutex
+	presentationRevision        uint64 // Local visible state independent of the engine and chat log.
 	draft                       api.Draft
 	draftFile                   string
 	draftLoadError              error
@@ -79,9 +80,16 @@ func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error)
 }
 func (s *Service) Snapshot() api.Snapshot {
 	v := s.engine.Snapshot()
+	// Capture local versions before projection. If an independent change lands
+	// during projection, this result keeps the older revision and the next poll
+	// must observe the newer state instead of accepting a stale projection.
+	s.mu.Lock()
+	localRevision := s.presentationRevision
+	s.mu.Unlock()
 	v = s.decorate(v)
 	if s.chat != nil {
 		s.chat.Observe(v.Items)
+		chatRevision := s.chat.Revision()
 		items, earlier := s.chat.Snapshot()
 		for _, item := range v.Items {
 			if item.Kind != "user" && item.Kind != "assistant" {
@@ -89,8 +97,9 @@ func (s *Service) Snapshot() api.Snapshot {
 			}
 		}
 		v.Items, v.HasEarlier = items, earlier
-		v.Revision += s.chat.Revision()
+		v.Revision += chatRevision
 	}
+	v.Revision += localRevision
 	return v
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
@@ -199,18 +208,28 @@ func (s *Service) PetSnapshot() api.Snapshot {
 func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate {
 	s.mu.Lock()
 	status := s.botStatus
+	localRevision := s.presentationRevision
+	needsReconcile := s.draftSend != nil && s.draftSend.Outcome == ""
 	s.mu.Unlock()
 	currentStatus := ""
 	if status != nil {
 		currentStatus = status()
 	}
-	s.mu.Lock()
-	hasOutgoing := len(s.outbox) > 0
-	s.mu.Unlock()
-	if source, ok := s.engine.(api.RevisionSource); s.chat == nil && ok && !hasOutgoing && revision != 0 && source.Revision() == revision && currentStatus == botStatus {
-		return api.ChatUpdate{}
+	if source, ok := s.engine.(api.RevisionSource); ok && !needsReconcile && revision != 0 && currentStatus == botStatus {
+		combined := source.Revision() + localRevision
+		if s.chat != nil {
+			combined += s.chat.Revision()
+		}
+		if combined == revision {
+			return api.ChatUpdate{}
+		}
 	}
 	v := s.Snapshot()
+	// An unresolved original receipt can require a read even when no visible
+	// state changed. That read must not cause a React update.
+	if revision != 0 && v.Revision == revision && v.BotStatus == botStatus {
+		return api.ChatUpdate{}
+	}
 	items := make([]api.Item, 0)
 	for _, item := range v.Items {
 		if item.Kind == "user" || item.Kind == "assistant" {

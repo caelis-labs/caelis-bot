@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tencent-docs",
+  "version": "1.0.0",
+  "description": "创建、查询和编辑在线文档",
+  "author": {
+    "name": "腾讯文档团队",
+    "url": "https://developer.cloud.tencent.com/mcp/server/11803"
+  },
+  "homepage": "https://developer.cloud.tencent.com/mcp/server/11803",
+  "license": "UNLICENSED"
+}

@@ -182,8 +182,20 @@
 .setup-capture-choice p{font-size:12px;line-height:1.6;color:var(--muted);margin:8px 0 0 28px}
 .setup-extras{padding-bottom:76px}
 .setup-flow :is(.setup-extras,.permission-settings,.bot-introduction,.runtime-welcome){padding-bottom:76px}
-.setup-flow :is(.setup-extras,.permission-settings,.bot-introduction,.runtime-welcome)>.setup-end,.setup-flow .bot-introduction form>.setup-end{position:fixed;bottom:0;left:0;right:0;z-index:2;background:var(--settings-bg);padding:10px max(24px,calc((100vw - 560px)/2));border-top:1px solid var(--line)}
-.setup-flow .runtime-welcome>.setup-end{justify-content:space-between}
-.setup-flow .permission-settings>.setup-end{justify-content:space-between}
+.setup-flow :is(.setup-extras,.permission-settings,.bot-introduction,.runtime-welcome)>.setup-end,.setup-flow .bot-introduction form>.setup-end{position:fixed;bottom:0;left:0;right:0;z-index:2;justify-content:flex-end;gap:10px;background:var(--settings-bg);padding:12px max(24px,calc((100vw - 560px)/2));border-top:1px solid var(--line)}
+.setup-flow .runtime-onboarding{padding-bottom:88px}
+.setup-flow .runtime-onboarding .setup-back{margin-bottom:10px}
+.setup-flow .runtime-onboarding .setup-lead{margin-bottom:14px}
+.setup-flow .runtime-onboarding .setting-section{margin:18px 0}
+.setup-flow .runtime-onboarding-model-list{max-height:min(300px,32dvh);overflow-y:auto;overscroll-behavior:contain;padding-right:8px;scrollbar-gutter:stable}
+.setup-flow .runtime-onboarding-model-list .setting-row:last-child{border-bottom:0}
+.settings-window .general-settings .general-preferences{border:1px solid var(--line);border-radius:12px;background:var(--caelis-raised);padding:4px 18px}
+.settings-window .general-settings .general-preferences .setting-section{margin:0}
+.settings-window .general-settings .general-preferences .setting-section:last-child .setting-row{border-bottom:0}
+.settings-window .general-settings>.setting-section{border:1px solid var(--line);border-radius:12px;background:var(--caelis-raised);padding:16px 18px;margin:18px 0}
+.settings-window .general-settings>.setting-section .setting-row:last-of-type{border-bottom:0}
+.settings-window .appearance-settings .character-preview{border-bottom:0;margin-bottom:12px}
+.settings-window .appearance-settings .setting-section{margin:16px 0}
+.settings-window .appearance-settings .setting-section .setting-row:last-of-type{border-bottom:0}
 .setup-flow .permission-privacy>summary{font-size:12px;color:var(--muted);padding:8px 0}
 @media(max-width:650px){.telegram-heading{flex-wrap:wrap}.telegram-state{margin-left:0}.telegram-page{min-width:0}}

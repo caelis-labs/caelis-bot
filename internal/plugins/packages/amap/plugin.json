@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "amap",
+  "version": "1.0.0",
+  "description": "查找地点、路线和天气",
+  "author": {
+    "name": "高德开放平台",
+    "url": "https://developer.amap.com/api/mcp-server/gettingstarted"
+  },
+  "homepage": "https://developer.amap.com/api/mcp-server/gettingstarted",
+  "license": "UNLICENSED"
+}

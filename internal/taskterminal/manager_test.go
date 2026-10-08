@@ -23,6 +23,80 @@ func testManager(t *testing.T, open func(context.Context, string) (Window, error
 	t.Cleanup(m.Close)
 	return m
 }
+func TestManagerFirstInputCleansPreviousLifecycleAttempts(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Terminal")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(root, ".launch-previous-run")
+	if err := os.Mkdir(stale, 0700); err != nil {
+		t.Fatal(err)
+	}
+	m := NewWindowManager(root, func(ctx context.Context, path string) (Window, error) {
+		return nil, exec.CommandContext(ctx, "/bin/sh", path).Run()
+	}, func(context.Context, string) (api.TerminalTarget, error) {
+		return api.TerminalTarget{Runtime: "setup", Binary: "/usr/bin/true", Directory: root}, nil
+	}, nil, nil)
+	t.Cleanup(m.Close)
+	if err := m.Click(t.Context(), "completed-task"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("previous lifecycle directory survived first input", err)
+	}
+}
+
+func TestManagerDoesNotSweepSymlinkedLaunchRoot(t *testing.T) {
+	root := t.TempDir()
+	stale := filepath.Join(root, ".launch-previous-run")
+	if err := os.Mkdir(stale, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "Terminal")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	m := NewWindowManager(alias, nil, nil, nil, nil)
+	if _, err := m.entry("owned"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatal("startup sweep traversed a symlinked root", err)
+	}
+}
+
+func TestManagerLifecycleCleansUnownedRevokedAttempt(t *testing.T) {
+	for _, end := range []string{"dismiss", "close"} {
+		t.Run(end, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "Terminal")
+			var path string
+			m := NewWindowManager(root, func(_ context.Context, command string) (Window, error) {
+				path = command
+				return nil, errors.New("synthetic native result unknown")
+			}, func(context.Context, string) (api.TerminalTarget, error) {
+				return api.TerminalTarget{Runtime: "setup", Binary: "/usr/bin/true", Directory: root}, nil
+			}, nil, nil)
+			if err := m.Click(t.Context(), "owned"); err == nil {
+				t.Fatal("unknown native result became success")
+			}
+			if _, err := os.Stat(path); err != nil {
+				t.Fatal("revoked entry point did not survive the active lifecycle", err)
+			}
+			if end == "dismiss" {
+				if err := m.Dismiss(t.Context(), "owned"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("task removal left an unowned attempt", err)
+				}
+			}
+			m.Close()
+			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("lifecycle end left an unowned attempt", err)
+			}
+		})
+	}
+}
 func TestManagerSlowWindowDoesNotBlockOtherTask(t *testing.T) {
 	m := testManager(t, nil)
 	a, _ := m.entry("a")

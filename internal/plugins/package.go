@@ -26,8 +26,18 @@ var serviceName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 type Entry struct {
 	ID, Title, Version, Description, Source string
 	Files                                   map[string]string
-	Executables                             []string       `json:"executables,omitempty"`
-	Display                                 DisplayCatalog `json:"display,omitempty"`
+	Executables                             []string        `json:"executables,omitempty"`
+	Display                                 DisplayCatalog  `json:"display,omitempty"`
+	Connection                              *ConnectionSpec `json:"connection,omitempty"`
+	Legacy                                  bool            `json:"legacy,omitempty"`
+	UpstreamIntegrity                       string          `json:"upstreamIntegrity,omitempty"`
+}
+
+// ConnectionSpec describes only where an upstream MCP server expects a user
+// credential. It is reviewed catalog metadata, never a value or permission.
+type ConnectionSpec struct {
+	Server, Kind, Placement, Name, Prefix, HelpURL string
+	TrustCA                                        bool
 }
 type DisplayCatalog struct {
 	Publisher string                         `json:"publisher,omitempty"`

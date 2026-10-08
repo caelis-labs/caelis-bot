@@ -36,6 +36,7 @@ func (s *Service) stageOutgoing(input api.Submission, files []api.InputFile) boo
 		item.Media = s.messageMedia.Presentation(input.ID)
 	}
 	s.outbox = append(s.outbox, outgoingMessage{item: item, after: after})
+	s.presentationRevision++
 	return true
 }
 
@@ -49,6 +50,7 @@ func (s *Service) finishOutgoing(id string, receipt api.Receipt) {
 				status = "unknown"
 			}
 			s.outbox[i].item.Status = status
+			s.presentationRevision++
 			_ = s.messageMedia.Mark(id, s.outbox[i].item.Text, status)
 		}
 	}
@@ -60,6 +62,7 @@ func (s *Service) discardOutgoing(id string) {
 	for i := 0; i < len(s.outbox); i++ {
 		if s.outbox[i].item.RequestID == id {
 			s.outbox = append(s.outbox[:i], s.outbox[i+1:]...)
+			s.presentationRevision++
 			break
 		}
 	}
@@ -124,6 +127,9 @@ func (s *Service) presentOutgoing(v api.Snapshot) api.Snapshot {
 		items = append(items, api.Item{})
 		copy(items[at+1:], items[at:])
 		items[at] = pending.item
+	}
+	if len(remaining) != len(s.outbox) {
+		s.presentationRevision++
 	}
 	s.outbox = remaining
 	v.Items = items

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "github",
+  "version": "1.0.0",
+  "description": "Browse repositories, issues and pull requests",
+  "author": {
+    "name": "GitHub",
+    "url": "https://github.com/github/github-mcp-server"
+  },
+  "homepage": "https://github.com/github/github-mcp-server",
+  "license": "MIT"
+}

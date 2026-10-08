@@ -31,6 +31,7 @@ type WindowManager struct {
 	entries    map[string]*managedEntry
 	generation uint64
 	stopped    bool
+	prepared   bool
 	directory  string
 	open       func(context.Context, string) (Window, error)
 	resolve    func(context.Context, string) (api.TerminalTarget, error)
@@ -46,6 +47,12 @@ func (m *WindowManager) entry(id string) (*managedEntry, error) {
 	defer m.mu.Unlock()
 	if m.stopped {
 		return nil, context.Canceled
+	}
+	if !m.prepared {
+		// A new manager starts with no owned launches. Reap attempts left by
+		// the previous process before admitting its first terminal input.
+		cleanAttemptDirectories(m.directory, ".launch-", "")
+		m.prepared = true
 	}
 	if e := m.entries[id]; e != nil {
 		return e, nil
@@ -176,17 +183,18 @@ func (m *WindowManager) CancelAll() {
 func (m *WindowManager) Close() {
 	m.mu.Lock()
 	m.stopped = true
-	entries := make([]*managedEntry, 0, len(m.entries))
-	for _, e := range m.entries {
+	entries := make(map[string]*managedEntry, len(m.entries))
+	for id, e := range m.entries {
 		if e.dismissCancel != nil {
 			e.dismissCancel()
 		}
-		entries = append(entries, e)
+		entries[id] = e
 	}
 	m.mu.Unlock()
-	for _, e := range entries {
+	for id, e := range entries {
 		e.controller.stop(true)
 		e.launcher.Close()
+		e.launcher.cleanAttempts(id)
 	}
 }
 func (m *WindowManager) Dismiss(ctx context.Context, id string) error {

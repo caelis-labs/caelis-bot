@@ -303,6 +303,9 @@ func (s *Service) DismissPreview(key string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.dismissed == key {
+		return nil
+	}
 	if s.presentationFile != "" {
 		if err := os.MkdirAll(filepath.Dir(s.presentationFile), 0700); err != nil {
 			return err
@@ -328,5 +331,6 @@ func (s *Service) DismissPreview(key string) error {
 		}
 	}
 	s.dismissed = key
+	s.presentationRevision++
 	return nil
 }

@@ -18,7 +18,7 @@ func TestReviewedInstallActivationRecoveryAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if items := m.Snapshot().Items; len(items) != 1 || items[0].Installed {
+	if items := m.Snapshot().Items; len(items) != 5 || items[0].Installed {
 		t.Fatal(items)
 	}
 	var applied []Selection
