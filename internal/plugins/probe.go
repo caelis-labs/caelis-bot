@@ -26,7 +26,7 @@ func (m *Manager) ProbeServer(ctx context.Context, packageID, name string) Serve
 	if selected.Root == "" {
 		return ServerDetail{State: "not_configured", Tools: []Tool{}}
 	}
-	if selected.Server.Type != "streamable-http" {
+	if selected.Server.Type != "streamable-http" && selected.Server.Type != "stdio" {
 		return ServerDetail{State: "not_started", Tools: []Tool{}}
 	}
 	// Mutations replace m.state maps. The relay gets a fixed generation so a

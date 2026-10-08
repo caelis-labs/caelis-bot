@@ -49,7 +49,7 @@ func (r *Runtime) ConfigureDream(vault *notebook.Vault, coreSkill string) error 
 		return errors.New("Dream 需要可写笔记本")
 	}
 	d := &dreamController{path: filepath.Join(filepath.Dir(r.path), "dream-"+r.provider+".json"), vault: vault,
-		skill: filepath.Join(filepath.Dir(filepath.Dir(coreSkill)), "caelis-dream", "SKILL.md"), state: dreamState{Version: 1}}
+		skill: filepath.Join(filepath.Dir(filepath.Dir(coreSkill)), "bot-dream", "SKILL.md"), state: dreamState{Version: 1}}
 	b, err := os.ReadFile(d.path)
 	if err == nil {
 		if json.Unmarshal(b, &d.state) != nil || d.state.Version != 1 {
@@ -177,7 +177,7 @@ func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
 	if err := d.save(); err != nil {
 		return err
 	}
-	prompt := fmt.Sprintf("System Dream request from the Bot host. Explicitly load caelis-dream at %q and follow it now. Write the handoff to exactly %q (the host has prepared this writable location), starting with this exact first line:\n%s\nOptionally update useful memory. Finish with only one short user-facing recap sentence. Do not start a new session or continue ordinary work.", d.skill, path, notebook.DreamMarker(a.ID))
+	prompt := fmt.Sprintf("System Dream request from the Bot host. Explicitly load bot-dream at %q and follow it now. Write the handoff to exactly %q (the host has prepared this writable location), starting with this exact first line:\n%s\nOptionally update useful memory. Finish with only one short user-facing recap sentence. Do not start a new session or continue ordinary work.", d.skill, path, notebook.DreamMarker(a.ID))
 	receipt, err := p.SubmitDream(ctx, api.Submission{ID: a.ID, Text: prompt, Dream: true})
 	a.Outcome = receipt.Outcome
 	if receipt.Outcome == "rejected" {

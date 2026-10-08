@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -164,6 +167,57 @@ func TestPluginDetailEnrichesRuntimeNamesWithoutAddingUnpublishedTools(t *testin
 	}
 }
 func (e *inspectingPluginEngine) BotPluginGeneration() uint64 { return e.generation }
+
+func TestPluginIndexTracksAuthoritativeConnectedDirectory(t *testing.T) {
+	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"notes","version":"1.0.0","description":"Find notes","author":{"name":"Example"}}`)
+	mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"search":{"type":"streamable-http","url":"https://example.com/mcp"}}}`)
+	files := fstest.MapFS{"packages/notes/plugin.json": {Data: manifest}, "packages/notes/mcp.json": {Data: mcp}}
+	hash := func(body []byte) string { sum := sha256.Sum256(body); return hex.EncodeToString(sum[:]) }
+	index := []byte(`{"name":"community","plugins":[{"name":"notes","source":{"source":"local","path":"./packages/notes"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"}}]}`)
+	m, err := plugins.OpenReviewedMarketplace(t.TempDir(), files, index, map[string]map[string]string{"notes": {"plugin.json": hash(manifest), "mcp.json": hash(mcp)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &inspectingPluginEngine{gatedPluginEngine: &gatedPluginEngine{testEngine: newTestEngine()}, state: "connected", tools: []plugins.Tool{{Name: "lookup", Description: "Find notes"}}}
+	a, root := fixtureApp(t, e, Host{})
+	a.plugins = m
+	if _, err := a.PluginAction(t.Context(), "notes", "install"); err != nil {
+		t.Fatal(err)
+	}
+	a.skillPath = filepath.Join(root, "app-skills", "bot-core", "SKILL.md")
+	path := filepath.Join(root, "app-skills", "mcp-tools.json")
+	if err := a.syncPluginIndex(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(body), `"name":"lookup"`) || !strings.Contains(string(body), `"description":"Find notes"`) {
+		t.Fatalf("connected directory missing: %s %v", body, err)
+	}
+	e.state = "failed"
+	if err := a.syncPluginIndex(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(path)
+	if err != nil || string(body) != "{\"services\":[]}\n" {
+		t.Fatalf("failed service retained: %s %v", body, err)
+	}
+	e.state = "connected"
+	e.tools = []plugins.Tool{{Name: "changed", Description: "Changed tool"}}
+	if err := a.syncPluginIndex(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(path)
+	if err != nil || !strings.Contains(string(body), `"name":"changed"`) || strings.Contains(string(body), `"name":"lookup"`) {
+		t.Fatalf("directory change missed: %s %v", body, err)
+	}
+	if _, err := a.PluginAction(t.Context(), "notes", "disable"); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(path)
+	if err != nil || string(body) != "{\"services\":[]}\n" {
+		t.Fatalf("disabled service retained: %s %v", body, err)
+	}
+}
 
 func TestPluginDetailIsLazyAndRevisionScoped(t *testing.T) {
 	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"notes","version":"1.0.0","description":"Find notes","author":{"name":"Example"}}`)

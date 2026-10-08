@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -54,11 +55,10 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 	if !item.Enabled {
 		return plugins.ServerDetail{State: "disabled", Tools: []plugins.Tool{}}, nil
 	}
-	selected, selectedRemote := false, false
+	selected := false
 	for _, entry := range a.plugins.Selection().Servers {
 		if entry.PackageID == id && entry.Name == server {
 			selected = true
-			selectedRemote = entry.Server.Type == "streamable-http"
 			break
 		}
 	}
@@ -87,7 +87,7 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 	}
 	if detail.State == "not_started" {
 		detail = a.plugins.ProbeServer(ctx, id, server)
-	} else if detail.State == "connected" && selectedRemote && needsToolMetadata(detail.Tools) {
+	} else if detail.State == "connected" && needsToolMetadata(detail.Tools) {
 		// Core's mcp-status publishes authoritative tool names but not their
 		// descriptions. Read metadata only when this detail is explicitly opened,
 		// and never expose a tool absent from the Runtime's active directory.
@@ -116,6 +116,11 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 		}
 		a.pluginDetailCache[key] = pluginDetailCacheEntry{detail: detail, expires: time.Now().Add(15 * time.Second)}
 		a.pluginDetailMu.Unlock()
+	}
+	if refresh {
+		if err := a.syncPluginIndex(ctx); err != nil && a.host.ReportError != nil {
+			a.host.ReportError(err)
+		}
 	}
 	return detail, nil
 }
@@ -212,12 +217,18 @@ func (a *Application) PluginAction(ctx context.Context, id, action string) (plug
 		return err
 	})
 	if mutationErr != nil {
+		if syncErr := a.syncPluginIndex(ctx); syncErr != nil && a.host.ReportError != nil {
+			a.host.ReportError(syncErr)
+		}
 		snapshot, _ := a.PluginSnapshot(ctx)
 		return snapshot, mutationErr
 	}
 	a.pluginDetailMu.Lock()
 	a.pluginDetailCache = nil
 	a.pluginDetailMu.Unlock()
+	if err := a.syncPluginIndex(ctx); err != nil && a.host.ReportError != nil {
+		a.host.ReportError(err)
+	}
 	return a.PluginSnapshot(ctx)
 }
 
@@ -247,11 +258,57 @@ func (a *Application) PluginConnection(ctx context.Context, id, secret, caPEM st
 		return e
 	})
 	if err != nil {
+		if syncErr := a.syncPluginIndex(ctx); syncErr != nil && a.host.ReportError != nil {
+			a.host.ReportError(syncErr)
+		}
 		snapshot, _ := a.PluginSnapshot(ctx)
 		return snapshot, err
 	}
 	a.pluginDetailMu.Lock()
 	a.pluginDetailCache = nil
 	a.pluginDetailMu.Unlock()
+	if err := a.syncPluginIndex(ctx); err != nil && a.host.ReportError != nil {
+		a.host.ReportError(err)
+	}
 	return a.PluginSnapshot(ctx)
+}
+
+// syncPluginIndex reconciles only Runtime-confirmed connected services. It
+// never publishes a raw package declaration or a failed/unknown connection.
+func (a *Application) syncPluginIndex(ctx context.Context) error {
+	if a.plugins == nil || a.skillPath == "" {
+		return nil
+	}
+	a.pluginIndexMu.Lock()
+	defer a.pluginIndexMu.Unlock()
+	path := filepath.Join(filepath.Dir(filepath.Dir(a.skillPath)), "mcp-tools.json")
+	inspector, ok := a.engine.(api.PluginInspector)
+	if !ok {
+		return plugins.WriteIndex(path, nil)
+	}
+	selection := a.plugins.Selection()
+	generation := inspector.BotPluginGeneration()
+	connected := make([]plugins.IndexServer, 0, len(selection.Servers))
+	for _, server := range selection.Servers {
+		name := plugins.RuntimeName(server.PackageID, server.Name)
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		detail, err := inspector.BotPluginServer(probeCtx, name)
+		cancel()
+		if err != nil || detail.State != "connected" {
+			continue
+		}
+		if needsToolMetadata(detail.Tools) {
+			probeCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
+			if listed := a.plugins.ProbeServer(probeCtx, server.PackageID, server.Name); listed.State == "connected" {
+				detail.Tools = append([]plugins.Tool(nil), detail.Tools...)
+				enrichToolMetadata(detail.Tools, listed.Tools)
+			}
+			cancel()
+		}
+		connected = append(connected, plugins.IndexServer{PackageID: server.PackageID, Name: server.Name, RuntimeName: name, Tools: detail.Tools})
+	}
+	if a.plugins.Selection().Revision != selection.Revision || inspector.BotPluginGeneration() != generation {
+		return plugins.WriteIndex(path, nil)
+	}
+	return plugins.WriteIndex(path, connected)
 }

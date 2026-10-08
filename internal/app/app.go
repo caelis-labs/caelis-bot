@@ -79,6 +79,7 @@ type Application struct {
 	initialization        *bot.Initializer
 	plugins               *plugins.Manager
 	pluginDetailMu        sync.Mutex
+	pluginIndexMu         sync.Mutex
 	pluginDetailCache     map[string]pluginDetailCacheEntry
 	closeOnce             sync.Once
 	closeErr              error
@@ -419,7 +420,7 @@ func (a *Application) Start() error {
 			config := bridge.Config(executable)
 			if a.skillPath != "" {
 				config.Instructions += botskills.Instructions(a.skillPath)
-				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath), filepath.Join(filepath.Dir(filepath.Dir(a.skillPath)), "caelis-dream")}
+				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath), filepath.Join(filepath.Dir(filepath.Dir(a.skillPath)), "bot-dream")}
 			}
 			if a.plugins != nil {
 				config.Plugins = a.plugins.Selection()
@@ -454,6 +455,9 @@ func (a *Application) Start() error {
 				return nil
 			}
 			config.PrepareTurn = func(ctx context.Context) error {
+				if err := a.syncPluginIndex(ctx); err != nil && a.host.ReportError != nil {
+					a.host.ReportError(err)
+				}
 				a.mu.Lock()
 				vault := a.notebook
 				a.mu.Unlock()

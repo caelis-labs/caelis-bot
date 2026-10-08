@@ -1,5 +1,5 @@
 ---
-name: caelis-dream
+name: bot-dream
 description: Perform a bounded memory review and write a short handoff only when the Bot host explicitly sends a system Dream request with an output path and handoff marker. Never invoke this skill autonomously during ordinary work or conversation.
 ---
 

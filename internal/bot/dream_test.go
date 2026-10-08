@@ -52,7 +52,7 @@ func dreamFixture(t *testing.T) (*Runtime, *dreamEngine, *time.Time) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { v.Close() })
-	if err = r.ConfigureDream(v, filepath.Join(t.TempDir(), "app-skills", "caelis-bot-memory", "SKILL.md")); err != nil {
+	if err = r.ConfigureDream(v, filepath.Join(t.TempDir(), "app-skills", "bot-core", "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
 	e := &dreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, outcome: "accepted", conversation: api.ConversationState{Session: "old", Turn: "user-turn", Status: "completed", Observed: true, Idle: true}}
@@ -100,7 +100,7 @@ func TestDreamWaitsForUserAndSurvivesRestart(t *testing.T) {
 	if len(e.dreams) != 1 || e.renewals != 0 {
 		t.Fatal("idle model loop or eager session creation")
 	}
-	if err := r.ConfigureDream(r.dream.vault, filepath.Join(t.TempDir(), "caelis-bot-memory", "SKILL.md")); err != nil {
+	if err := r.ConfigureDream(r.dream.vault, filepath.Join(t.TempDir(), "bot-core", "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
 	receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "new-user", Text: "new topic"}, nil)
@@ -178,7 +178,7 @@ func restartDreamRuntime(t *testing.T, r *Runtime, e *dreamEngine) *Runtime {
 		t.Fatal(err)
 	}
 	restored.engine, restored.now = e, r.now
-	if err = restored.ConfigureDream(r.dream.vault, filepath.Join(t.TempDir(), "caelis-bot-memory", "SKILL.md")); err != nil {
+	if err = restored.ConfigureDream(r.dream.vault, filepath.Join(t.TempDir(), "bot-core", "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
 	return restored

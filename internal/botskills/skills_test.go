@@ -11,26 +11,43 @@ import (
 
 func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 	root := t.TempDir()
+	for _, name := range []string{"caelis-bot-memory", "caelis-dream", "custom-guide"} {
+		legacy := filepath.Join(root, "app-skills", name)
+		if err := os.MkdirAll(legacy, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(legacy, "SKILL.md"), []byte("old or user content"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	p, err := Install(root)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, old := range []string{"caelis-bot-memory", "caelis-dream"} {
+		if _, err := os.Stat(filepath.Join(root, "app-skills", old)); !os.IsNotExist(err) {
+			t.Fatalf("old system skill retained: %s: %v", old, err)
+		}
+	}
+	if _, err := os.ReadFile(filepath.Join(root, "app-skills", "custom-guide", "SKILL.md")); err != nil {
+		t.Fatal("custom skill changed", err)
 	}
 	body, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	name, description := metadata(string(body))
-	if name != "caelis-bot-memory" || description == "" || len(description) > 1024 {
+	if name != "bot-core" || description == "" || len(description) > 1024 {
 		t.Fatal("invalid bundled metadata")
 	}
 	catalog := Instructions(p)
-	dreamPath := filepath.Join(root, "app-skills", "caelis-dream", "SKILL.md")
+	dreamPath := filepath.Join(root, "app-skills", "bot-dream", "SKILL.md")
 	dreamBody, err := os.ReadFile(dreamPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	dreamName, dreamDescription := metadata(string(dreamBody))
-	if dreamName != "caelis-dream" || !strings.Contains(catalog, dreamDescription) || !strings.Contains(catalog, dreamPath) || strings.Contains(catalog, "# Prepare the next conversation") {
+	if dreamName != "bot-dream" || !strings.Contains(catalog, dreamDescription) || !strings.Contains(catalog, dreamPath) || strings.Contains(catalog, "# Prepare the next conversation") {
 		t.Fatal("Dream progressive discovery missing")
 	}
 	policy, err := os.ReadFile(filepath.Join(filepath.Dir(dreamPath), "agents", "openai.yaml"))

@@ -76,7 +76,7 @@
 ## Bot skill maintenance
 
 - For every new feature or behavior change, check whether the Bot needs updated
-  skill guidance. Update `internal/botskills/skills/caelis-bot-memory/` when its
+  skill guidance. Update `internal/botskills/skills/bot-core/` when its
   capabilities, workflows, tool usage or recovery behavior change; otherwise state
   why no skill update is needed in the implementation handoff.
 - Write skill content in English, addressing the Bot directly. Keep core guidance
