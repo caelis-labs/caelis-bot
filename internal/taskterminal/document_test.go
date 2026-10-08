@@ -7,10 +7,13 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 type documentFixture struct {
@@ -20,6 +23,19 @@ type documentFixture struct {
 	result           error
 	open             func(context.Context, string) error
 	reuses, releases int
+}
+
+type dismissibleDocumentFixture struct {
+	*documentFixture
+	dismissErr error
+}
+
+func (w *dismissibleDocumentFixture) Dismiss(context.Context) error {
+	if w.dismissErr != nil {
+		return w.dismissErr
+	}
+	w.set(func(o *WindowObservation) { o.State = WindowClosed })
+	return nil
 }
 
 func (w *documentFixture) keepUnconfirmedLaunch() bool { return true }
@@ -46,6 +62,115 @@ func newDocumentFixture() *documentFixture {
 	_, o := controllerFixture(WindowForeground)
 	immediateWindow(o)
 	return &documentFixture{observedWindow: o, complete: true}
+}
+
+func TestRevokedDocumentRemainsReadableUntilOwnedInstanceExits(t *testing.T) {
+	root := t.TempDir()
+	w := &dismissibleDocumentFixture{documentFixture: newDocumentFixture()}
+	w.reply(false, nil)
+	first := make(chan string, 1)
+	launches := 0
+	l := NewManaged(filepath.Join(root, "Terminal"), func(_ context.Context, path string) (Window, error) {
+		launches++
+		first <- path
+		return w, nil // Native creation replied before the shell opened the script.
+	})
+	target := api.TerminalTarget{Runtime: "setup", Binary: "/usr/bin/true", Directory: root}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- l.Open(ctx, "owned", target) }()
+	path := <-first
+	cancel()
+	if err := <-done; !errors.Is(err, ErrUnconfirmed) {
+		t.Fatal(err)
+	}
+	if l.windows["owned"] != w || w.releases != 0 {
+		t.Fatal("uncertain native owner was discarded")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("late shell lost its entry point", err)
+	}
+	if out, err := exec.Command("/bin/sh", path).CombinedOutput(); err == nil || !strings.Contains(string(out), "expired") {
+		t.Fatal("revoked command attached", string(out), err)
+	}
+	w.open = func(ctx context.Context, next string) error {
+		w.reply(true, nil)
+		return exec.CommandContext(ctx, "/bin/sh", next).Run()
+	}
+	if err := l.Open(t.Context(), "owned", target); err != nil {
+		t.Fatal("explicit retry failed", err)
+	}
+	if launches != 1 || l.windows["owned"] != w {
+		t.Fatal("explicit retry replaced the original native owner", launches)
+	}
+	w.dismissErr = ErrWindowCloseCancelled
+	if err := l.Dismiss(t.Context(), "owned"); !errors.Is(err, ErrWindowCloseCancelled) {
+		t.Fatal("cancelled close unexpectedly cleaned the owner", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("cancelled close removed the late shell path", err)
+	}
+	w.dismissErr = nil
+	if err := l.Dismiss(t.Context(), "owned"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("proven app exit did not clean retained attempt", err)
+	}
+}
+
+func TestUnknownSubmittedOpenRetainsOwnerAndReadableRevokedScript(t *testing.T) {
+	root := t.TempDir()
+	w := &dismissibleDocumentFixture{documentFixture: newDocumentFixture()}
+	var path string
+	unknown := errors.New("synthetic native reply unknown")
+	l := NewManaged(filepath.Join(root, "Terminal"), func(_ context.Context, command string) (Window, error) {
+		path = command
+		return w, unknown
+	})
+	target := api.TerminalTarget{Runtime: "setup", Binary: "/usr/bin/true", Directory: root}
+	if err := l.Open(t.Context(), "owned", target); !errors.Is(err, unknown) {
+		t.Fatal(err)
+	}
+	if l.windows["owned"] != w || w.releases != 0 {
+		t.Fatal("unknown submitted result lost its native owner")
+	}
+	if out, err := exec.Command("/bin/sh", path).CombinedOutput(); err == nil || !strings.Contains(string(out), "expired") {
+		t.Fatal("delayed unknown request could not safely read", string(out), err)
+	}
+	if err := l.Dismiss(t.Context(), "owned"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("closed native owner left attempt directory", err)
+	}
+}
+
+func TestDismissKeepsUnreadCommandForPreviouslySpawnedShell(t *testing.T) {
+	root := t.TempDir()
+	w := &dismissibleDocumentFixture{documentFixture: newDocumentFixture()}
+	var path string
+	l := NewManaged(filepath.Join(root, "Terminal"), func(_ context.Context, command string) (Window, error) {
+		path = command
+		return w, errors.New("synthetic native outcome unknown")
+	})
+	target := api.TerminalTarget{Runtime: "setup", Binary: "/usr/bin/true", Directory: root}
+	if err := l.Open(t.Context(), "owned", target); err == nil {
+		t.Fatal("unknown native result became success")
+	}
+	if err := l.Dismiss(t.Context(), "owned"); err != nil {
+		t.Fatal(err)
+	}
+	// GUI exit alone does not prove a child shell has opened its pathname.
+	if out, err := exec.Command("/bin/sh", path).CombinedOutput(); err == nil || !strings.Contains(string(out), "expired") {
+		t.Fatal("late child could not safely read after GUI exit", string(out), err)
+	}
+	if err := l.cleanReadAttempts("owned"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("read rejected attempt was not pruned", err)
+	}
 }
 func TestReconnectReusesOwnedApplication(t *testing.T) {
 	w := newDocumentFixture()

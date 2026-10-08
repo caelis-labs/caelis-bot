@@ -101,6 +101,14 @@ func TestTerminalWaitsForExecutionAndRevokesLateConsent(t *testing.T) {
 				if err := <-done; !errors.Is(err, ErrUnconfirmed) {
 					t.Fatal(err)
 				}
+				// The native request may have been accepted before cancellation.
+				// Its late shell must still find the command and safely reject it.
+				if _, err := os.Stat(path); err != nil {
+					t.Fatal("revoked command path disappeared before shell read", err)
+				}
+				if out, err := exec.Command("/bin/sh", path).CombinedOutput(); err == nil || !strings.Contains(string(out), "expired") {
+					t.Fatal("late shell did not reject revoked command", string(out), err)
+				}
 				// Even a terminal that buffered the original script cannot execute a
 				// revoked attempt after its user eventually accepts the dialog.
 				cmd := exec.Command("/bin/sh")
@@ -114,10 +122,69 @@ func TestTerminalWaitsForExecutionAndRevokesLateConsent(t *testing.T) {
 				}
 			}
 			files, _ := os.ReadDir(l.directory)
-			if len(files) != 0 {
-				t.Fatal("attempt files leaked")
+			want := 0
+			if !consent {
+				want = 1 // Retained until the owning terminal is proven closed.
+			}
+			if len(files) != want {
+				t.Fatal("unexpected attempt directories", len(files), want)
 			}
 		})
+	}
+}
+
+func TestProvenUnsubmittedLaunchCleansScriptImmediately(t *testing.T) {
+	root := t.TempDir()
+	var path string
+	l := New(filepath.Join(root, "Terminal"), func(_ context.Context, command string) error {
+		path = command
+		return NotLaunched(errors.New("synthetic pre-dispatch failure"))
+	})
+	target := api.TerminalTarget{Runtime: "setup", Binary: "/usr/bin/true", Directory: root}
+	if err := l.Open(t.Context(), "owned", target); !errors.Is(err, ErrLaunchNotSubmitted) {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("proven unsubmitted script remained", err)
+	}
+}
+
+func TestRetainedAttemptLimitPersistsAcrossLauncherRestart(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Terminal")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	var first string
+	for i := range maxRetainedAttempts {
+		directory := filepath.Join(root, attemptPrefix("owned")+fmt.Sprint(i))
+		if i == 0 {
+			first = directory
+		}
+		if err := os.Mkdir(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	launched := false
+	l := New(root, func(context.Context, string) error { launched = true; return nil })
+	target := api.TerminalTarget{Runtime: "setup", Binary: "/usr/bin/true", Directory: root}
+	if err := l.Open(t.Context(), "owned", target); !errors.Is(err, ErrRetainedAttempts) || !errors.Is(err, ErrLaunchNotSubmitted) {
+		t.Fatal("limit did not fail before native submission", err)
+	}
+	if launched {
+		t.Fatal("cap allowed another native submission")
+	}
+	if err := os.WriteFile(filepath.Join(first, "rejected-123"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	l.open = func(ctx context.Context, path string) error {
+		launched = true
+		return exec.CommandContext(ctx, "/bin/sh", path).Run()
+	}
+	if err := l.Open(t.Context(), "owned", target); err != nil || !launched {
+		t.Fatal("read rejected attempt did not free one slot", err)
+	}
+	if _, err := os.Stat(first); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("read rejected attempt was not cleaned", err)
 	}
 }
 
