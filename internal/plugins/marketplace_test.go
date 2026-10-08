@@ -99,3 +99,27 @@ func TestUnavailableReviewedSourceFailsWithoutPanic(t *testing.T) {
 		t.Fatal("missing source was staged")
 	}
 }
+
+func TestMarketplaceRejectsSymlinkAtPackageRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation may require developer mode")
+	}
+	root := t.TempDir()
+	outside := t.TempDir()
+	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"writer","version":"1.0.0","description":"Write"}`)
+	if err := os.WriteFile(filepath.Join(outside, "plugin.json"), manifest, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "plugins"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "plugins", "writer")); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(manifest)
+	approved := map[string]map[string]string{"writer": {"plugin.json": hex.EncodeToString(sum[:])}}
+	index := []byte(`{"name":"community","plugins":[{"name":"writer","source":{"source":"local","path":"./plugins/writer"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"}}]}`)
+	if _, _, err := NormalizeMarketplace(os.DirFS(root), index, approved); err == nil {
+		t.Fatal("symlinked package root escaped marketplace filesystem")
+	}
+}

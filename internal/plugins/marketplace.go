@@ -66,7 +66,7 @@ func NormalizeMarketplace(source fs.FS, index []byte, approved map[string]map[st
 		if !safeReviewedName(folder) || path.Clean(folder) != folder || sources[item.Name] != nil {
 			return nil, nil, errors.New("unsafe marketplace source")
 		}
-		packageFS, err := fs.Sub(source, folder)
+		packageFS, err := reviewedSubdir(source, folder)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -143,4 +143,31 @@ func NormalizeMarketplace(source fs.FS, index []byte, approved map[string]map[st
 		sources[item.Name] = packageFS
 	}
 	return entries, sources, nil
+}
+
+// Check every path component before fs.Sub: os.DirFS otherwise follows a
+// symlink used as the package root, outside the WalkDir visibility boundary.
+func reviewedSubdir(source fs.FS, folder string) (fs.FS, error) {
+	parent := "."
+	for _, component := range strings.Split(folder, "/") {
+		children, err := fs.ReadDir(source, parent)
+		if err != nil {
+			return nil, err
+		}
+		found := false
+		for _, child := range children {
+			if child.Name() == component {
+				if !child.IsDir() || child.Type()&fs.ModeSymlink != 0 {
+					return nil, errors.New("unsafe marketplace source")
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fs.ErrNotExist
+		}
+		parent = path.Join(parent, component)
+	}
+	return fs.Sub(source, folder)
 }
