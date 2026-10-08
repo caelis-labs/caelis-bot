@@ -81,8 +81,11 @@ func TestBundledMarkdownDisplayFromReviewedCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = m.Mutate(t.Context(), "markdown-work", "install", nil); err != nil {
+		t.Fatal(err)
+	}
 	items := m.Snapshot().Items
-	if len(items) != 1 || items[0].Publisher != "Caelis labs" || items[0].Description != "编写笔记、报告和 README" || !items[0].Bundled || len(items[0].Skills) != 1 || len(items[0].MCPServers) != 0 || items[0].Skills[0].ID != "markdown-work" {
+	if len(items) != 7 || items[0].Publisher != "Caelis labs" || items[0].Description != "编写笔记、报告和 README" || !items[0].Bundled || len(items[0].Skills) != 1 || len(items[0].MCPServers) != 0 || items[0].Skills[0].ID != "markdown-work" {
 		t.Fatal("bundled display differs from reviewed manifest and Skill", items)
 	}
 }

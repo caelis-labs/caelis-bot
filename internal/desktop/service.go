@@ -37,6 +37,7 @@ type driver interface {
 type Service struct {
 	pluginSnapshot      func(context.Context) (plugins.Snapshot, error)
 	pluginAction        func(context.Context, string, string) (plugins.Snapshot, error)
+	pluginConnection    func(context.Context, string, string, string, bool) (plugins.Snapshot, error)
 	pluginSkillDetail   func(context.Context, string, string) (plugins.SkillDetail, error)
 	pluginServerDetail  func(context.Context, string, string, bool) (plugins.ServerDetail, error)
 	telegram            *telegram.Bridge

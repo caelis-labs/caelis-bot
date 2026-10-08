@@ -39,12 +39,25 @@ func safeProjectLink(name string) bool {
 	return projectLinkName.MatchString(name) && name != "." && name != ".." && filepath.Base(name) == name
 }
 
-func codexPluginConfigs(selection plugins.Selection) (map[string]map[string]any, []plugins.Issue) {
+func codexPluginConfigs(selection plugins.Selection, binary string) (map[string]map[string]any, []plugins.Issue) {
 	out := map[string]map[string]any{}
 	issues := append([]plugins.Issue{}, selection.Issues...)
 	for _, item := range selection.Servers {
 		name := plugins.RuntimeName(item.PackageID, item.Name)
 		s := item.Server
+		if item.Connection != nil || s.Type == "streamable-http" && len(s.Headers) > 0 {
+			if binary == "" {
+				issues = append(issues, plugins.Issue{Component: "server", Name: name, Message: "Bot executable unavailable"})
+				continue
+			}
+			store := filepath.Dir(filepath.Dir(item.Data))
+			args := []string{"--plugin-mcp", store, item.PackageID, item.Name, filepath.Base(item.Root)}
+			if item.Connection != nil {
+				args = append(args, strconv.FormatUint(item.ConnectionRevision, 10))
+			}
+			out[name] = map[string]any{"command": binary, "args": args, "cwd": item.Root, "startup_timeout_sec": 10, "tool_timeout_sec": 30}
+			continue
+		}
 		switch s.Type {
 		case "stdio":
 			resolved, err := s.Resolve(item.Root, item.Data)
@@ -100,7 +113,7 @@ func projectCodexWorkspace(directory string, c *api.ToolConnection) error {
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	configs, _ := codexPluginConfigs(c.Plugins)
+	configs, _ := codexPluginConfigs(c.Plugins, c.Command)
 	names := make([]string, 0, len(configs))
 	for n := range configs {
 		names = append(names, n)
@@ -327,13 +340,15 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 func (s *Session) BotPluginHealth(ctx context.Context) []plugins.Issue {
 	s.mu.Lock()
 	selection := plugins.Selection{}
+	binary := ""
 	if s.opts.BotTools != nil {
 		selection = s.opts.BotTools.Plugins.Clone()
+		binary = s.opts.BotTools.Command
 	}
 	c := s.client
 	dir := s.opts.Directory
 	s.mu.Unlock()
-	_, issues := codexPluginConfigs(selection)
+	_, issues := codexPluginConfigs(selection, binary)
 	if c == nil {
 		return issues
 	}

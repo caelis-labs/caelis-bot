@@ -159,3 +159,38 @@ func (a *Application) PluginAction(ctx context.Context, id, action string) (plug
 	a.pluginDetailMu.Unlock()
 	return a.PluginSnapshot(ctx)
 }
+
+// PluginConnection is write-only at the desktop boundary. The credential
+// stays in Bot's native secret store; only a revision enters Runtime config.
+func (a *Application) PluginConnection(ctx context.Context, id, secret, caPEM string, clear bool) (plugins.Snapshot, error) {
+	if a.plugins == nil {
+		return plugins.Snapshot{}, errors.New("plugin store unavailable")
+	}
+	adapter, ok := a.engine.(api.PluginConfigurator)
+	if !ok {
+		return plugins.Snapshot{}, errors.New("runtime does not support Bot plugins")
+	}
+	a.pluginAdmission.Lock()
+	defer a.pluginAdmission.Unlock()
+	err := adapter.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
+		a.mu.Lock()
+		started, closed := a.started, a.closed
+		a.mu.Unlock()
+		if closed {
+			return errors.New("Bot has stopped")
+		}
+		if !started {
+			apply = nil
+		}
+		_, e := a.plugins.ConfigureConnection(ctx, id, secret, caPEM, clear, apply)
+		return e
+	})
+	if err != nil {
+		snapshot, _ := a.PluginSnapshot(ctx)
+		return snapshot, err
+	}
+	a.pluginDetailMu.Lock()
+	a.pluginDetailCache = nil
+	a.pluginDetailMu.Unlock()
+	return a.PluginSnapshot(ctx)
+}

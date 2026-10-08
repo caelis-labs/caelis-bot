@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -29,16 +31,27 @@ func RunStdio(storeRoot, packageID, serverName string, in io.Reader, out, diagno
 	if err != nil {
 		return err
 	}
+	return runStdio(context.Background(), m, packageID, serverName, in, out, diagnostics, generation...)
+}
+
+func runStdio(ctx context.Context, m *Manager, packageID, serverName string, in io.Reader, out, diagnostics io.Writer, generation ...string) error {
 	e, ok := m.entry(packageID)
 	if !ok {
 		return errors.New("unreviewed plugin")
 	}
-	if len(generation) > 1 {
+	if len(generation) > 2 {
 		return errors.New("invalid plugin generation")
 	}
 	rootName := ""
-	if len(generation) == 1 {
+	if len(generation) >= 1 {
 		rootName = generation[0]
+	}
+	// A Runtime may retain an old thread configuration after a reload. Never
+	// start a new child from that configuration once Bot has confirmed a
+	// disable, update, or uninstall. Already running children drain normally.
+	installed, active := m.state.Installed[packageID]
+	if !active || !installed.Enabled || rootName == "" || rootName != installed.Root {
+		return errors.New("plugin service is no longer active")
 	}
 	p, err := m.readInstalledAt(e, rootName)
 	if err != nil {
@@ -51,24 +64,63 @@ func RunStdio(storeRoot, packageID, serverName string, in io.Reader, out, diagno
 			break
 		}
 	}
-	if selected == nil || selected.Type != "stdio" {
+	if selected == nil {
 		return errors.New("plugin service unavailable")
 	}
-	data := filepath.Join(storeRoot, "data", packageID)
-	if err := ensureStoreDirectory(storeRoot, data); err != nil {
+	secret := ""
+	caPEM := ""
+	if e.Connection != nil && e.Connection.Server == serverName {
+		if e.Connection.Kind == "oauth" {
+			return errors.New("OAuth connection unavailable")
+		}
+		if len(generation) != 2 {
+			return errors.New("connection revision missing")
+		}
+		revision, parseErr := strconv.ParseUint(generation[1], 10, 64)
+		if parseErr != nil || revision == 0 {
+			return errors.New("invalid connection revision")
+		}
+		connection := m.state.Connections[packageID]
+		if !connection.Configured || connection.Revision != revision {
+			return errors.New("plugin connection is no longer active")
+		}
+		secret, err = m.secrets.Load(secretKey(m.root, packageID, revision))
+		if err != nil || !validCredential(secret) {
+			return errors.New("plugin credential unavailable")
+		}
+		if e.Connection.TrustCA {
+			caPEM, _ = m.secrets.Load(secretKey(m.root, packageID, revision) + "-ca")
+		}
+	}
+	if selected.Type == "streamable-http" {
+		return relayRemote(*selected, e.Connection, secret, caPEM, in, out)
+	}
+	if selected.Type != "stdio" {
+		return errors.New("plugin service unavailable")
+	}
+	data := filepath.Join(m.root, "data", packageID)
+	if err := ensureStoreDirectory(m.root, data); err != nil {
 		return err
 	}
 	s, err := selected.Resolve(p.Root, data)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(s.Command, s.Args...)
+	cmd := exec.CommandContext(ctx, s.Command, s.Args...)
 	cmd.Dir = s.CWD
 	cmd.Stdin, cmd.Stdout = in, out
 	cmd.Stderr = diagnostics
+	if e.Connection != nil {
+		// The upstream process sees its own credential. Its diagnostics are not
+		// trusted to redact that value, so keep them out of Bot/Core logs.
+		cmd.Stderr = io.Discard
+	}
 	base := cmd.Environ()
 	for k, v := range s.Env {
 		base = append(base, fmt.Sprintf("%s=%s", k, v))
+	}
+	if e.Connection != nil && e.Connection.Placement == "env" {
+		base = append(base, e.Connection.Name+"="+e.Connection.Prefix+secret)
 	}
 	cmd.Env = base
 	return cmd.Run()

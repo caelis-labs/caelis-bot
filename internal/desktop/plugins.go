@@ -26,6 +26,15 @@ func (s *Service) PluginAction(id, action string) (plugins.Snapshot, error) {
 	snapshot, err := s.pluginAction(ctx, id, action)
 	return snapshot.Public(), err
 }
+func (s *Service) PluginConnection(id, secret, caPEM string, clear bool) (plugins.Snapshot, error) {
+	if s.pluginConnection == nil {
+		return plugins.Snapshot{}, errors.New("plugin connection unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	snapshot, err := s.pluginConnection(ctx, id, secret, caPEM, clear)
+	return snapshot.Public(), err
+}
 
 func (s *Service) PluginSkillDetail(id, skill string) (plugins.SkillDetail, error) {
 	if s.pluginSkillDetail == nil {

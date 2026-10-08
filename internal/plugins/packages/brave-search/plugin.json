@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "brave-search",
+  "version": "2.1.4",
+  "description": "Search the web with Brave Search",
+  "author": {
+    "name": "Brave Software, Inc.",
+    "url": "https://brave.com"
+  },
+  "homepage": "https://github.com/brave/brave-search-mcp-server",
+  "license": "MIT"
+}

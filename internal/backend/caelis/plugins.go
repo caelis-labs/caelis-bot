@@ -7,6 +7,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
@@ -65,6 +66,19 @@ func corePlugins(selection plugins.Selection, binary string, builtins []string) 
 	for _, p := range selection.Servers {
 		name := plugins.RuntimeName(p.PackageID, p.Name)
 		s := p.Server
+		if p.Connection != nil || s.Type == "streamable-http" && len(s.Headers) > 0 {
+			if binary == "" {
+				issues = append(issues, plugins.Issue{Component: "server", Name: name, Message: "Bot executable unavailable"})
+				continue
+			}
+			store := filepath.Dir(filepath.Dir(p.Data))
+			args := []string{"--plugin-mcp", store, p.PackageID, p.Name, filepath.Base(p.Root)}
+			if p.Connection != nil {
+				args = append(args, strconv.FormatUint(p.ConnectionRevision, 10))
+			}
+			servers = append(servers, wire.ApplicationMCPServer{Name: name, Transport: "stdio", Command: &binary, Args: args, WorkDir: &p.Root})
+			continue
+		}
 		switch s.Type {
 		case "stdio":
 			if binary == "" {

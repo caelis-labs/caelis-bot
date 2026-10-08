@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "notion",
+  "version": "1.0.0",
+  "description": "Find and update pages in your Notion workspace",
+  "author": {
+    "name": "Notion",
+    "url": "https://developers.notion.com/guides/mcp/get-started-with-mcp"
+  },
+  "homepage": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
+  "license": "UNLICENSED"
+}
