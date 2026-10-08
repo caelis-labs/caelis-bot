@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,8 +30,8 @@ func TestBotProjectProjectionAndWorkerIsolation(t *testing.T) {
 	}
 	config := s.connectionParams()["config"].(map[string]any)
 	name := plugins.RuntimeName("sample", "local-validator")
-	if _, ok := config["mcp_servers."+name]; !ok {
-		t.Fatal("Bot MCP missing")
+	if _, ok := config["mcp_servers."+name]; ok {
+		t.Fatal("mutable Bot MCP escaped into persistent thread overrides")
 	}
 	project, err := os.ReadFile(filepath.Join(bot, ".codex", "config.toml"))
 	if err != nil {
@@ -57,6 +58,33 @@ func TestBotProjectProjectionAndWorkerIsolation(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(worker, ".agents")); !os.IsNotExist(err) {
 		t.Fatal("Worker received Skills")
+	}
+}
+
+func TestProjectCodexNoArgServerAndWorkingDirectory(t *testing.T) {
+	bot, root, data := t.TempDir(), t.TempDir(), t.TempDir()
+	name := plugins.RuntimeName("sample", "no-args")
+	selection := plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "sample", Name: "no-args", Root: root, Data: data, Server: plugins.Server{Type: "stdio", Command: "./bin/server", CWD: "${PLUGIN_DATA}"}}}}
+	c := &api.ToolConnection{Plugins: selection}
+	if err := projectCodexWorkspace(bot, c); err != nil {
+		t.Fatal(err)
+	}
+	config, err := os.ReadFile(filepath.Join(bot, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"[mcp_servers." + name + "]", "args = []", "cwd = " + strconv.Quote(data)} {
+		if !strings.Contains(string(config), want) {
+			t.Fatalf("missing %q in %s", want, config)
+		}
+	}
+	if strings.Contains(string(config), "null") {
+		t.Fatal("invalid TOML null value", string(config))
+	}
+	params := NewSession(SessionOptions{Directory: bot})
+	params.opts.BotTools = c
+	if _, exists := params.connectionParams()["config"].(map[string]any)["mcp_servers."+name]; exists {
+		t.Fatal("plugin server persisted as thread override")
 	}
 }
 

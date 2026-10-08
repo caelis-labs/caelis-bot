@@ -36,10 +36,8 @@ func (s *Session) connectionParams() map[string]any {
 			config["computer_use.default_app_access"] = "deny"
 			config["computer_use.macos.bundle_ids"] = map[string]any{}
 		}
-		plugins, _ := codexPluginConfigs(s.opts.BotTools.Plugins)
-		for name, item := range plugins {
-			config["mcp_servers."+name] = item
-		}
+		// Mutable plugin MCP is loaded from the trusted Bot project config.
+		// Thread overrides survive app-server reload and cannot be revoked there.
 	}
 	params := map[string]any{"runtimeWorkspaceRoots": []string{}, "developerInstructions": instructions, "cwd": s.opts.Directory, "sandbox": "workspace-write", "approvalPolicy": "on-request", "approvalsReviewer": "auto_review", "config": config}
 	if s.opts.BotTools != nil && s.opts.BotTools.NotebookDirectory != "" {

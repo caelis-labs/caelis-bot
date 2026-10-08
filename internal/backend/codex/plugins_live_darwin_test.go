@@ -80,22 +80,23 @@ func TestNativeReviewedPluginActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	serviceScript := filepath.Join(serviceRoot, "service.py")
-	const fixtureMCP = `import json,sys
-domain=sys.argv[1]
-tool="lookup_fixture" if domain=="documents" else "add_fixture"
+	const fixtureMCP = `#!/usr/bin/env python3
+import json,os,sys
+domain=sys.argv[1] if len(sys.argv)>1 else "cwd"
+tool="lookup_fixture" if domain=="documents" else ("pwd_fixture" if domain=="cwd" else "add_fixture")
 for line in sys.stdin:
  try:
   request=json.loads(line); method=request.get("method"); rid=request.get("id")
   if rid is None: continue
   if method=="initialize": result={"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"fixture_"+domain,"version":"1"}}
   elif method=="tools/list": result={"tools":[{"name":tool,"description":"Synthetic "+domain+" test tool","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":domain=="documents"}}]}
-  elif method=="tools/call": result={"content":[{"type":"text","text":"FIXTURE_"+domain.upper()+"_OK"}],"isError":False}
+  elif method=="tools/call": result={"content":[{"type":"text","text":os.getcwd() if domain=="cwd" else "FIXTURE_"+domain.upper()+"_OK"}],"isError":False}
   else: result={}
   sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":rid,"result":result})+"\n"); sys.stdout.flush()
  except Exception as error:
   sys.stderr.write(str(error)+"\n")
 `
-	if err = os.WriteFile(serviceScript, []byte(fixtureMCP), 0600); err != nil {
+	if err = os.WriteFile(serviceScript, []byte(fixtureMCP), 0700); err != nil {
 		t.Fatal(err)
 	}
 	selection := manager.Selection()
@@ -111,6 +112,8 @@ for line in sys.stdin:
 	for _, domain := range []string{"documents", "utility"} {
 		selection.Servers = append(selection.Servers, plugins.SelectedServer{PackageID: "test-" + domain, Name: domain, Root: serviceRoot, Data: filepath.Join(root, "PluginData", domain), Server: plugins.Server{Type: "stdio", Command: "python3", Args: []string{"-u", serviceScript, domain}}})
 	}
+	cwdData := filepath.Join(root, "PluginData", "cwd")
+	selection.Servers = append(selection.Servers, plugins.SelectedServer{PackageID: "test-cwd", Name: "cwd", Root: serviceRoot, Data: cwdData, Server: plugins.Server{Type: "stdio", Command: "./service.py", CWD: "${PLUGIN_DATA}"}})
 	workspace := filepath.Join(root, "Notebook")
 	s := NewSession(SessionOptions{Binary: binary, Directory: workspace, StateFile: filepath.Join(root, "binding.json")})
 	if err = s.ConfigureBotTools(&api.ToolConnection{Command: "/usr/bin/false", Args: []string{"--fixture"}, Env: map[string]string{}, NotebookDirectory: workspace, Plugins: selection}); err != nil {
@@ -148,7 +151,7 @@ for line in sys.stdin:
 	if !badIsolated {
 		t.Fatal("bad test Skill did not report isolated health")
 	}
-	for _, domain := range []string{"documents", "utility"} {
+	for _, domain := range []string{"documents", "utility", "cwd"} {
 		name := plugins.RuntimeName("test-"+domain, domain)
 		var status any
 		if err = callDecode(ctx, s.client, "mcpServerStatus/list", map[string]any{"threadId": s.binding.ThreadID, "serverName": name}, &status); err != nil {
@@ -158,6 +161,8 @@ for line in sys.stdin:
 		tool := "add_fixture"
 		if domain == "documents" {
 			tool = "lookup_fixture"
+		} else if domain == "cwd" {
+			tool = "pwd_fixture"
 		}
 		if !strings.Contains(string(payload), tool) {
 			t.Fatal("functional MCP service missing", domain)
@@ -171,7 +176,11 @@ for line in sys.stdin:
 			t.Fatal("functional MCP call failed", domain, err)
 		}
 		payload, _ = json.Marshal(result)
-		if !strings.Contains(string(payload), "FIXTURE_"+strings.ToUpper(domain)+"_OK") {
+		want := "FIXTURE_" + strings.ToUpper(domain) + "_OK"
+		if domain == "cwd" {
+			want = cwdData
+		}
+		if !strings.Contains(string(payload), want) {
 			t.Fatal("functional MCP result missing", domain, string(payload))
 		}
 	}
@@ -210,6 +219,26 @@ for line in sys.stdin:
 	afterFDs := countFDs()
 	if afterFDs > beforeFDs+4 {
 		t.Fatal("Bot host descriptors accumulated across MCP reloads", beforeFDs, afterFDs)
+	}
+	// Revocation is checked on the original resident thread. Project config
+	// reload must remove a service that was present when the thread started.
+	removed := plugins.RuntimeName("test-utility", "utility")
+	withoutUtility := selection.Clone()
+	withoutUtility.Servers = append([]plugins.SelectedServer(nil), withoutUtility.Servers[:1]...)
+	withoutUtility.Servers = append(withoutUtility.Servers, selection.Servers[2])
+	if err = s.UpdateBotPlugins(ctx, withoutUtility); err != nil {
+		t.Fatal("same-thread MCP revocation failed", err)
+	}
+	var removedStatus any
+	if err = callDecode(ctx, s.client, "mcpServerStatus/list", map[string]any{"threadId": s.binding.ThreadID, "serverName": removed, "detail": "toolsAndAuthOnly"}, &removedStatus); err != nil {
+		t.Fatal(err)
+	}
+	removedJSON, _ := json.Marshal(removedStatus)
+	if strings.Contains(string(removedJSON), "add_fixture") {
+		t.Fatal("disabled MCP tool remained on original thread", string(removedJSON))
+	}
+	if err = callDecode(ctx, s.client, "mcpServer/tool/call", map[string]any{"threadId": s.binding.ThreadID, "server": removed, "tool": "add_fixture", "arguments": map[string]any{}}, nil); err == nil {
+		t.Fatal("disabled MCP still callable on original thread")
 	}
 	// After an interrupted synthetic turn, verify the live protocol and reload
 	// without submitting another model request or replacing the original ID.

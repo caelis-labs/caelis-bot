@@ -52,7 +52,7 @@ func codexPluginConfigs(selection plugins.Selection) (map[string]map[string]any,
 				issues = append(issues, plugins.Issue{Component: "server", Name: name, Message: err.Error()})
 				continue
 			}
-			out[name] = map[string]any{"command": resolved.Command, "args": resolved.Args, "env": resolved.Env, "startup_timeout_sec": 10, "tool_timeout_sec": 30}
+			out[name] = map[string]any{"command": resolved.Command, "args": resolved.Args, "cwd": resolved.CWD, "env": resolved.Env, "startup_timeout_sec": 10, "tool_timeout_sec": 30}
 		case "streamable-http":
 			if len(s.Headers) > 0 {
 				issues = append(issues, plugins.Issue{Component: "server", Name: name, Message: "Remote headers need a Bot local connection proxy"})
@@ -111,12 +111,15 @@ func projectCodexWorkspace(directory string, c *api.ToolConnection) error {
 	for _, name := range names {
 		item := configs[name]
 		body.WriteString("\n[mcp_servers." + name + "]\n")
-		for _, field := range []string{"command", "url"} {
+		for _, field := range []string{"command", "url", "cwd"} {
 			if v, ok := item[field].(string); ok {
 				body.WriteString(field + " = " + strconv.Quote(v) + "\n")
 			}
 		}
 		if args, ok := item["args"].([]string); ok {
+			if args == nil {
+				args = []string{}
+			}
 			encoded, _ := json.Marshal(args)
 			body.WriteString("args = " + string(encoded) + "\n")
 		}
