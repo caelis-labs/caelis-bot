@@ -595,6 +595,9 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 			snapshotID = value(d.SnapshotId)
 			page = 0
 			staged = &view{State: *bootstrap, Items: []api.Item{}, Seen: map[string]bool{}}
+			// A canonical replacement may replay older Turns before the current
+			// bootstrap Turn. Start its temporary head from history, not B.
+			staged.State.Run = wire.RunState{}
 			return nil
 		case "replace_page":
 			if staged == nil || snapshotID != value(d.SnapshotId) || value(d.Page) != page || d.Source != "replacement" || value(d.NextCursor) != "" {
@@ -636,6 +639,9 @@ func (s *Session) watch(ctx context.Context, c *client, sid, instance string) er
 					staged.RetiredTurns[turn] = true
 				}
 			}
+			// The bootstrap is the authoritative live head. Historical replay
+			// must never retire it, even if replacement omitted its lifecycle.
+			delete(staged.RetiredTurns, value(bootstrap.Run.TurnId))
 			staged.State = *bootstrap
 			staged.ApprovalDirty = false
 			v = staged
