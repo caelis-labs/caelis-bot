@@ -12,6 +12,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -98,10 +100,30 @@ type Manager struct {
 	catalog       []Entry
 	display       map[string]displayMetadata
 	displayIssues map[string]bool
+	sources       map[string]fs.FS
 	state         state
 }
 
 func Open(root string) (*Manager, error) {
+	body, err := reviewed.ReadFile("catalog.json")
+	if err != nil {
+		return nil, err
+	}
+	var c catalog
+	if json.Unmarshal(body, &c) != nil || c.Version != 1 {
+		return nil, errors.New("invalid reviewed plugin catalog")
+	}
+	sources := make(map[string]fs.FS, len(c.Packages))
+	for _, entry := range c.Packages {
+		files, err := fs.Sub(reviewed, "packages/"+entry.ID)
+		if err == nil {
+			sources[entry.ID] = files
+		}
+	}
+	return openCatalog(root, c.Packages, sources)
+}
+
+func openCatalog(root string, entries []Entry, sources map[string]fs.FS) (*Manager, error) {
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("plugin store path must be absolute")
 	}
@@ -112,17 +134,9 @@ func Open(root string) (*Manager, error) {
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, errors.New("plugin store must be a real directory")
 	}
-	body, err := reviewed.ReadFile("catalog.json")
-	if err != nil {
-		return nil, err
-	}
-	var c catalog
-	if json.Unmarshal(body, &c) != nil || c.Version != 1 {
-		return nil, errors.New("invalid reviewed plugin catalog")
-	}
-	m := &Manager{root: root, catalog: c.Packages, display: map[string]displayMetadata{}, displayIssues: map[string]bool{}, state: state{Version: 1, Revision: 1, Installed: map[string]installed{}}}
+	m := &Manager{root: root, catalog: entries, sources: sources, display: map[string]displayMetadata{}, displayIssues: map[string]bool{}, state: state{Version: 1, Revision: 1, Installed: map[string]installed{}}}
 	seen := map[string]bool{}
-	for _, e := range c.Packages {
+	for _, e := range entries {
 		if seen[e.ID] || !pluginName.MatchString(e.ID) || e.Version == "" || e.Source == "" || len(e.Files) == 0 {
 			return nil, errors.New("invalid reviewed plugin entry")
 		}
@@ -132,8 +146,13 @@ func Open(root string) (*Manager, error) {
 				return nil, errors.New("invalid reviewed plugin inventory")
 			}
 		}
-		packageFiles, err := fs.Sub(reviewed, "packages/"+e.ID)
-		if err != nil {
+		for _, name := range e.Executables {
+			if _, ok := e.Files[name]; !ok || !safeReviewedName(name) {
+				return nil, errors.New("invalid reviewed executable inventory")
+			}
+		}
+		packageFiles := sources[e.ID]
+		if packageFiles == nil {
 			m.displayIssues[e.ID] = true
 			continue
 		}
@@ -148,7 +167,7 @@ func Open(root string) (*Manager, error) {
 	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return nil, statErr
 	}
-	body, err = os.ReadFile(statePath)
+	body, err := os.ReadFile(statePath)
 	if err == nil {
 		if json.Unmarshal(body, &m.state) != nil || m.state.Version != 1 || m.state.Installed == nil {
 			return nil, errors.New("invalid plugin state; original file retained")
@@ -188,8 +207,30 @@ func (m *Manager) entry(id string) (Entry, bool) {
 }
 func digest(e Entry) string {
 	b, _ := json.Marshal(e.Files)
+	if len(e.Executables) != 0 {
+		names := append([]string(nil), e.Executables...)
+		sort.Strings(names)
+		modes, _ := json.Marshal(names)
+		b = append(b, modes...)
+	}
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+func verifyExecutableModes(root string, e Entry) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	} // Windows executes by file type, not POSIX mode bits.
+	for name := range e.Files {
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(name)))
+		if err != nil {
+			return err
+		}
+		if (info.Mode().Perm()&0111 != 0) != slices.Contains(e.Executables, name) {
+			return errors.New("reviewed executable mode mismatch")
+		}
+	}
+	return nil
 }
 func (m *Manager) packageRoot(e Entry) string {
 	return filepath.Join(m.root, "versions", e.ID, e.Version+"-"+digest(e)[:16])
@@ -215,6 +256,9 @@ func (m *Manager) readInstalledAt(e Entry, rootName string) (Package, error) {
 	}
 	root := filepath.Join(m.root, "versions", e.ID, rootName)
 	if err := Verify(root, e.Files); err != nil {
+		return Package{}, err
+	}
+	if err := verifyExecutableModes(root, e); err != nil {
 		return Package{}, err
 	}
 	p, err := Load(root)
@@ -410,9 +454,10 @@ func (m *Manager) snapshotLocked() Snapshot {
 }
 func (m *Manager) stage(e Entry) (string, error) {
 	dest := m.packageRoot(e)
-	if err := Verify(dest, e.Files); err == nil {
-		_, err = m.readInstalled(e)
-		return filepath.Base(dest), err
+	if err := Verify(dest, e.Files); err == nil && verifyExecutableModes(dest, e) == nil {
+		if _, err = m.readInstalled(e); err == nil {
+			return filepath.Base(dest), nil
+		}
 	}
 	if err := ensureStoreDirectory(m.root, filepath.Dir(dest)); err != nil {
 		return "", err
@@ -423,7 +468,7 @@ func (m *Manager) stage(e Entry) (string, error) {
 	}
 	defer os.RemoveAll(tmp)
 	for name := range e.Files {
-		body, err := reviewed.ReadFile(filepath.ToSlash(filepath.Join("packages", e.ID, name)))
+		body, err := fs.ReadFile(m.sources[e.ID], name)
 		if err != nil {
 			return "", err
 		}
@@ -431,11 +476,18 @@ func (m *Manager) stage(e Entry) (string, error) {
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			return "", err
 		}
-		if err = os.WriteFile(path, body, 0600); err != nil {
+		mode := os.FileMode(0600)
+		if slices.Contains(e.Executables, name) {
+			mode = 0700
+		}
+		if err = os.WriteFile(path, body, mode); err != nil {
 			return "", err
 		}
 	}
 	if err := Verify(tmp, e.Files); err != nil {
+		return "", err
+	}
+	if err := verifyExecutableModes(tmp, e); err != nil {
 		return "", err
 	}
 	p, err := Load(tmp)
@@ -458,7 +510,10 @@ func (m *Manager) stage(e Entry) (string, error) {
 	}
 	if err := os.Rename(tmp, dest); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			return filepath.Base(dest), Verify(dest, e.Files)
+			if verifyErr := Verify(dest, e.Files); verifyErr != nil {
+				return "", verifyErr
+			}
+			return filepath.Base(dest), verifyExecutableModes(dest, e)
 		}
 		return "", err
 	}

@@ -28,6 +28,28 @@ type Contribution struct {
 	DescriptionZh string `json:"descriptionZh,omitempty"`
 }
 
+// Tool is presentation metadata returned by an enabled Runtime service.
+// Hints are displayed as claims by the server and never affect approval policy.
+type Tool struct {
+	Name            string `json:"name"`
+	Title           string `json:"title,omitempty"`
+	Description     string `json:"description,omitempty"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool  `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
+}
+
+type ServerDetail struct {
+	State string `json:"state"`
+	Tools []Tool `json:"tools"`
+	Error string `json:"error,omitempty"`
+}
+
+type SkillDetail struct {
+	Body string `json:"body"`
+}
+
 type displayMetadata struct {
 	Publisher    string
 	PublisherURL string
@@ -93,6 +115,10 @@ func displayText(value string) string {
 	}
 	return value
 }
+
+// SafeDisplayText is the narrow presentation boundary for untrusted MCP
+// directory labels. A rejected value is omitted, never rendered as raw config.
+func SafeDisplayText(value string) string { return displayText(value) }
 
 func displayURL(value string) string {
 	u, err := url.Parse(value)
@@ -217,5 +243,11 @@ func reviewedDisplay(files fs.FS, entry Entry) (displayMetadata, error) {
 		out.Servers = append(out.Servers, Contribution{ID: name, Name: name, Description: displayText(label.DescriptionEn), NameZh: displayText(label.NameZh), DescriptionZh: displayText(label.DescriptionZh)})
 	}
 	sort.Slice(out.Servers, func(i, j int) bool { return out.Servers[i].ID < out.Servers[j].ID })
+	// A single-server MCP-only package has a verified package purpose that can
+	// serve as its service summary. Multi-contribution packages need an explicit
+	// service description; do not invent one from a server name.
+	if len(out.Servers) == 1 && len(out.Skills) == 0 && out.Servers[0].Description == "" {
+		out.Servers[0].Description = displayText(manifest.Description)
+	}
 	return out, nil
 }

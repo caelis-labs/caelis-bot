@@ -312,6 +312,10 @@ Neither scope claims isolation from another process under the same OS user or fr
 
 ## Bot tool catalog
 
+Bot-owned portable plugin packages and their reviewed source adapter are described
+in [plugin-packages.md](plugin-packages.md). Package MCP services do not join the
+built-in automatic approval list.
+
 The complete resident catalog contains ten tools: `bot_memory`, `bot_tasks`,
 `bot_delegate`, `bot_schedule`, `bot_schedule_update`, `bot_desktop_inspect`,
 `bot_desktop_authorize`, `bot_desktop_act`, `bot_desktop_result`, and `bot_gesture`.
