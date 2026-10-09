@@ -67,6 +67,31 @@ func TestCodexRuntimeDirectoryKeepsDescriptionsOnlyWhenConnected(t *testing.T) {
 	}
 }
 
+func TestConfiguredServerAbsentFromRuntimeIsNotUnconfigured(t *testing.T) {
+	s, fixture := sessionPair(t, "hold")
+	name := plugins.RuntimeName("notes", "search")
+	s.opts.BotTools = &api.ToolConnection{Plugins: plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "notes", Name: "search"}}}}
+	fixture.mu.Lock()
+	fixture.handle = func(message wireMessage) (any, bool) {
+		if message.Method == "mcpServerStatus/list" {
+			return map[string]any{"data": []any{}}, true
+		}
+		return nil, false
+	}
+	fixture.mu.Unlock()
+	detail, err := s.BotPluginServer(t.Context(), name)
+	if err != nil || detail.State != "not_started" || detail.Error == "" {
+		t.Fatal("saved server disappeared as unconfigured", detail, err)
+	}
+	s.mu.Lock()
+	s.trustBlockedReason = "organization policy disabled Bot workspace config"
+	s.mu.Unlock()
+	detail, err = s.BotPluginServer(t.Context(), name)
+	if err != nil || detail.State != "trust_blocked" || detail.Error == "" {
+		t.Fatal("workspace trust block hidden", detail, err)
+	}
+}
+
 func TestBotProjectProjectionAndWorkerIsolation(t *testing.T) {
 	bot := t.TempDir()
 	worker := t.TempDir()

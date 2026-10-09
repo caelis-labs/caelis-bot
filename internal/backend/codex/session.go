@@ -31,6 +31,7 @@ type binding struct {
 	OwnerEndpoint      string                          `json:"ownerEndpoint,omitempty"`
 	PendingApprovalIDs []string                        `json:"pendingApprovalIds,omitempty"`
 	RuntimeVersion     string                          `json:"runtimeVersion,omitempty"`
+	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
 	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
 	Context         contextseed.State      `json:"context,omitempty"`
@@ -147,6 +148,8 @@ type Session struct {
 	nativeResources        nativeResourceSnapshot
 	childRevision          map[string]uint64
 	loginID                string
+	trustApprovalID        string
+	trustBlockedReason     string
 	loginStarting          bool
 	earlyLogin             map[string]bool
 	changed                chan struct{}
@@ -515,7 +518,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if err := os.MkdirAll(s.opts.Directory, 0700); err != nil {
 		return s.connectionError("无法准备工作文件夹", err)
 	}
-	startOptions := Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, RequiredSocket: s.opts.RequiredSocket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true, TrustedProject: s.opts.BotTools != nil && s.opts.BotTools.NotebookDirectory != ""}
+	startOptions := Options{Diagnostics: s.opts.Diagnostics, Binary: s.opts.Binary, Socket: s.opts.Socket, RequiredSocket: s.opts.RequiredSocket, Directory: s.opts.Directory, Experimental: true, HandleRequests: true, Attachable: true}
 	if s.binding.OwnerEndpoint != "" {
 		startOptions.Socket = strings.TrimPrefix(s.binding.OwnerEndpoint, "unix://")
 		startOptions.RequiredSocket = true
@@ -587,6 +590,17 @@ func (s *Session) connect(ctx context.Context) error {
 		s.update()
 		s.mu.Unlock()
 		return nil
+	}
+	if s.opts.BotTools != nil && s.opts.BotTools.NotebookDirectory != "" {
+		if err := s.requireBotWorkspaceTrust(ctx, c); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		waiting := s.trustApprovalID != "" || s.trustBlockedReason != ""
+		s.mu.Unlock()
+		if waiting {
+			return nil
+		}
 	}
 	s.mu.Lock()
 	threadID := s.binding.ThreadID

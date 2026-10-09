@@ -409,9 +409,13 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 		}
 	}
 	c, thread := s.client, s.binding.ThreadID
+	trustPending, trustReason := s.trustApprovalID != "", s.trustBlockedReason
 	s.mu.Unlock()
 	if !selected {
 		return empty, nil
+	}
+	if trustPending || trustReason != "" {
+		return plugins.ServerDetail{State: "trust_blocked", Error: trustReason, Tools: []plugins.Tool{}}, nil
 	}
 	if c == nil || thread == "" {
 		empty.State = "not_started"
@@ -459,6 +463,7 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 		}
 		if server.ToolsError != nil {
 			out.State = "failed"
+			out.Error = plugins.SafeDisplayDescription(*server.ToolsError)
 		}
 		if out.State == "connected" {
 			for key, tool := range server.Tools {
@@ -475,7 +480,7 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 		}
 		return out, nil
 	}
-	return empty, nil
+	return plugins.ServerDetail{State: "not_started", Error: "Configured service is absent from the active Bot Runtime directory", Tools: []plugins.Tool{}}, nil
 }
 
 func (s *Session) BotPluginGeneration() uint64 {
