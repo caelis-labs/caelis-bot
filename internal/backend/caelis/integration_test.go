@@ -455,47 +455,8 @@ func TestNativeHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
-	if !t.Run("B00_dream_handoff", func(t *testing.T) {
-		dreamSkill := filepath.Join(filepath.Dir(filepath.Dir(skillPath)), "bot-dream", "SKILL.md")
-		output, err := vault.PrepareDream()
-		if err != nil {
-			t.Fatal(err)
-		}
-		model.set("CASE_DREAM", modelStep{Name: "Read", Args: map[string]string{"path": dreamSkill}}, modelStep{Name: "Write", Args: map[string]string{"path": output, "content": notebook.DreamMarker("native-dream") + "\nCompleted the skill check; nothing pending."}}, modelStep{Reply: "The guide check is complete."})
-		old := s.ConversationState().Session
-		before := s.Snapshot().CurrentTurn
-		r, err := s.SubmitDream(ctx, api.Submission{ID: "native-dream", Text: "Explicit host Dream request: load bot-dream, write the supplied handoff and give a recap. CASE_DREAM"})
-		if err != nil || r.Outcome != "accepted" {
-			t.Fatal(r, err)
-		}
-		waitTurn(t, ctx, s, before)
-		if ready, err := vault.DreamReady("native-dream"); err != nil || !ready || s.ConversationState().Session != old {
-			t.Fatal("handoff not ready or eager renewal", err)
-		}
-		requests := model.seen("CASE_DREAM")
-		if len(requests) != 3 {
-			t.Fatal("Dream did not finish", len(requests))
-		}
-		first, _ := json.Marshal(requests[0])
-		second, _ := json.Marshal(requests[1])
-		if !strings.Contains(string(first), dreamSkill) || strings.Contains(string(first), "# Prepare the next conversation") || !strings.Contains(string(second), "# Prepare the next conversation") {
-			t.Fatal("Dream progressive loading failed")
-		}
-		if err = s.RenewConversation(ctx, "native-dream", old); err != nil {
-			t.Fatal(err)
-		}
-		model.set("CASE_NEW_CONTEXT", modelStep{Reply: "Ready for the new topic."})
-		submitAcceptance(t, ctx, s, "CASE_NEW_CONTEXT")
-		next, _ := json.Marshal(model.seen("CASE_NEW_CONTEXT"))
-		if !strings.Contains(string(next), "MEMORY.md:") || !strings.Contains(string(next), "Completed the skill check") || strings.Contains(string(next), "CASE_SKILL") {
-			t.Fatal("wrong new-session context")
-		}
-		if _, err = os.Stat(output); !os.IsNotExist(err) {
-			t.Fatal("handoff not consumed", err)
-		}
-	}) {
-		return
-	}
+	// The retired host Dream/Notebook flow is covered as legacy receipt
+	// migration; TestNativeHostBotDreamRenewal exercises the replacement tool.
 	if !t.Run("B00_running_inputs", func(t *testing.T) {
 		release := make(chan struct{})
 		var once sync.Once
