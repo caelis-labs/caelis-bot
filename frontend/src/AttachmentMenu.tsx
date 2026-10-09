@@ -51,11 +51,13 @@ export function AttachmentMenu({trigger,composer,quick,activation,references,sel
    buttons[index].focus();
   };
   const blur=()=>callbacks.current.onClose();
+  const taskExpanded=()=>callbacks.current.onClose();
   window.addEventListener('panel-menu-layout',nativeLayout);
   window.addEventListener('resize',position);
   window.addEventListener('pointerdown',outside,true);
   window.addEventListener('keydown',key,true);
   window.addEventListener('blur',blur);
+  window.addEventListener('task-dock-expanded',taskExpanded);
   const observer=new ResizeObserver(position);if(composer.current)observer.observe(composer.current);
   position();
   let disposed=false;
@@ -67,6 +69,7 @@ export function AttachmentMenu({trigger,composer,quick,activation,references,sel
    window.removeEventListener('pointerdown',outside,true);
    window.removeEventListener('keydown',key,true);
    window.removeEventListener('blur',blur);
+   window.removeEventListener('task-dock-expanded',taskExpanded);
    if(quick)void setNativeMenu(0,activation).catch(()=>{});
   };
  },[quick,activation,references.length,trigger,composer]);

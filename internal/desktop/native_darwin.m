@@ -62,7 +62,6 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property double bubbleRequestedHeight;
 @property double bubbleMaxHeight;
 @property BotTaskDock *taskDock;
-@property BOOL tasksBlocked;
 @property BotInputPanel *prop;
 @property BOOL propReady;
 @property NSString *flightID;
@@ -306,6 +305,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     [self.panel orderOut:nil];
     self.panel.level = NSFloatingWindowLevel;
     self.panelMenuHeight = 0;
+    self.taskDock.attachmentMenuOpen = NO;
     self.previousApp = nil;
     [self updateBubble];
     [self trace:reason];
@@ -329,8 +329,9 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     }
     if (!local || (event.window && event.window != self.bubble)) [self collapseBubble];
     // Windowless local events (for example native menus) are not evidence of
-    // an outside click. App deactivation independently covers other apps.
-    if (!local || (event.window && event.window != self.panel && event.window != self.pet)) [self dismissPanel:local ? @"panel-dismiss-local" : @"panel-dismiss-global"];
+    // an outside click. The nonactivating task dock is another Bot control,
+    // so its entry click must not dismiss the still-key composer.
+    if (!local || (event.window && event.window != self.panel && event.window != self.pet && event.window != self.taskDock.window)) [self dismissPanel:local ? @"panel-dismiss-local" : @"panel-dismiss-global"];
 }
 - (void)trace:(NSString *)event {
     static os_log_t logger;
@@ -408,7 +409,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 }
 
 - (void)updateBubble {
-    [self.taskDock placeWithPet:self.pet.frame bounds:(self.pet.screen ?: NSScreen.mainScreen).visibleFrame visible:self.visible && !self.dragging && !self.panel.visible && !self.history.keyWindow && !self.bubble.interactive && !self.tasksBlocked];
+    // The task entry belongs to the pet, not the chat or message bubble.
+    [self.taskDock placeWithPet:self.pet.frame bounds:(self.pet.screen ?: NSScreen.mainScreen).visibleFrame visible:self.visible && !self.dragging];
     if (!self.visible || !self.bubbleWanted || self.dragging || self.panel.visible || self.history.keyWindow) {
         [(BotBubbleSurface *)self.bubble.contentView resetHover];
         if(self.bubble.visible) bot_js(self.bubble,@"window.dispatchEvent(new Event('bubble-hidden'))");
@@ -541,7 +543,20 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.taskDock.lockTask=^(NSString *identifier,BOOL locked){if(weak.handle)desktopTaskLock(weak.handle,(char *)identifier.UTF8String,locked);};
     host.taskDock.reorderTask=^(NSString *identifier,NSString *before){if(weak.handle)desktopTaskMove(weak.handle,(char *)identifier.UTF8String,(char *)before.UTF8String);};
     host.taskDock.placeTask=^(NSString *identifier,NSPoint p){if(weak.handle)desktopTaskPlace(weak.handle,(char *)identifier.UTF8String,p.x,p.y);};
-    host.taskDock.gesture=^(NSString *name){if(weak.handle)bot_gesture((__bridge void *)weak,(char *)name.UTF8String);};
+    host.taskDock.gesture=^(NSString *name){
+        if([name isEqualToString:@"attention"]) {
+            if(weak.panel.visible && weak.panelMenuHeight>0) {
+                // The entry click switches transient surfaces on this AppKit
+                // turn, before another click can hit the expanded cards.
+                weak.panelMenuHeight=0;
+                weak.taskDock.attachmentMenuOpen=NO;
+                [weak anchorPanel];
+            }
+            bot_js(weak.panel,@"window.dispatchEvent(new Event('task-dock-expanded'))");
+            bot_js(weak.history,@"window.dispatchEvent(new Event('task-dock-expanded'))");
+        }
+        if(weak.handle)bot_gesture((__bridge void *)weak,(char *)name.UTF8String);
+    };
     BotPetInputView *view = [[BotPetInputView alloc] initWithFrame:surface.bounds];
     host.inputView = view;
     view.autoresizingMask = NSViewWidthSizable|NSViewHeightSizable;
@@ -653,6 +668,7 @@ void bot_panel(void *pointer, int visible) {
         NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
         if (front.processIdentifier != NSProcessInfo.processInfo.processIdentifier) host.previousApp = front;
         host.panelMenuHeight = 0;
+        host.taskDock.attachmentMenuOpen = NO;
         host.activationID++;
         [host anchorPanel];
         [NSApp activateIgnoringOtherApps:YES]; [host.panel makeKeyAndOrderFront:nil];
@@ -664,6 +680,7 @@ void bot_panel(void *pointer, int visible) {
         [host.panel orderOut:nil];
         host.panel.level = NSFloatingWindowLevel;
         host.panelMenuHeight = 0;
+        host.taskDock.attachmentMenuOpen = NO;
         if (restore && host.previousApp && !host.previousApp.terminated) [host.previousApp activateWithOptions:0];
         host.previousApp = nil;
     }
@@ -701,6 +718,7 @@ void bot_panel_menu(void *pointer, int height, int activation) {
     BotHost *host = (__bridge BotHost *)pointer;
     if (!host.panel.visible || host.activationID != (NSUInteger)activation) return;
     host.panelMenuHeight = height;
+    host.taskDock.attachmentMenuOpen = height > 0;
     [host anchorPanel];
     [host trace:height ? @"panel-menu-open" : @"panel-menu-close"];
 }
@@ -806,7 +824,7 @@ void bot_activity(void *pointer, char *activity) {
     BotHost *host = (__bridge BotHost *)pointer;
     NSString *state = [NSString stringWithUTF8String:activity];
     if (![@[@"idle",@"working",@"waiting",@"dreaming"] containsObject:state]) return;
-    host.tasksBlocked=[state isEqualToString:@"waiting"]; [host updateBubble];
+    [host updateBubble];
     if (![state isEqualToString:@"idle"]) [host cancelPlane];
     bot_js(host.pet,[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('pet-activity',{detail:'%@'}))",state]);
 }

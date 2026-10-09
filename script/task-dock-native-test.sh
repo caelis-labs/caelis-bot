@@ -6,6 +6,7 @@ directory=$(mktemp -d "${TMPDIR:-/tmp}/bot-task-dock.XXXXXX")
 trap 'rm -rf "$directory"' EXIT
 cat > "$directory/main.m" <<'OBJC'
 #import <Cocoa/Cocoa.h>
+#include "panel_menu_layout.h"
 #include "task_snapshot_darwin.m"
 #include "task_dock_darwin.m"
 #include <assert.h>
@@ -104,6 +105,71 @@ static void checkAdaptiveGeometry(void) {
     p=taskDockPlacement(pet,b,n,NO);assert(NSContainsRect(NSInsetRect(b,8,8),p.frame));
   }
 }
+static void checkAttachmentMenuTransitions(void) {
+  NSRect screen=NSMakeRect(0,0,1200,900);
+  NSRect pets[]={NSMakeRect(400,300,240,240),NSMakeRect(400,500,240,240),
+                  NSMakeRect(0,0,240,240),NSMakeRect(960,0,240,240),
+                  NSMakeRect(0,660,240,240),NSMakeRect(960,660,240,240)};
+  for(NSUInteger i=0;i<sizeof(pets)/sizeof(pets[0]);i++) {
+    NSRect pet=pets[i];
+    BotTaskDock *dock=[BotTaskDock new];
+    [dock setTasks:@[task(@"one",@"working"),task(@"two",@"completed")]];
+    [dock placeWithPet:pet bounds:screen visible:YES];
+    [dock expand];
+    NSRect expanded=dock.window.frame;
+    CGFloat inputHeight=152,width=420;
+    double x=fmax(NSMinX(screen),fmin(NSMidX(pet)-width/2,NSMaxX(screen)-width));
+    double y=NSMinY(pet)+44-inputHeight-10;
+    if(y<NSMinY(screen)+8)y=NSMaxY(pet)+10;
+    y=fmax(NSMinY(screen)+8,fmin(y,NSMaxY(screen)-inputHeight-8));
+    BotPanelMenuLayout menu=bot_panel_menu_layout(y,width,inputHeight,NSMinY(screen),NSMaxY(screen),250);
+    NSRect menuFrame=NSMakeRect(x,menu.originY,width,menu.height);
+    NSPoint action=NSMakePoint(x+190,NSMaxY(menuFrame)-menu.menuTop-26);
+    assert(menu.menuHeight>=40 && NSPointInRect(action,menuFrame));
+    if(i==0)assert(menu.menuTop==8); // Upward menu.
+    if(i==1)assert(menu.menuTop>8 && NSPointInRect(action,expanded)); // Reviewer's downward overlap.
+    NSWindow *menuWindow=[[NSWindow alloc] initWithContentRect:menuFrame styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
+    menuWindow.level=NSFloatingWindowLevel+1;
+    menuWindow.releasedWhenClosed=NO;
+    NSButton *button=[NSButton buttonWithTitle:@"Add file" target:nil action:nil];
+    button.frame=NSMakeRect(110,menuFrame.size.height-menu.menuTop-42,160,32);
+    [menuWindow.contentView addSubview:button];
+    [menuWindow orderFrontRegardless];
+    __weak BotTaskDock *weak=dock;
+    dock.gesture=^(NSString *name){
+      if([name isEqualToString:@"attention"] && weak.attachmentMenuOpen){
+        weak.attachmentMenuOpen=NO;[menuWindow orderOut:nil];
+      }
+    };
+    // Opening a menu over cards always restores the small, clickable entry.
+    dock.attachmentMenuOpen=YES;
+    assert(!dock.expanded && dock.window.visible && menuWindow.visible);
+    assert(dock.window.level>menuWindow.level && dock.window.level<NSModalPanelWindowLevel);
+    assert(!NSPointInRect(action,dock.window.frame));
+    NSPoint menuLocal=[menuWindow convertPointFromScreen:action];
+    assert([menuWindow.contentView hitTest:menuLocal]==button);
+    [dock.buttons[0] mouseEntered:[NSEvent new]];
+    assert(!dock.openTimer && !dock.expanded); // Hover cannot dismiss an active menu.
+    NSPoint entry=NSMakePoint(NSMidX(dock.window.frame),NSMidY(dock.window.frame));
+    assert(NSPointInRect(entry,dock.window.frame));
+    NSPoint entryLocal=[dock.window convertPointFromScreen:entry];
+    assert([dock.window.contentView hitTest:entryLocal]==dock.buttons[0]);
+    [dock.buttons[0] performClick:nil];
+    assert(dock.expanded && !dock.attachmentMenuOpen && !menuWindow.visible);
+    NSPoint card=NSMakePoint(NSMidX(dock.buttons[0].frame),NSMidY(dock.buttons[0].frame));
+    NSView *stack=dock.window.contentView.subviews[0];
+    assert([[stack hitTest:card] isKindOfClass:BotTaskButton.class]);
+    // Reopening the menu while cards are visible must make Add file reachable again.
+    [dock collapse];dock.attachmentMenuOpen=NO;
+    [dock.buttons[0] mouseEntered:[NSEvent new]];assert(dock.openTimer);
+    [menuWindow orderFrontRegardless];dock.attachmentMenuOpen=YES;
+    assert(!dock.openTimer && !dock.expanded && menuWindow.visible && [menuWindow.contentView hitTest:menuLocal]==button);
+    [menuWindow orderOut:nil];dock.attachmentMenuOpen=NO;
+    assert(dock.window.visible && !dock.expanded);
+    [dock setTasks:@[]];assert(!dock.window.visible);
+    [dock stop];[menuWindow close];
+  }
+}
 int main(void) {
   checkSnapshotSelection();
   if(@available(macOS 14.0,*)) {
@@ -120,13 +186,33 @@ int main(void) {
   checkAdaptiveGeometry();
   [NSApplication sharedApplication];
   [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+  checkAttachmentMenuTransitions();
   BotTaskDock *dock=[BotTaskDock new];
   __block NSString *notice=@"";__block BOOL noticePending=NO;
   dock.notice=^(NSString *message,BOOL pending){notice=message;noticePending=pending;};
   NSData *language=[NSData dataWithContentsOfFile:@"internal/i18n/locales/zh-CN/native.json"];
   dock.language=[NSJSONSerialization JSONObjectWithData:language options:0 error:nil];
   [dock setTasks:@[task(@"one",@"working"),task(@"two",@"completed")]];
-  [dock placeWithPet:NSMakeRect(400,300,240,240) bounds:NSMakeRect(0,0,1200,900) visible:YES];
+  NSRect pet=NSMakeRect(400,300,240,240),screen=NSMakeRect(0,0,1200,900);
+  [dock placeWithPet:pet bounds:screen visible:YES];
+  // Production quick composer + attachment menu geometry: the hosting window
+  // overlaps the task entry and sits one level above the ordinary pet/chat.
+  CGFloat inputHeight=152,composerY=NSMinY(pet)+44-inputHeight-10;
+  BotPanelMenuLayout menu=bot_panel_menu_layout(composerY,420,inputHeight,NSMinY(screen),NSMaxY(screen),250);
+  NSRect menuFrame=NSMakeRect(NSMidX(pet)-210,menu.originY,420,menu.height);
+  NSWindow *menuWindow=[[NSWindow alloc] initWithContentRect:menuFrame styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
+  menuWindow.level=NSFloatingWindowLevel+1;
+  [menuWindow orderFrontRegardless];
+  assert(menuWindow.visible && dock.window.visible && NSIntersectsRect(menuWindow.frame,dock.window.frame));
+  assert(dock.window.level>menuWindow.level && dock.window.level<NSModalPanelWindowLevel);
+  assert([dock.window.contentView hitTest:NSMakePoint(31,14)]==dock.buttons[0]);
+  __weak BotTaskDock *weakDock=dock;
+  dock.gesture=^(NSString *name){if([name isEqualToString:@"attention"]){[menuWindow orderOut:nil];weakDock.attachmentMenuOpen=NO;}};
+  dock.attachmentMenuOpen=YES;
+  [dock.buttons[0] performClick:nil];
+  assert(!menuWindow.visible && dock.expanded && dock.buttons.count==2);
+  [dock collapse];assert(dock.window.visible);
+  [menuWindow orderOut:nil];
   assert(NSEqualSizes(dock.window.contentView.bounds.size,NSMakeSize(62,28)));
   assert(dock.buttons[0].loading);
   assert(!dock.window.hasShadow && ![dock.window.contentView isKindOfClass:NSVisualEffectView.class]);
@@ -364,6 +450,9 @@ int main(void) {
     NSString *identifier=dock.tasks[button.tag][@"id"];
     assert([button.statusText isEqual:labels[identifier]]);
   }
+  [dock collapse];[dock setTasks:@[]];assert(!dock.window.visible);
+  [dock setTasks:@[task(@"one",@"working")]];
+  assert(dock.window.visible && dock.buttons.count==1);
   [dock stop];
   puts("Adaptive bounds/negative-origin screens, dense stacks (12/30/100), bidirectional hover, controls, no scroll containers, vertical reorder and cancellation passed. Task dock: dots, stable frames, status, pointer order, close/swipe locks, desktop drop, cache cleanup and held shortcut passed.");
  }
@@ -387,7 +476,21 @@ if [[ "${BOT_TASK_DOCK_LIVE:-}" == 1 ]]; then
 PLIST
   codesign --force --sign - "$bundle"
   printf '%s\n' "$bundle"
-  /usr/bin/open "$bundle"
+  if [[ "${BOT_TASK_DOCK_MENU_TEST:-}" == 1 ]]; then
+    result="${BOT_TASK_DOCK_MENU_RESULT:-$BOT_ROOT/.cache/task-dock-menu-native.json}"
+    log="$BOT_ROOT/.cache/task-dock-menu-native.log"
+    mkdir -p "$(dirname "$result")" "$BOT_ROOT/.cache"
+    rm -f "$result"
+    : > "$log"
+    /usr/bin/open -W -n "$bundle" --stdout "$log" --stderr "$log" --env "BOT_TASK_PREVIEW_MENU_RESULT=$result" --env "BOT_TASK_PREVIEW_MENU_CAPTURE_PREFIX=$BOT_ROOT/.cache/task-dock-menu-down" || { cat "$log"; exit 1; }
+    [[ -s "$result" ]] || { cat "$log"; echo 'Native task dock menu result was not produced.' >&2; exit 1; }
+    jq -e '.result == "pass" and .direction == "down" and .menuClickCount == 2 and .composerStayedKey == true' "$result"
+    for view in menu-open dots composer-key cards; do
+      [[ -s "$BOT_ROOT/.cache/task-dock-menu-down-$view.png" ]] || { echo "Missing task/menu fixture image: $view" >&2; exit 1; }
+    done
+  else
+    /usr/bin/open "$bundle"
+  fi
 else
   "$directory/fixture"
 fi

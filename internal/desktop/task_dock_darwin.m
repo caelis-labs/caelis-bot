@@ -285,7 +285,9 @@ static NSPanel *taskPanel(NSString *title) {
     NSPanel *panel=[[BotTaskPanel alloc] initWithContentRect:NSMakeRect(0,0,48,26) styleMask:NSWindowStyleMaskBorderless|NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
     panel.title=title; panel.opaque=NO; panel.backgroundColor=NSColor.clearColor;
     panel.hasShadow=NO;panel.acceptsMouseMovedEvents=YES; panel.hidesOnDeactivate=NO; panel.releasedWhenClosed=NO;
-    panel.level=NSFloatingWindowLevel+1;
+    // The composer rises by one level for its attachment menu. Keep task
+    // controls above it without entering AppKit's modal-panel level.
+    panel.level=NSFloatingWindowLevel+2;
     panel.collectionBehavior=NSWindowCollectionBehaviorCanJoinAllSpaces|NSWindowCollectionBehaviorStationary|NSWindowCollectionBehaviorIgnoresCycle|NSWindowCollectionBehaviorFullScreenAuxiliary;
     if (@available(macOS 13.0,*)) panel.collectionBehavior|=NSWindowCollectionBehaviorCanJoinAllApplications;
     return panel;
@@ -585,7 +587,7 @@ static NSPanel *taskPanel(NSString *title) {
     NSUInteger generation=++self.hoverGeneration;
     __weak BotTaskDock *weak=self;
     if(entered) {
-        if(index<0) self.openTimer=[NSTimer scheduledTimerWithTimeInterval:0.16 repeats:NO block:^(NSTimer *timer){[weak expand];}];
+        if(index<0 && !self.attachmentMenuOpen) self.openTimer=[NSTimer scheduledTimerWithTimeInterval:0.16 repeats:NO block:^(NSTimer *timer){[weak expand];}];
     } else {
         self.closeTimer=[NSTimer scheduledTimerWithTimeInterval:0.42 repeats:NO block:^(NSTimer *timer){
             if(generation!=weak.hoverGeneration || weak.shortcutHeld)return;
@@ -593,6 +595,10 @@ static NSPanel *taskPanel(NSString *title) {
             [weak collapse];
         }];
     }
+}
+- (void)setAttachmentMenuOpen:(BOOL)open {
+    _attachmentMenuOpen=open;
+    if(open) { [self cancelDrag]; [self collapse]; }
 }
 - (void)toggle { if(self.expanded)[self collapse];else [self expand]; }
 - (void)setShortcutHeld:(BOOL)held {
