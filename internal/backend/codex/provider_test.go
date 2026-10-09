@@ -71,6 +71,9 @@ func TestNotebookWorkspaceDoesNotLeakToWorkers(t *testing.T) {
 	if child["cwd"] != worker || strings.Contains(string(b), notebook) || strings.Contains(string(b), "resident-only-notebook-skill") {
 		t.Fatal("worker inherited resident private context")
 	}
+	if tool := child["config"].(map[string]any)["mcp_servers.caelis_context"].(map[string]any); tool["enabled"] != false || strings.Contains(string(b), "CAELIS_BOT_TOKEN") {
+		t.Fatal("worker inherited the resident context tool or private token")
+	}
 }
 
 func TestNotebookRefreshUsesResidentTurnLifecycle(t *testing.T) {

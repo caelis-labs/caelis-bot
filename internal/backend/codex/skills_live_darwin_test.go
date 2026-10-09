@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/care"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
@@ -43,7 +44,6 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	}
 	defer vault.Close()
 	os.WriteFile(filepath.Join(vault.Path(), "MEMORY.md"), []byte("# Memory\nNative core identity."), 0600)
-	dreamPath := filepath.Join(filepath.Dir(filepath.Dir(skillPath)), "bot-dream", "SKILL.md")
 	handoffPath := filepath.Join(vault.Path(), notebook.HandoffName)
 	var mu sync.Mutex
 	var requests []string
@@ -54,7 +54,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		requests = append(requests, string(body))
 		n := len(requests)
 		mu.Unlock()
-		if n == 8 {
+		if n == 6 {
 			defer close(workerRequested)
 		}
 		id := fmt.Sprintf("skill-%d", n)
@@ -74,17 +74,13 @@ func TestNativeProgressiveSkill(t *testing.T) {
 			emit(map[string]any{"type": "response.completed", "response": map[string]any{"id": id, "status": "completed", "output": items, "usage": map[string]any{"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}})
 			return
 		}
-		if n == 1 || n == 4 || n == 5 {
+		if n == 1 {
 			p := skillPath
-			if n == 4 {
-				p = dreamPath
-			}
 			command := "cat '" + strings.ReplaceAll(p, "'", "'\"'\"'") + "'"
-			if n == 5 {
-				command = "printf '%s\\n' '<!-- caelis-dream: native-dream -->' 'Finished the skill check; nothing pending.' > '" + strings.ReplaceAll(handoffPath, "'", "'\"'\"'") + "'"
-			}
 			args, _ := json.Marshal(map[string]any{"cmd": command, "max_output_tokens": 8000})
 			item = map[string]any{"id": id, "type": "function_call", "name": "exec_command", "call_id": id, "arguments": string(args)}
+		} else if n == 4 {
+			item = map[string]any{"id": id, "type": "function_call", "namespace": "mcp__caelis_context", "name": "bot_dream", "call_id": "native-skill-dream-call", "arguments": `{"handoff":"Identity: Caelis Bot. Current goal: finish the user's skill check. The desktop guide and references were read. No effect is pending. Next: answer the next user message from a fresh context."}`}
 		} else {
 			item = map[string]any{"id": id, "type": "message", "role": "assistant", "status": "completed", "phase": "final_answer", "content": []any{map[string]any{"type": "output_text", "text": "skill-read-complete", "annotations": []any{}}}}
 		}
@@ -98,7 +94,48 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
-	s := NewSession(SessionOptions{Binary: binary, Directory: vault.Path(), StateFile: filepath.Join(dir, "binding.json"), BotTools: &api.ToolConnection{Command: "/usr/bin/false", Args: []string{"--fixture"}, Env: map[string]string{"CAELIS_BOT_DESKTOP_WORLD": "1"}, Instructions: botskills.Instructions(skillPath), PrepareContext: vault.PrepareContext, ConsumeContext: vault.ConsumeContext}})
+	resident, err := bot.NewForRuntime(filepath.Join(dir, "bot.json"), "codex", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resident.ConfigureDream(vault, ""); err != nil {
+		t.Fatal(err)
+	}
+	bridge, err := bot.Serve(resident)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := bridge.Config(executable)
+	tools.Args = []string{"-test.run=^TestDreamMCPHelper$"}
+	tools.Env["CAELIS_BOT_MCP_HELPER"] = "1"
+	tools.Env["FIXTURE_AUTH"] = "synthetic-only"
+	tools.Instructions = botskills.Instructions(skillPath)
+	tools.PrepareContext = func(ctx context.Context) (api.ContextSeed, error) {
+		seed, err := vault.PrepareContext(ctx)
+		if err != nil {
+			return api.ContextSeed{}, err
+		}
+		handoff := resident.PrepareHandoffContext()
+		seed.Text += handoff.Text
+		seed.HandoffDigest = handoff.HandoffDigest
+		return seed, nil
+	}
+	tools.ConsumeContext = resident.ConsumeHandoffContext
+	tools.FinishTurn = func() {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			_ = resident.RenewPendingToolHandoff(ctx)
+		}()
+	}
+	s := NewSession(SessionOptions{Binary: binary, Directory: vault.Path(), StateFile: filepath.Join(dir, "binding.json"), BotTools: tools})
+	resident.Start(s)
+	defer resident.Stop()
 	defer func() {
 		c, done := context.WithTimeout(context.Background(), 10*time.Second)
 		defer done()
@@ -107,7 +144,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if err = s.Connect(ctx); err != nil {
 		t.Fatal(err)
 	}
-	r, err := s.Submit(ctx, api.Submission{ID: "progressive-skill-input", Text: "Read the applicable guide and its desktop reference."}, nil)
+	r, err := resident.SubmitUser(ctx, api.Submission{ID: "progressive-skill-input", Text: "Read the applicable guide and its desktop reference."}, nil)
 	if err != nil || r.Outcome != "accepted" {
 		t.Fatal(r, err)
 	}
@@ -157,32 +194,35 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if !correlated {
 		t.Fatal("native user input did not preserve submission identity")
 	}
-	old := s.ConversationState().Session
-	if _, err = vault.PrepareDream(); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(initial[1], "Keep your Notebook and `MEMORY.md` useful during") || !strings.Contains(initial[1], "use `bot_dream` when it is available") {
+		t.Fatal("new bot-core memory or context guidance did not load progressively")
 	}
-	r, err = s.SubmitDream(ctx, api.Submission{ID: "native-dream", Text: "Explicit Bot host Dream request. Load bot-dream and write the supplied handoff, then give a short recap."})
+	old := s.ConversationState().Session
+	r, err = resident.SubmitUser(ctx, api.Submission{ID: "native-dream", Text: "Continue the skill check and renew your context with bot_dream."}, nil)
 	if err != nil || r.Outcome != "accepted" {
 		t.Fatal(r, err)
 	}
 	for {
-		_, result := s.DreamResult("native-dream")
-		if result.Status == "completed" {
+		state := s.ConversationState()
+		if state.Session != "" && state.Session != old && resident.PrepareHandoffContext().HandoffDigest != "" {
 			break
 		}
-		v, e := s.WaitSnapshot(ctx, revision)
-		if e != nil {
-			t.Fatal(e)
+		select {
+		case <-time.After(25 * time.Millisecond):
+		case <-ctx.Done():
+			t.Fatal("native bot_dream did not renew the original Turn", ctx.Err(), state)
 		}
-		revision = v.Revision
 	}
-	if ready, e := vault.DreamReady("native-dream"); e != nil || !ready || s.ConversationState().Session != old {
-		t.Fatal("handoff not written or session changed early", e)
+	mu.Lock()
+	dreamRequests := append([]string(nil), requests...)
+	mu.Unlock()
+	if len(dreamRequests) != 4 || !strings.Contains(dreamRequests[3], "bot_dream") {
+		t.Fatal("old Turn continued or resident bot_dream was not called")
 	}
-	if err = s.RenewConversation(ctx, "native-dream", old); err != nil {
-		t.Fatal(err)
+	if _, err = os.Stat(handoffPath); !os.IsNotExist(err) {
+		t.Fatal("bot_dream wrote the retired Notebook HANDOFF.md")
 	}
-	r, err = s.Submit(ctx, api.Submission{ID: "after-native-dream", Text: "A new topic."}, nil)
+	r, err = resident.SubmitUser(ctx, api.Submission{ID: "after-native-dream", Text: "A new topic."}, nil)
 	if err != nil || r.Outcome != "accepted" {
 		t.Fatal(r, err)
 	}
@@ -196,21 +236,22 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	mu.Lock()
 	nextRequests := append([]string{}, requests...)
 	mu.Unlock()
-	if len(nextRequests) != 7 || !strings.Contains(nextRequests[3], "bot-dream") || strings.Contains(nextRequests[3], "# Prepare the next conversation") || !strings.Contains(nextRequests[4], "# Prepare the next conversation") {
-		t.Fatal("Dream body did not load progressively")
-	}
-	if !strings.Contains(nextRequests[6], "Native core identity.") || !strings.Contains(nextRequests[6], "Finished the skill check") || strings.Contains(nextRequests[6], "Read the applicable guide and its desktop reference.") {
+	if len(nextRequests) != 5 || !strings.Contains(nextRequests[4], "Native core identity.") || !strings.Contains(nextRequests[4], "No effect is pending.") || strings.Contains(nextRequests[4], "Read the applicable guide and its desktop reference.") {
 		t.Fatal("new session context did not reset and restore")
 	}
-	if _, err = os.Stat(handoffPath); !os.IsNotExist(err) {
-		t.Fatal("accepted native handoff not consumed")
+	if resident.PrepareHandoffContext().HandoffDigest != "" {
+		t.Fatal("accepted private handoff was not consumed")
 	}
 	workerDir := filepath.Join(dir, "Tasks", "isolated")
 	if err = os.MkdirAll(workerDir, 0700); err != nil {
 		t.Fatal(err)
 	}
+	workerParams := s.workerParams(workerDir, "Complete the assigned task.", &taskRecord{})
+	if contextTool := workerParams["config"].(map[string]any)["mcp_servers.caelis_context"].(map[string]any); contextTool["enabled"] != false {
+		t.Fatal("resident bot_dream service was not disabled for the Worker")
+	}
 	var worker threadExecutionResponse
-	if err = callDecode(ctx, s.client, "thread/start", s.workerParams(workerDir, "Complete the assigned task.", &taskRecord{}), &worker); err != nil {
+	if err = callDecode(ctx, s.client, "thread/start", workerParams, &worker); err != nil {
 		t.Fatal(err)
 	}
 	var started struct {
@@ -225,7 +266,7 @@ func TestNativeProgressiveSkill(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 	mu.Lock()
-	workerRequest := requests[7]
+	workerRequest := requests[5]
 	mu.Unlock()
 	if strings.Contains(workerRequest, skillPath) || strings.Contains(workerRequest, "You are Caelis Bot, a persistent personal assistant.") {
 		t.Fatal("resident skill leaked into native worker")
