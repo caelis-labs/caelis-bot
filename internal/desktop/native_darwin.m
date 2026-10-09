@@ -62,7 +62,6 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property double bubbleRequestedHeight;
 @property double bubbleMaxHeight;
 @property BotTaskDock *taskDock;
-@property BOOL tasksBlocked;
 @property BotInputPanel *prop;
 @property BOOL propReady;
 @property NSString *flightID;
@@ -408,7 +407,8 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 }
 
 - (void)updateBubble {
-    [self.taskDock placeWithPet:self.pet.frame bounds:(self.pet.screen ?: NSScreen.mainScreen).visibleFrame visible:self.visible && !self.dragging && !self.panel.visible && !self.history.keyWindow && !self.bubble.interactive && !self.tasksBlocked];
+    // The task entry belongs to the pet, not the chat or message bubble.
+    [self.taskDock placeWithPet:self.pet.frame bounds:(self.pet.screen ?: NSScreen.mainScreen).visibleFrame visible:self.visible && !self.dragging];
     if (!self.visible || !self.bubbleWanted || self.dragging || self.panel.visible || self.history.keyWindow) {
         [(BotBubbleSurface *)self.bubble.contentView resetHover];
         if(self.bubble.visible) bot_js(self.bubble,@"window.dispatchEvent(new Event('bubble-hidden'))");
@@ -806,7 +806,7 @@ void bot_activity(void *pointer, char *activity) {
     BotHost *host = (__bridge BotHost *)pointer;
     NSString *state = [NSString stringWithUTF8String:activity];
     if (![@[@"idle",@"working",@"waiting",@"dreaming"] containsObject:state]) return;
-    host.tasksBlocked=[state isEqualToString:@"waiting"]; [host updateBubble];
+    [host updateBubble];
     if (![state isEqualToString:@"idle"]) [host cancelPlane];
     bot_js(host.pet,[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('pet-activity',{detail:'%@'}))",state]);
 }

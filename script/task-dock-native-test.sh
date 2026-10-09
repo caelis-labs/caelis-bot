@@ -127,6 +127,15 @@ int main(void) {
   dock.language=[NSJSONSerialization JSONObjectWithData:language options:0 error:nil];
   [dock setTasks:@[task(@"one",@"working"),task(@"two",@"completed")]];
   [dock placeWithPet:NSMakeRect(400,300,240,240) bounds:NSMakeRect(0,0,1200,900) visible:YES];
+  // A visible chat-sized window must not cover the independent task panel.
+  NSWindow *chat=[[NSWindow alloc] initWithContentRect:NSMakeRect(380,280,400,300) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+  [chat orderFront:nil];
+  assert(chat.visible && dock.window.visible && dock.window.level>chat.level);
+  assert([dock.window.contentView hitTest:NSMakePoint(31,14)]==dock.buttons[0]);
+  [dock.buttons[0] performClick:nil];
+  assert(chat.visible && dock.expanded && dock.buttons.count==2);
+  [dock collapse];assert(dock.window.visible);
+  [chat orderOut:nil];
   assert(NSEqualSizes(dock.window.contentView.bounds.size,NSMakeSize(62,28)));
   assert(dock.buttons[0].loading);
   assert(!dock.window.hasShadow && ![dock.window.contentView isKindOfClass:NSVisualEffectView.class]);
@@ -364,6 +373,9 @@ int main(void) {
     NSString *identifier=dock.tasks[button.tag][@"id"];
     assert([button.statusText isEqual:labels[identifier]]);
   }
+  [dock collapse];[dock setTasks:@[]];assert(!dock.window.visible);
+  [dock setTasks:@[task(@"one",@"working")]];
+  assert(dock.window.visible && dock.buttons.count==1);
   [dock stop];
   puts("Adaptive bounds/negative-origin screens, dense stacks (12/30/100), bidirectional hover, controls, no scroll containers, vertical reorder and cancellation passed. Task dock: dots, stable frames, status, pointer order, close/swipe locks, desktop drop, cache cleanup and held shortcut passed.");
  }
