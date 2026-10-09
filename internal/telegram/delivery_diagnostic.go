@@ -31,6 +31,7 @@ func reportDeliveryAttempt(ctx context.Context, method, format string, err error
 		return
 	}
 	code, category := 0, "sent"
+	detail := ""
 	if err != nil {
 		category = "unknown"
 		var transport *transportError
@@ -39,6 +40,7 @@ func reportDeliveryAttempt(ctx context.Context, method, format string, err error
 			if transport.category != "" {
 				category = transport.category
 			}
+			detail = transport.detail
 		}
 	}
 	if category == "unchanged" {
@@ -48,10 +50,14 @@ func reportDeliveryAttempt(ctx context.Context, method, format string, err error
 	if err != nil {
 		level = "warning"
 	}
+	reason := fmt.Sprintf("api_code=%d category=%s", code, category)
+	if detail != "" {
+		reason += " detail=" + detail
+	}
 	trace.emit(diagnosticlog.Record{
 		Level: level, Component: "telegram", Code: "delivery_attempt",
 		Method: method, Phase: format, Fingerprint: trace.fingerprint,
 		Sequence: uint64(trace.part + 1),
-		Reason:   fmt.Sprintf("api_code=%d category=%s", code, category),
+		Reason:   reason,
 	})
 }

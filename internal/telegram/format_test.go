@@ -13,7 +13,25 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	tg "github.com/mymmrac/telego"
+	"github.com/mymmrac/telego/telegoapi"
 )
+
+func TestAmbiguousBotAPI400DiagnosticUsesOnlySafeClass(t *testing.T) {
+	for _, tc := range []struct{ description, want string }{
+		{"Bad Request: METHOD_NOT_AVAILABLE", "telegram_code"},
+		{"Bad Request: method is not supported", "method_unsupported"},
+		{"Bad Request: invalid private payload 123:SECRET", "invalid"},
+		{"Bad Request: private payload 123:SECRET", "other"},
+	} {
+		var records []diagnosticlog.Record
+		ctx := withDeliveryTrace(t.Context(), func(r diagnosticlog.Record) { records = append(records, r) }, "item:test", 0)
+		err := safeMethodError("sendRichMessage", &telegoapi.Error{ErrorCode: 400, Description: tc.description})
+		reportDeliveryAttempt(ctx, "sendRichMessage", "rich", err, false)
+		if len(records) != 1 || records[0].Reason != "api_code=400 category=api_rejected detail="+tc.want || strings.Contains(records[0].Reason, "SECRET") {
+			t.Fatalf("unsafe or missing diagnostic class: %#v", records)
+		}
+	}
+}
 
 func testSDK(t *testing.T, handler http.HandlerFunc) *sdkClient {
 	t.Helper()

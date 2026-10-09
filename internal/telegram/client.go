@@ -47,6 +47,7 @@ type transportError struct {
 	issue          string
 	code, retry    int
 	category       string
+	detail         string // Locally classified Bot API description; never the raw text.
 	formatRejected bool
 }
 
@@ -105,9 +106,54 @@ func safeMethodError(method string, err error) error {
 			(description == "not found" || strings.Contains(description, "method") && strings.Contains(description, "not found")) {
 			formatRejected, category = true, "method_unavailable"
 		}
-		return &transportError{issue: issue, code: e.ErrorCode, retry: retry, category: category, formatRejected: formatRejected}
+		detail := ""
+		if e.ErrorCode == 400 && category == "api_rejected" {
+			detail = safeDescriptionClass(e.Description)
+		}
+		return &transportError{issue: issue, code: e.ErrorCode, retry: retry, category: category, detail: detail, formatRejected: formatRejected}
 	}
 	return &transportError{issue: "network", code: 0, category: "unknown"}
+}
+
+// A Bot API description can contain untrusted content. Keep only a bounded
+// locally generated class, so a live rejection can be diagnosed without ever
+// logging the description, request body, chat or credential.
+func safeDescriptionClass(description string) string {
+	description = strings.TrimSpace(description)
+	if len(description) >= len("bad request:") && strings.EqualFold(description[:len("bad request:")], "bad request:") {
+		description = strings.TrimSpace(description[len("bad request:"):])
+	}
+	if description != "" && len(description) <= 64 {
+		code := true
+		for _, r := range description {
+			if r != '_' && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+				code = false
+				break
+			}
+		}
+		if code {
+			return "telegram_code"
+		}
+	}
+	description = strings.ToLower(description)
+	switch {
+	case strings.Contains(description, "method") && (strings.Contains(description, "unsupported") || strings.Contains(description, "not supported") || strings.Contains(description, "not available")):
+		return "method_unsupported"
+	case strings.Contains(description, "unsupported") || strings.Contains(description, "not supported") || strings.Contains(description, "not available"):
+		return "unsupported"
+	case strings.Contains(description, "empty"):
+		return "empty"
+	case strings.Contains(description, "parse"):
+		return "parse"
+	case strings.Contains(description, "invalid"):
+		return "invalid"
+	case strings.Contains(description, "not found"):
+		return "not_found"
+	case strings.Contains(description, "too long"):
+		return "too_long"
+	default:
+		return "other"
+	}
 }
 
 func contentFormatRejection(description string) bool {
