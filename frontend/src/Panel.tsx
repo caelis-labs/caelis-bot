@@ -162,6 +162,10 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
  const {t} = useI18n();
  const draftLoadFailed=useEffectEvent(()=>t('chat.draftLoadFailed'));
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null),composer=useRef<HTMLDivElement>(null);
+ // WebKit treats inline Writing Suggestions separately from spell checking.
+ // The chat editor does not offer these suggestions; suppress them at the DOM
+ // input itself while leaving native IME composition and selection intact.
+ useLayoutEffect(()=>{input.current?.setAttribute('writingsuggestions','false');},[]);
  // Let WebKit own the live textarea value and selection. React only needs to
  // know when the send affordance crosses the empty/nonempty boundary.
  const draft=useRef(''),hasTextRef=useRef(false);
