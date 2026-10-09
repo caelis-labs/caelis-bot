@@ -113,7 +113,7 @@ func isMarkdownTableDivider(line string) bool {
 
 func isFormatRejection(err error) bool {
 	var transport *transportError
-	return errors.As(safeError(err), &transport) && transport.formatRejected
+	return errors.As(err, &transport) && transport.formatRejected
 }
 
 // Telegram's legacy HTML mode accepts a small subset of HTML. Render CommonMark
@@ -252,16 +252,20 @@ func telegramHTML(markdown string) string {
 func (s *sdkClient) sendFormattedFallback(ctx context.Context, chat int64, message outgoingText, keys *telego.InlineKeyboardMarkup) (int, error) {
 	if formatted := telegramHTML(message.Markdown); formatted != "" {
 		v, err := s.bot.SendMessage(ctx, &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: formatted, ParseMode: "HTML", ReplyMarkup: keys})
-		if err == nil {
+		safe := safeMethodError("sendMessage", err)
+		reportDeliveryAttempt(ctx, "sendMessage", "html", safe, true)
+		if safe == nil {
 			return v.MessageID, nil
 		}
-		if !isFormatRejection(err) {
-			return 0, safeError(err)
+		if !isFormatRejection(safe) {
+			return 0, safe
 		}
 	}
 	v, err := s.bot.SendMessage(ctx, &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: message.Text, ReplyMarkup: keys})
-	if err != nil {
-		return 0, safeError(err)
+	safe := safeMethodError("sendMessage", err)
+	reportDeliveryAttempt(ctx, "sendMessage", "plain", safe, true)
+	if safe != nil {
+		return 0, safe
 	}
 	return v.MessageID, nil
 }
@@ -269,16 +273,20 @@ func (s *sdkClient) sendFormattedFallback(ctx context.Context, chat int64, messa
 func (s *sdkClient) editFormattedFallback(ctx context.Context, chat int64, id int, message outgoingText, keys *telego.InlineKeyboardMarkup) error {
 	if formatted := telegramHTML(message.Markdown); formatted != "" {
 		_, err := s.bot.EditMessageText(ctx, &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: formatted, ParseMode: "HTML", ReplyMarkup: keys})
-		if err == nil || issueOf(safeError(err)) == "unchanged" {
+		safe := safeMethodError("editMessageText", err)
+		reportDeliveryAttempt(ctx, "editMessageText", "html", safe, true)
+		if safe == nil || issueOf(safe) == "unchanged" {
 			return nil
 		}
-		if !isFormatRejection(err) {
-			return safeError(err)
+		if !isFormatRejection(safe) {
+			return safe
 		}
 	}
 	_, err := s.bot.EditMessageText(ctx, &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: message.Text, ReplyMarkup: keys})
-	if issueOf(safeError(err)) == "unchanged" {
+	safe := safeMethodError("editMessageText", err)
+	reportDeliveryAttempt(ctx, "editMessageText", "plain", safe, true)
+	if issueOf(safe) == "unchanged" {
 		return nil
 	}
-	return safeError(err)
+	return safe
 }

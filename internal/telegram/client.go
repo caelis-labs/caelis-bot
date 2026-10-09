@@ -46,40 +46,80 @@ func plainText(text string) outgoingText { return outgoingText{Text: text} }
 type transportError struct {
 	issue          string
 	code, retry    int
+	category       string
 	formatRejected bool
 }
 
 func (e *transportError) Error() string { return e.issue }
-func safeError(err error) error {
+func safeError(err error) error         { return safeMethodError("", err) }
+
+// Only an explicit Bot API rejection can authorize another send format. In
+// particular, an HTTP/JSON/transport failure without a Bot API error remains
+// unknown even if its text happens to mention a method or markup.
+func safeMethodError(method string, err error) error {
 	if err == nil {
 		return nil
 	}
+	var prior *transportError
+	if errors.As(err, &prior) {
+		return prior
+	}
 	var e *telegoapi.Error
 	if errors.As(err, &e) {
+		if e.ErrorCode == 0 {
+			return &transportError{issue: "network", category: "unknown"}
+		}
 		issue := "telegram_error"
-		if e.ErrorCode == 400 && strings.Contains(e.Description, "message is not modified") {
+		category := "api_rejected"
+		description := strings.ToLower(strings.TrimSpace(e.Description))
+		if e.ErrorCode == 400 && strings.Contains(description, "message is not modified") {
 			issue = "unchanged"
+			category = "unchanged"
 		}
 		switch e.ErrorCode {
 		case 401:
 			issue = "invalid_token"
+			category = "authentication"
 		case 403:
 			issue = "blocked"
+			category = "forbidden"
 		case 409:
 			issue = "occupied"
+			category = "conflict"
 		case 429:
 			issue = "rate_limited"
+			category = "rate_limited"
 		}
 		retry := 0
 		if e.Parameters != nil {
 			retry = e.Parameters.RetryAfter
 		}
-		description := strings.ToLower(e.Description)
-		formatRejected := (e.ErrorCode == 400 && (strings.Contains(description, "parse") || strings.Contains(description, "rich message") || strings.Contains(description, "rich_message") || strings.Contains(description, "format"))) ||
-			(e.ErrorCode == 404 && strings.Contains(description, "method") && strings.Contains(description, "not found"))
-		return &transportError{issue: issue, code: e.ErrorCode, retry: retry, formatRejected: formatRejected}
+		formatRejected := false
+		if e.ErrorCode == 400 && issue != "unchanged" && method != "" && contentFormatRejection(description) {
+			formatRejected, category = true, "format_rejected"
+		}
+		// Telegram's public API documents the endpoint, but an older endpoint or
+		// proxy can answer the rich-only method with the generic "Not Found". A
+		// 404 about a chat/message is not evidence that the method is absent.
+		if method == "sendRichMessage" && (e.ErrorCode == 404 || e.ErrorCode == 400) &&
+			(description == "not found" || strings.Contains(description, "method") && strings.Contains(description, "not found")) {
+			formatRejected, category = true, "method_unavailable"
+		}
+		return &transportError{issue: issue, code: e.ErrorCode, retry: retry, category: category, formatRejected: formatRejected}
 	}
-	return &transportError{issue: "network", code: 0}
+	return &transportError{issue: "network", code: 0, category: "unknown"}
+}
+
+func contentFormatRejection(description string) bool {
+	for _, marker := range []string{
+		"rich message", "rich_message", "parse entities", "parse_mode",
+		"parse mode", "markdown", "html", "can't find end of the entity",
+	} {
+		if strings.Contains(description, marker) {
+			return true
+		}
+	}
+	return false
 }
 func issueOf(err error) string {
 	var e *transportError
@@ -126,11 +166,13 @@ func (s *sdkClient) Send(ctx context.Context, chat int64, message outgoingText, 
 	if message.Markdown != "" {
 		p := &tg.SendRichMessageParams{ChatID: tg.ChatID{ID: chat}, RichMessage: tg.InputRichMessage{Markdown: message.Markdown}, ReplyMarkup: keys}
 		v, e := s.bot.SendRichMessage(ctx, p)
+		err := safeMethodError("sendRichMessage", e)
+		reportDeliveryAttempt(ctx, "sendRichMessage", "rich", err, false)
 		if e == nil {
 			return v.MessageID, nil
 		}
-		if !isFormatRejection(e) {
-			return 0, safeError(e)
+		if !isFormatRejection(err) {
+			return 0, err
 		}
 		return s.sendFormattedFallback(ctx, chat, message, keys)
 	}
@@ -139,24 +181,29 @@ func (s *sdkClient) Send(ctx context.Context, chat int64, message outgoingText, 
 		p.ReplyMarkup = keys
 	}
 	v, e := s.bot.SendMessage(ctx, p)
-	if e != nil {
-		return 0, safeError(e)
+	err := safeMethodError("sendMessage", e)
+	reportDeliveryAttempt(ctx, "sendMessage", "plain", err, false)
+	if err != nil {
+		return 0, err
 	}
 	return v.MessageID, nil
 }
 func (s *sdkClient) Edit(ctx context.Context, chat int64, id int, message outgoingText, keys *tg.InlineKeyboardMarkup) error {
 	if message.Markdown != "" {
 		_, e := s.bot.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, RichMessage: &tg.InputRichMessage{Markdown: message.Markdown}, ReplyMarkup: keys})
-		if e == nil || issueOf(safeError(e)) == "unchanged" {
+		err := safeMethodError("editMessageText", e)
+		reportDeliveryAttempt(ctx, "editMessageText", "rich", err, false)
+		if err == nil || issueOf(err) == "unchanged" {
 			return nil
 		}
-		if !isFormatRejection(e) {
-			return safeError(e)
+		if !isFormatRejection(err) {
+			return err
 		}
 		return s.editFormattedFallback(ctx, chat, id, message, keys)
 	}
 	_, e := s.bot.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, Text: message.Text, Entities: message.Entities, ReplyMarkup: keys})
-	err := safeError(e)
+	err := safeMethodError("editMessageText", e)
+	reportDeliveryAttempt(ctx, "editMessageText", "plain", err, false)
 	if err != nil && issueOf(err) == "unchanged" {
 		return nil
 	}
@@ -164,7 +211,8 @@ func (s *sdkClient) Edit(ctx context.Context, chat int64, id int, message outgoi
 }
 func (s *sdkClient) EditMarkup(ctx context.Context, chat int64, id int, keys *tg.InlineKeyboardMarkup) error {
 	_, e := s.bot.EditMessageReplyMarkup(ctx, &tg.EditMessageReplyMarkupParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, ReplyMarkup: keys})
-	err := safeError(e)
+	err := safeMethodError("editMessageReplyMarkup", e)
+	reportDeliveryAttempt(ctx, "editMessageReplyMarkup", "markup", err, false)
 	if err != nil && issueOf(err) == "unchanged" {
 		return nil
 	}

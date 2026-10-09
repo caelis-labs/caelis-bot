@@ -1451,7 +1451,7 @@ func (b *Bridge) clearApprovalMarkup(ctx context.Context, c client, key string, 
 	if len(record.Rejected) > part && record.Rejected[part] == "terminal-markup" {
 		return
 	}
-	if err := c.EditMarkup(ctx, chat, record.IDs[part], nil); err != nil {
+	if err := c.EditMarkup(withDeliveryTrace(ctx, b.host.Diagnostics, key, part), chat, record.IDs[part], nil); err != nil {
 		b.mu.Lock()
 		b.issue = issueOf(err)
 		var transport *transportError
@@ -1700,12 +1700,13 @@ func (b *Bridge) sendRenderedTextPriority(ctx context.Context, c client, key str
 		if e != nil {
 			return
 		}
+		attemptCtx := withDeliveryTrace(ctx, b.host.Diagnostics, key, part)
 		if id == 0 {
-			id, e = c.Send(ctx, chat, value, partKeys)
+			id, e = c.Send(attemptCtx, chat, value, partKeys)
 		} else if record.Hashes[part] == hash {
-			e = c.EditMarkup(ctx, chat, id, partKeys)
+			e = c.EditMarkup(attemptCtx, chat, id, partKeys)
 		} else {
-			e = c.Edit(ctx, chat, id, value, partKeys)
+			e = c.Edit(attemptCtx, chat, id, value, partKeys)
 		}
 		b.mu.Lock()
 		record = b.state.Messages[key]

@@ -435,6 +435,31 @@ func TestUnknownTelegramCreateIsNotRetried(t *testing.T) {
 	}
 }
 
+func TestPriorDefiniteRejectionIsNotBackfilledAfterUpgrade(t *testing.T) {
+	b, f := testBridge(t, Host{})
+	paired(b)
+	old := api.Item{ID: "old-reply", Kind: "assistant", Text: "Previously rejected reply"}
+	b.state.Messages[itemKey(old)] = delivery{IDs: []int{-2}, Hashes: []string{outgoingDigest(assistantMessages(old.Text)[0])}}
+	b.mu.Lock()
+	if err := b.saveLocked(); err != nil {
+		b.mu.Unlock()
+		t.Fatal(err)
+	}
+	b.mu.Unlock()
+	restored, err := Open(filepath.Dir(b.path), Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newReply := api.Item{ID: "new-reply", Kind: "assistant", Text: "New reply after update"}
+	restored.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{old, newReply}})
+	if f.sends != 1 || len(f.messages) != 1 || f.messages[0].Text != newReply.Text {
+		t.Fatalf("upgrade replayed old rejection or lost new reply: sends=%d messages=%#v", f.sends, f.messages)
+	}
+	if record := restored.state.Messages[itemKey(old)]; len(record.IDs) != 1 || record.IDs[0] != -2 {
+		t.Fatalf("original rejection receipt changed: %#v", record)
+	}
+}
+
 func TestApprovalDeliveryClassifiesBotRejectionAndUnknownResult(t *testing.T) {
 	approval := api.Approval{ID: "delivery-original", Title: "Computer Use", Status: "pending", Choices: []api.Choice{{ID: "accept", LabelKey: "chat.allowOnce"}}}
 	for _, tc := range []struct {

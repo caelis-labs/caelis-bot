@@ -144,6 +144,16 @@ ranges. Assistant replies retain their plain original text, including edits and
 long-message parts. Display labels never enter Bot input or change native request/
 item identity. Existing plain-text delivery digests are honored so a formatting
 upgrade does not republish history.
+Assistant Markdown first uses the documented rich-message request. A definite
+rich-format or rich-method rejection can use ordinary `sendMessage` HTML and
+then exact-source plain text if HTML formatting is also explicitly rejected;
+stream edits keep the original Telegram message ID. Authentication, chat,
+permission, rate-limit and unknown network results do not change send format.
+Local diagnostics record only API method, numeric Bot API error code, a locally
+classified reason, and a fingerprint of the original delivery key with its part
+number. Telegram descriptions, chat IDs, tokens and content are not logged.
+Previously journaled definite rejections remain recorded and are not
+automatically backfilled after an update; the Mac transcript holds their text.
 Backend recovery establishes native input authority before remote input is
 accepted; local display history is independent. One cancellable output worker coalesces snapshots independently of input
 and control actions. A separate cancellable worker sends Telegram typing actions
