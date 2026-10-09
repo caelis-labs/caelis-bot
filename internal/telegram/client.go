@@ -96,7 +96,7 @@ func safeMethodError(method string, err error) error {
 			retry = e.Parameters.RetryAfter
 		}
 		formatRejected := false
-		if issue != "unchanged" && method != "" && (e.ErrorCode == 400 && (contentFormatRejection(description) || richMethodUnsupported(method, description)) ||
+		if issue != "unchanged" && method != "" && (e.ErrorCode == 400 && (contentFormatRejection(description) || richParseRejection(method, description) || richMethodUnsupported(method, description)) ||
 			e.ErrorCode == 404 && richMethodUnsupported(method, description)) {
 			formatRejected, category = true, "format_rejected"
 		}
@@ -159,6 +159,9 @@ func contentFormatRejection(description string) bool {
 		}
 	}
 	return false
+}
+func richParseRejection(method, description string) bool {
+	return (method == "sendRichMessage" || method == "editMessageText") && strings.Contains(description, "parse rich message")
 }
 func richMethodUnsupported(method, description string) bool {
 	return method == "sendRichMessage" && strings.Contains(description, "method") &&

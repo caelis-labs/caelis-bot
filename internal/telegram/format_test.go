@@ -185,6 +185,30 @@ func TestRichMethodMissingFallsBackToHTML(t *testing.T) {
 	}
 }
 
+func TestExplicitRichParseRejectionFallsBackToHTML(t *testing.T) {
+	var methods []string
+	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
+		method := r.URL.Path[strings.LastIndexByte(r.URL.Path, '/')+1:]
+		methods = append(methods, method)
+		if method == "sendRichMessage" {
+			reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse rich message"}`)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request["parse_mode"] != "HTML" {
+			t.Fatalf("rich parse rejection did not fall back to HTML: %#v", request)
+		}
+		reply(w, 200, `{"ok":true,"result":{"message_id":83,"date":0,"chat":{"id":123,"type":"private"}}}`)
+	})
+	id, err := client.Send(t.Context(), 123, outgoingText{Text: "**bold**", Markdown: "**bold**"}, nil)
+	if err != nil || id != 83 || fmt.Sprint(methods) != "[sendRichMessage sendMessage]" {
+		t.Fatalf("explicit rich parse rejection did not use one HTML fallback: id=%d err=%v methods=%v", id, err, methods)
+	}
+}
+
 func TestHTMLOtherRejectionsAndUnknownNeverFallBack(t *testing.T) {
 	for _, tc := range []struct {
 		name, response string
