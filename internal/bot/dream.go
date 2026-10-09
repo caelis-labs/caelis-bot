@@ -49,13 +49,20 @@ func (r *Runtime) ConfigureDream(vault *notebook.Vault, _ string) error {
 	b, err := os.ReadFile(d.path)
 	if err == nil {
 		if json.Unmarshal(b, &d.state) != nil || d.state.Version != 1 {
-			return errors.New("old Dream receipt is unreadable; original file retained")
+			// A corrupt retired scheduler file cannot disable ordinary Bot work.
+			// Leave the original bytes untouched for an explicit later repair.
+			d.state = dreamState{Version: 1}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		d.state = dreamState{Version: 1}
 	}
 	r.dream = d
-	return r.openHandoff()
+	if err := r.openHandoff(); err != nil {
+		// Dream stays unavailable while its original private record remains
+		// unreadable; the bound conversation and other tools stay available.
+		r.handoff = nil
+	}
+	return nil
 }
 func (d *dreamController) save() error { return localstate.Write(d.path, d.state) }
 
@@ -116,6 +123,19 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 			r.dream.state.Attempt.Ready = false
 		}
 	}
+	if r.handoff != nil {
+		pending := r.handoff.pending()
+		if pending.CallID != "" && pending.Turn != "" && pending.NewSession == "" {
+			if err := r.renewToolHandoff(ctx); err != nil {
+				// Preserve the original invocation and summary in its private
+				// receipt. A failed create must not make the bound Bot unusable.
+				if fallbackErr := r.handoff.record(pending.CallID, "", "fallback"); fallbackErr != nil && r.handoff.pending().CallID != "" {
+					rejected.Message = "交接状态尚未保存，消息未发送，请重试"
+					return reject()
+				}
+			}
+		}
+	}
 	if p, ok := r.engine.(api.ConversationRuntime); ok && r.dream != nil {
 		d := r.dream
 		if a := d.state.Attempt; a != nil {
@@ -130,7 +150,7 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 				}
 				a.Ready = false
 			}
-			if !a.Done {
+			if !a.Done && !current.Idle {
 				if err := p.CancelDream(ctx, a.ID); err != nil {
 					rejected.Message = "正在核对旧整理请求，请稍后重试"
 					return reject()
@@ -150,7 +170,12 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 						return reject()
 					}
 					if errors.Is(err, api.ErrConversationRenewalRejected) {
-						_ = r.handoff.clear(a.ID)
+						_ = r.handoff.record(a.ID, "", "rejected")
+					} else if err == nil {
+						if recordErr := r.handoff.record(a.ID, p.ConversationState().Session, "committed"); recordErr != nil {
+							rejected.Message = "交接结果尚未保存，消息未发送，请重试"
+							return reject()
+						}
 					}
 					a.Ready = false
 				}

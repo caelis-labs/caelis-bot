@@ -14,5 +14,5 @@ func LegacyApprovedTools() []string {
 }
 
 func ApprovedTools() []string {
-	return []string{"bot_memory", "bot_tasks", "bot_schedule", "bot_gesture"}
+	return []string{"bot_memory", "bot_tasks", "bot_schedule", "bot_gesture", "bot_dream"}
 }

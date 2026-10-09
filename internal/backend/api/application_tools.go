@@ -23,6 +23,38 @@ type ToolResult struct {
 	Content           []map[string]string `json:"content"`
 	IsError           bool                `json:"isError"`
 	StructuredContent map[string]any      `json:"structuredContent,omitzero"`
+	// TurnComplete is an adapter disposition, never a model-visible instruction.
+	TurnComplete bool `json:"-"`
+}
+
+// ToolInvocation binds a Bot tool to the adapter's original native call and
+// resident Turn. The application callback uses its opaque receipt ID; Codex
+// uses the MCP request ID because app-server does not send provider call_id to
+// the MCP server.
+type ToolInvocation struct {
+	Provider, CallID, Session, Turn string
+}
+
+type toolInvocationKey struct{}
+
+func WithToolInvocation(ctx context.Context, invocation ToolInvocation) context.Context {
+	return context.WithValue(ctx, toolInvocationKey{}, invocation)
+}
+func ToolInvocationFromContext(ctx context.Context) (ToolInvocation, bool) {
+	invocation, ok := ctx.Value(toolInvocationKey{}).(ToolInvocation)
+	return invocation, ok && invocation.Provider != "" && invocation.CallID != "" && invocation.Session != "" && invocation.Turn != ""
+}
+
+// ToolTurnTerminator stops the exact Codex Turn after a terminal Bot MCP tool.
+// Application callback results instead use Core's persisted turn_complete bit.
+type ToolTurnTerminator interface {
+	CompleteToolTurn(context.Context, ToolInvocation) error
+}
+
+// ToolContextRenewer creates and commits a fresh resident Session after the
+// original terminal tool Turn is observed. Repeated calls use the original ID.
+type ToolContextRenewer interface {
+	RenewAfterTool(context.Context, ToolInvocation) (string, error)
 }
 
 // ApplicationCapabilities describes native execution boundaries, not UI state.

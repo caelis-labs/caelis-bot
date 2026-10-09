@@ -139,6 +139,20 @@ func (s *Session) CancelDream(ctx context.Context, id string) error {
 }
 
 func (s *Session) RenewConversation(ctx context.Context, id, source string) error {
+	return s.renewConversation(ctx, id, source, "")
+}
+
+func (s *Session) RenewAfterTool(ctx context.Context, invocation api.ToolInvocation) (string, error) {
+	if invocation.Provider != "codex" || invocation.CallID == "" || invocation.Session == "" || invocation.Turn == "" {
+		return "", errors.New("original Codex MCP invocation is unavailable")
+	}
+	if err := s.renewConversation(ctx, invocation.CallID, invocation.Session, invocation.Turn); err != nil {
+		return "", err
+	}
+	return s.ConversationState().Session, nil
+}
+
+func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn string) error {
 	s.op.Lock()
 	defer s.op.Unlock()
 	s.historyMu.Lock()
@@ -152,28 +166,91 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 	}
 	d, exists := s.binding.Dreams[id]
 	turn := s.binding.Scheduled[id]
-	if !exists || d.Thread != source || s.binding.ThreadID != source || s.lastTurn != turn || s.runs[turn] != "completed" || !s.state.CanSend {
+	if toolTurn != "" {
+		turn = toolTurn
+	}
+	if (toolTurn == "" && (!exists || d.Thread != source || s.runs[turn] != "completed")) ||
+		(toolTurn != "" && s.runs[turn] != "interrupted") ||
+		s.binding.ThreadID != source || s.lastTurn != turn || !s.state.CanSend || s.run != "" {
+		terminalMismatch := toolTurn != "" && (s.binding.ThreadID != source || s.lastTurn != turn || terminal(s.runs[turn]) && s.runs[turn] != "interrupted")
 		s.mu.Unlock()
+		if terminalMismatch {
+			return api.ErrConversationRenewalRejected
+		}
 		return errors.New("对话已有新活动，暂不能交接")
 	}
 	c := s.client
+	var attempted toolRenewalRecord
+	freshAttempt := false
+	if toolTurn != "" {
+		if s.binding.ToolRenewal != nil {
+			attempted = *s.binding.ToolRenewal
+			if attempted.CallID != id || attempted.Source != source || attempted.Turn != turn {
+				s.mu.Unlock()
+				return errors.New("another original tool renewal remains unresolved")
+			}
+		} else {
+			freshAttempt = true
+			attempted = toolRenewalRecord{CallID: id, Source: source, Turn: turn, Attempted: true}
+			s.binding.ToolRenewal = &attempted
+			if err := s.save(); err != nil {
+				s.binding.ToolRenewal = nil
+				s.mu.Unlock()
+				return err
+			}
+		}
+	}
 	s.mu.Unlock()
 	var response threadExecutionResponse
-	// This creates only an empty native thread. No prompt is sent until Submit.
-	// A lost create response may leave an unused empty thread; the old binding stays authoritative.
-	if err := callDecode(ctx, c, "thread/start", s.connectionParams(), &response); err != nil {
-		return err
+	if toolTurn != "" && attempted.NewThread != "" {
+		// A known create result is read back under its original ID, never
+		// dispatched a second time after a crash or a lost save response.
+		params := s.connectionParams()
+		params["threadId"] = attempted.NewThread
+		if err := callDecode(ctx, c, "thread/resume", params, &response); err != nil {
+			return err
+		}
+	} else if toolTurn != "" && !freshAttempt {
+		// The persisted attempt may have been sent before this process began.
+		// A new thread/start would create a second unknown native thread.
+		return api.ErrConversationRenewalUnknown
+	} else {
+		// thread/start creates only an empty native thread. The original
+		// binding remains authoritative until the new ID is durably saved.
+		if err := callDecode(ctx, c, "thread/start", s.connectionParams(), &response); err != nil {
+			if toolTurn != "" {
+				return api.ErrConversationRenewalUnknown
+			}
+			return err
+		}
+		if toolTurn != "" {
+			if response.Thread.ID == "" || response.Thread.ID == source {
+				return api.ErrConversationRenewalUnknown
+			}
+			s.mu.Lock()
+			if s.binding.ToolRenewal != nil && s.binding.ToolRenewal.CallID == id {
+				s.binding.ToolRenewal.NewThread = response.Thread.ID
+				if err := s.save(); err != nil {
+					s.mu.Unlock()
+					return err
+				}
+			}
+			s.mu.Unlock()
+		}
 	}
 	if response.Thread.ID == "" || response.Thread.ID == source {
 		return ErrProtocol
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.binding.ThreadID != source || s.lastTurn != turn || s.run != "" || !s.state.CanSend {
+	if s.binding.ThreadID != source || s.lastTurn != turn || s.run != "" || !s.state.CanSend || (toolTurn == "" && s.runs[turn] != "completed") || (toolTurn != "" && s.runs[turn] != "interrupted") {
 		return errors.New("原对话已有新活动，交接未切换")
 	}
 	old := s.binding
 	s.binding.ThreadID, s.binding.RenewedBy = response.Thread.ID, id
+	if toolTurn != "" {
+		s.binding.ToolRenewal = nil // committed receipt is in Bot's private handoff store
+	}
 	if s.opts.BotTools != nil {
 		s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion
 	}

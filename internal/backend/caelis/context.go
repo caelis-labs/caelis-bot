@@ -152,6 +152,20 @@ func terminalDream(status string) bool {
 }
 
 func (s *Session) RenewConversation(ctx context.Context, id, source string) error {
+	return s.renewConversation(ctx, id, source, "")
+}
+
+func (s *Session) RenewAfterTool(ctx context.Context, invocation api.ToolInvocation) (string, error) {
+	if invocation.Provider != "caelis" || invocation.CallID == "" || invocation.Session == "" || invocation.Turn == "" {
+		return "", errors.New("original application callback is unavailable")
+	}
+	if err := s.renewConversation(ctx, invocation.CallID, invocation.Session, invocation.Turn); err != nil {
+		return "", err
+	}
+	return s.ConversationState().Session, nil
+}
+
+func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn string) error {
 	s.step.Lock()
 	defer s.step.Unlock()
 	s.mu.Lock()
@@ -161,11 +175,29 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 	}
 	current := s.conversationLocked()
 	j := s.state.Operations[id]
-	if !current.Observed || current.Session != source || !j.Dream || current.Turn != j.TurnID || current.Status != "completed" {
+	boundTurn := j.TurnID
+	if toolTurn != "" {
+		boundTurn = toolTurn
+		record, exists := s.state.Calls[id]
+		if !exists || record.Call.SessionId != source || record.Call.TurnId != toolTurn || record.Call.Id != id || record.Receipt == nil || record.Receipt.Outcome != "succeeded" || !value(record.Receipt.TurnComplete) {
+			s.mu.Unlock()
+			if current.Status == "completed" && current.Turn == toolTurn {
+				return api.ErrConversationRenewalRejected
+			}
+			return errors.New("original terminal callback receipt is unavailable")
+		}
+	}
+	if !current.Observed || current.Session != source || (toolTurn == "" && !j.Dream) || current.Turn != boundTurn || current.Status != "completed" {
 		s.mu.Unlock()
+		if toolTurn != "" && (current.Session != source || current.Turn != boundTurn || terminalDream(current.Status)) {
+			return api.ErrConversationRenewalRejected
+		}
 		return errors.New("对话已有新活动，暂不能交接")
 	}
 	op := "dream-renew-" + digest([]byte(id))
+	if toolTurn != "" {
+		op = "tool-renew-" + digest([]byte(id))
+	}
 	pending, exists := s.state.Operations[op]
 	c, life := s.client, s.state.Connection
 	grants := clone(s.state.Grants)
@@ -243,7 +275,7 @@ func (s *Session) RenewConversation(ctx context.Context, id, source string) erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current = s.conversationLocked()
-	if !current.Observed || current.Session != source || current.Turn != j.TurnID || current.Status != "completed" || !current.Idle {
+	if !current.Observed || current.Session != source || current.Turn != boundTurn || current.Status != "completed" || !current.Idle {
 		return errors.New("原对话已有新活动，交接未切换")
 	}
 	old := s.state

@@ -59,5 +59,6 @@ func toolDefinitions() []api.ToolDefinition {
 	}
 	out = append(out, taskDefinitions()...)
 	out = append(out, scheduleDefinitions()...)
+	out = append(out, tc.Definition("bot_dream", "Replace this Bot's current context and recalled tool schemas when completed work, obsolete detail, or tools no longer needed make the context redundant. First preserve durable knowledge in the Notebook and MEMORY.md. Supply a complete handoff with identity and standing constraints, the current objective, unfinished tasks and their original handles, uncertain operations and their original receipts, and the next action. The host saves the handoff privately and starts a fresh internal session. This does not change the user's Bot identity, task ownership, connections, or authorization.", tc.Object(tc.Schema{"handoff": text(16384)}, "handoff")))
 	return out
 }

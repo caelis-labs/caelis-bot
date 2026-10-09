@@ -12,6 +12,10 @@ import (
 // Unknown outcomes and local persistence failures must not return this error.
 var ErrConversationRenewalRejected = errors.New("conversation renewal rejected")
 
+// ErrConversationRenewalUnknown retains the original attempted native create.
+// The old bound context remains usable; never replay a create without its ID.
+var ErrConversationRenewalUnknown = errors.New("conversation renewal outcome unknown")
+
 // ContextSeed is application-owned data appended at the first request boundary,
 // never policy or an instruction override. HandoffDigest permits conditional
 // consumption only after native acceptance has been durably recorded.

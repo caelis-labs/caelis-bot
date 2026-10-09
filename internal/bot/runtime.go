@@ -70,7 +70,9 @@ type Runtime struct {
 	stopped          bool
 	mu               sync.Mutex
 	step             sync.Mutex
-	paused           bool // guarded by step; fences update shutdown against wakeups
+	toolAdmission    sync.Mutex // serializes resident Bot tool entry through a context handoff
+	handoffRenewal   sync.Mutex // one native renewal attempt per original call
+	paused           bool       // guarded by step; fences update shutdown against wakeups
 	path             string
 	state            State
 	now              func() time.Time
@@ -334,6 +336,16 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 	}
 	if r.engine == nil {
 		return nil
+	}
+	if r.handoff != nil {
+		pending := r.handoff.pending()
+		if pending.CallID != "" && pending.Turn != "" && pending.NewSession == "" {
+			// Feedback and scheduled input keep their original receipts while
+			// the terminal Turn is reconciled and its new context is prepared.
+			if err := r.renewToolHandoff(ctx); err != nil {
+				return nil
+			}
+		}
 	}
 	if r.initialization != nil {
 		if err := r.initialization.Deliver(ctx, r.engine, r.provider); err != nil {

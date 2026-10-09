@@ -147,7 +147,9 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationB
 				args, _ := json.Marshal(call.Arguments)
 				result := api.ToolResult{IsError: true, Content: []map[string]string{{"type": "text", "text": "The original application tool version is unavailable; no effect was performed."}}}
 				if host != nil {
-					result = host.CallTool(context.WithValue(ctx, invocationKey{}, call), call.Name, args)
+					invocation := api.ToolInvocation{Provider: "caelis", CallID: call.Id, Session: call.SessionId, Turn: call.TurnId}
+					callCtx := api.WithToolInvocation(context.WithValue(ctx, invocationKey{}, call), invocation)
+					result = host.CallTool(callCtx, call.Name, args)
 				}
 				blocks := result.Content
 				if contentV1 {
@@ -159,6 +161,9 @@ func (s *Session) handleCall(ctx context.Context, c *client, b wire.ApplicationB
 					outcome = "failed"
 				}
 				record.Receipt = &wire.ApplicationCallResult{Outcome: outcome, Content: json.RawMessage(content)}
+				if result.TurnComplete && outcome == "succeeded" {
+					record.Receipt.TurnComplete = pointer(true)
+				}
 				if contentV1 {
 					record.Receipt.ResultFormat = pointer("content-v1")
 					record.Receipt.StructuredContent = result.StructuredContent

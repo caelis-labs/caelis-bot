@@ -40,6 +40,8 @@ func (r *Runtime) Definitions() []api.ToolDefinition {
 	return out
 }
 func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage) api.ToolResult {
+	r.toolAdmission.Lock()
+	defer r.toolAdmission.Unlock()
 	if err := ctx.Err(); err != nil {
 		return compactError("cancelled", err)
 	}
@@ -48,6 +50,11 @@ func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage
 	r.mu.Unlock()
 	if stopped {
 		return compactError("stopped", errors.New("Bot stopped"))
+	}
+	if name != "bot_dream" && r.handoff != nil {
+		if pending := r.handoff.pending(); pending.CallID != "" {
+			return compactError("context_handoff", errors.New("Bot context handoff is completing; retry after the new session is ready"))
+		}
 	}
 	var def *api.ToolDefinition
 	for _, d := range r.Definitions() {
@@ -65,6 +72,9 @@ func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage
 	}
 	if strings.HasPrefix(name, desktopcontrol.Prefix) {
 		return r.callCompactDesktop(ctx, name, args)
+	}
+	if name == "bot_dream" {
+		return r.callDreamTool(ctx, args)
 	}
 	if name == "bot_memory" || name == "bot_gesture" {
 		return compact(r.callLegacyTool(ctx, name, raw), nil)
