@@ -14,10 +14,19 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
 const projectMarker = "# Managed by Caelis Bot. Bot workspace only.\n"
+
+// The host observes this read-only fence to resume automatic plugin
+// projection after the original resident request is reconciled in place.
+func (s *Session) BotPluginRecoveryPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.binding.Pending != nil || s.state.Phase == "unknown"
+}
 
 var projectLinkName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 
@@ -269,8 +278,10 @@ func (s *Session) UpdateBotPlugins(ctx context.Context, selection plugins.Select
 	return s.updateBotPluginsLocked(ctx, selection)
 }
 
-func (s *Session) WithBotPluginAdmission(mutate func(func(context.Context, plugins.Selection) error) error) error {
-	s.op.Lock()
+func (s *Session) WithBotPluginAdmission(ctx context.Context, mutate func(func(context.Context, plugins.Selection) error) error) error {
+	if err := lockwait.Lock(ctx, &s.op); err != nil {
+		return err
+	}
 	defer s.op.Unlock()
 	return mutate(s.updateBotPluginsLocked)
 }
@@ -287,9 +298,9 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 		s.mu.Unlock()
 		return errors.New("Bot is disconnected; reconnect and reconcile the original thread before changing plugins")
 	}
-	if s.client != nil && !s.maintenanceIdle() {
+	if s.binding.Pending != nil || s.state.Phase == "unknown" {
 		s.mu.Unlock()
-		return errors.New("Bot is working; retry plugin change after the current turn")
+		return errors.New("original Bot request is unresolved; reconnect and read its receipt before changing active plugins")
 	}
 	old := s.opts.BotTools.Clone()
 	next := old.Clone()

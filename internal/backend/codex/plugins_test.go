@@ -24,6 +24,23 @@ func TestPluginServerWithoutResidentThreadIsNotConnectingForever(t *testing.T) {
 	}
 }
 
+func TestPluginRecoveryFenceTracksOriginalCodexRequest(t *testing.T) {
+	s := NewSession(SessionOptions{Directory: t.TempDir()})
+	s.mu.Lock()
+	s.state.Connection = "ready"
+	s.binding.Pending = &pendingSubmission{ID: "original-request"}
+	s.mu.Unlock()
+	if !s.BotPluginRecoveryPending() {
+		t.Fatal("ready owner hid unresolved original request")
+	}
+	s.mu.Lock()
+	s.binding.Pending = nil // original receipt was observed by the owner
+	s.mu.Unlock()
+	if s.BotPluginRecoveryPending() {
+		t.Fatal("resolved original request kept plugin recovery fenced")
+	}
+}
+
 func TestCodexRuntimeDirectoryKeepsDescriptionsOnlyWhenConnected(t *testing.T) {
 	s, fixture := sessionPair(t, "hold")
 	name := plugins.RuntimeName("notes", "search")
@@ -299,7 +316,7 @@ func TestPluginTransactionHoldsCodexTurnAdmission(t *testing.T) {
 	s := NewSession(SessionOptions{Directory: t.TempDir()})
 	entered, release, transactionDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
-		_ = s.WithBotPluginAdmission(func(func(context.Context, plugins.Selection) error) error {
+		_ = s.WithBotPluginAdmission(context.Background(), func(func(context.Context, plugins.Selection) error) error {
 			close(entered)
 			<-release
 			return nil
@@ -330,5 +347,84 @@ func TestPluginTransactionHoldsCodexTurnAdmission(t *testing.T) {
 	case <-submitted:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Codex turn did not resume after plugin transaction")
+	}
+}
+
+func TestPluginProjectionWaitCancelsBehindCodexTurn(t *testing.T) {
+	s := NewSession(SessionOptions{Directory: t.TempDir()})
+	s.op.Lock()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- s.WithBotPluginAdmission(ctx, func(func(context.Context, plugins.Selection) error) error {
+			return nil
+		})
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			s.op.Unlock()
+			t.Fatal("expired projection entered the Codex turn lock")
+		}
+	case <-time.After(time.Second):
+		s.op.Unlock()
+		t.Fatal("expired projection remained blocked behind a Codex turn")
+	}
+	s.op.Unlock()
+}
+
+func TestPluginActivationDuringActiveTurnsPreservesUnknownReceiptFence(t *testing.T) {
+	s, fixture := sessionPair(t, "hold")
+	fixture.mu.Lock()
+	fixture.handle = func(message wireMessage) (any, bool) {
+		switch message.Method {
+		case "config/mcpServer/reload":
+			return map[string]any{}, true
+		case "skills/list":
+			return map[string]any{"data": []any{}}, true
+		default:
+			return nil, false
+		}
+	}
+	fixture.mu.Unlock()
+	s.mu.Lock()
+	s.opts.BotTools = &api.ToolConnection{Command: "fixture"}
+	s.binding.Tasks = map[string]*taskRecord{}
+	s.binding.Tasks["independent"] = &taskRecord{Thread: "worker-thread"}
+	s.childRuns["worker-thread"] = "worker-turn"
+	s.mu.Unlock()
+	if err := s.UpdateBotPlugins(t.Context(), plugins.Selection{Revision: 2}); err != nil {
+		t.Fatal("independent Worker prevented Bot-only plugin activation", err)
+	}
+	s.mu.Lock()
+	if s.opts.BotTools.Plugins.Revision != 2 || s.childRuns["worker-thread"] != "worker-turn" {
+		s.mu.Unlock()
+		t.Fatal("plugin activation changed independent Worker state")
+	}
+	s.prompts["worker-approval"] = &prompt{thread: "worker-thread"}
+	s.mu.Unlock()
+	if err := s.UpdateBotPlugins(t.Context(), plugins.Selection{Revision: 3}); err != nil {
+		t.Fatal("independent Worker approval prevented Bot-only activation", err)
+	}
+	s.mu.Lock()
+	delete(s.prompts, "worker-approval")
+	s.childRuns["conversation-child"] = "child-turn"
+	s.mu.Unlock()
+	if err := s.UpdateBotPlugins(t.Context(), plugins.Selection{Revision: 4}); err != nil {
+		t.Fatal("active conversation child blocked plugin activation", err)
+	}
+	s.mu.Lock()
+	delete(s.childRuns, "conversation-child")
+	s.run = "conversation-turn"
+	s.mu.Unlock()
+	if err := s.UpdateBotPlugins(t.Context(), plugins.Selection{Revision: 5}); err != nil {
+		t.Fatal("active conversation turn blocked plugin activation", err)
+	}
+	s.mu.Lock()
+	s.binding.Pending = &pendingSubmission{ID: "original-unknown-request"}
+	s.mu.Unlock()
+	if err := s.UpdateBotPlugins(t.Context(), plugins.Selection{Revision: 6}); err == nil || s.opts.BotTools.Plugins.Revision != 5 || s.binding.Pending.ID != "original-unknown-request" {
+		t.Fatal("unknown original request was not fenced", err)
 	}
 }

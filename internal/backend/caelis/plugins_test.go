@@ -145,7 +145,7 @@ func TestPluginTransactionHoldsCoreTurnAdmission(t *testing.T) {
 	s := New(Options{Directory: t.TempDir()})
 	entered, release, transactionDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
-		_ = s.WithBotPluginAdmission(func(func(context.Context, plugins.Selection) error) error {
+		_ = s.WithBotPluginAdmission(context.Background(), func(func(context.Context, plugins.Selection) error) error {
 			close(entered)
 			<-release
 			return nil
@@ -177,6 +177,30 @@ func TestPluginTransactionHoldsCoreTurnAdmission(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Core turn did not resume after plugin transaction")
 	}
+}
+
+func TestPluginProjectionWaitCancelsBehindCoreTurn(t *testing.T) {
+	s := New(Options{Directory: t.TempDir()})
+	s.step.Lock()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- s.WithBotPluginAdmission(ctx, func(func(context.Context, plugins.Selection) error) error {
+			return nil
+		})
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			s.step.Unlock()
+			t.Fatal("expired projection entered the Core turn lock")
+		}
+	case <-time.After(time.Second):
+		s.step.Unlock()
+		t.Fatal("expired projection remained blocked behind a Core turn")
+	}
+	s.step.Unlock()
 }
 
 func TestPublicCorePluginProjectionKeepsPortableEnvironmentPrivate(t *testing.T) {
@@ -311,6 +335,9 @@ func TestPluginReceiptRecoveryReadsOriginalIDAndChecksRuntimeSelection(t *testin
 	if op == "" || s.state.Typed[op].Outcome != "unknown" {
 		t.Fatal("original operation was not journaled", op)
 	}
+	if !s.BotPluginRecoveryPending() {
+		t.Fatal("unknown original configuration was not fenced")
+	}
 	s.connected = true // The public Connect path also restores this flag.
 	if s.Snapshot().CanSend {
 		t.Fatal("reconnect reopened sending before receipt recovery")
@@ -323,8 +350,15 @@ func TestPluginReceiptRecoveryReadsOriginalIDAndChecksRuntimeSelection(t *testin
 	if err := s.recoverConfigurations(t.Context()); err == nil || s.state.Typed[op].Outcome != "committed" || s.Snapshot().CanSend {
 		t.Fatal("committed receipt without configuration readback admitted work", err)
 	}
+	if !s.BotPluginRecoveryPending() {
+		t.Fatal("committed receipt without readback cleared recovery fence")
+	}
+	beforeReadback := s.Snapshot().Revision
 	if err := s.recoverConfigurations(t.Context()); err != nil {
 		t.Fatal("committed receipt readback did not retry", err)
+	}
+	if s.BotPluginRecoveryPending() || s.Snapshot().Revision <= beforeReadback {
+		t.Fatal("original receipt readback did not wake ready host observer")
 	}
 	if posts.Load() != 1 || s.state.Typed[op].Outcome != "committed" || s.Snapshot().CanSend {
 		t.Fatal("resolved receipt bypassed private selection confirmation", posts.Load(), s.state.Typed[op].Outcome)
