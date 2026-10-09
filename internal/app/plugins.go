@@ -86,10 +86,13 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 		}
 	}
 	if detail.State == "not_started" {
-		detail = a.plugins.ProbeServer(ctx, id, server)
+		if catalog := a.plugins.ProbeServer(ctx, id, server); catalog.State == "connected" {
+			// A standalone preview cannot establish the resident Runtime's health.
+			detail.Tools, detail.Truncated, detail.Preview = catalog.Tools, catalog.Truncated, true
+		}
 	} else if detail.State == "connected" && needsToolMetadata(detail.Tools) {
-		// Core's mcp-status publishes authoritative tool names but not their
-		// descriptions. Read metadata only when this detail is explicitly opened,
+		// Older Core status may omit descriptions. Read metadata only when
+		// this detail is explicitly opened,
 		// and never expose a tool absent from the Runtime's active directory.
 		if catalog := a.plugins.ProbeServer(ctx, id, server); catalog.State == "connected" {
 			detail.Tools = append([]plugins.Tool(nil), detail.Tools...)
@@ -106,7 +109,7 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 	if detail.Tools == nil {
 		detail.Tools = []plugins.Tool{}
 	}
-	if detail.State == "connected" {
+	if detail.State == "connected" || detail.Preview {
 		a.pluginDetailMu.Lock()
 		if len(a.pluginDetailCache) >= 32 {
 			a.pluginDetailCache = nil
@@ -341,14 +344,6 @@ func (a *Application) syncPluginIndex(ctx context.Context) error {
 		cancel()
 		if err != nil || detail.State != "connected" {
 			continue
-		}
-		if needsToolMetadata(detail.Tools) {
-			probeCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
-			if listed := a.plugins.ProbeServer(probeCtx, server.PackageID, server.Name); listed.State == "connected" {
-				detail.Tools = append([]plugins.Tool(nil), detail.Tools...)
-				enrichToolMetadata(detail.Tools, listed.Tools)
-			}
-			cancel()
 		}
 		connected = append(connected, plugins.IndexServer{PackageID: server.PackageID, Name: server.Name, RuntimeName: name, Tools: detail.Tools})
 	}

@@ -205,6 +205,20 @@ func (s *Session) BotPluginHealth(ctx context.Context) []plugins.Issue {
 	return issues
 }
 
+// The public status extension is optional: released Core versions report only
+// tools, while newer Core also reports descriptions for the same ready tools.
+type mcpToolStatus struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type mcpServerStatus struct {
+	Name        string          `json:"name"`
+	Status      string          `json:"status"`
+	Tools       []string        `json:"tools"`
+	ToolDetails []mcpToolStatus `json:"tool_details"`
+}
+
 func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.ServerDetail, error) {
 	empty := plugins.ServerDetail{State: "not_configured", Tools: []plugins.Tool{}}
 	s.mu.Lock()
@@ -228,7 +242,9 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 		empty.State = "not_started"
 		return empty, nil
 	}
-	var status wire.ApplicationMCPStatus
+	var status struct {
+		Servers []mcpServerStatus `json:"servers"`
+	}
 	if err := c.json(ctx, "GET", "/application/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
 		return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, err
 	}
@@ -248,9 +264,15 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 			out.State = "failed"
 		}
 		if out.State == "connected" {
+			descriptions := make(map[string]string, len(server.ToolDetails))
+			for _, tool := range server.ToolDetails {
+				if _, exists := descriptions[tool.Name]; !exists {
+					descriptions[tool.Name] = plugins.SafeDisplayDescription(tool.Description)
+				}
+			}
 			for _, tool := range server.Tools {
 				if label := plugins.SafeDisplayText(tool); label != "" {
-					out.Tools = append(out.Tools, plugins.Tool{Name: label})
+					out.Tools = append(out.Tools, plugins.Tool{Name: label, Description: descriptions[tool]})
 				}
 			}
 		}

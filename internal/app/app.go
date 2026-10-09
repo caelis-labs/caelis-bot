@@ -428,7 +428,7 @@ func (a *Application) Start() error {
 		if err == nil {
 			config := bridge.Config(executable)
 			if a.skillPath != "" {
-				config.Instructions += botskills.Instructions(a.skillPath)
+				config.SkillInstructions = botskills.Instructions(a.skillPath)
 				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath), filepath.Join(filepath.Dir(filepath.Dir(a.skillPath)), "bot-dream")}
 			}
 			if a.plugins != nil {

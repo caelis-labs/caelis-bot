@@ -17,7 +17,7 @@ func (s *Session) connectionParams() map[string]any {
 	// Native tool mode decides between tool_search and Code Mode metadata.
 	config := map[string]any{}
 	if s.opts.BotTools != nil {
-		instructions = s.opts.BotTools.Instructions
+		instructions = s.opts.BotTools.Instructions + s.opts.BotTools.SkillInstructions
 		if len(s.opts.BotTools.Services) > 0 && (s.binding.ToolLayout == 2 || s.binding.ThreadID == "") {
 			for _, service := range s.opts.BotTools.Services {
 				if scoped := serviceToolConfig(s.opts.BotTools, service); scoped != nil {

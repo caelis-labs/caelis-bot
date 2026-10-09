@@ -20,12 +20,17 @@ func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
 	var hits atomic.Int32
 	var state atomic.Value
 	state.Store("running")
+	var includeDetails atomic.Bool
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		if r.URL.Path != "/api/control/v1/application/sessions/main/mcp-status" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		writeFixture(w, map[string]any{"configuration_revision": "1", "session_id": "main", "skills": []any{}, "servers": []any{map[string]any{"name": plugins.RuntimeName("notes", "search"), "status": state.Load().(string), "tools": []string{"lookup"}}}})
+		server := map[string]any{"name": plugins.RuntimeName("notes", "search"), "status": state.Load().(string), "tools": []string{"lookup"}}
+		if includeDetails.Load() {
+			server["tool_details"] = []any{map[string]any{"name": "lookup", "description": "Find matching notes"}, map[string]any{"name": "candidate", "description": "Not callable"}}
+		}
+		writeFixture(w, map[string]any{"configuration_revision": "1", "session_id": "main", "skills": []any{}, "servers": []any{server}})
 	})
 	s.info.Capabilities = []string{atomicCapabilities}
 	s.tools = &api.ToolConnection{Plugins: plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "notes", Name: "search"}}}}
@@ -33,6 +38,11 @@ func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
 	detail, err := s.BotPluginServer(t.Context(), name)
 	if err != nil || detail.State != "connected" || len(detail.Tools) != 1 || detail.Tools[0].Name != "lookup" || detail.Tools[0].Description != "" || hits.Load() != 1 {
 		t.Fatal(detail, err, hits.Load())
+	}
+	includeDetails.Store(true)
+	detail, err = s.BotPluginServer(t.Context(), name)
+	if err != nil || detail.State != "connected" || len(detail.Tools) != 1 || detail.Tools[0].Description != "Find matching notes" {
+		t.Fatal("optional public description did not match callable name", detail, err)
 	}
 	for _, status := range []string{"inactive", "connecting", "failed"} {
 		state.Store(status)
@@ -49,7 +59,7 @@ func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
 	}
 	s.tools.Plugins.Servers = nil
 	detail, err = s.BotPluginServer(t.Context(), name)
-	if err != nil || detail.State != "not_configured" || hits.Load() != 4 {
+	if err != nil || detail.State != "not_configured" || hits.Load() != 5 {
 		t.Fatal("unselected MCP was queried", detail, err, hits.Load())
 	}
 }
@@ -60,6 +70,22 @@ func TestPluginServerWithoutCoreSessionIsNotConnectingForever(t *testing.T) {
 	detail, err := s.BotPluginServer(t.Context(), plugins.RuntimeName("map", "places"))
 	if err != nil || detail.State != "not_started" || len(detail.Tools) != 0 {
 		t.Fatal(detail, err)
+	}
+}
+
+func TestCoreProfileUsesNativeSkillMetadataWithoutDuplicateGuide(t *testing.T) {
+	s := New(Options{Directory: t.TempDir()})
+	c := &api.ToolConnection{
+		Host:              &acceptanceTools{defs: fixtureDefinitions("string")},
+		Instructions:      "Resident role instructions",
+		SkillInstructions: "Resident Skill guide",
+		BuiltinSkillRoots: []string{"/fixture/app-skills/bot-core"},
+	}
+	if err := s.ConfigureBotTools(c); err != nil {
+		t.Fatal(err)
+	}
+	if s.profile.Instructions != c.Instructions || len(s.profile.SkillRoots) != 1 || s.profile.SkillRoots[0] != c.BuiltinSkillRoots[0] {
+		t.Fatal("Core Skill metadata or role instructions changed", s.profile)
 	}
 }
 

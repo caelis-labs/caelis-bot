@@ -98,9 +98,9 @@ func TestBotConnectionKeepsSandboxAndScopesDiscovery(t *testing.T) {
 	if strings.Contains(p["developerInstructions"].(string), "- bot_clock:") {
 		t.Fatal("unconfigured tool advertised")
 	}
-	s.opts.BotTools = &api.ToolConnection{Command: "synthetic", Instructions: "- bot_clock: synthetic catalog"}
+	s.opts.BotTools = &api.ToolConnection{Command: "synthetic", Instructions: "- bot_clock: synthetic catalog", SkillInstructions: "\nResident Skill guide"}
 	p = s.connectionParams()
-	if !strings.Contains(p["developerInstructions"].(string), "- bot_clock:") || len(p["runtimeWorkspaceRoots"].([]string)) != 0 {
+	if !strings.Contains(p["developerInstructions"].(string), "- bot_clock:") || !strings.Contains(p["developerInstructions"].(string), "Resident Skill guide") || len(p["runtimeWorkspaceRoots"].([]string)) != 0 {
 		t.Fatal("catalog/workspace contract")
 	}
 	s.opts.RequireApproval = true

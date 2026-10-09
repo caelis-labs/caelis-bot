@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -88,12 +89,12 @@ func TestPluginDetailProbesEnabledRemoteWithoutModelSession(t *testing.T) {
 	}
 	for range 2 {
 		detail, err := a.PluginServerDetail(t.Context(), "notes", "search", false)
-		if err != nil || detail.State != "connected" || len(detail.Tools) != 1 || detail.Tools[0].Name != "lookup" {
+		if err != nil || detail.State != "not_started" || !detail.Preview || len(detail.Tools) != 1 || detail.Tools[0].Name != "lookup" {
 			t.Fatal(detail, err)
 		}
 	}
 	if fmt.Sprint(methods) != "[initialize notifications/initialized tools/list]" || e.reads != 1 {
-		t.Fatal("directory should be cached without a model session", methods, e.reads)
+		t.Fatal("preview should be cached without a model session", methods, e.reads)
 	}
 	if _, err := a.PluginAction(t.Context(), "notes", "disable"); err != nil {
 		t.Fatal(err)
@@ -184,8 +185,14 @@ func (e *inspectingPluginEngine) setDirectory(state string, tools []plugins.Tool
 }
 
 func TestPluginIndexTracksAuthoritativeConnectedDirectory(t *testing.T) {
+	var probes atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probes.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
 	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"notes","version":"1.0.0","description":"Find notes","author":{"name":"Example"}}`)
-	mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"search":{"type":"streamable-http","url":"https://example.com/mcp"}}}`)
+	mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"search":{"type":"streamable-http","url":"` + server.URL + `"}}}`)
 	files := fstest.MapFS{"packages/notes/plugin.json": {Data: manifest}, "packages/notes/mcp.json": {Data: mcp}}
 	hash := func(body []byte) string { sum := sha256.Sum256(body); return hex.EncodeToString(sum[:]) }
 	index := []byte(`{"name":"community","plugins":[{"name":"notes","source":{"source":"local","path":"./packages/notes"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"}}]}`)
@@ -208,6 +215,16 @@ func TestPluginIndexTracksAuthoritativeConnectedDirectory(t *testing.T) {
 	if err != nil || !strings.Contains(string(body), `"name":"lookup"`) || !strings.Contains(string(body), `"description":"Find notes"`) {
 		t.Fatalf("connected directory missing: %s %v", body, err)
 	}
+	old := time.Unix(1, 0)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.syncPluginIndex(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || !info.ModTime().Equal(old) || probes.Load() != 0 {
+		t.Fatal("unchanged index was rewritten or standalone MCP was probed", info, err, probes.Load())
+	}
 	e.state = "failed"
 	if err := a.syncPluginIndex(t.Context()); err != nil {
 		t.Fatal(err)
@@ -225,12 +242,34 @@ func TestPluginIndexTracksAuthoritativeConnectedDirectory(t *testing.T) {
 	if err != nil || !strings.Contains(string(body), `"name":"changed"`) || strings.Contains(string(body), `"name":"lookup"`) {
 		t.Fatalf("directory change missed: %s %v", body, err)
 	}
+	large := make([]plugins.Tool, 130)
+	for i := range large {
+		large[i] = plugins.Tool{Name: fmt.Sprintf("tool_%03d", i), Description: strings.Repeat("D", 180)}
+	}
+	e.setDirectory("connected", large)
+	if err := a.syncPluginIndex(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(path)
+	var directory struct {
+		Services []struct {
+			Tools []struct {
+				Name, Description string
+			}
+		}
+	}
+	if err != nil || json.Unmarshal(body, &directory) != nil || len(directory.Services) != 1 || len(directory.Services[0].Tools) != len(large) || len(directory.Services[0].Tools[0].Description) != 180 {
+		t.Fatal("index applied detail view limits", err)
+	}
 	if _, err := a.PluginAction(t.Context(), "notes", "disable"); err != nil {
 		t.Fatal(err)
 	}
 	body, err = os.ReadFile(path)
 	if err != nil || string(body) != "{\"services\":[]}\n" {
 		t.Fatalf("disabled service retained: %s %v", body, err)
+	}
+	if probes.Load() != 0 {
+		t.Fatal("routine index connected to standalone MCP", probes.Load())
 	}
 }
 

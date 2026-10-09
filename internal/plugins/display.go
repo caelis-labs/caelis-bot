@@ -28,8 +28,8 @@ type Contribution struct {
 	DescriptionZh string `json:"descriptionZh,omitempty"`
 }
 
-// Tool is presentation metadata returned by an enabled Runtime service.
-// Hints are displayed as claims by the server and never affect approval policy.
+// Tool is presentation metadata from Runtime status or an explicit detail
+// preview. Hints are server claims and never affect approval policy.
 type Tool struct {
 	Name            string `json:"name"`
 	Title           string `json:"title,omitempty"`
@@ -45,6 +45,7 @@ type ServerDetail struct {
 	Tools     []Tool `json:"tools"`
 	Error     string `json:"error,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
+	Preview   bool   `json:"preview,omitempty"`
 }
 
 type SkillDetail struct {
