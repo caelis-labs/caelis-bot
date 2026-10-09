@@ -38,6 +38,7 @@ type binding struct {
 	Dreams          map[string]dreamRecord `json:"dreams,omitempty"`
 	PastThreads     []string               `json:"pastThreads,omitempty"`
 	RenewedBy       string                 `json:"renewedBy,omitempty"`
+	ToolRenewal     *toolRenewalRecord     `json:"toolRenewal,omitempty"`
 	Scheduled       map[string]string      `json:"scheduled,omitempty"`       // accepted client IDs to native turn IDs
 	HostReports     map[string]bool        `json:"hostReports,omitempty"`     // host-only completion inputs, keyed by exact submitted ID
 	RecoveryNotices map[string]bool        `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
@@ -54,6 +55,10 @@ type binding struct {
 	LastReceipt *api.Receipt       `json:"lastReceipt,omitempty"`
 	Unsubmitted bool               `json:"unsubmitted,omitempty"`
 	Pending     *pendingSubmission `json:"pending,omitempty"`
+}
+type toolRenewalRecord struct {
+	CallID, Source, Turn, NewThread string
+	Attempted                       bool
 }
 type pendingSubmission struct {
 	ID     string `json:"id"`

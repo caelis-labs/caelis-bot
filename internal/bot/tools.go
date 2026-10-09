@@ -32,6 +32,7 @@ type Bridge struct {
 }
 type toolRequest struct {
 	Token     string          `json:"token"`
+	ID        json.RawMessage `json:"id,omitempty"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
 	Version   int             `json:"version,omitempty"`
@@ -78,6 +79,9 @@ func (r *Runtime) callLegacyTool(ctx context.Context, name string, args json.Raw
 	r.mu.Unlock()
 	if stopped {
 		return result(nil, errors.New("Bot 已停止"))
+	}
+	if r.handoff != nil && r.handoff.pending().CallID != "" {
+		return result(nil, errors.New("Bot context handoff is completing"))
 	}
 	available := false
 	for _, d := range r.LegacyDefinitions() {
@@ -202,9 +206,31 @@ func Serve(r *Runtime) (*Bridge, error) {
 				if strings.HasPrefix(req.Name, desktopcontrol.Prefix) {
 					_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 				}
+				if req.Name == "bot_dream" {
+					_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
+				}
 				var out api.ToolResult
+				var invocation api.ToolInvocation
 				if req.Version == 2 {
-					out = r.CallTool(context.Background(), req.Name, req.Arguments)
+					callCtx := context.Background()
+					if req.Name == "bot_dream" {
+						if runtime, ok := r.engine.(api.ConversationRuntime); ok {
+							state := runtime.ConversationState()
+							invocation = api.ToolInvocation{Provider: "codex", CallID: string(req.ID), Session: state.Session, Turn: state.Turn}
+							callCtx = api.WithToolInvocation(callCtx, invocation)
+						}
+					}
+					out = r.CallTool(callCtx, req.Name, req.Arguments)
+					if out.TurnComplete {
+						stopCtx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+						err := r.completeCodexDream(stopCtx, invocation)
+						cancel()
+						if err != nil {
+							out = compactError("handoff_pending", err)
+							out.StructuredContent["outcome"] = "unknown"
+							out.StructuredContent["callId"] = invocation.CallID
+						}
+					}
 				} else if req.Version == 0 || req.Version == 1 {
 					out = r.callLegacyTool(context.Background(), req.Name, req.Arguments)
 				} else {
@@ -229,6 +255,7 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 	raw, _ := json.Marshal(b.runtime.Definitions())
 	config.Env["CAELIS_BOT_TOOL_CATALOG"] = string(raw)
 	config.Services = []api.ToolService{
+		{Name: "caelis_context", Tools: []string{"bot_dream"}},
 		{Name: "caelis_tasks", Tools: []string{"bot_tasks", "bot_delegate"}},
 		{Name: "caelis_schedule", Tools: []string{"bot_schedule", "bot_schedule_update"}},
 		{Name: "caelis_personal", Tools: []string{"bot_memory", "bot_gesture"}},
@@ -339,6 +366,7 @@ func RunStdio(in io.Reader, out io.Writer) error {
 					break
 				}
 				call.Token = os.Getenv("CAELIS_BOT_TOKEN")
+				call.ID = req.ID
 				if os.Getenv("CAELIS_BOT_TOOLS_VERSION") == "2" {
 					call.Version = 2
 				}
@@ -371,6 +399,9 @@ func forward(endpoint string, req toolRequest) toolResult {
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	if strings.HasPrefix(req.Name, desktopcontrol.Prefix) {
 		_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
+	}
+	if req.Name == "bot_dream" {
+		_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
 	}
 	if e = json.NewEncoder(conn).Encode(req); e != nil {
 		return forwardFailure(req, "Bot request not confirmed; retain the original receipt")

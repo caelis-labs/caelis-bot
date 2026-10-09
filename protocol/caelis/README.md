@@ -1,16 +1,19 @@
 # Caelis Control v1 baseline
 
-`manifest.json` pins the public Caelis OpenAPI schema and generated wire declarations
-at the exact commit recorded in that manifest. The baseline includes shared native
+`manifest.json` pins the public Caelis OpenAPI schema and generated wire declarations.
+`commit` records the consumed baseline; `contractOverlayCommit` records the narrow
+`turn_complete` Application callback result overlay from Core Draft PR #117.
+The local hashes cover that combination. Other Core schema changes are not imported
+by this Bot feature branch. The baseline includes shared native
 Workers, steering and interactive Host settings. Runtime support requires the
 advertised capabilities, including `shared-native-workers-v1` and
 `turn-steering-receipts-v1`. Team settings explicitly request
 `/agents/binding-status?include=eligible_profile_ids`; the default response remains
 compatible with strict clients that predate this extension.
 
-`internal/backend/caelis/wire/control_v1.gen.go` is copied from the public
-`control/appserver/wirev1/generated/control_v1.gen.go` at Core v0.67.1, with only
-its package name changed to `wire`. The published OpenAPI and generated Go/TS
+`internal/backend/caelis/wire/control_v1.gen.go` originates from the public
+`control/appserver/wirev1/generated/control_v1.gen.go` at Core v0.67.1, with its
+package name changed to `wire` and the terminal result overlay. The published OpenAPI and generated Go/TS
 types include the three Application atomic selection fields. Bot tests their
 actual public HTTP contract.
 Source license: Apache-2.0 (`LICENSE`). No sibling Go import,

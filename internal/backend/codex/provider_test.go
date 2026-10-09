@@ -33,7 +33,7 @@ func TestToolGrantIsCopiedAndTranslatedOnlyIntoNamedApprovals(t *testing.T) {
 		t.Fatal("server-wide approval introduced")
 	}
 	policy := p["tools"].(map[string]any)
-	if len(policy) != 4 || policy["foreign"] != nil || policy["bot_schedule"] == nil || policy["bot_care"] != nil || policy["bot_task_start"] != nil || policy["bot_schedule_update"] != nil || policy["bot_notebook"] != nil || policy["bot_memory"] == nil {
+	if len(policy) != 5 || policy["foreign"] != nil || policy["bot_schedule"] == nil || policy["bot_dream"] == nil || policy["bot_care"] != nil || policy["bot_task_start"] != nil || policy["bot_schedule_update"] != nil || policy["bot_notebook"] != nil || policy["bot_memory"] == nil {
 		t.Fatal("grant alias or scope leak")
 	}
 	if p["env"].(map[string]string)["credential"] != "synthetic" || p["args"].([]string)[0] != "--bot-tools" {
@@ -70,6 +70,9 @@ func TestNotebookWorkspaceDoesNotLeakToWorkers(t *testing.T) {
 	b, _ := json.Marshal(child)
 	if child["cwd"] != worker || strings.Contains(string(b), notebook) || strings.Contains(string(b), "resident-only-notebook-skill") {
 		t.Fatal("worker inherited resident private context")
+	}
+	if tool := child["config"].(map[string]any)["mcp_servers.caelis_context"].(map[string]any); tool["enabled"] != false || strings.Contains(string(b), "CAELIS_BOT_TOKEN") {
+		t.Fatal("worker inherited the resident context tool or private token")
 	}
 }
 

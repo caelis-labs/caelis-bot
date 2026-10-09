@@ -61,6 +61,7 @@ func (s *Session) workerParams(workspace, instructions string, t *taskRecord) ma
 	// stdio transport, never the secretary's endpoint/token or approved tool list.
 	params := map[string]any{"cwd": workspace, "runtimeWorkspaceRoots": []string{workspace}, "developerInstructions": instructions, "config": map[string]any{
 		"mcp_servers.caelis_bot":      map[string]any{"command": os.Args[0], "enabled": false},
+		"mcp_servers.caelis_context":  map[string]any{"command": os.Args[0], "enabled": false},
 		"mcp_servers.caelis_tasks":    map[string]any{"command": os.Args[0], "enabled": false},
 		"mcp_servers.caelis_schedule": map[string]any{"command": os.Args[0], "enabled": false},
 		"mcp_servers.caelis_personal": map[string]any{"command": os.Args[0], "enabled": false},

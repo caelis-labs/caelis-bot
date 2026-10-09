@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,7 +24,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
-	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 	notebookstore "github.com/caelis-labs/caelis-bot/internal/notebook"
 )
@@ -531,17 +529,13 @@ func TestGuardianHostIntegration(t *testing.T) {
 		return
 	}
 
-	if !t.Run("G08_upgrade_handoff_adopts_new_assembly", func(t *testing.T) {
+	if !t.Run("G08_upgrade_does_not_dispatch_maintenance", func(t *testing.T) {
 		dir := filepath.Join(root, "upgrade")
 		vault, e := notebookstore.OpenVault(filepath.Join(dir, "Notebook"))
 		if e != nil {
 			t.Fatal(e)
 		}
 		defer vault.Close()
-		skill, e := botskills.Install(filepath.Join(dir, "CASE_UPGRADE"))
-		if e != nil {
-			t.Fatal(e)
-		}
 		config := &api.ToolConnection{Host: tools, NotebookDirectory: vault.Path(), PrepareContext: vault.PrepareContext, ConsumeContext: vault.ConsumeContext}
 		opts := Options{Directory: filepath.Join(dir, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai-compatible/gpt-4.1"}, RequireApproval: true, ReviewerModel: "openai-compatible/reviewer-model"}
 		legacy := New(opts)
@@ -573,44 +567,32 @@ func TestGuardianHostIntegration(t *testing.T) {
 		if upgraded.ConversationState().Session != old || value(upgraded.state.Session.Profile.Permissions.ApprovalMode) != "manual" {
 			t.Fatal("upgrade mutated existing runtime before handoff")
 		}
-		main.set("CASE_UPGRADE", modelStep{Name: "Write", BuildArgs: func() any {
-			requests := main.seen("CASE_UPGRADE")
-			raw, _ := json.Marshal(requests[len(requests)-1])
-			text := strings.NewReplacer(`\u003c`, "<", `\u003e`, ">").Replace(string(raw))
-			marker := regexp.MustCompile(`<!-- caelis-dream: [A-Za-z0-9_-]+ -->`).FindString(text)
-			return map[string]string{"path": filepath.Join(vault.Path(), notebookstore.HandoffName), "content": marker + "\nPreserve the selected project; prior assignment is complete."}
-		}}, modelStep{Reply: "The previous work is ready to continue."})
 		resident, e := bot.NewForRuntime(filepath.Join(dir, "resident.json"), "caelis", nil)
 		if e != nil {
 			t.Fatal(e)
 		}
 		defer resident.Close()
-		if e = resident.ConfigureDream(vault, skill); e != nil {
+		if e = resident.ConfigureDream(vault, ""); e != nil {
 			t.Fatal(e)
 		}
 		resident.Start(upgraded)
-		waitAcceptance(t, ctx, func() bool { return upgraded.ConversationState().RuntimeVersion == config.RuntimeVersion })
-		current := upgraded.ConversationState()
-		if current.Session == old || current.Turn != "" || len(main.seen("CASE_UPGRADE")) != 2 {
-			t.Fatal("upgrade did not hand off once at startup")
-		}
-		profile := upgraded.state.Session.Profile
-		if value(profile.Permissions.ApprovalMode) != "auto-review" || value(profile.Permissions.Mode) != "workspace-write" || profile.Reviewer.Model != "openai-compatible/reviewer-model" {
-			t.Fatal("new version did not adopt Guardian and preserve sandbox")
-		}
-		main.set("CASE_UPGRADED_INPUT", modelStep{Reply: "Continuing with the retained project."})
-		submitAcceptance(t, ctx, upgraded, "CASE_UPGRADED_INPUT")
-		raw, _ := json.Marshal(main.seen("CASE_UPGRADED_INPUT"))
-		if !strings.Contains(string(raw), "Preserve the selected project") {
-			t.Fatal("upgrade lost handoff context")
-		}
 		for range 3 {
 			if e = resident.Tick(ctx); e != nil {
 				t.Fatal(e)
 			}
 		}
-		if len(main.seen("CASE_UPGRADE")) != 2 || upgraded.ConversationState().Session != current.Session {
-			t.Fatal("upgrade repeated maintenance")
+		current := upgraded.ConversationState()
+		if len(main.seen("CASE_UPGRADE")) != 0 || current.Session != old || current.RuntimeVersion == config.RuntimeVersion || current.Turn == "" {
+			t.Fatal("upgrade dispatched a new maintenance Turn or replaced the bound Session", current)
+		}
+		main.set("CASE_UPGRADED_INPUT", modelStep{Reply: "Continuing with the retained project."})
+		submitAcceptance(t, ctx, upgraded, "CASE_UPGRADED_INPUT")
+		raw, _ := json.Marshal(main.seen("CASE_UPGRADED_INPUT"))
+		if !strings.Contains(string(raw), "CASE_LEGACY_CONTEXT") || strings.Contains(string(raw), "caelis-dream") {
+			t.Fatal("upgrade lost the old conversation or invented Dream context")
+		}
+		if upgraded.ConversationState().Session != old {
+			t.Fatal("upgrade replaced Session after ordinary input")
 		}
 		if len(upgraded.Snapshot().Items) < 4 {
 			t.Fatal("upgrade lost visible history")

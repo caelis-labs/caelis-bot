@@ -11,7 +11,7 @@ import (
 
 func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 	root := t.TempDir()
-	for _, name := range []string{"caelis-bot-memory", "caelis-dream", "custom-guide"} {
+	for _, name := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream", "custom-guide"} {
 		legacy := filepath.Join(root, "app-skills", name)
 		if err := os.MkdirAll(legacy, 0700); err != nil {
 			t.Fatal(err)
@@ -24,7 +24,7 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, old := range []string{"caelis-bot-memory", "caelis-dream"} {
+	for _, old := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream"} {
 		if _, err := os.Stat(filepath.Join(root, "app-skills", old)); !os.IsNotExist(err) {
 			t.Fatalf("old system skill retained: %s: %v", old, err)
 		}
@@ -41,18 +41,8 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 		t.Fatal("invalid bundled metadata")
 	}
 	catalog := Instructions(p)
-	dreamPath := filepath.Join(root, "app-skills", "bot-dream", "SKILL.md")
-	dreamBody, err := os.ReadFile(dreamPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dreamName, dreamDescription := metadata(string(dreamBody))
-	if dreamName != "bot-dream" || !strings.Contains(catalog, dreamDescription) || !strings.Contains(catalog, dreamPath) || strings.Contains(catalog, "# Prepare the next conversation") {
-		t.Fatal("Dream progressive discovery missing")
-	}
-	policy, err := os.ReadFile(filepath.Join(filepath.Dir(dreamPath), "agents", "openai.yaml"))
-	if err != nil || !strings.Contains(string(policy), "allow_implicit_invocation: false") {
-		t.Fatal("Dream must require explicit invocation")
+	if strings.Contains(catalog, "bot-dream") {
+		t.Fatal("retired maintenance skill remained in catalog")
 	}
 	if !strings.Contains(catalog, description) || !strings.Contains(catalog, p) || strings.Contains(catalog, "# Restore your context") || strings.Contains(catalog, "MEMORY.md") {
 		t.Fatal("metadata missing or body eagerly injected", catalog)

@@ -2,9 +2,9 @@ package bot
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,325 +12,219 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
-type dreamEngine struct {
+type legacyDreamEngine struct {
 	fakeEngine
-	conversation      api.ConversationState
-	dreams            []api.Submission
-	cancels, renewals int
-	outcome           string
-	renewErr          error
+	state                    api.ConversationState
+	outcome                  string
+	renewErr                 error
+	calls, cancels, renewals int
 }
 
-func (e *dreamEngine) ConversationState() api.ConversationState { return e.conversation }
-func (e *dreamEngine) SubmitDream(_ context.Context, in api.Submission) (api.Receipt, error) {
-	e.dreams = append(e.dreams, in)
-	e.conversation.Turn, e.conversation.Status, e.conversation.Idle = "dream-turn", "running", false
-	return api.Receipt{ID: in.ID, Outcome: e.outcome}, nil
+func (e *legacyDreamEngine) ConversationState() api.ConversationState { return e.state }
+func (e *legacyDreamEngine) SubmitDream(context.Context, api.Submission) (api.Receipt, error) {
+	e.calls++
+	return api.Receipt{Outcome: "accepted"}, nil
 }
-func (e *dreamEngine) DreamResult(id string) (api.Receipt, api.ConversationState) {
-	return api.Receipt{ID: id, Outcome: e.outcome}, e.conversation
+func (e *legacyDreamEngine) DreamResult(id string) (api.Receipt, api.ConversationState) {
+	return api.Receipt{ID: id, Outcome: e.outcome}, e.state
 }
-func (e *dreamEngine) CancelDream(context.Context, string) error {
-	e.cancels++
-	e.conversation.Status, e.conversation.Idle = "interrupted", true
-	return nil
-}
-func (e *dreamEngine) RenewConversation(context.Context, string, string) error {
+func (e *legacyDreamEngine) CancelDream(context.Context, string) error { e.cancels++; return nil }
+func (e *legacyDreamEngine) RenewConversation(context.Context, string, string) error {
 	e.renewals++
 	if e.renewErr != nil {
 		return e.renewErr
 	}
-	e.conversation.Session, e.conversation.Turn, e.conversation.Status = "new", "", ""
-	e.conversation.RuntimeVersion = e.conversation.DesiredRuntimeVersion
+	e.state.Session = "new"
 	return nil
 }
 
-func dreamFixture(t *testing.T) (*Runtime, *dreamEngine, *time.Time) {
+func TestNoAutomaticDreamEvenAfterUpgradeAndHighUsage(t *testing.T) {
 	r, _, now := fixture(t)
 	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { v.Close() })
-	if err = r.ConfigureDream(v, filepath.Join(t.TempDir(), "app-skills", "bot-core", "SKILL.md")); err != nil {
+	defer v.Close()
+	if err := r.ConfigureDream(v, ""); err != nil {
 		t.Fatal(err)
 	}
-	e := &dreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, outcome: "accepted", conversation: api.ConversationState{Session: "old", Turn: "user-turn", Status: "completed", Observed: true, Idle: true}}
+	e := &legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, outcome: "rejected", state: api.ConversationState{Session: "old", Turn: "user-turn", Status: "completed", Observed: true, Idle: true, RuntimeVersion: "old", DesiredRuntimeVersion: "new", Usage: api.ContextUsage{Used: 95000, Window: 100000, ModelAt: *now}}}
 	r.engine = e
-	return r, e, now
-}
-func beginDream(t *testing.T, r *Runtime, e *dreamEngine, now *time.Time) {
-	t.Helper()
-	r.ConfigureDreamEnvironment(func() DreamEnvironment { return DreamEnvironment{Available: true} })
-	*now = now.Add(time.Second)
-	e.conversation.Usage = api.ContextUsage{Used: 80000, Window: 100000, ModelAt: *now}
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	for range 119 {
+	for range 1000 {
 		*now = now.Add(time.Second)
 		if err := r.Tick(t.Context()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(e.dreams) != 0 {
-		t.Fatal("early Dream")
-	}
-	*now = now.Add(time.Second)
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if len(e.dreams) != 1 {
-		t.Fatal("missing Dream")
-	}
-}
-func TestDreamWaitsForUserAndSurvivesRestart(t *testing.T) {
-	r, e, now := dreamFixture(t)
-	beginDream(t, r, e, now)
-	id := e.dreams[0].ID
-	os.WriteFile(filepath.Join(r.dream.vault.Path(), notebook.HandoffName), []byte(notebook.DreamMarker(id)+"\nFinished X; no pending work."), 0600)
-	e.conversation.Status, e.conversation.Idle = "completed", true
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	*now = now.Add(24 * time.Hour)
-	for range 3 {
-		_ = r.Tick(t.Context())
-	}
-	if len(e.dreams) != 1 || e.renewals != 0 {
-		t.Fatal("idle model loop or eager session creation")
-	}
-	if err := r.ConfigureDream(r.dream.vault, filepath.Join(t.TempDir(), "bot-core", "SKILL.md")); err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "new-user", Text: "new topic"}, nil)
-	if err != nil || receipt.Outcome != "accepted" || e.renewals != 1 || len(e.submissions) != 1 {
-		t.Fatal(receipt, err, e.renewals)
-	}
-}
-func TestDreamInterruptedByUserAndMissingHandoffNeverRotates(t *testing.T) {
-	for _, finished := range []bool{false, true} {
-		t.Run(map[bool]string{false: "interrupt", true: "missing-handoff"}[finished], func(t *testing.T) {
-			r, e, now := dreamFixture(t)
-			beginDream(t, r, e, now)
-			if finished {
-				e.conversation.Status, e.conversation.Idle = "completed", true
-			}
-			receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "new-user", Text: "hello"}, nil)
-			if err != nil || receipt.Outcome != "accepted" || e.renewals != 0 || (!finished && e.cancels != 1) {
-				t.Fatal(receipt, err, e.renewals, e.cancels)
-			}
-		})
-	}
-}
-func TestDreamUnknownNeverRepeats(t *testing.T) {
-	r, e, now := dreamFixture(t)
-	e.outcome = "unknown"
-	beginDream(t, r, e, now)
-	*now = now.Add(time.Hour)
-	for range 3 {
-		_ = r.Tick(t.Context())
-	}
-	if len(e.dreams) != 1 || e.renewals != 0 {
-		t.Fatal("unknown request repeated")
+	if e.calls != 0 || e.renewals != 0 {
+		t.Fatalf("host dispatched Dream or upgrade renewal: %+v", e)
 	}
 }
 
-func TestBackgroundActivityInvalidatesCompletedHandoff(t *testing.T) {
-	r, e, now := dreamFixture(t)
-	beginDream(t, r, e, now)
-	id := e.dreams[0].ID
-	os.WriteFile(filepath.Join(r.dream.vault.Path(), notebook.HandoffName), []byte(notebook.DreamMarker(id)+"\nFinished old work."), 0600)
-	e.conversation.Status, e.conversation.Idle = "completed", true
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	e.conversation.Turn, e.conversation.Status, e.conversation.Idle = "background-report", "running", false
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	r.SubmitUser(t.Context(), api.Submission{ID: "user-after-report", Text: "continue"}, nil)
-	if e.renewals != 0 || r.dream.state.Attempt.Ready {
-		t.Fatal("used stale handoff after background report")
-	}
-}
-
-func completeDream(t *testing.T, r *Runtime, e *dreamEngine, now *time.Time) {
-	t.Helper()
-	beginDream(t, r, e, now)
-	id := e.dreams[0].ID
-	if err := os.WriteFile(filepath.Join(r.dream.vault.Path(), notebook.HandoffName), []byte(notebook.DreamMarker(id)+"\nFinished prior work."), 0600); err != nil {
-		t.Fatal(err)
-	}
-	e.conversation.Status, e.conversation.Idle = "completed", true
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if !r.dream.state.Attempt.Ready {
-		t.Fatal("handoff not ready")
-	}
-}
-
-func restartDreamRuntime(t *testing.T, r *Runtime, e *dreamEngine) *Runtime {
-	t.Helper()
-	restored, err := NewForRuntime(r.path, r.provider, nil)
+func TestLegacyUnknownReceiptNeverReplays(t *testing.T) {
+	r, _, _ := fixture(t)
+	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored.engine, restored.now = e, r.now
-	if err = restored.ConfigureDream(r.dream.vault, filepath.Join(t.TempDir(), "bot-core", "SKILL.md")); err != nil {
+	defer v.Close()
+	if err := r.ConfigureDream(v, ""); err != nil {
 		t.Fatal(err)
 	}
-	return restored
+	e := &legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, outcome: "unknown", state: api.ConversationState{Session: "old", Turn: "user-turn", Status: "completed", Observed: true, Idle: true}}
+	r.engine = e
+	r.dream.state.Attempt = &dreamAttempt{ID: "old-call", Session: "old", Outcome: "unknown"}
+	if err := r.dream.save(); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		_ = r.Tick(t.Context())
+	}
+	if e.calls != 0 || e.renewals != 0 {
+		t.Fatal("replayed unknown maintenance receipt")
+	}
+	r2, err := New(r.path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r2.ConfigureDream(v, ""); err != nil {
+		t.Fatal(err)
+	}
+	if r2.dream.state.Attempt == nil || r2.dream.state.Attempt.ID != "old-call" {
+		t.Fatal("original receipt lost")
+	}
+	if _, err := os.Stat(r.dream.path); err != nil {
+		t.Fatal(err)
+	}
 }
 
-func TestDreamRenewalRejectionFallsBackButUnknownWaits(t *testing.T) {
-	for _, known := range []bool{true, false} {
-		t.Run(map[bool]string{true: "rejected", false: "unknown"}[known], func(t *testing.T) {
-			r, e, now := dreamFixture(t)
-			completeDream(t, r, e, now)
-			e.renewErr = errors.New("native creation outcome unknown")
-			if known {
+func TestLegacyUnknownReceiptKeepsIdleBoundConversationUsable(t *testing.T) {
+	r, _, _ := fixture(t)
+	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	if err := r.ConfigureDream(v, ""); err != nil {
+		t.Fatal(err)
+	}
+	e := &legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, outcome: "unknown", state: api.ConversationState{Session: "old", Turn: "user-turn", Status: "completed", Observed: true, Idle: true}}
+	r.engine = e
+	r.dream.state.Attempt = &dreamAttempt{ID: "old-unknown-call", Session: "old", Outcome: "unknown"}
+	if err := r.dream.save(); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "new-user", Text: "Continue work"}, nil)
+	if err != nil || receipt.Outcome != "accepted" || len(e.submissions) != 1 || e.cancels != 0 || e.renewals != 0 || r.dream.state.Attempt.ID != "old-unknown-call" {
+		t.Fatal("old unknown receipt blocked Bot or was replayed", receipt, err, e.submissions, e.cancels, e.renewals)
+	}
+}
+
+func TestUnreadableRetiredDreamAndPrivateHandoffDoNotDisableBot(t *testing.T) {
+	r, _, _ := fixture(t)
+	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	legacyPath := filepath.Join(filepath.Dir(r.path), "dream-"+r.provider+".json")
+	handoffPath := filepath.Join(filepath.Dir(r.path), "handoff-"+r.provider+".json")
+	for _, path := range []string{legacyPath, handoffPath} {
+		if err := os.WriteFile(path, []byte("original unreadable bytes"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.ConfigureDream(v, ""); err != nil {
+		t.Fatal("unreadable retired record stopped Bot", err)
+	}
+	e := &fakeEngine{outcome: "accepted"}
+	r.engine = e
+	if receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "still-usable", Text: "Continue"}, nil); err != nil || receipt.Outcome != "accepted" || len(e.submissions) != 1 {
+		t.Fatal("conversation disabled", receipt, err)
+	}
+	if out := r.CallTool(t.Context(), "bot_schedule", []byte(`{"request":{"type":"context"}}`)); out.IsError {
+		t.Fatal("healthy Bot tool disabled", out)
+	}
+	for _, path := range []string{legacyPath, handoffPath} {
+		if raw, err := os.ReadFile(path); err != nil || string(raw) != "original unreadable bytes" {
+			t.Fatal("original unreadable receipt overwritten", path, err)
+		}
+	}
+}
+
+func TestLegacyCompletedHandoffMigratesPrivatelyWithoutDeletingNotebook(t *testing.T) {
+	r, _, _ := fixture(t)
+	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	if err := r.ConfigureDream(v, ""); err != nil {
+		t.Fatal(err)
+	}
+	path, err := v.PrepareDream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := notebook.DreamMarker("old-call") + "\nIdentity, pending task handle, original uncertain receipt."
+	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	e := &legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, outcome: "accepted", state: api.ConversationState{Session: "old", Turn: "dream-turn", Status: "completed", Observed: true, Idle: true}}
+	r.engine = e
+	r.dream.state.Attempt = &dreamAttempt{ID: "old-call", Session: "old", Turn: "dream-turn", Outcome: "accepted", Done: true, Ready: true}
+	if err := r.dream.save(); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "user-next", Text: "continue"}, nil)
+	if err != nil || receipt.Outcome != "accepted" || e.renewals != 1 || len(e.submissions) != 1 {
+		t.Fatal(receipt, err, e.renewals, e.submissions)
+	}
+	seed := r.PrepareHandoffContext()
+	if !strings.Contains(seed.Text, "original uncertain receipt") || seed.HandoffDigest == "" {
+		t.Fatal("private handoff missing", seed)
+	}
+	if b, err := os.ReadFile(path); err != nil || string(b) != legacy {
+		t.Fatal("user Notebook handoff changed", err)
+	}
+}
+
+func TestLegacyHandoffFailureContinuesOldSession(t *testing.T) {
+	for _, failure := range []string{"missing-file", "private-write", "known-renewal-rejection"} {
+		t.Run(failure, func(t *testing.T) {
+			r, _, _ := fixture(t)
+			v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer v.Close()
+			if err := r.ConfigureDream(v, ""); err != nil {
+				t.Fatal(err)
+			}
+			if failure != "missing-file" {
+				path, err := v.PrepareDream()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(notebook.DreamMarker("old-call")+"\nOriginal receipt remains."), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if failure == "private-write" {
+				r.handoff.path = t.TempDir()
+			}
+			e := &legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, outcome: "accepted", state: api.ConversationState{Session: "old", Turn: "dream-turn", Status: "completed", Observed: true, Idle: true}}
+			if failure == "known-renewal-rejection" {
 				e.renewErr = api.ErrConversationRenewalRejected
 			}
-			for i := range 2 {
-				receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: []string{"user-one", "user-two"}[i], Text: "new topic"}, nil)
-				if err != nil || (receipt.Outcome == "accepted") != known || e.conversation.Session != "old" {
-					t.Fatalf("receipt=%+v err=%v session=%s", receipt, err, e.conversation.Session)
-				}
-				r = restartDreamRuntime(t, r, e)
-				if r.dream.state.Attempt.Ready == known {
-					t.Fatal("incorrect durable renewal state")
-				}
+			r.engine = e
+			r.dream.state.Attempt = &dreamAttempt{ID: "old-call", Session: "old", Turn: "dream-turn", Outcome: "accepted", Done: true, Ready: true}
+			receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "user-next", Text: "continue"}, nil)
+			if err != nil || receipt.Outcome != "accepted" || len(e.submissions) != 1 || e.state.Session != "old" {
+				t.Fatal(receipt, err, e.submissions, e.state)
 			}
-			if known && (e.renewals != 1 || len(e.submissions) != 2) || !known && (e.renewals != 2 || len(e.submissions) != 0) {
-				t.Fatal("incorrect retry or user dispatch", e.renewals, len(e.submissions))
-			}
-			if _, err := os.Stat(filepath.Join(r.dream.vault.Path(), notebook.HandoffName)); err != nil {
-				t.Fatal("renewal consumed handoff", err)
-			}
-		})
-	}
-}
-
-func TestDreamRestartWaitsForNativeConversationRestore(t *testing.T) {
-	r, e, now := dreamFixture(t)
-	completeDream(t, r, e, now)
-	completed := e.conversation
-	e.conversation = api.ConversationState{Session: completed.Session}
-	r = restartDreamRuntime(t, r, e)
-	*now = now.Add(24 * time.Hour)
-	for range 3 {
-		if err := r.Tick(t.Context()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	r = restartDreamRuntime(t, r, e)
-	if !r.dream.state.Attempt.Ready || r.dream.state.Activity != conversationActivity(completed) {
-		t.Fatal("transient restore state invalidated persisted handoff")
-	}
-	if receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "user-during-restore", Text: "new topic"}, nil); err != nil || receipt.Outcome != "rejected" || e.renewals != 0 || len(e.submissions) != 0 || !r.dream.state.Attempt.Ready {
-		t.Fatal("input during restore changed the pending handoff", receipt, err)
-	}
-	e.conversation = completed
-	for _, id := range []string{"user-after-restart", "second-user"} {
-		receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: id, Text: "new topic"}, nil)
-		if err != nil || receipt.Outcome != "accepted" {
-			t.Fatal(receipt, err)
-		}
-	}
-	if e.renewals != 1 || len(e.submissions) != 2 || len(e.dreams) != 1 {
-		t.Fatal("missing or repeated renewal", e.renewals, len(e.submissions), len(e.dreams))
-	}
-}
-
-func TestUpgradeHandoffWaitsForRestoreAndPostTurnIdle(t *testing.T) {
-	r, e, now := dreamFixture(t)
-	r.ConfigureDreamEnvironment(func() DreamEnvironment { return DreamEnvironment{Available: true} })
-	e.conversation.RuntimeVersion, e.conversation.DesiredRuntimeVersion = "old-version", "new-version"
-	e.conversation.Observed = false
-	_ = r.Tick(t.Context())
-	e.conversation.Observed, e.conversation.Idle = true, false
-	_ = r.Tick(t.Context())
-	if len(e.dreams) != 0 {
-		t.Fatal("upgrade interrupted recovery or active work")
-	}
-	e.conversation.Idle = true
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if len(e.dreams) != 0 {
-		t.Fatal("upgrade interrupted the post-turn idle window")
-	}
-	dreamSeconds(t, r, now, 119)
-	if len(e.dreams) != 0 {
-		t.Fatal("upgrade started before continuous idle completed")
-	}
-	dreamSeconds(t, r, now, 1)
-	if len(e.dreams) != 1 {
-		t.Fatal("upgrade did not start after idle")
-	}
-	id := e.dreams[0].ID
-	if err := os.WriteFile(filepath.Join(r.dream.vault.Path(), notebook.HandoffName), []byte(notebook.DreamMarker(id)+"\nRetain the existing assignment."), 0600); err != nil {
-		t.Fatal(err)
-	}
-	e.conversation.Status, e.conversation.Idle = "completed", true
-	r = restartDreamRuntime(t, r, e)
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if e.renewals != 1 || e.conversation.RuntimeVersion != "new-version" {
-		t.Fatal("upgrade did not install new context")
-	}
-	r = restartDreamRuntime(t, r, e)
-	for range 3 {
-		if err := r.Tick(t.Context()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if len(e.dreams) != 1 || e.renewals != 1 {
-		t.Fatal("same-version restart repeated handoff")
-	}
-	if _, err := os.Stat(filepath.Join(r.dream.vault.Path(), notebook.HandoffName)); err != nil {
-		t.Fatal("handoff consumed before new input", err)
-	}
-}
-
-func TestUpgradeReusesReadyHandoffAndReconcilesUnknownRenewal(t *testing.T) {
-	r, e, now := dreamFixture(t)
-	completeDream(t, r, e, now)
-	e.conversation.DesiredRuntimeVersion = "new-version"
-	e.renewErr = errors.New("unknown create")
-	if err := r.Tick(t.Context()); err == nil {
-		t.Fatal("unknown renewal hidden")
-	}
-	r = restartDreamRuntime(t, r, e)
-	e.renewErr = nil
-	if err := r.Tick(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if len(e.dreams) != 1 || e.renewals != 2 || r.dream.state.Attempt.Ready {
-		t.Fatal("handoff was regenerated or not recovered")
-	}
-}
-
-func TestUpgradeFailureDoesNotCreateMaintenanceLoop(t *testing.T) {
-	for _, outcome := range []string{"unknown", "rejected", "accepted"} {
-		t.Run(outcome, func(t *testing.T) {
-			r, e, now := dreamFixture(t)
-			r.ConfigureDreamEnvironment(func() DreamEnvironment { return DreamEnvironment{Available: true} })
-			e.conversation.DesiredRuntimeVersion, e.outcome = "new-version", outcome
-			dreamSeconds(t, r, now, 121)
-			if outcome == "accepted" {
-				e.conversation.Status, e.conversation.Idle = "failed", true
-			}
-			*now = now.Add(time.Hour)
-			for range 3 {
-				_ = r.Tick(t.Context())
-				r = restartDreamRuntime(t, r, e)
-			}
-			if len(e.dreams) != 1 || e.renewals != 0 {
-				t.Fatal("failed/unknown upgrade retried a model turn")
+			if failure != "known-renewal-rejection" && e.renewals != 0 {
+				t.Fatal("created a session despite failed preparation")
 			}
 		})
 	}

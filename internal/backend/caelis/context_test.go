@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,17 +13,10 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
-	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
 func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
-	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer v.Close()
-	handoff := filepath.Join(v.Path(), notebook.HandoffName)
-	os.WriteFile(handoff, []byte("handoff fixture"), 0600)
+	var consumed atomic.Bool
 	var posts atomic.Int32
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
@@ -37,13 +31,15 @@ func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
 		}
 		writeFixture(w, wire.ApplicationOperation{OperationId: "first-user", Outcome: "accepted", Result: &wire.CommandResult{OperationId: "first-user", Outcome: "accepted", Target: &wire.CommandTarget{TurnId: pointer("turn")}}})
 	})
-	s.tools = &api.ToolConnection{PrepareContext: v.PrepareContext, ConsumeContext: v.ConsumeContext}
+	s.tools = &api.ToolConnection{PrepareContext: func(context.Context) (api.ContextSeed, error) {
+		return api.ContextSeed{Text: "[private handoff] handoff fixture\n", HandoffDigest: "original-digest"}, nil
+	}, ConsumeContext: func(api.ContextSeed) error { consumed.Store(true); return nil }}
 	in := api.Submission{ID: "first-user", Text: "new topic"}
 	r, err := s.Submit(t.Context(), in, nil)
 	if err != nil || r.Outcome != "unknown" {
 		t.Fatal(r, err)
 	}
-	if _, err = os.Stat(handoff); err != nil {
+	if consumed.Load() {
 		t.Fatal("consumed uncertain handoff")
 	}
 	restored := New(Options{Directory: filepath.Dir(s.path)})
@@ -51,7 +47,7 @@ func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
 	if err = restored.recoverOperations(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = os.Stat(handoff); !os.IsNotExist(err) {
+	if !consumed.Load() {
 		t.Fatal("accepted handoff not consumed", err)
 	}
 	r, err = restored.Submit(t.Context(), in, nil)
@@ -66,64 +62,86 @@ func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
 }
 
 func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
-	var creates, grants atomic.Int32
-	var created wire.ApplicationProfile
-	const version = "caelis-bot-application-v1/new-version"
-	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
-		case "/application/sessions/main/configuration":
-			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{Model: "retained-model", Execution: "workspace-write", Permissions: &wire.ApplicationPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}, McpServers: []wire.ApplicationMCPServer{{Name: "notes", Transport: "stdio", Command: pointer("/fixture/mcp")}}}})
-		case "/application/sessions":
-			creates.Add(1)
-			var in wire.CreateApplicationSessionRequest
-			json.NewDecoder(r.Body).Decode(&in)
-			if in.Profile.Version != version || in.Profile.ExecutionConfig == nil || !value(in.Profile.ExecutionConfig.Environment.Inherit) || in.Profile.Model != "retained-model" || in.Profile.Reviewer == nil || in.Profile.Reviewer.Model != "retained-model" || value(in.Profile.Permissions.Mode) != "read-only" || value(in.Profile.Permissions.ApprovalMode) != "auto-review" || len(in.Profile.McpServers) != 1 || in.Profile.McpServers[0].Name != "notes" {
-				t.Error("handoff lost model, sandbox or Guardian assembly")
-			}
-			created = in.Profile
-			writeFixture(w, wire.CommandResult{OperationId: value(in.OperationId), Outcome: "committed", SessionId: pointer("next")})
-		case "/application/sessions/next":
-			writeFixture(w, wire.ApplicationBinding{SessionId: "next", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Profile: created})
-		case "/application/sessions/next/reviewer-state":
-			writeFixture(w, wire.ApplicationReviewerState{SessionId: "next", ApprovalMode: "auto-review", Reviewer: created.Reviewer, Status: "ready"})
-		case "/sessions/next/state":
-			writeFixture(w, wire.SessionState{SessionId: "next"})
-		case "/application/sessions/next/background-grants":
-			grants.Add(1)
-			var in wire.ApplicationBackgroundGrantRequest
-			json.NewDecoder(r.Body).Decode(&in)
-			if in.AuthorizationOperationId != "original-user" || in.Source != "schedule-source" {
-				t.Error("new authority invented")
-			}
-			writeFixture(w, wire.ApplicationBackgroundGrant{Id: "new-grant", SessionId: "next", Source: in.Source, AuthorizationOperationId: in.AuthorizationOperationId})
-		default:
-			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
-			http.NotFound(w, r)
+	for _, toolCall := range []bool{false, true} {
+		name := "legacy"
+		if toolCall {
+			name = "terminal-tool"
 		}
-	})
-	s.profile.Version = version
-	s.profile.ExecutionConfig = &wire.ExecutionConfig{Environment: &wire.EnvironmentConfig{Inherit: pointer(true)}}
-	s.tools = &api.ToolConnection{RuntimeVersion: "new-version"}
-	s.state.Operations["dream"] = journal{Path: "/application/sessions/main/prompt", Dream: true, Scheduled: true, Outcome: "accepted", TurnID: "turn"}
-	v := s.state.Views["main"]
-	v.CommandCaughtUp = true
-	v.State.Run.Status = pointer("completed")
-	v.State.Run.TurnId = pointer("turn")
-	v.Turns = map[string]string{"turn": "completed"}
-	v.Items = []api.Item{{ID: "old", Kind: "user", TurnKey: "user-turn", Text: "old topic"}, {ID: "recap", Kind: "assistant", TurnKey: "turn", Text: "All done."}}
-	s.state.Grants["reminder"] = grantRecord{Fingerprint: "same", Grant: wire.ApplicationBackgroundGrant{Id: "old-grant", SessionId: "main", Source: "schedule-source", AuthorizationOperationId: "original-user"}}
-	beforeGeneration := s.BotPluginGeneration()
-	if err := s.RenewConversation(t.Context(), "dream", "main"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RenewConversation(t.Context(), "dream", "main"); err != nil {
-		t.Fatal(err)
-	}
-	if s.BotPluginGeneration() == beforeGeneration {
-		t.Fatal("fresh application session retained the old MCP directory generation")
-	}
-	if s.ConversationState().RuntimeVersion != "new-version" || creates.Load() != 1 || grants.Load() != 1 || s.state.Grants["reminder"].Grant.Id != "new-grant" || len(s.Snapshot().Items) != 2 || len(s.state.Views["next"].Items) != 0 {
-		t.Fatal("lost continuity")
+		t.Run(name, func(t *testing.T) {
+			var creates, grants atomic.Int32
+			var created wire.ApplicationProfile
+			const version = "caelis-bot-application-v1/new-version"
+			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+				switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
+				case "/application/sessions/main/configuration":
+					writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{Model: "retained-model", Execution: "workspace-write", Permissions: &wire.ApplicationPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}, McpServers: []wire.ApplicationMCPServer{{Name: "notes", Transport: "stdio", Command: pointer("/fixture/mcp")}}}})
+				case "/application/sessions":
+					creates.Add(1)
+					var in wire.CreateApplicationSessionRequest
+					json.NewDecoder(r.Body).Decode(&in)
+					if in.Profile.Version != version || in.Profile.ExecutionConfig == nil || !value(in.Profile.ExecutionConfig.Environment.Inherit) || in.Profile.Model != "retained-model" || in.Profile.Reviewer == nil || in.Profile.Reviewer.Model != "retained-model" || value(in.Profile.Permissions.Mode) != "read-only" || value(in.Profile.Permissions.ApprovalMode) != "auto-review" || len(in.Profile.McpServers) != 1 || in.Profile.McpServers[0].Name != "notes" {
+						t.Error("handoff lost model, sandbox or Guardian assembly")
+					}
+					created = in.Profile
+					writeFixture(w, wire.CommandResult{OperationId: value(in.OperationId), Outcome: "committed", SessionId: pointer("next")})
+				case "/application/sessions/next":
+					writeFixture(w, wire.ApplicationBinding{SessionId: "next", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Profile: created})
+				case "/application/sessions/next/reviewer-state":
+					writeFixture(w, wire.ApplicationReviewerState{SessionId: "next", ApprovalMode: "auto-review", Reviewer: created.Reviewer, Status: "ready"})
+				case "/sessions/next/state":
+					writeFixture(w, wire.SessionState{SessionId: "next"})
+				case "/application/sessions/next/background-grants":
+					grants.Add(1)
+					var in wire.ApplicationBackgroundGrantRequest
+					json.NewDecoder(r.Body).Decode(&in)
+					if in.AuthorizationOperationId != "original-user" || in.Source != "schedule-source" {
+						t.Error("new authority invented")
+					}
+					writeFixture(w, wire.ApplicationBackgroundGrant{Id: "new-grant", SessionId: "next", Source: in.Source, AuthorizationOperationId: in.AuthorizationOperationId})
+				default:
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+					http.NotFound(w, r)
+				}
+			})
+			s.profile.Version = version
+			s.profile.ExecutionConfig = &wire.ExecutionConfig{Environment: &wire.EnvironmentConfig{Inherit: pointer(true)}}
+			s.tools = &api.ToolConnection{RuntimeVersion: "new-version"}
+			if toolCall {
+				s.state.Calls["original-tool-call"] = callRecord{Call: wire.ApplicationCall{Id: "original-tool-call", SessionId: "main", TurnId: "turn"}, Receipt: &wire.ApplicationCallResult{Outcome: "succeeded", TurnComplete: pointer(true)}}
+			} else {
+				s.state.Operations["dream"] = journal{Path: "/application/sessions/main/prompt", Dream: true, Scheduled: true, Outcome: "accepted", TurnID: "turn"}
+			}
+			v := s.state.Views["main"]
+			v.CommandCaughtUp = true
+			v.State.Run.Status = pointer("completed")
+			v.State.Run.TurnId = pointer("turn")
+			v.Turns = map[string]string{"turn": "completed"}
+			v.Items = []api.Item{{ID: "old", Kind: "user", TurnKey: "user-turn", Text: "old topic"}, {ID: "recap", Kind: "assistant", TurnKey: "turn", Text: "All done."}}
+			s.state.Grants["reminder"] = grantRecord{Fingerprint: "same", Grant: wire.ApplicationBackgroundGrant{Id: "old-grant", SessionId: "main", Source: "schedule-source", AuthorizationOperationId: "original-user"}}
+			beforeGeneration := s.BotPluginGeneration()
+			if toolCall {
+				invocation := api.ToolInvocation{Provider: "caelis", CallID: "original-tool-call", Session: "main", Turn: "turn"}
+				if session, err := s.RenewAfterTool(t.Context(), invocation); err != nil || session != "next" {
+					t.Fatal(session, err)
+				}
+				if session, err := s.RenewAfterTool(t.Context(), invocation); err != nil || session != "next" {
+					t.Fatal("duplicate terminal callback renewed twice", session, err)
+				}
+			} else {
+				if err := s.RenewConversation(t.Context(), "dream", "main"); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.RenewConversation(t.Context(), "dream", "main"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if s.BotPluginGeneration() == beforeGeneration {
+				t.Fatal("fresh application session retained the old MCP directory generation")
+			}
+			if s.ConversationState().RuntimeVersion != "new-version" || creates.Load() != 1 || grants.Load() != 1 || s.state.Grants["reminder"].Grant.Id != "new-grant" || len(s.Snapshot().Items) != 2 || len(s.state.Views["next"].Items) != 0 {
+				t.Fatal("lost continuity")
+			}
+		})
 	}
 }
 

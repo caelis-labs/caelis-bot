@@ -387,5 +387,9 @@ func serviceToolConfig(c *api.ToolConnection, service api.ToolService) map[strin
 			copy.ApprovedTools = append(copy.ApprovedTools, name)
 		}
 	}
-	return toolConfig(copy)
+	config := toolConfig(copy)
+	if service.Name == "caelis_context" {
+		config["tool_timeout_sec"] = 45
+	}
+	return config
 }

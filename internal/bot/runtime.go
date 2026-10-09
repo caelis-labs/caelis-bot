@@ -62,6 +62,7 @@ type Runtime struct {
 	desktopControl   api.ApplicationTools // owned by native host, never by workers
 	desktopLifecycle sync.Mutex           // serializes turn activation and independent revocation
 	dream            *dreamController     // guarded by step
+	handoff          *handoffStore        // application-private context seed
 	care             *care.Engine
 	careLoadErr      error
 	careSample       func() care.Sample
@@ -69,7 +70,9 @@ type Runtime struct {
 	stopped          bool
 	mu               sync.Mutex
 	step             sync.Mutex
-	paused           bool // guarded by step; fences update shutdown against wakeups
+	toolAdmission    sync.Mutex // serializes resident Bot tool entry through a context handoff
+	handoffRenewal   sync.Mutex // one native renewal attempt per original call
+	paused           bool       // guarded by step; fences update shutdown against wakeups
 	path             string
 	state            State
 	now              func() time.Time
@@ -324,8 +327,7 @@ func (r *Runtime) ResumeAfterUpdate() {
 	r.step.Unlock()
 }
 
-// Tick uses wall time after wake. It dispatches authorized schedules and at most
-// one Dream after new conversation activity, never an endless idle model loop.
+// Tick uses wall time after wake to dispatch authorized schedules and reports.
 func (r *Runtime) Tick(ctx context.Context) (err error) {
 	r.step.Lock()
 	defer r.step.Unlock()
@@ -334,6 +336,16 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 	}
 	if r.engine == nil {
 		return nil
+	}
+	if r.handoff != nil {
+		pending := r.handoff.pending()
+		if pending.CallID != "" && pending.Turn != "" && pending.NewSession == "" {
+			// Feedback and scheduled input keep their original receipts while
+			// the terminal Turn is reconciled and its new context is prepared.
+			if err := r.renewToolHandoff(ctx); err != nil {
+				return nil
+			}
+		}
 	}
 	if r.initialization != nil {
 		if err := r.initialization.Deliver(ctx, r.engine, r.provider); err != nil {
@@ -348,11 +360,6 @@ func (r *Runtime) Tick(ctx context.Context) (err error) {
 			return err
 		}
 	}
-	defer func() {
-		if err == nil {
-			err = r.tickDream(ctx, true)
-		}
-	}()
 	// This protocol has no background authority. Keep schedules untouched and
 	// never disguise a timer as a user message.
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok && !p.ApplicationCapabilities().ScheduledActivation {

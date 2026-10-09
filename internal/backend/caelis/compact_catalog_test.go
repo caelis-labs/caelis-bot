@@ -30,7 +30,7 @@ func TestCompactCatalogRestoresOriginalLegacyBinding(t *testing.T) {
 	if e = restored.ConfigureBotTools(&api.ToolConnection{Host: r, ApprovedTools: append(botpolicy.ApprovedTools(), desktopcontrol.ApprovedTools()...)}); e != nil {
 		t.Fatal(e)
 	}
-	if len(restored.profile.Tools) != 10 || restored.profile.ToolsVersion == version {
+	if len(restored.profile.Tools) != 11 || restored.profile.ToolsVersion == version {
 		t.Fatal("new model catalog not replaced")
 	}
 	for _, d := range restored.profile.Tools {

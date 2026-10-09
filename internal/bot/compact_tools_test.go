@@ -187,8 +187,8 @@ func TestCompactDesktopLifecycleSchemaAndCatalog(t *testing.T) {
 	r.ConfigureDesktopControl(d)
 	r.BeginDesktopTurn()
 	defs := r.Definitions()
-	if len(defs) != 10 {
-		t.Fatal("expected 10", len(defs))
+	if len(defs) != 11 {
+		t.Fatal("expected 11", len(defs))
 	}
 	if slices.Contains(desktopcontrol.ApprovedTools(), "bot_desktop_authorize") {
 		t.Fatal("grant autoapproved")
