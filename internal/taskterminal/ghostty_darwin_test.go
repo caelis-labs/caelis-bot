@@ -23,7 +23,6 @@ func TestGhosttyOpenDoesNotRetryDeniedOrUnknownCreation(t *testing.T) {
 		{"unsupported", -1, ErrWindowUnsupported},
 		{"denied", -2, ErrWindowPermission},
 		{"unknown", -3, nil},
-		{"focusFailed", -4, ErrWindowActivation},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			polls := 0
@@ -121,7 +120,7 @@ func TestGhosttyCancellationBeforePIDRetainsOwnerAndReusesLateInstance(t *testin
 }
 
 func TestGhosttyOnlyPreLaunchCapabilityRejectionDiscardsOwner(t *testing.T) {
-	for _, status := range []int{-1, -2, -3, -4, 1} {
+	for _, status := range []int{-1, -2, -3, 1} {
 		w := newDocumentFixture()
 		owner, err := finishGhosttyOpen(t.Context(), w, func() (int, int, int64) { return status, 123, 0 })
 		if status == -1 {

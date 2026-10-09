@@ -9,6 +9,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -22,7 +24,9 @@ import (
 func RunTerminalSmoke(terminals []string) error {
 	confirmClose := len(terminals) > 0 && terminals[0] == "--confirm-close"
 	confirmOpen := len(terminals) > 0 && terminals[0] == "--confirm-open"
-	if confirmClose || confirmOpen {
+	delayedRead := len(terminals) > 0 && (terminals[0] == "--delayed-read" || terminals[0] == "--cancel-before-read")
+	cancelBeforeRead := len(terminals) > 0 && terminals[0] == "--cancel-before-read"
+	if confirmClose || confirmOpen || delayedRead {
 		terminals = terminals[1:]
 	}
 	if len(terminals) == 0 {
@@ -37,7 +41,7 @@ func RunTerminalSmoke(terminals []string) error {
 	app := application.New(application.Options{Name: "Caelis Bot terminal acceptance", Mac: application.MacOptions{ActivationPolicy: application.ActivationPolicyAccessory}})
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		go func() {
-			result := smokeTerminalInstances(terminals, confirmClose, confirmOpen)
+			result := smokeTerminalInstances(terminals, confirmClose, confirmOpen, delayedRead, cancelBeforeRead)
 			if result != nil {
 				log.Printf("TERMINAL E2E FAIL: %v", result)
 			} else {
@@ -52,7 +56,7 @@ func RunTerminalSmoke(terminals []string) error {
 	}
 	return <-results
 }
-func smokeTerminalInstances(terminals []string, confirmClose, confirmOpen bool) error {
+func smokeTerminalInstances(terminals []string, confirmClose, confirmOpen, delayedRead, cancelBeforeRead bool) error {
 	dir, err := os.MkdirTemp("", "caelis-terminal-e2e-")
 	if err != nil {
 		return err
@@ -63,11 +67,177 @@ func smokeTerminalInstances(terminals []string, confirmClose, confirmOpen bool) 
 		if !terminalInstalled(taskterminal.BundleID(terminal)) {
 			return fmt.Errorf("%s is not installed", terminal)
 		}
-		if err := smokeTerminalInstance(dir, terminal, confirmClose, confirmOpen); err != nil {
+		var err error
+		if delayedRead {
+			if terminal != "ghostty" {
+				return fmt.Errorf("delayed read acceptance requires Ghostty")
+			}
+			err = smokeGhosttyDelayedRead(dir, cancelBeforeRead)
+		} else {
+			err = smokeTerminalInstance(dir, terminal, confirmClose, confirmOpen)
+		}
+		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", terminal, err))
 		}
 	}
 	return errors.Join(failures...)
+}
+
+func smokeShellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func smokeWaitFile(ctx context.Context, path string) error {
+	ticker := time.NewTicker(40 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// A separate shell reaches Ghostty first, then waits outside the guarded task
+// command. This checks the real native submission against a controlled late
+// first read without any Worker, account, or model request.
+func smokeGhosttyDelayedRead(dir string, cancelBeforeRead bool) error {
+	ctx, done := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer done()
+	root := filepath.Join(dir, "ghostty-delayed")
+	if err := os.Mkdir(root, 0700); err != nil {
+		return err
+	}
+	start := filepath.Join(root, "wrapper-started")
+	release := filepath.Join(root, "allow-read")
+	result := filepath.Join(root, "shell-result")
+	complete := filepath.Join(root, "shell-complete")
+	attached := filepath.Join(root, "client-attached")
+	stop := filepath.Join(root, "client-stop")
+	client := filepath.Join(root, "client")
+	clientScript := "#!/bin/sh\nprintf attached > " + smokeShellQuote(attached) + "\nwhile [ ! -e " + smokeShellQuote(stop) + " ]; do /bin/sleep 0.05; done\n"
+	if err := os.WriteFile(client, []byte(clientScript), 0700); err != nil {
+		return err
+	}
+	type nativeReply struct {
+		path string
+		err  error
+	}
+	native := make(chan nativeReply, 1)
+	var windowMu sync.Mutex
+	var window *smokeOwnedWindow
+	manager := taskterminal.NewWindowManager(filepath.Join(root, "Terminal"), func(ctx context.Context, path string) (taskterminal.Window, error) {
+		wrapper := filepath.Join(root, "deferred.command")
+		command := "#!/bin/sh\nprintf started > " + smokeShellQuote(start) + "\nwhile [ ! -e " + smokeShellQuote(release) + " ]; do /bin/sleep 0.05; done\n/bin/sh " + smokeShellQuote(path) + " > " + smokeShellQuote(result) + " 2>&1\ncode=$?\ncat " + smokeShellQuote(result) + "\nprintf done > " + smokeShellQuote(complete) + "\nexit $code\n"
+		if err := os.WriteFile(wrapper, []byte(command), 0700); err != nil {
+			native <- nativeReply{path, err}
+			return nil, taskterminal.NotLaunched(err)
+		}
+		w, err := taskterminal.OpenWindow(ctx, "ghostty", wrapper)
+		if cw, ok := w.(taskterminal.ControlledWindow); ok {
+			windowMu.Lock()
+			window = &smokeOwnedWindow{ControlledWindow: cw}
+			w = window
+			windowMu.Unlock()
+		}
+		native <- nativeReply{path, err}
+		return w, err
+	}, func(context.Context, string) (api.TerminalTarget, error) {
+		return api.TerminalTarget{Runtime: "setup", Binary: client, Directory: root}, nil
+	}, nil, nil)
+	defer func() {
+		_ = os.WriteFile(release, nil, 0600)
+		_ = os.WriteFile(stop, nil, 0600)
+		time.Sleep(350 * time.Millisecond)
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := manager.Dismiss(cleanup, "fixture"); err != nil {
+			log.Printf("TERMINAL E2E ghostty delayed cleanup: %v", err)
+		}
+		manager.Close()
+		windowMu.Lock()
+		owned := window
+		windowMu.Unlock()
+		if owned != nil {
+			if err := owned.Dismiss(cleanup); err != nil {
+				log.Printf("TERMINAL E2E ghostty delayed retained cleanup: %v", err)
+			}
+			owned.ControlledWindow.Release()
+		}
+	}()
+	clickCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	clicked := make(chan error, 1)
+	go func() { clicked <- manager.Click(clickCtx, "fixture") }()
+	if err := smokeWaitFile(ctx, start); err != nil {
+		return fmt.Errorf("Ghostty did not start the delayed shell: %w", err)
+	}
+	var reply nativeReply
+	select {
+	case reply = <-native:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if reply.err != nil {
+		return fmt.Errorf("native window reply: %w", reply.err)
+	}
+	pending := filepath.Join(filepath.Dir(reply.path), "pending")
+	if _, err := os.Stat(pending); err != nil {
+		return fmt.Errorf("submitted command lost pending receipt before shell read: %w", err)
+	}
+	if cancelBeforeRead {
+		cancel()
+		select {
+		case err := <-clicked:
+			if !errors.Is(err, context.Canceled) {
+				return fmt.Errorf("cancelled opening: %v", err)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if _, err := os.Stat(reply.path); err != nil {
+			return fmt.Errorf("revoked command path disappeared: %w", err)
+		}
+		if _, err := os.Stat(pending); !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("cancelled opening retained attach authority: %v", err)
+		}
+	}
+	if err := os.WriteFile(release, nil, 0600); err != nil {
+		return err
+	}
+	if cancelBeforeRead {
+		if err := smokeWaitFile(ctx, complete); err != nil {
+			return err
+		}
+		output, err := os.ReadFile(result)
+		if err != nil || !strings.Contains(string(output), "This terminal request has expired.") {
+			return fmt.Errorf("late shell did not reject revoked command: %v", err)
+		}
+		if _, err := os.Stat(attached); !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("cancelled command attached a client: %v", err)
+		}
+		log.Print("TERMINAL E2E ghostty delayed first read after cancel passed")
+		return nil
+	}
+	select {
+	case err := <-clicked:
+		if err != nil {
+			return fmt.Errorf("delayed opening: %w", err)
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := smokeWaitFile(ctx, attached); err != nil {
+		return fmt.Errorf("delayed command did not attach: %w", err)
+	}
+	log.Print("TERMINAL E2E ghostty delayed first read accepted once")
+	return nil
 }
 func smokeTerminalInstance(dir, terminal string, confirmClose, confirmOpen bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

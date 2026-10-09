@@ -72,8 +72,6 @@ func waitGhosttyOpen(ctx context.Context, poll func() (status, pid int, code int
 			return pid, ErrWindowPermission
 		case -3:
 			return pid, fmt.Errorf("Ghostty automation failed (%d)", code)
-		case -4:
-			return pid, ErrWindowActivation
 		}
 		select {
 		case <-ctx.Done():

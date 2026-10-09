@@ -12,6 +12,7 @@ static NSDictionary *received;
 @property(getter=isHidden) BOOL hidden;
 @property(getter=isTerminated) BOOL terminated;
 @property NSUInteger activations;
+@property BOOL activationAccepted;
 @property NSUInteger unhides;
 @property NSUInteger hides;
 - (BOOL)hide;
@@ -24,7 +25,7 @@ static NSDictionary *received;
 - (BOOL)activateWithOptions:(NSApplicationActivationOptions)options {
     assert(!self.hidden && !self.terminated);
     assert(options==NSApplicationActivateIgnoringOtherApps);
-    self.activations++;return YES;
+    self.activations++;return self.activationAccepted;
 }
 @end
 @implementation FixtureNewWindow
@@ -65,11 +66,20 @@ int main(void) {
         assert(!launch.activates && !launch.addsToRecentItems);
         assert(([launch.arguments isEqual:@[@"--initial-window=false", @"--window-save-state=never", @"--quit-after-last-window-closed=true"]]));
         FixtureApplication *app=[FixtureApplication new];
+        app.activationAccepted=YES;
         assert(task_ghostty_show((NSRunningApplication *)app));
         assert(app.activations==1 && app.unhides==0);
         app.terminated=YES;
         assert(!task_ghostty_show((NSRunningApplication *)app));
         assert(app.activations==1);
+        app.terminated=NO;
+        app.activationAccepted=NO;
+        BotGhosttyLaunch *accepted=[BotGhosttyLaunch new];
+        task_ghostty_record_reply(accepted,(NSRunningApplication *)app,[NSAppleEventDescriptor nullDescriptor],0);
+        assert(accepted.status==1 && accepted.error==0 && app.activations==2);
+        BotGhosttyLaunch *denied=[BotGhosttyLaunch new];
+        task_ghostty_record_reply(denied,(NSRunningApplication *)app,[NSAppleEventDescriptor nullDescriptor],errAEEventNotPermitted);
+        assert(denied.status==-2 && app.activations==2);
         NSString *command = @"/bin/sh '/tmp/private ''quoted'' $(not-executed)/Caelis Bot.command'";
         NSAppleEventDescriptor *event = task_ghostty_create_event(getpid(), command);
         assert([event attributeDescriptorForKeyword:keyEventClassAttr].typeCodeValue == 'Ghst');
@@ -94,7 +104,7 @@ int main(void) {
         assert([received isKindOfClass:NSDictionary.class]);
         assert([received[@"command"] isEqual:command]);
         assert([received[@"waitAfterCommand"] isEqual:@NO]);
-        puts("Ghostty native contract: single window route, PID target, Cocoa configuration decode passed (no external events)");
+        puts("Ghostty native contract: accepted window survives deferred activation, PID target, Cocoa configuration decode passed (no external events)");
     }
     return 0;
 }
