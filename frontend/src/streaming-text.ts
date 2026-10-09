@@ -25,12 +25,26 @@ export class TextReveal {
    this.last = now;
    return;
   }
-  this.ends = Array.from(segmenter.segment(text), part => part.index + part.segment.length);
+  // Appends can change the last grapheme (a combining mark, ZWJ sequence or
+  // flag). Re-segment that cluster and the new suffix, keeping earlier ends.
+  // Segmenting the entire growing reply on every snapshot stalls the composer.
+  const stable = this.ends.length > 0 ? this.ends.length - 1 : 0;
+  const start = stable ? this.ends[stable - 1] : 0;
+  this.ends.length = stable;
+  for (const part of segmenter.segment(text.slice(start))) {
+   this.ends.push(start + part.index + part.segment.length);
+  }
   // A delta may complete a previously displayed grapheme (accent, ZWJ,
   // flag). Keep that visible prefix and reveal the rest of its cluster now.
   // Seed the first complete grapheme so a waiting row never hands off to an
   // empty reply bubble. The remaining text keeps its existing paced budget.
-  this.count = this.displayed.length === 0 ? Math.min(1, this.ends.length) : this.ends.findIndex(end => end >= this.displayed.length) + 1;
+  let low = 0, high = this.ends.length;
+  while (low < high) {
+   const mid = (low + high) >>> 1;
+   if (this.ends[mid] < this.displayed.length) low = mid + 1;
+   else high = mid;
+  }
+  this.count = Math.min(this.ends.length, low + 1);
   this.displayed = text.slice(0, this.count ? this.ends[this.count-1] : 0);
   // Keep the fractional character budget across deltas and completion. Starting
   // a new deadline on every snapshot causes bursts, pauses and lost progress.

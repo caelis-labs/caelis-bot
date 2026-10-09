@@ -162,7 +162,14 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
  const {t} = useI18n();
  const draftLoadFailed=useEffectEvent(()=>t('chat.draftLoadFailed'));
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null),composer=useRef<HTMLDivElement>(null);
- const [draft,setDraft]=useState(''),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
+ // WebKit treats inline Writing Suggestions separately from spell checking.
+ // The chat editor does not offer these suggestions; suppress them at the DOM
+ // input itself while leaving native IME composition and selection intact.
+ useLayoutEffect(()=>{input.current?.setAttribute('writingsuggestions','false');},[]);
+ // Let WebKit own the live textarea value and selection. React only needs to
+ // know when the send affordance crosses the empty/nonempty boundary.
+ const draft=useRef(''),hasTextRef=useRef(false);
+ const [hasText,setHasText]=useState(false),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
  const [sendBlocked,setSendBlocked]=useState(false),[cleanupPending,setCleanupPending]=useState(false),[syncReadFailed,setSyncReadFailed]=useState(false),[filesLoaded,setFilesLoaded]=useState(false);
  const [dragging,setDragging]=useState(false),[feedback,setFeedback]=useState<'duplicate'|''>('');
@@ -220,7 +227,7 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
    await writes.current.flush();
    await desktop('FlushOtherDraft',quick?'panel':'history');
    return backend<Draft>('Draft');
-  },d=>{saved.current=d;conflicted.current=false;unsavedAfterAccepted.current=false;setDraft(d.text);setRefs(d.referenceIds??[]);setFiles(old=>visibleDraftFiles(old,d));setError(d.cleanupPending?t('chat.acceptedCleanupPending'):d.rejectedCleanupPending?t('chat.rejectedCleanupPending'):d.pendingSend?t('chat.originalAttachmentPending'):d.notice);setSendBlocked(!!(d.pendingSend||d.rejectedCleanupPending));setCleanupPending(!!(d.cleanupPending||d.rejectedCleanupPending));setLoaded(true);readFiles();if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
+  },d=>{saved.current=d;conflicted.current=false;unsavedAfterAccepted.current=false;setDraftValue(d.text);setRefs(d.referenceIds??[]);setFiles(old=>visibleDraftFiles(old,d));setError(d.cleanupPending?t('chat.acceptedCleanupPending'):d.rejectedCleanupPending?t('chat.rejectedCleanupPending'):d.pendingSend?t('chat.originalAttachmentPending'):d.notice);setSendBlocked(!!(d.pendingSend||d.rejectedCleanupPending));setCleanupPending(!!(d.cleanupPending||d.rejectedCleanupPending));setLoaded(true);readFiles();if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
   const changed=(event:Event)=>{
    const detail=(event as CustomEvent<string|{error:string;added:number}>).detail;
    readFiles();setDragging(false);
@@ -237,9 +244,32 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
   window.addEventListener('panel-focus',focus);window.addEventListener('focus',focus);
   return()=>{window.removeEventListener('panel-focus',focus);window.removeEventListener('focus',focus);};
  },[quick,active,loaded]);
+ const measuredDraft=useRef({text:'',height:0});
+ const sizeEditor=(text:string)=>{
+  // Recent WebKit sizes the field in CSS. Older WebKit still needs a measured
+  // fallback, but a capped field cannot grow when text is only appended.
+  if(CSS.supports('field-sizing','content'))return;
+  const editor=input.current;if(!editor)return;
+  const previous=measuredDraft.current;
+  if(previous.height===127&&text.startsWith(previous.text)){
+   measuredDraft.current={text,height:127};return;
+  }
+  editor.style.height='0px';
+  const height=Math.max(27,Math.min(127,editor.scrollHeight));
+  editor.style.height=`${height}px`;
+  measuredDraft.current={text,height};
+ };
+ const setDraftValue=(text:string,composingNow=false)=>{
+  draft.current=text;
+  if(input.current&&input.current.value!==text)input.current.value=text;
+  sizeEditor(text);
+  if(composingNow)return;
+  const nonempty=!!text.trim();
+  if(hasTextRef.current!==nonempty){hasTextRef.current=nonempty;setHasText(nonempty);}
+ };
  const save=(text:string,referenceIds:string[])=>{
   editGeneration.current++;
-  setDraft(text);setRefs(referenceIds);
+  setDraftValue(text,composing.current);if(refs!==referenceIds)setRefs(referenceIds);
   if(syncReadFailed){unsavedAfterAccepted.current=true;setError(t('chat.sentDraftSyncFailed'));return;}
   if(composing.current)return;
   void writes.current.enqueue(async()=>{
@@ -248,7 +278,6 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
    catch(e){conflicted.current=true;setError(e instanceof Error?e.message:t('chat.draftSaveFailed'));throw e;}
   });
  };
- useLayoutEffect(()=>{const editor=input.current;if(editor){editor.style.height='0px';editor.style.height=`${Math.max(27,Math.min(127,editor.scrollHeight))}px`;}},[draft]);
  const pick=async()=>{setExpanded(false);setBusy(true);setError('');setFeedback('');const ticket=fileOrder.current.request();try{const selected=visibleDraftFiles(await desktop<DraftFile[]>('PickFiles'),saved.current);if(fileOrder.current.accept(ticket)){setFiles(selected);setFilesLoaded(true);}setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
  const paste=async(e:ClipboardEvent<HTMLTextAreaElement>)=>{
   const types=Array.from(e.clipboardData.types);
@@ -262,7 +291,7 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
    const result=await desktop<PasteResult>('PasteAttachments');
    if(generation!==lifetime.current)return;
    if(result.handled){const before=files.length;const visible=visibleDraftFiles(result.files,saved.current);if(fileOrder.current.accept(fileTicket)){setFiles(visible);setFilesLoaded(true);setFeedback(visible.length>before?'':'duplicate');}}
-   else if(text){save(draft.slice(0,start)+text+draft.slice(end),refs);requestAnimationFrame(()=>input.current?.setSelectionRange(start+text.length,start+text.length));}
+   else if(text){save(draft.current.slice(0,start)+text+draft.current.slice(end),refs);requestAnimationFrame(()=>input.current?.setSelectionRange(start+text.length,start+text.length));}
    else setError(t('chat.clipboardNoFiles'));
   }catch(err){if(generation===lifetime.current)setError(err instanceof Error?err.message:t('chat.pasteFailed'));}
   finally{if(generation===lifetime.current){setBusy(false);input.current?.focus();}}
@@ -278,14 +307,14 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
     if(lifetime.current!==attempt.generation||pending.current!==attempt)return;
     if(!acceptedDraftSettled(attempt.request,attempt.draftRevision,next))throw new Error('accepted draft still settling');
     saved.current=next;
-    if(editTicket===editGeneration.current){setDraft(next.text);setRefs(next.referenceIds??[]);}
+    if(editTicket===editGeneration.current){setDraftValue(next.text);setRefs(next.referenceIds??[]);}
     const filesCurrent=fileOrder.current.accept(fileTicket),visible=visibleDraftFiles(nextFiles,next);
     if(filesCurrent){setFiles(visible);setFilesLoaded(true);setFeedback('');}
     setError(next.cleanupPending?t('chat.acceptedCleanupPending'):next.rejectedCleanupPending?t('chat.rejectedCleanupPending'):next.pendingSend?t('chat.originalAttachmentPending'):next.notice);setSendBlocked(!!(next.pendingSend||next.rejectedCleanupPending));setCleanupPending(!!(next.cleanupPending||next.rejectedCleanupPending));setSyncReadFailed(false);setLoaded(true);
     if(quick&&filesCurrent&&!next.notice&&!next.cleanupPending&&!next.text&&!next.referenceIds?.length&&!visible.length)await desktop('ClosePanel').catch(()=>{});
   });}catch{
    if(lifetime.current===attempt.generation&&pending.current===attempt){
-    setDraft(current=>current===attempt.request.text?'':current);
+    if(draft.current===attempt.request.text)setDraftValue('');
     setRefs(current=>current.length===attempt.request.referenceIds.length&&current.every((id,index)=>id===attempt.request.referenceIds[index])?[]:current);
     setFiles(current=>current.filter(file=>!attempt.request.fileIds.includes(file.id)));
     setFeedback('');setLoaded(true);setSendBlocked(true);setSyncReadFailed(true);setError(t('chat.sentDraftSyncFailed'));
@@ -302,11 +331,11 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
    if(editTicket!==editGeneration.current){setError(t('chat.sentDraftSyncFailed'));return;}
    if(syncReadFailed&&unsavedAfterAccepted.current&&next.pendingSend){setError(t('chat.sentDraftSyncFailed'));return;}
    if(syncReadFailed&&unsavedAfterAccepted.current&&!next.pendingSend){
-    const local=await backend<Draft>('SaveDraft',{revision:next.revision,text:draft,referenceIds:refs});
+    const local=await backend<Draft>('SaveDraft',{revision:next.revision,text:draft.current,referenceIds:refs});
     saved.current=local;unsavedAfterAccepted.current=false;
     next=await backend<Draft>('Draft');
     if(generation!==lifetime.current||editTicket!==editGeneration.current)return;
-   }else if(!unsavedAfterAccepted.current){setDraft(next.text);setRefs(next.referenceIds??[]);}
+   }else if(!unsavedAfterAccepted.current){setDraftValue(next.text);setRefs(next.referenceIds??[]);}
    saved.current=next;
    const nextFiles=await desktop<DraftFile[]>('DraftFiles');
    if(generation!==lifetime.current)return;
@@ -315,10 +344,10 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
   }catch{if(generation===lifetime.current){setSendBlocked(true);setError(t(syncReadFailed||cleanupPending||pending.current?.progress.outcome==='accepted'?'chat.sentDraftSyncFailed':'chat.fileSelectionReadFailed'));}}
  };
  const submit=async()=>{
-  if(working.current||busy||!loaded||!filesLoaded||sendBlocked||(cleanupPending&&files.length>0)||!canSubmit(snapshot)||(!draft.trim()&&!files.length))return;
+  if(working.current||busy||!loaded||!filesLoaded||sendBlocked||(cleanupPending&&files.length>0)||!canSubmit(snapshot)||(!draft.current.trim()&&!files.length))return;
   working.current=true;setBusy(true);setError('');setExpanded(false);
-  const request:Submission={id:crypto.randomUUID(),text:draft,fileIds:files.map(f=>f.id),referenceIds:refs};
-  const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,turnKey:'',kind:'user',text:[draft,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',activity:null,artifacts:[]};
+  const request:Submission={id:crypto.randomUUID(),text:draft.current,fileIds:files.map(f=>f.id),referenceIds:refs};
+  const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,turnKey:'',kind:'user',text:[draft.current,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',activity:null,artifacts:[]};
   const attempt={request,outgoing,progress:new SubmissionProgress(),generation:lifetime.current,draftRevision:saved.current.revision};
   pending.current=attempt;onOutgoing?.(outgoing);
   try{
@@ -345,9 +374,9 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
   const attempt=pending.current;
   if(attempt&&snapshot?.lastReceipt.id===attempt.request.id&&snapshot.lastReceipt.outcome==='accepted')void accepted(attempt);
  },[snapshot?.lastReceipt.id,snapshot?.lastReceipt.outcome]);
- const primaryAction=composerAction(snapshot,quick,!!(draft.trim()||files.length||refs.length));
+ const primaryAction=composerAction(snapshot,quick,!!(hasText||files.length||refs.length));
  const stopping=snapshot?.phase==='interrupting';
- const enabled=loaded&&!busy&&(primaryAction==='stop'?!stopping:filesLoaded&&!sendBlocked&&!(cleanupPending&&files.length>0)&&canSubmit(snapshot)&&!!(draft.trim()||files.length));
+ const enabled=loaded&&!busy&&(primaryAction==='stop'?!stopping:filesLoaded&&!sendBlocked&&!(cleanupPending&&files.length>0)&&canSubmit(snapshot)&&!!(hasText||files.length));
  const interrupt=async()=>{
   if(busy||!loaded||!snapshot?.canInterrupt||stopping)return;
   setBusy(true);setError('');
@@ -359,7 +388,7 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
   }
  };
  const actionLabel=primaryAction==='stop'?(stopping?t('chat.stopping'):t('chat.stopWork')):snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerWork'):t('chat.send');
- const needsConnection=loaded&&!!(draft.trim()||files.length)&&snapshot?.connection!=='ready'&&!snapshot?.canSteer;
+ const needsConnection=loaded&&!!(hasText||files.length)&&snapshot?.connection!=='ready'&&!snapshot?.canSteer;
  return <div ref={composer} className={`compose-area${dragging?' file-dragging':''}`} data-file-drop-target
   onDragEnter={e=>{if(e.dataTransfer.types.includes('Files'))setDragging(true)}}
   onDragOver={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true)}}}
@@ -367,7 +396,7 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
   onDrop={()=>setDragging(false)}>
   <div className="capsule">
    <button ref={add} className="icon-button add" disabled={busy||!loaded} onClick={()=>setExpanded(!expanded)} aria-label={t('chat.addAttachmentOrReference')} aria-expanded={expanded} aria-haspopup="menu" aria-controls={expanded?'attachment-menu':undefined}><Icon name="plus"/></button>
-   <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} value={draft} disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={e=>{composing.current=false;save(e.currentTarget.value,refs);}} onPaste={e=>void paste(e)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
+   <textarea aria-label={t('chat.composerLabel')} ref={input} rows={1} defaultValue="" spellCheck={false} autoCorrect="off" disabled={!loaded||busy} onChange={e=>save(e.target.value,refs)} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={e=>{composing.current=false;save(e.currentTarget.value,refs);}} onPaste={e=>void paste(e)} onKeyDown={e=>handleComposerKey(e.nativeEvent,send.current,primaryAction)} placeholder={snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerPlaceholder'):t('chat.composerPlaceholder')} title={t('chat.composerKeyHint')}/>
    <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-label={actionLabel} title={needsConnection?t('chat.connectionUnavailableToSend'):actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
   {!!error&&<p role="alert" className="input-error">{error}</p>}
@@ -376,11 +405,11 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
   {!error&&(dragging||feedback||files.length>0)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):feedback==='duplicate'?t('chat.attachmentAlreadyAdded'):t('chat.attachmentsSelected',{count:files.length})}</p>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
    {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><DraftThumbnail file={f}/><span className="attachment-details" title={f.name}><strong>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</strong><small>{attachmentType(f.type,t)} · {draftSize(f.size)}</small></span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
-   {refs.map(id=><li key={id}><span>{snapshot?.references.find(r=>r.id===id)?.name??t('chat.referenceDefault')}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
+   {refs.map(id=><li key={id}><span>{snapshot?.references.find(r=>r.id===id)?.name??t('chat.referenceDefault')}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft.current,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
   </ul>}
   {expanded&&<AttachmentMenu trigger={add} composer={composer} quick={quick} activation={activation} references={snapshot?.references??[]} selected={refs}
    onClose={()=>setExpanded(false)} onPick={()=>void pick()} onError={()=>setError(t('chat.menuOpenFailed'))}
-   onSelect={id=>{save(draft,[...refs,id]);setExpanded(false);input.current?.focus();}}/>}
+   onSelect={id=>{save(draft.current,[...refs,id]);setExpanded(false);input.current?.focus();}}/>}
  </div>;
 },(a,b)=>a.quick===b.quick&&a.active===b.active&&a.activation===b.activation&&a.focusRevision===b.focusRevision&&
  a.refresh===b.refresh&&a.onOutgoing===b.onOutgoing&&sameComposerSnapshot(a.snapshot,b.snapshot));
