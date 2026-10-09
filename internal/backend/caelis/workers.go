@@ -130,6 +130,20 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 		} else if !submission.Steering && (operationTurn == "" || currentTurn != operationTurn || currentTurn == submission.BeforeTurn) {
 			out.Status, out.Outcome, out.Result = "pending", "accepted", ""
 			return out
+		} else if submission.Steering {
+			observedInput := false
+			if p != nil && currentTurn == submission.BeforeTurn && (operationTurn == "" || operationTurn == submission.BeforeTurn) {
+				for _, item := range p.Items {
+					if item.Kind == "user" && item.RequestID == w.PromptID && item.TurnKey == submission.BeforeTurn {
+						observedInput = true
+						break
+					}
+				}
+			}
+			if !observedInput {
+				out.Status, out.Outcome, out.Result = "pending", "accepted", ""
+				return out
+			}
 		}
 	} else if strings.HasPrefix(w.PromptID, "work-send-") && w.Task.Outcome == "unknown" {
 		// A legacy continuation has no saved preceding-turn identity. Only an
@@ -433,7 +447,8 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		current.Activity = "idle"
 		if workerNativeActive(state) {
 			current.Activity = "active"
-		} else if state.Run.Active != nil && s.workerViewLocked(current).Status == "unknown" && (current.Submission != nil && current.Submission.BeforeTurn != value(state.Run.TurnId) || current.Submission == nil && receipt.TurnID == value(state.Run.TurnId)) {
+		} else if state.Run.Active != nil && (s.workerViewLocked(current).Status == "unknown" && (current.Submission != nil && !current.Submission.Steering && current.Submission.BeforeTurn != value(state.Run.TurnId) || current.Submission == nil && receipt.TurnID == value(state.Run.TurnId)) ||
+			s.workerViewLocked(current).Status == "pending" && current.Submission != nil && current.Submission.Steering && current.Submission.BeforeTurn == value(state.Run.TurnId) && (receipt.Outcome == "accepted" || receipt.Outcome == "committed")) {
 			current.Retired = true
 			current.Task.Status = "unavailable"
 		}
@@ -547,7 +562,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	_, retry := s.state.Operations[op]
 	busy := v != nil && (value(v.State.Run.Active) || v.State.Approval.Active != nil)
 	projected := s.workerViewLocked(w)
-	unresolved := projected.Status == "unknown" || projected.Status == "pending" && !busy || w.Start != nil
+	unresolved := projected.Status == "unknown" || projected.Status == "pending" || w.Start != nil
 	s.mu.Unlock()
 	if !ok || w.Binding.SessionId == "" || v == nil {
 		return api.Task{}, errors.New("任务未就绪")

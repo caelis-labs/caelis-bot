@@ -165,6 +165,10 @@ func TestUnknownReceiptWithoutPendingPointerStillBlocksManager(t *testing.T) {
 		s.binding.Tasks = map[string]*taskRecord{}
 	}
 	s.binding.Tasks[id] = &taskRecord{Thread: thread, Run: oldRun, View: api.Task{ID: id, Status: "completed", Outcome: "unknown", Result: "old answer"}, Requests: map[string]taskReceipt{request: {Outcome: "unknown", Phase: "dispatching", PriorRun: oldRun, PriorStatus: "completed"}}}
+	if !s.hasUnresolvedTasks() {
+		s.mu.Unlock()
+		t.Fatal("detached unknown receipt allowed owner renewal or cleanup")
+	}
 	if err := s.save(); err != nil {
 		s.mu.Unlock()
 		t.Fatal(err)

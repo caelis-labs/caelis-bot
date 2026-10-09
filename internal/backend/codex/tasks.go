@@ -97,7 +97,7 @@ func (s *Session) hasBlockingChildren() bool {
 }
 func (s *Session) hasUnresolvedTasks() bool {
 	for _, task := range s.binding.Tasks {
-		if task != nil && !task.Retired && (task.Pending != "" || !terminal(task.View.Status)) {
+		if task != nil && !task.Retired && (task.Pending != "" || taskHasUnknownReceipt(task) || !terminal(task.View.Status)) {
 			return true
 		}
 	}

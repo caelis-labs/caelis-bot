@@ -243,6 +243,75 @@ func TestAcceptedContinuationNeedsItsOwnNativeTurnIdentity(t *testing.T) {
 	}
 }
 
+func TestAcceptedSteeringNeedsItsOwnNativeInput(t *testing.T) {
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("projection test made native request %s %s", r.Method, r.URL.Path)
+	})
+	op := "work-send-steering"
+	s.state.Workers["task"] = worker{
+		Binding:  wire.ApplicationBinding{SessionId: "work"},
+		Task:     api.Task{ID: "task", Status: "pending", Outcome: "accepted"},
+		PromptID: op,
+		Submission: &workerSubmission{OperationID: op, BeforeTurn: "same-turn", Steering: true,
+			BeforeTask: api.Task{ID: "task", Status: "completed", Result: "old result"}},
+	}
+	s.state.Operations[op] = journal{Path: "/sessions/work/prompt", Outcome: "accepted", TurnID: "same-turn"}
+	p := &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("same-turn"), Status: pointer("completed"), Active: pointer(false)}}, Seen: map[string]bool{}}
+	s.state.Views["work"] = p
+	if got := s.WorkStates()[0].Task.Status; got != "pending" {
+		t.Fatal("old terminal of the same turn released accepted steering", got)
+	}
+	p.State.Run = wire.RunState{TurnId: pointer("same-turn"), Status: pointer("working"), Active: pointer(true)}
+	if got := s.WorkStates()[0].Task.Status; got != "pending" {
+		t.Fatal("old active projection admitted another request before steering input", got)
+	}
+	p.Items = append(p.Items, api.Item{Kind: "user", RequestID: op, TurnKey: "same-turn"})
+	if got := s.WorkStates()[0].Task.Status; got != "working" {
+		t.Fatal("matching native steering input did not restore active generation", got)
+	}
+	p.State.Run = wire.RunState{TurnId: pointer("same-turn"), Status: pointer("completed"), Active: pointer(false)}
+	if got := s.WorkStates()[0].Task.Status; got != "completed" {
+		t.Fatal("matching native steering input did not settle generation", got)
+	}
+	p.State.Run.TurnId = pointer("unrelated-turn")
+	if got := s.WorkStates()[0].Task.Status; got != "pending" {
+		t.Fatal("different terminal turn settled accepted steering", got)
+	}
+}
+
+func TestAcceptedSteeringCanRetireOnlyAfterOriginalOwnerIdle(t *testing.T) {
+	var active atomic.Bool
+	active.Store(true)
+	op := "work-send-steering-idle"
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.URL.Path != "/api/control/v1/sessions/work/state" {
+			t.Errorf("unexpected native request %s %s", r.Method, r.URL.Path)
+			return
+		}
+		status := "completed"
+		if active.Load() {
+			status = "working"
+		}
+		writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("same-turn"), Status: &status, Active: pointer(active.Load())}})
+	})
+	s.state.Workers["task"] = worker{
+		Binding:  wire.ApplicationBinding{SessionId: "work"},
+		Task:     api.Task{ID: "task", Status: "pending", Outcome: "accepted"},
+		PromptID: op,
+		Submission: &workerSubmission{OperationID: op, BeforeTurn: "same-turn", Steering: true,
+			BeforeTask: api.Task{ID: "task", Status: "working"}},
+	}
+	s.state.Operations[op] = journal{Path: "/sessions/work/steer", Outcome: "accepted", TurnID: "same-turn"}
+	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("same-turn"), Status: pointer("working"), Active: pointer(true)}}, Seen: map[string]bool{}}
+	if got, err := s.RetireWork(t.Context(), "task"); err == nil || got.Status == "unavailable" {
+		t.Fatal("active steering owner retired", got, err)
+	}
+	active.Store(false)
+	if got, err := s.RetireWork(t.Context(), "task"); err != nil || got.Status != "unavailable" || s.state.Workers["task"].PromptID != op || s.state.Operations[op].Outcome != "accepted" {
+		t.Fatal("settled steering receipt with explicit idle owner did not safely retire", got, err)
+	}
+}
+
 func TestLegacyAcceptedReceiptReadsMatchingOriginalTurn(t *testing.T) {
 	var current atomic.Bool
 	op := "work-send-legacy-accepted"
