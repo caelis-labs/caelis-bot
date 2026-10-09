@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0](https://github.com/caelis-labs/caelis-bot/compare/v0.11.0...v0.12.0) (2026-10-09)
+
+
+### Features
+
+* **release:** one-app Stable and Dev update channels with candidate gate ([#135](https://github.com/caelis-labs/caelis-bot/issues/135)) ([9a9d25d](https://github.com/caelis-labs/caelis-bot/commit/9a9d25d6afa9b67477cbaf60f1122cbec5be7207))
+
+
+### Bug Fixes
+
+* restore automatic stable releases ([#146](https://github.com/caelis-labs/caelis-bot/issues/146)) ([479be4d](https://github.com/caelis-labs/caelis-bot/commit/479be4dea4b857e4fd5b3ff98aadc43edbcda32c))
+
 ## [0.11.0](https://github.com/caelis-labs/caelis-bot/compare/v0.10.0...v0.11.0) (2026-10-09)
 
 
