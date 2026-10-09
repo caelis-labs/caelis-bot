@@ -26,12 +26,15 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 	out := []api.TaskPreview{}
 	for id, r := range m.state.Records {
 		state, current := latest[id]
+		current = current && state.Task.Machine == r.View.Machine &&
+			(r.Runtime == "" || state.Runtime == "" || r.Runtime == state.Runtime) &&
+			(state.ExecutionKey == r.Execution || state.ExecutionKey != "" && !slices.Contains(r.RetiredExecutions, state.ExecutionKey))
 		newRun := current && ((r.Execution != "" && state.ExecutionKey != "" && state.ExecutionKey != r.Execution) || (terminal(r.View.Status) && !terminal(state.Task.Status)))
 		if !m.owns(r) || (!newRun && (r.Pinned == nil || !*r.Pinned)) {
 			continue
 		}
 		prompt := r.OriginalPrompt
-		if prompt == "" {
+		if prompt == "" && current {
 			prompt = state.OriginalPrompt
 		}
 		status := r.View.Status
@@ -42,7 +45,12 @@ func (m *Manager) TaskPreviews() []api.TaskPreview {
 		if provider == "" {
 			provider = r.Provider
 		}
-		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: provider, Locked: r.Locked, TargetLabel: firstMachineLabel(state.Task.MachineName, r.View.MachineName)})
+		label := r.View.MachineName
+		if current {
+			label = firstMachineLabel(state.Task.MachineName, label)
+		}
+		noticeGeneration := unknownNoticeKey(r, id)
+		out = append(out, api.TaskPreview{ID: id, Prompt: prompt, Status: status, Provider: provider, Locked: r.Locked, TargetLabel: label, NoticeGeneration: noticeGeneration, NoticeClaimed: r.UnknownNotice == noticeGeneration})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]

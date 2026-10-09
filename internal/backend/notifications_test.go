@@ -30,6 +30,23 @@ func TestNativeNotificationObserverIgnoresRestoredHistoryAndDeduplicates(t *test
 	}
 }
 
+func TestExhaustedRecoveryNoticeUsesOriginalKeyOnceAndClearsOnReady(t *testing.T) {
+	var sent, cleared []string
+	o := NotificationObserver{Notify: func(id, _, _ string, _ bool) { sent = append(sent, id) }, Dismiss: func(id string) { cleared = append(cleared, id) }}
+	v := api.Snapshot{Connection: "offline", Phase: "unknown", RecoveryNoticeKey: "original-request"}
+	o.Observe(v)
+	o.Observe(v)
+	if len(sent) != 1 || sent[0] != "runtime-recovery" {
+		t.Fatal("recovery repeated or hidden", sent)
+	}
+	v.Connection, v.RecoveryNoticeKey, v.Phase = "ready", "", "completed"
+	o.Observe(v)
+	o.Observe(v)
+	if len(cleared) != 1 || cleared[0] != "runtime-recovery" || len(sent) != 1 {
+		t.Fatal("stale recovery notice survived", sent, cleared)
+	}
+}
+
 func TestScheduledNotificationsOnlyAnnounceVisibleResultOnce(t *testing.T) {
 	var ids []string
 	o := NotificationObserver{Notify: func(id, title, body string, reminder bool) {

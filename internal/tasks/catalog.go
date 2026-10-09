@@ -24,6 +24,58 @@ func (m *Manager) notifyWatchlist() {
 	}
 }
 
+// The same opaque identity fences the durable claim and stale OS dismissal.
+func unknownNoticeKey(r *record, id string) string {
+	generation := r.Execution
+	if generation == "" {
+		generation = r.ReportID
+	}
+	if generation == "" {
+		generation = id
+	}
+	return hash(r.Provider, id, generation)
+}
+
+// ClaimUnknownNotices records one alert per original execution before asking
+// the native host to show it. A short grace lets automatic owner recovery finish;
+// an uncertain task is never retried or replaced to produce this notice.
+func (m *Manager) ClaimUnknownNotices() ([]string, error) {
+	m.op.Lock()
+	defer m.op.Unlock()
+	if err := m.refresh(); err != nil {
+		var conflict *observationConflict
+		if !errors.As(err, &conflict) {
+			return nil, err
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var claimed []string
+	previous := map[string]string{}
+	for id, r := range m.state.Records {
+		if !m.owns(r) || r.View.Status != "unknown" || r.UnknownSince == 0 || m.now().Sub(time.UnixMilli(r.UnknownSince)) < 30*time.Second {
+			continue
+		}
+		key := unknownNoticeKey(r, id)
+		if r.UnknownNotice == key {
+			continue
+		}
+		previous[id] = r.UnknownNotice
+		r.UnknownNotice = key
+		claimed = append(claimed, id)
+	}
+	if len(claimed) > 0 {
+		if err := m.write(); err != nil {
+			for id, prior := range previous {
+				m.state.Records[id].UnknownNotice = prior
+			}
+			return nil, err
+		}
+		sort.Strings(claimed)
+	}
+	return claimed, nil
+}
+
 // ConfigureLimit changes admission only; reducing the preference never stops work.
 func (m *Manager) ConfigureLimit(read func() int) {
 	m.op.Lock()
@@ -93,7 +145,8 @@ func (m *Manager) RefreshWatchlist() error {
 	m.op.Lock()
 	err := m.refresh()
 	m.op.Unlock()
-	if err == nil {
+	var conflict *observationConflict
+	if err == nil || errors.As(err, &conflict) {
 		m.notifyWatchlist()
 	}
 	return err

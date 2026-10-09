@@ -121,13 +121,13 @@ func TestBackgroundApprovalRemainsVisibleAfterSilentCompletion(t *testing.T) {
 	}
 }
 
-func TestBackgroundGuardianCountsOnlyVisibleFeedbackForItsTurn(t *testing.T) {
+func TestBackgroundGuardianReviewDoesNotCountAsVisibleFeedback(t *testing.T) {
 	for _, tc := range []struct {
 		status, turn string
 		visible      bool
 	}{
 		{"in_progress", "care-turn", false}, {"approved", "care-turn", false},
-		{"denied", "care-turn", true}, {"failed", "care-turn", true}, {"timed_out", "care-turn", true},
+		{"denied", "care-turn", false}, {"failed", "care-turn", false}, {"timed_out", "care-turn", false},
 		{"denied", "other-turn", false},
 	} {
 		t.Run(tc.status+"/"+tc.turn, func(t *testing.T) {

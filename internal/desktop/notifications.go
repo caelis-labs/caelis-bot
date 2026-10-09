@@ -2,8 +2,17 @@ package desktop
 
 type notificationDriver interface {
 	notify(id, title, body string, reminder bool)
+	dismissNotification(id string)
 	notificationStatus() string
 	configureNotifications()
+}
+
+func (s *Service) DismissNotification(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d, ok := s.native.(notificationDriver); ok && !s.stopped {
+		d.dismissNotification(id)
+	}
 }
 
 // Delivery is owned by the native host, independent of webview polling. A click

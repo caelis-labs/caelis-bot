@@ -91,13 +91,6 @@ func (s *Session) captureBackgroundResultsLocked() {
 			raw := api.Snapshot{Items: clone(v.Items)}
 			s.correlateSessionInputs(&raw, sid)
 			approval := v.State.Approval.Active != nil && !s.automaticApprovalLocked(sid, v.State.Approval.Active) && value(v.State.Run.TurnId) == j.TurnID
-			for _, facts := range []map[string]reviewFact{v.Reviews, v.LiveReviews} {
-				for _, fact := range facts {
-					if fact.TurnID == j.TurnID && (fact.Status == "denied" || fact.Status == "failed" || fact.Status == "timedOut") {
-						approval = true
-					}
-				}
-			}
 			next := activation.Observe(old, id, j.TurnID, status, raw.Items, approval, time.Now())
 			if next == old || !next.Visible && !next.Complete {
 				continue

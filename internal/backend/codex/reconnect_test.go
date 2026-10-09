@@ -203,6 +203,9 @@ func TestAutoReconnectPinsOriginalPrivateOwnerEndpoint(t *testing.T) {
 func TestFailedReconnectHandshakeDoesNotStopOriginalPrivateOwner(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	s.reconnectDelay = func(int) time.Duration { return time.Millisecond }
+	if receipt := sendSynthetic(t, s, "resident-original-request"); receipt.Outcome != "accepted" {
+		t.Fatal(receipt)
+	}
 	var stopped atomic.Int32
 	s.mu.Lock()
 	s.client.owner = &fixtureRetainedOwner{endpoint: "unix:///tmp/fixture-original-owner.sock"}
@@ -218,9 +221,18 @@ func TestFailedReconnectHandshakeDoesNotStopOriginalPrivateOwner(t *testing.T) {
 	}
 	f.peer.Close()
 	f.mu.Unlock()
-	awaitState(t, s, func(v api.Snapshot) bool {
-		return v.Connection == "offline" && s.DiagnosticStatus()["autoReconnectActive"] == false && s.DiagnosticStatus()["autoReconnectAttempts"] == maxAutoReconnectAttempts
+	v := awaitState(t, s, func(v api.Snapshot) bool {
+		return v.Connection == "offline" && v.RecoveryNoticeKey != "" && s.DiagnosticStatus()["autoReconnectActive"] == false && s.DiagnosticStatus()["autoReconnectAttempts"] == maxAutoReconnectAttempts
 	})
+	if v.RecoveryNoticeKey == "" {
+		t.Fatal("exhausted original request had no host recovery notice")
+	}
+	s.mu.Lock()
+	notified, original := s.binding.RecoveryNotices[v.RecoveryNoticeKey], s.binding.LastReceipt.ID
+	s.mu.Unlock()
+	if !notified || original != "resident-original-request" {
+		t.Fatal("recovery notice did not retain original receipt", notified, original)
+	}
 	if stopped.Load() != 0 {
 		t.Fatal("failed observer handshake stopped original private runtime", stopped.Load())
 	}

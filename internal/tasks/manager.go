@@ -40,6 +40,8 @@ type record struct {
 	Execution         string          `json:"execution,omitempty"`
 	ReportID          string          `json:"reportId,omitempty"`
 	ReportState       string          `json:"reportState,omitempty"`
+	UnknownSince      int64           `json:"unknownSince,omitempty"`
+	UnknownNotice     string          `json:"unknownNotice,omitempty"`
 }
 type reportReceipt struct {
 	ID    string `json:"id"`
@@ -248,12 +250,29 @@ func (m *Manager) refresh() error {
 			r.OriginalPrompt = v.OriginalPrompt
 		}
 		if v.ExecutionKey != "" && (r.Execution != v.ExecutionKey || r.ReportID == "") {
+			if r.Execution != v.ExecutionKey {
+				// The uncertainty window belongs to the native execution, not
+				// the reusable task handle. A new unknown run gets its own grace.
+				r.UnknownSince = 0
+			}
 			r.Execution = v.ExecutionKey
 			r.ReportID = "task-report-" + hash(r.Provider, v.Task.ID, v.ExecutionKey)
 			r.ReportState = "pending"
 		}
 		if v.StopRequested && r.ReportState == "pending" {
 			r.ReportState = "observed"
+		}
+	}
+	for _, r := range m.state.Records {
+		if !m.owns(r) {
+			continue
+		}
+		if r.View.Status == "unknown" {
+			if r.UnknownSince == 0 {
+				r.UnknownSince = m.now().UnixMilli()
+			}
+		} else {
+			r.UnknownSince = 0
 		}
 	}
 	m.metadataLocked()

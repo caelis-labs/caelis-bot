@@ -35,6 +35,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	host.ConsumeFiles = s.consumeDraftFilesChecked
 	host.Gesture = s.Gesture
 	host.Notify = s.Notify
+	host.DismissNotification = s.DismissNotification
 	host.Observe = s.observeCharacter
 	host.ObserveTasks = s.observeTasks
 	host.ReportError = logError

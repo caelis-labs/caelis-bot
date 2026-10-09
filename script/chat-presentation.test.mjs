@@ -26,7 +26,7 @@ test('waiting excludes approvals, recovery and terminal states, even with a rema
   assert.equal(chatActivity({...running,approvals:[{status}]}),null,status);
  }
  assert.equal(chatActivity({...running,phase:'interrupting'}),'stopping');
- assert.equal(chatActivity({...running,reviews:[{status:'inProgress'}]}),'reviewing');
+ assert.equal(chatActivity({...running,reviews:[{status:'inProgress'}]}),'thinking');
 });
 
 test('worker and historical reviews never animate the current conversation',()=>{
@@ -36,7 +36,7 @@ test('worker and historical reviews never animate the current conversation',()=>
  const replying={...active,items:[{id:'answer',kind:'assistant',turnKey:'current',text:'answer',status:'inProgress'}]};
  assert.equal(activeReplyID(replying),'answer');
  assert.equal(chatActivity(replying),null);
- assert.equal(chatActivity({...active,reviews:[{status:'inProgress',turnKey:'current'}]}),'reviewing');
+ assert.equal(chatActivity({...active,reviews:[{status:'inProgress',turnKey:'current'}]}),'thinking');
  assert.equal(chatActivity({...active,phase:'completed',currentTurn:''}),null);
 });
 
@@ -53,7 +53,8 @@ test('only the latest streaming reply owns reply animation; control states and q
  const item={id:'first',kind:'assistant',turnKey:'current',text:'第一段',status:'inProgress'};
  const snapshot={...running,items:[item,{...item,id:'latest'}]};
  assert.equal(activeReplyID(snapshot),'latest');assert.equal(chatActivity(snapshot),null);
- for(const update of [{quiet:true},{phase:'interrupting'},{phase:'completed'},{connection:'disconnected'},{approvals:[{status:'pending'}]},{reviews:[{status:'inProgress'}]}])assert.equal(activeReplyID({...snapshot,...update}),null);
+ for(const update of [{quiet:true},{phase:'interrupting'},{phase:'completed'},{connection:'disconnected'},{approvals:[{status:'pending'}]}])assert.equal(activeReplyID({...snapshot,...update}),null);
+ assert.equal(activeReplyID({...snapshot,reviews:[{status:'inProgress'}]}),'latest');
  assert.equal(activeReplyID({...running,items:[{...item,turnKey:'previous'}]}),null);
 });
 
@@ -71,7 +72,7 @@ test('streaming text hides tool waiting; completed commentary restores it; contr
  assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],status:''}]}),'tool');
  assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],text:''}]}),'tool');
  assert.equal(chatActivity({...snapshot,items:[{...snapshot.items[0],turnKey:'old'}]}),'tool');
- assert.equal(chatActivity({...snapshot,reviews:[{status:'inProgress'}]}),'reviewing');
+ assert.equal(chatActivity({...snapshot,reviews:[{status:'inProgress'}]}),null);
  assert.equal(chatActivity({...snapshot,approvals:[{status:'pending'}]}),null);
  assert.equal(chatActivity({...snapshot,phase:'interrupting'}),'stopping');
  assert.equal(chatActivity({...snapshot,phase:'completed'}),null);

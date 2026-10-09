@@ -425,6 +425,7 @@ export interface Snapshot {
   revision: number;
   connection: string;
   connectionIssue: string;
+  recoveryNoticeKey?: string;
   phase: string;
   message: string;
   activity: Activity | null;

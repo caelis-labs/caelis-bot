@@ -66,7 +66,7 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 		if status == "cancelled" || status == "stopped" {
 			out.Status = "interrupted"
 		}
-		if p.State.Approval.Active != nil {
+		if p.State.Approval.Active != nil && !s.automaticApprovalLocked(w.Binding.SessionId, p.State.Approval.Active) {
 			out.Status = "waiting_approval"
 		}
 		var result []string

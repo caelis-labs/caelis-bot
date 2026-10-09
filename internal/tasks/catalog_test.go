@@ -46,6 +46,69 @@ func TestWatchlistObserverCanChangeDuringRefresh(t *testing.T) {
 	}
 }
 
+func TestUnknownTaskAttentionKeepsOriginalExecutionAndDoesNotReplay(t *testing.T) {
+	root := t.TempDir()
+	f := newRuntime()
+	m := openFixture(t, root, "codex", f)
+	now := time.Now().UTC()
+	m.now = func() time.Time { return now }
+	v := start(t, m, "unknown-attention")
+	state := f.states[v.ID]
+	state.Task.Status = "unknown"
+	f.states[v.ID] = state
+	if err := m.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := m.ClaimUnknownNotices(); err != nil || len(got) != 0 {
+		t.Fatal("announced during recovery grace", got, err)
+	}
+	now = now.Add(31 * time.Second)
+	if got, err := m.ClaimUnknownNotices(); err != nil || len(got) != 1 || got[0] != v.ID {
+		t.Fatal("missing original task alert", got, err)
+	}
+	restored := openFixture(t, root, "codex", f)
+	restored.now = func() time.Time { return now }
+	if got, err := restored.ClaimUnknownNotices(); err != nil || len(got) != 0 {
+		t.Fatal("replayed an old unknown alert", got, err)
+	}
+	state.Task.Status = "working"
+	f.states[v.ID] = state
+	if err := restored.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	state.Task.Status = "unknown"
+	f.states[v.ID] = state
+	now = now.Add(31 * time.Second)
+	if got, err := restored.ClaimUnknownNotices(); err != nil || len(got) != 0 {
+		t.Fatal("same execution alerted twice", got, err)
+	}
+	state.ExecutionKey = "new-native-execution"
+	f.states[v.ID] = state
+	if err := restored.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(31 * time.Second)
+	if got, err := restored.ClaimUnknownNotices(); err != nil || len(got) != 1 || got[0] != v.ID {
+		t.Fatal("new execution was not alerted", got, err)
+	}
+	old := state
+	old.ExecutionKey = "native-turn-1"
+	old.Task.Status = "completed"
+	f.states[v.ID] = old // A late A result must not replace B or reopen its alert.
+	if err := restored.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := restored.ClaimUnknownNotices(); err != nil || len(got) != 0 {
+		t.Fatal("late old outcome created another alert", got, err)
+	}
+	if r := restored.state.Records[v.ID]; r.Execution != "new-native-execution" || r.View.Status != "unknown" {
+		t.Fatal("late old outcome replaced the current execution", r.Execution, r.View.Status)
+	}
+	if f.starts != 1 || f.reports != 0 {
+		t.Fatal("alert dispatched or reported work", f.starts, f.reports)
+	}
+}
+
 func TestUnlimitedHistoryStablePagesAndSearch(t *testing.T) {
 	f := newRuntime()
 	m := openFixture(t, t.TempDir(), "codex", f)

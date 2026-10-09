@@ -35,18 +35,19 @@ type Host struct {
 	CareSample     func() care.Sample
 	CareSources    []care.Source
 	// Locale is read when presenting host-generated UI, never during model execution.
-	Locale       func() i18n.Locale
-	Diagnostics  *diagnosticlog.Logger
-	ResolveFiles func([]string) ([]api.InputFile, error)
-	ConsumeFiles func([]string) error
-	OpenURL      func(string) error
-	RevealFile   func(string) error
-	TrashFile    func(string) error
-	Gesture      func(string) error
-	Notify       func(id, title, body string, reminder bool)
-	Observe      func(api.Snapshot)
-	ObserveTasks func([]api.TaskPreview)
-	ReportError  func(error)
+	Locale              func() i18n.Locale
+	Diagnostics         *diagnosticlog.Logger
+	ResolveFiles        func([]string) ([]api.InputFile, error)
+	ConsumeFiles        func([]string) error
+	OpenURL             func(string) error
+	RevealFile          func(string) error
+	TrashFile           func(string) error
+	Gesture             func(string) error
+	Notify              func(id, title, body string, reminder bool)
+	DismissNotification func(id string)
+	Observe             func(api.Snapshot)
+	ObserveTasks        func([]api.TaskPreview)
+	ReportError         func(error)
 }
 
 type Application struct {
@@ -534,8 +535,23 @@ func (a *Application) Start() error {
 				manager := a.tasks
 				a.mu.Unlock()
 				if manager != nil {
-					if err := manager.RefreshWatchlist(); err != nil && a.host.ReportError != nil {
-						a.host.ReportError(err)
+					if err := manager.RefreshWatchlist(); err != nil {
+						if a.host.ReportError != nil {
+							a.host.ReportError(err)
+						}
+					}
+					recovery := a.Backend.RecoveryState()
+					if a.host.Notify != nil && !recovery.Automatic && !recovery.InProgress {
+						ids, err := manager.ClaimUnknownNotices()
+						if err != nil {
+							if a.host.ReportError != nil {
+								a.host.ReportError(err)
+							}
+							continue
+						}
+						for _, id := range ids {
+							a.host.Notify("task-unknown-"+id, a.text("host.taskUnknownTitle", map[string]any{"id": id}), a.text("host.taskUnknownBody"), true)
+						}
 					}
 				}
 			}
@@ -544,7 +560,7 @@ func (a *Application) Start() error {
 	go func() { defer a.workers.Done(); _ = a.Backend.Connect(ctx) }()
 	go func() {
 		defer a.workers.Done()
-		observer := backend.NotificationObserver{Notify: a.host.Notify, Locale: a.host.Locale}
+		observer := backend.NotificationObserver{Notify: a.host.Notify, Dismiss: a.host.DismissNotification, Locale: a.host.Locale}
 		var revision uint64
 		for {
 			snapshot, err := a.engine.(api.SnapshotObserver).WaitSnapshot(ctx, revision)

@@ -48,3 +48,19 @@ func TestPetMarkdownIsCompleteAndDoesNotMutateHistory(t *testing.T) {
 		t.Fatal("mutated native history")
 	}
 }
+
+func TestAutomaticReviewStaysInAdapterWhileRealOutcomeAndApprovalRemainVisible(t *testing.T) {
+	e := &snapshotEngine{value: api.Snapshot{Connection: "ready", Phase: "failed", Message: "The action did not finish.",
+		Reviews:   []api.Review{{ID: "native", Status: "timedOut", Action: "private command", Rationale: "private details"}},
+		Approvals: []api.Approval{{ID: "human", Status: "pending", Choices: []api.Choice{{ID: "allow"}, {ID: "deny"}}}},
+	}}
+	s := NewService(e, nil, nil, nil, nil)
+	for _, view := range []api.Snapshot{s.Snapshot(), s.PetSnapshot(), s.ChatSnapshot(0, "").Snapshot} {
+		if len(view.Reviews) != 0 || view.Message == "" || len(view.Approvals) != 1 || len(view.Approvals[0].Choices) != 2 {
+			t.Fatalf("review leaked or outcome/approval hidden: %+v", view)
+		}
+	}
+	if len(e.value.Reviews) != 1 || e.value.Reviews[0].Action != "private command" {
+		t.Fatal("native review evidence was altered")
+	}
+}

@@ -103,6 +103,9 @@ func (s *Service) Snapshot() api.Snapshot {
 	return v
 }
 func (s *Service) decorate(v api.Snapshot) api.Snapshot {
+	// Native automatic-review facts remain in adapter history and diagnostics.
+	// They are not an independent user message or an actionable approval.
+	v.Reviews = nil
 	s.admission.RLock()
 	setupRequired := s.setupRequired
 	s.admission.RUnlock()

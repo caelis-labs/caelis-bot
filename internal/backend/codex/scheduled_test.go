@@ -96,15 +96,15 @@ func TestBackgroundApprovalRemainsVisibleAfterSilentCompletion(t *testing.T) {
 	}
 }
 
-func TestBackgroundReviewVisibilityKeepsNativeProvenance(t *testing.T) {
+func TestBackgroundReviewDoesNotCountAsVisibleResult(t *testing.T) {
 	for _, tc := range []struct {
 		thread, turn, status string
 		visible              bool
 	}{
-		{"root", "care-turn", "denied", true},
-		{"root", "care-turn", "timedOut", true},
-		{"root", "care-turn", "aborted", true},
-		{"root", "care-turn", "failed", true},
+		{"root", "care-turn", "denied", false},
+		{"root", "care-turn", "timedOut", false},
+		{"root", "care-turn", "aborted", false},
+		{"root", "care-turn", "failed", false},
 		{"root", "care-turn", "approved", false},
 		{"root", "care-turn", "inProgress", false},
 		{"root", "old-turn", "denied", false},
@@ -124,10 +124,10 @@ func TestBackgroundReviewVisibilityKeepsNativeProvenance(t *testing.T) {
 			s.applyEvent(event)
 			s.update()
 			observed := s.BackgroundResult("care")
-			if tc.visible {
+			if tc.thread == "root" && tc.turn == "care-turn" {
 				v := s.Snapshot()
-				if v.Quiet || len(v.Reviews) != 1 {
-					t.Fatal("counted review notice was hidden", v)
+				if len(s.state.Reviews) != 1 {
+					t.Fatal("native review fact lost", v)
 				}
 			}
 			if observed.Visible != tc.visible || observed.Complete {

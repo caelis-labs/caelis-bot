@@ -38,11 +38,7 @@ func Dream(v api.Snapshot, turns map[string]string, pending bool) api.Snapshot {
 				v.Quiet = false
 			}
 		}
-		if hasReviewNotice(v.Reviews) {
-			v.Quiet = false
-		}
 		if v.Quiet {
-			v.Reviews = []api.Review{}
 			status := turns[current]
 			if v.Phase == "working" && v.CanInterrupt && (status == "running" || status == "inProgress" || status == "started") {
 				v.Maintenance = "dreaming"

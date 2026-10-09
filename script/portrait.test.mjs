@@ -13,7 +13,7 @@ test('portrait and waiting bubble share native activity priorities',()=>{
  const stream={...running,activity:{kind:'read'},items:[reply]};
  assert.equal(activityPortrait(stream),'listen');
  assert.equal(activityPortrait({...stream,approvals:[{status:'pending'}]}),'waiting');
- assert.equal(activityPortrait({...stream,reviews:[{status:'inProgress'}]}),'focus');
+ assert.equal(activityPortrait({...stream,reviews:[{status:'inProgress'}]}),'listen');
  assert.equal(activityPortrait({...stream,phase:'interrupting'}),'companion');
  assert.equal(activityPortrait({...running,maintenance:'dreaming',quiet:true}),'dreaming');
  assert.equal(activityPortrait({...running,quiet:true}),'companion');
@@ -41,7 +41,8 @@ test('completion animation belongs only to its live target and expires to a post
  assert.equal(animatedReplyID(done,'answer'),'answer');
  assert.equal(animatedReplyID(done,null),null);
  assert.equal(animatedReplyID(done,'older-answer'),null);
- for(const change of [{connection:'offline'},{quiet:true},{maintenance:'dreaming'},{message:'notice'},{approvals:[{status:'pending'}]},{reviews:[{status:'inProgress'}]},{currentTurn:'other'},{phase:'working'}])assert.equal(animatedReplyID({...done,...change},'answer'),null);
+ for(const change of [{connection:'offline'},{quiet:true},{maintenance:'dreaming'},{message:'notice'},{approvals:[{status:'pending'}]},{currentTurn:'other'},{phase:'working'}])assert.equal(animatedReplyID({...done,...change},'answer'),null);
+ assert.equal(animatedReplyID({...done,reviews:[{status:'inProgress'}]},'answer'),'answer');
 });
 test('portrait clock owns one RAF, pauses hidden time and releases on replacement/unmount',()=>{
  let id=0;const queued=new Map(),drawn=[];

@@ -62,27 +62,9 @@ func Present(v api.Snapshot, scheduled map[string]string, pending bool) api.Snap
 			v.Quiet = false
 		}
 	}
-	if hasReviewNotice(v.Reviews) {
-		v.Quiet = false
-	}
-	if v.Quiet {
-		v.Reviews = []api.Review{}
-	}
 	// CurrentTurn is presentation identity; never an execution target.
 	if v.Scheduled && v.CurrentTurn == "" {
 		v.CurrentTurn = current
 	}
 	return v
-}
-
-// These native facts produce visible chat notices, never manual Allow choices.
-// Quiet schedules suppress review progress/success, not a denied or failed action.
-func hasReviewNotice(reviews []api.Review) bool {
-	for _, review := range reviews {
-		switch review.Status {
-		case "denied", "timedOut", "aborted", "failed":
-			return true
-		}
-	}
-	return false
 }

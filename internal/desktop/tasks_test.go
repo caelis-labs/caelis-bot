@@ -15,10 +15,15 @@ type taskFakeDriver struct {
 	updates             int
 	failure, opening    string
 	confirmationPrompts int
+	dismissed           []string
 }
 
-func (d *taskFakeDriver) tasks(string)               { d.updates++ }
-func (d *taskFakeDriver) taskFailure(message string) { d.failure = message }
+func (d *taskFakeDriver) tasks(string)                        { d.updates++ }
+func (d *taskFakeDriver) notify(string, string, string, bool) {}
+func (d *taskFakeDriver) dismissNotification(id string)       { d.dismissed = append(d.dismissed, id) }
+func (d *taskFakeDriver) notificationStatus() string          { return "authorized" }
+func (d *taskFakeDriver) configureNotifications()             {}
+func (d *taskFakeDriver) taskFailure(message string)          { d.failure = message }
 func (d *taskFakeDriver) taskOpening(id, message string) {
 	d.opening = id
 	if id != "" && message != "" {
@@ -74,6 +79,42 @@ func TestTaskBubblesArePassiveAndDispatchOnlyOwnedTarget(t *testing.T) {
 	s.shutdown()
 	if s.openTask(t.Context(), "owned") == nil || clicks != 1 {
 		t.Fatal("stopped app dispatched work")
+	}
+}
+
+func TestTaskUnknownNotificationClearsWhenOriginalStatusRecovers(t *testing.T) {
+	s, d := taskService(t)
+	s.observeTasks([]api.TaskPreview{{ID: "original", Status: "unknown"}})
+	s.observeTasks([]api.TaskPreview{{ID: "original", Status: "working"}})
+	s.observeTasks([]api.TaskPreview{{ID: "original", Status: "completed"}})
+	if len(d.dismissed) != 1 || d.dismissed[0] != "task-unknown-original" {
+		t.Fatal("stale unknown notice remained", d.dismissed)
+	}
+}
+func TestTaskUnknownNotificationClearsOnNewExecutionButNotOldOutcome(t *testing.T) {
+	s, d := taskService(t)
+	a := api.TaskPreview{ID: "original", Status: "unknown", NoticeGeneration: "generation-A", NoticeClaimed: true}
+	b := api.TaskPreview{ID: "original", Status: "unknown", NoticeGeneration: "generation-B"}
+	s.observeTasks([]api.TaskPreview{a})
+	s.observeTasks([]api.TaskPreview{b}) // Same visible status, new original execution.
+	if len(d.dismissed) != 1 || d.dismissed[0] != "task-unknown-original" {
+		t.Fatal("old generation notice remained", d.dismissed)
+	}
+	s.observeTasks([]api.TaskPreview{b}) // A late A native outcome is fenced upstream.
+	if len(d.dismissed) != 1 {
+		t.Fatal("same generation dismissed twice", d.dismissed)
+	}
+	b.Status = "completed"
+	s.observeTasks([]api.TaskPreview{b})
+	if len(d.dismissed) != 2 || d.dismissed[1] != "task-unknown-original" {
+		t.Fatal("current generation recovery did not clear notice", d.dismissed)
+	}
+}
+func TestTaskUnknownNotificationClearsStalePriorGenerationOnRestart(t *testing.T) {
+	s, d := taskService(t)
+	s.observeTasks([]api.TaskPreview{{ID: "original", Status: "unknown", NoticeGeneration: "generation-B"}})
+	if len(d.dismissed) != 1 || d.dismissed[0] != "task-unknown-original" {
+		t.Fatal("prior process notice remained during B grace", d.dismissed)
 	}
 }
 func TestWindowClicksDoNotWaitForOptionalPreview(t *testing.T) {
