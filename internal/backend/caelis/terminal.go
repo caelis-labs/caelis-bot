@@ -17,7 +17,8 @@ func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	}
 	s.mu.Lock()
 	w, ok := s.state.Workers[id]
-	unresolved := ok && s.workerNeedsReconcileLocked(w)
+	status := s.workerViewLocked(w).Status
+	unresolved := ok && (status == "unknown" || w.Submission != nil && status == "pending")
 	life, instance := s.state.Connection, s.state.InstanceID
 	ready := s.connected && !s.closed && s.client != nil
 	s.mu.Unlock()

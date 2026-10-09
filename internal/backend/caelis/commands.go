@@ -78,6 +78,11 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		}()
 	}
 	e = s.saveLocked()
+	if e != nil {
+		// Dispatch has not begun. Keep the in-memory journal consistent with
+		// the durable pre-dispatch failure so a prepared Worker can roll back.
+		delete(s.state.Operations, op)
+	}
 	s.bumpLocked()
 	c := s.client
 	s.mu.Unlock()

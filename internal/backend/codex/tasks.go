@@ -141,7 +141,7 @@ func (s *Session) taskView(t *taskRecord) api.Task {
 			break
 		}
 	}
-	if t.Pending != "" || (s.state.Connection != "ready" && !terminal(v.Status)) {
+	if t.Pending != "" || taskHasUnknownReceipt(t) || (s.state.Connection != "ready" && !terminal(v.Status)) {
 		v.Status = "unknown"
 	}
 	return v

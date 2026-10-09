@@ -123,6 +123,9 @@ func TestProjectedUnknownWithPersistedCompletionUsesOriginalThread(t *testing.T)
 			if page, err := m.QueryTasks(api.TaskQuery{}); err != nil || page.Running != 0 || page.Reserved != 1 {
 				t.Fatal("projected unknown did not hold one possible slot", page, err)
 			}
+			if _, err := m.SendTask(testContext(t), api.TaskMessage{ID: id, RequestID: "different-followup-request", Prompt: "continue later"}); err == nil || d.starts != 0 || d.sends != 0 {
+				t.Fatal("later unknown receipt admitted a different native request", err, d.starts, d.sends)
+			}
 			if _, err := m.WorkTerminal(testContext(t), id); err == nil || !strings.Contains(err.Error(), "unresolved") {
 				t.Fatal("projected unknown opened a native continuation", err)
 			}
@@ -151,5 +154,40 @@ func TestProjectedUnknownWithPersistedCompletionUsesOriginalThread(t *testing.T)
 				t.Fatal("retirement lost after restart", loaded.WorkStates())
 			}
 		})
+	}
+}
+
+func TestUnknownReceiptWithoutPendingPointerStillBlocksManager(t *testing.T) {
+	s, f, d, m := taskPair(t)
+	id, thread, oldRun, request := "task-detached-receipt", "original-thread", "old-completed-run", "uncertain-followup"
+	s.mu.Lock()
+	if s.binding.Tasks == nil {
+		s.binding.Tasks = map[string]*taskRecord{}
+	}
+	s.binding.Tasks[id] = &taskRecord{Thread: thread, Run: oldRun, View: api.Task{ID: id, Status: "completed", Outcome: "unknown", Result: "old answer"}, Requests: map[string]taskReceipt{request: {Outcome: "unknown", Phase: "dispatching", PriorRun: oldRun, PriorStatus: "completed"}}}
+	if err := s.save(); err != nil {
+		s.mu.Unlock()
+		t.Fatal(err)
+	}
+	s.mu.Unlock()
+	original := nativeThread{ID: thread, Turns: []nativeTurn{{ID: oldRun, Status: "completed"}}}
+	original.Status.Type = "idle"
+	f.mu.Lock()
+	f.workers[thread] = original
+	f.mu.Unlock()
+	if err := m.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	if page, err := m.QueryTasks(api.TaskQuery{}); err != nil || page.Running != 0 || page.Reserved != 1 {
+		t.Fatal("detached unknown receipt borrowed old completion", page, err)
+	}
+	if _, err := m.SendTask(testContext(t), api.TaskMessage{ID: id, RequestID: "different-new-request", Prompt: "do more"}); err == nil || d.starts != 0 || d.sends != 0 {
+		t.Fatal("different request bypassed unresolved receipt", err, d.starts, d.sends)
+	}
+	if got, err := m.RetireTask(testContext(t), id); err != nil || got.Status != "unavailable" {
+		t.Fatal("original idle thread could not retire detached unknown receipt", got, err)
+	}
+	if retained := s.binding.Tasks[id]; retained.Requests[request].Outcome != "unknown" || retained.Run != oldRun {
+		t.Fatal("retirement changed original unknown receipt or old run", retained)
 	}
 }

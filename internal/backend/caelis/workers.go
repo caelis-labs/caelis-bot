@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -18,6 +19,17 @@ type workerStart struct {
 	Prompt        string                  `json:"prompt"`
 	Authorization string                  `json:"authorization"`
 }
+
+// The latest outbound prompt owns the Worker generation until its original
+// receipt and native turn have both been observed. The preceding turn is only
+// history; it cannot confirm or free a later prompt.
+type workerSubmission struct {
+	OperationID    string   `json:"operationID"`
+	BeforePromptID string   `json:"beforePromptID,omitempty"`
+	BeforeTurn     string   `json:"beforeTurn,omitempty"`
+	BeforeTask     api.Task `json:"beforeTask"`
+	Steering       bool     `json:"steering,omitempty"`
+}
 type worker struct {
 	Native      bool                    `json:"native,omitempty"`
 	Binding     wire.ApplicationBinding `json:"binding"`
@@ -26,6 +38,7 @@ type worker struct {
 	PromptID    string                  `json:"promptID"`
 	Stopped     bool                    `json:"stopped"`
 	Start       *workerStart            `json:"start,omitempty"`
+	Submission  *workerSubmission       `json:"submission,omitempty"`
 	Retired     bool                    `json:"retired,omitempty"`
 	Activity    string                  `json:"-"`
 }
@@ -84,7 +97,51 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 		out.Status = "unavailable"
 		return out
 	}
-	if p := s.state.Views[w.Binding.SessionId]; p != nil {
+	if w.Start != nil {
+		out.Status, out.Outcome, out.Result = "unknown", "unknown", ""
+		return out
+	}
+	p := s.state.Views[w.Binding.SessionId]
+	currentTurn := observedTurn(p)
+	receipt, recorded := s.state.Operations[w.PromptID]
+	if out.Status == "failed" && out.Outcome == "rejected" && (w.Binding.SessionId == "" || recorded && (receipt.Outcome == "rejected" || receipt.Outcome == "conflicted")) {
+		return out
+	}
+	operationTurn := receipt.TurnID
+	if operationTurn == "" && p != nil {
+		for _, item := range p.Items {
+			if item.Kind == "user" && item.RequestID == w.PromptID && item.TurnKey != "" {
+				operationTurn = item.TurnKey
+			}
+		}
+	}
+	if recorded && receipt.Outcome == "unknown" {
+		out.Status, out.Outcome, out.Result = "unknown", "unknown", ""
+		return out
+	}
+	if w.Submission != nil && w.Submission.OperationID == w.PromptID {
+		submission := w.Submission
+		if recorded && (receipt.Outcome == "rejected" || receipt.Outcome == "conflicted") {
+			out = submission.BeforeTask
+			out.Outcome = "rejected"
+		} else if !recorded || receipt.Outcome == "unknown" {
+			out.Status, out.Outcome, out.Result = "unknown", "unknown", ""
+			return out
+		} else if !submission.Steering && (operationTurn == "" || currentTurn != operationTurn || currentTurn == submission.BeforeTurn) {
+			out.Status, out.Outcome, out.Result = "pending", "accepted", ""
+			return out
+		}
+	} else if strings.HasPrefix(w.PromptID, "work-send-") && w.Task.Outcome == "unknown" {
+		// A legacy continuation has no saved preceding-turn identity. Only an
+		// exact accepted receipt with a matching native target can clear it.
+		if receipt.Outcome == "rejected" || receipt.Outcome == "conflicted" {
+			out.Outcome = "rejected"
+		} else if !recorded || receipt.Outcome != "accepted" && receipt.Outcome != "committed" || operationTurn == "" || currentTurn != operationTurn {
+			out.Status, out.Outcome, out.Result = "unknown", "unknown", ""
+			return out
+		}
+	}
+	if p != nil {
 		status := value(p.State.Run.Status)
 		if value(p.State.Run.Active) {
 			out.Status = "working"
@@ -116,6 +173,7 @@ func (s *Session) workerNeedsReconcileLocked(w worker) bool {
 }
 func sameWorkerOwner(a, b worker) bool {
 	return a.Task.ID == b.Task.ID && a.Task.Workspace == b.Task.Workspace && a.Native == b.Native && a.Fingerprint == b.Fingerprint && a.PromptID == b.PromptID &&
+		reflect.DeepEqual(a.Submission, b.Submission) &&
 		a.Binding.SessionId == b.Binding.SessionId && a.Binding.ApplicationId == b.Binding.ApplicationId && a.Binding.ConnectionId == b.Binding.ConnectionId && a.Binding.PrincipalId == b.Binding.PrincipalId && a.Binding.CreationDigest == b.Binding.CreationDigest && a.Binding.Archived == b.Binding.Archived
 }
 func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
@@ -264,17 +322,55 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		s.mu.Unlock()
 		return api.Task{}, errors.New("任务不属于当前 Bot")
 	}
-	if !s.workerNeedsReconcileLocked(w) {
+	// A durable prepared intent without a journal could not have dispatched.
+	// The command saves its journal before POST, so only this case may roll
+	// back without an original-owner read.
+	pending := w.Submission
+	_, journalRecorded := s.state.Operations[w.PromptID]
+	if pending != nil && !journalRecorded {
+		previous := w
+		w.Task, w.PromptID, w.Submission = pending.BeforeTask, pending.BeforePromptID, nil
+		s.state.Workers[id] = w
+		if err := s.saveLocked(); err != nil {
+			s.state.Workers[id] = previous
+			v := s.workerViewLocked(previous)
+			s.mu.Unlock()
+			return v, err
+		}
+	}
+	if strings.HasPrefix(w.PromptID, "work-send-") && s.state.Operations[w.PromptID].Outcome == "unknown" {
+		op := w.PromptID
+		s.mu.Unlock()
+		if err := s.recoverOperation(ctx, op); err != nil {
+			return api.Task{ID: id, Status: "unknown", Outcome: "unknown"}, err
+		}
+		s.mu.Lock()
+		w = s.state.Workers[id]
+		if w.PromptID != op {
+			v := s.workerViewLocked(w)
+			s.mu.Unlock()
+			return v, errors.New("original worker receipt changed during reconciliation")
+		}
+		if s.state.Operations[op].Outcome == "unknown" {
+			v := s.workerViewLocked(w)
+			s.mu.Unlock()
+			return v, errors.New("original continuation receipt remains unknown")
+		}
+	}
+	projected := s.workerViewLocked(w)
+	needsReconcile := s.workerNeedsReconcileLocked(w)
+	receipt := s.state.Operations[w.PromptID]
+	needsTurn := w.Submission != nil && projected.Status == "pending" || w.Submission == nil && strings.HasPrefix(w.PromptID, "work-send-") && projected.Status == "unknown" && (receipt.Outcome == "accepted" || receipt.Outcome == "committed") && receipt.TurnID != ""
+	if !needsReconcile && !needsTurn {
 		v := s.workerViewLocked(w)
 		s.mu.Unlock()
 		return v, nil
 	}
-	if w.Start != nil {
+	if w.Start != nil && needsReconcile {
 		v := s.workerViewLocked(w)
 		s.mu.Unlock()
 		return v, errors.New("original worker start receipt still needs reconciliation")
 	}
-	projected := s.workerViewLocked(w)
 	c, sid, generation, instance, connected := s.client, w.Binding.SessionId, s.generation, s.state.InstanceID, s.connected
 	before := s.state.Views[sid]
 	var observed uint64
@@ -301,7 +397,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	if state.SessionId != sid {
 		return projected, errors.New("original worker state mismatch")
 	}
-	if expectedTurn != "" && value(state.Run.TurnId) != expectedTurn {
+	if expectedTurn != "" && value(state.Run.TurnId) != expectedTurn && !needsTurn {
 		return projected, errors.New("original worker turn is not the current projected turn")
 	}
 	if state.Run.Active == nil && !workerNativeActive(state) {
@@ -322,8 +418,45 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 			return s.workerViewLocked(current), err
 		}
 	}
-	if s.client != c || !s.connected || s.closed || s.generation != generation || s.state.InstanceID != instance || !sameWorkerOwner(w, current) || current.Start != nil || !s.workerNeedsReconcileLocked(current) || p != before || p != nil && (p.Observed != observed || !bytes.Equal(currentState, previous)) {
+	if s.client != c || !s.connected || s.closed || s.generation != generation || s.state.InstanceID != instance || !sameWorkerOwner(w, current) || current.Start != nil || s.workerViewLocked(current).Status != projected.Status || p != before || p != nil && (p.Observed != observed || !bytes.Equal(currentState, previous)) {
 		return s.workerViewLocked(current), errors.New("original worker or projection changed; retirement refused")
+	}
+	if needsTurn {
+		created := p == nil
+		if p == nil {
+			p = &view{Items: []api.Item{}, Seen: map[string]bool{}}
+			s.state.Views[sid] = p
+		}
+		prior := p.State
+		p.State = state
+		p.Observed++
+		current.Activity = "idle"
+		if workerNativeActive(state) {
+			current.Activity = "active"
+		} else if state.Run.Active != nil && s.workerViewLocked(current).Status == "unknown" && (current.Submission != nil && current.Submission.BeforeTurn != value(state.Run.TurnId) || current.Submission == nil && receipt.TurnID == value(state.Run.TurnId)) {
+			current.Retired = true
+			current.Task.Status = "unavailable"
+		}
+		s.state.Workers[id] = current
+		if err := s.saveLocked(); err != nil {
+			if created {
+				delete(s.state.Views, sid)
+			} else {
+				p.State = prior
+				p.Observed--
+			}
+			s.state.Workers[id] = w
+			return projected, err
+		}
+		return s.workerViewLocked(current), nil
+	}
+	if strings.HasPrefix(current.PromptID, "work-send-") {
+		receipt := s.state.Operations[current.PromptID]
+		if receipt.Outcome == "unknown" || receipt.Outcome == "accepted" || receipt.Outcome == "committed" {
+			if current.Submission == nil && (receipt.TurnID == "" || receipt.TurnID != value(state.Run.TurnId)) || current.Submission != nil && !current.Submission.Steering && current.Submission.BeforeTurn == value(state.Run.TurnId) || receipt.TurnID != "" && receipt.TurnID != value(state.Run.TurnId) {
+				return s.workerViewLocked(current), errors.New("original continuation generation is not confirmed idle")
+			}
+		}
 	}
 	previousWorker := current
 	if workerNativeActive(state) {
@@ -351,11 +484,53 @@ func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
 func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.state.Workers[in.ID]; !ok {
+	w, ok := s.state.Workers[in.ID]
+	op := "work-send-" + digest([]byte(in.RequestID))
+	if !ok || w.PromptID != op {
 		return false
 	}
-	_, ok := s.state.Operations["work-send-"+digest([]byte(in.RequestID))]
+	_, ok = s.state.Operations[op]
 	return ok
+}
+
+func (s *Session) beginWorkerSubmission(w worker, op string, steer bool) (worker, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := w
+	before := s.workerViewLocked(w)
+	w.Submission = &workerSubmission{OperationID: op, BeforePromptID: w.PromptID, BeforeTurn: observedTurn(s.state.Views[w.Binding.SessionId]), BeforeTask: before, Steering: steer}
+	w.PromptID = op
+	w.Task.Status, w.Task.Outcome, w.Task.Result = "unknown", "unknown", ""
+	s.state.Workers[w.Task.ID] = w
+	if err := s.saveLocked(); err != nil {
+		s.state.Workers[w.Task.ID] = previous
+		return previous, err
+	}
+	s.bumpLocked()
+	return w, nil
+}
+
+func (s *Session) finishWorkerSubmission(w worker, result wire.CommandResult, callErr error) (api.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := w
+	switch result.Outcome {
+	case "rejected", "conflicted":
+		w.Task = w.Submission.BeforeTask
+		w.Task.Outcome = "rejected"
+		w.Submission = nil
+	case "accepted", "committed":
+		w.Task.Status, w.Task.Outcome, w.Stopped = "pending", "accepted", false
+	default:
+		w.Task.Status, w.Task.Outcome = "unknown", "unknown"
+	}
+	s.state.Workers[w.Task.ID] = w
+	if err := s.saveLocked(); err != nil {
+		s.state.Workers[w.Task.ID] = previous
+		return s.workerViewLocked(previous), errors.Join(callErr, err)
+	}
+	s.bumpLocked()
+	return s.workerViewLocked(w), callErr
 }
 
 func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
@@ -368,44 +543,48 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	s.mu.Lock()
 	w, ok := s.state.Workers[in.ID]
 	v := s.state.Views[w.Binding.SessionId]
+	op := "work-send-" + digest([]byte(in.RequestID))
+	_, retry := s.state.Operations[op]
 	busy := v != nil && (value(v.State.Run.Active) || v.State.Approval.Active != nil)
-	unresolved := s.workerNeedsReconcileLocked(w) || w.Start != nil
+	projected := s.workerViewLocked(w)
+	unresolved := projected.Status == "unknown" || projected.Status == "pending" && !busy || w.Start != nil
 	s.mu.Unlock()
 	if !ok || w.Binding.SessionId == "" || v == nil {
 		return api.Task{}, errors.New("任务未就绪")
 	}
-	if unresolved || w.Retired {
-		return w.Task, errors.New("task retired or original receipt unconfirmed; continuation refused")
-	}
 	sid := w.Binding.SessionId
-	op := "work-send-" + digest([]byte(in.RequestID))
-	s.mu.Lock()
-	_, retry := s.state.Operations[op]
-	s.mu.Unlock()
-	if w.Native || s.isSteeringRetry(op) || busy && !retry {
+	if retry && w.PromptID == op && w.Native {
 		res, err := s.submitNativeInput(ctx, sid, op, in.Prompt, nil, busy)
-		w.Task.Outcome = productOutcome(res.Outcome)
-		if succeeded(res.Outcome) {
-			w.Stopped = false
+		projected.Outcome = productOutcome(res.Outcome)
+		if res.Outcome == "unknown" && err == nil {
+			err = errors.New("original request receipt remains unknown")
 		}
-		if !busy {
-			w.PromptID = op
+		return projected, err
+	}
+	if unresolved || w.Retired {
+		return projected, errors.New("task retired or original receipt unconfirmed; continuation refused")
+	}
+	if retry {
+		return projected, errors.New("original request receipt already exists; read the exact request before continuing")
+	}
+	if w.Native || s.isSteeringRetry(op) || busy && !retry {
+		w, e = s.beginWorkerSubmission(w, op, busy)
+		if e != nil {
+			return projected, e
 		}
-		return w.Task, errors.Join(err, s.saveWorker(w))
+		res, err := s.submitNativeInput(ctx, sid, op, in.Prompt, nil, busy)
+		return s.finishWorkerSubmission(w, res, err)
 	}
 	g, e := s.createGrant(ctx, sid, "continue-"+digest([]byte(in.RequestID)), call.Source.OperationId)
 	if e != nil {
 		return w.Task, e
 	}
+	w, e = s.beginWorkerSubmission(w, op, false)
+	if e != nil {
+		return projected, e
+	}
 	res, e := s.command(ctx, op, "/application/sessions/"+idPath(sid)+"/prompt", wire.ApplicationPromptRequest{OperationId: &op, SessionId: &sid, SourceKind: "authorized_background", GrantId: &g.Id, Input: &in.Prompt})
-	s.mu.Lock()
-	w.Stopped = false
-	w.Task.Outcome = productOutcome(res.Outcome)
-	w.PromptID = op
-	s.state.Workers[in.ID] = w
-	save := s.saveLocked()
-	s.mu.Unlock()
-	return w.Task, errors.Join(e, save)
+	return s.finishWorkerSubmission(w, res, e)
 }
 func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 	s.step.Lock()
