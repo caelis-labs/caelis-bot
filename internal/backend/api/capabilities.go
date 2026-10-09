@@ -119,13 +119,13 @@ type ToolConnection struct {
 	BuiltinSkillRoots []string
 }
 
-// PluginConfigurator applies Bot-owned package selection at the Runtime's
-// documented admission boundary. Worker execution never receives this port.
+// PluginConfigurator applies Bot-owned package selection in the Runtime.
+// Worker execution never receives this port.
 type PluginConfigurator interface {
 	UpdateBotPlugins(context.Context, plugins.Selection) error
-	// Hold the Runtime's turn-admission lock through application and durable
-	// Bot state confirmation. The supplied apply function already owns it.
-	WithBotPluginAdmission(func(func(context.Context, plugins.Selection) error) error) error
+	// Serialize one automatic projection with the Runtime's current turn.
+	// The host can commit package state independently while this waits.
+	WithBotPluginAdmission(context.Context, func(func(context.Context, plugins.Selection) error) error) error
 	BotPluginHealth(context.Context) []plugins.Issue
 }
 
