@@ -110,7 +110,6 @@ type Service struct {
 	openReleasePage     func() error
 	updatePreferences   func() UpdatePreferences
 	setAutomaticUpdates func(bool) error
-	setUpdateChannel    func(string) error
 	checkNativeUpdates  func() error
 	loginAtLogin        loginAtLoginController
 	loginAtLoginMu      sync.Mutex

@@ -4,7 +4,7 @@
 
 ## 下载与校验
 
-从 [GitHub Latest](https://github.com/caelis-labs/caelis-bot/releases/latest) 选择 Stable，下载前核对其 tag 与 [macOS Stable 已签名清单](https://releases.caelis.dev/caelis-bot/latest.json)一致。若不同，或缺少匹配的 DMG 和校验文件，暂停安装，不使用默认旧版。目前只发行 Apple Silicon（`arm64`），尚未发行 Intel 包。CI 在 macOS 14 构建；交互实机验收范围为 Apple Silicon / macOS 27，不能据此声称所有旧系统都已验收。历史 preview 包不再作为当前安装入口。
+从 [GitHub Latest](https://github.com/caelis-labs/caelis-bot/releases/latest) 下载前核对其 tag 与 [macOS 已签名清单](https://releases.caelis.dev/caelis-bot/latest.json)一致。若不同，或缺少匹配的 DMG 和校验文件，暂停安装，不使用默认旧版。目前只发行 Apple Silicon（`arm64`），尚未发行 Intel 包。CI 在 macOS 14 构建；交互实机验收范围为 Apple Silicon / macOS 27，不能据此声称所有旧系统都已验收。
 
 将 `.dmg` 及同名 `.dmg.sha256` 下载到“下载”目录。下面整段命令可直接粘贴：选择最近下载的 Caelis DMG，核验其对应校验值，只读挂载，安装到 `~/Applications`。安装前先退出已运行的 Caelis Bot；应用仍运行或目标已存在时会停止。升级时先将旧 `.app` 移到废纸篓，保留 `~/Library/Application Support/Caelis Bot/` 中的应用数据。
 
@@ -58,13 +58,6 @@ open "$HOME/Applications/Caelis Bot.app"
 
 ## 更新
 
-接入更新器的发行版每天自动检查；“设置 → 更新”可选择 Stable 或 Dev、关闭自动检查，也可从状态栏点击
-“检查更新”。确认原生更新窗口后，应用下载、验证签名并安装新版；有工作、待审批或
-结果未知的操作时等待处理完成再重启，保留对话、Notebook 和设置。
+接入更新器的正式版每天检查更新。在“设置 → 更新”可关闭或开启自动检查，也可立即检查。确认原生更新窗口后，应用下载并安装签名的更高版本；未完成工作和待决定事项会先安全交接，对话、Notebook 与设置保留在原数据目录。
 
-已发布的 v0.1.0、预览版和开发版仍手动安装。按上面的说明安装首个带更新器的正式版后，
-后续即可在应用内更新。Stable 只接收验收通过的正式版，Dev 只接收 Dev 预发行版。切换渠道保留同一安装、凭据、任务及数据。Sparkle 只提供更高构建号；若当前 Dev 构建高于 Stable feed，切回 Stable 会等待更高的 Stable 构建，不会静默降级。R2 保留旧版本不可变制品，以便缓存的签名 appcast 仍能下载其准确 DMG；Stable 和 Dev 的可变指针及 appcast 分别隔离。
-
-## 显式安装 Dev 发行版
-
-在[发行历史](https://github.com/caelis-labs/caelis-bot/releases)选择已发布的 `vX.Y.Z-dev.N` **预发行版**，像上文一样核对 DMG 及同名 `.sha256`，只读挂载并验证 Developer ID、公证和 Gatekeeper。DMG 标识仍为 `dev.caelis.bot.dmg`，应用标识仍为 `dev.caelis.bot`。退出 Caelis Bot 后，用 **Caelis Bot.app** 替换 `~/Applications` 中的旧版。Dev 与 Stable 共用 `~/Library/Application Support/Caelis Bot`、凭据、权限、任务和会话。首次安装 Dev 默认选 Dev 更新；替换应用会保留此前明确选择的渠道。可在“设置 → 更新”选择渠道；Dev 读取[独立签名 appcast](https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/appcast.xml)，Stable 读取 Stable appcast。切换渠道不会安装较旧版本。单独的本地 `Caelis Bot Dev.app` 只是开发构建，不是可安装 Dev 发行版。
+已发布的 v0.1.0 需要手动升级一次才能接入更新器。R2 保留旧版本不可变 DMG，使缓存的签名 appcast 仍可下载其准确制品。本地 `Caelis Bot Dev.app` 开发构建不使用公开更新源，也不会替换正式安装版。

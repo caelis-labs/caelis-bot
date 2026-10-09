@@ -4,27 +4,24 @@ import {generateKeyPairSync, sign} from 'node:crypto';
 import {mkdtempSync, readFileSync, writeFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {publish, cleanupKeys, compareStable, comparePreview} from './publish-r2.mjs';
+import {publish, cleanupKeys, compareStable} from './publish-r2.mjs';
 import {digest, verifyDirectory} from './update-manifest.mjs';
 import {validateUpdateKey} from './configure-updates.mjs';
 import {receiptFor} from './publication.mjs';
-import {releaseVersion} from './release-version.mjs';
 
-function fixture(fn, {preview=false, dev=false}={}) {
+function fixture(fn, {legacyBuild=false}={}) {
   const directory=mkdtempSync(join(tmpdir(),'bot-updates-test-'));
   const {publicKey,privateKey}=generateKeyPairSync('ed25519');
   const key=publicKey.export({format:'der',type:'spki'}).subarray(-32).toString('base64');
-  const tag=dev?'v1.2.3-dev.1':preview?'v1.2.3-preview.1':'v1.2.3', file=`Caelis-Bot-${tag.slice(1)}-macos-arm64.dmg`, source='a'.repeat(40);
+  const tag='v1.2.3', file=`Caelis-Bot-${tag.slice(1)}-macos-arm64.dmg`, source='a'.repeat(40);
   const bytes=Buffer.from('notarized DMG fixture');
-  const bundleVersion=preview?'1.2.3':releaseVersion('1.2.3',tag).bundleVersion;
-  const artifactURL=dev?`https://releases.caelis.dev/caelis-bot/dev/macos/arm64/${tag}/${file}`:`https://releases.caelis.dev/caelis-bot/releases/${tag}/${file}`;
-  const body=Buffer.from(`<rss><channel><item><sparkle:version>${dev?bundleVersion:'1.2.3'}</sparkle:version><enclosure url="${artifactURL}" length="${bytes.length}" sparkle:edSignature="${sign(null,bytes,privateKey).toString('base64')}"></enclosure></item></channel></rss>`);
+  const body=Buffer.from(`<rss><channel><item><sparkle:version>${legacyBuild?'1.2.3999':'1.2.3'}</sparkle:version><enclosure url="https://releases.caelis.dev/caelis-bot/releases/${tag}/${file}" length="${bytes.length}" sparkle:edSignature="${sign(null,bytes,privateKey).toString('base64')}"></enclosure></item></channel></rss>`);
   const xml=Buffer.concat([body,Buffer.from(`<!-- sparkle-signatures:\nedSignature: ${sign(null,body,privateKey).toString('base64')}\nlength: ${body.length}\n-->\n`)]);
   writeFileSync(join(directory,file),bytes);
   writeFileSync(join(directory,`${file}.sha256`),`${digest(bytes)}  ${file}\n`);
-  if(!preview) writeFileSync(join(directory,'appcast.xml'),xml);
+  writeFileSync(join(directory,'appcast.xml'),xml);
   const manifest={schema:1,tag,version:tag.slice(1),file,source,length:bytes.length,sha256:digest(bytes),
-    ...(dev?{channel:'dev',bundleVersion,appcastSHA256:digest(xml)}:preview?{channel:'preview'}:{appcastSHA256:digest(xml)})};
+    appcastSHA256:digest(xml),...(legacyBuild?{bundleVersion:'1.2.3999'}:{})};
   const metadata=Buffer.from(JSON.stringify(manifest));
   writeFileSync(join(directory,'latest.json'),metadata);
   writeFileSync(join(directory,'latest.json.sig'),sign(null,metadata,privateKey).toString('base64'));
@@ -32,7 +29,7 @@ function fixture(fn, {preview=false, dev=false}={}) {
   const objects=new Map([['caelis-bot/releases/v1.0.0/Caelis-Bot-1.0.0-macos-arm64.dmg',Buffer.from('old')],['releases/v1.0.0/caelis.tar.gz',Buffer.from('core')]]);
   const calls=[];
   const controls={};
-  const receipt=receiptFor(directory,{tag,source,os:'macos',arch:'arm64',channel:dev?'dev':preview?'preview':'stable',validation:'developer-id-notarized-stapled-gatekeeper'});
+  const receipt=receiptFor(directory,{tag,source,os:'macos',arch:'arm64',channel:'stable',validation:'developer-id-notarized-stapled-gatekeeper'});
   const receiptName=receipt.receipt;
   let checks=0;
   const run=(cmd,args)=>{
@@ -42,7 +39,7 @@ function fixture(fn, {preview=false, dev=false}={}) {
         writeFileSync(join(args[args.indexOf('--dir')+1],receiptName),JSON.stringify(receipt));
         return '';
       }
-      if(args[1].includes('/releases/tags/')) return JSON.stringify({tag_name:tag,draft:++checks===2&&controls.moved,prerelease:preview||dev,assets:[{name:receiptName}]});
+      if(args[1].includes('/releases/tags/')) return JSON.stringify({tag_name:tag,draft:++checks===2&&controls.moved,prerelease:false,assets:[{name:receiptName}]});
       return JSON.stringify({sha:controls.source??source});
     }
     const value=name=>args[args.indexOf(name)+1];
@@ -76,6 +73,10 @@ test('R2 commits verified bytes and retains old immutable URLs for cached client
   assert.ok(!f.calls.some(c=>c[2]==='delete-object'));
   assert.match(publish(f.directory,f.env,f.run),/Published/);
 }));
+test('signed legacy stable build numbers remain verifiable for R2 retry',()=>fixture(f=>{
+  assert.equal(verifyDirectory(f.directory,f.tag,f.key).bundleVersion,'1.2.3999');
+  assert.match(publish(f.directory,f.env,f.run),/Published/);
+},{legacyBuild:true}));
 
 for(const stage of ['caelis-bot/releases/v1.2.3/Caelis-Bot-1.2.3-macos-arm64.dmg','caelis-bot/appcast.xml','caelis-bot/latest.json']) {
   test(`failed upload ${stage} preserves old release`,()=>fixture(f=>{
@@ -97,40 +98,6 @@ test('release becoming unpublished during upload preserves the active feed',()=>
   assert.ok(!f.objects.has('caelis-bot/appcast.xml'));
   assert.ok(!f.calls.some(c=>c[2]==='delete-object'));
 }));
-test('signed preview publishes only its channel and preserves stable aliases and cached Mac versions',()=>fixture(f=>{
-  const stable=Buffer.from('previous stable pointer');
-  f.objects.set('caelis-bot/latest.json',stable);
-  assert.match(publish(f.directory,f.env,f.run),/preview feed/);
-  assert.ok(f.objects.has(`caelis-bot/previews/macos/arm64/${f.tag}/${f.file}`));
-  assert.ok(f.objects.has('caelis-bot/feeds/macos/arm64/preview/latest.json'));
-  assert.deepEqual(f.objects.get('caelis-bot/latest.json'),stable);
-  assert.ok(!f.objects.has('caelis-bot/appcast.xml'));
-  assert.match(publish(f.directory,f.env,f.run),/preview feed/);
-  assert.ok(!f.calls.some(c=>c[2]==='delete-object'));
-},{preview:true}));
-test('installable Dev publishes its signed appcast and immutable bytes without changing Stable',()=>fixture(f=>{
-  const stable=Buffer.from('previous stable pointer');
-  f.objects.set('caelis-bot/latest.json',stable);
-  assert.match(publish(f.directory,f.env,f.run),/dev feed/);
-  assert.ok(f.objects.has(`caelis-bot/dev/macos/arm64/${f.tag}/${f.file}`));
-  assert.ok(f.objects.has('caelis-bot/feeds/macos/arm64/dev/latest.json'));
-  assert.ok(f.objects.has('caelis-bot/feeds/macos/arm64/dev/appcast.xml'));
-  assert.deepEqual(f.objects.get('caelis-bot/latest.json'),stable);
-  assert.ok(!f.objects.has('caelis-bot/appcast.xml'));
-},{dev:true}));
-test('preview rollback, signature mismatch and immutable retry fail closed',()=>fixture(f=>{
-  const newer={...f.manifest,tag:'v1.2.4-preview.1',version:'1.2.4-preview.1',file:'Caelis-Bot-1.2.4-preview.1-macos-arm64.dmg'};
-  f.objects.set('caelis-bot/feeds/macos/arm64/preview/latest.json',Buffer.from(JSON.stringify(newer)));
-  assert.match(publish(f.directory,f.env,f.run),/Newer R2/);
-  assert.ok(!f.calls.some(c=>c[2]==='cp'));
-  f.objects.delete('caelis-bot/feeds/macos/arm64/preview/latest.json');
-  const key=`caelis-bot/previews/macos/arm64/${f.tag}/${f.file}`;
-  f.objects.set(key,Buffer.from('different'));
-  assert.throws(()=>publish(f.directory,f.env,f.run),/immutable bytes/);
-  f.objects.delete(key);
-  writeFileSync(join(f.directory,'latest.json.sig'),'wrong-signature');
-  assert.throws(()=>publish(f.directory,f.env,f.run),/signature/);
-},{preview:true}));
 test('R2 refuses rollback even if GitHub latest was moved backwards',()=>fixture(f=>{
   f.objects.set('caelis-bot/latest.json',Buffer.from(JSON.stringify({...f.manifest,tag:'v2.0.0',version:'2.0.0',file:'Caelis-Bot-2.0.0-macos-arm64.dmg'})));
   assert.match(publish(f.directory,f.env,f.run),/Newer R2/);
@@ -164,9 +131,6 @@ test('cleanup ownership and stable numeric ordering',()=>{
   assert.throws(()=>cleanupKeys(['caelis-bot/releases/v1.0.0/../../elsewhere'],'v1.2.3'));
   assert.equal(compareStable('v1.10.0','v1.9.9'),1);
   assert.equal(compareStable('v1.2.3','v1.2.3'),0);
-  assert.equal(comparePreview('v1.2.3-preview.10','v1.2.3-preview.9'),1);
-  assert.equal(comparePreview('v1.2.4-preview.1','v1.2.3-preview.99'),1);
-  assert.equal(comparePreview('v1.2.3-rc.1','v1.2.3-beta.9'),1);
   assert.equal(validateUpdateKey('',false),'');
   assert.throws(()=>validateUpdateKey('',true));
 });

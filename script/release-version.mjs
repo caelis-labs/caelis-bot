@@ -2,43 +2,24 @@ import {readFileSync} from 'node:fs'
 import {pathToFileURL} from 'node:url'
 
 // These values also become file names, plist fields and linker arguments.
-const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*))?$/
+const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 function validVersion(version) {
   const match = versionPattern.exec(version)
-  return match && match[0] === version && !(match[4] ?? '').split('.').some(part => /^0\d+$/.test(part))
+  return match && match[0] === version
 }
 export function validateTag(tag) {
   if (typeof tag !== 'string' || !tag.startsWith('v') || !validVersion(tag.slice(1))) {
-    throw new Error('Expected a v-prefixed semantic release tag without build metadata')
+    throw new Error('Expected a v-prefixed stable semantic release tag')
   }
   return tag.slice(1)
 }
-export function releaseChannel(tag) {
-  const version = validateTag(tag)
-  return /-dev\.[1-9]\d*$/.test(version) ? 'dev' : version.includes('-') ? 'preview' : 'stable'
-}
 export function releaseVersion(version, tag) {
   if (!validVersion(version)) throw new Error('Invalid package version')
-  if (tag) {
-    const tagged = validateTag(tag)
-    if (tagged !== version && !new RegExp(`^${version.replaceAll('.', '\\.')}\\-dev\\.[1-9]\\d*$`).test(tagged)) {
-      throw new Error('Release tag does not match package.json')
-    }
+  if (tag && validateTag(tag) !== version) throw new Error('Release tag does not match package.json')
+  return {
+    version: tag ? version : `${version}-dev`,
+    bundleVersion: version,
   }
-  const published = tag ? validateTag(tag) : null;
-  const channel = published ? releaseChannel(tag) : 'local';
-  const base = version.split('-')[0];
-  let bundleVersion = base;
-  if (channel === 'stable' || channel === 'dev') {
-    const [major, minor, patch] = base.split('.').map(Number);
-    const iteration = channel === 'stable' ? 999 : Number(published.match(/-dev\.(\d+)$/)[1]);
-    if (![major, minor, patch].every(Number.isSafeInteger) ||
-        !Number.isSafeInteger(patch * 1000 + iteration) || channel === 'dev' && iteration > 998) {
-      throw new Error('Release version exceeds supported Sparkle build range (Dev 1..998)');
-    }
-    bundleVersion = `${major}.${minor}.${patch * 1000 + iteration}`;
-  }
-  return {version: published ?? `${version}${version.includes('-') ? '.' : '-'}dev`, bundleVersion};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)))

@@ -11,7 +11,7 @@ function fixture(fn) {
   const directory = mkdtempSync(join(tmpdir(), 'publication-test-'));
   const tag = 'v1.2.3', source = 'a'.repeat(40);
   const mac = {tag, source, os:'macos', arch:'arm64', channel:'stable', validation:'developer-id-notarized-stapled-gatekeeper'};
-  const win = {tag, source, os:'windows', arch:'amd64', channel:'preview', validation:'windows-11-native-accepted', artifact:'Caelis-Bot-1.2.3-windows-amd64.msix'};
+  const win = {tag, source, os:'windows', arch:'amd64', channel:'stable', validation:'windows-11-native-accepted', artifact:'Caelis-Bot-1.2.3-windows-amd64.msix'};
   const dmg = Buffer.from('Mac DMG fixture');
   const appcast = Buffer.from('signed appcast fixture');
   const macFile = 'Caelis-Bot-1.2.3-macos-arm64.dmg';
@@ -23,7 +23,7 @@ function fixture(fn) {
   const winBytes = Buffer.from('Windows package fixture');
   writeFileSync(join(directory,win.artifact),winBytes);
   writeFileSync(join(directory,`${win.artifact}.sha256`),`${digest(winBytes)}  ${win.artifact}\n`);
-  writeFileSync(join(directory,windowsAcceptanceName(tag,'preview')),JSON.stringify({schema:1,tag,source,platform:'windows-amd64',channel:'preview',package:{name:win.artifact,sha256:digest(winBytes)},signing:{authenticode:true,timestamp:true,thumbprint:'a'.repeat(40)},checks:Object.fromEntries([
+  writeFileSync(join(directory,windowsAcceptanceName(tag,'stable')),JSON.stringify({schema:1,tag,source,platform:'windows-amd64',channel:'stable',package:{name:win.artifact,sha256:digest(winBytes)},signing:{authenticode:true,timestamp:true,thumbprint:'a'.repeat(40)},checks:Object.fromEntries([
     'tray','petVisible','petDrag','bubble','chat','settings','history','approvals','attachments','runtime','memory','tasks','telegramProtocol','desktopWorld','namedPipePeer','credentialManager','ownedProcesses','unicodePaths','webview2','cleanInstall','upgrade','uninstall','dataPreserved',
   ].map(key=>[key,true]))}));
   const assets = new Map();
@@ -72,7 +72,7 @@ function fixture(fn) {
   finally {rmSync(directory,{recursive:true,force:true});}
 }
 
-test('first verified platform publishes; late Windows preview appends without changing release metadata',()=>fixture(f=>{
+test('first verified platform publishes; late Windows platform appends without changing release metadata',()=>fixture(f=>{
   const mac=publishPlatform(f.directory,f.mac,f.run);
   assert.equal(validateReceipt(mac).state,'published');
   assert.equal(f.release.draft,false);
@@ -81,7 +81,7 @@ test('first verified platform publishes; late Windows preview appends without ch
   assert.equal(f.calls.filter(call=>call[1]==='edit').length,before);
   assert.equal(f.release.prerelease,false);
   assert.ok(f.assets.has(mac.receipt));
-  assert.ok(f.assets.has('Caelis-Bot-1.2.3-windows-amd64-preview.publication.json'));
+  assert.ok(f.assets.has('Caelis-Bot-1.2.3-windows-amd64-stable.publication.json'));
 }));
 
 test('draft lookup 404 recovers only the exact draft before immutable publication',()=>fixture(f=>{
@@ -107,7 +107,7 @@ test('interleaved platform publishers reconcile one shared draft and retain both
   assert.equal(f.release.prerelease,false);
   assert.equal(f.calls.filter(call=>call[1]==='release' && call[2]==='edit').length,1);
   assert.ok(f.assets.has('Caelis-Bot-1.2.3-macos-arm64-stable.publication.json'));
-  assert.ok(f.assets.has('Caelis-Bot-1.2.3-windows-amd64-preview.publication.json'));
+  assert.ok(f.assets.has('Caelis-Bot-1.2.3-windows-amd64-stable.publication.json'));
 }));
 
 test('retry reconciles existing bytes and an unknown upload through the original release',()=>fixture(f=>{

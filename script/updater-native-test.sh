@@ -18,9 +18,6 @@ cat > "$directory/main.m" <<'OBJC'
 #import <Cocoa/Cocoa.h>
 #include "updater_darwin.m"
 #include <assert.h>
-@protocol BotVersionComparison
-- (NSComparisonResult)compareVersion:(NSString *)a toVersion:(NSString *)b;
-@end
 static int preparations;
 void botUpdaterPrepare(void) { preparations++; }
 void botUpdaterAborted(void) {}
@@ -58,26 +55,12 @@ int main(int argc, const char *argv[]) {
     }
     [NSUserDefaults.standardUserDefaults removePersistentDomainForName:NSBundle.mainBundle.bundleIdentifier];
     assert(bot_updater_start() == 1);
-    id<BotVersionComparison> comparator = (id<BotVersionComparison>)[NSClassFromString(@"SUStandardVersionComparator") new];
-    assert(comparator);
-    assert([comparator compareVersion:@"1.2.3001" toVersion:@"1.2.3002"] < 0);
-    assert([comparator compareVersion:@"1.2.3002" toVersion:@"1.2.3999"] < 0);
-    assert([comparator compareVersion:@"1.2.3999" toVersion:@"1.2.4001"] < 0);
-    assert([comparator compareVersion:@"1.2.3" toVersion:@"1.2.3001"] < 0);
-    assert(!bot_updater_dev_channel());
-    assert([[updateDelegate feedURLStringForUpdater:controller.updater] isEqualToString:@"https://releases.caelis.dev/caelis-bot/appcast.xml"]);
-    assert(bot_updater_set_dev_channel(true));
-    assert(bot_updater_dev_channel());
-    assert([[updateDelegate feedURLStringForUpdater:controller.updater] isEqualToString:@"https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/appcast.xml"]);
-    assert(bot_updater_set_dev_channel(false));
-    assert(!bot_updater_dev_channel());
     assert(bot_updater_automatic());
     bot_updater_set_automatic(false);
     assert(!bot_updater_automatic());
     __block int installs = 0;
     assert([updateDelegate updater:nil shouldPostponeRelaunchForUpdate:nil untilInvokingBlock:^{ installs++; }]);
     assert(preparations == 1 && installs == 0 && bot_updater_waiting());
-    assert(!bot_updater_set_dev_channel(true));
     [updateDelegate updater:nil didAbortWithError:nil];
     assert(!bot_updater_waiting() && !bot_updater_claim() && !bot_updater_finish() && installs == 0);
     [updateDelegate updater:nil shouldPostponeRelaunchForUpdate:nil untilInvokingBlock:^{ installs++; }];

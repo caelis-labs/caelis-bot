@@ -54,14 +54,7 @@ func startMacUpdater(s *Service, prepare func() error, cancel func(), close func
 	s.mu.Lock()
 	s.updatePreferences = func() UpdatePreferences {
 		preferences := application.InvokeSyncWithResult(func() UpdatePreferences {
-			channel := "local"
-			if u.available {
-				channel = "stable"
-				if bool(C.bot_updater_dev_channel()) {
-					channel = "dev"
-				}
-			}
-			return UpdatePreferences{Available: u.available, Automatic: bool(C.bot_updater_automatic()), Waiting: bool(C.bot_updater_waiting()), Channel: channel}
+			return UpdatePreferences{Available: u.available, Automatic: bool(C.bot_updater_automatic()), Waiting: bool(C.bot_updater_waiting())}
 		})
 		u.statusMu.Lock()
 		preferences.State, preferences.Message = u.state, u.message
@@ -73,15 +66,6 @@ func startMacUpdater(s *Service, prepare func() error, cancel func(), close func
 			return errors.New(s.text("native.autoUpdateDisabledBuild", nil))
 		}
 		application.InvokeSync(func() { C.bot_updater_set_automatic(C.bool(enabled)) })
-		return nil
-	}
-	s.setUpdateChannel = func(channel string) error {
-		if !u.available || (channel != "stable" && channel != "dev") {
-			return errors.New("Update channel is unavailable")
-		}
-		if !application.InvokeSyncWithResult(func() bool { return bool(C.bot_updater_set_dev_channel(C.bool(channel == "dev"))) }) {
-			return errors.New(s.text("native.updateInProgress", nil))
-		}
 		return nil
 	}
 	s.checkNativeUpdates = func() error {

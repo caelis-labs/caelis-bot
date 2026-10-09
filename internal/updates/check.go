@@ -16,7 +16,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 )
 
-// Version is set by the bundle build from package.json, including the channel.
+// Version is set by the bundle build from package.json.
 var Version = "dev"
 
 const ReleasePage = "https://github.com/caelis-labs/caelis-bot/releases"
@@ -38,30 +38,22 @@ type release struct {
 }
 
 func Check(ctx context.Context, loc ...i18n.Locale) Result {
-	return CheckChannel(ctx, "stable", loc...)
-}
-func CheckChannel(ctx context.Context, channel string, loc ...i18n.Locale) Result {
-	return checkTargetChannel(ctx, &http.Client{Timeout: 12 * time.Second}, Version, runtime.GOOS, runtime.GOARCH, channel, loc...)
+	return checkTarget(ctx, &http.Client{Timeout: 12 * time.Second}, Version, runtime.GOOS, runtime.GOARCH, loc...)
 }
 func check(ctx context.Context, client *http.Client, current, arch string, loc ...i18n.Locale) Result {
-	channel := "stable"
-	if strings.Contains(current, "-dev.") {
-		channel = "dev"
-	}
-	if strings.Contains(current, "-preview") {
-		channel = "preview"
-	}
-	return checkTargetChannel(ctx, client, current, "darwin", arch, channel, loc...)
+	return checkTarget(ctx, client, current, "darwin", arch, loc...)
 }
 func checkTarget(ctx context.Context, client *http.Client, current, targetOS, arch string, loc ...i18n.Locale) Result {
-	return checkTargetChannel(ctx, client, current, targetOS, arch, "stable", loc...)
-}
-func checkTargetChannel(ctx context.Context, client *http.Client, current, targetOS, arch, channel string, loc ...i18n.Locale) Result {
 	l := i18n.DefaultLocale
 	if len(loc) > 0 && loc[0] != "" {
 		l = loc[0]
 	}
 	result := Result{State: "unavailable", Current: current, Message: i18n.Text(l, "host.updatesCheckUnavailable", nil)}
+	installed := parseVersion(current)
+	if installed == nil || installed[3] != "" {
+		result.Message = i18n.Text(l, "host.updatesDevBuild", nil)
+		return result
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return result
@@ -84,19 +76,11 @@ func checkTargetChannel(ctx context.Context, client *http.Client, current, targe
 	if json.Unmarshal(data, &releases) != nil {
 		return result
 	}
-	installed := parseVersion(current)
-	if installed == nil || installed[3] == "dev" || strings.HasSuffix(installed[3], ".dev") {
-		result.Message = i18n.Text(l, "host.updatesDevBuild", nil)
-		return result
-	}
 	assetSuffix := targetAssetSuffix(targetOS, arch)
 	var latest []string
 	for _, release := range releases {
 		v := parseVersion(release.Tag)
-		if release.Draft || v == nil || release.Prerelease != (v[3] != "") {
-			continue
-		}
-		if channel == "dev" && !strings.HasPrefix(v[3], "dev.") || channel == "preview" && !strings.HasPrefix(v[3], "preview") || channel != "dev" && channel != "preview" && v[3] != "" {
+		if release.Draft || release.Prerelease || v == nil || v[3] != "" {
 			continue
 		}
 		compatible := false

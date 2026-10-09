@@ -1,11 +1,11 @@
 import {execFileSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {compareStable} from './publish-r2.mjs';
-import {releaseChannel} from './release-version.mjs';
+import {validateTag} from './release-version.mjs';
 
 const repository = 'caelis-labs/caelis-bot';
 export function syncLatest(tag, run = (cmd, args) => execFileSync(cmd, args, {encoding:'utf8', stdio:['ignore','pipe','pipe']})) {
-  if (releaseChannel(tag) !== 'stable') throw new Error('Only Stable may set GitHub Latest');
+  validateTag(tag);
   const release = JSON.parse(run('gh', ['api', `repos/${repository}/releases/tags/${tag}`]));
   if (release.tag_name !== tag || release.draft || release.prerelease ||
       !release.assets?.some(asset => asset.name === `Caelis-Bot-${tag.slice(1)}-macos-arm64-stable.publication.json`)) {
