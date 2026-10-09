@@ -375,7 +375,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		s.mu.Unlock()
 		return api.Task{}, err
 	}
-	if t.Thread == "" || t.Pending != "" || s.taskView(t).Status == "unknown" || len(t.Requests) >= 100 {
+	if t.Thread == "" || t.Pending != "" || s.taskView(t).Status == "unknown" || s.taskView(t).Status == "pending" || len(t.Requests) >= 100 {
 		v := t.View
 		s.mu.Unlock()
 		return v, errors.New("请先核对该任务；结果未知的操作不会重复发送")

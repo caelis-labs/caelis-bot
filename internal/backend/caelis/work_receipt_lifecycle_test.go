@@ -2,6 +2,7 @@ package caelis
 
 import (
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -264,6 +265,18 @@ func TestAcceptedSteeringNeedsItsOwnNativeInput(t *testing.T) {
 	p.State.Run = wire.RunState{TurnId: pointer("same-turn"), Status: pointer("working"), Active: pointer(true)}
 	if got := s.WorkStates()[0].Task.Status; got != "pending" {
 		t.Fatal("old active projection admitted another request before steering input", got)
+	}
+	root := t.TempDir()
+	ledger := filepath.Join(root, "tasks.json")
+	m, err := tasks.Open(ledger, filepath.Join(root, "Tasks"), "caelis", s, s, s.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SendTask(authorizedWorkerCall(t.Context(), s), api.TaskMessage{ID: "task", RequestID: "different-steering-request", Prompt: "next action"}); err == nil {
+		t.Fatal("Manager admitted a new request before the accepted steering input")
+	}
+	if saved, err := os.ReadFile(ledger); err != nil || strings.Contains(string(saved), "different-steering-request") {
+		t.Fatal("Manager recorded a request it refused before dispatch", err)
 	}
 	p.Items = append(p.Items, api.Item{Kind: "user", RequestID: op, TurnKey: "same-turn"})
 	if got := s.WorkStates()[0].Task.Status; got != "working" {
