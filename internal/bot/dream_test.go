@@ -98,6 +98,60 @@ func TestLegacyUnknownReceiptNeverReplays(t *testing.T) {
 	}
 }
 
+func TestLegacyUnknownReceiptKeepsIdleBoundConversationUsable(t *testing.T) {
+	r, _, _ := fixture(t)
+	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	if err := r.ConfigureDream(v, ""); err != nil {
+		t.Fatal(err)
+	}
+	e := &legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, outcome: "unknown", state: api.ConversationState{Session: "old", Turn: "user-turn", Status: "completed", Observed: true, Idle: true}}
+	r.engine = e
+	r.dream.state.Attempt = &dreamAttempt{ID: "old-unknown-call", Session: "old", Outcome: "unknown"}
+	if err := r.dream.save(); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "new-user", Text: "Continue work"}, nil)
+	if err != nil || receipt.Outcome != "accepted" || len(e.submissions) != 1 || e.cancels != 0 || e.renewals != 0 || r.dream.state.Attempt.ID != "old-unknown-call" {
+		t.Fatal("old unknown receipt blocked Bot or was replayed", receipt, err, e.submissions, e.cancels, e.renewals)
+	}
+}
+
+func TestUnreadableRetiredDreamAndPrivateHandoffDoNotDisableBot(t *testing.T) {
+	r, _, _ := fixture(t)
+	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	legacyPath := filepath.Join(filepath.Dir(r.path), "dream-"+r.provider+".json")
+	handoffPath := filepath.Join(filepath.Dir(r.path), "handoff-"+r.provider+".json")
+	for _, path := range []string{legacyPath, handoffPath} {
+		if err := os.WriteFile(path, []byte("original unreadable bytes"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.ConfigureDream(v, ""); err != nil {
+		t.Fatal("unreadable retired record stopped Bot", err)
+	}
+	e := &fakeEngine{outcome: "accepted"}
+	r.engine = e
+	if receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "still-usable", Text: "Continue"}, nil); err != nil || receipt.Outcome != "accepted" || len(e.submissions) != 1 {
+		t.Fatal("conversation disabled", receipt, err)
+	}
+	if out := r.CallTool(t.Context(), "bot_schedule", []byte(`{"request":{"type":"context"}}`)); out.IsError {
+		t.Fatal("healthy Bot tool disabled", out)
+	}
+	for _, path := range []string{legacyPath, handoffPath} {
+		if raw, err := os.ReadFile(path); err != nil || string(raw) != "original unreadable bytes" {
+			t.Fatal("original unreadable receipt overwritten", path, err)
+		}
+	}
+}
+
 func TestLegacyCompletedHandoffMigratesPrivatelyWithoutDeletingNotebook(t *testing.T) {
 	r, _, _ := fixture(t)
 	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))

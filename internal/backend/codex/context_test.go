@@ -232,3 +232,75 @@ func TestRenewalRechecksActivityAfterNativeCreate(t *testing.T) {
 	}
 	s.run = "" // Synthetic external run has no fixture producer to interrupt.
 }
+
+func TestTerminalToolRenewalCommitsOriginalIDAndAllowsLaterDream(t *testing.T) {
+	s, f := sessionPair(t, "normal")
+	s.mu.Lock()
+	s.lastTurn = "terminal-turn"
+	s.runs["terminal-turn"] = "interrupted"
+	s.run = ""
+	s.state.CanSend = true
+	s.mu.Unlock()
+	starts := 0
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method == "thread/start" {
+			starts++
+			return map[string]any{"thread": nativeThread{ID: "fresh-thread-" + string(rune('0'+starts))}, "model": "native-default"}, true
+		}
+		return nil, false
+	}
+	f.mu.Unlock()
+	first := api.ToolInvocation{Provider: "codex", CallID: `"mcp-original-1"`, Session: "thread-native", Turn: "terminal-turn"}
+	newSession, err := s.RenewAfterTool(t.Context(), first)
+	if err != nil || newSession != "fresh-thread-1" || starts != 1 {
+		t.Fatal("original renewal failed", newSession, err, starts)
+	}
+	if duplicate, err := s.RenewAfterTool(t.Context(), first); err != nil || duplicate != newSession || starts != 1 {
+		t.Fatal("original tool call created duplicate thread", duplicate, err, starts)
+	}
+	s.mu.Lock()
+	s.lastTurn = "later-terminal-turn"
+	s.runs["later-terminal-turn"] = "interrupted"
+	s.state.CanSend = true
+	s.mu.Unlock()
+	second := api.ToolInvocation{Provider: "codex", CallID: `"mcp-original-2"`, Session: newSession, Turn: "later-terminal-turn"}
+	if later, err := s.RenewAfterTool(t.Context(), second); err != nil || later != "fresh-thread-2" || starts != 2 {
+		t.Fatal("committed record blocked a later explicit dream", later, err, starts)
+	}
+	restored := NewSession(s.opts)
+	if restored.binding.ThreadID != "fresh-thread-2" || restored.binding.RenewedBy != second.CallID || len(restored.binding.PastThreads) != 2 || restored.binding.ToolRenewal != nil {
+		t.Fatal("native renewal receipt not durable", restored.binding)
+	}
+}
+
+func TestTerminalToolUnknownCreateKeepsOriginalAttemptAcrossRestart(t *testing.T) {
+	s, f := sessionPair(t, "normal")
+	s.mu.Lock()
+	s.lastTurn = "terminal-turn"
+	s.runs["terminal-turn"] = "interrupted"
+	s.run = ""
+	s.state.CanSend = true
+	s.mu.Unlock()
+	starts := 0
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method == "thread/start" {
+			starts++
+			return map[string]any{}, true // response lost after the original create
+		}
+		return nil, false
+	}
+	f.mu.Unlock()
+	original := api.ToolInvocation{Provider: "codex", CallID: `"mcp-unknown"`, Session: "thread-native", Turn: "terminal-turn"}
+	if _, err := s.RenewAfterTool(t.Context(), original); err == nil {
+		t.Fatal("unconfirmed native creation treated as success")
+	}
+	if _, err := s.RenewAfterTool(t.Context(), original); err != api.ErrConversationRenewalUnknown || starts != 1 {
+		t.Fatal("unknown create replayed native thread/start", err, starts)
+	}
+	restored := NewSession(s.opts)
+	if restored.binding.ThreadID != original.Session || restored.binding.ToolRenewal == nil || restored.binding.ToolRenewal.CallID != original.CallID || !restored.binding.ToolRenewal.Attempted || restored.binding.ToolRenewal.NewThread != "" {
+		t.Fatal("original unknown attempt not retained", restored.binding)
+	}
+}
