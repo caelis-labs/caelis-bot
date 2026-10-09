@@ -25,8 +25,8 @@ func TestAmbiguousBotAPI400DiagnosticUsesOnlySafeClass(t *testing.T) {
 	} {
 		var records []diagnosticlog.Record
 		ctx := withDeliveryTrace(t.Context(), func(r diagnosticlog.Record) { records = append(records, r) }, "item:test", 0)
-		err := safeMethodError("sendRichMessage", &telegoapi.Error{ErrorCode: 400, Description: tc.description})
-		reportDeliveryAttempt(ctx, "sendRichMessage", "rich", err, false)
+		err := safeMethodError("sendMessage", &telegoapi.Error{ErrorCode: 400, Description: tc.description})
+		reportDeliveryAttempt(ctx, "sendMessage", "html", err, false)
 		if len(records) != 1 || records[0].Reason != "api_code=400 category=api_rejected detail="+tc.want || strings.Contains(records[0].Reason, "SECRET") {
 			t.Fatalf("unsafe or missing diagnostic class: %#v", records)
 		}
@@ -50,7 +50,7 @@ func reply(w http.ResponseWriter, status int, body string) {
 	_, _ = w.Write([]byte(body))
 }
 
-func TestRichMessageProtocolSendEditAndFallback(t *testing.T) {
+func TestFormattedMessageProtocolSendAndEdit(t *testing.T) {
 	var methods []string
 	var requests []map[string]any
 	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
@@ -61,10 +61,6 @@ func TestRichMessageProtocolSendEditAndFallback(t *testing.T) {
 			t.Error(err)
 		}
 		requests = append(requests, request)
-		if len(methods) == 1 {
-			reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse rich message"}`)
-			return
-		}
 		reply(w, 200, `{"ok":true,"result":{"message_id":77,"date":0,"chat":{"id":123,"type":"private"}}}`)
 	})
 	message := outgoingText{Text: "# Heading\n**bold** and [link](https://example.com)", Markdown: "# Heading\n**bold** and [link](https://example.com)"}
@@ -75,21 +71,18 @@ func TestRichMessageProtocolSendEditAndFallback(t *testing.T) {
 	if err := client.Edit(context.Background(), 123, id, message, nil); err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprint(methods) != "[sendRichMessage sendMessage editMessageText]" {
+	if fmt.Sprint(methods) != "[sendMessage editMessageText]" {
 		t.Fatalf("methods: %v", methods)
 	}
-	if rich := requests[0]["rich_message"].(map[string]any); rich["markdown"] != message.Markdown {
-		t.Fatalf("rich payload: %v", rich)
+	if requests[0]["parse_mode"] != "HTML" || !strings.Contains(requests[0]["text"].(string), "<b>Heading</b>") || requests[0]["rich_message"] != nil {
+		t.Fatalf("HTML send: %v", requests[0])
 	}
-	if requests[1]["parse_mode"] != "HTML" || !strings.Contains(requests[1]["text"].(string), "<b>Heading</b>") {
-		t.Fatalf("HTML fallback: %v", requests[1])
-	}
-	if requests[2]["message_id"] != float64(77) || requests[2]["rich_message"] == nil {
-		t.Fatalf("edit payload: %v", requests[2])
+	if requests[1]["message_id"] != float64(77) || requests[1]["parse_mode"] != "HTML" || requests[1]["rich_message"] != nil {
+		t.Fatalf("HTML edit payload: %v", requests[1])
 	}
 }
 
-func TestRichUnknownDeliveryNeverFallsBack(t *testing.T) {
+func TestFormattedUnknownDeliveryNeverFallsBack(t *testing.T) {
 	calls := 0
 	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -103,7 +96,7 @@ func TestRichUnknownDeliveryNeverFallsBack(t *testing.T) {
 	}
 }
 
-func TestRichEndpointNotFoundFallsBackToSupportedMessage(t *testing.T) {
+func TestHTMLPrimaryKeepsKeyboard(t *testing.T) {
 	var methods []string
 	var requests []map[string]any
 	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
@@ -114,25 +107,20 @@ func TestRichEndpointNotFoundFallsBackToSupportedMessage(t *testing.T) {
 			t.Fatal(err)
 		}
 		requests = append(requests, request)
-		if method == "sendRichMessage" {
-			reply(w, 404, `{"ok":false,"error_code":404,"description":"Not Found"}`)
-			return
-		}
 		reply(w, 200, `{"ok":true,"result":{"message_id":81,"date":0,"chat":{"id":123,"type":"private"}}}`)
 	})
 	keys := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{{Text: "Allow once", CallbackData: "choice"}}}}
 	message := outgoingText{Text: "**original** <&>", Markdown: "**original** <&>"}
 	id, err := client.Send(t.Context(), 123, message, keys)
-	if err != nil || id != 81 || fmt.Sprint(methods) != "[sendRichMessage sendMessage]" {
-		t.Fatalf("definite endpoint rejection did not use one supported fallback: id=%d err=%v methods=%v", id, err, methods)
+	if err != nil || id != 81 || fmt.Sprint(methods) != "[sendMessage]" {
+		t.Fatalf("HTML send failed: id=%d err=%v methods=%v", id, err, methods)
 	}
-	if requests[0]["rich_message"].(map[string]any)["markdown"] != message.Markdown || requests[1]["parse_mode"] != "HTML" ||
-		!strings.Contains(requests[1]["text"].(string), "original") || requests[1]["reply_markup"] == nil {
-		t.Fatalf("fallback lost Markdown source or keyboard: %#v", requests)
+	if requests[0]["parse_mode"] != "HTML" || !strings.Contains(requests[0]["text"].(string), "original") || requests[0]["reply_markup"] == nil {
+		t.Fatalf("HTML send lost Markdown rendering or keyboard: %#v", requests)
 	}
 }
 
-func TestRichHTMLFormatRejectionFallsBackToExactPlainSource(t *testing.T) {
+func TestHTMLFormatRejectionFallsBackToExactPlainSource(t *testing.T) {
 	var methods []string
 	var requests []map[string]any
 	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
@@ -145,8 +133,6 @@ func TestRichHTMLFormatRejectionFallsBackToExactPlainSource(t *testing.T) {
 		requests = append(requests, request)
 		switch len(methods) {
 		case 1:
-			reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse rich message"}`)
-		case 2:
 			reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities"}`)
 		default:
 			reply(w, 200, `{"ok":true,"result":{"message_id":82,"date":0,"chat":{"id":123,"type":"private"}}}`)
@@ -154,15 +140,15 @@ func TestRichHTMLFormatRejectionFallsBackToExactPlainSource(t *testing.T) {
 	})
 	message := outgoingText{Text: "# Source\n**literal** & <tag>", Markdown: "# Source\n**literal** & <tag>"}
 	id, err := client.Send(t.Context(), 123, message, nil)
-	if err != nil || id != 82 || fmt.Sprint(methods) != "[sendRichMessage sendMessage sendMessage]" {
+	if err != nil || id != 82 || fmt.Sprint(methods) != "[sendMessage sendMessage]" {
 		t.Fatalf("definite format rejections did not reach plain fallback: id=%d err=%v methods=%v", id, err, methods)
 	}
-	if requests[1]["parse_mode"] != "HTML" || requests[2]["text"] != message.Text || requests[2]["parse_mode"] != nil {
+	if requests[0]["parse_mode"] != "HTML" || requests[1]["text"] != message.Text || requests[1]["parse_mode"] != nil {
 		t.Fatalf("plain fallback changed source or retained formatting: %#v", requests)
 	}
 }
 
-func TestRichOtherRejectionsAndUnknownNeverFallBack(t *testing.T) {
+func TestHTMLOtherRejectionsAndUnknownNeverFallBack(t *testing.T) {
 	for _, tc := range []struct {
 		name, response string
 		status         int
@@ -193,7 +179,7 @@ func TestRichOtherRejectionsAndUnknownNeverFallBack(t *testing.T) {
 	}
 }
 
-func TestRichEditFallbackKeepsOriginalMessageAndKeyboard(t *testing.T) {
+func TestHTMLEditFallbackKeepsOriginalMessageAndKeyboard(t *testing.T) {
 	var requests []map[string]any
 	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/editMessageText") {
@@ -206,8 +192,6 @@ func TestRichEditFallbackKeepsOriginalMessageAndKeyboard(t *testing.T) {
 		requests = append(requests, request)
 		switch len(requests) {
 		case 1:
-			reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse rich message"}`)
-		case 2:
 			reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities"}`)
 		default:
 			reply(w, 200, `{"ok":true,"result":{"message_id":77,"date":0,"chat":{"id":123,"type":"private"}}}`)
@@ -215,7 +199,7 @@ func TestRichEditFallbackKeepsOriginalMessageAndKeyboard(t *testing.T) {
 	})
 	keys := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{{Text: "Allow once", CallbackData: "choice"}}}}
 	message := outgoingText{Text: "**updated** source", Markdown: "**updated** source"}
-	if err := client.Edit(t.Context(), 123, 77, message, keys); err != nil || len(requests) != 3 {
+	if err := client.Edit(t.Context(), 123, 77, message, keys); err != nil || len(requests) != 2 {
 		t.Fatalf("edit fallback failed or sent a new message: err=%v requests=%d", err, len(requests))
 	}
 	for _, request := range requests {
@@ -223,12 +207,12 @@ func TestRichEditFallbackKeepsOriginalMessageAndKeyboard(t *testing.T) {
 			t.Fatalf("edit changed original ID or keyboard: %#v", request)
 		}
 	}
-	if requests[2]["text"] != message.Text || requests[2]["parse_mode"] != nil {
-		t.Fatalf("plain edit lost exact source: %#v", requests[2])
+	if requests[0]["parse_mode"] != "HTML" || requests[1]["text"] != message.Text || requests[1]["parse_mode"] != nil {
+		t.Fatalf("plain edit lost exact source: %#v", requests)
 	}
 }
 
-func TestRichTimeoutDoesNotTryAnotherSendMethod(t *testing.T) {
+func TestHTMLTimeoutDoesNotTryAnotherSendMethod(t *testing.T) {
 	calls := 0
 	httpClient := &http.Client{Transport: fixtureTransport(func(*http.Request) (*http.Response, error) {
 		calls++
@@ -246,11 +230,12 @@ func TestRichTimeoutDoesNotTryAnotherSendMethod(t *testing.T) {
 	}
 }
 
-func TestBridgeRichFallbackKeepsOriginalDeliveryAndSafeDiagnostics(t *testing.T) {
+func TestBridgeHTMLFallbackKeepsOriginalDeliveryAndSafeDiagnostics(t *testing.T) {
 	var records []diagnosticlog.Record
 	b, _ := testBridge(t, Host{Diagnostics: func(record diagnosticlog.Record) { records = append(records, record) }})
 	paired(b)
 	var methods []string
+	sendCount := 0
 	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
 		method := r.URL.Path[strings.LastIndexByte(r.URL.Path, '/')+1:]
 		methods = append(methods, method)
@@ -259,20 +244,26 @@ func TestBridgeRichFallbackKeepsOriginalDeliveryAndSafeDiagnostics(t *testing.T)
 			t.Error(err)
 		}
 		switch method {
-		case "sendRichMessage":
-			reply(w, 404, `{"ok":false,"error_code":404,"description":"Not Found"}`)
 		case "editMessageText":
-			if request["rich_message"] != nil {
-				reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse rich message PRIVATE_MARKER"}`)
+			if request["parse_mode"] == "HTML" {
+				reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities PRIVATE_MARKER"}`)
 			} else {
-				if request["message_id"] != float64(52) || request["parse_mode"] != "HTML" {
+				if request["message_id"] != float64(52) || request["text"] != "**Bot reply**, continued" {
 					t.Error("fallback edit lost original target or format")
 				}
 				reply(w, 200, `{"ok":true,"result":{"message_id":52,"date":0,"chat":{"id":10,"type":"private"}}}`)
 			}
 		case "sendMessage":
+			sendCount++
+			if sendCount == 2 {
+				if request["parse_mode"] != "HTML" {
+					t.Error("assistant did not try HTML first")
+				}
+				reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities PRIVATE_MARKER"}`)
+				return
+			}
 			id := 51
-			if request["parse_mode"] == "HTML" {
+			if sendCount == 3 {
 				id = 52
 			}
 			reply(w, 200, fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"date":0,"chat":{"id":10,"type":"private"}}}`, id))
@@ -286,12 +277,12 @@ func TestBridgeRichFallbackKeepsOriginalDeliveryAndSafeDiagnostics(t *testing.T)
 	}
 	b.mirror(t.Context(), client, api.Snapshot{Items: items})
 	if record := b.state.Messages["item:reply"]; len(record.IDs) != 1 || record.IDs[0] != 52 {
-		t.Fatalf("rich fallback failed to retain the actual Telegram ID: %#v", record)
+		t.Fatalf("HTML fallback failed to retain the actual Telegram ID: %#v", record)
 	}
 	items[1].Text = "**Bot reply**, continued"
 	b.mirror(t.Context(), client, api.Snapshot{Items: items})
 	b.mirror(t.Context(), client, api.Snapshot{Items: items})
-	if got := fmt.Sprint(methods); got != "[sendMessage sendRichMessage sendMessage editMessageText editMessageText]" {
+	if got := fmt.Sprint(methods); got != "[sendMessage sendMessage sendMessage editMessageText editMessageText]" {
 		t.Fatalf("Mac mirror, Bot fallback, or original-ID streaming edit changed: %s", got)
 	}
 	var failureCodes []string
@@ -306,7 +297,7 @@ func TestBridgeRichFallbackKeepsOriginalDeliveryAndSafeDiagnostics(t *testing.T)
 			failureCodes = append(failureCodes, record.Reason)
 		}
 	}
-	if fmt.Sprint(failureCodes) != "[api_code=404 category=method_unavailable api_code=400 category=format_rejected]" {
+	if fmt.Sprint(failureCodes) != "[api_code=400 category=format_rejected api_code=400 category=format_rejected]" {
 		t.Fatalf("safe API rejection classification missing: %#v", failureCodes)
 	}
 	encoded, _ := json.Marshal(records)

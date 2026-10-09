@@ -249,11 +249,11 @@ func telegramHTML(markdown string) string {
 	return strings.TrimSpace(out.String())
 }
 
-func (s *sdkClient) sendFormattedFallback(ctx context.Context, chat int64, message outgoingText, keys *telego.InlineKeyboardMarkup) (int, error) {
+func (s *sdkClient) sendFormatted(ctx context.Context, chat int64, message outgoingText, keys *telego.InlineKeyboardMarkup) (int, error) {
 	if formatted := telegramHTML(message.Markdown); formatted != "" {
 		v, err := s.bot.SendMessage(ctx, &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: formatted, ParseMode: "HTML", ReplyMarkup: keys})
 		safe := safeMethodError("sendMessage", err)
-		reportDeliveryAttempt(ctx, "sendMessage", "html", safe, true)
+		reportDeliveryAttempt(ctx, "sendMessage", "html", safe, false)
 		if safe == nil {
 			return v.MessageID, nil
 		}
@@ -270,11 +270,11 @@ func (s *sdkClient) sendFormattedFallback(ctx context.Context, chat int64, messa
 	return v.MessageID, nil
 }
 
-func (s *sdkClient) editFormattedFallback(ctx context.Context, chat int64, id int, message outgoingText, keys *telego.InlineKeyboardMarkup) error {
+func (s *sdkClient) editFormatted(ctx context.Context, chat int64, id int, message outgoingText, keys *telego.InlineKeyboardMarkup) error {
 	if formatted := telegramHTML(message.Markdown); formatted != "" {
 		_, err := s.bot.EditMessageText(ctx, &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: formatted, ParseMode: "HTML", ReplyMarkup: keys})
 		safe := safeMethodError("editMessageText", err)
-		reportDeliveryAttempt(ctx, "editMessageText", "html", safe, true)
+		reportDeliveryAttempt(ctx, "editMessageText", "html", safe, false)
 		if safe == nil || issueOf(safe) == "unchanged" {
 			return nil
 		}
