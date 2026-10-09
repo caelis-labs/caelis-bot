@@ -7,7 +7,8 @@ trap 'rm -rf "$BOT_SPARKLE_DIR"' EXIT
 : "${BOT_SPARKLE_PRIVATE_KEY:?Missing Sparkle signing key}"
 : "${BOT_SPARKLE_PUBLIC_KEY:?Missing Sparkle public key}"
 version=$(node --input-type=module -e 'import {validateTag} from "./script/release-version.mjs";console.log(validateTag(process.env.BOT_RELEASE_TAG))')
-bundle="${1:-$BOT_ROOT/dist/Caelis Bot.app}"
+source script/app-identity.sh
+bundle="${1:-$BOT_BUNDLE}"
 test "$(/usr/libexec/PlistBuddy -c 'Print SUPublicEDKey' "$bundle/Contents/Info.plist")" = "$BOT_SPARKLE_PUBLIC_KEY"
 directory="${2:-$BOT_ROOT/dist/releases}"
 name="Caelis-Bot-$version-macos-arm64.dmg"

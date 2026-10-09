@@ -4,7 +4,7 @@
 
 ## 下载与校验
 
-打开[发行历史](https://github.com/caelis-labs/caelis-bot/releases)，选择含有 `Caelis-Bot-<版本>-macos-arm64.dmg` 及同名校验文件的最新稳定条目。[已签名的 macOS 更新清单](https://releases.caelis.dev/caelis-bot/latest.json)独立标识当前 macOS arm64 版本，不依赖 GitHub 的全局 Latest 标记。目前只发行 Apple Silicon（`arm64`），尚未发行 Intel 包。CI 在 macOS 14 构建；交互实机验收范围为 Apple Silicon / macOS 27，不能据此声称所有旧系统都已验收。历史 preview 包不再作为当前安装入口。
+从 [GitHub Latest](https://github.com/caelis-labs/caelis-bot/releases/latest) 选择 Stable，下载前核对其 tag 与 [macOS Stable 已签名清单](https://releases.caelis.dev/caelis-bot/latest.json)一致。若不同，或缺少匹配的 DMG 和校验文件，暂停安装，不使用默认旧版。目前只发行 Apple Silicon（`arm64`），尚未发行 Intel 包。CI 在 macOS 14 构建；交互实机验收范围为 Apple Silicon / macOS 27，不能据此声称所有旧系统都已验收。历史 preview 包不再作为当前安装入口。
 
 将 `.dmg` 及同名 `.dmg.sha256` 下载到“下载”目录。下面整段命令可直接粘贴：选择最近下载的 Caelis DMG，核验其对应校验值，只读挂载，安装到 `~/Applications`。安装前先退出已运行的 Caelis Bot；应用仍运行或目标已存在时会停止。升级时先将旧 `.app` 移到废纸篓，保留 `~/Library/Application Support/Caelis Bot/` 中的应用数据。
 
@@ -63,4 +63,8 @@ open "$HOME/Applications/Caelis Bot.app"
 结果未知的操作时等待处理完成再重启，保留对话、Notebook 和设置。
 
 已发布的 v0.1.0、预览版和开发版仍手动安装。按上面的说明安装首个带更新器的正式版后，
-后续即可在应用内更新。R2 镜像只保留最新正式版，历史版本仍保留在 GitHub Releases。
+后续即可在应用内更新。R2 保留旧版本不可变制品，以便缓存的签名 appcast 仍能下载其准确 DMG；可变指针和 appcast 只选择当前 Stable。
+
+## 显式安装 Dev 发行版
+
+在[发行历史](https://github.com/caelis-labs/caelis-bot/releases)选择已发布的 `vX.Y.Z-dev.N` **预发行版**，像上文一样核对 DMG 及同名 `.sha256`，只读挂载并验证 Developer ID、公证和 Gatekeeper。DMG 标识为 `dev.caelis.bot.devrelease.dmg`，内含应用标识为 `dev.caelis.bot.devrelease`。退出同名旧版后，将 **Caelis Bot Dev Release.app** 拖入 `~/Applications`。数据在 `~/Library/Application Support/Caelis Bot Dev Release`，与 Stable 和本地 `Caelis Bot Dev.app` 的数据及权限独立。Dev 使用[独立的签名指针](https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/latest.json)，手动选择版本，自动安装关闭；Dev 不会自动升级成 Stable。

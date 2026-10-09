@@ -6,7 +6,7 @@ node script/check-public-tree.mjs
 node script/check-caelis-protocol.mjs
 node script/asset-pack.mjs verify
 node --test script/update.test.mjs
-node --test script/publication.test.mjs
+node --test script/publication.test.mjs script/release-channel.test.mjs
 node --test script/ci-scope.test.mjs script/telegram-keychain.test.mjs
 npm run check:i18n
 npm run build

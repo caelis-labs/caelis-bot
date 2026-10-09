@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: caelis-bot-r2-macos-arm64-${{ contains(inputs.tag, '-') && 'preview' || 'stable' }}
+  group: caelis-bot-r2-macos-arm64-${{ contains(inputs.tag, '-dev.') && 'dev' || contains(inputs.tag, '-') && 'preview' || 'stable' }}
   cancel-in-progress: false
 jobs:
   sync:
@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: macos-release
     timeout-minutes: 20
+    outputs:
+      current: ${{ steps.r2.outputs.current }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,8 +37,11 @@ jobs:
           [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
           test "$(gh api "repos/$GH_REPO/releases/tags/$tag" --jq .draft)" = false
           echo "BOT_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
-          gh release download "$tag" --dir release --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg" --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg.sha256" --pattern appcast.xml --pattern latest.json --pattern latest.json.sig
+          patterns=(--pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg" --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg.sha256" --pattern latest.json --pattern latest.json.sig)
+          if [[ "$tag" != *-* ]]; then patterns+=(--pattern appcast.xml); fi
+          gh release download "$tag" --dir release "${patterns[@]}"
       - name: Verify signatures and synchronize R2
+        id: r2
         env:
           GH_TOKEN: ${{ github.token }}
           BOT_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
@@ -47,4 +52,26 @@ jobs:
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: caelis-releases
-        run: node script/publish-r2.mjs release
+        run: |
+          result=$(node script/publish-r2.mjs release)
+          echo "$result"
+          if [[ "$result" == Published* ]]; then echo 'current=true' >> "$GITHUB_OUTPUT"; fi
+  latest:
+    needs: sync
+    if: needs.sync.outputs.current == 'true' && !contains(inputs.tag, '-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Reconcile GitHub Latest after Stable R2 is current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOT_RELEASE_TAG: ${{ inputs.tag }}
+        run: node script/sync-github-latest.mjs

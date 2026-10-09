@@ -55,6 +55,9 @@ The Dev and release bundle identifiers and default data directories remain separ
 
 默认本地/PR 构建使用 **Caelis Bot Dev.app**，bundle ID 为 `dev.caelis.bot.dev`，
 单实例与默认数据目录 `~/Library/Application Support/Caelis Bot Dev` 独立于生产版。
+可安装 Dev 发行版使用 **Caelis Bot Dev Release.app** / `dev.caelis.bot.devrelease`，
+存储在 `~/Library/Application Support/Caelis Bot Dev Release`，自动更新关闭，
+并不会覆盖本地构建或 Stable 的应用和数据。
 原生产数据与 TCC 授权不会自动迁移。正式 tag 构建（或显式 `BOT_BUILD_CHANNEL=release`）
 才使用 `Caelis Bot.app` / `dev.caelis.bot`；开发启动只重启对应 bundle 路径。
 默认签名仍为 ad-hoc。需要反复验收辅助功能、自动化和静态快照时，

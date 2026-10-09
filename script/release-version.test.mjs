@@ -7,6 +7,8 @@ test('release identity matches tag while macOS receives a numeric bundle version
     version: '0.1.0-preview.1', bundleVersion: '0.1.0',
   })
   assert.equal(releaseVersion('1.2.3', 'v1.2.3').version, '1.2.3')
+  assert.equal(releaseVersion('1.2.3', 'v1.2.3-dev.2').version, '1.2.3-dev.2')
+  assert.throws(() => releaseVersion('1.2.3', 'v1.2.4-dev.1'), /does not match/)
   assert.equal(releaseVersion('0.1.0-preview.1').version, '0.1.0-preview.1.dev')
   assert.equal(releaseVersion('1.2.3').version, '1.2.3-dev')
   assert.throws(() => releaseVersion('0.1.0', 'v0.2.0'), /does not match/)

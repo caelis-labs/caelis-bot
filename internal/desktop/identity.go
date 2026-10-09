@@ -23,5 +23,8 @@ func applicationIdentity() (name, id string) {
 	if buildChannel == "release" {
 		return "Caelis Bot", "dev.caelis.bot"
 	}
+	if buildChannel == "dev" {
+		return "Caelis Bot Dev Release", "dev.caelis.bot.devrelease"
+	}
 	return "Caelis Bot Dev", "dev.caelis.bot.dev"
 }

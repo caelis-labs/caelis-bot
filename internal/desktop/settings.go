@@ -46,6 +46,16 @@ func (s *Service) SettingsSection() string {
 	return s.settingsSection
 }
 func (s *Service) AppVersion() string { return updates.Version }
+func (s *Service) AppChannel() string {
+	switch buildChannel {
+	case "release":
+		return "Stable"
+	case "dev":
+		return "Dev"
+	default:
+		return "Local build"
+	}
+}
 func (s *Service) CheckUpdates(ctx context.Context) updates.Result {
 	s.mu.Lock()
 	f := s.checkNativeUpdates

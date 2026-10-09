@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {digest, verifyDirectory, validateManifest} from './update-manifest.mjs';
-import {validateTag} from './release-version.mjs';
+import {validateTag, releaseChannel} from './release-version.mjs';
 import {publicationKey, validateReceipt} from './publication.mjs';
 
 const prefix = 'caelis-bot/'; // Fixed ownership boundary in the shared Caelis bucket.
@@ -51,14 +51,14 @@ export function comparePreview(a, b) {
 
 export function publish(directory, env = process.env, run = (cmd,args) => execFileSync(cmd,args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],env,maxBuffer:16*1024*1024})) {
   const tag=env.BOT_RELEASE_TAG;
-  const channel=validateTag(tag).includes('-')?'preview':'stable';
+  const channel=releaseChannel(tag);
   if(env.GITHUB_REPOSITORY !== 'caelis-labs/caelis-bot') throw new Error('Unexpected repository');
   const bucket=env.R2_BUCKET || 'caelis-releases', endpoint=new URL(env.R2_ENDPOINT);
   if (!/^[a-z0-9][a-z0-9.-]+$/.test(bucket) || endpoint.protocol !== 'https:' || endpoint.username || endpoint.password) throw new Error('Invalid R2 destination');
   const manifest=verifyDirectory(directory, tag, env.BOT_SPARKLE_PUBLIC_KEY);
   const release=()=>JSON.parse(run('gh',['api',`repos/${env.GITHUB_REPOSITORY}/releases/tags/${tag}`]));
   const current=release();
-  if(current.tag_name!==tag || current.draft || current.prerelease!==(channel==='preview')) throw new Error('Platform release is not published in its expected channel');
+  if(current.tag_name!==tag || current.draft || current.prerelease!==(channel!=='stable')) throw new Error('Platform release is not published in its expected channel');
   const commit=JSON.parse(run('gh',['api',`repos/${env.GITHUB_REPOSITORY}/commits/${tag}`]));
   if(commit.sha !== manifest.source) throw new Error('Release source mismatch');
   const r2=(...args)=>run('aws',[...args,'--endpoint-url',endpoint.href]);
@@ -91,7 +91,7 @@ export function publish(directory, env = process.env, run = (cmd,args) => execFi
       if((channel==='stable'?compareStable(old.tag,tag):comparePreview(old.tag,tag))>0) return 'Newer R2 release exists: R2 unchanged';
       if(old.tag===tag && (old.source!==manifest.source || old.sha256!==manifest.sha256 || old.appcastSHA256!==manifest.appcastSHA256)) throw new Error('Refusing to replace published version bytes');
     }
-    const versioned=channel==='stable'?`${prefix}releases/${tag}/`:`${prefix}previews/macos/arm64/${tag}/`;
+    const versioned=channel==='stable'?`${prefix}releases/${tag}/`:`${prefix}${channel === 'dev' ? 'dev' : 'previews'}/macos/arm64/${tag}/`;
     const put=(file,key,type,cache)=>{
       if(cache.includes('immutable') && existing.includes(key)) {
         const prior=join(temporary,'immutable');
@@ -111,11 +111,11 @@ export function publish(directory, env = process.env, run = (cmd,args) => execFi
     // The platform feed is selected from its own signed pointer. GitHub's
     // global latest may represent another platform or a later arrival.
     if(release().draft) throw new Error('Release unpublished during R2 upload');
-    if(channel==='preview') {
+    if(channel!=='stable') {
       for(const [file,type] of [['latest.json.sig','text/plain'],['latest.json','application/json']]) {
         put(file,platformFeed(channel)+file,type,mutable);
       }
-      return `Published ${tag} to isolated macOS arm64 preview feed; stable aliases unchanged`;
+      return `Published ${tag} to isolated macOS arm64 ${channel} feed; stable aliases unchanged`;
     }
     for(const [file,type] of [['appcast.xml','application/rss+xml'],['latest.json','application/json'],['latest.json.sig','text/plain']]) {
       put(file,platformFeed(channel)+file,type,mutable);

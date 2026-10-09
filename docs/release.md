@@ -53,10 +53,47 @@ Use Conventional Commit PR titles, for example `feat: add reminders` or `fix: ke
 
 1. A main push runs `release-please`. It maintains one version PR, updating `package.json`, `package-lock.json`, `CHANGELOG.md` and `.release-please-manifest.json`.
 2. Review and merge that PR after its **product** check. A version-only PR uses the content-validated metadata path; source or dependency changes still run full checks. Version PRs are not auto-merged.
-3. release-please creates one `vX.Y.Z` tag, changelog and **draft** GitHub release. The macOS workflow checks that the tag belongs to main and exactly matches `package.json`. Future platform workflows use the same immutable source tag.
-4. Build from that exact tagged commit without signing credentials. Source tests have already passed the strict PR merge gate; this stage runs the updater and delivered-asset checks and qualifies the actual release build. The application embeds its full release version and source SHA; its macOS short version stays numeric. A separate `macos-release` environment job uses the current workflow commit for operational signing/packaging tools, verifies the downloaded app’s embedded tag SHA, and signs the app with Developer ID and a secure timestamp, enables hardened runtime, submits it to Apple and staples its notarization ticket.
+3. release-please creates one `vX.Y.Z` tag, changelog and **draft** GitHub release. This no longer starts packaging or publication. The macOS workflow checks that the tag belongs to main and matches `package.json`. Future platform workflows use the same immutable source tag.
+4. Manually run **Prepare macOS arm64 candidate** with the exact tag. Build from that tagged commit without signing credentials. Source tests have already passed the strict PR merge gate; this stage runs the updater and delivered-asset checks and qualifies the actual release build. The application embeds its full release version and source SHA; its macOS short version stays numeric. A separate `macos-release` environment job uses the current workflow commit for operational signing/packaging tools, verifies the downloaded app’s embedded tag SHA, and signs the app with Developer ID and a secure timestamp, enables hardened runtime, submits it to Apple and staples its notarization ticket.
 5. Package the stapled app, mount the DMG and verify the enclosed app. Sign the DMG itself, submit it to Apple, staple its ticket, verify both its signature and Gatekeeper acceptance, then calculate the final SHA-256. Both the app and DMG carry tickets for offline validation.
-6. Reconcile the macOS DMG, checksum and signed channel metadata by exact bytes, add a `macos-arm64-stable` or `macos-arm64-preview` publication receipt, then publish the draft if this is the first qualified platform. A later platform may append its own namespaced assets and receipt without changing the tag, source, existing bytes or the release's prerelease state. Global GitHub `latest` is not a platform feed.
+6. Retain the **release-dmg** Actions artifact and run the candidate-specific acceptance below. Publish only by manually running **Publish accepted macOS candidate** with its exact preparation run ID, DMG SHA-256 and acceptance-record URL. That workflow re-downloads the same bytes, verifies tag/source, Sparkle signatures, Developer ID, staples and Gatekeeper, then publishes the immutable GitHub assets and channel-specific R2 feed. It updates GitHub Latest only after the Stable R2 feed succeeds; Dev never changes Latest or Stable aliases. A later platform may append its own namespaced assets and receipt without changing the tag, source, existing bytes or the release's prerelease state. Global GitHub Latest remains cross-platform metadata, not a macOS updater feed.
+
+### Channels and candidate acceptance
+
+| Channel | Tag / GitHub | Installed macOS identity and data | Update source |
+| --- | --- | --- | --- |
+| Stable | `vX.Y.Z`, published release | `Caelis Bot.app`, `dev.caelis.bot`, `Application Support/Caelis Bot` | Signed `caelis-bot/appcast.xml` and macOS arm64 Stable feed; Sparkle checks after user confirmation |
+| Dev | `vX.Y.Z-dev.N`, prerelease | `Caelis Bot Dev Release.app`, `dev.caelis.bot.devrelease`, `Application Support/Caelis Bot Dev Release` | Signed manual-download pointer at `caelis-bot/feeds/macos/arm64/dev/latest.json`; automatic installation disabled |
+| Local/PR | package version with `-dev` suffix, no GitHub release | `Caelis Bot Dev.app`, `dev.caelis.bot.dev`, `Application Support/Caelis Bot Dev` | None; ad-hoc or chosen Apple Development signature, never a distributable Dev release |
+
+Dev is created only when needed from the same candidate source as a Stable draft: resolve the Stable tag's commit SHA, then create a **draft prerelease** `vX.Y.Z-dev.N` targeting that exact SHA. `N` increases monotonically. The build accepts this Dev tag against the `X.Y.Z` package version and embeds the full Dev version. It never writes the Stable app, storage, login item, TCC identity or Sparkle feed. Existing historical `preview` tags keep their separate legacy pointer and are not automatically converted. Only macOS Apple Silicon is currently qualified for installable releases; Windows 11 x64 needs its own native, signed package acceptance and feed before being advertised. Linux desktop is outside scope.
+
+For Stable, record the tag, source SHA, preparation run ID, final DMG SHA-256, exact installed app version and architecture in one issue or PR comment. On the **installed signed candidate DMG** on an Apple Silicon Mac, exercise launch and quit/relaunch, restore the ongoing conversation and original unresolved approvals/tasks, type and send a chat input, receive and render an assistant reply, send and receive a real Telegram message, and install, enable and configure a plugin using the actual supported Runtime/account. Check upgrade from the prior Stable with data preserved, update UI, and the relevant permissions. Verify the blocker list, including open regressions in those paths, with an owner decision and evidence for each. A missing critical path, unknown result or unresolved blocking bug holds Stable; Dev may be published with its limitation recorded. CI, fixtures, signing and notarization alone never approve Stable. Do not borrow acceptance from an older HEAD, another platform, a local build or a Dev bundle. A later source commit requires a new candidate; different DMG bytes require checking the exact new artifact.
+
+Example commands after the version PR has merged, without publishing automatically:
+
+```sh
+gh workflow run release.yml --repo caelis-labs/caelis-bot --ref main -f tag=vX.Y.Z
+gh run download PREPARE_RUN_ID --repo caelis-labs/caelis-bot --name release-dmg --dir candidate
+shasum -a 256 candidate/Caelis-Bot-X.Y.Z-macos-arm64.dmg
+# Complete the real acceptance record for that exact SHA-256, then:
+gh workflow run promote-release.yml --repo caelis-labs/caelis-bot --ref main \
+  -f tag=vX.Y.Z -f candidate_run_id=PREPARE_RUN_ID \
+  -f accepted_dmg_sha256=EXACT_64_HEX_SHA256 -f acceptance_url=https://github.com/caelis-labs/caelis-bot/issues/NUMBER#issuecomment-ID
+```
+
+For Dev, first create its draft prerelease from the **same Stable tag commit** and run the same prepare and publish commands with the Dev tag:
+
+```sh
+sha=$(git rev-parse 'vX.Y.Z^{commit}')
+gh release create vX.Y.Z-dev.1 --repo caelis-labs/caelis-bot --target "$sha" --draft --prerelease --title 'Caelis Bot X.Y.Z Dev 1'
+```
+
+The acceptance record states Dev's tested flows and known blockers; it does not qualify the Stable bundle. Publishing is a manual action, not a consequence of a green preparation run.
+
+Pause by leaving the draft and candidate unpromoted; no public feed or Latest changes. If a published version is found blocking, stop further promotions, record the affected tag and notify users through its release notes. The immutable release and old versioned downloads remain inspectable. Fix forward with a higher version and new real acceptance.
+
+For an emergency feed rollback, select the last accepted retained **Stable** tag and download its DMG, checksum, `appcast.xml`, `latest.json`, signature and publication receipt from that exact GitHub release. Run `BOT_RELEASE_TAG=GOOD_TAG BOT_SPARKLE_PUBLIC_KEY=PUBLIC_KEY node script/update-manifest.mjs verify DIRECTORY` and compare the receipt's source and DMG digest. Copy only its three signed mutable files (`appcast.xml`, `latest.json`, `latest.json.sig`) to both `caelis-bot/feeds/macos/arm64/stable/` and the legacy `caelis-bot/` aliases in R2 with `Cache-Control: no-cache, max-age=0, must-revalidate`; read back all six bytes. Then `gh release edit GOOD_TAG --latest` and read back `releases/latest` plus the public manifest/feed. Sparkle cannot downgrade an already installed higher version, so affected users need a repaired higher version or a deliberate manual reinstall. Do not overwrite a versioned DMG or rewrite a tag. Keep this exceptional rollback under direct owner control; normal `publish-r2.mjs` deliberately rejects rollback.
 
 A failed first-platform build remains a draft; failure of a later platform leaves an already published platform available. A notarization submission still `In Progress` is a pending checkpoint, with `verified=false` and publication skipped. Published assets and receipts are immutable. To retry the exact tag, copy:
 
@@ -87,8 +124,8 @@ The signed app uses `https://releases.caelis.dev/caelis-bot/appcast.xml`, requir
 signed feed and validates archives before extraction. It checks daily by default;
 settings can disable checks. Downloads/installations require confirmation. Active,
 uncertain or delegated work postpones relaunch; user and scheduled admission are
-fenced before backend cleanup. Previews remain manual; their signed JSON pointer
-lives under `caelis-bot/feeds/macos/arm64/preview/` and never replaces the stable
+fenced before backend cleanup. Installable Dev releases remain manual; their signed JSON pointer
+lives under `caelis-bot/feeds/macos/arm64/dev/` and never replaces the stable
 appcast. Existing v0.1.0 installations need one manual upgrade to the first updater-enabled
 release. Already published apps are never modified.
 
@@ -148,7 +185,7 @@ does not establish a successful production upload or app update.
 After `verified=true` (App + DMG notarization, staples and Gatekeeper), the stable
 package job uses `generate_appcast` with one version and no deltas. It signs the
 final stapled DMG, feed and an independent manifest binding tag, source SHA,
-DMG hash/size and feed hash. A preview signs a separate manual-download manifest
+DMG hash/size and feed hash. A Dev release signs a separate manual-download manifest
 for its own channel, with automatic updates disabled in the app.
 These files are attached to GitHub. Only after publication can the R2 job run, with
 read-only GitHub access and R2 credentials scoped to that step.
@@ -158,9 +195,9 @@ It does not consult global GitHub `latest`. It uploads immutable versioned asset
 `caelis-bot/releases/vX.Y.Z/`, writes the macOS arm64 stable feed under
 `caelis-bot/feeds/macos/arm64/stable/`, and continues updating legacy
 `caelis-bot/appcast.xml`, `latest.json` and `latest.json.sig` for installed Mac clients.
-Mac preview assets live under `caelis-bot/previews/macos/arm64/vX.Y.Z-.../` and
-their signed pointer lives under `caelis-bot/feeds/macos/arm64/preview/`. Stable
-and preview have separate concurrency groups and neither publisher prunes older
+Mac Dev assets live under `caelis-bot/dev/macos/arm64/vX.Y.Z-dev.N/` and
+their signed pointer lives under `caelis-bot/feeds/macos/arm64/dev/`. Historical preview
+assets and pointers retain their old namespace. Stable and Dev have separate concurrency groups and neither publisher prunes older
 immutable bytes. Windows uses its own ownership and never mutates these Mac keys.
 Rollback and same-version byte changes are rejected. Older immutable R2 versions
 are retained so a client with a cached appcast can still download its exact DMG.
@@ -245,7 +282,7 @@ make smoke
 make package
 ```
 
-Local builds get a `-dev` / `.dev` suffix so they do not masquerade as a published release. For an exact release rebuild, check out its tag and pass that tag:
+Local builds get a `-dev` / `.dev` suffix so they do not masquerade as a published release. Installable Dev uses `-dev.N` with Developer ID and notarization. For an exact release rebuild, check out its tag and pass that tag:
 
 ```sh
 BOT_RELEASE_TAG=v0.1.0 make package

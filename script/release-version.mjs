@@ -13,11 +13,20 @@ export function validateTag(tag) {
   }
   return tag.slice(1)
 }
+export function releaseChannel(tag) {
+  const version = validateTag(tag)
+  return /-dev\.[1-9]\d*$/.test(version) ? 'dev' : version.includes('-') ? 'preview' : 'stable'
+}
 export function releaseVersion(version, tag) {
   if (!validVersion(version)) throw new Error('Invalid package version')
-  if (tag && validateTag(tag) !== version) throw new Error('Release tag does not match package.json')
+  if (tag) {
+    const tagged = validateTag(tag)
+    if (tagged !== version && !new RegExp(`^${version.replaceAll('.', '\\.')}\\-dev\\.[1-9]\\d*$`).test(tagged)) {
+      throw new Error('Release tag does not match package.json')
+    }
+  }
   return {
-    version: tag ? version : `${version}${version.includes('-') ? '.' : '-'}dev`,
+    version: tag ? validateTag(tag) : `${version}${version.includes('-') ? '.' : '-'}dev`,
     bundleVersion: version.split('-')[0],
   }
 }

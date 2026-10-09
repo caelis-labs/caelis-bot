@@ -72,7 +72,7 @@ func checkTarget(ctx context.Context, client *http.Client, current, targetOS, ar
 		return result
 	}
 	installed := parseVersion(current)
-	if installed == nil {
+	if installed == nil || installed[3] == "dev" || strings.HasSuffix(installed[3], ".dev") {
 		result.Message = i18n.Text(l, "host.updatesDevBuild", nil)
 		return result
 	}
@@ -80,7 +80,11 @@ func checkTarget(ctx context.Context, client *http.Client, current, targetOS, ar
 	var latest []string
 	for _, release := range releases {
 		v := parseVersion(release.Tag)
-		if release.Draft || v == nil || (installed[3] == "" && (release.Prerelease || v[3] != "")) {
+		if release.Draft || v == nil || release.Prerelease != (v[3] != "") {
+			continue
+		}
+		if installed[3] == "" && v[3] != "" || installed[3] != "" && (v[3] == "" ||
+			strings.SplitN(installed[3], ".", 2)[0] != strings.SplitN(v[3], ".", 2)[0]) {
 			continue
 		}
 		compatible := false
