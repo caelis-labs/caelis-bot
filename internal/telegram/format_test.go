@@ -71,14 +71,16 @@ func TestFormattedMessageProtocolSendAndEdit(t *testing.T) {
 	if err := client.Edit(context.Background(), 123, id, message, nil); err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprint(methods) != "[sendMessage editMessageText]" {
+	if fmt.Sprint(methods) != "[sendRichMessage editMessageText]" {
 		t.Fatalf("methods: %v", methods)
 	}
-	if requests[0]["parse_mode"] != "HTML" || !strings.Contains(requests[0]["text"].(string), "<b>Heading</b>") || requests[0]["rich_message"] != nil {
-		t.Fatalf("HTML send: %v", requests[0])
+	rich, ok := requests[0]["rich_message"].(map[string]any)
+	if !ok || rich["markdown"] != message.Markdown || requests[0]["parse_mode"] != nil {
+		t.Fatalf("native rich send: %v", requests[0])
 	}
-	if requests[1]["message_id"] != float64(77) || requests[1]["parse_mode"] != "HTML" || requests[1]["rich_message"] != nil {
-		t.Fatalf("HTML edit payload: %v", requests[1])
+	rich, ok = requests[1]["rich_message"].(map[string]any)
+	if requests[1]["message_id"] != float64(77) || !ok || rich["markdown"] != message.Markdown || requests[1]["parse_mode"] != nil {
+		t.Fatalf("native rich edit payload: %v", requests[1])
 	}
 	for _, request := range requests {
 		if _, exists := request["reply_markup"]; exists {
@@ -101,7 +103,7 @@ func TestFormattedUnknownDeliveryNeverFallsBack(t *testing.T) {
 	}
 }
 
-func TestHTMLPrimaryKeepsKeyboard(t *testing.T) {
+func TestRichPrimaryKeepsKeyboard(t *testing.T) {
 	var methods []string
 	var requests []map[string]any
 	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
@@ -117,11 +119,12 @@ func TestHTMLPrimaryKeepsKeyboard(t *testing.T) {
 	keys := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{{Text: "Allow once", CallbackData: "choice"}}}}
 	message := outgoingText{Text: "**original** <&>", Markdown: "**original** <&>"}
 	id, err := client.Send(t.Context(), 123, message, keys)
-	if err != nil || id != 81 || fmt.Sprint(methods) != "[sendMessage]" {
-		t.Fatalf("HTML send failed: id=%d err=%v methods=%v", id, err, methods)
+	if err != nil || id != 81 || fmt.Sprint(methods) != "[sendRichMessage]" {
+		t.Fatalf("rich send failed: id=%d err=%v methods=%v", id, err, methods)
 	}
-	if requests[0]["parse_mode"] != "HTML" || !strings.Contains(requests[0]["text"].(string), "original") || requests[0]["reply_markup"] == nil {
-		t.Fatalf("HTML send lost Markdown rendering or keyboard: %#v", requests)
+	rich, ok := requests[0]["rich_message"].(map[string]any)
+	if !ok || rich["markdown"] != message.Markdown || requests[0]["reply_markup"] == nil {
+		t.Fatalf("rich send lost Markdown source or keyboard: %#v", requests)
 	}
 }
 
@@ -137,7 +140,7 @@ func TestHTMLFormatRejectionFallsBackToExactPlainSource(t *testing.T) {
 		}
 		requests = append(requests, request)
 		switch len(methods) {
-		case 1:
+		case 1, 2:
 			reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities"}`)
 		default:
 			reply(w, 200, `{"ok":true,"result":{"message_id":82,"date":0,"chat":{"id":123,"type":"private"}}}`)
@@ -145,16 +148,40 @@ func TestHTMLFormatRejectionFallsBackToExactPlainSource(t *testing.T) {
 	})
 	message := outgoingText{Text: "# Source\n**literal** & <tag>", Markdown: "# Source\n**literal** & <tag>"}
 	id, err := client.Send(t.Context(), 123, message, nil)
-	if err != nil || id != 82 || fmt.Sprint(methods) != "[sendMessage sendMessage]" {
+	if err != nil || id != 82 || fmt.Sprint(methods) != "[sendRichMessage sendMessage sendMessage]" {
 		t.Fatalf("definite format rejections did not reach plain fallback: id=%d err=%v methods=%v", id, err, methods)
 	}
-	if requests[0]["parse_mode"] != "HTML" || requests[1]["text"] != message.Text || requests[1]["parse_mode"] != nil {
+	if requests[0]["rich_message"] == nil || requests[1]["parse_mode"] != "HTML" || requests[2]["text"] != message.Text || requests[2]["parse_mode"] != nil {
 		t.Fatalf("plain fallback changed source or retained formatting: %#v", requests)
 	}
 	for _, request := range requests {
 		if _, exists := request["reply_markup"]; exists {
 			t.Fatalf("fallback encoded null reply_markup: %#v", request)
 		}
+	}
+}
+
+func TestRichMethodMissingFallsBackToHTML(t *testing.T) {
+	var methods []string
+	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
+		method := r.URL.Path[strings.LastIndexByte(r.URL.Path, '/')+1:]
+		methods = append(methods, method)
+		if method == "sendRichMessage" {
+			reply(w, 404, `{"ok":false,"error_code":404,"description":"Method sendRichMessage not found"}`)
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request["parse_mode"] != "HTML" {
+			t.Fatalf("fallback did not use supported HTML: %#v", request)
+		}
+		reply(w, 200, `{"ok":true,"result":{"message_id":83,"date":0,"chat":{"id":123,"type":"private"}}}`)
+	})
+	id, err := client.Send(t.Context(), 123, outgoingText{Text: "**bold**", Markdown: "**bold**"}, nil)
+	if err != nil || id != 83 || fmt.Sprint(methods) != "[sendRichMessage sendMessage]" {
+		t.Fatalf("missing rich method fallback: id=%d err=%v methods=%v", id, err, methods)
 	}
 }
 
@@ -201,7 +228,7 @@ func TestHTMLEditFallbackKeepsOriginalMessageAndKeyboard(t *testing.T) {
 		}
 		requests = append(requests, request)
 		switch len(requests) {
-		case 1:
+		case 1, 2:
 			reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities"}`)
 		default:
 			reply(w, 200, `{"ok":true,"result":{"message_id":77,"date":0,"chat":{"id":123,"type":"private"}}}`)
@@ -209,7 +236,7 @@ func TestHTMLEditFallbackKeepsOriginalMessageAndKeyboard(t *testing.T) {
 	})
 	keys := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{{Text: "Allow once", CallbackData: "choice"}}}}
 	message := outgoingText{Text: "**updated** source", Markdown: "**updated** source"}
-	if err := client.Edit(t.Context(), 123, 77, message, keys); err != nil || len(requests) != 2 {
+	if err := client.Edit(t.Context(), 123, 77, message, keys); err != nil || len(requests) != 3 {
 		t.Fatalf("edit fallback failed or sent a new message: err=%v requests=%d", err, len(requests))
 	}
 	for _, request := range requests {
@@ -217,7 +244,7 @@ func TestHTMLEditFallbackKeepsOriginalMessageAndKeyboard(t *testing.T) {
 			t.Fatalf("edit changed original ID or keyboard: %#v", request)
 		}
 	}
-	if requests[0]["parse_mode"] != "HTML" || requests[1]["text"] != message.Text || requests[1]["parse_mode"] != nil {
+	if requests[0]["rich_message"] == nil || requests[1]["parse_mode"] != "HTML" || requests[2]["text"] != message.Text || requests[2]["parse_mode"] != nil {
 		t.Fatalf("plain edit lost exact source: %#v", requests)
 	}
 }
@@ -255,25 +282,28 @@ func TestBridgeHTMLFallbackKeepsOriginalDeliveryAndSafeDiagnostics(t *testing.T)
 		}
 		switch method {
 		case "editMessageText":
-			if request["parse_mode"] == "HTML" {
+			if request["rich_message"] != nil {
 				reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities PRIVATE_MARKER"}`)
 			} else {
-				if request["message_id"] != float64(52) || request["text"] != "**Bot reply**, continued" {
+				if request["message_id"] != float64(52) || request["parse_mode"] != "HTML" {
 					t.Error("fallback edit lost original target or format")
 				}
 				reply(w, 200, `{"ok":true,"result":{"message_id":52,"date":0,"chat":{"id":10,"type":"private"}}}`)
 			}
+		case "sendRichMessage":
+			if request["rich_message"] == nil {
+				t.Error("assistant did not try native rich Markdown first")
+			}
+			reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities PRIVATE_MARKER"}`)
 		case "sendMessage":
 			sendCount++
 			if sendCount == 2 {
 				if request["parse_mode"] != "HTML" {
-					t.Error("assistant did not try HTML first")
+					t.Error("assistant did not try HTML after definite rich rejection")
 				}
-				reply(w, 400, `{"ok":false,"error_code":400,"description":"Bad Request: can't parse entities PRIVATE_MARKER"}`)
-				return
 			}
 			id := 51
-			if sendCount == 3 {
+			if sendCount == 2 {
 				id = 52
 			}
 			reply(w, 200, fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"date":0,"chat":{"id":10,"type":"private"}}}`, id))
@@ -292,7 +322,7 @@ func TestBridgeHTMLFallbackKeepsOriginalDeliveryAndSafeDiagnostics(t *testing.T)
 	items[1].Text = "**Bot reply**, continued"
 	b.mirror(t.Context(), client, api.Snapshot{Items: items})
 	b.mirror(t.Context(), client, api.Snapshot{Items: items})
-	if got := fmt.Sprint(methods); got != "[sendMessage sendMessage sendMessage editMessageText editMessageText]" {
+	if got := fmt.Sprint(methods); got != "[sendMessage sendRichMessage sendMessage editMessageText editMessageText]" {
 		t.Fatalf("Mac mirror, Bot fallback, or original-ID streaming edit changed: %s", got)
 	}
 	var failureCodes []string
@@ -337,5 +367,36 @@ func TestTelegramHTMLAndMarkdownChunks(t *testing.T) {
 	}
 	if restored.String() != body {
 		t.Fatal("source changed during splitting")
+	}
+}
+
+func TestTelegramHTMLPreservesLiteralTags(t *testing.T) {
+	formatted := telegramHTML("**Bold** `code_<&>` <tag> & A_B\n\n<div>block & text</div>\n")
+	for _, want := range []string{"<b>Bold</b>", "<code>code_&lt;&amp;&gt;</code>", "&lt;tag&gt;", "&lt;div&gt;block &amp; text&lt;/div&gt;"} {
+		if !strings.Contains(formatted, want) {
+			t.Errorf("missing literal text %q in %q", want, formatted)
+		}
+	}
+	if strings.Contains(formatted, "<tag>") || strings.Contains(formatted, "<div>") {
+		t.Fatalf("raw model HTML became markup: %q", formatted)
+	}
+}
+
+func TestPlainEditOmitsAbsentReplyMarkup(t *testing.T) {
+	var request map[string]any
+	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/editMessageText") {
+			t.Fatal("plain edit used wrong method")
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		reply(w, 200, `{"ok":true,"result":{"message_id":77,"date":0,"chat":{"id":123,"type":"private"}}}`)
+	})
+	if err := client.Edit(t.Context(), 123, 77, outgoingText{Text: "plain edit"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := request["reply_markup"]; exists {
+		t.Fatalf("plain edit encoded absent keyboard: %#v", request)
 	}
 }

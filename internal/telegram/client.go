@@ -96,7 +96,8 @@ func safeMethodError(method string, err error) error {
 			retry = e.Parameters.RetryAfter
 		}
 		formatRejected := false
-		if e.ErrorCode == 400 && issue != "unchanged" && method != "" && contentFormatRejection(description) {
+		if issue != "unchanged" && method != "" && (e.ErrorCode == 400 && (contentFormatRejection(description) || richMethodUnsupported(method, description)) ||
+			e.ErrorCode == 404 && richMethodUnsupported(method, description)) {
 			formatRejected, category = true, "format_rejected"
 		}
 		detail := ""
@@ -159,6 +160,10 @@ func contentFormatRejection(description string) bool {
 	}
 	return false
 }
+func richMethodUnsupported(method, description string) bool {
+	return method == "sendRichMessage" && strings.Contains(description, "method") &&
+		(strings.Contains(description, "not found") || strings.Contains(description, "unsupported") || strings.Contains(description, "not supported") || strings.Contains(description, "not available"))
+}
 func issueOf(err error) string {
 	var e *transportError
 	if errors.As(err, &e) {
@@ -202,6 +207,19 @@ func (s *sdkClient) Updates(ctx context.Context, offset int) ([]tg.Update, error
 }
 func (s *sdkClient) Send(ctx context.Context, chat int64, message outgoingText, keys *tg.InlineKeyboardMarkup) (int, error) {
 	if message.Markdown != "" {
+		p := &tg.SendRichMessageParams{ChatID: tg.ChatID{ID: chat}, RichMessage: tg.InputRichMessage{Markdown: message.Markdown}}
+		if keys != nil {
+			p.ReplyMarkup = keys
+		}
+		v, e := s.bot.SendRichMessage(ctx, p)
+		err := safeMethodError("sendRichMessage", e)
+		reportDeliveryAttempt(ctx, "sendRichMessage", "rich", err, false)
+		if err == nil {
+			return v.MessageID, nil
+		}
+		if !isFormatRejection(err) {
+			return 0, err
+		}
 		return s.sendFormatted(ctx, chat, message, keys)
 	}
 	p := &tg.SendMessageParams{ChatID: tg.ChatID{ID: chat}, Text: message.Text, Entities: message.Entities}
@@ -218,9 +236,26 @@ func (s *sdkClient) Send(ctx context.Context, chat int64, message outgoingText, 
 }
 func (s *sdkClient) Edit(ctx context.Context, chat int64, id int, message outgoingText, keys *tg.InlineKeyboardMarkup) error {
 	if message.Markdown != "" {
+		p := &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, RichMessage: &tg.InputRichMessage{Markdown: message.Markdown}}
+		if keys != nil {
+			p.ReplyMarkup = keys
+		}
+		_, e := s.bot.EditMessageText(ctx, p)
+		err := safeMethodError("editMessageText", e)
+		reportDeliveryAttempt(ctx, "editMessageText", "rich", err, false)
+		if err == nil || issueOf(err) == "unchanged" {
+			return nil
+		}
+		if !isFormatRejection(err) {
+			return err
+		}
 		return s.editFormatted(ctx, chat, id, message, keys)
 	}
-	_, e := s.bot.EditMessageText(ctx, &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, Text: message.Text, Entities: message.Entities, ReplyMarkup: keys})
+	p := &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, Text: message.Text, Entities: message.Entities}
+	if keys != nil {
+		p.ReplyMarkup = keys
+	}
+	_, e := s.bot.EditMessageText(ctx, p)
 	err := safeMethodError("editMessageText", e)
 	reportDeliveryAttempt(ctx, "editMessageText", "plain", err, false)
 	if err != nil && issueOf(err) == "unchanged" {

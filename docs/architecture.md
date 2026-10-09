@@ -144,9 +144,10 @@ ranges. Assistant replies retain their plain original text, including edits and
 long-message parts. Display labels never enter Bot input or change native request/
 item identity. Existing plain-text delivery digests are honored so a formatting
 upgrade does not republish history.
-Assistant Markdown uses ordinary `sendMessage` with Telegram's supported HTML
-formatting. A definite HTML format rejection can use the exact-source plain
-text; stream edits keep the original Telegram message ID. Authentication, chat,
+Assistant Markdown uses native `sendRichMessage` with `rich_message.markdown`.
+An explicit format or method rejection can fall back to `sendMessage` HTML,
+then exact-source plain text only after an HTML format rejection. Stream edits
+keep the original Telegram message ID. Authentication, chat,
 permission, rate-limit and unknown network results do not change send format.
 Local diagnostics record only API method, numeric Bot API error code, a locally
 classified reason, and a fingerprint of the original delivery key with its part

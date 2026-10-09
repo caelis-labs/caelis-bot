@@ -13,11 +13,47 @@ import (
 
 	"github.com/mymmrac/telego"
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/renderer"
 	gmhtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/util"
 )
 
-var telegramMarkdown = goldmark.New(goldmark.WithExtensions(extension.GFM), goldmark.WithRendererOptions(gmhtml.WithXHTML()))
+var telegramMarkdown = goldmark.New(
+	goldmark.WithExtensions(extension.GFM),
+	goldmark.WithRendererOptions(gmhtml.WithXHTML(), renderer.WithNodeRenderers(util.Prioritized(literalHTMLRenderer{}, 500))),
+)
+
+// Goldmark drops raw HTML by default. Preserve it as literal text so the
+// Telegram HTML adapter cannot silently remove model content such as <tag>.
+type literalHTMLRenderer struct{}
+
+func (literalHTMLRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(ast.KindRawHTML, func(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering {
+			segments := node.(*ast.RawHTML).Segments
+			for i := 0; i < segments.Len(); i++ {
+				segment := segments.At(i)
+				_, _ = w.WriteString(html.EscapeString(string(segment.Value(source))))
+			}
+		}
+		return ast.WalkSkipChildren, nil
+	})
+	reg.Register(ast.KindHTMLBlock, func(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+		block := node.(*ast.HTMLBlock)
+		if entering {
+			lines := block.Lines()
+			for i := 0; i < lines.Len(); i++ {
+				segment := lines.At(i)
+				_, _ = w.WriteString(html.EscapeString(string(segment.Value(source))))
+			}
+		} else if block.HasClosure() {
+			_, _ = w.WriteString(html.EscapeString(string(block.ClosureLine.Value(source))))
+		}
+		return ast.WalkContinue, nil
+	})
+}
 
 // Split on lines so links and table rows stay intact. Reopen fenced code in
 // the next rich chunk; Text always retains the exact original source portion.
