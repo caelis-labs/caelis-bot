@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.11.0](https://github.com/caelis-labs/caelis-bot/compare/v0.10.0...v0.11.0) (2026-10-09)
+
+
+### Features
+
+* add a reviewed plugin catalog with Bot-owned Skill and MCP installation ([1b46fb5](https://github.com/caelis-labs/caelis-bot/commit/1b46fb5208ade6ef1ba2f69adba999f346b7f72e))
+* add reviewed MCP connections with private Bot credentials ([6134e06](https://github.com/caelis-labs/caelis-bot/commit/6134e069fb05e3bcfeaa7108ddf206fdabb6bb83))
+* index connected MCP tools and add Notion OAuth ([c68e3bb](https://github.com/caelis-labs/caelis-bot/commit/c68e3bbf43eaaf430b18a78713ee1709dedf476e))
+* model-driven bot_dream with native Turn termination ([#123](https://github.com/caelis-labs/caelis-bot/issues/123)) ([#125](https://github.com/caelis-labs/caelis-bot/issues/125)) ([d3e324e](https://github.com/caelis-labs/caelis-bot/commit/d3e324e11454574a4cc918c4c87a2cf52f5da43c))
+* render Telegram Markdown and retire stale tool history after idle Dream handoff ([c68e3bb](https://github.com/caelis-labs/caelis-bot/commit/c68e3bbf43eaaf430b18a78713ee1709dedf476e))
+
+
+### Bug Fixes
+
+* **bot:** keep MCP discovery index tied to resident Runtime status ([#122](https://github.com/caelis-labs/caelis-bot/issues/122)) ([7f5bc67](https://github.com/caelis-labs/caelis-bot/commit/7f5bc6793073c3c99897cca0ee4c6c8e5abb8f72))
+* keep the task dock entry visible while chat is open ([56596b8](https://github.com/caelis-labs/caelis-bot/commit/56596b824b1feea33f443bb05c686032b096f611))
+* preserve composer drafts and Ghostty launch scripts through handoff ([6134e06](https://github.com/caelis-labs/caelis-bot/commit/6134e069fb05e3bcfeaa7108ddf206fdabb6bb83))
+* retain incomplete assistant output across steered turns ([7e09ec3](https://github.com/caelis-labs/caelis-bot/commit/7e09ec3b265fcd0f2d0b23c07569fc4a4182e307))
+* retire idle unknown tasks without replaying unresolved work ([88ea98e](https://github.com/caelis-labs/caelis-bot/commit/88ea98ed756de340b2e352f7c22a7695844a56d5))
+* show actionable task and recovery outcomes without automatic review noise ([86e611d](https://github.com/caelis-labs/caelis-bot/commit/86e611d32be2fae1a6bcdb6f2e5b771cd316fa2c))
+
 ## [0.10.0](https://github.com/caelis-labs/caelis-bot/compare/v0.9.1...v0.10.0) (2026-10-07)
 
 
