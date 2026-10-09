@@ -32,8 +32,9 @@ export function releaseVersion(version, tag) {
   if (channel === 'stable' || channel === 'dev') {
     const [major, minor, patch] = base.split('.').map(Number);
     const iteration = channel === 'stable' ? 999 : Number(published.match(/-dev\.(\d+)$/)[1]);
-    if (!Number.isSafeInteger(patch * 1000 + iteration) || iteration > 998 && channel === 'dev') {
-      throw new Error('Dev iteration exceeds supported Sparkle build range (1..998)');
+    if (![major, minor, patch].every(Number.isSafeInteger) ||
+        !Number.isSafeInteger(patch * 1000 + iteration) || channel === 'dev' && iteration > 998) {
+      throw new Error('Release version exceeds supported Sparkle build range (Dev 1..998)');
     }
     bundleVersion = `${major}.${minor}.${patch * 1000 + iteration}`;
   }
