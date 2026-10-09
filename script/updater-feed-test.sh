@@ -19,7 +19,7 @@ export BOT_RELEASE_TAG=v1.2.3 BOT_RELEASE_SOURCE_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaa
 bundle="$directory/stage/Caelis Bot.app"
 mkdir -p "$bundle/Contents/MacOS" "$directory/releases"
 cp resources/macos/Info.plist "$bundle/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Set CFBundleVersion 1.2.3' "$bundle/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Set CFBundleVersion 1.2.3999' "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set CFBundleShortVersionString 1.2.3' "$bundle/Contents/Info.plist"
 node script/configure-updates.mjs "$bundle/Contents/Info.plist"
 echo 'int main(void) { return 0; }' > "$directory/main.c"
@@ -38,20 +38,20 @@ if node script/update-manifest.mjs verify "$directory/releases" 2>/dev/null; the
 fi
 echo 'Real Sparkle DMG/feed signing and independent tamper rejection passed.'
 
-# Preview has a separate signed manual-download pointer. It must not produce
-# or modify the stable appcast, and its bundle never enables automatic updates.
-export BOT_RELEASE_TAG=v1.2.3-preview.1
+# Installable Dev has the same app identity, with a separately signed feed.
+export BOT_RELEASE_TAG=v1.2.3-dev.1
 cp resources/macos/Info.plist "$bundle/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Set CFBundleVersion 1.2.3' "$bundle/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Set CFBundleVersion 1.2.3001' "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set CFBundleShortVersionString 1.2.3' "$bundle/Contents/Info.plist"
 node script/configure-updates.mjs "$bundle/Contents/Info.plist"
 codesign --force --sign - --identifier dev.caelis.bot "$bundle"
-preview="$directory/preview"
-mkdir -p "$preview"
-preview_name=Caelis-Bot-1.2.3-preview.1-macos-arm64.dmg
-hdiutil create -quiet -format UDZO -fs HFS+ -srcfolder "$directory/stage" "$preview/$preview_name"
-(cd "$preview"; shasum -a 256 "$preview_name" > "$preview_name.sha256")
-bash script/prepare-appcast.sh "$bundle" "$preview"
-test ! -e "$preview/appcast.xml"
-test "$(node -p 'require(process.argv[1]).channel' "$preview/latest.json")" = preview
-echo 'Signed preview pointer and disabled automatic updater passed without changing the stable feed.'
+dev="$directory/dev"
+mkdir -p "$dev"
+dev_name=Caelis-Bot-1.2.3-dev.1-macos-arm64.dmg
+hdiutil create -quiet -format UDZO -fs HFS+ -srcfolder "$directory/stage" "$dev/$dev_name"
+(cd "$dev"; shasum -a 256 "$dev_name" > "$dev_name.sha256")
+bash script/prepare-appcast.sh "$bundle" "$dev"
+test -s "$dev/appcast.xml"
+test "$(node -p 'require(process.argv[1]).channel' "$dev/latest.json")" = dev
+test "$(/usr/libexec/PlistBuddy -c 'Print CaelisAutoUpdatesEnabled' "$bundle/Contents/Info.plist")" = true
+echo 'Signed Dev appcast and shared app identity passed without changing the Stable feed.'

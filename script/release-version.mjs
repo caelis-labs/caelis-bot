@@ -13,13 +13,32 @@ export function validateTag(tag) {
   }
   return tag.slice(1)
 }
+export function releaseChannel(tag) {
+  const version = validateTag(tag)
+  return /-dev\.[1-9]\d*$/.test(version) ? 'dev' : version.includes('-') ? 'preview' : 'stable'
+}
 export function releaseVersion(version, tag) {
   if (!validVersion(version)) throw new Error('Invalid package version')
-  if (tag && validateTag(tag) !== version) throw new Error('Release tag does not match package.json')
-  return {
-    version: tag ? version : `${version}${version.includes('-') ? '.' : '-'}dev`,
-    bundleVersion: version.split('-')[0],
+  if (tag) {
+    const tagged = validateTag(tag)
+    if (tagged !== version && !new RegExp(`^${version.replaceAll('.', '\\.')}\\-dev\\.[1-9]\\d*$`).test(tagged)) {
+      throw new Error('Release tag does not match package.json')
+    }
   }
+  const published = tag ? validateTag(tag) : null;
+  const channel = published ? releaseChannel(tag) : 'local';
+  const base = version.split('-')[0];
+  let bundleVersion = base;
+  if (channel === 'stable' || channel === 'dev') {
+    const [major, minor, patch] = base.split('.').map(Number);
+    const iteration = channel === 'stable' ? 999 : Number(published.match(/-dev\.(\d+)$/)[1]);
+    if (![major, minor, patch].every(Number.isSafeInteger) ||
+        !Number.isSafeInteger(patch * 1000 + iteration) || channel === 'dev' && iteration > 998) {
+      throw new Error('Release version exceeds supported Sparkle build range (Dev 1..998)');
+    }
+    bundleVersion = `${major}.${minor}.${patch * 1000 + iteration}`;
+  }
+  return {version: published ?? `${version}${version.includes('-') ? '.' : '-'}dev`, bundleVersion};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)))

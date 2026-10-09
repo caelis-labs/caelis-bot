@@ -184,8 +184,62 @@ for line in sys.stdin:
 			t.Fatal("functional MCP result missing", domain, string(payload))
 		}
 	}
+	// The published Settings action installs a reviewed package before an
+	// account is connected. An independent Worker may be active at that time.
+	workerDir := filepath.Join(root, "Tasks", "active-worker")
+	if err = os.MkdirAll(workerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	var worker threadExecutionResponse
+	if err = callDecode(ctx, s.client, "thread/start", s.workerParams(workerDir, "Synthetic worker isolation check.", &taskRecord{}), &worker); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	if s.binding.Tasks == nil {
+		s.binding.Tasks = map[string]*taskRecord{}
+	}
+	s.binding.Tasks["active-fixture"] = &taskRecord{Thread: worker.Thread.ID}
+	s.childRuns[worker.Thread.ID] = "active-fixture-turn"
+	s.mu.Unlock()
+	if _, err = manager.Mutate(ctx, "github", "install", func(context.Context, plugins.Selection) error {
+		return errors.New("package-only installation entered Runtime admission")
+	}); err != nil {
+		t.Fatal("reviewed package install was blocked by an independent Worker", err)
+	}
+	installed := false
+	for _, item := range manager.Snapshot().Items {
+		if item.ID == "github" {
+			installed = item.Installed && item.Enabled && item.Connection != nil && !item.Connection.Stored
+		}
+	}
+	if !installed {
+		t.Fatal("package install incorrectly required an account credential")
+	}
+	if err = s.UpdateBotPlugins(ctx, selection); err != nil {
+		t.Fatal("restoring synthetic service selection failed", err)
+	}
+	late := plugins.RuntimeName("test-late", "late")
+	withLate := selection.Clone()
+	withLate.Servers = append(withLate.Servers, plugins.SelectedServer{PackageID: "test-late", Name: "late", Root: serviceRoot, Data: filepath.Join(root, "PluginData", "late"), Server: plugins.Server{Type: "stdio", Command: "python3", Args: []string{"-u", serviceScript, "late"}}})
+	if err = s.UpdateBotPlugins(ctx, withLate); err != nil {
+		t.Fatal("Bot-only service activation with active Worker failed", err)
+	}
+	var rootStatus any
+	if err = callDecode(ctx, s.client, "mcpServerStatus/list", map[string]any{"threadId": s.binding.ThreadID, "serverName": late}, &rootStatus); err != nil {
+		t.Fatal(err)
+	}
+	rootStatusJSON, _ := json.Marshal(rootStatus)
+	if !strings.Contains(string(rootStatusJSON), "add_fixture") {
+		t.Fatal("new service did not reach the resident Bot thread")
+	}
+	if err = callDecode(ctx, s.client, "mcpServer/tool/call", map[string]any{"threadId": worker.Thread.ID, "server": late, "tool": "add_fixture", "arguments": map[string]any{}}, nil); err == nil {
+		t.Fatal("new Bot service leaked into existing Worker")
+	}
+	if err = s.UpdateBotPlugins(ctx, selection); err != nil {
+		t.Fatal("removing synthetic service failed", err)
+	}
 	disableAndCheck := func() {
-		if err = s.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
+		if err = s.WithBotPluginAdmission(ctx, func(apply func(context.Context, plugins.Selection) error) error {
 			_, err := manager.Mutate(ctx, "markdown-work", "disable", apply)
 			return err
 		}); err != nil {

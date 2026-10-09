@@ -51,38 +51,43 @@ type Host struct {
 }
 
 type Application struct {
-	localWork         *localWorkers
-	machines          *machines.Service
-	taskPreferences   *tasks.PreferencesStore
-	setup             *runtimeSetup
-	Backend           *backend.Service
-	Telegram          *telegram.Bridge
-	engine            api.Engine
-	host              Host
-	root              string
-	mu                sync.Mutex
-	pluginAdmission   sync.Mutex
-	updateMu          sync.Mutex
-	started, closed   bool
-	updatePrepared    bool
-	cancel            context.CancelFunc
-	startupCancel     context.CancelFunc
-	dreamReady        bool
-	careReady         bool
-	workers           sync.WaitGroup
-	companion         *bot.Runtime
-	bridge            *bot.Bridge
-	tasks             *tasks.Manager
-	personal          *botmemory.Store
-	notebook          *notebook.Vault
-	skillPath         string
-	initialization    *bot.Initializer
-	plugins           *plugins.Manager
-	pluginDetailMu    sync.Mutex
-	pluginIndexMu     sync.Mutex
-	pluginDetailCache map[string]pluginDetailCacheEntry
-	closeOnce         sync.Once
-	closeErr          error
+	localWork          *localWorkers
+	machines           *machines.Service
+	taskPreferences    *tasks.PreferencesStore
+	setup              *runtimeSetup
+	Backend            *backend.Service
+	Telegram           *telegram.Bridge
+	engine             api.Engine
+	host               Host
+	root               string
+	mu                 sync.Mutex
+	pluginAdmission    sync.Mutex
+	pluginSyncMu       sync.Mutex
+	pluginSyncRunning  bool
+	pluginSyncPending  bool
+	pluginSyncRevision uint64
+	pluginSyncError    bool
+	updateMu           sync.Mutex
+	started, closed    bool
+	updatePrepared     bool
+	cancel             context.CancelFunc
+	startupCancel      context.CancelFunc
+	dreamReady         bool
+	careReady          bool
+	workers            sync.WaitGroup
+	companion          *bot.Runtime
+	bridge             *bot.Bridge
+	tasks              *tasks.Manager
+	personal           *botmemory.Store
+	notebook           *notebook.Vault
+	skillPath          string
+	initialization     *bot.Initializer
+	plugins            *plugins.Manager
+	pluginDetailMu     sync.Mutex
+	pluginIndexMu      sync.Mutex
+	pluginDetailCache  map[string]pluginDetailCacheEntry
+	closeOnce          sync.Once
+	closeErr           error
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -399,6 +404,7 @@ func (a *Application) Start() error {
 	if err != nil && manager != nil {
 		return err
 	}
+	configuredPluginRevision := uint64(0)
 	bridge, err := bot.Serve(resident)
 	if err == nil {
 		var executable string
@@ -412,6 +418,7 @@ func (a *Application) Start() error {
 			if a.plugins != nil {
 				config.Plugins = a.plugins.Selection()
 			}
+			configuredPluginRevision = config.Plugins.Revision
 			config.NotebookDirectory = filepath.Join(a.root, "Notebook")
 			config.RuntimeVersion = updates.Version
 			config.PrepareContext = func(ctx context.Context) (api.ContextSeed, error) {
@@ -493,6 +500,13 @@ func (a *Application) Start() error {
 		}
 		return err
 	}
+	if a.plugins != nil {
+		a.pluginSyncMu.Lock()
+		// This is the exact selection passed to ConfigureBotTools above.
+		// A management write during Start must remain pending for reconcile.
+		a.pluginSyncRevision = configuredPluginRevision
+		a.pluginSyncMu.Unlock()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)
@@ -540,11 +554,18 @@ func (a *Application) Start() error {
 			}
 		}
 	}()
-	go func() { defer a.workers.Done(); _ = a.Backend.Connect(ctx) }()
+	go func() {
+		defer a.workers.Done()
+		if err := a.Backend.Connect(ctx); err == nil {
+			a.queuePluginReconcile()
+		}
+	}()
 	go func() {
 		defer a.workers.Done()
 		observer := backend.NotificationObserver{Notify: a.host.Notify, Dismiss: a.host.DismissNotification, Locale: a.host.Locale}
 		var revision uint64
+		var priorConnection string
+		var priorPluginRecoveryPending bool
 		for {
 			snapshot, err := a.engine.(api.SnapshotObserver).WaitSnapshot(ctx, revision)
 			if ctx.Err() != nil {
@@ -562,6 +583,7 @@ func (a *Application) Start() error {
 				continue
 			}
 			revision = snapshot.Revision
+			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
 			a.Backend.ObserveChat(snapshot)
 			observer.Observe(snapshot)
 			if a.host.Observe != nil {

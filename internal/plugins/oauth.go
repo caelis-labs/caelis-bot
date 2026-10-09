@@ -402,8 +402,9 @@ func (m *Manager) CancelOAuth(id string) Snapshot {
 	return m.snapshotLocked()
 }
 
-// ConfigureOAuthGrant uses the same save-before-apply transaction and rollback
-// as credential connections. A failed Runtime apply cannot leave a live grant.
+// ConfigureOAuthGrant confirms the private replacement before Runtime reload.
+// Synchronous callers still roll back on apply failure. The old grant remains
+// available to an existing relay until the replacement is projected.
 func (m *Manager) ConfigureOAuthGrant(ctx context.Context, id, state string, grant OAuthGrant, apply func(context.Context, Selection) error) (Snapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -424,7 +425,11 @@ func (m *Manager) ConfigureOAuthGrant(ctx context.Context, id, state string, gra
 	next := cloneState(old)
 	next.Revision++
 	current := old.Connections[id]
-	next.Connections[id] = connectionRecord{Revision: next.Revision, Configured: true}
+	replacement := connectionRecord{Revision: next.Revision, Configured: true, RetiredOAuth: append([]uint64(nil), current.RetiredOAuth...)}
+	if current.Configured {
+		replacement.RetiredOAuth = append(replacement.RetiredOAuth, current.Revision)
+	}
+	next.Connections[id] = replacement
 	key := secretKey(m.root, id, next.Revision)
 	data, _ := json.Marshal(grant)
 	cleanup := func() error { return m.secrets.Delete(key) }
@@ -435,17 +440,58 @@ func (m *Manager) ConfigureOAuthGrant(ctx context.Context, id, state string, gra
 		return m.snapshotLocked(), errors.Join(err, m.save(old), cleanup())
 	}
 	m.state = next
-	if apply != nil {
+	if apply != nil && m.state.Installed[id].Enabled {
 		if err := apply(ctx, m.selectionLocked(next)); err != nil {
 			restore := m.save(old)
 			m.state = old
 			return m.snapshotLocked(), errors.Join(err, restore, cleanup())
 		}
 	}
-	if current.Configured {
-		_ = m.revokeOAuthKey(id, current.Revision)
+	if apply != nil {
+		// Cleanup is retryable from the persisted retired list. A failed
+		// deletion cannot turn an already confirmed grant into an unknown
+		// authorization result.
+		_ = m.confirmOAuthProjectionLocked(next.Revision)
 	}
 	m.cancelOAuthLocked(id)
 	delete(m.oauthErrors, id)
 	return m.snapshotLocked(), nil
+}
+
+// ConfirmOAuthProjection retires old grants only after the Runtime has
+// accepted the exact connection generation. A newer management revision
+// defers cleanup until its own projection completes.
+func (m *Manager) ConfirmOAuthProjection(revision uint64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.confirmOAuthProjectionLocked(revision)
+}
+
+func (m *Manager) confirmOAuthProjectionLocked(revision uint64) error {
+	if m.state.Revision != revision {
+		return nil
+	}
+	next := cloneState(m.state)
+	changed := false
+	for id, record := range next.Connections {
+		if len(record.RetiredOAuth) == 0 {
+			continue
+		}
+		for _, old := range record.RetiredOAuth {
+			if err := m.revokeOAuthKey(id, old); err != nil {
+				return err
+			}
+		}
+		record.RetiredOAuth = nil
+		next.Connections[id] = record
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	if err := m.save(next); err != nil {
+		return err
+	}
+	m.state = next
+	return nil
 }
