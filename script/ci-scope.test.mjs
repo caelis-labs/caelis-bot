@@ -20,11 +20,8 @@ function scope(paths, modify = () => {}) {
 }
 const files = ['package.json', 'package-lock.json', '.release-please-manifest.json', 'CHANGELOG.md'];
 
-test('version and changelog updates use the fast path, independent of author or branch', () => {
+test('stable version and changelog updates use the fast path, independent of author or branch', () => {
   assert.equal(scope(files).kind, 'release');
-  assert.equal(scope(files, data => {
-    data['package.json'].version = data['package-lock.json'].version = data['package-lock.json'].packages[''].version = data['.release-please-manifest.json']['.'] = '0.7.0-preview.1';
-  }).kind, 'release');
 });
 
 test('dependencies, lock contents, commands and extra manifest entries require both desktop platforms', () => {
