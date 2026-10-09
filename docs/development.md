@@ -13,8 +13,9 @@ make build
 ```
 
 `make check` covers generated contracts, protocol hashes, public-tree/asset boundaries, frontend/i18n, native
-lifecycle fixtures, Go vet/tests and shared-core portability. `make smoke` only handshakes the installed Codex
-and checks assets; it does not create a conversation or call a model. `make build` creates an ad-hoc Dev app.
+lifecycle fixtures and Go vet/tests. `make check-portability` runs the slower CGO-free shared-core tests and
+six-target cross-compilation separately; CI runs it weekly and on demand. `make smoke` only handshakes the installed
+Codex and checks assets; it does not create a conversation or call a model. `make build` creates an ad-hoc Dev app.
 `make package` adds a verified read-only DMG/checksum, using pinned Python dmgbuild in `.cache/dmg-tools`.
 
 Codex reconnect fixtures exercise more than 64 ordered events, a stalled session

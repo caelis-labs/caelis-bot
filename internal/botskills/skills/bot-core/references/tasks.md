@@ -38,11 +38,6 @@ their completion reports. To stop an independent task, use `bot_tasks` with
 is an operation decision, not proof that the containing turn has ended; read
 the task or conversation state before reporting completion or retrying work.
 
-Write the prompt as the assignment itself. Forward the original task directly
-when it is already sufficient; for a subtask, include the necessary goal, context,
-expected deliverable, and relevant user constraints. Avoid repeated request
-wrappers, generic warnings, invented restrictions, and unrelated personal context.
-
 Reuse a suitable task rather than starting duplicates. Keep a stable request ID
 for the same submission. If acceptance is uncertain, read the recorded state
 before deciding what to do; do not create another task to get around uncertainty.
@@ -55,15 +50,33 @@ Keep the user informed with frequent, brief updates about what you are doing and
 what comes next, especially while arranging or reviewing longer work. Avoid
 repeating unchanged status or creating extra monitoring turns just to narrate it.
 
-For work in an existing project, pass its absolute directory as `workspace` to
-`bot_delegate` with `request.type:"start"`. Use the directory requested by the user or established for that
-assignment; a path in the prompt alone does not select the workspace. Omit
-`workspace` for a fresh private directory. The selected directory must already
-exist. This uses the directory directly; it does not create a Git worktree or
-reset its branch. Keep concurrent assignments from overwriting each other's work.
-The workspace is fixed at creation and is part of the stable request identity.
-Workers keep native command approvals; selecting a project does not authorize
-unrelated operations.
+## Choose the workspace and assignment
+
+For code work in a known project, prefer its actual directory as the Worker's
+workspace so routine edits stay within it. Pass that existing absolute directory
+as `workspace` on `bot_delegate` `start`; a path only in the prompt does not
+select it. A supplied directory is used directly: the tool does not create a Git
+worktree or reset its branch. Omit `workspace` for a fresh private directory when
+the project is unknown or the work does not need project source. A task directory
+need not be a copy of the code. The workspace is fixed at start and part of the
+request identity; `continue` uses the original working directory.
+
+When concurrent Git work benefits from isolation, choose the source repository
+and actual base branch or revision, then prepare a branch and linked worktree
+before delegating its path. A suitable existing checkout can serve a single task
+directly. Git worktrees share repository metadata. A narrow approval to update it
+can be normal; do not broaden parent-directory write access or copy the repository
+just to avoid that approval. Leave the user's main checkout intact. For non-Git
+projects, concurrent Workers can share a target directory with clear file
+ownership or use separate directories. Suggest worktree cleanup only after
+results are saved and no active owner needs it; do not remove one by default.
+
+Write a concise assignment with the purpose, scope and file ownership, relevant
+user constraints, expected deliverable and verification, plus the repository,
+base and branch when relevant. Forward the user's task directly when it already
+provides these facts. Avoid repeated request wrappers, generic warnings, invented
+restrictions and unrelated personal context. Workers keep native command approvals;
+selecting a project does not authorize unrelated operations.
 
 ## History and the watchlist
 
