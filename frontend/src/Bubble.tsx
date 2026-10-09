@@ -5,7 +5,7 @@ import { useI18n } from './i18n';
 import { approvalTitle } from './approval-presentation';
 import { bubblePresentation, reduceBubbleNotice } from './bubble-notice';
 import { MessageContent } from './MessageContent';
-import { chatActivity } from './chat-presentation';
+import { chatActivity, incompleteAssistant } from './chat-presentation';
 import { activityLabel } from './activity-presentation';
 
 export function Bubble() {
@@ -55,6 +55,7 @@ export function Bubble() {
  const prompts=snapshot?.approvals.filter(p=>p.status!=='resolved')??[];
  const prompt=prompts[Math.min(index,Math.max(0,prompts.length-1))];
  const output=snapshot?.items.filter(i=>i.kind==='assistant').at(-1);
+ const partial=output?incompleteAssistant(output,snapshot):false;
  const working=!!snapshot?.canInterrupt;
  const activity=chatActivity(snapshot);
  const dreaming=activity==='dreaming';
@@ -92,7 +93,7 @@ export function Bubble() {
     {!!progressText&&<div className="bubble-progress" role="status"><span className="activity-spinner" aria-hidden="true"/><span>{progressText}</span></div>}
     <div className="bubble-copy" tabIndex={readingMessage?0:undefined} role="region" aria-label={t('chat.bubbleAriaLabel')}>
      {/* Temporary prompts keep the reply mounted so its reveal progress survives. */}
-     {output&&<div hidden={!markdown}><MessageContent key={output.id} text={output.text} report={setError} animate={visible&&liveReplies.has(output.id)}/></div>}
+     {output&&<div hidden={!markdown}><MessageContent key={output.id} text={output.text} report={setError} animate={visible&&liveReplies.has(output.id)&&!partial}/>{partial&&<small className="bubble-incomplete" role="status">{t('chat.statusIncomplete')}</small>}</div>}
      {!markdown&&<span className={content===progress?'bubble-standalone-progress':undefined}>{content===progress&&!!progress&&!dreaming&&<span className="activity-spinner" aria-hidden="true"/>}{content}</span>}
     </div>
    </div>

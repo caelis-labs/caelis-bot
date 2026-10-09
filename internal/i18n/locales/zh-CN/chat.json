@@ -9,6 +9,7 @@
   "statusUnknown": "结果待确认",
   "statusUnconfirmed": "结果未确认",
   "statusInProgress": "进行中",
+  "statusIncomplete": "未完成",
   "statusDeclined": "已拒绝",
   "reviewInProgress": "正在自动审查",
   "reviewDenied": "操作未通过自动审查",

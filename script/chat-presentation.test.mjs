@@ -1,9 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeReplyID, canSubmit, chatActivity, composerAction, liveReplyIDs, withOutgoing } from '../frontend/src/chat-presentation.ts';
+import { activeReplyID, canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, withOutgoing } from '../frontend/src/chat-presentation.ts';
 
 const running = { connection:'ready', phase:'working', currentTurn:'current',
  canInterrupt:true, canSend:false, canSteer:true, items:[], approvals:[], reviews:[] };
+
+test('a prior partial is marked incomplete after its turn, while later completed text stays final',()=>{
+ const partial={id:'partial',kind:'assistant',turnKey:'old',text:'已收到的片段',status:'inProgress'};
+ const following={...partial,id:'following',text:'完整回复',status:'completed'};
+ const done={...running,phase:'completed',currentTurn:'',items:[partial,following]};
+ assert.equal(incompleteAssistant(partial,done),true);
+ assert.equal(incompleteAssistant(following,done),false);
+ assert.equal(incompleteAssistant({...partial,status:'incomplete'},done),true);
+ assert.equal(incompleteAssistant({...partial,turnKey:'current'},running),false);
+ assert.equal(incompleteAssistant({...partial,kind:'activity'},done),false);
+ assert.equal(activeReplyID(done),null);
+ assert.deepEqual([...liveReplyIDs(running,{...running,items:[partial,following]},new Set())],['partial','following']);
+});
 
 test('empty running input stops; text or attachments switch back to send without changing capability', () => {
  assert.equal(composerAction(running,false,false),'stop');

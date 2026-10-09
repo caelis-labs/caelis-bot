@@ -78,6 +78,19 @@ test('history, corrections, inactive surfaces and reduced motion display immedia
  assert.equal(reveal.pending,false);
 });
 
+test('terminal incomplete item flushes only bytes actually received, including after remount',()=>{
+ const partial='Core #111 的流终止修';
+ const reveal=new TextReveal();
+ reveal.update(partial,true,0);
+ assert.notEqual(reveal.value(16),partial);
+ reveal.update(partial,false,17);
+ assert.equal(reveal.value(17),partial);
+ assert.equal(reveal.pending,false);
+ const remounted=new TextReveal();
+ remounted.update(partial,false,1000);
+ assert.equal(remounted.value(1000),partial);
+});
+
 for (const [before, after] of [['e', 'e\u0301'], ['hello e', 'hello e\u0301'], ['👩', '👩🏽‍💻'], ['🇨', '🇨🇳']]) {
  test(`appended grapheme bytes never erase displayed text: ${before}`, () => {
   const reveal = new TextReveal();

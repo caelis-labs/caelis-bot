@@ -9,6 +9,15 @@ export function withOutgoing(items: Item[], outgoing: Item[]): Item[] {
  return [...items, ...outgoing.filter(item => !known.has(item.requestId))];
 }
 
+// Older stored projections can still say inProgress after their turn ended.
+// Only identify an orphaned assistant item; do not relabel the whole turn.
+export function incompleteAssistant(item: Item, snapshot: Snapshot | null): boolean {
+ if(item.kind !== 'assistant' || !snapshot) return false;
+ if(item.status === 'incomplete') return true;
+ return item.status === 'inProgress' && !!item.turnKey && item.turnKey !== snapshot.currentTurn &&
+  (!!snapshot.currentTurn || ['completed','failed','interrupted','idle'].includes(snapshot.phase));
+}
+
 // Presentation follows backend capabilities; typing never grants permission to
 // steer a run that is awaiting approval or recovering its connection.
 export function composerAction(snapshot: Snapshot | null, quick: boolean, hasContent: boolean) {
