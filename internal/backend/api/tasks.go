@@ -53,6 +53,7 @@ type TaskPage struct {
 	NextCursor                string        `json:"nextCursor,omitempty"`
 	Total                     int           `json:"total"`
 	Running                   int           `json:"running"`
+	Reserved                  int           `json:"reserved"`
 	MaxRunning                int           `json:"maxRunning"`
 	CompletedRetentionSeconds int           `json:"completedRetentionSeconds"`
 }

@@ -114,8 +114,14 @@ is refused because the original thread is active or cannot be checked, keep the
 task and ask for a later read instead of claiming it stopped.
 
 The running-task limit is a user preference, defaulting to six. `list` returns
-`running` and `maxRunning`. Starting new work and resuming completed work use the
-same capacity; steering an already-running task does not consume another slot.
+`running` (work, approval and start states), `reserved` (one possible slot per
+unresolved unknown task), and `maxRunning`. Starting new work and resuming
+completed work use the same capacity; steering an already-running task does not
+consume another slot.
+Admission uses `running + reserved`; one unreadable old task leaves other slots
+available. An unreadable original owner cannot be declared idle or safely retired.
+Read or retire that exact task after its owner becomes readable; only a confirmed
+idle fact releases its reserved slot. Do not infer a stop from elapsed time.
 When full, coordinate existing work before scheduling more. Reducing the limit
 does not interrupt existing tasks. Do not use an external terminal to bypass it.
 Keep the watchlist useful: pin tasks the user is actively checking, remove obsolete

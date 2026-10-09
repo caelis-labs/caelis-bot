@@ -28,15 +28,29 @@ func TestLegacyUnknownRecordsRetireOnlyAfterOriginalThreadIdle(t *testing.T) {
 	a.Status.Type = "idle"
 	b := nativeThread{ID: bThread, Turns: []nativeTurn{{ID: "active-unknown", Status: "inProgress"}}}
 	b.Status.Type = "active"
-	f.workers[aThread] = a
 	f.workers[bThread] = b
 	f.mu.Unlock()
 	if err := m.RefreshWatchlist(); err != nil {
 		t.Fatal(err)
 	}
+	if v, err := m.ReadTask(testContext(t), aID); err == nil || v.Status != "unknown" {
+		t.Fatal("unreadable rejected original was silently retired", v, err)
+	}
+	if v, err := m.RetireTask(testContext(t), aID); err == nil || v.Status == "unavailable" {
+		t.Fatal("unreadable original was retired", v, err)
+	}
+	if v, err := m.ReadTask(testContext(t), bID); err != nil || v.Status != "unknown" {
+		t.Fatal("active original could not be observed", v, err)
+	}
+	if page, err := m.QueryTasks(api.TaskQuery{}); err != nil || page.Running != 1 || page.Reserved != 1 {
+		t.Fatal("unreadable original did not retain one possible slot", page, err)
+	}
 	if v, err := m.RetireTask(testContext(t), bID); err == nil || v.Status == "unavailable" {
 		t.Fatal("active unknown task retired", v, err)
 	}
+	f.mu.Lock()
+	f.workers[aThread] = a
+	f.mu.Unlock()
 	if v, err := m.ReadTask(testContext(t), aID); err != nil || v.Status != "unavailable" || v.Outcome != "rejected" {
 		t.Fatal("rejected idle task not retired", v, err)
 	}

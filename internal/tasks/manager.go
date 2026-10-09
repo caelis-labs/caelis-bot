@@ -423,13 +423,11 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		return v, nil
 	}
 	m.mu.Unlock()
-	if e := m.reconcileUnknown(ctx); e != nil {
+	used, e := m.admissionUsage(ctx)
+	if e != nil {
 		return api.Task{}, e
 	}
-	m.mu.Lock()
-	active := m.activeLocked()
-	m.mu.Unlock()
-	if active >= m.maximumRunning() {
+	if used >= m.maximumRunning() {
 		return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
 	}
 	if e := m.work.WorkAdmission(ctx); e != nil {
@@ -478,7 +476,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	r.Sequence = m.state.Sequence
 	m.promoteWatchLocked(id)
 	m.state.Records[id] = r
-	e := m.write()
+	e = m.write()
 	if e != nil {
 		delete(m.state.Records, id)
 	}
@@ -574,15 +572,15 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	}
 	restarting := terminal(status)
 	m.mu.Unlock()
+	used := 0
 	if restarting {
-		if err := m.reconcileUnknown(ctx); err != nil {
+		var err error
+		used, err = m.admissionUsage(ctx)
+		if err != nil {
 			return api.Task{}, err
 		}
 	}
-	m.mu.Lock()
-	active := m.activeLocked()
-	m.mu.Unlock()
-	if restarting && active >= m.maximumRunning() {
+	if restarting && used >= m.maximumRunning() {
 		replay, ok := m.work.(api.RecordedWorkMessage)
 		if !ok || !replay.WorkMessageRecorded(in) {
 			return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
@@ -604,10 +602,17 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	return m.capture(in.ID, v, e)
 }
 
-// Unknown outcomes are read from their original owner before admitting new
-// work. A confirmed active thread consumes a slot; unreadable activity closes
-// admission rather than letting a live Worker escape the limit.
-func (m *Manager) reconcileUnknown(ctx context.Context) error {
+// The operation lock spans this check and native dispatch, so parallel starts
+// cannot claim the same last slot. Unknown work with unreadable activity keeps
+// one possible slot each. Only when full do we try original-owner reads to
+// release positively idle tasks; a failed read never frees its reservation.
+func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
+	m.mu.Lock()
+	used := m.activeLocked() + m.reservedLocked()
+	m.mu.Unlock()
+	if used < m.maximumRunning() {
+		return used, nil
+	}
 	m.mu.Lock()
 	ids := make([]string, 0)
 	for id, r := range m.state.Records {
@@ -617,21 +622,19 @@ func (m *Manager) reconcileUnknown(ctx context.Context) error {
 	}
 	m.mu.Unlock()
 	for _, id := range ids {
-		if _, err := m.work.ReadWork(ctx, id); err != nil {
-			return fmt.Errorf("task %s activity unconfirmed: %w", id, err)
+		if err := ctx.Err(); err != nil {
+			return 0, err
 		}
+		// A read error leaves that task unknown and reserved. Other owners may
+		// still be read and safely retired without retrying any execution.
+		_, _ = m.work.ReadWork(ctx, id)
 	}
 	if err := m.refresh(); err != nil {
-		return err
+		return 0, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for id, r := range m.state.Records {
-		if m.owns(r) && r.View.Status == "unknown" && r.Activity != "active" {
-			return fmt.Errorf("task %s activity unconfirmed; read or retire the original owner", id)
-		}
-	}
-	return nil
+	return m.activeLocked() + m.reservedLocked(), nil
 }
 
 func (m *Manager) RetireTask(ctx context.Context, id string) (api.Task, error) {
