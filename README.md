@@ -23,6 +23,8 @@ Caelis Bot brings your local agent to the macOS desktop through a small, express
 
 Available for Apple Silicon Macs. Download the DMG and its `.sha256` file, verify the download, then drag **Caelis Bot.app** into Applications. See the [installation guide](docs/install.md) for verification and first-launch steps.
 
+This link is for **Stable**. Check the [signed macOS Stable manifest](https://releases.caelis.dev/caelis-bot/latest.json) against the GitHub tag before installing; if they differ, pause instead of taking an older default download. **Dev** is an explicitly labeled [prerelease](https://github.com/caelis-labs/caelis-bot/releases) of the same Caelis Bot app. Select Stable or Dev in Settings → Updates; each channel reads only its own signed update feed. Local/CI development builds are not Dev releases.
+
 Choose **Caelis or Codex** during setup or in **Settings → Runtime**. Use your local installation and account; neither runtime is bundled. Caelis must expose the required application and Guardian capabilities; see [runtime compatibility](docs/caelis-integration.md). The Bot's conversation model and the models used for delegated work can be configured separately. By default, delegated work uses the runtime's configuration.
 
 Click the character to write, double-click to open the conversation, and use the menu bar for settings or Quit. Hiding the character does not stop work. Stable builds with the updater check daily and install signed updates after confirmation. Older builds need one manual upgrade; see [updating](docs/install.md#update).

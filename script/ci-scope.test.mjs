@@ -54,7 +54,7 @@ test('only product documentation skips builds; Bot skills and runtime resources 
 });
 
 test('packaging changes exercise the DMG while an ordinary transport change does not', () => {
-  for (const path of ['script/package.sh', 'script/build.sh', 'script/dmg-settings.py', 'script/verify-dmg-layout.py', 'script/prepare-appcast.sh', 'script/publication.mjs', 'script/publish-r2.mjs', 'script/stage-desktop-world-windows.ps1', 'resources/macos/Info.plist', '.github/workflows/release.yml']) {
+  for (const path of ['script/package.sh', 'script/build.sh', 'script/dmg-settings.py', 'script/verify-dmg-layout.py', 'script/prepare-appcast.sh', 'script/publication.mjs', 'script/publish-r2.mjs', 'script/verify-release-candidate.sh', 'script/sync-github-latest.mjs', 'script/stage-desktop-world-windows.ps1', 'resources/macos/Info.plist', '.github/workflows/release.yml', '.github/workflows/promote-release.yml']) {
     assert.equal(scope([path]).preview, true);
   }
   assert.deepEqual(scope(['internal/telegram/proxy_darwin.go']), {kind: 'macos', preview: false});

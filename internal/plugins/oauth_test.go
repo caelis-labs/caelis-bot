@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -61,6 +62,8 @@ func newOAuthFixture(t *testing.T) *oauthFixture {
 				w.Header().Set("Content-Type", "application/json")
 				if rpc.Method == "initialize" {
 					fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}}}}`, rpc.ID)
+				} else if rpc.Method == "tools/call" {
+					fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"content":[{"type":"text","text":"fixture result"}]}}`, rpc.ID)
 				} else {
 					fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[{"name":"find","description":"Find workspace pages"}]}}`, rpc.ID)
 				}
@@ -144,6 +147,84 @@ func newOAuthFixture(t *testing.T) *oauthFixture {
 		t.Fatal(err)
 	}
 	return f
+}
+
+func TestOAuthOldRelaySurvivesUnconfirmedReplacement(t *testing.T) {
+	f := newOAuthFixture(t)
+	authorizeFixture(t, f)
+	selected := f.manager.Selection().Servers[0]
+	old := selected.ConnectionRevision
+	inReader, inWriter := io.Pipe()
+	outReader, outWriter := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- runStdio(t.Context(), f.manager, "fixture", "docs", inReader, outWriter, io.Discard, selected.Root[strings.LastIndex(selected.Root, "/")+1:], fmt.Sprint(old))
+		outWriter.Close()
+	}()
+	responses := bufio.NewScanner(outReader)
+	call := func(id int) {
+		t.Helper()
+		if _, err := fmt.Fprintf(inWriter, `{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"find","arguments":{}}}`+"\n", id); err != nil {
+			t.Fatal(err)
+		}
+		if !responses.Scan() || !strings.Contains(responses.Text(), `"id":`+fmt.Sprint(id)) || !strings.Contains(responses.Text(), "fixture result") {
+			t.Fatal("old relay lost authenticated call", responses.Text(), responses.Err())
+		}
+	}
+	call(1)
+	flow := &oauthFlow{state: "replacement", claimed: true, cancel: func() {}}
+	f.manager.mu.Lock()
+	f.manager.oauthFlows = map[string]*oauthFlow{"fixture": flow}
+	f.manager.mu.Unlock()
+	replacement := OAuthGrant{ClientID: "new-client", AccessToken: "ROTATED", Resource: f.server.URL + "/mcp"}
+	if _, err := f.manager.ConfigureOAuthGrant(t.Context(), "fixture", flow.state, replacement, nil); err != nil {
+		t.Fatal(err)
+	}
+	if f.manager.state.Connections["fixture"].Revision == old {
+		t.Fatal("replacement generation was not committed")
+	}
+	if err := f.manager.ConfirmOAuthProjection(old); err != nil {
+		t.Fatal(err)
+	}
+	beforeSecondCall := f.resourceCalls.Load()
+	call(2)
+	if f.resourceCalls.Load() != beforeSecondCall+1 {
+		t.Fatal("old relay did not reach the upstream after replacement")
+	}
+	inWriter.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("old relay did not drain")
+	}
+	if err := f.manager.ConfirmOAuthProjection(f.manager.state.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.manager.secrets.Load(secretKey(f.manager.root, "fixture", old)); err == nil {
+		t.Fatal("old grant remained after confirmed switch")
+	}
+}
+
+func TestOAuthExplicitClearRevokesUnconfirmedOldGenerations(t *testing.T) {
+	f := newOAuthFixture(t)
+	authorizeFixture(t, f)
+	old := f.manager.state.Connections["fixture"].Revision
+	authorizeFixture(t, f)
+	current := f.manager.state.Connections["fixture"].Revision
+	if _, err := f.manager.secrets.Load(secretKey(f.manager.root, "fixture", old)); err != nil {
+		t.Fatal("old grant was deleted before projection", err)
+	}
+	if _, err := f.manager.ConfigureConnection(t.Context(), "fixture", "", "", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, revision := range []uint64{old, current} {
+		if _, err := f.manager.secrets.Load(secretKey(f.manager.root, "fixture", revision)); err == nil {
+			t.Fatal("explicit clear retained OAuth grant", revision)
+		}
+	}
 }
 
 func TestOAuthUnsupportedPlatform(t *testing.T) {
@@ -367,7 +448,7 @@ func TestOAuthInvalidGrantAndReauthorizationRollback(t *testing.T) {
 	f.manager.mu.Unlock()
 	replacement := OAuthGrant{ClientID: "new-client", AccessToken: "NEW", Resource: f.server.URL + "/mcp"}
 	_, err := f.manager.ConfigureOAuthGrant(t.Context(), "fixture", flow.state, replacement, func(context.Context, Selection) error { return errors.New("runtime rejected replacement") })
-	if err == nil || f.manager.state.Connections["fixture"] != initial {
+	if err == nil || f.manager.state.Connections["fixture"].Revision != initial.Revision {
 		t.Fatal("failed reauthorization lost old connection", err)
 	}
 	if _, err := f.manager.secrets.Load(secretKey(f.manager.root, "fixture", initial.Revision)); err != nil {
@@ -389,8 +470,14 @@ func TestOAuthReauthorizationDisableAndUninstall(t *testing.T) {
 	if f.manager.state.Connections["fixture"].Revision == old {
 		t.Fatal("reauthorization kept old revision")
 	}
+	if _, err := f.manager.secrets.Load(secretKey(f.manager.root, "fixture", old)); err != nil {
+		t.Fatal("old grant was revoked before Runtime switched")
+	}
+	if err := f.manager.ConfirmOAuthProjection(f.manager.state.Revision); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.manager.secrets.Load(secretKey(f.manager.root, "fixture", old)); err == nil {
-		t.Fatal("old grant retained")
+		t.Fatal("old grant retained after Runtime switch")
 	}
 	if _, err := f.manager.Mutate(t.Context(), "fixture", "disable", nil); err != nil {
 		t.Fatal(err)

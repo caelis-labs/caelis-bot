@@ -38,12 +38,25 @@ type release struct {
 }
 
 func Check(ctx context.Context, loc ...i18n.Locale) Result {
-	return checkTarget(ctx, &http.Client{Timeout: 12 * time.Second}, Version, runtime.GOOS, runtime.GOARCH, loc...)
+	return CheckChannel(ctx, "stable", loc...)
+}
+func CheckChannel(ctx context.Context, channel string, loc ...i18n.Locale) Result {
+	return checkTargetChannel(ctx, &http.Client{Timeout: 12 * time.Second}, Version, runtime.GOOS, runtime.GOARCH, channel, loc...)
 }
 func check(ctx context.Context, client *http.Client, current, arch string, loc ...i18n.Locale) Result {
-	return checkTarget(ctx, client, current, "darwin", arch, loc...)
+	channel := "stable"
+	if strings.Contains(current, "-dev.") {
+		channel = "dev"
+	}
+	if strings.Contains(current, "-preview") {
+		channel = "preview"
+	}
+	return checkTargetChannel(ctx, client, current, "darwin", arch, channel, loc...)
 }
 func checkTarget(ctx context.Context, client *http.Client, current, targetOS, arch string, loc ...i18n.Locale) Result {
+	return checkTargetChannel(ctx, client, current, targetOS, arch, "stable", loc...)
+}
+func checkTargetChannel(ctx context.Context, client *http.Client, current, targetOS, arch, channel string, loc ...i18n.Locale) Result {
 	l := i18n.DefaultLocale
 	if len(loc) > 0 && loc[0] != "" {
 		l = loc[0]
@@ -72,7 +85,7 @@ func checkTarget(ctx context.Context, client *http.Client, current, targetOS, ar
 		return result
 	}
 	installed := parseVersion(current)
-	if installed == nil {
+	if installed == nil || installed[3] == "dev" || strings.HasSuffix(installed[3], ".dev") {
 		result.Message = i18n.Text(l, "host.updatesDevBuild", nil)
 		return result
 	}
@@ -80,7 +93,10 @@ func checkTarget(ctx context.Context, client *http.Client, current, targetOS, ar
 	var latest []string
 	for _, release := range releases {
 		v := parseVersion(release.Tag)
-		if release.Draft || v == nil || (installed[3] == "" && (release.Prerelease || v[3] != "")) {
+		if release.Draft || v == nil || release.Prerelease != (v[3] != "") {
+			continue
+		}
+		if channel == "dev" && !strings.HasPrefix(v[3], "dev.") || channel == "preview" && !strings.HasPrefix(v[3], "preview") || channel != "dev" && channel != "preview" && v[3] != "" {
 			continue
 		}
 		compatible := false

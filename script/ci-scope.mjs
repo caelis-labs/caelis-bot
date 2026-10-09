@@ -7,14 +7,14 @@ import {validateTag} from './release-version.mjs';
 const releaseFiles = new Set(['package.json', 'package-lock.json', '.release-please-manifest.json', 'CHANGELOG.md']);
 const documentation = path => path === 'README.md' || path === 'CHANGELOG.md' || path.startsWith('docs/');
 const packaging = path => path.startsWith('resources/macos/') || path.startsWith('resources/desktop-world/') ||
-  /^script\/(?:build|package|dmg|sign|verify|sparkle|desktop-world-runtime|prepare-appcast|publish-r2|publication|update-manifest|updater-feed-test|windows-acceptance|stage-desktop-world-windows)[^/]*\.(?:sh|mjs|py|swift|ps1)$/.test(path) ||
-  path === '.github/workflows/release.yml' || path === '.github/workflows/release-please.yml';
+  /^script\/(?:build|package|dmg|sign|verify|sparkle|desktop-world-runtime|prepare-appcast|publish-r2|publication|update-manifest|updater-feed-test|sync-github-latest|windows-acceptance|stage-desktop-world-windows)[^/]*\.(?:sh|mjs|py|swift|ps1)$/.test(path) ||
+  ['.github/workflows/release.yml', '.github/workflows/release-please.yml', '.github/workflows/promote-release.yml', '.github/workflows/sync-r2.yml'].includes(path);
 const macosOnly = path => path.startsWith('resources/macos/') || /_darwin\.(?:go|m|h)$/.test(path) ||
   /^script\/(?:dmg|sign|notariz|sparkle|package|build_and_run|app-identity|development-signing|verify-signature|verify-dmg|updater-native)[^/]*\.(?:sh|mjs|py|swift)$/.test(path);
 const windowsOnly = path => path.startsWith('resources/windows/') || /_windows\.(?:go|rc)$/.test(path) ||
   /^script\/windows-[^/]*\.(?:ps1|mjs)$/.test(path);
 const shared = path => /^(?:internal|frontend|resources|script|cmd)\//.test(path) ||
-  ['go.mod','go.sum','package.json','package-lock.json','Makefile','.node-version','.release-please-manifest.json','CHANGELOG.md','.github/workflows/ci.yml','.github/workflows/release.yml','.github/workflows/release-please.yml','release-please-config.json','AGENTS.md'].includes(path);
+  ['go.mod','go.sum','package.json','package-lock.json','Makefile','.node-version','.release-please-manifest.json','CHANGELOG.md','.github/workflows/ci.yml','.github/workflows/release.yml','.github/workflows/release-please.yml','.github/workflows/promote-release.yml','.github/workflows/sync-r2.yml','release-please-config.json','AGENTS.md'].includes(path);
 
 // Only version values may differ. Labels, authors and branch names never grant
 // a fast path: a release PR that changes a dependency or script gets full checks.

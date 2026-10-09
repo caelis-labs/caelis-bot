@@ -3,11 +3,14 @@
 set -euo pipefail
 set +x
 BOT_SIGN_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+BOT_ROOT=$BOT_SIGN_ROOT
 [[ "$(uname -s)" == Darwin ]] || { echo 'Developer ID signing requires macOS.' >&2; exit 1; }
 : "${BOT_SIGNING_CERTIFICATE_BASE64:?Missing Developer ID PKCS12 secret}"
 : "${BOT_SIGNING_CERTIFICATE_PASSWORD:?Missing PKCS12 password secret}"
 [[ "${BOT_SIGNING_TEAM_ID:-}" =~ ^[A-Z0-9]{10}$ ]] || { echo 'Missing or invalid Apple team ID.' >&2; exit 1; }
-BOT_SIGN_BUNDLE="$BOT_SIGN_ROOT/dist/Caelis Bot.app"
+source "$BOT_SIGN_ROOT/script/app-identity.sh"
+BOT_SIGN_BUNDLE="$BOT_BUNDLE"
+BOT_SIGN_DMG_ID="$BOT_APP_ID.dmg"
 export BOT_NOTARY_REPORTS="$BOT_SIGN_ROOT/dist/notarization"
 [[ "${BOT_RELEASE_SOURCE_SHA:-}" =~ ^[a-f0-9]{40}$ ]]
 : "${BOT_RELEASE_TAG:?Missing immutable release tag}"
@@ -84,10 +87,10 @@ if [[ "${BOT_NOTARY_RESUME:-0}" != 1 ]]; then
   bash "$BOT_SIGN_ROOT/script/sign-desktop-world.sh" "$BOT_SIGN_BUNDLE" "$BOT_SIGN_MATCHES"
   bash "$BOT_SIGN_ROOT/script/sign-sparkle.sh" "$BOT_SIGN_BUNDLE" "$BOT_SIGN_MATCHES"
   codesign --force --sign "$BOT_SIGN_MATCHES" --keychain "$BOT_SIGN_KEYCHAIN" \
-    --identifier dev.caelis.bot --options runtime --timestamp \
+    --identifier "$BOT_APP_ID" --options runtime --timestamp \
     --entitlements "$BOT_SIGN_ROOT/resources/macos/entitlements.plist" "$BOT_SIGN_BUNDLE"
 fi
-bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_SIGN_BUNDLE" developer-id
+bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_SIGN_BUNDLE" developer-id app "$BOT_APP_ID"
 echo 'Developer ID identity, team, hardened runtime and timestamp verified.'
 if [[ "${BOT_NOTARY_RESUME:-0}" != 1 ]]; then
   ditto -c -k --keepParent "$BOT_SIGN_BUNDLE" "$BOT_NOTARY_REPORTS/app.zip"
@@ -127,10 +130,10 @@ if [[ ! -f "$BOT_NOTARY_REPORTS/release.dmg" ]]; then
   [[ ! -e "$BOT_NOTARY_REPORTS/dmg-submission.json" ]] || { echo 'Missing submitted DMG; cannot recreate its bytes.' >&2; exit 1; }
   BOT_SIGNING_MODE=developer-id BOT_REQUIRE_NOTARIZATION=1 bash "$BOT_SIGN_ROOT/script/package.sh" --skip-build
   codesign --force --sign "$BOT_SIGN_MATCHES" --keychain "$BOT_SIGN_KEYCHAIN" \
-    --identifier dev.caelis.bot.dmg --timestamp "$BOT_SIGN_DMG"
+    --identifier "$BOT_SIGN_DMG_ID" --timestamp "$BOT_SIGN_DMG"
   cp "$BOT_SIGN_DMG" "$BOT_NOTARY_REPORTS/release.dmg"
 fi
-bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_NOTARY_REPORTS/release.dmg" developer-id dmg
+bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_NOTARY_REPORTS/release.dmg" developer-id dmg "$BOT_SIGN_DMG_ID"
 notarize "$BOT_NOTARY_REPORTS/release.dmg" dmg
 # Keep the uploaded bytes unchanged for future resumes; staple only the final copy.
 mkdir -p "$(dirname "$BOT_SIGN_DMG")"
@@ -138,16 +141,16 @@ cp "$BOT_NOTARY_REPORTS/release.dmg" "$BOT_SIGN_DMG"
 xcrun stapler staple "$BOT_SIGN_DMG"
 xcrun stapler validate "$BOT_SIGN_DMG"
 hdiutil verify -quiet "$BOT_SIGN_DMG"
-bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_SIGN_DMG" developer-id dmg
+bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_SIGN_DMG" developer-id dmg "$BOT_SIGN_DMG_ID"
 spctl --assess --type open --context context:primary-signature --verbose=2 "$BOT_SIGN_DMG"
 # Also verify the enclosed app when resuming an already-created DMG.
 BOT_VERIFY_MOUNT=$(mktemp -d "${TMPDIR:-/tmp}/caelis-signed-dmg.XXXXXX")
 hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$BOT_VERIFY_MOUNT" "$BOT_SIGN_DMG" -quiet
-bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_VERIFY_MOUNT/Caelis Bot.app" developer-id
-xcrun stapler validate "$BOT_VERIFY_MOUNT/Caelis Bot.app"
-spctl --assess --type execute --verbose=2 "$BOT_VERIFY_MOUNT/Caelis Bot.app"
-test "$(/usr/libexec/PlistBuddy -c 'Print CaelisSourceCommit' "$BOT_VERIFY_MOUNT/Caelis Bot.app/Contents/Info.plist")" = "$BOT_RELEASE_SOURCE_SHA"
-cmp "$BOT_SIGN_BUNDLE/Contents/MacOS/caelis-bot" "$BOT_VERIFY_MOUNT/Caelis Bot.app/Contents/MacOS/caelis-bot"
+bash "$BOT_SIGN_ROOT/script/verify-signature.sh" "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app" developer-id app "$BOT_APP_ID"
+xcrun stapler validate "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app"
+spctl --assess --type execute --verbose=2 "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app"
+test "$(/usr/libexec/PlistBuddy -c 'Print CaelisSourceCommit' "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app/Contents/Info.plist")" = "$BOT_RELEASE_SOURCE_SHA"
+cmp "$BOT_SIGN_BUNDLE/Contents/MacOS/caelis-bot" "$BOT_VERIFY_MOUNT/$BOT_APP_NAME.app/Contents/MacOS/caelis-bot"
 hdiutil detach "$BOT_VERIFY_MOUNT" -quiet
 rmdir "$BOT_VERIFY_MOUNT"
 BOT_VERIFY_MOUNT=

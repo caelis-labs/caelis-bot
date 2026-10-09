@@ -50,12 +50,15 @@ remains in `docs/evidence/desktop-world-rc2/README.md`.
 
 macOS 13+ uses [`SMAppService.mainApp`](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp) for the current app bundle. The General settings switch reads [the system status](https://developer.apple.com/documentation/servicemanagement/smappservice/status-swift.enum), registers or unregisters only after a user action, and never stores a separate enabled preference. A fresh installation is off. macOS can disable a registered item in System Settings; this appears as off with a System Settings action, and the app does not register it again on launch or status polling. macOS 12 and unimplemented native hosts report unsupported.
 
-The Dev and release bundle identifiers and default data directories remain separate. Register from the stable installed app path; replacing that bundle in place preserves the system choice. After moving the app to a different path, turn the old login item off and re-enable it from the running copy so macOS targets that bundle. The app does not silently unregister and register an existing user choice during updates. A login-item launch is identified from Apple's [open-application Apple event](https://developer.apple.com/documentation/coreservices/1556410-launch_apple_event_constants/keyaelaunchedasloginitem); it starts the existing background owner and pet/menu bar without presenting first-run setup. Manual startup still presents incomplete setup. The existing single-instance lock and original request recovery remain the only execution owners.
+The local development and installable release bundle identifiers and default data directories remain separate. Register from the installed Caelis Bot app path; replacing that bundle in place preserves the system choice. After moving the app to a different path, turn the old login item off and re-enable it from the running copy so macOS targets that bundle. The app does not silently unregister and register an existing user choice during updates. A login-item launch is identified from Apple's [open-application Apple event](https://developer.apple.com/documentation/coreservices/1556410-launch_apple_event_constants/keyaelaunchedasloginitem); it starts the existing background owner and pet/menu bar without presenting first-run setup. Manual startup still presents incomplete setup. The existing single-instance lock and original request recovery remain the only execution owners.
 
 
 默认本地/PR 构建使用 **Caelis Bot Dev.app**，bundle ID 为 `dev.caelis.bot.dev`，
 单实例与默认数据目录 `~/Library/Application Support/Caelis Bot Dev` 独立于生产版。
-原生产数据与 TCC 授权不会自动迁移。正式 tag 构建（或显式 `BOT_BUILD_CHANNEL=release`）
+可安装 Dev 预发行版与 Stable 一样使用 **Caelis Bot.app** / `dev.caelis.bot`，
+共用 `~/Library/Application Support/Caelis Bot`、权限和任务会话；
+只由应用内更新渠道选择独立的签名 feed。本地 `Caelis Bot Dev.app` 保持独立，
+其数据与 TCC 授权不会自动迁移。正式 tag 构建（或显式 `BOT_BUILD_CHANNEL=release`）
 才使用 `Caelis Bot.app` / `dev.caelis.bot`；开发启动只重启对应 bundle 路径。
 默认签名仍为 ad-hoc。需要反复验收辅助功能、自动化和静态快照时，
 可以显式选择本机已有的 **Apple Development** 身份。私钥留在登录钥匙串，

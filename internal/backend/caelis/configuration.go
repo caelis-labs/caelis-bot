@@ -161,6 +161,7 @@ func (s *Session) updateConfiguration(ctx context.Context, sid, op, revision str
 	return v, e
 }
 func (s *Session) recoverConfigurations(ctx context.Context) error {
+	hadPluginRecovery := s.BotPluginRecoveryPending()
 	s.mu.Lock()
 	records := clone(s.state.Typed)
 	s.mu.Unlock()
@@ -196,6 +197,13 @@ func (s *Session) recoverConfigurations(ctx context.Context) error {
 		if _, e := s.configuration(ctx, v.SessionId); e != nil {
 			return e
 		}
+	}
+	if hadPluginRecovery && !s.BotPluginRecoveryPending() {
+		// The connection was already ready before this original receipt was
+		// resolved. Wake the host observer to project its confirmed selection.
+		s.mu.Lock()
+		s.bumpLocked()
+		s.mu.Unlock()
 	}
 	return nil
 }

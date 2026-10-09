@@ -13,9 +13,6 @@ jobs:
     if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    outputs:
-      created: ${{ steps.release.outputs.release_created }}
-      tag: ${{ steps.release.outputs.tag_name }}
     steps:
       - name: Create repository-scoped release token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -35,21 +32,3 @@ jobs:
           target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-  dmg:
-    needs: version
-    if: needs.version.outputs.created == 'true'
-    permissions:
-      contents: write
-      actions: read
-    uses: ./.github/workflows/release.yml
-    secrets:
-      APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
-      APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
-      APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
-      APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
-      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-    with:
-      tag: ${{ needs.version.outputs.tag }}

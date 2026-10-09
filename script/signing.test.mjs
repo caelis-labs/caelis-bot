@@ -89,6 +89,7 @@ test('ordinary and CI builds select a separate app; only explicit release select
   encoding:'utf8',env:{...process.env,BOT_ROOT:'/fixture',BOT_BUILD_CHANNEL:'',BOT_RELEASE_TAG:'',...extra},timeout:10000});
  for(const extra of [{},{CI:'true'}]) {const r=read(extra);assert.equal(r.status,0);assert.equal(r.stdout,'Caelis Bot Dev|dev.caelis.bot.dev|/fixture/dist/Caelis Bot Dev.app');}
  for(const extra of [{BOT_BUILD_CHANNEL:'release'},{BOT_RELEASE_TAG:'v1.0.0'}]) {const r=read(extra);assert.equal(r.status,0);assert.equal(r.stdout,'Caelis Bot|dev.caelis.bot|/fixture/dist/Caelis Bot.app');}
+ {const r=read({BOT_RELEASE_TAG:'v1.1.0-dev.1'});assert.equal(r.status,0);assert.equal(r.stdout,'Caelis Bot|dev.caelis.bot|/fixture/dist/Caelis Bot.app');}
  assert.notEqual(read({BOT_BUILD_CHANNEL:'typo'}).status,0);
 });
 

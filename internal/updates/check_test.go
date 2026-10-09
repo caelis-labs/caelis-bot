@@ -23,7 +23,8 @@ func TestPublishedReleaseSelection(t *testing.T) {
 		{"metadata only", "0.0.1-preview", `[{"tag_name":"v1.0.0"}]`, "unpublished", "", 200},
 		{"new preview", "0.0.1-preview", `[{"tag_name":"v0.0.2-preview","prerelease":true,"assets":[{"name":"Caelis-Bot-0.0.2-preview-macos-arm64.dmg"}]}]`, "available", "v0.0.2-preview", 200},
 		{"stable skips preview", "0.0.1", `[{"tag_name":"v0.0.2-preview","prerelease":true,"assets":[{"name":"Caelis-Bot-0.0.2-preview-macos-arm64.dmg"}]}]`, "unpublished", "", 200},
-		{"never downgrade", "0.0.3-preview", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.dmg"}]}]`, "current", "v0.0.2", 200},
+		{"preview does not enter stable", "0.0.3-preview", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.dmg"}]}]`, "unpublished", "", 200},
+		{"dev selects its own releases", "0.0.2-dev.1", `[{"tag_name":"v0.0.3","assets":[{"name":"Caelis-Bot-0.0.3-macos-arm64.dmg"}]},{"tag_name":"v0.0.2-dev.2","prerelease":true,"assets":[{"name":"Caelis-Bot-0.0.2-dev.2-macos-arm64.dmg"}]}]`, "available", "v0.0.2-dev.2", 200},
 		{"checksum only", "0.0.1-preview", `[{"tag_name":"v0.0.2-preview.1","prerelease":true,"assets":[{"name":"Caelis-Bot-0.0.2-preview.1-macos-arm64.dmg.sha256"}]}]`, "unpublished", "", 200},
 		{"legacy zip", "0.0.1-preview", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.zip"}]}]`, "unpublished", "", 200},
 		{"other architecture", "0.0.1-preview", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-x86_64.dmg"}]}]`, "unpublished", "", 200},
@@ -56,6 +57,18 @@ func TestTargetPlatformRequiresItsPublishedPackage(t *testing.T) {
 	}
 	if result := checkTarget(context.Background(), client, "1.0.0", "windows", "arm64"); result.State != "unpublished" {
 		t.Fatalf("unshipped architecture looked available: %+v", result)
+	}
+}
+func TestSelectedChannelControlsManualResultsAcrossSwitches(t *testing.T) {
+	body := `[{"tag_name":"v1.2.3","assets":[{"name":"Caelis-Bot-1.2.3-macos-arm64.dmg"}]},{"tag_name":"v1.2.4-dev.1","prerelease":true,"assets":[{"name":"Caelis-Bot-1.2.4-dev.1-macos-arm64.dmg"}]}]`
+	client := &http.Client{Transport: transport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	if result := checkTargetChannel(context.Background(), client, "1.2.3-dev.2", "darwin", "arm64", "stable"); result.Latest != "v1.2.3" || result.State != "available" {
+		t.Fatalf("Stable selected a Dev result after switch: %+v", result)
+	}
+	if result := checkTargetChannel(context.Background(), client, "1.2.3", "darwin", "arm64", "dev"); result.Latest != "v1.2.4-dev.1" || result.State != "available" {
+		t.Fatalf("Dev selected a Stable result after switch: %+v", result)
 	}
 }
 func TestVersionOrdering(t *testing.T) {

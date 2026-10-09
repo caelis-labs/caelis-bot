@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
@@ -23,6 +24,24 @@ func (s *Session) pluginConfigurationUnknownLocked() bool {
 	sid := s.state.Session.SessionId
 	for op, record := range s.state.Typed {
 		if strings.HasPrefix(op, "plugin-") && record.Path == "/application/sessions/"+idPath(sid)+"/configuration" && record.Outcome == "unknown" {
+			return true
+		}
+	}
+	return false
+}
+
+// BotPluginRecoveryPending is a read-only signal for the host. It becomes
+// clear only after the original configuration receipt and its public readback
+// have been saved; it never submits another configuration operation.
+func (s *Session) BotPluginRecoveryPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sid := s.state.Session.SessionId
+	for op, record := range s.state.Typed {
+		if !strings.HasPrefix(op, "plugin-") || record.Path != "/application/sessions/"+idPath(sid)+"/configuration" {
+			continue
+		}
+		if record.Outcome == "unknown" || record.Outcome == "committed" && s.state.Configurations[sid].Revision == "" {
 			return true
 		}
 	}
@@ -106,8 +125,10 @@ func (s *Session) UpdateBotPlugins(ctx context.Context, selection plugins.Select
 	return s.updateBotPluginsLocked(ctx, selection)
 }
 
-func (s *Session) WithBotPluginAdmission(mutate func(func(context.Context, plugins.Selection) error) error) error {
-	s.step.Lock()
+func (s *Session) WithBotPluginAdmission(ctx context.Context, mutate func(func(context.Context, plugins.Selection) error) error) error {
+	if err := lockwait.Lock(ctx, &s.step); err != nil {
+		return err
+	}
 	defer s.step.Unlock()
 	return mutate(s.updateBotPluginsLocked)
 }
