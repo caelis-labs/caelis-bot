@@ -28,8 +28,8 @@ type Contribution struct {
 	DescriptionZh string `json:"descriptionZh,omitempty"`
 }
 
-// Tool is presentation metadata returned by an enabled Runtime service.
-// Hints are displayed as claims by the server and never affect approval policy.
+// Tool is presentation metadata from Runtime status or an explicit detail
+// preview. Hints are server claims and never affect approval policy.
 type Tool struct {
 	Name            string `json:"name"`
 	Title           string `json:"title,omitempty"`
@@ -45,6 +45,7 @@ type ServerDetail struct {
 	Tools     []Tool `json:"tools"`
 	Error     string `json:"error,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
+	Preview   bool   `json:"preview,omitempty"`
 }
 
 type SkillDetail struct {
@@ -104,7 +105,7 @@ func displayText(value string) string {
 
 func displayTextBound(value string, limit int) string {
 	value = strings.TrimSpace(value)
-	if value == "" || len(value) > limit || !utf8.ValidString(value) || strings.ContainsAny(value, "\\$=") || strings.Contains(value, "://") || displayPath.MatchString(value) {
+	if value == "" || !utf8.ValidString(value) || utf8.RuneCountInString(value) > limit || strings.ContainsAny(value, "\\$=") || strings.Contains(value, "://") || displayPath.MatchString(value) {
 		return ""
 	}
 	for _, r := range value {
@@ -125,10 +126,19 @@ func displayTextBound(value string, limit int) string {
 // directory labels. A rejected value is omitted, never rendered as raw config.
 func SafeDisplayText(value string) string { return displayText(value) }
 
+// SafeDisplayToolName matches Core's 256-character MCP remote tool-name
+// boundary. The ready Runtime directory remains the authority for the name.
+func SafeDisplayToolName(value string) string { return displayTextBound(value, 256) }
+
 // SafeDisplayDescription keeps normal MCP tool explanations that are longer
-// than a row label, while applying the same path and credential exclusions.
+// than a row label. Core bounds accepted descriptions to 1024 Unicode
+// characters; retain that full range with the same safety exclusions.
 func SafeDisplayDescription(value string) string {
-	return displayTextBound(strings.Join(strings.Fields(value), " "), 2048)
+	value = strings.TrimSpace(value)
+	if !utf8.ValidString(value) || utf8.RuneCountInString(value) > 1024 {
+		return ""
+	}
+	return displayTextBound(strings.Join(strings.Fields(value), " "), 1024)
 }
 
 func displayURL(value string) string {

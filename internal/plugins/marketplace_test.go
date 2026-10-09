@@ -49,6 +49,11 @@ func TestReviewedMarketplaceTwoPortablePackages(t *testing.T) {
 	if len(m.Selection().SkillRoots) != 1 || len(m.Selection().Servers) != 1 {
 		t.Fatalf("portable contributions not selected: %+v", m.Selection())
 	}
+	for _, item := range m.Snapshot().Items {
+		if item.Status != "enabled" {
+			t.Fatal("installation claimed Runtime readiness", item)
+		}
+	}
 	serverRoot := m.Selection().Servers[0].Root
 	if runtime.GOOS != "windows" {
 		if info, err := os.Stat(filepath.Join(serverRoot, "bin", "server")); err != nil || info.Mode().Perm()&0111 == 0 {

@@ -371,7 +371,7 @@ func TestNotebookSkillIsResidentOnlyAndRegeneratesExternalNotes(t *testing.T) {
 	e.mu.Lock()
 	binding := e.tools.Clone()
 	e.mu.Unlock()
-	if binding.NotebookDirectory != filepath.Join(root, "Notebook") || !strings.Contains(binding.Instructions, a.skillPath) {
+	if binding.NotebookDirectory != filepath.Join(root, "Notebook") || !strings.Contains(binding.SkillInstructions, a.skillPath) || strings.Contains(binding.Instructions, a.skillPath) {
 		t.Fatal("Notebook/skill not bound")
 	}
 	if strings.Contains(binding.WorkerInstructions, "Notebook") || strings.Contains(binding.WorkerInstructions, a.skillPath) {
@@ -381,7 +381,7 @@ func TestNotebookSkillIsResidentOnlyAndRegeneratesExternalNotes(t *testing.T) {
 	if err != nil || !strings.Contains(string(content), "MEMORY.md") {
 		t.Fatal("packaged skill missing", err)
 	}
-	if strings.Contains(binding.Instructions, "# Restore your context") || strings.Contains(binding.Instructions, "MEMORY.md") {
+	if strings.Contains(binding.SkillInstructions, "# Restore your context") || strings.Contains(binding.SkillInstructions, "MEMORY.md") {
 		t.Fatal("skill body or memory eagerly injected")
 	}
 	if _, err = os.ReadFile(filepath.Join(filepath.Dir(a.skillPath), "references", "tasks.md")); err != nil {

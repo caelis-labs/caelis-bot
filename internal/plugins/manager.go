@@ -358,7 +358,7 @@ func (m *Manager) Snapshot() Snapshot {
 		if ok {
 			item.Status = "disabled"
 			if rec.Enabled {
-				item.Status = "ready"
+				item.Status = "enabled"
 			}
 			if rec.Version != e.Version || rec.Digest != digest(e) {
 				item.Status = "update_available"
@@ -556,7 +556,7 @@ func (m *Manager) snapshotLocked() Snapshot {
 		if ok {
 			status = "disabled"
 			if rec.Enabled {
-				status = "ready"
+				status = "enabled"
 			}
 		}
 		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Installed: ok, Enabled: ok && rec.Enabled, Status: status, Issues: []Issue{}}

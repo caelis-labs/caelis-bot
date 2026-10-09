@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,5 +44,30 @@ func TestToolIndexConnectedDirectoryOnlyAndNoopWrite(t *testing.T) {
 	cleared, err := os.ReadFile(path)
 	if err != nil || string(cleared) != "{\"services\":[]}\n" {
 		t.Fatalf("disconnected service remained: %s %v", cleared, err)
+	}
+}
+
+func TestToolIndexKeepsUnicodeAtContractBoundary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp-tools.json")
+	name := strings.Repeat("查", 256)
+	description := strings.Repeat("中", 1024)
+	servers := []IndexServer{{PackageID: "notes", Name: "search", RuntimeName: "p_notes_search", Tools: []Tool{
+		{Name: name, Description: description},
+		{Name: "over_description", Description: description + "中"},
+		{Name: name + "查", Description: "outside tool-name contract"},
+	}}}
+	if err := WriteIndex(path, servers); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var index toolIndex
+	if err := json.Unmarshal(content, &index); err != nil || len(index.Services) != 1 || len(index.Services[0].Tools) != 2 {
+		t.Fatalf("unexpected bounded Unicode directory: %s %v", content, err)
+	}
+	if index.Services[0].Tools[0].Name != "over_description" || index.Services[0].Tools[0].Description != "" || index.Services[0].Tools[1].Name != name || index.Services[0].Tools[1].Description != description {
+		t.Fatal("index lost valid Unicode or kept metadata beyond the contract", index)
 	}
 }

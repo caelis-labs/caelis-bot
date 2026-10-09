@@ -451,9 +451,9 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 		}
 		if out.State == "connected" {
 			for key, tool := range server.Tools {
-				toolName := plugins.SafeDisplayText(tool.Name)
+				toolName := plugins.SafeDisplayToolName(tool.Name)
 				if toolName == "" {
-					toolName = plugins.SafeDisplayText(key)
+					toolName = plugins.SafeDisplayToolName(key)
 				}
 				if toolName == "" {
 					continue

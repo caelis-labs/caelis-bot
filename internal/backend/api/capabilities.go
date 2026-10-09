@@ -94,6 +94,9 @@ type ToolConnection struct {
 	// a protocol adapter. The native MCP transport uses Command/Args/Env; another
 	// adapter can bind Host to a session-scoped client-tool transport.
 	Instructions, WorkerInstructions string
+	// SkillInstructions is the resident metadata guide for adapters that do not
+	// publish selected Skill metadata themselves. Skill bodies stay on disk.
+	SkillInstructions string
 	// Notebook is the resident Bot's work directory, never a worker workspace.
 	NotebookDirectory string
 	// RuntimeVersion identifies the product assembly used for new resident contexts.
