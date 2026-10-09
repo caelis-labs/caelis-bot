@@ -3,13 +3,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Exact published macOS arm64 tag and channel to reconcile
+        description: Exact published macOS arm64 tag to reconcile
         required: true
         type: string
 permissions:
   contents: read
 concurrency:
-  group: caelis-bot-r2-macos-arm64-${{ contains(inputs.tag, '-dev.') && 'dev' || contains(inputs.tag, '-') && 'preview' || 'stable' }}
+  group: caelis-bot-r2-macos-arm64-stable
   cancel-in-progress: false
 jobs:
   sync:
@@ -34,12 +34,10 @@ jobs:
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           test "$(gh api "repos/$GH_REPO/releases/tags/$tag" --jq .draft)" = false
           echo "BOT_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
-          patterns=(--pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg" --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg.sha256" --pattern latest.json --pattern latest.json.sig)
-          if [[ "$tag" != *-* || "$tag" == *-dev.* ]]; then patterns+=(--pattern appcast.xml); fi
-          gh release download "$tag" --dir release "${patterns[@]}"
+          gh release download "$tag" --dir release --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg" --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg.sha256" --pattern appcast.xml --pattern latest.json --pattern latest.json.sig
       - name: Verify signatures and synchronize R2
         id: r2
         env:
@@ -58,7 +56,7 @@ jobs:
           if [[ "$result" == Published* ]]; then echo 'current=true' >> "$GITHUB_OUTPUT"; fi
   latest:
     needs: sync
-    if: needs.sync.outputs.current == 'true' && !contains(inputs.tag, '-')
+    if: needs.sync.outputs.current == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -70,7 +68,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-      - name: Reconcile GitHub Latest after Stable R2 is current
+      - name: Reconcile GitHub Latest after R2 is current
         env:
           GH_TOKEN: ${{ github.token }}
           BOT_RELEASE_TAG: ${{ inputs.tag }}

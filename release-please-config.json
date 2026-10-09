@@ -7,9 +7,7 @@
       "include-component-in-tag": false,
       "include-v-in-tag": true,
       "bump-minor-pre-major": true,
-      "versioning": "prerelease",
-      "prerelease-type": "preview.1",
-      "prerelease": false,
+      "versioning": "default",
       "draft": true,
       "force-tag-creation": true
     }

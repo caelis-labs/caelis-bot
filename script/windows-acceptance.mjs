@@ -3,7 +3,7 @@ import {join} from 'node:path';
 import {validateTag} from './release-version.mjs';
 
 export function windowsAcceptanceName(tag, channel) {
-  if (channel !== 'stable' && channel !== 'preview') throw new Error('Invalid Windows channel');
+  if (channel !== 'stable') throw new Error('Invalid Windows channel');
   return `Caelis-Bot-${validateTag(tag)}-windows-amd64-${channel}.acceptance.json`;
 }
 

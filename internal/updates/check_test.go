@@ -17,18 +17,18 @@ func TestPublishedReleaseSelection(t *testing.T) {
 		name, current, body, state, latest string
 		status                             int
 	}{
-		{"empty", "0.0.1-preview", `[]`, "unpublished", "", 200},
-		{"unavailable", "0.0.1-preview", `{}`, "unavailable", "", 403},
-		{"invalid", "0.0.1-preview", `not json`, "unavailable", "", 200},
-		{"metadata only", "0.0.1-preview", `[{"tag_name":"v1.0.0"}]`, "unpublished", "", 200},
-		{"new preview", "0.0.1-preview", `[{"tag_name":"v0.0.2-preview","prerelease":true,"assets":[{"name":"Caelis-Bot-0.0.2-preview-macos-arm64.dmg"}]}]`, "available", "v0.0.2-preview", 200},
-		{"stable skips preview", "0.0.1", `[{"tag_name":"v0.0.2-preview","prerelease":true,"assets":[{"name":"Caelis-Bot-0.0.2-preview-macos-arm64.dmg"}]}]`, "unpublished", "", 200},
-		{"preview does not enter stable", "0.0.3-preview", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.dmg"}]}]`, "unpublished", "", 200},
-		{"dev selects its own releases", "0.0.2-dev.1", `[{"tag_name":"v0.0.3","assets":[{"name":"Caelis-Bot-0.0.3-macos-arm64.dmg"}]},{"tag_name":"v0.0.2-dev.2","prerelease":true,"assets":[{"name":"Caelis-Bot-0.0.2-dev.2-macos-arm64.dmg"}]}]`, "available", "v0.0.2-dev.2", 200},
-		{"checksum only", "0.0.1-preview", `[{"tag_name":"v0.0.2-preview.1","prerelease":true,"assets":[{"name":"Caelis-Bot-0.0.2-preview.1-macos-arm64.dmg.sha256"}]}]`, "unpublished", "", 200},
-		{"legacy zip", "0.0.1-preview", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.zip"}]}]`, "unpublished", "", 200},
-		{"other architecture", "0.0.1-preview", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-x86_64.dmg"}]}]`, "unpublished", "", 200},
-		{"draft", "0.0.1-preview", `[{"draft":true,"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.dmg"}]}]`, "unpublished", "", 200},
+		{"empty", "0.0.1", `[]`, "unpublished", "", 200},
+		{"unavailable", "0.0.1", `{}`, "unavailable", "", 403},
+		{"invalid", "0.0.1", `not json`, "unavailable", "", 200},
+		{"metadata only", "0.0.1", `[{"tag_name":"v1.0.0"}]`, "unpublished", "", 200},
+		{"stable update", "0.0.1", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.dmg"}]}]`, "available", "v0.0.2", 200},
+		{"reject preview", "0.0.1", `[{"tag_name":"v0.0.2-preview","prerelease":true,"assets":[{"name":"Caelis-Bot-0.0.2-preview-macos-arm64.dmg"}]}]`, "unpublished", "", 200},
+		{"local dev build", "0.0.1-dev", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.dmg"}]}]`, "unavailable", "", 200},
+		{"never downgrade", "0.0.3", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.dmg"}]}]`, "current", "v0.0.2", 200},
+		{"checksum only", "0.0.1", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.dmg.sha256"}]}]`, "unpublished", "", 200},
+		{"legacy zip", "0.0.1", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.zip"}]}]`, "unpublished", "", 200},
+		{"other architecture", "0.0.1", `[{"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-x86_64.dmg"}]}]`, "unpublished", "", 200},
+		{"draft", "0.0.1", `[{"draft":true,"tag_name":"v0.0.2","assets":[{"name":"Caelis-Bot-0.0.2-macos-arm64.dmg"}]}]`, "unpublished", "", 200},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
@@ -59,16 +59,13 @@ func TestTargetPlatformRequiresItsPublishedPackage(t *testing.T) {
 		t.Fatalf("unshipped architecture looked available: %+v", result)
 	}
 }
-func TestSelectedChannelControlsManualResultsAcrossSwitches(t *testing.T) {
-	body := `[{"tag_name":"v1.2.3","assets":[{"name":"Caelis-Bot-1.2.3-macos-arm64.dmg"}]},{"tag_name":"v1.2.4-dev.1","prerelease":true,"assets":[{"name":"Caelis-Bot-1.2.4-dev.1-macos-arm64.dmg"}]}]`
+func TestLocalDevBuildDoesNotQueryPublicReleases(t *testing.T) {
 	client := &http.Client{Transport: transport(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+		t.Fatal("local development build queried public releases")
+		return nil, nil
 	})}
-	if result := checkTargetChannel(context.Background(), client, "1.2.3-dev.2", "darwin", "arm64", "stable"); result.Latest != "v1.2.3" || result.State != "available" {
-		t.Fatalf("Stable selected a Dev result after switch: %+v", result)
-	}
-	if result := checkTargetChannel(context.Background(), client, "1.2.3", "darwin", "arm64", "dev"); result.Latest != "v1.2.4-dev.1" || result.State != "available" {
-		t.Fatalf("Dev selected a Stable result after switch: %+v", result)
+	if result := check(context.Background(), client, "0.12.0-dev", "arm64"); result.State != "unavailable" {
+		t.Fatalf("local build offered an update: %+v", result)
 	}
 }
 func TestVersionOrdering(t *testing.T) {
