@@ -58,13 +58,13 @@ open "$HOME/Applications/Caelis Bot.app"
 
 ## 更新
 
-接入更新器的正式版每天自动检查；“设置 → 关于”可关闭自动检查，也可从状态栏点击
+接入更新器的发行版每天自动检查；“设置 → 更新”可选择 Stable 或 Dev、关闭自动检查，也可从状态栏点击
 “检查更新”。确认原生更新窗口后，应用下载、验证签名并安装新版；有工作、待审批或
 结果未知的操作时等待处理完成再重启，保留对话、Notebook 和设置。
 
 已发布的 v0.1.0、预览版和开发版仍手动安装。按上面的说明安装首个带更新器的正式版后，
-后续即可在应用内更新。R2 保留旧版本不可变制品，以便缓存的签名 appcast 仍能下载其准确 DMG；可变指针和 appcast 只选择当前 Stable。
+后续即可在应用内更新。Stable 只接收验收通过的正式版，Dev 只接收 Dev 预发行版。切换渠道保留同一安装、凭据、任务及数据。Sparkle 只提供更高构建号；若当前 Dev 构建高于 Stable feed，切回 Stable 会等待更高的 Stable 构建，不会静默降级。R2 保留旧版本不可变制品，以便缓存的签名 appcast 仍能下载其准确 DMG；Stable 和 Dev 的可变指针及 appcast 分别隔离。
 
 ## 显式安装 Dev 发行版
 
-在[发行历史](https://github.com/caelis-labs/caelis-bot/releases)选择已发布的 `vX.Y.Z-dev.N` **预发行版**，像上文一样核对 DMG 及同名 `.sha256`，只读挂载并验证 Developer ID、公证和 Gatekeeper。DMG 标识为 `dev.caelis.bot.devrelease.dmg`，内含应用标识为 `dev.caelis.bot.devrelease`。退出同名旧版后，将 **Caelis Bot Dev Release.app** 拖入 `~/Applications`。数据在 `~/Library/Application Support/Caelis Bot Dev Release`，与 Stable 和本地 `Caelis Bot Dev.app` 的数据及权限独立。Dev 使用[独立的签名指针](https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/latest.json)，手动选择版本，自动安装关闭；Dev 不会自动升级成 Stable。
+在[发行历史](https://github.com/caelis-labs/caelis-bot/releases)选择已发布的 `vX.Y.Z-dev.N` **预发行版**，像上文一样核对 DMG 及同名 `.sha256`，只读挂载并验证 Developer ID、公证和 Gatekeeper。DMG 标识仍为 `dev.caelis.bot.dmg`，应用标识仍为 `dev.caelis.bot`。退出 Caelis Bot 后，用 **Caelis Bot.app** 替换 `~/Applications` 中的旧版。Dev 与 Stable 共用 `~/Library/Application Support/Caelis Bot`、凭据、权限、任务和会话。首次安装 Dev 默认选 Dev 更新；替换应用会保留此前明确选择的渠道。可在“设置 → 更新”选择渠道；Dev 读取[独立签名 appcast](https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/appcast.xml)，Stable 读取 Stable appcast。切换渠道不会安装较旧版本。单独的本地 `Caelis Bot Dev.app` 只是开发构建，不是可安装 Dev 发行版。

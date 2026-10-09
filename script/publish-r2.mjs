@@ -75,7 +75,7 @@ export function publish(directory, env = process.env, run = (cmd,args) => execFi
     const receipt=validateReceipt(JSON.parse(readFileSync(join(temporary,receiptName))));
     if(receipt.source!==manifest.source || receipt.assets[0]?.sha256!==manifest.sha256 ||
        receipt.assets.find(a=>a.name==='latest.json')?.sha256!==digest(readFileSync(join(directory,'latest.json'))) ||
-       (channel==='stable' && receipt.assets[2]?.sha256!==manifest.appcastSHA256) ||
+       (channel!=='preview' && receipt.assets[2]?.sha256!==manifest.appcastSHA256) ||
        receipt.validation!=='developer-id-notarized-stapled-gatekeeper') {
       throw new Error('Mac publication receipt differs from verified feed');
     }
@@ -105,14 +105,14 @@ export function publish(directory, env = process.env, run = (cmd,args) => execFi
       if(digest(readFileSync(check))!==digest(readFileSync(join(directory,file)))) throw new Error(`R2 readback mismatch: ${key}`);
     };
     const immutable='public, max-age=31536000, immutable', mutable='no-cache, max-age=0, must-revalidate';
-    for(const file of [manifest.file,`${manifest.file}.sha256`,'latest.json','latest.json.sig']) {
-      put(file,versioned+file,file.endsWith('.dmg')?'application/x-apple-diskimage':'text/plain',immutable);
+    for(const file of [manifest.file,`${manifest.file}.sha256`,...(channel==='dev'?['appcast.xml']:[]),'latest.json','latest.json.sig']) {
+      put(file,versioned+file,file.endsWith('.dmg')?'application/x-apple-diskimage':file==='appcast.xml'?'application/rss+xml':'text/plain',immutable);
     }
     // The platform feed is selected from its own signed pointer. GitHub's
     // global latest may represent another platform or a later arrival.
     if(release().draft) throw new Error('Release unpublished during R2 upload');
     if(channel!=='stable') {
-      for(const [file,type] of [['latest.json.sig','text/plain'],['latest.json','application/json']]) {
+      for(const [file,type] of [['latest.json.sig','text/plain'],['latest.json','application/json'],...(channel==='dev'?[['appcast.xml','application/rss+xml']]:[])] ) {
         put(file,platformFeed(channel)+file,type,mutable);
       }
       return `Published ${tag} to isolated macOS arm64 ${channel} feed; stable aliases unchanged`;

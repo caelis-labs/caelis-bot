@@ -15,16 +15,13 @@ func applicationInstanceID(root string) string {
 	return id
 }
 
-// Set only by the packaging build. Development and release installs must never
-// share a single-instance owner, data directory or macOS permission identity.
+// Set only by the packaging build. Local builds use a separate identity;
+// installable Stable and Dev tags share the release identity and user data.
 var buildChannel = "development"
 
 func applicationIdentity() (name, id string) {
 	if buildChannel == "release" {
 		return "Caelis Bot", "dev.caelis.bot"
-	}
-	if buildChannel == "dev" {
-		return "Caelis Bot Dev Release", "dev.caelis.bot.devrelease"
 	}
 	return "Caelis Bot Dev", "dev.caelis.bot.dev"
 }

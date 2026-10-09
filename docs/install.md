@@ -58,15 +58,15 @@ Notifications are opt-in. Resident reminders pause when the app exits. Updating 
 
 ## Update
 
-Stable builds with the updater check daily; **Settings → About** can disable automatic
+Updater-enabled builds check daily; **Settings → Updates** selects Stable or Dev and can disable automatic
 checks, and **Check for Updates** checks immediately. Confirm the native update dialog
 to download, verify and install the signed version. The app waits for work and pending
 decisions to finish before restarting, preserving conversations, Notebook and settings.
 
 The already published v0.1.0 and preview/development builds use manual installation.
-Install the first updater-enabled stable version using the instructions above once.
+Install the first updater-enabled version using the instructions above once. Stable receives only accepted Stable releases; Dev receives only Dev prereleases. A channel switch keeps the same installation, credentials, tasks and data. Sparkle offers only a newer build. If the installed Dev build is newer than the current Stable feed, switching to Stable waits for a later Stable build; it never silently downgrades.
 R2 retains immutable prior Stable packages so a cached signed appcast can still fetch its exact DMG. The mutable pointer and appcast select only the current Stable.
 
 ## Install an explicit Dev release
 
-Choose a published `vX.Y.Z-dev.N` **prerelease** on the [release history](https://github.com/caelis-labs/caelis-bot/releases) and verify its DMG and sibling `.sha256` exactly as above. Mount read-only and check Developer ID, notarization and Gatekeeper as above, using DMG identifier `dev.caelis.bot.devrelease.dmg` and enclosed app identifier `dev.caelis.bot.devrelease`. Drag **Caelis Bot Dev Release.app** to `~/Applications` after quitting any older copy with that name. It stores data in `~/Library/Application Support/Caelis Bot Dev Release` and checks the [separate signed Dev pointer](https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/latest.json) only through manual release selection; automatic installation is disabled. Stable and local `Caelis Bot Dev.app` data and permissions are separate. A Dev release does not automatically become Stable.
+Choose a published `vX.Y.Z-dev.N` **prerelease** on the [release history](https://github.com/caelis-labs/caelis-bot/releases) and verify its DMG and sibling `.sha256` exactly as above. Mount read-only and check Developer ID, notarization and Gatekeeper as above, using the normal DMG identifier `dev.caelis.bot.dmg` and enclosed app identifier `dev.caelis.bot`. Quit Caelis Bot and replace **Caelis Bot.app** in `~/Applications`. Dev and Stable share the installed app, `~/Library/Application Support/Caelis Bot`, credentials, permissions, tasks and sessions. A fresh Dev installation defaults to Dev updates; an explicit channel choice persists when replacing the app. In **Settings → Updates**, Dev reads the [signed Dev appcast](https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/appcast.xml); Stable reads the signed Stable appcast. Switching channels does not install an older build. The separate local `Caelis Bot Dev.app` remains a development fixture, not this installable Dev release.

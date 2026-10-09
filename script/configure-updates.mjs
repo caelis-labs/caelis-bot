@@ -3,10 +3,11 @@ import {pathToFileURL} from 'node:url';
 import {releaseChannel} from './release-version.mjs';
 
 export const updateURL = 'https://releases.caelis.dev/caelis-bot/appcast.xml';
+export const devUpdateURL = 'https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/appcast.xml';
 export function updateURLFor(tag) {
   if (!tag) return 'https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/local-disabled/appcast.xml';
   const channel = releaseChannel(tag);
-  return channel === 'stable' ? updateURL : `https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/${channel}/appcast.xml`;
+  return channel === 'stable' || channel === 'dev' ? updateURL : `https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/${channel}/appcast.xml`;
 }
 export function validateUpdateKey(key, required) {
   if (!key && !required) return '';
@@ -17,11 +18,13 @@ export function validateUpdateKey(key, required) {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const key = validateUpdateKey(process.env.BOT_SPARKLE_PUBLIC_KEY, Boolean(process.env.BOT_RELEASE_TAG));
-  // Local and installable Dev bundles never read the Stable appcast.
-  const enabled = Boolean(key && process.env.BOT_RELEASE_TAG && !process.env.BOT_RELEASE_TAG.includes('-'));
+  const channel = process.env.BOT_RELEASE_TAG ? releaseChannel(process.env.BOT_RELEASE_TAG) : 'local';
+  const enabled = Boolean(key && (channel === 'stable' || channel === 'dev'));
   const values = {
     CaelisAutoUpdatesEnabled: ['bool', enabled ? 'true' : 'false'],
     SUFeedURL: ['string', updateURLFor(process.env.BOT_RELEASE_TAG)],
+    CaelisDevFeedURL: ['string', devUpdateURL],
+    CaelisDefaultUpdateChannel: ['string', channel === 'dev' ? 'dev' : 'stable'],
     SUEnableAutomaticChecks: ['bool', 'true'],
     SUScheduledCheckInterval: ['integer', '86400'],
     SUAutomaticallyUpdate: ['bool', 'false'],

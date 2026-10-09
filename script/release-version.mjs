@@ -25,10 +25,19 @@ export function releaseVersion(version, tag) {
       throw new Error('Release tag does not match package.json')
     }
   }
-  return {
-    version: tag ? validateTag(tag) : `${version}${version.includes('-') ? '.' : '-'}dev`,
-    bundleVersion: version.split('-')[0],
+  const published = tag ? validateTag(tag) : null;
+  const channel = published ? releaseChannel(tag) : 'local';
+  const base = version.split('-')[0];
+  let bundleVersion = base;
+  if (channel === 'stable' || channel === 'dev') {
+    const [major, minor, patch] = base.split('.').map(Number);
+    const iteration = channel === 'stable' ? 999 : Number(published.match(/-dev\.(\d+)$/)[1]);
+    if (!Number.isSafeInteger(patch * 1000 + iteration) || iteration > 998 && channel === 'dev') {
+      throw new Error('Dev iteration exceeds supported Sparkle build range (1..998)');
+    }
+    bundleVersion = `${major}.${minor}.${patch * 1000 + iteration}`;
   }
+  return {version: published ?? `${version}${version.includes('-') ? '.' : '-'}dev`, bundleVersion};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)))

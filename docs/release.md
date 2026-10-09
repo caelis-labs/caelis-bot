@@ -63,12 +63,12 @@ Use Conventional Commit PR titles, for example `feat: add reminders` or `fix: ke
 | Channel | Tag / GitHub | Installed macOS identity and data | Update source |
 | --- | --- | --- | --- |
 | Stable | `vX.Y.Z`, published release | `Caelis Bot.app`, `dev.caelis.bot`, `Application Support/Caelis Bot` | Signed `caelis-bot/appcast.xml` and macOS arm64 Stable feed; Sparkle checks after user confirmation |
-| Dev | `vX.Y.Z-dev.N`, prerelease | `Caelis Bot Dev Release.app`, `dev.caelis.bot.devrelease`, `Application Support/Caelis Bot Dev Release` | Signed manual-download pointer at `caelis-bot/feeds/macos/arm64/dev/latest.json`; automatic installation disabled |
+| Dev | `vX.Y.Z-dev.N`, prerelease | Same `Caelis Bot.app`, `dev.caelis.bot`, `Application Support/Caelis Bot` | Signed `caelis-bot/feeds/macos/arm64/dev/appcast.xml`; selected in Settings → Updates |
 | Local/PR | package version with `-dev` suffix, no GitHub release | `Caelis Bot Dev.app`, `dev.caelis.bot.dev`, `Application Support/Caelis Bot Dev` | None; ad-hoc or chosen Apple Development signature, never a distributable Dev release |
 
-Dev is created only when needed from the same candidate source as a Stable draft: resolve the Stable tag's commit SHA, then create a **draft prerelease** `vX.Y.Z-dev.N` targeting that exact SHA. `N` increases monotonically. The build accepts this Dev tag against the `X.Y.Z` package version and embeds the full Dev version. It never writes the Stable app, storage, login item, TCC identity or Sparkle feed. Existing historical `preview` tags keep their separate legacy pointer and are not automatically converted. Only macOS Apple Silicon is currently qualified for installable releases; Windows 11 x64 needs its own native, signed package acceptance and feed before being advertised. Linux desktop is outside scope.
+Dev is created only when needed from the same candidate source as a Stable draft: resolve the Stable tag's commit SHA, then create a **draft prerelease** `vX.Y.Z-dev.N` targeting that exact SHA. `N` increases monotonically. The build accepts this Dev tag against the `X.Y.Z` package version and embeds the full Dev version. Stable and Dev share the installed product identity, data, login item and TCC permissions. The user's update channel selects the feed; publishing Dev never writes the Stable appcast, pointer or GitHub Latest. Existing historical `preview` tags keep their separate legacy pointer and are not automatically converted. Only macOS Apple Silicon is currently qualified for installable releases; Windows 11 x64 needs its own native, signed package acceptance and feed before being advertised. Linux desktop is outside scope.
 
-For Stable, record the tag, source SHA, preparation run ID, final DMG SHA-256, exact installed app version and architecture in one issue or PR comment. On the **installed signed candidate DMG** on an Apple Silicon Mac, exercise launch and quit/relaunch, restore the ongoing conversation and original unresolved approvals/tasks, type and send a chat input, receive and render an assistant reply, send and receive a real Telegram message, and install, enable and configure a plugin using the actual supported Runtime/account. Check upgrade from the prior Stable with data preserved, update UI, and the relevant permissions. Verify the blocker list, including open regressions in those paths, with an owner decision and evidence for each. A missing critical path, unknown result or unresolved blocking bug holds Stable; Dev may be published with its limitation recorded. CI, fixtures, signing and notarization alone never approve Stable. Do not borrow acceptance from an older HEAD, another platform, a local build or a Dev bundle. A later source commit requires a new candidate; different DMG bytes require checking the exact new artifact.
+For Stable, record the tag, source SHA, preparation run ID, final DMG SHA-256, exact installed app version and architecture in one issue or PR comment. On the **installed signed candidate DMG** on an Apple Silicon Mac, exercise launch and quit/relaunch, restore the ongoing conversation and original unresolved approvals/tasks, type and send a chat input, receive and render an assistant reply, send and receive a real Telegram message, and install, enable and configure a plugin using the actual supported Runtime/account. Check upgrade from the prior Stable with data preserved, update UI, channel selection and signed feed isolation, and the relevant permissions. Verify the blocker list, including open regressions in those paths, with an owner decision and evidence for each. A missing critical path, unknown result or unresolved blocking bug holds Stable; Dev may be published with its limitation recorded. CI, fixtures, signing and notarization alone never approve Stable. Do not borrow acceptance from an older HEAD, another platform, a local build or a Dev candidate artifact. A later source commit requires a new candidate; different DMG bytes require checking the exact new artifact.
 
 Example commands after the version PR has merged, without publishing automatically:
 
@@ -117,16 +117,25 @@ Updater-enabled stable releases embed **Sparkle 2.10.0**, downloaded from its of
 release and verified against the SHA-256 pinned in `script/sparkle.sh`. The framework,
 Autoupdate, Updater.app and both XPC helpers are signed inside-out with the app's
 Developer ID before notarization. Local builds sign them ad-hoc and disable updating.
-Sparkle's license is included in the app. `CFBundleVersion` follows the numeric stable
-version; the older constant `1` was never used by an enabled updater.
+Sparkle's license is included in the app. New tagged Stable and Dev builds use
+three numeric `CFBundleVersion` components: `X.Y.(Z*1000+999)` for Stable and
+`X.Y.(Z*1000+N)` for Dev `N=1..998`. Thus Dev iterations increase, Stable for
+the same product version is higher, and the next product version is higher again.
+Older Stable bundles using `X.Y.Z` remain below a later release. The displayed
+product version remains `X.Y.Z` or `X.Y.Z-dev.N`; the older constant `1` was
+never used by an enabled updater. Sparkle never offers a lower build, so a
+Dev-to-Stable switch waits if the current Stable feed is older.
 
-The signed app uses `https://releases.caelis.dev/caelis-bot/appcast.xml`, requires a
-signed feed and validates archives before extraction. It checks daily by default;
-settings can disable checks. Downloads/installations require confirmation. Active,
+The signed app reads `https://releases.caelis.dev/caelis-bot/appcast.xml` for Stable
+or `https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/appcast.xml` for
+Dev. Sparkle's delegate selects the URL from the same app's saved user preference;
+a fresh Dev installation defaults to Dev, and an explicit selection persists across
+replacements. Both feeds require signatures and validate archives before extraction.
+The app checks daily by default; settings can disable checks. Downloads/installations require confirmation. Active,
 uncertain or delegated work postpones relaunch; user and scheduled admission are
-fenced before backend cleanup. Installable Dev releases remain manual; their signed JSON pointer
-lives under `caelis-bot/feeds/macos/arm64/dev/` and never replaces the stable
-appcast. Existing v0.1.0 installations need one manual upgrade to the first updater-enabled
+fenced before backend cleanup. Dev's signed appcast and JSON pointer live under
+`caelis-bot/feeds/macos/arm64/dev/` and never replace the Stable appcast or pointer.
+Existing v0.1.0 installations need one manual upgrade to the first updater-enabled
 release. Already published apps are never modified.
 
 Configuration reuses Caelis core's bucket, endpoint and credential names. Store these
@@ -185,8 +194,8 @@ does not establish a successful production upload or app update.
 After `verified=true` (App + DMG notarization, staples and Gatekeeper), the stable
 package job uses `generate_appcast` with one version and no deltas. It signs the
 final stapled DMG, feed and an independent manifest binding tag, source SHA,
-DMG hash/size and feed hash. A Dev release signs a separate manual-download manifest
-for its own channel, with automatic updates disabled in the app.
+DMG hash/size and feed hash. A Dev release signs a separate appcast and manifest
+for its own channel, with the updater enabled in the same app.
 These files are attached to GitHub. Only after publication can the R2 job run, with
 read-only GitHub access and R2 credentials scoped to that step.
 
@@ -196,7 +205,7 @@ It does not consult global GitHub `latest`. It uploads immutable versioned asset
 `caelis-bot/feeds/macos/arm64/stable/`, and continues updating legacy
 `caelis-bot/appcast.xml`, `latest.json` and `latest.json.sig` for installed Mac clients.
 Mac Dev assets live under `caelis-bot/dev/macos/arm64/vX.Y.Z-dev.N/` and
-their signed pointer lives under `caelis-bot/feeds/macos/arm64/dev/`. Historical preview
+their signed appcast and pointer live under `caelis-bot/feeds/macos/arm64/dev/`. Historical preview
 assets and pointers retain their old namespace. Stable and Dev have separate concurrency groups and neither publisher prunes older
 immutable bytes. Windows uses its own ownership and never mutates these Mac keys.
 Rollback and same-version byte changes are rejected. Older immutable R2 versions

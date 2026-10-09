@@ -59,6 +59,18 @@ func TestTargetPlatformRequiresItsPublishedPackage(t *testing.T) {
 		t.Fatalf("unshipped architecture looked available: %+v", result)
 	}
 }
+func TestSelectedChannelControlsManualResultsAcrossSwitches(t *testing.T) {
+	body := `[{"tag_name":"v1.2.3","assets":[{"name":"Caelis-Bot-1.2.3-macos-arm64.dmg"}]},{"tag_name":"v1.2.4-dev.1","prerelease":true,"assets":[{"name":"Caelis-Bot-1.2.4-dev.1-macos-arm64.dmg"}]}]`
+	client := &http.Client{Transport: transport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	if result := checkTargetChannel(context.Background(), client, "1.2.3-dev.2", "darwin", "arm64", "stable"); result.Latest != "v1.2.3" || result.State != "available" {
+		t.Fatalf("Stable selected a Dev result after switch: %+v", result)
+	}
+	if result := checkTargetChannel(context.Background(), client, "1.2.3", "darwin", "arm64", "dev"); result.Latest != "v1.2.4-dev.1" || result.State != "available" {
+		t.Fatalf("Dev selected a Stable result after switch: %+v", result)
+	}
+}
 func TestVersionOrdering(t *testing.T) {
 	versions := []string{"0.0.1-alpha.2", "0.0.1-alpha.10", "0.0.1-preview", "v0.0.1", "0.0.2", "0.1.0", "1.0.0", "10.0.0"}
 	for i := 1; i < len(versions); i++ {

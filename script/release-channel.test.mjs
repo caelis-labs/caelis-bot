@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import {verifyCandidateRun} from './verify-candidate-run.mjs';
 import {syncLatest} from './sync-github-latest.mjs';
 import {releaseChannel} from './release-version.mjs';
-import {updateURL, updateURLFor} from './configure-updates.mjs';
+import {updateURL, updateURLFor, devUpdateURL} from './configure-updates.mjs';
 
-test('Dev and local bundles cannot point Sparkle at the Stable feed', () => {
+test('one release app embeds both channel feeds; local updates remain disabled', () => {
   assert.equal(updateURLFor('v1.2.3'),updateURL);
-  assert.match(updateURLFor('v1.2.3-dev.1'),/\/dev\/appcast\.xml$/);
+  assert.equal(updateURLFor('v1.2.3-dev.1'),updateURL);
+  assert.match(devUpdateURL,/\/dev\/appcast\.xml$/);
   assert.match(updateURLFor(),/\/local-disabled\/appcast\.xml$/);
 });
 

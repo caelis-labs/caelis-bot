@@ -2,7 +2,7 @@ import {createHash, createPublicKey, verify} from 'node:crypto';
 import {readFileSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {validateTag, releaseChannel} from './release-version.mjs';
+import {validateTag, releaseChannel, releaseVersion} from './release-version.mjs';
 import {validateUpdateKey} from './configure-updates.mjs';
 
 export const digest = data => createHash('sha256').update(data).digest('hex');
@@ -21,8 +21,10 @@ export function validateManifest(value, tag) {
   if (value.schema !== 1 || value.tag !== tag || value.version !== version ||
       value.file !== `Caelis-Bot-${version}-macos-arm64.dmg` ||
       !/^[a-f0-9]{40}$/.test(value.source) || !/^[a-f0-9]{64}$/.test(value.sha256) ||
-      (channel !== 'stable' ? value.channel !== channel || value.appcastSHA256 !== undefined :
-        value.channel !== undefined || !/^[a-f0-9]{64}$/.test(value.appcastSHA256)) ||
+      (channel !== 'stable' && value.channel !== channel || channel === 'stable' && value.channel !== undefined) ||
+      (channel === 'preview' ? value.appcastSHA256 !== undefined : !/^[a-f0-9]{64}$/.test(value.appcastSHA256)) ||
+      (value.bundleVersion !== undefined && value.bundleVersion !== releaseVersion(version.split('-')[0], tag).bundleVersion) ||
+      (channel === 'dev' && value.bundleVersion === undefined) ||
       !Number.isSafeInteger(value.length) || value.length <= 0) {
     throw new Error('Invalid update manifest');
   }
@@ -45,7 +47,7 @@ export function verifyDirectory(directory, tag, key) {
   }
   const checksum = readFileSync(join(directory, `${manifest.file}.sha256`),'utf8').trim();
   if (checksum !== `${manifest.sha256}  ${manifest.file}`) throw new Error('DMG checksum mismatch');
-  if (manifest.channel !== undefined) return manifest;
+  if (manifest.channel === 'preview') return manifest;
   const feed = readFileSync(join(directory, 'appcast.xml'));
   if (digest(feed) !== manifest.appcastSHA256) throw new Error('Update feed digest mismatch');
   // Verify that the feed offers these exact bytes and that its archive signature
@@ -53,8 +55,10 @@ export function verifyDirectory(directory, tag, key) {
   const xml = feed.toString('utf8');
   verifySignedFeed(feed, key);
   const enclosure = xml.match(/<enclosure\s[^>]*>/g) ?? [];
-  if (enclosure.length !== 1 || !enclosure[0].includes(`url="https://releases.caelis.dev/caelis-bot/releases/${tag}/${manifest.file}"`) ||
-      !enclosure[0].includes(`length="${manifest.length}"`) || !xml.includes(`<sparkle:version>${manifest.version}</sparkle:version>`)) {
+  const artifactURL = manifest.channel === 'dev' ? `https://releases.caelis.dev/caelis-bot/dev/macos/arm64/${tag}/${manifest.file}` :
+    `https://releases.caelis.dev/caelis-bot/releases/${tag}/${manifest.file}`;
+  if (enclosure.length !== 1 || !enclosure[0].includes(`url="${artifactURL}"`) ||
+      !enclosure[0].includes(`length="${manifest.length}"`) || !xml.includes(`<sparkle:version>${manifest.bundleVersion ?? manifest.version}</sparkle:version>`)) {
     throw new Error('Appcast does not describe the verified release');
   }
   verifySignature(dmg, enclosure[0].match(/sparkle:edSignature="([^"]+)"/)?.[1] ?? '', key);
@@ -67,8 +71,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const bytes = readFileSync(join(directory, file));
     const channel = releaseChannel(tag);
     const manifest = validateManifest({schema:1, tag, version, file, source:process.env.BOT_RELEASE_SOURCE_SHA,
-      length:bytes.length, sha256:digest(bytes), ...(channel !== 'stable' ? {channel} :
-        {appcastSHA256:digest(readFileSync(join(directory,'appcast.xml')))} )}, tag);
+      length:bytes.length, sha256:digest(bytes),
+      ...(channel !== 'stable' ? {channel} : {}),
+      ...(channel === 'preview' ? {} : {bundleVersion:releaseVersion(version.split('-')[0],tag).bundleVersion,
+        appcastSHA256:digest(readFileSync(join(directory,'appcast.xml')))} )}, tag);
     writeFileSync(join(directory, 'latest.json'), JSON.stringify(manifest, null, 2)+'\n');
   } else if (command === 'verify') {
     verifyDirectory(directory, tag, process.env.BOT_SPARKLE_PUBLIC_KEY);

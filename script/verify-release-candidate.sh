@@ -9,8 +9,8 @@ directory=${1:?Expected candidate artifact directory}
 export BOT_RELEASE_TAG=$RELEASE_TAG
 export BOT_ROOT=$PWD
 source script/app-identity.sh
-[[ "$BOT_BUILD_CHANNEL" == release || "$BOT_BUILD_CHANNEL" == dev ]]
-if [[ "$BOT_BUILD_CHANNEL" == dev ]]; then channel=dev; else channel=stable; fi
+[[ "$BOT_BUILD_CHANNEL" == release ]]
+if [[ "$RELEASE_TAG" == *-dev.* ]]; then channel=dev; else channel=stable; fi
 node script/update-manifest.mjs verify "$directory"
 source_sha=$(node -p 'require(process.argv[1]).source' "./$directory/latest.json")
 digest=$(node -p 'require(process.argv[1]).sha256' "./$directory/latest.json")
@@ -38,12 +38,13 @@ spctl --assess --type execute "$app"
 test "$(/usr/libexec/PlistBuddy -c 'Print CaelisSourceCommit' "$app/Contents/Info.plist")" = "$source_sha"
 test "$(/usr/libexec/PlistBuddy -c 'Print CaelisReleaseVersion' "$app/Contents/Info.plist")" = "$version"
 test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Contents/Info.plist")" = "$BOT_APP_ID"
-if [[ "$channel" == stable ]]; then
+if [[ "$channel" == stable || "$channel" == dev ]]; then
   test "$(/usr/libexec/PlistBuddy -c 'Print CaelisAutoUpdatesEnabled' "$app/Contents/Info.plist")" = true
   test "$(/usr/libexec/PlistBuddy -c 'Print SUFeedURL' "$app/Contents/Info.plist")" = 'https://releases.caelis.dev/caelis-bot/appcast.xml'
-else
-  test "$(/usr/libexec/PlistBuddy -c 'Print CaelisAutoUpdatesEnabled' "$app/Contents/Info.plist")" = false
-  test "$(/usr/libexec/PlistBuddy -c 'Print SUFeedURL' "$app/Contents/Info.plist")" = 'https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/appcast.xml'
+  test "$(/usr/libexec/PlistBuddy -c 'Print CaelisDevFeedURL' "$app/Contents/Info.plist")" = 'https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/appcast.xml'
+  test "$(/usr/libexec/PlistBuddy -c 'Print CaelisDefaultUpdateChannel' "$app/Contents/Info.plist")" = "$channel"
 fi
+expected_bundle=$(node --input-type=module -e 'import {releaseVersion} from "./script/release-version.mjs";const v=process.env.BOT_RELEASE_TAG.slice(1);console.log(releaseVersion(v.split("-")[0],process.env.BOT_RELEASE_TAG).bundleVersion)')
+test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app/Contents/Info.plist")" = "$expected_bundle"
 printf 'source=%s\nchannel=%s\n' "$source_sha" "$channel" >> "$GITHUB_OUTPUT"
 printf 'Accepted candidate: %s\nSource: %s\nDMG SHA-256: %s\nEvidence: %s\n' "$RELEASE_TAG" "$source_sha" "$digest" "$ACCEPTANCE_URL" >> "$GITHUB_STEP_SUMMARY"

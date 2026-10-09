@@ -28,8 +28,8 @@ export function receiptFor(directory, {tag, source, os, arch, channel, validatio
   if (os === 'windows' && file !== `Caelis-Bot-${version}-windows-amd64.msix`) throw new Error('Invalid Windows release artifact');
   const names = [file, `${file}.sha256`];
   if (os === 'windows') names.push(windowsAcceptanceName(tag, channel));
-  if (os === 'macos' && channel === 'stable') names.push('appcast.xml', 'latest.json', 'latest.json.sig');
-  if (os === 'macos' && channel !== 'stable') names.push('latest.json', 'latest.json.sig');
+  if (os === 'macos' && channel !== 'preview') names.push('appcast.xml', 'latest.json', 'latest.json.sig');
+  if (os === 'macos' && channel === 'preview') names.push('latest.json', 'latest.json.sig');
   const assets = names.map(name => {
     const bytes = readFileSync(join(directory, name));
     if (bytes.length === 0) throw new Error(`Empty release asset: ${name}`);
@@ -41,8 +41,8 @@ export function receiptFor(directory, {tag, source, os, arch, channel, validatio
   if (os === 'macos') {
     const manifest = JSON.parse(readFileSync(join(directory, 'latest.json')));
     if (manifest.tag !== tag || manifest.source !== source || manifest.sha256 !== assets[0].sha256 ||
-        (channel === 'stable' ? manifest.appcastSHA256 !== assets[2].sha256 || manifest.channel !== undefined :
-          manifest.channel !== channel || manifest.appcastSHA256 !== undefined)) throw new Error('Mac feed source or asset mismatch');
+        (channel === 'stable' ? manifest.channel !== undefined : manifest.channel !== channel) ||
+        (channel === 'preview' ? manifest.appcastSHA256 !== undefined : manifest.appcastSHA256 !== assets[2].sha256)) throw new Error('Mac feed source or asset mismatch');
   }
   return {schema: 1, key: {tag, os, arch, channel}, source, validation,
     state: 'published', assets, receipt: key};

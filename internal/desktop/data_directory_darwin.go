@@ -17,7 +17,7 @@ func environmentNotebookHomes() []string {
 		paths = append(paths, filepath.Join(root, "Notebook"))
 	}
 	if u, err := user.Current(); err == nil {
-		for _, app := range []string{"Caelis Bot", "Caelis Bot Dev", "Caelis Bot Dev Release"} {
+		for _, app := range []string{"Caelis Bot", "Caelis Bot Dev"} {
 			paths = append(paths, filepath.Join(u.HomeDir, "Library", "Application Support", app, "Notebook"))
 		}
 	}

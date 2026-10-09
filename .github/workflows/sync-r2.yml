@@ -38,7 +38,7 @@ jobs:
           test "$(gh api "repos/$GH_REPO/releases/tags/$tag" --jq .draft)" = false
           echo "BOT_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           patterns=(--pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg" --pattern "Caelis-Bot-${tag#v}-macos-arm64.dmg.sha256" --pattern latest.json --pattern latest.json.sig)
-          if [[ "$tag" != *-* ]]; then patterns+=(--pattern appcast.xml); fi
+          if [[ "$tag" != *-* || "$tag" == *-dev.* ]]; then patterns+=(--pattern appcast.xml); fi
           gh release download "$tag" --dir release "${patterns[@]}"
       - name: Verify signatures and synchronize R2
         id: r2

@@ -8,6 +8,7 @@ import {publish, cleanupKeys, compareStable, comparePreview} from './publish-r2.
 import {digest, verifyDirectory} from './update-manifest.mjs';
 import {validateUpdateKey} from './configure-updates.mjs';
 import {receiptFor} from './publication.mjs';
+import {releaseVersion} from './release-version.mjs';
 
 function fixture(fn, {preview=false, dev=false}={}) {
   const directory=mkdtempSync(join(tmpdir(),'bot-updates-test-'));
@@ -15,13 +16,15 @@ function fixture(fn, {preview=false, dev=false}={}) {
   const key=publicKey.export({format:'der',type:'spki'}).subarray(-32).toString('base64');
   const tag=dev?'v1.2.3-dev.1':preview?'v1.2.3-preview.1':'v1.2.3', file=`Caelis-Bot-${tag.slice(1)}-macos-arm64.dmg`, source='a'.repeat(40);
   const bytes=Buffer.from('notarized DMG fixture');
-  const body=Buffer.from(`<rss><channel><item><sparkle:version>1.2.3</sparkle:version><enclosure url="https://releases.caelis.dev/caelis-bot/releases/${tag}/${file}" length="${bytes.length}" sparkle:edSignature="${sign(null,bytes,privateKey).toString('base64')}"></enclosure></item></channel></rss>`);
+  const bundleVersion=preview?'1.2.3':releaseVersion('1.2.3',tag).bundleVersion;
+  const artifactURL=dev?`https://releases.caelis.dev/caelis-bot/dev/macos/arm64/${tag}/${file}`:`https://releases.caelis.dev/caelis-bot/releases/${tag}/${file}`;
+  const body=Buffer.from(`<rss><channel><item><sparkle:version>${dev?bundleVersion:'1.2.3'}</sparkle:version><enclosure url="${artifactURL}" length="${bytes.length}" sparkle:edSignature="${sign(null,bytes,privateKey).toString('base64')}"></enclosure></item></channel></rss>`);
   const xml=Buffer.concat([body,Buffer.from(`<!-- sparkle-signatures:\nedSignature: ${sign(null,body,privateKey).toString('base64')}\nlength: ${body.length}\n-->\n`)]);
   writeFileSync(join(directory,file),bytes);
   writeFileSync(join(directory,`${file}.sha256`),`${digest(bytes)}  ${file}\n`);
-  if(!preview && !dev) writeFileSync(join(directory,'appcast.xml'),xml);
+  if(!preview) writeFileSync(join(directory,'appcast.xml'),xml);
   const manifest={schema:1,tag,version:tag.slice(1),file,source,length:bytes.length,sha256:digest(bytes),
-    ...(dev?{channel:'dev'}:preview?{channel:'preview'}:{appcastSHA256:digest(xml)})};
+    ...(dev?{channel:'dev',bundleVersion,appcastSHA256:digest(xml)}:preview?{channel:'preview'}:{appcastSHA256:digest(xml)})};
   const metadata=Buffer.from(JSON.stringify(manifest));
   writeFileSync(join(directory,'latest.json'),metadata);
   writeFileSync(join(directory,'latest.json.sig'),sign(null,metadata,privateKey).toString('base64'));
@@ -105,12 +108,13 @@ test('signed preview publishes only its channel and preserves stable aliases and
   assert.match(publish(f.directory,f.env,f.run),/preview feed/);
   assert.ok(!f.calls.some(c=>c[2]==='delete-object'));
 },{preview:true}));
-test('installable Dev publishes only its signed Dev pointer and immutable Dev bytes',()=>fixture(f=>{
+test('installable Dev publishes its signed appcast and immutable bytes without changing Stable',()=>fixture(f=>{
   const stable=Buffer.from('previous stable pointer');
   f.objects.set('caelis-bot/latest.json',stable);
   assert.match(publish(f.directory,f.env,f.run),/dev feed/);
   assert.ok(f.objects.has(`caelis-bot/dev/macos/arm64/${f.tag}/${f.file}`));
   assert.ok(f.objects.has('caelis-bot/feeds/macos/arm64/dev/latest.json'));
+  assert.ok(f.objects.has('caelis-bot/feeds/macos/arm64/dev/appcast.xml'));
   assert.deepEqual(f.objects.get('caelis-bot/latest.json'),stable);
   assert.ok(!f.objects.has('caelis-bot/appcast.xml'));
 },{dev:true}));

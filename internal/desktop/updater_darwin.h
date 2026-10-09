@@ -3,6 +3,8 @@ int bot_updater_start(void);
 int bot_updater_check(void);
 bool bot_updater_automatic(void);
 void bot_updater_set_automatic(bool enabled);
+bool bot_updater_dev_channel(void);
+bool bot_updater_set_dev_channel(bool enabled);
 bool bot_updater_waiting(void);
 bool bot_updater_claim(void);
 bool bot_updater_finish(void);
