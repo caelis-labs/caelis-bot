@@ -6,6 +6,7 @@ directory=$(mktemp -d "${TMPDIR:-/tmp}/bot-task-dock.XXXXXX")
 trap 'rm -rf "$directory"' EXIT
 cat > "$directory/main.m" <<'OBJC'
 #import <Cocoa/Cocoa.h>
+#include "panel_menu_layout.h"
 #include "task_snapshot_darwin.m"
 #include "task_dock_darwin.m"
 #include <assert.h>
@@ -126,16 +127,23 @@ int main(void) {
   NSData *language=[NSData dataWithContentsOfFile:@"internal/i18n/locales/zh-CN/native.json"];
   dock.language=[NSJSONSerialization JSONObjectWithData:language options:0 error:nil];
   [dock setTasks:@[task(@"one",@"working"),task(@"two",@"completed")]];
-  [dock placeWithPet:NSMakeRect(400,300,240,240) bounds:NSMakeRect(0,0,1200,900) visible:YES];
-  // A visible chat-sized window must not cover the independent task panel.
-  NSWindow *chat=[[NSWindow alloc] initWithContentRect:NSMakeRect(380,280,400,300) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
-  [chat orderFront:nil];
-  assert(chat.visible && dock.window.visible && dock.window.level>chat.level);
+  NSRect pet=NSMakeRect(400,300,240,240),screen=NSMakeRect(0,0,1200,900);
+  [dock placeWithPet:pet bounds:screen visible:YES];
+  // Production quick composer + attachment menu geometry: the hosting window
+  // overlaps the task entry and sits one level above the ordinary pet/chat.
+  CGFloat inputHeight=152,composerY=NSMinY(pet)+44-inputHeight-10;
+  BotPanelMenuLayout menu=bot_panel_menu_layout(composerY,420,inputHeight,NSMinY(screen),NSMaxY(screen),250);
+  NSRect menuFrame=NSMakeRect(NSMidX(pet)-210,menu.originY,420,menu.height);
+  NSWindow *menuWindow=[[NSWindow alloc] initWithContentRect:menuFrame styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
+  menuWindow.level=NSFloatingWindowLevel+1;
+  [menuWindow orderFrontRegardless];
+  assert(menuWindow.visible && dock.window.visible && NSIntersectsRect(menuWindow.frame,dock.window.frame));
+  assert(dock.window.level>menuWindow.level && dock.window.level<NSModalPanelWindowLevel);
   assert([dock.window.contentView hitTest:NSMakePoint(31,14)]==dock.buttons[0]);
   [dock.buttons[0] performClick:nil];
-  assert(chat.visible && dock.expanded && dock.buttons.count==2);
+  assert(menuWindow.visible && dock.expanded && dock.buttons.count==2);
   [dock collapse];assert(dock.window.visible);
-  [chat orderOut:nil];
+  [menuWindow orderOut:nil];
   assert(NSEqualSizes(dock.window.contentView.bounds.size,NSMakeSize(62,28)));
   assert(dock.buttons[0].loading);
   assert(!dock.window.hasShadow && ![dock.window.contentView isKindOfClass:NSVisualEffectView.class]);
@@ -399,7 +407,18 @@ if [[ "${BOT_TASK_DOCK_LIVE:-}" == 1 ]]; then
 PLIST
   codesign --force --sign - "$bundle"
   printf '%s\n' "$bundle"
-  /usr/bin/open "$bundle"
+  if [[ "${BOT_TASK_DOCK_MENU_TEST:-}" == 1 ]]; then
+    result="${BOT_TASK_DOCK_MENU_RESULT:-$BOT_ROOT/.cache/task-dock-menu-native.json}"
+    log="$BOT_ROOT/.cache/task-dock-menu-native.log"
+    mkdir -p "$(dirname "$result")" "$BOT_ROOT/.cache"
+    rm -f "$result"
+    : > "$log"
+    /usr/bin/open -W -n "$bundle" --stdout "$log" --stderr "$log" --env "BOT_TASK_PREVIEW_MENU_RESULT=$result" || { cat "$log"; exit 1; }
+    [[ -s "$result" ]] || { cat "$log"; echo 'Native task dock menu result was not produced.' >&2; exit 1; }
+    jq -e '.result == "pass" and .menuClicked == true' "$result"
+  else
+    /usr/bin/open "$bundle"
+  fi
 else
   "$directory/fixture"
 fi

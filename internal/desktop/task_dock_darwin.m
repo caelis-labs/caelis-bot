@@ -285,7 +285,9 @@ static NSPanel *taskPanel(NSString *title) {
     NSPanel *panel=[[BotTaskPanel alloc] initWithContentRect:NSMakeRect(0,0,48,26) styleMask:NSWindowStyleMaskBorderless|NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
     panel.title=title; panel.opaque=NO; panel.backgroundColor=NSColor.clearColor;
     panel.hasShadow=NO;panel.acceptsMouseMovedEvents=YES; panel.hidesOnDeactivate=NO; panel.releasedWhenClosed=NO;
-    panel.level=NSFloatingWindowLevel+1;
+    // The composer rises by one level for its attachment menu. Keep task
+    // controls above it without entering AppKit's modal-panel level.
+    panel.level=NSFloatingWindowLevel+2;
     panel.collectionBehavior=NSWindowCollectionBehaviorCanJoinAllSpaces|NSWindowCollectionBehaviorStationary|NSWindowCollectionBehaviorIgnoresCycle|NSWindowCollectionBehaviorFullScreenAuxiliary;
     if (@available(macOS 13.0,*)) panel.collectionBehavior|=NSWindowCollectionBehaviorCanJoinAllApplications;
     return panel;
