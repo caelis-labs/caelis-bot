@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -59,7 +60,7 @@ func (s *Session) WorkStates() []api.WorkState {
 		if p := s.state.Views[w.Binding.SessionId]; p != nil && !w.Retired && s.connected {
 			if workerNativeActive(p.State) {
 				activity = "active"
-			} else if p.State.Run.Active != nil {
+			} else if p.State.Run.Active != nil && activity != "active" {
 				activity = "idle"
 			}
 		}
@@ -109,6 +110,13 @@ func (s *Session) workerViewLocked(w worker) api.Task {
 		}
 	}
 	return out
+}
+func (s *Session) workerNeedsReconcileLocked(w worker) bool {
+	return !w.Retired && s.workerViewLocked(w).Status == "unknown"
+}
+func sameWorkerOwner(a, b worker) bool {
+	return a.Task.ID == b.Task.ID && a.Task.Workspace == b.Task.Workspace && a.Native == b.Native && a.Fingerprint == b.Fingerprint && a.PromptID == b.PromptID &&
+		a.Binding.SessionId == b.Binding.SessionId && a.Binding.ApplicationId == b.Binding.ApplicationId && a.Binding.ConnectionId == b.Binding.ConnectionId && a.Binding.PrincipalId == b.Binding.PrincipalId && a.Binding.CreationDigest == b.Binding.CreationDigest && a.Binding.Archived == b.Binding.Archived
 }
 func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
 	call, e := s.authority(ctx)
@@ -256,50 +264,81 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		s.mu.Unlock()
 		return api.Task{}, errors.New("任务不属于当前 Bot")
 	}
-	if w.Retired || w.Task.Status != "unknown" {
+	if !s.workerNeedsReconcileLocked(w) {
 		v := s.workerViewLocked(w)
 		s.mu.Unlock()
 		return v, nil
 	}
 	if w.Start != nil {
+		v := s.workerViewLocked(w)
 		s.mu.Unlock()
-		return w.Task, errors.New("original worker start receipt still needs reconciliation")
+		return v, errors.New("original worker start receipt still needs reconciliation")
 	}
-	c, sid := s.client, w.Binding.SessionId
+	projected := s.workerViewLocked(w)
+	c, sid, generation, instance, connected := s.client, w.Binding.SessionId, s.generation, s.state.InstanceID, s.connected
+	before := s.state.Views[sid]
+	var observed uint64
+	var expectedTurn string
+	var previous []byte
+	if before != nil {
+		observed = before.Observed
+		expectedTurn = value(before.State.Run.TurnId)
+		var err error
+		previous, err = json.Marshal(before.State)
+		if err != nil {
+			s.mu.Unlock()
+			return projected, err
+		}
+	}
 	s.mu.Unlock()
-	if c == nil || sid == "" {
-		return w.Task, errors.New("original worker binding unconfirmed")
+	if c == nil || sid == "" || !connected {
+		return projected, errors.New("original worker binding unconfirmed")
 	}
 	var state wire.SessionState
 	if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil {
-		return w.Task, err
+		return projected, err
 	}
 	if state.SessionId != sid {
-		return w.Task, errors.New("original worker state mismatch")
+		return projected, errors.New("original worker state mismatch")
+	}
+	if expectedTurn != "" && value(state.Run.TurnId) != expectedTurn {
+		return projected, errors.New("original worker turn is not the current projected turn")
 	}
 	if state.Run.Active == nil && !workerNativeActive(state) {
-		return w.Task, errors.New("original worker activity unconfirmed")
+		return projected, errors.New("original worker activity unconfirmed")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	w = s.state.Workers[id]
-	if w.Binding.SessionId != sid {
-		return s.workerViewLocked(w), errors.New("original worker binding changed")
+	current, exists := s.state.Workers[id]
+	if !exists {
+		return api.Task{}, errors.New("original worker binding changed")
 	}
-	if workerNativeActive(state) {
-		w.Activity = "active"
-	} else {
-		w.Activity = "idle"
-		if w.Task.Status == "unknown" {
-			w.Retired = true
-			w.Task.Status = "unavailable"
+	p := s.state.Views[sid]
+	var currentState []byte
+	if p != nil {
+		var err error
+		currentState, err = json.Marshal(p.State)
+		if err != nil {
+			return s.workerViewLocked(current), err
 		}
 	}
-	s.state.Workers[id] = w
-	if err := s.saveLocked(); err != nil {
-		return s.workerViewLocked(w), err
+	if s.client != c || !s.connected || s.closed || s.generation != generation || s.state.InstanceID != instance || !sameWorkerOwner(w, current) || current.Start != nil || !s.workerNeedsReconcileLocked(current) || p != before || p != nil && (p.Observed != observed || !bytes.Equal(currentState, previous)) {
+		return s.workerViewLocked(current), errors.New("original worker or projection changed; retirement refused")
 	}
-	return s.workerViewLocked(w), nil
+	previousWorker := current
+	if workerNativeActive(state) {
+		current.Activity = "active"
+	} else {
+		current.Activity = "idle"
+		current.Retired = true
+		current.Task.Status = "unavailable"
+	}
+	s.state.Workers[id] = current
+	if err := s.saveLocked(); err != nil {
+		s.state.Workers[id] = previousWorker
+		return s.workerViewLocked(previousWorker), err
+	}
+	return s.workerViewLocked(current), nil
 }
 
 func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
@@ -330,11 +369,12 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	w, ok := s.state.Workers[in.ID]
 	v := s.state.Views[w.Binding.SessionId]
 	busy := v != nil && (value(v.State.Run.Active) || v.State.Approval.Active != nil)
+	unresolved := s.workerNeedsReconcileLocked(w) || w.Start != nil
 	s.mu.Unlock()
 	if !ok || w.Binding.SessionId == "" || v == nil {
 		return api.Task{}, errors.New("任务未就绪")
 	}
-	if w.Retired || w.Task.Status == "unknown" {
+	if unresolved || w.Retired {
 		return w.Task, errors.New("task retired or original receipt unconfirmed; continuation refused")
 	}
 	sid := w.Binding.SessionId

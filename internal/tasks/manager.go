@@ -570,6 +570,10 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		m.mu.Unlock()
 		return api.Task{}, errors.New("task retired; original receipts remain available for reading")
 	}
+	if status == "unknown" {
+		m.mu.Unlock()
+		return api.Task{}, errors.New("original task receipt unresolved; read the original task before continuing")
+	}
 	restarting := terminal(status)
 	m.mu.Unlock()
 	used := 0

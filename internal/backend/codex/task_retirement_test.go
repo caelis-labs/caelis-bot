@@ -96,3 +96,60 @@ func TestLegacyUnknownRecordsRetireOnlyAfterOriginalThreadIdle(t *testing.T) {
 		t.Fatal("retirement not durable", got)
 	}
 }
+
+func TestProjectedUnknownWithPersistedCompletionUsesOriginalThread(t *testing.T) {
+	for _, operation := range []string{"read", "retire"} {
+		t.Run(operation, func(t *testing.T) {
+			s, f, d, m := taskPair(t)
+			id, thread, oldRun, later := "task-projected-unknown", "original-projected-thread", "old-completed-run", "later-unknown-request"
+			s.mu.Lock()
+			if s.binding.Tasks == nil {
+				s.binding.Tasks = map[string]*taskRecord{}
+			}
+			s.binding.Tasks[id] = &taskRecord{Thread: thread, Run: oldRun, Pending: later, View: api.Task{ID: id, Status: "completed", Outcome: "unknown", Result: "old answer"}, Requests: map[string]taskReceipt{later: {Outcome: "unknown", PriorRun: oldRun, PriorStatus: "completed"}}}
+			if err := s.save(); err != nil {
+				s.mu.Unlock()
+				t.Fatal(err)
+			}
+			s.mu.Unlock()
+			original := nativeThread{ID: thread, Turns: []nativeTurn{{ID: oldRun, Status: "completed"}}}
+			original.Status.Type = "idle"
+			f.mu.Lock()
+			f.workers[thread] = original
+			f.mu.Unlock()
+			if err := m.RefreshWatchlist(); err != nil {
+				t.Fatal(err)
+			}
+			if page, err := m.QueryTasks(api.TaskQuery{}); err != nil || page.Running != 0 || page.Reserved != 1 {
+				t.Fatal("projected unknown did not hold one possible slot", page, err)
+			}
+			if _, err := m.WorkTerminal(testContext(t), id); err == nil || !strings.Contains(err.Error(), "unresolved") {
+				t.Fatal("projected unknown opened a native continuation", err)
+			}
+			var got api.Task
+			var err error
+			if operation == "read" {
+				got, err = m.ReadTask(testContext(t), id)
+			} else {
+				got, err = m.RetireTask(testContext(t), id)
+			}
+			if err != nil || got.Status != "unavailable" || got.Outcome != "unknown" {
+				t.Fatal("original idle thread could not retire projected unknown", got, err)
+			}
+			s.mu.Lock()
+			retained := s.binding.Tasks[id]
+			if retained.Pending != later || retained.Requests[later].Outcome != "unknown" || retained.Run != oldRun || !retained.Retired {
+				s.mu.Unlock()
+				t.Fatal("old completion settled later unknown receipt", retained)
+			}
+			s.mu.Unlock()
+			if d.starts != 0 || d.sends != 0 {
+				t.Fatal("native request replayed", d.starts, d.sends)
+			}
+			loaded := NewSession(s.opts)
+			if loaded.WorkStates()[0].Task.Status != "unavailable" {
+				t.Fatal("retirement lost after restart", loaded.WorkStates())
+			}
+		})
+	}
+}

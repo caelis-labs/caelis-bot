@@ -18,6 +18,41 @@ func (f *terminalFixture) WorkTerminal(_ context.Context, id string) (api.Termin
 	return api.TerminalTarget{Thread: "native-owned"}, nil
 }
 
+func TestCurrentUnknownProjectionBlocksContinuationBeforeOwnerDispatch(t *testing.T) {
+	f := &terminalFixture{fixtureRuntime: newRuntime()}
+	m := openFixture(t, t.TempDir(), "codex", f.fixtureRuntime)
+	v := start(t, m, "projected-unknown")
+	state := f.states[v.ID]
+	state.Task.Status = "unknown"
+	f.states[v.ID] = state
+	if _, err := m.SendTask(t.Context(), api.TaskMessage{ID: v.ID, RequestID: "unknown-followup", Prompt: "continue"}); err == nil {
+		t.Fatal("unknown projected work was sent")
+	}
+	if got := f.states[v.ID].Task.Status; got != "unknown" {
+		t.Fatal("owner received unknown continuation", got)
+	}
+	if len(m.state.Records[v.ID].Requests) != 1 {
+		t.Fatal("unknown followup acquired a product receipt")
+	}
+	// WorkTerminal uses the same product projection even with a permissive
+	// terminal provider. Reopen against that provider to keep the fixture local.
+	root := t.TempDir()
+	tm, err := Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "codex", f, f, f.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tv := start(t, tm, "terminal-unknown")
+	ts := f.states[tv.ID]
+	ts.Task.Status = "unknown"
+	f.states[tv.ID] = ts
+	if err := tm.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tm.WorkTerminal(t.Context(), tv.ID); err == nil || f.opened != "" {
+		t.Fatal("unknown projected work acquired a terminal", err)
+	}
+}
+
 func TestTaskPreviewPersistsOriginalPromptAndFencesOwnership(t *testing.T) {
 	f := &terminalFixture{fixtureRuntime: newRuntime()}
 	root := t.TempDir()

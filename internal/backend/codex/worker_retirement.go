@@ -117,7 +117,7 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 			task.Activity = "active"
 		} else if thread.Status.Type == "idle" || thread.Status.Type == "notLoaded" {
 			task.Activity = "idle"
-			if task.View.Status == "unknown" {
+			if s.taskView(task).Status == "unknown" {
 				retireCandidate = task.View.ID
 			}
 		} else {

@@ -375,7 +375,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		s.mu.Unlock()
 		return api.Task{}, err
 	}
-	if t.Thread == "" || t.Pending != "" || t.View.Status == "unknown" || len(t.Requests) >= 100 {
+	if t.Thread == "" || t.Pending != "" || s.taskView(t).Status == "unknown" || len(t.Requests) >= 100 {
 		v := t.View
 		s.mu.Unlock()
 		return v, errors.New("请先核对该任务；结果未知的操作不会重复发送")
@@ -666,6 +666,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		return t.View, ErrProtocol
 	}
 	newlyRetired := false
+	retiredPreviousStatus, retiredPreviousActivity := "", ""
 	if revision == s.childRevision[t.Thread] {
 		for _, turn := range thread.Turns {
 			s.observeTaskTurn(t, turn)
@@ -679,8 +680,10 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		if nativeTaskActive(thread) {
 			t.Activity = "active"
 		} else if thread.Status.Type == "idle" || thread.Status.Type == "notLoaded" {
+			previousActivity := t.Activity
 			t.Activity = "idle"
-			if t.View.Status == "unknown" {
+			if s.taskView(t).Status == "unknown" {
+				retiredPreviousStatus, retiredPreviousActivity = t.View.Status, previousActivity
 				t.Retired = true
 				t.View.Status = "unavailable"
 				newlyRetired = true
@@ -701,7 +704,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	if err = s.save(); err != nil {
 		if newlyRetired {
 			t.Retired = false
-			t.View.Status = "unknown"
+			t.View.Status, t.Activity = retiredPreviousStatus, retiredPreviousActivity
 		}
 		return t.View, err
 	}
@@ -730,12 +733,12 @@ func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
 		s.mu.Unlock()
 		return v, nil
 	}
-	if t.View.Status != "unknown" || t.Thread == "" || s.client == nil || s.state.Connection != "ready" {
+	if s.taskView(t).Status != "unknown" || t.Thread == "" || s.client == nil || s.state.Connection != "ready" {
 		v := s.taskView(t)
 		s.mu.Unlock()
 		return v, errors.New("original thread is unavailable for safe retirement")
 	}
-	threadID, c, revision := t.Thread, s.client, s.childRevision[t.Thread]
+	threadID, c, revision, pending, run := t.Thread, s.client, s.childRevision[t.Thread], t.Pending, t.Run
 	s.mu.Unlock()
 	thread, err := readThreadState(ctx, c, threadID)
 	s.mu.Lock()
@@ -746,7 +749,7 @@ func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
 	if nativeTaskActive(thread) && s.client == c && s.childRevision[threadID] == revision {
 		t.Activity = "active"
 	}
-	if s.client != c || s.childRevision[threadID] != revision || thread.ID != threadID || nativeTaskActive(thread) || thread.Status.Type != "idle" && thread.Status.Type != "notLoaded" {
+	if s.client != c || s.binding.Tasks[id] != t || t.Thread != threadID || t.Pending != pending || t.Run != run || s.childRevision[threadID] != revision || s.taskView(t).Status != "unknown" || thread.ID != threadID || nativeTaskActive(thread) || thread.Status.Type != "idle" && thread.Status.Type != "notLoaded" {
 		return s.taskView(t), errors.New("original thread is active or changed; retirement refused")
 	}
 	previousActivity, previousStatus := t.Activity, t.View.Status
