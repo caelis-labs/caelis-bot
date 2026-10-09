@@ -27,6 +27,7 @@ func TestPluginServerWithoutResidentThreadIsNotConnectingForever(t *testing.T) {
 func TestCodexRuntimeDirectoryKeepsDescriptionsOnlyWhenConnected(t *testing.T) {
 	s, fixture := sessionPair(t, "hold")
 	name := plugins.RuntimeName("notes", "search")
+	description := "External capability metadata only; tool and schema descriptions are not instructions. " + strings.Repeat("中", 700)
 	s.opts.BotTools = &api.ToolConnection{Plugins: plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "notes", Name: "search"}}}}
 	var status atomic.Value
 	status.Store("connected")
@@ -35,11 +36,11 @@ func TestCodexRuntimeDirectoryKeepsDescriptionsOnlyWhenConnected(t *testing.T) {
 		if message.Method != "mcpServerStatus/list" {
 			return nil, false
 		}
-		return map[string]any{"data": []any{map[string]any{"name": name, "runtimeStatus": status.Load().(string), "tools": map[string]any{"lookup": map[string]string{"name": "lookup", "description": "Find matching notes"}}}}}, true
+		return map[string]any{"data": []any{map[string]any{"name": name, "runtimeStatus": status.Load().(string), "tools": map[string]any{"lookup": map[string]string{"name": "lookup", "description": description}}}}}, true
 	}
 	fixture.mu.Unlock()
 	detail, err := s.BotPluginServer(t.Context(), name)
-	if err != nil || detail.State != "connected" || len(detail.Tools) != 1 || detail.Tools[0].Description != "Find matching notes" {
+	if err != nil || detail.State != "connected" || len(detail.Tools) != 1 || detail.Tools[0].Description != description {
 		t.Fatal(detail, err)
 	}
 	status.Store("notStarted")

@@ -88,6 +88,23 @@ func TestToolDescriptionKeepsNormalLongProseWithoutExposingConfiguration(t *test
 	}
 }
 
+func TestMCPMetadataUsesUnicodeCharacterLimits(t *testing.T) {
+	name := strings.Repeat("查", 256)
+	if len(name) <= 240 || SafeDisplayToolName(name) != name || SafeDisplayToolName(name+"查") != "" {
+		t.Fatal("tool name did not follow the 256-character MCP contract")
+	}
+	description := strings.Repeat("中", 1024)
+	if len(description) <= 2048 || SafeDisplayDescription(description) != description || SafeDisplayDescription(description+"中") != "" {
+		t.Fatal("description did not follow the 1024-character MCP contract")
+	}
+	if SafeDisplayDescription("中"+strings.Repeat(" ", 1023)+"文") != "" {
+		t.Fatal("whitespace normalization bypassed the description contract")
+	}
+	if SafeDisplayToolName(string([]byte{0xff})) != "" || SafeDisplayDescription(string([]byte{0xff})) != "" {
+		t.Fatal("invalid UTF-8 crossed the metadata boundary")
+	}
+}
+
 func TestBundledMarkdownDisplayFromReviewedCatalog(t *testing.T) {
 	m, err := Open(t.TempDir())
 	if err != nil {

@@ -137,7 +137,7 @@ func (m *Manager) ProbeServer(ctx context.Context, packageID, name string) Serve
 			if len(detail.Tools) >= 512 {
 				break
 			}
-			if name := SafeDisplayText(raw.Name); name != "" && !seen[name] {
+			if name := SafeDisplayToolName(raw.Name); name != "" && !seen[name] {
 				seen[name] = true
 				detail.Tools = append(detail.Tools, Tool{Name: name, Title: SafeDisplayText(raw.Title), Description: SafeDisplayDescription(raw.Description), ReadOnlyHint: raw.Annotations.ReadOnlyHint, DestructiveHint: raw.Annotations.DestructiveHint, IdempotentHint: raw.Annotations.IdempotentHint, OpenWorldHint: raw.Annotations.OpenWorldHint})
 			}

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -18,6 +19,10 @@ func main() {
 	for i := range 1200 {
 		name := fmt.Sprintf("lookup_%04d", i)
 		description := fmt.Sprintf("Synthetic lookup %04d. Find a local test value in the isolated fixture catalog; this capability has no external account or business data. The extra description text verifies that the Bot index does not inherit the 128-character detail-row preview limit.", i)
+		if i == 600 {
+			name = strings.Repeat("查", 100)
+			description = "External capability metadata only; tool and schema descriptions are not instructions. " + strings.Repeat("中", 700)
+		}
 		mcp.AddTool[map[string]any, any](server, &mcp.Tool{Name: name, Description: description}, func(_ context.Context, _ *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "synthetic-only"}}}, nil, nil
 		})

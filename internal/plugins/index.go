@@ -43,7 +43,7 @@ func WriteIndex(path string, connected []IndexServer) error {
 		entry := indexService{Package: pkg, Service: service, Runtime: runtime, Tools: []indexTool{}}
 		seen := map[string]bool{}
 		for _, tool := range raw.Tools {
-			name := SafeDisplayText(tool.Name)
+			name := SafeDisplayToolName(tool.Name)
 			if name == "" || seen[name] {
 				continue
 			}

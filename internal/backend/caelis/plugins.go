@@ -271,7 +271,7 @@ func (s *Session) BotPluginServer(ctx context.Context, name string) (plugins.Ser
 				}
 			}
 			for _, tool := range server.Tools {
-				if label := plugins.SafeDisplayText(tool); label != "" {
+				if label := plugins.SafeDisplayToolName(tool); label != "" {
 					out.Tools = append(out.Tools, plugins.Tool{Name: label, Description: descriptions[tool]})
 				}
 			}
