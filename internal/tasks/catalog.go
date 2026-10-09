@@ -93,7 +93,28 @@ func (m *Manager) maximumRunning() int {
 func (m *Manager) activeLocked() int {
 	n := 0
 	for _, r := range m.state.Records {
-		if m.owns(r) && !terminal(r.View.Status) {
+		if !m.owns(r) {
+			continue
+		}
+		switch r.View.Status {
+		case "working", "running", "sending", "pending", "stopping", "interrupting", "awaiting_approval", "waiting_approval":
+			n++
+		case "unknown":
+			if r.Activity == "active" {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// An unresolved original execution may still be active even when its owner
+// cannot be read. Reserve one possible work slot for that task, not the whole
+// pool. An active unknown is already included in activeLocked.
+func (m *Manager) reservedLocked() int {
+	n := 0
+	for _, r := range m.state.Records {
+		if m.owns(r) && r.View.Status == "unknown" && r.Activity != "active" {
 			n++
 		}
 	}
@@ -190,6 +211,7 @@ func (m *Manager) QueryTasks(q api.TaskQuery) (api.TaskPage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	page.Running = m.activeLocked()
+	page.Reserved = m.reservedLocked()
 	page.MaxRunning = m.maximumRunning()
 	var matches []*record
 	for _, r := range m.state.Records {

@@ -42,6 +42,7 @@ type record struct {
 	ReportState       string          `json:"reportState,omitempty"`
 	UnknownSince      int64           `json:"unknownSince,omitempty"`
 	UnknownNotice     string          `json:"unknownNotice,omitempty"`
+	Activity          string          `json:"-"`
 }
 type reportReceipt struct {
 	ID    string `json:"id"`
@@ -157,7 +158,7 @@ func hash(parts ...string) string {
 	return hex.EncodeToString(sum[:16])
 }
 func terminal(s string) bool {
-	return s == "completed" || s == "failed" || s == "cancelled" || s == "interrupted"
+	return s == "completed" || s == "failed" || s == "cancelled" || s == "interrupted" || s == "unavailable"
 }
 func valid(id, text string) bool {
 	return len(id) >= 8 && len(id) <= 128 && strings.TrimSpace(text) != "" && len(text) <= 24000
@@ -198,6 +199,7 @@ func (m *Manager) refresh() error {
 			// Preserve the original owner; one conflicting observation cannot
 			// prevent unrelated tasks and the resident conversation from refreshing.
 			r.View.Status = "unknown"
+			r.Activity = ""
 			conflict = &observationConflict{m.text("host.taskConflictOtherRuntime")}
 		}
 	}
@@ -209,6 +211,7 @@ func (m *Manager) refresh() error {
 		for id, r := range m.state.Records {
 			if m.owns(r) && r.Runtime != "" && !observed[id] && !terminal(r.View.Status) {
 				r.View.Status = "unknown"
+				r.Activity = ""
 			}
 		}
 	}
@@ -246,6 +249,10 @@ func (m *Manager) refresh() error {
 		}
 		v.Task.Machine = r.View.Machine
 		r.View = v.Task
+		r.Activity = v.Activity
+		if v.Task.Status == "unavailable" && r.ReportState == "pending" {
+			r.ReportState = "observed" // An older run must not report the unknown continuation.
+		}
 		if r.OriginalPrompt == "" {
 			r.OriginalPrompt = v.OriginalPrompt
 		}
@@ -415,9 +422,12 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		}
 		return v, nil
 	}
-	active := m.activeLocked()
 	m.mu.Unlock()
-	if active >= m.maximumRunning() {
+	used, e := m.admissionUsage(ctx)
+	if e != nil {
+		return api.Task{}, e
+	}
+	if used >= m.maximumRunning() {
 		return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
 	}
 	if e := m.work.WorkAdmission(ctx); e != nil {
@@ -466,7 +476,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	r.Sequence = m.state.Sequence
 	m.promoteWatchLocked(id)
 	m.state.Records[id] = r
-	e := m.write()
+	e = m.write()
 	if e != nil {
 		delete(m.state.Records, id)
 	}
@@ -555,10 +565,26 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		return api.Task{}, e
 	}
 	m.mu.Lock()
-	restarting := terminal(m.state.Records[in.ID].View.Status)
-	active := m.activeLocked()
+	status := m.state.Records[in.ID].View.Status
+	if status == "unavailable" {
+		m.mu.Unlock()
+		return api.Task{}, errors.New("task retired; original receipts remain available for reading")
+	}
+	if status == "unknown" || status == "pending" {
+		m.mu.Unlock()
+		return api.Task{}, errors.New("original task turn or receipt unresolved; read the original task before continuing")
+	}
+	restarting := terminal(status)
 	m.mu.Unlock()
-	if restarting && active >= m.maximumRunning() {
+	used := 0
+	if restarting {
+		var err error
+		used, err = m.admissionUsage(ctx)
+		if err != nil {
+			return api.Task{}, err
+		}
+	}
+	if restarting && used >= m.maximumRunning() {
 		replay, ok := m.work.(api.RecordedWorkMessage)
 		if !ok || !replay.WorkMessageRecorded(in) {
 			return api.Task{}, errors.New(m.text("host.taskCapacityFull"))
@@ -578,6 +604,55 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	defer m.notifyWatchlist()
 	v, e := m.work.SendWork(ctx, in)
 	return m.capture(in.ID, v, e)
+}
+
+// The operation lock spans this check and native dispatch, so parallel starts
+// cannot claim the same last slot. Unknown work with unreadable activity keeps
+// one possible slot each. Only when full do we try original-owner reads to
+// release positively idle tasks; a failed read never frees its reservation.
+func (m *Manager) admissionUsage(ctx context.Context) (int, error) {
+	m.mu.Lock()
+	used := m.activeLocked() + m.reservedLocked()
+	m.mu.Unlock()
+	if used < m.maximumRunning() {
+		return used, nil
+	}
+	m.mu.Lock()
+	ids := make([]string, 0)
+	for id, r := range m.state.Records {
+		if m.owns(r) && r.View.Status == "unknown" {
+			ids = append(ids, id)
+		}
+	}
+	m.mu.Unlock()
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		// A read error leaves that task unknown and reserved. Other owners may
+		// still be read and safely retired without retrying any execution.
+		_, _ = m.work.ReadWork(ctx, id)
+	}
+	if err := m.refresh(); err != nil {
+		return 0, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.activeLocked() + m.reservedLocked(), nil
+}
+
+func (m *Manager) RetireTask(ctx context.Context, id string) (api.Task, error) {
+	m.op.Lock()
+	defer m.op.Unlock()
+	if err := m.owned(id); err != nil {
+		return api.Task{}, err
+	}
+	retirer, ok := m.work.(api.WorkRetirer)
+	if !ok {
+		return api.Task{}, errors.New("task retirement unavailable for this owner")
+	}
+	v, err := retirer.RetireWork(ctx, id)
+	return m.capture(id, v, err)
 }
 func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
 	m.op.Lock()
@@ -630,7 +705,7 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	var selected *record
 	for _, id := range ids {
 		r := m.state.Records[id]
-		if m.owns(r) && terminal(r.View.Status) && r.ReportState == "pending" && r.ReportID != "" {
+		if m.owns(r) && terminal(r.View.Status) && r.View.Status != "unavailable" && r.ReportState == "pending" && r.ReportID != "" {
 			selected = r
 			break
 		}

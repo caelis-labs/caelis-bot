@@ -18,6 +18,12 @@ type TaskProvider interface {
 	StopTask(context.Context, string) (Task, error)
 }
 
+// TaskRetirer is an explicit cleanup path for an unusable owned task. It does
+// not interrupt a native turn or discard task history.
+type TaskRetirer interface {
+	RetireTask(context.Context, string) (Task, error)
+}
+
 // TaskCatalog manages the product watchlist independently of execution.
 type TaskCatalog interface {
 	QueryTasks(TaskQuery) (TaskPage, error)
@@ -47,6 +53,7 @@ type TaskPage struct {
 	NextCursor                string        `json:"nextCursor,omitempty"`
 	Total                     int           `json:"total"`
 	Running                   int           `json:"running"`
+	Reserved                  int           `json:"reserved"`
 	MaxRunning                int           `json:"maxRunning"`
 	CompletedRetentionSeconds int           `json:"completedRetentionSeconds"`
 }

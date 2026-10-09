@@ -881,56 +881,84 @@ func (s *Session) refresh(ctx context.Context) error {
 func (s *Session) recoverOperations(ctx context.Context) error {
 	s.mu.Lock()
 	ops := clone(s.state.Operations)
-	c := s.client
 	s.mu.Unlock()
 	for id, j := range ops {
 		if j.Outcome != "unknown" || !(strings.HasPrefix(j.Path, "/application/") || strings.HasSuffix(j.Path, "/steer") || strings.HasSuffix(j.Path, "/prompt")) {
 			continue
 		}
-		var op wire.ApplicationOperation
-		e := c.json(ctx, "GET", "/application/operations/"+idPath(id), nil, &op, "", "")
-		if e != nil {
-			if isRemoteStatus(e, 404) {
-				continue
-			}
-			return e
-		}
-		if op.OperationId != id || op.Result == nil || op.Result.OperationId != id || op.Result.Outcome != op.Outcome {
-			return errors.New("Caelis 操作恢复回执不匹配")
-		}
-		if !slices.Contains([]wire.Outcome{"accepted", "committed", "rejected", "conflicted"}, op.Outcome) {
-			continue
-		}
-		j.Outcome = string(op.Outcome)
-		j.PendingInput = nil
-		if op.Result.Target != nil {
-			j.TurnID = value(op.Result.Target.TurnId)
-		}
-		if !strings.HasSuffix(j.Path, "/steer") {
-			j.Body = nil
-		}
-		if op.Result.Resource != nil {
-			j.Resource = value(op.Result.Resource.Ref)
-		}
-		if (j.Path == "/application/sessions" || j.Path == "/application/workers") && value(op.Result.SessionId) != "" {
-			j.Resource = value(op.Result.SessionId)
-		}
-		s.mu.Lock()
-		s.state.Operations[id] = j
-		s.state.Context.Resolve(id, productOutcome(op.Outcome))
-		if j.Path == "/application/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" {
-			s.state.LastReceipt = api.Receipt{ID: id, Outcome: productOutcome(op.Outcome)}
-		}
-		e = s.saveLocked()
-		if e == nil {
-			s.cleanupContextLocked()
-		}
-		s.bumpLocked()
-		s.mu.Unlock()
-		if e != nil {
-			return e
+		if err := s.recoverOperation(ctx, id); err != nil {
+			return err
 		}
 	}
+	return nil
+}
+
+// Read only the original operation. A missing operation is still unknown: a
+// dispatching POST may have reached the server after the read began.
+func (s *Session) recoverOperation(ctx context.Context, id string) error {
+	s.mu.Lock()
+	j, exists := s.state.Operations[id]
+	c, generation := s.client, s.generation
+	s.mu.Unlock()
+	if !exists || j.Outcome != "unknown" {
+		return nil
+	}
+	if c == nil {
+		return errors.New("original operation owner unavailable")
+	}
+	var op wire.ApplicationOperation
+	if err := c.json(ctx, "GET", "/application/operations/"+idPath(id), nil, &op, "", ""); err != nil {
+		if isRemoteStatus(err, 404) {
+			return nil
+		}
+		return err
+	}
+	if op.OperationId != id || op.Result == nil || op.Result.OperationId != id || op.Result.Outcome != op.Outcome {
+		return errors.New("Caelis 操作恢复回执不匹配")
+	}
+	if !slices.Contains([]wire.Outcome{"accepted", "committed", "rejected", "conflicted"}, op.Outcome) {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, exists := s.state.Operations[id]
+	if s.client != c || s.generation != generation || !exists || current.Path != j.Path || current.Digest != j.Digest {
+		return errors.New("original operation changed during reconciliation")
+	}
+	if current.Outcome != "unknown" {
+		if current.Outcome == string(op.Outcome) {
+			return nil // Another original-owner read settled the same receipt.
+		}
+		return errors.New("original operation outcome changed during reconciliation")
+	}
+	j = current
+	j.Outcome = string(op.Outcome)
+	j.PendingInput = nil
+	if op.Result.Target != nil {
+		j.TurnID = value(op.Result.Target.TurnId)
+	}
+	if !strings.HasSuffix(j.Path, "/steer") {
+		j.Body = nil
+	}
+	if op.Result.Resource != nil {
+		j.Resource = value(op.Result.Resource.Ref)
+	}
+	if (j.Path == "/application/sessions" || j.Path == "/application/workers") && value(op.Result.SessionId) != "" {
+		j.Resource = value(op.Result.SessionId)
+	}
+	previousContext, previousReceipt := clone(s.state.Context), s.state.LastReceipt
+	s.state.Operations[id] = j
+	s.state.Context.Resolve(id, productOutcome(op.Outcome))
+	if j.Path == "/application/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" {
+		s.state.LastReceipt = api.Receipt{ID: id, Outcome: productOutcome(op.Outcome)}
+	}
+	if err := s.saveLocked(); err != nil {
+		s.state.Operations[id] = current
+		s.state.Context, s.state.LastReceipt = previousContext, previousReceipt
+		return err
+	}
+	s.cleanupContextLocked()
+	s.bumpLocked()
 	return nil
 }
 

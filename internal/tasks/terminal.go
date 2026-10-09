@@ -3,9 +3,10 @@ package tasks
 import (
 	"context"
 	"errors"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"slices"
 	"sort"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 // TaskPreviews reads the product ledger; it never polls a Worker or reads a
@@ -82,6 +83,12 @@ func (m *Manager) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	}
 	if err := m.owned(id); err != nil {
 		return api.TerminalTarget{}, err
+	}
+	m.mu.Lock()
+	status := m.state.Records[id].View.Status
+	m.mu.Unlock()
+	if status == "unavailable" || status == "unknown" {
+		return api.TerminalTarget{}, errors.New("retired or unresolved task cannot be continued in a terminal")
 	}
 	p, ok := m.work.(api.WorkTerminalProvider)
 	if !ok {

@@ -59,7 +59,7 @@ func (f *catalogFixture) ClearTasks() error { f.calls++; return nil }
 func TestTaskCatalogBackgroundManagement(t *testing.T) {
 	f := &catalogFixture{}
 	for _, op := range []string{"lock", "unlock"} {
-		out, err := callTaskCatalog(f, json.RawMessage(`{"operation":"`+op+`","id":"owned"}`))
+		out, err := callTaskCatalog(t.Context(), f, json.RawMessage(`{"operation":"`+op+`","id":"owned"}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -68,7 +68,7 @@ func TestTaskCatalogBackgroundManagement(t *testing.T) {
 			t.Fatal(v)
 		}
 	}
-	out, err := callTaskCatalog(f, json.RawMessage(`{"operation":"clear"}`))
+	out, err := callTaskCatalog(t.Context(), f, json.RawMessage(`{"operation":"clear"}`))
 	if err != nil || f.calls != 4 || f.query.Pinned == nil || !*f.query.Pinned {
 		t.Fatal(out, err, f.calls)
 	}

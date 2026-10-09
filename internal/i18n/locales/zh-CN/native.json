@@ -90,6 +90,7 @@
   "taskFinished": "已完成",
   "taskApproval": "等待审批",
   "taskUnknown": "状态未确认 · 请查看任务",
+  "taskUnavailable": "不可继续 · 历史已保留",
   "taskFailed": "失败",
   "taskInterrupted": "已中断",
   "taskIdle": "保留的任务",

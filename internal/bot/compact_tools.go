@@ -212,6 +212,17 @@ func (r *Runtime) callCompactTask(ctx context.Context, name string, q map[string
 		return compact(r.callLegacyTool(ctx, "bot_task_read", encoded(map[string]any{"id": q["task"]})), nil)
 	case "stop":
 		return compact(r.callLegacyTool(ctx, "bot_task_stop", encoded(map[string]any{"id": q["task"]})), nil)
+	case "retire":
+		r.mu.Lock()
+		p, ok := r.tasks.(api.TaskRetirer)
+		r.mu.Unlock()
+		if !ok {
+			return compactError("unavailable", errors.New("task retirement unavailable"))
+		}
+		bounded, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+		task, e := p.RetireTask(bounded, str(q, "task"))
+		return compact(result(task, e), nil)
 	case "list":
 		q["operation"] = "list"
 	case "watchlist":

@@ -177,6 +177,7 @@ func (s *Service) pollWork(ctx context.Context, poll workPoll) {
 		state := &s.cache[poll.id+"\x00"+poll.runtime][i]
 		if status := state.Task.Status; status != "completed" && status != "failed" && status != "interrupted" && status != "cancelled" {
 			state.Task.Status = "unknown"
+			state.Activity = ""
 		}
 	}
 }
@@ -204,6 +205,16 @@ func (s *Service) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		return s.local.ReadWork(ctx, id)
 	}
 	return s.remote(ctx, id, "read", api.TaskMessage{})
+}
+func (s *Service) RetireWork(ctx context.Context, id string) (api.Task, error) {
+	if s.route(id) == "" {
+		p, ok := s.local.(api.WorkRetirer)
+		if !ok {
+			return api.Task{}, errors.New("original owner cannot retire tasks")
+		}
+		return p.RetireWork(ctx, id)
+	}
+	return s.remote(ctx, id, "retire", api.TaskMessage{})
 }
 func (s *Service) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	if s.route(in.ID) == "" {

@@ -3,9 +3,10 @@ package codex
 import (
 	"context"
 	"errors"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"os"
 	"path/filepath"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarget, error) {
@@ -17,6 +18,12 @@ func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	task := s.binding.Tasks[id]
 	if task == nil || task.Thread == "" {
 		return api.TerminalTarget{}, errors.New("该任务尚无已确认的运行时绑定，不会自动重建")
+	}
+	if task.Retired {
+		return api.TerminalTarget{}, errors.New("retired task cannot be continued in a terminal")
+	}
+	if s.taskView(task).Status == "unknown" {
+		return api.TerminalTarget{}, errors.New("unknown task cannot be continued before its original thread is reconciled")
 	}
 	if s.closed || s.closing || s.client == nil || s.state.Connection != "ready" {
 		return api.TerminalTarget{}, errors.New("任务连接尚未就绪，请重新连接后打开")

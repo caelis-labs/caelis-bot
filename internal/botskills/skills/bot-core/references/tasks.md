@@ -24,6 +24,7 @@ Follow the discovered schema and receipts.
 | --- | --- |
 | `bot_tasks.request.type: list` | Search paged history without transcripts. |
 | `bot_tasks.request.type: read` | Read an owned task or the original requestId receipt. |
+| `bot_tasks.request.type: retire` | Fence an unusable owned task only after the original native owner confirms it has no active run. Keeps its history and unknown receipts. |
 | `bot_tasks.request.type: watchlist` | Pin, unpin, lock, unlock or clear unlocked cards. |
 | `bot_tasks.request.type: machines` | Find the machine explicitly named by the user. |
 | `bot_tasks.request.type: stop` | Stop the exact task the user requests. |
@@ -107,10 +108,20 @@ There is no watchlist capacity limit or displayed task counter. On macOS, the
 stack fits the available space by increasing overlap; hovering reveals each card.
 `list` includes each item's `locked` state and the completion retention interval.
 Do not evict work to make room for new running tasks.
+An `unavailable` task is retired and cannot be continued. Its original receipts
+remain readable; do not replace or replay an unknown continuation. If retirement
+is refused because the original thread is active or cannot be checked, keep the
+task and ask for a later read instead of claiming it stopped.
 
 The running-task limit is a user preference, defaulting to six. `list` returns
-`running` and `maxRunning`. Starting new work and resuming completed work use the
-same capacity; steering an already-running task does not consume another slot.
+`running` (work, approval and start states), `reserved` (one possible slot per
+unresolved unknown task), and `maxRunning`. Starting new work and resuming
+completed work use the same capacity; steering an already-running task does not
+consume another slot.
+Admission uses `running + reserved`; one unreadable old task leaves other slots
+available. An unreadable original owner cannot be declared idle or safely retired.
+Read or retire that exact task after its owner becomes readable; only a confirmed
+idle fact releases its reserved slot. Do not infer a stop from elapsed time.
 When full, coordinate existing work before scheduling more. Reducing the limit
 does not interrupt existing tasks. Do not use an external terminal to bypass it.
 Keep the watchlist useful: pin tasks the user is actively checking, remove obsolete

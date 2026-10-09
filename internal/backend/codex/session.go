@@ -1530,7 +1530,7 @@ cleanup:
 	// reconciled binding must not pin the next launch to that dead socket.
 	unknownTaskReceipt := false
 	for _, task := range s.binding.Tasks {
-		if task != nil && taskHasUnknownReceipt(task) {
+		if task != nil && !task.Retired && taskHasUnknownReceipt(task) {
 			unknownTaskReceipt = true
 			break
 		}

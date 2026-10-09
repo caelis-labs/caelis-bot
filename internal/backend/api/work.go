@@ -18,6 +18,12 @@ type WorkRuntime interface {
 	StopWork(context.Context, string) (Task, error)
 }
 
+// WorkRetirer fences an owned task after a read-only native check confirms it
+// has no active execution. It retains its original binding and receipts.
+type WorkRetirer interface {
+	RetireWork(context.Context, string) (Task, error)
+}
+
 // RecordedWorkMessage permits reconciliation of a previously submitted request
 // even when no new execution slots remain. Adapters still check its exact intent.
 type RecordedWorkMessage interface{ WorkMessageRecorded(TaskMessage) bool }
@@ -56,8 +62,11 @@ type LocalWorkerController interface {
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque
 // native generation, never a product-generated inference from assistant prose.
 type WorkState struct {
-	Runtime        string
-	Task           Task
+	Runtime string
+	Task    Task
+	// Activity is active, idle, or empty when the native owner has not been
+	// checked in this connection generation. It is independent of task outcome.
+	Activity       string
 	OriginalPrompt string
 	ExecutionKey   string
 	StopRequested  bool
