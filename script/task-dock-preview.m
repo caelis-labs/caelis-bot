@@ -16,6 +16,14 @@ static void previewClick(NSWindow *window, NSPoint point) {
     NSEvent *down=[NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:point modifierFlags:0 timestamp:0 windowNumber:number context:nil eventNumber:1 clickCount:1 pressure:1];
     [NSApp postEvent:up atStart:YES];[window sendEvent:down];
 }
+static void previewSaveWindow(NSWindow *window, NSString *path) {
+    if(!path.length)return;
+    NSView *view=window.contentView;
+    [view display];
+    NSBitmapImageRep *image=[view bitmapImageRepForCachingDisplayInRect:view.bounds];
+    [view cacheDisplayInRect:view.bounds toBitmapImageRep:image];
+    [[image representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:path atomically:YES];
+}
 
 @interface PreviewComposerWindow : NSWindow
 @end
@@ -35,9 +43,10 @@ static void previewClick(NSWindow *window, NSPoint point) {
 @property NSWindow *menuFixture;
 @property NSWindow *bubbleFixture;
 @property BOOL menuClicked;
+@property NSUInteger menuClickCount;
 @end
 @implementation TaskDockPreview
-- (void)menuFixtureClicked:(id)sender { self.menuClicked=YES; }
+- (void)menuFixtureClicked:(id)sender { self.menuClicked=YES;self.menuClickCount++; }
 - (void)checkMenuOrdering {
     NSArray<NSDictionary *> *windows=CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly,kCGNullWindowID));
     NSInteger dockIndex=previewWindowIndex(windows,self.dock.window.windowNumber);
@@ -52,22 +61,39 @@ static void previewClick(NSWindow *window, NSPoint point) {
 - (void)runMenuAcceptance {
     [self.dock collapse];
     NSRect bounds=NSScreen.mainScreen.visibleFrame;
-    NSRect pet=NSMakeRect(NSMidX(bounds)-120,NSMinY(bounds)+MIN(300,bounds.size.height/3),240,240);
+    NSRect pet=NSMakeRect(NSMidX(bounds)-120,NSMinY(bounds)+MIN(500,bounds.size.height-248),240,240);
     [self.dock placeWithPet:pet bounds:bounds visible:YES];
     CGFloat inputHeight=152,composerY=NSMinY(pet)+44-inputHeight-10;
     BotPanelMenuLayout layout=bot_panel_menu_layout(composerY,420,inputHeight,NSMinY(bounds),NSMaxY(bounds),250);
     NSRect frame=NSMakeRect(NSMidX(pet)-210,layout.originY,420,layout.height);
+    NSRect inputFrame=NSMakeRect(NSMinX(frame),composerY,420,inputHeight);
+    assert(layout.menuTop>8); // Exercise the reviewer's downward menu direction.
     self.menuFixture=[[PreviewComposerWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
     self.menuFixture.level=NSFloatingWindowLevel+1;
     self.menuFixture.backgroundColor=NSColor.windowBackgroundColor;
+    self.menuFixture.contentView.wantsLayer=YES;
+    self.menuFixture.contentView.layer.backgroundColor=NSColor.windowBackgroundColor.CGColor;
     NSButton *action=[NSButton buttonWithTitle:@"Fixture attachment" target:self action:@selector(menuFixtureClicked:)];
-    action.frame=NSMakeRect(20,frame.size.height-60,160,32);
+    action.frame=NSMakeRect(20,frame.size.height-layout.menuTop-42,160,32);
     [self.menuFixture.contentView addSubview:action];
+    [NSApp activateIgnoringOtherApps:YES];
     [self.menuFixture makeKeyAndOrderFront:nil];
+    __weak TaskDockPreview *weak=self;
+    self.dock.gesture=^(NSString *name){
+        if([name isEqualToString:@"attention"] && weak.dock.attachmentMenuOpen) {
+            // Mirror the host: dismiss the transient menu, leave its input
+            // window visible and key, then expose the task cards.
+            weak.dock.attachmentMenuOpen=NO;
+            action.hidden=YES;
+            weak.menuFixture.level=NSFloatingWindowLevel;
+            [weak.menuFixture setFrame:inputFrame display:YES];
+        }
+    };
     self.bubbleFixture=[[NSWindow alloc] initWithContentRect:NSMakeRect(NSMidX(pet)-180,NSMaxY(pet)+8,360,68) styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
     self.bubbleFixture.level=NSFloatingWindowLevel;
     [self.bubbleFixture orderFrontRegardless];
-    assert(NSIntersectsRect(frame,self.dock.window.frame) && self.dock.window.visible);
+    self.dock.attachmentMenuOpen=YES;
+    assert(self.dock.window.visible && !self.dock.expanded);
     NSPoint menuPoint=NSMakePoint(NSMidX(action.frame),NSMidY(action.frame));
     NSPoint menuScreen=[self.menuFixture convertPointToScreen:menuPoint];
     assert(!NSPointInRect(menuScreen,self.dock.window.frame));
@@ -77,19 +103,37 @@ static void previewClick(NSWindow *window, NSPoint point) {
         [self.menuFixture makeKeyAndOrderFront:nil];
         [self checkMenuOrdering];
         assert(self.menuFixture.keyWindow);
-        previewClick(self.dock.window,NSMakePoint(NSMidX(self.dock.window.contentView.bounds),NSMidY(self.dock.window.contentView.bounds)));
+        NSString *capture=NSProcessInfo.processInfo.environment[@"BOT_TASK_PREVIEW_MENU_CAPTURE_PREFIX"];
+        previewSaveWindow(self.menuFixture,[capture stringByAppendingString:@"-menu-open.png"]);
+        previewSaveWindow(self.dock.window,[capture stringByAppendingString:@"-dots.png"]);
+        previewClick(self.menuFixture,menuPoint);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,0.25*NSEC_PER_SEC),dispatch_get_main_queue(),^{
-            assert(self.dock.expanded && self.menuFixture.visible && self.menuFixture.keyWindow && !self.menuClicked);
-            [self checkMenuOrdering];
-            previewClick(self.menuFixture,menuPoint);
+            assert(self.menuClickCount==1 && !self.dock.expanded && self.dock.attachmentMenuOpen);
+            NSPoint dot=NSMakePoint(NSMidX(self.dock.window.contentView.bounds),NSMidY(self.dock.window.contentView.bounds));
+            assert([self.dock.window.contentView hitTest:dot]==self.dock.buttons[0]);
+            previewClick(self.dock.window,dot);
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,0.25*NSEC_PER_SEC),dispatch_get_main_queue(),^{
-                assert(self.menuClicked);
-                [self.dock collapse];[self.dock setTasks:@[]];assert(!self.dock.window.visible);
+                assert(self.dock.expanded && !self.dock.attachmentMenuOpen && self.menuFixture.visible && self.menuFixture.keyWindow && action.hidden);
+                assert(NSEqualRects(self.menuFixture.frame,inputFrame));
+                previewSaveWindow(self.menuFixture,[capture stringByAppendingString:@"-composer-key.png"]);
+                previewSaveWindow(self.dock.window,[capture stringByAppendingString:@"-cards.png"]);
+                // Reopening the menu while cards are visible restores the entry.
+                [self.menuFixture setFrame:frame display:YES];action.hidden=NO;
+                self.menuFixture.level=NSFloatingWindowLevel+1;
+                self.dock.attachmentMenuOpen=YES;
+                assert(!self.dock.expanded && self.dock.window.visible && !NSPointInRect(menuScreen,self.dock.window.frame));
+                [self checkMenuOrdering];
+                previewClick(self.menuFixture,menuPoint);
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,0.25*NSEC_PER_SEC),dispatch_get_main_queue(),^{
+                assert(self.menuClickCount==2 && self.menuFixture.keyWindow);
+                self.dock.attachmentMenuOpen=NO;
+                [self.dock setTasks:@[]];assert(!self.dock.window.visible);
                 [self refresh];assert(self.dock.window.visible);[self checkMenuOrdering];
-                NSDictionary *result=@{@"result":@"pass",@"dockWindow":@(self.dock.window.windowNumber),@"menuWindow":@(self.menuFixture.windowNumber),@"dockFrame":NSStringFromRect(self.dock.window.frame),@"menuFrame":NSStringFromRect(frame),@"menuClicked":@(self.menuClicked)};
+                NSDictionary *result=@{@"result":@"pass",@"direction":@"down",@"dockWindow":@(self.dock.window.windowNumber),@"menuWindow":@(self.menuFixture.windowNumber),@"dockFrame":NSStringFromRect(self.dock.window.frame),@"menuFrame":NSStringFromRect(frame),@"menuClickCount":@(self.menuClickCount),@"composerStayedKey":@(self.menuFixture.keyWindow),@"menuClicked":@(self.menuClicked),@"fixtureCapturePrefix":capture?:@""};
                 NSData *data=[NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil];
                 [data writeToFile:NSProcessInfo.processInfo.environment[@"BOT_TASK_PREVIEW_MENU_RESULT"] atomically:YES];
                 [NSApp terminate:nil];
+                });
             });
         });
     });
