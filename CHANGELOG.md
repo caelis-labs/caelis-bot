@@ -1,16 +1,21 @@
 # Changelog
 
-## [0.12.0](https://github.com/caelis-labs/caelis-bot/compare/v0.11.0...v0.12.0) (2026-10-09)
+## [0.11.1](https://github.com/caelis-labs/caelis-bot/compare/v0.11.0...v0.11.1) (2026-10-09)
 
 
-### Features
+### Improvements and fixes
 
-* **release:** one-app Stable and Dev update channels with candidate gate ([#135](https://github.com/caelis-labs/caelis-bot/issues/135)) ([9a9d25d](https://github.com/caelis-labs/caelis-bot/commit/9a9d25d6afa9b67477cbaf60f1122cbec5be7207))
+* Confirm plugin install, update, uninstall, and credentials in Bot-owned state while the Runtime is busy; recover uncertain operations by their original receipt ([#134](https://github.com/caelis-labs/caelis-bot/pull/134)).
+* Restore Telegram replies, preserve literal text in rich formatting, and retry plain text only after a definite format rejection. An uncertain send is not replayed ([#136](https://github.com/caelis-labs/caelis-bot/pull/136)).
+* Make ordinary chat typing more responsive while retaining draft, selection, and IME handoff behavior. Very long Chinese input can still lag ([#137](https://github.com/caelis-labs/caelis-bot/pull/137), [#132](https://github.com/caelis-labs/caelis-bot/issues/132)).
+* Keep an accepted Ghostty window request attachable when its immediate foreground activation fails ([#139](https://github.com/caelis-labs/caelis-bot/pull/139)).
+* Use one Stable update feed and restore automatic signed publication after a version PR merges. The temporary installable Dev channel and manual candidate gate were removed; the local Dev app remains isolated with updates disabled ([#135](https://github.com/caelis-labs/caelis-bot/pull/135), [#146](https://github.com/caelis-labs/caelis-bot/pull/146)).
 
+### Development
 
-### Bug Fixes
+* Move the full portability matrix to weekly or on-demand checks while retaining native, cross-platform, and receipt/race PR gates; clarify Worker workspace guidance ([#145](https://github.com/caelis-labs/caelis-bot/pull/145)).
 
-* restore automatic stable releases ([#146](https://github.com/caelis-labs/caelis-bot/issues/146)) ([479be4d](https://github.com/caelis-labs/caelis-bot/commit/479be4dea4b857e4fd5b3ff98aadc43edbcda32c))
+Known follow-ups include very long Chinese IME input ([#132](https://github.com/caelis-labs/caelis-bot/issues/132)), Telegram long replies and approval buttons ([#141](https://github.com/caelis-labs/caelis-bot/issues/141)), steer behavior ([#142](https://github.com/caelis-labs/caelis-bot/issues/142)), plugin GitHub OAuth and Obsidian certificate setup ([#143](https://github.com/caelis-labs/caelis-bot/issues/143), [#144](https://github.com/caelis-labs/caelis-bot/issues/144)), Notion OAuth ([#115](https://github.com/caelis-labs/caelis-bot/issues/115)), Desktop World integration ([#129](https://github.com/caelis-labs/caelis-bot/issues/129)), and Windows support ([#88](https://github.com/caelis-labs/caelis-bot/issues/88)).
 
 ## [0.11.0](https://github.com/caelis-labs/caelis-bot/compare/v0.10.0...v0.11.0) (2026-10-09)
 
