@@ -251,7 +251,11 @@ func telegramHTML(markdown string) string {
 
 func (s *sdkClient) sendFormatted(ctx context.Context, chat int64, message outgoingText, keys *telego.InlineKeyboardMarkup) (int, error) {
 	if formatted := telegramHTML(message.Markdown); formatted != "" {
-		v, err := s.bot.SendMessage(ctx, &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: formatted, ParseMode: "HTML", ReplyMarkup: keys})
+		params := &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: formatted, ParseMode: "HTML"}
+		if keys != nil {
+			params.ReplyMarkup = keys
+		}
+		v, err := s.bot.SendMessage(ctx, params)
 		safe := safeMethodError("sendMessage", err)
 		reportDeliveryAttempt(ctx, "sendMessage", "html", safe, false)
 		if safe == nil {
@@ -261,7 +265,11 @@ func (s *sdkClient) sendFormatted(ctx context.Context, chat int64, message outgo
 			return 0, safe
 		}
 	}
-	v, err := s.bot.SendMessage(ctx, &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: message.Text, ReplyMarkup: keys})
+	params := &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: message.Text}
+	if keys != nil {
+		params.ReplyMarkup = keys
+	}
+	v, err := s.bot.SendMessage(ctx, params)
 	safe := safeMethodError("sendMessage", err)
 	reportDeliveryAttempt(ctx, "sendMessage", "plain", safe, true)
 	if safe != nil {
@@ -272,7 +280,11 @@ func (s *sdkClient) sendFormatted(ctx context.Context, chat int64, message outgo
 
 func (s *sdkClient) editFormatted(ctx context.Context, chat int64, id int, message outgoingText, keys *telego.InlineKeyboardMarkup) error {
 	if formatted := telegramHTML(message.Markdown); formatted != "" {
-		_, err := s.bot.EditMessageText(ctx, &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: formatted, ParseMode: "HTML", ReplyMarkup: keys})
+		params := &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: formatted, ParseMode: "HTML"}
+		if keys != nil {
+			params.ReplyMarkup = keys
+		}
+		_, err := s.bot.EditMessageText(ctx, params)
 		safe := safeMethodError("editMessageText", err)
 		reportDeliveryAttempt(ctx, "editMessageText", "html", safe, false)
 		if safe == nil || issueOf(safe) == "unchanged" {
@@ -282,7 +294,11 @@ func (s *sdkClient) editFormatted(ctx context.Context, chat int64, id int, messa
 			return safe
 		}
 	}
-	_, err := s.bot.EditMessageText(ctx, &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: message.Text, ReplyMarkup: keys})
+	params := &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: message.Text}
+	if keys != nil {
+		params.ReplyMarkup = keys
+	}
+	_, err := s.bot.EditMessageText(ctx, params)
 	safe := safeMethodError("editMessageText", err)
 	reportDeliveryAttempt(ctx, "editMessageText", "plain", safe, true)
 	if issueOf(safe) == "unchanged" {

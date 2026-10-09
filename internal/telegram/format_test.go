@@ -80,6 +80,11 @@ func TestFormattedMessageProtocolSendAndEdit(t *testing.T) {
 	if requests[1]["message_id"] != float64(77) || requests[1]["parse_mode"] != "HTML" || requests[1]["rich_message"] != nil {
 		t.Fatalf("HTML edit payload: %v", requests[1])
 	}
+	for _, request := range requests {
+		if _, exists := request["reply_markup"]; exists {
+			t.Fatalf("no-keyboard request encoded null reply_markup: %#v", request)
+		}
+	}
 }
 
 func TestFormattedUnknownDeliveryNeverFallsBack(t *testing.T) {
@@ -145,6 +150,11 @@ func TestHTMLFormatRejectionFallsBackToExactPlainSource(t *testing.T) {
 	}
 	if requests[0]["parse_mode"] != "HTML" || requests[1]["text"] != message.Text || requests[1]["parse_mode"] != nil {
 		t.Fatalf("plain fallback changed source or retained formatting: %#v", requests)
+	}
+	for _, request := range requests {
+		if _, exists := request["reply_markup"]; exists {
+			t.Fatalf("fallback encoded null reply_markup: %#v", request)
+		}
 	}
 }
 
