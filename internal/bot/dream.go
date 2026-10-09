@@ -127,6 +127,15 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 		pending := r.handoff.pending()
 		if pending.CallID != "" && pending.Turn != "" && pending.NewSession == "" {
 			if err := r.renewToolHandoff(ctx); err != nil {
+				if unresolved := r.handoff.pending(); unresolved.CallID != "" {
+					if native, ok := r.engine.(api.ConversationRuntime); ok {
+						current := native.ConversationState()
+						if !current.Observed || current.Session == unresolved.Source && current.Turn == unresolved.Turn && !terminalConversationStatus(current.Status) {
+							rejected.Message = "原轮次仍在结束，消息未提交，请重试"
+							return reject()
+						}
+					}
+				}
 				// Preserve the original invocation and summary in its private
 				// receipt. A failed create must not make the bound Bot unusable.
 				if fallbackErr := r.handoff.record(pending.CallID, "", "fallback"); fallbackErr != nil && r.handoff.pending().CallID != "" {
@@ -184,6 +193,14 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 		}
 	}
 	return r.engine.Submit(ctx, in, files)
+}
+
+func terminalConversationStatus(status string) bool {
+	switch status {
+	case "completed", "failed", "interrupted", "cancelled", "stopped":
+		return true
+	}
+	return false
 }
 
 func (r *Runtime) remoteRecoveryPending(in api.Submission) bool {
