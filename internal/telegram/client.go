@@ -207,6 +207,9 @@ func (s *sdkClient) Updates(ctx context.Context, offset int) ([]tg.Update, error
 }
 func (s *sdkClient) Send(ctx context.Context, chat int64, message outgoingText, keys *tg.InlineKeyboardMarkup) (int, error) {
 	if message.Markdown != "" {
+		if hasRawHTML(message.Markdown) {
+			return s.sendFormatted(ctx, chat, message, keys)
+		}
 		p := &tg.SendRichMessageParams{ChatID: tg.ChatID{ID: chat}, RichMessage: tg.InputRichMessage{Markdown: message.Markdown}}
 		if keys != nil {
 			p.ReplyMarkup = keys
@@ -236,6 +239,9 @@ func (s *sdkClient) Send(ctx context.Context, chat int64, message outgoingText, 
 }
 func (s *sdkClient) Edit(ctx context.Context, chat int64, id int, message outgoingText, keys *tg.InlineKeyboardMarkup) error {
 	if message.Markdown != "" {
+		if hasRawHTML(message.Markdown) {
+			return s.editFormatted(ctx, chat, id, message, keys)
+		}
 		p := &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, RichMessage: &tg.InputRichMessage{Markdown: message.Markdown}}
 		if keys != nil {
 			p.ReplyMarkup = keys

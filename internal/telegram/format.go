@@ -17,6 +17,7 @@ import (
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/renderer"
 	gmhtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 )
 
@@ -150,6 +151,21 @@ func isMarkdownTableDivider(line string) bool {
 func isFormatRejection(err error) bool {
 	var transport *transportError
 	return errors.As(err, &transport) && transport.formatRejected
+}
+
+// Rich Markdown accepts raw HTML and may consume literal model text such as
+// <tag>. Use the escaped HTML adapter for those messages instead.
+func hasRawHTML(markdown string) bool {
+	doc := telegramMarkdown.Parser().Parse(text.NewReader([]byte(markdown)))
+	found := false
+	_ = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering && (node.Kind() == ast.KindRawHTML || node.Kind() == ast.KindHTMLBlock) {
+			found = true
+			return ast.WalkStop, nil
+		}
+		return ast.WalkContinue, nil
+	})
+	return found
 }
 
 // Telegram's legacy HTML mode accepts a small subset of HTML. Render CommonMark

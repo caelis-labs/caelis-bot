@@ -146,7 +146,7 @@ func TestHTMLFormatRejectionFallsBackToExactPlainSource(t *testing.T) {
 			reply(w, 200, `{"ok":true,"result":{"message_id":82,"date":0,"chat":{"id":123,"type":"private"}}}`)
 		}
 	})
-	message := outgoingText{Text: "# Source\n**literal** & <tag>", Markdown: "# Source\n**literal** & <tag>"}
+	message := outgoingText{Text: "# Source\n**literal** & A_B", Markdown: "# Source\n**literal** & A_B"}
 	id, err := client.Send(t.Context(), 123, message, nil)
 	if err != nil || id != 82 || fmt.Sprint(methods) != "[sendRichMessage sendMessage sendMessage]" {
 		t.Fatalf("definite format rejections did not reach plain fallback: id=%d err=%v methods=%v", id, err, methods)
@@ -371,7 +371,11 @@ func TestTelegramHTMLAndMarkdownChunks(t *testing.T) {
 }
 
 func TestTelegramHTMLPreservesLiteralTags(t *testing.T) {
-	formatted := telegramHTML("**Bold** `code_<&>` <tag> & A_B\n\n<div>block & text</div>\n")
+	markdown := "**Bold** `code_<&>` <tag> & A_B\n\n<div>block & text</div>\n"
+	if !hasRawHTML(markdown) || hasRawHTML("**Bold** `code_<tag>` [link](https://example.com)") {
+		t.Fatal("raw HTML detection changed Markdown or code semantics")
+	}
+	formatted := telegramHTML(markdown)
 	for _, want := range []string{"<b>Bold</b>", "<code>code_&lt;&amp;&gt;</code>", "&lt;tag&gt;", "&lt;div&gt;block &amp; text&lt;/div&gt;"} {
 		if !strings.Contains(formatted, want) {
 			t.Errorf("missing literal text %q in %q", want, formatted)
@@ -379,6 +383,37 @@ func TestTelegramHTMLPreservesLiteralTags(t *testing.T) {
 	}
 	if strings.Contains(formatted, "<tag>") || strings.Contains(formatted, "<div>") {
 		t.Fatalf("raw model HTML became markup: %q", formatted)
+	}
+}
+
+func TestRawHTMLSourceUsesEscapedHTMLSendAndEdit(t *testing.T) {
+	var methods []string
+	var requests []map[string]any
+	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.URL.Path[strings.LastIndexByte(r.URL.Path, '/')+1:])
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		requests = append(requests, request)
+		reply(w, 200, `{"ok":true,"result":{"message_id":84,"date":0,"chat":{"id":123,"type":"private"}}}`)
+	})
+	message := outgoingText{Text: "**Bold** <tag> & A_B", Markdown: "**Bold** <tag> & A_B"}
+	id, err := client.Send(t.Context(), 123, message, nil)
+	if err != nil || id != 84 {
+		t.Fatalf("send literal tag: id=%d err=%v", id, err)
+	}
+	if err := client.Edit(t.Context(), 123, id, message, nil); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(methods) != "[sendMessage editMessageText]" {
+		t.Fatalf("raw HTML source reached rich parser: %v", methods)
+	}
+	for _, request := range requests {
+		formatted, _ := request["text"].(string)
+		if request["parse_mode"] != "HTML" || request["rich_message"] != nil || !strings.Contains(formatted, "&lt;tag&gt;") || !strings.Contains(formatted, "<b>Bold</b>") {
+			t.Fatalf("literal tag or Markdown formatting lost: %#v", request)
+		}
 	}
 }
 

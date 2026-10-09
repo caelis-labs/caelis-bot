@@ -145,7 +145,9 @@ long-message parts. Display labels never enter Bot input or change native reques
 item identity. Existing plain-text delivery digests are honored so a formatting
 upgrade does not republish history.
 Assistant Markdown uses native `sendRichMessage` with `rich_message.markdown`.
-An explicit format or method rejection can fall back to `sendMessage` HTML,
+Messages containing raw HTML syntax use escaped `sendMessage` HTML so literal
+model text is not consumed as markup. An explicit format or method rejection
+can also fall back to `sendMessage` HTML,
 then exact-source plain text only after an HTML format rejection. Stream edits
 keep the original Telegram message ID. Authentication, chat,
 permission, rate-limit and unknown network results do not change send format.
