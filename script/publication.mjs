@@ -4,16 +4,17 @@ import {join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {digest} from './update-manifest.mjs';
-import {validateTag} from './release-version.mjs';
+import {validateTag, releaseChannel} from './release-version.mjs';
 import {validateWindowsAcceptance, windowsAcceptanceName} from './windows-acceptance.mjs';
 
 const repository = 'caelis-labs/caelis-bot';
 const platforms = new Set(['macos-arm64', 'windows-amd64']);
-const channels = new Set(['stable', 'preview']);
+const channels = new Set(['stable', 'dev', 'preview']);
 
 export function publicationKey(tag, os, arch, channel) {
   const version = validateTag(tag);
   if (!platforms.has(`${os}-${arch}`) || !channels.has(channel)) throw new Error('Unsupported publication target');
+  if (releaseChannel(tag) !== channel && !(os === 'windows' && channel === 'preview' && releaseChannel(tag) === 'stable')) throw new Error('Release tag and channel differ');
   return `Caelis-Bot-${version}-${os}-${arch}-${channel}.publication.json`;
 }
 
@@ -27,7 +28,7 @@ export function receiptFor(directory, {tag, source, os, arch, channel, validatio
   if (os === 'windows' && file !== `Caelis-Bot-${version}-windows-amd64.msix`) throw new Error('Invalid Windows release artifact');
   const names = [file, `${file}.sha256`];
   if (os === 'windows') names.push(windowsAcceptanceName(tag, channel));
-  if (os === 'macos' && channel === 'stable') names.push('appcast.xml', 'latest.json', 'latest.json.sig');
+  if (os === 'macos' && channel !== 'preview') names.push('appcast.xml', 'latest.json', 'latest.json.sig');
   if (os === 'macos' && channel === 'preview') names.push('latest.json', 'latest.json.sig');
   const assets = names.map(name => {
     const bytes = readFileSync(join(directory, name));
@@ -40,8 +41,8 @@ export function receiptFor(directory, {tag, source, os, arch, channel, validatio
   if (os === 'macos') {
     const manifest = JSON.parse(readFileSync(join(directory, 'latest.json')));
     if (manifest.tag !== tag || manifest.source !== source || manifest.sha256 !== assets[0].sha256 ||
-        (channel === 'stable' ? manifest.appcastSHA256 !== assets[2].sha256 || manifest.channel !== undefined :
-          manifest.channel !== 'preview' || manifest.appcastSHA256 !== undefined)) throw new Error('Mac feed source or asset mismatch');
+        (channel === 'stable' ? manifest.channel !== undefined : manifest.channel !== channel) ||
+        (channel === 'preview' ? manifest.appcastSHA256 !== undefined : manifest.appcastSHA256 !== assets[2].sha256)) throw new Error('Mac feed source or asset mismatch');
   }
   return {schema: 1, key: {tag, os, arch, channel}, source, validation,
     state: 'published', assets, receipt: key};

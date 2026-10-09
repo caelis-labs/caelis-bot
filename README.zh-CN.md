@@ -23,6 +23,8 @@ Caelis Bot 通过一个有表情、有动作的 3D 小角色，把本机 Agent �
 
 目前提供 Apple Silicon Mac 版本。下载 DMG 及其 `.sha256` 文件，核验后将 **Caelis Bot.app** 拖到“应用程序”。[安装指南](docs/install.zh-CN.md)提供校验和首次启动步骤。
 
+此入口仅供 **Stable**。安装前请核对 [macOS Stable 已签名清单](https://releases.caelis.dev/caelis-bot/latest.json) 与 GitHub tag；若不一致，暂停安装，避免默认取得旧版。**Dev** 是明确标识的[预发行版](https://github.com/caelis-labs/caelis-bot/releases)，应用与数据目录独立，手动安装，不进入 Stable 更新。本地/CI 开发构建不是 Dev 发行版。
+
 首次设置或在 **设置 → 运行时** 中选择 **Caelis 或 Codex**，使用本机安装与账户；安装包不包含运行时。Caelis 需具备所需的应用与 Guardian 能力，兼容范围见[接入说明](docs/caelis-integration.md)。Bot 的对话模型与实际工作模型可以分别配置；派出的任务默认沿用运行时配置。
 
 单击角色输入，双击打开对话；从状态栏进入设置或退出。隐藏角色不会停止工作。接入更新器的正式版每天检查更新，确认后验证签名并安装；旧版需先手动升级一次，详见[安装说明](docs/install.zh-CN.md)。

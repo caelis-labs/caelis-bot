@@ -4,7 +4,7 @@
 
 ## Download and verify
 
-Open the [release history](https://github.com/caelis-labs/caelis-bot/releases) and choose the newest stable entry that has `Caelis-Bot-<version>-macos-arm64.dmg` and its matching checksum. The [signed macOS update manifest](https://releases.caelis.dev/caelis-bot/latest.json) identifies the current macOS arm64 version independently of GitHub's global Latest label. Current builds are Apple Silicon (`arm64`); Intel packages are not published yet. CI builds on macOS 14; interactive acceptance has been on Apple Silicon / macOS 27, not every older OS. Historical preview releases are not the current installation path.
+Open [GitHub Latest](https://github.com/caelis-labs/caelis-bot/releases/latest) for Stable and require its tag to match the [signed macOS Stable manifest](https://releases.caelis.dev/caelis-bot/latest.json) before downloading. If they differ or the release lacks the matching DMG and checksum, pause; do not install an older default. Current builds are Apple Silicon (`arm64`); Intel packages are not published yet. CI builds on macOS 14; interactive acceptance has been on Apple Silicon / macOS 27, not every older OS. Historical preview releases are not the current installation path.
 
 Download the `.dmg` and its same-named `.dmg.sha256` into `~/Downloads`. The following block selects the most recently downloaded Caelis DMG, verifies its exact sibling checksum, mounts it read-only and installs it into your user Applications folder. Quit an existing Caelis Bot first; the commands stop if it is running or already installed. For an upgrade, move just the old `.app` to Trash first. Your data under `~/Library/Application Support/Caelis Bot/` is preserved.
 
@@ -58,11 +58,15 @@ Notifications are opt-in. Resident reminders pause when the app exits. Updating 
 
 ## Update
 
-Stable builds with the updater check daily; **Settings → About** can disable automatic
+Updater-enabled builds check daily; **Settings → Updates** selects Stable or Dev and can disable automatic
 checks, and **Check for Updates** checks immediately. Confirm the native update dialog
 to download, verify and install the signed version. The app waits for work and pending
 decisions to finish before restarting, preserving conversations, Notebook and settings.
 
 The already published v0.1.0 and preview/development builds use manual installation.
-Install the first updater-enabled stable version using the instructions above once.
-The R2 mirror retains only the latest stable package; historical releases remain on GitHub.
+Install the first updater-enabled version using the instructions above once. Stable receives only accepted Stable releases; Dev receives only Dev prereleases. A channel switch keeps the same installation, credentials, tasks and data. Sparkle offers only a newer build. If the installed Dev build is newer than the current Stable feed, switching to Stable waits for a later Stable build; it never silently downgrades.
+R2 retains immutable prior Stable packages so a cached signed appcast can still fetch its exact DMG. The mutable pointer and appcast select only the current Stable.
+
+## Install an explicit Dev release
+
+Choose a published `vX.Y.Z-dev.N` **prerelease** on the [release history](https://github.com/caelis-labs/caelis-bot/releases) and verify its DMG and sibling `.sha256` exactly as above. Mount read-only and check Developer ID, notarization and Gatekeeper as above, using the normal DMG identifier `dev.caelis.bot.dmg` and enclosed app identifier `dev.caelis.bot`. Quit Caelis Bot and replace **Caelis Bot.app** in `~/Applications`. Dev and Stable share the installed app, `~/Library/Application Support/Caelis Bot`, credentials, permissions, tasks and sessions. A fresh Dev installation defaults to Dev updates; an explicit channel choice persists when replacing the app. In **Settings → Updates**, Dev reads the [signed Dev appcast](https://releases.caelis.dev/caelis-bot/feeds/macos/arm64/dev/appcast.xml); Stable reads the signed Stable appcast. Switching channels does not install an older build. The separate local `Caelis Bot Dev.app` remains a development fixture, not this installable Dev release.

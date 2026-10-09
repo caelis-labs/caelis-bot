@@ -46,6 +46,16 @@ func (s *Service) SettingsSection() string {
 	return s.settingsSection
 }
 func (s *Service) AppVersion() string { return updates.Version }
+func (s *Service) AppChannel() string {
+	switch s.UpdatePreferences().Channel {
+	case "stable":
+		return "Stable"
+	case "dev":
+		return "Dev"
+	default:
+		return "Local build"
+	}
+}
 func (s *Service) CheckUpdates(ctx context.Context) updates.Result {
 	s.mu.Lock()
 	f := s.checkNativeUpdates
@@ -57,15 +67,26 @@ func (s *Service) CheckUpdates(ctx context.Context) updates.Result {
 		}
 		return updates.Result{State: "native", Current: updates.Version, Message: s.text("native.checkProgressInUpdateWindow", nil)}
 	}
-	return updates.Check(ctx, s.LanguagePreferences().Locale)
+	return updates.CheckChannel(ctx, s.UpdatePreferences().Channel, s.LanguagePreferences().Locale)
 }
 
 type UpdatePreferences struct {
+	Channel   string `json:"channel"`
 	Available bool   `json:"available"`
 	Automatic bool   `json:"automatic"`
 	Waiting   bool   `json:"waiting"`
 	State     string `json:"state,omitempty"`
 	Message   string `json:"message,omitempty"`
+}
+
+func (s *Service) SetUpdateChannel(channel string) error {
+	s.mu.Lock()
+	f := s.setUpdateChannel
+	s.mu.Unlock()
+	if f == nil {
+		return errors.New(s.text("native.autoUpdateUnavailable", nil))
+	}
+	return f(channel)
 }
 
 func (s *Service) UpdatePreferences() UpdatePreferences {

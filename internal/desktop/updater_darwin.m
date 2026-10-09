@@ -10,6 +10,7 @@
 @property(nonatomic) BOOL automaticallyChecksForUpdates;
 @property(nonatomic, readonly) BOOL canCheckForUpdates;
 - (BOOL)startUpdater:(NSError **)error;
+- (void)resetUpdateCycleAfterShortDelay;
 @end
 @protocol BotSparkleController <NSObject>
 - (instancetype)initWithStartingUpdater:(BOOL)start updaterDelegate:(id)delegate userDriverDelegate:(id)userDelegate;
@@ -24,6 +25,14 @@ extern void botUpdaterAborted(void);
 @property(nonatomic, strong) NSTimer *timer;
 @end
 @implementation BotUpdateDelegate
+- (NSString *)feedURLStringForUpdater:(id)updater {
+    NSBundle *host = NSBundle.mainBundle;
+    NSString *key = @"CaelisUpdateChannel";
+    NSString *selected = [[NSUserDefaults standardUserDefaults] stringForKey:key];
+    if (!selected) selected = host.infoDictionary[@"CaelisDefaultUpdateChannel"];
+    if ([selected isEqualToString:@"dev"]) return host.infoDictionary[@"CaelisDevFeedURL"];
+    return host.infoDictionary[@"SUFeedURL"];
+}
 - (BOOL)updater:(id)updater shouldPostponeRelaunchForUpdate:(id)item untilInvokingBlock:(void (^)(void))handler {
     self.installHandler = handler;
     [self.timer invalidate];
@@ -67,6 +76,17 @@ int bot_updater_check(void) {
 }
 bool bot_updater_automatic(void) { return controller.updater.automaticallyChecksForUpdates; }
 void bot_updater_set_automatic(bool enabled) { controller.updater.automaticallyChecksForUpdates = enabled; }
+bool bot_updater_dev_channel(void) {
+    NSString *selected = [[NSUserDefaults standardUserDefaults] stringForKey:@"CaelisUpdateChannel"];
+    if (!selected) selected = NSBundle.mainBundle.infoDictionary[@"CaelisDefaultUpdateChannel"];
+    return [selected isEqualToString:@"dev"];
+}
+bool bot_updater_set_dev_channel(bool enabled) {
+    if (!controller || !controller.updater.canCheckForUpdates || updateDelegate.installHandler) return false;
+    [[NSUserDefaults standardUserDefaults] setObject:(enabled ? @"dev" : @"stable") forKey:@"CaelisUpdateChannel"];
+    [controller.updater resetUpdateCycleAfterShortDelay];
+    return true;
+}
 bool bot_updater_waiting(void) { return updateDelegate.installHandler != nil; }
 bool bot_updater_claim(void) {
     if (!updateDelegate.installHandler) return false;
