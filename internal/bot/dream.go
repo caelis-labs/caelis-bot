@@ -140,30 +140,22 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 			if a.Ready {
 				text, err := d.vault.LegacyDreamHandoff(a.ID)
 				if err != nil || r.handoff == nil {
-					rejected.Message = "旧交接尚未准备好，消息未发送，请重试"
-					return reject()
-				}
-				if err := r.handoff.save(a.ID, a.Session, text); err != nil {
-					rejected.Message = "旧交接记录保存失败，消息未发送，请重试"
-					return reject()
-				}
-				err = p.RenewConversation(ctx, a.ID, a.Session)
-				if err != nil && !errors.Is(err, api.ErrConversationRenewalRejected) {
-					rejected.Message = "新上下文尚未准备好，消息未发送，请重试"
-					return reject()
-				}
-				if errors.Is(err, api.ErrConversationRenewalRejected) {
-					if clearErr := r.handoff.clear(a.ID); clearErr != nil {
-						rejected.Message = "旧交接记录清理失败，消息未发送，请重试"
+					a.Ready = false // keep the old usable Session and the Notebook file
+				} else if err := r.handoff.save(a.ID, a.Session, text); err != nil {
+					a.Ready = false // private persistence failed before any native create
+				} else {
+					err = p.RenewConversation(ctx, a.ID, a.Session)
+					if err != nil && !errors.Is(err, api.ErrConversationRenewalRejected) {
+						rejected.Message = "新上下文尚未准备好，消息未发送，请重试"
 						return reject()
 					}
+					if errors.Is(err, api.ErrConversationRenewalRejected) {
+						_ = r.handoff.clear(a.ID)
+					}
+					a.Ready = false
 				}
-				a.Ready = false
 			}
-			if err := d.save(); err != nil {
-				rejected.Message = "交接记录保存失败，消息未发送"
-				return reject()
-			}
+			_ = d.save() // native binding and original receipt remain authoritative
 		}
 	}
 	return r.engine.Submit(ctx, in, files)

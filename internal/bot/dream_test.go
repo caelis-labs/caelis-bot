@@ -134,3 +134,44 @@ func TestLegacyCompletedHandoffMigratesPrivatelyWithoutDeletingNotebook(t *testi
 		t.Fatal("user Notebook handoff changed", err)
 	}
 }
+
+func TestLegacyHandoffFailureContinuesOldSession(t *testing.T) {
+	for _, failure := range []string{"missing-file", "private-write", "known-renewal-rejection"} {
+		t.Run(failure, func(t *testing.T) {
+			r, _, _ := fixture(t)
+			v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer v.Close()
+			if err := r.ConfigureDream(v, ""); err != nil {
+				t.Fatal(err)
+			}
+			if failure != "missing-file" {
+				path, err := v.PrepareDream()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(notebook.DreamMarker("old-call")+"\nOriginal receipt remains."), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if failure == "private-write" {
+				r.handoff.path = t.TempDir()
+			}
+			e := &legacyDreamEngine{fakeEngine: fakeEngine{outcome: "accepted"}, outcome: "accepted", state: api.ConversationState{Session: "old", Turn: "dream-turn", Status: "completed", Observed: true, Idle: true}}
+			if failure == "known-renewal-rejection" {
+				e.renewErr = api.ErrConversationRenewalRejected
+			}
+			r.engine = e
+			r.dream.state.Attempt = &dreamAttempt{ID: "old-call", Session: "old", Turn: "dream-turn", Outcome: "accepted", Done: true, Ready: true}
+			receipt, err := r.SubmitUser(t.Context(), api.Submission{ID: "user-next", Text: "continue"}, nil)
+			if err != nil || receipt.Outcome != "accepted" || len(e.submissions) != 1 || e.state.Session != "old" {
+				t.Fatal(receipt, err, e.submissions, e.state)
+			}
+			if failure != "known-renewal-rejection" && e.renewals != 0 {
+				t.Fatal("created a session despite failed preparation")
+			}
+		})
+	}
+}
