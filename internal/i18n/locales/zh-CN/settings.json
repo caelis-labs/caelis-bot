@@ -90,7 +90,7 @@
   "execution": "执行权限",
   "storage": "存储",
   "diagnostics": "诊断",
-  "updates": "关于与帮助",
+  "updates": "更新",
   "language": "语言",
   "loginAtLoginLabel": "登录时自动启动",
   "loginAtLoginOn": "已开启",

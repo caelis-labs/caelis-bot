@@ -68,6 +68,7 @@ jobs:
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - run: npm ci
       - run: make check
+      - run: make check-updater
       - name: Check desktop authority, receipts and projection races
         run: |
           source script/env.sh
