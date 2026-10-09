@@ -345,8 +345,11 @@ receipts/pixels retain the public SDK's stricter projection contract.
 `internal/botskills/skills/` is the sole English Bot behavior source. Install complete directories into private
 `app-skills`; only name, description and location enter resident instructions. Body/references are read on
 demand through native file tools. Do not install globally or copy the Bot catalog/Notebook into Workers.
-This is an application-scoped file catalog, not a registration into Codex skills/list or Caelis native Skill.
+This is an application-scoped file catalog, projected through the resident Runtime's selected Skill paths.
 Update skill guidance for behavior changes; implementation-only fixes need no duplicate guidance.
+Codex receives the resident Skill metadata guide in developer instructions. Core uses its selected
+`skill_roots` to publish the same metadata in each model request, so Bot does not also append that
+guide to Core profile instructions. Both adapters load Skill bodies only on demand.
 
 First introduction is a normal user message with a durable stable delivery ID; until acceptance it precedes
 other submissions. The host does not write the Bot personality or claim that acceptance proves memory saved.
