@@ -618,6 +618,38 @@ func TestPluginManagementReturnsFullSnapshotAndPreservesUpdateAfterRuntimeFailur
 	}
 }
 
+func TestPluginConnectionReturnsFullPackageVerificationSnapshot(t *testing.T) {
+	a, _ := fixtureApp(t, newTestEngine(), Host{})
+	if _, err := a.PluginAction(t.Context(), "markdown-work", "install"); err != nil {
+		t.Fatal(err)
+	}
+	selection := a.plugins.Selection()
+	if len(selection.SkillRoots) != 1 {
+		t.Fatal("reviewed Skill was not installed")
+	}
+	if _, err := a.PluginAction(t.Context(), "github", "install"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(selection.SkillRoots[0], "SKILL.md"), []byte("fixture tamper"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Clear on an unconfigured service is a no-op with no Keychain write, but
+	// the bridge still must return the complete current package verification.
+	view, err := a.PluginConnection(t.Context(), "github", "", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range view.Items {
+		if item.ID == "markdown-work" {
+			if item.Status != "failed" || len(item.Issues) == 0 || item.Issues[0].Component != "package" {
+				t.Fatal("connection result dropped another package verification failure", item)
+			}
+			return
+		}
+	}
+	t.Fatal("installed package omitted from connection result")
+}
+
 func TestPluginProjectionRecoversOnOriginalRuntimeReadyTransition(t *testing.T) {
 	requireNativeIPC(t)
 	e := &gatedPluginEngine{testEngine: newTestEngine(), applied: make(chan plugins.Selection, 1)}
