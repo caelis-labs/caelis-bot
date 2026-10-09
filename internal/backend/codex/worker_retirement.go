@@ -22,7 +22,7 @@ func (s *Session) recoverUnresolvedChildren(c *Client, epoch uint64) {
 		if task == nil || task.Thread == "" {
 			continue
 		}
-		if terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task) {
+		if task.Retired || terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task) {
 			if s.childSubscribed[task.Thread] {
 				s.scheduleChildRetirement(task.Thread)
 			}
@@ -79,7 +79,10 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		delete(s.childWatching, id)
 		s.childObservationFailed[id] = true
 		if task := s.taskByThread(id); task != nil {
-			task.View.Status = "unknown"
+			if !task.Retired {
+				task.View.Status = "unknown"
+				task.Activity = ""
+			}
 			_ = s.save()
 		} else if _, knownActive := s.childRuns[id]; knownActive {
 			s.state.Message = workerUnconfirmed
@@ -108,6 +111,19 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		}
 	}
 	delete(s.childObservationFailed, id)
+	retireCandidate := ""
+	if task := s.taskByThread(id); task != nil && !task.Retired {
+		if active {
+			task.Activity = "active"
+		} else if thread.Status.Type == "idle" || thread.Status.Type == "notLoaded" {
+			task.Activity = "idle"
+			if task.View.Status == "unknown" {
+				retireCandidate = task.View.ID
+			}
+		} else {
+			task.Activity = ""
+		}
+	}
 	subscribe := false
 	if active {
 		if _, known := s.childRuns[id]; !known {
@@ -129,7 +145,7 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 		// Idle and notLoaded are native execution facts; an unrecognized status
 		// must not turn an uncertain task into a confirmed completion.
 		if thread.Status.Type != "idle" && thread.Status.Type != "notLoaded" {
-			if task := s.taskByThread(id); task != nil {
+			if task := s.taskByThread(id); task != nil && !task.Retired {
 				task.View.Status = "unknown"
 			}
 		}
@@ -160,6 +176,13 @@ func (s *Session) recoverChild(c *Client, epoch uint64, id string) bool {
 	_ = s.save()
 	s.update()
 	s.mu.Unlock()
+	if retireCandidate != "" {
+		go func() {
+			ctx, cancel := context.WithTimeout(s.life, 8*time.Second)
+			defer cancel()
+			_, _ = s.ReadWork(ctx, retireCandidate)
+		}()
+	}
 	if subscribe {
 		return s.watchChild(c, epoch, id)
 	}
@@ -173,7 +196,7 @@ func (s *Session) reconcileRecoveryWorkers(c *Client, epoch uint64) bool {
 	ids := make([]string, 0)
 	seen := map[string]bool{}
 	for _, task := range s.binding.Tasks {
-		if task == nil || task.Thread == "" || seen[task.Thread] || (terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task)) {
+		if task == nil || task.Thread == "" || seen[task.Thread] || task.Retired || (terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task)) {
 			continue
 		}
 		seen[task.Thread] = true
@@ -210,6 +233,9 @@ func (s *Session) childMayRetire(id string) bool {
 		}
 	}
 	if task := s.taskByThread(id); task != nil {
+		if task.Retired {
+			return true
+		}
 		return task.Pending == "" && terminal(task.View.Status) && task.Run != "" && !taskHasUnknownReceipt(task)
 	}
 	// Generic children have no persisted task status; the exact terminal
@@ -226,6 +252,9 @@ func (s *Session) scheduleChildRetirement(id string) {
 	}
 	seq, c, epoch := s.childRetireSeq[id], s.client, s.epoch
 	delay := s.workerIdleDelay
+	if task := s.taskByThread(id); task != nil && task.Retired {
+		delay = 0
+	}
 	go func() {
 		timer := time.NewTimer(delay)
 		defer timer.Stop()
@@ -263,7 +292,13 @@ func (s *Session) retireChild(c *Client, epoch uint64, id string, seq uint64) {
 			last = turn
 		}
 	}
-	if !terminal(last.Status) {
+	retired := false
+	s.mu.Lock()
+	if task := s.taskByThread(id); task != nil {
+		retired = task.Retired
+	}
+	s.mu.Unlock()
+	if !retired && !terminal(last.Status) {
 		return
 	}
 	s.mu.Lock()
@@ -271,7 +306,7 @@ func (s *Session) retireChild(c *Client, epoch uint64, id string, seq uint64) {
 		s.mu.Unlock()
 		return
 	}
-	if task := s.taskByThread(id); task != nil && (task.Run != last.ID || !terminal(last.Status)) {
+	if task := s.taskByThread(id); task != nil && !task.Retired && (task.Run != last.ID || !terminal(last.Status)) {
 		s.mu.Unlock()
 		return
 	}

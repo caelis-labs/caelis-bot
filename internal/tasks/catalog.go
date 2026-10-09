@@ -93,8 +93,16 @@ func (m *Manager) maximumRunning() int {
 func (m *Manager) activeLocked() int {
 	n := 0
 	for _, r := range m.state.Records {
-		if m.owns(r) && !terminal(r.View.Status) {
+		if !m.owns(r) {
+			continue
+		}
+		switch r.View.Status {
+		case "working", "running", "sending", "pending", "stopping", "interrupting", "awaiting_approval", "waiting_approval":
 			n++
+		case "unknown":
+			if r.Activity == "active" {
+				n++
+			}
 		}
 	}
 	return n

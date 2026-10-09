@@ -25,6 +25,8 @@ type worker struct {
 	PromptID    string                  `json:"promptID"`
 	Stopped     bool                    `json:"stopped"`
 	Start       *workerStart            `json:"start,omitempty"`
+	Retired     bool                    `json:"retired,omitempty"`
+	Activity    string                  `json:"-"`
 }
 
 func (s *Session) authority(ctx context.Context) (wire.ApplicationCall, error) {
@@ -47,15 +49,40 @@ func (s *Session) WorkStates() []api.WorkState {
 	for _, w := range s.state.Workers {
 		v := s.workerViewLocked(w)
 		key := ""
-		if p := s.state.Views[w.Binding.SessionId]; p != nil {
+		if p := s.state.Views[w.Binding.SessionId]; p != nil && !w.Retired {
 			key = observedTurn(p)
 		}
-		out = append(out, api.WorkState{Task: v, ExecutionKey: key, StopRequested: w.Stopped, StartFingerprint: w.Fingerprint})
+		activity := w.Activity
+		if !s.connected {
+			activity = ""
+		}
+		if p := s.state.Views[w.Binding.SessionId]; p != nil && !w.Retired && s.connected {
+			if workerNativeActive(p.State) {
+				activity = "active"
+			} else if p.State.Run.Active != nil {
+				activity = "idle"
+			}
+		}
+		out = append(out, api.WorkState{Task: v, Activity: activity, ExecutionKey: key, StopRequested: w.Stopped, StartFingerprint: w.Fingerprint})
 	}
 	return out
 }
+func workerNativeActive(state wire.SessionState) bool {
+	if value(state.Run.Active) || value(state.Run.WaitingApproval) || state.Approval.Active != nil {
+		return true
+	}
+	switch value(state.Run.Status) {
+	case "working", "running", "pending", "waiting_approval", "awaiting_approval":
+		return true
+	}
+	return false
+}
 func (s *Session) workerViewLocked(w worker) api.Task {
 	out := w.Task
+	if w.Retired {
+		out.Status = "unavailable"
+		return out
+	}
 	if p := s.state.Views[w.Binding.SessionId]; p != nil {
 		status := value(p.State.Run.Status)
 		if value(p.State.Run.Active) {
@@ -105,7 +132,10 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		if old.Fingerprint != fp || old.Task.Workspace != in.Workspace {
 			return api.Task{}, errors.New("任务请求冲突")
 		}
-		return s.ReadWork(ctx, in.ID)
+		s.mu.Lock()
+		v := s.workerViewLocked(old)
+		s.mu.Unlock()
+		return v, nil
 	}
 	if in.TaskStart.Workspace != "" {
 		resolved, err := api.ResolveTaskWorkspace(in.Workspace)
@@ -218,13 +248,66 @@ func (s *Session) saveWorker(w worker) error {
 }
 
 func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
+	s.step.Lock()
+	defer s.step.Unlock()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	w, ok := s.state.Workers[id]
 	if !ok {
+		s.mu.Unlock()
 		return api.Task{}, errors.New("任务不属于当前 Bot")
 	}
+	if w.Retired || w.Task.Status != "unknown" {
+		v := s.workerViewLocked(w)
+		s.mu.Unlock()
+		return v, nil
+	}
+	if w.Start != nil {
+		s.mu.Unlock()
+		return w.Task, errors.New("original worker start receipt still needs reconciliation")
+	}
+	c, sid := s.client, w.Binding.SessionId
+	s.mu.Unlock()
+	if c == nil || sid == "" {
+		return w.Task, errors.New("original worker binding unconfirmed")
+	}
+	var state wire.SessionState
+	if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil {
+		return w.Task, err
+	}
+	if state.SessionId != sid {
+		return w.Task, errors.New("original worker state mismatch")
+	}
+	if state.Run.Active == nil && !workerNativeActive(state) {
+		return w.Task, errors.New("original worker activity unconfirmed")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w = s.state.Workers[id]
+	if w.Binding.SessionId != sid {
+		return s.workerViewLocked(w), errors.New("original worker binding changed")
+	}
+	if workerNativeActive(state) {
+		w.Activity = "active"
+	} else {
+		w.Activity = "idle"
+		if w.Task.Status == "unknown" {
+			w.Retired = true
+			w.Task.Status = "unavailable"
+		}
+	}
+	s.state.Workers[id] = w
+	if err := s.saveLocked(); err != nil {
+		return s.workerViewLocked(w), err
+	}
 	return s.workerViewLocked(w), nil
+}
+
+func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
+	v, err := s.ReadWork(ctx, id)
+	if err != nil || v.Status == "unavailable" {
+		return v, err
+	}
+	return v, errors.New("original worker is active; retirement refused")
 }
 func (s *Session) WorkMessageRecorded(in api.TaskMessage) bool {
 	s.mu.Lock()
@@ -250,6 +333,9 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	s.mu.Unlock()
 	if !ok || w.Binding.SessionId == "" || v == nil {
 		return api.Task{}, errors.New("任务未就绪")
+	}
+	if w.Retired || w.Task.Status == "unknown" {
+		return w.Task, errors.New("task retired or original receipt unconfirmed; continuation refused")
 	}
 	sid := w.Binding.SessionId
 	op := "work-send-" + digest([]byte(in.RequestID))
@@ -332,6 +418,9 @@ func (s *Session) refreshWorkers(ctx context.Context, c *client) error {
 	s.mu.Unlock()
 	var failures error
 	for id, w := range workers {
+		if w.Retired {
+			continue
+		}
 		if w.Start != nil {
 			// Unknown worker admission must not disconnect an otherwise usable
 			// resident assistant. Its durable state remains visible as unknown.

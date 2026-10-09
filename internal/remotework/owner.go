@@ -18,6 +18,7 @@ import (
 
 type owner interface {
 	api.WorkRuntime
+	api.WorkRetirer
 	api.WorkTerminalProvider
 	Connect(context.Context) error
 	SetModel(context.Context, api.WorkExecutionSettings, func() error) error
@@ -269,6 +270,8 @@ func (o *Owner) Handle(ctx context.Context, r Request) Response {
 		out.Task, err = w.StartWork(ctx, r.Start)
 	case "read":
 		out.Task, err = w.ReadWork(ctx, r.ID)
+	case "retire":
+		out.Task, err = w.RetireWork(ctx, r.ID)
 	case "send":
 		out.Task, err = w.SendWork(ctx, r.Message)
 	case "stop":

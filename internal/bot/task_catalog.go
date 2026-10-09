@@ -2,6 +2,7 @@ package bot
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,7 +10,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
-func callTaskCatalog(provider api.TaskProvider, args json.RawMessage) (any, error) {
+func callTaskCatalog(ctx context.Context, provider api.TaskProvider, args json.RawMessage) (any, error) {
 	catalog, ok := provider.(api.TaskCatalog)
 	if !ok {
 		return nil, errors.New("task catalog unavailable")
@@ -31,6 +32,12 @@ func callTaskCatalog(provider api.TaskProvider, args json.RawMessage) (any, erro
 		return catalog.PinTask(in.ID, true)
 	case "unpin":
 		return catalog.PinTask(in.ID, false)
+	case "retire":
+		p, ok := provider.(api.TaskRetirer)
+		if !ok {
+			return nil, errors.New("task retirement unavailable")
+		}
+		return p.RetireTask(ctx, in.ID)
 	case "lock", "unlock", "clear":
 		watchlist, ok := provider.(api.TaskWatchlist)
 		if !ok {
@@ -49,9 +56,9 @@ func callTaskCatalog(provider api.TaskProvider, args json.RawMessage) (any, erro
 	}
 }
 func taskCatalogSpec() any {
-	return map[string]any{"name": "bot_tasks", "description": "Search this Bot's task history or manage its desktop background-task list. list defaults to 20 items (max 50); use nextCursor with the same filters. Responses omit transcripts and include the running admission limit (default 6). The display list has no capacity limit: new or resumed executions appear automatically, running tasks first. Completed unlocked items leave after 30 minutes. pin restores an item; unpin removes it and its lock until a new execution, without stopping work. lock pins and protects an item from automatic cleanup and clear; unlock starts the normal completed-item grace period. clear removes all unlocked items, including running items, without stopping workers or deleting history. Preserve explicit user removals during ordinary polling. Never adopt unrelated conversations.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
-		"operation": map[string]any{"type": "string", "enum": []string{"list", "pin", "unpin", "lock", "unlock", "clear"}},
-		"id":        map[string]any{"type": "string", "description": "Owned task handle for pin/unpin/lock/unlock"},
+	return map[string]any{"name": "bot_tasks", "description": "Search this Bot's task history or manage its desktop background-task list. retire fences an unusable task only after its original native owner confirms idle; it keeps the original history and receipts, and refuses active or unconfirmed work. list defaults to 20 items (max 50); use nextCursor with the same filters. Responses omit transcripts and include the running admission limit (default 6). The display list has no capacity limit: new or resumed executions appear automatically, running tasks first. Completed unlocked items leave after 30 minutes. pin restores an item; unpin removes it and its lock until a new execution, without stopping work. lock pins and protects an item from automatic cleanup and clear; unlock starts the normal completed-item grace period. clear removes all unlocked items, including running items, without stopping workers or deleting history. Preserve explicit user removals during ordinary polling. Never adopt unrelated conversations.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
+		"operation": map[string]any{"type": "string", "enum": []string{"list", "pin", "unpin", "lock", "unlock", "clear", "retire"}},
+		"id":        map[string]any{"type": "string", "description": "Owned task handle for pin/unpin/lock/unlock/retire"},
 		"query":     map[string]any{"type": "string", "maxLength": 500, "description": "Case-insensitive title, assignment or handle search"},
 		"status":    map[string]any{"type": "string", "description": "Optional exact task status filter"},
 		"pinned":    map[string]any{"type": "boolean", "description": "Optional list filter"},

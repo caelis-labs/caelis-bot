@@ -191,6 +191,17 @@ func (w *localWorkers) ReadWork(ctx context.Context, id string) (api.Task, error
 	}
 	return owner.ReadWork(ctx, id)
 }
+func (w *localWorkers) RetireWork(ctx context.Context, id string) (api.Task, error) {
+	owner, err := w.target(ctx, id)
+	if err != nil {
+		return api.Task{}, err
+	}
+	p, ok := owner.(api.WorkRetirer)
+	if !ok {
+		return api.Task{}, errors.New("original owner cannot retire tasks")
+	}
+	return p.RetireWork(ctx, id)
+}
 func (w *localWorkers) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	if err := w.WorkAdmission(ctx); err != nil {
 		return api.Task{}, err

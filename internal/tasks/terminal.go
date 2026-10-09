@@ -83,6 +83,12 @@ func (m *Manager) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	if err := m.owned(id); err != nil {
 		return api.TerminalTarget{}, err
 	}
+	m.mu.Lock()
+	retired := m.state.Records[id].View.Status == "unavailable"
+	m.mu.Unlock()
+	if retired {
+		return api.TerminalTarget{}, errors.New("retired task cannot be continued in a terminal")
+	}
 	p, ok := m.work.(api.WorkTerminalProvider)
 	if !ok {
 		return api.TerminalTarget{}, errors.New(m.text("host.runtimeNoTerminalObservation"))

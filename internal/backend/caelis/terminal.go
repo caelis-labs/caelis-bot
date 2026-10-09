@@ -20,7 +20,7 @@ func (s *Session) WorkTerminal(ctx context.Context, id string) (api.TerminalTarg
 	life, instance := s.state.Connection, s.state.InstanceID
 	ready := s.connected && !s.closed && s.client != nil
 	s.mu.Unlock()
-	if !ok || !w.Native || w.Binding.SessionId == "" || w.Binding.ApplicationId != life.ApplicationId || w.Binding.ConnectionId != life.ConnectionId || w.Binding.PrincipalId != life.PrincipalId {
+	if !ok || w.Retired || !w.Native || w.Binding.SessionId == "" || w.Binding.ApplicationId != life.ApplicationId || w.Binding.ConnectionId != life.ConnectionId || w.Binding.PrincipalId != life.PrincipalId {
 		return api.TerminalTarget{}, errors.New("该任务尚无已确认的共享会话，不会自动重建")
 	}
 	if !ready {

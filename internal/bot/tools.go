@@ -464,7 +464,7 @@ func (r *Runtime) callTask(parent context.Context, name string, args json.RawMes
 			value = []api.TaskMachine{}
 		}
 	case "bot_tasks":
-		value, err = callTaskCatalog(provider, args)
+		value, err = callTaskCatalog(ctx, provider, args)
 	case "bot_task_start":
 		var in api.TaskStart
 		if json.Unmarshal(args, &in) != nil {

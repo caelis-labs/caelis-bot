@@ -34,6 +34,8 @@ type taskRecord struct {
 	ReportState    string                 `json:"reportState,omitempty"`
 	SuppressReport bool                   `json:"suppressReport,omitempty"`
 	Instructions   string                 `json:"instructions,omitempty"`
+	Retired        bool                   `json:"retired,omitempty"`
+	Activity       string                 `json:"-"`
 }
 type taskReceipt struct {
 	Fingerprint     string `json:"fingerprint"`
@@ -95,7 +97,7 @@ func (s *Session) hasBlockingChildren() bool {
 }
 func (s *Session) hasUnresolvedTasks() bool {
 	for _, task := range s.binding.Tasks {
-		if task != nil && (task.Pending != "" || !terminal(task.View.Status)) {
+		if task != nil && !task.Retired && (task.Pending != "" || !terminal(task.View.Status)) {
 			return true
 		}
 	}
@@ -115,7 +117,11 @@ func (s *Session) WorkStates() []api.WorkState {
 	out := []api.WorkState{}
 	for _, t := range s.binding.Tasks {
 		v := s.taskView(t)
-		out = append(out, api.WorkState{Task: v, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint})
+		activity := t.Activity
+		if s.state.Connection != "ready" {
+			activity = ""
+		}
+		out = append(out, api.WorkState{Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Task.ID < out[j].Task.ID })
 	return out
@@ -125,6 +131,10 @@ func taskRequestValid(id, text string) bool {
 }
 func (s *Session) taskView(t *taskRecord) api.Task {
 	v := t.View
+	if t.Retired {
+		v.Status = "unavailable"
+		return v
+	}
 	for _, p := range s.prompts {
 		if p.thread == t.Thread {
 			v.Status = "awaiting_approval"
@@ -135,6 +145,18 @@ func (s *Session) taskView(t *taskRecord) api.Task {
 		v.Status = "unknown"
 	}
 	return v
+}
+
+func nativeTaskActive(thread nativeThread) bool {
+	if thread.Status.Type == "active" {
+		return true
+	}
+	for _, turn := range thread.Turns {
+		if turn.Status == "inProgress" {
+			return true
+		}
+	}
+	return false
 }
 
 // The host validates the selected directory. Native policy still gates commands;
@@ -344,6 +366,11 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		}
 		return v, nil
 	}
+	if t.Retired {
+		v := s.taskView(t)
+		s.mu.Unlock()
+		return v, errors.New("task retired; original receipt is read-only")
+	}
 	if err := s.taskAdmission(); err != nil {
 		s.mu.Unlock()
 		return api.Task{}, err
@@ -501,6 +528,9 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	return t.View, err
 }
 func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool) {
+	if t.Retired {
+		return false
+	}
 	view, pending, run, report, reportState := t.View, t.Pending, t.Run, t.ReportID, t.ReportState
 	defer func() {
 		changed = changed || view != t.View || pending != t.Pending || run != t.Run || report != t.ReportID || reportState != t.ReportState
@@ -523,7 +553,11 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 		}
 	}
 	if terminal(turn.Status) {
+		t.Activity = "idle"
 		s.childTerminalStatus[opaque(t.Thread, turn.ID)] = turn.Status
+	}
+	if turn.Status == "inProgress" {
+		t.Activity = "active"
 	}
 	if slices.Contains(t.SupersededRuns, turn.ID) {
 		return
@@ -599,6 +633,8 @@ func boundedText(text string, limit int) string {
 }
 
 func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
+	s.op.Lock()
+	defer s.op.Unlock()
 	ctx, cancel := s.operation(ctx, 8*time.Second)
 	defer cancel()
 	s.mu.Lock()
@@ -607,6 +643,11 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	if t == nil {
 		s.mu.Unlock()
 		return api.Task{}, errors.New("只能读取 Bot 创建的任务")
+	}
+	if t.Retired {
+		v := s.taskView(t)
+		s.mu.Unlock()
+		return v, nil
 	}
 	if t.Thread == "" || c == nil || s.state.Connection != "ready" {
 		v := t.View
@@ -624,6 +665,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	if thread.ID != t.Thread {
 		return t.View, ErrProtocol
 	}
+	newlyRetired := false
 	if revision == s.childRevision[t.Thread] {
 		for _, turn := range thread.Turns {
 			s.observeTaskTurn(t, turn)
@@ -634,19 +676,88 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		if (thread.Status.Type == "idle" || thread.Status.Type == "notLoaded") && t.View.Status == "working" {
 			t.View.Status = "unknown"
 		}
+		if nativeTaskActive(thread) {
+			t.Activity = "active"
+		} else if thread.Status.Type == "idle" || thread.Status.Type == "notLoaded" {
+			t.Activity = "idle"
+			if t.View.Status == "unknown" {
+				t.Retired = true
+				t.View.Status = "unavailable"
+				newlyRetired = true
+			}
+		} else {
+			t.Activity = ""
+		}
 	}
-	if thread.Status.Type == "active" {
+	if nativeTaskActive(thread) {
 		if !s.childWatching[t.Thread] {
 			s.childWatching[t.Thread] = true
 			go s.watchChild(c, s.epoch, t.Thread)
 		}
-	} else if (thread.Status.Type == "idle" || thread.Status.Type == "notLoaded") && terminal(t.View.Status) {
+	} else if (thread.Status.Type == "idle" || thread.Status.Type == "notLoaded") && terminal(t.View.Status) && !newlyRetired {
 		delete(s.childRuns, t.Thread)
 		s.scheduleChildRetirement(t.Thread)
 	}
 	if err = s.save(); err != nil {
+		if newlyRetired {
+			t.Retired = false
+			t.View.Status = "unknown"
+		}
 		return t.View, err
 	}
+	if newlyRetired {
+		delete(s.childRuns, t.Thread)
+		s.scheduleChildRetirement(t.Thread)
+	}
+	return s.taskView(t), nil
+}
+
+// RetireWork reads the original native thread. It never interrupts, resumes,
+// replays, or substitutes a turn. Unknown receipt IDs remain in the binding.
+func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
+	s.op.Lock()
+	defer s.op.Unlock()
+	ctx, cancel := s.operation(ctx, 8*time.Second)
+	defer cancel()
+	s.mu.Lock()
+	t := s.binding.Tasks[id]
+	if t == nil {
+		s.mu.Unlock()
+		return api.Task{}, errors.New("task is not owned by this Bot")
+	}
+	if t.Retired {
+		v := s.taskView(t)
+		s.mu.Unlock()
+		return v, nil
+	}
+	if t.View.Status != "unknown" || t.Thread == "" || s.client == nil || s.state.Connection != "ready" {
+		v := s.taskView(t)
+		s.mu.Unlock()
+		return v, errors.New("original thread is unavailable for safe retirement")
+	}
+	threadID, c, revision := t.Thread, s.client, s.childRevision[t.Thread]
+	s.mu.Unlock()
+	thread, err := readThreadState(ctx, c, threadID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		return s.taskView(t), err
+	}
+	if nativeTaskActive(thread) && s.client == c && s.childRevision[threadID] == revision {
+		t.Activity = "active"
+	}
+	if s.client != c || s.childRevision[threadID] != revision || thread.ID != threadID || nativeTaskActive(thread) || thread.Status.Type != "idle" && thread.Status.Type != "notLoaded" {
+		return s.taskView(t), errors.New("original thread is active or changed; retirement refused")
+	}
+	previousActivity, previousStatus := t.Activity, t.View.Status
+	t.Activity, t.Retired, t.View.Status = "idle", true, "unavailable"
+	if err := s.save(); err != nil {
+		t.Activity, t.Retired, t.View.Status = previousActivity, false, previousStatus
+		return s.taskView(t), err
+	}
+	delete(s.childRuns, threadID)
+	s.scheduleChildRetirement(threadID)
+	s.update()
 	return s.taskView(t), nil
 }
 func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
