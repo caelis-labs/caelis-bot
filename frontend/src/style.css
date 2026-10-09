@@ -16,6 +16,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visi
 .icon-button:hover { box-shadow:inset 0 0 0 1px var(--line); }
 .symbol { width:18px; height:18px; opacity:.65; flex:0 0 18px; }
 textarea { flex:1; min-width:0; width:100%; height:27px; max-height:127px; overflow-y:auto; resize:none; background:transparent; font-size:15px; line-height:25px; border:0; padding:2px 0; outline:none; }
+@supports (field-sizing: content) {
+ .compose-area textarea { field-sizing:content; height:auto; min-height:27px; }
+}
 textarea::placeholder { color:var(--muted); }
 .send:not(:disabled) { background:var(--accent); color:var(--on-accent); }
 .send:not(:disabled):hover { background:var(--caelis-action-hover); }
