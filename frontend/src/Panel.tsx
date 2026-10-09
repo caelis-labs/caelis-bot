@@ -3,7 +3,7 @@ import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { CopyText, MessageContent } from './MessageContent';
-import { canSubmit, chatActivity, composerAction, liveReplyIDs, withOutgoing } from './chat-presentation';
+import { canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, withOutgoing } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
 import { useAvatarPresentation } from './use-avatar-presentation';
@@ -55,6 +55,7 @@ export function getItemStatusLabel(status: string, t: (key: MessageKey) => strin
   case 'unknown': return t('chat.statusUnknown');
   case 'unconfirmed': return t('chat.statusUnconfirmed');
   case 'inProgress': return t('chat.statusInProgress');
+  case 'incomplete': return t('chat.statusIncomplete');
   case 'declined': return t('chat.statusDeclined');
   case 'rejected': return t('chat.statusDeclined');
   default: return '';
@@ -101,20 +102,21 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     </> : <p className="quiet approval-result" role="status" aria-label={resultLabel}>{value.status==='resolved'&&value.resolution?.outcome==='allowed'?<CheckIcon aria-hidden="true" size={16}/>:value.status==='resolved'&&(value.resolution?.outcome==='declined'||value.resolution?.outcome==='cancelled')?<XIcon aria-hidden="true" size={16}/>:null}<span>{resultLabel}</span></p>}
   </section>;
 }
-type MessageProps={ item: Item; report: (message: string) => void; animate?:boolean; reveal?:boolean; clip?:PortraitClip };
-const Message=memo(function Message({ item, report, animate=false, reveal=false, clip }: MessageProps) {
+type MessageProps={ item: Item; report: (message: string) => void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
+const Message=memo(function Message({ item, report, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
    {item.kind==='assistant'&&<BotAvatar animate={animate} clip={clip}/>}
    <div className={`message ${item.kind}`}>
-    {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal}/> : <p>{item.text}</p>}
+    {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
     {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}
     {!!item.text&&item.kind!=='activity'&&<div className="message-actions"><CopyText text={item.text} report={report}/></div>}
     {item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)&&<small className="outgoing-status" role="status">{statusLabel}</small>}
+    {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
    </div>
   </article>;
-},(before,after)=>before.report===after.report&&before.animate===after.animate&&before.reveal===after.reveal&&
+},(before,after)=>before.report===after.report&&before.animate===after.animate&&before.reveal===after.reveal&&before.incomplete===after.incomplete&&
  (before.animate?before.clip===after.clip:true)&&before.item.id===after.item.id&&before.item.kind===after.item.kind&&
  before.item.text===after.item.text&&before.item.status===after.item.status&&
  JSON.stringify(before.item.artifacts)===JSON.stringify(after.item.artifacts)&&
@@ -467,7 +469,7 @@ export function History() {
    <div className="chat-content" ref={content}>
    {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
-   <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)}/>)}</div>
+   <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
    {(!!approvalCards.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>

@@ -9,6 +9,7 @@
   "statusUnknown": "Pending confirmation",
   "statusUnconfirmed": "Unconfirmed",
   "statusInProgress": "In progress",
+  "statusIncomplete": "Incomplete",
   "statusDeclined": "Declined",
   "reviewInProgress": "Automated review in progress",
   "reviewDenied": "Action not approved by automated review",

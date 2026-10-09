@@ -88,6 +88,16 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 		s.lastTurn = turn.ID
 	}
 	for _, item := range turn.Items {
+		if history && terminal(turn.Status) && item.Type == "agentMessage" {
+			// A recovered summary can lag live deltas from this owner. A shorter
+			// summary does not prove that the already shown item completed.
+			if index, ok := s.items[opaque(turn.ID, item.ID)]; ok {
+				seen := s.state.Items[index].Text
+				if strings.HasPrefix(seen, item.Text) && len(seen) > len(item.Text) {
+					continue
+				}
+			}
+		}
 		s.applyItem(turn.ID, item, terminal(turn.Status))
 	}
 	if turn.Status == "inProgress" {
@@ -95,6 +105,13 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 		s.state.Phase = "working"
 	}
 	if terminal(turn.Status) {
+		// A steered response can leave an agentMessage without item/completed.
+		// The turn is over, but neither the text nor the task outcome is a failure.
+		for _, index := range s.items {
+			if s.state.Items[index].TurnKey == opaque(turn.ID) && s.state.Items[index].Kind == "assistant" && s.state.Items[index].Status == "inProgress" {
+				s.state.Items[index].Status = "incomplete"
+			}
+		}
 		if s.run == turn.ID {
 			s.run = ""
 		}
@@ -442,8 +459,19 @@ func (s *Session) applyEvent(event Notification) {
 				var n struct {
 					Item nativeItem `json:"item"`
 				}
-				if s.decodeEvent(event, &n, false) && n.Item.Status == "failed" {
-					s.logEvent(event, "tool_failed", "native tool failed; execution remains runtime-owned")
+				if s.decodeEvent(event, &n, false) {
+					if n.Item.Status == "failed" {
+						s.logEvent(event, "tool_failed", "native tool failed; execution remains runtime-owned")
+					}
+					// Only reconcile an already seen assistant item of this turn. A
+					// late notification cannot create a new output or replay tool work.
+					if index, ok := s.items[opaque(target.TurnID, n.Item.ID)]; ok && n.Item.Type == "agentMessage" && s.state.Items[index].Kind == "assistant" {
+						seen := s.state.Items[index].Text
+						if strings.HasPrefix(seen, n.Item.Text) && len(seen) > len(n.Item.Text) {
+							n.Item.Text = seen
+						}
+						s.applyItem(target.TurnID, n.Item, true)
+					}
 				}
 			}
 			return

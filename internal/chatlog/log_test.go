@@ -37,6 +37,23 @@ func TestIMPersistsOnlyHumanMessagesAndReopensOffline(t *testing.T) {
 	}
 }
 
+func TestSteeredPartialStatusSurvivesOfflineHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "chat.sqlite")
+	l := Open(path)
+	partial := api.Item{ID: "same-native-item", TurnKey: "same-turn", Kind: "assistant", Text: "received partial", Status: "inProgress"}
+	l.Observe([]api.Item{partial})
+	partial.Status = "incomplete"
+	l.Observe([]api.Item{partial, {ID: "later", TurnKey: "same-turn", Kind: "assistant", Text: "complete answer", Status: "completed"}})
+	l.Close()
+	restored := Open(path)
+	defer restored.Close()
+	eventually(t, func() bool { items, _ := restored.Snapshot(); return len(items) == 2 })
+	items, _ := restored.Snapshot()
+	if items[0].ID != partial.ID || items[0].Text != partial.Text || items[0].Status != "incomplete" || items[1].Status != "completed" {
+		t.Fatal("offline transcript lost item identity, bytes or finality", items)
+	}
+}
+
 func TestDiskFailureRetainsLiveIMAndAutomaticallyRetries(t *testing.T) {
 	root := t.TempDir()
 	parent := filepath.Join(root, "blocked")
