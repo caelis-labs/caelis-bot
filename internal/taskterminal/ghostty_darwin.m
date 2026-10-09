@@ -59,6 +59,15 @@ bool task_ghostty_dictionary_supports_window(NSXMLDocument *dictionary) {
     return true;
 }
 
+static void task_ghostty_record_reply(BotGhosttyLaunch *state, NSRunningApplication *app, NSAppleEventDescriptor *reply, long code) {
+    state.error = code;
+    state.status = (code == errAEEventNotPermitted || code == errAEPrivilegeError) ? -2 :
+        ((!reply || code) ? -3 : 1);
+    // A failed activation request does not undo the accepted new-window reply.
+    // The controller observes and restores focus after the shell confirms it.
+    if (state.status == 1) (void)task_ghostty_show(app);
+}
+
 static void task_ghostty_completed(BotGhosttyLaunch *state, NSRunningApplication *app, NSError *error, NSSet *previous, NSString *text) {
     // Completion always updates the shared owner, even after the
     // caller cancelled before receiving a PID. Script cancellation
@@ -90,12 +99,9 @@ static void task_ghostty_completed(BotGhosttyLaunch *state, NSRunningApplication
             dispatch_async(dispatch_get_main_queue(), ^{
                 @synchronized(state) {
                     if (state.cancelled) return;
-                    state.error = code;
-                    state.status = (code == errAEEventNotPermitted || code == errAEPrivilegeError) ? -2 :
-                        ((!reply || code) ? -3 : 1);
                     // Do not activate before the creation reply, on
                     // denial, or after a cancelled opening.
-                    if (state.status == 1 && !task_ghostty_show(app)) state.status = -4;
+                    task_ghostty_record_reply(state, app, reply, code);
                 }
             });
         }
