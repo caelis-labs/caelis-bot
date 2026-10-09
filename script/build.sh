@@ -15,6 +15,7 @@ mkdir -p "$BOT_BUNDLE/Contents/MacOS" "$BOT_BUNDLE/Contents/Resources"
 BOT_VERSION_JSON=$(node script/release-version.mjs)
 BOT_BASE_VERSION=$(node -e 'console.log(JSON.parse(process.argv[1]).bundleVersion)' "$BOT_VERSION_JSON")
 BOT_RELEASE_VERSION=$(node -e 'console.log(JSON.parse(process.argv[1]).version)' "$BOT_VERSION_JSON")
+BOT_DISPLAY_VERSION=${BOT_RELEASE_VERSION%%-*}
 node -e 'import("./script/configure-updates.mjs").then(m=>m.validateUpdateKey(process.env.BOT_SPARKLE_PUBLIC_KEY,Boolean(process.env.BOT_RELEASE_TAG)))'
 source script/sparkle.sh
 trap 'rm -rf "$BOT_SPARKLE_DIR"' EXIT
@@ -30,7 +31,7 @@ cp resources/macos/Info.plist "$BOT_BUNDLE/Contents/Info.plist"
 cp resources/macos/CaelisBot.icns "$BOT_BUNDLE/Contents/Resources/CaelisBot.icns"
 # Fail before signing if the notification/Finder icon cannot be decoded.
 sips -g pixelWidth -g pixelHeight "$BOT_BUNDLE/Contents/Resources/CaelisBot.icns" >/dev/null
-/usr/libexec/PlistBuddy -c "Set CFBundleShortVersionString $BOT_BASE_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set CFBundleShortVersionString $BOT_DISPLAY_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set CFBundleVersion $BOT_BASE_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add CaelisReleaseVersion string $BOT_RELEASE_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add CaelisSourceCommit string $BOT_SOURCE_COMMIT" "$BOT_BUNDLE/Contents/Info.plist"

@@ -37,7 +37,11 @@ if [[ "$BOT_PACKAGE_VERSION" != "$BOT_EXPECTED_VERSION" ]] || [[ "$BOT_PACKAGE_A
   echo 'Bundle version or architecture does not match this build.' >&2
   exit 1
 fi
-BOT_PACKAGE_NAME="${BOT_APP_NAME// /-}-$BOT_PACKAGE_VERSION-macos-$BOT_PACKAGE_ARCH.dmg"
+if [[ -n "${BOT_RELEASE_TAG:-}" ]]; then
+  BOT_PACKAGE_NAME="Caelis-Bot-$BOT_PACKAGE_VERSION-macos-$BOT_PACKAGE_ARCH.dmg"
+else
+  BOT_PACKAGE_NAME="${BOT_APP_NAME// /-}-$BOT_PACKAGE_VERSION-macos-$BOT_PACKAGE_ARCH.dmg"
+fi
 BOT_PACKAGE_DIR="$BOT_ROOT/dist/releases"
 BOT_PACKAGE_MOUNT=$(mktemp -d "${TMPDIR:-/tmp}/caelis-mount.XXXXXX")
 BOT_PACKAGE_MOUNTED=false

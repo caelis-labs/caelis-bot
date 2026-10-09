@@ -13,11 +13,48 @@ import (
 
 	"github.com/mymmrac/telego"
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/renderer"
 	gmhtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
-var telegramMarkdown = goldmark.New(goldmark.WithExtensions(extension.GFM), goldmark.WithRendererOptions(gmhtml.WithXHTML()))
+var telegramMarkdown = goldmark.New(
+	goldmark.WithExtensions(extension.GFM),
+	goldmark.WithRendererOptions(gmhtml.WithXHTML(), renderer.WithNodeRenderers(util.Prioritized(literalHTMLRenderer{}, 500))),
+)
+
+// Goldmark drops raw HTML by default. Preserve it as literal text so the
+// Telegram HTML adapter cannot silently remove model content such as <tag>.
+type literalHTMLRenderer struct{}
+
+func (literalHTMLRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(ast.KindRawHTML, func(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering {
+			segments := node.(*ast.RawHTML).Segments
+			for i := 0; i < segments.Len(); i++ {
+				segment := segments.At(i)
+				_, _ = w.WriteString(html.EscapeString(string(segment.Value(source))))
+			}
+		}
+		return ast.WalkSkipChildren, nil
+	})
+	reg.Register(ast.KindHTMLBlock, func(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+		block := node.(*ast.HTMLBlock)
+		if entering {
+			lines := block.Lines()
+			for i := 0; i < lines.Len(); i++ {
+				segment := lines.At(i)
+				_, _ = w.WriteString(html.EscapeString(string(segment.Value(source))))
+			}
+		} else if block.HasClosure() {
+			_, _ = w.WriteString(html.EscapeString(string(block.ClosureLine.Value(source))))
+		}
+		return ast.WalkContinue, nil
+	})
+}
 
 // Split on lines so links and table rows stay intact. Reopen fenced code in
 // the next rich chunk; Text always retains the exact original source portion.
@@ -113,7 +150,22 @@ func isMarkdownTableDivider(line string) bool {
 
 func isFormatRejection(err error) bool {
 	var transport *transportError
-	return errors.As(safeError(err), &transport) && transport.formatRejected
+	return errors.As(err, &transport) && transport.formatRejected
+}
+
+// Rich Markdown accepts raw HTML and may consume literal model text such as
+// <tag>. Use the escaped HTML adapter for those messages instead.
+func hasRawHTML(markdown string) bool {
+	doc := telegramMarkdown.Parser().Parse(text.NewReader([]byte(markdown)))
+	found := false
+	_ = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering && (node.Kind() == ast.KindRawHTML || node.Kind() == ast.KindHTMLBlock) {
+			found = true
+			return ast.WalkStop, nil
+		}
+		return ast.WalkContinue, nil
+	})
+	return found
 }
 
 // Telegram's legacy HTML mode accepts a small subset of HTML. Render CommonMark
@@ -249,36 +301,60 @@ func telegramHTML(markdown string) string {
 	return strings.TrimSpace(out.String())
 }
 
-func (s *sdkClient) sendFormattedFallback(ctx context.Context, chat int64, message outgoingText, keys *telego.InlineKeyboardMarkup) (int, error) {
+func (s *sdkClient) sendFormatted(ctx context.Context, chat int64, message outgoingText, keys *telego.InlineKeyboardMarkup) (int, error) {
 	if formatted := telegramHTML(message.Markdown); formatted != "" {
-		v, err := s.bot.SendMessage(ctx, &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: formatted, ParseMode: "HTML", ReplyMarkup: keys})
-		if err == nil {
+		params := &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: formatted, ParseMode: "HTML"}
+		if keys != nil {
+			params.ReplyMarkup = keys
+		}
+		v, err := s.bot.SendMessage(ctx, params)
+		safe := safeMethodError("sendMessage", err)
+		reportDeliveryAttempt(ctx, "sendMessage", "html", safe, false)
+		if safe == nil {
 			return v.MessageID, nil
 		}
-		if !isFormatRejection(err) {
-			return 0, safeError(err)
+		if !isFormatRejection(safe) {
+			return 0, safe
 		}
 	}
-	v, err := s.bot.SendMessage(ctx, &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: message.Text, ReplyMarkup: keys})
-	if err != nil {
-		return 0, safeError(err)
+	params := &telego.SendMessageParams{ChatID: telego.ChatID{ID: chat}, Text: message.Text}
+	if keys != nil {
+		params.ReplyMarkup = keys
+	}
+	v, err := s.bot.SendMessage(ctx, params)
+	safe := safeMethodError("sendMessage", err)
+	reportDeliveryAttempt(ctx, "sendMessage", "plain", safe, true)
+	if safe != nil {
+		return 0, safe
 	}
 	return v.MessageID, nil
 }
 
-func (s *sdkClient) editFormattedFallback(ctx context.Context, chat int64, id int, message outgoingText, keys *telego.InlineKeyboardMarkup) error {
+func (s *sdkClient) editFormatted(ctx context.Context, chat int64, id int, message outgoingText, keys *telego.InlineKeyboardMarkup) error {
 	if formatted := telegramHTML(message.Markdown); formatted != "" {
-		_, err := s.bot.EditMessageText(ctx, &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: formatted, ParseMode: "HTML", ReplyMarkup: keys})
-		if err == nil || issueOf(safeError(err)) == "unchanged" {
+		params := &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: formatted, ParseMode: "HTML"}
+		if keys != nil {
+			params.ReplyMarkup = keys
+		}
+		_, err := s.bot.EditMessageText(ctx, params)
+		safe := safeMethodError("editMessageText", err)
+		reportDeliveryAttempt(ctx, "editMessageText", "html", safe, false)
+		if safe == nil || issueOf(safe) == "unchanged" {
 			return nil
 		}
-		if !isFormatRejection(err) {
-			return safeError(err)
+		if !isFormatRejection(safe) {
+			return safe
 		}
 	}
-	_, err := s.bot.EditMessageText(ctx, &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: message.Text, ReplyMarkup: keys})
-	if issueOf(safeError(err)) == "unchanged" {
+	params := &telego.EditMessageTextParams{ChatID: telego.ChatID{ID: chat}, MessageID: id, Text: message.Text}
+	if keys != nil {
+		params.ReplyMarkup = keys
+	}
+	_, err := s.bot.EditMessageText(ctx, params)
+	safe := safeMethodError("editMessageText", err)
+	reportDeliveryAttempt(ctx, "editMessageText", "plain", safe, true)
+	if issueOf(safe) == "unchanged" {
 		return nil
 	}
-	return safeError(err)
+	return safe
 }

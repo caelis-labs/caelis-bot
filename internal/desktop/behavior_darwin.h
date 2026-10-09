@@ -18,22 +18,32 @@ static void bot_event(NSWindow *window, NSString *name, id detail) {
     else if (NSMaxX(frame)-NSMaxX(work)>4) {edge=@"right";dock=bot_rect(NSMakeRect(NSMaxX(work),NSMinY(frame),NSMaxX(frame)-NSMaxX(work),frame.size.height));}
     else if (NSMinY(work)-NSMinY(frame)>4) {edge=@"bottom";dock=bot_rect(NSMakeRect(NSMinX(frame),NSMinY(frame),frame.size.width,NSMinY(work)-NSMinY(frame)));}
     // Window metadata only, at most once per second; no title, pixels or permission prompts.
+    // When a Bot editor is key we already own its window. Enumerating every
+    // on-screen window here can block AppKit's main thread during typing.
     double now=NSProcessInfo.processInfo.systemUptime;
-    if (!self.frontContext || now-self.frontSample>=1) {
+    NSWindow *ownEditor=self.history.keyWindow ? self.history : self.panel.keyWindow ? self.panel : nil;
+    BOOL ownWasObserved=[self.frontContext[@"source"] isEqual:@"host-window"];
+    BOOL editorChanged=ownEditor ? (!ownWasObserved || ![self.frontContext[@"id"] isEqual:@(ownEditor.windowNumber)]) : ownWasObserved;
+    if (!self.frontContext || now-self.frontSample>=1 || editorChanged) {
         self.frontSample=now;
-        NSRunningApplication *app=NSWorkspace.sharedWorkspace.frontmostApplication;
-        id rect=NSNull.null,windowID=NSNull.null;
-        NSArray *windows=CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly|kCGWindowListExcludeDesktopElements,kCGNullWindowID));
-        for (NSDictionary *window in windows) {
-            if ([window[(__bridge NSString *)kCGWindowOwnerPID] intValue]!=app.processIdentifier || [window[(__bridge NSString *)kCGWindowLayer] intValue]!=0) continue;
-            CGRect bounds;
-            if (CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(__bridge NSString *)kCGWindowBounds],&bounds) && bounds.size.width>100 && bounds.size.height>100) {
-                double top=NSScreen.screens.firstObject.frame.origin.y+NSScreen.screens.firstObject.frame.size.height;
-                rect=bot_rect(NSMakeRect(bounds.origin.x,top-CGRectGetMaxY(bounds),bounds.size.width,bounds.size.height));
-                windowID=window[(__bridge NSString *)kCGWindowNumber] ?: NSNull.null; break;
+        if (ownEditor) {
+            self.frontContext=@{@"application":NSBundle.mainBundle.bundleIdentifier ?: @"",@"id":@(ownEditor.windowNumber),
+                @"observedAtUptime":@(now),@"frame":bot_rect(ownEditor.frame),@"source":@"host-window"};
+        } else {
+            NSRunningApplication *app=NSWorkspace.sharedWorkspace.frontmostApplication;
+            id rect=NSNull.null,windowID=NSNull.null;
+            NSArray *windows=CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly|kCGWindowListExcludeDesktopElements,kCGNullWindowID));
+            for (NSDictionary *window in windows) {
+                if ([window[(__bridge NSString *)kCGWindowOwnerPID] intValue]!=app.processIdentifier || [window[(__bridge NSString *)kCGWindowLayer] intValue]!=0) continue;
+                CGRect bounds;
+                if (CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)window[(__bridge NSString *)kCGWindowBounds],&bounds) && bounds.size.width>100 && bounds.size.height>100) {
+                    double top=NSScreen.screens.firstObject.frame.origin.y+NSScreen.screens.firstObject.frame.size.height;
+                    rect=bot_rect(NSMakeRect(bounds.origin.x,top-CGRectGetMaxY(bounds),bounds.size.width,bounds.size.height));
+                    windowID=window[(__bridge NSString *)kCGWindowNumber] ?: NSNull.null; break;
+                }
             }
+            self.frontContext=@{@"application":app.bundleIdentifier ?: @"",@"id":windowID,@"observedAtUptime":@(now),@"frame":rect,@"source":rect==NSNull.null?@"application-only":@"window-metadata"};
         }
-        self.frontContext=@{@"application":app.bundleIdentifier ?: @"",@"id":windowID,@"observedAtUptime":@(now),@"frame":rect,@"source":rect==NSNull.null?@"application-only":@"window-metadata"};
     }
     NSPoint pointer=NSEvent.mouseLocation;
     return @{@"desktop":@{@"id":[screen.deviceDescription[@"NSScreenNumber"] stringValue] ?: @"unknown",@"frame":bot_rect(frame),@"workArea":bot_rect(work),@"scale":@(screen.backingScaleFactor)},

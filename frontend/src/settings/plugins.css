@@ -19,6 +19,7 @@
 .settings-window .plugin-row-action{flex:none;width:78px;margin-right:12px;padding:6px 10px;background:transparent;color:var(--accent);border:1px solid var(--line)}
 .settings-window .plugin-row-action:disabled{color:var(--muted);background:transparent}
 .plugin-empty{margin:24px 0;color:var(--muted);font-size:13px}
+.plugin-sync{margin:18px 0;color:var(--muted);font-size:12px}
 .settings-window .plugin-back{display:inline-flex;align-items:center;gap:5px;padding:4px 0;margin:0 0 22px;border:0;background:transparent;color:var(--muted)}
 .settings-window .plugin-back:hover{color:var(--ink);background:transparent}
 .plugin-detail-head{display:flex;align-items:center;gap:15px;min-width:0}
