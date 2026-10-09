@@ -14,7 +14,7 @@ import (
 //go:embed skills
 var files embed.FS
 
-// Install replaces only the two host-managed skill directories. Other entries
+// Install replaces the host-managed core skill directory. Other entries
 // under app-skills, Notebook, plugin packages, and custom skills are untouched.
 func Install(root string) (string, error) {
 	appRoot := filepath.Join(root, "app-skills")
@@ -46,7 +46,7 @@ func Install(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, name := range []string{"bot-core", "bot-dream"} {
+	for _, name := range []string{"bot-core"} {
 		target := filepath.Join(appRoot, name)
 		backup := filepath.Join(stage, ".previous-"+name)
 		if _, err := os.Lstat(target); err == nil {
@@ -63,7 +63,7 @@ func Install(root string) (string, error) {
 			return "", err
 		}
 	}
-	for _, old := range []string{"caelis-bot-memory", "caelis-dream"} {
+	for _, old := range []string{"caelis-bot-memory", "caelis-dream", "bot-dream"} {
 		if err := os.RemoveAll(filepath.Join(appRoot, old)); err != nil {
 			return "", err
 		}
@@ -107,7 +107,7 @@ func installFile(path string, body []byte) error {
 func Instructions(skillPath string) string {
 	var out strings.Builder
 	out.WriteString("\n## Skills\n\nSkills provide instructions in SKILL.md files. Read a skill's file when its description applies, then follow linked references only as needed. Resolve relative references from that skill's directory.\n\n")
-	for _, skill := range []string{"bot-core", "bot-dream"} {
+	for _, skill := range []string{"bot-core"} {
 		body, err := files.ReadFile(path.Join("skills", skill, "SKILL.md"))
 		if err != nil {
 			panic(err)

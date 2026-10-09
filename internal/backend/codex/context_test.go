@@ -1,28 +1,22 @@
 package codex
 
 import (
+	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
 func TestContextAcceptanceAndLazyRenewalRetainChat(t *testing.T) {
 	s, f := sessionPair(t, "normal")
-	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer v.Close()
-	handoff := filepath.Join(v.Path(), notebook.HandoffName)
-	os.WriteFile(handoff, []byte("old handoff"), 0600)
-	s.opts.BotTools = &api.ToolConnection{RuntimeVersion: "new-version", PrepareContext: v.PrepareContext, ConsumeContext: v.ConsumeContext}
+	var consumed atomic.Bool
+	s.opts.BotTools = &api.ToolConnection{RuntimeVersion: "new-version", PrepareContext: func(context.Context) (api.ContextSeed, error) {
+		return api.ContextSeed{Text: "[private handoff] old handoff\n", HandoffDigest: "original-digest"}, nil
+	}, ConsumeContext: func(api.ContextSeed) error { consumed.Store(true); return nil }}
 	var starts atomic.Int32
 	f.mu.Lock()
 	f.handle = func(m wireMessage) (any, bool) {
@@ -44,7 +38,7 @@ func TestContextAcceptanceAndLazyRenewalRetainChat(t *testing.T) {
 				if len(p.Input) != 1 || !strings.Contains(p.Input[0].Text, "old handoff") || !strings.HasSuffix(p.Input[0].Text, "hello") {
 					t.Error("context missing")
 				}
-				if _, err := os.Stat(handoff); err != nil {
+				if consumed.Load() {
 					t.Error("consumed before native acceptance")
 				}
 			} else if p.ID == "second-user" && (len(p.Input) != 1 || p.Input[0].Text != "hello") {
@@ -61,7 +55,7 @@ func TestContextAcceptanceAndLazyRenewalRetainChat(t *testing.T) {
 			t.Fatal(r, err)
 		}
 	}
-	if _, err := os.Stat(handoff); !os.IsNotExist(err) {
+	if !consumed.Load() {
 		t.Fatal("handoff not consumed")
 	}
 	for _, i := range s.Snapshot().Items {

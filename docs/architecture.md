@@ -299,7 +299,7 @@ readable, Caelis uses `providers/caelis`. Switching never migrates an unknown op
 Caelis application credentials are distinct from Host credentials. Logs/diagnostic export contain allowlisted
 states/counts/versions, not conversation prose, paths, native identifiers, arguments or credentials.
 
-Notebook has `MEMORY.md`, generated `INDEX.md`, optional `HANDOFF.md`, and local-date `YYYY/MM/DD/*.md`.
+Notebook has `MEMORY.md`, generated `INDEX.md`, historical `HANDOFF.md` from older versions, and local-date `YYYY/MM/DD/*.md`.
 Only INDEX is automatically rebuilt; it indexes Markdown paths/titles, ignores hidden directories/symlinks,
 and refreshes at startup, before submit and on completion. No background model or body database owns notes.
 User edits/deletions persist. Legacy personal data is copied once with a marker outside Notebook; conflicts
@@ -354,48 +354,27 @@ guide to Core profile instructions. Both adapters load Skill bodies only on dema
 First introduction is a normal user message with a durable stable delivery ID; until acceptance it precedes
 other submissions. The host does not write the Bot personality or claim that acceptance proves memory saved.
 
-Ordinary Dream is an opportunistic local decision, never an idle model loop. It needs a live resident
-context gauge and a recent confirmed model response; tool progress, window activity and replay do not
-refresh model age. Codex uses the last response's total tokens (not cumulative billing); Caelis requires
-both explicit context_gauge and provider_usage evidence on the same live resident turn. Missing facts
-skip the opportunity. Native compaction/model changes invalidate or rebase the gauge.
+The Bot maintains Notebook and `MEMORY.md` during ordinary work. When obsolete task
+detail or recalled tool schemas are substantial, the gated `bot_dream` contract
+requires a bounded handoff summary. Its result must force completion of the owning turn before
+another same-batch tool effect or model step. The handoff carries identity, current
+goals, unfinished work and original uncertain receipts. Neither an idle threshold
+nor a version upgrade dispatches a maintenance turn. The retired `bot-dream` Skill
+is removed from fresh installations.
 
-Defaults: below 50% context skips; medium and high usage both require two continuous idle minutes after a completed resident turn. At least 8,000 tokens of growth since the last attempt are required, with a 30-minute attempt cooldown. Version upgrade handoffs skip the usage value threshold but use the same completed-turn and idle gate.
-The first observed conversation uses zero as its growth baseline; compaction rebases to the smaller gauge.
-One attempt consumes the dirty generation, including rejection/failure. Dream's own usage is excluded
-from subsequent growth when available. The host allows at most 15 wall-clock minutes since model activity,
-reserving three minutes for its two-minute execution budget and margin. This is an opportunity budget,
-not a provider cache-TTL guarantee or proof of a future cache hit. No keep-alive calls are sent.
+The APP keeps handoff data in a private durable record keyed by original call and
+source Session, outside the Notebook. The new Session's first accepted Host input
+contains current `MEMORY.md` and the handoff as saved context, never as a fabricated
+user request or higher-priority instruction. Only durable acceptance consumes the
+matching private digest. Normal inbound messages, task feedback, MCP connection
+configuration and auth stay with the Bot; old model history and ToolSearch results
+stay with the old Session. An unknown creation is reconciled under its original ID.
 
-Independent native presence sampling tracks sleep/wake and lock/unlock generations. Unknown presence,
-disconnection, restart, clock reversal or a polling gap over 45 seconds requires fresh model activity;
-waking also requires 60 seconds of stability. Sleep counts against cache age, not continuous idle time.
-Draft edits postpone admission by 60 seconds. Expired opportunities never catch up after wake/cooldown.
-Admission diagnostics contain reason codes, watermark, growth, idle and model age; attempt completion records available token/cache counters, the last provider cost when supplied, and duration. They never record conversation content. These fixture and local counters do not prove cache savings on a live provider.
-
-Dream never starts during active/pending/unknown work. It reuses the resident Bot,
-explicitly loads the Dream skill, writes a marked HANDOFF, and emits a concise recap. Success requires native
-completion plus a matching nonempty handoff. The handoff carries goals, decisions and unresolved original receipts, not prior ToolSearch results or full schemas. Normal success only marks ready; next user text/screen request
-renews. An intervening background turn invalidates readiness. User input interrupts only the maintenance Turn;
-Workers continue. Maintenance over two minutes requests cancellation. Failure does not start an idle retry loop.
-
-Only a confirmed running native Dream projects `maintenance: dreaming`. Pet, bubble and chat share
-that fact: a quiet napping pose/zzz and transient status, with static presentation for reduced motion.
-Approvals, recovery, interruption and errors take precedence; completion clears the nap even while a
-handoff remains ready. This status is not a transcript item, notification, or reason to show a hidden pet.
-The host owns it; the model emits only its final recap. User submission retains interruption priority.
-
-Runtime creation records the Bot version. After an App upgrade, recover/observe old work first; when idle,
-reuse a valid handoff or initiate one after native presence stabilizes, then create current configuration.
-This finite upgrade handoff bypasses ordinary context, cache-opportunity and cooldown gates. Same-version restart
-resumes the existing binding. Preserve model/CWD/sandbox and history; don't hot-rewrite an unresolved runtime.
-Explicit creation rejection ends renewal and allows input on the old binding; unknown creation keeps its ID.
-
-New-context first input includes complete MEMORY and nonempty HANDOFF; later inputs do not rewrite prefixes.
-Files are bounded regular UTF-8, no symlinks (128 KiB each; handoff validation 16 KiB). Consume HANDOFF only
-after native acceptance is durably saved, and only if its digest still matches; concurrent user edits survive.
-These files are historical data, not new authorization. Codex preserves old-thread history indexes; Caelis
-preserves projections and associates existing reminder grants without inventing new user consent.
+Legacy `dream-*.json` receipts are read without dispatching another maintenance
+turn. A matching completed `HANDOFF.md` may migrate once into the private record;
+the Notebook file remains untouched. Rejected renewal continues the old binding.
+Runtime tool publication remains gated on an atomic terminal-result contract in
+both adapters. A tool result followed by a best-effort cancellation is insufficient.
 
 ## Scheduling and care
 

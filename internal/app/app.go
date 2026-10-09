@@ -51,39 +51,38 @@ type Host struct {
 }
 
 type Application struct {
-	localWork             *localWorkers
-	machines              *machines.Service
-	taskPreferences       *tasks.PreferencesStore
-	setup                 *runtimeSetup
-	Backend               *backend.Service
-	Telegram              *telegram.Bridge
-	engine                api.Engine
-	host                  Host
-	root                  string
-	mu                    sync.Mutex
-	pluginAdmission       sync.Mutex
-	updateMu              sync.Mutex
-	started, closed       bool
-	updatePrepared        bool
-	cancel                context.CancelFunc
-	startupCancel         context.CancelFunc
-	dreamReady            bool
-	dreamEnvironmentReady bool
-	careReady             bool
-	workers               sync.WaitGroup
-	companion             *bot.Runtime
-	bridge                *bot.Bridge
-	tasks                 *tasks.Manager
-	personal              *botmemory.Store
-	notebook              *notebook.Vault
-	skillPath             string
-	initialization        *bot.Initializer
-	plugins               *plugins.Manager
-	pluginDetailMu        sync.Mutex
-	pluginIndexMu         sync.Mutex
-	pluginDetailCache     map[string]pluginDetailCacheEntry
-	closeOnce             sync.Once
-	closeErr              error
+	localWork         *localWorkers
+	machines          *machines.Service
+	taskPreferences   *tasks.PreferencesStore
+	setup             *runtimeSetup
+	Backend           *backend.Service
+	Telegram          *telegram.Bridge
+	engine            api.Engine
+	host              Host
+	root              string
+	mu                sync.Mutex
+	pluginAdmission   sync.Mutex
+	updateMu          sync.Mutex
+	started, closed   bool
+	updatePrepared    bool
+	cancel            context.CancelFunc
+	startupCancel     context.CancelFunc
+	dreamReady        bool
+	careReady         bool
+	workers           sync.WaitGroup
+	companion         *bot.Runtime
+	bridge            *bot.Bridge
+	tasks             *tasks.Manager
+	personal          *botmemory.Store
+	notebook          *notebook.Vault
+	skillPath         string
+	initialization    *bot.Initializer
+	plugins           *plugins.Manager
+	pluginDetailMu    sync.Mutex
+	pluginIndexMu     sync.Mutex
+	pluginDetailCache map[string]pluginDetailCacheEntry
+	closeOnce         sync.Once
+	closeErr          error
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -359,27 +358,6 @@ func (a *Application) preparePersonalLocked() error {
 		}
 	}
 
-	// Sample independently of care rules and its store. Drafts are read under
-	// the backend presentation lock; no renderer timer can authorize maintenance.
-	if a.dreamReady && !a.dreamEnvironmentReady {
-		resident.ConfigureDreamEnvironment(func() bot.DreamEnvironment {
-			if a.host.CareSample == nil {
-				return bot.DreamEnvironment{Reason: "sample_unavailable"}
-			}
-			sample := a.host.CareSample()
-			reason := "available"
-			if !sample.Presence.Awake {
-				reason = "not_awake"
-			} else if sample.Presence.Unlocked == nil {
-				reason = "unlock_unknown"
-			} else if !*sample.Presence.Unlocked {
-				reason = "locked"
-			}
-			return bot.DreamEnvironment{Available: sample.Available(), Reason: reason, Epoch: sample.Epoch, DraftRevision: a.Backend.Draft().Revision}
-		})
-		resident.ConfigureDreamDiagnostics(a.host.Diagnostics)
-		a.dreamEnvironmentReady = true
-	}
 	a.companion = resident
 	return nil
 }
@@ -429,7 +407,7 @@ func (a *Application) Start() error {
 			config := bridge.Config(executable)
 			if a.skillPath != "" {
 				config.SkillInstructions = botskills.Instructions(a.skillPath)
-				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath), filepath.Join(filepath.Dir(filepath.Dir(a.skillPath)), "bot-dream")}
+				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath)}
 			}
 			if a.plugins != nil {
 				config.Plugins = a.plugins.Selection()
@@ -440,28 +418,26 @@ func (a *Application) Start() error {
 				a.mu.Lock()
 				vault := a.notebook
 				a.mu.Unlock()
+				var seed api.ContextSeed
 				if vault == nil {
-					return api.ContextSeed{}, nil
-				}
-				seed, err := vault.PrepareContext(ctx)
-				if err != nil {
-					if a.host.ReportError != nil {
-						a.host.ReportError(err)
+					seed = api.ContextSeed{}
+				} else {
+					var err error
+					seed, err = vault.PrepareContext(ctx)
+					if err != nil {
+						if a.host.ReportError != nil {
+							a.host.ReportError(err)
+						}
+						seed = api.ContextSeed{}
 					}
-					return api.ContextSeed{}, nil
 				}
+				handoff := resident.PrepareHandoffContext()
+				seed.Text += handoff.Text
+				seed.HandoffDigest = handoff.HandoffDigest
 				return seed, nil
 			}
 			config.ConsumeContext = func(seed api.ContextSeed) error {
-				a.mu.Lock()
-				vault := a.notebook
-				a.mu.Unlock()
-				if vault != nil {
-					if err := vault.ConsumeContext(seed); err != nil && a.host.ReportError != nil {
-						a.host.ReportError(err)
-					}
-				}
-				return nil
+				return resident.ConsumeHandoffContext(seed)
 			}
 			config.PrepareTurn = func(ctx context.Context) error {
 				if err := a.syncPluginIndex(ctx); err != nil && a.host.ReportError != nil {

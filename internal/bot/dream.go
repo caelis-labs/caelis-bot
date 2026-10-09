@@ -2,20 +2,19 @@ package bot
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
+// These types read the already dispatched host maintenance receipt from earlier
+// versions. No new maintenance turn is created, including after an upgrade.
 type dreamAttempt struct {
 	ID, Session, Turn, Outcome string
 	UpgradeVersion             string
@@ -33,203 +32,65 @@ type dreamState struct {
 	BaselineUsed    int64
 }
 type dreamController struct {
-	path, skill string
-	vault       *notebook.Vault
-	state       dreamState
-	policy      dreamPolicy
-	log         *diagnosticlog.Logger
+	path  string
+	vault *notebook.Vault
+	state dreamState
 }
 
-func (r *Runtime) ConfigureDream(vault *notebook.Vault, coreSkill string) error {
+func (r *Runtime) ConfigureDream(vault *notebook.Vault, _ string) error {
 	if !r.step.TryLock() {
-		return errors.New("Dream recovery waits for current work")
+		return errors.New("Dream receipt recovery waits for current work")
 	}
 	defer r.step.Unlock()
 	if vault == nil {
-		return errors.New("Dream 需要可写笔记本")
+		return errors.New("Dream receipt recovery needs the Notebook")
 	}
-	d := &dreamController{path: filepath.Join(filepath.Dir(r.path), "dream-"+r.provider+".json"), vault: vault,
-		skill: filepath.Join(filepath.Dir(filepath.Dir(coreSkill)), "bot-dream", "SKILL.md"), state: dreamState{Version: 1}}
+	d := &dreamController{path: filepath.Join(filepath.Dir(r.path), "dream-"+r.provider+".json"), vault: vault, state: dreamState{Version: 1}}
 	b, err := os.ReadFile(d.path)
 	if err == nil {
 		if json.Unmarshal(b, &d.state) != nil || d.state.Version != 1 {
-			return errors.New("Dream 记录无法读取，已保留原文件")
+			return errors.New("old Dream receipt is unreadable; original file retained")
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	r.dream = d
-	if d.state.LastAttempt.IsZero() && d.state.Attempt != nil {
-		d.state.LastAttempt = d.state.Attempt.Started
-	}
-	d.policy.notBefore = r.now().Round(0)
-	return nil
+	return r.openHandoff()
 }
 func (d *dreamController) save() error { return localstate.Write(d.path, d.state) }
 
-func (r *Runtime) ConfigureDreamDiagnostics(log *diagnosticlog.Logger) {
-	r.step.Lock()
-	defer r.step.Unlock()
-	if r.dream != nil {
-		r.dream.log = log
-	}
-}
-func conversationActivity(s api.ConversationState) string {
-	return s.Session + "\x00" + s.Turn + "\x00" + s.Status
-}
-
-// tickDream runs under the same admission lock as user input and resident
-// wakeups. The provider only supplies exact ordinary turn/session receipts.
-func (r *Runtime) tickDream(ctx context.Context, dispatch bool) error {
+// reconcileLegacyDream observes only an original, already dispatched receipt.
+// It never submits maintenance, makes an upgrade-triggered new session, or
+// resolves unknown work by replaying it.
+func (r *Runtime) reconcileLegacyDream() error {
 	d := r.dream
 	p, ok := r.engine.(api.ConversationRuntime)
-	if d == nil || !ok {
+	if d == nil || !ok || d.state.Attempt == nil || d.state.Attempt.Done {
 		return nil
 	}
-	current := p.ConversationState()
-	now := r.now().Round(0)
-	d.policy.observe(now, current)
-	if !current.Observed {
-		return nil
-	}
-	upgrade := current.DesiredRuntimeVersion != "" && current.RuntimeVersion != current.DesiredRuntimeVersion
-	if a := d.state.Attempt; a != nil && !a.Done {
-		receipt, result := p.DreamResult(a.ID)
-		if receipt.Outcome == "unknown" || receipt.Outcome == "" {
-			return nil
-		}
-		a.Outcome = receipt.Outcome
-		if receipt.Outcome == "accepted" && (result.Status == "inProgress" || result.Status == "running" || result.Status == "started" || result.Status == "") {
-			if now.Sub(a.Started) > 2*time.Minute {
-				cancelCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				err := p.CancelDream(cancelCtx, a.ID)
-				cancel()
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-		a.Turn = result.Turn
-		var handoffErr error
-		if receipt.Outcome == "accepted" && result.Status == "completed" {
-			ready, err := d.vault.DreamReady(a.ID)
-			handoffErr = err
-			a.Ready = err == nil && ready && current.Session == a.Session && current.Turn == a.Turn
-		}
-		a.Done = true
-		if current.Session == a.Session && current.Turn == a.Turn && current.Usage.Window > 0 {
-			d.state.BaselineSession, d.state.BaselineUsed = current.Session, current.Usage.Used
-			d.policy.baseline = current.Usage.Used
-		}
-		d.state.Activity, d.state.At = conversationActivity(current), now
-		d.state.Dirty = current.Turn != "" && current.Turn != a.Turn && receipt.Outcome == "accepted"
-		if err := errors.Join(handoffErr, d.save()); err != nil {
-			return err
-		}
-		d.log.Write(diagnosticlog.Record{Level: "info", Component: "dream", Code: "attempt_completed",
-			Reason: fmt.Sprintf("outcome=%s status=%s handoff_ready=%t context_used=%d context_window=%d input_tokens=%d output_tokens=%d cache_read_tokens=%d cache_write_tokens=%d last_provider_cost_known=%t last_provider_cost=%g cost_currency=%s duration_seconds=%d", a.Outcome, result.Status, a.Ready, current.Usage.Used, current.Usage.Window, current.Usage.InputTokens, current.Usage.OutputTokens, current.Usage.CacheReadTokens, current.Usage.CacheWriteTokens, current.Usage.LastProviderCostKnown, current.Usage.LastProviderCost, current.Usage.LastProviderCostCurrency, int64(now.Sub(a.Started).Seconds()))})
-		if upgrade && a.Ready {
-			return d.renew(ctx, p)
-		}
-		return nil
-	}
-	if a := d.state.Attempt; upgrade && a != nil && a.Ready && current.Session == a.Session && current.Turn == a.Turn && current.Status == "completed" {
-		return d.renew(ctx, p)
-	}
-	key := conversationActivity(current)
-	if key != d.state.Activity {
-		d.state.Activity, d.state.At = key, now
-		d.state.Dirty = current.Turn != ""
-		if d.state.Attempt != nil {
-			d.state.Attempt.Ready = false
-		}
-		if err := d.save(); err != nil {
-			return err
-		}
-	}
-	// An upgrade is a finite startup handoff, not another periodic model loop.
-	// A rejected/interrupted attempt waits for normal activity and idle maintenance.
-	startup := upgrade && (d.state.Attempt == nil || d.state.Attempt.UpgradeVersion != current.DesiredRuntimeVersion)
-	reason := d.policy.decide(now, current, d.state)
-	if startup {
-		// Version handoff skips the value threshold, but never the same
-		// post-turn idle and presence gate as ordinary maintenance.
-		reason = d.policy.idleReason(now, current, d.state.At)
-	}
-	if dispatch && reason != d.policy.reason && d.state.Dirty {
-		age := int64(-1)
-		if !current.Usage.ModelAt.IsZero() {
-			age = int64(now.Sub(current.Usage.ModelAt).Seconds())
-		}
-		idle := int64(0)
-		if !d.policy.idleSince.IsZero() {
-			idle = int64(now.Sub(d.policy.idleSince).Seconds())
-		}
-		watermark := int64(0)
-		if current.Usage.Window > 0 {
-			watermark = 100 * current.Usage.Used / current.Usage.Window
-		}
-		d.log.Write(diagnosticlog.Record{Level: "info", Component: "dream", Code: "admission_" + reason,
-			Reason: fmt.Sprintf("context_used=%d context_window=%d watermark_percent=%d growth_tokens=%d model_age_seconds=%d idle_seconds=%d usage_evidence=%s observed=%t environment_available=%t environment_reason=%s idle=%t upgrade=%t", current.Usage.Used, current.Usage.Window, watermark, current.Usage.Used-d.policy.baseline, age, idle, current.UsageEvidence, current.Observed, d.policy.environmentAvailable, d.policy.environmentReason, current.Idle, startup)})
-	}
-	d.policy.reason = reason
-	if !dispatch || reason != "ready" {
-		return nil
-	}
-	path, err := d.vault.PrepareDream()
-	if err != nil {
-		return err
-	}
-	a := &dreamAttempt{ID: "dream-" + rand.Text(), Session: current.Session, Started: now, Outcome: "unknown"}
-	growth := current.Usage.Used - d.policy.baseline
-	if upgrade {
-		a.UpgradeVersion = current.DesiredRuntimeVersion
-	}
-	d.state.Attempt, d.state.Dirty = a, false
-	d.state.LastAttempt = now
-	d.state.BaselineSession, d.state.BaselineUsed = current.Session, current.Usage.Used
-	d.policy.baseline = current.Usage.Used
-	if err := d.save(); err != nil {
-		return err
-	}
-	band := "idle_value"
-	if current.Usage.Window > 0 && float64(current.Usage.Used)/float64(current.Usage.Window) >= .75 {
-		band = "high_water"
-	}
-	if startup {
-		band = "upgrade"
-	}
-	prompt := fmt.Sprintf("System Dream request from the Bot host. Explicitly load bot-dream at %q and follow it now. Write the handoff to exactly %q (the host has prepared this writable location), starting with this exact first line:\n%s\nOptionally update useful memory. Finish with only one short user-facing recap sentence. Do not start a new session or continue ordinary work.", d.skill, path, notebook.DreamMarker(a.ID))
-	receipt, err := p.SubmitDream(ctx, api.Submission{ID: a.ID, Text: prompt, Dream: true})
-	a.Outcome = receipt.Outcome
-	if receipt.Outcome == "rejected" {
-		a.Done = true
-	}
-	d.log.Write(diagnosticlog.Record{Level: "info", Component: "dream", Code: "attempt_dispatched",
-		Reason: fmt.Sprintf("band=%s outcome=%s context_used=%d context_window=%d growth_tokens=%d idle_seconds=%d", band, receipt.Outcome, current.Usage.Used, current.Usage.Window, growth, int64(now.Sub(d.policy.idleSince).Seconds()))})
-	return errors.Join(err, d.save())
-}
-
-// renew shares exact receipt recovery between upgrade and ordinary Dream handoffs.
-func (d *dreamController) renew(ctx context.Context, p api.ConversationRuntime) error {
 	a := d.state.Attempt
-	current := p.ConversationState()
-	if current.DesiredRuntimeVersion != "" && current.RuntimeVersion != current.DesiredRuntimeVersion && a.UpgradeVersion != current.DesiredRuntimeVersion {
-		a.UpgradeVersion = current.DesiredRuntimeVersion
-		if err := d.save(); err != nil {
+	receipt, result := p.DreamResult(a.ID)
+	if receipt.Outcome == "" || receipt.Outcome == "unknown" {
+		return nil
+	}
+	if receipt.Outcome == "accepted" && (result.Status == "" || result.Status == "running" || result.Status == "inProgress" || result.Status == "started") {
+		return nil
+	}
+	a.Outcome, a.Turn, a.Done = receipt.Outcome, result.Turn, true
+	if receipt.Outcome == "accepted" && result.Status == "completed" {
+		ready, err := d.vault.DreamReady(a.ID)
+		if err != nil {
 			return err
 		}
+		current := p.ConversationState()
+		a.Ready = ready && current.Session == a.Session && current.Turn == result.Turn
 	}
-	if err := p.RenewConversation(ctx, a.ID, a.Session); err != nil && !errors.Is(err, api.ErrConversationRenewalRejected) {
-		return err
-	}
-	a.Ready = false
 	return d.save()
 }
 
-// SubmitUser is the sole user-input hook. Ordinary Dream rotates on user input;
-// a version upgrade can also rotate at the restored, idle startup boundary.
+// SubmitUser shares admission with schedule and report delivery. A legacy
+// completed handoff can rotate on this input; rejection falls back to the old
+// session, while an unknown creation stays on its original receipt.
 func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 	r.step.Lock()
 	defer r.step.Unlock()
@@ -238,8 +99,6 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 	}
 	rejected := api.Receipt{ID: in.ID, Outcome: "rejected"}
 	reject := func() (api.Receipt, error) {
-		// Dream and handoff checks may race a reconnect after the initial
-		// observation. They have not dispatched this user input yet.
 		if r.remoteRecoveryPending(in) {
 			return api.Receipt{}, api.ErrRecoveryPending
 		}
@@ -249,28 +108,55 @@ func (r *Runtime) SubmitUser(ctx context.Context, in api.Submission, files []api
 		rejected.Message = "应用正在更新，请稍后发送"
 		return reject()
 	}
-	if err := r.tickDream(ctx, false); err != nil {
-		rejected.Message = "交接状态暂不可用，请重试"
-		return reject()
+	if err := r.reconcileLegacyDream(); err != nil {
+		// A bad historical file cannot disable the current bound conversation.
+		// Retain the original receipt on disk for a later repair/restart.
+		if r.dream != nil && r.dream.state.Attempt != nil {
+			r.dream.state.Attempt.Done = true
+			r.dream.state.Attempt.Ready = false
+		}
 	}
 	if p, ok := r.engine.(api.ConversationRuntime); ok && r.dream != nil {
 		d := r.dream
 		if a := d.state.Attempt; a != nil {
-			if !p.ConversationState().Observed {
+			current := p.ConversationState()
+			if !current.Observed {
 				rejected.Message = "正在恢复对话，消息未发送，请稍后重试"
 				return reject()
 			}
+			if a.Ready && (current.Session != a.Session || current.Turn != a.Turn || current.Status != "completed") {
+				if r.handoff != nil && current.Session == a.Session {
+					_ = r.handoff.clear(a.ID)
+				}
+				a.Ready = false
+			}
 			if !a.Done {
 				if err := p.CancelDream(ctx, a.ID); err != nil {
-					rejected.Message = "正在结束上下文整理，请稍后重试"
+					rejected.Message = "正在核对旧整理请求，请稍后重试"
 					return reject()
 				}
 				a.Done, a.Ready = true, false
 			}
 			if a.Ready {
-				if err := d.renew(ctx, p); err != nil {
+				text, err := d.vault.LegacyDreamHandoff(a.ID)
+				if err != nil || r.handoff == nil {
+					rejected.Message = "旧交接尚未准备好，消息未发送，请重试"
+					return reject()
+				}
+				if err := r.handoff.save(a.ID, a.Session, text); err != nil {
+					rejected.Message = "旧交接记录保存失败，消息未发送，请重试"
+					return reject()
+				}
+				err = p.RenewConversation(ctx, a.ID, a.Session)
+				if err != nil && !errors.Is(err, api.ErrConversationRenewalRejected) {
 					rejected.Message = "新上下文尚未准备好，消息未发送，请重试"
 					return reject()
+				}
+				if errors.Is(err, api.ErrConversationRenewalRejected) {
+					if clearErr := r.handoff.clear(a.ID); clearErr != nil {
+						rejected.Message = "旧交接记录清理失败，消息未发送，请重试"
+						return reject()
+					}
 				}
 				a.Ready = false
 			}

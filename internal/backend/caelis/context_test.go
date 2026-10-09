@@ -1,6 +1,7 @@
 package caelis
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,17 +13,10 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
-	"github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
 func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
-	v, err := notebook.OpenVault(filepath.Join(t.TempDir(), "Notebook"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer v.Close()
-	handoff := filepath.Join(v.Path(), notebook.HandoffName)
-	os.WriteFile(handoff, []byte("handoff fixture"), 0600)
+	var consumed atomic.Bool
 	var posts atomic.Int32
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
@@ -37,13 +31,15 @@ func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
 		}
 		writeFixture(w, wire.ApplicationOperation{OperationId: "first-user", Outcome: "accepted", Result: &wire.CommandResult{OperationId: "first-user", Outcome: "accepted", Target: &wire.CommandTarget{TurnId: pointer("turn")}}})
 	})
-	s.tools = &api.ToolConnection{PrepareContext: v.PrepareContext, ConsumeContext: v.ConsumeContext}
+	s.tools = &api.ToolConnection{PrepareContext: func(context.Context) (api.ContextSeed, error) {
+		return api.ContextSeed{Text: "[private handoff] handoff fixture\n", HandoffDigest: "original-digest"}, nil
+	}, ConsumeContext: func(api.ContextSeed) error { consumed.Store(true); return nil }}
 	in := api.Submission{ID: "first-user", Text: "new topic"}
 	r, err := s.Submit(t.Context(), in, nil)
 	if err != nil || r.Outcome != "unknown" {
 		t.Fatal(r, err)
 	}
-	if _, err = os.Stat(handoff); err != nil {
+	if consumed.Load() {
 		t.Fatal("consumed uncertain handoff")
 	}
 	restored := New(Options{Directory: filepath.Dir(s.path)})
@@ -51,7 +47,7 @@ func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
 	if err = restored.recoverOperations(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = os.Stat(handoff); !os.IsNotExist(err) {
+	if !consumed.Load() {
 		t.Fatal("accepted handoff not consumed", err)
 	}
 	r, err = restored.Submit(t.Context(), in, nil)
