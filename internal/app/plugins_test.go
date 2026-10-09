@@ -24,7 +24,10 @@ import (
 
 type gatedPluginEngine struct {
 	*testEngine
-	inGate, applied bool
+	inGate      bool
+	applied     chan plugins.Selection
+	rejectNext  atomic.Bool
+	timeoutNext atomic.Bool
 }
 
 type inspectingPluginEngine struct {
@@ -265,9 +268,16 @@ func TestPluginIndexTracksAuthoritativeConnectedDirectory(t *testing.T) {
 	if _, err := a.PluginAction(t.Context(), "notes", "disable"); err != nil {
 		t.Fatal(err)
 	}
-	body, err = os.ReadFile(path)
-	if err != nil || string(body) != "{\"services\":[]}\n" {
-		t.Fatalf("disabled service retained: %s %v", body, err)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		body, err = os.ReadFile(path)
+		if err == nil && string(body) == "{\"services\":[]}\n" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("disabled service retained: %d bytes, %v", len(body), err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if probes.Load() != 0 {
 		t.Fatal("routine index connected to standalone MCP", probes.Load())
@@ -389,39 +399,196 @@ func TestPluginDetailIsLazyAndRevisionScoped(t *testing.T) {
 	}
 }
 
-func (e *gatedPluginEngine) WithBotPluginAdmission(mutate func(func(context.Context, plugins.Selection) error) error) error {
+func (e *gatedPluginEngine) WithBotPluginAdmission(_ context.Context, mutate func(func(context.Context, plugins.Selection) error) error) error {
+	if e.timeoutNext.Swap(false) {
+		return context.DeadlineExceeded // no callback and no native update
+	}
+	if e.rejectNext.Swap(false) {
+		return errors.New("synthetic Runtime connection failure")
+	}
 	e.inGate = true
 	defer func() { e.inGate = false }()
-	return mutate(func(context.Context, plugins.Selection) error {
+	return mutate(func(_ context.Context, selection plugins.Selection) error {
 		if !e.inGate {
 			return errors.New("plugin applied outside turn admission")
 		}
-		e.applied = true
+		if e.applied != nil {
+			e.applied <- selection.Clone()
+		}
 		return nil
 	})
+}
+
+func TestPluginProjectionRetriesOnlyPreDispatchWait(t *testing.T) {
+	e := &gatedPluginEngine{testEngine: newTestEngine(), applied: make(chan plugins.Selection, 1)}
+	e.timeoutNext.Store(true)
+	a, _ := fixtureApp(t, e, Host{})
+	a.mu.Lock()
+	a.started = true
+	a.mu.Unlock()
+	view, err := a.PluginAction(t.Context(), "markdown-work", "install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case selected := <-e.applied:
+		if selected.Revision != view.Revision || len(selected.SkillRoots) != 1 {
+			t.Fatal("automatic retry did not project the confirmed package", selected)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("pre-dispatch Runtime wait was not retried")
+	}
+}
+
+func TestPluginProjectionRecoversOnOriginalRuntimeReadyTransition(t *testing.T) {
+	requireNativeIPC(t)
+	e := &gatedPluginEngine{testEngine: newTestEngine(), applied: make(chan plugins.Selection, 1)}
+	e.rejectNext.Store(true)
+	a, _ := fixtureApp(t, e, Host{})
+	if err := a.Start(); err != nil {
+		t.Fatal(err)
+	}
+	view, err := a.PluginAction(t.Context(), "markdown-work", "install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Revision < 2 {
+		t.Fatal("installation did not confirm before Runtime recovery")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		view, err = a.PluginSnapshot(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.Items[0].Status == "failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Runtime rejection was not visible")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	e.snapshots <- api.Snapshot{Revision: 2, Connection: "ready"}
+	select {
+	case selected := <-e.applied:
+		if selected.Revision != view.Revision || len(selected.SkillRoots) != 1 {
+			t.Fatal("reconnect did not project the confirmed package", selected)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Runtime ready transition did not resume plugin projection")
+	}
 }
 func (*gatedPluginEngine) UpdateBotPlugins(context.Context, plugins.Selection) error {
 	return errors.New("direct plugin update bypassed admission")
 }
 func (*gatedPluginEngine) BotPluginHealth(context.Context) []plugins.Issue { return nil }
 
-func TestPluginActionUsesRuntimeAdmissionThroughStateConfirmation(t *testing.T) {
-	e := &gatedPluginEngine{testEngine: newTestEngine()}
+func TestPluginManagementConfirmsBeforeAutomaticRuntimeProjection(t *testing.T) {
+	e := &gatedPluginEngine{testEngine: newTestEngine(), applied: make(chan plugins.Selection, 2)}
 	a, _ := fixtureApp(t, e, Host{})
 	if _, err := a.PluginAction(t.Context(), "markdown-work", "install"); err != nil {
 		t.Fatal(err)
 	}
-	if e.applied || !a.plugins.Snapshot().Items[0].Enabled {
-		t.Fatal("pre-start installation unexpectedly entered Runtime")
+	if !a.plugins.Snapshot().Items[0].Installed || !a.plugins.Snapshot().Items[0].Enabled {
+		t.Fatal("installation was not confirmed")
+	}
+	select {
+	case <-e.applied:
+		t.Fatal("installation entered Runtime before Start")
+	default:
 	}
 	a.mu.Lock()
 	a.started = true
 	a.mu.Unlock()
-	if _, err := a.PluginAction(t.Context(), "markdown-work", "disable"); err != nil {
+	a.queuePluginReconcile()
+	select {
+	case selected := <-e.applied:
+		if len(selected.SkillRoots) != 1 {
+			t.Fatal("automatic projection omitted installed Skill")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("automatic Runtime projection did not run")
+	}
+	if _, err := a.PluginAction(t.Context(), "markdown-work", "uninstall"); err != nil {
 		t.Fatal(err)
 	}
-	if !e.applied || a.plugins.Snapshot().Items[0].Enabled {
-		t.Fatal("Runtime admission did not cover active plugin mutation")
+	select {
+	case selected := <-e.applied:
+		if len(selected.SkillRoots) != 0 {
+			t.Fatal("automatic removal retained Skill")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("automatic Runtime removal did not run")
+	}
+}
+
+func TestPluginInstallPersistsWhileRuntimeIsUnavailable(t *testing.T) {
+	// A private package is manageable independently of the resident Runtime.
+	// A production Worker can be active while this application path runs.
+	a, root := fixtureApp(t, newTestEngine(), Host{})
+	a.mu.Lock()
+	a.started = true
+	a.mu.Unlock()
+	snapshot, err := a.PluginAction(t.Context(), "github", "install")
+	if err != nil {
+		t.Fatal("package install entered Runtime admission", err)
+	}
+	installed := false
+	for _, item := range snapshot.Items {
+		if item.ID == "github" {
+			installed = item.Installed && item.Enabled && item.Connection != nil && !item.Connection.Stored
+		}
+	}
+	if !installed {
+		t.Fatal("package install required activation or a credential")
+	}
+	reopened, err := plugins.Open(filepath.Join(root, "Plugins"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Selection().Revision != snapshot.Revision || len(reopened.Selection().Servers) != 0 {
+		t.Fatal("installed bytes changed Runtime capabilities on recovery")
+	}
+	for _, item := range a.plugins.Snapshot().Items {
+		if item.ID == "github" && (!item.Installed || !item.Enabled) {
+			t.Fatal("Runtime unavailability reversed the confirmed install")
+		}
+	}
+	result, err := a.PluginAction(t.Context(), "markdown-work", "install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range result.Items {
+		if item.ID == "markdown-work" && item.Status != "pending" {
+			t.Fatal("confirmed install did not expose pending Runtime projection", item.Status)
+		}
+	}
+	if result.SyncState != "pending" {
+		t.Fatal("Runtime projection state was omitted from the management result")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		view, err := a.PluginSnapshot(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		failed := false
+		for _, item := range view.Items {
+			if item.ID == "markdown-work" {
+				failed = item.Installed && item.Status == "failed"
+			}
+		}
+		if failed && view.SyncState == "failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Runtime failure was not observable while the package stayed installed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := a.PluginAction(t.Context(), "markdown-work", "uninstall"); err != nil {
+		t.Fatal("management was blocked by failed Runtime projection", err)
 	}
 }
 
@@ -431,6 +598,7 @@ type lockOrderPluginEngine struct {
 	submitEntered  chan struct{}
 	continueSubmit chan struct{}
 	pluginEntered  chan struct{}
+	applied        chan plugins.Selection
 }
 
 func (e *lockOrderPluginEngine) Submit(ctx context.Context, _ api.Submission, _ []api.InputFile) (api.Receipt, error) {
@@ -444,24 +612,32 @@ func (e *lockOrderPluginEngine) Submit(ctx context.Context, _ api.Submission, _ 
 	return api.Receipt{}, prepare(ctx)
 }
 
-func (e *lockOrderPluginEngine) WithBotPluginAdmission(mutate func(func(context.Context, plugins.Selection) error) error) error {
-	close(e.pluginEntered)
+func (e *lockOrderPluginEngine) WithBotPluginAdmission(_ context.Context, mutate func(func(context.Context, plugins.Selection) error) error) error {
+	if e.pluginEntered != nil {
+		close(e.pluginEntered)
+	}
 	e.op.Lock()
 	defer e.op.Unlock()
-	return mutate(func(context.Context, plugins.Selection) error { return nil })
+	return mutate(func(_ context.Context, selection plugins.Selection) error {
+		if e.applied != nil {
+			e.applied <- selection.Clone()
+		}
+		return nil
+	})
 }
 func (e *lockOrderPluginEngine) UpdateBotPlugins(context.Context, plugins.Selection) error {
 	return errors.New("admission required")
 }
 func (e *lockOrderPluginEngine) BotPluginHealth(context.Context) []plugins.Issue { return nil }
 
-func TestPluginActionAndPrepareTurnUseRuntimeBeforeAppLock(t *testing.T) {
+func TestPluginInstallDoesNotWaitForCurrentTurn(t *testing.T) {
 	requireNativeIPC(t)
-	e := &lockOrderPluginEngine{testEngine: newTestEngine(), submitEntered: make(chan struct{}), continueSubmit: make(chan struct{}), pluginEntered: make(chan struct{})}
+	e := &lockOrderPluginEngine{testEngine: newTestEngine(), submitEntered: make(chan struct{}), continueSubmit: make(chan struct{}), applied: make(chan plugins.Selection, 2)}
 	a, _ := fixtureApp(t, e, Host{})
 	if err := a.Start(); err != nil {
 		t.Fatal(err)
 	}
+	e.pluginEntered = make(chan struct{})
 	submitDone, pluginDone := make(chan error, 1), make(chan error, 1)
 	go func() {
 		_, err := e.Submit(t.Context(), api.Submission{ID: "lock-order", Text: "fixture"}, nil)
@@ -469,16 +645,37 @@ func TestPluginActionAndPrepareTurnUseRuntimeBeforeAppLock(t *testing.T) {
 	}()
 	<-e.submitEntered
 	go func() { _, err := a.PluginAction(t.Context(), "markdown-work", "install"); pluginDone <- err }()
-	<-e.pluginEntered
-	close(e.continueSubmit)
-	for _, done := range []<-chan error{submitDone, pluginDone} {
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatal(err)
-			}
-		case <-time.After(3 * time.Second):
-			t.Fatal("runtime/app lock order deadlocked")
+	select {
+	case err := <-pluginDone:
+		if err != nil {
+			t.Fatal(err)
 		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("package installation waited for the active model turn")
+	}
+	if view, err := a.PluginAction(t.Context(), "markdown-work", "uninstall"); err != nil || view.SyncState != "pending" {
+		t.Fatal("uninstall waited for the active model turn", err)
+	}
+	close(e.continueSubmit)
+	select {
+	case err := <-submitDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("model turn remained blocked")
+	}
+	select {
+	case <-e.pluginEntered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Runtime reconciliation did not resume after the turn")
+	}
+	select {
+	case selection := <-e.applied:
+		if len(selection.SkillRoots) != 0 {
+			t.Fatal("queued install reintroduced an uninstalled Skill")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Runtime did not project the final package state")
 	}
 }

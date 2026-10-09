@@ -435,7 +435,7 @@ func (m *Manager) ConfigureOAuthGrant(ctx context.Context, id, state string, gra
 		return m.snapshotLocked(), errors.Join(err, m.save(old), cleanup())
 	}
 	m.state = next
-	if apply != nil {
+	if apply != nil && m.state.Installed[id].Enabled {
 		if err := apply(ctx, m.selectionLocked(next)); err != nil {
 			restore := m.save(old)
 			m.state = old

@@ -27,10 +27,10 @@ func TestReviewedInstallActivationRecoveryAndRollback(t *testing.T) {
 	if _, err = m.Mutate(ctx, "markdown-work", "install", apply); err != nil {
 		t.Fatal(err)
 	}
-	if len(applied) != 1 || len(applied[0].SkillRoots) != 1 || len(applied[0].Servers) != 0 {
-		t.Fatal(applied)
+	if len(applied) != 0 || !m.Snapshot().Items[0].Installed || !m.Snapshot().Items[0].Enabled || len(m.Selection().SkillRoots) != 1 {
+		t.Fatal("installation was not independently confirmed", applied)
 	}
-	if _, err = m.Mutate(ctx, "markdown-work", "install", apply); err != nil || len(applied) != 1 {
+	if _, err = m.Mutate(ctx, "markdown-work", "install", apply); err != nil || len(applied) != 0 {
 		t.Fatal("duplicate installation reapplied", err)
 	}
 	reopened, err := Open(root)
@@ -43,7 +43,7 @@ func TestReviewedInstallActivationRecoveryAndRollback(t *testing.T) {
 	if _, err = reopened.Mutate(ctx, "markdown-work", "disable", apply); err != nil {
 		t.Fatal(err)
 	}
-	if len(applied[1].SkillRoots) != 0 {
+	if len(applied) != 1 || len(applied[0].SkillRoots) != 0 {
 		t.Fatal("disable still projected Skill")
 	}
 	if _, err = reopened.Mutate(ctx, "markdown-work", "enable", func(context.Context, Selection) error { return errors.New("runtime rejected") }); err == nil {
@@ -66,37 +66,72 @@ func TestReviewedInstallActivationRecoveryAndRollback(t *testing.T) {
 	}
 }
 
-func TestActivationPersistenceFailureUsesFreshRollbackContext(t *testing.T) {
+func TestActivationPersistenceFailureNeverReachesRuntime(t *testing.T) {
 	root := t.TempDir()
 	m, err := Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The adapter can complete before the caller's request is cancelled. A
-	// failed state write must still restore the confirmed selection.
+	if _, err = m.Mutate(context.Background(), "markdown-work", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	// A failed candidate write must never be exposed to Runtime.
+	if err := os.Remove(filepath.Join(root, "state.json")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Mkdir(filepath.Join(root, "state.json"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var calls []Selection
-	rollbackCtxCanceled := false
-	apply := func(callCtx context.Context, selected Selection) error {
-		calls = append(calls, selected.Clone())
-		if len(calls) == 1 {
-			cancel()
-		} else if callCtx.Err() != nil {
-			rollbackCtxCanceled = true
-			return errors.New("rollback inherited cancelled request")
+	called := false
+	_, err = m.Mutate(context.Background(), "markdown-work", "disable", func(context.Context, Selection) error { called = true; return nil })
+	if err == nil || called || !m.Snapshot().Items[0].Enabled {
+		t.Fatal("failed state write exposed an unconfirmed selection", err)
+	}
+}
+
+func TestActivationPublishesDiskGenerationBeforeReloadAndRestoresOnFailure(t *testing.T) {
+	root := t.TempDir()
+	m, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Mutate(t.Context(), "markdown-work", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Mutate(t.Context(), "markdown-work", "disable", nil); err != nil {
+		t.Fatal(err)
+	}
+	apply := func(_ context.Context, selected Selection) error {
+		fromDisk, err := Open(root)
+		if err != nil {
+			return err
+		}
+		if len(selected.SkillRoots) != 1 || len(fromDisk.Selection().SkillRoots) != 1 || fromDisk.Selection().Revision != selected.Revision {
+			return errors.New("reload could not reopen the candidate generation")
+		}
+		return errors.New("synthetic Runtime rejection")
+	}
+	if _, err = m.Mutate(t.Context(), "markdown-work", "enable", apply); err == nil {
+		t.Fatal("Runtime rejection was ignored")
+	}
+	fromDisk, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromDisk.Snapshot().Items[0].Enabled || m.Snapshot().Items[0].Enabled {
+		t.Fatal("rejected activation remained confirmed")
+	}
+	if _, err = m.Mutate(t.Context(), "markdown-work", "enable", func(_ context.Context, selected Selection) error {
+		fromDisk, err := Open(root)
+		if err != nil {
+			return err
+		}
+		if len(selected.SkillRoots) != 1 || len(fromDisk.Selection().SkillRoots) != 1 {
+			return errors.New("successful activation was not visible to reload")
 		}
 		return nil
-	}
-	_, err = m.Mutate(ctx, "markdown-work", "install", apply)
-	if err == nil || rollbackCtxCanceled {
-		t.Fatal("persistence failure did not use a fresh rollback context", err)
-	}
-	if len(calls) != 2 || len(calls[0].SkillRoots) != 1 || len(calls[1].SkillRoots) != 0 || m.Snapshot().Items[0].Installed {
-		t.Fatal("failed persistence retained the new selection", calls)
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

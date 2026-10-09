@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
@@ -269,8 +270,10 @@ func (s *Session) UpdateBotPlugins(ctx context.Context, selection plugins.Select
 	return s.updateBotPluginsLocked(ctx, selection)
 }
 
-func (s *Session) WithBotPluginAdmission(mutate func(func(context.Context, plugins.Selection) error) error) error {
-	s.op.Lock()
+func (s *Session) WithBotPluginAdmission(ctx context.Context, mutate func(func(context.Context, plugins.Selection) error) error) error {
+	if err := lockwait.Lock(ctx, &s.op); err != nil {
+		return err
+	}
 	defer s.op.Unlock()
 	return mutate(s.updateBotPluginsLocked)
 }
@@ -287,9 +290,9 @@ func (s *Session) updateBotPluginsLocked(ctx context.Context, selection plugins.
 		s.mu.Unlock()
 		return errors.New("Bot is disconnected; reconnect and reconcile the original thread before changing plugins")
 	}
-	if s.client != nil && !s.maintenanceIdle() {
+	if s.binding.Pending != nil || s.state.Phase == "unknown" {
 		s.mu.Unlock()
-		return errors.New("Bot is working; retry plugin change after the current turn")
+		return errors.New("original Bot request is unresolved; reconnect and read its receipt before changing active plugins")
 	}
 	old := s.opts.BotTools.Clone()
 	next := old.Clone()

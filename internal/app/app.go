@@ -51,38 +51,43 @@ type Host struct {
 }
 
 type Application struct {
-	localWork         *localWorkers
-	machines          *machines.Service
-	taskPreferences   *tasks.PreferencesStore
-	setup             *runtimeSetup
-	Backend           *backend.Service
-	Telegram          *telegram.Bridge
-	engine            api.Engine
-	host              Host
-	root              string
-	mu                sync.Mutex
-	pluginAdmission   sync.Mutex
-	updateMu          sync.Mutex
-	started, closed   bool
-	updatePrepared    bool
-	cancel            context.CancelFunc
-	startupCancel     context.CancelFunc
-	dreamReady        bool
-	careReady         bool
-	workers           sync.WaitGroup
-	companion         *bot.Runtime
-	bridge            *bot.Bridge
-	tasks             *tasks.Manager
-	personal          *botmemory.Store
-	notebook          *notebook.Vault
-	skillPath         string
-	initialization    *bot.Initializer
-	plugins           *plugins.Manager
-	pluginDetailMu    sync.Mutex
-	pluginIndexMu     sync.Mutex
-	pluginDetailCache map[string]pluginDetailCacheEntry
-	closeOnce         sync.Once
-	closeErr          error
+	localWork          *localWorkers
+	machines           *machines.Service
+	taskPreferences    *tasks.PreferencesStore
+	setup              *runtimeSetup
+	Backend            *backend.Service
+	Telegram           *telegram.Bridge
+	engine             api.Engine
+	host               Host
+	root               string
+	mu                 sync.Mutex
+	pluginAdmission    sync.Mutex
+	pluginSyncMu       sync.Mutex
+	pluginSyncRunning  bool
+	pluginSyncPending  bool
+	pluginSyncRevision uint64
+	pluginSyncError    bool
+	updateMu           sync.Mutex
+	started, closed    bool
+	updatePrepared     bool
+	cancel             context.CancelFunc
+	startupCancel      context.CancelFunc
+	dreamReady         bool
+	careReady          bool
+	workers            sync.WaitGroup
+	companion          *bot.Runtime
+	bridge             *bot.Bridge
+	tasks              *tasks.Manager
+	personal           *botmemory.Store
+	notebook           *notebook.Vault
+	skillPath          string
+	initialization     *bot.Initializer
+	plugins            *plugins.Manager
+	pluginDetailMu     sync.Mutex
+	pluginIndexMu      sync.Mutex
+	pluginDetailCache  map[string]pluginDetailCacheEntry
+	closeOnce          sync.Once
+	closeErr           error
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -493,6 +498,11 @@ func (a *Application) Start() error {
 		}
 		return err
 	}
+	if a.plugins != nil {
+		a.pluginSyncMu.Lock()
+		a.pluginSyncRevision = a.plugins.Selection().Revision
+		a.pluginSyncMu.Unlock()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)
@@ -540,11 +550,17 @@ func (a *Application) Start() error {
 			}
 		}
 	}()
-	go func() { defer a.workers.Done(); _ = a.Backend.Connect(ctx) }()
+	go func() {
+		defer a.workers.Done()
+		if err := a.Backend.Connect(ctx); err == nil {
+			a.queuePluginReconcile()
+		}
+	}()
 	go func() {
 		defer a.workers.Done()
 		observer := backend.NotificationObserver{Notify: a.host.Notify, Dismiss: a.host.DismissNotification, Locale: a.host.Locale}
 		var revision uint64
+		var priorConnection string
 		for {
 			snapshot, err := a.engine.(api.SnapshotObserver).WaitSnapshot(ctx, revision)
 			if ctx.Err() != nil {
@@ -562,6 +578,12 @@ func (a *Application) Start() error {
 				continue
 			}
 			revision = snapshot.Revision
+			if snapshot.Connection == "ready" && priorConnection != "ready" {
+				// Manual and automatic reconnects both reconcile the latest
+				// confirmed plugin state. No model/tool request is replayed.
+				a.queuePluginReconcile()
+			}
+			priorConnection = snapshot.Connection
 			a.Backend.ObserveChat(snapshot)
 			observer.Observe(snapshot)
 			if a.host.Observe != nil {

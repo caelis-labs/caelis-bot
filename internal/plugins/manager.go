@@ -18,7 +18,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
@@ -58,6 +57,7 @@ type ConnectionView struct {
 	TrustCA bool   `json:"trustCA,omitempty"`
 	HasCA   bool   `json:"hasCA,omitempty"`
 }
+
 type Item struct {
 	ID           string          `json:"id"`
 	Title        string          `json:"title"`
@@ -77,8 +77,9 @@ type Item struct {
 	Connection   *ConnectionView `json:"connection,omitempty"`
 }
 type Snapshot struct {
-	Revision uint64 `json:"revision"`
-	Items    []Item `json:"items"`
+	Revision  uint64 `json:"revision"`
+	Items     []Item `json:"items"`
+	SyncState string `json:"syncState,omitempty"`
 }
 type SelectedServer struct {
 	PackageID, Name, Root, Data string
@@ -377,7 +378,7 @@ func (m *Manager) Snapshot() Snapshot {
 		if item.Connection != nil && item.Connection.State == "unsupported" {
 			item.Status = "unavailable"
 		}
-		if item.Enabled && item.Connection != nil && item.Connection.State != "configured" && item.Connection.State != "unsupported" && !(item.Connection.State == "pending" && item.Connection.Stored) {
+		if item.Enabled && item.Status != "update_available" && item.Connection != nil && item.Connection.State != "configured" && item.Connection.State != "unsupported" && !(item.Connection.State == "pending" && item.Connection.Stored) {
 			item.Status = "needs_connection"
 		}
 		out.Items = append(out.Items, item)
@@ -438,9 +439,10 @@ func (m *Manager) save(next state) error {
 	return localstate.WriteConfirmed(filepath.Join(m.root, "state.json"), next)
 }
 
-// Mutate serializes installation and activation. The adapter applies the whole
-// next selection before the Bot state becomes confirmed. Its own application
-// receipt fence handles any uncertain native update without a second dispatch.
+// Mutate serializes confirmed package state. Installing also selects the
+// reviewed package for automatic Runtime assembly; the host performs that
+// assembly after the store commit. Legacy enable/disable actions remain for
+// older callers and saved state, but are not part of the Settings flow.
 func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(context.Context, Selection) error) (Snapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -451,15 +453,38 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 	current, has := m.state.Installed[id]
 	currentConnection := m.state.Connections[id]
 	next := cloneState(m.state)
+	runtimeChange := false
 	switch action {
 	case "install":
 		if e.Connection != nil && e.Connection.Kind == "oauth" && !oauthNativeSupported {
 			return m.snapshotLocked(), errors.New("OAuth is unsupported on this platform")
 		}
-		if has && current.Version == e.Version && current.Digest == digest(e) {
+		if has {
+			if current.Version != e.Version || current.Digest != digest(e) {
+				return m.snapshotLocked(), errors.New("plugin is already installed; use update")
+			}
 			if _, err := m.readInstalledAt(e, current.Root); err != nil {
 				return m.snapshotLocked(), fmt.Errorf("installed plugin verification failed: %w", err)
 			}
+			if current.Enabled {
+				return m.snapshotLocked(), nil
+			}
+			current.Enabled = true
+			next.Installed[id] = current
+			break
+		}
+		rootName, err := m.stage(e)
+		if err != nil {
+			return m.snapshotLocked(), err
+		}
+		// Installation confirms the desired package immediately. Runtime
+		// projection is reconciled by the Bot host after this store commit.
+		next.Installed[id] = installed{Version: e.Version, Digest: digest(e), Root: rootName, Enabled: true}
+	case "update":
+		if !has {
+			return m.snapshotLocked(), errors.New("plugin is not installed")
+		}
+		if current.Version == e.Version && current.Digest == digest(e) {
 			return m.snapshotLocked(), nil
 		}
 		rootName, err := m.stage(e)
@@ -476,6 +501,7 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 		}
 		current.Enabled = true
 		next.Installed[id] = current
+		runtimeChange = true
 	case "disable":
 		if !has {
 			return m.snapshotLocked(), nil
@@ -485,11 +511,13 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 		}
 		current.Enabled = false
 		next.Installed[id] = current
+		runtimeChange = true
 	case "uninstall":
 		if !has {
 			return m.snapshotLocked(), nil
 		}
 		delete(next.Installed, id)
+		runtimeChange = current.Enabled
 		if next.Connections[id].Configured {
 			next.Connections[id] = connectionRecord{Revision: next.Revision + 1}
 		}
@@ -503,11 +531,6 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 			return m.snapshotLocked(), errors.New(issue.Message)
 		}
 	}
-	if apply != nil {
-		if err := apply(ctx, selection); err != nil {
-			return m.snapshotLocked(), err
-		}
-	}
 	if err := m.save(next); err != nil {
 		// A write may have reached rename before a later durability error.
 		// Restore the last confirmed document before releasing turn admission.
@@ -516,15 +539,20 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 		if stateErr != nil {
 			failures = append(failures, fmt.Errorf("plugin state restoration failed: %w", stateErr))
 		}
-		if apply != nil {
-			recovery, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			rollbackErr := apply(recovery, m.selectionLocked(m.state))
-			cancel()
-			if rollbackErr != nil {
-				failures = append(failures, fmt.Errorf("plugin activation rollback failed: %w", rollbackErr))
-			}
-		}
 		return m.snapshotLocked(), errors.Join(failures...)
+	}
+	// Codex may prewarm an MCP process during reload. The launcher reopens the
+	// on-disk generation, so publish the candidate before asking Runtime to
+	// reload. Readers of this Manager stay blocked on m.mu until confirmation.
+	if apply != nil && runtimeChange {
+		if err := apply(ctx, selection); err != nil {
+			// The adapter owns Runtime rollback and unknown receipts. Never issue
+			// another update under a fresh ID here.
+			if restoreErr := m.save(m.state); restoreErr != nil {
+				return m.snapshotLocked(), errors.Join(err, fmt.Errorf("plugin state restoration failed: %w", restoreErr))
+			}
+			return m.snapshotLocked(), err
+		}
 	}
 	m.state = next
 	if action == "disable" || action == "uninstall" {

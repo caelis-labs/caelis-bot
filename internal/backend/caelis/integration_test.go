@@ -333,7 +333,7 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		mutatePlugin := func(action string) error {
-			return s.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
+			return s.WithBotPluginAdmission(ctx, func(apply func(context.Context, plugins.Selection) error) error {
 				_, err := manager.Mutate(ctx, "markdown-work", action, apply)
 				return err
 			})

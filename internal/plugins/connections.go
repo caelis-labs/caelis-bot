@@ -29,10 +29,10 @@ func validCredential(value string) bool {
 }
 
 // ConfigureConnection saves a write-only credential in Bot's native secret
-// store and publishes a new activation revision. The caller holds Runtime
-// admission through the state write and apply, as for package actions. A
-// Runtime reload may start the new relay before apply returns, so the relay's
-// on-disk revision must be published before that reload begins.
+// store. The host normally confirms this state first and assembles Runtime
+// capabilities in the background. Legacy synchronous callers may provide
+// apply; the on-disk revision must precede reload because Codex can prewarm
+// the new relay before apply returns.
 func (m *Manager) ConfigureConnection(ctx context.Context, id, secret, caPEM string, clear bool, apply func(context.Context, Selection) error) (Snapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -125,7 +125,7 @@ func (m *Manager) ConfigureConnection(ctx context.Context, id, secret, caPEM str
 	if clear {
 		m.cancelOAuthLocked(id)
 	}
-	if apply != nil {
+	if apply != nil && m.state.Installed[id].Enabled {
 		if err := apply(ctx, m.selectionLocked(next)); err != nil {
 			// The adapter owns any Runtime rollback and uncertain operation
 			// receipt. Do not issue another update under a new operation ID.

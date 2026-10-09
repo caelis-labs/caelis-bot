@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
+	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 )
 
@@ -106,8 +107,10 @@ func (s *Session) UpdateBotPlugins(ctx context.Context, selection plugins.Select
 	return s.updateBotPluginsLocked(ctx, selection)
 }
 
-func (s *Session) WithBotPluginAdmission(mutate func(func(context.Context, plugins.Selection) error) error) error {
-	s.step.Lock()
+func (s *Session) WithBotPluginAdmission(ctx context.Context, mutate func(func(context.Context, plugins.Selection) error) error) error {
+	if err := lockwait.Lock(ctx, &s.step); err != nil {
+		return err
+	}
 	defer s.step.Unlock()
 	return mutate(s.updateBotPluginsLocked)
 }

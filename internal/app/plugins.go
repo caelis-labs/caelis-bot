@@ -65,6 +65,19 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 	if !selected {
 		return plugins.ServerDetail{State: "not_configured", Tools: []plugins.Tool{}}, nil
 	}
+	a.mu.Lock()
+	started := a.started
+	a.mu.Unlock()
+	a.pluginSyncMu.Lock()
+	unsynced := started && snapshot.Revision != a.pluginSyncRevision
+	failed := a.pluginSyncError && !a.pluginSyncRunning
+	a.pluginSyncMu.Unlock()
+	if unsynced {
+		if failed {
+			return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, nil
+		}
+		return plugins.ServerDetail{State: "pending", Tools: []plugins.Tool{}}, nil
+	}
 	inspector, hasInspector := a.engine.(api.PluginInspector)
 	var generation uint64
 	if hasInspector {
@@ -192,47 +205,63 @@ func (a *Application) PluginSnapshot(ctx context.Context) (plugins.Snapshot, err
 			}
 		}
 	}
-	return snapshot, nil
+	return a.pluginDesiredView(snapshot), nil
+}
+
+func (a *Application) pluginDesiredView(snapshot plugins.Snapshot) plugins.Snapshot {
+	a.mu.Lock()
+	started := a.started
+	a.mu.Unlock()
+	a.pluginSyncMu.Lock()
+	unsynced := started && snapshot.Revision != a.pluginSyncRevision
+	running, failed := a.pluginSyncRunning, a.pluginSyncError
+	a.pluginSyncMu.Unlock()
+	if unsynced {
+		if failed && !running {
+			snapshot.SyncState = "failed"
+		} else {
+			snapshot.SyncState = "pending"
+		}
+		for i := range snapshot.Items {
+			item := &snapshot.Items[i]
+			if !item.Installed || item.Status == "needs_connection" || item.Status == "unavailable" {
+				continue
+			}
+			if failed && !running {
+				item.Status = "failed"
+				item.Issues = append(item.Issues, plugins.Issue{Component: "runtime", Name: item.ID, Message: "Plugin Runtime update needs recovery"})
+			} else {
+				item.Status = "pending"
+			}
+		}
+	}
+	return snapshot
 }
 func (a *Application) PluginAction(ctx context.Context, id, action string) (plugins.Snapshot, error) {
 	if a.plugins == nil {
 		return plugins.Snapshot{}, errors.New("plugin store unavailable")
 	}
-	adapter, ok := a.engine.(api.PluginConfigurator)
-	if !ok {
-		return plugins.Snapshot{}, errors.New("runtime does not support Bot plugins")
+	a.mu.Lock()
+	closed := a.closed
+	a.mu.Unlock()
+	if closed {
+		return plugins.Snapshot{}, errors.New("Bot has stopped")
 	}
-	a.pluginAdmission.Lock()
-	defer a.pluginAdmission.Unlock()
-	mutationErr := adapter.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
-		// Runtime admission is acquired before the application lock, just as it
-		// is for PrepareTurn. Keep admission through the private store commit.
-		a.mu.Lock()
-		started, closed := a.started, a.closed
-		a.mu.Unlock()
-		if closed {
-			return errors.New("Bot has stopped")
-		}
-		if !started {
-			apply = nil
-		}
-		_, err := a.plugins.Mutate(ctx, id, action, apply)
-		return err
-	})
-	if mutationErr != nil {
-		if syncErr := a.syncPluginIndex(ctx); syncErr != nil && a.host.ReportError != nil {
-			a.host.ReportError(syncErr)
-		}
-		snapshot, _ := a.PluginSnapshot(ctx)
-		return snapshot, mutationErr
+	// Package management commits independently of the model, Worker, and
+	// Runtime. Reconciliation is automatic and cannot turn a confirmed install
+	// into an unknown install receipt.
+	snapshot, err := a.plugins.Mutate(ctx, id, action, nil)
+	if err != nil {
+		return snapshot, err
 	}
 	a.pluginDetailMu.Lock()
 	a.pluginDetailCache = nil
 	a.pluginDetailMu.Unlock()
-	if err := a.syncPluginIndex(ctx); err != nil && a.host.ReportError != nil {
-		a.host.ReportError(err)
+	if action == "uninstall" || action == "disable" {
+		a.queuePluginIndex()
 	}
-	return a.PluginSnapshot(ctx)
+	a.queuePluginReconcile()
+	return a.pluginDesiredView(snapshot), nil
 }
 
 // PluginConnection is write-only at the desktop boundary. The credential
@@ -241,74 +270,49 @@ func (a *Application) PluginConnection(ctx context.Context, id, secret, caPEM st
 	if a.plugins == nil {
 		return plugins.Snapshot{}, errors.New("plugin store unavailable")
 	}
-	adapter, ok := a.engine.(api.PluginConfigurator)
-	if !ok {
-		return plugins.Snapshot{}, errors.New("runtime does not support Bot plugins")
+	a.mu.Lock()
+	closed := a.closed
+	a.mu.Unlock()
+	if closed {
+		return plugins.Snapshot{}, errors.New("Bot has stopped")
 	}
-	a.pluginAdmission.Lock()
-	defer a.pluginAdmission.Unlock()
-	err := adapter.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
-		a.mu.Lock()
-		started, closed := a.started, a.closed
-		a.mu.Unlock()
-		if closed {
-			return errors.New("Bot has stopped")
-		}
-		if !started {
-			apply = nil
-		}
-		_, e := a.plugins.ConfigureConnection(ctx, id, secret, caPEM, clear, apply)
-		return e
-	})
+	snapshot, err := a.plugins.ConfigureConnection(ctx, id, secret, caPEM, clear, nil)
 	if err != nil {
-		if syncErr := a.syncPluginIndex(ctx); syncErr != nil && a.host.ReportError != nil {
-			a.host.ReportError(syncErr)
-		}
-		snapshot, _ := a.PluginSnapshot(ctx)
 		return snapshot, err
 	}
 	a.pluginDetailMu.Lock()
 	a.pluginDetailCache = nil
 	a.pluginDetailMu.Unlock()
-	if err := a.syncPluginIndex(ctx); err != nil && a.host.ReportError != nil {
-		a.host.ReportError(err)
+	if clear {
+		a.queuePluginIndex()
 	}
-	return a.PluginSnapshot(ctx)
+	a.queuePluginReconcile()
+	return a.pluginDesiredView(snapshot), nil
 }
 
 func (a *Application) PluginOAuthStart(ctx context.Context, id string) (plugins.Snapshot, error) {
 	if a.plugins == nil {
 		return plugins.Snapshot{}, errors.New("plugin store unavailable")
 	}
-	if _, ok := a.engine.(api.PluginConfigurator); !ok {
-		return plugins.Snapshot{}, errors.New("runtime does not support Bot plugins")
+	a.mu.Lock()
+	closed := a.closed
+	a.mu.Unlock()
+	if closed {
+		return plugins.Snapshot{}, errors.New("Bot has stopped")
 	}
 	return a.plugins.BeginOAuth(ctx, id, a.host.OpenURL, func(flowCtx context.Context, pluginID, state string, grant plugins.OAuthGrant) error {
-		adapter := a.engine.(api.PluginConfigurator)
-		a.pluginAdmission.Lock()
-		defer a.pluginAdmission.Unlock()
-		err := adapter.WithBotPluginAdmission(func(apply func(context.Context, plugins.Selection) error) error {
-			a.mu.Lock()
-			started, closed := a.started, a.closed
-			a.mu.Unlock()
-			if closed {
-				return errors.New("Bot has stopped")
-			}
-			if !started {
-				apply = nil
-			}
-			_, commitErr := a.plugins.ConfigureOAuthGrant(flowCtx, pluginID, state, grant, apply)
-			return commitErr
-		})
+		a.mu.Lock()
+		closed := a.closed
+		a.mu.Unlock()
+		if closed {
+			return errors.New("Bot has stopped")
+		}
+		_, err := a.plugins.ConfigureOAuthGrant(flowCtx, pluginID, state, grant, nil)
 		if err == nil {
 			a.pluginDetailMu.Lock()
 			a.pluginDetailCache = nil
 			a.pluginDetailMu.Unlock()
-			indexCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if syncErr := a.syncPluginIndex(indexCtx); syncErr != nil && a.host.ReportError != nil {
-				a.host.ReportError(syncErr)
-			}
+			a.queuePluginReconcile()
 		}
 		return err
 	})

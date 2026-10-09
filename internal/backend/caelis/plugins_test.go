@@ -145,7 +145,7 @@ func TestPluginTransactionHoldsCoreTurnAdmission(t *testing.T) {
 	s := New(Options{Directory: t.TempDir()})
 	entered, release, transactionDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
-		_ = s.WithBotPluginAdmission(func(func(context.Context, plugins.Selection) error) error {
+		_ = s.WithBotPluginAdmission(context.Background(), func(func(context.Context, plugins.Selection) error) error {
 			close(entered)
 			<-release
 			return nil
@@ -177,6 +177,30 @@ func TestPluginTransactionHoldsCoreTurnAdmission(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Core turn did not resume after plugin transaction")
 	}
+}
+
+func TestPluginProjectionWaitCancelsBehindCoreTurn(t *testing.T) {
+	s := New(Options{Directory: t.TempDir()})
+	s.step.Lock()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- s.WithBotPluginAdmission(ctx, func(func(context.Context, plugins.Selection) error) error {
+			return nil
+		})
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			s.step.Unlock()
+			t.Fatal("expired projection entered the Core turn lock")
+		}
+	case <-time.After(time.Second):
+		s.step.Unlock()
+		t.Fatal("expired projection remained blocked behind a Core turn")
+	}
+	s.step.Unlock()
 }
 
 func TestPublicCorePluginProjectionKeepsPortableEnvironmentPrivate(t *testing.T) {
