@@ -78,6 +78,11 @@ click Try connecting again; do not keep reconnecting competing clients.
   diagnose connectivity.
 - An uncertain delivery is not permission to repeat it. Inspect the original
   message on the Mac and Telegram before deciding whether to send anything again.
+- If a completed reply is visible on the Mac but missing in Telegram, keep the
+  original work result. An app update does not automatically resend older
+  rejected or uncertain Telegram deliveries. Help the user read that reply on
+  the Mac; continue the conversation in Telegram with a new user message only
+  when they choose to do so. Do not repeat the original work to repair the chat.
 - Pause retains the saved pairing and token. Remove connection clears the pairing
   and deletes this app's saved token after an explicit confirmation. It does not
   delete the Telegram Bot.
