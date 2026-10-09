@@ -24,6 +24,23 @@ func TestPluginServerWithoutResidentThreadIsNotConnectingForever(t *testing.T) {
 	}
 }
 
+func TestPluginRecoveryFenceTracksOriginalCodexRequest(t *testing.T) {
+	s := NewSession(SessionOptions{Directory: t.TempDir()})
+	s.mu.Lock()
+	s.state.Connection = "ready"
+	s.binding.Pending = &pendingSubmission{ID: "original-request"}
+	s.mu.Unlock()
+	if !s.BotPluginRecoveryPending() {
+		t.Fatal("ready owner hid unresolved original request")
+	}
+	s.mu.Lock()
+	s.binding.Pending = nil // original receipt was observed by the owner
+	s.mu.Unlock()
+	if s.BotPluginRecoveryPending() {
+		t.Fatal("resolved original request kept plugin recovery fenced")
+	}
+}
+
 func TestCodexRuntimeDirectoryKeepsDescriptionsOnlyWhenConnected(t *testing.T) {
 	s, fixture := sessionPair(t, "hold")
 	name := plugins.RuntimeName("notes", "search")

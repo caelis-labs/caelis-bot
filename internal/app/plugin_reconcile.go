@@ -53,6 +53,33 @@ func (a *Application) queuePluginReconcile() {
 	go a.reconcilePlugins()
 }
 
+func (a *Application) observePluginReadiness(connection string, priorConnection *string, priorRecoveryPending *bool) {
+	pending := false
+	if recovery, ok := a.engine.(interface{ BotPluginRecoveryPending() bool }); ok {
+		pending = recovery.BotPluginRecoveryPending()
+	}
+	if connection == "ready" && (*priorConnection != "ready" || *priorRecoveryPending && !pending) {
+		// Ready owners can resolve the original receipt without disconnecting.
+		// The adapter retains the unknown-operation fence until readback ends.
+		a.queuePluginReconcile()
+	}
+	*priorConnection, *priorRecoveryPending = connection, pending
+}
+
+// A new management or recovery signal may arrive while the previous Runtime
+// attempt is finishing. Consume only that queued signal; an unresolved native
+// receipt is still fenced by the adapter and is never redispatched here.
+func (a *Application) finishFailedPluginReconcile() bool {
+	a.pluginSyncMu.Lock()
+	defer a.pluginSyncMu.Unlock()
+	a.pluginSyncError = true
+	if a.pluginSyncPending {
+		return true
+	}
+	a.pluginSyncRunning = false
+	return false
+}
+
 func (a *Application) reconcilePlugins() {
 	defer a.workers.Done()
 	for {
@@ -74,10 +101,9 @@ func (a *Application) reconcilePlugins() {
 		}
 		adapter, ok := a.engine.(api.PluginConfigurator)
 		if !ok {
-			a.pluginSyncMu.Lock()
-			a.pluginSyncError = true
-			a.pluginSyncRunning = false
-			a.pluginSyncMu.Unlock()
+			if a.finishFailedPluginReconcile() {
+				continue
+			}
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -119,10 +145,9 @@ func (a *Application) reconcilePlugins() {
 		if err != nil {
 			// An unknown native result retains its original receipt in the
 			// adapter. No automatic redispatch follows this error.
-			a.pluginSyncMu.Lock()
-			a.pluginSyncError = true
-			a.pluginSyncRunning = false
-			a.pluginSyncMu.Unlock()
+			if a.finishFailedPluginReconcile() {
+				continue
+			}
 			return
 		}
 		latestRevision := a.plugins.Selection().Revision
@@ -133,6 +158,9 @@ func (a *Application) reconcilePlugins() {
 			a.pluginSyncPending = true
 		}
 		a.pluginSyncMu.Unlock()
+		if cleanupErr := a.plugins.ConfirmOAuthProjection(projectedRevision); cleanupErr != nil && a.host.ReportError != nil {
+			a.host.ReportError(cleanupErr)
+		}
 		a.pluginDetailMu.Lock()
 		a.pluginDetailCache = nil
 		a.pluginDetailMu.Unlock()

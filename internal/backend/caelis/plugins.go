@@ -30,6 +30,24 @@ func (s *Session) pluginConfigurationUnknownLocked() bool {
 	return false
 }
 
+// BotPluginRecoveryPending is a read-only signal for the host. It becomes
+// clear only after the original configuration receipt and its public readback
+// have been saved; it never submits another configuration operation.
+func (s *Session) BotPluginRecoveryPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sid := s.state.Session.SessionId
+	for op, record := range s.state.Typed {
+		if !strings.HasPrefix(op, "plugin-") || record.Path != "/application/sessions/"+idPath(sid)+"/configuration" {
+			continue
+		}
+		if record.Outcome == "unknown" || record.Outcome == "committed" && s.state.Configurations[sid].Revision == "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Session) pluginConfigurationUnconfirmedLocked() bool {
 	sid := s.state.Session.SessionId
 	seen := false

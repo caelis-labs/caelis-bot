@@ -20,6 +20,14 @@ import (
 
 const projectMarker = "# Managed by Caelis Bot. Bot workspace only.\n"
 
+// The host observes this read-only fence to resume automatic plugin
+// projection after the original resident request is reconciled in place.
+func (s *Session) BotPluginRecoveryPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.binding.Pending != nil || s.state.Phase == "unknown"
+}
+
 var projectLinkName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 
 func ensureProjectDir(path string) error {

@@ -335,6 +335,9 @@ func TestPluginReceiptRecoveryReadsOriginalIDAndChecksRuntimeSelection(t *testin
 	if op == "" || s.state.Typed[op].Outcome != "unknown" {
 		t.Fatal("original operation was not journaled", op)
 	}
+	if !s.BotPluginRecoveryPending() {
+		t.Fatal("unknown original configuration was not fenced")
+	}
 	s.connected = true // The public Connect path also restores this flag.
 	if s.Snapshot().CanSend {
 		t.Fatal("reconnect reopened sending before receipt recovery")
@@ -347,8 +350,15 @@ func TestPluginReceiptRecoveryReadsOriginalIDAndChecksRuntimeSelection(t *testin
 	if err := s.recoverConfigurations(t.Context()); err == nil || s.state.Typed[op].Outcome != "committed" || s.Snapshot().CanSend {
 		t.Fatal("committed receipt without configuration readback admitted work", err)
 	}
+	if !s.BotPluginRecoveryPending() {
+		t.Fatal("committed receipt without readback cleared recovery fence")
+	}
+	beforeReadback := s.Snapshot().Revision
 	if err := s.recoverConfigurations(t.Context()); err != nil {
 		t.Fatal("committed receipt readback did not retry", err)
+	}
+	if s.BotPluginRecoveryPending() || s.Snapshot().Revision <= beforeReadback {
+		t.Fatal("original receipt readback did not wake ready host observer")
 	}
 	if posts.Load() != 1 || s.state.Typed[op].Outcome != "committed" || s.Snapshot().CanSend {
 		t.Fatal("resolved receipt bypassed private selection confirmation", posts.Load(), s.state.Typed[op].Outcome)

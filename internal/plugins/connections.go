@@ -137,8 +137,8 @@ func (m *Manager) ConfigureConnection(ctx context.Context, id, secret, caPEM str
 			return m.snapshotLocked(), errors.Join(err, restoreErr, removeNew())
 		}
 	}
-	// Old workers keep the credential they loaded at process start. Revoking the
-	// old Keychain item prevents a stale profile from starting a new process.
+	// API-key workers load credentials at process start. Explicit clear revokes
+	// OAuth grants too; replacement grants use ConfirmOAuthProjection instead.
 	if current.Configured {
 		if e.Connection.Kind == "oauth" {
 			_ = m.revokeOAuthKey(id, current.Revision)
@@ -147,6 +147,11 @@ func (m *Manager) ConfigureConnection(ctx context.Context, id, secret, caPEM str
 		}
 		if current.HasCA {
 			_ = m.secrets.Delete(secretKey(m.root, id, current.Revision) + "-ca")
+		}
+	}
+	if clear {
+		for _, revision := range current.RetiredOAuth {
+			_ = m.revokeOAuthKey(id, revision)
 		}
 	}
 	return m.snapshotLocked(), nil

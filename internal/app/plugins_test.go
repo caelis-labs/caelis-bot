@@ -440,6 +440,184 @@ func TestPluginProjectionRetriesOnlyPreDispatchWait(t *testing.T) {
 	}
 }
 
+type delayedFailurePluginEngine struct {
+	*gatedPluginEngine
+	entered  chan struct{}
+	release  chan struct{}
+	attempts atomic.Int32
+}
+
+func (e *delayedFailurePluginEngine) WithBotPluginAdmission(ctx context.Context, mutate func(func(context.Context, plugins.Selection) error) error) error {
+	if e.attempts.Add(1) == 1 {
+		close(e.entered)
+		<-e.release
+		return errors.New("first projection failed")
+	}
+	return e.gatedPluginEngine.WithBotPluginAdmission(ctx, mutate)
+}
+
+func TestPluginProjectionConsumesRecoveryQueuedDuringFailedAttempt(t *testing.T) {
+	e := &delayedFailurePluginEngine{gatedPluginEngine: &gatedPluginEngine{testEngine: newTestEngine(), applied: make(chan plugins.Selection, 1)}, entered: make(chan struct{}), release: make(chan struct{})}
+	a, _ := fixtureApp(t, e, Host{})
+	a.mu.Lock()
+	a.started = true
+	a.mu.Unlock()
+	if _, err := a.PluginAction(t.Context(), "markdown-work", "install"); err != nil {
+		t.Fatal(err)
+	}
+	<-e.entered
+	a.queuePluginReconcile() // A new recovery signal arrives before failure cleanup.
+	close(e.release)
+	select {
+	case selection := <-e.applied:
+		if len(selection.SkillRoots) != 1 || e.attempts.Load() != 2 {
+			t.Fatal("queued recovery was not consumed exactly once", selection, e.attempts.Load())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("failed projection dropped the queued recovery signal")
+	}
+}
+
+type recoveringPluginEngine struct {
+	*gatedPluginEngine
+	pending atomic.Bool
+}
+
+func (e *recoveringPluginEngine) BotPluginRecoveryPending() bool { return e.pending.Load() }
+
+func TestPluginProjectionResumesWhenOriginalReceiptResolvesOnReadyOwner(t *testing.T) {
+	e := &recoveringPluginEngine{gatedPluginEngine: &gatedPluginEngine{testEngine: newTestEngine(), applied: make(chan plugins.Selection, 1)}}
+	a, _ := fixtureApp(t, e, Host{})
+	if _, err := a.plugins.Mutate(t.Context(), "markdown-work", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	a.started = true
+	a.mu.Unlock()
+	e.pending.Store(true)
+	e.rejectNext.Store(true)
+	connection, pending := "", false
+	a.observePluginReadiness("ready", &connection, &pending)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		a.pluginSyncMu.Lock()
+		failed := a.pluginSyncError && !a.pluginSyncRunning
+		a.pluginSyncMu.Unlock()
+		if failed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("initial receipt fence did not reject projection")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	e.pending.Store(false)
+	a.observePluginReadiness("ready", &connection, &pending)
+	select {
+	case selected := <-e.applied:
+		if len(selected.SkillRoots) != 1 {
+			t.Fatal("resolved receipt did not project confirmed selection", selected)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ready owner did not resume after original receipt recovery")
+	}
+}
+
+func TestPluginSyncStatusPreservesUnselectedPackageUpdate(t *testing.T) {
+	a, _ := fixtureApp(t, newTestEngine(), Host{})
+	a.mu.Lock()
+	a.started = true
+	a.mu.Unlock()
+	a.pluginSyncMu.Lock()
+	a.pluginSyncError = true
+	a.pluginSyncRevision = 1
+	a.pluginSyncMu.Unlock()
+	view := a.pluginDesiredView(plugins.Snapshot{Revision: 2, Items: []plugins.Item{{ID: "old", Installed: true, Status: "update_available"}, {ID: "active", Installed: true, Enabled: true, Status: "enabled"}}})
+	if view.SyncState != "failed" || view.Items[0].Status != "update_available" || view.Items[1].Status != "failed" {
+		t.Fatal("Runtime health covered package update state", view)
+	}
+}
+
+func reviewedUpdateFixture(t *testing.T, root, oldVersion string, withNew bool) *plugins.Manager {
+	t.Helper()
+	files := fstest.MapFS{}
+	hashes := map[string]map[string]string{}
+	index := `{"name":"community","plugins":[{"name":"older","source":{"source":"local","path":"./packages/older"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"}}`
+	for _, item := range []struct{ id, version string }{{"older", oldVersion}, {"newer", "1.0.0"}} {
+		if item.id == "newer" && !withNew {
+			continue
+		}
+		manifest := []byte(fmt.Sprintf(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":%q,"version":%q,"description":"Fixture","author":{"name":"Fixture"}}`, item.id, item.version))
+		mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"fixture":{"type":"streamable-http","url":"http://127.0.0.1:1/mcp"}}}`)
+		prefix := "packages/" + item.id + "/"
+		files[prefix+"plugin.json"] = &fstest.MapFile{Data: manifest}
+		files[prefix+"mcp.json"] = &fstest.MapFile{Data: mcp}
+		hash := func(body []byte) string { sum := sha256.Sum256(body); return hex.EncodeToString(sum[:]) }
+		hashes[item.id] = map[string]string{"plugin.json": hash(manifest), "mcp.json": hash(mcp)}
+	}
+	if withNew {
+		index += `,{"name":"newer","source":{"source":"local","path":"./packages/newer"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"}}`
+	}
+	index += `]}`
+	m, err := plugins.OpenReviewedMarketplace(root, files, []byte(index), hashes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestPluginManagementReturnsFullSnapshotAndPreservesUpdateAfterRuntimeFailure(t *testing.T) {
+	root := t.TempDir()
+	first := reviewedUpdateFixture(t, root, "1.0.0", false)
+	if _, err := first.Mutate(t.Context(), "older", "install", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Mutate(t.Context(), "older", "disable", nil); err != nil {
+		t.Fatal(err)
+	}
+	current := reviewedUpdateFixture(t, root, "2.0.0", true)
+	e := &gatedPluginEngine{testEngine: newTestEngine()}
+	e.rejectNext.Store(true)
+	a, _ := fixtureApp(t, e, Host{})
+	a.plugins = current
+	a.mu.Lock()
+	a.started = true
+	a.mu.Unlock()
+	result, err := a.PluginAction(t.Context(), "newer", "install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	find := func(view plugins.Snapshot, id string) plugins.Item {
+		for _, item := range view.Items {
+			if item.ID == id {
+				return item
+			}
+		}
+		t.Fatalf("missing package %s", id)
+		return plugins.Item{}
+	}
+	if older := find(result, "older"); older.Status != "update_available" || older.Enabled {
+		t.Fatal("action returned simplified or Runtime-covered package state", older)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		view, err := a.PluginSnapshot(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.SyncState == "failed" {
+			if older := find(view, "older"); older.Status != "update_available" {
+				t.Fatal("Runtime failure hid unrelated package update", older)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fixture Runtime failure was not visible")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestPluginProjectionRecoversOnOriginalRuntimeReadyTransition(t *testing.T) {
 	requireNativeIPC(t)
 	e := &gatedPluginEngine{testEngine: newTestEngine(), applied: make(chan plugins.Selection, 1)}
@@ -477,6 +655,46 @@ func TestPluginProjectionRecoversOnOriginalRuntimeReadyTransition(t *testing.T) 
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Runtime ready transition did not resume plugin projection")
+	}
+}
+
+type bindingRacePluginEngine struct {
+	*gatedPluginEngine
+	manager      *plugins.Manager
+	boundVersion uint64
+}
+
+func (e *bindingRacePluginEngine) ConfigureBotTools(config *api.ToolConnection) error {
+	e.boundVersion = config.Plugins.Revision
+	if err := e.testEngine.ConfigureBotTools(config); err != nil {
+		return err
+	}
+	_, err := e.manager.Mutate(context.Background(), "markdown-work", "install", nil)
+	return err
+}
+
+func TestPluginStartDoesNotMarkNewerUnboundRevisionProjected(t *testing.T) {
+	requireNativeIPC(t)
+	e := &bindingRacePluginEngine{gatedPluginEngine: &gatedPluginEngine{testEngine: newTestEngine(), applied: make(chan plugins.Selection, 1)}}
+	a, _ := fixtureApp(t, e, Host{})
+	e.manager = a.plugins
+	if err := a.Start(); err != nil {
+		t.Fatal(err)
+	}
+	a.pluginSyncMu.Lock()
+	projected := a.pluginSyncRevision
+	a.pluginSyncMu.Unlock()
+	if projected != e.boundVersion || projected == a.plugins.Selection().Revision {
+		t.Fatal("Start marked a package committed during binding as already projected", projected, e.boundVersion, a.plugins.Selection().Revision)
+	}
+	e.snapshots <- api.Snapshot{Revision: 2, Connection: "ready"}
+	select {
+	case selected := <-e.applied:
+		if selected.Revision != a.plugins.Selection().Revision || len(selected.SkillRoots) != 1 {
+			t.Fatal("newer confirmed selection was skipped", selected)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ready owner skipped the package committed during binding")
 	}
 }
 func (*gatedPluginEngine) UpdateBotPlugins(context.Context, plugins.Selection) error {

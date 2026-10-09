@@ -48,6 +48,9 @@ type connectionRecord struct {
 	Revision   uint64
 	Configured bool
 	HasCA      bool
+	// Old OAuth relays read their grant for each RPC. Keep these generations
+	// until the Runtime confirms the replacement selection.
+	RetiredOAuth []uint64 `json:",omitempty"`
 }
 type ConnectionView struct {
 	Kind    string `json:"kind"`
@@ -560,6 +563,9 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 	}
 	if action == "uninstall" && e.Connection != nil {
 		old := currentConnection
+		for _, revision := range old.RetiredOAuth {
+			_ = m.revokeOAuthKey(id, revision)
+		}
 		if old.Configured {
 			if e.Connection.Kind == "oauth" {
 				_ = m.revokeOAuthKey(id, old.Revision)

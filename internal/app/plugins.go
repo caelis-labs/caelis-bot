@@ -198,7 +198,7 @@ func (a *Application) PluginSnapshot(ctx context.Context) (plugins.Snapshot, err
 				matches := issue.Name == item.ID || owners[issue.Name] == item.ID || issue.Component == "skill" && strings.Contains(issue.Name, "/"+item.ID+"/") || issue.Component == "runtime" && item.Enabled
 				if matches {
 					item.Issues = append(item.Issues, issue)
-					if item.Enabled {
+					if item.Enabled && item.Status != "update_available" {
 						item.Status = "failed"
 					}
 				}
@@ -224,7 +224,7 @@ func (a *Application) pluginDesiredView(snapshot plugins.Snapshot) plugins.Snaps
 		}
 		for i := range snapshot.Items {
 			item := &snapshot.Items[i]
-			if !item.Installed || item.Status == "needs_connection" || item.Status == "unavailable" {
+			if !item.Installed || !item.Enabled || item.Status == "update_available" || item.Status == "needs_connection" || item.Status == "unavailable" {
 				continue
 			}
 			if failed && !running {
@@ -261,7 +261,7 @@ func (a *Application) PluginAction(ctx context.Context, id, action string) (plug
 		a.queuePluginIndex()
 	}
 	a.queuePluginReconcile()
-	return a.pluginDesiredView(snapshot), nil
+	return a.pluginDesiredView(a.plugins.Snapshot()), nil
 }
 
 // PluginConnection is write-only at the desktop boundary. The credential
@@ -287,7 +287,7 @@ func (a *Application) PluginConnection(ctx context.Context, id, secret, caPEM st
 		a.queuePluginIndex()
 	}
 	a.queuePluginReconcile()
-	return a.pluginDesiredView(snapshot), nil
+	return a.pluginDesiredView(a.plugins.Snapshot()), nil
 }
 
 func (a *Application) PluginOAuthStart(ctx context.Context, id string) (plugins.Snapshot, error) {

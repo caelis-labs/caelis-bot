@@ -404,6 +404,7 @@ func (a *Application) Start() error {
 	if err != nil && manager != nil {
 		return err
 	}
+	configuredPluginRevision := uint64(0)
 	bridge, err := bot.Serve(resident)
 	if err == nil {
 		var executable string
@@ -417,6 +418,7 @@ func (a *Application) Start() error {
 			if a.plugins != nil {
 				config.Plugins = a.plugins.Selection()
 			}
+			configuredPluginRevision = config.Plugins.Revision
 			config.NotebookDirectory = filepath.Join(a.root, "Notebook")
 			config.RuntimeVersion = updates.Version
 			config.PrepareContext = func(ctx context.Context) (api.ContextSeed, error) {
@@ -500,7 +502,9 @@ func (a *Application) Start() error {
 	}
 	if a.plugins != nil {
 		a.pluginSyncMu.Lock()
-		a.pluginSyncRevision = a.plugins.Selection().Revision
+		// This is the exact selection passed to ConfigureBotTools above.
+		// A management write during Start must remain pending for reconcile.
+		a.pluginSyncRevision = configuredPluginRevision
 		a.pluginSyncMu.Unlock()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -561,6 +565,7 @@ func (a *Application) Start() error {
 		observer := backend.NotificationObserver{Notify: a.host.Notify, Dismiss: a.host.DismissNotification, Locale: a.host.Locale}
 		var revision uint64
 		var priorConnection string
+		var priorPluginRecoveryPending bool
 		for {
 			snapshot, err := a.engine.(api.SnapshotObserver).WaitSnapshot(ctx, revision)
 			if ctx.Err() != nil {
@@ -578,12 +583,7 @@ func (a *Application) Start() error {
 				continue
 			}
 			revision = snapshot.Revision
-			if snapshot.Connection == "ready" && priorConnection != "ready" {
-				// Manual and automatic reconnects both reconcile the latest
-				// confirmed plugin state. No model/tool request is replayed.
-				a.queuePluginReconcile()
-			}
-			priorConnection = snapshot.Connection
+			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
 			a.Backend.ObserveChat(snapshot)
 			observer.Observe(snapshot)
 			if a.host.Observe != nil {

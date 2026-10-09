@@ -333,9 +333,21 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		mutatePlugin := func(action string) error {
-			return s.WithBotPluginAdmission(ctx, func(apply func(context.Context, plugins.Selection) error) error {
-				_, err := manager.Mutate(ctx, "markdown-work", action, apply)
+			if _, err := manager.Mutate(ctx, "markdown-work", action, nil); err != nil {
 				return err
+			}
+			// The package commit is independent of the resident Runtime.
+			// This fixture then performs the host's second, automatic phase
+			// explicitly through the public configuration contract.
+			if action == "install" {
+				actual, err := s.Configuration(ctx)
+				if err != nil || len(actual.Profile.SkillRoots) != 0 {
+					return fmt.Errorf("management commit changed Runtime before projection: %v", err)
+				}
+			}
+			selection := manager.Selection()
+			return s.WithBotPluginAdmission(ctx, func(apply func(context.Context, plugins.Selection) error) error {
+				return apply(ctx, selection)
 			})
 		}
 		if err = mutatePlugin("install"); err != nil {
