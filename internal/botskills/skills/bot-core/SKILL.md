@@ -123,5 +123,8 @@ they are relevant to the work:
 - [Telegram setup](references/telegram-setup.md): when the user wants to chat from
   Telegram, create or reuse a Telegram Bot, connect their account, or troubleshoot
   that connection. Ordinary conversations need no transport-specific guidance.
+- [Weixin setup](references/weixin-setup.md): when the user wants to pair or use
+  the Weixin text channel. Ordinary conversation and Worker coordination follow
+  the same Bot path after a paired message arrives.
 - [Plugins](references/plugins.md): when the user asks about installing, enabling,
   disabling, removing, or troubleshooting an extra capability.

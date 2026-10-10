@@ -6,6 +6,7 @@ import { BotSetup } from './BotSetup';
 import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
 import { TelegramSettings } from './TelegramSettings';
+import { WeixinSettings } from './WeixinSettings';
 import { MessagingSettings } from './MessagingSettings';
 import { MachineSettings } from './settings/runtime/MachineSettings';
 import { settingsSections as sections, settingsDestination, type SettingsSection as Section } from './settings-navigation';
@@ -27,30 +28,31 @@ type UpdatePreferences = { available:boolean; automatic:boolean; waiting:boolean
 export function Settings() {
  const {t}=useI18n();
  const content=useRef<HTMLDivElement>(null);
- const [executionVisited,setExecutionVisited]=useState(false),[runtimeVisited,setRuntimeVisited]=useState(false),[telegramVisited,setTelegramVisited]=useState(false);
+ const [executionVisited,setExecutionVisited]=useState(false),[runtimeVisited,setRuntimeVisited]=useState(false),[telegramVisited,setTelegramVisited]=useState(false),[weixinVisited,setWeixinVisited]=useState(false);
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
  const sectionRef=useRef(section);sectionRef.current=section;
  useEffect(()=>{
   const load=()=>{void desktop<string>('SettingsSection').then(value=>{const destination=settingsDestination(value);if(destination&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(destination);setOpened(n=>n+1);});};
-  const key=(event:KeyboardEvent)=>{if(event.defaultPrevented||event.isComposing)return;if(event.key==='Escape'&&sectionRef.current==='telegram'){event.preventDefault();if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection('chatConnections');return;}if(event.key==='Escape'||(event.metaKey&&event.key==='w')){event.preventDefault();void desktop('CloseSettings');}};
+  const key=(event:KeyboardEvent)=>{if(event.defaultPrevented||event.isComposing)return;if(event.key==='Escape'&&(sectionRef.current==='telegram'||sectionRef.current==='weixin')){event.preventDefault();if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection('chatConnections');return;}if(event.key==='Escape'||(event.metaKey&&event.key==='w')){event.preventDefault();void desktop('CloseSettings');}};
   load();void desktop<string>('AppVersion').then(setVersion);
   window.addEventListener('settings-open',load);window.addEventListener('keydown',key);
   return()=>{window.removeEventListener('settings-open',load);window.removeEventListener('keydown',key);};
  },[]);
- useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='permissions')setExecutionVisited(true);if(section==='models'||section==='connections')setRuntimeVisited(true);if(section==='telegram')setTelegramVisited(true)},[section]);
+ useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='permissions')setExecutionVisited(true);if(section==='models'||section==='connections')setRuntimeVisited(true);if(section==='telegram')setTelegramVisited(true);if(section==='weixin')setWeixinVisited(true)},[section]);
  if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></div></main>;
  return <main className="settings-window">
-  <aside><nav aria-label={t('settings.navLabel')}>{sections.map(id=><button key={id} aria-current={section===id||section==='telegram'&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}>{t(`settings.${id}`)}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
+  <aside><nav aria-label={t('settings.navLabel')}>{sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}>{t(`settings.${id}`)}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
   <div className="settings-content" ref={content}>
    <div className="settings-page" data-section="permissions" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<PermissionSettings embedded/>}<ExecutionSettings embedded/></>}</div>
    <div className="settings-page" data-section={section==='models'?'models':'connections'} hidden={section!=='models'&&section!=='connections'}>{(runtimeVisited||section==='models'||section==='connections')&&<RuntimeSettings page={section==='models'?'models':'connections'} active={section==='models'||section==='connections'} refreshKey={opened} onConnections={()=>setSection('connections')}/>}</div>
-   <div className="settings-page" data-section="chatConnections" hidden={section!=='chatConnections'}>{section==='chatConnections'&&<MessagingSettings openTelegram={()=>setSection('telegram')}/>}</div>
+   <div className="settings-page" data-section="chatConnections" hidden={section!=='chatConnections'}>{section==='chatConnections'&&<MessagingSettings openTelegram={()=>setSection('telegram')} openWeixin={()=>setSection('weixin')}/>}</div>
    <div className="settings-page" data-section="telegram" hidden={section!=='telegram'}>{(telegramVisited||section==='telegram')&&<TelegramSettings active={section==='telegram'} onBack={()=>setSection('chatConnections')}/>}</div>
+   <div className="settings-page" data-section="weixin" hidden={section!=='weixin'}>{(weixinVisited||section==='weixin')&&<WeixinSettings active={section==='weixin'} onBack={()=>setSection('chatConnections')}/>}</div>
    <div className="settings-page" data-section="extras" hidden={section!=='extras'}>{section==='extras'&&<><h1>{t('settings.extras')}</h1><ScreenInputSettings/></>}</div>
    <div className="settings-page" data-section="plugins" hidden={section!=='plugins'}>{section==='plugins'&&<PluginSettings/>}</div>
    <div className="settings-page" data-section="machines" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone/>}</div>
-   <div className="settings-page" data-section={section} key={section} hidden={['permissions','models','connections','chatConnections','telegram','machines','extras','plugins'].includes(section)}>
-   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','chatConnections','telegram','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
+   <div className="settings-page" data-section={section} key={section} hidden={['permissions','models','connections','chatConnections','telegram','weixin','machines','extras','plugins'].includes(section)}>
+   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','chatConnections','telegram','weixin','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
    </div>
   </div>
  </main>;

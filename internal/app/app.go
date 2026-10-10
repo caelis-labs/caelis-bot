@@ -26,6 +26,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/telegram"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
+	"github.com/caelis-labs/caelis-bot/internal/weixin"
 )
 
 // Host provides native effects. None of these callbacks select a backend or own
@@ -57,6 +58,7 @@ type Application struct {
 	setup              *runtimeSetup
 	Backend            *backend.Service
 	Telegram           *telegram.Bridge
+	Weixin             *weixin.Bridge
 	engine             api.Engine
 	host               Host
 	root               string
@@ -234,6 +236,19 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 			app.Telegram = remote
 			backend.ObserveSubmissions(app.Backend, remote.Accepted)
 		}
+	}
+	if app.Weixin == nil {
+		remote, remoteErr := weixin.Open(app.root, weixin.Host{
+			Snapshot: app.Backend.Snapshot,
+			Recovery: app.Backend.RecoveryState,
+			Submit: func(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
+				return backend.SubmitRemote(ctx, app.Backend, in, files)
+			},
+		})
+		if remoteErr != nil && app.host.ReportError != nil {
+			app.host.ReportError(remoteErr)
+		}
+		app.Weixin = remote
 	}
 	return app, nil
 }
@@ -516,6 +531,9 @@ func (a *Application) Start() error {
 	if a.Telegram != nil {
 		a.Telegram.Start()
 	}
+	if a.Weixin != nil {
+		a.Weixin.Start()
+	}
 	a.workers.Add(5)
 	go func() { defer a.workers.Done(); a.localWork.Observe(ctx) }()
 	go func() { defer a.workers.Done(); a.machines.Observe(ctx) }()
@@ -652,6 +670,9 @@ func (a *Application) Close() error {
 		a.mu.Unlock()
 		if a.Telegram != nil {
 			a.Telegram.Close()
+		}
+		if a.Weixin != nil {
+			a.Weixin.Close()
 		}
 		if a.setup != nil {
 			a.setup.mu.Lock()

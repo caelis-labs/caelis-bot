@@ -36,6 +36,7 @@ sips -g pixelWidth -g pixelHeight "$BOT_BUNDLE/Contents/Resources/CaelisBot.icns
 /usr/libexec/PlistBuddy -c "Add CaelisReleaseVersion string $BOT_RELEASE_VERSION" "$BOT_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add CaelisSourceCommit string $BOT_SOURCE_COMMIT" "$BOT_BUNDLE/Contents/Info.plist"
 cp protocol/caelis/LICENSE "$BOT_BUNDLE/Contents/Resources/Caelis-Protocol-LICENSE"
+cp licenses/openclaw-weixin-LICENSE licenses/go-qrcode-LICENSE "$BOT_BUNDLE/Contents/Resources/"
 cp LICENSE ASSET-LICENSE.md "$BOT_BUNDLE/Contents/Resources/"
 cp resources/character-pack.json "$BOT_BUNDLE/Contents/Resources/character-pack.json"
 mkdir -p "$BOT_BUNDLE/Contents/Frameworks"

@@ -148,6 +148,7 @@
 @media(max-width:700px){.settings-window .runtime-model-actions{grid-template-columns:1fr 1fr}.settings-window .runtime-reset-parameters{grid-column:1/-1}.settings-window .runtime-active{align-items:flex-start;flex-wrap:wrap}.settings-window .runtime-active .runtime-active-actions{max-width:100%;width:100%;justify-content:flex-start;padding-left:51px}}
 
 .telegram-page{max-width:620px}
+.weixin-qr{display:block;margin:10px 0 18px;border:8px solid #fff;border-radius:10px;box-sizing:content-box;image-rendering:pixelated}
 .telegram-back{border:0;background:transparent;padding:0;margin:0 0 22px}
 .messaging-settings{max-width:620px}
 .messaging-channel{display:flex;align-items:center;text-align:left;width:100%;gap:16px;padding:16px 4px;border:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0;background:transparent;color:var(--ink)}
