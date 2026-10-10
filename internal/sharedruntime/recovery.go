@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-const RetryInterval = 30 * time.Second
+const (
+	RetryInterval = 30 * time.Second
+	startTimeout  = 30 * time.Second
+)
 
 type attempt struct {
 	done chan struct{}
@@ -23,7 +26,8 @@ type Coordinator struct {
 
 // Recover merges observers of the same service and caches the result through
 // the cooldown, including successful starts whose handshake is not ready yet.
-// Each caller still reconnects and reconciles its own original receipts.
+// Each caller still reconnects and reconciles its own original receipts. The
+// bounded startup belongs to the shared attempt, not its first observer.
 func (c *Coordinator) Recover(ctx context.Context, key string, start func(context.Context) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -52,12 +56,21 @@ func (c *Coordinator) Recover(ctx context.Context, key string, start func(contex
 	a := &attempt{done: make(chan struct{})}
 	c.attempts[key] = a
 	c.mu.Unlock()
-	err := start(ctx)
-	c.mu.Lock()
-	a.err, a.next = err, time.Now().Add(RetryInterval)
-	close(a.done)
-	c.mu.Unlock()
-	return err
+	go func() {
+		startCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), startTimeout)
+		defer cancel()
+		err := start(startCtx)
+		c.mu.Lock()
+		a.err, a.next = err, time.Now().Add(RetryInterval)
+		close(a.done)
+		c.mu.Unlock()
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-a.done:
+		return a.err
+	}
 }
 
 var Shared Coordinator

@@ -40,7 +40,6 @@ type Session struct {
 	cached                atomic.Pointer[api.Snapshot]
 	cachedRecovery        atomic.Pointer[api.RecoveryState]
 	retainedWorkers       bool
-	recoveryEvidence      bool // guarded by step; only a confirmed missing shared Host may restart
 	sendingScheduled      string
 	scheduledPreviousTurn string
 	diagnostics           *diagnosticlog.Logger

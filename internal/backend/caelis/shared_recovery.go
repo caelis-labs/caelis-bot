@@ -18,37 +18,25 @@ func (s *Session) connectWithRecovery(ctx context.Context) error {
 		return errors.New("连接已停止")
 	}
 	if err := s.connect(ctx); err == nil {
-		s.recoveryEvidence = false
 		return nil
 	} else if ctx.Err() != nil {
 		return ctx.Err()
 	} else {
 		s.mu.Lock()
-		bound, principal := s.state.StoreID != "", s.state.PrincipalID
+		bound := s.state.StoreID != "" && s.state.PrincipalID != "" &&
+			s.state.StoreDirectory != "" && s.state.StoreDirectory == s.settings.CaelisStore
 		s.mu.Unlock()
 		if !bound {
 			return err
 		}
-		// Snapshot the original discovery BEFORE public status may clean a stale
-		// record. Clean shutdown removes discovery; missing/invalid/foreign records
-		// cannot authorize a cold start. A failed authorized start may retry after
-		// cooldown even when status has already cleaned the stale record.
-		d, _, discoveryErr := Discover(s.settings)
-		allow := s.recoveryEvidence || discoveryErr == nil && d.PrincipalID == principal
-		if recoveryErr := caelisruntime.Recover(ctx, s.settings.CLIPath, s.settings.CaelisStore, allow); recoveryErr != nil {
-			if errors.Is(recoveryErr, caelisruntime.ErrServiceStartFailed) {
-				s.recoveryEvidence = true
-			}
+		// The saved Store and principal select the Host. Native status determines
+		// whether it is stopped; handshake and credential failures while running
+		// never authorize a restart.
+		if recoveryErr := caelisruntime.Recover(ctx, s.settings.CLIPath, s.settings.CaelisStore); recoveryErr != nil {
 			return recoveryErr
 		}
 		// The new discovery, handshake, Store/principal check and original
 		// connection/operation journals remain authoritative for reconciliation.
-		err = s.connect(ctx)
-		if err == nil {
-			s.recoveryEvidence = false
-		} else if allow {
-			s.recoveryEvidence = true
-		}
-		return err
+		return s.connect(ctx)
 	}
 }

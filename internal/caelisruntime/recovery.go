@@ -11,15 +11,13 @@ import (
 
 var (
 	ErrServiceStateUnknown = errors.New("Caelis 服务状态尚未确认，原任务已保留")
-	ErrServiceStopped      = errors.New("Caelis 服务已停止或退出原因未知，请在连接设置中启动；原任务已保留")
 	ErrServiceStartFailed  = errors.New("Caelis 共享服务启动未成功，稍后重试；原任务已保留")
 )
 
 // Recover uses exactly the public lifecycle's status/start semantics, including
-// normal version selection and upgrades. It does not stop or own the Host.
-// allowStart requires retained discovery evidence; a deliberate shutdown removes
-// discovery, and absence alone cannot distinguish shutdown from a crash.
-func Recover(ctx context.Context, path, store string, allowStart bool) error {
+// normal version selection and upgrades. The caller must supply the saved Store
+// of an already bound Bot; startup does not own or stop the Host.
+func Recover(ctx context.Context, path, store string) error {
 	dir, err := Store(store)
 	if err != nil {
 		return err
@@ -43,9 +41,6 @@ func Recover(ctx context.Context, path, store string, allowStart bool) error {
 		case "running":
 			return nil // Another client may have recovered it; retry the handshake.
 		case "stopped":
-			if !allowStart {
-				return ErrServiceStopped
-			}
 		default:
 			return ErrServiceStateUnknown
 		}

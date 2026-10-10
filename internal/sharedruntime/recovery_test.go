@@ -79,3 +79,42 @@ func TestRecoveryCancellationDoesNotLaunchOrCancelAnotherObserver(t *testing.T) 
 		t.Fatal("detached observer cancelled another owner", err)
 	}
 }
+
+func TestFirstObserverCancellationKeepsSharedStartup(t *testing.T) {
+	c := &Coordinator{}
+	first, cancel := context.WithCancel(t.Context())
+	started, release := make(chan context.Context, 1), make(chan struct{})
+	var starts atomic.Int32
+	start := func(ctx context.Context) error {
+		starts.Add(1)
+		started <- ctx
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-release:
+			return nil
+		}
+	}
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- c.Recover(first, "original", start) }()
+	sharedCtx := <-started
+	if _, bounded := sharedCtx.Deadline(); !bounded {
+		t.Fatal("shared startup has no deadline")
+	}
+	cancel()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatal("first observer did not stop waiting", err)
+	}
+	if err := sharedCtx.Err(); err != nil {
+		t.Fatal("first observer canceled the shared startup", err)
+	}
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- c.Recover(t.Context(), "original", start) }()
+	close(release)
+	if err := <-secondDone; err != nil {
+		t.Fatal("active observer lost the shared startup", err)
+	}
+	if err := c.Recover(t.Context(), "original", start); err != nil || starts.Load() != 1 {
+		t.Fatal("observer cancellation was cached or launched another startup", err, starts.Load())
+	}
+}

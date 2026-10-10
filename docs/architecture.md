@@ -115,20 +115,26 @@ standard Codex socket with retained native daemon PID records whose processes
 are confirmed absent can call `codex app-server daemon start`; the endpoint
 pins the original `CODEX_HOME`. Live/reused PIDs, startup reservations, permission
 errors, unknown record formats and private endpoints cannot authorize startup.
-Caelis reconnects/discovers the saved Store and uses public `service status`;
-only `stopped` plus retained discovery for the original principal permits
-`service start --store-dir`. Native start retains its version selection/upgrade
-and concurrency semantics. Bot never calls stop/restart or owns the shared process.
+For a selected Caelis Runtime with a saved original Store, Store ID and principal,
+Bot reconnects first and uses public `service status` after a connection failure.
+Only `stopped` permits `service start --store-dir` for that saved Store, including
+after a separate explicit `service stop`; `running` handshake, credential and
+configuration failures do not restart it. Native start retains its version
+selection/upgrade and concurrency semantics. Bot never calls stop/restart or
+owns the shared process. Reconnection still verifies the original Store and
+principal before accepting the Host.
 
 Observers merge startup by shared service directory in one process, with a
-30-second cooldown after each attempt, including failures. Bot shutdown cancels
-pending recovery. Clean native shutdown removes PID/discovery records, so absent
-evidence leaves the service stopped or unconfirmed; the APIs do not provide a
-complete stop-reason signal. Failed authorized starts retain recovery evidence
-in memory because native lifecycle can remove stale PID/discovery records. A fresh
-process with no evidence requires user-directed startup. A successful handshake
-restores observation and original receipt checks, never uncertain input, native
-turns, tools or approvals. It does not prove that in-flight work survived.
+30-second cooldown after each attempt, including failures. Startup has its own
+30-second deadline; canceling one observer ends only that observer's wait, and
+an already dispatched public start may finish. Clean Codex daemon shutdown
+removes PID records and leaves startup unconfirmed. Codex retains in-memory
+absence evidence after an authorized start because native lifecycle can remove
+stale PID records. Caelis needs no discovery or in-memory stop-reason evidence
+once the original Store/principal binding is saved and public status is `stopped`.
+A successful handshake restores observation and original receipt checks, never
+uncertain input, native turns, tools or approvals. It does not prove that
+in-flight work survived.
 
 Caelis callback recovery reads the full receipt snapshot once per connection /
 stream generation, including claimed calls. Subsequent reads use the native

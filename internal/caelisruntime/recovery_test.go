@@ -12,17 +12,16 @@ import (
 
 func TestRecoveryUsesPublicStatusAndStartOnlyForMissingOriginalStore(t *testing.T) {
 	for _, tc := range []struct {
-		name, status           string
-		allow, fail, wantStart bool
-		want                   error
+		name, status    string
+		fail, wantStart bool
+		want            error
 	}{
-		{name: "running", status: `{"state":"running"}`, allow: true},
-		{name: "starting", status: `{"state":"starting"}`, allow: true, want: ErrServiceStateUnknown},
-		{name: "unknown", status: `{}`, allow: true, want: ErrServiceStateUnknown},
-		{name: "malformed", status: `PRIVATE_OUTPUT`, allow: true, want: ErrServiceStateUnknown},
-		{name: "missing", status: `{"state":"stopped"}`, allow: true, wantStart: true},
-		{name: "explicit stop or no evidence", status: `{"state":"stopped"}`, want: ErrServiceStopped},
-		{name: "failed start", status: `{"state":"stopped"}`, allow: true, fail: true, wantStart: true, want: ErrServiceStartFailed},
+		{name: "running", status: `{"state":"running"}`},
+		{name: "starting", status: `{"state":"starting"}`, want: ErrServiceStateUnknown},
+		{name: "unknown", status: `{}`, want: ErrServiceStateUnknown},
+		{name: "malformed", status: `PRIVATE_OUTPUT`, want: ErrServiceStateUnknown},
+		{name: "stopped", status: `{"state":"stopped"}`, wantStart: true},
+		{name: "failed start", status: `{"state":"stopped"}`, fail: true, wantStart: true, want: ErrServiceStartFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -41,7 +40,7 @@ func TestRecoveryUsesPublicStatusAndStartOnlyForMissingOriginalStore(t *testing.
 				t.Fatal(err)
 			}
 			for range 3 {
-				if err := Recover(t.Context(), bin, dir, tc.allow); !errors.Is(err, tc.want) || err != nil && strings.Contains(err.Error(), "PRIVATE") {
+				if err := Recover(t.Context(), bin, dir); !errors.Is(err, tc.want) || err != nil && strings.Contains(err.Error(), "PRIVATE") {
 					t.Fatal(err)
 				}
 			}

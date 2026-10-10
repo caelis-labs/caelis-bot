@@ -26,6 +26,7 @@ service startup, then reconnect to the same data directory and original task.
 A ready connection does not prove that work running before the outage survived
 or completed. Read the original task and receipt before reporting its outcome;
 keep unknown results unknown and never resend input or approval decisions.
-When the service was explicitly stopped or its state cannot be confirmed,
-preserve the work and explain the connection result. Use the existing connection
-settings for user-directed startup; do not create a replacement Runtime or task.
+When the selected Caelis Host is stopped, the host may start it for the original
+Store even after a separate service stop. If the service state cannot be
+confirmed or recovery fails, preserve the work and explain the connection
+result. Do not create a replacement Runtime or task.

@@ -15,12 +15,20 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
-	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 )
 
 func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testing.T) {
-	for _, outcome := range []wire.Outcome{"unknown", "accepted"} {
-		t.Run(string(outcome), func(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		outcome wire.Outcome
+		removed bool
+	}{
+		{"crashed unknown", "unknown", false},
+		{"crashed accepted", "accepted", false},
+		{"stopped unknown", "unknown", true},
+		{"stopped accepted", "accepted", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			life := wire.ApplicationConnection{ApplicationId: "original-app", ConnectionId: "original-connection", PrincipalId: "local-owner", ExpiresAt: time.Now().Add(time.Hour)}
 			binding := wire.ApplicationBinding{ApplicationId: life.ApplicationId, ConnectionId: life.ConnectionId, PrincipalId: life.PrincipalId, SessionId: "original-worker", Profile: wire.ApplicationProfile{Execution: "workspace-write"}}
 			reads := 0
@@ -39,14 +47,14 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 					writeFixture(w, binding)
 				case "/application/operations/original-request":
 					reads++
-					writeFixture(w, wire.ApplicationOperation{OperationId: "original-request", Outcome: outcome, Result: &wire.CommandResult{OperationId: "original-request", Outcome: outcome}})
+					writeFixture(w, wire.ApplicationOperation{OperationId: "original-request", Outcome: tc.outcome, Result: &wire.CommandResult{OperationId: "original-request", Outcome: tc.outcome}})
 				default:
 					t.Errorf("unexpected recovery route %s", r.URL.Path)
 					http.NotFound(w, r)
 				}
 			})
-			// Keep a stale, originally-bound discovery. CLI start publishes the
-			// replacement endpoint only after public status confirms stopped.
+			// Exercise both stale crash discovery and discovery removed by an
+			// explicit service stop. Start publishes the same Store's new endpoint.
 			file := filepath.Join(settings.CaelisStore, "runtime/service/discovery.json")
 			fresh, err := os.ReadFile(file)
 			if err != nil {
@@ -61,12 +69,17 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 			if err = os.WriteFile(file, stale, 0600); err != nil {
 				t.Fatal(err)
 			}
+			if tc.removed {
+				if err = os.Remove(file); err != nil {
+					t.Fatal(err)
+				}
+			}
 			log := filepath.Join(settings.CaelisStore, "calls")
 			settings.CLIPath = filepath.Join(settings.CaelisStore, "caelis")
 			t.Setenv("RECOVERY_LOG", log)
 			t.Setenv("RECOVERY_DISCOVERY", file)
 			t.Setenv("RECOVERY_FRESH", string(fresh))
-			script := "#!/bin/sh\numask 077\nprintf '%s\\n' \"$*\" >> \"$RECOVERY_LOG\"\ncase \"$1 $2\" in\n'service status') rm \"$RECOVERY_DISCOVERY\"; printf '{\"state\":\"stopped\"}\\n';;\n'service start') printf '%s' \"$RECOVERY_FRESH\" > \"$RECOVERY_DISCOVERY\";;\n*) exit 90;;\nesac\n"
+			script := "#!/bin/sh\numask 077\nprintf '%s\\n' \"$*\" >> \"$RECOVERY_LOG\"\ncase \"$1 $2\" in\n'service status') rm -f \"$RECOVERY_DISCOVERY\"; printf '{\"state\":\"stopped\"}\\n';;\n'service start') printf '%s' \"$RECOVERY_FRESH\" > \"$RECOVERY_DISCOVERY\";;\n*) exit 90;;\nesac\n"
 			if err = os.WriteFile(settings.CLIPath, []byte(script), 0700); err != nil {
 				t.Fatal(err)
 			}
@@ -90,7 +103,7 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 			if err = s.recoverOperations(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			if reads != 1 || s.state.Operations["original-request"].Outcome != string(outcome) || s.state.Session.SessionId != binding.SessionId || s.state.InstanceID != "setup-instance" {
+			if reads != 1 || s.state.Operations["original-request"].Outcome != string(tc.outcome) || s.state.Session.SessionId != binding.SessionId || s.state.InstanceID != "setup-instance" {
 				t.Fatal("recovery lost original identity or uncertainty", s.state)
 			}
 			b, err := os.ReadFile(log)
@@ -114,17 +127,18 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 	}
 }
 
-func TestExplicitSharedStopAndBotCloseDoNotStartHost(t *testing.T) {
+func TestUnboundOrClosedBotDoesNotStartHost(t *testing.T) {
 	dir := t.TempDir()
 	log, bin := filepath.Join(dir, "calls"), filepath.Join(dir, "caelis")
 	t.Setenv("RECOVERY_LOG", log)
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$RECOVERY_LOG\"\n[ \"$1 $2\" = 'service status' ] || exit 90\nprintf '{\"state\":\"stopped\"}\\n'\n"), 0700); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$RECOVERY_LOG\"\nprintf '{\"state\":\"stopped\"}\\n'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	s := New(Options{Directory: filepath.Join(dir, "bot"), Settings: api.RuntimeSettings{CLIPath: bin, CaelisStore: dir}})
 	s.state.StoreID, s.state.PrincipalID = "original-store", "original-owner"
-	if err := s.connectWithRecovery(t.Context()); !errors.Is(err, caelisruntime.ErrServiceStopped) {
-		t.Fatal(err)
+	// An old or incomplete binding has no saved original Store to maintain.
+	if err := s.connectWithRecovery(t.Context()); err == nil {
+		t.Fatal("incomplete binding started a Host")
 	}
 	if err := s.Close(t.Context()); err != nil {
 		t.Fatal(err)
@@ -132,8 +146,28 @@ func TestExplicitSharedStopAndBotCloseDoNotStartHost(t *testing.T) {
 	if err := s.connectWithRecovery(context.Background()); err == nil {
 		t.Fatal("closed Bot restarted service")
 	}
+	if _, err := os.Stat(log); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("unbound or closed Bot ran shared lifecycle", err)
+	}
+}
+
+func TestRunningHostHandshakeFailureDoesNotStartService(t *testing.T) {
+	settings := setupFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unavailable", http.StatusUnauthorized)
+	})
+	log, bin := filepath.Join(settings.CaelisStore, "calls"), filepath.Join(settings.CaelisStore, "caelis")
+	t.Setenv("RECOVERY_LOG", log)
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$RECOVERY_LOG\"\n[ \"$1 $2\" = 'service status' ] || exit 90\nprintf '{\"state\":\"running\"}\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	settings.CLIPath = bin
+	s := New(Options{Directory: filepath.Join(t.TempDir(), "bot"), Settings: settings})
+	s.state.StoreID, s.state.PrincipalID, s.state.StoreDirectory = "original-store", "local-owner", settings.CaelisStore
+	if err := s.connectWithRecovery(t.Context()); err == nil {
+		t.Fatal("bad handshake was treated as a recovered connection")
+	}
 	b, err := os.ReadFile(log)
-	if err != nil || strings.Count(string(b), "service status") != 1 || strings.Contains(string(b), "service start") {
-		t.Fatal(string(b), err)
+	if err != nil || string(b) != "service status --store-dir "+settings.CaelisStore+" --format json\n" {
+		t.Fatal("handshake failure started a running Host", string(b), err)
 	}
 }
