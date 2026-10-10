@@ -13,6 +13,10 @@ if [[ "$(uname -s)" == Darwin ]]; then
   # Keep cgo objects, the linker and Info.plist on the same deployment target.
   export MACOSX_DEPLOYMENT_TARGET=12.0
   export CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=12.0"
-  export CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=12.0"
+  # cgo adds -lobjc for each package containing Objective-C sources. The final
+  # external link has several such packages; Apple's linker reports their
+  # identical runtime library entries. Keep the required library and silence
+  # only that linker diagnostic, leaving compiler/deprecation warnings intact.
+  export CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=12.0 -Wl,-no_warn_duplicate_libraries"
 fi
 cd "$BOT_ROOT"

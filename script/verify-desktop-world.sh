@@ -11,7 +11,8 @@ for BOT_DW_VERIFY_FILE in bin/dtw manifest.json LICENSE NOTICE THIRD_PARTY_NOTIC
  test -s "$BOT_DW_VERIFY_ROOT/$BOT_DW_VERIFY_FILE"
 done
 node "$(dirname "$0")/verify-desktop-world-manifest.mjs" "$BOT_DW_VERIFY_ROOT" --target darwin-arm64 --bundled
-[[ "$BOT_DW_VERIFY_VERSION" == "$(node -p 'require(process.argv[1]).version' "$BOT_DW_VERIFY_ROOT/manifest.json")" ]]
+BOT_DW_VERIFY_MANIFEST_VERSION=$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' "$BOT_DW_VERIFY_ROOT/manifest.json")
+[[ "$BOT_DW_VERIFY_VERSION" == "$BOT_DW_VERIFY_MANIFEST_VERSION" ]]
 BOT_DW_VERIFY_ARCH=$(lipo -archs "$BOT_DW_VERIFY_BUNDLE/Contents/MacOS/caelis-bot")
 case "$BOT_DW_VERIFY_ARCH" in arm64|x86_64) ;; *) echo 'Unsupported host architecture.' >&2; exit 1 ;; esac
 BOT_DW_VERIFY_TEAM=$(codesign -dvv "$BOT_DW_VERIFY_BUNDLE" 2>&1 | sed -n 's/^TeamIdentifier=//p')

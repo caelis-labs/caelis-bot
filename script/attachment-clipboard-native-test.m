@@ -37,7 +37,7 @@ int main(void) { @autoreleasepool {
         }
 
         [board clearContents];
-        [board setPropertyList:@[one.path, two.path] forType:NSFilenamesPboardType];
+        [board setPropertyList:@[one.path, two.path] forType:@"NSFilenamesPboardType"];
         if ([readPayload(board)[@"paths"] count] != 2) return 4;
 
         [board clearContents];

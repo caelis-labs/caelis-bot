@@ -12,9 +12,10 @@ make smoke
 make build
 ```
 
-`make check` covers generated contracts, protocol hashes, public-tree/asset boundaries, frontend/i18n, native
-lifecycle fixtures and Go vet/tests. `make check-portability` runs the slower CGO-free shared-core tests and
-six-target cross-compilation separately; CI runs it weekly and on demand. `make smoke` only handshakes the installed
+`make check` covers generated contracts, protocol hashes, public-tree/asset boundaries, frontend/i18n,
+focused Node contracts and Go tests. It does not launch desktop fixtures or request desktop permissions.
+`make check-portability` runs CGO-free shared-core tests and Windows amd64/Linux arm64
+cross-compilation separately; CI runs it weekly and on demand. `make smoke` only handshakes the installed
 Codex and checks assets; it does not create a conversation or call a model. `make build` creates an ad-hoc Dev app.
 `make package` adds a verified read-only DMG/checksum, using pinned Python dmgbuild in `.cache/dmg-tools`.
 
@@ -106,16 +107,22 @@ Desktop World 的实机截图验收可在已签名 Dev 包上使用
 | --- | --- |
 | Shared behavior/recovery | Regression demonstrating failure, affected Go tests/race, full check |
 | Runtime protocol/configuration | Public schema/hash, adapter lifecycle and isolated external Host/App Server |
-| UI/character/permissions | Native `script/build_and_run.sh`, actual window observation, lifecycle/resource fixtures |
+| UI/character/permissions | Native `script/build_and_run.sh`, actual window observation and focused manual native diagnostics |
 | Packaging | Dev build/package/mount, nested native component verification |
 | Public release | Exact tag/source, signed public assets/feed, notarization/staples and independent Gatekeeper; see release.md |
-| Windows foundation | Native Windows CI executes shared Go/TS/Node contracts, pinned helper verification and an explicitly unsupported GUI bootstrap; Windows 11 interaction and installer signing remain separate gates |
+| Windows foundation | Native Windows CI executes focused platform contracts and pinned helper verification; the weekly CGO-free matrix compiles the unsupported GUI bootstrap. Windows 11 interaction and installer signing remain separate gates |
 
 The required `product` CI check routes shared/frontend/protocol/dependency changes to
-both macOS and Windows, keeps Linux headless checks, and runs a shared sanity job for
-platform-only edits. Unknown paths take the full route. Windows runner results are
-native shared-contract evidence, not Windows GUI acceptance. `script/ci-scope.mjs`
+macOS, Windows and Linux headless checks. macOS runs the normal headless checks;
+packaging changes also trigger a parallel Dev build, bundled-helper verification
+and mounted DMG check. Linux runs focused race tests and builds remote helpers;
+Windows runs native platform contracts and verifies the pinned helper. Unknown
+paths take the full route.
+Windows runner results are native contract evidence, not Windows GUI acceptance. `script/ci-scope.mjs`
 owns the fail-closed route and gate.
+The remote SSH control directory currently uses a Unix socket path; macOS tests
+and Linux race checks own its runtime behavior. Windows PR CI checks the shared
+desktop and local IPC contracts while the native Windows SSH adapter remains planned.
 
 Run native launches only through `script/build_and_run.sh`; use `CAELIS_BOT_DATA_DIR` for synthetic data.
 An explicit development data directory also namespaces the native instance lock;
@@ -129,9 +136,8 @@ latest native summary; it must not traverse full Runtime or Worker history.
 text and queued tails survive approval, review, notice and connection overlays in the mounted production Bubble;
 the result is saved to `.cache/bubble-preview.png.replay.json` (run with reduced motion off).
 The “展开 / 收起” control exercises the shared native tracking callback, rather than synthesizing
-a DOM mouse event. `bubble-hover-native-test.sh` checks always-active tracking, resize, exit, hide
-and detachment without taking key focus. These injected events do not qualify physical pointer
-delivery: also hover the real bubble while another app is foreground, then leave and re-enter.
+a DOM mouse event. For physical pointer delivery, hover the real bubble while another app is
+foreground, then leave and re-enter.
 `--chat-preview` runs the production chat component
 in a separate native WebKit window with small/large chunks, already-completed replies, a large final chunk and
 history reopening. It also offers Dream/running/approval/completion controls and the production pet/bubble
@@ -168,19 +174,10 @@ opens Extras.
 `runtime-settings-preview.html` uses the same components with
 example data for narrow layouts, without modifying daily accounts or calling a model.
 The development-only `settings-extras-preview.html` mounts production Settings
-and first-run navigation with synthetic native statuses. `bash script/settings-extras-native-fixture.sh
-after overview connected en dark 860` captures an isolated WKWebView screenshot under
-`.cache/settings-extras-fixture/`. Use `telegram pairing`, `extras on|off` and
-`setup feature-on|feature-off|permission-on|permission-off` for other states; the
-final argument selects a 640 or 860 point window. `node script/settings-extras-navigation-regression.mjs`
-exercises overview, detail, return and temporary token draft; `node script/settings-extras-parent-regression.mjs`
-exercises the real first-run parent polling, save ordering and Telegram load recovery.
-`node script/settings-extras-flow-regression.mjs` covers back/change, ready Runtime
-recovery, connecting feedback and removal confirmation.
-An interaction also saves `.after.png`. The fixture neither sends Telegram messages
-nor uses the daily Bot profile. Screenshots
-show layout and state rendering; native shortcut/menu and persistence behavior need
-the separate desktop tests and real app acceptance.
+and first-run navigation with synthetic statuses for manual layout review. The old
+WKWebView settings fixture and its screenshot assertion matrix were removed from
+the default test path. Inspect the actual settings surface through
+`script/build_and_run.sh` for native focus, resizing and persistence behavior.
 
 ```sh
 source script/env.sh
@@ -602,11 +599,7 @@ The development-only `runtime-settings-preview.html?machine=login&lang=en` rende
 the same settings components with visual fixtures. Scenarios include `missing`,
 `offline`, `caelis`, and `caelis-advanced-error`; `lang=zh-CN` selects Chinese. The
 `caelis-advanced-reopen` scenario holds advanced reads until the fixture releases
-them. `bash script/machine-settings-native-test.sh` checks close/reopen on the same
-and a different machine, late-result isolation, and footer bounds in native WebKit
-at 860×640 in Chinese and English. It writes screenshots under
-`.cache/machine-settings-regression/` and runs in `make check`. These fixtures
-never access SSH or accounts and are not evidence of a real login. Inspect the native
+them. Inspect the native
 settings on the real node in both languages and wide/narrow layouts. Resize must
 keep the same draft; primary connection actions stay visible at the 860×640 minimum.
 Check private-key fields, trust confirmation, error messages, the collapsed optional

@@ -14,7 +14,7 @@ concurrency:
 jobs:
   sync:
     if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: macos-release
     timeout-minutes: 20
     outputs:
@@ -57,7 +57,7 @@ jobs:
   latest:
     needs: sync
     if: needs.sync.outputs.current == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write

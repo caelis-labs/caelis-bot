@@ -53,29 +53,30 @@ export function classifyChanges(paths, readBase, readHead) {
 export function requiredJobs(kind) {
   switch (kind) {
     case 'docs': case 'release': return [];
-    case 'macos': return ['shared', 'macos'];
-    case 'windows': return ['shared', 'windows'];
-    case 'shared': case 'full': return ['shared', 'macos', 'windows', 'linux'];
+    case 'macos': return ['macos'];
+    case 'windows': return ['windows'];
+    case 'shared': case 'full': return ['macos', 'windows', 'linux'];
     default: throw new Error(`Unknown CI scope: ${kind}`);
   }
 }
 
-export function requireResults(kind, scope, results) {
+export function requireResults(kind, scope, results, preview = false) {
   if (scope !== 'success') throw new Error('CI scope validation did not pass');
   const required = requiredJobs(kind);
   for (const [job, result] of Object.entries(results)) {
-    const expected = required.includes(job) ? 'success' : 'skipped';
+    const expected = (job === 'preview' ? preview : required.includes(job)) ? 'success' : 'skipped';
     if (result !== expected) throw new Error(`Required ${job} check for ${kind}: expected ${expected}, got ${result}`);
   }
-  if (Object.keys(results).sort().join(',') !== 'linux,macos,shared,windows') throw new Error('Missing CI job result');
+  if (Object.keys(results).sort().join(',') !== 'linux,macos,preview,windows') throw new Error('Missing CI job result');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv[2] === '--gate') {
     requireResults(process.env.CI_KIND, process.env.CI_SCOPE_RESULT, {
-      shared:process.env.CI_SHARED_RESULT, macos:process.env.CI_MACOS_RESULT,
+      macos:process.env.CI_MACOS_RESULT,
+      preview:process.env.CI_PREVIEW_RESULT,
       windows:process.env.CI_WINDOWS_RESULT, linux:process.env.CI_LINUX_RESULT,
-    });
+    }, process.env.CI_PREVIEW_REQUIRED === 'true');
     console.log('Required product checks passed.');
   } else {
     const base = process.env.CI_BASE_SHA;

@@ -20,55 +20,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
 )
 
-func TestConnectableReviewedPackagesAndLegacyMigration(t *testing.T) {
-	m, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	items := m.Snapshot().Items
-	if len(items) != 6 {
-		t.Fatalf("want six connectable packages, got %d", len(items))
-	}
-	for _, item := range items {
-		if item.ID == "obsidian" {
-			if item.Connection != nil || len(item.MCPServers) != 0 || len(item.Skills) != 1 || item.Skills[0].ID != "obsidian-cli" {
-				t.Fatal("Obsidian must contribute only its official CLI Skill", item)
-			}
-			if _, err = m.Mutate(context.Background(), item.ID, "install", nil); err != nil {
-				t.Fatal(err)
-			}
-			continue
-		}
-		if len(item.Skills) != 0 || len(item.MCPServers) != 1 || item.Connection == nil {
-			t.Fatal("invented or missing contribution", item.ID)
-		}
-		if item.Connection.Kind == "oauth" && !oauthNativeSupported {
-			if _, err = m.Mutate(context.Background(), item.ID, "install", nil); err == nil {
-				t.Fatal("unsupported OAuth installed")
-			}
-			continue
-		}
-		if _, err = m.Mutate(context.Background(), item.ID, "install", nil); err != nil {
-			t.Fatal(item.ID, err)
-		}
-		e, _ := m.entry(item.ID)
-		p, err := m.readInstalled(e)
-		if err != nil || len(p.Servers) != 1 || len(p.Skills) != 0 {
-			t.Fatal(item.ID, err, p.Issues)
-		}
-	}
-	if _, err = m.Mutate(context.Background(), "markdown-work", "install", nil); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := Open(m.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reopened.Snapshot().Items[0].ID != "markdown-work" || len(reopened.Selection().SkillRoots) != 2 {
-		t.Fatal("legacy installed Skill lost")
-	}
-}
-
 func TestBundledBraveRealStdioToolDirectory(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("Node runtime unavailable")

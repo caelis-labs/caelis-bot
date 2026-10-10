@@ -202,7 +202,7 @@ jobs:
   publish:
     needs: [build, package]
     if: needs.package.outputs.verified == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -228,7 +228,7 @@ jobs:
   r2:
     needs: [build, package, publish]
     if: needs.package.outputs.verified == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: macos-release
     timeout-minutes: 20
     concurrency:
@@ -264,7 +264,7 @@ jobs:
   latest:
     needs: [build, package, publish, r2]
     if: needs.package.outputs.verified == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write

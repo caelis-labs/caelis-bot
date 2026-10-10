@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   scope:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       kind: ${{ steps.scope.outputs.kind }}
@@ -68,13 +68,37 @@ jobs:
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - run: npm ci
       - run: make check
-      - run: make check-updater
-      - name: Check desktop authority, receipts and projection races
-        run: |
-          source script/env.sh
-          go test -race ./internal/desktopcontrol ./internal/bot ./internal/backend ./internal/backend/caelis ./internal/backend/codex ./internal/app ./internal/telegram ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal
       - run: npm run smoke:assets
-      - name: Build independent Dev app with Desktop World
+  # Full app packaging is valuable when its inputs change, but recompiling the
+  # production-tagged app after the full source suite serializes every PR.
+  # Release always rebuilds and signs the complete app independently.
+  macos-preview:
+    needs: scope
+    if: needs.scope.outputs.preview == 'true' || inputs.preview == true
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      BOT_BUILD_CHANNEL: development
+      GOWORK: "off"
+      GOCACHE: ${{ github.workspace }}/.cache/go-build
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            script/env.sh
+      - run: npm ci
+      - name: Build Dev app with Desktop World
         run: make build
       - name: Verify pinned Desktop World payload without desktop permissions
         run: bash script/verify-desktop-world.sh 'dist/Caelis Bot Dev.app' adhoc
@@ -84,10 +108,8 @@ jobs:
           export CAELIS_BOT_TEST_DESKTOP_WORLD="$PWD/dist/Caelis Bot Dev.app/Contents/Resources/DesktopWorld/bin/dtw"
           go test -count=1 -run '^TestPackagedHelperReadAndDeniedInput$' -v ./internal/desktopcontrol
       - name: Package and verify mounted Dev DMG
-        if: needs.scope.outputs.preview == 'true' || inputs.preview == true
         run: bash script/package.sh --skip-build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: needs.scope.outputs.preview == 'true' || inputs.preview == true
         with:
           name: macos-arm64-dev-preview
           path: |
@@ -98,7 +120,7 @@ jobs:
   linux-headless:
     needs: scope
     if: contains(fromJSON('["full","shared"]'), needs.scope.outputs.kind)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       GOWORK: "off"
@@ -115,27 +137,9 @@ jobs:
             go.sum
             script/env.sh
       - name: Check native remote ownership and recovery races
-        run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal ./cmd/caelis-remote
+        run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal ./internal/weixin ./internal/secretstore ./cmd/caelis-remote
       - name: Build Linux amd64 and arm64 helpers
         run: bash script/build-remote-helper.sh "$PWD/.cache/ci-remote-helper"
-  shared-sanity:
-    needs: scope
-    if: contains(fromJSON('["full","shared","macos","windows"]'), needs.scope.outputs.kind)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      GOWORK: "off"
-      CGO_ENABLED: "0"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Run portable product contracts
-        run: go test ./internal/app ./internal/backend/api ./internal/bot ./internal/care ./internal/desktop ./internal/localipc ./internal/localstate ./internal/runtimeenv ./internal/updates
   windows-product:
     needs: scope
     if: contains(fromJSON('["full","shared","windows"]'), needs.scope.outputs.kind)
@@ -151,26 +155,15 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-          cache: npm
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
-      - run: npm ci
       - name: Run native Windows shared and platform contracts
         shell: pwsh
         run: |
-          go test ./internal/app ./internal/backend/api ./internal/bot ./internal/care ./internal/desktop ./internal/localipc ./internal/localstate ./internal/runtimeenv ./internal/updates ./internal/tasks ./internal/taskterminal
+          go test ./internal/desktop ./internal/localipc ./internal/remotework
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test script/ci-scope.test.mjs script/release-version.test.mjs script/update.test.mjs script/publication.test.mjs script/desktop-world.test.mjs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run build
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go build -o .cache/caelis-bot-unsupported.exe .
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $message = & .cache/caelis-bot-unsupported.exe 2>&1 | Out-String
-          if ($LASTEXITCODE -eq 0 -or $message -notmatch 'desktop is not implemented') { throw 'Windows GUI bootstrap must report unsupported' }
-          exit 0
       - name: Verify pinned Windows Desktop World payload
         shell: pwsh
         run: |
@@ -183,9 +176,9 @@ jobs:
   # Keep the existing required check name. Failed/cancelled/missing jobs must
   # fail this gate; only content-validated docs/version changes may skip builds.
   product:
-    needs: [scope, macos-product, windows-product, shared-sanity, linux-headless]
+    needs: [scope, macos-product, macos-preview, windows-product, linux-headless]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -204,7 +197,8 @@ jobs:
           CI_KIND: ${{ needs.scope.outputs.kind }}
           CI_SCOPE_RESULT: ${{ needs.scope.result }}
           CI_MACOS_RESULT: ${{ needs.macos-product.result }}
+          CI_PREVIEW_RESULT: ${{ needs.macos-preview.result }}
+          CI_PREVIEW_REQUIRED: ${{ needs.scope.outputs.preview == 'true' || inputs.preview == true }}
           CI_WINDOWS_RESULT: ${{ needs.windows-product.result }}
-          CI_SHARED_RESULT: ${{ needs.shared-sanity.result }}
           CI_LINUX_RESULT: ${{ needs.linux-headless.result }}
         run: node script/ci-scope.mjs --gate

@@ -11,7 +11,10 @@ static char *attachmentPayload(NSPasteboard *board) {
         if (url.isFileURL && url.path.length) [paths addObject:url.path];
     }
     if (!paths.count) {
-        id legacy = [board propertyListForType:NSFilenamesPboardType];
+        // Older senders can still publish the historical file-list type. The
+        // symbol is deprecated, but the pasteboard type string remains the
+        // wire value; modern URL objects above always take precedence.
+        id legacy = [board propertyListForType:@"NSFilenamesPboardType"];
         if ([legacy isKindOfClass:NSArray.class]) {
             for (id value in legacy) if ([value isKindOfClass:NSString.class] && [value length]) [paths addObject:value];
         }

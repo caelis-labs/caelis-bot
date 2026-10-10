@@ -11,7 +11,7 @@ concurrency:
 jobs:
   version:
     if: github.repository == 'caelis-labs/caelis-bot' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       created: ${{ steps.release.outputs.release_created }}

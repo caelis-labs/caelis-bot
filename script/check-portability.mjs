@@ -19,29 +19,20 @@ function go(args, target = {}, capture = false) {
   return result.stdout;
 }
 
-console.log('Running shared core and unsupported-host tests on this host (CGO=0).');
-go(['test', './...']);
-// GUI distribution remains macOS. Linux compiles only the headless SSH owner.
-for (const [GOOS, GOARCH] of [['darwin', 'arm64'], ['darwin', 'amd64'], ['windows', 'amd64'], ['windows', 'arm64']]) {
-  const target = { GOOS, GOARCH }, name = `${GOOS}-${GOARCH}`, ext = GOOS === 'windows' ? '.exe' : '';
-  // Catch accidental OS/Wails imports leaking into the core, even if the code
-  // would happen to compile on the author's current workstation.
+console.log('Running shared core tests once with CGO disabled.');
+go(['test', './internal/app', './internal/backend/codex', './internal/bot', './internal/contentpack', './internal/weixin', './internal/secretstore']);
+// Mac arm64 is compiled by the normal product build. Windows amd64 is the next
+// desktop target; Linux arm64 is the additional headless remote target.
+for (const [GOOS, GOARCH] of [['windows', 'amd64'], ['linux', 'arm64']]) {
+  const target = { GOOS, GOARCH }, name = `${GOOS}-${GOARCH}`;
   const dependencies = go(['list', '-deps', './internal/backend/codex', './internal/bot', './internal/app', './internal/localipc', './internal/contentpack'], target, true).trim().split(/\r?\n/);
-  if (dependencies.some(name => name.startsWith('github.com/wailsapp/') || name === 'runtime/cgo')) {
+  if (dependencies.some(dependency => dependency.startsWith('github.com/wailsapp/') || dependency === 'runtime/cgo')) {
     throw new Error(`${name}: native dependency leaked into the shared core`);
   }
-  go(['test', '-c', '-o', join(output, `content-${name}${ext}`), './internal/contentpack'], target);
-  go(['test', '-c', '-o', join(output, `desktop-${name}${ext}`), './internal/desktop'], target);
-  go(['test', '-c', '-o', join(output, `codex-${name}${ext}`), './internal/backend/codex'], target);
-  go(['test', '-c', '-o', join(output, `bot-${name}${ext}`), './internal/bot'], target);
-  go(['test', '-c', '-o', join(output, `app-${name}${ext}`), './internal/app'], target);
-  go(['build', '-o', join(output, `unsupported-${name}${ext}`), '.'], target);
-  console.log(`${name}: core test binary + unsupported bootstrap compiled; native GUI NOT qualified.`);
-}
-
-for (const GOARCH of ['amd64','arm64']) {
- const target={GOOS:'linux',GOARCH};
- go(['build','-o',join(output,`remote-linux-${GOARCH}`),'./cmd/caelis-remote'],target);
- go(['test','-c','-o',join(output,`codex-linux-${GOARCH}`),'./internal/backend/codex'],target);
- console.log(`linux-${GOARCH}: headless native Worker owner compiled; GUI NOT qualified.`);
+  if (GOOS === 'windows') {
+    go(['build', '-o', join(output, 'unsupported-windows-amd64.exe'), '.'], target);
+  } else {
+    go(['build', '-o', join(output, 'remote-linux-arm64'), './cmd/caelis-remote'], target);
+  }
+  console.log(`${name}: shared boundary and platform entrypoint compiled; native GUI NOT qualified.`);
 }

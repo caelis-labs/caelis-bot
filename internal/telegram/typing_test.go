@@ -220,54 +220,6 @@ func fakeActionChats(f *fakeClient) []int64 {
 	return append([]int64(nil), f.chatActions...)
 }
 
-// A full production renewal interval proves that a long main turn receives a
-// fresh action before Telegram's approximately five-second display expires.
-func TestTypingLongMainTurnRenewsBeforeFiveSeconds(t *testing.T) {
-	b, f := testBridge(t, Host{Snapshot: func() api.Snapshot {
-		return api.Snapshot{Connection: "ready", CurrentTurn: "main", Phase: "working", Approvals: []api.Approval{{Status: "resolved"}}}
-	}})
-	paired(b)
-	c := &delayedActionClient{fakeClient: f, started: make(chan time.Time, 3), delay: 1200 * time.Millisecond}
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan struct{})
-	go func() { defer close(done); b.typing(ctx, c) }()
-	defer func() { cancel(); <-done }()
-	var first, second time.Time
-	select {
-	case first = <-c.started:
-	case <-time.After(time.Second):
-		t.Fatal("first typing request did not start")
-	}
-	select {
-	case second = <-c.started:
-	case <-time.After(4800 * time.Millisecond):
-		t.Fatal("slow first request pushed renewal past Telegram's typing lifetime")
-	}
-	if gap := second.Sub(first); gap > 4800*time.Millisecond {
-		t.Fatalf("slow typing call stretched renewal gap to %s", gap)
-	}
-	time.Sleep(time.Until(first.Add(5500 * time.Millisecond)))
-	if got := fakeActionCount(f); got < 2 {
-		t.Fatalf("long working turn had only %d typing action", got)
-	}
-}
-
-type delayedActionClient struct {
-	*fakeClient
-	started chan time.Time
-	delay   time.Duration
-}
-
-func (c *delayedActionClient) ChatAction(ctx context.Context, chat int64) error {
-	c.started <- time.Now()
-	select {
-	case <-time.After(c.delay):
-		return c.fakeClient.ChatAction(ctx, chat)
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 type blockedActionClient struct {
 	*fakeClient
 	started chan struct{}

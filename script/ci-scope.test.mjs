@@ -61,9 +61,10 @@ test('packaging changes exercise the DMG while an ordinary transport change does
 });
 
 test('required product gate rejects failed, cancelled, missing or unexpectedly skipped jobs', () => {
-  const all={shared:'success',macos:'success',windows:'success',linux:'success'};
+  const all={macos:'success',windows:'success',linux:'success',preview:'skipped'};
   requireResults('full', 'success', all);
   requireResults('shared', 'success', all);
+  requireResults('full', 'success', {...all,preview:'success'}, true);
   requireResults('macos', 'success', {...all,windows:'skipped',linux:'skipped'});
   requireResults('windows', 'success', {...all,macos:'skipped',linux:'skipped'});
   for (const kind of ['docs', 'release']) requireResults(kind, 'success', Object.fromEntries(Object.keys(all).map(k=>[k,'skipped'])));
@@ -73,8 +74,10 @@ test('required product gate rejects failed, cancelled, missing or unexpectedly s
     }
   }
   for (const status of ['failure', 'cancelled', '', 'skipped']) {
-    for (const job of Object.keys(all)) assert.throws(() => requireResults('full', 'success', {...all,[job]:status}));
+    for (const job of ['macos', 'windows', 'linux']) assert.throws(() => requireResults('full', 'success', {...all,[job]:status}));
   }
+  assert.throws(() => requireResults('full', 'success', all, true));
+  assert.throws(() => requireResults('full', 'success', {...all,preview:'success'}));
   assert.throws(() => requireResults('release', 'success', all));
 });
 
