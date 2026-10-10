@@ -44,8 +44,13 @@ type inbound struct {
 	ContextToken string `json:"contextToken"`
 }
 type outbound struct {
-	State    string `json:"state"`
-	ClientID string `json:"clientId,omitempty"`
+	State        string `json:"state"`
+	ClientID     string `json:"clientId,omitempty"`
+	ContextToken string `json:"contextToken,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	Digest       string `json:"digest,omitempty"`
+	Attempts     int    `json:"attempts,omitempty"`
+	NextRetryAt  int64  `json:"nextRetryAt,omitempty"`
 }
 type document struct {
 	Version       int                 `json:"version"`
@@ -87,7 +92,8 @@ func emptyDocument() document {
 }
 func Open(root string, host Host) (*Bridge, error) {
 	hash := sha256.Sum256([]byte(root))
-	b := &Bridge{path: filepath.Join(root, "weixin.json"), account: hex.EncodeToString(hash[:]), host: host, state: emptyDocument(), secrets: secretstore.Functions{SaveFunc: saveSecret, LoadFunc: loadSecret, DeleteFunc: deleteSecret}}
+	account := hex.EncodeToString(hash[:])
+	b := &Bridge{path: filepath.Join(root, "weixin.json"), account: account, host: host, state: emptyDocument(), secrets: &secretstore.FileStore{Root: filepath.Join(root, "Credentials"), Namespace: "weixin", Legacy: secretstore.Functions{LoadFunc: loadSecret, DeleteFunc: deleteSecret}}}
 	f, err := os.Open(b.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return b, nil
@@ -361,9 +367,9 @@ func (b *Bridge) Confirm() (Status, error) {
 		}
 	}
 	if err := b.secrets.Save(b.account, candidate.Token); err != nil {
-		b.issue = "keychain"
+		b.issue = "credential"
 		b.mu.Unlock()
-		return b.Status(), errors.New("keychain")
+		return b.Status(), errors.New("credential")
 	}
 	previous := b.state
 	b.state = state
@@ -393,7 +399,7 @@ func (b *Bridge) startLocked() {
 	b.mu.Unlock()
 	token, err := b.secrets.Load(b.account)
 	if err != nil {
-		b.setIssue("keychain")
+		b.setIssue("credential")
 		return
 	}
 	p, err := newProtocol(base, token, nil)
@@ -489,8 +495,8 @@ func (b *Bridge) Forget() (Status, error) {
 	defer b.configMu.Unlock()
 	b.stopLocked()
 	if err := b.secrets.Delete(b.account); err != nil {
-		b.setIssue("keychain")
-		return b.Status(), errors.New("keychain")
+		b.setIssue("credential")
+		return b.Status(), errors.New("credential")
 	}
 	b.mu.Lock()
 	previous := b.state
@@ -706,6 +712,10 @@ func (b *Bridge) dispatch(ctx context.Context) {
 	b.mu.Unlock()
 }
 func outputKey(item api.Item) string { return "item:" + item.ID }
+func textDigest(s string) string {
+	hash := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(hash[:])
+}
 func chunks(s string) []string {
 	var result []string
 	const limit = 1200 // UTF-8 bytes, below the upstream client's 4000-character limit.
@@ -751,57 +761,99 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 		parts := chunks(item.Text)
 		for index, part := range parts {
 			key := fmt.Sprintf("%s:%d", outputKey(item), index)
+			digest := textDigest(part)
 			b.mu.Lock()
 			if _, seen := b.state.Outputs[outputKey(item)]; seen {
 				b.mu.Unlock()
 				break
 			}
-			if old, seen := b.state.Outputs[key]; seen {
-				b.mu.Unlock()
-				if old.State != "accepted" {
-					break
-				}
-				continue
-			}
 			if !b.state.HasInput && b.state.ContextToken == "" {
 				b.mu.Unlock()
 				return
 			}
-			var seed [16]byte
-			if _, err := rand.Read(seed[:]); err != nil {
-				b.mu.Unlock()
-				return
-			}
-			clientID := "caelis-weixin-" + hex.EncodeToString(seed[:])
-			b.state.Outputs[key] = outbound{State: "unknown", ClientID: clientID}
-			if b.saveLocked() != nil {
-				delete(b.state.Outputs, key)
-				b.mu.Unlock()
-				return
-			}
-			owner, contextToken := b.state.OwnerID, b.state.ContextToken
-			for _, source := range snapshot.Items {
-				if source.Kind == "user" && source.TurnKey != "" && source.TurnKey == item.TurnKey && strings.HasPrefix(source.RequestID, "weixin:") {
-					if token, ok := b.state.InputContexts[source.RequestID]; ok {
-						contextToken = token
+			intent, seen := b.state.Outputs[key]
+			if seen {
+				if intent.State == "accepted" && intent.Digest == digest {
+					b.mu.Unlock()
+					continue
+				}
+				// Pre-policy unknowns have no digest/attempt counter and cannot
+				// safely be replayed. Changed text cannot reuse a saved client ID.
+				if intent.State != "unknown" || intent.Digest != digest || intent.ClientID == "" || intent.Attempts < 1 || intent.Attempts >= 3 {
+					b.mu.Unlock()
+					break
+				}
+				if intent.NextRetryAt > time.Now().UnixMilli() {
+					b.mu.Unlock()
+					return
+				}
+				intent.Attempts++
+			} else {
+				var seed [16]byte
+				if _, err := rand.Read(seed[:]); err != nil {
+					b.mu.Unlock()
+					return
+				}
+				contextToken := b.state.ContextToken
+				for _, source := range snapshot.Items {
+					if source.Kind == "user" && source.TurnKey != "" && source.TurnKey == item.TurnKey && strings.HasPrefix(source.RequestID, "weixin:") {
+						if token, ok := b.state.InputContexts[source.RequestID]; ok {
+							contextToken = token
+						}
 					}
 				}
+				intent = outbound{State: "unknown", ClientID: "caelis-weixin-" + hex.EncodeToString(seed[:]), ContextToken: contextToken, Digest: digest, Attempts: 1}
 			}
+			previous := b.state.Outputs[key]
+			intent.NextRetryAt = 0
+			b.state.Outputs[key] = intent
+			if b.saveLocked() != nil {
+				if seen {
+					b.state.Outputs[key] = previous
+				} else {
+					delete(b.state.Outputs, key)
+				}
+				b.mu.Unlock()
+				return
+			}
+			owner := b.state.OwnerID
 			b.mu.Unlock()
 			work, stop := context.WithTimeout(ctx, 15*time.Second)
-			result, err := p.send(work, owner, contextToken, clientID, part)
+			result, err := p.send(work, owner, intent.ContextToken, intent.ClientID, part)
 			stop()
 			b.mu.Lock()
 			state := "accepted"
+			reason := "ret_zero"
 			if err != nil {
 				state = "unknown"
-				b.issue = "delivery_uncertain"
+				reason = "transport_or_response"
+				if errors.Is(err, context.DeadlineExceeded) {
+					reason = "timeout"
+				} else if strings.HasPrefix(err.Error(), "http_") {
+					reason = "http_error"
+				}
+				if intent.Attempts < 3 {
+					intent.NextRetryAt = time.Now().Add(time.Duration(2<<(2*(intent.Attempts-1))) * time.Second).UnixMilli()
+					b.issue = "delivery_retrying"
+				} else {
+					b.issue = "delivery_uncertain"
+				}
 			} else if (result.Ret != nil && *result.Ret != 0) || result.ErrCode != 0 {
 				state = "rejected"
+				reason = "business_rejected"
 				b.issue = "send_rejected"
+			} else if result.Ret == nil {
+				reason = "http_success_no_ret"
 			}
-			b.state.Outputs[key] = outbound{State: state, ClientID: clientID}
-			_ = b.saveLocked()
+			if state == "accepted" && b.issue == "delivery_retrying" {
+				b.issue = ""
+			}
+			intent.State, intent.Reason = state, reason
+			b.state.Outputs[key] = intent
+			if b.saveLocked() != nil {
+				b.mu.Unlock()
+				return
+			}
 			b.mu.Unlock()
 			if state != "accepted" {
 				return

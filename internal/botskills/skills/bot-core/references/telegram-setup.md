@@ -7,7 +7,7 @@ The Telegram detail has a return link to that overview. AI accounts and models
 are separate settings destinations. Older direct Telegram links still open the detail.
 Do not ask for a token in conversation or put one in notes, files, commands, screenshots,
 logs, or tool arguments. The user pastes it into the masked Bot token field; the app
-stores it in the macOS Keychain. Never claim setup succeeded until the app says Connected.
+stores it in its private local credential directory. Never claim setup succeeded until the app says Connected.
 
 ## Create a Bot with BotFather
 
@@ -65,8 +65,8 @@ click Try connecting again; do not keep reconnecting competing clients.
   shown for the current state; do not repeatedly submit a token or request a new
   link while the original connection action is unresolved.
 - For network errors, check internet access and the Mac's proxy/VPN. For a blocked
-  Bot, unblock it in Telegram. For Keychain access errors, allow Caelis Bot access
-  or paste the token again in settings.
+  Bot, unblock it in Telegram. If the saved credential cannot be read, paste the
+  token again in settings.
 - After restarting the Mac app, messages wait until its existing conversation is
   ready for native input. Local chat messages remain visible independently. Do not ask the user to resend while it is reconnecting. Sending a
   large outgoing attachment does not prevent `/stop`, `/status`, or approval choices.

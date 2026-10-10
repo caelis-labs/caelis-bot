@@ -72,9 +72,22 @@ func TestReceiveDurableOwnerOnlyAndNoDuplicate(t *testing.T) {
 	}
 }
 
-func TestUnknownSubmitAndSendAreNeverReplayed(t *testing.T) {
+func TestUnknownSubmitIsNotReplayedAndSendHasThreeAttemptLimit(t *testing.T) {
 	var submitted, sent atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { sent.Add(1); w.WriteHeader(http.StatusGatewayTimeout) }))
+	var clientIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Msg struct {
+				ClientID string `json:"client_id"`
+			} `json:"msg"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("send request: %v", err)
+		}
+		clientIDs = append(clientIDs, request.Msg.ClientID)
+		sent.Add(1)
+		w.WriteHeader(http.StatusGatewayTimeout)
+	}))
 	defer server.Close()
 	snapshot := api.Snapshot{Connection: "ready"}
 	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{Fence: "fence"} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
@@ -102,8 +115,44 @@ func TestUnknownSubmitAndSendAreNeverReplayed(t *testing.T) {
 	p := &protocol{client: server.Client(), base: server.URL, token: "secret"}
 	b.output(t.Context(), p)
 	b.output(t.Context(), p)
-	if sent.Load() != 1 || b.state.Outputs["item:answer:0"].State != "unknown" {
-		t.Fatalf("send replay or wrong outcome: %d %#v", sent.Load(), b.state.Outputs)
+	if sent.Load() != 1 || b.issue != "delivery_retrying" {
+		t.Fatalf("early retry: %d %q", sent.Load(), b.issue)
+	}
+	for attempt := 2; attempt <= 3; attempt++ {
+		intent := b.state.Outputs["item:answer:0"]
+		intent.NextRetryAt = time.Now().Add(-time.Second).UnixMilli()
+		b.state.Outputs["item:answer:0"] = intent
+		if err := b.saveLocked(); err != nil {
+			t.Fatal(err)
+		}
+		b.output(t.Context(), p)
+	}
+	b.output(t.Context(), p)
+	intent := b.state.Outputs["item:answer:0"]
+	if sent.Load() != 3 || intent.State != "unknown" || intent.Attempts != 3 || intent.Reason != "http_error" || b.issue != "delivery_uncertain" {
+		t.Fatalf("wrong bounded send outcome: %d %#v %q", sent.Load(), intent, b.issue)
+	}
+	if clientIDs[0] == "" || clientIDs[0] != clientIDs[1] || clientIDs[1] != clientIDs[2] {
+		t.Fatal("retry changed client ID")
+	}
+	reopened, err := Open(strings.TrimSuffix(b.path, "/weixin.json"), b.host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened.output(t.Context(), p)
+	if sent.Load() != 3 {
+		t.Fatal("exhausted send replayed after restart")
+	}
+	legacy := reopened.state.Outputs["item:old:0"]
+	legacy.State, legacy.ClientID = "unknown", "old-client"
+	reopened.state.Outputs["item:old:0"] = legacy
+	snapshot.Items = []api.Item{{ID: "old", Kind: "assistant", Text: "old reply", Status: "completed"}}
+	reopened.output(t.Context(), p)
+	if sent.Load() != 3 {
+		t.Fatal("pre-policy unknown replayed")
+	}
+	if intent.Digest != textDigest("reply") {
+		t.Fatal("send digest mismatch")
 	}
 	body, err := os.ReadFile(b.path)
 	if err != nil {
@@ -111,6 +160,64 @@ func TestUnknownSubmitAndSendAreNeverReplayed(t *testing.T) {
 	}
 	if strings.Contains(string(body), "reply") || strings.Contains(string(body), "work") {
 		t.Fatalf("state included conversation content after processing")
+	}
+}
+
+func TestUnknownSendRetryAcceptsWithoutRepeatingOrChangingClientID(t *testing.T) {
+	var sent atomic.Int32
+	var clientIDs, contextTokens []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Msg struct {
+				ClientID     string `json:"client_id"`
+				ContextToken string `json:"context_token"`
+			} `json:"msg"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("send request: %v", err)
+		}
+		clientIDs = append(clientIDs, request.Msg.ClientID)
+		contextTokens = append(contextTokens, request.Msg.ContextToken)
+		if sent.Add(1) == 1 {
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ret":0}`))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	snapshot := api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "answer", Kind: "assistant", Text: "reply", Status: "completed"}}}
+	host := Host{Snapshot: func() api.Snapshot { return snapshot }}
+	b, err := Open(root, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.BotID, b.state.OwnerID, b.state.ContextToken = "bot", "owner", "ctx"
+	b.state.BaseURL = defaultBase
+	p := &protocol{client: server.Client(), base: server.URL, token: "secret"}
+	b.output(t.Context(), p)
+	b.state.ContextToken = "newer-context"
+	if err := b.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(root, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened.output(t.Context(), p)
+	if sent.Load() != 1 {
+		t.Fatal("retry ignored persisted delay")
+	}
+	intent := reopened.state.Outputs["item:answer:0"]
+	intent.NextRetryAt = time.Now().Add(-time.Second).UnixMilli()
+	reopened.state.Outputs["item:answer:0"] = intent
+	if err := reopened.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+	reopened.output(t.Context(), p)
+	reopened.output(t.Context(), p)
+	if sent.Load() != 2 || clientIDs[0] == "" || clientIDs[0] != clientIDs[1] || contextTokens[0] != "ctx" || contextTokens[1] != "ctx" || reopened.state.Outputs["item:answer:0"].State != "accepted" || reopened.issue != "" {
+		t.Fatalf("retry acceptance mismatch: sent=%d state=%#v issue=%q", sent.Load(), reopened.state.Outputs["item:answer:0"], reopened.issue)
 	}
 }
 
@@ -148,7 +255,8 @@ func TestLongReplySendsEveryBoundedPartWhenSuccessOmitsRet(t *testing.T) {
 		t.Fatalf("reply was truncated, repeated, or uncertain: parts=%d issue=%q", len(delivered), b.issue)
 	}
 	for i := range delivered {
-		if b.state.Outputs["item:long-answer:"+string(rune('0'+i))].State != "accepted" {
+		part := b.state.Outputs["item:long-answer:"+string(rune('0'+i))]
+		if part.State != "accepted" || part.Reason != "http_success_no_ret" {
 			t.Fatalf("part %d not accepted", i)
 		}
 	}

@@ -20,9 +20,10 @@ through your existing tools. If a request needs an approval, guide the user to
 Caelis Bot on the Mac. Do not promise that a sent reply was displayed on the
 phone merely because the server accepted the send operation.
 
-If a send or submission result is uncertain, ask the user to check the original
-message on the Mac and in Weixin before choosing any next action. The channel
-does not automatically repeat an uncertain send. Pausing stops polling and
+If a reply send is uncertain, the channel retries that same reply at most twice
+more. Duplicate replies can appear. After the three-attempt limit, ask the user
+to check Weixin and the Mac. An uncertain incoming request or Worker action is
+not submitted again; use its original receipt. Pausing stops polling and
 keeps local pairing. Removing the connection deletes local credentials; it does
 not revoke authorization inside Weixin. The user handles any phone-side removal.
 If settings reports a temporary session cooldown, explain that polling will

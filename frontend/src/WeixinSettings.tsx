@@ -4,7 +4,7 @@ import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
 
 export type WeixinStatus={enabled:boolean;paired:boolean;phase:string;owner:string;bot:string;issue:string;qrImage:string;expiresAt:number};
-const issueKeys=new Set(['network','pairing_failed','storage','keychain','auth_expired','session_cooldown','remote_error','backlog','input_uncertain','delivery_uncertain','send_rejected','untrusted_api_host']);
+const issueKeys=new Set(['network','pairing_failed','storage','credential','auth_expired','session_cooldown','remote_error','backlog','input_uncertain','delivery_retrying','delivery_uncertain','send_rejected','untrusted_api_host']);
 const phases=new Set(['unconfigured','pairing','scanned','verify','blocked','expired','bound_elsewhere','confirm','connected','paused','attention']);
 function stateKey(phase:string):MessageKey{return `settings.weixinState_${phases.has(phase)?phase:'attention'}` as MessageKey}
 function issueKey(issue:string):MessageKey{return `settings.weixinIssue_${issueKeys.has(issue)?issue:'pairing_failed'}` as MessageKey}
