@@ -31,6 +31,7 @@ type Options struct {
 	Binary         string
 	Socket         string
 	RequiredSocket bool // Recovery must use the original owner; no process fallback.
+	RecoverShared  bool // Session recovery only; standard shared endpoint, never a private owner.
 	Directory      string
 	CLIOnly        bool // Probe a selected executable without falling back to another source.
 	Attachable     bool // Owned session runtime exposes a private local Unix endpoint.
@@ -48,7 +49,9 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 		probe, done := context.WithTimeout(ctx, 3*time.Second)
 		conn, err := connectExisting(probe, opts.Socket)
 		if err == nil {
-			client, err := initializeClient(probe, conn, nil, opts)
+			sharedRecoveryEvidence.Delete(sharedHome(opts.Socket))
+			var client *Client
+			client, err = initializeClient(probe, conn, nil, opts)
 			if err == nil {
 				done()
 				return client, nil
@@ -56,6 +59,17 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 		}
 		done()
 		if opts.RequiredSocket {
+			if opts.RecoverShared && missingSocket(err) && sharedHome(opts.Socket) != "" {
+				if recoveryErr := recoverShared(ctx, opts); recoveryErr != nil {
+					return nil, errors.Join(errExistingServer, recoveryErr)
+				}
+				// Readiness is the standard handshake, not the CLI's exit status.
+				conn, err = connectExisting(ctx, opts.Socket)
+				if err == nil {
+					sharedRecoveryEvidence.Delete(sharedHome(opts.Socket))
+					return initializeClient(ctx, conn, nil, opts)
+				}
+			}
 			return nil, errors.Join(errExistingServer, err)
 		}
 		if ctx.Err() != nil {

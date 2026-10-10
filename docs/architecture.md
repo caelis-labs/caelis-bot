@@ -110,6 +110,32 @@ Caelis display recovery requests one recent Turn, preserving its exact cursor an
 command evidence. Stream and Worker failures retry independently of the resident
 connection; original commands/callback receipts retain their native recovery rules.
 
+Shared Runtime recovery first reconnects the original owner. Only a failed
+standard Codex socket with retained native daemon PID records whose processes
+are confirmed absent can call `codex app-server daemon start`; the endpoint
+pins the original `CODEX_HOME`. Live/reused PIDs, startup reservations, permission
+errors, unknown record formats and private endpoints cannot authorize startup.
+For a selected Caelis Runtime with a saved original Store, Store ID and principal,
+Bot reconnects first and uses public `service status` after a connection failure.
+Only `stopped` permits `service start --store-dir` for that saved Store, including
+after a separate explicit `service stop`; `running` handshake, credential and
+configuration failures do not restart it. Native start retains its version
+selection/upgrade and concurrency semantics. Bot never calls stop/restart or
+owns the shared process. Reconnection still verifies the original Store and
+principal before accepting the Host.
+
+Observers merge startup by shared service directory in one process, with a
+30-second cooldown after each attempt, including failures. Startup has its own
+30-second deadline; canceling one observer ends only that observer's wait, and
+an already dispatched public start may finish. Clean Codex daemon shutdown
+removes PID records and leaves startup unconfirmed. Codex retains in-memory
+absence evidence after an authorized start because native lifecycle can remove
+stale PID records. Caelis needs no discovery or in-memory stop-reason evidence
+once the original Store/principal binding is saved and public status is `stopped`.
+A successful handshake restores observation and original receipt checks, never
+uncertain input, native turns, tools or approvals. It does not prove that
+in-flight work survived.
+
 Caelis callback recovery reads the full receipt snapshot once per connection /
 stream generation, including claimed calls. Subsequent reads use the native
 pending-call wait endpoint, with a 45-second cancellable idle wait, instead of

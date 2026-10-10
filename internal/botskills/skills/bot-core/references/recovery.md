@@ -20,3 +20,13 @@ If reconnect fails, give the user a clear result and retain the original work.
 Reconnection retries observation of the original owner. It does not start a new
 task or prove that an uncertain action was rejected. Continue independent work
 when one component is unavailable.
+
+The host may restart a confirmed missing shared Runtime through its native
+service startup, then reconnect to the same data directory and original task.
+A ready connection does not prove that work running before the outage survived
+or completed. Read the original task and receipt before reporting its outcome;
+keep unknown results unknown and never resend input or approval decisions.
+When the selected Caelis Host is stopped, the host may start it for the original
+Store even after a separate service stop. If the service state cannot be
+confirmed or recovery fails, preserve the work and explain the connection
+result. Do not create a replacement Runtime or task.

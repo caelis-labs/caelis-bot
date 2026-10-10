@@ -776,7 +776,7 @@ func (s *Session) refresh(ctx context.Context) error {
 		if e := s.reloadOriginal(); e != nil {
 			return e
 		}
-		if e := s.connect(ctx); e != nil {
+		if e := s.connectWithRecovery(ctx); e != nil {
 			return e
 		}
 		s.mu.Lock()
