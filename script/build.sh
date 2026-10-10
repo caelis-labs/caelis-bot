@@ -8,11 +8,7 @@ fi
 source "$BOT_ROOT/script/development-signing.sh"
 source "$BOT_ROOT/script/app-identity.sh"
 node script/asset-pack.mjs verify
-if [[ "${BOT_REUSE_FRONTEND_BUILD:-0}" == 1 ]]; then
-  test -f frontend/dist/index.html || { echo 'Checked frontend build is missing.' >&2; exit 1; }
-else
-  npm run build
-fi
+npm run build
 # Recreate owned resources so incremental builds cannot retain retired payloads.
 rm -rf "$BOT_BUNDLE/Contents/Resources"
 mkdir -p "$BOT_BUNDLE/Contents/MacOS" "$BOT_BUNDLE/Contents/Resources"
