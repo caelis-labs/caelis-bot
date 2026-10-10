@@ -43,8 +43,7 @@ before HTTP dispatch, including its exact text digest, context token, stable cli
 attempt count. A timeout or failed HTTP response is marked uncertain and
 retried after 2 and 8 seconds, at most three total attempts. The same client ID
 is used, but the upstream server does not document deduplication; duplicate
-phone replies remain possible. Unsent later chunks wait for this result. Old
-Dev unknown entries without an attempt count are not replayed. A successful HTTP JSON
+phone replies remain possible. Unsent later chunks wait for this result. A successful HTTP JSON
 response with absent `ret` follows the published client's success handling;
 it does not prove the phone displayed it. The private outbound ledger stores a
 bounded result category for later diagnosis, without reply text or credentials.
@@ -71,3 +70,14 @@ official `get_bot_qrcode?bot_type=3` endpoint verifies only handshake
 reachability and response shape. It does not verify account pairing, receiving
 a real Weixin message, or the phone seeing a reply. Those require the user's
 manual scan and a Dev Bot running with its isolated data directory.
+
+The user manually paired the isolated macOS Dev Bot and confirmed that a
+private Weixin text message reached the resident Bot and its final reply
+arrived on the phone. After the Markdown-aware chunking change, the user
+reported one longer reply delivered in three readable parts. Saved copies of
+those parts measured 5,781, 5,868 and 3,483 UTF-8 bytes, respectively; the
+three fenced code blocks in the middle part remained complete. This is observed
+account/device acceptance, not a published service length guarantee. The
+phone's earlier “cannot connect to OpenClaw” banner has not been confirmed
+resolved, and typing visibility, cooldown recovery, removal, unknown-send
+deduplication and other accounts have not received live acceptance.
