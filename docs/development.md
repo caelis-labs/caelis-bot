@@ -118,6 +118,9 @@ Dev build; Linux runs focused race tests and builds remote helpers; Windows runs
 platform contracts and verifies the pinned helper. Unknown paths take the full route.
 Windows runner results are native contract evidence, not Windows GUI acceptance. `script/ci-scope.mjs`
 owns the fail-closed route and gate.
+The remote SSH control directory currently uses a Unix socket path; macOS tests
+and Linux race checks own its runtime behavior. Windows PR CI checks the shared
+desktop and local IPC contracts while the native Windows SSH adapter remains planned.
 
 Run native launches only through `script/build_and_run.sh`; use `CAELIS_BOT_DATA_DIR` for synthetic data.
 An explicit development data directory also namespaces the native instance lock;

@@ -137,7 +137,7 @@ jobs:
       - name: Run native Windows shared and platform contracts
         shell: pwsh
         run: |
-          go test ./internal/desktop ./internal/localipc ./internal/machines ./internal/remotework
+          go test ./internal/desktop ./internal/localipc ./internal/remotework
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify pinned Windows Desktop World payload
         shell: pwsh
