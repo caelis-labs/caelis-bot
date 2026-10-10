@@ -17,14 +17,21 @@ import (
 
 func TestReceiveDurableOwnerOnlyAndNoDuplicate(t *testing.T) {
 	var calls atomic.Int32
+	releasePoll := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) > 1 {
-			<-r.Context().Done()
+			select {
+			case <-r.Context().Done():
+			case <-releasePoll:
+			}
 			return
 		}
 		_, _ = w.Write([]byte(`{"ret":0,"get_updates_buf":"next-cursor","msgs":[{"message_id":18446744073709551615,"from_user_id":"owner","to_user_id":"bot","message_type":1,"context_token":"ctx","item_list":[{"type":1,"text_item":{"text":"hello"}}]},{"message_id":"18446744073709551615","from_user_id":"owner","to_user_id":"bot","message_type":1,"item_list":[{"type":1,"text_item":{"text":"duplicate"}}]},{"message_id":"2","from_user_id":"stranger","to_user_id":"bot","message_type":1,"item_list":[{"type":1,"text_item":{"text":"intruder"}}]},{"message_id":"3","from_user_id":"owner","to_user_id":"bot","group_id":"group","message_type":1,"item_list":[{"type":1,"text_item":{"text":"group"}}]}]}`))
 	}))
-	defer server.Close()
+	t.Cleanup(func() {
+		close(releasePoll)
+		server.Close()
+	})
 	b, err := Open(t.TempDir(), Host{})
 	if err != nil {
 		t.Fatal(err)
