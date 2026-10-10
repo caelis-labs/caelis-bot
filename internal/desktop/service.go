@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
@@ -24,12 +23,9 @@ import (
 type driver interface {
 	screens() []Rect
 	apply(Placement)
-	panel(bool)
 	prepareWindowRecall() bool
 	approval()
 	bubble(bool)
-	togglePanel()
-	panelHeight(int)
 	mask([]byte)
 	stop()
 }
@@ -99,15 +95,12 @@ type Service struct {
 	closeHistory        func()
 	historyVisible      func() bool
 	historyCanHide      func() bool
+	petChatCanHide      func() bool
 	activate            func()
 	restartRuntime      func() error
 	openSettings        func()
 	closeSettings       func()
 	settingsVisible     func() bool
-	requestDraftFlush   func(string, uint64)
-	draftEditors        map[string]bool
-	draftFlushes        map[uint64]chan bool
-	nextDraftFlush      uint64
 	settingsSection     string
 	characterActivity   string
 	openReleasePage     func() error
@@ -124,80 +117,6 @@ type Service struct {
 	diagnosticReport    func() ([]byte, error)
 	saveDiagnosticPath  func() (string, error)
 	exportMu            sync.Mutex
-}
-
-// The incoming editor calls this before its first Draft read. Registration
-// precedes enabling that editor, so an unregistered peer cannot have edits.
-func (s *Service) RegisterDraftEditor(surface string) error {
-	if surface != "panel" && surface != "history" {
-		return errors.New("invalid draft editor")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.draftEditors == nil {
-		s.draftEditors = make(map[string]bool)
-	}
-	s.draftEditors[surface] = true
-	return nil
-}
-
-// FlushOtherDraft is a host-confirmed handoff barrier. It applies to every
-// native way of revealing either editor, including hotkeys and Dock recall,
-// because each activation must wait here before reading the shared draft.
-func (s *Service) FlushOtherDraft(surface string) error {
-	if surface != "panel" && surface != "history" {
-		return errors.New("invalid draft editor")
-	}
-	other := "panel"
-	if surface == "panel" {
-		other = "history"
-	}
-	s.mu.Lock()
-	if !s.draftEditors[other] {
-		s.mu.Unlock()
-		return nil
-	}
-	request := s.requestDraftFlush
-	if request == nil {
-		s.mu.Unlock()
-		return errors.New("draft handoff unavailable")
-	}
-	s.nextDraftFlush++
-	id := s.nextDraftFlush
-	result := make(chan bool, 1)
-	if s.draftFlushes == nil {
-		s.draftFlushes = make(map[uint64]chan bool)
-	}
-	s.draftFlushes[id] = result
-	s.mu.Unlock()
-	// ExecJS may cross AppKit. Never hold the service lock while requesting it.
-	request(other, id)
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-	var ok bool
-	select {
-	case ok = <-result:
-	case <-timer.C:
-	}
-	s.mu.Lock()
-	delete(s.draftFlushes, id)
-	s.mu.Unlock()
-	if !ok {
-		return errors.New("draft handoff was not confirmed")
-	}
-	return nil
-}
-
-func (s *Service) ConfirmDraftFlush(id uint64, ok bool) {
-	s.mu.Lock()
-	result := s.draftFlushes[id]
-	s.mu.Unlock()
-	if result != nil {
-		select {
-		case result <- ok:
-		default:
-		}
-	}
 }
 
 func (s *Service) CopyText(text string) error {
@@ -336,22 +255,6 @@ func (s *Service) SetVisible(visible bool) error {
 	s.native.apply(s.placement)
 	return s.persist()
 }
-func (s *Service) OpenPanel() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.started || s.stopped {
-		return
-	}
-	s.native.panel(true)
-}
-func (s *Service) ClosePanel() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.started || s.stopped {
-		return
-	}
-	s.native.panel(false)
-}
 
 // A transition to another Bot window must not restore focus to another app.
 // Call this before entering an AppKit transaction, never while on its UI thread:
@@ -382,54 +285,6 @@ func (s *Service) SetBubbleVisible(ctx context.Context, visible bool) error {
 		return errors.New("desktop is not ready")
 	}
 	s.native.bubble(visible)
-	return nil
-}
-func (s *Service) TogglePanel() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.started || s.stopped {
-		return
-	}
-	// Outside clicks can close the native surface without a Go call. AppKit's
-	// actual visibility is authoritative; do not mirror a stale boolean here.
-	s.native.togglePanel()
-}
-func (s *Service) SetPanelHeight(ctx context.Context, height int) error {
-	if height < 64 || height > 500 {
-		return errors.New("invalid panel height")
-	}
-	// ResizeObserver may report the first layout before native ownership is ready.
-	// Keep that layout pending rather than dropping it or showing a false UI error.
-	select {
-	case <-s.ready:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.started || s.stopped {
-		return errors.New("desktop is not ready")
-	}
-	s.native.panelHeight(height)
-	return nil
-}
-
-// SetPanelMenu changes only the hosting envelope, never the editor's size.
-// Native activation fencing prevents an old renderer from moving a newer panel.
-func (s *Service) SetPanelMenu(height, activation int) error {
-	if height < 0 || height > 324 || activation < 1 || activation > 2147483647 {
-		return errors.New("invalid panel menu layout")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.started || s.stopped {
-		return errors.New("desktop is not ready")
-	}
-	native, ok := s.native.(panelMenuDriver)
-	if !ok {
-		return errors.New("panel menu is unavailable")
-	}
-	native.panelMenu(height, activation)
 	return nil
 }
 func (s *Service) SetHitMask(ctx context.Context, encoded string) error {
@@ -531,11 +386,28 @@ func (s *Service) OpenHistory() {
 	}
 }
 
-// Only the global shortcut toggles chat. Menus and pet double-click still recall
-// it unconditionally. Read native state so close/minimise never leaves a cache.
+// The global shortcut toggles a foreground chat. Menus and notifications
+// recall it unconditionally.
 func (s *Service) ToggleHistory() {
 	s.mu.Lock()
 	canHide := s.historyCanHide
+	ready := s.started && !s.stopped
+	s.mu.Unlock()
+	if !ready {
+		return
+	}
+	if canHide != nil && canHide() {
+		s.CloseHistory()
+	} else {
+		s.OpenHistory()
+	}
+}
+
+// A pet click closes a visible chat even if another window currently has focus.
+// Native state excludes minimised windows and attached sheets.
+func (s *Service) PetToggleHistory() {
+	s.mu.Lock()
+	canHide := s.petChatCanHide
 	ready := s.started && !s.stopped
 	s.mu.Unlock()
 	if !ready {
@@ -563,13 +435,13 @@ func (s *Service) HistoryVisible() bool {
 	return f != nil && f()
 }
 
-// Activate routes a pet click using authoritative backend state. Native visibility
-// still decides whether an idle composer should toggle closed.
+// The pet click toggles the conversation. Setup is the only prerequisite;
+// approvals remain visible inside chat rather than changing click semantics.
 func (s *Service) Activate() {
 	if s.activate != nil {
 		s.activate()
 	} else {
-		s.TogglePanel()
+		s.PetToggleHistory()
 	}
 }
 func (s *Service) CollapseBubble() {

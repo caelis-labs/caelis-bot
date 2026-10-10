@@ -4,7 +4,6 @@ import "encoding/json"
 
 // Native extensions stay local to the desktop driver. They never expose a
 // protocol client, native task ID, or backend execution authority.
-type panelMenuDriver interface{ panelMenu(height, activation int) }
 type bubbleDriver interface {
 	expandBubble(bool)
 	bubbleHeight(int)

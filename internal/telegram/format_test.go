@@ -122,6 +122,17 @@ func TestRichMarkdownKeepsNumberedReferencesLiteral(t *testing.T) {
 	}
 }
 
+func TestRichMarkdownDoesNotChangeMultilineInlineCode(t *testing.T) {
+	source := "Use `foo\n#147` here.\n\n- ``bar\n#148`` in a list\n\n#149 issue"
+	want := "Use `foo\n#147` here.\n\n- ``bar\n#148`` in a list\n\n\\#149 issue"
+	if got := richMarkdown(source); got != want {
+		t.Fatalf("inline code changed: got %q, want %q", got, want)
+	}
+	if got := telegramHTML(source); !strings.Contains(got, "<code>foo #147</code>") || !strings.Contains(got, "<code>bar #148</code>") {
+		t.Fatalf("HTML fallback code changed: %q", got)
+	}
+}
+
 func TestFormattedUnknownDeliveryNeverFallsBack(t *testing.T) {
 	calls := 0
 	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {

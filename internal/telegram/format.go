@@ -194,11 +194,30 @@ func richMarkdown(markdown string) string {
 		return markdown
 	}
 	sort.Ints(offsets)
+	// Paragraph source lines also contain inline code. A hash inside a
+	// multiline CodeSpan is literal code, so only escape offsets represented
+	// by ordinary inline Text nodes.
+	plain := make(map[int]bool, len(offsets))
+	_ = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering || node.Kind() != ast.KindText {
+			return ast.WalkContinue, nil
+		}
+		for parent := node.Parent(); parent != nil; parent = parent.Parent() {
+			if parent.Kind() == ast.KindCodeSpan {
+				return ast.WalkContinue, nil
+			}
+		}
+		segment := node.(*ast.Text).Segment
+		for i := sort.SearchInts(offsets, segment.Start); i < len(offsets) && offsets[i] < segment.Stop; i++ {
+			plain[offsets[i]] = true
+		}
+		return ast.WalkContinue, nil
+	})
 	var out strings.Builder
-	out.Grow(len(markdown) + len(offsets))
+	out.Grow(len(markdown) + len(plain))
 	from := 0
 	for _, at := range offsets {
-		if at < from {
+		if at < from || !plain[at] {
 			continue
 		}
 		out.WriteString(markdown[from:at])

@@ -198,23 +198,11 @@ func Run(assets fs.FS) error {
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true, CornerType: application.MacWindowCornerTypeSquare,
 			WindowLevel: application.MacWindowLevelFloating, CollectionBehavior: application.MacWindowCollectionBehaviorCanJoinAllSpaces | application.MacWindowCollectionBehaviorStationary | application.MacWindowCollectionBehaviorFullScreenAuxiliary | application.MacWindowCollectionBehaviorIgnoresCycle},
 	})
-	panel := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "conversation", Title: appName, Width: 420, Height: 64, Frameless: true, DisableResize: true, Hidden: true,
-		URL: "/?surface=panel", BackgroundType: application.BackgroundTypeTransparent, EnableFileDrop: true,
-		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, CornerType: application.MacWindowCornerTypeSquare, WindowLevel: application.MacWindowLevelFloating, CollectionBehavior: application.MacWindowCollectionBehaviorMoveToActiveSpace | application.MacWindowCollectionBehaviorFullScreenAuxiliary},
-	})
 	history := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "history", Title: appName, Width: 640, Height: 700, MinWidth: 420, MinHeight: 360,
 		Hidden: true, URL: "/?surface=history", EnableFileDrop: true, BackgroundColour: application.NewRGB(247, 247, 247),
 		Mac: application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
-	s.requestDraftFlush = func(surface string, id uint64) {
-		window := panel
-		if surface == "history" {
-			window = history
-		}
-		window.ExecJS(fmt.Sprintf("window.dispatchEvent(new CustomEvent('draft-flush-request',{detail:%d}))", id))
-	}
 	bubble := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "bubble", Title: s.text("native.bubbleTitle", nil), Width: 360, Height: 68, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=bubble", BackgroundType: application.BackgroundTypeTransparent,
@@ -230,7 +218,7 @@ func Run(assets fs.FS) error {
 		Hidden: true, URL: "/?surface=settings", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
-	for _, window := range []*application.WebviewWindow{panel, bubble, settings} {
+	for _, window := range []*application.WebviewWindow{bubble, settings} {
 		window.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, func(*application.WindowEvent) { syncMacMaterials() })
 	}
 	s.openSettings = func() {
@@ -270,7 +258,7 @@ func Run(assets fs.FS) error {
 	}
 	s.contentChanged = func(value contentpack.Appearance) {
 		data, _ := json.Marshal(value)
-		for _, window := range []*application.WebviewWindow{pet, panel, history, bubble, settings} {
+		for _, window := range []*application.WebviewWindow{pet, history, bubble, settings} {
 			window.ExecJS("window.dispatchEvent(new CustomEvent('appearance-changed',{detail:" + string(data) + "}))")
 		}
 	}
@@ -296,6 +284,7 @@ func Run(assets fs.FS) error {
 	}
 	s.historyVisible = func() bool { return macWindowVisible(history) }
 	s.historyCanHide = func() bool { return macWindowCanHide(history) }
+	s.petChatCanHide = func() bool { return macWindowPetCanHide(history) }
 	s.recallWindows = func() {
 		if !s.prepareWindowRecall() {
 			return
@@ -321,7 +310,7 @@ func Run(assets fs.FS) error {
 	// user-initiated process shutdown; updater/restart/system cleanup stays intact.
 	closeContextWindow = func() { closeMacContextWindow(history, settings) }
 	// Wails' default Dock callback reveals every hidden window, including the
-	// private pet/prop/composer webviews. Cancel it and recall only open panels.
+	// private pet/prop webviews. Cancel it and recall only open panels.
 	nativeApp.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
 		e.Cancel()
 		if !s.prepareWindowRecall() {
@@ -359,29 +348,21 @@ func Run(assets fs.FS) error {
 			})
 		})
 	}
-	for _, window := range []*application.WebviewWindow{panel, history} {
-		window.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
-			s.mu.Lock()
-			before := len(s.files)
-			_, err := s.stageFiles(e.Context().DroppedFiles())
-			added := len(s.files) - before
-			s.mu.Unlock()
-			message := ""
-			if err != nil {
-				message = err.Error()
-			}
-			encoded, _ := json.Marshal(map[string]any{"error": message, "added": added})
-			window.ExecJS("window.dispatchEvent(new CustomEvent('files-changed',{detail:" + string(encoded) + "}))")
-		})
-	}
-	panel.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.ClosePanel() })
+	history.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
+		s.mu.Lock()
+		before := len(s.files)
+		_, err := s.stageFiles(e.Context().DroppedFiles())
+		added := len(s.files) - before
+		s.mu.Unlock()
+		message := ""
+		if err != nil {
+			message = err.Error()
+		}
+		encoded, _ := json.Marshal(map[string]any{"error": message, "added": added})
+		history.ExecJS("window.dispatchEvent(new CustomEvent('files-changed',{detail:" + string(encoded) + "}))")
+	})
 	s.pickFiles = func() ([]string, error) {
-		return nativeApp.Dialog.OpenFile().AttachToWindow(func() *application.WebviewWindow {
-			if macWindowVisible(history) {
-				return history
-			}
-			return panel
-		}()).CanChooseFiles(true).CanChooseDirectories(false).
+		return nativeApp.Dialog.OpenFile().AttachToWindow(history).CanChooseFiles(true).CanChooseDirectories(false).
 			SetTitle(s.text("native.addFileTitle", nil)).SetButtonText(s.text("native.add", nil)).PromptForMultipleSelection()
 	}
 	pet.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); _ = s.SetVisible(false) })
@@ -412,7 +393,7 @@ func Run(assets fs.FS) error {
 		data, _ := json.Marshal(state)
 		application.InvokeSync(func() {
 			updateLanguage(state)
-			for _, window := range []*application.WebviewWindow{pet, panel, history, bubble, settings, prop} {
+			for _, window := range []*application.WebviewWindow{pet, history, bubble, settings, prop} {
 				window.ExecJS("window.dispatchEvent(new CustomEvent('language-changed',{detail:" + string(data) + "}))")
 			}
 		})
@@ -428,7 +409,7 @@ func Run(assets fs.FS) error {
 		if !installMacAppIcon() {
 			log.Print("Desktop application icon could not be decoded")
 		}
-		s.start(newMacDriver(pet, panel, bubble, history, prop, s, quit))
+		s.start(newMacDriver(pet, bubble, history, prop, s, quit))
 		styleMacSettings(settings)
 		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() error {
 			quitting.Store(true)

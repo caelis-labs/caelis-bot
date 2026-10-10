@@ -76,7 +76,7 @@ type macDriver struct {
 	handle  cgo.Handle
 }
 
-func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, s *Service, quit func()) *macDriver {
+func newMacDriver(pet, bubble, history, prop *application.WebviewWindow, s *Service, quit func()) *macDriver {
 	d := &macDriver{}
 	d.events = newNativeEventQueue(func(e nativeEvent) {
 		switch e.kind {
@@ -131,7 +131,7 @@ func newMacDriver(pet, panel, bubble, history, prop *application.WebviewWindow, 
 	captureRoot := C.CString(s.capture.root)
 	defer C.free(unsafe.Pointer(captureRoot))
 	application.InvokeSync(func() {
-		d.pointer = C.bot_create(pet.NativeWindow(), panel.NativeWindow(), bubble.NativeWindow(), history.NativeWindow(), prop.NativeWindow(), C.uintptr_t(d.handle), (*C.uchar)(unsafe.Pointer(&statusIcon[0])), C.int(len(statusIcon)))
+		d.pointer = C.bot_create(pet.NativeWindow(), bubble.NativeWindow(), history.NativeWindow(), prop.NativeWindow(), C.uintptr_t(d.handle), (*C.uchar)(unsafe.Pointer(&statusIcon[0])), C.int(len(statusIcon)))
 		d.capture = C.bot_capture_create(C.uintptr_t(d.handle), captureRoot)
 		C.bot_bind_capture(d.pointer, d.capture)
 	})
@@ -184,15 +184,6 @@ func (d *macDriver) apply(p Placement) {
 		C.bot_apply(d.pointer, C.double(p.X), C.double(p.Y), C.double(p.Scale), C.int(v))
 	})
 }
-func (d *macDriver) panelHeight(height int) {
-	application.InvokeSync(func() { C.bot_panel_height(d.pointer, C.int(height)) })
-}
-func (d *macDriver) panelMenu(height, activation int) {
-	application.InvokeSync(func() { C.bot_panel_menu(d.pointer, C.int(height), C.int(activation)) })
-}
-func (d *macDriver) togglePanel() {
-	application.InvokeSync(func() { C.bot_toggle_panel(d.pointer) })
-}
 func (d *macDriver) approval() {
 	application.InvokeSync(func() { C.bot_expand_bubble(d.pointer, 1) })
 }
@@ -203,15 +194,6 @@ func (d *macDriver) bubble(visible bool) {
 			v = 1
 		}
 		C.bot_bubble(d.pointer, C.int(v))
-	})
-}
-func (d *macDriver) panel(visible bool) {
-	application.InvokeSync(func() {
-		v := 0
-		if visible {
-			v = 1
-		}
-		C.bot_panel(d.pointer, C.int(v))
 	})
 }
 func (d *macDriver) prepareWindowRecall() bool {
@@ -228,6 +210,9 @@ func macWindowVisible(window *application.WebviewWindow) bool {
 }
 func macWindowCanHide(window *application.WebviewWindow) bool {
 	return application.InvokeSyncWithResult(func() bool { return C.bot_window_can_hide(window.NativeWindow()) != 0 })
+}
+func macWindowPetCanHide(window *application.WebviewWindow) bool {
+	return application.InvokeSyncWithResult(func() bool { return C.bot_window_pet_can_hide(window.NativeWindow()) != 0 })
 }
 
 func closeMacContextWindow(history, settings *application.WebviewWindow) {
@@ -281,18 +266,16 @@ func (d *macDriver) dismissNotification(id string) {
 	application.InvokeSync(func() { C.bot_dismiss_notification(key) })
 }
 func (d *macDriver) notificationStatus() string {
-	return application.InvokeSyncWithResult(func() string {
-		switch int(C.bot_notification_status(d.pointer)) {
-		case 0:
-			return "notDetermined"
-		case 1:
-			return "denied"
-		case 2, 3:
-			return "authorized"
-		default:
-			return "unavailable"
-		}
-	})
+	switch int(C.bot_notification_status(d.pointer)) {
+	case 0:
+		return "notDetermined"
+	case 1:
+		return "denied"
+	case 2, 3:
+		return "authorized"
+	default:
+		return "unavailable"
+	}
 }
 func (d *macDriver) configureNotifications() {
 	application.InvokeSync(func() { C.bot_configure_notifications(d.pointer) })
@@ -446,9 +429,6 @@ func (d *macDriver) registerHotkey(v Shortcut, tasks int) error {
 	}
 	return nil
 }
-func (d *macDriver) panelReady(id int) {
-	application.InvokeSync(func() { C.bot_panel_ready(d.pointer, C.int(id)) })
-}
 
 func (d *macDriver) registerCaptureShortcut(v Shortcut, kind int) error {
 	return d.registerHotkey(v, kind+2)
@@ -487,7 +467,6 @@ var (
 	_ driver             = (*macDriver)(nil)
 	_ shortcutDriver     = (*macDriver)(nil)
 	_ notificationDriver = (*macDriver)(nil)
-	_ panelMenuDriver    = (*macDriver)(nil)
 	_ bubbleDriver       = (*macDriver)(nil)
 	_ activityDriver     = (*macDriver)(nil)
 	_ gestureDriver      = (*macDriver)(nil)

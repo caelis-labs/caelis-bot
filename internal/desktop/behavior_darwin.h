@@ -21,7 +21,7 @@ static void bot_event(NSWindow *window, NSString *name, id detail) {
     // When a Bot editor is key we already own its window. Enumerating every
     // on-screen window here can block AppKit's main thread during typing.
     double now=NSProcessInfo.processInfo.systemUptime;
-    NSWindow *ownEditor=self.history.keyWindow ? self.history : self.panel.keyWindow ? self.panel : nil;
+    NSWindow *ownEditor=self.history.keyWindow ? self.history : nil;
     BOOL ownWasObserved=[self.frontContext[@"source"] isEqual:@"host-window"];
     BOOL editorChanged=ownEditor ? (!ownWasObserved || ![self.frontContext[@"id"] isEqual:@(ownEditor.windowNumber)]) : ownWasObserved;
     if (!self.frontContext || now-self.frontSample>=1 || editorChanged) {
@@ -50,7 +50,7 @@ static void bot_event(NSWindow *window, NSString *name, id detail) {
       @"dock":@{@"source":@"visible-frame-inset",@"edge":edge,@"confidence":dock==NSNull.null?@"unknown":@"estimated",@"frame":dock},
       @"activeWindow":self.frontContext,@"actor":bot_rect(self.pet.frame),
       @"pointer":@{@"x":@(pointer.x),@"y":@(pointer.y),@"hovering":@(!self.pet.ignoresMouseEvents&&!self.dragging)},
-      @"interaction":@{@"pressing":@(self.pressing),@"dragging":@(self.dragging),@"input":@(self.panel.visible || self.history.keyWindow || self.bubble.interactive || NSApp.keyWindow!=nil),@"menu":@(self.menuTracking)}};
+      @"interaction":@{@"pressing":@(self.pressing),@"dragging":@(self.dragging),@"input":@(self.history.keyWindow || self.bubble.interactive || NSApp.keyWindow!=nil),@"menu":@(self.menuTracking)}};
 }
 - (void)publishContext {
     if (!self.visible || !self.handle) return;
@@ -115,7 +115,7 @@ void bot_plane_ready(void *pointer,int ready) {
 }
 int bot_launch_plane(void *pointer,char *identifier,double x,double y) {
     BotHost *host=(__bridge BotHost *)pointer;
-    if(!host.visible || !host.propReady || host.flightID || host.dragging || host.pressing || host.menuTracking || host.panel.visible || host.history.keyWindow || host.bubble.interactive) return 0;
+    if(!host.visible || !host.propReady || host.flightID || host.dragging || host.pressing || host.menuTracking || host.history.keyWindow || host.bubble.interactive) return 0;
     NSRect work=(host.pet.screen ?: NSScreen.mainScreen).visibleFrame,actor=host.pet.frame;
     // The prop has a bounded non-key surface, independent of the actor's drag window.
     NSPoint release=NSMakePoint(actor.origin.x+x*host.scale,actor.origin.y+y*host.scale);

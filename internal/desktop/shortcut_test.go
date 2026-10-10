@@ -21,7 +21,6 @@ func (d *shortcutFake) registerShortcut(v Shortcut) error {
 	d.current = v
 	return nil
 }
-func (d *shortcutFake) panelReady(int) {}
 func TestShortcutConflictPersistenceAndHiddenPet(t *testing.T) {
 	s := newService(&memoryStore{value: defaults()})
 	path := filepath.Join(t.TempDir(), "shortcut.json")
@@ -61,7 +60,7 @@ func TestShortcutConflictPersistenceAndHiddenPet(t *testing.T) {
 	}
 	s.OpenHistory()
 	s.OpenHistory() // Repeated shortcut invocation recalls chat; it never toggles closed.
-	if opened != 2 || d.panelOpen || d.placement.Visible {
+	if opened != 2 || d.placement.Visible {
 		t.Fatal("global invocation must open chat without showing the pet or quick input")
 	}
 	s.shutdown()
@@ -118,7 +117,7 @@ func TestChatShortcutTogglesNativeVisibilityWithoutOwningWork(t *testing.T) {
 	}
 	// Double-click/menu open remains idempotent, independent of shortcut policy.
 	s.OpenHistory()
-	if !visible || opens != 5 || d.panelOpen || d.placement.Visible || d.stopped || store.saves != 1 {
+	if !visible || opens != 5 || d.placement.Visible || d.stopped || store.saves != 1 {
 		t.Fatal("chat toggle changed another surface or app lifetime")
 	}
 	s.shutdown()

@@ -1,81 +1,75 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { PaperclipIcon } from '@phosphor-icons/react/dist/csr/Paperclip';
+import { PuzzlePieceIcon } from '@phosphor-icons/react/dist/csr/PuzzlePiece';
+import { SparkleIcon } from '@phosphor-icons/react/dist/csr/Sparkle';
 import type { Reference } from './backend/contract';
-import { desktop } from './desktop';
+import { attachmentMenuDescription, attachmentMenuReferences, attachmentReferenceKey } from './attachment-menu-model';
 import { attachmentMenuLayout, type MenuLayout } from './attachment-menu-layout';
 import { useI18n } from './i18n';
 
-// Preserve open/close ordering across quick-menu mounts. Native activation IDs
-// also fence requests from an editor that has already been hidden/reopened.
-let nativeLayouts:Promise<unknown>=Promise.resolve();
-function setNativeMenu(height:number,activation:number) {
- nativeLayouts=nativeLayouts.catch(()=>{}).then(()=>desktop('SetPanelMenu',height,activation));
- return nativeLayouts;
-}
-
-export function AttachmentMenu({trigger,composer,quick,activation,references,selected,onClose,onPick,onSelect,onError}:{
- trigger:RefObject<HTMLButtonElement|null>;composer:RefObject<HTMLDivElement|null>;
- quick:boolean;activation:number;references:Reference[];selected:string[];
- onClose:()=>void;onPick:()=>void;onSelect:(id:string)=>void;onError:()=>void;
+export function AttachmentMenu({trigger,references,selected,onClose,onPick,onSelect}:{
+ trigger:RefObject<HTMLButtonElement|null>;references:Reference[];selected:string[];
+ onClose:()=>void;onPick:()=>void;onSelect:(id:string)=>void;
 }) {
- const {t} = useI18n();
+ const {t}=useI18n();
  const menu=useRef<HTMLElement>(null),[layout,setLayout]=useState<MenuLayout|null>(null);
- const callbacks=useRef({onClose,onError});callbacks.current={onClose,onError};
+ const close=useRef(onClose);close.current=onClose;
+ const groups=useMemo(()=>attachmentMenuReferences(references),[references]);
+ const selectedKeys=new Set(references.filter(r=>selected.includes(r.id)).map(attachmentReferenceKey));
  useLayoutEffect(()=>{
   const node=menu.current!;
-  const desired=Math.min(324,node.scrollHeight+2);
   const position=()=>{
-   if(quick)return;
-   const rect=composer.current?.getBoundingClientRect();
-   if(rect)setLayout(attachmentMenuLayout(rect,{width:innerWidth,height:innerHeight},desired));
+   const rect=trigger.current?.getBoundingClientRect();
+   if(rect)setLayout(attachmentMenuLayout(rect,{width:innerWidth,height:innerHeight},Math.min(360,node.scrollHeight+2)));
   };
-  const nativeLayout=(e:Event)=>{
-   const detail=(e as CustomEvent<MenuLayout&{activation:number}>).detail;
-   if(detail.activation===activation)setLayout(detail);
+  const outside=(event:PointerEvent)=>{
+   if(!node.contains(event.target as Node)&&!trigger.current?.contains(event.target as Node))close.current();
   };
-  const outside=(e:PointerEvent)=>{
-   if(!node.contains(e.target as Node)&&!trigger.current?.contains(e.target as Node))callbacks.current.onClose();
-  };
-  const key=(e:KeyboardEvent)=>{
-   if(e.isComposing)return;
-   if(e.key==='Escape'){
-    e.preventDefault();e.stopImmediatePropagation();callbacks.current.onClose();trigger.current?.focus();return;
+  const key=(event:KeyboardEvent)=>{
+   if(event.isComposing)return;
+   if(event.key==='Escape'){
+    event.preventDefault();event.stopImmediatePropagation();close.current();trigger.current?.focus();return;
    }
-   if(e.key==='Tab'){callbacks.current.onClose();return;}
-   if(!['ArrowDown','ArrowUp','Home','End'].includes(e.key))return;
+   if(event.key==='Tab'){close.current();return;}
+   if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
    const buttons=Array.from(node.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
    if(!buttons.length)return;
-   e.preventDefault();e.stopImmediatePropagation();
+   event.preventDefault();event.stopImmediatePropagation();
    const current=buttons.indexOf(document.activeElement as HTMLButtonElement);
-   const index=e.key==='Home'?0:e.key==='End'?buttons.length-1:e.key==='ArrowDown'?(current+1)%buttons.length:(current<=0?buttons.length:current)-1;
+   const index=event.key==='Home'?0:event.key==='End'?buttons.length-1:event.key==='ArrowDown'?(current+1)%buttons.length:(current<=0?buttons.length:current)-1;
    buttons[index].focus();
   };
-  const blur=()=>callbacks.current.onClose();
-  const taskExpanded=()=>callbacks.current.onClose();
-  window.addEventListener('panel-menu-layout',nativeLayout);
+  const blur=()=>close.current();
+  const taskExpanded=()=>close.current();
   window.addEventListener('resize',position);
   window.addEventListener('pointerdown',outside,true);
   window.addEventListener('keydown',key,true);
   window.addEventListener('blur',blur);
   window.addEventListener('task-dock-expanded',taskExpanded);
-  const observer=new ResizeObserver(position);if(composer.current)observer.observe(composer.current);
+  const observer=new ResizeObserver(position);observer.observe(node);
   position();
-  let disposed=false;
-  if(quick)void setNativeMenu(desired,activation).catch(()=>{if(!disposed){callbacks.current.onClose();callbacks.current.onError();}});
   return()=>{
-   disposed=true;observer.disconnect();
-   window.removeEventListener('panel-menu-layout',nativeLayout);
+   observer.disconnect();
    window.removeEventListener('resize',position);
    window.removeEventListener('pointerdown',outside,true);
    window.removeEventListener('keydown',key,true);
    window.removeEventListener('blur',blur);
    window.removeEventListener('task-dock-expanded',taskExpanded);
-   if(quick)void setNativeMenu(0,activation).catch(()=>{});
   };
- },[quick,activation,references.length,trigger,composer]);
+ },[trigger]);
+ const row=(reference:Reference)=>{
+  const plugin=reference.kind==='plugin';
+  return <button role="menuitem" key={reference.id} className="attachment-menu-row" disabled={selectedKeys.has(attachmentReferenceKey(reference))}
+   title={reference.description||reference.name} onClick={()=>onSelect(reference.id)}>
+   {plugin?<PuzzlePieceIcon size={17} aria-hidden="true"/>:<SparkleIcon size={17} aria-hidden="true"/>}
+   <span className="attachment-menu-copy"><strong>{reference.name}</strong>{reference.description&&<small>{attachmentMenuDescription(reference.description)}</small>}</span>
+  </button>;
+ };
  return createPortal(<section ref={menu} id="attachment-menu" className="attachment-menu" role="menu" aria-label={t('chat.attachmentMenuAriaLabel')}
   style={layout?{left:layout.left,top:layout.top,width:layout.width,maxHeight:layout.height}:{visibility:'hidden'}}>
-  <button role="menuitem" className="action-row attachment-file" onClick={onPick}><img className="symbol" src="/icons/paperclip.png" alt=""/>{t('chat.addFile')}</button>
-  {!!references.length&&<><p className="menu-caption">{t('chat.pluginsAndSkills')}</p>{references.map(r=><button role="menuitem" key={r.id} className="action-row" disabled={selected.includes(r.id)} title={r.description} onClick={()=>onSelect(r.id)}><span>{r.name}<small>{r.description}</small></span></button>)}</>}
+  <button role="menuitem" className="attachment-menu-row attachment-file" onClick={onPick}><PaperclipIcon size={17} aria-hidden="true"/><span className="attachment-menu-copy"><strong>{t('chat.addFile')}</strong></span></button>
+  {!!groups.skills.length&&<div className="attachment-menu-group"><p className="menu-caption">{t('chat.skills')}</p>{groups.skills.map(row)}</div>}
+  {!!groups.plugins.length&&<div className="attachment-menu-group"><p className="menu-caption">{t('chat.plugins')}</p>{groups.plugins.map(row)}</div>}
  </section>,document.body);
 }

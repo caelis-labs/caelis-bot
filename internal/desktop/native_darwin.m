@@ -7,7 +7,6 @@
 #import <UserNotifications/UserNotifications.h>
 #import <os/log.h>
 #import "native_darwin.h"
-#include "panel_menu_layout.h"
 #include "bubble_layout.h"
 #import "bubble_hover_darwin.h"
 #import "material_darwin.h"
@@ -55,7 +54,6 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property BOOL captureEnabled;
 @property NSArray<BotHotkeySlot *> *hotkeys;
 @property BotInputPanel *pet;
-@property NSWindow *panel;
 @property NSWindow *history;
 @property BotInputPanel *bubble;
 @property BOOL bubbleWanted;
@@ -78,17 +76,11 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 @property id globalMonitor;
 @property id localMonitor;
 @property NSMutableArray *observers;
-@property NSRunningApplication *previousApp;
 @property BOOL dragging;
 @property(readonly) BOOL pressing;
 @property BotPetInputView *inputView;
 @property NSTimer *dragCompletion;
 @property EventHandlerRef shortcutHandler;
-@property NSInteger panelContentHeight;
-@property NSInteger panelMenuHeight;
-@property double interactionStart;
-@property NSUInteger activationID;
-@property NSUInteger readyID;
 
 @property BOOL visible;
 @property NSStatusItem *statusItem;
@@ -108,15 +100,11 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
 - (void)updateHit;
 - (void)showPetWithoutActivation;
 - (void)finishDrag;
-- (void)anchorPanel;
-- (void)focusComposer;
 - (void)updateBubble;
 - (void)collapseBubble;
 - (void)trace:(NSString *)event;
-- (void)dismissPanel:(NSString *)reason;
 - (void)observeClick:(NSEvent *)event local:(BOOL)local;
 - (void)openChat:(id)sender;
-- (void)toggleInput:(id)sender;
 - (void)togglePet:(id)sender;
 - (void)quit:(id)sender;
 - (NSMenu *)petMenu;
@@ -152,27 +140,23 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     [self publishContext];
     NSPoint origin = self.pet.frame.origin;
     self.placementX = origin.x; self.placementY = origin.y;
-    if (self.panel.visible) [self anchorPanel];
     [self updateBubble];
     [self updateHit]; [self trace:@"drag-end"];
     desktopEvent(self.handle,1,origin.x,origin.y,0);
 }
 - (void)openChat:(id)sender {  desktopEvent(self.handle,2,0,0,0); }
-- (void)toggleInput:(id)sender { desktopEvent(self.handle,8,0,0,0); }
 - (void)togglePet:(id)sender { desktopEvent(self.handle,5,!self.visible,0,0); }
 - (void)quit:(id)sender { desktopEvent(self.handle,7,0,0,0); }
 - (void)openSettings:(id)sender {  desktopEvent(self.handle,9,0,0,0); }
 - (void)checkUpdates:(id)sender {  desktopEvent(self.handle,10,0,0,0); }
 - (void)singleClick {
     if (!self.visible || !self.handle) return;
-    self.interactionStart = NSProcessInfo.processInfo.systemUptime;
     [self trace:@"single-click"];
     bot_js(self.pet,@"window.dispatchEvent(new Event('pet-touch'))");
     desktopEvent(self.handle,8,0,0,0);
 }
 - (void)doubleClick {
     if (!self.visible || !self.handle) return;
-    self.interactionStart = NSProcessInfo.processInfo.systemUptime;
     [self trace:@"double-click"];
     bot_js(self.pet,@"window.dispatchEvent(new Event('pet-touch'))");
     desktopEvent(self.handle,12,0,0,0);
@@ -181,11 +165,9 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     if (!self.visible || !self.handle) return;
     self.dragging = YES;
     self.pet.ignoresMouseEvents = NO;
-    self.interactionStart = NSProcessInfo.processInfo.systemUptime;
     [self cancelPlane]; [self publishContext];
     [self.bubble orderOut:nil];
     [self updateBubble];
-    [self dismissPanel:@"panel-dismiss-drag"];
     [self trace:@"drag-start"];
     [self.pet performWindowDragWithEvent:event];
     // Window Server owns movement and may consume mouseUp. Observe release
@@ -297,19 +279,6 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     [self updateBubble];
     [self updateHit];
 }
-- (void)dismissPanel:(NSString *)reason {
-    if (!self.panel.visible || self.panel.attachedSheet) return;
-    // Outside clicks keep their destination and its focus. Never activate the
-    // previous app here: the user may have chosen a different app altogether.
-    bot_js(self.panel,@"window.dispatchEvent(new Event('panel-close'))");
-    [self.panel orderOut:nil];
-    self.panel.level = NSFloatingWindowLevel;
-    self.panelMenuHeight = 0;
-    self.taskDock.attachmentMenuOpen = NO;
-    self.previousApp = nil;
-    [self updateBubble];
-    [self trace:reason];
-}
 - (void)collapseBubble {
  if (!self.bubble.interactive) return;
  self.bubble.interactive=NO; [self.bubble resignKeyWindow];
@@ -324,14 +293,10 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     // another app's click need not produce NSApplicationDidResignActive again.
     // Cancel only proven outside clicks; keep menu-item/windowless local events
     // with AppKit and return the original event to preserve its destination.
-    if (!local || (event.window && (event.window==self.pet || event.window==self.panel || event.window==self.history || event.window==self.bubble || event.window==self.prop))) {
+    if (!local || (event.window && (event.window==self.pet || event.window==self.history || event.window==self.bubble || event.window==self.prop))) {
         [self dismissMenu:local ? @"menu-dismiss-local" : @"menu-dismiss-global"];
     }
     if (!local || (event.window && event.window != self.bubble)) [self collapseBubble];
-    // Windowless local events (for example native menus) are not evidence of
-    // an outside click. The nonactivating task dock is another Bot control,
-    // so its entry click must not dismiss the still-key composer.
-    if (!local || (event.window && event.window != self.panel && event.window != self.pet && event.window != self.taskDock.window)) [self dismissPanel:local ? @"panel-dismiss-local" : @"panel-dismiss-global"];
 }
 - (void)trace:(NSString *)event {
     static os_log_t logger;
@@ -343,7 +308,7 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
     NSRect r = self.pet.frame;
     NSMutableArray *screens = [NSMutableArray new];
     for (NSScreen *s in NSScreen.screens) [screens addObject:@{@"frame":NSStringFromRect(s.frame),@"visibleFrame":NSStringFromRect(s.visibleFrame),@"scale":@(s.backingScaleFactor)}];
-    NSDictionary *record = @{@"event":event,@"time":@(NSDate.date.timeIntervalSince1970),@"x":@(r.origin.x),@"y":@(r.origin.y),@"width":@(r.size.width),@"height":@(r.size.height),@"visible":@(self.pet.visible),@"petOnActiveSpace":@(self.pet.onActiveSpace),@"petOcclusionVisible":@((self.pet.occlusionState & NSWindowOcclusionStateVisible)!=0),@"inputOnActiveSpace":@(self.pet.onActiveSpace),@"singlePetSurface":@YES,@"panelVisible":@(self.panel.visible),@"panelOnActiveSpace":@(self.panel.onActiveSpace),@"panelFrame":NSStringFromRect(self.panel.frame),@"panelContentHeight":@(self.panelContentHeight),@"panelMenuHeight":@(self.panelMenuHeight),@"panelLevel":@(self.panel.level),@"petLevel":@(self.pet.level),@"panelKey":@(self.panel.keyWindow),@"panelResponder":NSStringFromClass(self.panel.firstResponder.class)?:@"none",@"doubleClickInterval":@(NSEvent.doubleClickInterval),@"petKey":@(self.pet.keyWindow),@"taskDockWindowNumber":@(self.taskDock.window.windowNumber),@"taskDockVisible":@(self.taskDock.window.visible),@"taskDockFrame":NSStringFromRect(self.taskDock.window.frame),@"taskCount":@(self.taskDock.count),@"bubbleVisible":@(self.bubble.visible),@"bubbleKey":@(self.bubble.keyWindow),@"bubbleFrame":NSStringFromRect(self.bubble.frame),@"frontApp":NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier ?: @"",@"activationPolicy":@(NSApp.activationPolicy),@"propWindowNumber":@(self.prop.windowNumber),@"propVisible":@(self.prop.visible),@"propKey":@(self.prop.keyWindow),@"propClickThrough":@(self.prop.ignoresMouseEvents),@"propFrame":NSStringFromRect(self.prop.frame),@"maskBytes":@(self.mask.length),@"screens":screens};
+    NSDictionary *record = @{@"event":event,@"time":@(NSDate.date.timeIntervalSince1970),@"x":@(r.origin.x),@"y":@(r.origin.y),@"width":@(r.size.width),@"height":@(r.size.height),@"visible":@(self.pet.visible),@"petOnActiveSpace":@(self.pet.onActiveSpace),@"petOcclusionVisible":@((self.pet.occlusionState & NSWindowOcclusionStateVisible)!=0),@"inputOnActiveSpace":@(self.pet.onActiveSpace),@"singlePetSurface":@YES,@"chatVisible":@(self.history.visible),@"chatKey":@(self.history.keyWindow),@"petLevel":@(self.pet.level),@"doubleClickInterval":@(NSEvent.doubleClickInterval),@"petKey":@(self.pet.keyWindow),@"taskDockWindowNumber":@(self.taskDock.window.windowNumber),@"taskDockVisible":@(self.taskDock.window.visible),@"taskDockFrame":NSStringFromRect(self.taskDock.window.frame),@"taskCount":@(self.taskDock.count),@"bubbleVisible":@(self.bubble.visible),@"bubbleKey":@(self.bubble.keyWindow),@"bubbleFrame":NSStringFromRect(self.bubble.frame),@"frontApp":NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier ?: @"",@"activationPolicy":@(NSApp.activationPolicy),@"propWindowNumber":@(self.prop.windowNumber),@"propVisible":@(self.prop.visible),@"propKey":@(self.prop.keyWindow),@"propClickThrough":@(self.prop.ignoresMouseEvents),@"propFrame":NSStringFromRect(self.prop.frame),@"maskBytes":@(self.mask.length),@"screens":screens};
     NSData *data = [NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingSortedKeys error:nil];
     if (![NSFileManager.defaultManager fileExistsAtPath:path]) [NSFileManager.defaultManager createFileAtPath:path contents:nil attributes:@{NSFilePosixPermissions:@0600}];
     NSFileHandle *file = [NSFileHandle fileHandleForWritingAtPath:path];
@@ -365,53 +330,10 @@ static NSWindowCollectionBehavior bot_space_behavior(BOOL pet) {
         [self trace:hit ? @"hit-enter" : @"hit-leave"];
     }
 }
-// Activating an accessory app and focusing its WebKit editor are separate steps.
-// Explicit quick-input activation must install WebKit as first responder.
-- (void)focusComposer {
-    if (!self.panel.visible || !self.panel.keyWindow || self.panel.attachedSheet || !NSApp.active) return;
-    NSMutableArray *views=[NSMutableArray arrayWithObject:self.panel.contentView];
-    while(views.count){
-        NSView *view=views.lastObject;[views removeLastObject];
-        if([view isKindOfClass:WKWebView.class]){
-            NSResponder *current=self.panel.firstResponder;
-            if(![current isKindOfClass:NSView.class] || ![(NSView *)current isDescendantOf:view]) [self.panel makeFirstResponder:view];
-            bot_js(self.panel,@"window.dispatchEvent(new Event('panel-focus'))");
-            [self trace:@"panel-focus"];
-            return;
-        }
-        [views addObjectsFromArray:view.subviews];
-    }
-}
-- (void)anchorPanel {
-    NSRect pet = self.pet.frame, panel = self.panel.frame;
-    NSScreen *screen = self.pet.screen;
-    if (![NSScreen.screens containsObject:screen]) screen = NSScreen.mainScreen;
-    NSRect bounds = screen.visibleFrame;
-    panel.size.width = MIN(420, bounds.size.width-32);
-    panel.size.height = self.panelContentHeight;
-    // Anchor the input, not the combined input + popup envelope.
-    double x = NSMidX(pet)-panel.size.width/2;
-    x = MAX(NSMinX(bounds),MIN(x,NSMaxX(bounds)-panel.size.width));
-    double y = NSMinY(pet)+44*(pet.size.height/240)-panel.size.height-10;
-    if (y < NSMinY(bounds)+8) y = NSMaxY(pet)+10;
-    y = MAX(NSMinY(bounds)+8,MIN(y,NSMaxY(bounds)-panel.size.height-8));
-    panel.origin = NSMakePoint(x,y);
-    BotPanelMenuLayout layout = bot_panel_menu_layout(panel.origin.y,panel.size.width,panel.size.height,
-        NSMinY(bounds),NSMaxY(bounds),self.panelMenuHeight);
-    panel.origin.y = layout.originY;
-    panel.size.height = layout.height;
-    self.panel.hasShadow = self.panelMenuHeight == 0;
-    // The pet is also floating; a menu must remain above its independent window.
-    self.panel.level = NSFloatingWindowLevel + (self.panelMenuHeight > 0 ? 1 : 0);
-    [self.panel setFrame:panel display:YES];
-    bot_layout_input_material(self.panel,layout.inputTop,self.panelContentHeight);
-    bot_js(self.panel,[NSString stringWithFormat:@"document.documentElement.style.setProperty('--composer-top','%gpx');window.dispatchEvent(new CustomEvent('panel-menu-layout',{detail:{activation:%lu,left:%g,top:%g,width:%g,height:%g}}))",layout.inputTop,(unsigned long)self.activationID,layout.menuLeft,layout.menuTop,layout.menuWidth,layout.menuHeight]);
-}
-
 - (void)updateBubble {
     // The task entry belongs to the pet, not the chat or message bubble.
     [self.taskDock placeWithPet:self.pet.frame bounds:(self.pet.screen ?: NSScreen.mainScreen).visibleFrame visible:self.visible && !self.dragging];
-    if (!self.visible || !self.bubbleWanted || self.dragging || self.panel.visible || self.history.keyWindow) {
+    if (!self.visible || !self.bubbleWanted || self.dragging || self.history.keyWindow) {
         [(BotBubbleSurface *)self.bubble.contentView resetHover];
         if(self.bubble.visible) bot_js(self.bubble,@"window.dispatchEvent(new Event('bubble-hidden'))");
         [self.bubble orderOut:nil]; return;
@@ -443,18 +365,14 @@ static void bot_js(NSWindow *window, NSString *js) {
 }
 #include "behavior_darwin.h"
 
-void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop, uintptr_t handle, unsigned char *icon, int iconLength) {
+void *bot_create(void *pet, void *bubble, void *history, void *prop, uintptr_t handle, unsigned char *icon, int iconLength) {
     BotHost *host = [BotHost new];
     UNUserNotificationCenter.currentNotificationCenter.delegate = host;
     [host refreshNotificationPermission];
     NSWindow *renderOwner = (__bridge NSWindow *)pet;
     host.history = (__bridge NSWindow *)history;
     host.history.backgroundColor = NSColor.windowBackgroundColor;
-    host.panel = (__bridge NSWindow *)panel; host.handle = handle;
-    host.panel.collectionBehavior = bot_space_behavior(NO);
-    host.panel.animationBehavior = NSWindowAnimationBehaviorNone;
-    host.panelContentHeight = 64;
-    bot_install_material(host.panel, 31, 0, 0);
+    host.handle = handle;
     host.scale = 1;
     host.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
     NSImage *image = [[NSImage alloc] initWithData:[NSData dataWithBytes:icon length:iconLength]];
@@ -545,14 +463,6 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     host.taskDock.placeTask=^(NSString *identifier,NSPoint p){if(weak.handle)desktopTaskPlace(weak.handle,(char *)identifier.UTF8String,p.x,p.y);};
     host.taskDock.gesture=^(NSString *name){
         if([name isEqualToString:@"attention"]) {
-            if(weak.panel.visible && weak.panelMenuHeight>0) {
-                // The entry click switches transient surfaces on this AppKit
-                // turn, before another click can hit the expanded cards.
-                weak.panelMenuHeight=0;
-                weak.taskDock.attachmentMenuOpen=NO;
-                [weak anchorPanel];
-            }
-            bot_js(weak.panel,@"window.dispatchEvent(new Event('task-dock-expanded'))");
             bot_js(weak.history,@"window.dispatchEvent(new Event('task-dock-expanded'))");
         }
         if(weak.handle)bot_gesture((__bridge void *)weak,(char *)name.UTF8String);
@@ -583,16 +493,8 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
         if (weak) { [weak cancelPlane]; weak.frontContext=nil; desktopEvent(weak.handle,3,0,0,0); }
     }];
     [host.observers addObject:display];
-    id deactivate = [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) { [weak.inputView cancelInteraction]; [weak dismissMenu:@"menu-dismiss-deactivate"];  [weak dismissPanel:@"panel-dismiss-deactivate"]; [weak collapseBubble]; [weak updateBubble]; }];
+    id deactivate = [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) { [weak.inputView cancelInteraction]; [weak dismissMenu:@"menu-dismiss-deactivate"]; [weak collapseBubble]; [weak updateBubble]; }];
     [host.observers addObject:deactivate];
-    for(NSString *name in @[NSApplicationDidBecomeActiveNotification,NSWindowDidBecomeKeyNotification]){
-        id target=[name isEqualToString:NSWindowDidBecomeKeyNotification]?host.panel:nil;
-        id observer=[NSNotificationCenter.defaultCenter addObserverForName:name object:target queue:nil usingBlock:^(NSNotification *note){
-            // Finish native activation first, then focus only the still-open panel.
-            dispatch_async(dispatch_get_main_queue(),^{[weak focusComposer];});
-        }];
-        [host.observers addObject:observer];
-    }
     id activated = [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceDidActivateApplicationNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
         NSRunningApplication *app = note.userInfo[NSWorkspaceApplicationKey];
         if (app && app.processIdentifier != NSProcessInfo.processInfo.processIdentifier) [weak dismissMenu:@"menu-dismiss-other-app"];
@@ -604,7 +506,7 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
     }
     // AppKit's public window state distinguishes ordered-in from actually being
     // on the active Space. This is diagnostic evidence, not a visibility policy.
-    for (NSWindow *window in @[host.pet,host.panel,host.bubble]) {
+    for (NSWindow *window in @[host.pet,host.bubble]) {
         id observer = [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidChangeOcclusionStateNotification object:window queue:nil usingBlock:^(NSNotification *note) {
             [weak trace:@"occlusion-change"];
         }];
@@ -618,9 +520,8 @@ void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop
                     [weak trace:@"wake"];
                     desktopEvent(weak.handle,3,0,0,0);
                 } else {
-                    // Switching desktops is not a geometry change or an open-input
-                    // request. Preserve placement/hidden preference and user focus.
-                     [weak dismissPanel:@"panel-dismiss-space-change"]; [weak collapseBubble];
+                    // Switching desktops preserves placement and hidden preference.
+                    [weak collapseBubble];
                     [weak showPetWithoutActivation];
                     [weak updateHit];
                     [weak trace:@"active-space-change"];
@@ -647,9 +548,7 @@ void bot_apply(void *pointer, double x, double y, double scale, int visible) {
     if (visible) {
         [NSApp unhideWithoutActivation];
         [host showPetWithoutActivation];
-        if (host.panel.visible) [host.panel orderFront:nil];
     } else {  [host.pet orderOut:nil]; [host.bubble orderOut:nil]; }
-    if (host.panel.visible) [host anchorPanel];
     [host updateHit];
     [host trace:@"apply"];
     bot_js(host.pet,visible ? @"window.dispatchEvent(new CustomEvent('pet-visibility',{detail:true}))" : @"window.dispatchEvent(new CustomEvent('pet-visibility',{detail:false}))");
@@ -660,67 +559,16 @@ void bot_bubble(void *pointer, int visible) {
     host.bubbleWanted = visible;
     [host updateBubble];
 }
-void bot_panel(void *pointer, int visible) {
-    BotHost *host = (__bridge BotHost *)pointer;
-    if (visible) {
-        [host cancelPlane];
-        [host collapseBubble];
-        NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
-        if (front.processIdentifier != NSProcessInfo.processInfo.processIdentifier) host.previousApp = front;
-        host.panelMenuHeight = 0;
-        host.taskDock.attachmentMenuOpen = NO;
-        host.activationID++;
-        [host anchorPanel];
-        [NSApp activateIgnoringOtherApps:YES]; [host.panel makeKeyAndOrderFront:nil];
-        [host focusComposer];
-        bot_js(host.panel,[NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('panel-open',{detail:{activation:%lu}}))",(unsigned long)host.activationID]);
-    } else {
-        BOOL restore = NSApp.active && host.panel.keyWindow;
-        bot_js(host.panel,@"window.dispatchEvent(new Event('panel-close'))");
-        [host.panel orderOut:nil];
-        host.panel.level = NSFloatingWindowLevel;
-        host.panelMenuHeight = 0;
-        host.taskDock.attachmentMenuOpen = NO;
-        if (restore && host.previousApp && !host.previousApp.terminated) [host.previousApp activateWithOptions:0];
-        host.previousApp = nil;
-    }
-    [host updateBubble];
-    [host trace:visible ? @"panel-open" : @"panel-close"];
-}
 int bot_prepare_window_recall(void *pointer) {
     BotHost *host = (__bridge BotHost *)pointer;
     [host.inputView cancelInteraction];
-    if (host.panel.attachedSheet) {
+    if (host.history.attachedSheet) {
         [NSApp activateIgnoringOtherApps:YES];
-        [host.panel makeKeyAndOrderFront:nil];
-        [host.panel.attachedSheet makeKeyAndOrderFront:nil];
+        [host.history.attachedSheet makeKeyAndOrderFront:nil];
         return 0;
     }
-    // This transition stays in Bot. Explicitly dismiss without restoring the
-    // old foreground app, which can asynchronously steal the new window focus.
-    [host dismissPanel:@"panel-dismiss-window-recall"];
-    host.previousApp = nil;
     [host collapseBubble];
     return 1;
-}
-void bot_toggle_panel(void *pointer) {
-    BotHost *host = (__bridge BotHost *)pointer;
-    if (host.panel.attachedSheet) return;
-    bot_panel(pointer,!host.panel.visible);
-}
-void bot_panel_height(void *pointer, int height) {
-    BotHost *host = (__bridge BotHost *)pointer;
-    host.panelContentHeight = height;
-    [host anchorPanel];
-    [host trace:@"panel-layout"];
-}
-void bot_panel_menu(void *pointer, int height, int activation) {
-    BotHost *host = (__bridge BotHost *)pointer;
-    if (!host.panel.visible || host.activationID != (NSUInteger)activation) return;
-    host.panelMenuHeight = height;
-    host.taskDock.attachmentMenuOpen = height > 0;
-    [host anchorPanel];
-    [host trace:height ? @"panel-menu-open" : @"panel-menu-close"];
 }
 void bot_mask(void *pointer, unsigned char *mask, int length) {
     BotHost *host = (__bridge BotHost *)pointer;
@@ -746,13 +594,12 @@ void bot_destroy(void *pointer) {
     [NSStatusBar.systemStatusBar removeStatusItem:host.statusItem];
     [host.dragCompletion invalidate];
 
-    [host.pet close]; [host.prop close]; [host.bubble close]; [host.panel orderOut:nil];
+    [host.pet close]; [host.prop close]; [host.bubble close];
 }
 
 void bot_expand_bubble(void *pointer,int expanded) {
  BotHost *host=(__bridge BotHost *)pointer;
  if(!expanded){[host collapseBubble];return;}
- [host dismissPanel:@"panel-dismiss-approval"];
  host.bubble.interactive=YES; host.bubbleWanted=YES;
  [host updateBubble];
  // Only this explicit action enables keyboard entry. Arrival stays non-key.
@@ -782,7 +629,7 @@ void bot_notify(void *pointer, char *identifier, char *title, char *body, int re
     BotHost *host = (__bridge BotHost *)pointer;
     // Ordinary results already have a pet bubble. A hidden pet must not silence
     // due reminders or decisions. Arrival never activates a window.
-    if (host.history.keyWindow || host.panel.keyWindow || (host.visible && !reminder)) return;
+    if (host.history.keyWindow || (host.visible && !reminder)) return;
     UNMutableNotificationContent *content = [UNMutableNotificationContent new];
     content.title = [NSString stringWithUTF8String:title];
     content.body = [NSString stringWithUTF8String:body];
@@ -803,8 +650,20 @@ void bot_dismiss_notification(char *identifier) {
 
 int bot_notification_status(void *pointer) {
     BotHost *host = (__bridge BotHost *)pointer;
-    [host refreshNotificationPermission];
-    return host.notificationError ? -1 : (int)host.notificationPermission;
+    // Called from a Go worker. A focus-triggered read must return the new OS
+    // state, not the cached value from before the asynchronous callback.
+    if (NSThread.isMainThread) return -1;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    __block int status = -1;
+    [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            host.notificationPermission = settings.authorizationStatus;
+            status = host.notificationError ? -1 : (int)settings.authorizationStatus;
+            dispatch_semaphore_signal(done);
+        });
+    }];
+    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC))) return -1;
+    return status;
 }
 void bot_configure_notifications(void *pointer) {
     [(__bridge BotHost *)pointer configureNotifications:nil];
@@ -857,7 +716,7 @@ static OSStatus bot_hotkey(EventHandlerCallRef next, EventRef event, void *conte
     if(!down)return noErr;
     if(kind==2){if(host.captureEnabled)[host.capture capture];return noErr;}
     if(kind==3){if(host.captureEnabled)[host.capture paste];return noErr;}
-    if(host.handle){host.interactionStart=NSProcessInfo.processInfo.systemUptime;[host trace:@"shortcut"];desktopEvent(host.handle,11,0,0,0);}
+    if(host.handle){[host trace:@"shortcut"];desktopEvent(host.handle,11,0,0,0);}
     return noErr;
 }
 void bot_toggle_tasks(void *pointer){[((__bridge BotHost *)pointer).taskDock toggle];}
@@ -895,7 +754,7 @@ void bot_bind_capture(void *pointer,void *capture) {
     BotHost *host=(__bridge BotHost *)pointer;host.capture=(__bridge BotCapture *)capture;
     host.captureEnabled=YES;
     NSMutableArray *excluded=[NSMutableArray new];
-    for(id window in @[host.pet?:NSNull.null,host.panel?:NSNull.null,host.bubble?:NSNull.null,host.prop?:NSNull.null,host.taskDock.window?:NSNull.null])if([window isKindOfClass:NSWindow.class])[excluded addObject:window];
+    for(id window in @[host.pet?:NSNull.null,host.bubble?:NSNull.null,host.prop?:NSNull.null,host.taskDock.window?:NSNull.null])if([window isKindOfClass:NSWindow.class])[excluded addObject:window];
     host.capture.excludedWindows=excluded;
     host.capture.language=host.language;
 }
@@ -904,14 +763,6 @@ void bot_capture_enabled(void *pointer,int enabled) {
     host.captureEnabled=enabled!=0;
     host.capture.enabled=enabled!=0;
 }
-void bot_panel_ready(void *pointer,int activation){
-    BotHost *host=(__bridge BotHost *)pointer;
-    if(activation<=0 || host.activationID!=(NSUInteger)activation || host.readyID==(NSUInteger)activation || !host.panel.visible)return;
-    host.readyID=activation;
-    double elapsed=host.interactionStart>0 ? (NSProcessInfo.processInfo.systemUptime-host.interactionStart)*1000 : 0;
-    [host trace:[NSString stringWithFormat:@"input-ready:%.1fms",elapsed]];
-}
-
 char *bot_preferred_languages(void) {
     @autoreleasepool {
         NSData *data = [NSJSONSerialization dataWithJSONObject:NSLocale.preferredLanguages options:0 error:nil];
