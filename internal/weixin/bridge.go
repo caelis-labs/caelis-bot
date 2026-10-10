@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -715,33 +714,6 @@ func outputKey(item api.Item) string { return "item:" + item.ID }
 func textDigest(s string) string {
 	hash := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(hash[:])
-}
-func chunks(s string) []string {
-	var result []string
-	const limit = 1200 // UTF-8 bytes, below the upstream client's 4000-character limit.
-	for len(s) > 0 {
-		if len(s) <= limit {
-			result = append(result, s)
-			break
-		}
-		end, boundary := 0, 0
-		for index, r := range s {
-			_, width := utf8.DecodeRuneInString(s[index:])
-			if index+width > limit {
-				break
-			}
-			end = index + width
-			if end >= limit/2 && (r == '\n' || r == ' ' || r == '\t' || r == '。' || r == '！' || r == '？' || r == '；') {
-				boundary = end
-			}
-		}
-		if boundary > 0 {
-			end = boundary
-		}
-		result = append(result, s[:end])
-		s = s[end:]
-	}
-	return result
 }
 func (b *Bridge) output(ctx context.Context, p *protocol) {
 	b.mu.Lock()

@@ -234,14 +234,14 @@ func TestLongReplySendsEveryBoundedPartWhenSuccessOmitsRet(t *testing.T) {
 			return
 		}
 		part := req.Msg.Items[0].Text.Text
-		if len(part) > 1200 {
-			t.Errorf("oversize part: %d bytes", len(part))
+		if !fitsText(part) {
+			t.Errorf("oversize part: %d units, %d bytes", textUnits(part), len(part))
 		}
 		delivered = append(delivered, part)
 		_, _ = w.Write([]byte(`{"errmsg":""}`))
 	}))
 	defer server.Close()
-	answer := strings.Repeat("你好世界。", 110)
+	answer := strings.Repeat("你好世界。", 400)
 	snapshot := api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "long-answer", Kind: "assistant", Text: answer, Status: "completed"}}}
 	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
 	if err != nil {
