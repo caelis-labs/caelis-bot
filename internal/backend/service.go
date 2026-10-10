@@ -104,9 +104,9 @@ func (s *Service) SetBotPluginSource(source func(context.Context) (plugins.Snaps
 	s.mu.Unlock()
 }
 
-// A composer plugin reference is a per-turn hint, not an execution grant. Resolve
-// it against the host catalog at admission and keep the original draft/receipt
-// identity unchanged. Ordinary Codex Skill references still reach the adapter.
+// A composer plugin reference is a visible per-turn request, not an execution
+// grant. Resolve it against the host catalog at admission while retaining the
+// original draft/receipt identity. Ordinary Skill references reach the adapter.
 func (s *Service) resolvePluginReferences(ctx context.Context, input api.Submission) (api.Submission, error) {
 	var botIDs, nativeIDs []string
 	seen := map[string]bool{}
@@ -181,7 +181,7 @@ func (s *Service) resolvePluginReferences(ctx context.Context, input api.Submiss
 		}
 	}
 	input.ReferenceIDs = remaining
-	hint := "\n\n[本次用户选择的插件引用：" + strings.Join(names, "；") + "。仅在适合本次请求且工具可用时使用；此引用不授予额外权限。]"
+	hint := "\n\n引用插件：" + strings.Join(names, "；")
 	if len(input.Text)+len(hint) > 256<<10 {
 		return input, errors.New("消息和插件引用超过长度限制")
 	}
@@ -517,7 +517,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	if err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
 	}
-	if err := s.retainMessageMedia(input, files); err != nil {
+	if err := s.retainMessageMedia(projected, files); err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "图片预览存储暂不可用，消息未发送"}, nil
 	}
 	if len(input.FileIDs) > 0 {
@@ -532,7 +532,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		s.pendingDraftRevision = s.draft.Revision
 	}
 	s.mu.Unlock()
-	s.stageOutgoing(input, files)
+	s.stageOutgoing(projected, files)
 	receipt, err := s.submit(ctx, projected, files)
 	if errors.Is(err, api.ErrRecoveryPending) {
 		s.discardOutgoing(input.ID)
