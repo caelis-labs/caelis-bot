@@ -352,6 +352,8 @@ func Run(assets fs.FS) error {
 				if window == history {
 					// Ordinary app focus must not reset an existing history read.
 					history.ExecJS("window.dispatchEvent(new Event('history-visible'))")
+				} else if window == settings {
+					settings.ExecJS("window.dispatchEvent(new Event('settings-focus'))")
 				}
 			})
 		})

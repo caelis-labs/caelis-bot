@@ -10,27 +10,36 @@ export type LoginAtLoginStatus = {
  registered:boolean;
 };
 
-export function LoginAtLoginSetting() {
+export function LoginAtLoginSetting({active,focusVersion}:{active:boolean;focusVersion:number}) {
  const {t}=useI18n();
  const [status,setStatus]=useState<LoginAtLoginStatus|null>(null);
  const [busy,setBusy]=useState(false),[error,setError]=useState('');
  const epoch=useRef(0),changing=useRef(false),errorKind=useRef<'load'|'action'|''>('');
+ const mounted=useRef(true),wasActive=useRef(false),lastRead=useRef(0);
  useEffect(()=>{
-  let mounted=true;
+  mounted.current=true;
+  return()=>{mounted.current=false;epoch.current++;};
+ },[]);
+ useEffect(()=>{
+  if(!active){wasActive.current=false;epoch.current++;return;}
+  const opening=!wasActive.current;
+  wasActive.current=true;
+  // AppKit may report focus immediately after opening the window. Coalesce
+  // that event with the open read, while still refreshing on later returns.
+  if(!opening&&Date.now()-lastRead.current<1000)return;
+  lastRead.current=Date.now();
   const refresh=async()=>{
    if(changing.current)return;
    const current=epoch.current;
    try{
     const value=await desktop<LoginAtLoginStatus>('LoginAtLoginStatus');
-    if(mounted&&current===epoch.current){setStatus(value);if(errorKind.current==='load'){errorKind.current='';setError('');}}
+    if(mounted.current&&active&&current===epoch.current){setStatus(value);if(errorKind.current==='load'){errorKind.current='';setError('');}}
    }catch{
-    if(mounted&&current===epoch.current&&errorKind.current!=='action'){errorKind.current='load';setError(t('settings.loginAtLoginLoadFailed'));}
+    if(mounted.current&&active&&current===epoch.current&&errorKind.current!=='action'){errorKind.current='load';setError(t('settings.loginAtLoginLoadFailed'));}
    }
   };
   void refresh();
-  const timer=window.setInterval(()=>void refresh(),3000);
-  return()=>{mounted=false;window.clearInterval(timer);epoch.current++;};
- },[t]);
+ },[active,focusVersion,t]);
  const change=async(enabled:boolean)=>{
   if(changing.current)return;
   changing.current=true;epoch.current++;setBusy(true);errorKind.current='';setError('');

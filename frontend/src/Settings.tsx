@@ -30,13 +30,27 @@ export function Settings() {
  const content=useRef<HTMLDivElement>(null);
  const [executionVisited,setExecutionVisited]=useState(false),[runtimeVisited,setRuntimeVisited]=useState(false),[telegramVisited,setTelegramVisited]=useState(false),[weixinVisited,setWeixinVisited]=useState(false);
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
+ const [visible,setVisible]=useState(false),[focusVersion,setFocusVersion]=useState(0);
+ const visibleRef=useRef(false),visibilitySeq=useRef(0);
  const sectionRef=useRef(section);sectionRef.current=section;
  useEffect(()=>{
-  const load=()=>{void desktop<string>('SettingsSection').then(value=>{const destination=settingsDestination(value);if(destination&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(destination);setOpened(n=>n+1);});};
+  const load=(opening=false)=>{
+   const seq=visibilitySeq.current;
+   const show=()=>{if(opening&&seq===visibilitySeq.current){visibleRef.current=true;setVisible(true);}};
+   void desktop<string>('SettingsSection').then(value=>{
+    if(seq!==visibilitySeq.current)return;
+    const destination=settingsDestination(value);
+    if(destination&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(destination);
+    setOpened(n=>n+1);show();
+   }).catch(show);
+  };
+  const onOpen=()=>{visibilitySeq.current++;load(true);};
+  const onClose=()=>{visibilitySeq.current++;visibleRef.current=false;setVisible(false);};
+  const onFocus=()=>{if(visibleRef.current)setFocusVersion(n=>n+1);};
   const key=(event:KeyboardEvent)=>{if(event.defaultPrevented||event.isComposing)return;if(event.key==='Escape'&&(sectionRef.current==='telegram'||sectionRef.current==='weixin')){event.preventDefault();if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection('chatConnections');return;}if(event.key==='Escape'||(event.metaKey&&event.key==='w')){event.preventDefault();void desktop('CloseSettings');}};
   load();void desktop<string>('AppVersion').then(setVersion);
-  window.addEventListener('settings-open',load);window.addEventListener('keydown',key);
-  return()=>{window.removeEventListener('settings-open',load);window.removeEventListener('keydown',key);};
+  window.addEventListener('settings-open',onOpen);window.addEventListener('settings-close',onClose);window.addEventListener('settings-focus',onFocus);window.addEventListener('keydown',key);
+  return()=>{window.removeEventListener('settings-open',onOpen);window.removeEventListener('settings-close',onClose);window.removeEventListener('settings-focus',onFocus);window.removeEventListener('keydown',key);};
  },[]);
  useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='permissions')setExecutionVisited(true);if(section==='models'||section==='connections')setRuntimeVisited(true);if(section==='telegram')setTelegramVisited(true);if(section==='weixin')setWeixinVisited(true)},[section]);
  if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></div></main>;
@@ -52,17 +66,17 @@ export function Settings() {
    <div className="settings-page" data-section="plugins" hidden={section!=='plugins'}>{section==='plugins'&&<PluginSettings/>}</div>
    <div className="settings-page" data-section="machines" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone/>}</div>
    <div className="settings-page" data-section={section} key={section} hidden={['permissions','models','connections','chatConnections','telegram','weixin','machines','extras','plugins'].includes(section)}>
-   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','chatConnections','telegram','weixin','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
+   {section==='general'?<General key={opened} active={visible} focusVersion={focusVersion}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','chatConnections','telegram','weixin','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
    </div>
   </div>
  </main>;
 }
 
-function General() {
+function General({active,focusVersion}:{active:boolean;focusVersion:number}) {
  const {t}=useI18n();
  const [storageOpen,setStorageOpen]=useState(false);
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><div className="general-preferences"><LanguageSetting/><LoginAtLoginSetting/></div><TaskSettings/>
+  <h1>{t('settings.general')}</h1><div className="general-preferences"><LanguageSetting/><LoginAtLoginSetting active={active} focusVersion={focusVersion}/></div><TaskSettings/>
   <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/></SettingGroup>
   <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary><SettingsChevron/>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
  </section>;
