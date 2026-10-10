@@ -97,3 +97,6 @@
 .plugin-tool-list p{line-height:1.5}
 .settings-window .plugin-refresh-tools{margin-top:14px;background:transparent;color:var(--caelis-link);border:0;padding:4px 0}
 @media(max-width:600px){.plugin-detail-head{flex-wrap:wrap}.plugin-detail-identity{flex:1 1 calc(100% - 68px)}.plugin-head-actions{margin-left:67px}.plugin-row-open{gap:10px}.plugin-row-status{font-size:11px;width:68px}.settings-window .plugin-row-action{width:68px}.plugin-credential-row{align-items:flex-start;flex-direction:column}}
+.plugin-device-oauth { display: grid; gap: 8px; margin-bottom: 16px; }
+.plugin-device-oauth p { margin: 0; }
+.plugin-device-code { display: block; margin-top: 5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; user-select: text; }

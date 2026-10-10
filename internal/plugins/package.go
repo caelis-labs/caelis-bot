@@ -38,6 +38,10 @@ type Entry struct {
 type ConnectionSpec struct {
 	Server, Kind, Placement, Name, Prefix, HelpURL string
 	TrustCA                                        bool
+	DeviceOAuth                                    *DeviceOAuthSpec
+}
+type DeviceOAuthSpec struct {
+	ClientID, DeviceCodeURL, TokenURL, VerifyURL, InstallURL, Scope string
 }
 type DisplayCatalog struct {
 	Publisher string                         `json:"publisher,omitempty"`

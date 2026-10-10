@@ -78,7 +78,13 @@ func (m *Manager) ConfigureConnection(ctx context.Context, id, secret, caPEM str
 	currentState := m.state
 	next := cloneState(currentState)
 	next.Revision++
-	record := connectionRecord{Revision: next.Revision, Configured: !clear, HasCA: !clear && (caPEM != "" || current.HasCA)}
+	record := connectionRecord{Revision: next.Revision, Configured: !clear, HasCA: !clear && (caPEM != "" || current.HasCA), RetiredOAuth: append([]uint64(nil), current.RetiredOAuth...)}
+	if !clear && current.Mode == "oauth" {
+		record.RetiredOAuth = append(record.RetiredOAuth, current.Revision)
+	}
+	if clear {
+		record.RetiredOAuth = nil
+	}
 	next.Connections[id] = record
 	newKeys := []string{}
 	removeNew := func() error {
@@ -139,8 +145,8 @@ func (m *Manager) ConfigureConnection(ctx context.Context, id, secret, caPEM str
 	}
 	// API-key workers load credentials at process start. Explicit clear revokes
 	// OAuth grants too; replacement grants use ConfirmOAuthProjection instead.
-	if current.Configured {
-		if e.Connection.Kind == "oauth" {
+	if current.Configured && (clear || current.Mode != "oauth") {
+		if e.Connection.Kind == "oauth" || current.Mode == "oauth" {
 			_ = m.revokeOAuthKey(id, current.Revision)
 		} else {
 			_ = m.secrets.Delete(secretKey(m.root, id, current.Revision))
