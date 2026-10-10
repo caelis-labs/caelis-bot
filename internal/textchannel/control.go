@@ -187,6 +187,9 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 		}
 		q := a.Questions[0]
 		p := prompt{NativeID: a.ID, TurnKey: a.TurnKey, Owner: a.Owner, QuestionID: q.ID, Free: q.Type == "text"}
+		if !p.Free && len(q.Options) == 0 {
+			return strings.Join(lines, "\n") + "\n请在 Mac 上回答此请求。", "", nil
+		}
 		for _, o := range q.Options {
 			p.Options = append(p.Options, option{o.ID, label(o), o.Scope, o.Details})
 		}
@@ -199,10 +202,10 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 			return strings.Join(append(lines, decision.Feedback), "\n"), id, nil
 		}
 		for index, o := range p.Options {
-			lines = append(lines, fmt.Sprintf("/answer %s %d — %s", id, index+1, meaning(o)))
+			lines = append(lines, fmt.Sprintf("选项 %d：%s", index+1, meaning(o)), fmt.Sprintf("/answer %s %d", id, index+1))
 		}
 		if p.Free {
-			lines = append(lines, "/answer "+id+" <你的完整回答>")
+			lines = append(lines, "自定义回答：输入 /answer "+id+" 后接你的完整回答。")
 		}
 		return strings.Join(lines, "\n"), id, nil
 	}
@@ -221,9 +224,9 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 		return strings.Join(append(lines, decision.Feedback), "\n"), id, nil
 	}
 	for index, o := range p.Options {
-		lines = append(lines, fmt.Sprintf("/approve %s %d — %s", id, index+1, meaning(o)))
+		lines = append(lines, fmt.Sprintf("选项 %d：%s", index+1, meaning(o)), fmt.Sprintf("/approve %s %d", id, index+1))
 	}
-	lines = append(lines, "如需修改计划，可回复 /approve "+id+" <意见>；意见不会授权执行。")
+	lines = append(lines, "修改计划：输入 /approve "+id+" 后接意见不会授权，也不会转交 Bot。请先选择拒绝，再单独告诉 Bot 修改要求。")
 	return strings.Join(lines, "\n"), id, nil
 }
 func (s *Store) Claimed(id string) (string, bool) {
@@ -313,13 +316,16 @@ func (s *Store) Handle(ctx context.Context, in Inbound, snapshot api.Snapshot) s
 	// Check the immutable catalog against a fresh native snapshot before using an index.
 	var actual []option
 	if p.QuestionID != "" {
-		if len(current.Questions) != 1 || current.Questions[0].ID != p.QuestionID {
+		if len(current.Questions) != 1 || current.Questions[0].ID != p.QuestionID || current.Questions[0].Secret || current.Questions[0].Multiple || (current.Questions[0].Type == "text") != p.Free {
 			return s.reply(key, "问题已变化，请查看最新请求。")
 		}
 		for _, o := range current.Questions[0].Options {
 			actual = append(actual, option{o.ID, label(o), o.Scope, o.Details})
 		}
 	} else {
+		if len(current.Questions) != 0 || current.URL != "" {
+			return s.reply(key, "审批已变化，请查看最新请求。")
+		}
 		for _, o := range current.Choices {
 			actual = append(actual, option{o.ID, label(o), o.Scope, o.Details})
 		}
@@ -349,7 +355,7 @@ func (s *Store) Handle(ctx context.Context, in Inbound, snapshot api.Snapshot) s
 		decision.Choice = "answer"
 		decision.Answers = map[string][]string{p.QuestionID: {tail}}
 	} else if p.QuestionID == "" {
-		return s.reply(key, "已收到意见，但没有授权执行。请先拒绝当前审批，再让 Bot 按意见调整计划。")
+		return s.reply(key, "这条意见未转交 Bot，也没有授权执行。请先选择拒绝，再单独告诉 Bot 修改要求。")
 	} else {
 		return s.reply(key, "此问题只接受列出的选项，请复制对应命令。")
 	}

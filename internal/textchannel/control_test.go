@@ -2,6 +2,7 @@ package textchannel
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -21,11 +22,12 @@ func TestTextApprovalCatalogClaimAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(card, "/approve "+id+" 2 — 允许（范围：仅本次）") || !strings.Contains(card, "/approve "+id+" 3 — 允许（范围：始终）") {
+	commands := cardCommands(card, "/approve ")
+	if len(commands) != 3 || commands[1] != "/approve "+id+" 2" || commands[2] != "/approve "+id+" 3" || !strings.Contains(card, "选项 2：允许（范围：仅本次）\n"+commands[1]) || !strings.Contains(card, "选项 3：允许（范围：始终）\n"+commands[2]) {
 		t.Fatal(card)
 	}
 	snap := api.Snapshot{Approvals: []api.Approval{a}}
-	in := Inbound{Channel: "weixin", Conversation: "owner\x00ctx", ID: "msg-1", Text: "/approve " + id + " 2"}
+	in := Inbound{Channel: "weixin", Conversation: "owner\x00ctx", ID: "msg-1", Text: commands[1]}
 	if got := s.Handle(t.Context(), in, snap); got != "决定已提交，等待 Runtime 确认。" {
 		t.Fatal(got)
 	}
@@ -51,12 +53,38 @@ func TestTextApprovalCatalogClaimAndRestart(t *testing.T) {
 	}
 }
 
+func TestEveryGeneratedApprovalOptionLineSubmitsItsNativeID(t *testing.T) {
+	choices := []api.Choice{{ID: "deny", Label: "拒绝"}, {ID: "allow-once", Label: "允许", Scope: "once"}, {ID: "allow-all", Label: "允许", Scope: "always"}}
+	for index, choice := range choices {
+		t.Run(choice.ID, func(t *testing.T) {
+			var sent []api.Decision
+			s, err := Open(t.TempDir(), func(_ context.Context, d api.Decision) error { sent = append(sent, d); return nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := api.Approval{ID: "native", TurnKey: "turn", Owner: "worker", Status: "pending", Choices: choices}
+			card, id, err := s.Card(a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			commands := cardCommands(card, "/approve ")
+			if len(commands) != len(choices) || commands[index] != fmt.Sprintf("/approve %s %d", id, index+1) {
+				t.Fatal(card)
+			}
+			got := s.Handle(t.Context(), Inbound{Channel: "weixin", Conversation: "ctx", ID: "copy", Text: commands[index]}, api.Snapshot{Approvals: []api.Approval{a}})
+			if !strings.Contains(got, "已提交") || len(sent) != 1 || sent[0].Choice != choice.ID {
+				t.Fatalf("copy %q: %q, decisions %#v", commands[index], got, sent)
+			}
+		})
+	}
+}
+
 func TestQuestionFreeTextAndExpiredRequest(t *testing.T) {
 	var sent []api.Decision
 	s, _ := Open(t.TempDir(), func(_ context.Context, d api.Decision) error { sent = append(sent, d); return nil })
 	a := api.Approval{ID: "worker-question", TurnKey: "child", Owner: "task-1", Status: "pending", Questions: []api.Question{{ID: "q", Title: "选择或说明", Type: "text", Options: []api.Choice{{ID: "one", Label: "第一项"}, {ID: "two", Label: "第二项"}}}}}
 	card, id, err := s.Card(a)
-	if err != nil || !strings.Contains(card, "/answer "+id+" <你的完整回答>") {
+	if err != nil || !strings.Contains(card, "自定义回答：输入 /answer "+id+" 后接你的完整回答。") {
 		t.Fatalf("%q %v", card, err)
 	}
 	snap := api.Snapshot{Approvals: []api.Approval{a}}
@@ -76,6 +104,76 @@ func TestQuestionFreeTextAndExpiredRequest(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatal(sent)
 	}
+}
+
+func TestGeneratedQuestionOptionLineSubmitsExactNativeOption(t *testing.T) {
+	choices := []api.Choice{{ID: "inspect", Label: "先检查"}, {ID: "continue", Label: "继续"}}
+	for index, choice := range choices {
+		t.Run(choice.ID, func(t *testing.T) {
+			var sent []api.Decision
+			s, err := Open(t.TempDir(), func(_ context.Context, d api.Decision) error { sent = append(sent, d); return nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := api.Approval{ID: "worker-question", TurnKey: "child", Owner: "task", Status: "pending", Questions: []api.Question{{ID: "question", Title: "选择下一步", Type: "text", Options: choices}}}
+			card, id, err := s.Card(a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			commands := cardCommands(card, "/answer ")
+			if len(commands) != len(choices) || commands[index] != fmt.Sprintf("/answer %s %d", id, index+1) || !strings.Contains(card, fmt.Sprintf("选项 %d：%s\n%s", index+1, choice.Label, commands[index])) {
+				t.Fatal(card)
+			}
+			got := s.Handle(t.Context(), Inbound{Channel: "weixin", Conversation: "ctx", ID: "copy", Text: commands[index]}, api.Snapshot{Approvals: []api.Approval{a}})
+			if !strings.Contains(got, "已提交") || len(sent) != 1 || sent[0].ID != "worker-question" || sent[0].Choice != "answer" || len(sent[0].Answers["question"]) != 1 || sent[0].Answers["question"][0] != choice.ID {
+				t.Fatalf("copy %q: %q, decisions %#v", commands[index], got, sent)
+			}
+		})
+	}
+}
+
+func TestCustomApprovalOpinionDoesNotClaimOrPretendToForward(t *testing.T) {
+	var sent []api.Decision
+	s, _ := Open(t.TempDir(), func(_ context.Context, d api.Decision) error { sent = append(sent, d); return nil })
+	a := api.Approval{ID: "native", TurnKey: "turn", Owner: "conversation", Status: "pending", Choices: []api.Choice{{ID: "deny", Label: "拒绝"}, {ID: "allow", Label: "允许"}}}
+	card, id, err := s.Card(a)
+	if err != nil || !strings.Contains(card, "不会转交 Bot") {
+		t.Fatalf("card %q: %v", card, err)
+	}
+	got := s.Handle(t.Context(), Inbound{Channel: "telegram", Conversation: "chat", ID: "opinion", Text: "/approve " + id + " 请缩小范围"}, api.Snapshot{Approvals: []api.Approval{a}})
+	if !strings.Contains(got, "未转交 Bot") || len(sent) != 0 {
+		t.Fatalf("opinion %q dispatched %#v", got, sent)
+	}
+}
+
+func TestUnsupportedNativeQuestionsStayOnMac(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		questions []api.Question
+	}{
+		{"multiple fields", []api.Question{{ID: "one", Type: "text"}, {ID: "two", Type: "text"}}},
+		{"secret", []api.Question{{ID: "secret", Type: "text", Secret: true}}},
+		{"multiple choice", []api.Question{{ID: "many", Type: "select", Multiple: true, Options: []api.Choice{{ID: "one", Label: "一"}}}}},
+		{"non-text free field", []api.Question{{ID: "number", Type: "number"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := Open(t.TempDir(), nil)
+			card, id, err := s.Card(api.Approval{ID: "native", Status: "pending", Questions: tc.questions})
+			if err != nil || id != "" || !strings.Contains(card, "请在 Mac 上回答") || len(cardCommands(card, "/answer ")) != 0 {
+				t.Fatalf("card %q, id %q, err %v", card, id, err)
+			}
+		})
+	}
+}
+
+func cardCommands(card, prefix string) []string {
+	var commands []string
+	for _, line := range strings.Split(card, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			commands = append(commands, line)
+		}
+	}
+	return commands
 }
 
 func TestRouteUsesSavedOriginAndFailsClosedOnMixedTurn(t *testing.T) {

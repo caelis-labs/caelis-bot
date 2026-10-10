@@ -61,7 +61,7 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
-	if len(texts) != 1 || !strings.Contains(texts[0], "/approve A1 1 — 允许（范围：仅本次）") {
+	if len(texts) != 1 || !strings.Contains(texts[0], "选项 1：允许（范围：仅本次）\n/approve A1 1") {
 		t.Fatalf("missing text card: %#v", texts)
 	}
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/approve A1 1", ContextToken: "ctx"}}

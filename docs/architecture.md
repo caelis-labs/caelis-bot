@@ -149,11 +149,16 @@ semantics. A retired connection cannot dispatch a response from its old wait.
 egress. The paired transport authenticates the owner and persists its original
 message before calling the common controller. Pending native approval/question
 catalogs receive durable `A`/`Q` numbers, immutable ordered option IDs, and a
-copyable command for each option. `/approve A7 1` and `/answer Q3 2` use exact
-current native targets; an answer's nonnumeric tail is passed verbatim only when
-that question allows free text. A fixed approval's custom opinion is feedback,
-never permission. The controller writes one native decision claim before dispatch;
-unknown results remain fenced to that original request. Telegram buttons invoke
+copyable command on its own line below each option's meaning. `/approve A7 1`
+and `/answer Q3 2` use exact current native targets; an answer's nonnumeric
+tail is passed verbatim only when that question allows free text. A fixed
+approval's custom opinion is feedback, never permission or an automatic Bot
+handoff. A request with multiple questions,
+a secret or multi-select question, or a single non-text question without
+offered options remains a Mac interaction. URL approvals and approvals with no
+offered decisions also remain on Mac. The controller writes one native decision
+claim before dispatch; unknown results remain fenced to that original request.
+Telegram buttons invoke
 the same controller. Ordinary prose never enters this decision path.
 
 Desktop, Telegram and Weixin project one Bot conversation. Each companion has
