@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0](https://github.com/caelis-labs/caelis-bot/compare/v0.11.1...v0.12.0) (2026-10-10)
+
+
+### Features
+
+* **bot:** add Weixin private text Remote Channel ([#148](https://github.com/caelis-labs/caelis-bot/issues/148)) ([852a60b](https://github.com/caelis-labs/caelis-bot/commit/852a60b9c54443303f84b3e3996a2606157dd8cf))
+
+
+### Bug Fixes
+
+* recover missing shared runtimes through public startup ([#153](https://github.com/caelis-labs/caelis-bot/issues/153)) ([35ed4fd](https://github.com/caelis-labs/caelis-bot/commit/35ed4fd6bd144aa23c60600be6d839e1002d53c2))
+
 ## [0.11.1](https://github.com/caelis-labs/caelis-bot/compare/v0.11.0...v0.11.1) (2026-10-09)
 
 
