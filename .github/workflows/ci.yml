@@ -69,7 +69,7 @@ jobs:
       - run: npm ci
       - run: make check
       - run: npm run smoke:assets
-      - name: Build independent Dev app with Desktop World
+      - name: Build Dev app with Desktop World
         env:
           BOT_REUSE_FRONTEND_BUILD: "1"
         run: make build
@@ -112,7 +112,7 @@ jobs:
             go.sum
             script/env.sh
       - name: Check native remote ownership and recovery races
-        run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal ./cmd/caelis-remote
+        run: go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/machines ./internal/remotework ./internal/tasks ./internal/taskterminal ./internal/weixin ./internal/secretstore ./cmd/caelis-remote
       - name: Build Linux amd64 and arm64 helpers
         run: bash script/build-remote-helper.sh "$PWD/.cache/ci-remote-helper"
   windows-product:
@@ -130,7 +130,6 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-          cache: npm
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod

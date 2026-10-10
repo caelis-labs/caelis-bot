@@ -14,8 +14,8 @@ make build
 
 `make check` covers generated contracts, protocol hashes, public-tree/asset boundaries, frontend/i18n,
 focused Node contracts and Go tests. It does not launch desktop fixtures or request desktop permissions.
-`make check-portability` runs the slower CGO-free shared-core tests and
-six-target cross-compilation separately; CI runs it weekly and on demand. `make smoke` only handshakes the installed
+`make check-portability` runs CGO-free shared-core tests and Windows amd64/Linux arm64
+cross-compilation separately; CI runs it weekly and on demand. `make smoke` only handshakes the installed
 Codex and checks assets; it does not create a conversation or call a model. `make build` creates an ad-hoc Dev app.
 `make package` adds a verified read-only DMG/checksum, using pinned Python dmgbuild in `.cache/dmg-tools`.
 
@@ -110,7 +110,7 @@ Desktop World 的实机截图验收可在已签名 Dev 包上使用
 | UI/character/permissions | Native `script/build_and_run.sh`, actual window observation and focused manual native diagnostics |
 | Packaging | Dev build/package/mount, nested native component verification |
 | Public release | Exact tag/source, signed public assets/feed, notarization/staples and independent Gatekeeper; see release.md |
-| Windows foundation | Native Windows CI executes shared Go/TS/Node contracts, pinned helper verification and an explicitly unsupported GUI bootstrap; Windows 11 interaction and installer signing remain separate gates |
+| Windows foundation | Native Windows CI executes focused platform contracts and pinned helper verification; the weekly CGO-free matrix compiles the unsupported GUI bootstrap. Windows 11 interaction and installer signing remain separate gates |
 
 The required `product` CI check routes shared/frontend/protocol/dependency changes to
 macOS, Windows and Linux headless checks. macOS runs the normal headless checks and one
