@@ -110,6 +110,26 @@ Caelis display recovery requests one recent Turn, preserving its exact cursor an
 command evidence. Stream and Worker failures retry independently of the resident
 connection; original commands/callback receipts retain their native recovery rules.
 
+Shared Runtime recovery first reconnects the original owner. Only a failed
+standard Codex socket with retained native daemon PID records whose processes
+are confirmed absent can call `codex app-server daemon start`; the endpoint
+pins the original `CODEX_HOME`. Live/reused PIDs, startup reservations, permission
+errors, unknown record formats and private endpoints cannot authorize startup.
+Caelis reconnects/discovers the saved Store and uses public `service status`;
+only `stopped` plus retained discovery for the original principal permits
+`service start --store-dir`. Native start retains its version selection/upgrade
+and concurrency semantics. Bot never calls stop/restart or owns the shared process.
+
+Observers merge startup by shared service directory in one process, with a
+30-second cooldown after each attempt, including failures. Bot shutdown cancels
+pending recovery. Clean native shutdown removes PID/discovery records, so absent
+evidence leaves the service stopped or unconfirmed; the APIs do not provide a
+complete stop-reason signal. Failed authorized starts retain recovery evidence
+in memory because native lifecycle can remove stale PID/discovery records. A fresh
+process with no evidence requires user-directed startup. A successful handshake
+restores observation and original receipt checks, never uncertain input, native
+turns, tools or approvals. It does not prove that in-flight work survived.
+
 Caelis callback recovery reads the full receipt snapshot once per connection /
 stream generation, including claimed calls. Subsequent reads use the native
 pending-call wait endpoint, with a 45-second cancellable idle wait, instead of

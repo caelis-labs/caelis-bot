@@ -108,7 +108,9 @@ func (s *Session) autoReconnect(ctx context.Context, seq, epoch uint64) {
 		if stop || attempt == maxAutoReconnectAttempts {
 			if !ready && !needsReview && s.state.Connection != "login" {
 				s.state.Connection = "offline"
-				s.state.Message = "自动恢复未能核对原任务；请检查连接后手动重试。"
+				if !errors.Is(s.lastConnectCause, errSharedStartFailed) && !errors.Is(s.lastConnectCause, errSharedStateUnknown) {
+					s.state.Message = "自动恢复未能核对原任务；请检查连接后手动重试。"
+				}
 				if resourceExhausted(s.lastConnectCause) {
 					s.state.ConnectionIssue = "resource_exhausted"
 					s.state.Message = "本机连接资源暂时不足；原任务仍未确认。请释放资源后手动重试。"

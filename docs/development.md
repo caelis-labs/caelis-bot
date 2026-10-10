@@ -32,6 +32,16 @@ slow persistence path. A passing fixture or `make smoke` is not evidence that
 the daily Bot instance was replaced or recovered.
 First builds fetch pinned Sparkle and Desktop World artifacts; versions/hashes remain source-controlled.
 
+Shared Runtime startup recovery (#152) has Linux/macOS Unix socket and local
+HTTP/CLI contracts in `shared_recovery_test.go`, plus coordinator and CLI tests
+in `internal/sharedruntime` and `internal/caelisruntime`. Run these with the
+adapter race tests. They cover original directory/receipt identity, shared
+startup coalescing and cooldown, live/unknown service guards, removed evidence
+after explicit shutdown, and observer detach. Fake CLI starts and synthetic
+protocol peers are not live Codex daemon/Caelis Host acceptance. Native macOS
+0.162.1 daemon recovery, real in-flight Worker outcomes and Ghostty attach/detach
+remain separate acceptance steps; Linux fixtures cannot establish those results.
+
 The current Desktop World SDK and packaged `bin/dtw` helper are pinned together
 to v0.1.0-rc.3 / `43172bb1f3dd26b90a88c346bc9978cbabab5785`.
 The per-target archives and checksums are in `resources/desktop-world/release.json`;

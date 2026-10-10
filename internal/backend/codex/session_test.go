@@ -93,6 +93,9 @@ func (f *sessionFixture) serve(peer net.Conn) {
 			f.answers <- m
 			continue
 		}
+		if m.Method == "initialized" && len(m.ID) == 0 {
+			continue // Native handshake notification has no response.
+		}
 		var result any = map[string]any{}
 		f.mu.Lock()
 		handle := f.handle

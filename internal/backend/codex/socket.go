@@ -29,16 +29,17 @@ func connectExisting(ctx context.Context, path string) (connection, error) {
 			path = filepath.Join(home, "app-server-control", "app-server-control.sock")
 		}
 		info, err := os.Stat(path)
-		if err == nil {
-			if err != nil || !filepath.IsAbs(path) || info.Mode()&os.ModeSocket == 0 {
-				return nil, errExistingServer
-			}
-			conn, err := dialExisting(ctx, path)
-			if err != nil {
-				return nil, errors.Join(errExistingServer, err)
-			}
-			return conn, nil // Closing this client must never stop the shared server.
+		if err != nil {
+			return nil, errors.Join(errExistingServer, err)
 		}
+		if !filepath.IsAbs(path) || info.Mode()&os.ModeSocket == 0 {
+			return nil, errExistingServer
+		}
+		conn, err := dialExisting(ctx, path)
+		if err != nil {
+			return nil, errors.Join(errExistingServer, err)
+		}
+		return conn, nil // Closing this client must never stop the shared server.
 	}
 	return nil, errExistingServer
 }

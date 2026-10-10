@@ -40,6 +40,7 @@ type Session struct {
 	cached                atomic.Pointer[api.Snapshot]
 	cachedRecovery        atomic.Pointer[api.RecoveryState]
 	retainedWorkers       bool
+	recoveryEvidence      bool // guarded by step; only a confirmed missing shared Host may restart
 	sendingScheduled      string
 	scheduledPreviousTurn string
 	diagnostics           *diagnosticlog.Logger
@@ -82,6 +83,11 @@ type Session struct {
 func New(opts Options) *Session {
 	p := filepath.Join(opts.Directory, "application.json")
 	b, e := loadBinding(p)
+	if b.StoreDirectory != "" {
+		opts.Settings.CaelisStore = b.StoreDirectory
+	} else if dir, err := caelisruntime.Store(opts.Settings.CaelisStore); err == nil {
+		opts.Settings.CaelisStore = dir
+	}
 	mode := "workspace-write"
 	if opts.ToolsOnly {
 		mode = "tools-only"
@@ -124,11 +130,14 @@ func (s *Session) Connect(ctx context.Context) error {
 			go s.callLoop(s.ctx)
 		}
 	}
+	life := s.ctx
 	s.mu.Unlock()
+	cancelOnClose := context.AfterFunc(life, stop)
+	defer cancelOnClose()
 	if e := s.reloadOriginal(); e != nil {
 		return s.fail(e)
 	}
-	if e := s.connect(ctx); e != nil {
+	if e := s.connectWithRecovery(ctx); e != nil {
 		return s.fail(e)
 	}
 	s.mu.Lock()
@@ -152,6 +161,9 @@ func (s *Session) reloadOriginal() error {
 	}
 	s.mu.Lock()
 	s.state, s.loadErr = restored, nil
+	if restored.StoreDirectory != "" {
+		s.settings.CaelisStore = restored.StoreDirectory
+	}
 	s.mu.Unlock()
 	return nil
 }
@@ -353,6 +365,7 @@ func (s *Session) connect(ctx context.Context) error {
 	s.client = scoped
 	s.info = info
 	s.state.StoreID = value(info.StoreId)
+	s.state.StoreDirectory = s.settings.CaelisStore
 	s.state.PrincipalID = d.PrincipalID
 	s.state.Endpoint = d.Endpoint
 	s.state.Connection = life

@@ -81,6 +81,7 @@ type binding struct {
 	Version           int                                      `json:"version"`
 	ProjectionVersion int                                      `json:"projectionVersion"`
 	StoreID           string                                   `json:"storeID"`
+	StoreDirectory    string                                   `json:"storeDirectory,omitempty"`
 	Endpoint          string                                   `json:"endpoint"`
 	InstanceID        string                                   `json:"instanceID"`
 	PrincipalID       string                                   `json:"principalID"`

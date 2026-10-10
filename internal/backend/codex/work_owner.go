@@ -71,7 +71,8 @@ func (w *WorkOwner) WorkTerminal(ctx context.Context, id string) (api.TerminalTa
 }
 
 // NativeEndpoint is recorded before admitting any task. Reconnecting to an
-// unavailable original socket must fail instead of starting a replacement.
+// unavailable private socket must fail instead of starting a replacement;
+// shared daemon recovery retains its original standard endpoint and data home.
 func (w *WorkOwner) NativeEndpoint() (string, error) {
 	s := w.engine
 	s.mu.Lock()
