@@ -275,16 +275,11 @@ func TestPluginIndexTracksAuthoritativeConnectedDirectory(t *testing.T) {
 	if _, err := a.PluginAction(t.Context(), "notes", "disable"); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		body, err = os.ReadFile(path)
-		if err == nil && string(body) == "{\"services\":[]}\n" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("disabled service retained: %d bytes, %v", len(body), err)
-		}
-		time.Sleep(10 * time.Millisecond)
+	// Disable queues an index worker; assert its result after that worker finishes.
+	a.workers.Wait()
+	body, err = os.ReadFile(path)
+	if err != nil || string(body) != "{\"services\":[]}\n" {
+		t.Fatalf("disabled service retained: %d bytes, %v", len(body), err)
 	}
 	if probes.Load() != 0 {
 		t.Fatal("routine index connected to standalone MCP", probes.Load())
