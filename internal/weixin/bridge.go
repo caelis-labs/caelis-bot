@@ -19,13 +19,15 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
 type Host struct {
-	Snapshot func() api.Snapshot
-	Recovery func() api.RecoveryState
-	Submit   func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
+	Snapshot    func() api.Snapshot
+	Recovery    func() api.RecoveryState
+	Submit      func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
+	TextControl *textchannel.Store
 }
 type Status struct {
 	Enabled   bool   `json:"enabled"`
@@ -65,6 +67,7 @@ type document struct {
 	Inbox         []inbound           `json:"inbox,omitempty"`
 	Inputs        map[string]string   `json:"inputs"`
 	Outputs       map[string]outbound `json:"outputs"`
+	MirrorV2      bool                `json:"mirrorV2,omitempty"`
 }
 type Bridge struct {
 	configMu                      sync.Mutex
@@ -87,7 +90,7 @@ type Bridge struct {
 }
 
 func emptyDocument() document {
-	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}}
+	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, MirrorV2: true}
 }
 func Open(root string, host Host) (*Bridge, error) {
 	hash := sha256.Sum256([]byte(root))
@@ -361,8 +364,18 @@ func (b *Bridge) Confirm() (Status, error) {
 	state.OwnerID = candidate.UserID
 	state.BaseURL = candidate.BaseURL
 	for _, item := range initial.Items {
-		if item.Kind == "assistant" && item.ID != "" {
+		if (item.Kind == "assistant" || item.Kind == "user") && item.ID != "" {
 			state.Outputs["item:"+item.ID] = outbound{State: "skip"}
+		}
+	}
+	for _, approval := range initial.Approvals {
+		if approval.Status == "resolved" {
+			state.Outputs["approval-result:"+approval.ID] = outbound{State: "skip"}
+		}
+	}
+	if b.host.TextControl != nil {
+		for _, notice := range b.host.TextControl.Notices() {
+			state.Outputs["notice:"+notice.ID] = outbound{State: "skip"}
 		}
 	}
 	if err := b.secrets.Save(b.account, candidate.Token); err != nil {
@@ -637,7 +650,7 @@ func (b *Bridge) process(ctx context.Context, p *protocol) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
-		b.dispatch(ctx)
+		b.dispatch(ctx, p)
 		b.output(ctx, p)
 		select {
 		case <-ctx.Done():
@@ -646,20 +659,22 @@ func (b *Bridge) process(ctx context.Context, p *protocol) {
 		}
 	}
 }
-func (b *Bridge) dispatch(ctx context.Context) {
-	if b.host.Snapshot().Connection != "ready" && b.host.Snapshot().Connection != "connected" {
-		return
-	}
-	recovery := b.host.Recovery()
-	if recovery.Automatic || recovery.InProgress || recovery.Manual {
-		return
-	}
+func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 	b.mu.Lock()
 	if len(b.state.Inbox) == 0 {
 		b.mu.Unlock()
 		return
 	}
 	in := b.state.Inbox[0]
+	control := textchannel.IsCommand(in.Text)
+	if !control {
+		snapshot := b.host.Snapshot()
+		recovery := b.host.Recovery()
+		if snapshot.Connection != "ready" && snapshot.Connection != "connected" || recovery.Automatic || recovery.InProgress || recovery.Manual {
+			b.mu.Unlock()
+			return
+		}
+	}
 	if state := b.state.Inputs[in.ID]; state != "" && state != "queued" {
 		b.state.Inbox = b.state.Inbox[1:]
 		_ = b.saveLocked()
@@ -667,7 +682,7 @@ func (b *Bridge) dispatch(ctx context.Context) {
 		return
 	}
 	b.state.Inputs[in.ID] = "dispatching"
-	if !b.state.HasInput {
+	if !control && !b.state.HasInput {
 		for _, item := range b.host.Snapshot().Items {
 			if item.Kind == "assistant" && item.ID != "" {
 				b.state.Outputs[outputKey(item)] = outbound{State: "skip"}
@@ -680,6 +695,37 @@ func (b *Bridge) dispatch(ctx context.Context) {
 		return
 	}
 	b.mu.Unlock()
+	if control {
+		if b.host.TextControl != nil {
+			_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID, Text: in.Text}, b.host.Snapshot())
+			if len(transports) > 0 && transports[0] != nil {
+				b.mirrorNotices(ctx, transports[0])
+			}
+		}
+		b.mu.Lock()
+		b.state.Inputs[in.ID] = "handled"
+		b.state.Inbox = b.state.Inbox[1:]
+		_ = b.saveLocked()
+		b.mu.Unlock()
+		return
+	}
+	recovery := b.host.Recovery()
+	if b.host.TextControl != nil {
+		b.mu.Lock()
+		conversation := b.state.OwnerID + "\x00" + in.ContextToken
+		b.mu.Unlock()
+		if err := b.host.TextControl.RecordOrigin(in.ID, textchannel.Origin{Channel: "weixin", Conversation: conversation}); err != nil {
+			b.mu.Lock()
+			b.state.Inputs[in.ID] = "rejected"
+			b.state.Inbox = b.state.Inbox[1:]
+			_ = b.saveLocked()
+			b.mu.Unlock()
+			if len(transports) > 0 && transports[0] != nil {
+				b.sendControl(ctx, transports[0], in, "来源记录不可用，消息未提交。")
+			}
+			return
+		}
+	}
 	work, stop := context.WithTimeout(ctx, 30*time.Second)
 	receipt, err := b.host.Submit(work, api.Submission{ID: in.ID, Text: in.Text, IngressFence: recovery.Fence}, nil)
 	stop()
@@ -710,6 +756,38 @@ func (b *Bridge) dispatch(ctx context.Context) {
 	_ = b.saveLocked()
 	b.mu.Unlock()
 }
+func (b *Bridge) sendControl(ctx context.Context, p *protocol, in inbound, body string) {
+	b.sendTextOnce(ctx, p, "control:"+in.ID, in.ContextToken, body)
+}
+func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToken, body string) {
+	b.mu.Lock()
+	if _, exists := b.state.Outputs[key]; exists {
+		b.mu.Unlock()
+		return
+	}
+	clientID := "caelis-weixin-text-" + textDigest(key)[:24]
+	b.state.Outputs[key] = outbound{State: "unknown", ClientID: clientID, ContextToken: contextToken, Digest: textDigest(body), Attempts: 1}
+	if b.saveLocked() != nil {
+		delete(b.state.Outputs, key)
+		b.mu.Unlock()
+		return
+	}
+	owner := b.state.OwnerID
+	b.mu.Unlock()
+	work, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	result, err := p.send(work, owner, contextToken, clientID, body)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	intent := b.state.Outputs[key]
+	if err == nil && (result.Ret == nil || *result.Ret == 0) && result.ErrCode == 0 {
+		intent.State = "accepted"
+	} else if err == nil {
+		intent.State = "rejected"
+	}
+	b.state.Outputs[key] = intent
+	_ = b.saveLocked()
+}
 func outputKey(item api.Item) string { return "item:" + item.ID }
 func textDigest(s string) string {
 	hash := sha256.Sum256([]byte(s))
@@ -723,14 +801,66 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 		return
 	}
 	snapshot := b.host.Snapshot()
+	b.mu.Lock()
+	if !b.state.MirrorV2 {
+		for _, item := range snapshot.Items {
+			if (item.Kind == "assistant" || item.Kind == "user") && item.ID != "" {
+				b.state.Outputs[outputKey(item)] = outbound{State: "skip"}
+			}
+		}
+		for _, approval := range snapshot.Approvals {
+			if approval.Status == "resolved" {
+				b.state.Outputs["approval-result:"+approval.ID] = outbound{State: "skip"}
+			}
+		}
+		if b.host.TextControl != nil {
+			for _, notice := range b.host.TextControl.Notices() {
+				b.state.Outputs["notice:"+notice.ID] = outbound{State: "skip"}
+			}
+		}
+		b.state.MirrorV2 = true
+		if b.saveLocked() != nil {
+			b.mu.Unlock()
+			return
+		}
+	}
+	b.mu.Unlock()
+	b.mirrorNotices(ctx, p)
 	if snapshot.Connection != "ready" && snapshot.Connection != "connected" {
 		return
 	}
+	b.mirrorControls(ctx, p, snapshot)
 	for _, item := range snapshot.Items {
-		if item.Kind != "assistant" || item.ID == "" || item.Text == "" || item.Text == api.SilentReminder || item.Status != "completed" {
+		if (item.Kind != "assistant" && item.Kind != "user") || item.ID == "" || item.Text == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" {
 			continue
 		}
-		parts := chunks(item.Text)
+		var route textchannel.Origin
+		if item.Kind == "user" {
+			b.mu.Lock()
+			_, own := b.state.Inputs[item.RequestID]
+			b.mu.Unlock()
+			if own {
+				continue
+			}
+		}
+		if b.host.TextControl != nil {
+			if item.Kind == "user" {
+				// A user item has its own submission identity. A turn can also
+				// contain steering from another entry, so never infer its origin
+				// from a neighboring item in the same turn.
+				route, _ = b.host.TextControl.OriginOf(item.RequestID)
+			} else {
+				route, _ = b.host.TextControl.Route(snapshot, item.RequestID, item.TurnKey)
+			}
+			if item.Kind == "user" && route.Channel == "weixin" {
+				continue
+			}
+		}
+		body := item.Text
+		if item.Kind == "user" {
+			body = "User: " + body
+		}
+		parts := chunks(body)
 		for index, part := range parts {
 			key := fmt.Sprintf("%s:%d", outputKey(item), index)
 			digest := textDigest(part)
@@ -738,10 +868,6 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 			if _, seen := b.state.Outputs[outputKey(item)]; seen {
 				b.mu.Unlock()
 				break
-			}
-			if !b.state.HasInput && b.state.ContextToken == "" {
-				b.mu.Unlock()
-				return
 			}
 			intent, seen := b.state.Outputs[key]
 			if seen {
@@ -767,12 +893,13 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 					return
 				}
 				contextToken := b.state.ContextToken
-				for _, source := range snapshot.Items {
-					if source.Kind == "user" && source.TurnKey != "" && source.TurnKey == item.TurnKey && strings.HasPrefix(source.RequestID, "weixin:") {
-						if token, ok := b.state.InputContexts[source.RequestID]; ok {
-							contextToken = token
-						}
+				if route.Channel == "weixin" {
+					prefix := b.state.OwnerID + "\x00"
+					if !strings.HasPrefix(route.Conversation, prefix) {
+						b.mu.Unlock()
+						break
 					}
+					contextToken = strings.TrimPrefix(route.Conversation, prefix)
 				}
 				intent = outbound{State: "unknown", ClientID: "caelis-weixin-" + hex.EncodeToString(seed[:]), ContextToken: contextToken, Digest: digest, Attempts: 1}
 			}
@@ -834,5 +961,58 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 				sleep(ctx, time.Second)
 			}
 		}
+	}
+}
+func (b *Bridge) mirrorControls(ctx context.Context, p *protocol, snapshot api.Snapshot) {
+	if key, body := phaseNotice(snapshot); key != "" {
+		b.mu.Lock()
+		token := b.state.ContextToken
+		b.mu.Unlock()
+		b.sendTextOnce(ctx, p, key, token, body)
+	}
+	if b.host.TextControl != nil {
+		for _, approval := range snapshot.Approvals {
+			b.mu.Lock()
+			contextToken := b.state.ContextToken
+			b.mu.Unlock()
+			if approval.Status == "pending" {
+				card, short, err := b.host.TextControl.Card(approval)
+				if err == nil && card != "" {
+					b.sendTextOnce(ctx, p, "approval:"+approval.ID+":"+short, contextToken, card)
+				}
+			} else if approval.Status == "resolved" {
+				b.sendTextOnce(ctx, p, "approval-result:"+approval.ID, contextToken, "原请求已处理，请在 Caelis Bot 查看结果。")
+			}
+		}
+	}
+}
+func phaseNotice(s api.Snapshot) (string, string) {
+	if s.LastReceipt.ID == "" || s.CurrentTurn == "" {
+		return "", ""
+	}
+	body := map[string]string{"failed": "Bot 未能完成此请求，请在 Caelis Bot 中查看原因。", "interrupted": "工作已停止。", "unknown": "结果暂不确定，请先核对原请求，不要重复发送。"}[s.Phase]
+	if body == "" {
+		return "", ""
+	}
+	for _, item := range s.Items {
+		if item.Kind == "user" && item.RequestID == s.LastReceipt.ID && item.TurnKey == s.CurrentTurn {
+			return "status:" + s.CurrentTurn + ":" + s.Phase, body
+		}
+	}
+	return "", ""
+}
+func (b *Bridge) mirrorNotices(ctx context.Context, p *protocol) {
+	if b.host.TextControl == nil {
+		return
+	}
+	for _, notice := range b.host.TextControl.Notices() {
+		b.mu.Lock()
+		token := b.state.ContextToken
+		b.mu.Unlock()
+		if notice.Origin.Channel == "weixin" {
+			token = notice.Origin.Conversation
+		}
+		out := textchannel.Outbound{Channel: "weixin", Conversation: token, ID: "notice:" + notice.ID, Text: notice.Text}
+		b.sendTextOnce(ctx, p, out.ID, out.Conversation, out.Text)
 	}
 }

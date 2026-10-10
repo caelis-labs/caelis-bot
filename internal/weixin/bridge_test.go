@@ -13,7 +13,109 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
+
+func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
+	var sent atomic.Int32
+	var texts []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Msg struct {
+				Items []struct {
+					Text struct {
+						Text string `json:"text"`
+					} `json:"text_item"`
+				} `json:"item_list"`
+			} `json:"msg"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		if len(request.Msg.Items) > 0 {
+			texts = append(texts, request.Msg.Items[0].Text.Text)
+		}
+		_, _ = w.Write([]byte(`{"ret":0}`))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	control, err := textchannel.Open(root, func(_ context.Context, d api.Decision) error {
+		if d.ID != "worker-approval" || d.Choice != "allow-once" {
+			t.Errorf("wrong decision: %#v", d)
+		}
+		sent.Add(1)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := api.Approval{ID: "worker-approval", Owner: "task", TurnKey: "worker-turn", Status: "pending", Choices: []api.Choice{{ID: "allow-once", Label: "允许", Scope: "once"}, {ID: "deny", Label: "拒绝"}}}
+	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, TextControl: control, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+		t.Fatal("control used ordinary Submit")
+		return api.Receipt{}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
+	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
+	b.output(t.Context(), p)
+	if len(texts) != 1 || !strings.Contains(texts[0], "/approve A1 1 — 允许（范围：仅本次）") {
+		t.Fatalf("missing text card: %#v", texts)
+	}
+	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/approve A1 1", ContextToken: "ctx"}}
+	b.dispatch(t.Context(), p)
+	b.dispatch(t.Context(), p)
+	if sent.Load() != 1 || len(texts) != 2 || !strings.Contains(texts[1], "决定已提交") {
+		t.Fatalf("decision/receipt: %d %#v", sent.Load(), texts)
+	}
+	snapshot.Approvals[0].Status = "resolved"
+	b.output(t.Context(), p)
+	if len(texts) != 3 || !strings.Contains(texts[2], "已处理") {
+		t.Fatalf("terminal mirror: %#v", texts)
+	}
+}
+
+func TestUserMirrorSkipsOnlyOwnIngress(t *testing.T) {
+	var texts []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Msg struct {
+				Items []struct {
+					Text struct {
+						Text string `json:"text"`
+					} `json:"text_item"`
+				} `json:"item_list"`
+			} `json:"msg"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		if len(request.Msg.Items) > 0 {
+			texts = append(texts, request.Msg.Items[0].Text.Text)
+		}
+		_, _ = w.Write([]byte(`{"ret":0}`))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	control, _ := textchannel.Open(root, nil)
+	if err := control.RecordOrigin("remote-tg", textchannel.Origin{Channel: "telegram", Conversation: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := control.RecordOrigin("remote-wx", textchannel.Origin{Channel: "weixin", Conversation: "owner\x00ctx"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "u1", Kind: "user", RequestID: "remote-tg", Text: "hello", Status: "completed", TurnKey: "t1"}, {ID: "u2", Kind: "user", RequestID: "remote-wx", Text: "self", Status: "completed", TurnKey: "t2"}, {ID: "u3", Kind: "user", RequestID: "desktop", Text: "desktop steer", Status: "completed", TurnKey: "t2"}, {ID: "a1", Kind: "assistant", Text: "reply", Status: "completed", TurnKey: "t1"}}}
+	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, TextControl: control})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
+	b.state.Inputs["remote-wx"] = "accepted"
+	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
+	if len(texts) != 3 || texts[0] != "User: hello" || texts[1] != "User: desktop steer" || texts[2] != "reply" {
+		t.Fatalf("mirror: %#v", texts)
+	}
+}
 
 func TestReceiveDurableOwnerOnlyAndNoDuplicate(t *testing.T) {
 	var calls atomic.Int32

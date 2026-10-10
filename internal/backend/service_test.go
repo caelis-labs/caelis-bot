@@ -25,6 +25,25 @@ func TestSetupRequiredProjectsExplicitConnectionIssue(t *testing.T) {
 		t.Fatalf("stale setup issue after configuration: %+v", got)
 	}
 }
+func TestControlReceiptAppearsInDesktopChatWithoutReplacingNativeItems(t *testing.T) {
+	s := NewService(snapshotEngine{value: api.Snapshot{Items: []api.Item{{ID: "reply", Kind: "assistant", Text: "work result"}}}}, nil, nil, nil, nil)
+	var notices []api.Item
+	s.SetControlNotices(func() ([]api.Item, uint64) { return notices, uint64(len(notices)) })
+	first := s.ChatSnapshot(0, "")
+	if !first.Changed || len(first.Snapshot.Items) != 1 {
+		t.Fatal(first)
+	}
+	notices = []api.Item{{ID: "control:1", Kind: "controlNotice", Text: "决定已提交", Status: "completed"}}
+	next := s.ChatSnapshot(first.Snapshot.Revision, first.Snapshot.BotStatus)
+	if !next.Changed || len(next.Snapshot.Items) != 2 || next.Snapshot.Items[0].Text != "work result" || next.Snapshot.Items[1].Text != "决定已提交" {
+		t.Fatal(next)
+	}
+	for _, item := range s.PetSnapshot().Items {
+		if item.Kind == "controlNotice" {
+			t.Fatal("control receipt opened a pet bubble")
+		}
+	}
+}
 
 func TestPetPreviewDoesNotMixOldReplyWithNewRequest(t *testing.T) {
 	e := snapshotEngine{value: api.Snapshot{Items: []api.Item{

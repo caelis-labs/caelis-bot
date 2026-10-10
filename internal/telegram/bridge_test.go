@@ -17,8 +17,57 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 	tg "github.com/mymmrac/telego"
 )
+
+func TestWeixinControlReceiptAndUserMirrorOnTelegram(t *testing.T) {
+	root := t.TempDir()
+	control, err := textchannel.Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control.Publish(textchannel.Inbound{Channel: "weixin", Conversation: "ctx", ID: "msg"}, "决定已提交，等待 Runtime 确认。")
+	if err := control.RecordOrigin("wx-user", textchannel.Origin{Channel: "weixin", Conversation: "owner\x00ctx"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "u", Kind: "user", RequestID: "wx-user", TurnKey: "t", Text: "hello", Status: "completed"}, {ID: "a", Kind: "assistant", TurnKey: "t", Text: "reply", Status: "completed"}}}
+	b, c := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, TextControl: control})
+	b.state.ChatID = 17
+	b.state.UserID = 7
+	b.baselineReady = true
+	b.mirrorNotices(t.Context(), c)
+	b.mirror(t.Context(), c, snapshot)
+	if len(c.texts) != 3 || c.texts[0] != "决定已提交，等待 Runtime 确认。" || !strings.Contains(c.texts[1], "用户\nhello") && !strings.Contains(c.texts[1], "User\nhello") || c.texts[2] != "reply" {
+		t.Fatalf("mirror: %#v", c.texts)
+	}
+}
+func TestOtherEntryClaimDisablesTelegramApprovalButton(t *testing.T) {
+	root := t.TempDir()
+	called := 0
+	control, _ := textchannel.Open(root, func(_ context.Context, d api.Decision) error {
+		called++
+		if d.Choice != "allow" {
+			t.Fatal(d)
+		}
+		return nil
+	})
+	a := api.Approval{ID: "native", Owner: "worker", TurnKey: "child", Status: "pending", Choices: []api.Choice{{ID: "allow", Label: "允许", Scope: "once"}, {ID: "deny", Label: "拒绝"}}}
+	_, short, err := control.Card(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+	control.Handle(t.Context(), textchannel.Inbound{Channel: "weixin", Conversation: "ctx", ID: "decision", Text: "/approve " + short + " 1"}, snapshot)
+	b, c := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, TextControl: control})
+	b.state.ChatID = 17
+	b.state.UserID = 7
+	b.baselineReady = true
+	b.mirror(t.Context(), c, snapshot)
+	if called != 1 || len(c.texts) == 0 || strings.Contains(c.texts[len(c.texts)-1], "/approve") || c.keyboards[len(c.keyboards)-1] != nil {
+		t.Fatalf("stale button remained: %d %#v %#v", called, c.texts, c.keyboards)
+	}
+}
 
 type fakeClient struct {
 	mu                                            sync.Mutex

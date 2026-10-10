@@ -145,6 +145,33 @@ semantics. A retired connection cannot dispatch a response from its old wait.
 
 ## Telegram companion chat
 
+`internal/textchannel` is the shared text baseline for companion ingress and
+egress. The paired transport authenticates the owner and persists its original
+message before calling the common controller. Pending native approval/question
+catalogs receive durable `A`/`Q` numbers, immutable ordered option IDs, and a
+copyable command for each option. `/approve A7 1` and `/answer Q3 2` use exact
+current native targets; an answer's nonnumeric tail is passed verbatim only when
+that question allows free text. A fixed approval's custom opinion is feedback,
+never permission. The controller writes one native decision claim before dispatch;
+unknown results remain fenced to that original request. Telegram buttons invoke
+the same controller. Ordinary prose never enters this decision path.
+
+Desktop, Telegram and Weixin project one Bot conversation. Each companion has
+its own durable delivery ledger and mirrors visible user/assistant items,
+actionable approval/question cards, and control receipts. The desktop chat
+projects recent control receipts inline from the same private controller without
+opening a panel or adding them to Runtime history. Original ingress IDs
+only suppress the source transport's user-message echo; another transport labels
+that item as User. A failure in one sender does not block the other's ledger.
+Initial pairing and legacy Weixin records baseline the current history instead
+of replaying it. Host task wakeups and automatic review progress stay internal;
+the Bot's subsequent visible response is mirrored. This is a snapshot projection,
+not a separate Bot session or a general event bus.
+Independent Worker task status and terminal output live in the task dock rather
+than conversation `Items` on this main baseline. They are mirrored only when the
+Bot publishes a user-visible conversation item; a full task-status mirror needs a
+separate stable, user-visible task event projection from the existing task owner.
+
 `internal/telegram` mirrors one paired private chat through pinned Telego. It uses
 native `backend.SubmitRemote` and the existing resident submission, interruption,
 approval and artifact ports. It does not add transport information to Bot context
@@ -232,7 +259,10 @@ Weixin, Telegram and plugin tokens into namespaces under `Credentials/`.
 Existing Keychain items migrate on first use and are deleted. Pairing QR state lives
 only in memory; settings starts or refreshes it while visible. Start/stop
 presence and disposable typing requests are independent of message receipts.
-Only owner private text and final assistant text are in scope. A send with an
+Only owner private text and text projection of the shared conversation are in scope.
+Weixin sends final assistant items, visible user items, native text control cards
+and terminal notices through independent outbound intents. It cannot edit a
+previous card or prove phone display from an HTTP success. A send with an
 unknown HTTP outcome is retried at most twice more with the saved client ID;
 upstream deduplication is unproven, so duplicates are possible. Ingress and
 Worker receipts are never replayed; see [POC scope](weixin-channel-poc.md).

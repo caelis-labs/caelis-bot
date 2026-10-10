@@ -25,6 +25,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/telegram"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 	"github.com/caelis-labs/caelis-bot/internal/weixin"
 )
@@ -59,6 +60,7 @@ type Application struct {
 	Backend            *backend.Service
 	Telegram           *telegram.Bridge
 	Weixin             *weixin.Bridge
+	textControl        *textchannel.Store
 	engine             api.Engine
 	host               Host
 	root               string
@@ -214,6 +216,22 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		host.ReportError(err)
 	}
 	service.ConfigureMachines(app.machines)
+	app.textControl, err = textchannel.Open(root, app.Backend.Decide)
+	if err != nil {
+		return nil, err // fail closed: a lost origin/decision ledger cannot broadcast or replay
+	}
+	service.SetControlNotices(func() ([]api.Item, uint64) {
+		notices := app.textControl.Notices()
+		revision := uint64(len(notices))
+		if len(notices) > 32 {
+			notices = notices[len(notices)-32:]
+		}
+		items := make([]api.Item, 0, len(notices))
+		for _, notice := range notices {
+			items = append(items, api.Item{ID: "control:" + notice.ID, Kind: "controlNotice", Text: notice.Text, Status: "completed"})
+		}
+		return items, revision
+	})
 	if app.Telegram == nil {
 		remote, remoteErr := telegram.Open(app.root, telegram.Host{
 			Snapshot:    app.Backend.Snapshot,
@@ -227,6 +245,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 			Artifact:    func(id string) (string, error) { return backend.ResolveRemoteArtifact(app.Backend, id) },
 			ScreenImage: func(id string) ([]byte, error) { return backend.ScreenImageBytes(app.Backend, id) },
 			Chinese:     func() bool { return app.locale() == i18n.Chinese },
+			TextControl: app.textControl,
 		})
 		if remoteErr != nil {
 			if app.host.ReportError != nil {
@@ -245,6 +264,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 			Submit: func(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 				return backend.SubmitRemote(ctx, app.Backend, in, files)
 			},
+			TextControl: app.textControl,
 		})
 		if remoteErr != nil && app.host.ReportError != nil {
 			app.host.ReportError(remoteErr)

@@ -66,6 +66,7 @@ type Service struct {
 	files                       func([]string) ([]api.InputFile, error)
 	consumeFiles                func([]string) error
 	submissionObserver          func(api.Submission, []api.InputFile, api.Receipt)
+	controlNotices              func() ([]api.Item, uint64)
 	openURL                     func(string) error
 	reveal                      func(string) error
 	screenMedia                 *screeninput.Media
@@ -195,6 +196,7 @@ func (s *Service) Snapshot() api.Snapshot {
 	// must observe the newer state instead of accepting a stale projection.
 	s.mu.Lock()
 	localRevision := s.presentationRevision
+	controlNotices := s.controlNotices
 	s.mu.Unlock()
 	v = s.decorate(v)
 	if s.chat != nil {
@@ -208,6 +210,11 @@ func (s *Service) Snapshot() api.Snapshot {
 		}
 		v.Items, v.HasEarlier = items, earlier
 		v.Revision += chatRevision
+	}
+	if controlNotices != nil {
+		items, revision := controlNotices()
+		v.Items = append(v.Items, items...)
+		v.Revision += revision
 	}
 	v.Revision += localRevision
 	return v
@@ -322,6 +329,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	s.mu.Lock()
 	status := s.botStatus
 	localRevision := s.presentationRevision
+	controlNotices := s.controlNotices
 	needsReconcile := s.draftSend != nil && s.draftSend.Outcome == ""
 	s.mu.Unlock()
 	currentStatus := ""
@@ -332,6 +340,10 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 		combined := source.Revision() + localRevision
 		if s.chat != nil {
 			combined += s.chat.Revision()
+		}
+		if controlNotices != nil {
+			_, noticeRevision := controlNotices()
+			combined += noticeRevision
 		}
 		if combined == revision {
 			return api.ChatUpdate{}
@@ -345,13 +357,18 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	}
 	items := make([]api.Item, 0)
 	for _, item := range v.Items {
-		if item.Kind == "user" || item.Kind == "assistant" {
+		if item.Kind == "user" || item.Kind == "assistant" || item.Kind == "controlNotice" {
 			item.Details = ""
 			items = append(items, item)
 		}
 	}
 	v.Items = items
 	return api.ChatUpdate{Changed: true, Snapshot: v}
+}
+func (s *Service) SetControlNotices(source func() ([]api.Item, uint64)) {
+	s.mu.Lock()
+	s.controlNotices = source
+	s.mu.Unlock()
 }
 func (s *Service) ConfigureChat(path string) { s.chat = chatlog.Open(path) }
 func (s *Service) ObserveChat(v api.Snapshot) {

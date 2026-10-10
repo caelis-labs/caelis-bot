@@ -26,6 +26,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 	tg "github.com/mymmrac/telego"
 )
 
@@ -40,6 +41,7 @@ type Host struct {
 	Artifact    func(string) (string, error)
 	ScreenImage func(string) ([]byte, error)
 	Chinese     func() bool
+	TextControl *textchannel.Store
 }
 type Status struct {
 	Enabled   bool   `json:"enabled"`
@@ -316,6 +318,11 @@ func (b *Bridge) Confirm() (Status, error) {
 	b.state.ChatID, b.state.UserID, b.state.Owner = m.Chat.ID, m.From.ID, ownerName(m.From)
 	// Pairing grants access only to subsequent conversation, not old private history.
 	b.baselineLocked(b.host.Snapshot())
+	if b.host.TextControl != nil {
+		for _, notice := range b.host.TextControl.Notices() {
+			b.state.Messages["notice:"+notice.ID] = delivery{Skip: true}
+		}
+	}
 	e := b.saveLocked()
 	if e != nil {
 		b.state.ChatID, b.state.UserID = 0, 0
@@ -708,6 +715,7 @@ func (b *Bridge) reflectOutput(ctx context.Context, c client) {
 	}
 	s := b.host.Snapshot()
 	b.mirrorRecovery(ctx, c, s)
+	b.mirrorNotices(ctx, c)
 	if state := b.recoveryState(); state.Automatic || state.InProgress {
 		return
 	}
@@ -716,6 +724,21 @@ func (b *Bridge) reflectOutput(ctx context.Context, c client) {
 		if ctx.Err() == nil {
 			b.flushFiles(ctx, c)
 		}
+	}
+}
+func (b *Bridge) mirrorNotices(ctx context.Context, c client) {
+	if b.host.TextControl == nil {
+		return
+	}
+	b.mu.Lock()
+	chat := b.state.ChatID
+	b.mu.Unlock()
+	if chat == 0 {
+		return
+	}
+	for _, notice := range b.host.TextControl.Notices() {
+		out := textchannel.Outbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: "notice:" + notice.ID, Text: notice.Text}
+		b.sendText(ctx, c, out.ID, chat, out.Text, nil)
 	}
 }
 func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
@@ -754,7 +777,7 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	}
 	command := strings.Split(m.Text, " ")[0]
 	var ingressFence string
-	if command != "/start" && command != "/stop" && command != "/status" {
+	if command != "/start" && command != "/stop" && command != "/status" && !textchannel.IsCommand(m.Text) {
 		state := b.recoveryState()
 		connecting := b.host.Snapshot != nil && b.host.Snapshot().Connection == "connecting"
 		if state.Automatic || state.InProgress || connecting {
@@ -784,6 +807,10 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	}
 	b.mu.Unlock()
 	if exists {
+		if textchannel.IsCommand(m.Text) && b.host.TextControl != nil {
+			_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}, b.host.Snapshot())
+			b.mirrorNotices(ctx, c)
+		}
 		return true, false
 	}
 	outcome := "handled"
@@ -809,7 +836,12 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 			b.mu.Unlock()
 			feedback, finish := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			defer finish()
-			_, _ = c.Send(feedback, chat, plainText(text), nil)
+			if b.host.TextControl != nil {
+				b.host.TextControl.Publish(textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request}, text)
+				b.mirrorNotices(feedback, c)
+			} else {
+				_, _ = c.Send(feedback, chat, plainText(text), nil)
+			}
 		}()
 		return true, false
 	case "/status":
@@ -824,12 +856,33 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		} else if !state.Automatic && !state.InProgress {
 			text = b.text("Caelis Bot is online; the Runtime is temporarily offline. Recovery remains available.", "Caelis Bot 在线，Runtime 暂时离线；可以继续恢复连接。")
 		}
-		_, _ = c.Send(ctx, chat, plainText(text), nil)
+		if b.host.TextControl != nil {
+			b.host.TextControl.Publish(textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request}, text)
+			b.mirrorNotices(ctx, c)
+		} else {
+			_, _ = c.Send(ctx, chat, plainText(text), nil)
+		}
 		if state.Manual {
 			b.mirrorRecovery(ctx, c, s)
 		}
+	case "/approve", "/answer":
+		if b.host.TextControl != nil {
+			_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}, b.host.Snapshot())
+			b.mirrorNotices(ctx, c)
+		} else {
+			_, _ = c.Send(ctx, chat, plainText("控制命令暂不可用，请在 Mac 中处理。"), nil)
+		}
 
 	default:
+		if textchannel.IsCommand(m.Text) {
+			if b.host.TextControl != nil {
+				_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}, b.host.Snapshot())
+				b.mirrorNotices(ctx, c)
+			} else {
+				_, _ = c.Send(ctx, chat, plainText("未知命令。请复制当前请求中的完整 /approve 或 /answer 命令。"), nil)
+			}
+			break
+		}
 		if !b.ensureBaseline(b.host.Snapshot()) {
 			outcome = "rejected"
 			_, _ = c.Send(ctx, chat, plainText(b.text("The local Runtime is not connected yet. Check /status or Caelis Bot on your Mac; this message was not sent to the Runtime.", "本机 Runtime 尚未连接。请查看 /status 或 Mac 上的 Caelis Bot；这条消息未发送给 Runtime。")), nil)
@@ -851,6 +904,13 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 				outcome = "rejected"
 				_, _ = c.Send(ctx, chat, plainText(b.text("Send text, a photo or a file.", "请发送文字、图片或文件。")), nil)
 			} else {
+				if b.host.TextControl != nil {
+					if err := b.host.TextControl.RecordOrigin(request, textchannel.Origin{Channel: "telegram", Conversation: fmt.Sprint(chat)}); err != nil {
+						outcome = "rejected"
+						_, _ = c.Send(ctx, chat, plainText("来源记录不可用，消息未提交。"), nil)
+						break
+					}
+				}
 				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text, IngressFence: ingressFence}, files)
 				if errors.Is(submitErr, api.ErrRecoveryPending) {
 					b.mu.Lock()
@@ -1102,8 +1162,14 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 		if !valid {
 			continue
 		}
-		for _, choice := range a.Choices {
+		for index, choice := range a.Choices {
 			if q.Data == callbackID(a, choice.ID) {
+				if b.host.TextControl != nil {
+					if feedback, claimed := b.host.TextControl.Claimed(a.ID); claimed {
+						b.answer(ctx, c, q.ID, feedback)
+						return true
+					}
+				}
 				key := "approval-decision:" + a.ID
 				b.mu.Lock()
 				record := b.state.Messages["approval:"+a.ID]
@@ -1129,7 +1195,20 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 					defer b.recoveryWait.Done()
 					work, stop := context.WithTimeout(ctx, 16*time.Second)
 					defer stop()
-					err := b.host.Decide(work, api.Decision{ID: a.ID, Choice: choice.ID})
+					var err error
+					if b.host.TextControl != nil {
+						_, short, cardErr := b.host.TextControl.Card(a)
+						if cardErr != nil || short == "" {
+							err = errors.New("approval catalog unavailable")
+						} else {
+							feedback := b.host.TextControl.Handle(work, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: "callback:" + q.ID, Text: fmt.Sprintf("/approve %s %d", short, index+1)}, b.host.Snapshot())
+							if feedback != "决定已提交，等待 Runtime 确认。" {
+								err = errors.New("approval not confirmed")
+							}
+						}
+					} else {
+						err = b.host.Decide(work, api.Decision{ID: a.ID, Choice: choice.ID})
+					}
 					outcome := "handled"
 					if err != nil {
 						outcome = "unknown"
@@ -1181,7 +1260,18 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 			continue
 		}
 		if i.Kind == "user" {
-			b.sendMacUserText(ctx, c, itemKey(i), chat, i.Text)
+			if b.host.TextControl != nil {
+				if origin, ok := b.host.TextControl.OriginOf(i.RequestID); ok && origin.Channel != "" {
+					if origin.Channel == "telegram" && origin.Conversation == fmt.Sprint(chat) {
+						continue
+					}
+					b.sendUserText(ctx, c, itemKey(i), chat, i.Text, b.text("User", "用户"))
+				} else {
+					b.sendMacUserText(ctx, c, itemKey(i), chat, i.Text)
+				}
+			} else {
+				b.sendMacUserText(ctx, c, itemKey(i), chat, i.Text)
+			}
 		} else if i.Kind == "assistant" {
 			b.sendAssistantText(ctx, c, itemKey(i), chat, i.Text)
 		}
@@ -1252,10 +1342,22 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		closed := b.state.Messages["approval:"+a.ID].Closed
 		decision := b.state.Inputs["approval-decision:"+a.ID]
 		b.mu.Unlock()
+		if b.host.TextControl != nil {
+			if _, claimed := b.host.TextControl.Claimed(a.ID); claimed && decision == "" {
+				decision = "submitted"
+			}
+		}
 		if closed {
 			continue // A terminal fence cannot be reopened by stale recovery state.
 		}
-		text := approvalMessageText(a)
+		original := approvalMessageText(a)
+		text := original
+		if b.host.TextControl != nil {
+			if card, _, err := b.host.TextControl.Card(a); err == nil && card != "" {
+				text = card
+				original = card
+			}
+		}
 		if text == "" {
 			text = b.text("Decision needed.", "需要决定。")
 		}
@@ -1278,12 +1380,14 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 			text += "\n" + b.text("Submitted; waiting for the Runtime result.", "已提交，等待 Runtime 确认结果。")
 		} else if a.Status == "unknown" {
 			text += "\n" + b.text("The decision result is uncertain. Check the original request on your Mac; do not submit it again.", "决定结果暂不确定。请在 Mac 核对原请求，不要再次提交。")
+		} else if a.Status == "pending" && len(a.Questions) > 0 && b.host.TextControl != nil {
+			// The shared text card above owns the answer commands.
 		} else if a.Status == "pending" && len(a.Choices) == 0 {
 			text += "\n" + b.text("The Runtime did not provide an actionable option here. Check the original request in the Runtime.", "Runtime 未提供此处可操作的选项，请在 Runtime 中核对原请求。")
 		} else {
 			text += "\n" + b.text("Complete this request in Caelis Bot on your Mac.", "请在 Mac 的 Caelis Bot 中完成此请求。")
 		}
-		b.sendApprovalText(ctx, c, "approval:"+a.ID, chat, approvalMessageText(a), text, keys)
+		b.sendApprovalText(ctx, c, "approval:"+a.ID, chat, original, text, keys)
 	}
 	// Native resolution may remove a prompt from the snapshot entirely. A
 	// disconnected snapshot is not an authoritative absence.
@@ -1547,6 +1651,9 @@ func (b *Bridge) sendMacUserText(ctx context.Context, c client, key string, chat
 		legacyParts[i] = plainText(part)
 	}
 	b.sendRenderedText(ctx, c, key, chat, macUserText(title, body), legacyParts, nil)
+}
+func (b *Bridge) sendUserText(ctx context.Context, c client, key string, chat int64, body, title string) {
+	b.sendRenderedText(ctx, c, key, chat, macUserText(title, body), nil, nil)
 }
 
 func (b *Bridge) sendAssistantText(ctx context.Context, c client, key string, chat int64, body string) {

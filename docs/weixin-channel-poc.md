@@ -31,6 +31,15 @@ follows the saved attempt counter after restart.
 
 `getupdates` is the only input transport. Text from the confirmed owner in a
 direct chat enters `backend.SubmitRemote` with the original stable request ID.
+Text `/approve` and `/answer` commands use the shared native decision controller,
+including while the Bot is waiting on the original request. Each native option
+has a complete numbered command. Free text is accepted only for a question that
+supports it; a custom opinion on a fixed approval never grants permission.
+Telegram buttons call that same controller. Desktop and both companion channels
+remain one Bot conversation. Visible user messages, final assistant messages,
+text approval cards, terminal notices and control receipts are mirrored through
+each transport's independent delivery ledger. An original Weixin input is not
+echoed back to its own chat. Pairing and legacy records baseline existing history.
 The inbox and cursor are saved together before dispatch. A dispatching request
 that loses its result is not sent again automatically. Completed assistant text
 is sent with `sendmessage` and a context token. A reply within 2,400 UTF-16
@@ -51,9 +60,12 @@ The adapter obtains a typing ticket
 from `getconfig` and renews `sendtyping` only while the paired user's main turn
 is active, cancelling it at turn end. Text still sends only as final messages;
 the upstream text builder uses `message_state=FINISH`, and the public protocol
-does not document safe in-place edits. Approvals, groups, attachments, edits,
+does not document safe in-place edits. Text cards and terminal status therefore
+arrive as separate messages. Native approval buttons, groups, attachments, edits,
 webhook delivery,
 proactive window guarantees and Windows credentials are outside this POC.
+An HTTP success cannot prove phone display, especially for a proactive send
+without a recent context token.
 
 Tencent's protocol document describes its current client and expressly does
 not claim to be the full server contract. The MIT source license does not
