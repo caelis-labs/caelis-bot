@@ -511,12 +511,17 @@ For GitHub browser authorization, `caelis-labs` owns a public GitHub App with
 Device Flow enabled. The reviewed catalog contains its public Client ID and
 installation URL; no client secret or user token is embedded. Each user installs
 the app on selected repositories, then authorizes the device code in GitHub.
-The resulting user token is limited by the app's read permissions, the selected
+The resulting user token is limited by the app's repository permissions, the selected
 repositories and the user's own access. GitHub's remote MCP service does not
 offer dynamic client registration. Settings also offers the existing personal
 access token path. Verify both the tool catalog and a safe repository read in
 Dev Bot; authorization alone can succeed without repository installation.
-The remote GitHub MCP selection remains its reviewed read-only endpoint.
+The remote GitHub MCP selection uses its reviewed default endpoint. The app grants
+Contents, Issues and Pull requests read/write, with Metadata read; other repository,
+organization and account permissions are not requested. Existing installations
+must approve GitHub's permission update before write tools can succeed. Verify
+actual available tools before claiming the expanded capability, and use only safe
+read operations for Dev acceptance unless an exact write is separately authorized.
 
 For Obsidian, Bot Settings installs one reviewed Skill for the official desktop
 CLI; it contributes no MCP server or credential connection. Enable **Command

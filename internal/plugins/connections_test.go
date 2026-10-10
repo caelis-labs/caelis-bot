@@ -132,6 +132,9 @@ func TestConnectionRevisionPrivateStoreActivationAndClear(t *testing.T) {
 	if len(selected.Servers) != 1 || selected.Servers[0].ConnectionRevision == 0 || selected.Servers[0].Connection == nil {
 		t.Fatal("credential revision not projected", selected)
 	}
+	if got := selected.Servers[0].Server.URL; got != "https://api.githubcopilot.com/mcp/" {
+		t.Fatalf("GitHub did not select the official default toolset: %q", got)
+	}
 	stable := m.Snapshot().Revision
 	if _, err = m.ConfigureConnection(context.Background(), "github", "SYNTHETIC_PRIVATE_TOKEN", "", false, func(context.Context, Selection) error { t.Fatal("duplicate credential reapplied Runtime"); return nil }); err != nil || m.Snapshot().Revision != stable {
 		t.Fatal("duplicate credential advanced revision", err)

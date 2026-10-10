@@ -54,7 +54,7 @@
   "pluginOAuthConnected": "Workspace connected",
   "pluginOAuthReauthorize": "Sign in again to reconnect",
   "pluginOAuthHelp": "About this service",
-  "pluginGitHubOAuthIntro": "Install Caelis Bot on selected repositories, then authorize it in your browser. Bot uses GitHub's reviewed read-only MCP endpoint. The code stays in this app.",
+  "pluginGitHubOAuthIntro": "Install Caelis Bot on selected repositories, then authorize it in your browser. Bot can read and update code, issues and pull requests in those repositories. The code stays in this app.",
   "pluginGitHubOAuthSetup": "Browser sign-in requires a registered GitHub App client ID with Device Flow enabled. A personal access token remains available below.",
   "pluginGitHubSelectRepositories": "Choose repositories in GitHub",
   "pluginGitHubOAuthCode": "Enter this code at github.com/login/device:",

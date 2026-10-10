@@ -54,7 +54,7 @@
   "pluginOAuthConnected": "工作区已连接",
   "pluginOAuthReauthorize": "重新登录以恢复连接",
   "pluginOAuthHelp": "服务说明",
-  "pluginGitHubOAuthIntro": "先在 GitHub 为所选仓库安装 Caelis Bot，再在浏览器授权。Bot 使用 GitHub 已审核的只读 MCP 端点；授权码只显示在本应用。",
+  "pluginGitHubOAuthIntro": "先在 GitHub 为所选仓库安装 Caelis Bot，再在浏览器授权。Bot 可读取和更新这些仓库的代码、Issue 与 PR；授权码只显示在本应用。",
   "pluginGitHubOAuthSetup": "浏览器登录需要已注册且启用设备流程的 GitHub App Client ID。下方仍可使用个人访问令牌。",
   "pluginGitHubSelectRepositories": "在 GitHub 中选择仓库",
   "pluginGitHubOAuthCode": "在 github.com/login/device 输入此代码：",

@@ -3543,8 +3543,8 @@
     {
       "id": "github",
       "title": "GitHub",
-      "version": "1.0.0",
-      "description": "Browse repositories, issues and pull requests",
+      "version": "1.1.0",
+      "description": "Read and update repository files, issues and pull requests",
       "source": "https://github.com/github/github-mcp-server",
       "connection": {
         "Server": "github",
@@ -3562,8 +3562,8 @@
         }
       },
       "files": {
-        "plugin.json": "9e84f83de133a81a6993a42ab7044c4548600d78d4af9ebe4419ef6a272c1207",
-        "mcp.json": "9a7d68b406ba20114ef94da9e312973b36a8b903d4cae0453fd4e55ab797c3c0"
+        "plugin.json": "9a62241bae502366bbaad684939912fda909c1be0edea731070aeb2f264275f8",
+        "mcp.json": "5f82ee81a15e04fa3771fcaad49fc279a963895e2638d86b6c3fb5697718e608"
       }
     },
     {

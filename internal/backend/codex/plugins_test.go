@@ -141,7 +141,7 @@ func TestBotProjectProjectionAndWorkerIsolation(t *testing.T) {
 
 func TestCodexCredentialBridgeUsesBotOnlyProjectAndNoSecret(t *testing.T) {
 	bot, worker, root := t.TempDir(), t.TempDir(), t.TempDir()
-	selection := plugins.Selection{Revision: 42, Servers: []plugins.SelectedServer{{PackageID: "github", Name: "github", Root: filepath.Join(root, "versions", "github", "v1"), Data: filepath.Join(root, "data", "github"), Server: plugins.Server{Type: "streamable-http", URL: "https://api.githubcopilot.com/mcp/readonly"}, Connection: &plugins.ConnectionSpec{Server: "github", Kind: "token", Placement: "header", Name: "Authorization", Prefix: "Bearer "}, ConnectionRevision: 42}}}
+	selection := plugins.Selection{Revision: 42, Servers: []plugins.SelectedServer{{PackageID: "github", Name: "github", Root: filepath.Join(root, "versions", "github", "v1"), Data: filepath.Join(root, "data", "github"), Server: plugins.Server{Type: "streamable-http", URL: "https://api.githubcopilot.com/mcp/"}, Connection: &plugins.ConnectionSpec{Server: "github", Kind: "token", Placement: "header", Name: "Authorization", Prefix: "Bearer "}, ConnectionRevision: 42}}}
 	c := &api.ToolConnection{Command: "/fixture/Bot", Plugins: selection, NotebookDirectory: bot}
 	s := NewSession(SessionOptions{Directory: bot})
 	if err := s.ConfigureBotTools(c); err != nil {
