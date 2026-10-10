@@ -61,7 +61,7 @@ test('packaging changes exercise the DMG while an ordinary transport change does
 });
 
 test('required product gate rejects failed, cancelled, missing or unexpectedly skipped jobs', () => {
-  const all={shared:'success',macos:'success',windows:'success',linux:'success'};
+  const all={macos:'success',windows:'success',linux:'success'};
   requireResults('full', 'success', all);
   requireResults('shared', 'success', all);
   requireResults('macos', 'success', {...all,windows:'skipped',linux:'skipped'});

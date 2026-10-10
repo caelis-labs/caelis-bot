@@ -9,7 +9,7 @@
 `main` requires a pull request, the **product** GitHub Actions check against the current base, resolved conversations and linear history. Administrators are included; force pushes and deletion are blocked. The current single-maintainer setup requires zero independent approvals, so a sole maintainer can merge after checks. Only squash merges are enabled; merged branches are deleted automatically. A tag ruleset prevents updates/deletion of `v*` tags while allowing new release tags.
 
 Product CI runs on code PRs and manual requests. The required **product** check
-joins the macOS (`macos-15`) and Linux headless results; failed, cancelled or
+joins the selected macOS (`macos-15`), Windows (`windows-2025`) and Linux headless results; failed, cancelled or
 unexpectedly skipped jobs cannot pass it. The strict current-base PR gate checks
 the combined source before merging, so a main push does not repeat that suite.
 
@@ -25,12 +25,15 @@ Full checks retain:
 
 - Pinned actionlint validates workflow syntax and expressions.
 - `npm ci` uses the lockfile; Node and Go come from repository pins.
-- `make check`: public/private boundary, finished asset hashes, TypeScript/build, focused frontend contracts, Go tests/vet and shared-core portability guards.
+- `make check`: public/private boundary, finished asset hashes, TypeScript/build, focused frontend contracts and Go tests.
 - `npm run smoke:assets`: validate, parse and animate the delivered GLBs.
-- `make build` and the packaged Desktop World contract test: compile and ad-hoc sign the Dev app, verify native dependencies and exercise the delivered helper.
+- `make build` and the packaged Desktop World contract test: compile and ad-hoc sign the Dev app, verify native dependencies and exercise the delivered helper without starting a desktop fixture.
 - Linux native ownership/recovery race tests and both helper architectures.
 
-Go cache restoration uses the same `.cache/go-build` directory as project scripts;
+Routine PR checks no longer run native window fixtures, a second macOS race pass,
+an extra shared Go job, Windows frontend tests/build or the updater install fixture.
+Native desktop acceptance is manual via `script/build_and_run.sh`; release builds
+still compile the tagged app and run updater checks. Go cache restoration uses the same `.cache/go-build` directory as project scripts;
 the cache key includes `go.sum` and `script/env.sh` to refresh the old cache layout.
 The release build shares that layout, and its main-branch cache can seed later PRs.
 

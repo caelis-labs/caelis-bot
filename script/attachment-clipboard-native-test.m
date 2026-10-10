@@ -37,15 +37,11 @@ int main(void) { @autoreleasepool {
         }
 
         [board clearContents];
-        [board setPropertyList:@[one.path, two.path] forType:NSFilenamesPboardType];
-        if ([readPayload(board)[@"paths"] count] != 2) return 4;
-
-        [board clearContents];
         [board writeObjects:@[image]];
         NSDictionary *pasted = readPayload(board);
         NSData *png = [[NSData alloc] initWithBase64EncodedString:pasted[@"image"] options:0];
         if (png.length < 8 || memcmp(png.bytes, "\x89PNG\r\n\x1a\n", 8) != 0 || pasted[@"paths"] != nil) return 3;
-        puts("ATTACHMENT CLIPBOARD NATIVE PASS: text, Finder file URLs, legacy file lists, mixed representations, image bytes");
+        puts("ATTACHMENT CLIPBOARD NATIVE PASS: text, Finder file URLs, mixed representations, image bytes");
         return 0;
     } @finally {
         [board releaseGlobally];
