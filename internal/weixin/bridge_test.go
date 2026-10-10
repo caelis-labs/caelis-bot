@@ -241,7 +241,7 @@ func TestLongReplySendsEveryBoundedPartWhenSuccessOmitsRet(t *testing.T) {
 		_, _ = w.Write([]byte(`{"errmsg":""}`))
 	}))
 	defer server.Close()
-	answer := strings.Repeat("你好世界。", 400)
+	answer := strings.Repeat("你好世界。", 500)
 	snapshot := api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "long-answer", Kind: "assistant", Text: answer, Status: "completed"}}}
 	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
 	if err != nil {

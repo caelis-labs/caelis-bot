@@ -7,8 +7,8 @@ import (
 
 // The plugin advertises 4000 characters, but the iLink server does not publish
 // a guaranteed text ceiling. Keep headroom for CJK and message decoration.
-const textChunkUnits = 1800 // UTF-16 code units, matching JavaScript string length.
-const textChunkBytes = 5500
+const textChunkUnits = 2400 // UTF-16 code units, matching JavaScript string length.
+const textChunkBytes = 6000
 
 type markdownBlock struct {
 	text                string

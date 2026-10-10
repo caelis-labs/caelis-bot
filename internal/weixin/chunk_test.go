@@ -6,7 +6,7 @@ import (
 )
 
 func TestChineseReplyBelowClientLengthIsOneMessage(t *testing.T) {
-	text := strings.Repeat("中", 1800)
+	text := strings.Repeat("中", 1801)
 	parts := chunks(text)
 	if len(parts) != 1 || parts[0] != text {
 		t.Fatalf("short Chinese reply fragmented: %d", len(parts))
@@ -14,7 +14,7 @@ func TestChineseReplyBelowClientLengthIsOneMessage(t *testing.T) {
 }
 
 func TestMarkdownChunksKeepCompleteJSONFence(t *testing.T) {
-	intro := "可以按下面几个步骤完成：\n\n" + strings.Repeat("- [ ] 每完成一步，记录可观察的结果。\n", 65) + "\n一个简单的数据示例：\n\n"
+	intro := "可以按下面几个步骤完成：\n\n" + strings.Repeat("- [ ] 每完成一步，记录可观察的结果。\n", 105) + "\n一个简单的数据示例：\n\n"
 	code := "```json\n{\n  \"id\": \"reading-001\",\n  \"title\": \"关于专注与日常工作的思考\",\n  \"url\": \"https://example.com/articles/focus\",\n  \"note\": \"下次开始工作前，先写清楚这一小时准备完成什么。\",\n  \"tags\": [\"工作方法\", \"个人记录\"]\n}\n```\n\n"
 	body := intro + code + strings.Repeat("这是后续说明。", 32)
 	parts := chunks(body)

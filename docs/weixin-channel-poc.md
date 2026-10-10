@@ -33,8 +33,8 @@ follows the saved attempt counter after restart.
 direct chat enters `backend.SubmitRemote` with the original stable request ID.
 The inbox and cursor are saved together before dispatch. A dispatching request
 that loses its result is not sent again automatically. Completed assistant text
-is sent with `sendmessage` and a context token. A reply within 1,800 UTF-16
-units and 5,500 UTF-8 bytes stays in one message. Longer replies split at
+is sent with `sendmessage` and a context token. A reply within 2,400 UTF-16
+units and 6,000 UTF-8 bytes stays in one message. Longer replies split at
 Markdown blocks and natural boundaries; a complete fenced code block stays
 together when it fits, while an oversized fence is closed and reopened across
 messages. These are conservative client caps, not a published iLink server
