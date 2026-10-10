@@ -9,6 +9,7 @@ import { BotAvatar } from './BotAvatar';
 import { useAvatarPresentation } from './use-avatar-presentation';
 import { animatedReplyID, type PortraitClip } from './avatar-presentation';
 import { AttachmentMenu } from './AttachmentMenu';
+import { botMenuPlugins, nativeMenuPlugins } from './attachment-menu-model';
 import { ScreenMessage } from './ScreenMessage';
 import { MediaMessage } from './MediaMessage';
 import { ChatScroll } from './chat-scroll';
@@ -168,11 +169,23 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
  // know when the send affordance crosses the empty/nonempty boundary.
  const draft=useRef(''),hasTextRef=useRef(false);
  const [hasText,setHasText]=useState(false),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
+ const [pluginLabels,setPluginLabels]=useState<Record<string,string>>({});
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
  const [sendBlocked,setSendBlocked]=useState(false),[cleanupPending,setCleanupPending]=useState(false),[syncReadFailed,setSyncReadFailed]=useState(false),[filesLoaded,setFilesLoaded]=useState(false);
  const [dragging,setDragging]=useState(false),[feedback,setFeedback]=useState<'duplicate'|''>('');
  const visible=useRef(active);visible.current=active;
  useEffect(()=>{setExpanded(false);},[active,focusRevision]);
+ useEffect(()=>{
+  if(!refs.some(id=>id.startsWith('bot-plugin:')||id.startsWith('codex-plugin:')))return;
+  let alive=true;
+  void desktop<{items:Parameters<typeof botMenuPlugins>[0]}>('Plugins').then(value=>{
+   if(alive)setPluginLabels(previous=>Object.fromEntries([...Object.entries(previous),...botMenuPlugins(value.items).map(item=>[item.id,item.name])]));
+  }).catch(()=>{});
+  void backend<Array<{id:string;name:string;description:string;source:string}>>('NativePlugins').then(value=>{
+   if(alive)setPluginLabels(previous=>Object.fromEntries([...Object.entries(previous),...nativeMenuPlugins(value).map(item=>[item.id,item.name])]));
+  }).catch(()=>{});
+  return()=>{alive=false;};
+ },[refs]);
  const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number;draftRevision:number}|null>(null);
  const lifetime=useRef(0),working=useRef(false);
  const fileOrder=useRef(new FileObservationOrder()),editGeneration=useRef(0),unsavedAfterAccepted=useRef(false),stopFileRead=useRef<()=>void>(()=>{});
@@ -378,11 +391,11 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   {!error&&(dragging||feedback||files.length>0)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):feedback==='duplicate'?t('chat.attachmentAlreadyAdded'):t('chat.attachmentsSelected',{count:files.length})}</p>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
    {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><DraftThumbnail file={f}/><span className="attachment-details" title={f.name}><strong>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</strong><small>{attachmentType(f.type,t)} · {draftSize(f.size)}</small></span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
-   {refs.map(id=><li key={id}><span>{snapshot?.references.find(r=>r.id===id)?.name??t('chat.referenceDefault')}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft.current,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
+   {refs.map(id=><li key={id}><span>{pluginLabels[id]??snapshot?.references.find(r=>r.id===id)?.name??(id.includes('-plugin:')?id.split(':').slice(1).join(':'):t('chat.referenceDefault'))}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft.current,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
   </ul>}
-  {expanded&&<AttachmentMenu trigger={add} references={snapshot?.references??[]} selected={refs}
+  {expanded&&<AttachmentMenu trigger={add} selected={refs}
    onClose={()=>setExpanded(false)} onPick={()=>void pick()}
-   onSelect={id=>{save(draft.current,[...refs,id]);setExpanded(false);input.current?.focus();}}/>}
+   onSelect={plugin=>{setPluginLabels(previous=>({...previous,[plugin.id]:plugin.name}));save(draft.current,[...refs,plugin.id]);setExpanded(false);input.current?.focus();}}/>}
  </div>;
 },(a,b)=>a.active===b.active&&a.focusRevision===b.focusRevision&&
  a.refresh===b.refresh&&a.onOutgoing===b.onOutgoing&&sameComposerSnapshot(a.snapshot,b.snapshot));

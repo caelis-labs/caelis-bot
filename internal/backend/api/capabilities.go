@@ -40,6 +40,20 @@ type RevisionSource interface{ Revision() uint64 }
 type HistorySource interface{ LoadEarlier(context.Context) error }
 type DiagnosticSource interface{ DiagnosticStatus() map[string]any }
 
+// NativePluginSource exposes installed, enabled plugins from the selected
+// Runtime's own catalog. It is a read-only menu directory, not a permission or
+// per-turn plugin selection.
+type NativePluginSource interface {
+	NativePlugins(context.Context) ([]NativePlugin, error)
+}
+
+type NativePlugin struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Source      string `json:"source"`
+}
+
 // RecoveryState is a host-only, opaque fence for one Runtime connection owner.
 // A channel may offer manual recovery only after automatic recovery stops.
 type RecoveryState struct {

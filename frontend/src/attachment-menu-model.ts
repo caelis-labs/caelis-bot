@@ -1,23 +1,20 @@
-import type { Reference } from './backend/contract';
+export type MenuPlugin={id:string;name:string;description:string;source:'bot'|'codex'};
+export function pluginReferenceId(source:MenuPlugin['source'],id:string):string { return `${source}-plugin:${id}`; }
 
-// The resident core guide is already supplied to the Bot. Selecting it again
-// would only duplicate context. Identical skill entries from multiple roots
-// share one menu row; the Runtime's underlying references remain untouched.
-export function attachmentMenuReferences(references: Reference[]) {
- const skills:Reference[]=[],plugins:Reference[]=[];
- const seen=new Set<string>();
- for(const reference of references) {
-  if(reference.kind!=='plugin'&&reference.name.toLowerCase()==='bot-core')continue;
-  const key=attachmentReferenceKey(reference);
-  if(seen.has(key))continue;
-  seen.add(key);
-  (reference.kind==='plugin'?plugins:skills).push(reference);
- }
- return {skills,plugins};
+type BotPlugin={id:string;title:string;description:string;installed:boolean;enabled:boolean;status:string};
+type NativePlugin={id:string;name:string;description:string;source:string};
+
+// A configured package is available to the resident Bot independently of
+// whether it contributes a Skill, an MCP server, or both.
+export function botMenuPlugins(items:BotPlugin[]):MenuPlugin[] {
+ return items.filter(item=>item.installed&&item.enabled&&['enabled','ready','update_available'].includes(item.status))
+  .map(item=>({id:pluginReferenceId('bot',item.id),name:item.title,description:item.description,source:'bot'}));
 }
 
-export function attachmentReferenceKey(reference:Reference) {
- return [reference.kind,reference.name.trim().toLowerCase(),reference.description.trim()].join('\u0000');
+export function nativeMenuPlugins(items:NativePlugin[]):MenuPlugin[] {
+ const seen=new Set<string>();
+ return items.filter(item=>item.source==='codex'&&!!item.id&&!!item.name&&(!seen.has(item.id)&&seen.add(item.id)))
+  .map(item=>({id:pluginReferenceId('codex',item.id),name:item.name,description:item.description,source:'codex'}));
 }
 
 export function attachmentMenuDescription(description:string) {

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/chatlog"
 	"github.com/caelis-labs/caelis-bot/internal/lockwait"
 	"github.com/caelis-labs/caelis-bot/internal/messageimage"
+	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"github.com/caelis-labs/caelis-bot/internal/screeninput"
 )
 
@@ -57,6 +61,7 @@ type Service struct {
 	dismissed, presentationFile string
 	initializer                 api.BotInitializer
 	engine                      api.Engine
+	botPlugins                  func(context.Context) (plugins.Snapshot, error)
 	submitUser                  func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	files                       func([]string) ([]api.InputFile, error)
 	consumeFiles                func([]string) error
@@ -77,6 +82,111 @@ type recoveryFlight struct {
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string) error, openURL, reveal func(string) error) *Service {
 	return &Service{engine: engine, files: files, consumeFiles: consume, openURL: openURL, reveal: reveal, draft: api.Draft{ReferenceIDs: []string{}}}
+}
+
+// NativePlugins is queried only while the composer menu is open. An adapter
+// without a scoped native catalog contributes no native plugin rows.
+func (s *Service) NativePlugins() ([]api.NativePlugin, error) {
+	s.admission.RLock()
+	engine := s.engine
+	s.admission.RUnlock()
+	provider, ok := engine.(api.NativePluginSource)
+	if !ok {
+		return []api.NativePlugin{}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return provider.NativePlugins(ctx)
+}
+func (s *Service) SetBotPluginSource(source func(context.Context) (plugins.Snapshot, error)) {
+	s.mu.Lock()
+	s.botPlugins = source
+	s.mu.Unlock()
+}
+
+// A composer plugin reference is a per-turn hint, not an execution grant. Resolve
+// it against the host catalog at admission and keep the original draft/receipt
+// identity unchanged. Ordinary Codex Skill references still reach the adapter.
+func (s *Service) resolvePluginReferences(ctx context.Context, input api.Submission) (api.Submission, error) {
+	var botIDs, nativeIDs []string
+	seen := map[string]bool{}
+	remaining := make([]string, 0, len(input.ReferenceIDs))
+	for _, id := range input.ReferenceIDs {
+		if seen[id] {
+			return input, errors.New("插件引用重复，请重新选择")
+		}
+		seen[id] = true
+		switch {
+		case strings.HasPrefix(id, "bot-plugin:"):
+			botIDs = append(botIDs, strings.TrimPrefix(id, "bot-plugin:"))
+		case strings.HasPrefix(id, "codex-plugin:"):
+			nativeIDs = append(nativeIDs, strings.TrimPrefix(id, "codex-plugin:"))
+		default:
+			remaining = append(remaining, id)
+		}
+	}
+	if len(botIDs)+len(nativeIDs) == 0 {
+		return input, nil
+	}
+	if len(botIDs)+len(nativeIDs) > 8 {
+		return input, errors.New("一次最多引用 8 个插件")
+	}
+	var names []string
+	if len(botIDs) > 0 {
+		s.mu.Lock()
+		source := s.botPlugins
+		s.mu.Unlock()
+		if source == nil {
+			return input, errors.New("插件目录暂不可用，请重新选择")
+		}
+		catalog, err := source(ctx)
+		if err != nil || catalog.SyncState != "" {
+			return input, errors.New("插件状态暂未就绪，请稍后再试")
+		}
+		for _, id := range botIDs {
+			found := false
+			for _, item := range catalog.Items {
+				if item.ID == id && item.Installed && item.Enabled && slices.Contains([]string{"enabled", "ready", "update_available"}, item.Status) {
+					names = append(names, "Bot: "+strconv.Quote(item.Title))
+					found = true
+					break
+				}
+			}
+			if !found {
+				return input, errors.New("引用的 Bot 插件已不可用，请重新选择")
+			}
+		}
+	}
+	if len(nativeIDs) > 0 {
+		provider, ok := s.engine.(api.NativePluginSource)
+		if !ok {
+			return input, errors.New("当前运行时没有原生插件目录")
+		}
+		catalog, err := provider.NativePlugins(ctx)
+		if err != nil {
+			return input, errors.New("原生插件目录暂不可用，请稍后再试")
+		}
+		for _, id := range nativeIDs {
+			found := false
+			for _, item := range catalog {
+				if item.ID == id && item.Source == "codex" {
+					names = append(names, "Codex: "+strconv.Quote(item.Name))
+					found = true
+					break
+				}
+			}
+			if !found {
+				return input, errors.New("引用的原生插件已不可用，请重新选择")
+			}
+		}
+	}
+	input.ReferenceIDs = remaining
+	hint := "\n\n[本次用户选择的插件引用：" + strings.Join(names, "；") + "。仅在适合本次请求且工具可用时使用；此引用不授予额外权限。]"
+	if len(input.Text)+len(hint) > 256<<10 {
+		return input, errors.New("消息和插件引用超过长度限制")
+	}
+	input.Text += hint
+	return input, nil
 }
 func (s *Service) Snapshot() api.Snapshot {
 	v := s.engine.Snapshot()
@@ -403,6 +513,10 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	if err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
 	}
+	projected, err := s.resolvePluginReferences(ctx, input)
+	if err != nil {
+		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: err.Error()}, nil
+	}
 	if err := s.retainMessageMedia(input, files); err != nil {
 		return api.Receipt{ID: input.ID, Outcome: "rejected", Message: "图片预览存储暂不可用，消息未发送"}, nil
 	}
@@ -419,7 +533,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 	}
 	s.mu.Unlock()
 	s.stageOutgoing(input, files)
-	receipt, err := s.submit(ctx, input, files)
+	receipt, err := s.submit(ctx, projected, files)
 	if errors.Is(err, api.ErrRecoveryPending) {
 		s.discardOutgoing(input.ID)
 		if len(input.FileIDs) > 0 {
