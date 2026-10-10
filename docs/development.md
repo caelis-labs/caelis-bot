@@ -113,9 +113,11 @@ Desktop World 的实机截图验收可在已签名 Dev 包上使用
 | Windows foundation | Native Windows CI executes focused platform contracts and pinned helper verification; the weekly CGO-free matrix compiles the unsupported GUI bootstrap. Windows 11 interaction and installer signing remain separate gates |
 
 The required `product` CI check routes shared/frontend/protocol/dependency changes to
-macOS, Windows and Linux headless checks. macOS runs the normal headless checks and one
-Dev build; Linux runs focused race tests and builds remote helpers; Windows runs native
-platform contracts and verifies the pinned helper. Unknown paths take the full route.
+macOS, Windows and Linux headless checks. macOS runs the normal headless checks;
+packaging changes also trigger a parallel Dev build, bundled-helper verification
+and mounted DMG check. Linux runs focused race tests and builds remote helpers;
+Windows runs native platform contracts and verifies the pinned helper. Unknown
+paths take the full route.
 Windows runner results are native contract evidence, not Windows GUI acceptance. `script/ci-scope.mjs`
 owns the fail-closed route and gate.
 The remote SSH control directory currently uses a Unix socket path; macOS tests

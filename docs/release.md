@@ -27,18 +27,21 @@ Full checks retain:
 - `npm ci` uses the lockfile; Node and Go come from repository pins.
 - `make check`: public/private boundary, finished asset hashes, TypeScript/build, focused frontend contracts and Go tests.
 - `npm run smoke:assets`: validate, parse and animate the delivered GLBs.
-- `make build` and the packaged Desktop World contract test: compile and ad-hoc sign the Dev app, verify native dependencies and exercise the delivered helper without starting a desktop fixture.
 - Linux native ownership/recovery race tests and both helper architectures.
 
 Routine PR checks no longer run native window fixtures, a second macOS race pass,
-an extra shared Go job, Windows frontend tests/build or the updater install fixture.
+an extra shared Go job, Windows frontend tests/build, the updater install fixture
+or a second serial production-tagged App compilation. Packaging inputs trigger
+a separate parallel macOS preview job; the required `product` gate requires it
+to pass whenever selected. The release job always rebuilds the complete App.
 Native desktop acceptance is manual via `script/build_and_run.sh`; release builds
 still compile the tagged app and run updater checks. Go cache restoration uses the same `.cache/go-build` directory as project scripts;
 the cache key includes `go.sum` and `script/env.sh` to refresh the old cache layout.
 The release build shares that layout, and its main-branch cache can seed later PRs.
 
-Packaging-related changes also build and mount a compressed read-only Dev DMG,
-verifying the enclosed signature, executable, license and Finder layout. Other
+Packaging-related changes build and ad-hoc sign the Dev app, validate its
+bundled Desktop World helper, then mount a compressed read-only Dev DMG and
+verify the enclosed signature, executable, license and Finder layout. Other
 PRs do not create/upload an installer. To request one, manually run **Product
 checks** with `preview=true`; its DMG and checksum are retained for seven days.
 These are development builds, not published releases. The installer uses a

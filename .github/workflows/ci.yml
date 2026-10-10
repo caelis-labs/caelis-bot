@@ -69,9 +69,36 @@ jobs:
       - run: npm ci
       - run: make check
       - run: npm run smoke:assets
+  # Full app packaging is valuable when its inputs change, but recompiling the
+  # production-tagged app after the full source suite serializes every PR.
+  # Release always rebuilds and signs the complete app independently.
+  macos-preview:
+    needs: scope
+    if: needs.scope.outputs.preview == 'true' || inputs.preview == true
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      BOT_BUILD_CHANNEL: development
+      GOWORK: "off"
+      GOCACHE: ${{ github.workspace }}/.cache/go-build
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            script/env.sh
+      - run: npm ci
       - name: Build Dev app with Desktop World
-        env:
-          BOT_REUSE_FRONTEND_BUILD: "1"
         run: make build
       - name: Verify pinned Desktop World payload without desktop permissions
         run: bash script/verify-desktop-world.sh 'dist/Caelis Bot Dev.app' adhoc
@@ -81,10 +108,8 @@ jobs:
           export CAELIS_BOT_TEST_DESKTOP_WORLD="$PWD/dist/Caelis Bot Dev.app/Contents/Resources/DesktopWorld/bin/dtw"
           go test -count=1 -run '^TestPackagedHelperReadAndDeniedInput$' -v ./internal/desktopcontrol
       - name: Package and verify mounted Dev DMG
-        if: needs.scope.outputs.preview == 'true' || inputs.preview == true
         run: bash script/package.sh --skip-build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: needs.scope.outputs.preview == 'true' || inputs.preview == true
         with:
           name: macos-arm64-dev-preview
           path: |
@@ -151,7 +176,7 @@ jobs:
   # Keep the existing required check name. Failed/cancelled/missing jobs must
   # fail this gate; only content-validated docs/version changes may skip builds.
   product:
-    needs: [scope, macos-product, windows-product, linux-headless]
+    needs: [scope, macos-product, macos-preview, windows-product, linux-headless]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -172,6 +197,8 @@ jobs:
           CI_KIND: ${{ needs.scope.outputs.kind }}
           CI_SCOPE_RESULT: ${{ needs.scope.result }}
           CI_MACOS_RESULT: ${{ needs.macos-product.result }}
+          CI_PREVIEW_RESULT: ${{ needs.macos-preview.result }}
+          CI_PREVIEW_REQUIRED: ${{ needs.scope.outputs.preview == 'true' || inputs.preview == true }}
           CI_WINDOWS_RESULT: ${{ needs.windows-product.result }}
           CI_LINUX_RESULT: ${{ needs.linux-headless.result }}
         run: node script/ci-scope.mjs --gate
