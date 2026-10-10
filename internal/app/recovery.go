@@ -27,6 +27,9 @@ func (a *Application) StartBackground() {
 			if a.Telegram != nil {
 				a.Telegram.Start()
 			}
+			if a.Weixin != nil {
+				a.Weixin.Start()
+			}
 			var err error
 			if a.HasRuntimeChoice() {
 				err = a.Start()

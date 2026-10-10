@@ -1,5 +1,6 @@
 // Package secretstore defines only the credential operations consumed by Bot
-// connections. Native adapters own Keychain or Credential Manager policy.
+// connections. Consumers choose a private local namespace and may provide a
+// legacy native store for one-time migration.
 package secretstore
 
 import "errors"

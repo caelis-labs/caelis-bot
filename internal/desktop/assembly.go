@@ -45,6 +45,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	}
 	back := core.Backend
 	s.telegram = core.Telegram
+	s.weixin = core.Weixin
 	s.pluginSnapshot = core.PluginSnapshot
 	s.pluginAction = core.PluginAction
 	s.pluginConnection = core.PluginConnection

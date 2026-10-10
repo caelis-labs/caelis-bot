@@ -101,7 +101,7 @@ type Bridge struct {
 
 func Open(root string, host Host) (*Bridge, error) {
 	b := &Bridge{path: filepath.Join(root, "telegram.json"), root: filepath.Join(root, "Telegram"), account: digest(root), host: host, newClient: newClient, recoveryNonce: rand.Text(),
-		secrets: secretstore.Functions{SaveFunc: saveSecret, LoadFunc: loadSecret, DeleteFunc: deleteSecret}}
+		secrets: &secretstore.FileStore{Root: filepath.Join(root, "Credentials"), Namespace: "telegram", Legacy: secretstore.Functions{LoadFunc: loadSecret, DeleteFunc: deleteSecret}}}
 	b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
 	f, e := os.Open(b.path)
 	if e != nil && !errors.Is(e, os.ErrNotExist) {
@@ -189,7 +189,7 @@ func (b *Bridge) Start() {
 func (b *Bridge) resume() {
 	token, e := b.secrets.Load(b.account)
 	if e != nil {
-		b.setIssue("keychain")
+		b.setIssue("credential")
 		return
 	}
 	c, e := b.newClient(token)
@@ -227,8 +227,8 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 		var e error
 		token, e = b.secrets.Load(b.account)
 		if e != nil {
-			b.setIssue("keychain")
-			return b.Status(), errors.New("keychain")
+			b.setIssue("credential")
+			return b.Status(), errors.New("credential")
 		}
 	}
 	c, e := b.newClient(token)
@@ -258,8 +258,8 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 		}
 	}
 	if e = b.secrets.Save(b.account, token); e != nil {
-		b.setIssue("keychain")
-		return b.Status(), errors.New("keychain")
+		b.setIssue("credential")
+		return b.Status(), errors.New("credential")
 	}
 	b.mu.Lock()
 	if b.state.BotID != me.ID {
@@ -344,7 +344,7 @@ func (b *Bridge) Forget() (Status, error) {
 	defer b.configMu.Unlock()
 	b.stop()
 	if e := b.secrets.Delete(b.account); e != nil {
-		return b.Status(), errors.New("keychain")
+		return b.Status(), errors.New("credential")
 	}
 	b.mu.Lock()
 	b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}

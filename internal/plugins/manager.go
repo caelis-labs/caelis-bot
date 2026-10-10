@@ -171,7 +171,7 @@ func openCatalog(root string, entries []Entry, sources map[string]fs.FS) (*Manag
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, errors.New("plugin store must be a real directory")
 	}
-	m := &Manager{root: root, catalog: entries, sources: sources, display: map[string]displayMetadata{}, displayIssues: map[string]bool{}, secrets: secretstore.Functions{SaveFunc: saveSecret, LoadFunc: loadSecret, DeleteFunc: deleteSecret}, state: state{Version: 1, Revision: 1, Installed: map[string]installed{}, Connections: map[string]connectionRecord{}}}
+	m := &Manager{root: root, catalog: entries, sources: sources, display: map[string]displayMetadata{}, displayIssues: map[string]bool{}, secrets: &secretstore.FileStore{Root: filepath.Join(filepath.Dir(root), "Credentials"), Namespace: "plugins", Legacy: secretstore.Functions{LoadFunc: loadSecret, DeleteFunc: deleteSecret}}, state: state{Version: 1, Revision: 1, Installed: map[string]installed{}, Connections: map[string]connectionRecord{}}}
 	seen := map[string]bool{}
 	for _, e := range entries {
 		if seen[e.ID] || !pluginName.MatchString(e.ID) || e.Version == "" || e.Source == "" || len(e.Files) == 0 {

@@ -15,6 +15,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/taskterminal"
 	"github.com/caelis-labs/caelis-bot/internal/telegram"
+	"github.com/caelis-labs/caelis-bot/internal/weixin"
 )
 
 // driver owns native interaction, coordinate conversion and OS-thread dispatch.
@@ -44,6 +45,7 @@ type Service struct {
 	pluginSkillDetail   func(context.Context, string, string) (plugins.SkillDetail, error)
 	pluginServerDetail  func(context.Context, string, string, bool) (plugins.ServerDetail, error)
 	telegram            *telegram.Bridge
+	weixin              *weixin.Bridge
 	openExternalURL     func(string) error
 	openMachineTerminal func(string) error
 	capture             captureState

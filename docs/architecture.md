@@ -123,7 +123,7 @@ semantics. A retired connection cannot dispatch a response from its old wait.
 native `backend.SubmitRemote` and the existing resident submission, interruption,
 approval and artifact ports. It does not add transport information to Bot context
 or change conversation identity. Desktop drafts and attachment selection remain
-independent. Token storage uses the macOS Keychain; pairing requires a short-lived
+independent. Bot tokens use the shared private local credential store; pairing requires a short-lived
 link and desktop account confirmation. Polling cursors, original input outcomes,
 Telegram message IDs and text digests are saved privately. Uncertain creates and
 inputs are never replayed; streamed edits are coalesced and rate limits respected.
@@ -194,6 +194,22 @@ is used only when explicitly present in that list. A PAC attempt has a three-sec
 budget, independent of request cancellation. Exhausted candidates report a network
 failure. App-level DIRECT retains OS routing, including third-party TUN proxies.
 This selection happens before dispatch and does not replay uncertain HTTP writes.
+
+## Weixin text POC
+
+`internal/weixin` is a Go adapter for the published Tencent iLink JSON client
+protocol, pinned to the inspected `@tencent-weixin/openclaw-weixin@2.4.9`
+source. It shares the resident `backend.SubmitRemote` path with Telegram and
+keeps its own private cursor, owner-bound inbox, original ingress outcomes and
+outbound chunk intents. The shared private local credential store separates
+Weixin, Telegram and plugin tokens into namespaces under `Credentials/`.
+Existing Keychain items migrate on first use and are deleted. Pairing QR state lives
+only in memory; settings starts or refreshes it while visible. Start/stop
+presence and disposable typing requests are independent of message receipts.
+Only owner private text and final assistant text are in scope. A send with an
+unknown HTTP outcome is retried at most twice more with the saved client ID;
+upstream deduplication is unproven, so duplicates are possible. Ingress and
+Worker receipts are never replayed; see [POC scope](weixin-channel-poc.md).
 
 ## Remote machines
 
