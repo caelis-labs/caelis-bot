@@ -23,25 +23,20 @@ func (s *memoryStore) Save(p Placement) error   { s.value = p; s.saves++; return
 type fakeDriver struct {
 	displays     []Rect
 	placement    Placement
-	panelOpen    bool
 	approvalOpen bool
 	bubbleOpen   bool
 	stopped      bool
 	hit          []byte
-	height       int
 }
 
-func (d *fakeDriver) screens() []Rect        { return d.displays }
-func (d *fakeDriver) apply(p Placement)      { d.placement = p }
-func (d *fakeDriver) panelHeight(height int) { d.height = height }
-func (d *fakeDriver) panel(open bool)        { d.panelOpen = open }
+func (d *fakeDriver) screens() []Rect   { return d.displays }
+func (d *fakeDriver) apply(p Placement) { d.placement = p }
 func (d *fakeDriver) prepareWindowRecall() bool {
-	d.panelOpen, d.bubbleOpen = false, false
+	d.bubbleOpen = false
 	return true
 }
-func (d *fakeDriver) approval()        { d.panelOpen, d.approvalOpen = true, true }
+func (d *fakeDriver) approval()        { d.approvalOpen = true }
 func (d *fakeDriver) bubble(open bool) { d.bubbleOpen = open }
-func (d *fakeDriver) togglePanel()     { d.panelOpen = !d.panelOpen }
 func (d *fakeDriver) mask(b []byte)    { d.hit = b }
 func (d *fakeDriver) stop()            { d.stopped = true }
 func setup() (*Service, *fakeDriver, *memoryStore) {
@@ -53,22 +48,22 @@ func setup() (*Service, *fakeDriver, *memoryStore) {
 }
 func TestSurfaceLifetimeIsIndependent(t *testing.T) {
 	s, d, store := setup()
-	s.OpenPanel()
-	if !d.panelOpen {
-		t.Fatal("panel did not open")
-	}
+	chatOpen := false
+	s.openHistory = func() { chatOpen = true }
+	s.closeHistory = func() { chatOpen = false }
+	s.OpenHistory()
 	if err := s.SetVisible(false); err != nil {
 		t.Fatal(err)
 	}
-	if !d.panelOpen || d.stopped || d.placement.Visible {
-		t.Fatal("hiding pet changed panel or lifetime")
+	if !chatOpen || d.stopped || d.placement.Visible {
+		t.Fatal("hiding pet changed chat or lifetime")
 	}
-	s.ClosePanel()
-	if d.panelOpen || d.stopped {
-		t.Fatal("close must only hide panel")
+	s.CloseHistory()
+	if chatOpen || d.stopped {
+		t.Fatal("close must only hide chat")
 	}
-	s.OpenPanel()
-	if !d.panelOpen {
+	s.OpenHistory()
+	if !chatOpen {
 		t.Fatal("hidden app cannot be recalled")
 	}
 	s.shutdown()
@@ -121,8 +116,8 @@ func TestSettingsScalePreviewAndCommit(t *testing.T) {
 		if err := s.PreviewScale(scale); err != nil {
 			t.Fatal(err)
 		}
-		if store.saves != 0 || d.panelOpen || d.placement.Scale != scale {
-			t.Fatal("preview persisted, opened composer or lost continuous value")
+		if store.saves != 0 || d.placement.Scale != scale {
+			t.Fatal("preview persisted or lost continuous value")
 		}
 	}
 	if err := s.CommitScale(); err != nil {
@@ -142,8 +137,8 @@ func TestSettingsScalePreviewAndCommit(t *testing.T) {
 		t.Fatal("update menu did not route to settings")
 	}
 	s.OpenSettings()
-	if opened != 3 || s.SettingsSection() != "general" || d.panelOpen {
-		t.Fatal("settings routing changed composer")
+	if opened != 3 || s.SettingsSection() != "general" {
+		t.Fatal("settings routing changed")
 	}
 }
 func TestMaskValidationAndPersistenceFailure(t *testing.T) {
@@ -232,12 +227,12 @@ func TestNativeResizeCommitsExactGeometry(t *testing.T) {
 	s, d, store := setup()
 	before := store.saves
 	// A menu gesture sends only its final native position/scale. The commit must
-	// not recompute the anchor from stale pre-gesture Go geometry or open a panel.
+	// not recompute the anchor from stale pre-gesture Go geometry.
 	if err := s.resized(600.25, 300.75, 1.234567); err != nil {
 		t.Fatal(err)
 	}
 	p := s.Placement()
-	if p.X != 600.25 || p.Y != 300.75 || p.Scale != 1.234567 || d.placement != p || d.panelOpen || store.value != p || store.saves != before+1 {
+	if p.X != 600.25 || p.Y != 300.75 || p.Scale != 1.234567 || d.placement != p || store.value != p || store.saves != before+1 {
 		t.Fatalf("native resize lost geometry or changed focus: %+v", p)
 	}
 	for _, invalid := range []float64{math.NaN(), math.Inf(1), 0, 2} {
@@ -254,52 +249,35 @@ func TestNativeResizeCommitsExactGeometry(t *testing.T) {
 	}
 }
 
-func TestInitialPanelLayoutWaitsForNativeOwnership(t *testing.T) {
-	s := newService(&memoryStore{value: defaults()})
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := s.SetPanelHeight(ctx, 64); !errors.Is(err, context.Canceled) {
-		t.Fatalf("unready layout did not honor cancellation: %v", err)
-	}
-	if err := s.SetPanelHeight(context.Background(), 501); err == nil {
-		t.Fatal("invalid initial layout accepted")
-	}
-	done := make(chan error, 1)
-	go func() { done <- s.SetPanelHeight(context.Background(), 340) }()
-	d := &fakeDriver{displays: []Rect{{0, 0, 1440, 900}}}
-	s.start(d)
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-	if d.height != 340 {
-		t.Fatal("initial expanded layout was lost")
-	}
-}
-
-func TestPetToggleUsesCurrentNativeVisibility(t *testing.T) {
+func TestPetToggleUsesCurrentChatVisibility(t *testing.T) {
 	s, d, store := setup()
-	s.TogglePanel()
-	if !d.panelOpen {
-		t.Fatal("pet click did not open")
+	open := false
+	s.openHistory = func() { open = true }
+	s.closeHistory = func() { open = false }
+	s.historyCanHide = func() bool { return false } // A background chat is still closed by a pet click.
+	s.petChatCanHide = func() bool { return open }
+	s.Activate()
+	if !open {
+		t.Fatal("pet click did not open chat")
 	}
-	s.TogglePanel()
-	if d.panelOpen || d.stopped || store.saves != 0 {
-		t.Fatal("pet click must only close the panel")
+	s.Activate()
+	if open || d.stopped || store.saves != 0 {
+		t.Fatal("pet click must only close chat")
 	}
-	s.OpenPanel()
-	d.panelOpen = false // Native outside-click dismissal does not pass through Go.
-	s.TogglePanel()
-	if !d.panelOpen {
+	s.OpenHistory()
+	open = false // Native window dismissal does not pass through Go.
+	s.Activate()
+	if !open {
 		t.Fatal("toggle used stale Go visibility after native dismissal")
 	}
-	s.OpenPanel() // Tray Open is idempotent, not a toggle.
-	if !d.panelOpen {
-		t.Fatal("tray open closed the panel")
+	s.OpenHistory() // Tray Open is idempotent, not a toggle.
+	if !open {
+		t.Fatal("tray open closed chat")
 	}
-	s.ClosePanel()
+	s.CloseHistory()
 	s.shutdown()
-	s.TogglePanel()
-	if d.panelOpen {
+	s.Activate()
+	if open {
 		t.Fatal("late pet click reopened after shutdown")
 	}
 }
@@ -309,66 +287,18 @@ func TestBubbleDoesNotOpenKeyboardOrOwnLifetime(t *testing.T) {
 	if err := s.SetBubbleVisible(context.Background(), true); err != nil {
 		t.Fatal(err)
 	}
-	if !d.bubbleOpen || d.panelOpen || store.saves != 0 {
+	if !d.bubbleOpen || store.saves != 0 {
 		t.Fatal("background message activated keyboard or persisted UI")
 	}
 	s.OpenApproval()
 	if !d.approvalOpen {
 		t.Fatal("explicit review must open decision surface")
 	}
-	s.ClosePanel()
 	if !d.bubbleOpen || d.stopped {
-		t.Fatal("closing decision changed task or bubble lifetime")
+		t.Fatal("opening decision changed task or bubble lifetime")
 	}
 	s.shutdown()
 	if s.SetBubbleVisible(context.Background(), false) == nil {
 		t.Fatal("late message accepted after shutdown")
-	}
-}
-
-// Popup layout is an optional native capability, with the same lifetime owner as
-// the editor. Invalid/late requests cannot reach AppKit or persist preferences.
-type menuDriver struct {
-	*fakeDriver
-	calls      int
-	menuHeight int
-	activation int
-}
-
-func (d *menuDriver) panelMenu(height, activation int) {
-	d.calls++
-	d.menuHeight = height
-	d.activation = activation
-}
-func TestPanelMenuLifetimeAndBounds(t *testing.T) {
-	s := newService(&memoryStore{value: defaults()})
-	if s.SetPanelMenu(324, 1) == nil {
-		t.Fatal("unstarted menu accepted")
-	}
-	d := &menuDriver{fakeDriver: &fakeDriver{displays: []Rect{{0, 0, 1440, 900}}}}
-	s.start(d)
-	for _, args := range [][2]int{{-1, 1}, {325, 1}, {100, 0}, {100, -1}, {100, 2147483648}} {
-		if s.SetPanelMenu(args[0], args[1]) == nil {
-			t.Fatal("invalid menu accepted", args)
-		}
-	}
-	if d.calls != 0 {
-		t.Fatal("invalid layout reached native host")
-	}
-	if err := s.SetPanelMenu(324, 7); err != nil {
-		t.Fatal(err)
-	}
-	if d.calls != 1 || d.menuHeight != 324 || d.activation != 7 || d.height != 0 || d.panelOpen {
-		t.Fatal("menu changed editor geometry/visibility or lost activation")
-	}
-	if err := s.SetPanelMenu(0, 7); err != nil {
-		t.Fatal(err)
-	}
-	if d.calls != 2 || d.menuHeight != 0 {
-		t.Fatal("menu did not collapse")
-	}
-	s.shutdown()
-	if s.SetPanelMenu(324, 7) == nil || d.calls != 2 {
-		t.Fatal("late menu request reached stopped host")
 	}
 }

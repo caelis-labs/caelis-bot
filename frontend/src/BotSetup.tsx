@@ -8,15 +8,15 @@ import { useI18n } from './i18n';
 
 // The backend journals one ordinary user message. The Bot maintains MEMORY.md;
 // this form does not create a second identity settings store.
-export function BotSetup({ onDone }: { onDone: () => void }) {
+export function BotSetup({ onDone,active=true,focusVersion=0 }: { onDone: () => void;active?:boolean;focusVersion?:number }) {
  const {t}=useI18n();
  const [pending,setPending]=useState<{features:boolean;permissions:boolean}|null>(null);
  const [failed,setFailed]=useState(false);
- useEffect(()=>{let active=true;void Promise.all([desktop<boolean>('FeatureGuidePending'),desktop<boolean>('PermissionGuidePending')]).then(([features,permissions])=>{if(active)setPending({features,permissions})}).catch(()=>{if(active)setFailed(true)});return()=>{active=false}},[]);
+ useEffect(()=>{if(!active)return;let live=true;void Promise.all([desktop<boolean>('FeatureGuidePending'),desktop<boolean>('PermissionGuidePending')]).then(([features,permissions])=>{if(live)setPending({features,permissions})}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active]);
  if(pending===null)return <p role="status">{t(failed?'settings.permissionLoadFailed':'common.loading')}</p>;
- return <BotIntroductionSetup featuresPending={pending.features} permissionsPending={pending.permissions} onFeaturesDone={()=>setPending(current=>current&&{...current,features:false})} onFeaturesBack={()=>setPending(current=>current&&{...current,features:true})} onPermissionsDone={()=>setPending(current=>current&&{...current,permissions:false})} onPermissionsBack={()=>setPending(current=>current&&{...current,permissions:true})} onDone={onDone}/>;
+ return <BotIntroductionSetup active={active} focusVersion={focusVersion} featuresPending={pending.features} permissionsPending={pending.permissions} onFeaturesDone={()=>setPending(current=>current&&{...current,features:false})} onFeaturesBack={()=>setPending(current=>current&&{...current,features:true})} onPermissionsDone={()=>setPending(current=>current&&{...current,permissions:false})} onPermissionsBack={()=>setPending(current=>current&&{...current,permissions:true})} onDone={onDone}/>;
 }
-function BotIntroductionSetup({ onDone,featuresPending,permissionsPending,onFeaturesDone,onFeaturesBack,onPermissionsDone,onPermissionsBack }: { onDone: () => void;featuresPending:boolean;permissionsPending:boolean;onFeaturesDone:()=>void;onFeaturesBack:()=>void;onPermissionsDone:()=>void;onPermissionsBack:()=>void }) {
+function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permissionsPending,onFeaturesDone,onFeaturesBack,onPermissionsDone,onPermissionsBack }: { onDone: () => void;active:boolean;focusVersion:number;featuresPending:boolean;permissionsPending:boolean;onFeaturesDone:()=>void;onFeaturesBack:()=>void;onPermissionsDone:()=>void;onPermissionsBack:()=>void }) {
   const {t} = useI18n();
   const [state, setState] = useState<BotInitialization | null>(null);
   const [name, setName] = useState('');
@@ -27,6 +27,7 @@ function BotIntroductionSetup({ onDone,featuresPending,permissionsPending,onFeat
   latestDone.current = onDone;
 
   useEffect(() => {
+    if(!active||state&&!['pending','dispatching','unknown'].includes(state.status))return;
     let alive = true;
     const load = async () => {
       try {
@@ -39,19 +40,19 @@ function BotIntroductionSetup({ onDone,featuresPending,permissionsPending,onFeat
     void load();
     const timer = window.setInterval(() => void load(), 1500);
     return () => { alive = false; clearInterval(timer); };
-  }, [t]);
+  }, [active,state?.status,t]);
 
   useEffect(() => {
-    if (!state || state.required || state.status === 'rejected' || state.status === 'unknown' || featuresPending || permissionsPending || opening.current) return;
-    let active = true;
+    if (!active || !state || state.required || state.status === 'rejected' || state.status === 'unknown' || featuresPending || permissionsPending || opening.current) return;
+    let live = true;
     void backend<Snapshot>('Snapshot').then(async snapshot => {
-      if (!active || snapshot.connection !== 'ready' || opening.current) return;
+      if (!live || snapshot.connection !== 'ready' || opening.current) return;
       opening.current = true;
-      try { await desktop('OpenHistory'); if (active) latestDone.current(); }
-      catch (e) { opening.current = false; if (active) setError(e instanceof Error ? e.message : t('chat.setupLoadFailed')); }
+      try { await desktop('OpenHistory'); if (live) latestDone.current(); }
+      catch (e) { opening.current = false; if (live) setError(e instanceof Error ? e.message : t('chat.setupLoadFailed')); }
     }).catch(() => {});
-    return () => { active = false; };
-  }, [state?.required, state?.status, featuresPending, permissionsPending, t]);
+    return () => { live = false; };
+  }, [active, state?.required, state?.status, featuresPending, permissionsPending, t]);
 
   const openConversation = async () => {
     if (opening.current) return;
@@ -100,10 +101,10 @@ function BotIntroductionSetup({ onDone,featuresPending,permissionsPending,onFeat
     {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;
   if (!state.required && featuresPending) return <div className="setup-flow"><SetupProgress step={1}/><SetupExtras onDone={onFeaturesDone}/></div>;
-  if (!state.required && permissionsPending) return <div className="setup-flow"><SetupProgress step={2}/><PermissionSettings onBack={onFeaturesBack} onDone={onPermissionsDone}/></div>;
+  if (!state.required && permissionsPending) return <div className="setup-flow"><SetupProgress step={2}/><PermissionSettings active={active} focusVersion={focusVersion} onBack={onFeaturesBack} onDone={onPermissionsDone}/></div>;
   if (!state.required) return <div className="setup-flow"><SetupProgress step={3}/>
     {state.message && <p className="setup-introduction-status" role="status">{state.message}</p>}
-    <RuntimeSettings onboarding onBack={onPermissionsBack} onDone={onDone} />
+    <RuntimeSettings onboarding active={active} onBack={onPermissionsBack} onDone={onDone} />
   </div>;
 
   return <div className="setup-flow"><SetupProgress step={0}/><section className="bot-introduction">

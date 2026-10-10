@@ -17,6 +17,15 @@ window.cancelAnimationFrame=id=>{pendingFrames.delete(id);cancelFrame(id);};
 const short='钉好了 — 任务卡片现在是 **固定** 状态，\`pinned: true\`，会一直留在你脚底下。';
 const long=short+'\n\n### 工作进展\n\n- 已读取 **README.md**\n- 已完成网络搜索\n- 正在更新说明文件\n\n> 悬浮可以阅读完整内容，移开后收起。\n\n| 操作 | 状态 |\n| --- | --- |\n| 阅读 | 完成 |\n| 编辑 | 完成 |\n\n\`\`\`go\nfmt.Println("Caelis Bot")\n\`\`\`\n\n'+Array.from({length:16},(_,i)=>(i+1)+'. 这是用于验证完整内容和屏幕高度限制的长段落。**格式保持可读**，滚动可继续阅读。').join('\n\n')+'\n\n**全文结束 END**\n\n[示例链接](https://example.com)';
 const snapshot={connection:'ready',phase:'working',currentTurn:'fixture',canInterrupt:true,canSend:false,canSteer:true,quiet:false,items:[],approvals:[],reviews:[],references:[],message:'',previewKey:'fixture',previewDismissed:false,botStatus:'',hasEarlier:false,lastReceipt:{id:'',outcome:'',message:''}};
+if(previewParams.get('fixture')==='attachment-menu')snapshot.references=[
+ {id:'fixture-core',kind:'skill',name:'bot-core',description:'Resident guidance for the Bot.'},
+ {id:'fixture-acpx',kind:'skill',name:'acpx',description:'Work with agent-to-agent communication through ACP.'},
+ {id:'fixture-acpx-duplicate',kind:'skill',name:'acpx',description:'Work with agent-to-agent communication through ACP.'},
+ {id:'fixture-doc',kind:'skill',name:'doc',description:'Create and edit documents with formatting checks.'},
+ {id:'fixture-pdf',kind:'skill',name:'pdf',description:'Read and prepare PDF documents.'},
+ {id:'fixture-plugin',kind:'plugin',name:'Desktop World',description:'Use desktop windows and controls when a task needs visual context.'},
+ {id:'fixture-plugin-2',kind:'plugin',name:'Google Drive',description:'Find and work with files in your connected Drive.'}
+];
 window.fixtureSet=kind=>{
  clearInterval(streamTimer);
  Object.assign(snapshot,{quiet:false,maintenance:'',phase:'working',canInterrupt:true,activity:{kind:'read',target:'README.md'},approvals:[],reviews:[],previewDismissed:false});
@@ -52,7 +61,6 @@ if(previewParams.get('fixture')==='approval'){
  snapshot.phase='waiting_approval';
 }
 if(draftFiles.length){Object.assign(snapshot,{phase:'idle',canSend:true,canSteer:false,canInterrupt:false,activity:null});}
-if(previewParams.get('surface')==='panel')setTimeout(()=>window.dispatchEvent(new CustomEvent('panel-open',{detail:{activation:1}})),200);
 // Runs against the mounted production Bubble, including its 450ms polling and
 // real animation frames. Also callable from the native preview's regression button.
 window.fixtureBubbleReplay=async()=>{

@@ -213,7 +213,7 @@ func (s *sdkClient) Send(ctx context.Context, chat int64, message outgoingText, 
 		if hasRawHTML(message.Markdown) {
 			return s.sendFormatted(ctx, chat, message, keys)
 		}
-		p := &tg.SendRichMessageParams{ChatID: tg.ChatID{ID: chat}, RichMessage: tg.InputRichMessage{Markdown: message.Markdown}}
+		p := &tg.SendRichMessageParams{ChatID: tg.ChatID{ID: chat}, RichMessage: tg.InputRichMessage{Markdown: richMarkdown(message.Markdown)}}
 		if keys != nil {
 			p.ReplyMarkup = keys
 		}
@@ -245,7 +245,7 @@ func (s *sdkClient) Edit(ctx context.Context, chat int64, id int, message outgoi
 		if hasRawHTML(message.Markdown) {
 			return s.editFormatted(ctx, chat, id, message, keys)
 		}
-		p := &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, RichMessage: &tg.InputRichMessage{Markdown: message.Markdown}}
+		p := &tg.EditMessageTextParams{ChatID: tg.ChatID{ID: chat}, MessageID: id, RichMessage: &tg.InputRichMessage{Markdown: richMarkdown(message.Markdown)}}
 		if keys != nil {
 			p.ReplyMarkup = keys
 		}

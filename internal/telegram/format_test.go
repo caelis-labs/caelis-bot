@@ -89,6 +89,50 @@ func TestFormattedMessageProtocolSendAndEdit(t *testing.T) {
 	}
 }
 
+func TestRichMarkdownKeepsNumberedReferencesLiteral(t *testing.T) {
+	source := "#147 已合并。#148 也完成\n#123 issue\n\n# 标题\n\n> #456 引用\n- #789 列表\n\n```md\n#321 code\n```\n\n[link](https://example.com/#123) and `#234`"
+	want := "\\#147 已合并。#148 也完成\n\\#123 issue\n\n# 标题\n\n> \\#456 引用\n- \\#789 列表\n\n```md\n#321 code\n```\n\n[link](https://example.com/#123) and `#234`"
+	if got := richMarkdown(source); got != want {
+		t.Fatalf("rich Markdown mismatch:\n got: %q\nwant: %q", got, want)
+	}
+	if got := telegramHTML(source); !strings.Contains(got, "#147 已合并。#148 也完成") || !strings.Contains(got, "<b>标题</b>") {
+		t.Fatalf("CommonMark HTML fallback changed text or heading: %q", got)
+	}
+	var payloads []map[string]any
+	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		payloads = append(payloads, request)
+		reply(w, 200, `{"ok":true,"result":{"message_id":77,"date":0,"chat":{"id":123,"type":"private"}}}`)
+	})
+	message := outgoingText{Text: source, Markdown: source}
+	if _, err := client.Send(t.Context(), 123, message, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Edit(t.Context(), 123, 77, message, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range payloads {
+		rich, ok := request["rich_message"].(map[string]any)
+		if !ok || rich["markdown"] != want {
+			t.Fatalf("send/edit did not share safe rich Markdown: %#v", request)
+		}
+	}
+}
+
+func TestRichMarkdownDoesNotChangeMultilineInlineCode(t *testing.T) {
+	source := "Use `foo\n#147` here.\n\n- ``bar\n#148`` in a list\n\n#149 issue"
+	want := "Use `foo\n#147` here.\n\n- ``bar\n#148`` in a list\n\n\\#149 issue"
+	if got := richMarkdown(source); got != want {
+		t.Fatalf("inline code changed: got %q, want %q", got, want)
+	}
+	if got := telegramHTML(source); !strings.Contains(got, "<code>foo #147</code>") || !strings.Contains(got, "<code>bar #148</code>") {
+		t.Fatalf("HTML fallback code changed: %q", got)
+	}
+}
+
 func TestFormattedUnknownDeliveryNeverFallsBack(t *testing.T) {
 	calls := 0
 	client := testSDK(t, func(w http.ResponseWriter, r *http.Request) {

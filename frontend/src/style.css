@@ -10,7 +10,6 @@ button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visi
 .pet-stage { position:relative; width:180px; height:240px; transform-origin:top left; user-select:none; }
 .pet-stage canvas { display:block; width:180px; height:240px; }
 .pet-open { position:absolute; inset:0; border:0; padding:0; background:transparent; }
-.input-surface { width:100vw; min-height:64px; max-height:500px; overflow:hidden; border:1px solid var(--line); border-radius:31px; background:var(--caelis-composer); }
 .capsule { min-height:62px; display:flex; align-items:flex-end; gap:12px; padding:14px 17px; }
 .icon-button { flex:0 0 32px; width:32px; height:32px; display:grid; place-items:center; padding:0; border:0; border-radius:50%; background:var(--wash); }
 .icon-button:hover { box-shadow:inset 0 0 0 1px var(--line); }
@@ -26,13 +25,17 @@ textarea::placeholder { color:var(--muted); }
 .send:not(:disabled) img { opacity:1; }
 .composer-stop { width:11px; height:11px; border-radius:2px; background:var(--on-accent); }
 /* Portalled menus never participate in the composer layout. */
-.attachment-menu { position:fixed; z-index:50; width:380px; padding:6px; overflow-y:auto; overscroll-behavior:contain; border:1px solid var(--line); border-radius:18px; background:var(--caelis-popover); box-shadow:0 8px 24px #00000020,0 1px 4px #00000012; }
-.attachment-menu .action-row { min-height:40px; text-align:left; flex-shrink:0; }
-.attachment-menu .action-row span { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-.attachment-menu small { display:block; color:var(--muted); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; margin-top:3px; font-size:11px; }
-.attachment-menu .action-row:focus-visible { outline:2px solid var(--muted); outline-offset:-2px; background:var(--wash); }
-.attachment-file+.menu-caption { border-top:1px solid var(--line); padding-top:12px; margin-top:6px; }
-body[data-surface="panel"] .input-surface { position:relative; top:var(--composer-top,0px); }
+.attachment-menu { position:fixed; z-index:50; width:344px; padding:6px; overflow-y:auto; overscroll-behavior:contain; border:1px solid var(--line); border-radius:14px; background:var(--caelis-popover); box-shadow:0 12px 36px #0000002b,0 1px 4px #00000012; }
+.attachment-menu-row { display:flex; align-items:center; gap:10px; width:100%; min-height:34px; padding:7px 9px; border:0; border-radius:8px; background:transparent; text-align:left; font-size:13px; }
+.attachment-menu-row>svg { flex:none; color:var(--muted); }
+.attachment-menu-row:hover,.attachment-menu-row:focus-visible { background:var(--wash); }
+.attachment-menu-row:focus-visible { outline:2px solid var(--caelis-focus); outline-offset:-2px; }
+.attachment-menu-row:disabled { opacity:.55; background:transparent; }
+.attachment-menu-copy { display:flex; align-items:baseline; gap:8px; min-width:0; flex:1; white-space:nowrap; }
+.attachment-menu-copy strong { flex:0 1 auto; min-width:0; max-width:65%; overflow:hidden; text-overflow:ellipsis; font-weight:500; }
+.attachment-menu-copy small { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--muted); font-size:11px; }
+.attachment-menu-group { margin-top:5px; border-top:1px solid var(--line); padding-top:4px; }
+.attachment-menu .menu-caption { margin:4px 9px 3px; font-size:11px; color:var(--muted); }
 .action-row { border:0; color:inherit; width:100%; display:flex; gap:12px; align-items:center; text-align:left; padding:10px 12px; border-radius:12px; background:transparent; font-size:13px; }
 .action-row:hover { background:var(--wash); }
 .attachments { list-style:none; padding:0 24px 12px; margin:0; display:flex; gap:6px; flex-wrap:wrap; max-height:100px; overflow-y:auto; }
@@ -261,7 +264,6 @@ summary { cursor:pointer; }
    text contrast stable when macOS changes the glass's active appearance. Leave
    the outer edge to the system, and never reduce the text's own opacity. */
 :root[data-native-material] { --glass-reading-fill:var(--caelis-glass-reading); }
-:root[data-native-material] .input-surface { background:var(--glass-reading-fill); background-clip:padding-box; border-color:transparent; }
 /* Keep reading surfaces opaque enough for text over native material. */
 :root { --bubble-reading-fill:var(--caelis-bubble-reading); }
 .message-bubble,:root[data-native-material] .message-bubble { background:var(--bubble-reading-fill); background-clip:padding-box; }

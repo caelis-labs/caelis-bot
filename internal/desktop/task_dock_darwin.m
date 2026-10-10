@@ -587,7 +587,7 @@ static NSPanel *taskPanel(NSString *title) {
     NSUInteger generation=++self.hoverGeneration;
     __weak BotTaskDock *weak=self;
     if(entered) {
-        if(index<0 && !self.attachmentMenuOpen) self.openTimer=[NSTimer scheduledTimerWithTimeInterval:0.16 repeats:NO block:^(NSTimer *timer){[weak expand];}];
+        if(index<0) self.openTimer=[NSTimer scheduledTimerWithTimeInterval:0.16 repeats:NO block:^(NSTimer *timer){[weak expand];}];
     } else {
         self.closeTimer=[NSTimer scheduledTimerWithTimeInterval:0.42 repeats:NO block:^(NSTimer *timer){
             if(generation!=weak.hoverGeneration || weak.shortcutHeld)return;
@@ -595,10 +595,6 @@ static NSPanel *taskPanel(NSString *title) {
             [weak collapse];
         }];
     }
-}
-- (void)setAttachmentMenuOpen:(BOOL)open {
-    _attachmentMenuOpen=open;
-    if(open) { [self cancelDrag]; [self collapse]; }
 }
 - (void)toggle { if(self.expanded)[self collapse];else [self expand]; }
 - (void)setShortcutHeld:(BOOL)held {

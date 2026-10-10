@@ -19,13 +19,11 @@ test('a prior partial is marked incomplete after its turn, while later completed
 });
 
 test('empty running input stops; text or attachments switch back to send without changing capability', () => {
- assert.equal(composerAction(running,false,false),'stop');
- assert.equal(composerAction(running,false,true),'send');
- assert.equal(composerAction({...running,canSteer:false},false,true),'send');
- assert.equal(composerAction({...running,canInterrupt:false},false,false),'send');
- assert.equal(composerAction(null,false,false),'send');
- // Quick input supports steering but does not add a stop button.
- assert.equal(composerAction(running,true,false),'send');
+ assert.equal(composerAction(running,false),'stop');
+ assert.equal(composerAction(running,true),'send');
+ assert.equal(composerAction({...running,canSteer:false},true),'send');
+ assert.equal(composerAction({...running,canInterrupt:false},false),'send');
+ assert.equal(composerAction(null,false),'send');
 });
 
 test('waiting excludes approvals, recovery and terminal states, even with a remaining interrupt capability', () => {
@@ -45,7 +43,7 @@ test('waiting excludes approvals, recovery and terminal states, even with a rema
 test('worker and historical reviews never animate the current conversation',()=>{
  const active={...running,reviews:[{status:'inProgress',turnKey:'worker'}],approvals:[{status:'pending',turnKey:'worker'}]};
  assert.equal(chatActivity(active),'thinking');
- assert.equal(composerAction({...active,canInterrupt:false,canSend:true,currentTurn:''},false,false),'send');
+ assert.equal(composerAction({...active,canInterrupt:false,canSend:true,currentTurn:''},false),'send');
  const replying={...active,items:[{id:'answer',kind:'assistant',turnKey:'current',text:'answer',status:'inProgress'}]};
  assert.equal(activeReplyID(replying),'answer');
  assert.equal(chatActivity(replying),null);
@@ -93,7 +91,7 @@ test('streaming text hides tool waiting; completed commentary restores it; contr
 });
 
 
-test('all editors use native send/steer capability and optimistic inputs merge by identity',()=>{
+test('chat editor uses native send/steer capability and optimistic inputs merge by identity',()=>{
  assert.equal(canSubmit(running),true);
  assert.equal(canSubmit({...running,canSend:false,canSteer:false}),false);
  assert.equal(canSubmit(null),false);

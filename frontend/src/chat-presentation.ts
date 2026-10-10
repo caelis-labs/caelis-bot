@@ -20,8 +20,8 @@ export function incompleteAssistant(item: Item, snapshot: Snapshot | null): bool
 
 // Presentation follows backend capabilities; typing never grants permission to
 // steer a run that is awaiting approval or recovering its connection.
-export function composerAction(snapshot: Snapshot | null, quick: boolean, hasContent: boolean) {
- return !quick && snapshot?.canInterrupt && !hasContent ? 'stop' : 'send';
+export function composerAction(snapshot: Snapshot | null, hasContent: boolean) {
+ return snapshot?.canInterrupt && !hasContent ? 'stop' : 'send';
 }
 
 export type ChatActivity = 'thinking' | 'stopping' | 'tool' | 'dreaming';

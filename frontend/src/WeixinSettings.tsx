@@ -12,8 +12,8 @@ function issueKey(issue:string):MessageKey{return `settings.weixinIssue_${issueK
 export function WeixinSettings({onBack,active=true}:{onBack?:()=>void;active?:boolean}){
  const {t}=useI18n();
  const [status,setStatus]=useState<WeixinStatus|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[code,setCode]=useState(''),[forget,setForget]=useState(false);
- const acting=useRef(false),alive=useRef(false),lastAuto=useRef(''),autoSuppressed=useRef(false),autoQRCount=useRef(0);
- useEffect(()=>{alive.current=true;const read=()=>{if(acting.current)return;void desktop<WeixinStatus>('WeixinStatus').then(s=>{if(alive.current)setStatus(s)}).catch(()=>{if(alive.current)setError('unavailable')})};read();const timer=window.setInterval(read,1500);return()=>{alive.current=false;clearInterval(timer)}},[]);
+ const acting=useRef(false),lastAuto=useRef(''),autoSuppressed=useRef(false),autoQRCount=useRef(0);
+ useEffect(()=>{if(!active)return;let live=true;const read=()=>{if(acting.current)return;void desktop<WeixinStatus>('WeixinStatus').then(s=>{if(live)setStatus(s)}).catch(()=>{if(live)setError('unavailable')})};read();const timer=window.setInterval(read,1500);return()=>{live=false;clearInterval(timer)}},[active]);
  useEffect(()=>{if(!active){setCode('');setForget(false);autoSuppressed.current=false;lastAuto.current='';autoQRCount.current=0}},[active]);
  const act=async(method:string,...args:unknown[])=>{if(acting.current)return;acting.current=true;setBusy(true);setError('');try{setStatus(await desktop<WeixinStatus>(method,...args));if(method==='ForgetWeixin')autoSuppressed.current=true;setCode('');setForget(false)}catch{try{setStatus(await desktop<WeixinStatus>('WeixinStatus'))}catch{setError('unavailable')}}finally{acting.current=false;setBusy(false)}};
  useEffect(()=>{if(!active||!status||status.paired||autoSuppressed.current||!['unconfigured','expired'].includes(status.phase)||autoQRCount.current>=3)return;const key=`${status.phase}:${status.expiresAt}`;if(lastAuto.current===key)return;lastAuto.current=key;autoQRCount.current++;void act('StartWeixinPairing')},[active,status?.phase,status?.paired,status?.expiresAt]);

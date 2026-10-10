@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nProvider, useI18n } from './i18n';
 import { desktop } from './desktop';
-import { Panel, History } from './Panel';
+import { History } from './Panel';
 import { Bubble } from './Bubble';
 import { Settings } from './Settings';
 import { SurfaceBoundary } from './SurfaceBoundary';
@@ -51,4 +51,4 @@ function Prop() {
 }
 const surface = new URLSearchParams(location.search).get('surface');
 document.body.dataset.surface = surface ?? 'pet';
-createRoot(document.getElementById('root')!).render(<I18nProvider><SurfaceBoundary>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'panel' ? <Panel /> : surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <Settings /> : <Pet />}</React.StrictMode>}</SurfaceBoundary></I18nProvider>);
+createRoot(document.getElementById('root')!).render(<I18nProvider><SurfaceBoundary>{surface === 'prop' ? <Prop/> : <React.StrictMode>{surface === 'history' ? <History /> : surface === 'bubble' ? <Bubble /> : surface === 'settings' ? <Settings /> : <Pet />}</React.StrictMode>}</SurfaceBoundary></I18nProvider>);

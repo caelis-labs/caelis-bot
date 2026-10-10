@@ -30,58 +30,75 @@ export function Settings() {
  const content=useRef<HTMLDivElement>(null);
  const [executionVisited,setExecutionVisited]=useState(false),[runtimeVisited,setRuntimeVisited]=useState(false),[telegramVisited,setTelegramVisited]=useState(false),[weixinVisited,setWeixinVisited]=useState(false);
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
+ const [visible,setVisible]=useState(false),[focusVersion,setFocusVersion]=useState(0);
+ const visibleRef=useRef(false),visibilitySeq=useRef(0);
  const sectionRef=useRef(section);sectionRef.current=section;
  useEffect(()=>{
-  const load=()=>{void desktop<string>('SettingsSection').then(value=>{const destination=settingsDestination(value);if(destination&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(destination);setOpened(n=>n+1);});};
+  const load=(opening=false)=>{
+   const seq=visibilitySeq.current;
+   void Promise.all([desktop<string>('SettingsSection').catch(()=>''),desktop<boolean>('SettingsVisible').catch(()=>opening)]).then(([value,shown])=>{
+    if(seq!==visibilitySeq.current)return;
+    const destination=settingsDestination(value);
+    if(destination&&window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(destination);
+    setOpened(n=>n+1);
+    if(opening||shown){visibleRef.current=true;setVisible(true);}
+   });
+  };
+  const onOpen=()=>{visibilitySeq.current++;load(true);};
+  const onClose=()=>{visibilitySeq.current++;visibleRef.current=false;setVisible(false);};
+  const onFocus=()=>{if(visibleRef.current)setFocusVersion(n=>n+1);};
   const key=(event:KeyboardEvent)=>{if(event.defaultPrevented||event.isComposing)return;if(event.key==='Escape'&&(sectionRef.current==='telegram'||sectionRef.current==='weixin')){event.preventDefault();if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection('chatConnections');return;}if(event.key==='Escape'||(event.metaKey&&event.key==='w')){event.preventDefault();void desktop('CloseSettings');}};
   load();void desktop<string>('AppVersion').then(setVersion);
-  window.addEventListener('settings-open',load);window.addEventListener('keydown',key);
-  return()=>{window.removeEventListener('settings-open',load);window.removeEventListener('keydown',key);};
+  window.addEventListener('settings-open',onOpen);window.addEventListener('settings-close',onClose);window.addEventListener('settings-focus',onFocus);window.addEventListener('keydown',key);
+  return()=>{window.removeEventListener('settings-open',onOpen);window.removeEventListener('settings-close',onClose);window.removeEventListener('settings-focus',onFocus);window.removeEventListener('keydown',key);};
  },[]);
  useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='permissions')setExecutionVisited(true);if(section==='models'||section==='connections')setRuntimeVisited(true);if(section==='telegram')setTelegramVisited(true);if(section==='weixin')setWeixinVisited(true)},[section]);
- if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></div></main>;
+ if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup active={visible} focusVersion={focusVersion} onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></div></main>;
  return <main className="settings-window">
   <aside><nav aria-label={t('settings.navLabel')}>{sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}>{t(`settings.${id}`)}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
   <div className="settings-content" ref={content}>
-   <div className="settings-page" data-section="permissions" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<PermissionSettings embedded/>}<ExecutionSettings embedded/></>}</div>
-   <div className="settings-page" data-section={section==='models'?'models':'connections'} hidden={section!=='models'&&section!=='connections'}>{(runtimeVisited||section==='models'||section==='connections')&&<RuntimeSettings page={section==='models'?'models':'connections'} active={section==='models'||section==='connections'} refreshKey={opened} onConnections={()=>setSection('connections')}/>}</div>
-   <div className="settings-page" data-section="chatConnections" hidden={section!=='chatConnections'}>{section==='chatConnections'&&<MessagingSettings openTelegram={()=>setSection('telegram')} openWeixin={()=>setSection('weixin')}/>}</div>
-   <div className="settings-page" data-section="telegram" hidden={section!=='telegram'}>{(telegramVisited||section==='telegram')&&<TelegramSettings active={section==='telegram'} onBack={()=>setSection('chatConnections')}/>}</div>
-   <div className="settings-page" data-section="weixin" hidden={section!=='weixin'}>{(weixinVisited||section==='weixin')&&<WeixinSettings active={section==='weixin'} onBack={()=>setSection('chatConnections')}/>}</div>
+   <div className="settings-page" data-section="permissions" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<PermissionSettings embedded active={visible} focusVersion={focusVersion}/>}<ExecutionSettings embedded/></>}</div>
+   <div className="settings-page" data-section={section==='models'?'models':'connections'} hidden={section!=='models'&&section!=='connections'}>{(runtimeVisited||section==='models'||section==='connections')&&<RuntimeSettings page={section==='models'?'models':'connections'} active={visible&&(section==='models'||section==='connections')} refreshKey={opened} onConnections={()=>setSection('connections')}/>}</div>
+   <div className="settings-page" data-section="chatConnections" hidden={section!=='chatConnections'}>{section==='chatConnections'&&<MessagingSettings active={visible} focusVersion={focusVersion} openTelegram={()=>setSection('telegram')} openWeixin={()=>setSection('weixin')}/>}</div>
+   <div className="settings-page" data-section="telegram" hidden={section!=='telegram'}>{(telegramVisited||section==='telegram')&&<TelegramSettings active={visible&&section==='telegram'} onBack={()=>setSection('chatConnections')}/>}</div>
+   <div className="settings-page" data-section="weixin" hidden={section!=='weixin'}>{(weixinVisited||section==='weixin')&&<WeixinSettings active={visible&&section==='weixin'} onBack={()=>setSection('chatConnections')}/>}</div>
    <div className="settings-page" data-section="extras" hidden={section!=='extras'}>{section==='extras'&&<><h1>{t('settings.extras')}</h1><ScreenInputSettings/></>}</div>
-   <div className="settings-page" data-section="plugins" hidden={section!=='plugins'}>{section==='plugins'&&<PluginSettings/>}</div>
-   <div className="settings-page" data-section="machines" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone/>}</div>
+   <div className="settings-page" data-section="plugins" hidden={section!=='plugins'}>{section==='plugins'&&<PluginSettings visible={visible}/>}</div>
+   <div className="settings-page" data-section="machines" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone active={visible}/>}</div>
    <div className="settings-page" data-section={section} key={section} hidden={['permissions','models','connections','chatConnections','telegram','weixin','machines','extras','plugins'].includes(section)}>
-   {section==='general'?<General key={opened}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','chatConnections','telegram','weixin','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version}/>}
+   {section==='general'?<General key={opened} active={visible} focusVersion={focusVersion}/>:section==='appearance'?<AppearanceSettings/>:['models','connections','chatConnections','telegram','weixin','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version} active={visible} focusVersion={focusVersion}/>}
    </div>
   </div>
  </main>;
 }
 
-function General() {
+function General({active,focusVersion}:{active:boolean;focusVersion:number}) {
  const {t}=useI18n();
  const [storageOpen,setStorageOpen]=useState(false);
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><div className="general-preferences"><LanguageSetting/><LoginAtLoginSetting/></div><TaskSettings/>
+  <h1>{t('settings.general')}</h1><div className="general-preferences"><LanguageSetting/><LoginAtLoginSetting active={active} focusVersion={focusVersion}/></div><TaskSettings/>
   <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/></SettingGroup>
   <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary><SettingsChevron/>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
  </section>;
 }
 
-function Updates({version}:{version:string}) {
+function Updates({version,active,focusVersion}:{version:string;active:boolean;focusVersion:number}) {
  const {t}=useI18n();
  const [result,setResult]=useState<Update|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [preferences,setPreferences]=useState<UpdatePreferences|null>(null);
- const checking=useRef(false);
+ const checking=useRef(false),lastRead=useRef(0),wasActive=useRef(false);
+ const refresh=async()=>{try{setPreferences(await desktop<UpdatePreferences>('UpdatePreferences'));}catch{setError(t('settings.updatePreferencesLoadFailed'));}};
  const check=async()=>{
   if(checking.current)return;
   checking.current=true;setBusy(true);setError('');
-  try{setResult(await desktop<Update>('CheckUpdates'));}catch{setError(t('settings.updateCheckFailed'));}finally{checking.current=false;setBusy(false);}
+  try{setResult(await desktop<Update>('CheckUpdates'));await refresh();}catch{setError(t('settings.updateCheckFailed'));}finally{checking.current=false;setBusy(false);}
  };
  useEffect(()=>{
-  const refresh=()=>{void desktop<UpdatePreferences>('UpdatePreferences').then(setPreferences).catch(()=>setError(t('settings.updatePreferencesLoadFailed')));};
-  refresh();const timer=window.setInterval(refresh,2000);return()=>clearInterval(timer);
- },[t]);
+  if(!active){wasActive.current=false;return;}
+  const opening=!wasActive.current;wasActive.current=true;
+  if(!opening&&Date.now()-lastRead.current<1000)return;
+  lastRead.current=Date.now();void refresh();
+ },[active,focusVersion,t]);
  const automatic=async(value:boolean)=>{
   setBusy(true);setError('');
   try{await desktop('SetAutomaticUpdates',value);setPreferences(await desktop<UpdatePreferences>('UpdatePreferences'));}

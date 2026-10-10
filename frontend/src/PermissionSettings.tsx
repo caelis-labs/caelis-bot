@@ -12,29 +12,33 @@ const descriptions:Record<PermissionID,MessageKey>={accessibility:'settings.perm
 const statuses:Record<string,MessageKey>={authorized:'settings.permissionAuthorized',permissionRequired:'settings.permissionRequired',notDetermined:'settings.permissionRequired',denied:'settings.permissionDenied',notRunning:'settings.permissionNotRunning',unsupported:'settings.permissionUnsupported',unavailable:'settings.permissionUnknown'};
 const outcomes:Record<PermissionRequestResult['state'],MessageKey>={requested:'settings.permissionRequested',authorized:'settings.permissionRefreshNeeded',settingsRequired:'settings.permissionNeedsSettings',settingsOpened:'settings.permissionChangeInSystem'};
 
-export function PermissionSettings({onDone,onBack,embedded=false,call=desktop}:{onDone?:()=>void;onBack?:()=>void;embedded?:boolean;call?:typeof desktop}) {
+export function PermissionSettings({onDone,onBack,embedded=false,active=true,focusVersion=0,call=desktop}:{onDone?:()=>void;onBack?:()=>void;embedded?:boolean;active?:boolean;focusVersion?:number;call?:typeof desktop}) {
  const {t}=useI18n();
  const onboarding=!!onDone;
  const [state,setState]=useState<PermissionState|null>(null),[busy,setBusy]=useState(''),[error,setError]=useState<MessageKey|''>(''),[notice,setNotice]=useState(false);
  const [feedback,setFeedback]=useState<{id:PermissionID;state:PermissionRequestResult['state']}|null>(null);
  const [repair,setRepair]=useState<PermissionID>('accessibility'),[confirmed,setConfirmed]=useState(false);
  const [captureEnabled,setCaptureEnabled]=useState<boolean|null>(onDone?null:true);
- const alive=useRef(true),loading=useRef<Promise<void>|null>(null),acting=useRef(false);
+ const alive=useRef(true),loading=useRef<Promise<void>|null>(null),acting=useRef(false),lastRead=useRef(0),wasActive=useRef(false);
  const latestDone=useRef(onDone);
  latestDone.current=onDone;
  const refresh=useCallback(async()=>{
-  if(loading.current){await loading.current;return;}
-  loading.current=(async()=>{
-   try{const next=await call<PermissionState>('SystemPermissions');if(alive.current)setState(next);}
+  const previous=loading.current;
+  const request=(async()=>{
+   if(previous)await previous;
+   try{const next=await call<PermissionState>('SystemPermissions');if(alive.current){setState(next);setError('');}}
    catch{if(alive.current)setError('settings.permissionLoadFailed');}
   })();
-  try{await loading.current;}finally{loading.current=null;}
+  loading.current=request;
+  try{await request;}finally{if(loading.current===request)loading.current=null;}
  },[call]);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useEffect(()=>{
-  alive.current=true;void refresh();
-  const focus=()=>{void refresh();};const timer=setInterval(()=>{if(document.hasFocus()&&!acting.current)void refresh();},2500);
-  window.addEventListener('focus',focus);return()=>{alive.current=false;clearInterval(timer);window.removeEventListener('focus',focus);};
- },[refresh]);
+  if(!active){wasActive.current=false;return;}
+  const opening=!wasActive.current;wasActive.current=true;
+  if(acting.current||!opening&&Date.now()-lastRead.current<1000)return;
+  lastRead.current=Date.now();void refresh();
+ },[active,focusVersion,refresh]);
  useEffect(()=>{if(!onboarding)return;let live=true;void call<{enabled:boolean}>('CapturePreferences').then(v=>{if(live)setCaptureEnabled(v.enabled)}).catch(()=>{if(live)setError('settings.screenPreferencesFailed')});return()=>{live=false}},[call,onboarding]);
  const perform=async(id:string,action:()=>Promise<unknown>)=>{
   if(acting.current)return;acting.current=true;setBusy(id);setError('');

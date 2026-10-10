@@ -48,7 +48,7 @@ func TestCharacterConsumesFactsWithoutRepeatingAttention(t *testing.T) {
 	v.Approvals[0].Status = "resolved"
 	s.observeCharacter(v)
 	s.observeCharacter(api.Snapshot{Phase: "completed"})
-	if s.CharacterActivity() != "idle" || d.panelOpen || d.stopped {
+	if s.CharacterActivity() != "idle" || d.stopped {
 		t.Fatal("character facts changed native lifecycle")
 	}
 	s.shutdown()

@@ -73,19 +73,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 			s.showSettings("setup")
 			return
 		}
-		v := back.ComposerSnapshot()
-		for _, approval := range v.Approvals {
-			if approval.Status != "resolved" {
-				s.OpenApproval()
-				return
-			}
-		}
-		if v.CanSend {
-			s.CloseHistory()
-			s.TogglePanel()
-		} else {
-			s.OpenHistory()
-		}
+		s.PetToggleHistory()
 	}
 	return &productAssembly{Service: s, Core: core, Diagnostics: diagnostics}, nil
 }
