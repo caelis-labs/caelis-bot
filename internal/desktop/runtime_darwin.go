@@ -252,6 +252,7 @@ func Run(assets fs.FS) error {
 			syncMacDock(history, settings, false)
 		})
 	}
+	s.settingsVisible = func() bool { return macWindowVisible(settings) }
 	s.saveDiagnosticPath = func() (string, error) {
 		return nativeApp.Dialog.SaveFile().AttachToWindow(settings).SetFilename("Caelis-Bot-diagnostics.json").
 			SetMessage(s.text("native.diagnosticExportMessage", nil)).

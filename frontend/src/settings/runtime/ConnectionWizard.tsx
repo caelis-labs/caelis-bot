@@ -6,7 +6,7 @@ import { useI18n } from '../../i18n';
 import { SettingsChevron } from '../../SettingsIcons';
 
 const emptyCatalog: ConnectionCatalog = { choices: [], unavailable: '' };
-export function ConnectionWizard({ client, onClose, onConnected }: { client: RuntimeSettingsClient; onClose: () => void; onConnected: () => Promise<void> }) {
+export function ConnectionWizard({ client, onClose, onConnected,active=true }: { client: RuntimeSettingsClient; onClose: () => void; onConnected: () => Promise<void>;active?:boolean }) {
  const { t, date } = useI18n();
  const actionFailed=useEffectEvent(()=>t('runtime.actionFailed'));
  const [kind, setKind] = useState<ConnectionKind>('account'), [catalog, setCatalog] = useState(emptyCatalog), [choice, setChoice] = useState<ConnectChoice | null>(null);
@@ -34,7 +34,7 @@ export function ConnectionWizard({ client, onClose, onConnected }: { client: Run
   }).catch(e => { if (alive.current && seq === optionsSerial.current) setError(messageOf(e, actionFailed())); }).finally(() => { if (alive.current && seq === optionsSerial.current) setLoading(false); });
   return () => { optionsSerial.current++; };
  }, [client, choice, kind, baseUrl]);
- useEffect(() => { if (!flow?.authorization?.expiresAt) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [flow?.authorization?.expiresAt]);
+ useEffect(() => { if (!active||!flow?.authorization?.expiresAt) return; setNow(Date.now()); const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [active,flow?.authorization?.expiresAt]);
  const expired = !!flow?.authorization?.expiresAt && Date.parse(flow.authorization.expiresAt) <= now;
  const reuseAuth = options.endpoints.some(endpoint => endpoint.value === baseUrl && endpoint.reuseAuth);
  const select = (value: ConnectChoice) => { setChoice(value); setBaseUrl(''); setModel(''); setCommand(''); setMetadata(false); setContextWindow(''); setMaxOutput(''); setImageInput(false); setReasoningLevels(''); setAPIKey(''); setError(''); };

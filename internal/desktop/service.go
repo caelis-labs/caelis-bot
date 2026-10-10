@@ -103,6 +103,7 @@ type Service struct {
 	restartRuntime      func() error
 	openSettings        func()
 	closeSettings       func()
+	settingsVisible     func() bool
 	requestDraftFlush   func(string, uint64)
 	draftEditors        map[string]bool
 	draftFlushes        map[uint64]chan bool
