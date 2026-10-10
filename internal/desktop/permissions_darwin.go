@@ -14,6 +14,7 @@ package desktop
 static char *permission_app_path(void) { return strdup(NSBundle.mainBundle.bundlePath.UTF8String); }
 static char *permission_app_id(void) { return strdup((NSBundle.mainBundle.bundleIdentifier?:@"").UTF8String); }
 static int permission_development(void) {
+ @autoreleasepool {
  SecCodeRef code=NULL;CFDictionaryRef info=NULL;int result=1;
  if(SecCodeCopySelf(kSecCSDefaultFlags,&code)==errSecSuccess &&
     SecCodeCopySigningInformation(code,kSecCSSigningInformation,&info)==errSecSuccess) {
@@ -21,6 +22,7 @@ static int permission_development(void) {
    result=!flags || (flags.unsignedIntValue & kSecCodeSignatureAdhoc)!=0;
  }
  if(info)CFRelease(info);if(code)CFRelease(code);return result;
+ }
 }
 static int permission_accessibility(void) { return AXIsProcessTrusted(); }
 static int desktop_world_supported(void) { if (@available(macOS 14.0, *)) return 1; return 0; }
@@ -95,11 +97,13 @@ func permissionTerminalBundle(preference string) string {
 }
 func systemPermissionState(preference string) SystemPermissionState {
 	state := SystemPermissionState{Supported: true, Permissions: []SystemPermission{}}
+	// A code-signing query is process-invariant and may wait on Security services;
+	// it does not need to occupy AppKit while Settings reads current permissions.
+	state.Development = C.permission_development() != 0
 	application.InvokeSync(func() {
 		v := C.permission_app_path()
 		defer C.free(unsafe.Pointer(v))
 		state.AppPath = C.GoString(v)
-		state.Development = C.permission_development() != 0
 	})
 	ax := "permissionRequired"
 	if C.permission_accessibility() != 0 {

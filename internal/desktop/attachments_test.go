@@ -169,7 +169,6 @@ func TestPickerDoesNotHoldLifecycleAndCannotCompleteAfterShutdown(t *testing.T) 
 	if _, err := s.PickFiles(); err == nil {
 		t.Fatal("duplicate picker allowed")
 	}
-	s.ClosePanel()
 	s.shutdown()
 	if !d.stopped {
 		t.Fatal("picker blocked shutdown")

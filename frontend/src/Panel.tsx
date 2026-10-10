@@ -9,6 +9,7 @@ import { BotAvatar } from './BotAvatar';
 import { useAvatarPresentation } from './use-avatar-presentation';
 import { animatedReplyID, type PortraitClip } from './avatar-presentation';
 import { AttachmentMenu } from './AttachmentMenu';
+import { botMenuPlugins, nativeMenuPlugins } from './attachment-menu-model';
 import { ScreenMessage } from './ScreenMessage';
 import { MediaMessage } from './MediaMessage';
 import { ChatScroll } from './chat-scroll';
@@ -123,7 +124,7 @@ const Message=memo(function Message({ item, report, animate=false, reveal=false,
  JSON.stringify(before.item.screen)===JSON.stringify(after.item.screen)&&
  JSON.stringify(before.item.media)===JSON.stringify(after.item.media));
 
-export function useConversation(active: boolean, pet=false, chat=false, composer=false) {
+export function useConversation(active: boolean, pet=false, chat=false) {
  const [conversation,setConversation]=useState<{snapshot:Snapshot|null;liveReplies:Set<string>}>({snapshot:null,liveReplies:new Set()});
  const observation=useRef(conversation);
  const order=useRef(new ConversationOrder()),botStatus=useRef(''),observing=useRef(active);observing.current=active;
@@ -132,14 +133,14 @@ export function useConversation(active: boolean, pet=false, chat=false, composer
   const ticket=order.current.request(),expectedRevision=order.current.revision;
   let next:Snapshot|null;
   if(chat){const update=await backend<ChatUpdate>('ChatSnapshot',expectedRevision,botStatus.current);next=update.changed?update.snapshot:null;}
-  else next=await backend<Snapshot>(pet?'PetSnapshot':composer?'ComposerSnapshot':'Snapshot');
+  else next=await backend<Snapshot>(pet?'PetSnapshot':'Snapshot');
   if(!next){order.current.accept(ticket,expectedRevision);return;}
   if(observing.current&&order.current.accept(ticket,next.revision)){
    botStatus.current=next.botStatus;
    observation.current={snapshot:next,liveReplies:liveReplyIDs(observation.current.snapshot,next,observation.current.liveReplies,pet)};
    setConversation(observation.current);
   }
- },[pet,chat,composer]);
+ },[pet,chat]);
  useEffect(()=>{
   order.current.reset();
   if(!active)return;
@@ -148,20 +149,18 @@ export function useConversation(active: boolean, pet=false, chat=false, composer
   let stopped=false,timer=0;
   const poll=async()=>{try{await refresh();}catch{/* Preserve confirmed state across a failed observation. */}finally{if(!stopped)timer=window.setTimeout(()=>void poll(),450);}};
   void poll();return()=>{stopped=true;clearTimeout(timer);order.current.reset();};
- },[active,pet,chat,composer,refresh]);
+ },[active,pet,chat,refresh]);
  return {...conversation,refresh};
 }
 
-// One native-host draft, two exclusive editors. Writes serialize and use a
-// revision fence so a delayed hidden renderer cannot overwrite newer text.
-type ComposerProps={snapshot:Snapshot|null;quick?:boolean;active?:boolean;activation?:number;focusRevision?:number;refresh:()=>Promise<void>;onOutgoing?:(item:Item)=>void};
-// Each renderer mounts one Composer. UI-initiated close and editor switch await
-// its write barrier before asking the native host to change windows.
+// The chat window owns the one draft editor. Writes serialize with the backend
+// revision fence, and UI-initiated close waits for pending writes.
+type ComposerProps={snapshot:Snapshot|null;active?:boolean;focusRevision?:number;refresh:()=>Promise<void>;onOutgoing?:(item:Item)=>void};
 let flushVisibleComposer=async()=>{};
-const Composer=memo(function Composer({snapshot,quick=false,active=true,activation=0,focusRevision=0,refresh,onOutgoing}:ComposerProps) {
+const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refresh,onOutgoing}:ComposerProps) {
  const {t} = useI18n();
  const draftLoadFailed=useEffectEvent(()=>t('chat.draftLoadFailed'));
- const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null),composer=useRef<HTMLDivElement>(null);
+ const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null);
  // WebKit treats inline Writing Suggestions separately from spell checking.
  // The chat editor does not offer these suggestions; suppress them at the DOM
  // input itself while leaving native IME composition and selection intact.
@@ -170,39 +169,36 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
  // know when the send affordance crosses the empty/nonempty boundary.
  const draft=useRef(''),hasTextRef=useRef(false);
  const [hasText,setHasText]=useState(false),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
+ const [pluginLabels,setPluginLabels]=useState<Record<string,string>>({});
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
  const [sendBlocked,setSendBlocked]=useState(false),[cleanupPending,setCleanupPending]=useState(false),[syncReadFailed,setSyncReadFailed]=useState(false),[filesLoaded,setFilesLoaded]=useState(false);
  const [dragging,setDragging]=useState(false),[feedback,setFeedback]=useState<'duplicate'|''>('');
  const visible=useRef(active);visible.current=active;
- useEffect(()=>{setExpanded(false);},[active,activation]);
+ useEffect(()=>{setExpanded(false);},[active,focusRevision]);
+ useEffect(()=>{
+  if(!refs.some(id=>id.startsWith('bot-plugin:')||id.startsWith('codex-plugin:')))return;
+  let alive=true;
+  void desktop<{items:Parameters<typeof botMenuPlugins>[0]}>('Plugins').then(value=>{
+   if(alive)setPluginLabels(previous=>Object.fromEntries([...Object.entries(previous),...botMenuPlugins(value.items).map(item=>[item.id,item.name])]));
+  }).catch(()=>{});
+  void backend<Array<{id:string;name:string;description:string;source:string}>>('NativePlugins').then(value=>{
+   if(alive)setPluginLabels(previous=>Object.fromEntries([...Object.entries(previous),...nativeMenuPlugins(value).map(item=>[item.id,item.name])]));
+  }).catch(()=>{});
+  return()=>{alive=false;};
+ },[refs]);
  const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number;draftRevision:number}|null>(null);
  const lifetime=useRef(0),working=useRef(false);
  const fileOrder=useRef(new FileObservationOrder()),editGeneration=useRef(0),unsavedAfterAccepted=useRef(false),stopFileRead=useRef<()=>void>(()=>{});
  const saved=useRef<Draft>({revision:0,text:'',referenceIds:[],notice:''});
  const writes=useRef(new DraftQueue()), conflicted=useRef(false),composing=useRef(false);
- const registration=useRef<Promise<void>|null>(null);
- const register=()=>{
-  if(!registration.current){
-   const attempt=desktop('RegisterDraftEditor',quick?'panel':'history');
-   registration.current=attempt;
-   void attempt.catch(()=>{if(registration.current===attempt)registration.current=null;});
-  }
-  return registration.current;
- };
  useEffect(()=>{
   const flush=async()=>{
-   if(composing.current||unsavedAfterAccepted.current)throw new Error('draft is not ready for handoff');
+   if(composing.current||unsavedAfterAccepted.current)throw new Error('draft is not ready to close');
    await writes.current.flush();
    if(conflicted.current)throw new Error('draft save conflict');
   };
-  const handoff=(event:Event)=>{
-   const id=(event as CustomEvent<number>).detail;
-   if(!Number.isSafeInteger(id)||id<=0)return;
-   void flush().then(()=>desktop('ConfirmDraftFlush',id,true),()=>desktop('ConfirmDraftFlush',id,false)).catch(()=>{});
-  };
   flushVisibleComposer=flush;
-  window.addEventListener('draft-flush-request',handoff);
-  return()=>{window.removeEventListener('draft-flush-request',handoff);if(flushVisibleComposer===flush)flushVisibleComposer=async()=>{};};
+  return()=>{if(flushVisibleComposer===flush)flushVisibleComposer=async()=>{};};
  },[]);
  const flushDraft=useEffectEvent(async()=>{
   try{await writes.current.flush();}
@@ -211,21 +207,18 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
  useEffect(()=>{
   // Native close hides reusable WebViews. Flush on the host event and focus
   // loss, independently of React's activation cleanup.
-  const closing=quick?'panel-close':'history-close';
   const flush=()=>{void flushDraft();};
-  window.addEventListener(closing,flush);
+  window.addEventListener('history-close',flush);
   window.addEventListener('blur',flush);
   window.addEventListener('pagehide',flush);
-  return()=>{window.removeEventListener(closing,flush);window.removeEventListener('blur',flush);window.removeEventListener('pagehide',flush);};
- },[quick]);
+  return()=>{window.removeEventListener('history-close',flush);window.removeEventListener('blur',flush);window.removeEventListener('pagehide',flush);};
+ },[]);
  useEffect(()=>{
   lifetime.current++;working.current=false;pending.current=null;setBusy(false);
   setLoaded(false);setFilesLoaded(false);setSendBlocked(false);setCleanupPending(false);setSyncReadFailed(false);fileOrder.current.reset();
   const readFiles=()=>{stopFileRead.current();const ticket=fileOrder.current.request();setFilesLoaded(false);stopFileRead.current=retryRead(()=>desktop<DraftFile[]>('DraftFiles'),value=>{if(!fileOrder.current.accept(ticket))return;const visible=visibleDraftFiles(value,saved.current);setFiles(visible);setFilesLoaded(true);setError(previous=>previous===t('chat.fileSelectionReadFailed')?(saved.current.cleanupPending?t('chat.acceptedCleanupPending'):saved.current.rejectedCleanupPending?t('chat.rejectedCleanupPending'):saved.current.pendingSend?t('chat.originalAttachmentPending'):saved.current.notice):previous);if(!visible.length)setFeedback('');},()=>setError(previous=>previous||t('chat.fileSelectionReadFailed')));};
   const stopDraft=retryRead(async()=>{
-   await register();
    await writes.current.flush();
-   await desktop('FlushOtherDraft',quick?'panel':'history');
    return backend<Draft>('Draft');
   },d=>{saved.current=d;conflicted.current=false;unsavedAfterAccepted.current=false;setDraftValue(d.text);setRefs(d.referenceIds??[]);setFiles(old=>visibleDraftFiles(old,d));setError(d.cleanupPending?t('chat.acceptedCleanupPending'):d.rejectedCleanupPending?t('chat.rejectedCleanupPending'):d.pendingSend?t('chat.originalAttachmentPending'):d.notice);setSendBlocked(!!(d.pendingSend||d.rejectedCleanupPending));setCleanupPending(!!(d.cleanupPending||d.rejectedCleanupPending));setLoaded(true);readFiles();if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
   const changed=(event:Event)=>{
@@ -236,14 +229,8 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
   };
   window.addEventListener('files-changed',changed);
   return()=>{void flushDraft();lifetime.current++;stopDraft();stopFileRead.current();fileOrder.current.reset();window.removeEventListener('files-changed',changed);};
- },[activation]);
- useEffect(()=>{if(active&&loaded&&!busy){input.current?.focus({preventScroll:true});if(quick){const frame=requestAnimationFrame(()=>void desktop('PanelReady',activation));return()=>cancelAnimationFrame(frame);}}},[active,loaded,busy,activation,focusRevision]);
- useEffect(()=>{
-  if(!quick||!active||!loaded)return;
-  const focus=()=>input.current?.focus();
-  window.addEventListener('panel-focus',focus);window.addEventListener('focus',focus);
-  return()=>{window.removeEventListener('panel-focus',focus);window.removeEventListener('focus',focus);};
- },[quick,active,loaded]);
+ },[]);
+ useEffect(()=>{if(active&&loaded&&!busy)input.current?.focus({preventScroll:true});},[active,loaded,busy,focusRevision]);
  const measuredDraft=useRef({text:'',height:0});
  const sizeEditor=(text:string)=>{
   // Recent WebKit sizes the field in CSS. Older WebKit still needs a measured
@@ -311,7 +298,6 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
     const filesCurrent=fileOrder.current.accept(fileTicket),visible=visibleDraftFiles(nextFiles,next);
     if(filesCurrent){setFiles(visible);setFilesLoaded(true);setFeedback('');}
     setError(next.cleanupPending?t('chat.acceptedCleanupPending'):next.rejectedCleanupPending?t('chat.rejectedCleanupPending'):next.pendingSend?t('chat.originalAttachmentPending'):next.notice);setSendBlocked(!!(next.pendingSend||next.rejectedCleanupPending));setCleanupPending(!!(next.cleanupPending||next.rejectedCleanupPending));setSyncReadFailed(false);setLoaded(true);
-    if(quick&&filesCurrent&&!next.notice&&!next.cleanupPending&&!next.text&&!next.referenceIds?.length&&!visible.length)await desktop('ClosePanel').catch(()=>{});
   });}catch{
    if(lifetime.current===attempt.generation&&pending.current===attempt){
     if(draft.current===attempt.request.text)setDraftValue('');
@@ -374,7 +360,7 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
   const attempt=pending.current;
   if(attempt&&snapshot?.lastReceipt.id===attempt.request.id&&snapshot.lastReceipt.outcome==='accepted')void accepted(attempt);
  },[snapshot?.lastReceipt.id,snapshot?.lastReceipt.outcome]);
- const primaryAction=composerAction(snapshot,quick,!!(hasText||files.length||refs.length));
+ const primaryAction=composerAction(snapshot,!!(hasText||files.length||refs.length));
  const stopping=snapshot?.phase==='interrupting';
  const enabled=loaded&&!busy&&(primaryAction==='stop'?!stopping:filesLoaded&&!sendBlocked&&!(cleanupPending&&files.length>0)&&canSubmit(snapshot)&&!!(hasText||files.length));
  const interrupt=async()=>{
@@ -389,7 +375,7 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
  };
  const actionLabel=primaryAction==='stop'?(stopping?t('chat.stopping'):t('chat.stopWork')):snapshot?.canSteer&&snapshot.maintenance!=='dreaming'?t('chat.steerWork'):t('chat.send');
  const needsConnection=loaded&&!!(hasText||files.length)&&snapshot?.connection!=='ready'&&!snapshot?.canSteer;
- return <div ref={composer} className={`compose-area${dragging?' file-dragging':''}`} data-file-drop-target
+ return <div className={`compose-area${dragging?' file-dragging':''}`} data-file-drop-target
   onDragEnter={e=>{if(e.dataTransfer.types.includes('Files'))setDragging(true)}}
   onDragOver={e=>{if(e.dataTransfer.types.includes('Files')){e.preventDefault();setDragging(true)}}}
   onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDragging(false)}}
@@ -400,33 +386,19 @@ const Composer=memo(function Composer({snapshot,quick=false,active=true,activati
    <button ref={send} className="icon-button send" disabled={!enabled} onClick={()=>void (primaryAction==='stop'?interrupt():submit())} aria-label={actionLabel} title={needsConnection?t('chat.connectionUnavailableToSend'):actionLabel}>{primaryAction==='stop'?<span className="composer-stop" aria-hidden="true"/>:<Icon name="arrow.up"/>}</button>
   </div>
   {!!error&&<p role="alert" className="input-error">{error}</p>}
-  {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{t('chat.connectionUnavailableToSend')}</span>{quick&&<button className="text-action" onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}</div>}
+  {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{t('chat.connectionUnavailableToSend')}</span></div>}
   {(sendBlocked||cleanupPending||loaded&&!filesLoaded)&&<button className="quiet" type="button" onClick={()=>void retryLocalCleanup()}>{t('chat.retryDraftCleanup')}</button>}
   {!error&&(dragging||feedback||files.length>0)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):feedback==='duplicate'?t('chat.attachmentAlreadyAdded'):t('chat.attachmentsSelected',{count:files.length})}</p>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
    {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><DraftThumbnail file={f}/><span className="attachment-details" title={f.name}><strong>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</strong><small>{attachmentType(f.type,t)} · {draftSize(f.size)}</small></span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
-   {refs.map(id=><li key={id}><span>{snapshot?.references.find(r=>r.id===id)?.name??t('chat.referenceDefault')}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft.current,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
+   {refs.map(id=><li key={id}><span>{pluginLabels[id]??snapshot?.references.find(r=>r.id===id)?.name??(id.includes('-plugin:')?id.split(':').slice(1).join(':'):t('chat.referenceDefault'))}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft.current,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
   </ul>}
-  {expanded&&<AttachmentMenu trigger={add} composer={composer} quick={quick} activation={activation} references={snapshot?.references??[]} selected={refs}
-   onClose={()=>setExpanded(false)} onPick={()=>void pick()} onError={()=>setError(t('chat.menuOpenFailed'))}
-   onSelect={id=>{save(draft.current,[...refs,id]);setExpanded(false);input.current?.focus();}}/>}
+  {expanded&&<AttachmentMenu trigger={add} selected={refs}
+   onClose={()=>setExpanded(false)} onPick={()=>void pick()}
+   onSelect={plugin=>{setPluginLabels(previous=>({...previous,[plugin.id]:plugin.name}));save(draft.current,[...refs,plugin.id]);setExpanded(false);input.current?.focus();}}/>}
  </div>;
-},(a,b)=>a.quick===b.quick&&a.active===b.active&&a.activation===b.activation&&a.focusRevision===b.focusRevision&&
+},(a,b)=>a.active===b.active&&a.focusRevision===b.focusRevision&&
  a.refresh===b.refresh&&a.onOutgoing===b.onOutgoing&&sameComposerSnapshot(a.snapshot,b.snapshot));
-
-export function Panel() {
- const {t} = useI18n();
- const [active,setActive]=useState(false),[activation,setActivation]=useState(0);const surface=useRef<HTMLElement>(null);
- const {snapshot,refresh}=useConversation(active,false,false,true);
- useEffect(()=>{
-  const open=(event:Event)=>{setActivation((event as CustomEvent<{activation:number}>).detail?.activation??0);setActive(true);},close=()=>setActive(false);
-  const key=(e:KeyboardEvent)=>{if(!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('ClosePanel')).catch(()=>{});}};
-  window.addEventListener('panel-open',open);window.addEventListener('panel-close',close);window.addEventListener('keydown',key);
-  return()=>{window.removeEventListener('panel-open',open);window.removeEventListener('panel-close',close);window.removeEventListener('keydown',key);};
- },[]);
- useEffect(()=>{const resize=new ResizeObserver(()=>{if(surface.current)void desktop('SetPanelHeight',Math.max(64,Math.min(500,Math.ceil(surface.current.getBoundingClientRect().height))));});resize.observe(surface.current!);return()=>resize.disconnect();},[]);
- return <main ref={surface} className="input-surface" aria-label={t('chat.panelAriaLabel')}><Composer snapshot={snapshot} quick active={active} activation={activation} refresh={refresh}/>{active&&snapshot&&!canSubmit(snapshot)&&<button className="text-action" onClick={()=>void flushVisibleComposer().then(()=>desktop('OpenHistory')).catch(()=>{})}>{t('chat.openChatToReview')}</button>}</main>;
-}
 
 export function History() {
  const {t} = useI18n();

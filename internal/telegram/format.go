@@ -8,6 +8,7 @@ import (
 	"html"
 	"io"
 	"net/url"
+	"sort"
 	"strings"
 	"unicode/utf16"
 
@@ -166,6 +167,65 @@ func hasRawHTML(markdown string) bool {
 		return ast.WalkContinue, nil
 	})
 	return found
+}
+
+// Telegram's Rich Markdown treats some paragraph-leading hashes as headings
+// even when CommonMark does not (for example, "#147"). Escape only hashes
+// that Goldmark parsed as paragraph text. The original source remains intact
+// for delivery digests and the HTML/plain fallback paths.
+func richMarkdown(markdown string) string {
+	source := []byte(markdown)
+	doc := telegramMarkdown.Parser().Parse(text.NewReader(source))
+	var offsets []int
+	_ = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering || (node.Kind() != ast.KindParagraph && node.Kind() != ast.KindTextBlock) {
+			return ast.WalkContinue, nil
+		}
+		lines := node.Lines()
+		for i := 0; i < lines.Len(); i++ {
+			segment := lines.At(i)
+			if segment.Start < segment.Stop && source[segment.Start] == '#' {
+				offsets = append(offsets, segment.Start)
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	if len(offsets) == 0 {
+		return markdown
+	}
+	sort.Ints(offsets)
+	// Paragraph source lines also contain inline code. A hash inside a
+	// multiline CodeSpan is literal code, so only escape offsets represented
+	// by ordinary inline Text nodes.
+	plain := make(map[int]bool, len(offsets))
+	_ = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering || node.Kind() != ast.KindText {
+			return ast.WalkContinue, nil
+		}
+		for parent := node.Parent(); parent != nil; parent = parent.Parent() {
+			if parent.Kind() == ast.KindCodeSpan {
+				return ast.WalkContinue, nil
+			}
+		}
+		segment := node.(*ast.Text).Segment
+		for i := sort.SearchInts(offsets, segment.Start); i < len(offsets) && offsets[i] < segment.Stop; i++ {
+			plain[offsets[i]] = true
+		}
+		return ast.WalkContinue, nil
+	})
+	var out strings.Builder
+	out.Grow(len(markdown) + len(plain))
+	from := 0
+	for _, at := range offsets {
+		if at < from || !plain[at] {
+			continue
+		}
+		out.WriteString(markdown[from:at])
+		out.WriteString(`\`)
+		from = at
+	}
+	out.WriteString(markdown[from:])
+	return out.String()
 }
 
 // Telegram's legacy HTML mode accepts a small subset of HTML. Render CommonMark

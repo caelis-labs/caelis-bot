@@ -15,14 +15,15 @@ export function TelegramSettings({onBack,active=true}:{onBack?:()=>void;active?:
  const alive=useRef(false),revision=useRef(0),acting=useRef(false),tokenInput=useRef<HTMLInputElement|null>(null);
  const clearToken=()=>{if(tokenInput.current)tokenInput.current.value='';setToken('')};
  useEffect(()=>{if(!active){clearToken();setConfirmForget(false)}},[active]);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;revision.current++;};},[]);
  useEffect(()=>{
-  alive.current=true;
+  let live=true;
   const close=()=>flushSync(()=>{clearToken();setConfirmForget(false)});
   window.addEventListener('settings-close',close);
-  const load=()=>{if(acting.current)return;const current=++revision.current;void desktop<TelegramStatus>('TelegramStatus').then(s=>{if(alive.current&&current===revision.current){setStatus(s);setError(previous=>previous==='unavailable'?'':previous)}}).catch(()=>{if(alive.current&&current===revision.current)setError(previous=>previous||'unavailable')});};
-  load();const timer=window.setInterval(load,2000);
-  return()=>{alive.current=false;revision.current++;clearInterval(timer);window.removeEventListener('settings-close',close)};
- },[]);
+  const load=()=>{if(acting.current)return;const current=++revision.current;void desktop<TelegramStatus>('TelegramStatus').then(s=>{if(live&&alive.current&&current===revision.current){setStatus(s);setError(previous=>previous==='unavailable'?'':previous)}}).catch(()=>{if(live&&alive.current&&current===revision.current)setError(previous=>previous||'unavailable')});};
+  if(active)load();const timer=active?window.setInterval(load,2000):undefined;
+  return()=>{live=false;revision.current++;if(timer!==undefined)clearInterval(timer);window.removeEventListener('settings-close',close)};
+ },[active]);
  const refresh=async()=>{const current=++revision.current;try{const s=await desktop<TelegramStatus>('TelegramStatus');if(alive.current&&current===revision.current){setStatus(s);setError('')}}catch{if(alive.current&&current===revision.current)setError('unavailable')}};
  const act=async(method:'ConnectTelegram'|'ConfirmTelegram'|'DisconnectTelegram'|'ForgetTelegram',...args:unknown[])=>{
   if(acting.current)return;acting.current=true;revision.current++;setBusy(true);setError('');

@@ -186,6 +186,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	if err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}
+	service.SetBotPluginSource(app.PluginSnapshot)
 	app.taskPreferences, err = tasks.OpenPreferences(filepath.Join(root, "task-preferences.json"))
 	if err != nil {
 		app.taskPreferences = tasks.UnavailablePreferences(filepath.Join(root, "task-preferences.json"))

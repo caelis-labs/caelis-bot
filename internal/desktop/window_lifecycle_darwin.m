@@ -29,6 +29,10 @@ int bot_window_can_hide(void *pointer) {
     return NSApp.active && window.keyWindow && window.visible &&
         !window.miniaturized && !window.attachedSheet;
 }
+int bot_window_pet_can_hide(void *pointer) {
+    NSWindow *window = (__bridge NSWindow *)pointer;
+    return window.visible && !window.miniaturized && !window.attachedSheet;
+}
 void bot_sync_dock(void *history, void *settings, int opening) {
     // Promote before ordering a contextual window in. Never use occlusion:
     // covering or minimising a window must retain its Dock entry.

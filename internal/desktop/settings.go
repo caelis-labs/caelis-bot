@@ -37,6 +37,12 @@ func (s *Service) CloseSettings() {
 		s.closeSettings()
 	}
 }
+func (s *Service) SettingsVisible() bool {
+	s.mu.Lock()
+	f := s.settingsVisible
+	s.mu.Unlock()
+	return f != nil && f()
+}
 func (s *Service) SettingsSection() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

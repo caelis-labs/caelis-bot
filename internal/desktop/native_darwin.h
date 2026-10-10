@@ -1,24 +1,21 @@
 #include <stdint.h>
 typedef struct { double x,y,width,height; } BotRect;
-void *bot_create(void *pet, void *panel, void *bubble, void *history, void *prop, uintptr_t handle, unsigned char *icon, int iconLength);
+void *bot_create(void *pet, void *bubble, void *history, void *prop, uintptr_t handle, unsigned char *icon, int iconLength);
 void bot_bubble(void *host, int visible);
 void bot_tasks(void *host, char *json);
 void bot_task_failure(void *host, char *message);
 void bot_task_opening(void *host, char *identifier, char *message);
 int bot_screens(BotRect *rects, int capacity);
 void bot_apply(void *host, double x, double y, double scale, int visible);
-void bot_panel(void *host, int visible);
 int bot_prepare_window_recall(void *host);
 int bot_window_open(void *window);
 int bot_window_visible(void *window);
 int bot_window_can_hide(void *window);
+int bot_window_pet_can_hide(void *window);
 void bot_close_context_window(void *history, void *settings);
 int bot_system_termination(void);
 void bot_sync_dock(void *history, void *settings, int opening);
 int bot_install_app_icon(unsigned char *bytes, int length);
-void bot_toggle_panel(void *host);
-void bot_panel_height(void *host, int height);
-void bot_panel_menu(void *host, int height, int activation);
 void bot_mask(void *host, unsigned char *mask, int length);
 void bot_destroy(void *host);
 
@@ -44,7 +41,6 @@ void bot_finish_plane(void *host, char *id, int completed);
 int bot_shortcut(void *host, char *key, int flags, int enabled, int tasks);
 void bot_capture_enabled(void *host,int enabled);
 void bot_toggle_tasks(void *host);
-void bot_panel_ready(void *host, int activation);
 
 char *bot_preferred_languages(void);
 void bot_language(void *host, char *json);

@@ -19,7 +19,7 @@
   "openTaskInTerminal": "Open or bring forward this task's terminal",
   "taskPromptMissing": "Original prompt not saved for earlier tasks",
   "petLoadFailed": "Desktop pet failed to load. Open Caelis Bot from the menu bar",
-  "petActionHint": "Click to toggle input, double-click to recall chat and open settings; right-click for menu, drag to move",
+  "petActionHint": "Click to open or close chat, double-click to recall chat and open settings; right-click for menu, drag to move",
   "diagnosticExportMessage": "Contains only system, connection and status counts; no chat content, file paths or credentials.",
   "pickRuntimeTitle": "Select runtime executable",
   "choose": "Select",

@@ -26,7 +26,6 @@ type ShortcutState struct {
 }
 type shortcutDriver interface {
 	registerShortcut(Shortcut) error
-	panelReady(int)
 }
 
 var shortcutKey = regexp.MustCompile(`^(Space|Key[A-Z]|Digit[0-9]|F([1-9]|1[0-2]))$`)
@@ -114,11 +113,4 @@ func saveShortcut(path string, v Shortcut) error {
 		err = os.Rename(f.Name(), path)
 	}
 	return err
-}
-func (s *Service) PanelReady(activation int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if d, ok := s.native.(shortcutDriver); ok && !s.stopped {
-		d.panelReady(activation)
-	}
 }

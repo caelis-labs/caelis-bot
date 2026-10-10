@@ -17,7 +17,6 @@
 @property(copy, nonatomic) NSDictionary<NSString *, NSString *> *language;
 // A temporary attachment menu keeps the entry clickable, but only a click
 // expands it; opening the menu collapses any cards already on screen.
-@property(nonatomic) BOOL attachmentMenuOpen;
 - (void)captureTask:(NSString *)identifier source:(NSDictionary *)source;
 - (void)setTasks:(NSArray *)tasks;
 - (void)placeWithPet:(NSRect)pet bounds:(NSRect)bounds visible:(BOOL)visible;

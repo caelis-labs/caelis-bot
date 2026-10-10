@@ -19,7 +19,7 @@
   "openTaskInTerminal": "打开或切到此任务的终端",
   "taskPromptMissing": "早期任务未保存原始提示词",
   "petLoadFailed": "桌宠加载失败，请从状态栏打开 Caelis Bot",
-  "petActionHint": "单击展开或收起输入框，双击唤回聊天和已打开的设置；右键菜单，可拖动",
+  "petActionHint": "单击打开或关闭聊天窗口，双击唤回聊天和已打开的设置；右键菜单，可拖动",
   "diagnosticExportMessage": "仅包含系统、连接和状态计数；不包含聊天内容、文件路径或凭据。",
   "pickRuntimeTitle": "选择运行时可执行文件",
   "choose": "选择",
