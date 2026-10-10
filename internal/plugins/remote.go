@@ -32,7 +32,7 @@ func relayRemoteWithOAuth(parent context.Context, server Server, spec *Connectio
 	if err != nil {
 		return errors.New("invalid MCP endpoint")
 	}
-	if spec != nil && spec.Placement == "query" {
+	if spec != nil && spec.Placement == "query" && bearer == nil {
 		q := u.Query()
 		q.Set(spec.Name, secret)
 		u.RawQuery = q.Encode()
@@ -94,7 +94,7 @@ func relayRemoteWithOAuth(parent context.Context, server Server, spec *Connectio
 			rejected = ""
 			req.Header.Set("Authorization", "Bearer "+usedBearer)
 		}
-		if spec != nil && spec.Placement == "header" {
+		if spec != nil && spec.Placement == "header" && bearer == nil {
 			req.Header.Set(spec.Name, spec.Prefix+secret)
 		}
 		response, err := client.Do(req)
@@ -118,8 +118,10 @@ func relayRemoteWithOAuth(parent context.Context, server Server, spec *Connectio
 			response.Body.Close()
 			cancel()
 			if len(msg.ID) > 0 {
-				if response.StatusCode == 401 || response.StatusCode == 403 {
+				if response.StatusCode == http.StatusUnauthorized {
 					writeRelayError(written, msg.ID, "MCP authentication failed")
+				} else if response.StatusCode == http.StatusForbidden {
+					writeRelayError(written, msg.ID, "MCP access denied by service; check app permissions and repository access")
 				} else {
 					writeRelayError(written, msg.ID, fmt.Sprintf("MCP server returned HTTP %d", response.StatusCode))
 				}

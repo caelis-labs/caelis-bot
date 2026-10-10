@@ -67,6 +67,31 @@ func TestCodexRuntimeDirectoryKeepsDescriptionsOnlyWhenConnected(t *testing.T) {
 	}
 }
 
+func TestConfiguredServerAbsentFromRuntimeIsNotUnconfigured(t *testing.T) {
+	s, fixture := sessionPair(t, "hold")
+	name := plugins.RuntimeName("notes", "search")
+	s.opts.BotTools = &api.ToolConnection{Plugins: plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "notes", Name: "search"}}}}
+	fixture.mu.Lock()
+	fixture.handle = func(message wireMessage) (any, bool) {
+		if message.Method == "mcpServerStatus/list" {
+			return map[string]any{"data": []any{}}, true
+		}
+		return nil, false
+	}
+	fixture.mu.Unlock()
+	detail, err := s.BotPluginServer(t.Context(), name)
+	if err != nil || detail.State != "not_started" || detail.Error == "" {
+		t.Fatal("saved server disappeared as unconfigured", detail, err)
+	}
+	s.mu.Lock()
+	s.trustBlockedReason = "organization policy disabled Bot workspace config"
+	s.mu.Unlock()
+	detail, err = s.BotPluginServer(t.Context(), name)
+	if err != nil || detail.State != "trust_blocked" || detail.Error == "" {
+		t.Fatal("workspace trust block hidden", detail, err)
+	}
+}
+
 func TestBotProjectProjectionAndWorkerIsolation(t *testing.T) {
 	bot := t.TempDir()
 	worker := t.TempDir()
@@ -116,7 +141,7 @@ func TestBotProjectProjectionAndWorkerIsolation(t *testing.T) {
 
 func TestCodexCredentialBridgeUsesBotOnlyProjectAndNoSecret(t *testing.T) {
 	bot, worker, root := t.TempDir(), t.TempDir(), t.TempDir()
-	selection := plugins.Selection{Revision: 42, Servers: []plugins.SelectedServer{{PackageID: "github", Name: "github", Root: filepath.Join(root, "versions", "github", "v1"), Data: filepath.Join(root, "data", "github"), Server: plugins.Server{Type: "streamable-http", URL: "https://api.githubcopilot.com/mcp/readonly"}, Connection: &plugins.ConnectionSpec{Server: "github", Kind: "token", Placement: "header", Name: "Authorization", Prefix: "Bearer "}, ConnectionRevision: 42}}}
+	selection := plugins.Selection{Revision: 42, Servers: []plugins.SelectedServer{{PackageID: "github", Name: "github", Root: filepath.Join(root, "versions", "github", "v1"), Data: filepath.Join(root, "data", "github"), Server: plugins.Server{Type: "streamable-http", URL: "https://api.githubcopilot.com/mcp/"}, Connection: &plugins.ConnectionSpec{Server: "github", Kind: "token", Placement: "header", Name: "Authorization", Prefix: "Bearer "}, ConnectionRevision: 42}}}
 	c := &api.ToolConnection{Command: "/fixture/Bot", Plugins: selection, NotebookDirectory: bot}
 	s := NewSession(SessionOptions{Directory: bot})
 	if err := s.ConfigureBotTools(c); err != nil {

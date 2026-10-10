@@ -3,7 +3,7 @@
   "mcpServers": {
     "github": {
       "type": "streamable-http",
-      "url": "https://api.githubcopilot.com/mcp/readonly"
+      "url": "https://api.githubcopilot.com/mcp/"
     }
   }
 }

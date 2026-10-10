@@ -1,12 +1,12 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "obsidian",
-  "version": "1.0.0",
-  "description": "Work with notes through Obsidian Local REST API",
+  "version": "2.0.0",
+  "description": "Guidance for using the official Obsidian CLI",
   "author": {
-    "name": "coddingtonbear",
-    "url": "https://github.com/coddingtonbear/obsidian-local-rest-api"
+    "name": "Caelis labs",
+    "url": "https://github.com/caelis-labs/caelis-bot"
   },
-  "homepage": "https://github.com/coddingtonbear/obsidian-local-rest-api",
-  "license": "MIT"
+  "homepage": "https://obsidian.md/help/cli",
+  "license": "Apache-2.0"
 }

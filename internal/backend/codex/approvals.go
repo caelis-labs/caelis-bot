@@ -400,12 +400,25 @@ func resolvedDecision(p *prompt) *api.ApprovalResolution {
 }
 
 func (s *Session) Decide(ctx context.Context, d api.Decision) error {
-	ctx, stop := s.operation(ctx, 15*time.Second)
+	s.mu.Lock()
+	trustDecision := s.trustApprovalID != "" && d.ID == s.trustApprovalID
+	s.mu.Unlock()
+	limit := 15 * time.Second
+	if trustDecision {
+		limit = 30 * time.Second // trust write, verification, then resident connection
+	}
+	ctx, stop := s.operation(ctx, limit)
 	defer stop()
 	if err := lockwait.Lock(ctx, &s.op); err != nil {
 		return err
 	}
 	defer s.op.Unlock()
+	s.mu.Lock()
+	trustApproval := s.trustApprovalID != "" && d.ID == s.trustApprovalID
+	s.mu.Unlock()
+	if trustApproval {
+		return s.decideWorkspaceTrust(ctx, d)
+	}
 	if err := lockwait.Lock(ctx, &s.mu); err != nil {
 		return err
 	}

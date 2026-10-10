@@ -375,6 +375,18 @@ func TestRemoteMCPAuthFailureAndRedirectAreRedacted(t *testing.T) {
 	if attempts != 1 || strings.Contains(failed.String(), "SYNTHETIC_PRIVATE_TOKEN") || !strings.Contains(failed.String(), "MCP authentication failed") {
 		t.Fatal("invalid token was retried or exposed", attempts, failed.String())
 	}
+	forbidden := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "SYNTHETIC_PRIVATE_TOKEN")
+	}))
+	defer forbidden.Close()
+	var accessDenied bytes.Buffer
+	if err := relayRemote(Server{Type: "streamable-http", URL: forbidden.URL}, nil, "SYNTHETIC_PRIVATE_TOKEN", "", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/call"}`+"\n"), &accessDenied); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(accessDenied.String(), "SYNTHETIC_PRIVATE_TOKEN") || !strings.Contains(accessDenied.String(), "check app permissions and repository access") {
+		t.Fatal("permission denial was misreported or exposed", accessDenied.String())
+	}
 	var redirected bool
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { redirected = true }))
 	defer target.Close()

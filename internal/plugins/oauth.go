@@ -37,6 +37,7 @@ type OAuthGrant struct {
 
 type oauthFlow struct {
 	state    string
+	userCode string
 	claimed  bool
 	cancel   context.CancelFunc
 	listener net.Listener
@@ -235,6 +236,10 @@ func (m *Manager) BeginOAuth(ctx context.Context, id string, open func(string) e
 	}
 	m.mu.Lock()
 	e, ok := m.entry(id)
+	if ok && e.Connection != nil && e.Connection.DeviceOAuth != nil {
+		m.mu.Unlock()
+		return m.beginDeviceOAuth(ctx, id, open, complete)
+	}
 	_, installed := m.state.Installed[id]
 	if !ok || e.Connection == nil || e.Connection.Kind != "oauth" || !installed {
 		snapshot := m.snapshotLocked()
@@ -409,7 +414,7 @@ func (m *Manager) ConfigureOAuthGrant(ctx context.Context, id, state string, gra
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.entry(id)
-	if !ok || e.Connection == nil || e.Connection.Kind != "oauth" {
+	if !ok || e.Connection == nil || (e.Connection.Kind != "oauth" && e.Connection.Kind != "oauth-or-token") {
 		return m.snapshotLocked(), errors.New("OAuth plugin unavailable")
 	}
 	if flow := m.oauthFlows[id]; flow == nil || flow.state != state || !flow.claimed {
@@ -425,7 +430,7 @@ func (m *Manager) ConfigureOAuthGrant(ctx context.Context, id, state string, gra
 	next := cloneState(old)
 	next.Revision++
 	current := old.Connections[id]
-	replacement := connectionRecord{Revision: next.Revision, Configured: true, RetiredOAuth: append([]uint64(nil), current.RetiredOAuth...)}
+	replacement := connectionRecord{Revision: next.Revision, Configured: true, Mode: "oauth", RetiredOAuth: append([]uint64(nil), current.RetiredOAuth...)}
 	if current.Configured {
 		replacement.RetiredOAuth = append(replacement.RetiredOAuth, current.Revision)
 	}

@@ -30,6 +30,15 @@ func TestConnectableReviewedPackagesAndLegacyMigration(t *testing.T) {
 		t.Fatalf("want six connectable packages, got %d", len(items))
 	}
 	for _, item := range items {
+		if item.ID == "obsidian" {
+			if item.Connection != nil || len(item.MCPServers) != 0 || len(item.Skills) != 1 || item.Skills[0].ID != "obsidian-cli" {
+				t.Fatal("Obsidian must contribute only its official CLI Skill", item)
+			}
+			if _, err = m.Mutate(context.Background(), item.ID, "install", nil); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
 		if len(item.Skills) != 0 || len(item.MCPServers) != 1 || item.Connection == nil {
 			t.Fatal("invented or missing contribution", item.ID)
 		}
@@ -55,7 +64,7 @@ func TestConnectableReviewedPackagesAndLegacyMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reopened.Snapshot().Items[0].ID != "markdown-work" || len(reopened.Selection().SkillRoots) != 1 {
+	if reopened.Snapshot().Items[0].ID != "markdown-work" || len(reopened.Selection().SkillRoots) != 2 {
 		t.Fatal("legacy installed Skill lost")
 	}
 }
@@ -122,6 +131,9 @@ func TestConnectionRevisionPrivateStoreActivationAndClear(t *testing.T) {
 	}
 	if len(selected.Servers) != 1 || selected.Servers[0].ConnectionRevision == 0 || selected.Servers[0].Connection == nil {
 		t.Fatal("credential revision not projected", selected)
+	}
+	if got := selected.Servers[0].Server.URL; got != "https://api.githubcopilot.com/mcp/" {
+		t.Fatalf("GitHub did not select the official default toolset: %q", got)
 	}
 	stable := m.Snapshot().Revision
 	if _, err = m.ConfigureConnection(context.Background(), "github", "SYNTHETIC_PRIVATE_TOKEN", "", false, func(context.Context, Selection) error { t.Fatal("duplicate credential reapplied Runtime"); return nil }); err != nil || m.Snapshot().Revision != stable {
@@ -242,6 +254,15 @@ func TestConnectionFailuresRemoveNewSecretsAndKeepConfirmedCredential(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Keep the generic CA transaction path covered by a synthetic connection
+	// on an existing reviewed package; Obsidian now contributes only a Skill.
+	for i := range m.catalog {
+		if m.catalog[i].ID == "brave-search" {
+			spec := *m.catalog[i].Connection
+			spec.TrustCA = true
+			m.catalog[i].Connection = &spec
+		}
+	}
 	secrets := map[string]string{}
 	failCA := false
 	m.secrets = secretstore.Functions{SaveFunc: func(id, value string) error {
@@ -257,22 +278,22 @@ func TestConnectionFailuresRemoveNewSecretsAndKeepConfirmedCredential(t *testing
 		}
 		return value, nil
 	}, DeleteFunc: func(id string) error { delete(secrets, id); return nil }}
-	if _, err := m.Mutate(t.Context(), "obsidian", "install", nil); err != nil {
+	if _, err := m.Mutate(t.Context(), "brave-search", "install", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.ConfigureConnection(t.Context(), "obsidian", "FIRST_SYNTHETIC_TOKEN", "", false, func(context.Context, Selection) error { return errors.New("runtime busy") }); err == nil || len(secrets) != 0 {
+	if _, err := m.ConfigureConnection(t.Context(), "brave-search", "FIRST_SYNTHETIC_TOKEN", "", false, func(context.Context, Selection) error { return errors.New("runtime busy") }); err == nil || len(secrets) != 0 {
 		t.Fatal("first rejected connection left a secret", err, secrets)
 	}
-	if _, err := m.ConfigureConnection(t.Context(), "obsidian", "", "", true, nil); err != nil {
+	if _, err := m.ConfigureConnection(t.Context(), "brave-search", "", "", true, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Mutate(t.Context(), "obsidian", "uninstall", nil); err != nil || len(secrets) != 0 {
+	if _, err := m.Mutate(t.Context(), "brave-search", "uninstall", nil); err != nil || len(secrets) != 0 {
 		t.Fatal("clear/uninstall retained a rejected secret", err, secrets)
 	}
-	if _, err := m.Mutate(t.Context(), "obsidian", "install", nil); err != nil {
+	if _, err := m.Mutate(t.Context(), "brave-search", "install", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.ConfigureConnection(t.Context(), "obsidian", "FIRST_SYNTHETIC_TOKEN", "", false, nil); err != nil {
+	if _, err := m.ConfigureConnection(t.Context(), "brave-search", "FIRST_SYNTHETIC_TOKEN", "", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	confirmed := m.Selection().Servers[0].ConnectionRevision
@@ -280,11 +301,47 @@ func TestConnectionFailuresRemoveNewSecretsAndKeepConfirmedCredential(t *testing
 	defer server.Close()
 	ca := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
 	failCA = true
-	if _, err := m.ConfigureConnection(t.Context(), "obsidian", "SECOND_SYNTHETIC_TOKEN", ca, false, nil); err == nil {
+	if _, err := m.ConfigureConnection(t.Context(), "brave-search", "SECOND_SYNTHETIC_TOKEN", ca, false, nil); err == nil {
 		t.Fatal("failed CA write reported success")
 	}
-	if len(secrets) != 1 || secrets[secretKey(root, "obsidian", confirmed)] != "FIRST_SYNTHETIC_TOKEN" || m.Selection().Servers[0].ConnectionRevision != confirmed {
+	if len(secrets) != 1 || secrets[secretKey(root, "brave-search", confirmed)] != "FIRST_SYNTHETIC_TOKEN" || m.Selection().Servers[0].ConnectionRevision != confirmed {
 		t.Fatal("failed CA write lost confirmed credential or left new keys", secrets)
+	}
+}
+
+func TestObsidianUpdateReplacesOldMCPConnectionWithSkillOnly(t *testing.T) {
+	root := t.TempDir()
+	m, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := map[string]string{}
+	m.secrets = secretstore.Functions{
+		SaveFunc:   func(id, value string) error { secrets[id] = value; return nil },
+		LoadFunc:   func(id string) (string, error) { return secrets[id], nil },
+		DeleteFunc: func(id string) error { delete(secrets, id); return nil },
+	}
+	m.state.Revision = 7
+	m.state.Installed["obsidian"] = installed{Version: "1.0.0", Digest: "old-mcp-package", Enabled: true, Root: "1.0.0-old"}
+	m.state.Connections["obsidian"] = connectionRecord{Revision: 7, Configured: true, HasCA: true}
+	secrets[secretKey(root, "obsidian", 7)] = "OLD_SYNTHETIC_API_KEY"
+	secrets[secretKey(root, "obsidian", 7)+"-ca"] = "OLD_SYNTHETIC_CA"
+	if err := m.save(m.state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Mutate(t.Context(), "obsidian", "update", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(secrets) != 0 || m.state.Connections["obsidian"].Configured {
+		t.Fatal("old Obsidian API key or CA survived Skill migration")
+	}
+	selection := m.Selection()
+	if len(selection.Servers) != 0 || len(selection.SkillRoots) != 1 || filepath.Base(selection.SkillRoots[0]) != "obsidian-cli" {
+		t.Fatal("Obsidian update did not select only its Skill", selection)
+	}
+	reopened, err := Open(root)
+	if err != nil || len(reopened.Selection().Servers) != 0 || len(reopened.Selection().SkillRoots) != 1 {
+		t.Fatal("Skill-only migration did not survive reopen", err)
 	}
 }
 
