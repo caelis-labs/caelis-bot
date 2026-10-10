@@ -89,6 +89,10 @@ type sendResult struct {
 	Ret     *int `json:"ret"`
 	ErrCode int  `json:"errcode"`
 }
+type configResult struct {
+	Ret          *int   `json:"ret"`
+	TypingTicket string `json:"typing_ticket"`
+}
 type baseInfo struct {
 	ChannelVersion string `json:"channel_version"`
 	BotAgent       string `json:"bot_agent"`
@@ -163,6 +167,9 @@ func (p *protocol) call(ctx context.Context, method, path string, body any, resu
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("http_%d", resp.StatusCode)
 	}
+	if result == nil {
+		return nil
+	}
 	dec := json.NewDecoder(io.LimitReader(resp.Body, 2<<20))
 	dec.UseNumber()
 	if err := dec.Decode(result); err != nil {
@@ -200,4 +207,36 @@ func (p *protocol) send(ctx context.Context, owner, contextToken, clientID, text
 	var result sendResult
 	err := p.call(ctx, http.MethodPost, "/ilink/bot/sendmessage", map[string]any{"msg": msg, "base_info": info()}, &result, true)
 	return result, err
+}
+func (p *protocol) notify(ctx context.Context, started bool) error {
+	path := "/ilink/bot/msg/notifystop"
+	if started {
+		path = "/ilink/bot/msg/notifystart"
+	}
+	var result sendResult
+	if err := p.call(ctx, http.MethodPost, path, map[string]any{"base_info": info()}, &result, true); err != nil {
+		return err
+	}
+	if result.Ret != nil && *result.Ret != 0 {
+		return errors.New("notification_rejected")
+	}
+	return nil
+}
+func (p *protocol) getConfig(ctx context.Context, owner, contextToken string) (string, error) {
+	var result configResult
+	err := p.call(ctx, http.MethodPost, "/ilink/bot/getconfig", map[string]any{"ilink_user_id": owner, "context_token": contextToken, "base_info": info()}, &result, true)
+	if err != nil {
+		return "", err
+	}
+	if result.Ret == nil || *result.Ret != 0 {
+		return "", errors.New("config_rejected")
+	}
+	return result.TypingTicket, nil
+}
+func (p *protocol) sendTyping(ctx context.Context, owner, ticket string, active bool) error {
+	status := 2
+	if active {
+		status = 1
+	}
+	return p.call(ctx, http.MethodPost, "/ilink/bot/sendtyping", map[string]any{"ilink_user_id": owner, "typing_ticket": ticket, "status": status, "base_info": info()}, nil, true)
 }

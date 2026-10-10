@@ -4,7 +4,7 @@ import {useI18n} from './i18n';
 import type {MessageKey} from './i18n/catalogs';
 
 export type WeixinStatus={enabled:boolean;paired:boolean;phase:string;owner:string;bot:string;issue:string;qrImage:string;expiresAt:number};
-const issueKeys=new Set(['network','pairing_failed','storage','keychain','auth_expired','remote_error','backlog','input_uncertain','delivery_uncertain','send_rejected','untrusted_api_host']);
+const issueKeys=new Set(['network','pairing_failed','storage','keychain','auth_expired','session_cooldown','remote_error','backlog','input_uncertain','delivery_uncertain','send_rejected','untrusted_api_host']);
 const phases=new Set(['unconfigured','pairing','scanned','verify','blocked','expired','bound_elsewhere','confirm','connected','paused','attention']);
 function stateKey(phase:string):MessageKey{return `settings.weixinState_${phases.has(phase)?phase:'attention'}` as MessageKey}
 function issueKey(issue:string):MessageKey{return `settings.weixinIssue_${issueKeys.has(issue)?issue:'pairing_failed'}` as MessageKey}
@@ -12,10 +12,11 @@ function issueKey(issue:string):MessageKey{return `settings.weixinIssue_${issueK
 export function WeixinSettings({onBack,active=true}:{onBack?:()=>void;active?:boolean}){
  const {t}=useI18n();
  const [status,setStatus]=useState<WeixinStatus|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[code,setCode]=useState(''),[forget,setForget]=useState(false);
- const acting=useRef(false),alive=useRef(false);
+ const acting=useRef(false),alive=useRef(false),lastAuto=useRef(''),autoSuppressed=useRef(false),autoQRCount=useRef(0);
  useEffect(()=>{alive.current=true;const read=()=>{if(acting.current)return;void desktop<WeixinStatus>('WeixinStatus').then(s=>{if(alive.current)setStatus(s)}).catch(()=>{if(alive.current)setError('unavailable')})};read();const timer=window.setInterval(read,1500);return()=>{alive.current=false;clearInterval(timer)}},[]);
- useEffect(()=>{if(!active){setCode('');setForget(false)}},[active]);
- const act=async(method:string,...args:unknown[])=>{if(acting.current)return;acting.current=true;setBusy(true);setError('');try{setStatus(await desktop<WeixinStatus>(method,...args));setCode('');setForget(false)}catch{try{setStatus(await desktop<WeixinStatus>('WeixinStatus'))}catch{setError('unavailable')}}finally{acting.current=false;setBusy(false)}};
+ useEffect(()=>{if(!active){setCode('');setForget(false);autoSuppressed.current=false;lastAuto.current='';autoQRCount.current=0}},[active]);
+ const act=async(method:string,...args:unknown[])=>{if(acting.current)return;acting.current=true;setBusy(true);setError('');try{setStatus(await desktop<WeixinStatus>(method,...args));if(method==='ForgetWeixin')autoSuppressed.current=true;setCode('');setForget(false)}catch{try{setStatus(await desktop<WeixinStatus>('WeixinStatus'))}catch{setError('unavailable')}}finally{acting.current=false;setBusy(false)}};
+ useEffect(()=>{if(!active||!status||status.paired||autoSuppressed.current||!['unconfigured','expired'].includes(status.phase)||autoQRCount.current>=3)return;const key=`${status.phase}:${status.expiresAt}`;if(lastAuto.current===key)return;lastAuto.current=key;autoQRCount.current++;void act('StartWeixinPairing')},[active,status?.phase,status?.paired,status?.expiresAt]);
  const phase=status?.phase??'unconfigured';
  const issue=error||status?.issue||'';
  return <section className="telegram-page" aria-labelledby="weixin-title">

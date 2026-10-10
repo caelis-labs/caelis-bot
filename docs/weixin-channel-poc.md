@@ -11,26 +11,36 @@ MIT notices are bundled from `licenses/`.
 
 ## Scope and state
 
-Settings → Messaging → Weixin starts a five-minute QR session. The user scans
+Opening Settings → Messaging → Weixin starts a five-minute QR session and
+refreshes it after expiry while the page is open. The user scans
 with their own phone, enters a phone verification code if asked, then confirms
 the masked account on the Mac. One `ilink_bot_id` and the scanning
 `ilink_user_id` are accepted. The bearer token is in macOS Keychain under a
 root-specific account. `weixin.json` is a private atomic state file containing
 the account IDs, cursor, queued private text, context tokens, ingress receipt
 states and outbound intent ledger. The UI does not receive tokens or message
-contents from this state. Pausing cancels polling and sending while retaining
-pairing. Removing deletes local state and the local token; the protocol does
-not provide a verified server-side revocation operation.
+contents from this state. The client sends the upstream start/stop presence
+notifications when its connection starts or stops. Pausing cancels polling and
+sending while retaining pairing. Removing deletes local state and the local
+token; the protocol does not provide a verified server-side revocation operation.
+The upstream `-14` stale-session response enters a durable one-hour cooldown,
+then resumes polling without discarding the pairing or replaying uncertain sends.
 
 `getupdates` is the only input transport. Text from the confirmed owner in a
 direct chat enters `backend.SubmitRemote` with the original stable request ID.
 The inbox and cursor are saved together before dispatch. A dispatching request
 that loses its result is not sent again automatically. Completed assistant text
-is sent with `sendmessage` and a context token; chunks are at most 1,800 Unicode
-code points. An outbound intent is saved before HTTP dispatch. A timeout or
-missing result is marked uncertain, and that chunk and later chunks are not
-replayed. `ret=0` means the server accepted the request; it does not prove the
-phone displayed it. Approvals, groups, attachments, edits, webhook delivery,
+is sent with `sendmessage` and a context token; chunks are at most 1,200 UTF-8
+bytes and prefer whitespace or sentence boundaries. An outbound intent is saved
+before HTTP dispatch. A timeout or failed HTTP response is marked uncertain,
+and that chunk and later chunks are not replayed. A successful HTTP JSON
+response with absent `ret` follows the published client's success handling;
+it does not prove the phone displayed it. The adapter obtains a typing ticket
+from `getconfig` and renews `sendtyping` only while the paired user's main turn
+is active, cancelling it at turn end. Text still sends only as final messages;
+the upstream text builder uses `message_state=FINISH`, and the public protocol
+does not document safe in-place edits. Approvals, groups, attachments, edits,
+webhook delivery,
 proactive window guarantees and Windows credentials are outside this POC.
 
 Tencent's protocol document describes its current client and expressly does

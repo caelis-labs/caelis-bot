@@ -195,6 +195,18 @@ budget, independent of request cancellation. Exhausted candidates report a netwo
 failure. App-level DIRECT retains OS routing, including third-party TUN proxies.
 This selection happens before dispatch and does not replay uncertain HTTP writes.
 
+## Weixin text POC
+
+`internal/weixin` is a Go adapter for the published Tencent iLink JSON client
+protocol, pinned to the inspected `@tencent-weixin/openclaw-weixin@2.4.9`
+source. It shares the resident `backend.SubmitRemote` path with Telegram and
+keeps its own private cursor, owner-bound inbox, original ingress outcomes and
+outbound chunk intents. Keychain holds the bearer token. Pairing QR state lives
+only in memory; settings starts or refreshes it while visible. Start/stop
+presence and disposable typing requests are independent of message receipts.
+Only owner private text and final assistant text are in scope. A send with an
+unknown HTTP outcome is never replayed; see [POC scope](weixin-channel-poc.md).
+
 ## Remote machines
 
 The resident adapter remains local. `machines.Service` multiplexes the existing

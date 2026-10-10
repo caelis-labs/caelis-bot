@@ -44,6 +44,22 @@ func TestPublishedTextProtocolFixture(t *testing.T) {
 				t.Errorf("wrong send body: %#v", msg)
 			}
 			_, _ = w.Write([]byte(`{"ret":0,"errmsg":""}`))
+		case "/ilink/bot/msg/notifystart", "/ilink/bot/msg/notifystop":
+			_, _ = w.Write([]byte(`{"ret":0}`))
+		case "/ilink/bot/getconfig":
+			var req map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if req["ilink_user_id"] != "owner@im.wechat" || req["context_token"] != "ctx" {
+				t.Errorf("wrong config request")
+			}
+			_, _ = w.Write([]byte(`{"ret":0,"typing_ticket":"ticket"}`))
+		case "/ilink/bot/sendtyping":
+			var req map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if req["ilink_user_id"] != "owner@im.wechat" || req["typing_ticket"] != "ticket" || (req["status"] != float64(1) && req["status"] != float64(2)) {
+				t.Errorf("wrong typing request")
+			}
+			w.WriteHeader(http.StatusOK) // Official wrapper does not require a JSON body.
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
@@ -66,7 +82,23 @@ func TestPublishedTextProtocolFixture(t *testing.T) {
 	if err != nil || result.Ret == nil || *result.Ret != 0 {
 		t.Fatalf("send: %#v %v", result, err)
 	}
-	if len(paths) != 4 {
+	if err := p.notify(t.Context(), true); err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := p.getConfig(t.Context(), status.UserID, "ctx")
+	if err != nil || ticket != "ticket" {
+		t.Fatalf("config: %q %v", ticket, err)
+	}
+	if err := p.sendTyping(t.Context(), status.UserID, ticket, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.sendTyping(t.Context(), status.UserID, ticket, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.notify(t.Context(), false); err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 9 {
 		t.Fatalf("paths: %#v", paths)
 	}
 }

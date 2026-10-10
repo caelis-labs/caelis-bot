@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
@@ -55,6 +56,7 @@ type document struct {
 	Cursor        string              `json:"cursor"`
 	HasInput      bool                `json:"hasInput"`
 	ContextToken  string              `json:"contextToken,omitempty"`
+	PauseUntil    int64               `json:"pauseUntil,omitempty"`
 	InputContexts map[string]string   `json:"inputContexts,omitempty"`
 	Inbox         []inbound           `json:"inbox,omitempty"`
 	Inputs        map[string]string   `json:"inputs"`
@@ -113,6 +115,9 @@ func Open(root string, host Host) (*Bridge, error) {
 	if b.state.InputContexts == nil {
 		b.state.InputContexts = map[string]string{}
 	}
+	if b.state.PauseUntil > time.Now().UnixMilli() {
+		b.issue = "session_cooldown"
+	}
 	return b, nil
 }
 func (b *Bridge) saveLocked() error {
@@ -148,7 +153,7 @@ func (b *Bridge) Status() Status {
 	if phase == "" {
 		phase = "unconfigured"
 	}
-	if b.issue == "auth_expired" {
+	if b.issue == "auth_expired" || b.issue == "session_cooldown" {
 		phase = "attention"
 	}
 	if b.qrCode != "" && time.Now().After(b.expires) && b.candidate == nil {
@@ -404,17 +409,31 @@ func (b *Bridge) startLocked() {
 	b.done = done
 	b.mu.Unlock()
 	go func() {
+		b.mu.Lock()
+		pauseUntil := b.state.PauseUntil
+		b.mu.Unlock()
+		if remaining := time.Until(time.UnixMilli(pauseUntil)); remaining > 0 {
+			sleep(ctx, remaining)
+		}
+		if ctx.Err() != nil {
+			close(done)
+			return
+		}
+		work, stop := context.WithTimeout(ctx, 4*time.Second)
+		_ = p.notify(work, true)
+		stop()
 		var wg sync.WaitGroup
-		wg.Add(2)
+		wg.Add(3)
 		go func() { defer wg.Done(); b.receive(ctx, p) }()
 		go func() { defer wg.Done(); b.process(ctx, p) }()
+		go func() { defer wg.Done(); b.typing(ctx, p) }()
 		wg.Wait()
 		close(done)
 	}()
 }
 func (b *Bridge) stopLocked() {
 	b.mu.Lock()
-	cancel, done := b.cancel, b.done
+	cancel, done, client := b.cancel, b.done, b.client
 	b.cancel = nil
 	b.done = nil
 	b.client = nil
@@ -427,6 +446,9 @@ func (b *Bridge) stopLocked() {
 	if cancel != nil {
 		cancel()
 		<-done
+		work, stop := context.WithTimeout(context.Background(), 4*time.Second)
+		_ = client.notify(work, false)
+		stop()
 	}
 }
 func (b *Bridge) Pause() (Status, error) {
@@ -511,7 +533,12 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 	for ctx.Err() == nil {
 		b.mu.Lock()
 		cursor := b.state.Cursor
+		pauseUntil := b.state.PauseUntil
 		b.mu.Unlock()
+		if remaining := time.Until(time.UnixMilli(pauseUntil)); remaining > 0 {
+			sleep(ctx, remaining)
+			continue
+		}
 		work, stop := context.WithTimeout(ctx, pollTimeout)
 		result, err := p.getUpdates(work, cursor)
 		stop()
@@ -531,8 +558,12 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 		}
 		if result.Ret != 0 || result.ErrCode != 0 {
 			if result.Ret == -14 || result.ErrCode == -14 {
-				b.setIssue("auth_expired")
-				return
+				b.mu.Lock()
+				b.state.PauseUntil = time.Now().Add(time.Hour).UnixMilli()
+				b.issue = "session_cooldown"
+				_ = b.saveLocked()
+				b.mu.Unlock()
+				continue
 			}
 			b.setIssue("remote_error")
 			sleep(ctx, backoff)
@@ -546,7 +577,8 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 			pollTimeout = time.Duration(result.TimeoutMS)*time.Millisecond + 5*time.Second
 		}
 		b.mu.Lock()
-		oldCursor, oldInbox := b.state.Cursor, b.state.Inbox
+		oldCursor, oldInbox, oldPause := b.state.Cursor, b.state.Inbox, b.state.PauseUntil
+		b.state.PauseUntil = 0
 		if len(b.state.Inbox) > 100 {
 			b.issue = "backlog"
 			b.mu.Unlock()
@@ -580,16 +612,17 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 		if result.Cursor != "" {
 			b.state.Cursor = result.Cursor
 		}
-		if b.state.Cursor != oldCursor || len(b.state.Inbox) != len(oldInbox) {
+		if b.state.Cursor != oldCursor || len(b.state.Inbox) != len(oldInbox) || oldPause != 0 {
 			if b.saveLocked() != nil {
 				b.state.Cursor = oldCursor
 				b.state.Inbox = oldInbox
+				b.state.PauseUntil = oldPause
 				b.mu.Unlock()
 				sleep(ctx, 5*time.Second)
 				continue
 			}
 		}
-		if b.issue == "network" || b.issue == "remote_error" || b.issue == "backlog" {
+		if b.issue == "network" || b.issue == "remote_error" || b.issue == "backlog" || b.issue == "session_cooldown" {
 			b.issue = ""
 		}
 		b.mu.Unlock()
@@ -675,20 +708,34 @@ func (b *Bridge) dispatch(ctx context.Context) {
 func outputKey(item api.Item) string { return "item:" + item.ID }
 func chunks(s string) []string {
 	var result []string
-	runes := []rune(s)
-	for len(runes) > 0 {
-		n := len(runes)
-		if n > 1800 {
-			n = 1800
+	const limit = 1200 // UTF-8 bytes, below the upstream client's 4000-character limit.
+	for len(s) > 0 {
+		if len(s) <= limit {
+			result = append(result, s)
+			break
 		}
-		result = append(result, string(runes[:n]))
-		runes = runes[n:]
+		end, boundary := 0, 0
+		for index, r := range s {
+			_, width := utf8.DecodeRuneInString(s[index:])
+			if index+width > limit {
+				break
+			}
+			end = index + width
+			if end >= limit/2 && (r == '\n' || r == ' ' || r == '\t' || r == '。' || r == '！' || r == '？' || r == '；') {
+				boundary = end
+			}
+		}
+		if boundary > 0 {
+			end = boundary
+		}
+		result = append(result, s[:end])
+		s = s[end:]
 	}
 	return result
 }
 func (b *Bridge) output(ctx context.Context, p *protocol) {
 	b.mu.Lock()
-	blocked := b.issue == "auth_expired" || b.issue == "storage"
+	blocked := b.issue == "auth_expired" || b.issue == "storage" || b.state.PauseUntil > time.Now().UnixMilli()
 	b.mu.Unlock()
 	if blocked {
 		return
@@ -746,10 +793,10 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 			stop()
 			b.mu.Lock()
 			state := "accepted"
-			if err != nil || result.Ret == nil {
+			if err != nil {
 				state = "unknown"
 				b.issue = "delivery_uncertain"
-			} else if *result.Ret != 0 || result.ErrCode != 0 {
+			} else if (result.Ret != nil && *result.Ret != 0) || result.ErrCode != 0 {
 				state = "rejected"
 				b.issue = "send_rejected"
 			}
@@ -759,7 +806,9 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 			if state != "accepted" {
 				return
 			}
-			sleep(ctx, time.Second)
+			if index+1 < len(parts) {
+				sleep(ctx, time.Second)
+			}
 		}
 	}
 }

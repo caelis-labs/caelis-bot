@@ -2,6 +2,7 @@ package weixin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -110,6 +111,88 @@ func TestUnknownSubmitAndSendAreNeverReplayed(t *testing.T) {
 	}
 	if strings.Contains(string(body), "reply") || strings.Contains(string(body), "work") {
 		t.Fatalf("state included conversation content after processing")
+	}
+}
+
+func TestLongReplySendsEveryBoundedPartWhenSuccessOmitsRet(t *testing.T) {
+	var delivered []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Msg struct {
+				Items []messageItem `json:"item_list"`
+			} `json:"msg"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Msg.Items) != 1 {
+			t.Errorf("send body: %v", err)
+			return
+		}
+		part := req.Msg.Items[0].Text.Text
+		if len(part) > 1200 {
+			t.Errorf("oversize part: %d bytes", len(part))
+		}
+		delivered = append(delivered, part)
+		_, _ = w.Write([]byte(`{"errmsg":""}`))
+	}))
+	defer server.Close()
+	answer := strings.Repeat("你好世界。", 110)
+	snapshot := api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "long-answer", Kind: "assistant", Text: answer, Status: "completed"}}}
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.BotID, b.state.OwnerID, b.state.HasInput = "bot", "owner", true
+	p := &protocol{client: server.Client(), base: server.URL, token: "secret"}
+	b.output(t.Context(), p)
+	b.output(t.Context(), p)
+	if len(delivered) < 2 || strings.Join(delivered, "") != answer || b.issue == "delivery_uncertain" {
+		t.Fatalf("reply was truncated, repeated, or uncertain: parts=%d issue=%q", len(delivered), b.issue)
+	}
+	for i := range delivered {
+		if b.state.Outputs["item:long-answer:"+string(rune('0'+i))].State != "accepted" {
+			t.Fatalf("part %d not accepted", i)
+		}
+	}
+}
+
+func TestStaleSessionPersistsCooldownWithoutDiscardingPairing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ret":-14,"errcode":-14}`))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	b, err := Open(root, Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
+	b.state.BaseURL = defaultBase
+	if err := b.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		b.receive(ctx, &protocol{client: server.Client(), base: server.URL, token: "secret"})
+		close(done)
+	}()
+	deadline := time.After(2 * time.Second)
+	for b.Status().Issue != "session_cooldown" {
+		select {
+		case <-deadline:
+			cancel()
+			<-done
+			t.Fatal("cooldown not entered")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	cancel()
+	<-done
+	reloaded, err := Open(root, Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.state.BotID != "bot" || reloaded.state.PauseUntil <= time.Now().UnixMilli() || reloaded.Status().Issue != "session_cooldown" {
+		t.Fatalf("pairing or cooldown lost: bot=%q pause=%d issue=%q", reloaded.state.BotID, reloaded.state.PauseUntil, reloaded.Status().Issue)
 	}
 }
 
