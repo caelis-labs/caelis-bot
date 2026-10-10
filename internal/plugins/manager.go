@@ -48,17 +48,23 @@ type connectionRecord struct {
 	Revision   uint64
 	Configured bool
 	HasCA      bool
+	Mode       string `json:",omitempty"`
 	// Old OAuth relays read their grant for each RPC. Keep these generations
 	// until the Runtime confirms the replacement selection.
 	RetiredOAuth []uint64 `json:",omitempty"`
 }
 type ConnectionView struct {
-	Kind    string `json:"kind"`
-	State   string `json:"state"`
-	Stored  bool   `json:"stored,omitempty"`
-	HelpURL string `json:"helpUrl,omitempty"`
-	TrustCA bool   `json:"trustCA,omitempty"`
-	HasCA   bool   `json:"hasCA,omitempty"`
+	Kind           string `json:"kind"`
+	State          string `json:"state"`
+	Stored         bool   `json:"stored,omitempty"`
+	HelpURL        string `json:"helpUrl,omitempty"`
+	TrustCA        bool   `json:"trustCA,omitempty"`
+	HasCA          bool   `json:"hasCA,omitempty"`
+	Mode           string `json:"mode,omitempty"`
+	OAuthAvailable bool   `json:"oauthAvailable,omitempty"`
+	InstallURL     string `json:"installUrl,omitempty"`
+	OAuthError     bool   `json:"oauthError,omitempty"`
+	UserCode       string `json:"userCode,omitempty"`
 }
 
 type Item struct {
@@ -173,8 +179,11 @@ func openCatalog(root string, entries []Entry, sources map[string]fs.FS) (*Manag
 		}
 		seen[e.ID] = true
 		if spec := e.Connection; spec != nil {
-			if !serviceName.MatchString(spec.Server) || !strings.Contains("|api-key|token|oauth|", "|"+spec.Kind+"|") || spec.Kind != "oauth" && (!strings.Contains("|env|header|query|", "|"+spec.Placement+"|") || spec.Name == "") {
+			if !serviceName.MatchString(spec.Server) || !strings.Contains("|api-key|token|oauth|oauth-or-token|", "|"+spec.Kind+"|") || spec.Kind != "oauth" && (!strings.Contains("|env|header|query|", "|"+spec.Placement+"|") || spec.Name == "") || (spec.Kind == "oauth-or-token") != (spec.DeviceOAuth != nil) {
 				return nil, errors.New("invalid reviewed plugin connection")
+			}
+			if spec.DeviceOAuth != nil && (spec.DeviceOAuth.DeviceCodeURL != "https://github.com/login/device/code" || spec.DeviceOAuth.TokenURL != "https://github.com/login/oauth/access_token" || spec.DeviceOAuth.VerifyURL != "https://github.com/login/device" || !githubAppInstallURL(spec.DeviceOAuth.InstallURL)) {
+				return nil, errors.New("invalid reviewed OAuth provider")
 			}
 		}
 		for name, hash := range e.Files {
@@ -420,7 +429,7 @@ func (m *Manager) decorateConnection(item *Item, e Entry, st state) {
 	state := "not_configured"
 	if st.Connections[e.ID].Configured {
 		state = "configured"
-		if e.Connection.Kind == "oauth" {
+		if e.Connection.Kind == "oauth" || st.Connections[e.ID].Mode == "oauth" {
 			key := secretKey(m.root, e.ID, st.Connections[e.ID].Revision)
 			data, err := m.secrets.Load(key)
 			var grant OAuthGrant
@@ -429,14 +438,23 @@ func (m *Manager) decorateConnection(item *Item, e Entry, st state) {
 			}
 		}
 	}
-	if e.Connection.Kind == "oauth" {
+	if e.Connection.Kind == "oauth" || e.Connection.Kind == "oauth-or-token" {
 		if m.oauthFlows[e.ID] != nil {
 			state = "pending"
 		} else if m.oauthErrors[e.ID] && state != "configured" {
 			state = "authentication_required"
 		}
 	}
-	item.Connection = &ConnectionView{Kind: e.Connection.Kind, State: state, Stored: st.Connections[e.ID].Configured, HelpURL: e.Connection.HelpURL, TrustCA: e.Connection.TrustCA, HasCA: st.Connections[e.ID].HasCA}
+	view := &ConnectionView{Kind: e.Connection.Kind, State: state, Stored: st.Connections[e.ID].Configured, HelpURL: e.Connection.HelpURL, TrustCA: e.Connection.TrustCA, HasCA: st.Connections[e.ID].HasCA, Mode: st.Connections[e.ID].Mode}
+	if e.Connection.DeviceOAuth != nil {
+		view.OAuthAvailable = deviceClientID(e.Connection.DeviceOAuth) != "" && oauthNativeSupported
+		view.InstallURL = e.Connection.DeviceOAuth.InstallURL
+		view.OAuthError = m.oauthErrors[e.ID]
+		if flow := m.oauthFlows[e.ID]; flow != nil {
+			view.UserCode = flow.userCode
+		}
+	}
+	item.Connection = view
 }
 func (m *Manager) save(next state) error {
 	return localstate.WriteConfirmed(filepath.Join(m.root, "state.json"), next)
@@ -495,6 +513,11 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 			return m.snapshotLocked(), err
 		}
 		next.Installed[id] = installed{Version: e.Version, Digest: digest(e), Enabled: true, Root: rootName}
+		// The previous Obsidian package used an API key and a local CA.
+		// The official CLI Skill has no connection, so clear that record.
+		if id == "obsidian" && next.Connections[id].Configured {
+			next.Connections[id] = connectionRecord{Revision: next.Revision + 1}
+		}
 	case "enable":
 		if !has {
 			return m.snapshotLocked(), errors.New("plugin is not installed")
@@ -561,13 +584,13 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 	if action == "disable" || action == "uninstall" {
 		m.cancelOAuthLocked(id)
 	}
-	if action == "uninstall" && e.Connection != nil {
+	if (action == "uninstall" && e.Connection != nil) || ((action == "uninstall" || action == "update") && id == "obsidian") {
 		old := currentConnection
 		for _, revision := range old.RetiredOAuth {
 			_ = m.revokeOAuthKey(id, revision)
 		}
 		if old.Configured {
-			if e.Connection.Kind == "oauth" {
+			if (e.Connection != nil && e.Connection.Kind == "oauth") || old.Mode == "oauth" {
 				_ = m.revokeOAuthKey(id, old.Revision)
 			} else {
 				_ = m.secrets.Delete(secretKey(m.root, id, old.Revision))

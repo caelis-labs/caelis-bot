@@ -82,7 +82,7 @@ func runStdio(ctx context.Context, m *Manager, packageID, serverName string, in 
 		if !connection.Configured || connection.Revision != revision {
 			return errors.New("plugin connection is no longer active")
 		}
-		if e.Connection.Kind == "oauth" {
+		if e.Connection.Kind == "oauth" || connection.Mode == "oauth" {
 			bearer = func(callCtx context.Context, rejected string) (string, error) {
 				return m.oauthBearer(callCtx, packageID, revision, rejected)
 			}

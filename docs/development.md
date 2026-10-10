@@ -505,6 +505,40 @@ language persistence, simultaneous surfaces, minimum-size layout, pending approv
 failed-save drafts and connection progress. Run `make check`, owning race tests,
 `make smoke`, `make build` and the signing/notarization gates in [release.md](release.md).
 
+## Plugin connection acceptance
+
+For GitHub browser authorization, `caelis-labs` owns a public GitHub App with
+Device Flow enabled. The reviewed catalog contains its public Client ID and
+installation URL; no client secret or user token is embedded. Each user installs
+the app on selected repositories, then authorizes the device code in GitHub.
+The resulting user token is limited by the app's repository permissions, the selected
+repositories and the user's own access. GitHub's remote MCP service does not
+offer dynamic client registration. Settings also offers the existing personal
+access token path. Verify both the tool catalog and a safe repository read in
+Dev Bot; authorization alone can succeed without repository installation.
+The remote GitHub MCP selection uses its reviewed default endpoint. The app grants
+Contents, Issues and Pull requests read/write, with Metadata read; other repository,
+organization and account permissions are not requested. Existing installations
+must approve GitHub's permission update before write tools can succeed. Verify
+actual available tools before claiming the expanded capability, and use only safe
+read operations for Dev acceptance unless an exact write is separately authorized.
+
+For Obsidian, Bot Settings installs one reviewed Skill for the official desktop
+CLI; it contributes no MCP server or credential connection. Enable **Command
+line interface** under Obsidian Settings > General and keep Obsidian running.
+The Skill instructs Bot to target an explicit user-chosen vault, verify its
+name, and use the Runtime's normal command and approval flow. An unknown vault
+can be reported on stdout with exit code zero, so the exact CLI output matters.
+Verify that the Bot-private Skill is discoverable and loaded, then ask Dev Bot
+for a safe read-only operation against a dedicated Dev vault. A standalone CLI
+call or Skill fixture alone does not prove Bot execution. Ordinary sessions
+and Workers must not inherit this Bot plugin.
+
+Do not start two Dev Bot processes against the same data directory. When
+checking the existing Dev profile, use `script/build_and_run.sh --restart` only
+after the currently running Dev Bot has stopped, or use a separate disposable
+`CAELIS_BOT_DATA_DIR`.
+
 ## Remote machine acceptance
 
 `make build` embeds checksum-pinned Linux amd64/arm64 headless helpers in

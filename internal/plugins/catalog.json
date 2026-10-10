@@ -3543,20 +3543,27 @@
     {
       "id": "github",
       "title": "GitHub",
-      "version": "1.0.0",
-      "description": "Browse repositories, issues and pull requests",
+      "version": "1.1.0",
+      "description": "Read and update repository files, issues and pull requests",
       "source": "https://github.com/github/github-mcp-server",
       "connection": {
         "Server": "github",
-        "Kind": "token",
+        "Kind": "oauth-or-token",
         "Placement": "header",
         "Name": "Authorization",
         "Prefix": "Bearer ",
-        "HelpURL": "https://github.com/settings/personal-access-tokens"
+        "HelpURL": "https://github.com/settings/personal-access-tokens",
+        "DeviceOAuth": {
+          "ClientID": "Iv23liw1VAKbHxnxAZBE",
+          "InstallURL": "https://github.com/apps/caelis-bot-connector/installations/new",
+          "DeviceCodeURL": "https://github.com/login/device/code",
+          "TokenURL": "https://github.com/login/oauth/access_token",
+          "VerifyURL": "https://github.com/login/device"
+        }
       },
       "files": {
-        "plugin.json": "9e84f83de133a81a6993a42ab7044c4548600d78d4af9ebe4419ef6a272c1207",
-        "mcp.json": "9a7d68b406ba20114ef94da9e312973b36a8b903d4cae0453fd4e55ab797c3c0"
+        "plugin.json": "9a62241bae502366bbaad684939912fda909c1be0edea731070aeb2f264275f8",
+        "mcp.json": "5f82ee81a15e04fa3771fcaad49fc279a963895e2638d86b6c3fb5697718e608"
       }
     },
     {
@@ -3578,21 +3585,23 @@
     {
       "id": "obsidian",
       "title": "Obsidian",
-      "version": "1.0.0",
-      "description": "Work with notes through Obsidian Local REST API",
-      "source": "https://github.com/coddingtonbear/obsidian-local-rest-api",
-      "connection": {
-        "Server": "obsidian",
-        "Kind": "token",
-        "Placement": "header",
-        "Name": "Authorization",
-        "Prefix": "Bearer ",
-        "HelpURL": "https://github.com/coddingtonbear/obsidian-local-rest-api",
-        "TrustCA": true
+      "version": "2.0.0",
+      "description": "Use the official Obsidian CLI for notes and vault search",
+      "source": "https://obsidian.md/help/cli",
+      "display": {
+        "publisher": "Caelis labs",
+        "skills": {
+          "obsidian-cli": {
+            "nameEn": "Obsidian CLI",
+            "nameZh": "Obsidian 命令行",
+            "descriptionEn": "Read, search, and edit a chosen vault with Obsidian's own CLI.",
+            "descriptionZh": "使用 Obsidian 自带命令行操作选定的笔记库。"
+          }
+        }
       },
       "files": {
-        "plugin.json": "6e54d215b3aa3dc60e5ca39a849b031a2ed1ca775601763bada60dcf5ae8875b",
-        "mcp.json": "87b06144555a9deb6ec21aec9bd2de6d4c45fc0cc5f53da8cb0d17dc2673594e"
+        "plugin.json": "630817f57a51765b0d83aee97a697a4788af3e64c549cec6a4ba6d0309f4a909",
+        "skills/obsidian-cli/SKILL.md": "7e14d7ec9689d6b8f234f9b31c36593f9c90f564d716237bba5c912657119575"
       }
     },
     {

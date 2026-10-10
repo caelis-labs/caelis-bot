@@ -38,9 +38,18 @@ func (m *Manager) oauthBearer(ctx context.Context, id string, revision uint64, r
 		return grant.AccessToken, nil
 	}
 	if grant.RefreshToken == "" {
+		grant.AccessToken = ""
+		grant.TokenRevision++
+		replacement, _ := json.Marshal(grant)
+		if err := m.secrets.Save(key, string(replacement)); err != nil {
+			return "", errors.New("OAuth grant invalid; private store update failed")
+		}
 		return "", errors.New("OAuth authorization required")
 	}
-	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {grant.RefreshToken}, "client_id": {grant.ClientID}, "resource": {grant.Resource}}
+	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {grant.RefreshToken}, "client_id": {grant.ClientID}}
+	if grant.AuthMethod != "device" {
+		form.Set("resource", grant.Resource)
+	}
 	if grant.AuthMethod == "client_secret_post" {
 		form.Set("client_secret", grant.ClientSecret)
 	}
@@ -73,7 +82,7 @@ func (m *Manager) oauthBearer(ctx context.Context, id string, revision uint64, r
 		return "", errors.New("invalid OAuth refresh response")
 	}
 	if response.StatusCode != http.StatusOK || token.AccessToken == "" || !strings.EqualFold(token.TokenType, "Bearer") {
-		if token.Error == "invalid_grant" {
+		if token.Error == "invalid_grant" || token.Error == "bad_refresh_token" {
 			grant.AccessToken = ""
 			grant.RefreshToken = ""
 			grant.TokenRevision++

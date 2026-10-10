@@ -229,7 +229,7 @@ func TestPublicCorePluginProjectionKeepsPortableEnvironmentPrivate(t *testing.T)
 
 func TestCoreCredentialSelectionProjectsOnlyReference(t *testing.T) {
 	root := t.TempDir()
-	selection := plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "github", Name: "github", Root: filepath.Join(root, "versions", "github", "v1"), Data: filepath.Join(root, "data", "github"), Server: plugins.Server{Type: "streamable-http", URL: "https://api.githubcopilot.com/mcp/readonly"}, Connection: &plugins.ConnectionSpec{Server: "github", Kind: "token", Placement: "header", Name: "Authorization", Prefix: "Bearer "}, ConnectionRevision: 42}}}
+	selection := plugins.Selection{Servers: []plugins.SelectedServer{{PackageID: "github", Name: "github", Root: filepath.Join(root, "versions", "github", "v1"), Data: filepath.Join(root, "data", "github"), Server: plugins.Server{Type: "streamable-http", URL: "https://api.githubcopilot.com/mcp/"}, Connection: &plugins.ConnectionSpec{Server: "github", Kind: "token", Placement: "header", Name: "Authorization", Prefix: "Bearer "}, ConnectionRevision: 42}}}
 	servers, _, issues := corePlugins(selection, "/fixture/Bot", nil)
 	if len(issues) != 0 || len(servers) != 1 || len(servers[0].Args) != 6 || servers[0].Args[5] != "42" || servers[0].Transport != "stdio" {
 		t.Fatal(servers, issues)

@@ -462,6 +462,22 @@ func TestOAuthInvalidGrantAndReauthorizationRollback(t *testing.T) {
 	}
 }
 
+func TestOAuthRejectedNonrefreshableGrantRequiresReauthorization(t *testing.T) {
+	f := newOAuthFixture(t)
+	authorizeFixture(t, f)
+	revision := f.manager.state.Connections["fixture"].Revision
+	grant := f.grant(t)
+	grant.RefreshToken = ""
+	grant.ExpiresAt = time.Time{}
+	f.saveGrant(t, grant)
+	if _, err := f.manager.oauthBearer(t.Context(), "fixture", revision, grant.AccessToken); err == nil {
+		t.Fatal("rejected nonrefreshable token was accepted")
+	}
+	if f.grant(t).AccessToken != "" || connectionState(f.manager.Snapshot(), "fixture") != "authentication_required" {
+		t.Fatal("rejected token remained ready")
+	}
+}
+
 func TestOAuthReauthorizationDisableAndUninstall(t *testing.T) {
 	f := newOAuthFixture(t)
 	authorizeFixture(t, f)

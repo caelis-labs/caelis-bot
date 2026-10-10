@@ -40,6 +40,13 @@ type inspectingPluginEngine struct {
 	tools      []plugins.Tool
 }
 
+type trustBlockedPluginEngine struct {
+	*inspectingPluginEngine
+	snapshot api.Snapshot
+}
+
+func (e *trustBlockedPluginEngine) Snapshot() api.Snapshot { return e.snapshot }
+
 func (e *inspectingPluginEngine) BotPluginServer(context.Context, string) (plugins.ServerDetail, error) {
 	e.inspectMu.Lock()
 	defer e.inspectMu.Unlock()
@@ -268,16 +275,11 @@ func TestPluginIndexTracksAuthoritativeConnectedDirectory(t *testing.T) {
 	if _, err := a.PluginAction(t.Context(), "notes", "disable"); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		body, err = os.ReadFile(path)
-		if err == nil && string(body) == "{\"services\":[]}\n" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("disabled service retained: %d bytes, %v", len(body), err)
-		}
-		time.Sleep(10 * time.Millisecond)
+	// Disable queues an index worker; assert its result after that worker finishes.
+	a.workers.Wait()
+	body, err = os.ReadFile(path)
+	if err != nil || string(body) != "{\"services\":[]}\n" {
+		t.Fatalf("disabled service retained: %d bytes, %v", len(body), err)
 	}
 	if probes.Load() != 0 {
 		t.Fatal("routine index connected to standalone MCP", probes.Load())
@@ -395,6 +397,30 @@ func TestPluginDetailIsLazyAndRevisionScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	if detail, err := a.PluginServerDetail(t.Context(), "notes", "search", false); err != nil || detail.State != "disabled" || e.reads != 3 {
+		t.Fatal(detail, err, e.reads)
+	}
+}
+
+func TestPluginDetailShowsTrustBlockBeforePendingProjection(t *testing.T) {
+	manifest := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"notes","version":"1.0.0","description":"Find notes","author":{"name":"Example"}}`)
+	mcp := []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"search":{"type":"streamable-http","url":"https://example.com/mcp"}}}`)
+	files := fstest.MapFS{"packages/notes/plugin.json": {Data: manifest}, "packages/notes/mcp.json": {Data: mcp}}
+	hash := func(body []byte) string { sum := sha256.Sum256(body); return hex.EncodeToString(sum[:]) }
+	index := []byte(`{"name":"community","plugins":[{"name":"notes","source":{"source":"local","path":"./packages/notes"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"}}]}`)
+	m, err := plugins.OpenReviewedMarketplace(t.TempDir(), files, index, map[string]map[string]string{"notes": {"plugin.json": hash(manifest), "mcp.json": hash(mcp)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &trustBlockedPluginEngine{inspectingPluginEngine: &inspectingPluginEngine{gatedPluginEngine: &gatedPluginEngine{testEngine: newTestEngine()}}, snapshot: api.Snapshot{ConnectionIssue: "workspace_trust", Message: "organization policy denied Bot workspace trust"}}
+	a, _ := fixtureApp(t, e, Host{})
+	a.plugins = m
+	if _, err := a.PluginAction(t.Context(), "notes", "install"); err != nil {
+		t.Fatal(err)
+	}
+	a.started = true
+	a.pluginSyncRevision = 0 // Runtime assembly is still pending.
+	detail, err := a.PluginServerDetail(t.Context(), "notes", "search", false)
+	if err != nil || detail.State != "trust_blocked" || detail.Error != e.snapshot.Message || e.reads != 0 {
 		t.Fatal(detail, err, e.reads)
 	}
 }

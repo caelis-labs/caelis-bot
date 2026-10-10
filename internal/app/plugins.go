@@ -63,7 +63,16 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 		}
 	}
 	if !selected {
+		if item.Connection != nil && item.Connection.State == "authentication_required" {
+			return plugins.ServerDetail{State: "authentication_required", Tools: []plugins.Tool{}}, nil
+		}
+		if item.Connection != nil && item.Connection.Stored {
+			return plugins.ServerDetail{State: "not_started", Tools: []plugins.Tool{}, Error: "Saved connection is not in the active Bot Runtime selection"}, nil
+		}
 		return plugins.ServerDetail{State: "not_configured", Tools: []plugins.Tool{}}, nil
+	}
+	if runtime := a.engine.Snapshot(); runtime.ConnectionIssue == "workspace_trust" {
+		return plugins.ServerDetail{State: "trust_blocked", Tools: []plugins.Tool{}, Error: runtime.Message}, nil
 	}
 	a.mu.Lock()
 	started := a.started
@@ -95,7 +104,7 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 		var err error
 		detail, err = inspector.BotPluginServer(ctx, plugins.RuntimeName(id, server))
 		if err != nil {
-			return plugins.ServerDetail{State: "failed", Tools: []plugins.Tool{}}, nil
+			return plugins.ServerDetail{State: "failed", Error: "Could not read the Bot Runtime MCP directory", Tools: []plugins.Tool{}}, nil
 		}
 	}
 	if detail.State == "not_started" {
