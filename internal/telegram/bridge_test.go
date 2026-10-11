@@ -145,6 +145,18 @@ func TestTelegramSecretIngressLedgerContainsNoAnswerText(t *testing.T) {
 	if err != nil || b2.state.SecretPrompts[u.UpdateID] != id || len(b2.state.Ingress) != 1 || b2.state.Ingress[0].Message.Text != "" {
 		t.Fatalf("recovery marker: %v %#v", err, b2.state.SecretPrompts)
 	}
+	if err := control.Reconcile(api.Snapshot{Connection: "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	stale := message(19, 10, 20, "/answer "+id+" "+secret+"_AFTER_SETTLEMENT")
+	b.mu.Lock()
+	b.state.Ingress = append(b.state.Ingress, b.queuedUpdateLocked(stale))
+	err = b.saveLocked()
+	b.mu.Unlock()
+	stored, _ = os.ReadFile(b.path)
+	if err != nil || strings.Contains(string(stored), secret) || b.state.Ingress[1].Message.Text != "" || b.state.SecretPrompts[stale.UpdateID] != id {
+		t.Fatalf("stale secret answer entered durable inbox: %v %s", err, stored)
+	}
 }
 
 func TestTelegramOrdinaryQuotedReplyCarriesContextWithoutWrappingVisibleBody(t *testing.T) {

@@ -80,6 +80,14 @@ func TestWorkerAsyncQuestionItemAndTurnSummaryKeepNativeIdentity(t *testing.T) {
 		}},
 	})})
 	awaitState(t, s, func(api.Snapshot) bool { return len(s.WorkStates()[0].AsyncQuestions) == 2 })
+	// Replying to field one starts a continuation turn. Field two still belongs
+	// to the original async item and must remain visible to the owner.
+	s.mu.Lock()
+	s.binding.Tasks[v.ID].Run = "answer-continuation"
+	s.mu.Unlock()
+	if questions := s.WorkStates()[0].AsyncQuestions; len(questions) != 2 || questions[0].AsyncCallID == "" || questions[1].AsyncCallID == "" {
+		t.Fatalf("continuation hid original async fields: %+v", questions)
+	}
 	if got := s.WorkStates()[0].Task.Result; got != "" {
 		t.Fatal("async question became Worker result", got)
 	}

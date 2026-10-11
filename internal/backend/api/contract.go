@@ -100,6 +100,7 @@ type TaskPresentation struct {
 
 type QuestionCard struct {
 	ShortID string   `json:"shortId"`
+	Binding string   `json:"binding"`
 	Title   string   `json:"title"`
 	Options []string `json:"options"`
 	State   string   `json:"state"`

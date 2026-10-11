@@ -11,6 +11,15 @@ func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 	if !b.state.HasInput || b.state.OwnerID == "" {
 		return // a newly paired channel must not prime historical Turn replay
 	}
+	if b.state.AcceptedInputID == "" && snapshot.LastReceipt.Outcome == "accepted" && b.state.Inputs[snapshot.LastReceipt.ID] == "accepted" {
+		// An older ledger predates AcceptedInputID. Recover only from the
+		// original accepted ingress and the Runtime's matching receipt.
+		b.state.AcceptedInputID = snapshot.LastReceipt.ID
+		if b.saveLocked() != nil {
+			b.state.AcceptedInputID = ""
+			return
+		}
+	}
 	if !terminalTurn(snapshot.Phase) {
 		if snapshot.CurrentTurn != "" && b.state.ObservedTurn != snapshot.CurrentTurn {
 			old := b.state.ObservedTurn
@@ -21,7 +30,7 @@ func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 		}
 		return
 	}
-	turn := terminalSnapshotTurn(snapshot, b.state.Window.InputID, b.state.ObservedTurn)
+	turn := terminalSnapshotTurn(snapshot, b.state.AcceptedInputID, b.state.ObservedTurn)
 	if snapshot.Phase == "completed" && !completedReplyForTurn(snapshot.Items, turn) {
 		return
 	}

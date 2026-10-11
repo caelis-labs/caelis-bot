@@ -33,6 +33,7 @@ type Inbound struct {
 	Channel, Conversation, ID, Text string
 	Reference                       *Reference // transport supplied; quoted text is never authority
 	observed                        bool
+	expectedQuestionBinding         string // immutable desktop card generation; never inferred from prose
 }
 type Outbound struct{ Channel, Conversation, ID, Text string }
 type Notice struct {
@@ -64,6 +65,7 @@ type document struct {
 	Replies                    map[string]string              // original channel message ID -> immutable feedback
 	ReplyTimes                 map[string]int64               // Unix microseconds of the original feedback
 	Cards                      map[string]cardBinding         // confirmed transport message ID -> native prompt
+	SecretShortIDs             map[string]bool                `json:"secretShortIds,omitempty"` // bounded by the Q-number pool; protects stale bare answers after reuse
 	ReplyOrder                 []string
 	AsyncQuestions             map[string]asyncQuestion `json:"asyncQuestions,omitempty"`
 	AsyncActive                map[string]string        `json:"asyncActive,omitempty"` // item ID -> exact question fingerprint
@@ -89,7 +91,7 @@ func shortIDExpired(issuedAt int64) bool {
 
 func Open(root string, decide func(context.Context, api.Decision) error) (*Store, error) {
 	s := &Store{path: filepath.Join(root, "text-channel-control.json"), decide: decide, secretAnswers: map[string]map[string][]string{}}
-	s.state = document{Version: 1, Origins: map[string]Origin{}, Prompts: map[string]prompt{}, Claims: map[string]claim{}, Answers: map[string]map[string][]string{}, Replies: map[string]string{}, ReplyTimes: map[string]int64{}, Cards: map[string]cardBinding{}, AsyncQuestions: map[string]asyncQuestion{}, AsyncActive: map[string]string{}}
+	s.state = document{Version: 1, Origins: map[string]Origin{}, Prompts: map[string]prompt{}, Claims: map[string]claim{}, Answers: map[string]map[string][]string{}, Replies: map[string]string{}, ReplyTimes: map[string]int64{}, Cards: map[string]cardBinding{}, SecretShortIDs: map[string]bool{}, AsyncQuestions: map[string]asyncQuestion{}, AsyncActive: map[string]string{}}
 	b, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -105,6 +107,9 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 	}
 	if s.state.Cards == nil {
 		s.state.Cards = map[string]cardBinding{}
+	}
+	if s.state.SecretShortIDs == nil {
+		s.state.SecretShortIDs = map[string]bool{}
 	}
 	if s.state.ReplyTimes == nil {
 		s.state.ReplyTimes = map[string]int64{}
@@ -125,9 +130,19 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 	// migration rather than expiring all visible cards on the first restart.
 	migrated := false
 	for id, p := range s.state.Prompts {
+		if p.Secret && !s.state.SecretShortIDs[id] {
+			s.state.SecretShortIDs[id] = true
+			migrated = true
+		}
 		if p.IssuedAt == 0 {
 			p.IssuedAt = time.Now().Unix()
 			s.state.Prompts[id] = p
+			migrated = true
+		}
+	}
+	for _, card := range s.state.Cards {
+		if card.Secret && card.ShortID != "" && !s.state.SecretShortIDs[card.ShortID] {
+			s.state.SecretShortIDs[card.ShortID] = true
 			migrated = true
 		}
 	}
@@ -251,6 +266,7 @@ func (s *Store) Reconcile(snapshot api.Snapshot) error {
 	}
 	changed := false
 	previous := maps.Clone(s.state.Prompts)
+	previousSecret := maps.Clone(s.state.SecretShortIDs)
 	for id, p := range s.state.Prompts {
 		approval, exists := current[p.NativeID]
 		if exists && approval.Status == "pending" && approval.Owner == p.Owner && approval.TurnKey == p.TurnKey && catalogFingerprint(approval) == p.Schema && !shortIDExpired(p.IssuedAt) {
@@ -258,6 +274,9 @@ func (s *Store) Reconcile(snapshot api.Snapshot) error {
 		}
 		if s.state.Claims[p.NativeID].State == "unknown" {
 			continue
+		}
+		if p.Secret {
+			s.state.SecretShortIDs[id] = true
 		}
 		delete(s.state.Prompts, id)
 		changed = true
@@ -273,6 +292,7 @@ func (s *Store) Reconcile(snapshot api.Snapshot) error {
 	if changed {
 		if err := s.save(); err != nil {
 			s.state.Prompts = previous
+			s.state.SecretShortIDs = previousSecret
 			s.state.AsyncQuestions = previousAsync
 			return err
 		}
@@ -296,6 +316,13 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 		p.Fingerprint = hex.EncodeToString(h[:])
 		for id, old := range s.state.Prompts {
 			if old.NativeID == p.NativeID && old.QuestionID == p.QuestionID && old.Fingerprint == p.Fingerprint && !shortIDExpired(old.IssuedAt) {
+				if p.Secret && !s.state.SecretShortIDs[id] {
+					s.state.SecretShortIDs[id] = true
+					if err := s.save(); err != nil {
+						delete(s.state.SecretShortIDs, id)
+						return "", err
+					}
+				}
 				return id, nil
 			}
 		}
@@ -305,8 +332,15 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 			return "", err
 		}
 		s.state.Prompts[id] = p
+		wasSecret := s.state.SecretShortIDs[id]
+		if p.Secret {
+			s.state.SecretShortIDs[id] = true
+		}
 		if err := s.save(); err != nil {
 			delete(s.state.Prompts, id)
+			if p.Secret && !wasSecret {
+				delete(s.state.SecretShortIDs, id)
+			}
 			undo()
 			return "", err
 		}
@@ -625,23 +659,26 @@ func (s *Store) HasCardReference(in Inbound) bool {
 	return ok
 }
 
-// SecretPrompt identifies only Runtime-marked fields, including a real reply
-// to a confirmed card. Transports use it before persisting inbound text.
+// SecretPrompt keeps a previously marked answer out of ordinary persistent
+// ingress, even after the request settles or its short number is recycled.
+// An unknown /answer is conservatively private because its former field may
+// have been marked secret; this does not classify arbitrary prose as secret.
 func (s *Store) SecretPrompt(in Inbound) string {
 	parts := strings.Fields(in.Text)
 	if len(parts) >= 3 && parts[0] == "/answer" {
 		s.mu.Lock()
-		p := s.state.Prompts[parts[1]]
+		p, active := s.state.Prompts[parts[1]]
+		marked := s.state.SecretShortIDs[parts[1]]
 		s.mu.Unlock()
-		if p.Secret && p.QuestionID != "" {
+		if marked || !active || p.Secret && p.QuestionID != "" {
 			return parts[1]
 		}
 	}
 	if IsCommand(in.Text) {
 		return ""
 	}
-	b, p, ok := s.referencedPrompt(in)
-	if ok && b.Secret && (b.Ambiguous || p.Secret && p.QuestionID != "") {
+	b, _, ok := s.referencedPrompt(in)
+	if ok && b.Secret {
 		return b.ShortID
 	}
 	return ""
@@ -758,6 +795,9 @@ func (s *Store) Handle(ctx context.Context, in Inbound, snapshot api.Snapshot) s
 	_, async := s.state.AsyncQuestions[id]
 	prior := s.state.Claims[p.NativeID]
 	s.mu.Unlock()
+	if in.expectedQuestionBinding != "" && !async {
+		return s.reply(key, "这条问题卡片已失效，请使用最新卡片。")
+	}
 	if async && parts[0] == "/answer" {
 		return s.handleAsync(ctx, in, snapshot, id, key)
 	}

@@ -83,11 +83,13 @@ func TestScreenMediaRestoresPresentationWithoutChangingRuntime(t *testing.T) {
 	if err = os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	e.snapshot = api.Snapshot{Items: []api.Item{{Kind: "user", RequestID: input.ID, Text: raw}}}
+	e.snapshot = api.Snapshot{Items: []api.Item{{ID: "user-screen", Kind: "user", RequestID: input.ID, Text: raw, Status: "accepted"}}}
 	restored := NewService(e, nil, nil, nil, nil)
 	if err = ConfigureScreenMedia(restored, store); err != nil {
 		t.Fatal(err)
 	}
+	restored.ConfigureChat(filepath.Join(t.TempDir(), "chat.sqlite"))
+	restored.ObserveChat(e.snapshot)
 	view := restored.Snapshot().Items[0]
 	if view.Text != "Translate" || view.Screen == nil || view.Screen.Application != "Example browser" || len(view.Screen.Images) != 1 {
 		t.Fatal(view)

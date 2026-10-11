@@ -923,7 +923,7 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		if visible.Text == "" {
 			visible.Text = "[附件]"
 		}
-		b.host.RecordInput(visible, b.host.TextControl != nil && b.host.TextControl.SecretPrompt(controlIn) != "")
+		b.host.RecordInput(visible, lostSecretPrompt != "" || b.host.TextControl != nil && b.host.TextControl.SecretPrompt(controlIn) != "")
 	}
 	outcome := "handled"
 	switch command {

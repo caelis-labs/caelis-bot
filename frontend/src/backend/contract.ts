@@ -201,6 +201,7 @@ export interface Question {
 }
 export interface QuestionCard {
   shortId: string;
+  binding: string;
   title: string;
   options: Array<string>;
   state: string;

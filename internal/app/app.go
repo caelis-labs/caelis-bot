@@ -242,8 +242,8 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		feedback := app.textControl.Handle(ctx, textchannel.Inbound{Channel: "desktop", Conversation: "local", ID: input.ID, Text: input.Text}, service.Snapshot())
 		return api.Receipt{ID: input.ID, Outcome: "accepted", Message: feedback}, true, nil
 	})
-	service.SetQuestionAnswerer(func(ctx context.Context, shortID, value, requestID string) string {
-		return app.textControl.Handle(ctx, textchannel.Inbound{Channel: "desktop", Conversation: "local", ID: requestID, Text: "/answer " + shortID + " " + value}, service.Snapshot())
+	service.SetQuestionAnswerer(func(ctx context.Context, shortID, binding, value, requestID string) string {
+		return app.textControl.HandleDesktopQuestion(ctx, requestID, shortID, binding, value, service.Snapshot())
 	})
 	app.textControl.SetInboundObserver(func(in textchannel.Inbound) {
 		if origin, ok := app.textControl.OriginOf(in.ID); ok {

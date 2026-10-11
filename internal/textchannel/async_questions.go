@@ -78,6 +78,15 @@ func (s *Store) HandleBotWorkAnswer(ctx context.Context, requestID, shortID, val
 	return api.Receipt{ID: requestID, Outcome: outcome, Message: feedback}
 }
 
+// HandleDesktopQuestion requires the generation carried by the clicked card.
+// A recycled short number alone can never authorize an older desktop button.
+func (s *Store) HandleDesktopQuestion(ctx context.Context, requestID, shortID, binding, value string, snapshot api.Snapshot) string {
+	if binding == "" {
+		return "这条问题卡片已失效，请使用最新卡片。"
+	}
+	return s.Handle(ctx, Inbound{Channel: "desktop", Conversation: "local", ID: requestID, Text: "/answer " + shortID + " " + value, expectedQuestionBinding: binding}, snapshot)
+}
+
 func (s *Store) AsyncButtonItemIDs() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -217,7 +226,7 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 	item.Text = s.asyncCardTextLocked(item.ID, fingerprint)
 	item.QuestionCards = nil
 	for _, q := range s.asyncButtonQuestionsLocked(item.ID, fingerprint) {
-		item.QuestionCards = append(item.QuestionCards, api.QuestionCard{ShortID: q.ShortID, Title: q.Title, Options: q.Options, State: q.State})
+		item.QuestionCards = append(item.QuestionCards, api.QuestionCard{ShortID: q.ShortID, Binding: q.Fingerprint, Title: q.Title, Options: q.Options, State: q.State})
 	}
 	s.mu.Unlock()
 	item.AsyncCallID, item.AsyncQuestions = "", nil
@@ -284,6 +293,10 @@ func (s *Store) asyncCardTextLocked(itemID, fingerprint string) string {
 func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapshot, id, key string) string {
 	s.mu.Lock()
 	q := s.state.AsyncQuestions[id]
+	if in.expectedQuestionBinding != "" && in.expectedQuestionBinding != q.Fingerprint {
+		s.mu.Unlock()
+		return s.reply(key, "这条问题卡片已失效，请使用最新卡片。")
+	}
 	if q.State == "expired" || q.State == "" && shortIDExpired(q.IssuedAt) {
 		s.mu.Unlock()
 		return s.reply(key, "问题编号已过期，请查看最新问题。")
@@ -375,7 +388,7 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 	}
 	updated := api.Item{ID: q.ItemID, TurnKey: q.TurnKey, Kind: "assistant", Status: "completed", Text: s.asyncCardTextLocked(q.ItemID, q.Fingerprint)}
 	for _, question := range s.asyncButtonQuestionsLocked(q.ItemID, q.Fingerprint) {
-		updated.QuestionCards = append(updated.QuestionCards, api.QuestionCard{ShortID: question.ShortID, Title: question.Title, Options: question.Options, State: question.State})
+		updated.QuestionCards = append(updated.QuestionCards, api.QuestionCard{ShortID: question.ShortID, Binding: question.Fingerprint, Title: question.Title, Options: question.Options, State: question.State})
 	}
 	observer := s.onAsyncUpdate
 	s.mu.Unlock()

@@ -84,7 +84,13 @@ func (a *Application) answerWorkerQuestion(ctx context.Context, in textchannel.I
 			result, err := manager.SendTask(ctx, api.TaskMessage{ID: workID, RequestID: requestID, Prompt: modelInput})
 			outcome := result.Outcome
 			if outcome == "" {
-				outcome = "unknown"
+				if err != nil && result.ID == "" {
+					// SendTask rejected before dispatch. The original question
+					// stays available for a later answer attempt.
+					outcome = "rejected"
+				} else {
+					outcome = "unknown"
+				}
 			}
 			message := ""
 			if err != nil {

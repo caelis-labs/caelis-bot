@@ -51,14 +51,14 @@ func TestDesktopQuestionActionUsesControlWithoutTouchingDraft(t *testing.T) {
 	}
 	s.restarting = true
 	calls := 0
-	s.SetQuestionAnswerer(func(_ context.Context, shortID, answer, requestID string) string {
+	s.SetQuestionAnswerer(func(_ context.Context, shortID, binding, answer, requestID string) string {
 		calls++
-		if shortID != "Q7" || answer != "2" || requestID != "desktop-q7" {
-			t.Fatalf("changed answer identity: %s %s %s", shortID, answer, requestID)
+		if shortID != "Q7" || binding != "original-generation" || answer != "2" || requestID != "desktop-q7" {
+			t.Fatalf("changed answer identity: %s %s %s %s", shortID, binding, answer, requestID)
 		}
 		return "回答已提交，等待后续回复。"
 	})
-	if got := s.AnswerQuestion(t.Context(), "Q7", "2", "desktop-q7"); got != "回答已提交，等待后续回复。" || calls != 1 {
+	if got := s.AnswerQuestion(t.Context(), "Q7", "original-generation", "2", "desktop-q7"); got != "回答已提交，等待后续回复。" || calls != 1 {
 		t.Fatalf("%q, calls=%d", got, calls)
 	}
 	if got := s.Draft().Text; got != "unsent ordinary message" {

@@ -68,7 +68,7 @@ type Service struct {
 	consumeFiles                func([]string) error
 	submissionObserver          func(api.Submission, []api.InputFile, api.Receipt)
 	commandHandler              func(context.Context, api.Submission) (api.Receipt, bool, error)
-	questionAnswerer            func(context.Context, string, string, string) string
+	questionAnswerer            func(context.Context, string, string, string, string) string
 	controlNotices              func() ([]api.Item, uint64)
 	guardianNoticeAccepted      func(string) bool
 	openURL                     func(string) error
@@ -214,6 +214,9 @@ func (s *Service) Snapshot() api.Snapshot {
 	if s.chat != nil {
 		chatRevision := s.chat.Revision()
 		items, earlier := s.chat.Snapshot()
+		for i := range items {
+			items[i] = s.presentChatItem(items[i])
+		}
 		knownInput := make(map[string]bool, len(items))
 		for _, item := range items {
 			if item.Kind == "user" && item.RequestID != "" {
@@ -298,14 +301,19 @@ func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 	// Copy presentation items so native history and model context stay intact.
 	v.Items = append([]api.Item(nil), v.Items...)
 	for i := range v.Items {
-		v.Items[i] = screeninput.Present(v.Items[i])
-		if v.Items[i].Screen != nil {
-			v.Items[i].Screen.Images = s.screenMedia.Images(v.Items[i].RequestID)
-		} else if v.Items[i].Kind == "user" {
-			v.Items[i].Media = s.messageMedia.Presentation(v.Items[i].RequestID)
-		}
+		v.Items[i] = s.presentChatItem(v.Items[i])
 	}
 	return s.presentation(v)
+}
+
+func (s *Service) presentChatItem(item api.Item) api.Item {
+	item = screeninput.Present(item)
+	if item.Screen != nil {
+		item.Screen.Images = s.screenMedia.Images(item.RequestID)
+	} else if item.Kind == "user" {
+		item.Media = s.messageMedia.Presentation(item.RequestID)
+	}
+	return item
 }
 func (s *Service) SetBotStatus(f func() string) { s.mu.Lock(); s.botStatus = f; s.mu.Unlock() }
 
@@ -660,16 +668,16 @@ func (s *Service) SetCommandHandler(handler func(context.Context, api.Submission
 
 // AnswerQuestion is the desktop's direct control entry. The shared text
 // controller still owns the short reference, original request and receipt.
-func (s *Service) AnswerQuestion(ctx context.Context, shortID, value, requestID string) string {
+func (s *Service) AnswerQuestion(ctx context.Context, shortID, binding, value, requestID string) string {
 	s.mu.Lock()
 	answer := s.questionAnswerer
 	s.mu.Unlock()
-	if answer == nil || requestID == "" || shortID == "" {
+	if answer == nil || requestID == "" || shortID == "" || binding == "" {
 		return "问题暂不可用。"
 	}
-	return answer(ctx, shortID, value, requestID)
+	return answer(ctx, shortID, binding, value, requestID)
 }
-func (s *Service) SetQuestionAnswerer(answer func(context.Context, string, string, string) string) {
+func (s *Service) SetQuestionAnswerer(answer func(context.Context, string, string, string, string) string) {
 	s.mu.Lock()
 	s.questionAnswerer = answer
 	s.mu.Unlock()

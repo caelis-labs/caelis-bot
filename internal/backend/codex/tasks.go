@@ -154,9 +154,8 @@ func (s *Session) WorkStates() []api.WorkState {
 		}
 		state := api.WorkState{Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
 		for key, question := range t.AsyncQuestions {
-			if question.Run != t.Run {
-				continue
-			}
+			// A reply starts a new native turn, but unanswered fields in the
+			// original async item remain addressable by their original call ID.
 			state.AsyncQuestions = append(state.AsyncQuestions, api.Item{ID: "worker-question:" + opaque(t.Thread, key), TurnKey: opaque(t.Thread, question.Run), Kind: "assistant", Status: "completed", AsyncCallID: question.CallID, AsyncQuestions: append([]api.AsyncQuestion(nil), question.Questions...)})
 		}
 		sort.Slice(state.AsyncQuestions, func(i, j int) bool { return state.AsyncQuestions[i].ID < state.AsyncQuestions[j].ID })

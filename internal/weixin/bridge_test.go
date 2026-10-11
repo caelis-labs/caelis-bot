@@ -18,6 +18,7 @@ import (
 
 func freshWindow(b *Bridge, id string) {
 	b.state.HasInput = true
+	b.state.AcceptedInputID = id
 	b.state.ContextToken = "ctx"
 	b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: id, ContextToken: "ctx", InputAt: time.Now().UnixMilli()}
 }
@@ -90,6 +91,42 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	b.output(t.Context(), p)
 	if len(texts) != 1 {
 		t.Fatalf("terminal mirror: %#v", texts)
+	}
+}
+
+func TestRecoveryBlockedOrdinaryInputDoesNotBlockLaterControl(t *testing.T) {
+	control, err := textchannel.Open(t.TempDir(), func(_ context.Context, d api.Decision) error {
+		if d.ID != "native-approval" || d.Choice != "allow" {
+			t.Fatalf("wrong decision: %+v", d)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := api.Approval{ID: "native-approval", Owner: "conversation", TurnKey: "turn", Status: "pending", Choices: []api.Choice{{ID: "allow", Label: "允许"}}}
+	if _, _, err := control.Card(approval); err != nil {
+		t.Fatal(err)
+	}
+	recovering := true
+	submits := 0
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready", Approvals: []api.Approval{approval}} }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: recovering} }, TextControl: control, Submit: func(_ context.Context, input api.Submission, _ []api.InputFile) (api.Receipt, error) {
+		submits++
+		return api.Receipt{ID: input.ID, Outcome: "accepted"}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.OwnerID = "owner"
+	b.state.Inbox = []inbound{{ID: "ordinary", Text: "hello", ContextToken: "ctx"}, {ID: "control", Text: "/approve A1 1", ContextToken: "ctx"}}
+	b.dispatch(t.Context())
+	if len(b.state.Inbox) != 1 || b.state.Inbox[0].ID != "ordinary" || submits != 0 || b.state.Inputs["control"] != "handled" {
+		t.Fatalf("control stalled behind recovery: inbox=%+v inputs=%+v submits=%d", b.state.Inbox, b.state.Inputs, submits)
+	}
+	recovering = false
+	b.dispatch(t.Context())
+	if len(b.state.Inbox) != 0 || submits != 1 || b.state.AcceptedInputID != "ordinary" {
+		t.Fatalf("ordinary order did not resume: inbox=%+v submits=%d accepted=%q", b.state.Inbox, submits, b.state.AcceptedInputID)
 	}
 }
 

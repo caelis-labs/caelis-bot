@@ -76,6 +76,42 @@ func TestMultiQuestionQuotedNumberIsAmbiguousAndSecretReplyIsMarked(t *testing.T
 	}
 }
 
+func TestSettledSecretAnswerRemainsPrivateAfterReconcileAndNumberReuse(t *testing.T) {
+	root := t.TempDir()
+	s, err := Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := api.Approval{ID: "password", Owner: "task", Status: "pending", Questions: []api.Question{{ID: "pin", Type: "text", Required: true, Secret: true}}}
+	_, id, err := s.Card(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BindCard("telegram", "chat", "card", secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Reconcile(api.Snapshot{Connection: "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := Inbound{Channel: "telegram", Conversation: "chat", Text: "/answer " + id + " PRIVATE"}
+	quoted := Inbound{Channel: "telegram", Conversation: "chat", Text: "PRIVATE", Reference: &Reference{Conversation: "chat", MessageID: "card"}}
+	if s.SecretPrompt(command) != id || s.SecretPrompt(quoted) != id {
+		t.Fatal("settled secret answer lost its durable privacy marker")
+	}
+	s.mu.Lock()
+	s.state.NextQuestion = 0 // exercise the documented short-number ring reuse
+	s.mu.Unlock()
+	ordinary := api.Approval{ID: "new-question", Owner: "task", Status: "pending", Questions: []api.Question{{ID: "name", Type: "text", Required: true}}}
+	_, reused, err := s.Card(ordinary)
+	if err != nil || reused != id || s.SecretPrompt(command) != id {
+		t.Fatalf("old secret command exposed after reuse: %s %v", reused, err)
+	}
+}
+
 func TestChangedApprovalTargetInvalidatesOldTextAndReference(t *testing.T) {
 	s, _ := Open(t.TempDir(), func(context.Context, api.Decision) error { t.Fatal("stale decision dispatched"); return nil })
 	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Target: "repo/old", Choices: []api.Choice{{ID: "allow", Label: "允许"}}}

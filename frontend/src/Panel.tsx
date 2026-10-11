@@ -83,10 +83,16 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     {value.details && <details open={!value.action}><summary>{t('chat.approvalDetails')}</summary><pre>{value.details}</pre></details>}
     {value.sections?.map((section,index)=><details key={index} open={!value.action}><summary>{approvalText(locale,section.titleKey,t('chat.approvalDetails'))}</summary><pre>{section.text}</pre></details>)}
     {value.url && <button className="text-action" disabled={!enabled} onClick={() => void backend('OpenApprovalURL',value.id).catch(() => setError(t('chat.approvalLinkExpired')))}>{t('chat.approvalOpenUrl')}</button>}
-    {(value.questions ?? []).map(q => <div className="question" key={q.id}><label htmlFor={`question-${q.id}`}>{q.title}{q.required && <span aria-label={t('chat.required')}> *</span>}</label>
-      {(q.options.length>0||q.type==='boolean')?<div className="question-options">{(q.options.length>0?q.options:[{id:'true',label:t('chat.yes')},{id:'false',label:t('chat.no')}]).map(o => <button type="button" key={o.id} disabled={!enabled} aria-pressed={(answers[q.id]??[]).includes(o.id)} onClick={() => { const current=answers[q.id]??[]; setAnswers({ ...answers, [q.id]: q.multiple ? current.includes(o.id)?current.filter(id=>id!==o.id):[...current,o.id] : [o.id] }); }}>{o.label}</button>)}</div>:
-       <input id={`question-${q.id}`} type={q.secret ? 'password' : q.type === 'number' || q.type === 'integer' ? 'number' : 'text'} disabled={!enabled} value={answers[q.id]?.[0] ?? ''} onChange={e => setAnswers({ ...answers, [q.id]:[e.target.value] })} />}
-    </div>)}
+    {(value.questions ?? []).map(q => {
+      const options = q.options.length>0?q.options:q.type==='boolean'?[{id:'true',label:t('chat.yes')},{id:'false',label:t('chat.no')}]:[];
+      const current = answers[q.id]??[];
+      const freeText = q.type==='text' || options.length===0;
+      const custom = current.find(answer=>!options.some(option=>option.id===answer))??'';
+      return <div className="question" key={q.id}><label htmlFor={freeText?`question-${q.id}`:undefined}>{q.title}{q.required && <span aria-label={t('chat.required')}> *</span>}</label>
+        {options.length>0&&<div className="question-options">{options.map(o => <button type="button" key={o.id} disabled={!enabled} aria-pressed={current.includes(o.id)} onClick={() => setAnswers({ ...answers, [q.id]: q.multiple ? current.includes(o.id)?current.filter(id=>id!==o.id):[...current,o.id] : [o.id] })}>{o.label}</button>)}</div>}
+        {freeText&&<input id={`question-${q.id}`} type={q.secret ? 'password' : q.type === 'number' || q.type === 'integer' ? 'number' : 'text'} disabled={!enabled} value={custom} onChange={e => { const selected=q.multiple?current.filter(answer=>options.some(option=>option.id===answer)):[]; setAnswers({ ...answers, [q.id]:e.target.value?[...selected,e.target.value]:selected }); }} />}
+      </div>;
+    })}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {value.status === 'pending' ? <>
       <div className="approval-choices">{value.choices.map(c => c.scope === 'rule' || c.scope === 'conversation' ?
@@ -103,7 +109,7 @@ function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>void}) {
   if(busy||done||!answer.trim())return;
   setBusy(true);setError('');
   try {
-   const feedback=await backend<string>('AnswerQuestion',card.shortId,answer,crypto.randomUUID());
+   const feedback=await backend<string>('AnswerQuestion',card.shortId,card.binding,answer,crypto.randomUUID());
    if(feedback==='回答已提交，等待后续回复。'||feedback==='回答已提交，不会重复发送。'){setAccepted(true);refresh();}
    else setError(feedback);
   } catch(e) {setError(e instanceof Error?e.message:t('chat.approvalFailed'));}
@@ -117,7 +123,7 @@ function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>void}) {
   {error&&<small className="inline-error" role="alert">{error}</small>}
  </section>;
 }
-type MessageProps={ item: Item; report: (message: string) => void; onContextMenu:(item:Item,x:number,y:number)=>void; onQuotePreview:(quote:QuotedMessage)=>void; onQuestion:(shortId:string)=>void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
+type MessageProps={ item: Item; report: (message: string) => void; onContextMenu:(item:Item,x:number,y:number)=>void; onQuotePreview:(quote:QuotedMessage)=>void; onQuestion:(shortId:string,binding:string)=>void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
 const Message=memo(function Message({ item, report, onContextMenu, onQuotePreview, onQuestion, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
@@ -127,7 +133,7 @@ const Message=memo(function Message({ item, report, onContextMenu, onQuotePrevie
    {(item.kind==='assistant'||item.kind==='controlNotice')&&<BotAvatar animate={animate} clip={clip}/>}
    <div className={`message ${item.kind==='controlNotice'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
     {item.quoted?.text&&<button type="button" className="sent-quote" onClick={()=>onQuotePreview(item.quoted!)}><span>{item.quoted.text}</span></button>}
-    {item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-summary">{item.questionCards.map(card=>card.state?<p key={card.shortId}>{card.title}<span>{card.state==='accepted'?t('chat.questionAnswered'):t('chat.questionUnknown')}</span></p>:<button type="button" key={card.shortId} onClick={()=>onQuestion(card.shortId)}>{card.title}<CaretRightIcon size={14} aria-hidden="true"/></button>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
+    {item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-summary">{item.questionCards.map(card=>card.state?<p key={card.shortId+card.binding}>{card.title}<span>{card.state==='accepted'?t('chat.questionAnswered'):t('chat.questionUnknown')}</span></p>:<button type="button" key={card.shortId+card.binding} onClick={()=>onQuestion(card.shortId,card.binding)}>{card.title}<CaretRightIcon size={14} aria-hidden="true"/></button>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
     {!!item.artifacts?.length&&<div className="artifacts">{item.artifacts.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}</div>}
     {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
     {delivery&&<small className="message-delivery pending" role="status">{delivery}</small>}
@@ -504,12 +510,12 @@ export function History() {
  const prompts=snapshot?.approvals.filter(p=>p.status==='pending')??[];
  const interactions: Array<{key:string;kind:'approval';approval:Approval}|{key:string;kind:'question';card:QuestionCard}>=[
   ...prompts.map(approval=>({key:`approval:${approval.id}`,kind:'approval' as const,approval})),
-  ...(snapshot?.items??[]).flatMap(item=>(item.questionCards??[]).filter(card=>!card.state).map(card=>({key:`question:${card.shortId}`,kind:'question' as const,card}))),
+  ...(snapshot?.items??[]).flatMap(item=>(item.questionCards??[]).filter(card=>!card.state&&!!card.binding).map(card=>({key:`question:${card.shortId}:${card.binding}`,kind:'question' as const,card}))),
  ];
  const currentInteraction=Math.min(interactionIndex,Math.max(0,interactions.length-1));
  const interactionKey=interactions.map(entry=>entry.key).join('|');
- const openQuestion=useCallback((shortId:string)=>{
-  const index=interactions.findIndex(entry=>entry.key===`question:${shortId}`);
+ const openQuestion=useCallback((shortId:string,binding:string)=>{
+  const index=interactions.findIndex(entry=>entry.key===`question:${shortId}:${binding}`);
   if(index>=0){setInteractionIndex(index);setInteractionOpen(true);}
  },[interactionKey]);
  useEffect(()=>{

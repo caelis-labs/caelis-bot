@@ -72,7 +72,7 @@ func TestAnsweredAsyncNumberCanBeReusedForNewQuestion(t *testing.T) {
 		return api.Receipt{Outcome: "accepted"}, nil
 	})
 	old := api.Item{ID: "old-item", TurnKey: "old-turn", Kind: "assistant", AsyncCallID: "old-call", AsyncQuestions: []api.AsyncQuestion{{Title: "旧问题", Options: []string{"旧答案"}}}}
-	_, _ = s.AsyncCard(old, "owner")
+	oldCardBeforeReuse, _ := s.AsyncCard(old, "owner")
 	if got := s.Handle(t.Context(), Inbound{Channel: "telegram", Conversation: "paired", ID: "old-reply", Text: "/answer Q1 1"}, api.Snapshot{RuntimeOwner: "owner", Connection: "ready"}); !strings.Contains(got, "已提交") {
 		t.Fatal(got)
 	}
@@ -81,6 +81,18 @@ func TestAnsweredAsyncNumberCanBeReusedForNewQuestion(t *testing.T) {
 	card, err := s.AsyncCard(fresh, "owner")
 	if err != nil || len(card.QuestionCards) != 1 || card.QuestionCards[0].ShortID != "Q1" || !strings.Contains(card.Text, "[Q1] 新问题") {
 		t.Fatal(card, err)
+	}
+	var dispatched int
+	s.SetAsyncAnswerer(func(_ context.Context, _ Inbound, _ string) (api.Receipt, error) {
+		dispatched++
+		return api.Receipt{Outcome: "accepted"}, nil
+	})
+	snapshot := api.Snapshot{RuntimeOwner: "owner", Connection: "ready"}
+	if feedback := s.HandleDesktopQuestion(t.Context(), "old-desktop-click", "Q1", oldCardBeforeReuse.QuestionCards[0].Binding, "1", snapshot); !strings.Contains(feedback, "已失效") || dispatched != 0 {
+		t.Fatalf("old desktop card answered recycled Q1: %q, dispatches=%d", feedback, dispatched)
+	}
+	if feedback := s.HandleDesktopQuestion(t.Context(), "new-desktop-click", "Q1", card.QuestionCards[0].Binding, "2", snapshot); !strings.Contains(feedback, "已提交") || dispatched != 1 {
+		t.Fatalf("current desktop card failed: %q, dispatches=%d", feedback, dispatched)
 	}
 	oldCard, err := s.AsyncCard(old, "owner")
 	if err != nil || len(oldCard.QuestionCards) != 0 || oldCard.Text != "问题已处理或过期。" || s.state.AsyncQuestions["Q1"].ItemID != fresh.ID {

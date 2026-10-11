@@ -72,27 +72,28 @@ type sendWindow struct {
 	Exhausted    bool   `json:"exhausted,omitempty"`
 }
 type document struct {
-	Version       int                 `json:"version"`
-	Enabled       bool                `json:"enabled"`
-	BotID         string              `json:"botId"`
-	OwnerID       string              `json:"ownerId"`
-	BaseURL       string              `json:"baseURL"`
-	Cursor        string              `json:"cursor"`
-	HasInput      bool                `json:"hasInput"`
-	ContextToken  string              `json:"contextToken,omitempty"`
-	Window        sendWindow          `json:"window,omitempty"`
-	PendingFinal  string              `json:"pendingFinal,omitempty"`
-	ObservedTurn  string              `json:"observedTurn,omitempty"`
-	Missed        int                 `json:"missed,omitempty"`
-	TurnPhases    map[string]string   `json:"turnPhases,omitempty"`
-	TurnOrder     []string            `json:"turnOrder,omitempty"`
-	PauseUntil    int64               `json:"pauseUntil,omitempty"`
-	InputContexts map[string]string   `json:"inputContexts,omitempty"`
-	Inbox         []inbound           `json:"inbox,omitempty"`
-	Inputs        map[string]string   `json:"inputs"`
-	Outputs       map[string]outbound `json:"outputs"`
-	MirrorV2      bool                `json:"mirrorV2,omitempty"`
-	LocalIMSeeded bool                `json:"localImSeeded,omitempty"`
+	Version         int                 `json:"version"`
+	Enabled         bool                `json:"enabled"`
+	BotID           string              `json:"botId"`
+	OwnerID         string              `json:"ownerId"`
+	BaseURL         string              `json:"baseURL"`
+	Cursor          string              `json:"cursor"`
+	HasInput        bool                `json:"hasInput"`
+	AcceptedInputID string              `json:"acceptedInputId,omitempty"` // actual last accepted submit, independent of the newest receive window
+	ContextToken    string              `json:"contextToken,omitempty"`
+	Window          sendWindow          `json:"window,omitempty"`
+	PendingFinal    string              `json:"pendingFinal,omitempty"`
+	ObservedTurn    string              `json:"observedTurn,omitempty"`
+	Missed          int                 `json:"missed,omitempty"`
+	TurnPhases      map[string]string   `json:"turnPhases,omitempty"`
+	TurnOrder       []string            `json:"turnOrder,omitempty"`
+	PauseUntil      int64               `json:"pauseUntil,omitempty"`
+	InputContexts   map[string]string   `json:"inputContexts,omitempty"`
+	Inbox           []inbound           `json:"inbox,omitempty"`
+	Inputs          map[string]string   `json:"inputs"`
+	Outputs         map[string]outbound `json:"outputs"`
+	MirrorV2        bool                `json:"mirrorV2,omitempty"`
+	LocalIMSeeded   bool                `json:"localImSeeded,omitempty"`
 }
 type Bridge struct {
 	configMu                      sync.Mutex
@@ -717,7 +718,8 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		b.mu.Unlock()
 		return
 	}
-	in := b.state.Inbox[0]
+	index := 0
+	in := b.state.Inbox[index]
 	secretText := b.secretInbox[in.ID]
 	controlIn := textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID, Text: in.Text}
 	control := in.Secret || textchannel.IsCommand(in.Text)
@@ -725,8 +727,24 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		snapshot := b.host.Snapshot()
 		recovery := b.host.Recovery()
 		if snapshot.Connection != "ready" && snapshot.Connection != "connected" || recovery.Automatic || recovery.InProgress || recovery.Manual {
-			b.mu.Unlock()
-			return
+			// Keep ordinary input in order, but let an explicit control
+			// command reach its original pending request during recovery.
+			index = -1
+			for i := 1; i < len(b.state.Inbox); i++ {
+				candidate := b.state.Inbox[i]
+				if candidate.Secret || textchannel.IsCommand(candidate.Text) {
+					index = i
+					break
+				}
+			}
+			if index < 0 {
+				b.mu.Unlock()
+				return
+			}
+			in = b.state.Inbox[index]
+			secretText = b.secretInbox[in.ID]
+			controlIn = textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID, Text: in.Text}
+			control = true
 		}
 	}
 	if state := b.state.Inputs[in.ID]; state != "" && state != "queued" {
@@ -734,7 +752,7 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 			b.host.TextControl.RecoverSecretInput(textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID}, in.PromptID)
 		}
 		delete(b.secretInbox, in.ID)
-		b.state.Inbox = b.state.Inbox[1:]
+		b.state.Inbox = append(b.state.Inbox[:index], b.state.Inbox[index+1:]...)
 		_ = b.saveLocked()
 		b.mu.Unlock()
 		if in.Secret && len(transports) > 0 && transports[0] != nil {
@@ -779,7 +797,7 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		b.mu.Lock()
 		delete(b.secretInbox, in.ID)
 		b.state.Inputs[in.ID] = "handled"
-		b.state.Inbox = b.state.Inbox[1:]
+		b.state.Inbox = append(b.state.Inbox[:index], b.state.Inbox[index+1:]...)
 		_ = b.saveLocked()
 		b.mu.Unlock()
 		return
@@ -792,7 +810,7 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		if err := b.host.TextControl.RecordOrigin(in.ID, textchannel.Origin{Channel: "weixin", Conversation: conversation}); err != nil {
 			b.mu.Lock()
 			b.state.Inputs[in.ID] = "rejected"
-			b.state.Inbox = b.state.Inbox[1:]
+			b.state.Inbox = append(b.state.Inbox[:index], b.state.Inbox[index+1:]...)
 			_ = b.saveLocked()
 			b.mu.Unlock()
 			if len(transports) > 0 && transports[0] != nil {
@@ -821,12 +839,13 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 	b.state.Inputs[in.ID] = outcome
 	if outcome == "accepted" {
 		b.state.HasInput = true
+		b.state.AcceptedInputID = in.ID
 		if b.state.Window.InputID == in.ID {
 			b.state.ContextToken = in.ContextToken
 		}
 		b.state.InputContexts[in.ID] = in.ContextToken
 	}
-	b.state.Inbox = b.state.Inbox[1:]
+	b.state.Inbox = append(b.state.Inbox[:index], b.state.Inbox[index+1:]...)
 	if outcome == "unknown" {
 		b.issue = "input_uncertain"
 	}
@@ -1033,10 +1052,10 @@ func (b *Bridge) mirrorControls(ctx context.Context, p *protocol, snapshot api.S
 	}
 }
 func (b *Bridge) mirrorPhase(ctx context.Context, p *protocol, snapshot api.Snapshot) {
-	if key, body := phaseNotice(snapshot); key != "" {
-		b.mu.Lock()
-		token := b.state.ContextToken
-		b.mu.Unlock()
+	b.mu.Lock()
+	token, accepted, observed := b.state.ContextToken, b.state.AcceptedInputID, b.state.ObservedTurn
+	b.mu.Unlock()
+	if key, body := phaseNotice(snapshot, accepted, observed); key != "" {
 		b.sendTextOnce(ctx, p, key, token, body)
 	}
 }
@@ -1061,17 +1080,18 @@ func markdownQuestionCard(card string) string {
 	}
 	return strings.Join(lines, "\n")
 }
-func phaseNotice(s api.Snapshot) (string, string) {
-	if s.LastReceipt.ID == "" || s.CurrentTurn == "" {
+func phaseNotice(s api.Snapshot, acceptedInputID, observedTurn string) (string, string) {
+	if s.LastReceipt.ID == "" || s.LastReceipt.ID != acceptedInputID {
 		return "", ""
 	}
 	body := map[string]string{"failed": "Bot 未能完成此请求，可在同一对话询问原因。", "interrupted": "工作已停止。", "unknown": "结果暂不确定，请先核对原请求，不要重复发送。"}[s.Phase]
 	if body == "" {
 		return "", ""
 	}
+	turn := terminalSnapshotTurn(s, acceptedInputID, observedTurn)
 	for _, item := range s.Items {
-		if item.Kind == "user" && item.RequestID == s.LastReceipt.ID && item.TurnKey == s.CurrentTurn {
-			return "status:" + s.CurrentTurn + ":" + s.Phase, body
+		if turn != "" && item.Kind == "user" && item.RequestID == acceptedInputID && item.TurnKey == turn {
+			return "status:" + turn + ":" + s.Phase, body
 		}
 	}
 	return "", ""

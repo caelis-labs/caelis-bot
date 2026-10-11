@@ -149,6 +149,62 @@ func TestFastCodexTerminalUsesOnlyCurrentIngressReceipt(t *testing.T) {
 	}
 }
 
+func TestQueuedNewIngressDoesNotStealFastPreviousTurn(t *testing.T) {
+	server, texts := sentTexts(t, nil)
+	defer server.Close()
+	oldID, newID := "weixin:bot:old", "weixin:bot:queued"
+	snapshot := api.Snapshot{Connection: "ready", Phase: "completed", LastReceipt: api.Receipt{ID: oldID, Outcome: "accepted"}, Items: []api.Item{
+		{ID: "old-user", TurnKey: "old-turn", Kind: "user", RequestID: oldID, Status: "completed"},
+		{ID: "old-answer", TurnKey: "old-turn", Kind: "assistant", Text: "first answer", Status: "completed"},
+	}}
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.OwnerID, b.state.BotID = "owner", "bot"
+	freshWindow(b, oldID)
+	b.state.Inputs[oldID] = "accepted"
+	b.state.Window.InputID = newID // received but not yet submitted
+	b.state.Inbox = []inbound{{ID: newID, Text: "second question", ContextToken: "ctx"}}
+	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
+	if len(*texts) != 1 || (*texts)[0] != "first answer" || b.state.TurnPhases["old-turn"] != "completed" {
+		t.Fatalf("queued receive stole terminal turn: texts=%#v phases=%#v", *texts, b.state.TurnPhases)
+	}
+}
+
+func TestLegacyAcceptedIngressRecoversFromMatchingNativeReceipt(t *testing.T) {
+	input := "weixin:bot:legacy"
+	snapshot := api.Snapshot{Phase: "completed", LastReceipt: api.Receipt{ID: input, Outcome: "accepted"}, Items: []api.Item{
+		{ID: "user", TurnKey: "legacy-turn", Kind: "user", RequestID: input, Status: "completed"},
+		{ID: "reply", TurnKey: "legacy-turn", Kind: "assistant", Text: "done", Status: "completed"},
+	}}
+	b, err := Open(t.TempDir(), Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.OwnerID, b.state.HasInput = "owner", true
+	b.state.Inputs[input] = "accepted"
+	b.state.Window.InputID = "newer-queued"
+	b.ObserveTurn(snapshot)
+	if b.state.AcceptedInputID != input || b.state.TurnPhases["legacy-turn"] != "completed" {
+		t.Fatalf("legacy receipt did not restore accepted ingress: %+v", b.state)
+	}
+}
+
+func TestFailedCodexTerminalWithoutCurrentTurnKeepsStatusNotice(t *testing.T) {
+	input := "weixin:bot:failed"
+	snapshot := api.Snapshot{Phase: "failed", LastReceipt: api.Receipt{ID: input, Outcome: "accepted"}, Items: []api.Item{
+		{ID: "user", TurnKey: "failed-turn", Kind: "user", RequestID: input, Status: "completed"},
+	}}
+	key, body := phaseNotice(snapshot, input, "")
+	if key != "status:failed-turn:failed" || !strings.Contains(body, "未能完成") {
+		t.Fatalf("terminal status lost when CurrentTurn cleared: %q %q", key, body)
+	}
+	if key, _ := phaseNotice(snapshot, "another-input", ""); key != "" {
+		t.Fatalf("unrelated input received terminal status: %q", key)
+	}
+}
+
 func TestTerminalCorrelationWaitsForAnswerAndRejectsStaleObservedTurn(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()

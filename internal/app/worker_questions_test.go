@@ -70,3 +70,35 @@ func TestChangedWorkerQuestionGenerationGetsNewPrivateNotice(t *testing.T) {
 		t.Fatalf("changed Worker question did not get its own report: %+v reports=%+v", next, e.reports)
 	}
 }
+
+func TestWorkerQuestionPredispatchRejectionKeepsFieldAnswerable(t *testing.T) {
+	e := &workerApprovalEngine{testEngine: newTestEngine(), snapshot: api.Snapshot{CanSend: true}}
+	a, root := fixtureApp(t, e, Host{})
+	owner := &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}
+	pool := workPool(root, "codex", map[string]*workerFixture{"codex": owner})
+	manager, err := tasks.Open(filepath.Join(root, "task-questions.json"), filepath.Join(root, "Tasks"), "codex", pool, owner, a.Backend.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.localWork, a.tasks = pool, manager
+	work, err := manager.StartTask(t.Context(), api.TaskStart{RequestID: "worker-start-456", Title: "问问题", Prompt: "请提问", Workspace: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := owner.states[work.ID]
+	item := api.Item{ID: "worker-question:preflight", TurnKey: "worker-turn", Kind: "assistant", Status: "completed", AsyncCallID: "native-worker-call", AsyncQuestions: []api.AsyncQuestion{{Title: "请选择", Options: []string{"甲", "乙"}}}}
+	state.AsyncQuestions = []api.Item{item}
+	state.Task.Status = "unknown"
+	owner.states[work.ID] = state
+	a.observeWorkerQuestions(t.Context())
+	first := a.textControl.Handle(t.Context(), textchannel.Inbound{Channel: "telegram", Conversation: "paired", ID: "preflight-one", Text: "/answer Q1 1"}, api.Snapshot{})
+	if !strings.Contains(first, "未提交") || owner.sends != 0 || a.textControl.AsyncButtonQuestions(item.ID)[0].State != "" {
+		t.Fatalf("predispatch rejection fenced original field: %q, sends=%d", first, owner.sends)
+	}
+	state.Task.Status = "working"
+	owner.states[work.ID] = state
+	second := a.textControl.Handle(t.Context(), textchannel.Inbound{Channel: "telegram", Conversation: "paired", ID: "preflight-two", Text: "/answer Q1 2"}, api.Snapshot{})
+	if !strings.Contains(second, "已提交") || owner.sends != 1 {
+		t.Fatalf("same field could not retry after recovery: %q, sends=%d", second, owner.sends)
+	}
+}
