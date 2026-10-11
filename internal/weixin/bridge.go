@@ -28,6 +28,7 @@ type Host struct {
 	Recovery    func() api.RecoveryState
 	Submit      func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	TextControl *textchannel.Store
+	RecordInput func(textchannel.Inbound, bool)
 }
 type Status struct {
 	Enabled   bool   `json:"enabled"`
@@ -73,6 +74,7 @@ type document struct {
 	Inputs         map[string]string   `json:"inputs"`
 	Outputs        map[string]outbound `json:"outputs"`
 	MirrorV2       bool                `json:"mirrorV2,omitempty"`
+	LocalIMSeeded  bool                `json:"localImSeeded,omitempty"`
 	SecretMessages map[string]bool     `json:"secretMessages,omitempty"`
 }
 type Bridge struct {
@@ -97,7 +99,7 @@ type Bridge struct {
 }
 
 func emptyDocument() document {
-	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, SecretMessages: map[string]bool{}, MirrorV2: true}
+	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, SecretMessages: map[string]bool{}, MirrorV2: true, LocalIMSeeded: true}
 }
 func Open(root string, host Host) (*Bridge, error) {
 	hash := sha256.Sum256([]byte(root))
@@ -797,7 +799,11 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		b.mu.Unlock()
 		return
 	}
+	owner := b.state.OwnerID
 	b.mu.Unlock()
+	if b.host.RecordInput != nil {
+		b.host.RecordInput(textchannel.Inbound{Channel: "weixin", Conversation: owner + "\x00" + in.ContextToken, ID: in.ID, Text: in.Text}, in.Secret)
+	}
 	if control {
 		if b.host.TextControl != nil {
 			command := in.Text
@@ -874,6 +880,14 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 	b.mu.Unlock()
 }
 func (b *Bridge) sendControl(ctx context.Context, p *protocol, in inbound, body string) {
+	if b.host.TextControl != nil {
+		b.mu.Lock()
+		owner := b.state.OwnerID
+		b.mu.Unlock()
+		b.host.TextControl.Publish(textchannel.Inbound{Channel: "weixin", Conversation: owner + "\x00" + in.ContextToken, ID: in.ID}, body)
+		b.mirrorNotices(ctx, p)
+		return
+	}
 	b.sendTextOnce(ctx, p, "control:"+in.ID, in.ContextToken, body)
 }
 func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToken, body string) string {
@@ -927,6 +941,31 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 	}
 	snapshot := b.host.Snapshot()
 	b.mu.Lock()
+	if !b.state.LocalIMSeeded {
+		for _, item := range snapshot.Items {
+			if (item.Kind == "user" || item.Kind == "assistant") && item.ID != "" && item.SeenAt == 0 {
+				key := outputKey(item)
+				if _, known := b.state.Outputs[key]; !known {
+					b.state.Outputs[key] = outbound{State: "skip"}
+				}
+			}
+		}
+		if b.host.TextControl != nil {
+			for _, notice := range b.host.TextControl.Notices() {
+				if notice.SeenAt == 0 {
+					key := "notice:" + notice.ID
+					if _, known := b.state.Outputs[key]; !known {
+						b.state.Outputs[key] = outbound{State: "skip"}
+					}
+				}
+			}
+		}
+		b.state.LocalIMSeeded = true
+		if b.saveLocked() != nil {
+			b.mu.Unlock()
+			return
+		}
+	}
 	if !b.state.MirrorV2 {
 		for _, item := range snapshot.Items {
 			if (item.Kind == "assistant" || item.Kind == "user") && item.ID != "" {
@@ -956,7 +995,7 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 	}
 	b.mirrorControls(ctx, p, snapshot)
 	for _, item := range snapshot.Items {
-		if (item.Kind != "assistant" && item.Kind != "user") || item.ID == "" || item.Text == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" {
+		if (item.Kind != "assistant" && item.Kind != "user") || item.ID == "" || item.Text == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" && (item.Kind != "user" || item.Status != "received") {
 			continue
 		}
 		var route textchannel.Origin

@@ -1824,8 +1824,14 @@ func TestCloseCancelsWaitingForBackendRecovery(t *testing.T) {
 
 func TestRemoteInputCannotEchoDuringConcurrentOutput(t *testing.T) {
 	published := make(chan api.Submission, 1)
+	recorded := make(chan textchannel.Inbound, 1)
 	release := make(chan struct{})
-	b, f := testBridge(t, Host{Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+	b, f := testBridge(t, Host{RecordInput: func(in textchannel.Inbound, secret bool) {
+		if secret {
+			t.Error("ordinary text marked secret")
+		}
+		recorded <- in
+	}, Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
 		published <- in
 		<-release
 		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
@@ -1837,7 +1843,71 @@ func TestRemoteInputCannotEchoDuringConcurrentOutput(t *testing.T) {
 	b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{{ID: "user", Kind: "user", RequestID: in.ID, Text: in.Text}, {ID: "reply", Kind: "assistant", Text: "reply while submit completes"}}})
 	close(release)
 	<-done
+	if got := <-recorded; got.ID != in.ID || got.Text != in.Text || got.Channel != "telegram" {
+		t.Fatal("owner input was not journaled before native echo", got)
+	}
 	if f.sends != 1 || len(f.texts) != 1 || f.texts[0] != "reply while submit completes" {
 		t.Fatal("concurrent output echoed Telegram input")
+	}
+}
+
+func TestOldControlNoticesAreSeededWithoutReplayingNewOnes(t *testing.T) {
+	root := t.TempDir()
+	control, err := textchannel.Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control.Publish(textchannel.Inbound{Channel: "weixin", Conversation: "owner", ID: "old"}, "old receipt")
+	path := filepath.Join(root, "text-channel-control.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	delete(state, "ReplyTimes") // Simulate a persisted notice from before timestamps existed.
+	data, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	control, err = textchannel.Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := testBridge(t, Host{TextControl: control})
+	if !b.seedNoticeBaseline() {
+		t.Fatal("could not seed old notice delivery")
+	}
+	old := control.Notices()[0]
+	if !b.state.Messages["notice:"+old.ID].Skip {
+		t.Fatal("old cross-channel notice could replay")
+	}
+	control.Publish(textchannel.Inbound{Channel: "telegram", Conversation: "owner", ID: "new"}, "new receipt")
+	if len(control.Notices()) != 2 {
+		t.Fatal("new notice missing")
+	}
+	if _, exists := b.state.Messages["notice:"+control.Notices()[1].ID]; exists {
+		t.Fatal("new notice was suppressed by migration")
+	}
+}
+
+func TestInputFeedbackUsesOneMirroredLocalNotice(t *testing.T) {
+	control, err := textchannel.Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var local []textchannel.Notice
+	control.SetNoticeObserver(func(n textchannel.Notice) { local = append(local, n) })
+	b, client := testBridge(t, Host{TextControl: control})
+	paired(b)
+	b.sendInputFeedback(t.Context(), client, 10, "input", "Runtime 暂不可用")
+	b.sendInputFeedback(t.Context(), client, 10, "input", "different")
+	if len(local) != 1 || len(client.texts) != 1 || client.texts[0] != "Runtime 暂不可用" || local[0].Text != client.texts[0] {
+		t.Fatalf("feedback was not mirrored exactly once: local=%v sent=%v", local, client.texts)
 	}
 }

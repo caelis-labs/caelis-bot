@@ -7,6 +7,33 @@ import (
 	"testing"
 )
 
+type imReceiptEngine struct {
+	api.Engine
+	value api.Snapshot
+}
+
+func (e *imReceiptEngine) Snapshot() api.Snapshot { return e.value }
+func (e *imReceiptEngine) Submit(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+	return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+}
+
+func TestLocalIMReadDoesNotImportNativeHistoryAndRecordsAcceptedInput(t *testing.T) {
+	e := &imReceiptEngine{value: api.Snapshot{Items: []api.Item{{ID: "old", Kind: "assistant", Text: "native history"}}}}
+	s := NewService(e, func([]string) ([]api.InputFile, error) { return nil, nil }, nil, nil, nil)
+	s.ConfigureChat(filepath.Join(t.TempDir(), "chat.sqlite"))
+	defer s.chat.Close()
+	if got := s.ChatSnapshot(0, "").Snapshot.Items; len(got) != 0 {
+		t.Fatalf("read imported Runtime history: %+v", got)
+	}
+	if receipt, err := s.Submit(t.Context(), api.Submission{ID: "original", Text: "user text"}); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	got := s.ChatSnapshot(0, "").Snapshot.Items
+	if len(got) != 1 || got[0].RequestID != "original" || got[0].Text != "user text" || got[0].Status != "accepted" {
+		t.Fatalf("accepted input waited for Runtime echo: %+v", got)
+	}
+}
+
 type snapshotEngine struct {
 	api.Engine
 	value api.Snapshot

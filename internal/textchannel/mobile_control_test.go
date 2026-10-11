@@ -15,6 +15,8 @@ func TestControlNoticeKeepsFirstFeedbackTimeAcrossDuplicateAndRestart(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	var pushed []Notice
+	s.SetNoticeObserver(func(n Notice) { pushed = append(pushed, n) })
 	in := Inbound{Channel: "telegram", Conversation: "owner", ID: "same"}
 	if got := s.Publish(in, "已提交"); got != "已提交" {
 		t.Fatal(got)
@@ -23,8 +25,14 @@ func TestControlNoticeKeepsFirstFeedbackTimeAcrossDuplicateAndRestart(t *testing
 	if len(before) != 1 || before[0].SeenAt <= 0 {
 		t.Fatal(before)
 	}
+	if len(pushed) != 1 || pushed[0] != before[0] {
+		t.Fatal("notice was not appended once to local chat", pushed)
+	}
 	if got := s.Publish(in, "different"); got != "已提交" {
 		t.Fatal("duplicate feedback changed", got)
+	}
+	if len(pushed) != 1 {
+		t.Fatal("duplicate notice was appended twice", pushed)
 	}
 	reopened, err := Open(root, nil)
 	if err != nil {

@@ -42,6 +42,7 @@ type Host struct {
 	ScreenImage func(string) ([]byte, error)
 	Chinese     func() bool
 	TextControl *textchannel.Store
+	RecordInput func(textchannel.Inbound, bool)
 }
 type Status struct {
 	Enabled   bool   `json:"enabled"`
@@ -96,6 +97,7 @@ type Bridge struct {
 	retryUntil          time.Time
 	closed              bool
 	baselineReady       bool
+	noticeBaselineReady bool
 	secretIngress       map[int]string
 	recoveryNonce       string
 	recoveryClaim       string
@@ -777,8 +779,30 @@ func (b *Bridge) reflectOutput(ctx context.Context, c client) {
 		}
 	}
 }
+func (b *Bridge) seedNoticeBaseline() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.noticeBaselineReady {
+		return true
+	}
+	if b.host.TextControl != nil {
+		for _, notice := range b.host.TextControl.Notices() {
+			if notice.SeenAt == 0 {
+				key := "notice:" + notice.ID
+				if _, known := b.state.Messages[key]; !known {
+					b.state.Messages[key] = delivery{Skip: true}
+				}
+			}
+		}
+	}
+	if b.saveLocked() != nil {
+		return false
+	}
+	b.noticeBaselineReady = true
+	return true
+}
 func (b *Bridge) mirrorNotices(ctx context.Context, c client) {
-	if b.host.TextControl == nil {
+	if b.host.TextControl == nil || !b.seedNoticeBaseline() {
 		return
 	}
 	b.mu.Lock()
@@ -791,6 +815,15 @@ func (b *Bridge) mirrorNotices(ctx context.Context, c client) {
 		out := textchannel.Outbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: "notice:" + notice.ID, Text: notice.Text}
 		b.sendText(ctx, c, out.ID, chat, out.Text, nil)
 	}
+}
+
+func (b *Bridge) sendInputFeedback(ctx context.Context, c client, chat int64, request, body string) {
+	if b.host.TextControl == nil {
+		_, _ = c.Send(ctx, chat, plainText(body), nil)
+		return
+	}
+	b.host.TextControl.Publish(textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request}, body)
+	b.mirrorNotices(ctx, c)
 }
 func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 	ok, _ := b.inputResult(ctx, c, u)
@@ -882,10 +915,20 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		}
 		return true, false
 	}
+	if b.host.RecordInput != nil {
+		visible := controlIn
+		if visible.Text == "" {
+			visible.Text = m.Caption
+		}
+		if visible.Text == "" {
+			visible.Text = "[附件]"
+		}
+		b.host.RecordInput(visible, b.host.TextControl != nil && b.host.TextControl.SecretPrompt(controlIn) != "")
+	}
 	outcome := "handled"
 	switch command {
 	case "/start":
-		_, _ = c.Send(ctx, chat, plainText(b.text("Connected. Send a message or file. /stop stops work; /status checks it.", "已连接。直接发送消息或文件即可。/stop 停止工作，/status 查看状态。")), nil)
+		b.sendInputFeedback(ctx, c, chat, request, b.text("Connected. Send a message or file. /stop stops work; /status checks it.", "已连接。直接发送消息或文件即可。/stop 停止工作，/status 查看状态。"))
 	case "/stop":
 		b.recoveryWait.Add(1)
 		go func() {
@@ -939,7 +982,7 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 			_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}, b.host.Snapshot())
 			b.mirrorNotices(ctx, c)
 		} else {
-			_, _ = c.Send(ctx, chat, plainText("控制命令暂不可用，请在 Mac 中处理。"), nil)
+			b.sendInputFeedback(ctx, c, chat, request, "控制命令暂不可用，请在 Mac 中处理。")
 		}
 
 	default:
@@ -953,19 +996,19 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 				_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}, b.host.Snapshot())
 				b.mirrorNotices(ctx, c)
 			} else {
-				_, _ = c.Send(ctx, chat, plainText("未知命令。请复制当前请求中的完整 /approve 或 /answer 命令。"), nil)
+				b.sendInputFeedback(ctx, c, chat, request, "未知命令。请复制当前请求中的完整 /approve 或 /answer 命令。")
 			}
 			break
 		}
 		if !b.ensureBaseline(b.host.Snapshot()) {
 			outcome = "rejected"
-			_, _ = c.Send(ctx, chat, plainText(b.text("The local Runtime is not connected yet. Check /status or Caelis Bot on your Mac; this message was not sent to the Runtime.", "本机 Runtime 尚未连接。请查看 /status 或 Mac 上的 Caelis Bot；这条消息未发送给 Runtime。")), nil)
+			b.sendInputFeedback(ctx, c, chat, request, b.text("The local Runtime is not connected yet. Check /status or Caelis Bot on your Mac; this message was not sent to the Runtime.", "本机 Runtime 尚未连接。请查看 /status 或 Mac 上的 Caelis Bot；这条消息未发送给 Runtime。"))
 			break
 		}
 		files, stickerNote, e := b.download(ctx, c, request, m)
 		if e != nil {
 			outcome = "rejected"
-			_, _ = c.Send(ctx, chat, plainText(b.downloadNotice(e)), nil)
+			b.sendInputFeedback(ctx, c, chat, request, b.downloadNotice(e))
 		} else {
 			text := m.Text
 			if text == "" {
@@ -976,19 +1019,19 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 			}
 			if strings.TrimSpace(text) == "" && len(files) == 0 {
 				outcome = "rejected"
-				_, _ = c.Send(ctx, chat, plainText(b.text("Send text, a photo or a file.", "请发送文字、图片或文件。")), nil)
+				b.sendInputFeedback(ctx, c, chat, request, b.text("Send text, a photo or a file.", "请发送文字、图片或文件。"))
 			} else {
 				if b.host.TextControl != nil {
 					if err := b.host.TextControl.RecordOrigin(request, textchannel.Origin{Channel: "telegram", Conversation: fmt.Sprint(chat)}); err != nil {
 						outcome = "rejected"
-						_, _ = c.Send(ctx, chat, plainText("来源记录不可用，消息未提交。"), nil)
+						b.sendInputFeedback(ctx, c, chat, request, "来源记录不可用，消息未提交。")
 						break
 					}
 				}
 				quoted := b.quotedMessage(m, bot, owner)
 				if m.ReplyToMessage != nil && quoted == nil {
 					outcome = "rejected"
-					_, _ = c.Send(ctx, chat, plainText(b.text("The quoted text is unavailable. Send the text you want me to use as a new message.", "引用内容无法读取，请把需要我参考的文字作为新消息发送。")), nil)
+					b.sendInputFeedback(ctx, c, chat, request, b.text("The quoted text is unavailable. Send the text you want me to use as a new message.", "引用内容无法读取，请把需要我参考的文字作为新消息发送。"))
 					break
 				}
 				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text, Quoted: quoted, IngressFence: ingressFence}, files)
@@ -1013,7 +1056,7 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 					if outcome == "unknown" {
 						notice = b.text("Delivery is uncertain. Check the original message on your Mac; it will not be sent again automatically.", "发送结果暂不确定。请在 Mac 查看原消息，系统不会自动重复发送。")
 					}
-					_, _ = c.Send(ctx, chat, plainText(notice), nil)
+					b.sendInputFeedback(ctx, c, chat, request, notice)
 				}
 			}
 		}

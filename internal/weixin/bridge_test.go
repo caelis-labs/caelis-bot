@@ -19,6 +19,7 @@ import (
 func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	var sent atomic.Int32
 	var texts []string
+	var input []textchannel.Inbound
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Msg struct {
@@ -51,7 +52,12 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	}
 	a := api.Approval{ID: "worker-approval", Owner: "task", TurnKey: "worker-turn", Status: "pending", Choices: []api.Choice{{ID: "allow-once", Label: "允许", Scope: "once"}, {ID: "deny", Label: "拒绝"}}}
 	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
-	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, TextControl: control, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, TextControl: control, RecordInput: func(in textchannel.Inbound, secret bool) {
+		if secret {
+			t.Error("ordinary command marked secret")
+		}
+		input = append(input, in)
+	}, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
 		t.Fatal("control used ordinary Submit")
 		return api.Receipt{}, nil
 	}})
@@ -67,6 +73,9 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/approve A1 1", ContextToken: "ctx"}}
 	b.dispatch(t.Context(), p)
 	b.dispatch(t.Context(), p)
+	if len(input) != 1 || input[0].ID != "weixin:bot:1" || input[0].Conversation != "owner\x00ctx" || input[0].Text != "/approve A1 1" {
+		t.Fatal("owner command was not journaled once", input)
+	}
 	if sent.Load() != 1 || len(texts) != 2 || !strings.Contains(texts[1], "决定已提交") {
 		t.Fatalf("decision/receipt: %d %#v", sent.Load(), texts)
 	}
@@ -74,6 +83,26 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	b.output(t.Context(), p)
 	if len(texts) != 3 || !strings.Contains(texts[2], "已处理") {
 		t.Fatalf("terminal mirror: %#v", texts)
+	}
+}
+
+func TestLocalIMMigrationSeedsOnlyHistoricalOutputs(t *testing.T) {
+	var snapshot api.Snapshot
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.LocalIMSeeded = false // Existing state written before this migration.
+	snapshot = api.Snapshot{Connection: "offline", Items: []api.Item{
+		{ID: "old", Kind: "assistant", Text: "old result"},
+		{ID: "new", Kind: "assistant", Text: "new result", SeenAt: 1},
+	}}
+	b.output(t.Context(), nil)
+	if !b.state.LocalIMSeeded || b.state.Outputs["item:old"].State != "skip" {
+		t.Fatal("old local IM output could replay", b.state.Outputs)
+	}
+	if _, exists := b.state.Outputs["item:new"]; exists {
+		t.Fatal("new output suppressed by migration")
 	}
 }
 

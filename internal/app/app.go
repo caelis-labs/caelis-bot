@@ -220,18 +220,45 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	if err != nil {
 		return nil, err // fail closed: a lost origin/decision ledger cannot broadcast or replay
 	}
-	service.SetControlNotices(func() ([]api.Item, uint64) {
-		notices := app.textControl.Notices()
-		revision := uint64(len(notices))
-		if len(notices) > 32 {
-			notices = notices[len(notices)-32:]
+	showNotice := func(notice textchannel.Notice) {
+		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "control:" + notice.ID, Kind: "controlNotice", Text: notice.Text, Status: "completed", SeenAt: notice.SeenAt}}})
+	}
+	app.textControl.SetNoticeObserver(showNotice)
+	app.textControl.SetInboundObserver(func(in textchannel.Inbound) {
+		if origin, ok := app.textControl.OriginOf(in.ID); ok {
+			if origin.Channel != in.Channel {
+				return
+			}
+		} else {
+			if err := app.textControl.RecordOrigin(in.ID, textchannel.Origin{Channel: in.Channel, Conversation: in.Conversation}); err != nil {
+				return
+			}
 		}
-		items := make([]api.Item, 0, len(notices))
-		for _, notice := range notices {
-			items = append(items, api.Item{ID: "control:" + notice.ID, Kind: "controlNotice", Text: notice.Text, Status: "completed", SeenAt: notice.SeenAt})
+		body := in.Text
+		if app.textControl.SecretPrompt(in) != "" {
+			body = "已填写敏感字段"
 		}
-		return items, revision
+		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "control-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: body, Status: "accepted"}}})
 	})
+	recordInput := func(in textchannel.Inbound, secret bool) {
+		if in.ID == "" || app.textControl.RecordOrigin(in.ID, textchannel.Origin{Channel: in.Channel, Conversation: in.Conversation}) != nil {
+			return
+		}
+		body := in.Text
+		if secret || app.textControl.SecretPrompt(in) != "" {
+			body = "已填写敏感字段"
+		}
+		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "channel-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: body, Status: "received"}}})
+	}
+	// Import only the previous visible window into the local IM transcript.
+	// Delivery ledgers still prevent any channel from replaying old notices.
+	notices := app.textControl.Notices()
+	if len(notices) > 32 {
+		notices = notices[len(notices)-32:]
+	}
+	for _, notice := range notices {
+		showNotice(notice)
+	}
 	if app.Telegram == nil {
 		remote, remoteErr := telegram.Open(app.root, telegram.Host{
 			Snapshot:    app.Backend.Snapshot,
@@ -246,6 +273,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 			ScreenImage: func(id string) ([]byte, error) { return backend.ScreenImageBytes(app.Backend, id) },
 			Chinese:     func() bool { return app.locale() == i18n.Chinese },
 			TextControl: app.textControl,
+			RecordInput: recordInput,
 		})
 		if remoteErr != nil {
 			if app.host.ReportError != nil {
@@ -265,6 +293,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 				return backend.SubmitRemote(ctx, app.Backend, in, files)
 			},
 			TextControl: app.textControl,
+			RecordInput: recordInput,
 		})
 		if remoteErr != nil && app.host.ReportError != nil {
 			app.host.ReportError(remoteErr)

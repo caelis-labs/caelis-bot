@@ -46,6 +46,31 @@ func TestIMPersistsOnlyHumanMessagesAndReopensOffline(t *testing.T) {
 	}
 }
 
+func TestChannelInputKeepsDisplayIdentityWhenNativeEchoArrives(t *testing.T) {
+	l := Open(filepath.Join(t.TempDir(), "chat.sqlite"))
+	defer l.Close()
+	l.Observe([]api.Item{{ID: "channel-input", RequestID: "same", Kind: "user", Text: "original", Status: "received", SeenAt: 100}})
+	l.Observe([]api.Item{{ID: "native-input", RequestID: "same", Kind: "user", Text: "<reference>internal wrapper</reference>\noriginal", Status: "completed"}})
+	items, _ := l.Snapshot()
+	if len(items) != 1 || items[0].ID != "channel-input" || items[0].SeenAt != 100 || items[0].Status != "completed" || items[0].Text != "original" {
+		t.Fatal(items)
+	}
+}
+
+func TestControlNoticeIsPartOfLocalIM(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "chat.sqlite")
+	l := Open(path)
+	l.Observe([]api.Item{{ID: "notice", Kind: "controlNotice", Text: "原请求已处理", SeenAt: 123}})
+	l.Close()
+	l = Open(path)
+	defer l.Close()
+	eventually(t, func() bool { items, _ := l.Snapshot(); return len(items) == 1 })
+	items, _ := l.Snapshot()
+	if items[0].Kind != "controlNotice" || items[0].SeenAt != 123 {
+		t.Fatal(items)
+	}
+}
+
 func TestSteeredPartialStatusSurvivesOfflineHistory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "chat.sqlite")
 	l := Open(path)

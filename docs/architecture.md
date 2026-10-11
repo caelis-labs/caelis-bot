@@ -59,9 +59,13 @@ reads unresolved workers without loading completed historical tasks; explicit
 continuation resumes the same native thread and request ledger. Diagnostics
 distinguish Bot subscription retirement from later native `thread/closed` unload.
 
-The Bot IM transcript is a private local SQLite message log containing only user
-and assistant messages with their original request/item identities. It loads a
-200-message window and explicitly pages older **local** messages, including while
+The Bot IM transcript is a private local SQLite message log for visible user,
+assistant, and control-receipt messages with stable request/item identities.
+Authenticated channel input is recorded at ingress, and native accepted inputs
+update that record by request ID; a marked-secret control answer is represented
+only by a filled-state placeholder. Runtime live output is appended to the same
+log. Chat reads this local transcript instead of importing Runtime items on read.
+It loads a 200-message window and explicitly pages older **local** messages, including while
 the Runtime is offline. Streamed text updates the same item; tool payloads are
 never chat history. Disk failure retains the live cache and retries independently;
 a corrupt display database is preserved as a damaged copy and rebuilt. Runtime
@@ -199,8 +203,8 @@ cannot promise otherwise.
 Desktop, Telegram and Weixin project one Bot conversation. Each companion has
 its own durable delivery ledger and mirrors visible user/assistant items,
 actionable approval/question cards, and control receipts. The desktop chat
-projects recent control receipts inline from the same private controller without
-opening a panel or adding them to Runtime history. Original ingress IDs
+stores control receipts in the local IM without opening a panel or adding them
+to Runtime history. Original ingress IDs
 only suppress the source transport's user-message echo; another transport labels
 that item as User. A failure in one sender does not block the other's ledger.
 Initial pairing and legacy Weixin records baseline the current history instead

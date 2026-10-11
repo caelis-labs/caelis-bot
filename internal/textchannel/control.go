@@ -31,6 +31,7 @@ type Reference struct{ Conversation, MessageID string }
 type Inbound struct {
 	Channel, Conversation, ID, Text string
 	Reference                       *Reference // transport supplied; quoted text is never authority
+	observed                        bool
 }
 type Outbound struct{ Channel, Conversation, ID, Text string }
 type Notice struct {
@@ -69,6 +70,8 @@ type Store struct {
 	state         document
 	secretAnswers map[string]map[string][]string // intentionally memory-only; lost on restart
 	decide        func(context.Context, api.Decision) error
+	onNotice      func(Notice)
+	onInbound     func(Inbound)
 }
 
 func Open(root string, decide func(context.Context, api.Decision) error) (*Store, error) {
@@ -531,6 +534,8 @@ func (s *Store) HandleReference(ctx context.Context, in Inbound, snapshot api.Sn
 	if !ok {
 		return "", false
 	}
+	s.observeInbound(in)
+	in.observed = true
 	key := cardKey(in.Channel, in.Conversation, in.ID)
 	var current *api.Approval
 	for i := range snapshot.Approvals {
@@ -608,6 +613,9 @@ func (s *Store) Handle(ctx context.Context, in Inbound, snapshot api.Snapshot) s
 		return previous
 	}
 	s.mu.Unlock()
+	if !in.observed {
+		s.observeInbound(in)
+	}
 	parts := strings.Fields(strings.TrimSpace(in.Text))
 	if len(parts) == 0 {
 		return "空命令。"
@@ -890,16 +898,53 @@ func allDigits(s string) bool {
 	}
 	return true
 }
+func (s *Store) SetNoticeObserver(observer func(Notice)) {
+	s.mu.Lock()
+	s.onNotice = observer
+	s.mu.Unlock()
+}
+
+func (s *Store) SetInboundObserver(observer func(Inbound)) {
+	s.mu.Lock()
+	s.onInbound = observer
+	s.mu.Unlock()
+}
+
+func (s *Store) observeInbound(in Inbound) {
+	s.mu.Lock()
+	observer := s.onInbound
+	s.mu.Unlock()
+	if observer != nil && in.ID != "" {
+		observer(in)
+	}
+}
+
+func noticeFor(key, body string, seenAt int64) Notice {
+	h := sha256.Sum256([]byte(key))
+	parts := strings.SplitN(key, "\x00", 3)
+	origin := Origin{}
+	if len(parts) == 3 {
+		origin = Origin{Channel: parts[0], Conversation: parts[1]}
+	}
+	return Notice{ID: hex.EncodeToString(h[:]), Text: body, Origin: origin, SeenAt: seenAt}
+}
+
 func (s *Store) reply(key, body string) string {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if existing, exists := s.state.Replies[key]; exists {
+		s.mu.Unlock()
 		return existing
 	}
 	s.state.ReplyOrder = append(s.state.ReplyOrder, key)
 	s.state.Replies[key] = body
-	s.state.ReplyTimes[key] = time.Now().UnixMicro()
+	seenAt := time.Now().UnixMicro()
+	s.state.ReplyTimes[key] = seenAt
 	_ = s.save()
+	observer := s.onNotice
+	s.mu.Unlock()
+	if observer != nil {
+		observer(noticeFor(key, body, seenAt))
+	}
 	return body
 }
 func (s *Store) Publish(in Inbound, body string) string {
@@ -917,13 +962,7 @@ func (s *Store) Notices() []Notice {
 		if !exists {
 			continue
 		}
-		h := sha256.Sum256([]byte(key))
-		parts := strings.SplitN(key, "\x00", 3)
-		origin := Origin{}
-		if len(parts) == 3 {
-			origin = Origin{Channel: parts[0], Conversation: parts[1]}
-		}
-		result = append(result, Notice{ID: hex.EncodeToString(h[:]), Text: body, Origin: origin, SeenAt: s.state.ReplyTimes[key]})
+		result = append(result, noticeFor(key, body, s.state.ReplyTimes[key]))
 	}
 	return result
 }

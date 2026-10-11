@@ -14,7 +14,43 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
+
+func TestControlConversationUsesLocalIMAndMasksMarkedSecret(t *testing.T) {
+	a, root := fixtureApp(t, newTestEngine(), Host{})
+	first := textchannel.Inbound{Channel: "telegram", Conversation: "owner", ID: "one", Text: "/unknown"}
+	if got := a.textControl.Handle(t.Context(), first, api.Snapshot{}); !strings.Contains(got, "未知命令") {
+		t.Fatal(got)
+	}
+	approval := api.Approval{ID: "native", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "answer", Label: "提交"}}, Questions: []api.Question{
+		{ID: "secret", Title: "密钥", Type: "text", Required: true, Secret: true},
+		{ID: "reason", Title: "用途", Type: "text", Required: true},
+	}}
+	if _, _, err := a.textControl.Card(approval); err != nil {
+		t.Fatal(err)
+	}
+	const secret = "IM_SECRET_SENTINEL"
+	in := textchannel.Inbound{Channel: "telegram", Conversation: "owner", ID: "two", Text: "/answer Q1 " + secret}
+	if got := a.textControl.Handle(t.Context(), in, api.Snapshot{Approvals: []api.Approval{approval}}); !strings.Contains(got, "仍需回答") {
+		t.Fatal(got)
+	}
+	items := a.Backend.ChatSnapshot(0, "").Snapshot.Items
+	var visible string
+	for _, item := range items {
+		visible += item.Text + "\n"
+	}
+	if len(items) != 4 || !strings.Contains(visible, "/unknown") || !strings.Contains(visible, "已填写敏感字段") || strings.Contains(visible, secret) {
+		t.Fatalf("local IM control projection: %q", visible)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	disk, err := os.ReadFile(filepath.Join(root, "chat.sqlite"))
+	if err != nil || strings.Contains(string(disk), secret) {
+		t.Fatal("marked secret entered local IM storage", err)
+	}
+}
 
 type testEngine struct {
 	api.Engine

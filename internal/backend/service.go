@@ -201,18 +201,25 @@ func (s *Service) Snapshot() api.Snapshot {
 	s.mu.Unlock()
 	v = s.decorate(v)
 	if s.chat != nil {
-		s.chat.Observe(v.Items)
 		chatRevision := s.chat.Revision()
 		items, earlier := s.chat.Snapshot()
+		knownInput := make(map[string]bool, len(items))
+		for _, item := range items {
+			if item.Kind == "user" && item.RequestID != "" {
+				knownInput[item.RequestID] = true
+			}
+		}
 		for _, item := range v.Items {
-			if item.Kind != "user" && item.Kind != "assistant" {
+			if item.Kind == "user" && strings.HasPrefix(item.ID, "outgoing:") && !knownInput[item.RequestID] {
+				items = append(items, item) // only the transient sending bubble
+			} else if item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" {
 				items = append(items, item)
 			}
 		}
 		v.Items, v.HasEarlier = items, earlier
 		v.Revision += chatRevision
 	}
-	if controlNotices != nil {
+	if controlNotices != nil && s.chat == nil {
 		items, revision := controlNotices()
 		v.Items = append(v.Items, items...)
 		v.Revision += revision
@@ -342,7 +349,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 		if s.chat != nil {
 			combined += s.chat.Revision()
 		}
-		if controlNotices != nil {
+		if controlNotices != nil && s.chat == nil {
 			_, noticeRevision := controlNotices()
 			combined += noticeRevision
 		}
@@ -363,10 +370,9 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 			items = append(items, item)
 		}
 	}
-	// Runtime chat and channel receipts are stored independently. Merge only the
-	// desktop transcript by their local first-seen times; Runtime item order and
-	// approval authority remain untouched. Legacy receipts have no time, so keep
-	// them ahead of newer chat instead of appending them after today's reply.
+	// The local IM keeps the display order independent of Runtime item order and
+	// approval authority. Legacy receipts have no time, so keep them ahead of
+	// newer chat instead of appending them after today's reply.
 	slices.SortStableFunc(items, func(a, b api.Item) int {
 		if a.SeenAt == 0 && b.SeenAt == 0 && a.Kind != b.Kind {
 			if a.Kind == "controlNotice" {
@@ -581,6 +587,7 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		return receipt, err
 	}
 	s.finishOutgoing(input.ID, receipt)
+	s.recordInput(input, files, receipt)
 	if len(input.FileIDs) > 0 {
 		s.reconcileDraftReceipt(receipt)
 		return receipt, err
