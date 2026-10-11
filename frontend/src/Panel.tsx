@@ -94,7 +94,7 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     </> : <p className="quiet approval-result" role="status" aria-label={resultLabel}>{value.status==='resolved'&&value.resolution?.outcome==='allowed'?<CheckIcon aria-hidden="true" size={16}/>:value.status==='resolved'&&(value.resolution?.outcome==='declined'||value.resolution?.outcome==='cancelled')?<XIcon aria-hidden="true" size={16}/>:null}<span>{resultLabel}</span></p>}
   </section>;
 }
-function QuestionPrompt({card}:{card:QuestionCard}) {
+function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>void}) {
  const {t}=useI18n();
  const [value,setValue]=useState(''),[busy,setBusy]=useState(false),[accepted,setAccepted]=useState(false),[error,setError]=useState('');
  const options=card.options??[];
@@ -104,7 +104,7 @@ function QuestionPrompt({card}:{card:QuestionCard}) {
   setBusy(true);setError('');
   try {
    const feedback=await backend<string>('AnswerQuestion',card.shortId,answer,crypto.randomUUID());
-   if(feedback==='回答已提交，等待后续回复。'||feedback==='回答已提交，不会重复发送。')setAccepted(true);
+   if(feedback==='回答已提交，等待后续回复。'||feedback==='回答已提交，不会重复发送。'){setAccepted(true);refresh();}
    else setError(feedback);
   } catch(e) {setError(e instanceof Error?e.message:t('chat.approvalFailed'));}
   finally {setBusy(false);}
@@ -117,8 +117,8 @@ function QuestionPrompt({card}:{card:QuestionCard}) {
   {error&&<small className="inline-error" role="alert">{error}</small>}
  </section>;
 }
-type MessageProps={ item: Item; report: (message: string) => void; onContextMenu:(item:Item,x:number,y:number)=>void; onQuotePreview:(quote:QuotedMessage)=>void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
-const Message=memo(function Message({ item, report, onContextMenu, onQuotePreview, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
+type MessageProps={ item: Item; report: (message: string) => void; onContextMenu:(item:Item,x:number,y:number)=>void; onQuotePreview:(quote:QuotedMessage)=>void; onQuestion:(shortId:string)=>void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
+const Message=memo(function Message({ item, report, onContextMenu, onQuotePreview, onQuestion, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
   const delivery=item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)?statusLabel:'';
@@ -127,13 +127,13 @@ const Message=memo(function Message({ item, report, onContextMenu, onQuotePrevie
    {(item.kind==='assistant'||item.kind==='controlNotice')&&<BotAvatar animate={animate} clip={clip}/>}
    <div className={`message ${item.kind==='controlNotice'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
     {item.quoted?.text&&<button type="button" className="sent-quote" onClick={()=>onQuotePreview(item.quoted!)}><span>{item.quoted.text}</span></button>}
-    {item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-prompts">{item.questionCards.map(card=><QuestionPrompt key={card.shortId} card={card}/>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
+    {item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-summary">{item.questionCards.map(card=>card.state?<p key={card.shortId}>{card.title}<span>{card.state==='accepted'?t('chat.questionAnswered'):t('chat.questionUnknown')}</span></p>:<button type="button" key={card.shortId} onClick={()=>onQuestion(card.shortId)}>{card.title}<CaretRightIcon size={14} aria-hidden="true"/></button>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
     {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}
     {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
     {delivery&&<small className="message-delivery pending" role="status">{delivery}</small>}
    </div>
   </article>;
-},(before,after)=>before.report===after.report&&before.onContextMenu===after.onContextMenu&&before.onQuotePreview===after.onQuotePreview&&before.animate===after.animate&&before.reveal===after.reveal&&before.incomplete===after.incomplete&&
+},(before,after)=>before.report===after.report&&before.onContextMenu===after.onContextMenu&&before.onQuotePreview===after.onQuotePreview&&before.onQuestion===after.onQuestion&&before.animate===after.animate&&before.reveal===after.reveal&&before.incomplete===after.incomplete&&
  (before.animate?before.clip===after.clip:true)&&before.item.id===after.item.id&&before.item.kind===after.item.kind&&
  before.item.text===after.item.text&&before.item.status===after.item.status&&before.item.seenAt===after.item.seenAt&&
  JSON.stringify(before.item.artifacts)===JSON.stringify(after.item.artifacts)&&
@@ -453,8 +453,8 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
 export function History() {
  const {t,locale} = useI18n();
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
- const [approvalOpen,setApprovalOpen]=useState(false),[approvalIndex,setApprovalIndex]=useState(0);
- const approvalDock=useRef<HTMLElement>(null);
+ const [interactionOpen,setInteractionOpen]=useState(false),[interactionIndex,setInteractionIndex]=useState(0);
+ const interactionDock=useRef<HTMLElement>(null);
  const [connectionError,setConnectionError]=useState('');
  const [activation,setActivation]=useState(0);
  const {snapshot,liveReplies,refresh}=useConversation(active,false,true);
@@ -502,17 +502,28 @@ export function History() {
  const messages=useMemo(()=>withOutgoing(snapshot?.items??[],outgoing).filter(i=>i.kind==='user'||i.kind==='controlNotice'||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length))),[snapshot?.items,outgoing]);
  const contentKey=useMemo(()=>messages.map(i=>i.id+i.text+(i.quoted?.text??'')+(i.task?.status??'')).join(''),[messages]);
  const prompts=snapshot?.approvals.filter(p=>p.status==='pending')??[];
- const currentApproval=Math.min(approvalIndex,Math.max(0,prompts.length-1));
- const promptKey=prompts.map(p=>p.id+p.status).join('');
- useEffect(()=>{if(!prompts.length)setApprovalOpen(false);},[prompts.length]);
+ const interactions: Array<{key:string;kind:'approval';approval:Approval}|{key:string;kind:'question';card:QuestionCard}>=[
+  ...prompts.map(approval=>({key:`approval:${approval.id}`,kind:'approval' as const,approval})),
+  ...(snapshot?.items??[]).flatMap(item=>(item.questionCards??[]).filter(card=>!card.state).map(card=>({key:`question:${card.shortId}`,kind:'question' as const,card}))),
+ ];
+ const currentInteraction=Math.min(interactionIndex,Math.max(0,interactions.length-1));
+ const interactionKey=interactions.map(entry=>entry.key).join('|');
+ const openQuestion=useCallback((shortId:string)=>{
+  const index=interactions.findIndex(entry=>entry.key===`question:${shortId}`);
+  if(index>=0){setInteractionIndex(index);setInteractionOpen(true);}
+ },[interactionKey]);
  useEffect(()=>{
-  if(!approvalOpen)return;
-  const outside=(event:PointerEvent)=>{if(!approvalDock.current?.contains(event.target as Node))setApprovalOpen(false);};
-  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setApprovalOpen(false);approvalDock.current?.querySelector('button')?.focus();}};
+  setInteractionIndex(index=>Math.min(index,Math.max(0,interactions.length-1)));
+  if(!interactions.length)setInteractionOpen(false);
+ },[interactions.length]);
+ useEffect(()=>{
+  if(!interactionOpen)return;
+  const outside=(event:PointerEvent)=>{if(!interactionDock.current?.contains(event.target as Node))setInteractionOpen(false);};
+  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setInteractionOpen(false);interactionDock.current?.querySelector('button')?.focus();}};
   window.addEventListener('pointerdown',outside,true);
   window.addEventListener('keydown',escape);
   return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape);};
- },[approvalOpen]);
+ },[interactionOpen]);
  const activity=chatActivity(snapshot);
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
@@ -537,17 +548,17 @@ export function History() {
    if(anchor)el.scrollTop+=anchor.getBoundingClientRect().top-prepend.current.top;
    prepend.current=null;
   }else if(position.current!.following){position.current!.layout();setUnread(false);}else setUnread(true);
- },[contentKey,promptKey,activity,snapshot?.connection,snapshot?.phase,snapshot?.message,snapshot?.hasEarlier,earlierBusy]);
+ },[contentKey,interactionKey,activity,snapshot?.connection,snapshot?.phase,snapshot?.message,snapshot?.hasEarlier,earlierBusy]);
  const earlier=async()=>{if(earlierBusy)return;setEarlierBusy(true);setError('');const el=scroll.current!;position.current!.following=false;const anchor=Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(item=>item.getBoundingClientRect().bottom>el.getBoundingClientRect().top);if(anchor)prepend.current={id:anchor.dataset.messageId!,top:anchor.getBoundingClientRect().top};try{await backend('LoadEarlier');await refresh();}catch{prepend.current=null;setError(t('chat.loadEarlierFailed'));}finally{setEarlierBusy(false);}};
  const action=async(method:string)=>{setBusy(true);setError('');setConnectionError('');try{await backend(method);}catch(e){setConnectionError(e instanceof Error?e.message:t('chat.actionFailed'));}finally{setBusy(false);try{await refresh();}catch{setConnectionError(previous=>previous||t('chat.actionFailed'));}}};
  return <main className="history-surface" aria-label={t('chat.historyAriaLabel')}>
   <div className="chat-scroll" ref={scroll} onScroll={()=>{if(active&&position.current?.scrolled())setUnread(false);}}>
    <div className="chat-content" ref={content}>
-   {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
+   {!messages.length&&!connection&&!activity&&!interactions.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
    <div className="history-messages">{messages.map((i,index)=><div key={i.requestId||i.id} className="history-message-group">
     {chatTimeDivider(messages[index-1]?.seenAt,i.seenAt)&&<div className="history-time-divider"><time dateTime={new Date(i.seenAt!/1000).toISOString()}>{chatTimeLabel(i.seenAt!,locale)}</time></div>}
-    <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
+    <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} onQuestion={openQuestion} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
    </div>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
    {(connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
@@ -574,11 +585,11 @@ export function History() {
    </div>
   </div>
   {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>{t('chat.viewNewMessages')}</button>}
-  {!!prompts.length&&<aside ref={approvalDock} className="approval-dock" aria-label={t('chat.approvalEyebrow')}>
-   <button className="approval-dock-trigger" type="button" aria-expanded={approvalOpen} aria-haspopup="dialog" aria-controls="approval-dock-panel" onClick={()=>setApprovalOpen(open=>!open)}>{t('chat.approvalQueue',{current:currentApproval+1,total:prompts.length})}{approvalOpen?<CaretDownIcon size={14} aria-hidden="true"/>:<CaretUpIcon size={14} aria-hidden="true"/>}</button>
-   <div id="approval-dock-panel" className="approval-dock-panel" role="dialog" aria-label={t('chat.approvalEyebrow')} hidden={!approvalOpen}>
-    <div className="approval-dock-nav"><span>{t('chat.approvalEyebrow')}{prompts.length>1&&` · ${currentApproval+1}/${prompts.length}`}</span><div>{prompts.length>1&&<><button type="button" aria-label={t('chat.approvalPrevious')} disabled={currentApproval===0} onClick={()=>setApprovalIndex(i=>i-1)}><CaretLeftIcon size={16} aria-hidden="true"/></button><button type="button" aria-label={t('chat.approvalNext')} disabled={currentApproval>=prompts.length-1} onClick={()=>setApprovalIndex(i=>i+1)}><CaretRightIcon size={16} aria-hidden="true"/></button></>}<button type="button" aria-label={t('common.close')} onClick={()=>setApprovalOpen(false)}><XIcon size={15} aria-hidden="true"/></button></div></div>
-    {prompts.map((prompt,index)=><div key={prompt.id} hidden={index!==currentApproval}><Prompt value={prompt} refresh={()=>void refresh().catch(()=>{})}/></div>)}
+  {!!interactions.length&&<aside ref={interactionDock} className="approval-dock" aria-label={t('chat.interactionEyebrow')}>
+   <button className="approval-dock-trigger" type="button" aria-expanded={interactionOpen} aria-haspopup="dialog" aria-controls="approval-dock-panel" onClick={()=>setInteractionOpen(open=>!open)}>{t('chat.approvalQueue',{current:currentInteraction+1,total:interactions.length})}{interactionOpen?<CaretDownIcon size={14} aria-hidden="true"/>:<CaretUpIcon size={14} aria-hidden="true"/>}</button>
+   <div id="approval-dock-panel" className="approval-dock-panel" role="dialog" aria-label={t('chat.interactionEyebrow')} hidden={!interactionOpen}>
+    <div className="approval-dock-nav"><span>{interactions[currentInteraction]?.kind==='approval'?t('chat.approvalEyebrow'):t('chat.questionEyebrow')}{interactions.length>1&&` · ${currentInteraction+1}/${interactions.length}`}</span><div>{interactions.length>1&&<><button type="button" aria-label={t('chat.interactionPrevious')} disabled={currentInteraction===0} onClick={()=>setInteractionIndex(i=>i-1)}><CaretLeftIcon size={16} aria-hidden="true"/></button><button type="button" aria-label={t('chat.interactionNext')} disabled={currentInteraction>=interactions.length-1} onClick={()=>setInteractionIndex(i=>i+1)}><CaretRightIcon size={16} aria-hidden="true"/></button></>}<button type="button" aria-label={t('common.close')} onClick={()=>setInteractionOpen(false)}><XIcon size={15} aria-hidden="true"/></button></div></div>
+    {interactions.map((entry,index)=><div key={entry.key} hidden={index!==currentInteraction}>{entry.kind==='approval'?<Prompt value={entry.approval} refresh={()=>void refresh().catch(()=>{})}/>:<QuestionPrompt card={entry.card} refresh={()=>void refresh().catch(()=>{})}/>}</div>)}
    </div>
   </aside>}
   <footer>
