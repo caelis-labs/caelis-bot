@@ -210,11 +210,12 @@ type Submission struct {
 	// authority grant. Adapters recheck the resident model before dispatch.
 	ScreenInput bool `json:"-"`
 	// Scheduled is host-only presentation provenance, not an authorization grant.
-	Scheduled    bool     `json:"-"`
-	ID           string   `json:"id"`
-	Text         string   `json:"text"`
-	FileIDs      []string `json:"fileIds"`
-	ReferenceIDs []string `json:"referenceIds"`
+	Scheduled    bool           `json:"-"`
+	ID           string         `json:"id"`
+	Text         string         `json:"text"`
+	FileIDs      []string       `json:"fileIds"`
+	ReferenceIDs []string       `json:"referenceIds"`
+	Quoted       *QuotedMessage `json:"quoted,omitempty"` // remote user-supplied context, never decision authority
 }
 type Receipt struct {
 	ID      string `json:"id"`
@@ -226,6 +227,12 @@ type Decision struct {
 	Choice  string              `json:"choice"`
 	Answers map[string][]string `json:"answers"`
 }
+
+// DecisionValidationError means the adapter rejected fields before writing any
+// native response. The caller may correct the same original request safely.
+type DecisionValidationError struct{ Message string }
+
+func (e DecisionValidationError) Error() string { return e.Message }
 
 // InputFile is host-only. UI supplies opaque IDs resolved by the native selector.
 type InputFile struct{ Name, Path string }

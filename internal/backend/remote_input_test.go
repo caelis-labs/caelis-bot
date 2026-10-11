@@ -78,3 +78,19 @@ func TestRemoteInputUsesResidentAdmissionAndPreservesDesktopDraft(t *testing.T) 
 		t.Fatal("remote bypassed runtime restart fence")
 	}
 }
+
+func TestRemoteSubmissionPreservesChannelNeutralQuoteButNotDesktopReferenceIDs(t *testing.T) {
+	s := NewService(snapshotEngine{}, nil, nil, nil, nil)
+	var submitted api.Submission
+	s.SetUserSubmitter(func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+		submitted = in
+		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+	})
+	in := api.Submission{ID: "remote-quote", Text: "new body", ReferenceIDs: []string{"desktop-only"}, Quoted: &api.QuotedMessage{Role: "user", Text: "quoted body", Excerpt: true}}
+	if receipt, err := SubmitRemote(t.Context(), s, in, nil); err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	if submitted.Text != "new body" || submitted.Quoted == nil || submitted.Quoted.Text != "quoted body" || len(submitted.ReferenceIDs) != 0 {
+		t.Fatalf("remote projection: %#v", submitted)
+	}
+}

@@ -3,6 +3,7 @@ package telegram
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/jpeg"
@@ -66,6 +67,118 @@ func TestOtherEntryClaimDisablesTelegramApprovalButton(t *testing.T) {
 	b.mirror(t.Context(), c, snapshot)
 	if called != 1 || len(c.texts) == 0 || strings.Contains(c.texts[len(c.texts)-1], "/approve") || c.keyboards[len(c.keyboards)-1] != nil {
 		t.Fatalf("stale button remained: %d %#v %#v", called, c.texts, c.keyboards)
+	}
+}
+func TestMarkedSecretTelegramAnswerGoesOnlyToOriginalNativeRequest(t *testing.T) {
+	root := t.TempDir()
+	const secret = "SENTINEL_PRIVATE_ANSWER"
+	var decisions []api.Decision
+	control, _ := textchannel.Open(root, func(_ context.Context, d api.Decision) error { decisions = append(decisions, d); return nil })
+	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "answer", Label: "提交"}}, Questions: []api.Question{{ID: "credential", Title: "访问码", Type: "text", Required: true, Secret: true}}}
+	_, id, _ := control.Card(a)
+	submits := 0
+	b, c := testBridge(t, Host{Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+		submits++
+		return api.Receipt{}, nil
+	}, TextControl: control})
+	paired(b)
+	b.input(t.Context(), c, message(1, 10, 20, "/answer "+id+" "+secret))
+	if len(decisions) != 1 || decisions[0].ID != "native" || decisions[0].Answers["credential"][0] != secret || submits != 0 || strings.Contains(strings.Join(c.texts, "\n"), secret) {
+		t.Fatalf("secret leaked or wrong native target: %#v, submit=%d, texts=%#v", decisions, submits, c.texts)
+	}
+}
+
+func TestTelegramReplyToConfirmedCardUsesNativeMessageID(t *testing.T) {
+	root := t.TempDir()
+	var decisions []api.Decision
+	control, _ := textchannel.Open(root, func(_ context.Context, d api.Decision) error { decisions = append(decisions, d); return nil })
+	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "deny", Label: "拒绝"}, {ID: "once", Label: "仅本次", Scope: "once"}}}
+	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+	submits := 0
+	b, c := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, TextControl: control, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+		submits++
+		return api.Receipt{}, nil
+	}})
+	paired(b)
+	b.baselineReady = true
+	b.mirror(t.Context(), c, snapshot)
+	ids := b.state.Messages["approval:native"].IDs
+	if len(ids) != 1 || ids[0] <= 0 {
+		t.Fatalf("card not sent: %#v", ids)
+	}
+	u := message(51, 10, 20, "2")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: ids[0], Chat: tg.Chat{ID: 10, Type: "private"}, Text: "forged body ignored"}
+	b.input(t.Context(), c, u)
+	if submits != 0 || len(decisions) != 1 || decisions[0].ID != "native" || decisions[0].Choice != "once" {
+		t.Fatalf("reply: submits=%d %#v", submits, decisions)
+	}
+	u = message(52, 10, 20, "1")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: ids[0], Chat: tg.Chat{ID: 10, Type: "private"}}
+	b.input(t.Context(), c, u)
+	if len(decisions) != 1 {
+		t.Fatal("stale reference replayed native decision")
+	}
+}
+
+func TestTelegramSecretIngressLedgerContainsNoAnswerText(t *testing.T) {
+	root := t.TempDir()
+	const secret = "PRIVATE_TG_SENTINEL"
+	control, _ := textchannel.Open(root, nil)
+	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Questions: []api.Question{{ID: "pin", Type: "text", Required: true, Secret: true}}}
+	_, id, _ := control.Card(a)
+	b, _ := testBridge(t, Host{TextControl: control})
+	paired(b)
+	u := message(18, 10, 20, "/answer "+id+" "+secret)
+	b.mu.Lock()
+	b.state.Ingress = append(b.state.Ingress, b.queuedUpdateLocked(u))
+	err := b.saveLocked()
+	b.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := os.ReadFile(b.path)
+	if err != nil || strings.Contains(string(stored), secret) || b.state.Ingress[0].Message.Text != "" || b.secretIngress[u.UpdateID] != u.Message.Text {
+		t.Fatalf("secret ledger: %v %s", err, stored)
+	}
+	b2, err := Open(filepath.Dir(b.path), Host{TextControl: control})
+	if err != nil || b2.state.SecretPrompts[u.UpdateID] != id || len(b2.state.Ingress) != 1 || b2.state.Ingress[0].Message.Text != "" {
+		t.Fatalf("recovery marker: %v %#v", err, b2.state.SecretPrompts)
+	}
+}
+
+func TestTelegramOrdinaryQuotedReplyCarriesContextWithoutWrappingVisibleBody(t *testing.T) {
+	var submitted api.Submission
+	b, c := testBridge(t, Host{Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+		submitted = in
+		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+	}})
+	paired(b)
+	b.baselineReady = true
+	u := message(61, 10, 20, "本次问题")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: 60, Chat: tg.Chat{ID: 10}, From: &tg.User{ID: 20}, Text: "完整旧消息"}
+	u.Message.Quote = &tg.TextQuote{Text: "选中的一段"}
+	b.input(t.Context(), c, u)
+	if submitted.Text != "本次问题" || submitted.Quoted == nil || submitted.Quoted.Text != "选中的一段" || !submitted.Quoted.Excerpt || submitted.Quoted.Role != "user" || submitted.Quoted.HostID != "60" || submitted.Quoted.LocalID != "telegram:123:60" {
+		t.Fatalf("quoted transport: %#v", submitted)
+	}
+	if !strings.Contains(submitted.ModelInputText(), "选中的一段") || !strings.HasSuffix(submitted.ModelInputText(), "本次问题") {
+		t.Fatal(submitted.ModelInputText())
+	}
+}
+
+func TestTelegramQuoteOfMarkedSecretNeverEntersIngressOrModel(t *testing.T) {
+	control, _ := textchannel.Open(t.TempDir(), nil)
+	b, _ := testBridge(t, Host{TextControl: control})
+	paired(b)
+	b.state.SecretMessages[70] = true
+	u := message(71, 10, 20, "说明用途")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: 70, Chat: tg.Chat{ID: 10}, From: &tg.User{ID: 20}, Text: "PRIVATE_QUOTE_SENTINEL"}
+	b.mu.Lock()
+	queued := b.queuedUpdateLocked(u)
+	b.mu.Unlock()
+	encoded, _ := json.Marshal(queued)
+	if strings.Contains(string(encoded), "PRIVATE_QUOTE_SENTINEL") || b.quotedMessage(queued.Message, 123, 20) != nil {
+		t.Fatal("marked secret quote re-entered ordinary input")
 	}
 }
 

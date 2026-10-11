@@ -51,6 +51,11 @@ type formSchema struct {
 }
 type formField struct {
 	Type        string          `json:"type"`
+	Format      string          `json:"format"`
+	WriteOnly   bool            `json:"writeOnly"`
+	Items       *formItems      `json:"items"`
+	MinItems    *int            `json:"minItems"`
+	MaxItems    *int            `json:"maxItems"`
 	Default     json.RawMessage `json:"default"`
 	Title       string          `json:"title"`
 	Description string          `json:"description"`
@@ -59,6 +64,10 @@ type formField struct {
 	MaxLength   *int            `json:"maxLength"`
 	Minimum     *float64        `json:"minimum"`
 	Maximum     *float64        `json:"maximum"`
+}
+type formItems struct {
+	Type string   `json:"type"`
+	Enum []string `json:"enum"`
 }
 
 func pretty(v json.RawMessage) string {
@@ -240,11 +249,11 @@ func (s *Session) addPrompt(event Notification) {
 				slices.Sort(keys)
 				for _, key := range keys {
 					f := form.Properties[key]
-					if !slices.Contains([]string{"string", "number", "integer", "boolean"}, f.Type) {
+					if !slices.Contains([]string{"string", "number", "integer", "boolean", "array"}, f.Type) || f.Type == "array" && (f.Items == nil || f.Items.Type != "string" || len(f.Items.Enum) == 0) || f.Format != "" && (f.Format != "password" || f.Type != "string") {
 						valid = false
 						break
 					}
-					q := api.Question{ID: key, Title: f.Title, Type: f.Type, Required: slices.Contains(form.Required, key), Options: []api.Choice{}}
+					q := api.Question{ID: key, Title: f.Title, Type: f.Type, Required: slices.Contains(form.Required, key), Secret: f.Format == "password" || f.WriteOnly, Options: []api.Choice{}}
 					if q.Title == "" {
 						q.Title = key
 					}
@@ -254,7 +263,13 @@ func (s *Session) addPrompt(event Notification) {
 					for _, v := range f.Enum {
 						q.Options = append(q.Options, api.Choice{ID: v, Label: v})
 					}
-					if len(f.Enum) > 0 {
+					if f.Type == "array" {
+						q.Multiple = true
+						for _, v := range f.Items.Enum {
+							q.Options = append(q.Options, api.Choice{ID: v, Label: v})
+						}
+					}
+					if len(q.Options) > 0 {
 						q.Type = "select"
 					}
 					p.view.Questions = append(p.view.Questions, q)
@@ -440,7 +455,7 @@ func (s *Session) Decide(ctx context.Context, d api.Decision) error {
 	}
 	if err != nil {
 		s.mu.Unlock()
-		return err
+		return api.DecisionValidationError{Message: err.Error()}
 	}
 	p.view.Status = "sending"
 	s.replacePrompt(d.ID, p.view)
@@ -542,6 +557,20 @@ func formAnswers(schema *formSchema, answers map[string][]string) (any, error) {
 			continue
 		}
 		v := a[0]
+		if f.Type == "array" {
+			if f.Items == nil || f.Items.Type != "string" || len(f.Items.Enum) == 0 || f.MinItems != nil && len(a) < *f.MinItems || f.MaxItems != nil && len(a) > *f.MaxItems {
+				return nil, errors.New("多选数量不符合要求")
+			}
+			seen := map[string]bool{}
+			for _, choice := range a {
+				if !slices.Contains(f.Items.Enum, choice) || seen[choice] {
+					return nil, errors.New("多选选项无效或重复")
+				}
+				seen[choice] = true
+			}
+			content[key] = a
+			continue
+		}
 		if len(f.Enum) > 0 && !slices.Contains(f.Enum, v) {
 			return nil, errors.New("选项无效")
 		}

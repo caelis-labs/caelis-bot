@@ -873,7 +873,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	ctx, cancel := s.operation(ctx, 45*time.Second)
 	defer cancel()
 	r := api.Receipt{ID: in.ID, Outcome: "rejected"}
-	if !in.Scheduled && legacyWakeID.MatchString(in.ID) || len(in.ID) < 8 || len(in.ID) > 128 || len(in.Text) > 128*1024 || (strings.TrimSpace(in.Text) == "" && len(files) == 0) {
+	if !in.Scheduled && legacyWakeID.MatchString(in.ID) || len(in.ID) < 8 || len(in.ID) > 128 || len(in.ModelInputText()) > 128*1024 || (strings.TrimSpace(in.Text) == "" && len(files) == 0) {
 		r.Message = "请输入消息，或添加文件"
 		return r, nil
 	}
@@ -923,6 +923,12 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		return r, nil
 	}
 	s.mu.Lock()
+	if s.binding.ContextInputs == nil {
+		s.binding.ContextInputs = map[string]int{}
+	}
+	// A pre-dispatch failure can retry the same submission ID. Start from the
+	// quote length each time before the private context seed is added.
+	s.binding.ContextInputs[in.ID] = len(in.ModelQuotePrefix())
 	input, err = s.prepareContextLocked(ctx, in.ID, input)
 	if err != nil {
 		s.mu.Unlock()

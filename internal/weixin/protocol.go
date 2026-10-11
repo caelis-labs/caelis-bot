@@ -41,6 +41,13 @@ type textItem struct {
 type messageItem struct {
 	Type int       `json:"type"`
 	Text *textItem `json:"text_item,omitempty"`
+	Ref  *refItem  `json:"ref_msg,omitempty"`
+}
+type refItem struct {
+	ServerID wireID          `json:"svr_id"`
+	Item     *messageItem    `json:"message_item,omitempty"`
+	Title    string          `json:"title,omitempty"`
+	Partial  json.RawMessage `json:"partial_text,omitempty"`
 }
 type message struct {
 	MessageID    wireID        `json:"message_id"`
@@ -86,8 +93,9 @@ type updates struct {
 	TimeoutMS int       `json:"longpolling_timeout_ms"`
 }
 type sendResult struct {
-	Ret     *int `json:"ret"`
-	ErrCode int  `json:"errcode"`
+	Ret       *int   `json:"ret"`
+	ErrCode   int    `json:"errcode"`
+	MessageID wireID `json:"message_id"`
 }
 type configResult struct {
 	Ret          *int   `json:"ret"`

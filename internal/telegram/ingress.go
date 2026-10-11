@@ -31,6 +31,11 @@ func (b *Bridge) processIngress(ctx context.Context, c client, kind int) {
 		for _, u := range b.state.Ingress {
 			if ingressKind(u) == kind {
 				value := u
+				if raw := b.secretIngress[u.UpdateID]; raw != "" && value.Message != nil {
+					copyMessage := *value.Message
+					copyMessage.Text = raw
+					value.Message = &copyMessage
+				}
 				next = &value
 				break
 			}
@@ -46,6 +51,8 @@ func (b *Bridge) processIngress(ctx context.Context, c client, kind int) {
 
 			if ok && !deferred {
 				b.mu.Lock()
+				delete(b.secretIngress, next.UpdateID)
+				delete(b.state.SecretPrompts, next.UpdateID)
 				for n, u := range b.state.Ingress {
 					if u.UpdateID == next.UpdateID {
 						b.state.Ingress = append(b.state.Ingress[:n], b.state.Ingress[n+1:]...)

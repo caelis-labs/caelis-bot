@@ -148,18 +148,53 @@ semantics. A retired connection cannot dispatch a response from its old wait.
 `internal/textchannel` is the shared text baseline for companion ingress and
 egress. The paired transport authenticates the owner and persists its original
 message before calling the common controller. Pending native approval/question
-catalogs receive durable `A`/`Q` numbers, immutable ordered option IDs, and a
-copyable command on its own line below each option's meaning. `/approve A7 1`
+catalogs receive durable `A`/`Q` numbers and immutable ordered option IDs. A
+compact card lists `[1]` with the native label and scope, then puts one exact
+example command on its own final line. `/approve A7 1`
 and `/answer Q3 2` use exact current native targets; an answer's nonnumeric
-tail is passed verbatim only when that question allows free text. A fixed
-approval's custom opinion is feedback, never permission or an automatic Bot
-handoff. A request with multiple questions,
-a secret or multi-select question, or a single non-text question without
-offered options remains a Mac interaction. URL approvals and approvals with no
-offered decisions also remain on Mac. The controller writes one native decision
-claim before dispatch; unknown results remain fenced to that original request.
-Telegram buttons invoke
-the same controller. Ordinary prose never enters this decision path.
+tail is passed verbatim only when that question allows free text. Each field of
+a native multi-question request gets a separate `Q` number. Answers can be
+changed before submission; required fields trigger exactly one decision for the
+original native request when complete. Multiple selections use comma-separated
+indexes such as `1,3`. Simple number/integer/boolean fields are parsed locally;
+the native adapter performs final constraint validation. A fixed approval's
+custom opinion is feedback, never permission or an automatic Bot handoff.
+URL elicitation displays the original HTTP(S) link and every offered native
+decision; opening the link is not treated as completion. Loopback, `.local` and
+private IP links are labeled as potentially unreachable from a phone. A browser
+login or macOS TCC prompt may still require that service or the Mac itself.
+Requests whose Runtime offers no usable field values or decision IDs cannot be
+invented by the text controller. The controller writes one native decision claim
+before dispatch; unknown results remain fenced to that original request.
+Telegram buttons invoke the same controller. Only an inbound reply containing
+a transport-supplied reference to a Bot card with a confirmed outbound message
+ID can bind a bare index or custom question answer. The binding is persisted
+against that card's original request and schema. A multi-field or otherwise
+ambiguous card requires the full command; an unbound bare number is ordinary
+chat. Quoted body text and the most recent approval are never authorization.
+An ordinary reply keeps the original user body in `Submission.Text` and carries
+available older-message text/author as a bounded, channel-neutral quote. Codex
+text input and Caelis prompt/steer input receive an XML-escaped `<reference>`
+block followed by the unchanged current body; their visible user-item projection
+removes this model wrapper. The host preserves quote line breaks and, above
+4,096 Unicode characters, keeps the first 70% and last 30% with an exact middle
+omission count. Selected fragments and locally truncated quotes are marked as such,
+and a quote with no available body does not pretend to contain the full message.
+Runtime-marked secret inputs and quotes of those inputs are not put in ordinary
+model context. Quote metadata grants no permission and does not imply a second
+Bot conversation or a transport-aware Bot.
+
+`api.Question.Secret` is a native field marker, not content classification.
+Marked answers bypass Bot Submit, ordinary chat history, mirrored text and
+control receipts. Secret answers waiting for sibling fields live only in memory;
+after restart the owner must re-enter them. Weixin and Telegram persist redacted
+ingress records with original message IDs and `Q` references, then reconcile any
+unknown dispatch from the original claim. Operation, target and native scope
+remain visible; unstructured detail text is suppressed for marked-secret
+requests. Arbitrary approval payloads cannot be automatically scrubbed, and
+delivery through TG/Weixin exposes plaintext to those providers. The original
+Runtime/elicitation service may pass the native answer to a model; this host
+cannot promise otherwise.
 
 Desktop, Telegram and Weixin project one Bot conversation. Each companion has
 its own durable delivery ledger and mirrors visible user/assistant items,
@@ -196,6 +231,10 @@ display catalog. An unreadable or ambiguous choice leaves the entire approval
 keyboard unavailable and directs the user to the Mac. Telegram callbacks require
 the original delivered message, a current pending approval, and an offered choice;
 the durable decision claim prevents a second native submission.
+Telegram's `ReplyToMessage.MessageID` is accepted only when it matches one of
+these confirmed card deliveries in the paired private chat. Marked-secret
+answers in its durable update queue contain only a prompt marker; plaintext is
+held in memory until the original native decision or a restart asks for re-entry.
 The Telegram adapter renders mirrored Mac user items with a source heading and
 quoted body. Each long Mac user-message part carries its heading and UTF-16 entity
 ranges. Assistant replies retain their plain original text, including edits and

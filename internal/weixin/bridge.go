@@ -40,9 +40,13 @@ type Status struct {
 	ExpiresAt int64  `json:"expiresAt"`
 }
 type inbound struct {
-	ID           string `json:"id"`
-	Text         string `json:"text"`
-	ContextToken string `json:"contextToken"`
+	ID           string             `json:"id"`
+	Text         string             `json:"text"`
+	ContextToken string             `json:"contextToken"`
+	Secret       bool               `json:"secret,omitempty"` // body is held only in memory
+	PromptID     string             `json:"promptId,omitempty"`
+	ReferenceID  string             `json:"referenceId,omitempty"`
+	Quoted       *api.QuotedMessage `json:"quoted,omitempty"`
 }
 type outbound struct {
 	State        string `json:"state"`
@@ -50,24 +54,26 @@ type outbound struct {
 	ContextToken string `json:"contextToken,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	Digest       string `json:"digest,omitempty"`
+	MessageID    string `json:"messageId,omitempty"`
 	Attempts     int    `json:"attempts,omitempty"`
 	NextRetryAt  int64  `json:"nextRetryAt,omitempty"`
 }
 type document struct {
-	Version       int                 `json:"version"`
-	Enabled       bool                `json:"enabled"`
-	BotID         string              `json:"botId"`
-	OwnerID       string              `json:"ownerId"`
-	BaseURL       string              `json:"baseURL"`
-	Cursor        string              `json:"cursor"`
-	HasInput      bool                `json:"hasInput"`
-	ContextToken  string              `json:"contextToken,omitempty"`
-	PauseUntil    int64               `json:"pauseUntil,omitempty"`
-	InputContexts map[string]string   `json:"inputContexts,omitempty"`
-	Inbox         []inbound           `json:"inbox,omitempty"`
-	Inputs        map[string]string   `json:"inputs"`
-	Outputs       map[string]outbound `json:"outputs"`
-	MirrorV2      bool                `json:"mirrorV2,omitempty"`
+	Version        int                 `json:"version"`
+	Enabled        bool                `json:"enabled"`
+	BotID          string              `json:"botId"`
+	OwnerID        string              `json:"ownerId"`
+	BaseURL        string              `json:"baseURL"`
+	Cursor         string              `json:"cursor"`
+	HasInput       bool                `json:"hasInput"`
+	ContextToken   string              `json:"contextToken,omitempty"`
+	PauseUntil     int64               `json:"pauseUntil,omitempty"`
+	InputContexts  map[string]string   `json:"inputContexts,omitempty"`
+	Inbox          []inbound           `json:"inbox,omitempty"`
+	Inputs         map[string]string   `json:"inputs"`
+	Outputs        map[string]outbound `json:"outputs"`
+	MirrorV2       bool                `json:"mirrorV2,omitempty"`
+	SecretMessages map[string]bool     `json:"secretMessages,omitempty"`
 }
 type Bridge struct {
 	configMu                      sync.Mutex
@@ -87,15 +93,16 @@ type Bridge struct {
 	done                          chan struct{}
 	closed                        bool
 	loadErr                       bool
+	secretInbox                   map[string]string
 }
 
 func emptyDocument() document {
-	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, MirrorV2: true}
+	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, SecretMessages: map[string]bool{}, MirrorV2: true}
 }
 func Open(root string, host Host) (*Bridge, error) {
 	hash := sha256.Sum256([]byte(root))
 	account := hex.EncodeToString(hash[:])
-	b := &Bridge{path: filepath.Join(root, "weixin.json"), account: account, host: host, state: emptyDocument(), secrets: &secretstore.FileStore{Root: filepath.Join(root, "Credentials"), Namespace: "weixin", Legacy: secretstore.Functions{LoadFunc: loadSecret, DeleteFunc: deleteSecret}}}
+	b := &Bridge{path: filepath.Join(root, "weixin.json"), account: account, host: host, state: emptyDocument(), secretInbox: map[string]string{}, secrets: &secretstore.FileStore{Root: filepath.Join(root, "Credentials"), Namespace: "weixin", Legacy: secretstore.Functions{LoadFunc: loadSecret, DeleteFunc: deleteSecret}}}
 	f, err := os.Open(b.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return b, nil
@@ -122,6 +129,9 @@ func Open(root string, host Host) (*Bridge, error) {
 	}
 	if b.state.InputContexts == nil {
 		b.state.InputContexts = map[string]string{}
+	}
+	if b.state.SecretMessages == nil {
+		b.state.SecretMessages = map[string]bool{}
 	}
 	if b.state.PauseUntil > time.Now().UnixMilli() {
 		b.issue = "session_cooldown"
@@ -468,6 +478,9 @@ func (b *Bridge) stopLocked() {
 		_ = client.notify(work, false)
 		stop()
 	}
+	b.mu.Lock()
+	b.secretInbox = map[string]string{} // a later resume asks the owner to re-enter secret answers
+	b.mu.Unlock()
 }
 func (b *Bridge) Pause() (Status, error) {
 	b.configMu.Lock()
@@ -544,6 +557,65 @@ func textOf(msg message) string {
 		}
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+func referenceOf(msg message) string {
+	var id string
+	for _, item := range msg.Items {
+		if item.Type != 1 || item.Text == nil || item.Text.Text == "" {
+			continue
+		}
+		if item.Ref == nil || item.Ref.ServerID == "" {
+			return ""
+		}
+		if id != "" && id != string(item.Ref.ServerID) {
+			return ""
+		}
+		id = string(item.Ref.ServerID)
+	}
+	return id
+}
+func (b *Bridge) quotedMessageLocked(msg message) *api.QuotedMessage {
+	var ref *refItem
+	for _, item := range msg.Items {
+		if item.Type == 1 && item.Text != nil && item.Text.Text != "" && item.Ref != nil {
+			if ref != nil {
+				return nil
+			} // several fragments are not one quote
+			ref = item.Ref
+		}
+	}
+	if ref == nil {
+		return nil
+	}
+	id := string(ref.ServerID)
+	if id != "" && b.state.SecretMessages[id] {
+		return nil
+	}
+	q := &api.QuotedMessage{HostID: id, Role: "unknown", Excerpt: true}
+	if ref.Item != nil && ref.Item.Type == 1 && ref.Item.Text != nil {
+		q.Text = ref.Item.Text.Text
+	}
+	if q.Text == "" {
+		q.Text = ref.Title
+	}
+	if b.host.TextControl != nil && b.host.TextControl.IsSecretCommand(q.Text) {
+		return nil
+	}
+	if id != "" {
+		for key, out := range b.state.Outputs {
+			if out.State == "accepted" && out.MessageID == id {
+				q.Role, q.LocalID = "assistant", key
+				break
+			}
+		}
+		if q.LocalID == "" {
+			key := "weixin:" + b.state.BotID + ":" + id
+			if _, exists := b.state.Inputs[key]; exists {
+				q.Role, q.LocalID = "user", key
+			}
+		}
+	}
+	return api.BoundQuote(q)
 }
 func (b *Bridge) receive(ctx context.Context, p *protocol) {
 	backoff := time.Second
@@ -625,13 +697,32 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 			if body == "" || len(body) > 32<<10 {
 				continue
 			}
-			b.state.Inbox = append(b.state.Inbox, inbound{ID: key, Text: body, ContextToken: msg.ContextToken})
+			ref := referenceOf(msg)
+			controlIn := textchannel.Inbound{Channel: "weixin", Conversation: msg.ContextToken, ID: key, Text: body}
+			if ref != "" {
+				controlIn.Reference = &textchannel.Reference{Conversation: b.state.OwnerID, MessageID: ref}
+			}
+			promptID := ""
+			if b.host.TextControl != nil {
+				promptID = b.host.TextControl.SecretPrompt(controlIn)
+			}
+			secret := promptID != ""
+			stored := body
+			if secret {
+				b.secretInbox[key] = body
+				b.state.SecretMessages[string(msg.MessageID)] = true
+				stored = "" // never put the marked value in the persistent inbox
+			}
+			b.state.Inbox = append(b.state.Inbox, inbound{ID: key, Text: stored, ContextToken: msg.ContextToken, Secret: secret, PromptID: promptID, ReferenceID: ref, Quoted: b.quotedMessageLocked(msg)})
 		}
 		if result.Cursor != "" {
 			b.state.Cursor = result.Cursor
 		}
 		if b.state.Cursor != oldCursor || len(b.state.Inbox) != len(oldInbox) || oldPause != 0 {
 			if b.saveLocked() != nil {
+				for _, pending := range b.state.Inbox[len(oldInbox):] {
+					delete(b.secretInbox, pending.ID)
+				}
 				b.state.Cursor = oldCursor
 				b.state.Inbox = oldInbox
 				b.state.PauseUntil = oldPause
@@ -666,7 +757,12 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		return
 	}
 	in := b.state.Inbox[0]
-	control := textchannel.IsCommand(in.Text)
+	secretText := b.secretInbox[in.ID]
+	controlIn := textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID, Text: in.Text}
+	if in.ReferenceID != "" {
+		controlIn.Reference = &textchannel.Reference{Conversation: b.state.OwnerID, MessageID: in.ReferenceID}
+	}
+	control := in.Secret || textchannel.IsCommand(in.Text) || b.host.TextControl != nil && b.host.TextControl.HasCardReference(controlIn)
 	if !control {
 		snapshot := b.host.Snapshot()
 		recovery := b.host.Recovery()
@@ -676,9 +772,16 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		}
 	}
 	if state := b.state.Inputs[in.ID]; state != "" && state != "queued" {
+		if in.Secret && b.host.TextControl != nil {
+			b.host.TextControl.RecoverSecretInput(textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID}, in.PromptID)
+		}
+		delete(b.secretInbox, in.ID)
 		b.state.Inbox = b.state.Inbox[1:]
 		_ = b.saveLocked()
 		b.mu.Unlock()
+		if in.Secret && len(transports) > 0 && transports[0] != nil {
+			b.mirrorNotices(ctx, transports[0])
+		}
 		return
 	}
 	b.state.Inputs[in.ID] = "dispatching"
@@ -697,12 +800,26 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 	b.mu.Unlock()
 	if control {
 		if b.host.TextControl != nil {
-			_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID, Text: in.Text}, b.host.Snapshot())
+			command := in.Text
+			if in.Secret {
+				command = secretText
+			}
+			if in.Secret && command == "" {
+				b.host.TextControl.RecoverSecretInput(textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID}, in.PromptID)
+			} else {
+				controlIn.Text = command
+				if textchannel.IsCommand(command) {
+					_ = b.host.TextControl.Handle(ctx, controlIn, b.host.Snapshot())
+				} else {
+					_, _ = b.host.TextControl.HandleReference(ctx, controlIn, b.host.Snapshot())
+				}
+			}
 			if len(transports) > 0 && transports[0] != nil {
 				b.mirrorNotices(ctx, transports[0])
 			}
 		}
 		b.mu.Lock()
+		delete(b.secretInbox, in.ID)
 		b.state.Inputs[in.ID] = "handled"
 		b.state.Inbox = b.state.Inbox[1:]
 		_ = b.saveLocked()
@@ -727,7 +844,7 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		}
 	}
 	work, stop := context.WithTimeout(ctx, 30*time.Second)
-	receipt, err := b.host.Submit(work, api.Submission{ID: in.ID, Text: in.Text, IngressFence: recovery.Fence}, nil)
+	receipt, err := b.host.Submit(work, api.Submission{ID: in.ID, Text: in.Text, Quoted: in.Quoted, IngressFence: recovery.Fence}, nil)
 	stop()
 	b.mu.Lock()
 	if errors.Is(err, api.ErrRecoveryPending) {
@@ -759,18 +876,21 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 func (b *Bridge) sendControl(ctx context.Context, p *protocol, in inbound, body string) {
 	b.sendTextOnce(ctx, p, "control:"+in.ID, in.ContextToken, body)
 }
-func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToken, body string) {
+func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToken, body string) string {
 	b.mu.Lock()
-	if _, exists := b.state.Outputs[key]; exists {
+	if previous, exists := b.state.Outputs[key]; exists {
 		b.mu.Unlock()
-		return
+		if previous.State == "accepted" {
+			return previous.MessageID
+		}
+		return ""
 	}
 	clientID := "caelis-weixin-text-" + textDigest(key)[:24]
 	b.state.Outputs[key] = outbound{State: "unknown", ClientID: clientID, ContextToken: contextToken, Digest: textDigest(body), Attempts: 1}
 	if b.saveLocked() != nil {
 		delete(b.state.Outputs, key)
 		b.mu.Unlock()
-		return
+		return ""
 	}
 	owner := b.state.OwnerID
 	b.mu.Unlock()
@@ -778,15 +898,20 @@ func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToke
 	defer cancel()
 	result, err := p.send(work, owner, contextToken, clientID, body)
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	intent := b.state.Outputs[key]
 	if err == nil && (result.Ret == nil || *result.Ret == 0) && result.ErrCode == 0 {
 		intent.State = "accepted"
+		intent.MessageID = string(result.MessageID)
 	} else if err == nil {
 		intent.State = "rejected"
 	}
 	b.state.Outputs[key] = intent
 	_ = b.saveLocked()
+	b.mu.Unlock()
+	if intent.State == "accepted" {
+		return intent.MessageID
+	}
+	return ""
 }
 func outputKey(item api.Item) string { return "item:" + item.ID }
 func textDigest(s string) string {
@@ -973,12 +1098,14 @@ func (b *Bridge) mirrorControls(ctx context.Context, p *protocol, snapshot api.S
 	if b.host.TextControl != nil {
 		for _, approval := range snapshot.Approvals {
 			b.mu.Lock()
-			contextToken := b.state.ContextToken
+			contextToken, owner := b.state.ContextToken, b.state.OwnerID
 			b.mu.Unlock()
 			if approval.Status == "pending" {
 				card, short, err := b.host.TextControl.Card(approval)
 				if err == nil && card != "" {
-					b.sendTextOnce(ctx, p, "approval:"+approval.ID+":"+short, contextToken, card)
+					if messageID := b.sendTextOnce(ctx, p, "approval:"+approval.ID+":"+short, contextToken, card); messageID != "" {
+						_ = b.host.TextControl.BindCard("weixin", owner, messageID, approval)
+					}
 				}
 			} else if approval.Status == "resolved" {
 				b.sendTextOnce(ctx, p, "approval-result:"+approval.ID, contextToken, "原请求已处理，请在 Caelis Bot 查看结果。")

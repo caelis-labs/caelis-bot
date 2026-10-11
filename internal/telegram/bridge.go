@@ -63,18 +63,20 @@ type delivery struct {
 	Skip         bool     `json:"skip,omitempty"`
 }
 type document struct {
-	Version      int                 `json:"version"`
-	Enabled      bool                `json:"enabled"`
-	BotID        int64               `json:"botId"`
-	Bot          string              `json:"bot"`
-	ChatID       int64               `json:"chatId"`
-	UserID       int64               `json:"userId"`
-	Owner        string              `json:"owner"`
-	Offset       int                 `json:"offset"`
-	Ingress      []tg.Update         `json:"ingress,omitempty"` // Durable receive queue, independent of Runtime dispatch.
-	Inputs       map[string]string   `json:"inputs"`            // Original stable request and native receipt outcome only.
-	PendingFiles map[string]string   `json:"pendingFiles,omitempty"`
-	Messages     map[string]delivery `json:"messages"` // IDs and digests; approval cards also retain only their sent text.
+	Version        int                 `json:"version"`
+	Enabled        bool                `json:"enabled"`
+	BotID          int64               `json:"botId"`
+	Bot            string              `json:"bot"`
+	ChatID         int64               `json:"chatId"`
+	UserID         int64               `json:"userId"`
+	Owner          string              `json:"owner"`
+	Offset         int                 `json:"offset"`
+	Ingress        []tg.Update         `json:"ingress,omitempty"`        // Durable receive queue, independent of Runtime dispatch.
+	SecretPrompts  map[int]string      `json:"secretPrompts,omitempty"`  // secret values never enter the durable queue
+	SecretMessages map[int]bool        `json:"secretMessages,omitempty"` // quoted secret messages never re-enter model input
+	Inputs         map[string]string   `json:"inputs"`                   // Original stable request and native receipt outcome only.
+	PendingFiles   map[string]string   `json:"pendingFiles,omitempty"`
+	Messages       map[string]delivery `json:"messages"` // IDs and digests; approval cards also retain only their sent text.
 }
 type Bridge struct {
 	configMu            sync.Mutex
@@ -94,6 +96,7 @@ type Bridge struct {
 	retryUntil          time.Time
 	closed              bool
 	baselineReady       bool
+	secretIngress       map[int]string
 	recoveryNonce       string
 	recoveryClaim       string
 	recoveryWait        sync.WaitGroup
@@ -102,7 +105,7 @@ type Bridge struct {
 }
 
 func Open(root string, host Host) (*Bridge, error) {
-	b := &Bridge{path: filepath.Join(root, "telegram.json"), root: filepath.Join(root, "Telegram"), account: digest(root), host: host, newClient: newClient, recoveryNonce: rand.Text(),
+	b := &Bridge{path: filepath.Join(root, "telegram.json"), root: filepath.Join(root, "Telegram"), account: digest(root), host: host, newClient: newClient, recoveryNonce: rand.Text(), secretIngress: map[int]string{},
 		secrets: &secretstore.FileStore{Root: filepath.Join(root, "Credentials"), Namespace: "telegram", Legacy: secretstore.Functions{LoadFunc: loadSecret, DeleteFunc: deleteSecret}}}
 	b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
 	f, e := os.Open(b.path)
@@ -122,6 +125,12 @@ func Open(root string, host Host) (*Bridge, error) {
 	}
 	if b.state.PendingFiles == nil {
 		b.state.PendingFiles = map[string]string{}
+	}
+	if b.state.SecretPrompts == nil {
+		b.state.SecretPrompts = map[int]string{}
+	}
+	if b.state.SecretMessages == nil {
+		b.state.SecretMessages = map[int]bool{}
 	}
 	return b, b.loadErr
 }
@@ -266,6 +275,7 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 	b.mu.Lock()
 	if b.state.BotID != me.ID {
 		b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
+		b.secretIngress = map[int]string{}
 	}
 	b.state.Enabled, b.state.BotID, b.state.Bot = true, me.ID, me.Username
 	b.issue = ""
@@ -355,6 +365,7 @@ func (b *Bridge) Forget() (Status, error) {
 	}
 	b.mu.Lock()
 	b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
+	b.secretIngress = map[int]string{}
 	b.issue = ""
 	b.nonce = ""
 	b.candidate = nil
@@ -603,7 +614,7 @@ func (b *Bridge) run(ctx context.Context, c client) {
 			next := offset
 			for _, u := range r.updates {
 				if !seen[u.UpdateID] {
-					b.state.Ingress = append(b.state.Ingress, u)
+					b.state.Ingress = append(b.state.Ingress, b.queuedUpdateLocked(u))
 					seen[u.UpdateID] = true
 				}
 				next = u.UpdateID + 1
@@ -639,6 +650,46 @@ func (b *Bridge) run(ctx context.Context, c client) {
 			r.ack <- offset
 		}
 	}
+}
+
+// queuedUpdateLocked retains the native update identity but never writes a
+// Runtime-marked secret answer to telegram.json. Only the live worker has it.
+func (b *Bridge) queuedUpdateLocked(u tg.Update) tg.Update {
+	m := u.Message
+	if m == nil || b.host.TextControl == nil || m.From == nil || m.From.ID != b.state.UserID || m.Chat.ID != b.state.ChatID {
+		return u
+	}
+	if old := m.ReplyToMessage; old != nil && (b.state.SecretMessages[old.MessageID] || b.host.TextControl.IsSecretCommand(old.Text)) {
+		copyMessage, copyOld := *m, *old
+		copyOld.Text, copyOld.Caption = "", ""
+		copyMessage.ReplyToMessage = &copyOld
+		if copyMessage.Quote != nil {
+			quote := *copyMessage.Quote
+			quote.Text = ""
+			copyMessage.Quote = &quote
+		}
+		u.Message = &copyMessage
+		m = &copyMessage
+	}
+	in := textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(m.Chat.ID), Text: m.Text}
+	if m.ReplyToMessage != nil {
+		in.Reference = &textchannel.Reference{Conversation: in.Conversation, MessageID: fmt.Sprint(m.ReplyToMessage.MessageID)}
+	}
+	if prompt := b.host.TextControl.SecretPrompt(in); prompt != "" {
+		if b.state.SecretPrompts == nil {
+			b.state.SecretPrompts = map[int]string{}
+		}
+		if b.state.SecretMessages == nil {
+			b.state.SecretMessages = map[int]bool{}
+		}
+		b.secretIngress[u.UpdateID] = m.Text
+		b.state.SecretPrompts[u.UpdateID] = prompt
+		b.state.SecretMessages[m.MessageID] = true
+		copyMessage := *m
+		copyMessage.Text = ""
+		u.Message = &copyMessage
+	}
+	return u
 }
 
 func (b *Bridge) waitPollBoundary(ctx context.Context) bool {
@@ -775,9 +826,25 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	if m.Chat.ID != chat || m.From.ID != owner {
 		return true, false
 	}
+	request := fmt.Sprintf("telegram:%d:%d", bot, m.MessageID)
+	controlIn := textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}
+	if m.ReplyToMessage != nil {
+		controlIn.Reference = &textchannel.Reference{Conversation: fmt.Sprint(chat), MessageID: fmt.Sprint(m.ReplyToMessage.MessageID)}
+	}
+	referenced := b.host.TextControl != nil && b.host.TextControl.HasCardReference(controlIn)
+	b.mu.Lock()
+	lostSecretPrompt := b.state.SecretPrompts[u.UpdateID]
+	b.mu.Unlock()
+	if lostSecretPrompt != "" && m.Text == "" {
+		if b.host.TextControl != nil {
+			b.host.TextControl.RecoverSecretInput(controlIn, lostSecretPrompt)
+			b.mirrorNotices(ctx, c)
+		}
+		return true, false
+	}
 	command := strings.Split(m.Text, " ")[0]
 	var ingressFence string
-	if command != "/start" && command != "/stop" && command != "/status" && !textchannel.IsCommand(m.Text) {
+	if command != "/start" && command != "/stop" && command != "/status" && !textchannel.IsCommand(m.Text) && !referenced {
 		state := b.recoveryState()
 		connecting := b.host.Snapshot != nil && b.host.Snapshot().Connection == "connecting"
 		if state.Automatic || state.InProgress || connecting {
@@ -785,7 +852,6 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		}
 		ingressFence = state.Fence
 	}
-	request := fmt.Sprintf("telegram:%d:%d", bot, m.MessageID)
 	b.mu.Lock()
 	previous := b.state.Inputs[request]
 	exists := previous != "" && previous != "deferred"
@@ -808,7 +874,10 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	b.mu.Unlock()
 	if exists {
 		if textchannel.IsCommand(m.Text) && b.host.TextControl != nil {
-			_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}, b.host.Snapshot())
+			_ = b.host.TextControl.Handle(ctx, controlIn, b.host.Snapshot())
+			b.mirrorNotices(ctx, c)
+		} else if referenced {
+			_, _ = b.host.TextControl.HandleReference(ctx, controlIn, b.host.Snapshot())
 			b.mirrorNotices(ctx, c)
 		}
 		return true, false
@@ -874,6 +943,11 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		}
 
 	default:
+		if referenced {
+			_, _ = b.host.TextControl.HandleReference(ctx, controlIn, b.host.Snapshot())
+			b.mirrorNotices(ctx, c)
+			break
+		}
 		if textchannel.IsCommand(m.Text) {
 			if b.host.TextControl != nil {
 				_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}, b.host.Snapshot())
@@ -911,7 +985,7 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 						break
 					}
 				}
-				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text, IngressFence: ingressFence}, files)
+				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text, Quoted: b.quotedMessage(m, bot, owner), IngressFence: ingressFence}, files)
 				if errors.Is(submitErr, api.ErrRecoveryPending) {
 					b.mu.Lock()
 					b.state.Inputs[request] = "deferred"
@@ -947,6 +1021,46 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	e := b.saveLocked()
 	b.mu.Unlock()
 	return e == nil, false
+}
+
+func (b *Bridge) quotedMessage(m *tg.Message, bot, owner int64) *api.QuotedMessage {
+	if m == nil || m.ReplyToMessage == nil {
+		return nil
+	}
+	old := m.ReplyToMessage
+	q := &api.QuotedMessage{HostID: fmt.Sprint(old.MessageID), Role: "unknown", Text: old.Text}
+	if q.Text == "" {
+		q.Text = old.Caption
+	}
+	if m.Quote != nil {
+		q.Text, q.Excerpt = m.Quote.Text, true
+	}
+	b.mu.Lock()
+	secret := b.state.SecretMessages[old.MessageID]
+	for key, delivered := range b.state.Messages {
+		if q.LocalID != "" {
+			break
+		}
+		for _, id := range delivered.IDs {
+			if id == old.MessageID {
+				q.LocalID = key
+				break
+			}
+		}
+	}
+	b.mu.Unlock()
+	if old.From != nil {
+		if old.From.ID == owner {
+			q.Role, q.LocalID = "user", fmt.Sprintf("telegram:%d:%d", bot, old.MessageID)
+		}
+		if old.From.ID == bot && old.From.IsBot {
+			q.Role = "assistant"
+		}
+	}
+	if secret || b.host.TextControl != nil && b.host.TextControl.IsSecretCommand(q.Text) {
+		return nil
+	}
+	return api.BoundQuote(q)
 }
 func (b *Bridge) download(ctx context.Context, c client, request string, m *tg.Message) ([]api.InputFile, string, error) {
 	if m.Sticker != nil {
@@ -1387,7 +1501,12 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		} else {
 			text += "\n" + b.text("Complete this request in Caelis Bot on your Mac.", "请在 Mac 的 Caelis Bot 中完成此请求。")
 		}
-		b.sendApprovalText(ctx, c, "approval:"+a.ID, chat, original, text, keys)
+		ids := b.sendApprovalText(ctx, c, "approval:"+a.ID, chat, original, text, keys)
+		if b.host.TextControl != nil {
+			for _, id := range ids {
+				_ = b.host.TextControl.BindCard("telegram", fmt.Sprint(chat), fmt.Sprint(id), a)
+			}
+		}
 	}
 	// Native resolution may remove a prompt from the snapshot entirely. A
 	// disconnected snapshot is not an authoritative absence.
@@ -1441,7 +1560,7 @@ func approvalBodyParts(original string) []string {
 	return splitTextLimit(original, 3800)
 }
 
-func (b *Bridge) sendApprovalText(ctx context.Context, c client, key string, chat int64, original, text string, keys *tg.InlineKeyboardMarkup) {
+func (b *Bridge) sendApprovalText(ctx context.Context, c client, key string, chat int64, original, text string, keys *tg.InlineKeyboardMarkup) []int {
 	if original == "" {
 		original = b.text("Decision needed.", "需要决定。")
 	}
@@ -1454,14 +1573,14 @@ func (b *Bridge) sendApprovalText(ctx context.Context, c client, key string, cha
 			b.state.Messages[key] = record
 			if b.saveLocked() != nil {
 				b.mu.Unlock()
-				return
+				return nil
 			}
 		}
 	}
 	b.mu.Unlock()
 	if len(parts) == 0 {
 		b.sendText(ctx, c, key, chat, text, keys)
-		return
+		return nil
 	}
 	if suffix, ok := strings.CutPrefix(text, original); ok && utf16Length(parts[len(parts)-1])+utf16Length(suffix) <= 4000 {
 		parts[len(parts)-1] += suffix
@@ -1473,6 +1592,20 @@ func (b *Bridge) sendApprovalText(ctx context.Context, c client, key string, cha
 		messages[i] = plainText(part)
 	}
 	b.sendRenderedText(ctx, c, key, chat, messages, nil, keys)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	record = b.state.Messages[key]
+	if len(record.IDs) < len(messages) || len(record.Hashes) < len(messages) {
+		return nil
+	}
+	var ids []int
+	for i, message := range messages {
+		if record.IDs[i] <= 0 || record.Hashes[i] != outgoingDigest(message) {
+			return nil
+		}
+		ids = append(ids, record.IDs[i])
+	}
+	return ids
 }
 
 func (b *Bridge) closeApproval(ctx context.Context, c client, chat int64, id, original, status string) {

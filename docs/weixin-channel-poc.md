@@ -32,9 +32,30 @@ follows the saved attempt counter after restart.
 `getupdates` is the only input transport. Text from the confirmed owner in a
 direct chat enters `backend.SubmitRemote` with the original stable request ID.
 Text `/approve` and `/answer` commands use the shared native decision controller,
-including while the Bot is waiting on the original request. Each native option
-has a complete numbered command. Free text is accepted only for a question that
+including while the Bot is waiting on the original request. Each card lists
+numbered native options and one complete example command on a separate line.
+Free text is accepted only for a question that
 supports it; a custom opinion on a fixed approval never grants permission.
+Multi-field requests use one `Q` number per field, allow edits before the
+required answers are complete, and submit once to the original native target.
+Multiple selections use comma-separated indexes. URL requests display the
+original link and native accept/decline/cancel choices; opening a link is not a
+successful authorization receipt. A Runtime-marked secret answer is not stored
+in the durable inbox or ordinary control receipts. It is held in memory until
+the original native decision; a restart asks the owner to re-enter it.
+The current upstream type surface includes `ref_msg.svr_id` and a `message_id`
+in `sendmessage` responses. A direct reply binds to a Bot card only when the
+actual send response supplied that server message ID and the paired owner's
+reference matches it. If the service omits the ID, the card stays usable via
+its full `/approve` or `/answer` command; quoted text alone has no authority.
+Several actionable fields on one card always require the full command.
+For ordinary chat, `ref_msg.message_item` or its summary contributes only the
+available quoted text to an XML-escaped `<reference>` block before the new body.
+Quotes over 4,096 Unicode characters keep their first 70% and last 30% with a
+middle omission count. A missing
+`svr_id` still permits this limited context, but never authorizes a bare
+approval answer. The service may supply only a selected fragment; it is labeled
+as an excerpt. The visible user message remains the newly typed body.
 Telegram buttons call that same controller. Desktop and both companion channels
 remain one Bot conversation. Visible user messages, final assistant messages,
 text approval cards, terminal notices and control receipts are mirrored through
@@ -55,7 +76,8 @@ is used, but the upstream server does not document deduplication; duplicate
 phone replies remain possible. Unsent later chunks wait for this result. A successful HTTP JSON
 response with absent `ret` follows the published client's success handling;
 it does not prove the phone displayed it. The private outbound ledger stores a
-bounded result category for later diagnosis, without reply text or credentials.
+bounded result category and any confirmed server message ID for later diagnosis,
+without reply text or credentials.
 The adapter obtains a typing ticket
 from `getconfig` and renews `sendtyping` only while the paired user's main turn
 is active, cancelling it at turn end. Text still sends only as final messages;

@@ -61,7 +61,7 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
-	if len(texts) != 1 || !strings.Contains(texts[0], "选项 1：允许（范围：仅本次）\n/approve A1 1") {
+	if len(texts) != 1 || !strings.Contains(texts[0], "[1] 允许（范围：仅本次）") || !strings.Contains(texts[0], "执行审批请输入\n/approve A1 1") {
 		t.Fatalf("missing text card: %#v", texts)
 	}
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/approve A1 1", ContextToken: "ctx"}}
@@ -74,6 +74,155 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	b.output(t.Context(), p)
 	if len(texts) != 3 || !strings.Contains(texts[2], "已处理") {
 		t.Fatalf("terminal mirror: %#v", texts)
+	}
+}
+
+func TestWeixinReplyUsesOnlyServerConfirmedCardMessageID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ret":0,"message_id":"998"}`))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	var decisions []api.Decision
+	control, _ := textchannel.Open(root, func(_ context.Context, d api.Decision) error { decisions = append(decisions, d); return nil })
+	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "deny", Label: "拒绝"}, {ID: "once", Label: "仅本次"}}}
+	snap := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+	submits := 0
+	b, _ := Open(root, Host{Snapshot: func() api.Snapshot { return snap }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, TextControl: control, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+		submits++
+		return api.Receipt{}, nil
+	}})
+	b.state.BotID, b.state.OwnerID, b.state.ContextToken = "bot", "owner", "ctx"
+	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
+	b.mirrorControls(t.Context(), p, snap)
+	if !control.HasCardReference(textchannel.Inbound{Channel: "weixin", Conversation: "ctx", Reference: &textchannel.Reference{Conversation: "owner", MessageID: "998"}}) {
+		t.Fatal("server card ID not bound")
+	}
+	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "2", ContextToken: "ctx", ReferenceID: "998"}}
+	b.dispatch(t.Context(), p)
+	if submits != 0 || len(decisions) != 1 || decisions[0].Choice != "once" {
+		t.Fatalf("reply: submits=%d %#v", submits, decisions)
+	}
+	b.state.Inbox = []inbound{{ID: "weixin:bot:2", Text: "1", ContextToken: "ctx", ReferenceID: "998"}}
+	b.dispatch(t.Context(), p)
+	if len(decisions) != 1 {
+		t.Fatal("stale reference replayed")
+	}
+}
+
+func TestWeixinRefMessageIDAndSendResponseAreLossless(t *testing.T) {
+	var msg message
+	if err := json.Unmarshal([]byte(`{"message_id":18446744073709551615,"item_list":[{"type":1,"text_item":{"text":"2"},"ref_msg":{"svr_id":18446744073709551614,"message_item":{"type":1,"text_item":{"text":"forged A1"}}}}]}`), &msg); err != nil {
+		t.Fatal(err)
+	}
+	if referenceOf(msg) != "18446744073709551614" {
+		t.Fatalf("reference: %#v", msg)
+	}
+	b, _ := Open(t.TempDir(), Host{})
+	if quoted := b.quotedMessageLocked(msg); quoted == nil || quoted.HostID != "18446744073709551614" || quoted.Text != "forged A1" {
+		t.Fatalf("quoted metadata: %#v", quoted)
+	}
+	var result sendResult
+	if err := json.Unmarshal([]byte(`{"ret":0,"message_id":18446744073709551614}`), &result); err != nil || string(result.MessageID) != referenceOf(msg) {
+		t.Fatalf("response: %#v %v", result, err)
+	}
+}
+
+func TestWeixinMissingServerMessageIDDoesNotBindCard(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"ret":0}`)) }))
+	defer server.Close()
+	root := t.TempDir()
+	control, _ := textchannel.Open(root, nil)
+	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "deny", Label: "拒绝"}}}
+	b, _ := Open(root, Host{TextControl: control})
+	b.state.OwnerID, b.state.ContextToken = "owner", "ctx"
+	b.mirrorControls(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"}, api.Snapshot{Approvals: []api.Approval{a}})
+	if control.HasCardReference(textchannel.Inbound{Channel: "weixin", Conversation: "ctx", Reference: &textchannel.Reference{Conversation: "owner", MessageID: "999"}}) {
+		t.Fatal("invented Weixin delivery ID")
+	}
+}
+
+func TestWeixinOrdinaryQuotedReplyWithoutServerIDStillReachesModelContext(t *testing.T) {
+	var msg message
+	if err := json.Unmarshal([]byte(`{"message_id":"82","from_user_id":"owner","to_user_id":"bot","message_type":1,"context_token":"ctx","item_list":[{"type":1,"text_item":{"text":"本次问题"},"ref_msg":{"message_item":{"type":1,"text_item":{"text":"旧消息选段"}},"partial_text":{"start":"旧","end":"段","startindex":0,"endindex":5}}}]}`), &msg); err != nil {
+		t.Fatal(err)
+	}
+	var submitted api.Submission
+	b, _ := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready"} }, Recovery: func() api.RecoveryState { return api.RecoveryState{} }, Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+		submitted = in
+		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+	}})
+	b.state.BotID, b.state.OwnerID = "bot", "owner"
+	if referenceOf(msg) != "" {
+		t.Fatal("missing server ID became approval authority")
+	}
+	quoted := b.quotedMessageLocked(msg)
+	b.state.Inbox = []inbound{{ID: "weixin:bot:82", Text: textOf(msg), ContextToken: msg.ContextToken, Quoted: quoted}}
+	b.dispatch(t.Context())
+	if submitted.Text != "本次问题" || submitted.Quoted == nil || submitted.Quoted.HostID != "" || submitted.Quoted.Text != "旧消息选段" || !submitted.Quoted.Excerpt || submitted.Quoted.Role != "unknown" {
+		t.Fatalf("quoted transport: %#v", submitted)
+	}
+	if !strings.Contains(submitted.ModelInputText(), "旧消息选段") || !strings.HasSuffix(submitted.ModelInputText(), "本次问题") {
+		t.Fatal(submitted.ModelInputText())
+	}
+}
+
+func TestWeixinMarkedSecretQuoteIsNotModelContext(t *testing.T) {
+	var msg message
+	if err := json.Unmarshal([]byte(`{"message_id":"82","item_list":[{"type":1,"text_item":{"text":"说明用途"},"ref_msg":{"svr_id":"70","message_item":{"type":1,"text_item":{"text":"PRIVATE_QUOTE_SENTINEL"}}}}]}`), &msg); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := Open(t.TempDir(), Host{})
+	b.state.SecretMessages["70"] = true
+	if b.quotedMessageLocked(msg) != nil {
+		t.Fatal("marked secret quote entered model context")
+	}
+}
+
+func TestMultiQuestionWeixinTextCompletesOneNativeRequest(t *testing.T) {
+	var texts []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Msg struct {
+				Items []struct {
+					Text struct {
+						Text string `json:"text"`
+					} `json:"text_item"`
+				} `json:"item_list"`
+			} `json:"msg"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		if len(request.Msg.Items) > 0 {
+			texts = append(texts, request.Msg.Items[0].Text.Text)
+		}
+		_, _ = w.Write([]byte(`{"ret":0}`))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	var decisions []api.Decision
+	control, _ := textchannel.Open(root, func(_ context.Context, d api.Decision) error { decisions = append(decisions, d); return nil })
+	a := api.Approval{ID: "original-worker", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "answer", Label: "提交回答"}}, Questions: []api.Question{{ID: "topic", Title: "主题", Type: "text", Required: true}, {ID: "depth", Title: "深度", Type: "select", Required: true, Options: []api.Choice{{ID: "brief", Label: "简要"}, {ID: "full", Label: "完整"}}}}}
+	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+	submits := 0
+	b, _ := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+		submits++
+		return api.Receipt{}, nil
+	}, TextControl: control})
+	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
+	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
+	b.output(t.Context(), p)
+	if len(texts) != 1 || !strings.Contains(texts[0], "[Q1] 主题") || !strings.Contains(texts[0], "[Q2] 深度") || !strings.Contains(texts[0], "/answer Q2 1") {
+		t.Fatalf("missing two phone fields: %#v", texts)
+	}
+	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/answer Q1 draft", ContextToken: "ctx"}}
+	b.dispatch(t.Context(), p)
+	if len(decisions) != 0 || submits != 0 || !strings.Contains(strings.Join(texts, "\n"), "仍需回答 Q2") {
+		t.Fatalf("first field submitted early: %#v, submit=%d, texts=%#v", decisions, submits, texts)
+	}
+	b.state.Inbox = []inbound{{ID: "weixin:bot:2", Text: "/answer Q2 2", ContextToken: "ctx"}}
+	b.dispatch(t.Context(), p)
+	if len(decisions) != 1 || decisions[0].ID != "original-worker" || decisions[0].Answers["topic"][0] != "draft" || decisions[0].Answers["depth"][0] != "full" || submits != 0 {
+		t.Fatalf("native completion: %#v, submit=%d", decisions, submits)
 	}
 }
 
@@ -178,6 +327,74 @@ func TestReceiveDurableOwnerOnlyAndNoDuplicate(t *testing.T) {
 	reloaded, err := Open(strings.TrimSuffix(b.path, "/weixin.json"), Host{})
 	if err != nil || reloaded.state.Cursor != "next-cursor" || len(reloaded.state.Inbox) != 1 {
 		t.Fatalf("reopen: %#v %v", reloaded.state, err)
+	}
+}
+
+func TestMarkedSecretControlIngressKeepsValueOutOfWeixinLedger(t *testing.T) {
+	const secret = "SENTINEL_PRIVATE_ANSWER"
+	var calls atomic.Int32
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) > 1 {
+			select {
+			case <-r.Context().Done():
+			case <-release:
+			}
+			return
+		}
+		_, _ = w.Write([]byte(`{"ret":0,"get_updates_buf":"cursor","msgs":[{"message_id":"1","from_user_id":"owner","to_user_id":"bot","message_type":1,"context_token":"ctx","item_list":[{"type":1,"text_item":{"text":"/answer Q1 SENTINEL_PRIVATE_ANSWER"}}]}]}`))
+	}))
+	t.Cleanup(func() { close(release); server.Close() })
+	root := t.TempDir()
+	var decisions []api.Decision
+	control, _ := textchannel.Open(root, func(_ context.Context, d api.Decision) error { decisions = append(decisions, d); return nil })
+	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "answer", Label: "提交"}}, Questions: []api.Question{{ID: "credential", Type: "text", Required: true, Secret: true}}}
+	if _, id, err := control.Card(a); err != nil || id != "Q1" {
+		t.Fatalf("card id %q: %v", id, err)
+	}
+	b, err := Open(root, Host{TextControl: control, Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}} }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.BotID, b.state.OwnerID = "bot", "owner"
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		b.receive(ctx, &protocol{client: server.Client(), base: server.URL, token: "fixture"})
+		close(done)
+	}()
+	deadline := time.After(2 * time.Second)
+	for {
+		b.mu.Lock()
+		ready := len(b.state.Inbox) == 1
+		b.mu.Unlock()
+		if ready {
+			break
+		}
+		select {
+		case <-deadline:
+			cancel()
+			<-done
+			t.Fatal("secret ingress was not stored")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	cancel()
+	<-done
+	b.mu.Lock()
+	in := b.state.Inbox[0]
+	b.mu.Unlock()
+	encoded, err := os.ReadFile(b.path)
+	if err != nil || !in.Secret || in.Text != "" || strings.Contains(string(encoded), secret) {
+		t.Fatalf("secret entered ordinary inbox: %#v %v", in, err)
+	}
+	b.dispatch(t.Context())
+	if len(decisions) != 1 || decisions[0].Answers["credential"][0] != secret {
+		t.Fatalf("native secret answer: %#v", decisions)
+	}
+	encoded, err = os.ReadFile(b.path)
+	if err != nil || strings.Contains(string(encoded), secret) {
+		t.Fatal("secret entered durable delivery ledger", err)
 	}
 }
 
