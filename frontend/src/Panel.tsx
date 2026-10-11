@@ -97,6 +97,7 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
 function QuestionPrompt({card}:{card:QuestionCard}) {
  const {t}=useI18n();
  const [value,setValue]=useState(''),[busy,setBusy]=useState(false),[accepted,setAccepted]=useState(false),[error,setError]=useState('');
+ const options=card.options??[];
  const done=accepted||card.state==='accepted';
  const send=async(answer:string)=>{
   if(busy||done||!answer.trim())return;
@@ -110,7 +111,7 @@ function QuestionPrompt({card}:{card:QuestionCard}) {
  };
  return <section className="question-prompt" aria-label={card.title}>
   <p className="question-prompt-title">{card.title}</p>
-  {card.options.length>0?<div className="question-prompt-options">{card.options.map((option,index)=><button type="button" key={index} disabled={busy||done||!!card.state} onClick={()=>void send(String(index+1))}>{option}</button>)}</div>:
+  {options.length>0?<div className="question-prompt-options">{options.map((option,index)=><button type="button" key={index} disabled={busy||done||!!card.state} onClick={()=>void send(String(index+1))}>{option}</button>)}</div>:
    <div className="question-prompt-entry"><input aria-label={card.title} value={value} disabled={busy||done||!!card.state} onChange={e=>setValue(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void send(value);}}}/><button type="button" disabled={busy||done||!!card.state||!value.trim()} onClick={()=>void send(value)}>{t('chat.questionSend')}</button></div>}
   {(done||card.state==='dispatching'||card.state==='unknown')&&<small className="quiet" role="status">{card.state==='unknown'?t('chat.questionUnknown'):t('chat.questionAnswered')}</small>}
   {error&&<small className="inline-error" role="alert">{error}</small>}
