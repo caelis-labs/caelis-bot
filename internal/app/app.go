@@ -471,6 +471,17 @@ func (a *Application) Start() error {
 	if manager != nil {
 		manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 		manager.ObserveWatchlist(a.host.ObserveTasks)
+		manager.ObserveStarts(func(task api.Task) {
+			status := task.Status
+			text := "Worker 已开始：" + task.Title
+			if task.Outcome == "unknown" || status == "unknown" {
+				text = "Worker 状态待确认：" + task.Title
+			}
+			a.Backend.ObserveChat(api.Snapshot{Items: []api.Item{{
+				ID: "task-start:" + task.ID, Kind: "assistant", Text: text,
+				Status: "completed", Task: &api.TaskPresentation{Title: task.Title, Status: status},
+			}}})
+		})
 	}
 	if err = a.preparePersonalLocked(); err != nil {
 		return err

@@ -60,6 +60,7 @@ type Manager struct {
 	now                  func() time.Time
 	maxRunning           func() int
 	watchlistChanged     func([]api.TaskPreview)
+	started              func(api.Task)
 	mu                   sync.Mutex
 	op                   sync.Mutex
 	paused               bool // protected by op; updater admission fence
@@ -375,9 +376,10 @@ func prepareWorkspace(root, id string, loc ...i18n.Locale) (string, error) {
 }
 
 func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Task, err error) {
-	if !valid(in.RequestID, in.Prompt) || strings.TrimSpace(in.Title) == "" || len(in.Title) > 160 {
+	if !valid(in.RequestID, in.Prompt) || len(in.Title) > 160 {
 		return api.Task{}, errors.New(m.text("host.taskRequiresParams"))
 	}
+	in.Title = taskDisplayTitle(in.Title, in.Prompt)
 	m.op.Lock()
 	defer m.op.Unlock()
 	if m.paused {
@@ -500,7 +502,41 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		return v, errors.Join(e, saveErr)
 	}
 	v, e := m.work.StartWork(ctx, api.WorkStart{TaskStart: in, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions})
-	return m.capture(id, v, e)
+	result, captureErr := m.capture(id, v, e)
+	if m.started != nil && result.ID == id && result.Outcome != "rejected" && (v.ID == "" || v.ID == id) {
+		visible := result
+		if captureErr != nil {
+			visible.Status, visible.Outcome = "unknown", "unknown"
+		}
+		m.started(visible)
+	}
+	return result, captureErr
+}
+
+func taskDisplayTitle(title, prompt string) string {
+	title = strings.TrimSpace(title)
+	if title != "" {
+		return title
+	}
+	line := ""
+	for _, part := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(part)
+		if line != "" {
+			break
+		}
+	}
+	runes := []rune(line)
+	if len(runes) > 38 {
+		return string(runes[:38]) + "…"
+	}
+	return line
+}
+
+// ObserveStarts emits one presentation event for a newly allocated task.
+func (m *Manager) ObserveStarts(started func(api.Task)) {
+	m.op.Lock()
+	defer m.op.Unlock()
+	m.started = started
 }
 
 func (m *Manager) capture(id string, v api.Task, callErr error) (api.Task, error) {

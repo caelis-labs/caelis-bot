@@ -57,6 +57,28 @@ func TestChannelInputKeepsDisplayIdentityWhenNativeEchoArrives(t *testing.T) {
 	}
 }
 
+func TestQuotedUserInputSurvivesNativeEchoAndReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "chat.sqlite")
+	l := Open(path)
+	quote := api.BoundQuote(&api.QuotedMessage{LocalID: "old", Text: "第一行\n😀 结尾", Role: "assistant"})
+	l.Observe([]api.Item{{ID: "outgoing:one", RequestID: "one", Kind: "user", Text: "本次正文", Quoted: quote}})
+	l.Observe([]api.Item{{ID: "native-one", RequestID: "one", Kind: "user", Text: "<reference>内部包装</reference>\n本次正文", Status: "completed"}})
+	l.Close()
+	restored := Open(path)
+	defer restored.Close()
+	// A current native echo can arrive before the asynchronous SQLite page.
+	restored.Observe([]api.Item{{ID: "native-one", RequestID: "one", Kind: "user", Text: "<reference>内部包装</reference>\n本次正文", Status: "completed"}})
+	eventually(t, func() bool {
+		restored.mu.Lock()
+		defer restored.mu.Unlock()
+		return restored.loaded && len(restored.items) == 1
+	})
+	items, _ := restored.Snapshot()
+	if items[0].ID != "outgoing:one" || items[0].Text != "本次正文" || items[0].Quoted == nil || items[0].Quoted.Text != quote.Text || items[0].Quoted.LocalID != "old" {
+		t.Fatal(items)
+	}
+}
+
 func TestControlNoticeIsPartOfLocalIM(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "chat.sqlite")
 	l := Open(path)

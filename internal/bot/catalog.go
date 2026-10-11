@@ -19,7 +19,7 @@ func taskDefinitions() []api.ToolDefinition {
 			tc.Branch("watchlist", tc.Schema{"action": tc.Enum("clear")}, "action"), tc.Branch("stop", tc.Schema{"task": text(256)}, "task"),
 			tc.Branch("retire", tc.Schema{"task": text(256)}, "task"))),
 		tc.Definition("bot_delegate", "Start sustained user-requested work or continue/steer an owned task. Stable requestId prevents duplicates; unknown outcomes require bot_tasks.read, not a new submission. Omit machine for local work; remote must be explicitly user-selected. User-configured backend/model defaults apply only to new work. Accepted is not completed; host notifies completion.", tc.Request(
-			tc.Branch("start", tc.Schema{"requestId": requestID(), "title": text(160), "prompt": text(24000), "machine": text(256), "workspace": tc.String("Optional absolute existing project directory; omitted creates a managed workspace")}, "requestId", "title", "prompt"),
+			tc.Branch("start", tc.Schema{"requestId": requestID(), "title": text(160), "prompt": text(24000), "machine": text(256), "workspace": tc.String("Optional absolute existing project directory; omitted creates a managed workspace")}, "requestId", "prompt"),
 			tc.Branch("continue", tc.Schema{"requestId": requestID(), "task": text(256), "prompt": text(24000)}, "requestId", "task", "prompt"))),
 	}
 }

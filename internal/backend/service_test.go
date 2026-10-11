@@ -50,7 +50,7 @@ func TestDesktopQuotedDraftReachesModelWithoutChangingVisibleBody(t *testing.T) 
 		t.Fatalf("native model input = %q", got)
 	}
 	items := s.ChatSnapshot(0, "").Snapshot.Items
-	if len(items) != 1 || items[0].Text != "本次正文" || items[0].RequestID != input.ID {
+	if len(items) != 1 || items[0].Text != "本次正文" || items[0].RequestID != input.ID || items[0].Quoted == nil || items[0].Quoted.Text != quote.Text {
 		t.Fatalf("visible transcript = %+v", items)
 	}
 	if next := s.Draft(); next.Text != "" || next.Quoted != nil {

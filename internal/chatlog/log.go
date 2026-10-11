@@ -55,6 +55,14 @@ func copyItem(i api.Item) api.Item {
 	i.Details = ""
 	i.Activity = nil
 	i.Artifacts = append([]api.Artifact(nil), i.Artifacts...)
+	if i.Quoted != nil {
+		q := *i.Quoted
+		i.Quoted = &q
+	}
+	if i.Task != nil {
+		task := *i.Task
+		i.Task = &task
+	}
 	if i.Screen != nil {
 		screen := *i.Screen
 		screen.Images = append([]api.ScreenImage(nil), screen.Images...)
@@ -91,6 +99,9 @@ func (l *Log) Observe(items []api.Item) {
 				item.ID = old.ID // one display identity across channel receipt and native echo
 				if item.Media == nil {
 					item.Media = old.Media
+				}
+				if item.Quoted == nil {
+					item.Quoted = old.Quoted
 				}
 			}
 			if old.SeenAt == 0 || item.SeenAt == 0 || old.SeenAt < item.SeenAt {
@@ -196,9 +207,33 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 		previous := older[n]
 		if pos, exists := known[key(previous)]; exists {
 			// An observed current item may arrive before the disk cache loads.
-			// Keep its original presentation position and retain the live text.
+			// Keep its original presentation position. For user input, the
+			// persisted body and quote are the visible source of truth; the
+			// native echo may contain a model-only reference wrapper.
+			changed := false
+			if previous.Kind == "user" {
+				if l.items[pos].ID != previous.ID {
+					l.items[pos].ID = previous.ID
+					changed = true
+				}
+				if previous.Text != "" && l.items[pos].Text != previous.Text {
+					l.items[pos].Text = previous.Text
+					changed = true
+				}
+				if l.items[pos].Quoted == nil && previous.Quoted != nil {
+					l.items[pos].Quoted = previous.Quoted
+					changed = true
+				}
+				if l.items[pos].Media == nil && previous.Media != nil {
+					l.items[pos].Media = previous.Media
+					changed = true
+				}
+			}
 			if l.items[pos].SeenAt != previous.SeenAt {
 				l.items[pos].SeenAt = previous.SeenAt
+				changed = true
+			}
+			if changed {
 				l.dirty[key(previous)] = l.items[pos]
 				l.revision++
 			}

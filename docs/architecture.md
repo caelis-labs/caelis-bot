@@ -197,8 +197,10 @@ projection removes this model wrapper. The host preserves quote line breaks and,
 above 4,096 Unicode characters, keeps the first 70% and last 30% with an exact
 middle omission count. Transport author and excerpt metadata stay internal; no
 extra note is inserted between the reference block and the user's new text.
-The Mac chat context menu writes the same quote into its durable local draft;
-the visible user message remains only the new body. Local chat timestamps come
+The Mac chat context menu writes the same quote into its durable local draft.
+The IM record stores the original user body and a separate bounded quote for a
+collapsed preview; opening the preview never resolves a control request.
+Older records without quote metadata cannot be reconstructed. Local chat timestamps come
 from persisted message times and are grouped by local day or a five-minute gap.
 Runtime-marked secret inputs and quotes of those inputs are not put in ordinary
 model context. Quote metadata grants no permission and does not imply a second
@@ -227,10 +229,12 @@ Initial pairing and legacy Weixin records baseline the current history instead
 of replaying it. Host task wakeups and automatic review progress stay internal;
 the Bot's subsequent visible response is mirrored. This is a snapshot projection,
 not a separate Bot session or a general event bus.
-Independent Worker task status and terminal output live in the task dock rather
-than conversation `Items` on this main baseline. They are mirrored only when the
-Bot publishes a user-visible conversation item; a full task-status mirror needs a
-separate stable, user-visible task event projection from the existing task owner.
+The first accepted or unconfirmed `bot_delegate` start emits one durable,
+user-visible conversation item with the task title (or a shortened prompt). It
+is mirrored with assistant text to Telegram and Weixin and shown as a compact
+chip on the desktop. Stable request replay emits no second item. Ongoing Worker
+status and terminal output remain in the task dock; completion reaches chat
+through the Bot's visible response. This is not a full task-status mirror.
 
 `internal/telegram` mirrors one paired private chat through pinned Telego. It uses
 native `backend.SubmitRemote` and the existing resident submission, interruption,

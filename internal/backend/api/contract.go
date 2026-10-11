@@ -78,10 +78,20 @@ type Item struct {
 	Artifacts []Artifact          `json:"artifacts"`
 	Screen    *ScreenPresentation `json:"screen,omitempty"`
 	Media     *MediaPresentation  `json:"media,omitempty"`
+	// Quoted is a bounded, presentation-only copy of the user's quoted context.
+	// It is never used to resolve a control request.
+	Quoted *QuotedMessage    `json:"quoted,omitempty"`
+	Task   *TaskPresentation `json:"task,omitempty"`
 	// Async question metadata is host-only. A card shown to the user is stored
 	// as ordinary text; these native handles never enter the renderer or IM log.
 	AsyncCallID    string          `json:"-"`
 	AsyncQuestions []AsyncQuestion `json:"-"`
+}
+
+// TaskPresentation is a visible start receipt, not a Worker transcript.
+type TaskPresentation struct {
+	Title  string `json:"title"`
+	Status string `json:"status"`
 }
 
 type AsyncQuestion struct {

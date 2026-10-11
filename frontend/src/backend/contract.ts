@@ -85,13 +85,6 @@ export interface Draft {
   referenceIds: Array<string>;
   quoted?: QuotedMessage | null;
 }
-export interface QuotedMessage {
-  localId?: string;
-  role?: string;
-  text: string;
-  truncated?: boolean;
-  omittedChars?: number;
-}
 export interface ExecutionOptions {
   defaultApprovalMode: string;
   approvalModes: Array<ApprovalMode>;
@@ -115,6 +108,8 @@ export interface Item {
   artifacts: Array<Artifact>;
   screen?: ScreenPresentation | null;
   media?: MediaPresentation | null;
+  quoted?: QuotedMessage | null;
+  task?: TaskPresentation | null;
 }
 export interface LocalWorkerSettings {
   runtime: string;
@@ -202,6 +197,15 @@ export interface Question {
   multiple: boolean;
   type: string;
   options: Array<Choice>;
+}
+export interface QuotedMessage {
+  hostId?: string;
+  localId?: string;
+  role?: string;
+  text?: string;
+  excerpt?: boolean;
+  truncated?: boolean;
+  omittedChars?: number;
 }
 export interface Receipt {
   id: string;
@@ -453,7 +457,11 @@ export interface Submission {
   text: string;
   fileIds: Array<string>;
   referenceIds: Array<string>;
-  quoted?: QuotedMessage;
+  quoted?: QuotedMessage | null;
+}
+export interface TaskPresentation {
+  title: string;
+  status: string;
 }
 export interface WorkExecutionSettings {
   model: string;

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -154,13 +155,33 @@ func TestUnknownCreationPersistsWithoutRedispatch(t *testing.T) {
 	f := newRuntime()
 	f.unknownStart = true
 	m := openFixture(t, root, "fixture", f)
+	var started []api.Task
+	m.ObserveStarts(func(task api.Task) { started = append(started, task) })
 	v, e := m.StartTask(t.Context(), input("uncertain-request"))
-	if e == nil || v.Outcome != "unknown" {
+	if e == nil || v.Outcome != "unknown" || len(started) != 1 || started[0].Status != "unknown" {
 		t.Fatal(v, e)
 	}
 	m = openFixture(t, root, "fixture", f)
 	if _, e = m.StartTask(t.Context(), input("uncertain-request")); e != nil || f.starts != 1 {
 		t.Fatal("uncertain create replayed", e)
+	}
+}
+
+func TestStartPresentationOnceWithTitleFallback(t *testing.T) {
+	m := openFixture(t, t.TempDir(), "fixture", newRuntime())
+	var started []api.Task
+	m.ObserveStarts(func(task api.Task) { started = append(started, task) })
+	in := api.TaskStart{RequestID: "visible-start", Prompt: "检查中文😀任务\n后续说明"}
+	first, err := m.StartTask(t.Context(), in)
+	if err != nil || first.Title != "检查中文😀任务" || len(started) != 1 || started[0].ID != first.ID || started[0].Status != "working" {
+		t.Fatal(first, started, err)
+	}
+	if _, err := m.StartTask(t.Context(), in); err != nil || len(started) != 1 {
+		t.Fatal("stable request emitted duplicate start", started, err)
+	}
+	long := "😀" + strings.Repeat("中", 80)
+	if title := taskDisplayTitle("", long); len(title) > 160 || !strings.HasSuffix(title, "…") {
+		t.Fatal(title)
 	}
 }
 func TestReportPersistsAndUnknownDeliveryNeverReplays(t *testing.T) {

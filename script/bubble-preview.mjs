@@ -7,7 +7,7 @@ import {resolve,extname} from 'node:path';
 const runtime=String.raw`
 let revision=1,streamTimer=0,recordFrame=0,petState='idle';
 const previewParams=new URLSearchParams(location.search);
-let draftFiles=previewParams.get('fixture')==='attachments'?[{id:'fixture-image',name:'Pasted image.png',size:184320,type:'image/png',image:true,unavailable:false},{id:'fixture-file',name:'project-notes.pdf',size:2457600,type:'application/pdf',image:false,unavailable:false}]:[];
+let draftFiles=['attachments','quote-worker'].includes(previewParams.get('fixture'))?[{id:'fixture-image',name:'Pasted image.png',size:184320,type:'image/png',image:true,unavailable:false},{id:'fixture-file',name:'project-notes.pdf',size:2457600,type:'application/pdf',image:false,unavailable:false}]:[];
 window.fixtureFrames=[];
 // Fixture-only frame accounting verifies that completed portraits release RAFs.
 const requestFrame=window.requestAnimationFrame.bind(window),cancelFrame=window.cancelAnimationFrame.bind(window);
@@ -204,6 +204,20 @@ window.fixtureAvatarRegression=async()=>{
 // Exercise actual typing, submission, delayed receipts and the draft/outbox
 // handoff. All bridge facts and input are disposable synthetic data.
 let draft={text:'',referenceIds:[],notice:'',revision:1},sendMode='',sendCount=0,draftReads=0,acceptedReads=0,staleHeld=false;
+if(previewParams.get('fixture')==='quote-worker'){
+ const quote={localId:'fixture-original',role:'assistant',text:'Runtime 允许了沙箱外执行，date 已完成：Sun Oct 11 08:50:12 CST 2026'};
+ const now=Date.now()*1000;
+ draft={...draft,quoted:quote};
+ snapshot.items=[
+  {id:'fixture-original',turnKey:'fixture',kind:'assistant',text:quote.text,status:'completed',artifacts:[],seenAt:now-120000000},
+  {id:'fixture-user',requestId:'fixture-user',turnKey:'fixture',kind:'user',text:'我引用的信息是什么？',quoted:quote,status:'completed',artifacts:[],seenAt:now-90000000},
+  {id:'fixture-task',turnKey:'fixture',kind:'assistant',text:'Worker 已开始：处理 Bot Issue 152',task:{title:'处理 Bot Issue 152',status:'working'},status:'completed',artifacts:[],seenAt:now-60000000}
+ ];
+ Object.assign(snapshot,{phase:'idle',activity:null,canSend:true,canSteer:false,canInterrupt:false});
+ if(previewParams.has('openQuote')){
+  const open=setInterval(()=>{const button=document.querySelector('.sent-quote');if(button){clearInterval(open);button.click();}},50);
+ }
+}
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 window.fixtureSendSetup=mode=>{
  clearInterval(streamTimer);cancelAnimationFrame(recordFrame);sendMode=mode;sendCount=0;draftReads=0;acceptedReads=0;staleHeld=false;
@@ -265,7 +279,7 @@ export const Call={ByName:async(name,...args)=>{
  }
  if(method==='SaveDraft'){draft={...args[0],revision:draft.revision+1,notice:''};return {...draft};}
  if(method==='Submit'){
-  sendCount++;const input=args[0],outgoing={id:'outgoing:'+input.id,requestId:input.id,turnKey:'',kind:'user',text:input.text,status:'sending',artifacts:[]};snapshot.items=[outgoing];
+  sendCount++;const input=args[0],outgoing={id:'outgoing:'+input.id,requestId:input.id,turnKey:'',kind:'user',text:input.text,quoted:input.quoted,status:'sending',artifacts:[]};snapshot.items=[outgoing];
   await delay(600);
   const outcome=sendMode==='rejected'?'rejected':sendMode==='unknown'?'unknown':'accepted';
   snapshot.lastReceipt={id:input.id,outcome,message:outcome==='accepted'?'':'合成发送未确认'};outgoing.status=outcome;
@@ -302,4 +316,4 @@ const server=createServer((req,res)=>{
  try {const data=readFileSync(file);res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.png':'image/png'})[extname(file)]??'application/octet-stream');res.end(data);}
  catch{res.writeHead(404);res.end();}
 });
-server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'');writeFileSync(process.argv[2],url);console.log(url);});
+server.listen(0,'127.0.0.1',()=>{const url='http://127.0.0.1:'+server.address().port+'/?surface='+(process.env.BOT_PREVIEW_SURFACE||'bubble')+'&lang='+(process.env.BOT_PREVIEW_LANG||'zh-CN')+'&fixture='+(process.env.BOT_PREVIEW_FIXTURE||'')+(process.env.BOT_PREVIEW_OPEN_QUOTE?'&openQuote=1':'');writeFileSync(process.argv[2],url);console.log(url);});
