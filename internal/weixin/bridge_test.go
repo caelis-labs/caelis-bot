@@ -220,7 +220,7 @@ func TestMultiQuestionWeixinTextCompletesOneNativeRequest(t *testing.T) {
 	freshWindow(b, "prior-owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
-	if len(texts) != 1 || !strings.Contains(texts[0], "[Q1] 主题") || !strings.Contains(texts[0], "[Q2] 深度") || !strings.Contains(texts[0], "/answer Q2 1") {
+	if len(texts) != 1 || !strings.Contains(texts[0], "**[Q1] 主题（必填）**") || !strings.Contains(texts[0], "**[Q2] 深度（必填）**") || !strings.Contains(texts[0], "**提示：发送 /answer Q2 + 选项标号**") || strings.Contains(texts[0], "回答请输入") {
 		t.Fatalf("missing two phone fields: %#v", texts)
 	}
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/answer Q1 draft", ContextToken: "ctx"}}
@@ -232,6 +232,42 @@ func TestMultiQuestionWeixinTextCompletesOneNativeRequest(t *testing.T) {
 	b.dispatch(t.Context(), p)
 	if len(decisions) != 1 || decisions[0].ID != "original-worker" || decisions[0].Answers["topic"][0] != "draft" || decisions[0].Answers["depth"][0] != "full" || submits != 0 {
 		t.Fatalf("native completion: %#v, submit=%d", decisions, submits)
+	}
+}
+
+func TestWeixinAsyncQuestionCardUsesApprovalStyle(t *testing.T) {
+	var texts []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Msg struct {
+				Items []struct {
+					Text struct {
+						Text string `json:"text"`
+					} `json:"text_item"`
+				} `json:"item_list"`
+			} `json:"msg"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		if len(request.Msg.Items) > 0 {
+			texts = append(texts, request.Msg.Items[0].Text.Text)
+		}
+		_, _ = w.Write([]byte(`{"ret":0}`))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	control, _ := textchannel.Open(root, nil)
+	item := api.Item{ID: "async-two", TurnKey: "turn", Kind: "assistant", AsyncCallID: "call", AsyncQuestions: []api.AsyncQuestion{{Title: "测试题 1：请选择一个选项。", Options: []string{"甲", "乙", "丙"}}, {Title: "测试题 2（开放回答）：请写一句简短的测试内容。"}}}
+	card, err := control.AsyncCard(item, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := Open(root, Host{TextControl: control})
+	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
+	freshWindow(b, "owner-input")
+	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
+	b.mirrorItem(t.Context(), p, card, "question")
+	if len(texts) != 1 || !strings.Contains(texts[0], "**[Q1] 测试题 1：请选择一个选项。**") || !strings.Contains(texts[0], "[1] 甲\n[2] 乙\n[3] 丙") || !strings.Contains(texts[0], "**提示：发送 /answer Q1 + 选项标号**") || !strings.Contains(texts[0], "**[Q2] 测试题 2（开放回答）：请写一句简短的测试内容。**") || !strings.Contains(texts[0], "**提示：发送 /answer Q2 + 完整回答**") || strings.Contains(texts[0], "回答请输入") {
+		t.Fatal(texts)
 	}
 }
 

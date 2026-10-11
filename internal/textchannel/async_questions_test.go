@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -17,7 +18,7 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 	}
 	item := api.Item{ID: "native-agent-item", TurnKey: "completed-turn", Kind: "assistant", AsyncCallID: "call_native_17", AsyncQuestions: []api.AsyncQuestion{{Title: "选哪项？", Options: []string{"甲", "乙", "丙"}}}}
 	card, err := s.AsyncCard(item, "runtime-owner-1")
-	if err != nil || !strings.Contains(card.Text, "[Q1] 选哪项？\n[1] 甲\n[2] 乙\n[3] 丙\n\n回答请输入\n/answer Q1 1") {
+	if err != nil || !strings.Contains(card.Text, "[Q1] 选哪项？\n[1] 甲\n[2] 乙\n[3] 丙\n\n提示：发送 /answer Q1 + 选项标号") {
 		t.Fatalf("card %q, %v", card.Text, err)
 	}
 	if card.AsyncCallID != "" || len(card.AsyncQuestions) != 0 {
@@ -33,8 +34,7 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
 	})
 	snapshot := api.Snapshot{RuntimeOwner: "runtime-owner-1", Connection: "ready"}
-	command := strings.TrimSpace(card.Text[strings.LastIndex(card.Text, "\n/")+1:])
-	command = strings.Replace(command, " 1", " 2", 1)
+	command := "/answer " + card.QuestionCards[0].ShortID + " 2"
 	in := Inbound{Channel: "telegram", Conversation: "paired", ID: "tg-1", Text: command}
 	if feedback := s.Handle(t.Context(), in, snapshot); !strings.Contains(feedback, "已提交") {
 		t.Fatal(feedback)
@@ -66,6 +66,72 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 	}
 }
 
+func TestAnsweredAsyncNumberCanBeReusedForNewQuestion(t *testing.T) {
+	s, _ := Open(t.TempDir(), nil)
+	s.SetAsyncAnswerer(func(_ context.Context, _ Inbound, _ string) (api.Receipt, error) {
+		return api.Receipt{Outcome: "accepted"}, nil
+	})
+	old := api.Item{ID: "old-item", TurnKey: "old-turn", Kind: "assistant", AsyncCallID: "old-call", AsyncQuestions: []api.AsyncQuestion{{Title: "旧问题", Options: []string{"旧答案"}}}}
+	_, _ = s.AsyncCard(old, "owner")
+	if got := s.Handle(t.Context(), Inbound{Channel: "telegram", Conversation: "paired", ID: "old-reply", Text: "/answer Q1 1"}, api.Snapshot{RuntimeOwner: "owner", Connection: "ready"}); !strings.Contains(got, "已提交") {
+		t.Fatal(got)
+	}
+	s.state.NextQuestion = shortIDPoolSize
+	fresh := api.Item{ID: "new-item", TurnKey: "new-turn", Kind: "assistant", AsyncCallID: "new-call", AsyncQuestions: []api.AsyncQuestion{{Title: "新问题", Options: []string{"甲", "乙"}}}}
+	card, err := s.AsyncCard(fresh, "owner")
+	if err != nil || len(card.QuestionCards) != 1 || card.QuestionCards[0].ShortID != "Q1" || !strings.Contains(card.Text, "[Q1] 新问题") {
+		t.Fatal(card, err)
+	}
+	oldCard, err := s.AsyncCard(old, "owner")
+	if err != nil || len(oldCard.QuestionCards) != 0 || oldCard.Text != "问题已处理或过期。" || s.state.AsyncQuestions["Q1"].ItemID != fresh.ID {
+		t.Fatal("retired item reissued a new question", oldCard, err)
+	}
+}
+
+func TestUnansweredAsyncQuestionExpiresAndReleasesNumber(t *testing.T) {
+	s, _ := Open(t.TempDir(), nil)
+	old := api.Item{ID: "old-item", TurnKey: "old-turn", Kind: "assistant", AsyncCallID: "old-call", AsyncQuestions: []api.AsyncQuestion{{Title: "可选问题"}}}
+	_, _ = s.AsyncCard(old, "owner")
+	q := s.state.AsyncQuestions["Q1"]
+	q.IssuedAt = time.Now().Add(-shortIDMaxAge - time.Hour).Unix()
+	s.state.AsyncQuestions["Q1"] = q
+	if got := s.Handle(t.Context(), Inbound{Channel: "telegram", Conversation: "paired", ID: "late", Text: "/answer Q1 不回答"}, api.Snapshot{RuntimeOwner: "owner", Connection: "ready"}); !strings.Contains(got, "已过期") {
+		t.Fatal(got)
+	}
+	if err := s.Reconcile(api.Snapshot{Connection: "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	if state := s.AsyncButtonQuestions(old.ID)[0].State; state != "expired" {
+		t.Fatal(state)
+	}
+	s.state.NextQuestion = shortIDPoolSize
+	fresh := api.Item{ID: "new-item", TurnKey: "new-turn", Kind: "assistant", AsyncCallID: "new-call", AsyncQuestions: []api.AsyncQuestion{{Title: "新问题"}}}
+	card, err := s.AsyncCard(fresh, "owner")
+	if err != nil || len(card.QuestionCards) != 1 || card.QuestionCards[0].ShortID != "Q1" {
+		t.Fatal(card, err)
+	}
+	oldCard, err := s.AsyncCard(old, "owner")
+	if err != nil || len(oldCard.QuestionCards) != 0 || oldCard.Text != "问题已处理或过期。" {
+		t.Fatal("expired item reissued a new question", oldCard, err)
+	}
+}
+
+func TestUnknownAsyncResultRetainsNumberPastNormalExpiry(t *testing.T) {
+	s, _ := Open(t.TempDir(), nil)
+	old := api.Item{ID: "uncertain-item", TurnKey: "turn", Kind: "assistant", AsyncCallID: "call", AsyncQuestions: []api.AsyncQuestion{{Title: "结果未知"}}}
+	_, _ = s.AsyncCard(old, "owner")
+	q := s.state.AsyncQuestions["Q1"]
+	q.State = "unknown"
+	q.IssuedAt = time.Now().Add(-shortIDMaxAge - time.Hour).Unix()
+	s.state.AsyncQuestions["Q1"] = q
+	s.state.NextQuestion = shortIDPoolSize
+	fresh := api.Item{ID: "fresh-item", TurnKey: "fresh", Kind: "assistant", AsyncCallID: "fresh-call", AsyncQuestions: []api.AsyncQuestion{{Title: "新问题"}}}
+	card, err := s.AsyncCard(fresh, "owner")
+	if err != nil || card.QuestionCards[0].ShortID != "Q2" || s.state.AsyncQuestions["Q1"].ItemID != old.ID {
+		t.Fatal("unknown original result was recycled", card, err)
+	}
+}
+
 func TestWorkerAsyncCardAnswersOriginalWorkAndIgnoresBotOwner(t *testing.T) {
 	s, err := Open(t.TempDir(), nil)
 	if err != nil {
@@ -83,8 +149,7 @@ func TestWorkerAsyncCardAnswersOriginalWorkAndIgnoresBotOwner(t *testing.T) {
 		workID, owner, itemID, input = w, o, i, body
 		return api.Receipt{Outcome: "accepted"}, nil
 	})
-	command := strings.TrimSpace(card.Text[strings.LastIndex(card.Text, "\n/")+1:])
-	command = strings.Replace(command, " 1", " 2", 1)
+	command := "/answer " + card.QuestionCards[0].ShortID + " 2"
 	for _, in := range []Inbound{{Channel: "telegram", Conversation: "paired", ID: "tg-worker-1", Text: command}, {Channel: "weixin", Conversation: "paired", ID: "wx-worker-2", Text: command}} {
 		if feedback := s.Handle(t.Context(), in, api.Snapshot{RuntimeOwner: "different-bot-owner", Connection: "offline"}); !strings.Contains(feedback, "已提交") {
 			t.Fatal(feedback)

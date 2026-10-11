@@ -33,7 +33,12 @@ that cannot be classified is retained as uncertain and is not resent.
 direct chat enters `backend.SubmitRemote` with the original stable request ID.
 Text `/approve` and `/answer` commands use the shared native decision controller,
 including while the Bot is waiting on the original request. Each card lists
-numbered native options and one complete example command on a separate line.
+numbered native options and a bold `提示：发送 /approve A8 + 选项标号` or
+`提示：发送 /answer Q8 + 选项标号` instruction. Open questions use
+`+ 完整回答`; each question title and hint is bold while options keep their
+original order and labels. The local `A1`–`A999` and `Q1`–`Q999` references
+cycle after settlement or seven days without an answer. Expiry affects the
+local reference only; it does not approve or answer the Runtime request.
 Free text is accepted only for a question that
 supports it; a custom opinion on a fixed approval never grants permission.
 Multi-field requests use one `Q` number per field, allow edits before the

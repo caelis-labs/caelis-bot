@@ -87,7 +87,7 @@ func TestTelegramMixedAsyncQuestionsKeepFreeCommandAndFixedButtons(t *testing.T)
 	if client.sends != 1 || client.keyboards[0] == nil || len(client.keyboards[0].InlineKeyboard) != 2 {
 		t.Fatalf("fixed question lost buttons: %#v", client.keyboards)
 	}
-	if !strings.Contains(client.texts[0], "/answer Q2 后接完整回答") || strings.Contains(client.texts[0], "[1] 甲") || client.keyboards[0].InlineKeyboard[1][0].Text != "[Q1] 乙" {
+	if !strings.Contains(client.texts[0], "提示：发送 /answer Q2 + 完整回答") || strings.Contains(client.texts[0], "[1] 甲") || client.keyboards[0].InlineKeyboard[1][0].Text != "[Q1] 乙" {
 		t.Fatalf("mixed questions duplicated fixed choices or lost free instruction: %q %#v", client.texts[0], client.keyboards[0])
 	}
 }

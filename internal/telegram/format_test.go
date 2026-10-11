@@ -17,7 +17,7 @@ import (
 )
 
 func TestAsyncQuestionCardKeepsPlainTextLinesAndCommand(t *testing.T) {
-	card := "[Q1] 选哪项？\n[1] 甲\n[2] 乙\n\n回答请输入\n/answer Q1 1"
+	card := "[Q1] 选哪项？\n[1] 甲\n[2] 乙\n\n提示：发送 /answer Q1 + 选项标号"
 	parts := assistantOutboundMessages(card)
 	if len(parts) != 1 || parts[0].Text != card || parts[0].Markdown != "" {
 		t.Fatalf("question card lost its copyable lines: %#v", parts)

@@ -160,7 +160,17 @@ compact approval card lists `[1]` with the native label unchanged and ends with
 `提示：发送 /approve A7 + 选项标号`; the scope remains in the immutable native
 catalog and is not appended to the label. `/approve A7 1`
 and `/answer Q3 2` use exact current native targets; an answer's nonnumeric
-tail is passed verbatim only when that question allows free text. Each field of
+tail is passed verbatim only when that question allows free text. Each native
+request keeps its immutable option catalog while its short
+reference is active. `A1`–`A999` and `Q1`–`Q999` use separate persisted ring
+cursors: pending and uncertain references keep their slots, settled references
+return to the tail, and unanswered references expire after seven days. Expiry
+releases only the local short reference, never decides the native request; a
+still-pending native request can receive a fresh card. A copied bare command
+with a recycled number addresses the new request by design. Transport message
+references retain their original native binding and cannot authorize a newer
+request. The Runtime still validates the original owner and exact option ID.
+Each field of
 a native multi-question request gets a separate `Q` number. Answers can be
 changed before submission; required fields trigger exactly one decision for the
 original native request when complete. Multiple selections use comma-separated

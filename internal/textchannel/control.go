@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net"
 	"net/url"
@@ -46,6 +47,7 @@ type prompt struct {
 	NativeID, TurnKey, Owner, QuestionID, Fingerprint, Schema, Type, SubmitChoice string
 	Options                                                                       []option
 	Free, Required, Multiple, Secret                                              bool
+	IssuedAt                                                                      int64 `json:"issuedAt,omitempty"`
 }
 type claim struct{ State, Feedback string }
 type cardBinding struct {
@@ -56,7 +58,7 @@ type document struct {
 	Version                    int
 	NextApproval, NextQuestion uint64
 	Origins                    map[string]Origin              // exact accepted submission ID, saved before dispatch
-	Prompts                    map[string]prompt              // immutable short numbers; never recycled
+	Prompts                    map[string]prompt              // active or unresolved short references
 	Claims                     map[string]claim               // native request ID, shared across transports
 	Answers                    map[string]map[string][]string // non-secret answers waiting on one native request
 	Replies                    map[string]string              // original channel message ID -> immutable feedback
@@ -77,6 +79,12 @@ type Store struct {
 	onInbound       func(Inbound)
 	onAsyncUpdate   func(api.Item)
 	answerAsync     func(context.Context, Inbound, string) (api.Receipt, error)
+}
+
+const shortIDMaxAge = 7 * 24 * time.Hour
+
+func shortIDExpired(issuedAt int64) bool {
+	return issuedAt > 0 && time.Since(time.Unix(issuedAt, 0)) >= shortIDMaxAge
 }
 
 func Open(root string, decide func(context.Context, api.Decision) error) (*Store, error) {
@@ -112,6 +120,28 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 			s.state.ReplyOrder = append(s.state.ReplyOrder, key)
 		}
 		slices.Sort(s.state.ReplyOrder)
+	}
+	// Legacy records had no issue time. Give them a full local lifetime after
+	// migration rather than expiring all visible cards on the first restart.
+	migrated := false
+	for id, p := range s.state.Prompts {
+		if p.IssuedAt == 0 {
+			p.IssuedAt = time.Now().Unix()
+			s.state.Prompts[id] = p
+			migrated = true
+		}
+	}
+	for id, q := range s.state.AsyncQuestions {
+		if q.IssuedAt == 0 {
+			q.IssuedAt = time.Now().Unix()
+			s.state.AsyncQuestions[id] = q
+			migrated = true
+		}
+	}
+	if migrated {
+		if err := s.save(); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
 }
@@ -168,8 +198,90 @@ func (s *Store) Route(snapshot api.Snapshot, requestID, turnKey string) (Origin,
 	return result, found
 }
 
+// Short references are a FIFO ring. A settled slot returns to the tail, while
+// pending and uncertain native requests keep their slot. A reused bare command
+// intentionally addresses the new request; the Runtime still checks its owner.
+const shortIDPoolSize = 999
+
+func (s *Store) nextShortIDLocked(kind string) (string, func(), error) {
+	counter := &s.state.NextQuestion
+	if kind == "A" {
+		counter = &s.state.NextApproval
+	}
+	previous := *counter
+	for range shortIDPoolSize {
+		next := *counter%shortIDPoolSize + 1
+		*counter = next
+		id := kind + strconv.FormatUint(next, 10)
+		oldPrompt, hadPrompt := s.state.Prompts[id]
+		oldAsync, hadAsync := s.state.AsyncQuestions[id]
+		if hadPrompt && s.state.Claims[oldPrompt.NativeID].State != "submitted" && (s.state.Claims[oldPrompt.NativeID].State == "unknown" || !shortIDExpired(oldPrompt.IssuedAt)) {
+			continue
+		}
+		if hadAsync && (oldAsync.State == "unknown" || oldAsync.State == "dispatching" || oldAsync.State == "" && !shortIDExpired(oldAsync.IssuedAt) && s.state.AsyncActive[oldAsync.ItemID] == oldAsync.Fingerprint) {
+			continue
+		}
+		delete(s.state.Prompts, id)
+		delete(s.state.AsyncQuestions, id)
+		return id, func() {
+			*counter = previous
+			if hadPrompt {
+				s.state.Prompts[id] = oldPrompt
+			}
+			if hadAsync {
+				s.state.AsyncQuestions[id] = oldAsync
+			}
+		}, nil
+	}
+	*counter = previous
+	return "", nil, errors.New("no short request numbers available")
+}
+
+// Reconcile releases native references only after an authoritative ready
+// snapshot confirms their original request has resolved or disappeared.
+func (s *Store) Reconcile(snapshot api.Snapshot) error {
+	if snapshot.Connection != "ready" && snapshot.Connection != "connected" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := make(map[string]api.Approval, len(snapshot.Approvals))
+	for _, approval := range snapshot.Approvals {
+		current[approval.ID] = approval
+	}
+	changed := false
+	previous := maps.Clone(s.state.Prompts)
+	for id, p := range s.state.Prompts {
+		approval, exists := current[p.NativeID]
+		if exists && approval.Status == "pending" && approval.Owner == p.Owner && approval.TurnKey == p.TurnKey && catalogFingerprint(approval) == p.Schema && !shortIDExpired(p.IssuedAt) {
+			continue
+		}
+		if s.state.Claims[p.NativeID].State == "unknown" {
+			continue
+		}
+		delete(s.state.Prompts, id)
+		changed = true
+	}
+	previousAsync := maps.Clone(s.state.AsyncQuestions)
+	for id, q := range s.state.AsyncQuestions {
+		if q.State == "" && shortIDExpired(q.IssuedAt) {
+			q.State = "expired"
+			s.state.AsyncQuestions[id] = q
+			changed = true
+		}
+	}
+	if changed {
+		if err := s.save(); err != nil {
+			s.state.Prompts = previous
+			s.state.AsyncQuestions = previousAsync
+			return err
+		}
+	}
+	return nil
+}
+
 // Card freezes every field and offered decision against one native request.
-// The final command is an exact copyable example; option labels never share it.
+// Each option keeps the Runtime's original order and label.
 func (s *Store) Card(a api.Approval) (string, string, error) {
 	if a.Status != "pending" || a.ID == "" {
 		return "", "", nil
@@ -183,21 +295,19 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 		h := sha256.Sum256(encoded)
 		p.Fingerprint = hex.EncodeToString(h[:])
 		for id, old := range s.state.Prompts {
-			if old.NativeID == p.NativeID && old.QuestionID == p.QuestionID && old.Fingerprint == p.Fingerprint {
+			if old.NativeID == p.NativeID && old.QuestionID == p.QuestionID && old.Fingerprint == p.Fingerprint && !shortIDExpired(old.IssuedAt) {
 				return id, nil
 			}
 		}
-		var id string
-		if kind == "A" {
-			s.state.NextApproval++
-			id = fmt.Sprintf("A%d", s.state.NextApproval)
-		} else {
-			s.state.NextQuestion++
-			id = fmt.Sprintf("Q%d", s.state.NextQuestion)
+		p.IssuedAt = time.Now().Unix()
+		id, undo, err := s.nextShortIDLocked(kind)
+		if err != nil {
+			return "", err
 		}
 		s.state.Prompts[id] = p
 		if err := s.save(); err != nil {
 			delete(s.state.Prompts, id)
+			undo()
 			return "", err
 		}
 		return id, nil
@@ -247,19 +357,21 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 				for number, o := range p.Options {
 					lines = append(lines, fmt.Sprintf("[%d] %s", number+1, o.Label))
 				}
+				lines = append(lines, "")
 				if q.Multiple && len(p.Options) > 0 {
 					example := "1"
 					if len(p.Options) > 1 {
 						example = "1,2"
 					}
-					lines = append(lines, "多选用逗号分隔索引，例如：", "/answer "+id+" "+example)
+					lines = append(lines, "提示：发送 /answer "+id+" + 选项标号（多选用逗号分隔，如 "+example+"）")
+				} else if len(p.Options) > 0 && p.Free {
+					lines = append(lines, "提示：发送 /answer "+id+" + 选项标号或完整回答")
+				} else if len(p.Options) > 0 {
+					lines = append(lines, "提示：发送 /answer "+id+" + 选项标号")
 				} else if p.Free {
-					lines = append(lines, "回答请输入 /answer "+id+" 后接完整回答。")
-				} else if len(p.Options) == 0 {
+					lines = append(lines, "提示：发送 /answer "+id+" + 完整回答")
+				} else {
 					lines = append(lines, "Runtime 没有为此字段提供可用选项；请核对原请求。")
-				}
-				if len(p.Options) > 0 && !q.Multiple {
-					lines = append(lines, "", "回答请输入", fmt.Sprintf("/answer %s 1", id))
 				}
 			}
 		}
@@ -659,6 +771,9 @@ func (s *Store) Handle(ctx context.Context, in Inbound, snapshot api.Snapshot) s
 			}
 		}
 		return s.reply(key, prior.Feedback)
+	}
+	if shortIDExpired(p.IssuedAt) {
+		return s.reply(key, "请求编号已过期，请查看最新请求。")
 	}
 	var current *api.Approval
 	for i := range snapshot.Approvals {

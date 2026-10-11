@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -23,7 +24,8 @@ type asyncQuestion struct {
 	WorkID                                             string
 	Options                                            []string
 	Index                                              int
-	State, ReplyID                                     string // dispatching/accepted/unknown; never replay an attempted send
+	State, ReplyID                                     string // dispatching/accepted/unknown/expired; never replay an attempted send
+	IssuedAt                                           int64  `json:"issuedAt,omitempty"`
 }
 
 // AsyncButtonQuestion is the provider-facing presentation of one exact async
@@ -170,8 +172,8 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 	fingerprint := asyncFingerprint(item, owner, workID)
 	s.mu.Lock()
 	created := []string{}
+	var undoIDs []func()
 	previousActive, hadActive := s.state.AsyncActive[item.ID]
-	previousNext := s.state.NextQuestion
 	for index, q := range item.AsyncQuestions {
 		found := false
 		for _, old := range s.state.AsyncQuestions {
@@ -180,21 +182,29 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 				break
 			}
 		}
-		if found {
+		if found || hadActive && previousActive == fingerprint {
 			continue
 		}
-		s.state.NextQuestion++
-		id := fmt.Sprintf("Q%d", s.state.NextQuestion)
-		s.state.AsyncQuestions[id] = asyncQuestion{ItemID: item.ID, TurnKey: item.TurnKey, CallID: item.AsyncCallID, Owner: owner, WorkID: workID, Fingerprint: fingerprint, Title: q.Title, Options: append([]string(nil), q.Options...), Index: index}
+		id, undo, err := s.nextShortIDLocked("Q")
+		if err != nil {
+			for i := len(undoIDs) - 1; i >= 0; i-- {
+				delete(s.state.AsyncQuestions, created[i])
+				undoIDs[i]()
+			}
+			s.mu.Unlock()
+			return item, err
+		}
+		s.state.AsyncQuestions[id] = asyncQuestion{ItemID: item.ID, TurnKey: item.TurnKey, CallID: item.AsyncCallID, Owner: owner, WorkID: workID, Fingerprint: fingerprint, Title: q.Title, Options: append([]string(nil), q.Options...), Index: index, IssuedAt: time.Now().Unix()}
 		created = append(created, id)
+		undoIDs = append(undoIDs, undo)
 	}
 	s.state.AsyncActive[item.ID] = fingerprint
 	if len(created) > 0 || !hadActive || previousActive != fingerprint {
 		if err := s.save(); err != nil {
-			for _, id := range created {
-				delete(s.state.AsyncQuestions, id)
+			for i := len(undoIDs) - 1; i >= 0; i-- {
+				delete(s.state.AsyncQuestions, created[i])
+				undoIDs[i]()
 			}
-			s.state.NextQuestion = previousNext
 			if hadActive {
 				s.state.AsyncActive[item.ID] = previousActive
 			} else {
@@ -216,35 +226,33 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 
 func (s *Store) asyncButtonQuestionsLocked(itemID, fingerprint string) []AsyncButtonQuestion {
 	var result []AsyncButtonQuestion
-	for index := 0; ; index++ {
-		found := false
-		for short, q := range s.state.AsyncQuestions {
-			if q.ItemID == itemID && q.Fingerprint == fingerprint && q.Index == index {
-				result = append(result, AsyncButtonQuestion{ShortID: short, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...)})
-				found = true
-				break
-			}
-		}
-		if !found {
-			return result
+	for _, entry := range s.asyncQuestionsLocked(itemID, fingerprint) {
+		q := entry.Question
+		result = append(result, AsyncButtonQuestion{ShortID: entry.ID, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...)})
+	}
+	return result
+}
+
+type indexedAsyncQuestion struct {
+	ID       string
+	Question asyncQuestion
+}
+
+func (s *Store) asyncQuestionsLocked(itemID, fingerprint string) []indexedAsyncQuestion {
+	var out []indexedAsyncQuestion
+	for id, q := range s.state.AsyncQuestions {
+		if q.ItemID == itemID && q.Fingerprint == fingerprint {
+			out = append(out, indexedAsyncQuestion{ID: id, Question: q})
 		}
 	}
+	slices.SortFunc(out, func(a, b indexedAsyncQuestion) int { return a.Question.Index - b.Question.Index })
+	return out
 }
 
 func (s *Store) asyncCardTextLocked(itemID, fingerprint string) string {
 	var lines []string
-	for index := 0; ; index++ {
-		id := ""
-		var q asyncQuestion
-		for short, candidate := range s.state.AsyncQuestions {
-			if candidate.ItemID == itemID && candidate.Fingerprint == fingerprint && candidate.Index == index {
-				id, q = short, candidate
-				break
-			}
-		}
-		if id == "" {
-			break
-		}
+	for _, entry := range s.asyncQuestionsLocked(itemID, fingerprint) {
+		id, q := entry.ID, entry.Question
 		if len(lines) > 0 {
 			lines = append(lines, "")
 		}
@@ -255,15 +263,20 @@ func (s *Store) asyncCardTextLocked(itemID, fingerprint string) string {
 		switch q.State {
 		case "accepted":
 			lines = append(lines, "回答已提交。")
+		case "expired":
+			lines = append(lines, "问题编号已过期。")
 		case "dispatching", "unknown":
 			lines = append(lines, "回答投递结果待核对；不会自动重发。")
 		default:
 			if len(q.Options) > 0 {
-				lines = append(lines, "", "回答请输入", "/answer "+id+" 1")
+				lines = append(lines, "", "提示：发送 /answer "+id+" + 选项标号")
 			} else {
-				lines = append(lines, "", "回答请输入 /answer "+id+" 后接完整回答。")
+				lines = append(lines, "", "提示：发送 /answer "+id+" + 完整回答")
 			}
 		}
+	}
+	if len(lines) == 0 {
+		return "问题已处理或过期。"
 	}
 	return strings.Join(lines, "\n")
 }
@@ -271,6 +284,10 @@ func (s *Store) asyncCardTextLocked(itemID, fingerprint string) string {
 func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapshot, id, key string) string {
 	s.mu.Lock()
 	q := s.state.AsyncQuestions[id]
+	if q.State == "expired" || q.State == "" && shortIDExpired(q.IssuedAt) {
+		s.mu.Unlock()
+		return s.reply(key, "问题编号已过期，请查看最新问题。")
+	}
 	active := s.state.AsyncActive[q.ItemID]
 	answer := s.answerAsync
 	answerWork := s.answerAsyncWork

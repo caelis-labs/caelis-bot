@@ -162,11 +162,11 @@ func asyncQuestionCard(body string) bool {
 		return false
 	}
 	for _, r := range number {
-		if r < '0' || r > '9' {
+		if r < '0' || r > '9' && (r < 'A' || r > 'Z') {
 			return false
 		}
 	}
-	return strings.Contains(body, "\n回答请输入") || strings.Contains(body, "\n回答已提交。") || strings.Contains(body, "\n回答投递结果待核对")
+	return strings.Contains(body, "\n提示：发送 /answer ") || strings.Contains(body, "\n回答请输入") || strings.Contains(body, "\n回答已提交。") || strings.Contains(body, "\n回答投递结果待核对")
 }
 
 func isMarkdownTableDivider(line string) bool {

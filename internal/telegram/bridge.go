@@ -1344,11 +1344,13 @@ func asyncQuestionButtons(questions []textchannel.AsyncButtonQuestion) (string, 
 		switch q.State {
 		case "accepted":
 			line += "\n回答已提交。"
+		case "expired":
+			line += "\n问题编号已过期。"
 		case "dispatching", "unknown":
 			line += "\n回答投递结果待核对；不会自动重发。"
 		case "":
 			if len(q.Options) == 0 {
-				line += "\n回答请输入 /answer " + q.ShortID + " 后接完整回答。"
+				line += "\n提示：发送 /answer " + q.ShortID + " + 完整回答"
 			}
 			for index, option := range q.Options {
 				label := option

@@ -122,7 +122,7 @@ const Message=memo(function Message({ item, report, onContextMenu, onQuotePrevie
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
   const delivery=item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)?statusLabel:'';
-  const asyncCard=item.kind==='assistant'&&/^\[Q\d+\] /.test(item.text);
+  const asyncCard=item.kind==='assistant'&&/^\[Q[0-9A-Z]+\] /.test(item.text);
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
    {(item.kind==='assistant'||item.kind==='controlNotice')&&<BotAvatar animate={animate} clip={clip}/>}
    <div className={`message ${item.kind==='controlNotice'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>

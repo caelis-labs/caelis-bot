@@ -1046,7 +1046,16 @@ func markdownApprovalCard(card string) string {
 		lines[0] = "**" + lines[0] + "**"
 	}
 	for i, line := range lines {
-		if strings.HasPrefix(line, "提示：") {
+		if strings.HasPrefix(line, "[Q") && strings.Contains(line, "] ") || strings.HasPrefix(line, "提示：") {
+			lines[i] = "**" + line + "**"
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+func markdownQuestionCard(card string) string {
+	lines := strings.Split(card, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "[Q") && strings.Contains(line, "] ") || strings.HasPrefix(line, "提示：") {
 			lines[i] = "**" + line + "**"
 		}
 	}

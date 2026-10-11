@@ -54,7 +54,7 @@ func TestMultiQuestionCollectEditRestartAndSubmitOnce(t *testing.T) {
 	}
 	a := api.Approval{ID: "original", TurnKey: "child", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "answer", Label: "提交回答"}}, Questions: []api.Question{{ID: "first", Title: "第一项", Type: "text", Required: true}, {ID: "second", Title: "第二项", Type: "select", Required: true, Options: []api.Choice{{ID: "a", Label: "方案甲"}, {ID: "b", Label: "方案乙"}}}}}
 	card, _, err := s.Card(a)
-	if err != nil || !strings.Contains(card, "[Q1] 第一项") || !strings.Contains(card, "[Q2] 第二项") || !strings.Contains(card, "/answer Q2 1") {
+	if err != nil || !strings.Contains(card, "[Q1] 第一项") || !strings.Contains(card, "[Q2] 第二项") || !strings.Contains(card, "提示：发送 /answer Q2 + 选项标号") {
 		t.Fatalf("card: %q %v", card, err)
 	}
 	snap := api.Snapshot{Approvals: []api.Approval{a}}
@@ -91,7 +91,7 @@ func TestMultipleNumericAndBooleanFieldAnswers(t *testing.T) {
 		{ID: "enabled", Title: "启用", Type: "boolean", Required: true},
 	}}
 	card, _, err := s.Card(a)
-	if err != nil || !strings.Contains(card, "/answer Q1 1,2") || !strings.Contains(card, "[1] 是\n[2] 否\n\n回答请输入\n/answer Q4 1") {
+	if err != nil || !strings.Contains(card, "提示：发送 /answer Q1 + 选项标号（多选用逗号分隔，如 1,2）") || !strings.Contains(card, "[1] 是\n[2] 否\n\n提示：发送 /answer Q4 + 选项标号") {
 		t.Fatalf("card: %q %v", card, err)
 	}
 	snap := api.Snapshot{Approvals: []api.Approval{a}}

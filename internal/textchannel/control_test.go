@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -49,6 +50,89 @@ func TestTextApprovalCatalogClaimAndRestart(t *testing.T) {
 	snap.Approvals[0] = a
 	if _, next, err := reopened.Card(a); err != nil || next == id {
 		t.Fatalf("reused changed index: %s %v", next, err)
+	}
+}
+
+func TestShortApprovalNumbersRecycleOnlyAfterOriginalSettles(t *testing.T) {
+	root := t.TempDir()
+	var sent []api.Decision
+	s, err := Open(root, func(_ context.Context, d api.Decision) error { sent = append(sent, d); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := api.Approval{ID: "old-native", TurnKey: "old-turn", Owner: "conversation", Status: "pending", Choices: []api.Choice{{ID: "deny", Label: "拒绝"}, {ID: "allow", Label: "允许"}}}
+	_, oldID, err := s.Card(old)
+	if err != nil || oldID != "A1" {
+		t.Fatal(oldID, err)
+	}
+	s.state.NextApproval = shortIDPoolSize
+	active := old
+	active.ID = "active-native"
+	_, activeID, err := s.Card(active)
+	if err != nil || activeID != "A2" {
+		t.Fatal("pending slot reused", activeID, err)
+	}
+	if got := s.Handle(t.Context(), Inbound{Channel: "weixin", Conversation: "owner", ID: "old-answer", Text: "/approve A1 1"}, api.Snapshot{Approvals: []api.Approval{old}}); !strings.Contains(got, "已提交") {
+		t.Fatal(got)
+	}
+	reopened, err := Open(root, func(_ context.Context, d api.Decision) error { sent = append(sent, d); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened.state.NextApproval = shortIDPoolSize
+	fresh := old
+	fresh.ID, fresh.TurnKey = "fresh-native", "fresh-turn"
+	_, freshID, err := reopened.Card(fresh)
+	if err != nil || freshID != "A1" {
+		t.Fatal("settled slot not returned to tail", freshID, err)
+	}
+	// A bare stale command is intentionally interpreted against the newer card.
+	if got := reopened.Handle(t.Context(), Inbound{Channel: "telegram", Conversation: "owner", ID: "new-answer", Text: "/approve A1 2"}, api.Snapshot{Approvals: []api.Approval{fresh}}); !strings.Contains(got, "已提交") {
+		t.Fatal(got)
+	}
+	if len(sent) != 2 || sent[0].ID != old.ID || sent[0].Choice != "deny" || sent[1].ID != fresh.ID || sent[1].Choice != "allow" {
+		t.Fatal(sent)
+	}
+}
+
+func TestExpiredApprovalNumberReturnsToQueue(t *testing.T) {
+	s, _ := Open(t.TempDir(), nil)
+	old := api.Approval{ID: "expired", TurnKey: "old", Owner: "conversation", Status: "pending", Choices: []api.Choice{{ID: "deny", Label: "拒绝"}}}
+	_, id, _ := s.Card(old)
+	if err := s.Reconcile(api.Snapshot{Connection: "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	s.state.NextApproval = shortIDPoolSize
+	fresh := old
+	fresh.ID, fresh.TurnKey = "fresh", "new"
+	_, next, err := s.Card(fresh)
+	if err != nil || next != id {
+		t.Fatal(next, err)
+	}
+}
+
+func TestUnansweredApprovalShortIDExpiresWithoutDecidingNativeRequest(t *testing.T) {
+	s, _ := Open(t.TempDir(), func(context.Context, api.Decision) error {
+		t.Fatal("expiry must not decide")
+		return nil
+	})
+	old := api.Approval{ID: "still-pending", TurnKey: "turn", Owner: "conversation", Status: "pending", Choices: []api.Choice{{ID: "allow", Label: "允许"}}}
+	_, id, _ := s.Card(old)
+	p := s.state.Prompts[id]
+	p.IssuedAt = time.Now().Add(-shortIDMaxAge - time.Hour).Unix()
+	s.state.Prompts[id] = p
+	if got := s.Handle(t.Context(), Inbound{Channel: "weixin", Conversation: "owner", ID: "late", Text: "/approve A1 1"}, api.Snapshot{Approvals: []api.Approval{old}}); !strings.Contains(got, "已过期") {
+		t.Fatal(got)
+	}
+	if err := s.Reconcile(api.Snapshot{Connection: "ready", Approvals: []api.Approval{old}}); err != nil {
+		t.Fatal(err)
+	}
+	s.state.NextApproval = shortIDPoolSize
+	fresh := old
+	fresh.ID, fresh.TurnKey = "next-native", "next-turn"
+	_, next, err := s.Card(fresh)
+	if err != nil || next != id {
+		t.Fatal(next, err)
 	}
 }
 
@@ -107,7 +191,7 @@ func TestQuestionFreeTextAndExpiredRequest(t *testing.T) {
 	s, _ := Open(t.TempDir(), func(_ context.Context, d api.Decision) error { sent = append(sent, d); return nil })
 	a := api.Approval{ID: "worker-question", TurnKey: "child", Owner: "task-1", Status: "pending", Questions: []api.Question{{ID: "q", Title: "选择或说明", Type: "text", Required: true, Options: []api.Choice{{ID: "one", Label: "第一项"}, {ID: "two", Label: "第二项"}}}}}
 	card, id, err := s.Card(a)
-	if err != nil || !strings.Contains(card, "回答请输入 /answer "+id+" 后接完整回答。") {
+	if err != nil || !strings.Contains(card, "提示：发送 /answer "+id+" + 选项标号或完整回答") {
 		t.Fatalf("%q %v", card, err)
 	}
 	snap := api.Snapshot{Approvals: []api.Approval{a}}
@@ -143,8 +227,7 @@ func TestGeneratedQuestionOptionLineSubmitsExactNativeOption(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			commands := cardCommands(card, "/answer ")
-			if len(commands) != 1 || commands[0] != fmt.Sprintf("/answer %s 1", id) || !strings.Contains(card, fmt.Sprintf("[%d] %s", index+1, choice.Label)) {
+			if !strings.Contains(card, "提示：发送 /answer "+id+" + 选项标号或完整回答") || !strings.Contains(card, fmt.Sprintf("[%d] %s", index+1, choice.Label)) {
 				t.Fatal(card)
 			}
 			command := fmt.Sprintf("/answer %s %d", id, index+1)

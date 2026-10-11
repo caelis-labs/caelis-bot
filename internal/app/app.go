@@ -700,6 +700,9 @@ func (a *Application) Start() error {
 			revision = snapshot.Revision
 			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
 			a.observeWorkerApprovalNotice(ctx, snapshot)
+			if err := a.textControl.Reconcile(snapshot); err != nil && a.host.ReportError != nil {
+				a.host.ReportError(err)
+			}
 			snapshot = a.userVisibleApprovals(snapshot)
 			for i, item := range snapshot.Items {
 				if len(item.AsyncQuestions) == 0 {
