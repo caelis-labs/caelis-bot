@@ -94,6 +94,27 @@ func TestTerminalTurnObservationSurvivesNextTurn(t *testing.T) {
 	}
 }
 
+func TestUnseededPairingDoesNotRememberHistoricalTurn(t *testing.T) {
+	server, texts := sentTexts(t, nil)
+	defer server.Close()
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "old", Phase: "completed", Items: []api.Item{{ID: "history", TurnKey: "old", Kind: "assistant", Text: "old answer", Status: "completed"}}}
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.OwnerID, b.state.BotID = "owner", "bot"
+	b.ObserveTurn(snapshot)
+	if len(b.state.TurnPhases) != 0 {
+		t.Fatal("historical Turn was primed before first accepted input")
+	}
+	freshWindow(b, "new-input")
+	snapshot.CurrentTurn, snapshot.Phase = "new", "working"
+	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
+	if len(*texts) != 0 {
+		t.Fatalf("historical reply replayed after first ingress: %#v", *texts)
+	}
+}
+
 func TestApprovalAndQuestionPrecedeLowValueMirrors(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()

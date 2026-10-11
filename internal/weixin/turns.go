@@ -10,6 +10,9 @@ func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if !b.state.HasInput || b.state.OwnerID == "" {
+		return // a newly paired channel must not prime historical Turn replay
+	}
 	if b.state.TurnPhases[snapshot.CurrentTurn] == snapshot.Phase {
 		return
 	}

@@ -17,6 +17,7 @@ import (
 )
 
 func freshWindow(b *Bridge, id string) {
+	b.state.HasInput = true
 	b.state.ContextToken = "ctx"
 	b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: id, ContextToken: "ctx", InputAt: time.Now().UnixMilli()}
 }
