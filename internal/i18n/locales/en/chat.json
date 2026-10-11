@@ -47,6 +47,7 @@
   "approvalUnknown": "Connection or result pending confirmation. Reconnect to verify.",
   "revealInFinder": "Show in Finder",
   "artifactUnavailable": "File no longer available",
+  "taskUnavailable": "This Worker terminal is unavailable",
   "mediaOpen": "View {name}",
   "mediaUnavailable": "Image preview unavailable",
   "draftLoadFailed": "Could not load draft",

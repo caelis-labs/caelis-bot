@@ -63,6 +63,57 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 	}
 }
 
+func TestWorkerAsyncCardAnswersOriginalWorkAndIgnoresBotOwner(t *testing.T) {
+	s, err := Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := api.Item{ID: "worker-question:item", TurnKey: "worker-turn", Kind: "assistant", AsyncCallID: "native-worker-call", AsyncQuestions: []api.AsyncQuestion{{Title: "选项", Options: []string{"甲", "乙"}}}}
+	card, err := s.AsyncWorkCard(item, "codex", "task-original")
+	if err != nil || !strings.Contains(card.Text, "[Q1] 选项") {
+		t.Fatal(card, err)
+	}
+	var workID, owner, itemID, input string
+	var calls int
+	s.SetAsyncWorkAnswerer(func(_ context.Context, _ Inbound, w, o, i, body string) (api.Receipt, error) {
+		calls++
+		workID, owner, itemID, input = w, o, i, body
+		return api.Receipt{Outcome: "accepted"}, nil
+	})
+	command := strings.TrimSpace(card.Text[strings.LastIndex(card.Text, "\n/")+1:])
+	command = strings.Replace(command, " 1", " 2", 1)
+	for _, in := range []Inbound{{Channel: "telegram", Conversation: "paired", ID: "tg-worker-1", Text: command}, {Channel: "weixin", Conversation: "paired", ID: "wx-worker-2", Text: command}} {
+		if feedback := s.Handle(t.Context(), in, api.Snapshot{RuntimeOwner: "different-bot-owner", Connection: "offline"}); !strings.Contains(feedback, "已提交") {
+			t.Fatal(feedback)
+		}
+	}
+	if calls != 1 || workID != "task-original" || owner != "codex" || itemID != item.ID || !strings.Contains(input, `"answer":"乙"`) || !strings.Contains(input, `"questionItemId":"[\"request_user_input_async\",\"native-worker-call\",0]"`) {
+		t.Fatalf("worker answer lost original target or replayed: %d %q %q %q %q", calls, workID, owner, itemID, input)
+	}
+}
+
+func TestGuardianAnswerKeepsResultOutOfUserNotices(t *testing.T) {
+	s, err := Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := api.Item{ID: "worker-question:private", TurnKey: "worker-turn", Kind: "assistant", AsyncCallID: "native-call", AsyncQuestions: []api.AsyncQuestion{{Title: "Choose", Options: []string{"甲", "乙"}}}}
+	if _, err := s.AsyncWorkCard(item, "codex", "original-task"); err != nil {
+		t.Fatal(err)
+	}
+	notices, calls := 0, 0
+	s.SetNoticeObserver(func(Notice) { notices++ })
+	s.SetAsyncWorkAnswerer(func(_ context.Context, _ Inbound, _, _, _, _ string) (api.Receipt, error) {
+		calls++
+		return api.Receipt{Outcome: "accepted"}, nil
+	})
+	first := s.HandleBotWorkAnswer(t.Context(), "worker-bot-answer", "Q1", "2")
+	second := s.HandleBotWorkAnswer(t.Context(), "worker-bot-answer", "Q1", "2")
+	if first.Outcome != "accepted" || second.Outcome != "accepted" || calls != 1 || notices != 0 || len(s.Notices()) != 0 {
+		t.Fatal("private Guardian reply was duplicated or mirrored", first, second, calls, notices, s.Notices())
+	}
+}
+
 func TestAsyncQuestionOwnerAndSchemaChangesInvalidateOldReference(t *testing.T) {
 	s, _ := Open(t.TempDir(), nil)
 	item := api.Item{ID: "item", TurnKey: "turn", Kind: "assistant", AsyncCallID: "call", AsyncQuestions: []api.AsyncQuestion{{Title: "选择", Options: []string{"甲", "乙"}}}}

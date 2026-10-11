@@ -194,13 +194,8 @@ summary { cursor:pointer; }
 .quote-preview pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:14px; line-height:1.7; }
 .quote-preview-close { position:sticky; top:0; float:right; display:grid; place-items:center; width:24px; height:24px; margin:-12px -15px 0 12px; border:0; border-radius:50%; background:var(--wash); }
 .quote-preview-close .symbol { width:12px; height:12px; }
-.task-row { margin:12px 0; }
-.worker-chip { display:flex; align-items:center; gap:9px; max-width:87%; min-height:34px; padding:6px 11px; border:1px solid var(--line); border-radius:12px; background:var(--surface); font-size:12px; line-height:20px; }
-.worker-chip svg { width:18px; height:18px; flex:none; fill:none; stroke:currentColor; stroke-width:1.7; }
-.worker-chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.worker-chip i { width:7px; height:7px; flex:none; border-radius:50%; background:var(--caelis-warning); }
-.worker-chip i.uncertain { background:var(--muted); }
-.worker-chip i.done { background:var(--caelis-success); }
+.task-message-action { border:0; padding:0; background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.task-message-action:hover { text-decoration:underline; }
 .copy-text { display:grid; place-items:center; width:28px; height:28px; border:0; background:transparent; color:var(--muted); padding:0; border-radius:7px; }
 .copy-text:hover { color:var(--ink); background:var(--wash); }
 .message-link { display:inline; border:0; background:transparent; padding:0; color:var(--accent); text-align:inherit; font:inherit; text-decoration:underline; text-underline-offset:3px; overflow-wrap:anywhere; }

@@ -69,6 +69,7 @@ type Service struct {
 	submissionObserver          func(api.Submission, []api.InputFile, api.Receipt)
 	commandHandler              func(context.Context, api.Submission) (api.Receipt, bool, error)
 	controlNotices              func() ([]api.Item, uint64)
+	guardianNoticeAccepted      func(string) bool
 	openURL                     func(string) error
 	reveal                      func(string) error
 	screenMedia                 *screeninput.Media
@@ -85,6 +86,14 @@ type recoveryFlight struct {
 
 func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error), consume func([]string) error, openURL, reveal func(string) error) *Service {
 	return &Service{engine: engine, files: files, consumeFiles: consume, openURL: openURL, reveal: reveal, draft: api.Draft{ReferenceIDs: []string{}}}
+}
+
+// Hide a Worker card only after the resident Bot's private notice was accepted.
+// An absent or uncertain notice leaves the original native user path available.
+func (s *Service) SetGuardianNoticeAccepted(f func(string) bool) {
+	s.mu.Lock()
+	s.guardianNoticeAccepted = f
+	s.mu.Unlock()
 }
 
 // NativePlugins is queried only while the composer menu is open. An adapter
@@ -232,6 +241,20 @@ func (s *Service) decorate(v api.Snapshot) api.Snapshot {
 	// Native automatic-review facts remain in adapter history and diagnostics.
 	// They are not an independent user message or an actionable approval.
 	v.Reviews = nil
+	// Coordinatable Worker approvals go through the resident Bot only after its
+	// host notice was accepted. An uncertain notice retains the direct user card.
+	if len(v.Approvals) != 0 {
+		s.mu.Lock()
+		accepted := s.guardianNoticeAccepted
+		s.mu.Unlock()
+		visible := make([]api.Approval, 0, len(v.Approvals))
+		for _, approval := range v.Approvals {
+			if !approval.GuardianEligible() || accepted == nil || !accepted(approval.ID) {
+				visible = append(visible, approval)
+			}
+		}
+		v.Approvals = visible
+	}
 	s.admission.RLock()
 	setupRequired := s.setupRequired
 	s.admission.RUnlock()

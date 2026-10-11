@@ -53,45 +53,46 @@ type Host struct {
 }
 
 type Application struct {
-	localWork          *localWorkers
-	machines           *machines.Service
-	taskPreferences    *tasks.PreferencesStore
-	setup              *runtimeSetup
-	Backend            *backend.Service
-	Telegram           *telegram.Bridge
-	Weixin             *weixin.Bridge
-	textControl        *textchannel.Store
-	engine             api.Engine
-	host               Host
-	root               string
-	mu                 sync.Mutex
-	pluginAdmission    sync.Mutex
-	pluginSyncMu       sync.Mutex
-	pluginSyncRunning  bool
-	pluginSyncPending  bool
-	pluginSyncRevision uint64
-	pluginSyncError    bool
-	updateMu           sync.Mutex
-	started, closed    bool
-	updatePrepared     bool
-	cancel             context.CancelFunc
-	startupCancel      context.CancelFunc
-	dreamReady         bool
-	careReady          bool
-	workers            sync.WaitGroup
-	companion          *bot.Runtime
-	bridge             *bot.Bridge
-	tasks              *tasks.Manager
-	personal           *botmemory.Store
-	notebook           *notebook.Vault
-	skillPath          string
-	initialization     *bot.Initializer
-	plugins            *plugins.Manager
-	pluginDetailMu     sync.Mutex
-	pluginIndexMu      sync.Mutex
-	pluginDetailCache  map[string]pluginDetailCacheEntry
-	closeOnce          sync.Once
-	closeErr           error
+	localWork           *localWorkers
+	machines            *machines.Service
+	taskPreferences     *tasks.PreferencesStore
+	setup               *runtimeSetup
+	Backend             *backend.Service
+	Telegram            *telegram.Bridge
+	Weixin              *weixin.Bridge
+	textControl         *textchannel.Store
+	engine              api.Engine
+	host                Host
+	root                string
+	mu                  sync.Mutex
+	pluginAdmission     sync.Mutex
+	pluginSyncMu        sync.Mutex
+	pluginSyncRunning   bool
+	pluginSyncPending   bool
+	pluginSyncRevision  uint64
+	pluginSyncError     bool
+	updateMu            sync.Mutex
+	interactionNoticeMu sync.Mutex
+	started, closed     bool
+	updatePrepared      bool
+	cancel              context.CancelFunc
+	startupCancel       context.CancelFunc
+	dreamReady          bool
+	careReady           bool
+	workers             sync.WaitGroup
+	companion           *bot.Runtime
+	bridge              *bot.Bridge
+	tasks               *tasks.Manager
+	personal            *botmemory.Store
+	notebook            *notebook.Vault
+	skillPath           string
+	initialization      *bot.Initializer
+	plugins             *plugins.Manager
+	pluginDetailMu      sync.Mutex
+	pluginIndexMu       sync.Mutex
+	pluginDetailCache   map[string]pluginDetailCacheEntry
+	closeOnce           sync.Once
+	closeErr            error
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -184,6 +185,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		}
 	}
 	app := &Application{Backend: service, engine: engine, root: root, host: host, initialization: initialization}
+	service.SetGuardianNoticeAccepted(func(id string) bool { return app.workerInteractionNoticeAccepted("approval", id) })
 	app.plugins, err = plugins.Open(filepath.Join(root, "Plugins"))
 	if err != nil && host.ReportError != nil {
 		host.ReportError(err)
@@ -225,11 +227,14 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	}
 	app.textControl.SetNoticeObserver(showNotice)
 	app.textControl.SetAsyncUpdateObserver(func(item api.Item) {
-		service.ObserveChat(api.Snapshot{Items: []api.Item{item}})
+		if !strings.HasPrefix(item.ID, "worker-question:") {
+			service.ObserveChat(api.Snapshot{Items: []api.Item{item}})
+		}
 	})
 	app.textControl.SetAsyncAnswerer(func(ctx context.Context, in textchannel.Inbound, modelInput string) (api.Receipt, error) {
 		return backend.SubmitRemote(ctx, service, api.Submission{ID: in.ID, Text: in.Text, ModelInputOverride: modelInput}, nil)
 	})
+	app.textControl.SetAsyncWorkAnswerer(app.answerWorkerQuestion)
 	service.SetCommandHandler(func(ctx context.Context, input api.Submission) (api.Receipt, bool, error) {
 		if !textchannel.IsCommand(input.Text) {
 			return api.Receipt{}, false, nil
@@ -479,7 +484,7 @@ func (a *Application) Start() error {
 			}
 			a.Backend.ObserveChat(api.Snapshot{Items: []api.Item{{
 				ID: "task-start:" + task.ID, Kind: "assistant", Text: text,
-				Status: "completed", Task: &api.TaskPresentation{Title: task.Title, Status: status},
+				Status: "completed", Task: &api.TaskPresentation{ID: task.ID, Title: task.Title, Status: status},
 			}}})
 		})
 	}
@@ -490,6 +495,7 @@ func (a *Application) Start() error {
 	if manager != nil {
 		err = resident.ConfigureTasks(manager, manager)
 	}
+	resident.ConfigureWorkerInteractions(a)
 	if err != nil && manager != nil {
 		return err
 	}
@@ -608,8 +614,22 @@ func (a *Application) Start() error {
 	if a.Weixin != nil {
 		a.Weixin.Start()
 	}
-	a.workers.Add(5)
+	a.workers.Add(6)
 	go func() { defer a.workers.Done(); a.localWork.Observe(ctx) }()
+	go func() {
+		defer a.workers.Done()
+		a.observeWorkerQuestions(ctx)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				a.observeWorkerQuestions(ctx)
+			}
+		}
+	}()
 	go func() { defer a.workers.Done(); a.machines.Observe(ctx) }()
 	go func() {
 		defer a.workers.Done()
@@ -676,6 +696,8 @@ func (a *Application) Start() error {
 			}
 			revision = snapshot.Revision
 			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
+			a.observeWorkerApprovalNotice(ctx, snapshot)
+			snapshot = a.userVisibleApprovals(snapshot)
 			for i, item := range snapshot.Items {
 				if len(item.AsyncQuestions) == 0 {
 					continue

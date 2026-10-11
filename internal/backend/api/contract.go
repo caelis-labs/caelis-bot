@@ -90,6 +90,7 @@ type Item struct {
 
 // TaskPresentation is a visible start receipt, not a Worker transcript.
 type TaskPresentation struct {
+	ID     string `json:"id,omitempty"`
 	Title  string `json:"title"`
 	Status string `json:"status"`
 }
@@ -193,6 +194,27 @@ type Approval struct {
 	Questions   []Question          `json:"questions"`
 	URL         string              `json:"url"`
 }
+
+// GuardianEligible is deliberately narrow: the resident Bot can inspect the
+// operation, target, scope and non-secret questions without opaque payloads.
+// Other Worker requests retain the user's original native card.
+func (a Approval) GuardianEligible() bool {
+	if a.Owner != "task" || len(a.Choices) == 0 || a.URL != "" || a.Details != "" {
+		return false
+	}
+	for _, q := range a.Questions {
+		if q.Secret {
+			return false
+		}
+	}
+	for _, choice := range a.Choices {
+		if choice.Details != "" {
+			return false
+		}
+	}
+	return true
+}
+
 type Reference struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`

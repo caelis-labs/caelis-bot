@@ -183,6 +183,25 @@ admission, not that the model has consumed the answer or resumed an old turn.
 These references are fenced to the original Codex thread and item schema and
 are never reused after an uncertain send. Codex async questions have no native
 secret-field marker; the host cannot infer one from question prose.
+Independent Codex Workers persist their async question items under the original
+task binding. The host reports the pending question privately to the resident
+Bot, which reads it through `bot_interactions` and can answer on that original
+Worker receipt path. If information is missing, the Bot asks the user in normal
+chat. Ordinary Worker transcript messages and automatic-review facts do not
+become user-facing question cards.
+For native Worker approvals, Bot may choose an exact offered option on the
+original request only when operation, target and scope are inspectable and no
+marked-secret field, URL, opaque diff or rule payload is present. Those other
+requests keep their original user-facing native card. The resident Bot's own
+approvals always remain under Runtime Auto-Review or the user's direct decision.
+Each pending coordinatable Worker request produces at most one private host
+report; dispatching and unknown report receipts are never replayed as a new
+request. The user-facing native card is hidden only after that private report
+has an accepted receipt; an unavailable or uncertain report leaves the card
+visible so the original request can still be handled. The original Runtime
+still validates every decision and resolves it. Caelis currently projects the
+native tool-call input as opaque `Details`, so its Worker approvals retain the
+direct card until a typed, safely inspectable operation/target projection exists.
 Telegram buttons invoke the same controller. Only an inbound reply containing
 a transport-supplied reference to a Bot card with a confirmed outbound message
 ID can bind a bare index or custom question answer. The binding is persisted
@@ -497,6 +516,9 @@ receipts/pixels retain the public SDK's stricter projection contract.
 `internal/botskills/skills/` is the sole English Bot behavior source. Install complete directories into private
 `app-skills`; only name, description and location enter resident instructions. Body/references are read on
 demand through native file tools. Do not install globally or copy the Bot catalog/Notebook into Workers.
+The installed bundle is replaced when the application starts. A rebuilt binary
+must start before its new bundle reaches the data directory; an already running
+Worker retains the instructions and context from its original start.
 This is an application-scoped file catalog, projected through the resident Runtime's selected Skill paths.
 Update skill guidance for behavior changes; implementation-only fixes need no duplicate guidance.
 Codex receives the resident Skill metadata guide in developer instructions. Core uses its selected

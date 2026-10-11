@@ -82,6 +82,27 @@ type snapshotEngine struct {
 
 func (e snapshotEngine) Snapshot() api.Snapshot { return e.value }
 
+func TestUserSnapshotsKeepBotApprovalsButHideWorkerGuardianRequests(t *testing.T) {
+	e := snapshotEngine{value: api.Snapshot{Approvals: []api.Approval{
+		{ID: "worker", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "allow"}}},
+		{ID: "bot", Owner: "conversation", Status: "pending"},
+		{ID: "unknown-owner", Status: "pending"},
+	}}}
+	s := NewService(e, nil, nil, nil, nil)
+	if got := s.Snapshot().Approvals; len(got) != 3 {
+		t.Fatalf("unreported Worker approval lost its direct user card: %+v", got)
+	}
+	s.SetGuardianNoticeAccepted(func(id string) bool { return id == "worker" })
+	for _, snapshot := range []api.Snapshot{s.Snapshot(), s.ChatSnapshot(0, "").Snapshot, s.PetSnapshot()} {
+		if len(snapshot.Approvals) != 2 || snapshot.Approvals[0].ID != "bot" || snapshot.Approvals[1].ID != "unknown-owner" {
+			t.Fatalf("approval owner projection changed: %+v", snapshot.Approvals)
+		}
+	}
+	if len(e.value.Approvals) != 3 {
+		t.Fatal("presentation filtered native authority")
+	}
+}
+
 func TestSetupRequiredProjectsExplicitConnectionIssue(t *testing.T) {
 	s := NewService(snapshotEngine{value: api.Snapshot{Connection: "offline"}}, nil, nil, nil, nil)
 	s.RequireSetup(true)

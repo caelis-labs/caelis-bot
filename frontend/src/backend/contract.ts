@@ -460,6 +460,7 @@ export interface Submission {
   quoted?: QuotedMessage | null;
 }
 export interface TaskPresentation {
+  id?: string;
   title: string;
   status: string;
 }

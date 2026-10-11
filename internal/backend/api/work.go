@@ -64,6 +64,9 @@ type LocalWorkerController interface {
 type WorkState struct {
 	Runtime string
 	Task    Task
+	// AsyncQuestions are host-only completed Codex question items owned by this
+	// Worker. They do not turn a Worker transcript into Bot conversation history.
+	AsyncQuestions []Item `json:"-"`
 	// Activity is active, idle, or empty when the native owner has not been
 	// checked in this connection generation. It is independent of task outcome.
 	Activity       string
@@ -117,6 +120,24 @@ type TaskMachineProvider interface{ TaskMachines() []TaskMachine }
 // not promote that notice into a new user request or delegation authority.
 type ReportSubmitter interface {
 	SubmitReport(context.Context, Submission) (Receipt, error)
+}
+
+// WorkerInteractionPort exposes only original, Bot-owned Worker approval
+// requests to the resident Bot. Native adapters still own every decision.
+type WorkerInteractionPort interface {
+	WorkerApprovals() []Approval
+	DecideWorkerApproval(context.Context, Decision) (Approval, error)
+	WorkerQuestions() []WorkerQuestion
+	AnswerWorkerQuestion(context.Context, string, string, string) (Receipt, error)
+}
+
+type WorkerQuestion struct {
+	ID        string   `json:"id"`
+	TaskID    string   `json:"taskId"`
+	TaskTitle string   `json:"taskTitle"`
+	Title     string   `json:"title"`
+	Options   []string `json:"options,omitempty"`
+	State     string   `json:"state,omitempty"`
 }
 
 // BackgroundRuntime keeps timer provenance separate from actual user messages.

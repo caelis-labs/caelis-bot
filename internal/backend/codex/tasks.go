@@ -17,12 +17,13 @@ import (
 // Task records and submission receipts share the atomic conversation binding.
 // A recorded unknown outcome is never permission to retry a mutation.
 type taskRecord struct {
-	OriginalPrompt string                     `json:"originalPrompt,omitempty"`
-	Execution      *api.WorkExecutionSettings `json:"execution,omitempty"`
-	ModelProvider  string                     `json:"modelProvider,omitempty"`
-	View           api.Task                   `json:"view"`
-	Thread         string                     `json:"thread"`
-	Run            string                     `json:"run"`
+	OriginalPrompt string                         `json:"originalPrompt,omitempty"`
+	Execution      *api.WorkExecutionSettings     `json:"execution,omitempty"`
+	ModelProvider  string                         `json:"modelProvider,omitempty"`
+	View           api.Task                       `json:"view"`
+	Thread         string                         `json:"thread"`
+	Run            string                         `json:"run"`
+	AsyncQuestions map[string]workerAsyncQuestion `json:"asyncQuestions,omitempty"`
 	// Native turn IDs displaced by a later, durably recorded continuation. Keep
 	// these across reconnects: an old terminal event is not the new result.
 	SupersededRuns []string               `json:"supersededRuns,omitempty"`
@@ -37,6 +38,36 @@ type taskRecord struct {
 	Retired        bool                   `json:"retired,omitempty"`
 	Activity       string                 `json:"-"`
 }
+type workerAsyncQuestion struct {
+	Run       string              `json:"run"`
+	CallID    string              `json:"callId"`
+	Questions []api.AsyncQuestion `json:"questions"`
+}
+
+func (s *Session) recordWorkerAsync(t *taskRecord, run string, item nativeItem) bool {
+	if t == nil || run == "" || item.ID == "" || item.Type != "agentMessage" || item.Delivery != "async" || len(item.Questions) == 0 {
+		return false
+	}
+	questions := make([]api.AsyncQuestion, 0, len(item.Questions))
+	for _, q := range item.Questions {
+		if strings.TrimSpace(q.Title) == "" {
+			return false
+		}
+		questions = append(questions, api.AsyncQuestion{Title: q.Title, Options: append([]string(nil), q.Options...)})
+	}
+	if t.AsyncQuestions == nil {
+		t.AsyncQuestions = map[string]workerAsyncQuestion{}
+	}
+	key := opaque(run, item.ID)
+	if old, ok := t.AsyncQuestions[key]; ok && old.Run == run && old.CallID == item.ID {
+		if slices.EqualFunc(old.Questions, questions, func(a, b api.AsyncQuestion) bool { return a.Title == b.Title && slices.Equal(a.Options, b.Options) }) {
+			return false
+		}
+	}
+	t.AsyncQuestions[key] = workerAsyncQuestion{Run: run, CallID: item.ID, Questions: questions}
+	return true
+}
+
 type taskReceipt struct {
 	Fingerprint     string `json:"fingerprint"`
 	Outcome         string `json:"outcome"`
@@ -121,7 +152,15 @@ func (s *Session) WorkStates() []api.WorkState {
 		if s.state.Connection != "ready" {
 			activity = ""
 		}
-		out = append(out, api.WorkState{Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint})
+		state := api.WorkState{Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
+		for key, question := range t.AsyncQuestions {
+			if question.Run != t.Run {
+				continue
+			}
+			state.AsyncQuestions = append(state.AsyncQuestions, api.Item{ID: "worker-question:" + opaque(t.Thread, key), TurnKey: opaque(t.Thread, question.Run), Kind: "assistant", Status: "completed", AsyncCallID: question.CallID, AsyncQuestions: append([]api.AsyncQuestion(nil), question.Questions...)})
+		}
+		sort.Slice(state.AsyncQuestions, func(i, j int) bool { return state.AsyncQuestions[i].ID < state.AsyncQuestions[j].ID })
+		out = append(out, state)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Task.ID < out[j].Task.ID })
 	return out
@@ -539,6 +578,7 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 		return
 	}
 	for _, item := range turn.Items {
+		changed = s.recordWorkerAsync(t, turn.ID, item) || changed
 		if item.Type == "userMessage" {
 			if r, ok := t.Requests[item.ClientID]; ok {
 				changed = changed || r.Outcome != "accepted"
@@ -595,7 +635,7 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 			t.ReportState = "observed"
 		}
 		for _, item := range turn.Items {
-			if item.Type == "agentMessage" {
+			if item.Type == "agentMessage" && item.Delivery != "async" {
 				t.View.Result = boundedText(item.Text, 6000)
 			}
 		}

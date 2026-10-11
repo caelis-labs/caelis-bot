@@ -47,6 +47,7 @@
   "approvalUnknown": "连接或结果待确认，请重新连接核对",
   "revealInFinder": "在访达中显示",
   "artifactUnavailable": "文件已不可用",
+  "taskUnavailable": "此 Worker 终端当前不可打开",
   "mediaOpen": "查看 {name}",
   "mediaUnavailable": "图片预览不可用",
   "draftLoadFailed": "暂时无法读取草稿",

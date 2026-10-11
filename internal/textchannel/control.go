@@ -67,15 +67,16 @@ type document struct {
 	AsyncActive                map[string]string        `json:"asyncActive,omitempty"` // item ID -> exact question fingerprint
 }
 type Store struct {
-	mu            sync.Mutex
-	path          string
-	state         document
-	secretAnswers map[string]map[string][]string // intentionally memory-only; lost on restart
-	decide        func(context.Context, api.Decision) error
-	onNotice      func(Notice)
-	onInbound     func(Inbound)
-	onAsyncUpdate func(api.Item)
-	answerAsync   func(context.Context, Inbound, string) (api.Receipt, error)
+	mu              sync.Mutex
+	path            string
+	state           document
+	secretAnswers   map[string]map[string][]string // intentionally memory-only; lost on restart
+	decide          func(context.Context, api.Decision) error
+	answerAsyncWork func(context.Context, Inbound, string, string, string, string) (api.Receipt, error)
+	onNotice        func(Notice)
+	onInbound       func(Inbound)
+	onAsyncUpdate   func(api.Item)
+	answerAsync     func(context.Context, Inbound, string) (api.Receipt, error)
 }
 
 func Open(root string, decide func(context.Context, api.Decision) error) (*Store, error) {
@@ -971,7 +972,7 @@ func (s *Store) reply(key, body string) string {
 	_ = s.save()
 	observer := s.onNotice
 	s.mu.Unlock()
-	if observer != nil {
+	if observer != nil && !strings.HasPrefix(key, "bot\x00resident\x00") {
 		observer(noticeFor(key, body, seenAt))
 	}
 	return body
@@ -987,6 +988,9 @@ func (s *Store) Notices() []Notice {
 	defer s.mu.Unlock()
 	result := make([]Notice, 0, len(s.state.Replies))
 	for _, key := range s.state.ReplyOrder {
+		if strings.HasPrefix(key, "bot\x00resident\x00") {
+			continue // internal Guardian tool result, not a user chat receipt
+		}
 		body, exists := s.state.Replies[key]
 		if !exists {
 			continue

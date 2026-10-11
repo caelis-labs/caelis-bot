@@ -256,7 +256,7 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 	config.Env["CAELIS_BOT_TOOL_CATALOG"] = string(raw)
 	config.Services = []api.ToolService{
 		{Name: "caelis_context", Tools: []string{"bot_dream"}},
-		{Name: "caelis_tasks", Tools: []string{"bot_tasks", "bot_delegate"}},
+		{Name: "caelis_tasks", Tools: []string{"bot_tasks", "bot_delegate", "bot_interactions"}},
 		{Name: "caelis_schedule", Tools: []string{"bot_schedule", "bot_schedule_update"}},
 		{Name: "caelis_personal", Tools: []string{"bot_memory", "bot_gesture"}},
 		{Name: "caelis_desktop", Tools: []string{"bot_desktop_inspect", "bot_desktop_authorize", "bot_desktop_act", "bot_desktop_result"}},

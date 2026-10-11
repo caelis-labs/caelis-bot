@@ -20,6 +20,7 @@ import (
 // submission, with the exact question item identity supplied to the model.
 type asyncQuestion struct {
 	ItemID, TurnKey, CallID, Owner, Fingerprint, Title string
+	WorkID                                             string
 	Options                                            []string
 	Index                                              int
 	State, ReplyID                                     string // dispatching/accepted/unknown; never replay an attempted send
@@ -31,6 +32,48 @@ type asyncQuestion struct {
 type AsyncButtonQuestion struct {
 	ShortID, Title, Fingerprint, State string
 	Options                            []string
+}
+
+type WorkerAsyncQuestion struct {
+	ShortID, ItemID, WorkID, Title, State string
+	Options                               []string
+}
+
+func (s *Store) WorkerAsyncQuestions() []WorkerAsyncQuestion {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []WorkerAsyncQuestion{}
+	for id, q := range s.state.AsyncQuestions {
+		if q.WorkID == "" || s.state.AsyncActive[q.ItemID] != q.Fingerprint {
+			continue
+		}
+		out = append(out, WorkerAsyncQuestion{ShortID: id, ItemID: q.ItemID, WorkID: q.WorkID, Title: q.Title, State: q.State, Options: append([]string(nil), q.Options...)})
+	}
+	slices.SortFunc(out, func(a, b WorkerAsyncQuestion) int { return strings.Compare(a.ShortID, b.ShortID) })
+	return out
+}
+
+// Bot tools enter through the same durable controller without posing as an
+// inbound owner message. The native Worker and original item still gate dispatch.
+func (s *Store) HandleBotWorkAnswer(ctx context.Context, requestID, shortID, value string) api.Receipt {
+	s.mu.Lock()
+	q := s.state.AsyncQuestions[shortID]
+	s.mu.Unlock()
+	if q.WorkID == "" {
+		return api.Receipt{ID: requestID, Outcome: "rejected", Message: "Worker question unavailable"}
+	}
+	in := Inbound{Channel: "bot", Conversation: "resident", ID: requestID, Text: "/answer " + shortID + " " + value, observed: true}
+	feedback := s.Handle(ctx, in, api.Snapshot{})
+	s.mu.Lock()
+	state := s.state.AsyncQuestions[shortID].State
+	s.mu.Unlock()
+	outcome := "rejected"
+	if state == "accepted" {
+		outcome = "accepted"
+	} else if state == "dispatching" || state == "unknown" {
+		outcome = "unknown"
+	}
+	return api.Receipt{ID: requestID, Outcome: outcome, Message: feedback}
 }
 
 func (s *Store) AsyncButtonItemIDs() []string {
@@ -73,17 +116,23 @@ func (s *Store) SetAsyncAnswerer(answer func(context.Context, Inbound, string) (
 	s.mu.Unlock()
 }
 
+func (s *Store) SetAsyncWorkAnswerer(answer func(context.Context, Inbound, string, string, string, string) (api.Receipt, error)) {
+	s.mu.Lock()
+	s.answerAsyncWork = answer
+	s.mu.Unlock()
+}
+
 func (s *Store) SetAsyncUpdateObserver(observer func(api.Item)) {
 	s.mu.Lock()
 	s.onAsyncUpdate = observer
 	s.mu.Unlock()
 }
 
-func asyncFingerprint(item api.Item, owner string) string {
+func asyncFingerprint(item api.Item, owner, workID string) string {
 	b, _ := json.Marshal(struct {
-		ID, Turn, Call, Owner string
-		Questions             []api.AsyncQuestion
-	}{item.ID, item.TurnKey, item.AsyncCallID, owner, item.AsyncQuestions})
+		ID, Turn, Call, Owner, WorkID string
+		Questions                     []api.AsyncQuestion
+	}{item.ID, item.TurnKey, item.AsyncCallID, owner, workID, item.AsyncQuestions})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
@@ -107,6 +156,19 @@ func asyncReplyTitle(title string) string {
 // AsyncCard replaces only the display text of a real async agent item. Short
 // references and their ordered options are durable before the card is shown.
 func (s *Store) AsyncCard(item api.Item, owner string) (api.Item, error) {
+	return s.asyncCard(item, owner, "")
+}
+
+// AsyncWorkCard binds a native question to its original Worker. Only its
+// completed question item is shown; Worker transcript text stays private.
+func (s *Store) AsyncWorkCard(item api.Item, owner, workID string) (api.Item, error) {
+	if workID == "" {
+		return item, fmt.Errorf("async question work owner missing")
+	}
+	return s.asyncCard(item, owner, workID)
+}
+
+func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error) {
 	if item.Kind != "assistant" || item.ID == "" || item.TurnKey == "" || item.AsyncCallID == "" || len(item.AsyncQuestions) == 0 {
 		return item, nil
 	}
@@ -118,7 +180,7 @@ func (s *Store) AsyncCard(item api.Item, owner string) (api.Item, error) {
 			return item, fmt.Errorf("async question title missing")
 		}
 	}
-	fingerprint := asyncFingerprint(item, owner)
+	fingerprint := asyncFingerprint(item, owner, workID)
 	s.mu.Lock()
 	created := []string{}
 	previousActive, hadActive := s.state.AsyncActive[item.ID]
@@ -136,7 +198,7 @@ func (s *Store) AsyncCard(item api.Item, owner string) (api.Item, error) {
 		}
 		s.state.NextQuestion++
 		id := fmt.Sprintf("Q%d", s.state.NextQuestion)
-		s.state.AsyncQuestions[id] = asyncQuestion{ItemID: item.ID, TurnKey: item.TurnKey, CallID: item.AsyncCallID, Owner: owner, Fingerprint: fingerprint, Title: q.Title, Options: append([]string(nil), q.Options...), Index: index}
+		s.state.AsyncQuestions[id] = asyncQuestion{ItemID: item.ID, TurnKey: item.TurnKey, CallID: item.AsyncCallID, Owner: owner, WorkID: workID, Fingerprint: fingerprint, Title: q.Title, Options: append([]string(nil), q.Options...), Index: index}
 		created = append(created, id)
 	}
 	s.state.AsyncActive[item.ID] = fingerprint
@@ -203,7 +265,8 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 	q := s.state.AsyncQuestions[id]
 	active := s.state.AsyncActive[q.ItemID]
 	answer := s.answerAsync
-	if active != q.Fingerprint || snapshot.RuntimeOwner != q.Owner || snapshot.Connection != "ready" && snapshot.Connection != "connected" {
+	answerWork := s.answerAsyncWork
+	if active != q.Fingerprint || q.WorkID == "" && (snapshot.RuntimeOwner != q.Owner || snapshot.Connection != "ready" && snapshot.Connection != "connected") {
 		s.mu.Unlock()
 		return s.reply(key, "问题已失效或 Runtime 尚未就绪，请查看最新消息。")
 	}
@@ -215,7 +278,7 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 		s.mu.Unlock()
 		return s.reply(key, feedback)
 	}
-	if answer == nil {
+	if q.WorkID == "" && answer == nil || q.WorkID != "" && answerWork == nil {
 		s.mu.Unlock()
 		return s.reply(key, "当前入口暂不能提交这条回答。")
 	}
@@ -261,14 +324,20 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 		return s.reply(key, "本地记录不可用，回答未提交；请重试。")
 	}
 	s.mu.Unlock()
-	receipt, err := answer(ctx, in, modelInput)
+	var receipt api.Receipt
+	var err error
+	if q.WorkID != "" {
+		receipt, err = answerWork(ctx, in, q.WorkID, q.Owner, q.ItemID, modelInput)
+	} else {
+		receipt, err = answer(ctx, in, modelInput)
+	}
 
 	s.mu.Lock()
 	current = s.state.AsyncQuestions[id]
 	feedback := "回答投递结果待核对，不会自动重发。"
 	if err == nil && receipt.Outcome == "accepted" {
 		current.State = "accepted"
-		feedback = "回答已提交，等待 Bot 后续回复。"
+		feedback = "回答已提交，等待后续回复。"
 	} else if receipt.Outcome == "rejected" || errors.Is(err, api.ErrRecoveryPending) {
 		current.State, current.ReplyID = "", ""
 		feedback = "回答未提交。" + receipt.Message + " 可用同一问题编号重新回答。"
