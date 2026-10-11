@@ -18,7 +18,7 @@ func (item *nativeItem) UnmarshalJSON(data []byte) error {
 	case "userMessage":
 		fields = append(fields, "clientId", "content")
 	case "agentMessage":
-		fields = append(fields, "text", "phase", "questions")
+		fields = append(fields, "text", "phase", "delivery", "questions")
 	case "plan":
 		fields = append(fields, "text")
 	case "commandExecution":

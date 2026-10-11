@@ -86,6 +86,7 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 			dir := filepath.Join(t.TempDir(), "bot")
 			s := New(Options{Directory: dir, Settings: settings})
 			s.retainedWorkers = true
+			s.tools = &api.ToolConnection{}
 			s.state.StoreID, s.state.PrincipalID, s.state.InstanceID = "original-store", "local-owner", "original-instance"
 			s.state.StoreDirectory = settings.CaelisStore
 			s.state.Session, s.state.Connection = binding, life
@@ -96,9 +97,11 @@ func TestSharedRecoveryRediscoversOriginalStoreAndReadsOriginalReceipt(t *testin
 			if err = s.saveLocked(); err != nil {
 				t.Fatal(err)
 			}
-			if err = s.connectWithRecovery(t.Context()); err != nil {
+			// The manual Connect action uses this same original-owner recovery.
+			if err = s.Connect(t.Context()); err != nil {
 				t.Fatal(err)
 			}
+			defer func() { _ = s.Close(context.Background()) }()
 			defer s.client.http.CloseIdleConnections()
 			if err = s.recoverOperations(t.Context()); err != nil {
 				t.Fatal(err)

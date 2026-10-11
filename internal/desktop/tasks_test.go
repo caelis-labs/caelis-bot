@@ -69,7 +69,7 @@ func TestTaskBubblesArePassiveAndDispatchOnlyOwnedTarget(t *testing.T) {
 	if s.openTask(t.Context(), "foreign") == nil || clicks != 0 {
 		t.Fatal("unowned task accepted")
 	}
-	if err := s.openTask(t.Context(), "owned"); err != nil || clicks != 1 {
+	if err := s.OpenTaskTerminal("owned"); err != nil || clicks != 1 {
 		t.Fatal(err, clicks)
 	}
 	s.cancelTerminalOpening()

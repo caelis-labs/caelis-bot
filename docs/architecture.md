@@ -59,9 +59,13 @@ reads unresolved workers without loading completed historical tasks; explicit
 continuation resumes the same native thread and request ledger. Diagnostics
 distinguish Bot subscription retirement from later native `thread/closed` unload.
 
-The Bot IM transcript is a private local SQLite message log containing only user
-and assistant messages with their original request/item identities. It loads a
-200-message window and explicitly pages older **local** messages, including while
+The Bot IM transcript is a private local SQLite message log for visible user,
+assistant, and control-receipt messages with stable request/item identities.
+Authenticated channel input is recorded at ingress, and native accepted inputs
+update that record by request ID; a marked-secret control answer is represented
+only by a filled-state placeholder. Runtime live output is appended to the same
+log. Chat reads this local transcript instead of importing Runtime items on read.
+It loads a 200-message window and explicitly pages older **local** messages, including while
 the Runtime is offline. Streamed text updates the same item; tool payloads are
 never chat history. Disk failure retains the live cache and retries independently;
 a corrupt display database is preserved as a damaged copy and rebuilt. Runtime
@@ -123,6 +127,9 @@ configuration failures do not restart it. Native start retains its version
 selection/upgrade and concurrency semantics. Bot never calls stop/restart or
 owns the shared process. Reconnection still verifies the original Store and
 principal before accepting the Host.
+The manual installed-version action uses the public service status when an old
+discovery record cannot be reached. Only a confirmed `stopped` result skips the
+live-work preflight; the native start and fresh Bot handshake still follow.
 
 Observers merge startup by shared service directory in one process, with a
 30-second cooldown after each attempt, including failures. Startup has its own
@@ -145,6 +152,109 @@ semantics. A retired connection cannot dispatch a response from its old wait.
 
 ## Telegram companion chat
 
+`internal/textchannel` is the shared text baseline for companion ingress and
+egress. The paired transport authenticates the owner and persists its original
+message before calling the common controller. Pending native approval/question
+catalogs receive durable `A`/`Q` numbers and immutable ordered option IDs. A
+compact card lists `[1]` with the native label and scope, then puts one exact
+example command on its own final line. `/approve A7 1`
+and `/answer Q3 2` use exact current native targets; an answer's nonnumeric
+tail is passed verbatim only when that question allows free text. Each field of
+a native multi-question request gets a separate `Q` number. Answers can be
+changed before submission; required fields trigger exactly one decision for the
+original native request when complete. Multiple selections use comma-separated
+indexes such as `1,3`. Simple number/integer/boolean fields are parsed locally;
+the native adapter performs final constraint validation. A fixed approval's
+custom opinion is feedback, never permission or an automatic Bot handoff.
+URL elicitation displays the original HTTP(S) link and every offered native
+decision; opening the link is not treated as completion. Loopback, `.local` and
+private IP links are labeled as potentially unreachable from a phone. A browser
+login or macOS TCC prompt may still require that service or the Mac itself.
+Requests whose Runtime offers no usable field values or decision IDs cannot be
+invented by the text controller. The controller writes one native decision claim
+before dispatch; unknown results remain fenced to that original request.
+Codex `request_user_input_async` is a different shape: it emits a completed
+assistant item with `delivery=async` and ordered question metadata, not a
+pending native approval request. Bot stores a `Q` number for each exact item and
+field, mirrors a text card, and sends an answer as a new user input with Codex's
+structured question-reply envelope. The local transcript retains the user's
+visible `/answer` body, not the internal envelope. A send receipt confirms input
+admission, not that the model has consumed the answer or resumed an old turn.
+These references are fenced to the original Codex thread and item schema and
+are never reused after an uncertain send. Codex async questions have no native
+secret-field marker; the host cannot infer one from question prose.
+Independent Codex Workers persist their async question items under the original
+task binding. The host reports the pending question privately to the resident
+Bot, which reads it through `bot_interactions` and can answer on that original
+Worker receipt path. If information is missing, the Bot asks the user in normal
+chat. Ordinary Worker transcript messages and automatic-review facts do not
+become user-facing question cards.
+For native Worker approvals, Bot may choose an exact offered option on the
+original request only when operation, target and scope are inspectable and no
+marked-secret field, URL, opaque diff or rule payload is present. Those other
+requests keep their original user-facing native card. The resident Bot's own
+approvals always remain under Runtime Auto-Review or the user's direct decision.
+Each pending coordinatable Worker request produces at most one private host
+report; dispatching and unknown report receipts are never replayed as a new
+request. The user-facing native card is hidden only after that private report
+has an accepted receipt; an unavailable or uncertain report leaves the card
+visible so the original request can still be handled. The original Runtime
+still validates every decision and resolves it. Caelis currently projects the
+native tool-call input as opaque `Details`, so its Worker approvals retain the
+direct card until a typed, safely inspectable operation/target projection exists.
+Telegram buttons invoke the same controller. Only an inbound reply containing
+a transport-supplied reference to a Bot card with a confirmed outbound message
+ID can bind a bare index or custom question answer. The binding is persisted
+against that card's original request and schema. A multi-field or otherwise
+ambiguous card requires the full command; an unbound bare number is ordinary
+chat. Quoted body text and the most recent approval are never authorization.
+An ordinary reply keeps the original user body in `Submission.Text` and carries
+available older-message text as a bounded, channel-neutral quote. Codex
+text input and Caelis prompt/steer input receive an XML-escaped `<reference>`
+block, a blank line, and the unchanged current body; their visible user-item
+projection removes this model wrapper. The host preserves quote line breaks and,
+above 4,096 Unicode characters, keeps the first 70% and last 30% with an exact
+middle omission count. Transport author and excerpt metadata stay internal; no
+extra note is inserted between the reference block and the user's new text.
+The Mac chat context menu writes the same quote into its durable local draft.
+The IM record stores the original user body and a separate bounded quote for a
+collapsed preview; opening the preview never resolves a control request.
+Older records without quote metadata cannot be reconstructed. Local chat timestamps come
+from persisted message times and are grouped by local day or a five-minute gap.
+Runtime-marked secret inputs and quotes of those inputs are not put in ordinary
+model context. Quote metadata grants no permission and does not imply a second
+Bot conversation or a transport-aware Bot.
+
+`api.Question.Secret` is a native field marker, not content classification.
+Marked answers bypass Bot Submit, ordinary chat history, mirrored text and
+control receipts. Secret answers waiting for sibling fields live only in memory;
+after restart the owner must re-enter them. Weixin and Telegram persist redacted
+ingress records with original message IDs and `Q` references, then reconcile any
+unknown dispatch from the original claim. Operation, target and native scope
+remain visible; unstructured detail text is suppressed for marked-secret
+requests. Arbitrary approval payloads cannot be automatically scrubbed, and
+delivery through TG/Weixin exposes plaintext to those providers. The original
+Runtime/elicitation service may pass the native answer to a model; this host
+cannot promise otherwise.
+
+Desktop, Telegram and Weixin project one Bot conversation. Each companion has
+its own durable delivery ledger and mirrors visible user/assistant items,
+actionable approval/question cards, and control receipts. The desktop chat
+stores control receipts in the local IM without opening a panel or adding them
+to Runtime history. Original ingress IDs
+only suppress the source transport's user-message echo; another transport labels
+that item as User. A failure in one sender does not block the other's ledger.
+Initial pairing and legacy Weixin records baseline the current history instead
+of replaying it. Host task wakeups and automatic review progress stay internal;
+the Bot's subsequent visible response is mirrored. This is a snapshot projection,
+not a separate Bot session or a general event bus.
+The first accepted or unconfirmed `bot_delegate` start emits one durable,
+user-visible conversation item with the task title (or a shortened prompt). It
+is mirrored with assistant text to Telegram and Weixin and shown as a compact
+chip on the desktop. Stable request replay emits no second item. Ongoing Worker
+status and terminal output remain in the task dock; completion reaches chat
+through the Bot's visible response. This is not a full task-status mirror.
+
 `internal/telegram` mirrors one paired private chat through pinned Telego. It uses
 native `backend.SubmitRemote` and the existing resident submission, interruption,
 approval and artifact ports. It does not add transport information to Bot context
@@ -164,6 +274,10 @@ display catalog. An unreadable or ambiguous choice leaves the entire approval
 keyboard unavailable and directs the user to the Mac. Telegram callbacks require
 the original delivered message, a current pending approval, and an offered choice;
 the durable decision claim prevents a second native submission.
+Telegram's `ReplyToMessage.MessageID` is accepted only when it matches one of
+these confirmed card deliveries in the paired private chat. Marked-secret
+answers in its durable update queue contain only a prompt marker; plaintext is
+held in memory until the original native decision or a restart asks for re-entry.
 The Telegram adapter renders mirrored Mac user items with a source heading and
 quoted body. Each long Mac user-message part carries its heading and UTF-16 entity
 ranges. Assistant replies retain their plain original text, including edits and
@@ -232,10 +346,19 @@ Weixin, Telegram and plugin tokens into namespaces under `Credentials/`.
 Existing Keychain items migrate on first use and are deleted. Pairing QR state lives
 only in memory; settings starts or refreshes it while visible. Start/stop
 presence and disposable typing requests are independent of message receipts.
-Only owner private text and final assistant text are in scope. A send with an
-unknown HTTP outcome is retried at most twice more with the saved client ID;
-upstream deduplication is unproven, so duplicates are possible. Ingress and
-Worker receipts are never replayed; see [POC scope](weixin-channel-poc.md).
+Only owner private text and text projection of the shared conversation are in scope.
+Weixin waits for a terminal resident Turn before choosing its last assistant
+reply; completed commentary within a working Turn does not consume phone sends.
+Native approval and async question cards, control receipts, Worker-start items,
+and terminal replies are independent high-priority intents. User mirrors use a
+soft local send budget. Each actual text part reserves one slot in a durable
+owner/last-ingress window before HTTP; an old or unknown window never starts
+full after restart. This is a conservative estimate of observed service behavior,
+not a published quota contract. Weixin cannot edit a previous card or prove
+phone display from HTTP success. Unknown HTTP outcomes keep their original
+intent without automatic replay, because upstream client-ID deduplication is
+unproven. Ingress and Worker receipts are likewise never replayed; see
+[POC scope](weixin-channel-poc.md).
 
 ## Remote machines
 
@@ -399,6 +522,9 @@ receipts/pixels retain the public SDK's stricter projection contract.
 `internal/botskills/skills/` is the sole English Bot behavior source. Install complete directories into private
 `app-skills`; only name, description and location enter resident instructions. Body/references are read on
 demand through native file tools. Do not install globally or copy the Bot catalog/Notebook into Workers.
+The installed bundle is replaced when the application starts. A rebuilt binary
+must start before its new bundle reaches the data directory; an already running
+Worker retains the instructions and context from its original start.
 This is an application-scoped file catalog, projected through the resident Runtime's selected Skill paths.
 Update skill guidance for behavior changes; implementation-only fixes need no duplicate guidance.
 Codex receives the resident Skill metadata guide in developer instructions. Core uses its selected

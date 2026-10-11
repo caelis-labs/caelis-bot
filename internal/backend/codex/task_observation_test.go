@@ -54,6 +54,37 @@ func TestHumanWorkerTurnAndItemResultAreObservedWithoutPolling(t *testing.T) {
 	}
 }
 
+func TestWorkerAsyncQuestionItemAndTurnSummaryKeepNativeIdentity(t *testing.T) {
+	s, f, _, m := taskPair(t)
+	sendSynthetic(t, s, "task-parent-async")
+	v := newTask(t, m, "task-async")
+	s.mu.Lock()
+	thread, run := s.binding.Tasks[v.ID].Thread, s.binding.Tasks[v.ID].Run
+	s.mu.Unlock()
+	f.emit(wireMessage{Method: "item/completed", Params: raw(map[string]any{
+		"threadId": thread, "turnId": run,
+		"item": map[string]any{"id": "native-question-1", "type": "agentMessage", "delivery": "async", "text": "请选择甲或乙", "questions": []map[string]any{{"title": "选择", "options": []string{"甲", "乙"}}}},
+	})})
+	awaitState(t, s, func(api.Snapshot) bool {
+		states := s.WorkStates()
+		return len(states) == 1 && len(states[0].AsyncQuestions) == 1
+	})
+	first := s.WorkStates()[0]
+	if first.Task.Result != "" || first.AsyncQuestions[0].AsyncCallID != "native-question-1" || first.AsyncQuestions[0].AsyncQuestions[0].Options[1] != "乙" {
+		t.Fatal("native Worker question was flattened into result", first)
+	}
+	// Missed item notifications are recovered from the authoritative turn body.
+	f.emit(wireMessage{Method: "turn/completed", Params: raw(map[string]any{
+		"threadId": thread, "turn": map[string]any{"id": run, "status": "completed", "items": []map[string]any{
+			{"id": "native-question-2", "type": "agentMessage", "delivery": "async", "questions": []map[string]any{{"title": "补充说明", "options": []string{}}}},
+		}},
+	})})
+	awaitState(t, s, func(api.Snapshot) bool { return len(s.WorkStates()[0].AsyncQuestions) == 2 })
+	if got := s.WorkStates()[0].Task.Result; got != "" {
+		t.Fatal("async question became Worker result", got)
+	}
+}
+
 func TestDispatchReceiptCannotRewindEarlyCompletionOrHumanTurn(t *testing.T) {
 	s := NewSession(SessionOptions{})
 	s.resetProjection()

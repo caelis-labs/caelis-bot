@@ -165,7 +165,7 @@ func (s *Session) submitGrant(ctx context.Context, in api.Submission, files []ap
 
 func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, files []api.InputFile, source, grant string) (api.Receipt, error) {
 	receipt := api.Receipt{ID: in.ID, Outcome: "rejected"}
-	if in.ID == "" || len(in.ID) > 128 || len(in.Text) > 256<<10 || len(in.ReferenceIDs) != 0 || len(files) > 4 {
+	if in.ID == "" || len(in.ID) > 128 || len(in.ModelInputText()) > 256<<10 || len(in.ReferenceIDs) != 0 || len(files) > 4 {
 		receipt.Message = "Caelis 不支持此消息或插件引用"
 		return receipt, nil
 	}
@@ -194,7 +194,8 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 			return receipt, e
 		}
 	}
-	req := wire.ApplicationPromptRequest{OperationId: &in.ID, SessionId: &sid, Input: &in.Text, SourceKind: source}
+	modelText := in.ModelInputText()
+	req := wire.ApplicationPromptRequest{OperationId: &in.ID, SessionId: &sid, Input: &modelText, SourceKind: source}
 	if grant != "" {
 		req.GrantId = &grant
 	}
@@ -238,6 +239,24 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 	}
 	var out wire.CommandResult
 	var e error
+	if !retry {
+		s.mu.Lock()
+		if s.state.ContextInputs == nil {
+			s.state.ContextInputs = map[string]int{}
+		}
+		s.state.ContextInputs[in.ID] = len(in.ModelQuotePrefix())
+		if in.ModelQuotePrefix() != "" {
+			if s.state.ContextRequests == nil {
+				s.state.ContextRequests = map[string]string{}
+			}
+			original, _ := json.Marshal(struct {
+				Input api.Submission
+				Files []api.InputFile
+			}{in, files})
+			s.state.ContextRequests[in.ID] = digest(original)
+		}
+		s.mu.Unlock()
+	}
 	if !retry && v.CanSend {
 		s.mu.Lock()
 		var seed string
@@ -247,7 +266,7 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 			if s.state.ContextInputs == nil {
 				s.state.ContextInputs = map[string]int{}
 			}
-			s.state.ContextInputs[in.ID] = len(seed)
+			s.state.ContextInputs[in.ID] += len(seed)
 			if s.state.ContextRequests == nil {
 				s.state.ContextRequests = map[string]string{}
 			}
@@ -256,7 +275,7 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 				Files []api.InputFile
 			}{in, files})
 			s.state.ContextRequests[in.ID] = digest(original)
-			text := seed + in.Text
+			text := seed + modelText
 			req.Input = &text
 		}
 		s.mu.Unlock()
@@ -282,7 +301,7 @@ func (s *Session) submitGrantLocked(ctx context.Context, in api.Submission, file
 		s.mu.Unlock()
 	}
 	if source == "user" && (!retry && v.CanSteer || s.isSteeringRetry(in.ID)) {
-		out, e = s.submitNativeInput(ctx, sid, in.ID, in.Text, req.ContentParts, true)
+		out, e = s.submitNativeInput(ctx, sid, in.ID, modelText, req.ContentParts, true)
 	} else {
 		out, e = s.command(ctx, in.ID, "/application/sessions/"+idPath(sid)+"/prompt", req, in.Scheduled, in.Dream)
 	}

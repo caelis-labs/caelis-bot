@@ -3,6 +3,7 @@ package telegram
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/jpeg"
@@ -17,8 +18,232 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 	tg "github.com/mymmrac/telego"
 )
+
+func TestWeixinControlReceiptAndUserMirrorOnTelegram(t *testing.T) {
+	root := t.TempDir()
+	control, err := textchannel.Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control.Publish(textchannel.Inbound{Channel: "weixin", Conversation: "ctx", ID: "msg"}, "决定已提交，等待 Runtime 确认。")
+	if err := control.RecordOrigin("wx-user", textchannel.Origin{Channel: "weixin", Conversation: "owner\x00ctx"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "u", Kind: "user", RequestID: "wx-user", TurnKey: "t", Text: "hello", Status: "completed"}, {ID: "a", Kind: "assistant", TurnKey: "t", Text: "reply", Status: "completed"}}}
+	b, c := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, TextControl: control})
+	b.state.ChatID = 17
+	b.state.UserID = 7
+	b.baselineReady = true
+	b.mirrorNotices(t.Context(), c)
+	b.mirror(t.Context(), c, snapshot)
+	if len(c.texts) != 3 || c.texts[0] != "决定已提交，等待 Runtime 确认。" || !strings.Contains(c.texts[1], "用户\nhello") && !strings.Contains(c.texts[1], "User\nhello") || c.texts[2] != "reply" {
+		t.Fatalf("mirror: %#v", c.texts)
+	}
+}
+func TestOtherEntryClaimDisablesTelegramApprovalButton(t *testing.T) {
+	root := t.TempDir()
+	called := 0
+	control, _ := textchannel.Open(root, func(_ context.Context, d api.Decision) error {
+		called++
+		if d.Choice != "allow" {
+			t.Fatal(d)
+		}
+		return nil
+	})
+	a := api.Approval{ID: "native", Owner: "worker", TurnKey: "child", Status: "pending", Choices: []api.Choice{{ID: "allow", Label: "允许", Scope: "once"}, {ID: "deny", Label: "拒绝"}}}
+	_, short, err := control.Card(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+	control.Handle(t.Context(), textchannel.Inbound{Channel: "weixin", Conversation: "ctx", ID: "decision", Text: "/approve " + short + " 1"}, snapshot)
+	b, c := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, TextControl: control})
+	b.state.ChatID = 17
+	b.state.UserID = 7
+	b.baselineReady = true
+	b.mirror(t.Context(), c, snapshot)
+	if called != 1 || len(c.texts) == 0 || strings.Contains(c.texts[len(c.texts)-1], "/approve") || c.keyboards[len(c.keyboards)-1] != nil {
+		t.Fatalf("stale button remained: %d %#v %#v", called, c.texts, c.keyboards)
+	}
+}
+func TestMarkedSecretTelegramAnswerGoesOnlyToOriginalNativeRequest(t *testing.T) {
+	root := t.TempDir()
+	const secret = "SENTINEL_PRIVATE_ANSWER"
+	var decisions []api.Decision
+	control, _ := textchannel.Open(root, func(_ context.Context, d api.Decision) error { decisions = append(decisions, d); return nil })
+	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "answer", Label: "提交"}}, Questions: []api.Question{{ID: "credential", Title: "访问码", Type: "text", Required: true, Secret: true}}}
+	_, id, _ := control.Card(a)
+	submits := 0
+	b, c := testBridge(t, Host{Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+		submits++
+		return api.Receipt{}, nil
+	}, TextControl: control})
+	paired(b)
+	b.input(t.Context(), c, message(1, 10, 20, "/answer "+id+" "+secret))
+	if len(decisions) != 1 || decisions[0].ID != "native" || decisions[0].Answers["credential"][0] != secret || submits != 0 || strings.Contains(strings.Join(c.texts, "\n"), secret) {
+		t.Fatalf("secret leaked or wrong native target: %#v, submit=%d, texts=%#v", decisions, submits, c.texts)
+	}
+}
+
+func TestTelegramReplyToConfirmedCardUsesNativeMessageID(t *testing.T) {
+	root := t.TempDir()
+	var decisions []api.Decision
+	control, _ := textchannel.Open(root, func(_ context.Context, d api.Decision) error { decisions = append(decisions, d); return nil })
+	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "deny", Label: "拒绝"}, {ID: "once", Label: "仅本次", Scope: "once"}}}
+	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+	submits := 0
+	b, c := testBridge(t, Host{Snapshot: func() api.Snapshot { return snapshot }, TextControl: control, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+		submits++
+		return api.Receipt{}, nil
+	}})
+	paired(b)
+	b.baselineReady = true
+	b.mirror(t.Context(), c, snapshot)
+	ids := b.state.Messages["approval:native"].IDs
+	if len(ids) != 1 || ids[0] <= 0 {
+		t.Fatalf("card not sent: %#v", ids)
+	}
+	u := message(51, 10, 20, "2")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: ids[0], Chat: tg.Chat{ID: 10, Type: "private"}, Text: "forged body ignored"}
+	b.input(t.Context(), c, u)
+	if submits != 0 || len(decisions) != 1 || decisions[0].ID != "native" || decisions[0].Choice != "once" {
+		t.Fatalf("reply: submits=%d %#v", submits, decisions)
+	}
+	u = message(52, 10, 20, "1")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: ids[0], Chat: tg.Chat{ID: 10, Type: "private"}}
+	b.input(t.Context(), c, u)
+	if len(decisions) != 1 {
+		t.Fatal("stale reference replayed native decision")
+	}
+}
+
+func TestTelegramSecretIngressLedgerContainsNoAnswerText(t *testing.T) {
+	root := t.TempDir()
+	const secret = "PRIVATE_TG_SENTINEL"
+	control, _ := textchannel.Open(root, nil)
+	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Questions: []api.Question{{ID: "pin", Type: "text", Required: true, Secret: true}}}
+	_, id, _ := control.Card(a)
+	b, _ := testBridge(t, Host{TextControl: control})
+	paired(b)
+	u := message(18, 10, 20, "/answer "+id+" "+secret)
+	b.mu.Lock()
+	b.state.Ingress = append(b.state.Ingress, b.queuedUpdateLocked(u))
+	err := b.saveLocked()
+	b.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := os.ReadFile(b.path)
+	if err != nil || strings.Contains(string(stored), secret) || b.state.Ingress[0].Message.Text != "" || b.secretIngress[u.UpdateID] != u.Message.Text {
+		t.Fatalf("secret ledger: %v %s", err, stored)
+	}
+	b2, err := Open(filepath.Dir(b.path), Host{TextControl: control})
+	if err != nil || b2.state.SecretPrompts[u.UpdateID] != id || len(b2.state.Ingress) != 1 || b2.state.Ingress[0].Message.Text != "" {
+		t.Fatalf("recovery marker: %v %#v", err, b2.state.SecretPrompts)
+	}
+}
+
+func TestTelegramOrdinaryQuotedReplyCarriesContextWithoutWrappingVisibleBody(t *testing.T) {
+	var submitted api.Submission
+	b, c := testBridge(t, Host{Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+		submitted = in
+		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+	}})
+	paired(b)
+	b.baselineReady = true
+	u := message(61, 10, 20, "本次问题")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: 60, Chat: tg.Chat{ID: 10}, From: &tg.User{ID: 20}, Text: "完整旧消息"}
+	u.Message.Quote = &tg.TextQuote{Text: "选中的一段"}
+	b.input(t.Context(), c, u)
+	if submitted.Text != "本次问题" || submitted.Quoted == nil || submitted.Quoted.Text != "选中的一段" || !submitted.Quoted.Excerpt || submitted.Quoted.Role != "user" || submitted.Quoted.HostID != "60" || submitted.Quoted.LocalID != "telegram:123:60" {
+		t.Fatalf("quoted transport: %#v", submitted)
+	}
+	if !strings.Contains(submitted.ModelInputText(), "选中的一段") || !strings.HasSuffix(submitted.ModelInputText(), "本次问题") {
+		t.Fatal(submitted.ModelInputText())
+	}
+}
+
+func TestTelegramQuotedBotReplyRecoversExactDeliveredTextWhenAPIOnlySendsID(t *testing.T) {
+	var submitted api.Submission
+	item := api.Item{ID: "assistant", Kind: "assistant", Text: "联调OK 42"}
+	b, c := testBridge(t, Host{
+		Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready", Items: []api.Item{item}} },
+		Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+			submitted = in
+			return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+		},
+	})
+	paired(b)
+	b.baselineReady = true
+	b.state.Messages[itemKey(item)] = delivery{IDs: []int{60}, Hashes: []string{digest(item.Text)}}
+	u := message(61, 10, 20, "引用内容末尾的数字是什么？")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: 60, Chat: tg.Chat{ID: 10}, From: &tg.User{ID: 123, IsBot: true}}
+	b.input(t.Context(), c, u)
+	if submitted.Quoted == nil || submitted.Quoted.Text != item.Text || submitted.Text != u.Message.Text || submitted.ModelInputText() != "<reference>\n联调OK 42\n</reference>\n\n引用内容末尾的数字是什么？" {
+		t.Fatalf("exact quote did not reach native input: %#v", submitted)
+	}
+}
+
+func TestTelegramQuotedUserMessageRecoversAcceptedTextWhenAPIOnlySendsID(t *testing.T) {
+	var submitted api.Submission
+	item := api.Item{ID: "user", Kind: "user", RequestID: "telegram:123:60", Text: "前一条用户消息"}
+	b, c := testBridge(t, Host{
+		Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready", Items: []api.Item{item}} },
+		Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+			submitted = in
+			return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+		},
+	})
+	paired(b)
+	b.baselineReady = true
+	b.state.Inputs[item.RequestID] = "accepted"
+	u := message(61, 10, 20, "继续解释")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: 60, Chat: tg.Chat{ID: 10}, From: &tg.User{ID: 20}}
+	b.input(t.Context(), c, u)
+	if submitted.Quoted == nil || submitted.Quoted.Text != item.Text || submitted.Quoted.LocalID != item.RequestID || submitted.ModelInputText() != "<reference>\n前一条用户消息\n</reference>\n\n继续解释" {
+		t.Fatalf("accepted user quote did not reach native input: %#v", submitted)
+	}
+}
+
+func TestTelegramUnavailableQuotedTextDoesNotBecomeEmptyReference(t *testing.T) {
+	called := false
+	item := api.Item{ID: "assistant", Kind: "assistant", Text: "edited after delivery"}
+	b, c := testBridge(t, Host{
+		Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready", Items: []api.Item{item}} },
+		Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+			called = true
+			return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+		},
+	})
+	paired(b)
+	b.baselineReady = true
+	b.state.Messages[itemKey(item)] = delivery{IDs: []int{60}, Hashes: []string{digest("old delivered text")}}
+	u := message(61, 10, 20, "请解释引用")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: 60, Chat: tg.Chat{ID: 10}, From: &tg.User{ID: 123, IsBot: true}}
+	b.input(t.Context(), c, u)
+	if called || len(c.texts) == 0 || !strings.Contains(c.texts[len(c.texts)-1], "quoted text is unavailable") {
+		t.Fatal("unavailable quote was silently sent", called, c.texts)
+	}
+}
+
+func TestTelegramQuoteOfMarkedSecretNeverEntersIngressOrModel(t *testing.T) {
+	control, _ := textchannel.Open(t.TempDir(), nil)
+	b, _ := testBridge(t, Host{TextControl: control})
+	paired(b)
+	b.state.SecretMessages[70] = true
+	u := message(71, 10, 20, "说明用途")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: 70, Chat: tg.Chat{ID: 10}, From: &tg.User{ID: 20}, Text: "PRIVATE_QUOTE_SENTINEL"}
+	b.mu.Lock()
+	queued := b.queuedUpdateLocked(u)
+	b.mu.Unlock()
+	encoded, _ := json.Marshal(queued)
+	if strings.Contains(string(encoded), "PRIVATE_QUOTE_SENTINEL") || b.quotedMessage(queued.Message, 123, 20) != nil {
+		t.Fatal("marked secret quote re-entered ordinary input")
+	}
+}
 
 type fakeClient struct {
 	mu                                            sync.Mutex
@@ -1599,8 +1824,14 @@ func TestCloseCancelsWaitingForBackendRecovery(t *testing.T) {
 
 func TestRemoteInputCannotEchoDuringConcurrentOutput(t *testing.T) {
 	published := make(chan api.Submission, 1)
+	recorded := make(chan textchannel.Inbound, 1)
 	release := make(chan struct{})
-	b, f := testBridge(t, Host{Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+	b, f := testBridge(t, Host{RecordInput: func(in textchannel.Inbound, secret bool) {
+		if secret {
+			t.Error("ordinary text marked secret")
+		}
+		recorded <- in
+	}, Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
 		published <- in
 		<-release
 		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
@@ -1612,7 +1843,71 @@ func TestRemoteInputCannotEchoDuringConcurrentOutput(t *testing.T) {
 	b.mirror(t.Context(), f, api.Snapshot{Items: []api.Item{{ID: "user", Kind: "user", RequestID: in.ID, Text: in.Text}, {ID: "reply", Kind: "assistant", Text: "reply while submit completes"}}})
 	close(release)
 	<-done
+	if got := <-recorded; got.ID != in.ID || got.Text != in.Text || got.Channel != "telegram" {
+		t.Fatal("owner input was not journaled before native echo", got)
+	}
 	if f.sends != 1 || len(f.texts) != 1 || f.texts[0] != "reply while submit completes" {
 		t.Fatal("concurrent output echoed Telegram input")
+	}
+}
+
+func TestOldControlNoticesAreSeededWithoutReplayingNewOnes(t *testing.T) {
+	root := t.TempDir()
+	control, err := textchannel.Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control.Publish(textchannel.Inbound{Channel: "weixin", Conversation: "owner", ID: "old"}, "old receipt")
+	path := filepath.Join(root, "text-channel-control.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	delete(state, "ReplyTimes") // Simulate a persisted notice from before timestamps existed.
+	data, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	control, err = textchannel.Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := testBridge(t, Host{TextControl: control})
+	if !b.seedNoticeBaseline() {
+		t.Fatal("could not seed old notice delivery")
+	}
+	old := control.Notices()[0]
+	if !b.state.Messages["notice:"+old.ID].Skip {
+		t.Fatal("old cross-channel notice could replay")
+	}
+	control.Publish(textchannel.Inbound{Channel: "telegram", Conversation: "owner", ID: "new"}, "new receipt")
+	if len(control.Notices()) != 2 {
+		t.Fatal("new notice missing")
+	}
+	if _, exists := b.state.Messages["notice:"+control.Notices()[1].ID]; exists {
+		t.Fatal("new notice was suppressed by migration")
+	}
+}
+
+func TestInputFeedbackUsesOneMirroredLocalNotice(t *testing.T) {
+	control, err := textchannel.Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var local []textchannel.Notice
+	control.SetNoticeObserver(func(n textchannel.Notice) { local = append(local, n) })
+	b, client := testBridge(t, Host{TextControl: control})
+	paired(b)
+	b.sendInputFeedback(t.Context(), client, 10, "input", "Runtime 暂不可用")
+	b.sendInputFeedback(t.Context(), client, 10, "input", "different")
+	if len(local) != 1 || len(client.texts) != 1 || client.texts[0] != "Runtime 暂不可用" || local[0].Text != client.texts[0] {
+		t.Fatalf("feedback was not mirrored exactly once: local=%v sent=%v", local, client.texts)
 	}
 }

@@ -1,0 +1,34 @@
+package api
+
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
+
+func TestQuotedModelInputSeparatesContextFromVisibleBody(t *testing.T) {
+	in := Submission{Text: "你觉得这段话有什么问题？", Quoted: &QuotedMessage{LocalID: "old", Role: "user", Text: "第一行 <reference>\n第二行 & </reference> 😀", Excerpt: true}}
+	if in.Text != "你觉得这段话有什么问题？" || in.ModelInputText() != "<reference>\n第一行 &lt;reference&gt;\n第二行 &amp; &lt;/reference&gt; 😀\n</reference>\n\n你觉得这段话有什么问题？" {
+		t.Fatal(in.ModelInputText())
+	}
+	original := strings.Repeat("中🙂", 3000)
+	long := BoundQuote(&QuotedMessage{Text: original})
+	const head = maxQuotedChars * 70 / 100
+	const tail = maxQuotedChars - head
+	runes := []rune(original)
+	want := string(runes[:head]) + "[... 中间省略 1904 字符 ...]" + string(runes[len(runes)-tail:])
+	if !long.Truncated || long.OmittedChars != 1904 || long.Text != want || !utf8.ValidString(long.Text) || BoundQuote(long).Text != want {
+		t.Fatalf("middle cut failed: %#v", long)
+	}
+	if !strings.Contains((Submission{Quoted: long}).ModelInputText(), "[... 中间省略 1904 字符 ...]") {
+		t.Fatal("omission marker missing")
+	}
+}
+
+func TestAsyncReplyModelOverrideLeavesVisibleCommandUnchanged(t *testing.T) {
+	const envelope = "<send_user_message_question_reply>\n[{\"answer\":\"乙\"}]\n</send_user_message_question_reply>"
+	in := Submission{ID: "input", Text: "/answer Q3 2", ModelInputOverride: envelope}
+	if in.ModelInputText() != envelope || in.ModelQuotePrefix() != envelope || in.Text != "/answer Q3 2" {
+		t.Fatalf("model input or visible text changed: %#v", in)
+	}
+}

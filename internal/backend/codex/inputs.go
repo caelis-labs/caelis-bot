@@ -28,8 +28,8 @@ func (s *Session) prepareInput(in api.Submission, files []api.InputFile, refs []
 		return nil, errors.New("一次最多发送 8 个文件")
 	}
 	input := []map[string]any{}
-	if strings.TrimSpace(in.Text) != "" {
-		input = append(input, map[string]any{"type": "text", "text": in.Text, "text_elements": []any{}})
+	if strings.TrimSpace(in.ModelInputText()) != "" {
+		input = append(input, map[string]any{"type": "text", "text": in.ModelInputText(), "text_elements": []any{}})
 	}
 	if len(files) > 0 {
 		root := filepath.Join(s.opts.Directory, ".attachments")

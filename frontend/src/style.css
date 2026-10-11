@@ -38,13 +38,14 @@ textarea::placeholder { color:var(--muted); }
 .attachment-menu .menu-caption { margin:4px 9px 3px; font-size:11px; color:var(--muted); }
 .action-row { border:0; color:inherit; width:100%; display:flex; gap:12px; align-items:center; text-align:left; padding:10px 12px; border-radius:12px; background:transparent; font-size:13px; }
 .action-row:hover { background:var(--wash); }
-.attachments { list-style:none; padding:0 24px 12px; margin:0; display:flex; gap:6px; flex-wrap:wrap; max-height:100px; overflow-y:auto; }
-.attachments li { display:flex; align-items:center; gap:7px; min-width:0; max-width:100%; padding:5px 7px; border-radius:10px; background:var(--wash); font-size:11px; }
+.composer-context { display:flex; flex-direction:column; gap:7px; padding:0 17px 12px; }
+.attachments { list-style:none; padding:0; margin:0; display:flex; gap:7px; flex-wrap:wrap; max-height:100px; overflow-y:auto; }
+.attachments li { display:flex; align-items:center; gap:5px; min-width:0; max-width:100%; padding:5px; border-radius:10px; background:var(--wash); font-size:11px; }
 .attachments li span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .attachments .attachment-details { display:flex; flex-direction:column; min-width:0; max-width:180px; gap:2px; }
 .attachment-details strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
 .attachment-details small { color:var(--muted); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.draft-thumbnail { width:42px; height:42px; border-radius:7px; object-fit:cover; background:var(--surface); }
+.draft-thumbnail { width:36px; height:36px; border-radius:7px; object-fit:cover; background:var(--surface); }
 .compose-area.file-dragging { outline:2px solid var(--caelis-focus); outline-offset:-3px; border-radius:inherit; }
 .input-feedback { margin:0; padding:0 24px 10px; font-size:12px; color:var(--muted); }
 .composer-connection-hint { display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0 24px 10px;font-size:12px;color:var(--muted); }
@@ -63,6 +64,8 @@ body[data-surface="history"] { background:var(--caelis-chat); }
 .chat-content { display:flow-root; }
 .empty-conversation { color:var(--muted); text-align:center; margin:18vh 0; font-size:15px; }
 .message-row { display:flex; align-items:flex-start; gap:10px; margin:24px 0; }
+.history-time-divider { margin:21px 0 7px; text-align:center; color:var(--muted); font-size:11px; line-height:16px; user-select:none; }
+.history-time-divider + .message-row { margin-top:7px; }
 .bot-avatar { flex:0 0 32px; width:32px; height:32px; border-radius:8px; object-fit:contain; user-select:none; }
 .animated-avatar { display:inline-flex; overflow:hidden; transform-origin:50% 75%; }
 .animated-avatar svg { display:block; width:100%; height:100%; }
@@ -82,8 +85,11 @@ body[data-surface="history"] { background:var(--caelis-chat); }
 @media(prefers-reduced-motion:reduce) { .working-message.is-active .loading-dots i { animation:none; transform:none; } }
 .message { position:relative; min-width:0; font-size:14px; line-height:1.75; overflow-wrap:anywhere; }
 .message p { white-space:pre-wrap; margin:0; }
-.message.user,.message.assistant { width:fit-content; max-width:87%; padding:10px 44px 10px 15px; }
+.message.user,.message.assistant { width:fit-content; max-width:87%; padding:10px 15px; }
 .message.user { margin-left:auto; border-radius:18px 18px 5px 18px; background:var(--caelis-user-bubble); }
+.message-row.controlNotice { margin:24px 0; }
+.message.assistant.controlNotice { color:var(--ink); text-align:left; }
+.message .question-card-text { white-space:pre-wrap; }
 .message.assistant { min-height:40px; max-width:calc(100% - 42px); margin-right:auto; border-radius:5px 18px 18px 18px; background:var(--surface); border:1px solid var(--line); }
 .message.assistant.state-bubble { padding:14px 18px; }
 .message.assistant.approval-bubble { width:480px; }
@@ -171,8 +177,25 @@ summary { cursor:pointer; }
 .bubble-decision { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:0 20px 15px; border-top:1px solid var(--line); }
 .event-pagination { display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--muted); padding-top:8px; }
 @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto !important; } }
-.message-actions { position:absolute; top:6px; right:6px; z-index:1; border-radius:7px; background:transparent; opacity:0; pointer-events:none; }
-.message:hover > .message-actions,.message:focus-within > .message-actions { opacity:1; pointer-events:auto; }
+.message-delivery.pending { display:block; margin-top:3px; color:var(--muted); font-size:10px; line-height:12px; text-align:right; }
+.message-menu { position:fixed; z-index:60; width:168px; padding:5px; border:1px solid var(--line); border-radius:12px; background:var(--caelis-popover); box-shadow:0 12px 36px #0000002b,0 1px 4px #00000012; }
+.message-menu button { display:flex; align-items:center; gap:11px; width:100%; min-height:37px; padding:7px 10px; border:0; border-radius:8px; background:transparent; text-align:left; font-size:13px; }
+.message-menu button:hover,.message-menu button:focus-visible { background:var(--wash); }
+.message-menu svg { width:18px; height:18px; flex:none; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.composer-quote { display:flex; align-items:center; gap:9px; min-height:34px; padding:5px 7px 5px 10px; border-left:3px solid var(--muted); border-radius:4px; background:var(--wash); color:var(--muted); font-size:12px; }
+.composer-quote p { flex:1; min-width:0; margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.composer-quote button { display:grid; place-items:center; flex:none; width:20px; height:20px; border:0; border-radius:50%; padding:0; background:var(--line); color:var(--muted); }
+.composer-quote button .symbol { width:11px; height:11px; flex-basis:11px; }
+.sent-quote { display:block; max-width:100%; width:100%; margin:0 0 6px; padding:4px 8px; border:0; border-left:3px solid var(--muted); border-radius:3px; background:color-mix(in srgb,var(--wash) 80%,transparent); color:var(--muted); text-align:left; font-size:12px; line-height:1.45; }
+.sent-quote:hover { color:var(--ink); }
+.sent-quote span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.quote-preview-backdrop { position:fixed; z-index:70; inset:0; display:grid; place-items:center; padding:24px; background:#0006; }
+.quote-preview { position:relative; width:min(620px,100%); max-height:min(70dvh,700px); overflow:auto; padding:25px 28px; border:1px solid var(--line); border-radius:18px; background:var(--caelis-popover); box-shadow:0 20px 60px #0004; }
+.quote-preview pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:14px; line-height:1.7; }
+.quote-preview-close { position:sticky; top:0; float:right; display:grid; place-items:center; width:24px; height:24px; margin:-12px -15px 0 12px; border:0; border-radius:50%; background:var(--wash); }
+.quote-preview-close .symbol { width:12px; height:12px; }
+.task-message-action { border:0; padding:0; background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.task-message-action:hover { text-decoration:underline; }
 .copy-text { display:grid; place-items:center; width:28px; height:28px; border:0; background:transparent; color:var(--muted); padding:0; border-radius:7px; }
 .copy-text:hover { color:var(--ink); background:var(--wash); }
 .message-link { display:inline; border:0; background:transparent; padding:0; color:var(--accent); text-align:inherit; font:inherit; text-decoration:underline; text-underline-offset:3px; overflow-wrap:anywhere; }
@@ -412,6 +435,5 @@ summary { cursor:pointer; }
 @media(prefers-reduced-motion:reduce){.pet-dream{animation:none}}
 
 /* Delivery status lives below the pill; acknowledgement does not resize it. */
-.message.user .outgoing-status{position:absolute;top:calc(100% + 3px);right:4px;max-width:100%;font-size:10px;line-height:16px;color:var(--muted)}
 .message.assistant .assistant-status{display:block;margin-top:4px;font-size:11px;line-height:16px;color:var(--muted)}
 .bubble-incomplete{display:block;margin-top:3px;font-size:11px;line-height:16px;color:var(--muted)}

@@ -48,7 +48,7 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 		t.Fatal("metadata missing or body eagerly injected", catalog)
 	}
 	links := regexp.MustCompile(`\]\((references/[^)]+)\)`).FindAllSubmatch(body, -1)
-	if len(links) != 12 || !strings.Contains(string(body), "references/recovery.md") || !strings.Contains(string(body), "references/weixin-setup.md") || !strings.Contains(string(body), "references/plugins.md") {
+	if len(links) != 11 || !strings.Contains(string(body), "references/recovery.md") || !strings.Contains(string(body), "references/weixin-setup.md") || !strings.Contains(string(body), "references/plugins.md") || strings.Contains(string(body), "bot_desktop_") || strings.Contains(string(body), "Desktop World") {
 		t.Fatal("missing progressive routes")
 	}
 	for _, link := range links {
@@ -65,7 +65,7 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 		if e != nil || string(packaged) != string(installed) {
 			t.Errorf("incomplete bundle: %s %v", name, e)
 		}
-		// Conditional desktop workflows must resolve from the installed body,
+		// Conditional workflows must resolve from the installed body,
 		// not depend on checkout paths or eager injection into the catalog.
 		if strings.HasSuffix(name, ".md") {
 			for _, link := range regexp.MustCompile(`\]\(([^):]+\.md)\)`).FindAllSubmatch(installed, -1) {

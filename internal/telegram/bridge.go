@@ -26,6 +26,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/secretstore"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 	tg "github.com/mymmrac/telego"
 )
 
@@ -40,6 +41,8 @@ type Host struct {
 	Artifact    func(string) (string, error)
 	ScreenImage func(string) ([]byte, error)
 	Chinese     func() bool
+	TextControl *textchannel.Store
+	RecordInput func(textchannel.Inbound, bool)
 }
 type Status struct {
 	Enabled   bool   `json:"enabled"`
@@ -61,18 +64,20 @@ type delivery struct {
 	Skip         bool     `json:"skip,omitempty"`
 }
 type document struct {
-	Version      int                 `json:"version"`
-	Enabled      bool                `json:"enabled"`
-	BotID        int64               `json:"botId"`
-	Bot          string              `json:"bot"`
-	ChatID       int64               `json:"chatId"`
-	UserID       int64               `json:"userId"`
-	Owner        string              `json:"owner"`
-	Offset       int                 `json:"offset"`
-	Ingress      []tg.Update         `json:"ingress,omitempty"` // Durable receive queue, independent of Runtime dispatch.
-	Inputs       map[string]string   `json:"inputs"`            // Original stable request and native receipt outcome only.
-	PendingFiles map[string]string   `json:"pendingFiles,omitempty"`
-	Messages     map[string]delivery `json:"messages"` // IDs and digests; approval cards also retain only their sent text.
+	Version        int                 `json:"version"`
+	Enabled        bool                `json:"enabled"`
+	BotID          int64               `json:"botId"`
+	Bot            string              `json:"bot"`
+	ChatID         int64               `json:"chatId"`
+	UserID         int64               `json:"userId"`
+	Owner          string              `json:"owner"`
+	Offset         int                 `json:"offset"`
+	Ingress        []tg.Update         `json:"ingress,omitempty"`        // Durable receive queue, independent of Runtime dispatch.
+	SecretPrompts  map[int]string      `json:"secretPrompts,omitempty"`  // secret values never enter the durable queue
+	SecretMessages map[int]bool        `json:"secretMessages,omitempty"` // quoted secret messages never re-enter model input
+	Inputs         map[string]string   `json:"inputs"`                   // Original stable request and native receipt outcome only.
+	PendingFiles   map[string]string   `json:"pendingFiles,omitempty"`
+	Messages       map[string]delivery `json:"messages"` // IDs and digests; approval cards also retain only their sent text.
 }
 type Bridge struct {
 	configMu            sync.Mutex
@@ -92,6 +97,8 @@ type Bridge struct {
 	retryUntil          time.Time
 	closed              bool
 	baselineReady       bool
+	noticeBaselineReady bool
+	secretIngress       map[int]string
 	recoveryNonce       string
 	recoveryClaim       string
 	recoveryWait        sync.WaitGroup
@@ -100,7 +107,7 @@ type Bridge struct {
 }
 
 func Open(root string, host Host) (*Bridge, error) {
-	b := &Bridge{path: filepath.Join(root, "telegram.json"), root: filepath.Join(root, "Telegram"), account: digest(root), host: host, newClient: newClient, recoveryNonce: rand.Text(),
+	b := &Bridge{path: filepath.Join(root, "telegram.json"), root: filepath.Join(root, "Telegram"), account: digest(root), host: host, newClient: newClient, recoveryNonce: rand.Text(), secretIngress: map[int]string{},
 		secrets: &secretstore.FileStore{Root: filepath.Join(root, "Credentials"), Namespace: "telegram", Legacy: secretstore.Functions{LoadFunc: loadSecret, DeleteFunc: deleteSecret}}}
 	b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
 	f, e := os.Open(b.path)
@@ -120,6 +127,12 @@ func Open(root string, host Host) (*Bridge, error) {
 	}
 	if b.state.PendingFiles == nil {
 		b.state.PendingFiles = map[string]string{}
+	}
+	if b.state.SecretPrompts == nil {
+		b.state.SecretPrompts = map[int]string{}
+	}
+	if b.state.SecretMessages == nil {
+		b.state.SecretMessages = map[int]bool{}
 	}
 	return b, b.loadErr
 }
@@ -264,6 +277,7 @@ func (b *Bridge) Connect(ctx context.Context, token string, takeOver bool) (Stat
 	b.mu.Lock()
 	if b.state.BotID != me.ID {
 		b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
+		b.secretIngress = map[int]string{}
 	}
 	b.state.Enabled, b.state.BotID, b.state.Bot = true, me.ID, me.Username
 	b.issue = ""
@@ -316,6 +330,11 @@ func (b *Bridge) Confirm() (Status, error) {
 	b.state.ChatID, b.state.UserID, b.state.Owner = m.Chat.ID, m.From.ID, ownerName(m.From)
 	// Pairing grants access only to subsequent conversation, not old private history.
 	b.baselineLocked(b.host.Snapshot())
+	if b.host.TextControl != nil {
+		for _, notice := range b.host.TextControl.Notices() {
+			b.state.Messages["notice:"+notice.ID] = delivery{Skip: true}
+		}
+	}
 	e := b.saveLocked()
 	if e != nil {
 		b.state.ChatID, b.state.UserID = 0, 0
@@ -348,6 +367,7 @@ func (b *Bridge) Forget() (Status, error) {
 	}
 	b.mu.Lock()
 	b.state = document{Version: 1, Inputs: map[string]string{}, Messages: map[string]delivery{}}
+	b.secretIngress = map[int]string{}
 	b.issue = ""
 	b.nonce = ""
 	b.candidate = nil
@@ -596,7 +616,7 @@ func (b *Bridge) run(ctx context.Context, c client) {
 			next := offset
 			for _, u := range r.updates {
 				if !seen[u.UpdateID] {
-					b.state.Ingress = append(b.state.Ingress, u)
+					b.state.Ingress = append(b.state.Ingress, b.queuedUpdateLocked(u))
 					seen[u.UpdateID] = true
 				}
 				next = u.UpdateID + 1
@@ -632,6 +652,46 @@ func (b *Bridge) run(ctx context.Context, c client) {
 			r.ack <- offset
 		}
 	}
+}
+
+// queuedUpdateLocked retains the native update identity but never writes a
+// Runtime-marked secret answer to telegram.json. Only the live worker has it.
+func (b *Bridge) queuedUpdateLocked(u tg.Update) tg.Update {
+	m := u.Message
+	if m == nil || b.host.TextControl == nil || m.From == nil || m.From.ID != b.state.UserID || m.Chat.ID != b.state.ChatID {
+		return u
+	}
+	if old := m.ReplyToMessage; old != nil && (b.state.SecretMessages[old.MessageID] || b.host.TextControl.IsSecretCommand(old.Text)) {
+		copyMessage, copyOld := *m, *old
+		copyOld.Text, copyOld.Caption = "", ""
+		copyMessage.ReplyToMessage = &copyOld
+		if copyMessage.Quote != nil {
+			quote := *copyMessage.Quote
+			quote.Text = ""
+			copyMessage.Quote = &quote
+		}
+		u.Message = &copyMessage
+		m = &copyMessage
+	}
+	in := textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(m.Chat.ID), Text: m.Text}
+	if m.ReplyToMessage != nil {
+		in.Reference = &textchannel.Reference{Conversation: in.Conversation, MessageID: fmt.Sprint(m.ReplyToMessage.MessageID)}
+	}
+	if prompt := b.host.TextControl.SecretPrompt(in); prompt != "" {
+		if b.state.SecretPrompts == nil {
+			b.state.SecretPrompts = map[int]string{}
+		}
+		if b.state.SecretMessages == nil {
+			b.state.SecretMessages = map[int]bool{}
+		}
+		b.secretIngress[u.UpdateID] = m.Text
+		b.state.SecretPrompts[u.UpdateID] = prompt
+		b.state.SecretMessages[m.MessageID] = true
+		copyMessage := *m
+		copyMessage.Text = ""
+		u.Message = &copyMessage
+	}
+	return u
 }
 
 func (b *Bridge) waitPollBoundary(ctx context.Context) bool {
@@ -708,6 +768,7 @@ func (b *Bridge) reflectOutput(ctx context.Context, c client) {
 	}
 	s := b.host.Snapshot()
 	b.mirrorRecovery(ctx, c, s)
+	b.mirrorNotices(ctx, c)
 	if state := b.recoveryState(); state.Automatic || state.InProgress {
 		return
 	}
@@ -717,6 +778,52 @@ func (b *Bridge) reflectOutput(ctx context.Context, c client) {
 			b.flushFiles(ctx, c)
 		}
 	}
+}
+func (b *Bridge) seedNoticeBaseline() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.noticeBaselineReady {
+		return true
+	}
+	if b.host.TextControl != nil {
+		for _, notice := range b.host.TextControl.Notices() {
+			if notice.SeenAt == 0 {
+				key := "notice:" + notice.ID
+				if _, known := b.state.Messages[key]; !known {
+					b.state.Messages[key] = delivery{Skip: true}
+				}
+			}
+		}
+	}
+	if b.saveLocked() != nil {
+		return false
+	}
+	b.noticeBaselineReady = true
+	return true
+}
+func (b *Bridge) mirrorNotices(ctx context.Context, c client) {
+	if b.host.TextControl == nil || !b.seedNoticeBaseline() {
+		return
+	}
+	b.mu.Lock()
+	chat := b.state.ChatID
+	b.mu.Unlock()
+	if chat == 0 {
+		return
+	}
+	for _, notice := range b.host.TextControl.Notices() {
+		out := textchannel.Outbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: "notice:" + notice.ID, Text: notice.Text}
+		b.sendText(ctx, c, out.ID, chat, out.Text, nil)
+	}
+}
+
+func (b *Bridge) sendInputFeedback(ctx context.Context, c client, chat int64, request, body string) {
+	if b.host.TextControl == nil {
+		_, _ = c.Send(ctx, chat, plainText(body), nil)
+		return
+	}
+	b.host.TextControl.Publish(textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request}, body)
+	b.mirrorNotices(ctx, c)
 }
 func (b *Bridge) input(ctx context.Context, c client, u tg.Update) bool {
 	ok, _ := b.inputResult(ctx, c, u)
@@ -752,9 +859,25 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	if m.Chat.ID != chat || m.From.ID != owner {
 		return true, false
 	}
+	request := fmt.Sprintf("telegram:%d:%d", bot, m.MessageID)
+	controlIn := textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}
+	if m.ReplyToMessage != nil {
+		controlIn.Reference = &textchannel.Reference{Conversation: fmt.Sprint(chat), MessageID: fmt.Sprint(m.ReplyToMessage.MessageID)}
+	}
+	referenced := b.host.TextControl != nil && b.host.TextControl.HasCardReference(controlIn)
+	b.mu.Lock()
+	lostSecretPrompt := b.state.SecretPrompts[u.UpdateID]
+	b.mu.Unlock()
+	if lostSecretPrompt != "" && m.Text == "" {
+		if b.host.TextControl != nil {
+			b.host.TextControl.RecoverSecretInput(controlIn, lostSecretPrompt)
+			b.mirrorNotices(ctx, c)
+		}
+		return true, false
+	}
 	command := strings.Split(m.Text, " ")[0]
 	var ingressFence string
-	if command != "/start" && command != "/stop" && command != "/status" {
+	if command != "/start" && command != "/stop" && command != "/status" && !textchannel.IsCommand(m.Text) && !referenced {
 		state := b.recoveryState()
 		connecting := b.host.Snapshot != nil && b.host.Snapshot().Connection == "connecting"
 		if state.Automatic || state.InProgress || connecting {
@@ -762,7 +885,6 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		}
 		ingressFence = state.Fence
 	}
-	request := fmt.Sprintf("telegram:%d:%d", bot, m.MessageID)
 	b.mu.Lock()
 	previous := b.state.Inputs[request]
 	exists := previous != "" && previous != "deferred"
@@ -784,12 +906,29 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	}
 	b.mu.Unlock()
 	if exists {
+		if textchannel.IsCommand(m.Text) && b.host.TextControl != nil {
+			_ = b.host.TextControl.Handle(ctx, controlIn, b.host.Snapshot())
+			b.mirrorNotices(ctx, c)
+		} else if referenced {
+			_, _ = b.host.TextControl.HandleReference(ctx, controlIn, b.host.Snapshot())
+			b.mirrorNotices(ctx, c)
+		}
 		return true, false
+	}
+	if b.host.RecordInput != nil {
+		visible := controlIn
+		if visible.Text == "" {
+			visible.Text = m.Caption
+		}
+		if visible.Text == "" {
+			visible.Text = "[附件]"
+		}
+		b.host.RecordInput(visible, b.host.TextControl != nil && b.host.TextControl.SecretPrompt(controlIn) != "")
 	}
 	outcome := "handled"
 	switch command {
 	case "/start":
-		_, _ = c.Send(ctx, chat, plainText(b.text("Connected. Send a message or file. /stop stops work; /status checks it.", "已连接。直接发送消息或文件即可。/stop 停止工作，/status 查看状态。")), nil)
+		b.sendInputFeedback(ctx, c, chat, request, b.text("Connected. Send a message or file. /stop stops work; /status checks it.", "已连接。直接发送消息或文件即可。/stop 停止工作，/status 查看状态。"))
 	case "/stop":
 		b.recoveryWait.Add(1)
 		go func() {
@@ -809,7 +948,12 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 			b.mu.Unlock()
 			feedback, finish := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			defer finish()
-			_, _ = c.Send(feedback, chat, plainText(text), nil)
+			if b.host.TextControl != nil {
+				b.host.TextControl.Publish(textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request}, text)
+				b.mirrorNotices(feedback, c)
+			} else {
+				_, _ = c.Send(feedback, chat, plainText(text), nil)
+			}
 		}()
 		return true, false
 	case "/status":
@@ -824,21 +968,47 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 		} else if !state.Automatic && !state.InProgress {
 			text = b.text("Caelis Bot is online; the Runtime is temporarily offline. Recovery remains available.", "Caelis Bot 在线，Runtime 暂时离线；可以继续恢复连接。")
 		}
-		_, _ = c.Send(ctx, chat, plainText(text), nil)
+		if b.host.TextControl != nil {
+			b.host.TextControl.Publish(textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request}, text)
+			b.mirrorNotices(ctx, c)
+		} else {
+			_, _ = c.Send(ctx, chat, plainText(text), nil)
+		}
 		if state.Manual {
 			b.mirrorRecovery(ctx, c, s)
 		}
+	case "/approve", "/answer":
+		if b.host.TextControl != nil {
+			_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}, b.host.Snapshot())
+			b.mirrorNotices(ctx, c)
+		} else {
+			b.sendInputFeedback(ctx, c, chat, request, "控制命令暂不可用，请在 Mac 中处理。")
+		}
 
 	default:
+		if referenced {
+			_, _ = b.host.TextControl.HandleReference(ctx, controlIn, b.host.Snapshot())
+			b.mirrorNotices(ctx, c)
+			break
+		}
+		if textchannel.IsCommand(m.Text) {
+			if b.host.TextControl != nil {
+				_ = b.host.TextControl.Handle(ctx, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: request, Text: m.Text}, b.host.Snapshot())
+				b.mirrorNotices(ctx, c)
+			} else {
+				b.sendInputFeedback(ctx, c, chat, request, "未知命令。请复制当前请求中的完整 /approve 或 /answer 命令。")
+			}
+			break
+		}
 		if !b.ensureBaseline(b.host.Snapshot()) {
 			outcome = "rejected"
-			_, _ = c.Send(ctx, chat, plainText(b.text("The local Runtime is not connected yet. Check /status or Caelis Bot on your Mac; this message was not sent to the Runtime.", "本机 Runtime 尚未连接。请查看 /status 或 Mac 上的 Caelis Bot；这条消息未发送给 Runtime。")), nil)
+			b.sendInputFeedback(ctx, c, chat, request, b.text("The local Runtime is not connected yet. Check /status or Caelis Bot on your Mac; this message was not sent to the Runtime.", "本机 Runtime 尚未连接。请查看 /status 或 Mac 上的 Caelis Bot；这条消息未发送给 Runtime。"))
 			break
 		}
 		files, stickerNote, e := b.download(ctx, c, request, m)
 		if e != nil {
 			outcome = "rejected"
-			_, _ = c.Send(ctx, chat, plainText(b.downloadNotice(e)), nil)
+			b.sendInputFeedback(ctx, c, chat, request, b.downloadNotice(e))
 		} else {
 			text := m.Text
 			if text == "" {
@@ -849,9 +1019,22 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 			}
 			if strings.TrimSpace(text) == "" && len(files) == 0 {
 				outcome = "rejected"
-				_, _ = c.Send(ctx, chat, plainText(b.text("Send text, a photo or a file.", "请发送文字、图片或文件。")), nil)
+				b.sendInputFeedback(ctx, c, chat, request, b.text("Send text, a photo or a file.", "请发送文字、图片或文件。"))
 			} else {
-				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text, IngressFence: ingressFence}, files)
+				if b.host.TextControl != nil {
+					if err := b.host.TextControl.RecordOrigin(request, textchannel.Origin{Channel: "telegram", Conversation: fmt.Sprint(chat)}); err != nil {
+						outcome = "rejected"
+						b.sendInputFeedback(ctx, c, chat, request, "来源记录不可用，消息未提交。")
+						break
+					}
+				}
+				quoted := b.quotedMessage(m, bot, owner)
+				if m.ReplyToMessage != nil && quoted == nil {
+					outcome = "rejected"
+					b.sendInputFeedback(ctx, c, chat, request, b.text("The quoted text is unavailable. Send the text you want me to use as a new message.", "引用内容无法读取，请把需要我参考的文字作为新消息发送。"))
+					break
+				}
+				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text, Quoted: quoted, IngressFence: ingressFence}, files)
 				if errors.Is(submitErr, api.ErrRecoveryPending) {
 					b.mu.Lock()
 					b.state.Inputs[request] = "deferred"
@@ -873,7 +1056,7 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 					if outcome == "unknown" {
 						notice = b.text("Delivery is uncertain. Check the original message on your Mac; it will not be sent again automatically.", "发送结果暂不确定。请在 Mac 查看原消息，系统不会自动重复发送。")
 					}
-					_, _ = c.Send(ctx, chat, plainText(notice), nil)
+					b.sendInputFeedback(ctx, c, chat, request, notice)
 				}
 			}
 		}
@@ -887,6 +1070,72 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 	e := b.saveLocked()
 	b.mu.Unlock()
 	return e == nil, false
+}
+
+func (b *Bridge) quotedMessage(m *tg.Message, bot, owner int64) *api.QuotedMessage {
+	if m == nil || m.ReplyToMessage == nil {
+		return nil
+	}
+	old := m.ReplyToMessage
+	q := &api.QuotedMessage{HostID: fmt.Sprint(old.MessageID), Role: "unknown", Text: old.Text}
+	if q.Text == "" {
+		q.Text = old.Caption
+	}
+	if m.Quote != nil {
+		q.Text, q.Excerpt = m.Quote.Text, true
+	}
+	b.mu.Lock()
+	secret := b.state.SecretMessages[old.MessageID]
+	var delivered delivery
+	var matches int
+	for key, delivered := range b.state.Messages {
+		for _, id := range delivered.IDs {
+			if id == old.MessageID {
+				q.LocalID = key
+				matches++
+				break
+			}
+		}
+	}
+	if matches == 1 {
+		delivered = b.state.Messages[q.LocalID]
+	} else {
+		q.LocalID = ""
+	}
+	input := fmt.Sprintf("telegram:%d:%d", bot, old.MessageID)
+	acceptedInput := b.state.Inputs[input] == "accepted"
+	b.mu.Unlock()
+	if old.From != nil {
+		if old.From.ID == owner {
+			q.Role, q.LocalID = "user", fmt.Sprintf("telegram:%d:%d", bot, old.MessageID)
+		}
+		if old.From.ID == bot && old.From.IsBot {
+			q.Role = "assistant"
+		}
+	}
+	if secret || b.host.TextControl != nil && b.host.TextControl.IsSecretCommand(q.Text) {
+		return nil
+	}
+	// Telegram can supply the reply ID but omit the old text even when its
+	// client displays a quote. Recover only an exact, single confirmed Bot
+	// delivery (or the original accepted user input) from the shared IM view.
+	// The hash prevents a later edited item from becoming a different quote.
+	if q.Text == "" && b.host.Snapshot != nil {
+		for _, item := range b.host.Snapshot().Items {
+			if matches == 1 && item.Kind == "assistant" && itemKey(item) == q.LocalID && len(delivered.IDs) == 1 && delivered.IDs[0] == old.MessageID && len(delivered.Hashes) == 1 && delivered.Hashes[0] == digest(item.Text) && item.Text != "" {
+				q.Text, q.Role = item.Text, "assistant"
+				break
+			}
+			if acceptedInput && item.Kind == "user" && item.RequestID == input && item.Text != "" {
+				q.Text, q.Role, q.LocalID = item.Text, "user", input
+				break
+			}
+		}
+	}
+	if q.Text == "" {
+		return nil
+	}
+	return api.BoundQuote(q)
 }
 func (b *Bridge) download(ctx context.Context, c client, request string, m *tg.Message) ([]api.InputFile, string, error) {
 	if m.Sticker != nil {
@@ -1078,6 +1327,100 @@ func (b *Bridge) approvalKeyboard(a api.Approval) (*tg.InlineKeyboardMarkup, boo
 	return keys, len(keys.InlineKeyboard) > 0
 }
 
+func asyncQuestionCallbackID(q textchannel.AsyncButtonQuestion, index int) string {
+	return "q:" + digest(q.Fingerprint + "\x00" + q.ShortID + "\x00" + fmt.Sprint(index))[:40]
+}
+
+// TG renders ordered choices as buttons. The shared text card remains the
+// fallback for free input or any option that TG cannot display faithfully.
+func asyncQuestionButtons(questions []textchannel.AsyncButtonQuestion) (string, *tg.InlineKeyboardMarkup, bool) {
+	if len(questions) == 0 {
+		return "", nil, false
+	}
+	keys := &tg.InlineKeyboardMarkup{}
+	var lines []string
+	for _, q := range questions {
+		line := "[" + q.ShortID + "] " + q.Title
+		switch q.State {
+		case "accepted":
+			line += "\n回答已提交。"
+		case "dispatching", "unknown":
+			line += "\n回答投递结果待核对；不会自动重发。"
+		case "":
+			if len(q.Options) == 0 {
+				line += "\n回答请输入 /answer " + q.ShortID + " 后接完整回答。"
+			}
+			for index, option := range q.Options {
+				label := option
+				if len(questions) > 1 {
+					label = "[" + q.ShortID + "] " + label
+				}
+				if !utf8.ValidString(label) || strings.TrimSpace(label) == "" || utf16Length(label) > 64 {
+					return "", nil, false
+				}
+				for _, r := range label {
+					if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
+						return "", nil, false
+					}
+				}
+				keys.InlineKeyboard = append(keys.InlineKeyboard, []tg.InlineKeyboardButton{{Text: label, CallbackData: asyncQuestionCallbackID(q, index)}})
+			}
+		default:
+			return "", nil, false
+		}
+		lines = append(lines, line)
+	}
+	if len(keys.InlineKeyboard) == 0 {
+		body := strings.Join(lines, "\n\n")
+		return body, nil, utf16Length(body) <= 4000
+	}
+	body := strings.Join(lines, "\n\n")
+	return body, keys, utf16Length(body) <= 4000
+}
+
+func (b *Bridge) asyncQuestionCallback(ctx context.Context, c client, query *tg.CallbackQuery, message *tg.Message, chat int64) bool {
+	if b.host.TextControl == nil || !strings.HasPrefix(query.Data, "q:") {
+		return false
+	}
+	for _, itemID := range b.host.TextControl.AsyncButtonItemIDs() {
+		questions := b.host.TextControl.AsyncButtonQuestions(itemID)
+		_, keys, ok := asyncQuestionButtons(questions)
+		if !ok {
+			continue
+		}
+		for _, question := range questions {
+			for index := range question.Options {
+				if query.Data != asyncQuestionCallbackID(question, index) {
+					continue
+				}
+				b.mu.Lock()
+				record := b.state.Messages["item:"+itemID]
+				bound := !record.Skip && record.Keyboard != "" && record.Keyboard == keyboardDigest(keys) && len(record.IDs) == 1 && record.IDs[0] == message.MessageID
+				b.mu.Unlock()
+				if !bound {
+					b.answer(ctx, c, query.ID, b.text("This question was handled or changed.", "问题已处理或已变化。"))
+					return true
+				}
+				b.answer(ctx, c, query.ID, b.text("Received; checking the answer.", "已收到，正在提交回答。"))
+				b.recoveryWait.Add(1)
+				go func() {
+					defer b.recoveryWait.Done()
+					work, stop := context.WithTimeout(ctx, 16*time.Second)
+					defer stop()
+					b.host.TextControl.Handle(work, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: "callback:" + query.ID, Text: fmt.Sprintf("/answer %s %d", question.ShortID, index+1)}, b.host.Snapshot())
+					if body, currentKeys, ok := asyncQuestionButtons(b.host.TextControl.AsyncButtonQuestions(itemID)); ok {
+						b.sendText(work, c, "item:"+itemID, chat, body, currentKeys)
+					}
+					b.mirror(work, c, b.host.Snapshot())
+				}()
+				return true
+			}
+		}
+	}
+	b.answer(ctx, c, query.ID, b.text("This question was handled or changed.", "问题已处理或已变化。"))
+	return true
+}
+
 func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bool {
 	b.mu.Lock()
 	owner, chat := b.state.UserID, b.state.ChatID
@@ -1094,6 +1437,9 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 		b.answer(ctx, c, q.ID, b.text("The Runtime is not ready. Check the original request on your Mac.", "Runtime 尚未就绪，请在 Mac 核对原请求。"))
 		return true
 	}
+	if b.asyncQuestionCallback(ctx, c, q, m, chat) {
+		return true
+	}
 	for _, a := range snapshot.Approvals {
 		if a.Status != "pending" || len(a.Questions) > 0 || a.URL != "" {
 			continue
@@ -1102,8 +1448,14 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 		if !valid {
 			continue
 		}
-		for _, choice := range a.Choices {
+		for index, choice := range a.Choices {
 			if q.Data == callbackID(a, choice.ID) {
+				if b.host.TextControl != nil {
+					if feedback, claimed := b.host.TextControl.Claimed(a.ID); claimed {
+						b.answer(ctx, c, q.ID, feedback)
+						return true
+					}
+				}
 				key := "approval-decision:" + a.ID
 				b.mu.Lock()
 				record := b.state.Messages["approval:"+a.ID]
@@ -1129,7 +1481,20 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 					defer b.recoveryWait.Done()
 					work, stop := context.WithTimeout(ctx, 16*time.Second)
 					defer stop()
-					err := b.host.Decide(work, api.Decision{ID: a.ID, Choice: choice.ID})
+					var err error
+					if b.host.TextControl != nil {
+						_, short, cardErr := b.host.TextControl.Card(a)
+						if cardErr != nil || short == "" {
+							err = errors.New("approval catalog unavailable")
+						} else {
+							feedback := b.host.TextControl.Handle(work, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: "callback:" + q.ID, Text: fmt.Sprintf("/approve %s %d", short, index+1)}, b.host.Snapshot())
+							if feedback != "决定已提交，等待 Runtime 确认。" {
+								err = errors.New("approval not confirmed")
+							}
+						}
+					} else {
+						err = b.host.Decide(work, api.Decision{ID: a.ID, Choice: choice.ID})
+					}
 					outcome := "handled"
 					if err != nil {
 						outcome = "unknown"
@@ -1181,9 +1546,29 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 			continue
 		}
 		if i.Kind == "user" {
-			b.sendMacUserText(ctx, c, itemKey(i), chat, i.Text)
+			if b.host.TextControl != nil {
+				if origin, ok := b.host.TextControl.OriginOf(i.RequestID); ok && origin.Channel != "" {
+					if origin.Channel == "telegram" && origin.Conversation == fmt.Sprint(chat) {
+						continue
+					}
+					b.sendUserText(ctx, c, itemKey(i), chat, i.Text, b.text("User", "用户"))
+				} else {
+					b.sendMacUserText(ctx, c, itemKey(i), chat, i.Text)
+				}
+			} else {
+				b.sendMacUserText(ctx, c, itemKey(i), chat, i.Text)
+			}
 		} else if i.Kind == "assistant" {
-			b.sendAssistantText(ctx, c, itemKey(i), chat, i.Text)
+			rendered := false
+			if b.host.TextControl != nil {
+				if text, keys, ok := asyncQuestionButtons(b.host.TextControl.AsyncButtonQuestions(i.ID)); ok {
+					b.sendText(ctx, c, itemKey(i), chat, text, keys)
+					rendered = true
+				}
+			}
+			if !rendered {
+				b.sendAssistantText(ctx, c, itemKey(i), chat, i.Text)
+			}
 		}
 		for _, a := range i.Artifacts {
 			b.mu.Lock()
@@ -1252,10 +1637,22 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		closed := b.state.Messages["approval:"+a.ID].Closed
 		decision := b.state.Inputs["approval-decision:"+a.ID]
 		b.mu.Unlock()
+		if b.host.TextControl != nil {
+			if _, claimed := b.host.TextControl.Claimed(a.ID); claimed && decision == "" {
+				decision = "submitted"
+			}
+		}
 		if closed {
 			continue // A terminal fence cannot be reopened by stale recovery state.
 		}
-		text := approvalMessageText(a)
+		original := approvalMessageText(a)
+		text := original
+		if b.host.TextControl != nil {
+			if card, _, err := b.host.TextControl.Card(a); err == nil && card != "" {
+				text = card
+				original = card
+			}
+		}
 		if text == "" {
 			text = b.text("Decision needed.", "需要决定。")
 		}
@@ -1269,7 +1666,16 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		} else if a.Status == "pending" && len(a.Questions) == 0 && a.URL == "" && len(a.Choices) > 0 {
 			var valid bool
 			keys, valid = b.approvalKeyboard(a)
+			if valid && b.host.TextControl != nil {
+				if _, short, err := b.host.TextControl.Card(a); err == nil && short != "" {
+					text = textchannel.ButtonCard(a, short)
+					original = text
+				} else {
+					valid = false
+				}
+			}
 			if !valid {
+				keys = nil
 				unavailable = true
 				b.setIssue("approval_unavailable")
 				text += "\n" + b.text("Approval options are unavailable here. Complete this request in Caelis Bot on your Mac.", "此处无法显示审批选项，请在 Mac 的 Caelis Bot 中完成此请求。")
@@ -1278,12 +1684,19 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 			text += "\n" + b.text("Submitted; waiting for the Runtime result.", "已提交，等待 Runtime 确认结果。")
 		} else if a.Status == "unknown" {
 			text += "\n" + b.text("The decision result is uncertain. Check the original request on your Mac; do not submit it again.", "决定结果暂不确定。请在 Mac 核对原请求，不要再次提交。")
+		} else if a.Status == "pending" && len(a.Questions) > 0 && b.host.TextControl != nil {
+			// The shared text card above owns the answer commands.
 		} else if a.Status == "pending" && len(a.Choices) == 0 {
 			text += "\n" + b.text("The Runtime did not provide an actionable option here. Check the original request in the Runtime.", "Runtime 未提供此处可操作的选项，请在 Runtime 中核对原请求。")
 		} else {
 			text += "\n" + b.text("Complete this request in Caelis Bot on your Mac.", "请在 Mac 的 Caelis Bot 中完成此请求。")
 		}
-		b.sendApprovalText(ctx, c, "approval:"+a.ID, chat, approvalMessageText(a), text, keys)
+		ids := b.sendApprovalText(ctx, c, "approval:"+a.ID, chat, original, text, keys)
+		if b.host.TextControl != nil {
+			for _, id := range ids {
+				_ = b.host.TextControl.BindCard("telegram", fmt.Sprint(chat), fmt.Sprint(id), a)
+			}
+		}
 	}
 	// Native resolution may remove a prompt from the snapshot entirely. A
 	// disconnected snapshot is not an authoritative absence.
@@ -1337,7 +1750,7 @@ func approvalBodyParts(original string) []string {
 	return splitTextLimit(original, 3800)
 }
 
-func (b *Bridge) sendApprovalText(ctx context.Context, c client, key string, chat int64, original, text string, keys *tg.InlineKeyboardMarkup) {
+func (b *Bridge) sendApprovalText(ctx context.Context, c client, key string, chat int64, original, text string, keys *tg.InlineKeyboardMarkup) []int {
 	if original == "" {
 		original = b.text("Decision needed.", "需要决定。")
 	}
@@ -1350,14 +1763,14 @@ func (b *Bridge) sendApprovalText(ctx context.Context, c client, key string, cha
 			b.state.Messages[key] = record
 			if b.saveLocked() != nil {
 				b.mu.Unlock()
-				return
+				return nil
 			}
 		}
 	}
 	b.mu.Unlock()
 	if len(parts) == 0 {
 		b.sendText(ctx, c, key, chat, text, keys)
-		return
+		return nil
 	}
 	if suffix, ok := strings.CutPrefix(text, original); ok && utf16Length(parts[len(parts)-1])+utf16Length(suffix) <= 4000 {
 		parts[len(parts)-1] += suffix
@@ -1369,6 +1782,20 @@ func (b *Bridge) sendApprovalText(ctx context.Context, c client, key string, cha
 		messages[i] = plainText(part)
 	}
 	b.sendRenderedText(ctx, c, key, chat, messages, nil, keys)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	record = b.state.Messages[key]
+	if len(record.IDs) < len(messages) || len(record.Hashes) < len(messages) {
+		return nil
+	}
+	var ids []int
+	for i, message := range messages {
+		if record.IDs[i] <= 0 || record.Hashes[i] != outgoingDigest(message) {
+			return nil
+		}
+		ids = append(ids, record.IDs[i])
+	}
+	return ids
 }
 
 func (b *Bridge) closeApproval(ctx context.Context, c client, chat int64, id, original, status string) {
@@ -1548,9 +1975,12 @@ func (b *Bridge) sendMacUserText(ctx context.Context, c client, key string, chat
 	}
 	b.sendRenderedText(ctx, c, key, chat, macUserText(title, body), legacyParts, nil)
 }
+func (b *Bridge) sendUserText(ctx context.Context, c client, key string, chat int64, body, title string) {
+	b.sendRenderedText(ctx, c, key, chat, macUserText(title, body), nil, nil)
+}
 
 func (b *Bridge) sendAssistantText(ctx context.Context, c client, key string, chat int64, body string) {
-	messages := assistantMessages(body)
+	messages := assistantOutboundMessages(body)
 	b.mu.Lock()
 	record := b.state.Messages[key]
 	b.mu.Unlock()

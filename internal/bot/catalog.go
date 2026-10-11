@@ -19,8 +19,12 @@ func taskDefinitions() []api.ToolDefinition {
 			tc.Branch("watchlist", tc.Schema{"action": tc.Enum("clear")}, "action"), tc.Branch("stop", tc.Schema{"task": text(256)}, "task"),
 			tc.Branch("retire", tc.Schema{"task": text(256)}, "task"))),
 		tc.Definition("bot_delegate", "Start sustained user-requested work or continue/steer an owned task. Stable requestId prevents duplicates; unknown outcomes require bot_tasks.read, not a new submission. Omit machine for local work; remote must be explicitly user-selected. User-configured backend/model defaults apply only to new work. Accepted is not completed; host notifies completion.", tc.Request(
-			tc.Branch("start", tc.Schema{"requestId": requestID(), "title": text(160), "prompt": text(24000), "machine": text(256), "workspace": tc.String("Optional absolute existing project directory; omitted creates a managed workspace")}, "requestId", "title", "prompt"),
+			tc.Branch("start", tc.Schema{"requestId": requestID(), "title": text(160), "prompt": text(24000), "machine": text(256), "workspace": tc.String("Optional absolute existing project directory; omitted creates a managed workspace")}, "requestId", "prompt"),
 			tc.Branch("continue", tc.Schema{"requestId": requestID(), "task": text(256), "prompt": text(24000)}, "requestId", "task", "prompt"))),
+		tc.Definition("bot_interactions", "Coordinate original native Worker approvals and asynchronous questions. Read current offered choices first. Decide only a Worker request using its exact approval and option IDs; the Runtime remains authoritative. Answer a Worker question from known task context or ask the user naturally if unclear. Never decide this Bot's own approvals or retry an unknown result.", tc.Request(
+			tc.Branch("list", tc.Schema{}),
+			tc.Branch("decide", tc.Schema{"approval": text(256), "choice": text(256), "answers": tc.Schema{"type": "object", "additionalProperties": tc.Schema{"type": "array", "items": text(16384)}}}, "approval", "choice"),
+			tc.Branch("answer", tc.Schema{"question": text(32), "value": text(16384), "requestId": requestID()}, "question", "value", "requestId"))),
 	}
 }
 func calendarTrigger() tc.Schema {

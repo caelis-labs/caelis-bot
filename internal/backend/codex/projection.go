@@ -48,6 +48,7 @@ type nativeItem struct {
 	Content        []nativeInput   `json:"content"`
 	Status         string          `json:"status"`
 	Phase          string          `json:"phase"`
+	Delivery       string          `json:"delivery"`
 	Command        string          `json:"command"`
 	CommandActions []commandAction `json:"commandActions"`
 	WebAction      *struct {
@@ -218,6 +219,12 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 	case "agentMessage":
 		view.Kind = "assistant"
 		view.Text = item.Text
+		if item.Delivery == "async" && len(item.Questions) > 0 {
+			view.AsyncCallID = item.ID
+			for _, q := range item.Questions {
+				view.AsyncQuestions = append(view.AsyncQuestions, api.AsyncQuestion{Title: q.Title, Options: append([]string(nil), q.Options...)})
+			}
+		}
 		if complete {
 			for _, match := range artifactLink.FindAllStringSubmatch(item.Text, -1) {
 				path := strings.Trim(match[2], "<>")
@@ -232,12 +239,6 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 					s.addArtifact(&view, path)
 					view.Text = strings.ReplaceAll(view.Text, match[0], match[1])
 				}
-			}
-		}
-		for _, q := range item.Questions {
-			view.Text += "\n\n" + q.Title
-			for _, o := range q.Options {
-				view.Text += "\n• " + o
 			}
 		}
 	case "plan":

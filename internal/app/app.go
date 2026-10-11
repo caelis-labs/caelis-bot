@@ -25,6 +25,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/plugins"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"github.com/caelis-labs/caelis-bot/internal/telegram"
+	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 	"github.com/caelis-labs/caelis-bot/internal/updates"
 	"github.com/caelis-labs/caelis-bot/internal/weixin"
 )
@@ -52,44 +53,46 @@ type Host struct {
 }
 
 type Application struct {
-	localWork          *localWorkers
-	machines           *machines.Service
-	taskPreferences    *tasks.PreferencesStore
-	setup              *runtimeSetup
-	Backend            *backend.Service
-	Telegram           *telegram.Bridge
-	Weixin             *weixin.Bridge
-	engine             api.Engine
-	host               Host
-	root               string
-	mu                 sync.Mutex
-	pluginAdmission    sync.Mutex
-	pluginSyncMu       sync.Mutex
-	pluginSyncRunning  bool
-	pluginSyncPending  bool
-	pluginSyncRevision uint64
-	pluginSyncError    bool
-	updateMu           sync.Mutex
-	started, closed    bool
-	updatePrepared     bool
-	cancel             context.CancelFunc
-	startupCancel      context.CancelFunc
-	dreamReady         bool
-	careReady          bool
-	workers            sync.WaitGroup
-	companion          *bot.Runtime
-	bridge             *bot.Bridge
-	tasks              *tasks.Manager
-	personal           *botmemory.Store
-	notebook           *notebook.Vault
-	skillPath          string
-	initialization     *bot.Initializer
-	plugins            *plugins.Manager
-	pluginDetailMu     sync.Mutex
-	pluginIndexMu      sync.Mutex
-	pluginDetailCache  map[string]pluginDetailCacheEntry
-	closeOnce          sync.Once
-	closeErr           error
+	localWork           *localWorkers
+	machines            *machines.Service
+	taskPreferences     *tasks.PreferencesStore
+	setup               *runtimeSetup
+	Backend             *backend.Service
+	Telegram            *telegram.Bridge
+	Weixin              *weixin.Bridge
+	textControl         *textchannel.Store
+	engine              api.Engine
+	host                Host
+	root                string
+	mu                  sync.Mutex
+	pluginAdmission     sync.Mutex
+	pluginSyncMu        sync.Mutex
+	pluginSyncRunning   bool
+	pluginSyncPending   bool
+	pluginSyncRevision  uint64
+	pluginSyncError     bool
+	updateMu            sync.Mutex
+	interactionNoticeMu sync.Mutex
+	started, closed     bool
+	updatePrepared      bool
+	cancel              context.CancelFunc
+	startupCancel       context.CancelFunc
+	dreamReady          bool
+	careReady           bool
+	workers             sync.WaitGroup
+	companion           *bot.Runtime
+	bridge              *bot.Bridge
+	tasks               *tasks.Manager
+	personal            *botmemory.Store
+	notebook            *notebook.Vault
+	skillPath           string
+	initialization      *bot.Initializer
+	plugins             *plugins.Manager
+	pluginDetailMu      sync.Mutex
+	pluginIndexMu       sync.Mutex
+	pluginDetailCache   map[string]pluginDetailCacheEntry
+	closeOnce           sync.Once
+	closeErr            error
 }
 
 func New(root string, host Host) (*Application, error) {
@@ -182,6 +185,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		}
 	}
 	app := &Application{Backend: service, engine: engine, root: root, host: host, initialization: initialization}
+	service.SetGuardianNoticeAccepted(func(id string) bool { return app.workerInteractionNoticeAccepted("approval", id) })
 	app.plugins, err = plugins.Open(filepath.Join(root, "Plugins"))
 	if err != nil && host.ReportError != nil {
 		host.ReportError(err)
@@ -214,6 +218,65 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		host.ReportError(err)
 	}
 	service.ConfigureMachines(app.machines)
+	app.textControl, err = textchannel.Open(root, app.Backend.Decide)
+	if err != nil {
+		return nil, err // fail closed: a lost origin/decision ledger cannot broadcast or replay
+	}
+	showNotice := func(notice textchannel.Notice) {
+		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "control:" + notice.ID, Kind: "controlNotice", Text: notice.Text, Status: "completed", SeenAt: notice.SeenAt}}})
+	}
+	app.textControl.SetNoticeObserver(showNotice)
+	app.textControl.SetAsyncUpdateObserver(func(item api.Item) {
+		if !strings.HasPrefix(item.ID, "worker-question:") {
+			service.ObserveChat(api.Snapshot{Items: []api.Item{item}})
+		}
+	})
+	app.textControl.SetAsyncAnswerer(func(ctx context.Context, in textchannel.Inbound, modelInput string) (api.Receipt, error) {
+		return backend.SubmitRemote(ctx, service, api.Submission{ID: in.ID, Text: in.Text, ModelInputOverride: modelInput}, nil)
+	})
+	app.textControl.SetAsyncWorkAnswerer(app.answerWorkerQuestion)
+	service.SetCommandHandler(func(ctx context.Context, input api.Submission) (api.Receipt, bool, error) {
+		if !textchannel.IsCommand(input.Text) {
+			return api.Receipt{}, false, nil
+		}
+		feedback := app.textControl.Handle(ctx, textchannel.Inbound{Channel: "desktop", Conversation: "local", ID: input.ID, Text: input.Text}, service.Snapshot())
+		return api.Receipt{ID: input.ID, Outcome: "accepted", Message: feedback}, true, nil
+	})
+	app.textControl.SetInboundObserver(func(in textchannel.Inbound) {
+		if origin, ok := app.textControl.OriginOf(in.ID); ok {
+			if origin.Channel != in.Channel {
+				return
+			}
+		} else {
+			if err := app.textControl.RecordOrigin(in.ID, textchannel.Origin{Channel: in.Channel, Conversation: in.Conversation}); err != nil {
+				return
+			}
+		}
+		body := in.Text
+		if app.textControl.SecretPrompt(in) != "" {
+			body = "已填写敏感字段"
+		}
+		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "control-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: body, Status: "accepted"}}})
+	})
+	recordInput := func(in textchannel.Inbound, secret bool) {
+		if in.ID == "" || app.textControl.RecordOrigin(in.ID, textchannel.Origin{Channel: in.Channel, Conversation: in.Conversation}) != nil {
+			return
+		}
+		body := in.Text
+		if secret || app.textControl.SecretPrompt(in) != "" {
+			body = "已填写敏感字段"
+		}
+		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "channel-input:" + in.ID, RequestID: in.ID, Kind: "user", Text: body, Status: "received"}}})
+	}
+	// Import only the previous visible window into the local IM transcript.
+	// Delivery ledgers still prevent any channel from replaying old notices.
+	notices := app.textControl.Notices()
+	if len(notices) > 32 {
+		notices = notices[len(notices)-32:]
+	}
+	for _, notice := range notices {
+		showNotice(notice)
+	}
 	if app.Telegram == nil {
 		remote, remoteErr := telegram.Open(app.root, telegram.Host{
 			Snapshot:    app.Backend.Snapshot,
@@ -227,6 +290,8 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 			Artifact:    func(id string) (string, error) { return backend.ResolveRemoteArtifact(app.Backend, id) },
 			ScreenImage: func(id string) ([]byte, error) { return backend.ScreenImageBytes(app.Backend, id) },
 			Chinese:     func() bool { return app.locale() == i18n.Chinese },
+			TextControl: app.textControl,
+			RecordInput: recordInput,
 		})
 		if remoteErr != nil {
 			if app.host.ReportError != nil {
@@ -245,6 +310,8 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 			Submit: func(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 				return backend.SubmitRemote(ctx, app.Backend, in, files)
 			},
+			TextControl: app.textControl,
+			RecordInput: recordInput,
 		})
 		if remoteErr != nil && app.host.ReportError != nil {
 			app.host.ReportError(remoteErr)
@@ -409,6 +476,17 @@ func (a *Application) Start() error {
 	if manager != nil {
 		manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 		manager.ObserveWatchlist(a.host.ObserveTasks)
+		manager.ObserveStarts(func(task api.Task) {
+			status := task.Status
+			text := "Worker 已开始：" + task.Title
+			if task.Outcome == "unknown" || status == "unknown" {
+				text = "Worker 状态待确认：" + task.Title
+			}
+			a.Backend.ObserveChat(api.Snapshot{Items: []api.Item{{
+				ID: "task-start:" + task.ID, Kind: "assistant", Text: text,
+				Status: "completed", Task: &api.TaskPresentation{ID: task.ID, Title: task.Title, Status: status},
+			}}})
+		})
 	}
 	if err = a.preparePersonalLocked(); err != nil {
 		return err
@@ -417,6 +495,7 @@ func (a *Application) Start() error {
 	if manager != nil {
 		err = resident.ConfigureTasks(manager, manager)
 	}
+	resident.ConfigureWorkerInteractions(a)
 	if err != nil && manager != nil {
 		return err
 	}
@@ -535,8 +614,22 @@ func (a *Application) Start() error {
 	if a.Weixin != nil {
 		a.Weixin.Start()
 	}
-	a.workers.Add(5)
+	a.workers.Add(6)
 	go func() { defer a.workers.Done(); a.localWork.Observe(ctx) }()
+	go func() {
+		defer a.workers.Done()
+		a.observeWorkerQuestions(ctx)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				a.observeWorkerQuestions(ctx)
+			}
+		}
+	}()
 	go func() { defer a.workers.Done(); a.machines.Observe(ctx) }()
 	go func() {
 		defer a.workers.Done()
@@ -603,6 +696,24 @@ func (a *Application) Start() error {
 			}
 			revision = snapshot.Revision
 			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
+			a.observeWorkerApprovalNotice(ctx, snapshot)
+			snapshot = a.userVisibleApprovals(snapshot)
+			for i, item := range snapshot.Items {
+				if len(item.AsyncQuestions) == 0 {
+					continue
+				}
+				card, cardErr := a.textControl.AsyncCard(item, snapshot.RuntimeOwner)
+				if cardErr != nil {
+					if a.host.ReportError != nil {
+						a.host.ReportError(cardErr)
+					}
+					continue
+				}
+				snapshot.Items[i] = card
+			}
+			if a.Weixin != nil {
+				a.Weixin.ObserveTurn(snapshot)
+			}
 			a.Backend.ObserveChat(snapshot)
 			observer.Observe(snapshot)
 			if a.host.Observe != nil {

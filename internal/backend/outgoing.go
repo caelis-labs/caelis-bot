@@ -2,6 +2,7 @@ package backend
 
 import (
 	"strings"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -31,7 +32,8 @@ func (s *Service) stageOutgoing(input api.Submission, files []api.InputFile) boo
 	if len(v.Items) > 0 {
 		after = v.Items[len(v.Items)-1].ID
 	}
-	item := api.Item{ID: "outgoing:" + input.ID, RequestID: input.ID, Kind: "user", Text: strings.TrimSpace(text), Status: "sending", Artifacts: []api.Artifact{}}
+	item := api.Item{ID: "outgoing:" + input.ID, RequestID: input.ID, Kind: "user", Text: strings.TrimSpace(text), Status: "sending", SeenAt: time.Now().UnixMicro(), Artifacts: []api.Artifact{}}
+	item.Quoted = api.BoundQuote(input.Quoted)
 	if !input.ScreenInput {
 		item.Media = s.messageMedia.Presentation(input.ID)
 	}
@@ -54,6 +56,33 @@ func (s *Service) finishOutgoing(id string, receipt api.Receipt) {
 			_ = s.messageMedia.Mark(id, s.outbox[i].item.Text, status)
 		}
 	}
+}
+
+// Persist the user's original display text once the native receipt is known.
+// A later native echo updates this same request ID instead of creating a second
+// chat message. The quoted model input and internal plugin hints stay out of it.
+func (s *Service) recordInput(input api.Submission, files []api.InputFile, receipt api.Receipt) {
+	if s.chat == nil || input.ID == "" || receipt.Outcome != "accepted" && receipt.Outcome != "rejected" && receipt.Outcome != "unknown" {
+		return
+	}
+	text := input.Text
+	for _, f := range files {
+		text += "\n" + f.Name
+	}
+	item := api.Item{ID: "outgoing:" + input.ID, RequestID: input.ID, Kind: "user", Text: strings.TrimSpace(text), Status: receipt.Outcome}
+	item.Quoted = api.BoundQuote(input.Quoted)
+	s.mu.Lock()
+	for _, pending := range s.outbox {
+		if pending.item.RequestID == input.ID {
+			item.SeenAt = pending.item.SeenAt
+			break
+		}
+	}
+	s.mu.Unlock()
+	if !input.ScreenInput {
+		item.Media = s.messageMedia.Presentation(input.ID)
+	}
+	s.chat.Observe([]api.Item{item})
 }
 
 // A proven pre-dispatch recovery refusal must leave no local sending bubble.

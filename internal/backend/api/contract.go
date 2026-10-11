@@ -10,12 +10,14 @@ const SilentReminder = "[[CAELIS_REMINDER_SKIP]]"
 type Snapshot struct {
 	// Maintenance is presentation-only, derived from a confirmed native Dream
 	// turn. Empty during submission uncertainty, interruption and after completion.
-	Maintenance      string `json:"maintenance,omitempty"`
-	Scheduled        bool   `json:"scheduled"`
-	Quiet            bool   `json:"quiet"`
-	BotStatus        string `json:"botStatus"`
-	HasEarlier       bool   `json:"hasEarlier"`
-	CurrentTurn      string `json:"currentTurn"`
+	Maintenance string `json:"maintenance,omitempty"`
+	Scheduled   bool   `json:"scheduled"`
+	Quiet       bool   `json:"quiet"`
+	BotStatus   string `json:"botStatus"`
+	HasEarlier  bool   `json:"hasEarlier"`
+	CurrentTurn string `json:"currentTurn"`
+	// RuntimeOwner is a host-only fence for replies to completed async items.
+	RuntimeOwner     string `json:"-"`
 	PreviewKey       string `json:"previewKey"`
 	PreviewDismissed bool   `json:"previewDismissed"`
 	Revision         uint64 `json:"revision"`
@@ -63,7 +65,9 @@ type Review struct {
 }
 type Item struct {
 	// RequestID correlates a local submission with an authoritative native input.
-	RequestID string              `json:"requestId"`
+	RequestID string `json:"requestId"`
+	// SeenAt is local presentation order in Unix microseconds, not Runtime authority.
+	SeenAt    int64               `json:"seenAt,omitempty"`
 	TurnKey   string              `json:"turnKey"`
 	ID        string              `json:"id"`
 	Kind      string              `json:"kind"`
@@ -74,6 +78,26 @@ type Item struct {
 	Artifacts []Artifact          `json:"artifacts"`
 	Screen    *ScreenPresentation `json:"screen,omitempty"`
 	Media     *MediaPresentation  `json:"media,omitempty"`
+	// Quoted is a bounded, presentation-only copy of the user's quoted context.
+	// It is never used to resolve a control request.
+	Quoted *QuotedMessage    `json:"quoted,omitempty"`
+	Task   *TaskPresentation `json:"task,omitempty"`
+	// Async question metadata is host-only. A card shown to the user is stored
+	// as ordinary text; these native handles never enter the renderer or IM log.
+	AsyncCallID    string          `json:"-"`
+	AsyncQuestions []AsyncQuestion `json:"-"`
+}
+
+// TaskPresentation is a visible start receipt, not a Worker transcript.
+type TaskPresentation struct {
+	ID     string `json:"id,omitempty"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+type AsyncQuestion struct {
+	Title   string
+	Options []string
 }
 
 // MediaPresentation is an App-owned, request-correlated display projection.
@@ -170,6 +194,27 @@ type Approval struct {
 	Questions   []Question          `json:"questions"`
 	URL         string              `json:"url"`
 }
+
+// GuardianEligible is deliberately narrow: the resident Bot can inspect the
+// operation, target, scope and non-secret questions without opaque payloads.
+// Other Worker requests retain the user's original native card.
+func (a Approval) GuardianEligible() bool {
+	if a.Owner != "task" || len(a.Choices) == 0 || a.URL != "" || a.Details != "" {
+		return false
+	}
+	for _, q := range a.Questions {
+		if q.Secret {
+			return false
+		}
+	}
+	for _, choice := range a.Choices {
+		if choice.Details != "" {
+			return false
+		}
+	}
+	return true
+}
+
 type Reference struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -180,13 +225,14 @@ type Draft struct {
 	Notice string `json:"notice"`
 	// CleanupPending is a confirmed send whose local cleanup has not persisted.
 	// PendingSend is an original submission with no confirmed terminal receipt.
-	CleanupPending         bool     `json:"cleanupPending,omitempty"`
-	RejectedCleanupPending bool     `json:"rejectedCleanupPending,omitempty"`
-	PendingSend            bool     `json:"pendingSend,omitempty"`
-	ConsumedFileIDs        []string `json:"consumedFileIds,omitempty"`
-	Revision               uint64   `json:"revision"`
-	Text                   string   `json:"text"`
-	ReferenceIDs           []string `json:"referenceIds"`
+	CleanupPending         bool           `json:"cleanupPending,omitempty"`
+	RejectedCleanupPending bool           `json:"rejectedCleanupPending,omitempty"`
+	PendingSend            bool           `json:"pendingSend,omitempty"`
+	ConsumedFileIDs        []string       `json:"consumedFileIds,omitempty"`
+	Revision               uint64         `json:"revision"`
+	Text                   string         `json:"text"`
+	ReferenceIDs           []string       `json:"referenceIds"`
+	Quoted                 *QuotedMessage `json:"quoted,omitempty"`
 }
 type RuntimeSettings struct {
 	Runtime     string `json:"runtime"`
@@ -210,11 +256,15 @@ type Submission struct {
 	// authority grant. Adapters recheck the resident model before dispatch.
 	ScreenInput bool `json:"-"`
 	// Scheduled is host-only presentation provenance, not an authorization grant.
-	Scheduled    bool     `json:"-"`
-	ID           string   `json:"id"`
-	Text         string   `json:"text"`
-	FileIDs      []string `json:"fileIds"`
-	ReferenceIDs []string `json:"referenceIds"`
+	Scheduled bool `json:"-"`
+	// ModelInputOverride is a host-owned model input for an async question reply.
+	// The visible user body remains Text and is retained under the original ID.
+	ModelInputOverride string         `json:"-"`
+	ID                 string         `json:"id"`
+	Text               string         `json:"text"`
+	FileIDs            []string       `json:"fileIds"`
+	ReferenceIDs       []string       `json:"referenceIds"`
+	Quoted             *QuotedMessage `json:"quoted,omitempty"` // channel-neutral user context, never decision authority
 }
 type Receipt struct {
 	ID      string `json:"id"`
@@ -226,6 +276,12 @@ type Decision struct {
 	Choice  string              `json:"choice"`
 	Answers map[string][]string `json:"answers"`
 }
+
+// DecisionValidationError means the adapter rejected fields before writing any
+// native response. The caller may correct the same original request safely.
+type DecisionValidationError struct{ Message string }
+
+func (e DecisionValidationError) Error() string { return e.Message }
 
 // InputFile is host-only. UI supplies opaque IDs resolved by the native selector.
 type InputFile struct{ Name, Path string }

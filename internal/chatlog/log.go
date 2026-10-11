@@ -1,5 +1,6 @@
-// Package chatlog owns the Bot's IM transcript. Runtime history and tool output
-// are never its storage or recovery source. Disk errors retain the live cache;
+// Package chatlog owns the Bot's IM transcript. Chat reads and older-page loads
+// use this database; observed current Runtime output can update it. Tool output
+// is never stored here. Disk errors retain the live cache;
 // the writer retries independently of input, approval and connection control.
 package chatlog
 
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,6 +55,14 @@ func copyItem(i api.Item) api.Item {
 	i.Details = ""
 	i.Activity = nil
 	i.Artifacts = append([]api.Artifact(nil), i.Artifacts...)
+	if i.Quoted != nil {
+		q := *i.Quoted
+		i.Quoted = &q
+	}
+	if i.Task != nil {
+		task := *i.Task
+		i.Task = &task
+	}
 	if i.Screen != nil {
 		screen := *i.Screen
 		screen.Images = append([]api.ScreenImage(nil), screen.Images...)
@@ -71,7 +81,7 @@ func (l *Log) Observe(items []api.Item) {
 	}
 	l.mu.Lock()
 	for _, item := range items {
-		if item.Kind != "user" && item.Kind != "assistant" || item.ID == "" {
+		if item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" || item.ID == "" {
 			continue
 		}
 		item = copyItem(item)
@@ -81,6 +91,22 @@ func (l *Log) Observe(items []api.Item) {
 				continue
 			}
 			found = true
+			if item.Kind == "user" {
+				nativeEcho := !strings.HasPrefix(item.ID, "outgoing:") && !strings.HasPrefix(item.ID, "channel-input:") && !strings.HasPrefix(item.ID, "control-input:")
+				if nativeEcho && old.Text != "" {
+					item.Text = old.Text // model-only quote wrapping never replaces the visible user body
+				}
+				item.ID = old.ID // one display identity across channel receipt and native echo
+				if item.Media == nil {
+					item.Media = old.Media
+				}
+				if item.Quoted == nil {
+					item.Quoted = old.Quoted
+				}
+			}
+			if old.SeenAt == 0 || item.SeenAt == 0 || old.SeenAt < item.SeenAt {
+				item.SeenAt = old.SeenAt
+			}
 			if same(old, item) {
 				break
 			}
@@ -90,6 +116,9 @@ func (l *Log) Observe(items []api.Item) {
 			break
 		}
 		if !found {
+			if item.SeenAt == 0 && item.Kind != "controlNotice" {
+				item.SeenAt = time.Now().UnixMicro()
+			}
 			l.items = append(l.items, item)
 			l.dirty[key(item)] = item
 			l.revision++
@@ -149,7 +178,7 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 			return err
 		}
 		var item api.Item
-		if json.Unmarshal(b, &item) != nil || item.ID == "" || item.Kind != "user" && item.Kind != "assistant" {
+		if json.Unmarshal(b, &item) != nil || item.ID == "" || item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" {
 			continue
 		}
 		older = append(older, copyItem(item))
@@ -169,14 +198,47 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	known := map[string]bool{}
-	for _, i := range l.items {
-		known[key(i)] = true
+	known := map[string]int{}
+	for n, i := range l.items {
+		known[key(i)] = n
 	}
 	prefix := make([]api.Item, 0, len(older))
 	for n := len(older) - 1; n >= 0; n-- {
-		if !known[key(older[n])] {
-			prefix = append(prefix, older[n])
+		previous := older[n]
+		if pos, exists := known[key(previous)]; exists {
+			// An observed current item may arrive before the disk cache loads.
+			// Keep its original presentation position. For user input, the
+			// persisted body and quote are the visible source of truth; the
+			// native echo may contain a model-only reference wrapper.
+			changed := false
+			if previous.Kind == "user" {
+				if l.items[pos].ID != previous.ID {
+					l.items[pos].ID = previous.ID
+					changed = true
+				}
+				if previous.Text != "" && l.items[pos].Text != previous.Text {
+					l.items[pos].Text = previous.Text
+					changed = true
+				}
+				if l.items[pos].Quoted == nil && previous.Quoted != nil {
+					l.items[pos].Quoted = previous.Quoted
+					changed = true
+				}
+				if l.items[pos].Media == nil && previous.Media != nil {
+					l.items[pos].Media = previous.Media
+					changed = true
+				}
+			}
+			if l.items[pos].SeenAt != previous.SeenAt {
+				l.items[pos].SeenAt = previous.SeenAt
+				changed = true
+			}
+			if changed {
+				l.dirty[key(previous)] = l.items[pos]
+				l.revision++
+			}
+		} else {
+			prefix = append(prefix, previous)
 		}
 	}
 	l.items = append(prefix, l.items...)

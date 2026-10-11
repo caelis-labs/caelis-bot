@@ -23,7 +23,7 @@ func (s *Session) prepareContextLocked(ctx context.Context, id string, input []m
 	if s.binding.ContextInputs == nil {
 		s.binding.ContextInputs = map[string]int{}
 	}
-	s.binding.ContextInputs[id] = len(text)
+	s.binding.ContextInputs[id] += len(text)
 	if len(input) > 0 && input[0]["type"] == "text" {
 		input[0]["text"] = text + input[0]["text"].(string)
 		return input, nil
