@@ -530,11 +530,14 @@ func (s *Service) OpenMessageLink(value string) error {
 	return s.openURL(u.String())
 }
 func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt, error) {
+	input.Quoted = api.BoundQuote(input.Quoted)
 	s.mu.Lock()
 	commandHandler := s.commandHandler
 	draftRevision := s.draft.Revision
 	s.mu.Unlock()
-	if commandHandler != nil && len(input.FileIDs) == 0 && len(input.ReferenceIDs) == 0 && input.Quoted == nil {
+	// An explicit command in the new body stays a command. Quoted text is only
+	// model context and is never parsed as a decision.
+	if commandHandler != nil && len(input.FileIDs) == 0 && len(input.ReferenceIDs) == 0 {
 		if receipt, handled, err := commandHandler(ctx, input); handled {
 			if err == nil && receipt.Outcome == "accepted" {
 				s.clearDraftAtRevision(input, draftRevision)

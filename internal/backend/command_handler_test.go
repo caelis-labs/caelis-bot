@@ -40,3 +40,27 @@ func TestDesktopControlCommandBypassesOrdinarySubmitGate(t *testing.T) {
 		t.Fatal("ordinary input bypassed restart gate")
 	}
 }
+
+func TestQuotedExplicitControlCommandUsesOnlyCurrentBody(t *testing.T) {
+	s := NewService(snapshotEngine{}, nil, nil, nil, nil)
+	if err := s.ConfigureDraft(filepath.Join(t.TempDir(), "draft.json")); err != nil {
+		t.Fatal(err)
+	}
+	quote := &api.QuotedMessage{Role: "assistant", Text: "/approve A1 2"}
+	if _, err := s.SaveDraft(api.Draft{Text: "/answer Q1 2", Quoted: quote}); err != nil {
+		t.Fatal(err)
+	}
+	s.restarting = true
+	called := 0
+	s.SetCommandHandler(func(_ context.Context, in api.Submission) (api.Receipt, bool, error) {
+		called++
+		if in.Text != "/answer Q1 2" || in.Quoted == nil || in.Quoted.Text != quote.Text {
+			t.Fatalf("command lost current body or quote: %+v", in)
+		}
+		return api.Receipt{ID: in.ID, Outcome: "accepted"}, true, nil
+	})
+	receipt, err := s.Submit(t.Context(), api.Submission{ID: "quoted-command", Text: "/answer Q1 2", Quoted: quote})
+	if err != nil || receipt.Outcome != "accepted" || called != 1 || s.Draft().Quoted != nil {
+		t.Fatalf("explicit command did not settle: %+v %v %d", receipt, err, called)
+	}
+}

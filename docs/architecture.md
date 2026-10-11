@@ -190,13 +190,16 @@ against that card's original request and schema. A multi-field or otherwise
 ambiguous card requires the full command; an unbound bare number is ordinary
 chat. Quoted body text and the most recent approval are never authorization.
 An ordinary reply keeps the original user body in `Submission.Text` and carries
-available older-message text/author as a bounded, channel-neutral quote. Codex
+available older-message text as a bounded, channel-neutral quote. Codex
 text input and Caelis prompt/steer input receive an XML-escaped `<reference>`
 block, a blank line, and the unchanged current body; their visible user-item
 projection removes this model wrapper. The host preserves quote line breaks and,
 above 4,096 Unicode characters, keeps the first 70% and last 30% with an exact
 middle omission count. Transport author and excerpt metadata stay internal; no
 extra note is inserted between the reference block and the user's new text.
+The Mac chat context menu writes the same quote into its durable local draft;
+the visible user message remains only the new body. Local chat timestamps come
+from persisted message times and are grouped by local day or a five-minute gap.
 Runtime-marked secret inputs and quotes of those inputs are not put in ordinary
 model context. Quote metadata grants no permission and does not imply a second
 Bot conversation or a transport-aware Bot.

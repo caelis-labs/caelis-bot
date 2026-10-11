@@ -9,12 +9,53 @@ import (
 
 type imReceiptEngine struct {
 	api.Engine
-	value api.Snapshot
+	value     api.Snapshot
+	submitted api.Submission
 }
 
 func (e *imReceiptEngine) Snapshot() api.Snapshot { return e.value }
 func (e *imReceiptEngine) Submit(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+	e.submitted = in
 	return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+}
+
+func TestDesktopQuotedDraftReachesModelWithoutChangingVisibleBody(t *testing.T) {
+	e := &imReceiptEngine{}
+	draftPath := filepath.Join(t.TempDir(), "draft.json")
+	s := NewService(e, func([]string) ([]api.InputFile, error) { return nil, nil }, nil, nil, nil)
+	if err := s.ConfigureDraft(draftPath); err != nil {
+		t.Fatal(err)
+	}
+	quote := &api.QuotedMessage{LocalID: "assistant-1", Role: "assistant", Text: "原文 <reference> 😀"}
+	d, err := s.SaveDraft(api.Draft{Text: "本次正文", Quoted: quote})
+	if err != nil || d.Quoted == nil || d.Quoted.Text != quote.Text {
+		t.Fatal("quote not saved in draft", err)
+	}
+	s = NewService(e, func([]string) ([]api.InputFile, error) { return nil, nil }, nil, nil, nil)
+	if err := s.ConfigureDraft(draftPath); err != nil {
+		t.Fatal(err)
+	}
+	d = s.Draft()
+	if d.Quoted == nil || d.Quoted.Text != quote.Text {
+		t.Fatalf("quoted draft not restored: %+v", d)
+	}
+	s.ConfigureChat(filepath.Join(t.TempDir(), "chat.sqlite"))
+	defer s.chat.Close()
+	input := api.Submission{ID: "desktop-quoted", Text: d.Text, Quoted: d.Quoted}
+	receipt, err := s.Submit(t.Context(), input)
+	if err != nil || receipt.Outcome != "accepted" {
+		t.Fatal(receipt, err)
+	}
+	if got := e.submitted.ModelInputText(); got != "<reference>\n原文 &lt;reference&gt; 😀\n</reference>\n\n本次正文" {
+		t.Fatalf("native model input = %q", got)
+	}
+	items := s.ChatSnapshot(0, "").Snapshot.Items
+	if len(items) != 1 || items[0].Text != "本次正文" || items[0].RequestID != input.ID {
+		t.Fatalf("visible transcript = %+v", items)
+	}
+	if next := s.Draft(); next.Text != "" || next.Quoted != nil {
+		t.Fatalf("accepted draft not cleared: %+v", next)
+	}
 }
 
 func TestLocalIMReadDoesNotImportNativeHistoryAndRecordsAcceptedInput(t *testing.T) {

@@ -193,13 +193,14 @@ type Draft struct {
 	Notice string `json:"notice"`
 	// CleanupPending is a confirmed send whose local cleanup has not persisted.
 	// PendingSend is an original submission with no confirmed terminal receipt.
-	CleanupPending         bool     `json:"cleanupPending,omitempty"`
-	RejectedCleanupPending bool     `json:"rejectedCleanupPending,omitempty"`
-	PendingSend            bool     `json:"pendingSend,omitempty"`
-	ConsumedFileIDs        []string `json:"consumedFileIds,omitempty"`
-	Revision               uint64   `json:"revision"`
-	Text                   string   `json:"text"`
-	ReferenceIDs           []string `json:"referenceIds"`
+	CleanupPending         bool           `json:"cleanupPending,omitempty"`
+	RejectedCleanupPending bool           `json:"rejectedCleanupPending,omitempty"`
+	PendingSend            bool           `json:"pendingSend,omitempty"`
+	ConsumedFileIDs        []string       `json:"consumedFileIds,omitempty"`
+	Revision               uint64         `json:"revision"`
+	Text                   string         `json:"text"`
+	ReferenceIDs           []string       `json:"referenceIds"`
+	Quoted                 *QuotedMessage `json:"quoted,omitempty"`
 }
 type RuntimeSettings struct {
 	Runtime     string `json:"runtime"`
@@ -231,7 +232,7 @@ type Submission struct {
 	Text               string         `json:"text"`
 	FileIDs            []string       `json:"fileIds"`
 	ReferenceIDs       []string       `json:"referenceIds"`
-	Quoted             *QuotedMessage `json:"quoted,omitempty"` // remote user-supplied context, never decision authority
+	Quoted             *QuotedMessage `json:"quoted,omitempty"` // channel-neutral user context, never decision authority
 }
 type Receipt struct {
 	ID      string `json:"id"`

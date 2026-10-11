@@ -83,6 +83,14 @@ export interface Draft {
   revision: number;
   text: string;
   referenceIds: Array<string>;
+  quoted?: QuotedMessage | null;
+}
+export interface QuotedMessage {
+  localId?: string;
+  role?: string;
+  text: string;
+  truncated?: boolean;
+  omittedChars?: number;
 }
 export interface ExecutionOptions {
   defaultApprovalMode: string;
@@ -445,6 +453,7 @@ export interface Submission {
   text: string;
   fileIds: Array<string>;
   referenceIds: Array<string>;
+  quoted?: QuotedMessage;
 }
 export interface WorkExecutionSettings {
   model: string;
