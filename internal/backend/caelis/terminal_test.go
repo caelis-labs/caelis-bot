@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -46,6 +47,32 @@ func TestTerminalResolvesOnlyOwnedNativeWorkerWithoutDispatch(t *testing.T) {
 	s.state.InstanceID = "replaced"
 	if _, err = s.WorkTerminal(t.Context(), "owned"); err == nil {
 		t.Fatal("stale Host target accepted")
+	}
+}
+
+func TestManualServicePreflightAcceptsOnlyConfirmedStoppedHost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell lifecycle fixture")
+	}
+	for _, tc := range []struct {
+		name, state string
+		allow       bool
+	}{
+		{"stopped", `{"state":"stopped"}`, true},
+		{"running but unreachable", `{"state":"running"}`, false},
+		{"unknown", `{}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := setupFixture(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) })
+			settings.CLIPath = filepath.Join(t.TempDir(), "caelis")
+			program := "#!/bin/sh\n[ \"$1 $2\" = 'service status' ] || exit 99\nprintf '%s\\n' '" + tc.state + "'\n"
+			if err := os.WriteFile(settings.CLIPath, []byte(program), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := CheckServiceIdle(t.Context(), settings); (err == nil) != tc.allow {
+				t.Fatalf("manual preflight state %q: %v", tc.state, err)
+			}
+		})
 	}
 }
 

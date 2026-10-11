@@ -1,8 +1,10 @@
 import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
-import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Snapshot, Submission } from './backend/contract';
+import type { Approval, ChatUpdate, Decision, Draft, Item, QuestionCard, QuotedMessage, Receipt, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
-import { CopyText, MessageContent } from './MessageContent';
+import { MessageContent } from './MessageContent';
+import { chatTimeDivider, chatTimeLabel } from './chat-time';
 import { canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, withOutgoing } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
@@ -17,6 +19,10 @@ import { ConversationOrder, FileObservationOrder, SubmissionProgress, DraftQueue
 import { useI18n } from './i18n';
 import { approvalChoice, approvalResult, approvalText, approvalTitle } from './approval-presentation';
 import { CheckIcon, XIcon } from './SettingsIcons';
+import { CaretDownIcon } from '@phosphor-icons/react/dist/csr/CaretDown';
+import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';
+import { CaretRightIcon } from '@phosphor-icons/react/dist/csr/CaretRight';
+import { CaretUpIcon } from '@phosphor-icons/react/dist/csr/CaretUp';
 import type { MessageKey } from './i18n/catalogs';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
@@ -30,18 +36,6 @@ function DraftThumbnail({file}:{file:DraftFile}) {
   return()=>{active=false};
  },[file.id,file.image,file.unavailable]);
  return url?<img className="draft-thumbnail" src={url} alt=""/>:<Icon name="paperclip"/>;
-}
-
-function draftSize(bytes:number):string {
- if(bytes<1024)return `${bytes} B`;
- const divisor=bytes<1024*1024?1024:1024*1024;
- return `${new Intl.NumberFormat(undefined,{maximumFractionDigits:1}).format(bytes/divisor)} ${divisor===1024?'KB':'MB'}`;
-}
-function attachmentType(type:string,t:(key:MessageKey)=>string):string {
- if(type.startsWith('image/'))return t('chat.imageFile');
- if(type==='application/pdf')return t('chat.pdfFile');
- if(type.startsWith('text/'))return t('chat.textFile');
- return t('chat.fileTypeUnknown');
 }
 
 export function getItemStatusLabel(status: string, t: (key: MessageKey) => string): string {
@@ -89,13 +83,16 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     {value.details && <details open={!value.action}><summary>{t('chat.approvalDetails')}</summary><pre>{value.details}</pre></details>}
     {value.sections?.map((section,index)=><details key={index} open={!value.action}><summary>{approvalText(locale,section.titleKey,t('chat.approvalDetails'))}</summary><pre>{section.text}</pre></details>)}
     {value.url && <button className="text-action" disabled={!enabled} onClick={() => void backend('OpenApprovalURL',value.id).catch(() => setError(t('chat.approvalLinkExpired')))}>{t('chat.approvalOpenUrl')}</button>}
-    {(value.questions ?? []).map(q => <label className="question" key={q.id}>{q.title}{q.required && <span aria-label={t('chat.required')}> *</span>}
-      {q.type === 'select' || q.type === 'boolean' ? <select disabled={!enabled} value={answers[q.id]?.[0] ?? ''} onChange={e => setAnswers({ ...answers, [q.id]:[e.target.value] })}>
-        <option value="">{t('chat.approvalSelectPlaceholder')}</option>
-        {q.type === 'boolean' ? <><option value="true">{t('chat.yes')}</option><option value="false">{t('chat.no')}</option></> : q.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-      </select> : <><input type={q.secret ? 'password' : q.type === 'number' || q.type === 'integer' ? 'number' : 'text'} disabled={!enabled} value={answers[q.id]?.[0] ?? ''} onChange={e => setAnswers({ ...answers, [q.id]:[e.target.value] })} />
-        {q.options.length > 0 && <div className="question-options">{q.options.map(o => <button key={o.id} disabled={!enabled} onClick={() => setAnswers({ ...answers, [q.id]:[o.id] })}>{o.label}</button>)}</div>}</>}
-    </label>)}
+    {(value.questions ?? []).map(q => {
+      const options = q.options.length>0?q.options:q.type==='boolean'?[{id:'true',label:t('chat.yes')},{id:'false',label:t('chat.no')}]:[];
+      const current = answers[q.id]??[];
+      const freeText = q.type==='text' || options.length===0;
+      const custom = current.find(answer=>!options.some(option=>option.id===answer))??'';
+      return <div className="question" key={q.id}><label htmlFor={freeText?`question-${q.id}`:undefined}>{q.title}{q.required && <span aria-label={t('chat.required')}> *</span>}</label>
+        {options.length>0&&<div className="question-options">{options.map(o => <button type="button" key={o.id} disabled={!enabled} aria-pressed={current.includes(o.id)} onClick={() => setAnswers({ ...answers, [q.id]: q.multiple ? current.includes(o.id)?current.filter(id=>id!==o.id):[...current,o.id] : [o.id] })}>{o.label}</button>)}</div>}
+        {freeText&&<input id={`question-${q.id}`} type={q.secret ? 'password' : q.type === 'number' || q.type === 'integer' ? 'number' : 'text'} disabled={!enabled} value={custom} onChange={e => { const selected=q.multiple?current.filter(answer=>options.some(option=>option.id===answer)):[]; setAnswers({ ...answers, [q.id]:e.target.value?[...selected,e.target.value]:selected }); }} />}
+      </div>;
+    })}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {value.status === 'pending' ? <>
       <div className="approval-choices">{value.choices.map(c => c.scope === 'rule' || c.scope === 'conversation' ?
@@ -103,26 +100,54 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     </> : <p className="quiet approval-result" role="status" aria-label={resultLabel}>{value.status==='resolved'&&value.resolution?.outcome==='allowed'?<CheckIcon aria-hidden="true" size={16}/>:value.status==='resolved'&&(value.resolution?.outcome==='declined'||value.resolution?.outcome==='cancelled')?<XIcon aria-hidden="true" size={16}/>:null}<span>{resultLabel}</span></p>}
   </section>;
 }
-type MessageProps={ item: Item; report: (message: string) => void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
-const Message=memo(function Message({ item, report, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
+function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>void}) {
+ const {t}=useI18n();
+ const [value,setValue]=useState(''),[busy,setBusy]=useState(false),[accepted,setAccepted]=useState(false),[error,setError]=useState('');
+ const options=card.options??[];
+ const done=accepted||card.state==='accepted';
+ const send=async(answer:string)=>{
+  if(busy||done||!answer.trim())return;
+  setBusy(true);setError('');
+  try {
+   const feedback=await backend<string>('AnswerQuestion',card.shortId,card.binding,answer,crypto.randomUUID());
+   if(feedback==='回答已提交，等待后续回复。'||feedback==='回答已提交，不会重复发送。'){setAccepted(true);refresh();}
+   else setError(feedback);
+  } catch(e) {setError(e instanceof Error?e.message:t('chat.approvalFailed'));}
+  finally {setBusy(false);}
+ };
+ return <section className="question-prompt" aria-label={card.title}>
+  <p className="question-prompt-title">{card.title}</p>
+  {options.length>0?<div className="question-prompt-options">{options.map((option,index)=><button type="button" key={index} disabled={busy||done||!!card.state} onClick={()=>void send(String(index+1))}>{option}</button>)}</div>:
+   <div className="question-prompt-entry"><input aria-label={card.title} value={value} disabled={busy||done||!!card.state} onChange={e=>setValue(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void send(value);}}}/><button type="button" disabled={busy||done||!!card.state||!value.trim()} onClick={()=>void send(value)}>{t('chat.questionSend')}</button></div>}
+  {(done||card.state==='dispatching'||card.state==='unknown')&&<small className="quiet" role="status">{card.state==='unknown'?t('chat.questionUnknown'):t('chat.questionAnswered')}</small>}
+  {error&&<small className="inline-error" role="alert">{error}</small>}
+ </section>;
+}
+type MessageProps={ item: Item; report: (message: string) => void; onContextMenu:(item:Item,x:number,y:number)=>void; onQuotePreview:(quote:QuotedMessage)=>void; onQuestion:(shortId:string,binding:string)=>void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
+const Message=memo(function Message({ item, report, onContextMenu, onQuotePreview, onQuestion, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
   const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
+  const delivery=item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)?statusLabel:'';
+  const asyncCard=item.kind==='assistant'&&/^\[Q[0-9A-Z]+\] /.test(item.text);
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
-   {item.kind==='assistant'&&<BotAvatar animate={animate} clip={clip}/>}
-   <div className={`message ${item.kind}`}>
-    {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
-    {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}
-    {!!item.text&&item.kind!=='activity'&&<div className="message-actions"><CopyText text={item.text} report={report}/></div>}
-    {item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)&&<small className="outgoing-status" role="status">{statusLabel}</small>}
+   {(item.kind==='assistant'||item.kind==='controlNotice')&&<BotAvatar animate={animate} clip={clip}/>}
+   <div className={`message ${item.kind==='controlNotice'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
+    {item.quoted?.text&&<button type="button" className="sent-quote" onClick={()=>onQuotePreview(item.quoted!)}><span>{item.quoted.text}</span></button>}
+    {item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-summary">{item.questionCards.map(card=>card.state?<p key={card.shortId+card.binding}>{card.title}<span>{card.state==='accepted'?t('chat.questionAnswered'):t('chat.questionUnknown')}</span></p>:<button type="button" key={card.shortId+card.binding} onClick={()=>onQuestion(card.shortId,card.binding)}>{card.title}<CaretRightIcon size={14} aria-hidden="true"/></button>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
+    {!!item.artifacts?.length&&<div className="artifacts">{item.artifacts.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}</div>}
     {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
+    {delivery&&<small className="message-delivery pending" role="status">{delivery}</small>}
    </div>
   </article>;
-},(before,after)=>before.report===after.report&&before.animate===after.animate&&before.reveal===after.reveal&&before.incomplete===after.incomplete&&
+},(before,after)=>before.report===after.report&&before.onContextMenu===after.onContextMenu&&before.onQuotePreview===after.onQuotePreview&&before.onQuestion===after.onQuestion&&before.animate===after.animate&&before.reveal===after.reveal&&before.incomplete===after.incomplete&&
  (before.animate?before.clip===after.clip:true)&&before.item.id===after.item.id&&before.item.kind===after.item.kind&&
- before.item.text===after.item.text&&before.item.status===after.item.status&&
+ before.item.text===after.item.text&&before.item.status===after.item.status&&before.item.seenAt===after.item.seenAt&&
  JSON.stringify(before.item.artifacts)===JSON.stringify(after.item.artifacts)&&
  JSON.stringify(before.item.screen)===JSON.stringify(after.item.screen)&&
- JSON.stringify(before.item.media)===JSON.stringify(after.item.media));
+ JSON.stringify(before.item.media)===JSON.stringify(after.item.media)&&
+ JSON.stringify(before.item.quoted)===JSON.stringify(after.item.quoted)&&
+ JSON.stringify(before.item.questionCards)===JSON.stringify(after.item.questionCards)&&
+ JSON.stringify(before.item.task)===JSON.stringify(after.item.task));
 
 export function useConversation(active: boolean, pet=false, chat=false) {
  const [conversation,setConversation]=useState<{snapshot:Snapshot|null;liveReplies:Set<string>}>({snapshot:null,liveReplies:new Set()});
@@ -153,11 +178,29 @@ export function useConversation(active: boolean, pet=false, chat=false) {
  return {...conversation,refresh};
 }
 
+function MessageMenu({item,x,y,onQuote,onClose,report}:{item:Item;x:number;y:number;onQuote:(item:Item)=>void;onClose:()=>void;report:(message:string)=>void}) {
+ const {t}=useI18n();
+ const node=useRef<HTMLDivElement>(null);
+ useEffect(()=>{
+  const outside=(event:PointerEvent)=>{if(!node.current?.contains(event.target as Node))onClose();};
+  const key=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();onClose();}};
+  window.addEventListener('pointerdown',outside,true);window.addEventListener('keydown',key,true);
+  window.addEventListener('scroll',onClose,true);window.addEventListener('resize',onClose);window.addEventListener('blur',onClose);
+  return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',key,true);window.removeEventListener('scroll',onClose,true);window.removeEventListener('resize',onClose);window.removeEventListener('blur',onClose);};
+ },[onClose]);
+ const copy=async()=>{onClose();try{await desktop('CopyText',item.text);}catch{report(t('chat.copyFailed'));}};
+ return createPortal(<div ref={node} className="message-menu" role="menu" aria-label={t('chat.messageActions')}
+  style={{left:Math.max(8,Math.min(x,innerWidth-176)),top:Math.max(8,Math.min(y,innerHeight-94))}}>
+  <button role="menuitem" onClick={()=>{onQuote(item);onClose();}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9 4 14l5 5M4 14h10a6 6 0 0 1 6 6"/></svg><span>{t('chat.quoteMessage')}</span></button>
+  <button role="menuitem" onClick={()=>void copy()}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span>{t('chat.copyAction')}</span></button>
+ </div>,document.body);
+}
+
 // The chat window owns the one draft editor. Writes serialize with the backend
 // revision fence, and UI-initiated close waits for pending writes.
-type ComposerProps={snapshot:Snapshot|null;active?:boolean;focusRevision?:number;refresh:()=>Promise<void>;onOutgoing?:(item:Item)=>void};
+type ComposerProps={snapshot:Snapshot|null;active?:boolean;focusRevision?:number;refresh:()=>Promise<void>;onOutgoing?:(item:Item)=>void;quoteRequest?:{item:Item}|null;onQuoteConsumed?:()=>void};
 let flushVisibleComposer=async()=>{};
-const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refresh,onOutgoing}:ComposerProps) {
+const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refresh,onOutgoing,quoteRequest,onQuoteConsumed}:ComposerProps) {
  const {t} = useI18n();
  const draftLoadFailed=useEffectEvent(()=>t('chat.draftLoadFailed'));
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null);
@@ -168,6 +211,8 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
  // Let WebKit own the live textarea value and selection. React only needs to
  // know when the send affordance crosses the empty/nonempty boundary.
  const draft=useRef(''),hasTextRef=useRef(false);
+ const quotedRef=useRef<QuotedMessage|null>(null);
+ const [quoted,setQuoted]=useState<QuotedMessage|null>(null);
  const [hasText,setHasText]=useState(false),[refs,setRefs]=useState<string[]>([]),[files,setFiles]=useState<DraftFile[]>([]);
  const [pluginLabels,setPluginLabels]=useState<Record<string,string>>({});
  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
@@ -220,7 +265,7 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   const stopDraft=retryRead(async()=>{
    await writes.current.flush();
    return backend<Draft>('Draft');
-  },d=>{saved.current=d;conflicted.current=false;unsavedAfterAccepted.current=false;setDraftValue(d.text);setRefs(d.referenceIds??[]);setFiles(old=>visibleDraftFiles(old,d));setError(d.cleanupPending?t('chat.acceptedCleanupPending'):d.rejectedCleanupPending?t('chat.rejectedCleanupPending'):d.pendingSend?t('chat.originalAttachmentPending'):d.notice);setSendBlocked(!!(d.pendingSend||d.rejectedCleanupPending));setCleanupPending(!!(d.cleanupPending||d.rejectedCleanupPending));setLoaded(true);readFiles();if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
+  },d=>{saved.current=d;conflicted.current=false;unsavedAfterAccepted.current=false;setDraftValue(d.text);setRefs(d.referenceIds??[]);quotedRef.current=d.quoted??null;setQuoted(quotedRef.current);setFiles(old=>visibleDraftFiles(old,d));setError(d.cleanupPending?t('chat.acceptedCleanupPending'):d.rejectedCleanupPending?t('chat.rejectedCleanupPending'):d.pendingSend?t('chat.originalAttachmentPending'):d.notice);setSendBlocked(!!(d.pendingSend||d.rejectedCleanupPending));setCleanupPending(!!(d.cleanupPending||d.rejectedCleanupPending));setLoaded(true);readFiles();if(visible.current)input.current?.focus();},()=>setError(draftLoadFailed()));
   const changed=(event:Event)=>{
    const detail=(event as CustomEvent<string|{error:string;added:number}>).detail;
    readFiles();setDragging(false);
@@ -254,17 +299,24 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   const nonempty=!!text.trim();
   if(hasTextRef.current!==nonempty){hasTextRef.current=nonempty;setHasText(nonempty);}
  };
- const save=(text:string,referenceIds:string[])=>{
+ const save=(text:string,referenceIds:string[],nextQuote=quotedRef.current)=>{
   editGeneration.current++;
   setDraftValue(text,composing.current);if(refs!==referenceIds)setRefs(referenceIds);
+  if(quotedRef.current!==nextQuote){quotedRef.current=nextQuote;setQuoted(nextQuote);}
   if(syncReadFailed){unsavedAfterAccepted.current=true;setError(t('chat.sentDraftSyncFailed'));return;}
   if(composing.current)return;
   void writes.current.enqueue(async()=>{
    if(conflicted.current)return;
-   try{saved.current=await backend<Draft>('SaveDraft',{revision:saved.current.revision,text,referenceIds});}
+   try{saved.current=await backend<Draft>('SaveDraft',{revision:saved.current.revision,text,referenceIds,quoted:nextQuote});}
    catch(e){conflicted.current=true;setError(e instanceof Error?e.message:t('chat.draftSaveFailed'));throw e;}
   });
  };
+ useEffect(()=>{
+  if(!loaded||!quoteRequest)return;
+  const item=quoteRequest.item;
+  save(draft.current,refs,{localId:item.id,role:item.kind==='user'?'user':'assistant',text:item.text});
+  onQuoteConsumed?.();input.current?.focus();
+ },[loaded,quoteRequest]);
  const pick=async()=>{setExpanded(false);setBusy(true);setError('');setFeedback('');const ticket=fileOrder.current.request();try{const selected=visibleDraftFiles(await desktop<DraftFile[]>('PickFiles'),saved.current);if(fileOrder.current.accept(ticket)){setFiles(selected);setFilesLoaded(true);}setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
  const paste=async(e:ClipboardEvent<HTMLTextAreaElement>)=>{
   const types=Array.from(e.clipboardData.types);
@@ -294,13 +346,14 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
     if(lifetime.current!==attempt.generation||pending.current!==attempt)return;
     if(!acceptedDraftSettled(attempt.request,attempt.draftRevision,next))throw new Error('accepted draft still settling');
     saved.current=next;
-    if(editTicket===editGeneration.current){setDraftValue(next.text);setRefs(next.referenceIds??[]);}
+    if(editTicket===editGeneration.current){setDraftValue(next.text);setRefs(next.referenceIds??[]);quotedRef.current=next.quoted??null;setQuoted(quotedRef.current);}
     const filesCurrent=fileOrder.current.accept(fileTicket),visible=visibleDraftFiles(nextFiles,next);
     if(filesCurrent){setFiles(visible);setFilesLoaded(true);setFeedback('');}
     setError(next.cleanupPending?t('chat.acceptedCleanupPending'):next.rejectedCleanupPending?t('chat.rejectedCleanupPending'):next.pendingSend?t('chat.originalAttachmentPending'):next.notice);setSendBlocked(!!(next.pendingSend||next.rejectedCleanupPending));setCleanupPending(!!(next.cleanupPending||next.rejectedCleanupPending));setSyncReadFailed(false);setLoaded(true);
   });}catch{
    if(lifetime.current===attempt.generation&&pending.current===attempt){
     if(draft.current===attempt.request.text)setDraftValue('');
+    if(quotedRef.current===attempt.request.quoted){quotedRef.current=null;setQuoted(null);}
     setRefs(current=>current.length===attempt.request.referenceIds.length&&current.every((id,index)=>id===attempt.request.referenceIds[index])?[]:current);
     setFiles(current=>current.filter(file=>!attempt.request.fileIds.includes(file.id)));
     setFeedback('');setLoaded(true);setSendBlocked(true);setSyncReadFailed(true);setError(t('chat.sentDraftSyncFailed'));
@@ -317,11 +370,11 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
    if(editTicket!==editGeneration.current){setError(t('chat.sentDraftSyncFailed'));return;}
    if(syncReadFailed&&unsavedAfterAccepted.current&&next.pendingSend){setError(t('chat.sentDraftSyncFailed'));return;}
    if(syncReadFailed&&unsavedAfterAccepted.current&&!next.pendingSend){
-    const local=await backend<Draft>('SaveDraft',{revision:next.revision,text:draft.current,referenceIds:refs});
+    const local=await backend<Draft>('SaveDraft',{revision:next.revision,text:draft.current,referenceIds:refs,quoted:quotedRef.current});
     saved.current=local;unsavedAfterAccepted.current=false;
     next=await backend<Draft>('Draft');
     if(generation!==lifetime.current||editTicket!==editGeneration.current)return;
-   }else if(!unsavedAfterAccepted.current){setDraftValue(next.text);setRefs(next.referenceIds??[]);}
+   }else if(!unsavedAfterAccepted.current){setDraftValue(next.text);setRefs(next.referenceIds??[]);quotedRef.current=next.quoted??null;setQuoted(quotedRef.current);}
    saved.current=next;
    const nextFiles=await desktop<DraftFile[]>('DraftFiles');
    if(generation!==lifetime.current)return;
@@ -332,8 +385,8 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
  const submit=async()=>{
   if(working.current||busy||!loaded||!filesLoaded||sendBlocked||(cleanupPending&&files.length>0)||!canSubmit(snapshot)||(!draft.current.trim()&&!files.length))return;
   working.current=true;setBusy(true);setError('');setExpanded(false);
-  const request:Submission={id:crypto.randomUUID(),text:draft.current,fileIds:files.map(f=>f.id),referenceIds:refs};
-  const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,turnKey:'',kind:'user',text:[draft.current,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',activity:null,artifacts:[]};
+  const request:Submission={id:crypto.randomUUID(),text:draft.current,fileIds:files.map(f=>f.id),referenceIds:refs,quoted:quotedRef.current??undefined};
+  const outgoing:Item={id:`outgoing:${request.id}`,requestId:request.id,seenAt:Date.now()*1000,turnKey:'',kind:'user',text:[draft.current,...files.map(f=>f.name)].filter(Boolean).join('\n'),status:'sending',details:'',activity:null,artifacts:[],quoted:request.quoted};
   const attempt={request,outgoing,progress:new SubmissionProgress(),generation:lifetime.current,draftRevision:saved.current.revision};
   pending.current=attempt;onOutgoing?.(outgoing);
   try{
@@ -388,25 +441,45 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   {!!error&&<p role="alert" className="input-error">{error}</p>}
   {!error&&needsConnection&&<div className="composer-connection-hint" role="status"><span>{t('chat.connectionUnavailableToSend')}</span></div>}
   {(sendBlocked||cleanupPending||loaded&&!filesLoaded)&&<button className="quiet" type="button" onClick={()=>void retryLocalCleanup()}>{t('chat.retryDraftCleanup')}</button>}
-  {!error&&(dragging||feedback||files.length>0)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):feedback==='duplicate'?t('chat.attachmentAlreadyAdded'):t('chat.attachmentsSelected',{count:files.length})}</p>}
+  {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):t('chat.attachmentAlreadyAdded')}</p>}
+  {(!!quoted||!!files.length||!!refs.length)&&<div className="composer-context">
+  {quoted&&<div className="composer-quote"><p>{quoted.text}</p><button type="button" aria-label={t('chat.removeQuote')} disabled={busy} onClick={()=>save(draft.current,refs,null)}><Icon name="xmark"/></button></div>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
-   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''}><DraftThumbnail file={f}/><span className="attachment-details" title={f.name}><strong>{f.name}{f.unavailable?t('chat.attachmentUnavailableSuffix'):''}</strong><small>{attachmentType(f.type,t)} · {draftSize(f.size)}</small></span><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
+   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''} title={f.name}><DraftThumbnail file={f}/><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
    {refs.map(id=><li key={id}><span>{pluginLabels[id]??snapshot?.references.find(r=>r.id===id)?.name??(id.includes('-plugin:')?id.split(':').slice(1).join(':'):t('chat.referenceDefault'))}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft.current,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
   </ul>}
+  </div>}
   {expanded&&<AttachmentMenu trigger={add} selected={refs}
    onClose={()=>setExpanded(false)} onPick={()=>void pick()}
    onSelect={plugin=>{setPluginLabels(previous=>({...previous,[plugin.id]:plugin.name}));save(draft.current,[...refs,plugin.id]);setExpanded(false);input.current?.focus();}}/>}
  </div>;
-},(a,b)=>a.active===b.active&&a.focusRevision===b.focusRevision&&
+},(a,b)=>a.active===b.active&&a.focusRevision===b.focusRevision&&a.quoteRequest===b.quoteRequest&&
  a.refresh===b.refresh&&a.onOutgoing===b.onOutgoing&&sameComposerSnapshot(a.snapshot,b.snapshot));
 
 export function History() {
- const {t} = useI18n();
+ const {t,locale} = useI18n();
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
+ const [interactionOpen,setInteractionOpen]=useState(false),[interactionIndex,setInteractionIndex]=useState(0);
+ const interactionDock=useRef<HTMLElement>(null);
  const [connectionError,setConnectionError]=useState('');
  const [activation,setActivation]=useState(0);
  const {snapshot,liveReplies,refresh}=useConversation(active,false,true);
  const [outgoing,setOutgoing]=useState<Item[]>([]);
+ const [menu,setMenu]=useState<{item:Item;x:number;y:number}|null>(null);
+ const [quoteRequest,setQuoteRequest]=useState<{item:Item}|null>(null);
+ const [quotePreview,setQuotePreview]=useState<QuotedMessage|null>(null);
+ const closeMenu=useCallback(()=>setMenu(null),[]);
+ const showMenu=useCallback((item:Item,x:number,y:number)=>setMenu({item,x,y}),[]);
+ const quoteMessage=useCallback((item:Item)=>setQuoteRequest({item}),[]);
+ const quoteConsumed=useCallback(()=>setQuoteRequest(null),[]);
+ const showQuotePreview=useCallback((quote:QuotedMessage)=>setQuotePreview(quote),[]);
+ useEffect(()=>{if(!active)setMenu(null);},[active]);
+ useEffect(()=>{
+  if(!quotePreview)return;
+  const close=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();setQuotePreview(null);}};
+  window.addEventListener('keydown',close,true);
+  return()=>window.removeEventListener('keydown',close,true);
+ },[quotePreview]);
  const stage=useCallback((item:Item)=>{if(item.status==='sending'){position.current?.latest();setUnread(false);}setOutgoing(previous=>{const prior=previous.find(p=>p.requestId===item.requestId);return [...previous.filter(p=>p.requestId!==item.requestId),prior?.status==='accepted'?prior:item];});},[]);
  useEffect(()=>{const known=new Set(snapshot?.items.map(i=>i.requestId).filter(Boolean));setOutgoing(previous=>previous.filter(i=>!known.has(i.requestId)));},[snapshot]);
  const [earlierBusy,setEarlierBusy]=useState(false);
@@ -432,12 +505,31 @@ export function History() {
   resize.observe(scroll.current!);resize.observe(content.current!);
   return()=>resize.disconnect();
  },[active]);
- const messages=useMemo(()=>withOutgoing(snapshot?.items??[],outgoing).filter(i=>i.kind==='user'||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length))),[snapshot?.items,outgoing]);
- const contentKey=useMemo(()=>messages.map(i=>i.id+i.text).join(''),[messages]);
- const prompts=snapshot?.approvals.filter(p=>p.status!=='resolved')??[];
- const settled=prompts.length?[]:snapshot?.approvals.filter(p=>p.status==='resolved'&&p.turnKey===snapshot.currentTurn).slice(-1)??[];
- const approvalCards=[...prompts,...settled];
- const promptKey=approvalCards.map(p=>p.id+p.status+p.resolution?.choiceId).join('');
+ const messages=useMemo(()=>withOutgoing(snapshot?.items??[],outgoing).filter(i=>i.kind==='user'||i.kind==='controlNotice'||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length))),[snapshot?.items,outgoing]);
+ const contentKey=useMemo(()=>messages.map(i=>i.id+i.text+(i.quoted?.text??'')+(i.task?.status??'')).join(''),[messages]);
+ const prompts=snapshot?.approvals.filter(p=>p.status==='pending')??[];
+ const interactions: Array<{key:string;kind:'approval';approval:Approval}|{key:string;kind:'question';card:QuestionCard}>=[
+  ...prompts.map(approval=>({key:`approval:${approval.id}`,kind:'approval' as const,approval})),
+  ...(snapshot?.items??[]).flatMap(item=>(item.questionCards??[]).filter(card=>!card.state&&!!card.binding).map(card=>({key:`question:${card.shortId}:${card.binding}`,kind:'question' as const,card}))),
+ ];
+ const currentInteraction=Math.min(interactionIndex,Math.max(0,interactions.length-1));
+ const interactionKey=interactions.map(entry=>entry.key).join('|');
+ const openQuestion=useCallback((shortId:string,binding:string)=>{
+  const index=interactions.findIndex(entry=>entry.key===`question:${shortId}:${binding}`);
+  if(index>=0){setInteractionIndex(index);setInteractionOpen(true);}
+ },[interactionKey]);
+ useEffect(()=>{
+  setInteractionIndex(index=>Math.min(index,Math.max(0,interactions.length-1)));
+  if(!interactions.length)setInteractionOpen(false);
+ },[interactions.length]);
+ useEffect(()=>{
+  if(!interactionOpen)return;
+  const outside=(event:PointerEvent)=>{if(!interactionDock.current?.contains(event.target as Node))setInteractionOpen(false);};
+  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setInteractionOpen(false);interactionDock.current?.querySelector('button')?.focus();}};
+  window.addEventListener('pointerdown',outside,true);
+  window.addEventListener('keydown',escape);
+  return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape);};
+ },[interactionOpen]);
  const activity=chatActivity(snapshot);
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
@@ -462,20 +554,22 @@ export function History() {
    if(anchor)el.scrollTop+=anchor.getBoundingClientRect().top-prepend.current.top;
    prepend.current=null;
   }else if(position.current!.following){position.current!.layout();setUnread(false);}else setUnread(true);
- },[contentKey,promptKey,activity,snapshot?.connection,snapshot?.phase,snapshot?.message,snapshot?.hasEarlier,earlierBusy]);
+ },[contentKey,interactionKey,activity,snapshot?.connection,snapshot?.phase,snapshot?.message,snapshot?.hasEarlier,earlierBusy]);
  const earlier=async()=>{if(earlierBusy)return;setEarlierBusy(true);setError('');const el=scroll.current!;position.current!.following=false;const anchor=Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(item=>item.getBoundingClientRect().bottom>el.getBoundingClientRect().top);if(anchor)prepend.current={id:anchor.dataset.messageId!,top:anchor.getBoundingClientRect().top};try{await backend('LoadEarlier');await refresh();}catch{prepend.current=null;setError(t('chat.loadEarlierFailed'));}finally{setEarlierBusy(false);}};
  const action=async(method:string)=>{setBusy(true);setError('');setConnectionError('');try{await backend(method);}catch(e){setConnectionError(e instanceof Error?e.message:t('chat.actionFailed'));}finally{setBusy(false);try{await refresh();}catch{setConnectionError(previous=>previous||t('chat.actionFailed'));}}};
  return <main className="history-surface" aria-label={t('chat.historyAriaLabel')}>
   <div className="chat-scroll" ref={scroll} onScroll={()=>{if(active&&position.current?.scrolled())setUnread(false);}}>
    <div className="chat-content" ref={content}>
-   {!messages.length&&!connection&&!activity&&!prompts.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
+   {!messages.length&&!connection&&!activity&&!interactions.length&&<p className="empty-conversation">{t('chat.emptyConversation')}</p>}
    {snapshot?.hasEarlier&&<div className="history-pagination"><button className="text-action" disabled={earlierBusy} onClick={()=>void earlier()}>{earlierBusy?t('common.loading'):t('chat.loadEarlier')}</button></div>}
-   <div className="history-messages">{messages.map(i=><Message key={i.requestId||i.id} item={i} report={setError} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>)}</div>
+   <div className="history-messages">{messages.map((i,index)=><div key={i.requestId||i.id} className="history-message-group">
+    {chatTimeDivider(messages[index-1]?.seenAt,i.seenAt)&&<div className="history-time-divider"><time dateTime={new Date(i.seenAt!/1000).toISOString()}>{chatTimeLabel(i.seenAt!,locale)}</time></div>}
+    <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} onQuestion={openQuestion} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
+   </div>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
-   {(!!approvalCards.length||connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
+   {(connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
-    <div className={`message assistant state-bubble ${approvalCards.length?'approval-bubble':''}`}>
-   {approvalCards.map(p=><Prompt key={p.id} value={p} refresh={()=>void refresh().catch(()=>{})}/>)}
+    <div className="message assistant state-bubble">
    {connection&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
     <strong>{snapshot.connection==='connecting'?t('chat.connectingTitle'):snapshot.connection==='login'?t('chat.loginTitle'):chooseRuntime?t('chat.chooseRuntimeTitle'):setup?t('chat.setupTitle'):t('chat.reconnectTitle')}</strong>
     <p>{connectionText}</p>
@@ -497,8 +591,17 @@ export function History() {
    </div>
   </div>
   {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>{t('chat.viewNewMessages')}</button>}
+  {!!interactions.length&&<aside ref={interactionDock} className="approval-dock" aria-label={t('chat.interactionEyebrow')}>
+   <button className="approval-dock-trigger" type="button" aria-expanded={interactionOpen} aria-haspopup="dialog" aria-controls="approval-dock-panel" onClick={()=>setInteractionOpen(open=>!open)}>{t('chat.approvalQueue',{current:currentInteraction+1,total:interactions.length})}{interactionOpen?<CaretDownIcon size={14} aria-hidden="true"/>:<CaretUpIcon size={14} aria-hidden="true"/>}</button>
+   <div id="approval-dock-panel" className="approval-dock-panel" role="dialog" aria-label={t('chat.interactionEyebrow')} hidden={!interactionOpen}>
+    <div className="approval-dock-nav"><span>{interactions[currentInteraction]?.kind==='approval'?t('chat.approvalEyebrow'):t('chat.questionEyebrow')}{interactions.length>1&&` · ${currentInteraction+1}/${interactions.length}`}</span><div>{interactions.length>1&&<><button type="button" aria-label={t('chat.interactionPrevious')} disabled={currentInteraction===0} onClick={()=>setInteractionIndex(i=>i-1)}><CaretLeftIcon size={16} aria-hidden="true"/></button><button type="button" aria-label={t('chat.interactionNext')} disabled={currentInteraction>=interactions.length-1} onClick={()=>setInteractionIndex(i=>i+1)}><CaretRightIcon size={16} aria-hidden="true"/></button></>}<button type="button" aria-label={t('common.close')} onClick={()=>setInteractionOpen(false)}><XIcon size={15} aria-hidden="true"/></button></div></div>
+    {interactions.map((entry,index)=><div key={entry.key} hidden={index!==currentInteraction}>{entry.kind==='approval'?<Prompt value={entry.approval} refresh={()=>void refresh().catch(()=>{})}/>:<QuestionPrompt card={entry.card} refresh={()=>void refresh().catch(()=>{})}/>}</div>)}
+   </div>
+  </aside>}
   <footer>
-   {active&&<Composer snapshot={snapshot} focusRevision={activation} refresh={refresh} onOutgoing={stage}/>}
+   {active&&<Composer snapshot={snapshot} focusRevision={activation} refresh={refresh} onOutgoing={stage} quoteRequest={quoteRequest} onQuoteConsumed={quoteConsumed}/>}
   </footer>
+  {menu&&<MessageMenu item={menu.item} x={menu.x} y={menu.y} onQuote={quoteMessage} onClose={closeMenu} report={setError}/>}
+  {quotePreview&&createPortal(<div className="quote-preview-backdrop" onClick={()=>setQuotePreview(null)}><section className="quote-preview" role="dialog" aria-modal="true" aria-label={t('chat.quoteMessage')} onClick={e=>e.stopPropagation()}><button className="quote-preview-close" aria-label={t('common.close')} onClick={()=>setQuotePreview(null)}><Icon name="xmark"/></button><pre>{quotePreview.text}</pre></section></div>,document.body)}
  </main>;
 }

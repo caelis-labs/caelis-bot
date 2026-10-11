@@ -30,6 +30,9 @@ Follow the discovered schema and receipts.
 | `bot_tasks.request.type: stop` | Stop the exact task the user requests. |
 | `bot_delegate.request.type: start` | Start an independent assignment in its workspace. |
 | `bot_delegate.request.type: continue` | Steer or continue the original task. |
+| `bot_interactions.request.type: list` | Inspect pending native Worker approvals and asynchronous questions. |
+| `bot_interactions.request.type: decide` | Submit one exact option for an inspectable Worker approval; include native question answers when required. |
+| `bot_interactions.request.type: answer` | Send an answer to the original Worker question with a stable requestId. |
 
 The chat Stop control interrupts the current conversation and its blocking
 child work. It does not stop independent Bot tasks, their terminal clients or
@@ -77,6 +80,10 @@ base and branch when relevant. Forward the user's task directly when it already
 provides these facts. Avoid repeated request wrappers, generic warnings, invented
 restrictions and unrelated personal context. Workers keep native command approvals;
 selecting a project does not authorize unrelated operations.
+
+For a pending Worker approval or question, follow
+[Interactions](interactions.md). Keep the original task running while a decision
+is pending.
 
 ## History and the watchlist
 

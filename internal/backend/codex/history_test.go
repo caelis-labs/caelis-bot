@@ -1,6 +1,8 @@
 package codex
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -61,13 +63,27 @@ func TestOptionalRecentSyncFailureDoesNotBlockConnection(t *testing.T) {
 }
 
 func TestMessageWebLinkSurvivesHistoryProjection(t *testing.T) {
-	s := &Session{opts: SessionOptions{Directory: t.TempDir()}}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "result.txt"), []byte("result"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{opts: SessionOptions{Directory: dir}}
 	s.resetProjection()
 	text := "[网站](https://example.com/help) and [结果](result.txt)"
 	s.applyItem("turn", nativeItem{ID: "reply", Type: "agentMessage", Text: text}, true)
 	got := s.state.Items[0]
 	if got.Text != "[网站](https://example.com/help) and 结果" || len(got.Artifacts) != 1 || got.Artifacts[0].Name != "result.txt" {
 		t.Fatal("web link became a local result", got)
+	}
+}
+
+func TestMissingLinkedFileIsNotPresentedAsArtifact(t *testing.T) {
+	s := &Session{opts: SessionOptions{Directory: t.TempDir()}}
+	s.resetProjection()
+	s.applyItem("turn", nativeItem{ID: "reply", Type: "agentMessage", Text: "See [missing](missing.txt)"}, true)
+	got := s.state.Items[0]
+	if got.Text != "See missing" || len(got.Artifacts) != 0 {
+		t.Fatal(got)
 	}
 }
 

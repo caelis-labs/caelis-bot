@@ -91,7 +91,7 @@ func TestConfiguredChatPollTracksIndependentVersionsWithoutProjectingIdleHistory
 	}
 	outgoing := s.ChatSnapshot(setup.Snapshot.Revision, setup.Snapshot.BotStatus)
 	if !outgoing.Changed || len(outgoing.Snapshot.Items) != 2 || outgoing.Snapshot.Items[1].RequestID != "original" {
-		t.Fatal("local outgoing update was hidden")
+		t.Fatal("local outgoing update was hidden", outgoing.Snapshot.Items)
 	}
 	if s.ChatSnapshot(outgoing.Snapshot.Revision, outgoing.Snapshot.BotStatus).Changed {
 		t.Fatal("stable outgoing request still projected")

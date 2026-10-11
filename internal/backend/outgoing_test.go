@@ -29,7 +29,8 @@ func TestAcceptedAttachmentDraftWriteFailureKeepsOriginalJournalAndRecovers(t *t
 	if err := s.ConfigureDraft(path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveDraft(api.Draft{Text: "caption"}); err != nil {
+	quote := &api.QuotedMessage{Role: "assistant", Text: "older message"}
+	if _, err := s.SaveDraft(api.Draft{Text: "caption", Quoted: quote}); err != nil {
 		t.Fatal(err)
 	}
 	s.consumeFiles = func(ids []string) error {
@@ -40,7 +41,7 @@ func TestAcceptedAttachmentDraftWriteFailureKeepsOriginalJournalAndRecovers(t *t
 		s.draftFile = blocked // The pre-dispatch journal was durably written at path.
 		return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
 	})
-	input := api.Submission{ID: "original", Text: "caption", FileIDs: []string{"sent-image"}}
+	input := api.Submission{ID: "original", Text: "caption", FileIDs: []string{"sent-image"}, Quoted: quote}
 	if receipt, err := s.Submit(t.Context(), input); err != nil || receipt.Outcome != "accepted" {
 		t.Fatalf("receipt: %+v %v", receipt, err)
 	}
@@ -62,7 +63,7 @@ func TestAcceptedAttachmentDraftWriteFailureKeepsOriginalJournalAndRecovers(t *t
 	if err := restored.ConfigureDraft(path); err != nil {
 		t.Fatal(err)
 	}
-	if d := restored.Draft(); !d.PendingSend || d.Text != "caption" {
+	if d := restored.Draft(); !d.PendingSend || d.Text != "caption" || d.Quoted == nil || d.Quoted.Text != quote.Text {
 		t.Fatalf("lost unconfirmed original after restart: %+v", d)
 	}
 	if receipt, _ := restored.Submit(t.Context(), api.Submission{ID: "new-id", FileIDs: input.FileIDs}); receipt.Outcome != "rejected" {
@@ -72,7 +73,7 @@ func TestAcceptedAttachmentDraftWriteFailureKeepsOriginalJournalAndRecovers(t *t
 	e.mu.Lock()
 	e.view.LastReceipt = api.Receipt{ID: "original", Outcome: "accepted"}
 	e.mu.Unlock()
-	if d := restored.Draft(); d.CleanupPending || d.PendingSend || d.Text != "" {
+	if d := restored.Draft(); d.CleanupPending || d.PendingSend || d.Text != "" || d.Quoted != nil {
 		t.Fatalf("original receipt did not reconcile: %+v", d)
 	}
 }

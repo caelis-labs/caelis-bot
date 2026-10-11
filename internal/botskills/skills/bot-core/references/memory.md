@@ -29,3 +29,12 @@ conversations or external backups were erased.
 Notes help you recover your understanding. Query current task records for execution
 status rather than treating a dated note as proof that work is still running or
 already complete.
+
+When obsolete task detail or recalled tool schemas crowd your current context,
+use `bot_dream` if available. First save durable knowledge in the Notebook.
+Supply a complete handoff with your identity and standing constraints, the
+current goal, unfinished work, original handles and uncertain receipts, and
+the next useful action. Completed work needs only a short outcome. Do not copy
+full transcripts, secrets, or stale tool schemas. The host replaces the
+internal session; preserve user input priority and never replay an uncertain
+effect.

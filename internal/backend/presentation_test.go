@@ -51,6 +51,25 @@ func TestDurableDraftRestoresAndOnlyAcceptedSubmissionClears(t *testing.T) {
 		})
 	}
 }
+
+func TestQuoteChangeKeepsNewDraftAfterOldSubmissionClears(t *testing.T) {
+	s := NewService(snapshotEngine{}, nil, nil, nil, nil)
+	if err := s.ConfigureDraft(filepath.Join(t.TempDir(), "draft.json")); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.SaveDraft(api.Draft{Text: "同一正文", Quoted: &api.QuotedMessage{Text: "旧引用"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.SaveDraft(api.Draft{Revision: first.Revision, Text: "同一正文", Quoted: &api.QuotedMessage{Text: "新引用"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.clearDraftAtRevision(api.Submission{Text: first.Text, Quoted: first.Quoted}, second.Revision)
+	if got := s.Draft(); got.Quoted == nil || got.Quoted.Text != "新引用" {
+		t.Fatalf("new quoted draft cleared by old submission: %+v", got)
+	}
+}
 func TestCorruptDraftAndWriteFailureDoNotReplaceStoredContents(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "draft.json")
 	if err := os.WriteFile(path, []byte("incomplete"), 0600); err != nil {

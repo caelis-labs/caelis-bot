@@ -86,8 +86,10 @@ type updates struct {
 	TimeoutMS int       `json:"longpolling_timeout_ms"`
 }
 type sendResult struct {
-	Ret     *int `json:"ret"`
-	ErrCode int  `json:"errcode"`
+	Ret       *int   `json:"ret"`
+	ErrCode   int    `json:"errcode"`
+	ErrMsg    string `json:"errmsg"`
+	MessageID wireID `json:"message_id"`
 }
 type configResult struct {
 	Ret          *int   `json:"ret"`

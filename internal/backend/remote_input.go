@@ -47,6 +47,7 @@ func SubmitRemote(ctx context.Context, s *Service, in api.Submission, files []ap
 		return api.Receipt{}, err
 	}
 	s.finishOutgoing(in.ID, r)
+	s.recordInput(in, files, r)
 	return r, err
 }
 

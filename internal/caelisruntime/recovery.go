@@ -27,17 +27,11 @@ func Recover(ctx context.Context, path, store string) error {
 		if err != nil {
 			return err
 		}
-		raw, err := run(ctx, i18n.DefaultLocale, p, "service", "status", "--store-dir", dir, "--format", "json")
+		state, err := serviceState(ctx, p, dir)
 		if err != nil {
 			return ErrServiceStateUnknown
 		}
-		var service struct {
-			State string `json:"state"`
-		}
-		if json.Unmarshal(raw, &service) != nil {
-			return ErrServiceStateUnknown
-		}
-		switch service.State {
+		switch state {
 		case "running":
 			return nil // Another client may have recovered it; retry the handshake.
 		case "stopped":
@@ -53,4 +47,33 @@ func Recover(ctx context.Context, path, store string) error {
 		}
 		return nil
 	})
+}
+
+// ConfirmedStopped is read-only preflight for a manual replacement when a
+// stale discovery record cannot be reached. Unclear status never permits it.
+func ConfirmedStopped(ctx context.Context, path, store string) bool {
+	p, err := Find(path)
+	if err != nil {
+		return false
+	}
+	dir, err := Store(store)
+	if err != nil {
+		return false
+	}
+	state, err := serviceState(ctx, p, dir)
+	return err == nil && state == "stopped"
+}
+
+func serviceState(ctx context.Context, path, store string) (string, error) {
+	raw, err := run(ctx, i18n.DefaultLocale, path, "service", "status", "--store-dir", store, "--format", "json")
+	if err != nil {
+		return "", err
+	}
+	var service struct {
+		State string `json:"state"`
+	}
+	if json.Unmarshal(raw, &service) != nil {
+		return "", ErrServiceStateUnknown
+	}
+	return service.State, nil
 }

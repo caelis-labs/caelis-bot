@@ -14,6 +14,7 @@ type workerFixture struct {
 	runtime                                   string
 	states                                    map[string]api.WorkState
 	starts, sends, stops, connections, closed int
+	lastPrompt                                string
 	reject                                    bool
 }
 
@@ -54,6 +55,7 @@ func (w *workerFixture) ReadWork(_ context.Context, id string) (api.Task, error)
 }
 func (w *workerFixture) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, error) {
 	w.sends++
+	w.lastPrompt = in.Prompt
 	return w.ReadWork(ctx, in.ID)
 }
 func (w *workerFixture) StopWork(ctx context.Context, id string) (api.Task, error) {

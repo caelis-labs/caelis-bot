@@ -249,7 +249,9 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 	switch event.Method {
 	case "item/completed":
 		if task := s.taskByThread(thread); task != nil && turn == task.Run && n.Item.Type == "agentMessage" {
-			task.View.Result = boundedText(n.Item.Text, 6000)
+			if !s.recordWorkerAsync(task, turn, n.Item) && n.Item.Delivery != "async" {
+				task.View.Result = boundedText(n.Item.Text, 6000)
+			}
 			_ = s.save()
 		}
 	case "turn/started", "turn/completed":

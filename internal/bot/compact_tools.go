@@ -26,7 +26,7 @@ func (r *Runtime) Definitions() []api.ToolDefinition {
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
 		caps := p.ApplicationCapabilities()
 		out = slices.DeleteFunc(out, func(d api.ToolDefinition) bool {
-			return !caps.WorkerExecution && (d.Name == "bot_tasks" || d.Name == "bot_delegate") || !caps.ScheduledActivation && d.Name == "bot_schedule_update"
+			return !caps.WorkerExecution && (d.Name == "bot_tasks" || d.Name == "bot_delegate" || d.Name == "bot_interactions") || !caps.ScheduledActivation && d.Name == "bot_schedule_update"
 		})
 		if !caps.ScheduledActivation {
 			for i, d := range out {
@@ -83,6 +83,8 @@ func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage
 	switch name {
 	case "bot_tasks", "bot_delegate":
 		return r.callCompactTask(ctx, name, req)
+	case "bot_interactions":
+		return r.callCompactInteractions(ctx, req)
 	case "bot_schedule", "bot_schedule_update":
 		return r.callCompactSchedule(ctx, name, req)
 	}

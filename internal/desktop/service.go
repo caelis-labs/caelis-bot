@@ -492,3 +492,9 @@ func (s *Service) OpenMachineTerminal(id string) error {
 	}
 	return s.openMachineTerminal(id)
 }
+
+// OpenTaskTerminal follows the same owned-card path as clicking the pet's task
+// card. The renderer supplies only an ID; the native service verifies ownership.
+func (s *Service) OpenTaskTerminal(id string) error {
+	return s.openTask(context.Background(), id)
+}

@@ -5,6 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef BOT_AUTHENTICATION_CONTEXT_CLASS
+#define BOT_AUTHENTICATION_CONTEXT_CLASS LAContext
+#endif
+
 static CFMutableDictionaryRef bot_secret_query(const char *account) {
  CFMutableDictionaryRef query=CFDictionaryCreateMutable(NULL,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
  CFStringRef name=CFStringCreateWithCString(NULL,account,kCFStringEncodingUTF8);
@@ -26,7 +30,7 @@ char *bot_weixin_secret_load(const char *account) {
   CFMutableDictionaryRef query=bot_secret_query(account);
   // Launch must never wait for a security dialog. A locked or changed keychain
   // grant is handled by the explicit Weixin connection status instead.
-  LAContext *context=[LAContext new];
+  BOT_AUTHENTICATION_CONTEXT_CLASS *context=[BOT_AUTHENTICATION_CONTEXT_CLASS new];
   context.interactionNotAllowed=YES;
   CFDictionarySetValue(query,kSecUseAuthenticationContext,(__bridge const void *)context);
   CFDictionarySetValue(query,kSecReturnData,kCFBooleanTrue);CFDictionarySetValue(query,kSecMatchLimit,kSecMatchLimitOne);

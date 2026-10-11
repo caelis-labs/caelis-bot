@@ -84,6 +84,7 @@ func (s *Service) SaveDraft(d api.Draft) (api.Draft, error) {
 	if len(d.Text) > 256*1024 || len(d.ReferenceIDs) > 64 {
 		return s.draft, errors.New("内容过长")
 	}
+	d.Quoted = api.BoundQuote(d.Quoted)
 	d.Revision++
 	d.Notice = "" // Only the host can issue persistence notices.
 	d.ReferenceIDs = slices.Clone(d.ReferenceIDs)
@@ -105,7 +106,7 @@ func (s *Service) clearDraft(input api.Submission) {
 func (s *Service) clearDraftAtRevision(input api.Submission, revision uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.draft.Revision == revision && s.draft.Text == input.Text && slices.Equal(s.draft.ReferenceIDs, input.ReferenceIDs) {
+	if s.draft.Revision == revision && s.draft.Text == input.Text && slices.Equal(s.draft.ReferenceIDs, input.ReferenceIDs) && sameDraftQuote(s.draft.Quoted, input.Quoted) {
 		d := api.Draft{Revision: s.draft.Revision + 1, ReferenceIDs: []string{}}
 		if s.draftLoadError != nil || s.persistDraft(d, s.draftSend) != nil {
 			s.draftNotice = "消息已发送，但草稿清理未能保存；请勿重复发送。"
@@ -113,6 +114,13 @@ func (s *Service) clearDraftAtRevision(input api.Submission, revision uint64) {
 		}
 		s.draft, s.draftNotice = d, ""
 	}
+}
+
+func sameDraftQuote(a, b *api.QuotedMessage) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 type draftDocument struct {
@@ -124,12 +132,13 @@ type draftDocument struct {
 // Stored before native dispatch. Until the same request's terminal receipt is
 // reconciled, these file IDs cannot be attached to a replacement send.
 type draftSend struct {
-	ID           string   `json:"id"`
-	FileIDs      []string `json:"fileIds"`
-	Text         string   `json:"text"`
-	ReferenceIDs []string `json:"referenceIds"`
-	Revision     uint64   `json:"revision"`
-	Outcome      string   `json:"outcome,omitempty"`
+	ID           string             `json:"id"`
+	FileIDs      []string           `json:"fileIds"`
+	Text         string             `json:"text"`
+	ReferenceIDs []string           `json:"referenceIds"`
+	Quoted       *api.QuotedMessage `json:"quoted,omitempty"`
+	Revision     uint64             `json:"revision"`
+	Outcome      string             `json:"outcome,omitempty"`
 }
 
 func (s *Service) persistDraft(d api.Draft, send *draftSend) error {
@@ -154,7 +163,7 @@ func (s *Service) reserveDraftSend(input api.Submission) error {
 	if s.draftSend != nil {
 		return errors.New("上一条附件消息仍待核对或清理")
 	}
-	send := &draftSend{ID: input.ID, FileIDs: slices.Clone(input.FileIDs), Text: input.Text, ReferenceIDs: slices.Clone(input.ReferenceIDs), Revision: s.draft.Revision}
+	send := &draftSend{ID: input.ID, FileIDs: slices.Clone(input.FileIDs), Text: input.Text, ReferenceIDs: slices.Clone(input.ReferenceIDs), Quoted: api.BoundQuote(input.Quoted), Revision: s.draft.Revision}
 	if err := s.persistDraft(s.draft, send); err != nil {
 		return err
 	}
@@ -176,7 +185,7 @@ func (s *Service) reconcileDraftReceipt(receipt api.Receipt) {
 	}
 	if receipt.Outcome == "accepted" {
 		send.Outcome = "accepted"
-		if s.draft.Revision == send.Revision && s.draft.Text == send.Text && slices.Equal(s.draft.ReferenceIDs, send.ReferenceIDs) {
+		if s.draft.Revision == send.Revision && s.draft.Text == send.Text && slices.Equal(s.draft.ReferenceIDs, send.ReferenceIDs) && sameDraftQuote(s.draft.Quoted, send.Quoted) {
 			s.draft = api.Draft{Revision: s.draft.Revision + 1, ReferenceIDs: []string{}}
 		}
 		// Keep a durable accepted marker until both stores have been cleaned.

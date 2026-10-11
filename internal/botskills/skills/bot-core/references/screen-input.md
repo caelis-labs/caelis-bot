@@ -19,8 +19,7 @@ default for full-screen context in Settings > Extras and
 may override it in the capture toolbar before sending. These F1/F3 screen tools
 can be disabled there. If they are off, do not direct the user to grant Screen
 Recording merely to use them; explain how to enable the tools first if the user
-actually wants them. Ordinary chat images and Bot desktop task observation have
-separate controls and remain available. Treat
+actually wants them. Ordinary chat images remain available. Treat
 the supplied images as authoritative; do not assume a background image exists
 or ask the user to enable it for every snapshot. The chat image card is a local
 history preview, not a new observation or permission to resend that image.

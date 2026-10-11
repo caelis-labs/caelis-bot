@@ -45,6 +45,9 @@ func main() {
 		previous = len(types)
 		for _, t := range types {
 			for i := 0; i < t.NumField(); i++ {
+				if t.Field(i).Tag.Get("json") == "-" {
+					continue
+				}
 				ts(t.Field(i).Type)
 			}
 		}

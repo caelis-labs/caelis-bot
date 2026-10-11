@@ -81,10 +81,17 @@ type Runtime struct {
 	personal         api.PersonalTools
 	initialization   *Initializer
 	tasks            api.TaskProvider
+	interactions     api.WorkerInteractionPort
 	reports          api.TaskReporter
 	action           func(string) error
 	done             chan struct{}
 	cancel           context.CancelFunc
+}
+
+func (r *Runtime) ConfigureWorkerInteractions(port api.WorkerInteractionPort) {
+	r.mu.Lock()
+	r.interactions = port
+	r.mu.Unlock()
 }
 
 func New(path string, action func(string) error) (*Runtime, error) {

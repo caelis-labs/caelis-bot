@@ -10,6 +10,13 @@ Read a matching Skill body only when the task needs it. If its tool is unavailab
 or fails, keep the original action receipt and use healthy tools for independent
 work. Do not repeat a possibly accepted external action through another route.
 
+When an external tool is relevant but its exact name is unclear, read
+`../mcp-tools.json` beside this Skill's directory. It lists only tools last
+confirmed from connected plugin services. Use its names and descriptions as
+clues for native ToolSearch, then read the returned schema before calling.
+The index is neither a schema nor a grant. If it is absent or search is
+unavailable, do not invent a tool call.
+
 For GitHub, use only tools confirmed available on the current connection. Before
 creating or changing repository content, an issue, or a pull request, identify
 the exact repository and proposed change for the user's review. Keep the native

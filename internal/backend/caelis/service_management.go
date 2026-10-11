@@ -15,6 +15,12 @@ import (
 // replacement. It works with older application capabilities. Other clients can
 // still submit after this read; the UI must disclose that restart affects them.
 func CheckServiceIdle(ctx context.Context, settings api.RuntimeSettings) error {
+	allowConfirmedStop := func(err error) error {
+		if caelisruntime.ConfirmedStopped(ctx, settings.CLIPath, settings.CaelisStore) {
+			return nil
+		}
+		return err
+	}
 	dir, err := caelisruntime.Store(settings.CaelisStore)
 	if err != nil {
 		return err
@@ -24,16 +30,16 @@ func CheckServiceIdle(ctx context.Context, settings api.RuntimeSettings) error {
 	}
 	d, token, err := Discover(settings)
 	if err != nil {
-		return err
+		return allowConfirmedStop(err)
 	}
 	c, err := newClient(d.Endpoint, token)
 	if err != nil {
-		return err
+		return allowConfirmedStop(err)
 	}
 	defer c.http.CloseIdleConnections()
 	var info wire.ServerInfo
 	if err = c.json(ctx, "GET", "/initialize", nil, &info, "", ""); err != nil {
-		return errors.New("无法确认共享服务状态，未重启；请先检查 Caelis 服务")
+		return allowConfirmedStop(errors.New("无法确认共享服务状态，未重启；请先检查 Caelis 服务"))
 	}
 	if value(info.InstanceId) != d.InstanceID {
 		return errors.New("共享服务已变化，请重新检测后再操作")
@@ -42,7 +48,7 @@ func CheckServiceIdle(ctx context.Context, settings api.RuntimeSettings) error {
 		Runtime *wire.StatusRuntime `json:"runtime"`
 	}
 	if err = c.json(ctx, "GET", "/status", nil, &status, "", ""); err != nil || status.Runtime == nil {
-		return errors.New("无法确认共享服务中的工作，未重启")
+		return allowConfirmedStop(errors.New("无法确认共享服务中的工作，未重启"))
 	}
 	r := status.Runtime
 	if value(r.Running) || value(r.ActiveJobs) > 0 || len(r.ActiveSessions) > 0 {
