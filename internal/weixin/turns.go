@@ -6,6 +6,7 @@ import "github.com/caelis-labs/caelis-bot/internal/backend/api"
 // CurrentTurn at completion, so bind that terminal phase to the exact latest
 // accepted ingress or a previously observed running Turn.
 func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
+	reportTurn := b.reportSnapshotTurn(snapshot)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if !b.state.HasInput || b.state.OwnerID == "" {
@@ -30,7 +31,10 @@ func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 		}
 		return
 	}
-	turn := terminalSnapshotTurn(snapshot, b.state.AcceptedInputID, b.state.ObservedTurn)
+	turn := reportTurn
+	if turn == "" {
+		turn = terminalSnapshotTurn(snapshot, b.state.AcceptedInputID, b.state.ObservedTurn)
+	}
 	if snapshot.Phase == "completed" && !completedReplyForTurn(snapshot.Items, turn) {
 		return
 	}
@@ -41,6 +45,7 @@ func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 	oldObserved := b.state.ObservedTurn
 	oldOrder := append([]string(nil), b.state.TurnOrder...)
 	evicted, evictedPhase := "", ""
+	evictedOrigin := ""
 	if !existed {
 		b.state.TurnOrder = append(b.state.TurnOrder, turn)
 	}
@@ -49,7 +54,11 @@ func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 	if len(b.state.TurnOrder) > 256 {
 		evicted = b.state.TurnOrder[0]
 		evictedPhase = b.state.TurnPhases[evicted]
+		evictedOrigin = b.state.TurnOrigins[evicted]
 		delete(b.state.TurnPhases, evicted)
+		if !b.taskTurnReferencedLocked(evicted) {
+			delete(b.state.TurnOrigins, evicted)
+		}
 		b.state.TurnOrder = b.state.TurnOrder[1:]
 	}
 	if b.saveLocked() != nil {
@@ -57,6 +66,9 @@ func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 		b.state.ObservedTurn = oldObserved
 		if evicted != "" {
 			b.state.TurnPhases[evicted] = evictedPhase
+			if evictedOrigin != "" {
+				b.state.TurnOrigins[evicted] = evictedOrigin
+			}
 		}
 		if existed {
 			b.state.TurnPhases[turn] = prior
@@ -64,6 +76,21 @@ func (b *Bridge) ObserveTurn(snapshot api.Snapshot) {
 			delete(b.state.TurnPhases, turn)
 		}
 	}
+}
+
+// A native report receipt can identify a completed Bot Turn after restart,
+// when CurrentTurn and the prior in-memory observation have disappeared.
+func (b *Bridge) reportSnapshotTurn(snapshot api.Snapshot) string {
+	if b.host.TaskForReport == nil || snapshot.LastReceipt.ID == "" || snapshot.LastReceipt.Outcome != "accepted" || b.host.TaskForReport(snapshot.LastReceipt.ID) == "" {
+		return ""
+	}
+	for i := len(snapshot.Items) - 1; i >= 0; i-- {
+		item := snapshot.Items[i]
+		if item.Kind == "hostNotice" && item.RequestID == snapshot.LastReceipt.ID && item.TurnKey != "" {
+			return item.TurnKey
+		}
+	}
+	return ""
 }
 
 func terminalSnapshotTurn(snapshot api.Snapshot, inputID, observed string) string {

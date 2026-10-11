@@ -15,8 +15,14 @@ func TestApprovalOwnerUsesKnownWorkerBinding(t *testing.T) {
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Approval: wire.ApprovalState{Active: testApproval()}}, Seen: map[string]bool{}}
 	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task"}}
 	got := s.Snapshot()
-	if got.Phase != "working" || got.CurrentTurn == "" || len(got.Approvals) != 1 || got.Approvals[0].Owner != "task" {
+	if got.Phase != "working" || got.CurrentTurn == "" || len(got.Approvals) != 1 || got.Approvals[0].Owner != "task" || got.Approvals[0].TaskID != "task" {
 		t.Fatalf("known task approval scope: phase=%s owner=%v", got.Phase, got.Approvals)
+	}
+	s.mu.Lock()
+	cached := s.Snapshot()
+	s.mu.Unlock()
+	if len(cached.Approvals) != 1 || cached.Approvals[0].TaskID != "task" {
+		t.Fatal("cached approval lost host-only task source", cached.Approvals)
 	}
 	if !telegram.TypingForMainTurn(got) {
 		t.Fatal("known Caelis Worker approval suppressed the resident turn")

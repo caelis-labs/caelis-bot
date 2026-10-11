@@ -42,7 +42,7 @@ func (b *Bridge) clearFinal(id string) {
 }
 
 func (b *Bridge) mirrorItem(ctx context.Context, p *protocol, item api.Item, kind string) {
-	critical := kind == "final" || kind == "question"
+	critical := kind == "final"
 	parent := outputKey(item)
 	body := item.Text
 	if item.Kind == "user" {

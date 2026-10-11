@@ -39,10 +39,10 @@ func sentTexts(t *testing.T, handler func(string) string) (*httptest.Server, *[]
 	return server, &texts
 }
 
-func TestTwelveCompletedCommentariesWaitForTurnFinal(t *testing.T) {
+func TestTwelveCompletedCommentariesBatchBeforeTurnFinal(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
-	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "working"}
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "working", Items: []api.Item{{ID: "owner-user", TurnKey: "turn", Kind: "user", RequestID: "input"}}}
 	for i := 0; i < 12; i++ {
 		snapshot.Items = append(snapshot.Items, api.Item{ID: "comment-" + string(rune('a'+i)), TurnKey: "turn", Kind: "assistant", Text: "progress", Status: "completed"})
 	}
@@ -54,13 +54,13 @@ func TestTwelveCompletedCommentariesWaitForTurnFinal(t *testing.T) {
 	freshWindow(b, "input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
-	if len(*texts) != 0 || b.state.Window.Used != 0 {
-		t.Fatal("completed commentary consumed the phone window")
+	if len(*texts) != 1 || b.state.Window.Used != 1 || b.state.Window.ProgressUsed != 1 || !strings.Contains((*texts)[0], "——") {
+		t.Fatalf("completed commentary did not batch: %#v, window=%#v", *texts, b.state.Window)
 	}
 	snapshot.Phase = "completed"
 	snapshot.Items = append(snapshot.Items, api.Item{ID: "final", TurnKey: "turn", Kind: "assistant", Text: "最终答复", Status: "completed"})
 	b.output(t.Context(), p)
-	if len(*texts) != 1 || (*texts)[0] != "最终答复" || b.state.Window.Used != 1 {
+	if len(*texts) != 2 || !strings.HasSuffix((*texts)[1], "最终答复") || b.state.Window.Used != 2 {
 		t.Fatalf("final delivery: %#v, used=%d", *texts, b.state.Window.Used)
 	}
 }
@@ -68,7 +68,7 @@ func TestTwelveCompletedCommentariesWaitForTurnFinal(t *testing.T) {
 func TestTerminalTurnObservationSurvivesNextTurn(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
-	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "old", Phase: "working", Items: []api.Item{{ID: "old-final", TurnKey: "old", Kind: "assistant", Text: "旧轮最终结果", Status: "completed"}}}
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "old", Phase: "working", Items: []api.Item{{ID: "owner-user", TurnKey: "old", Kind: "user", RequestID: "input"}, {ID: "old-final", TurnKey: "old", Kind: "assistant", Text: "旧轮最终结果", Status: "completed"}}}
 	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
 	if err != nil {
 		t.Fatal(err)
@@ -111,8 +111,8 @@ func TestCodexTerminalWithoutCurrentTurnDeliversExactIngressReply(t *testing.T) 
 	b.state.Inputs[input] = "accepted"
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
-	if len(*texts) != 0 || b.state.ObservedTurn != "turn-one" {
-		t.Fatalf("working commentary leaked or Turn was not observed: %#v", *texts)
+	if len(*texts) != 1 || (*texts)[0] != "Hi!" || b.state.ObservedTurn != "turn-one" {
+		t.Fatalf("first completed progress or Turn observation failed: %#v", *texts)
 	}
 	snapshot.CurrentTurn, snapshot.Phase = "", "completed" // Codex clears CurrentTurn at terminal
 	b.output(t.Context(), p)
@@ -265,7 +265,7 @@ func TestApprovalAndQuestionPrecedeLowValueMirrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	question := api.Item{ID: "question", TurnKey: "turn", Kind: "assistant", Status: "completed", AsyncCallID: "native-call", AsyncQuestions: []api.AsyncQuestion{{Title: "选哪个？", Options: []string{"甲", "乙"}}}}
-	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", RuntimeOwner: "runtime", Phase: "working", Approvals: []api.Approval{{ID: "approval", Owner: "conversation", Status: "pending", Choices: []api.Choice{{ID: "once", Label: "仅本次"}}}}, Items: []api.Item{question}}
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", RuntimeOwner: "runtime", Phase: "working", Approvals: []api.Approval{{ID: "approval", TurnKey: "turn", Owner: "conversation", Status: "pending", Choices: []api.Choice{{ID: "once", Label: "仅本次"}}}}, Items: []api.Item{{ID: "owner-user", Kind: "user", TurnKey: "turn", RequestID: "input"}, question}}
 	for i := 0; i < 12; i++ {
 		snapshot.Items = append(snapshot.Items, api.Item{ID: "user-" + string(rune('a'+i)), Kind: "user", Text: "cross-entry", Status: "completed"})
 	}
@@ -276,7 +276,7 @@ func TestApprovalAndQuestionPrecedeLowValueMirrors(t *testing.T) {
 	b.state.OwnerID, b.state.BotID = "owner", "bot"
 	freshWindow(b, "input")
 	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
-	if len(*texts) != windowSoftLimit || !strings.Contains((*texts)[0], "/approve") || !strings.Contains((*texts)[1], "[Q1]") || b.state.Window.Used != windowSoftLimit || b.state.Missed != 6 {
+	if len(*texts) != 2 || !strings.Contains((*texts)[0], "/approve") || !strings.Contains((*texts)[1], "[Q1]") || b.state.Window.Used != 2 {
 		t.Fatalf("control priority or soft reserve: sent=%#v used=%d missed=%d", *texts, b.state.Window.Used, b.state.Missed)
 	}
 }
@@ -285,7 +285,7 @@ func TestLongFinalCompactsWhenOnlyOneSlotRemains(t *testing.T) {
 	server, texts := sentTexts(t, nil)
 	defer server.Close()
 	full := strings.Repeat("中文😀一段内容。\n", 400)
-	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "completed", Items: []api.Item{{ID: "final", TurnKey: "turn", Kind: "assistant", Status: "completed", Text: full}}}
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "completed", Items: []api.Item{{ID: "owner-user", TurnKey: "turn", Kind: "user", RequestID: "input"}, {ID: "final", TurnKey: "turn", Kind: "assistant", Status: "completed", Text: full}}}
 	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
 	if err != nil {
 		t.Fatal(err)

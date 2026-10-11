@@ -31,6 +31,7 @@ func (s *Session) conversationLocked() api.ConversationState {
 	if v := s.state.Views[out.Session]; v != nil {
 		out.Observed = s.connected && !s.closed && v.CommandCaughtUp
 		out.Turn = observedTurn(v)
+		out.TurnKey = out.Turn
 		if v.UsageTurn == out.Turn && v.ModelTurn == out.Turn && v.Usage.Window > 0 && !v.Usage.ModelAt.IsZero() {
 			out.Usage = v.Usage
 			out.UsageEvidence = "live_gauge_and_provider"

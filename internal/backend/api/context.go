@@ -28,6 +28,8 @@ type ContextSeed struct {
 // cannot be mistaken for another resident turn or a successful Dream.
 type ConversationState struct {
 	Session, Turn, Status string
+	// TurnKey is the presentation identity of Turn, for attributing host events.
+	TurnKey string
 	// Host-only assembly versions; never user-facing Session navigation.
 	RuntimeVersion, DesiredRuntimeVersion string
 	// Observed is true only after native state has been restored. It is independent

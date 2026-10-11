@@ -342,6 +342,9 @@ func (s *Session) publishSnapshot() {
 		out.Items[i].AsyncCallID = s.state.Items[i].AsyncCallID
 		out.Items[i].AsyncQuestions = s.state.Items[i].AsyncQuestions
 	}
+	for i := range out.Approvals {
+		out.Approvals[i].TaskID = s.state.Approvals[i].TaskID
+	}
 	out = s.presentScheduled(out)
 	s.cached.Store(&out)
 	composer := s.composerLocked()
@@ -362,6 +365,9 @@ func (s *Session) Snapshot() api.Snapshot {
 		for i := range out.Items {
 			out.Items[i].AsyncCallID = snapshot.Items[i].AsyncCallID
 			out.Items[i].AsyncQuestions = snapshot.Items[i].AsyncQuestions
+		}
+		for i := range out.Approvals {
+			out.Approvals[i].TaskID = snapshot.Approvals[i].TaskID
 		}
 		return out
 	}

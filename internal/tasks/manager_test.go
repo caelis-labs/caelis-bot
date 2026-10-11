@@ -184,6 +184,21 @@ func TestStartPresentationOnceWithTitleFallback(t *testing.T) {
 		t.Fatal(title)
 	}
 }
+
+func TestStartPresentationKeepsOriginalInvocationContext(t *testing.T) {
+	m := openFixture(t, t.TempDir(), "fixture", newRuntime())
+	want := api.ToolInvocation{Provider: "codex", CallID: "native-call", Session: "resident", Turn: "native-turn", TurnKey: "projected-turn"}
+	var got api.ToolInvocation
+	m.ObserveStartsWithContext(func(ctx context.Context, _ api.Task) {
+		got, _ = api.ToolInvocationFromContext(ctx)
+	})
+	if _, err := m.StartTask(api.WithToolInvocation(t.Context(), want), input("context-start")); err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("source invocation lost: got=%#v want=%#v", got, want)
+	}
+}
 func TestReportPersistsAndUnknownDeliveryNeverReplays(t *testing.T) {
 	root := t.TempDir()
 	f := newRuntime()
@@ -241,6 +256,9 @@ func TestReadAndStopSuppressReportsButNewTurnReportsOnce(t *testing.T) {
 	}
 	if f.reports != 1 {
 		t.Fatal("new native generation not reported once")
+	}
+	if got := m.TaskForReportID(f.lastReport.ID); got != v.ID || m.TaskForReportID("unknown-report") != "" {
+		t.Fatal("report receipt lost exact task source", got)
 	}
 	other := start(t, m, "stop-request")
 	if _, e := m.StopTask(t.Context(), other.ID); e != nil {

@@ -33,6 +33,7 @@ type ToolResult struct {
 // the MCP server.
 type ToolInvocation struct {
 	Provider, CallID, Session, Turn string
+	TurnKey                         string // presentation identity of the original resident Turn
 }
 
 type toolInvocationKey struct{}

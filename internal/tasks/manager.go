@@ -60,7 +60,7 @@ type Manager struct {
 	now                  func() time.Time
 	maxRunning           func() int
 	watchlistChanged     func([]api.TaskPreview)
-	started              func(api.Task)
+	started              func(context.Context, api.Task)
 	mu                   sync.Mutex
 	op                   sync.Mutex
 	paused               bool // protected by op; updater admission fence
@@ -329,6 +329,30 @@ func (m *Manager) HostReportIDs() []string {
 	sort.Strings(ids)
 	return ids
 }
+
+// TaskForReportID resolves only a recorded native task report receipt.
+// It does not parse report prose or infer ownership from a current task.
+func (m *Manager) TaskForReportID(reportID string) string {
+	if reportID == "" {
+		return ""
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.state.Records {
+		if r == nil || !m.owns(r) {
+			continue
+		}
+		if r.ReportID == reportID {
+			return r.View.ID
+		}
+		for _, previous := range r.PreviousReports {
+			if previous.ID == reportID {
+				return r.View.ID
+			}
+		}
+	}
+	return ""
+}
 func (m *Manager) ListTasks() []api.Task {
 	m.op.Lock()
 	defer m.op.Unlock()
@@ -508,7 +532,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		if captureErr != nil {
 			visible.Status, visible.Outcome = "unknown", "unknown"
 		}
-		m.started(visible)
+		m.started(ctx, visible)
 	}
 	return result, captureErr
 }
@@ -534,6 +558,14 @@ func taskDisplayTitle(title, prompt string) string {
 
 // ObserveStarts emits one presentation event for a newly allocated task.
 func (m *Manager) ObserveStarts(started func(api.Task)) {
+	m.op.Lock()
+	defer m.op.Unlock()
+	m.started = func(_ context.Context, task api.Task) { started(task) }
+}
+
+// ObserveStartsWithContext preserves the original Bot tool invocation for
+// presentation routing without making the Worker task a channel-specific object.
+func (m *Manager) ObserveStartsWithContext(started func(context.Context, api.Task)) {
 	m.op.Lock()
 	defer m.op.Unlock()
 	m.started = started

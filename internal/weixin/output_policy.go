@@ -30,14 +30,15 @@ func (b *Bridge) outputKinds(snapshot api.Snapshot) map[string]string {
 			kinds[item.ID] = "task"
 			continue
 		}
-		if item.TurnKey != "" {
-			if terminal[item.TurnKey] != "completed" {
-				continue
-			}
-		} else if snapshot.CurrentTurn != "" {
-			continue // unscoped text cannot prove a Turn completed
+		if item.TurnKey == "" {
+			continue // unscoped text cannot prove an active or terminal Turn
 		}
-		last[item.TurnKey] = item.ID
+		if terminal[item.TurnKey] == "completed" {
+			kinds[item.ID] = "progress"
+			last[item.TurnKey] = item.ID
+		} else if item.TurnKey == snapshot.CurrentTurn && (snapshot.Phase == "working" || snapshot.Phase == "sending") {
+			kinds[item.ID] = "progress"
+		}
 	}
 	for _, id := range last {
 		kinds[id] = "final"

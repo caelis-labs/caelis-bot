@@ -188,6 +188,7 @@ type Approval struct {
 	TitleKey  string `json:"titleKey"`
 	NoticeKey string `json:"noticeKey"`
 	TaskTitle string `json:"taskTitle"`
+	TaskID    string `json:"-"` // host-only Worker source for delivery routing; never decision authority
 	// Owner is set by the backend from the native session/thread binding.
 	// Empty means unknown and must not be treated as independent task work.
 	Owner       string              `json:"owner,omitempty"`

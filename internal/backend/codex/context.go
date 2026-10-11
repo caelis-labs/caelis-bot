@@ -45,6 +45,10 @@ func (s *Session) cleanupContextLocked() {
 
 func (s *Session) conversationLocked() api.ConversationState {
 	desired := ""
+	turnKey := ""
+	if s.lastTurn != "" {
+		turnKey = opaque(s.lastTurn)
+	}
 	if s.opts.BotTools != nil {
 		desired = s.opts.BotTools.RuntimeVersion
 	}
@@ -54,7 +58,7 @@ func (s *Session) conversationLocked() api.ConversationState {
 	}
 	return api.ConversationState{
 		RuntimeVersion: s.binding.RuntimeVersion, DesiredRuntimeVersion: desired,
-		Session: s.binding.ThreadID, Turn: s.lastTurn, Status: s.runs[s.lastTurn],
+		Session: s.binding.ThreadID, Turn: s.lastTurn, TurnKey: turnKey, Status: s.runs[s.lastTurn],
 		Observed:      s.bound && !s.loading && s.state.Connection == "ready" && !s.closed && !s.closing,
 		Idle:          s.state.CanSend && s.opts.Execution.ApprovalMode != "read-only",
 		Usage:         s.usage,
