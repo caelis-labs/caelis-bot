@@ -27,13 +27,22 @@ func TestIMPersistsOnlyHumanMessagesAndReopensOffline(t *testing.T) {
 	l := Open(path)
 	l.Observe([]api.Item{{ID: "native-user", RequestID: "original-input", Kind: "user", Text: "hello", Details: "tool bytes"}, {ID: "answer", Kind: "assistant", Text: "stream"}, {ID: "tool", Kind: "activity", Text: "private tool output"}})
 	l.Observe([]api.Item{{ID: "echo-user", RequestID: "original-input", Kind: "user", Text: "hello"}, {ID: "answer", Kind: "assistant", Text: "complete"}})
+	before, _ := l.Snapshot()
 	l.Close()
 	restored := Open(path)
 	defer restored.Close()
-	eventually(t, func() bool { items, _ := restored.Snapshot(); return len(items) == 2 })
+	restored.Observe([]api.Item{{ID: "echo-user", RequestID: "original-input", Kind: "user", Text: "hello"}, {ID: "answer", Kind: "assistant", Text: "complete"}})
+	eventually(t, func() bool {
+		restored.mu.Lock()
+		defer restored.mu.Unlock()
+		return restored.loaded && len(restored.dirty) == 0 && len(restored.items) == 2
+	})
 	items, _ := restored.Snapshot()
 	if items[0].RequestID != "original-input" || items[1].Text != "complete" || items[0].Details != "" {
 		t.Fatal(items)
+	}
+	if items[0].SeenAt != before[0].SeenAt || items[1].SeenAt != before[1].SeenAt || items[0].SeenAt <= 0 {
+		t.Fatal("replayed chat items changed first-seen order", items, before)
 	}
 }
 

@@ -26,14 +26,14 @@ func TestSetupRequiredProjectsExplicitConnectionIssue(t *testing.T) {
 	}
 }
 func TestControlReceiptAppearsInDesktopChatWithoutReplacingNativeItems(t *testing.T) {
-	s := NewService(snapshotEngine{value: api.Snapshot{Items: []api.Item{{ID: "reply", Kind: "assistant", Text: "work result"}}}}, nil, nil, nil, nil)
+	s := NewService(snapshotEngine{value: api.Snapshot{Items: []api.Item{{ID: "reply", Kind: "assistant", Text: "work result", SeenAt: 1}}}}, nil, nil, nil, nil)
 	var notices []api.Item
 	s.SetControlNotices(func() ([]api.Item, uint64) { return notices, uint64(len(notices)) })
 	first := s.ChatSnapshot(0, "")
 	if !first.Changed || len(first.Snapshot.Items) != 1 {
 		t.Fatal(first)
 	}
-	notices = []api.Item{{ID: "control:1", Kind: "controlNotice", Text: "决定已提交", Status: "completed"}}
+	notices = []api.Item{{ID: "control:1", Kind: "controlNotice", Text: "决定已提交", Status: "completed", SeenAt: 2}}
 	next := s.ChatSnapshot(first.Snapshot.Revision, first.Snapshot.BotStatus)
 	if !next.Changed || len(next.Snapshot.Items) != 2 || next.Snapshot.Items[0].Text != "work result" || next.Snapshot.Items[1].Text != "决定已提交" {
 		t.Fatal(next)
@@ -42,6 +42,26 @@ func TestControlReceiptAppearsInDesktopChatWithoutReplacingNativeItems(t *testin
 		if item.Kind == "controlNotice" {
 			t.Fatal("control receipt opened a pet bubble")
 		}
+	}
+}
+
+func TestDesktopChatInterleavesReceiptsAndMovesUntimedLegacyReceiptsBeforeNewReply(t *testing.T) {
+	s := NewService(snapshotEngine{value: api.Snapshot{Items: []api.Item{
+		{ID: "first", Kind: "user", Text: "request", SeenAt: 100},
+		{ID: "last", Kind: "assistant", Text: "result", SeenAt: 300},
+	}}}, nil, nil, nil, nil)
+	s.SetControlNotices(func() ([]api.Item, uint64) {
+		return []api.Item{
+			{ID: "legacy", Kind: "controlNotice", Text: "old receipt"},
+			{ID: "middle", Kind: "controlNotice", Text: "decision accepted", SeenAt: 200},
+		}, 2
+	})
+	got := s.ChatSnapshot(0, "").Snapshot.Items
+	if len(got) != 4 || got[0].ID != "legacy" || got[1].ID != "first" || got[2].ID != "middle" || got[3].ID != "last" {
+		t.Fatalf("desktop transcript order: %+v", got)
+	}
+	if raw := s.Snapshot().Items; len(raw) != 4 || raw[0].ID != "first" || raw[1].ID != "last" {
+		t.Fatalf("presentation sort changed Runtime item order: %+v", raw)
 	}
 }
 

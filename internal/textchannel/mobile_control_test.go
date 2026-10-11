@@ -9,6 +9,33 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
+func TestControlNoticeKeepsFirstFeedbackTimeAcrossDuplicateAndRestart(t *testing.T) {
+	root := t.TempDir()
+	s, err := Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := Inbound{Channel: "telegram", Conversation: "owner", ID: "same"}
+	if got := s.Publish(in, "已提交"); got != "已提交" {
+		t.Fatal(got)
+	}
+	before := s.Notices()
+	if len(before) != 1 || before[0].SeenAt <= 0 {
+		t.Fatal(before)
+	}
+	if got := s.Publish(in, "different"); got != "已提交" {
+		t.Fatal("duplicate feedback changed", got)
+	}
+	reopened, err := Open(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := reopened.Notices()
+	if len(after) != 1 || after[0].SeenAt != before[0].SeenAt || after[0].Text != "已提交" {
+		t.Fatal("receipt presentation changed after restart", after)
+	}
+}
+
 func TestMultiQuestionCollectEditRestartAndSubmitOnce(t *testing.T) {
 	root := t.TempDir()
 	var decisions []api.Decision

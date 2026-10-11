@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
@@ -35,6 +36,7 @@ type Outbound struct{ Channel, Conversation, ID, Text string }
 type Notice struct {
 	ID, Text string
 	Origin   Origin
+	SeenAt   int64
 }
 
 type Origin struct{ Channel, Conversation string }
@@ -57,6 +59,7 @@ type document struct {
 	Claims                     map[string]claim               // native request ID, shared across transports
 	Answers                    map[string]map[string][]string // non-secret answers waiting on one native request
 	Replies                    map[string]string              // original channel message ID -> immutable feedback
+	ReplyTimes                 map[string]int64               // Unix microseconds of the original feedback
 	Cards                      map[string]cardBinding         // confirmed transport message ID -> native prompt
 	ReplyOrder                 []string
 }
@@ -70,7 +73,7 @@ type Store struct {
 
 func Open(root string, decide func(context.Context, api.Decision) error) (*Store, error) {
 	s := &Store{path: filepath.Join(root, "text-channel-control.json"), decide: decide, secretAnswers: map[string]map[string][]string{}}
-	s.state = document{Version: 1, Origins: map[string]Origin{}, Prompts: map[string]prompt{}, Claims: map[string]claim{}, Answers: map[string]map[string][]string{}, Replies: map[string]string{}, Cards: map[string]cardBinding{}}
+	s.state = document{Version: 1, Origins: map[string]Origin{}, Prompts: map[string]prompt{}, Claims: map[string]claim{}, Answers: map[string]map[string][]string{}, Replies: map[string]string{}, ReplyTimes: map[string]int64{}, Cards: map[string]cardBinding{}}
 	b, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -86,6 +89,9 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 	}
 	if s.state.Cards == nil {
 		s.state.Cards = map[string]cardBinding{}
+	}
+	if s.state.ReplyTimes == nil {
+		s.state.ReplyTimes = map[string]int64{}
 	}
 	if s.state.ReplyOrder == nil && len(s.state.Replies) > 0 {
 		for key := range s.state.Replies {
@@ -892,6 +898,7 @@ func (s *Store) reply(key, body string) string {
 	}
 	s.state.ReplyOrder = append(s.state.ReplyOrder, key)
 	s.state.Replies[key] = body
+	s.state.ReplyTimes[key] = time.Now().UnixMicro()
 	_ = s.save()
 	return body
 }
@@ -916,7 +923,7 @@ func (s *Store) Notices() []Notice {
 		if len(parts) == 3 {
 			origin = Origin{Channel: parts[0], Conversation: parts[1]}
 		}
-		result = append(result, Notice{ID: hex.EncodeToString(h[:]), Text: body, Origin: origin})
+		result = append(result, Notice{ID: hex.EncodeToString(h[:]), Text: body, Origin: origin, SeenAt: s.state.ReplyTimes[key]})
 	}
 	return result
 }

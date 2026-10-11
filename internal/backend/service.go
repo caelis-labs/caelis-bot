@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -362,6 +363,21 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 			items = append(items, item)
 		}
 	}
+	// Runtime chat and channel receipts are stored independently. Merge only the
+	// desktop transcript by their local first-seen times; Runtime item order and
+	// approval authority remain untouched. Legacy receipts have no time, so keep
+	// them ahead of newer chat instead of appending them after today's reply.
+	slices.SortStableFunc(items, func(a, b api.Item) int {
+		if a.SeenAt == 0 && b.SeenAt == 0 && a.Kind != b.Kind {
+			if a.Kind == "controlNotice" {
+				return -1
+			}
+			if b.Kind == "controlNotice" {
+				return 1
+			}
+		}
+		return cmp.Compare(a.SeenAt, b.SeenAt)
+	})
 	v.Items = items
 	return api.ChatUpdate{Changed: true, Snapshot: v}
 }

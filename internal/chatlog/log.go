@@ -81,6 +81,7 @@ func (l *Log) Observe(items []api.Item) {
 				continue
 			}
 			found = true
+			item.SeenAt = old.SeenAt
 			if same(old, item) {
 				break
 			}
@@ -90,6 +91,7 @@ func (l *Log) Observe(items []api.Item) {
 			break
 		}
 		if !found {
+			item.SeenAt = time.Now().UnixMicro()
 			l.items = append(l.items, item)
 			l.dirty[key(item)] = item
 			l.revision++
@@ -169,14 +171,23 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	known := map[string]bool{}
-	for _, i := range l.items {
-		known[key(i)] = true
+	known := map[string]int{}
+	for n, i := range l.items {
+		known[key(i)] = n
 	}
 	prefix := make([]api.Item, 0, len(older))
 	for n := len(older) - 1; n >= 0; n-- {
-		if !known[key(older[n])] {
-			prefix = append(prefix, older[n])
+		previous := older[n]
+		if pos, exists := known[key(previous)]; exists {
+			// The Runtime may replay this item before the disk cache loads. Keep
+			// its original presentation position while retaining the live text.
+			if l.items[pos].SeenAt != previous.SeenAt {
+				l.items[pos].SeenAt = previous.SeenAt
+				l.dirty[key(previous)] = l.items[pos]
+				l.revision++
+			}
+		} else {
+			prefix = append(prefix, previous)
 		}
 	}
 	l.items = append(prefix, l.items...)

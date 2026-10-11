@@ -96,6 +96,7 @@ export interface ExecutionSettings {
 }
 export interface Item {
   requestId: string;
+  seenAt?: number;
   turnKey: string;
   id: string;
   kind: string;

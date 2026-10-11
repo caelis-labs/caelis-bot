@@ -228,7 +228,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		}
 		items := make([]api.Item, 0, len(notices))
 		for _, notice := range notices {
-			items = append(items, api.Item{ID: "control:" + notice.ID, Kind: "controlNotice", Text: notice.Text, Status: "completed"})
+			items = append(items, api.Item{ID: "control:" + notice.ID, Kind: "controlNotice", Text: notice.Text, Status: "completed", SeenAt: notice.SeenAt})
 		}
 		return items, revision
 	})

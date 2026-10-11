@@ -63,7 +63,9 @@ type Review struct {
 }
 type Item struct {
 	// RequestID correlates a local submission with an authoritative native input.
-	RequestID string              `json:"requestId"`
+	RequestID string `json:"requestId"`
+	// SeenAt is local presentation order in Unix microseconds, not Runtime authority.
+	SeenAt    int64               `json:"seenAt,omitempty"`
 	TurnKey   string              `json:"turnKey"`
 	ID        string              `json:"id"`
 	Kind      string              `json:"kind"`
