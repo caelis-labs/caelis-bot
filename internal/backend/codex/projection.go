@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -326,13 +328,49 @@ func (s *Session) addArtifact(view *api.Item, path string) {
 		path = filepath.Join(s.opts.Directory, path)
 	}
 	path = filepath.Clean(path)
+	file, ok := existingArtifactFile(path)
+	if !ok {
+		return
+	}
 	id := opaque("artifact", path)
-	s.artifacts[id] = path
 	if s.binding.Artifacts == nil {
 		s.binding.Artifacts = map[string]string{}
 	}
-	s.binding.Artifacts[id] = path
+	if s.binding.Artifacts[id] != file {
+		previous, hadPrevious := s.binding.Artifacts[id]
+		s.binding.Artifacts[id] = file
+		if s.opts.StateFile != "" {
+			if err := s.save(); err != nil {
+				if hadPrevious {
+					s.binding.Artifacts[id] = previous
+				} else {
+					delete(s.binding.Artifacts, id)
+				}
+				return
+			}
+		}
+	}
+	s.artifacts[id] = file
 	view.Artifacts = append(view.Artifacts, api.Artifact{ID: id, Name: filepath.Base(path)})
+}
+
+// Native citations may append a line number to a real local file. Keep that
+// label and its original opaque ID, but reveal the file rather than `file:line`.
+func existingArtifactFile(path string) (string, bool) {
+	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+		return path, true
+	}
+	at := strings.LastIndexByte(path, ':')
+	if at <= 0 || at == len(path)-1 {
+		return "", false
+	}
+	// Use the final colon, so Windows drive prefixes are not mistaken for lines.
+	base, line := path[:at], path[at+1:]
+	if n, err := strconv.Atoi(line); err != nil || n <= 0 {
+		return "", false
+	}
+	info, err := os.Stat(base)
+	return base, err == nil && info.Mode().IsRegular()
 }
 func (s *Session) applyEvent(event Notification) {
 	if len(event.RequestID) > 0 {

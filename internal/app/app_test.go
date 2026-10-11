@@ -407,7 +407,7 @@ func TestNotebookSkillIsResidentOnlyAndRegeneratesExternalNotes(t *testing.T) {
 	e.mu.Lock()
 	binding := e.tools.Clone()
 	e.mu.Unlock()
-	if binding.NotebookDirectory != filepath.Join(root, "Notebook") || !strings.Contains(binding.SkillInstructions, a.skillPath) || strings.Contains(binding.Instructions, a.skillPath) {
+	if binding.NotebookDirectory != filepath.Join(root, "Notebook") || !strings.Contains(binding.SkillInstructions, a.skillPath) || !strings.Contains(binding.Instructions, "read the bot-core Skill") || strings.Contains(binding.Instructions, a.skillPath) || strings.Contains(binding.WorkerInstructions, "bot-core") {
 		t.Fatal("Notebook/skill not bound")
 	}
 	if strings.Contains(binding.WorkerInstructions, "Notebook") || strings.Contains(binding.WorkerInstructions, a.skillPath) {

@@ -144,13 +144,42 @@ func (s *Session) refreshReferences(ctx context.Context, c *Client) {
 func (s *Session) Artifact(id string) (string, error) {
 	s.mu.Lock()
 	path, ok := s.artifacts[id]
+	directory := s.opts.Directory
 	s.mu.Unlock()
 	if !ok {
-		return "", errors.New("未知的文件")
+		path, ok = legacyCoreCitation(directory, id)
+		if !ok {
+			return "", errors.New("未知的文件")
+		}
 	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	file, valid := existingArtifactFile(path)
+	if !valid {
 		return "", errors.New("文件已不可用")
 	}
-	return path, nil
+	return file, nil
+}
+
+// Old local chat rows retain citation IDs, while a renewed Runtime may no
+// longer retain their path map. Recover only exact IDs of the host-managed
+// bot-core file, including the old :line suffix used in the screenshot flow.
+func legacyCoreCitation(directory, id string) (string, bool) {
+	path := filepath.Join(directory, ".agents", "skills", "bot-core", "SKILL.md")
+	want := filepath.Join(filepath.Dir(directory), "app-skills", "bot-core", "SKILL.md")
+	actual, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", false
+	}
+	want, err = filepath.EvalSymlinks(want)
+	if err != nil || filepath.Clean(actual) != filepath.Clean(want) {
+		return "", false
+	}
+	if _, valid := existingArtifactFile(path); !valid {
+		return "", false
+	}
+	for line := 1; line <= 999; line++ {
+		if opaque("artifact", fmt.Sprintf("%s:%d", path, line)) == id {
+			return path, true
+		}
+	}
+	return "", false
 }

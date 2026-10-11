@@ -510,6 +510,7 @@ func (a *Application) Start() error {
 		if err == nil {
 			config := bridge.Config(executable)
 			if a.skillPath != "" {
+				config.Instructions = botskills.Bootstrap()
 				config.SkillInstructions = botskills.Instructions(a.skillPath)
 				config.BuiltinSkillRoots = []string{filepath.Dir(a.skillPath)}
 			}

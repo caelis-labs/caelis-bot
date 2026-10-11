@@ -194,8 +194,8 @@ func TestNativeProgressiveSkill(t *testing.T) {
 	if !correlated {
 		t.Fatal("native user input did not preserve submission identity")
 	}
-	if !strings.Contains(initial[1], "Keep your Notebook and `MEMORY.md` useful during") || !strings.Contains(initial[1], "use `bot_dream` when it is available") {
-		t.Fatal("new bot-core memory or context guidance did not load progressively")
+	if !strings.Contains(initial[1], "references/memory.md") || !strings.Contains(initial[1], "references/interactions.md") || strings.Contains(initial[1], "Supply a complete handoff") {
+		t.Fatal("bot-core routes or progressive disclosure missing")
 	}
 	old := s.ConversationState().Session
 	r, err = resident.SubmitUser(ctx, api.Submission{ID: "native-dream", Text: "Continue the skill check and renew your context with bot_dream."}, nil)

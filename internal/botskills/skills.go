@@ -101,9 +101,14 @@ func installFile(path string, body []byte) error {
 	return nil
 }
 
-// Instructions exposes only standard skill metadata and a file locator. Both
-// application adapters carry this scoped catalog on start/resume. Reading the
-// body/references is a model tool action, never automatic prefix assembly.
+// Bootstrap is the resident Bot's short, application-scoped session instruction.
+func Bootstrap() string {
+	return "You are Caelis Bot. At the start of each new Bot session, read the bot-core Skill before handling user work. Load its references only when relevant.\n"
+}
+
+// Instructions exposes standard skill metadata and a file locator to Codex.
+// Caelis uses native skill roots. Reading the body/references remains a model
+// tool action, never automatic prefix assembly.
 func Instructions(skillPath string) string {
 	var out strings.Builder
 	out.WriteString("\n## Skills\n\nSkills provide instructions in SKILL.md files. Read a skill's file when its description applies, then follow linked references only as needed. Resolve relative references from that skill's directory.\n\n")

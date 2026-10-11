@@ -825,6 +825,53 @@ func TestKnownLocalArtifactHasReadableTextAndOpaqueAction(t *testing.T) {
 	}
 }
 
+func TestSkillCitationLineResolvesAndSurvivesRestart(t *testing.T) {
+	root := t.TempDir()
+	notebook := filepath.Join(root, "Notebook")
+	skillDir := filepath.Join(root, "app-skills", "bot-core")
+	linkDir := filepath.Join(notebook, ".agents", "skills")
+	for _, dir := range []string{skillDir, linkDir} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skill := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(skill, []byte("# Core\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(skillDir, filepath.Join(linkDir, "bot-core")); err != nil {
+		t.Skipf("skill symlink unavailable: %v", err)
+	}
+	linkedSkill := filepath.Join(linkDir, "bot-core", "SKILL.md")
+	state := filepath.Join(root, "conversation.json")
+	s := NewSession(SessionOptions{Directory: notebook, StateFile: state})
+	defer s.cancelLife()
+	s.applyItem("turn", nativeItem{ID: "reply", Type: "agentMessage", Text: "[SKILL.md:47](" + linkedSkill + ":47)"}, true)
+	view := s.Snapshot().Items[0]
+	if view.Text != "SKILL.md:47" || len(view.Artifacts) != 1 || view.Artifacts[0].Name != "SKILL.md:47" {
+		t.Fatal(view)
+	}
+	got, err := s.Artifact(view.Artifacts[0].ID)
+	if err != nil || got != linkedSkill {
+		t.Fatal(got, err)
+	}
+	reopened := NewSession(SessionOptions{Directory: notebook, StateFile: state})
+	defer reopened.cancelLife()
+	got, err = reopened.Artifact(view.Artifacts[0].ID)
+	if err != nil || got != linkedSkill {
+		t.Fatal("persisted citation", got, err)
+	}
+	// Older SQLite rows kept the opaque ID but not the Runtime's path map.
+	legacy := opaque("artifact", linkedSkill+":108")
+	got, err = reopened.Artifact(legacy)
+	if err != nil || got != linkedSkill {
+		t.Fatal("legacy citation", got, err)
+	}
+	if _, err := reopened.Artifact(opaque("artifact", filepath.Join(root, "private.txt")+":108")); err == nil {
+		t.Fatal("unbound citation accepted")
+	}
+}
+
 func TestReadSnapshotCannotOverwriteAlreadyStreamedText(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	sendSynthetic(t, s, "first-live-input")

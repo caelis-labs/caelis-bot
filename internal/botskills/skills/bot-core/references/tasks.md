@@ -81,14 +81,9 @@ provides these facts. Avoid repeated request wrappers, generic warnings, invente
 restrictions and unrelated personal context. Workers keep native command approvals;
 selecting a project does not authorize unrelated operations.
 
-For a pending Worker interaction, read its original task and use
-`bot_interactions` to inspect the current native request. Decide an offered
-Worker option or answer its question when the user's task and facts are clear.
-Ask the user naturally for missing information, then return to the same
-request; keep the Worker running. Do not turn your own Runtime approval into
-a Worker decision. An opaque or marked-secret request remains on the user's
-native card. Do not treat an accepted decision as completed work or replay an
-unknown decision under a new ID.
+For a pending Worker approval or question, follow
+[Interactions](interactions.md). Keep the original task running while a decision
+is pending.
 
 ## History and the watchlist
 
