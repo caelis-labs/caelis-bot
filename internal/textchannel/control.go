@@ -245,7 +245,7 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 			}
 			if s.state.Claims[a.ID].State == "" {
 				for number, o := range p.Options {
-					lines = append(lines, fmt.Sprintf("[%d] %s", number+1, meaning(o)))
+					lines = append(lines, fmt.Sprintf("[%d] %s", number+1, o.Label))
 				}
 				if q.Multiple && len(p.Options) > 0 {
 					example := "1"
@@ -287,9 +287,9 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 		}
 		if s.state.Claims[a.ID].State == "" {
 			for number, o := range p.Options {
-				lines = append(lines, fmt.Sprintf("[%d] %s", number+1, meaning(o)))
+				lines = append(lines, fmt.Sprintf("[%d] %s", number+1, o.Label))
 			}
-			lines = append(lines, "", "执行审批请输入", fmt.Sprintf("/approve %s 1", id))
+			lines = append(lines, "", fmt.Sprintf("提示：发送 /approve %s + 选项标号", id))
 		}
 	} else if len(a.Questions) == 0 {
 		lines = append(lines, "Runtime 没有提供可执行选项；请核对原请求。")
@@ -447,21 +447,6 @@ func label(c api.Choice) string {
 	}
 	return "Runtime 选项 " + c.ID
 }
-func meaning(o option) string {
-	value := o.Label
-	if o.Scope != "" {
-		scope := map[string]string{"once": "仅本次", "turn": "本轮", "session": "本会话", "conversation": "本次对话", "always": "始终", "rule": "规则"}[o.Scope]
-		if scope == "" {
-			scope = o.Scope
-		}
-		value += "（范围：" + scope + "）"
-	}
-	if o.Details != "" {
-		value += "；" + o.Details
-	}
-	return value
-}
-
 func IsCommand(text string) bool { return strings.HasPrefix(strings.TrimSpace(text), "/") }
 
 func cardKey(channel, conversation, messageID string) string {
@@ -958,6 +943,9 @@ func noticeFor(key, body string, seenAt int64) Notice {
 	}
 	return Notice{ID: hex.EncodeToString(h[:]), Text: body, Origin: origin, SeenAt: seenAt}
 }
+func routineAcknowledgement(body string) bool {
+	return body == "回答已提交，等待后续回复。" || body == "决定已提交，等待 Runtime 确认。"
+}
 
 func (s *Store) reply(key, body string) string {
 	s.mu.Lock()
@@ -972,7 +960,7 @@ func (s *Store) reply(key, body string) string {
 	_ = s.save()
 	observer := s.onNotice
 	s.mu.Unlock()
-	if observer != nil && !strings.HasPrefix(key, "bot\x00resident\x00") {
+	if observer != nil && !strings.HasPrefix(key, "bot\x00resident\x00") && !routineAcknowledgement(body) {
 		observer(noticeFor(key, body, seenAt))
 	}
 	return body
@@ -992,7 +980,7 @@ func (s *Store) Notices() []Notice {
 			continue // internal Guardian tool result, not a user chat receipt
 		}
 		body, exists := s.state.Replies[key]
-		if !exists {
+		if !exists || routineAcknowledgement(body) {
 			continue
 		}
 		result = append(result, noticeFor(key, body, s.state.ReplyTimes[key]))

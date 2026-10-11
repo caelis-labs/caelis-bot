@@ -242,6 +242,9 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		feedback := app.textControl.Handle(ctx, textchannel.Inbound{Channel: "desktop", Conversation: "local", ID: input.ID, Text: input.Text}, service.Snapshot())
 		return api.Receipt{ID: input.ID, Outcome: "accepted", Message: feedback}, true, nil
 	})
+	service.SetQuestionAnswerer(func(ctx context.Context, shortID, value, requestID string) string {
+		return app.textControl.Handle(ctx, textchannel.Inbound{Channel: "desktop", Conversation: "local", ID: requestID, Text: "/answer " + shortID + " " + value}, service.Snapshot())
+	})
 	app.textControl.SetInboundObserver(func(in textchannel.Inbound) {
 		if origin, ok := app.textControl.OriginOf(in.ID); ok {
 			if origin.Channel != in.Channel {
@@ -478,7 +481,7 @@ func (a *Application) Start() error {
 		manager.ObserveWatchlist(a.host.ObserveTasks)
 		manager.ObserveStarts(func(task api.Task) {
 			status := task.Status
-			text := "Worker 已开始：" + task.Title
+			text := task.Title
 			if task.Outcome == "unknown" || status == "unknown" {
 				text = "Worker 状态待确认：" + task.Title
 			}

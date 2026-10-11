@@ -22,8 +22,7 @@ func TestTextApprovalCatalogClaimAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	commands := cardCommands(card, "/approve ")
-	if len(commands) != 1 || commands[0] != "/approve "+id+" 1" || !strings.Contains(card, "[2] 允许（范围：仅本次）") || !strings.Contains(card, "[3] 允许（范围：始终）") {
+	if !strings.Contains(card, "提示：发送 /approve "+id+" + 选项标号") || !strings.Contains(card, "[2] 允许\n") || !strings.Contains(card, "[3] 允许\n") || strings.Contains(card, "（范围：") {
 		t.Fatal(card)
 	}
 	snap := api.Snapshot{Approvals: []api.Approval{a}}
@@ -53,6 +52,30 @@ func TestTextApprovalCatalogClaimAndRestart(t *testing.T) {
 	}
 }
 
+func TestRoutineSuccessReceiptIsDurableWithoutExtraChatNotice(t *testing.T) {
+	s, err := Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var observed []Notice
+	s.SetNoticeObserver(func(n Notice) { observed = append(observed, n) })
+	in := Inbound{Channel: "weixin", Conversation: "owner", ID: "reply-1"}
+	const ack = "回答已提交，等待后续回复。"
+	if got := s.Publish(in, ack); got != ack {
+		t.Fatal(got)
+	}
+	if got := s.Publish(in, ack); got != ack {
+		t.Fatal(got)
+	}
+	if len(observed) != 0 || len(s.Notices()) != 0 {
+		t.Fatalf("routine receipt consumed a message: %+v %+v", observed, s.Notices())
+	}
+	in.ID = "stale-command"
+	if got := s.Publish(in, "原请求已处理。"); got != "原请求已处理。" || len(observed) != 1 || len(s.Notices()) != 1 {
+		t.Fatalf("stale command lost feedback: %q %+v", got, observed)
+	}
+}
+
 func TestEveryGeneratedApprovalOptionLineSubmitsItsNativeID(t *testing.T) {
 	choices := []api.Choice{{ID: "deny", Label: "拒绝"}, {ID: "allow-once", Label: "允许", Scope: "once"}, {ID: "allow-all", Label: "允许", Scope: "always"}}
 	for index, choice := range choices {
@@ -67,8 +90,7 @@ func TestEveryGeneratedApprovalOptionLineSubmitsItsNativeID(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			commands := cardCommands(card, "/approve ")
-			if len(commands) != 1 || commands[0] != fmt.Sprintf("/approve %s 1", id) || !strings.Contains(card, fmt.Sprintf("[%d] %s", index+1, meaning(option{ID: choice.ID, Label: choice.Label, Scope: choice.Scope}))) {
+			if !strings.Contains(card, "提示：发送 /approve "+id+" + 选项标号") || !strings.Contains(card, fmt.Sprintf("[%d] %s", index+1, choice.Label)) {
 				t.Fatal(card)
 			}
 			command := fmt.Sprintf("/approve %s %d", id, index+1)

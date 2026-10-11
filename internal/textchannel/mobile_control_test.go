@@ -116,7 +116,7 @@ func TestURLApprovalListsNativeDecisionsAndClassifiesLocalAddress(t *testing.T) 
 			s, _ := Open(t.TempDir(), func(_ context.Context, d api.Decision) error { decisions = append(decisions, d); return nil })
 			a := api.Approval{ID: "url-native", Owner: "conversation", Status: "pending", URL: tc.url, Choices: []api.Choice{{ID: "accept", Label: "已完成授权"}, {ID: "decline", Label: "拒绝"}, {ID: "cancel", Label: "取消"}}}
 			card, id, err := s.Card(a)
-			if err != nil || !strings.Contains(card, tc.url) || !strings.Contains(card, "打开链接本身不代表成功") || strings.Contains(card, "本机或私网") != tc.local || len(cardCommands(card, "/approve ")) != 1 || !strings.Contains(card, "[3] 取消") {
+			if err != nil || !strings.Contains(card, tc.url) || !strings.Contains(card, "打开链接本身不代表成功") || strings.Contains(card, "本机或私网") != tc.local || !strings.Contains(card, "提示：发送 /approve "+id+" + 选项标号") || !strings.Contains(card, "[3] 取消") {
 				t.Fatalf("card %q, id %q, err %v", card, id, err)
 			}
 			if len(decisions) != 0 {

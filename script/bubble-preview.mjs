@@ -218,6 +218,22 @@ if(previewParams.get('fixture')==='quote-worker'){
   const open=setInterval(()=>{const button=document.querySelector('.sent-quote');if(button){clearInterval(open);button.click();}},50);
  }
 }
+if(['control-ux','control-ux-question'].includes(previewParams.get('fixture'))){
+ const now=Date.now()*1000;
+ snapshot.items=[
+  {id:'fixture-request',turnKey:'fixture',kind:'user',text:'请检查 Calculator，并问我选哪项。',status:'completed',artifacts:[],seenAt:now-180000000},
+  {id:'fixture-explanation',turnKey:'fixture',kind:'assistant',text:'我会核对当前可用选项。',status:'completed',artifacts:[],seenAt:now-120000000},
+  {id:'fixture-question',turnKey:'fixture',kind:'assistant',text:'[Q5] 测试题：请选择一个字。',questionCards:[{shortId:'Q5',title:'测试题：请选择一个字。',options:['甲','乙','丙'],state:''},{shortId:'Q6',title:'测试题：输入一句简短说明。',options:[],state:''}],status:'completed',artifacts:[],seenAt:now-60000000}
+ ];
+ snapshot.approvals=[
+  {id:'fixture-approval-one',turnKey:'fixture',title:'Allow Computer Use to use "Calculator"?',action:'cua_repl',taskTitle:'检查 Calculator',status:'pending',target:'Calculator',questions:[],choices:[{id:'allow-once',label:'允许这一次',scope:'once'},{id:'allow-session',label:'允许本次会话',scope:'session'},{id:'allow-always',label:'总是允许',scope:'always'},{id:'deny',label:'拒绝',scope:'deny'}]},
+  {id:'fixture-approval-two',turnKey:'fixture',title:'另一个待处理请求',action:'read file',status:'pending',target:'notes.txt',questions:[],choices:[{id:'allow',label:'允许',scope:'once'},{id:'deny',label:'拒绝',scope:'deny'}]}
+ ];
+ Object.assign(snapshot,{phase:'waiting_approval',activity:{kind:'read',target:'Calculator'},canSend:false,canSteer:false,canInterrupt:true});
+ if(previewParams.get('fixture')==='control-ux'){
+  const open=setInterval(()=>{const button=document.querySelector('.approval-dock-trigger');if(button){clearInterval(open);button.click();}},50);
+ }
+}
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 window.fixtureSendSetup=mode=>{
  clearInterval(streamTimer);cancelAnimationFrame(recordFrame);sendMode=mode;sendCount=0;draftReads=0;acceptedReads=0;staleHeld=false;

@@ -94,20 +94,7 @@ func (s *Store) AsyncButtonQuestions(itemID string) []AsyncButtonQuestion {
 	if fingerprint == "" {
 		return nil
 	}
-	var result []AsyncButtonQuestion
-	for index := 0; ; index++ {
-		found := false
-		for short, q := range s.state.AsyncQuestions {
-			if q.ItemID == itemID && q.Fingerprint == fingerprint && q.Index == index {
-				result = append(result, AsyncButtonQuestion{ShortID: short, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...)})
-				found = true
-				break
-			}
-		}
-		if !found {
-			return result
-		}
-	}
+	return s.asyncButtonQuestionsLocked(itemID, fingerprint)
 }
 
 func (s *Store) SetAsyncAnswerer(answer func(context.Context, Inbound, string) (api.Receipt, error)) {
@@ -218,9 +205,30 @@ func (s *Store) asyncCard(item api.Item, owner, workID string) (api.Item, error)
 		}
 	}
 	item.Text = s.asyncCardTextLocked(item.ID, fingerprint)
+	item.QuestionCards = nil
+	for _, q := range s.asyncButtonQuestionsLocked(item.ID, fingerprint) {
+		item.QuestionCards = append(item.QuestionCards, api.QuestionCard{ShortID: q.ShortID, Title: q.Title, Options: q.Options, State: q.State})
+	}
 	s.mu.Unlock()
 	item.AsyncCallID, item.AsyncQuestions = "", nil
 	return item, nil
+}
+
+func (s *Store) asyncButtonQuestionsLocked(itemID, fingerprint string) []AsyncButtonQuestion {
+	var result []AsyncButtonQuestion
+	for index := 0; ; index++ {
+		found := false
+		for short, q := range s.state.AsyncQuestions {
+			if q.ItemID == itemID && q.Fingerprint == fingerprint && q.Index == index {
+				result = append(result, AsyncButtonQuestion{ShortID: short, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...)})
+				found = true
+				break
+			}
+		}
+		if !found {
+			return result
+		}
+	}
 }
 
 func (s *Store) asyncCardTextLocked(itemID, fingerprint string) string {
@@ -349,6 +357,9 @@ func (s *Store) handleAsync(ctx context.Context, in Inbound, snapshot api.Snapsh
 		feedback = "回答投递后本地状态保存失败；请先核对 Bot 回复，不会自动重发。"
 	}
 	updated := api.Item{ID: q.ItemID, TurnKey: q.TurnKey, Kind: "assistant", Status: "completed", Text: s.asyncCardTextLocked(q.ItemID, q.Fingerprint)}
+	for _, question := range s.asyncButtonQuestionsLocked(q.ItemID, q.Fingerprint) {
+		updated.QuestionCards = append(updated.QuestionCards, api.QuestionCard{ShortID: question.ShortID, Title: question.Title, Options: question.Options, State: question.State})
+	}
 	observer := s.onAsyncUpdate
 	s.mu.Unlock()
 	if observer != nil {

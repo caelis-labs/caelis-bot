@@ -74,7 +74,7 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	freshWindow(b, "prior-owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
-	if len(texts) != 1 || !strings.Contains(texts[0], "[1] 允许（范围：仅本次）") || !strings.Contains(texts[0], "执行审批请输入\n/approve A1 1") {
+	if len(texts) != 1 || !strings.Contains(texts[0], "**[A1]") || !strings.Contains(texts[0], "[1] 允许") || !strings.Contains(texts[0], "**提示：发送 /approve A1 + 选项标号**") {
 		t.Fatalf("missing text card: %#v", texts)
 	}
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/approve A1 1", ContextToken: "ctx"}}
@@ -83,12 +83,12 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	if len(input) != 1 || input[0].ID != "weixin:bot:1" || input[0].Conversation != "owner\x00ctx" || input[0].Text != "/approve A1 1" {
 		t.Fatal("owner command was not journaled once", input)
 	}
-	if sent.Load() != 1 || len(texts) != 2 || !strings.Contains(texts[1], "决定已提交") {
+	if sent.Load() != 1 || len(texts) != 1 {
 		t.Fatalf("decision/receipt: %d %#v", sent.Load(), texts)
 	}
 	snapshot.Approvals[0].Status = "resolved"
 	b.output(t.Context(), p)
-	if len(texts) != 3 || !strings.Contains(texts[2], "已处理") {
+	if len(texts) != 1 {
 		t.Fatalf("terminal mirror: %#v", texts)
 	}
 }

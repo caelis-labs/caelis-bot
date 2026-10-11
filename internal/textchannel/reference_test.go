@@ -15,7 +15,7 @@ func TestConfirmedCardReferenceUsesExactNativeChoiceAndSurvivesRestart(t *testin
 	s, _ := Open(root, decide)
 	a := api.Approval{ID: "native", TurnKey: "worker-turn", Owner: "task", Title: "创建 GitHub Issue", Target: "repo/example", Status: "pending", Choices: []api.Choice{{ID: "deny", Label: "拒绝"}, {ID: "once", Label: "仅允许本次", Scope: "once"}}}
 	card, _, err := s.Card(a)
-	if err != nil || !strings.Contains(card, "[A1] 创建 GitHub Issue\n目标：repo/example") || !strings.Contains(card, "[2] 仅允许本次") || !strings.HasSuffix(card, "执行审批请输入\n/approve A1 1") {
+	if err != nil || !strings.Contains(card, "[A1] 创建 GitHub Issue\n目标：repo/example") || !strings.Contains(card, "[2] 仅允许本次") || !strings.HasSuffix(card, "提示：发送 /approve A1 + 选项标号") {
 		t.Fatalf("card %q: %v", card, err)
 	}
 	if err := s.BindCard("telegram", "chat", "77", a); err != nil {

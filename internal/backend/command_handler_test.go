@@ -41,6 +41,31 @@ func TestDesktopControlCommandBypassesOrdinarySubmitGate(t *testing.T) {
 	}
 }
 
+func TestDesktopQuestionActionUsesControlWithoutTouchingDraft(t *testing.T) {
+	s := NewService(snapshotEngine{}, nil, nil, nil, nil)
+	if err := s.ConfigureDraft(filepath.Join(t.TempDir(), "draft.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveDraft(api.Draft{Text: "unsent ordinary message"}); err != nil {
+		t.Fatal(err)
+	}
+	s.restarting = true
+	calls := 0
+	s.SetQuestionAnswerer(func(_ context.Context, shortID, answer, requestID string) string {
+		calls++
+		if shortID != "Q7" || answer != "2" || requestID != "desktop-q7" {
+			t.Fatalf("changed answer identity: %s %s %s", shortID, answer, requestID)
+		}
+		return "回答已提交，等待后续回复。"
+	})
+	if got := s.AnswerQuestion(t.Context(), "Q7", "2", "desktop-q7"); got != "回答已提交，等待后续回复。" || calls != 1 {
+		t.Fatalf("%q, calls=%d", got, calls)
+	}
+	if got := s.Draft().Text; got != "unsent ordinary message" {
+		t.Fatalf("question action consumed the unsent draft: %q", got)
+	}
+}
+
 func TestQuotedExplicitControlCommandUsesOnlyCurrentBody(t *testing.T) {
 	s := NewService(snapshotEngine{}, nil, nil, nil, nil)
 	if err := s.ConfigureDraft(filepath.Join(t.TempDir(), "draft.json")); err != nil {

@@ -68,6 +68,7 @@ type Service struct {
 	consumeFiles                func([]string) error
 	submissionObserver          func(api.Submission, []api.InputFile, api.Receipt)
 	commandHandler              func(context.Context, api.Submission) (api.Receipt, bool, error)
+	questionAnswerer            func(context.Context, string, string, string) string
 	controlNotices              func() ([]api.Item, uint64)
 	guardianNoticeAccepted      func(string) bool
 	openURL                     func(string) error
@@ -654,6 +655,23 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 func (s *Service) SetCommandHandler(handler func(context.Context, api.Submission) (api.Receipt, bool, error)) {
 	s.mu.Lock()
 	s.commandHandler = handler
+	s.mu.Unlock()
+}
+
+// AnswerQuestion is the desktop's direct control entry. The shared text
+// controller still owns the short reference, original request and receipt.
+func (s *Service) AnswerQuestion(ctx context.Context, shortID, value, requestID string) string {
+	s.mu.Lock()
+	answer := s.questionAnswerer
+	s.mu.Unlock()
+	if answer == nil || requestID == "" || shortID == "" {
+		return "问题暂不可用。"
+	}
+	return answer(ctx, shortID, value, requestID)
+}
+func (s *Service) SetQuestionAnswerer(answer func(context.Context, string, string, string) string) {
+	s.mu.Lock()
+	s.questionAnswerer = answer
 	s.mu.Unlock()
 }
 func (s *Service) SetUserSubmitter(f func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)) {

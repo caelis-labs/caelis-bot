@@ -63,6 +63,10 @@ func copyItem(i api.Item) api.Item {
 		task := *i.Task
 		i.Task = &task
 	}
+	i.QuestionCards = append([]api.QuestionCard(nil), i.QuestionCards...)
+	for n := range i.QuestionCards {
+		i.QuestionCards[n].Options = append([]string(nil), i.QuestionCards[n].Options...)
+	}
 	if i.Screen != nil {
 		screen := *i.Screen
 		screen.Images = append([]api.ScreenImage(nil), screen.Images...)

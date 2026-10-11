@@ -22,13 +22,14 @@ import (
 	tg "github.com/mymmrac/telego"
 )
 
-func TestWeixinControlReceiptAndUserMirrorOnTelegram(t *testing.T) {
+func TestWeixinExceptionalControlReceiptAndUserMirrorOnTelegram(t *testing.T) {
 	root := t.TempDir()
 	control, err := textchannel.Open(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	control.Publish(textchannel.Inbound{Channel: "weixin", Conversation: "ctx", ID: "msg"}, "决定已提交，等待 Runtime 确认。")
+	control.Publish(textchannel.Inbound{Channel: "weixin", Conversation: "ctx", ID: "uncertain"}, "决定结果暂不确定，请核对原请求；不会重复提交。")
 	if err := control.RecordOrigin("wx-user", textchannel.Origin{Channel: "weixin", Conversation: "owner\x00ctx"}); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +40,7 @@ func TestWeixinControlReceiptAndUserMirrorOnTelegram(t *testing.T) {
 	b.baselineReady = true
 	b.mirrorNotices(t.Context(), c)
 	b.mirror(t.Context(), c, snapshot)
-	if len(c.texts) != 3 || c.texts[0] != "决定已提交，等待 Runtime 确认。" || !strings.Contains(c.texts[1], "用户\nhello") && !strings.Contains(c.texts[1], "User\nhello") || c.texts[2] != "reply" {
+	if len(c.texts) != 3 || c.texts[0] != "决定结果暂不确定，请核对原请求；不会重复提交。" || !strings.Contains(c.texts[1], "用户\nhello") && !strings.Contains(c.texts[1], "User\nhello") || c.texts[2] != "reply" {
 		t.Fatalf("mirror: %#v", c.texts)
 	}
 }

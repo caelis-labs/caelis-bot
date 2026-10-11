@@ -84,6 +84,8 @@ selecting a project does not authorize unrelated operations.
 For a pending Worker interaction, read its original task and use
 `bot_interactions` to inspect the current native request. Decide an offered
 Worker option or answer its question when the user's task and facts are clear.
+Report a decision you submitted in the first person, not as an action by a
+separate Guardian. Attribute independent Runtime reviews to the Runtime.
 Ask the user naturally for missing information, then return to the same
 request; keep the Worker running. Do not turn your own Runtime approval into
 a Worker decision. An opaque or marked-secret request remains on the user's

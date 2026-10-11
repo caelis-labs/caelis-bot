@@ -156,8 +156,9 @@ semantics. A retired connection cannot dispatch a response from its old wait.
 egress. The paired transport authenticates the owner and persists its original
 message before calling the common controller. Pending native approval/question
 catalogs receive durable `A`/`Q` numbers and immutable ordered option IDs. A
-compact card lists `[1]` with the native label and scope, then puts one exact
-example command on its own final line. `/approve A7 1`
+compact approval card lists `[1]` with the native label unchanged and ends with
+`提示：发送 /approve A7 + 选项标号`; the scope remains in the immutable native
+catalog and is not appended to the label. `/approve A7 1`
 and `/answer Q3 2` use exact current native targets; an answer's nonnumeric
 tail is passed verbatim only when that question allows free text. Each field of
 a native multi-question request gets a separate `Q` number. Answers can be
@@ -239,9 +240,14 @@ cannot promise otherwise.
 
 Desktop, Telegram and Weixin project one Bot conversation. Each companion has
 its own durable delivery ledger and mirrors visible user/assistant items,
-actionable approval/question cards, and control receipts. The desktop chat
-stores control receipts in the local IM without opening a panel or adding them
-to Runtime history. Original ingress IDs
+actionable approval/question cards, and useful control errors or uncertain
+receipts. Routine accepted answer/decision acknowledgements stay in the
+controller's durable deduplication ledger without consuming another IM or phone
+message; a later stale command still receives its actual state. The desktop
+chat shows async questions as native choice buttons or a free-text field backed
+by the same short-reference controller. Pending approvals live in a separate
+numbered action tray and disappear when no longer pending, so they never follow
+the working indicator as a late chat bubble. Original ingress IDs
 only suppress the source transport's user-message echo; another transport labels
 that item as User. A failure in one sender does not block the other's ledger.
 Initial pairing and legacy Weixin records baseline the current history instead
@@ -250,7 +256,8 @@ the Bot's subsequent visible response is mirrored. This is a snapshot projection
 not a separate Bot session or a general event bus.
 The first accepted or unconfirmed `bot_delegate` start emits one durable,
 user-visible conversation item with the task title (or a shortened prompt). It
-is mirrored with assistant text to Telegram and Weixin and shown as a compact
+is mirrored to Telegram and Weixin; Weixin emphasizes the title with Markdown,
+without a second explanatory sentence. The desktop shows a compact
 chip on the desktop. Stable request replay emits no second item. Ongoing Worker
 status and terminal output remain in the task dock; completion reaches chat
 through the Bot's visible response. This is not a full task-status mirror.
@@ -349,7 +356,7 @@ presence and disposable typing requests are independent of message receipts.
 Only owner private text and text projection of the shared conversation are in scope.
 Weixin waits for a terminal resident Turn before choosing its last assistant
 reply; completed commentary within a working Turn does not consume phone sends.
-Native approval and async question cards, control receipts, Worker-start items,
+Native approval and async question cards, exceptional control receipts, Worker-start items,
 and terminal replies are independent high-priority intents. User mirrors use a
 soft local send budget. Each actual text part reserves one slot in a durable
 owner/last-ingress window before HTTP; an old or unknown window never starts

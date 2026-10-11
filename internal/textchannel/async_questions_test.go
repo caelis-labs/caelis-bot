@@ -23,6 +23,9 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 	if card.AsyncCallID != "" || len(card.AsyncQuestions) != 0 {
 		t.Fatal("native handles escaped the display card")
 	}
+	if len(card.QuestionCards) != 1 || card.QuestionCards[0].ShortID != "Q1" || card.QuestionCards[0].Title != "选哪项？" || strings.Join(card.QuestionCards[0].Options, ",") != "甲,乙,丙" || card.QuestionCards[0].State != "" {
+		t.Fatalf("desktop question presentation lost exact options: %+v", card.QuestionCards)
+	}
 	var sent Inbound
 	var prefix string
 	s.SetAsyncAnswerer(func(_ context.Context, in Inbound, modelPrefix string) (api.Receipt, error) {
@@ -58,7 +61,7 @@ func TestAsyncQuestionCardAnswerMapsExactOptionAndSurvivesRestart(t *testing.T) 
 		t.Fatal(feedback)
 	}
 	card, err = reopened.AsyncCard(item, "runtime-owner-1")
-	if err != nil || !strings.Contains(card.Text, "回答已提交") {
+	if err != nil || !strings.Contains(card.Text, "回答已提交") || len(card.QuestionCards) != 1 || card.QuestionCards[0].State != "accepted" {
 		t.Fatalf("card did not converge: %q %v", card.Text, err)
 	}
 }

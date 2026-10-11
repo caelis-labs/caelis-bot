@@ -110,6 +110,7 @@ export interface Item {
   media?: MediaPresentation | null;
   quoted?: QuotedMessage | null;
   task?: TaskPresentation | null;
+  questionCards?: Array<QuestionCard>;
 }
 export interface LocalWorkerSettings {
   runtime: string;
@@ -197,6 +198,12 @@ export interface Question {
   multiple: boolean;
   type: string;
   options: Array<Choice>;
+}
+export interface QuestionCard {
+  shortId: string;
+  title: string;
+  options: Array<string>;
+  state: string;
 }
 export interface QuotedMessage {
   hostId?: string;

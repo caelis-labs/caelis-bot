@@ -82,8 +82,11 @@ type Item struct {
 	// It is never used to resolve a control request.
 	Quoted *QuotedMessage    `json:"quoted,omitempty"`
 	Task   *TaskPresentation `json:"task,omitempty"`
-	// Async question metadata is host-only. A card shown to the user is stored
-	// as ordinary text; these native handles never enter the renderer or IM log.
+	// QuestionCards are safe display handles for an already registered async
+	// question. Native call IDs and model envelopes remain host-only.
+	QuestionCards []QuestionCard `json:"questionCards,omitempty"`
+	// Native async call metadata is host-only. QuestionCards carry only the
+	// presentation-safe short references registered by the shared controller.
 	AsyncCallID    string          `json:"-"`
 	AsyncQuestions []AsyncQuestion `json:"-"`
 }
@@ -93,6 +96,13 @@ type TaskPresentation struct {
 	ID     string `json:"id,omitempty"`
 	Title  string `json:"title"`
 	Status string `json:"status"`
+}
+
+type QuestionCard struct {
+	ShortID string   `json:"shortId"`
+	Title   string   `json:"title"`
+	Options []string `json:"options"`
+	State   string   `json:"state"`
 }
 
 type AsyncQuestion struct {

@@ -1026,10 +1026,8 @@ func (b *Bridge) mirrorControls(ctx context.Context, p *protocol, snapshot api.S
 			if approval.Status == "pending" {
 				card, short, err := b.host.TextControl.Card(approval)
 				if err == nil && card != "" {
-					b.sendTextOnce(ctx, p, "approval:"+approval.ID+":"+short, contextToken, card)
+					b.sendTextOnce(ctx, p, "approval:"+approval.ID+":"+short, contextToken, markdownApprovalCard(card))
 				}
-			} else if approval.Status == "resolved" {
-				b.sendTextOnce(ctx, p, "approval-result:"+approval.ID, contextToken, approvalStatus(approval))
 			}
 		}
 	}
@@ -1042,25 +1040,17 @@ func (b *Bridge) mirrorPhase(ctx context.Context, p *protocol, snapshot api.Snap
 		b.sendTextOnce(ctx, p, key, token, body)
 	}
 }
-func approvalStatus(a api.Approval) string {
-	if a.Resolution == nil {
-		return "原请求已处理。"
+func markdownApprovalCard(card string) string {
+	lines := strings.Split(card, "\n")
+	if len(lines) > 0 {
+		lines[0] = "**" + lines[0] + "**"
 	}
-	for _, choice := range a.Choices {
-		if choice.ID == a.Resolution.ChoiceID && choice.Label != "" {
-			return "原请求已处理：" + choice.Label
+	for i, line := range lines {
+		if strings.HasPrefix(line, "提示：") {
+			lines[i] = "**" + line + "**"
 		}
 	}
-	switch a.Resolution.Outcome {
-	case "allowed":
-		return "原请求已处理：已允许。"
-	case "declined":
-		return "原请求已处理：已拒绝。"
-	case "cancelled":
-		return "原请求已处理：已取消。"
-	default:
-		return "原请求已处理。"
-	}
+	return strings.Join(lines, "\n")
 }
 func phaseNotice(s api.Snapshot) (string, string) {
 	if s.LastReceipt.ID == "" || s.CurrentTurn == "" {

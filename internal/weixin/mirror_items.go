@@ -47,6 +47,8 @@ func (b *Bridge) mirrorItem(ctx context.Context, p *protocol, item api.Item, kin
 	body := item.Text
 	if item.Kind == "user" {
 		body = "User: " + body
+	} else if kind == "task" && item.Task != nil && item.Task.Status != "unknown" {
+		body = "**" + item.Task.Title + "**"
 	}
 	parts := chunks(body)
 	b.mu.Lock()
