@@ -16,6 +16,22 @@ import (
 	"github.com/mymmrac/telego/telegoapi"
 )
 
+func TestAsyncQuestionCardKeepsPlainTextLinesAndCommand(t *testing.T) {
+	card := "[Q1] 选哪项？\n[1] 甲\n[2] 乙\n\n回答请输入\n/answer Q1 1"
+	parts := assistantOutboundMessages(card)
+	if len(parts) != 1 || parts[0].Text != card || parts[0].Markdown != "" {
+		t.Fatalf("question card lost its copyable lines: %#v", parts)
+	}
+	resolved := "[Q1] 选哪项？\n[1] 甲\n[2] 乙\n回答已提交。"
+	parts = assistantOutboundMessages(resolved)
+	if len(parts) != 1 || parts[0].Text != resolved || parts[0].Markdown != "" {
+		t.Fatalf("resolved card changed presentation: %#v", parts)
+	}
+	if parts = assistantOutboundMessages("[Q1] unrelated Markdown\n**bold**"); len(parts) != 1 || parts[0].Markdown == "" {
+		t.Fatalf("ordinary assistant text was treated as a card: %#v", parts)
+	}
+}
+
 func TestAmbiguousBotAPI400DiagnosticUsesOnlySafeClass(t *testing.T) {
 	for _, tc := range []struct{ description, want string }{
 		{"Bad Request: METHOD_NOT_AVAILABLE", "telegram_code"},

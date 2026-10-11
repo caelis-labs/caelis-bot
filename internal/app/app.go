@@ -224,6 +224,19 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 		service.ObserveChat(api.Snapshot{Items: []api.Item{{ID: "control:" + notice.ID, Kind: "controlNotice", Text: notice.Text, Status: "completed", SeenAt: notice.SeenAt}}})
 	}
 	app.textControl.SetNoticeObserver(showNotice)
+	app.textControl.SetAsyncUpdateObserver(func(item api.Item) {
+		service.ObserveChat(api.Snapshot{Items: []api.Item{item}})
+	})
+	app.textControl.SetAsyncAnswerer(func(ctx context.Context, in textchannel.Inbound, modelInput string) (api.Receipt, error) {
+		return backend.SubmitRemote(ctx, service, api.Submission{ID: in.ID, Text: in.Text, ModelInputOverride: modelInput}, nil)
+	})
+	service.SetCommandHandler(func(ctx context.Context, input api.Submission) (api.Receipt, bool, error) {
+		if !textchannel.IsCommand(input.Text) {
+			return api.Receipt{}, false, nil
+		}
+		feedback := app.textControl.Handle(ctx, textchannel.Inbound{Channel: "desktop", Conversation: "local", ID: input.ID, Text: input.Text}, service.Snapshot())
+		return api.Receipt{ID: input.ID, Outcome: "accepted", Message: feedback}, true, nil
+	})
 	app.textControl.SetInboundObserver(func(in textchannel.Inbound) {
 		if origin, ok := app.textControl.OriginOf(in.ID); ok {
 			if origin.Channel != in.Channel {
@@ -652,6 +665,19 @@ func (a *Application) Start() error {
 			}
 			revision = snapshot.Revision
 			a.observePluginReadiness(snapshot.Connection, &priorConnection, &priorPluginRecoveryPending)
+			for i, item := range snapshot.Items {
+				if len(item.AsyncQuestions) == 0 {
+					continue
+				}
+				card, cardErr := a.textControl.AsyncCard(item, snapshot.RuntimeOwner)
+				if cardErr != nil {
+					if a.host.ReportError != nil {
+						a.host.ReportError(cardErr)
+					}
+					continue
+				}
+				snapshot.Items[i] = card
+			}
 			a.Backend.ObserveChat(snapshot)
 			observer.Observe(snapshot)
 			if a.host.Observe != nil {

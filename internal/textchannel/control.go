@@ -63,6 +63,8 @@ type document struct {
 	ReplyTimes                 map[string]int64               // Unix microseconds of the original feedback
 	Cards                      map[string]cardBinding         // confirmed transport message ID -> native prompt
 	ReplyOrder                 []string
+	AsyncQuestions             map[string]asyncQuestion `json:"asyncQuestions,omitempty"`
+	AsyncActive                map[string]string        `json:"asyncActive,omitempty"` // item ID -> exact question fingerprint
 }
 type Store struct {
 	mu            sync.Mutex
@@ -72,11 +74,13 @@ type Store struct {
 	decide        func(context.Context, api.Decision) error
 	onNotice      func(Notice)
 	onInbound     func(Inbound)
+	onAsyncUpdate func(api.Item)
+	answerAsync   func(context.Context, Inbound, string) (api.Receipt, error)
 }
 
 func Open(root string, decide func(context.Context, api.Decision) error) (*Store, error) {
 	s := &Store{path: filepath.Join(root, "text-channel-control.json"), decide: decide, secretAnswers: map[string]map[string][]string{}}
-	s.state = document{Version: 1, Origins: map[string]Origin{}, Prompts: map[string]prompt{}, Claims: map[string]claim{}, Answers: map[string]map[string][]string{}, Replies: map[string]string{}, ReplyTimes: map[string]int64{}, Cards: map[string]cardBinding{}}
+	s.state = document{Version: 1, Origins: map[string]Origin{}, Prompts: map[string]prompt{}, Claims: map[string]claim{}, Answers: map[string]map[string][]string{}, Replies: map[string]string{}, ReplyTimes: map[string]int64{}, Cards: map[string]cardBinding{}, AsyncQuestions: map[string]asyncQuestion{}, AsyncActive: map[string]string{}}
 	b, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -95,6 +99,12 @@ func Open(root string, decide func(context.Context, api.Decision) error) (*Store
 	}
 	if s.state.ReplyTimes == nil {
 		s.state.ReplyTimes = map[string]int64{}
+	}
+	if s.state.AsyncQuestions == nil {
+		s.state.AsyncQuestions = map[string]asyncQuestion{}
+	}
+	if s.state.AsyncActive == nil {
+		s.state.AsyncActive = map[string]string{}
 	}
 	if s.state.ReplyOrder == nil && len(s.state.Replies) > 0 {
 		for key := range s.state.Replies {
@@ -632,8 +642,12 @@ func (s *Store) Handle(ctx context.Context, in Inbound, snapshot api.Snapshot) s
 	}
 	s.mu.Lock()
 	p, ok := s.state.Prompts[id]
+	_, async := s.state.AsyncQuestions[id]
 	prior := s.state.Claims[p.NativeID]
 	s.mu.Unlock()
+	if async && parts[0] == "/answer" {
+		return s.handleAsync(ctx, in, snapshot, id, key)
+	}
 	if !ok {
 		return s.reply(key, "请求编号不存在或已经失效。")
 	}

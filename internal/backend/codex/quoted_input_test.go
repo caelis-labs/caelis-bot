@@ -35,3 +35,19 @@ func TestQuotedCodexInputReachesNativeTextAndProjectsOnlyBody(t *testing.T) {
 		t.Fatalf("quoted wrapper leaked to chat: %q", visible)
 	}
 }
+
+func TestAsyncReplyCodexInputUsesOnlyEnvelopeAndKeepsVisibleCommand(t *testing.T) {
+	s, _ := sessionPair(t, "normal")
+	const envelope = "<send_user_message_question_reply>\n[{\"answer\":\"乙\"}]\n</send_user_message_question_reply>"
+	in := api.Submission{ID: "async-reply-1", Text: "/answer Q1 2", ModelInputOverride: envelope}
+	native, err := s.prepareInput(in, nil, nil)
+	if err != nil || len(native) != 1 || native[0]["text"] != envelope {
+		t.Fatalf("not exact native reply envelope: %#v %v", native, err)
+	}
+	s.binding.ContextInputs = map[string]int{in.ID: len(in.ModelQuotePrefix())}
+	s.applyItem("turn", nativeItem{ID: "user", ClientID: in.ID, Type: "userMessage", Content: []nativeInput{{Type: "text", Text: envelope}}}, true)
+	visible := s.state.Items[s.items[opaque("turn", "user")]].Text
+	if visible != "" {
+		t.Fatalf("structured reply leaked into runtime display item: %q", visible)
+	}
+}

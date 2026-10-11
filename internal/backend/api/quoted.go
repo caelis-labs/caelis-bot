@@ -51,6 +51,11 @@ func BoundQuote(q *QuotedMessage) *QuotedMessage {
 // ModelQuotePrefix is only for native model text inputs. Submission.Text stays
 // the user's visible body, so mirrored chat never repeats this wrapper.
 func (s Submission) ModelQuotePrefix() string {
+	if s.ModelInputOverride != "" {
+		// Native user-item projection removes the whole structured envelope;
+		// the local transcript keeps the original visible Text.
+		return s.ModelInputOverride
+	}
 	q := BoundQuote(s.Quoted)
 	if q == nil {
 		return ""
@@ -58,4 +63,9 @@ func (s Submission) ModelQuotePrefix() string {
 	return "<reference>\n" + quoteEscaper.Replace(q.Text) + "\n</reference>\n\n"
 }
 
-func (s Submission) ModelInputText() string { return s.ModelQuotePrefix() + s.Text }
+func (s Submission) ModelInputText() string {
+	if s.ModelInputOverride != "" {
+		return s.ModelInputOverride
+	}
+	return s.ModelQuotePrefix() + s.Text
+}

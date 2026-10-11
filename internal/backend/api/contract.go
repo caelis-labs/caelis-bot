@@ -10,12 +10,14 @@ const SilentReminder = "[[CAELIS_REMINDER_SKIP]]"
 type Snapshot struct {
 	// Maintenance is presentation-only, derived from a confirmed native Dream
 	// turn. Empty during submission uncertainty, interruption and after completion.
-	Maintenance      string `json:"maintenance,omitempty"`
-	Scheduled        bool   `json:"scheduled"`
-	Quiet            bool   `json:"quiet"`
-	BotStatus        string `json:"botStatus"`
-	HasEarlier       bool   `json:"hasEarlier"`
-	CurrentTurn      string `json:"currentTurn"`
+	Maintenance string `json:"maintenance,omitempty"`
+	Scheduled   bool   `json:"scheduled"`
+	Quiet       bool   `json:"quiet"`
+	BotStatus   string `json:"botStatus"`
+	HasEarlier  bool   `json:"hasEarlier"`
+	CurrentTurn string `json:"currentTurn"`
+	// RuntimeOwner is a host-only fence for replies to completed async items.
+	RuntimeOwner     string `json:"-"`
 	PreviewKey       string `json:"previewKey"`
 	PreviewDismissed bool   `json:"previewDismissed"`
 	Revision         uint64 `json:"revision"`
@@ -76,6 +78,15 @@ type Item struct {
 	Artifacts []Artifact          `json:"artifacts"`
 	Screen    *ScreenPresentation `json:"screen,omitempty"`
 	Media     *MediaPresentation  `json:"media,omitempty"`
+	// Async question metadata is host-only. A card shown to the user is stored
+	// as ordinary text; these native handles never enter the renderer or IM log.
+	AsyncCallID    string          `json:"-"`
+	AsyncQuestions []AsyncQuestion `json:"-"`
+}
+
+type AsyncQuestion struct {
+	Title   string
+	Options []string
 }
 
 // MediaPresentation is an App-owned, request-correlated display projection.
@@ -212,12 +223,15 @@ type Submission struct {
 	// authority grant. Adapters recheck the resident model before dispatch.
 	ScreenInput bool `json:"-"`
 	// Scheduled is host-only presentation provenance, not an authorization grant.
-	Scheduled    bool           `json:"-"`
-	ID           string         `json:"id"`
-	Text         string         `json:"text"`
-	FileIDs      []string       `json:"fileIds"`
-	ReferenceIDs []string       `json:"referenceIds"`
-	Quoted       *QuotedMessage `json:"quoted,omitempty"` // remote user-supplied context, never decision authority
+	Scheduled bool `json:"-"`
+	// ModelInputOverride is a host-owned model input for an async question reply.
+	// The visible user body remains Text and is retained under the original ID.
+	ModelInputOverride string         `json:"-"`
+	ID                 string         `json:"id"`
+	Text               string         `json:"text"`
+	FileIDs            []string       `json:"fileIds"`
+	ReferenceIDs       []string       `json:"referenceIds"`
+	Quoted             *QuotedMessage `json:"quoted,omitempty"` // remote user-supplied context, never decision authority
 }
 type Receipt struct {
 	ID      string `json:"id"`

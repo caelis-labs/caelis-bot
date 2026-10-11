@@ -335,6 +335,13 @@ func (s *Session) publishSnapshot() {
 	b, _ := json.Marshal(s.state)
 	var out api.Snapshot
 	_ = json.Unmarshal(b, &out)
+	if s.binding.ThreadID != "" {
+		out.RuntimeOwner = opaque("codex", s.binding.ThreadID)
+	}
+	for i := range out.Items {
+		out.Items[i].AsyncCallID = s.state.Items[i].AsyncCallID
+		out.Items[i].AsyncQuestions = s.state.Items[i].AsyncQuestions
+	}
 	out = s.presentScheduled(out)
 	s.cached.Store(&out)
 	composer := s.composerLocked()
@@ -351,6 +358,11 @@ func (s *Session) Snapshot() api.Snapshot {
 		b, _ := json.Marshal(snapshot)
 		var out api.Snapshot
 		_ = json.Unmarshal(b, &out)
+		out.RuntimeOwner = snapshot.RuntimeOwner
+		for i := range out.Items {
+			out.Items[i].AsyncCallID = snapshot.Items[i].AsyncCallID
+			out.Items[i].AsyncQuestions = snapshot.Items[i].AsyncQuestions
+		}
 		return out
 	}
 	s.mu.Lock()

@@ -1865,7 +1865,7 @@ func (b *Bridge) sendUserText(ctx context.Context, c client, key string, chat in
 }
 
 func (b *Bridge) sendAssistantText(ctx context.Context, c client, key string, chat int64, body string) {
-	messages := assistantMessages(body)
+	messages := assistantOutboundMessages(body)
 	b.mu.Lock()
 	record := b.state.Messages[key]
 	b.mu.Unlock()

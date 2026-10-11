@@ -73,6 +73,11 @@ individual field receipt as completion. Do not request a marked-secret answer in
 ordinary chat or repeat it in your response. A browser authorization link and
 macOS system permission prompt remain actions governed by their service or OS;
 do not infer success from opening a link or from the user's prose.
+Your asynchronous question tool may also appear as a numbered text card. A
+`/answer` reply becomes a new user input with the original question reference;
+its send receipt does not prove you consumed it or that an earlier turn resumed.
+Use the answer only after it appears in your current context. The async tool does
+not mark secret fields, so do not request credentials through it.
 The host resolves a reply to a numbered card from its confirmed message binding
 and current request status. For a card with several questions or decisions, give
 the specific full command rather than guessing which field a bare number means.

@@ -127,6 +127,9 @@ configuration failures do not restart it. Native start retains its version
 selection/upgrade and concurrency semantics. Bot never calls stop/restart or
 owns the shared process. Reconnection still verifies the original Store and
 principal before accepting the Host.
+The manual installed-version action uses the public service status when an old
+discovery record cannot be reached. Only a confirmed `stopped` result skips the
+live-work preflight; the native start and fresh Bot handshake still follow.
 
 Observers merge startup by shared service directory in one process, with a
 30-second cooldown after each attempt, including failures. Startup has its own
@@ -170,6 +173,16 @@ login or macOS TCC prompt may still require that service or the Mac itself.
 Requests whose Runtime offers no usable field values or decision IDs cannot be
 invented by the text controller. The controller writes one native decision claim
 before dispatch; unknown results remain fenced to that original request.
+Codex `request_user_input_async` is a different shape: it emits a completed
+assistant item with `delivery=async` and ordered question metadata, not a
+pending native approval request. Bot stores a `Q` number for each exact item and
+field, mirrors a text card, and sends an answer as a new user input with Codex's
+structured question-reply envelope. The local transcript retains the user's
+visible `/answer` body, not the internal envelope. A send receipt confirms input
+admission, not that the model has consumed the answer or resumed an old turn.
+These references are fenced to the original Codex thread and item schema and
+are never reused after an uncertain send. Codex async questions have no native
+secret-field marker; the host cannot infer one from question prose.
 Telegram buttons invoke the same controller. Only an inbound reply containing
 a transport-supplied reference to a Bot card with a confirmed outbound message
 ID can bind a bare index or custom question answer. The binding is persisted

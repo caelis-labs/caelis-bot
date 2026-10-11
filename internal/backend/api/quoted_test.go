@@ -24,3 +24,11 @@ func TestQuotedModelInputSeparatesContextFromVisibleBody(t *testing.T) {
 		t.Fatal("omission marker missing")
 	}
 }
+
+func TestAsyncReplyModelOverrideLeavesVisibleCommandUnchanged(t *testing.T) {
+	const envelope = "<send_user_message_question_reply>\n[{\"answer\":\"乙\"}]\n</send_user_message_question_reply>"
+	in := Submission{ID: "input", Text: "/answer Q3 2", ModelInputOverride: envelope}
+	if in.ModelInputText() != envelope || in.ModelQuotePrefix() != envelope || in.Text != "/answer Q3 2" {
+		t.Fatalf("model input or visible text changed: %#v", in)
+	}
+}

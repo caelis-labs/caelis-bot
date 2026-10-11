@@ -67,6 +67,7 @@ type Service struct {
 	files                       func([]string) ([]api.InputFile, error)
 	consumeFiles                func([]string) error
 	submissionObserver          func(api.Submission, []api.InputFile, api.Receipt)
+	commandHandler              func(context.Context, api.Submission) (api.Receipt, bool, error)
 	controlNotices              func() ([]api.Item, uint64)
 	openURL                     func(string) error
 	reveal                      func(string) error
@@ -529,6 +530,18 @@ func (s *Service) OpenMessageLink(value string) error {
 	return s.openURL(u.String())
 }
 func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt, error) {
+	s.mu.Lock()
+	commandHandler := s.commandHandler
+	draftRevision := s.draft.Revision
+	s.mu.Unlock()
+	if commandHandler != nil && len(input.FileIDs) == 0 && len(input.ReferenceIDs) == 0 && input.Quoted == nil {
+		if receipt, handled, err := commandHandler(ctx, input); handled {
+			if err == nil && receipt.Outcome == "accepted" {
+				s.clearDraftAtRevision(input, draftRevision)
+			}
+			return receipt, err
+		}
+	}
 	s.admission.RLock()
 	defer s.admission.RUnlock()
 	if s.restarting || s.setupRequired {
@@ -610,6 +623,12 @@ func (s *Service) Submit(ctx context.Context, input api.Submission) (api.Receipt
 		}
 	}
 	return receipt, err
+}
+
+func (s *Service) SetCommandHandler(handler func(context.Context, api.Submission) (api.Receipt, bool, error)) {
+	s.mu.Lock()
+	s.commandHandler = handler
+	s.mu.Unlock()
 }
 func (s *Service) SetUserSubmitter(f func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)) {
 	s.mu.Lock()

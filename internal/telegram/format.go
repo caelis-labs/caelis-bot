@@ -136,6 +136,39 @@ func assistantMessages(body string) []outgoingText {
 	return result
 }
 
+// A generated short-reference card is UI text, not Markdown. Keep its option
+// lines and copyable command intact on Telegram's rich-message transport.
+func assistantOutboundMessages(body string) []outgoingText {
+	if !asyncQuestionCard(body) {
+		return assistantMessages(body)
+	}
+	var messages []outgoingText
+	for _, part := range splitText(body) {
+		messages = append(messages, plainText(part))
+	}
+	return messages
+}
+
+func asyncQuestionCard(body string) bool {
+	if !strings.HasPrefix(body, "[Q") {
+		return false
+	}
+	line, _, ok := strings.Cut(body, "\n")
+	if !ok {
+		return false
+	}
+	number, title, ok := strings.Cut(strings.TrimPrefix(line, "[Q"), "] ")
+	if !ok || number == "" || title == "" {
+		return false
+	}
+	for _, r := range number {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return strings.Contains(body, "\n回答请输入") || strings.Contains(body, "\n回答已提交。") || strings.Contains(body, "\n回答投递结果待核对")
+}
+
 func isMarkdownTableDivider(line string) bool {
 	line = strings.TrimSpace(line)
 	if !strings.Contains(line, "|") || !strings.Contains(line, "-") {
