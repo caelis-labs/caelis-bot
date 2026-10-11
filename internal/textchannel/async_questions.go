@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -22,6 +23,48 @@ type asyncQuestion struct {
 	Options                                            []string
 	Index                                              int
 	State, ReplyID                                     string // dispatching/accepted/unknown; never replay an attempted send
+}
+
+// AsyncButtonQuestion is the provider-facing presentation of one exact async
+// question. The short ID and fingerprint are stable for this item generation;
+// transports still submit through Handle for owner and receipt checks.
+type AsyncButtonQuestion struct {
+	ShortID, Title, Fingerprint, State string
+	Options                            []string
+}
+
+func (s *Store) AsyncButtonItemIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]string, 0, len(s.state.AsyncActive))
+	for id := range s.state.AsyncActive {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+func (s *Store) AsyncButtonQuestions(itemID string) []AsyncButtonQuestion {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fingerprint := s.state.AsyncActive[itemID]
+	if fingerprint == "" {
+		return nil
+	}
+	var result []AsyncButtonQuestion
+	for index := 0; ; index++ {
+		found := false
+		for short, q := range s.state.AsyncQuestions {
+			if q.ItemID == itemID && q.Fingerprint == fingerprint && q.Index == index {
+				result = append(result, AsyncButtonQuestion{ShortID: short, Title: q.Title, Fingerprint: q.Fingerprint, State: q.State, Options: append([]string(nil), q.Options...)})
+				found = true
+				break
+			}
+		}
+		if !found {
+			return result
+		}
+	}
 }
 
 func (s *Store) SetAsyncAnswerer(answer func(context.Context, Inbound, string) (api.Receipt, error)) {

@@ -175,46 +175,7 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	secret := false
-	for _, q := range a.Questions {
-		secret = secret || q.Secret
-	}
-	var lines []string
-	for _, value := range []string{a.Title, a.TaskTitle, a.Action} {
-		if value != "" {
-			lines = append(lines, value)
-		}
-	}
-	if len(lines) == 0 {
-		lines = append(lines, "需要处理的请求")
-	}
-	if a.Target != "" {
-		lines = append(lines, "目标："+a.Target)
-	}
-	// Unstructured details cannot be reliably scrubbed. Suppress them for a
-	// request with a Runtime-marked secret field, keeping operation and target.
-	if !secret {
-		for _, section := range a.Sections {
-			if section.Text != "" {
-				lines = append(lines, section.Text)
-			}
-		}
-		for _, value := range []string{a.Description, a.Details} {
-			if value != "" {
-				lines = append(lines, value)
-			}
-		}
-	}
-	if a.URL != "" {
-		if u, ok := webURL(a.URL); ok {
-			lines = append(lines, "授权链接："+a.URL, "请在浏览器完成服务要求的步骤，再选择 Runtime 提供的确认选项；打开链接本身不代表成功。")
-			if localURL(u) {
-				lines = append(lines, "此链接指向本机或私网地址，手机可能无法直连；请核对服务是否只允许本机回调。")
-			}
-		} else {
-			lines = append(lines, "Runtime 提供的链接不是可展示的 HTTP(S) 地址；请核对原请求。")
-		}
-	}
+	lines := approvalIntro(a)
 	schema := catalogFingerprint(a)
 	add := func(kind string, p prompt) (string, error) {
 		encoded, _ := json.Marshal(p)
@@ -342,6 +303,60 @@ func (s *Store) Card(a api.Approval) (string, string, error) {
 		lines[0] = "[" + first + "] " + lines[0]
 	}
 	return strings.Join(lines, "\n"), first, nil
+}
+
+// ButtonCard keeps the same reviewed request context as Card, while leaving
+// ordered choices to a transport's verified native buttons.
+func ButtonCard(a api.Approval, short string) string {
+	lines := approvalIntro(a)
+	if short != "" {
+		lines[0] = "[" + short + "] " + lines[0]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func approvalIntro(a api.Approval) []string {
+	secret := false
+	for _, q := range a.Questions {
+		secret = secret || q.Secret
+	}
+	var lines []string
+	for _, value := range []string{a.Title, a.TaskTitle, a.Action} {
+		if value != "" {
+			lines = append(lines, value)
+		}
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "需要处理的请求")
+	}
+	if a.Target != "" {
+		lines = append(lines, "目标："+a.Target)
+	}
+	// Unstructured details cannot be reliably scrubbed. Suppress them for a
+	// request with a Runtime-marked secret field, keeping operation and target.
+	if !secret {
+		for _, section := range a.Sections {
+			if section.Text != "" {
+				lines = append(lines, section.Text)
+			}
+		}
+		for _, value := range []string{a.Description, a.Details} {
+			if value != "" {
+				lines = append(lines, value)
+			}
+		}
+	}
+	if a.URL != "" {
+		if u, ok := webURL(a.URL); ok {
+			lines = append(lines, "授权链接："+a.URL, "请在浏览器完成服务要求的步骤，再选择 Runtime 提供的确认选项；打开链接本身不代表成功。")
+			if localURL(u) {
+				lines = append(lines, "此链接指向本机或私网地址，手机可能无法直连；请核对服务是否只允许本机回调。")
+			}
+		} else {
+			lines = append(lines, "Runtime 提供的链接不是可展示的 HTTP(S) 地址；请核对原请求。")
+		}
+	}
+	return lines
 }
 
 func catalogFingerprint(a api.Approval) string {

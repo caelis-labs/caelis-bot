@@ -1327,6 +1327,100 @@ func (b *Bridge) approvalKeyboard(a api.Approval) (*tg.InlineKeyboardMarkup, boo
 	return keys, len(keys.InlineKeyboard) > 0
 }
 
+func asyncQuestionCallbackID(q textchannel.AsyncButtonQuestion, index int) string {
+	return "q:" + digest(q.Fingerprint + "\x00" + q.ShortID + "\x00" + fmt.Sprint(index))[:40]
+}
+
+// TG renders ordered choices as buttons. The shared text card remains the
+// fallback for free input or any option that TG cannot display faithfully.
+func asyncQuestionButtons(questions []textchannel.AsyncButtonQuestion) (string, *tg.InlineKeyboardMarkup, bool) {
+	if len(questions) == 0 {
+		return "", nil, false
+	}
+	keys := &tg.InlineKeyboardMarkup{}
+	var lines []string
+	for _, q := range questions {
+		line := "[" + q.ShortID + "] " + q.Title
+		switch q.State {
+		case "accepted":
+			line += "\n回答已提交。"
+		case "dispatching", "unknown":
+			line += "\n回答投递结果待核对；不会自动重发。"
+		case "":
+			if len(q.Options) == 0 {
+				line += "\n回答请输入 /answer " + q.ShortID + " 后接完整回答。"
+			}
+			for index, option := range q.Options {
+				label := option
+				if len(questions) > 1 {
+					label = "[" + q.ShortID + "] " + label
+				}
+				if !utf8.ValidString(label) || strings.TrimSpace(label) == "" || utf16Length(label) > 64 {
+					return "", nil, false
+				}
+				for _, r := range label {
+					if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
+						return "", nil, false
+					}
+				}
+				keys.InlineKeyboard = append(keys.InlineKeyboard, []tg.InlineKeyboardButton{{Text: label, CallbackData: asyncQuestionCallbackID(q, index)}})
+			}
+		default:
+			return "", nil, false
+		}
+		lines = append(lines, line)
+	}
+	if len(keys.InlineKeyboard) == 0 {
+		body := strings.Join(lines, "\n\n")
+		return body, nil, utf16Length(body) <= 4000
+	}
+	body := strings.Join(lines, "\n\n")
+	return body, keys, utf16Length(body) <= 4000
+}
+
+func (b *Bridge) asyncQuestionCallback(ctx context.Context, c client, query *tg.CallbackQuery, message *tg.Message, chat int64) bool {
+	if b.host.TextControl == nil || !strings.HasPrefix(query.Data, "q:") {
+		return false
+	}
+	for _, itemID := range b.host.TextControl.AsyncButtonItemIDs() {
+		questions := b.host.TextControl.AsyncButtonQuestions(itemID)
+		_, keys, ok := asyncQuestionButtons(questions)
+		if !ok {
+			continue
+		}
+		for _, question := range questions {
+			for index := range question.Options {
+				if query.Data != asyncQuestionCallbackID(question, index) {
+					continue
+				}
+				b.mu.Lock()
+				record := b.state.Messages["item:"+itemID]
+				bound := !record.Skip && record.Keyboard != "" && record.Keyboard == keyboardDigest(keys) && len(record.IDs) == 1 && record.IDs[0] == message.MessageID
+				b.mu.Unlock()
+				if !bound {
+					b.answer(ctx, c, query.ID, b.text("This question was handled or changed.", "问题已处理或已变化。"))
+					return true
+				}
+				b.answer(ctx, c, query.ID, b.text("Received; checking the answer.", "已收到，正在提交回答。"))
+				b.recoveryWait.Add(1)
+				go func() {
+					defer b.recoveryWait.Done()
+					work, stop := context.WithTimeout(ctx, 16*time.Second)
+					defer stop()
+					b.host.TextControl.Handle(work, textchannel.Inbound{Channel: "telegram", Conversation: fmt.Sprint(chat), ID: "callback:" + query.ID, Text: fmt.Sprintf("/answer %s %d", question.ShortID, index+1)}, b.host.Snapshot())
+					if body, currentKeys, ok := asyncQuestionButtons(b.host.TextControl.AsyncButtonQuestions(itemID)); ok {
+						b.sendText(work, c, "item:"+itemID, chat, body, currentKeys)
+					}
+					b.mirror(work, c, b.host.Snapshot())
+				}()
+				return true
+			}
+		}
+	}
+	b.answer(ctx, c, query.ID, b.text("This question was handled or changed.", "问题已处理或已变化。"))
+	return true
+}
+
 func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bool {
 	b.mu.Lock()
 	owner, chat := b.state.UserID, b.state.ChatID
@@ -1341,6 +1435,9 @@ func (b *Bridge) callback(ctx context.Context, c client, q *tg.CallbackQuery) bo
 	snapshot := b.host.Snapshot()
 	if !ready(snapshot) {
 		b.answer(ctx, c, q.ID, b.text("The Runtime is not ready. Check the original request on your Mac.", "Runtime 尚未就绪，请在 Mac 核对原请求。"))
+		return true
+	}
+	if b.asyncQuestionCallback(ctx, c, q, m, chat) {
 		return true
 	}
 	for _, a := range snapshot.Approvals {
@@ -1462,7 +1559,16 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 				b.sendMacUserText(ctx, c, itemKey(i), chat, i.Text)
 			}
 		} else if i.Kind == "assistant" {
-			b.sendAssistantText(ctx, c, itemKey(i), chat, i.Text)
+			rendered := false
+			if b.host.TextControl != nil {
+				if text, keys, ok := asyncQuestionButtons(b.host.TextControl.AsyncButtonQuestions(i.ID)); ok {
+					b.sendText(ctx, c, itemKey(i), chat, text, keys)
+					rendered = true
+				}
+			}
+			if !rendered {
+				b.sendAssistantText(ctx, c, itemKey(i), chat, i.Text)
+			}
 		}
 		for _, a := range i.Artifacts {
 			b.mu.Lock()
@@ -1560,7 +1666,16 @@ func (b *Bridge) mirror(ctx context.Context, c client, s api.Snapshot) {
 		} else if a.Status == "pending" && len(a.Questions) == 0 && a.URL == "" && len(a.Choices) > 0 {
 			var valid bool
 			keys, valid = b.approvalKeyboard(a)
+			if valid && b.host.TextControl != nil {
+				if _, short, err := b.host.TextControl.Card(a); err == nil && short != "" {
+					text = textchannel.ButtonCard(a, short)
+					original = text
+				} else {
+					valid = false
+				}
+			}
 			if !valid {
+				keys = nil
 				unavailable = true
 				b.setIssue("approval_unavailable")
 				text += "\n" + b.text("Approval options are unavailable here. Complete this request in Caelis Bot on your Mac.", "此处无法显示审批选项，请在 Mac 的 Caelis Bot 中完成此请求。")

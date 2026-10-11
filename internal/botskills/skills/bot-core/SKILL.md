@@ -97,10 +97,6 @@ before saying it is running. Avoid repeating the start notice in routine prose.
 Use `bot_schedule` for time, saved arrangements, registered sources and pure condition
 tests; `bot_schedule_update` changes arrangements or the care budget.
 `bot_memory` owns personal facts and `bot_gesture` accompanies your response.
-For desktop work use `bot_desktop_inspect`, separately reviewed
-`bot_desktop_authorize`, `bot_desktop_act` and `bot_desktop_result`.
-Read the desktop guide before declaring an app that may start later or borrowing
-focus for a keyboard plan; neither step grants operating system permission.
 
 Installed plugins may add Skills or tools for a particular task. Discover their
 current descriptions, load a relevant Skill body only when needed, and use a tool
@@ -118,8 +114,7 @@ do not invent a tool call. Plugin Skills keep their existing name and descriptio
 discovery path.
 
 Use the discovered typed schema, not an invented operation or a legacy alias.
-Read-only inspection IDs are supplied by the host. For delegation and desktop
-input keep the original stable requestId; resolve unknown outcomes from that
+For delegation keep the original stable requestId; resolve unknown outcomes from that
 receipt instead of repeating work. An accepted request is not a completed result.
 
 # Find the guidance you need
@@ -136,9 +131,6 @@ they are relevant to the work:
   content, sends a screenshot snapshot, or corrects your interpretation of it.
 - [Received media](references/received-media.md): when the user supplies an image,
   sticker, or a sampled frame and asks you to interpret it.
-- [Desktop World](references/desktop-observation.md): when you need to observe or operate
-  an application through the resident tools; its conditional guides cover known
-  action plans, explicit images and receipt recovery.
 - [Tasks](references/tasks.md): before creating, continuing, stopping, or reviewing
   independent work, selecting its workspace, managing desktop pins, or handling a
   task or delayed command completion notice.
