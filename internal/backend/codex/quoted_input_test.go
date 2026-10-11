@@ -17,7 +17,7 @@ func TestQuotedCodexInputReachesNativeTextAndProjectsOnlyBody(t *testing.T) {
 		t.Fatal(native, err)
 	}
 	modelText := native[0]["text"].(string)
-	if !strings.Contains(modelText, "<reference>\n旧回复\n</reference>") || !strings.HasSuffix(modelText, "本次正文") || !strings.Contains(modelText, "引用选段，非全文") {
+	if modelText != "<reference>\n旧回复\n</reference>\n\n本次正文" {
 		t.Fatal(modelText)
 	}
 	s.binding.ContextInputs = map[string]int{in.ID: len(in.ModelQuotePrefix())}

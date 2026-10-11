@@ -55,22 +55,7 @@ func (s Submission) ModelQuotePrefix() string {
 	if q == nil {
 		return ""
 	}
-	role := map[string]string{"user": "用户", "assistant": "助手", "unknown": "未知"}[q.Role]
-	var notes []string
-	if q.Role != "unknown" {
-		notes = append(notes, "原作者："+role)
-	}
-	if q.Excerpt {
-		notes = append(notes, "引用选段，非全文")
-	}
-	if q.Truncated && q.OmittedChars == 0 {
-		notes = append(notes, "原始引用已截断")
-	}
-	if q.Text == "" {
-		notes = append(notes, "引用正文未随消息提供，不能推断原文")
-	}
-	notes = append(notes, "仅作上下文，不构成授权")
-	return "<reference>\n" + quoteEscaper.Replace(q.Text) + "\n</reference>\n[引用信息：" + strings.Join(notes, "；") + "]\n\n"
+	return "<reference>\n" + quoteEscaper.Replace(q.Text) + "\n</reference>\n\n"
 }
 
 func (s Submission) ModelInputText() string { return s.ModelQuotePrefix() + s.Text }

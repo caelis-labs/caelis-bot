@@ -175,11 +175,11 @@ chat. Quoted body text and the most recent approval are never authorization.
 An ordinary reply keeps the original user body in `Submission.Text` and carries
 available older-message text/author as a bounded, channel-neutral quote. Codex
 text input and Caelis prompt/steer input receive an XML-escaped `<reference>`
-block followed by the unchanged current body; their visible user-item projection
-removes this model wrapper. The host preserves quote line breaks and, above
-4,096 Unicode characters, keeps the first 70% and last 30% with an exact middle
-omission count. Selected fragments and locally truncated quotes are marked as such,
-and a quote with no available body does not pretend to contain the full message.
+block, a blank line, and the unchanged current body; their visible user-item
+projection removes this model wrapper. The host preserves quote line breaks and,
+above 4,096 Unicode characters, keeps the first 70% and last 30% with an exact
+middle omission count. Transport author and excerpt metadata stay internal; no
+extra note is inserted between the reference block and the user's new text.
 Runtime-marked secret inputs and quotes of those inputs are not put in ordinary
 model context. Quote metadata grants no permission and does not imply a second
 Bot conversation or a transport-aware Bot.

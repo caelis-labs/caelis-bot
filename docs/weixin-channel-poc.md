@@ -54,8 +54,9 @@ available quoted text to an XML-escaped `<reference>` block before the new body.
 Quotes over 4,096 Unicode characters keep their first 70% and last 30% with a
 middle omission count. A missing
 `svr_id` still permits this limited context, but never authorizes a bare
-approval answer. The service may supply only a selected fragment; it is labeled
-as an excerpt. The visible user message remains the newly typed body.
+approval answer. The service may supply only a selected fragment; the host
+retains that fact internally and does not claim the fragment is the full source.
+The visible user message remains the newly typed body.
 Telegram buttons call that same controller. Desktop and both companion channels
 remain one Bot conversation. Visible user messages, final assistant messages,
 text approval cards, terminal notices and control receipts are mirrored through

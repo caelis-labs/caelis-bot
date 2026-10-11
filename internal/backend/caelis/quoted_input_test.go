@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -26,7 +25,7 @@ func TestQuotedCaelisInputReachesNativePromptAndProjectsOnlyBody(t *testing.T) {
 	if receipt, err := s.Submit(t.Context(), in, nil); err != nil || receipt.Outcome != "accepted" {
 		t.Fatal(receipt, err)
 	}
-	if !strings.HasPrefix(modelText, "[private seed]\n<reference>\n旧问题\n</reference>") || !strings.HasSuffix(modelText, "本次正文") || !strings.Contains(modelText, "引用选段，非全文") {
+	if modelText != "[private seed]\n<reference>\n旧问题\n</reference>\n\n本次正文" {
 		t.Fatal(modelText)
 	}
 	if s.state.ContextInputs[in.ID] != len(in.ModelQuotePrefix())+len("[private seed]\n") {
