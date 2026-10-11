@@ -2,7 +2,7 @@ import { memo, useCallback, useEffectEvent, useEffect, useLayoutEffect, useMemo,
 import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, Receipt, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
-import { MessageContent } from './MessageContent';
+import { CopyText, MessageContent } from './MessageContent';
 import { canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, withOutgoing } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
@@ -105,35 +105,19 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
 }
 type MessageProps={ item: Item; report: (message: string) => void; animate?:boolean; reveal?:boolean; incomplete?:boolean; clip?:PortraitClip };
 const Message=memo(function Message({ item, report, animate=false, reveal=false, incomplete=false, clip }: MessageProps) {
-  const {t,locale} = useI18n();
-  const [menu,setMenu]=useState<{x:number;y:number}|null>(null);
-  const menuRef=useRef<HTMLDivElement>(null);
-  useEffect(()=>{
-   if(!menu)return;
-   const dismiss=(event:PointerEvent)=>{if(!(event.target instanceof Node)||!menuRef.current?.contains(event.target))setMenu(null);};
-   const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')setMenu(null);};
-   document.addEventListener('pointerdown',dismiss);
-   document.addEventListener('keydown',escape);
-   return()=>{document.removeEventListener('pointerdown',dismiss);document.removeEventListener('keydown',escape);};
-  },[menu]);
+  const {t} = useI18n();
   const statusLabel = getItemStatusLabel(item.status, t);
-  const timestamp=item.seenAt&&item.seenAt>0?new Date(item.seenAt/1000):null;
-  const timeLabel=timestamp?new Intl.DateTimeFormat(locale,{hour:'2-digit',minute:'2-digit',hour12:false}).format(timestamp):'';
-  const accepted=item.kind==='user'&&(item.status==='accepted'||item.status==='completed');
-  const delivery=item.kind==='user'&&!accepted?(item.status==='received'?t('chat.statusReceived'):['sending','unknown','rejected'].includes(item.status)?statusLabel:''):'';
+  const delivery=item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)?statusLabel:'';
   const asyncCard=item.kind==='assistant'&&/^\[Q\d+\] /.test(item.text);
-  const copy=async()=>{setMenu(null);try{await desktop('CopyText',item.text);}catch{report(t('chat.copyFailed'));}};
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
    {(item.kind==='assistant'||item.kind==='controlNotice')&&<BotAvatar animate={animate} clip={clip}/>}
-   <div className={`message ${item.kind==='controlNotice'?'assistant controlNotice':item.kind}`} title={timestamp?.toLocaleString(locale)} onContextMenu={event=>{if(!item.text)return;event.preventDefault();setMenu({x:Math.min(event.clientX,window.innerWidth-170),y:Math.min(event.clientY,window.innerHeight-54)});}}>
+   <div className={`message ${item.kind==='controlNotice'?'assistant controlNotice':item.kind}`}>
     {item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
     {item.artifacts?.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}
     {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
-    {timestamp&&<time className="visually-hidden" dateTime={timestamp.toISOString()}>{timeLabel}</time>}
-    {accepted&&<small className="message-delivery" role="status" aria-label={t('chat.statusAccepted')} title={t('chat.statusAccepted')}>✓</small>}
     {delivery&&<small className="message-delivery pending" role="status">{delivery}</small>}
+    {!!item.text&&item.kind!=='activity'&&<span className="message-copy"><CopyText text={item.text} report={report}/></span>}
    </div>
-   {menu&&<div ref={menuRef} className="message-context-menu" role="menu" style={{left:menu.x,top:menu.y}} onContextMenu={event=>event.stopPropagation()}><button type="button" role="menuitem" autoFocus onClick={()=>void copy()}>{t('chat.copyMessage')}</button></div>}
   </article>;
 },(before,after)=>before.report===after.report&&before.animate===after.animate&&before.reveal===after.reveal&&before.incomplete===after.incomplete&&
  (before.animate?before.clip===after.clip:true)&&before.item.id===after.item.id&&before.item.kind===after.item.kind&&

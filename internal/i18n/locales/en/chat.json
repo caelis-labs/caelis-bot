@@ -1,8 +1,6 @@
 {
   "statusWorking": "Working",
   "statusSending": "Sending",
-  "statusAccepted": "Accepted",
-  "statusReceived": "Received",
   "statusAttention": "Attention needed",
   "statusInterrupting": "Stopping",
   "statusCompleted": "Completed",
