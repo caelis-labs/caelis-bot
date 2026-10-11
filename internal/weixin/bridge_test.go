@@ -300,7 +300,7 @@ func TestUserMirrorSkipsOnlyOwnIngress(t *testing.T) {
 	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
 	freshWindow(b, "prior-owner-input")
 	b.state.Inputs["remote-wx"] = "accepted"
-	b.ObserveTurn(api.Snapshot{CurrentTurn: "t1", Phase: "completed"})
+	b.ObserveTurn(api.Snapshot{CurrentTurn: "t1", Phase: "completed", Items: []api.Item{{ID: "a1", TurnKey: "t1", Kind: "assistant", Text: "reply", Status: "completed"}}})
 	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
 	if len(texts) != 3 || texts[0] != "User: hello" || texts[1] != "User: desktop steer" || texts[2] != "reply" {
 		t.Fatalf("mirror: %#v", texts)

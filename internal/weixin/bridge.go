@@ -84,6 +84,7 @@ type document struct {
 	ContextToken   string              `json:"contextToken,omitempty"`
 	Window         sendWindow          `json:"window,omitempty"`
 	PendingFinal   string              `json:"pendingFinal,omitempty"`
+	ObservedTurn   string              `json:"observedTurn,omitempty"`
 	Missed         int                 `json:"missed,omitempty"`
 	TurnPhases     map[string]string   `json:"turnPhases,omitempty"`
 	TurnOrder      []string            `json:"turnOrder,omitempty"`

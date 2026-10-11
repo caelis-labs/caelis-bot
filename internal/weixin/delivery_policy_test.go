@@ -81,7 +81,7 @@ func TestTerminalTurnObservationSurvivesNextTurn(t *testing.T) {
 	if len(*texts) != 0 {
 		t.Fatalf("older unconfirmed Turn leaked commentary: %#v", *texts)
 	}
-	b.ObserveTurn(api.Snapshot{CurrentTurn: "old", Phase: "completed"})
+	b.ObserveTurn(api.Snapshot{CurrentTurn: "old", Phase: "completed", Items: snapshot.Items})
 	b.output(t.Context(), p)
 	if len(*texts) != 1 || (*texts)[0] != "旧轮最终结果" {
 		t.Fatalf("observed completion lost when newer Turn started: %#v", *texts)
@@ -91,6 +91,91 @@ func TestTerminalTurnObservationSurvivesNextTurn(t *testing.T) {
 	b.output(t.Context(), p)
 	if len(*texts) != 1 {
 		t.Fatalf("failed Turn sent a claimed final: %#v", *texts)
+	}
+}
+
+func TestCodexTerminalWithoutCurrentTurnDeliversExactIngressReply(t *testing.T) {
+	server, texts := sentTexts(t, nil)
+	defer server.Close()
+	input := "weixin:bot:phone-1"
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn-one", Phase: "working", LastReceipt: api.Receipt{ID: input, Outcome: "accepted"}, Items: []api.Item{
+		{ID: "user", TurnKey: "turn-one", Kind: "user", RequestID: input, Text: "hi", Status: "completed"},
+		{ID: "answer", TurnKey: "turn-one", Kind: "assistant", Text: "Hi!", Status: "completed"},
+	}}
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.OwnerID, b.state.BotID = "owner", "bot"
+	freshWindow(b, input)
+	b.state.Inputs[input] = "accepted"
+	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
+	b.output(t.Context(), p)
+	if len(*texts) != 0 || b.state.ObservedTurn != "turn-one" {
+		t.Fatalf("working commentary leaked or Turn was not observed: %#v", *texts)
+	}
+	snapshot.CurrentTurn, snapshot.Phase = "", "completed" // Codex clears CurrentTurn at terminal
+	b.output(t.Context(), p)
+	if len(*texts) != 1 || (*texts)[0] != "Hi!" || b.state.TurnPhases["turn-one"] != "completed" || b.state.Window.Used != 1 {
+		t.Fatalf("exact terminal reply was blocked: texts=%#v phases=%#v used=%d", *texts, b.state.TurnPhases, b.state.Window.Used)
+	}
+}
+
+func TestFastCodexTerminalUsesOnlyCurrentIngressReceipt(t *testing.T) {
+	server, texts := sentTexts(t, nil)
+	defer server.Close()
+	input := "weixin:bot:phone-2"
+	snapshot := api.Snapshot{Connection: "ready", Phase: "completed", LastReceipt: api.Receipt{ID: input, Outcome: "accepted"}, Items: []api.Item{
+		{ID: "user", TurnKey: "fast-turn", Kind: "user", RequestID: input, Text: "hi", Status: "completed"},
+		{ID: "answer", TurnKey: "fast-turn", Kind: "assistant", Text: "Hi!", Status: "completed"},
+	}}
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.OwnerID, b.state.BotID = "owner", "bot"
+	freshWindow(b, input)
+	b.state.Inputs[input] = "accepted"
+	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
+	b.output(t.Context(), p)
+	if len(*texts) != 1 || (*texts)[0] != "Hi!" {
+		t.Fatalf("fast terminal reply was blocked: %#v", *texts)
+	}
+	snapshot.LastReceipt.ID = "unrelated-old-input"
+	snapshot.Items = append(snapshot.Items, api.Item{ID: "older", TurnKey: "old-turn", Kind: "assistant", Text: "old answer", Status: "completed"})
+	b.output(t.Context(), p)
+	if len(*texts) != 1 || b.state.TurnPhases["old-turn"] != "" {
+		t.Fatalf("unrelated receipt authorized historical replay: %#v", *texts)
+	}
+}
+
+func TestTerminalCorrelationWaitsForAnswerAndRejectsStaleObservedTurn(t *testing.T) {
+	server, texts := sentTexts(t, nil)
+	defer server.Close()
+	input := "weixin:bot:phone-3"
+	snapshot := api.Snapshot{Connection: "ready", Phase: "completed", LastReceipt: api.Receipt{ID: input, Outcome: "accepted"}, Items: []api.Item{
+		{ID: "user", TurnKey: "turn-three", Kind: "user", RequestID: input, Text: "hi", Status: "completed"},
+	}}
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.state.OwnerID, b.state.BotID = "owner", "bot"
+	freshWindow(b, input)
+	b.state.Inputs[input] = "accepted"
+	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
+	b.output(t.Context(), p)
+	if len(*texts) != 0 || b.state.TurnPhases["turn-three"] != "" {
+		t.Fatal("a receipt without its completed answer was treated as a final reply")
+	}
+	snapshot.Items = append(snapshot.Items, api.Item{ID: "answer", TurnKey: "turn-three", Kind: "assistant", Text: "Hi!", Status: "completed"})
+	b.output(t.Context(), p)
+	if len(*texts) != 1 || (*texts)[0] != "Hi!" {
+		t.Fatalf("late answer was lost: %#v", *texts)
+	}
+	stale := api.Snapshot{Items: []api.Item{{Kind: "assistant", TurnKey: "older", Text: "old", Status: "completed"}, {Kind: "user", TurnKey: "newer"}}}
+	if terminalSnapshotTurn(stale, "", "older") != "" {
+		t.Fatal("stale observed Turn overrode newer scoped input")
 	}
 }
 

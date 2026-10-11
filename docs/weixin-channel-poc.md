@@ -66,6 +66,10 @@ The inbox and cursor are saved together before dispatch. A dispatching request
 that loses its result is not sent again automatically. A completed assistant
 item can still be commentary inside a working Turn. The adapter waits for the
 Turn terminal state and sends its last ordinary assistant item as the reply.
+Codex clears `CurrentTurn` on completion; the adapter binds that terminal
+snapshot to the exact latest accepted owner ingress receipt and its user-item
+TurnKey, or to a previously observed active Turn. An unrelated old receipt or
+unscoped item cannot turn historical commentary into a new reply.
 Native approval and async question cards, control receipts and Worker-start
 notices remain deliverable while the Turn is running. Disposable typing may
 express progress, but does not refresh a context token or budget. Final text
