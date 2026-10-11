@@ -22,6 +22,8 @@
   "approvalFailed": "Could not confirm. Try again.",
   "approvalEyebrow": "Decision needed",
   "approvalQueue": "Pending {current}/{total}",
+  "approvalPrevious": "Previous approval",
+  "approvalNext": "Next approval",
   "questionSend": "Send answer",
   "questionAnswered": "Answered",
   "questionUnknown": "Delivery needs checking",

@@ -22,6 +22,8 @@
   "approvalFailed": "暂时无法确认，请重试",
   "approvalEyebrow": "需要你的决定",
   "approvalQueue": "待处理 {current}/{total}",
+  "approvalPrevious": "上一个审批",
+  "approvalNext": "下一个审批",
   "questionSend": "发送回答",
   "questionAnswered": "已回答",
   "questionUnknown": "投递结果待核对",

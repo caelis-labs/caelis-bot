@@ -19,6 +19,10 @@ import { ConversationOrder, FileObservationOrder, SubmissionProgress, DraftQueue
 import { useI18n } from './i18n';
 import { approvalChoice, approvalResult, approvalText, approvalTitle } from './approval-presentation';
 import { CheckIcon, XIcon } from './SettingsIcons';
+import { CaretDownIcon } from '@phosphor-icons/react/dist/csr/CaretDown';
+import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';
+import { CaretRightIcon } from '@phosphor-icons/react/dist/csr/CaretRight';
+import { CaretUpIcon } from '@phosphor-icons/react/dist/csr/CaretUp';
 import type { MessageKey } from './i18n/catalogs';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
@@ -449,6 +453,7 @@ export function History() {
  const {t,locale} = useI18n();
  const [active,setActive]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[unread,setUnread]=useState(false);
  const [approvalOpen,setApprovalOpen]=useState(false),[approvalIndex,setApprovalIndex]=useState(0);
+ const approvalDock=useRef<HTMLElement>(null);
  const [connectionError,setConnectionError]=useState('');
  const [activation,setActivation]=useState(0);
  const {snapshot,liveReplies,refresh}=useConversation(active,false,true);
@@ -498,6 +503,15 @@ export function History() {
  const prompts=snapshot?.approvals.filter(p=>p.status==='pending')??[];
  const currentApproval=Math.min(approvalIndex,Math.max(0,prompts.length-1));
  const promptKey=prompts.map(p=>p.id+p.status).join('');
+ useEffect(()=>{if(!prompts.length)setApprovalOpen(false);},[prompts.length]);
+ useEffect(()=>{
+  if(!approvalOpen)return;
+  const outside=(event:PointerEvent)=>{if(!approvalDock.current?.contains(event.target as Node))setApprovalOpen(false);};
+  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setApprovalOpen(false);approvalDock.current?.querySelector('button')?.focus();}};
+  window.addEventListener('pointerdown',outside,true);
+  window.addEventListener('keydown',escape);
+  return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape);};
+ },[approvalOpen]);
  const activity=chatActivity(snapshot);
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
@@ -559,10 +573,10 @@ export function History() {
    </div>
   </div>
   {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>{t('chat.viewNewMessages')}</button>}
-  {!!prompts.length&&<aside className="approval-dock" aria-label={t('chat.approvalEyebrow')}>
-   <button className="approval-dock-trigger" type="button" aria-expanded={approvalOpen} onClick={()=>setApprovalOpen(open=>!open)}>{t('chat.approvalQueue',{current:currentApproval+1,total:prompts.length})}<span aria-hidden="true">{approvalOpen?'⌄':'⌃'}</span></button>
-   <div className="approval-dock-panel" hidden={!approvalOpen}>
-    <div className="approval-dock-nav"><span>{t('chat.approvalQueue',{current:currentApproval+1,total:prompts.length})}</span><div><button type="button" aria-label="Previous approval" disabled={currentApproval===0} onClick={()=>setApprovalIndex(i=>i-1)}>‹</button><button type="button" aria-label="Next approval" disabled={currentApproval>=prompts.length-1} onClick={()=>setApprovalIndex(i=>i+1)}>›</button><button type="button" aria-label={t('common.close')} onClick={()=>setApprovalOpen(false)}>×</button></div></div>
+  {!!prompts.length&&<aside ref={approvalDock} className="approval-dock" aria-label={t('chat.approvalEyebrow')}>
+   <button className="approval-dock-trigger" type="button" aria-expanded={approvalOpen} aria-haspopup="dialog" aria-controls="approval-dock-panel" onClick={()=>setApprovalOpen(open=>!open)}>{t('chat.approvalQueue',{current:currentApproval+1,total:prompts.length})}{approvalOpen?<CaretDownIcon size={14} aria-hidden="true"/>:<CaretUpIcon size={14} aria-hidden="true"/>}</button>
+   <div id="approval-dock-panel" className="approval-dock-panel" role="dialog" aria-label={t('chat.approvalEyebrow')} hidden={!approvalOpen}>
+    <div className="approval-dock-nav"><span>{t('chat.approvalEyebrow')}{prompts.length>1&&` · ${currentApproval+1}/${prompts.length}`}</span><div>{prompts.length>1&&<><button type="button" aria-label={t('chat.approvalPrevious')} disabled={currentApproval===0} onClick={()=>setApprovalIndex(i=>i-1)}><CaretLeftIcon size={16} aria-hidden="true"/></button><button type="button" aria-label={t('chat.approvalNext')} disabled={currentApproval>=prompts.length-1} onClick={()=>setApprovalIndex(i=>i+1)}><CaretRightIcon size={16} aria-hidden="true"/></button></>}<button type="button" aria-label={t('common.close')} onClick={()=>setApprovalOpen(false)}><XIcon size={15} aria-hidden="true"/></button></div></div>
     {prompts.map((prompt,index)=><div key={prompt.id} hidden={index!==currentApproval}><Prompt value={prompt} refresh={()=>void refresh().catch(()=>{})}/></div>)}
    </div>
   </aside>}
