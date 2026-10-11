@@ -55,7 +55,7 @@ type outbound struct {
 	Reason       string `json:"reason,omitempty"`
 	ErrorClass   string `json:"errorClass,omitempty"`
 	Ret          *int   `json:"ret,omitempty"`
-	ErrCode      int    `json:"errcode,omitempty"`
+	ErrCode      *int   `json:"errcode,omitempty"`
 	Bytes        int    `json:"bytes,omitempty"`
 	Units        int    `json:"units,omitempty"`
 	InputAgeSec  int64  `json:"inputAgeSec,omitempty"`

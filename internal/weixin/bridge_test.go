@@ -509,14 +509,14 @@ func TestBusinessRejectionKeepsRedactedDiagnosticsAndWaitsForFreshIngress(t *tes
 	b.output(t.Context(), p)
 	b.output(t.Context(), p)
 	one := b.state.Outputs["item:a1:0"]
-	if sent.Load() != 1 || one.State != "rejected" || one.ErrorClass != "rate_limited" || one.Ret == nil || *one.Ret != -2 || !b.state.Window.Exhausted || one.Bytes != len("answer") || one.WindowUsed != 1 {
+	if sent.Load() != 1 || one.State != "rejected" || one.ErrorClass != "rate_limited" || one.Ret == nil || *one.Ret != -2 || one.ErrCode == nil || *one.ErrCode != 0 || !b.state.Window.Exhausted || one.Bytes != len("answer") || one.WindowUsed != 1 {
 		t.Fatalf("business rejection: sent=%d intent=%#v window=%#v", sent.Load(), one, b.state.Window)
 	}
 	body, err := os.ReadFile(b.path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), "private data") || strings.Contains(string(body), "answer") {
+	if !strings.Contains(string(body), `"errcode":0`) || strings.Contains(string(body), "private data") || strings.Contains(string(body), "answer") {
 		t.Fatal("diagnostic ledger stored reply or raw errmsg")
 	}
 	freshWindow(b, "in-2")

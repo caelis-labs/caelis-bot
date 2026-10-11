@@ -106,7 +106,7 @@ func (b *Bridge) sendOne(ctx context.Context, p *protocol, key, body string, cri
 		}
 		b.issue = "delivery_uncertain"
 	} else {
-		intent.Ret, intent.ErrCode = result.Ret, result.ErrCode
+		intent.Ret, intent.ErrCode = result.Ret, &result.ErrCode
 		intent.ErrorClass = sendErrorClass(result.ErrMsg)
 		if result.Ret == nil && result.ErrCode == 0 && intent.ErrorClass == "other" {
 			state, reason = "unknown", "unclassified_response"
