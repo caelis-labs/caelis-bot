@@ -985,7 +985,13 @@ func (b *Bridge) inputResult(ctx context.Context, c client, u tg.Update) (bool, 
 						break
 					}
 				}
-				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text, Quoted: b.quotedMessage(m, bot, owner), IngressFence: ingressFence}, files)
+				quoted := b.quotedMessage(m, bot, owner)
+				if m.ReplyToMessage != nil && quoted == nil {
+					outcome = "rejected"
+					_, _ = c.Send(ctx, chat, plainText(b.text("The quoted text is unavailable. Send the text you want me to use as a new message.", "引用内容无法读取，请把需要我参考的文字作为新消息发送。")), nil)
+					break
+				}
+				receipt, submitErr := b.host.Submit(ctx, api.Submission{ID: request, Text: text, Quoted: quoted, IngressFence: ingressFence}, files)
 				if errors.Is(submitErr, api.ErrRecoveryPending) {
 					b.mu.Lock()
 					b.state.Inputs[request] = "deferred"
@@ -1037,17 +1043,24 @@ func (b *Bridge) quotedMessage(m *tg.Message, bot, owner int64) *api.QuotedMessa
 	}
 	b.mu.Lock()
 	secret := b.state.SecretMessages[old.MessageID]
+	var delivered delivery
+	var matches int
 	for key, delivered := range b.state.Messages {
-		if q.LocalID != "" {
-			break
-		}
 		for _, id := range delivered.IDs {
 			if id == old.MessageID {
 				q.LocalID = key
+				matches++
 				break
 			}
 		}
 	}
+	if matches == 1 {
+		delivered = b.state.Messages[q.LocalID]
+	} else {
+		q.LocalID = ""
+	}
+	input := fmt.Sprintf("telegram:%d:%d", bot, old.MessageID)
+	acceptedInput := b.state.Inputs[input] == "accepted"
 	b.mu.Unlock()
 	if old.From != nil {
 		if old.From.ID == owner {
@@ -1058,6 +1071,25 @@ func (b *Bridge) quotedMessage(m *tg.Message, bot, owner int64) *api.QuotedMessa
 		}
 	}
 	if secret || b.host.TextControl != nil && b.host.TextControl.IsSecretCommand(q.Text) {
+		return nil
+	}
+	// Telegram can supply the reply ID but omit the old text even when its
+	// client displays a quote. Recover only an exact, single confirmed Bot
+	// delivery (or the original accepted user input) from the shared IM view.
+	// The hash prevents a later edited item from becoming a different quote.
+	if q.Text == "" && b.host.Snapshot != nil {
+		for _, item := range b.host.Snapshot().Items {
+			if matches == 1 && item.Kind == "assistant" && itemKey(item) == q.LocalID && len(delivered.IDs) == 1 && delivered.IDs[0] == old.MessageID && len(delivered.Hashes) == 1 && delivered.Hashes[0] == digest(item.Text) && item.Text != "" {
+				q.Text, q.Role = item.Text, "assistant"
+				break
+			}
+			if acceptedInput && item.Kind == "user" && item.RequestID == input && item.Text != "" {
+				q.Text, q.Role, q.LocalID = item.Text, "user", input
+				break
+			}
+		}
+	}
+	if q.Text == "" {
 		return nil
 	}
 	return api.BoundQuote(q)

@@ -166,6 +166,69 @@ func TestTelegramOrdinaryQuotedReplyCarriesContextWithoutWrappingVisibleBody(t *
 	}
 }
 
+func TestTelegramQuotedBotReplyRecoversExactDeliveredTextWhenAPIOnlySendsID(t *testing.T) {
+	var submitted api.Submission
+	item := api.Item{ID: "assistant", Kind: "assistant", Text: "联调OK 42"}
+	b, c := testBridge(t, Host{
+		Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready", Items: []api.Item{item}} },
+		Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+			submitted = in
+			return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+		},
+	})
+	paired(b)
+	b.baselineReady = true
+	b.state.Messages[itemKey(item)] = delivery{IDs: []int{60}, Hashes: []string{digest(item.Text)}}
+	u := message(61, 10, 20, "引用内容末尾的数字是什么？")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: 60, Chat: tg.Chat{ID: 10}, From: &tg.User{ID: 123, IsBot: true}}
+	b.input(t.Context(), c, u)
+	if submitted.Quoted == nil || submitted.Quoted.Text != item.Text || submitted.Text != u.Message.Text || submitted.ModelInputText() != "<reference>\n联调OK 42\n</reference>\n\n引用内容末尾的数字是什么？" {
+		t.Fatalf("exact quote did not reach native input: %#v", submitted)
+	}
+}
+
+func TestTelegramQuotedUserMessageRecoversAcceptedTextWhenAPIOnlySendsID(t *testing.T) {
+	var submitted api.Submission
+	item := api.Item{ID: "user", Kind: "user", RequestID: "telegram:123:60", Text: "前一条用户消息"}
+	b, c := testBridge(t, Host{
+		Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready", Items: []api.Item{item}} },
+		Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+			submitted = in
+			return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+		},
+	})
+	paired(b)
+	b.baselineReady = true
+	b.state.Inputs[item.RequestID] = "accepted"
+	u := message(61, 10, 20, "继续解释")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: 60, Chat: tg.Chat{ID: 10}, From: &tg.User{ID: 20}}
+	b.input(t.Context(), c, u)
+	if submitted.Quoted == nil || submitted.Quoted.Text != item.Text || submitted.Quoted.LocalID != item.RequestID || submitted.ModelInputText() != "<reference>\n前一条用户消息\n</reference>\n\n继续解释" {
+		t.Fatalf("accepted user quote did not reach native input: %#v", submitted)
+	}
+}
+
+func TestTelegramUnavailableQuotedTextDoesNotBecomeEmptyReference(t *testing.T) {
+	called := false
+	item := api.Item{ID: "assistant", Kind: "assistant", Text: "edited after delivery"}
+	b, c := testBridge(t, Host{
+		Snapshot: func() api.Snapshot { return api.Snapshot{Connection: "ready", Items: []api.Item{item}} },
+		Submit: func(_ context.Context, in api.Submission, _ []api.InputFile) (api.Receipt, error) {
+			called = true
+			return api.Receipt{ID: in.ID, Outcome: "accepted"}, nil
+		},
+	})
+	paired(b)
+	b.baselineReady = true
+	b.state.Messages[itemKey(item)] = delivery{IDs: []int{60}, Hashes: []string{digest("old delivered text")}}
+	u := message(61, 10, 20, "请解释引用")
+	u.Message.ReplyToMessage = &tg.Message{MessageID: 60, Chat: tg.Chat{ID: 10}, From: &tg.User{ID: 123, IsBot: true}}
+	b.input(t.Context(), c, u)
+	if called || len(c.texts) == 0 || !strings.Contains(c.texts[len(c.texts)-1], "quoted text is unavailable") {
+		t.Fatal("unavailable quote was silently sent", called, c.texts)
+	}
+}
+
 func TestTelegramQuoteOfMarkedSecretNeverEntersIngressOrModel(t *testing.T) {
 	control, _ := textchannel.Open(t.TempDir(), nil)
 	b, _ := testBridge(t, Host{TextControl: control})
