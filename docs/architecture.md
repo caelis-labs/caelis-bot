@@ -347,12 +347,18 @@ Existing Keychain items migrate on first use and are deleted. Pairing QR state l
 only in memory; settings starts or refreshes it while visible. Start/stop
 presence and disposable typing requests are independent of message receipts.
 Only owner private text and text projection of the shared conversation are in scope.
-Weixin sends final assistant items, visible user items, native text control cards
-and terminal notices through independent outbound intents. It cannot edit a
-previous card or prove phone display from an HTTP success. A send with an
-unknown HTTP outcome is retried at most twice more with the saved client ID;
-upstream deduplication is unproven, so duplicates are possible. Ingress and
-Worker receipts are never replayed; see [POC scope](weixin-channel-poc.md).
+Weixin waits for a terminal resident Turn before choosing its last assistant
+reply; completed commentary within a working Turn does not consume phone sends.
+Native approval and async question cards, control receipts, Worker-start items,
+and terminal replies are independent high-priority intents. User mirrors use a
+soft local send budget. Each actual text part reserves one slot in a durable
+owner/last-ingress window before HTTP; an old or unknown window never starts
+full after restart. This is a conservative estimate of observed service behavior,
+not a published quota contract. Weixin cannot edit a previous card or prove
+phone display from HTTP success. Unknown HTTP outcomes keep their original
+intent without automatic replay, because upstream client-ID deduplication is
+unproven. Ingress and Worker receipts are likewise never replayed; see
+[POC scope](weixin-channel-poc.md).
 
 ## Remote machines
 

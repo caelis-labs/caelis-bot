@@ -2,7 +2,6 @@ package weixin
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -54,10 +53,25 @@ type outbound struct {
 	ClientID     string `json:"clientId,omitempty"`
 	ContextToken string `json:"contextToken,omitempty"`
 	Reason       string `json:"reason,omitempty"`
+	ErrorClass   string `json:"errorClass,omitempty"`
+	Ret          *int   `json:"ret,omitempty"`
+	ErrCode      int    `json:"errcode,omitempty"`
+	Bytes        int    `json:"bytes,omitempty"`
+	Units        int    `json:"units,omitempty"`
+	InputAgeSec  int64  `json:"inputAgeSec,omitempty"`
+	WindowUsed   int    `json:"windowUsed,omitempty"`
 	Digest       string `json:"digest,omitempty"`
 	MessageID    string `json:"messageId,omitempty"`
 	Attempts     int    `json:"attempts,omitempty"`
 	NextRetryAt  int64  `json:"nextRetryAt,omitempty"`
+}
+type sendWindow struct {
+	OwnerID      string `json:"ownerId,omitempty"`
+	InputID      string `json:"inputId,omitempty"`
+	ContextToken string `json:"contextToken,omitempty"`
+	InputAt      int64  `json:"inputAt,omitempty"`
+	Used         int    `json:"used,omitempty"`
+	Exhausted    bool   `json:"exhausted,omitempty"`
 }
 type document struct {
 	Version        int                 `json:"version"`
@@ -68,6 +82,11 @@ type document struct {
 	Cursor         string              `json:"cursor"`
 	HasInput       bool                `json:"hasInput"`
 	ContextToken   string              `json:"contextToken,omitempty"`
+	Window         sendWindow          `json:"window,omitempty"`
+	PendingFinal   string              `json:"pendingFinal,omitempty"`
+	Missed         int                 `json:"missed,omitempty"`
+	TurnPhases     map[string]string   `json:"turnPhases,omitempty"`
+	TurnOrder      []string            `json:"turnOrder,omitempty"`
 	PauseUntil     int64               `json:"pauseUntil,omitempty"`
 	InputContexts  map[string]string   `json:"inputContexts,omitempty"`
 	Inbox          []inbound           `json:"inbox,omitempty"`
@@ -99,7 +118,7 @@ type Bridge struct {
 }
 
 func emptyDocument() document {
-	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, SecretMessages: map[string]bool{}, MirrorV2: true, LocalIMSeeded: true}
+	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, SecretMessages: map[string]bool{}, TurnPhases: map[string]string{}, MirrorV2: true, LocalIMSeeded: true}
 }
 func Open(root string, host Host) (*Bridge, error) {
 	hash := sha256.Sum256([]byte(root))
@@ -134,6 +153,9 @@ func Open(root string, host Host) (*Bridge, error) {
 	}
 	if b.state.SecretMessages == nil {
 		b.state.SecretMessages = map[string]bool{}
+	}
+	if b.state.TurnPhases == nil {
+		b.state.TurnPhases = map[string]string{}
 	}
 	if b.state.PauseUntil > time.Now().UnixMilli() {
 		b.issue = "session_cooldown"
@@ -670,6 +692,7 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 		}
 		b.mu.Lock()
 		oldCursor, oldInbox, oldPause := b.state.Cursor, b.state.Inbox, b.state.PauseUntil
+		oldWindow, oldContext := b.state.Window, b.state.ContextToken
 		b.state.PauseUntil = 0
 		if len(b.state.Inbox) > 100 {
 			b.issue = "backlog"
@@ -716,6 +739,10 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 				stored = "" // never put the marked value in the persistent inbox
 			}
 			b.state.Inbox = append(b.state.Inbox, inbound{ID: key, Text: stored, ContextToken: msg.ContextToken, Secret: secret, PromptID: promptID, ReferenceID: ref, Quoted: b.quotedMessageLocked(msg)})
+			if msg.ContextToken != "" {
+				b.state.ContextToken = msg.ContextToken
+				b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: key, ContextToken: msg.ContextToken, InputAt: time.Now().UnixMilli()}
+			}
 		}
 		if result.Cursor != "" {
 			b.state.Cursor = result.Cursor
@@ -728,6 +755,7 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 				b.state.Cursor = oldCursor
 				b.state.Inbox = oldInbox
 				b.state.PauseUntil = oldPause
+				b.state.Window, b.state.ContextToken = oldWindow, oldContext
 				b.mu.Unlock()
 				sleep(ctx, 5*time.Second)
 				continue
@@ -869,7 +897,9 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 	b.state.Inputs[in.ID] = outcome
 	if outcome == "accepted" {
 		b.state.HasInput = true
-		b.state.ContextToken = in.ContextToken
+		if b.state.Window.InputID == in.ID {
+			b.state.ContextToken = in.ContextToken
+		}
 		b.state.InputContexts[in.ID] = in.ContextToken
 	}
 	b.state.Inbox = b.state.Inbox[1:]
@@ -891,41 +921,33 @@ func (b *Bridge) sendControl(ctx context.Context, p *protocol, in inbound, body 
 	b.sendTextOnce(ctx, p, "control:"+in.ID, in.ContextToken, body)
 }
 func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToken, body string) string {
+	_ = contextToken // the newest confirmed owner ingress owns the send window
+	parts := chunks(body)
+	if len(parts) == 1 {
+		id, _ := b.sendOne(ctx, p, key, parts[0], true)
+		return id
+	}
+	if len(parts) == 0 || len(parts) > windowSendLimit {
+		return ""
+	}
 	b.mu.Lock()
-	if previous, exists := b.state.Outputs[key]; exists {
-		b.mu.Unlock()
-		if previous.State == "accepted" {
-			return previous.MessageID
+	remaining := b.remainingLocked(true)
+	for index := range parts {
+		if old, ok := b.state.Outputs[fmt.Sprintf("%s:part:%d", key, index)]; ok && old.State == "accepted" {
+			remaining++
 		}
-		return ""
 	}
-	clientID := "caelis-weixin-text-" + textDigest(key)[:24]
-	b.state.Outputs[key] = outbound{State: "unknown", ClientID: clientID, ContextToken: contextToken, Digest: textDigest(body), Attempts: 1}
-	if b.saveLocked() != nil {
-		delete(b.state.Outputs, key)
-		b.mu.Unlock()
-		return ""
-	}
-	owner := b.state.OwnerID
 	b.mu.Unlock()
-	work, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	result, err := p.send(work, owner, contextToken, clientID, body)
-	b.mu.Lock()
-	intent := b.state.Outputs[key]
-	if err == nil && (result.Ret == nil || *result.Ret == 0) && result.ErrCode == 0 {
-		intent.State = "accepted"
-		intent.MessageID = string(result.MessageID)
-	} else if err == nil {
-		intent.State = "rejected"
+	if remaining < len(parts) {
+		return "" // never strand a card before its choices and command
 	}
-	b.state.Outputs[key] = intent
-	_ = b.saveLocked()
-	b.mu.Unlock()
-	if intent.State == "accepted" {
-		return intent.MessageID
+	for index, part := range parts {
+		_, state := b.sendOne(ctx, p, fmt.Sprintf("%s:part:%d", key, index), part, true)
+		if state != "accepted" {
+			break
+		}
 	}
-	return ""
+	return "" // a multi-message card has no single referenceable server ID
 }
 func outputKey(item api.Item) string { return "item:" + item.ID }
 func textDigest(s string) string {
@@ -940,6 +962,18 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 		return
 	}
 	snapshot := b.host.Snapshot()
+	b.ObserveTurn(snapshot)
+	if b.host.TextControl != nil {
+		snapshot.Items = append([]api.Item(nil), snapshot.Items...)
+		for index, item := range snapshot.Items {
+			if len(item.AsyncQuestions) == 0 {
+				continue
+			}
+			if card, err := b.host.TextControl.AsyncCard(item, snapshot.RuntimeOwner); err == nil {
+				snapshot.Items[index] = card
+			}
+		}
+	}
 	b.mu.Lock()
 	if !b.state.LocalIMSeeded {
 		for _, item := range snapshot.Items {
@@ -989,151 +1023,78 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 		}
 	}
 	b.mu.Unlock()
+	kinds := b.outputKinds(snapshot)
+	ready := snapshot.Connection == "ready" || snapshot.Connection == "connected"
+	if ready {
+		b.mirrorControls(ctx, p, snapshot)
+		// A question is actionable while its Turn waits; it cannot wait for the
+		// final assistant response. Worker questions are coordinated by the Bot.
+		for _, item := range snapshot.Items {
+			if kinds[item.ID] == "question" {
+				b.mirrorItem(ctx, p, item, "question")
+			}
+		}
+	}
 	b.mirrorNotices(ctx, p)
-	if snapshot.Connection != "ready" && snapshot.Connection != "connected" {
+	if !ready {
 		return
 	}
-	b.mirrorControls(ctx, p, snapshot)
+	b.mirrorPhase(ctx, p, snapshot)
+	latestFinal := ""
+	visible := map[string]bool{}
+	for _, item := range snapshot.Items {
+		visible[item.ID] = true
+		if kinds[item.ID] == "final" {
+			latestFinal = item.ID
+		}
+	}
+	b.mu.Lock()
+	if old := b.state.PendingFinal; old != "" && (!visible[old] || latestFinal != "" && latestFinal != old) {
+		b.state.Outputs["item:"+old] = outbound{State: "skip"}
+		b.state.PendingFinal = ""
+		b.state.Missed++
+		_ = b.saveLocked()
+	}
+	b.mu.Unlock()
 	for _, item := range snapshot.Items {
 		if (item.Kind != "assistant" && item.Kind != "user") || item.ID == "" || item.Text == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" && (item.Kind != "user" || item.Status != "received") {
 			continue
 		}
-		var route textchannel.Origin
-		if item.Kind == "user" {
-			b.mu.Lock()
-			_, own := b.state.Inputs[item.RequestID]
-			b.mu.Unlock()
-			if own {
+		if item.Kind == "assistant" {
+			switch kinds[item.ID] {
+			case "question":
 				continue
+			case "final", "task":
+				b.mirrorItem(ctx, p, item, kinds[item.ID])
+			default:
+				// The Turn has ended and a later assistant item is its
+				// final reply. Earlier completed items were commentary.
+				b.mu.Lock()
+				terminal := terminalTurn(b.state.TurnPhases[item.TurnKey])
+				b.mu.Unlock()
+				if item.TurnKey != "" && terminal {
+					b.skipItem(outputKey(item), false)
+				}
 			}
+			continue
+		}
+		b.mu.Lock()
+		_, own := b.state.Inputs[item.RequestID]
+		b.mu.Unlock()
+		if own {
+			continue
 		}
 		if b.host.TextControl != nil {
-			if item.Kind == "user" {
-				// A user item has its own submission identity. A turn can also
-				// contain steering from another entry, so never infer its origin
-				// from a neighboring item in the same turn.
-				route, _ = b.host.TextControl.OriginOf(item.RequestID)
-			} else {
-				route, _ = b.host.TextControl.Route(snapshot, item.RequestID, item.TurnKey)
-			}
-			if item.Kind == "user" && route.Channel == "weixin" {
+			route, _ := b.host.TextControl.OriginOf(item.RequestID)
+			if route.Channel == "weixin" {
 				continue
 			}
 		}
-		body := item.Text
-		if item.Kind == "user" {
-			body = "User: " + body
-		}
-		parts := chunks(body)
-		for index, part := range parts {
-			key := fmt.Sprintf("%s:%d", outputKey(item), index)
-			digest := textDigest(part)
-			b.mu.Lock()
-			if _, seen := b.state.Outputs[outputKey(item)]; seen {
-				b.mu.Unlock()
-				break
-			}
-			intent, seen := b.state.Outputs[key]
-			if seen {
-				if intent.State == "accepted" && intent.Digest == digest {
-					b.mu.Unlock()
-					continue
-				}
-				// Pre-policy unknowns have no digest/attempt counter and cannot
-				// safely be replayed. Changed text cannot reuse a saved client ID.
-				if intent.State != "unknown" || intent.Digest != digest || intent.ClientID == "" || intent.Attempts < 1 || intent.Attempts >= 3 {
-					b.mu.Unlock()
-					break
-				}
-				if intent.NextRetryAt > time.Now().UnixMilli() {
-					b.mu.Unlock()
-					return
-				}
-				intent.Attempts++
-			} else {
-				var seed [16]byte
-				if _, err := rand.Read(seed[:]); err != nil {
-					b.mu.Unlock()
-					return
-				}
-				contextToken := b.state.ContextToken
-				if route.Channel == "weixin" {
-					prefix := b.state.OwnerID + "\x00"
-					if !strings.HasPrefix(route.Conversation, prefix) {
-						b.mu.Unlock()
-						break
-					}
-					contextToken = strings.TrimPrefix(route.Conversation, prefix)
-				}
-				intent = outbound{State: "unknown", ClientID: "caelis-weixin-" + hex.EncodeToString(seed[:]), ContextToken: contextToken, Digest: digest, Attempts: 1}
-			}
-			previous := b.state.Outputs[key]
-			intent.NextRetryAt = 0
-			b.state.Outputs[key] = intent
-			if b.saveLocked() != nil {
-				if seen {
-					b.state.Outputs[key] = previous
-				} else {
-					delete(b.state.Outputs, key)
-				}
-				b.mu.Unlock()
-				return
-			}
-			owner := b.state.OwnerID
-			b.mu.Unlock()
-			work, stop := context.WithTimeout(ctx, 15*time.Second)
-			result, err := p.send(work, owner, intent.ContextToken, intent.ClientID, part)
-			stop()
-			b.mu.Lock()
-			state := "accepted"
-			reason := "ret_zero"
-			if err != nil {
-				state = "unknown"
-				reason = "transport_or_response"
-				if errors.Is(err, context.DeadlineExceeded) {
-					reason = "timeout"
-				} else if strings.HasPrefix(err.Error(), "http_") {
-					reason = "http_error"
-				}
-				if intent.Attempts < 3 {
-					intent.NextRetryAt = time.Now().Add(time.Duration(2<<(2*(intent.Attempts-1))) * time.Second).UnixMilli()
-					b.issue = "delivery_retrying"
-				} else {
-					b.issue = "delivery_uncertain"
-				}
-			} else if (result.Ret != nil && *result.Ret != 0) || result.ErrCode != 0 {
-				state = "rejected"
-				reason = "business_rejected"
-				b.issue = "send_rejected"
-			} else if result.Ret == nil {
-				reason = "http_success_no_ret"
-			}
-			if state == "accepted" && b.issue == "delivery_retrying" {
-				b.issue = ""
-			}
-			intent.State, intent.Reason = state, reason
-			b.state.Outputs[key] = intent
-			if b.saveLocked() != nil {
-				b.mu.Unlock()
-				return
-			}
-			b.mu.Unlock()
-			if state != "accepted" {
-				return
-			}
-			if index+1 < len(parts) {
-				sleep(ctx, time.Second)
-			}
-		}
+		b.mirrorItem(ctx, p, item, "user")
 	}
+	b.mirrorMissed(ctx, p)
 }
 func (b *Bridge) mirrorControls(ctx context.Context, p *protocol, snapshot api.Snapshot) {
-	if key, body := phaseNotice(snapshot); key != "" {
-		b.mu.Lock()
-		token := b.state.ContextToken
-		b.mu.Unlock()
-		b.sendTextOnce(ctx, p, key, token, body)
-	}
 	if b.host.TextControl != nil {
 		for _, approval := range snapshot.Approvals {
 			b.mu.Lock()
@@ -1147,16 +1108,44 @@ func (b *Bridge) mirrorControls(ctx context.Context, p *protocol, snapshot api.S
 					}
 				}
 			} else if approval.Status == "resolved" {
-				b.sendTextOnce(ctx, p, "approval-result:"+approval.ID, contextToken, "原请求已处理，请在 Caelis Bot 查看结果。")
+				b.sendTextOnce(ctx, p, "approval-result:"+approval.ID, contextToken, approvalStatus(approval))
 			}
 		}
+	}
+}
+func (b *Bridge) mirrorPhase(ctx context.Context, p *protocol, snapshot api.Snapshot) {
+	if key, body := phaseNotice(snapshot); key != "" {
+		b.mu.Lock()
+		token := b.state.ContextToken
+		b.mu.Unlock()
+		b.sendTextOnce(ctx, p, key, token, body)
+	}
+}
+func approvalStatus(a api.Approval) string {
+	if a.Resolution == nil {
+		return "原请求已处理。"
+	}
+	for _, choice := range a.Choices {
+		if choice.ID == a.Resolution.ChoiceID && choice.Label != "" {
+			return "原请求已处理：" + choice.Label
+		}
+	}
+	switch a.Resolution.Outcome {
+	case "allowed":
+		return "原请求已处理：已允许。"
+	case "declined":
+		return "原请求已处理：已拒绝。"
+	case "cancelled":
+		return "原请求已处理：已取消。"
+	default:
+		return "原请求已处理。"
 	}
 }
 func phaseNotice(s api.Snapshot) (string, string) {
 	if s.LastReceipt.ID == "" || s.CurrentTurn == "" {
 		return "", ""
 	}
-	body := map[string]string{"failed": "Bot 未能完成此请求，请在 Caelis Bot 中查看原因。", "interrupted": "工作已停止。", "unknown": "结果暂不确定，请先核对原请求，不要重复发送。"}[s.Phase]
+	body := map[string]string{"failed": "Bot 未能完成此请求，可在同一对话询问原因。", "interrupted": "工作已停止。", "unknown": "结果暂不确定，请先核对原请求，不要重复发送。"}[s.Phase]
 	if body == "" {
 		return "", ""
 	}

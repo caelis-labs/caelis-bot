@@ -16,6 +16,11 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/textchannel"
 )
 
+func freshWindow(b *Bridge, id string) {
+	b.state.ContextToken = "ctx"
+	b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: id, ContextToken: "ctx", InputAt: time.Now().UnixMilli()}
+}
+
 func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	var sent atomic.Int32
 	var texts []string
@@ -65,6 +70,7 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
+	freshWindow(b, "prior-owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
 	if len(texts) != 1 || !strings.Contains(texts[0], "[1] 允许（范围：仅本次）") || !strings.Contains(texts[0], "执行审批请输入\n/approve A1 1") {
@@ -122,6 +128,7 @@ func TestWeixinReplyUsesOnlyServerConfirmedCardMessageID(t *testing.T) {
 		return api.Receipt{}, nil
 	}})
 	b.state.BotID, b.state.OwnerID, b.state.ContextToken = "bot", "owner", "ctx"
+	freshWindow(b, "prior-owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.mirrorControls(t.Context(), p, snap)
 	if !control.HasCardReference(textchannel.Inbound{Channel: "weixin", Conversation: "ctx", Reference: &textchannel.Reference{Conversation: "owner", MessageID: "998"}}) {
@@ -165,6 +172,7 @@ func TestWeixinMissingServerMessageIDDoesNotBindCard(t *testing.T) {
 	a := api.Approval{ID: "native", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "deny", Label: "拒绝"}}}
 	b, _ := Open(root, Host{TextControl: control})
 	b.state.OwnerID, b.state.ContextToken = "owner", "ctx"
+	freshWindow(b, "prior-owner-input")
 	b.mirrorControls(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"}, api.Snapshot{Approvals: []api.Approval{a}})
 	if control.HasCardReference(textchannel.Inbound{Channel: "weixin", Conversation: "ctx", Reference: &textchannel.Reference{Conversation: "owner", MessageID: "999"}}) {
 		t.Fatal("invented Weixin delivery ID")
@@ -238,6 +246,7 @@ func TestMultiQuestionWeixinTextCompletesOneNativeRequest(t *testing.T) {
 		return api.Receipt{}, nil
 	}, TextControl: control})
 	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
+	freshWindow(b, "prior-owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
 	if len(texts) != 1 || !strings.Contains(texts[0], "[Q1] 主题") || !strings.Contains(texts[0], "[Q2] 深度") || !strings.Contains(texts[0], "/answer Q2 1") {
@@ -288,7 +297,9 @@ func TestUserMirrorSkipsOnlyOwnIngress(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.state.BotID, b.state.OwnerID, b.state.Enabled = "bot", "owner", true
+	freshWindow(b, "prior-owner-input")
 	b.state.Inputs["remote-wx"] = "accepted"
+	b.ObserveTurn(api.Snapshot{CurrentTurn: "t1", Phase: "completed"})
 	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
 	if len(texts) != 3 || texts[0] != "User: hello" || texts[1] != "User: desktop steer" || texts[2] != "reply" {
 		t.Fatalf("mirror: %#v", texts)
@@ -345,9 +356,13 @@ func TestReceiveDurableOwnerOnlyAndNoDuplicate(t *testing.T) {
 	<-done
 	b.mu.Lock()
 	in := b.state.Inbox[0]
+	window := b.state.Window
 	b.mu.Unlock()
 	if in.ID != "weixin:bot:18446744073709551615" || in.Text != "hello" || in.ContextToken != "ctx" {
 		t.Fatalf("wrong inbox: %#v", in)
+	}
+	if window.InputID != in.ID || window.OwnerID != "owner" || window.ContextToken != "ctx" || window.Used != 0 {
+		t.Fatalf("duplicate or foreign ingress refreshed the wrong budget: %#v", window)
 	}
 	info, err := os.Stat(b.path)
 	if err != nil || info.Mode().Perm() != 0600 {
@@ -427,152 +442,88 @@ func TestMarkedSecretControlIngressKeepsValueOutOfWeixinLedger(t *testing.T) {
 	}
 }
 
-func TestUnknownSubmitIsNotReplayedAndSendHasThreeAttemptLimit(t *testing.T) {
+func TestUnknownSubmitAndSendAreNotReplayed(t *testing.T) {
 	var submitted, sent atomic.Int32
-	var clientIDs []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request struct {
-			Msg struct {
-				ClientID string `json:"client_id"`
-			} `json:"msg"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Errorf("send request: %v", err)
-		}
-		clientIDs = append(clientIDs, request.Msg.ClientID)
 		sent.Add(1)
 		w.WriteHeader(http.StatusGatewayTimeout)
 	}))
 	defer server.Close()
+	root := t.TempDir()
 	snapshot := api.Snapshot{Connection: "ready"}
-	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{Fence: "fence"} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
+	host := Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{Fence: "fence"} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
 		submitted.Add(1)
 		return api.Receipt{Outcome: "unknown"}, errors.New("lost receipt")
-	}})
+	}}
+	b, err := Open(root, host)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.state.BotID = "bot"
-	b.state.OwnerID = "owner"
-	b.state.BaseURL = defaultBase
-	b.state.Enabled = true
+	b.state.BotID, b.state.OwnerID, b.state.BaseURL = "bot", "owner", defaultBase
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "work", ContextToken: "ctx"}}
-	if err := b.saveLocked(); err != nil {
-		t.Fatal(err)
-	}
 	b.dispatch(t.Context())
 	b.dispatch(t.Context())
 	if submitted.Load() != 1 || b.state.Inputs["weixin:bot:1"] != "unknown" {
 		t.Fatalf("submit replay or wrong outcome: %d %#v", submitted.Load(), b.state.Inputs)
 	}
-	b.state.ContextToken = "ctx"
-	snapshot.Items = []api.Item{{ID: "answer", Kind: "assistant", Text: "reply", Status: "completed"}}
+	freshWindow(b, "weixin:bot:1")
+	snapshot.CurrentTurn, snapshot.Phase = "turn", "completed"
+	snapshot.Items = []api.Item{{ID: "answer", TurnKey: "turn", Kind: "assistant", Text: "reply", Status: "completed"}}
 	p := &protocol{client: server.Client(), base: server.URL, token: "secret"}
 	b.output(t.Context(), p)
-	b.output(t.Context(), p)
-	if sent.Load() != 1 || b.issue != "delivery_retrying" {
-		t.Fatalf("early retry: %d %q", sent.Load(), b.issue)
-	}
-	for attempt := 2; attempt <= 3; attempt++ {
-		intent := b.state.Outputs["item:answer:0"]
-		intent.NextRetryAt = time.Now().Add(-time.Second).UnixMilli()
-		b.state.Outputs["item:answer:0"] = intent
-		if err := b.saveLocked(); err != nil {
-			t.Fatal(err)
-		}
-		b.output(t.Context(), p)
-	}
 	b.output(t.Context(), p)
 	intent := b.state.Outputs["item:answer:0"]
-	if sent.Load() != 3 || intent.State != "unknown" || intent.Attempts != 3 || intent.Reason != "http_error" || b.issue != "delivery_uncertain" {
-		t.Fatalf("wrong bounded send outcome: %d %#v %q", sent.Load(), intent, b.issue)
-	}
-	if clientIDs[0] == "" || clientIDs[0] != clientIDs[1] || clientIDs[1] != clientIDs[2] {
-		t.Fatal("retry changed client ID")
-	}
-	reopened, err := Open(strings.TrimSuffix(b.path, "/weixin.json"), b.host)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reopened.output(t.Context(), p)
-	if sent.Load() != 3 {
-		t.Fatal("exhausted send replayed after restart")
-	}
-	legacy := reopened.state.Outputs["item:old:0"]
-	legacy.State, legacy.ClientID = "unknown", "old-client"
-	reopened.state.Outputs["item:old:0"] = legacy
-	snapshot.Items = []api.Item{{ID: "old", Kind: "assistant", Text: "old reply", Status: "completed"}}
-	reopened.output(t.Context(), p)
-	if sent.Load() != 3 {
-		t.Fatal("pre-policy unknown replayed")
-	}
-	if intent.Digest != textDigest("reply") {
-		t.Fatal("send digest mismatch")
-	}
-	body, err := os.ReadFile(b.path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(body), "reply") || strings.Contains(string(body), "work") {
-		t.Fatalf("state included conversation content after processing")
-	}
-}
-
-func TestUnknownSendRetryAcceptsWithoutRepeatingOrChangingClientID(t *testing.T) {
-	var sent atomic.Int32
-	var clientIDs, contextTokens []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request struct {
-			Msg struct {
-				ClientID     string `json:"client_id"`
-				ContextToken string `json:"context_token"`
-			} `json:"msg"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Errorf("send request: %v", err)
-		}
-		clientIDs = append(clientIDs, request.Msg.ClientID)
-		contextTokens = append(contextTokens, request.Msg.ContextToken)
-		if sent.Add(1) == 1 {
-			w.WriteHeader(http.StatusGatewayTimeout)
-			return
-		}
-		_, _ = w.Write([]byte(`{"ret":0}`))
-	}))
-	defer server.Close()
-	root := t.TempDir()
-	snapshot := api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "answer", Kind: "assistant", Text: "reply", Status: "completed"}}}
-	host := Host{Snapshot: func() api.Snapshot { return snapshot }}
-	b, err := Open(root, host)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b.state.BotID, b.state.OwnerID, b.state.ContextToken = "bot", "owner", "ctx"
-	b.state.BaseURL = defaultBase
-	p := &protocol{client: server.Client(), base: server.URL, token: "secret"}
-	b.output(t.Context(), p)
-	b.state.ContextToken = "newer-context"
-	if err := b.saveLocked(); err != nil {
-		t.Fatal(err)
+	if sent.Load() != 1 || intent.State != "unknown" || intent.Attempts != 1 || intent.Reason != "http_error" || b.state.Window.Used != 1 {
+		t.Fatalf("uncertain send was retried or uncounted: sends=%d intent=%#v window=%#v", sent.Load(), intent, b.state.Window)
 	}
 	reopened, err := Open(root, host)
 	if err != nil {
 		t.Fatal(err)
 	}
+	freshWindow(reopened, "weixin:bot:2")
 	reopened.output(t.Context(), p)
 	if sent.Load() != 1 {
-		t.Fatal("retry ignored persisted delay")
+		t.Fatal("unknown send replayed after restart or new ingress")
 	}
-	intent := reopened.state.Outputs["item:answer:0"]
-	intent.NextRetryAt = time.Now().Add(-time.Second).UnixMilli()
-	reopened.state.Outputs["item:answer:0"] = intent
-	if err := reopened.saveLocked(); err != nil {
+}
+
+func TestBusinessRejectionKeepsRedactedDiagnosticsAndWaitsForFreshIngress(t *testing.T) {
+	var sent atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if sent.Add(1) == 1 {
+			_, _ = w.Write([]byte(`{"ret":-2,"errcode":0,"errmsg":"rate limited: private data must not persist"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ret":0}`))
+	}))
+	defer server.Close()
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "t1", Phase: "completed", Items: []api.Item{{ID: "a1", TurnKey: "t1", Kind: "assistant", Text: "answer", Status: "completed"}}}
+	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
+	if err != nil {
 		t.Fatal(err)
 	}
-	reopened.output(t.Context(), p)
-	reopened.output(t.Context(), p)
-	if sent.Load() != 2 || clientIDs[0] == "" || clientIDs[0] != clientIDs[1] || contextTokens[0] != "ctx" || contextTokens[1] != "ctx" || reopened.state.Outputs["item:answer:0"].State != "accepted" || reopened.issue != "" {
-		t.Fatalf("retry acceptance mismatch: sent=%d state=%#v issue=%q", sent.Load(), reopened.state.Outputs["item:answer:0"], reopened.issue)
+	b.state.BotID, b.state.OwnerID = "bot", "owner"
+	freshWindow(b, "in-1")
+	p := &protocol{client: server.Client(), base: server.URL, token: "secret"}
+	b.output(t.Context(), p)
+	b.output(t.Context(), p)
+	one := b.state.Outputs["item:a1:0"]
+	if sent.Load() != 1 || one.State != "rejected" || one.ErrorClass != "rate_limited" || one.Ret == nil || *one.Ret != -2 || !b.state.Window.Exhausted || one.Bytes != len("answer") || one.WindowUsed != 1 {
+		t.Fatalf("business rejection: sent=%d intent=%#v window=%#v", sent.Load(), one, b.state.Window)
+	}
+	body, err := os.ReadFile(b.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "private data") || strings.Contains(string(body), "answer") {
+		t.Fatal("diagnostic ledger stored reply or raw errmsg")
+	}
+	freshWindow(b, "in-2")
+	snapshot.CurrentTurn = "t2"
+	snapshot.Items = append(snapshot.Items, api.Item{ID: "a2", TurnKey: "t2", Kind: "assistant", Text: "new answer", Status: "completed"})
+	b.output(t.Context(), p)
+	if sent.Load() != 2 || b.state.Outputs["item:a1:0"].State != "rejected" || b.state.Outputs["item:a2:0"].State != "accepted" {
+		t.Fatal("fresh ingress replayed rejected output or blocked new final")
 	}
 }
 
@@ -597,17 +548,18 @@ func TestLongReplySendsEveryBoundedPartWhenSuccessOmitsRet(t *testing.T) {
 	}))
 	defer server.Close()
 	answer := strings.Repeat("你好世界。", 500)
-	snapshot := api.Snapshot{Connection: "ready", Items: []api.Item{{ID: "long-answer", Kind: "assistant", Text: answer, Status: "completed"}}}
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "completed", Items: []api.Item{{ID: "long-answer", TurnKey: "turn", Kind: "assistant", Text: answer, Status: "completed"}}}
 	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	b.state.BotID, b.state.OwnerID, b.state.HasInput = "bot", "owner", true
+	freshWindow(b, "prior-owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "secret"}
 	b.output(t.Context(), p)
 	b.output(t.Context(), p)
-	if len(delivered) < 2 || strings.Join(delivered, "") != answer || b.issue == "delivery_uncertain" {
-		t.Fatalf("reply was truncated, repeated, or uncertain: parts=%d issue=%q", len(delivered), b.issue)
+	if len(delivered) < 2 || strings.Join(delivered, "") != answer || b.issue == "delivery_uncertain" || b.state.Window.Used != len(delivered) {
+		t.Fatalf("reply was truncated, repeated, uncertain, or miscounted: parts=%d used=%d issue=%q", len(delivered), b.state.Window.Used, b.issue)
 	}
 	for i := range delivered {
 		part := b.state.Outputs["item:long-answer:"+string(rune('0'+i))]

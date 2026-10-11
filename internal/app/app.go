@@ -711,6 +711,9 @@ func (a *Application) Start() error {
 				}
 				snapshot.Items[i] = card
 			}
+			if a.Weixin != nil {
+				a.Weixin.ObserveTurn(snapshot)
+			}
 			a.Backend.ObserveChat(snapshot)
 			observer.Observe(snapshot)
 			if a.host.Observe != nil {

@@ -95,6 +95,7 @@ type updates struct {
 type sendResult struct {
 	Ret       *int   `json:"ret"`
 	ErrCode   int    `json:"errcode"`
+	ErrMsg    string `json:"errmsg"`
 	MessageID wireID `json:"message_id"`
 }
 type configResult struct {
