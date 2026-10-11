@@ -13,9 +13,10 @@ import (
 // Every attempted sendmessage consumes a slot, including a rejected or unknown
 // outcome. Presence and typing do not create a new message window.
 const (
-	windowSendLimit = 10
-	windowSoftLimit = 8
-	windowMaxAge    = 12 * time.Hour
+	windowSendLimit   = 10
+	windowSoftLimit   = windowSendLimit - 1 // keep one attempt for a terminal reply
+	progressSendLimit = 5
+	windowMaxAge      = 12 * time.Hour
 )
 
 func (b *Bridge) remainingLocked(critical bool) int {
@@ -31,6 +32,27 @@ func (b *Bridge) remainingLocked(critical bool) int {
 		return 0
 	}
 	return limit - w.Used
+}
+
+func (b *Bridge) remainingProgressLocked() int {
+	remaining := b.remainingLocked(false)
+	if quota := progressSendLimit - b.state.Window.ProgressUsed; quota < remaining {
+		return quota
+	}
+	return remaining
+}
+
+const exhaustedHint = "本轮微信推送预计已用尽（10/10）。发送 /r 继续接收，待发进展会合并补送。"
+
+func withExhaustedHint(body string) string {
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	last := len(lines) - 1
+	// Keep a card's copyable instruction as its last line.
+	if last >= 0 && (strings.HasPrefix(lines[last], "提示：") || strings.HasPrefix(lines[last], "**提示：")) {
+		lines = append(lines[:last], append([]string{"", exhaustedHint, ""}, lines[last:]...)...)
+		return strings.Join(lines, "\n")
+	}
+	return body + "\n\n" + exhaustedHint
 }
 
 func sendErrorClass(message string) string {
@@ -55,6 +77,14 @@ func sendErrorClass(message string) string {
 // A transport/response failure is permanently unknown: client_id is not a
 // documented deduplication guarantee, so it cannot authorize another send.
 func (b *Bridge) sendOne(ctx context.Context, p *protocol, key, body string, critical bool) (string, string) {
+	return b.sendOnePolicy(ctx, p, key, body, critical, false)
+}
+
+func (b *Bridge) sendProgressOne(ctx context.Context, p *protocol, key, body string) (string, string) {
+	return b.sendOnePolicy(ctx, p, key, body, false, true)
+}
+
+func (b *Bridge) sendOnePolicy(ctx context.Context, p *protocol, key, body string, critical, progress bool) (string, string) {
 	if !fitsText(body) || body == "" {
 		return "", "unavailable"
 	}
@@ -66,9 +96,18 @@ func (b *Bridge) sendOne(ctx context.Context, p *protocol, key, body string, cri
 		}
 		return "", old.State
 	}
-	if b.remainingLocked(critical) == 0 {
+	remaining := b.remainingLocked(critical)
+	if progress {
+		remaining = b.remainingProgressLocked()
+	}
+	if remaining == 0 {
 		b.mu.Unlock()
 		return "", "deferred"
+	}
+	if b.state.Window.Used == windowSendLimit-1 {
+		if decorated := withExhaustedHint(body); fitsText(decorated) {
+			body = decorated
+		}
 	}
 	var seed [16]byte
 	if _, err := rand.Read(seed[:]); err != nil {
@@ -77,6 +116,9 @@ func (b *Bridge) sendOne(ctx context.Context, p *protocol, key, body string, cri
 	}
 	oldWindow := b.state.Window
 	b.state.Window.Used++
+	if progress {
+		b.state.Window.ProgressUsed++
+	}
 	w := b.state.Window
 	intent := outbound{
 		State: "unknown", ClientID: "caelis-weixin-" + hex.EncodeToString(seed[:]),

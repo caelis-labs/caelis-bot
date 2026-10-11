@@ -213,12 +213,10 @@ func Serve(r *Runtime) (*Bridge, error) {
 				var invocation api.ToolInvocation
 				if req.Version == 2 {
 					callCtx := context.Background()
-					if req.Name == "bot_dream" {
-						if runtime, ok := r.engine.(api.ConversationRuntime); ok {
-							state := runtime.ConversationState()
-							invocation = api.ToolInvocation{Provider: "codex", CallID: string(req.ID), Session: state.Session, Turn: state.Turn}
-							callCtx = api.WithToolInvocation(callCtx, invocation)
-						}
+					if runtime, ok := r.engine.(api.ConversationRuntime); ok {
+						state := runtime.ConversationState()
+						invocation = api.ToolInvocation{Provider: "codex", CallID: string(req.ID), Session: state.Session, Turn: state.Turn, TurnKey: state.TurnKey}
+						callCtx = api.WithToolInvocation(callCtx, invocation)
 					}
 					out = r.CallTool(callCtx, req.Name, req.Arguments)
 					if out.TurnComplete {

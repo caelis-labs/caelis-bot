@@ -19,7 +19,7 @@ the masked account on the Mac. One `ilink_bot_id` and the scanning
 `<Bot data>/Credentials/weixin/`; Telegram tokens and plugin API keys/OAuth
 grants use separate namespaces in the same private credential root. Existing
 Keychain items migrate on first use and the old item is deleted. `weixin.json` is a private atomic state file containing
-the account IDs, cursor, queued private text, context tokens, ingress receipt
+the account IDs, cursor, queued private text and progress, context tokens, ingress receipt
 states and outbound intent ledger. The UI does not receive tokens or message
 contents from this state. The client sends the upstream start/stop presence
 notifications when its connection starts or stops. Pausing cancels polling and
@@ -61,22 +61,30 @@ backed by its own cache, but this observed payload supplies neither. See its
 and [inbound resolver](https://github.com/Tencent/openclaw-weixin/blob/main/src/messaging/inbound.ts).
 
 Telegram buttons call that same controller. Desktop and both companion channels
-remain one Bot conversation. Visible user messages, final assistant messages,
-text approval cards, terminal notices and control receipts are mirrored through
-each transport's independent delivery ledger. An original Weixin input is not
-echoed back to its own chat. Pairing and legacy records baseline existing history.
+remain one Bot conversation. Weixin sends only output traced to an accepted
+Weixin input and its Turn; mixed or unbound Turns and inputs from other entries
+are not pushed to Weixin. Telegram keeps its own mirroring behavior. Pairing and
+legacy records baseline existing history.
 The inbox and cursor are saved together before dispatch. A dispatching request
 that loses its result is not sent again automatically. A completed assistant
-item can still be commentary inside a working Turn. The adapter waits for the
-Turn terminal state and sends its last ordinary assistant item as the reply.
+item can still be commentary inside a working Turn. The first completed item
+is sent as progress; later items merge in order with a visible divider after
+three items or when the combined text approaches 70% of the safe chunk limit.
+No fixed timer drives sends. A terminal Turn identifies its last ordinary
+assistant item as the reply; unsent progress joins it when one message fits.
 Codex clears `CurrentTurn` on completion; the adapter binds that terminal
 snapshot to the exact latest accepted owner ingress receipt and its user-item
 TurnKey, or to a previously observed active Turn. An unrelated old receipt or
 unscoped item cannot turn historical commentary into a new reply.
 Native approval and async question cards, control receipts and Worker-start
-notices remain deliverable while the Turn is running. Disposable typing may
-express progress, but does not refresh a context token or budget. Final text
-uses `sendmessage` and the latest owner ingress context token. A reply within 2,400 UTF-16
+notices remain deliverable while the Turn is running. Questions wait rather than
+spend the last estimated slot reserved for a final reply. Direct Worker
+approval cards use the original task ID and its saved Bot tool source Turn to
+enforce the same Weixin-only routing rule. Later Worker reports use the native
+report receipt ID to resolve that task before routing the Bot's result Turn.
+Disposable typing may express
+progress, but does not refresh a context token or budget. Final text uses
+`sendmessage` and the latest owner ingress context token. A reply within 2,400 UTF-16
 units and 6,000 UTF-8 bytes stays in one message. Longer replies split at
 Markdown blocks and natural boundaries; a complete fenced code block stays
 together when it fits, while an oversized fence is closed and reopened across
@@ -94,8 +102,10 @@ or credentials. `ret=-2` alone is an unclassified rejection. Explicit rate
 limit, context expiry, authentication and `prepare failed` remain distinct.
 
 The current phone-window estimate is ten attempted `sendmessage` calls after a
-distinct paired-owner input, with ordinary user mirrors capped at eight to
-leave room for decisions and results. Each Markdown chunk and each card counts
+distinct paired-owner input. Ordinary progress uses at most five attempts;
+other nonterminal output leaves one slot for a final reply. An actionable
+approval can use the last slot when it blocks the work, after which the user's
+decision supplies a fresh ingress. Each Markdown chunk and each card counts
 as a send; rejected and uncertain calls conservatively consume a slot. The
 window is saved with the owner, original input ID, context token and input
 time; duplicate updates, typing, restart and an older send result never refill
@@ -105,14 +115,18 @@ with unknown remaining allowance waits for a fresh user input. When a full
 final reply needs more estimated slots than remain, Weixin sends one
 deterministic head/tail excerpt with an omission count and invitation to
 request the rest; the shared desktop record retains the complete text.
-Low-priority mirrors omitted at the soft limit produce one brief count notice
-after a later owner input, not a history replay. Approval options and commands
-are never abbreviated; a multi-part card waits for enough estimated space for
-every part. No estimate guarantees service acceptance after the server has
-exhausted its actual window.
+Pending progress remains in the private Weixin delivery state across restart.
+`/refresh` and `/r` renew the local estimate from their original owner ingress
+and merge unsent progress without submitting a model request. `/help` and
+`/status` are local reads; `/stop` submits the native interrupt, not a prompt.
+Unknown sends are not replayed after a later ingress. A predicted tenth send
+adds a short `/r` hint when it fits; it is not a separate message. Approval
+options and commands are never abbreviated; a multi-part card waits for enough
+estimated space for every part. No estimate guarantees service acceptance after
+the server has exhausted its actual window.
 The adapter obtains a typing ticket
 from `getconfig` and renews `sendtyping` only while the paired user's main turn
-is active, cancelling it at turn end. Text still sends only as final messages;
+is active, cancelling it at turn end. Text uses finished sendmessage payloads;
 the upstream text builder uses `message_state=FINISH`, and the public protocol
 does not document safe in-place edits. Text cards and terminal status therefore
 arrive as separate messages. Native approval buttons, groups, attachments, edits,

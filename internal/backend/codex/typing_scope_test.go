@@ -14,7 +14,7 @@ func TestNativeWorkerApprovalSnapshotKeepsTelegramMainTyping(t *testing.T) {
 	}
 	s.mu.Lock()
 	s.rememberChild("independent-worker")
-	s.binding.Tasks = map[string]*taskRecord{"task": {Thread: "independent-worker", View: api.Task{Status: "working", Title: "synthetic task"}}}
+	s.binding.Tasks = map[string]*taskRecord{"task": {Thread: "independent-worker", View: api.Task{ID: "task", Status: "working", Title: "synthetic task"}}}
 	s.childRuns["independent-worker"] = "worker-turn"
 	s.update()
 	s.mu.Unlock()
@@ -23,7 +23,7 @@ func TestNativeWorkerApprovalSnapshotKeepsTelegramMainTyping(t *testing.T) {
 		"command": "synthetic", "availableDecisions": []string{"accept", "decline"},
 	})})
 	worker := awaitState(t, s, func(v api.Snapshot) bool { return len(v.Approvals) == 1 })
-	if worker.Phase != "working" || !worker.CanSteer || worker.Approvals[0].Owner != "task" || worker.Approvals[0].TurnKey == worker.CurrentTurn {
+	if worker.Phase != "working" || !worker.CanSteer || worker.Approvals[0].Owner != "task" || worker.Approvals[0].TaskID != "task" || worker.Approvals[0].TurnKey == worker.CurrentTurn {
 		t.Fatalf("worker request lost independent authority: phase=%s steer=%t owner=%s", worker.Phase, worker.CanSteer, worker.Approvals[0].Owner)
 	}
 	if !telegram.TypingForMainTurn(worker) {

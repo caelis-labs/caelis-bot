@@ -207,7 +207,7 @@ func TestConversationObservedOnlyAfterNativeCatchup(t *testing.T) {
 	}
 	v.CommandCaughtUp = true
 	v.State.Run.Active, v.State.Run.Status = pointer(true), pointer("running")
-	if got := s.ConversationState(); !got.Observed || got.Idle {
+	if got := s.ConversationState(); !got.Observed || got.Idle || got.TurnKey != "dream-turn" {
 		t.Fatal("observed activity confused with idle", got)
 	}
 }

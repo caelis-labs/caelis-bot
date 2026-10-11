@@ -67,6 +67,9 @@ func TestUsageUsesLastContextAndLiveResidentEvidence(t *testing.T) {
 		t.Fatal("history without live turn became warm")
 	}
 	s.applyEvent(start)
+	if got := s.ConversationState(); got.TurnKey != opaque("turn") {
+		t.Fatalf("native turn lost its presentation identity: %#v", got)
+	}
 	invalid := usage
 	invalid.Params = json.RawMessage(`{"threadId":"resident","turnId":"turn","tokenUsage":{"last":{"totalTokens":1,"inputTokens":1,"outputTokens":0},"total":{"totalTokens":1}}}`)
 	s.applyEvent(invalid)

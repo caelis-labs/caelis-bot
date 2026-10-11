@@ -26,7 +26,11 @@ func (s *Session) Snapshot() api.Snapshot {
 		return out
 	}
 	if snapshot := s.cached.Load(); snapshot != nil {
-		return clone(*snapshot)
+		out := clone(*snapshot)
+		for i := range out.Approvals {
+			out.Approvals[i].TaskID = snapshot.Approvals[i].TaskID
+		}
+		return out
 	}
 	return api.Snapshot{Connection: "connecting", Phase: "idle", Items: []api.Item{}, Approvals: []api.Approval{}}
 }
@@ -155,6 +159,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 				for _, worker := range s.state.Workers {
 					if worker.Binding.SessionId == sid {
 						item.Owner = "task"
+						item.TaskID = worker.Task.ID
 						break
 					}
 				}

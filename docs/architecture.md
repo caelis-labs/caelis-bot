@@ -249,24 +249,27 @@ Runtime/elicitation service may pass the native answer to a model; this host
 cannot promise otherwise.
 
 Desktop, Telegram and Weixin project one Bot conversation. Each companion has
-its own durable delivery ledger and mirrors visible user/assistant items,
-actionable approval/question cards, and useful control errors or uncertain
-receipts. Routine accepted answer/decision acknowledgements stay in the
+its own durable delivery ledger. Telegram mirrors visible conversation items;
+Weixin sends only output attributable to its exact accepted input/Turn, including
+batched progress, actionable cards and the terminal reply. Unbound or mixed-origin
+Turns are not pushed to Weixin. Routine accepted answer/decision acknowledgements
+stay in the
 controller's durable deduplication ledger without consuming another IM or phone
 message; a later stale command still receives its actual state. The desktop
 chat shows async questions as native choice buttons or a free-text field backed
 by the same short-reference controller. Pending approvals live in a separate
 numbered action tray and disappear when no longer pending, so they never follow
-the working indicator as a late chat bubble. Original ingress IDs
-only suppress the source transport's user-message echo; another transport labels
-that item as User. A failure in one sender does not block the other's ledger.
+the working indicator as a late chat bubble. Original ingress IDs suppress the
+source transport's user-message echo. Telegram may label other-entry inputs as
+User; Weixin omits them. A failure in one sender does not block the other's ledger.
 Initial pairing and legacy Weixin records baseline the current history instead
 of replaying it. Host task wakeups and automatic review progress stay internal;
-the Bot's subsequent visible response is mirrored. This is a snapshot projection,
-not a separate Bot session or a general event bus.
+the Bot's subsequent visible response follows each channel's delivery policy.
+This is a snapshot projection, not a separate Bot session or a general event bus.
 The first accepted or unconfirmed `bot_delegate` start emits one durable,
 user-visible conversation item with the task title (or a shortened prompt). It
-is mirrored to Telegram and Weixin; Weixin emphasizes the title with Markdown,
+is mirrored to Telegram and to Weixin for a Weixin-owned Turn; Weixin emphasizes
+the title with Markdown,
 without a second explanatory sentence. The desktop shows a compact
 chip on the desktop. Stable request replay emits no second item. Ongoing Worker
 status and terminal output remain in the task dock; completion reaches chat
@@ -363,18 +366,26 @@ Weixin, Telegram and plugin tokens into namespaces under `Credentials/`.
 Existing Keychain items migrate on first use and are deleted. Pairing QR state lives
 only in memory; settings starts or refreshes it while visible. Start/stop
 presence and disposable typing requests are independent of message receipts.
-Only owner private text and text projection of the shared conversation are in scope.
-Weixin waits for a terminal resident Turn before choosing its last assistant
-reply; completed commentary within a working Turn does not consume phone sends.
-Native approval and async question cards, exceptional control receipts, Worker-start items,
-and terminal replies are independent high-priority intents. User mirrors use a
-soft local send budget. Each actual text part reserves one slot in a durable
-owner/last-ingress window before HTTP; an old or unknown window never starts
+Only owner private text and text projection of Weixin-owned work are in scope.
+The first completed commentary is sent as progress; subsequent completed items
+are merged in order after three items or near the safe single-message length.
+Progress attempts are capped at five per observed ten-send window. Native
+approvals, async questions, Worker-start items and terminal replies have separate
+priority; questions may wait when only the final-reply reserve remains. A final
+reply may absorb unsent progress from its Turn. `/r` or `/refresh` flushes pending
+progress without a model submission; `/help`, `/status`, and `/stop` are local
+controls (`/stop` uses the original native interrupt). Each actual text part
+reserves one slot in a durable owner/last-ingress window before HTTP; an old or unknown window never starts
 full after restart. This is a conservative estimate of observed service behavior,
 not a published quota contract. Weixin cannot edit a previous card or prove
 phone display from HTTP success. Unknown HTTP outcomes keep their original
 intent without automatic replay, because upstream client-ID deduplication is
-unproven. Ingress and Worker receipts are likewise never replayed; see
+unproven. The Worker-start presentation carries the original Bot tool call's
+projected Turn identity; a native Worker approval carries its exact task ID.
+Weixin uses that persisted task-to-source binding instead of guessing from the
+most recent chat message. A later host report's original receipt ID resolves to
+that same task, so the Bot's resulting Turn retains its Weixin delivery source.
+Ingress and Worker receipts are likewise never replayed; see
 [POC scope](weixin-channel-poc.md).
 
 ## Remote machines

@@ -57,8 +57,8 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := api.Approval{ID: "worker-approval", Owner: "task", TurnKey: "worker-turn", Status: "pending", Choices: []api.Choice{{ID: "allow-once", Label: "允许", Scope: "once"}, {ID: "deny", Label: "拒绝"}}}
-	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+	a := api.Approval{ID: "worker-approval", Owner: "task", TaskID: "worker", TurnKey: "worker-turn", Status: "pending", Choices: []api.Choice{{ID: "allow-once", Label: "允许", Scope: "once"}, {ID: "deny", Label: "拒绝"}}}
+	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}, Items: []api.Item{{ID: "owner-user", Kind: "user", TurnKey: "source-turn", RequestID: "prior-owner-input"}, {ID: "task-start:worker", Kind: "assistant", TurnKey: "source-turn", Text: "Worker", Status: "completed", Task: &api.TaskPresentation{ID: "worker", Title: "Worker", Status: "working"}}}}
 	b, err := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, TextControl: control, RecordInput: func(in textchannel.Inbound, secret bool) {
 		if secret {
 			t.Error("ordinary command marked secret")
@@ -75,7 +75,7 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	freshWindow(b, "prior-owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
-	if len(texts) != 1 || !strings.Contains(texts[0], "**[A1]") || !strings.Contains(texts[0], "[1] 允许") || !strings.Contains(texts[0], "**提示：发送 /approve A1 + 选项标号**") {
+	if len(texts) != 2 || !strings.Contains(texts[0], "**[A1]") || !strings.Contains(texts[0], "[1] 允许") || !strings.Contains(texts[0], "**提示：发送 /approve A1 + 选项标号**") || texts[1] != "**Worker**" {
 		t.Fatalf("missing text card: %#v", texts)
 	}
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/approve A1 1", ContextToken: "ctx"}}
@@ -84,12 +84,12 @@ func TestTextApprovalWorksWhileResidentSubmitIsGated(t *testing.T) {
 	if len(input) != 1 || input[0].ID != "weixin:bot:1" || input[0].Conversation != "owner\x00ctx" || input[0].Text != "/approve A1 1" {
 		t.Fatal("owner command was not journaled once", input)
 	}
-	if sent.Load() != 1 || len(texts) != 1 {
+	if sent.Load() != 1 || len(texts) != 2 {
 		t.Fatalf("decision/receipt: %d %#v", sent.Load(), texts)
 	}
 	snapshot.Approvals[0].Status = "resolved"
 	b.output(t.Context(), p)
-	if len(texts) != 1 {
+	if len(texts) != 2 {
 		t.Fatalf("terminal mirror: %#v", texts)
 	}
 }
@@ -246,8 +246,8 @@ func TestMultiQuestionWeixinTextCompletesOneNativeRequest(t *testing.T) {
 	root := t.TempDir()
 	var decisions []api.Decision
 	control, _ := textchannel.Open(root, func(_ context.Context, d api.Decision) error { decisions = append(decisions, d); return nil })
-	a := api.Approval{ID: "original-worker", Owner: "task", Status: "pending", Choices: []api.Choice{{ID: "answer", Label: "提交回答"}}, Questions: []api.Question{{ID: "topic", Title: "主题", Type: "text", Required: true}, {ID: "depth", Title: "深度", Type: "select", Required: true, Options: []api.Choice{{ID: "brief", Label: "简要"}, {ID: "full", Label: "完整"}}}}}
-	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}}
+	a := api.Approval{ID: "original-worker", Owner: "task", TaskID: "worker", TurnKey: "worker-turn", Status: "pending", Choices: []api.Choice{{ID: "answer", Label: "提交回答"}}, Questions: []api.Question{{ID: "topic", Title: "主题", Type: "text", Required: true}, {ID: "depth", Title: "深度", Type: "select", Required: true, Options: []api.Choice{{ID: "brief", Label: "简要"}, {ID: "full", Label: "完整"}}}}}
+	snapshot := api.Snapshot{Connection: "ready", Approvals: []api.Approval{a}, Items: []api.Item{{ID: "owner-user", Kind: "user", TurnKey: "source-turn", RequestID: "prior-owner-input"}, {ID: "task-start:worker", Kind: "assistant", TurnKey: "source-turn", Text: "Worker", Status: "completed", Task: &api.TaskPresentation{ID: "worker", Title: "Worker", Status: "working"}}}}
 	submits := 0
 	b, _ := Open(root, Host{Snapshot: func() api.Snapshot { return snapshot }, Recovery: func() api.RecoveryState { return api.RecoveryState{InProgress: true} }, Submit: func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error) {
 		submits++
@@ -257,7 +257,7 @@ func TestMultiQuestionWeixinTextCompletesOneNativeRequest(t *testing.T) {
 	freshWindow(b, "prior-owner-input")
 	p := &protocol{client: server.Client(), base: server.URL, token: "fixture"}
 	b.output(t.Context(), p)
-	if len(texts) != 1 || !strings.Contains(texts[0], "**[Q1] 主题（必填）**") || !strings.Contains(texts[0], "**[Q2] 深度（必填）**") || !strings.Contains(texts[0], "**提示：发送 /answer Q2 + 选项标号**") || strings.Contains(texts[0], "回答请输入") {
+	if len(texts) != 2 || !strings.Contains(texts[0], "**[Q1] 主题（必填）**") || !strings.Contains(texts[0], "**[Q2] 深度（必填）**") || !strings.Contains(texts[0], "**提示：发送 /answer Q2 + 选项标号**") || strings.Contains(texts[0], "回答请输入") {
 		t.Fatalf("missing two phone fields: %#v", texts)
 	}
 	b.state.Inbox = []inbound{{ID: "weixin:bot:1", Text: "/answer Q1 draft", ContextToken: "ctx"}}
@@ -345,7 +345,7 @@ func TestUserMirrorSkipsOnlyOwnIngress(t *testing.T) {
 	b.state.Inputs["remote-wx"] = "accepted"
 	b.ObserveTurn(api.Snapshot{CurrentTurn: "t1", Phase: "completed", Items: []api.Item{{ID: "a1", TurnKey: "t1", Kind: "assistant", Text: "reply", Status: "completed"}}})
 	b.output(t.Context(), &protocol{client: server.Client(), base: server.URL, token: "fixture"})
-	if len(texts) != 3 || texts[0] != "User: hello" || texts[1] != "User: desktop steer" || texts[2] != "reply" {
+	if len(texts) != 0 {
 		t.Fatalf("mirror: %#v", texts)
 	}
 }
@@ -512,7 +512,7 @@ func TestUnknownSubmitAndSendAreNotReplayed(t *testing.T) {
 	}
 	freshWindow(b, "weixin:bot:1")
 	snapshot.CurrentTurn, snapshot.Phase = "turn", "completed"
-	snapshot.Items = []api.Item{{ID: "answer", TurnKey: "turn", Kind: "assistant", Text: "reply", Status: "completed"}}
+	snapshot.Items = []api.Item{{ID: "owner-user", TurnKey: "turn", Kind: "user", RequestID: "weixin:bot:1"}, {ID: "answer", TurnKey: "turn", Kind: "assistant", Text: "reply", Status: "completed"}}
 	p := &protocol{client: server.Client(), base: server.URL, token: "secret"}
 	b.output(t.Context(), p)
 	b.output(t.Context(), p)
@@ -541,7 +541,7 @@ func TestBusinessRejectionKeepsRedactedDiagnosticsAndWaitsForFreshIngress(t *tes
 		_, _ = w.Write([]byte(`{"ret":0}`))
 	}))
 	defer server.Close()
-	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "t1", Phase: "completed", Items: []api.Item{{ID: "a1", TurnKey: "t1", Kind: "assistant", Text: "answer", Status: "completed"}}}
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "t1", Phase: "completed", Items: []api.Item{{ID: "u1", TurnKey: "t1", Kind: "user", RequestID: "in-1"}, {ID: "a1", TurnKey: "t1", Kind: "assistant", Text: "answer", Status: "completed"}}}
 	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
 	if err != nil {
 		t.Fatal(err)
@@ -564,7 +564,7 @@ func TestBusinessRejectionKeepsRedactedDiagnosticsAndWaitsForFreshIngress(t *tes
 	}
 	freshWindow(b, "in-2")
 	snapshot.CurrentTurn = "t2"
-	snapshot.Items = append(snapshot.Items, api.Item{ID: "a2", TurnKey: "t2", Kind: "assistant", Text: "new answer", Status: "completed"})
+	snapshot.Items = append(snapshot.Items, api.Item{ID: "u2", TurnKey: "t2", Kind: "user", RequestID: "in-2"}, api.Item{ID: "a2", TurnKey: "t2", Kind: "assistant", Text: "new answer", Status: "completed"})
 	b.output(t.Context(), p)
 	if sent.Load() != 2 || b.state.Outputs["item:a1:0"].State != "rejected" || b.state.Outputs["item:a2:0"].State != "accepted" {
 		t.Fatal("fresh ingress replayed rejected output or blocked new final")
@@ -592,7 +592,7 @@ func TestLongReplySendsEveryBoundedPartWhenSuccessOmitsRet(t *testing.T) {
 	}))
 	defer server.Close()
 	answer := strings.Repeat("你好世界。", 500)
-	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "completed", Items: []api.Item{{ID: "long-answer", TurnKey: "turn", Kind: "assistant", Text: answer, Status: "completed"}}}
+	snapshot := api.Snapshot{Connection: "ready", CurrentTurn: "turn", Phase: "completed", Items: []api.Item{{ID: "owner-user", TurnKey: "turn", Kind: "user", RequestID: "prior-owner-input"}, {ID: "long-answer", TurnKey: "turn", Kind: "assistant", Text: answer, Status: "completed"}}}
 	b, err := Open(t.TempDir(), Host{Snapshot: func() api.Snapshot { return snapshot }})
 	if err != nil {
 		t.Fatal(err)

@@ -308,8 +308,18 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	}
 	if app.Weixin == nil {
 		remote, remoteErr := weixin.Open(app.root, weixin.Host{
-			Snapshot: app.Backend.Snapshot,
-			Recovery: app.Backend.RecoveryState,
+			Snapshot:  app.Backend.Snapshot,
+			Recovery:  app.Backend.RecoveryState,
+			Interrupt: app.Backend.Interrupt,
+			TaskForReport: func(id string) string {
+				app.mu.Lock()
+				manager := app.tasks
+				app.mu.Unlock()
+				if manager == nil {
+					return ""
+				}
+				return manager.TaskForReportID(id)
+			},
 			Submit: func(ctx context.Context, in api.Submission, files []api.InputFile) (api.Receipt, error) {
 				return backend.SubmitRemote(ctx, app.Backend, in, files)
 			},
@@ -479,14 +489,18 @@ func (a *Application) Start() error {
 	if manager != nil {
 		manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 		manager.ObserveWatchlist(a.host.ObserveTasks)
-		manager.ObserveStarts(func(task api.Task) {
+		manager.ObserveStartsWithContext(func(ctx context.Context, task api.Task) {
 			status := task.Status
 			text := task.Title
+			turnKey := ""
+			if invocation, ok := api.ToolInvocationFromContext(ctx); ok {
+				turnKey = invocation.TurnKey
+			}
 			if task.Outcome == "unknown" || status == "unknown" {
 				text = "Worker 状态待确认：" + task.Title
 			}
 			a.Backend.ObserveChat(api.Snapshot{Items: []api.Item{{
-				ID: "task-start:" + task.ID, Kind: "assistant", Text: text,
+				ID: "task-start:" + task.ID, TurnKey: turnKey, Kind: "assistant", Text: text,
 				Status: "completed", Task: &api.TaskPresentation{ID: task.ID, Title: task.Title, Status: status},
 			}}})
 		})

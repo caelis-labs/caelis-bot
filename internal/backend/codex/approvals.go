@@ -324,6 +324,7 @@ func (s *Session) addPrompt(event Notification) {
 	if task := s.taskByThread(n.ThreadID); task != nil {
 		p.view.Owner = "task"
 		p.view.TaskTitle = task.View.Title
+		p.view.TaskID = task.View.ID
 	} else {
 		// The resident thread and its non-task children share the main
 		// conversation's approval gate, even when their turn keys differ.
