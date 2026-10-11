@@ -40,13 +40,11 @@ type Status struct {
 	ExpiresAt int64  `json:"expiresAt"`
 }
 type inbound struct {
-	ID           string             `json:"id"`
-	Text         string             `json:"text"`
-	ContextToken string             `json:"contextToken"`
-	Secret       bool               `json:"secret,omitempty"` // body is held only in memory
-	PromptID     string             `json:"promptId,omitempty"`
-	ReferenceID  string             `json:"referenceId,omitempty"`
-	Quoted       *api.QuotedMessage `json:"quoted,omitempty"`
+	ID           string `json:"id"`
+	Text         string `json:"text"`
+	ContextToken string `json:"contextToken"`
+	Secret       bool   `json:"secret,omitempty"` // body is held only in memory
+	PromptID     string `json:"promptId,omitempty"`
 }
 type outbound struct {
 	State        string `json:"state"`
@@ -74,28 +72,27 @@ type sendWindow struct {
 	Exhausted    bool   `json:"exhausted,omitempty"`
 }
 type document struct {
-	Version        int                 `json:"version"`
-	Enabled        bool                `json:"enabled"`
-	BotID          string              `json:"botId"`
-	OwnerID        string              `json:"ownerId"`
-	BaseURL        string              `json:"baseURL"`
-	Cursor         string              `json:"cursor"`
-	HasInput       bool                `json:"hasInput"`
-	ContextToken   string              `json:"contextToken,omitempty"`
-	Window         sendWindow          `json:"window,omitempty"`
-	PendingFinal   string              `json:"pendingFinal,omitempty"`
-	ObservedTurn   string              `json:"observedTurn,omitempty"`
-	Missed         int                 `json:"missed,omitempty"`
-	TurnPhases     map[string]string   `json:"turnPhases,omitempty"`
-	TurnOrder      []string            `json:"turnOrder,omitempty"`
-	PauseUntil     int64               `json:"pauseUntil,omitempty"`
-	InputContexts  map[string]string   `json:"inputContexts,omitempty"`
-	Inbox          []inbound           `json:"inbox,omitempty"`
-	Inputs         map[string]string   `json:"inputs"`
-	Outputs        map[string]outbound `json:"outputs"`
-	MirrorV2       bool                `json:"mirrorV2,omitempty"`
-	LocalIMSeeded  bool                `json:"localImSeeded,omitempty"`
-	SecretMessages map[string]bool     `json:"secretMessages,omitempty"`
+	Version       int                 `json:"version"`
+	Enabled       bool                `json:"enabled"`
+	BotID         string              `json:"botId"`
+	OwnerID       string              `json:"ownerId"`
+	BaseURL       string              `json:"baseURL"`
+	Cursor        string              `json:"cursor"`
+	HasInput      bool                `json:"hasInput"`
+	ContextToken  string              `json:"contextToken,omitempty"`
+	Window        sendWindow          `json:"window,omitempty"`
+	PendingFinal  string              `json:"pendingFinal,omitempty"`
+	ObservedTurn  string              `json:"observedTurn,omitempty"`
+	Missed        int                 `json:"missed,omitempty"`
+	TurnPhases    map[string]string   `json:"turnPhases,omitempty"`
+	TurnOrder     []string            `json:"turnOrder,omitempty"`
+	PauseUntil    int64               `json:"pauseUntil,omitempty"`
+	InputContexts map[string]string   `json:"inputContexts,omitempty"`
+	Inbox         []inbound           `json:"inbox,omitempty"`
+	Inputs        map[string]string   `json:"inputs"`
+	Outputs       map[string]outbound `json:"outputs"`
+	MirrorV2      bool                `json:"mirrorV2,omitempty"`
+	LocalIMSeeded bool                `json:"localImSeeded,omitempty"`
 }
 type Bridge struct {
 	configMu                      sync.Mutex
@@ -119,7 +116,7 @@ type Bridge struct {
 }
 
 func emptyDocument() document {
-	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, SecretMessages: map[string]bool{}, TurnPhases: map[string]string{}, MirrorV2: true, LocalIMSeeded: true}
+	return document{Version: 1, Inputs: map[string]string{}, Outputs: map[string]outbound{}, InputContexts: map[string]string{}, TurnPhases: map[string]string{}, MirrorV2: true, LocalIMSeeded: true}
 }
 func Open(root string, host Host) (*Bridge, error) {
 	hash := sha256.Sum256([]byte(root))
@@ -151,9 +148,6 @@ func Open(root string, host Host) (*Bridge, error) {
 	}
 	if b.state.InputContexts == nil {
 		b.state.InputContexts = map[string]string{}
-	}
-	if b.state.SecretMessages == nil {
-		b.state.SecretMessages = map[string]bool{}
 	}
 	if b.state.TurnPhases == nil {
 		b.state.TurnPhases = map[string]string{}
@@ -583,65 +577,6 @@ func textOf(msg message) string {
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
-func referenceOf(msg message) string {
-	var id string
-	for _, item := range msg.Items {
-		if item.Type != 1 || item.Text == nil || item.Text.Text == "" {
-			continue
-		}
-		if item.Ref == nil || item.Ref.ServerID == "" {
-			return ""
-		}
-		if id != "" && id != string(item.Ref.ServerID) {
-			return ""
-		}
-		id = string(item.Ref.ServerID)
-	}
-	return id
-}
-func (b *Bridge) quotedMessageLocked(msg message) *api.QuotedMessage {
-	var ref *refItem
-	for _, item := range msg.Items {
-		if item.Type == 1 && item.Text != nil && item.Text.Text != "" && item.Ref != nil {
-			if ref != nil {
-				return nil
-			} // several fragments are not one quote
-			ref = item.Ref
-		}
-	}
-	if ref == nil {
-		return nil
-	}
-	id := string(ref.ServerID)
-	if id != "" && b.state.SecretMessages[id] {
-		return nil
-	}
-	q := &api.QuotedMessage{HostID: id, Role: "unknown", Excerpt: true}
-	if ref.Item != nil && ref.Item.Type == 1 && ref.Item.Text != nil {
-		q.Text = ref.Item.Text.Text
-	}
-	if q.Text == "" {
-		q.Text = ref.Title
-	}
-	if b.host.TextControl != nil && b.host.TextControl.IsSecretCommand(q.Text) {
-		return nil
-	}
-	if id != "" {
-		for key, out := range b.state.Outputs {
-			if out.State == "accepted" && out.MessageID == id {
-				q.Role, q.LocalID = "assistant", key
-				break
-			}
-		}
-		if q.LocalID == "" {
-			key := "weixin:" + b.state.BotID + ":" + id
-			if _, exists := b.state.Inputs[key]; exists {
-				q.Role, q.LocalID = "user", key
-			}
-		}
-	}
-	return api.BoundQuote(q)
-}
 func (b *Bridge) receive(ctx context.Context, p *protocol) {
 	backoff := time.Second
 	pollTimeout := 40 * time.Second
@@ -723,11 +658,7 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 			if body == "" || len(body) > 32<<10 {
 				continue
 			}
-			ref := referenceOf(msg)
 			controlIn := textchannel.Inbound{Channel: "weixin", Conversation: msg.ContextToken, ID: key, Text: body}
-			if ref != "" {
-				controlIn.Reference = &textchannel.Reference{Conversation: b.state.OwnerID, MessageID: ref}
-			}
 			promptID := ""
 			if b.host.TextControl != nil {
 				promptID = b.host.TextControl.SecretPrompt(controlIn)
@@ -736,10 +667,9 @@ func (b *Bridge) receive(ctx context.Context, p *protocol) {
 			stored := body
 			if secret {
 				b.secretInbox[key] = body
-				b.state.SecretMessages[string(msg.MessageID)] = true
 				stored = "" // never put the marked value in the persistent inbox
 			}
-			b.state.Inbox = append(b.state.Inbox, inbound{ID: key, Text: stored, ContextToken: msg.ContextToken, Secret: secret, PromptID: promptID, ReferenceID: ref, Quoted: b.quotedMessageLocked(msg)})
+			b.state.Inbox = append(b.state.Inbox, inbound{ID: key, Text: stored, ContextToken: msg.ContextToken, Secret: secret, PromptID: promptID})
 			if msg.ContextToken != "" {
 				b.state.ContextToken = msg.ContextToken
 				b.state.Window = sendWindow{OwnerID: b.state.OwnerID, InputID: key, ContextToken: msg.ContextToken, InputAt: time.Now().UnixMilli()}
@@ -790,10 +720,7 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 	in := b.state.Inbox[0]
 	secretText := b.secretInbox[in.ID]
 	controlIn := textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID, Text: in.Text}
-	if in.ReferenceID != "" {
-		controlIn.Reference = &textchannel.Reference{Conversation: b.state.OwnerID, MessageID: in.ReferenceID}
-	}
-	control := in.Secret || textchannel.IsCommand(in.Text) || b.host.TextControl != nil && b.host.TextControl.HasCardReference(controlIn)
+	control := in.Secret || textchannel.IsCommand(in.Text)
 	if !control {
 		snapshot := b.host.Snapshot()
 		recovery := b.host.Recovery()
@@ -843,11 +770,7 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 				b.host.TextControl.RecoverSecretInput(textchannel.Inbound{Channel: "weixin", Conversation: in.ContextToken, ID: in.ID}, in.PromptID)
 			} else {
 				controlIn.Text = command
-				if textchannel.IsCommand(command) {
-					_ = b.host.TextControl.Handle(ctx, controlIn, b.host.Snapshot())
-				} else {
-					_, _ = b.host.TextControl.HandleReference(ctx, controlIn, b.host.Snapshot())
-				}
+				_ = b.host.TextControl.Handle(ctx, controlIn, b.host.Snapshot())
 			}
 			if len(transports) > 0 && transports[0] != nil {
 				b.mirrorNotices(ctx, transports[0])
@@ -879,7 +802,7 @@ func (b *Bridge) dispatch(ctx context.Context, transports ...*protocol) {
 		}
 	}
 	work, stop := context.WithTimeout(ctx, 30*time.Second)
-	receipt, err := b.host.Submit(work, api.Submission{ID: in.ID, Text: in.Text, Quoted: in.Quoted, IngressFence: recovery.Fence}, nil)
+	receipt, err := b.host.Submit(work, api.Submission{ID: in.ID, Text: in.Text, IngressFence: recovery.Fence}, nil)
 	stop()
 	b.mu.Lock()
 	if errors.Is(err, api.ErrRecoveryPending) {
@@ -921,15 +844,15 @@ func (b *Bridge) sendControl(ctx context.Context, p *protocol, in inbound, body 
 	}
 	b.sendTextOnce(ctx, p, "control:"+in.ID, in.ContextToken, body)
 }
-func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToken, body string) string {
+func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToken, body string) {
 	_ = contextToken // the newest confirmed owner ingress owns the send window
 	parts := chunks(body)
 	if len(parts) == 1 {
-		id, _ := b.sendOne(ctx, p, key, parts[0], true)
-		return id
+		_, _ = b.sendOne(ctx, p, key, parts[0], true)
+		return
 	}
 	if len(parts) == 0 || len(parts) > windowSendLimit {
-		return ""
+		return
 	}
 	b.mu.Lock()
 	remaining := b.remainingLocked(true)
@@ -940,7 +863,7 @@ func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToke
 	}
 	b.mu.Unlock()
 	if remaining < len(parts) {
-		return "" // never strand a card before its choices and command
+		return // never strand a card before its choices and command
 	}
 	for index, part := range parts {
 		_, state := b.sendOne(ctx, p, fmt.Sprintf("%s:part:%d", key, index), part, true)
@@ -948,7 +871,6 @@ func (b *Bridge) sendTextOnce(ctx context.Context, p *protocol, key, contextToke
 			break
 		}
 	}
-	return "" // a multi-message card has no single referenceable server ID
 }
 func outputKey(item api.Item) string { return "item:" + item.ID }
 func textDigest(s string) string {
@@ -1099,14 +1021,12 @@ func (b *Bridge) mirrorControls(ctx context.Context, p *protocol, snapshot api.S
 	if b.host.TextControl != nil {
 		for _, approval := range snapshot.Approvals {
 			b.mu.Lock()
-			contextToken, owner := b.state.ContextToken, b.state.OwnerID
+			contextToken := b.state.ContextToken
 			b.mu.Unlock()
 			if approval.Status == "pending" {
 				card, short, err := b.host.TextControl.Card(approval)
 				if err == nil && card != "" {
-					if messageID := b.sendTextOnce(ctx, p, "approval:"+approval.ID+":"+short, contextToken, card); messageID != "" {
-						_ = b.host.TextControl.BindCard("weixin", owner, messageID, approval)
-					}
+					b.sendTextOnce(ctx, p, "approval:"+approval.ID+":"+short, contextToken, card)
 				}
 			} else if approval.Status == "resolved" {
 				b.sendTextOnce(ctx, p, "approval-result:"+approval.ID, contextToken, approvalStatus(approval))

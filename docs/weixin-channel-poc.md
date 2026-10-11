@@ -43,20 +43,18 @@ original link and native accept/decline/cancel choices; opening a link is not a
 successful authorization receipt. A Runtime-marked secret answer is not stored
 in the durable inbox or ordinary control receipts. It is held in memory until
 the original native decision; a restart asks the owner to re-enter it.
-The current upstream type surface includes `ref_msg.svr_id` and a `message_id`
-in `sendmessage` responses. A direct reply binds to a Bot card only when the
-actual send response supplied that server message ID and the paired owner's
-reference matches it. If the service omits the ID, the card stays usable via
-its full `/approve` or `/answer` command; quoted text alone has no authority.
-Several actionable fields on one card always require the full command.
-For ordinary chat, `ref_msg.message_item` or its summary contributes only the
-available quoted text to an XML-escaped `<reference>` block before the new body.
-Quotes over 4,096 Unicode characters keep their first 70% and last 30% with a
-middle omission count. A missing
-`svr_id` still permits this limited context, but never authorizes a bare
-approval answer. The service may supply only a selected fragment; the host
-retains that fact internally and does not claim the fragment is the full source.
-The visible user message remains the newly typed body.
+Weixin treats the user's newly typed text as the entire input. It ignores
+`ref_msg` for both ordinary model context and control decisions; approvals and
+questions require the full `/approve` or `/answer` command. A real 2026-10-11
+text quote arrived as a `type=0`, `msg_id="0"` placeholder without quoted text,
+`title` or `svr_id`. Earlier attempts sent an empty reference block and then an
+unavailable-content marker to Codex; both misled the Bot. Neither is sent now.
+The quoted source is not inferred from the timestamp or a nearby chat message.
+Tencent's OpenClaw plugin can use inline quoted text or an ID-only `svr_id`
+backed by its own cache, but this observed payload supplies neither. See its
+[quote cache design](https://github.com/Tencent/openclaw-weixin/blob/main/docs/quote-cache_zh_CN.md)
+and [inbound resolver](https://github.com/Tencent/openclaw-weixin/blob/main/src/messaging/inbound.ts).
+
 Telegram buttons call that same controller. Desktop and both companion channels
 remain one Bot conversation. Visible user messages, final assistant messages,
 text approval cards, terminal notices and control receipts are mirrored through

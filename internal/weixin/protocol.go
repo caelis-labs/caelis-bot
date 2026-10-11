@@ -41,13 +41,6 @@ type textItem struct {
 type messageItem struct {
 	Type int       `json:"type"`
 	Text *textItem `json:"text_item,omitempty"`
-	Ref  *refItem  `json:"ref_msg,omitempty"`
-}
-type refItem struct {
-	ServerID wireID          `json:"svr_id"`
-	Item     *messageItem    `json:"message_item,omitempty"`
-	Title    string          `json:"title,omitempty"`
-	Partial  json.RawMessage `json:"partial_text,omitempty"`
 }
 type message struct {
 	MessageID    wireID        `json:"message_id"`
