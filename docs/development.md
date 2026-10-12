@@ -43,28 +43,30 @@ protocol peers are not live Codex daemon/Caelis Host acceptance. Native macOS
 0.162.1 daemon recovery, real in-flight Worker outcomes and Ghostty attach/detach
 remain separate acceptance steps; Linux fixtures cannot establish those results.
 
-Desktop World is pinned to the published [v0.1.0-rc.4](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.0-rc.4)
-portable plugin. `resources/desktop-world/release.json` fixes each release archive,
-BUILD provenance, source archive, CUA commit and license inventory. The build
-verifies full archive SHA-256 and every member against upstream `SHA256SUMS`,
-then stages `bin/dtw`, private `libexec/cua-driver`, `LICENSING/`, `mcp.json` and
-its Skill. It re-signs both nested Mac binaries with the selected Bot identity
-and seals the final bytes inside the app. `script/verify-desktop-world.sh` checks
-the signed installed inventory. The official Mac archive was ad-hoc signed and
-not notarized; the Windows archive is unsigned and needs the VC runtime.
-Package/cross-build checks are not native GUI acceptance. Historical rc.3 and
-rc.2 records remain under `docs/evidence/` with their original versions.
+Desktop World is pinned to the published [v0.1.0-rc.8](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.0-rc.8)
+single executable. `resources/desktop-world/release.json` fixes each platform
+artifact SHA-256, BUILD provenance, CUA commit, worker and license inventory.
+The build validates the downloaded executable before running the offline
+`dtw install plugin --to NEW_DIRECTORY` exporter. It verifies every exported
+file, including hidden compatibility manifests, against upstream `SHA256SUMS`,
+then stages the complete `bin/`, `libexec/`, `LICENSING/`, MCP and Skill package.
+The exporter requires a destination that does not exist; validation failure
+retains the previous package. No DTW build toolchain or global installation is
+needed. Python is build tooling only, not an application dependency.
 
-Packaging changes select the PR macOS preview job: it fetches the pinned rc.4
-archive, checks its SHA-256, BUILD provenance and complete license/Skill
-inventory, verifies the upstream ad-hoc native signatures, re-signs the two
-executables under Bot, then verifies the app and mounted development DMG. The
-main-branch release workflow repeats the build from its immutable tag and
-verifies the ad-hoc app before Developer ID re-signing and notarization. The
-Windows PR job stages the pinned zip under `Plugins/desktop-world` with its
-inventory and runs `dtw.exe version` on the runner, which also checks that
-runner's VC runtime dependency. There is no shipped Windows Bot package or
-Windows GUI acceptance in these jobs.
+The official Mac CLI and embedded worker carry Developer ID signatures and
+upstream notarization evidence. Staging verifies both signatures and their
+pinned team before adjusting the worker's build-machine Xcode search paths.
+Bot re-signs both nested Mac executables with its selected identity and seals
+a new complete inventory inside the app. Upstream notarization does not qualify
+the resulting Bot: its immutable release must independently pass signing,
+notarization, staples and Gatekeeper. Windows staging runs the native EXE
+exporter through the same verifier, retains the full plugin inventory and
+checks `dtw.exe version` on the Windows runner. The Windows artifact is unsigned
+and needs the VC runtime. These jobs do not establish Windows GUI acceptance.
+Historical rc.3 and rc.2 records retain their original versions under
+`docs/evidence/`; the previous rc.4 GUI evidence below does not qualify rc.8.
+
 
 ## Native development
 
@@ -159,7 +161,7 @@ Skill、唯一 `exec` 和停用撤销。
 `TestNativeDesktopWorldPluginDirectory` 是两 Runtime 的按需原生连接检查。
 设置 `CAELIS_BOT_TEST_BOT_BINARY` 为已签名 Dev 包的可执行文件，
 `CAELIS_BOT_TEST_DTW_STORE` 为隔离插件目录，
-`CAELIS_BOT_TEST_DTW_ROOT` 为其中已安装的 rc.4 版本目录；分别给 Codex
+`CAELIS_BOT_TEST_DTW_ROOT` 为其中已安装的 rc.8 版本目录；分别给 Codex
 测试设置 `CAELIS_BOT_TEST_CODEX`，给 Core 测试设置
 `CAELIS_BOT_TEST_BINARY`。测试创建私有 App Server/Host 与本地合成模型，
 验证 Skill、单 `exec` 和停用撤销；它不执行 GUI 操作。

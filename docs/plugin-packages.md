@@ -4,12 +4,12 @@ Bot loads [Agent Plugins 1.0 portable packages](https://agent-plugins.org/specif
 
 The format boundary was checked against the official [manifest](https://agent-plugins.org/plugin-authors/manifest), [MCP](https://agent-plugins.org/plugin-authors/mcp-servers), [loading](https://agent-plugins.org/client-implementers/loading-and-discovery), [runtime](https://agent-plugins.org/client-implementers/mcp-runtime) and [conformance](https://agent-plugins.org/client-implementers/conformance) documents. Bot supports a reviewed local subset of Agent Plugins 1.0, not arbitrary marketplace imports:
 
-| Area | Before rc.4 integration | Current boundary |
+| Area | Before built-in integration | Current boundary |
 | --- | --- | --- |
 | Manifest | Required `$schema` and `name`; weak optional field checks | Checks known field types and identity; reports unknown fields and ignores nonobject `extensions` |
 | Skills | Package metadata, resident-only discovery | Immediate `skills/<name>/SKILL.md` children; invalid Skills isolated; body loaded on demand by Codex/Core |
 | MCP | stdio and Streamable HTTP through Bot bridge | Per-server failure isolation, explicit unsupported transport/fields, package/data path expansion in args/env/cwd and containment for local command/cwd |
-| Installation | Build-reviewed catalog and immutable copies | Built-in rc.4 appears first as Computer Use / 电脑操控, installed/enabled by default; disabled choice survives restart/upgrade; built-in cannot be uninstalled. Its package ID remains `desktop-world`. |
+| Installation | Build-reviewed catalog and immutable copies | Built-in rc.8 appears first as Computer Use / 电脑操控, installed/enabled by default; disabled choice survives restart/upgrade; built-in cannot be uninstalled. Its package ID remains `desktop-world`. |
 | Runtime | Bot-owned selection/reload in Codex and Core | One generation-scoped stdio bridge; disable/update stops an active child and fences old schemas; a macOS Bot main-process lock also stops a retained bridge after exit, without adding auto-approval |
 | Outside scope | Remote marketplace import, lifecycle hooks | Still unsupported. SSE MCP transport is reported unsupported; platform capabilities and real account consent require separate acceptance. |
 

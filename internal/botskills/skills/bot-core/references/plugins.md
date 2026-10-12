@@ -15,7 +15,10 @@ can be disabled in Settings → Plugins. Before operating the desktop, confirm i
 is enabled, load its `desktop-world` Skill on demand, and discover the current
 MCP `exec` schema through the active Runtime. Use the Skill's `cua` script API
 and its linked references for exact UI operations and receipt recovery. The
-old `bot_desktop_*` tools are retired. A loaded schema from an older session is
+old `bot_desktop_*` tools are retired. Execution IDs may be short; retain the
+exact original ID and session when fetching status, result, images or cancellation.
+A completed execution receipt proves delivery, so read back the intended UI effect
+before reporting success. A loaded schema from an older session is
 not proof that a disabled plugin can still run. Follow Runtime tool approval
 and macOS permission decisions separately; a package being enabled grants
 neither one.

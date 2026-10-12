@@ -1,32 +1,30 @@
 {
-  "version": "v0.1.0-rc.4",
-  "revision": "ed71e10c8137d1f1e7b11ae9ab67ac8ecaada06d",
+  "version": "v0.1.0-rc.8",
+  "revision": "10d6c056222fd0756f87493a8db62761e34331e7",
   "cua_revision": "ac967b9006aafa10870aadb5a645b038cba9721a",
   "module": "github.com/caelis-labs/desktop-world",
-  "source": {
-    "archive": "desktop-world-v0.1.0-rc.4-source.tar.gz",
-    "sha256": "f3395f52c6433aaccbae3154729d09a226f7186c877eab8c3b1a80d0659d4bcd"
-  },
   "targets": {
     "darwin-arm64": {
-      "archive": "desktop-world-v0.1.0-rc.4-darwin-arm64.tar.gz",
-      "sha256": "5df96152b14018f7ef9e1e826a09f1f86ba33f861b7dff0d7b949aec97d2d965",
-      "binary_sha256": "1523e0a46a721abb4d0b29bdcd19319f9b5cf5da113415cb0aeb2259ccb64300",
-      "worker_sha256": "81718235fc7c8049d222b50b572aeca9cb0fd6524cf352cfcb4c6a3c00c18c6b",
+      "artifact": "dtw-darwin-arm64",
+      "sha256": "399b1c444ce94f921746f99ecbdbf86c0f920092ff8793f87856f2ae4adba255",
+      "binary_sha256": "399b1c444ce94f921746f99ecbdbf86c0f920092ff8793f87856f2ae4adba255",
+      "worker_sha256": "aac8ea23eed1c87eba673776b53af5df432ff5b6280075bf10587e3e1bc4620a",
       "binary": "bin/dtw",
-      "build_sha256": "18d22529530d51e0f6927642a19eaba11e938e7a70374bb20ee1609212d9d45a",
-      "license_inventory_sha256": "8e0ce0bc76a8bbae4d90426f0aec957eaad88ca0a39322697198b03d619f2bfb",
-      "minimum_macos": "14.0"
+      "build_sha256": "5e171b449e792a6c57dabd23240db61c98d09dd381499764cacd3b9ec7dcfbe4",
+      "license_inventory_sha256": "95043fe8d1b50689a1aae39ba5fa884cca1a0bd6aa784653ab29a62838fd6f19",
+      "license_packages": 373,
+      "minimum_macos": "14.0",
+      "signing_team": "64KZ67PM5J"
     },
     "windows-amd64": {
-      "archive": "desktop-world-v0.1.0-rc.4-windows-amd64.zip",
-      "sha256": "8aa076e02cb5aaa7a923fa74acdacc67bbaa79c104f40defaf42b88b87fd6b7c",
-      "binary_sha256": "ab3161d076ebb9b93a32a9f668ca5a0c036394f08065950e7215bcf55989699c",
-      "worker_sha256": "f6be927b5706455dc3b778d15901823012d343bd7474be0d9acd772da59fe834",
+      "artifact": "dtw-windows-amd64.exe",
+      "sha256": "f10aa4641e91f5a2213145addde76eef9b4a3a0b4121af68b4d25347a96bff12",
+      "binary_sha256": "f10aa4641e91f5a2213145addde76eef9b4a3a0b4121af68b4d25347a96bff12",
+      "worker_sha256": "860bc604cef29dd24e3889817416cc2ed5161dcc1386d58ccc5d66973d26f287",
       "binary": "bin/dtw.exe",
-      "build_sha256": "dac53d28e1d00a36476b4692b4a2f083e1c53ca07caa608727e6494737d5f853",
-      "license_inventory_sha256": "129c9077502961ff7ab36aabad5987a246a4b3c5ae5931e532df27dcf1ba3bc3"
+      "build_sha256": "f6fe41b06dd0ad3f88e2436c8f80d2ba7f95dc028f55ca38a30ca15744e7cc34",
+      "license_inventory_sha256": "a3b552b8b081f3433772dd1753048d35687f7637ec6be9ab0522c1c4b9947452",
+      "license_packages": 385
     }
-  },
-  "acceptance_sha256": "ca1af18fadeed27032cdd6a1ec41c034afaf15ec06918b027cade9fb3d17af0c"
+  }
 }

@@ -12,7 +12,7 @@ if [[ "$BOT_DW_SIGN_MODE" != adhoc ]]; then
 fi
 # Sign the private worker and the stdio adapter before sealing the outer app.
 for BOT_DW_SIGN_NATIVE in "$BOT_DW_SIGN_ROOT/libexec/cua-driver" "$BOT_DW_SIGN_ROOT/bin/dtw"; do
-  # rc.4's private worker carries three build-machine Xcode search paths.
+  # The upstream private worker carries build-machine Xcode search paths.
   # System Swift libraries resolve through /usr/lib/swift; remove only those
   # absolute build paths before signing the distributed copy.
   while IFS= read -r BOT_DW_SIGN_RPATH; do

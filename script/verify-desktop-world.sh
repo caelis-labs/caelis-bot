@@ -5,7 +5,7 @@ BOT_DW_VERIFY_MODE=${2:?signing mode required}
 BOT_DW_VERIFY_PLUGINS="$BOT_DW_VERIFY_BUNDLE/Contents/Resources/Plugins"
 BOT_DW_VERIFY_ROOT="$BOT_DW_VERIFY_PLUGINS/desktop-world"
 BOT_DW_VERIFY_VERSION=$(/usr/libexec/PlistBuddy -c 'Print CaelisDesktopWorldVersion' "$BOT_DW_VERIFY_BUNDLE/Contents/Info.plist" 2>/dev/null || true)
-[[ "$BOT_DW_VERIFY_VERSION" == v0.1.0-rc.4 && -f "$BOT_DW_VERIFY_PLUGINS/desktop-world-inventory.json" ]] || { echo 'Missing Desktop World rc.4 plugin.' >&2; exit 1; }
+[[ "$BOT_DW_VERIFY_VERSION" == v0.1.0-rc.8 && -f "$BOT_DW_VERIFY_PLUGINS/desktop-world-inventory.json" ]] || { echo 'Missing Desktop World rc.8 plugin.' >&2; exit 1; }
 case "$BOT_DW_VERIFY_MODE" in adhoc|development|developer-id) ;; *) exit 1 ;; esac
 BOT_DW_VERIFY_ARCH=$(lipo -archs "$BOT_DW_VERIFY_BUNDLE/Contents/MacOS/caelis-bot")
 [[ "$BOT_DW_VERIFY_ARCH" == arm64 ]] || { echo 'Unsupported host architecture.' >&2; exit 1; }
@@ -33,8 +33,8 @@ from pathlib import Path
 root=Path(sys.argv[1]); package=root/'desktop-world'
 entry=json.loads((root/'desktop-world-inventory.json').read_text())
 actual={p.relative_to(package).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in package.rglob('*') if p.is_file()}
-assert entry['ID']=='desktop-world' and entry['Version']=='0.1.0-rc.4'
+assert entry['ID']=='desktop-world' and entry['Version']=='0.1.0-rc.8'
 assert actual==entry['Files'], 'Desktop World signed package inventory differs'
 print(f'Verified complete signed Desktop World plugin: {len(actual)} files')
 PY
-[[ "$("$BOT_DW_VERIFY_ROOT/bin/dtw" version)" == "dtw 0.1.0-rc.4 (CUA source ac967b9006aa)" ]]
+[[ "$("$BOT_DW_VERIFY_ROOT/bin/dtw" version)" == "dtw 0.1.0-rc.8 (CUA source ac967b9006aa)" ]]

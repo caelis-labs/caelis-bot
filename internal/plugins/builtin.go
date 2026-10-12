@@ -57,7 +57,7 @@ func desktopWorldBundle() (Entry, fs.FS, bool, error) {
 		return Entry{}, nil, false, err
 	}
 	var entry Entry
-	if json.Unmarshal(body, &entry) != nil || entry.ID != "desktop-world" || entry.Version != "0.1.0-rc.4" || !entry.Builtin || len(entry.Files) == 0 {
+	if json.Unmarshal(body, &entry) != nil || entry.ID != "desktop-world" || entry.Version != "0.1.0-rc.8" || !entry.Builtin || len(entry.Files) == 0 {
 		return Entry{}, nil, false, errors.New("invalid built-in Desktop World inventory")
 	}
 	if err := Verify(packageRoot, entry.Files); err != nil {

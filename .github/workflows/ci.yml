@@ -168,12 +168,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $inventory = Get-Content -Raw -LiteralPath (Join-Path $plugins 'desktop-world-inventory.json') | ConvertFrom-Json
           if ($inventory.ID -ne 'desktop-world' -or $inventory.Title -ne 'Computer Use' -or
-              $inventory.titleZh -ne '电脑操控' -or $inventory.Version -ne '0.1.0-rc.4') {
+              $inventory.titleZh -ne '电脑操控' -or $inventory.Version -ne '0.1.0-rc.8') {
             throw 'Windows Desktop World plugin inventory mismatch'
           }
           $version = & (Join-Path $package 'bin/dtw.exe') version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($version -ne 'dtw 0.1.0-rc.4 (CUA source ac967b9006aa)') {
+          if ($version -ne 'dtw 0.1.0-rc.8 (CUA source ac967b9006aa)') {
             throw 'Windows Desktop World runtime or VC dependency mismatch'
           }
   # Keep the existing required check name. Failed/cancelled/missing jobs must

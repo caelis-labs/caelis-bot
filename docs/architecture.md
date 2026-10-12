@@ -634,8 +634,10 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 
 ## Desktop and presentation
 
-Desktop World v0.1.0-rc.4 is an optional built-in Agent Plugins package, initially
-enabled. Bot stages the complete pinned release (`bin/dtw`, `libexec/cua-driver`,
+Desktop World v0.1.0-rc.8 is an optional built-in Agent Plugins package, initially
+enabled. Bot verifies the pinned single executable and its BUILD provenance, runs the
+offline `dtw install plugin --to NEW_DIRECTORY` exporter, and stages the complete
+package (`bin/dtw`, `libexec/cua-driver`,
 `LICENSING/` and its Skill) into the signed app, then installs an immutable
 reviewed copy on first launch or upgrade. A saved disabled choice survives the
 upgrade. Bot lists it first as Computer Use / 电脑操控 while retaining the
@@ -660,9 +662,11 @@ so a retained Runtime configuration cannot operate after normal or abrupt Bot
 exit. Bot's Accessibility and Screen Recording
 permissions, Runtime tool approval, CUA's own operation boundary, and native
 result/readback remain separate checks. Bot does not silently approve this MCP
-server, reset TCC, or infer successful input from a model reply. Published rc.4
-Mac bytes are ad-hoc signed and not notarized; Bot re-signs both nested binaries
-with its selected app identity and seals the full release and license inventory.
+server, reset TCC, or infer successful input from a model reply. Published rc.8 Mac binaries are Developer ID signed, with upstream notarization
+evidence. Bot verifies those signatures before cleaning build-machine runtime
+paths and re-signing both nested binaries with its selected app identity. The
+app seals the complete resulting inventory and independently passes its own
+notarization and Gatekeeper gates; upstream tickets do not qualify Bot.
 Windows package verification and cross-build are separate from Windows GUI
 acceptance. The pin, package and permissions evidence are in
 [development](development.md); portable format support is in
