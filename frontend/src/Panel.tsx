@@ -201,7 +201,7 @@ function MessageMenu({item,x,y,onQuote,onClose,report}:{item:Item;x:number;y:num
 type ComposerProps={snapshot:Snapshot|null;active?:boolean;focusRevision?:number;refresh:()=>Promise<void>;onOutgoing?:(item:Item)=>void;quoteRequest?:{item:Item}|null;onQuoteConsumed?:()=>void};
 let flushVisibleComposer=async()=>{};
 const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refresh,onOutgoing,quoteRequest,onQuoteConsumed}:ComposerProps) {
- const {t} = useI18n();
+ const {t,locale} = useI18n();
  const draftLoadFailed=useEffectEvent(()=>t('chat.draftLoadFailed'));
  const input=useRef<HTMLTextAreaElement>(null),send=useRef<HTMLButtonElement>(null),add=useRef<HTMLButtonElement>(null);
  // WebKit treats inline Writing Suggestions separately from spell checking.
@@ -224,13 +224,13 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   if(!refs.some(id=>id.startsWith('bot-plugin:')||id.startsWith('codex-plugin:')))return;
   let alive=true;
   void desktop<{items:Parameters<typeof botMenuPlugins>[0]}>('Plugins').then(value=>{
-   if(alive)setPluginLabels(previous=>Object.fromEntries([...Object.entries(previous),...botMenuPlugins(value.items).map(item=>[item.id,item.name])]));
+   if(alive)setPluginLabels(previous=>Object.fromEntries([...Object.entries(previous),...botMenuPlugins(value.items,locale).map(item=>[item.id,item.name])]));
   }).catch(()=>{});
   void backend<Array<{id:string;name:string;description:string;source:string}>>('NativePlugins').then(value=>{
    if(alive)setPluginLabels(previous=>Object.fromEntries([...Object.entries(previous),...nativeMenuPlugins(value).map(item=>[item.id,item.name])]));
   }).catch(()=>{});
   return()=>{alive=false;};
- },[refs]);
+ },[refs,locale]);
  const pending=useRef<{request:Submission;outgoing:Item;progress:SubmissionProgress;generation:number;draftRevision:number}|null>(null);
  const lifetime=useRef(0),working=useRef(false);
  const fileOrder=useRef(new FileObservationOrder()),editGeneration=useRef(0),unsavedAfterAccepted=useRef(false),stopFileRead=useRef<()=>void>(()=>{});

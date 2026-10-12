@@ -144,11 +144,11 @@ func TestBuiltinDefaultsAndDisabledUpgrade(t *testing.T) {
 			files[filepath.ToSlash(rel)] = hex.EncodeToString(sum[:])
 			return nil
 		})
-		return Entry{ID: "fixture", Title: "Fixture", Version: version, Source: "bundled:fixture", Files: files, Builtin: true, Executables: []string{"bin/check"}}
+		return Entry{ID: "fixture", Title: "Fixture", TitleZh: "示例", Version: version, Source: "bundled:fixture", Files: files, Builtin: true, Executables: []string{"bin/check"}}
 	}
 	e := entry("0.1.0")
 	m, err := openCatalog(root, []Entry{e}, map[string]fs.FS{"fixture": os.DirFS(source)})
-	if err != nil || len(m.Selection().SkillRoots) != 1 || len(m.Selection().Servers) != 2 {
+	if err != nil || len(m.Selection().SkillRoots) != 1 || len(m.Selection().Servers) != 2 || m.Snapshot().Items[0].TitleZh != "示例" {
 		t.Fatal("built-in was not enabled on first install", err)
 	}
 	if _, err := m.Mutate(context.Background(), "fixture", "disable", nil); err != nil {

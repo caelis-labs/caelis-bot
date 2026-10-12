@@ -25,6 +25,7 @@ var serviceName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 type Entry struct {
 	ID, Title, Version, Description, Source string
+	TitleZh                                 string `json:"titleZh,omitempty"`
 	Files                                   map[string]string
 	Executables                             []string        `json:"executables,omitempty"`
 	Display                                 DisplayCatalog  `json:"display,omitempty"`

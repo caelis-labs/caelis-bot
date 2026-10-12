@@ -11,6 +11,7 @@ BOT_DW_VERIFY_ARCH=$(lipo -archs "$BOT_DW_VERIFY_BUNDLE/Contents/MacOS/caelis-bo
 [[ "$BOT_DW_VERIFY_ARCH" == arm64 ]] || { echo 'Unsupported host architecture.' >&2; exit 1; }
 BOT_DW_VERIFY_TEAM=$(codesign -dvv "$BOT_DW_VERIFY_BUNDLE" 2>&1 | sed -n 's/^TeamIdentifier=//p')
 for BOT_DW_VERIFY_NATIVE in "$BOT_DW_VERIFY_ROOT/bin/dtw" "$BOT_DW_VERIFY_ROOT/libexec/cua-driver"; do
+  [[ -x "$BOT_DW_VERIFY_NATIVE" ]] || { echo 'Desktop World native executable mode missing.' >&2; exit 1; }
   codesign --verify --strict "$BOT_DW_VERIFY_NATIVE"
   lipo "$BOT_DW_VERIFY_NATIVE" -verify_arch "$BOT_DW_VERIFY_ARCH"
   BOT_DW_VERIFY_DETAILS=$(codesign -dvv "$BOT_DW_VERIFY_NATIVE" 2>&1)

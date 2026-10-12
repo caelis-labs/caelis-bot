@@ -261,7 +261,11 @@ func reviewedDisplay(files fs.FS, entry Entry) (displayMetadata, error) {
 			continue
 		}
 		label := entry.Display.Servers[name]
-		out.Servers = append(out.Servers, Contribution{ID: name, Name: name, Description: displayText(label.DescriptionEn), NameZh: displayText(label.NameZh), DescriptionZh: displayText(label.DescriptionZh)})
+		serverName := displayText(label.NameEn)
+		if serverName == "" {
+			serverName = name
+		}
+		out.Servers = append(out.Servers, Contribution{ID: name, Name: serverName, Description: displayText(label.DescriptionEn), NameZh: displayText(label.NameZh), DescriptionZh: displayText(label.DescriptionZh)})
 	}
 	sort.Slice(out.Servers, func(i, j int) bool { return out.Servers[i].ID < out.Servers[j].ID })
 	// A single-server MCP-only package has a verified package purpose that can

@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $pin = Get-Content -Raw -LiteralPath (Join-Path $root 'resources/desktop-world/release.json') | ConvertFrom-Json
 $target = $pin.targets.'windows-amd64'
+if ($null -eq $target) { throw 'Desktop World windows-amd64 target unsupported by release pin' }
 if ($pin.version -ne 'v0.1.0-rc.4' -or $pin.cua_revision -ne 'ac967b9006aafa10870aadb5a645b038cba9721a') { throw 'Unexpected Desktop World version' }
 if ($target.archive -ne "desktop-world-$($pin.version)-windows-amd64.zip" -or $target.binary -ne 'bin/dtw.exe') { throw 'Unexpected Desktop World target' }
 $cache = Join-Path $root '.cache/desktop-world-runtime'
@@ -62,10 +63,18 @@ try {
     Confirm-Hash (Join-Path $source $name) $Matches[1]
   }
   $files = @(Get-ChildItem -LiteralPath $source -Recurse -File)
-  if ($files.Count -ne $checks.Count + 1 -or -not (Test-Path -LiteralPath (Join-Path $source 'LICENSING/MPL-SOURCES.tar.gz')) -or
-      -not (Test-Path -LiteralPath (Join-Path $source 'skills/desktop-world/SKILL.md'))) {
+  if ($files.Count -ne $checks.Count + 1) {
     throw 'Desktop World package or licensing inventory incomplete'
   }
+  foreach ($required in @('plugin.json', 'mcp.json', 'bin/dtw.exe', 'libexec/cua-driver.exe',
+      'skills/desktop-world/SKILL.md', 'skills/desktop-world/api.d.ts', 'skills/desktop-world/RECIPES.md',
+      'LICENSING/DEPENDENCIES.json', 'LICENSING/MPL-SOURCES.tar.gz', 'LICENSING/THIRD-PARTY.md',
+      'LICENSING/rust-runtime-licenses/OFL-1.1.txt',
+      'LICENSING/licenses/cursor-overlay-0.34.0/assets/Inter-OFL.txt',
+      'CUA-MIT-LICENSE.txt', 'LICENSE', 'NOTICE')) {
+    if (-not $checks.ContainsKey($required)) { throw "Desktop World missing $required" }
+  }
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
   if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Recurse -Force }
   Copy-Item -LiteralPath $source -Destination $Destination -Recurse
   $files = @{}
@@ -74,14 +83,14 @@ try {
     $files[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()
   }
   $entry = @{
-    ID = 'desktop-world'; Title = 'Desktop World'; Version = '0.1.0-rc.4'
+    ID = 'desktop-world'; Title = 'Computer Use'; titleZh = '电脑操控'; Version = '0.1.0-rc.4'
     Description = 'Operate desktop apps through one native CUA exec tool'
     Source = "bundled:desktop-world/$($pin.version)"; builtin = $true
     UpstreamIntegrity = $target.sha256
     executables = @('bin/dtw.exe', 'libexec/cua-driver.exe')
     display = @{ publisher = 'Caelis Labs'
-      skills = @{ 'desktop-world' = @{ nameEn = 'Desktop World'; nameZh = 'Desktop World'; descriptionEn = 'Inspect and operate an authorized desktop app.'; descriptionZh = '检查并操作已授权的桌面应用。' } }
-      servers = @{ 'desktop-world' = @{ nameEn = 'Desktop World'; nameZh = 'Desktop World'; descriptionEn = 'One native CUA exec tool.'; descriptionZh = '单一原生 CUA exec 工具。' } }
+      skills = @{ 'desktop-world' = @{ nameEn = 'Computer Use'; nameZh = '电脑操控'; descriptionEn = 'Inspect and operate an authorized desktop app.'; descriptionZh = '检查并操作已授权的桌面应用。' } }
+      servers = @{ 'desktop-world' = @{ nameEn = 'Computer Use'; nameZh = '电脑操控'; descriptionEn = 'One native CUA exec tool.'; descriptionZh = '单一原生 CUA exec 工具。' } }
     }
     Files = $files
   }

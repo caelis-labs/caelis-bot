@@ -162,10 +162,20 @@ jobs:
       - name: Verify pinned Windows Desktop World payload
         shell: pwsh
         run: |
-          & ./script/stage-desktop-world-windows.ps1 -Destination .cache/ci-desktop-world
+          $plugins = '.cache/ci-desktop-world/Plugins'
+          $package = Join-Path $plugins 'desktop-world'
+          & ./script/stage-desktop-world-windows.ps1 -Destination $package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $version = & .cache/ci-desktop-world/bin/dtw.exe version
+          $inventory = Get-Content -Raw -LiteralPath (Join-Path $plugins 'desktop-world-inventory.json') | ConvertFrom-Json
+          if ($inventory.ID -ne 'desktop-world' -or $inventory.Title -ne 'Computer Use' -or
+              $inventory.titleZh -ne '电脑操控' -or $inventory.Version -ne '0.1.0-rc.4') {
+            throw 'Windows Desktop World plugin inventory mismatch'
+          }
+          $version = & (Join-Path $package 'bin/dtw.exe') version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($version -ne 'dtw 0.1.0-rc.4 (CUA source ac967b9006aa)') {
+            throw 'Windows Desktop World runtime or VC dependency mismatch'
+          }
   # Keep the existing required check name. Failed/cancelled/missing jobs must
   # fail this gate; only content-validated docs/version changes may skip builds.
   product:

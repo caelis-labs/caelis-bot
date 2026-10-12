@@ -1,14 +1,14 @@
 export type MenuPlugin={id:string;name:string;description:string;source:'bot'|'codex'};
 export function pluginReferenceId(source:MenuPlugin['source'],id:string):string { return `${source}-plugin:${id}`; }
 
-type BotPlugin={id:string;title:string;description:string;installed:boolean;enabled:boolean;status:string};
+type BotPlugin={id:string;title:string;titleZh?:string;description:string;installed:boolean;enabled:boolean;status:string};
 type NativePlugin={id:string;name:string;description:string;source:string};
 
 // A configured package is available to the resident Bot independently of
 // whether it contributes a Skill, an MCP server, or both.
-export function botMenuPlugins(items:BotPlugin[]):MenuPlugin[] {
+export function botMenuPlugins(items:BotPlugin[],locale='en-US'):MenuPlugin[] {
  return items.filter(item=>item.installed&&item.enabled&&['enabled','ready','update_available'].includes(item.status))
-  .map(item=>({id:pluginReferenceId('bot',item.id),name:item.title,description:item.description,source:'bot'}));
+  .map(item=>({id:pluginReferenceId('bot',item.id),name:(locale==='zh-CN'&&item.titleZh)||item.title,description:item.description,source:'bot'}));
 }
 
 export function nativeMenuPlugins(items:NativePlugin[]):MenuPlugin[] {

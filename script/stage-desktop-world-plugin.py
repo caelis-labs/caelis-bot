@@ -28,6 +28,8 @@ def checked(path, expected):
 
 
 def verify_release(cache, target):
+    if target not in PIN.get("targets", {}):
+        raise ValueError(f"Desktop World target unsupported by release pin: {target}")
     spec = PIN["targets"][target]
     archive = cache / spec["archive"]
     checked(archive, spec["sha256"])
@@ -111,11 +113,16 @@ def verify_package(dest, spec, target):
     for name in ("plugin.json", "mcp.json", "skills/desktop-world/SKILL.md",
                  "skills/desktop-world/api.d.ts", "skills/desktop-world/RECIPES.md",
                  "LICENSING/MPL-SOURCES.tar.gz", "LICENSING/THIRD-PARTY.md",
+                 "LICENSING/DEPENDENCIES.json",
+                 "LICENSING/rust-runtime-licenses/OFL-1.1.txt",
+                 "LICENSING/licenses/cursor-overlay-0.34.0/assets/Inter-OFL.txt",
                  "CUA-MIT-LICENSE.txt", "LICENSE", "NOTICE"):
         if name not in files:
             raise ValueError(f"Desktop World missing {name}")
-    if not any("OFL" in name for name in files):
-        raise ValueError("Desktop World font licenses missing")
+    if target == "darwin-arm64":
+        for name in ("bin/dtw", "libexec/cua-driver"):
+            if not os.access(dest / name, os.X_OK):
+                raise ValueError(f"Desktop World executable mode missing: {name}")
     manifest = json.loads((dest / "plugin.json").read_text())
     mcp = json.loads((dest / "mcp.json").read_text())
     command = "./bin/dtw.exe" if target == "windows-amd64" else "./bin/dtw"
@@ -125,13 +132,15 @@ def verify_package(dest, spec, target):
 
 
 def inventory(dest, target):
+    if target not in PIN.get("targets", {}):
+        raise ValueError(f"Desktop World target unsupported by release pin: {target}")
     files = {f.relative_to(dest).as_posix(): digest(f) for f in dest.rglob("*") if f.is_file()}
-    entry = {"ID": "desktop-world", "Title": "Desktop World", "Version": "0.1.0-rc.4",
+    entry = {"ID": "desktop-world", "Title": "Computer Use", "titleZh": "电脑操控", "Version": "0.1.0-rc.4",
              "Description": "Operate desktop apps through one native CUA exec tool",
              "Source": f"bundled:desktop-world/{PIN['version']}", "builtin": True,
              "UpstreamIntegrity": PIN["targets"][target]["sha256"],
              "executables": ["bin/dtw", "libexec/cua-driver"] if target == "darwin-arm64" else ["bin/dtw.exe", "libexec/cua-driver.exe"],
-             "display": {"publisher": "Caelis Labs", "skills": {"desktop-world": {"nameEn": "Desktop World", "nameZh": "Desktop World", "descriptionEn": "Inspect and operate an authorized desktop app.", "descriptionZh": "检查并操作已授权的桌面应用。"}}, "servers": {"desktop-world": {"nameEn": "Desktop World", "nameZh": "Desktop World", "descriptionEn": "One native CUA exec tool.", "descriptionZh": "单一原生 CUA exec 工具。"}}},
+             "display": {"publisher": "Caelis Labs", "skills": {"desktop-world": {"nameEn": "Computer Use", "nameZh": "电脑操控", "descriptionEn": "Inspect and operate an authorized desktop app.", "descriptionZh": "检查并操作已授权的桌面应用。"}}, "servers": {"desktop-world": {"nameEn": "Computer Use", "nameZh": "电脑操控", "descriptionEn": "One native CUA exec tool.", "descriptionZh": "单一原生 CUA exec 工具。"}}},
              "Files": files}
     (dest.parent / "desktop-world-inventory.json").write_text(json.dumps(entry, indent=2, sort_keys=True) + "\n")
 

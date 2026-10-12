@@ -55,6 +55,17 @@ not notarized; the Windows archive is unsigned and needs the VC runtime.
 Package/cross-build checks are not native GUI acceptance. Historical rc.3 and
 rc.2 records remain under `docs/evidence/` with their original versions.
 
+Packaging changes select the PR macOS preview job: it fetches the pinned rc.4
+archive, checks its SHA-256, BUILD provenance and complete license/Skill
+inventory, verifies the upstream ad-hoc native signatures, re-signs the two
+executables under Bot, then verifies the app and mounted development DMG. The
+main-branch release workflow repeats the build from its immutable tag and
+verifies the ad-hoc app before Developer ID re-signing and notarization. The
+Windows PR job stages the pinned zip under `Plugins/desktop-world` with its
+inventory and runs `dtw.exe version` on the runner, which also checks that
+runner's VC runtime dependency. There is no shipped Windows Bot package or
+Windows GUI acceptance in these jobs.
+
 ## Native development
 
 ### Start at login

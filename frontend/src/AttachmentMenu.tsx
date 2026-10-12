@@ -7,23 +7,23 @@ import { attachmentMenuDescription, botMenuPlugins, nativeMenuPlugins, type Menu
 import { attachmentMenuLayout, type MenuLayout } from './attachment-menu-layout';
 import { useI18n } from './i18n';
 
-type BotCatalog={items:Array<{id:string;title:string;description:string;installed:boolean;enabled:boolean;status:string}>;syncState?:string};
+type BotCatalog={items:Array<{id:string;title:string;titleZh?:string;description:string;installed:boolean;enabled:boolean;status:string}>;syncState?:string};
 type NativePlugin={id:string;name:string;description:string;source:string};
 
 export function AttachmentMenu({trigger,selected,onClose,onPick,onSelect}: {
  trigger:RefObject<HTMLButtonElement|null>;selected:string[];
  onClose:()=>void;onPick:()=>void;onSelect:(plugin:MenuPlugin)=>void;
 }) {
- const {t}=useI18n();
+ const {t,locale}=useI18n();
  const menu=useRef<HTMLElement>(null),[layout,setLayout]=useState<MenuLayout|null>(null);
  const [bot,setBot]=useState<MenuPlugin[]>([]),[native,setNative]=useState<MenuPlugin[]>([]);
  const close=useRef(onClose);close.current=onClose;
  useEffect(()=>{
   let alive=true;
-  void desktop<BotCatalog>('Plugins').then(value=>{if(alive&&value.syncState!=='pending')setBot(botMenuPlugins(value.items));}).catch(()=>{});
+  void desktop<BotCatalog>('Plugins').then(value=>{if(alive&&value.syncState!=='pending')setBot(botMenuPlugins(value.items,locale));}).catch(()=>{});
   void backend<NativePlugin[]>('NativePlugins').then(value=>{if(alive)setNative(nativeMenuPlugins(value));}).catch(()=>{});
   return()=>{alive=false;};
- },[]);
+ },[locale]);
  useLayoutEffect(()=>{
   const node=menu.current!;
   const position=()=>{

@@ -37,7 +37,7 @@ func TestReviewedDisplayShowsActualPortableContributionsWithoutConfiguration(t *
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			files, entry := displayFixture(tc.files, DisplayCatalog{Skills: map[string]DisplayContribution{"report-work": {NameZh: "报告写作", DescriptionZh: "起草和修订报告"}}, Servers: map[string]DisplayContribution{"notes-api": {DescriptionEn: "Find notes"}, "local-index": {DescriptionEn: "Search local notes"}, "not-in-mcp": {DescriptionEn: "Never show"}}})
+			files, entry := displayFixture(tc.files, DisplayCatalog{Skills: map[string]DisplayContribution{"report-work": {NameZh: "报告写作", DescriptionZh: "起草和修订报告"}}, Servers: map[string]DisplayContribution{"notes-api": {DescriptionEn: "Find notes"}, "local-index": {NameEn: "Local search", NameZh: "本地搜索", DescriptionEn: "Search local notes"}, "not-in-mcp": {DescriptionEn: "Never show"}}})
 			detail, err := reviewedDisplay(files, entry)
 			if err != nil || detail.Publisher != tc.wantPublisher || detail.PublisherURL != "https://publisher.example" || detail.SourceURL != "https://code.example/fixture" || len(detail.Skills) != tc.wantSkills || len(detail.Servers) != tc.wantServers {
 				t.Fatal(detail, err)
@@ -45,7 +45,7 @@ func TestReviewedDisplayShowsActualPortableContributionsWithoutConfiguration(t *
 			if tc.wantSkills > 0 && (detail.Skills[0].ID != "report-work" || detail.Skills[0].Description != "Draft and edit structured reports." || detail.Skills[0].NameZh != "报告写作") {
 				t.Fatal("Skill metadata did not come from the reviewed SKILL.md", detail.Skills)
 			}
-			if tc.wantServers > 0 && (detail.Servers[0].ID != "local-index" || detail.Servers[1].ID != "notes-api" || detail.Servers[1].Description != "Find notes") {
+			if tc.wantServers > 0 && (detail.Servers[0].ID != "local-index" || detail.Servers[0].Name != "Local search" || detail.Servers[0].NameZh != "本地搜索" || detail.Servers[1].ID != "notes-api" || detail.Servers[1].Description != "Find notes") {
 				t.Fatal("MCP names did not match the validated mcp.json", detail.Servers)
 			}
 			body, _ := json.Marshal(detail)

@@ -19,4 +19,13 @@ for BOT_DW_NAME in \
 done
 python3 "$BOT_ROOT/script/stage-desktop-world-plugin.py" stage darwin-arm64 \
   "$BOT_DW_BUNDLE/Contents/Resources/Plugins"
+# Check upstream's pinned ad-hoc binaries before adjusting worker rpaths or
+# replacing their signatures with Bot's identity.
+for BOT_DW_NATIVE in \
+  "$BOT_DW_BUNDLE/Contents/Resources/Plugins/desktop-world/bin/dtw" \
+  "$BOT_DW_BUNDLE/Contents/Resources/Plugins/desktop-world/libexec/cua-driver"; do
+  codesign --verify --strict "$BOT_DW_NATIVE"
+  BOT_DW_SIGN_DETAILS=$(codesign -dvv "$BOT_DW_NATIVE" 2>&1)
+  grep -q '^Signature=adhoc$' <<<"$BOT_DW_SIGN_DETAILS"
+done
 /usr/libexec/PlistBuddy -c "Add CaelisDesktopWorldVersion string $BOT_DW_VERSION" "$BOT_DW_BUNDLE/Contents/Info.plist"

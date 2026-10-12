@@ -70,6 +70,7 @@ type ConnectionView struct {
 type Item struct {
 	ID           string          `json:"id"`
 	Title        string          `json:"title"`
+	TitleZh      string          `json:"titleZh,omitempty"`
 	Version      string          `json:"version"`
 	Description  string          `json:"description"`
 	Source       string          `json:"source"`
@@ -192,7 +193,7 @@ func Open(root string) (*Manager, error) {
 	if builtin, files, ok, err := desktopWorldBundle(); err != nil {
 		return nil, err
 	} else if ok {
-		c.Packages = append(c.Packages, builtin)
+		c.Packages = append([]Entry{builtin}, c.Packages...)
 		sources[builtin.ID] = files
 	}
 	return openCatalog(root, c.Packages, sources)
@@ -429,7 +430,7 @@ func (m *Manager) Snapshot() Snapshot {
 		if e.Legacy && !ok {
 			continue
 		}
-		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Builtin: e.Builtin, Installed: ok, Enabled: ok && rec.Enabled, Status: "available", Issues: []Issue{}}
+		item := Item{ID: e.ID, Title: e.Title, TitleZh: displayText(e.TitleZh), Version: e.Version, Description: e.Description, Source: e.Source, Builtin: e.Builtin, Installed: ok, Enabled: ok && rec.Enabled, Status: "available", Issues: []Issue{}}
 		if ok {
 			item.Status = "disabled"
 			if rec.Enabled {
@@ -681,7 +682,7 @@ func (m *Manager) snapshotLocked() Snapshot {
 				status = "enabled"
 			}
 		}
-		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Builtin: e.Builtin, Installed: ok, Enabled: ok && rec.Enabled, Status: status, Issues: []Issue{}}
+		item := Item{ID: e.ID, Title: e.Title, TitleZh: displayText(e.TitleZh), Version: e.Version, Description: e.Description, Source: e.Source, Builtin: e.Builtin, Installed: ok, Enabled: ok && rec.Enabled, Status: status, Issues: []Issue{}}
 		m.decorate(&item)
 		m.decorateConnection(&item, e, m.state)
 		if item.Connection != nil && item.Connection.State == "unsupported" {

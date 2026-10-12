@@ -638,7 +638,9 @@ Desktop World v0.1.0-rc.4 is an optional built-in Agent Plugins package, initial
 enabled. Bot stages the complete pinned release (`bin/dtw`, `libexec/cua-driver`,
 `LICENSING/` and its Skill) into the signed app, then installs an immutable
 reviewed copy on first launch or upgrade. A saved disabled choice survives the
-upgrade. The existing PluginManager and both Runtime adapters project its Skill
+upgrade. Bot lists it first as Computer Use / 电脑操控 while retaining the
+`desktop-world` package ID and upstream manifest bytes. The existing
+PluginManager and both Runtime adapters project its Skill
 metadata and one stdio MCP server; Skill body and CUA API load on demand. Neither
 renderer nor model selects the native executable path. Disable and update revoke
 previous service generations, including processes retained by old Runtime
