@@ -28,7 +28,7 @@ import type { MessageKey } from './i18n/catalogs';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
 
-function DraftThumbnail({file}:{file:DraftFile}) {
+function DraftThumbnail({file,returnFocus}:{file:DraftFile;returnFocus:HTMLTextAreaElement|null}) {
  const {t}=useI18n();
  const [url,setURL]=useState(''),[open,setOpen]=useState(false);
  useEffect(()=>{const close=()=>setOpen(false);window.addEventListener('history-close',close);return()=>window.removeEventListener('history-close',close);},[]);
@@ -40,7 +40,7 @@ function DraftThumbnail({file}:{file:DraftFile}) {
  },[file.id,file.image,file.unavailable]);
  const copy=<>{url?<img className="draft-thumbnail" src={url} alt=""/>:<Icon name="paperclip"/>}<span className="attachment-details"><strong>{file.name}</strong><small>{file.unavailable?t('chat.mediaUnavailable'):file.type}</small></span></>;
  return <>{url?<button className="attachment-open" type="button" aria-label={t('chat.mediaOpen',{name:file.name})} onClick={()=>setOpen(true)}>{copy}</button>:<span className="attachment-open">{copy}</span>}
-  {open&&<SettingsDialog portalTarget={document.body} title={file.name} className="draft-image-viewer" onClose={()=>setOpen(false)}><img className="screen-full-image" src={url} alt={file.name}/></SettingsDialog>}
+  {open&&<SettingsDialog portalTarget={document.body} returnFocus={returnFocus} title={file.name} className="draft-image-viewer" onClose={()=>setOpen(false)}><img className="screen-full-image" src={url} alt={file.name}/></SettingsDialog>}
  </>;
 }
 
@@ -460,10 +460,10 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   {(sendBlocked||cleanupPending||loaded&&!filesLoaded)&&<button className="quiet" type="button" onClick={()=>void retryLocalCleanup()}>{t('chat.retryDraftCleanup')}</button>}
   {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):t('chat.attachmentAlreadyAdded')}</p>}
   {(!!quoted||!!files.length||!!refs.length)&&<div className="composer-context">
-  {quoted&&<div className="composer-quote"><p>{quoted.text}</p><button type="button" aria-label={t('chat.removeQuote')} disabled={busy} onClick={()=>save(draft.current,refs,null)}><Icon name="xmark"/></button></div>}
+  {quoted&&<div className="composer-quote"><p>{quoted.text}</p><button type="button" aria-label={t('chat.removeQuote')} disabled={busy} onClick={()=>{save(draft.current,refs,null);input.current?.focus();}}><Icon name="xmark"/></button></div>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
-   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''} title={f.name}><DraftThumbnail file={f}/><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
-   {refs.map(id=><li key={id}><span>{pluginLabels[id]??snapshot?.references.find(r=>r.id===id)?.name??(id.includes('-plugin:')?id.split(':').slice(1).join(':'):t('chat.referenceDefault'))}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft.current,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
+   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''} title={f.name}><DraftThumbnail file={f} returnFocus={input.current}/><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');input.current?.focus();}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
+   {refs.map(id=><li key={id}><span>{pluginLabels[id]??snapshot?.references.find(r=>r.id===id)?.name??(id.includes('-plugin:')?id.split(':').slice(1).join(':'):t('chat.referenceDefault'))}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>{save(draft.current,refs.filter(v=>v!==id));input.current?.focus();}}><Icon name="xmark"/></button></li>)}
   </ul>}
   </div>}
   {expanded&&<AttachmentMenu trigger={add} selected={refs}
