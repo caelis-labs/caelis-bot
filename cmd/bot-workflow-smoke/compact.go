@@ -18,7 +18,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 	"github.com/caelis-labs/caelis-bot/internal/botskills"
 	"github.com/caelis-labs/caelis-bot/internal/care"
-	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
@@ -67,12 +66,6 @@ func runCompact() error {
 	if e = resident.ConfigureCare(func() care.Sample { return care.Sample{Presence: care.Presence{Awake: true, Unlocked: &yes}} }); e != nil {
 		return e
 	}
-	helper := os.Getenv("BOT_ACCEPTANCE_DESKTOP_HELPER")
-	if helper != "" {
-		driver := desktopcontrol.New(helper, filepath.Join(dir, "desktop"))
-		defer driver.Close()
-		resident.ConfigureDesktopControl(driver)
-	}
 	bridge, e := bot.Serve(resident)
 	if e != nil {
 		return e
@@ -87,9 +80,7 @@ func runCompact() error {
 	if e != nil {
 		return e
 	}
-	config.Instructions = "You are the resident Caelis Bot in an isolated functional acceptance. Complete explicit user requests through Bot-owned tools. Do not use native subagents or change runtime/account settings. Only read the supplied Bot skill files, and use desktop tools solely for the disposable Caelis Desktop Control Fixture. " + botskills.Instructions(skill)
-	config.PrepareTurn = func(context.Context) error { resident.BeginDesktopTurn(); return nil }
-	config.FinishTurn = resident.StopDesktopTurn
+	config.Instructions = "You are the resident Caelis Bot in an isolated functional acceptance. Complete explicit user requests through Bot-owned tools. Do not use native subagents or change runtime/account settings. Only read the supplied Bot skill files. " + botskills.Instructions(skill)
 	model := os.Getenv("BOT_ACCEPTANCE_MODEL")
 	effort := os.Getenv("BOT_ACCEPTANCE_EFFORT")
 	newEngine := func() (api.Engine, error) {
@@ -233,28 +224,6 @@ func runCompact() error {
 		return errors.New("arrangement/memory cleanup incomplete")
 	}
 	evidence["typedRemoveMemoryCorrectForget"] = true
-	if helper != "" {
-		desktopTitle := os.Getenv("BOT_ACCEPTANCE_DESKTOP_TITLE")
-		if desktopTitle == "" {
-			desktopTitle = "Caelis Desktop Control Fixture"
-		}
-		if e = run("compact-desktop", fmt.Sprintf(`Use only the resident Desktop World tools and the supplied desktop skill. Find the existing disposable window titled %q in the Caelis Desktop Control Fixture application; authorize that exact application for this test. Set its "Verification text" field to COMPACT_DESKTOP_OK, then invoke "Submit once" exactly once. Verify Submitted: 1 and the field content using bounded metadata/text and a cursor delta. Query the original action receipt with the desktop result tool. Do not operate other applications, create another fixture, use shell/AppleScript, or replay a partial/unknown action. Finish with the verified result.`, desktopTitle)); e != nil {
-			return e
-		}
-		resultPath := os.Getenv("BOT_ACCEPTANCE_DESKTOP_RESULT")
-		data, e := os.ReadFile(resultPath)
-		if e != nil {
-			return e
-		}
-		var result struct {
-			Submissions int    `json:"submissions"`
-			Text        string `json:"text"`
-		}
-		if json.Unmarshal(data, &result) != nil || result.Submissions != 1 || result.Text != "COMPACT_DESKTOP_OK" {
-			return errors.New("actual native UI result mismatch")
-		}
-		evidence["nativeDesktopExactOnce"] = true
-	}
 	// Register through the model's real user turn. Caelis requires the native
 	// background grant; directly inserting host state cannot replace it.
 	before := gestures.Load()

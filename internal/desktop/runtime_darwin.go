@@ -20,9 +20,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
-	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
@@ -47,16 +45,8 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
-	var controlDriver api.ApplicationTools
-	if desktopWorldSupported() {
-		if bundled := desktopcontrol.Bundled(); bundled != nil {
-			controlDriver = bundled
-			defer bundled.Close()
-		}
-	}
 	assembly, err := newProductAssembly(root, macPreferredLanguages(), func(s *Service) app.Host {
-		return app.Host{DesktopControl: controlDriver,
-			OpenURL:    func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
+		return app.Host{OpenURL: func(url string) error { return exec.Command("/usr/bin/open", url).Run() },
 			RevealFile: func(path string) error { return exec.Command("/usr/bin/open", "-R", path).Run() },
 			TrashFile:  trashNativePath, CareSample: macCareSample}
 	})

@@ -19,6 +19,12 @@ test('menu lists enabled packages and native plugins as packages, not their indi
  assert.equal(bot[0].source,'bot');
 });
 
+test('Bot plugin display names follow the selected language without changing package IDs',()=>{
+ const items=[{id:'desktop-world',title:'Computer Use',titleZh:'电脑操控',description:'Desktop access',installed:true,enabled:true,status:'enabled'}];
+ assert.deepEqual(botMenuPlugins(items,'zh-CN').map(item=>[item.id,item.name]),[['bot-plugin:desktop-world','电脑操控']]);
+ assert.equal(botMenuPlugins(items,'en-US')[0].name,'Computer Use');
+});
+
 test('popover matches the composer width and never overlaps the input',()=>{
  const anchor={left:40,top:568,bottom:630,width:560};
  const menu=attachmentMenuLayout(anchor,{width:640,height:700},360);

@@ -23,8 +23,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"github.com/caelis-labs/caelis-bot/internal/bot"
-	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
-	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 	notebookstore "github.com/caelis-labs/caelis-bot/internal/notebook"
 )
 
@@ -474,62 +472,6 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
-	if !t.Run("G06_app_authorization_once_per_turn", func(t *testing.T) {
-		// This fixture isolates real Guardian approval from native OS delivery;
-		// Desktop World's private control transport is covered in its adapter tests.
-		driver := &reviewDesktopFixture{}
-		resident, e := bot.NewForRuntime(filepath.Join(root, "desktop-bot.json"), "caelis", nil)
-		if e != nil {
-			t.Fatal(e)
-		}
-		defer resident.Close()
-		resident.ConfigureDesktopControl(driver)
-		var inputs atomic.Int32
-		proxy := &acceptanceTools{defs: resident.Definitions(), call: func(c context.Context, name string, args json.RawMessage) api.ToolResult {
-			out := resident.CallTool(c, name, args)
-			if name == "bot_desktop_act" && !out.IsError {
-				inputs.Add(1)
-			}
-			return out
-		}}
-		config := &api.ToolConnection{Host: proxy, NotebookDirectory: notebook, ApprovedTools: append(botpolicy.ApprovedTools(), desktopcontrol.ApprovedTools()...), PrepareTurn: func(context.Context) error { resident.BeginDesktopTurn(); return nil }, FinishTurn: resident.StopDesktopTurn}
-		if e = s.ConfigureBotTools(config); e != nil {
-			t.Fatal(e)
-		}
-		current, e := s.Configuration(ctx)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if _, e = s.UpdateConfiguration(ctx, "desktop-review-catalog", string(current.Revision), map[string]any{"tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools}); e != nil {
-			t.Fatal(e)
-		}
-		observe := []modelStep{{Name: "bot_desktop_inspect", Args: map[string]any{"request": map[string]any{"type": "outline", "scope": map[string]any{"desktop": true}}}}}
-		authorize := modelStep{Name: "bot_desktop_authorize", Args: map[string]any{"application": "fixture-app-ref", "name": "Fixture", "purpose": "Complete the requested fixture task"}}
-		perform := modelStep{Name: "bot_desktop_act", Args: map[string]any{"requestId": "fixture-input", "steps": []any{map[string]any{"id": "invoke", "op": "invoke", "target": map[string]any{"ref": "fixture-button"}}}}}
-		countReviews := func() int { mu.Lock(); defer mu.Unlock(); return len(reviewRequests) }
-		configureReview(`{"option_id":"allow_once"}`, nil)
-		before := countReviews()
-		main.set("CASE_APP_ALLOW", append(append([]modelStep{}, observe...), authorize, perform, perform)...)
-		submitAcceptance(t, ctx, s, "CASE_APP_ALLOW")
-		if inputs.Load() != 2 || countReviews() != before+1 {
-			t.Fatalf("want two inputs / one review; got %d / %d", inputs.Load(), countReviews()-before)
-		}
-		// A new task can read freely but cannot reuse the previous app's grant.
-		main.set("CASE_APP_STALE", append(append([]modelStep{}, observe...), perform)...)
-		submitAcceptance(t, ctx, s, "CASE_APP_STALE")
-		if inputs.Load() != 2 || countReviews() != before+1 {
-			t.Fatal("new task reused input grant or reviewed read-only observation")
-		}
-		configureReview(`{"option_id":"reject_once","rationale":"The synthetic request does not authorize application input."}`, nil)
-		main.set("CASE_APP_DENY", append(append([]modelStep{}, observe...), authorize, perform)...)
-		submitAcceptance(t, ctx, s, "CASE_APP_DENY")
-		if inputs.Load() != 2 || countReviews() != before+2 {
-			t.Fatal("denied authorization allowed app input")
-		}
-		noManual()
-	}) {
-		return
-	}
 
 	if !t.Run("G08_upgrade_does_not_dispatch_maintenance", func(t *testing.T) {
 		dir := filepath.Join(root, "upgrade")
@@ -691,23 +633,4 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}
 	}
 	t.Log("Guardian selected subtests passed; see the executed subtest list")
-}
-
-// Reviewer fixture is deliberately semantic only; it never sends native input.
-type reviewDesktopFixture struct {
-	mu      sync.Mutex
-	granted bool
-}
-
-func (*reviewDesktopFixture) Definitions() []api.ToolDefinition {
-	return desktopcontrol.LegacyDefinitions()
-}
-func (d *reviewDesktopFixture) EndTurn(string) { d.mu.Lock(); d.granted = false; d.mu.Unlock() }
-func (d *reviewDesktopFixture) CallTool(_ context.Context, name string, _ json.RawMessage) api.ToolResult {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if name == "bot_desktop_authorize" {
-		d.granted = true
-	}
-	return api.ToolResult{IsError: name == "bot_desktop_act" && !d.granted, Content: []map[string]string{{"type": "text", "text": "synthetic desktop receipt"}}}
 }

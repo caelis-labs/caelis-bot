@@ -33,9 +33,8 @@ import (
 // Host provides native effects. None of these callbacks select a backend or own
 // a conversation. Closing a window must not call Application.Close.
 type Host struct {
-	DesktopControl api.ApplicationTools // optional private native desktop driver
-	CareSample     func() care.Sample
-	CareSources    []care.Source
+	CareSample  func() care.Sample
+	CareSources []care.Source
 	// Locale is read when presenting host-generated UI, never during model execution.
 	Locale              func() i18n.Locale
 	Diagnostics         *diagnosticlog.Logger
@@ -385,7 +384,6 @@ func (a *Application) preparePersonalLocked() error {
 			return err
 		}
 		a.companion = resident
-		resident.ConfigureDesktopControl(a.host.DesktopControl)
 		resident.ConfigureInitialization(a.initialization)
 	}
 	resident := a.companion
@@ -519,6 +517,11 @@ func (a *Application) Start() error {
 	configuredPluginRevision := uint64(0)
 	bridge, err := bot.Serve(resident)
 	if err == nil {
+		if a.plugins != nil {
+			err = a.plugins.AcquireDesktopOwner()
+		}
+	}
+	if err == nil {
 		var executable string
 		executable, err = os.Executable()
 		if err == nil {
@@ -571,11 +574,9 @@ func (a *Application) Start() error {
 						a.host.ReportError(err)
 					}
 				}
-				resident.BeginDesktopTurn()
 				return nil
 			}
 			config.FinishTurn = func() {
-				resident.StopDesktopTurn()
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
@@ -608,6 +609,9 @@ func (a *Application) Start() error {
 		}
 	}
 	if err != nil {
+		if a.plugins != nil {
+			a.plugins.CloseDesktopOwner()
+		}
 		if bridge != nil {
 			bridge.Close()
 		}
@@ -623,7 +627,6 @@ func (a *Application) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)
-	a.Backend.SetInterruptObserver(resident.StopDesktopTurn)
 	resident.Start(a.engine)
 	a.Backend.SetUserSubmitter(resident.SubmitUser)
 	if a.Telegram != nil {
@@ -801,6 +804,9 @@ func (a *Application) Close() error {
 			resident.Stop()
 		}
 		a.mu.Unlock()
+		if a.plugins != nil {
+			a.plugins.CloseDesktopOwner()
+		}
 		if a.Telegram != nil {
 			a.Telegram.Close()
 		}

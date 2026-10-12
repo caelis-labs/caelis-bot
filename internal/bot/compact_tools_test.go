@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
-	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
-	tc "github.com/caelis-labs/caelis-bot/internal/toolcontract"
 )
 
 type compactTasks struct {
@@ -181,59 +178,9 @@ func TestCompactMemoryAndGesture(t *testing.T) {
 		t.Fatal("gesture lost")
 	}
 }
-func TestCompactDesktopLifecycleSchemaAndCatalog(t *testing.T) {
-	r, _, _ := fixture(t)
-	d := &desktopFixture{}
-	r.ConfigureDesktopControl(d)
-	r.BeginDesktopTurn()
-	defs := r.Definitions()
-	if len(defs) != 12 {
-		t.Fatal("expected 12", len(defs))
-	}
-	if slices.Contains(desktopcontrol.ApprovedTools(), "bot_desktop_authorize") {
-		t.Fatal("grant autoapproved")
-	}
-	before := d.calls
-	if !r.CallTool(t.Context(), "bot_desktop_inspect", json.RawMessage(`{"request":{"type":"image","kind":"visible_region","target":"window"}}`)).IsError || d.calls != before {
-		t.Fatal("image capability bypass")
-	}
-	invokeCompact(t, r, "bot_desktop_inspect", `{"request":{"type":"outline","scope":{"desktop":true},"fields":["name","role"]}}`)
-	r.StopDesktopTurn()
-	invokeCompact(t, r, "bot_desktop_result", `{"request":{"type":"status","requestId":"original-action"}}`)
-	for name, raw := range map[string]string{"bot_desktop_act": `{"requestId":"next-action","steps":[{"id":"invoke","op":"invoke","target":{"ref":"button"}}]}`, "bot_desktop_result": `{"request":{"type":"cancel","requestId":"cancel-action","runId":"run-1"}}`, "bot_desktop_inspect": `{"request":{"type":"outline","scope":{"desktop":true}}}`} {
-		if !r.CallTool(t.Context(), name, json.RawMessage(raw)).IsError {
-			t.Fatal("ended turn bypass", name)
-		}
-	}
-	for _, def := range defs {
-		var schema map[string]any
-		json.Unmarshal(def.InputSchema, &schema)
-		if schema["type"] != "object" {
-			t.Fatal("invalid root")
-		}
-	}
-	// Check actual catalog cost without estimating tokenizer-specific counts.
-	newJSON, _ := json.Marshal(defs)
-	oldJSON, _ := json.Marshal(r.LegacyDefinitions())
-	t.Logf("catalog: 22 -> 10 tools; definition bytes %d -> %d", len(oldJSON), len(newJSON))
-	for _, bad := range []string{`{"request":{"type":"outline","scope":{"desktop":true},"turn":"forged"}}`, `{"request":{"type":"outline","continuation":"token","scope":{"desktop":true}}}`} {
-		for _, def := range defs {
-			if def.Name == "bot_desktop_inspect" {
-				if _, e := tc.Decode(def.InputSchema, json.RawMessage(bad)); e == nil {
-					t.Fatal("forged observation")
-				}
-			}
-		}
-	}
-	if strings.Contains(string(newJSON), "bot_task_start") {
-		t.Fatal("old tool advertised")
-	}
-}
-
 func TestCompactTransportUncertaintyKeepsOriginalRecovery(t *testing.T) {
 	for _, test := range []struct{ name, args, next string }{
 		{"bot_delegate", `{"request":{"type":"start","requestId":"original-delegate","title":"Test","prompt":"Test"}}`, "bot_tasks"},
-		{"bot_desktop_act", `{"requestId":"original-desktop","steps":[]}`, "bot_desktop_result"},
 	} {
 		out := forwardFailure(toolRequest{Version: 2, Name: test.name, Arguments: json.RawMessage(test.args)}, "Connection interrupted")
 		if !out.IsError || out.StructuredContent["outcome"] != "unknown" {
@@ -246,54 +193,6 @@ func TestCompactTransportUncertaintyKeepsOriginalRecovery(t *testing.T) {
 	}
 }
 
-type continuationFixture struct {
-	queries          []map[string]any
-	entered, release chan struct{}
-}
-
-func (*continuationFixture) Definitions() []api.ToolDefinition {
-	return desktopcontrol.LegacyDefinitions()
-}
-func (d *continuationFixture) CallTool(_ context.Context, _ string, raw json.RawMessage) api.ToolResult {
-	var input map[string]any
-	json.Unmarshal(raw, &input)
-	d.queries = append(d.queries, input["args"].(map[string]any))
-	if d.entered != nil {
-		close(d.entered)
-		<-d.release
-	}
-	return api.ToolResult{StructuredContent: map[string]any{"coverage": map[string]any{"continuation": "query-token"}}}
-}
-func TestCompactContinuationRestoresOnlySameTurnQuery(t *testing.T) {
-	r, _, _ := fixture(t)
-	d := &continuationFixture{}
-	r.ConfigureDesktopControl(d)
-	r.BeginDesktopTurn()
-	invokeCompact(t, r, "bot_desktop_inspect", `{"request":{"type":"outline","scope":{"desktop":true},"fields":["name"],"budget":{"max_results":1}}}`)
-	invokeCompact(t, r, "bot_desktop_inspect", `{"request":{"type":"outline","continuation":"query-token"}}`)
-	if len(d.queries) != 2 || d.queries[1]["budget"].(map[string]any)["max_results"] != float64(1) || d.queries[1]["continuation"] != "query-token" {
-		t.Fatal("host failed to restore exact query")
-	}
-	r.BeginDesktopTurn()
-	if !r.CallTool(t.Context(), "bot_desktop_inspect", json.RawMessage(`{"request":{"type":"outline","continuation":"query-token"}}`)).IsError || len(d.queries) != 2 {
-		t.Fatal("continuation crossed turn")
-	}
-	// A late old read cannot seed the new turn's cache.
-	d.entered = make(chan struct{})
-	d.release = make(chan struct{})
-	done := make(chan struct{})
-	go func() {
-		r.CallTool(t.Context(), "bot_desktop_inspect", json.RawMessage(`{"request":{"type":"outline","scope":{"desktop":true}}}`))
-		close(done)
-	}()
-	<-d.entered
-	r.BeginDesktopTurn()
-	close(d.release)
-	<-done
-	if !r.CallTool(t.Context(), "bot_desktop_inspect", json.RawMessage(`{"request":{"type":"outline","continuation":"query-token"}}`)).IsError {
-		t.Fatal("late result seeded new turn")
-	}
-}
 func TestCompactBudgetPreservesMutationReceipt(t *testing.T) {
 	out := compactValue(map[string]any{"ok": true, "outcome": "accepted", "data": map[string]any{"id": "original-task", "status": "working", "result": strings.Repeat("x", 40000)}, "next": map[string]any{"tool": "bot_tasks", "request": map[string]any{"type": "read", "task": "original-task"}}}, false)
 	if !out.IsError || out.StructuredContent["nativeOK"] != true || out.StructuredContent["outcome"] != "accepted" || out.StructuredContent["data"].(map[string]any)["id"] != "original-task" {
@@ -302,22 +201,5 @@ func TestCompactBudgetPreservesMutationReceipt(t *testing.T) {
 	b, _ := json.Marshal(out)
 	if len(b) > 32<<10 {
 		t.Fatal("unbounded fallback")
-	}
-}
-
-func TestInvokeValidationRejectsBeforeNativeDispatch(t *testing.T) {
-	r, _, _ := fixture(t)
-	d := &desktopFixture{}
-	r.ConfigureDesktopControl(d)
-	r.BeginDesktopTurn()
-	for _, raw := range []string{`{"requestId":"invoke-correctable","steps":[{"id":"s","op":"invoke","target":{"ref":"known"},"invoke":{}}]}`, `{"requestId":"invoke-correctable","steps":[{"id":"s","op":"invoke","target":{"ref":"known"},"completion":"verify"}]}`} {
-		out := r.CallTool(t.Context(), "bot_desktop_act", json.RawMessage(raw))
-		if !out.IsError || out.StructuredContent["outcome"] != "rejected" || d.calls != 0 {
-			t.Fatal("invalid input reached native helper", out)
-		}
-	}
-	invokeCompact(t, r, "bot_desktop_act", `{"requestId":"invoke-correctable","steps":[{"id":"s","op":"invoke","target":{"ref":"known"},"completion":"dispatch"}]}`)
-	if d.calls != 1 {
-		t.Fatal("corrected original ID did not dispatch once")
 	}
 }

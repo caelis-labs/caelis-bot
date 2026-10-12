@@ -2,7 +2,6 @@ package toolcontract
 
 import (
 	"encoding/json"
-	"github.com/caelis-labs/desktop-world/protocol"
 	"strings"
 	"testing"
 )
@@ -10,15 +9,14 @@ import (
 // These are the native contract operators, rather than a second general-purpose
 // JSON Schema engine. Invalid cross-field combinations must stop at the host.
 func TestNativeGrammar(t *testing.T) {
-	native := protocol.ArgumentsSchema("world.act")
-	native["required"] = []string{"steps"}
+	native := Object(Schema{"steps": Schema{"type": "array", "minItems": 1, "items": Object(Schema{"id": String("Step ID"), "op": Enum("invoke", "keyboard.type_text"), "target": Object(Schema{"ref": String("Observed ref")}, "ref")}, "id", "op", "target")}}, "steps")
 	schema, _ := json.Marshal(native)
 	for _, test := range []struct {
 		raw   string
 		valid bool
 	}{
 		{`{"steps":[{"id":"s","op":"invoke","target":{"ref":"known"}}]}`, true},
-		{`{"steps":[{"id":"s","op":"keyboard.type_text","target":{"ref":"known"},"type_text":{"text":"hello"}}]}`, true},
+		{`{"steps":[{"id":"s","op":"keyboard.type_text","target":{"ref":"known"}}]}`, true},
 		{`{"steps":[{"id":"s","op":"set_value","target":{"ref":"known"},"set_value":{"text":"hello"},"press":{"key":"Enter"}}]}`, false},
 		{`{"steps":[{"id":"s","op":"invoke","target":{"ref":"known","locator":{"name":"guess"}}}]}`, false},
 		{`{"steps":[]}`, false},

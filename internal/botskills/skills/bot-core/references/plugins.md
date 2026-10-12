@@ -10,6 +10,19 @@ Read a matching Skill body only when the task needs it. If its tool is unavailab
 or fails, keep the original action receipt and use healthy tools for independent
 work. Do not repeat a possibly accepted external action through another route.
 
+Desktop World is the built-in computer-use plugin. It is initially enabled and
+can be disabled in Settings → Plugins. Before operating the desktop, confirm it
+is enabled, load its `desktop-world` Skill on demand, and discover the current
+MCP `exec` schema through the active Runtime. Use the Skill's `cua` script API
+and its linked references for exact UI operations and receipt recovery. The
+old `bot_desktop_*` tools are retired. Execution IDs may be short; retain the
+exact original ID and session when fetching status, result, images or cancellation.
+A completed execution receipt proves delivery, so read back the intended UI effect
+before reporting success. A loaded schema from an older session is
+not proof that a disabled plugin can still run. Follow Runtime tool approval
+and macOS permission decisions separately; a package being enabled grants
+neither one.
+
 When an external tool is relevant but its exact name is unclear, read
 `../mcp-tools.json` beside this Skill's directory. It lists only tools last
 confirmed from connected plugin services. Use its names and descriptions as

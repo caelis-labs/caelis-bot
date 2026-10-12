@@ -1,5 +1,7 @@
 # Bot 工具精简：实现与验收
 
+> Historical rc.3 desktop tool design. The rc.4 built-in plugin replaces `bot_desktop_*`; see [plugin packages](plugin-packages.md).
+
 2026-10-03；设计依据见 [Bot 工具精简方案](bot-tools-redesign.md)。
 
 ## 实现结果

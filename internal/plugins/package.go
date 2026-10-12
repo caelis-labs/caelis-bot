@@ -25,11 +25,13 @@ var serviceName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 type Entry struct {
 	ID, Title, Version, Description, Source string
+	TitleZh                                 string `json:"titleZh,omitempty"`
 	Files                                   map[string]string
 	Executables                             []string        `json:"executables,omitempty"`
 	Display                                 DisplayCatalog  `json:"display,omitempty"`
 	Connection                              *ConnectionSpec `json:"connection,omitempty"`
 	Legacy                                  bool            `json:"legacy,omitempty"`
+	Builtin                                 bool            `json:"builtin,omitempty"`
 	UpstreamIntegrity                       string          `json:"upstreamIntegrity,omitempty"`
 }
 
@@ -134,11 +136,11 @@ func Verify(root string, files map[string]string) error {
 		if d.IsDir() {
 			return nil
 		}
-		if !info.Mode().IsRegular() || info.Size() > 16<<20 {
+		if !info.Mode().IsRegular() || info.Size() > 48<<20 {
 			return errors.New("unsupported package file")
 		}
 		total += info.Size()
-		if total > 64<<20 {
+		if total > 96<<20 {
 			return errors.New("package exceeds size limit")
 		}
 		want, ok := files[filepath.ToSlash(rel)]
@@ -189,15 +191,15 @@ func Load(root string) (Package, error) {
 	if err := json.Unmarshal(body, &p.Manifest); err != nil {
 		return p, err
 	}
+	if err := validateManifestFields(fields); err != nil {
+		return p, err
+	}
 	m := p.Manifest
 	if m.Schema != manifestSchema || !pluginName.MatchString(m.Name) || strings.Contains(m.Name, "--") || strings.Contains(m.Name, "..") {
 		return p, errors.New("unsupported plugin manifest")
 	}
-	if len(m.Extensions) > 0 && string(m.Extensions) != "null" && m.Extensions[0] != '{' {
+	if len(m.Extensions) > 0 && m.Extensions[0] != '{' {
 		p.Issues = append(p.Issues, Issue{"manifest", "extensions", "ignored non-object extensions"})
-	}
-	if len(m.Author) > 0 && string(m.Author) != "null" && m.Author[0] != '{' {
-		return p, errors.New("invalid manifest author")
 	}
 	for name := range fields {
 		if !strings.Contains("|$schema|name|version|description|author|homepage|repository|license|keywords|extensions|", "|"+name+"|") {
@@ -210,10 +212,47 @@ func Load(root string) (Package, error) {
 	if err := loadMCP(&p); err != nil {
 		p.Issues = append(p.Issues, Issue{"mcp", "", err.Error()})
 	}
-	if len(p.Skills) == 0 && len(p.Servers) == 0 {
-		return p, errors.New("package has no usable skills or MCP servers")
-	}
 	return p, nil
+}
+
+func jsonObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
+	var result map[string]json.RawMessage
+	if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &result) != nil {
+		return nil, false
+	}
+	return result, true
+}
+
+func validateManifestFields(fields map[string]json.RawMessage) error {
+	for key, raw := range fields {
+		switch key {
+		case "$schema", "name", "version", "description", "homepage", "repository", "license":
+			var value string
+			if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &value) != nil {
+				return fmt.Errorf("invalid manifest field: %s", key)
+			}
+		case "keywords":
+			var values []string
+			if len(raw) == 0 || raw[0] != '[' || json.Unmarshal(raw, &values) != nil {
+				return errors.New("invalid manifest keywords")
+			}
+		case "author":
+			author, ok := jsonObject(raw)
+			if !ok {
+				return errors.New("invalid manifest author")
+			}
+			for name, value := range author {
+				if name != "name" && name != "email" && name != "url" || len(value) == 0 || value[0] != '"' {
+					return errors.New("invalid manifest author field")
+				}
+			}
+		case "extensions":
+			// A non-object extension is the one non-fatal type violation.
+		default:
+			// Unknown top-level fields are reported and ignored by Load.
+		}
+	}
+	return nil
 }
 
 func loadSkills(p *Package) error {
@@ -233,6 +272,9 @@ func loadSkills(p *Package) error {
 		return err
 	}
 	for _, child := range children {
+		if !child.IsDir() || child.Type()&os.ModeSymlink != 0 {
+			continue
+		}
 		path := filepath.Join(root, child.Name(), "SKILL.md")
 		info, err := os.Lstat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
@@ -244,7 +286,7 @@ func loadSkills(p *Package) error {
 			p.Issues = append(p.Issues, Issue{"skill", child.Name(), err.Error()})
 			continue
 		}
-		if !strings.HasPrefix(string(body), "---\n") || !strings.Contains(string(body), "\nname:") || !strings.Contains(string(body), "\ndescription:") {
+		if !strings.HasPrefix(string(body), "---\n") || !strings.Contains(string(body), "\n---\n") || !strings.Contains(string(body), "\nname:") || !strings.Contains(string(body), "\ndescription:") {
 			p.Issues = append(p.Issues, Issue{"skill", child.Name(), "invalid Skill metadata"})
 			continue
 		}
@@ -281,11 +323,15 @@ func loadMCP(p *Package) error {
 	for name, raw := range doc.Servers {
 		var s Server
 		var keys map[string]json.RawMessage
-		if !serviceName.MatchString(name) || json.Unmarshal(raw, &keys) != nil || json.Unmarshal(raw, &s) != nil {
+		if name == "" || json.Unmarshal(raw, &keys) != nil || json.Unmarshal(raw, &s) != nil {
 			p.Issues = append(p.Issues, Issue{"server", name, "invalid MCP server"})
 			continue
 		}
 		s.Name = name
+		if err := validateServerFields(keys); err != nil {
+			p.Issues = append(p.Issues, Issue{"server", name, err.Error()})
+			continue
+		}
 		if err := validateServer(p.Root, s, keys); err != nil {
 			p.Issues = append(p.Issues, Issue{"server", name, err.Error()})
 			continue
@@ -296,6 +342,31 @@ func loadMCP(p *Package) error {
 	return nil
 }
 
+func validateServerFields(keys map[string]json.RawMessage) error {
+	if keys == nil {
+		return errors.New("server must be an object")
+	}
+	for key, raw := range keys {
+		switch key {
+		case "type", "command", "cwd", "url":
+			if len(raw) == 0 || raw[0] != '"' {
+				return fmt.Errorf("invalid server field: %s", key)
+			}
+		case "args":
+			var values []string
+			if len(raw) == 0 || raw[0] != '[' || json.Unmarshal(raw, &values) != nil {
+				return errors.New("invalid server args")
+			}
+		case "env", "headers":
+			var values map[string]string
+			if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &values) != nil {
+				return fmt.Errorf("invalid server field: %s", key)
+			}
+		}
+	}
+	return nil
+}
+
 func validateServer(root string, s Server, keys map[string]json.RawMessage) error {
 	allowed := "|type|url|headers|"
 	if s.Type == "stdio" {
@@ -303,7 +374,7 @@ func validateServer(root string, s Server, keys map[string]json.RawMessage) erro
 		if s.Command == "" || strings.ContainsAny(s.Command, " \t\n") || !(strings.HasPrefix(s.Command, "./") || !strings.Contains(s.Command, "/")) {
 			return errors.New("invalid executable token")
 		}
-		if strings.HasPrefix(s.Command, "./") && !inside(root, filepath.Join(root, s.Command)) {
+		if strings.HasPrefix(s.Command, "./") && !insideResolved(root, filepath.Join(root, s.Command)) {
 			return errors.New("command leaves package")
 		}
 		if s.CWD != "" && !strings.HasPrefix(s.CWD, "./") && s.CWD != "${PLUGIN_ROOT}" && !strings.HasPrefix(s.CWD, "${PLUGIN_ROOT}/") && s.CWD != "${PLUGIN_DATA}" && !strings.HasPrefix(s.CWD, "${PLUGIN_DATA}/") {
@@ -315,7 +386,7 @@ func validateServer(root string, s Server, keys map[string]json.RawMessage) erro
 		if _, ok := s.Env["PLUGIN_DATA"]; ok {
 			return errors.New("reserved environment")
 		}
-	} else if s.Type == "streamable-http" || s.Type == "sse" {
+	} else if s.Type == "streamable-http" {
 		u, err := url.Parse(s.URL)
 		if err != nil || u.Host == "" || u.User != nil || u.Fragment != "" {
 			return errors.New("invalid remote URL")
@@ -346,6 +417,33 @@ func validateServer(root string, s Server, keys map[string]json.RawMessage) erro
 func inside(root, path string) bool {
 	rel, err := filepath.Rel(root, filepath.Clean(path))
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+func insideResolved(root, path string) bool {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	current := path
+	remaining := []string{}
+	for {
+		resolved, evalErr := filepath.EvalSymlinks(current)
+		if evalErr == nil {
+			for i := len(remaining) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, remaining[i])
+			}
+			return inside(resolvedRoot, resolved)
+		}
+		if !errors.Is(evalErr, os.ErrNotExist) {
+			return false
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return false
+		}
+		remaining = append(remaining, filepath.Base(current))
+		current = parent
+	}
 }
 
 func Expand(value, root, data string) string {
@@ -380,7 +478,7 @@ func (s Server) Resolve(root, data string) (Server, error) {
 			s.CWD = filepath.Join(root, s.CWD)
 		}
 	}
-	if !inside(root, s.CWD) && !inside(data, s.CWD) {
+	if !insideResolved(root, s.CWD) && !insideResolved(data, s.CWD) {
 		return s, errors.New("cwd leaves package/data")
 	}
 	return s, nil

@@ -102,11 +102,6 @@ jobs:
         run: make build
       - name: Verify pinned Desktop World payload without desktop permissions
         run: bash script/verify-desktop-world.sh 'dist/Caelis Bot Dev.app' adhoc
-      - name: Exercise the packaged Go host and independent helper
-        run: |
-          source script/env.sh
-          export CAELIS_BOT_TEST_DESKTOP_WORLD="$PWD/dist/Caelis Bot Dev.app/Contents/Resources/DesktopWorld/bin/dtw"
-          go test -count=1 -run '^TestPackagedHelperReadAndDeniedInput$' -v ./internal/desktopcontrol
       - name: Package and verify mounted Dev DMG
         run: bash script/package.sh --skip-build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -167,12 +162,20 @@ jobs:
       - name: Verify pinned Windows Desktop World payload
         shell: pwsh
         run: |
-          & ./script/stage-desktop-world-windows.ps1 -Destination .cache/ci-desktop-world
+          $plugins = '.cache/ci-desktop-world/Plugins'
+          $package = Join-Path $plugins 'desktop-world'
+          & ./script/stage-desktop-world-windows.ps1 -Destination $package
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $version = & .cache/ci-desktop-world/bin/dtw.exe version
+          $inventory = Get-Content -Raw -LiteralPath (Join-Path $plugins 'desktop-world-inventory.json') | ConvertFrom-Json
+          if ($inventory.ID -ne 'desktop-world' -or $inventory.Title -ne 'Computer Use' -or
+              $inventory.titleZh -ne '电脑操控' -or $inventory.Version -ne '0.1.0-rc.8') {
+            throw 'Windows Desktop World plugin inventory mismatch'
+          }
+          $version = & (Join-Path $package 'bin/dtw.exe') version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node script/verify-desktop-world-manifest.mjs .cache/ci-desktop-world "$version" --target windows-amd64 --bundled
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($version -ne 'dtw 0.1.0-rc.8 (CUA source ac967b9006aa)') {
+            throw 'Windows Desktop World runtime or VC dependency mismatch'
+          }
   # Keep the existing required check name. Failed/cancelled/missing jobs must
   # fail this gate; only content-validated docs/version changes may skip builds.
   product:

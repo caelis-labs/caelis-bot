@@ -1058,10 +1058,6 @@ func TestNativeHostIntegration(t *testing.T) {
 		return
 	}
 
-	if !t.Run("B15_desktop_world_content", func(t *testing.T) { desktopHostAcceptance(t, ctx, s, model) }) {
-		return
-	}
-
 	model.mu.Lock()
 	failure := model.failure
 	model.mu.Unlock()
