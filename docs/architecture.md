@@ -648,10 +648,14 @@ catalog and approval list.
 The MCP `exec` tool and its private CUA worker are upstream release code. The
 worker is spawned from the plugin process under Bot's app bundle, without an
 installed second app or Node runtime. The current Runtime chain starts the Bot
-MCP bridge from Codex or Caelis, then `dtw` and its private worker. Direct Bot
-main-process spawning and OS-level TCC responsibility attribution remain an
-acceptance gap; rc.4's reported `host_bundle_id` is hardcoded upstream and does
-not establish that attribution. Bot's Accessibility and Screen Recording
+MCP bridge from Codex or Caelis, then `dtw` and its private worker. On the
+signed DevBot, macOS `launchctl procinfo` reports the Bot main executable as
+the responsible path for the private Host, bridge, `dtw` and worker. This is
+an OS responsibility observation, distinct from their PPIDs and rc.4's
+hardcoded `host_bundle_id`. The resident Bot holds a kernel file lock in its
+private plugin store; the bridge checks it before spawn and during execution,
+so a retained Runtime configuration cannot operate after normal or abrupt Bot
+exit. Bot's Accessibility and Screen Recording
 permissions, Runtime tool approval, CUA's own operation boundary, and native
 result/readback remain separate checks. Bot does not silently approve this MCP
 server, reset TCC, or infer successful input from a model reply. Published rc.4

@@ -114,16 +114,32 @@ Desktop World 实机验收使用已签名 Dev 包、隔离的 `CAELIS_BOT_DATA_D
 点击到 `Count: 2`；独立 CUA 窗口读取也显示 `Count: 2`。同一会话停用插件后，
 Bot MCP 桥、`dtw` 和私有 worker 退出，旧工具名调用返回 `not_found`；
 重启后停用选择保留，重新开启后只读 `permissions` 调用返回 `status: ok`
-及 Accessibility/Screen Recording 均为 `true`。Codex 路径另用合成模型
-和相同签名 Dev 包完成临时窗口点击及独立读回；这不是 Codex 真实模型验收。
+及 Accessibility/Screen Recording 均为 `true`。
 
-上述结果证明当前隔离 DevBot 链路可操作指定 GUI 目标，但**尚未证明严格的
-Bot 主进程 TCC 归属**。实际 Caelis 进程链为私有 Host → Bot `--plugin-mcp`
-→ `dtw` → 私有 worker；rc.4 的 `host_bundle_id` 字段在上游写死，
-`attribution: host` 仅表示模式，不能充当 macOS 责任进程的证据。
+Codex 路径先用合成模型完成相同的连接和工具检查，再在另一份全新隔离
+DevBot 数据目录中，以原样复制到私有 `CODEX_HOME` 的用户认证运行真实模型。
+Bot UI 中的真实 `exec permissions` 返回 `status: ok`，Accessibility 和
+Screen Recording 均为 `true`；对 PID 和标题均匹配的临时窗口，模型通过
+一次 `exec run` 把 `Count: 2` 点击到 `Count: 3`，独立窗口读取也为
+`Count: 3`。停用后同一 Codex 会话报告工具不可用，桥的 `dtw` 和 worker
+退出；重启后用户的停用选择仍在，重新开启后同一会话的只读 `exec`
+再次成功。未使用强制批准模式，也未读取或输出认证内容。
+
+实际 Caelis 父进程链为私有 Host → Bot `--plugin-mcp` → `dtw` → 私有
+worker。额外的只读 OS 检查用 `sudo -n launchctl procinfo` 查询这四个
+进程和 Bot 主进程；Codex 的桥、`dtw` 和 worker 也单独核对。其
+`responsible pid/path` 指向同一份 Apple Development 签名的 DevBot
+主进程与主可执行文件，bundle ID `dev.caelis.bot.dev`。这是 macOS
+报告的责任路径，并非从 PPID 或 rc.4 写死的 `host_bundle_id` 推测。
+本机用户 TCC 数据库无法只读打开，因此不把该字段当作单独的授权记录；
+上述 OS 责任路径、worker 的权限检查及 GUI 实际读回合并作为本机验收证据。
+Bot 主进程现在持有私有 store 中的内核锁，桥在启动前和运行期间检查；
+正常退出后 MCP 桥、`dtw`、worker 均退出，单独的异常退出模拟也确认
+桥与 DTW 在主进程被杀后终止。两 Runtime 的签名包原生连接测试再次确认
+Skill、唯一 `exec` 和停用撤销。
 单独从 shell 启动的私有 Host 在只读窗口定位时返回 `window_not_found`，
-不能替代 App 启动的结果。直接由 Bot 主进程启动且核实 OS 权限责任链、
-Codex 真实模型、Windows 11 原生 GUI 和公开发行公证仍是未通过的验收项。
+不能替代 App 启动的结果。Windows 11 原生 GUI 和公开发行公证仍需
+分别验收。
 
 `TestNativeDesktopWorldPluginDirectory` 是两 Runtime 的按需原生连接检查。
 设置 `CAELIS_BOT_TEST_BOT_BINARY` 为已签名 Dev 包的可执行文件，

@@ -80,7 +80,13 @@ func runStdio(ctx context.Context, m *Manager, packageID, serverName string, in 
 	// Runtime sessions can retain old MCP schemas after a reload. Fence every
 	// incoming JSON-RPC message against the committed plugin state and stop an
 	// already running child when its generation is disabled or superseded.
-	stillActive := func() bool { return activeGeneration(m.root, packageID, rootName) }
+	stillActive := func() bool {
+		return activeGeneration(m.root, packageID, rootName) &&
+			(packageID != "desktop-world" || desktopOwnerActive(m.root))
+	}
+	if !stillActive() {
+		return errors.New("plugin service has no active Bot owner")
+	}
 	guardedCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	pipeReader, pipeWriter := io.Pipe()
