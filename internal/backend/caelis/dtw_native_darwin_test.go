@@ -74,17 +74,14 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 	if _, err := initialize(ctx, client); err != nil {
 		t.Fatal(err)
 	}
-	var status wire.StatusSnapshot
-	if err := client.json(ctx, "GET", "/status", nil, &status, "", ""); err != nil {
-		t.Fatal(err)
+	// v0.71.0 uses the native custom provider for a Responses endpoint. Keep
+	// the selected profile's exact catalog value rather than a provider/name guess.
+	if err := ApplySetup(ctx, api.SetupRequest{Settings: settings, Action: "connect-model", Provider: "custom", Model: "gpt-5.4-mini", BaseURL: provider.URL + "/v1", APIKey: "SYNTHETIC_ONLY"}); err != nil {
+		t.Fatal("configure private model", err)
 	}
-	op := "configure-dtw-private-model"
-	var result wire.CommandResult
-	if err := client.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Config: wire.ConnectConfig{Provider: "openai", Model: "gpt-5.4-mini", BaseUrl: pointer(provider.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}, &result, op, string(status.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
-		t.Fatal("configure private model", result.Outcome, err)
-	}
+	modelSelector := fixtureModelSelector(t, ctx, client, "gpt-5.4-mini")
 	selection := plugins.Selection{Revision: 1, SkillRoots: p.Skills, Servers: []plugins.SelectedServer{{PackageID: "desktop-world", Name: p.Servers[0].Name, Root: p.Root, Data: filepath.Join(pluginStore, "data", "desktop-world"), Server: p.Servers[0]}}}
-	session := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
+	session := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: modelSelector, ApprovalMode: "workspace-write"}})
 	if err := session.ConfigureBotTools(&api.ToolConnection{Command: bot, Host: noTools{}, Plugins: selection}); err != nil {
 		t.Fatal(err)
 	}
