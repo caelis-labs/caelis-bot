@@ -5,7 +5,8 @@ import { ConnectionWizard } from './settings/runtime/ConnectionWizard';
 import { createRuntimeSettingsClient } from './settings/runtime/client';
 import { SettingsDialog } from './settings/runtime/SettingsDialog';
 import { LocalWorkerSettings } from './settings/runtime/LocalWorkerSettings';
-import { RuntimeWorkspace, type RuntimePage } from './settings/runtime/RuntimeWorkspace';
+import { RuntimeWorkspace } from './settings/runtime/RuntimeWorkspace';
+import { ExecutionSettings } from './ExecutionSettings';
 import type { RuntimeSettings as Profile, SetupState, SetupOverview, SetupRequest } from './backend/contract';
 import { useI18n } from './i18n';
 import {setupStatusKey} from './settings/runtime/setup-status';
@@ -14,8 +15,8 @@ const names: Record<string, string> = { caelis: 'Caelis', codex: 'Codex' };
 const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore: '' });
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
 
-export function RuntimeSettings({ onboarding = false, onBack,onDone,active=true,refreshKey=0,page='connections',onConnections }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; active?:boolean; refreshKey?:number; page?:RuntimePage; onConnections?:()=>void }) {
- return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone}/> : <RuntimeWorkspace workerSettings={<LocalWorkerSettings active={active && page === 'models'} onConnections={onConnections}/>} page={page} onConnections={onConnections} active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} active={active} onBusy={onBusy}/>}/>;
+export function RuntimeSettings({ onboarding = false, onBack,onDone,active=true,refreshKey=0 }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; active?:boolean; refreshKey?:number }) {
+ return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone}/> : <RuntimeWorkspace workerSettings={onConnections=><LocalWorkerSettings active={active} onConnections={onConnections}/>} executionSettings={<ExecutionSettings embedded active={active} refreshKey={refreshKey}/>} active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} active={active} onBusy={onBusy}/>}/>;
 }
 
 export function RuntimePreparation({ onboarding = false, active=true, onBack,onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; active?:boolean; onBack?:()=>void; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {

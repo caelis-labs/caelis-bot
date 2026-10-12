@@ -4,9 +4,10 @@ package desktop
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa
+#cgo LDFLAGS: -framework Cocoa -framework UniformTypeIdentifiers
 #import <Cocoa/Cocoa.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <stdlib.h>
 #include <string.h>
 #include "permission_capture_darwin.h"
@@ -19,7 +20,14 @@ static int terminal_installed(const char *bundle) {
 }
 static char *default_terminal(const char *path) {
  @autoreleasepool {
-   NSURL *app=[NSWorkspace.sharedWorkspace URLForApplicationToOpenURL:[NSURL fileURLWithPath:[NSString stringWithUTF8String:path]]];
+   NSString *filePath=[NSString stringWithUTF8String:path];
+   NSURL *app=[NSWorkspace.sharedWorkspace URLForApplicationToOpenURL:[NSURL fileURLWithPath:filePath]];
+   // Permission reads use a nonexistent .command placeholder. The URL query
+   // requires a real file, while a content-type query needs no file or launch.
+   if(!app) {
+     UTType *type=[UTType typeWithFilenameExtension:filePath.pathExtension];
+     if(type)app=[NSWorkspace.sharedWorkspace URLForApplicationToOpenContentType:type];
+   }
    NSString *identifier=app ? [NSBundle bundleWithURL:app].bundleIdentifier : nil;
    return strdup((identifier ?: @"").UTF8String);
  }
@@ -55,9 +63,16 @@ func configureTaskSnapshots() error {
 }
 
 func defaultTerminalBundle(path string) string {
+	return application.InvokeSyncWithResult(func() string { return readDefaultTerminalBundle(path) })
+}
+
+// The read-only native leaf is also usable without a running Wails window.
+func readDefaultTerminalBundle(path string) string {
 	value := C.CString(path)
 	defer C.free(unsafe.Pointer(value))
-	return application.InvokeSyncWithResult(func() string { v := C.default_terminal(value); defer C.free(unsafe.Pointer(v)); return C.GoString(v) })
+	v := C.default_terminal(value)
+	defer C.free(unsafe.Pointer(v))
+	return C.GoString(v)
 }
 
 func terminalInstalled(id string) bool {

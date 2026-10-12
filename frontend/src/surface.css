@@ -77,8 +77,8 @@ html[data-native-material] .context-window .settings-window aside { background:t
 .settings-window .runtime-model-drawer { padding:12px; }
 .settings-window .runtime-model-popover .runtime-dialog-heading h2 { font-size:12px; }
 @keyframes dialog-arrive { from { opacity:0; transform:translateY(5px) scale(.99); } to { opacity:1; transform:none; } }
-.settings-window .messaging-channel { padding:18px 0; border-top:0; border-bottom:1px solid var(--line); }
-.settings-window .messaging-channel:last-child { border-bottom:0; }
+.settings-window .messaging-channel { padding:18px 20px; margin:8px 0; gap:16px; border:1px solid var(--line); border-radius:10px; }
+.settings-window .messaging-chevron { flex:none; margin-left:4px; }
 .settings-window .messaging-channel-copy strong { font-size:14px; }
 .settings-window .messaging-channel-copy>span { font-size:12px; }
 .settings-window .telegram-heading,.settings-window .telegram-step,.settings-window .telegram-notice { border:0; }
@@ -179,3 +179,14 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .history-surface footer { width:100%; max-width:788px; margin:0 auto; }
 .history-surface .approval-dock { width:calc(100% - 32px); max-width:756px; align-self:center; }
 @media(max-width:650px) { .history-surface .approval-dock { width:calc(100% - 20px); } }
+
+/* Draft previews read the validated original only on open, with fit/actual size. */
+.draft-image-viewer { width:min(1100px,calc(100vw - 32px)); max-width:none; max-height:calc(100vh - 48px); display:flex; flex-direction:column; }
+.draft-image-toolbar { display:flex; justify-content:flex-end; margin:-6px 0 10px; flex:none; }
+.draft-image-toolbar button { color:var(--muted); background:var(--wash); border:1px solid var(--line); border-radius:7px; padding:5px 9px; font-size:12px; }
+.draft-image-canvas { display:grid; place-items:center; min-height:0; overflow:auto; overscroll-behavior:contain; }
+.draft-image-canvas img { display:block; width:auto; height:auto; max-width:100%; max-height:calc(100vh - 160px); object-fit:contain; }
+.draft-image-canvas.actual-size { display:block; }
+.draft-image-canvas.actual-size img { max-width:none; max-height:none; }
+.runtime-workspace .execution-settings { margin-top:28px; }
+.runtime-account-note { margin:0 0 24px; }

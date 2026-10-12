@@ -30,7 +30,7 @@ function Icon({ name }: { name: string }) { return <img className="symbol" src={
 
 function DraftThumbnail({file,returnFocus}:{file:DraftFile;returnFocus:HTMLTextAreaElement|null}) {
  const {t}=useI18n();
- const [url,setURL]=useState(''),[open,setOpen]=useState(false);
+ const [url,setURL]=useState(''),[open,setOpen]=useState(false),[full,setFull]=useState(''),[failed,setFailed]=useState(false),[actualSize,setActualSize]=useState(false);
  useEffect(()=>{const close=()=>setOpen(false);window.addEventListener('history-close',close);return()=>window.removeEventListener('history-close',close);},[]);
  useEffect(()=>{
   let active=true;setURL('');
@@ -38,9 +38,17 @@ function DraftThumbnail({file,returnFocus}:{file:DraftFile;returnFocus:HTMLTextA
   void desktop<string>('DraftImage',file.id).then(value=>{if(active&&/^data:image\/(png|jpeg|webp);base64,/.test(value))setURL(value)}).catch(()=>{});
   return()=>{active=false};
  },[file.id,file.image,file.unavailable]);
+ useEffect(()=>{
+  let current=true;setFull('');setFailed(false);setActualSize(false);
+  if(open)void desktop<string>('DraftImagePreview',file.id).then(value=>{
+   if(!current)return;
+   if(/^data:image\/(png|jpeg|gif|webp);base64,/.test(value))setFull(value);else setFailed(true);
+  }).catch(()=>{if(current)setFailed(true)});
+  return()=>{current=false};
+ },[open,file.id]);
  const copy=<>{url?<img className="draft-thumbnail" src={url} alt=""/>:<Icon name="paperclip"/>}<span className="attachment-details"><strong>{file.name}</strong><small>{file.unavailable?t('chat.mediaUnavailable'):file.type}</small></span></>;
  return <>{url?<button className="attachment-open" type="button" aria-label={t('chat.mediaOpen',{name:file.name})} onClick={()=>setOpen(true)}>{copy}</button>:<span className="attachment-open">{copy}</span>}
-  {open&&<SettingsDialog portalTarget={document.body} returnFocus={returnFocus} title={file.name} className="draft-image-viewer" onClose={()=>setOpen(false)}><img className="screen-full-image" src={url} alt={file.name}/></SettingsDialog>}
+  {open&&<SettingsDialog portalTarget={document.body} returnFocus={returnFocus} title={file.name} className="draft-image-viewer" onClose={()=>setOpen(false)}><div className="draft-image-toolbar">{full&&!failed&&<button type="button" aria-pressed={actualSize} onClick={()=>setActualSize(value=>!value)}>{t(actualSize?'chat.imageFit':'chat.imageActualSize')}</button>}</div>{full&&!failed?<div className={`draft-image-canvas${actualSize?' actual-size':''}`}><img src={full} alt={file.name} onError={()=>setFailed(true)}/></div>:<p role="status">{t(failed?'chat.mediaUnavailable':'common.loading')}</p>}</SettingsDialog>}
  </>;
 }
 
@@ -334,7 +342,17 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   save(draft.current,refs,{localId:item.id,role:item.kind==='user'?'user':'assistant',text:item.text});
   onQuoteConsumed?.();input.current?.focus();
  },[loaded,quoteRequest]);
- const pick=async()=>{setExpanded(false);setBusy(true);setError('');setFeedback('');const ticket=fileOrder.current.request();try{const selected=visibleDraftFiles(await desktop<DraftFile[]>('PickFiles'),saved.current);if(fileOrder.current.accept(ticket)){setFiles(selected);setFilesLoaded(true);}setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
+ const pick=async()=>{
+  setExpanded(false);setBusy(true);setError('');setFeedback('');
+  const ticket=fileOrder.current.request(),generation=lifetime.current;
+  try{
+   const selected=visibleDraftFiles(await desktop<DraftFile[]>('PickFiles'),saved.current);
+   if(generation!==lifetime.current)return;
+   if(fileOrder.current.accept(ticket)){setFiles(selected);setFilesLoaded(true);}
+   setExpanded(false);
+  }catch(e){if(generation===lifetime.current)setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}
+  finally{if(generation===lifetime.current){setBusy(false);input.current?.focus();}}
+ };
  const paste=async(e:ClipboardEvent<HTMLTextAreaElement>)=>{
   const types=Array.from(e.clipboardData.types);
   if(!e.clipboardData.files.length&&!types.some(type=>type==='Files'||type==='text/uri-list'||type==='public.file-url'||type.startsWith('image/')))return;

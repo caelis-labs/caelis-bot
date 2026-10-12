@@ -415,6 +415,9 @@ func Run(assets fs.FS) error {
 		return nativeApp.Dialog.OpenFile().AttachToWindow(history).CanChooseFiles(true).CanChooseDirectories(false).
 			SetTitle(s.text("native.addFileTitle", nil)).SetButtonText(s.text("native.add", nil)).PromptForMultipleSelection()
 	}
+	s.filesChanged = func() {
+		history.ExecJS("window.dispatchEvent(new Event('files-changed'))")
+	}
 	pet.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); _ = s.SetVisible(false) })
 	// AppKit owns the tray and pet context menus; Wails owns keyboard commands.
 	// Drop Wails' unrelated File/View/Window/Help fixture menus.
