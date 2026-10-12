@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.0](https://github.com/caelis-labs/caelis-bot/compare/v0.12.0...v0.13.0) (2026-10-12)
+
+
+### Features
+
+* batch Weixin progress within reply budget ([#156](https://github.com/caelis-labs/caelis-bot/issues/156)) ([e311c0d](https://github.com/caelis-labs/caelis-bot/commit/e311c0d76d5d88cedc73f2b062595087a0e6def0))
+* **plugins:** integrate Desktop World rc.8 Computer Use ([#157](https://github.com/caelis-labs/caelis-bot/issues/157)) ([fb4190a](https://github.com/caelis-labs/caelis-bot/commit/fb4190aa4942043af54e8d40e2992994f35aa04d))
+* unify mirrored chat, text approvals and quoted replies ([#154](https://github.com/caelis-labs/caelis-bot/issues/154)) ([f855ca1](https://github.com/caelis-labs/caelis-bot/commit/f855ca16632b6b89250e59c02b1082c503c2dd27))
+
 ## [0.12.0](https://github.com/caelis-labs/caelis-bot/compare/v0.11.1...v0.12.0) (2026-10-10)
 
 
