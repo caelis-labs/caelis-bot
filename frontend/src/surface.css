@@ -174,3 +174,8 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .draft-image-viewer .screen-full-image { max-width:86vw; max-height:72vh; }
 .settings-window .runtime-dialog { max-height:calc(100vh - 48px); max-height:calc(100dvh - 48px); }
 .history-surface .approval-dock-panel { max-height:min(40vh,360px); max-height:min(40dvh,360px); }
+/* Keep wide and full-screen conversation reading as calm as the default window. */
+.history-surface .chat-content { max-width:760px; margin:0 auto; }
+.history-surface footer { width:100%; max-width:788px; margin:0 auto; }
+.history-surface .approval-dock { width:calc(100% - 32px); max-width:756px; align-self:center; }
+@media(max-width:650px) { .history-surface .approval-dock { width:calc(100% - 20px); } }
