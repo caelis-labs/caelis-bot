@@ -85,11 +85,11 @@ test('uncertain submissions stay uncertain until that exact request is confirmed
  const state=new SubmissionProgress();assert.equal(state.observe(''),'unknown');
  assert.throws(()=>state.synchronize(async()=>{}));assert.equal(state.observe('accepted'),'accepted');
 });
-test('settings separate models, accounts and machines while native repair links remain valid',()=>{
- assert.deepEqual(settingsSections,['general','appearance','models','connections','chatConnections','plugins','machines','extras','permissions','updates']);
- assert.equal(settingsDestination('runtime'),'connections');assert.equal(settingsDestination('machines'),'machines');
+test('settings unify connections and models while native repair links remain valid',()=>{
+ assert.deepEqual(settingsSections,['general','appearance','connections','chatConnections','plugins','machines','extras','permissions','updates']);
+ assert.equal(settingsDestination('runtime'),'connections');assert.equal(settingsDestination('models'),'connections');assert.equal(settingsDestination('machines'),'machines');
  assert.equal(settingsDestination('connections'),'connections');assert.equal(settingsDestination('telegram'),'telegram');assert.equal(settingsDestination('chat'),'chatConnections');assert.equal(settingsDestination('capture'),'extras');
- assert.equal(settingsDestination('execution'),'permissions');assert.equal(settingsDestination('setup'),'setup');
+ assert.equal(settingsDestination('execution'),'connections');assert.equal(settingsDestination('setup'),'setup');
  assert.equal(settingsDestination('invalid'),null);
 });
 

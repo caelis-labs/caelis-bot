@@ -1,4 +1,4 @@
-import {SettingsChevron} from './SettingsIcons';
+import { SettingsDialog } from './settings/runtime/SettingsDialog';
 import {useEffect,useRef,useState} from 'react';
 import {desktop} from './desktop';
 import {SettingGroup,SettingRow} from './SettingsUI';
@@ -12,7 +12,7 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
  const {t}=useI18n();
  const [ready,setReady]=useState(false),[limit,setLimit]=useState(''),[terminal,setTerminal]=useState('system'),[choices,setChoices]=useState<Choice[]>([]);
  const [busy,setBusy]=useState(false),[error,setError]=useState<MessageKey|''>('');
- const [custom,setCustom]=useState('');
+ const [custom,setCustom]=useState(''),[terminalOpen,setTerminalOpen]=useState(false);
  const saver=useRef<TaskPreferencesSaver|null>(null),timer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const flush=()=>{if(timer.current)clearTimeout(timer.current);timer.current=null;void saver.current?.flush();};
  useEffect(()=>{
@@ -37,18 +37,18 @@ export function TaskSettings({call=desktop}:{call?:typeof desktop}) {
    }}/>
   </SettingRow>
   <SettingRow label={t('settings.externalTerminal')} htmlFor="external-terminal" description={t('settings.externalTerminalHelp')}>
-   <select id="external-terminal" value={terminalAvailable?terminal:''} disabled={!ready} onChange={e=>{setTerminal(e.target.value);saver.current?.change({terminal:e.target.value});flush();}}>
+   <div className="terminal-choice"><select id="external-terminal" value={terminalAvailable?terminal:''} disabled={!ready} onChange={e=>{setTerminal(e.target.value);saver.current?.change({terminal:e.target.value});flush();}}>
     {!terminalAvailable&&<option value="" disabled hidden>{t(terminal==='custom'?'settings.customTerminal':'common.loading')}</option>}
     {availableChoices.map(c=><option key={c.id} value={c.id}>{c.id==='system'?t('settings.systemTerminal'):c.name}</option>)}
-   </select>
+   </select><button disabled={!ready} aria-label={t('settings.advancedTerminal')} onClick={event=>{event.currentTarget.focus();setTerminalOpen(true);}}>{t('runtime.change')}</button></div>
   </SettingRow>
-  <details className="task-terminal-advanced">
-   <summary><SettingsChevron/>{t('settings.advancedTerminal')}</summary>
+  {terminalOpen&&<SettingsDialog title={t('settings.advancedTerminal')} onClose={()=>{flush();setTerminalOpen(false);}}>
+   <div className="terminal-command-editor">
    <label htmlFor="custom-terminal-command">{t('settings.customTerminalCommand')}</label>
    <textarea id="custom-terminal-command" rows={2} value={custom} disabled={!ready} spellCheck={false} placeholder={'"/path/to/terminal" --execute /bin/sh {script}'} onBlur={flush} onChange={e=>{setCustom(e.target.value);saver.current?.change({customCommand:e.target.value});if(timer.current)clearTimeout(timer.current);timer.current=setTimeout(flush,350);}}/>
    <p className="settings-note">{t('settings.customTerminalHelp',{script:'{script}'})}</p>
    <label className="custom-terminal-enable"><input type="checkbox" checked={terminal==='custom'} disabled={!ready||!custom.trim()} onChange={e=>{const value=e.target.checked?'custom':'system';setTerminal(value);saver.current?.change({terminal:value});flush();}}/>{t('settings.useCustomTerminal')}</label>
-  </details>
+   </div><div className="setup-end"><button onClick={()=>{flush();setTerminalOpen(false);}}>{t('common.done')}</button></div></SettingsDialog>}
   {(visibleError||busy)&&<p className={`task-settings-feedback ${visibleError?'inline-error':'settings-note'}`} role={visibleError?'alert':'status'}>{t(visibleError||'settings.taskPreferencesSaving')}</p>}
  </SettingGroup>;
 }

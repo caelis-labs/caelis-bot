@@ -6,7 +6,7 @@ import { useI18n } from './i18n';
 
 // Read current preferences before saving so this mounted panel cannot restore
 // a model that has since been changed in Runtime settings.
-export function ExecutionSettings({embedded=false}:{embedded?:boolean}) {
+export function ExecutionSettings({embedded=false,active=true,refreshKey=0}:{embedded?:boolean;active?:boolean;refreshKey?:number}) {
  const {t}=useI18n();
  const [options, setOptions] = useState<ExecutionOptions | null>(null), [value, setValue] = useState(''), [saved, setSaved] = useState('');
  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
@@ -18,7 +18,7 @@ export function ExecutionSettings({embedded=false}:{embedded?:boolean}) {
   catch { setError(t('settings.executionLoadFailed')); }
   finally { working.current = false; setBusy(false); }
  };
- useEffect(() => { void load(); }, []);
+ useEffect(() => { if(active)void load(); }, [active,refreshKey]);
  const save = async () => {
   if (working.current) return;
   working.current = true; setBusy(true); setError(''); setNotice('');

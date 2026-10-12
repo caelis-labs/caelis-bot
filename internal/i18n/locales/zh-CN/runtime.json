@@ -230,7 +230,7 @@
   "workModelHint": "本机任务的默认模型",
   "settingsIntro": "配置本机助手，连接用于工作的远端机器。",
   "modelsIntro": "选择与你对话和执行工作的模型。",
-  "connectionsIntro": "管理本机工作工具、模型服务与外部 Agent。",
+  "connectionsIntro": "管理 AI 连接、对话与工作模型，以及执行权限。",
   "manageConnections": "管理连接",
   "caelisWorkModelHint": "Caelis 执行工作的默认模型",
   "dedicatedWorkModelHint": "可选，为新建的独立任务指定模型"

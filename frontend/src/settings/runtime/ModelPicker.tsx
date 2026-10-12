@@ -23,7 +23,9 @@ function ModelListDrawer({ models, value, inherited, runtimeDefault, anchor, onC
  const search = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null);
  useEffect(() => { search.current?.focus(); }, []);
  const currentDefault = defaultModel(models, runtimeDefault), defaultName = currentDefault ? `${t('runtime.default')} · ${currentDefault.name || currentDefault.model}` : t('runtime.default');
- const filtered = models.filter(m => `${m.name} ${m.model}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+ const nameCounts = new Map<string, number>();
+ for (const model of models) { const name = (model.name || model.model).toLocaleLowerCase(); nameCounts.set(name, (nameCounts.get(name) || 0) + 1); }
+ const filtered = models.filter(m => `${m.name} ${m.model} ${m.description || ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
  const showDefault = inherited && defaultName.toLocaleLowerCase().includes(query.toLocaleLowerCase());
  return <SettingsDialog title={t('runtime.selectModel')} className="runtime-model-drawer" anchor={anchor} alignTo={anchor?.closest<HTMLElement>('.runtime-model-popover')} onClose={onClose}>
   <div className="runtime-model-list-body" onKeyDown={event => {
@@ -36,7 +38,7 @@ function ModelListDrawer({ models, value, inherited, runtimeDefault, anchor, onC
    <div className="runtime-model-search-field"><MagnifyingGlassIcon aria-hidden="true" size={15}/><input ref={search} spellCheck={false} autoComplete="off" autoCorrect="off" aria-label={t('runtime.searchModels')} placeholder={t('runtime.searchModels')} value={query} onChange={e => setQuery(e.target.value)}/></div>
    <div ref={list} className="runtime-model-list" role="listbox" aria-label={t('runtime.availableModels')}>
     {showDefault && <button role="option" aria-selected={!value.model} onClick={() => onChoose(null)}><span>{defaultName}</span>{!value.model && <CheckIcon aria-hidden="true" size={16}/>}</button>}
-    {filtered.map(model => <button key={model.model} role="option" aria-selected={value.model === model.model} onClick={() => onChoose(model)}><span>{model.name || model.model}</span>{fastTier(model) && <LightningIcon aria-hidden="true" size={14}/>}{value.model === model.model && <CheckIcon aria-hidden="true" size={16}/>}</button>)}
+    {filtered.map(model => <button key={model.model} role="option" aria-selected={value.model === model.model} onClick={() => onChoose(model)}><span>{model.name || model.model}{model.description && (nameCounts.get((model.name || model.model).toLocaleLowerCase()) || 0) > 1 && <small className="runtime-model-route">{model.description}</small>}</span>{fastTier(model) && <LightningIcon aria-hidden="true" size={14}/>}{value.model === model.model && <CheckIcon aria-hidden="true" size={16}/>}</button>)}
     {!filtered.length && !showDefault && <p className="settings-note">{t('runtime.noModelsFound')}</p>}
    </div>
    {onConnect && <button className="text-action runtime-model-connect" onClick={onConnect}>{t('runtime.connectOtherModels')}</button>}

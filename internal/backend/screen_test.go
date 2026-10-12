@@ -89,6 +89,7 @@ func TestScreenMediaRestoresPresentationWithoutChangingRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored.ConfigureChat(filepath.Join(t.TempDir(), "chat.sqlite"))
+	defer restored.chat.Close()
 	restored.ObserveChat(e.snapshot)
 	view := restored.Snapshot().Items[0]
 	if view.Text != "Translate" || view.Screen == nil || view.Screen.Application != "Example browser" || len(view.Screen.Images) != 1 {

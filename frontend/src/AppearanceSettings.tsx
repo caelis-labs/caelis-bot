@@ -15,7 +15,7 @@ export function AppearanceSettings(){
  useEffect(()=>{alive.current=true;const refresh=()=>{void desktop<ContentState>('ContentState').then(receive).catch(()=>{if(alive.current)setError(loadFailed());});};refresh();window.addEventListener('appearance-changed',refresh);return()=>{alive.current=false;window.removeEventListener('appearance-changed',refresh);};},[]);
  const run=async(method:string,...args:unknown[])=>{if(running.current)return;running.current=true;setBusy(true);setError('');try{receive(await desktop<ContentState>(method,...args));}catch(e){if(alive.current)setError(e instanceof Error?e.message:String(e));}finally{running.current=false;if(alive.current)setBusy(false);}};
  const select=(value:Partial<Selection>)=>{if(state){const s={...state.appearance.selection,...value};void run('SelectAppearance',s.character,s.avatar);}};
- return <section className="appearance-settings"><h1>{t('settings.appearance')}</h1>
+ return <section className="appearance-settings"><h1>{t('settings.appearance')}</h1><p className="settings-page-intro">{t('settings.appearanceIntro')}</p>
   {state&&<CharacterPreview appearance={state.appearance}/>}
   <SettingGroup title={t('settings.appearanceFigure')}>
    <SettingRow label={t('settings.characterAndCostume')} htmlFor="appearance-character"><select id="appearance-character" disabled={!state||busy} value={state?.appearance.selection.character??'builtin:caelis'} onChange={e=>select({character:e.target.value})}>{state?.characters.map(c=><option key={c.id} value={c.id}>{c.id==='builtin:stick'?t('settings.simpleCharacter'):c.name}{c.pack?` — ${c.group}`:''}</option>)}</select></SettingRow>

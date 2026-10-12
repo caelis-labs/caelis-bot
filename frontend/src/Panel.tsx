@@ -10,6 +10,7 @@ import { WorkingMessage } from './WorkingMessage';
 import { BotAvatar } from './BotAvatar';
 import { useAvatarPresentation } from './use-avatar-presentation';
 import { animatedReplyID, type PortraitClip } from './avatar-presentation';
+import { SettingsDialog } from './settings/runtime/SettingsDialog';
 import { AttachmentMenu } from './AttachmentMenu';
 import { botMenuPlugins, nativeMenuPlugins } from './attachment-menu-model';
 import { ScreenMessage } from './ScreenMessage';
@@ -27,15 +28,39 @@ import type { MessageKey } from './i18n/catalogs';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
 
-function DraftThumbnail({file}:{file:DraftFile}) {
- const [url,setURL]=useState('');
+function DraftThumbnail({file,returnFocus}:{file:DraftFile;returnFocus:HTMLTextAreaElement|null}) {
+ const {t}=useI18n();
+ const [url,setURL]=useState(''),[open,setOpen]=useState(false),[full,setFull]=useState(''),[failed,setFailed]=useState(false),[actualSize,setActualSize]=useState(false);
+ useEffect(()=>{const close=()=>setOpen(false);window.addEventListener('history-close',close);return()=>window.removeEventListener('history-close',close);},[]);
  useEffect(()=>{
   let active=true;setURL('');
   if(!file.image||file.unavailable)return;
   void desktop<string>('DraftImage',file.id).then(value=>{if(active&&/^data:image\/(png|jpeg|webp);base64,/.test(value))setURL(value)}).catch(()=>{});
   return()=>{active=false};
  },[file.id,file.image,file.unavailable]);
- return url?<img className="draft-thumbnail" src={url} alt=""/>:<Icon name="paperclip"/>;
+ useEffect(()=>{
+  let current=true;setFull('');setFailed(false);setActualSize(false);
+  if(open)void desktop<string>('DraftImagePreview',file.id).then(value=>{
+   if(!current)return;
+   if(/^data:image\/(png|jpeg|gif|webp);base64,/.test(value))setFull(value);else setFailed(true);
+  }).catch(()=>{if(current)setFailed(true)});
+  return()=>{current=false};
+ },[open,file.id]);
+ const copy=<>{url?<img className="draft-thumbnail" src={url} alt=""/>:<Icon name="paperclip"/>}<span className="attachment-details"><strong>{file.name}</strong><small>{file.unavailable?t('chat.mediaUnavailable'):file.type}</small></span></>;
+ return <>{url?<button className="attachment-open" type="button" aria-label={t('chat.mediaOpen',{name:file.name})} onClick={()=>setOpen(true)}>{copy}</button>:<span className="attachment-open">{copy}</span>}
+  {open&&<SettingsDialog portalTarget={document.body} returnFocus={returnFocus} title={file.name} className="draft-image-viewer" onClose={()=>setOpen(false)}><div className="draft-image-toolbar">{full&&!failed&&<button type="button" aria-pressed={actualSize} onClick={()=>setActualSize(value=>!value)}>{t(actualSize?'chat.imageFit':'chat.imageActualSize')}</button>}</div>{full&&!failed?<div className={`draft-image-canvas${actualSize?' actual-size':''}`}><img src={full} alt={file.name} onError={()=>setFailed(true)}/></div>:<p role="status">{t(failed?'chat.mediaUnavailable':'common.loading')}</p>}</SettingsDialog>}
+ </>;
+}
+
+// Arrow keys move focus only. No option is selected or dispatched by navigation.
+function decisionKeys(event:React.KeyboardEvent<HTMLElement>) {
+ if(event.nativeEvent.isComposing||!['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+ const buttons=[...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+ const current=buttons.indexOf(document.activeElement as HTMLButtonElement);
+ if(current<0||!buttons.length)return;
+ event.preventDefault();
+ const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:['ArrowDown','ArrowRight'].includes(event.key)?(current+1)%buttons.length:(current-1+buttons.length)%buttons.length;
+ buttons[next].focus();
 }
 
 export function getItemStatusLabel(status: string, t: (key: MessageKey) => string): string {
@@ -95,7 +120,7 @@ export function Prompt({ value, refresh }: { value: Approval; refresh: () => voi
     })}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {value.status === 'pending' ? <>
-      <div className="approval-choices">{value.choices.map(c => c.scope === 'rule' || c.scope === 'conversation' ?
+      <div className="approval-choices" onKeyDown={decisionKeys}>{value.choices.map(c => c.scope === 'rule' || c.scope === 'conversation' ?
         <div key={c.id} className="permission-option"><p>{c.scope === 'rule' ? t('chat.approvalRuleScope') : t('chat.approvalConversationScope')}</p>{c.details && <pre>{c.details}</pre>}{button(c)}</div> : button(c))}</div>
     </> : <p className="quiet approval-result" role="status" aria-label={resultLabel}>{value.status==='resolved'&&value.resolution?.outcome==='allowed'?<CheckIcon aria-hidden="true" size={16}/>:value.status==='resolved'&&(value.resolution?.outcome==='declined'||value.resolution?.outcome==='cancelled')?<XIcon aria-hidden="true" size={16}/>:null}<span>{resultLabel}</span></p>}
   </section>;
@@ -117,7 +142,7 @@ function QuestionPrompt({card,refresh}:{card:QuestionCard;refresh:()=>void}) {
  };
  return <section className="question-prompt" aria-label={card.title}>
   <p className="question-prompt-title">{card.title}</p>
-  {options.length>0?<div className="question-prompt-options">{options.map((option,index)=><button type="button" key={index} disabled={busy||done||!!card.state} onClick={()=>void send(String(index+1))}>{option}</button>)}</div>:
+  {options.length>0?<div className="question-prompt-options" onKeyDown={decisionKeys}>{options.map((option,index)=><button type="button" key={index} disabled={busy||done||!!card.state} onClick={()=>void send(String(index+1))}>{option}</button>)}</div>:
    <div className="question-prompt-entry"><input aria-label={card.title} value={value} disabled={busy||done||!!card.state} onChange={e=>setValue(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void send(value);}}}/><button type="button" disabled={busy||done||!!card.state||!value.trim()} onClick={()=>void send(value)}>{t('chat.questionSend')}</button></div>}
   {(done||card.state==='dispatching'||card.state==='unknown')&&<small className="quiet" role="status">{card.state==='unknown'?t('chat.questionUnknown'):t('chat.questionAnswered')}</small>}
   {error&&<small className="inline-error" role="alert">{error}</small>}
@@ -317,7 +342,17 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   save(draft.current,refs,{localId:item.id,role:item.kind==='user'?'user':'assistant',text:item.text});
   onQuoteConsumed?.();input.current?.focus();
  },[loaded,quoteRequest]);
- const pick=async()=>{setExpanded(false);setBusy(true);setError('');setFeedback('');const ticket=fileOrder.current.request();try{const selected=visibleDraftFiles(await desktop<DraftFile[]>('PickFiles'),saved.current);if(fileOrder.current.accept(ticket)){setFiles(selected);setFilesLoaded(true);}setExpanded(false);}catch(e){setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}finally{setBusy(false);input.current?.focus();}};
+ const pick=async()=>{
+  setExpanded(false);setBusy(true);setError('');setFeedback('');
+  const ticket=fileOrder.current.request(),generation=lifetime.current;
+  try{
+   const selected=visibleDraftFiles(await desktop<DraftFile[]>('PickFiles'),saved.current);
+   if(generation!==lifetime.current)return;
+   if(fileOrder.current.accept(ticket)){setFiles(selected);setFilesLoaded(true);}
+   setExpanded(false);
+  }catch(e){if(generation===lifetime.current)setError(e instanceof Error?e.message:t('chat.pickFilesFailed'));}
+  finally{if(generation===lifetime.current){setBusy(false);input.current?.focus();}}
+ };
  const paste=async(e:ClipboardEvent<HTMLTextAreaElement>)=>{
   const types=Array.from(e.clipboardData.types);
   if(!e.clipboardData.files.length&&!types.some(type=>type==='Files'||type==='text/uri-list'||type==='public.file-url'||type.startsWith('image/')))return;
@@ -443,10 +478,10 @@ const Composer=memo(function Composer({snapshot,active=true,focusRevision=0,refr
   {(sendBlocked||cleanupPending||loaded&&!filesLoaded)&&<button className="quiet" type="button" onClick={()=>void retryLocalCleanup()}>{t('chat.retryDraftCleanup')}</button>}
   {!error&&(dragging||feedback)&&<p role="status" className="input-feedback">{dragging?t('chat.dropAttachments'):t('chat.attachmentAlreadyAdded')}</p>}
   {(!!quoted||!!files.length||!!refs.length)&&<div className="composer-context">
-  {quoted&&<div className="composer-quote"><p>{quoted.text}</p><button type="button" aria-label={t('chat.removeQuote')} disabled={busy} onClick={()=>save(draft.current,refs,null)}><Icon name="xmark"/></button></div>}
+  {quoted&&<div className="composer-quote"><p>{quoted.text}</p><button type="button" aria-label={t('chat.removeQuote')} disabled={busy} onClick={()=>{save(draft.current,refs,null);input.current?.focus();}}><Icon name="xmark"/></button></div>}
   {!!(files.length||refs.length)&&<ul className="attachments" aria-label={t('chat.attachmentsLabel')}>
-   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''} title={f.name}><DraftThumbnail file={f}/><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
-   {refs.map(id=><li key={id}><span>{pluginLabels[id]??snapshot?.references.find(r=>r.id===id)?.name??(id.includes('-plugin:')?id.split(':').slice(1).join(':'):t('chat.referenceDefault'))}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>save(draft.current,refs.filter(v=>v!==id))}><Icon name="xmark"/></button></li>)}
+   {files.map(f=><li key={f.id} className={f.unavailable?'attachment-unavailable':''} title={f.name}><DraftThumbnail file={f} returnFocus={input.current}/><button disabled={busy} aria-label={t('chat.removeAttachment',{name:f.name})} onClick={()=>{const ticket=fileOrder.current.request();void desktop<DraftFile[]>('RemoveFile',f.id).then(value=>{if(fileOrder.current.accept(ticket)){setFiles(visibleDraftFiles(value,saved.current));setFilesLoaded(true);setFeedback('');input.current?.focus();}}).catch(()=>setError(t('chat.attachmentUpdateFailed')));}}><Icon name="xmark"/></button></li>)}
+   {refs.map(id=><li key={id}><span>{pluginLabels[id]??snapshot?.references.find(r=>r.id===id)?.name??(id.includes('-plugin:')?id.split(':').slice(1).join(':'):t('chat.referenceDefault'))}</span><button disabled={busy} aria-label={t('chat.removeReference')} onClick={()=>{save(draft.current,refs.filter(v=>v!==id));input.current?.focus();}}><Icon name="xmark"/></button></li>)}
   </ul>}
   </div>}
   {expanded&&<AttachmentMenu trigger={add} selected={refs}
@@ -473,7 +508,7 @@ export function History() {
  const quoteMessage=useCallback((item:Item)=>setQuoteRequest({item}),[]);
  const quoteConsumed=useCallback(()=>setQuoteRequest(null),[]);
  const showQuotePreview=useCallback((quote:QuotedMessage)=>setQuotePreview(quote),[]);
- useEffect(()=>{if(!active)setMenu(null);},[active]);
+ useEffect(()=>{if(!active){setMenu(null);setQuotePreview(null);}},[active]);
  useEffect(()=>{
   if(!quotePreview)return;
   const close=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();setQuotePreview(null);}};
@@ -488,17 +523,17 @@ export function History() {
  useLayoutEffect(()=>{position.current=new ChatScroll(scroll.current!);return()=>{position.current=null;};},[]);
  useEffect(()=>{
   let activeNow=false;
-  const opened=()=>{activeNow=true;setActive(true);setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);};
+  const opened=(event?:Event)=>{activeNow=true;setActive(true);if(!(event instanceof CustomEvent && event.detail?.preservePosition))setActivation(value=>value+1);},visible=()=>{if(!activeNow)setActivation(value=>value+1);activeNow=true;setActive(true);},closed=()=>{activeNow=false;setActive(false);};
   let mounted=true;
   const stopVisibility=retryRead(()=>desktop<boolean>('HistoryVisible'),v=>{if(mounted&&v)visible();});
-  const key=(e:KeyboardEvent)=>{if(!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
+  const key=(e:KeyboardEvent)=>{if(activeNow&&!e.defaultPrevented&&!e.isComposing&&(e.key==='Escape'||(e.metaKey&&e.key==='w'))){e.preventDefault();void flushVisibleComposer().then(()=>desktop('CloseHistory')).catch(()=>{});}};
   window.addEventListener('history-open',opened);window.addEventListener('history-visible',visible);window.addEventListener('history-close',closed);window.addEventListener('keydown',key);
   return()=>{mounted=false;stopVisibility();window.removeEventListener('history-open',opened);window.removeEventListener('history-visible',visible);window.removeEventListener('history-close',closed);window.removeEventListener('keydown',key);};
  },[]);
  useLayoutEffect(()=>{
   if(!active)return;
   prepend.current=null;position.current!.latest();setUnread(false);
- },[active,activation]);
+ },[activation]);
  useLayoutEffect(()=>{
   if(!active)return;
   const resize=new ResizeObserver(()=>{position.current?.layout();});
@@ -523,13 +558,18 @@ export function History() {
   if(!interactions.length)setInteractionOpen(false);
  },[interactions.length]);
  useEffect(()=>{
-  if(!interactionOpen)return;
+  if(!interactionOpen||!active)return;
   const outside=(event:PointerEvent)=>{if(!interactionDock.current?.contains(event.target as Node))setInteractionOpen(false);};
-  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setInteractionOpen(false);interactionDock.current?.querySelector('button')?.focus();}};
+  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'&&!event.isComposing){event.preventDefault();event.stopImmediatePropagation();setInteractionOpen(false);interactionDock.current?.querySelector('button')?.focus();}};
   window.addEventListener('pointerdown',outside,true);
-  window.addEventListener('keydown',escape);
-  return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape);};
- },[interactionOpen]);
+  window.addEventListener('keydown',escape,true);
+  return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);};
+ },[interactionOpen,active]);
+ useLayoutEffect(()=>{
+  if(!active||!interactionOpen)return;
+  const entry=interactionDock.current?.querySelector<HTMLElement>('[data-interaction]:not([hidden])');
+  entry?.querySelector<HTMLElement>('.question-prompt-options button:not(:disabled),.question-prompt-entry input:not(:disabled),.approval-choices button:not(:disabled)')?.focus({preventScroll:true});
+ },[interactionOpen,currentInteraction]);
  const activity=chatActivity(snapshot);
  const avatar=useAvatarPresentation(snapshot,active);
  const activeReply=active?animatedReplyID(snapshot,avatar.completion):null;
@@ -595,7 +635,7 @@ export function History() {
    <button className="approval-dock-trigger" type="button" aria-expanded={interactionOpen} aria-haspopup="dialog" aria-controls="approval-dock-panel" onClick={()=>setInteractionOpen(open=>!open)}>{t('chat.approvalQueue',{current:currentInteraction+1,total:interactions.length})}{interactionOpen?<CaretDownIcon size={14} aria-hidden="true"/>:<CaretUpIcon size={14} aria-hidden="true"/>}</button>
    <div id="approval-dock-panel" className="approval-dock-panel" role="dialog" aria-label={t('chat.interactionEyebrow')} hidden={!interactionOpen}>
     <div className="approval-dock-nav"><span>{interactions[currentInteraction]?.kind==='approval'?t('chat.approvalEyebrow'):t('chat.questionEyebrow')}{interactions.length>1&&` · ${currentInteraction+1}/${interactions.length}`}</span><div>{interactions.length>1&&<><button type="button" aria-label={t('chat.interactionPrevious')} disabled={currentInteraction===0} onClick={()=>setInteractionIndex(i=>i-1)}><CaretLeftIcon size={16} aria-hidden="true"/></button><button type="button" aria-label={t('chat.interactionNext')} disabled={currentInteraction>=interactions.length-1} onClick={()=>setInteractionIndex(i=>i+1)}><CaretRightIcon size={16} aria-hidden="true"/></button></>}<button type="button" aria-label={t('common.close')} onClick={()=>setInteractionOpen(false)}><XIcon size={15} aria-hidden="true"/></button></div></div>
-    {interactions.map((entry,index)=><div key={entry.key} hidden={index!==currentInteraction}>{entry.kind==='approval'?<Prompt value={entry.approval} refresh={()=>void refresh().catch(()=>{})}/>:<QuestionPrompt card={entry.card} refresh={()=>void refresh().catch(()=>{})}/>}</div>)}
+    {interactions.map((entry,index)=><div data-interaction key={entry.key} hidden={index!==currentInteraction}>{entry.kind==='approval'?<Prompt value={entry.approval} refresh={()=>void refresh().catch(()=>{})}/>:<QuestionPrompt card={entry.card} refresh={()=>void refresh().catch(()=>{})}/>}</div>)}
    </div>
   </aside>}
   <footer>

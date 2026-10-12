@@ -30,6 +30,7 @@ void bot_configure_notifications(void *host);
 int bot_trash_path(char *path);
 
 void bot_style_settings(void *window);
+void bot_clamp_context_window(void *window);
 
 void bot_activity(void *host, char *activity);
 

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -13,6 +14,90 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestDraftPreviewPreservesOriginalImageAndSelectionAuthority(t *testing.T) {
+	s, _, _ := setup()
+	if err := s.configureSelection(filepath.Join(t.TempDir(), "draft-files.json")); err != nil {
+		t.Fatal(err)
+	}
+	imageValue := image.NewNRGBA(image.Rect(0, 0, 800, 600))
+	imageValue.Set(413, 217, color.NRGBA{R: 200, G: 90, B: 40, A: 127})
+	var original bytes.Buffer
+	if err := png.Encode(&original, imageValue); err != nil {
+		t.Fatal(err)
+	}
+	s.readClipboard = func() ([]string, []byte, error) { return nil, original.Bytes(), nil }
+	result, err := s.PasteAttachments()
+	if err != nil || len(result.Files) != 1 {
+		t.Fatal(result, err)
+	}
+	id := result.Files[0].ID
+	preview, err := s.DraftImagePreview(id)
+	if err != nil || !strings.HasPrefix(preview, "data:image/png;base64,") {
+		t.Fatal("original preview format", err)
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(preview, "data:image/png;base64,"))
+	if err != nil || !bytes.Equal(data, original.Bytes()) {
+		t.Fatal("preview reduced or recompressed original screenshot detail", err)
+	}
+	thumbnail, err := s.DraftImage(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thumbBytes, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(thumbnail, "data:image/jpeg;base64,"))
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(thumbBytes))
+	if err != nil || cfg.Width > 160 || cfg.Height > 120 {
+		t.Fatal("attachment chip lost its bounded thumbnail", cfg, err)
+	}
+	if files := s.DraftFiles(); len(files) != 1 || files[0].ID != id {
+		t.Fatal("preview consumed or replaced the draft selection", files)
+	}
+	if _, err = s.DraftImagePreview("foreign-id"); err == nil {
+		t.Fatal("unselected image was readable")
+	}
+	if err = os.Truncate(s.files[0].path, maxDraftFile+1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DraftImagePreview(id); err == nil {
+		t.Fatal("changed file bypassed native size validation")
+	}
+	if _, err = s.RemoveFile(id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DraftImagePreview(id); err == nil {
+		t.Fatal("removed selection still authorized a preview")
+	}
+}
+
+func TestPickerNotifiesCommittedSelectionWithoutHoldingLifecycleLock(t *testing.T) {
+	s, _, _ := setup()
+	root := t.TempDir()
+	if err := s.configureSelection(filepath.Join(root, "draft-files.json")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(path, []byte("synthetic attachment"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	s.pickFiles = func() ([]string, error) { close(entered); <-release; return []string{path}, nil }
+	notified := make(chan []DraftFile, 1)
+	s.filesChanged = func() { notified <- s.DraftFiles() }
+	done := make(chan error, 1)
+	go func() { _, err := s.PickFiles(); done <- err }()
+	<-entered
+	// A replacement composer may read while the original native sheet is open.
+	if files := s.DraftFiles(); len(files) != 0 {
+		t.Fatal("sheet staged an unconfirmed selection")
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if files := <-notified; len(files) != 1 || files[0].Name != "file.txt" {
+		t.Fatal("new view was not notified of the committed original selection", files)
+	}
+}
 
 func pastePNG(t *testing.T) []byte {
 	t.Helper()
