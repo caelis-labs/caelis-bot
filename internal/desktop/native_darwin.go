@@ -351,6 +351,10 @@ func trashNativePath(path string) error {
 
 // Install a decorative native sidebar behind WebKit without replacing its
 // content view or responder/accessibility hierarchy.
+func clampMacContextWindow(window *application.WebviewWindow) {
+	application.InvokeSync(func() { C.bot_clamp_context_window(window.NativeWindow()) })
+}
+
 func styleMacSettings(window *application.WebviewWindow) {
 	application.InvokeSync(func() { C.bot_style_settings(window.NativeWindow()) })
 }

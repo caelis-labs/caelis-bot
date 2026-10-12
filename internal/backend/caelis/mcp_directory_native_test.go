@@ -65,11 +65,12 @@ func TestNativeMCPDirectoryMetadata(t *testing.T) {
 	}
 	op := "configure-native-mcp-fixture"
 	var result wire.CommandResult
-	if err := client.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &hostStatus.Configuration.Revision, Config: wire.ConnectConfig{Provider: "openai", Model: "gpt-5.4-mini", BaseUrl: pointer(modelServer.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}, &result, op, string(hostStatus.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
+	if err := client.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &hostStatus.Configuration.Revision, Config: wire.ConnectConfig{Provider: "custom-responses", Model: "gpt-5.4-mini", ReasoningLevels: []string{"low", "medium", "high"}, ImageInput: pointer(true), BaseUrl: pointer(modelServer.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}, &result, op, string(hostStatus.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
 		t.Fatalf("configure synthetic model: %+v %v", result, err)
 	}
+	modelSelector := fixtureModelSelector(t, ctx, client, "gpt-5.4-mini")
 	selection := plugins.Selection{Revision: 1, Servers: []plugins.SelectedServer{{PackageID: "fixture", Name: "catalog", Server: plugins.Server{Type: "streamable-http", URL: mcpURL}}}}
-	session := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
+	session := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: modelSelector, Effort: "low", ApprovalMode: "workspace-write"}})
 	if err := session.ConfigureBotTools(&api.ToolConnection{Host: noTools{}, Plugins: selection}); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +183,7 @@ func TestNativeMCPDirectoryMetadata(t *testing.T) {
 		t.Fatalf("reconfigured MCP directory did not recover: %+v %v", recovered.State, err)
 	}
 	oldGeneration := session.BotPluginGeneration()
-	fresh := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot-fresh"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
+	fresh := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot-fresh"), Settings: settings, Execution: api.ExecutionSettings{Model: modelSelector, Effort: "low", ApprovalMode: "workspace-write"}})
 	if err := fresh.ConfigureBotTools(&api.ToolConnection{Host: noTools{}, Plugins: reconnected}); err != nil {
 		t.Fatal(err)
 	}

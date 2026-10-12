@@ -6,3 +6,9 @@ export function settingsDestination(value: string): SettingsSection | null {
  const destination = ({runtime:'connections',chat:'chatConnections',capture:'extras',screen:'extras',execution:'permissions',storage:'general',diagnostics:'updates'} as Record<string,string>)[value] ?? value;
  return destination === 'setup' || destination === 'telegram' || destination === 'weixin' || settingsSections.some(id => id === destination) ? destination as SettingsSection : null;
 }
+
+export const settingsGroups = [
+ { title: 'settings.groupEveryday', sections: ['general', 'appearance', 'models'] },
+ { title: 'settings.groupConnections', sections: ['connections', 'chatConnections', 'machines', 'plugins'] },
+ { title: 'settings.groupSystem', sections: ['extras', 'permissions', 'updates'] },
+] as const;

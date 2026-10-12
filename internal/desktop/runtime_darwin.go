@@ -200,8 +200,8 @@ func Run(assets fs.FS) error {
 	})
 	history := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "history", Title: appName, Width: 640, Height: 700, MinWidth: 420, MinHeight: 360,
-		Hidden: true, URL: "/?surface=history", EnableFileDrop: true, BackgroundColour: application.NewRGB(247, 247, 247),
-		Mac: application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true}},
+		Hidden: true, URL: "/?surface=context", EnableFileDrop: true, BackgroundType: application.BackgroundTypeTransparent,
+		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
 	bubble := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "bubble", Title: s.text("native.bubbleTitle", nil), Width: 360, Height: 68, Frameless: true, DisableResize: true, Hidden: true,
@@ -213,12 +213,44 @@ func Run(assets fs.FS) error {
 		URL: "/?surface=prop", BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, DisableShadow: true},
 	})
-	settings := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "settings", Title: s.text("native.settingsTitle", nil), Width: 1040, Height: 710, MinWidth: 860, MinHeight: 640,
-		Hidden: true, URL: "/?surface=settings", BackgroundType: application.BackgroundTypeTransparent,
-		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
-	})
-	for _, window := range []*application.WebviewWindow{bubble, settings} {
+	// Conversation and settings are retained renderer views in one contextual
+	// window. Switching views changes presentation only, never native work.
+	settings := history
+	var settingsMode atomic.Bool
+	chatWidth, chatHeight, settingsWidth, settingsHeight := 640, 700, 1040, 740
+	presentSurface := func(preferences bool) {
+		if settingsMode.Load() != preferences {
+			width, height := history.Size()
+			resize := !history.IsFullscreen() && !history.IsMaximised()
+			if preferences {
+				if resize {
+					chatWidth, chatHeight = width, height
+				}
+				history.ExecJS("window.dispatchEvent(new Event('history-close'))")
+				history.SetMinSize(800, 560)
+				if resize {
+					history.SetSize(settingsWidth, settingsHeight)
+				}
+			} else {
+				if resize {
+					settingsWidth, settingsHeight = width, height
+				}
+				history.ExecJS("window.dispatchEvent(new Event('settings-close'))")
+				history.SetMinSize(420, 360)
+				if resize {
+					history.SetSize(chatWidth, chatHeight)
+				}
+			}
+			settingsMode.Store(preferences)
+			clampMacContextWindow(history)
+		}
+		if preferences {
+			history.SetTitle(strings.Replace(s.text("native.settingsTitle", nil), "Caelis Bot", appName, 1))
+		} else {
+			history.SetTitle(appName)
+		}
+	}
+	for _, window := range []*application.WebviewWindow{bubble, history} {
 		window.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, func(*application.WindowEvent) { syncMacMaterials() })
 	}
 	s.openSettings = func() {
@@ -226,6 +258,7 @@ func Run(assets fs.FS) error {
 			return
 		}
 		application.InvokeSync(func() {
+			presentSurface(true)
 			syncMacDock(history, settings, true)
 			settings.UnMinimise()
 			settings.Show()
@@ -235,12 +268,17 @@ func Run(assets fs.FS) error {
 	}
 	s.closeSettings = func() {
 		application.InvokeSync(func() {
+			// Onboarding may already have opened chat before its completion
+			// callback closes settings. Do not hide that new chat view.
+			if !settingsMode.Load() {
+				return
+			}
 			settings.ExecJS("window.dispatchEvent(new Event('settings-close'))")
 			settings.Hide()
 			syncMacDock(history, settings, false)
 		})
 	}
-	s.settingsVisible = func() bool { return macWindowVisible(settings) }
+	s.settingsVisible = func() bool { return settingsMode.Load() && macWindowVisible(settings) }
 	s.saveDiagnosticPath = func() (string, error) {
 		return nativeApp.Dialog.SaveFile().AttachToWindow(settings).SetFilename("Caelis-Bot-diagnostics.json").
 			SetMessage(s.text("native.diagnosticExportMessage", nil)).
@@ -258,17 +296,22 @@ func Run(assets fs.FS) error {
 	}
 	s.contentChanged = func(value contentpack.Appearance) {
 		data, _ := json.Marshal(value)
-		for _, window := range []*application.WebviewWindow{pet, history, bubble, settings} {
+		for _, window := range []*application.WebviewWindow{pet, history, bubble} {
 			window.ExecJS("window.dispatchEvent(new CustomEvent('appearance-changed',{detail:" + string(data) + "}))")
 		}
 	}
-	settings.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.closeSettings() })
 	showHistory := func() {
+		preservePosition := settingsMode.Load()
+		presentSurface(false)
 		syncMacDock(history, settings, true)
 		history.UnMinimise()
 		history.Show()
 		history.Focus()
-		history.ExecJS("window.dispatchEvent(new Event('history-open'))")
+		if preservePosition {
+			history.ExecJS("window.dispatchEvent(new CustomEvent('history-open',{detail:{preservePosition:true}}))")
+		} else {
+			history.ExecJS("window.dispatchEvent(new Event('history-open'))")
+		}
 	}
 	s.openHistory = func() {
 		if s.prepareWindowRecall() {
@@ -277,35 +320,40 @@ func Run(assets fs.FS) error {
 	}
 	s.closeHistory = func() {
 		application.InvokeSync(func() {
+			if settingsMode.Load() {
+				return
+			}
 			history.ExecJS("window.dispatchEvent(new Event('history-close'))")
 			history.Hide()
 			syncMacDock(history, settings, false)
 		})
 	}
-	s.historyVisible = func() bool { return macWindowVisible(history) }
-	s.historyCanHide = func() bool { return macWindowCanHide(history) }
-	s.petChatCanHide = func() bool { return macWindowPetCanHide(history) }
+	s.historyVisible = func() bool { return !settingsMode.Load() && macWindowVisible(history) }
+	s.historyCanHide = func() bool { return !settingsMode.Load() && macWindowCanHide(history) }
+	s.petChatCanHide = func() bool { return !settingsMode.Load() && macWindowPetCanHide(history) }
 	s.recallWindows = func() {
 		if !s.prepareWindowRecall() {
 			return
 		}
 		application.InvokeSync(func() {
-			// Recall existing contextual windows, including minimised settings,
-			// without reopening a page the user explicitly closed. Settings is
-			// raised last so the larger chat window cannot cover its controls.
-			settingsOpen := macWindowOpen(settings)
-			showHistory()
-			if settingsOpen {
+			if settingsMode.Load() && macWindowOpen(history) {
 				settings.UnMinimise()
 				settings.Show()
 				settings.Focus()
-			}
-			if os.Getenv("CAELIS_BOT_DESKTOP_TRACE") != "" {
-				log.Printf("Desktop recall: history=%t settings-open=%t settings=%t settings-focused=%t", macWindowVisible(history), settingsOpen, macWindowVisible(settings), settings.IsFocused())
+				settings.ExecJS("window.dispatchEvent(new Event('settings-open'))")
+			} else {
+				showHistory()
 			}
 		})
 	}
-	history.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); s.closeHistory() })
+	history.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		e.Cancel()
+		if settingsMode.Load() {
+			s.closeSettings()
+		} else {
+			s.closeHistory()
+		}
+	})
 	// Dock Quit is a contextual-window action. Only the status menu requests
 	// user-initiated process shutdown; updater/restart/system cleanup stays intact.
 	closeContextWindow = func() { closeMacContextWindow(history, settings) }
@@ -317,18 +365,20 @@ func Run(assets fs.FS) error {
 			return
 		}
 		application.InvokeSync(func() {
-			if macWindowOpen(history) {
-				showHistory()
+			if !macWindowOpen(history) {
+				return
 			}
-			if macWindowOpen(settings) {
+			if settingsMode.Load() {
 				syncMacDock(history, settings, true)
 				settings.UnMinimise()
 				settings.Show()
 				settings.Focus()
+			} else {
+				showHistory()
 			}
 		})
 	})
-	for _, window := range []*application.WebviewWindow{history, settings} {
+	for _, window := range []*application.WebviewWindow{history} {
 		window.OnWindowEvent(events.Mac.WindowDidBecomeKey, func(*application.WindowEvent) {
 			// AppKit can reveal a window without Wails.Show (for example, an
 			// accessibility activation). Wails otherwise keeps Hidden=true and
@@ -339,10 +389,10 @@ func Run(assets fs.FS) error {
 				}
 				window.Show()
 				syncMacDock(history, settings, false)
-				if window == history {
+				if !settingsMode.Load() {
 					// Ordinary app focus must not reset an existing history read.
 					history.ExecJS("window.dispatchEvent(new Event('history-visible'))")
-				} else if window == settings {
+				} else {
 					settings.ExecJS("window.dispatchEvent(new Event('settings-focus'))")
 				}
 			})
@@ -383,7 +433,9 @@ func Run(assets fs.FS) error {
 		populate(applicationMenu.AddSubmenu(appName), state.Locale)
 		applicationMenu.AddRole(application.EditMenu)
 		nativeApp.Menu.Set(applicationMenu)
-		settings.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.settingsTitle", nil), "Caelis Bot", appName, 1))
+		if settingsMode.Load() {
+			settings.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.settingsTitle", nil), "Caelis Bot", appName, 1))
+		}
 		pet.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.petTitle", nil), "Caelis Bot", appName, 1))
 		bubble.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.bubbleTitle", nil), "Caelis Bot", appName, 1))
 		prop.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.propTitle", nil), "Caelis Bot", appName, 1))
@@ -393,7 +445,7 @@ func Run(assets fs.FS) error {
 		data, _ := json.Marshal(state)
 		application.InvokeSync(func() {
 			updateLanguage(state)
-			for _, window := range []*application.WebviewWindow{pet, history, bubble, settings, prop} {
+			for _, window := range []*application.WebviewWindow{pet, history, bubble, prop} {
 				window.ExecJS("window.dispatchEvent(new CustomEvent('language-changed',{detail:" + string(data) + "}))")
 			}
 		})

@@ -1,0 +1,176 @@
+/* Shared presentation: one quiet contextual surface, native chrome and materials. */
+body[data-surface=context] { background:var(--caelis-chat); }
+.context-window,.context-view { width:100%; height:100dvh; min-width:0; }
+.context-view[hidden] { display:none; }
+.context-chat-toolbar { height:32px; display:flex; align-items:center; justify-content:flex-end; padding:0 16px; }
+.context-chat-toolbar button { display:grid; place-items:center; width:28px; height:28px; padding:0; border:0; border-radius:7px; color:var(--muted); background:transparent; }
+.context-chat-toolbar button:hover { background:var(--wash); color:var(--ink); }
+.context-window .history-surface { height:calc(100dvh - 32px); }
+.context-view { animation:surface-arrive .16s ease-out; }
+@keyframes surface-arrive { from { opacity:.65; transform:translateY(3px); } to { opacity:1; transform:none; } }
+.settings-window aside { flex-basis:212px; width:212px; padding:22px 12px 14px; background:var(--caelis-sidebar); }
+html[data-native-material] .context-window .settings-window aside { background:transparent; }
+.settings-identity { display:flex; gap:10px; align-items:center; margin:0 12px 20px; }
+.settings-identity img { width:32px; height:32px; border-radius:9px; object-fit:contain; background:var(--caelis-content); }
+.settings-identity strong { display:block; font-size:13px; font-weight:600; }
+.settings-window .settings-identity small { display:block; font-size:11px; margin:3px 0 0; padding:0; }
+.settings-window aside nav { flex:1; overflow:auto; min-height:0; gap:0; }
+.settings-nav-group + .settings-nav-group { margin-top:20px; }
+.settings-nav-group>p { margin:0 12px 7px; font-size:11px; font-weight:500; color:var(--muted); }
+.settings-window aside nav button { display:flex; align-items:center; gap:10px; width:100%; min-height:36px; margin:2px 0; padding:8px 12px; color:var(--muted); border-radius:8px; text-align:left; }
+.settings-window aside nav button svg { flex:none; }
+.settings-window aside nav button[aria-current] { background:var(--caelis-selected); color:var(--ink); font-weight:600; }
+.settings-window aside .settings-return { display:flex; gap:10px; align-items:center; width:100%; margin-top:16px; padding:11px 12px; color:var(--muted); border:0; border-top:1px solid var(--line); border-radius:0; background:transparent; text-align:left; font-size:12px; }
+.settings-window .settings-content { padding:38px 44px 48px; background:var(--caelis-content); }
+.settings-window .settings-page { width:100%; max-width:760px!important; margin:0 auto; }
+.settings-window h1 { font-size:26px; line-height:1.3; letter-spacing:-.035em; margin:0 0 28px; font-weight:650; }
+.settings-window .settings-page-intro { margin:-16px 0 28px; font-size:12px; line-height:1.6; }
+.settings-window .setting-section { margin:26px 0; padding:0; border:0; background:transparent; border-radius:0; }
+.settings-window .setting-section h2,.settings-window .general-preferences h2 { color:var(--muted); font-size:12px; font-weight:600; margin:0 0 8px; }
+.settings-window .setting-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(150px,220px); align-items:center; gap:28px; min-height:64px; padding:13px 0; border:0; }
+.settings-window .setting-label { min-width:0; }
+.settings-window .setting-label :is(span,label) { font-size:13px; font-weight:550; }
+.settings-window .setting-label p { font-size:12px; line-height:1.6; margin:5px 0 0; }
+.settings-window .setting-control { min-width:0; max-width:none; justify-self:stretch; display:flex; justify-content:flex-end; gap:8px; }
+.settings-window .setting-control :is(select,input:not([type=checkbox]):not([type=range])) { width:100%; min-width:0; }
+.settings-window .setting-control .task-limit { width:76px!important; text-align:center; }
+.settings-window :is(button,select,input:not([type=checkbox]):not([type=radio]):not([type=range])) { font-size:12px; min-height:34px; border-radius:8px; }
+.settings-window :is(select,input:not([type=checkbox]):not([type=radio]):not([type=range]),textarea) { background:var(--caelis-content); border-color:var(--line); }
+.settings-window .general-settings .general-preferences { padding:0; background:transparent; border:0; border-radius:0; }
+.settings-window .general-settings>.setting-section { padding:0; border:0; background:transparent; border-radius:0; margin:26px 0; }
+.settings-window .general-preferences .setting-section { margin:0; }
+.settings-window .general-settings .maintenance-surface { margin-top:26px; }
+.settings-window .shortcut-setting { border:0; }
+.settings-window .shortcut-editor { padding:12px 0; }
+.settings-window .shortcut-editor .setting-row { display:flex; }
+.settings-window .shortcut-editor .setting-label { flex:1; }
+.settings-window .shortcut-record { white-space:normal; }
+.settings-window .size-control { width:100%; min-width:0; }
+.settings-window .permission-row { border:0; padding:15px 0; }
+.settings-window .permission-description p { margin:5px 0 0; font-size:12px; }
+.settings-window .permission-row>.permission-toggle { align-items:center; gap:8px; }
+.settings-window .appearance-settings .character-preview { border:0; margin:6px 0 22px; }
+.settings-window .appearance-settings .setting-section { padding:0; border:0; background:transparent; border-radius:0; }
+.settings-window .runtime-active { padding:12px 0 18px; border:0; }
+.settings-window .runtime-setting-row { padding:14px 0; min-height:68px; gap:24px; border:0; }
+.settings-window .runtime-setting-row>div:first-child>strong { font-size:13px; font-weight:550; }
+.settings-window .runtime-setting-row p { margin:5px 0 0; font-size:12px; }
+.settings-window .runtime-model-summary { max-width:240px; width:220px; min-width:0; padding:8px 10px; text-align:left; background:var(--wash); border:1px solid transparent; }
+.settings-window .runtime-model-summary:hover:not(:disabled) { border-color:var(--line); }
+.settings-window .runtime-model-summary strong { color:var(--ink); font-weight:500; }
+.settings-window .runtime-model-summary small { font-size:11px; margin-top:3px; }
+.settings-window .runtime-model-section { margin-top:16px; }
+.settings-window .runtime-model-section h2 { font-size:12px; color:var(--muted); margin:26px 0 8px; }
+.settings-window .runtime-segments { margin:0; border:0; padding:3px; gap:2px; border-radius:8px; }
+.settings-window .runtime-segments button { padding:6px 13px; min-height:28px; border-radius:6px; }
+.settings-window .runtime-segments button[aria-pressed=true] { background:var(--caelis-raised); color:var(--ink); box-shadow:0 1px 3px #00000010; }
+.settings-window .runtime-model-list .runtime-model-route { display:block; margin-top:3px; color:var(--muted); font-size:11px; font-weight:400; }
+.settings-window .runtime-dialog { padding:24px; border-radius:16px; border:1px solid var(--line); box-shadow:0 16px 48px #00000028; animation:dialog-arrive .14s ease-out; }
+.settings-window .runtime-dialog .setting-row { grid-template-columns:minmax(0,1fr) minmax(100px,200px); gap:18px; }
+.settings-window .runtime-dialog .runtime-choices button { border-radius:10px; }
+.settings-window .runtime-dialog .setup-end { gap:8px; }
+.settings-window .runtime-dialog form>label { display:block; margin:16px 0; }
+.settings-window .runtime-dialog form>label>input { margin-top:7px; }
+.settings-window .runtime-dialog-scrim { background:#17251e30; }
+.settings-window .runtime-popover-scrim { background:transparent; }
+.settings-window .runtime-model-popover { padding:16px; }
+.settings-window .runtime-model-drawer { padding:12px; }
+.settings-window .runtime-model-popover .runtime-dialog-heading h2 { font-size:12px; }
+@keyframes dialog-arrive { from { opacity:0; transform:translateY(5px) scale(.99); } to { opacity:1; transform:none; } }
+.settings-window .messaging-channel { padding:18px 0; border-top:0; border-bottom:1px solid var(--line); }
+.settings-window .messaging-channel:last-child { border-bottom:0; }
+.settings-window .messaging-channel-copy strong { font-size:14px; }
+.settings-window .messaging-channel-copy>span { font-size:12px; }
+.settings-window .telegram-heading,.settings-window .telegram-step,.settings-window .telegram-notice { border:0; }
+.settings-window .telegram-heading { padding-bottom:10px; }
+.settings-window .about-identity { margin:14px 0 32px; }
+/* Chat stays compact. Decisions occupy their own space without covering input or messages. */
+.history-surface .chat-scroll { padding:12px 22px 20px; }
+.history-surface .message-row { margin:20px 0; }
+.history-surface .message { font-size:14px; line-height:1.65; border-radius:15px; }
+.history-surface footer { padding:8px 16px 16px; }
+.history-surface .compose-area { border-radius:18px; box-shadow:0 2px 8px #00000006; }
+.history-surface .capsule { padding:11px 12px; min-height:56px; gap:10px; }
+.history-surface .capsule textarea { font-size:14px; line-height:24px; }
+.history-surface .icon-button { width:30px; height:30px; flex-basis:30px; border-radius:9px; }
+.history-surface .add { background:transparent; }
+.history-surface .composer-context { padding:0 12px 10px; }
+.history-surface .approval-dock { align-self:stretch; margin:0 16px 4px; }
+.history-surface .approval-dock-trigger { border:0; background:transparent; box-shadow:none; padding:7px 6px; font-size:11px; color:var(--muted); }
+.history-surface .approval-dock-panel { position:relative; inset:auto; width:100%; max-height:min(40dvh,360px); padding:6px; box-shadow:none; border-radius:12px; }
+.history-surface .approval-dock-nav { border:0; padding-bottom:3px; }
+.history-surface .question-prompt-options { border:0; display:flex; flex-wrap:wrap; flex-direction:row; gap:6px; margin:10px 0 0; padding:0; }
+.history-surface .question-prompt-options button { width:auto; border:1px solid var(--line); border-radius:7px; background:var(--wash); min-height:30px; padding:6px 10px; font-size:12px; }
+.history-surface .approval-choices { border:0; flex-direction:row; gap:6px; margin:8px 0 0; padding:0; }
+.history-surface .approval-choices>button,.history-surface .permission-option button { width:auto; border:1px solid var(--line); background:var(--wash); min-height:30px; padding:6px 10px; font-size:12px; }
+.history-surface .permission-option { padding:4px; }
+.history-surface .approval-choices .primary-decision { color:var(--on-accent); background:var(--accent); border-color:var(--accent); }
+.history-surface .approval pre { max-height:90px; border-radius:7px; }
+.attachment-menu { border-radius:12px; width:min(344px,calc(100vw - 24px)); animation:dialog-arrive .12s ease-out; }
+.attachments li { padding:6px; border:1px solid var(--line); background:var(--caelis-content); border-radius:9px; }
+.attachments .attachment-details { max-width:150px; }
+.attachment-open { display:flex!important; width:auto!important; height:auto!important; min-width:0; gap:7px; text-align:left; border-radius:6px!important; }
+.attachment-open .symbol { margin:8px; }
+.attachment-open:hover { background:var(--wash); }
+/* Existing onboarding order, with consistent progress and a stable footer. */
+.settings-window.setup-window { background:var(--caelis-content); }
+.setup-page { max-width:620px; padding:32px 32px 24px; }
+.setup-flow .setup-progress { margin-bottom:28px; }
+.setup-flow .setup-avatar { width:64px; height:64px; margin-bottom:18px; }
+.setup-flow .bot-introduction h1,.setup-flow .runtime-welcome h1 { font-size:28px; letter-spacing:-.035em; }
+.setup-flow .setup-lead { font-size:13px; line-height:1.7; margin-bottom:26px; }
+.setup-flow .setup-end { border-top:0!important; background:var(--caelis-content)!important; }
+@media(max-width:900px) {
+ .settings-window .settings-content { padding:30px 28px 40px; }
+ .settings-window .setting-row { gap:20px; grid-template-columns:minmax(0,1fr) minmax(130px,190px); }
+ .settings-window .runtime-model-summary { width:190px; }
+}
+@media(max-width:650px) {
+ .settings-window aside { flex-basis:164px; width:164px; min-width:164px; padding:18px 8px 12px; }
+ .settings-window aside nav { padding:0; }
+ .settings-window .settings-identity { margin-left:8px; margin-right:8px; }
+ .settings-window .settings-content { padding:26px 20px 36px; }
+ .settings-window .setting-row { grid-template-columns:1fr; gap:9px; }
+ .settings-window .setting-label { flex-basis:auto; }
+ .settings-window .setting-control { width:100%; }
+ .settings-window .runtime-setting-row { flex-wrap:wrap; gap:10px; }
+ .settings-window .runtime-model-summary { width:100%; max-width:none; }
+ .history-surface .chat-scroll { padding:8px 14px 16px; }
+ .history-surface footer { padding:8px 10px 12px; }
+ .history-surface .approval-dock { margin:0 10px 4px; }
+}
+@media(prefers-reduced-motion:reduce) {
+ .context-view,.runtime-dialog,.attachment-menu { animation:none!important; }
+ .settings-window * { scroll-behavior:auto; transition:none; }
+}
+@media(prefers-reduced-transparency:reduce),(prefers-contrast:more) {
+ html[data-native-material] .context-window .settings-window aside { background:var(--caelis-sidebar); }
+}
+html[data-native-material=solid] .context-window .settings-window aside { background:var(--caelis-sidebar); }
+.settings-window .terminal-choice { display:flex; align-items:center; width:100%; gap:8px; }
+.settings-window .terminal-choice select { min-width:0; flex:1; width:0; }
+.settings-window .terminal-choice button { flex:none; }
+.terminal-command-editor label { display:block; margin:14px 0 8px; font-size:12px; }
+.terminal-command-editor textarea { width:100%; height:90px; max-height:160px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); font-family:ui-monospace,monospace; font-size:12px; line-height:1.6; }
+.terminal-command-editor .custom-terminal-enable { display:flex; align-items:center; gap:8px; }
+.settings-window .runtime-connection-entry { display:flex; justify-content:space-between; align-items:center; gap:20px; width:100%; padding:17px 0; border:0; border-radius:0; background:transparent; text-align:left; }
+.runtime-connection-entry strong,.runtime-connection-entry small { display:block; }
+.runtime-connection-entry strong { font-size:13px; font-weight:550; }
+.runtime-connection-entry small { color:var(--muted); font-size:12px; margin-top:5px; }
+.settings-window .runtime-connection-model { border:0; padding:14px 0; }
+.settings-window .runtime-location-entry { margin:18px 0 8px; color:var(--muted); }
+.settings-window .runtime-team-entry { display:flex; align-items:center; gap:8px; width:auto; border:0; margin-top:20px; padding:6px 0; }
+.settings-window .runtime-dialog input[type=checkbox] { width:16px; height:16px; padding:0; margin:0; flex:none; accent-color:var(--accent); }
+.settings-window .runtime-dialog .custom-terminal-enable { display:flex; flex-direction:row; align-items:center; gap:8px; }
+.context-window .settings-window.setup-window { justify-content:center; background:var(--caelis-content); }
+.settings-window .setup-page { width:100%; max-width:620px; margin:0 auto; }
+/* New presentation also supports WebKit versions predating dynamic viewport units. */
+.context-window,.context-view,.settings-window,.setup-page { height:100vh; height:100dvh; }
+.context-window .history-surface { height:calc(100vh - 32px); height:calc(100dvh - 32px); }
+.draft-image-viewer { width:fit-content; max-width:94vw; max-height:90vh; padding:18px; border:1px solid var(--line); border-radius:14px; background:var(--caelis-popover); }
+.draft-image-viewer .runtime-dialog-heading { margin-bottom:14px; }
+.draft-image-viewer .runtime-dialog-heading h2 { font-size:13px; }
+.draft-image-viewer .runtime-close { border:0; background:transparent; color:var(--muted); padding:6px; }
+.draft-image-viewer .screen-full-image { max-width:86vw; max-height:72vh; }
+.settings-window .runtime-dialog { max-height:calc(100vh - 48px); max-height:calc(100dvh - 48px); }
+.history-surface .approval-dock-panel { max-height:min(40vh,360px); max-height:min(40dvh,360px); }

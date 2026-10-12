@@ -1,5 +1,6 @@
 import './settings/settings.css';
-import {SettingsChevron} from './SettingsIcons';
+import { SettingsNavIcon } from './SettingsNavIcon';
+import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';
 import { useEffect, useRef, useState } from 'react';
 import { desktop } from './desktop';
 import { BotSetup } from './BotSetup';
@@ -9,7 +10,7 @@ import { TelegramSettings } from './TelegramSettings';
 import { WeixinSettings } from './WeixinSettings';
 import { MessagingSettings } from './MessagingSettings';
 import { MachineSettings } from './settings/runtime/MachineSettings';
-import { settingsSections as sections, settingsDestination, type SettingsSection as Section } from './settings-navigation';
+import { settingsGroups, settingsDestination, type SettingsSection as Section } from './settings-navigation';
 import { ScreenInputSettings } from './ScreenInputSettings';
 import { ShortcutSettings } from './ShortcutSettings';
 import { ExecutionSettings } from './ExecutionSettings';
@@ -47,7 +48,7 @@ export function Settings() {
   const onOpen=()=>{visibilitySeq.current++;load(true);};
   const onClose=()=>{visibilitySeq.current++;visibleRef.current=false;setVisible(false);};
   const onFocus=()=>{if(visibleRef.current)setFocusVersion(n=>n+1);};
-  const key=(event:KeyboardEvent)=>{if(event.defaultPrevented||event.isComposing)return;if(event.key==='Escape'&&(sectionRef.current==='telegram'||sectionRef.current==='weixin')){event.preventDefault();if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection('chatConnections');return;}if(event.key==='Escape'||(event.metaKey&&event.key==='w')){event.preventDefault();void desktop('CloseSettings');}};
+  const key=(event:KeyboardEvent)=>{if(!visibleRef.current||event.defaultPrevented||event.isComposing)return;if(event.key==='Escape'&&(sectionRef.current==='telegram'||sectionRef.current==='weixin')){event.preventDefault();if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection('chatConnections');return;}if(event.key==='Escape'||(event.metaKey&&event.key==='w')){event.preventDefault();void desktop('CloseSettings');}};
   load();void desktop<string>('AppVersion').then(setVersion);
   window.addEventListener('settings-open',onOpen);window.addEventListener('settings-close',onClose);window.addEventListener('settings-focus',onFocus);window.addEventListener('keydown',key);
   return()=>{window.removeEventListener('settings-open',onOpen);window.removeEventListener('settings-close',onClose);window.removeEventListener('settings-focus',onFocus);window.removeEventListener('keydown',key);};
@@ -55,7 +56,7 @@ export function Settings() {
  useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='permissions')setExecutionVisited(true);if(section==='models'||section==='connections')setRuntimeVisited(true);if(section==='telegram')setTelegramVisited(true);if(section==='weixin')setWeixinVisited(true)},[section]);
  if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup active={visible} focusVersion={focusVersion} onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></div></main>;
  return <main className="settings-window">
-  <aside><nav aria-label={t('settings.navLabel')}>{sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}>{t(`settings.${id}`)}</button>)}</nav><small>Caelis Bot<br/>{version}</small></aside>
+  <aside><div className="settings-identity"><img src="/icons/caelis-avatar.png" alt=""/><div><strong>Caelis Bot</strong><small>{version}</small></div></div><nav aria-label={t('settings.navLabel')}>{settingsGroups.map(group=><div className="settings-nav-group" key={group.title}><p>{t(group.title)}</p>{group.sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}><SettingsNavIcon section={id}/><span>{t(`settings.${id}`)}</span></button>)}</div>)}</nav><button className="settings-return" onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))void desktop('OpenHistory');}}><CaretLeftIcon size={17} aria-hidden="true"/>{t('settings.returnChat')}</button></aside>
   <div className="settings-content" ref={content}>
    <div className="settings-page" data-section="permissions" hidden={section!=='permissions'}>{(executionVisited||section==='permissions')&&<><h1>{t('settings.permissions')}</h1>{section==='permissions'&&<PermissionSettings embedded active={visible} focusVersion={focusVersion}/>}<ExecutionSettings embedded/></>}</div>
    <div className="settings-page" data-section={section==='models'?'models':'connections'} hidden={section!=='models'&&section!=='connections'}>{(runtimeVisited||section==='models'||section==='connections')&&<RuntimeSettings page={section==='models'?'models':'connections'} active={visible&&(section==='models'||section==='connections')} refreshKey={opened} onConnections={()=>setSection('connections')}/>}</div>
@@ -74,11 +75,11 @@ export function Settings() {
 
 function General({active,focusVersion}:{active:boolean;focusVersion:number}) {
  const {t}=useI18n();
- const [storageOpen,setStorageOpen]=useState(false);
+
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><div className="general-preferences"><LanguageSetting/><LoginAtLoginSetting active={active} focusVersion={focusVersion}/></div><TaskSettings/>
+  <h1>{t('settings.general')}</h1><p className="settings-page-intro">{t('settings.generalIntro')}</p><div className="general-preferences"><h2>{t('settings.preferences')}</h2><LanguageSetting/><LoginAtLoginSetting active={active} focusVersion={focusVersion}/></div><TaskSettings/>
   <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/></SettingGroup>
-  <details className="settings-disclosure" onToggle={e=>setStorageOpen(e.currentTarget.open)}><summary><SettingsChevron/>{t('settings.storage')}</summary>{storageOpen&&<Maintenance storage embedded/>}</details>
+  <Maintenance storage embedded/>
  </section>;
 }
 

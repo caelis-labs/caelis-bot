@@ -115,11 +115,13 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}
 		op := "configure-" + name
 		var result wire.CommandResult
-		err = host.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &state.Configuration.Revision, Config: wire.ConnectConfig{Provider: "openai-compatible", Model: name, BaseUrl: pointer(server.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}, &result, op, string(state.Configuration.Revision))
+		err = host.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &state.Configuration.Revision, Config: wire.ConnectConfig{Provider: "custom-chat", Model: name, BaseUrl: pointer(server.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}, &result, op, string(state.Configuration.Revision))
 		if err != nil || !succeeded(result.Outcome) {
 			t.Fatal("model configuration", err)
 		}
 	}
+	mainSelector := fixtureModelSelector(t, ctx, host, "gpt-4.1")
+	reviewerSelector := fixtureModelSelector(t, ctx, host, "reviewer-model")
 	notebook := filepath.Join(root, "Notebook")
 	if err = os.Mkdir(notebook, 0700); err != nil {
 		t.Fatal(err)
@@ -131,7 +133,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 	}}
 	var s *Session
 	open := func() {
-		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai-compatible/gpt-4.1"}, ReviewerModel: "openai-compatible/reviewer-model"})
+		s = New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: mainSelector}, ReviewerModel: reviewerSelector})
 		if err = s.ConfigureBotTools(&api.ToolConnection{Host: tools, NotebookDirectory: notebook}); err != nil {
 			t.Fatal(err)
 		}
@@ -143,7 +145,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 	open()
 	defer func() { _ = s.Close(context.Background()) }()
 	original := s.state.Session.SessionId
-	if p := s.state.Session.Profile; p.Reviewer == nil || p.Reviewer.Model != "openai-compatible/reviewer-model" || value(p.Permissions.ApprovalMode) != "auto-review" || value(p.Permissions.Mode) != "workspace-write" {
+	if p := s.state.Session.Profile; p.Reviewer == nil || p.Reviewer.Model != reviewerSelector || value(p.Permissions.ApprovalMode) != "auto-review" || value(p.Permissions.Mode) != "workspace-write" {
 		t.Fatal("Guardian/sandbox not assembled")
 	}
 	reviewFor := func(status, action string) bool {
@@ -352,7 +354,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		if _, e = s.UpdateConfiguration(ctx, "review-hot-model", string(config.Revision), map[string]any{"model": "openai-compatible/gpt-4.1"}); e != nil {
+		if _, e = s.UpdateConfiguration(ctx, "review-hot-model", string(config.Revision), map[string]any{"model": mainSelector}); e != nil {
 			t.Fatal(e)
 		}
 		if e = s.Close(ctx); e != nil {
@@ -466,7 +468,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 			}
 		}
 		var state wire.ApplicationReviewerState
-		if e = s.client.json(ctx, "GET", "/application/sessions/"+idPath(original)+"/reviewer-state", nil, &state, "", ""); e != nil || state.Status != "ready" || state.Reviewer.Model != "openai-compatible/reviewer-model" {
+		if e = s.client.json(ctx, "GET", "/application/sessions/"+idPath(original)+"/reviewer-state", nil, &state, "", ""); e != nil || state.Status != "ready" || state.Reviewer.Model != reviewerSelector {
 			t.Fatal("reviewer binding changed", e)
 		}
 	}) {
@@ -537,7 +539,7 @@ func TestGuardianHostIntegration(t *testing.T) {
 		}
 		defer vault.Close()
 		config := &api.ToolConnection{Host: tools, NotebookDirectory: vault.Path(), PrepareContext: vault.PrepareContext, ConsumeContext: vault.ConsumeContext}
-		opts := Options{Directory: filepath.Join(dir, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai-compatible/gpt-4.1"}, RequireApproval: true, ReviewerModel: "openai-compatible/reviewer-model"}
+		opts := Options{Directory: filepath.Join(dir, "binding"), Settings: settings, Execution: api.ExecutionSettings{Model: mainSelector}, RequireApproval: true, ReviewerModel: reviewerSelector}
 		legacy := New(opts)
 		if e = legacy.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)

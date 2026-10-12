@@ -715,7 +715,11 @@ Bot re-signs its nested helper. Public preview availability grants no open-sourc
 license; preserve the upstream NOTICE, THIRD_PARTY_NOTICES.md and separate Bot licensing.
 
 Native logical coordinates use primary-display bottom-left origin, Y up, including negative coordinates.
-Device pixels/DPI do not belong in saved character scale. AppKit owns nonactivating panels, hit masks, drag,
+Device pixels/DPI do not belong in saved character scale. Chat and settings are retained views in one contextual AppKit window. Native visibility
+queries distinguish the active view; switching preserves the draft and chat reading
+position while restoring each view’s size. Native sheets remain attached to that
+same window. Closing it hides presentation without deciding requests or stopping work.
+AppKit owns nonactivating panels, hit masks, drag,
 focus, Space/display changes and geometry; Three.js owns model/mixer/local poses and GPU resource disposal.
 Scaling updates geometry, projection, anchors and hit coverage coherently. Transparent clicks need real OS tests.
 The passive bubble owns an always-active AppKit tracking area and forwards enter/exit facts to the

@@ -101,7 +101,7 @@
   "execution": "执行权限",
   "storage": "存储",
   "diagnostics": "诊断",
-  "updates": "更新",
+  "updates": "关于与更新",
   "language": "语言",
   "loginAtLoginLabel": "登录时自动启动",
   "loginAtLoginOn": "已开启",
@@ -546,5 +546,13 @@
   "telegramState_candidate": "待确认账号",
   "telegramState_connected": "已连接",
   "telegramState_paused": "已暂停",
-  "telegramState_error": "需要处理"
+  "telegramState_error": "需要处理",
+  "groupEveryday": "常用",
+  "groupConnections": "连接与扩展",
+  "groupSystem": "系统与工具",
+  "returnChat": "返回聊天",
+  "preferences": "偏好",
+  "generalIntro": "语言、启动方式和日常工作偏好。",
+  "appearanceIntro": "桌面形象、大小和聊天头像。",
+  "chatTitle": "Caelis Bot"
 }

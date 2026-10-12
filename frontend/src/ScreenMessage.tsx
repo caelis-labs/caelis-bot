@@ -37,6 +37,7 @@ function ImageViewer({image,close,report}:{image:ScreenImage;close:()=>void;repo
 }
 export function ScreenMessage({value,note,report}:{value:ScreenPresentation;note:string;report:(message:string)=>void}) {
  const {t}=useI18n(),[open,setOpen]=useState<ScreenImage|null>(null);
+ useEffect(()=>{const close=()=>setOpen(null);window.addEventListener('history-close',close);return()=>window.removeEventListener('history-close',close);},[]);
  const selection=value.images?.find(i=>i.role==='selection'),context=value.images?.find(i=>i.role==='context');
  return <div className="screen-message">
   {selection?<div className="screen-image-card"><Thumbnail image={selection} label={t('chat.screenSelection')} onClick={()=>setOpen(selection)}/>

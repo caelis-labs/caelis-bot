@@ -2,12 +2,13 @@ import type { ConnectionFlow, RuntimeSettingsClient, RuntimeView } from '../type
 
 // Explicit development fixture. This module is never imported by the desktop
 // entry point. It performs no network, credential, filesystem or process work.
-export function createPreviewClient(sessionConnection?:string,selected=true): RuntimeSettingsClient {
+export function createPreviewClient(sessionConnection?:string,selected=true,duplicateRoutes=false): RuntimeSettingsClient {
  const models = [
   { imageInput:null, model:'openai-codex/gpt-6-astra', name:'GPT-6 Astra', description:'OpenAI · 账号连接', default:true, defaultEffort:'high', efforts:['low','medium','high','xhigh'], serviceTiers:[{id:'priority',name:'Fast',description:'优先处理'}] },
   { imageInput:null, model:'xiaomi/mimo-v2.6-flash', name:'MiMo V2.6 Flash', description:'小米 · API Key', default:false, defaultEffort:'medium', efforts:['low','medium','high'], serviceTiers:[] },
   { imageInput:null, model:'grok/grok-4.6', name:'Grok 4.6', description:'Grok · 账号连接', default:false, defaultEffort:'high', efforts:['medium','high'], serviceTiers:[] },
  ];
+ if(duplicateRoutes){models[1].description='Direct connection';models.push({...models[1],model:'gateway@local/mimo-v2.6-flash',description:'Gateway connection'});}
  const profile = {runtime:'caelis',cliPath:'',caelisStore:''}, selection={model:models[0].model,effort:'high',serviceTier:''};
  const state: RuntimeView = {
   revision:'1',profile, pending:'',activeRuntime:'caelis',hasRuntimeChoice:selected,session:sessionConnection?{connection:sessionConnection,issue:''}:undefined, models,

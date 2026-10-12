@@ -12,6 +12,7 @@ import { createRuntimeSettingsClient } from '../client';
 import { createAuthorityPreview } from './authority';
 import '../runtime.css';
 import '../../settings.css';
+import '../../../surface.css';
 import { machinePreview } from './machines';
 import { I18nProvider, type LanguageBridge } from '../../../i18n';
 
@@ -21,7 +22,7 @@ document.body.dataset.surface='settings';
 const params=new URLSearchParams(location.search), state=params.get('state')??'', sessionConnection=state.match(/(?:offline|connecting|unknown|ready)$/)?.[0];
 const authority=state.startsWith('runtime-authority-');
 const call=authority?createAuthorityPreview(state):createPreparationPreview();
-const client=authority?createRuntimeSettingsClient(call):createPreviewClient(sessionConnection,!state.includes('unselected'));
+const client=authority?createRuntimeSettingsClient(call):createPreviewClient(sessionConnection,!state.includes('unselected'),state.includes('duplicate-routes'));
 let workerRuntime='codex', workerModel:WorkExecutionSettings={model:'',effort:'',serviceTier:''};
 const workerCall=(async(method:string,...args:unknown[])=>{
  const view=await client.read();

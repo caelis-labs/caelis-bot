@@ -1,4 +1,3 @@
-import {SettingsChevron} from './SettingsIcons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { backend, desktop } from './desktop';
 import { SettingGroup, SettingRow } from './SettingsUI';
@@ -25,7 +24,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  const [activeProfile, setActiveProfile] = useState<Profile | null>(null), [restartNeeded, setRestartNeeded] = useState(false);
  const [overview, setOverview] = useState<SetupOverview | null>(null), [id, setID] = useState(initialRuntime);
  const [profile, setProfile] = useState<Profile>(empty('')), [state, setState] = useState<SetupState | null>(null);
- const [busy, setBusy] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState(''), [manual, setManual] = useState(false);
+ const [busy, setBusy] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState(''), [manual, setManual] = useState(false), [locationOpen,setLocationOpen] = useState(false);
  const [form, setForm] = useState<'model' | 'key' | ''>(''), [confirm, setConfirm] = useState<SetupRequest | null>(null);
  useEffect(() => { void call<Profile>('RuntimeSettings').then(setActiveProfile).catch(() => {}); void call<{ connection: string }>('ComposerSnapshot').then(s => { if (!['ready', 'connecting'].includes(s.connection)) setRestartNeeded(true); }).catch(() => {}); }, []);
  const epoch = useRef(0), working = useRef(false), alive = useRef(true);
@@ -33,7 +32,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  const name = names[id] ?? '', blocked = !!busy || !!confirm;
  const selectedActive = !!overview?.hasRuntimeChoice && overview.active === id;
  useEffect(() => { if (confirm) document.querySelector('.runtime-confirm')?.scrollIntoView({ block: 'nearest' }); }, [confirm]);
- useEffect(() => { onBusy?.(blocked || !!form || !!confirm); return () => onBusy?.(false); }, [blocked, form, confirm, onBusy]);
+ useEffect(() => { onBusy?.(blocked || !!form || !!confirm || locationOpen); return () => onBusy?.(false); }, [blocked, form, confirm, locationOpen, onBusy]);
  const refreshOverview = async () => { const v = await call<SetupOverview>('SetupOverview'); if (alive.current) setOverview(v); return v; };
  useEffect(() => { alive.current = true; void refreshOverview().then(v => { if (!onboarding && !initialRuntime) setID(v.pending || (v.hasRuntimeChoice ? v.active : '')); }).catch(e => setError(errorText(e))); const close = () => setForm(''); window.addEventListener('settings-close', close); return () => { alive.current = false; epoch.current++; window.removeEventListener('settings-close', close); }; }, [onboarding]);
  useEffect(() => {
@@ -99,14 +98,16 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
    {id === 'caelis' && (onboarding || !state.models.length) && <SettingGroup title={t('runtime.modelConnections')}><SettingRow label={state.models.length ? t('runtime.connectedModels') : t('runtime.noModelsConnected')}><button disabled={blocked} onClick={() => setForm('model')}>{t('runtime.connectNewModel')}</button></SettingRow><div className={onboarding?'runtime-onboarding-model-list':undefined} role={onboarding?'group':undefined} aria-label={onboarding?t('runtime.connectedModels'):undefined}>{state.models.map(m => <SettingRow key={m.value} label={m.label} description={m.noAuth ? t('runtime.needsAuth') : m.value === state.selectedModel ? t('runtime.inUseByBot') : m.current ? t('runtime.caelisDefaultModel') : undefined}><div className="runtime-actions">{onboarding && <button disabled={blocked || m.noAuth || m.value === state.selectedModel} onClick={() => void run('use-model', { model: m.value })}>{t('runtime.use')}</button>}{!onboarding&&<button disabled={blocked || m.current || m.value === state.selectedModel} aria-label={t('runtime.removeModelLabel', { label: m.label })} onClick={() => setConfirm(request(profile, 'remove-model', { model: m.value }))}>{t('runtime.remove')}</button>}</div></SettingRow>)}</div></SettingGroup>}
 
   </>}
-  <details className="runtime-advanced" open={manual || undefined}><summary><SettingsChevron/>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</summary>
+  <button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</button>
+  {locationOpen&&<SettingsDialog title={t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')} busy={blocked} onClose={()=>setLocationOpen(false)}>
    {onboarding && id === 'codex' && state?.state === 'ready' && state.models.length > 0 && <SettingGroup title={t('runtime.model')}><SettingRow label={t('runtime.botUseModel')} description={t('runtime.botUseModelDescription')}><select aria-label={t('runtime.botUseModel')} disabled={blocked} value={state.selectedModel} onChange={e => void run('use-model', { model: e.target.value })}><option value="" disabled>{t('runtime.selectModel')}</option>{state.models.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}</select></SettingRow></SettingGroup>}
    <SettingGroup><SettingRow label={t('runtime.programLocation')} description={state?.installation.path || t('runtime.autoDiscovery')}><button disabled={blocked} onClick={() => { setManual(v => !v); if (manual) { setProfile(p => ({ ...p, cliPath: '' })); setState(null); } }}>{manual ? t('runtime.useAutoDiscovery') : t('runtime.change')}</button></SettingRow>
     {manual && <div className="setup-path-field"><input aria-label={t('runtime.programPath')} disabled={blocked} value={profile.cliPath} placeholder={t('runtime.programPathPlaceholder')} onChange={e => { setProfile(p => ({ ...p, cliPath: e.target.value })); setState(null); }}/><button disabled={blocked} onClick={() => void pick()}>{t('runtime.chooseFile')}</button></div>}
     {id === 'caelis' && <SettingRow label={t('runtime.caelisDataDirectory')}><input aria-label={t('runtime.caelisDataDirectory')} disabled={blocked} value={profile.caelisStore ?? ''} placeholder={t('runtime.caelisDataDirectoryPlaceholder')} onChange={e => { setProfile(p => ({ ...p, caelisStore: e.target.value })); setState(null); }}/></SettingRow>}
     <SettingRow label={t('runtime.installAndUninstall')}><button onClick={() => void call('OpenMessageLink', id === 'caelis' ? 'https://caelis.dev' : 'https://learn.chatgpt.com/docs/codex/cli')}>{t('runtime.viewOfficialGuide')}</button></SettingRow>
    </SettingGroup>
-  </details>
+   <div className="setup-end"><button disabled={blocked} onClick={()=>setLocationOpen(false)}>{t('common.done')}</button><button className="primary" disabled={blocked} onClick={()=>void run('detect')}>{t('runtime.recheck')}</button></div>
+  </SettingsDialog>}
   {busy && <p className="settings-note" role="status">{busy === 'install' ? t('runtime.downloadingAndInstalling') : busy === 'update' ? (id === 'caelis' ? t('runtime.updatingCaelisNotice') : t('runtime.updatingCodexNotice')) : busy === 'apply-update' ? t('runtime.activatingServiceNotice') : busy === 'activate' ? t('runtime.preparingRestartNotice') : t('runtime.processing')}</p>}
   {error ? <p className="inline-error" role="alert">{error}</p> : notice ? <p className="settings-note" role="status">{notice}</p> : state && !serviceNeedsApply && !['ready', 'models'].includes(state.state) && (state.state !== 'incompatible' || onboarding || selectedActive) && <p className="settings-note" role="status">{t(setupStatusKey(state))}</p>}
   {state?.state === 'ready' && (onboarding || (overview && (!overview.hasRuntimeChoice || (selectedActive && (restartNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))))) && <div className="setup-end">{!onboarding && selectedActive && <span className="settings-note">{t('runtime.restartRequiredNote')}</span>}<button className={onboarding || !overview?.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{onboarding || !overview?.hasRuntimeChoice ? t('runtime.restartAndStart') : t('runtime.restartAndApply')}</button></div>}

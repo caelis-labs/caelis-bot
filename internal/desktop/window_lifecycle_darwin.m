@@ -78,3 +78,16 @@ int bot_system_termination(void) {
         default: return 0;
     }
 }
+
+// Keep an expanded settings view reachable on small or secondary displays.
+void bot_clamp_context_window(void *pointer) {
+    NSWindow *window = (__bridge NSWindow *)pointer;
+    NSScreen *screen = window.screen ?: NSScreen.mainScreen;
+    if (!screen || window.zoomed || (window.styleMask & NSWindowStyleMaskFullScreen)) return;
+    NSRect frame = window.frame, visible = screen.visibleFrame;
+    frame.size.width = MIN(frame.size.width, visible.size.width);
+    frame.size.height = MIN(frame.size.height, visible.size.height);
+    frame.origin.x = MAX(NSMinX(visible), MIN(frame.origin.x, NSMaxX(visible)-frame.size.width));
+    frame.origin.y = MAX(NSMinY(visible), MIN(frame.origin.y, NSMaxY(visible)-frame.size.height));
+    [window setFrame:frame display:YES];
+}

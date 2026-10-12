@@ -28,7 +28,7 @@ export function AttachmentMenu({trigger,selected,onClose,onPick,onSelect}: {
   const node=menu.current!;
   const position=()=>{
    const rect=trigger.current?.closest('.capsule')?.getBoundingClientRect();
-   if(rect)setLayout(attachmentMenuLayout(rect,{width:innerWidth,height:innerHeight},Math.min(360,node.scrollHeight+2),rect.width));
+   if(rect)setLayout(attachmentMenuLayout(rect,{width:innerWidth,height:innerHeight},Math.min(360,node.scrollHeight+2),Math.min(344,rect.width)));
   };
   const outside=(event:PointerEvent)=>{if(!node.contains(event.target as Node)&&!trigger.current?.contains(event.target as Node))close.current();};
   const key=(event:KeyboardEvent)=>{

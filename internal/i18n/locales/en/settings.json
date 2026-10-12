@@ -101,7 +101,7 @@
   "execution": "Execution policy",
   "storage": "Storage",
   "diagnostics": "Diagnostics",
-  "updates": "Updates",
+  "updates": "About & updates",
   "language": "Language",
   "loginAtLoginLabel": "Start at login",
   "loginAtLoginOn": "On",
@@ -547,5 +547,13 @@
   "telegramState_candidate": "Confirm your account",
   "telegramState_connected": "Connected",
   "telegramState_paused": "Paused",
-  "telegramState_error": "Needs attention"
+  "telegramState_error": "Needs attention",
+  "groupEveryday": "Everyday",
+  "groupConnections": "Connections & extensions",
+  "groupSystem": "System & tools",
+  "returnChat": "Back to chat",
+  "preferences": "Preferences",
+  "generalIntro": "Language, startup and everyday work preferences.",
+  "appearanceIntro": "Your companion’s character, size and chat portrait.",
+  "chatTitle": "Caelis Bot"
 }

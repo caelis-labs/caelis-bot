@@ -3,29 +3,43 @@ import { createPortal } from 'react-dom';
 import { useI18n } from '../../i18n';
 import { XIcon } from '../../SettingsIcons';
 
-export function SettingsDialog({ title, description, busy = false, blocked = false, onClose, children, className = '', anchor, alignTo, returnFocus }: {
- title: string; description?: string; busy?: boolean; blocked?: boolean; onClose: () => void; children: ReactNode; className?: string; anchor?: HTMLElement | null; alignTo?: HTMLElement | null; returnFocus?: HTMLElement | null;
+export function SettingsDialog({ title, description, busy = false, blocked = false, onClose, children, className = '', anchor, alignTo, returnFocus, portalTarget }: {
+ title: string; description?: string; busy?: boolean; blocked?: boolean; onClose: () => void; children: ReactNode; className?: string; anchor?: HTMLElement | null; alignTo?: HTMLElement | null; returnFocus?: HTMLElement | null; portalTarget?: HTMLElement;
 }) {
  const { t } = useI18n();
+ const restoreFrame = useRef<number | undefined>(undefined);
  const titleID = useId(), ref = useRef<HTMLElement>(null), layer = useRef<HTMLDivElement>(null);
  const [position, setPosition] = useState<{ left: number; top: number }>();
  useEffect(() => {
+  if (restoreFrame.current !== undefined) cancelAnimationFrame(restoreFrame.current);
   if (blocked) return;
   const prior = returnFocus || anchor || document.activeElement as HTMLElement | null;
   // Dialogs are sibling portals. Each layer restores the exact previous inert
   // state, so closing a nested picker cannot unlock its parent's background.
   const siblings = [...layer.current!.parentElement!.children].filter(node => node !== layer.current) as HTMLElement[];
-  const previous = siblings.map(node => node.inert);
-  siblings.forEach(node => { node.inert = true; });
+  const previous = siblings.map(node => !!node.inert || node.hasAttribute('inert'));
+  siblings.forEach(node => { node.inert = true; node.setAttribute('inert',''); });
   ref.current?.focus();
   const guard = (event: Event) => event.preventDefault();
   window.addEventListener('settings-navigate', guard);
   return () => {
-   siblings.forEach((node, index) => { node.inert = previous[index]; });
+   siblings.forEach((node, index) => { node.inert = previous[index]; if(previous[index])node.setAttribute('inert','');else node.removeAttribute('inert'); });
    window.removeEventListener('settings-navigate', guard);
-   requestAnimationFrame(() => { if (prior?.isConnected && !prior.closest('[inert]')) prior.focus(); });
+   restoreFrame.current = requestAnimationFrame(() => { if (prior?.isConnected && !prior.closest('[inert]')) prior.focus(); });
   };
  }, [blocked, anchor, returnFocus]);
+ // Native AX clicks and StrictMode remounts can temporarily leave focus on
+ // the document. Escape still belongs to the top active dialog, not the window.
+ useEffect(() => {
+  if (blocked) return;
+  const key = (event: KeyboardEvent) => {
+   if (event.key !== 'Escape' || event.isComposing || ref.current?.closest('[inert]')) return;
+   event.preventDefault(); event.stopImmediatePropagation();
+   if (!busy) onClose();
+  };
+  window.addEventListener('keydown',key,true);
+  return()=>window.removeEventListener('keydown',key,true);
+ },[busy,blocked,onClose]);
  useLayoutEffect(() => {
   if (!anchor || !ref.current) return;
   const place = () => {
@@ -58,5 +72,5 @@ export function SettingsDialog({ title, description, busy = false, blocked = fal
    {description && <p className="runtime-dialog-description">{description}</p>}
    {children}
   </section>
- </div>, document.querySelector('.settings-window') || document.body);
+ </div>, portalTarget || document.querySelector('.settings-window') || document.body);
 }

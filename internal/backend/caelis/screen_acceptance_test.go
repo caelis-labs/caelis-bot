@@ -35,19 +35,19 @@ func screenHostAcceptance(t *testing.T, ctx context.Context, s *Session, host *c
 		}
 		op := "configure-" + m.name
 		var result wire.CommandResult
-		err := host.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Config: wire.ConnectConfig{Provider: "openai-compatible", Model: m.name, BaseUrl: pointer(endpoint + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY"), ImageInput: pointer(m.image)}}, &result, op, string(status.Configuration.Revision))
+		err := host.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Config: wire.ConnectConfig{Provider: "custom-chat", Model: m.name, BaseUrl: pointer(endpoint + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY"), ImageInput: pointer(m.image)}}, &result, op, string(status.Configuration.Revision))
 		if err != nil || !succeeded(result.Outcome) {
 			t.Fatal(result, err)
 		}
 	}
 	selectModel := func(name string) {
 		t.Helper()
-		if err := s.ChangeExecution(ctx, api.ExecutionSettings{Model: "openai-compatible/" + name, ApprovalMode: "workspace-write"}, func() error { return nil }); err != nil {
+		if err := s.ChangeExecution(ctx, api.ExecutionSettings{Model: fixtureModelSelector(t, ctx, host, name), ApprovalMode: "workspace-write"}, func() error { return nil }); err != nil {
 			t.Fatal(err)
 		}
 	}
 	selectModel("screen-vision")
-	if c, err := s.ImageInput(ctx); err != nil || c.State != "supported" || c.Model != "openai-compatible/screen-vision" {
+	if c, err := s.ImageInput(ctx); err != nil || c.State != "supported" || c.Model != fixtureModelSelector(t, ctx, host, "screen-vision") {
 		t.Fatal(c, err)
 	}
 	// A stale enabled button cannot submit after a model switch.
