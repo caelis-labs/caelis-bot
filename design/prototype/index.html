@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <title>Caelis Bot · 网页交互原型</title>
+  <link rel="icon" href="assets/avatar.png">
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/chat.css">
+  <link rel="stylesheet" href="styles/settings.css">
+</head>
+<body>
+  <div id="app"></div>
+  <div id="modal-root"></div>
+  <div class="toast-region" id="toast-root" aria-live="polite" aria-atomic="false"></div>
+  <noscript>请启用 JavaScript 来浏览交互原型。</noscript>
+  <script src="scripts/app.js"></script>
+  <script src="scripts/settings.js"></script>
+  <script src="scripts/experience.js"></script>
+  <script>render();</script>
+</body>
+</html>

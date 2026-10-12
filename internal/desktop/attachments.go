@@ -73,15 +73,24 @@ func (s *Service) PickFiles() ([]DraftFile, error) {
 	// Never hold the lifecycle lock while the user interacts with a native sheet.
 	paths, err := pick()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.picking = false
 	if s.stopped {
+		s.mu.Unlock()
 		return nil, errors.New(s.text("native.appExited", nil))
 	}
 	if err != nil {
+		s.mu.Unlock()
 		return nil, errors.New(s.text("native.pickFileFailed", nil))
 	}
-	return s.stageFiles(paths)
+	files, err := s.stageFiles(paths)
+	notify := s.filesChanged
+	s.mu.Unlock()
+	// A sheet can outlive a mounted composer. Notify the current view to read
+	// the committed selection, even when the original caller has been closed.
+	if err == nil && notify != nil {
+		notify()
+	}
+	return files, err
 }
 func (s *Service) stageFiles(paths []string) ([]DraftFile, error) {
 	return s.stageAttachments(paths, nil)
@@ -392,54 +401,68 @@ func (s *Service) cleanupOrphanImages() {
 	}
 }
 
-// DraftImage serves only currently selected image IDs. A bounded thumbnail is
-// generated from the host path; no local path or original bytes reach the UI.
-func (s *Service) DraftImage(id string) (string, error) {
+// readDraftImage authorizes the current opaque selection ID and bounds the
+// native file read. Both preview sizes use the same validation and never expose
+// host paths. Reading a preview does not consume or submit the selection.
+func (s *Service) readDraftImage(id string) ([]byte, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	index := slices.IndexFunc(s.files, func(f draftFile) bool { return f.ID == id })
 	if index < 0 || !s.files[index].Image {
-		return "", errors.New(s.text("native.attachmentExpired", nil))
+		return nil, "", errors.New(s.text("native.attachmentExpired", nil))
 	}
 	f := s.files[index]
 	file, err := os.Open(f.path)
 	if err != nil {
-		return "", errors.New(s.text("native.selectRegularFile", nil))
+		return nil, "", errors.New(s.text("native.selectRegularFile", nil))
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxDraftFile {
-		return "", errors.New(s.text("native.selectRegularFile", nil))
+		return nil, "", errors.New(s.text("native.selectRegularFile", nil))
 	}
 	data, err := io.ReadAll(io.LimitReader(file, maxDraftFile+1))
 	if err != nil || len(data) > maxDraftFile {
-		return "", errors.New(s.text("native.selectRegularFile", nil))
+		return nil, "", errors.New(s.text("native.selectRegularFile", nil))
 	}
 	mime := http.DetectContentType(data)
 	if f.Type == "image/webp" && len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
-		return "data:image/webp;base64," + base64.StdEncoding.EncodeToString(data), nil
+		return data, "image/webp", nil
 	}
 	if mime != "image/png" && mime != "image/jpeg" && mime != "image/gif" {
-		return "", errors.New(s.text("native.clipboardImageInvalid", nil))
+		return nil, "", errors.New(s.text("native.clipboardImageInvalid", nil))
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || cfg.Width < 1 || cfg.Height < 1 || int64(cfg.Width)*int64(cfg.Height) > 24e6 {
-		return "", errors.New(s.text("native.clipboardImageInvalid", nil))
+		return nil, "", errors.New(s.text("native.clipboardImageInvalid", nil))
+	}
+	return data, mime, nil
+}
+
+// DraftImage remains the small, inexpensive attachment-chip thumbnail.
+func (s *Service) DraftImage(id string) (string, error) {
+	data, mime, err := s.readDraftImage(id)
+	if err != nil {
+		return "", err
+	}
+	if mime == "image/webp" {
+		return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 	}
 	decoded, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return "", err
 	}
-	w, h := cfg.Width, cfg.Height
+	bounds := decoded.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	w, h := width, height
 	if w > 160 || h > 120 {
 		factor := min(160.0/float64(w), 120.0/float64(h))
 		w, h = max(1, int(float64(w)*factor)), max(1, int(float64(h)*factor))
 	}
 	preview := image.NewNRGBA(image.Rect(0, 0, w, h))
-	bounds := decoded.Bounds()
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			preview.Set(x, y, decoded.At(bounds.Min.X+x*cfg.Width/w, bounds.Min.Y+y*cfg.Height/h))
+			preview.Set(x, y, decoded.At(bounds.Min.X+x*width/w, bounds.Min.Y+y*height/h))
 		}
 	}
 	var encoded bytes.Buffer
@@ -447,4 +470,14 @@ func (s *Service) DraftImage(id string) (string, error) {
 		return "", err
 	}
 	return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes()), nil
+}
+
+// DraftImagePreview is fetched only when the user opens a selected image. Its
+// validated original bytes preserve screenshot text and transparent PNG detail.
+func (s *Service) DraftImagePreview(id string) (string, error) {
+	data, mime, err := s.readDraftImage(id)
+	if err != nil {
+		return "", err
+	}
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }

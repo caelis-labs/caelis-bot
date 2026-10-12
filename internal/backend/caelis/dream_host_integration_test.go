@@ -67,9 +67,10 @@ func TestNativeHostBotDreamRenewal(t *testing.T) {
 	}
 	op := "dream-fixture-model"
 	var connected wire.CommandResult
-	if err := host.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Config: wire.ConnectConfig{Provider: "openai", Model: "gpt-5.4-mini", BaseUrl: pointer(server.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}, &connected, op, string(status.Configuration.Revision)); err != nil || !succeeded(connected.Outcome) {
+	if err := host.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Config: wire.ConnectConfig{Provider: "custom-responses", Model: "gpt-5.4-mini", ReasoningLevels: []string{"low", "medium", "high"}, ImageInput: pointer(true), BaseUrl: pointer(server.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}, &connected, op, string(status.Configuration.Revision)); err != nil || !succeeded(connected.Outcome) {
 		t.Fatal("synthetic model setup", connected, err)
 	}
+	modelSelector := fixtureModelSelector(t, ctx, host, "gpt-5.4-mini")
 	vault, err := notebook.OpenVault(filepath.Join(root, "Notebook"))
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +102,7 @@ func TestNativeHostBotDreamRenewal(t *testing.T) {
 			_ = resident.RenewPendingToolHandoff(ctx)
 		}()
 	}
-	s := New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
+	s := New(Options{Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: modelSelector, Effort: "low", ApprovalMode: "workspace-write"}})
 	resident.Start(s)
 	defer resident.Stop()
 	if err := s.ConfigureBotTools(config); err != nil {

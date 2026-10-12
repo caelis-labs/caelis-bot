@@ -68,6 +68,10 @@ Windows GUI acceptance in these jobs.
 
 ## Native development
 
+UI review uses `bash script/run-ui-review.sh` with an isolated cached profile.
+Pass `--verify` to rebuild before launching. See [interface design](ui-design.md)
+for the visual reference, surface map and functional boundary.
+
 ### Start at login
 
 macOS 13+ uses [`SMAppService.mainApp`](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp) for the current app bundle. The General settings switch reads [the system status](https://developer.apple.com/documentation/servicemanagement/smappservice/status-swift.enum), registers or unregisters only after a user action, and never stores a separate enabled preference. A fresh installation is off. macOS can disable a registered item in System Settings; this appears as off with a System Settings action, and the app does not register it again on launch or status polling. macOS 12 and unimplemented native hosts report unsupported.

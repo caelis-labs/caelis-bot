@@ -6,6 +6,7 @@ import './media-message.css';
 
 function Image({value}:{value:MediaImage}) {
  const {t}=useI18n(),[url,setURL]=useState(''),[failed,setFailed]=useState(false),[open,setOpen]=useState(false),[full,setFull]=useState(''),[fullFailed,setFullFailed]=useState(false),dialog=useRef<HTMLDialogElement>(null);
+ useEffect(()=>{const close=()=>setOpen(false);window.addEventListener('history-close',close);return()=>window.removeEventListener('history-close',close);},[]);
  useEffect(()=>{
   let active=true;setURL('');setFailed(false);
   if(value.unavailable){setFailed(true);return()=>{active=false}}

@@ -99,6 +99,12 @@ func projectRuntimeConfiguration(status wire.AgentBindingStatus, candidates []wi
 			AgentID string `json:"agent_id"`
 		} `json:"acp"`
 	}
+	descriptions := map[string]string{}
+	for _, candidate := range candidates {
+		if id := value(candidate.ModelConfigId); id != "" {
+			descriptions[id] = value(candidate.Detail)
+		}
+	}
 	sources := map[string]profileSource{}
 	for _, p := range status.Targets {
 		id := value(p.Id)
@@ -114,11 +120,14 @@ func projectRuntimeConfiguration(status wire.AgentBindingStatus, candidates []wi
 				v.ServiceTiers = append(v.ServiceTiers, api.ServiceTier{ID: speed.Canonical, Name: map[string]string{"fast": "Fast", "standard": "标准"}[speed.Canonical]})
 			}
 		}
-		out.Team.Models = append(out.Team.Models, v)
 		b, _ := json.Marshal(p.Backend)
 		var source profileSource
 		_ = json.Unmarshal(b, &source)
 		sources[id] = source
+		if source.Provider != nil {
+			v.Description = descriptions[source.Provider.ModelConfigID]
+		}
+		out.Team.Models = append(out.Team.Models, v)
 	}
 	for _, r := range status.Handles {
 		b, _ := json.Marshal(r.Definition)

@@ -217,5 +217,7 @@
   "rejectedCleanupPending": "The attachment send was rejected. Your draft is kept, but its local status has not been saved. Retry the local check.",
   "retryDraftCleanup": "Retry local check",
   "fileSelectionReadFailed": "Attachments could not be checked. Keep typing if needed, then retry the local check before sending.",
-  "surfaceRecovering": "This window is recovering. Bot is still running; original requests are retained."
+  "surfaceRecovering": "This window is recovering. Bot is still running; original requests are retained.",
+  "imageFit": "Fit to window",
+  "imageActualSize": "Actual size"
 }
