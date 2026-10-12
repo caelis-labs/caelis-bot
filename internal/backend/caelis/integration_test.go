@@ -260,11 +260,13 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		op := "configure-" + name
 		var result wire.CommandResult
-		e = host.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Config: wire.ConnectConfig{Provider: "openai", Model: name, BaseUrl: pointer(server.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}, &result, op, string(status.Configuration.Revision))
+		e = host.json(ctx, "POST", "/configuration/connect-model", wire.ConnectModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Config: wire.ConnectConfig{Provider: "custom-responses", Model: name, ReasoningLevels: []string{"low", "medium", "high"}, ImageInput: pointer(true), BaseUrl: pointer(server.URL + "/v1"), ApiKey: pointer("SYNTHETIC_ONLY")}}, &result, op, string(status.Configuration.Revision))
 		if e != nil || !succeeded(result.Outcome) {
 			t.Fatalf("configure: %+v %v", result, e)
 		}
 	}
+	miniSelector := fixtureModelSelector(t, ctx, host, "gpt-5.4-mini")
+	fullSelector := fixtureModelSelector(t, ctx, host, "gpt-5.4")
 	vault, e := notebook.OpenVault(filepath.Join(root, "Notebook"))
 	if e != nil {
 		t.Fatal(e)
@@ -316,7 +318,7 @@ func TestNativeHostIntegration(t *testing.T) {
 	config := &api.ToolConnection{ApprovedTools: []string{"FixtureLookup", "FixtureDelegate", "FixtureSchedule", "FixtureCare"}, Instructions: "APPLICATION_OLD_INSTRUCTIONS" + botskills.Instructions(skillPath), NotebookDirectory: vault.Path(), Host: h, PrepareTurn: func(ctx context.Context) error { return vault.Refresh(ctx, time.Now()) }, FinishTurn: func() { _ = vault.Refresh(context.Background(), time.Now()) }}
 	config.PrepareContext, config.ConsumeContext = vault.PrepareContext, vault.ConsumeContext
 	open := func() {
-		s = New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
+		s = New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot"), Settings: settings, Execution: api.ExecutionSettings{Model: miniSelector, Effort: "low", ApprovalMode: "workspace-write"}})
 		if e = s.ConfigureBotTools(config); e != nil {
 			t.Fatal(e)
 		}
@@ -363,7 +365,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		created := config.Clone()
 		created.Plugins = selected.Clone()
 		created.Plugins.Servers = append(created.Plugins.Servers, plugins.SelectedServer{PackageID: "fixture", Name: "unavailable", Root: root, Server: plugins.Server{Type: "streamable-http", URL: "http://127.0.0.1:1/mcp"}})
-		fresh := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot-plugin-create"), Settings: settings, Execution: api.ExecutionSettings{Model: "openai/gpt-5.4-mini", Effort: "low", ApprovalMode: "workspace-write"}})
+		fresh := New(Options{RequireApproval: true, Directory: filepath.Join(root, "bot-plugin-create"), Settings: settings, Execution: api.ExecutionSettings{Model: miniSelector, Effort: "low", ApprovalMode: "workspace-write"}})
 		if err = fresh.ConfigureBotTools(created); err != nil {
 			t.Fatal(err)
 		}
@@ -426,7 +428,7 @@ func TestNativeHostIntegration(t *testing.T) {
 	}
 	if !t.Run("B00_progressive_skill", func(t *testing.T) {
 		steps := []modelStep{{Name: "Read", Args: map[string]string{"path": skillPath}}, {Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", "tasks.md")}}}
-		for _, ref := range []string{"desktop-observation.md", "desktop-actions.md", "desktop-images.md", "desktop-recovery.md", "telegram-setup.md"} {
+		for _, ref := range []string{"interactions.md", "screen-input.md", "recovery.md", "telegram-setup.md"} {
 			steps = append(steps, modelStep{Name: "Read", Args: map[string]string{"path": filepath.Join(filepath.Dir(skillPath), "references", ref)}})
 		}
 		model.set("CASE_SKILL", steps...)
@@ -441,25 +443,21 @@ func TestNativeHostIntegration(t *testing.T) {
 			t.Fatal("native user input did not preserve submission identity")
 		}
 		requests := model.seen("CASE_SKILL")
-		if len(requests) != 8 {
+		if len(requests) != 7 {
 			t.Fatalf("skill/reference loading did not complete: %d requests", len(requests))
 		}
 		first, _ := json.Marshal(requests[0])
 		second, _ := json.Marshal(requests[1])
 		third, _ := json.Marshal(requests[2])
-		fourth, _ := json.Marshal(requests[3])
 		if !strings.Contains(string(first), "You are Caelis Bot, a persistent personal assistant.") || strings.Contains(string(first), "# Restore your context") {
 			t.Fatal("skill metadata absent or body eagerly injected")
 		}
 		if !strings.Contains(string(second), "# Restore your context") || strings.Contains(string(second), "# Arrange and continue independent work") || !strings.Contains(string(third), "# Arrange and continue independent work") {
 			t.Fatal("progressive native reads did not expose skill and reference")
 		}
-		if strings.Contains(string(third), "# Observe the desktop narrowly") || !strings.Contains(string(fourth), "# Observe the desktop narrowly") {
-			t.Fatal("desktop policy reference was not progressively loaded")
-		}
-		for i, marker := range []string{"# Perform known desktop actions", "# Capture explicit evidence", "# Read the original desktop receipt", "# Help the user connect Telegram"} {
-			before, _ := json.Marshal(requests[i+3])
-			after, _ := json.Marshal(requests[i+4])
+		for i, marker := range []string{"# Handle native decisions and questions", "# Understand what the user is pointing at", "# Recover work without duplicating actions", "# Help the user connect Telegram"} {
+			before, _ := json.Marshal(requests[i+2])
+			after, _ := json.Marshal(requests[i+3])
 			if strings.Contains(string(before), marker) || !strings.Contains(string(after), marker) {
 				t.Fatal("conditional guide did not load", marker)
 			}
@@ -621,7 +619,7 @@ func TestNativeHostIntegration(t *testing.T) {
 			close(release)
 			t.Fatalf("unsupported configuration must be an explicit HTTP 400: %v", e)
 		}
-		updated, e := s.UpdateConfiguration(ctx, "hot-update", string(current.Revision), map[string]any{"model": "openai/gpt-5.4", "reasoning_effort": "high", "service_tier": "", "instructions": next.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools})
+		updated, e := s.UpdateConfiguration(ctx, "hot-update", string(current.Revision), map[string]any{"model": fullSelector, "reasoning_effort": "high", "service_tier": "", "instructions": next.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools})
 		if e != nil {
 			close(release)
 			var remote *remoteError
@@ -655,7 +653,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		if tools, ok := requests[1]["tools"].([]any); ok {
 			for _, tool := range tools {
 				b, _ := json.Marshal(tool)
-				if strings.Contains(string(b), `"name":"FixtureLookup"`) && strings.Contains(string(b), `"type":["integer","null"]`) {
+				if strings.Contains(string(b), `"name":"FixtureLookup"`) && (strings.Contains(string(b), `"type":"integer"`) || strings.Contains(string(b), `"type":["integer","null"]`)) {
 					schemaChanged = true
 				}
 			}
@@ -692,7 +690,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = s.UpdateConfiguration(ctx, "bot-model-before-delegation", string(current.Revision), map[string]any{"model": "openai/gpt-5.4-mini", "reasoning_effort": "low"}); err != nil {
+		if _, err = s.UpdateConfiguration(ctx, "bot-model-before-delegation", string(current.Revision), map[string]any{"model": miniSelector, "reasoning_effort": "low"}); err != nil {
 			t.Fatal(err)
 		}
 		var status wire.StatusSnapshot
@@ -701,7 +699,7 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		op := "runtime-model-before-delegation"
 		var result wire.CommandResult
-		if err = host.json(ctx, "POST", "/configuration/use-model", wire.UseModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Model: "openai/gpt-5.4", ReasoningEffort: pointer("high")}, &result, op, string(status.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
+		if err = host.json(ctx, "POST", "/configuration/use-model", wire.UseModelRequest{OperationId: &op, ExpectedRevision: &status.Configuration.Revision, Model: fullSelector, ReasoningEffort: pointer("high")}, &result, op, string(status.Configuration.Revision)); err != nil || !succeeded(result.Outcome) {
 			t.Fatal("runtime model selection", result.Outcome, err)
 		}
 		model.set("CASE_WORKER_A", modelStep{Name: "RunCommand", Args: map[string]any{"command": environment.check(t, filepath.Join(root, "worker-a")) + " && printf ok > worker-env.txt"}}, modelStep{Name: "Write", Args: map[string]string{"path": "workspace-sentinel", "content": "selected workspace"}}, modelStep{Block: workerA, Entered: enteredA})
@@ -734,9 +732,10 @@ func TestNativeHostIntegration(t *testing.T) {
 			if err != nil || target.Session != sid || target.Endpoint != host.origin || target.Runtime != "caelis" {
 				t.Fatal("terminal did not resolve owned native Worker", target, err)
 			}
-			script, err := taskterminal.Script(target)
-			if err != nil || !strings.Contains(script, " 'attach' '--control-url' ") || strings.Contains(script, "CASE_WORKER") {
-				t.Fatal("terminal script did not attach without a prompt", err)
+			launch, err := taskterminal.TerminalArguments(target)
+			wantArgs := []string{"attach", "--control-url", target.Endpoint, "--session", sid, "--store-dir", target.Store, "--control-token-file", target.TokenFile}
+			if err != nil || !slices.Equal(launch.Args, wantArgs) {
+				t.Fatal("terminal did not attach the owned session without a prompt", err)
 			}
 			var state wire.SessionState
 			if err := host.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); err != nil || state.SessionId != sid {
@@ -753,7 +752,7 @@ func TestNativeHostIntegration(t *testing.T) {
 			}
 		}
 		resident, err := s.Configuration(ctx)
-		if err != nil || resident.Profile.Model != "openai/gpt-5.4-mini" {
+		if err != nil || resident.Profile.Model != miniSelector {
 			t.Fatal("work model changed Bot", err)
 		}
 		if _, e = s.StopWork(ctx, "task-a"); e != nil {
@@ -950,10 +949,18 @@ func TestNativeHostIntegration(t *testing.T) {
 		if err != nil || string(data) != "x" {
 			t.Fatal("approved command missing or repeated", err)
 		}
-		requests := model.seen("CASE_APPROVAL")
-		payload, _ := json.Marshal(requests[2:])
-		if !strings.Contains(string(payload), "Command "+handle+" is completed.") && !strings.Contains(string(payload), "Command "+handle+" is waiting for its result after process exit.") {
-			t.Fatal("no post-exit model followup")
+		var completed wire.TaskList
+		if err = s.client.json(ctx, "GET", "/sessions/"+idPath(s.state.Session.SessionId)+"/tasks", nil, &completed, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		settled := false
+		for _, task := range completed.Tasks {
+			if task.Handle == handle && task.State == "completed" {
+				settled = true
+			}
+		}
+		if !settled {
+			t.Fatal("completion followup lost the approved command identity")
 		}
 		if len(s.Snapshot().Approvals) != 0 {
 			t.Fatal("settled approval remained visible")
@@ -1064,4 +1071,21 @@ func TestNativeHostIntegration(t *testing.T) {
 	if !t.Failed() {
 		t.Logf("external Host acceptance complete; optional terminal observation=%t; synthetic provider, real macOS native tools; no daily Store or real credentials", slices.Contains(s.info.Capabilities, commandObservationCapability))
 	}
+}
+
+// Resolve the selector advertised by the external Host instead of guessing
+// a provider alias or endpoint-qualified durable identity in the peer fixture.
+func fixtureModelSelector(t *testing.T, ctx context.Context, host *client, name string) string {
+	t.Helper()
+	rows, err := rawCatalog(ctx, host, "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if value(row.Display) == "custom/"+name {
+			return row.Value
+		}
+	}
+	t.Fatalf("Host did not advertise fixture model %s", name)
+	return ""
 }

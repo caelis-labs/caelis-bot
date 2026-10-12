@@ -111,3 +111,25 @@ func TestRuntimeMutationCASAndAmbiguousEffects(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeModelRouteDescriptionsKeepSelectorAndProfileIdentities(t *testing.T) {
+	var status wire.AgentBindingStatus
+	raw := `{"targets":[{"id":"direct-profile","display_name":"deepseek/deepseek-flash","effort":{"choices":[]},"backend":{"provider":{"model_config_id":"direct-id"}}},{"id":"gateway-profile","display_name":"deepseek/deepseek-flash","effort":{"choices":[]},"backend":{"provider":{"model_config_id":"gateway-id"}}}]}`
+	if err := json.Unmarshal([]byte(raw), &status); err != nil {
+		t.Fatal(err)
+	}
+	candidates := []wire.SlashArgCandidate{
+		{Value: "deepseek/deepseek-flash", Display: pointer("deepseek/deepseek-flash"), Detail: pointer("direct"), ModelConfigId: pointer("direct-id")},
+		{Value: "magpie@local/deepseek/deepseek-flash", Display: pointer("deepseek/deepseek-flash"), Detail: pointer("magpie"), ModelConfigId: pointer("gateway-id")},
+	}
+	view := projectRuntimeConfiguration(status, candidates, wire.DisconnectCandidatesSnapshot{}, wire.StatusSnapshot{})
+	if len(view.Models) != 2 || view.Models[1].Model != candidates[1].Value || view.Models[1].Description != "magpie" {
+		t.Fatalf("main model identity or route changed: %#v", view.Models)
+	}
+	if len(view.Team.Models) != 2 || view.Team.Models[0].Model != "direct-profile" || view.Team.Models[1].Model != "gateway-profile" || view.Team.Models[0].Description != "direct" || view.Team.Models[1].Description != "magpie" {
+		t.Fatalf("team route projection: %#v", view.Team.Models)
+	}
+	if view.Team.Models[0].Name != view.Team.Models[1].Name {
+		t.Fatal("route annotation changed the primary model name")
+	}
+}

@@ -124,6 +124,7 @@
 .runtime-model-list{margin-top:8px;max-height:min(300px,calc(100dvh - 156px));overflow:auto;overscroll-behavior:contain}
 .settings-window .runtime-model-list button{display:flex;align-items:center;gap:7px;min-height:36px;width:100%;padding:8px;border:0;border-radius:6px;background:transparent;text-align:left;font-size:12px}
 .runtime-model-list button>span{flex:1;min-width:0;overflow-wrap:anywhere}
+.runtime-model-list .runtime-model-route{margin-left:8px;color:var(--muted);font-size:11px;font-weight:400}
 .settings-window .runtime-model-list button[aria-selected=true]{background:var(--wash)}
 .runtime-model-list button svg{color:var(--muted)}
 .settings-window .runtime-model-connect{font-size:12px;margin:8px 0 0;width:100%;border-top:1px solid var(--line);padding-top:10px}
