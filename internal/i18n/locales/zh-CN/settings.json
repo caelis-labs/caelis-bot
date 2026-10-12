@@ -29,6 +29,8 @@
   "pluginInstall": "安装",
   "pluginUpdate": "更新",
   "pluginRemove": "卸载",
+  "pluginEnable": "开启",
+  "pluginDisable": "关闭",
   "pluginMore": "更多插件操作",
   "pluginCloseDetail": "关闭详情",
   "pluginDetailLoading": "正在读取详情…",

@@ -55,37 +55,31 @@ type Engine interface {
 	Submit(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 }
 type Runtime struct {
-	desktopQueries   map[string]desktopQuery
-	desktopTurn      string
-	desktopContext   context.Context
-	desktopCancel    context.CancelFunc
-	desktopControl   api.ApplicationTools // owned by native host, never by workers
-	desktopLifecycle sync.Mutex           // serializes turn activation and independent revocation
-	dream            *dreamController     // guarded by step
-	handoff          *handoffStore        // application-private context seed
-	care             *care.Engine
-	careLoadErr      error
-	careSample       func() care.Sample
-	careSources      care.SourcesTracker
-	stopped          bool
-	mu               sync.Mutex
-	step             sync.Mutex
-	toolAdmission    sync.Mutex // serializes resident Bot tool entry through a context handoff
-	handoffRenewal   sync.Mutex // one native renewal attempt per original call
-	paused           bool       // guarded by step; fences update shutdown against wakeups
-	path             string
-	state            State
-	now              func() time.Time
-	engine           Engine
-	provider         string
-	personal         api.PersonalTools
-	initialization   *Initializer
-	tasks            api.TaskProvider
-	interactions     api.WorkerInteractionPort
-	reports          api.TaskReporter
-	action           func(string) error
-	done             chan struct{}
-	cancel           context.CancelFunc
+	dream          *dreamController // guarded by step
+	handoff        *handoffStore    // application-private context seed
+	care           *care.Engine
+	careLoadErr    error
+	careSample     func() care.Sample
+	careSources    care.SourcesTracker
+	stopped        bool
+	mu             sync.Mutex
+	step           sync.Mutex
+	toolAdmission  sync.Mutex // serializes resident Bot tool entry through a context handoff
+	handoffRenewal sync.Mutex // one native renewal attempt per original call
+	paused         bool       // guarded by step; fences update shutdown against wakeups
+	path           string
+	state          State
+	now            func() time.Time
+	engine         Engine
+	provider       string
+	personal       api.PersonalTools
+	initialization *Initializer
+	tasks          api.TaskProvider
+	interactions   api.WorkerInteractionPort
+	reports        api.TaskReporter
+	action         func(string) error
+	done           chan struct{}
+	cancel         context.CancelFunc
 }
 
 func (r *Runtime) ConfigureWorkerInteractions(port api.WorkerInteractionPort) {
@@ -295,13 +289,8 @@ func (r *Runtime) Start(engine Engine) {
 func (r *Runtime) Stop() {
 	r.mu.Lock()
 	r.stopped = true
-	// Fence BeginDesktopTurn in the same critical section as permanent shutdown.
-	if r.desktopCancel != nil {
-		r.desktopCancel()
-	}
 	cancel := r.cancel
 	r.mu.Unlock()
-	r.StopDesktopTurn()
 	if cancel != nil {
 		cancel()
 	}

@@ -11,10 +11,10 @@ Caelis 可独立交付该修复，无需为此单独发布版本。通用应用�
 
 验证命令和证据范围见[开发与验证](development.md)。历史 v0.61.0 的真实模型结果不代替新增能力验收。
 
-macOS 14+ arm64 安装包为常驻 Bot 装配 Desktop World 工具时，还要求 Host 声明
-`application-tool-result-content-v1`（Caelis #82）。缺少时在注册工具前提示更新并重启 Host，
-不能仅凭 v0.62.0 版本号认定桌面集成可用。未装配此能力的纯文本会话仍遵循原基线。
-Codex 与 Caelis 的常驻 Bot 都使用同一个 Desktop World Go host/helper；各自的适配器负责工具传输和审批。
+Desktop World rc.4 通过内置 Agent Plugin 的 Skill 与单一 stdio MCP 服务接入
+Codex、Caelis；旧 Go host 和 `bot_desktop_*` 工具已退役。MCP 工具遵循各自
+Runtime 的原生审批，不进入 Bot 内置工具免审名单。Bot App 的系统权限与
+Runtime 工具审批是两层独立边界。
 
 ## 基线与发现
 
@@ -260,23 +260,12 @@ Session 和 Worker 继续由 Core 各自的原生配置负责，Bot 不改全局
 | `bot_gesture`；`bot_tasks` watchlist/stop | 直接执行 | 本地呈现或停止已拥有的工作；清空展示不停止 Worker、不删除历史 |
 | `bot_delegate` start/continue | 每次派生 / 新指令由 Guardian 审查 | 新执行或扩大指令；Worker 保持原生 sandbox / reviewer，不继承 Bot 工具 |
 | `bot_schedule_update` save/remove/configure | 修改持续安排时审查 | 保留日历/事件的独立原生 grant、回执和撤销，不因合并而扩大权限 |
-| `bot_desktop_inspect` outline/text/delta | 只读直通 | 有界元数据与 Unicode 文本；不申请系统权限、不自动截图 |
-| `bot_desktop_authorize` | 每个 App、每个连续任务 Turn 审查一次 | 精确观察到的应用 Ref、名称和本次任务目的 |
-| `bot_desktop_act` | 当前 Turn 内已授权 App 免逐次 Guardian | helper 检查授权、新鲜目标及原请求身份；最多 16 个有类型的步骤 |
-| `bot_desktop_inspect` image | 已授权 App 内免逐次 Guardian | 显式截图仍检查模型图片能力和 helper grant；不会带入撤销后查询例外 |
-| `bot_desktop_result` status/cancel | 明确列入免审目录 | status 只查原回执；cancel 限当前有效 Turn，不能重放或撤销已发送输入 |
+| Desktop World 插件 MCP `exec` | Runtime 原生审批 | 启用插件后可发现；关闭后旧会话保留的 schema 也不能继续调用 |
 | 未明确列出的 callback | `approval_policy: required` | 新能力不会默认为免审；Codex 同样只免审明确列出的工具 |
 
-Computer Use 授权属于当前连续任务，不向用户暴露 Session 概念。相同 App 的窗口共享授权，
-另一个 App 必须单独授权。当前实现用已观察到的 application Ref 与准确名称绑定本次运行的 App，不按窗口标题授权，
-不同进程实例不会因同名而继承授权。授权仅在 helper 内存中存在，由 Bot 原生生命周期通过私有
-管道提供 Turn 标识；模型参数不能创建或延长 Turn。完成、停止、中断、新 Turn 或 helper 重启后
-不复用授权。长任务不设置按分钟或点击次数重新审批的限制。
-
-App 授权不取消输入的新鲜目标检查、不扩大系统权限，也不把页面里的指令变成用户授权。
-输入返回收据；按需要读取或同步变化，出现新弹窗后先观察再选择目标。未知结果不自动重放。
-系统权限、登录和必要信息选择保留原交互。Codex 的常驻配置关闭竞争的原生桌面输入工具，
-普通 Session 和 Worker 的原有配置不变。
+CUA 操作还要经过 Bot App 的 Accessibility / Screen Recording 系统授权；
+上游私有 worker 保留原生目标、操作与结果边界。未知输入结果按原调用回执核对，
+不自动重放。系统授权不代替 Runtime 审批。
 
 ## 审查事实与恢复
 
@@ -314,37 +303,13 @@ Real model, long-running memory quality and cross-Runtime daily Notebook usage n
 
 ## Desktop World integration
 
-Both resident backends use the public Desktop World Go host SDK and independent
-native `dtw` helper, pinned together to `v0.1.0-alpha.6` / `887b863809f2ba532675668e37e91bde4dac758d`.
-There is one desktop writer. No alternate driver, bundled JavaScript runtime or
-native-capability fallback remains. F1 screen input and passive desktop context
-are separate product services.
-
-`desktopcontrol` owns private stdio for requests and independent control pipes for
-BeginTurn/Grant/EndTurn. The host supplies turn identity, epoch, helper path and
-capture asset directory; model arguments cannot choose them. Observe before
-requesting authorization for the exact live application Ref/name. Finish, stop,
-interrupt, runtime replacement and shutdown revoke grants, including idle ones.
-
-Observe uses scoped fields/budgets; sync returns cursor deltas. Act accepts up to
-16 ordered steps and local predicates, without automatic screenshots or full AX
-trees. Only explicit capture returns pixels, gated by model support and app grant.
-Content projection bounds text plus structured JSON to 32 KiB; Caelis suppresses
-identical duplicate JSON text only. A single image is bounded to 256 KiB. Prefer
-semantic invoke/set_value; the alpha still shares the system focus and pointer.
-
-Stable request IDs deduplicate identical arguments and reject conflicts. Reconcile
-returns the original receipt, including after its turn ends, without input or
-recapture. Unknown delivery revokes the turn; neither helper restart nor a new
-request ID is a recovery strategy. Receipt history is process-local and bounded;
-missing history never proves no effect. The managed JavaScript bridge is not used.
-
-Builds download the archive pinned in `resources/desktop-world/release.json`, check
-SHA-256, source revision, protocol and licensing metadata, then sign the helper with
-the app identity. CI verifies the real packaged helper without app grants or UI input.
-Current signing and packaging require Desktop World; use an historical tag's own
-release tooling for historical payloads. Upstream is a public preview with no
-open-source license grant; preserve its NOTICE and THIRD_PARTY_NOTICES.md separately from Bot licensing.
+Both resident backends select the same reviewed rc.4 portable package through
+PluginManager. The package has one `exec` MCP server and an on-demand Skill.
+Bot validates the published archive, BUILD and complete licensing inventory,
+re-signs nested Mac executables with the Bot identity, and keeps user-disabled
+state on upgrade. Old `bot_desktop_*` tools are removed. No second app or Node
+runtime is installed. The two Runtime adapters retain their own MCP approval
+policy; no plugin tool joins Bot's auto-approved built-in list.
 
 See [architecture](architecture.md#desktop-and-presentation) for the ownership
 contract and [development](development.md#current-evidence-and-limits) for real Bot,

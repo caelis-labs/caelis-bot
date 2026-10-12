@@ -101,10 +101,10 @@ test('Desktop World is mandatory for all app bundles', {skip: process.platform !
   const verify=(...args)=>spawnSync('/bin/bash',[resolve('script/verify-desktop-world.sh'),app,'adhoc',...args],{encoding:'utf8',timeout:10000});
   assert.notEqual(verify().status,0,'new builds require the payload');
   assert.notEqual(verify('--allow-legacy').status,0,'removed legacy bypass must not skip verification');
-  mkdirSync(join(contents,'Resources/DesktopWorld'),{recursive:true});
+  mkdirSync(join(contents,'Resources/Plugins/desktop-world'),{recursive:true});
   assert.notEqual(verify('--allow-legacy').status,0,'unmarked payload is invalid');
   rmSync(join(contents,'Resources'),{recursive:true});
-  assert.equal(spawnSync('/usr/libexec/PlistBuddy',['-c','Add CaelisDesktopWorldVersion string v0.1.0-alpha.1',plist]).status,0);
+  assert.equal(spawnSync('/usr/libexec/PlistBuddy',['-c','Add CaelisDesktopWorldVersion string v0.1.0-rc.4',plist]).status,0);
   assert.notEqual(verify('--allow-legacy').status,0,'declared but missing payload is corrupt');
  } finally {rmSync(directory,{recursive:true,force:true});}
 });

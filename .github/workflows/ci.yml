@@ -102,11 +102,6 @@ jobs:
         run: make build
       - name: Verify pinned Desktop World payload without desktop permissions
         run: bash script/verify-desktop-world.sh 'dist/Caelis Bot Dev.app' adhoc
-      - name: Exercise the packaged Go host and independent helper
-        run: |
-          source script/env.sh
-          export CAELIS_BOT_TEST_DESKTOP_WORLD="$PWD/dist/Caelis Bot Dev.app/Contents/Resources/DesktopWorld/bin/dtw"
-          go test -count=1 -run '^TestPackagedHelperReadAndDeniedInput$' -v ./internal/desktopcontrol
       - name: Package and verify mounted Dev DMG
         run: bash script/package.sh --skip-build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -170,8 +165,6 @@ jobs:
           & ./script/stage-desktop-world-windows.ps1 -Destination .cache/ci-desktop-world
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $version = & .cache/ci-desktop-world/bin/dtw.exe version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node script/verify-desktop-world-manifest.mjs .cache/ci-desktop-world "$version" --target windows-amd64 --bundled
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   # Keep the existing required check name. Failed/cancelled/missing jobs must
   # fail this gate; only content-validated docs/version changes may skip builds.

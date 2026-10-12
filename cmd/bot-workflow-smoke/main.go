@@ -198,10 +198,7 @@ func main() {
 	accept := run
 	if len(os.Args) > 1 && os.Args[1] == "--compact" {
 		accept = runCompact
-	} else if len(os.Args) > 1 && os.Args[1] == "--desktop-rc2" {
-		accept = runDesktopRC2
-	} else if len(os.Args) > 1 && os.Args[1] == "--desktop-rc3" {
-		accept = runDesktopRC3
+
 	}
 	if e := accept(); e != nil {
 		fmt.Fprintln(os.Stderr, e)

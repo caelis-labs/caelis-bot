@@ -3,14 +3,15 @@
 package toolcontract
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"reflect"
 	"regexp"
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/desktop-world/protocol"
 )
 
 type Schema = map[string]any
@@ -40,7 +41,7 @@ func Decode(schema json.RawMessage, raw json.RawMessage) (Schema, error) {
 		return nil, fmt.Errorf("arguments exceed 128 KiB")
 	}
 	var value Schema
-	if err := protocol.Decode(raw, &value); err != nil || value == nil {
+	if err := decodeUniqueObject(raw, &value); err != nil || value == nil {
 		return nil, fmt.Errorf("arguments must be one JSON object without duplicate keys")
 	}
 	var s Schema
@@ -51,6 +52,55 @@ func Decode(schema json.RawMessage, raw json.RawMessage) (Schema, error) {
 		return nil, err
 	}
 	return value, nil
+}
+
+// Validate the JSON token stream before Unmarshal, which otherwise accepts
+// duplicate object keys and silently changes the requested operation.
+func decodeUniqueObject(raw []byte, value *Schema) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := uniqueJSONValue(dec); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return fmt.Errorf("trailing JSON value")
+	}
+	return json.Unmarshal(raw, value)
+}
+
+func uniqueJSONValue(dec *json.Decoder) error {
+	token, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	open, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	if open != '{' && open != '[' {
+		return fmt.Errorf("unexpected JSON delimiter")
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		if open == '{' {
+			key, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			name, ok := key.(string)
+			if !ok || seen[name] {
+				return fmt.Errorf("duplicate or invalid JSON key")
+			}
+			seen[name] = true
+		}
+		if err := uniqueJSONValue(dec); err != nil {
+			return err
+		}
+	}
+	close, err := dec.Token()
+	if err != nil || close != json.Delim(open+2) && !(open == '[' && close == json.Delim(']')) {
+		return fmt.Errorf("unclosed JSON value")
+	}
+	return nil
 }
 func array(v any) []any {
 	if v == nil {

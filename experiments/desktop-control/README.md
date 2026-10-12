@@ -1,14 +1,14 @@
 # Native desktop fixture
 
-The AppKit fixture and local browser HTML remain disposable UI surfaces for
-Desktop World acceptance. Start AppKit through:
+These historical AppKit/browser fixtures remain disposable UI targets for
+desktop integration experiments. Start the AppKit fixture through:
 
 ```sh
 bash script/build_and_run.sh --desktop-control-preview
 ```
 
-Production tools now use `internal/desktopcontrol` and the pinned Desktop World
-Go host/helper. Follow `docs/development.md` for the actual Bot build and
-`internal/botskills/skills/caelis-bot-memory/references/desktop-observation.md`
-for tool semantics. Fixture success alone does not qualify real application or
-model usability. Use the fixture only with the current Desktop World tool path.
+Production Desktop World v0.1.0-rc.4 is the optional built-in plugin with one
+MCP `exec` and a Skill; the old Go desktop controller and `bot_desktop_*` tools
+have been removed. Follow `docs/development.md` for Bot build and native
+acceptance. A fixture alone does not establish real-model, OS-permission or
+released-app acceptance.

@@ -77,6 +77,7 @@ type Item struct {
 	PublisherURL string          `json:"publisherUrl,omitempty"`
 	SourceURL    string          `json:"sourceUrl,omitempty"`
 	Bundled      bool            `json:"bundled"`
+	Builtin      bool            `json:"builtin,omitempty"`
 	Skills       []Contribution  `json:"skills"`
 	MCPServers   []Contribution  `json:"mcpServers"`
 	Installed    bool            `json:"installed"`
@@ -157,6 +158,12 @@ func Open(root string) (*Manager, error) {
 			sources[entry.ID] = files
 		}
 	}
+	if builtin, files, ok, err := desktopWorldBundle(); err != nil {
+		return nil, err
+	} else if ok {
+		c.Packages = append(c.Packages, builtin)
+		sources[builtin.ID] = files
+	}
 	return openCatalog(root, c.Packages, sources)
 }
 
@@ -222,6 +229,30 @@ func openCatalog(root string, entries []Entry, sources map[string]fs.FS) (*Manag
 	}
 	if m.state.Connections == nil {
 		m.state.Connections = map[string]connectionRecord{}
+	}
+	for _, entry := range entries {
+		if !entry.Builtin {
+			continue
+		}
+		current, has := m.state.Installed[entry.ID]
+		if has && current.Version == entry.Version && current.Digest == digest(entry) {
+			continue
+		}
+		generation, stageErr := m.stage(entry)
+		if stageErr != nil {
+			return nil, fmt.Errorf("stage built-in plugin %s: %w", entry.ID, stageErr)
+		}
+		candidate := cloneState(m.state)
+		candidate.Revision++
+		enabled := true
+		if has {
+			enabled = current.Enabled
+		}
+		candidate.Installed[entry.ID] = installed{Version: entry.Version, Digest: digest(entry), Root: generation, Enabled: enabled}
+		if saveErr := m.save(candidate); saveErr != nil {
+			return nil, saveErr
+		}
+		m.state = candidate
 	}
 	return m, nil
 }
@@ -367,7 +398,7 @@ func (m *Manager) Snapshot() Snapshot {
 		if e.Legacy && !ok {
 			continue
 		}
-		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Installed: ok, Enabled: ok && rec.Enabled, Status: "available", Issues: []Issue{}}
+		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Builtin: e.Builtin, Installed: ok, Enabled: ok && rec.Enabled, Status: "available", Issues: []Issue{}}
 		if ok {
 			item.Status = "disabled"
 			if rec.Enabled {
@@ -512,7 +543,7 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 		if err != nil {
 			return m.snapshotLocked(), err
 		}
-		next.Installed[id] = installed{Version: e.Version, Digest: digest(e), Enabled: true, Root: rootName}
+		next.Installed[id] = installed{Version: e.Version, Digest: digest(e), Enabled: current.Enabled, Root: rootName}
 		// The previous Obsidian package used an API key and a local CA.
 		// The official CLI Skill has no connection, so clear that record.
 		if id == "obsidian" && next.Connections[id].Configured {
@@ -539,6 +570,9 @@ func (m *Manager) Mutate(ctx context.Context, id, action string, apply func(cont
 		next.Installed[id] = current
 		runtimeChange = true
 	case "uninstall":
+		if e.Builtin {
+			return m.snapshotLocked(), errors.New("built-in plugins can be disabled but not removed")
+		}
 		if !has {
 			return m.snapshotLocked(), nil
 		}
@@ -616,7 +650,7 @@ func (m *Manager) snapshotLocked() Snapshot {
 				status = "enabled"
 			}
 		}
-		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Installed: ok, Enabled: ok && rec.Enabled, Status: status, Issues: []Issue{}}
+		item := Item{ID: e.ID, Title: e.Title, Version: e.Version, Description: e.Description, Source: e.Source, Builtin: e.Builtin, Installed: ok, Enabled: ok && rec.Enabled, Status: status, Issues: []Issue{}}
 		m.decorate(&item)
 		m.decorateConnection(&item, e, m.state)
 		if item.Connection != nil && item.Connection.State == "unsupported" {

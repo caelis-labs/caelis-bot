@@ -2,12 +2,10 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -439,40 +437,5 @@ func TestNotebookSkillIsResidentOnlyAndRegeneratesExternalNotes(t *testing.T) {
 	body, _ = os.ReadFile(filepath.Join(binding.NotebookDirectory, "INDEX.md"))
 	if strings.Contains(string(body), "External note") {
 		t.Fatal("deleted note not removed from index")
-	}
-}
-
-type neverDesktop struct{ calls int }
-
-func (*neverDesktop) Definitions() []api.ToolDefinition { return nil }
-func (d *neverDesktop) CallTool(context.Context, string, json.RawMessage) api.ToolResult {
-	d.calls++
-	return api.ToolResult{}
-}
-func TestDesktopWorldAssemblyOwnsResidentDesktop(t *testing.T) {
-	requireNativeIPC(t)
-	e := newTestEngine()
-	desktop := &neverDesktop{}
-	a, _ := fixtureApp(t, e, Host{DesktopControl: desktop})
-	if err := a.Start(); err != nil {
-		t.Fatal(err)
-	}
-	e.mu.Lock()
-	config := e.tools.Clone()
-	e.mu.Unlock()
-	names := []string{}
-	for _, d := range config.Host.Definitions() {
-		names = append(names, d.Name)
-	}
-	for _, name := range []string{"bot_desktop_inspect", "bot_desktop_act", "bot_desktop_authorize", "bot_desktop_result"} {
-		if !slices.Contains(names, name) || slices.Contains(config.ApprovedTools, name) != (name != "bot_desktop_authorize") {
-			t.Fatalf("wrong ownership for %s", name)
-		}
-	}
-	if config.Env["CAELIS_BOT_DESKTOP_WORLD"] != "1" {
-		t.Fatal("missing Desktop World discovery")
-	}
-	if slices.Contains(names, "bot_desktop_perform") {
-		t.Fatal("retired desktop writer remains")
 	}
 }

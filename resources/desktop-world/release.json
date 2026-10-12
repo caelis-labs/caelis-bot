@@ -1,24 +1,32 @@
 {
-  "version": "v0.1.0-rc.3",
-  "revision": "43172bb1f3dd26b90a88c346bc9978cbabab5785",
+  "version": "v0.1.0-rc.4",
+  "revision": "ed71e10c8137d1f1e7b11ae9ab67ac8ecaada06d",
+  "cua_revision": "ac967b9006aafa10870aadb5a645b038cba9721a",
   "module": "github.com/caelis-labs/desktop-world",
   "source": {
-    "archive": "desktop-world-v0.1.0-rc.3-source.tar.gz",
-    "sha256": "359fa2215cbead13cdc516551a4e56488d3e2847f3fcbf097cd829b8724b593d"
+    "archive": "desktop-world-v0.1.0-rc.4-source.tar.gz",
+    "sha256": "f3395f52c6433aaccbae3154729d09a226f7186c877eab8c3b1a80d0659d4bcd"
   },
   "targets": {
     "darwin-arm64": {
-      "archive": "desktop-world-v0.1.0-rc.3-darwin-arm64.tar.gz",
-      "sha256": "9bf246b352c37f4e7f719fc222ab528221abc8e0fcba83ab61b03ba715b9fbd9",
-      "binary_sha256": "51424f2fd5cc3c24750225383b88cd16eae981868478d47d501f25e83995287c",
+      "archive": "desktop-world-v0.1.0-rc.4-darwin-arm64.tar.gz",
+      "sha256": "5df96152b14018f7ef9e1e826a09f1f86ba33f861b7dff0d7b949aec97d2d965",
+      "binary_sha256": "1523e0a46a721abb4d0b29bdcd19319f9b5cf5da113415cb0aeb2259ccb64300",
+      "worker_sha256": "81718235fc7c8049d222b50b572aeca9cb0fd6524cf352cfcb4c6a3c00c18c6b",
       "binary": "bin/dtw",
+      "build_sha256": "18d22529530d51e0f6927642a19eaba11e938e7a70374bb20ee1609212d9d45a",
+      "license_inventory_sha256": "8e0ce0bc76a8bbae4d90426f0aec957eaad88ca0a39322697198b03d619f2bfb",
       "minimum_macos": "14.0"
     },
     "windows-amd64": {
-      "archive": "desktop-world-v0.1.0-rc.3-windows-amd64.zip",
-      "sha256": "c847a4b5068cbe49bcc7527fbd546584e16989e8138a365116128c0b1f850a63",
-      "binary_sha256": "2d2b8e1602cdb25191540139b4f5050226be02eee774d181c9a79ae5dd5ccea2",
-      "binary": "bin/dtw.exe"
+      "archive": "desktop-world-v0.1.0-rc.4-windows-amd64.zip",
+      "sha256": "8aa076e02cb5aaa7a923fa74acdacc67bbaa79c104f40defaf42b88b87fd6b7c",
+      "binary_sha256": "ab3161d076ebb9b93a32a9f668ca5a0c036394f08065950e7215bcf55989699c",
+      "worker_sha256": "f6be927b5706455dc3b778d15901823012d343bd7474be0d9acd772da59fe834",
+      "binary": "bin/dtw.exe",
+      "build_sha256": "dac53d28e1d00a36476b4692b4a2f083e1c53ca07caa608727e6494737d5f853",
+      "license_inventory_sha256": "129c9077502961ff7ab36aabad5987a246a4b3c5ae5931e532df27dcf1ba3bc3"
     }
-  }
+  },
+  "acceptance_sha256": "ca1af18fadeed27032cdd6a1ec41c034afaf15ec06918b027cade9fb3d17af0c"
 }

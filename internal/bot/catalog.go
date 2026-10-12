@@ -3,11 +3,12 @@ package bot
 import (
 	"encoding/json"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 	tc "github.com/caelis-labs/caelis-bot/internal/toolcontract"
 )
 
-func requestID() tc.Schema   { return desktopcontrol.RequestIDSchema() }
+func requestID() tc.Schema {
+	return tc.Schema{"type": "string", "pattern": "^[A-Za-z0-9_-]{8,128}$"}
+}
 func text(max int) tc.Schema { return tc.Schema{"type": "string", "minLength": 1, "maxLength": max} }
 func taskDefinitions() []api.ToolDefinition {
 	query := tc.Schema{"query": tc.String("Search title, assignment or task handle"), "status": tc.String("Exact status filter"), "pinned": tc.Schema{"type": "boolean"}, "limit": tc.Integer(1, 50), "cursor": tc.String("Opaque nextCursor; preserve filters")}

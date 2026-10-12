@@ -54,7 +54,10 @@ func codexPluginConfigs(selection plugins.Selection, binary string) (map[string]
 	for _, item := range selection.Servers {
 		name := plugins.RuntimeName(item.PackageID, item.Name)
 		s := item.Server
-		if item.Connection != nil || s.Type == "streamable-http" && len(s.Headers) > 0 {
+		// The built-in desktop controller must always pass through Bot's
+		// generation fence. A retained native schema must never restart it
+		// after the user disables the plugin.
+		if item.PackageID == "desktop-world" || item.Connection != nil || s.Type == "streamable-http" && len(s.Headers) > 0 {
 			if binary == "" {
 				issues = append(issues, plugins.Issue{Component: "server", Name: name, Message: "Bot executable unavailable"})
 				continue
@@ -204,7 +207,12 @@ func projectCodexWorkspace(directory string, c *api.ToolConnection) error {
 		link := filepath.Join(skillDir, name)
 		if actual, err := os.Readlink(link); err == nil {
 			if actual != target {
-				return errors.New("Bot skill link collision")
+				// An installed plugin upgrade keeps the same discovery name but
+				// moves its Skill to a new verified package generation. The old
+				// link may be replaced only when the Bot manifest still owns it.
+				if previous[name] != actual {
+					return errors.New("Bot skill link collision")
+				}
 			}
 			continue
 		}

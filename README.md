@@ -55,4 +55,4 @@ Import local `.caelispack` files in **Settings → Appearance**. Create characte
 
 ## License
 
-Caelis Bot code is [Apache-2.0](LICENSE). The Desktop World dependency and bundled alpha helper are a separate public preview with no open-source license grant; their [upstream NOTICE](https://github.com/caelis-labs/desktop-world/blob/v0.1.0-alpha.1/NOTICE) remains in the app bundle. The bundled character, avatar and brand icons use the separate [Caelis Character Asset License](ASSET-LICENSE.md); modeling sources remain private. The stick figure and generic paper plane are Apache-2.0.
+Caelis Bot code is [Apache-2.0](LICENSE). The built-in Desktop World rc.4 plugin retains its upstream `LICENSE`, `NOTICE`, CUA MIT license and complete `LICENSING/` dependency notices and required source bundles inside the signed app. Its separately licensed code and assets are not relicensed by Bot. The bundled character, avatar and brand icons use the separate [Caelis Character Asset License](ASSET-LICENSE.md); modeling sources remain private. The stick figure and generic paper plane are Apache-2.0.

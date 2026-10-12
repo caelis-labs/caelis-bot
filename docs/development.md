@@ -43,19 +43,17 @@ protocol peers are not live Codex daemon/Caelis Host acceptance. Native macOS
 0.162.1 daemon recovery, real in-flight Worker outcomes and Ghostty attach/detach
 remain separate acceptance steps; Linux fixtures cannot establish those results.
 
-The current Desktop World SDK and packaged `bin/dtw` helper are pinned together
-to v0.1.0-rc.3 / `43172bb1f3dd26b90a88c346bc9978cbabab5785`.
-The per-target archives and checksums are in `resources/desktop-world/release.json`;
-the official rc.3 Windows archive is `windows-amd64.zip` and is staged by
-`script/stage-desktop-world-windows.ps1` with full SHA-256, manifest, source and
-license checks. This validates package inputs, not Windows desktop behavior. Bundle validation
-requires upstream LICENSE, NOTICE, THIRD_PARTY_NOTICES.md and corresponding
-source/ under the MPL-2.0 release. The macOS archive is ad-hoc signed and not
-notarized; app distribution has its own signing and Gatekeeper gates. Historical uptake
-records below retain the version and evidence of their original runs.
-The rc.3 delta acceptance and its remaining limits are recorded in
-`docs/evidence/desktop-world-rc3/README.md`; the historical rc.2 matrix
-remains in `docs/evidence/desktop-world-rc2/README.md`.
+Desktop World is pinned to the published [v0.1.0-rc.4](https://github.com/caelis-labs/desktop-world/releases/tag/v0.1.0-rc.4)
+portable plugin. `resources/desktop-world/release.json` fixes each release archive,
+BUILD provenance, source archive, CUA commit and license inventory. The build
+verifies full archive SHA-256 and every member against upstream `SHA256SUMS`,
+then stages `bin/dtw`, private `libexec/cua-driver`, `LICENSING/`, `mcp.json` and
+its Skill. It re-signs both nested Mac binaries with the selected Bot identity
+and seals the final bytes inside the app. `script/verify-desktop-world.sh` checks
+the signed installed inventory. The official Mac archive was ad-hoc signed and
+not notarized; the Windows archive is unsigned and needs the VC runtime.
+Package/cross-build checks are not native GUI acceptance. Historical rc.3 and
+rc.2 records remain under `docs/evidence/` with their original versions.
 
 ## Native development
 
@@ -85,7 +83,7 @@ The local development and installable release bundle identifiers and default dat
    `.development-signing-identity`。worktree 内的显式选择优先；删除主 checkout
    的选择后即回到 ad-hoc。不会因为钥匙串中存在证书而自动选择它。
 3. 用 `bash script/build_and_run.sh --verify` 构建并启动。构建会验证该身份类型、
-   签署内部 Sparkle、Desktop World helper及应用、核验 Apple 签名链和应用标识。
+   签署内部 Sparkle、Desktop World 适配器、私有 CUA worker 及应用、核验 Apple 签名链和应用标识。
    身份失效/缺少私钥时停止，不静默退回 ad-hoc 或发行证书。
 
 单次覆盖用 `BOT_DEVELOPMENT_IDENTITY=<指纹>`；显式 `-` 表示 ad-hoc。
@@ -101,12 +99,39 @@ Developer ID / 公证流程完成。
 `--recall` 仅唤回已有应用，不刷新进程权限。普通用户可从 Bot 菜单退出后再打开。
 不要为解决“开关已开”而自动 reset 系统授权。
 
-Desktop World 的实机截图验收可在已签名 Dev 包上使用
-`bash script/build_and_run.sh --desktop-capture-smoke TITLE EVIDENCE_JSON PRIVATE_PNG ONCE_MARKER`。
-四个参数只用于隔离的临时窗口和忽略目录；此模式保留签名字节，在实际 Dev
-进程中检查授权，再由正式打包 helper 对唯一窗口执行一次截图。once 标记
-在输入前写入；结果未知时保持该标记，不在同一目标重复截图。原始 PNG
-留在私有忽略目录，不提交个人屏幕内容。
+Desktop World 实机验收使用已签名 Dev 包、隔离的 `CAELIS_BOT_DATA_DIR`
+及明确的 `CODEX_HOME` 或独立 Caelis Store；从 `script/build_and_run.sh`
+启动后在插件设置中检查版本、开关、Skill 和 Runtime 的唯一 `exec`。
+真实模型调用仍走 Runtime 原有审批，再对明确的临时 GUI 目标做一次读取、
+操作和读回。核对 Bot 的辅助功能/屏幕录制归属及私有 worker 退出。
+旧 `bot_desktop_*` 与 `--desktop-capture-smoke` 已退役；不要用直接运行
+`dtw`、fixture 模型或系统权限开关状态替代这项验收。
+
+2026-10-12 的隔离 DevBot 验收使用 Apple Development 签名的本地包、
+独立 Bot 数据目录和从用户 Store 按原目录复制的私有 Caelis Store；未读取或输出凭据。
+真实模型在 Bot UI 中发现 Desktop World v0.1.0-rc.4 的 Skill 和唯一
+`exec`，经原有 `allow_once` 审批，在指定临时 AppKit 窗口把 `Count: 1`
+点击到 `Count: 2`；独立 CUA 窗口读取也显示 `Count: 2`。同一会话停用插件后，
+Bot MCP 桥、`dtw` 和私有 worker 退出，旧工具名调用返回 `not_found`；
+重启后停用选择保留，重新开启后只读 `permissions` 调用返回 `status: ok`
+及 Accessibility/Screen Recording 均为 `true`。Codex 路径另用合成模型
+和相同签名 Dev 包完成临时窗口点击及独立读回；这不是 Codex 真实模型验收。
+
+上述结果证明当前隔离 DevBot 链路可操作指定 GUI 目标，但**尚未证明严格的
+Bot 主进程 TCC 归属**。实际 Caelis 进程链为私有 Host → Bot `--plugin-mcp`
+→ `dtw` → 私有 worker；rc.4 的 `host_bundle_id` 字段在上游写死，
+`attribution: host` 仅表示模式，不能充当 macOS 责任进程的证据。
+单独从 shell 启动的私有 Host 在只读窗口定位时返回 `window_not_found`，
+不能替代 App 启动的结果。直接由 Bot 主进程启动且核实 OS 权限责任链、
+Codex 真实模型、Windows 11 原生 GUI 和公开发行公证仍是未通过的验收项。
+
+`TestNativeDesktopWorldPluginDirectory` 是两 Runtime 的按需原生连接检查。
+设置 `CAELIS_BOT_TEST_BOT_BINARY` 为已签名 Dev 包的可执行文件，
+`CAELIS_BOT_TEST_DTW_STORE` 为隔离插件目录，
+`CAELIS_BOT_TEST_DTW_ROOT` 为其中已安装的 rc.4 版本目录；分别给 Codex
+测试设置 `CAELIS_BOT_TEST_CODEX`，给 Core 测试设置
+`CAELIS_BOT_TEST_BINARY`。测试创建私有 App Server/Host 与本地合成模型，
+验证 Skill、单 `exec` 和停用撤销；它不执行 GUI 操作。
 
 稳定身份验证应比较两次不同代码的 `codesign -d -r-` designated requirement；
 它应保持相同且不依赖 cdhash。签名一致并不等于真实权限/窗口截图已验收，仍需
@@ -192,7 +217,7 @@ the default test path. Inspect the actual settings surface through
 
 ```sh
 source script/env.sh
-go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/bot ./internal/care ./internal/desktopcontrol
+go test -race ./internal/backend/codex ./internal/backend/caelis ./internal/bot ./internal/care
 CAELIS_BOT_TEST_BINARY=/absolute/path/to/caelis make smoke-caelis
 ```
 
@@ -207,7 +232,10 @@ explicit environment opt-ins. Synthetic provider results prove transport/behavio
 `CAELIS_BOT_LIVE_STORE`, `CAELIS_BOT_LIVE_BINARY`, `CAELIS_BOT_LIVE_MODEL` and optional alternate/fast models.
 Never copy daily credentials into logs or use a shared Store for destructive fixtures.
 
-## Current evidence and limits
+## Historical evidence and limits
+
+The dated records below describe earlier Desktop World versions and do not
+establish rc.4 Bot plugin acceptance.
 
 Desktop World alpha.6 (2026-10-04): pin/package validation, semantic state operations,
 bounded observation/capture and trusted cooperative input are aligned. The four

@@ -264,6 +264,54 @@ func TestBotProjectLinkCollisionLeavesConfirmedConfig(t *testing.T) {
 	}
 }
 
+func TestBotProjectRetargetsOwnedPluginSkillOnUpgrade(t *testing.T) {
+	bot := t.TempDir()
+	base := filepath.Join(t.TempDir(), "versions", "sample")
+	oldSkill := filepath.Join(base, "v1", "skills", "useful")
+	newSkill := filepath.Join(base, "v2", "skills", "useful")
+	for _, skill := range []string{oldSkill, newSkill} {
+		if err := os.MkdirAll(skill, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project := func(skill string) *api.ToolConnection {
+		return &api.ToolConnection{Command: "/fixture/Bot", Plugins: plugins.Selection{
+			SkillRoots: []string{skill},
+			Servers: []plugins.SelectedServer{{PackageID: "sample", Name: "remote", Server: plugins.Server{Type: "streamable-http", URL: "https://example.com/mcp"}}},
+		}}
+	}
+	if err := projectCodexWorkspace(bot, project(oldSkill)); err != nil {
+		t.Fatal(err)
+	}
+	if err := projectCodexWorkspace(bot, project(newSkill)); err != nil {
+		t.Fatal("owned Skill link blocked package upgrade:", err)
+	}
+	link := filepath.Join(bot, ".agents", "skills", "plugin-sample-useful")
+	if actual, err := os.Readlink(link); err != nil || actual != newSkill {
+		t.Fatal("upgraded Skill link not projected", actual, err)
+	}
+	// A later external replacement must still fail without changing the
+	// confirmed MCP config.
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(oldSkill, link); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(bot, ".codex", "config.toml")
+	before, err := os.ReadFile(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := projectCodexWorkspace(bot, project(oldSkill)); err == nil {
+		t.Fatal("externally replaced Skill link accepted")
+	}
+	after, err := os.ReadFile(config)
+	if err != nil || string(after) != string(before) {
+		t.Fatal("external Skill link changed confirmed config", err)
+	}
+}
+
 func TestWorkerCannotSelectBotWorkspace(t *testing.T) {
 	bot := filepath.Join(t.TempDir(), "Notebook")
 	if !withinBotWorkspace(bot, bot) || !withinBotWorkspace(bot, filepath.Join(bot, "subtask")) || withinBotWorkspace(bot, filepath.Join(filepath.Dir(bot), "Tasks", "task-1")) {

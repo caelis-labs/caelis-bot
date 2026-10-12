@@ -29,6 +29,8 @@
   "pluginInstall": "Install",
   "pluginUpdate": "Update",
   "pluginRemove": "Uninstall",
+  "pluginEnable": "Enable",
+  "pluginDisable": "Disable",
   "pluginMore": "More plugin actions",
   "pluginCloseDetail": "Close details",
   "pluginDetailLoading": "Loading details…",

@@ -9,7 +9,7 @@ limits live in [development](development.md). Source contracts remain authoritat
 ```text
 native desktop surfaces → internal/desktop assembly → internal/app → backend.Service → adapter → native Runtime
                         ├── bot / care / tasks / notebook / botmemory
-                        └── desktopcontrol → private Desktop World Go helper
+                        └── plugins → built-in Desktop World MCP → private CUA worker
 renderer → typed product DTOs; no credentials, native IDs or local paths as authority
 ```
 
@@ -24,7 +24,7 @@ renderer → typed product DTOs; no credentials, native IDs or local paths as au
 | `internal/taskterminal` | Owned external terminal application instance and connection receipt lifecycle |
 | `internal/machines` | Native SSH profiles, host trust, machine identity, original task routing and cached observations |
 | `internal/remotework`, `cmd/caelis-remote` | Linux headless owner and bounded typed SSH operations; full native Worker execution |
-| `internal/desktopcontrol` | Desktop World Go host, independent turn grants, original receipts and bounded content |
+| `internal/plugins` | Reviewed portable packages, built-in Desktop World, immutable installation and runtime admission |
 | `frontend/src` | Presentation, transient interactions, character render resources; never execution authority |
 
 `app.Host` injects OS actions. Desktop does not import concrete adapters. Unknown providers fail explicitly.
@@ -521,13 +521,12 @@ Bot-owned portable plugin packages and their reviewed source adapter are describ
 in [plugin-packages.md](plugin-packages.md). Package MCP services do not join the
 built-in automatic approval list.
 
-The complete resident catalog contains ten tools: `bot_memory`, `bot_tasks`,
-`bot_delegate`, `bot_schedule`, `bot_schedule_update`, `bot_desktop_inspect`,
-`bot_desktop_authorize`, `bot_desktop_act`, `bot_desktop_result`, and `bot_gesture`.
-Unavailable Worker/scheduling/desktop capabilities remain absent. Typed request
-variants use application-owned schemas and native dispatch validation. Delegation,
-standing-arrangement writes and app grants remain separately reviewed; read/list,
-watchlist/stop and permitted desktop operations retain their original direct policy.
+The native resident catalog contains `bot_memory`, `bot_tasks`, `bot_delegate`,
+`bot_schedule`, `bot_schedule_update`, `bot_gesture` and `bot_dream`, subject to
+Runtime capabilities. Desktop World contributes one `exec` tool through its own
+MCP server when its built-in plugin is enabled. It is never included in the
+built-in automatic approval list. Typed requests use application-owned schemas
+and native dispatch validation.
 
 The new catalog never advertises legacy aliases. Private MCP invocations carry a
 catalog generation, and Caelis restores the exact original legacy schema/policy
@@ -635,84 +634,33 @@ Hide/show, placement and still preview are optional driver capabilities; unsuppo
 
 ## Desktop and presentation
 
-Desktop World is the resident desktop backend for both Codex and Caelis. The pinned
-public Go module and packaged `dtw` helper are v0.1.0-rc.3, revision
-`43172bb1f3dd26b90a88c346bc9978cbabab5785`. The old Cua/Node driver, native focus
-ports and optional whole-desktop experiment are retired. F1 screen input and
-passive character context remain separate. Codex resident configuration denies
-native Computer Use app access when Desktop World is bound; ordinary sessions
-and workers retain their own configuration.
+Desktop World v0.1.0-rc.4 is an optional built-in Agent Plugins package, initially
+enabled. Bot stages the complete pinned release (`bin/dtw`, `libexec/cua-driver`,
+`LICENSING/` and its Skill) into the signed app, then installs an immutable
+reviewed copy on first launch or upgrade. A saved disabled choice survives the
+upgrade. The existing PluginManager and both Runtime adapters project its Skill
+metadata and one stdio MCP server; Skill body and CUA API load on demand. Neither
+renderer nor model selects the native executable path. Disable and update revoke
+previous service generations, including processes retained by old Runtime
+sessions. Old `bot_desktop_*` callbacks are retired and absent from the native
+catalog and approval list.
 
-`desktopcontrol.Controller` lazily starts the bundled helper through the public
-`host` SDK. Data uses private stdio; independent FD 3/4 control pipes own
-BeginTurn/Grant/Declare/Revoke/Grants/EndTurn. Neither model arguments nor the renderer can choose a
-helper, turn, process identity or startup grants. The model sees `bot_desktop_inspect` (outline/text/delta/image/grants),
-`bot_desktop_act`, and `bot_desktop_result` (status/cancel). Native typed operations
-stay separate below the application adapter. `bot_desktop_authorize` is separately reviewed
-and checks the exact observed application Ref/name before Grant. It may instead
-declare one exact app name or window title through the same reviewed tool for an
-app not yet running; the helper exposes pending/ambiguous/unresolved/active state
-and binds only after complete unique discovery. A reviewed revocation removes a
-specific grant during the turn. App × Turn approval covers all windows of that
-live application instance. Finish, interrupt,
-shutdown and runtime replacement cancel the tool context and revoke even idle
-grants with a fresh short control deadline. No native work executes in Wails.
-
-Inspection IDs are host-generated. Only input/cancel use model-supplied stable
-`requestId`; the managed helper derives epoch and plan identity from its trusted
-turn and stable SDK envelope ID. Duplicate IDs with identical arguments return
-the original response; conflicting arguments fail. `bot_desktop_result.status`
-remains available after a turn ends, reads the original receipt and never sends
-input or new pixels. Cancellation cannot cross turn revocation. Outline
-continuations restore the original query from a turn-scoped host cache; model
-query fields cannot be mixed with a continuation. Unknown/partial
-results preserve their receipts. There is no automatic helper restart, backend
-fallback or mutation replay. The SDK bounds retained requests/turns to 4096;
-process restart loses prior receipt history and is not proof of no effect.
-
-Observations use scope/fields/budgets and native cursor sync (upserts/removals,
-coverage and reset_required). Reads default to 32 objects/8 KiB when no budget
-is supplied. Ordered act plans support up to 16 steps and local predicates;
-unknown future dialogs require new observations; known uniquely scoped controls
-can use native bind or `bind_focus` within one plan. Actions
-return receipts, not implicit full trees or screenshots. `host.Content` bounds
-text plus structured JSON to 32 KiB with a receipt-preserving overflow notice.
-The Bot retains bounded step delivery/verification facts on overflow in addition
-to original IDs, outcome, seat health and input restoration. Full evidence stays
-in the original host receipt. Caelis content-v1 suppresses identical JSON text duplication.
-
-The trusted host fixes `InputModeCooperative` and `InputShared`; neither is a model
-argument. Semantic desired-state operations verify automatically without physical
-fallback. A cooperative physical plan borrows focus for known click/keyboard/submit
-steps together, then restores the prior app/window or yields to an app switch by
-the user. The whole plan is checked before dispatch for 256 UTF-16-unit text bursts,
-500ms drags and no raw Points. The helper owns the 1-second input budget, hit-test
-convergence and cleanup. No plan splitting, truncation, mode fallback or replay is
-automatic. Restoration failure remains unknown/fenced, not a success claim.
-
-Only explicit capture returns pixels, after checking model image support and
-application authorization. The helper writes to a private temporary asset root;
-Bot reads only that root, strips paths, validates tile dimensions, preserves the
-image transform and compresses one image to at most 256 KiB. Multi-tile or
-oversized captures require a narrower request. Reconciliation returns metadata,
-never captures again. App-scoped `capture_windows` returns dedicated capture Refs;
-`window_content` requires one of those, a full target, no region/cursor and preserves
-`image_to_target` without inventing a desktop mapping. Capture Refs cannot be used
-for AX traversal or input. Visible-region evidence can include occluding apps,
-requiring their grants. Hidden/minimized windows and capture capability remain
-explicit native limits. Managed raw points are forbidden; use object Refs or anchors.
-
-Prefer supported semantic desired-state operations. Cooperative input temporarily
-uses system focus/pointer; it provides neither a virtual mouse nor universal
-background delivery. Same-app human input is best effort; restoration is reported
-in the receipt, not promised. Delivery is distinct from verified postconditions. Desktop World frame/topology units are independent of the pet's
-native placement coordinates below.
-
-The managed JavaScript bridge is not part of this first Go host integration. The
-upstream Node CLI uses a different startup authorization route and must not be
-launched as an alternative writer. Distribution is currently macOS arm64 / 14+;
-Bot re-signs its nested helper. Public preview availability grants no open-source
-license; preserve the upstream NOTICE, THIRD_PARTY_NOTICES.md and separate Bot licensing.
+The MCP `exec` tool and its private CUA worker are upstream release code. The
+worker is spawned from the plugin process under Bot's app bundle, without an
+installed second app or Node runtime. The current Runtime chain starts the Bot
+MCP bridge from Codex or Caelis, then `dtw` and its private worker. Direct Bot
+main-process spawning and OS-level TCC responsibility attribution remain an
+acceptance gap; rc.4's reported `host_bundle_id` is hardcoded upstream and does
+not establish that attribution. Bot's Accessibility and Screen Recording
+permissions, Runtime tool approval, CUA's own operation boundary, and native
+result/readback remain separate checks. Bot does not silently approve this MCP
+server, reset TCC, or infer successful input from a model reply. Published rc.4
+Mac bytes are ad-hoc signed and not notarized; Bot re-signs both nested binaries
+with its selected app identity and seals the full release and license inventory.
+Windows package verification and cross-build are separate from Windows GUI
+acceptance. The pin, package and permissions evidence are in
+[development](development.md); portable format support is in
+[plugin-packages](plugin-packages.md).
 
 Native logical coordinates use primary-display bottom-left origin, Y up, including negative coordinates.
 Device pixels/DPI do not belong in saved character scale. AppKit owns nonactivating panels, hit masks, drag,

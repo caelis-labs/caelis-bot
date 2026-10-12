@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -14,15 +13,11 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
-	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 	tc "github.com/caelis-labs/caelis-bot/internal/toolcontract"
 )
 
 func (r *Runtime) Definitions() []api.ToolDefinition {
 	out := toolDefinitions()
-	if r.desktopControl != nil {
-		out = append(out, desktopcontrol.Definitions()...)
-	}
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
 		caps := p.ApplicationCapabilities()
 		out = slices.DeleteFunc(out, func(d api.ToolDefinition) bool {
@@ -69,9 +64,6 @@ func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage
 	args, err := tc.Decode(def.InputSchema, raw)
 	if err != nil {
 		return compactError("invalid_arguments", err)
-	}
-	if strings.HasPrefix(name, desktopcontrol.Prefix) {
-		return r.callCompactDesktop(ctx, name, args)
 	}
 	if name == "bot_dream" {
 		return r.callDreamTool(ctx, args)
@@ -386,110 +378,6 @@ func (r *Runtime) schedulePage(q map[string]any) api.ToolResult {
 	}
 	return compactValue(map[string]any{"ok": true, "data": data}, false)
 }
-func (r *Runtime) callCompactDesktop(ctx context.Context, name string, args map[string]any) api.ToolResult {
-	r.mu.Lock()
-	originalTurn := r.desktopTurn
-	r.mu.Unlock()
-	legacy := name
-	var input map[string]any
-	switch name {
-	case "bot_desktop_authorize":
-		input = args
-	case "bot_desktop_act":
-		id := str(args, "requestId")
-		delete(args, "requestId")
-		input = map[string]any{"requestId": id, "args": args}
-	case "bot_desktop_inspect":
-		q := args["request"].(map[string]any)
-		kind := str(q, "type")
-		if kind == "grants" {
-			p, ok := r.desktopControl.(interface {
-				GrantStatus(context.Context) api.ToolResult
-			})
-			if !ok {
-				return compactError("unavailable", errors.New("desktop grant status unavailable"))
-			}
-			turnCtx, cancel := r.desktopCallContext(ctx)
-			defer cancel()
-			return p.GrantStatus(turnCtx)
-		}
-		delete(q, "type")
-		legacy = "bot_desktop_" + map[string]string{"outline": "observe", "text": "read", "delta": "sync", "image": "capture"}[kind]
-		if kind == "outline" && str(q, "continuation") != "" {
-			token := str(q, "continuation")
-			r.mu.Lock()
-			saved, ok := r.desktopQueries[token]
-			turn := r.desktopTurn
-			r.mu.Unlock()
-			if !ok || saved.turn != turn {
-				return compactError("continuation_unavailable", errors.New("original observation unavailable; start a new bounded outline"))
-			}
-			_ = json.Unmarshal(saved.args, &q)
-			q["continuation"] = token
-		}
-		input = map[string]any{"requestId": "read-" + rand.Text(), "args": q}
-	case "bot_desktop_result":
-		q := args["request"].(map[string]any)
-		if str(q, "type") == "status" {
-			if id := str(q, "requestId"); id != "" {
-				return r.callLegacyTool(ctx, "bot_desktop_reconcile", encoded(map[string]any{"requestId": id}))
-			}
-			p, ok := r.desktopControl.(interface {
-				ReadRun(context.Context, string) api.ToolResult
-			})
-			if !ok {
-				return compactError("receipt_unavailable", errors.New("original run lookup unavailable"))
-			}
-			return p.ReadRun(ctx, str(q, "runId"))
-		}
-		legacy = "bot_desktop_cancel"
-		input = map[string]any{"requestId": q["requestId"], "args": map[string]any{"run_id": q["runId"]}}
-	}
-	out := r.callLegacyTool(ctx, legacy, encoded(input))
-	if legacy == "bot_desktop_observe" && !out.IsError {
-		q := input["args"].(map[string]any)
-		delete(q, "continuation")
-		remember := func(token string) {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			if r.desktopTurn != originalTurn || r.desktopContext == nil || r.desktopContext.Err() != nil {
-				return
-			}
-			if r.desktopQueries == nil {
-				r.desktopQueries = map[string]desktopQuery{}
-			}
-			if len(r.desktopQueries) < 512 {
-				r.desktopQueries[token] = desktopQuery{r.desktopTurn, encoded(q)}
-			}
-		}
-		scanContinuation(out.StructuredContent, remember)
-	}
-	return out
-}
-
-type desktopQuery struct {
-	turn string
-	args json.RawMessage
-}
-
-func scanContinuation(value any, save func(string)) {
-	switch v := value.(type) {
-	case map[string]any:
-		for k, child := range v {
-			if k == "continuation" {
-				if token, ok := child.(string); ok && token != "" {
-					save(token)
-				}
-			} else {
-				scanContinuation(child, save)
-			}
-		}
-	case []any:
-		for _, child := range v {
-			scanContinuation(child, save)
-		}
-	}
-}
 
 // Keep the legacy view private to the original versioned invocation binding.
 type legacyTools struct{ runtime *Runtime }
@@ -500,12 +388,5 @@ func (v legacyTools) CallTool(ctx context.Context, name string, args json.RawMes
 }
 func (r *Runtime) LegacyToolConnection() *api.ToolConnection {
 	approved := botpolicy.LegacyApprovedTools()
-	if r.desktopControl != nil {
-		for _, d := range desktopcontrol.LegacyDefinitions() {
-			if d.Name != "bot_desktop_authorize" {
-				approved = append(approved, d.Name)
-			}
-		}
-	}
 	return &api.ToolConnection{Host: legacyTools{r}, ApprovedTools: approved}
 }

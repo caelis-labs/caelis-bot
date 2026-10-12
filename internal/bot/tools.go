@@ -16,7 +16,6 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
-	"github.com/caelis-labs/caelis-bot/internal/desktopcontrol"
 	"github.com/caelis-labs/caelis-bot/internal/localipc"
 )
 
@@ -57,9 +56,6 @@ func (r *Runtime) LegacyDefinitions() []api.ToolDefinition {
 	b, _ := json.Marshal(toolSpecs())
 	var out []api.ToolDefinition
 	_ = json.Unmarshal(b, &out)
-	if r.desktopControl != nil {
-		out = append(out, desktopcontrol.LegacyDefinitions()...)
-	}
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
 		caps := p.ApplicationCapabilities()
 		out = slices.DeleteFunc(out, func(d api.ToolDefinition) bool {
@@ -92,23 +88,6 @@ func (r *Runtime) callLegacyTool(ctx context.Context, name string, args json.Raw
 	}
 	if !available {
 		return result(nil, errors.New("当前运行时不支持此能力"))
-	}
-	if r.desktopControl != nil && strings.HasPrefix(name, desktopcontrol.Prefix) {
-		// Reconciliation remains read-only and available after turn revocation.
-		if name != "bot_desktop_reconcile" {
-			var cancel context.CancelFunc
-			ctx, cancel = r.desktopCallContext(ctx)
-			defer cancel()
-			if ctx.Err() != nil {
-				return result(nil, errors.New("desktop turn stopped; wait for a new user request"))
-			}
-		}
-		if name == "bot_desktop_capture" {
-			if err := r.requireDesktopImage(ctx); err != nil {
-				return result(nil, err)
-			}
-		}
-		return r.desktopControl.CallTool(ctx, name, args)
 	}
 	if name == "bot_task_machines" || name == "bot_tasks" || name == "bot_task_start" || name == "bot_task_read" || name == "bot_task_send" || name == "bot_task_stop" {
 		return r.callTask(ctx, name, args)
@@ -203,9 +182,6 @@ func Serve(r *Runtime) (*Bridge, error) {
 					_ = json.NewEncoder(conn).Encode(result(nil, errors.New("拒绝未授权调用")))
 					return
 				}
-				if strings.HasPrefix(req.Name, desktopcontrol.Prefix) {
-					_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
-				}
 				if req.Name == "bot_dream" {
 					_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
 				}
@@ -244,12 +220,6 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 	config := &api.ToolConnection{WorkerInstructions: botpolicy.WorkerInstructions, Host: b.runtime, Command: executable, Args: []string{"--bot-tools"},
 		Env:           map[string]string{"CAELIS_BOT_ENDPOINT": b.listener.Endpoint(), "CAELIS_BOT_TOKEN": b.token, "CAELIS_BOT_TOOLS_VERSION": "2"},
 		ApprovedTools: botpolicy.ApprovedTools()}
-	if b.runtime.desktopControl != nil {
-		config.Env["CAELIS_BOT_DESKTOP_WORLD"] = "1"
-		// Input is cheap after a separately reviewed app grant; the native helper
-		// enforces its application and turn scope before every dispatch.
-		config.ApprovedTools = append(config.ApprovedTools, desktopcontrol.ApprovedTools()...)
-	}
 	raw, _ := json.Marshal(b.runtime.Definitions())
 	config.Env["CAELIS_BOT_TOOL_CATALOG"] = string(raw)
 	config.Services = []api.ToolService{
@@ -257,7 +227,6 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 		{Name: "caelis_tasks", Tools: []string{"bot_tasks", "bot_delegate", "bot_interactions"}},
 		{Name: "caelis_schedule", Tools: []string{"bot_schedule", "bot_schedule_update"}},
 		{Name: "caelis_personal", Tools: []string{"bot_memory", "bot_gesture"}},
-		{Name: "caelis_desktop", Tools: []string{"bot_desktop_inspect", "bot_desktop_authorize", "bot_desktop_act", "bot_desktop_result"}},
 	}
 	return config
 }
@@ -342,19 +311,9 @@ func RunStdio(in io.Reader, out io.Writer) error {
 					specs = defs
 				} else if os.Getenv("CAELIS_BOT_TOOLS_VERSION") == "2" {
 					defs := toolDefinitions()
-					if os.Getenv("CAELIS_BOT_DESKTOP_WORLD") == "1" {
-						defs = append(defs, desktopcontrol.Definitions()...)
-					}
 					specs = defs
 				} else {
 					specs = toolSpecs()
-				}
-				if os.Getenv("CAELIS_BOT_TOOLS_VERSION") == "" && os.Getenv("CAELIS_BOT_TOOL_CATALOG") == "" && os.Getenv("CAELIS_BOT_DESKTOP_WORLD") == "1" {
-					list := specs.([]any)
-					for _, d := range desktopcontrol.LegacyDefinitions() {
-						list = append(list, d)
-					}
-					specs = list
 				}
 				value = map[string]any{"tools": specs}
 			case "tools/call":
@@ -395,9 +354,6 @@ func forward(endpoint string, req toolRequest) toolResult {
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-	if strings.HasPrefix(req.Name, desktopcontrol.Prefix) {
-		_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
-	}
 	if req.Name == "bot_dream" {
 		_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
 	}
@@ -406,9 +362,6 @@ func forward(endpoint string, req toolRequest) toolResult {
 	}
 	var out toolResult
 	if e = json.NewDecoder(io.LimitReader(conn, 512*1024)).Decode(&out); e != nil {
-		if strings.HasPrefix(req.Name, desktopcontrol.Prefix) {
-			return forwardFailure(req, "Desktop result unconfirmed; read the original receipt, never replay input")
-		}
 		return forwardFailure(req, "Bot result unconfirmed; inspect the original state, never create a replacement request")
 	}
 	return out
@@ -423,14 +376,9 @@ func forwardFailure(req toolRequest, message string) toolResult {
 	var args map[string]any
 	_ = json.Unmarshal(req.Arguments, &args)
 	var next map[string]any
-	if req.Name == "bot_desktop_act" && str(args, "requestId") != "" {
-		next = map[string]any{"tool": "bot_desktop_result", "request": map[string]any{"type": "status", "requestId": args["requestId"]}}
-	} else if q, ok := args["request"].(map[string]any); ok {
+	if q, ok := args["request"].(map[string]any); ok {
 		if req.Name == "bot_delegate" && str(q, "requestId") != "" {
 			next = map[string]any{"tool": "bot_tasks", "request": map[string]any{"type": "read", "requestId": q["requestId"]}}
-		}
-		if req.Name == "bot_desktop_result" && str(q, "type") == "cancel" {
-			next = map[string]any{"tool": "bot_desktop_result", "request": map[string]any{"type": "status", "requestId": q["requestId"]}}
 		}
 		if req.Name == "bot_schedule_update" {
 			next = map[string]any{"tool": "bot_schedule", "request": map[string]any{"type": "list"}}

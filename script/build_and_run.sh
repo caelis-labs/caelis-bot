@@ -24,8 +24,8 @@ if [[ "$BOT_MODE" == --task-dock-preview ]]; then
   # A native panel fixture with disposable tasks, independent of the daily Bot.
   BOT_TASK_DOCK_LIVE=1 exec bash "$BOT_ROOT/script/task-dock-native-test.sh"
 fi
-case "$BOT_MODE" in run|--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--terminal-smoke|--remote-terminal-smoke|--desktop-capture-smoke) ;; *)
-  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--capture-preview|--task-dock-preview|--bubble-preview|--chat-preview|--desktop-control-preview|--desktop-capture-smoke TITLE EVIDENCE PNG ONCE|--terminal-smoke terminal iterm2 ghostty]" >&2; exit 2 ;;
+case "$BOT_MODE" in run|--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--terminal-smoke|--remote-terminal-smoke) ;; *)
+  echo "Usage: $0 [--verify|--verify-signed|--debug|--logs|--telemetry|--recall|--restart|--capture-preview|--task-dock-preview|--bubble-preview|--chat-preview|--desktop-control-preview TITLE EVIDENCE PNG ONCE|--terminal-smoke terminal iterm2 ghostty]" >&2; exit 2 ;;
 esac
 if [[ "$BOT_MODE" == --verify-signed ]]; then
   # Keep the distribution signature intact during native release acceptance.
@@ -54,26 +54,20 @@ if [[ -n "$(owned_pids)" ]]; then
   exit 1
 fi
 # Preserve the exact signed bytes when restarting after an OS permission change.
-if [[ "$BOT_MODE" != --verify-signed && "$BOT_MODE" != --restart && "$BOT_MODE" != --terminal-smoke && "$BOT_MODE" != --remote-terminal-smoke && "$BOT_MODE" != --desktop-capture-smoke ]]; then ./script/build.sh; fi
+if [[ "$BOT_MODE" != --verify-signed && "$BOT_MODE" != --restart && "$BOT_MODE" != --terminal-smoke && "$BOT_MODE" != --remote-terminal-smoke ]]; then ./script/build.sh; fi
 if [[ "$BOT_MODE" == --debug ]]; then
   exec lldb -- "$BOT_BUNDLE/Contents/MacOS/caelis-bot"
 fi
 BOT_LOG="$BOT_ROOT/.cache/$BOT_BUILD_CHANNEL-native-run.log"
 : > "$BOT_LOG"
 BOT_OPEN_ARGS=(-g -n "$BOT_BUNDLE" --stdout "$BOT_LOG" --stderr "$BOT_LOG")
-if [[ "$BOT_MODE" == --desktop-capture-smoke ]]; then
-  shift
-  if [[ $# != 4 ]]; then echo 'Specify exact disposable window title, private evidence/image paths and once marker.' >&2; exit 2; fi
-  [[ "$BOT_BUILD_CHANNEL" == development ]] || { echo 'Desktop capture smoke requires the isolated Dev bundle.' >&2; exit 2; }
-  bash "$BOT_ROOT/script/verify-signature.sh" "$BOT_BUNDLE" development app "$BOT_APP_ID"
-  /usr/bin/open "${BOT_OPEN_ARGS[@]}" --args --desktop-capture-smoke "$@"
-  for ((BOT_ATTEMPT=0; BOT_ATTEMPT<900; BOT_ATTEMPT++)); do
-    if rg -q 'DESKTOP CAPTURE E2E PASS' "$BOT_LOG"; then cat "$BOT_LOG"; exit 0; fi
-    if rg -q 'DESKTOP CAPTURE E2E FAIL' "$BOT_LOG"; then cat "$BOT_LOG"; exit 1; fi
-    sleep 0.1
-  done
-  echo "Desktop capture acceptance did not finish; see $BOT_LOG." >&2
-  exit 1
+# Launch Services does not reliably inherit a shell's test-scoped environment.
+# Pass only the two explicit isolation roots needed by native Dev acceptance.
+if [[ "${CAELIS_BOT_DATA_DIR+x}" == x ]]; then
+  BOT_OPEN_ARGS+=(--env "CAELIS_BOT_DATA_DIR=$CAELIS_BOT_DATA_DIR")
+fi
+if [[ -n "${CODEX_HOME:-}" ]]; then
+  BOT_OPEN_ARGS+=(--env "CODEX_HOME=$CODEX_HOME")
 fi
 if [[ "$BOT_MODE" == --remote-terminal-smoke ]]; then
   shift
@@ -97,9 +91,6 @@ if [[ "$BOT_MODE" == --terminal-smoke ]]; then
   echo "Terminal acceptance did not finish; see $BOT_LOG." >&2
   exit 1
 fi
-if [[ "${CAELIS_BOT_DATA_DIR+x}" == x ]]; then
-  BOT_OPEN_ARGS+=(--env "CAELIS_BOT_DATA_DIR=$CAELIS_BOT_DATA_DIR")
-fi
 if [[ -n "${CAELIS_BOT_DESKTOP_TRACE:-}" ]]; then
   BOT_OPEN_ARGS+=(--env "CAELIS_BOT_DESKTOP_TRACE=$CAELIS_BOT_DESKTOP_TRACE")
 fi
@@ -119,9 +110,6 @@ if [[ -n "${CODEX_BIN:-}" ]]; then
 fi
 if [[ -n "${CAELIS_CODEX_SOCKET:-}" ]]; then
   BOT_OPEN_ARGS+=(--env "CAELIS_CODEX_SOCKET=$CAELIS_CODEX_SOCKET")
-fi
-if [[ -n "${CODEX_HOME:-}" ]]; then
-  BOT_OPEN_ARGS+=(--env "CODEX_HOME=$CODEX_HOME")
 fi
 /usr/bin/open "${BOT_OPEN_ARGS[@]}"
 case "$BOT_MODE" in
