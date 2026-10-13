@@ -248,7 +248,15 @@ func (s *Session) childEvent(event Notification, thread, turn string) {
 	}
 	switch event.Method {
 	case "item/completed":
-		if task := s.taskByThread(thread); task != nil && turn == task.Run && n.Item.Type == "agentMessage" {
+		if task := s.taskByThread(thread); task != nil && turn != "" && n.Item.ID != "" && n.Item.Type == "agentMessage" {
+			if task.CompletedMessages == nil {
+				task.CompletedMessages = map[string]bool{}
+			}
+			task.CompletedMessages[opaque(turn, n.Item.ID)] = true
+			if turn != task.Run {
+				_ = s.save()
+				break
+			}
 			if !s.recordWorkerAsync(task, turn, n.Item) && n.Item.Delivery != "async" {
 				task.View.Result = boundedText(n.Item.Text, 6000)
 			}

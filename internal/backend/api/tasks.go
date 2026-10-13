@@ -69,11 +69,15 @@ type Task struct {
 	Result      string `json:"result,omitempty"`
 }
 type TaskStart struct {
-	Machine   string `json:"machine,omitempty"`
-	RequestID string `json:"requestId"`
-	Title     string `json:"title"`
-	Prompt    string `json:"prompt"`
-	Workspace string `json:"workspace,omitempty"`
+	Machine string `json:"machine,omitempty"`
+	// LocalRuntime pins the model-facing "local" choice to the Runtime
+	// currently hosting the Bot. Legacy native entry points keep their saved
+	// user-configured default; this is never accepted from tool JSON.
+	LocalRuntime bool   `json:"-"`
+	RequestID    string `json:"requestId"`
+	Title        string `json:"title"`
+	Prompt       string `json:"prompt"`
+	Workspace    string `json:"workspace,omitempty"`
 }
 type TaskMessage struct {
 	ID        string `json:"id"`
@@ -88,4 +92,38 @@ type TaskReporter interface{ DeliverTaskReport(context.Context) error }
 // TaskRequestReader resolves an already-owned original submission without replay.
 type TaskRequestReader interface {
 	ReadTaskRequest(context.Context, string) (Task, error)
+}
+
+// TaskConversationReader reads completed native Worker messages without
+// acknowledging a completion notice or changing execution. A missing native
+// transcript is an error, never an empty successful conversation.
+type TaskConversationReader interface {
+	ReadTaskConversation(context.Context, string) (TaskConversation, error)
+}
+
+type TaskConversation struct {
+	Status   string                    `json:"status"`
+	Messages []TaskConversationMessage `json:"messages"`
+}
+type TaskConversationMessage struct {
+	ID   string `json:"id"`
+	Role string `json:"role"`
+	Text string `json:"text"`
+}
+
+// TaskHistoryCatalog is the model-facing, creation-time ordered view of all
+// retained tasks. It is separate from the desktop watchlist catalog.
+type TaskHistoryCatalog interface {
+	QueryTaskHistory(TaskHistoryQuery) ([]TaskHistoryEntry, error)
+}
+type TaskHistoryQuery struct {
+	Query, Status, CreatedAfter, CreatedBefore, Order string
+	Offset, Limit                                     int
+}
+type TaskHistoryEntry struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Status      string `json:"status"`
+	CreatedAt   string `json:"createdAt,omitempty"`
+	Environment string `json:"environment"`
 }

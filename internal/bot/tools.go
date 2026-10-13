@@ -189,6 +189,8 @@ func Serve(r *Runtime) (*Bridge, error) {
 				}
 				if req.Name == "bot_dream" {
 					_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
+				} else if req.Name == "bot_delegate" && req.Version == 2 {
+					_ = conn.SetDeadline(time.Now().Add(35 * time.Second))
 				}
 				var out api.ToolResult
 				var invocation api.ToolInvocation
@@ -359,26 +361,40 @@ func RunStdio(in io.Reader, out io.Writer) error {
 	return scan.Err()
 }
 func forward(endpoint string, req toolRequest) toolResult {
+	out, uncertain := forwardOnce(endpoint, req)
+	if uncertain && req.Version == 2 && req.Name == "bot_delegate" && len(req.ID) != 0 {
+		// Reuse the original MCP call identity exactly once. The Host and native
+		// Worker journals own reconciliation; a different ID could repeat work.
+		if retry, retryUncertain := forwardOnce(endpoint, req); !retryUncertain && (!retry.IsError || len(retry.StructuredContent) != 0) {
+			return retry
+		}
+	}
+	return out
+}
+
+func forwardOnce(endpoint string, req toolRequest) (toolResult, bool) {
 	if endpoint == "" || req.Token == "" {
-		return result(nil, errors.New("Bot 工具连接未配置"))
+		return result(nil, errors.New("Bot 工具连接未配置")), false
 	}
 	conn, e := localipc.Dial(endpoint, 3*time.Second)
 	if e != nil {
-		return result(nil, errors.New("Bot 应用暂不可用"))
+		return result(nil, errors.New("Bot 应用暂不可用")), false
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 	if req.Name == "bot_dream" {
 		_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
+	} else if req.Name == "bot_delegate" && req.Version == 2 {
+		_ = conn.SetDeadline(time.Now().Add(35 * time.Second))
 	}
 	if e = json.NewEncoder(conn).Encode(req); e != nil {
-		return forwardFailure(req, "Bot request not confirmed; retain the original receipt")
+		return forwardFailure(req, "Bot request not confirmed; retain the original receipt"), true
 	}
 	var out toolResult
-	if e = json.NewDecoder(io.LimitReader(conn, 512*1024)).Decode(&out); e != nil {
-		return forwardFailure(req, "Bot result unconfirmed; inspect the original state, never create a replacement request")
+	if e = json.NewDecoder(io.LimitReader(conn, 8<<20)).Decode(&out); e != nil {
+		return forwardFailure(req, "Bot result unconfirmed; inspect the original state, never create a replacement request"), true
 	}
-	return out
+	return out, false
 }
 
 func forwardFailure(req toolRequest, message string) toolResult {
@@ -387,16 +403,9 @@ func forwardFailure(req toolRequest, message string) toolResult {
 	}
 	out := compactError("unconfirmed", errors.New(message))
 	out.StructuredContent["outcome"] = "unknown"
-	var args map[string]any
-	_ = json.Unmarshal(req.Arguments, &args)
 	var next map[string]any
-	if q, ok := args["request"].(map[string]any); ok {
-		if req.Name == "bot_delegate" && str(q, "requestId") != "" {
-			next = map[string]any{"tool": "bot_tasks", "request": map[string]any{"type": "read", "requestId": q["requestId"]}}
-		}
-		if req.Name == "bot_schedule_update" {
-			next = map[string]any{"tool": "bot_schedule", "request": map[string]any{"type": "list"}}
-		}
+	if req.Name == "bot_schedule_update" {
+		next = map[string]any{"tool": "bot_schedule", "request": map[string]any{"type": "list"}}
 	}
 	if next != nil {
 		out.StructuredContent["next"] = next

@@ -149,6 +149,29 @@ func (f *sessionFixture) serve(peer net.Conn) {
 				ItemsView     string `json:"itemsView"`
 			}
 			_ = json.Unmarshal(m.Params, &p)
+			if p.ItemsView == "full" && p.SortDirection == "asc" && p.Limit == 20 {
+				f.mu.Lock()
+				turns := append([]nativeTurn(nil), f.history...)
+				if worker, exists := f.workers[p.ThreadID]; exists {
+					turns = append([]nativeTurn(nil), worker.Turns...)
+				}
+				f.mu.Unlock()
+				start := 0
+				if p.Cursor != "" {
+					start, _ = strconv.Atoi(p.Cursor)
+				}
+				if start < 0 || start > len(turns) {
+					f.emitTo(peer, wireMessage{ID: m.ID, Error: &NativeError{Code: -32602, Message: "invalid cursor"}})
+					continue
+				}
+				end := min(start+20, len(turns))
+				next := ""
+				if end < len(turns) {
+					next = strconv.Itoa(end)
+				}
+				result = turnPage{Data: append([]nativeTurn{}, turns[start:end]...), NextCursor: next}
+				break
+			}
 			f.mu.Lock()
 			page, ok := f.pages[p.Cursor]
 			fail := f.failPage

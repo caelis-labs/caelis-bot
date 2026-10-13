@@ -95,7 +95,7 @@ func (a *Application) configureWorkers() error {
 func (w *localWorkers) OwnsWork(id string) bool {
 	return id == w.active || id == "codex" || id == "caelis"
 }
-func (w *localWorkers) BindWork(_ context.Context, _ api.TaskStart, id, runtime string) (string, error) {
+func (w *localWorkers) BindWork(_ context.Context, in api.TaskStart, id, runtime string) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.reloadSettingsLocked()
@@ -110,6 +110,10 @@ func (w *localWorkers) BindWork(_ context.Context, _ api.TaskStart, id, runtime 
 	}
 	if runtime == "" {
 		runtime = w.defaultRuntime
+		if in.LocalRuntime {
+			// The model-facing local target is the Runtime hosting this Bot.
+			runtime = w.active
+		}
 	}
 	if !w.OwnsWork(runtime) {
 		return "", errors.New("original_task_runtime_unavailable")
@@ -190,6 +194,17 @@ func (w *localWorkers) ReadWork(ctx context.Context, id string) (api.Task, error
 		return api.Task{}, err
 	}
 	return owner.ReadWork(ctx, id)
+}
+func (w *localWorkers) ReadWorkConversation(ctx context.Context, id string) ([]api.TaskConversationMessage, error) {
+	owner, err := w.target(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	reader, ok := owner.(api.WorkConversationReader)
+	if !ok {
+		return nil, errors.New("native task messages unavailable for original owner")
+	}
+	return reader.ReadWorkConversation(ctx, id)
 }
 func (w *localWorkers) RetireWork(ctx context.Context, id string) (api.Task, error) {
 	owner, err := w.target(ctx, id)

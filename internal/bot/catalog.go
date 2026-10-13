@@ -11,17 +11,15 @@ func requestID() tc.Schema {
 }
 func text(max int) tc.Schema { return tc.Schema{"type": "string", "minLength": 1, "maxLength": max} }
 func taskDefinitions() []api.ToolDefinition {
-	query := tc.Schema{"query": tc.String("Search title, assignment or task handle"), "status": tc.String("Exact status filter"), "pinned": tc.Schema{"type": "boolean"}, "limit": tc.Integer(1, 50), "cursor": tc.String("Opaque nextCursor; preserve filters")}
+	query := tc.Schema{"query": tc.String("Search task title, original assignment or handle"), "status": tc.String("Exact status filter"), "createdAfter": tc.String("Inclusive RFC3339 timestamp with timezone"), "createdBefore": tc.String("Exclusive RFC3339 timestamp with timezone"), "offset": tc.Integer(0, 1000000), "limit": tc.Integer(1, 50), "order": tc.Enum("asc", "desc")}
 	return []api.ToolDefinition{
-		tc.Definition("bot_tasks", "Find/read Bot-owned tasks, manage their watchlist, stop the exact requested task, retire an unusable task after original-owner idle confirmation, or find a user-specified machine. Retirement keeps history and unknown receipts but fences continuation. List is paged (20/default, 50/max), without transcripts. Watchlist changes never stop/delete work. Read acknowledges completed notices. Never select a remote automatically; missing receipts are unknown.", tc.Request(
-			tc.Branch("list", query), tc.Branch("read", tc.Schema{"task": text(256)}, "task"), tc.Branch("read", tc.Schema{"requestId": requestID()}, "requestId"),
-			tc.Branch("machines", tc.Schema{"query": tc.String("Machine name explicitly requested by user")}),
-			tc.Branch("watchlist", tc.Schema{"action": tc.Enum("pin", "unpin", "lock", "unlock"), "task": text(256)}, "action", "task"),
-			tc.Branch("watchlist", tc.Schema{"action": tc.Enum("clear")}, "action"), tc.Branch("stop", tc.Schema{"task": text(256)}, "task"),
-			tc.Branch("retire", tc.Schema{"task": text(256)}, "task"))),
-		tc.Definition("bot_delegate", "Start sustained user-requested work or continue/steer an owned task. Stable requestId prevents duplicates; unknown outcomes require bot_tasks.read, not a new submission. Omit machine for local work; remote must be explicitly user-selected. User-configured backend/model defaults apply only to new work. Accepted is not completed; host notifies completion.", tc.Request(
-			tc.Branch("start", tc.Schema{"requestId": requestID(), "title": text(160), "prompt": text(24000), "machine": text(256), "workspace": tc.String("Optional absolute existing project directory; omitted creates a managed workspace")}, "requestId", "prompt"),
-			tc.Branch("continue", tc.Schema{"requestId": requestID(), "task": text(256), "prompt": text(24000)}, "requestId", "task", "prompt"))),
+		tc.Definition("bot_tasks", "List all retained Bot-owned tasks by creation time (newest first), list connected execution environments, read completed User/Assistant Worker messages, stop an exact task without deleting it, or pin an expired card for the user. Reads never consume messages or continue work. Missing native history is an error. Local is the Runtime hosting this Bot; remote selection requires the user's direction.", tc.Request(
+			tc.Branch("environments", tc.Schema{}), tc.Branch("list", query),
+			tc.Branch("read", tc.Schema{"task": text(256), "offset": tc.Integer(0, 1000000), "limit": tc.Integer(1, 20), "messageId": text(512)}, "task"),
+			tc.Branch("stop", tc.Schema{"task": text(256)}, "task"),
+			tc.Branch("pin", tc.Schema{"task": text(256), "pinned": tc.Schema{"type": "boolean"}}, "task", "pinned"))),
+		tc.Definition("bot_delegate", "Submit one prompt to a new Bot-owned Worker, or continue/steer the exact existing task when task is supplied. The Host derives a durable submission ID from the original native tool invocation; repeated text in distinct calls remains valid. Creation only: optional title, workspace, and environment; omit environment for local. Existing tasks cannot change these bindings. Accepted is not completed. Unconfirmed dispatch is reconciled by its original receipt and never retried with a replacement ID.", tc.Object(
+			tc.Schema{"prompt": text(24000), "task": text(256), "title": text(160), "workspace": tc.String("Optional absolute existing directory for a new task"), "environment": text(256)}, "prompt")),
 		tc.Definition("bot_interactions", "Inspect and resolve native Worker approvals and asynchronous questions. Use current offered options and exact request IDs. Answer from known task context or ask the user when unclear. Runtime remains authoritative; never decide this Bot's own approval or retry an unknown result.", tc.Request(
 			tc.Branch("list", tc.Schema{}),
 			tc.Branch("decide", tc.Schema{"approval": text(256), "choice": text(256), "answers": tc.Schema{"type": "object", "additionalProperties": tc.Schema{"type": "array", "items": text(16384)}}}, "approval", "choice"),

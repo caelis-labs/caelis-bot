@@ -18,6 +18,8 @@ import (
 
 type owner interface {
 	api.WorkRuntime
+	api.WorkConversationReader
+	api.RecordedWorkMessage
 	api.WorkRetirer
 	api.WorkTerminalProvider
 	Connect(context.Context) error
@@ -270,6 +272,10 @@ func (o *Owner) Handle(ctx context.Context, r Request) Response {
 		out.Task, err = w.StartWork(ctx, r.Start)
 	case "read":
 		out.Task, err = w.ReadWork(ctx, r.ID)
+	case "messages":
+		out.Messages, err = w.ReadWorkConversation(ctx, r.ID)
+	case "recorded":
+		out.Recorded = w.WorkMessageRecorded(r.Message)
 	case "retire":
 		out.Task, err = w.RetireWork(ctx, r.ID)
 	case "send":

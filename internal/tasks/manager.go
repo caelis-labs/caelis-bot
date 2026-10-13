@@ -25,10 +25,12 @@ import (
 
 type record struct {
 	Requests          []string        `json:"requests,omitempty"`
+	ConfirmedRequests map[string]bool `json:"confirmedRequests,omitempty"`
 	RetiredExecutions []string        `json:"retiredExecutions,omitempty"`
 	PreviousReports   []reportReceipt `json:"previousReports,omitempty"`
 	Runtime           string          `json:"runtime,omitempty"`
 	Sequence          int64           `json:"sequence,omitempty"`
+	CreatedAt         int64           `json:"createdAt,omitempty"`
 	Locked            bool            `json:"locked,omitempty"`
 	CompletedAt       int64           `json:"completedAt,omitempty"`
 	ActiveAt          int64           `json:"activeAt,omitempty"`
@@ -497,7 +499,7 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	}
 	m.mu.Lock()
 	pinned := true
-	r := &record{Requests: []string{in.RequestID}, Runtime: runtime, ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Machine: in.Machine, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
+	r := &record{Requests: []string{in.RequestID}, Runtime: runtime, CreatedAt: m.now().UnixMilli(), ActiveAt: m.now().UnixMilli(), Pinned: &pinned, Provider: m.provider, Fingerprint: fp, OriginalPrompt: in.Prompt, View: api.Task{ID: id, Machine: in.Machine, Title: in.Title, Workspace: workspace, Status: "unknown", Outcome: "unknown"}}
 	m.state.Sequence++
 	r.Sequence = m.state.Sequence
 	m.promoteWatchLocked(id)
@@ -633,7 +635,37 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		return api.Task{}, e
 	}
 	m.mu.Lock()
-	status := m.state.Records[in.ID].View.Status
+	current := m.state.Records[in.ID]
+	status := current.View.Status
+	duplicate := slices.Contains(current.Requests, in.RequestID)
+	if duplicate {
+		prior := current.View
+		confirmed := current.ConfirmedRequests[in.RequestID]
+		m.mu.Unlock()
+		if confirmed {
+			prior.Outcome = "accepted"
+			return prior, nil
+		}
+		// The native adapter owns the per-submission receipt. Only a verified
+		// original ID may be reconciled; a task ID is not a send receipt.
+		recorded, ok := m.work.(api.RecordedWorkMessage)
+		if !ok || !recorded.WorkMessageRecorded(in) {
+			prior.Outcome = "unknown"
+			return prior, errors.New("original submission receipt is not confirmed; no Worker prompt was replayed")
+		}
+		v, err := m.work.SendWork(ctx, in)
+		v, err = m.capture(in.ID, v, err)
+		if err == nil && v.Status != "unknown" && v.Outcome != "unknown" {
+			m.mu.Lock()
+			if current.ConfirmedRequests == nil {
+				current.ConfirmedRequests = map[string]bool{}
+			}
+			current.ConfirmedRequests[in.RequestID] = true
+			err = m.write()
+			m.mu.Unlock()
+		}
+		return v, err
+	}
 	if status == "unavailable" {
 		m.mu.Unlock()
 		return api.Task{}, errors.New("task retired; original receipts remain available for reading")
@@ -671,7 +703,17 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	m.mu.Unlock()
 	defer m.notifyWatchlist()
 	v, e := m.work.SendWork(ctx, in)
-	return m.capture(in.ID, v, e)
+	v, e = m.capture(in.ID, v, e)
+	if e == nil && v.Status != "unknown" && v.Outcome != "unknown" {
+		m.mu.Lock()
+		if r.ConfirmedRequests == nil {
+			r.ConfirmedRequests = map[string]bool{}
+		}
+		r.ConfirmedRequests[in.RequestID] = true
+		e = m.write()
+		m.mu.Unlock()
+	}
+	return v, e
 }
 
 // The operation lock spans this check and native dispatch, so parallel starts

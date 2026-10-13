@@ -24,20 +24,22 @@ type Request struct {
 	Team    api.RuntimeConfigurationChange `json:"team,omitempty"`
 }
 type Response struct {
-	Version        int                        `json:"version"`
-	Identity       string                     `json:"identity"`
-	Available      []string                   `json:"available"`
-	Setup          api.SetupState             `json:"setup"`
-	Model          api.WorkExecutionSettings  `json:"model"`
-	Models         []api.ModelOption          `json:"models"`
-	RuntimeDefault *api.WorkExecutionSettings `json:"runtimeDefault"`
-	Configuration  *api.RuntimeConfiguration  `json:"configuration,omitempty"`
-	AdvancedIssue  string                     `json:"advancedIssue,omitempty"`
-	States         []api.WorkState            `json:"states"`
-	Task           api.Task                   `json:"task"`
-	Terminal       api.TerminalTarget         `json:"terminal"`
-	Mutation       api.RuntimeMutationResult  `json:"mutation"`
-	Error          string                     `json:"error,omitempty"`
+	Version        int                           `json:"version"`
+	Identity       string                        `json:"identity"`
+	Available      []string                      `json:"available"`
+	Setup          api.SetupState                `json:"setup"`
+	Model          api.WorkExecutionSettings     `json:"model"`
+	Models         []api.ModelOption             `json:"models"`
+	RuntimeDefault *api.WorkExecutionSettings    `json:"runtimeDefault"`
+	Configuration  *api.RuntimeConfiguration     `json:"configuration,omitempty"`
+	AdvancedIssue  string                        `json:"advancedIssue,omitempty"`
+	States         []api.WorkState               `json:"states"`
+	Task           api.Task                      `json:"task"`
+	Messages       []api.TaskConversationMessage `json:"messages,omitempty"`
+	Recorded       bool                          `json:"recorded,omitempty"`
+	Terminal       api.TerminalTarget            `json:"terminal"`
+	Mutation       api.RuntimeMutationResult     `json:"mutation"`
+	Error          string                        `json:"error,omitempty"`
 }
 
 func Decode(data []byte, v any) error { return json.Unmarshal(data, v) }

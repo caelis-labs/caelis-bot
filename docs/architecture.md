@@ -556,6 +556,19 @@ MCP server when its built-in plugin is enabled. It is never included in the
 built-in automatic approval list. Typed requests use application-owned schemas
 and native dispatch validation.
 
+`bot_delegate` takes a prompt and optional original task handle. The Host derives
+each durable submission ID from the resident Runtime's native tool invocation;
+separate calls with the same text are separate submissions. A retry of the same
+transport call may reconcile its original receipt once. A native unknown result
+never authorizes a new submission ID or an automatic replay. Creation-only
+title, workspace and environment cannot rebind a retained task. `local` means
+the Runtime currently hosting Bot; connected remote environments have stable
+keys. `bot_tasks` exposes environments, all retained task summaries, native
+completed User/Assistant message reads, stop and pin. Creation time is stored
+for new tasks; migrated undated tasks retain stable ledger order. Read does not
+consume completion notices or start work; unreadable native history is an error.
+The desktop watchlist and safe native retirement remain Host internals.
+
 The new catalog never advertises legacy aliases. `bot_memory` is also removed from
 the legacy catalog and both invocation paths reject it, including calls through
 old MCP service names or persisted tool references. Historical private data stays
@@ -566,9 +579,10 @@ effect. Private MCP invocations carry a
 catalog generation, and Caelis restores the exact original legacy schema/policy
 version for old pending callbacks. This preserves original receipts without
 rerouting them to the current same-name schema or replaying mutations. Unknown
-catalog versions still fail closed. Task request lookup uses the owned ledger;
-missing/ambiguous records are unconfirmed. Old follow-ups without a recorded
-request identity still need their original task handle. Worker defaults, native
+catalog versions still fail closed. Legacy request lookup remains an internal
+receipt recovery path; the new model catalog cannot query by requestId or invoke
+the retired watchlist/retire schema. Missing or ambiguous original receipts
+remain unconfirmed. Worker defaults, native
 bindings, approval policies, Notebook isolation and event/calendar grants have
 independent semantic owners.
 

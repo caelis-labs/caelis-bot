@@ -44,11 +44,16 @@ type Wake struct {
 	Status      string   `json:"status"` // pending, dispatching, accepted, unknown
 }
 type State struct {
-	Version         int        `json:"version"`
-	PersonalVersion int        `json:"personalVersion,omitempty"`
-	ID              string     `json:"id"`
-	Schedules       []Schedule `json:"schedules"`
-	Wake            *Wake      `json:"wake,omitempty"`
+	Version         int                         `json:"version"`
+	Delegations     map[string]delegationIntent `json:"delegations,omitempty"`
+	PersonalVersion int                         `json:"personalVersion,omitempty"`
+	ID              string                      `json:"id"`
+	Schedules       []Schedule                  `json:"schedules"`
+	Wake            *Wake                       `json:"wake,omitempty"`
+}
+type delegationIntent struct {
+	Fingerprint string `json:"fingerprint"`
+	Task        string `json:"task,omitempty"`
 }
 type Engine interface {
 	Snapshot() api.Snapshot

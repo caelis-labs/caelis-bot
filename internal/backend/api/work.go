@@ -18,6 +18,12 @@ type WorkRuntime interface {
 	StopWork(context.Context, string) (Task, error)
 }
 
+// WorkConversationReader projects the original Runtime's persisted Worker
+// transcript. The application checks task ownership before calling it.
+type WorkConversationReader interface {
+	ReadWorkConversation(context.Context, string) ([]TaskConversationMessage, error)
+}
+
 // WorkRetirer fences an owned task after a read-only native check confirms it
 // has no active execution. It retains its original binding and receipts.
 type WorkRetirer interface {

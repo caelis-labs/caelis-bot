@@ -17,13 +17,14 @@ import (
 // Task records and submission receipts share the atomic conversation binding.
 // A recorded unknown outcome is never permission to retry a mutation.
 type taskRecord struct {
-	OriginalPrompt string                         `json:"originalPrompt,omitempty"`
-	Execution      *api.WorkExecutionSettings     `json:"execution,omitempty"`
-	ModelProvider  string                         `json:"modelProvider,omitempty"`
-	View           api.Task                       `json:"view"`
-	Thread         string                         `json:"thread"`
-	Run            string                         `json:"run"`
-	AsyncQuestions map[string]workerAsyncQuestion `json:"asyncQuestions,omitempty"`
+	OriginalPrompt    string                         `json:"originalPrompt,omitempty"`
+	Execution         *api.WorkExecutionSettings     `json:"execution,omitempty"`
+	ModelProvider     string                         `json:"modelProvider,omitempty"`
+	View              api.Task                       `json:"view"`
+	Thread            string                         `json:"thread"`
+	Run               string                         `json:"run"`
+	AsyncQuestions    map[string]workerAsyncQuestion `json:"asyncQuestions,omitempty"`
+	CompletedMessages map[string]bool                `json:"completedMessages,omitempty"` // exact native turn/item completion receipts
 	// Native turn IDs displaced by a later, durably recorded continuation. Keep
 	// these across reconnects: an old terminal event is not the new result.
 	SupersededRuns []string               `json:"supersededRuns,omitempty"`

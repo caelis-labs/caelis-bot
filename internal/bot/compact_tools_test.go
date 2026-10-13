@@ -6,23 +6,27 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
 type compactTasks struct {
 	catalogFixture
-	start        api.TaskStart
-	sent         api.TaskMessage
-	reads, stops int
+	start         api.TaskStart
+	sent          api.TaskMessage
+	reads, stops  int
+	starts, sends int
 }
 
 func (f *compactTasks) StartTask(_ context.Context, in api.TaskStart) (api.Task, error) {
 	f.start = in
+	f.starts++
 	return api.Task{ID: "owned", Status: "working", Outcome: "accepted"}, nil
 }
 func (f *compactTasks) SendTask(_ context.Context, in api.TaskMessage) (api.Task, error) {
 	f.sent = in
+	f.sends++
 	return api.Task{ID: "owned", Status: "working", Outcome: "accepted"}, nil
 }
 func (f *compactTasks) ReadTask(context.Context, string) (api.Task, error) {
@@ -42,6 +46,14 @@ func (f *compactTasks) StopTask(context.Context, string) (api.Task, error) {
 func (*compactTasks) TaskMachines() []api.TaskMachine {
 	return []api.TaskMachine{{ID: "remote-one", Name: "Fedora", Ready: true}, {ID: "remote-two", Name: "Other", Ready: false}}
 }
+func (f *compactTasks) QueryTaskHistory(q api.TaskHistoryQuery) ([]api.TaskHistoryEntry, error) {
+	f.calls++
+	return []api.TaskHistoryEntry{{ID: "owned", Title: "Review", Status: "working", Environment: "local", CreatedAt: "2026-10-13T10:00:00Z"}}, nil
+}
+func (f *compactTasks) ReadTaskConversation(context.Context, string) (api.TaskConversation, error) {
+	f.reads++
+	return api.TaskConversation{Status: "working", Messages: []api.TaskConversationMessage{{ID: "user-1", Role: "user", Text: "Review assigned project"}, {ID: "assistant-1", Role: "assistant", Text: "progress"}}}, nil
+}
 func invokeCompact(t *testing.T, r *Runtime, name, raw string) api.ToolResult {
 	t.Helper()
 	out := r.CallTool(t.Context(), name, json.RawMessage(raw))
@@ -54,46 +66,78 @@ func TestCompactTaskFlowsAndInvalidBranches(t *testing.T) {
 	r, _, _ := fixture(t)
 	f := &compactTasks{}
 	r.ConfigureTasks(f, nil)
-	invokeCompact(t, r, "bot_delegate", `{"request":{"type":"start","requestId":"start-once","title":"Review","prompt":"Review assigned project"}}`)
-	out := invokeCompact(t, r, "bot_tasks", `{"request":{"type":"read","requestId":"start-once"}}`)
-	if out.StructuredContent["data"].(map[string]any)["status"] != "completed" {
-		t.Fatal("accepted confused with completion")
+	call := func(id, raw string) api.ToolResult {
+		ctx := api.WithToolInvocation(t.Context(), api.ToolInvocation{Provider: "codex", Session: "resident", Turn: "turn", CallID: id})
+		return r.CallTool(ctx, "bot_delegate", json.RawMessage(raw))
 	}
-	invokeCompact(t, r, "bot_delegate", `{"request":{"type":"continue","task":"owned","requestId":"continue-once","prompt":"Check result"}}`)
-	if f.sent.ID != "owned" || f.sent.RequestID != "continue-once" || f.start.Machine != "" {
+	out := call("start-once", `{"title":"Review","prompt":"Review assigned project"}`)
+	firstID := f.start.RequestID
+	if out.IsError || f.start.RequestID != toolSubmissionID(api.ToolInvocation{Provider: "codex", Session: "resident", Turn: "turn", CallID: "start-once"}) || !f.start.LocalRuntime {
+		t.Fatal("native invocation did not own start", out, f.start)
+	}
+	if retry := call("start-once", `{"title":"Review","prompt":"Review assigned project"}`); retry.IsError || f.start.RequestID == "" {
+		t.Fatal("same invocation receipt failed", retry)
+	}
+	if different := call("another-call", `{"title":"Review","prompt":"Review assigned project"}`); different.IsError || f.starts != 3 || f.start.RequestID == firstID {
+		t.Fatal("distinct same-text invocation deduplicated", different, f.starts)
+	}
+	out = invokeCompact(t, r, "bot_tasks", `{"request":{"type":"read","task":"owned"}}`)
+	if out.StructuredContent["data"].(map[string]any)["status"] != "working" {
+		t.Fatal("read confused with completion", out)
+	}
+	out = call("continue-once", `{"task":"owned","prompt":"Check result"}`)
+	if out.IsError || f.sent.ID != "owned" || f.sent.RequestID == "" || f.start.Machine != "" {
 		t.Fatal("binding overwritten")
 	}
-	out = invokeCompact(t, r, "bot_tasks", `{"request":{"type":"machines","query":"fedora"}}`)
-	if len(out.StructuredContent["data"].([]api.TaskMachine)) != 1 {
-		t.Fatal("machine filtering")
+	out = invokeCompact(t, r, "bot_tasks", `{"request":{"type":"environments"}}`)
+	if len(out.StructuredContent["data"].([]map[string]string)) != 3 {
+		t.Fatal("environment list", out)
 	}
-	for _, action := range []string{"pin", "unpin", "lock", "unlock", "clear"} {
-		raw := `{"request":{"type":"watchlist","action":"` + action + `"`
-		if action != "clear" {
-			raw += `,"task":"owned"`
-		}
-		invokeCompact(t, r, "bot_tasks", raw+`}}`)
-	}
-	if f.stops != 0 {
-		t.Fatal("watchlist stopped work")
+	invokeCompact(t, r, "bot_tasks", `{"request":{"type":"pin","task":"owned","pinned":true}}`)
+	if f.stops != 0 || f.pinned != "owned" {
+		t.Fatal("pin executed worker")
 	}
 	invokeCompact(t, r, "bot_tasks", `{"request":{"type":"stop","task":"owned"}}`)
 	if f.stops != 1 {
 		t.Fatal("stop missing")
 	}
 	before := f.calls
-	for _, raw := range []string{`{"request":{"type":"list","limit":51}}`, `{"request":{"type":"read","task":"owned","requestId":"start-once"}}`, `{"request":{"type":"watchlist","action":"clear","task":"owned"}}`, `{"request":{"type":"list","runtime":"codex"}}`, `{"request":{"type":"list","type":"stop","task":"owned"}}`} {
+	for _, raw := range []string{`{"request":{"type":"list","limit":51}}`, `{"request":{"type":"read","task":"owned","requestId":"start-once"}}`, `{"request":{"type":"watchlist","action":"clear","task":"owned"}}`, `{"request":{"type":"read","task":"owned","messageId":"assistant-1","limit":1}}`, `{"request":{"type":"list","runtime":"codex"}}`, `{"request":{"type":"list","type":"stop","task":"owned"}}`} {
 		if !r.CallTool(t.Context(), "bot_tasks", json.RawMessage(raw)).IsError {
 			t.Fatal("invalid branch accepted", raw)
 		}
 	}
-	for _, raw := range []string{`{"request":{"type":"continue","task":"owned","requestId":"new-direction","prompt":"x","runtime":"caelis"}}`, `{"request":{"type":"continue","task":"owned","requestId":"new-direction","prompt":"x","machine":"remote"}}`, `{"request":{"type":"start","requestId":"small","title":"x","prompt":"x"}}`} {
-		if !r.CallTool(t.Context(), "bot_delegate", json.RawMessage(raw)).IsError {
+	for _, raw := range []string{`{"task":"owned","prompt":"x","title":"new title"}`, `{"task":"owned","prompt":"x","environment":"remote-one"}`, `{"request":{"type":"start","requestId":"small","prompt":"x"}}`} {
+		if !call("invalid", raw).IsError {
 			t.Fatal("invalid delegation")
 		}
 	}
+	if !call("start-once", `{"title":"Review","prompt":"different"}`).IsError {
+		t.Fatal("original invocation intent changed")
+	}
 	if f.calls != before {
 		t.Fatal("invalid query reached manager")
+	}
+}
+func TestTaskReadUsesCompletedMessageIdentityAndUTF8ByteFolding(t *testing.T) {
+	value := strings.Repeat("界", 400)
+	folded := collapsedTaskText(value)
+	if !utf8.ValidString(folded) || !strings.Contains(folded, "[已折叠 ") || len(folded) >= len(value) {
+		t.Fatal("UTF-8 byte summary corrupted", folded)
+	}
+	if got := collapsedTaskText("short 文本"); got != "short 文本" {
+		t.Fatal("short message altered", got)
+	}
+	r, _, _ := fixture(t)
+	f := &compactTasks{}
+	r.ConfigureTasks(f, nil)
+	out := invokeCompact(t, r, "bot_tasks", `{"request":{"type":"read","task":"owned","messageId":"assistant-1"}}`)
+	data := out.StructuredContent["data"].(map[string]any)
+	if data["status"] != "working" || data["message"].(api.TaskConversationMessage).Text != "progress" || data["messages"] != nil {
+		t.Fatal("detail repeated list fields", data)
+	}
+	if !r.CallTool(t.Context(), "bot_tasks", json.RawMessage(`{"request":{"type":"read","task":"owned","messageId":"missing"}}`)).IsError {
+		t.Fatal("unknown native message ID became empty success")
 	}
 }
 func TestCompactScheduleNativeGrantsAndNamespaces(t *testing.T) {
@@ -157,17 +201,9 @@ func TestCompactGesture(t *testing.T) {
 	}
 }
 func TestCompactTransportUncertaintyKeepsOriginalRecovery(t *testing.T) {
-	for _, test := range []struct{ name, args, next string }{
-		{"bot_delegate", `{"request":{"type":"start","requestId":"original-delegate","title":"Test","prompt":"Test"}}`, "bot_tasks"},
-	} {
-		out := forwardFailure(toolRequest{Version: 2, Name: test.name, Arguments: json.RawMessage(test.args)}, "Connection interrupted")
-		if !out.IsError || out.StructuredContent["outcome"] != "unknown" {
-			t.Fatal("transport uncertainty lost", out)
-		}
-		next := out.StructuredContent["next"].(map[string]any)
-		if next["tool"] != test.next || !strings.HasPrefix(next["request"].(map[string]any)["requestId"].(string), "original-") {
-			t.Fatal("original recovery lost", next)
-		}
+	out := forwardFailure(toolRequest{Version: 2, Name: "bot_delegate", Arguments: json.RawMessage(`{"prompt":"Test"}`)}, "Connection interrupted")
+	if !out.IsError || out.StructuredContent["outcome"] != "unknown" || out.StructuredContent["next"] != nil {
+		t.Fatal("transport uncertainty suggested a new model ID", out)
 	}
 }
 
