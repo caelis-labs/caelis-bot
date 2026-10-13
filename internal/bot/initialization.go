@@ -111,11 +111,11 @@ func (i *Initializer) Initialize(ctx context.Context, in api.BotIntroduction) (a
 	}
 	name, description := strings.TrimSpace(in.Name), strings.TrimSpace(in.Description)
 	if name == "" || utf8.RuneCountInString(name) > 80 || strings.ContainsAny(name, "\r\n") || !utf8.ValidString(name) || utf8.RuneCountInString(description) > 2000 || !utf8.ValidString(description) {
-		return i.view(), errors.New("请填写名字（不超过 80 字），描述可选且不超过 2,000 字")
+		return i.view(), errors.New("请填写称呼（不超过 80 字），描述可选且不超过 2,000 字")
 	}
-	prompt := "你的名字是" + name + "。"
+	prompt := "我想称呼你为「" + name + "」。请接受并记住这个称呼，以后和我对话时使用它；Caelis Bot 仍是产品名称。"
 	if description != "" {
-		prompt += "\n描述是" + description
+		prompt += "\n我还希望你记住这段描述：" + description
 	}
 	next := introductionState{Version: 1, ID: "intro-" + rand.Text(), Prompt: prompt, Status: "pending"}
 	if err := localstate.Write(i.path, next); err != nil {

@@ -14,6 +14,7 @@ export function TeamPage({ onConnections }: { onConnections: () => void }) {
  const [view, setView] = useState<RuntimeConfiguration | null>(null);
  const [error, setError] = useState('');
  const [loading, setLoading] = useState(true);
+ const canConfigure = Boolean(view?.team.available && view.team.models.length > 0);
  const refresh = async () => {
   setLoading(true); setError('');
   try { setView(await backend<RuntimeConfiguration>('WorkerTeamConfiguration')); }
@@ -27,10 +28,10 @@ export function TeamPage({ onConnections }: { onConnections: () => void }) {
  useEffect(() => { void refresh().catch(() => {}); }, []);
  return <section className="runtime-workspace runtime-team-page">
   <button className="text-action" onClick={onConnections}>{t('runtime.backToWorkerSettings')}</button>
-  <h1>{t('settings.team')}</h1><p className="settings-page-intro">{t('runtime.teamOptional')}</p>
+  <h1>{t('settings.team')}</h1>{view && <p className="settings-page-intro">{canConfigure ? t('runtime.teamOptional') : view.team.reason || t('runtime.teamNeedsCaelis')}</p>}
   {loading && <p role="status">{t('runtime.loadingRuntime')}</p>}
   {error && <p role="alert" className="inline-error">{error}</p>}
-  {view ? <TeamSettings team={view.team} models={view.team.models} client={client} onRefresh={refresh}/> : !loading && <div className="runtime-empty"><p>{t('runtime.teamNeedsCaelis')}</p><button onClick={onConnections}>{t('settings.connections')}</button></div>}
+  {canConfigure && view ? <TeamSettings team={view.team} models={view.team.models} client={client} onRefresh={refresh}/> : view && !loading && <div className="runtime-empty"><button onClick={onConnections}>{t('runtime.manageConnections')}</button></div>}
   {error && <button onClick={() => void refresh()}>{t('runtime.reload')}</button>}
  </section>;
 }

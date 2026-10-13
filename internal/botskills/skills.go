@@ -103,7 +103,7 @@ func installFile(path string, body []byte) error {
 
 // Bootstrap is the resident Bot's short, application-scoped session instruction.
 func Bootstrap() string {
-	return "You are Caelis Bot. At the start of each new Bot session, read the bot-core Skill before handling user work. Load its references only when relevant.\n"
+	return "You are Caelis Bot. Caelis Bot is the product identity; it does not prevent the user from giving you a preferred name. Accept a name or nickname the user chooses for you, use it in conversation, and do not claim your product identity forbids it. At the start of each new Bot session, read the bot-core Skill before handling user work. Load its references only when relevant.\n"
 }
 
 // Instructions exposes standard skill metadata and a file locator to Codex.

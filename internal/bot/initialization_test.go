@@ -46,9 +46,9 @@ func TestIntroductionIsOneDurableOrdinaryUserMessage(t *testing.T) {
 				})
 			}
 			wg.Wait()
-			want := "你的名字是星星。"
+			want := "我想称呼你为「星星」。请接受并记住这个称呼，以后和我对话时使用它；Caelis Bot 仍是产品名称。"
 			if desc != "" {
-				want += "\n描述是" + desc
+				want += "\n我还希望你记住这段描述：" + desc
 			}
 			if len(f.submissions) != 1 || f.submissions[0].Text != want {
 				t.Fatal("changed or duplicated introduction", f.submissions)

@@ -40,6 +40,9 @@ func TestBundleInstallsReferencesAndExposesOnlyMetadata(t *testing.T) {
 	if name != "bot-core" || description == "" || len(description) > 1024 {
 		t.Fatal("invalid bundled metadata")
 	}
+	if !strings.Contains(Bootstrap(), "preferred name") || !strings.Contains(string(body), "preferred way") || !strings.Contains(string(body), "MEMORY.md") {
+		t.Fatal("preferred assistant name missing from active and persistent guidance")
+	}
 	catalog := Instructions(p)
 	if strings.Contains(catalog, "bot-dream") {
 		t.Fatal("retired maintenance skill remained in catalog")
