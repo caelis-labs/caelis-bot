@@ -194,6 +194,24 @@ func Run(assets fs.FS) error {
 		Hidden: true, URL: "/?surface=context", EnableFileDrop: true, BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
+	preview := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name: "artifact-preview", Title: appName, Width: 820, Height: 620, MinWidth: 520, MinHeight: 360,
+		Hidden: true, URL: "/?surface=artifact-preview", BackgroundType: application.BackgroundTypeSolid,
+	})
+	preview.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); preview.Hide() })
+	s.openArtifactPreview = func() {
+		application.InvokeSync(func() {
+			selection, err := s.CurrentArtifactPreview()
+			if err != nil {
+				return
+			}
+			preview.SetTitle(selection.Name)
+			preview.UnMinimise()
+			preview.Show()
+			preview.Focus()
+			preview.ExecJS("window.dispatchEvent(new Event('artifact-preview-changed'))")
+		})
+	}
 	bubble := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "bubble", Title: s.text("native.bubbleTitle", nil), Width: 360, Height: 68, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=bubble", BackgroundType: application.BackgroundTypeTransparent,
@@ -347,7 +365,13 @@ func Run(assets fs.FS) error {
 	})
 	// Dock Quit is a contextual-window action. Only the status menu requests
 	// user-initiated process shutdown; updater/restart/system cleanup stays intact.
-	closeContextWindow = func() { closeMacContextWindow(history, settings) }
+	closeContextWindow = func() {
+		if preview.IsFocused() {
+			preview.Hide()
+			return
+		}
+		closeMacContextWindow(history, settings)
+	}
 	// Wails' default Dock callback reveals every hidden window, including the
 	// private pet/prop webviews. Cancel it and recall only open panels.
 	nativeApp.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {

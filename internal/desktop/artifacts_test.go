@@ -56,6 +56,86 @@ func TestArtifactActionsUseOwnedHandleAndBoundedText(t *testing.T) {
 	}
 }
 
+func TestArtifactPreviewWindowUsesOwnedFileAndSafeName(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sample.md")
+	if err := os.WriteFile(path, []byte("# preview"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	shown := ""
+	var s *Service
+	s = &Service{
+		resolveArtifact: func(id string) (string, error) {
+			if id != "owned" {
+				return "", errors.New("unowned")
+			}
+			return path, nil
+		},
+		openArtifactPreview: func() { selection, _ := s.CurrentArtifactPreview(); shown = selection.Name },
+	}
+	if err := s.ShowArtifactPreview("/private/tmp/arbitrary.md"); err == nil || shown != "" {
+		t.Fatal("unowned path opened a preview")
+	}
+	if err := s.ShowArtifactPreview("owned"); err != nil || shown != "sample.md" {
+		t.Fatal("owned preview", err, shown)
+	}
+	if selected, err := s.CurrentArtifactPreview(); err != nil || selected.ID != "owned" || selected.Name != "sample.md" {
+		t.Fatal("preview selection", selected, err)
+	}
+	path = filepath.Join(root, "image.png")
+	if err := os.WriteFile(path, []byte("png"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ShowArtifactPreview("owned"); err == nil || shown != "sample.md" {
+		t.Fatal("nontext preview replaced the owned selection")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ShowArtifactPreview("owned"); err == nil {
+		t.Fatal("missing file opened a preview")
+	}
+}
+
+func TestArtifactPreviewLatestSelectionWins(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"slow.md", "new.md"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	opened := make(chan string, 2)
+	var s *Service
+	s = &Service{
+		resolveArtifact: func(id string) (string, error) {
+			if id == "slow" {
+				close(started)
+				<-release
+			}
+			return filepath.Join(root, id+".md"), nil
+		},
+		openArtifactPreview: func() { selected, _ := s.CurrentArtifactPreview(); opened <- selected.ID },
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.ShowArtifactPreview("slow") }()
+	<-started
+	if err := s.ShowArtifactPreview("new"); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if selected, err := s.CurrentArtifactPreview(); err != nil || selected.ID != "new" {
+		t.Fatal("old preview replaced latest selection", selected, err)
+	}
+	if id := <-opened; id != "new" || len(opened) != 0 {
+		t.Fatal("unexpected preview windows opened", id, len(opened))
+	}
+}
+
 func TestArtifactPreviewLimitAndBinaryRejection(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "large.log")

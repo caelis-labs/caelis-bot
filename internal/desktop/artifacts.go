@@ -19,6 +19,67 @@ type ArtifactPreview struct {
 	Truncated bool   `json:"truncated"`
 }
 
+// The renderer receives only a display name and the already owned handle.
+// The file path stays in the backend's artifact resolver.
+type ArtifactPreviewSelection struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func artifactDisplayName(path string) string {
+	name := filepath.Base(path)
+	if name == "." || len(name) > 255 || strings.IndexFunc(name, func(r rune) bool { return r < 32 || r == 127 }) >= 0 {
+		return "artifact"
+	}
+	return name
+}
+
+func (s *Service) ShowArtifactPreview(id string) error {
+	s.mu.Lock()
+	s.artifactPreviewRequest++
+	request := s.artifactPreviewRequest
+	s.mu.Unlock()
+	path, err := s.artifactPath(id)
+	s.mu.Lock()
+	stale := request != s.artifactPreviewRequest
+	s.mu.Unlock()
+	if stale {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !textArtifact(path) {
+		return errors.New("此文件类型不支持文本预览")
+	}
+	selection := ArtifactPreviewSelection{ID: id, Name: artifactDisplayName(path)}
+	s.mu.Lock()
+	if request != s.artifactPreviewRequest {
+		s.mu.Unlock()
+		return nil
+	}
+	open := s.openArtifactPreview
+	if open != nil {
+		s.artifactPreview = selection
+	}
+	s.mu.Unlock()
+	if open == nil {
+		return errors.New("预览窗口暂不可用")
+	}
+	open()
+	return nil
+}
+
+func (s *Service) CurrentArtifactPreview() (ArtifactPreviewSelection, error) {
+	s.mu.Lock()
+	selection := s.artifactPreview
+	s.mu.Unlock()
+	if selection.ID == "" {
+		return ArtifactPreviewSelection{}, errors.New("预览文件已不可用")
+	}
+	return selection, nil
+}
+
 func textArtifact(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".txt", ".md", ".markdown", ".json", ".jsonl", ".sql", ".log", ".csv", ".tsv", ".yaml", ".yml", ".xml", ".toml", ".ini", ".sh", ".py", ".go", ".swift", ".js", ".ts", ".tsx", ".css", ".html":

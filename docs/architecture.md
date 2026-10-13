@@ -71,7 +71,10 @@ the Runtime is offline. Streamed text updates the same item; only projected
 Artifact handles and a tool's visible label enter chat, never native tool
 payloads or file-change activity. Desktop actions re-resolve each handle through
 the backend before preview, opening, copying or saving; text previews are read
-on demand and bounded. Disk failure retains the live cache and retries independently;
+on demand and bounded. Text opens in a dedicated, opaque native preview window;
+the renderer receives only the owned handle and safe filename, and Markdown is
+rendered without loading embedded remote resources. Disk failure retains the
+live cache and retries independently;
 a corrupt display database is preserved as a damaged copy and rebuilt. Runtime
 sessions, execution state and original action receipts stay with their native owners.
 Codex assistant links to files outside Work can promote a temporary file into

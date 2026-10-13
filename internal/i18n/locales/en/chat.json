@@ -56,6 +56,7 @@
   "revealInFinder": "Show in Finder",
   "artifactUnavailable": "File no longer available",
   "previewArtifact": "Preview text",
+  "moreArtifactActions": "More file actions",
   "openArtifact": "Open with default app",
   "saveArtifactAs": "Save As…",
   "copyArtifactPath": "Copy path",
