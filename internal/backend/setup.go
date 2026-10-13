@@ -13,6 +13,21 @@ func (s *Service) SetupOverview() api.SetupOverview {
 	}
 	return s.setup.Overview()
 }
+
+// StageRuntime records the first-run provider before any credential or model
+// configuration. True asks the native shell to relaunch into that provider.
+func (s *Service) StageRuntime(id string) (bool, error) {
+	if s.setup == nil {
+		return false, errors.New("运行时管理不可用")
+	}
+	return s.setup.StageRuntime(id)
+}
+func (s *Service) SetupInstallProgress() api.SetupInstallProgress {
+	if s.setup == nil {
+		return api.SetupInstallProgress{}
+	}
+	return s.setup.InstallProgress()
+}
 func (s *Service) SetupProfile(id string) (api.RuntimeSettings, error) {
 	if s.setup == nil {
 		return api.RuntimeSettings{}, errors.New("运行时管理不可用")

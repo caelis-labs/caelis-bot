@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +18,8 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
 	"github.com/caelis-labs/caelis-bot/internal/runtimeenv"
+	"github.com/caelis-labs/caelis-bot/internal/runtimeinstall"
+	"github.com/caelis-labs/caelis-bot/internal/updates"
 )
 
 const InstallerURL = "https://caelis.dev/install.sh"
@@ -26,6 +27,7 @@ const InstallerURL = "https://caelis.dev/install.sh"
 type Status struct {
 	LatestVersion string
 	UpdateState   string
+	Source        string `json:"source"`
 	Installed     bool   `json:"installed"`
 	Path          string `json:"path"`
 	Version       string `json:"version"`
@@ -126,12 +128,26 @@ func Inspect(ctx context.Context, path string, loc ...i18n.Locale) (Status, erro
 	if json.Unmarshal(b, &v) != nil || v.Version == "" {
 		return Status{}, errors.New(text(l, "host.fileInvalidCaelisVersion"))
 	}
-	return Status{Installed: true, Path: p, Version: v.Version, Message: text(l, "host.caelisInstalled")}, nil
+	status := Status{Installed: true, Path: p, Version: v.Version, Message: text(l, "host.caelisInstalled")}
+	status.Source = runtimeinstall.Detect(ctx, p, "caelis", "@caelis/caelis").Kind
+	if status.Source == "unknown" {
+		home, _ := os.UserHomeDir()
+		standard := filepath.Join(home, ".local", "bin", "caelis")
+		if filepath.Clean(p) == standard {
+			if info, err := os.Lstat(p); err == nil && info.Mode()&os.ModeSymlink == 0 {
+				status.Source = "official"
+			}
+		}
+	}
+	return status, nil
 }
 func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale) (Status, error) {
 	l := getLocale(loc...)
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
+	if action != "install" && action != "update" {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+	}
 	if action == "detect" {
 		return Inspect(ctx, path, l)
 	}
@@ -148,7 +164,11 @@ func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale)
 		if e := install(ctx, l); e != nil {
 			return Status{}, e
 		}
-		return Inspect(ctx, "", l)
+		installed, err := Inspect(ctx, "", l)
+		if err != nil || !installed.Installed {
+			return installed, errors.New(text(l, "host.caelisCommandFailed"))
+		}
+		return installed, nil
 	}
 	p, e := Find(path, l)
 	if e != nil {
@@ -160,6 +180,34 @@ func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale)
 	}
 	switch action {
 	case "check-update", "update":
+		before, err := Inspect(ctx, p, l)
+		if err != nil {
+			return before, err
+		}
+		if action == "update" && (before.Source == "brew-formula" || before.Source == "brew-cask") {
+			source := runtimeinstall.Detect(ctx, p, "caelis", "@caelis/caelis")
+			if source.Kind != before.Source {
+				return before, errors.New("Caelis 安装来源已变化，请重新检测")
+			}
+			if err := runtimeinstall.Upgrade(ctx, source); err != nil {
+				return before, err
+			}
+			after, err := Inspect(ctx, source.Entry, l)
+			if err != nil || !after.Installed || after.Source != before.Source {
+				return after, errors.New("更新后的 Caelis 程序未能验证，请重新检测原安装渠道")
+			}
+			if order, err := updates.CompareVersions(after.Version, before.Version); err != nil || order < 0 {
+				return after, errors.New("更新后的 Caelis 版本低于原版本，请核对安装渠道")
+			}
+			if after.Version == before.Version {
+				after.UpdateState = "current"
+				after.Message = "原安装渠道当前没有更新版本"
+			}
+			return after, nil
+		}
+		if action == "update" && before.Source == "unknown" {
+			return before, errors.New("无法确认 Caelis 安装来源；请核对原安装渠道或选择现有程序")
+		}
 		args := []string{"update", "--store-dir", dir}
 		if action == "check-update" {
 			args = append(args, "--check")
@@ -171,6 +219,14 @@ func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale)
 		v, e := Inspect(ctx, p, l)
 		if e != nil {
 			return v, e
+		}
+		if action == "update" && v.Source != before.Source {
+			return v, errors.New("Caelis 更新后安装来源发生变化，请重新检测")
+		}
+		if action == "update" {
+			if order, err := updates.CompareVersions(v.Version, before.Version); err != nil || order < 0 {
+				return v, errors.New("Caelis 更新后的版本未能验证，请重新检测")
+			}
 		}
 		return updateResult(v, string(b), action == "check-update", l)
 	case "apply-update":
@@ -212,30 +268,22 @@ func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale)
 }
 func install(ctx context.Context, loc ...i18n.Locale) error {
 	l := getLocale(loc...)
-	ctx, c := context.WithTimeout(ctx, 5*time.Minute)
-	defer c()
-	req, e := http.NewRequestWithContext(ctx, "GET", InstallerURL, nil)
-	if e != nil {
-		return e
-	}
-	client := &http.Client{Timeout: 45 * time.Second, CheckRedirect: func(r *http.Request, via []*http.Request) error {
-		if len(via) > 4 || r.URL.Scheme != "https" || r.URL.Hostname() != "caelis.dev" {
-			return errors.New(text(l, "host.insecureInstallRedirect"))
-		}
-		return nil
-	}}
-	res, e := client.Do(req)
+	ReportInstallProgress(ctx, InstallProgress{Phase: "checking"})
+	b, e := runtimeinstall.DownloadOfficialScript(ctx, InstallerURL, "caelis.dev")
 	if e != nil {
 		return errors.New(text(l, "host.cannotDownloadOfficialInstaller"))
 	}
-	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		return errors.New(text(l, "host.installerDownloadFailed", map[string]any{"code": res.StatusCode}))
+	localReleaseURL, cleanup, e := stageOfficialRelease(ctx)
+	if e != nil {
+		if errors.Is(e, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return errors.New(text(l, "host.caelisDownloadTimedOut"))
+		}
+		if errors.Is(e, errReleaseChecksum) {
+			return errors.New(text(l, "host.caelisChecksumFailed"))
+		}
+		return errors.New(text(l, "host.caelisDownloadFailed"))
 	}
-	b, e := io.ReadAll(io.LimitReader(res.Body, 1<<20+1))
-	if e != nil || len(b) > 1<<20 {
-		return errors.New(text(l, "host.installerContentInvalid"))
-	}
+	defer cleanup()
 	file, e := os.CreateTemp("", "caelis-installer-*.sh")
 	if e != nil {
 		return e
@@ -249,12 +297,17 @@ func install(ctx context.Context, loc ...i18n.Locale) error {
 	if ce != nil {
 		return ce
 	}
-	_, e = run(ctx, l, "/bin/sh", file.Name())
-	return e
+	ReportInstallProgress(ctx, InstallProgress{Phase: "installing"})
+	e = runInstaller(ctx, l, file.Name(), localReleaseURL)
+	if e != nil {
+		return errors.New(text(l, "host.caelisInstallFailed"))
+	}
+	return nil
 }
 
 // Parse only the CLI's bounded completion line, never expose installer output.
 var availableUpdate = regexp.MustCompile(`^update available: [A-Za-z0-9.+-]+ -> ([A-Za-z0-9.+-]+) \([^\n]+\)$`)
+var completedUpdate = regexp.MustCompile(`^Caelis ([A-Za-z0-9.+-]+) is installed \(updated from [A-Za-z0-9.+-]+ via (?:raw|npm)\); it takes effect on the next start\.$`)
 
 func updateResult(v Status, output string, check bool, loc ...i18n.Locale) (Status, error) {
 	l := getLocale(loc...)
@@ -272,7 +325,10 @@ func updateResult(v Status, output string, check bool, loc ...i18n.Locale) (Stat
 		v.Message = text(l, "host.installedLatestVersion", map[string]any{"version": v.Version})
 		return v, nil
 	}
-	if !check && strings.HasPrefix(line, "Caelis ") && strings.Contains(line, " is installed (") && strings.HasSuffix(line, "it takes effect on the next start.") {
+	if match := completedUpdate.FindStringSubmatch(line); !check && len(match) == 2 {
+		if order, err := updates.CompareVersions(match[1], v.Version); err != nil || order != 0 {
+			return v, errors.New(text(l, "host.updateResultUnconfirmed"))
+		}
 		v.Message = text(l, "host.programUpdatedEnablingService")
 		return v, nil
 	}

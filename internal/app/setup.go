@@ -20,6 +20,8 @@ import (
 
 type runtimeSetup struct {
 	mu          sync.Mutex
+	progressMu  sync.Mutex
+	progress    api.SetupInstallProgress
 	app         *Application
 	codex       *codex.Setup
 	connections caelis.Connections
@@ -27,14 +29,51 @@ type runtimeSetup struct {
 	fresh       bool
 }
 
+func (s *runtimeSetup) InstallProgress() api.SetupInstallProgress {
+	s.progressMu.Lock()
+	defer s.progressMu.Unlock()
+	return s.progress
+}
+func (s *runtimeSetup) setInstallProgress(p caelisruntime.InstallProgress) {
+	s.progressMu.Lock()
+	s.progress = api.SetupInstallProgress{Phase: p.Phase, Downloaded: p.Downloaded, Total: p.Total, BytesPerSecond: p.BytesPerSecond}
+	s.progressMu.Unlock()
+}
+
 func (a *Application) configureSetup() {
 	fresh := !a.HasRuntimeChoice()
 	if _, e := os.Stat(filepath.Join(a.root, "setup.json")); !os.IsNotExist(e) {
 		fresh = false
 	}
-	a.setup = &runtimeSetup{app: a, fresh: fresh, codex: &codex.Setup{}}
+	staged := ""
+	if !a.HasRuntimeChoice() {
+		var stageErr error
+		staged, stageErr = readStagedRuntime(a.root)
+		if stageErr != nil && a.host.ReportError != nil {
+			a.host.ReportError(stageErr)
+		}
+	}
+	a.setup = &runtimeSetup{app: a, fresh: fresh, pending: staged, codex: &codex.Setup{}}
 	a.Backend.ConfigureSetup(a.setup)
 	a.Backend.RequireSetup(!a.HasRuntimeChoice())
+}
+func (s *runtimeSetup) StageRuntime(id string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id != "caelis" && id != "codex" {
+		return false, errors.New(s.app.text("unsupportedRuntime", nil))
+	}
+	if s.app.HasRuntimeChoice() {
+		return false, errors.New(s.app.text("unsupportedRuntimeOperation", nil))
+	}
+	if e := s.app.guardRuntimeChange(); e != nil {
+		return false, e
+	}
+	if e := writeStagedRuntime(s.app.root, id); e != nil {
+		return false, e
+	}
+	s.pending = id
+	return s.app.engine.(api.Provider).ProviderInfo().ID != id, nil
 }
 func (a *Application) NeedsSetup() bool {
 	return a.initialization.Initialization().Required || a.setup.Overview().Onboarding
@@ -113,6 +152,24 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (api.
 	}
 	if v.Runtime == "codex" {
 		out, e = s.codex.Inspect(ctx, installation.Path)
+		if active, ok := s.app.engine.(*codex.Session); ok && s.app.engine.(api.Provider).ProviderInfo().ID == "codex" {
+			if auth, userAgent, shared, detailErr := active.SharedConnectionDetails(ctx); shared {
+				out.ServiceVersion = userAgent
+				if detailErr == nil {
+					out.CLIAccountType = out.AccountType
+					out.AccountType = auth.AccountType
+					out.AccountMismatch = out.CLIAccountType != out.AccountType
+					if auth.RequiresOpenAIAuth && !auth.AccountPresent {
+						out.State = "login"
+					}
+					if out.AccountMismatch {
+						out.Message = "当前共享 Codex 服务与所选 CLI 的登录方式不同；Bot 使用共享服务，请在提供该服务的应用中核对登录后重新连接。"
+					}
+				} else {
+					out.Message = "暂时无法读取当前共享 Codex 服务的账号；请重新连接后核对。"
+				}
+			}
+		}
 	} else {
 		out, e = caelis.InspectSetup(ctx, v)
 	}
@@ -170,6 +227,10 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 	switch r.Action {
 	case "install", "update", "check-update", "start", "apply-update":
 		if r.Settings.Runtime == "caelis" {
+			if r.Action == "install" {
+				s.setInstallProgress(caelisruntime.InstallProgress{Phase: "checking"})
+				ctx = caelisruntime.WithInstallProgress(ctx, s.setInstallProgress)
+			}
 			st, err := s.app.manageCaelis(ctx, r.Action, r.Settings)
 			managed = &st
 			e = err
@@ -299,6 +360,27 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 	if out.State != "ready" {
 		return errors.New(s.app.text("completeRuntimeConnectionFirst", nil))
 	}
+	// On a fresh default-path setup the chosen engine was constructed before
+	// credentials/models were configured. There is no prior conversation or
+	// provider binding to migrate, so admission can open in this process.
+	// Custom executable/Store changes and established installations retain the
+	// restart transaction until their live binding can be moved safely.
+	if s.fresh && v.Runtime == s.app.engine.(api.Provider).ProviderInfo().ID && v.CLIPath == "" && v.CaelisStore == "" {
+		if _, e = s.app.Backend.SaveRuntimeSettings(ctx, v); e != nil {
+			return e
+		}
+		s.app.Backend.RequireSetup(false)
+		if e = s.app.Start(); e != nil {
+			return e
+		}
+		if e = s.app.Backend.Connect(ctx); e != nil {
+			return e
+		}
+		s.clearStagedRuntime()
+		s.pending = ""
+		s.fresh = false
+		return nil
+	}
 
 	// Preserve the outgoing path before replacing the active selection.
 	if outgoing := s.app.Backend.RuntimeSettings(); outgoing.Runtime != v.Runtime {
@@ -314,7 +396,13 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 	}
 	s.pending = v.Runtime
 	s.fresh = false
+	s.clearStagedRuntime()
 	return nil
+}
+func (s *runtimeSetup) clearStagedRuntime() {
+	if err := os.Remove(filepath.Join(s.app.root, stagedRuntimeFile)); err != nil && !errors.Is(err, os.ErrNotExist) && s.app.host.ReportError != nil {
+		s.app.host.ReportError(err)
+	}
 }
 func (s *runtimeSetup) Dismiss() error {
 	s.mu.Lock()
@@ -329,18 +417,24 @@ func (s *runtimeSetup) Dismiss() error {
 }
 
 func (a *Application) HasRuntimeChoice() bool {
-	for _, name := range []string{"runtime.json", "conversation.json"} {
-		if _, e := os.Stat(filepath.Join(a.root, name)); !os.IsNotExist(e) {
-			return true
-		}
+	if _, e := os.Stat(filepath.Join(a.root, "runtime.json")); !os.IsNotExist(e) {
+		return true
 	}
 	// Only pre-Notebook identities imply the historical Codex default. Creating
-	// personal data offline must not silently choose a Runtime on next launch.
+	// personal data or a conversation journal offline must not silently choose a
+	// Runtime on next launch.
 	var legacy struct {
 		Version         int `json:"version"`
 		PersonalVersion int `json:"personalVersion"`
 	}
 	b, e := os.ReadFile(filepath.Join(a.root, "bot.json"))
-	return e == nil && json.Unmarshal(b, &legacy) == nil && legacy.Version == 1 && legacy.PersonalVersion == 0
+	if e == nil && json.Unmarshal(b, &legacy) == nil && legacy.Version == 1 {
+		if legacy.PersonalVersion != 0 {
+			return false
+		}
+		return true
+	}
+	_, e = os.Stat(filepath.Join(a.root, "conversation.json"))
+	return e == nil
 }
 func (a *Application) PrepareRestart() error { return a.Backend.PrepareRestart(a.guardRuntimeChange) }

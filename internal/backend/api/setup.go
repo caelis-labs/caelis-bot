@@ -30,6 +30,8 @@ type SetupState struct {
 	Models                 []SetupChoice   `json:"models"`
 	LoginPending           bool            `json:"loginPending"`
 	AccountType            string          `json:"accountType"`
+	CLIAccountType         string          `json:"cliAccountType,omitempty"`
+	AccountMismatch        bool            `json:"accountMismatch,omitempty"`
 }
 type SetupOverview struct {
 	Active           string `json:"active"`
@@ -37,8 +39,16 @@ type SetupOverview struct {
 	Pending          string `json:"pending"`
 	Onboarding       bool   `json:"onboarding"`
 }
+type SetupInstallProgress struct {
+	Phase          string `json:"phase"`
+	Downloaded     int64  `json:"downloaded"`
+	Total          int64  `json:"total"`
+	BytesPerSecond int64  `json:"bytesPerSecond"`
+}
 type SetupController interface {
 	Overview() SetupOverview
+	StageRuntime(string) (bool, error)
+	InstallProgress() SetupInstallProgress
 	Profile(string) (RuntimeSettings, error)
 	Inspect(context.Context, RuntimeSettings) (SetupState, error)
 	Catalog(context.Context, SetupRequest) ([]SetupChoice, error)

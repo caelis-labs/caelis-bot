@@ -33,6 +33,7 @@ func TestDevelopmentAndReleaseIdentityAndDataStaySeparate(t *testing.T) {
 	}
 	for _, tc := range []struct{ channel, name, id string }{
 		{"development", "Caelis Bot Dev", "dev.caelis.bot.dev"},
+		{"research", "Caelis Bot Research", "dev.caelis.bot.research"},
 		{"release", "Caelis Bot", "dev.caelis.bot"},
 	} {
 		buildChannel = tc.channel
@@ -44,5 +45,24 @@ func TestDevelopmentAndReleaseIdentityAndDataStaySeparate(t *testing.T) {
 		if err != nil || path != filepath.Join(config, tc.name) {
 			t.Fatal("wrong default profile", err)
 		}
+	}
+}
+func TestResearchIdentityRequiresExactIsolatedRoots(t *testing.T) {
+	root := t.TempDir()
+	exe := filepath.Join(root, "dist", "Caelis Bot Research.app", "Contents", "MacOS", "caelis-bot")
+	home := filepath.Join(root, ".cache", "runtime-onboarding-research", "home")
+	data := filepath.Join(root, ".cache", "runtime-onboarding-research", "data")
+	if err := os.MkdirAll(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := home + "/.local/bin:" + home + "/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	if !researchRootsValid(exe, home, data, home+"/.codex", home, path) {
+		t.Fatal("isolated launch rejected")
+	}
+	if researchRootsValid(exe, os.Getenv("HOME"), data, home+"/.codex", home, path) {
+		t.Fatal("real account HOME accepted")
+	}
+	if researchRootsValid(exe, home, data, home+"/.codex", home, path+":/opt/homebrew/bin") {
+		t.Fatal("global CLI path accepted")
 	}
 }

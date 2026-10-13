@@ -1,4 +1,42 @@
 .runtime-workspace { max-width:760px; margin:0 auto; }
+.runtime-team-page .runtime-team { margin-top:28px; }
+.runtime-team-page .runtime-section-title { margin:0 0 12px; }
+.runtime-team-page .runtime-team-subheading { margin:28px 0 6px; }
+.runtime-team-page .runtime-setting-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(180px,220px); align-items:start; gap:24px; min-height:52px; padding:15px 0; }
+.runtime-team-page .runtime-setting-row>div:first-child { min-width:0; }
+.runtime-team-page .runtime-setting-row>div:first-child>p { max-width:44ch; line-height:1.5; overflow-wrap:anywhere; }
+.runtime-team-page .runtime-row-actions { min-width:0; justify-self:stretch; }
+.runtime-team-page .runtime-row-actions .runtime-model-summary { width:100%; }
+.runtime-team-page .runtime-setting-row>span:last-child { justify-self:start; }
+.runtime-team-page .runtime-row-actions { flex:none; }
+.runtime-gateway-heading { font-size:13px; font-weight:600; margin:24px 0 8px; }
+.runtime-gateway-empty { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:14px 0; }
+.runtime-gateway-empty p { width:100%; margin:0 0 4px; font-size:13px; color:var(--muted); }
+.runtime-install-summary { display:flex; align-items:center; gap:8px; margin:0; font-size:13px; color:var(--muted); }
+.runtime-program-onboarding { padding:14px 18px; border:1px solid var(--line); border-radius:12px; background:var(--caelis-raised); }
+.runtime-program-onboarding .runtime-program-actions { margin-top:10px; }
+.runtime-first-launch-end { align-items:center; justify-content:space-between; gap:18px; }
+.runtime-first-launch-end .settings-note { max-width:32ch; margin:0; line-height:1.5; }
+.runtime-onboarding-progress { display:flex; flex-direction:column; align-items:center; text-align:center; padding-top:min(12dvh,130px); }
+.runtime-onboarding-progress .runtime-progress-mark { width:64px; height:64px; margin-bottom:30px; border:5px solid var(--line); border-top-color:var(--success); border-radius:50%; animation:runtime-progress-spin 1.5s linear infinite; }
+.runtime-onboarding-progress h1 { margin-bottom:18px; }
+.runtime-onboarding-progress .setup-lead { max-width:440px; margin:0 0 52px; }
+.runtime-progress-track { width:100%; height:7px; border-radius:99px; background:var(--line); overflow:hidden; }
+.runtime-progress-track span { display:block; width:36%; height:100%; border-radius:inherit; background:var(--success); animation:runtime-progress-slide 2.6s ease-in-out infinite alternate; }
+.runtime-progress-track.is-measured span { animation:none; transition:width .45s ease; }
+.runtime-progress-amount { margin:18px 0 0; color:var(--ink); font-size:15px; font-variant-numeric:tabular-nums; }
+.runtime-progress-note { margin-top:14px; font-size:13px; line-height:1.6; color:var(--muted); }
+.runtime-recovery-card { display:flex; align-items:flex-start; gap:16px; padding:22px 24px; border:1px solid var(--line); border-radius:14px; background:var(--caelis-raised); }
+.runtime-recovery-symbol { flex:none; display:grid; place-items:center; width:30px; height:30px; border-radius:50%; color:var(--ink); background:var(--line); font-size:18px; font-weight:600; }
+.runtime-recovery-card>div { min-width:0; }
+.runtime-recovery-card h2 { font-size:19px; font-weight:600; margin:0 0 8px; }
+.runtime-recovery-card p { margin:0; font-size:14px; line-height:1.65; }
+.runtime-recovery-card .runtime-recovery-transfer { margin-top:10px; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.runtime-recovery-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; }
+@keyframes runtime-progress-spin { to { transform:rotate(360deg); } }
+@keyframes runtime-progress-slide { from { transform:translateX(-100%); } to { transform:translateX(280%); } }
+@media(prefers-reduced-motion:reduce) { .runtime-onboarding-progress .runtime-progress-mark,.runtime-progress-track span { animation:none; } .runtime-progress-track span { width:100%; } }
+.runtime-onboarding .setting-section { border:1px solid var(--line); border-radius:12px; background:var(--caelis-raised); padding:8px 18px; }
 .runtime-workspace h1 { font-size:22px; margin:0 0 12px; }
 .settings-window .runtime-workspace button { min-height:34px; font-size:14px; }
 .runtime-workspace h2 { margin:0; font-size:14px; font-weight:600; }
@@ -50,6 +88,7 @@
 .runtime-close img { width:14px; height:14px; opacity:.55; }
 .runtime-dialog-description { font-size:13px; line-height:1.6; color:var(--muted); margin:8px 0 22px; }
 .runtime-dialog label { font-size:13px; }
+.runtime-dialog form>label>small { display:block; margin-top:5px; color:var(--muted); line-height:1.5; }
 .runtime-dialog input:not([type="radio"]),.runtime-dialog select,.runtime-dialog textarea { width:100%; border:1px solid var(--line); background:var(--surface); border-radius:8px; padding:10px; color:var(--ink); box-sizing:border-box; font:inherit; }
 .runtime-dialog textarea { min-height:80px; resize:vertical; }
 .runtime-dialog input[type="radio"] { width:16px; height:16px; padding:0; margin:0; flex-shrink:0; accent-color:var(--ink); }

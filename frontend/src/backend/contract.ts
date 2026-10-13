@@ -367,6 +367,7 @@ export interface RuntimeSettings {
 export interface RuntimeStatus {
   latestVersion: string;
   updateState: string;
+  source?: string;
   installed: boolean;
   path: string;
   version: string;
@@ -407,6 +408,12 @@ export interface SetupChoice {
   noAuth: boolean;
   current: boolean;
 }
+export interface SetupInstallProgress {
+  phase: string;
+  downloaded: number;
+  total: number;
+  bytesPerSecond: number;
+}
 export interface SetupOverview {
   active: string;
   hasRuntimeChoice: boolean;
@@ -433,6 +440,8 @@ export interface SetupState {
   models: Array<SetupChoice>;
   loginPending: boolean;
   accountType: string;
+  cliAccountType?: string;
+  accountMismatch?: boolean;
 }
 export interface Snapshot {
   maintenance?: string;

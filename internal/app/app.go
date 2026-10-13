@@ -108,6 +108,15 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 	settingsFile := filepath.Join(root, "runtime.json")
 	settings, err := backend.LoadRuntimeSettings(settingsFile, "codex")
 	runtimeReadErr := err
+	// The first-run choice is staged before configuration. It never counts as
+	// an activated Runtime and carries no Store or credential override.
+	if _, statErr := os.Stat(settingsFile); errors.Is(statErr, os.ErrNotExist) {
+		if staged, stagedErr := readStagedRuntime(root); stagedErr == nil && staged != "" {
+			settings.Runtime = staged
+		} else if stagedErr != nil {
+			runtimeReadErr = errors.Join(runtimeReadErr, stagedErr)
+		}
+	}
 	if err != nil && host.ReportError != nil {
 		host.ReportError(err)
 	}

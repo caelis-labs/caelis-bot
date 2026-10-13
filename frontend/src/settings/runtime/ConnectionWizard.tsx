@@ -9,10 +9,10 @@ const emptyCatalog: ConnectionCatalog = { choices: [], unavailable: '' };
 export function ConnectionWizard({ client, onClose, onConnected,active=true }: { client: RuntimeSettingsClient; onClose: () => void; onConnected: () => Promise<void>;active?:boolean }) {
  const { t, date } = useI18n();
  const actionFailed=useEffectEvent(()=>t('runtime.actionFailed'));
- const [kind, setKind] = useState<ConnectionKind>('account'), [catalog, setCatalog] = useState(emptyCatalog), [choice, setChoice] = useState<ConnectChoice | null>(null);
+ const [kind, setKind] = useState<ConnectionKind>('api-key'), [catalog, setCatalog] = useState(emptyCatalog), [choice, setChoice] = useState<ConnectChoice | null>(null);
  const [options, setOptions] = useState<APIKeyOptions>({ endpoints: [], models: [] });
  const [metadata, setMetadata] = useState(false), [contextWindow, setContextWindow] = useState(''), [maxOutput, setMaxOutput] = useState(''), [imageInput, setImageInput] = useState(false), [reasoningLevels, setReasoningLevels] = useState('');
- const [baseUrl, setBaseUrl] = useState(''), [model, setModel] = useState(''), [apiKey, setAPIKey] = useState(''), [command, setCommand] = useState('');
+ const [baseUrl, setBaseUrl] = useState(''), [model, setModel] = useState(''), [apiKey, setAPIKey] = useState(''), [command, setCommand] = useState(''), [gatewayManual, setGatewayManual] = useState(false), [discovery, setDiscovery] = useState(0);
  const [flow, setFlow] = useState<ConnectionFlow | null>(null), [code, setCode] = useState(''), [method, setMethod] = useState(''), [destination, setDestination] = useState(''), [manual, setManual] = useState(false);
  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [canceling, setCanceling] = useState(false), [now, setNow] = useState(Date.now());
  const alive = useRef(true), working = useRef(false), serial = useRef(0), abort = useRef<AbortController | null>(null), optionsSerial = useRef(0), modelListID = useId(), endpointListID = useId();
@@ -27,17 +27,28 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true }: {
   if (!choice || kind !== 'api-key') return;
   const seq = ++optionsSerial.current;
   setLoading(true); setOptions({ endpoints: [], models: [] }); setAPIKey(''); setError('');
-  void client.apiKeyOptions(choice.id, baseUrl).then(value => {
+  void client.apiKeyOptions(choice.id, '').then(value => {
    if (!alive.current || seq !== optionsSerial.current) return;
    setOptions(value);
    if (!baseUrl && value.endpoints[0]?.value) setBaseUrl(value.endpoints[0].value);
   }).catch(e => { if (alive.current && seq === optionsSerial.current) setError(messageOf(e, actionFailed())); }).finally(() => { if (alive.current && seq === optionsSerial.current) setLoading(false); });
   return () => { optionsSerial.current++; };
+ }, [client, choice, kind, discovery]);
+ useEffect(() => {
+  if (!choice || kind !== 'api-key' || !baseUrl) return;
+  const seq = ++optionsSerial.current;
+  setLoading(true);
+  const timer = window.setTimeout(() => { void client.apiKeyOptions(choice.id, baseUrl).then(value => { if (alive.current && seq === optionsSerial.current) setOptions(value); }).catch(() => { if (alive.current && seq === optionsSerial.current) setOptions(current => ({ ...current, models: [] })); }).finally(() => { if (alive.current && seq === optionsSerial.current) setLoading(false); }); }, 350);
+  return () => { clearTimeout(timer); optionsSerial.current++; };
  }, [client, choice, kind, baseUrl]);
  useEffect(() => { if (!active||!flow?.authorization?.expiresAt) return; setNow(Date.now()); const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [active,flow?.authorization?.expiresAt]);
  const expired = !!flow?.authorization?.expiresAt && Date.parse(flow.authorization.expiresAt) <= now;
  const reuseAuth = options.endpoints.some(endpoint => endpoint.value === baseUrl && endpoint.reuseAuth);
- const select = (value: ConnectChoice) => { setChoice(value); setBaseUrl(''); setModel(''); setCommand(''); setMetadata(false); setContextWindow(''); setMaxOutput(''); setImageInput(false); setReasoningLevels(''); setAPIKey(''); setError(''); };
+ const magpie = choice?.id.toLowerCase() === 'magpie';
+ const gatewayFormVisible = !magpie || gatewayManual || options.models.length > 0;
+ const providerChoices = catalog.choices.filter(c => c.id.toLowerCase() !== 'magpie');
+ const magpieChoice = catalog.choices.find(c => c.id.toLowerCase() === 'magpie');
+ const select = (value: ConnectChoice) => { setChoice(value); setBaseUrl(''); setModel(''); setCommand(''); setGatewayManual(false); setMetadata(false); setContextWindow(''); setMaxOutput(''); setImageInput(false); setReasoningLevels(''); setAPIKey(''); setError(''); };
  const observe = (seq: number, update: ConnectionFlow) => {
   if (!alive.current || seq !== serial.current) return;
   setFlow(current => acceptConnectionProgress(current, update));
@@ -82,17 +93,20 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true }: {
    {loading && !choice && <p role="status">{t('connections.loadingChoices')}</p>}
    {catalog.unavailable && <p className="settings-note" role="status">{catalog.unavailable}</p>}
    {!loading && !catalog.unavailable && !catalog.choices.length && <p className="settings-note">{t('connections.noChoices')}</p>}
-   {!choice ? <div className="runtime-connect-catalog">{catalog.choices.map(c => <button key={c.id} disabled={busy} onClick={() => select(c)}><span><strong>{c.name}</strong><small>{c.description}</small></span><SettingsChevron/></button>)}</div> : <>
+   {!choice ? <><div className="runtime-connect-catalog">{providerChoices.map(c => <button key={c.id} disabled={busy} onClick={() => select(c)}><span><strong>{c.name || c.id}</strong><small>{c.description}</small></span><SettingsChevron/></button>)}</div>{kind === 'api-key' && magpieChoice && <><h3 className="runtime-gateway-heading">{t('connections.thirdPartyGateway')}</h3><div className="runtime-connect-catalog"><button disabled={busy} onClick={() => select(magpieChoice)}><span><strong>Magpie</strong><small>{t('connections.magpieDescription')}</small></span><SettingsChevron/></button></div></>}</> : <>
     <button className="text-action" disabled={busy} onClick={() => { optionsSerial.current++; setChoice(null); setAPIKey(''); setError(''); }}>{t('connections.backToChoices')}</button>
     <h3 className="runtime-connect-choice">{choice.name}</h3>
     {choice.custom && <><label>{t('connections.startCommand')}<input disabled={busy} value={command} onChange={e => setCommand(e.target.value)} placeholder={t('connections.startCommandPlaceholder')}/></label></>}
     {kind === 'api-key' ? <>
-     <label>{t('connections.serviceUrl')}<input type="url" list={endpointListID} disabled={busy} value={baseUrl} onChange={e => { setBaseUrl(e.target.value); setAPIKey(''); setModel(''); }} placeholder="https://…/v1"/><datalist id={endpointListID}>{options.endpoints.map(endpoint => <option key={endpoint.value} value={endpoint.value}>{endpoint.name}</option>)}</datalist></label>
-     <label>{t('connections.model')}<input disabled={busy || loading} value={model} list={modelListID} onChange={e => setModel(e.target.value)} placeholder={t('connections.modelPlaceholder')}/><datalist id={modelListID}>{options.models.map(m => <option key={m.value} value={m.value}>{m.name}</option>)}</datalist></label>
+     {magpie && <p className="settings-note">{t('connections.magpieThirdPartyNotice')}</p>}
+     {magpie && !loading && !options.models.length && !gatewayManual && <div className="runtime-gateway-empty"><p>{t('connections.magpieNotFound')}</p><button onClick={() => setGatewayManual(true)}>{t('connections.enterGatewayAddress')}</button><button className="text-action" onClick={() => void open('https://usemagpie.ai')}>{t('connections.magpieGuide')}</button><button className="text-action" onClick={() => setDiscovery(n => n + 1)}>{t('runtime.recheck')}</button></div>}
+     {gatewayFormVisible && <><label>{t('connections.serviceUrl')}<input type="url" list={endpointListID} disabled={busy} value={baseUrl} onChange={e => { setBaseUrl(e.target.value); setAPIKey(''); setModel(''); }} placeholder="https://…/v1"/><datalist id={endpointListID}>{options.endpoints.map(endpoint => <option key={endpoint.value} value={endpoint.value}>{endpoint.name}</option>)}</datalist></label>
+     <label>{t('connections.model')}{!loading && !options.models.length && <small>{t('connections.manualModelFallback')}</small>}<input disabled={busy || loading} value={model} list={modelListID} onChange={e => setModel(e.target.value)} placeholder={t('connections.modelPlaceholder')}/><datalist id={modelListID}>{options.models.map(m => <option key={m.value} value={m.value}>{m.name}</option>)}</datalist></label>
      <label>{t('connections.apiKey')}{reuseAuth && <small>{t('connections.reuseAuthHint')}</small>}<input disabled={busy} type="password" autoComplete="off" spellCheck={false} value={apiKey} onChange={e => setAPIKey(e.target.value)} placeholder={reuseAuth ? t('connections.handledByCaelis') : t('connections.enterApiKey')}/></label>
      <details onToggle={e => setMetadata(e.currentTarget.open)}><summary>{t('connections.customCapabilities')}</summary><p className="settings-note">{t('connections.customCapabilitiesHint')}</p><div className="runtime-model-options-row"><label>{t('connections.contextWindowTokens')}<input type="number" min="1" step="1" value={contextWindow} onChange={e => setContextWindow(e.target.value)}/></label><label>{t('connections.maxOutputTokens')}<input type="number" min="1" step="1" value={maxOutput} onChange={e => setMaxOutput(e.target.value)}/></label></div><label>{t('connections.reasoningLevels')}<input value={reasoningLevels} onChange={e => setReasoningLevels(e.target.value)} placeholder={t('connections.reasoningLevelsPlaceholder')}/></label><label className="runtime-check"><input type="checkbox" checked={imageInput} onChange={e => setImageInput(e.target.checked)}/>{t('connections.imageInput')}</label></details>
+     </>}
     </> : null}
-    <div className="setup-end"><button disabled={busy} onClick={close}>{t('common.cancel')}</button><button className="primary" disabled={busy || loading || (choice.custom && !command.trim()) || (kind === 'api-key' && (!model.trim() || !safeWebURL(baseUrl) || (!reuseAuth && !apiKey.trim())))} onClick={() => void run()}>{busy ? t('connections.preparing') : kind === 'account' ? t('connections.continueLogin') : kind === 'agent' ? t('connections.checkAgent') : t('connections.connect')}</button></div>
+    <div className="setup-end"><button disabled={busy} onClick={close}>{t('common.cancel')}</button>{(kind !== 'api-key' || gatewayFormVisible) && <button className="primary" disabled={busy || loading || (choice.custom && !command.trim()) || (kind === 'api-key' && (!model.trim() || !safeWebURL(baseUrl) || (!reuseAuth && !apiKey.trim())))} onClick={() => void run()}>{busy ? t('connections.preparing') : kind === 'account' ? t('connections.continueLogin') : kind === 'agent' ? t('connections.checkAgent') : t('connections.connect')}</button>}</div>
    </>}
   </>}
   {flow?.stage === 'preparing' && <p className="settings-note" role="status">{t('connections.waitingLocalCaelis')}</p>}
@@ -119,7 +133,7 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true }: {
    <button className="text-action" disabled={busy} onClick={() => void run('refresh')}>{t('connections.checkAuthStatus')}</button>
   </>}
   {flow?.stage === 'models' && <><label>{t('connections.useModel')}<select disabled={busy} value={model} onChange={e => setModel(e.target.value)}><option value="">{t('connections.selectModel')}</option>{flow.models?.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label><div className="setup-end"><button className="primary" disabled={busy || !flow.models?.some(m => m.id === model)} onClick={() => void run('connect', { model })}>{t('connections.connectModel')}</button></div></>}
-  {flow && ['complete', 'failed', 'unknown'].includes(flow.stage) && <div className="setup-end">{flow.stage === 'unknown' && flow.id && <button disabled={busy} onClick={() => void run('refresh')}>{t('connections.reconcileResult')}</button>}<button className={flow.stage === 'complete' ? 'primary' : ''} disabled={busy} onClick={() => void finish()}>{flow.stage === 'complete' ? t('connections.done') : t('connections.closeAndRefresh')}</button></div>}
+  {flow && ['complete', 'failed', 'unknown'].includes(flow.stage) && <div className="setup-end">{flow.stage === 'unknown' && flow.id && <button disabled={busy} onClick={() => void run('refresh')}>{t('connections.reconcileResult')}</button>}{flow.stage === 'failed' && <button disabled={busy} onClick={() => { setFlow(null); setAPIKey(''); }}>{t('connections.editAndRetry')}</button>}<button className={flow.stage === 'complete' ? 'primary' : ''} disabled={busy} onClick={() => void finish()}>{flow.stage === 'complete' ? t('connections.done') : t('connections.closeAndRefresh')}</button></div>}
   {flow?.id && !['complete', 'failed', 'unknown'].includes(flow.stage) && <button className="text-action" disabled={canceling} onClick={() => void cancel()}>{canceling ? t('connections.canceling') : t('connections.cancelConnection')}</button>}
   {error && <p role="alert" className="inline-error">{error}</p>}
  </SettingsDialog>;

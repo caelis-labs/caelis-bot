@@ -1,0 +1,32 @@
+--- a/install.sh
++++ b/install.sh
+@@ -21,0 +22 @@
++  local show_progress="${3:-0}"
+@@ -25,2 +26,14 @@
+-    if curl -sSfL --retry 3 --retry-delay 1 --retry-connrefused \
+-      --connect-timeout 10 --max-time 300 \
++    if [ "$show_progress" -eq 1 ]; then
++      # curl reports real bytes, total size, percentage and transfer rate.
++      # Resume after a stalled connection without an overall time limit.
++      local attempt=0
++      while [ "$attempt" -lt 4 ]; do
++        if curl -fL --connect-timeout 30 --speed-limit 1 --speed-time 120 \
++          --continue-at - "$download_url" -o "$download_dest"; then
++          download_success=1
++          break
++        fi
++        attempt=$((attempt + 1))
++      done
++    elif curl -sSfL --retry 3 --retry-delay 1 --retry-connrefused \
++      --connect-timeout 30 --speed-limit 1 --speed-time 120 \
+@@ -31 +44,3 @@
+-    if wget -q --tries=4 --timeout=30 -O "$download_dest" "$download_url" 2>/dev/null; then
++    if [ "$show_progress" -eq 1 ]; then
++      wget --tries=4 --timeout=30 -O "$download_dest" "$download_url" && download_success=1
++    elif wget -q --tries=4 --timeout=30 -O "$download_dest" "$download_url" 2>/dev/null; then
+@@ -48 +63 @@
+-      --connect-timeout 10 --max-time 30 \
++      --connect-timeout 30 --speed-limit 1 --speed-time 120 \
+@@ -143 +158 @@
+-if ! download_file "${DOWNLOAD_URL}" "${TMP_DIR}/${TARBALL_NAME}"; then
++if ! download_file "${DOWNLOAD_URL}" "${TMP_DIR}/${TARBALL_NAME}" 1; then

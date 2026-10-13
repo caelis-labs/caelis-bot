@@ -341,7 +341,8 @@ type ServiceTier struct {
 
 type RuntimeStatus struct {
 	LatestVersion string `json:"latestVersion"`
-	UpdateState   string `json:"updateState"` // available, current, or empty (not checked)
+	UpdateState   string `json:"updateState"`      // available, current, or empty (not checked)
+	Source        string `json:"source,omitempty"` // official, brew-formula, brew-cask, npm, or unknown
 	Installed     bool   `json:"installed"`
 	Path          string `json:"path"`
 	Version       string `json:"version"`

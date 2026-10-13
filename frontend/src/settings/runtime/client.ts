@@ -54,15 +54,34 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
    await invoke('SaveExecutionSettings', { ...current, ...fields });
   },
   async changeTeam(request, revision) { await change({...request,expectedRevision:revision}); },
-  async removeModel(group, model, revision) {
-   if (model.uses.length || group.kind==='agent' && group.models.some(m=>m.uses.length)) throw new Error('请先更改正在使用此连接的配置。');
-   await change({action:group.kind==='agent'?'disconnect-agent':'remove-model',id:group.kind==='agent'?group.id:model.id,expectedRevision:revision});
+  async removeModel(group, model, revision, stopUsing = false) {
+   const uses = group.kind === 'agent' ? group.models.flatMap(m => m.uses) : model.uses;
+   const owned = new Set(['Bot 对话', 'bot_conversation', '独立工作模型', 'dedicated_work']);
+   if (uses.length && (!stopUsing || uses.some(use => !owned.has(use)))) throw new Error('请先更改正在使用此连接的 Team 或模型设置。');
+   let expectedRevision = revision;
+   if (stopUsing) {
+    const before = await invoke<RuntimeConfiguration>('RuntimeConfiguration');
+    if (before.revision !== revision) throw new Error('Caelis 配置已变化，请刷新连接后重新确认。');
+    // Clear only Bot-owned selections before asking Host to remove the shared
+    // model. A failed intermediate write stops here; the caller must refresh.
+    const conversation = await invoke<ExecutionSettings>('ExecutionSettings');
+    if (conversation.model === model.id) await invoke('SaveExecutionSettings', {...conversation, model:'', effort:'', serviceTier:''});
+    const work = await invoke<WorkExecutionSettings>('WorkExecutionSettings');
+    if (work.model === model.id) await invoke('SaveWorkExecutionSettings', {model:'', effort:'', serviceTier:''});
+    const after = await invoke<RuntimeConfiguration>('RuntimeConfiguration');
+    const selected = after.connections.find(entry => entry.id === group.id)?.models.find(entry => entry.id === model.id);
+    if (!selected || selected.uses.some(use => !owned.has(use))) throw new Error('模型连接或 Team 绑定已变化，请刷新核对后再操作。');
+    expectedRevision = after.revision;
+   }
+   await change({action:group.kind==='agent'?'disconnect-agent':'remove-model',id:group.kind==='agent'?group.id:model.id,expectedRevision});
   },
   async catalog(kind) {return invoke('RuntimeConnectionCatalog',kind,profile ?? null);},
   async apiKeyOptions(provider, baseUrl) {
    const profile = await currentProfile();
    const endpoints = await invoke<SetupChoice[]>('SetupCatalog', setupRequest(profile, 'endpoints', { provider }));
-   const models = await invoke<SetupChoice[]>('SetupCatalog', setupRequest(profile, 'models', { provider, baseUrl: baseUrl || endpoints[0]?.value || '' }));
+   // Endpoint discovery is still useful when a local gateway is offline.
+   // Keep the Host's manual model input available without inventing a catalog.
+   const models = await invoke<SetupChoice[]>('SetupCatalog', setupRequest(profile, 'models', { provider, baseUrl: baseUrl || endpoints[0]?.value || '' })).catch(() => []);
    return { endpoints: endpoints.map(e => ({ value:e.value,name:e.label || e.value,reuseAuth:e.noAuth })), models: models.map(m => ({ value:m.value,name:m.label || m.value })) };
   },
   async startConnection(input,signal,progress){signal.throwIfAborted();return observe(await invoke<RuntimeFlow>('StartRuntimeConnection',{...input,settings:profile ?? null}),signal,progress);},

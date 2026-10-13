@@ -32,7 +32,25 @@ func InspectRuntime(ctx context.Context, path string) (api.RuntimeStatus, error)
 	if e != nil || len(b) > 4096 || !strings.HasPrefix(string(b), "codex-cli ") {
 		return api.RuntimeStatus{Path: p}, errors.New("该程序没有返回有效的 Codex 版本")
 	}
-	return api.RuntimeStatus{Installed: true, Path: p, Version: strings.TrimSpace(strings.TrimPrefix(string(b), "codex-cli "))}, nil
+	status := api.RuntimeStatus{Installed: true, Path: p, Version: strings.TrimSpace(strings.TrimPrefix(string(b), "codex-cli "))}
+	source := runtimeinstall.Detect(ctx, p, "codex", "@openai/codex")
+	status.Source = source.Kind
+	if status.Source == "unknown" && officialCodex(p) {
+		status.Source = "official"
+	}
+	return status, nil
+}
+func officialCodex(path string) bool {
+	home, _ := os.UserHomeDir()
+	entry := filepath.Join(home, ".local", "bin", "codex")
+	actual, err := filepath.EvalSymlinks(entry)
+	selected, selectedErr := filepath.EvalSymlinks(path)
+	if err != nil || selectedErr != nil || actual != selected {
+		return false
+	}
+	root := filepath.Join(home, ".codex", "packages", "standalone")
+	rel, err := filepath.Rel(root, selected)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 func ManageRuntime(ctx context.Context, action, path string) (api.RuntimeStatus, error) {
 	current, e := InspectRuntime(ctx, path)
@@ -70,22 +88,60 @@ func ManageRuntime(ctx context.Context, action, path string) (api.RuntimeStatus,
 		}
 		return current, nil
 	case "install", "update":
-		if path != "" {
-			return current, errors.New("自定义位置请通过原安装方式更新，或切回自动发现安装官方版本")
-		}
 		if action == "install" && current.Installed {
 			return current, errors.New("已找到 Codex，请使用更新")
 		}
-		// Do not overwrite a Homebrew/npm installation with another package manager.
-		home, _ := os.UserHomeDir()
-		standard := filepath.Join(home, ".local", "bin", "codex")
-		if action == "update" && current.Installed && current.Path != standard {
-			return current, errors.New("当前 Codex 来自其他安装方式，请使用原安装方式更新，或选择官方安装的程序")
+		if action == "update" {
+			if !current.Installed {
+				return current, errors.New("尚未安装 Codex，请先安装")
+			}
+			if current.Source == "brew-formula" || current.Source == "brew-cask" || current.Source == "npm" {
+				source := runtimeinstall.Detect(ctx, current.Path, "codex", "@openai/codex")
+				if source.Kind != current.Source {
+					return current, errors.New("Codex 安装来源已变化，请重新检测后再更新")
+				}
+				if err := runtimeinstall.Upgrade(ctx, source); err != nil {
+					return current, err
+				}
+				next, err := InspectRuntime(ctx, source.Entry)
+				if err != nil || !next.Installed || next.Source != current.Source {
+					return next, errors.New("更新后的 Codex 路径或版本未能验证，请重新检测并核对原安装渠道")
+				}
+				if order, err := updates.CompareVersions(next.Version, current.Version); err != nil || order < 0 {
+					return next, errors.New("更新后的 Codex 版本低于原版本，请核对安装渠道")
+				}
+				if next.Version == current.Version {
+					next.UpdateState = "current"
+					next.Message = "原安装渠道当前没有更新版本"
+				}
+				return next, nil
+			}
+			if current.Source != "official" {
+				return current, errors.New("无法确认 Codex 安装来源。请选择原程序并核对官方、Homebrew 或 npm 的安装记录后重试")
+			}
+		} else if path != "" {
+			return current, errors.New("自动安装仅支持用户默认目录，请清除自定义程序路径后重试")
+		}
+		if current.Source == "official" && path != "" && !officialCodex(path) {
+			return current, errors.New("自定义 Codex 路径与官方安装位置不一致，请重新检测")
 		}
 		if e = runtimeinstall.Codex(ctx); e != nil {
 			return current, e
 		}
-		return InspectRuntime(ctx, "")
+		selected := ""
+		if action == "update" {
+			selected = current.Path
+		}
+		next, err := InspectRuntime(ctx, selected)
+		if err != nil || !next.Installed || next.Source != "official" {
+			return next, errors.New("Codex 官方安装完成后，程序路径或版本未能验证；请重新检测")
+		}
+		if action == "update" {
+			if order, err := updates.CompareVersions(next.Version, current.Version); err != nil || order < 0 {
+				return next, errors.New("Codex 更新后的版本低于原版本，请重新检测")
+			}
+		}
+		return next, nil
 	default:
 		return current, errors.New("不支持的 Codex 安装操作")
 	}

@@ -1,4 +1,12 @@
 {
+  "thirdPartyGateway": "三方聚合网关",
+  "magpieDescription": "连接你自行安装的 Magpie 网关",
+  "magpieThirdPartyNotice": "Magpie 是独立的第三方开源项目。经此网关发送的请求由 Magpie 处理；Caelis 不代开通服务或订阅。",
+  "magpieNotFound": "当前网关没有返回模型目录。可填写网关地址，或查看 Magpie 的安装说明。",
+  "editAndRetry": "修改后重试",
+  "enterGatewayAddress": "输入网关地址",
+  "magpieGuide": "查看 Magpie 官网安装指引",
+  "manualModelFallback": "未取得模型目录，可以手动输入模型名称。",
   "unknownResultTitle": "操作结果尚未确认",
   "unknownResultMessage": "请检查当前连接状态，不要重复提交安装或认证。",
   "cancelNotConfirmed": "取消结果未确认，请检查 Caelis 中的认证状态。",

@@ -1,4 +1,12 @@
 {
+  "thirdPartyGateway": "Third-party gateway",
+  "magpieDescription": "Connect a Magpie gateway you installed",
+  "magpieThirdPartyNotice": "Magpie is an independent open-source project. Requests sent through it are handled by Magpie. Caelis does not provide a subscription.",
+  "magpieNotFound": "This gateway did not return a model catalog. Enter a gateway address or view Magpie's installation guide.",
+  "editAndRetry": "Edit and retry",
+  "enterGatewayAddress": "Enter gateway address",
+  "magpieGuide": "Magpie installation guide",
+  "manualModelFallback": "The model catalog is unavailable. You can enter a model name manually.",
   "unknownResultTitle": "Operation result not confirmed",
   "unknownResultMessage": "Check the connection status. Do not re-submit installation or authentication.",
   "cancelNotConfirmed": "Cancellation result not confirmed. Check authorization status in Caelis.",

@@ -14,9 +14,11 @@ import (
 const TestedVersion = "0.153.4"
 
 type Client struct {
-	rpc   *transport
-	home  string // Native handshake home, for attaching the user's TUI to this server.
-	owner retainedNativeOwner
+	rpc       *transport
+	home      string // Native handshake home, for attaching the user's TUI to this server.
+	userAgent string
+	shared    bool
+	owner     retainedNativeOwner
 }
 
 // An attachable private server remains the same owner across a socket
@@ -53,6 +55,7 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 			var client *Client
 			client, err = initializeClient(probe, conn, nil, opts)
 			if err == nil {
+				client.shared = true
 				done()
 				return client, nil
 			}
@@ -67,7 +70,11 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 				conn, err = connectExisting(ctx, opts.Socket)
 				if err == nil {
 					sharedRecoveryEvidence.Delete(sharedHome(opts.Socket))
-					return initializeClient(ctx, conn, nil, opts)
+					client, err := initializeClient(ctx, conn, nil, opts)
+					if err == nil {
+						client.shared = true
+					}
+					return client, err
 				}
 			}
 			return nil, errors.Join(errExistingServer, err)
@@ -103,6 +110,7 @@ func initializeClient(ctx context.Context, conn connection, stop func(), opts Op
 			err = ErrProtocol
 		}
 		_ = json.Unmarshal(response.CodexHome, &c.home)
+		c.userAgent = response.UserAgent
 	}
 	if err == nil {
 		_, err = c.rpc.send(ctx, wireMessage{Method: "initialized"})

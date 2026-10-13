@@ -18,7 +18,8 @@ import (
 
 func TestCaelisUpdateRequiresLiveCompatibilityAndRefusesBusyHost(t *testing.T) {
 	fixtureRoot := t.TempDir()
-	binary := filepath.Join(fixtureRoot, "caelis-fixture")
+	t.Setenv("HOME", fixtureRoot)
+	binary := filepath.Join(fixtureRoot, ".local", "bin", "caelis")
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
@@ -37,6 +38,9 @@ func main() {
  }
 }`
 	if err := os.WriteFile(source, []byte(program), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(binary), 0700); err != nil {
 		t.Fatal(err)
 	}
 	build := exec.Command("go", "build", "-trimpath", "-o", binary, source)

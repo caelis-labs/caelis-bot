@@ -14,7 +14,11 @@ func TestOfficialCLICommandsAndCredentialIsolation(t *testing.T) {
 		t.Skip("native Windows runtime management is not implemented")
 	}
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "caelis")
+	t.Setenv("HOME", dir)
+	bin := filepath.Join(dir, ".local", "bin", "caelis")
+	if err := os.MkdirAll(filepath.Dir(bin), 0700); err != nil {
+		t.Fatal(err)
+	}
 	log := filepath.Join(dir, "calls")
 	t.Setenv("CAELIS_RUNTIME_TEST_LOG", log)
 	t.Setenv("CAELIS_CONTROL_TOKEN", "HOST_SECRET_SENTINEL")
@@ -31,8 +35,8 @@ func TestOfficialCLICommandsAndCredentialIsolation(t *testing.T) {
 [ "$(worker-tool)" = native-export ] || exit 95
 printf '%s\n' "$*" >> "$CAELIS_RUNTIME_TEST_LOG"
 case "$1" in
-version) printf '{"version":"0.fixture"}\n';;
-update) printf 'caelis is up to date (0.fixture)\n';;
+version) printf '{"version":"0.71.0"}\n';;
+update) printf 'caelis is up to date (0.71.0)\n';;
 service) printf '{"state":"running"}\n';;
 *) exit 98;;
 esac
@@ -42,7 +46,7 @@ esac
 	}
 	for _, action := range []string{"detect", "check-update", "update", "start"} {
 		v, e := Manage(context.Background(), action, bin, dir)
-		if e != nil || !v.Installed || v.Path != bin || v.Version != "0.fixture" {
+		if e != nil || !v.Installed || v.Path != bin || v.Version != "0.71.0" {
 			t.Fatal(action, v, e)
 		}
 	}

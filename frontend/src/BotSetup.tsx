@@ -1,22 +1,21 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { backend, desktop } from './desktop';
-import { PermissionSettings } from './PermissionSettings';
-import { SetupExtras } from './SetupExtras';
 import { RuntimeSettings } from './RuntimeSettings';
-import type { BotInitialization, BotIntroduction, Snapshot } from './backend/contract';
+import type { BotInitialization, BotIntroduction, SetupOverview, Snapshot } from './backend/contract';
 import { useI18n } from './i18n';
 
 // The backend journals one ordinary user message. The Bot maintains MEMORY.md;
 // this form does not create a second identity settings store.
-export function BotSetup({ onDone,active=true,focusVersion=0 }: { onDone: () => void;active?:boolean;focusVersion?:number }) {
+export function BotSetup({ onDone,active=true }: { onDone: () => void;active?:boolean;focusVersion?:number }) {
  const {t}=useI18n();
- const [pending,setPending]=useState<{features:boolean;permissions:boolean}|null>(null);
+ const [overview,setOverview]=useState<SetupOverview|null>(null);
  const [failed,setFailed]=useState(false);
- useEffect(()=>{if(!active)return;let live=true;void Promise.all([desktop<boolean>('FeatureGuidePending'),desktop<boolean>('PermissionGuidePending')]).then(([features,permissions])=>{if(live)setPending({features,permissions})}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active]);
- if(pending===null)return <p role="status">{t(failed?'settings.permissionLoadFailed':'common.loading')}</p>;
- return <BotIntroductionSetup active={active} focusVersion={focusVersion} featuresPending={pending.features} permissionsPending={pending.permissions} onFeaturesDone={()=>setPending(current=>current&&{...current,features:false})} onFeaturesBack={()=>setPending(current=>current&&{...current,features:true})} onPermissionsDone={()=>setPending(current=>current&&{...current,permissions:false})} onPermissionsBack={()=>setPending(current=>current&&{...current,permissions:true})} onDone={onDone}/>;
+ useEffect(()=>{if(!active)return;let live=true;void backend<SetupOverview>('SetupOverview').then(value=>{if(live)setOverview(value)}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active]);
+ if(overview===null)return <p role="status">{t(failed?'runtime.loadRuntimeFailed':'common.loading')}</p>;
+ if(overview.onboarding || !overview.hasRuntimeChoice) return <div className="setup-flow"><SetupProgress step={0}/><RuntimeSettings onboarding active={active} onDone={()=>{void backend<SetupOverview>('SetupOverview').then(setOverview).catch(()=>setFailed(true));}}/></div>;
+ return <BotIntroductionSetup active={active} onDone={onDone}/>;
 }
-function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permissionsPending,onFeaturesDone,onFeaturesBack,onPermissionsDone,onPermissionsBack }: { onDone: () => void;active:boolean;focusVersion:number;featuresPending:boolean;permissionsPending:boolean;onFeaturesDone:()=>void;onFeaturesBack:()=>void;onPermissionsDone:()=>void;onPermissionsBack:()=>void }) {
+function BotIntroductionSetup({ onDone,active }: { onDone: () => void;active:boolean }) {
   const {t} = useI18n();
   const [state, setState] = useState<BotInitialization | null>(null);
   const [name, setName] = useState('');
@@ -43,7 +42,7 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
   }, [active,state?.status,t]);
 
   useEffect(() => {
-    if (!active || !state || state.required || state.status === 'rejected' || state.status === 'unknown' || featuresPending || permissionsPending || opening.current) return;
+    if (!active || !state || state.required || state.status === 'rejected' || state.status === 'unknown' || opening.current) return;
     let live = true;
     void backend<Snapshot>('Snapshot').then(async snapshot => {
       if (!live || snapshot.connection !== 'ready' || opening.current) return;
@@ -52,7 +51,7 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
       catch (e) { opening.current = false; if (live) setError(e instanceof Error ? e.message : t('chat.setupLoadFailed')); }
     }).catch(() => {});
     return () => { live = false; };
-  }, [active, state?.required, state?.status, featuresPending, permissionsPending, t]);
+  }, [active, state?.required, state?.status, t]);
 
   const openConversation = async () => {
     if (opening.current) return;
@@ -62,7 +61,7 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
   };
   const continueWhenReady = async () => {
     const snapshot = await backend<Snapshot>('Snapshot');
-    if (!featuresPending && !permissionsPending && snapshot.connection === 'ready') await openConversation();
+    if (snapshot.connection === 'ready') await openConversation();
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -100,14 +99,12 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
     </div>
     {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;
-  if (!state.required && featuresPending) return <div className="setup-flow"><SetupProgress step={1}/><SetupExtras onDone={onFeaturesDone}/></div>;
-  if (!state.required && permissionsPending) return <div className="setup-flow"><SetupProgress step={2}/><PermissionSettings active={active} focusVersion={focusVersion} onBack={onFeaturesBack} onDone={onPermissionsDone}/></div>;
-  if (!state.required) return <div className="setup-flow"><SetupProgress step={3}/>
+  if (!state.required) return <div className="setup-flow"><SetupProgress step={1}/>
     {state.message && <p className="setup-introduction-status" role="status">{state.message}</p>}
-    <RuntimeSettings onboarding active={active} onBack={onPermissionsBack} onDone={onDone} />
+    <section className="bot-introduction"><h1>{t('chat.setupPreparing')}</h1><button className="primary" onClick={() => void openConversation()}>{t('chat.setupOpenChat')}</button>{error&&<p role="alert" className="inline-error">{error}</p>}</section>
   </div>;
 
-  return <div className="setup-flow"><SetupProgress step={0}/><section className="bot-introduction">
+  return <div className="setup-flow"><SetupProgress step={1}/><section className="bot-introduction">
     <img className="setup-avatar" src="/icons/caelis-avatar.png" alt="" />
     <h1>{t('chat.setupIntroTitle')}</h1>
     <p className="setup-lead">{t('chat.setupSubtitle')}</p>
@@ -131,5 +128,5 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
 
 function SetupProgress({step}:{step:number}) {
  const {t}=useI18n();
- return <ol className="setup-progress" aria-label={t('settings.setupProgress')}>{(['setupIdentity','setupExtras','setupPermissions','setupConnection'] as const).map((key,index)=><li key={key} aria-current={index===step?'step':undefined}><span aria-hidden="true">{index<step?'✓':index+1}</span>{t(`settings.${key}`)}</li>)}</ol>;
+ return <ol className="setup-progress" aria-label={t('settings.setupProgress')}>{(['setupConnection','setupIdentity'] as const).map((key,index)=><li key={key} aria-current={index===step?'step':undefined}><span aria-hidden="true">{index<step?'✓':index+1}</span>{t(`settings.${key}`)}</li>)}</ol>;
 }

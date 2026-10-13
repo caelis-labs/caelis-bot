@@ -10,7 +10,7 @@ import (
 )
 
 func runtimeInstallation(st caelisruntime.Status) api.RuntimeStatus {
-	return api.RuntimeStatus{Installed: st.Installed, Path: st.Path, Version: st.Version, Message: st.Message, LatestVersion: st.LatestVersion, UpdateState: st.UpdateState}
+	return api.RuntimeStatus{Installed: st.Installed, Path: st.Path, Version: st.Version, Message: st.Message, LatestVersion: st.LatestVersion, UpdateState: st.UpdateState, Source: st.Source}
 }
 
 // All user-facing Caelis installation paths converge here. Installation alone
@@ -37,7 +37,8 @@ func (a *Application) manageCaelis(ctx context.Context, action string, v api.Run
 		if err = caelis.CheckServiceIdle(ctx, v); err != nil {
 			return runtimeInstallation(st), err
 		}
-		st, err = caelisruntime.Manage(ctx, "apply-update", v.CLIPath, v.CaelisStore, a.locale())
+		caelisruntime.ReportInstallProgress(ctx, caelisruntime.InstallProgress{Phase: "starting"})
+		st, err = caelisruntime.Manage(ctx, "apply-update", st.Path, v.CaelisStore, a.locale())
 		if err != nil {
 			return runtimeInstallation(st), fmt.Errorf("%s: %w", a.text("host.programInstalledServiceNotStarted"), err)
 		}

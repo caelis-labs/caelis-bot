@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -35,7 +34,26 @@ import (
 var appIcon []byte
 
 func Run(assets fs.FS) error {
-	env, report, envErr := runtimeenv.ResolveWithReport(context.Background(), os.Environ(), environmentNotebookHomes()...)
+	var env []string
+	var report runtimeenv.Report
+	var envErr error
+	if buildChannel == "research" {
+		// Explicit test-only identity: retain the isolated launcher's HOME/PATH
+		// verbatim. Login-shell restoration can escape into the real account.
+		executable, err := os.Executable()
+		if err != nil || !researchRootsValid(executable, os.Getenv("HOME"), os.Getenv("CAELIS_BOT_DATA_DIR"), os.Getenv("CODEX_HOME"), os.Getenv("ZDOTDIR"), os.Getenv("PATH")) || os.Getenv("CAELIS_CODEX_SOCKET") != "" || os.Getenv("CODEX_BIN") != "" {
+			return fmt.Errorf("research build requires its isolated launcher and roots")
+		}
+		for _, entry := range runtimeenv.Clean(os.Environ()) {
+			key, _, _ := strings.Cut(entry, "=")
+			switch key {
+			case "HOME", "ZDOTDIR", "PATH", "CODEX_HOME", "CAELIS_BOT_DATA_DIR", "TMPDIR", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE":
+				env = append(env, entry)
+			}
+		}
+	} else {
+		env, report, envErr = runtimeenv.ResolveWithReport(context.Background(), os.Environ(), environmentNotebookHomes()...)
+	}
 	if err := runtimeenv.Install(env); err != nil {
 		envErr = err
 	}
@@ -60,6 +78,8 @@ func Run(assets fs.FS) error {
 	if envErr != nil {
 		// Resolve returns only locally generated causes, never shell output/values.
 		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
+	} else if buildChannel == "research" {
+		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "research_environment_isolated", Reason: "test-only isolated HOME and PATH retained"})
 	} else if report.HomeRestored || report.RecoveredPathEntries > 0 {
 		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_recovered", Reason: fmt.Sprintf("account home restored: %t; inherited PATH entries recovered: %d", report.HomeRestored, report.RecoveredPathEntries)})
 	} else {
@@ -161,16 +181,7 @@ func Run(assets fs.FS) error {
 		}
 		// A separate helper waits for this exact owner to exit before LaunchServices
 		// recalls the bundle; launching earlier would hit the single-instance lock.
-		script := `while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; exec "$2" --env "CAELIS_BOT_DATA_DIR=$4" "$3"`
-		target := executable
-		launcher := executable
-		if i := strings.LastIndex(executable, ".app/Contents/MacOS/"); i >= 0 {
-			target = executable[:i+4]
-			launcher = "/usr/bin/open"
-		} else {
-			script = `while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; exec "$2"`
-		}
-		helper := exec.Command("/bin/sh", "-c", script, "caelis-relaunch", strconv.Itoa(os.Getpid()), launcher, target, root)
+		helper := runtimeRelaunchCommand(executable, root, os.Getpid(), buildChannel == "research", os.Getenv("HOME"), os.Getenv("CODEX_HOME"), os.Getenv("PATH"))
 		if err = helper.Start(); err != nil {
 			back.CancelRestart()
 			return err

@@ -6,6 +6,7 @@ import { desktop } from './desktop';
 import { BotSetup } from './BotSetup';
 import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
+import { TeamPage } from './settings/runtime/TeamPage';
 import { TelegramSettings } from './TelegramSettings';
 import { WeixinSettings } from './WeixinSettings';
 import { MessagingSettings } from './MessagingSettings';
@@ -58,15 +59,16 @@ export function Settings() {
   <aside><div className="settings-identity"><img src="/icons/caelis-avatar.png" alt=""/><div><strong>Caelis Bot</strong><small>{version}</small></div></div><nav aria-label={t('settings.navLabel')}>{settingsGroups.map(group=><div className="settings-nav-group" key={group.title}><p>{t(group.title)}</p>{group.sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}><SettingsNavIcon section={id}/><span>{t(`settings.${id}`)}</span></button>)}</div>)}</nav><button className="settings-return" onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))void desktop('OpenHistory');}}><CaretLeftIcon size={17} aria-hidden="true"/>{t('settings.returnChat')}</button></aside>
   <div className="settings-content" ref={content}>
    <div className="settings-page" data-section="permissions" hidden={section!=='permissions'}>{section==='permissions'&&<><h1>{t('settings.permissions')}</h1><PermissionSettings embedded active={visible} focusVersion={focusVersion}/></>}</div>
-   <div className="settings-page" data-section="connections" hidden={section!=='connections'}>{(runtimeVisited||section==='connections')&&<RuntimeSettings active={visible&&section==='connections'} refreshKey={opened}/>}</div>
+   <div className="settings-page" data-section="connections" hidden={section!=='connections'}>{(runtimeVisited||section==='connections')&&<RuntimeSettings active={visible&&section==='connections'} refreshKey={opened} onTeam={()=>setSection('team')}/>}</div>
+   <div className="settings-page" data-section="team" hidden={section!=='team'}>{section==='team'&&<TeamPage onConnections={()=>setSection('connections')}/>}</div>
    <div className="settings-page" data-section="chatConnections" hidden={section!=='chatConnections'}>{section==='chatConnections'&&<MessagingSettings active={visible} focusVersion={focusVersion} openTelegram={()=>setSection('telegram')} openWeixin={()=>setSection('weixin')}/>}</div>
    <div className="settings-page" data-section="telegram" hidden={section!=='telegram'}>{(telegramVisited||section==='telegram')&&<TelegramSettings active={visible&&section==='telegram'} onBack={()=>setSection('chatConnections')}/>}</div>
    <div className="settings-page" data-section="weixin" hidden={section!=='weixin'}>{(weixinVisited||section==='weixin')&&<WeixinSettings active={visible&&section==='weixin'} onBack={()=>setSection('chatConnections')}/>}</div>
    <div className="settings-page" data-section="extras" hidden={section!=='extras'}>{section==='extras'&&<><h1>{t('settings.extras')}</h1><ScreenInputSettings/></>}</div>
    <div className="settings-page" data-section="plugins" hidden={section!=='plugins'}>{section==='plugins'&&<PluginSettings visible={visible}/>}</div>
    <div className="settings-page" data-section="machines" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone active={visible}/>}</div>
-   <div className="settings-page" data-section={section} key={section} hidden={['permissions','connections','chatConnections','telegram','weixin','machines','extras','plugins'].includes(section)}>
-   {section==='general'?<General key={opened} active={visible} focusVersion={focusVersion}/>:section==='appearance'?<AppearanceSettings/>:['connections','chatConnections','telegram','weixin','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version} active={visible} focusVersion={focusVersion}/>}
+   <div className="settings-page" data-section={section} key={section} hidden={['permissions','connections','team','chatConnections','telegram','weixin','machines','extras','plugins'].includes(section)}>
+   {section==='general'?<General key={opened} active={visible} focusVersion={focusVersion}/>:section==='appearance'?<AppearanceSettings/>:['connections','team','chatConnections','telegram','weixin','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version} active={visible} focusVersion={focusVersion}/>}
    </div>
   </div>
  </main>;

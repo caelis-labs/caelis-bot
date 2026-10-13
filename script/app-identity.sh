@@ -7,6 +7,7 @@ if [[ -n "${BOT_RELEASE_TAG:-}" ]]; then
 fi
 case "$BOT_BUILD_CHANNEL" in
   development) BOT_APP_NAME='Caelis Bot Dev'; BOT_APP_ID=dev.caelis.bot.dev ;;
+  research) BOT_APP_NAME='Caelis Bot Research'; BOT_APP_ID=dev.caelis.bot.research ;;
   release) BOT_APP_NAME='Caelis Bot'; BOT_APP_ID=dev.caelis.bot ;;
   *) echo 'Unsupported Bot build channel.' >&2; exit 1 ;;
 esac

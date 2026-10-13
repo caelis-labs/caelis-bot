@@ -1,4 +1,4 @@
-export const settingsSections = ['general', 'appearance', 'connections', 'chatConnections', 'plugins', 'machines', 'extras', 'permissions', 'updates'] as const;
+export const settingsSections = ['general', 'appearance', 'connections', 'team', 'chatConnections', 'plugins', 'machines', 'extras', 'permissions', 'updates'] as const;
 export type SettingsSection = typeof settingsSections[number] | 'telegram' | 'weixin' | 'setup';
 
 // Native repair links and older callers still use the runtime destination.
@@ -8,7 +8,7 @@ export function settingsDestination(value: string): SettingsSection | null {
 }
 
 export const settingsGroups = [
- { title: 'settings.groupEveryday', sections: ['general', 'appearance', 'connections'] },
+ { title: 'settings.groupEveryday', sections: ['general', 'appearance', 'connections', 'team'] },
  { title: 'settings.groupConnections', sections: ['chatConnections', 'machines', 'plugins'] },
  { title: 'settings.groupSystem', sections: ['extras', 'permissions', 'updates'] },
 ] as const;

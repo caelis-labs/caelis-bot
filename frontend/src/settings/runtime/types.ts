@@ -43,7 +43,7 @@ export interface RuntimeSettingsClient {
  read(): Promise<RuntimeView>;
  saveModel(scope: ModelScope, value: ModelSelection, revision?: string): Promise<void>;
  changeTeam(change: TeamChange, revision: string): Promise<void>;
- removeModel(group: ConnectionGroup, model: ConnectionModel, revision?: string): Promise<void>;
+ removeModel(group: ConnectionGroup, model: ConnectionModel, revision?: string, stopUsing?: boolean): Promise<void>;
  catalog(kind: ConnectionKind): Promise<ConnectionCatalog>;
  apiKeyOptions(provider: string, baseUrl: string): Promise<APIKeyOptions>;
  startConnection(input: ConnectInput, signal: AbortSignal, progress: (flow: ConnectionFlow) => void): Promise<ConnectionFlow>;

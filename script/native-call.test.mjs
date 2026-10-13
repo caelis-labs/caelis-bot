@@ -33,3 +33,21 @@ test('preview reads retain the bounded read deadline',async t=>{
  const rejection=assert.rejects(pending,/not been confirmed/);
  t.mock.timers.tick(5_000);await rejection;
 });
+test('runtime preparation waits for the native installation result beyond the ordinary deadline',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ let finish,calls=0,settled=false;
+ const pending=nativeCall('backend','ApplySetup',()=>{calls++;return new Promise(resolve=>finish=resolve);});
+ pending.then(()=>settled=true);
+ t.mock.timers.tick(120_000);await Promise.resolve();
+ assert.equal(settled,false);assert.equal(calls,1);
+ finish({state:'models'});assert.deepEqual(await pending,{state:'models'});
+});
+test('fresh installation stays pending while a slow transfer is still active',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ let finish,settled=false;
+ const pending=nativeCall('backend','ApplySetup',()=>new Promise(resolve=>finish=resolve),[{action:'install',settings:{runtime:'caelis'}}]);
+ pending.then(()=>settled=true);
+ t.mock.timers.tick(2*60*60*1000);await Promise.resolve();
+ assert.equal(settled,false);
+ finish({state:'models'});assert.deepEqual(await pending,{state:'models'});
+});

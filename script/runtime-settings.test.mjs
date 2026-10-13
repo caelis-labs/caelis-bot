@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const server = await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});
 after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
-const {setupStatusKey,botSessionStatusKey} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
+const {setupStatusKey,botSessionStatusKey,nextOnboardingStep} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
 const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
@@ -28,6 +28,37 @@ test('setup and session facts stay distinct when model or observation services f
  assert.equal(setupStatusKey({...setup,state:'login'}),'runtime.loginCodex');
  assert.equal(setupStatusKey({...setup,state:'models'}),'runtime.noModelsConnected');
  assert.equal(setupStatusKey({...setup,installation:{installed:false}}),'runtime.notInstalled');
+});
+test('first run advances from missing CLI through service to a real model connection',()=>{
+ const state={installation:{installed:false},state:'missing'};
+ assert.equal(nextOnboardingStep(state,'caelis'),'install');
+ assert.equal(nextOnboardingStep({...state,installation:{installed:true},state:'service'},'caelis'),'start');
+ assert.equal(nextOnboardingStep({...state,installation:{installed:true},state:'models'},'caelis'),'model');
+ assert.equal(nextOnboardingStep({...state,installation:{installed:true},state:'ready'},'caelis'),'');
+ assert.equal(nextOnboardingStep({...state,installation:{installed:true},state:'login'},'codex'),'');
+});
+test('stop using a sole model clears Bot preferences before Host deletion; partial failure stops',async()=>{
+ const group={id:'provider',name:'Provider',kind:'provider',detail:'',models:[]};
+ const model={id:'provider/a',name:'A',uses:['Bot 对话','独立工作模型'],unavailable:false};
+ group.models=[model];const calls=[];
+ const client=createRuntimeSettingsClient(async(method,...args)=>{
+  calls.push([method,...args]);
+  if(method==='RuntimeConfiguration')return {revision:calls.filter(c=>c[0]==='RuntimeConfiguration').length===1?'9':'10',connections:[group]};
+  if(method==='ExecutionSettings')return {model:model.id,effort:'low',serviceTier:'',approvalMode:'workspace-write'};
+  if(method==='WorkExecutionSettings')return {model:model.id,effort:'',serviceTier:''};
+  return {operationId:'op',outcome:'committed',message:''};
+ });
+ await assert.rejects(client.removeModel(group,model,'9'));
+ await client.removeModel(group,model,'9',true);
+ assert.deepEqual(calls.map(c=>c[0]),['RuntimeConfiguration','ExecutionSettings','SaveExecutionSettings','WorkExecutionSettings','SaveWorkExecutionSettings','RuntimeConfiguration','ChangeRuntimeConfiguration']);
+ assert.equal(calls.at(-1)[1].expectedRevision,'10');
+ const failed=[];const partial=createRuntimeSettingsClient(async(method)=>{failed.push(method);if(method==='RuntimeConfiguration')return {revision:'9',connections:[group]};if(method==='ExecutionSettings')return {model:model.id,approvalMode:'workspace-write'};if(method==='SaveExecutionSettings')throw Error('synthetic write failure');});
+ await assert.rejects(partial.removeModel(group,model,'9',true));
+ assert.deepEqual(failed,['RuntimeConfiguration','ExecutionSettings','SaveExecutionSettings']);
+ const main={...model,uses:['Caelis 主模型']};
+ const beforeMain=calls.length;
+ await assert.rejects(client.removeModel({...group,models:[main]},main,'9',true),/Team 或模型设置/);
+ assert.equal(calls.length,beforeMain);
 });
 
 test('default Codex provider remains unselected when the session read fails',async()=>{
@@ -106,6 +137,16 @@ test('first Caelis setup pins the selected profile before activation',async()=>{
  assert.deepEqual(calls.at(-1)[1].settings,profile);
  assert.ok(calls.filter(c=>c[0]==='SetupCatalog').every(c=>c[1].settings===profile));
  assert.equal(calls.filter(c=>c[0]==='RuntimeSettings').length,0);
+});
+test('gateway model catalog failure keeps Host endpoint and manual model fallback',async()=>{
+ const profile={runtime:'caelis',cliPath:'/fixture/caelis',caelisStore:'/fixture/store'};
+ const client=createRuntimeSettingsClient(async(method,request)=>{
+  if(method==='SetupCatalog' && request.action==='endpoints')return [{value:'http://127.0.0.1:3425/v1',label:'Local Magpie',noAuth:true}];
+  if(method==='SetupCatalog' && request.action==='models')throw Error('synthetic gateway offline');
+  throw Error('unexpected call');
+ },profile);
+ const options=await client.apiKeyOptions('magpie','');
+ assert.deepEqual(options.models,[]);assert.equal(options.endpoints[0].reuseAuth,true);
 });
 test('OAuth progress cannot rewind completion or newer ordered status',()=>{
  const complete={id:'auth-1',revision:'opaque-a',sequence:3,stage:'complete',title:'',message:''};

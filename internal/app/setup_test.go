@@ -4,9 +4,28 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 )
+
+func TestInstallProgressCanBeReadDuringSetupOperation(t *testing.T) {
+	s := &runtimeSetup{}
+	s.mu.Lock() // Apply holds this while the installer runs.
+	s.setInstallProgress(caelisruntime.InstallProgress{Phase: "downloading", Downloaded: 1024, Total: 2048, BytesPerSecond: 512})
+	result := make(chan api.SetupInstallProgress, 1)
+	go func() { result <- s.InstallProgress() }()
+	select {
+	case p := <-result:
+		if p.Phase != "downloading" || p.Downloaded != 1024 || p.Total != 2048 || p.BytesPerSecond != 512 {
+			t.Fatalf("lost installer measurement: %+v", p)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("progress read blocked behind the installer lock")
+	}
+	s.mu.Unlock()
+}
 
 func TestFreshSetupDoesNotConnectAndDismissDoesNotChooseRuntime(t *testing.T) {
 	root := t.TempDir()
@@ -40,6 +59,62 @@ func TestFreshSetupDoesNotConnectAndDismissDoesNotChooseRuntime(t *testing.T) {
 	}
 	if overview := b.setup.Overview(); overview.Active != "codex" || overview.HasRuntimeChoice {
 		t.Fatalf("dismissed setup selected default provider: %+v", overview)
+	}
+}
+func TestFirstRunStagesProviderBeforeConnectionWithoutChoosingRuntime(t *testing.T) {
+	root := t.TempDir()
+	a, err := New(root, Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = a.PreparePersonal(); err != nil {
+		t.Fatal(err)
+	}
+	if restart, err := a.setup.StageRuntime("caelis"); err != nil || !restart {
+		t.Fatalf("Caelis choice should relaunch before configuration: %v %v", restart, err)
+	}
+	if a.HasRuntimeChoice() {
+		t.Fatal("staging was mistaken for an activated Runtime")
+	}
+	if _, err = os.Stat(filepath.Join(root, "runtime.json")); !os.IsNotExist(err) {
+		t.Fatal("staging wrote the active connection", err)
+	}
+	if err = a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(root, Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if got := b.setup.Overview(); got.Active != "caelis" || got.Pending != "caelis" || got.HasRuntimeChoice || !got.Onboarding {
+		t.Fatalf("staged provider did not resume first-run setup: %+v", got)
+	}
+	if restart, err := b.setup.StageRuntime("caelis"); err != nil || restart {
+		t.Fatalf("same provider must stay in process: %v %v", restart, err)
+	}
+	if restart, err := b.setup.StageRuntime("codex"); err != nil || !restart {
+		t.Fatalf("changing choice should relaunch before configuration: %v %v", restart, err)
+	}
+	if _, err := b.setup.StageRuntime("../bad"); err == nil {
+		t.Fatal("invalid staged provider accepted")
+	}
+}
+func TestFreshConversationJournalDoesNotChooseRuntimeAfterRestart(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "bot.json"), []byte(`{"version":1,"personalVersion":1,"id":"fresh"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "conversation.json"), []byte(`{"version":1}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := New(root, Host{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if a.HasRuntimeChoice() || !a.NeedsSetup() || !a.setup.Overview().Onboarding {
+		t.Fatal("conversation journal skipped runtime selection")
 	}
 }
 func TestRuntimeProfilesAndDraftsStaySeparate(t *testing.T) {
