@@ -46,6 +46,27 @@ func TestConnectionProfileBeforeActivation(t *testing.T) {
 	}
 }
 
+func TestWorkerTeamProfileFollowsWorkerNotConversationRuntime(t *testing.T) {
+	app, root := fixtureApp(t, newTestEngine(), Host{})
+	profile := api.RuntimeSettings{Runtime: "caelis", CLIPath: filepath.Join(root, "bin", "caelis"), CaelisStore: filepath.Join(root, "store")}
+	if err := app.setup.saveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	app.localWork.mu.Lock()
+	app.localWork.defaultRuntime = "caelis"
+	app.localWork.mu.Unlock()
+	got, err := app.setup.workerTeamProfile()
+	if err != nil || got != profile {
+		t.Fatalf("inactive Caelis Worker lost its own Host profile: %+v, %v", got, err)
+	}
+	app.localWork.mu.Lock()
+	app.localWork.defaultRuntime = "codex"
+	app.localWork.mu.Unlock()
+	if _, err := app.setup.workerTeamProfile(); err == nil {
+		t.Fatal("Codex Worker exposed Caelis Team")
+	}
+}
+
 func TestStopUsingSoleModelCommitsHostBeforeClearingBotPreference(t *testing.T) {
 	const model = "magpie@local/fixture-model"
 	for _, failSync := range []bool{false, true} {
