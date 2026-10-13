@@ -119,6 +119,32 @@ func TestCompactTaskFlowsAndInvalidBranches(t *testing.T) {
 		t.Fatal("invalid query reached manager")
 	}
 }
+
+func TestPreviousCompactPendingSchemaUsesOriginalTaskHandler(t *testing.T) {
+	r, _, _ := fixture(t)
+	f := &compactTasks{}
+	if err := r.ConfigureTasks(f, nil); err != nil {
+		t.Fatal(err)
+	}
+	previous := previousCompactTools{r}
+	start := previous.CallTool(t.Context(), "bot_delegate", json.RawMessage(`{"request":{"type":"start","requestId":"old-call-1","prompt":"original work"}}`))
+	if start.IsError || f.starts != 1 || f.start.RequestID != "old-call-1" {
+		t.Fatal("old start callback did not retain its request identity", start, f.start)
+	}
+	continued := previous.CallTool(t.Context(), "bot_delegate", json.RawMessage(`{"request":{"type":"continue","requestId":"old-call-2","task":"owned","prompt":"next work"}}`))
+	if continued.IsError || f.sends != 1 || f.sent.RequestID != "old-call-2" || f.sent.ID != "owned" {
+		t.Fatal("old continuation callback was rerouted", continued, f.sent)
+	}
+	if out := previous.CallTool(t.Context(), "bot_tasks", json.RawMessage(`{"request":{"type":"read","requestId":"old-call-1"}}`)); out.IsError || f.reads != 1 {
+		t.Fatal("old receipt read was lost", out)
+	}
+	if out := previous.CallTool(t.Context(), "bot_memory", json.RawMessage(`{"operation":"recall"}`)); !out.IsError {
+		t.Fatal("retired memory effect was admitted")
+	}
+	if out := r.CallTool(t.Context(), "bot_delegate", json.RawMessage(`{"request":{"type":"start","requestId":"old-call-3","prompt":"new work"}}`)); !out.IsError {
+		t.Fatal("old schema leaked into the current catalog")
+	}
+}
 func TestTaskReadUsesCompletedMessageIdentityAndUTF8ByteFolding(t *testing.T) {
 	value := strings.Repeat("界", 400)
 	folded := collapsedTaskText(value)

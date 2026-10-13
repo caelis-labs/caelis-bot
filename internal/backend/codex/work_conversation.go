@@ -54,13 +54,7 @@ func (s *Session) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 			if turn.ID == "" {
 				return nil, ErrProtocol
 			}
-			lastAssistant := ""
-			for _, item := range turn.Items {
-				if item.Type == "agentMessage" {
-					lastAssistant = item.ID
-				}
-			}
-			for _, item := range turn.Items {
+			for index, item := range turn.Items {
 				role := ""
 				switch item.Type {
 				case "userMessage":
@@ -73,7 +67,14 @@ func (s *Session) ReadWorkConversation(ctx context.Context, id string) ([]api.Ta
 				if item.ID == "" {
 					return nil, ErrProtocol
 				}
-				if role == "assistant" && !completed[opaque(turn.ID, item.ID)] && !(turn.Status == "completed" && item.ID == lastAssistant) {
+				// Native agentMessage has no status field. A later native item
+				// (except a steering user message) proves the earlier output
+				// finished. A terminal turn proves its final item finished.
+				// The live item/completed receipt also covers a completed
+				// progress message while the turn is still running.
+				completedInHistory := index+1 < len(turn.Items) && turn.Items[index+1].Type != "userMessage" ||
+					turn.Status == "completed" && index == len(turn.Items)-1
+				if role == "assistant" && !completed[opaque(turn.ID, item.ID)] && !completedInHistory {
 					continue
 				}
 				text := item.Text

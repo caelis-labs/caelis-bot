@@ -99,6 +99,11 @@ func TestSubmissionIDsAcceptDistinctSameTextAndNeverReplayUnknown(t *testing.T) 
 	if _, err := m.SendTask(t.Context(), first); err != nil || f.sends != 2 {
 		t.Fatal("confirmed same call was replayed after restart", f.sends, err)
 	}
+	changed := first
+	changed.Prompt = "changed wording"
+	if _, err := m.SendTask(t.Context(), changed); err == nil || f.sends != 2 {
+		t.Fatal("original submission identity accepted changed prompt", f.sends, err)
+	}
 	f.unknown = true
 	third := api.TaskMessage{ID: task.ID, RequestID: "native-call-unknown", Prompt: "another prompt"}
 	if _, err := m.SendTask(t.Context(), third); err == nil || f.sends != 3 {
@@ -110,5 +115,53 @@ func TestSubmissionIDsAcceptDistinctSameTextAndNeverReplayUnknown(t *testing.T) 
 	}
 	if out, err := m.SendTask(t.Context(), third); err == nil || out.Status != "unknown" || f.sends != 3 {
 		t.Fatal("unknown submission replayed or forged success", out, f.sends, err)
+	}
+}
+
+type rejectedReceiptFixture struct {
+	*fixtureRuntime
+	reads int
+}
+
+func (f *rejectedReceiptFixture) WorkMessageRecorded(api.TaskMessage) bool { return true }
+func (f *rejectedReceiptFixture) SendWork(_ context.Context, in api.TaskMessage) (api.Task, error) {
+	f.reads++
+	v := f.states[in.ID].Task
+	v.Outcome = "rejected"
+	return v, nil // original native receipt; this must not dispatch another prompt
+}
+
+func TestLegacyBooleanConfirmationReconcilesRejectedNativeReceipt(t *testing.T) {
+	f := &rejectedReceiptFixture{fixtureRuntime: newRuntime()}
+	root := t.TempDir()
+	open := func() *Manager {
+		m, err := Open(root+"/tasks.json", root+"/Tasks", "codex", f, f, f.Snapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	m := open()
+	task := start(t, m, "legacy-bool-original")
+	in := api.TaskMessage{ID: task.ID, RequestID: "legacy-bool-followup", Prompt: "follow up"}
+	m.mu.Lock()
+	record := m.state.Records[task.ID]
+	record.Requests = append(record.Requests, in.RequestID)
+	record.ConfirmedRequests = map[string]bool{in.RequestID: true}
+	if err := m.write(); err != nil {
+		m.mu.Unlock()
+		t.Fatal(err)
+	}
+	m.mu.Unlock()
+	for i := 0; i < 2; i++ {
+		got, err := m.SendTask(t.Context(), in)
+		if err != nil || got.Outcome != "rejected" || f.reads != 1 {
+			t.Fatalf("legacy boolean forged acceptance or replayed: %+v %v reads=%d", got, err, f.reads)
+		}
+	}
+	m = open()
+	got, err := m.SendTask(t.Context(), in)
+	if err != nil || got.Outcome != "rejected" || f.reads != 1 {
+		t.Fatal("restart changed reconciled rejected outcome", got, err, f.reads)
 	}
 }

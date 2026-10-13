@@ -126,11 +126,21 @@ func readArtifactText(path string, limit int64, partial bool) (ArtifactPreview, 
 	truncated := int64(len(data)) > limit
 	if truncated {
 		data = data[:limit]
-		for len(data) > 0 && !utf8.Valid(data) {
-			data = data[:len(data)-1]
-		}
 	}
-	if !utf8.Valid(data) || strings.ContainsRune(string(data), 0) {
+	// Only an incomplete code point at the read boundary may be discarded.
+	// An invalid byte anywhere else is a corrupt file, even for a preview.
+	for i := 0; i < len(data); {
+		r, size := utf8.DecodeRune(data[i:])
+		if r == utf8.RuneError && size == 1 {
+			if truncated && !utf8.FullRune(data[i:]) {
+				data = data[:i]
+				break
+			}
+			return ArtifactPreview{}, errors.New("此文件不是可预览的 UTF-8 文本")
+		}
+		i += size
+	}
+	if strings.ContainsRune(string(data), 0) {
 		return ArtifactPreview{}, errors.New("此文件不是可预览的 UTF-8 文本")
 	}
 	return ArtifactPreview{Text: string(data), Truncated: truncated}, nil

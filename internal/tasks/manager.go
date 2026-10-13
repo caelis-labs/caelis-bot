@@ -24,27 +24,29 @@ import (
 )
 
 type record struct {
-	Requests          []string        `json:"requests,omitempty"`
-	ConfirmedRequests map[string]bool `json:"confirmedRequests,omitempty"`
-	RetiredExecutions []string        `json:"retiredExecutions,omitempty"`
-	PreviousReports   []reportReceipt `json:"previousReports,omitempty"`
-	Runtime           string          `json:"runtime,omitempty"`
-	Sequence          int64           `json:"sequence,omitempty"`
-	CreatedAt         int64           `json:"createdAt,omitempty"`
-	Locked            bool            `json:"locked,omitempty"`
-	CompletedAt       int64           `json:"completedAt,omitempty"`
-	ActiveAt          int64           `json:"activeAt,omitempty"`
-	Pinned            *bool           `json:"pinned,omitempty"`
-	OriginalPrompt    string          `json:"originalPrompt,omitempty"`
-	View              api.Task        `json:"view"`
-	Provider          string          `json:"provider"`
-	Fingerprint       string          `json:"fingerprint,omitempty"`
-	Execution         string          `json:"execution,omitempty"`
-	ReportID          string          `json:"reportId,omitempty"`
-	ReportState       string          `json:"reportState,omitempty"`
-	UnknownSince      int64           `json:"unknownSince,omitempty"`
-	UnknownNotice     string          `json:"unknownNotice,omitempty"`
-	Activity          string          `json:"-"`
+	Requests            []string          `json:"requests,omitempty"`
+	ConfirmedRequests   map[string]bool   `json:"confirmedRequests,omitempty"`
+	RequestOutcomes     map[string]string `json:"requestOutcomes,omitempty"`
+	RequestFingerprints map[string]string `json:"requestFingerprints,omitempty"`
+	RetiredExecutions   []string          `json:"retiredExecutions,omitempty"`
+	PreviousReports     []reportReceipt   `json:"previousReports,omitempty"`
+	Runtime             string            `json:"runtime,omitempty"`
+	Sequence            int64             `json:"sequence,omitempty"`
+	CreatedAt           int64             `json:"createdAt,omitempty"`
+	Locked              bool              `json:"locked,omitempty"`
+	CompletedAt         int64             `json:"completedAt,omitempty"`
+	ActiveAt            int64             `json:"activeAt,omitempty"`
+	Pinned              *bool             `json:"pinned,omitempty"`
+	OriginalPrompt      string            `json:"originalPrompt,omitempty"`
+	View                api.Task          `json:"view"`
+	Provider            string            `json:"provider"`
+	Fingerprint         string            `json:"fingerprint,omitempty"`
+	Execution           string            `json:"execution,omitempty"`
+	ReportID            string            `json:"reportId,omitempty"`
+	ReportState         string            `json:"reportState,omitempty"`
+	UnknownSince        int64             `json:"unknownSince,omitempty"`
+	UnknownNotice       string            `json:"unknownNotice,omitempty"`
+	Activity            string            `json:"-"`
 }
 type reportReceipt struct {
 	ID    string `json:"id"`
@@ -640,14 +642,19 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	duplicate := slices.Contains(current.Requests, in.RequestID)
 	if duplicate {
 		prior := current.View
-		confirmed := current.ConfirmedRequests[in.RequestID]
+		outcome := current.RequestOutcomes[in.RequestID]
+		fingerprint, known := current.RequestFingerprints[in.RequestID]
 		m.mu.Unlock()
-		if confirmed {
-			prior.Outcome = "accepted"
+		if known && fingerprint != hash(in.Prompt) {
+			return prior, errors.New(m.text("host.sameRequestIdDifferentTask"))
+		}
+		if known && outcome != "" && outcome != "unknown" {
+			prior.Outcome = outcome
 			return prior, nil
 		}
-		// The native adapter owns the per-submission receipt. Only a verified
-		// original ID may be reconciled; a task ID is not a send receipt.
+		// Older ledgers contain only a boolean confirmation, which cannot
+		// distinguish acceptance from rejection. Reconcile the original native
+		// receipt rather than inventing an accepted outcome.
 		recorded, ok := m.work.(api.RecordedWorkMessage)
 		if !ok || !recorded.WorkMessageRecorded(in) {
 			prior.Outcome = "unknown"
@@ -655,12 +662,16 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 		}
 		v, err := m.work.SendWork(ctx, in)
 		v, err = m.capture(in.ID, v, err)
-		if err == nil && v.Status != "unknown" && v.Outcome != "unknown" {
+		if err == nil && v.Status != "unknown" && v.Outcome != "" && v.Outcome != "unknown" {
 			m.mu.Lock()
-			if current.ConfirmedRequests == nil {
-				current.ConfirmedRequests = map[string]bool{}
+			if current.RequestOutcomes == nil {
+				current.RequestOutcomes = map[string]string{}
 			}
-			current.ConfirmedRequests[in.RequestID] = true
+			if current.RequestFingerprints == nil {
+				current.RequestFingerprints = map[string]string{}
+			}
+			current.RequestOutcomes[in.RequestID] = v.Outcome
+			current.RequestFingerprints[in.RequestID] = hash(in.Prompt)
 			err = m.write()
 			m.mu.Unlock()
 		}
@@ -694,8 +705,13 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	r := m.state.Records[in.ID]
 	if !slices.Contains(r.Requests, in.RequestID) {
 		r.Requests = append(r.Requests, in.RequestID)
+		if r.RequestFingerprints == nil {
+			r.RequestFingerprints = map[string]string{}
+		}
+		r.RequestFingerprints[in.RequestID] = hash(in.Prompt)
 		if e := m.write(); e != nil {
 			r.Requests = r.Requests[:len(r.Requests)-1]
+			delete(r.RequestFingerprints, in.RequestID)
 			m.mu.Unlock()
 			return api.Task{}, e
 		}
@@ -704,12 +720,12 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	defer m.notifyWatchlist()
 	v, e := m.work.SendWork(ctx, in)
 	v, e = m.capture(in.ID, v, e)
-	if e == nil && v.Status != "unknown" && v.Outcome != "unknown" {
+	if e == nil && v.Status != "unknown" && v.Outcome != "" && v.Outcome != "unknown" {
 		m.mu.Lock()
-		if r.ConfirmedRequests == nil {
-			r.ConfirmedRequests = map[string]bool{}
+		if r.RequestOutcomes == nil {
+			r.RequestOutcomes = map[string]string{}
 		}
-		r.ConfirmedRequests[in.RequestID] = true
+		r.RequestOutcomes[in.RequestID] = v.Outcome
 		e = m.write()
 		m.mu.Unlock()
 	}

@@ -576,8 +576,10 @@ stored; prior `bot_memory` callbacks can no longer execute and require an explic
 file-based follow-up if still relevant. Caelis retains the old catalog version
 only to settle original non-memory callbacks without granting a retired memory
 effect. Private MCP invocations carry a
-catalog generation, and Caelis restores the exact original legacy schema/policy
-version for old pending callbacks. This preserves original receipts without
+catalog generation. Caelis restores both the exact previous compact catalog
+from `5903254d` and the older legacy schema/policy version for pending callbacks.
+Historical memory callbacks remain denied even when their original catalog
+digest is recognized. This preserves original receipts without
 rerouting them to the current same-name schema or replaying mutations. Unknown
 catalog versions still fail closed. Legacy request lookup remains an internal
 receipt recovery path; the new model catalog cannot query by requestId or invoke

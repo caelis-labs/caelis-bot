@@ -162,3 +162,36 @@ func TestArtifactPreviewLimitAndBinaryRejection(t *testing.T) {
 		t.Fatal("binary text preview accepted")
 	}
 }
+
+func TestArtifactPreviewUTF8TruncationPreservesOnlyValidPrefix(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "boundary.log")
+	s := &Service{resolveArtifact: func(string) (string, error) { return path, nil }}
+	for _, tc := range []struct {
+		name    string
+		data    []byte
+		wantLen int
+		bad     bool
+	}{
+		{"invalid interior", append(append([]byte("header\n\xff"), []byte(strings.Repeat("a", artifactPreviewLimit))...), 'z'), 0, true},
+		{"cut after leading byte", append(append([]byte(strings.Repeat("a", artifactPreviewLimit-1)), 0xe4), 0xb8, 0xad), artifactPreviewLimit - 1, false},
+		{"cut after continuation", append(append([]byte(strings.Repeat("a", artifactPreviewLimit-2)), 0xe4, 0xb8), 0xad, 'z'), artifactPreviewLimit - 2, false},
+		{"complete boundary rune", append(append([]byte(strings.Repeat("a", artifactPreviewLimit-3)), []byte("中")...), 'z'), artifactPreviewLimit, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(path, tc.data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := s.PreviewArtifact("owned")
+			if tc.bad {
+				if err == nil || got.Text != "" || got.Truncated {
+					t.Fatalf("corrupt text appeared as a successful truncation: %+v %v", got, err)
+				}
+				return
+			}
+			if err != nil || !got.Truncated || len(got.Text) != tc.wantLen {
+				t.Fatalf("boundary prefix: %+v %v", got, err)
+			}
+		})
+	}
+}

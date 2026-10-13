@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
 )
 
 func TestWorkerConversationReadsNativeFullPagesAndOnlyCompletedMessages(t *testing.T) {
@@ -71,5 +73,99 @@ func TestWorkerConversationReadsNativeFullPagesAndOnlyCompletedMessages(t *testi
 	}
 	if _, err := s.ReadWorkConversation(testContext(t), "foreign"); err == nil {
 		t.Fatal("foreign task history was readable")
+	}
+}
+
+func TestWorkerConversationRecoversHistoricalProgressWithoutLocalItemReceipts(t *testing.T) {
+	s, fixture, _, manager := taskPair(t)
+	sendSynthetic(t, s, "history-parent-without-markers")
+	task := newTask(t, manager, "history-without-markers")
+	s.mu.Lock()
+	thread := s.binding.Tasks[task.ID].Thread
+	s.binding.Tasks[task.ID].CompletedMessages = nil // pre-upgrade or missed event
+	if err := s.save(); err != nil {
+		s.mu.Unlock()
+		t.Fatal(err)
+	}
+	s.mu.Unlock()
+	fixture.mu.Lock()
+	worker := fixture.workers[thread]
+	worker.Turns = []nativeTurn{
+		{ID: "old-complete", Status: "completed", Items: []nativeItem{
+			{ID: "user", Type: "userMessage", Content: []nativeInput{{Type: "text", Text: "start"}}},
+			{ID: "progress", Type: "agentMessage", Phase: "commentary", Text: "finished progress"},
+			{ID: "tool", Type: "commandExecution", Output: "private"},
+			{ID: "final", Type: "agentMessage", Phase: "final_answer", Text: "finished result"},
+		}},
+		{ID: "steered", Status: "completed", Items: []nativeItem{
+			{ID: "user", Type: "userMessage", Content: []nativeInput{{Type: "text", Text: "more"}}},
+			{ID: "partial", Type: "agentMessage", Text: "interrupted prefix"},
+			{ID: "steer-user", Type: "userMessage", Content: []nativeInput{{Type: "text", Text: "steer"}}},
+			{ID: "final", Type: "agentMessage", Text: "complete after steer"},
+		}},
+		{ID: "working", Status: "inProgress", Items: []nativeItem{
+			{ID: "user", Type: "userMessage", Content: []nativeInput{{Type: "text", Text: "continue"}}},
+			{ID: "done", Type: "agentMessage", Text: "finished while working"},
+			{ID: "tool", Type: "commandExecution"},
+			{ID: "stream", Type: "agentMessage", Text: "unfinished stream"},
+		}},
+	}
+	fixture.workers[thread] = worker
+	fixture.mu.Unlock()
+	assertHistory := func() []api.TaskConversationMessage {
+		t.Helper()
+		messages, err := s.ReadWorkConversation(testContext(t), task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"start", "finished progress", "finished result", "more", "steer", "complete after steer", "continue", "finished while working"}
+		if len(messages) != len(want) {
+			t.Fatalf("native history lost completed messages: %+v", messages)
+		}
+		for i, message := range messages {
+			if message.Text != want[i] || message.ID == "" {
+				t.Fatalf("message %d: %+v", i, message)
+			}
+		}
+		return messages
+	}
+	before := assertHistory()
+	resident, err := bot.NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "codex", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resident.ConfigureTasks(manager, nil); err != nil {
+		t.Fatal(err)
+	}
+	listArgs, _ := json.Marshal(map[string]any{"request": map[string]any{"type": "read", "task": task.ID, "limit": 20}})
+	list := resident.CallTool(t.Context(), "bot_tasks", listArgs)
+	if list.IsError {
+		t.Fatal("Bot list could not read original native history", list)
+	}
+	listed := list.StructuredContent["data"].(map[string]any)["messages"].([]api.TaskConversationMessage)
+	if len(listed) != len(before) || listed[1].ID != before[1].ID || listed[1].Text != "finished progress" {
+		t.Fatal("Bot list dropped pre-upgrade progress", listed)
+	}
+	detailArgs, _ := json.Marshal(map[string]any{"request": map[string]any{"type": "read", "task": task.ID, "messageId": before[1].ID}})
+	detail := resident.CallTool(t.Context(), "bot_tasks", detailArgs)
+	if detail.IsError || detail.StructuredContent["data"].(map[string]any)["message"].(api.TaskConversationMessage).Text != "finished progress" {
+		t.Fatal("Bot messageId detail dropped pre-upgrade progress", detail)
+	}
+	data, err := os.ReadFile(s.opts.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored binding
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	s.binding = restored
+	s.mu.Unlock()
+	after := assertHistory()
+	for i := range before {
+		if before[i].ID != after[i].ID {
+			t.Fatal("restart changed native message identity", i)
+		}
 	}
 }

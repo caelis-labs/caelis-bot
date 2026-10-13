@@ -323,5 +323,8 @@ func (v historicalLegacyTools) CallTool(ctx context.Context, name string, args j
 	return v.runtime.callLegacyTool(ctx, name, args)
 }
 func (r *Runtime) HistoricalToolConnections() []*api.ToolConnection {
-	return []*api.ToolConnection{{Host: historicalLegacyTools{r}, ApprovedTools: botpolicy.HistoricalLegacyApprovedTools()}}
+	return []*api.ToolConnection{
+		{Host: historicalLegacyTools{r}, ApprovedTools: botpolicy.HistoricalLegacyApprovedTools()},
+		r.previousCompactToolConnection(),
+	}
 }

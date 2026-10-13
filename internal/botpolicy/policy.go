@@ -21,6 +21,12 @@ func HistoricalLegacyApprovedTools() []string {
 	return append(LegacyApprovedTools(), "bot_memory")
 }
 
+// PreviousCompactApprovedTools preserves the direct/required policies in the
+// 5903254d Caelis digest. The retired memory dispatcher still denies effects.
+func PreviousCompactApprovedTools() []string {
+	return append(ApprovedTools(), "bot_memory")
+}
+
 func ApprovedTools() []string {
 	return []string{"bot_tasks", "bot_interactions", "bot_schedule", "bot_gesture", "bot_dream"}
 }
