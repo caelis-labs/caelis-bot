@@ -68,7 +68,7 @@ func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage
 	if name == "bot_dream" {
 		return r.callDreamTool(ctx, args)
 	}
-	if name == "bot_memory" || name == "bot_gesture" {
+	if name == "bot_gesture" {
 		return compact(r.callLegacyTool(ctx, name, raw), nil)
 	}
 	req := args["request"].(map[string]any)
@@ -389,4 +389,19 @@ func (v legacyTools) CallTool(ctx context.Context, name string, args json.RawMes
 func (r *Runtime) LegacyToolConnection() *api.ToolConnection {
 	approved := botpolicy.LegacyApprovedTools()
 	return &api.ToolConnection{Host: legacyTools{r}, ApprovedTools: approved}
+}
+
+// The pre-retirement schema and approval policy are retained only to match
+// pending Caelis callback versions. Dispatch still uses the current allowlist:
+// bot_memory cannot execute through this historical binding.
+type historicalLegacyTools struct{ runtime *Runtime }
+
+func (v historicalLegacyTools) Definitions() []api.ToolDefinition {
+	return v.runtime.legacyDefinitions(true)
+}
+func (v historicalLegacyTools) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
+	return v.runtime.callLegacyTool(ctx, name, args)
+}
+func (r *Runtime) HistoricalToolConnections() []*api.ToolConnection {
+	return []*api.ToolConnection{{Host: historicalLegacyTools{r}, ApprovedTools: botpolicy.HistoricalLegacyApprovedTools()}}
 }

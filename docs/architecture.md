@@ -536,8 +536,10 @@ and refreshes at startup, before submit and on completion. No background model o
 User edits/deletions persist. Legacy personal data is copied once with a marker outside Notebook; conflicts
 stop migration and preserve both sides. No automatic Git commit or cloud sync.
 
-Embedded public Memory provides recall/remember/correct/forget in a stable Bot scope. Mutation request IDs
-and receipt chains prevent forgotten evidence returning on replay. This does not erase chat, Git or backups.
+Existing private Memory data and the independent settings capability remain intact, but the Bot no longer
+publishes `bot_memory` for model recall or mutation. Bot memory writes now use native file tools on
+`MEMORY.md` and Notebook notes. `INDEX.md` indexes paths and titles, not note bodies; search uses file
+reads or `rg`. Historical private evidence is not automatically moved into Notebook or searchable there.
 Notebook is the resident writable workspace, not HOME; Workers have independent directories and instructions.
 Neither scope claims isolation from another process under the same OS user or from full-access execution.
 
@@ -547,14 +549,20 @@ Bot-owned portable plugin packages and their reviewed source adapter are describ
 in [plugin-packages.md](plugin-packages.md). Package MCP services do not join the
 built-in automatic approval list.
 
-The native resident catalog contains `bot_memory`, `bot_tasks`, `bot_delegate`,
+The native resident catalog contains `bot_tasks`, `bot_delegate`,
 `bot_schedule`, `bot_schedule_update`, `bot_gesture` and `bot_dream`, subject to
 Runtime capabilities. Desktop World contributes one `exec` tool through its own
 MCP server when its built-in plugin is enabled. It is never included in the
 built-in automatic approval list. Typed requests use application-owned schemas
 and native dispatch validation.
 
-The new catalog never advertises legacy aliases. Private MCP invocations carry a
+The new catalog never advertises legacy aliases. `bot_memory` is also removed from
+the legacy catalog and both invocation paths reject it, including calls through
+old MCP service names or persisted tool references. Historical private data stays
+stored; prior `bot_memory` callbacks can no longer execute and require an explicit
+file-based follow-up if still relevant. Caelis retains the old catalog version
+only to settle original non-memory callbacks without granting a retired memory
+effect. Private MCP invocations carry a
 catalog generation, and Caelis restores the exact original legacy schema/policy
 version for old pending callbacks. This preserves original receipts without
 rerouting them to the current same-name schema or replaying mutations. Unknown
@@ -587,13 +595,16 @@ guide to Core profile instructions. Both adapters load Skill bodies only on dema
 First introduction is a normal user message with a durable stable delivery ID; until acceptance it precedes
 other submissions. The host does not write the Bot personality or claim that acceptance proves memory saved.
 
-The Bot maintains Notebook and `MEMORY.md` during ordinary work. When obsolete task
-detail or recalled tool schemas are substantial, the gated `bot_dream` contract
-requires a bounded handoff summary. Its result must force completion of the owning turn before
-another same-batch tool effect or model step. The handoff carries identity, current
-goals, unfinished work and original uncertain receipts. Neither an idle threshold
-nor a version upgrade dispatches a maintenance turn. The retired `bot-dream` Skill
-is removed from fresh installations.
+The Bot maintains Notebook and `MEMORY.md` during ordinary work. After a batch of
+work or a clear goal change, it assesses whether obsolete task detail or unneeded
+recalled tools make context redundant; no context watermark or per-turn Dream rule
+applies. The gated `bot_dream` contract requires a bounded handoff summary. The
+Runtime completes the owning turn before another same-batch effect or model step,
+persists the handoff, and starts a fresh internal Session without old context and
+recalled schemas. The handoff retains identity and constraints, current goal,
+unfinished original task handles, uncertain original receipts, and next action;
+completed work is summarized briefly. Idle, Host recovery, and version upgrades
+do not dispatch maintenance turns. The retired `bot-dream` Skill is not installed.
 
 The APP keeps handoff data in a private durable record keyed by original call and
 source Session, outside the Notebook. The new Session's first accepted Host input

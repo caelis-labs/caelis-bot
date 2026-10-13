@@ -88,8 +88,14 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 			return err
 		}
 	}
+	older := []*api.ToolConnection{}
 	if provider, ok := c.Host.(api.LegacyToolProvider); ok {
-		legacy := provider.LegacyToolConnection()
+		older = append(older, provider.LegacyToolConnection())
+	}
+	if provider, ok := c.Host.(api.HistoricalToolProvider); ok {
+		older = append(older, provider.HistoricalToolConnections()...)
+	}
+	for _, legacy := range older {
 		if legacy != nil && legacy.Host != nil {
 			definitions := []wire.ApplicationToolDefinition{}
 			handlers := map[string]api.ApplicationTools{}

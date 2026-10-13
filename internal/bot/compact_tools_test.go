@@ -3,13 +3,11 @@ package bot
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 )
 
 type compactTasks struct {
@@ -147,28 +145,8 @@ func TestCompactScheduleNativeGrantsAndNamespaces(t *testing.T) {
 		}
 	}
 }
-func TestCompactMemoryAndGesture(t *testing.T) {
+func TestCompactGesture(t *testing.T) {
 	r, _, _ := fixture(t)
-	store, e := botmemory.Open(t.Context(), filepath.Join(t.TempDir(), "personal"), r.State().ID)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer store.Close()
-	r.ConfigurePersonal(store)
-	invokeCompact(t, r, "bot_memory", `{"operation":"remember","requestId":"compact-memory","text":"Synthetic preference: concise"}`)
-	out := invokeCompact(t, r, "bot_memory", `{"operation":"recall","query":"Synthetic preference"}`)
-	var memory api.PersonalMemory
-	b, _ := json.Marshal(out.StructuredContent["data"])
-	json.Unmarshal(b, &memory)
-	if len(memory.Evidence) != 1 {
-		t.Fatal("memory lost")
-	}
-	id := memory.Evidence[0].ID
-	invokeCompact(t, r, "bot_memory", `{"operation":"correct","requestId":"compact-correct","id":"`+id+`","text":"Synthetic preference: short"}`)
-	out = invokeCompact(t, r, "bot_memory", `{"operation":"recall","query":"Synthetic preference"}`)
-	b, _ = json.Marshal(out.StructuredContent["data"])
-	json.Unmarshal(b, &memory)
-	invokeCompact(t, r, "bot_memory", `{"operation":"forget","requestId":"compact-forget","id":"`+memory.Evidence[0].ID+`"}`)
 	calls := 0
 	r.action = func(string) error { calls++; return nil }
 	for _, a := range []string{"attention", "nod", "celebrate"} {

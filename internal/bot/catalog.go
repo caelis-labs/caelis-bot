@@ -58,13 +58,13 @@ func toolDefinitions() []api.ToolDefinition {
 	_ = json.Unmarshal(raw, &old)
 	out := []api.ToolDefinition{}
 	for _, d := range old {
-		if d.Name == "bot_memory" || d.Name == "bot_gesture" {
+		if d.Name == "bot_gesture" {
 			d.ResultFormat = "content-v1"
 			out = append(out, d)
 		}
 	}
 	out = append(out, taskDefinitions()...)
 	out = append(out, scheduleDefinitions()...)
-	out = append(out, tc.Definition("bot_dream", "Replace this Bot's current context and recalled tool schemas when completed work, obsolete detail, or tools no longer needed make the context redundant. First preserve durable knowledge in the Notebook and MEMORY.md. Supply a complete handoff with identity and standing constraints, the current objective, unfinished tasks and their original handles, uncertain operations and their original receipts, and the next action. The host saves the handoff privately and starts a fresh internal session. This does not change the user's Bot identity, task ownership, connections, or authorization.", tc.Object(tc.Schema{"handoff": text(16384)}, "handoff")))
+	out = append(out, tc.Definition("bot_dream", "Clear this Bot's current context and recalled tool schemas by handing off to a fresh internal Session. Assess context redundancy naturally after delivering a batch of work or when the goal clearly changes; use this actively when many obsolete task details or unneeded tools remain. Do not wait for a context limit, and do not Dream after every turn. First save durable knowledge in MEMORY.md and Notebook files. Provide a concise handoff with identity and standing constraints, the current goal, unfinished tasks and original handles, uncertain operations and original receipts, and the next action; keep completed work to brief results. Exclude long transcripts, tool schemas, and secrets. The Runtime durably saves the handoff before starting the new Session. Bot identity, task ownership, connections, and authorization stay in force.", tc.Object(tc.Schema{"handoff": text(16384)}, "handoff")))
 	return out
 }

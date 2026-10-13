@@ -72,3 +72,7 @@ type ApplicationCapabilityProvider interface {
 // LegacyToolProvider restores exact historical invocation bindings without
 // advertising their tools to new model turns.
 type LegacyToolProvider interface{ LegacyToolConnection() *ToolConnection }
+
+// HistoricalToolProvider restores older callback versions after a catalog
+// retirement. These bindings are never published to new model turns.
+type HistoricalToolProvider interface{ HistoricalToolConnections() []*ToolConnection }

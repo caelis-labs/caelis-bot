@@ -53,7 +53,15 @@ func (r *Runtime) call(name string, args json.RawMessage) toolResult {
 }
 
 func (r *Runtime) LegacyDefinitions() []api.ToolDefinition {
-	b, _ := json.Marshal(toolSpecs())
+	return r.legacyDefinitions(false)
+}
+
+func (r *Runtime) legacyDefinitions(retiredMemory bool) []api.ToolDefinition {
+	specs := toolSpecs()
+	if retiredMemory {
+		specs = append([]any{retiredMemorySpec()}, specs...)
+	}
+	b, _ := json.Marshal(specs)
 	var out []api.ToolDefinition
 	_ = json.Unmarshal(b, &out)
 	if p, ok := r.engine.(api.ApplicationCapabilityProvider); ok {
@@ -91,9 +99,6 @@ func (r *Runtime) callLegacyTool(ctx context.Context, name string, args json.Raw
 	}
 	if name == "bot_task_machines" || name == "bot_tasks" || name == "bot_task_start" || name == "bot_task_read" || name == "bot_task_send" || name == "bot_task_stop" {
 		return r.callTask(ctx, name, args)
-	}
-	if name == "bot_memory" {
-		return r.callPersonal(ctx, name, args)
 	}
 	if name == "bot_reminders_list" {
 		var input map[string]json.RawMessage
@@ -226,7 +231,7 @@ func (b *Bridge) Config(executable string) *api.ToolConnection {
 		{Name: "caelis_context", Tools: []string{"bot_dream"}},
 		{Name: "caelis_tasks", Tools: []string{"bot_tasks", "bot_delegate", "bot_interactions"}},
 		{Name: "caelis_schedule", Tools: []string{"bot_schedule", "bot_schedule_update"}},
-		{Name: "caelis_personal", Tools: []string{"bot_memory", "bot_gesture"}},
+		{Name: "caelis_personal", Tools: []string{"bot_gesture"}},
 	}
 	return config
 }
@@ -245,7 +250,7 @@ func toolSpecs() []any {
 		}
 		return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
 	}
-	return append(personalSpecs(), []any{
+	return []any{
 		careSpec(),
 		careReadSpec(),
 		map[string]any{"name": "bot_reminders_list", "description": "Read current Bot reminders and delivery state without changing schedules.", "inputSchema": schema(map[string]any{})},
@@ -258,7 +263,16 @@ func toolSpecs() []any {
 		map[string]any{"name": "bot_clock", "description": "Read local time and the resident scheduling boundary before creating reminders.", "inputSchema": schema(map[string]any{})},
 		map[string]any{"name": "bot_reminders", "description": "Save or remove user-requested reminders. Use bot_reminders_list to read schedules. Save uses a stable id (letters, digits, hyphen, underscore), making identical retries idempotent. Choose one of at (RFC3339), everyMinutes, daily (HH:MM), or times (multiple HH:MM). Calendar rules require an IANA timeZone. Optional windowStart/windowEnd use an inclusive start and exclusive end, including overnight windows; everyMinutes anchors to windowStart (otherwise midnight) on each selected weekday. Weekdays are literal Monday=1 through Sunday=7, not legal workdays. Use native calendar fields for timing, leaving holiday or other semantic checks in prompt. App must remain running. Sleeping occurrences coalesce; quit pauses missed execution. Do not use shell sleep or external schedulers.", "inputSchema": schema(reminderFields(map[string]any{"operation": map[string]any{"type": "string", "enum": []string{"save", "remove"}}, "id": str("Stable reminder identifier"), "label": str("Short user-facing title"), "prompt": str("Self-contained instruction to execute on activation"), "at": str("One-off timestamp with UTC offset"), "everyMinutes": map[string]any{"type": "integer", "minimum": 1, "maximum": 10080}, "daily": str("Daily local HH:MM"), "timeZone": str("IANA time zone, such as Asia/Shanghai")}), "operation")},
 		map[string]any{"name": "bot_gesture", "description": "Briefly animate the desktop companion for feedback. Respects hidden state and reduced motion. Does not grant approval, move windows, steal focus, or execute other actions.", "inputSchema": schema(map[string]any{"action": map[string]any{"type": "string", "enum": []string{"attention", "nod", "celebrate"}}}, "action")},
-	}...)
+	}
+}
+
+// Reconstructs the pre-retirement Caelis toolsVersion for original pending
+// callbacks. It is never listed by the active Codex or Caelis model catalog.
+func retiredMemorySpec() map[string]any {
+	str := func(description string) map[string]any {
+		return map[string]any{"type": "string", "description": description}
+	}
+	return map[string]any{"name": "bot_memory", "description": "Recall, remember, correct or forget Bot-private evidence shared across Runtime choices. Notebook Markdown is maintained directly with file tools; MEMORY.md is the sole core memory. Evidence is not permission or a confirmed profile. Stable requestId is required for mutations. Correct/forget target a receipt id returned by recall.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation"}, "properties": map[string]any{"operation": map[string]any{"type": "string", "enum": []string{"recall", "remember", "correct", "forget"}}, "query": str("Optional keywords"), "requestId": str("Stable operation id"), "id": str("Evidence receipt id"), "text": str("Evidence text")}}}
 }
 
 // RunStdio implements the small MCP 2025-06-18 tools subset used by the pinned
