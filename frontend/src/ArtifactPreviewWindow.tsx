@@ -13,13 +13,10 @@ export function ArtifactPreviewWindow() {
  const [preview,setPreview] = useState<Preview | null>(null);
  const [error,setError] = useState('');
  const [actionError,setActionError] = useState('');
- const [moreOpen,setMoreOpen] = useState(false);
- const moreButton=useRef<HTMLButtonElement>(null);
- const menu=useRef<HTMLDivElement>(null);
  const generation=useRef(0);
  const load=useCallback(() => {
   const current=++generation.current;
-  setSelection(null);setPreview(null);setError('');setActionError('');setMoreOpen(false);
+  setSelection(null);setPreview(null);setError('');setActionError('');
   void desktop<Selection>('CurrentArtifactPreview').then(async value => {
    if(current!==generation.current)return;
    setSelection(value);
@@ -39,37 +36,26 @@ export function ArtifactPreviewWindow() {
   return()=>{generation.current++;window.removeEventListener('artifact-preview-changed',load);};
  },[load]);
  useEffect(()=>{
-  if(!moreOpen)return;
-  const outside=(event:PointerEvent)=>{if(!menu.current?.contains(event.target as Node)&&!moreButton.current?.contains(event.target as Node))setMoreOpen(false);};
-  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();setMoreOpen(false);moreButton.current?.focus();}};
-  window.addEventListener('pointerdown',outside,true);window.addEventListener('keydown',escape,true);
-  return()=>{window.removeEventListener('pointerdown',outside,true);window.removeEventListener('keydown',escape,true);};
- },[moreOpen]);
- const act=(method:string,...args:unknown[])=>{
-  if(!selection)return;
-  setMoreOpen(false);setActionError('');
-  void desktop(method,selection.id,...args).catch(failure=>setActionError(failure instanceof Error?failure.message:t('chat.artifactUnavailable')));
- };
- const reveal=()=>{
-  if(!selection)return;
-  setMoreOpen(false);setActionError('');
-  void backend('RevealArtifact',selection.id).catch(failure=>setActionError(failure instanceof Error?failure.message:t('chat.artifactUnavailable')));
- };
+  const action=(event:Event)=>{
+   const detail=(event as CustomEvent<{action:string;id:string;name:string}>).detail;
+   if(!detail?.id)return;
+   let result:Promise<unknown>;
+   switch(detail.action){
+    case 'open': result=desktop('OpenArtifact',detail.id);break;
+    case 'save': result=desktop('SaveArtifactAs',detail.id,detail.name);break;
+    case 'path': result=desktop('CopyArtifactPath',detail.id);break;
+    case 'content': result=desktop('CopyArtifactContent',detail.id);break;
+    case 'reveal': result=backend('RevealArtifact',detail.id);break;
+    default:return;
+   }
+   setActionError('');
+   void result.catch(failure=>setActionError(failure instanceof Error?failure.message:t('chat.artifactUnavailable')));
+  };
+  window.addEventListener('artifact-preview-toolbar-action',action);
+  return()=>window.removeEventListener('artifact-preview-toolbar-action',action);
+ },[t]);
  const isMarkdown=/\.(md|markdown)$/i.test(selection?.name??'');
  return <main className="artifact-preview-window">
-  <header className="artifact-preview-header">
-   <h1 title={selection?.name}>{selection?.name??t('common.loading')}</h1>
-   <div className="artifact-preview-controls">
-    <button type="button" disabled={!selection} onClick={()=>act('OpenArtifact')}>{t('chat.openArtifact')}</button>
-    <button ref={moreButton} type="button" className="artifact-preview-more" disabled={!selection} aria-label={t('chat.moreArtifactActions')} title={t('chat.moreArtifactActions')} aria-haspopup="menu" aria-expanded={moreOpen} onClick={()=>setMoreOpen(value=>!value)}>⋯</button>
-   </div>
-   {moreOpen&&selection&&<div ref={menu} className="artifact-preview-menu" role="menu">
-    <button role="menuitem" onClick={()=>act('SaveArtifactAs',selection.name)}>{t('chat.saveArtifactAs')}</button>
-    <button role="menuitem" onClick={()=>act('CopyArtifactPath')}>{t('chat.copyArtifactPath')}</button>
-    <button role="menuitem" onClick={()=>act('CopyArtifactContent')}>{t('chat.copyArtifactContent')}</button>
-    <button role="menuitem" onClick={reveal}>{t('chat.revealInFinder')}</button>
-   </div>}
-  </header>
   {actionError&&<p className="artifact-preview-error" role="alert">{actionError}</p>}
   <section className="artifact-preview-scroll" aria-label={selection?.name??t('chat.previewArtifact')}>
    {error?<p className="artifact-preview-error" role="alert">{error}</p>:preview?

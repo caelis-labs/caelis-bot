@@ -359,6 +359,33 @@ func styleMacSettings(window *application.WebviewWindow) {
 	application.InvokeSync(func() { C.bot_style_settings(window.NativeWindow()) })
 }
 
+// Wails startup and service callbacks can run off the AppKit thread. Keep all
+// toolbar changes on that thread. Only the owned artifact ID and safe display
+// name cross into AppKit; file resolution stays in the existing Go services.
+func installMacArtifactPreviewToolbar(window *application.WebviewWindow, locale i18n.Locale) {
+	application.InvokeSync(func() { C.bot_artifact_preview_toolbar_install(window.NativeWindow()) })
+	macArtifactPreviewToolbarLanguage(window, locale)
+}
+
+func macArtifactPreviewToolbarSelection(window *application.WebviewWindow, selection ArtifactPreviewSelection) {
+	id, name := C.CString(selection.ID), C.CString(selection.Name)
+	defer C.free(unsafe.Pointer(id))
+	defer C.free(unsafe.Pointer(name))
+	application.InvokeSync(func() { C.bot_artifact_preview_toolbar_selection(window.NativeWindow(), id, name) })
+}
+
+func macArtifactPreviewToolbarLanguage(window *application.WebviewWindow, locale i18n.Locale) {
+	keys := [...]string{"openArtifact", "moreArtifactActions", "saveArtifactAs", "copyArtifactPath", "copyArtifactContent", "revealInFinder"}
+	var labels [len(keys)]*C.char
+	for index, key := range keys {
+		labels[index] = C.CString(i18n.Text(locale, "chat."+key, nil))
+		defer C.free(unsafe.Pointer(labels[index]))
+	}
+	application.InvokeSync(func() {
+		C.bot_artifact_preview_toolbar_language(window.NativeWindow(), labels[0], labels[1], labels[2], labels[3], labels[4], labels[5])
+	})
+}
+
 func syncMacMaterials() {
 	application.InvokeSync(func() { C.bot_sync_material_pages() })
 }

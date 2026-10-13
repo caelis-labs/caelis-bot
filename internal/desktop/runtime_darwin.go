@@ -197,6 +197,7 @@ func Run(assets fs.FS) error {
 	preview := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "artifact-preview", Title: appName, Width: 820, Height: 620, MinWidth: 520, MinHeight: 360,
 		Hidden: true, URL: "/?surface=artifact-preview", BackgroundType: application.BackgroundTypeSolid,
+		Mac: application.MacWindow{TitleBar: application.MacTitleBar{UseToolbar: true, ToolbarStyle: application.MacToolbarStyleUnifiedCompact}},
 	})
 	preview.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); preview.Hide() })
 	s.openArtifactPreview = func() {
@@ -206,6 +207,7 @@ func Run(assets fs.FS) error {
 				return
 			}
 			preview.SetTitle(selection.Name)
+			macArtifactPreviewToolbarSelection(preview, selection)
 			preview.UnMinimise()
 			preview.Show()
 			preview.Focus()
@@ -431,7 +433,11 @@ func Run(assets fs.FS) error {
 			SetTitle(s.text("native.addFileTitle", nil)).SetButtonText(s.text("native.add", nil)).PromptForMultipleSelection()
 	}
 	s.saveArtifactPath = func(name string) (string, error) {
-		return nativeApp.Dialog.SaveFile().AttachToWindow(history).SetFilename(name).
+		owner := history
+		if preview.IsFocused() {
+			owner = preview
+		}
+		return nativeApp.Dialog.SaveFile().AttachToWindow(owner).SetFilename(name).
 			SetMessage(s.text("native.saveArtifactTitle", nil)).CanCreateDirectories(true).PromptForSingleSelection()
 	}
 	s.filesChanged = func() {
@@ -467,6 +473,7 @@ func Run(assets fs.FS) error {
 		data, _ := json.Marshal(state)
 		application.InvokeSync(func() {
 			updateLanguage(state)
+			macArtifactPreviewToolbarLanguage(preview, state.Locale)
 			for _, window := range []*application.WebviewWindow{pet, history, bubble, prop} {
 				window.ExecJS("window.dispatchEvent(new CustomEvent('language-changed',{detail:" + string(data) + "}))")
 			}
@@ -484,6 +491,7 @@ func Run(assets fs.FS) error {
 			log.Print("Desktop application icon could not be decoded")
 		}
 		s.start(newMacDriver(pet, bubble, history, prop, s, quit))
+		installMacArtifactPreviewToolbar(preview, s.LanguagePreferences().Locale)
 		styleMacSettings(settings)
 		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() error {
 			quitting.Store(true)
