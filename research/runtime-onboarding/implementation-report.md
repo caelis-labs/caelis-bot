@@ -62,3 +62,11 @@ BOT_RESEARCH_PROFILE=manual-error bash research/runtime-onboarding/launch-isolat
 `copy-first-run` 是空白 HOME/Store，仅用于双入口视觉；点击任一项会触发真实准备流程。`manual-error` 是无认证、无模型的独立 profile，CLI 只复制了已在另一隔离 profile 中由官方脚本安装的可执行文件。可用“默认”→ Magpie → 手输地址 `http://127.0.0.1:1/v1`、任意非秘密模型 ID、测试密钥 → 失败 →“修改后重试”复验错误恢复。`no-restart` 已有真实本机 Magpie 模型配置，默认 Worker 现选“默认”；用于确认协作入口和专页，运行命令只需把 profile 改为 `no-restart`。`nickname-live-12764` 现为完成“连接→断开”事务的无模型 Store，保留首次回复与记忆，可复验空白设置。`final-acceptance` 也是断开后的无模型 Store。`fresh-progress` 保留实际下载安装现场；不要重跑未知安装事务。所有 profile 数据都在 `.cache/runtime-onboarding-research/profiles/<profile>/`，未纳入 Git。只通过 [隔离启动脚本](launch-isolated.sh)启动，不直接从 Finder 打开 Research 包。
 
 独立复验请使用**新的** `BOT_RESEARCH_PROFILE` 名称，确认该 profile 目录此前不存在，按“默认 → 官方准备 → Magpie 本机目录 → 可用模型 → 称呼”完成；本机网关需可达 `127.0.0.1:3425`，无需真实账号或生产认证。观察首次回复和隔离 `Notebook/MEMORY.md`，重启后再明确提问称呼；设置中先将默认 Worker 选为“默认”，确认协作入口，随后断开唯一模型并核对入口和恢复按钮。不要把复用旧 profile 的聊天记录当成新首轮证据。
+
+### 独立复验状态（2026-10-14）
+
+[独立 reviewer 原始受阻记录](independent-review-blocked.md)核对了 `efd223cb0508223f5aceecda4a5e4ac7e3b0946b` 源码、Research 包身份与主程序 SHA，并以此前不存在的 `review-efd223cb-1` profile 启动隔离 native host。首次精确绑定 `cua.getApp('dev.caelis.bot.research')` 时，CUA 返回 `Computer Use was not approved to use Caelis Bot Research`。自动审批没有给出更详细原因；reviewer 没有换名称、路径、窗口 ID 或工具重试。该 profile 已被启动创建，下次独立复验必须换一个全新名称。由于没有窗口访问权限，**昵称真实回复、唯一模型断开后的协作状态、窄窗和键盘路径均未完成独立原生验收**；本报告上面的截图仅是实现者证据。
+
+同次 reviewer 在原生网络权限下对本机 Magpie `/v1/models` 的无凭据只读请求得到 HTTP 200。受限 shell 中的连接拒绝不能证明网关停机；是否在下一次复验时仍可达，需要届时重新检查。没有读取模型目录或密钥，也没有发送模型请求。
+
+等待窗口审批期间，重新检查了首次称呼的一次性提交、`bot-core` 指引、默认 Worker 的 `ready` 门控和协作页空状态。隔离 `GOCACHE` 下，`internal/bot` 首次介绍/不确定回执/拒绝恢复定向测试、`internal/botskills` 包测试、`TestWorkerTeamProfileFollowsWorkerNotConversationRuntime` 均通过；`npm run check:i18n` 的双语目录与 4 项脚本测试通过。默认 Go 缓存路径在受限 shell 中读取被拒，改用本 worktree `.cache/go-build-targeted` 后测试通过；这是测试环境缓存权限，不是产品失败。此前完整 `make check`、`make smoke` 与 Research `make build` 的结果见上节。没有因 CUA 拒绝改动产品逻辑或声明独立验收通过。
