@@ -3,6 +3,7 @@ import type { APIKeyOptions, ConnectAction, ConnectChoice, ConnectionCatalog, Co
 import { acceptConnectionProgress, messageOf, safeWebURL } from './state';
 import { SettingsDialog } from './SettingsDialog';
 import { useI18n } from '../../i18n';
+import type { MessageKey } from '../../i18n/catalogs';
 import { SettingsChevron } from '../../SettingsIcons';
 
 const emptyCatalog: ConnectionCatalog = { choices: [], unavailable: '' };
@@ -48,6 +49,10 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true }: {
  const gatewayFormVisible = !magpie || gatewayManual || options.models.length > 0;
  const providerChoices = catalog.choices.filter(c => c.id.toLowerCase() !== 'magpie');
  const magpieChoice = catalog.choices.find(c => c.id.toLowerCase() === 'magpie');
+ const knownProviders = new Set(['deepseek', 'xiaomi', 'ollama', 'custom']);
+ const providerText = (value: ConnectChoice, part: 'name' | 'description') => kind === 'api-key' && knownProviders.has(value.id.toLowerCase())
+  ? t(`connections.provider_${value.id.toLowerCase()}_${part}` as MessageKey)
+  : part === 'name' ? value.name || value.id : value.description;
  const select = (value: ConnectChoice) => { setChoice(value); setBaseUrl(''); setModel(''); setCommand(''); setGatewayManual(false); setMetadata(false); setContextWindow(''); setMaxOutput(''); setImageInput(false); setReasoningLevels(''); setAPIKey(''); setError(''); };
  const observe = (seq: number, update: ConnectionFlow) => {
   if (!alive.current || seq !== serial.current) return;
@@ -93,9 +98,9 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true }: {
    {loading && !choice && <p role="status">{t('connections.loadingChoices')}</p>}
    {catalog.unavailable && <p className="settings-note" role="status">{catalog.unavailable}</p>}
    {!loading && !catalog.unavailable && !catalog.choices.length && <p className="settings-note">{t('connections.noChoices')}</p>}
-   {!choice ? <><div className="runtime-connect-catalog">{providerChoices.map(c => <button key={c.id} disabled={busy} onClick={() => select(c)}><span><strong>{c.name || c.id}</strong><small>{c.description}</small></span><SettingsChevron/></button>)}</div>{kind === 'api-key' && magpieChoice && <><h3 className="runtime-gateway-heading">{t('connections.thirdPartyGateway')}</h3><div className="runtime-connect-catalog"><button disabled={busy} onClick={() => select(magpieChoice)}><span><strong>Magpie</strong><small>{t('connections.magpieDescription')}</small></span><SettingsChevron/></button></div></>}</> : <>
+   {!choice ? <><div className="runtime-connect-catalog">{providerChoices.map(c => <button key={c.id} disabled={busy} onClick={() => select(c)}><span><strong>{providerText(c, 'name')}</strong><small>{providerText(c, 'description')}</small></span><SettingsChevron/></button>)}</div>{kind === 'api-key' && magpieChoice && <><h3 className="runtime-gateway-heading">{t('connections.thirdPartyGateway')}</h3><div className="runtime-connect-catalog"><button disabled={busy} onClick={() => select(magpieChoice)}><span><strong>Magpie</strong><small>{t('connections.magpieDescription')}</small></span><SettingsChevron/></button></div></>}</> : <>
     <button className="text-action" disabled={busy} onClick={() => { optionsSerial.current++; setChoice(null); setAPIKey(''); setError(''); }}>{t('connections.backToChoices')}</button>
-    <h3 className="runtime-connect-choice">{choice.name}</h3>
+    <h3 className="runtime-connect-choice">{providerText(choice, 'name')}</h3>
     {choice.custom && <><label>{t('connections.startCommand')}<input disabled={busy} value={command} onChange={e => setCommand(e.target.value)} placeholder={t('connections.startCommandPlaceholder')}/></label></>}
     {kind === 'api-key' ? <>
      {magpie && <p className="settings-note">{t('connections.magpieThirdPartyNotice')}</p>}

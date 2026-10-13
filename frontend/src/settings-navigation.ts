@@ -8,7 +8,7 @@ export function settingsDestination(value: string): SettingsSection | null {
 }
 
 export const settingsGroups = [
- { title: 'settings.groupEveryday', sections: ['general', 'appearance', 'connections', 'team'] },
+ { title: 'settings.groupEveryday', sections: ['general', 'appearance', 'connections'] },
  { title: 'settings.groupConnections', sections: ['chatConnections', 'machines', 'plugins'] },
  { title: 'settings.groupSystem', sections: ['extras', 'permissions', 'updates'] },
 ] as const;

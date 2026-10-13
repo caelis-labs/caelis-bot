@@ -56,24 +56,10 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
   async changeTeam(request, revision) { await change({...request,expectedRevision:revision}); },
   async removeModel(group, model, revision, stopUsing = false) {
    const uses = group.kind === 'agent' ? group.models.flatMap(m => m.uses) : model.uses;
-   const owned = new Set(['Bot 对话', 'bot_conversation', '独立工作模型', 'dedicated_work']);
+   const owned = new Set(['Caelis 主模型', 'caelis_main', 'Bot 对话', 'bot_conversation', '独立工作模型', 'dedicated_work']);
    if (uses.length && (!stopUsing || uses.some(use => !owned.has(use)))) throw new Error('请先更改正在使用此连接的 Team 或模型设置。');
-   let expectedRevision = revision;
-   if (stopUsing) {
-    const before = await invoke<RuntimeConfiguration>('RuntimeConfiguration');
-    if (before.revision !== revision) throw new Error('Caelis 配置已变化，请刷新连接后重新确认。');
-    // Clear only Bot-owned selections before asking Host to remove the shared
-    // model. A failed intermediate write stops here; the caller must refresh.
-    const conversation = await invoke<ExecutionSettings>('ExecutionSettings');
-    if (conversation.model === model.id) await invoke('SaveExecutionSettings', {...conversation, model:'', effort:'', serviceTier:''});
-    const work = await invoke<WorkExecutionSettings>('WorkExecutionSettings');
-    if (work.model === model.id) await invoke('SaveWorkExecutionSettings', {model:'', effort:'', serviceTier:''});
-    const after = await invoke<RuntimeConfiguration>('RuntimeConfiguration');
-    const selected = after.connections.find(entry => entry.id === group.id)?.models.find(entry => entry.id === model.id);
-    if (!selected || selected.uses.some(use => !owned.has(use))) throw new Error('模型连接或 Team 绑定已变化，请刷新核对后再操作。');
-    expectedRevision = after.revision;
-   }
-   await change({action:group.kind==='agent'?'disconnect-agent':'remove-model',id:group.kind==='agent'?group.id:model.id,expectedRevision});
+   if (stopUsing && group.kind !== 'provider') throw new Error('请先更改正在使用此 Agent 的模型设置。');
+   await change({action:group.kind==='agent'?'disconnect-agent':stopUsing?'remove-model-and-stop':'remove-model',id:group.kind==='agent'?group.id:model.id,expectedRevision:revision});
   },
   async catalog(kind) {return invoke('RuntimeConnectionCatalog',kind,profile ?? null);},
   async apiKeyOptions(provider, baseUrl) {

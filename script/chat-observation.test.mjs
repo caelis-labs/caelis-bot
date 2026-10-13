@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {ConversationOrder,FileObservationOrder,SubmissionProgress,DraftQueue,acceptedDraftSettled,visibleDraftFiles,readDraftAndFiles,retryRead,sameComposerSnapshot} from '../frontend/src/chat-observation.ts';
-import {settingsDestination,settingsSections} from '../frontend/src/settings-navigation.ts';
+import {settingsDestination,settingsSections,settingsGroups} from '../frontend/src/settings-navigation.ts';
 
 test('a late poll cannot replace a refreshed outbox at the same backend revision',()=>{
  const state=new ConversationOrder();state.reset();
@@ -85,8 +85,9 @@ test('uncertain submissions stay uncertain until that exact request is confirmed
  const state=new SubmissionProgress();assert.equal(state.observe(''),'unknown');
  assert.throws(()=>state.synchronize(async()=>{}));assert.equal(state.observe('accepted'),'accepted');
 });
-test('settings give Team a first-level destination while native repair links remain valid',()=>{
+test('Team has a detail destination but no global sidebar entry; native repair links remain valid',()=>{
  assert.deepEqual(settingsSections,['general','appearance','connections','team','chatConnections','plugins','machines','extras','permissions','updates']);
+ assert.equal(settingsGroups.some(group=>group.sections.includes('team')),false);
  assert.equal(settingsDestination('runtime'),'connections');assert.equal(settingsDestination('models'),'connections');assert.equal(settingsDestination('machines'),'machines');
  assert.equal(settingsDestination('connections'),'connections');assert.equal(settingsDestination('team'),'team');assert.equal(settingsDestination('telegram'),'telegram');assert.equal(settingsDestination('chat'),'chatConnections');assert.equal(settingsDestination('capture'),'extras');
  assert.equal(settingsDestination('execution'),'connections');assert.equal(settingsDestination('setup'),'setup');

@@ -46,6 +46,18 @@ func (a *Application) manageCaelis(ctx context.Context, action string, v api.Run
 	if err = caelis.Probe(ctx, v); err != nil {
 		return runtimeInstallation(st), fmt.Errorf("%s: %w", a.text("host.serviceConnectionNotVerified"), err)
 	}
+	// A newly installed Host can be healthy while it has no chat model yet.
+	// Bot cannot connect in that state; the next step is model connection, not
+	// a failed service recovery. Inspect the Host instead of matching an error
+	// string from the Bot session.
+	setup, err := caelis.InspectSetup(ctx, v)
+	if err != nil {
+		return runtimeInstallation(st), err
+	}
+	if setup.State == "models" {
+		st.Message = a.text("host.caelisServiceReady")
+		return runtimeInstallation(st), nil
+	}
 	active := a.Backend.RuntimeSettings()
 	store, _ := caelisruntime.Store(v.CaelisStore)
 	activeStore, _ := caelisruntime.Store(active.CaelisStore)

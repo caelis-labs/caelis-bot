@@ -66,6 +66,32 @@ func (s *Service) SaveExecutionSettings(ctx context.Context, v api.ExecutionSett
 	})
 }
 
+// ClearDeletedModelPreference follows a confirmed shared Host deletion. It
+// does not send an empty application-model patch, which the Host rejects; the
+// Host has already reconciled its active Session and default model itself.
+func (s *Service) ClearDeletedModelPreference(ctx context.Context, deleted string) error {
+	s.configurationMu.Lock()
+	defer s.configurationMu.Unlock()
+	if s.executionSettings.Model != deleted {
+		return nil
+	}
+	reconciler, ok := s.engine.(interface {
+		ReconcileDeletedModel(context.Context, string, func() error) error
+	})
+	if !ok {
+		return errors.New("当前运行时无法核对已移除的模型")
+	}
+	next := s.executionSettings
+	next.Model, next.Effort, next.ServiceTier = "", "", ""
+	return reconciler.ReconcileDeletedModel(ctx, deleted, func() error {
+		if err := saveRuntimeSettings(s.executionFile, next); err != nil {
+			return err
+		}
+		s.executionSettings = next
+		return nil
+	})
+}
+
 func (s *Service) ExecutionOptions() (api.ExecutionOptions, error) {
 	if e, ok := s.engine.(api.ExecutionProvider); ok {
 		return e.ExecutionOptions(), nil

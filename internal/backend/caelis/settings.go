@@ -52,6 +52,31 @@ func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, 
 	s.execution = v
 	return nil
 }
+
+// The Host's revision-fenced DeleteModel already removes the selected model
+// from active Sessions. Read it back before clearing Bot's saved preference;
+// never try to clear an application model with an invalid empty patch.
+func (s *Session) ReconcileDeletedModel(ctx context.Context, deleted string, persist func() error) error {
+	s.step.Lock()
+	defer s.step.Unlock()
+	s.mu.Lock()
+	sid := s.state.Session.SessionId
+	s.mu.Unlock()
+	if sid != "" {
+		current, err := s.configuration(ctx, sid)
+		if err != nil {
+			return err
+		}
+		if current.Profile.Model == deleted {
+			return errors.New("Caelis 尚未确认会话模型已停止使用，请刷新核对")
+		}
+	}
+	if err := persist(); err != nil {
+		return err
+	}
+	s.execution.Model, s.execution.Effort, s.execution.ServiceTier = "", "", ""
+	return nil
+}
 func (s *Session) CurrentExecutionSettings(ctx context.Context) (api.ExecutionSettings, error) {
 	v, e := s.Configuration(ctx)
 	if e != nil {

@@ -1,5 +1,13 @@
 {
   "thirdPartyGateway": "Third-party gateway",
+  "provider_deepseek_name": "DeepSeek",
+  "provider_deepseek_description": "Connect models with a DeepSeek API Key.",
+  "provider_xiaomi_name": "Xiaomi MiMo",
+  "provider_xiaomi_description": "Connect with MiMo API or Token Plan.",
+  "provider_ollama_name": "Local Ollama",
+  "provider_ollama_description": "Connect models running on this computer.",
+  "provider_custom_name": "Custom model service",
+  "provider_custom_description": "Enter a service address and required credentials.",
   "magpieDescription": "Connect a Magpie gateway you installed",
   "magpieThirdPartyNotice": "Magpie is an independent open-source project. Requests sent through it are handled by Magpie. Caelis does not provide a subscription.",
   "magpieNotFound": "This gateway did not return a model catalog. Enter a gateway address or view Magpie's installation guide.",

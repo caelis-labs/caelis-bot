@@ -21,6 +21,20 @@ func (s *Service) RuntimeConfiguration(ctx context.Context) (api.RuntimeConfigur
 	}
 	return c.RuntimeConfiguration(ctx)
 }
+func (s *Service) WorkerTeamConfiguration(ctx context.Context) (api.RuntimeConfiguration, error) {
+	c, e := s.runtimeConfigurationController()
+	if e != nil {
+		return api.RuntimeConfiguration{}, e
+	}
+	return c.WorkerTeamConfiguration(ctx)
+}
+func (s *Service) ChangeWorkerTeamConfiguration(ctx context.Context, r api.RuntimeConfigurationChange) (api.RuntimeMutationResult, error) {
+	c, e := s.runtimeConfigurationController()
+	if e != nil {
+		return api.RuntimeMutationResult{}, e
+	}
+	return c.ChangeWorkerTeamConfiguration(ctx, r)
+}
 func (s *Service) ChangeRuntimeConfiguration(ctx context.Context, r api.RuntimeConfigurationChange) (api.RuntimeMutationResult, error) {
 	c, e := s.runtimeConfigurationController()
 	if e != nil {

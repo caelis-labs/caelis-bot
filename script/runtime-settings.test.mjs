@@ -37,28 +37,23 @@ test('first run advances from missing CLI through service to a real model connec
  assert.equal(nextOnboardingStep({...state,installation:{installed:true},state:'ready'},'caelis'),'');
  assert.equal(nextOnboardingStep({...state,installation:{installed:true},state:'login'},'codex'),'');
 });
-test('stop using a sole model clears Bot preferences before Host deletion; partial failure stops',async()=>{
+test('stop using a sole model sends one revision-fenced native transaction; uncertain result is not replayed',async()=>{
  const group={id:'provider',name:'Provider',kind:'provider',detail:'',models:[]};
- const model={id:'provider/a',name:'A',uses:['Bot 对话','独立工作模型'],unavailable:false};
+ const model={id:'provider/a',name:'A',uses:['Caelis 主模型','Bot 对话','独立工作模型'],unavailable:false};
  group.models=[model];const calls=[];
  const client=createRuntimeSettingsClient(async(method,...args)=>{
   calls.push([method,...args]);
-  if(method==='RuntimeConfiguration')return {revision:calls.filter(c=>c[0]==='RuntimeConfiguration').length===1?'9':'10',connections:[group]};
-  if(method==='ExecutionSettings')return {model:model.id,effort:'low',serviceTier:'',approvalMode:'workspace-write'};
-  if(method==='WorkExecutionSettings')return {model:model.id,effort:'',serviceTier:''};
   return {operationId:'op',outcome:'committed',message:''};
  });
  await assert.rejects(client.removeModel(group,model,'9'));
  await client.removeModel(group,model,'9',true);
- assert.deepEqual(calls.map(c=>c[0]),['RuntimeConfiguration','ExecutionSettings','SaveExecutionSettings','WorkExecutionSettings','SaveWorkExecutionSettings','RuntimeConfiguration','ChangeRuntimeConfiguration']);
- assert.equal(calls.at(-1)[1].expectedRevision,'10');
- const failed=[];const partial=createRuntimeSettingsClient(async(method)=>{failed.push(method);if(method==='RuntimeConfiguration')return {revision:'9',connections:[group]};if(method==='ExecutionSettings')return {model:model.id,approvalMode:'workspace-write'};if(method==='SaveExecutionSettings')throw Error('synthetic write failure');});
- await assert.rejects(partial.removeModel(group,model,'9',true));
- assert.deepEqual(failed,['RuntimeConfiguration','ExecutionSettings','SaveExecutionSettings']);
- const main={...model,uses:['Caelis 主模型']};
- const beforeMain=calls.length;
- await assert.rejects(client.removeModel({...group,models:[main]},main,'9',true),/Team 或模型设置/);
- assert.equal(calls.length,beforeMain);
+ assert.deepEqual(calls,[['ChangeRuntimeConfiguration',{action:'remove-model-and-stop',id:model.id,expectedRevision:'9'}]]);
+ const failed=[];const partial=createRuntimeSettingsClient(async(method,...args)=>{failed.push([method,...args]);return {operationId:'op2',outcome:'unknown',message:'refresh before retry'};});
+ await assert.rejects(partial.removeModel(group,model,'9',true),e=>e.unknown&&e.receipt.operationId==='op2');
+ assert.equal(failed.length,1);
+ const team={...model,uses:[...model.uses,'orbit']};
+ await assert.rejects(client.removeModel({...group,models:[team]},team,'9',true),/Team 或模型设置/);
+ assert.equal(calls.length,1);
 });
 
 test('default Codex provider remains unselected when the session read fails',async()=>{

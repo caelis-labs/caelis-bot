@@ -146,6 +146,8 @@ type RuntimeFlowModel struct {
 type RuntimeConfigurationController interface {
 	RuntimeConfiguration(context.Context) (RuntimeConfiguration, error)
 	ChangeRuntimeConfiguration(context.Context, RuntimeConfigurationChange) (RuntimeMutationResult, error)
+	WorkerTeamConfiguration(context.Context) (RuntimeConfiguration, error)
+	ChangeWorkerTeamConfiguration(context.Context, RuntimeConfigurationChange) (RuntimeMutationResult, error)
 	RuntimeConnectionCatalog(context.Context, string, *RuntimeSettings) (RuntimeConnectionCatalog, error)
 	StartRuntimeConnection(context.Context, RuntimeConnectionInput) (RuntimeFlow, error)
 	AdvanceRuntimeConnection(context.Context, RuntimeFlowAction) (RuntimeFlow, error)

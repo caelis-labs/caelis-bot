@@ -16,7 +16,7 @@ const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
 
 export function RuntimeSettings({ onboarding = false, onBack,onDone,onTeam,active=true,refreshKey=0 }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; onTeam?:()=>void; active?:boolean; refreshKey?:number }) {
- return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone}/> : <RuntimeWorkspace workerSettings={onConnections=><LocalWorkerSettings active={active} onConnections={onConnections}/>} executionSettings={<ExecutionSettings embedded active={active} refreshKey={refreshKey}/>} active={active} refreshKey={refreshKey} onTeam={onTeam} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} active={active} onBusy={onBusy}/>}/>;
+ return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone}/> : <RuntimeWorkspace workerSettings={onConnections=><LocalWorkerSettings active={active} onConnections={onConnections} onTeam={onTeam}/>} executionSettings={<ExecutionSettings embedded active={active} refreshKey={refreshKey}/>} active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} active={active} onBusy={onBusy}/>}/>;
 }
 
 export function RuntimePreparation({ onboarding = false, active=true, onBack, onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; active?:boolean; onBack?:()=>void; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
@@ -103,7 +103,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack, on
  if (onboarding && !id) return <section className="runtime-welcome">
   <img className="setup-avatar" src="/icons/caelis-avatar.png" alt=""/>
   <h1>{t('runtime.prepareCaelisBot')}</h1><p className="setup-lead">{t('runtime.chooseRuntimeLead')}</p>
-  <div className="runtime-choices">{['caelis', 'codex'].map(value => <button key={value} disabled={blocked} onClick={() => void chooseRuntime(value)}><div><strong>{value === 'caelis' ? t('runtime.connectAIModel') : t('runtime.loginWithChatGPT')}</strong><span>{value === 'caelis' ? t('runtime.caelisOnboardingLead') : t('runtime.codexOnboardingLead')}</span></div><span aria-hidden="true">→</span></button>)}</div>
+  <div className="runtime-choices">{['caelis', 'codex'].map(value => <button key={value} disabled={blocked} onClick={() => void chooseRuntime(value)}><div><strong>{value === 'caelis' ? t('runtime.connectAIModel') : t('runtime.loginWithChatGPT')}</strong>{value === 'caelis' && <span className="runtime-default-cue">{t('runtime.default')}</span>}<span>{value === 'caelis' ? t('runtime.caelisOnboardingLead') : t('runtime.codexOnboardingLead')}</span></div><span aria-hidden="true">→</span></button>)}</div>
   {error && <p role="alert" className="inline-error">{error}</p>}
   {onBack&&<div className="setup-end"><button type="button" onClick={onBack}>{t('settings.setupBack')}</button></div>}
  </section>;

@@ -102,6 +102,11 @@ func (f *connectionFlow) result(result wire.CommandResult, err error) bool {
 	}
 	if !succeeded(result.Outcome) {
 		r := mutationResult(f.operation, result, nil)
+		if r.Outcome == "rejected" && f.request.Kind == "api-key" {
+			// Host rejection covers endpoint reachability, credentials, model
+			// metadata and policy. It does not prove a role-binding problem.
+			r.Message = "连接未完成，请检查服务地址、认证信息和模型名称后重试。"
+		}
 		f.update(func(v *api.RuntimeFlow) {
 			v.Stage = "failed"
 			if r.Outcome == "unknown" || r.Outcome == "accepted" {

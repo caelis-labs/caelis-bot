@@ -1,5 +1,13 @@
 {
   "thirdPartyGateway": "三方聚合网关",
+  "provider_deepseek_name": "DeepSeek",
+  "provider_deepseek_description": "使用 DeepSeek API Key 连接模型。",
+  "provider_xiaomi_name": "小米 MiMo",
+  "provider_xiaomi_description": "使用小米 MiMo API 或 Token Plan 连接模型。",
+  "provider_ollama_name": "本机 Ollama",
+  "provider_ollama_description": "连接电脑上运行的 Ollama 模型。",
+  "provider_custom_name": "自定义模型服务",
+  "provider_custom_description": "填写模型服务地址和所需凭据。",
   "magpieDescription": "连接你自行安装的 Magpie 网关",
   "magpieThirdPartyNotice": "Magpie 是独立的第三方开源项目。经此网关发送的请求由 Magpie 处理；Caelis 不代开通服务或订阅。",
   "magpieNotFound": "当前网关没有返回模型目录。可填写网关地址，或查看 Magpie 的安装说明。",

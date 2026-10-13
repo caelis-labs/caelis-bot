@@ -57,8 +57,9 @@ func main() {
 			t.Setenv("BOT_UPGRADE_MARKER", marker)
 			t.Setenv("BOT_UPGRADE_MODE", mode)
 			var inspections atomic.Int32
+			var catalogCalls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != "GET" {
+				if r.Method != "GET" && !(r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/completion/slash-arguments")) {
 					t.Error("unexpected mutation", r.URL.Path)
 					w.WriteHeader(500)
 					return
@@ -68,6 +69,13 @@ func main() {
 					n := inspections.Add(1)
 					busy := mode == "busy" || mode == "becomes-busy" && n > 1
 					_ = json.NewEncoder(w).Encode(map[string]any{"runtime": map[string]any{"running": busy}})
+					return
+				}
+				if strings.HasSuffix(r.URL.Path, "/completion/slash-arguments") {
+					// A fresh Host has no connected chat model yet. Installation
+					// succeeds and onboarding continues at model connection.
+					catalogCalls.Add(1)
+					_ = json.NewEncoder(w).Encode([]any{})
 					return
 				}
 				caps := []string{}
@@ -119,6 +127,9 @@ func main() {
 			}
 			if mode == "ready" && strings.Count(string(raw), "service start") != 1 {
 				t.Fatal("did not select installed Host once", string(raw))
+			}
+			if mode == "ready" && catalogCalls.Load() != 1 {
+				t.Fatal("did not classify the fresh no-model Host before Bot reconnect")
 			}
 			if err := a.PrepareUpdate(); err != nil {
 				t.Fatal("failed operation left admission frozen", err)
