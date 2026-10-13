@@ -1,6 +1,6 @@
 # Weixin Remote Channel POC
 
-This local POC uses the HTTP JSON protocol described by
+This local adapter uses the HTTP JSON protocol described by
 [Tencent/openclaw-weixin](https://github.com/Tencent/openclaw-weixin/blob/main/docs/protocol.md),
 at the pinned published plugin version `@tencent-weixin/openclaw-weixin@2.4.9`.
 The preceding `@tencent-weixin/openclaw-weixin-cli@2.1.4` is an OpenClaw
@@ -129,7 +129,19 @@ from `getconfig` and renews `sendtyping` only while the paired user's main turn
 is active, cancelling it at turn end. Text uses finished sendmessage payloads;
 the upstream text builder uses `message_state=FINISH`, and the public protocol
 does not document safe in-place edits. Text cards and terminal status therefore
-arrive as separate messages. Native approval buttons, groups, attachments, edits,
+arrive as separate messages. Outgoing reply Artifacts use the Host-owned resolver
+already used by Telegram, and each file is a separate budgeted send. The
+adapter accepts regular files up to 20 MiB with valid base filenames, reads a
+stable snapshot, and uses Tencent's media_type=3 upload and type=4 file item.
+The upload is AES-128-ECB with PKCS#7 padding and a fresh 16-byte key; its
+MD5 is a protocol checksum. CDN upload requires HTTPS on the pinned Weixin CDN
+host, rejects redirects and foreign hosts, and never forwards the bot token.
+Upload retry may repeat encrypted bytes before any file message exists. The
+original Artifact ID and a persisted send intent fence the final send: an
+unknown result is not retried even after a new owner input. Unattempted files
+deferred by the estimate may resume after new input; file status is visible in
+Settings. HTTP acceptance alone does not prove phone receipt.
+Native approval buttons, groups, incoming attachments, edits,
 webhook delivery,
 proactive window guarantees and Windows credentials are outside this POC.
 An HTTP success cannot prove phone display, especially for a proactive send

@@ -206,6 +206,27 @@ func (s *Service) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	}
 	return s.remote(ctx, id, "read", api.TaskMessage{})
 }
+func (s *Service) ReadWorkConversation(ctx context.Context, id string) ([]api.TaskConversationMessage, error) {
+	if s.route(id) == "" {
+		reader, ok := s.local.(api.WorkConversationReader)
+		if !ok {
+			return nil, errors.New("native local task messages unavailable")
+		}
+		return reader.ReadWorkConversation(ctx, id)
+	}
+	s.mu.Lock()
+	machine, runtime := s.state.Routes[id], s.state.Runtimes[id]
+	profile, ok := s.state.Profiles[machine]
+	s.mu.Unlock()
+	if !ok || runtime == "" {
+		return nil, errors.New("original remote task environment unavailable")
+	}
+	response, err := s.call(ctx, profile, remotework.Request{Action: "messages", Runtime: runtime, ID: id})
+	if err != nil {
+		return nil, err
+	}
+	return response.Messages, nil
+}
 func (s *Service) RetireWork(ctx context.Context, id string) (api.Task, error) {
 	if s.route(id) == "" {
 		p, ok := s.local.(api.WorkRetirer)
@@ -233,7 +254,17 @@ func (s *Service) StopWork(ctx context.Context, id string) (api.Task, error) {
 }
 func (s *Service) WorkMessageRecorded(in api.TaskMessage) bool {
 	if s.route(in.ID) != "" {
-		return false
+		s.mu.Lock()
+		machine, runtime := s.state.Routes[in.ID], s.state.Runtimes[in.ID]
+		profile, ok := s.state.Profiles[machine]
+		s.mu.Unlock()
+		if !ok || runtime == "" {
+			return false
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		response, err := s.call(ctx, profile, remotework.Request{Action: "recorded", Runtime: runtime, ID: in.ID, Message: in})
+		return err == nil && response.Recorded
 	}
 	p, ok := s.local.(api.RecordedWorkMessage)
 	return ok && p.WorkMessageRecorded(in)

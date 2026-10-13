@@ -149,6 +149,7 @@ func Run(assets fs.FS) error {
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
+	s.openArtifactFile = func(path string) error { return exec.Command("/usr/bin/open", path).Run() }
 	s.restartRuntime = func() error {
 		if err := core.PrepareRestart(); err != nil {
 			return err
@@ -193,6 +194,26 @@ func Run(assets fs.FS) error {
 		Hidden: true, URL: "/?surface=context", EnableFileDrop: true, BackgroundType: application.BackgroundTypeTransparent,
 		Mac: application.MacWindow{Backdrop: application.MacBackdropTransparent, TitleBar: application.MacTitleBar{AppearsTransparent: true}},
 	})
+	preview := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name: "artifact-preview", Title: appName, Width: 820, Height: 620, MinWidth: 520, MinHeight: 360,
+		Hidden: true, URL: "/?surface=artifact-preview", BackgroundType: application.BackgroundTypeSolid,
+		Mac: application.MacWindow{TitleBar: application.MacTitleBar{UseToolbar: true, ToolbarStyle: application.MacToolbarStyleUnifiedCompact}},
+	})
+	preview.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { e.Cancel(); preview.Hide() })
+	s.openArtifactPreview = func() {
+		application.InvokeSync(func() {
+			selection, err := s.CurrentArtifactPreview()
+			if err != nil {
+				return
+			}
+			preview.SetTitle(selection.Name)
+			macArtifactPreviewToolbarSelection(preview, selection)
+			preview.UnMinimise()
+			preview.Show()
+			preview.Focus()
+			preview.ExecJS("window.dispatchEvent(new Event('artifact-preview-changed'))")
+		})
+	}
 	bubble := nativeApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "bubble", Title: s.text("native.bubbleTitle", nil), Width: 360, Height: 68, Frameless: true, DisableResize: true, Hidden: true,
 		URL: "/?surface=bubble", BackgroundType: application.BackgroundTypeTransparent,
@@ -346,7 +367,13 @@ func Run(assets fs.FS) error {
 	})
 	// Dock Quit is a contextual-window action. Only the status menu requests
 	// user-initiated process shutdown; updater/restart/system cleanup stays intact.
-	closeContextWindow = func() { closeMacContextWindow(history, settings) }
+	closeContextWindow = func() {
+		if preview.IsFocused() {
+			preview.Hide()
+			return
+		}
+		closeMacContextWindow(history, settings)
+	}
 	// Wails' default Dock callback reveals every hidden window, including the
 	// private pet/prop webviews. Cancel it and recall only open panels.
 	nativeApp.Event.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
@@ -405,6 +432,14 @@ func Run(assets fs.FS) error {
 		return nativeApp.Dialog.OpenFile().AttachToWindow(history).CanChooseFiles(true).CanChooseDirectories(false).
 			SetTitle(s.text("native.addFileTitle", nil)).SetButtonText(s.text("native.add", nil)).PromptForMultipleSelection()
 	}
+	s.saveArtifactPath = func(name string) (string, error) {
+		owner := history
+		if preview.IsFocused() {
+			owner = preview
+		}
+		return nativeApp.Dialog.SaveFile().AttachToWindow(owner).SetFilename(name).
+			SetMessage(s.text("native.saveArtifactTitle", nil)).CanCreateDirectories(true).PromptForSingleSelection()
+	}
 	s.filesChanged = func() {
 		history.ExecJS("window.dispatchEvent(new Event('files-changed'))")
 	}
@@ -438,6 +473,7 @@ func Run(assets fs.FS) error {
 		data, _ := json.Marshal(state)
 		application.InvokeSync(func() {
 			updateLanguage(state)
+			macArtifactPreviewToolbarLanguage(preview, state.Locale)
 			for _, window := range []*application.WebviewWindow{pet, history, bubble, prop} {
 				window.ExecJS("window.dispatchEvent(new CustomEvent('language-changed',{detail:" + string(data) + "}))")
 			}
@@ -455,6 +491,7 @@ func Run(assets fs.FS) error {
 			log.Print("Desktop application icon could not be decoded")
 		}
 		s.start(newMacDriver(pet, bubble, history, prop, s, quit))
+		installMacArtifactPreviewToolbar(preview, s.LanguagePreferences().Locale)
 		styleMacSettings(settings)
 		startMacUpdater(s, core.PrepareUpdate, core.CancelUpdate, func() error {
 			quitting.Store(true)

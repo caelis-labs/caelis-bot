@@ -60,16 +60,27 @@ continuation resumes the same native thread and request ledger. Diagnostics
 distinguish Bot subscription retirement from later native `thread/closed` unload.
 
 The Bot IM transcript is a private local SQLite message log for visible user,
-assistant, and control-receipt messages with stable request/item identities.
+assistant, control-receipt and completed Artifact-bearing tool messages with
+stable request/item identities.
 Authenticated channel input is recorded at ingress, and native accepted inputs
 update that record by request ID; a marked-secret control answer is represented
 only by a filled-state placeholder. Runtime live output is appended to the same
 log. Chat reads this local transcript instead of importing Runtime items on read.
 It loads a 200-message window and explicitly pages older **local** messages, including while
-the Runtime is offline. Streamed text updates the same item; tool payloads are
-never chat history. Disk failure retains the live cache and retries independently;
+the Runtime is offline. Streamed text updates the same item; only projected
+Artifact handles and a tool's visible label enter chat, never native tool
+payloads or file-change activity. Desktop actions re-resolve each handle through
+the backend before preview, opening, copying or saving; text previews are read
+on demand and bounded. Text opens in a dedicated, opaque native preview window;
+the filename and compact file actions live in its AppKit title bar. The renderer
+receives only the owned handle and safe filename, and Markdown is rendered
+without loading embedded remote resources. Disk failure retains the
+live cache and retries independently;
 a corrupt display database is preserved as a damaged copy and rebuilt. Runtime
 sessions, execution state and original action receipts stay with their native owners.
+Codex assistant links to files outside Work can promote a temporary file into
+an attachment only when a native activity already bound that exact regular
+file as an Artifact; a model-written absolute path alone does not grant access.
 
 Codex connects with `thread/resume(excludeTurns:true)`, reads execution metadata
 with `thread/read(includeTurns:false)`, and optionally synchronizes one latest Turn
@@ -355,7 +366,7 @@ budget, independent of request cancellation. Exhausted candidates report a netwo
 failure. App-level DIRECT retains OS routing, including third-party TUN proxies.
 This selection happens before dispatch and does not replay uncertain HTTP writes.
 
-## Weixin text POC
+## Weixin private channel
 
 `internal/weixin` is a Go adapter for the published Tencent iLink JSON client
 protocol, pinned to the inspected `@tencent-weixin/openclaw-weixin@2.4.9`
@@ -366,7 +377,22 @@ Weixin, Telegram and plugin tokens into namespaces under `Credentials/`.
 Existing Keychain items migrate on first use and are deleted. Pairing QR state lives
 only in memory; settings starts or refreshes it while visible. Start/stop
 presence and disposable typing requests are independent of message receipts.
-Only owner private text and text projection of Weixin-owned work are in scope.
+Only owner private text and output traced to Weixin-owned work are in scope.
+Outgoing files use the same Host-owned Artifact resolver as Telegram. The
+adapter accepts only projected Artifact IDs, bounded regular files and safe
+filenames, then requests a FILE upload URL, encrypts bytes with AES-128-ECB and
+PKCS#7 padding, and POSTs to an allowlisted Weixin CDN endpoint without bearer
+credentials or redirects. A successful upload yields one type-4 file item.
+File preparation runs away from the polling loop. Its durable `preparing` state
+may be retried after restart within the original input window because no
+message was attempted. Each file has its own message and send slot. The
+original Artifact ID and Turn key one send intent; a new user request can
+expose the same owned artifact in a new Turn. Budget-deferred files are terminal
+for that intent and never drain into later windows automatically. Final text
+keeps safe filenames as readable placeholders. Once the send slot and unknown
+intent are saved, no timeout, restart or new ingress replays that intent.
+Failures and deferred sends remain visible in Weixin settings. Incoming file
+messages and phone receipt remain outside this slice.
 The first completed commentary is sent as progress; subsequent completed items
 are merged in order after three items or near the safe single-message length.
 Progress attempts are capped at five per observed ten-send window. Native
@@ -510,8 +536,10 @@ and refreshes at startup, before submit and on completion. No background model o
 User edits/deletions persist. Legacy personal data is copied once with a marker outside Notebook; conflicts
 stop migration and preserve both sides. No automatic Git commit or cloud sync.
 
-Embedded public Memory provides recall/remember/correct/forget in a stable Bot scope. Mutation request IDs
-and receipt chains prevent forgotten evidence returning on replay. This does not erase chat, Git or backups.
+Existing private Memory data and the independent settings capability remain intact, but the Bot no longer
+publishes `bot_memory` for model recall or mutation. Bot memory writes now use native file tools on
+`MEMORY.md` and Notebook notes. `INDEX.md` indexes paths and titles, not note bodies; search uses file
+reads or `rg`. Historical private evidence is not automatically moved into Notebook or searchable there.
 Notebook is the resident writable workspace, not HOME; Workers have independent directories and instructions.
 Neither scope claims isolation from another process under the same OS user or from full-access execution.
 
@@ -521,20 +549,42 @@ Bot-owned portable plugin packages and their reviewed source adapter are describ
 in [plugin-packages.md](plugin-packages.md). Package MCP services do not join the
 built-in automatic approval list.
 
-The native resident catalog contains `bot_memory`, `bot_tasks`, `bot_delegate`,
+The native resident catalog contains `bot_tasks`, `bot_delegate`,
 `bot_schedule`, `bot_schedule_update`, `bot_gesture` and `bot_dream`, subject to
 Runtime capabilities. Desktop World contributes one `exec` tool through its own
 MCP server when its built-in plugin is enabled. It is never included in the
 built-in automatic approval list. Typed requests use application-owned schemas
 and native dispatch validation.
 
-The new catalog never advertises legacy aliases. Private MCP invocations carry a
-catalog generation, and Caelis restores the exact original legacy schema/policy
-version for old pending callbacks. This preserves original receipts without
+`bot_delegate` takes a prompt and optional original task handle. The Host derives
+each durable submission ID from the resident Runtime's native tool invocation;
+separate calls with the same text are separate submissions. A retry of the same
+transport call may reconcile its original receipt once. A native unknown result
+never authorizes a new submission ID or an automatic replay. Creation-only
+title, workspace and environment cannot rebind a retained task. `local` means
+the Runtime currently hosting Bot; connected remote environments have stable
+keys. `bot_tasks` exposes environments, all retained task summaries, native
+completed User/Assistant message reads, stop and pin. Creation time is stored
+for new tasks; migrated undated tasks retain stable ledger order. Read does not
+consume completion notices or start work; unreadable native history is an error.
+The desktop watchlist and safe native retirement remain Host internals.
+
+The new catalog never advertises legacy aliases. `bot_memory` is also removed from
+the legacy catalog and both invocation paths reject it, including calls through
+old MCP service names or persisted tool references. Historical private data stays
+stored; prior `bot_memory` callbacks can no longer execute and require an explicit
+file-based follow-up if still relevant. Caelis retains the old catalog version
+only to settle original non-memory callbacks without granting a retired memory
+effect. Private MCP invocations carry a
+catalog generation. Caelis restores both the exact previous compact catalog
+from `5903254d` and the older legacy schema/policy version for pending callbacks.
+Historical memory callbacks remain denied even when their original catalog
+digest is recognized. This preserves original receipts without
 rerouting them to the current same-name schema or replaying mutations. Unknown
-catalog versions still fail closed. Task request lookup uses the owned ledger;
-missing/ambiguous records are unconfirmed. Old follow-ups without a recorded
-request identity still need their original task handle. Worker defaults, native
+catalog versions still fail closed. Legacy request lookup remains an internal
+receipt recovery path; the new model catalog cannot query by requestId or invoke
+the retired watchlist/retire schema. Missing or ambiguous original receipts
+remain unconfirmed. Worker defaults, native
 bindings, approval policies, Notebook isolation and event/calendar grants have
 independent semantic owners.
 
@@ -561,13 +611,16 @@ guide to Core profile instructions. Both adapters load Skill bodies only on dema
 First introduction is a normal user message with a durable stable delivery ID; until acceptance it precedes
 other submissions. The host does not write the Bot personality or claim that acceptance proves memory saved.
 
-The Bot maintains Notebook and `MEMORY.md` during ordinary work. When obsolete task
-detail or recalled tool schemas are substantial, the gated `bot_dream` contract
-requires a bounded handoff summary. Its result must force completion of the owning turn before
-another same-batch tool effect or model step. The handoff carries identity, current
-goals, unfinished work and original uncertain receipts. Neither an idle threshold
-nor a version upgrade dispatches a maintenance turn. The retired `bot-dream` Skill
-is removed from fresh installations.
+The Bot maintains Notebook and `MEMORY.md` during ordinary work. After a batch of
+work or a clear goal change, it assesses whether obsolete task detail or unneeded
+recalled tools make context redundant; no context watermark or per-turn Dream rule
+applies. The gated `bot_dream` contract requires a bounded handoff summary. The
+Runtime completes the owning turn before another same-batch effect or model step,
+persists the handoff, and starts a fresh internal Session without old context and
+recalled schemas. The handoff retains identity and constraints, current goal,
+unfinished original task handles, uncertain original receipts, and next action;
+completed work is summarized briefly. Idle, Host recovery, and version upgrades
+do not dispatch maintenance turns. The retired `bot-dream` Skill is not installed.
 
 The APP keeps handoff data in a private durable record keyed by original call and
 source Session, outside the Notebook. The new Session's first accepted Host input

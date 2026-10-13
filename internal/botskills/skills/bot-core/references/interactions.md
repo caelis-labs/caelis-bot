@@ -25,6 +25,11 @@ Worker's request pending. Marked-secret, URL, or opaque Worker requests retain
 their direct user card. Your own approvals remain with Runtime Auto-Review or
 the user; never decide them through the Worker route.
 
+`bot_interactions` keeps its exact native approval and question IDs. Its answer
+requestId belongs to the original question decision, not to `bot_delegate`.
+Do not use a task continuation as a substitute for answering a pending native
+question or retrying an uncertain decision.
+
 An accepted Worker decision is not proof that the tool completed. Read the
 original task after its completion notice and reconcile unknown outcomes on
 the original request. If a card contains several questions, give the specific

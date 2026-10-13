@@ -3,9 +3,45 @@ package codex
 import (
 	"encoding/json"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/bot"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestResidentMCPInjectionOmitsMemoryInBothLayouts(t *testing.T) {
+	r, err := bot.NewForRuntime(filepath.Join(t.TempDir(), "bot.json"), "codex", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge, err := bot.Serve(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	s := NewSession(SessionOptions{Directory: t.TempDir(), BotTools: bridge.Config("synthetic")})
+	for _, old := range []bool{false, true} {
+		if old {
+			s.binding.ThreadID = "existing-thread"
+		}
+		config := s.connectionParams()["config"].(map[string]any)
+		dream := false
+		for key, raw := range config {
+			if !strings.HasPrefix(key, "mcp_servers.") {
+				continue
+			}
+			service := raw.(map[string]any)
+			catalog := service["env"].(map[string]string)["CAELIS_BOT_TOOL_CATALOG"]
+			if strings.Contains(catalog, "bot_memory") || service["tools"].(map[string]any)["bot_memory"] != nil {
+				t.Fatal("Codex still injects memory", key)
+			}
+			dream = dream || strings.Contains(catalog, "bot_dream")
+		}
+		if !dream {
+			t.Fatal("Codex lost Dream", old)
+		}
+	}
+}
 
 func TestBuiltinMCPServiceScopesAndLegacyOwner(t *testing.T) {
 	defs := []api.ToolDefinition{

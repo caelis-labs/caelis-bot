@@ -255,10 +255,10 @@ Session 和 Worker 继续由 Core 各自的原生配置负责，Bot 不改全局
 
 | 工具 / 操作 | 策略 | 原因 |
 | --- | --- | --- |
-| `bot_memory` 全部操作；Notebook 内文件 | 产品范围内直接执行 | Bot 工作区与低风险记忆，不增加 Guardian 成本；越界文件访问仍受原生政策约束 |
-| `bot_schedule` context/list/sources/test；`bot_tasks` list/read/machines | 直接读取 | 有界查询与纯条件测试不审批；能力不足时不展示相应分支 |
-| `bot_gesture`；`bot_tasks` watchlist/stop | 直接执行 | 本地呈现或停止已拥有的工作；清空展示不停止 Worker、不删除历史 |
-| `bot_delegate` start/continue | 每次派生 / 新指令由 Guardian 审查 | 新执行或扩大指令；Worker 保持原生 sandbox / reviewer，不继承 Bot 工具 |
+| Notebook 内文件 | 原生文件权限决定 | Bot 按用户授权维护 `MEMORY.md` 和笔记；`bot_memory` 已从两套 Runtime 目录及直通名单移除 |
+| `bot_schedule` context/list/sources/test；`bot_tasks` environments/list/read | 直接读取 | 有界查询与纯条件测试不审批；能力不足时不展示相应分支 |
+| `bot_gesture`；`bot_tasks` pin/stop | 直接执行 | 本地呈现或停止已拥有的工作；pin 不执行 Worker、不删除历史 |
+| `bot_delegate` prompt（可选原 task） | 每次派生 / 新指令由 Guardian 审查 | 新执行或扩大指令；提交身份由原生调用生成，Worker 保持原生 sandbox / reviewer |
 | `bot_schedule_update` save/remove/configure | 修改持续安排时审查 | 保留日历/事件的独立原生 grant、回执和撤销，不因合并而扩大权限 |
 | Desktop World 插件 MCP `exec` | Runtime 原生审批 | 启用插件后可发现；关闭后旧会话保留的 schema 也不能继续调用 |
 | 未明确列出的 callback | `approval_policy: required` | 新能力不会默认为免审；Codex 同样只免审明确列出的工具 |

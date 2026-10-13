@@ -26,6 +26,7 @@ type Host struct {
 	Snapshot      func() api.Snapshot
 	Recovery      func() api.RecoveryState
 	Interrupt     func(context.Context) error
+	Artifact      func(string) (string, error)
 	TaskForReport func(string) string
 	Submit        func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	TextControl   *textchannel.Store
@@ -50,6 +51,11 @@ type inbound struct {
 }
 type outbound struct {
 	State        string `json:"state"`
+	ArtifactID   string `json:"artifactId,omitempty"` // owned Host handle; never a path
+	FileTurnKey  string `json:"fileTurnKey,omitempty"`
+	FileName     string `json:"fileName,omitempty"`
+	FileInputID  string `json:"fileInputId,omitempty"`  // preparation belongs to this send window
+	FileCritical bool   `json:"fileCritical,omitempty"` // terminal reply may use the final estimated slot
 	ClientID     string `json:"clientId,omitempty"`
 	ContextToken string `json:"contextToken,omitempty"`
 	Reason       string `json:"reason,omitempty"`
@@ -108,6 +114,7 @@ type document struct {
 	Inbox            []inbound           `json:"inbox,omitempty"`
 	Inputs           map[string]string   `json:"inputs"`
 	Outputs          map[string]outbound `json:"outputs"`
+	FileIssue        string              `json:"fileIssue,omitempty"`
 	MirrorV2         bool                `json:"mirrorV2,omitempty"`
 	LocalIMSeeded    bool                `json:"localImSeeded,omitempty"`
 }
@@ -130,6 +137,7 @@ type Bridge struct {
 	closed                        bool
 	loadErr                       bool
 	secretInbox                   map[string]string
+	fileWork                      map[string]bool
 }
 
 func emptyDocument() document {
@@ -138,7 +146,7 @@ func emptyDocument() document {
 func Open(root string, host Host) (*Bridge, error) {
 	hash := sha256.Sum256([]byte(root))
 	account := hex.EncodeToString(hash[:])
-	b := &Bridge{path: filepath.Join(root, "weixin.json"), account: account, host: host, state: emptyDocument(), secretInbox: map[string]string{}, secrets: &secretstore.FileStore{Root: filepath.Join(root, "Credentials"), Namespace: "weixin", Legacy: secretstore.Functions{LoadFunc: loadSecret, DeleteFunc: deleteSecret}}}
+	b := &Bridge{path: filepath.Join(root, "weixin.json"), account: account, host: host, state: emptyDocument(), secretInbox: map[string]string{}, fileWork: map[string]bool{}, secrets: &secretstore.FileStore{Root: filepath.Join(root, "Credentials"), Namespace: "weixin", Legacy: secretstore.Functions{LoadFunc: loadSecret, DeleteFunc: deleteSecret}}}
 	f, err := os.Open(b.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return b, nil
@@ -177,6 +185,8 @@ func Open(root string, host Host) (*Bridge, error) {
 	}
 	if b.state.PauseUntil > time.Now().UnixMilli() {
 		b.issue = "session_cooldown"
+	} else if b.state.FileIssue != "" {
+		b.issue = b.state.FileIssue
 	}
 	return b, nil
 }
@@ -973,6 +983,12 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 				if _, known := b.state.Outputs[key]; !known {
 					b.state.Outputs[key] = outbound{State: "skip"}
 				}
+				for _, artifact := range item.Artifacts {
+					key := artifactKey(item.TurnKey, artifact.ID)
+					if _, known := b.state.Outputs[key]; !known {
+						b.state.Outputs[key] = outbound{State: "skip"}
+					}
+				}
 			}
 		}
 		if b.host.TextControl != nil {
@@ -1075,24 +1091,92 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 		_ = b.saveLocked()
 	}
 	b.mu.Unlock()
+	finalAttempted := map[string]bool{}
 	for _, item := range snapshot.Items {
-		if item.Kind != "assistant" || item.ID == "" || item.Text == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" {
+		if item.Kind != "assistant" || item.ID == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" {
 			continue
 		}
 		if !b.ownsTurn(snapshot, item.TurnKey) {
 			continue
 		}
-		switch kinds[item.ID] {
+		kind := kinds[item.ID]
+		if kind == "" {
+			continue
+		}
+		fileOnly := kind == "final" && item.Text == ""
+		switch kind {
 		case "question":
 			continue
 		case "final":
-			b.mirrorFinal(ctx, p, item)
+			names := b.turnArtifactNames(snapshot, item.TurnKey)
+			self := map[string]bool{}
+			for _, artifact := range item.Artifacts {
+				self[artifact.ID] = true
+			}
+			var extras []api.Artifact
+			for _, artifact := range names {
+				if !self[artifact.ID] {
+					extras = append(extras, artifact)
+				}
+			}
+			if item.Text != "" {
+				item.Text = withArtifactNames(item.Text, names)
+			} else if len(names) > 0 {
+				b.mu.Lock()
+				room := b.remainingLocked(true)
+				b.mu.Unlock()
+				if room < len(names) {
+					item.Text = withArtifactNames("", names)
+				}
+			}
+			if item.Text != "" {
+				b.mirrorFinal(ctx, p, item, extras)
+			}
 		case "task":
-			b.mirrorItem(ctx, p, item, "task")
+			if item.Text != "" {
+				b.mirrorItem(ctx, p, item, "task")
+			}
 		case "progress":
-			b.queueProgress(item)
+			b.mu.Lock()
+			terminal := b.state.TurnPhases[item.TurnKey] == "completed"
+			b.mu.Unlock()
+			if !terminal {
+				item.Text = withArtifactNames(item.Text, item.Artifacts)
+			}
+			if item.Text != "" {
+				b.queueProgress(item)
+			}
+		}
+		fileCritical := fileOnly
+		if kind == "final" && item.Text != "" {
+			b.mu.Lock()
+			parent := outputKey(item)
+			attempted := b.state.Outputs[parent+":0"].State != "" || b.state.Outputs[parent+":compact"].State != "" || b.state.Outputs[parent].State != ""
+			fileCritical = attempted && b.state.PendingFinal != item.ID
+			b.mu.Unlock()
+			finalAttempted[item.TurnKey] = fileCritical
+		}
+		for _, artifact := range item.Artifacts {
+			b.scheduleArtifact(ctx, p, item.TurnKey, artifact, fileCritical)
 		}
 	}
+	// Caelis projects generated resources as tool items with owned Artifact
+	// handles. Activity/file-change items are deliberately not exported here.
+	for _, item := range snapshot.Items {
+		if item.Kind != "tool" || len(item.Artifacts) == 0 || item.Status != "completed" && item.Status != "accepted" || !b.ownsTurn(snapshot, item.TurnKey) {
+			continue
+		}
+		b.mu.Lock()
+		phase := b.state.TurnPhases[item.TurnKey]
+		b.mu.Unlock()
+		if phase != "completed" && !(item.TurnKey == snapshot.CurrentTurn && (snapshot.Phase == "working" || snapshot.Phase == "sending")) {
+			continue
+		}
+		for _, artifact := range item.Artifacts {
+			b.scheduleArtifact(ctx, p, item.TurnKey, artifact, finalAttempted[item.TurnKey])
+		}
+	}
+	b.flushPendingArtifacts(ctx, p, "")
 	b.mu.Lock()
 	activeProgress := len(b.state.Progress) > 0 && b.state.Progress[0].TurnKey == snapshot.CurrentTurn && (snapshot.Phase == "working" || snapshot.Phase == "sending")
 	b.mu.Unlock()

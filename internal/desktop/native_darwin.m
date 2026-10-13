@@ -6,6 +6,7 @@
 #import <WebKit/WebKit.h>
 #import <UserNotifications/UserNotifications.h>
 #import <os/log.h>
+#import <objc/runtime.h>
 #import "native_darwin.h"
 #include "bubble_layout.h"
 #import "bubble_hover_darwin.h"
@@ -362,6 +363,111 @@ static void bot_js(NSWindow *window, NSString *js) {
         }
         [views addObjectsFromArray:view.subviews];
     }
+}
+
+// The preview keeps a normal, draggable title bar. AppKit owns only its two
+// compact toolbar controls; the renderer still calls the existing owned-ID
+// artifact services and displays any action error beside the document.
+static NSToolbarItemIdentifier const BotPreviewOpenItem = @"caelis.preview.open";
+static NSToolbarItemIdentifier const BotPreviewMoreItem = @"caelis.preview.more";
+static char BotPreviewToolbarKey;
+
+@interface BotArtifactPreviewToolbar : NSObject <NSToolbarDelegate>
+@property (weak) NSWindow *window;
+@property (copy) NSString *artifactID;
+@property (copy) NSString *filename;
+@property (copy) NSArray<NSString *> *labels;
+@property NSToolbarItem *openItem;
+@property NSMenuToolbarItem *moreItem;
+- (void)refreshLabels;
+@end
+
+@implementation BotArtifactPreviewToolbar
+- (NSArray<NSToolbarItemIdentifier> *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar {
+    return @[NSToolbarFlexibleSpaceItemIdentifier, BotPreviewOpenItem, BotPreviewMoreItem];
+}
+- (NSArray<NSToolbarItemIdentifier> *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar {
+    return @[NSToolbarFlexibleSpaceItemIdentifier, BotPreviewOpenItem, BotPreviewMoreItem];
+}
+- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar itemForItemIdentifier:(NSToolbarItemIdentifier)identifier willBeInsertedIntoToolbar:(BOOL)inserted {
+    if ([identifier isEqualToString:BotPreviewOpenItem]) {
+        NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:identifier];
+        item.image = [NSImage imageWithSystemSymbolName:@"arrow.up.right.square" accessibilityDescription:nil];
+        item.target = self; item.action = @selector(open:); item.enabled = self.artifactID.length > 0;
+        self.openItem = item; [self refreshLabels]; return item;
+    }
+    if ([identifier isEqualToString:BotPreviewMoreItem]) {
+        NSMenuToolbarItem *item = [[NSMenuToolbarItem alloc] initWithItemIdentifier:identifier];
+        item.image = [NSImage imageWithSystemSymbolName:@"ellipsis" accessibilityDescription:nil];
+        item.showsIndicator = NO; item.enabled = self.artifactID.length > 0;
+        NSMenu *menu = [[NSMenu alloc] initWithTitle:@""];
+        for (NSInteger action = 1; action <= 4; action++) {
+            NSMenuItem *entry = [menu addItemWithTitle:@"" action:@selector(moreAction:) keyEquivalent:@""];
+            entry.target = self; entry.tag = action;
+        }
+        item.menu = menu; self.moreItem = item; [self refreshLabels]; return item;
+    }
+    return nil;
+}
+- (void)refreshLabels {
+    if (self.labels.count != 6) return;
+    self.openItem.label = self.labels[0]; self.openItem.paletteLabel = self.labels[0]; self.openItem.toolTip = self.labels[0];
+    self.moreItem.label = self.labels[1]; self.moreItem.paletteLabel = self.labels[1]; self.moreItem.toolTip = self.labels[1];
+    for (NSInteger i = 0; i < 4; i++) self.moreItem.menu.itemArray[i].title = self.labels[i + 2];
+}
+- (void)emit:(NSString *)action {
+    if (!self.artifactID.length || !self.window) return;
+    NSDictionary *payload = @{@"action":action, @"id":self.artifactID, @"name":self.filename ?: @""};
+    NSData *data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+    if (!data) return;
+    NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    bot_js(self.window, [NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('artifact-preview-toolbar-action',{detail:%@}))", json]);
+}
+- (void)open:(id)sender { [self emit:@"open"]; }
+- (void)moreAction:(NSMenuItem *)item {
+    static NSArray<NSString *> *actions;
+    if (!actions) actions = @[@"save", @"path", @"content", @"reveal"];
+    if (item.tag >= 1 && item.tag <= 4) [self emit:actions[item.tag - 1]];
+}
+@end
+
+static BotArtifactPreviewToolbar *botPreviewToolbar(NSWindow *window) {
+    return objc_getAssociatedObject(window, &BotPreviewToolbarKey);
+}
+void bot_artifact_preview_toolbar_install(void *pointer) {
+    NSWindow *window = (__bridge NSWindow *)pointer;
+    if (!window || botPreviewToolbar(window)) return;
+    NSToolbar *toolbar = window.toolbar;
+    if (!toolbar) return;
+    BotArtifactPreviewToolbar *bridge = [BotArtifactPreviewToolbar new];
+    bridge.window = window;
+    objc_setAssociatedObject(window, &BotPreviewToolbarKey, bridge, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    toolbar.allowsUserCustomization = NO;
+    toolbar.autosavesConfiguration = NO;
+    toolbar.displayMode = NSToolbarDisplayModeIconOnly;
+    toolbar.sizeMode = NSToolbarSizeModeSmall;
+    toolbar.delegate = bridge;
+    if (toolbar.items.count == 0) {
+        [toolbar insertItemWithItemIdentifier:NSToolbarFlexibleSpaceItemIdentifier atIndex:0];
+        [toolbar insertItemWithItemIdentifier:BotPreviewOpenItem atIndex:1];
+        [toolbar insertItemWithItemIdentifier:BotPreviewMoreItem atIndex:2];
+    }
+    if (@available(macOS 11.0, *)) window.toolbarStyle = NSWindowToolbarStyleUnifiedCompact;
+}
+void bot_artifact_preview_toolbar_selection(void *pointer, const char *identifier, const char *filename) {
+    BotArtifactPreviewToolbar *bridge = botPreviewToolbar((__bridge NSWindow *)pointer);
+    bridge.artifactID = identifier ? [NSString stringWithUTF8String:identifier] : @"";
+    bridge.filename = filename ? [NSString stringWithUTF8String:filename] : @"";
+    bridge.openItem.enabled = bridge.artifactID.length > 0;
+    bridge.moreItem.enabled = bridge.artifactID.length > 0;
+}
+void bot_artifact_preview_toolbar_language(void *pointer, const char *open, const char *more, const char *save, const char *path, const char *content, const char *reveal) {
+    BotArtifactPreviewToolbar *bridge = botPreviewToolbar((__bridge NSWindow *)pointer);
+    if (!bridge) return;
+    bridge.labels = @[[NSString stringWithUTF8String:open], [NSString stringWithUTF8String:more],
+                      [NSString stringWithUTF8String:save], [NSString stringWithUTF8String:path],
+                      [NSString stringWithUTF8String:content], [NSString stringWithUTF8String:reveal]];
+    [bridge refreshLabels];
 }
 #include "behavior_darwin.h"
 

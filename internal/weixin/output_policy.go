@@ -19,7 +19,7 @@ func (b *Bridge) outputKinds(snapshot api.Snapshot) map[string]string {
 	}
 	b.mu.Unlock()
 	for _, item := range snapshot.Items {
-		if item.Kind != "assistant" || item.ID == "" || item.Text == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" {
+		if item.Kind != "assistant" || item.ID == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" || item.Text == "" && len(item.Artifacts) == 0 {
 			continue
 		}
 		if b.host.TextControl != nil && len(b.host.TextControl.AsyncButtonQuestions(item.ID)) > 0 {

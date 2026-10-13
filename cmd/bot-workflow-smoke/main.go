@@ -147,7 +147,7 @@ func run() error {
 	if gestures.Load() != 2 {
 		return errors.New("scheduled activation did not reach character driver")
 	}
-	prompt = `This is an isolated Bot task integration test. Use the caelis_bot task tools. Start two independent Bot tasks with stable requestIds synthetic-worker-one and synthetic-worker-two. Each must only return a different short marker, without tools, files, network or shell. Read both tasks. Send one follow-up to the first using requestId synthetic-worker-followup, asking it to return its marker followed by done. Inspect both results and return one short combined answer. Do not use Codex App task tools or native subagents. The host may create private task directories; do not otherwise access files or external services.`
+	prompt = `This is an isolated Bot task integration test. Discover the current caelis_bot task tools. Start two independent local Bot tasks with distinct calls. Each must only return a different short marker, without tools, files, network or shell. Read both tasks' completed User and Assistant messages by their returned task handles. Continue the first task with its handle, asking it to return its marker followed by done; read that task again and inspect the completed messages. Do not provide a requestId to bot_delegate, use Codex App task tools or native subagents. The host may create private task directories; do not otherwise access files or external services. Return one short combined answer.`
 	fmt.Fprintln(os.Stderr, "stage: owned workspace tasks")
 	if e = submit(ctx, s, "workers-check", prompt); e != nil {
 		return e

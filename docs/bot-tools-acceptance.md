@@ -1,6 +1,10 @@
 # Bot 工具精简：实现与验收
 
 > Historical rc.3 desktop tool design. The rc.4 built-in plugin replaces `bot_desktop_*`; see [plugin packages](plugin-packages.md).
+> The 2026-10-13 task-tool contract supersedes this document's historical
+> `bot_tasks` / `bot_delegate` shapes and original acceptance claims; see
+> [architecture](architecture.md#bot-tool-catalog). New real-model acceptance
+> is pending and the old results below do not verify the new contract.
 
 2026-10-03；设计依据见 [Bot 工具精简方案](bot-tools-redesign.md)。
 

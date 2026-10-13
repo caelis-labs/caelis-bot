@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/botpolicy"
@@ -68,13 +67,16 @@ func (r *Runtime) CallTool(ctx context.Context, name string, raw json.RawMessage
 	if name == "bot_dream" {
 		return r.callDreamTool(ctx, args)
 	}
-	if name == "bot_memory" || name == "bot_gesture" {
+	if name == "bot_gesture" {
 		return compact(r.callLegacyTool(ctx, name, raw), nil)
+	}
+	if name == "bot_delegate" {
+		return r.callDelegate(ctx, args)
 	}
 	req := args["request"].(map[string]any)
 	switch name {
-	case "bot_tasks", "bot_delegate":
-		return r.callCompactTask(ctx, name, req)
+	case "bot_tasks":
+		return r.callTasksV3(ctx, req)
 	case "bot_interactions":
 		return r.callCompactInteractions(ctx, req)
 	case "bot_schedule", "bot_schedule_update":
@@ -147,88 +149,6 @@ func compact(out api.ToolResult, next map[string]any) api.ToolResult {
 }
 func encoded(v any) json.RawMessage           { b, _ := json.Marshal(v); return b }
 func str(m map[string]any, key string) string { s, _ := m[key].(string); return s }
-func (r *Runtime) callCompactTask(ctx context.Context, name string, q map[string]any) api.ToolResult {
-	kind := str(q, "type")
-	delete(q, "type")
-	if name == "bot_delegate" {
-		legacy := "bot_task_start"
-		if kind == "continue" {
-			legacy = "bot_task_send"
-			q["id"] = q["task"]
-			delete(q, "task")
-		}
-		out := r.callLegacyTool(ctx, legacy, encoded(q))
-		var value map[string]any
-		if len(out.Content) > 0 {
-			_ = json.Unmarshal([]byte(out.Content[0]["text"]), &value)
-		}
-		task := str(value, "id")
-		if inner, ok := value["task"].(map[string]any); ok {
-			task = str(inner, "id")
-		}
-		target := map[string]any{"type": "read", "requestId": q["requestId"]}
-		if task != "" {
-			target = map[string]any{"type": "read", "task": task}
-		}
-		when := "on_completion_or_user_request"
-		if out.IsError {
-			when = "now"
-		}
-		return compact(out, map[string]any{"tool": "bot_tasks", "request": target, "when": when})
-	}
-	switch kind {
-	case "machines":
-		r.mu.Lock()
-		provider := r.tasks
-		r.mu.Unlock()
-		machines := []api.TaskMachine{}
-		if p, ok := provider.(api.TaskMachineProvider); ok {
-			for _, m := range p.TaskMachines() {
-				if query := strings.ToLower(str(q, "query")); query == "" || strings.Contains(strings.ToLower(m.Name), query) {
-					machines = append(machines, m)
-				}
-			}
-		}
-		return compactValue(map[string]any{"ok": true, "data": machines}, false)
-	case "read":
-		if id := str(q, "requestId"); id != "" {
-			r.mu.Lock()
-			p, ok := r.tasks.(api.TaskRequestReader)
-			r.mu.Unlock()
-			if !ok {
-				return compactError("receipt_unavailable", errors.New("request lookup unavailable; no replay"))
-			}
-			bounded, cancel := context.WithTimeout(ctx, 8*time.Second)
-			defer cancel()
-			task, e := p.ReadTaskRequest(bounded, id)
-			return compact(result(task, e), nil)
-		}
-		return compact(r.callLegacyTool(ctx, "bot_task_read", encoded(map[string]any{"id": q["task"]})), nil)
-	case "stop":
-		return compact(r.callLegacyTool(ctx, "bot_task_stop", encoded(map[string]any{"id": q["task"]})), nil)
-	case "retire":
-		r.mu.Lock()
-		p, ok := r.tasks.(api.TaskRetirer)
-		r.mu.Unlock()
-		if !ok {
-			return compactError("unavailable", errors.New("task retirement unavailable"))
-		}
-		bounded, cancel := context.WithTimeout(ctx, 8*time.Second)
-		defer cancel()
-		task, e := p.RetireTask(bounded, str(q, "task"))
-		return compact(result(task, e), nil)
-	case "list":
-		q["operation"] = "list"
-	case "watchlist":
-		q["operation"] = q["action"]
-		delete(q, "action")
-		if id, ok := q["task"]; ok {
-			q["id"] = id
-			delete(q, "task")
-		}
-	}
-	return compact(r.callLegacyTool(ctx, "bot_tasks", encoded(q)), nil)
-}
 func eventArgs(trigger map[string]any) map[string]any {
 	q := map[string]any{"onAny": trigger["sources"], "when": trigger["condition"], "timeZone": trigger["timeZone"]}
 	for _, key := range []string{"cooldownSeconds", "expiresSeconds"} {
@@ -389,4 +309,22 @@ func (v legacyTools) CallTool(ctx context.Context, name string, args json.RawMes
 func (r *Runtime) LegacyToolConnection() *api.ToolConnection {
 	approved := botpolicy.LegacyApprovedTools()
 	return &api.ToolConnection{Host: legacyTools{r}, ApprovedTools: approved}
+}
+
+// The pre-retirement schema and approval policy are retained only to match
+// pending Caelis callback versions. Dispatch still uses the current allowlist:
+// bot_memory cannot execute through this historical binding.
+type historicalLegacyTools struct{ runtime *Runtime }
+
+func (v historicalLegacyTools) Definitions() []api.ToolDefinition {
+	return v.runtime.legacyDefinitions(true)
+}
+func (v historicalLegacyTools) CallTool(ctx context.Context, name string, args json.RawMessage) api.ToolResult {
+	return v.runtime.callLegacyTool(ctx, name, args)
+}
+func (r *Runtime) HistoricalToolConnections() []*api.ToolConnection {
+	return []*api.ToolConnection{
+		{Host: historicalLegacyTools{r}, ApprovedTools: botpolicy.HistoricalLegacyApprovedTools()},
+		r.previousCompactToolConnection(),
+	}
 }

@@ -175,3 +175,23 @@ func TestCorruptDisplayCacheRebuildsAndPreservesDamagedBytes(t *testing.T) {
 		t.Fatal("lost live display identity")
 	}
 }
+
+func TestOwnedToolArtifactAndCompletedAssistantSurviveRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "chat.sqlite")
+	l := Open(path)
+	artifact := api.Artifact{ID: "owned-resource", Name: "result.md"}
+	l.Observe([]api.Item{
+		{ID: "activity", Kind: "activity", Artifacts: []api.Artifact{{ID: "private-change", Name: "private.txt"}}},
+		{ID: "tool", Kind: "tool", Status: "completed", Text: "文件已生成", Artifacts: []api.Artifact{artifact}, Details: "private native result"},
+		{ID: "process", Kind: "assistant", Status: "inProgress", Text: "processing"},
+	})
+	l.Observe([]api.Item{{ID: "process", Kind: "assistant", Status: "completed", Text: "done", Artifacts: []api.Artifact{{ID: "owned-codex", Name: "trace.log"}}}})
+	l.Close()
+	l = Open(path)
+	defer l.Close()
+	eventually(t, func() bool { items, _ := l.Snapshot(); return len(items) == 2 })
+	items, _ := l.Snapshot()
+	if items[0].ID != "tool" || len(items[0].Artifacts) != 1 || items[0].Details != "" || items[1].ID != "process" || items[1].Text != "done" || len(items[1].Artifacts) != 1 {
+		t.Fatalf("artifact projection lost: %+v", items)
+	}
+}

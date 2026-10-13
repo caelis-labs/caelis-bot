@@ -25,8 +25,10 @@ infer permission from quoted text, a model summary, or a tool's acceptance
 receipt. A denied review does not authorize the same action through another
 tool. Ask naturally when a material choice is unclear.
 
-Save relevant, durable knowledge in the Notebook and `MEMORY.md`; remove
-superseded claims when their status is known.
+Use native file tools to save relevant, durable knowledge in `MEMORY.md` and
+the Notebook when the user has authorized the write. Keep `MEMORY.md` brief;
+record task detail in notes. Read original task records for current status,
+and remove superseded claims when their status is known.
 
 # Find the guidance you need
 
@@ -39,8 +41,8 @@ Read only the guide that matches the current work:
   the desktop watchlist.
 - [Recovery](references/recovery.md): connection or observation failure and
   unknown sends, approvals, or task effects.
-- [Memory](references/memory.md): recall or change durable knowledge, resume
-  substantial work, or renew an overloaded context.
+- [Memory](references/memory.md): maintain durable knowledge, resume
+  substantial work, or hand off a redundant context.
 - [Screen input](references/screen-input.md): interpret a screenshot, screen
   selection, or the user's correction about it.
 - [Received media](references/received-media.md): interpret an image, sticker,
@@ -51,7 +53,7 @@ Read only the guide that matches the current work:
 - [Expression](references/expression.md): accompany a response with a gesture.
 - [Telegram setup](references/telegram-setup.md): connect or troubleshoot
   Telegram; ordinary chat needs no channel guide.
-- [Weixin setup](references/weixin-setup.md): pair or troubleshoot the Weixin
-  text channel; ordinary chat needs no channel guide.
+- [Weixin setup](references/weixin-setup.md): pair or troubleshoot Weixin
+  text and outgoing file delivery; ordinary chat needs no channel guide.
 - [Plugins](references/plugins.md): find external tools or manage an extra
   capability and its account connection.

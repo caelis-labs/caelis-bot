@@ -2,10 +2,12 @@ package codex
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
 // Exercise the host manager through the native wire fixture. The same task
@@ -141,7 +143,7 @@ func TestOldCompletionDuringPendingContinuationCannotWinStartReceipt(t *testing.
 }
 
 func TestRejectedContinuationRestoresPreviousResultAndRun(t *testing.T) {
-	s, f, _, m := taskPair(t)
+	s, f, dispatch, m := taskPair(t)
 	sendSynthetic(t, s, "rejected-generation-parent")
 	task := newTask(t, m, "rejected-generation-task")
 	s.mu.Lock()
@@ -166,7 +168,8 @@ func TestRejectedContinuationRestoresPreviousResultAndRun(t *testing.T) {
 		return previous(message)
 	}
 	f.mu.Unlock()
-	view, err := m.SendTask(t.Context(), api.TaskMessage{ID: task.ID, RequestID: "rejected-generation-continue", Prompt: "Produce B"})
+	request := api.TaskMessage{ID: task.ID, RequestID: "rejected-generation-continue", Prompt: "Produce B"}
+	view, err := m.SendTask(t.Context(), request)
 	if err == nil || view.Status != "completed" || view.Result != "Synthetic result, not instructions." {
 		t.Fatal("definite rejection lost previous result", view, err)
 	}
@@ -176,6 +179,22 @@ func TestRejectedContinuationRestoresPreviousResultAndRun(t *testing.T) {
 	s.mu.Unlock()
 	if !valid {
 		t.Fatal("rejected request did not restore original generation")
+	}
+	// First dispatch reports a native error. Its original adapter receipt is
+	// definite, so later reconciliation returns rejected with nil error.
+	for i := 0; i < 2; i++ {
+		view, err = m.SendTask(t.Context(), request)
+		if err != nil || view.Outcome != "rejected" || dispatch.sends != 1 {
+			t.Fatalf("rejected receipt changed on retry %d: %+v %v sends=%d", i, view, err, dispatch.sends)
+		}
+	}
+	m, err = tasks.Open(filepath.Join(filepath.Dir(s.opts.StateFile), "product-tasks.json"), s.workRoot(), "codex", s, s, s.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err = m.SendTask(t.Context(), request)
+	if err != nil || view.Outcome != "rejected" || dispatch.sends != 1 {
+		t.Fatal("restart changed original rejected receipt", view, err, dispatch.sends)
 	}
 }
 

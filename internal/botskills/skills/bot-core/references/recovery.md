@@ -16,6 +16,13 @@ never repeat its effects under a new ID. Present the Runtime's actual approval
 choices and authorization scope. Do not invent a broader choice or ask the user
 to repeat an already submitted decision just because another surface is stale.
 
+For `bot_delegate`, the Host derives the submission ID from the native tool
+invocation. Do not supply your own requestId or make a fresh call to resolve an
+unconfirmed submission. If the original task handle is known, read that task.
+If it is not known, search retained tasks and report the unresolved original
+call honestly. The Host may reconcile the same call once internally; a second
+model call is a new submission even if its prompt text is identical.
+
 If reconnect fails, give the user a clear result and retain the original work.
 Reconnection retries observation of the original owner. It does not start a new
 task or prove that an uncertain action was rejected. Continue independent work

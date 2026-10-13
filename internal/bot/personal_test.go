@@ -11,7 +11,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/botmemory"
 )
 
-func TestPersonalToolsShareProductStoreAndKeepFixedInstructions(t *testing.T) {
+func TestPrivateMemoryPreservedButUnavailableToModel(t *testing.T) {
 	requireNativeIPC(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bot.json")
@@ -19,78 +19,81 @@ func TestPersonalToolsShareProductStoreAndKeepFixedInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := botmemory.Open(t.Context(), filepath.Join(dir, "personal"), first.State().ID)
+	storePath := filepath.Join(dir, "personal")
+	store, err := botmemory.Open(t.Context(), storePath, first.State().ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = first.ConfigurePersonal(store); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Remember(t.Context(), "existing-memory-1", "synthetic-private-evidence", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewForRuntime(path, "caelis", nil)
+	if err != nil || second.State().PersonalVersion != 1 {
+		t.Fatal("existing personal capability lost", err)
+	}
+	store, err = botmemory.Open(t.Context(), storePath, second.State().ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err = first.ConfigurePersonal(store); err != nil {
-		t.Fatal(err)
-	}
-	second, err := NewForRuntime(path, "caelis", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.State().PersonalVersion != 1 {
-		t.Fatal("capability transition not persisted")
-	}
 	if err = second.ConfigurePersonal(store); err != nil {
 		t.Fatal(err)
+	}
+	got, err := store.ReadMemory(t.Context(), "synthetic-private-evidence")
+	if err != nil || len(got.Evidence) != 1 {
+		t.Fatal("private memory data was removed", err)
 	}
 	bridge, err := Serve(first)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer bridge.Close()
-	before := bridge.Config("synthetic")
-	invoke := func(r *Runtime, name, raw string) api.ToolResult {
-		t.Helper()
-		v := r.callLegacyTool(t.Context(), name, json.RawMessage(raw))
-		if v.IsError {
-			t.Fatal(v)
-		}
-		return v
-	}
-	invoke(first, "bot_memory", `{"operation":"remember","requestId":"remember-1","text":"synthetic-memory-evidence"}`)
-	got := invoke(second, "bot_memory", `{"operation":"recall","query":"synthetic-memory-evidence"}`)
-	var recall api.PersonalMemory
-	if json.Unmarshal([]byte(got.Content[0]["text"]), &recall) != nil || len(recall.Evidence) != 1 {
-		t.Fatal("recall lost evidence or promoted model text")
-	}
-	original := recall.Evidence[0].ID
-	invoke(second, "bot_memory", `{"operation":"correct","requestId":"correct-tool-1","id":"`+original+`","text":"revised-evidence"}`)
-	got = invoke(first, "bot_memory", `{"operation":"recall","query":"revised-evidence"}`)
-	if json.Unmarshal([]byte(got.Content[0]["text"]), &recall) != nil || len(recall.Evidence) != 1 {
-		t.Fatal("Bot cannot correct shared evidence")
-	}
-	invoke(first, "bot_memory", `{"operation":"forget","requestId":"forget-tool-1","id":"`+recall.Evidence[0].ID+`"}`)
-	got = invoke(second, "bot_memory", `{"operation":"recall"}`)
-	if json.Unmarshal([]byte(got.Content[0]["text"]), &recall) != nil || len(recall.Evidence) != 0 {
-		t.Fatal("Bot cannot forget shared evidence")
-	}
-	after := bridge.Config("synthetic")
-	if before.Instructions != after.Instructions || strings.Contains(after.Instructions, "synthetic-private-context") || strings.Contains(after.WorkerInstructions, "synthetic-memory-evidence") {
-		t.Fatal("personal edits rewrote prefix or leaked into worker")
-	}
-	for _, raw := range []string{
-		`{"operation":"remember","requestId":"evil-role-1","text":"claim","role":"structured_confirmation"}`,
-		`{"operation":"remember","requestId":"evil-scope-1","text":"claim","scope":"workspace"}`,
-		`{"operation":"confirm","text":"claim"}`,
-		`{"operation":"forget","id":"foreign"}`,
-	} {
-		if out := first.callLegacyTool(t.Context(), "bot_memory", json.RawMessage(raw)); !out.IsError {
-			t.Fatal("model controlled memory governance")
+	config := bridge.Config("synthetic")
+	for _, defs := range [][]api.ToolDefinition{first.Definitions(), first.LegacyDefinitions()} {
+		for _, def := range defs {
+			if def.Name == "bot_memory" {
+				t.Fatal("memory remains model-visible")
+			}
 		}
 	}
-	if out := first.callLegacyTool(t.Context(), "bot_notebook", json.RawMessage(`{"operation":"read","id":"../outside"}`)); !out.IsError {
-		t.Fatal("model path escaped")
+	for _, name := range config.ApprovedTools {
+		if name == "bot_memory" {
+			t.Fatal("memory still preapproved")
+		}
 	}
-	if denied := forward(before.Env["CAELIS_BOT_ENDPOINT"], toolRequest{Token: "wrong-instance", Name: "bot_memory", Arguments: json.RawMessage(`{"operation":"recall"}`)}); !denied.IsError {
-		t.Fatal("foreign bridge gained personal data")
+	for _, service := range config.Services {
+		for _, name := range service.Tools {
+			if name == "bot_memory" {
+				t.Fatal("memory still belongs to MCP service")
+			}
+		}
 	}
-	first.Close()
-	if out := first.callLegacyTool(t.Context(), "bot_memory", json.RawMessage(`{"operation":"recall"}`)); !out.IsError {
-		t.Fatal("closed tools admitted request")
+	if strings.Contains(config.Env["CAELIS_BOT_TOOL_CATALOG"], "bot_memory") {
+		t.Fatal("bridge still injects memory definition")
+	}
+	args := json.RawMessage(`{"operation":"recall","query":"synthetic-private-evidence"}`)
+	for _, name := range []string{"bot_memory", "bot_notebook"} {
+		if out := first.CallTool(t.Context(), name, args); !out.IsError {
+			t.Fatal("compact or hidden alias admitted", name)
+		}
+		if out := first.callLegacyTool(t.Context(), name, args); !out.IsError {
+			t.Fatal("legacy alias admitted", name)
+		}
+	}
+	for _, version := range []int{1, 2} {
+		out := forward(config.Env["CAELIS_BOT_ENDPOINT"], toolRequest{Token: config.Env["CAELIS_BOT_TOKEN"], Version: version, Name: "bot_memory", Arguments: args})
+		if !out.IsError {
+			t.Fatal("bridge admitted old tool", version)
+		}
+	}
+	if strings.Contains(config.Instructions, "synthetic-private-evidence") || strings.Contains(config.WorkerInstructions, "synthetic-private-evidence") {
+		t.Fatal("private evidence leaked into instructions")
 	}
 }
 

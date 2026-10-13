@@ -38,9 +38,20 @@ type qrResult struct {
 type textItem struct {
 	Text string `json:"text"`
 }
+type cdnMedia struct {
+	QueryParam string `json:"encrypt_query_param"`
+	AESKey     string `json:"aes_key"`
+	Type       int    `json:"encrypt_type"`
+}
+type fileItem struct {
+	Media cdnMedia `json:"media"`
+	Name  string   `json:"file_name"`
+	Len   string   `json:"len"`
+}
 type messageItem struct {
 	Type int       `json:"type"`
 	Text *textItem `json:"text_item,omitempty"`
+	File *fileItem `json:"file_item,omitempty"`
 }
 type message struct {
 	MessageID    wireID        `json:"message_id"`
@@ -103,9 +114,10 @@ type baseInfo struct {
 func info() baseInfo { return baseInfo{channelVersion, "CaelisBot/POC"} }
 
 type protocol struct {
-	client *http.Client
-	base   string
-	token  string
+	client  *http.Client
+	base    string
+	token   string
+	cdnBase string
 }
 
 func newProtocol(base, token string, client *http.Client) (*protocol, error) {
@@ -118,7 +130,7 @@ func newProtocol(base, token string, client *http.Client) (*protocol, error) {
 	if client == nil {
 		client = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
-	return &protocol{client: client, base: strings.TrimRight(base, "/"), token: token}, nil
+	return &protocol{client: client, base: strings.TrimRight(base, "/"), token: token, cdnBase: "https://novac2c.cdn.weixin.qq.com/c2c"}, nil
 }
 
 // QR redirects and a returned API base are server supplied. Restrict them to
@@ -202,7 +214,10 @@ func (p *protocol) getUpdates(ctx context.Context, cursor string) (updates, erro
 	return result, err
 }
 func (p *protocol) send(ctx context.Context, owner, contextToken, clientID, text string) (sendResult, error) {
-	msg := map[string]any{"from_user_id": "", "to_user_id": owner, "client_id": clientID, "message_type": 2, "message_state": 2, "item_list": []messageItem{{Type: 1, Text: &textItem{Text: text}}}}
+	return p.sendItem(ctx, owner, contextToken, clientID, messageItem{Type: 1, Text: &textItem{Text: text}})
+}
+func (p *protocol) sendItem(ctx context.Context, owner, contextToken, clientID string, item messageItem) (sendResult, error) {
+	msg := map[string]any{"from_user_id": "", "to_user_id": owner, "client_id": clientID, "message_type": 2, "message_state": 2, "item_list": []messageItem{item}}
 	if contextToken != "" {
 		msg["context_token"] = contextToken
 	}
