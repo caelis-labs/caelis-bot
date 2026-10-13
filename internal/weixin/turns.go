@@ -125,7 +125,7 @@ func completedReplyForTurn(items []api.Item, turn string) bool {
 		return false
 	}
 	for _, item := range items {
-		if item.TurnKey == turn && item.Kind == "assistant" && item.Text != "" && (item.Status == "completed" || item.Status == "accepted") {
+		if item.TurnKey == turn && (item.Kind == "assistant" && (item.Text != "" || len(item.Artifacts) > 0) || item.Kind == "tool" && len(item.Artifacts) > 0) && (item.Status == "completed" || item.Status == "accepted") {
 			return true
 		}
 	}

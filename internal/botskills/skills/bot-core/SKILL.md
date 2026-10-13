@@ -51,7 +51,7 @@ Read only the guide that matches the current work:
 - [Expression](references/expression.md): accompany a response with a gesture.
 - [Telegram setup](references/telegram-setup.md): connect or troubleshoot
   Telegram; ordinary chat needs no channel guide.
-- [Weixin setup](references/weixin-setup.md): pair or troubleshoot the Weixin
-  text channel; ordinary chat needs no channel guide.
+- [Weixin setup](references/weixin-setup.md): pair or troubleshoot Weixin
+  text and outgoing file delivery; ordinary chat needs no channel guide.
 - [Plugins](references/plugins.md): find external tools or manage an extra
   capability and its account connection.

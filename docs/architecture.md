@@ -355,7 +355,7 @@ budget, independent of request cancellation. Exhausted candidates report a netwo
 failure. App-level DIRECT retains OS routing, including third-party TUN proxies.
 This selection happens before dispatch and does not replay uncertain HTTP writes.
 
-## Weixin text POC
+## Weixin private channel
 
 `internal/weixin` is a Go adapter for the published Tencent iLink JSON client
 protocol, pinned to the inspected `@tencent-weixin/openclaw-weixin@2.4.9`
@@ -366,7 +366,18 @@ Weixin, Telegram and plugin tokens into namespaces under `Credentials/`.
 Existing Keychain items migrate on first use and are deleted. Pairing QR state lives
 only in memory; settings starts or refreshes it while visible. Start/stop
 presence and disposable typing requests are independent of message receipts.
-Only owner private text and text projection of Weixin-owned work are in scope.
+Only owner private text and output traced to Weixin-owned work are in scope.
+Outgoing files use the same Host-owned Artifact resolver as Telegram. The
+adapter accepts only projected Artifact IDs, bounded regular files and safe
+filenames, then requests a FILE upload URL, encrypts bytes with AES-128-ECB and
+PKCS#7 padding, and POSTs to an allowlisted Weixin CDN endpoint without bearer
+credentials or redirects. A successful upload yields one type-4 file item.
+File preparation runs away from the polling loop. Its durable `preparing` state
+may be retried after restart because no message was attempted. The file's
+original Artifact ID keys a separate send intent; once the send slot and
+unknown intent are saved, no timeout, restart or new ingress resends it.
+Failures and deferred sends remain visible in Weixin settings. Incoming file
+messages and phone receipt remain outside this slice.
 The first completed commentary is sent as progress; subsequent completed items
 are merged in order after three items or near the safe single-message length.
 Progress attempts are capped at five per observed ten-send window. Native
