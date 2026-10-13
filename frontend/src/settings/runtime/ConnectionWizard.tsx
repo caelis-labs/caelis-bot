@@ -50,9 +50,12 @@ export function ConnectionWizard({ client, onClose, onConnected,active=true }: {
  const providerChoices = catalog.choices.filter(c => c.id.toLowerCase() !== 'magpie');
  const magpieChoice = catalog.choices.find(c => c.id.toLowerCase() === 'magpie');
  const knownProviders = new Set(['deepseek', 'xiaomi', 'ollama', 'custom']);
- const providerText = (value: ConnectChoice, part: 'name' | 'description') => kind === 'api-key' && knownProviders.has(value.id.toLowerCase())
-  ? t(`connections.provider_${value.id.toLowerCase()}_${part}` as MessageKey)
-  : part === 'name' ? value.name || value.id : value.description;
+ const providerText = (value: ConnectChoice, part: 'name' | 'description') => {
+  const provider = value.id.toLowerCase();
+  if (kind === 'api-key' && provider === 'magpie') return part === 'name' ? 'Magpie' : t('connections.magpieDescription');
+  if (kind === 'api-key' && knownProviders.has(provider)) return t(`connections.provider_${provider}_${part}` as MessageKey);
+  return part === 'name' ? value.name || value.id : value.description;
+ };
  const select = (value: ConnectChoice) => { setChoice(value); setBaseUrl(''); setModel(''); setCommand(''); setGatewayManual(false); setMetadata(false); setContextWindow(''); setMaxOutput(''); setImageInput(false); setReasoningLevels(''); setAPIKey(''); setError(''); };
  const observe = (seq: number, update: ConnectionFlow) => {
   if (!alive.current || seq !== serial.current) return;

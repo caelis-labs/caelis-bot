@@ -12,7 +12,7 @@
 .settings-window .machine-editor .runtime-model-summary{max-width:63%;min-width:0}
 .settings-window .machine-runtime-row{display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:13px}
 .settings-window .machine-runtime-row>strong{font-weight:500;flex:none}
-.settings-window .machine-runtime-row .runtime-segments{margin:0;flex:1;max-width:210px;padding:3px;gap:3px;border-radius:8px}
+.settings-window .machine-runtime-row .runtime-segments{margin:0;flex:1;max-width:250px;padding:3px;gap:3px;border-radius:8px}
 .settings-window .machine-runtime-row .runtime-segments button{font-size:12px;min-height:30px;white-space:nowrap;padding:5px 10px}
 .settings-window .machine-account{margin:0;padding:16px 0;align-items:center}
 .settings-window .machine-account strong{color:var(--muted)}
