@@ -218,15 +218,19 @@ func (s *Service) Snapshot() api.Snapshot {
 			items[i] = s.presentChatItem(items[i])
 		}
 		knownInput := make(map[string]bool, len(items))
+		knownArtifact := make(map[string]bool, len(items))
 		for _, item := range items {
 			if item.Kind == "user" && item.RequestID != "" {
 				knownInput[item.RequestID] = true
+			}
+			if item.Kind == "tool" && len(item.Artifacts) > 0 {
+				knownArtifact[item.ID] = true
 			}
 		}
 		for _, item := range v.Items {
 			if item.Kind == "user" && strings.HasPrefix(item.ID, "outgoing:") && !knownInput[item.RequestID] {
 				items = append(items, item) // only the transient sending bubble
-			} else if item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" {
+			} else if item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" && !(item.Kind == "tool" && knownArtifact[item.ID]) {
 				items = append(items, item)
 			}
 		}
@@ -398,7 +402,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	}
 	items := make([]api.Item, 0)
 	for _, item := range v.Items {
-		if item.Kind == "user" || item.Kind == "assistant" || item.Kind == "controlNotice" {
+		if item.Kind == "user" || item.Kind == "assistant" || item.Kind == "controlNotice" || item.Kind == "tool" && (item.Status == "completed" || item.Status == "accepted") && len(item.Artifacts) > 0 {
 			item.Details = ""
 			items = append(items, item)
 		}

@@ -51,7 +51,10 @@ type inbound struct {
 }
 type outbound struct {
 	State        string `json:"state"`
-	FileName     string `json:"fileName,omitempty"`     // pending Artifact handle only; never a path
+	ArtifactID   string `json:"artifactId,omitempty"` // owned Host handle; never a path
+	FileTurnKey  string `json:"fileTurnKey,omitempty"`
+	FileName     string `json:"fileName,omitempty"`
+	FileInputID  string `json:"fileInputId,omitempty"`  // preparation belongs to this send window
 	FileCritical bool   `json:"fileCritical,omitempty"` // terminal reply may use the final estimated slot
 	ClientID     string `json:"clientId,omitempty"`
 	ContextToken string `json:"contextToken,omitempty"`
@@ -981,8 +984,9 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 					b.state.Outputs[key] = outbound{State: "skip"}
 				}
 				for _, artifact := range item.Artifacts {
-					if _, known := b.state.Outputs[artifactKey(artifact.ID)]; !known {
-						b.state.Outputs[artifactKey(artifact.ID)] = outbound{State: "skip"}
+					key := artifactKey(item.TurnKey, artifact.ID)
+					if _, known := b.state.Outputs[key]; !known {
+						b.state.Outputs[key] = outbound{State: "skip"}
 					}
 				}
 			}
@@ -1087,6 +1091,7 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 		_ = b.saveLocked()
 	}
 	b.mu.Unlock()
+	finalAttempted := map[string]bool{}
 	for _, item := range snapshot.Items {
 		if item.Kind != "assistant" || item.ID == "" || item.Text == api.SilentReminder || item.Status != "completed" && item.Status != "accepted" {
 			continue
@@ -1098,33 +1103,61 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 		if kind == "" {
 			continue
 		}
+		fileOnly := kind == "final" && item.Text == ""
 		switch kind {
 		case "question":
 			continue
 		case "final":
+			names := b.turnArtifactNames(snapshot, item.TurnKey)
+			self := map[string]bool{}
+			for _, artifact := range item.Artifacts {
+				self[artifact.ID] = true
+			}
+			var extras []api.Artifact
+			for _, artifact := range names {
+				if !self[artifact.ID] {
+					extras = append(extras, artifact)
+				}
+			}
 			if item.Text != "" {
-				b.mirrorFinal(ctx, p, item)
+				item.Text = withArtifactNames(item.Text, names)
+			} else if len(names) > 0 {
+				b.mu.Lock()
+				room := b.remainingLocked(true)
+				b.mu.Unlock()
+				if room < len(names) {
+					item.Text = withArtifactNames("", names)
+				}
+			}
+			if item.Text != "" {
+				b.mirrorFinal(ctx, p, item, extras)
 			}
 		case "task":
 			if item.Text != "" {
 				b.mirrorItem(ctx, p, item, "task")
 			}
 		case "progress":
+			b.mu.Lock()
+			terminal := b.state.TurnPhases[item.TurnKey] == "completed"
+			b.mu.Unlock()
+			if !terminal {
+				item.Text = withArtifactNames(item.Text, item.Artifacts)
+			}
 			if item.Text != "" {
 				b.queueProgress(item)
 			}
 		}
-		allowFile := true
+		fileCritical := fileOnly
 		if kind == "final" && item.Text != "" {
 			b.mu.Lock()
 			parent := outputKey(item)
-			allowFile = b.state.Outputs[parent+":0"].State != "" || b.state.Outputs[parent+":compact"].State != "" || b.state.Outputs[parent].State != ""
+			attempted := b.state.Outputs[parent+":0"].State != "" || b.state.Outputs[parent+":compact"].State != "" || b.state.Outputs[parent].State != ""
+			fileCritical = attempted && b.state.PendingFinal != item.ID
 			b.mu.Unlock()
+			finalAttempted[item.TurnKey] = fileCritical
 		}
 		for _, artifact := range item.Artifacts {
-			if allowFile {
-				b.scheduleArtifact(ctx, p, artifact, kind == "final")
-			}
+			b.scheduleArtifact(ctx, p, item.TurnKey, artifact, fileCritical)
 		}
 	}
 	// Caelis projects generated resources as tool items with owned Artifact
@@ -1140,10 +1173,10 @@ func (b *Bridge) output(ctx context.Context, p *protocol) {
 			continue
 		}
 		for _, artifact := range item.Artifacts {
-			b.scheduleArtifact(ctx, p, artifact, phase == "completed")
+			b.scheduleArtifact(ctx, p, item.TurnKey, artifact, finalAttempted[item.TurnKey])
 		}
 	}
-	b.flushPendingArtifacts(ctx, p)
+	b.flushPendingArtifacts(ctx, p, "")
 	b.mu.Lock()
 	activeProgress := len(b.state.Progress) > 0 && b.state.Progress[0].TurnKey == snapshot.CurrentTurn && (snapshot.Phase == "working" || snapshot.Phase == "sending")
 	b.mu.Unlock()

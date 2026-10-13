@@ -102,9 +102,16 @@ body[data-surface="history"] { background:var(--caelis-chat); }
 .history-surface footer { flex-shrink:0; padding:8px 20px 18px; background:var(--caelis-chat); }
 .history-surface .compose-area { border:1px solid var(--line); border-radius:24px; background:var(--caelis-composer); }
 .new-messages { align-self:center; border:1px solid var(--line); border-radius:18px; background:var(--wash); padding:7px 14px; font-size:12px; }
-.artifacts { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
-.artifact { display:inline-flex; align-items:center; gap:7px; max-width:100%; min-width:0; margin:0; padding:9px 12px; background:var(--wash); border:1px solid var(--line); border-radius:10px; font-size:12px; overflow-wrap:anywhere; }
-.artifact span { flex:none; font-size:10px; color:var(--muted); }
+.artifacts { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:7px; }
+.artifact-link { display:inline-flex; align-items:baseline; gap:5px; max-width:100%; min-width:0; padding:0; border:0; background:transparent; color:var(--caelis-link); font:inherit; font-size:12px; font-weight:600; text-align:left; text-decoration:underline; text-underline-offset:2px; overflow-wrap:anywhere; }
+.artifact-link:hover { color:var(--accent); }
+.artifact-link span { flex:none; font-size:10px; text-decoration:none; }
+.artifact-context-menu { position:fixed; z-index:80; width:195px; padding:5px; border:1px solid var(--line); border-radius:12px; background:var(--caelis-popover); box-shadow:0 12px 36px #0000002b; }
+.artifact-context-menu button { display:block; width:100%; padding:7px 9px; border:0; border-radius:7px; background:transparent; color:var(--ink); font:inherit; font-size:12px; text-align:left; }
+.artifact-context-menu button:hover,.artifact-context-menu button:focus-visible { background:var(--caelis-hover); }
+.artifact-preview-dialog { width:min(760px,calc(100vw - 40px)); max-height:min(82dvh,820px); }
+.artifact-preview-dialog textarea { box-sizing:border-box; width:100%; min-height:180px; height:min(58dvh,540px); resize:vertical; padding:12px; border:1px solid var(--line); border-radius:9px; background:var(--caelis-content); color:var(--ink); font:12px/1.5 ui-monospace,monospace; }
+.artifact-preview-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
 .approval { margin:14px 0; font-size:12px; }
 .approval h3 { font-size:16px; font-weight:600; margin:0 0 10px; }
 .event-eyebrow { color:var(--muted); font-size:10px; margin:0 0 7px; }

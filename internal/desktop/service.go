@@ -117,6 +117,9 @@ type Service struct {
 	cleanStorage        func(context.Context) (api.AttachmentStorage, error)
 	diagnosticReport    func() ([]byte, error)
 	saveDiagnosticPath  func() (string, error)
+	resolveArtifact     func(string) (string, error)
+	openArtifactFile    func(string) error
+	saveArtifactPath    func(string) (string, error)
 	exportMu            sync.Mutex
 }
 

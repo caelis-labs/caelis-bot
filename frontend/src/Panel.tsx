@@ -4,6 +4,7 @@ import { backend, desktop, type DraftFile, type PasteResult } from './desktop';
 import type { Approval, ChatUpdate, Decision, Draft, Item, QuestionCard, QuotedMessage, Receipt, Snapshot, Submission } from './backend/contract';
 import { handleComposerKey } from './composer-keyboard';
 import { MessageContent } from './MessageContent';
+import { ArtifactLink } from './ArtifactLink';
 import { chatTimeDivider, chatTimeLabel } from './chat-time';
 import { canSubmit, chatActivity, composerAction, incompleteAssistant, liveReplyIDs, withOutgoing } from './chat-presentation';
 import { WorkingMessage } from './WorkingMessage';
@@ -155,11 +156,11 @@ const Message=memo(function Message({ item, report, onContextMenu, onQuotePrevie
   const delivery=item.kind==='user'&&['sending','unknown','rejected'].includes(item.status)?statusLabel:'';
   const asyncCard=item.kind==='assistant'&&/^\[Q[0-9A-Z]+\] /.test(item.text);
   return <article data-message-id={item.id} className={`message-row ${item.kind}`}>
-   {(item.kind==='assistant'||item.kind==='controlNotice')&&<BotAvatar animate={animate} clip={clip}/>}
-   <div className={`message ${item.kind==='controlNotice'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
+   {(item.kind==='assistant'||item.kind==='controlNotice'||item.kind==='tool')&&<BotAvatar animate={animate} clip={clip}/>}
+   <div className={`message ${item.kind==='controlNotice'||item.kind==='tool'?'assistant controlNotice':item.kind}`} onContextMenu={e=>{if(!item.text)return;e.preventDefault();onContextMenu(item,e.clientX,e.clientY);}}>
     {item.quoted?.text&&<button type="button" className="sent-quote" onClick={()=>onQuotePreview(item.quoted!)}><span>{item.quoted.text}</span></button>}
     {item.task?.id ? <button type="button" className="task-message-action" onClick={()=>void desktop('OpenTaskTerminal',item.task!.id).catch(()=>report(t('chat.taskUnavailable')))}>{item.text}</button> : item.kind==='user'&&item.screen ? <ScreenMessage value={item.screen} note={item.text} report={report}/> : item.kind==='user'&&item.media ? <MediaMessage value={item.media} note={item.media.caption??''}/> : item.kind === 'activity' ? <details><summary>{item.text}<span>{statusLabel}</span></summary>{item.details && <pre>{item.details}</pre>}</details> : item.questionCards?.length ? <div className="question-summary">{item.questionCards.map(card=>card.state?<p key={card.shortId+card.binding}>{card.title}<span>{card.state==='accepted'?t('chat.questionAnswered'):t('chat.questionUnknown')}</span></p>:<button type="button" key={card.shortId+card.binding} onClick={()=>onQuestion(card.shortId,card.binding)}>{card.title}<CaretRightIcon size={14} aria-hidden="true"/></button>)}</div> : asyncCard ? <p className="question-card-text">{item.text}</p> : item.kind === 'assistant' ? <MessageContent key={item.id} text={item.text} report={report} animate={reveal&&!incomplete}/> : <p>{item.text}</p>}
-    {!!item.artifacts?.length&&<div className="artifacts">{item.artifacts.map(file => <button className="artifact" key={file.id} onClick={() => void backend('RevealArtifact',file.id).catch(() => report(t('chat.artifactUnavailable')))}><Icon name="paperclip" />{file.name}<span>{t('chat.revealInFinder')}</span></button>)}</div>}
+    {!!item.artifacts?.length&&<div className="artifacts">{item.artifacts.map(file => <ArtifactLink file={file} report={report} key={file.id}/>)}</div>}
     {incomplete&&<small className="assistant-status" role="status">{t('chat.statusIncomplete')}</small>}
     {delivery&&<small className="message-delivery pending" role="status">{delivery}</small>}
    </div>
@@ -540,8 +541,8 @@ export function History() {
   resize.observe(scroll.current!);resize.observe(content.current!);
   return()=>resize.disconnect();
  },[active]);
- const messages=useMemo(()=>withOutgoing(snapshot?.items??[],outgoing).filter(i=>i.kind==='user'||i.kind==='controlNotice'||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length))),[snapshot?.items,outgoing]);
- const contentKey=useMemo(()=>messages.map(i=>i.id+i.text+(i.quoted?.text??'')+(i.task?.status??'')).join(''),[messages]);
+ const messages=useMemo(()=>withOutgoing(snapshot?.items??[],outgoing).filter(i=>i.kind==='user'||i.kind==='controlNotice'||i.kind==='tool'&&!!i.artifacts?.length||(i.kind==='assistant'&&(i.text.trim()||i.artifacts?.length))),[snapshot?.items,outgoing]);
+ const contentKey=useMemo(()=>messages.map(i=>i.id+i.text+(i.quoted?.text??'')+(i.task?.status??'')+(i.artifacts??[]).map(a=>a.id+a.name).join('')).join(''),[messages]);
  const prompts=snapshot?.approvals.filter(p=>p.status==='pending')??[];
  const interactions: Array<{key:string;kind:'approval';approval:Approval}|{key:string;kind:'question';card:QuestionCard}>=[
   ...prompts.map(approval=>({key:`approval:${approval.id}`,kind:'approval' as const,approval})),

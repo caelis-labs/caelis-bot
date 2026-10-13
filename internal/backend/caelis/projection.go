@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -392,7 +393,11 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 				}
 			}
 			if !found {
-				v.Items = append(v.Items, api.Item{ID: id, TurnKey: value(e.TurnId), Kind: "tool", Text: "文件已生成", Status: "completed", Artifacts: []api.Artifact{{ID: id, Name: resource.Name}}})
+				name := filepath.Base(strings.ReplaceAll(resource.Name, "\\", "/"))
+				if name == "." || name == ".." || name == "" || name == string(filepath.Separator) {
+					name = "artifact"
+				}
+				v.Items = append(v.Items, api.Item{ID: id, TurnKey: value(e.TurnId), Kind: "tool", Text: "文件已生成", Status: "completed", Artifacts: []api.Artifact{{ID: id, Name: name}}})
 			}
 		}
 	}

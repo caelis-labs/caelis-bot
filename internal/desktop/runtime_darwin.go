@@ -149,6 +149,7 @@ func Run(assets fs.FS) error {
 	})
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
+	s.openArtifactFile = func(path string) error { return exec.Command("/usr/bin/open", path).Run() }
 	s.restartRuntime = func() error {
 		if err := core.PrepareRestart(); err != nil {
 			return err
@@ -404,6 +405,10 @@ func Run(assets fs.FS) error {
 	s.pickFiles = func() ([]string, error) {
 		return nativeApp.Dialog.OpenFile().AttachToWindow(history).CanChooseFiles(true).CanChooseDirectories(false).
 			SetTitle(s.text("native.addFileTitle", nil)).SetButtonText(s.text("native.add", nil)).PromptForMultipleSelection()
+	}
+	s.saveArtifactPath = func(name string) (string, error) {
+		return nativeApp.Dialog.SaveFile().AttachToWindow(history).SetFilename(name).
+			SetMessage(s.text("native.saveArtifactTitle", nil)).CanCreateDirectories(true).PromptForSingleSelection()
 	}
 	s.filesChanged = func() {
 		history.ExecJS("window.dispatchEvent(new Event('files-changed'))")

@@ -173,14 +173,18 @@ func (f *fileFixture) protocol() *protocol {
 }
 
 func waitFile(t *testing.T, b *Bridge, id string) outbound {
+	return waitFileTurn(t, b, "turn", id)
+}
+
+func waitFileTurn(t *testing.T, b *Bridge, turn, id string) outbound {
 	t.Helper()
 	deadline := time.After(4 * time.Second)
 	for {
 		b.mu.Lock()
-		record := b.state.Outputs[artifactKey(id)]
-		active := b.fileWork[artifactKey(id)]
+		record := b.state.Outputs[artifactKey(turn, id)]
+		active := b.fileWork[artifactKey(turn, id)]
 		b.mu.Unlock()
-		if record.State != "" && record.State != "preparing" && !active {
+		if record.State != "" && record.State != "pending" && record.State != "preparing" && !active {
 			return record
 		}
 		select {
@@ -242,7 +246,7 @@ func TestReplyTextAndDistinctSameNameArtifacts(t *testing.T) {
 		uploaded[k] = v
 	}
 	f.mu.Unlock()
-	if len(items) != 3 || items[0].Type != 1 || items[0].Text.Text != "Results attached" || b.state.Window.Used != 3 {
+	if len(items) != 3 || items[0].Type != 1 || items[0].Text.Text != "Results attached\n\n文件: results.json" || b.state.Window.Used != 3 {
 		t.Fatalf("text/files/budget: %#v %d", items, b.state.Window.Used)
 	}
 	seen := map[string]bool{}
@@ -274,7 +278,7 @@ func TestReplyTextAndDistinctSameNameArtifacts(t *testing.T) {
 	}
 }
 
-func TestArtifactOnlyBudgetAndFreshIngress(t *testing.T) {
+func TestArtifactOnlyBudgetDoesNotAutoSendOnFreshIngress(t *testing.T) {
 	f := newFileFixture(t)
 	root := t.TempDir()
 	path := filepath.Join(root, "result.json")
@@ -285,22 +289,43 @@ func TestArtifactOnlyBudgetAndFreshIngress(t *testing.T) {
 	b := fileBridge(t, root, snapshot, map[string]string{"artifact": path})
 	b.state.Window.Used = windowSendLimit
 	b.output(t.Context(), f.protocol())
-	if b.issue != "file_deferred" || b.state.Outputs[artifactKey("artifact")].State != "pending" {
+	if b.issue != "file_deferred" || b.state.Outputs[artifactKey("turn", "artifact")].State != "deferred" {
 		t.Fatalf("budget state: %s %+v", b.issue, b.state.Outputs)
 	}
-	// The source item may have paginated away before a new owner input. The
-	// persisted handle is still safe to resolve and has not been sent yet.
+	// A later owner input refreshes the text allowance, not the old file intent.
 	reopened := fileBridge(t, root, api.Snapshot{Connection: "ready"}, map[string]string{"artifact": path})
 	freshWindow(reopened, "new-input")
 	reopened.output(t.Context(), f.protocol())
-	if record := waitFile(t, reopened, "artifact"); record.State != "accepted" || reopened.state.Window.Used != 1 {
+	if record := waitFile(t, reopened, "artifact"); record.State != "deferred" || reopened.state.Window.Used != 0 {
 		t.Fatalf("new ingress: %+v %+v", record, reopened.state.Window)
 	}
 	f.mu.Lock()
 	count := len(f.items)
 	f.mu.Unlock()
-	if count != 1 {
-		t.Fatalf("artifact only sends: %d", count)
+	if count != 0 {
+		t.Fatalf("old file auto sent: %d", count)
+	}
+	// The model may expose that same owned artifact in a fresh reply after the
+	// user names the desired file. This is a new, independently recorded intent.
+	reopened.host.Snapshot = func() api.Snapshot {
+		s := fileSnapshot([]api.Artifact{{ID: "artifact", Name: "result.json"}}, "Here is the selected file")
+		for i := range s.Items {
+			s.Items[i].TurnKey = "selected-turn"
+		}
+		s.CurrentTurn = "selected-turn"
+		s.Items[0].RequestID = "new-input"
+		return s
+	}
+	reopened.state.Inputs["new-input"] = "accepted"
+	reopened.output(t.Context(), f.protocol())
+	if record := waitFileTurn(t, reopened, "selected-turn", "artifact"); record.State != "accepted" || reopened.state.Window.Used != 2 {
+		t.Fatalf("selected resend: %+v %+v", record, reopened.state.Window)
+	}
+	f.mu.Lock()
+	count = len(f.items)
+	f.mu.Unlock()
+	if count != 2 {
+		t.Fatalf("selected file and text sends: %d", count)
 	}
 }
 
@@ -328,6 +353,135 @@ func TestOwnedCaelisToolArtifactWithoutAssistantText(t *testing.T) {
 	}
 }
 
+func TestProcessAndPublishArtifactNamesSurviveFinalBudget(t *testing.T) {
+	f := newFileFixture(t)
+	snapshot := fileSnapshot(nil, "执行记录")
+	snapshot.Items = append(snapshot.Items[:1],
+		api.Item{ID: "process", Kind: "assistant", TurnKey: "turn", Text: "准备文件", Status: "completed", Artifacts: []api.Artifact{{ID: "codex-a", Name: "test.txt"}, {ID: "codex-b", Name: "notes.txt"}}},
+		api.Item{ID: "publish", Kind: "tool", TurnKey: "turn", Text: "文件已生成", Status: "completed", Artifacts: []api.Artifact{{ID: "resource:session:id", Name: "report.json"}}},
+		snapshot.Items[1],
+	)
+	root := t.TempDir()
+	b := fileBridge(t, root, snapshot, nil)
+	b.state.Window.Used = windowSoftLimit // only the protected final text slot remains
+	b.output(t.Context(), f.protocol())
+	f.mu.Lock()
+	items := append([]messageItem(nil), f.items...)
+	uploads := f.uploads
+	f.mu.Unlock()
+	if len(items) != 1 || items[0].Type != 1 || uploads != 0 || b.state.Window.Used != windowSendLimit {
+		t.Fatalf("budget leaked to files: items=%+v uploads=%d window=%+v", items, uploads, b.state.Window)
+	}
+	body := items[0].Text.Text
+	for _, name := range []string{"test.txt", "notes.txt", "report.json"} {
+		if strings.Count(body, "文件: "+name) != 1 {
+			t.Fatalf("missing or duplicate filename %s: %q", name, body)
+		}
+	}
+	if strings.Contains(body, "/private/") {
+		t.Fatalf("local path escaped: %q", body)
+	}
+	for _, id := range []string{"codex-a", "codex-b", "resource:session:id"} {
+		if record := b.state.Outputs[artifactKey("turn", id)]; record.State != "deferred" || record.Attempts != 0 {
+			t.Fatalf("%s: %+v", id, record)
+		}
+	}
+	b.output(t.Context(), f.protocol())
+	reopened := fileBridge(t, root, snapshot, nil)
+	freshWindow(reopened, "new-input")
+	reopened.output(t.Context(), f.protocol())
+	f.mu.Lock()
+	count := len(f.items)
+	f.mu.Unlock()
+	if count != 1 {
+		t.Fatalf("deferred backlog replayed: %d", count)
+	}
+}
+
+func TestAttachmentOnlyUsesIndividualSlotsOrFilenameReply(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		used      int
+		wantFiles int
+	}{
+		{"two slots", 8, 2},
+		{"one slot", 9, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFileFixture(t)
+			root := t.TempDir()
+			paths := map[string]string{}
+			artifacts := []api.Artifact{{ID: "a", Name: "a.txt"}, {ID: "b", Name: "b.txt"}}
+			for _, a := range artifacts {
+				path := filepath.Join(root, a.Name)
+				if err := os.WriteFile(path, []byte(a.ID), 0600); err != nil {
+					t.Fatal(err)
+				}
+				paths[a.ID] = path
+			}
+			b := fileBridge(t, root, fileSnapshot(artifacts, ""), paths)
+			b.state.Window.Used = tc.used
+			b.output(t.Context(), f.protocol())
+			for _, a := range artifacts {
+				if record := waitFile(t, b, a.ID); tc.wantFiles == 2 && record.State != "accepted" || tc.wantFiles == 0 && record.State != "deferred" {
+					t.Fatalf("%s: %+v", a.ID, record)
+				}
+			}
+			f.mu.Lock()
+			items := append([]messageItem(nil), f.items...)
+			f.mu.Unlock()
+			wantCount := 1
+			if tc.wantFiles == 2 {
+				wantCount = 2
+			}
+			if len(items) != wantCount || b.state.Window.Used != 10 {
+				t.Fatalf("message count/window: %+v %+v", items, b.state.Window)
+			}
+			if tc.wantFiles == 2 {
+				for _, item := range items {
+					if item.Type != 4 {
+						t.Fatalf("not individual file: %+v", item)
+					}
+				}
+			} else if items[0].Type != 1 || !strings.Contains(items[0].Text.Text, "文件: a.txt") || !strings.Contains(items[0].Text.Text, "文件: b.txt") {
+				t.Fatalf("missing filename reply: %+v", items)
+			}
+		})
+	}
+}
+
+func TestFirstProgressBecomesFinalAndLaterToolGetsOneNameSupplement(t *testing.T) {
+	f := newFileFixture(t)
+	root := t.TempDir()
+	path := filepath.Join(root, "process.txt")
+	if err := os.WriteFile(path, []byte("process"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := fileSnapshot(nil, "")
+	snapshot.Phase = "working"
+	snapshot.Items[1] = api.Item{ID: "process", Kind: "assistant", TurnKey: "turn", Text: "准备中", Status: "completed", Artifacts: []api.Artifact{{ID: "process-file", Name: "process.txt"}}}
+	b := fileBridge(t, root, snapshot, map[string]string{"process-file": path})
+	b.state.Window.Used = 7
+	b.output(t.Context(), f.protocol())
+	if record := waitFile(t, b, "process-file"); record.State != "accepted" {
+		t.Fatalf("process file: %+v", record)
+	}
+	snapshot.Phase = "completed"
+	snapshot.Items = append(snapshot.Items, api.Item{ID: "publish", Kind: "tool", TurnKey: "turn", Status: "completed", Artifacts: []api.Artifact{{ID: "resource:session:later", Name: "later.json"}}})
+	b.host.Snapshot = func() api.Snapshot { return snapshot }
+	b.output(t.Context(), f.protocol())
+	b.output(t.Context(), f.protocol())
+	f.mu.Lock()
+	items := append([]messageItem(nil), f.items...)
+	f.mu.Unlock()
+	if len(items) != 3 || items[0].Type != 1 || items[1].Type != 4 || items[2].Type != 1 || strings.Count(items[2].Text.Text, "文件: later.json") != 1 || strings.Contains(items[2].Text.Text, "process.txt") {
+		t.Fatalf("late file placeholder/snapshot replay: %+v", items)
+	}
+	if record := b.state.Outputs[artifactKey("turn", "resource:session:later")]; record.State != "deferred" {
+		t.Fatalf("late tool file: %+v", record)
+	}
+}
+
 func TestConcurrentFilesLeaveDurableUnattemptedHandle(t *testing.T) {
 	f := newFileFixture(t)
 	f.uploadGate = make(chan struct{})
@@ -344,8 +498,8 @@ func TestConcurrentFilesLeaveDurableUnattemptedHandle(t *testing.T) {
 	}
 	b := fileBridge(t, root, fileSnapshot(artifacts, ""), paths)
 	b.output(t.Context(), f.protocol())
-	if b.state.Outputs[artifactKey("c")].State != "pending" {
-		t.Fatalf("third file not pending: %+v", b.state.Outputs[artifactKey("c")])
+	if b.state.Outputs[artifactKey("turn", "c")].State != "pending" {
+		t.Fatalf("third file not pending: %+v", b.state.Outputs[artifactKey("turn", "c")])
 	}
 	close(f.uploadGate)
 	for _, id := range []string{"a", "b"} {
@@ -353,11 +507,11 @@ func TestConcurrentFilesLeaveDurableUnattemptedHandle(t *testing.T) {
 			t.Fatalf("%s: %+v", id, record)
 		}
 	}
+	if record := waitFile(t, b, "c"); record.State != "accepted" {
+		t.Fatalf("queued file: %+v", record)
+	}
 	reopened := fileBridge(t, root, api.Snapshot{Connection: "ready"}, paths)
 	reopened.output(t.Context(), f.protocol())
-	if record := waitFile(t, reopened, "c"); record.State != "accepted" {
-		t.Fatalf("pending file: %+v", record)
-	}
 	f.mu.Lock()
 	count := len(f.items)
 	f.mu.Unlock()
@@ -392,7 +546,7 @@ func TestPreparingUploadCanResumeButCancelledPreparationNeverSends(t *testing.T)
 	}
 	snapshot := fileSnapshot([]api.Artifact{{ID: "safe", Name: "safe.txt"}}, "")
 	b := fileBridge(t, root, snapshot, map[string]string{"safe": path})
-	b.state.Outputs[artifactKey("safe")] = outbound{State: "preparing", Digest: textDigest("safe")}
+	b.state.Outputs[artifactKey("turn", "safe")] = outbound{State: "preparing", ArtifactID: "safe", FileTurnKey: "turn", FileName: "safe.txt", FileInputID: "input", Digest: textDigest("safe")}
 	if err := b.saveLocked(); err != nil {
 		t.Fatal(err)
 	}
@@ -411,6 +565,45 @@ func TestPreparingUploadCanResumeButCancelledPreparationNeverSends(t *testing.T)
 	f.mu.Unlock()
 	if count != 1 {
 		t.Fatalf("cancelled upload sent: %d", count)
+	}
+}
+
+func TestPreparingFileCannotBorrowNextInputWindow(t *testing.T) {
+	f := newFileFixture(t)
+	f.uploadGate = make(chan struct{})
+	root := t.TempDir()
+	path := filepath.Join(root, "safe.txt")
+	if err := os.WriteFile(path, []byte("safe"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	b := fileBridge(t, root, fileSnapshot([]api.Artifact{{ID: "safe", Name: "safe.txt"}}, ""), map[string]string{"safe": path})
+	b.output(t.Context(), f.protocol())
+	deadline := time.After(4 * time.Second)
+	for {
+		f.mu.Lock()
+		started := f.uploads > 0
+		f.mu.Unlock()
+		if started {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("upload did not start")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	b.mu.Lock()
+	freshWindow(b, "new-input")
+	b.mu.Unlock()
+	close(f.uploadGate)
+	if record := waitFile(t, b, "safe"); record.State != "deferred" || record.Attempts != 0 {
+		t.Fatalf("borrowed new quota: %+v", record)
+	}
+	f.mu.Lock()
+	sends := len(f.items)
+	f.mu.Unlock()
+	if sends != 0 || b.state.Window.Used != 0 {
+		t.Fatalf("old file sent on new input: %d %+v", sends, b.state.Window)
 	}
 }
 

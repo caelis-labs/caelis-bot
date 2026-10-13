@@ -60,16 +60,23 @@ continuation resumes the same native thread and request ledger. Diagnostics
 distinguish Bot subscription retirement from later native `thread/closed` unload.
 
 The Bot IM transcript is a private local SQLite message log for visible user,
-assistant, and control-receipt messages with stable request/item identities.
+assistant, control-receipt and completed Artifact-bearing tool messages with
+stable request/item identities.
 Authenticated channel input is recorded at ingress, and native accepted inputs
 update that record by request ID; a marked-secret control answer is represented
 only by a filled-state placeholder. Runtime live output is appended to the same
 log. Chat reads this local transcript instead of importing Runtime items on read.
 It loads a 200-message window and explicitly pages older **local** messages, including while
-the Runtime is offline. Streamed text updates the same item; tool payloads are
-never chat history. Disk failure retains the live cache and retries independently;
+the Runtime is offline. Streamed text updates the same item; only projected
+Artifact handles and a tool's visible label enter chat, never native tool
+payloads or file-change activity. Desktop actions re-resolve each handle through
+the backend before preview, opening, copying or saving; text previews are read
+on demand and bounded. Disk failure retains the live cache and retries independently;
 a corrupt display database is preserved as a damaged copy and rebuilt. Runtime
 sessions, execution state and original action receipts stay with their native owners.
+Codex assistant links to files outside Work can promote a temporary file into
+an attachment only when a native activity already bound that exact regular
+file as an Artifact; a model-written absolute path alone does not grant access.
 
 Codex connects with `thread/resume(excludeTurns:true)`, reads execution metadata
 with `thread/read(includeTurns:false)`, and optionally synchronizes one latest Turn
@@ -373,9 +380,13 @@ filenames, then requests a FILE upload URL, encrypts bytes with AES-128-ECB and
 PKCS#7 padding, and POSTs to an allowlisted Weixin CDN endpoint without bearer
 credentials or redirects. A successful upload yields one type-4 file item.
 File preparation runs away from the polling loop. Its durable `preparing` state
-may be retried after restart because no message was attempted. The file's
-original Artifact ID keys a separate send intent; once the send slot and
-unknown intent are saved, no timeout, restart or new ingress resends it.
+may be retried after restart within the original input window because no
+message was attempted. Each file has its own message and send slot. The
+original Artifact ID and Turn key one send intent; a new user request can
+expose the same owned artifact in a new Turn. Budget-deferred files are terminal
+for that intent and never drain into later windows automatically. Final text
+keeps safe filenames as readable placeholders. Once the send slot and unknown
+intent are saved, no timeout, restart or new ingress replays that intent.
 Failures and deferred sends remain visible in Weixin settings. Incoming file
 messages and phone receipt remain outside this slice.
 The first completed commentary is sent as progress; subsequent completed items

@@ -825,6 +825,46 @@ func TestKnownLocalArtifactHasReadableTextAndOpaqueAction(t *testing.T) {
 	}
 }
 
+func TestBoundTemporaryArtifactCanBeExplicitlyLinkedButPathAloneCannot(t *testing.T) {
+	root := t.TempDir()
+	work := filepath.Join(root, "Work")
+	if err := os.Mkdir(work, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "generated.md")
+	if err := os.WriteFile(path, []byte("# generated"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(root, "binding.json")
+	s := NewSession(SessionOptions{Directory: work, StateFile: state})
+	defer s.cancelLife()
+	link := "[generated](<" + path + ">)"
+	s.applyItem("turn", nativeItem{ID: "unbound", Type: "agentMessage", Text: link}, true)
+	if item := s.Snapshot().Items[0]; len(item.Artifacts) != 0 || item.Text != link {
+		t.Fatalf("path granted authority: %+v", item)
+	}
+	s.applyItem("turn", nativeItem{ID: "change", Type: "fileChange", Status: "completed", Changes: []nativeChange{{Path: path}}}, true)
+	s.applyItem("turn", nativeItem{ID: "reply", Type: "agentMessage", Text: link}, true)
+	items := s.Snapshot().Items
+	if items[1].Kind != "activity" || len(items[1].Artifacts) != 1 || len(items[2].Artifacts) != 1 || items[2].Text != "generated" || items[1].Artifacts[0].ID != items[2].Artifacts[0].ID {
+		t.Fatalf("bound temp projection: %+v", items)
+	}
+	reopened := NewSession(SessionOptions{Directory: work, StateFile: state})
+	defer reopened.cancelLife()
+	if got, err := reopened.Artifact(items[2].Artifacts[0].ID); err != nil || got != path {
+		t.Fatalf("binding did not persist: %v", err)
+	}
+	escaping := filepath.Join(root, "outside.md")
+	if err := os.Symlink("/etc/hosts", escaping); err == nil {
+		s.applyItem("turn", nativeItem{ID: "symlink-change", Type: "fileChange", Status: "completed", Changes: []nativeChange{{Path: escaping}}}, true)
+		s.applyItem("turn", nativeItem{ID: "symlink-reply", Type: "agentMessage", Text: "[outside](<" + escaping + ">)"}, true)
+		last := s.Snapshot().Items[len(s.Snapshot().Items)-1]
+		if len(last.Artifacts) != 0 {
+			t.Fatalf("symlink escaped temporary boundary: %+v", last)
+		}
+	}
+}
+
 func TestSkillCitationLineResolvesAndSurvivesRestart(t *testing.T) {
 	root := t.TempDir()
 	notebook := filepath.Join(root, "Notebook")

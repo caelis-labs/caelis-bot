@@ -267,7 +267,7 @@ func (b *Bridge) flushProgress(ctx context.Context, p *protocol, force bool) {
 	b.mu.Unlock()
 }
 
-func (b *Bridge) mirrorFinal(ctx context.Context, p *protocol, item api.Item) {
+func (b *Bridge) mirrorFinal(ctx context.Context, p *protocol, item api.Item, extraNames []api.Artifact) {
 	b.mu.Lock()
 	if b.state.Outputs[outputKey(item)].State == "skip" {
 		delete(b.state.Outputs, outputKey(item)) // a dropped progress may be the terminal reply
@@ -284,6 +284,14 @@ func (b *Bridge) mirrorFinal(ctx context.Context, p *protocol, item api.Item) {
 		b.state.Progress = remaining
 		_ = b.saveLocked()
 		b.mu.Unlock()
+		// A first progress may later become this Turn's final item. Files
+		// published after that progress still need a visible filename reply.
+		if body := withArtifactNames("", extraNames); body != "" {
+			if !fitsText(body) {
+				body = compactFinal(body)
+			}
+			b.sendOne(ctx, p, "final-files:"+item.ID, body, true)
+		}
 		return
 	}
 	ids := append([]string(nil), b.state.FinalProgressIDs...)

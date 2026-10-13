@@ -7,6 +7,22 @@ import (
 	"testing"
 )
 
+func TestDesktopChatShowsOnlyProjectedArtifactToolAndDoesNotDuplicateIt(t *testing.T) {
+	artifact := api.Artifact{ID: "owned-resource", Name: "result.md"}
+	e := &imReceiptEngine{value: api.Snapshot{Items: []api.Item{
+		{ID: "tool", Kind: "tool", Status: "completed", Text: "文件已生成", Artifacts: []api.Artifact{artifact}, Details: "native output"},
+		{ID: "change", Kind: "activity", Status: "completed", Artifacts: []api.Artifact{{ID: "private-change", Name: "private.txt"}}},
+	}}}
+	s := NewService(e, nil, nil, nil, nil)
+	s.ConfigureChat(filepath.Join(t.TempDir(), "chat.sqlite"))
+	defer s.chat.Close()
+	s.ObserveChat(e.value)
+	got := s.ChatSnapshot(0, "").Snapshot.Items
+	if len(got) != 1 || got[0].ID != "tool" || got[0].Details != "" || len(got[0].Artifacts) != 1 || got[0].Artifacts[0] != artifact {
+		t.Fatalf("desktop artifact projection: %+v", got)
+	}
+}
+
 type imReceiptEngine struct {
 	api.Engine
 	value     api.Snapshot

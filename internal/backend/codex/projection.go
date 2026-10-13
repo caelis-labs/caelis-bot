@@ -237,7 +237,8 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 					path = filepath.Join(s.opts.Directory, path)
 				}
 				rel, err := filepath.Rel(s.opts.Directory, filepath.Clean(path))
-				if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !strings.HasPrefix(rel, ".attachments"+string(filepath.Separator)) {
+				inWork := err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !strings.HasPrefix(rel, ".attachments"+string(filepath.Separator))
+				if inWork || s.boundTempArtifact(path) {
 					s.addArtifact(&view, path)
 					view.Text = strings.ReplaceAll(view.Text, match[0], match[1])
 				}
@@ -319,6 +320,37 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 }
 
 var artifactLink = regexp.MustCompile(`\[([^\]\n]+)\]\(([^)\n]+)\)`)
+
+// A generated temporary file outside Work can be cited only after a native
+// activity has already registered this exact file as an owned Artifact. A
+// model-written path by itself cannot grant the handle.
+func (s *Session) boundTempArtifact(path string) bool {
+	path = filepath.Clean(path)
+	inside := func(candidate string) bool {
+		for _, root := range []string{os.TempDir(), "/private/tmp", "/tmp"} {
+			canonical, err := filepath.EvalSymlinks(root)
+			if err != nil {
+				canonical = root
+			}
+			for _, base := range []string{root, canonical} {
+				rel, err := filepath.Rel(base, candidate)
+				if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if !inside(path) {
+		return false
+	}
+	file, ok := existingArtifactFile(path)
+	if !ok || s.artifacts[opaque("artifact", path)] != file {
+		return false
+	}
+	real, err := filepath.EvalSymlinks(file)
+	return err == nil && inside(real)
+}
 
 func (s *Session) addArtifact(view *api.Item, path string) {
 	if path == "" {

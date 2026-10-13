@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/caelis-labs/caelis-bot/internal/app"
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/contentpack"
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 	"github.com/caelis-labs/caelis-bot/internal/i18n"
@@ -44,6 +45,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 		return nil, err
 	}
 	back := core.Backend
+	s.resolveArtifact = func(id string) (string, error) { return backend.ResolveRemoteArtifact(back, id) }
 	s.telegram = core.Telegram
 	s.weixin = core.Weixin
 	s.pluginSnapshot = core.PluginSnapshot

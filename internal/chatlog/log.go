@@ -1,6 +1,7 @@
 // Package chatlog owns the Bot's IM transcript. Chat reads and older-page loads
 // use this database; observed current Runtime output can update it. Tool output
-// is never stored here. Disk errors retain the live cache;
+// is never stored here; only a tool's projected Artifact handles are visible.
+// Disk errors retain the live cache;
 // the writer retries independently of input, approval and connection control.
 package chatlog
 
@@ -51,6 +52,9 @@ func key(i api.Item) string {
 	}
 	return i.ID
 }
+func visibleItem(i api.Item) bool {
+	return i.ID != "" && (i.Kind == "user" || i.Kind == "assistant" || i.Kind == "controlNotice" || i.Kind == "tool" && (i.Status == "completed" || i.Status == "accepted") && len(i.Artifacts) > 0)
+}
 func copyItem(i api.Item) api.Item {
 	i.Details = ""
 	i.Activity = nil
@@ -85,7 +89,7 @@ func (l *Log) Observe(items []api.Item) {
 	}
 	l.mu.Lock()
 	for _, item := range items {
-		if item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" || item.ID == "" {
+		if !visibleItem(item) {
 			continue
 		}
 		item = copyItem(item)
@@ -182,7 +186,7 @@ func (l *Log) load(ctx context.Context, db *sql.DB, before int64) error {
 			return err
 		}
 		var item api.Item
-		if json.Unmarshal(b, &item) != nil || item.ID == "" || item.Kind != "user" && item.Kind != "assistant" && item.Kind != "controlNotice" {
+		if json.Unmarshal(b, &item) != nil || !visibleItem(item) {
 			continue
 		}
 		older = append(older, copyItem(item))

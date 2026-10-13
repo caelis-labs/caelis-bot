@@ -17,10 +17,13 @@ acceptance does not prove phone display, for text or files.
 The user can send `/r` or `/refresh` to resume delivery of unsent progress
 without starting another model request. `/status` reads current state, `/help`
 lists commands, and `/stop` requests the native interruption. `/approve` and
-`/answer` address the original pending Runtime request. If an estimate is
-exhausted or the service rejects a send, ask the user to send `/r` and check
-the original result. An unattempted file can wait for a new user message; a
-file whose send result is unknown must not be replayed. The Weixin connection
+`/answer` address the original pending Runtime request. If text delivery is
+deferred or rejected, ask the user to send `/r` and check the original result.
+`/r` resumes text progress, not a backlog of files. If a
+file was deferred for budget, keep its readable name in the final reply and
+invite the user to name the specific file they want. Expose that same owned
+artifact in the new reply only for the requested file. A file whose send
+result is unknown must not be replayed automatically. The Weixin connection
 status on the Mac distinguishes an unavailable file, upload failure, deferred
 file and uncertain or rejected file message. Ask the user to check the original
 artifact and the phone before claiming receipt.
