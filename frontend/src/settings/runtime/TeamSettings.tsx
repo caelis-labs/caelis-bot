@@ -38,7 +38,7 @@ export function TeamSettings({ team, models, client, onRefresh }: { team: TeamSt
   {error && !panel && <div role="alert" className="inline-error"><p>{error}</p><button onClick={() => void onRefresh().then(() => { setError(''); setBlocked(false); }).catch(() => {})}>{t('runtime.readLatestConfig')}</button></div>}
   <div className="runtime-section-title"><h2>{t('runtime.agentTeam')}</h2>{team.available && <div><button className="text-action" onClick={() => open('sets')}>{t('runtime.teamScheme')}</button><button aria-label={t('runtime.addAgent')} onClick={() => open('create')}>{t('runtime.add')}</button></div>}</div>
   {team.available && <p className="runtime-team-scheme-status">{t('runtime.teamCurrentScheme', {name: team.activeSet || t('runtime.teamDefaultScheme')})}</p>}
-  {!team.available ? <p className="settings-note">{team.reason}</p> : <>
+  {!team.available ? <p className="settings-note">{team.reason || t('runtime.teamNeedsCaelis')}</p> : <>
    {team.roles.filter(r => r.id !== 'self' && !r.system).map(row)}
    <h2 className="runtime-team-subheading">{t('runtime.systemAgents')}</h2><div className="runtime-setting-row"><div><strong>{t('runtime.role_self_name')}</strong><small className="runtime-role-id">self</small></div><span>{t('runtime.followMainModel')}</span></div>{team.roles.filter(r => r.system && r.id !== 'self').map(row)}
   </>}

@@ -41,7 +41,7 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
    const shared = profile.runtime==='caelis' && ['ready','models'].includes(setup.state) ? await invoke<RuntimeConfiguration>('RuntimeConfiguration').catch(()=>null) : null;
    const view = { profile, setup, session, pending: overview.pending, activeRuntime:overview.active, hasRuntimeChoice:overview.hasRuntimeChoice, models:shared?.models ?? models, conversation, work,
     runtimeDefault, revision:shared?.revision ?? '', main:shared?.main ?? null, canEditMain:!!shared,
-    team:shared?.team ?? { available:false,reason:'连接 Caelis 后可以配置 Team。',revision:'',roles:[],sets:[],activeSet:'',models:[] },
+    team:shared?.team ?? { available:false,reason:'',revision:'',roles:[],sets:[],activeSet:'',models:[] },
     connections:shared?.connections.map(g=>({...g,kind:g.kind as 'provider'|'agent',models:g.models.map(m=>({...m,uses:[...m.uses,...(m.id===conversation?.model?['Bot 对话']:[])]}))})) ?? groupLegacyModels(setup.models, setup.selectedModel),
    };
    return withWorkUsage(view);
@@ -57,8 +57,8 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
   async removeModel(group, model, revision, stopUsing = false) {
    const uses = group.kind === 'agent' ? group.models.flatMap(m => m.uses) : model.uses;
    const owned = new Set(['Caelis 主模型', 'caelis_main', 'Bot 对话', 'bot_conversation', '独立工作模型', 'dedicated_work']);
-   if (uses.length && (!stopUsing || uses.some(use => !owned.has(use)))) throw new Error('请先更改正在使用此连接的 Team 或模型设置。');
-   if (stopUsing && group.kind !== 'provider') throw new Error('请先更改正在使用此 Agent 的模型设置。');
+   if (uses.length && (!stopUsing || uses.some(use => !owned.has(use)))) throw new Error('connection_in_use');
+   if (stopUsing && group.kind !== 'provider') throw new Error('agent_connection_in_use');
    await change({action:group.kind==='agent'?'disconnect-agent':stopUsing?'remove-model-and-stop':'remove-model',id:group.kind==='agent'?group.id:model.id,expectedRevision:revision});
   },
   async catalog(kind) {return invoke('RuntimeConnectionCatalog',kind,profile ?? null);},

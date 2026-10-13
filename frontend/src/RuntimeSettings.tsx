@@ -10,13 +10,13 @@ import { ExecutionSettings } from './ExecutionSettings';
 import type { RuntimeSettings as Profile, SetupState, SetupOverview, SetupRequest, SetupInstallProgress } from './backend/contract';
 import { useI18n } from './i18n';
 import {nextOnboardingStep,setupStatusKey} from './settings/runtime/setup-status';
+import {executionMethodLabel} from './settings/runtime/state';
 
-const names: Record<string, string> = { caelis: 'Caelis', codex: 'Codex' };
 const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore: '' });
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
 
 export function RuntimeSettings({ onboarding = false, onBack,onDone,onTeam,active=true,refreshKey=0 }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; onTeam?:()=>void; active?:boolean; refreshKey?:number }) {
- return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone}/> : <RuntimeWorkspace workerSettings={onConnections=><LocalWorkerSettings active={active} onConnections={onConnections} onTeam={onTeam}/>} executionSettings={<ExecutionSettings embedded active={active} refreshKey={refreshKey}/>} active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} active={active} onBusy={onBusy}/>}/>;
+ return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone}/> : <RuntimeWorkspace workerSettings={(onConnections, workerRefreshKey)=><LocalWorkerSettings active={active} refreshKey={workerRefreshKey} onConnections={onConnections} onTeam={onTeam}/>} executionSettings={<ExecutionSettings embedded active={active} refreshKey={refreshKey}/>} active={active} refreshKey={refreshKey} preparation={(id, onBusy) => <RuntimePreparation initialRuntime={id} active={active} onBusy={onBusy}/>}/>;
 }
 
 export function RuntimePreparation({ onboarding = false, active=true, onBack, onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; active?:boolean; onBack?:()=>void; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
@@ -41,7 +41,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack, on
   return () => { mounted = false; window.clearInterval(timer); };
  }, [active, id, busy, call]);
  const connectionClient = useMemo(() => createRuntimeSettingsClient(call, profile), [profile]);
- const name = names[id] ?? '', blocked = !!busy || !!confirm;
+ const name = executionMethodLabel(id, t), blocked = !!busy || !!confirm;
  const humanBytes = (bytes: number) => { const unit = bytes >= 1_000_000 ? 'MB' : bytes >= 1_000 ? 'KB' : 'B'; const divisor = unit === 'MB' ? 1_000_000 : unit === 'KB' ? 1_000 : 1; return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(bytes / divisor)} ${unit}`; };
  const progressPercent = installProgress?.total ? Math.min(100, Math.max(0, installProgress.downloaded / installProgress.total * 100)) : 0;
  const progressValues = { received: humanBytes(installProgress?.downloaded ?? 0), total: humanBytes(installProgress?.total ?? 0), speed: humanBytes(installProgress?.bytesPerSecond ?? 0), percent: Math.round(progressPercent) };
@@ -103,7 +103,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack, on
  if (onboarding && !id) return <section className="runtime-welcome">
   <img className="setup-avatar" src="/icons/caelis-avatar.png" alt=""/>
   <h1>{t('runtime.prepareCaelisBot')}</h1><p className="setup-lead">{t('runtime.chooseRuntimeLead')}</p>
-  <div className="runtime-choices">{['caelis', 'codex'].map(value => <button key={value} disabled={blocked} onClick={() => void chooseRuntime(value)}><div><strong>{value === 'caelis' ? t('runtime.connectAIModel') : t('runtime.loginWithChatGPT')}</strong>{value === 'caelis' && <span className="runtime-default-cue">{t('runtime.default')}</span>}<span>{value === 'caelis' ? t('runtime.caelisOnboardingLead') : t('runtime.codexOnboardingLead')}</span></div><span aria-hidden="true">→</span></button>)}</div>
+  <div className="runtime-choices">{['caelis', 'codex'].map(value => <button key={value} disabled={blocked} onClick={() => void chooseRuntime(value)}><div><strong>{executionMethodLabel(value, t)}</strong><span>{value === 'caelis' ? t('runtime.caelisOnboardingLead') : t('runtime.codexOnboardingLead')}</span></div><span aria-hidden="true">→</span></button>)}</div>
   {error && <p role="alert" className="inline-error">{error}</p>}
   {onBack&&<div className="setup-end"><button type="button" onClick={onBack}>{t('settings.setupBack')}</button></div>}
  </section>;
@@ -128,7 +128,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack, on
    <div className="runtime-recovery-actions"><button className="primary" onClick={() => void run(uncertain ? 'detect' : 'install')}>{t(uncertain ? 'runtime.recheck' : 'runtime.retryDownload')}</button>{!uncertain && <button onClick={() => void run('detect')}>{t('runtime.recheck')}</button>}</div>
   </div></div>}
   {!recovery && <div className={`runtime-program${onboarding ? ' runtime-program-onboarding' : ''}`}>
-   {onboarding && state && <p className="runtime-install-summary">{state.installation.installed ? `✓ ${name} ${state.installation.version} · ${installationSource}` : t('runtime.notInstalled')}</p>}
+   {onboarding && state && <p className="runtime-install-summary">{state.installation.installed ? `✓ ${id === 'caelis' ? 'Caelis' : 'Codex'} ${state.installation.version} · ${installationSource}` : t('runtime.notInstalled')}</p>}
    {!onboarding&&<dl className="runtime-version-list">
     <div><dt>{t('runtime.installed')}</dt><dd>{state?.installation.installed ? state.installation.version : busy === 'detect' ? t('runtime.detecting') : t('runtime.notInstalled')}</dd></div>
     {state?.installation.installed && <div><dt>{t('runtime.installSource')}</dt><dd>{installationSource}</dd></div>}

@@ -6,10 +6,20 @@ const server = await createServer({server:{middlewareMode:true,hmr:false},appTyp
 after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
 const {setupStatusKey,botSessionStatusKey,nextOnboardingStep} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
-const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
+const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL, executionMethodLabel} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
+
+test('execution labels are local copy only; native selectors and unknown IDs stay intact',()=>{
+ const en=JSON.parse(readFileSync('internal/i18n/locales/en/runtime.json','utf8'));
+ const zh=JSON.parse(readFileSync('internal/i18n/locales/zh-CN/runtime.json','utf8'));
+ for(const [catalog, expected] of [[en,['Default','Use ChatGPT']],[zh,['默认','使用 ChatGPT']]]) {
+  const label=key=>catalog[key.split('.')[1]];
+  assert.deepEqual(['caelis','codex'].map(id=>executionMethodLabel(id,label)),expected);
+  assert.equal(executionMethodLabel('unknown-provider',label),'unknown-provider');
+ }
+});
 
 test('setup and session facts stay distinct when model or observation services fail',async()=>{
  const setup={state:'ready',installation:{installed:true},models:[],selectedModel:''};
@@ -52,7 +62,7 @@ test('stop using a sole model sends one revision-fenced native transaction; unce
  await assert.rejects(partial.removeModel(group,model,'9',true),e=>e.unknown&&e.receipt.operationId==='op2');
  assert.equal(failed.length,1);
  const team={...model,uses:[...model.uses,'orbit']};
- await assert.rejects(client.removeModel({...group,models:[team]},team,'9',true),/Team 或模型设置/);
+ await assert.rejects(client.removeModel({...group,models:[team]},team,'9',true),/connection_in_use/);
  assert.equal(calls.length,1);
 });
 

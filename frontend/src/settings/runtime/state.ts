@@ -6,6 +6,13 @@ export const effortName: Record<string, string> = { none: '无', minimal: '最�
 export const tierName = (id: string, name: string) => id === 'fast' || name.toLowerCase() === 'fast' ? 'Fast' : name || id;
 export const messageOf = (error: unknown, fallback = '操作未完成，请稍后重试') => error instanceof Error ? error.message : fallback;
 
+// Display labels never replace the native runtime selector or an unknown ID.
+export function executionMethodLabel(id: string, t: (key: any) => string): string {
+ if (id === 'caelis') return t('runtime.defaultExecution');
+ if (id === 'codex') return t('runtime.chatgptExecution');
+ return id;
+}
+
 export function getEffortName(effort: string, t?: (key: any) => string): string {
  if (t && effort) {
   const key = `runtime.effort_${effort}`;

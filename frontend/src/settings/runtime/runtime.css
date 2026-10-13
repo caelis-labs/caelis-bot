@@ -13,7 +13,6 @@
 .runtime-role-id { display:inline-block; color:var(--muted); font-size:11px; margin-left:8px; }
 .runtime-team-page>.text-action { margin-bottom:22px; }
 .runtime-welcome .runtime-choices button:first-child { border-color:var(--success); background:var(--wash); }
-.runtime-welcome .runtime-choices button:first-child .runtime-default-cue { display:inline-block; width:auto; margin:0 0 0 8px; padding:2px 7px; border-radius:99px; color:var(--success); background:var(--caelis-raised); font-size:11px; font-weight:600; vertical-align:middle; }
 .runtime-gateway-heading { font-size:13px; font-weight:600; margin:24px 0 8px; }
 .runtime-gateway-empty { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:14px 0; }
 .runtime-gateway-empty p { width:100%; margin:0 0 4px; font-size:13px; color:var(--muted); }
