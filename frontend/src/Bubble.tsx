@@ -7,6 +7,7 @@ import { bubblePresentation, reduceBubbleNotice } from './bubble-notice';
 import { MessageContent } from './MessageContent';
 import { chatActivity, incompleteAssistant } from './chat-presentation';
 import { activityLabel } from './activity-presentation';
+import { displayConnectionMessage } from './connection-message';
 
 export function Bubble() {
  const {t,locale} = useI18n();
@@ -62,7 +63,8 @@ export function Bubble() {
  const progress=dreaming?t('chat.dreaming'):activity==='tool'&&snapshot?.activity?activityLabel(snapshot.activity,t):activity==='stopping'?t('chat.stopping'):activity==='thinking'?t('chat.bubbleThinking'):'';
  const attention=!!prompt||snapshot?.connection==='login'||snapshot?.connection==='offline'||snapshot?.phase==='unknown';
  const terminal=snapshot?.phase==='interrupted'?t('chat.statusInterrupted'):snapshot?.phase==='failed'?t('chat.terminalFailed'):snapshot?.phase==='completed'?t('chat.statusCompleted'):'';
- const conversationContent=error||(prompt&&approvalTitle(prompt,locale))||snapshot?.message||(dreaming?progress:'')||output?.text||progress||(working?t('chat.bubbleThinking'):terminal);
+ const snapshotMessage=displayConnectionMessage(snapshot?.message,t);
+ const conversationContent=displayConnectionMessage(error,t)||(prompt&&approvalTitle(prompt,locale))||snapshotMessage||(dreaming?progress:'')||output?.text||progress||(working?t('chat.bubbleThinking'):terminal);
  const conversationWanted=(!snapshot?.quiet||dreaming||!!error||attention)&&!!conversationContent&&(working||attention||!snapshot?.previewDismissed);
  const {content,wanted,showNotice}=bubblePresentation(conversationContent,conversationWanted,attention||!!error,notice);
  const markdown=!showNotice&&!error&&!prompt&&!snapshot?.message&&!!output?.text&&content===output.text;

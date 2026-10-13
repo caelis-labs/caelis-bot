@@ -26,6 +26,7 @@ import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';
 import { CaretRightIcon } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { CaretUpIcon } from '@phosphor-icons/react/dist/csr/CaretUp';
 import type { MessageKey } from './i18n/catalogs';
+import { displayConnectionMessage } from './connection-message';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
 
@@ -578,6 +579,7 @@ export function History() {
  useEffect(()=>{if(snapshot?.connection==='ready')setConnectionError('');},[snapshot?.connection]);
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  const chooseRuntime=snapshot?.connectionIssue==='setup_required';
+ const snapshotMessage=displayConnectionMessage(snapshot?.message,t);
  const connectionText=chooseRuntime?t('chat.setupRequiredConnection'):
   snapshot?.connection==='connecting'?t('chat.checkingConnection'):
   snapshot?.connection==='login'?t('chat.loginRequiredConnection'):
@@ -586,7 +588,7 @@ export function History() {
   snapshot?.connectionIssue==='resource_exhausted'?t('chat.resourceConnection'):
   snapshot?.connectionIssue==='existing_server'?t('chat.existingServerConnection'):
   snapshot?.connectionIssue==='connection'?t('chat.offlineConnection'):
-  snapshot?.message||t('chat.offlineConnection');
+  snapshotMessage||t('chat.offlineConnection');
  useLayoutEffect(()=>{
   const el=scroll.current;if(!el||!active)return;
   if(prepend.current){
@@ -608,7 +610,7 @@ export function History() {
     <Message item={i} report={setError} onContextMenu={showMenu} onQuotePreview={showQuotePreview} onQuestion={openQuestion} animate={i.id===activeReply} clip={i.id===activeReply?(i.id===avatar.completion?'delight':avatar.clip):'companion'} reveal={active&&liveReplies.has(i.id)} incomplete={incompleteAssistant(i,snapshot)}/>
    </div>)}</div>
    {activity&&<WorkingMessage activity={activity} active={active} tool={snapshot?.activity} clip={avatar.clip}/>}
-   {(connection||!!snapshot?.message||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
+   {(connection||!!snapshotMessage||snapshot?.phase==='unknown')&&<article className="message-row assistant state-message">
     <BotAvatar animate={active&&prompts.length>0&&!connection} clip={avatar.clip}/>
     <div className="message assistant state-bubble">
    {connection&&<section className="connection-card" aria-label={t('chat.connectionCardAriaLabel')}>
@@ -622,13 +624,13 @@ export function History() {
      {<button className={chooseRuntime?'primary':'text-action'} onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}
     </div>
    </section>}
-   {!connection&&!!snapshot?.message&&<p className="connection-message" role="status">{snapshot.message}</p>}
+   {!connection&&!!snapshotMessage&&<p className="connection-message" role="status">{snapshotMessage}</p>}
    {!connection&&snapshot?.phase==='unknown'&&<div className="connection-actions">
     <button disabled={busy} onClick={()=>void action('Connect')}>{t('chat.reconnect')}</button>
    </div>}
     </div>
    </article>}
-   {!!(error||connectionError)&&<p className="inline-error" role="alert">{error||connectionError}</p>}
+   {!!(error||connectionError)&&<p className="inline-error" role="alert">{displayConnectionMessage(error||connectionError,t)}</p>}
    </div>
   </div>
   {unread&&<button className="new-messages" onClick={()=>{position.current!.latest();setUnread(false);}}>{t('chat.viewNewMessages')}</button>}

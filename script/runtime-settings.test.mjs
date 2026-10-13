@@ -7,6 +7,7 @@ after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
 const {setupStatusKey,botSessionStatusKey,nextOnboardingStep} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
 const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL, executionMethodLabel} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
+const {displayConnectionMessage} = await server.ssrLoadModule('/src/connection-message.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
@@ -19,6 +20,16 @@ test('execution labels are local copy only; native selectors and unknown IDs sta
   assert.deepEqual(['caelis','codex'].map(id=>executionMethodLabel(id,label)),expected);
   assert.equal(executionMethodLabel('unknown-provider',label),'unknown-provider');
  }
+});
+
+test('known native review errors have bilingual display copy while unknown Host detail remains exact',()=>{
+ const original='Caelis Guardian 模型不可用，请在运行时连接设置中恢复该模型；不会转为免审批或人工放行';
+ for(const [locale, expected] of [['zh-CN','审批模型不可用，请在连接与模型中恢复该模型；不会跳过审批。'],['en','The review model is unavailable. Restore it in Connections & models; reviews will not be skipped.']]) {
+  const catalog=JSON.parse(readFileSync(`internal/i18n/locales/${locale}/chat.json`,'utf8'));
+  assert.equal(displayConnectionMessage(original,key=>catalog[key.split('.')[1]]),expected);
+ }
+ const unknown='provider x returned 401 for model p/a';
+ assert.equal(displayConnectionMessage(unknown,()=>''),unknown);
 });
 
 test('setup and session facts stay distinct when model or observation services fail',async()=>{
