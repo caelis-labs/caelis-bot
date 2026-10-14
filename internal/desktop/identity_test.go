@@ -15,6 +15,15 @@ func isolatedFixturePath(home string) string {
 	}, string(os.PathListSeparator))
 }
 
+func accountHome(t *testing.T) string {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
 func TestExplicitDevelopmentProfileIsolatesInstanceLockOnly(t *testing.T) {
 	old := buildChannel
 	t.Cleanup(func() { buildChannel = old })
@@ -74,7 +83,7 @@ func TestResearchIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	if !researchRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("isolated launch rejected")
 	}
-	if researchRootsValid(exe, os.Getenv("HOME"), data, codexHome, home, path) {
+	if researchRootsValid(exe, accountHome(t), data, codexHome, home, path) {
 		t.Fatal("real account HOME accepted")
 	}
 	if researchRootsValid(exe, home, data, codexHome, home, path+string(os.PathListSeparator)+"/opt/homebrew/bin") {
@@ -98,7 +107,7 @@ func TestOnboardingDevIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	if !onboardingRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("isolated onboarding launch rejected")
 	}
-	if onboardingRootsValid(exe, os.Getenv("HOME"), data, codexHome, home, path) ||
+	if onboardingRootsValid(exe, accountHome(t), data, codexHome, home, path) ||
 		onboardingRootsValid(exe, home, data, codexHome, home, path+string(os.PathListSeparator)+"/opt/homebrew/bin") ||
 		researchRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("unsafe or cross-channel onboarding roots accepted")
@@ -106,7 +115,7 @@ func TestOnboardingDevIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	if err := os.Rename(data, data+"-saved"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(os.Getenv("HOME"), data); err != nil {
+	if err := os.Symlink(accountHome(t), data); err != nil {
 		t.Fatal(err)
 	}
 	if onboardingRootsValid(exe, home, data, codexHome, home, path) {
@@ -130,7 +139,7 @@ func TestPR164DevIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	if !polishRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("isolated PR164 launch rejected")
 	}
-	if polishRootsValid(exe, os.Getenv("HOME"), data, codexHome, home, path) ||
+	if polishRootsValid(exe, accountHome(t), data, codexHome, home, path) ||
 		polishRootsValid(exe, home, data, codexHome, home, path+string(os.PathListSeparator)+"/opt/homebrew/bin") ||
 		onboardingRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("unsafe or cross-channel PR164 roots accepted")
