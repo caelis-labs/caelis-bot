@@ -32,6 +32,36 @@ func newOwnedTools(pid int) *ownedTools {
 	}
 	return o
 }
+
+func darwinProcessBirth(value unix.Timeval) uint64 {
+	if value.Sec <= 0 || value.Usec < 0 || value.Usec >= 1_000_000 {
+		return 0
+	}
+	return uint64(value.Sec)*1_000_000 + uint64(value.Usec)
+}
+
+func (o *ownedTools) processIdentity() ownerProcessIdentity {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return ownerProcessIdentity{PID: o.root, Birth: darwinProcessBirth(o.born)}
+}
+
+func privateOwnerLifecycle(id ownerProcessIdentity) ownerLifecycle {
+	if !id.valid() {
+		return ownerUnknown
+	}
+	p, err := unix.SysctlKinfoProc("kern.proc.pid", id.PID)
+	if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.EIO) && processGone(id.PID) {
+		return ownerGone
+	}
+	if err != nil {
+		return ownerUnknown
+	}
+	if darwinProcessBirth(p.Proc.P_starttime) != id.Birth || p.Proc.P_stat == 5 {
+		return ownerGone
+	}
+	return ownerAlive
+}
 func (o *ownedTools) capture() {
 	o.mu.Lock()
 	defer o.mu.Unlock()

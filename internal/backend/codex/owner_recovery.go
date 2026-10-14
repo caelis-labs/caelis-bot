@@ -21,7 +21,7 @@ func (s *Session) RecoverUnavailableOwner(ctx context.Context) (bool, error) {
 	}
 	defer s.op.Unlock()
 	s.mu.Lock()
-	if !s.binding.OwnerUnavailable {
+	if !s.binding.OwnerUnavailable && !s.binding.OwnerClosing {
 		s.mu.Unlock()
 		return false, nil
 	}
@@ -29,9 +29,26 @@ func (s *Session) RecoverUnavailableOwner(ctx context.Context) (bool, error) {
 		s.mu.Unlock()
 		return true, errors.New("原 owner 恢复状态已变化，请重新读取后再操作")
 	}
+	wasClosing := s.binding.OwnerClosing
+	life, err := s.reconcilePrivateOwnerLocked()
+	if err != nil {
+		s.update()
+		s.mu.Unlock()
+		return true, err
+	}
+	if life == ownerAlive {
+		s.update()
+		s.mu.Unlock()
+		return true, s.connect(ctx) // The exact original owner survived.
+	}
+	if wasClosing {
+		s.update()
+		s.mu.Unlock()
+		return true, errors.New("原 owner 已确认退出；请查看状态并明确选择建立新连接")
+	}
 	old := s.binding
 	record := lostOwnerRecord{
-		Endpoint: old.OwnerEndpoint, Thread: old.ThreadID,
+		Endpoint: old.OwnerEndpoint, Process: old.OwnerProcess, Thread: old.ThreadID,
 		LastReceipt: old.LastReceipt, Pending: old.Pending,
 		StopRequest: old.CapacityStopRequest, StopThread: old.CapacityStopThread,
 		StopTurn: old.CapacityStopTurn, StopPhase: old.CapacityStopPhase,
@@ -55,7 +72,7 @@ func (s *Session) RecoverUnavailableOwner(ctx context.Context) (bool, error) {
 		staged.LostOwners[len(staged.LostOwners)-1].TaskIDs = append(staged.LostOwners[len(staged.LostOwners)-1].TaskIDs, id)
 	}
 	slices.Sort(staged.LostOwners[len(staged.LostOwners)-1].TaskIDs)
-	staged.OwnerUnavailable, staged.OwnerEndpoint = false, ""
+	staged.OwnerUnavailable, staged.OwnerClosing, staged.OwnerEndpoint, staged.OwnerProcess = false, false, "", nil
 	staged.ThreadID, staged.Pending, staged.LastReceipt = "", nil, nil
 	staged.CapacityStopRequest, staged.CapacityStopThread, staged.CapacityStopTurn = "", "", ""
 	staged.CapacityStopPhase, staged.CapacityStopStatus, staged.CapacityStopAccepted = "", "", false
@@ -70,6 +87,7 @@ func (s *Session) RecoverUnavailableOwner(ctx context.Context) (bool, error) {
 		s.mu.Unlock()
 		return true, err
 	}
+	s.ownerUnavailableVerified = false
 	s.state.ConnectionIssue = ""
 	s.state.Phase = "idle"
 	s.state.Message = "原 owner 的未确认结果已保留；正在建立新连接"

@@ -19,6 +19,9 @@ type ownedSocketConnection struct {
 func (c *ownedSocketConnection) captureTools()           { c.tools.capture() }
 func (c *ownedSocketConnection) toolCleanupError() error { return c.tools.failure() }
 func (c *ownedSocketConnection) Close() error            { c.tools.capture(); return c.socketConnection.Close() }
+func (c *ownedSocketConnection) processIdentity() ownerProcessIdentity {
+	return c.tools.processIdentity()
+}
 
 // A private socket makes the native TUI a second standard client. Its lifetime
 // belongs to the Bot, not to the observer terminal. No TCP listener or private IPC.

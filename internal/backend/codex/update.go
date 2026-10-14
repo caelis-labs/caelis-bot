@@ -33,10 +33,15 @@ func (s *Session) rememberNativeOwner(c *Client) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous := s.binding.OwnerEndpoint
+	previousEndpoint, previousProcess := s.binding.OwnerEndpoint, s.binding.OwnerProcess
 	s.binding.OwnerEndpoint = endpoint.terminalEndpoint()
+	if id := c.privateOwnerIdentity(); id != nil {
+		s.binding.OwnerProcess = id
+	} else if s.binding.OwnerEndpoint != previousEndpoint {
+		s.binding.OwnerProcess = nil
+	}
 	if err := s.save(); err != nil {
-		s.binding.OwnerEndpoint = previous
+		s.binding.OwnerEndpoint, s.binding.OwnerProcess = previousEndpoint, previousProcess
 		return err
 	}
 	return nil
@@ -54,11 +59,16 @@ func (s *Session) prepareDetachLocked() error {
 	if s.closed || s.closing {
 		return errors.New("连接已关闭，无法准备更新")
 	}
-	previousEndpoint := s.binding.OwnerEndpoint
+	previousEndpoint, previousProcess := s.binding.OwnerEndpoint, s.binding.OwnerProcess
 	previousApprovals := slices.Clone(s.binding.PendingApprovalIDs)
 	if c := s.client; c != nil && c.Err() == nil {
 		if endpoint, ok := c.rpc.conn.(interface{ terminalEndpoint() string }); ok && endpoint.terminalEndpoint() != "" {
 			s.binding.OwnerEndpoint = endpoint.terminalEndpoint()
+			if id := c.privateOwnerIdentity(); id != nil {
+				s.binding.OwnerProcess = id
+			} else if s.binding.OwnerEndpoint != previousEndpoint {
+				s.binding.OwnerProcess = nil
+			}
 		}
 	}
 	for _, p := range s.prompts {
@@ -71,11 +81,11 @@ func (s *Session) prepareDetachLocked() error {
 	}
 	needsOwner := s.run != "" || s.hasBlockingChildren() || s.hasUnresolvedTasks() || s.binding.Pending != nil || len(s.prompts) > 0 || s.state.Phase == "unknown" || s.state.Phase == "sending" || (s.binding.LastReceipt != nil && s.binding.LastReceipt.Outcome == "unknown")
 	if needsOwner && (s.binding.OwnerEndpoint == "" || s.opts.StateFile == "") {
-		s.binding.OwnerEndpoint, s.binding.PendingApprovalIDs = previousEndpoint, previousApprovals
+		s.binding.OwnerEndpoint, s.binding.OwnerProcess, s.binding.PendingApprovalIDs = previousEndpoint, previousProcess, previousApprovals
 		return errors.New("原生 owner 入口或持久化文件不可用，活跃工作仍留在当前进程")
 	}
 	if err := s.save(); err != nil {
-		s.binding.OwnerEndpoint, s.binding.PendingApprovalIDs = previousEndpoint, previousApprovals
+		s.binding.OwnerEndpoint, s.binding.OwnerProcess, s.binding.PendingApprovalIDs = previousEndpoint, previousProcess, previousApprovals
 		return fmt.Errorf("原 owner 与待确认请求回执保存失败: %w", err)
 	}
 	return nil

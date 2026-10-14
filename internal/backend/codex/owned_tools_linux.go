@@ -95,6 +95,29 @@ func newOwnedTools(pid int) *ownedTools {
 	return o
 }
 
+func (o *ownedTools) processIdentity() ownerProcessIdentity {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return ownerProcessIdentity{PID: o.root, Birth: o.born}
+}
+
+func privateOwnerLifecycle(id ownerProcessIdentity) ownerLifecycle {
+	if !id.valid() {
+		return ownerUnknown
+	}
+	p, err := readLinuxProcess(id.PID)
+	if errors.Is(err, os.ErrNotExist) {
+		return ownerGone
+	}
+	if err != nil {
+		return ownerUnknown
+	}
+	if p.born != id.Birth || p.state == "Z" || p.state == "X" {
+		return ownerGone
+	}
+	return ownerAlive
+}
+
 func (o *ownedTools) capture() {
 	o.mu.Lock()
 	defer o.mu.Unlock()

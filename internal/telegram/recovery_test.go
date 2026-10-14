@@ -441,6 +441,24 @@ func TestTelegramUnavailableOwnerButtonUsesFencedNewConnectionRoute(t *testing.T
 	}
 }
 
+func TestTelegramUnverifiedOwnerOffersOnlyOriginalCheck(t *testing.T) {
+	snapshot := api.Snapshot{Connection: "offline", ConnectionIssue: "owner_lifecycle_unknown", Phase: "unknown"}
+	b, f := testBridge(t, Host{
+		Snapshot: func() api.Snapshot { return snapshot },
+		Recovery: func() api.RecoveryState { return api.RecoveryState{Fence: "uncertain-owner:1", Manual: true} },
+		Recover:  func(context.Context, string) error { return api.ErrRecoveryPending },
+		Chinese:  func() bool { return true },
+	})
+	paired(b)
+	b.mirrorRecovery(t.Context(), f, snapshot)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.keyboards) != 1 || f.keyboards[0] == nil || f.keyboards[0].InlineKeyboard[0][0].Text != "核对原连接" ||
+		!strings.Contains(f.texts[0], "原请求和工具效果仍未知") || !strings.Contains(f.texts[0], "未经核实不会建立替代连接") {
+		t.Fatal("unverified original owner was offered a replacement connection", f.texts, f.keyboards)
+	}
+}
+
 func TestTelegramPollsRecoveryControlWhileRuntimeOffline(t *testing.T) {
 	var calls atomic.Int32
 	started := make(chan struct{}, 1)
