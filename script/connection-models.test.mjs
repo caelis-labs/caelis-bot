@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { connectionModelOption, defaultChatModels, eligibleSelection } from '../frontend/src/settings/runtime/connection-models.ts';
+import { readFile } from 'node:fs/promises';
+import { apiKeyOptionsFromCatalog, connectionModelOption, defaultChatModels, eligibleSelection, requiresManualCapabilities } from '../frontend/src/settings/runtime/connection-models.ts';
 import { connectSelectedModels } from '../frontend/src/settings/runtime/connection-sequence.ts';
 const choice = (value, chatEligibility, extras = {}) => ({ value, label: value, noAuth: false, current: false, chatEligibility, ...extras });
 
@@ -19,7 +20,26 @@ test('only explicit chat entries are default selected; ASR, judgment and unknown
  assert.equal(models[0].imageInputKnown, false);
  assert.equal(models[3].chatEligibility, 'unknown');
  assert.equal(models[3].metadataComplete, true);
+ assert.equal(requiresManualCapabilities(models[0]), false);
+ assert.equal(requiresManualCapabilities(models[3]), true);
 });
+
+if (process.env.CAELIS_BOT_ELIGIBILITY_OUTPUT) {
+ test('exact Core Host directory feeds default chat selection without custom capabilities', async () => {
+  const catalog = JSON.parse(await readFile(process.env.CAELIS_BOT_ELIGIBILITY_OUTPUT, 'utf8'));
+  const options = apiKeyOptionsFromCatalog(catalog.endpoints, catalog.deepseek);
+  assert.ok(options.endpoints[0].value.startsWith('https://'));
+  const deepseek = options.models;
+  assert.ok(deepseek.length > 0);
+  assert.deepEqual(defaultChatModels(deepseek), deepseek.map(model => model.value));
+  assert.ok(deepseek.every(model => model.metadataComplete === true && !requiresManualCapabilities(model)));
+  assert.ok(catalog.coreWire.every(model => model.chat_eligibility === 'chat' && model.model_metadata_complete === true));
+  const magpie = catalog.magpie.map(connectionModelOption);
+  assert.deepEqual(defaultChatModels(magpie), ['vendor/chat']);
+  assert.equal(magpie.find(model => model.value === 'vendor/unknown')?.chatEligibility, 'unknown');
+  assert.ok(magpie.every(model => !['xiaomi/mimo-v2.5-asr', 'typesafe/jev'].includes(model.value)));
+ });
+}
 
 for (const terminal of ['failed', 'unknown']) {
  test(`batch stops at ${terminal}; a retry excludes the confirmed model`, async () => {

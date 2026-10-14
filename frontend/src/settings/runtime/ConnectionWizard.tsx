@@ -6,7 +6,7 @@ import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/catalogs';
 import { SettingsChevron } from '../../SettingsIcons';
 import { connectSelectedModels } from './connection-sequence';
-import { defaultChatModels, eligibleSelection } from './connection-models';
+import { defaultChatModels, eligibleSelection, requiresManualCapabilities } from './connection-models';
 import './connection-wizard.css';
 
 const emptyCatalog: ConnectionCatalog = { choices: [], unavailable: '' };
@@ -55,7 +55,7 @@ export function ConnectionWizard({ client, onClose, onConnected, active=true, sc
  const magpie = choice?.id.toLowerCase() === 'magpie';
  const customProvider = choice?.id.toLowerCase() === 'custom' || magpie;
  const manualChoice = options.models.find(item => item.value === model.trim());
- const needsManualCapabilities = (customProvider || manualModel) && (!manualChoice || manualChoice.chatEligibility === 'unknown');
+ const needsManualCapabilities = (customProvider || manualModel) && requiresManualCapabilities(manualChoice);
  const customCapabilitiesVisible = choice?.id.toLowerCase() === 'custom' || (magpie || manualModel) && (!manualChoice || manualChoice.chatEligibility !== 'chat');
  const manualCapabilitiesValid = !needsManualCapabilities || metadata && Number.isSafeInteger(Number(contextWindow)) && Number(contextWindow) > 0 && Number.isSafeInteger(Number(maxOutput)) && Number(maxOutput) > 0 && Number(maxOutput) <= Number(contextWindow);
  const catalogSelection = eligibleSelection(options.models, selectedModels, confirmedModels.current);

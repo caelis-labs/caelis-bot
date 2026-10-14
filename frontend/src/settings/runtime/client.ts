@@ -1,6 +1,6 @@
 import { backend } from '../../desktop';
 import type { ExecutionSettings, ModelOption, RuntimeSettings, SetupChoice, SetupOverview, SetupRequest, SetupState, Snapshot, WorkExecutionSettings, RuntimeConfiguration, RuntimeMutationResult, RuntimeFlow } from '../../backend/contract';
-import { connectionModelOption } from './connection-models';
+import { apiKeyOptionsFromCatalog } from './connection-models';
 import { groupLegacyModels, withWorkUsage } from './state';
 import type { ConnectionFlow, RuntimeSettingsClient } from './types';
 
@@ -69,7 +69,7 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
    // Endpoint discovery is still useful when a local gateway is offline.
    // Keep the Host's manual model input available without inventing a catalog.
    const models = await invoke<SetupChoice[]>('SetupCatalog', setupRequest(profile, 'models', { provider, baseUrl: baseUrl || endpoints[0]?.value || '' })).catch(() => []);
-   return { endpoints: endpoints.map(e => ({ value:e.value,name:e.label || e.value,reuseAuth:e.noAuth })), models: models.map(connectionModelOption) };
+   return apiKeyOptionsFromCatalog(endpoints, models);
   },
   async startConnection(input,signal,progress){signal.throwIfAborted();return observe(await invoke<RuntimeFlow>('StartRuntimeConnection',{...input,settings:profile ?? null}),signal,progress);},
   async advanceConnection(flow,action,input,signal,progress){signal.throwIfAborted();return observe(await invoke<RuntimeFlow>('AdvanceRuntimeConnection',{id:flow.id,revision:flow.revision,action,input}),signal,progress);},

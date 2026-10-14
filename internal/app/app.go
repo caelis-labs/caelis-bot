@@ -883,7 +883,11 @@ func (a *Application) Close() error {
 		if bridge != nil {
 			bridge.Close()
 		}
+		// A startup worker may still be waiting to enter PreparePersonal or
+		// Start. It must acquire lifecycleMu to observe closed and exit.
+		a.lifecycleMu.Unlock()
 		a.workers.Wait()
+		a.lifecycleMu.Lock()
 		if a.localWork != nil {
 			if updating {
 				a.closeErr = errors.Join(a.closeErr, a.localWork.CloseForUpdate())

@@ -73,9 +73,9 @@ func InspectSetup(ctx context.Context, v api.RuntimeSettings) (api.SetupState, e
 	return out, nil
 }
 func setupCatalog(ctx context.Context, c *client, command string) ([]api.SetupChoice, error) {
-	// The pinned Core schema has metadata completeness and image-input facts but
-	// no chat qualification. Keep the optional field here so a newer Host can
-	// report it without treating metadata completeness as proof of chat support.
+	// The Bot's pinned Core schema predates chat_eligibility. Decode the newer
+	// Host field here until the shared protocol snapshot is integrated; metadata
+	// completeness alone does not prove chat support.
 	var candidates []struct {
 		wire.SlashArgCandidate
 		ChatEligibility *string `json:"chat_eligibility"`

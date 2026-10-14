@@ -100,8 +100,8 @@ func TestSetupCatalogChatEligibilityAndDirectoryFacts(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Command == nil || !strings.HasPrefix(*request.Command, "connect-model:") {
 				t.Errorf("expected Host connect-model catalog: %+v %v", request, err)
 			}
-			// This optional field is the exact minimal addition needed from Core.
-			// Its current pinned schema omits it, so real Host entries stay unknown.
+			// The Bot's pinned schema omits this field; the local projection must
+			// still read it from newer Host responses without guessing from metadata.
 			writeFixture(w, []map[string]any{
 				{"value": "chat", "display": "Chat", "detail": "source detail", "chat_eligibility": "chat", "model_metadata_complete": true, "model_image_input_known": false},
 				{"value": "asr", "chat_eligibility": "non-chat"},
