@@ -34,6 +34,7 @@ func TestDevelopmentAndReleaseIdentityAndDataStaySeparate(t *testing.T) {
 	for _, tc := range []struct{ channel, name, id string }{
 		{"development", "Caelis Bot Dev", "dev.caelis.bot.dev"},
 		{"research", "Caelis Bot Research", "dev.caelis.bot.research"},
+		{"onboarding", "Caelis Bot Dev Onboarding", "dev.caelis.bot.dev.onboarding"},
 		{"release", "Caelis Bot", "dev.caelis.bot"},
 	} {
 		buildChannel = tc.channel
@@ -52,7 +53,10 @@ func TestResearchIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	exe := filepath.Join(root, "dist", "Caelis Bot Research.app", "Contents", "MacOS", "caelis-bot")
 	home := filepath.Join(root, ".cache", "runtime-onboarding-research", "home")
 	data := filepath.Join(root, ".cache", "runtime-onboarding-research", "data")
-	if err := os.MkdirAll(home, 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(data, 0700); err != nil {
 		t.Fatal(err)
 	}
 	path := home + "/.local/bin:" + home + "/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -64,5 +68,36 @@ func TestResearchIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	}
 	if researchRootsValid(exe, home, data, home+"/.codex", home, path+":/opt/homebrew/bin") {
 		t.Fatal("global CLI path accepted")
+	}
+}
+
+func TestOnboardingDevIdentityRequiresExactIsolatedRoots(t *testing.T) {
+	root := t.TempDir()
+	exe := filepath.Join(root, "dist", "Caelis Bot Dev Onboarding.app", "Contents", "MacOS", "caelis-bot")
+	home := filepath.Join(root, ".cache", "runtime-onboarding-dev", "profiles", "fresh", "home")
+	data := filepath.Join(root, ".cache", "runtime-onboarding-dev", "profiles", "fresh", "data")
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(data, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := home + "/.local/bin:" + home + "/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	if !onboardingRootsValid(exe, home, data, home+"/.codex", home, path) {
+		t.Fatal("isolated onboarding launch rejected")
+	}
+	if onboardingRootsValid(exe, os.Getenv("HOME"), data, home+"/.codex", home, path) ||
+		onboardingRootsValid(exe, home, data, home+"/.codex", home, path+":/opt/homebrew/bin") ||
+		researchRootsValid(exe, home, data, home+"/.codex", home, path) {
+		t.Fatal("unsafe or cross-channel onboarding roots accepted")
+	}
+	if err := os.Rename(data, data+"-saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(os.Getenv("HOME"), data); err != nil {
+		t.Fatal(err)
+	}
+	if onboardingRootsValid(exe, home, data, home+"/.codex", home, path) {
+		t.Fatal("symlinked data directory outside profile accepted")
 	}
 }

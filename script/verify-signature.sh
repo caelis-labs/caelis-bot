@@ -9,7 +9,7 @@ case "$BOT_VERIFY_KIND" in
   dmg) BOT_VERIFY_IDENTIFIER=dev.caelis.bot.dmg ;;
   *) echo "Unknown artifact kind: $BOT_VERIFY_KIND" >&2; exit 1 ;;
 esac
-if [[ "$BOT_VERIFY_KIND" == app && ( "${4:-}" == dev.caelis.bot.dev || "${4:-}" == dev.caelis.bot.research ) ]]; then
+if [[ "$BOT_VERIFY_KIND" == app && ( "${4:-}" == dev.caelis.bot.dev || "${4:-}" == dev.caelis.bot.research || "${4:-}" == dev.caelis.bot.dev.onboarding ) ]]; then
   [[ "$BOT_VERIFY_MODE" != developer-id ]] || { echo 'Local development identity is not a distribution release.' >&2; exit 1; }
   BOT_VERIFY_IDENTIFIER=$4
 fi

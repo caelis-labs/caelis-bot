@@ -8,6 +8,7 @@ fi
 case "$BOT_BUILD_CHANNEL" in
   development) BOT_APP_NAME='Caelis Bot Dev'; BOT_APP_ID=dev.caelis.bot.dev ;;
   research) BOT_APP_NAME='Caelis Bot Research'; BOT_APP_ID=dev.caelis.bot.research ;;
+  onboarding) BOT_APP_NAME='Caelis Bot Dev Onboarding'; BOT_APP_ID=dev.caelis.bot.dev.onboarding ;;
   release) BOT_APP_NAME='Caelis Bot'; BOT_APP_ID=dev.caelis.bot ;;
   *) echo 'Unsupported Bot build channel.' >&2; exit 1 ;;
 esac

@@ -10,7 +10,7 @@ import (
 
 func applicationInstanceID(root string) string {
 	_, id := applicationIdentity()
-	if (buildChannel == "development" || buildChannel == "research") && os.Getenv("CAELIS_BOT_DATA_DIR") != "" {
+	if (buildChannel == "development" || buildChannel == "research" || buildChannel == "onboarding") && os.Getenv("CAELIS_BOT_DATA_DIR") != "" {
 		digest := sha256.Sum256([]byte(root))
 		return fmt.Sprintf("%s.fixture.%x", id, digest[:8])
 	}
@@ -28,14 +28,25 @@ func applicationIdentity() (name, id string) {
 	if buildChannel == "research" {
 		return "Caelis Bot Research", "dev.caelis.bot.research"
 	}
+	if buildChannel == "onboarding" {
+		return "Caelis Bot Dev Onboarding", "dev.caelis.bot.dev.onboarding"
+	}
 	return "Caelis Bot Dev", "dev.caelis.bot.dev"
 }
 
-// The research bundle may only run beside its isolated worktree roots. A direct
-// Finder launch with the real HOME must fail before any Runtime is discovered.
+// Isolated preview bundles may only run beside their worktree profile roots.
+// A direct Finder launch with the real HOME fails before Runtime discovery.
 func researchRootsValid(executable, home, data, codexHome, zdotdir, path string) bool {
+	return isolatedPreviewRootsValid(executable, "runtime-onboarding-research", home, data, codexHome, zdotdir, path)
+}
+
+func onboardingRootsValid(executable, home, data, codexHome, zdotdir, path string) bool {
+	return isolatedPreviewRootsValid(executable, "runtime-onboarding-dev", home, data, codexHome, zdotdir, path)
+}
+
+func isolatedPreviewRootsValid(executable, profileDirectory, home, data, codexHome, zdotdir, path string) bool {
 	root := filepath.Clean(filepath.Join(filepath.Dir(executable), "../../../.."))
-	base := filepath.Join(root, ".cache", "runtime-onboarding-research")
+	base := filepath.Join(root, ".cache", profileDirectory)
 	profileRoot := filepath.Dir(home)
 	legacy := profileRoot == base
 	profile, err := filepath.Rel(filepath.Join(base, "profiles"), profileRoot)
@@ -54,12 +65,16 @@ func researchRootsValid(executable, home, data, codexHome, zdotdir, path string)
 	expectedData := filepath.Join(profileRoot, "data")
 	resolvedRoot, rootErr := filepath.EvalSymlinks(base)
 	resolvedHome, homeErr := filepath.EvalSymlinks(home)
-	if rootErr != nil || homeErr != nil {
+	resolvedData, dataErr := filepath.EvalSymlinks(data)
+	resolvedCodex, codexErr := filepath.EvalSymlinks(codexHome)
+	if rootErr != nil || homeErr != nil || dataErr != nil || codexErr != nil {
 		return false
 	}
-	contained, relErr := filepath.Rel(resolvedRoot, resolvedHome)
-	if relErr != nil || contained == ".." || strings.HasPrefix(contained, ".."+string(filepath.Separator)) {
-		return false
+	for _, candidate := range []string{resolvedHome, resolvedData, resolvedCodex} {
+		contained, relErr := filepath.Rel(resolvedRoot, candidate)
+		if relErr != nil || contained == ".." || strings.HasPrefix(contained, ".."+string(filepath.Separator)) {
+			return false
+		}
 	}
 	expectedPath := strings.Join([]string{filepath.Join(expectedHome, ".local", "bin"), filepath.Join(expectedHome, "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin"}, string(os.PathListSeparator))
 	return filepath.Clean(home) == expectedHome && filepath.Clean(data) == expectedData && filepath.Clean(codexHome) == filepath.Join(expectedHome, ".codex") && filepath.Clean(zdotdir) == expectedHome && path == expectedPath

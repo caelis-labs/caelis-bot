@@ -87,6 +87,13 @@ The local development and installable release bundle identifiers and default dat
 `~/Library/Application Support/Caelis Bot`。本地 `Caelis Bot Dev.app` 不接收发行更新，
 其数据与 TCC 授权不会自动迁移。正式 tag 构建（或显式 `BOT_BUILD_CHANNEL=release`）
 才使用 `Caelis Bot.app` / `dev.caelis.bot`；开发启动只重启对应 bundle 路径。
+Runtime 引导的人工预览可使用另一份 **Caelis Bot Dev Onboarding.app**，bundle ID
+`dev.caelis.bot.dev.onboarding`。先运行 `BOT_BUILD_CHANNEL=onboarding make build`，
+再运行 `BOT_ONBOARDING_PROFILE=<new-name> bash research/runtime-onboarding/launch-dev.sh --restart`。
+此测试包只接受该脚本创建的 worktree 内 HOME、PATH、Bot 数据和 Runtime Store；
+不恢复真实账号的 shell 环境，不共享现有 Dev 实例的单实例锁、数据或签名身份。
+选择全新 profile 可从空白首次流程开始；同一 profile 再启动可检查设置和恢复。
+它是本地隔离开发包，不是正式发行版本。
 默认签名仍为 ad-hoc。需要反复验收辅助功能、自动化和静态快照时，
 可以显式选择本机已有的 **Apple Development** 身份。私钥留在登录钥匙串，
 不导出、不修改钥匙串 ACL、不使用正式发行证书；开发包不因此成为已公证发行包。

@@ -37,12 +37,20 @@ func Run(assets fs.FS) error {
 	var env []string
 	var report runtimeenv.Report
 	var envErr error
-	if buildChannel == "research" {
+	if buildChannel == "research" || buildChannel == "onboarding" {
 		// Explicit test-only identity: retain the isolated launcher's HOME/PATH
 		// verbatim. Login-shell restoration can escape into the real account.
 		executable, err := os.Executable()
-		if err != nil || !researchRootsValid(executable, os.Getenv("HOME"), os.Getenv("CAELIS_BOT_DATA_DIR"), os.Getenv("CODEX_HOME"), os.Getenv("ZDOTDIR"), os.Getenv("PATH")) || os.Getenv("CAELIS_CODEX_SOCKET") != "" || os.Getenv("CODEX_BIN") != "" {
-			return fmt.Errorf("research build requires its isolated launcher and roots")
+		validRoots := false
+		if err == nil {
+			check := researchRootsValid
+			if buildChannel == "onboarding" {
+				check = onboardingRootsValid
+			}
+			validRoots = check(executable, os.Getenv("HOME"), os.Getenv("CAELIS_BOT_DATA_DIR"), os.Getenv("CODEX_HOME"), os.Getenv("ZDOTDIR"), os.Getenv("PATH"))
+		}
+		if !validRoots || os.Getenv("CAELIS_CODEX_SOCKET") != "" || os.Getenv("CODEX_BIN") != "" {
+			return fmt.Errorf("isolated preview build requires its launcher and roots")
 		}
 		for _, entry := range runtimeenv.Clean(os.Environ()) {
 			key, _, _ := strings.Cut(entry, "=")
@@ -78,8 +86,8 @@ func Run(assets fs.FS) error {
 	if envErr != nil {
 		// Resolve returns only locally generated causes, never shell output/values.
 		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
-	} else if buildChannel == "research" {
-		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "research_environment_isolated", Reason: "test-only isolated HOME and PATH retained"})
+	} else if buildChannel == "research" || buildChannel == "onboarding" {
+		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "preview_environment_isolated", Reason: "test-only isolated HOME and PATH retained"})
 	} else if report.HomeRestored || report.RecoveredPathEntries > 0 {
 		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_recovered", Reason: fmt.Sprintf("account home restored: %t; inherited PATH entries recovered: %d", report.HomeRestored, report.RecoveredPathEntries)})
 	} else {

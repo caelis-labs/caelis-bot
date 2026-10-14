@@ -8,10 +8,10 @@ fi
 BOT_MODE="${1:-run}"
 if [[ "$BOT_MODE" == --verify-signed ]]; then export BOT_BUILD_CHANNEL=release; fi
 source "$BOT_ROOT/script/app-identity.sh"
-if [[ "$BOT_BUILD_CHANNEL" == research ]]; then
-  : "${BOT_RESEARCH_HOME:?Research launch requires BOT_RESEARCH_HOME}"
-  : "${BOT_RESEARCH_RUNTIME_PATH:?Research launch requires BOT_RESEARCH_RUNTIME_PATH}"
-  [[ "$BOT_RESEARCH_HOME" == "$BOT_ROOT"/.cache/* ]] || { echo 'Research HOME must be inside this worktree cache.' >&2; exit 1; }
+if [[ "$BOT_BUILD_CHANNEL" == research || "$BOT_BUILD_CHANNEL" == onboarding ]]; then
+  : "${BOT_RESEARCH_HOME:?Isolated preview launch requires BOT_RESEARCH_HOME}"
+  : "${BOT_RESEARCH_RUNTIME_PATH:?Isolated preview launch requires BOT_RESEARCH_RUNTIME_PATH}"
+  [[ "$BOT_RESEARCH_HOME" == "$BOT_ROOT"/.cache/* ]] || { echo 'Isolated preview HOME must be inside this worktree cache.' >&2; exit 1; }
 fi
 if [[ "$BOT_MODE" == --desktop-control-preview ]]; then
   exec bash "$BOT_ROOT/experiments/desktop-control/run-native.sh"
@@ -74,7 +74,7 @@ fi
 if [[ -n "${CODEX_HOME:-}" ]]; then
   BOT_OPEN_ARGS+=(--env "CODEX_HOME=$CODEX_HOME")
 fi
-if [[ "$BOT_BUILD_CHANNEL" == research ]]; then
+if [[ "$BOT_BUILD_CHANNEL" == research || "$BOT_BUILD_CHANNEL" == onboarding ]]; then
   BOT_OPEN_ARGS+=(--env "HOME=$BOT_RESEARCH_HOME" --env "ZDOTDIR=$BOT_RESEARCH_HOME" --env "PATH=$BOT_RESEARCH_RUNTIME_PATH")
 fi
 if [[ "$BOT_MODE" == --remote-terminal-smoke ]]; then
