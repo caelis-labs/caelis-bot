@@ -385,3 +385,58 @@ func TestWorkerCapacityWaitProjectsAndCancelsInAdapter(t *testing.T) {
 		t.Fatal("worker cancellation replayed request", calls.Load())
 	}
 }
+
+func TestCapacityStopDefiniteRejectionReleasesOriginalRequest(t *testing.T) {
+	t.Run("bot", func(t *testing.T) {
+		s, f := sessionPair(t, "hold")
+		request := "capacity-stop-rejected-bot"
+		f.mu.Lock()
+		f.handle = func(m wireMessage) (any, bool) {
+			if m.Method != "turn/start" {
+				return nil, false
+			}
+			s.mu.Lock()
+			s.binding.CapacityStopRequest, s.binding.CapacityStopThread = request, s.binding.ThreadID
+			s.binding.CapacityStopPhase = "requested"
+			s.mu.Unlock()
+			return &NativeError{Code: -32000, Message: "request rejected"}, true
+		}
+		f.mu.Unlock()
+		receipt := sendSynthetic(t, s, request)
+		if receipt.Outcome != "rejected" || !s.Snapshot().CanSend {
+			t.Fatal("definite rejection left the conversation waiting for a nonexistent Turn", receipt, s.Snapshot())
+		}
+		s.mu.Lock()
+		pending := s.binding.CapacityStopRequest
+		s.mu.Unlock()
+		if pending != "" {
+			t.Fatal("rejected stop remained pending", pending)
+		}
+	})
+	t.Run("worker", func(t *testing.T) {
+		s, f, _, manager := taskPair(t)
+		sendSynthetic(t, s, "capacity-stop-rejected-parent")
+		request := "capacity-stop-rejected-worker"
+		f.mu.Lock()
+		original := f.handle
+		f.handle = func(m wireMessage) (any, bool) {
+			if m.Method != "turn/start" {
+				return original(m)
+			}
+			s.mu.Lock()
+			for _, task := range s.binding.Tasks {
+				if task.Pending == request {
+					task.StopPendingRequest, task.StopPendingPhase = request, "requested"
+				}
+			}
+			s.mu.Unlock()
+			return &NativeError{Code: -32000, Message: "request rejected"}, true
+		}
+		f.mu.Unlock()
+		_, _ = manager.StartTask(testContext(t), api.TaskStart{RequestID: request, Title: "Synthetic", Prompt: "Synthetic request"})
+		states := s.WorkStates()
+		if len(states) != 1 || states[0].StopPending || states[0].Task.Outcome != "rejected" {
+			t.Fatal("definite rejection retained an unresolved worker stop", states)
+		}
+	})
+}

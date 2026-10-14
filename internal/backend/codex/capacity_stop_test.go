@@ -3,6 +3,8 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -273,5 +275,126 @@ func TestCapacityStopNeverUsesAnotherThreadReceipt(t *testing.T) {
 	s.mu.Unlock()
 	if accepted || turn != "old-native-turn" || queued {
 		t.Fatal("another thread's same-name receipt authorized the old stop", accepted, turn, queued)
+	}
+}
+
+func TestWorkerStopTerminalSaveFailureBlocksManagerReportAndReload(t *testing.T) {
+	s, f, _, m := taskPair(t)
+	sendSynthetic(t, s, "save-failure-parent")
+	request := "save-failure-worker-request"
+	started := newTask(t, m, request)
+	s.mu.Lock()
+	task := s.binding.Tasks[started.ID]
+	task.StopPendingRequest, task.StopPendingTurn, task.StopPendingPhase = request, task.Run, "attempted"
+	if err := s.save(); err != nil {
+		s.mu.Unlock()
+		t.Fatal(err)
+	}
+	stateFile := s.opts.StateFile
+	s.opts.StateFile = filepath.Dir(stateFile) // atomic rename onto a directory fails deterministically
+	s.mu.Unlock()
+	t.Cleanup(func() { s.mu.Lock(); s.opts.StateFile = stateFile; s.mu.Unlock() })
+	finishTask(s, f, started.ID, "completed")
+	deadline := time.After(2 * time.Second)
+	for {
+		states := s.WorkStates()
+		if len(states) == 1 && states[0].Task.Status == "unknown" && states[0].StopPending && states[0].StopResolution == "" && strings.Contains(states[0].Task.Result, "尚未保存") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("failed save published native terminal", states)
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if err := m.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	if list := m.ListTasks(); len(list) != 1 || list[0].Status != "unknown" {
+		t.Fatal("manager reported terminal before binding was durable", list)
+	}
+	if err := m.DeliverTaskReport(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	before := NewSession(SessionOptions{Directory: s.opts.Directory, StateFile: stateFile})
+	if before.binding.Tasks[started.ID].StopPendingStatus != "" {
+		t.Fatal("failed native terminal write appeared on disk")
+	}
+	before.cancelLife()
+	s.mu.Lock()
+	s.opts.StateFile = stateFile
+	s.mu.Unlock()
+	deadline = time.After(3 * time.Second)
+	for {
+		states := s.WorkStates()
+		if len(states) == 1 && states[0].StopResolution == "completed" && states[0].Task.Status == "completed" {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("local persistence retry did not release terminal", states)
+		case <-time.After(time.Millisecond):
+		}
+	}
+	after := NewSession(SessionOptions{Directory: s.opts.Directory, StateFile: stateFile})
+	defer after.cancelLife()
+	if after.binding.Tasks[started.ID].StopPendingStatus != "completed" {
+		t.Fatal("observed terminal was not durable after retry")
+	}
+	if err := m.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	finishRoot(f)
+	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend })
+	if err := m.DeliverTaskReport(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	report := string(f.lastParams["input"])
+	f.mu.Unlock()
+	if !strings.Contains(report, "stop was requested") || !strings.Contains(report, "ended completed") {
+		t.Fatal("durable terminal did not reach factual report", report)
+	}
+	if _, err := os.Stat(stateFile); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBotStopTerminalSaveFailureStaysVisibleUntilDurable(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	request := "bot-save-failure-original"
+	if receipt := sendSynthetic(t, s, request); receipt.Outcome != "accepted" {
+		t.Fatal(receipt)
+	}
+	s.mu.Lock()
+	s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn = request, "thread-native", "run-native"
+	s.binding.CapacityStopAccepted, s.binding.CapacityStopPhase = true, "attempted"
+	if err := s.save(); err != nil {
+		s.mu.Unlock()
+		t.Fatal(err)
+	}
+	stateFile := s.opts.StateFile
+	s.opts.StateFile = filepath.Dir(stateFile)
+	s.mu.Unlock()
+	t.Cleanup(func() { s.mu.Lock(); s.opts.StateFile = stateFile; s.mu.Unlock() })
+	finishRoot(f)
+	awaitState(t, s, func(v api.Snapshot) bool {
+		return v.Phase == "unknown" && strings.Contains(v.Message, "尚未保存") && !v.CanSend
+	})
+	before := NewSession(SessionOptions{Directory: s.opts.Directory, StateFile: stateFile})
+	if before.binding.CapacityStopStatus != "" {
+		t.Fatal("unsaved Bot terminal appeared on disk")
+	}
+	before.cancelLife()
+	s.mu.Lock()
+	s.opts.StateFile = stateFile
+	s.mu.Unlock()
+	awaitState(t, s, func(v api.Snapshot) bool {
+		return v.Phase == "completed" && strings.Contains(v.Message, "未确认及时生效")
+	})
+	after := NewSession(SessionOptions{Directory: s.opts.Directory, StateFile: stateFile})
+	defer after.cancelLife()
+	if after.binding.CapacityStopStatus != "completed" || after.binding.CapacityStopRequest != request {
+		t.Fatal("Bot terminal/receipt not durable after local retry")
 	}
 }

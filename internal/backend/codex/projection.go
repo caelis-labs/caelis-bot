@@ -110,9 +110,8 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 	if terminal(turn.Status) {
 		if s.binding.CapacityStopThread == s.binding.ThreadID && s.binding.CapacityStopTurn == turn.ID {
 			s.binding.CapacityStopStatus = turn.Status
-			if err := s.save(); err != nil {
-				s.state.Message = "停止结果已观察到，但本地记录尚未保存"
-			}
+			s.markStopTerminalSavePendingLocked("bot")
+			_ = s.save()
 		}
 		// A steered response can leave an agentMessage without item/completed.
 		// The turn is over, but neither the text nor the task outcome is a failure.

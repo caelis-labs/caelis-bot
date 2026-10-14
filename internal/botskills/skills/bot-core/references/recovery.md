@@ -11,6 +11,13 @@ owner. Keep responding to the user while that component retries observation.
 A failed display or draft refresh does not undo an accepted send. The surface
 retries its reads independently; never resend the message to repair its display.
 
+When Codex reports a capacity wait, let the host finish its bounded retry of
+the original request. Do not create another task or switch models to bypass
+the wait. If the user stops it, distinguish cancellation before dispatch from
+an unconfirmed stop after dispatch. Read the original task until its native
+result is confirmed; a stop acknowledgement does not prove interruption or
+undo earlier tool effects.
+
 When an approval or send has an unknown outcome, query the original request;
 never repeat its effects under a new ID. Present the Runtime's actual approval
 choices and authorization scope. Do not invent a broader choice or ask the user

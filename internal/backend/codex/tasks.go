@@ -27,21 +27,22 @@ type taskRecord struct {
 	CompletedMessages map[string]bool                `json:"completedMessages,omitempty"` // exact native turn/item completion receipts
 	// Native turn IDs displaced by a later, durably recorded continuation. Keep
 	// these across reconnects: an old terminal event is not the new result.
-	SupersededRuns     []string               `json:"supersededRuns,omitempty"`
-	Fingerprint        string                 `json:"fingerprint"`
-	Source             string                 `json:"source"`
-	Requests           map[string]taskReceipt `json:"requests"`
-	Pending            string                 `json:"pending,omitempty"`
-	StopPendingRequest string                 `json:"stopPendingRequest,omitempty"` // original request to stop after an uncertain retry dispatch
-	StopPendingTurn    string                 `json:"stopPendingTurn,omitempty"`
-	StopPendingPhase   string                 `json:"stopPendingPhase,omitempty"`  // requested, attempted, acknowledged
-	StopPendingStatus  string                 `json:"stopPendingStatus,omitempty"` // authoritative original native terminal status
-	ReportID           string                 `json:"reportId,omitempty"`
-	ReportState        string                 `json:"reportState,omitempty"`
-	SuppressReport     bool                   `json:"suppressReport,omitempty"`
-	Instructions       string                 `json:"instructions,omitempty"`
-	Retired            bool                   `json:"retired,omitempty"`
-	Activity           string                 `json:"-"`
+	SupersededRuns []string               `json:"supersededRuns,omitempty"`
+	Fingerprint    string                 `json:"fingerprint"`
+	Source         string                 `json:"source"`
+	Requests       map[string]taskReceipt `json:"requests"`
+	Pending        string                 `json:"pending,omitempty"`
+	ReportID       string                 `json:"reportId,omitempty"`
+	ReportState    string                 `json:"reportState,omitempty"`
+	SuppressReport bool                   `json:"suppressReport,omitempty"`
+	Instructions   string                 `json:"instructions,omitempty"`
+	Retired        bool                   `json:"retired,omitempty"`
+	Activity       string                 `json:"-"`
+
+	StopPendingRequest string `json:"stopPendingRequest,omitempty"` // original request to stop after an uncertain retry dispatch
+	StopPendingTurn    string `json:"stopPendingTurn,omitempty"`
+	StopPendingPhase   string `json:"stopPendingPhase,omitempty"`  // requested, attempted, acknowledged
+	StopPendingStatus  string `json:"stopPendingStatus,omitempty"` // authoritative original native terminal status
 }
 type workerAsyncQuestion struct {
 	Run       string              `json:"run"`
@@ -160,7 +161,9 @@ func (s *Session) WorkStates() []api.WorkState {
 		originalStopCurrent := t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run)
 		resolution := ""
 		if originalStopCurrent {
-			resolution = t.StopPendingStatus
+			if !s.stopTerminalSavePending["task:"+t.View.ID] {
+				resolution = t.StopPendingStatus
+			}
 		}
 		state := api.WorkState{Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
 		for key, question := range t.AsyncQuestions {
@@ -194,7 +197,10 @@ func (s *Session) taskView(t *taskRecord) api.Task {
 		v.Status = "unknown"
 	}
 	if t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run) {
-		if t.StopPendingStatus == "" {
+		if s.stopTerminalSavePending["task:"+t.View.ID] {
+			v.Status = "unknown"
+			v.Result = "原工作终态已观察到，但本地记录尚未保存；正在重试，暂不确认停止结果"
+		} else if t.StopPendingStatus == "" {
 			v.Status = "unknown"
 			v.Result = "已请求停止原工作，原生结果尚未确认；勿重复派发工作"
 		} else if t.StopPendingStatus == "interrupted" {
@@ -581,6 +587,11 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	if old := t.Requests[request]; old.Outcome == "accepted" {
 		r.Outcome = "accepted"
 	}
+	if r.Outcome == "rejected" && t.StopPendingRequest == request {
+		// This request never obtained a native Turn; its stop cannot remain
+		// pending or block a later explicit continuation of the same task.
+		t.StopPendingRequest, t.StopPendingTurn, t.StopPendingPhase, t.StopPendingStatus = "", "", "", ""
+	}
 	t.Requests[request] = r
 	t.View.Outcome = r.Outcome
 	// Reconcile an uncertain receipt once; normal progress is subscription-driven.
@@ -629,6 +640,7 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 		s.childTerminalStatus[opaque(t.Thread, turn.ID)] = turn.Status
 		if t.StopPendingRequest != "" && t.StopPendingTurn == turn.ID && t.StopPendingStatus != turn.Status {
 			t.StopPendingStatus = turn.Status
+			s.markStopTerminalSavePendingLocked("task:" + t.View.ID)
 			changed = true
 		}
 	}
@@ -874,6 +886,9 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 	}
 	if t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run) {
 		v, status := s.taskView(t), t.StopPendingStatus
+		if s.stopTerminalSavePending["task:"+t.View.ID] {
+			status = ""
+		}
 		s.mu.Unlock()
 		if status == "interrupted" {
 			return v, nil

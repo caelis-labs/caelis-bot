@@ -34,24 +34,25 @@ type binding struct {
 	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
 	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
-	Context              contextseed.State      `json:"context,omitempty"`
-	ContextInputs        map[string]int         `json:"contextInputs,omitempty"`
-	Dreams               map[string]dreamRecord `json:"dreams,omitempty"`
-	PastThreads          []string               `json:"pastThreads,omitempty"`
-	RenewedBy            string                 `json:"renewedBy,omitempty"`
-	ToolRenewal          *toolRenewalRecord     `json:"toolRenewal,omitempty"`
-	Scheduled            map[string]string      `json:"scheduled,omitempty"`       // accepted client IDs to native turn IDs
-	HostReports          map[string]bool        `json:"hostReports,omitempty"`     // host-only completion inputs, keyed by exact submitted ID
-	RecoveryNotices      map[string]bool        `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
-	CleanupTargets       []string               `json:"cleanupTargets,omitempty"`
-	StopState            string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
-	StopRuns             map[string]string      `json:"stopRuns,omitempty"`
-	CapacityStopRequest  string                 `json:"capacityStopRequest,omitempty"` // original resident request whose late Turn must not be called stopped
-	CapacityStopThread   string                 `json:"capacityStopThread,omitempty"`
-	CapacityStopTurn     string                 `json:"capacityStopTurn,omitempty"`
-	CapacityStopAccepted bool                   `json:"capacityStopAccepted,omitempty"`
-	CapacityStopPhase    string                 `json:"capacityStopPhase,omitempty"`
-	CapacityStopStatus   string                 `json:"capacityStopStatus,omitempty"`
+	Context         contextseed.State      `json:"context,omitempty"`
+	ContextInputs   map[string]int         `json:"contextInputs,omitempty"`
+	Dreams          map[string]dreamRecord `json:"dreams,omitempty"`
+	PastThreads     []string               `json:"pastThreads,omitempty"`
+	RenewedBy       string                 `json:"renewedBy,omitempty"`
+	ToolRenewal     *toolRenewalRecord     `json:"toolRenewal,omitempty"`
+	Scheduled       map[string]string      `json:"scheduled,omitempty"`       // accepted client IDs to native turn IDs
+	HostReports     map[string]bool        `json:"hostReports,omitempty"`     // host-only completion inputs, keyed by exact submitted ID
+	RecoveryNotices map[string]bool        `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
+	CleanupTargets  []string               `json:"cleanupTargets,omitempty"`
+	StopState       string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
+	StopRuns        map[string]string      `json:"stopRuns,omitempty"`
+
+	CapacityStopRequest  string `json:"capacityStopRequest,omitempty"` // original resident request whose late Turn must not be called stopped
+	CapacityStopThread   string `json:"capacityStopThread,omitempty"`
+	CapacityStopTurn     string `json:"capacityStopTurn,omitempty"`
+	CapacityStopAccepted bool   `json:"capacityStopAccepted,omitempty"`
+	CapacityStopPhase    string `json:"capacityStopPhase,omitempty"`
+	CapacityStopStatus   string `json:"capacityStopStatus,omitempty"`
 
 	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
 	DelegationText string                 `json:"delegationText,omitempty"`
@@ -95,83 +96,86 @@ type Session struct {
 	workerOnly             bool // trusted target owner; no resident API is exposed
 	backgroundResultsDirty bool
 
-	residentExecution       api.WorkExecutionSettings
-	usage                   api.ContextUsage
-	usageReason             string
-	usageTurn               string
-	usageTotal              int64
-	historyMu               sync.Mutex
-	op                      sync.Mutex
-	mu                      sync.Mutex
-	opts                    SessionOptions
-	client                  *Client
-	retainedOwner           *Client
-	forceNewOwner           bool
-	bound                   bool
-	epoch                   uint64
-	reconnectSeq            uint64
-	reconnectActive         bool
-	reconnectCancel         context.CancelFunc
-	reconnectAttempts       int
-	reconnectNoticeID       string
-	reconnectDelay          func(int) time.Duration
-	lastConnectCause        error
-	state                   api.Snapshot
-	binding                 binding
-	loadErr                 error
-	loading                 bool
-	buffer                  []Notification
-	bufferBytes             int
-	run                     string
-	runs                    map[string]string
-	items                   map[string]int
-	nativeItems             map[string]nativeItem
-	reviewOrigins           map[string]reviewOrigin
-	prompts                 map[string]*prompt
-	promptHandles           map[string]string
-	instance                string
-	refs                    map[string]nativeReference
-	artifacts               map[string]string
-	historyCursor           string
-	historyThread           string
-	historyPrevious         int
-	lastTurn                string
-	historyPaged            bool
-	children                map[string]bool
-	childRuns               map[string]string
-	childTerminals          map[string]bool
-	childTerminalStatus     map[string]string
-	childWatching           map[string]bool
-	childSubscribed         map[string]bool
-	childObservationFailed  map[string]bool
-	childRetireSeq          map[string]uint64
-	childRetired            map[string]bool
-	workerIdleDelay         time.Duration
-	retireUnsupported       bool
-	retireFailures          uint64
-	retiredWorkers          uint64
-	nativeUnloads           uint64
-	nativeResources         nativeResourceSnapshot
-	childRevision           map[string]uint64
-	loginID                 string
-	trustApprovalID         string
-	trustBlockedReason      string
-	loginStarting           bool
-	earlyLogin              map[string]bool
-	changed                 chan struct{}
-	closed                  bool
-	closing                 bool
-	life                    context.Context
-	cancelLife              context.CancelFunc
-	supervisorOnce          sync.Once
-	start                   func(context.Context, Options) (*Client, error)
-	capacityBackoff         func(int) time.Duration
-	capacityCancel          context.CancelFunc // cancellation during dispatch remains an unknown outcome
-	capacityThread          string
-	capacityRequest         string
-	capacityWaiting         bool
-	capacityDispatchStarted bool
-	capacityStopReconciling map[string]bool
+	residentExecution      api.WorkExecutionSettings
+	usage                  api.ContextUsage
+	usageReason            string
+	usageTurn              string
+	usageTotal             int64
+	historyMu              sync.Mutex
+	op                     sync.Mutex
+	mu                     sync.Mutex
+	opts                   SessionOptions
+	client                 *Client
+	retainedOwner          *Client
+	forceNewOwner          bool
+	bound                  bool
+	epoch                  uint64
+	reconnectSeq           uint64
+	reconnectActive        bool
+	reconnectCancel        context.CancelFunc
+	reconnectAttempts      int
+	reconnectNoticeID      string
+	reconnectDelay         func(int) time.Duration
+	lastConnectCause       error
+	state                  api.Snapshot
+	binding                binding
+	loadErr                error
+	loading                bool
+	buffer                 []Notification
+	bufferBytes            int
+	run                    string
+	runs                   map[string]string
+	items                  map[string]int
+	nativeItems            map[string]nativeItem
+	reviewOrigins          map[string]reviewOrigin
+	prompts                map[string]*prompt
+	promptHandles          map[string]string
+	instance               string
+	refs                   map[string]nativeReference
+	artifacts              map[string]string
+	historyCursor          string
+	historyThread          string
+	historyPrevious        int
+	lastTurn               string
+	historyPaged           bool
+	children               map[string]bool
+	childRuns              map[string]string
+	childTerminals         map[string]bool
+	childTerminalStatus    map[string]string
+	childWatching          map[string]bool
+	childSubscribed        map[string]bool
+	childObservationFailed map[string]bool
+	childRetireSeq         map[string]uint64
+	childRetired           map[string]bool
+	workerIdleDelay        time.Duration
+	retireUnsupported      bool
+	retireFailures         uint64
+	retiredWorkers         uint64
+	nativeUnloads          uint64
+	nativeResources        nativeResourceSnapshot
+	childRevision          map[string]uint64
+	loginID                string
+	trustApprovalID        string
+	trustBlockedReason     string
+	loginStarting          bool
+	earlyLogin             map[string]bool
+	changed                chan struct{}
+	closed                 bool
+	closing                bool
+	life                   context.Context
+	cancelLife             context.CancelFunc
+	supervisorOnce         sync.Once
+	start                  func(context.Context, Options) (*Client, error)
+
+	capacityBackoff          func(int) time.Duration
+	capacityCancel           context.CancelFunc // cancellation during dispatch remains an unknown outcome
+	capacityThread           string
+	capacityRequest          string
+	capacityWaiting          bool
+	capacityDispatchStarted  bool
+	capacityStopReconciling  map[string]bool
+	stopTerminalSavePending  map[string]bool
+	stopTerminalSaveRetrying bool
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -336,7 +340,10 @@ func (s *Session) update() {
 			s.backgroundResultsDirty = false
 		}
 	}
-	if s.binding.CapacityStopRequest != "" && (s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn) {
+	if s.stopTerminalSavePending["bot"] {
+		s.state.Phase = "unknown"
+		s.state.Message = "原回合终态已观察到，但本地记录尚未保存；正在重试，暂不确认停止结果"
+	} else if s.binding.CapacityStopRequest != "" && (s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn) {
 		if s.binding.CapacityStopStatus == "" {
 			s.state.Phase = "unknown"
 			s.state.Message = "已请求停止原回合，原生结果尚未确认"
@@ -402,10 +409,17 @@ func (s *Session) Snapshot() api.Snapshot {
 
 func (s *Session) save() error {
 	if s.loadErr != nil {
+		s.retryStopTerminalSaveLocked()
 		return s.loadErr
 	}
 	if err := localstate.Write(s.opts.StateFile, s.binding); err != nil {
+		s.retryStopTerminalSaveLocked()
 		return err
+	}
+	botTerminalPending := s.stopTerminalSavePending["bot"]
+	clear(s.stopTerminalSavePending)
+	if botTerminalPending && s.run == "" && s.lastTurn == s.binding.CapacityStopTurn && terminal(s.binding.CapacityStopStatus) {
+		s.state.Phase = s.binding.CapacityStopStatus
 	}
 	s.queueCapacityStopsLocked()
 	return nil
@@ -1086,6 +1100,12 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	if r.Outcome == "accepted" && s.binding.CapacityStopRequest == in.ID && s.binding.CapacityStopThread == threadID {
 		s.binding.CapacityStopAccepted = true
 	}
+	if r.Outcome == "rejected" && s.binding.CapacityStopRequest == in.ID && s.binding.CapacityStopThread == threadID && !s.binding.CapacityStopAccepted {
+		// A definitive rejection leaves no native Turn to stop. Do not keep
+		// the conversation fenced waiting for a target that cannot arrive.
+		s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn = "", "", ""
+		s.binding.CapacityStopPhase, s.binding.CapacityStopStatus = "", ""
+	}
 	s.binding.LastReceipt = &r
 	s.binding.Context.Resolve(in.ID, r.Outcome)
 	if err := s.save(); err != nil {
@@ -1150,6 +1170,9 @@ func (s *Session) Interrupt(ctx context.Context) error {
 	if request := s.binding.CapacityStopRequest; request != "" && s.binding.CapacityStopThread == thread {
 		if stoppingDispatchedRetry || s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn {
 			status := s.binding.CapacityStopStatus
+			if s.stopTerminalSavePending["bot"] {
+				status = ""
+			}
 			s.update()
 			s.mu.Unlock()
 			if status == "interrupted" {
