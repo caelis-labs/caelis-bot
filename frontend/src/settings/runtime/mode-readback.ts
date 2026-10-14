@@ -6,15 +6,16 @@ export function createModeReadback() {
   invalidate() { epoch++; },
   async read(read:()=>Promise<string>, accept:(value:string)=>void, fail:(error:unknown)=>void) {
    const ticket=++epoch;
-   try { const value=await read(); if(ticket===epoch)accept(value); }
+   try { const value=await read(); if(ticket===epoch) { accept(value); return value; } }
    catch(error) { if(ticket===epoch)fail(error); throw error; }
   },
-  async save(write:()=>Promise<unknown>, read:()=>Promise<string>, accept:(value:string)=>void, fail:(error:unknown)=>void) {
+  async save(write:()=>Promise<unknown>, read:()=>Promise<string>, accept:(value:string)=>void, fail:(error:unknown)=>void, expected?:{mode:string,error:Error}) {
    epoch++;
    let writeFailed=false,writeError:unknown;
    try { await write(); } catch(error) { writeFailed=true;writeError=error; }
-   await this.read(read,accept,fail);
+   const value=await this.read(read,accept,fail);
    if(writeFailed)throw writeError;
+   if(expected && value!==expected.mode)throw expected.error;
   },
  };
 }

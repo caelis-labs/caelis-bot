@@ -124,7 +124,7 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, call=backend,
     const options=await call<ExecutionOptions>('ExecutionOptions');
     setModeOptions(options);
     if(!options.approvalModes.some(mode=>mode.id==='full-access'))throw new Error(locale==='zh-CN'?'Host 授权回读尚未确认完全访问':'Host readback has not confirmed full access');
-    await modeReadback.current.save(()=>call('SaveBotExecutionMode','full-access'),()=>call<string>('BotExecutionMode'),setBotMode,e=>{setBotMode('');setError(messageOf(e,t('settings.executionSaveFailed')));});
+    await modeReadback.current.save(()=>call('SaveBotExecutionMode','full-access'),()=>call<string>('BotExecutionMode'),setBotMode,e=>{setBotMode('');setError(messageOf(e,t('settings.executionSaveFailed')));},{mode:'full-access',error:new Error(locale==='zh-CN'?'保存后读回的 Bot 执行模式不是完全访问，请核对后重试。':'The saved Bot execution mode did not read back as full access. Check it before retrying.')});
     setConfirmFullAccess(false);
    }catch(e){setError(messageOf(e,t('settings.executionSaveFailed')));}finally{grantInFlight.current=false;setModeBusy(false);}
   }}/ >}

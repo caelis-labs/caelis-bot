@@ -114,6 +114,22 @@ test('uncertain Bot mode write still reads authoritative state before reporting 
  assert.deepEqual(values,['auto']);
 });
 
+test('successful Bot full save with auto readback keeps the confirmation pending',async()=>{
+ const values=[],errors=[],gate=createModeReadback(),mismatch=Error('full mode was not confirmed');
+ let writes=0,reads=0;
+ await assert.rejects(gate.save(async()=>{writes++;},async()=>{reads++;return 'auto';},value=>values.push(value),error=>errors.push(error),{mode:'full-access',error:mismatch}),error=>error===mismatch);
+ assert.equal(writes,1);assert.equal(reads,1);
+ assert.deepEqual(values,['auto']);assert.deepEqual(errors,[]);
+});
+
+test('successful Bot full save with failed readback cannot confirm the requested mode',async()=>{
+ const values=[],errors=[],gate=createModeReadback(),readError=Error('readback unavailable');
+ let writes=0,reads=0;
+ await assert.rejects(gate.save(async()=>{writes++;},async()=>{reads++;throw readError;},value=>values.push(value),error=>errors.push(error),{mode:'full-access',error:Error('mismatch')}),error=>error===readError);
+ assert.equal(writes,1);assert.equal(reads,1);
+ assert.deepEqual(values,[]);assert.deepEqual(errors,[readError]);
+});
+
 test('resource read failure is an error, not an empty directory; a later empty result is authoritative',async()=>{
  const states=[],reader=createResourceReadback();
  await reader.load(async()=>{throw Error('Host unavailable');},state=>states.push(state));
