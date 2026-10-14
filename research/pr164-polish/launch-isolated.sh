@@ -7,7 +7,7 @@ POLISH_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 POLISH_BUILD_TAG=${BOT_POLISH_BUILD_TAG:-}
 [[ -z "$POLISH_BUILD_TAG" || "$POLISH_BUILD_TAG" =~ ^[a-z0-9-]{1,40}$ ]] || { echo 'Invalid PR164 build tag.' >&2; exit 1; }
 POLISH_BUNDLE="$POLISH_ROOT/dist/Caelis Bot Dev PR164${POLISH_BUILD_TAG:+-$POLISH_BUILD_TAG}.app"
-POLISH_PROFILE=${BOT_POLISH_PROFILE:-review}
+POLISH_PROFILE=${BOT_POLISH_PROFILE:?Set a unique BOT_POLISH_PROFILE for this review bundle}
 [[ "$POLISH_PROFILE" =~ ^[a-z0-9-]+$ ]] || { echo 'Invalid PR164 profile.' >&2; exit 1; }
 POLISH_PROFILE_ROOT="$POLISH_ROOT/.cache/pr164-polish-dev/profiles/$POLISH_PROFILE"
 POLISH_HOME="$POLISH_PROFILE_ROOT/home"
@@ -34,6 +34,7 @@ done
 umask 077
 mkdir -p "$POLISH_HOME/.codex" "$POLISH_DATA" "$POLISH_HOME/.local/bin" "$POLISH_HOME/bin"
 chmod 700 "$POLISH_HOME" "$POLISH_HOME/.codex" "$POLISH_DATA"
+bash "$POLISH_ROOT/research/pr164-polish/core-profile.sh" --prepare
 
 export BOT_BUILD_CHANNEL=polish
 export BOT_RESEARCH_HOME="$POLISH_HOME"
