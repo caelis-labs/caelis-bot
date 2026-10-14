@@ -22,16 +22,24 @@ type pendingInput struct {
 }
 
 type journal struct {
-	Dream        bool                   `json:"dream,omitempty"`
-	PendingInput *pendingInput          `json:"pendingInput,omitempty"`
-	TurnID       string                 `json:"turnID,omitempty"`
-	Scheduled    bool                   `json:"scheduled,omitempty"`
-	Digest       string                 `json:"digest"`
-	Path         string                 `json:"path"`
-	Body         json.RawMessage        `json:"body"`
-	Outcome      string                 `json:"outcome"`
-	Resource     string                 `json:"resource,omitempty"`
-	Source       wire.ApplicationSource `json:"source"`
+	Dream bool `json:"dream,omitempty"`
+	// Creation authority survives a committed create after Body is discarded.
+	// It is never synthesized again from changed future preferences on recovery.
+	CreationAuthority *creationAuthority     `json:"creationAuthority,omitempty"`
+	PendingInput      *pendingInput          `json:"pendingInput,omitempty"`
+	TurnID            string                 `json:"turnID,omitempty"`
+	Scheduled         bool                   `json:"scheduled,omitempty"`
+	Digest            string                 `json:"digest"`
+	Path              string                 `json:"path"`
+	Body              json.RawMessage        `json:"body"`
+	Outcome           string                 `json:"outcome"`
+	Resource          string                 `json:"resource,omitempty"`
+	Source            wire.ApplicationSource `json:"source"`
+}
+
+type creationAuthority struct {
+	Permissions *wire.ApplicationPermissions `json:"permissions,omitempty"`
+	Reviewer    *wire.ApplicationReviewer    `json:"reviewer,omitempty"`
 }
 type view struct {
 	Usage           api.ContextUsage                 `json:"-"`

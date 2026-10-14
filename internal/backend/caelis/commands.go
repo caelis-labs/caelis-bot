@@ -47,7 +47,16 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		_ = json.Unmarshal(b, &prompt)
 		source = wire.ApplicationSource{Kind: prompt.SourceKind, OperationId: op, GrantId: prompt.GrantId}
 	}
-	s.state.Operations[op] = journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0]}
+	j := journal{Path: path, Body: b, Digest: hash, Outcome: "unknown", Source: source, Scheduled: len(scheduled) > 0 && scheduled[0]}
+	if path == "/application/sessions" {
+		var create wire.CreateApplicationSessionRequest
+		if err := json.Unmarshal(b, &create); err != nil {
+			s.mu.Unlock()
+			return wire.CommandResult{}, err
+		}
+		j.CreationAuthority = &creationAuthority{Permissions: create.Profile.Permissions, Reviewer: create.Profile.Reviewer}
+	}
+	s.state.Operations[op] = j
 	if len(scheduled) > 1 {
 		j := s.state.Operations[op]
 		j.Dream = scheduled[1]
@@ -124,7 +133,7 @@ func (s *Session) command(ctx context.Context, op, path string, req any, schedul
 		return wire.CommandResult{OperationId: op, Outcome: "unknown"}, errors.New("Caelis 操作回执不匹配")
 	}
 	s.mu.Lock()
-	j := s.state.Operations[op]
+	j = s.state.Operations[op]
 	j.Outcome = string(out.Outcome)
 	if j.Outcome != "unknown" {
 		j.PendingInput = nil

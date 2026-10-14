@@ -208,6 +208,9 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		if !current.Idle {
 			return errors.New("对话暂不能交接")
 		}
+		if err := rejectUnsupportedFullAccess(s.execution.ApprovalMode); err != nil {
+			return err
+		}
 		config, err := s.configuration(ctx, source)
 		if err != nil {
 			return err
@@ -251,6 +254,12 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	}
 	if next.SessionId != sid || sid == source || next.ApplicationId != life.ApplicationId || next.ConnectionId != life.ConnectionId || next.PrincipalId != life.PrincipalId || next.Archived || next.Profile.Execution != s.executionMode {
 		return errors.New("新上下文绑定不匹配")
+	}
+	if err := verifyCreatedAuthority(pending, next); err != nil {
+		return err
+	}
+	if err := rejectUnsupportedCreatedBinding(next); err != nil {
+		return err
 	}
 	if err := s.checkReviewer(ctx, next); err != nil {
 		return err

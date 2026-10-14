@@ -11,6 +11,9 @@ const {displayConnectionMessage} = await server.ssrLoadModule('/src/connection-m
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
 const {serialLatest} = await server.ssrLoadModule('/src/settings/runtime/worker-refresh.ts');
 const {connectSelectedModels} = await server.ssrLoadModule('/src/settings/runtime/connection-sequence.ts');
+const {readSelectedWorker} = await server.ssrLoadModule('/src/settings/runtime/worker-selection.ts');
+const {createModeReadback} = await server.ssrLoadModule('/src/settings/runtime/mode-readback.ts');
+const {createResourceReadback} = await server.ssrLoadModule('/src/settings/runtime/resource-readback.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
 
@@ -29,6 +32,42 @@ test('failed Worker inspection still runs queued refresh and releases busy',asyn
  const schedule=serialLatest(async request=>{calls.push(request);if(request==='old'){await delayed;throw Error('fixture failure');}},value=>busy.push(value),error=>errors.push(error.message));
  schedule('old');schedule('latest');release();await delayed;await new Promise(resolve=>setImmediate(resolve));
  assert.deepEqual(calls,['old','latest']);assert.deepEqual(errors,['fixture failure']);assert.deepEqual(busy,[true,false]);
+});
+
+test('failed native Worker selection read never substitutes an inspectable Codex or cached value',async()=>{
+ const calls=[];
+ const call=async(method,...args)=>{calls.push([method,...args]);if(method==='SelectedLocalWorker')throw Error('native default unavailable');return {runtime:'codex',ready:true};};
+ await assert.rejects(readSelectedWorker(call),/native default unavailable/);
+ assert.deepEqual(calls,[['SelectedLocalWorker']]);
+ const selected=async(method,...args)=>{calls.push([method,...args]);if(method==='SelectedLocalWorker')return 'caelis';return {runtime:'codex',ready:true};};
+ await assert.rejects(readSelectedWorker(selected,'codex'),/did not commit/);
+ assert.deepEqual(calls.slice(1),[['SelectLocalWorker','codex'],['SelectedLocalWorker']]);
+});
+
+test('Bot mode save supersedes an older refresh and accepts only the authoritative readback',async()=>{
+ let releaseOld,releaseSave;
+ const old=new Promise(resolve=>{releaseOld=resolve;}),write=new Promise(resolve=>{releaseSave=resolve;});
+ const values=[],errors=[],gate=createModeReadback();
+ const stale=gate.read(()=>old,value=>values.push(value),error=>errors.push(error));
+ const saving=gate.save(()=>write,()=>Promise.resolve('full-access'),value=>values.push(value),error=>errors.push(error));
+ const racing=gate.read(()=>old,value=>values.push(value),error=>errors.push(error));
+ releaseSave();await saving;
+ releaseOld('auto');await Promise.all([stale,racing]);
+ assert.deepEqual(values,['full-access']);assert.deepEqual(errors,[]);
+});
+
+test('uncertain Bot mode write still reads authoritative state before reporting the error',async()=>{
+ const values=[],gate=createModeReadback();
+ await assert.rejects(gate.save(async()=>{throw Error('response lost');},async()=> 'auto',value=>values.push(value),()=>{}),/response lost/);
+ assert.deepEqual(values,['auto']);
+});
+
+test('resource read failure is an error, not an empty directory; a later empty result is authoritative',async()=>{
+ const states=[],reader=createResourceReadback();
+ await reader.load(async()=>{throw Error('Host unavailable');},state=>states.push(state));
+ assert.equal(states.at(-1).status,'error');assert.equal(states.at(-1).value,null);
+ await reader.load(async()=>({connections:[]}),state=>states.push(state));
+ assert.equal(states.at(-1).status,'ready');assert.deepEqual(states.at(-1).value.connections,[]);
 });
 
 test('execution labels are local copy only; native selectors and unknown IDs stay intact',()=>{

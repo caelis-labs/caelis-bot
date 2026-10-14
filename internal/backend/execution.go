@@ -78,6 +78,12 @@ func (s *Service) SaveBotExecutionMode(mode string) error {
 	}
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
+	if mode == "full-access" {
+		provider, ok := s.currentEngine().(api.Provider)
+		if !ok || provider.ProviderInfo().ID == "caelis" {
+			return errors.New("Caelis 完全访问仍需 Core 提供创建时执行审批合同；当前连接不可选择")
+		}
+	}
 	if _, err := LoadBotExecutionMode(s.executionFile); err != nil {
 		return err
 	}

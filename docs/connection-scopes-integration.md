@@ -1,45 +1,59 @@
 # PR 164 connection and execution scope handoff
 
 This branch is based on `6391669e`. Apply `94de4010`, `c1b87eb5`, `2809b0de`,
-and this branch's final commit in order when integrating. The onboarding
+`beedf9f1`, and this branch's incremental review-fix commit in order when integrating. The onboarding
 `64dee69d` and Team `9036243a` commits are separate; the optional `scene` prop
 in `RuntimeSettings.tsx` is compatible with the baseline wizard until they meet.
 
-## Caelis Bot full access contract
+## Caelis Bot full access: Core dependency
 
-Core `docs/application-runtime.md` (workspace and permissions section) says
-`permissions.mode=danger-full-access` selects Host execution for native tools,
-while `permissions.approval_mode` chooses the reviewer of approval requests.
-Core `app/gatewayapp/application_execution_runtime.go` selects the Host sandbox
-backend for that mode; `application_runtime.go` assembles its explicit native
-policy. The SDK `DangerFullAccessMode` allows native tools without its own
-approval or command filtering, and `endpoint_approval_policy.go` resolves
-controller/participant/subagent permission options before the manual requester.
-These are scoped to the new Application Session; they do not set a process-wide
-`--dangerously-skip-permissions` flag or change an existing Session.
+Verified against sibling Core HEAD `1305eff4d424199a68c6091d683d1d3bce09a612`
+and Bot source at `beedf9f1`. Core `docs/application-runtime.md` under
+"Workspace and permissions" defines creation-bound `permissions.mode` and
+`permissions.approval_mode`. `danger-full-access` selects unsandboxed Host native
+execution. It does **not** change the callback approval policy. Bot
+`internal/backend/caelis/application.go` marks callbacks outside its small
+`ApprovedTools` allowlist as `required`, including `bot_delegate` and
+`bot_schedule_update`. Core `control/application/callback_policy.go` returns
+`ActionAskApproval` for each such call; `app/gatewayapp/application_runtime.go`
+evaluates that decision before the native policy. With `manual`, Core asks a
+person. With `auto-review` and a creation-bound Guardian, Guardian can still
+deny or time out. Neither choice gives Codex-like full execution access,
+where Bot maps full access to `approvalPolicy=never` and
+`sandbox=danger-full-access` in `internal/backend/codex/execution.go`.
 
-`manual` **does still request human approval** for actions outside the native
-policy. In particular, Bot `application.go` marks every callback not explicitly
-listed in `ApprovedTools` as `approval_policy=required`. Core
-`control/application/callback_policy.go` returns `ActionAskApproval` for those
-callbacks **before** the native policy in `application_runtime.go` is consulted.
-Core `application_reviewer.go` resolves `manual` from the creation-bound profile,
-and `internal/kernel/gateway_approval.go` enqueues those requests for a person.
-The old `danger-full-access + manual` mapping therefore did not meet a setting
-that promises no manual execution prompts.
+The **minimal Core dependency** is a negotiated, creation-bound Application
+Session execution approval contract that distinguishes Runtime execution review
+from independent application authorization. Do not invent a field name in Bot
+before Core defines and generates it. Core must specify and test how full access
+handles native command/file execution, MCP execution, and `required` Bot callback
+execution. For a callback that has passed the separate Bot/Host authorization,
+full access must not send it through Guardian solely as a Runtime execution
+review. Core must continue exact connection and catalog binding, schema and
+argument validation, callback claim/receipt idempotence, Host ownership and
+explicit background grants. App-level Computer Use/turn consent, account login,
+OS permissions, and missing user decisions stay independent. Core must expose
+the effective creation-bound approval contract in the returned binding, with a
+capability for negotiation. Fixtures must prove: auto-review still routes its
+required execution calls to Guardian; full access does not; independent Host and
+OS gates still apply; existing Sessions keep their original profile; unknown
+contract values fail closed. Reviewer readiness alone cannot prove this.
 
-The Bot mapping in this branch uses `permissions.mode=danger-full-access`,
-`permissions.approval_mode=auto-review`, and an explicit creation-bound
-`reviewer: {kind: guardian, model: <configured model>}`. Core's
-`control/application/bindings.go` and `reviewer.go` accept that combination for
-native `workspace-write` execution; the adapter verifies `reviewer-state=ready`
-before a new Session is used. Required Bot callbacks still pass through Guardian,
-which may deny or fail closed. `direct` callbacks remain limited to the explicit
-Bot allowlist. Application binding, exact callback catalog, Host ownership,
-background grants, OS permissions, account login, and missing user decisions
-retain their own gates. Full access is therefore Host execution with automatic
-review of required Bot actions, **not** blanket authorization of application
-effects or a promise that every action succeeds.
+Until that Core contract and Bot adapter integration exist, Caelis Bot offers
+only automatic review. `ExecutionOptions` omits full access,
+`SaveBotExecutionMode` rejects it for Caelis, and new creation or handoff refuses
+a pending full-access profile. Existing bound Sessions recover under their
+original immutable permissions. Codex Bot full access is unaffected. To enable
+Caelis after Core integration, remove the guards in
+`internal/backend/caelis/settings.go` (`ExecutionOptions`),
+`internal/backend/execution.go` (`SaveBotExecutionMode`), and
+`internal/backend/caelis/application.go` (`rejectUnsupportedFullAccess` and
+`rejectUnsupportedCreatedBinding`, also called by `context.go`). Replace the
+provisional mapping in `internal/backend/caelis/reviewer.go` with the generated
+Core contract, verify effective mode/approval/reviewer against the pre-dispatch
+creation snapshot, and update the Caelis button detail in
+`frontend/src/settings/runtime/RuntimeWorkspace.tsx`. Do not add all callbacks
+to `ApprovedTools`, infer authority from model prose, or change an old binding.
 
 ## Integration interfaces and gates
 
@@ -78,10 +92,11 @@ The repository fixtures cover all four Bot/Worker Runtime combinations, an
 unready Worker target, failed and cancelled Bot switching, original task route
 retention, and newest draft revision on rollback. `script/runtime-settings.test.mjs`
 covers busy release after coalesced/failed refresh and first-run setup state.
-This branch's Caelis profile test covers new `danger-full-access + auto-review +
-Guardian` assembly and old-profile immutability. Core's existing permission and
-profile tests cover native Host policy and validation; the callback/manual
-conclusion is also supported by the exact policy and queue source paths above.
+This branch's Caelis fixtures cover the provisional
+`danger-full-access + auto-review + Guardian` assembly, the new-binding
+readback fence, the Core-contract gate, and old-profile immutability. They do
+not prove the pending Core full-access contract. The callback conclusion is
+from the exact Core policy source paths above.
 These are source and isolated fixture results. Native GUI flow, real account,
 actual model judgment, Core Worker extension, and merged-head acceptance remain
 for the coordinator's serial integration and independent review.

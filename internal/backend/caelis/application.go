@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sort"
 
@@ -14,6 +15,35 @@ import (
 
 func (*Session) ApplicationCapabilities() api.ApplicationCapabilities {
 	return api.ApplicationCapabilities{NativeFiles: true, WorkerExecution: true, ScheduledActivation: true}
+}
+
+// A create receipt identifies a Session but does not prove its effective
+// authority. The immutable request snapshot is journaled before dispatch.
+func verifyCreatedAuthority(j journal, b wire.ApplicationBinding) error {
+	if j.Path != "/application/sessions" || j.CreationAuthority == nil ||
+		!reflect.DeepEqual(j.CreationAuthority.Permissions, b.Profile.Permissions) ||
+		!reflect.DeepEqual(j.CreationAuthority.Reviewer, b.Profile.Reviewer) {
+		return errors.New("Caelis 新对话权限绑定与原创建请求不匹配；原回执已保留")
+	}
+	return nil
+}
+
+// Core currently routes required application callbacks through Guardian even
+// when native execution uses danger-full-access. Until it exposes a separate
+// creation-bound execution approval contract, this cannot satisfy Bot's full
+// access choice. Old bound Sessions retain their original authority.
+func rejectUnsupportedFullAccess(mode string) error {
+	if api.NormalizeNewExecutionMode(mode) == "full-access" {
+		return errors.New("Caelis 完全访问仍需 Core 提供创建时执行审批合同；不会创建或切入新对话")
+	}
+	return nil
+}
+
+func rejectUnsupportedCreatedBinding(b wire.ApplicationBinding) error {
+	if b.Profile.Permissions != nil && value(b.Profile.Permissions.Mode) == "danger-full-access" {
+		return rejectUnsupportedFullAccess("full-access")
+	}
+	return nil
 }
 func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	s.step.Lock()
@@ -161,6 +191,7 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	c := s.client
 	life := s.state.Connection
 	s.mu.Unlock()
+	created := b.SessionId == ""
 	if b.SessionId == "" {
 		// Profile bytes are immutable. A restarted pending create must use the saved
 		// journal and recover its operation, never regenerate a changed profile.
@@ -176,6 +207,9 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 			}
 			b.SessionId = j.Resource
 		} else {
+			if err := rejectUnsupportedFullAccess(s.execution.ApprovalMode); err != nil {
+				return err
+			}
 			profile := s.profile
 			profile.Model = s.execution.Model
 			profile.ReasoningEffort = &s.execution.Effort
@@ -233,6 +267,17 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	}
 	if b.ApplicationId != life.ApplicationId || b.ConnectionId != life.ConnectionId || b.PrincipalId != life.PrincipalId || b.Archived || b.Profile.Execution != s.executionMode {
 		return errors.New("Caelis 对话绑定不匹配或已归档")
+	}
+	if created {
+		s.mu.Lock()
+		j := s.state.Operations[op]
+		s.mu.Unlock()
+		if err := verifyCreatedAuthority(j, b); err != nil {
+			return err
+		}
+		if err := rejectUnsupportedCreatedBinding(b); err != nil {
+			return err
+		}
 	}
 	s.mu.Lock()
 	s.state.Session = b

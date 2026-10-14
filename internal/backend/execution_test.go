@@ -12,8 +12,16 @@ import (
 
 type executionFake struct {
 	snapshotEngine
-	reject bool
-	value  api.ExecutionSettings
+	reject     bool
+	value      api.ExecutionSettings
+	providerID string
+}
+
+func (e *executionFake) ProviderInfo() api.ProviderInfo {
+	if e.providerID == "" {
+		return api.ProviderInfo{ID: "codex"}
+	}
+	return api.ProviderInfo{ID: e.providerID}
 }
 
 func (*executionFake) ExecutionOptions() api.ExecutionOptions { return api.ExecutionOptions{} }
@@ -118,5 +126,20 @@ func TestBotFutureModeIsPersistedWithoutChangingCurrentExecution(t *testing.T) {
 	}
 	if _, err := s.BotExecutionMode(); err == nil {
 		t.Fatal("corrupt saved choice silently defaulted")
+	}
+}
+
+func TestCaelisFullModeCannotBeSavedWithoutCoreExecutionApprovalContract(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "execution.json")
+	s := NewService(&executionFake{providerID: "caelis"}, nil, nil, nil, nil)
+	s.ConfigureExecution(path, api.ExecutionSettings{ApprovalMode: "auto"})
+	if err := s.SaveBotExecutionMode("full-access"); err == nil {
+		t.Fatal("unsupported Caelis full access was saved")
+	}
+	if mode, err := s.BotExecutionMode(); err != nil || mode != "auto" {
+		t.Fatal("rejected choice changed future mode", mode, err)
+	}
+	if err := s.SaveBotExecutionMode("auto"); err != nil {
+		t.Fatal("supported auto review was rejected", err)
 	}
 }
