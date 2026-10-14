@@ -249,5 +249,5 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window :is(.runtime-worker-options,.runtime-permissions-disclosure,.model-parameters)[open]>summary svg { transform:rotate(90deg); }
 .settings-window .runtime-model-picker { height:auto; }
 .settings-window .runtime-model-picker .runtime-model-choices { flex:0 1 auto; max-height:320px; min-height:80px; }
-.settings-window .runtime-model-search-field input { border:0; background:transparent; height:32px; padding:0; box-shadow:none; }
+.settings-window .runtime-dialog .runtime-model-search-field input:not([type=checkbox]):not([type=radio]):not([type=range]) { border:0; background:transparent; height:32px; padding:0; box-shadow:none; }
 .settings-window .runtime-model-connect { align-self:flex-start; text-align:left; width:auto; margin-top:10px; }
