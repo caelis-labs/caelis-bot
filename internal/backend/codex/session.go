@@ -47,6 +47,13 @@ type binding struct {
 	StopState       string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
 	StopRuns        map[string]string      `json:"stopRuns,omitempty"`
 
+	CapacityStopRequest  string `json:"capacityStopRequest,omitempty"` // original resident request whose late Turn must not be called stopped
+	CapacityStopThread   string `json:"capacityStopThread,omitempty"`
+	CapacityStopTurn     string `json:"capacityStopTurn,omitempty"`
+	CapacityStopAccepted bool   `json:"capacityStopAccepted,omitempty"`
+	CapacityStopPhase    string `json:"capacityStopPhase,omitempty"`
+	CapacityStopStatus   string `json:"capacityStopStatus,omitempty"`
+
 	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
 	DelegationText string                 `json:"delegationText,omitempty"`
 	Children       []string               `json:"children,omitempty"`
@@ -159,6 +166,16 @@ type Session struct {
 	cancelLife             context.CancelFunc
 	supervisorOnce         sync.Once
 	start                  func(context.Context, Options) (*Client, error)
+
+	capacityBackoff          func(int) time.Duration
+	capacityCancel           context.CancelFunc // cancellation during dispatch remains an unknown outcome
+	capacityThread           string
+	capacityRequest          string
+	capacityWaiting          bool
+	capacityDispatchStarted  bool
+	capacityStopReconciling  map[string]bool
+	stopTerminalSavePending  map[string]bool
+	stopTerminalSaveRetrying bool
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -323,10 +340,23 @@ func (s *Session) update() {
 			s.backgroundResultsDirty = false
 		}
 	}
+	if s.stopTerminalSavePending["bot"] {
+		s.state.Phase = "unknown"
+		s.state.Message = "原回合终态已观察到，但本地记录尚未保存；正在重试，暂不确认停止结果"
+	} else if s.binding.CapacityStopRequest != "" && (s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn) {
+		if s.binding.CapacityStopStatus == "" {
+			s.state.Phase = "unknown"
+			s.state.Message = "已请求停止原回合，原生结果尚未确认"
+		} else if s.binding.CapacityStopStatus == "interrupted" {
+			s.state.Message = "原回合已中断；已执行工具的实际效果仍以原生回执为准"
+		} else {
+			s.state.Message = "停止请求未确认及时生效；原回合实际状态为" + s.binding.CapacityStopStatus
+		}
+	}
 	s.state.Revision++
 	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase != "unknown" && !s.closed && !s.closing
 	s.state.CanSteer = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run != "" && s.state.Phase == "working" && !s.hasConversationPrompt() && !s.closed && !s.closing
-	s.state.CanInterrupt = s.state.Connection == "ready" && (len(s.binding.CleanupTargets) == 0 || s.binding.StopState == "prepared") && (s.run != "" || s.hasBlockingChildren()) && !s.closed && !s.closing
+	s.state.CanInterrupt = s.state.Connection == "ready" && (len(s.binding.CleanupTargets) == 0 || s.binding.StopState == "prepared") && (s.run != "" || s.hasBlockingChildren() || s.capacityCancel != nil) && !s.closed && !s.closing
 	s.publishSnapshot()
 	close(s.changed)
 	s.changed = make(chan struct{})
@@ -379,9 +409,20 @@ func (s *Session) Snapshot() api.Snapshot {
 
 func (s *Session) save() error {
 	if s.loadErr != nil {
+		s.retryStopTerminalSaveLocked()
 		return s.loadErr
 	}
-	return localstate.Write(s.opts.StateFile, s.binding)
+	if err := localstate.Write(s.opts.StateFile, s.binding); err != nil {
+		s.retryStopTerminalSaveLocked()
+		return err
+	}
+	botTerminalPending := s.stopTerminalSavePending["bot"]
+	clear(s.stopTerminalSavePending)
+	if botTerminalPending && s.run == "" && s.lastTurn == s.binding.CapacityStopTurn && terminal(s.binding.CapacityStopStatus) {
+		s.state.Phase = s.binding.CapacityStopStatus
+	}
+	s.queueCapacityStopsLocked()
+	return nil
 }
 
 func (s *Session) Connect(ctx context.Context) error {
@@ -606,6 +647,7 @@ func (s *Session) connect(ctx context.Context) error {
 		}
 		s.state.Connection = "ready"
 		s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "recovery_ready", Generation: epoch, SessionEpoch: epoch, TransportGeneration: c.rpc.generation, Phase: "worker_reconciliation"})
+		s.queueCapacityStopsLocked()
 		s.update()
 		s.mu.Unlock()
 		return nil
@@ -728,6 +770,7 @@ func (s *Session) connect(ctx context.Context) error {
 			return s.connectionError("恢复期间连接再次断开", ErrClosed)
 		}
 		s.state.Connection = "ready"
+		s.queueCapacityStopsLocked()
 		s.update()
 		s.mu.Unlock()
 		if err := s.reconcileTerminalCleanup(ctx, c); err != nil {
@@ -741,6 +784,7 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	s.state.Connection = "ready"
 	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "recovery_ready", Generation: epoch, SessionEpoch: epoch, TransportGeneration: c.rpc.generation, Phase: "receipt_and_worker_reconciliation"})
+	s.queueCapacityStopsLocked()
 	s.update()
 	s.mu.Unlock()
 	go s.observeNativeResources(c, epoch)
@@ -1002,7 +1046,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		Turn   nativeTurn `json:"turn"`
 		TurnID string     `json:"turnId"`
 	}
-	err = callDecode(ctx, c, method, params, &response)
+	err = s.startWithCapacityRetry(ctx, c, method, params, &response, threadID, in.ID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err == nil {
@@ -1015,6 +1059,9 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	if err == nil {
 		r.Outcome = "accepted"
 		if run == "" {
+			if s.binding.CapacityStopRequest == in.ID && s.binding.CapacityStopThread == threadID {
+				s.binding.CapacityStopTurn = response.Turn.ID
+			}
 			if in.Scheduled {
 				s.binding.Scheduled[in.ID] = response.Turn.ID
 			}
@@ -1027,11 +1074,17 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		if errors.As(err, &request) && !request.OutcomeUnknown {
 			s.binding.Pending = nil
 			r.Message = "消息未发送，请重试"
+			if errors.Is(err, context.Canceled) {
+				r.Message = "容量等待已取消，消息未发送"
+			}
 		} else {
 			var native *NativeError
 			if errors.As(err, &native) {
 				s.binding.Pending = nil
 				r.Message = "Codex 未接受这次发送，请检查连接后重试"
+				if capacityReportedError(err) {
+					r.Message = "模型仍然繁忙，自动重试已耗尽；请稍后重试或手动选择其他模型"
+				}
 			} else {
 				r.Outcome = "unknown"
 				r.Message = "发送结果未知，草稿已保留；请重新连接核对，不要重复发送"
@@ -1043,6 +1096,18 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	if s.state.LastReceipt.ID == in.ID && s.state.LastReceipt.Outcome == "accepted" {
 		r = s.state.LastReceipt
 		s.binding.Pending = nil
+	}
+	if r.Outcome == "accepted" && s.binding.CapacityStopRequest == in.ID && s.binding.CapacityStopThread == threadID {
+		s.binding.CapacityStopAccepted = true
+	}
+	if r.Outcome == "rejected" && s.binding.CapacityStopRequest == in.ID && s.binding.CapacityStopThread == threadID && !s.binding.CapacityStopAccepted {
+		// A definitive rejection leaves no native Turn to stop. Do not keep
+		// the conversation fenced waiting for a target that cannot arrive.
+		s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn = "", "", ""
+		s.binding.CapacityStopPhase, s.binding.CapacityStopStatus = "", ""
+		if s.run == "" && s.state.Phase == "unknown" {
+			s.state.Phase = "idle"
+		}
 	}
 	s.binding.LastReceipt = &r
 	s.binding.Context.Resolve(in.ID, r.Outcome)
@@ -1068,6 +1133,28 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	return r, nil
 }
 func (s *Session) Interrupt(ctx context.Context) error {
+	s.mu.Lock()
+	thread := s.binding.ThreadID
+	stoppingDispatchedRetry := false
+	if thread != "" && s.capacityThread == thread && s.capacityCancel != nil {
+		if s.capacityDispatchStarted && s.capacityRequest != "" {
+			previous, previousThread, previousTurn, previousPhase, previousStatus, previousAccepted := s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn, s.binding.CapacityStopPhase, s.binding.CapacityStopStatus, s.binding.CapacityStopAccepted
+			s.binding.CapacityStopRequest = s.capacityRequest
+			s.binding.CapacityStopThread = thread
+			if previous != s.capacityRequest || previousThread != thread {
+				s.binding.CapacityStopTurn, s.binding.CapacityStopStatus, s.binding.CapacityStopAccepted = "", "", false
+			}
+			s.binding.CapacityStopPhase = "requested"
+			if err := s.save(); err != nil {
+				s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn, s.binding.CapacityStopPhase, s.binding.CapacityStopStatus, s.binding.CapacityStopAccepted = previous, previousThread, previousTurn, previousPhase, previousStatus, previousAccepted
+				s.mu.Unlock()
+				return err
+			}
+			stoppingDispatchedRetry = true
+		}
+		s.capacityCancel()
+	}
+	s.mu.Unlock()
 	ctx, stop := s.operation(ctx, 15*time.Second)
 	defer stop()
 	if err := lockwait.Lock(ctx, &s.op); err != nil {
@@ -1083,6 +1170,23 @@ func (s *Session) Interrupt(ctx context.Context) error {
 		return errors.New("上次停止与清理结果尚未确认，请重新连接核对")
 	}
 	targets := s.conversationTargets()
+	if request := s.binding.CapacityStopRequest; request != "" && s.binding.CapacityStopThread == thread {
+		if stoppingDispatchedRetry || s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn {
+			status := s.binding.CapacityStopStatus
+			if s.stopTerminalSavePending["bot"] {
+				status = ""
+			}
+			s.update()
+			s.mu.Unlock()
+			if status == "interrupted" {
+				return nil
+			}
+			if status != "" {
+				return errors.New("原回合已结束，但停止请求未确认及时生效；请核对实际结果")
+			}
+			return errors.New("停止请求已保留；原生中断或结果尚未确认")
+		}
+	}
 	if retryUnsent {
 		targets = maps.Clone(s.binding.StopRuns)
 	}
@@ -1575,12 +1679,13 @@ cleanup:
 	// reconciled binding must not pin the next launch to that dead socket.
 	unknownTaskReceipt := false
 	for _, task := range s.binding.Tasks {
-		if task != nil && !task.Retired && taskHasUnknownReceipt(task) {
+		if task != nil && !task.Retired && (taskHasUnknownReceipt(task) || task.StopPendingRequest != "" && task.StopPendingStatus == "") {
 			unknownTaskReceipt = true
 			break
 		}
 	}
-	if !c.UsesSharedServer() && cleanupErr == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && s.binding.Pending == nil && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown") {
+	unresolvedCapacityStop := s.binding.CapacityStopRequest != "" && s.binding.CapacityStopStatus == ""
+	if !c.UsesSharedServer() && cleanupErr == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && !unresolvedCapacityStop && s.binding.Pending == nil && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown") {
 		previous := s.binding.OwnerEndpoint
 		s.binding.OwnerEndpoint = ""
 		if err := s.save(); err != nil {

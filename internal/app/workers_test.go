@@ -3,11 +3,49 @@ package app
 import (
 	"context"
 	"errors"
-	"github.com/caelis-labs/caelis-bot/internal/backend/api"
-	"github.com/caelis-labs/caelis-bot/internal/tasks"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
+
+type retainedCapacityStopFixture struct {
+	*workerFixture
+	connected       bool
+	connects, stops int
+}
+
+func (w *retainedCapacityStopFixture) ConnectedForStop() bool { return w.connected }
+func (w *retainedCapacityStopFixture) Connect(ctx context.Context) error {
+	w.connects++
+	<-ctx.Done() // A real retained Codex Connect waits on its active operation.
+	return ctx.Err()
+}
+func (w *retainedCapacityStopFixture) StopWork(_ context.Context, id string) (api.Task, error) {
+	w.stops++
+	return w.states[id].Task, nil
+}
+
+func TestRetainedLocalCodexStopReachesConnectedOwnerBeforeConnect(t *testing.T) {
+	id := "task-original-codex"
+	owner := &retainedCapacityStopFixture{workerFixture: &workerFixture{runtime: "codex", states: map[string]api.WorkState{id: {Task: api.Task{ID: id, Status: "pending"}}}}, connected: true}
+	resident := &workerFixture{runtime: "caelis", states: map[string]api.WorkState{}}
+	w := &localWorkers{active: "caelis", resident: resident, owners: map[string]retainedWorker{"codex": owner}, routes: map[string]string{id: "codex"}}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	view, err := w.StopWork(ctx, id)
+	if err != nil || view.ID != id || owner.stops != 1 || owner.connects != 0 {
+		t.Fatal("retained Codex stop waited behind Connect or changed owner", view, err, owner.stops, owner.connects)
+	}
+	owner.connected = false
+	ctx, cancel = context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := w.StopWork(ctx, id); !errors.Is(err, context.DeadlineExceeded) || owner.connects != 1 || owner.stops != 1 {
+		t.Fatal("disconnected owner bypassed normal Connect route", err, owner.connects, owner.stops)
+	}
+}
 
 type workerFixture struct {
 	reports                                   int

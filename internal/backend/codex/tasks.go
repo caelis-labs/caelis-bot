@@ -38,6 +38,11 @@ type taskRecord struct {
 	Instructions   string                 `json:"instructions,omitempty"`
 	Retired        bool                   `json:"retired,omitempty"`
 	Activity       string                 `json:"-"`
+
+	StopPendingRequest string `json:"stopPendingRequest,omitempty"` // original request to stop after an uncertain retry dispatch
+	StopPendingTurn    string `json:"stopPendingTurn,omitempty"`
+	StopPendingPhase   string `json:"stopPendingPhase,omitempty"`  // requested, attempted, acknowledged
+	StopPendingStatus  string `json:"stopPendingStatus,omitempty"` // authoritative original native terminal status
 }
 type workerAsyncQuestion struct {
 	Run       string              `json:"run"`
@@ -153,7 +158,14 @@ func (s *Session) WorkStates() []api.WorkState {
 		if s.state.Connection != "ready" {
 			activity = ""
 		}
-		state := api.WorkState{Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
+		originalStopCurrent := t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run)
+		resolution := ""
+		if originalStopCurrent {
+			if !s.stopTerminalSavePending["task:"+t.View.ID] {
+				resolution = t.StopPendingStatus
+			}
+		}
+		state := api.WorkState{Task: v, Activity: activity, OriginalPrompt: t.OriginalPrompt, ExecutionKey: t.ReportID, StopRequested: t.SuppressReport || originalStopCurrent, StopPending: originalStopCurrent && resolution == "", StopResolution: resolution, PreviousReportID: t.ReportID, PreviousReportState: t.ReportState, StartFingerprint: t.Fingerprint}
 		for key, question := range t.AsyncQuestions {
 			// A reply starts a new native turn, but unanswered fields in the
 			// original async item remain addressable by their original call ID.
@@ -180,8 +192,22 @@ func (s *Session) taskView(t *taskRecord) api.Task {
 			break
 		}
 	}
-	if t.Pending != "" || taskHasUnknownReceipt(t) || (s.state.Connection != "ready" && !terminal(v.Status)) {
+	waitingForCapacity := s.capacityWaiting && s.capacityThread == t.Thread && v.Status == "pending"
+	if !waitingForCapacity && (t.Pending != "" || taskHasUnknownReceipt(t) || (s.state.Connection != "ready" && !terminal(v.Status))) {
 		v.Status = "unknown"
+	}
+	if t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run) {
+		if s.stopTerminalSavePending["task:"+t.View.ID] {
+			v.Status = "unknown"
+			v.Result = "原工作终态已观察到，但本地记录尚未保存；正在重试，暂不确认停止结果"
+		} else if t.StopPendingStatus == "" {
+			v.Status = "unknown"
+			v.Result = "已请求停止原工作，原生结果尚未确认；勿重复派发工作"
+		} else if t.StopPendingStatus == "interrupted" {
+			v.Result = "原回合已中断；已执行工具的实际效果仍以原生回执为准。" + v.Result
+		} else {
+			v.Result = "停止请求未确认及时生效；原回合实际状态为" + t.StopPendingStatus + "。" + v.Result
+		}
 	}
 	return v
 }
@@ -502,7 +528,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		Turn   nativeTurn `json:"turn"`
 		TurnID string     `json:"turnId"`
 	}
-	err := callDecode(ctx, c, method, params, &response)
+	err := s.startWithCapacityRetry(ctx, c, method, params, &response, t.Thread, in.RequestID)
 	if wasActive {
 		if err == nil && response.TurnID != run {
 			err = ErrProtocol
@@ -521,6 +547,9 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	if err == nil {
 		r.Outcome = "accepted"
 		r.Phase = "settled"
+		if t.StopPendingRequest == request {
+			t.StopPendingTurn = turn.ID
+		}
 		t.Pending = ""
 		// The native acceptance has settled this exact request before the
 		// returned turn is projected; keep the unknown guard for other requests.
@@ -548,10 +577,20 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 			if t.View.Status == "unknown" && t.Run == "" {
 				t.View.Status = "failed"
 			}
+			if capacityReportedError(err) && t.View.Status == "failed" {
+				t.View.Result = "模型仍然繁忙，自动重试已耗尽；请稍后继续原任务或手动选择其他模型"
+			} else if errors.Is(err, context.Canceled) && t.View.Status == "failed" {
+				t.View.Result = "模型容量等待已取消，工作未发送"
+			}
 		}
 	}
 	if old := t.Requests[request]; old.Outcome == "accepted" {
 		r.Outcome = "accepted"
+	}
+	if r.Outcome == "rejected" && t.StopPendingRequest == request {
+		// This request never obtained a native Turn; its stop cannot remain
+		// pending or block a later explicit continuation of the same task.
+		t.StopPendingRequest, t.StopPendingTurn, t.StopPendingPhase, t.StopPendingStatus = "", "", "", ""
 	}
 	t.Requests[request] = r
 	t.View.Outcome = r.Outcome
@@ -580,6 +619,10 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 	for _, item := range turn.Items {
 		changed = s.recordWorkerAsync(t, turn.ID, item) || changed
 		if item.Type == "userMessage" {
+			if item.ClientID == t.StopPendingRequest && t.StopPendingTurn != turn.ID {
+				t.StopPendingTurn = turn.ID
+				changed = true
+			}
 			if r, ok := t.Requests[item.ClientID]; ok {
 				changed = changed || r.Outcome != "accepted"
 				r.Outcome = "accepted"
@@ -595,6 +638,11 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 	if terminal(turn.Status) {
 		t.Activity = "idle"
 		s.childTerminalStatus[opaque(t.Thread, turn.ID)] = turn.Status
+		if t.StopPendingRequest != "" && t.StopPendingTurn == turn.ID && t.StopPendingStatus != turn.Status {
+			t.StopPendingStatus = turn.Status
+			s.markStopTerminalSavePendingLocked("task:" + t.View.ID)
+			changed = true
+		}
 	}
 	if turn.Status == "inProgress" {
 		t.Activity = "active"
@@ -804,6 +852,27 @@ func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
 	return s.taskView(t), nil
 }
 func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
+	s.mu.Lock()
+	cancelledCapacity := false
+	if t := s.binding.Tasks[id]; t != nil && s.capacityThread == t.Thread && s.capacityCancel != nil {
+		if s.capacityDispatchStarted && s.capacityRequest != "" {
+			previous, previousTurn, previousPhase, previousStatus := t.StopPendingRequest, t.StopPendingTurn, t.StopPendingPhase, t.StopPendingStatus
+			t.StopPendingRequest = s.capacityRequest
+			if previous != s.capacityRequest {
+				t.StopPendingTurn, t.StopPendingStatus = "", ""
+			}
+			t.StopPendingPhase = "requested"
+			if err := s.save(); err != nil {
+				t.StopPendingRequest, t.StopPendingTurn, t.StopPendingPhase, t.StopPendingStatus = previous, previousTurn, previousPhase, previousStatus
+				v := s.taskView(t)
+				s.mu.Unlock()
+				return v, err
+			}
+		}
+		s.capacityCancel()
+		cancelledCapacity = true
+	}
+	s.mu.Unlock()
 	s.op.Lock()
 	defer s.op.Unlock()
 	ctx, cancel := s.operation(ctx, 8*time.Second)
@@ -815,21 +884,38 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 		s.mu.Unlock()
 		return api.Task{}, errors.New("只能停止 Bot 创建的任务")
 	}
+	if t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run) {
+		v, status := s.taskView(t), t.StopPendingStatus
+		if s.stopTerminalSavePending["task:"+t.View.ID] {
+			status = ""
+		}
+		s.mu.Unlock()
+		if status == "interrupted" {
+			return v, nil
+		}
+		if status != "" {
+			return v, errors.New("原回合已结束，但停止请求未确认及时生效；请核对实际结果")
+		}
+		return v, errors.New("停止请求已保留；原生中断或结果尚未确认")
+	}
 	if err := s.taskAdmission(); err != nil {
 		s.mu.Unlock()
 		return api.Task{}, err
 	}
 	run := s.childRuns[t.Thread]
-	v := t.View
+	v := s.taskView(t)
 	if run == "" {
 		s.mu.Unlock()
+		if cancelledCapacity {
+			return v, nil
+		}
 		return v, errors.New("没有已确认的运行回合，请先读取任务")
 	}
 	s.mu.Unlock()
 	err := callDecode(ctx, c, "turn/interrupt", map[string]any{"threadId": t.Thread, "turnId": run}, &struct{}{})
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return t.View, err
+	return s.taskView(t), err
 }
 
 // Notices retain their origin even though the native wire accepts text input.

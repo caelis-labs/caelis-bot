@@ -44,6 +44,7 @@ type record struct {
 	Execution           string            `json:"execution,omitempty"`
 	ReportID            string            `json:"reportId,omitempty"`
 	ReportState         string            `json:"reportState,omitempty"`
+	StopResolution      string            `json:"stopResolution,omitempty"`
 	UnknownSince        int64             `json:"unknownSince,omitempty"`
 	UnknownNotice       string            `json:"unknownNotice,omitempty"`
 	Activity            string            `json:"-"`
@@ -67,7 +68,9 @@ type Manager struct {
 	started              func(context.Context, api.Task)
 	mu                   sync.Mutex
 	op                   sync.Mutex
-	paused               bool // protected by op; updater admission fence
+	observe              sync.Mutex      // serialize native observation through ledger projection
+	inflight             map[string]bool // protected by mu; op still serializes submissions
+	paused               bool            // protected by op; updater admission fence
 	path, root, provider string
 	work                 api.WorkRuntime
 	reports              api.ReportSubmitter
@@ -195,6 +198,8 @@ func (m *Manager) save() error {
 // Only already-owned executions can enter this ledger. The host router retains
 // both providers; an unregistered provider remains inert, with no adopted IDs.
 func (m *Manager) refresh() error {
+	m.observe.Lock()
+	defer m.observe.Unlock()
 	states := m.work.WorkStates()
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -255,6 +260,7 @@ func (m *Manager) refresh() error {
 		v.Task.Machine = r.View.Machine
 		r.View = v.Task
 		r.Activity = v.Activity
+		r.StopResolution = v.StopResolution
 		if v.Task.Status == "unavailable" && r.ReportState == "pending" {
 			r.ReportState = "observed" // An older run must not report the unknown continuation.
 		}
@@ -271,7 +277,7 @@ func (m *Manager) refresh() error {
 			r.ReportID = "task-report-" + hash(r.Provider, v.Task.ID, v.ExecutionKey)
 			r.ReportState = "pending"
 		}
-		if v.StopRequested && r.ReportState == "pending" {
+		if v.StopRequested && !v.StopPending && v.StopResolution == "" && r.ReportState == "pending" {
 			r.ReportState = "observed"
 		}
 	}
@@ -358,8 +364,6 @@ func (m *Manager) TaskForReportID(reportID string) string {
 	return ""
 }
 func (m *Manager) ListTasks() []api.Task {
-	m.op.Lock()
-	defer m.op.Unlock()
 	// Projection is current even if persistence temporarily fails. Mutations and
 	// report dispatch retry persistence and never use this read as admission.
 	_ = m.refresh()
@@ -375,6 +379,27 @@ func (m *Manager) ListTasks() []api.Task {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+func (m *Manager) markInflight(id string, active bool) {
+	m.mu.Lock()
+	if active {
+		if m.inflight == nil {
+			m.inflight = map[string]bool{}
+		}
+		m.inflight[id] = true
+	} else {
+		delete(m.inflight, id)
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) localCodexInflight(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.state.Records[id]
+	return m.inflight[id] && r != nil && r.View.Machine == "" &&
+		(r.Runtime == "codex" || r.Runtime == "" && r.Provider == "codex")
 }
 
 func prepareWorkspace(root, id string, loc ...i18n.Locale) (string, error) {
@@ -446,8 +471,10 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	}
 	if r := m.state.Records[id]; r != nil {
 		v := r.View
+		owned := m.owns(r)
+		same := r.Fingerprint == fp
 		m.mu.Unlock()
-		if !m.owns(r) || r.Fingerprint != fp {
+		if !owned || !same {
 			return v, errors.New(m.text("host.sameRequestIdDifferentTask"))
 		}
 		return v, nil
@@ -529,6 +556,8 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 		m.mu.Unlock()
 		return v, errors.Join(e, saveErr)
 	}
+	m.markInflight(id, true)
+	defer m.markInflight(id, false)
 	v, e := m.work.StartWork(ctx, api.WorkStart{TaskStart: in, ID: id, Workspace: workspace, Instructions: botpolicy.WorkerInstructions})
 	result, captureErr := m.capture(id, v, e)
 	if m.started != nil && result.ID == id && result.Outcome != "rejected" && (v.ID == "" || v.ID == id) {
@@ -604,6 +633,26 @@ func (m *Manager) owned(id string) error {
 	return nil
 }
 func (m *Manager) ReadTask(ctx context.Context, id string) (api.Task, error) {
+	if m.localCodexInflight(id) {
+		// The adapter's ReadWork shares its submission lock. During an admitted
+		// submission, WorkStates is the non-dispatching live projection.
+		if err := m.owned(id); err != nil {
+			return api.Task{}, err
+		}
+		if err := m.refresh(); err != nil {
+			return api.Task{}, err
+		}
+		m.mu.Lock()
+		r := m.state.Records[id]
+		v := r.View
+		var err error
+		if terminal(v.Status) && r.ReportState == "pending" {
+			r.ReportState = "observed"
+			err = m.write()
+		}
+		m.mu.Unlock()
+		return v, err
+	}
 	m.op.Lock()
 	defer m.op.Unlock()
 	if e := m.owned(id); e != nil {
@@ -660,6 +709,8 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 			prior.Outcome = "unknown"
 			return prior, errors.New("original submission receipt is not confirmed; no Worker prompt was replayed")
 		}
+		m.markInflight(in.ID, true)
+		defer m.markInflight(in.ID, false)
 		v, err := m.work.SendWork(ctx, in)
 		v, err = m.capture(in.ID, v, err)
 		if err == nil && v.Status != "unknown" && v.Outcome != "" && v.Outcome != "unknown" {
@@ -718,6 +769,8 @@ func (m *Manager) SendTask(ctx context.Context, in api.TaskMessage) (api.Task, e
 	}
 	m.mu.Unlock()
 	defer m.notifyWatchlist()
+	m.markInflight(in.ID, true)
+	defer m.markInflight(in.ID, false)
 	v, e := m.work.SendWork(ctx, in)
 	v, e = m.capture(in.ID, v, e)
 	if e == nil && v.Status != "unknown" && v.Outcome != "" && v.Outcome != "unknown" {
@@ -781,6 +834,15 @@ func (m *Manager) RetireTask(ctx context.Context, id string) (api.Task, error) {
 	return m.capture(id, v, err)
 }
 func (m *Manager) StopTask(ctx context.Context, id string) (api.Task, error) {
+	if m.localCodexInflight(id) {
+		// StopWork cancels the adapter's capacity wait before acquiring its
+		// submission lock. Do not wait behind this task's Manager submission.
+		if err := m.owned(id); err != nil {
+			return api.Task{}, err
+		}
+		v, err := m.work.StopWork(ctx, id)
+		return m.capture(id, v, err)
+	}
 	m.op.Lock()
 	defer m.op.Unlock()
 	if e := m.owned(id); e != nil {
@@ -848,6 +910,11 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	}
 	id := selected.ReportID
 	text := fmt.Sprintf("Task %s is %s.", selected.View.ID, selected.View.Status)
+	if selected.StopResolution == "interrupted" {
+		text = fmt.Sprintf("Task %s: the original native turn ended interrupted after a stop request. Earlier tool effects remain subject to their native receipts.", selected.View.ID)
+	} else if selected.StopResolution != "" {
+		text = fmt.Sprintf("Task %s: stop was requested, but its original native turn ended %s without confirmed timely interruption. The native result may have taken effect.", selected.View.ID, selected.StopResolution)
+	}
 	m.mu.Unlock()
 	receipt, e := m.reports.SubmitReport(ctx, api.Submission{ID: id, Text: text})
 	m.mu.Lock()
