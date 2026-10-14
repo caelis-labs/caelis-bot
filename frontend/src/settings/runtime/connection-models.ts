@@ -33,3 +33,11 @@ export function eligibleSelection(models: readonly ConnectionModelOption[], sele
  const eligible = new Set(defaultChatModels(models));
  return selected.filter(id => eligible.has(id) && !confirmed.has(id));
 }
+
+// Keep the editable model field's suggestions distinct from chat defaults:
+// unknown entries may be configured manually, while declared non-chat entries
+// must never be offered as conversation models.
+export function modelNameSuggestions(models: readonly ConnectionModelOption[], query: string): ConnectionModelOption[] {
+ const needle = query.trim().toLowerCase();
+ return models.filter(model => model.chatEligibility !== 'non-chat' && (!needle || `${model.name} ${model.value}`.toLowerCase().includes(needle))).slice(0, 50);
+}

@@ -101,6 +101,37 @@ func TestExternalHostSetupCatalogEligibility(t *testing.T) {
 	if kinds["vendor/chat"] != "chat" || kinds["vendor/unknown"] != "unknown" || kinds["xiaomi/mimo-v2.5-asr"] != "" || kinds["typesafe/jev"] != "" {
 		t.Fatalf("Bot Magpie qualification = %+v", kinds)
 	}
+	// Registration against the synthetic gateway never sends a model request.
+	// A committed unknown model must not make first-run chat ready; the
+	// catalog-backed chat model must retain its evidence after configuration.
+	connections := &Connections{}
+	defer connections.Close()
+	for _, model := range []struct {
+		name, want      string
+		context, output int
+	}{
+		{name: "vendor/unknown", want: "models", context: 32000, output: 4096},
+		{name: "vendor/chat", want: "ready"},
+	} {
+		flow, err := connections.Start(ctx, settings, api.RuntimeConnectionInput{Kind: "api-key", Choice: "magpie", BaseURL: gateway.URL + "/v1", Model: model.name, APIKey: "SYNTHETIC_ONLY", ContextWindowTokens: model.context, MaxOutputTokens: model.output})
+		if err != nil {
+			t.Fatalf("register %s: %v", model.name, err)
+		}
+		_ = waitConnection(t, connections, flow.ID, "complete")
+		state, err := InspectSetup(ctx, settings)
+		if err != nil || state.State != model.want {
+			t.Fatalf("registered %s: state=%+v err=%v", model.name, state, err)
+		}
+		found := false
+		for _, configured := range state.Models {
+			if configured.ChatEligibility == kinds[model.name] {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("configured %s lost Core eligibility: %+v", model.name, state.Models)
+		}
+	}
 	if output := os.Getenv("CAELIS_BOT_ELIGIBILITY_OUTPUT"); output != "" {
 		data, err := json.Marshal(map[string]any{"endpoints": endpoints, "coreWire": raw, "deepseek": deepseek, "magpie": magpie})
 		if err != nil {

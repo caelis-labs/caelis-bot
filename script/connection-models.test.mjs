@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { apiKeyOptionsFromCatalog, connectionModelOption, defaultChatModels, eligibleSelection, requiresManualCapabilities } from '../frontend/src/settings/runtime/connection-models.ts';
+import { apiKeyOptionsFromCatalog, connectionModelOption, defaultChatModels, eligibleSelection, modelNameSuggestions, requiresManualCapabilities } from '../frontend/src/settings/runtime/connection-models.ts';
 import { connectSelectedModels } from '../frontend/src/settings/runtime/connection-sequence.ts';
 const choice = (value, chatEligibility, extras = {}) => ({ value, label: value, noAuth: false, current: false, chatEligibility, ...extras });
 
@@ -22,6 +22,19 @@ test('only explicit chat entries are default selected; ASR, judgment and unknown
  assert.equal(models[3].metadataComplete, true);
  assert.equal(requiresManualCapabilities(models[0]), false);
  assert.equal(requiresManualCapabilities(models[3]), true);
+});
+
+test('editable model suggestions retain full long IDs and never offer declared non-chat models', () => {
+ const longID = 'fixture/very-long-chat-model-name-for-layout-review-with-distinct-ending-2026';
+ const models = [
+  connectionModelOption(choice(longID, 'chat', { label: 'A long chat model for layout review' })),
+  connectionModelOption(choice('fixture/unknown-manual', 'unknown')),
+  connectionModelOption(choice('fixture/asr', 'non-chat')),
+ ];
+ assert.deepEqual(modelNameSuggestions(models, 'distinct-ending').map(model => model.value), [longID]);
+ assert.deepEqual(modelNameSuggestions(models, 'unknown').map(model => model.value), ['fixture/unknown-manual']);
+ assert.deepEqual(modelNameSuggestions(models, '').map(model => model.value), [longID, 'fixture/unknown-manual']);
+ assert.deepEqual(modelNameSuggestions(models, 'asr'), []);
 });
 
 if (process.env.CAELIS_BOT_ELIGIBILITY_OUTPUT) {

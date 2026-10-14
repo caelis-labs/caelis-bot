@@ -17,6 +17,36 @@
   color: var(--muted);
   line-height: 1.4;
 }
+.settings-window .connection-wizard .connection-model-combobox { min-width: 0; }
+.settings-window .connection-wizard .connection-model-suggestions {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--caelis-raised);
+}
+.settings-window .connection-wizard .connection-model-suggestions button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.settings-window .connection-wizard .connection-model-suggestions button + button { border-top: 1px solid var(--line); }
+.settings-window .connection-wizard .connection-model-suggestions button:hover,
+.settings-window .connection-wizard .connection-model-suggestions button[aria-selected="true"] { background: var(--caelis-hover); }
+.settings-window .connection-wizard .connection-model-suggestions button span,
+.settings-window .connection-wizard .connection-model-suggestions button small { display: block; overflow-wrap: anywhere; }
+.settings-window .connection-wizard .connection-model-suggestions button small { margin-top: 3px; }
+.settings-window .connection-wizard .connection-model-full-name { overflow-wrap: anywhere; }
 .settings-window .connection-wizard :is(input, select):not([type="checkbox"]):not([type="radio"]) {
   background: var(--caelis-raised);
   border: 1px solid var(--line);
@@ -84,6 +114,19 @@
 .settings-window .connection-wizard .connection-model-qualified > span { flex: 1; min-width: 0; }
 .settings-window .connection-wizard .connection-model-qualified > small { color: var(--muted); }
 .settings-window .connection-wizard .connection-model-qualified > button { flex: none; }
+.settings-window .connection-wizard .setup-end button.primary:not(:disabled) {
+  background: var(--caelis-selected);
+  border-color: var(--caelis-focus);
+  color: var(--caelis-selected-text);
+  font-weight: 600;
+}
+.settings-window .connection-wizard .setup-end button.primary:not(:disabled):hover { background: var(--caelis-hover); }
+.settings-window .connection-wizard .setup-end button.primary:not(:disabled):active { background: var(--caelis-pressed); }
+.settings-window .connection-wizard .setup-end button.primary:disabled {
+  background: var(--caelis-disabled);
+  border-color: var(--line);
+  color: var(--caelis-text-disabled);
+}
 @media (max-width: 560px) {
   .settings-window .connection-wizard .connection-field { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .settings-window .connection-wizard .connection-field > label { padding-top: 0; }
