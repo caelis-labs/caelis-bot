@@ -34,18 +34,20 @@ type binding struct {
 	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
 	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
-	Context         contextseed.State      `json:"context,omitempty"`
-	ContextInputs   map[string]int         `json:"contextInputs,omitempty"`
-	Dreams          map[string]dreamRecord `json:"dreams,omitempty"`
-	PastThreads     []string               `json:"pastThreads,omitempty"`
-	RenewedBy       string                 `json:"renewedBy,omitempty"`
-	ToolRenewal     *toolRenewalRecord     `json:"toolRenewal,omitempty"`
-	Scheduled       map[string]string      `json:"scheduled,omitempty"`       // accepted client IDs to native turn IDs
-	HostReports     map[string]bool        `json:"hostReports,omitempty"`     // host-only completion inputs, keyed by exact submitted ID
-	RecoveryNotices map[string]bool        `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
-	CleanupTargets  []string               `json:"cleanupTargets,omitempty"`
-	StopState       string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
-	StopRuns        map[string]string      `json:"stopRuns,omitempty"`
+	Context             contextseed.State      `json:"context,omitempty"`
+	ContextInputs       map[string]int         `json:"contextInputs,omitempty"`
+	Dreams              map[string]dreamRecord `json:"dreams,omitempty"`
+	PastThreads         []string               `json:"pastThreads,omitempty"`
+	RenewedBy           string                 `json:"renewedBy,omitempty"`
+	ToolRenewal         *toolRenewalRecord     `json:"toolRenewal,omitempty"`
+	Scheduled           map[string]string      `json:"scheduled,omitempty"`       // accepted client IDs to native turn IDs
+	HostReports         map[string]bool        `json:"hostReports,omitempty"`     // host-only completion inputs, keyed by exact submitted ID
+	RecoveryNotices     map[string]bool        `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
+	CleanupTargets      []string               `json:"cleanupTargets,omitempty"`
+	StopState           string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
+	StopRuns            map[string]string      `json:"stopRuns,omitempty"`
+	CapacityStopRequest string                 `json:"capacityStopRequest,omitempty"` // original resident request whose late Turn must not be called stopped
+	CapacityStopTurn    string                 `json:"capacityStopTurn,omitempty"`
 
 	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
 	DelegationText string                 `json:"delegationText,omitempty"`
@@ -89,80 +91,82 @@ type Session struct {
 	workerOnly             bool // trusted target owner; no resident API is exposed
 	backgroundResultsDirty bool
 
-	residentExecution      api.WorkExecutionSettings
-	usage                  api.ContextUsage
-	usageReason            string
-	usageTurn              string
-	usageTotal             int64
-	historyMu              sync.Mutex
-	op                     sync.Mutex
-	mu                     sync.Mutex
-	opts                   SessionOptions
-	client                 *Client
-	retainedOwner          *Client
-	forceNewOwner          bool
-	bound                  bool
-	epoch                  uint64
-	reconnectSeq           uint64
-	reconnectActive        bool
-	reconnectCancel        context.CancelFunc
-	reconnectAttempts      int
-	reconnectNoticeID      string
-	reconnectDelay         func(int) time.Duration
-	lastConnectCause       error
-	state                  api.Snapshot
-	binding                binding
-	loadErr                error
-	loading                bool
-	buffer                 []Notification
-	bufferBytes            int
-	run                    string
-	runs                   map[string]string
-	items                  map[string]int
-	nativeItems            map[string]nativeItem
-	reviewOrigins          map[string]reviewOrigin
-	prompts                map[string]*prompt
-	promptHandles          map[string]string
-	instance               string
-	refs                   map[string]nativeReference
-	artifacts              map[string]string
-	historyCursor          string
-	historyThread          string
-	historyPrevious        int
-	lastTurn               string
-	historyPaged           bool
-	children               map[string]bool
-	childRuns              map[string]string
-	childTerminals         map[string]bool
-	childTerminalStatus    map[string]string
-	childWatching          map[string]bool
-	childSubscribed        map[string]bool
-	childObservationFailed map[string]bool
-	childRetireSeq         map[string]uint64
-	childRetired           map[string]bool
-	workerIdleDelay        time.Duration
-	retireUnsupported      bool
-	retireFailures         uint64
-	retiredWorkers         uint64
-	nativeUnloads          uint64
-	nativeResources        nativeResourceSnapshot
-	childRevision          map[string]uint64
-	loginID                string
-	trustApprovalID        string
-	trustBlockedReason     string
-	loginStarting          bool
-	earlyLogin             map[string]bool
-	changed                chan struct{}
-	closed                 bool
-	closing                bool
-	life                   context.Context
-	cancelLife             context.CancelFunc
-	supervisorOnce         sync.Once
-	start                  func(context.Context, Options) (*Client, error)
-	capacityBackoff        func(int) time.Duration
-	capacityCancel         context.CancelFunc // cancellation during dispatch remains an unknown outcome
-	capacityThread         string
-	capacityWaiting        bool
+	residentExecution       api.WorkExecutionSettings
+	usage                   api.ContextUsage
+	usageReason             string
+	usageTurn               string
+	usageTotal              int64
+	historyMu               sync.Mutex
+	op                      sync.Mutex
+	mu                      sync.Mutex
+	opts                    SessionOptions
+	client                  *Client
+	retainedOwner           *Client
+	forceNewOwner           bool
+	bound                   bool
+	epoch                   uint64
+	reconnectSeq            uint64
+	reconnectActive         bool
+	reconnectCancel         context.CancelFunc
+	reconnectAttempts       int
+	reconnectNoticeID       string
+	reconnectDelay          func(int) time.Duration
+	lastConnectCause        error
+	state                   api.Snapshot
+	binding                 binding
+	loadErr                 error
+	loading                 bool
+	buffer                  []Notification
+	bufferBytes             int
+	run                     string
+	runs                    map[string]string
+	items                   map[string]int
+	nativeItems             map[string]nativeItem
+	reviewOrigins           map[string]reviewOrigin
+	prompts                 map[string]*prompt
+	promptHandles           map[string]string
+	instance                string
+	refs                    map[string]nativeReference
+	artifacts               map[string]string
+	historyCursor           string
+	historyThread           string
+	historyPrevious         int
+	lastTurn                string
+	historyPaged            bool
+	children                map[string]bool
+	childRuns               map[string]string
+	childTerminals          map[string]bool
+	childTerminalStatus     map[string]string
+	childWatching           map[string]bool
+	childSubscribed         map[string]bool
+	childObservationFailed  map[string]bool
+	childRetireSeq          map[string]uint64
+	childRetired            map[string]bool
+	workerIdleDelay         time.Duration
+	retireUnsupported       bool
+	retireFailures          uint64
+	retiredWorkers          uint64
+	nativeUnloads           uint64
+	nativeResources         nativeResourceSnapshot
+	childRevision           map[string]uint64
+	loginID                 string
+	trustApprovalID         string
+	trustBlockedReason      string
+	loginStarting           bool
+	earlyLogin              map[string]bool
+	changed                 chan struct{}
+	closed                  bool
+	closing                 bool
+	life                    context.Context
+	cancelLife              context.CancelFunc
+	supervisorOnce          sync.Once
+	start                   func(context.Context, Options) (*Client, error)
+	capacityBackoff         func(int) time.Duration
+	capacityCancel          context.CancelFunc // cancellation during dispatch remains an unknown outcome
+	capacityThread          string
+	capacityRequest         string
+	capacityWaiting         bool
+	capacityDispatchStarted bool
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -326,6 +330,10 @@ func (s *Session) update() {
 		} else {
 			s.backgroundResultsDirty = false
 		}
+	}
+	if s.binding.CapacityStopRequest != "" {
+		s.state.Phase = "unknown"
+		s.state.Message = "停止结果尚未确认；原请求可能已派发，请核对原回合"
 	}
 	s.state.Revision++
 	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase != "unknown" && !s.closed && !s.closing
@@ -1019,6 +1027,9 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	if err == nil {
 		r.Outcome = "accepted"
 		if run == "" {
+			if s.binding.CapacityStopRequest == in.ID {
+				s.binding.CapacityStopTurn = response.Turn.ID
+			}
 			if in.Scheduled {
 				s.binding.Scheduled[in.ID] = response.Turn.ID
 			}
@@ -1080,10 +1091,21 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 func (s *Session) Interrupt(ctx context.Context) error {
 	s.mu.Lock()
 	thread := s.binding.ThreadID
-	s.mu.Unlock()
-	if thread != "" {
-		s.cancelCapacityWait(thread)
+	stoppingDispatchedRetry := false
+	if thread != "" && s.capacityThread == thread && s.capacityCancel != nil {
+		if s.capacityDispatchStarted && s.capacityRequest != "" {
+			previous := s.binding.CapacityStopRequest
+			s.binding.CapacityStopRequest = s.capacityRequest
+			if err := s.save(); err != nil {
+				s.binding.CapacityStopRequest = previous
+				s.mu.Unlock()
+				return err
+			}
+			stoppingDispatchedRetry = true
+		}
+		s.capacityCancel()
 	}
+	s.mu.Unlock()
 	ctx, stop := s.operation(ctx, 15*time.Second)
 	defer stop()
 	if err := lockwait.Lock(ctx, &s.op); err != nil {
@@ -1099,6 +1121,19 @@ func (s *Session) Interrupt(ctx context.Context) error {
 		return errors.New("上次停止与清理结果尚未确认，请重新连接核对")
 	}
 	targets := s.conversationTargets()
+	if request := s.binding.CapacityStopRequest; request != "" {
+		turn := s.binding.CapacityStopTurn
+		if stoppingDispatchedRetry || turn == "" || s.run != turn {
+			s.state.Phase = "unknown"
+			s.state.Message = "停止结果尚未确认；原请求可能已派发，请核对原回合"
+			s.update()
+			s.mu.Unlock()
+			return errors.New("停止结果尚未确认；原请求可能已派发，请核对原回合")
+		}
+		// A later explicit stop can target only the Turn correlated with the
+		// original request, never another conversation or child Turn.
+		targets = map[string]string{thread: turn}
+	}
 	if retryUnsent {
 		targets = maps.Clone(s.binding.StopRuns)
 	}
@@ -1117,13 +1152,16 @@ func (s *Session) Interrupt(ctx context.Context) error {
 	slices.Sort(threadIDs)
 	if !retryUnsent {
 		s.mu.Lock()
+		stopRequest, stopTurn := s.binding.CapacityStopRequest, s.binding.CapacityStopTurn
 		s.binding.CleanupTargets = append([]string(nil), threadIDs...)
 		s.binding.StopState = "prepared"
 		s.binding.StopRuns = maps.Clone(targets)
+		s.binding.CapacityStopRequest, s.binding.CapacityStopTurn = "", ""
 		if err := s.save(); err != nil {
 			s.binding.CleanupTargets = nil
 			s.binding.StopState = ""
 			s.binding.StopRuns = nil
+			s.binding.CapacityStopRequest, s.binding.CapacityStopTurn = stopRequest, stopTurn
 			s.mu.Unlock()
 			return err
 		}

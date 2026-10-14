@@ -228,6 +228,18 @@ func (w *localWorkers) SendWork(ctx context.Context, in api.TaskMessage) (api.Ta
 	return owner.SendWork(ctx, in)
 }
 func (w *localWorkers) StopWork(ctx context.Context, id string) (api.Task, error) {
+	w.mu.Lock()
+	runtime, active := w.routes[id], w.active
+	retained := w.owners[runtime]
+	w.mu.Unlock()
+	if runtime == "codex" && runtime != active && retained != nil {
+		if connected, ok := retained.(interface{ ConnectedForStop() bool }); ok && connected.ConnectedForStop() {
+			// This exact local owner is already connected. StopWork cancels its
+			// capacity wait before taking the adapter operation lock; Connect
+			// would wait on that lock and prevent the cancellation.
+			return retained.StopWork(ctx, id)
+		}
+	}
 	owner, err := w.target(ctx, id)
 	if err != nil {
 		return api.Task{}, err

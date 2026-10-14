@@ -469,8 +469,10 @@ func (m *Manager) StartTask(ctx context.Context, in api.TaskStart) (task api.Tas
 	}
 	if r := m.state.Records[id]; r != nil {
 		v := r.View
+		owned := m.owns(r)
+		same := r.Fingerprint == fp
 		m.mu.Unlock()
-		if !m.owns(r) || r.Fingerprint != fp {
+		if !owned || !same {
 			return v, errors.New(m.text("host.sameRequestIdDifferentTask"))
 		}
 		return v, nil

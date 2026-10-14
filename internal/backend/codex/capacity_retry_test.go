@@ -133,6 +133,83 @@ func TestBotCapacityWaitCanBeInterruptedWithoutAnotherDispatch(t *testing.T) {
 	}
 }
 
+func TestBotStopAfterRetryDispatchKeepsOriginalUnconfirmed(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	s.capacityBackoff = func(int) time.Duration { return time.Millisecond }
+	request := "bot-capacity-dispatched-stop"
+	secondEntered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	var calls atomic.Int32
+	var interrupts atomic.Int32
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method == "turn/interrupt" {
+			interrupts.Add(1)
+			return map[string]any{}, true
+		}
+		if m.Method != "turn/start" {
+			return nil, false
+		}
+		var params struct {
+			ClientID string `json:"clientUserMessageId"`
+		}
+		_ = json.Unmarshal(m.Params, &params)
+		if params.ClientID != request {
+			t.Fatal("native request ID changed", params.ClientID)
+		}
+		if calls.Add(1) == 1 {
+			return capacityRejection(), true
+		}
+		secondEntered <- struct{}{}
+		<-release
+		return map[string]any{"turn": nativeTurn{ID: "late-root-run", Status: "inProgress", Items: []nativeItem{{ID: "original-user", Type: "userMessage", ClientID: request}}}}, true
+	}
+	f.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	issued := make(chan api.Receipt, 1)
+	go func() { r, _ := s.Submit(ctx, api.Submission{ID: request, Text: "synthetic"}, nil); issued <- r }()
+	select {
+	case <-secondEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("retry was not dispatched")
+	}
+	stopped := make(chan error, 1)
+	go func() { stopped <- s.Interrupt(ctx) }()
+	select {
+	case r := <-issued:
+		if r.Outcome != "unknown" {
+			t.Fatal("dispatched retry was called unsent", r)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("submission did not settle")
+	}
+	select {
+	case err := <-stopped:
+		if err == nil || !strings.Contains(err.Error(), "停止结果尚未确认") {
+			t.Fatal("stop was falsely confirmed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stop waited for a late native reply")
+	}
+	once.Do(func() { close(release) })
+	f.emit(wireMessage{Method: "turn/started", Params: raw(map[string]any{"threadId": "thread-native", "turn": nativeTurn{ID: "late-root-run", Status: "inProgress", Items: []nativeItem{{ID: "original-user", Type: "userMessage", ClientID: request}}}})})
+	view := awaitState(t, s, func(v api.Snapshot) bool {
+		return v.LastReceipt.ID == request && v.LastReceipt.Outcome == "accepted" && v.Phase == "unknown"
+	})
+	if !strings.Contains(view.Message, "停止结果尚未确认") || calls.Load() != 2 || interrupts.Load() != 0 {
+		t.Fatal("late acceptance lost original stop uncertainty or interrupted an unidentified Turn", view.Message, calls.Load(), interrupts.Load())
+	}
+	s.mu.Lock()
+	stopRequest, stopTurn := s.binding.CapacityStopRequest, s.binding.CapacityStopTurn
+	s.mu.Unlock()
+	if stopRequest != request || stopTurn != "late-root-run" {
+		t.Fatal("stop intent did not retain exact original target", stopRequest, stopTurn)
+	}
+}
+
 func TestCapacityRetrySkipsOtherErrorsAndStartedTurns(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	var calls atomic.Int32
@@ -207,6 +284,29 @@ func TestWorkerCapacityRetryUsesOriginalTaskReceipt(t *testing.T) {
 		if id != "worker-capacity-request" {
 			t.Fatal("worker request receipt changed", ids)
 		}
+	}
+}
+
+func TestWorkerCapacitySameRequestAsResidentReceiptStillRetries(t *testing.T) {
+	s, f, _, manager := taskPair(t)
+	request := "shared-capacity-request"
+	if r := sendSynthetic(t, s, request); r.Outcome != "accepted" {
+		t.Fatal(r)
+	}
+	s.capacityBackoff = func(int) time.Duration { return time.Millisecond }
+	var calls atomic.Int32
+	f.mu.Lock()
+	original := f.handle
+	f.handle = func(msg wireMessage) (any, bool) {
+		if msg.Method == "turn/start" && calls.Add(1) == 1 {
+			return capacityRejection(), true
+		}
+		return original(msg)
+	}
+	f.mu.Unlock()
+	work := newTask(t, manager, request)
+	if work.Outcome != "accepted" || calls.Load() != 2 {
+		t.Fatal("resident receipt suppressed the worker retry", work, calls.Load())
 	}
 }
 
