@@ -398,6 +398,7 @@ func TestCapacityStopDefiniteRejectionReleasesOriginalRequest(t *testing.T) {
 			s.mu.Lock()
 			s.binding.CapacityStopRequest, s.binding.CapacityStopThread = request, s.binding.ThreadID
 			s.binding.CapacityStopPhase = "requested"
+			s.update() // Project the pending stop before its definitive rejection arrives.
 			s.mu.Unlock()
 			return &NativeError{Code: -32000, Message: "request rejected"}, true
 		}

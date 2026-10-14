@@ -1105,6 +1105,9 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		// the conversation fenced waiting for a target that cannot arrive.
 		s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn = "", "", ""
 		s.binding.CapacityStopPhase, s.binding.CapacityStopStatus = "", ""
+		if s.run == "" && s.state.Phase == "unknown" {
+			s.state.Phase = "idle"
+		}
 	}
 	s.binding.LastReceipt = &r
 	s.binding.Context.Resolve(in.ID, r.Outcome)
