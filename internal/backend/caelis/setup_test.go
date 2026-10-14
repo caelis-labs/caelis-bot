@@ -382,3 +382,22 @@ func TestNativeSetupIntegration(t *testing.T) {
 	}
 	t.Log("real Host: asynchronous API-key connect, main model, Team profile binding, role and preset lifecycle, CAS conflict; no inference request")
 }
+func TestSetupSchema404RequiresUpgradeWithoutLegacyFallback(t *testing.T) {
+	var legacy, negotiated, catalog atomic.Int32
+	settings := setupFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/control/v1/initialize":
+			legacy.Add(1)
+			writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("store"), InstanceId: pointer("setup-instance"), Capabilities: append(append([]string{}, required...), "display-replacements-v1")})
+		case "/api/control/v1/schema/initialize":
+			negotiated.Add(1)
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			catalog.Add(1)
+		}
+	})
+	out, err := InspectSetup(t.Context(), settings)
+	if err != nil || out.State != "incompatible" || out.ServiceState != "running" || !strings.Contains(out.Message, "升级") || !strings.Contains(out.Message, "尚未就绪") || strings.Contains(out.Message, "HTTP 404") || legacy.Load() != 1 || negotiated.Load() != 1 || catalog.Load() != 0 || len(out.Models) != 0 {
+		t.Fatal("schema 404 silently fell back or exposed a raw error", err, out, legacy.Load(), negotiated.Load(), catalog.Load())
+	}
+}

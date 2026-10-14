@@ -236,6 +236,9 @@ func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
 		var negotiated wire.ServerInfo
 		if e = c.json(ctx, "GET", "/initialize", nil, &negotiated, "", ""); e != nil {
 			c.schema = false
+			if isRemoteStatus(e, 404) {
+				return i, fmt.Errorf("%w：当前 Host 缺少 Control 1.0 协商路由；请升级并重启 Caelis 服务，连接尚未就绪", errBotIncompatible)
+			}
 			return i, fmt.Errorf("Caelis Control 1.0 协商失败，请更新 Host: %w", e)
 		}
 		if !slices.Contains(negotiated.Capabilities, "display-replacements-v1") || value(negotiated.InstanceId) != value(i.InstanceId) {

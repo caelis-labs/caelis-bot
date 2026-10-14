@@ -30,6 +30,13 @@ export function setupStatusKey(state:SetupState):MessageKey {
  }
 }
 
+// An incompatible running Host is not evidence that the installed binary is
+// newer. Offer activation only when the native setup state observed an actual
+// newer installed service, or when a stopped service needs starting.
+export function canApplyInstalledService(state:SetupState|null|undefined):boolean {
+ return !!state?.installation.installed && (state.state==='service'||!!state.serviceUpdateAvailable);
+}
+
 export function botSessionStatusKey(state:SetupState,session:BotSession,selected:boolean):MessageKey {
  if(!selected)return 'runtime.chooseConnection';
  if(session?.connection==='ready')return 'runtime.connected';

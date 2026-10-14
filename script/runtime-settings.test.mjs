@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const server = await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});
 after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
-const {setupStatusKey,botSessionStatusKey,nextOnboardingStep,setupFailureKind} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
+const {canApplyInstalledService,setupStatusKey,botSessionStatusKey,nextOnboardingStep,setupFailureKind} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
 const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL, executionMethodLabel} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
 const {displayConnectionMessage} = await server.ssrLoadModule('/src/connection-message.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
@@ -190,6 +190,15 @@ test('first run advances from missing CLI through service to a real model connec
  assert.equal(nextOnboardingStep({...state,installation:{installed:true},state:'models'},'caelis'),'model');
  assert.equal(nextOnboardingStep({...state,installation:{installed:true},state:'ready'},'caelis'),'');
  assert.equal(nextOnboardingStep({...state,installation:{installed:true},state:'login'},'codex'),'');
+});
+test('a schema-incompatible running Host requires an upgrade, not activation of the same installed binary',()=>{
+ const installed={installed:true,updateState:'current'};
+ const old={state:'incompatible',installation:installed,serviceUpdateAvailable:false};
+ assert.equal(canApplyInstalledService(old),false);
+ assert.equal(canApplyInstalledService({...old,serviceUpdateAvailable:true}),true);
+ assert.equal(canApplyInstalledService({...old,state:'service'}),true);
+ assert.equal(canApplyInstalledService({...old,installation:{installed:false}}),false);
+ assert.equal(setupStatusKey(old),'runtime.incompatibleConnection');
 });
 test('stop using a sole model sends one revision-fenced native transaction; uncertain result is not replayed',async()=>{
  const group={id:'provider',name:'Provider',kind:'provider',detail:'',models:[]};

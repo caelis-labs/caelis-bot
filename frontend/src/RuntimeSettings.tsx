@@ -8,7 +8,7 @@ import { LocalWorkerSettings } from './settings/runtime/LocalWorkerSettings';
 import { RuntimeWorkspace } from './settings/runtime/RuntimeWorkspace';
 import type { RuntimeSettings as Profile, SetupState, SetupOverview, SetupRequest, SetupInstallProgress } from './backend/contract';
 import { useI18n } from './i18n';
-import {nextOnboardingStep,setupFailureKind,setupStatusKey} from './settings/runtime/setup-status';
+import {canApplyInstalledService,nextOnboardingStep,setupFailureKind,setupStatusKey} from './settings/runtime/setup-status';
 import {executionMethodLabel} from './settings/runtime/state';
 import {FutureModeRecovery} from './settings/runtime/FutureModeRecovery';
 import {verifiedSetup} from './settings/runtime/readiness';
@@ -127,7 +127,7 @@ export function RuntimePreparation({ onboarding = false, manageOnly=false, activ
   {['install','update','start','apply-update','activate'].includes(busy) && <button className="text-action" disabled={cancelingPreparation} onClick={() => void cancelPreparation()}>{t(cancelingPreparation ? 'runtime.cancellingPreparation' : 'runtime.cancelPreparation')}</button>}
  </section>;
  if (onboarding && state?.state === 'ready' && !error) return <section className="runtime-onboarding runtime-onboarding-progress" role="status"><div className="runtime-progress-mark" aria-hidden="true"/><h1>{t('runtime.preparingWork')}</h1><p className="setup-lead">{t('runtime.readyToChat')}</p></section>;
- const serviceNeedsApply = id === 'caelis' && !!state?.installation.installed && (state.state === 'service' || state.serviceUpdateAvailable || state.state === 'incompatible' && state.installation.updateState === 'current');
+ const serviceNeedsApply = id === 'caelis' && canApplyInstalledService(state);
  const recovery = onboarding && !!error && id === 'caelis' && !!state && !state.installation.installed;
  const updateAvailable = state?.installation.updateState === 'available';
  const switchDisabled = blocked || state?.state !== 'ready';
@@ -148,7 +148,7 @@ export function RuntimePreparation({ onboarding = false, manageOnly=false, activ
     {id === 'codex' && state?.serviceVersion && <div><dt>{t('runtime.sharedAppServer')}</dt><dd>{state.serviceVersion}</dd></div>}
     {id === 'caelis' && state?.installation.installed && <div><dt>{t('runtime.running')}</dt><dd><span className={`runtime-status-dot ${state.state === 'ready' || state.state === 'models' ? 'ready' : ''}`} aria-hidden="true"/>{state.serviceState === 'running' ? state.serviceVersion || t('runtime.unknownVersion') : state.state === 'service' ? t('runtime.notStarted') : t('runtime.notConnected')}</dd></div>}
    </dl>}
-   {serviceNeedsApply && <p className="runtime-update-hint">{state?.state === 'service' ? t('runtime.readyAfterServiceStart') : t('runtime.newVersionNotActivated')}</p>}
+   {state?.state === 'incompatible' ? <p className="runtime-update-hint" role="status">{t('runtime.incompatibleServiceHint')}</p> : serviceNeedsApply && <p className="runtime-update-hint">{state?.state === 'service' ? t('runtime.readyAfterServiceStart') : t('runtime.newVersionNotActivated')}</p>}
    <div className="runtime-program-actions">
     {!state ? <span role="status" className="settings-note">{t('runtime.detecting')}</span> : uncertain ? <button className="primary" disabled={blocked} onClick={() => void run('detect')}>{t('runtime.recheck')}</button> : !state.installation.installed ? <button className="primary" disabled={blocked || !state} onClick={() => void run('install')}>{t(error?'runtime.retryPreparation':'runtime.installRuntime', { name })}</button> : serviceNeedsApply ? <button className="primary" disabled={blocked} onClick={() => setConfirm(request(profile, 'apply-update'))}>{t('runtime.applyInstalledVersion')}</button> : updateAvailable ? <button className="primary" disabled={blocked} onClick={() => setConfirm(request(profile, 'update'))}>{id === 'caelis' ? t('runtime.updateAndReconnect') : t('runtime.updateCodex')}</button> : !onboarding ? <button disabled={blocked} onClick={() => void run('check-update')}>{t('runtime.checkUpdate')}</button> : state.state !== 'models' && <span className="permission-badge">{t(state.state==='ready'?'runtime.setupReady':'runtime.installed')}</span>}
     {(!onboarding || notice === t('runtime.preparationCancelled')) && <button className="text-action" disabled={blocked || !id} onClick={() => void run('detect')}>{t('runtime.recheck')}</button>}

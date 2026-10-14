@@ -200,6 +200,15 @@
 .runtime-scope-section>h2 { font-size:15px; color:var(--ink); margin:0 0 6px; }
 .runtime-scope-section>.settings-note { margin:0 0 13px; }
 .runtime-scope-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; min-width:min(100%,300px); }
+.runtime-workspace .local-worker-settings { container-type:inline-size; }
+.settings-window .runtime-workspace .local-worker-settings .runtime-setting-row { display:grid; grid-template-columns:minmax(220px,1fr) minmax(0,1.6fr); align-items:center; gap:20px; }
+.runtime-workspace .local-worker-settings .runtime-setting-row>div:first-child { min-width:0; }
+.runtime-workspace .local-worker-settings .runtime-scope-options { width:100%; min-width:0; }
+.runtime-workspace .local-worker-settings .runtime-scope-options>button span { overflow-wrap:anywhere; }
+.runtime-workspace .local-worker-settings .runtime-model-summary { max-width:100%; min-width:0; width:100%; }
+.runtime-workspace .local-worker-settings .runtime-model-summary>span:first-child { display:block; min-width:0; flex:1; text-align:left; }
+.runtime-workspace .local-worker-settings .runtime-model-summary strong { overflow-wrap:anywhere; }
+@container (max-width:680px) { .settings-window .runtime-workspace .local-worker-settings .runtime-setting-row { grid-template-columns:minmax(0,1fr); align-items:start; gap:12px; } }
 .settings-window .runtime-scope-options>button { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:6px; min-width:0; min-height:76px; padding:13px 15px; text-align:left; white-space:normal; background:var(--caelis-raised); border:1px solid var(--line); border-radius:11px; color:var(--ink); }
 .runtime-scope-options>button strong { font-size:13px; font-weight:600; }
 .runtime-scope-options>button span { font-size:12px; line-height:1.4; color:var(--muted); }
