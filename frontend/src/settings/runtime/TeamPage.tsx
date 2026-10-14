@@ -14,7 +14,7 @@ export function TeamPage({ onConnections }: { onConnections: () => void }) {
  const [view, setView] = useState<RuntimeConfiguration | null>(null);
  const [error, setError] = useState('');
  const [loading, setLoading] = useState(true);
- const canConfigure = Boolean(view?.team.available && view.team.models.length > 0);
+ const canConfigure = Boolean(view?.team.available);
  const refresh = async () => {
   setLoading(true); setError('');
   try { setView(await backend<RuntimeConfiguration>('WorkerTeamConfiguration')); }
@@ -27,7 +27,7 @@ export function TeamPage({ onConnections }: { onConnections: () => void }) {
  }};
  useEffect(() => { void refresh().catch(() => {}); }, []);
  return <section className="runtime-workspace runtime-team-page">
-  <button className="text-action" onClick={onConnections}>{t('runtime.backToWorkerSettings')}</button>
+  <button className="text-action" onClick={onConnections}>← {t('runtime.manageConnections')}</button>
   <h1>{t('settings.team')}</h1>{view && <p className="settings-page-intro">{canConfigure ? t('runtime.teamOptional') : view.team.reason || t('runtime.teamNeedsCaelis')}</p>}
   {loading && <p role="status">{t('runtime.loadingRuntime')}</p>}
   {error && <p role="alert" className="inline-error">{error}</p>}

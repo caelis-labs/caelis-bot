@@ -1,0 +1,33 @@
+.runtime-team-page>.text-action{margin-bottom:20px}
+.runtime-team-page .runtime-team-cards{margin-top:24px}
+.runtime-team-cards{min-width:0}
+.runtime-team-cards-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.runtime-team-cards-heading h2{margin:0}
+.runtime-team-plan-status{margin:0 0 16px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.runtime-team-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.settings-window .runtime-team-card{display:grid;grid-template-columns:38px minmax(0,1fr) 14px;align-items:start;gap:14px;width:100%;min-width:0;min-height:126px;padding:17px;text-align:left;white-space:normal;border:1px solid var(--line);border-radius:14px;background:var(--caelis-raised);color:var(--ink);box-shadow:none}
+.settings-window .runtime-team-card:hover:not(:disabled){border-color:var(--caelis-focus);background:var(--caelis-pressed)}
+.settings-window .runtime-team-card:focus-visible{outline:2px solid var(--caelis-focus);outline-offset:2px}
+.settings-window .runtime-team-card:disabled{opacity:.55;cursor:default}
+.runtime-team-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;background:var(--wash);color:var(--ink)}
+.runtime-team-icon svg{width:23px;height:23px}
+.runtime-team-card-copy{display:flex;flex-direction:column;align-items:flex-start;min-width:0;max-width:100%;overflow-wrap:anywhere}
+.runtime-team-card-copy strong{font-size:14px;line-height:1.35;font-weight:600}
+.runtime-team-card-id{margin-top:2px;color:var(--muted);font-size:10px;line-height:1.3}
+.runtime-team-card-description{margin-top:9px;color:var(--muted);font-size:12px;line-height:1.45}
+.runtime-team-card-model{display:block;width:100%;margin-top:12px;font-size:12px;line-height:1.4;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.runtime-team-card-problem{margin-top:5px;color:var(--danger,var(--muted));font-size:11px;line-height:1.4}
+.runtime-team-card-arrow{color:var(--muted);font-size:21px;line-height:1}
+.runtime-team-role-dialog .runtime-team-binding{display:grid;grid-template-columns:minmax(0,1fr) minmax(155px,210px);align-items:center;gap:16px;padding:15px 0;border-top:1px solid var(--line)}
+.runtime-team-binding-copy{min-width:0;overflow-wrap:anywhere}
+.runtime-team-binding-copy strong{font-size:13px}
+.runtime-team-binding-copy p{margin:5px 0 0;color:var(--muted);font-size:12px;line-height:1.45}
+.settings-window .runtime-team-bind-button{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0;padding:9px 10px;text-align:left;border:1px solid var(--line);border-radius:9px;background:var(--caelis-raised);color:var(--ink)}
+.runtime-team-bind-button span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.runtime-team-bind-button svg{flex:none}
+.runtime-team-plan-list>div{display:flex;align-items:center;gap:8px;padding:12px 0;border-bottom:1px solid var(--line)}
+.runtime-team-plan-list>div>div{flex:1;min-width:0;overflow-wrap:anywhere}
+.runtime-team-plan-list strong{font-size:13px}
+.runtime-team-plan-list p{margin:4px 0 0;font-size:12px}
+.runtime-team-plan-dialog>.text-action{margin-top:16px}
+@media(max-width:680px){.runtime-team-card-grid{grid-template-columns:1fr}.settings-window .runtime-team-card{min-height:0}.runtime-team-role-dialog .runtime-team-binding{grid-template-columns:1fr;gap:6px}.runtime-team-plan-list>div{flex-wrap:wrap}.runtime-team-plan-list>div>div{flex-basis:100%}}
