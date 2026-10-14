@@ -181,12 +181,11 @@ func (o *fixtureRetainedOwner) toolCleanupError() error               { return n
 func (o *fixtureRetainedOwner) terminalEndpoint() string              { return o.endpoint }
 func (o *fixtureRetainedOwner) processIdentity() ownerProcessIdentity { return o.identity }
 
-func TestAutoReconnectPinsOriginalPrivateOwnerEndpoint(t *testing.T) {
+func TestAutoReconnectRejectsUnverifiedRetainedOwner(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	s.reconnectDelay = func(int) time.Duration { return time.Millisecond }
 	owner := &fixtureRetainedOwner{endpoint: "unix:///tmp/fixture-original-owner.sock"}
 	s.mu.Lock()
-	originalEpoch := s.epoch
 	s.client.owner = owner
 	s.retainedOwner = s.client
 	s.mu.Unlock()
@@ -197,14 +196,14 @@ func TestAutoReconnectPinsOriginalPrivateOwnerEndpoint(t *testing.T) {
 	f.peer.Close()
 	f.mu.Unlock()
 	awaitState(t, s, func(v api.Snapshot) bool {
-		return v.Connection == "ready" && s.DiagnosticStatus()["sessionEpoch"].(uint64) > originalEpoch && s.DiagnosticStatus()["autoReconnectActive"] == false
+		return v.Connection == "offline" && s.DiagnosticStatus()["autoReconnectActive"] == false && s.DiagnosticStatus()["autoReconnectAttempts"] == maxAutoReconnectAttempts
 	})
-	if observed.Socket != "/tmp/fixture-original-owner.sock" || !observed.RequiredSocket || s.client.owner != owner {
-		t.Fatal("recovery did not retain original private owner", observed.Socket, observed.RequiredSocket)
+	if observed.Socket != "/tmp/fixture-original-owner.sock" || !observed.RequiredSocket || s.client != nil || s.retainedOwner.owner != owner {
+		t.Fatal("unverified peer was accepted or original private owner was lost", observed.Socket, observed.RequiredSocket)
 	}
 }
 
-func TestFailedReconnectHandshakeDoesNotStopOriginalPrivateOwner(t *testing.T) {
+func TestFailedReconnectIdentityDoesNotStopOriginalPrivateOwner(t *testing.T) {
 	s, f := sessionPair(t, "hold")
 	s.reconnectDelay = func(int) time.Duration { return time.Millisecond }
 	if receipt := sendSynthetic(t, s, "resident-original-request"); receipt.Outcome != "accepted" {
@@ -217,12 +216,6 @@ func TestFailedReconnectHandshakeDoesNotStopOriginalPrivateOwner(t *testing.T) {
 	s.retainedOwner = s.client
 	s.mu.Unlock()
 	f.mu.Lock()
-	f.handle = func(m wireMessage) (any, bool) {
-		if m.Method == "account/read" {
-			return &NativeError{Code: -32000, Message: "fixture handshake failure"}, true
-		}
-		return nil, false
-	}
 	f.peer.Close()
 	f.mu.Unlock()
 	v := awaitState(t, s, func(v api.Snapshot) bool {

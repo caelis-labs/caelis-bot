@@ -594,6 +594,13 @@ func (s *Session) connect(ctx context.Context) error {
 		retained = old
 		s.retainedOwner = old
 	}
+	if retained != nil {
+		reconnectPrivate = true
+		recoveredEndpoint = retained.retainedSocket()
+		if id := retained.privateOwnerIdentity(); id != nil {
+			recoveredPrivate = *id
+		}
+	}
 	// A live owner in another state may still own background tools.
 	if old != nil && old.Err() == nil && s.bound {
 		if !old.UsesSharedServer() && s.hasUnresolvedTasks() {
@@ -650,15 +657,12 @@ func (s *Session) connect(ctx context.Context) error {
 	if err != nil {
 		return s.connectionError("无法连接本机 Codex，请检查连接设置后重试", err)
 	}
-	if retained != nil {
-		c.adoptOwner(retained)
-	}
-	if reconnectPrivate && !c.adoptRecoveredPrivateOwner(recoveredEndpoint, recoveredPrivate) {
+	if reconnectPrivate && !c.reattachPrivateOwner(retained, recoveredEndpoint, recoveredPrivate) {
 		c.detachForReconnect()
 		return s.connectionError("原本机 Codex 身份无法核实；原请求保持未知", errors.New("原私有 owner 的 socket 对端或启动身份不匹配"))
 	}
 	closeAttempt := func() {
-		if retained != nil || reconnectPrivate {
+		if reconnectPrivate {
 			c.detachForReconnect() // A failed handshake does not stop the original owner.
 		} else {
 			c.Close()
@@ -1788,7 +1792,7 @@ cleanup:
 				endpointErr = nil // The final fact is durable even if the intent write failed.
 			}
 		} else if endpointErr == nil {
-			endpointErr = errors.New("原 owner 进程退出尚未确认")
+			endpointErr = errors.Join(errors.New("原 owner 进程退出尚未确认"), c.toolCleanupError())
 		}
 	}
 	s.closed = true
