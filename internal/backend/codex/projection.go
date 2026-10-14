@@ -122,6 +122,8 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 			s.state.Phase = turn.Status
 			if turn.Error != nil {
 				s.applyFailure(*turn.Error)
+			} else if s.state.Message == nativeCapacityWaitMessage {
+				s.state.Message = ""
 			}
 		}
 		if turn.Status == "interrupted" || turn.Status == "failed" {
@@ -635,6 +637,9 @@ func (s *Session) applyEvent(event Notification) {
 		}
 		s.logEvent(event, "turn_error", diagnosticlog.Reason(n.Error.Message))
 		if n.WillRetry {
+			if capacity, _ := capacityErrorInfo(n.Error.Message, n.Error.Info); capacity {
+				s.state.Message = nativeCapacityWaitMessage
+			}
 			return
 		} // Native retry is not a request for user action.
 		if n.Error.Message != "" {

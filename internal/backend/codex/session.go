@@ -159,6 +159,10 @@ type Session struct {
 	cancelLife             context.CancelFunc
 	supervisorOnce         sync.Once
 	start                  func(context.Context, Options) (*Client, error)
+	capacityBackoff        func(int) time.Duration
+	capacityCancel         context.CancelFunc // cancellation during dispatch remains an unknown outcome
+	capacityThread         string
+	capacityWaiting        bool
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -326,7 +330,7 @@ func (s *Session) update() {
 	s.state.Revision++
 	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase != "unknown" && !s.closed && !s.closing
 	s.state.CanSteer = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run != "" && s.state.Phase == "working" && !s.hasConversationPrompt() && !s.closed && !s.closing
-	s.state.CanInterrupt = s.state.Connection == "ready" && (len(s.binding.CleanupTargets) == 0 || s.binding.StopState == "prepared") && (s.run != "" || s.hasBlockingChildren()) && !s.closed && !s.closing
+	s.state.CanInterrupt = s.state.Connection == "ready" && (len(s.binding.CleanupTargets) == 0 || s.binding.StopState == "prepared") && (s.run != "" || s.hasBlockingChildren() || s.capacityCancel != nil) && !s.closed && !s.closing
 	s.publishSnapshot()
 	close(s.changed)
 	s.changed = make(chan struct{})
@@ -1002,7 +1006,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		Turn   nativeTurn `json:"turn"`
 		TurnID string     `json:"turnId"`
 	}
-	err = callDecode(ctx, c, method, params, &response)
+	err = s.startWithCapacityRetry(ctx, c, method, params, &response, threadID, in.ID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err == nil {
@@ -1027,11 +1031,17 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		if errors.As(err, &request) && !request.OutcomeUnknown {
 			s.binding.Pending = nil
 			r.Message = "消息未发送，请重试"
+			if errors.Is(err, context.Canceled) {
+				r.Message = "容量等待已取消，消息未发送"
+			}
 		} else {
 			var native *NativeError
 			if errors.As(err, &native) {
 				s.binding.Pending = nil
 				r.Message = "Codex 未接受这次发送，请检查连接后重试"
+				if capacityReportedError(err) {
+					r.Message = "模型仍然繁忙，自动重试已耗尽；请稍后重试或手动选择其他模型"
+				}
 			} else {
 				r.Outcome = "unknown"
 				r.Message = "发送结果未知，草稿已保留；请重新连接核对，不要重复发送"
@@ -1068,6 +1078,12 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	return r, nil
 }
 func (s *Session) Interrupt(ctx context.Context) error {
+	s.mu.Lock()
+	thread := s.binding.ThreadID
+	s.mu.Unlock()
+	if thread != "" {
+		s.cancelCapacityWait(thread)
+	}
 	ctx, stop := s.operation(ctx, 15*time.Second)
 	defer stop()
 	if err := lockwait.Lock(ctx, &s.op); err != nil {

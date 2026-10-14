@@ -180,7 +180,8 @@ func (s *Session) taskView(t *taskRecord) api.Task {
 			break
 		}
 	}
-	if t.Pending != "" || taskHasUnknownReceipt(t) || (s.state.Connection != "ready" && !terminal(v.Status)) {
+	waitingForCapacity := s.capacityWaiting && s.capacityThread == t.Thread && v.Status == "pending"
+	if !waitingForCapacity && (t.Pending != "" || taskHasUnknownReceipt(t) || (s.state.Connection != "ready" && !terminal(v.Status))) {
 		v.Status = "unknown"
 	}
 	return v
@@ -502,7 +503,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		Turn   nativeTurn `json:"turn"`
 		TurnID string     `json:"turnId"`
 	}
-	err := callDecode(ctx, c, method, params, &response)
+	err := s.startWithCapacityRetry(ctx, c, method, params, &response, t.Thread, in.RequestID)
 	if wasActive {
 		if err == nil && response.TurnID != run {
 			err = ErrProtocol
@@ -547,6 +548,11 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 			}
 			if t.View.Status == "unknown" && t.Run == "" {
 				t.View.Status = "failed"
+			}
+			if capacityReportedError(err) && t.View.Status == "failed" {
+				t.View.Result = "模型仍然繁忙，自动重试已耗尽；请稍后继续原任务或手动选择其他模型"
+			} else if errors.Is(err, context.Canceled) && t.View.Status == "failed" {
+				t.View.Result = "模型容量等待已取消，工作未发送"
 			}
 		}
 	}
@@ -804,6 +810,13 @@ func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
 	return s.taskView(t), nil
 }
 func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
+	s.mu.Lock()
+	cancelledCapacity := false
+	if t := s.binding.Tasks[id]; t != nil && s.capacityThread == t.Thread && s.capacityCancel != nil {
+		s.capacityCancel()
+		cancelledCapacity = true
+	}
+	s.mu.Unlock()
 	s.op.Lock()
 	defer s.op.Unlock()
 	ctx, cancel := s.operation(ctx, 8*time.Second)
@@ -823,6 +836,9 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 	v := t.View
 	if run == "" {
 		s.mu.Unlock()
+		if cancelledCapacity {
+			return v, nil
+		}
 		return v, errors.New("没有已确认的运行回合，请先读取任务")
 	}
 	s.mu.Unlock()
