@@ -232,17 +232,17 @@ func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
 	if slices.Contains(i.Capabilities, "display-replacements-v1") {
 		// Once Host advertises the reader contract, every later request uses the
 		// negotiated route. A failed negotiation never falls back to legacy.
-		c.schema = true
+		c.schema.Store(true)
 		var negotiated wire.ServerInfo
 		if e = c.json(ctx, "GET", "/initialize", nil, &negotiated, "", ""); e != nil {
-			c.schema = false
+			c.schema.Store(false)
 			if isRemoteStatus(e, 404) {
 				return i, fmt.Errorf("%w：当前 Host 缺少 Control 1.0 协商路由；请升级并重启 Caelis 服务，连接尚未就绪", errBotIncompatible)
 			}
 			return i, fmt.Errorf("Caelis Control 1.0 协商失败，请更新 Host: %w", e)
 		}
 		if !slices.Contains(negotiated.Capabilities, "display-replacements-v1") || value(negotiated.InstanceId) != value(i.InstanceId) {
-			c.schema = false
+			c.schema.Store(false)
 			return i, errors.New("Caelis Control 1.0 合同或服务身份不匹配；请更新 Host")
 		}
 		i = negotiated
@@ -346,7 +346,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	scoped.schema = host.schema
+	scoped.schema.Store(host.schema.Load())
 	ok := false
 	defer func() {
 		if !ok {

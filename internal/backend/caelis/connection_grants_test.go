@@ -135,7 +135,7 @@ func newGrantFixture(t *testing.T) (*Session, *grantFixture) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.schema = true
+	app.schema.Store(true)
 	s.client, s.info, s.connected = app, wire.ServerInfo{Capabilities: f.caps}, true
 	s.state.StoreID, s.state.InstanceID, s.state.PrincipalID, s.state.Endpoint, s.state.Connection = "store", "instance", "owner", server.URL, f.life
 	s.state.Session = wire.ApplicationBinding{SessionId: "original", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Profile: wire.ApplicationProfile{Permissions: &wire.ApplicationPermissions{Mode: pointer("workspace-write"), ApprovalMode: pointer("manual")}}}

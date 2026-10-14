@@ -362,7 +362,7 @@ func (s *Session) CheckFutureWorkExecutionMode(mode string) error {
 	s.mu.Lock()
 	c, info, life := s.client, s.info, s.state.Connection
 	s.mu.Unlock()
-	if c == nil || !c.schema || !slices.Contains(info.Capabilities, "worker-creation-permissions-v1") {
+	if c == nil || !c.schema.Load() || !slices.Contains(info.Capabilities, "worker-creation-permissions-v1") {
 		return errors.New("Caelis Host 缺少新任务独立权限合同；请更新并重启 Host")
 	}
 	if mode == "full-access" && !value(life.AllowWorkerFullAccess) {

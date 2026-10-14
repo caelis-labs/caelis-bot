@@ -215,7 +215,7 @@ func TestLegacyCreationJournalUnknownEvidenceStaysOriginal(t *testing.T) {
 
 func TestNewCaelisPermissionContractsRequireCapabilityAndSeparateGrants(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("read-only capability test dispatched request") })
-	s.client.schema = true
+	s.client.schema.Store(true)
 	s.info.Capabilities = []string{"application-execution-approval-never-v1", "worker-creation-permissions-v1"}
 	if s.checkFutureBotMode("full-access") == nil || s.CheckFutureWorkExecutionMode("full-access") == nil {
 		t.Fatal("missing independent Host grants accepted")
@@ -237,7 +237,7 @@ func TestNewCaelisPermissionContractsRequireCapabilityAndSeparateGrants(t *testi
 	if value(profile.Permissions.Mode) != "danger-full-access" || value(profile.Permissions.ApprovalMode) != "auto-review" || value(profile.Permissions.ExecutionApproval) != "never" {
 		t.Fatal("full access profile lacks fixed contract", profile.Permissions)
 	}
-	s.client.schema = false
+	s.client.schema.Store(false)
 	if s.checkFutureBotMode("full-access") == nil || s.CheckFutureWorkExecutionMode("auto") == nil {
 		t.Fatal("unnegotiated Host accepted new permissions")
 	}

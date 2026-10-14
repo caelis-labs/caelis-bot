@@ -30,7 +30,7 @@ func (s *Session) checkFutureBotMode(mode string) error {
 	if manual {
 		return errors.New("当前 Caelis 会话固定为人工批准，不能为新对话选择完全访问")
 	}
-	if c == nil || !c.schema || !slices.Contains(info.Capabilities, "application-execution-approval-never-v1") {
+	if c == nil || !c.schema.Load() || !slices.Contains(info.Capabilities, "application-execution-approval-never-v1") {
 		return errors.New("Caelis Host 缺少完全访问创建权限合同；请更新并重启 Host")
 	}
 	if !value(life.AllowUnreviewedApplicationExecution) {

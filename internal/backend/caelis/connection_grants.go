@@ -88,7 +88,7 @@ func (s *Session) AuthorizeFullAccess(ctx context.Context, scope string) error {
 	if scope == "bot" {
 		creationCapability = "application-execution-approval-never-v1"
 	}
-	if !current.schema || !slices.Contains(info.Capabilities, creationCapability) {
+	if !current.schema.Load() || !slices.Contains(info.Capabilities, creationCapability) {
 		return errors.New("当前 Caelis Host 不支持创建时固定完全访问权限；请更新并重启 Host")
 	}
 	d, token, err := Discover(settings)
@@ -107,7 +107,7 @@ func (s *Session) AuthorizeFullAccess(ctx context.Context, scope string) error {
 	if err != nil {
 		return err
 	}
-	if value(observed.StoreId) != store || value(observed.InstanceId) != instance || !host.schema || !slices.Contains(observed.Capabilities, creationCapability) {
+	if value(observed.StoreId) != store || value(observed.InstanceId) != instance || !host.schema.Load() || !slices.Contains(observed.Capabilities, creationCapability) {
 		return errors.New("Caelis Host 身份或授权合同已改变；请更新并重新连接")
 	}
 	intentPath := grantIntentPath(s.path, scope)

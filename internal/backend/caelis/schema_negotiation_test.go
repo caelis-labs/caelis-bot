@@ -34,7 +34,7 @@ func TestControlSchemaNegotiatesEveryRequestAndRejectsMissingEcho(t *testing.T) 
 			t.Fatalf("unexpected route %s", r.URL.Path)
 		}
 	})
-	if _, err := initialize(t.Context(), s.client); err != nil || !s.client.schema {
+	if _, err := initialize(t.Context(), s.client); err != nil || !s.client.schema.Load() {
 		t.Fatal("schema was not negotiated", err)
 	}
 	var out map[string]any

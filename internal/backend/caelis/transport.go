@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
@@ -23,7 +24,7 @@ import (
 type client struct {
 	origin, token string
 	http          *http.Client
-	schema        bool
+	schema        atomic.Bool
 }
 type remoteError struct {
 	Status       int
@@ -61,7 +62,8 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 		r = bytes.NewReader(b)
 	}
 	base := "/api/control/v1"
-	if c.schema {
+	schema := c.schema.Load()
+	if schema {
 		base += "/schema"
 	}
 	req, e := http.NewRequestWithContext(ctx, method, c.origin+base+path, r)
@@ -74,7 +76,7 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 		req.GetBody = nil
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	if c.schema {
+	if schema {
 		req.Header.Set("X-Caelis-Control-Schema", "1.0")
 		req.Header.Set("X-Caelis-Control-Client-Capabilities", "display-replacements-v1")
 	}
@@ -97,7 +99,7 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 	if e != nil {
 		return nil, errors.New("Caelis 连接中断，操作结果需要核对")
 	}
-	if c.schema && res.StatusCode >= 200 && res.StatusCode < 300 && res.Header.Get("X-Caelis-Control-Schema") != "1.0" {
+	if schema && res.StatusCode >= 200 && res.StatusCode < 300 && res.Header.Get("X-Caelis-Control-Schema") != "1.0" {
 		res.Body.Close()
 		return nil, errors.New("Caelis Control 1.0 协商响应缺失；请更新并重启 Host")
 	}

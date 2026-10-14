@@ -67,7 +67,7 @@ func TestHostConnectionGrantIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer appClient.http.CloseIdleConnections()
-	appClient.schema = host.schema
+	appClient.schema.Store(host.schema.Load())
 	private := filepath.Join(root, "bot-private")
 	if err := os.Mkdir(private, 0700); err != nil {
 		t.Fatal(err)

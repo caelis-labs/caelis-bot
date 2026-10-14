@@ -237,7 +237,7 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 			w.WriteHeader(404)
 		}
 	})
-	s.client.schema = true
+	s.client.schema.Store(true)
 	s.info.Capabilities = []string{"worker-creation-permissions-v1"}
 	s.workExecution = api.WorkExecutionSettings{Model: "fixture-model", Effort: "high", ServiceTier: "priority"}
 	s.state.PrincipalID = "owner"
