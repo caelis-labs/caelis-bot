@@ -256,7 +256,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .settings-page[data-section=connections] { max-width:960px!important; margin:0; }
 .settings-window .runtime-workspace { max-width:960px; margin:0; }
 .settings-window .runtime-workspace-tabs { flex-direction:row; gap:28px; margin:0 0 24px; }
-.settings-window .runtime-workspace-tabs button { font-size:13px; border-radius:0; }
+.settings-window .runtime-workspace-tabs button { font-size:13px; border-radius:0!important; }
 .settings-window .runtime-workspace [hidden] { display:none; }
 .settings-window .runtime-model-section { margin:20px 0; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--caelis-raised); }
 .settings-window .runtime-model-section .runtime-setting-row { margin:0; padding:16px 20px; min-height:72px; border-bottom:1px solid var(--line); }
