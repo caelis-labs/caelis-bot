@@ -86,12 +86,14 @@ test('release signing cannot silently fall back when credentials are absent', {s
 
 test('ordinary and CI builds select a separate app; only explicit release selects production',()=>{
  const read=extra=>spawnSync('/bin/bash',['-c','source "$1"; printf "%s|%s|%s" "$BOT_APP_NAME" "$BOT_APP_ID" "$BOT_BUNDLE"','fixture',resolve('script/app-identity.sh')],{
-  encoding:'utf8',env:{...process.env,BOT_ROOT:'/fixture',BOT_BUILD_CHANNEL:'',BOT_RELEASE_TAG:'',...extra},timeout:10000});
+  encoding:'utf8',env:{...process.env,BOT_ROOT:'/fixture',BOT_BUILD_CHANNEL:'',BOT_RELEASE_TAG:'',BOT_POLISH_BUILD_TAG:'',...extra},timeout:10000});
  for(const extra of [{},{CI:'true'}]) {const r=read(extra);assert.equal(r.status,0);assert.equal(r.stdout,'Caelis Bot Dev|dev.caelis.bot.dev|/fixture/dist/Caelis Bot Dev.app');}
  for(const extra of [{BOT_BUILD_CHANNEL:'release'},{BOT_RELEASE_TAG:'v1.0.0'}]) {const r=read(extra);assert.equal(r.status,0);assert.equal(r.stdout,'Caelis Bot|dev.caelis.bot|/fixture/dist/Caelis Bot.app');}
  assert.equal(read({BOT_BUILD_CHANNEL:'research'}).stdout,'Caelis Bot Research|dev.caelis.bot.research|/fixture/dist/Caelis Bot Research.app');
  assert.equal(read({BOT_BUILD_CHANNEL:'onboarding'}).stdout,'Caelis Bot Dev Onboarding|dev.caelis.bot.dev.onboarding|/fixture/dist/Caelis Bot Dev Onboarding.app');
  assert.equal(read({BOT_BUILD_CHANNEL:'polish'}).stdout,'Caelis Bot Dev PR164|dev.caelis.bot.dev.pr164|/fixture/dist/Caelis Bot Dev PR164.app');
+ assert.equal(read({BOT_BUILD_CHANNEL:'polish',BOT_POLISH_BUILD_TAG:'review-4c5aa5f7'}).stdout,'Caelis Bot Dev PR164|dev.caelis.bot.dev.pr164|/fixture/dist/Caelis Bot Dev PR164-review-4c5aa5f7.app');
+ assert.notEqual(read({BOT_BUILD_CHANNEL:'polish',BOT_POLISH_BUILD_TAG:'../unsafe'}).status,0);
  assert.notEqual(read({BOT_BUILD_CHANNEL:'typo'}).status,0);
 });
 

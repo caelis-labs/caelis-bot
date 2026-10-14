@@ -14,3 +14,7 @@ case "$BOT_BUILD_CHANNEL" in
   *) echo 'Unsupported Bot build channel.' >&2; exit 1 ;;
 esac
 BOT_BUNDLE="$BOT_ROOT/dist/$BOT_APP_NAME.app"
+if [[ "$BOT_BUILD_CHANNEL" == polish && -n "${BOT_POLISH_BUILD_TAG:-}" ]]; then
+  [[ "$BOT_POLISH_BUILD_TAG" =~ ^[a-z0-9-]{1,40}$ ]] || { echo 'Invalid PR164 build tag.' >&2; exit 1; }
+  BOT_BUNDLE="$BOT_ROOT/dist/$BOT_APP_NAME-$BOT_POLISH_BUILD_TAG.app"
+fi
