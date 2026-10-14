@@ -316,7 +316,7 @@ type ExecutionSettings struct {
 	ApprovalMode string `json:"approvalMode"`
 }
 
-// WorkExecutionSettings selects model and creation-time permissions for new work.
+// WorkExecutionSettings selects a model and a requested permission for new work.
 // Empty Model means Runtime default, then Bot fallback. Empty ApprovalMode in
 // historical files means auto review; it never inherits the Bot's mode.
 type WorkExecutionSettings struct {
