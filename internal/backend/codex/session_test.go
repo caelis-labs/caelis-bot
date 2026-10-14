@@ -683,8 +683,8 @@ func TestShutdownCancelsPendingObservationWithoutDeadlockAndCleansTerminals(t *t
 		receipt <- r
 	}()
 	<-f.started
-	if err := s.Close(ctx); err == nil || !strings.Contains(err.Error(), "原 owner 进程退出尚未确认") {
-		t.Fatal("synthetic owner without a process identity must retain exit uncertainty", err)
+	if err := s.Close(ctx); err != nil {
+		t.Fatal("owner with a persisted identity and confirmed exit should close", err)
 	}
 	select {
 	case r := <-receipt:
