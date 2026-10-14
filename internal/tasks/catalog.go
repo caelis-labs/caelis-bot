@@ -80,6 +80,8 @@ func (m *Manager) ClaimUnknownNotices() ([]string, error) {
 func (m *Manager) ConfigureLimit(read func() int) {
 	m.op.Lock()
 	defer m.op.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.maxRunning = read
 }
 func (m *Manager) maximumRunning() int {
@@ -163,9 +165,7 @@ func (m *Manager) metadataLocked() {
 // RefreshWatchlist only reads adapter memory and ages the local ledger. No
 // worker read, model turn, terminal launch or cancellation is dispatched.
 func (m *Manager) RefreshWatchlist() error {
-	m.op.Lock()
 	err := m.refresh()
-	m.op.Unlock()
 	var conflict *observationConflict
 	if err == nil || errors.As(err, &conflict) {
 		m.notifyWatchlist()
@@ -203,8 +203,6 @@ func (m *Manager) QueryTasks(q api.TaskQuery) (api.TaskPage, error) {
 			return page, errors.New(m.text("host.taskCursorInvalid"))
 		}
 	}
-	m.op.Lock()
-	defer m.op.Unlock()
 	if err := m.refresh(); err != nil {
 		return page, err
 	}
