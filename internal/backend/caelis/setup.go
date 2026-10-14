@@ -65,17 +65,24 @@ func InspectSetup(ctx context.Context, v api.RuntimeSettings) (api.SetupState, e
 	out.Models = models
 	out.State = "models"
 	for _, m := range models {
-		if !m.NoAuth {
+		// A committed Host connection proves that its configuration was
+		// accepted, not that the model can run a conversation. Capacity fields
+		// supplied for a manual model are not chat-capability evidence either.
+		if !m.NoAuth && m.ChatEligibility == "chat" {
 			out.State = "ready"
 			break
 		}
+	}
+	if out.State == "models" && len(models) > 0 {
+		out.Message = "已连接模型的聊天能力尚未验证；请选择明确支持聊天的模型，或在实际使用时验证模型能力。"
 	}
 	return out, nil
 }
 func setupCatalog(ctx context.Context, c *client, command string) ([]api.SetupChoice, error) {
 	// The Bot's pinned Core schema predates chat_eligibility. Decode the newer
-	// Host field here until the shared protocol snapshot is integrated; metadata
-	// completeness alone does not prove chat support.
+	// Host field on both connection and configured-model catalogs until the
+	// shared protocol snapshot is integrated. Metadata completeness alone does
+	// not prove chat support.
 	var candidates []struct {
 		wire.SlashArgCandidate
 		ChatEligibility *string `json:"chat_eligibility"`

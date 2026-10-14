@@ -270,6 +270,103 @@ func TestCloseReleasesLifecycleLockWhileWorkersDrain(t *testing.T) {
 		t.Fatal("Close did not finish after its worker exited")
 	}
 }
+func TestCloseConcurrentEntrypointsInWorkerDrainWindow(t *testing.T) {
+	e := newTestEngine()
+	a, _ := fixtureApp(t, e, Host{})
+	if a.plugins == nil {
+		t.Fatal("fixture needs a plugin owner to exercise reconciliation")
+	}
+	// Make reconciliation otherwise eligible; the closed check must keep it
+	// from adding work while the first Close is waiting for this worker.
+	a.mu.Lock()
+	a.started = true
+	a.mu.Unlock()
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	stop := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(stop) // Unblock Close even if an assertion fails.
+	a.workers.Add(1)
+	go func() { defer a.workers.Done(); <-release }()
+
+	first := make(chan error, 1)
+	go func() { first <- a.Close() }()
+	deadline := time.After(5 * time.Second)
+	for {
+		a.mu.Lock()
+		closed := a.closed
+		a.mu.Unlock()
+		if closed {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("Close did not mark application closed")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	window := make(chan struct{})
+	releaseWindow := make(chan struct{})
+	var windowOnce sync.Once
+	unlockWindow := func() { windowOnce.Do(func() { close(releaseWindow) }) }
+	t.Cleanup(unlockWindow)
+	go func() {
+		// Close releases lifecycleMu only after marking closed and before
+		// waiting for workers. Hold it to fix this exact interleaving.
+		a.lifecycleMu.Lock()
+		defer a.lifecycleMu.Unlock()
+		close(window)
+		<-releaseWindow
+	}()
+	waitSignal(t, window)
+
+	secondStarted := make(chan struct{})
+	second := make(chan error, 1)
+	go func() { close(secondStarted); second <- a.Close() }()
+	waitSignal(t, secondStarted)
+	start := make(chan error, 1)
+	prepare := make(chan error, 1)
+	go func() { start <- a.Start() }()
+	go func() { prepare <- a.PreparePersonal() }()
+	a.queuePluginReconcile()
+	a.pluginSyncMu.Lock()
+	reconciling := a.pluginSyncRunning
+	a.pluginSyncMu.Unlock()
+	unlockWindow()
+	if reconciling {
+		t.Fatal("reconcile admitted work after Close marked application closed")
+	}
+	for name, outcome := range map[string]<-chan error{"Start": start, "PreparePersonal": prepare} {
+		select {
+		case err := <-outcome:
+			if err == nil {
+				t.Errorf("%s restarted a closing application", name)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s blocked while Close waited for a worker", name)
+		}
+	}
+	select {
+	case <-first:
+		t.Fatal("Close returned before its worker exited")
+	default:
+	}
+	stop()
+	for name, outcome := range map[string]<-chan error{"first Close": first, "second Close": second} {
+		select {
+		case err := <-outcome:
+			if err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s did not finish after worker release", name)
+		}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed != 1 || e.connected != 0 {
+		t.Fatalf("backend resource closed more than once or connected: closed=%d connected=%d", e.closed, e.connected)
+	}
+}
 func TestToolBindingFailureDoesNotConnectAndReleasesEndpoint(t *testing.T) {
 	requireNativeIPC(t)
 	e := newTestEngine()

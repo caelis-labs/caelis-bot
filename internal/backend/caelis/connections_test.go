@@ -33,6 +33,75 @@ func waitConnection(t *testing.T, s *Connections, id, stage string) api.RuntimeF
 	})
 	return view
 }
+
+func TestManualModelHostReceiptDoesNotProveChat(t *testing.T) {
+	for _, accepted := range []bool{false, true} {
+		name := "rejected"
+		if accepted {
+			name = "accepted"
+		}
+		t.Run(name, func(t *testing.T) {
+			var effects atomic.Int32
+			settings := setupFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if runtimeFixtureHandshake(w, r) {
+					return
+				}
+				switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
+				case "/completion/slash-arguments":
+					var request wire.CompletionRequest
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						t.Error(err)
+					}
+					if value(request.Command) == "model" {
+						if accepted && effects.Load() > 0 {
+							writeFixture(w, []map[string]any{{"value": "manual-id", "chat_eligibility": "unknown", "model_metadata_complete": true}})
+						} else {
+							writeFixture(w, []any{})
+						}
+					} else if value(request.Command) == "connect-provider-api-key" {
+						writeFixture(w, []map[string]string{{"value": "custom"}})
+					} else {
+						t.Errorf("unexpected catalog %q", value(request.Command))
+					}
+				case "/configuration/connect-model":
+					effects.Add(1)
+					var request wire.ConnectModelRequest
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Config.Model != "manual-id" || value(request.Config.ContextWindowTokens) != 32000 || value(request.Config.MaxOutputTokens) != 4096 {
+						t.Errorf("manual configuration = %+v, %v", request, err)
+					}
+					outcome := "rejected"
+					if accepted {
+						outcome = "committed"
+					}
+					writeFixture(w, map[string]any{"operation_id": value(request.OperationId), "outcome": outcome, "revision": "9007199254740994", "error_code": "invalid_argument"})
+				default:
+					t.Errorf("unexpected route %s", r.URL.Path)
+				}
+			})
+			connections := &Connections{}
+			defer connections.Close()
+			flow, err := connections.Start(t.Context(), settings, api.RuntimeConnectionInput{Kind: "api-key", Choice: "custom", Model: "manual-id", APIKey: "SYNTHETIC_KEY", ContextWindowTokens: 32000, MaxOutputTokens: 4096})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantStage := "failed"
+			if accepted {
+				wantStage = "complete"
+			}
+			_ = waitConnection(t, connections, flow.ID, wantStage)
+			setup, err := InspectSetup(t.Context(), settings)
+			if err != nil || setup.State != "models" || effects.Load() != 1 {
+				t.Fatalf("manual Host %s: setup = %+v, effects = %d, err = %v", name, setup, effects.Load(), err)
+			}
+			if accepted && (len(setup.Models) != 1 || setup.Models[0].ChatEligibility != "unknown") {
+				t.Fatalf("accepted manual model must remain unverified: %+v", setup.Models)
+			}
+			if !accepted && len(setup.Models) != 0 {
+				t.Fatalf("rejected model appeared configured: %+v", setup.Models)
+			}
+		})
+	}
+}
 func TestConnectionOAuthInputCompetitionAndNoReplay(t *testing.T) {
 	var starts, inputs atomic.Int32
 	delivered := make(chan struct{})

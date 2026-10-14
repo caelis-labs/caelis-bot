@@ -68,7 +68,7 @@ func TestSetupCompatibilityClassification(t *testing.T) {
 					writeFixture(w, info)
 				case "/completion/slash-arguments":
 					catalogCalls.Add(1)
-					writeFixture(w, []wire.SlashArgCandidate{{Value: "fixture/model"}})
+					writeFixture(w, []map[string]any{{"value": "fixture/model", "chat_eligibility": "chat"}})
 				default:
 					t.Errorf("unexpected route %s", r.URL.Path)
 				}
@@ -85,6 +85,45 @@ func TestSetupCompatibilityClassification(t *testing.T) {
 			}
 			if test.want == "ready" && len(out.Models) != 1 {
 				t.Fatal("supported Host did not make its configured model available")
+			}
+		})
+	}
+}
+
+func TestInspectSetupRequiresQualifiedChatModel(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		models []map[string]any
+		want   string
+	}{
+		{name: "only unknown manual model", models: []map[string]any{{"value": "custom/manual", "chat_eligibility": "unknown", "model_metadata_complete": true}}, want: "models"},
+		{name: "legacy custom model lacks eligibility", models: []map[string]any{{"value": "custom/existing"}}, want: "models"},
+		{name: "ASR and judge only", models: []map[string]any{{"value": "asr", "chat_eligibility": "non-chat"}, {"value": "judge", "chat_eligibility": "non-chat"}}, want: "models"},
+		{name: "chat without authorization", models: []map[string]any{{"value": "chat", "chat_eligibility": "chat", "no_auth": true}}, want: "models"},
+		{name: "mixed has chat", models: []map[string]any{{"value": "asr", "chat_eligibility": "non-chat"}, {"value": "unknown", "chat_eligibility": "unknown"}, {"value": "deepseek/chat", "chat_eligibility": "chat"}}, want: "ready"},
+		{name: "verified custom chat", models: []map[string]any{{"value": "custom/known-chat", "chat_eligibility": "chat"}}, want: "ready"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := setupFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
+				case "/initialize":
+					writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("store"), InstanceId: pointer("setup-instance"), Capabilities: required})
+				case "/completion/slash-arguments":
+					var request wire.CompletionRequest
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil || value(request.Command) != "model" {
+						t.Errorf("expected configured model catalog: %+v, %v", request, err)
+					}
+					writeFixture(w, tc.models)
+				default:
+					t.Errorf("unexpected route %s", r.URL.Path)
+				}
+			})
+			state, err := InspectSetup(t.Context(), settings)
+			if err != nil || state.State != tc.want || len(state.Models) != len(tc.models) {
+				t.Fatalf("setup = %+v, err = %v; want %s", state, err, tc.want)
+			}
+			if tc.want == "models" && state.Message == "" {
+				t.Fatal("unverified connection lost explanation")
 			}
 		})
 	}
@@ -211,13 +250,13 @@ func TestNativeSetupIntegration(t *testing.T) {
 	}
 	provider := ""
 	for _, p := range providers {
-		if strings.Contains(strings.ToLower(p.Value), "chat-compatible") {
+		if p.Value == "custom" {
 			provider = p.Value
 			break
 		}
 	}
 	if provider == "" {
-		t.Fatal("native compatible provider missing")
+		t.Fatal("native custom API provider missing")
 	}
 	// This fixture never sends a paid inference request; it validates configuration receipts.
 	r := api.SetupRequest{Settings: settings, Action: "connect-model", Provider: provider, BaseURL: "http://127.0.0.1:1/v1", Model: "gpt-4.1", APIKey: "SYNTHETIC_SETUP_KEY"}
@@ -229,8 +268,8 @@ func TestNativeSetupIntegration(t *testing.T) {
 	}
 	_ = waitConnection(t, connections, flow.ID, "complete")
 	v, e = InspectSetup(ctx, settings)
-	if e != nil || v.State != "ready" || len(v.Models) == 0 {
-		t.Fatal("configuration did not become available", v.State, e)
+	if e != nil || v.State != "models" || len(v.Models) == 0 {
+		t.Fatal("accepted configuration without chat evidence must stay unverified", v.State, e)
 	}
 	if _, e = SetupCatalog(ctx, api.SetupRequest{Settings: settings, Action: "endpoints", Provider: provider}); e != nil {
 		t.Fatal(e)
