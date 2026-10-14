@@ -256,7 +256,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .settings-page[data-section=connections] { max-width:960px!important; margin:0; }
 .settings-window .runtime-workspace { max-width:960px; margin:0; }
 .settings-window .runtime-workspace-tabs { flex-direction:row; gap:28px; margin:0 0 24px; }
-.settings-window .runtime-workspace-tabs button { font-size:13px; }
+.settings-window .runtime-workspace-tabs button { font-size:13px; border-radius:0; }
 .settings-window .runtime-workspace [hidden] { display:none; }
 .settings-window .runtime-model-section { margin:20px 0; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--caelis-raised); }
 .settings-window .runtime-model-section .runtime-setting-row { margin:0; padding:16px 20px; min-height:72px; border-bottom:1px solid var(--line); }
@@ -264,7 +264,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .runtime-model-section h2 { padding:16px 20px 4px; margin:0; color:var(--muted); font-size:12px; }
 .settings-window .runtime-model-summary { background:transparent; border:1px solid var(--line); border-radius:8px; min-width:210px; }
 .settings-window .runtime-connection-entry { border:1px solid var(--line); border-radius:10px; background:var(--caelis-raised); margin:8px 0; padding:16px 20px; }
-.settings-window .runtime-team-entry { border:1px solid var(--line); border-radius:10px; background:var(--caelis-raised); padding:16px 20px; margin:0; }
+.settings-window .runtime-team-entry { width:100%; border:1px solid var(--line); border-radius:10px; background:var(--caelis-raised); padding:16px 20px; margin:0; }
 .settings-window .runtime-page-footer { margin-top:24px; }
 .settings-window .runtime-workspace .execution-settings { margin-top:0; }
 .settings-window .runtime-workspace .runtime-section-title { margin-top:0; }
@@ -325,3 +325,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .settings-page .settings-page-intro { margin:0 0 20px; }
 .settings-window .plugin-tabs { margin-top:0; }
 .settings-window .machine-page-intro { margin-top:0; }
+
+.settings-window .setting-label p :is(span,label) { font-size:12px; font-weight:400; }
+.settings-window .permission-repair .permission-reset-consent { display:flex; align-items:flex-start; gap:10px; }
+.settings-window .permission-reset-consent input { flex:none; width:16px; height:16px; margin:2px 0 0; }
