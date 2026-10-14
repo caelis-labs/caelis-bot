@@ -16,7 +16,7 @@
 .runtime-gateway-empty { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:14px 0; }
 .runtime-gateway-empty p { width:100%; margin:0 0 4px; font-size:13px; color:var(--muted); }
 .runtime-install-summary { display:flex; align-items:center; gap:8px; margin:0; font-size:13px; color:var(--muted); }
-.runtime-program-onboarding { padding:14px 18px; border:1px solid var(--line); border-radius:12px; background:var(--caelis-raised); }
+.runtime-program.runtime-program-onboarding { padding:14px 18px; border:1px solid var(--line); border-radius:12px; background:var(--caelis-raised); }
 .runtime-program-onboarding .runtime-program-actions { margin-top:10px; }
 .runtime-first-launch-end { align-items:center; justify-content:space-between; gap:18px; }
 .runtime-first-launch-end .settings-note { max-width:32ch; margin:0; line-height:1.5; }
@@ -194,3 +194,25 @@
 .local-worker-runtime .runtime-segments { width:250px; flex-shrink:0; }
 .local-worker-runtime .runtime-segments button { white-space:nowrap; }
 @media(max-width:680px){.local-worker-runtime { align-items:flex-start; flex-wrap:wrap; }.local-worker-runtime .runtime-segments{ width:100%; }}
+
+/* Bot and Worker choices share a quiet visual language; selection stays explicit. */
+.runtime-scope-section { padding:20px 0; border-bottom:1px solid var(--line); }
+.runtime-scope-section>h2 { font-size:15px; color:var(--ink); margin:0 0 6px; }
+.runtime-scope-section>.settings-note { margin:0 0 13px; }
+.runtime-scope-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; min-width:min(100%,300px); }
+.settings-window .runtime-scope-options>button { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:6px; min-width:0; min-height:76px; padding:13px 15px; text-align:left; white-space:normal; background:var(--caelis-raised); border:1px solid var(--line); border-radius:11px; color:var(--ink); }
+.runtime-scope-options>button strong { font-size:13px; font-weight:600; }
+.runtime-scope-options>button span { font-size:12px; line-height:1.4; color:var(--muted); }
+.settings-window .runtime-scope-options>button[aria-pressed="true"] { border-color:var(--caelis-focus); background:var(--caelis-selected); box-shadow:inset 0 0 0 1px var(--caelis-focus); }
+.settings-window .runtime-scope-options>button:disabled:not([aria-pressed="true"]) { opacity:.55; }
+.settings-window .runtime-permission-options>.runtime-full-access[aria-pressed="true"] { background:#fff1e6; border-color:#c46525; box-shadow:inset 0 0 0 1px #c46525; color:#7b3412; }
+.runtime-connection-resources { border:1px solid var(--line); border-radius:11px; padding:0 16px; }
+.settings-window .runtime-connection-resources>button { width:100%; display:flex; justify-content:space-between; align-items:center; text-align:left; padding:16px 0; border:0; border-bottom:1px solid var(--line); background:transparent; }
+.runtime-connection-resources>button:last-child { border-bottom:0; }
+.runtime-connection-resources strong,.runtime-connection-resources small { display:block; }
+.runtime-connection-resources strong { font-size:14px; }
+.runtime-connection-resources small { margin-top:5px; font-size:12px; color:var(--muted); }
+.runtime-management-resources { margin-top:22px; border-top:1px solid var(--line); padding-top:20px; }
+.runtime-management-resources .runtime-section-title { margin-bottom:8px; }
+.settings-window .runtime-workspace button.primary,.settings-window .runtime-management button.primary { background:var(--caelis-raised); color:var(--ink); border:1px solid var(--line); }
+@media(max-width:560px) { .runtime-scope-options { grid-template-columns:1fr; } .runtime-scope-options>button { width:100%; } }

@@ -70,6 +70,51 @@ func TestQuoteChangeKeepsNewDraftAfterOldSubmissionClears(t *testing.T) {
 		t.Fatalf("new quoted draft cleared by old submission: %+v", got)
 	}
 }
+
+func TestFailedRuntimeRollbackKeepsNewestDraftAndRevision(t *testing.T) {
+	for _, phase := range []string{"before-bind", "after-bind"} {
+		t.Run(phase, func(t *testing.T) {
+			root := t.TempDir()
+			s := NewService(snapshotEngine{}, nil, nil, nil, nil)
+			if err := s.ConfigureDraft(filepath.Join(root, "old-draft.json")); err != nil {
+				t.Fatal(err)
+			}
+			first, err := s.SaveDraft(api.Draft{Text: "A"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			old := s.CurrentRuntimeBinding()
+			target := old
+			target.DraftFile = filepath.Join(root, "target-draft.json")
+			target.Draft = api.Draft{ReferenceIDs: []string{}}
+			if phase == "before-bind" {
+				if _, err := s.SaveDraft(api.Draft{Revision: first.Revision, Text: "B"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.BindRuntime(target)
+			if phase == "after-bind" {
+				if _, err := s.SaveDraft(api.Draft{Text: "B"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.RestoreRuntimeBinding(old, target.Draft.Revision); err != nil {
+				t.Fatal(err)
+			}
+			got := s.Draft()
+			if got.Text != "B" || got.Revision <= first.Revision {
+				t.Fatalf("rollback lost newer draft: %+v", got)
+			}
+			reopened := NewService(snapshotEngine{}, nil, nil, nil, nil)
+			if err := reopened.ConfigureDraft(old.DraftFile); err != nil {
+				t.Fatal(err)
+			}
+			if saved := reopened.Draft(); saved.Text != got.Text || saved.Revision != got.Revision {
+				t.Fatalf("disk differs: %+v vs %+v", saved, got)
+			}
+		})
+	}
+}
 func TestCorruptDraftAndWriteFailureDoNotReplaceStoredContents(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "draft.json")
 	if err := os.WriteFile(path, []byte("incomplete"), 0600); err != nil {

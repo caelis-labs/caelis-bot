@@ -11,9 +11,9 @@ import (
 )
 
 func (s *runtimeSetup) caelisProfile() (api.RuntimeSettings, error) {
-	profile := s.app.Backend.RuntimeSettings()
-	if profile.Runtime != "caelis" {
-		return profile, errors.New(s.app.text("host.switchToCaelisFirst"))
+	profile, err := s.Profile("caelis")
+	if err != nil {
+		return profile, err
 	}
 	return profile, validSetup(profile)
 }
@@ -28,12 +28,7 @@ func (s *runtimeSetup) workerTeamProfile() (api.RuntimeSettings, error) {
 	if s.app.localWork == nil {
 		return api.RuntimeSettings{}, errors.New("本机工作设置尚未就绪")
 	}
-	s.app.localWork.mu.Lock()
-	runtime := s.app.localWork.defaultRuntime
-	s.app.localWork.mu.Unlock()
-	if runtime != "caelis" {
-		return api.RuntimeSettings{}, errors.New("请先选择 Caelis Worker，再配置 Team")
-	}
+	// Team belongs to the Caelis connection, independent of the Worker default.
 	profile, err := s.Profile("caelis")
 	if err != nil {
 		return profile, err
@@ -80,7 +75,10 @@ func (s *runtimeSetup) ChangeRuntimeConfiguration(ctx context.Context, r api.Run
 		if err != nil {
 			return api.RuntimeMutationResult{}, err
 		}
-		worker := s.app.Backend.WorkExecutionSettings()
+		worker, err := backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
+		if err != nil {
+			return api.RuntimeMutationResult{}, err
+		}
 		configuration, err := caelis.ReadRuntimeConfiguration(ctx, v)
 		if err != nil {
 			return api.RuntimeMutationResult{}, err
@@ -137,7 +135,13 @@ func (s *runtimeSetup) removeModelAndStop(ctx context.Context, profile api.Runti
 	if err != nil {
 		return api.RuntimeMutationResult{}, err
 	}
-	work := s.app.Backend.WorkExecutionSettings()
+	work, err := backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
+	if err != nil {
+		return api.RuntimeMutationResult{}, err
+	}
+	if s.app.Backend.RuntimeSettings().Runtime != "caelis" && (preferences.Model == change.ID || work.Model == change.ID) {
+		return api.RuntimeMutationResult{Outcome: "rejected", Message: "此模型仍被默认连接使用；请先更换相应模型后再移除。"}, nil
+	}
 	hostChange := change
 	hostChange.Action = "remove-model"
 	result, err := caelis.ChangeRuntimeConfiguration(ctx, profile, hostChange)

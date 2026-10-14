@@ -46,7 +46,7 @@ func TestConnectionProfileBeforeActivation(t *testing.T) {
 	}
 }
 
-func TestWorkerTeamProfileFollowsWorkerNotConversationRuntime(t *testing.T) {
+func TestTeamProfileBelongsToCaelisConnectionIndependentOfSelections(t *testing.T) {
 	app, root := fixtureApp(t, newTestEngine(), Host{})
 	profile := api.RuntimeSettings{Runtime: "caelis", CLIPath: filepath.Join(root, "bin", "caelis"), CaelisStore: filepath.Join(root, "store")}
 	if err := app.setup.saveProfile(profile); err != nil {
@@ -62,8 +62,9 @@ func TestWorkerTeamProfileFollowsWorkerNotConversationRuntime(t *testing.T) {
 	app.localWork.mu.Lock()
 	app.localWork.defaultRuntime = "codex"
 	app.localWork.mu.Unlock()
-	if _, err := app.setup.workerTeamProfile(); err == nil {
-		t.Fatal("Codex Worker exposed Caelis Team")
+	got, err = app.setup.workerTeamProfile()
+	if err != nil || got != profile {
+		t.Fatalf("Caelis connection lost Team when Worker default changed: %+v, %v", got, err)
 	}
 }
 

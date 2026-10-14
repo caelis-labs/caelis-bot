@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 )
 
+func (w *localWorkers) SelectedLocalWorker() string { return w.DefaultRuntime() }
+
 func (w *localWorkers) settingsOwner(ctx context.Context, runtime string) (api.WorkRuntime, error) {
 	w.mu.Lock()
 	if runtime == w.active {
@@ -70,6 +72,14 @@ func (w *localWorkers) inspect(ctx context.Context, runtime string) (api.LocalWo
 	return v, nil
 }
 func (w *localWorkers) InspectLocalWorker(ctx context.Context, runtime string) (api.LocalWorkerSettings, error) {
+	// Compatibility path for existing callers. New settings use the explicit
+	// read-only inspection and selection methods below.
+	if runtime == "" {
+		return w.InspectWorkerRuntime(ctx, runtime)
+	}
+	return w.SelectLocalWorker(ctx, runtime)
+}
+func (w *localWorkers) InspectWorkerRuntime(ctx context.Context, runtime string) (api.LocalWorkerSettings, error) {
 	w.settingsMu.Lock()
 	defer w.settingsMu.Unlock()
 	w.mu.Lock()
@@ -77,6 +87,17 @@ func (w *localWorkers) InspectLocalWorker(ctx context.Context, runtime string) (
 	w.mu.Unlock()
 	if runtime == "" {
 		runtime = current
+	}
+	return w.inspect(ctx, runtime)
+}
+func (w *localWorkers) SelectLocalWorker(ctx context.Context, runtime string) (api.LocalWorkerSettings, error) {
+	w.settingsMu.Lock()
+	defer w.settingsMu.Unlock()
+	w.mu.Lock()
+	current := w.defaultRuntime
+	w.mu.Unlock()
+	if runtime == "" {
+		return api.LocalWorkerSettings{}, errors.New("unsupported_runtime")
 	}
 	v, err := w.inspect(ctx, runtime)
 	if err != nil {

@@ -9,8 +9,26 @@ const {setupStatusKey,botSessionStatusKey,nextOnboardingStep,setupFailureKind} =
 const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL, executionMethodLabel} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
 const {displayConnectionMessage} = await server.ssrLoadModule('/src/connection-message.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
+const {serialLatest} = await server.ssrLoadModule('/src/settings/runtime/worker-refresh.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
+
+test('slow Worker inspection coalesces refreshes and always clears busy',async()=>{
+ let release;const delayed=new Promise(resolve=>{release=resolve;});
+ const calls=[],busy=[];
+ const schedule=serialLatest(async request=>{calls.push(request);if(request==='old')await delayed;},value=>busy.push(value));
+ schedule('old');schedule('superseded');schedule('latest');
+ assert.deepEqual(calls,['old']);assert.deepEqual(busy,[true]);
+ release();await delayed;await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(calls,['old','latest']);assert.deepEqual(busy,[true,false]);
+});
+test('failed Worker inspection still runs queued refresh and releases busy',async()=>{
+ const calls=[],errors=[],busy=[];
+ let release;const delayed=new Promise(resolve=>{release=resolve;});
+ const schedule=serialLatest(async request=>{calls.push(request);if(request==='old'){await delayed;throw Error('fixture failure');}},value=>busy.push(value),error=>errors.push(error.message));
+ schedule('old');schedule('latest');release();await delayed;await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(calls,['old','latest']);assert.deepEqual(errors,['fixture failure']);assert.deepEqual(busy,[true,false]);
+});
 
 test('execution labels are local copy only; native selectors and unknown IDs stay intact',()=>{
  const en=JSON.parse(readFileSync('internal/i18n/locales/en/runtime.json','utf8'));

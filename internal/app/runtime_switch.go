@@ -167,20 +167,30 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 	a.stopResidentRuntime()
 	closeRuntimeEngine(engine)
 	committed = true // the target has already been detached above
-	rollback := apply(old, oldDirectory)
+	var hostRestore error
+	if a.host.RuntimeChanged != nil {
+		hostRestore = a.host.RuntimeChanged(oldDirectory)
+	}
+	draftRestore := a.Backend.RestoreRuntimeBinding(old, prepared.Draft.Revision)
+	a.setEngine(old.Engine)
+	if previous := a.localWork.SwitchResident(old.Settings.Runtime, old.Engine); previous != nil {
+		displaced = previous
+	}
+	startRestore := a.startRuntime()
 	a.localWork.RestoreRetained(settings.Runtime, displaced)
-	if rollback == nil && !first {
+	var connectRestore error
+	if startRestore == nil && !first {
 		// The old client was paused but not closed. Reconnect only its Bot
 		// observer; never stop the shared Runtime Host. Setup cancellation
 		// cannot cancel restoration of the original client.
 		restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		rollback = a.Backend.ConnectPreparedRuntime(restoreCtx)
+		connectRestore = a.Backend.ConnectPreparedRuntime(restoreCtx)
 		restoreCancel()
 	}
-	if rollback != nil {
-		return errors.Join(err, errors.New("原连接恢复未完成"), rollback)
+	if hostRestore != nil || startRestore != nil || connectRestore != nil {
+		return errors.Join(err, errors.New("原连接恢复未完成"), hostRestore, startRestore, connectRestore, draftRestore)
 	}
-	return err
+	return errors.Join(err, draftRestore)
 }
 
 func closeRetainedWorker(owner retainedWorker) {

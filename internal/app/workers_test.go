@@ -178,6 +178,26 @@ func TestLocalDefaultSwitchAndResidentSwitchKeepTaskOwnership(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkerInspectionDoesNotSelectAndUnreadySelectionPreservesDefault(t *testing.T) {
+	root := t.TempDir()
+	owners := map[string]*workerFixture{
+		"codex":  {runtime: "codex", states: map[string]api.WorkState{}},
+		"caelis": {runtime: "caelis", states: map[string]api.WorkState{}},
+	}
+	pool := workPool(root, "codex", owners)
+	if v, err := pool.InspectWorkerRuntime(t.Context(), "caelis"); err != nil || !v.Ready || pool.DefaultRuntime() != "codex" {
+		t.Fatalf("inspection changed selection: %+v %v", v, err)
+	}
+	owners["caelis"].reject = true
+	if _, err := pool.SelectLocalWorker(t.Context(), "caelis"); err == nil || pool.DefaultRuntime() != "codex" {
+		t.Fatalf("unready selection displaced default: %v", err)
+	}
+	owners["caelis"].reject = false
+	if _, err := pool.SelectLocalWorker(t.Context(), "caelis"); err != nil || pool.DefaultRuntime() != "caelis" {
+		t.Fatalf("ready selection failed: %v", err)
+	}
+}
 func TestMissingOriginalLocalRuntimeNeverFallsBack(t *testing.T) {
 	root := t.TempDir()
 	active := &workerFixture{runtime: "caelis", states: map[string]api.WorkState{}}

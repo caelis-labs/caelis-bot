@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 )
 
 // RuntimeBinding is prepared without changing the resident service. A corrupt
@@ -37,14 +38,8 @@ func PrepareRuntimeBinding(root string, settings api.RuntimeSettings, defaults a
 	if b.Work, err = LoadWorkExecutionSettings(b.WorkFile); err != nil {
 		return b, err
 	}
-	if data, e := os.ReadFile(b.DraftFile); e == nil {
-		var stored draftDocument
-		if len(data) > 1024*1024 || json.Unmarshal(data, &stored) != nil || (stored.Version != 1 && stored.Version != 2) || len(stored.Draft.Text) > 256*1024 || len(stored.Draft.ReferenceIDs) > 64 || (stored.Send != nil && (stored.Send.ID == "" || len(stored.Send.FileIDs) == 0 || len(stored.Send.FileIDs) > 8 || !slices.Contains([]string{"", "accepted", "rejected"}, stored.Send.Outcome))) {
-			return b, errors.New("目标连接的草稿无法读取，原文件已保留")
-		}
-		b.Draft, b.DraftSend = stored.Draft, stored.Send
-	} else if !errors.Is(e, os.ErrNotExist) {
-		return b, e
+	if b.Draft, b.DraftSend, err = readBindingDraft(b.DraftFile); err != nil {
+		return b, err
 	}
 	if data, e := os.ReadFile(b.PresentationFile); e == nil {
 		if json.Unmarshal(data, &b.Dismissed) != nil {
@@ -54,6 +49,22 @@ func PrepareRuntimeBinding(root string, settings api.RuntimeSettings, defaults a
 		return b, e
 	}
 	return b, nil
+}
+
+func readBindingDraft(path string) (api.Draft, *draftSend, error) {
+	empty := api.Draft{ReferenceIDs: []string{}}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return empty, nil, nil
+	}
+	if err != nil {
+		return empty, nil, err
+	}
+	var stored draftDocument
+	if len(data) > 1024*1024 || json.Unmarshal(data, &stored) != nil || (stored.Version != 1 && stored.Version != 2) || len(stored.Draft.Text) > 256*1024 || len(stored.Draft.ReferenceIDs) > 64 || (stored.Send != nil && (stored.Send.ID == "" || len(stored.Send.FileIDs) == 0 || len(stored.Send.FileIDs) > 8 || !slices.Contains([]string{"", "accepted", "rejected"}, stored.Send.Outcome))) {
+		return empty, nil, errors.New("目标连接的草稿无法读取，原文件已保留")
+	}
+	return stored.Draft, stored.Send, nil
 }
 
 func (s *Service) CurrentRuntimeBinding() RuntimeBinding {
@@ -120,6 +131,41 @@ func (s *Service) ConnectPreparedRuntime(ctx context.Context) error {
 func (s *Service) BindRuntime(b RuntimeBinding) {
 	s.configurationMu.Lock()
 	s.mu.Lock()
+	s.bindRuntimeLocked(b)
+	s.mu.Unlock()
+	s.configurationMu.Unlock()
+	s.finishRuntimeBinding(b.Engine)
+}
+
+// RestoreRuntimeBinding reloads the old draft while SaveDraft is serialized by
+// s.mu. Input saved during preparation or after target binding survives a
+// failed handshake; its revision remains monotonic and no send is replayed.
+func (s *Service) RestoreRuntimeBinding(b RuntimeBinding, targetDraftRevision uint64) error {
+	s.configurationMu.Lock()
+	s.mu.Lock()
+	latest, send, err := readBindingDraft(b.DraftFile)
+	if err == nil {
+		b.Draft, b.DraftSend = latest, send
+		if s.draftFile != b.DraftFile && s.draft.Revision > targetDraftRevision && s.draftSend == nil && send == nil {
+			latest = s.draft
+			if latest.Revision <= b.Draft.Revision {
+				latest.Revision = b.Draft.Revision + 1
+			}
+			latest.ReferenceIDs = slices.Clone(latest.ReferenceIDs)
+			b.Draft = latest // Keep visible input even if the disk write fails.
+			if writeErr := localstate.Write(b.DraftFile, draftDocument{Version: 2, Draft: latest}); writeErr != nil {
+				err = writeErr
+			}
+		}
+	}
+	s.bindRuntimeLocked(b)
+	s.mu.Unlock()
+	s.configurationMu.Unlock()
+	s.finishRuntimeBinding(b.Engine)
+	return err
+}
+
+func (s *Service) bindRuntimeLocked(b RuntimeBinding) {
 	s.runtimeFile, s.runtimeSettings = b.RuntimeFile, b.Settings
 	s.runtimeLoadError = nil
 	s.executionFile, s.executionSettings = b.ExecutionFile, b.Execution
@@ -130,9 +176,9 @@ func (s *Service) BindRuntime(b RuntimeBinding) {
 	s.outbox = nil
 	s.botStatus, s.submitUser = nil, nil
 	s.presentationRevision++
-	s.mu.Unlock()
-	s.configurationMu.Unlock()
-	s.setEngine(b.Engine)
+}
+func (s *Service) finishRuntimeBinding(engine api.Engine) {
+	s.setEngine(engine)
 	s.recoveryMu.Lock()
 	s.recoveryGeneration++
 	s.recoveryMu.Unlock()

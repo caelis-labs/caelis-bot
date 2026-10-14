@@ -6,7 +6,6 @@ import { createRuntimeSettingsClient } from './settings/runtime/client';
 import { SettingsDialog } from './settings/runtime/SettingsDialog';
 import { LocalWorkerSettings } from './settings/runtime/LocalWorkerSettings';
 import { RuntimeWorkspace } from './settings/runtime/RuntimeWorkspace';
-import { ExecutionSettings } from './ExecutionSettings';
 import type { RuntimeSettings as Profile, SetupState, SetupOverview, SetupRequest, SetupInstallProgress } from './backend/contract';
 import { useI18n } from './i18n';
 import {nextOnboardingStep,setupFailureKind,setupStatusKey} from './settings/runtime/setup-status';
@@ -16,10 +15,10 @@ const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
 
 export function RuntimeSettings({ onboarding = false, onBack,onDone,onTeam,onBusy,active=true,refreshKey=0 }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; onTeam?:()=>void; onBusy?:(busy:boolean)=>void; active?:boolean; refreshKey?:number }) {
- return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone} onBusy={onBusy}/> : <RuntimeWorkspace workerSettings={(onConnections, workerRefreshKey)=><LocalWorkerSettings active={active} refreshKey={workerRefreshKey} onConnections={onConnections} onTeam={onTeam}/>} executionSettings={<ExecutionSettings embedded active={active} refreshKey={refreshKey}/>} active={active} refreshKey={refreshKey} preparation={(id, reportBusy, onPrepared, guided) => <RuntimePreparation onboarding={guided} initialRuntime={id} active={active} onBusy={reportBusy} onDone={onPrepared}/>}/>;
+ return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone} onBusy={onBusy}/> : <RuntimeWorkspace workerSettings={(onConnections, workerRefreshKey)=><LocalWorkerSettings active={active} refreshKey={workerRefreshKey} onConnections={onConnections}/>} onTeam={onTeam} active={active} refreshKey={refreshKey} preparation={(id, reportBusy, onPrepared) => <RuntimePreparation manageOnly initialRuntime={id} active={active} onBusy={reportBusy} onDone={onPrepared}/>}/>;
 }
 
-export function RuntimePreparation({ onboarding = false, active=true, onBack, onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; active?:boolean; onBack?:()=>void; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
+export function RuntimePreparation({ onboarding = false, manageOnly=false, active=true, onBack, onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; manageOnly?:boolean; active?:boolean; onBack?:()=>void; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
  const { t, locale } = useI18n();
  const errorText = (e: unknown) => e instanceof Error ? e.message : t('runtime.actionFailed');
  const [activeProfile, setActiveProfile] = useState<Profile | null>(null), [restartNeeded, setRestartNeeded] = useState(false);
@@ -68,6 +67,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack, on
    const v = action === 'detect' ? await call<SetupState>('InspectSetup', profile) : await call<SetupState>('ApplySetup', request(profile, action, fields));
    if (alive.current) {
     setState(v); setForm('');
+    if (manageOnly && v.state === 'ready') onDone?.();
     if (action === 'detect') setNotice(v.state === 'ready' ? t('runtime.connectionCheckPassed') : t(setupStatusKey(v)));
     if (['install', 'update', 'apply-update', 'start'].includes(action)) setNotice(t(setupStatusKey(v)));
     if (action === 'check-update') setNotice(v.installation.updateState === 'available' ? '' : t(setupStatusKey(v)));
@@ -84,14 +84,16 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack, on
   if (working.current) return;
   working.current = true; setBusy('stage'); setError('');
   try {
-   await call<boolean>('StageRuntime', value);
+   // StageRuntime is a first-use marker. Maintenance and Bot reselection do
+   // not replace it; ActivateRuntime commits an explicit Bot selection later.
+   if (!overview?.hasRuntimeChoice) await call<boolean>('StageRuntime', value);
    setID(value);
   } catch (e) { setError(errorText(e)); }
   finally { working.current = false; setBusy(''); }
  };
  const activate = async () => {
   if (working.current) return; working.current = true; cancellationRequested.current=false; setBusy('activate'); setError('');
-  try { await call('ActivateRuntime', profile); const next = await refreshOverview(); setActiveProfile(profile); setRestartNeeded(false); if (onboarding && next.hasRuntimeChoice && !next.pending) onDone?.(); else setNotice(t('runtime.connectionCheckPassed')); }
+  try { await call('ActivateRuntime', profile); const next = await refreshOverview(); setActiveProfile(profile); setRestartNeeded(false); if ((onboarding && next.hasRuntimeChoice && !next.pending) || manageOnly) onDone?.(); else setNotice(t('runtime.connectionCheckPassed')); }
   catch (e) { const raw=errorText(e); if (cancellationRequested.current) setNotice(t('runtime.preparationCancelled')); else setError(raw); }
   finally { working.current = false; if (alive.current) setBusy(''); }
  };
@@ -125,7 +127,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack, on
  const switchHint = blocked ? t('runtime.waitCurrentAction') : state?.state === 'incompatible' ? t('runtime.incompatibleServiceHint', { name }) : state?.state === 'ready' ? t('runtime.switchTakesEffectRestart', { name }) : state ? t(setupStatusKey(state)) : t('runtime.switchAvailableAfterInstall');
  return <section className={onboarding ? 'runtime-onboarding' : 'runtime-management'} aria-label={t('runtime.runtimeSettingsAria')}>
   {onboarding ? <><button className="text-action setup-back" disabled={blocked} onClick={() => setID('')}>{t('runtime.chooseOtherRuntime')}</button><h1>{id === 'caelis' ? t('runtime.connectAIModel') : t('runtime.loginWithChatGPT')}</h1><p className="setup-lead">{state?.state === 'ready' ? t('runtime.readyToChat') : busy ? t('runtime.preparingWork') : id === 'caelis' && state?.state === 'models' ? t('runtime.modelRequiredLead') : t('runtime.prepareRuntimeLead', { name })}</p></> : <>
-   {id && overview?.hasRuntimeChoice && id !== overview.active && <div className="runtime-selection"><p className="settings-note">{t('runtime.switchAfterInstallNote', { name })}</p><span className="runtime-switch" title={switchHint}><button className="primary" disabled={switchDisabled} onClick={() => setConfirm(request(profile, 'switch'))}>{t('runtime.switchToRuntime', { name })}</button></span></div>}
+   {!manageOnly && id && overview?.hasRuntimeChoice && id !== overview.active && <div className="runtime-selection"><p className="settings-note">{t('runtime.switchAfterInstallNote', { name })}</p><span className="runtime-switch" title={switchHint}><button disabled={switchDisabled} onClick={() => setConfirm(request(profile, 'switch'))}>{t('runtime.switchToRuntime', { name })}</button></span></div>}
   </>}
   {recovery && <div className="runtime-recovery-card" role="alert"><span className="runtime-recovery-symbol" aria-hidden="true">!</span><div><h2>{t('runtime.preparationIncomplete')}</h2><p>{error}</p>
    {transferSummary && <p className="runtime-recovery-transfer">{t('runtime.lastDownloadProgress', { progress: transferSummary })}</p>}
@@ -166,7 +168,8 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack, on
   {error && !recovery ? <p className="inline-error" role="alert">{error}</p> : notice ? <p className="settings-note" role="status">{notice}</p> : state && !serviceNeedsApply && !['ready', 'models'].includes(state.state) && !(onboarding && state.state === 'missing') && (state.state !== 'incompatible' || onboarding || selectedActive) && <p className="settings-note" role="status">{t(setupStatusKey(state))}</p>}
   {(!onboarding || !!error) && <button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</button>}
   {state?.accountMismatch && <p className="runtime-update-hint" role="status">{state.message}</p>}
-  {state?.state === 'ready' && (onboarding || (overview && (!overview.hasRuntimeChoice || (selectedActive && (restartNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))))) && <div className={`setup-end${onboarding ? ' runtime-first-launch-end' : ''}`}><button className={onboarding || !overview?.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{!overview?.hasRuntimeChoice ? t('runtime.restartAndStart') : selectedActive ? t('runtime.restartAndApply') : t('runtime.switchAndRestart')}</button></div>}
+  {!manageOnly && state?.state === 'ready' && (onboarding || (overview && (!overview.hasRuntimeChoice || (selectedActive && (restartNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))))) && <div className={`setup-end${onboarding ? ' runtime-first-launch-end' : ''}`}><button className={onboarding || !overview?.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{!overview?.hasRuntimeChoice ? t('runtime.restartAndStart') : selectedActive ? t('runtime.restartAndApply') : t('runtime.switchAndRestart')}</button></div>}
+  {manageOnly && state?.state==='ready' && (!overview?.hasRuntimeChoice || selectedActive && (restartNeeded || !!activeProfile && (profile.cliPath!==activeProfile.cliPath || (profile.caelisStore??'')!==(activeProfile.caelisStore??'')))) && <div className="setup-end"><button disabled={blocked} onClick={()=>void activate()}>{locale==='zh-CN'?'用于 Bot 对话':'Use for Bot conversation'}</button></div>}
   {form === 'model' && <ConnectionWizard client={connectionClient} active={active} onClose={() => setForm('')} onConnected={async () => { setForm(''); await run('detect'); }}/>}
   {form === 'key' && <APIKeyForm busy={blocked} onClose={() => setForm('')} onSubmit={key => run('api-key', { apiKey: key })}/>}
   {confirm && <section className="runtime-confirm" role="alertdialog" aria-modal="false" aria-labelledby="setup-confirm-title"><h3 id="setup-confirm-title">{confirm.action === 'switch' ? t('runtime.confirmSwitchTitle', { name }) : confirm.action === 'logout' ? t('runtime.confirmLogoutTitle') : confirm.action === 'update' ? (id === 'caelis' ? t('runtime.confirmUpdateCaelisTitle') : t('runtime.confirmUpdateCodexTitle')) : confirm.action === 'apply-update' ? t('runtime.confirmApplyCaelisTitle') : t('runtime.confirmRemoveModelTitle')}</h3><p>{confirm.action === 'switch' ? t('runtime.confirmSwitchBody') : ['update', 'apply-update'].includes(confirm.action) && id === 'caelis' ? t('runtime.confirmUpdateCaelisBody') : confirm.action === 'update' ? t('runtime.confirmUpdateCodexBody') : t('runtime.confirmAffectsOtherAppsBody')}</p><div className="setup-end"><button autoFocus onClick={() => setConfirm(null)}>{t('common.cancel')}</button><button className="primary" onClick={() => { const r = confirm; setConfirm(null); if (r.action === 'switch') void activate(); else void run(r.action, r); }}>{confirm.action === 'switch' ? t('runtime.switchAndRestart') : confirm.action === 'update' ? (id === 'caelis' ? t('runtime.applyAndReconnect') : t('runtime.update')) : confirm.action === 'apply-update' ? t('runtime.applyAndReconnect') : t('runtime.confirm')}</button></div></section>}

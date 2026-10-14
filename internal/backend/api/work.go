@@ -61,7 +61,10 @@ type LocalWorkerSettings struct {
 	RuntimeDefault *WorkExecutionSettings `json:"runtimeDefault"`
 }
 type LocalWorkerController interface {
+	SelectedLocalWorker() string
 	InspectLocalWorker(context.Context, string) (LocalWorkerSettings, error)
+	InspectWorkerRuntime(context.Context, string) (LocalWorkerSettings, error)
+	SelectLocalWorker(context.Context, string) (LocalWorkerSettings, error)
 	SaveLocalWorkerModel(context.Context, WorkExecutionSettings) (LocalWorkerSettings, error)
 }
 
