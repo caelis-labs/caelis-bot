@@ -72,6 +72,7 @@ echo 'Pinned Core binary: Bot connection directory and isolated native Host/Guar
   export CAELIS_BOT_ELIGIBILITY_BINARY="$CORE_BINARY" CAELIS_BOT_TEST_BINARY="$CORE_BINARY"
   export CAELIS_BOT_ELIGIBILITY_OUTPUT="$CONTRACT_ROOT/core-eligibility.json"
   go test -race -count=1 -timeout=4m -run '^TestExternalHostSetupCatalogEligibility$' ./internal/backend/caelis
+  go test -race -count=1 -timeout=4m -run '^Test(HostConnectionGrantIntegration|FullAccessGrantScopesKeepConnectionAndExistingBinding|FullAccessUnknownWriteRetriesOriginalOperation|FullAccessGrantRequiresCurrentHostContractAndReadback|PreviouslyGrantedConnectionDoesNotRequireGrantUpdateCapability|WorkerResumeChecksPinnedNativePermissionBeforePrompt|InspectSetupRequiresQualifiedChatModel|SetupSchema404RequiresUpgradeWithoutLegacyFallback)$' ./internal/backend/caelis
   node --test script/connection-models.test.mjs
   make smoke-caelis
 )
