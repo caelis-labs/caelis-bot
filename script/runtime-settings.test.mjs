@@ -10,6 +10,7 @@ const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseMo
 const {displayConnectionMessage} = await server.ssrLoadModule('/src/connection-message.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
 const {serialLatest} = await server.ssrLoadModule('/src/settings/runtime/worker-refresh.ts');
+const {connectSelectedModels} = await server.ssrLoadModule('/src/settings/runtime/connection-sequence.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
 
@@ -179,6 +180,20 @@ test('native auth progress is observed without redispatching connection',async()
  const client=createRuntimeSettingsClient(async(method,...args)=>{calls.push([method,...args]);return {id:'f',revision:method==='StartRuntimeConnection'?'1':'2',sequence:method==='StartRuntimeConnection'?1:2,stage:method==='StartRuntimeConnection'?'authorization':'complete',title:'',message:'',installation:null,authorization:null};});
  await client.startConnection({kind:'account',choice:'grok'},new AbortController().signal,view=>complete(view));
  assert.equal((await terminal).stage,'complete');assert.equal(calls.filter(c=>c[0]==='StartRuntimeConnection').length,1);assert.equal(calls.filter(c=>c[0]==='WaitRuntimeConnection').length,1);
+});
+test('selected provider models connect sequentially and stop on an unknown receipt',async()=>{
+ const calls=[],completed=[];
+ const client={startConnection:async(input,_signal,progress)=>{
+  calls.push(input);
+  const state=calls.length===2?'unknown':'complete';
+  const flow={id:`flow-${calls.length}`,revision:'1',sequence:1,stage:state,title:'',message:''};
+  progress(flow);return flow;
+ }};
+ const result=await connectSelectedModels(client,{kind:'api-key',choice:'fixture',baseUrl:'https://example.invalid/v1',apiKey:'private-sentinel'},['chat-a','chat-b','chat-c'],new AbortController().signal,()=>{},count=>completed.push(count));
+ assert.equal(result.stage,'unknown');
+ assert.deepEqual(calls.map(call=>call.model),['chat-a','chat-b']);
+ assert.deepEqual(completed,[1]);
+ assert.ok(calls.every(call=>call.apiKey==='private-sentinel'));
 });
 test('first Caelis setup pins the selected profile before activation',async()=>{
  const calls=[],profile={runtime:'caelis',cliPath:'/fixture/caelis',caelisStore:'/fixture/store'};

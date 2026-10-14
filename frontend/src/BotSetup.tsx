@@ -3,6 +3,7 @@ import { backend, desktop } from './desktop';
 import { RuntimeSettings } from './RuntimeSettings';
 import type { BotInitialization, BotIntroduction, SetupOverview, Snapshot } from './backend/contract';
 import { useI18n } from './i18n';
+import './onboarding-flow.css';
 
 // The backend journals one ordinary user message. The Bot maintains MEMORY.md;
 // this form does not create a second identity settings store.
@@ -22,7 +23,7 @@ function BotIntroductionSetup({ onDone,active }: { onDone: () => void;active:boo
   const [description, setDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const opening = useRef(false), latestDone = useRef(onDone);
+  const opening = useRef(false), submitting = useRef(false), latestDone = useRef(onDone);
   latestDone.current = onDone;
 
   useEffect(() => {
@@ -65,7 +66,8 @@ function BotIntroductionSetup({ onDone,active }: { onDone: () => void;active:boo
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (busy || !name.trim()) return;
+    if (submitting.current || !name.trim()) return;
+    submitting.current = true;
     setBusy(true);
     setError('');
     try {
@@ -76,7 +78,7 @@ function BotIntroductionSetup({ onDone,active }: { onDone: () => void;active:boo
       await continueWhenReady();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('chat.setupSaveFailed'));
-    } finally { setBusy(false); }
+    } finally { submitting.current = false; setBusy(false); }
   };
   const retry = async () => {
     setBusy(true);
@@ -117,7 +119,6 @@ function BotIntroductionSetup({ onDone,active }: { onDone: () => void;active:boo
         <textarea id="bot-description" rows={3} maxLength={2000} value={description}
           disabled={busy} onChange={e => setDescription(e.target.value)} placeholder={t('chat.setupDescPlaceholder')} />
       </label>
-      <p className="settings-note">{t('chat.setupHint')}</p>
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="setup-end">
         <button className="primary" type="submit" disabled={busy || !name.trim()}>{busy ? t('common.loading') : t('chat.setupContinue')}</button>

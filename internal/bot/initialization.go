@@ -113,7 +113,7 @@ func (i *Initializer) Initialize(ctx context.Context, in api.BotIntroduction) (a
 	if name == "" || utf8.RuneCountInString(name) > 80 || strings.ContainsAny(name, "\r\n") || !utf8.ValidString(name) || utf8.RuneCountInString(description) > 2000 || !utf8.ValidString(description) {
 		return i.view(), errors.New("请填写称呼（不超过 80 字），描述可选且不超过 2,000 字")
 	}
-	prompt := "我想称呼你为「" + name + "」。请接受并记住这个称呼，以后和我对话时使用它；Caelis Bot 仍是产品名称。"
+	prompt := "我想称呼你为「" + name + "」。请接受并记住这个称呼，以后和我对话时使用它"
 	if description != "" {
 		prompt += "\n我还希望你记住这段描述：" + description
 	}

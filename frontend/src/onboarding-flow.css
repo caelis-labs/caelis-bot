@@ -1,0 +1,8 @@
+/* A preparation card is a variant of the base installation row. Keep its
+   horizontal inset even when the shared base rule is emitted afterward. */
+.runtime-program.runtime-program-onboarding {
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--caelis-raised);
+}

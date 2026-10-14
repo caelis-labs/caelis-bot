@@ -46,7 +46,7 @@ func TestIntroductionIsOneDurableOrdinaryUserMessage(t *testing.T) {
 				})
 			}
 			wg.Wait()
-			want := "我想称呼你为「星星」。请接受并记住这个称呼，以后和我对话时使用它；Caelis Bot 仍是产品名称。"
+			want := "我想称呼你为「星星」。请接受并记住这个称呼，以后和我对话时使用它"
 			if desc != "" {
 				want += "\n我还希望你记住这段描述：" + desc
 			}
