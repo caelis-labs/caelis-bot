@@ -69,8 +69,8 @@ func TestPrivateCloseIntentCrashKeepsLivingOwnerAndUnknownLifecycleIsolated(t *t
 		}
 		return start(ctx, opts)
 	}
-	if err := live.Connect(testContext(t)); err != nil || !originalSocket.Load() || live.binding.OwnerUnavailable || live.binding.OwnerClosing || len(live.binding.LostOwners) != 0 {
-		t.Fatal("surviving owner was archived or replaced instead of reattached", err, originalSocket.Load(), live.binding)
+	if err := live.Connect(testContext(t)); err == nil || !originalSocket.Load() || live.binding.OwnerUnavailable || live.binding.OwnerClosing || len(live.binding.LostOwners) != 0 {
+		t.Fatal("unverified synthetic socket was accepted or surviving owner archived", err, originalSocket.Load(), live.binding)
 	}
 	close(release)
 	select {
@@ -105,8 +105,8 @@ func TestPersistedUnavailableMarkerCannotArchiveLivingOriginalOwner(t *testing.T
 		return start(ctx, opts)
 	}
 	service := backend.NewService(loaded, nil, nil, nil, nil)
-	if err := service.RecoverIfCurrent(testContext(t), service.RecoveryState().Fence); err != nil || !originalSocket.Load() || len(loaded.binding.LostOwners) != 0 {
-		t.Fatal("persisted exit marker overrode a live original process", err, originalSocket.Load(), loaded.binding.LostOwners)
+	if err := service.RecoverIfCurrent(testContext(t), service.RecoveryState().Fence); err == nil || !originalSocket.Load() || len(loaded.binding.LostOwners) != 0 {
+		t.Fatal("synthetic socket was accepted or persisted exit marker overrode a live original process", err, originalSocket.Load(), loaded.binding.LostOwners)
 	}
 }
 

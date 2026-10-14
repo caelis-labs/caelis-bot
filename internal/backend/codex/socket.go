@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/coder/websocket"
@@ -46,6 +47,7 @@ func connectExisting(ctx context.Context, path string) (connection, error) {
 
 type socketConnection struct {
 	endpoint string
+	peerPID  int // Kernel-reported Unix peer, captured before the WebSocket wraps it.
 	net.Conn
 	ws     *websocket.Conn
 	ctx    context.Context
@@ -55,7 +57,14 @@ type socketConnection struct {
 
 func dialExisting(ctx context.Context, path string) (*socketConnection, error) {
 	dialer := &net.Dialer{}
-	httpTransport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return dialer.DialContext(ctx, "unix", path) }}
+	var peer atomic.Int64
+	httpTransport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		conn, err := dialer.DialContext(ctx, "unix", path)
+		if err == nil {
+			peer.Store(int64(socketPeerPID(conn)))
+		}
+		return conn, err
+	}}
 	ws, _, err := websocket.Dial(ctx, "ws://localhost/", &websocket.DialOptions{HTTPClient: &http.Client{Transport: httpTransport}})
 	defer httpTransport.CloseIdleConnections()
 	if err != nil {
@@ -66,7 +75,7 @@ func dialExisting(ctx context.Context, path string) (*socketConnection, error) {
 	// Native tool payload size does not limit Bot availability. Stream frames;
 	// the wire projector discards tool bytes before allocating an envelope.
 	ws.SetReadLimit(-1)
-	return &socketConnection{Conn: conn, ws: ws, ctx: life, cancel: cancel, endpoint: "unix://" + path}, nil
+	return &socketConnection{Conn: conn, ws: ws, ctx: life, cancel: cancel, endpoint: "unix://" + path, peerPID: int(peer.Load())}, nil
 }
 
 func (s *socketConnection) terminalEndpoint() string { return s.endpoint }
