@@ -37,7 +37,7 @@ func Run(assets fs.FS) error {
 	var env []string
 	var report runtimeenv.Report
 	var envErr error
-	if buildChannel == "research" || buildChannel == "onboarding" {
+	if buildChannel == "research" || buildChannel == "onboarding" || buildChannel == "polish" {
 		// Explicit test-only identity: retain the isolated launcher's HOME/PATH
 		// verbatim. Login-shell restoration can escape into the real account.
 		executable, err := os.Executable()
@@ -46,6 +46,8 @@ func Run(assets fs.FS) error {
 			check := researchRootsValid
 			if buildChannel == "onboarding" {
 				check = onboardingRootsValid
+			} else if buildChannel == "polish" {
+				check = polishRootsValid
 			}
 			validRoots = check(executable, os.Getenv("HOME"), os.Getenv("CAELIS_BOT_DATA_DIR"), os.Getenv("CODEX_HOME"), os.Getenv("ZDOTDIR"), os.Getenv("PATH"))
 		}
@@ -86,7 +88,7 @@ func Run(assets fs.FS) error {
 	if envErr != nil {
 		// Resolve returns only locally generated causes, never shell output/values.
 		diagnostics.Write(diagnosticlog.Record{Level: "error", Component: "environment", Code: "shell_environment_failed", Reason: envErr.Error()})
-	} else if buildChannel == "research" || buildChannel == "onboarding" {
+	} else if buildChannel == "research" || buildChannel == "onboarding" || buildChannel == "polish" {
 		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "preview_environment_isolated", Reason: "test-only isolated HOME and PATH retained"})
 	} else if report.HomeRestored || report.RecoveredPathEntries > 0 {
 		diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "environment", Code: "shell_environment_recovered", Reason: fmt.Sprintf("account home restored: %t; inherited PATH entries recovered: %d", report.HomeRestored, report.RecoveredPathEntries)})

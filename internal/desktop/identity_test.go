@@ -35,6 +35,7 @@ func TestDevelopmentAndReleaseIdentityAndDataStaySeparate(t *testing.T) {
 		{"development", "Caelis Bot Dev", "dev.caelis.bot.dev"},
 		{"research", "Caelis Bot Research", "dev.caelis.bot.research"},
 		{"onboarding", "Caelis Bot Dev Onboarding", "dev.caelis.bot.dev.onboarding"},
+		{"polish", "Caelis Bot Dev PR164", "dev.caelis.bot.dev.pr164"},
 		{"release", "Caelis Bot", "dev.caelis.bot"},
 	} {
 		buildChannel = tc.channel
@@ -99,5 +100,27 @@ func TestOnboardingDevIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	}
 	if onboardingRootsValid(exe, home, data, home+"/.codex", home, path) {
 		t.Fatal("symlinked data directory outside profile accepted")
+	}
+}
+
+func TestPR164DevIdentityRequiresExactIsolatedRoots(t *testing.T) {
+	root := t.TempDir()
+	exe := filepath.Join(root, "dist", "Caelis Bot Dev PR164.app", "Contents", "MacOS", "caelis-bot")
+	home := filepath.Join(root, ".cache", "pr164-polish-dev", "profiles", "review", "home")
+	data := filepath.Join(root, ".cache", "pr164-polish-dev", "profiles", "review", "data")
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(data, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := home + "/.local/bin:" + home + "/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	if !polishRootsValid(exe, home, data, home+"/.codex", home, path) {
+		t.Fatal("isolated PR164 launch rejected")
+	}
+	if polishRootsValid(exe, os.Getenv("HOME"), data, home+"/.codex", home, path) ||
+		polishRootsValid(exe, home, data, home+"/.codex", home, path+":/opt/homebrew/bin") ||
+		onboardingRootsValid(exe, home, data, home+"/.codex", home, path) {
+		t.Fatal("unsafe or cross-channel PR164 roots accepted")
 	}
 }

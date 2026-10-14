@@ -10,7 +10,7 @@ import (
 
 func applicationInstanceID(root string) string {
 	_, id := applicationIdentity()
-	if (buildChannel == "development" || buildChannel == "research" || buildChannel == "onboarding") && os.Getenv("CAELIS_BOT_DATA_DIR") != "" {
+	if (buildChannel == "development" || buildChannel == "research" || buildChannel == "onboarding" || buildChannel == "polish") && os.Getenv("CAELIS_BOT_DATA_DIR") != "" {
 		digest := sha256.Sum256([]byte(root))
 		return fmt.Sprintf("%s.fixture.%x", id, digest[:8])
 	}
@@ -31,6 +31,9 @@ func applicationIdentity() (name, id string) {
 	if buildChannel == "onboarding" {
 		return "Caelis Bot Dev Onboarding", "dev.caelis.bot.dev.onboarding"
 	}
+	if buildChannel == "polish" {
+		return "Caelis Bot Dev PR164", "dev.caelis.bot.dev.pr164"
+	}
 	return "Caelis Bot Dev", "dev.caelis.bot.dev"
 }
 
@@ -42,6 +45,10 @@ func researchRootsValid(executable, home, data, codexHome, zdotdir, path string)
 
 func onboardingRootsValid(executable, home, data, codexHome, zdotdir, path string) bool {
 	return isolatedPreviewRootsValid(executable, "runtime-onboarding-dev", home, data, codexHome, zdotdir, path)
+}
+
+func polishRootsValid(executable, home, data, codexHome, zdotdir, path string) bool {
+	return isolatedPreviewRootsValid(executable, "pr164-polish-dev", home, data, codexHome, zdotdir, path)
 }
 
 func isolatedPreviewRootsValid(executable, profileDirectory, home, data, codexHome, zdotdir, path string) bool {

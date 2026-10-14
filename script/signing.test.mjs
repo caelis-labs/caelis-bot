@@ -91,6 +91,7 @@ test('ordinary and CI builds select a separate app; only explicit release select
  for(const extra of [{BOT_BUILD_CHANNEL:'release'},{BOT_RELEASE_TAG:'v1.0.0'}]) {const r=read(extra);assert.equal(r.status,0);assert.equal(r.stdout,'Caelis Bot|dev.caelis.bot|/fixture/dist/Caelis Bot.app');}
  assert.equal(read({BOT_BUILD_CHANNEL:'research'}).stdout,'Caelis Bot Research|dev.caelis.bot.research|/fixture/dist/Caelis Bot Research.app');
  assert.equal(read({BOT_BUILD_CHANNEL:'onboarding'}).stdout,'Caelis Bot Dev Onboarding|dev.caelis.bot.dev.onboarding|/fixture/dist/Caelis Bot Dev Onboarding.app');
+ assert.equal(read({BOT_BUILD_CHANNEL:'polish'}).stdout,'Caelis Bot Dev PR164|dev.caelis.bot.dev.pr164|/fixture/dist/Caelis Bot Dev PR164.app');
  assert.notEqual(read({BOT_BUILD_CHANNEL:'typo'}).status,0);
 });
 

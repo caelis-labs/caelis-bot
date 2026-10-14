@@ -94,6 +94,11 @@ Runtime 引导的人工预览可使用另一份 **Caelis Bot Dev Onboarding.app*
 不恢复真实账号的 shell 环境，不共享现有 Dev 实例的单实例锁、数据或签名身份。
 选择全新 profile 可从空白首次流程开始；同一 profile 再启动可检查设置和恢复。
 它是本地隔离开发包，不是正式发行版本。
+PR164 集成验收另用 **Caelis Bot Dev PR164.app** / `dev.caelis.bot.dev.pr164`，
+不会覆盖现有 Dev 或 Onboarding 预览包。运行 `BOT_BUILD_CHANNEL=polish make build`，
+再由 GUI 验收者使用 `BOT_POLISH_PROFILE=<new-name> bash research/pr164-polish/launch-isolated.sh --restart`。
+启动入口只接受本 worktree 的 `.cache/pr164-polish-dev` 中独立 HOME、Codex HOME、
+Bot 数据和受限 PATH；独立构建与签名验证不启动 GUI。
 默认签名仍为 ad-hoc。需要反复验收辅助功能、自动化和静态快照时，
 可以显式选择本机已有的 **Apple Development** 身份。私钥留在登录钥匙串，
 不导出、不修改钥匙串 ACL、不使用正式发行证书；开发包不因此成为已公证发行包。

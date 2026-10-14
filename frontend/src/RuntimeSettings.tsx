@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { backend, desktop } from './desktop';
 import { SettingGroup, SettingRow } from './SettingsUI';
 import { ConnectionWizard } from './settings/runtime/ConnectionWizard';
@@ -13,10 +13,6 @@ import {executionMethodLabel} from './settings/runtime/state';
 
 const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore: '' });
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
-// The onboarding branch adds scene; the base branch accepts the extra React
-// prop harmlessly until the ConnectionWizard integration commit is combined.
-const SceneConnectionWizard = ConnectionWizard as ComponentType<Parameters<typeof ConnectionWizard>[0] & { scene?: 'first-run'|'settings' }>;
-
 export function RuntimeSettings({ onboarding = false, onBack,onDone,onTeam,onBusy,active=true,refreshKey=0 }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; onTeam?:()=>void; onBusy?:(busy:boolean)=>void; active?:boolean; refreshKey?:number }) {
  return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone} onBusy={onBusy}/> : <RuntimeWorkspace workerSettings={(onConnections, workerRefreshKey)=><LocalWorkerSettings active={active} refreshKey={workerRefreshKey} onConnections={onConnections}/>} onTeam={onTeam} active={active} refreshKey={refreshKey} preparation={(id, reportBusy, onPrepared) => <RuntimePreparation manageOnly initialRuntime={id} active={active} onBusy={reportBusy} onDone={onPrepared}/>}/>;
 }
@@ -179,7 +175,7 @@ export function RuntimePreparation({ onboarding = false, manageOnly=false, activ
   {(!onboarding || !!error) && <button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</button>}
   {state?.accountMismatch && <p className="runtime-update-hint" role="status">{state.message}</p>}
   {!manageOnly && !onboarding && state?.state === 'ready' && overview && (!overview.hasRuntimeChoice || (selectedActive && (restartNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))) && <div className="setup-end"><button className={!overview.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{!overview.hasRuntimeChoice ? t('runtime.restartAndStart') : selectedActive ? t('runtime.restartAndApply') : t('runtime.switchAndRestart')}</button></div>}
-  {form === 'model' && <SceneConnectionWizard scene={onboarding?'first-run':'settings'} client={connectionClient} active={active} onClose={() => setForm('')} onConnected={async () => { setForm(''); await run('detect'); }}/>}
+  {form === 'model' && <ConnectionWizard scene={onboarding?'first-run':'settings'} client={connectionClient} active={active} onClose={() => setForm('')} onConnected={async () => { setForm(''); await run('detect'); }}/>}
   {form === 'key' && <APIKeyForm busy={blocked} onClose={() => setForm('')} onSubmit={key => run('api-key', { apiKey: key })}/>}
   {confirm && <section className="runtime-confirm" role="alertdialog" aria-modal="false" aria-labelledby="setup-confirm-title"><h3 id="setup-confirm-title">{confirm.action === 'switch' ? t('runtime.confirmSwitchTitle', { name }) : confirm.action === 'logout' ? t('runtime.confirmLogoutTitle') : confirm.action === 'update' ? (id === 'caelis' ? t('runtime.confirmUpdateCaelisTitle') : t('runtime.confirmUpdateCodexTitle')) : confirm.action === 'apply-update' ? t('runtime.confirmApplyCaelisTitle') : t('runtime.confirmRemoveModelTitle')}</h3><p>{confirm.action === 'switch' ? t('runtime.confirmSwitchBody') : ['update', 'apply-update'].includes(confirm.action) && id === 'caelis' ? t('runtime.confirmUpdateCaelisBody') : confirm.action === 'update' ? t('runtime.confirmUpdateCodexBody') : t('runtime.confirmAffectsOtherAppsBody')}</p><div className="setup-end"><button autoFocus onClick={() => setConfirm(null)}>{t('common.cancel')}</button><button className="primary" onClick={() => { const r = confirm; setConfirm(null); if (r.action === 'switch') void activate(); else void run(r.action, r); }}>{confirm.action === 'switch' ? t('runtime.switchAndRestart') : confirm.action === 'update' ? (id === 'caelis' ? t('runtime.applyAndReconnect') : t('runtime.update')) : confirm.action === 'apply-update' ? t('runtime.applyAndReconnect') : t('runtime.confirm')}</button></div></section>}
  </section>;
