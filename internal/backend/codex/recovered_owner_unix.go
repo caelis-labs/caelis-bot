@@ -7,20 +7,28 @@ import (
 	"sync"
 )
 
-// A recovered private socket carries the same lifecycle responsibility as a
-// newly launched private owner. A path and handshake alone grant no authority:
-// the kernel peer and process birth must match the saved original identity.
-func (c *Client) adoptRecoveredPrivateOwner(endpoint string, id ownerProcessIdentity) bool {
+// Every private reattach, including an in-process retained owner, uses this
+// same peer check before any original thread or receipt is read.
+func (c *Client) matchesPrivateOwner(endpoint string, id ownerProcessIdentity) bool {
 	conn, ok := c.rpc.conn.(*socketConnection)
-	if !ok || !id.valid() || conn.endpoint != endpoint || conn.peerPID != id.PID || privateOwnerLifecycle(id) != ownerAlive {
+	return ok && id.valid() && conn.endpoint == endpoint && conn.peer.PID == id.PID && privateOwnerLifecycle(id) == ownerAlive
+}
+
+func (c *Client) reattachPrivateOwner(old *Client, endpoint string, id ownerProcessIdentity) bool {
+	if !c.matchesPrivateOwner(endpoint, id) {
 		return false
 	}
+	if old != nil && !replaceRetainedOwnerOnReattach() {
+		c.adoptOwner(old)
+		return true
+	}
+	conn := c.rpc.conn.(*socketConnection)
 	tools := newOwnedTools(id.PID)
 	if tools.failure() != nil || tools.processIdentity() != id {
 		tools.releaseRecoveredHandles()
 		return false
 	}
-	owner := &recoveredNativeOwner{endpoint: endpoint, identity: id, tools: tools}
+	owner := &recoveredNativeOwner{endpoint: endpoint, identity: id, tools: tools, token: conn.peer.AuditToken, hasToken: conn.peer.HasToken}
 	c.owner, c.shared, c.rpc.stop, c.recoveredPrivate = owner, false, owner.stop, true
 	return true
 }
@@ -29,6 +37,8 @@ type recoveredNativeOwner struct {
 	endpoint string
 	identity ownerProcessIdentity
 	tools    *ownedTools
+	token    [8]uint32
+	hasToken bool
 	mu       sync.Mutex
 	stopErr  error
 }
@@ -39,12 +49,11 @@ func (o *recoveredNativeOwner) captureTools()                         { o.tools.
 func (o *recoveredNativeOwner) toolCleanupError() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return errors.Join(o.tools.failure(), o.stopErr)
+	return errors.Join(o.tools.failure(), o.stopErr, recoveredToolCleanupUnconfirmed())
 }
 func (o *recoveredNativeOwner) stop() {
 	o.tools.capture()
-	o.tools.terminate()
-	err := stopRecoveredProcess(o.identity)
+	err := terminateRecoveredNativeOwner(o)
 	o.mu.Lock()
 	o.stopErr = err
 	o.mu.Unlock()

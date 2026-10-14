@@ -8,14 +8,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func socketPeerPID(conn net.Conn) int {
+func readSocketPeerIdentity(conn net.Conn) socketPeerIdentity {
 	u, ok := conn.(*net.UnixConn)
 	if !ok {
-		return 0
+		return socketPeerIdentity{}
 	}
 	raw, err := u.SyscallConn()
 	if err != nil {
-		return 0
+		return socketPeerIdentity{}
 	}
 	pid := 0
 	controlErr := raw.Control(func(fd uintptr) {
@@ -26,14 +26,22 @@ func socketPeerPID(conn net.Conn) int {
 		}
 	})
 	if controlErr != nil || err != nil {
-		return 0
+		return socketPeerIdentity{}
 	}
-	return pid
+	return socketPeerIdentity{PID: pid}
 }
 
 func (o *ownedTools) releaseRecoveredHandles() { o.releaseHandles() }
 
-func stopRecoveredProcess(id ownerProcessIdentity) error {
+func recoveredToolCleanupUnconfirmed() error { return nil }
+func replaceRetainedOwnerOnReattach() bool   { return false }
+
+func terminateRecoveredNativeOwner(o *recoveredNativeOwner) error {
+	o.tools.terminate()
+	return stopRecoveredProcess(o.identity, o.token, o.hasToken)
+}
+
+func stopRecoveredProcess(id ownerProcessIdentity, _ [8]uint32, _ bool) error {
 	fd, err := unix.PidfdOpen(id.PID, 0)
 	if err != nil {
 		return errors.New("原 owner 稳定进程句柄不可用，未发送退出信号")

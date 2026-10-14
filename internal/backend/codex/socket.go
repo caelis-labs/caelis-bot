@@ -47,7 +47,7 @@ func connectExisting(ctx context.Context, path string) (connection, error) {
 
 type socketConnection struct {
 	endpoint string
-	peerPID  int // Kernel-reported Unix peer, captured before the WebSocket wraps it.
+	peer     socketPeerIdentity // Captured before the WebSocket wraps the Unix connection.
 	net.Conn
 	ws     *websocket.Conn
 	ctx    context.Context
@@ -55,13 +55,20 @@ type socketConnection struct {
 	frame  io.Reader
 }
 
+type socketPeerIdentity struct {
+	PID        int
+	AuditToken [8]uint32 // macOS kernel token; zero on platforms that use pidfd.
+	HasToken   bool
+}
+
 func dialExisting(ctx context.Context, path string) (*socketConnection, error) {
 	dialer := &net.Dialer{}
-	var peer atomic.Int64
+	var peer atomic.Value
+	peer.Store(socketPeerIdentity{})
 	httpTransport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		conn, err := dialer.DialContext(ctx, "unix", path)
 		if err == nil {
-			peer.Store(int64(socketPeerPID(conn)))
+			peer.Store(readSocketPeerIdentity(conn))
 		}
 		return conn, err
 	}}
@@ -75,7 +82,7 @@ func dialExisting(ctx context.Context, path string) (*socketConnection, error) {
 	// Native tool payload size does not limit Bot availability. Stream frames;
 	// the wire projector discards tool bytes before allocating an envelope.
 	ws.SetReadLimit(-1)
-	return &socketConnection{Conn: conn, ws: ws, ctx: life, cancel: cancel, endpoint: "unix://" + path, peerPID: int(peer.Load())}, nil
+	return &socketConnection{Conn: conn, ws: ws, ctx: life, cancel: cancel, endpoint: "unix://" + path, peer: peer.Load().(socketPeerIdentity)}, nil
 }
 
 func (s *socketConnection) terminalEndpoint() string { return s.endpoint }

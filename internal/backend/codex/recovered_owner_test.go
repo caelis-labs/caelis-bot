@@ -44,6 +44,13 @@ func TestRecoveredOwnerSocketChild(t *testing.T) {
 			if decode.Decode(&request) != nil {
 				return
 			}
+			if request.Method != "" {
+				log, err := os.OpenFile(path+".calls", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+				if err == nil {
+					_, _ = log.WriteString(request.Method + "\n")
+					_ = log.Close()
+				}
+			}
 			if len(request.ID) == 0 {
 				continue
 			}
@@ -187,6 +194,82 @@ func TestRecoveredPrivateOwnerDetachKeepsOriginalProcess(t *testing.T) {
 	}
 	if privateOwnerLifecycle(id) != ownerGone {
 		t.Fatal("ordinary Close after update detach left private owner running")
+	}
+}
+
+func TestRetainedPrivateOwnerReconnectChecksOriginalPeer(t *testing.T) {
+	_, path, id := controlledOwnerProcess(t)
+	dir := t.TempDir()
+	opts := SessionOptions{Directory: dir, StateFile: filepath.Join(dir, "binding.json")}
+	seed := NewSession(opts)
+	seed.binding.OwnerEndpoint, seed.binding.OwnerProcess = "unix://"+path, &id
+	seed.binding.OwnerClosing = true
+	seed.binding.CapacityStopRequest = "original-stop-request"
+	if err := seed.save(); err != nil {
+		t.Fatal(err)
+	}
+	seed.cancelLife()
+	s := NewSession(opts)
+	if err := s.Connect(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	s.reconnectDelay = func(int) time.Duration { return time.Hour }
+	old := s.client
+	old.rpc.fail(ErrClosed)
+	if err := s.Connect(testContext(t)); err != nil {
+		t.Fatal("same-process original peer was rejected", err)
+	}
+	if s.client.privateOwnerIdentity() == nil || *s.client.privateOwnerIdentity() != id || s.client.UsesSharedServer() {
+		t.Fatal("same-process reconnect lost original private owner")
+	}
+	_ = s.Close(testContext(t)) // An old tool effect may remain unknown.
+	if privateOwnerLifecycle(id) != ownerGone {
+		t.Fatal("same-process reattach lost private owner close responsibility")
+	}
+}
+
+func TestRetainedPrivateOwnerRejectsReplacedSocketPeer(t *testing.T) {
+	_, originalPath, originalID := controlledOwnerProcess(t)
+	_, replacementPath, replacementID := controlledOwnerProcess(t)
+	dir := t.TempDir()
+	opts := SessionOptions{Directory: dir, StateFile: filepath.Join(dir, "binding.json")}
+	seed := NewSession(opts)
+	seed.binding.OwnerEndpoint, seed.binding.OwnerProcess = "unix://"+originalPath, &originalID
+	seed.binding.OwnerClosing = true
+	seed.binding.CapacityStopRequest = "original-stop-request"
+	if err := seed.save(); err != nil {
+		t.Fatal(err)
+	}
+	seed.cancelLife()
+	s := NewSession(opts)
+	if err := s.Connect(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	s.reconnectDelay = func(int) time.Duration { return time.Hour }
+	if err := os.Remove(originalPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacementPath, originalPath); err != nil {
+		t.Fatal(err)
+	}
+	s.client.rpc.fail(ErrClosed)
+	if err := s.Connect(testContext(t)); err == nil || !strings.Contains(err.Error(), "身份无法核实") {
+		t.Fatal("replacement peer was accepted for the retained owner", err)
+	}
+	if privateOwnerLifecycle(originalID) != ownerAlive || privateOwnerLifecycle(replacementID) != ownerAlive {
+		t.Fatal("failed reattach stopped an owner")
+	}
+	reloaded := NewSession(opts)
+	defer reloaded.cancelLife()
+	if reloaded.binding.OwnerProcess == nil || *reloaded.binding.OwnerProcess != originalID || reloaded.binding.CapacityStopRequest != "original-stop-request" || len(reloaded.binding.LostOwners) != 0 {
+		t.Fatal("failed reattach changed original owner or stop receipt")
+	}
+	calls, err := os.ReadFile(replacementPath + ".calls")
+	if err != nil || strings.Contains(string(calls), "thread/resume") || strings.Contains(string(calls), "thread/read") || strings.Contains(string(calls), "turn/start") {
+		t.Fatal("replacement peer received original work or recovery reads", string(calls), err)
+	}
+	if err := s.DetachForUpdate(testContext(t)); err != nil {
+		t.Fatal(err)
 	}
 }
 

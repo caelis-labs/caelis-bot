@@ -4,6 +4,6 @@ package codex
 
 import "net"
 
-func socketPeerPID(net.Conn) int                                               { return 0 }
-func (c *Client) adoptRecoveredPrivateOwner(string, ownerProcessIdentity) bool { return false }
-func privateOwnerLifecycle(ownerProcessIdentity) ownerLifecycle                { return ownerUnknown }
+func readSocketPeerIdentity(net.Conn) socketPeerIdentity                          { return socketPeerIdentity{} }
+func (c *Client) reattachPrivateOwner(*Client, string, ownerProcessIdentity) bool { return false }
+func privateOwnerLifecycle(ownerProcessIdentity) ownerLifecycle                   { return ownerUnknown }
