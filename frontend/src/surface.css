@@ -253,6 +253,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .runtime-model-connect { align-self:flex-start; text-align:left; width:auto; margin-top:10px; }
 
 /* Stable page categories; full-width rows keep labels and controls together. */
+.settings-window .settings-page[data-section=connections] { max-width:960px!important; margin:0; }
 .settings-window .runtime-workspace { max-width:960px; margin:0; }
 .settings-window .runtime-workspace-tabs { gap:28px; margin:0 0 24px; }
 .settings-window .runtime-workspace-tabs button { font-size:13px; }
