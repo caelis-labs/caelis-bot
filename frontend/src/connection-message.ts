@@ -14,3 +14,10 @@ export function displayConnectionMessage(message: string | undefined, t: (key: M
  const key = knownMessages[message];
  return key ? t(key) : message;
 }
+
+// The native Caelis projection prefixes a failed turn's unstructured Host
+// detail. Keep the exact detail for inspection while presenting a localizable
+// summary; other connection and authorization errors retain their own text.
+export function nativeTurnFailureDetail(phase: string | undefined, message: string | undefined): string {
+ return phase === 'failed' && message?.startsWith('本次请求未完成：') && message.length > '本次请求未完成：'.length ? message : '';
+}

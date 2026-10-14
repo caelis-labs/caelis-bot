@@ -135,6 +135,8 @@
   "bubbleThinking": "Thinking…",
   "bubbleSummaryAria": "{content} — {action}",
   "terminalFailed": "Could not complete",
+  "requestFailedSummary": "This request did not complete. View the details for the cause.",
+  "failureDetails": "Technical details",
   "dismissPreview": "Dismiss preview",
   "nextApproval": "Next item",
   "viewInChat": "View in chat ↗",

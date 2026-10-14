@@ -7,7 +7,8 @@ after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
 const {canApplyInstalledService,setupStatusKey,botSessionStatusKey,nextOnboardingStep,setupFailureKind} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
 const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL, executionMethodLabel} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
-const {displayConnectionMessage} = await server.ssrLoadModule('/src/connection-message.ts');
+const {displayConnectionMessage,nativeTurnFailureDetail} = await server.ssrLoadModule('/src/connection-message.ts');
+const {translator} = await server.ssrLoadModule('/src/i18n/core.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
 const {serialLatest} = await server.ssrLoadModule('/src/settings/runtime/worker-refresh.ts');
 const {connectSelectedModels} = await server.ssrLoadModule('/src/settings/runtime/connection-sequence.ts');
@@ -18,6 +19,16 @@ const {verifiedSetup,connectionReadiness,workerCardState,botCardState} = await s
 const {workerDisplayError} = await server.ssrLoadModule('/src/settings/runtime/worker-selection.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
+
+test('failed native turn has a local summary while retaining its original detail',()=>{
+ const raw='本次请求未完成：model request failed after 5 retries';
+ assert.equal(nativeTurnFailureDetail('failed',raw),raw);
+ assert.equal(nativeTurnFailureDetail('working',raw),'');
+ assert.equal(nativeTurnFailureDetail('failed','Caelis 审查状态无法确认，请更新并检查运行时'),'');
+ assert.equal(displayConnectionMessage(raw,translator('zh-CN').t),raw);
+ assert.match(translator('zh-CN').t('chat.requestFailedSummary'),/未能完成/);
+ assert.match(translator('en').t('chat.requestFailedSummary'),/did not complete/);
+});
 
 test('saved Worker preference is distinct from available work in both directions',()=>{
  assert.equal(workerCardState('codex','codex',false),'saved-waiting');

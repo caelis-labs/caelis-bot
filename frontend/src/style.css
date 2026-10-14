@@ -177,6 +177,9 @@ summary { cursor:pointer; }
 .approval-dock-panel .permission-option pre { margin:5px 10px; }
 .approval-dock-panel .question-options button[aria-pressed="true"] { border-color:var(--accent); background:var(--caelis-user-bubble); }
 .connection-message { color:var(--muted); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.connection-error-details { margin-top:6px; color:var(--muted); font-size:11px; }
+.connection-error-details summary { cursor:pointer; }
+.connection-error-details pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }
 .connection-card { padding:22px 0; font-size:14px; line-height:1.65; }
 .connection-card p { color:var(--muted); margin:8px 0; }
 .review-notice { margin:18px 0; padding:14px 16px; border-left:3px solid var(--muted); background:var(--wash); border-radius:0 12px 12px 0; font-size:13px; line-height:1.6; }

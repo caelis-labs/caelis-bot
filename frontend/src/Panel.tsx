@@ -26,7 +26,7 @@ import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';
 import { CaretRightIcon } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { CaretUpIcon } from '@phosphor-icons/react/dist/csr/CaretUp';
 import type { MessageKey } from './i18n/catalogs';
-import { displayConnectionMessage } from './connection-message';
+import { displayConnectionMessage, nativeTurnFailureDetail } from './connection-message';
 
 function Icon({ name }: { name: string }) { return <img className="symbol" src={`/icons/${name}.png`} alt="" />; }
 
@@ -579,7 +579,8 @@ export function History() {
  useEffect(()=>{if(snapshot?.connection==='ready')setConnectionError('');},[snapshot?.connection]);
  const setup=snapshot?.connectionIssue==='runtime_missing'||snapshot?.connectionIssue==='runtime_protocol';
  const chooseRuntime=snapshot?.connectionIssue==='setup_required';
- const snapshotMessage=displayConnectionMessage(snapshot?.message,t);
+ const failureDetail=nativeTurnFailureDetail(snapshot?.phase,snapshot?.message);
+ const snapshotMessage=failureDetail?t('chat.requestFailedSummary'):displayConnectionMessage(snapshot?.message,t);
  const connectionText=chooseRuntime?t('chat.setupRequiredConnection'):
   snapshot?.connection==='connecting'?t('chat.checkingConnection'):
   snapshot?.connection==='login'?t('chat.loginRequiredConnection'):
@@ -624,7 +625,7 @@ export function History() {
      {<button className={chooseRuntime?'primary':'text-action'} onClick={()=>void desktop('OpenRuntimeSettings')}>{t('chat.connectionSettings')}</button>}
     </div>
    </section>}
-   {!connection&&!!snapshotMessage&&<p className="connection-message" role="status">{snapshotMessage}</p>}
+   {!connection&&!!snapshotMessage&&<><p className="connection-message" role={failureDetail?'alert':'status'}>{snapshotMessage}</p>{failureDetail&&<details className="connection-error-details"><summary>{t('chat.failureDetails')}</summary><pre>{failureDetail}</pre></details>}</>}
    {!connection&&snapshot?.phase==='unknown'&&<div className="connection-actions">
     <button disabled={busy} onClick={()=>void action('Connect')}>{t('chat.reconnect')}</button>
    </div>}

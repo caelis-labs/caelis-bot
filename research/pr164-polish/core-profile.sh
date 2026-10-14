@@ -66,19 +66,39 @@ NODE
 status=$(core_cli service status --store-dir "$STORE" --format json)
 fields=$(printf '%s' "$status" | node -e '
   const fs=require("node:fs"), v=JSON.parse(fs.readFileSync(0,"utf8"));
-  if(v.state==="stopped") {process.stdout.write("stopped 0"); process.exit(0);}
+  if(v.state==="stopped") {process.stdout.write("stopped 0 -"); process.exit(0);}
   if(v.state!=="running" || v.build_id!==process.argv[1] || v.build_kind!=="dev" || !Number.isSafeInteger(v.pid) || v.pid<=1 || !v.instance_id) process.exit(2);
-  process.stdout.write("running "+v.pid);
+  process.stdout.write("running "+v.pid+" "+v.instance_id);
 ' "$build_id") || { echo 'Isolated Store reports a different or unverified Host.' >&2; exit 2; }
-read -r state pid <<< "$fields"
+read -r state pid instance_id <<< "$fields"
 if [[ "$state" == stopped ]]; then
   [[ "$MODE" == --prepare ]] || { echo 'Isolated Core Host is not running.' >&2; exit 1; }
   echo "Isolated Core profile ready: $PROFILE_FILE / Core $EXPECTED_COMMIT / SHA-256 $EXPECTED_HASH / Host stopped"
   exit 0
 fi
 process_path=$(ps -ww -p "$pid" -o comm=)
-[[ "$process_path" == "$CORE" ]] || { echo 'Running Host executable is not the pinned Core path.' >&2; exit 1; }
+managed_root="$PREP_HOME/Library/Application Support/Caelis/service"
+if [[ "$process_path" != "$CORE" ]]; then
+  [[ "$process_path" == "$managed_root/"* ]] || { echo 'Running Host is outside the isolated Core service directory.' >&2; exit 1; }
+  managed_relative=${process_path#"$managed_root/"}
+  managed_pattern="^[0-9a-f]{16}/versions/dev/${EXPECTED_HASH:0:16}/caelis$"
+  [[ "$managed_relative" =~ $managed_pattern ]] || { echo 'Running Host is not the expected isolated managed Core version.' >&2; exit 1; }
+fi
+[[ -f "$process_path" && -x "$process_path" && ! -L "$process_path" && "$(realpath "$process_path")" == "$process_path" ]] || {
+  echo 'Running Host path is missing, linked, or outside its canonical location.' >&2; exit 1;
+}
 process_hash=$(shasum -a 256 "$process_path")
 process_hash=${process_hash%% *}
 [[ "$process_hash" == "$EXPECTED_HASH" ]] || { echo 'Running Host executable bytes differ from the pinned Core artifact.' >&2; exit 1; }
+process_version=$(env -i HOME="$PREP_HOME" ZDOTDIR="$PREP_HOME" CODEX_HOME="$PREP_HOME/.codex" XDG_CONFIG_HOME="$PREP_HOME/.config" TMPDIR="$PREP_TMP" PATH=/usr/bin:/bin:/usr/sbin:/sbin "$process_path" version -format json)
+printf '%s' "$process_version" | node -e '
+  const fs=require("node:fs"), v=JSON.parse(fs.readFileSync(0,"utf8"));
+  if(v.commit!==process.argv[1] || v.build_kind!=="dev" || v.build_id!==process.argv[2]) process.exit(2);
+' "$EXPECTED_COMMIT" "$build_id" || { echo 'Running Host executable version differs from the pinned Core artifact.' >&2; exit 1; }
+status_after=$(core_cli service status --store-dir "$STORE" --format json)
+printf '%s' "$status_after" | node -e '
+  const fs=require("node:fs"), v=JSON.parse(fs.readFileSync(0,"utf8"));
+  if(v.state!=="running" || v.pid!==Number(process.argv[1]) || v.instance_id!==process.argv[2] || v.build_id!==process.argv[3] || v.build_kind!=="dev") process.exit(2);
+' "$pid" "$instance_id" "$build_id" || { echo 'Isolated Host changed during verification.' >&2; exit 1; }
+[[ "$(ps -ww -p "$pid" -o comm=)" == "$process_path" ]] || { echo 'Running Host process changed during verification.' >&2; exit 1; }
 echo "Isolated Core Host verified: PID $pid / Core $EXPECTED_COMMIT / SHA-256 $EXPECTED_HASH / build_id $build_id"

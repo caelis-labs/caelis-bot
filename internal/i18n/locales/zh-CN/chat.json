@@ -135,6 +135,8 @@
   "bubbleThinking": "正在想办法…",
   "bubbleSummaryAria": "{content}。{action}",
   "terminalFailed": "未能完成",
+  "requestFailedSummary": "本次请求未能完成。可展开详情查看原因。",
+  "failureDetails": "技术详情",
   "dismissPreview": "收起结果",
   "nextApproval": "下一项",
   "viewInChat": "在聊天中查看 ↗",
