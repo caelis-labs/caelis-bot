@@ -3,8 +3,17 @@ package desktop
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func isolatedFixturePath(home string) string {
+	return strings.Join([]string{
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, "bin"),
+		"/usr/bin", "/bin", "/usr/sbin", "/sbin",
+	}, string(os.PathListSeparator))
+}
 
 func TestExplicitDevelopmentProfileIsolatesInstanceLockOnly(t *testing.T) {
 	old := buildChannel
@@ -60,14 +69,15 @@ func TestResearchIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	if err := os.MkdirAll(data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	path := home + "/.local/bin:" + home + "/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-	if !researchRootsValid(exe, home, data, home+"/.codex", home, path) {
+	path := isolatedFixturePath(home)
+	codexHome := filepath.Join(home, ".codex")
+	if !researchRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("isolated launch rejected")
 	}
-	if researchRootsValid(exe, os.Getenv("HOME"), data, home+"/.codex", home, path) {
+	if researchRootsValid(exe, os.Getenv("HOME"), data, codexHome, home, path) {
 		t.Fatal("real account HOME accepted")
 	}
-	if researchRootsValid(exe, home, data, home+"/.codex", home, path+":/opt/homebrew/bin") {
+	if researchRootsValid(exe, home, data, codexHome, home, path+string(os.PathListSeparator)+"/opt/homebrew/bin") {
 		t.Fatal("global CLI path accepted")
 	}
 }
@@ -83,13 +93,14 @@ func TestOnboardingDevIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	if err := os.MkdirAll(data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	path := home + "/.local/bin:" + home + "/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-	if !onboardingRootsValid(exe, home, data, home+"/.codex", home, path) {
+	path := isolatedFixturePath(home)
+	codexHome := filepath.Join(home, ".codex")
+	if !onboardingRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("isolated onboarding launch rejected")
 	}
-	if onboardingRootsValid(exe, os.Getenv("HOME"), data, home+"/.codex", home, path) ||
-		onboardingRootsValid(exe, home, data, home+"/.codex", home, path+":/opt/homebrew/bin") ||
-		researchRootsValid(exe, home, data, home+"/.codex", home, path) {
+	if onboardingRootsValid(exe, os.Getenv("HOME"), data, codexHome, home, path) ||
+		onboardingRootsValid(exe, home, data, codexHome, home, path+string(os.PathListSeparator)+"/opt/homebrew/bin") ||
+		researchRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("unsafe or cross-channel onboarding roots accepted")
 	}
 	if err := os.Rename(data, data+"-saved"); err != nil {
@@ -98,7 +109,7 @@ func TestOnboardingDevIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	if err := os.Symlink(os.Getenv("HOME"), data); err != nil {
 		t.Fatal(err)
 	}
-	if onboardingRootsValid(exe, home, data, home+"/.codex", home, path) {
+	if onboardingRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("symlinked data directory outside profile accepted")
 	}
 }
@@ -114,13 +125,14 @@ func TestPR164DevIdentityRequiresExactIsolatedRoots(t *testing.T) {
 	if err := os.MkdirAll(data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	path := home + "/.local/bin:" + home + "/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-	if !polishRootsValid(exe, home, data, home+"/.codex", home, path) {
+	path := isolatedFixturePath(home)
+	codexHome := filepath.Join(home, ".codex")
+	if !polishRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("isolated PR164 launch rejected")
 	}
-	if polishRootsValid(exe, os.Getenv("HOME"), data, home+"/.codex", home, path) ||
-		polishRootsValid(exe, home, data, home+"/.codex", home, path+":/opt/homebrew/bin") ||
-		onboardingRootsValid(exe, home, data, home+"/.codex", home, path) {
+	if polishRootsValid(exe, os.Getenv("HOME"), data, codexHome, home, path) ||
+		polishRootsValid(exe, home, data, codexHome, home, path+string(os.PathListSeparator)+"/opt/homebrew/bin") ||
+		onboardingRootsValid(exe, home, data, codexHome, home, path) {
 		t.Fatal("unsafe or cross-channel PR164 roots accepted")
 	}
 }
