@@ -11,7 +11,7 @@ import (
 // acceptance only supplies an exact target; it never authorizes another Turn.
 // Called with s.mu held, after the binding has been written successfully.
 func (s *Session) queueCapacityStopsLocked() {
-	if s.client == nil || s.state.Connection != "ready" || s.closed || s.closing {
+	if s.client == nil || s.state.Connection != "ready" || s.closed || s.closing || s.binding.OwnerUnavailable {
 		return
 	}
 	if s.capacityStopReconciling == nil {
@@ -29,11 +29,56 @@ func (s *Session) queueCapacityStopsLocked() {
 		queue("bot", s.binding.CapacityStopThread, s.binding.CapacityStopRequest, s.binding.CapacityStopTurn)
 	}
 	for id, task := range s.binding.Tasks {
-		if task != nil && task.Thread != "" && task.StopPendingRequest != "" && task.StopPendingTurn != "" && task.StopPendingStatus == "" &&
+		if task != nil && !s.binding.LostOwnerTasks[id] && task.Thread != "" && task.StopPendingRequest != "" && task.StopPendingTurn != "" && task.StopPendingStatus == "" &&
 			task.Requests[task.StopPendingRequest].Outcome == "accepted" {
 			queue("task:"+id, task.Thread, task.StopPendingRequest, task.StopPendingTurn)
 		}
 	}
+}
+
+// A terminal observation is only reportable after its binding is durable.
+// Failed writes retain the native fact in memory and retry the same local
+// write; they never dispatch another native request.
+func (s *Session) markStopTerminalSavePendingLocked(key string) {
+	if s.stopTerminalSavePending == nil {
+		s.stopTerminalSavePending = map[string]bool{}
+	}
+	s.stopTerminalSavePending[key] = true
+}
+
+func (s *Session) retryStopTerminalSaveLocked() {
+	if len(s.stopTerminalSavePending) == 0 || s.stopTerminalSaveRetrying || s.closed || s.closing {
+		return
+	}
+	s.stopTerminalSaveRetrying = true
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.stopTerminalSaveRetrying = false
+			// Another terminal can arrive after the successful write but before
+			// this retry exits. Its failed write still needs a retry owner.
+			s.retryStopTerminalSaveLocked()
+			s.mu.Unlock()
+		}()
+		for {
+			select {
+			case <-s.life.Done():
+				return
+			case <-time.After(350 * time.Millisecond):
+			}
+			s.mu.Lock()
+			if s.closed || s.closing || len(s.stopTerminalSavePending) == 0 {
+				s.mu.Unlock()
+				return
+			}
+			if s.save() == nil {
+				s.update()
+				s.mu.Unlock()
+				return
+			}
+			s.mu.Unlock()
+		}
+	}()
 }
 
 // One original target gets at most one durable interrupt attempt. An unknown

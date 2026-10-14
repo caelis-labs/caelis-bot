@@ -3,10 +3,14 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
@@ -252,8 +256,259 @@ func TestCapacityStopCloseRetainsUnknownTargetWithoutDispatch(t *testing.T) {
 	}
 	loaded := NewSession(s.opts)
 	defer loaded.cancelLife()
-	if loaded.loadErr != nil || loaded.binding.CapacityStopRequest != request || loaded.binding.CapacityStopTurn != "" || loaded.binding.OwnerEndpoint != "unix:///tmp/synthetic-capacity-owner.sock" {
+	if loaded.loadErr != nil || !loaded.binding.OwnerUnavailable || loaded.binding.CapacityStopRequest != request || loaded.binding.CapacityStopTurn != "" || loaded.binding.OwnerEndpoint != "unix:///tmp/synthetic-capacity-owner.sock" {
 		t.Fatal("close discarded unknown stop intent or original owner", loaded.loadErr, loaded.binding.CapacityStopRequest, loaded.binding.CapacityStopTurn, loaded.binding.OwnerEndpoint)
+	}
+}
+
+func TestPrivateOwnerCloseNewSessionManualRecoveryKeepsOldReceiptsReadOnly(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	const request, taskID = "closed-owner-original-request", "closed-owner-worker"
+	endpoint := "unix://" + filepath.Join(t.TempDir(), "owned-original.sock")
+	var stopped atomic.Int32
+	var oldInterrupts atomic.Int32
+	var oldReads atomic.Int32
+	var oldDispatches atomic.Int32
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method == "turn/interrupt" {
+			oldInterrupts.Add(1)
+			return map[string]any{}, true
+		}
+		if m.Method == "thread/read" || m.Method == "thread/resume" {
+			var params struct {
+				Thread string `json:"threadId"`
+			}
+			_ = json.Unmarshal(m.Params, &params)
+			if params.Thread == "old-worker-thread" || m.Method == "thread/resume" && params.Thread == "thread-native" {
+				oldReads.Add(1)
+			}
+		}
+		if m.Method == "turn/start" {
+			var params struct {
+				Request string `json:"clientUserMessageId"`
+			}
+			_ = json.Unmarshal(m.Params, &params)
+			if params.Request == request {
+				oldDispatches.Add(1)
+			}
+		}
+		return nil, false
+	}
+	f.mu.Unlock()
+	s.mu.Lock()
+	s.client.owner = &fixtureRetainedOwner{endpoint: endpoint}
+	s.client.rpc.stop = func() { stopped.Add(1) }
+	s.binding.OwnerEndpoint = endpoint
+	s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn = request, "thread-native", "old-turn"
+	s.binding.CapacityStopPhase, s.binding.CapacityStopAccepted = "attempted", true
+	s.binding.LastReceipt = &api.Receipt{ID: request, Outcome: "accepted"}
+	s.binding.Tasks = map[string]*taskRecord{taskID: {
+		Thread: "old-worker-thread", View: api.Task{ID: taskID, Status: "working", Outcome: "accepted"},
+		Requests:           map[string]taskReceipt{request: {Outcome: "accepted"}},
+		StopPendingRequest: request, StopPendingTurn: "old-worker-turn", StopPendingPhase: "attempted",
+	}}
+	s.state.Connection = "offline" // no observer may invent a native terminal for the fixture
+	if err := s.save(); err != nil {
+		s.mu.Unlock()
+		t.Fatal(err)
+	}
+	s.mu.Unlock()
+	if err := s.Close(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	if stopped.Load() != 1 {
+		t.Fatal("ordinary Close did not stop its private owner", stopped.Load())
+	}
+	oldReads.Store(0)
+	oldDispatches.Store(0)
+	loaded := NewSession(s.opts)
+	t.Cleanup(func() { _ = loaded.Close(testContext(t)) })
+	start := s.start
+	var started atomic.Int32
+	loaded.start = func(ctx context.Context, options Options) (*Client, error) {
+		started.Add(1)
+		if options.RequiredSocket || options.Socket == strings.TrimPrefix(endpoint, "unix://") {
+			t.Errorf("new owner was pinned to dead private socket: %+v", options)
+		}
+		return start(ctx, options)
+	}
+	if err := loaded.Connect(testContext(t)); err == nil || !strings.Contains(err.Error(), "无法再核对") {
+		t.Fatal("automatic Connect hid original owner loss", err)
+	}
+	if started.Load() != 0 || loaded.Snapshot().ConnectionIssue != "owner_unavailable" {
+		t.Fatal("automatic Connect started replacement owner or hid loss", started.Load(), loaded.Snapshot())
+	}
+	service := backend.NewService(loaded, nil, nil, nil, nil)
+	fence := service.RecoveryState().Fence
+	if fence == "" || !service.RecoveryState().Manual {
+		t.Fatal("original loss did not expose fenced manual recovery", service.RecoveryState())
+	}
+	stateFile := loaded.opts.StateFile
+	loaded.mu.Lock()
+	loaded.opts.StateFile = filepath.Dir(stateFile)
+	loaded.mu.Unlock()
+	if err := service.RecoverIfCurrent(testContext(t), fence); err == nil || started.Load() != 0 {
+		t.Fatal("failed recovery archive write started a replacement owner", err, started.Load())
+	}
+	loaded.mu.Lock()
+	loaded.opts.StateFile = stateFile
+	stillLost := loaded.binding.OwnerUnavailable && len(loaded.binding.LostOwners) == 0
+	loaded.mu.Unlock()
+	if !stillLost {
+		t.Fatal("failed archive write changed the original owner record")
+	}
+	fence = service.RecoveryState().Fence
+	if err := service.RecoverIfCurrent(testContext(t), fence); err != nil {
+		t.Fatal(err)
+	}
+	if started.Load() != 1 || loaded.Snapshot().Connection != "ready" {
+		t.Fatal("manual recovery did not establish a new usable owner", started.Load(), loaded.Snapshot())
+	}
+	if err := service.RecoverIfCurrent(testContext(t), fence); err == nil {
+		t.Fatal("used recovery fence was accepted again")
+	}
+	archive := loaded.binding.LostOwners
+	if len(archive) != 1 || archive[0].Endpoint != endpoint || archive[0].Thread != "thread-native" || archive[0].StopRequest != request || archive[0].StopTurn != "old-turn" || archive[0].LastReceipt == nil || archive[0].LastReceipt.ID != request || !loaded.binding.LostOwnerTasks[taskID] {
+		t.Fatal("original owner identities and receipts were not archived", archive, loaded.binding.LostOwnerTasks)
+	}
+	if old, err := loaded.ReadWork(testContext(t), taskID); err != nil || old.Status != "unknown" || !strings.Contains(old.Result, "无法再核对") {
+		t.Fatal("old worker result was lost or attributed to new owner", old, err)
+	}
+	if old, err := loaded.StopWork(testContext(t), taskID); err == nil || old.Status != "unknown" {
+		t.Fatal("old worker was interrupted on the new owner", old, err)
+	}
+	if receipt := sendSynthetic(t, loaded, "new-owner-fresh-request"); receipt.Outcome != "accepted" {
+		t.Fatal("new owner could not accept fresh work", receipt)
+	}
+	if oldInterrupts.Load() != 0 || oldReads.Load() != 0 || oldDispatches.Load() != 0 {
+		t.Fatal("old work was queried, dispatched or interrupted on the new owner", oldReads.Load(), oldDispatches.Load(), oldInterrupts.Load())
+	}
+	reloaded := NewSession(loaded.opts)
+	defer reloaded.cancelLife()
+	if len(reloaded.binding.LostOwners) != 1 || reloaded.binding.LostOwners[0].StopRequest != request || !reloaded.binding.LostOwnerTasks[taskID] {
+		t.Fatal("old unknown result did not survive another reload", reloaded.binding)
+	}
+}
+
+func TestWorkerStopTerminalSaveFailureBlocksManagerReportAndReload(t *testing.T) {
+	s, f, _, m := taskPair(t)
+	sendSynthetic(t, s, "save-failure-parent")
+	request := "save-failure-worker-request"
+	started := newTask(t, m, request)
+	s.mu.Lock()
+	task := s.binding.Tasks[started.ID]
+	task.StopPendingRequest, task.StopPendingTurn, task.StopPendingPhase = request, task.Run, "attempted"
+	if err := s.save(); err != nil {
+		s.mu.Unlock()
+		t.Fatal(err)
+	}
+	stateFile := s.opts.StateFile
+	s.opts.StateFile = filepath.Dir(stateFile) // atomic rename onto a directory fails deterministically
+	s.mu.Unlock()
+	t.Cleanup(func() { s.mu.Lock(); s.opts.StateFile = stateFile; s.mu.Unlock() })
+	finishTask(s, f, started.ID, "completed")
+	deadline := time.After(2 * time.Second)
+	for {
+		states := s.WorkStates()
+		if len(states) == 1 && states[0].Task.Status == "unknown" && states[0].StopPending && states[0].StopResolution == "" && strings.Contains(states[0].Task.Result, "尚未保存") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("failed save published native terminal", states)
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if err := m.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	if list := m.ListTasks(); len(list) != 1 || list[0].Status != "unknown" {
+		t.Fatal("manager reported terminal before binding was durable", list)
+	}
+	if err := m.DeliverTaskReport(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	before := NewSession(SessionOptions{Directory: s.opts.Directory, StateFile: stateFile})
+	if before.binding.Tasks[started.ID].StopPendingStatus != "" {
+		t.Fatal("failed native terminal write appeared on disk")
+	}
+	before.cancelLife()
+	s.mu.Lock()
+	s.opts.StateFile = stateFile
+	s.mu.Unlock()
+	deadline = time.After(3 * time.Second)
+	for {
+		states := s.WorkStates()
+		if len(states) == 1 && states[0].StopResolution == "completed" && states[0].Task.Status == "completed" {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("local persistence retry did not release terminal", states)
+		case <-time.After(time.Millisecond):
+		}
+	}
+	after := NewSession(SessionOptions{Directory: s.opts.Directory, StateFile: stateFile})
+	defer after.cancelLife()
+	if after.binding.Tasks[started.ID].StopPendingStatus != "completed" {
+		t.Fatal("observed terminal was not durable after retry")
+	}
+	if err := m.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	finishRoot(f)
+	awaitState(t, s, func(v api.Snapshot) bool { return v.CanSend })
+	if err := m.DeliverTaskReport(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	report := string(f.lastParams["input"])
+	f.mu.Unlock()
+	if !strings.Contains(report, "stop was requested") || !strings.Contains(report, "ended completed") {
+		t.Fatal("durable terminal did not reach factual report", report)
+	}
+	if _, err := os.Stat(stateFile); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBotStopTerminalSaveFailureStaysVisibleUntilDurable(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	request := "bot-save-failure-original"
+	if receipt := sendSynthetic(t, s, request); receipt.Outcome != "accepted" {
+		t.Fatal(receipt)
+	}
+	s.mu.Lock()
+	s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn = request, "thread-native", "run-native"
+	s.binding.CapacityStopAccepted, s.binding.CapacityStopPhase = true, "attempted"
+	if err := s.save(); err != nil {
+		s.mu.Unlock()
+		t.Fatal(err)
+	}
+	stateFile := s.opts.StateFile
+	s.opts.StateFile = filepath.Dir(stateFile)
+	s.mu.Unlock()
+	t.Cleanup(func() { s.mu.Lock(); s.opts.StateFile = stateFile; s.mu.Unlock() })
+	finishRoot(f)
+	awaitState(t, s, func(v api.Snapshot) bool {
+		return v.Phase == "unknown" && strings.Contains(v.Message, "尚未保存") && !v.CanSend
+	})
+	before := NewSession(SessionOptions{Directory: s.opts.Directory, StateFile: stateFile})
+	if before.binding.CapacityStopStatus != "" {
+		t.Fatal("unsaved Bot terminal appeared on disk")
+	}
+	before.cancelLife()
+	s.mu.Lock()
+	s.opts.StateFile = stateFile
+	s.mu.Unlock()
+	awaitState(t, s, func(v api.Snapshot) bool {
+		return v.Phase == "completed" && strings.Contains(v.Message, "未确认及时生效")
+	})
+	after := NewSession(SessionOptions{Directory: s.opts.Directory, StateFile: stateFile})
+	defer after.cancelLife()
+	if after.binding.CapacityStopStatus != "completed" || after.binding.CapacityStopRequest != request {
+		t.Fatal("Bot terminal/receipt not durable after local retry")
 	}
 }
 

@@ -28,7 +28,12 @@ type binding struct {
 	Artifacts  map[string]string `json:"artifacts,omitempty"`
 	// Exact native owner used by this binding. An update detaches its observer;
 	// the next process must reconcile here before accepting new work.
-	OwnerEndpoint      string                          `json:"ownerEndpoint,omitempty"`
+	OwnerEndpoint string `json:"ownerEndpoint,omitempty"`
+	// Ordinary Close stops a private owner. Its old receipts remain evidence,
+	// but that owner can no longer be queried or used to resume its threads.
+	OwnerUnavailable   bool                            `json:"ownerUnavailable,omitempty"`
+	LostOwners         []lostOwnerRecord               `json:"lostOwners,omitempty"`
+	LostOwnerTasks     map[string]bool                 `json:"lostOwnerTasks,omitempty"`
 	PendingApprovalIDs []string                        `json:"pendingApprovalIds,omitempty"`
 	RuntimeVersion     string                          `json:"runtimeVersion,omitempty"`
 	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
@@ -73,6 +78,26 @@ type pendingSubmission struct {
 	ID     string `json:"id"`
 	TurnID string `json:"turnId"`
 }
+type lostOwnerRecord struct {
+	Endpoint       string             `json:"endpoint"`
+	Thread         string             `json:"thread"`
+	LastReceipt    *api.Receipt       `json:"lastReceipt,omitempty"`
+	Pending        *pendingSubmission `json:"pending,omitempty"`
+	StopRequest    string             `json:"stopRequest,omitempty"`
+	StopThread     string             `json:"stopThread,omitempty"`
+	StopTurn       string             `json:"stopTurn,omitempty"`
+	StopPhase      string             `json:"stopPhase,omitempty"`
+	StopStatus     string             `json:"stopStatus,omitempty"`
+	StopAccepted   bool               `json:"stopAccepted,omitempty"`
+	StopState      string             `json:"stopState,omitempty"`
+	StopRuns       map[string]string  `json:"stopRuns,omitempty"`
+	CleanupTargets []string           `json:"cleanupTargets,omitempty"`
+	Children       []string           `json:"children,omitempty"`
+	PastThreads    []string           `json:"pastThreads,omitempty"`
+	ApprovalIDs    []string           `json:"approvalIds,omitempty"`
+	ToolRenewal    *toolRenewalRecord `json:"toolRenewal,omitempty"`
+	TaskIDs        []string           `json:"taskIds,omitempty"`
+}
 type SessionOptions struct {
 	Diagnostics                          *diagnosticlog.Logger
 	WorkExecution                        api.WorkExecutionSettings
@@ -97,84 +122,86 @@ type Session struct {
 	workerOnly             bool // trusted target owner; no resident API is exposed
 	backgroundResultsDirty bool
 
-	residentExecution       api.WorkExecutionSettings
-	usage                   api.ContextUsage
-	usageReason             string
-	usageTurn               string
-	usageTotal              int64
-	historyMu               sync.Mutex
-	op                      sync.Mutex
-	mu                      sync.Mutex
-	opts                    SessionOptions
-	client                  *Client
-	retainedOwner           *Client
-	forceNewOwner           bool
-	bound                   bool
-	epoch                   uint64
-	reconnectSeq            uint64
-	reconnectActive         bool
-	reconnectCancel         context.CancelFunc
-	reconnectAttempts       int
-	reconnectNoticeID       string
-	reconnectDelay          func(int) time.Duration
-	lastConnectCause        error
-	state                   api.Snapshot
-	binding                 binding
-	loadErr                 error
-	loading                 bool
-	buffer                  []Notification
-	bufferBytes             int
-	run                     string
-	runs                    map[string]string
-	items                   map[string]int
-	nativeItems             map[string]nativeItem
-	reviewOrigins           map[string]reviewOrigin
-	prompts                 map[string]*prompt
-	promptHandles           map[string]string
-	instance                string
-	refs                    map[string]nativeReference
-	artifacts               map[string]string
-	historyCursor           string
-	historyThread           string
-	historyPrevious         int
-	lastTurn                string
-	historyPaged            bool
-	children                map[string]bool
-	childRuns               map[string]string
-	childTerminals          map[string]bool
-	childTerminalStatus     map[string]string
-	childWatching           map[string]bool
-	childSubscribed         map[string]bool
-	childObservationFailed  map[string]bool
-	childRetireSeq          map[string]uint64
-	childRetired            map[string]bool
-	workerIdleDelay         time.Duration
-	retireUnsupported       bool
-	retireFailures          uint64
-	retiredWorkers          uint64
-	nativeUnloads           uint64
-	nativeResources         nativeResourceSnapshot
-	childRevision           map[string]uint64
-	loginID                 string
-	trustApprovalID         string
-	trustBlockedReason      string
-	loginStarting           bool
-	earlyLogin              map[string]bool
-	changed                 chan struct{}
-	closed                  bool
-	closing                 bool
-	life                    context.Context
-	cancelLife              context.CancelFunc
-	supervisorOnce          sync.Once
-	start                   func(context.Context, Options) (*Client, error)
-	capacityBackoff         func(int) time.Duration
-	capacityCancel          context.CancelFunc // cancellation during dispatch remains an unknown outcome
-	capacityThread          string
-	capacityRequest         string
-	capacityWaiting         bool
-	capacityDispatchStarted bool
-	capacityStopReconciling map[string]bool
-	futureBotMode           atomic.Value // string; only future native resident threads use it
+	residentExecution        api.WorkExecutionSettings
+	usage                    api.ContextUsage
+	usageReason              string
+	usageTurn                string
+	usageTotal               int64
+	historyMu                sync.Mutex
+	op                       sync.Mutex
+	mu                       sync.Mutex
+	opts                     SessionOptions
+	client                   *Client
+	retainedOwner            *Client
+	forceNewOwner            bool
+	bound                    bool
+	epoch                    uint64
+	reconnectSeq             uint64
+	reconnectActive          bool
+	reconnectCancel          context.CancelFunc
+	reconnectAttempts        int
+	reconnectNoticeID        string
+	reconnectDelay           func(int) time.Duration
+	lastConnectCause         error
+	state                    api.Snapshot
+	binding                  binding
+	loadErr                  error
+	loading                  bool
+	buffer                   []Notification
+	bufferBytes              int
+	run                      string
+	runs                     map[string]string
+	items                    map[string]int
+	nativeItems              map[string]nativeItem
+	reviewOrigins            map[string]reviewOrigin
+	prompts                  map[string]*prompt
+	promptHandles            map[string]string
+	instance                 string
+	refs                     map[string]nativeReference
+	artifacts                map[string]string
+	historyCursor            string
+	historyThread            string
+	historyPrevious          int
+	lastTurn                 string
+	historyPaged             bool
+	children                 map[string]bool
+	childRuns                map[string]string
+	childTerminals           map[string]bool
+	childTerminalStatus      map[string]string
+	childWatching            map[string]bool
+	childSubscribed          map[string]bool
+	childObservationFailed   map[string]bool
+	childRetireSeq           map[string]uint64
+	childRetired             map[string]bool
+	workerIdleDelay          time.Duration
+	retireUnsupported        bool
+	retireFailures           uint64
+	retiredWorkers           uint64
+	nativeUnloads            uint64
+	nativeResources          nativeResourceSnapshot
+	childRevision            map[string]uint64
+	loginID                  string
+	trustApprovalID          string
+	trustBlockedReason       string
+	loginStarting            bool
+	earlyLogin               map[string]bool
+	changed                  chan struct{}
+	closed                   bool
+	closing                  bool
+	life                     context.Context
+	cancelLife               context.CancelFunc
+	supervisorOnce           sync.Once
+	start                    func(context.Context, Options) (*Client, error)
+	capacityBackoff          func(int) time.Duration
+	capacityCancel           context.CancelFunc // cancellation during dispatch remains an unknown outcome
+	capacityThread           string
+	capacityRequest          string
+	capacityWaiting          bool
+	capacityDispatchStarted  bool
+	capacityStopReconciling  map[string]bool
+	futureBotMode            atomic.Value // string; only future native resident threads use it
+	stopTerminalSavePending  map[string]bool
+	stopTerminalSaveRetrying bool
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -270,8 +297,8 @@ func (s *Session) resetProjection() {
 	for _, id := range s.binding.Children {
 		s.children[id] = true
 	}
-	for _, task := range s.binding.Tasks {
-		if task != nil && task.Thread != "" {
+	for id, task := range s.binding.Tasks {
+		if task != nil && task.Thread != "" && !s.binding.LostOwnerTasks[id] {
 			s.children[task.Thread] = true
 		}
 	}
@@ -340,7 +367,14 @@ func (s *Session) update() {
 			s.backgroundResultsDirty = false
 		}
 	}
-	if s.binding.CapacityStopRequest != "" && (s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn) {
+	if s.binding.OwnerUnavailable {
+		s.state.Phase = "unknown"
+		s.state.ConnectionIssue = "owner_unavailable"
+		s.state.Message = "原本机 Codex 已随退出关闭，原请求和工具效果无法再核对；记录已保留，请明确恢复后再开始新工作"
+	} else if s.stopTerminalSavePending["bot"] {
+		s.state.Phase = "unknown"
+		s.state.Message = "原回合终态已观察到，但本地记录尚未保存；正在重试，暂不确认停止结果"
+	} else if s.binding.CapacityStopRequest != "" && (s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn) {
 		if s.binding.CapacityStopStatus == "" {
 			s.state.Phase = "unknown"
 			s.state.Message = "已请求停止原回合，原生结果尚未确认"
@@ -349,6 +383,8 @@ func (s *Session) update() {
 		} else {
 			s.state.Message = "停止请求未确认及时生效；原回合实际状态为" + s.binding.CapacityStopStatus
 		}
+	} else if len(s.binding.LostOwners) > 0 && s.state.Connection == "ready" && s.state.Message == "" && s.run == "" {
+		s.state.Message = "新连接已可使用；此前关闭的原 owner 的未确认请求与工具效果仍无法核对，原记录已保留"
 	}
 	s.state.Revision++
 	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase != "unknown" && !s.closed && !s.closing
@@ -406,10 +442,17 @@ func (s *Session) Snapshot() api.Snapshot {
 
 func (s *Session) save() error {
 	if s.loadErr != nil {
+		s.retryStopTerminalSaveLocked()
 		return s.loadErr
 	}
 	if err := localstate.Write(s.opts.StateFile, s.binding); err != nil {
+		s.retryStopTerminalSaveLocked()
 		return err
+	}
+	botTerminalPending := s.stopTerminalSavePending["bot"]
+	clear(s.stopTerminalSavePending)
+	if botTerminalPending && s.run == "" && s.lastTurn == s.binding.CapacityStopTurn && terminal(s.binding.CapacityStopStatus) {
+		s.state.Phase = s.binding.CapacityStopStatus
 	}
 	s.queueCapacityStopsLocked()
 	return nil
@@ -457,6 +500,12 @@ func (s *Session) connect(ctx context.Context) error {
 		err := s.loadErr
 		s.mu.Unlock()
 		return err
+	}
+	if s.binding.OwnerUnavailable {
+		s.state.Connection = "offline"
+		s.update()
+		s.mu.Unlock()
+		return errors.New("原本机 Codex 已随退出关闭，原请求与工具效果无法再核对；请明确恢复后开始新工作")
 	}
 	if s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" {
 		c, id, pending := s.client, s.binding.ThreadID, s.binding.Pending != nil
@@ -1161,6 +1210,9 @@ func (s *Session) Interrupt(ctx context.Context) error {
 	if request := s.binding.CapacityStopRequest; request != "" && s.binding.CapacityStopThread == thread {
 		if stoppingDispatchedRetry || s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn {
 			status := s.binding.CapacityStopStatus
+			if s.stopTerminalSavePending["bot"] {
+				status = ""
+			}
 			s.update()
 			s.mu.Unlock()
 			if status == "interrupted" {
@@ -1663,14 +1715,22 @@ cleanup:
 	// Ordinary Close deliberately stops its private owner. An idle, fully
 	// reconciled binding must not pin the next launch to that dead socket.
 	unknownTaskReceipt := false
-	for _, task := range s.binding.Tasks {
-		if task != nil && !task.Retired && (taskHasUnknownReceipt(task) || task.StopPendingRequest != "" && task.StopPendingStatus == "") {
+	for id, task := range s.binding.Tasks {
+		if task != nil && !s.binding.LostOwnerTasks[id] && !task.Retired && (taskHasUnknownReceipt(task) || task.StopPendingRequest != "" && task.StopPendingStatus == "") {
 			unknownTaskReceipt = true
 			break
 		}
 	}
 	unresolvedCapacityStop := s.binding.CapacityStopRequest != "" && s.binding.CapacityStopStatus == ""
-	if !c.UsesSharedServer() && cleanupErr == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && !unresolvedCapacityStop && s.binding.Pending == nil && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown") {
+	ownerSettled := cleanupErr == nil && c.toolCleanupError() == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && !unresolvedCapacityStop && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown")
+	if !c.UsesSharedServer() && !ownerSettled {
+		previous := s.binding.OwnerUnavailable
+		s.binding.OwnerUnavailable = true
+		if err := s.save(); err != nil {
+			s.binding.OwnerUnavailable = previous
+			endpointErr = err
+		}
+	} else if !c.UsesSharedServer() {
 		previous := s.binding.OwnerEndpoint
 		s.binding.OwnerEndpoint = ""
 		if err := s.save(); err != nil {
@@ -1684,7 +1744,7 @@ cleanup:
 	s.mu.Unlock()
 	c.Close()
 	if endpointErr != nil {
-		return fmt.Errorf("连接已关闭，但原生 owner 绑定未能清除: %w", endpointErr)
+		return fmt.Errorf("连接已关闭，但原 owner 退出状态未能保存: %w", endpointErr)
 	}
 	if cleanupErr != nil || c.toolCleanupError() != nil {
 		return errors.New("连接已关闭，但后台工具的完整清理未能确认")
