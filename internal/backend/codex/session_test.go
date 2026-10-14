@@ -663,6 +663,19 @@ func TestTransportGenerationPreventsApprovalRaceAfterNativeIDReuse(t *testing.T)
 }
 func TestShutdownCancelsPendingObservationWithoutDeadlockAndCleansTerminals(t *testing.T) {
 	s, f := sessionPair(t, "block")
+	// A private owner must have a durable process identity before Close can
+	// confirm that its socket has gone away. The wire fixture has no process.
+	endpoint := "unix://" + filepath.Join(t.TempDir(), "shutdown-owner.sock")
+	id := ownerProcessIdentity{PID: 1404, Birth: 404}
+	s.mu.Lock()
+	s.client.owner = &fixtureRetainedOwner{endpoint: endpoint, identity: id}
+	s.binding.OwnerEndpoint, s.binding.OwnerProcess = endpoint, &id
+	s.ownerLifecycleProbe = func(ownerProcessIdentity) ownerLifecycle { return ownerGone }
+	if err := s.save(); err != nil {
+		s.mu.Unlock()
+		t.Fatal(err)
+	}
+	s.mu.Unlock()
 	ctx := testContext(t)
 	receipt := make(chan api.Receipt, 1)
 	go func() {
