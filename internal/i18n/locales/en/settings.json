@@ -567,5 +567,6 @@
   "preferences": "Preferences",
   "generalIntro": "Language, startup and everyday work preferences.",
   "appearanceIntro": "Your companion’s character, size and chat portrait.",
-  "chatTitle": "Caelis Bot"
+  "chatTitle": "Caelis Bot",
+  "windowTitle": "Settings"
 }

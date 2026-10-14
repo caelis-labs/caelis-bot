@@ -56,7 +56,7 @@ export function Settings() {
  if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup active={visible} focusVersion={focusVersion} onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></div></main>;
  return <main className="settings-window">
   <aside><div className="settings-identity"><img src="/icons/caelis-avatar.png" alt=""/><div><strong>Caelis Bot</strong><small>{version}</small></div></div><nav aria-label={t('settings.navLabel')}>{settingsGroups.map(group=><div className="settings-nav-group" key={group.title}><p>{t(group.title)}</p>{group.sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}><SettingsNavIcon section={id}/><span>{t(`settings.${id}`)}</span></button>)}</div>)}</nav><button className="settings-return" onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))void desktop('OpenHistory');}}><CaretLeftIcon size={17} aria-hidden="true"/>{t('settings.returnChat')}</button></aside>
-  <div className="settings-content" ref={content}>
+  <div className="settings-main"><header className="settings-toolbar"><span>{t('settings.windowTitle')}</span><span aria-hidden="true">/</span><h1>{t(`settings.${section==='telegram'||section==='weixin'?'chatConnections':section}`)}</h1></header><div className="settings-content" ref={content}>
    <div className="settings-page" data-section="permissions" hidden={section!=='permissions'}>{section==='permissions'&&<><h1>{t('settings.permissions')}</h1><PermissionSettings embedded active={visible} focusVersion={focusVersion}/></>}</div>
    <div className="settings-page" data-section="connections" hidden={section!=='connections'}>{(runtimeVisited||section==='connections')&&<RuntimeSettings active={visible&&section==='connections'} refreshKey={opened}/>}</div>
    <div className="settings-page" data-section="chatConnections" hidden={section!=='chatConnections'}>{section==='chatConnections'&&<MessagingSettings active={visible} focusVersion={focusVersion} openTelegram={()=>setSection('telegram')} openWeixin={()=>setSection('weixin')}/>}</div>
@@ -68,7 +68,7 @@ export function Settings() {
    <div className="settings-page" data-section={section} key={section} hidden={['permissions','connections','chatConnections','telegram','weixin','machines','extras','plugins'].includes(section)}>
    {section==='general'?<General key={opened} active={visible} focusVersion={focusVersion}/>:section==='appearance'?<AppearanceSettings/>:['connections','chatConnections','telegram','weixin','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version} active={visible} focusVersion={focusVersion}/>}
    </div>
-  </div>
+  </div></div>
  </main>;
 }
 
@@ -76,7 +76,7 @@ function General({active,focusVersion}:{active:boolean;focusVersion:number}) {
  const {t}=useI18n();
 
  return <section className="general-settings">
-  <h1>{t('settings.general')}</h1><p className="settings-page-intro">{t('settings.generalIntro')}</p><div className="general-preferences"><h2>{t('settings.preferences')}</h2><LanguageSetting/><LoginAtLoginSetting active={active} focusVersion={focusVersion}/></div><TaskSettings/>
+  <h1>{t('settings.general')}</h1><div className="general-preferences"><h2>{t('settings.preferences')}</h2><LanguageSetting/><LoginAtLoginSetting active={active} focusVersion={focusVersion}/></div><TaskSettings/>
   <SettingGroup title={t('settings.shortcuts')}><ShortcutSettings/><ShortcutSettings tasks/></SettingGroup>
   <Maintenance storage embedded/>
  </section>;

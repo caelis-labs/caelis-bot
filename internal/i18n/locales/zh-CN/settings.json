@@ -566,5 +566,6 @@
   "preferences": "偏好",
   "generalIntro": "语言、启动方式和日常工作偏好。",
   "appearanceIntro": "桌面形象、大小和聊天头像。",
-  "chatTitle": "Caelis Bot"
+  "chatTitle": "Caelis Bot",
+  "windowTitle": "设置"
 }

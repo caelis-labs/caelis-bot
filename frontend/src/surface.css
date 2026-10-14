@@ -275,3 +275,36 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 }
 
 .settings-window .runtime-model-picker .model-parameters { border-top:1px solid var(--line); margin-top:16px; padding-top:12px; }
+
+/* Settings shell: one breadcrumb header, one content grid, shared grouped rows. */
+.settings-window .settings-main { display:flex; flex-direction:column; flex:1; min-width:0; height:100%; }
+.settings-window .settings-toolbar { display:flex; align-items:center; gap:12px; flex:none; height:64px; padding:0 32px; border-bottom:1px solid var(--line); color:var(--muted); }
+.settings-window .settings-toolbar h1 { margin:0; font-size:16px; letter-spacing:0; color:var(--ink); font-weight:600; }
+.settings-window .settings-content { flex:1; min-height:0; padding:28px 32px 40px; }
+.settings-window .settings-page,.settings-window .settings-page[data-section=connections] { max-width:1040px!important; margin:0; }
+.settings-window .runtime-workspace { max-width:none; }
+.settings-page>h1,.settings-page>section>h1 { display:none; }
+.settings-window .setting-section { margin:0 0 24px; }
+.settings-window .setting-list { border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--caelis-raised); }
+.settings-window .setting-list .setting-row { min-height:68px; padding:16px 20px; border-bottom:1px solid var(--line); gap:24px; grid-template-columns:minmax(0,1fr) minmax(160px,280px); }
+.settings-window .setting-list .setting-row:last-child { border-bottom:0; }
+.settings-window .general-preferences .setting-list { border-radius:0; border-bottom:0; }
+.settings-window .general-preferences .setting-section:first-of-type .setting-list { border-radius:12px 12px 0 0; }
+.settings-window .general-preferences .setting-section:last-of-type .setting-list { border-radius:0 0 12px 12px; border-bottom:1px solid var(--line); }
+.settings-window .general-settings .general-preferences { margin-bottom:24px; }
+.settings-window .general-settings>.setting-section,.settings-window .appearance-settings .setting-section { margin:0 0 24px; }
+.settings-window .setting-section h2,.settings-window .general-preferences h2 { margin:0 0 10px; font-size:12px; }
+.settings-window .shortcut-editor { padding:0; }
+.settings-window .shortcut-editor+.shortcut-editor { border-top:1px solid var(--line); }
+.settings-window .permission-row { padding:18px 20px; background:var(--caelis-raised); border:1px solid var(--line); border-radius:10px; margin:10px 0; }
+.settings-window .channel-card,.settings-window .machine-card { background:var(--caelis-raised); border:1px solid var(--line); border-radius:12px; }
+.settings-window .plugin-list { background:var(--caelis-raised); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.settings-window .plugin-row { padding:6px 16px; }
+.settings-window .runtime-dialog { background:var(--caelis-popover); }
+.settings-window .runtime-dialog-scrim { background:rgba(12,12,16,.42); backdrop-filter:blur(3px); }
+.settings-window .runtime-popover-scrim { background:transparent; backdrop-filter:none; }
+@media(max-width:800px) {
+ .settings-window .settings-toolbar { padding:0 24px; }
+ .settings-window .settings-content { padding:24px; }
+ .settings-window .setting-list .setting-row { padding:14px; gap:16px; grid-template-columns:minmax(0,1fr) minmax(140px,210px); }
+}
