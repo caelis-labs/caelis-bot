@@ -79,6 +79,13 @@ type WorkState struct {
 	OriginalPrompt string
 	ExecutionKey   string
 	StopRequested  bool
+	// StopPending identifies an uncertain capacity stop that still awaits the
+	// original Turn's terminal fact. It must not suppress that later report.
+	StopPending bool
+	// StopResolution is the original native Turn's terminal status after an
+	// uncertain capacity stop. Empty means no terminal fact; ordinary stops do
+	// not set it. The host uses this typed fact for the completion report.
+	StopResolution string
 	// Existing native bindings may contain a completion receipt from before the
 	// product coordinator existed. Import it once, so upgrading cannot re-report.
 	PreviousReportID, PreviousReportState string

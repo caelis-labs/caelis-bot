@@ -108,9 +108,11 @@ func (s *Session) applyTurn(turn nativeTurn, history bool) {
 		s.state.Phase = "working"
 	}
 	if terminal(turn.Status) {
-		if s.binding.CapacityStopTurn == turn.ID {
-			s.binding.CapacityStopRequest, s.binding.CapacityStopTurn = "", ""
-			s.state.Message = "停止结果未确认；原回合已结束"
+		if s.binding.CapacityStopThread == s.binding.ThreadID && s.binding.CapacityStopTurn == turn.ID {
+			s.binding.CapacityStopStatus = turn.Status
+			if err := s.save(); err != nil {
+				s.state.Message = "停止结果已观察到，但本地记录尚未保存"
+			}
 		}
 		// A steered response can leave an agentMessage without item/completed.
 		// The turn is over, but neither the text nor the task outcome is a failure.
@@ -180,8 +182,9 @@ func (s *Session) applyItem(run string, item nativeItem, complete bool) {
 	case "userMessage":
 		view.Kind = "user"
 		view.RequestID = item.ClientID
-		if s.binding.CapacityStopRequest == item.ClientID {
+		if s.binding.CapacityStopThread == s.binding.ThreadID && s.binding.CapacityStopRequest == item.ClientID {
 			s.binding.CapacityStopTurn = run
+			s.binding.CapacityStopAccepted = true
 		}
 		var text []string
 		for index, part := range item.Content {

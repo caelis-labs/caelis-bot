@@ -142,11 +142,16 @@ func TestBotStopAfterRetryDispatchKeepsOriginalUnconfirmed(t *testing.T) {
 	var once sync.Once
 	t.Cleanup(func() { once.Do(func() { close(release) }) })
 	var calls atomic.Int32
-	var interrupts atomic.Int32
+	interrupts := make(chan struct{ Thread, Turn string }, 2)
 	f.mu.Lock()
 	f.handle = func(m wireMessage) (any, bool) {
 		if m.Method == "turn/interrupt" {
-			interrupts.Add(1)
+			var p struct {
+				Thread string `json:"threadId"`
+				Turn   string `json:"turnId"`
+			}
+			_ = json.Unmarshal(m.Params, &p)
+			interrupts <- struct{ Thread, Turn string }{p.Thread, p.Turn}
 			return map[string]any{}, true
 		}
 		if m.Method != "turn/start" {
@@ -164,7 +169,11 @@ func TestBotStopAfterRetryDispatchKeepsOriginalUnconfirmed(t *testing.T) {
 		}
 		secondEntered <- struct{}{}
 		<-release
-		return map[string]any{"turn": nativeTurn{ID: "late-root-run", Status: "inProgress", Items: []nativeItem{{ID: "original-user", Type: "userMessage", ClientID: request}}}}, true
+		turn := nativeTurn{ID: "late-root-run", Status: "inProgress", Items: []nativeItem{{ID: "original-user", Type: "userMessage", ClientID: request}}}
+		f.mu.Lock()
+		f.history = []nativeTurn{turn}
+		f.mu.Unlock()
+		return map[string]any{"turn": turn}, true
 	}
 	f.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -188,7 +197,7 @@ func TestBotStopAfterRetryDispatchKeepsOriginalUnconfirmed(t *testing.T) {
 	}
 	select {
 	case err := <-stopped:
-		if err == nil || !strings.Contains(err.Error(), "停止结果尚未确认") {
+		if err == nil || !strings.Contains(err.Error(), "结果尚未确认") {
 			t.Fatal("stop was falsely confirmed", err)
 		}
 	case <-time.After(2 * time.Second):
@@ -199,9 +208,29 @@ func TestBotStopAfterRetryDispatchKeepsOriginalUnconfirmed(t *testing.T) {
 	view := awaitState(t, s, func(v api.Snapshot) bool {
 		return v.LastReceipt.ID == request && v.LastReceipt.Outcome == "accepted" && v.Phase == "unknown"
 	})
-	if !strings.Contains(view.Message, "停止结果尚未确认") || calls.Load() != 2 || interrupts.Load() != 0 {
-		t.Fatal("late acceptance lost original stop uncertainty or interrupted an unidentified Turn", view.Message, calls.Load(), interrupts.Load())
+	if !strings.Contains(view.Message, "尚未确认") || calls.Load() != 2 {
+		t.Fatal("late acceptance lost original stop uncertainty", view.Message, calls.Load())
 	}
+	select {
+	case target := <-interrupts:
+		if target.Thread != "thread-native" || target.Turn != "late-root-run" {
+			t.Fatal("stop targeted another native Turn", target)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("first stop did not automatically interrupt the accepted original Turn")
+	}
+	if err := s.Interrupt(ctx); err == nil {
+		t.Fatal("interrupt acknowledgement was treated as a terminal stop")
+	}
+	select {
+	case target := <-interrupts:
+		t.Fatal("repeated stop sent another interrupt", target)
+	default:
+	}
+	f.emit(wireMessage{Method: "turn/completed", Params: raw(map[string]any{"threadId": "thread-native", "turn": nativeTurn{ID: "late-root-run", Status: "interrupted"}})})
+	awaitState(t, s, func(v api.Snapshot) bool {
+		return v.Phase == "interrupted" && strings.Contains(v.Message, "原回合已中断")
+	})
 	s.mu.Lock()
 	stopRequest, stopTurn := s.binding.CapacityStopRequest, s.binding.CapacityStopTurn
 	s.mu.Unlock()

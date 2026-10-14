@@ -34,20 +34,24 @@ type binding struct {
 	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
 	BackgroundResults  map[string]api.BackgroundResult `json:"backgroundResults,omitempty"`
 
-	Context             contextseed.State      `json:"context,omitempty"`
-	ContextInputs       map[string]int         `json:"contextInputs,omitempty"`
-	Dreams              map[string]dreamRecord `json:"dreams,omitempty"`
-	PastThreads         []string               `json:"pastThreads,omitempty"`
-	RenewedBy           string                 `json:"renewedBy,omitempty"`
-	ToolRenewal         *toolRenewalRecord     `json:"toolRenewal,omitempty"`
-	Scheduled           map[string]string      `json:"scheduled,omitempty"`       // accepted client IDs to native turn IDs
-	HostReports         map[string]bool        `json:"hostReports,omitempty"`     // host-only completion inputs, keyed by exact submitted ID
-	RecoveryNotices     map[string]bool        `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
-	CleanupTargets      []string               `json:"cleanupTargets,omitempty"`
-	StopState           string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
-	StopRuns            map[string]string      `json:"stopRuns,omitempty"`
-	CapacityStopRequest string                 `json:"capacityStopRequest,omitempty"` // original resident request whose late Turn must not be called stopped
-	CapacityStopTurn    string                 `json:"capacityStopTurn,omitempty"`
+	Context              contextseed.State      `json:"context,omitempty"`
+	ContextInputs        map[string]int         `json:"contextInputs,omitempty"`
+	Dreams               map[string]dreamRecord `json:"dreams,omitempty"`
+	PastThreads          []string               `json:"pastThreads,omitempty"`
+	RenewedBy            string                 `json:"renewedBy,omitempty"`
+	ToolRenewal          *toolRenewalRecord     `json:"toolRenewal,omitempty"`
+	Scheduled            map[string]string      `json:"scheduled,omitempty"`       // accepted client IDs to native turn IDs
+	HostReports          map[string]bool        `json:"hostReports,omitempty"`     // host-only completion inputs, keyed by exact submitted ID
+	RecoveryNotices      map[string]bool        `json:"recoveryNotices,omitempty"` // original conversation work already surfaced after exhausted reconnect
+	CleanupTargets       []string               `json:"cleanupTargets,omitempty"`
+	StopState            string                 `json:"stopState,omitempty"` // prepared is safe to retry; attempted/legacy is not.
+	StopRuns             map[string]string      `json:"stopRuns,omitempty"`
+	CapacityStopRequest  string                 `json:"capacityStopRequest,omitempty"` // original resident request whose late Turn must not be called stopped
+	CapacityStopThread   string                 `json:"capacityStopThread,omitempty"`
+	CapacityStopTurn     string                 `json:"capacityStopTurn,omitempty"`
+	CapacityStopAccepted bool                   `json:"capacityStopAccepted,omitempty"`
+	CapacityStopPhase    string                 `json:"capacityStopPhase,omitempty"`
+	CapacityStopStatus   string                 `json:"capacityStopStatus,omitempty"`
 
 	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
 	DelegationText string                 `json:"delegationText,omitempty"`
@@ -167,6 +171,7 @@ type Session struct {
 	capacityRequest         string
 	capacityWaiting         bool
 	capacityDispatchStarted bool
+	capacityStopReconciling map[string]bool
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -331,9 +336,15 @@ func (s *Session) update() {
 			s.backgroundResultsDirty = false
 		}
 	}
-	if s.binding.CapacityStopRequest != "" {
-		s.state.Phase = "unknown"
-		s.state.Message = "停止结果尚未确认；原请求可能已派发，请核对原回合"
+	if s.binding.CapacityStopRequest != "" && (s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn) {
+		if s.binding.CapacityStopStatus == "" {
+			s.state.Phase = "unknown"
+			s.state.Message = "已请求停止原回合，原生结果尚未确认"
+		} else if s.binding.CapacityStopStatus == "interrupted" {
+			s.state.Message = "原回合已中断；已执行工具的实际效果仍以原生回执为准"
+		} else {
+			s.state.Message = "停止请求未确认及时生效；原回合实际状态为" + s.binding.CapacityStopStatus
+		}
 	}
 	s.state.Revision++
 	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase != "unknown" && !s.closed && !s.closing
@@ -393,7 +404,11 @@ func (s *Session) save() error {
 	if s.loadErr != nil {
 		return s.loadErr
 	}
-	return localstate.Write(s.opts.StateFile, s.binding)
+	if err := localstate.Write(s.opts.StateFile, s.binding); err != nil {
+		return err
+	}
+	s.queueCapacityStopsLocked()
+	return nil
 }
 
 func (s *Session) Connect(ctx context.Context) error {
@@ -618,6 +633,7 @@ func (s *Session) connect(ctx context.Context) error {
 		}
 		s.state.Connection = "ready"
 		s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "recovery_ready", Generation: epoch, SessionEpoch: epoch, TransportGeneration: c.rpc.generation, Phase: "worker_reconciliation"})
+		s.queueCapacityStopsLocked()
 		s.update()
 		s.mu.Unlock()
 		return nil
@@ -740,6 +756,7 @@ func (s *Session) connect(ctx context.Context) error {
 			return s.connectionError("恢复期间连接再次断开", ErrClosed)
 		}
 		s.state.Connection = "ready"
+		s.queueCapacityStopsLocked()
 		s.update()
 		s.mu.Unlock()
 		if err := s.reconcileTerminalCleanup(ctx, c); err != nil {
@@ -753,6 +770,7 @@ func (s *Session) connect(ctx context.Context) error {
 	}
 	s.state.Connection = "ready"
 	s.opts.Diagnostics.Write(diagnosticlog.Record{Level: "info", Component: "codex", Code: "recovery_ready", Generation: epoch, SessionEpoch: epoch, TransportGeneration: c.rpc.generation, Phase: "receipt_and_worker_reconciliation"})
+	s.queueCapacityStopsLocked()
 	s.update()
 	s.mu.Unlock()
 	go s.observeNativeResources(c, epoch)
@@ -1027,7 +1045,7 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 	if err == nil {
 		r.Outcome = "accepted"
 		if run == "" {
-			if s.binding.CapacityStopRequest == in.ID {
+			if s.binding.CapacityStopRequest == in.ID && s.binding.CapacityStopThread == threadID {
 				s.binding.CapacityStopTurn = response.Turn.ID
 			}
 			if in.Scheduled {
@@ -1065,6 +1083,9 @@ func (s *Session) submitWithSource(ctx context.Context, in api.Submission, files
 		r = s.state.LastReceipt
 		s.binding.Pending = nil
 	}
+	if r.Outcome == "accepted" && s.binding.CapacityStopRequest == in.ID && s.binding.CapacityStopThread == threadID {
+		s.binding.CapacityStopAccepted = true
+	}
 	s.binding.LastReceipt = &r
 	s.binding.Context.Resolve(in.ID, r.Outcome)
 	if err := s.save(); err != nil {
@@ -1094,10 +1115,15 @@ func (s *Session) Interrupt(ctx context.Context) error {
 	stoppingDispatchedRetry := false
 	if thread != "" && s.capacityThread == thread && s.capacityCancel != nil {
 		if s.capacityDispatchStarted && s.capacityRequest != "" {
-			previous := s.binding.CapacityStopRequest
+			previous, previousThread, previousTurn, previousPhase, previousStatus, previousAccepted := s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn, s.binding.CapacityStopPhase, s.binding.CapacityStopStatus, s.binding.CapacityStopAccepted
 			s.binding.CapacityStopRequest = s.capacityRequest
+			s.binding.CapacityStopThread = thread
+			if previous != s.capacityRequest || previousThread != thread {
+				s.binding.CapacityStopTurn, s.binding.CapacityStopStatus, s.binding.CapacityStopAccepted = "", "", false
+			}
+			s.binding.CapacityStopPhase = "requested"
 			if err := s.save(); err != nil {
-				s.binding.CapacityStopRequest = previous
+				s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn, s.binding.CapacityStopPhase, s.binding.CapacityStopStatus, s.binding.CapacityStopAccepted = previous, previousThread, previousTurn, previousPhase, previousStatus, previousAccepted
 				s.mu.Unlock()
 				return err
 			}
@@ -1121,18 +1147,19 @@ func (s *Session) Interrupt(ctx context.Context) error {
 		return errors.New("上次停止与清理结果尚未确认，请重新连接核对")
 	}
 	targets := s.conversationTargets()
-	if request := s.binding.CapacityStopRequest; request != "" {
-		turn := s.binding.CapacityStopTurn
-		if stoppingDispatchedRetry || turn == "" || s.run != turn {
-			s.state.Phase = "unknown"
-			s.state.Message = "停止结果尚未确认；原请求可能已派发，请核对原回合"
+	if request := s.binding.CapacityStopRequest; request != "" && s.binding.CapacityStopThread == thread {
+		if stoppingDispatchedRetry || s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn {
+			status := s.binding.CapacityStopStatus
 			s.update()
 			s.mu.Unlock()
-			return errors.New("停止结果尚未确认；原请求可能已派发，请核对原回合")
+			if status == "interrupted" {
+				return nil
+			}
+			if status != "" {
+				return errors.New("原回合已结束，但停止请求未确认及时生效；请核对实际结果")
+			}
+			return errors.New("停止请求已保留；原生中断或结果尚未确认")
 		}
-		// A later explicit stop can target only the Turn correlated with the
-		// original request, never another conversation or child Turn.
-		targets = map[string]string{thread: turn}
 	}
 	if retryUnsent {
 		targets = maps.Clone(s.binding.StopRuns)
@@ -1152,16 +1179,13 @@ func (s *Session) Interrupt(ctx context.Context) error {
 	slices.Sort(threadIDs)
 	if !retryUnsent {
 		s.mu.Lock()
-		stopRequest, stopTurn := s.binding.CapacityStopRequest, s.binding.CapacityStopTurn
 		s.binding.CleanupTargets = append([]string(nil), threadIDs...)
 		s.binding.StopState = "prepared"
 		s.binding.StopRuns = maps.Clone(targets)
-		s.binding.CapacityStopRequest, s.binding.CapacityStopTurn = "", ""
 		if err := s.save(); err != nil {
 			s.binding.CleanupTargets = nil
 			s.binding.StopState = ""
 			s.binding.StopRuns = nil
-			s.binding.CapacityStopRequest, s.binding.CapacityStopTurn = stopRequest, stopTurn
 			s.mu.Unlock()
 			return err
 		}
@@ -1629,12 +1653,13 @@ cleanup:
 	// reconciled binding must not pin the next launch to that dead socket.
 	unknownTaskReceipt := false
 	for _, task := range s.binding.Tasks {
-		if task != nil && !task.Retired && taskHasUnknownReceipt(task) {
+		if task != nil && !task.Retired && (taskHasUnknownReceipt(task) || task.StopPendingRequest != "" && task.StopPendingStatus == "") {
 			unknownTaskReceipt = true
 			break
 		}
 	}
-	if !c.UsesSharedServer() && cleanupErr == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && s.binding.Pending == nil && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown") {
+	unresolvedCapacityStop := s.binding.CapacityStopRequest != "" && s.binding.CapacityStopStatus == ""
+	if !c.UsesSharedServer() && cleanupErr == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && !unresolvedCapacityStop && s.binding.Pending == nil && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown") {
 		previous := s.binding.OwnerEndpoint
 		s.binding.OwnerEndpoint = ""
 		if err := s.save(); err != nil {

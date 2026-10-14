@@ -44,6 +44,7 @@ type record struct {
 	Execution           string            `json:"execution,omitempty"`
 	ReportID            string            `json:"reportId,omitempty"`
 	ReportState         string            `json:"reportState,omitempty"`
+	StopResolution      string            `json:"stopResolution,omitempty"`
 	UnknownSince        int64             `json:"unknownSince,omitempty"`
 	UnknownNotice       string            `json:"unknownNotice,omitempty"`
 	Activity            string            `json:"-"`
@@ -259,6 +260,7 @@ func (m *Manager) refresh() error {
 		v.Task.Machine = r.View.Machine
 		r.View = v.Task
 		r.Activity = v.Activity
+		r.StopResolution = v.StopResolution
 		if v.Task.Status == "unavailable" && r.ReportState == "pending" {
 			r.ReportState = "observed" // An older run must not report the unknown continuation.
 		}
@@ -275,7 +277,7 @@ func (m *Manager) refresh() error {
 			r.ReportID = "task-report-" + hash(r.Provider, v.Task.ID, v.ExecutionKey)
 			r.ReportState = "pending"
 		}
-		if v.StopRequested && r.ReportState == "pending" {
+		if v.StopRequested && !v.StopPending && v.StopResolution == "" && r.ReportState == "pending" {
 			r.ReportState = "observed"
 		}
 	}
@@ -908,6 +910,11 @@ func (m *Manager) DeliverTaskReport(ctx context.Context) error {
 	}
 	id := selected.ReportID
 	text := fmt.Sprintf("Task %s is %s.", selected.View.ID, selected.View.Status)
+	if selected.StopResolution == "interrupted" {
+		text = fmt.Sprintf("Task %s: the original native turn ended interrupted after a stop request. Earlier tool effects remain subject to their native receipts.", selected.View.ID)
+	} else if selected.StopResolution != "" {
+		text = fmt.Sprintf("Task %s: stop was requested, but its original native turn ended %s without confirmed timely interruption. The native result may have taken effect.", selected.View.ID, selected.StopResolution)
+	}
 	m.mu.Unlock()
 	receipt, e := m.reports.SubmitReport(ctx, api.Submission{ID: id, Text: text})
 	m.mu.Lock()
