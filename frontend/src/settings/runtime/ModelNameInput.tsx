@@ -19,11 +19,12 @@ export function ModelNameInput({ id, value, onChange, options, placeholder, disa
  const choose = (model: ConnectionModelOption) => { onChange(model.value); setOpen(false); setActive(0); };
 
  return <div className="connection-model-combobox">
-  <input id={id} role="combobox" aria-autocomplete="list" aria-expanded={visible} aria-controls={visible ? listID : undefined} aria-activedescendant={visible ? `${listID}-${activeIndex}` : undefined}
+  <input id={id} role="combobox" aria-autocomplete="list" aria-expanded={visible} aria-controls={visible ? listID : undefined} aria-activedescendant={visible ? `${listID}-${activeIndex}` : undefined} data-dialog-escape-first={visible ? '' : undefined}
    autoComplete="off" spellCheck={false} disabled={disabled} value={value} placeholder={placeholder}
    onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
    onChange={event => { onChange(event.target.value); setActive(0); setOpen(true); }}
    onKeyDown={event => {
+    if (event.key === 'Escape' && visible) { event.preventDefault(); event.stopPropagation(); setOpen(false); return; }
     if (event.key === 'ArrowDown' && suggestions.length) { event.preventDefault(); setOpen(true); setActive(index => Math.min(index + 1, suggestions.length - 1)); }
     if (event.key === 'ArrowUp' && suggestions.length) { event.preventDefault(); setOpen(true); setActive(index => Math.max(index - 1, 0)); }
     if (event.key === 'Enter' && visible) { event.preventDefault(); choose(suggestions[activeIndex]); }

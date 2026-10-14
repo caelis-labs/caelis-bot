@@ -34,6 +34,9 @@ export function SettingsDialog({ title, description, busy = false, blocked = fal
   if (blocked) return;
   const key = (event: KeyboardEvent) => {
    if (event.key !== 'Escape' || event.isComposing || ref.current?.closest('[inert]')) return;
+   // Let an expanded child picker consume its first Escape. This must happen
+   // during capture, before the picker's React key handler can run.
+   if (event.target instanceof HTMLElement && ref.current?.contains(event.target) && event.target.matches('[data-dialog-escape-first][aria-expanded="true"]')) return;
    event.preventDefault(); event.stopImmediatePropagation();
    if (!busy) onClose();
   };
