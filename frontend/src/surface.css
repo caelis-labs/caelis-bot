@@ -255,7 +255,7 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 /* Stable page categories; full-width rows keep labels and controls together. */
 .settings-window .settings-page[data-section=connections] { max-width:960px!important; margin:0; }
 .settings-window .runtime-workspace { max-width:960px; margin:0; }
-.settings-window .runtime-workspace-tabs { gap:28px; margin:0 0 24px; }
+.settings-window .runtime-workspace-tabs { flex-direction:row; gap:28px; margin:0 0 24px; }
 .settings-window .runtime-workspace-tabs button { font-size:13px; }
 .settings-window .runtime-workspace [hidden] { display:none; }
 .settings-window .runtime-model-section { margin:20px 0; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--caelis-raised); }
@@ -308,3 +308,20 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
  .settings-window .settings-content { padding:24px; }
  .settings-window .setting-list .setting-row { padding:14px; gap:16px; grid-template-columns:minmax(0,1fr) minmax(140px,210px); }
 }
+
+.settings-window :is(.messaging-settings,.telegram-page,.plugin-settings,.machine-settings) { max-width:none; }
+.settings-window .messaging-channel { background:var(--caelis-raised); }
+.settings-window .telegram-heading { padding:0 0 16px; }
+.settings-window .telegram-heading h1,.settings-window .plugin-detail-head h1 { font-size:20px; margin:0 0 8px; }
+.settings-window .telegram-step { padding:20px; margin:12px 0; border:1px solid var(--line); border-radius:12px; background:var(--caelis-raised); }
+.settings-window .telegram-step p { max-width:64ch; }
+.settings-window .telegram-back,.settings-window .plugin-back { margin-bottom:16px; }
+.settings-window .permission-list { border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.settings-window .permission-row { border:0; border-radius:0; border-bottom:1px solid var(--line); margin:0; }
+.settings-window .permission-row:last-child { border-bottom:0; }
+.settings-window .permission-privacy { padding:20px 0; }
+.settings-window .permission-repair { border:0; margin:0; padding:0; }
+.settings-window .permission-app-path { overflow-wrap:anywhere; }
+.settings-window .settings-page .settings-page-intro { margin:0 0 20px; }
+.settings-window .plugin-tabs { margin-top:0; }
+.settings-window .machine-page-intro { margin-top:0; }

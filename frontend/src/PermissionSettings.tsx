@@ -1,4 +1,4 @@
-import {SettingsChevron} from './SettingsIcons';
+import {SettingsDialog} from './settings/runtime/SettingsDialog';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {desktop} from './desktop';
 import {useI18n} from './i18n';
@@ -17,6 +17,7 @@ export function PermissionSettings({onDone,onBack,embedded=false,active=true,foc
  const onboarding=!!onDone;
  const [state,setState]=useState<PermissionState|null>(null),[busy,setBusy]=useState(''),[error,setError]=useState<MessageKey|''>(''),[notice,setNotice]=useState(false);
  const [feedback,setFeedback]=useState<{id:PermissionID;state:PermissionRequestResult['state']}|null>(null);
+ const [repairOpen,setRepairOpen]=useState(false);
  const [repair,setRepair]=useState<PermissionID>('accessibility'),[confirmed,setConfirmed]=useState(false);
  const [captureEnabled,setCaptureEnabled]=useState<boolean|null>(onDone?null:true);
  const alive=useRef(true),loading=useRef<Promise<void>|null>(null),acting=useRef(false),lastRead=useRef(0),wasActive=useRef(false);
@@ -82,16 +83,15 @@ export function PermissionSettings({onDone,onBack,embedded=false,active=true,foc
   {state&&!state.supported&&<p>{t('settings.permissionUnsupported')}</p>}
   {state?.supported&&<>
    <div className="permission-list">
-    {state.permissions.filter(p=>p.id==='accessibility'||p.id==='notifications'||p.id==='screenCapture'&&(!onDone||captureEnabled===true)).map(permissionRow)}
+    {state.permissions.filter(p=>p.id==='accessibility'||p.id==='notifications'||!onDone&&p.id==='automation'||p.id==='screenCapture'&&(!onDone||captureEnabled===true)).map(permissionRow)}
    </div>
-   {!onDone&&<details className="permission-more"><summary><SettingsChevron/>{t('settings.morePermissions')}</summary><div className="permission-list">{state.permissions.filter(p=>p.id==='automation').map(permissionRow)}</div></details>}
    {!onboarding&&<p className="permission-system-note">{t('settings.permissionSwitchHelp')}</p>}
    {onDone?<details className="permission-privacy"><summary>{t('settings.permissionPrivacyTitle')}</summary><p>{t('settings.permissionPrivacyBody')}</p></details>:<section className="permission-privacy" aria-labelledby="permission-privacy-title">
     <h2 id="permission-privacy-title">{t('settings.permissionPrivacyTitle')}</h2>
     <p>{t('settings.permissionPrivacyBody')}</p>
    </section>}
-   {!onDone&&<details className="permission-repair">
-    <summary><SettingsChevron/>{t('settings.permissionRepairTitle')}</summary>
+   {!onDone&&<button className="text-action" onClick={()=>setRepairOpen(true)}>{t('settings.permissionRepairTitle')}</button>}
+   {repairOpen&&<SettingsDialog title={t('settings.permissionRepairTitle')} busy={!!busy} onClose={()=>{setRepairOpen(false);setConfirmed(false);}}><div className="permission-repair">
     <p className="settings-note">{t('settings.permissionMissingApp')}</p>
     <div className="permission-app-path"><code>{state.appPath}</code><button disabled={!!busy} onClick={()=>void perform('reveal',()=>call('RevealPermissionApp'))}>{t('settings.permissionReveal')}</button></div>
     <p className="settings-note">{t('settings.permissionRepairHelp')}</p>
@@ -106,7 +106,8 @@ export function PermissionSettings({onDone,onBack,embedded=false,active=true,foc
     <label className="permission-reset-consent"><input type="checkbox" checked={confirmed} disabled={!!busy} onChange={e=>setConfirmed(e.target.checked)}/>{t('settings.permissionResetConfirm')}</label>
     <button disabled={!confirmed||!!busy} onClick={()=>void perform('reset',async()=>{await call('ResetSystemPermission',repair);if(alive.current){setNotice(true);setConfirmed(false);}})}>{t('settings.permissionReset')}</button>
     {notice&&<p role="status">{t('settings.permissionResetDone')}</p>}
-   </details>}
+    {error&&<p className="inline-error" role="alert">{t(error)}</p>}
+   </div></SettingsDialog>}
   </>}
   {error&&<p className="inline-error" role="alert">{t(error)}</p>}
   {onDone&&<div className="setup-end">{onBack&&<button type="button" disabled={!!busy} onClick={onBack}>{t('settings.setupBack')}</button>}<button className="primary" disabled={!!busy} onClick={()=>void perform('finish',async()=>{await call('FinishPermissionGuide');latestDone.current?.()})}>{t('settings.permissionContinue')}</button></div>}

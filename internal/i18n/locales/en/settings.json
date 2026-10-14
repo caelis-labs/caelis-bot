@@ -217,7 +217,7 @@
   "diagnosticsExportButton": "Export report",
   "backgroundTasks": "Background tasks",
   "maxBackgroundTasks": "Concurrent tasks",
-  "maxBackgroundTasksHelp": "Default: 6. Applies to work started or resumed by the Bot. Lowering this limit does not stop existing work.",
+  "maxBackgroundTasksHelp": "Running tasks continue when this changes.",
   "externalTerminal": "External terminal",
   "externalTerminalHelp": "Used when opening a task from the watchlist.",
   "systemTerminal": "System default",
