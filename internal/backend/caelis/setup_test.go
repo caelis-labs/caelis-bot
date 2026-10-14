@@ -90,6 +90,46 @@ func TestSetupCompatibilityClassification(t *testing.T) {
 	}
 }
 
+func TestSetupCatalogChatEligibilityAndDirectoryFacts(t *testing.T) {
+	settings := setupFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
+		case "/initialize":
+			writeFixture(w, wire.ServerInfo{ProtocolVersion: 1, ApiVersion: "v1", EnvelopeVersion: "caelis.control.envelope/v1", StoreId: pointer("store"), InstanceId: pointer("setup-instance"), Capabilities: required})
+		case "/completion/slash-arguments":
+			var request wire.CompletionRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Command == nil || !strings.HasPrefix(*request.Command, "connect-model:") {
+				t.Errorf("expected Host connect-model catalog: %+v %v", request, err)
+			}
+			// This optional field is the exact minimal addition needed from Core.
+			// Its current pinned schema omits it, so real Host entries stay unknown.
+			writeFixture(w, []map[string]any{
+				{"value": "chat", "display": "Chat", "detail": "source detail", "chat_eligibility": "chat", "model_metadata_complete": true, "model_image_input_known": false},
+				{"value": "asr", "chat_eligibility": "non-chat"},
+				{"value": "judge-only", "chat_eligibility": "non-chat"},
+				{"value": "unknown", "model_metadata_complete": true},
+				{"value": "invalid", "chat_eligibility": "surprise"},
+			})
+		default:
+			t.Errorf("unexpected route %s", r.URL.Path)
+		}
+	})
+	choices, err := SetupCatalog(t.Context(), api.SetupRequest{Settings: settings, Action: "models", Provider: "fixture", BaseURL: "https://example.invalid/v1"})
+	if err != nil || len(choices) != 5 {
+		t.Fatalf("catalog: %+v, %v", choices, err)
+	}
+	for i, want := range []string{"chat", "non-chat", "non-chat", "unknown", "unknown"} {
+		if choices[i].ChatEligibility != want {
+			t.Errorf("%s eligibility = %q, want %q", choices[i].Value, choices[i].ChatEligibility, want)
+		}
+	}
+	if choices[0].Detail != "source detail" || choices[0].ModelMetadataComplete == nil || !*choices[0].ModelMetadataComplete || choices[0].ModelImageInputKnown == nil || *choices[0].ModelImageInputKnown {
+		t.Fatalf("lost directory facts: %+v", choices[0])
+	}
+	if choices[3].ModelMetadataComplete == nil || !*choices[3].ModelMetadataComplete || choices[3].ModelImageInputKnown != nil {
+		t.Fatalf("unknown model facts changed: %+v", choices[3])
+	}
+}
+
 func TestSetupHostAuthoritySecretRedactionAndNoReplay(t *testing.T) {
 	var posts atomic.Int32
 	settings := setupFixture(t, func(w http.ResponseWriter, r *http.Request) {

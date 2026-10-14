@@ -80,6 +80,10 @@
   cursor: pointer;
 }
 .settings-window .connection-wizard .connection-capabilities[open] summary { margin-bottom: 14px; }
+.settings-window .connection-wizard .connection-model-qualified { display: flex; align-items: center; gap: 10px; }
+.settings-window .connection-wizard .connection-model-qualified > span { flex: 1; min-width: 0; }
+.settings-window .connection-wizard .connection-model-qualified > small { color: var(--muted); }
+.settings-window .connection-wizard .connection-model-qualified > button { flex: none; }
 @media (max-width: 560px) {
   .settings-window .connection-wizard .connection-field { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .settings-window .connection-wizard .connection-field > label { padding-top: 0; }

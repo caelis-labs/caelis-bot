@@ -12,7 +12,7 @@ node --test \
   script/update.test.mjs script/publication.test.mjs script/release-channel.test.mjs \
   script/telegram-keychain.test.mjs script/signing.test.mjs script/notarization.test.mjs \
   script/permission-actions.test.mjs script/native-call.test.mjs script/task-preferences.test.mjs \
-  script/runtime-settings.test.mjs script/desktop-world.test.mjs \
+  script/runtime-settings.test.mjs script/connection-models.test.mjs script/desktop-world.test.mjs \
   script/content-pack.test.mjs script/asset-pack.test.mjs \
   script/chat-presentation.test.mjs script/chat-observation.test.mjs \
   script/streaming-text.test.mjs script/markdown-chunks.test.mjs

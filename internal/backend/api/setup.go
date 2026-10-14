@@ -13,10 +13,15 @@ type SetupRequest struct {
 	APIKey   string          `json:"apiKey"`
 }
 type SetupChoice struct {
-	Value   string `json:"value"`
-	Label   string `json:"label"`
-	NoAuth  bool   `json:"noAuth"`
-	Current bool   `json:"current"`
+	Value                 string `json:"value"`
+	Label                 string `json:"label"`
+	Detail                string `json:"detail,omitempty"`
+	NoAuth                bool   `json:"noAuth"`
+	Current               bool   `json:"current"`
+	ModelMetadataComplete *bool  `json:"modelMetadataComplete,omitempty"`
+	ModelImageInputKnown  *bool  `json:"modelImageInputKnown,omitempty"`
+	// ChatEligibility is chat, non-chat, or unknown. Missing Host evidence is unknown.
+	ChatEligibility string `json:"chatEligibility,omitempty"`
 }
 type SetupState struct {
 	ServiceUpdateAvailable bool            `json:"serviceUpdateAvailable"` // Installed CLI is newer than the running Host.

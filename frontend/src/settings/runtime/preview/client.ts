@@ -50,7 +50,7 @@ export function createPreviewClient(sessionConnection?:string,selected=true,dupl
    ...[['grok','Grok'],['kimi','Kimi'],['opencode','OpenCode'],['copilot','GitHub Copilot'],['gemini','Gemini CLI'],['qwen-code','Qwen Code']].map(([id,name])=>({id,name,description:'内置 · ACP Agent'})),
    {id:'custom',name:'自定义 Agent',description:'使用已安装的 ACP 程序',custom:true},
   ]};},
-  async apiKeyOptions(){return {endpoints:[{value:'https://api.example.invalid/v1',name:'示例地址',reuseAuth:false}],models:[{value:'example-model',name:'示例模型'}]};},
+  async apiKeyOptions(){return {endpoints:[{value:'https://api.example.invalid/v1',name:'示例地址',reuseAuth:false}],models:[{value:'example-model',name:'示例模型',detail:'',chatEligibility:'chat'}]};},
   async startConnection(input,signal){
    signal.throwIfAborted();const id=String(++serial);
    if(input.kind==='api-key')return flow(id,'complete',{title:'连接已添加',message:'预览操作已完成，不会保存密钥或连接。'});

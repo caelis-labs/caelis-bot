@@ -405,8 +405,12 @@ export interface ServiceTier {
 export interface SetupChoice {
   value: string;
   label: string;
+  detail?: string;
   noAuth: boolean;
   current: boolean;
+  modelMetadataComplete?: boolean | null;
+  modelImageInputKnown?: boolean | null;
+  chatEligibility?: string;
 }
 export interface SetupInstallProgress {
   phase: string;

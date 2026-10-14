@@ -73,7 +73,13 @@ func InspectSetup(ctx context.Context, v api.RuntimeSettings) (api.SetupState, e
 	return out, nil
 }
 func setupCatalog(ctx context.Context, c *client, command string) ([]api.SetupChoice, error) {
-	var candidates []wire.SlashArgCandidate
+	// The pinned Core schema has metadata completeness and image-input facts but
+	// no chat qualification. Keep the optional field here so a newer Host can
+	// report it without treating metadata completeness as proof of chat support.
+	var candidates []struct {
+		wire.SlashArgCandidate
+		ChatEligibility *string `json:"chat_eligibility"`
+	}
 	if e := c.json(ctx, "POST", "/completion/slash-arguments", wire.CompletionRequest{Command: &command, Limit: pointer(1000)}, &candidates, "", ""); e != nil {
 		return nil, e
 	}
@@ -87,7 +93,11 @@ func setupCatalog(ctx context.Context, c *client, command string) ([]api.SetupCh
 		if m.ModelSelection != nil {
 			current = value(m.ModelSelection.Current)
 		}
-		out = append(out, api.SetupChoice{Value: m.Value, Label: label, NoAuth: value(m.NoAuth), Current: current})
+		eligibility := "unknown"
+		if m.ChatEligibility != nil && (*m.ChatEligibility == "chat" || *m.ChatEligibility == "non-chat") {
+			eligibility = *m.ChatEligibility
+		}
+		out = append(out, api.SetupChoice{Value: m.Value, Label: label, Detail: value(m.Detail), NoAuth: value(m.NoAuth), Current: current, ModelMetadataComplete: m.ModelMetadataComplete, ModelImageInputKnown: m.ModelImageInputKnown, ChatEligibility: eligibility})
 	}
 	return out, nil
 }
