@@ -513,7 +513,23 @@ means no turn interruption was dispatched and permits an explicit retry of those
 attempted, reconnect only observes the original native turn and cleanup result. Terminal native status remains
 authoritative when a prepared Stop was never sent.
 
-Resident Runtime replacement is fenced by active work, approvals and unknown outcomes, then persisted for restart.
+The Bot shell, native windows, local chat history and non-Runtime settings start
+without a discovered CLI or a live Host. Connection preparation is a dismissible
+settings dialog; closing it leaves the app and local data available. AI requests
+remain gated until a usable connection and model are verified. The same
+preparation component serves first connection, settings changes and recovery
+after an installed CLI or Host becomes unavailable.
+
+Resident Runtime replacement is fenced by active work, approvals and unknown
+outcomes. The target adapter and provider-scoped state are prepared separately;
+the Bot's local observers and tools are rebound in this process, the target
+handshake is verified, and only then is the active selection persisted. Failure
+restores the prior binding and leaves the original task routes and receipts in
+place. The app process, windows and shared Runtime Host are never restarted by
+changing execution method. A missing CLI file does not by itself invalidate an
+already live connection; reconnecting after the Host goes offline returns to the
+same connection dialog. Installer cancellation stops only the current setup
+request and requires readback before retrying an uncertain result.
 Worker-default changes are live and have no task-state fence; existing tasks keep their native owners.
 A read-only check or selecting a settings tab does not change the execution owner. Model/effort/tier changes
 may apply to the next native request; directories, sandbox and inheritance are create-time configuration.

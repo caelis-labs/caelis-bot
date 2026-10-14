@@ -4,11 +4,11 @@
 
 ## 已实现
 
-- 首次先选“默认”或“使用 ChatGPT”，两项同等呈现、不显示推荐标记。内部选择值仍分别为 `caelis` / `codex`，没有改动默认选择或 ChatGPT 路线；后者继续使用 Codex。缺 Runtime 时自动开始官方准备，安装中保持“正在进行准备工作”，Caelis 归档有实际已收字节、总量、百分比、五秒滚动速率；没有可靠总量时不伪造百分比。下载无绝对五分钟限时，有连接和无数据保护。安装完成仍须通过账号或至少一个可聊天模型的配置检查。首次完成配置后在当前进程开启对话，无需再重启；选默认方式时为装配对应共享 Runtime 在配置之前进行一次重启。
+- 首次先选“默认”或“使用 ChatGPT”，两项同等呈现、不显示推荐标记。内部选择值仍分别为 `caelis` / `codex`，没有改动默认选择或 ChatGPT 路线；后者继续使用 Codex。缺 Runtime 时自动开始官方准备，安装中保持“正在进行准备工作”，Caelis 归档有实际已收字节、总量、百分比、五秒滚动速率；没有可靠总量时不伪造百分比。下载无绝对五分钟限时，有连接和无数据保护。安装完成仍须通过账号或至少一个可聊天模型的配置检查。首次选择、配置和进入对话均在当前 Bot 进程完成，不要求重启。
 - 默认 CLI、认证与 Store 跟用户终端共用，Codex 默认 `~/.codex`，Caelis 默认 `~/.caelis`。不内置 Runtime、不默认建立第二份 Store。官方脚本安装后重新发现路径、版本和握手；已识别 Homebrew formula/cask 与 npm 全局来源沿原渠道更新。来源不明或收据不一致时拒绝静默并装。共享 Host 更新沿现有 idle、升级和重连生命周期，保留不确定操作的对账。
 - Caelis 连接列表取 Host 目录与功能字段；Magpie 放在“三方聚合网关”区域，默认检测本机网关，也可手输地址、手输模型或访问 `usemagpie.ai` 指引。无目录的手输退路和失败后“修改后重试”已提供；密钥草稿在失败返回时清除，凭据由 Host 保存。首次与设置调用同一 `ConnectionWizard` 和 Host 状态机。取消、失败、不确定结果分别保留对应动作。
 - 协作配置只从本机“默认执行方式”的设置行进入一跳专页，使用 ChatGPT 的 Worker 不显示该入口；首次不出现。页面按 Host 返回的成员、系统 Agent、模型能力、effort、Fast 和 binding set 修订读写；已知角色用用户语言解释，原 ID 保留在辅助行。方案对用户称“协作方案”；未强制给不支持的模型配置字段。使用中模型断开显示用途与共享影响，按主模型/协作成员/Bot 对话用途给出先换模型、解除绑定或显式停止使用的路径，不再只有一个禁用的“移除”。
-- 测试专用 `Research` 包有独立 bundle ID、进程单实例键、数据目录、HOME、PATH 与 CodexHome。`runtimeenv` 的真实账号 HOME 恢复在该 build channel 被隔离规则替换；首次选 Caelis 所需的提前重启也显式保留这些隔离根。该 channel 不能当正式安装包。
+- 测试专用 `Research` 包有独立 bundle ID、进程单实例键、数据目录、HOME、PATH 与 CodexHome。`runtimeenv` 的真实账号 HOME 恢复在该 build channel 被隔离规则替换。该 channel 不能当正式安装包。
 
 ## 本机原生验收与证据
 
@@ -70,3 +70,15 @@ BOT_RESEARCH_PROFILE=manual-error bash research/runtime-onboarding/launch-isolat
 同次 reviewer 在原生网络权限下对本机 Magpie `/v1/models` 的无凭据只读请求得到 HTTP 200。受限 shell 中的连接拒绝不能证明网关停机；是否在下一次复验时仍可达，需要届时重新检查。没有读取模型目录或密钥，也没有发送模型请求。
 
 等待窗口审批期间，重新检查了首次称呼的一次性提交、`bot-core` 指引、默认 Worker 的 `ready` 门控和协作页空状态。隔离 `GOCACHE` 下，`internal/bot` 首次介绍/不确定回执/拒绝恢复定向测试、`internal/botskills` 包测试、`TestWorkerTeamProfileFollowsWorkerNotConversationRuntime` 均通过；`npm run check:i18n` 的双语目录与 4 项脚本测试通过。默认 Go 缓存路径在受限 shell 中读取被拒，改用本 worktree `.cache/go-build-targeted` 后测试通过；这是测试环境缓存权限，不是产品失败。此前完整 `make check`、`make smoke` 与 Research `make build` 的结果见上节。没有因 CUA 拒绝改动产品逻辑或声明独立验收通过。
+
+### 2026-10-14 常驻壳与进程内切换
+
+用户明确要求 Bot APP 生命周期与 Runtime 解耦。现在首次选择仅暂存目标执行方式；准备、官方用户级 CLI 安装、Host 模型连接与握手通过可关闭的设置弹窗执行。设置和运行中连接恢复复用相同 `RuntimePreparation` / `ConnectionWizard`。连接未完成时聊天历史、草稿、设置、桌宠及非 AI 功能继续可用，发送动作提示先连接。旧的 `RestartForRuntime` 原生入口与前端调用已移除；连接达标后在当前 `Application` / `backend.Service` 中替换 Bot 适配器，完成握手才写入 `runtime.json`。失败或取消会恢复原绑定；任务的原 Runtime 路由、原始回执与待确认结果保留，切换前对活跃工作、审批和未知结果设围栏，不重放派发。只断开 Bot 自有客户端，不停止共享 Host。Bot 自有草稿附件可复制到新连接私有选择目录；两个连接已有未发送附件时明确拒绝覆盖，保留两边原件。
+
+空白 `hot-switch-shell-1` 隔离 HOME 的直接原生检查：关闭首次连接弹窗后，常规设置仍能打开；返回聊天后可输入未发送草稿，发送键明确提示先连接。再从聊天进入“连接与模型”，点击“默认”后同一原生设置窗口显示“正在进行准备工作”，官方 Caelis 安装实际达到 `25 MB / 30.7 MB`、`81%`、`1.6 MB/秒`，随后自动进入选择模型服务，未把安装误判为可聊天。准备前、点击“默认”后、安装后 Research APP PID 均为 `33484`；隔离 Host PID 为 `33742`。关闭模型连接和外层准备弹窗后，聊天草稿 `isolated unsent draft` 仍在，设置也仍可用。此轮实际本机 Magpie `127.0.0.1:3425` 拒绝连接，因此这个新 profile 尚无可用聊天模型；本阶段不声称新包已完成真实模型对话、昵称或协作状态独立复验。CUA 截图/AX 记录保存在本任务会话结果，独立 reviewer 仍需按新构建精确复验。
+
+为验证安装后 CLI 文件消失，只把 `hot-switch-shell-1` 的 `.local/bin/caelis` 暂时移到同一隔离目录的 `caelis.cli-absent-test`；未触碰真实 HOME、全局 CLI 或其他 profile。APP PID `33484`、已运行的隔离共享 Host PID `33742` 均保持。设置中的同一个连接弹窗识别文件缺失后重新准备，完成第二次真实官方归档下载并再次自动进入模型连接；前后 APP 与 Host PID 都未变。新装文件与暂存的原件逐字节一致（`cmp -s` 退出 0），仅在核对后移除了测试暂存副本。活跃 Bot 已握手后 CLI 消失但 Host 仍可用、Host 真正掉线后的无重启重连，需要有模型可用的新隔离 profile 继续原生验收；源码状态机对 CLI 安装与活跃会话分开判定，不能以空白 profile 的安装验证替代上述场景。
+
+回归覆盖：首次切换同一 Service、原任务 Runtime 路由不迁移、失败回滚、取消回滚、无用户 CLI 的壳/历史/设置、活跃会话与 CLI 文件状态分离、跨 Runtime 附件保留与冲突拒绝。最终 `make check` 退出 0，含前端 132 项脚本检查及 Go 全包；`make smoke` 退出 0，验证 Codex stdio initialize 与资源，未发送模型请求。原生 Research 的当前测试包在此段记录时仍是未提交源码构建；最终精确 `Info.plist:CaelisSourceCommit`、主程序 SHA256 与启动 profile 以本轮最终交付回执为准。该构建因本机没有可用 Apple Development 证书，使用 `BOT_DEVELOPMENT_IDENTITY=-` 进行 **仅隔离 Research 的 ad-hoc 签名**，不等于发行签名或公证。
+
+本轮只改变原生生命周期、连接设置与 UI 恢复，不改变 Bot 可调用工具或模型侧工作步骤；`bot-core` Skill 无需再次改动。此前称呼的 Skill 更新继续保留。

@@ -35,13 +35,13 @@ func (s *Service) ConfigureExecution(path string, v api.ExecutionSettings) {
 func (s *Service) ExecutionSettings() (api.ExecutionSettings, error) {
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
-	if source, ok := s.engine.(api.ExecutionSettingsSource); ok {
+	if source, ok := s.currentEngine().(api.ExecutionSettingsSource); ok {
 		return source.CurrentExecutionSettings(context.Background())
 	}
 	return s.executionSettings, nil
 }
 func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
-	e, ok := s.engine.(api.ExecutionProvider)
+	e, ok := s.currentEngine().(api.ExecutionProvider)
 	if !ok {
 		return nil, errors.New("当前运行时不支持模型设置")
 	}
@@ -53,7 +53,7 @@ func (s *Service) SaveExecutionSettings(ctx context.Context, v api.ExecutionSett
 	if err := api.ValidateExecutionSettings(v); err != nil {
 		return err
 	}
-	e, ok := s.engine.(api.ExecutionProvider)
+	e, ok := s.currentEngine().(api.ExecutionProvider)
 	if !ok {
 		return errors.New("当前运行时不支持模型设置")
 	}
@@ -75,7 +75,7 @@ func (s *Service) ClearDeletedModelPreference(ctx context.Context, deleted strin
 	if s.executionSettings.Model != deleted {
 		return nil
 	}
-	reconciler, ok := s.engine.(interface {
+	reconciler, ok := s.currentEngine().(interface {
 		ReconcileDeletedModel(context.Context, string, func() error) error
 	})
 	if !ok {
@@ -93,7 +93,7 @@ func (s *Service) ClearDeletedModelPreference(ctx context.Context, deleted strin
 }
 
 func (s *Service) ExecutionOptions() (api.ExecutionOptions, error) {
-	if e, ok := s.engine.(api.ExecutionProvider); ok {
+	if e, ok := s.currentEngine().(api.ExecutionProvider); ok {
 		return e.ExecutionOptions(), nil
 	}
 	return api.ExecutionOptions{}, errors.New("当前运行时不支持模型设置")

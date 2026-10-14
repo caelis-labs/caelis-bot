@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Research-only native launcher. Build with BOT_BUILD_CHANNEL=research make build
-# first so local development signing can read the selected login keychain.
+# first; BOT_DEVELOPMENT_IDENTITY=- permits isolated ad-hoc signing if the
+# development certificate is unavailable on this machine.
 # Its bundle, process identity, HOME,
 # Runtime stores and Bot data are separate from production and existing Dev.
 RESEARCH_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)

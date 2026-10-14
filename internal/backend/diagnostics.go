@@ -20,7 +20,7 @@ func diagnosticEnum(value string, allowed ...string) string {
 	return "other"
 }
 func (s *Service) DiagnosticReport() ([]byte, error) {
-	v := s.engine.Snapshot()
+	v := s.currentEngine().Snapshot()
 	manual := s.RuntimeSettings().CLIPath != ""
 	s.mu.Lock()
 	draftPresent := s.draft.Text != "" || len(s.draft.ReferenceIDs) > 0
@@ -46,7 +46,7 @@ func (s *Service) DiagnosticReport() ([]byte, error) {
 		"loadedItems": len(v.Items), "approvalCount": len(v.Approvals), "reviewCount": len(v.Reviews), "hasEarlierMessages": v.HasEarlier,
 		"draftPresent": draftPresent, "draftStorageIssue": draftIssue,
 	}
-	if detail, ok := s.engine.(api.DiagnosticSource); ok {
+	if detail, ok := s.currentEngine().(api.DiagnosticSource); ok {
 		report["backend"] = detail.DiagnosticStatus()
 	}
 	if s.chat != nil {

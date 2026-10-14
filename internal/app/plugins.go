@@ -71,7 +71,7 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 		}
 		return plugins.ServerDetail{State: "not_configured", Tools: []plugins.Tool{}}, nil
 	}
-	if runtime := a.engine.Snapshot(); runtime.ConnectionIssue == "workspace_trust" {
+	if runtime := a.currentEngine().Snapshot(); runtime.ConnectionIssue == "workspace_trust" {
 		return plugins.ServerDetail{State: "trust_blocked", Tools: []plugins.Tool{}, Error: runtime.Message}, nil
 	}
 	a.mu.Lock()
@@ -87,7 +87,7 @@ func (a *Application) PluginServerDetail(ctx context.Context, id, server string,
 		}
 		return plugins.ServerDetail{State: "pending", Tools: []plugins.Tool{}}, nil
 	}
-	inspector, hasInspector := a.engine.(api.PluginInspector)
+	inspector, hasInspector := a.currentEngine().(api.PluginInspector)
 	var generation uint64
 	if hasInspector {
 		generation = inspector.BotPluginGeneration()
@@ -195,7 +195,7 @@ func (a *Application) PluginSnapshot(ctx context.Context) (plugins.Snapshot, err
 		return plugins.Snapshot{}, errors.New("plugin store unavailable")
 	}
 	snapshot := a.plugins.Snapshot()
-	if runtime, ok := a.engine.(api.PluginConfigurator); ok {
+	if runtime, ok := a.currentEngine().(api.PluginConfigurator); ok {
 		selection := a.plugins.Selection()
 		owners := map[string]string{}
 		for _, server := range selection.Servers {
@@ -343,7 +343,7 @@ func (a *Application) syncPluginIndex(ctx context.Context) error {
 	a.pluginIndexMu.Lock()
 	defer a.pluginIndexMu.Unlock()
 	path := filepath.Join(filepath.Dir(filepath.Dir(a.skillPath)), "mcp-tools.json")
-	inspector, ok := a.engine.(api.PluginInspector)
+	inspector, ok := a.currentEngine().(api.PluginInspector)
 	if !ok {
 		return plugins.WriteIndex(path, nil)
 	}

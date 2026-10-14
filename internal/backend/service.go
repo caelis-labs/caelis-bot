@@ -62,6 +62,7 @@ type Service struct {
 	dismissed, presentationFile string
 	initializer                 api.BotInitializer
 	engine                      api.Engine
+	engineMu                    sync.RWMutex
 	botPlugins                  func(context.Context) (plugins.Snapshot, error)
 	submitUser                  func(context.Context, api.Submission, []api.InputFile) (api.Receipt, error)
 	files                       func([]string) ([]api.InputFile, error)
@@ -89,6 +90,20 @@ func NewService(engine api.Engine, files func([]string) ([]api.InputFile, error)
 	return &Service{engine: engine, files: files, consumeFiles: consume, openURL: openURL, reveal: reveal, draft: api.Draft{ReferenceIDs: []string{}}}
 }
 
+// currentEngine keeps read-only UI polling race-free while the resident owner
+// is replaced inside the native process. Admission fences all effects.
+func (s *Service) currentEngine() api.Engine {
+	s.engineMu.RLock()
+	defer s.engineMu.RUnlock()
+	return s.engine
+}
+
+func (s *Service) setEngine(engine api.Engine) {
+	s.engineMu.Lock()
+	s.engine = engine
+	s.engineMu.Unlock()
+}
+
 // Hide a Worker card only after the resident Bot's private notice was accepted.
 // An absent or uncertain notice leaves the original native user path available.
 func (s *Service) SetGuardianNoticeAccepted(f func(string) bool) {
@@ -101,7 +116,7 @@ func (s *Service) SetGuardianNoticeAccepted(f func(string) bool) {
 // without a scoped native catalog contributes no native plugin rows.
 func (s *Service) NativePlugins() ([]api.NativePlugin, error) {
 	s.admission.RLock()
-	engine := s.engine
+	engine := s.currentEngine()
 	s.admission.RUnlock()
 	provider, ok := engine.(api.NativePluginSource)
 	if !ok {
@@ -171,7 +186,7 @@ func (s *Service) resolvePluginReferences(ctx context.Context, input api.Submiss
 		}
 	}
 	if len(nativeIDs) > 0 {
-		provider, ok := s.engine.(api.NativePluginSource)
+		provider, ok := s.currentEngine().(api.NativePluginSource)
 		if !ok {
 			return input, errors.New("当前运行时没有原生插件目录")
 		}
@@ -202,7 +217,7 @@ func (s *Service) resolvePluginReferences(ctx context.Context, input api.Submiss
 	return input, nil
 }
 func (s *Service) Snapshot() api.Snapshot {
-	v := s.engine.Snapshot()
+	v := s.currentEngine().Snapshot()
 	// Capture local versions before projection. If an independent change lands
 	// during projection, this result keeps the older revision and the next poll
 	// must observe the newer state instead of accepting a stale projection.
@@ -325,7 +340,7 @@ func (s *Service) SetBotStatus(f func() string) { s.mu.Lock(); s.botStatus = f; 
 // explicit request; a new user message starts a new preview boundary.
 func (s *Service) PetSnapshot() api.Snapshot {
 	var snapshot api.Snapshot
-	if recent, ok := s.engine.(api.RecentSource); ok {
+	if recent, ok := s.currentEngine().(api.RecentSource); ok {
 		snapshot = s.decorate(recent.RecentSnapshot())
 	} else {
 		snapshot = s.Snapshot()
@@ -381,7 +396,7 @@ func (s *Service) ChatSnapshot(revision uint64, botStatus string) api.ChatUpdate
 	if status != nil {
 		currentStatus = status()
 	}
-	if source, ok := s.engine.(api.RevisionSource); ok && !needsReconcile && revision != 0 && currentStatus == botStatus {
+	if source, ok := s.currentEngine().(api.RevisionSource); ok && !needsReconcile && revision != 0 && currentStatus == botStatus {
 		combined := source.Revision() + localRevision
 		if s.chat != nil {
 			combined += s.chat.Revision()
@@ -440,7 +455,7 @@ func (s *Service) LoadEarlier(ctx context.Context) error {
 	if s.chat != nil {
 		return s.chat.LoadEarlier(ctx)
 	}
-	if source, ok := s.engine.(api.HistorySource); ok {
+	if source, ok := s.currentEngine().(api.HistorySource); ok {
 		return source.LoadEarlier(ctx)
 	}
 	return errors.New("当前接入暂不支持读取更早消息")
@@ -463,7 +478,7 @@ func (s *Service) recoveryStateLocked() api.RecoveryState {
 }
 
 func (s *Service) recoveryStateWithNativeLocked() (api.RecoveryState, string) {
-	source, ok := s.engine.(api.RecoverySource)
+	source, ok := s.currentEngine().(api.RecoverySource)
 	if !ok {
 		return api.RecoveryState{}, ""
 	}
@@ -540,7 +555,7 @@ func (s *Service) connect(ctx context.Context, fence string) error {
 	s.recoveryFlight = flight
 	s.recoveryGeneration++
 	s.recoveryMu.Unlock()
-	err := s.engine.Connect(workCtx)
+	err := s.currentEngine().Connect(workCtx)
 	cancel()
 	s.recoveryMu.Lock()
 	flight.err = err
@@ -553,7 +568,7 @@ func (s *Service) OpenConnectionHelp() error {
 	return s.OpenMessageLink(s.ProviderInfo().HelpURL)
 }
 func (s *Service) ProviderInfo() api.ProviderInfo {
-	if provider, ok := s.engine.(api.Provider); ok {
+	if provider, ok := s.currentEngine().(api.Provider); ok {
 		return provider.ProviderInfo()
 	}
 	return api.ProviderInfo{}
@@ -701,7 +716,7 @@ func (s *Service) submit(ctx context.Context, in api.Submission, files []api.Inp
 	if submit != nil {
 		receipt, err = submit(ctx, in, files)
 	} else {
-		receipt, err = s.engine.Submit(ctx, in, files)
+		receipt, err = s.currentEngine().Submit(ctx, in, files)
 	}
 	if observer != nil && receipt.Outcome == "accepted" {
 		observer(in, files, receipt)
@@ -716,11 +731,13 @@ func (s *Service) Interrupt(ctx context.Context) error {
 	if stop != nil {
 		stop()
 	}
-	return s.engine.Interrupt(ctx)
+	return s.currentEngine().Interrupt(ctx)
 }
-func (s *Service) Decide(ctx context.Context, d api.Decision) error { return s.engine.Decide(ctx, d) }
+func (s *Service) Decide(ctx context.Context, d api.Decision) error {
+	return s.currentEngine().Decide(ctx, d)
+}
 func (s *Service) Login(ctx context.Context) error {
-	auth, ok := s.engine.(api.Authenticator)
+	auth, ok := s.currentEngine().(api.Authenticator)
 	if !ok {
 		return errors.New("当前后端不支持在此登录")
 	}
@@ -731,13 +748,13 @@ func (s *Service) Login(ctx context.Context) error {
 	return s.openURL(u)
 }
 func (s *Service) CancelLogin(ctx context.Context) error {
-	if auth, ok := s.engine.(api.Authenticator); ok {
+	if auth, ok := s.currentEngine().(api.Authenticator); ok {
 		return auth.CancelLogin(ctx)
 	}
 	return errors.New("当前后端没有登录流程")
 }
 func (s *Service) RevealArtifact(id string) error {
-	resolver, ok := s.engine.(api.ArtifactResolver)
+	resolver, ok := s.currentEngine().(api.ArtifactResolver)
 	if !ok {
 		return errors.New("当前后端不支持打开产物")
 	}
@@ -748,7 +765,7 @@ func (s *Service) RevealArtifact(id string) error {
 	return s.reveal(p)
 }
 func (s *Service) OpenApprovalURL(id string) error {
-	navigator, ok := s.engine.(api.ApprovalNavigator)
+	navigator, ok := s.currentEngine().(api.ApprovalNavigator)
 	if !ok {
 		return errors.New("当前后端不支持打开外部审批")
 	}
@@ -767,11 +784,11 @@ func (s *Service) Shutdown() error {
 	s.recoveryMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	return s.engine.Close(ctx)
+	return s.currentEngine().Close(ctx)
 }
 
 func (s *Service) ComposerSnapshot() api.Snapshot {
-	if source, ok := s.engine.(api.ComposerSource); ok {
+	if source, ok := s.currentEngine().(api.ComposerSource); ok {
 		return s.decorate(source.ComposerSnapshot())
 	}
 	return s.Snapshot()
@@ -780,7 +797,7 @@ func (s *Service) ComposerSnapshot() api.Snapshot {
 // RuntimeDefaultModel is a read-only display hint, independent of Bot/Worker
 // overrides. Unknown defaults stay null and never cause configuration writes.
 func (s *Service) RuntimeDefaultModel() *api.WorkExecutionSettings {
-	provider, ok := s.engine.(interface {
+	provider, ok := s.currentEngine().(interface {
 		RuntimeDefault(context.Context) (api.WorkExecutionSettings, error)
 	})
 	if !ok {

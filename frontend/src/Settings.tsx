@@ -6,6 +6,7 @@ import { desktop } from './desktop';
 import { BotSetup } from './BotSetup';
 import { AppearanceSettings } from './AppearanceSettings';
 import { RuntimeSettings } from './RuntimeSettings';
+import { SettingsDialog } from './settings/runtime/SettingsDialog';
 import { TeamPage } from './settings/runtime/TeamPage';
 import { TelegramSettings } from './TelegramSettings';
 import { WeixinSettings } from './WeixinSettings';
@@ -32,6 +33,7 @@ export function Settings() {
  const [runtimeVisited,setRuntimeVisited]=useState(false),[telegramVisited,setTelegramVisited]=useState(false),[weixinVisited,setWeixinVisited]=useState(false);
  const [section,setSection]=useState<Section>('general'),[opened,setOpened]=useState(0),[version,setVersion]=useState('');
  const [visible,setVisible]=useState(false),[focusVersion,setFocusVersion]=useState(0);
+ const [setupBusy,setSetupBusy]=useState(false);
  const visibleRef=useRef(false),visibilitySeq=useRef(0);
  const sectionRef=useRef(section);sectionRef.current=section;
  useEffect(()=>{
@@ -54,7 +56,6 @@ export function Settings() {
   return()=>{window.removeEventListener('settings-open',onOpen);window.removeEventListener('settings-close',onClose);window.removeEventListener('settings-focus',onFocus);window.removeEventListener('keydown',key);};
  },[]);
  useEffect(()=>{if(content.current)content.current.scrollTop=0;if(section==='connections')setRuntimeVisited(true);if(section==='telegram')setTelegramVisited(true);if(section==='weixin')setWeixinVisited(true)},[section]);
- if(section==='setup')return <main className="settings-window setup-window"><div className="setup-page"><BotSetup active={visible} focusVersion={focusVersion} onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></div></main>;
  return <main className="settings-window">
   <aside><div className="settings-identity"><img src="/icons/caelis-avatar.png" alt=""/><div><strong>Caelis Bot</strong><small>{version}</small></div></div><nav aria-label={t('settings.navLabel')}>{settingsGroups.map(group=><div className="settings-nav-group" key={group.title}><p>{t(group.title)}</p>{group.sections.map(id=><button key={id} aria-current={section===id||(section==='telegram'||section==='weixin')&&id==='chatConnections'?'page':undefined} onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))setSection(id);}}><SettingsNavIcon section={id}/><span>{t(`settings.${id}`)}</span></button>)}</div>)}</nav><button className="settings-return" onClick={()=>{if(window.dispatchEvent(new Event('settings-navigate',{cancelable:true})))void desktop('OpenHistory');}}><CaretLeftIcon size={17} aria-hidden="true"/>{t('settings.returnChat')}</button></aside>
   <div className="settings-content" ref={content}>
@@ -68,9 +69,10 @@ export function Settings() {
    <div className="settings-page" data-section="plugins" hidden={section!=='plugins'}>{section==='plugins'&&<PluginSettings visible={visible}/>}</div>
    <div className="settings-page" data-section="machines" hidden={section!=='machines'}>{section==='machines'&&<MachineSettings standalone active={visible}/>}</div>
    <div className="settings-page" data-section={section} key={section} hidden={['permissions','connections','team','chatConnections','telegram','weixin','machines','extras','plugins'].includes(section)}>
-   {section==='general'?<General key={opened} active={visible} focusVersion={focusVersion}/>:section==='appearance'?<AppearanceSettings/>:['connections','team','chatConnections','telegram','weixin','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version} active={visible} focusVersion={focusVersion}/>}
+   {section==='general'||section==='setup'?<General key={opened} active={visible} focusVersion={focusVersion}/>:section==='appearance'?<AppearanceSettings/>:['connections','team','chatConnections','telegram','weixin','machines','extras','plugins','permissions'].includes(section)?null:<Updates key={opened} version={version} active={visible} focusVersion={focusVersion}/>}
    </div>
   </div>
+  {section==='setup' && <SettingsDialog title={t('runtime.chooseConnection')} className="runtime-onboarding-dialog" busy={setupBusy} onClose={()=>setSection('general')}><BotSetup active={visible} focusVersion={focusVersion} onBusy={setSetupBusy} onDone={()=>{setSection('connections');void desktop('CloseSettings');}}/></SettingsDialog>}
  </main>;
 }
 

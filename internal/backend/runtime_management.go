@@ -28,7 +28,7 @@ func (s *Service) ManageRuntime(ctx context.Context, action string, settings api
 	if fn == nil {
 		return api.RuntimeStatus{}, errors.New("运行时管理不可用")
 	}
-	if action != "detect" && action != "check-update" && guard != nil && s.engine.Snapshot().Connection == "ready" {
+	if action != "detect" && action != "check-update" && guard != nil && s.currentEngine().Snapshot().Connection == "ready" {
 		if e := guard(); e != nil {
 			return api.RuntimeStatus{}, e
 		}

@@ -49,6 +49,7 @@ type Host struct {
 	Observe             func(api.Snapshot)
 	ObserveTasks        func([]api.TaskPreview)
 	ReportError         func(error)
+	RuntimeChanged      func(string) error
 }
 
 type Application struct {
@@ -61,6 +62,10 @@ type Application struct {
 	Weixin              *weixin.Bridge
 	textControl         *textchannel.Store
 	engine              api.Engine
+	engineMu            sync.RWMutex
+	resolve             factoryResolver
+	lifecycleMu         sync.Mutex
+	runtimeWorkers      sync.WaitGroup
 	host                Host
 	root                string
 	mu                  sync.Mutex
@@ -96,6 +101,18 @@ type Application struct {
 
 func New(root string, host Host) (*Application, error) {
 	return newApplication(root, host, resolveProvider)
+}
+
+func (a *Application) currentEngine() api.Engine {
+	a.engineMu.RLock()
+	defer a.engineMu.RUnlock()
+	return a.engine
+}
+
+func (a *Application) setEngine(engine api.Engine) {
+	a.engineMu.Lock()
+	a.engine = engine
+	a.engineMu.Unlock()
 }
 
 func newApplication(root string, host Host, resolve factoryResolver) (*Application, error) {
@@ -192,7 +209,7 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 			host.ReportError(err)
 		}
 	}
-	app := &Application{Backend: service, engine: engine, root: root, host: host, initialization: initialization}
+	app := &Application{Backend: service, engine: engine, resolve: resolve, root: root, host: host, initialization: initialization}
 	service.SetGuardianNoticeAccepted(func(id string) bool { return app.workerInteractionNoticeAccepted("approval", id) })
 	app.plugins, err = plugins.Open(filepath.Join(root, "Plugins"))
 	if err != nil && host.ReportError != nil {
@@ -372,6 +389,8 @@ func requireAssistant(engine api.Engine, id string, loc ...i18n.Locale) error {
 // PreparePersonal makes local data available even before selecting/logging into
 // a Runtime. It starts no model, scheduler, tool transport or execution session.
 func (a *Application) PreparePersonal() error {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.preparePersonalLocked()
@@ -389,12 +408,17 @@ func (a *Application) preparePersonalLocked() error {
 				}
 			}
 		}
-		resident, err := bot.NewForRuntime(filepath.Join(a.root, "bot.json"), a.engine.(api.Provider).ProviderInfo().ID, a.host.Gesture)
+		resident, err := bot.NewForRuntime(filepath.Join(a.root, "bot.json"), a.currentEngine().(api.Provider).ProviderInfo().ID, a.host.Gesture)
 		if err != nil {
 			return err
 		}
 		a.companion = resident
 		resident.ConfigureInitialization(a.initialization)
+		if a.personal != nil {
+			if err := resident.ConfigurePersonal(a.personal); err != nil {
+				return err
+			}
+		}
 	}
 	resident := a.companion
 	report := func(err error) {
@@ -476,6 +500,12 @@ func (a *Application) preparePersonalLocked() error {
 func (a *Application) Start() error {
 	a.pluginAdmission.Lock()
 	defer a.pluginAdmission.Unlock()
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	return a.startRuntime()
+}
+
+func (a *Application) startRuntime() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {
@@ -484,11 +514,11 @@ func (a *Application) Start() error {
 	if a.started {
 		return a.repairFeaturesLocked()
 	}
-	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.machines, a.engine.(api.ReportSubmitter), a.engine.Snapshot)
+	manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.currentEngine().(api.Provider).ProviderInfo().ID, a.machines, a.currentEngine().(api.ReportSubmitter), a.currentEngine().Snapshot)
 	if err != nil && a.host.ReportError != nil {
 		a.host.ReportError(err)
 	}
-	if importer, ok := a.engine.(interface{ ImportHostReportIDs([]string) error }); ok && manager != nil {
+	if importer, ok := a.currentEngine().(interface{ ImportHostReportIDs([]string) error }); ok && manager != nil {
 		if err := importer.ImportHostReportIDs(manager.HostReportIDs()); err != nil && a.host.ReportError != nil {
 			a.host.ReportError(err)
 		}
@@ -615,7 +645,7 @@ func (a *Application) Start() error {
 					}
 				}
 			}
-			err = a.engine.(api.BotToolBinder).ConfigureBotTools(config)
+			err = a.currentEngine().(api.BotToolBinder).ConfigureBotTools(config)
 		}
 	}
 	if err != nil {
@@ -637,7 +667,7 @@ func (a *Application) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel, a.companion, a.bridge, a.tasks, a.started = cancel, resident, bridge, manager, true
 	a.Backend.SetBotStatus(resident.Status)
-	resident.Start(a.engine)
+	resident.Start(a.currentEngine())
 	a.Backend.SetUserSubmitter(resident.SubmitUser)
 	if a.Telegram != nil {
 		a.Telegram.Start()
@@ -646,9 +676,11 @@ func (a *Application) Start() error {
 		a.Weixin.Start()
 	}
 	a.workers.Add(6)
-	go func() { defer a.workers.Done(); a.localWork.Observe(ctx) }()
+	a.runtimeWorkers.Add(6)
+	go func() { defer a.workers.Done(); defer a.runtimeWorkers.Done(); a.localWork.Observe(ctx) }()
 	go func() {
 		defer a.workers.Done()
+		defer a.runtimeWorkers.Done()
 		a.observeWorkerQuestions(ctx)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -661,9 +693,10 @@ func (a *Application) Start() error {
 			}
 		}
 	}()
-	go func() { defer a.workers.Done(); a.machines.Observe(ctx) }()
+	go func() { defer a.workers.Done(); defer a.runtimeWorkers.Done(); a.machines.Observe(ctx) }()
 	go func() {
 		defer a.workers.Done()
+		defer a.runtimeWorkers.Done()
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -699,18 +732,20 @@ func (a *Application) Start() error {
 	}()
 	go func() {
 		defer a.workers.Done()
+		defer a.runtimeWorkers.Done()
 		if err := a.Backend.Connect(ctx); err == nil {
 			a.queuePluginReconcile()
 		}
 	}()
 	go func() {
 		defer a.workers.Done()
+		defer a.runtimeWorkers.Done()
 		observer := backend.NotificationObserver{Notify: a.host.Notify, Dismiss: a.host.DismissNotification, Locale: a.host.Locale}
 		var revision uint64
 		var priorConnection string
 		var priorPluginRecoveryPending bool
 		for {
-			snapshot, err := a.engine.(api.SnapshotObserver).WaitSnapshot(ctx, revision)
+			snapshot, err := a.currentEngine().(api.SnapshotObserver).WaitSnapshot(ctx, revision)
 			if ctx.Err() != nil {
 				return
 			}
@@ -799,6 +834,8 @@ func (a *Application) Close() error {
 	defer a.host.Diagnostics.Close()
 	a.updateMu.Lock()
 	defer a.updateMu.Unlock()
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
 	a.closeOnce.Do(func() {
 		a.mu.Lock()
 		a.closed = true
@@ -863,7 +900,7 @@ func (a *Application) AttachmentStorage() (api.AttachmentStorage, error) {
 	if err != nil {
 		return media, err
 	}
-	if source, ok := a.engine.(api.AttachmentProvider); ok {
+	if source, ok := a.currentEngine().(api.AttachmentProvider); ok {
 		info, err := source.AttachmentStorage()
 		if err != nil {
 			return info, err
@@ -882,7 +919,7 @@ func (a *Application) CleanAttachments(ctx context.Context) (api.AttachmentStora
 	if err := a.guardRuntimeChange(); err != nil {
 		return api.AttachmentStorage{}, err
 	}
-	if source, ok := a.engine.(api.AttachmentProvider); ok && a.host.TrashFile != nil {
+	if source, ok := a.currentEngine().(api.AttachmentProvider); ok && a.host.TrashFile != nil {
 		if _, err := source.TrashOldAttachments(ctx, a.host.TrashFile); err != nil {
 			return api.AttachmentStorage{}, err
 		}

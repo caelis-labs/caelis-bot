@@ -40,6 +40,7 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	host.Observe = s.observeCharacter
 	host.ObserveTasks = s.observeTasks
 	host.ReportError = logError
+	host.RuntimeChanged = func(directory string) error { return s.configureSelection(filepath.Join(directory, "draft-files.json")) }
 	core, err := app.New(root, host)
 	if err != nil {
 		return nil, err
@@ -71,10 +72,6 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	s.storage, s.cleanStorage = core.AttachmentStorage, core.CleanAttachments
 	s.diagnosticReport = back.DiagnosticReport
 	s.activate = func() {
-		if core.NeedsSetup() || !core.HasRuntimeChoice() {
-			s.showSettings("setup")
-			return
-		}
 		s.PetToggleHistory()
 	}
 	return &productAssembly{Service: s, Core: core, Diagnostics: diagnostics}, nil

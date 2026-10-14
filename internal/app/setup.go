@@ -19,14 +19,16 @@ import (
 )
 
 type runtimeSetup struct {
-	mu          sync.Mutex
-	progressMu  sync.Mutex
-	progress    api.SetupInstallProgress
-	app         *Application
-	codex       *codex.Setup
-	connections caelis.Connections
-	pending     string
-	fresh       bool
+	mu              sync.Mutex
+	progressMu      sync.Mutex
+	operationMu     sync.Mutex
+	operationCancel context.CancelFunc
+	progress        api.SetupInstallProgress
+	app             *Application
+	codex           *codex.Setup
+	connections     caelis.Connections
+	pending         string
+	fresh           bool
 }
 
 func (s *runtimeSetup) InstallProgress() api.SetupInstallProgress {
@@ -73,19 +75,19 @@ func (s *runtimeSetup) StageRuntime(id string) (bool, error) {
 		return false, e
 	}
 	s.pending = id
-	return s.app.engine.(api.Provider).ProviderInfo().ID != id, nil
+	return false, nil
 }
 func (a *Application) NeedsSetup() bool {
 	return a.initialization.Initialization().Required || a.setup.Overview().Onboarding
 }
 func (a *Application) ProviderDirectory() string {
-	p, _ := providerDirectory(a.root, a.engine.(api.Provider).ProviderInfo().ID)
+	p, _ := providerDirectory(a.root, a.currentEngine().(api.Provider).ProviderInfo().ID)
 	return p
 }
 func (s *runtimeSetup) Overview() api.SetupOverview {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return api.SetupOverview{Active: s.app.engine.(api.Provider).ProviderInfo().ID, HasRuntimeChoice: s.app.HasRuntimeChoice(), Pending: s.pending, Onboarding: s.fresh}
+	return api.SetupOverview{Active: s.app.currentEngine().(api.Provider).ProviderInfo().ID, HasRuntimeChoice: s.app.HasRuntimeChoice(), Pending: s.pending, Onboarding: s.fresh}
 }
 func (s *runtimeSetup) Profile(id string) (api.RuntimeSettings, error) {
 	if id != "codex" && id != "caelis" {
@@ -152,7 +154,7 @@ func (s *runtimeSetup) inspect(ctx context.Context, v api.RuntimeSettings) (api.
 	}
 	if v.Runtime == "codex" {
 		out, e = s.codex.Inspect(ctx, installation.Path)
-		if active, ok := s.app.engine.(*codex.Session); ok && s.app.engine.(api.Provider).ProviderInfo().ID == "codex" {
+		if active, ok := s.app.currentEngine().(*codex.Session); ok && s.app.currentEngine().(api.Provider).ProviderInfo().ID == "codex" {
 			if auth, userAgent, shared, detailErr := active.SharedConnectionDetails(ctx); shared {
 				out.ServiceVersion = userAgent
 				if detailErr == nil {
@@ -211,12 +213,25 @@ func (s *runtimeSetup) Catalog(ctx context.Context, r api.SetupRequest) ([]api.S
 func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.SetupState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if r.Action == "install" || r.Action == "update" || r.Action == "start" || r.Action == "apply-update" {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		s.operationMu.Lock()
+		s.operationCancel = cancel
+		s.operationMu.Unlock()
+		defer func() {
+			s.operationMu.Lock()
+			s.operationCancel = nil
+			s.operationMu.Unlock()
+			cancel()
+		}()
+	}
 	if e := validSetup(r.Settings, s.app.locale()); e != nil {
 		return api.SetupState{}, e
 	}
 	// Installation and credentials may affect an active shared runtime. Do not
 	// discard work or unresolved receipts merely because settings is open.
-	if r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.engine.(api.Provider).ProviderInfo().ID {
+	if r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.currentEngine().(api.Provider).ProviderInfo().ID {
 		if e := s.app.guardRuntimeChange(); e != nil {
 			return api.SetupState{}, e
 		}
@@ -300,6 +315,18 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 	}
 	return out, e
 }
+
+// CancelOperation interrupts only this setup request. Its original installer
+// result still returns through Apply; the caller must inspect before retrying.
+func (s *runtimeSetup) CancelOperation() bool {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+	if s.operationCancel == nil {
+		return false
+	}
+	s.operationCancel()
+	return true
+}
 func (s *runtimeSetup) useModel(ctx context.Context, r api.SetupRequest) error {
 	out, e := s.inspect(ctx, r.Settings)
 	if e != nil {
@@ -342,7 +369,7 @@ func (s *runtimeSetup) useModel(ctx context.Context, r api.SetupRequest) error {
 			}
 		}
 	}
-	if s.app.engine.(api.Provider).ProviderInfo().ID == r.Settings.Runtime && s.app.engine.Snapshot().Connection == "ready" {
+	if s.app.currentEngine().(api.Provider).ProviderInfo().ID == r.Settings.Runtime && s.app.currentEngine().Snapshot().Connection == "ready" {
 		return s.app.Backend.SaveExecutionSettings(ctx, preferences)
 	}
 	return localstate.Write(filepath.Join(dir, "execution.json"), preferences)
@@ -350,6 +377,12 @@ func (s *runtimeSetup) useModel(ctx context.Context, r api.SetupRequest) error {
 func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+	s.operationMu.Lock()
+	s.operationCancel = cancel
+	s.operationMu.Unlock()
+	defer func() { s.operationMu.Lock(); s.operationCancel = nil; s.operationMu.Unlock(); cancel() }()
 	if e := s.app.guardRuntimeChange(); e != nil {
 		return e
 	}
@@ -360,41 +393,11 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 	if out.State != "ready" {
 		return errors.New(s.app.text("completeRuntimeConnectionFirst", nil))
 	}
-	// On a fresh default-path setup the chosen engine was constructed before
-	// credentials/models were configured. There is no prior conversation or
-	// provider binding to migrate, so admission can open in this process.
-	// Custom executable/Store changes and established installations retain the
-	// restart transaction until their live binding can be moved safely.
-	if s.fresh && v.Runtime == s.app.engine.(api.Provider).ProviderInfo().ID && v.CLIPath == "" && v.CaelisStore == "" {
-		if _, e = s.app.Backend.SaveRuntimeSettings(ctx, v); e != nil {
-			return e
-		}
-		s.app.Backend.RequireSetup(false)
-		if e = s.app.Start(); e != nil {
-			return e
-		}
-		if e = s.app.Backend.Connect(ctx); e != nil {
-			return e
-		}
-		s.clearStagedRuntime()
-		s.pending = ""
-		s.fresh = false
-		return nil
-	}
-
-	// Preserve the outgoing path before replacing the active selection.
-	if outgoing := s.app.Backend.RuntimeSettings(); outgoing.Runtime != v.Runtime {
-		if e = s.saveProfile(outgoing); e != nil {
-			return e
-		}
-	}
-	if e = localstate.Write(filepath.Join(s.app.root, "runtime.json"), struct {
-		Version int `json:"version"`
-		api.RuntimeSettings
-	}{1, v}); e != nil {
+	first := !s.app.HasRuntimeChoice()
+	if e = s.app.activateRuntime(ctx, v, first); e != nil {
 		return e
 	}
-	s.pending = v.Runtime
+	s.pending = ""
 	s.fresh = false
 	s.clearStagedRuntime()
 	return nil
@@ -437,4 +440,3 @@ func (a *Application) HasRuntimeChoice() bool {
 	_, e = os.Stat(filepath.Join(a.root, "conversation.json"))
 	return e == nil
 }
-func (a *Application) PrepareRestart() error { return a.Backend.PrepareRestart(a.guardRuntimeChange) }

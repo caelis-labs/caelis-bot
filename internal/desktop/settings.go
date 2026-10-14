@@ -19,10 +19,6 @@ func (s *Service) showSettings(section string) {
 	}
 }
 func (s *Service) OpenSettings() {
-	if s.needsIntroduction != nil && s.needsIntroduction() {
-		s.showSettings("setup")
-		return
-	}
 	s.showSettings("general")
 }
 func (s *Service) OpenRuntimeSettings() { s.showSettings("runtime") }
@@ -98,11 +94,4 @@ func (s *Service) OpenReleasePage() error {
 		return errors.New(s.text("native.releasePageUnavailable", nil))
 	}
 	return s.openReleasePage()
-}
-
-func (s *Service) RestartForRuntime() error {
-	if s.restartRuntime == nil {
-		return errors.New(s.text("native.restartUnavailable", nil))
-	}
-	return s.restartRuntime()
 }

@@ -386,7 +386,7 @@
   "machineModelsUnavailable": "Models could not be loaded. Check the connection again.",
   "followCharacter": "Follow character",
   "approvalAuto": "Auto review",
-  "approvalAutoHelp": "Keep the workspace write sandbox; Codex reviews requests for additional access.",
+  "approvalAutoHelp": "Keep the workspace write sandbox and automatically review requests for additional access.",
   "approvalAsk": "Ask me",
   "approvalAskHelp": "Keep the workspace write sandbox and ask you to confirm additional access.",
   "approvalReadOnly": "Read-only sandbox",

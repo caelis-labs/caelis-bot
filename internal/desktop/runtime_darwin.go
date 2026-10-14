@@ -170,26 +170,6 @@ func Run(assets fs.FS) error {
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
 	s.openArtifactFile = func(path string) error { return exec.Command("/usr/bin/open", path).Run() }
-	s.restartRuntime = func() error {
-		if err := core.PrepareRestart(); err != nil {
-			return err
-		}
-		executable, err := os.Executable()
-		if err != nil {
-			back.CancelRestart()
-			return err
-		}
-		// A separate helper waits for this exact owner to exit before LaunchServices
-		// recalls the bundle; launching earlier would hit the single-instance lock.
-		helper := runtimeRelaunchCommand(executable, root, os.Getpid(), buildChannel == "research", os.Getenv("HOME"), os.Getenv("CODEX_HOME"), os.Getenv("PATH"))
-		if err = helper.Start(); err != nil {
-			back.CancelRestart()
-			return err
-		}
-		go func() { _ = helper.Wait() }()
-		quit()
-		return nil
-	}
 	s.openReleasePage = func() error { return exec.Command("/usr/bin/open", updates.ReleasePage).Run() }
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)

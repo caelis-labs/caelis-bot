@@ -110,6 +110,46 @@ func pastePNG(t *testing.T) []byte {
 	return output.Bytes()
 }
 
+func TestRuntimeSelectionKeepsUnsentFileAndClipboardImage(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first", "draft-files.json")
+	second := filepath.Join(root, "second", "draft-files.json")
+	s, _, _ := setup()
+	if err := s.configureSelection(first); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "reference.txt")
+	if err := os.WriteFile(file, []byte("unsent"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.stageFiles([]string{file}); err != nil {
+		t.Fatal(err)
+	}
+	s.readClipboard = func() ([]string, []byte, error) { return nil, pastePNG(t), nil }
+	if _, err := s.PasteAttachments(); err != nil {
+		t.Fatal(err)
+	}
+	oldOwned := s.files[1].path
+	if err := s.configureSelection(second); err != nil {
+		t.Fatal(err)
+	}
+	if files := s.DraftFiles(); len(files) != 2 || files[0].Unavailable || files[1].Unavailable {
+		t.Fatalf("draft lost after switch: %+v", files)
+	}
+	if s.files[1].path == oldOwned {
+		t.Fatal("clipboard image still owned by previous connection")
+	}
+	if _, err := os.Stat(oldOwned); err != nil {
+		t.Fatal("rollback copy lost", err)
+	}
+	if err := s.configureSelection(first); err == nil {
+		t.Fatal("two unsent selections silently replaced")
+	}
+	if s.selectionFile != second || len(s.DraftFiles()) != 2 {
+		t.Fatal("failed switch changed active draft")
+	}
+}
+
 func TestClipboardImageDraftRestoresPreviewsAndCleansAfterRemoval(t *testing.T) {
 	root := t.TempDir()
 	selection := filepath.Join(root, "draft-files.json")

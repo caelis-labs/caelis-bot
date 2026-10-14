@@ -51,6 +51,7 @@
   "attachmentExpired": "Attachment is no longer valid. Choose again.",
   "selectionNotSaved": "Attachment selection not saved yet. Try again.",
   "selectionUnreadable": "Local attachment selection unreadable. Original files preserved.",
+  "selectionConflict": "Both connections have unsent attachments. Resolve the current selection first; the original files remain saved.",
   "attachmentStorageUnavailable": "Attachment storage temporarily unavailable",
   "cleanupUnavailable": "Cleanup temporarily unavailable",
   "exportInProgress": "Finish current export first",

@@ -41,7 +41,7 @@ func (a *Application) StartBackground() {
 			}
 			if a.HasRuntimeChoice() && time.Now().After(nextConnect) {
 				state := a.Backend.RecoveryState()
-				if !state.Automatic && !state.InProgress && (state.Manual || a.engine.Snapshot().Connection == "offline") {
+				if !state.Automatic && !state.InProgress && (state.Manual || a.currentEngine().Snapshot().Connection == "offline") {
 					nextConnect = time.Now().Add(30 * time.Second)
 					work, stop := context.WithTimeout(ctx, 30*time.Second)
 					_ = a.Backend.Connect(work)
@@ -61,14 +61,14 @@ func (a *Application) repairFeaturesLocked() error {
 		return err
 	}
 	if a.tasks == nil {
-		manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.engine.(api.Provider).ProviderInfo().ID, a.machines, a.engine.(api.ReportSubmitter), a.engine.Snapshot)
+		manager, err := tasks.Open(filepath.Join(a.root, "tasks.json"), filepath.Join(a.root, "Tasks"), a.currentEngine().(api.Provider).ProviderInfo().ID, a.machines, a.currentEngine().(api.ReportSubmitter), a.currentEngine().Snapshot)
 		if err != nil {
 			return err
 		}
 		manager.SetLocale(a.locale)
 		manager.ConfigureLimit(func() int { return a.taskPreferences.Snapshot().MaxRunning })
 		manager.ObserveWatchlist(a.host.ObserveTasks)
-		if importer, ok := a.engine.(interface{ ImportHostReportIDs([]string) error }); ok {
+		if importer, ok := a.currentEngine().(interface{ ImportHostReportIDs([]string) error }); ok {
 			if err := importer.ImportHostReportIDs(manager.HostReportIDs()); err != nil {
 				return err
 			}

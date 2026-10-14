@@ -6,13 +6,13 @@ import { useI18n } from './i18n';
 
 // The backend journals one ordinary user message. The Bot maintains MEMORY.md;
 // this form does not create a second identity settings store.
-export function BotSetup({ onDone,active=true }: { onDone: () => void;active?:boolean;focusVersion?:number }) {
+export function BotSetup({ onDone,onBusy,active=true }: { onDone: () => void;onBusy?:(busy:boolean)=>void;active?:boolean;focusVersion?:number }) {
  const {t}=useI18n();
  const [overview,setOverview]=useState<SetupOverview|null>(null);
  const [failed,setFailed]=useState(false);
  useEffect(()=>{if(!active)return;let live=true;void backend<SetupOverview>('SetupOverview').then(value=>{if(live)setOverview(value)}).catch(()=>{if(live)setFailed(true)});return()=>{live=false}},[active]);
  if(overview===null)return <p role="status">{t(failed?'runtime.loadRuntimeFailed':'common.loading')}</p>;
- if(overview.onboarding || !overview.hasRuntimeChoice) return <div className="setup-flow"><SetupProgress step={0}/><RuntimeSettings onboarding active={active} onDone={()=>{void backend<SetupOverview>('SetupOverview').then(setOverview).catch(()=>setFailed(true));}}/></div>;
+ if(overview.onboarding || !overview.hasRuntimeChoice) return <div className="setup-flow"><SetupProgress step={0}/><RuntimeSettings onboarding active={active} onBusy={onBusy} onDone={()=>{void backend<SetupOverview>('SetupOverview').then(setOverview).catch(()=>setFailed(true));}}/></div>;
  return <BotIntroductionSetup active={active} onDone={onDone}/>;
 }
 function BotIntroductionSetup({ onDone,active }: { onDone: () => void;active:boolean }) {

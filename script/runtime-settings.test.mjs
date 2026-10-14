@@ -50,6 +50,24 @@ test('setup and session facts stay distinct when model or observation services f
  assert.equal(setupStatusKey({...setup,state:'models'}),'runtime.noModelsConnected');
  assert.equal(setupStatusKey({...setup,installation:{installed:false}}),'runtime.notInstalled');
 });
+test('a live shared session remains usable when its CLI file disappears',async()=>{
+ const setup={state:'missing',installation:{installed:false},models:[],selectedModel:''};
+ const client=createRuntimeSettingsClient(async method=>{
+  if(method==='RuntimeSettings')return {runtime:'codex',cliPath:'/isolated/removed-cli'};
+  if(method==='SetupOverview')return {active:'codex',hasRuntimeChoice:true,pending:''};
+  if(method==='ComposerSnapshot')return {connection:'ready',connectionIssue:''};
+  if(method==='InspectSetup')return setup;
+  if(method==='ExecutionSettings')return {model:'existing-model',effort:'',serviceTier:''};
+  if(method==='WorkExecutionSettings')return {model:'existing-model',effort:'',serviceTier:''};
+  if(method==='Models')return [];
+  throw Error(`unexpected call ${method}`);
+ });
+ const view=await client.read();
+ assert.equal(view.setup.installation.installed,false);
+ assert.equal(view.conversation.model,'existing-model');
+ assert.equal(botSessionStatusKey(view.setup,view.session,true),'runtime.connected');
+ assert.equal(botSessionStatusKey(view.setup,{connection:'offline'},true),'runtime.notInstalled');
+});
 test('first run advances from missing CLI through service to a real model connection',()=>{
  const state={installation:{installed:false},state:'missing'};
  assert.equal(nextOnboardingStep(state,'caelis'),'install');

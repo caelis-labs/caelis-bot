@@ -385,7 +385,7 @@
   "machineModelsUnavailable": "暂时无法读取模型，请重新检查连接。",
   "followCharacter": "跟随角色",
   "approvalAuto": "自动审查",
-  "approvalAutoHelp": "保持工作目录写入沙箱，由 Codex 自动审查需要额外权限的操作。",
+  "approvalAutoHelp": "保持工作目录写入沙箱，自动审查需要额外权限的操作。",
   "approvalAsk": "由我确认",
   "approvalAskHelp": "保持工作目录写入沙箱，需要额外权限时向你确认。",
   "approvalReadOnly": "只读沙箱",

@@ -28,7 +28,7 @@ func (s *Service) Draft() api.Draft {
 	if pending.ID != "" {
 		receipt := api.Receipt{ID: pending.ID, Outcome: pending.Outcome}
 		if receipt.Outcome == "" {
-			receipt = draftReceipt(s.engine.Snapshot(), pending.ID)
+			receipt = draftReceipt(s.currentEngine().Snapshot(), pending.ID)
 			if receipt.Outcome == "" {
 				receipt = api.Receipt{ID: pending.ID, Outcome: s.messageMedia.ReceiptStatus(pending.ID)}
 			}
@@ -305,8 +305,8 @@ func (s *Service) DismissPreview(key string) error {
 	if key == "" || key != previewKey(v) {
 		return errors.New("消息已更新，请再试一次")
 	}
-	if consumer, ok := s.engine.(api.PresentationAcknowledger); ok {
-		if e := consumer.AcknowledgePresentation(context.Background(), s.engine.Snapshot()); e != nil {
+	if consumer, ok := s.currentEngine().(api.PresentationAcknowledger); ok {
+		if e := consumer.AcknowledgePresentation(context.Background(), s.currentEngine().Snapshot()); e != nil {
 			return e
 		}
 	}

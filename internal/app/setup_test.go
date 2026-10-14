@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,21 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/caelisruntime"
 )
+
+func TestCancelPreparationDoesNotWaitForInstallerLock(t *testing.T) {
+	s := &runtimeSetup{}
+	ctx,cancel := context.WithCancel(context.Background())
+	s.operationCancel=cancel
+	s.mu.Lock()
+	done := make(chan bool,1)
+	go func(){ done<-s.CancelOperation() }()
+	select {
+	case cancelled := <-done:
+		if !cancelled || ctx.Err()!=context.Canceled { t.Fatal("setup operation was not cancelled") }
+	case <-time.After(time.Second): t.Fatal("cancel waited for installer operation to finish")
+	}
+	s.mu.Unlock()
+}
 
 func TestInstallProgressCanBeReadDuringSetupOperation(t *testing.T) {
 	s := &runtimeSetup{}
@@ -70,8 +86,8 @@ func TestFirstRunStagesProviderBeforeConnectionWithoutChoosingRuntime(t *testing
 	if err = a.PreparePersonal(); err != nil {
 		t.Fatal(err)
 	}
-	if restart, err := a.setup.StageRuntime("caelis"); err != nil || !restart {
-		t.Fatalf("Caelis choice should relaunch before configuration: %v %v", restart, err)
+	if restart, err := a.setup.StageRuntime("caelis"); err != nil || restart {
+		t.Fatalf("first choice must stay in this process: %v %v", restart, err)
 	}
 	if a.HasRuntimeChoice() {
 		t.Fatal("staging was mistaken for an activated Runtime")
@@ -93,8 +109,8 @@ func TestFirstRunStagesProviderBeforeConnectionWithoutChoosingRuntime(t *testing
 	if restart, err := b.setup.StageRuntime("caelis"); err != nil || restart {
 		t.Fatalf("same provider must stay in process: %v %v", restart, err)
 	}
-	if restart, err := b.setup.StageRuntime("codex"); err != nil || !restart {
-		t.Fatalf("changing choice should relaunch before configuration: %v %v", restart, err)
+	if restart, err := b.setup.StageRuntime("codex"); err != nil || restart {
+		t.Fatalf("changing choice must stay in this process: %v %v", restart, err)
 	}
 	if _, err := b.setup.StageRuntime("../bad"); err == nil {
 		t.Fatal("invalid staged provider accepted")

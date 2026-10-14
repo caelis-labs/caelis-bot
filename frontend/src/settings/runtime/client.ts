@@ -33,12 +33,12 @@ export function createRuntimeSettingsClient(invoke: Invoke = backend, profile?: 
  return {
   async read() {
    const [profile, overview] = await Promise.all([currentProfile(), invoke<SetupOverview>('SetupOverview')]);
+   const session = await invoke<Snapshot>('ComposerSnapshot').then(v=>({connection:v.connection,issue:v.connectionIssue})).catch(()=>null);
    const setup = await invoke<SetupState>('InspectSetup', profile);
    let conversation: ExecutionSettings | null = null, work: WorkExecutionSettings | null = null, models: ModelOption[] = [];
-   if (setup.state === 'ready') [conversation, work, models] = await Promise.all([invoke<ExecutionSettings>('ExecutionSettings').catch(()=>null), invoke<WorkExecutionSettings>('WorkExecutionSettings').catch(()=>null), invoke<ModelOption[]>('Models').catch(()=>[])]);
-   const session = await invoke<Snapshot>('ComposerSnapshot').then(v=>({connection:v.connection,issue:v.connectionIssue})).catch(()=>null);
+   if (setup.state === 'ready' || session?.connection === 'ready') [conversation, work, models] = await Promise.all([invoke<ExecutionSettings>('ExecutionSettings').catch(()=>null), invoke<WorkExecutionSettings>('WorkExecutionSettings').catch(()=>null), invoke<ModelOption[]>('Models').catch(()=>[])]);
    const runtimeDefault = setup.state === 'ready' ? await invoke<WorkExecutionSettings | null>('RuntimeDefaultModel').catch(() => null) : null;
-   const shared = profile.runtime==='caelis' && ['ready','models'].includes(setup.state) ? await invoke<RuntimeConfiguration>('RuntimeConfiguration').catch(()=>null) : null;
+   const shared = profile.runtime==='caelis' && (['ready','models'].includes(setup.state) || session?.connection === 'ready') ? await invoke<RuntimeConfiguration>('RuntimeConfiguration').catch(()=>null) : null;
    const view = { profile, setup, session, pending: overview.pending, activeRuntime:overview.active, hasRuntimeChoice:overview.hasRuntimeChoice, models:shared?.models ?? models, conversation, work,
     runtimeDefault, revision:shared?.revision ?? '', main:shared?.main ?? null, canEditMain:!!shared,
     team:shared?.team ?? { available:false,reason:'',revision:'',roles:[],sets:[],activeSet:'',models:[] },

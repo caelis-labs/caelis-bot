@@ -84,6 +84,14 @@
 .runtime-empty { padding:28px 0; font-size:13px; color:var(--muted); }
 .runtime-dialog-scrim { z-index:100; padding:24px; }
 .runtime-dialog { width:560px; max-width:100%; max-height:calc(100dvh - 48px); padding:26px; overflow-y:auto; overscroll-behavior:contain; }
+.runtime-onboarding-dialog { width:min(720px, calc(100vw - 48px)); }
+.runtime-onboarding-dialog .setup-flow { min-height:0; }
+.runtime-onboarding-dialog .runtime-onboarding-progress { padding:32px 0 24px; }
+.runtime-onboarding-dialog .runtime-onboarding-progress .setup-lead { margin-bottom:32px; }
+.runtime-onboarding-dialog .setup-flow :is(.setup-extras,.permission-settings,.bot-introduction,.runtime-welcome)>.setup-end,
+.runtime-onboarding-dialog .setup-flow .bot-introduction form>.setup-end { position:static; padding:16px 0 0; border-top:0; }
+.runtime-onboarding-dialog .setup-flow :is(.setup-extras,.permission-settings,.bot-introduction,.runtime-welcome),
+.runtime-onboarding-dialog .setup-flow .runtime-onboarding { padding-bottom:16px; }
 .runtime-dialog:focus { outline:none; }
 .runtime-dialog-heading { display:flex; gap:20px; align-items:center; justify-content:space-between; }
 .runtime-dialog-heading h2 { font-size:18px; line-height:1.3; margin:0; }
