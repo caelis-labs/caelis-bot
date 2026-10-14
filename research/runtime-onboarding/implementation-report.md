@@ -79,6 +79,8 @@ BOT_RESEARCH_PROFILE=manual-error bash research/runtime-onboarding/launch-isolat
 
 为验证安装后 CLI 文件消失，只把 `hot-switch-shell-1` 的 `.local/bin/caelis` 暂时移到同一隔离目录的 `caelis.cli-absent-test`；未触碰真实 HOME、全局 CLI 或其他 profile。APP PID `33484`、已运行的隔离共享 Host PID `33742` 均保持。设置中的同一个连接弹窗识别文件缺失后重新准备，完成第二次真实官方归档下载并再次自动进入模型连接；前后 APP 与 Host PID 都未变。新装文件与暂存的原件逐字节一致（`cmp -s` 退出 0），仅在核对后移除了测试暂存副本。活跃 Bot 已握手后 CLI 消失但 Host 仍可用、Host 真正掉线后的无重启重连，需要有模型可用的新隔离 profile 继续原生验收；源码状态机对 CLI 安装与活跃会话分开判定，不能以空白 profile 的安装验证替代上述场景。
 
-回归覆盖：首次切换同一 Service、原任务 Runtime 路由不迁移、失败回滚、取消回滚、无用户 CLI 的壳/历史/设置、活跃会话与 CLI 文件状态分离、跨 Runtime 附件保留与冲突拒绝。最终 `make check` 退出 0，含前端 132 项脚本检查及 Go 全包；`make smoke` 退出 0，验证 Codex stdio initialize 与资源，未发送模型请求。原生 Research 的当前测试包在此段记录时仍是未提交源码构建；最终精确 `Info.plist:CaelisSourceCommit`、主程序 SHA256 与启动 profile 以本轮最终交付回执为准。该构建因本机没有可用 Apple Development 证书，使用 `BOT_DEVELOPMENT_IDENTITY=-` 进行 **仅隔离 Research 的 ad-hoc 签名**，不等于发行签名或公证。
+精确 `9cdd974b` Research 包还以全新无 CLI 的 `shell-decoupled-9cdd` profile 验证了首次弹窗可关闭、设置与聊天仍可打开、草稿可输入，以及点击“默认”后窗口与 APP PID `41283` 持续存在。点击“取消准备”后发现 UI 把主动取消显示成了网络中断。随后调整为使用 `CancelSetup` 确认结果：已接受的取消显示中性“已取消准备”，可重新检查或重试；未接受取消时保留原安装错误。此项必须用后续精确构建再复验，不把旧包检查当成修复验收。
+
+回归覆盖：首次切换同一 Service、原任务 Runtime 路由不迁移、失败回滚、取消回滚、无用户 CLI 的壳/历史/设置、活跃会话与 CLI 文件状态分离、跨 Runtime 附件保留与冲突拒绝、主动取消不误报网络。最终 `make check` 退出 0，含前端 133 项脚本检查及 Go 全包；`make smoke` 退出 0，验证 Codex stdio initialize 与资源，未发送模型请求。原生 Research 的当前测试包在此段记录时仍是未提交源码构建；最终精确 `Info.plist:CaelisSourceCommit`、主程序 SHA256 与启动 profile 以本轮最终交付回执为准。该构建因本机没有可用 Apple Development 证书，使用 `BOT_DEVELOPMENT_IDENTITY=-` 进行 **仅隔离 Research 的 ad-hoc 签名**，不等于发行签名或公证。
 
 本轮只改变原生生命周期、连接设置与 UI 恢复，不改变 Bot 可调用工具或模型侧工作步骤；`bot-core` Skill 无需再次改动。此前称呼的 Skill 更新继续保留。

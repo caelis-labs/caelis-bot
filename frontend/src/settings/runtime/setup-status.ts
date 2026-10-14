@@ -3,6 +3,11 @@ import type {MessageKey} from '../../i18n/catalogs';
 
 export type BotSession = {connection:string;issue?:string}|null|undefined;
 
+export function setupFailureKind(message:string,cancelAccepted:boolean):'cancelled'|'unknown'|'failed' {
+ if(cancelAccepted)return 'cancelled';
+ return message.includes('The operation has not been confirmed yet.')?'unknown':'failed';
+}
+
 // Installation and a running Host are prerequisites, not onboarding success.
 // The native setup state is the only authority for advancing to chat.
 export function nextOnboardingStep(state:SetupState, runtime:string): 'install'|'start'|'model'|'' {

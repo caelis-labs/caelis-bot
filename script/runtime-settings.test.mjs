@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const server = await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});
 after(()=>server.close());
 const {createRuntimeSettingsClient} = await server.ssrLoadModule('/src/settings/runtime/client.ts');
-const {setupStatusKey,botSessionStatusKey,nextOnboardingStep} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
+const {setupStatusKey,botSessionStatusKey,nextOnboardingStep,setupFailureKind} = await server.ssrLoadModule('/src/settings/runtime/setup-status.ts');
 const {defaultModel, selectionSummary, changeModelParameters, fastTier, chooseModel, validSelection, groupLegacyModels, acceptConnectionProgress, safeWebURL, executionMethodLabel} = await server.ssrLoadModule('/src/settings/runtime/state.ts');
 const {displayConnectionMessage} = await server.ssrLoadModule('/src/connection-message.ts');
 const {createPreviewClient} = await server.ssrLoadModule('/src/settings/runtime/preview/client.ts');
@@ -67,6 +67,11 @@ test('a live shared session remains usable when its CLI file disappears',async()
  assert.equal(view.conversation.model,'existing-model');
  assert.equal(botSessionStatusKey(view.setup,view.session,true),'runtime.connected');
  assert.equal(botSessionStatusKey(view.setup,{connection:'offline'},true),'runtime.notInstalled');
+});
+test('an acknowledged cancellation is not reported as a network failure',()=>{
+ assert.equal(setupFailureKind('download connection interrupted',true),'cancelled');
+ assert.equal(setupFailureKind('download connection interrupted',false),'failed');
+ assert.equal(setupFailureKind('The operation has not been confirmed yet.',false),'unknown');
 });
 test('first run advances from missing CLI through service to a real model connection',()=>{
  const state={installation:{installed:false},state:'missing'};
