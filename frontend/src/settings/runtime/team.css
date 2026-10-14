@@ -25,9 +25,19 @@
 .settings-window .runtime-team-bind-button{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0;padding:9px 10px;text-align:left;border:1px solid var(--line);border-radius:9px;background:var(--caelis-raised);color:var(--ink)}
 .runtime-team-bind-button span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
 .runtime-team-bind-button svg{flex:none}
+.settings-window.runtime-team-model-editing .runtime-model-popover .runtime-model-actions{flex-wrap:wrap}
+.settings-window.runtime-team-model-editing .runtime-model-popover .runtime-reset-parameters{margin-right:auto}
+.settings-window.runtime-team-model-editing .runtime-model-popover .runtime-reset-binding{max-width:100%;text-align:left;line-height:1.4}
+.settings-window.runtime-team-model-editing .runtime-model-popover .runtime-model-actions button.primary,
+.settings-window .runtime-team-plan-dialog .setup-end button.primary{background:var(--caelis-selected);color:var(--ink);border-color:var(--line);font-weight:600}
+.settings-window.runtime-team-model-editing .runtime-model-popover .runtime-model-actions button.primary:hover:not(:disabled),
+.settings-window .runtime-team-plan-dialog .setup-end button.primary:hover:not(:disabled){background:var(--caelis-pressed);border-color:var(--caelis-focus)}
+.settings-window.runtime-team-model-editing .runtime-model-popover .runtime-model-actions button.primary:disabled,
+.settings-window .runtime-team-plan-dialog .setup-end button.primary:disabled{background:var(--caelis-disabled);color:var(--caelis-text-disabled);border-color:var(--line)}
 .runtime-team-plan-list>div{display:flex;align-items:center;gap:8px;padding:12px 0;border-bottom:1px solid var(--line)}
 .runtime-team-plan-list>div>div{flex:1;min-width:0;overflow-wrap:anywhere}
 .runtime-team-plan-list strong{font-size:13px}
 .runtime-team-plan-list p{margin:4px 0 0;font-size:12px}
 .runtime-team-plan-dialog>.text-action{margin-top:16px}
 @media(max-width:680px){.runtime-team-card-grid{grid-template-columns:1fr}.settings-window .runtime-team-card{min-height:0}.runtime-team-role-dialog .runtime-team-binding{grid-template-columns:1fr;gap:6px}.runtime-team-plan-list>div{flex-wrap:wrap}.runtime-team-plan-list>div>div{flex-basis:100%}}
+@media(max-width:480px){.settings-window.runtime-team-model-editing .runtime-model-popover .runtime-reset-parameters{flex-basis:100%;text-align:left}.settings-window.runtime-team-model-editing .runtime-model-popover .runtime-model-actions>button:not(.runtime-reset-parameters),.settings-window .runtime-team-plan-dialog .setup-end>button{flex:1 1 110px;min-width:0}.runtime-team-plan-dialog .setup-end{flex-wrap:wrap}}

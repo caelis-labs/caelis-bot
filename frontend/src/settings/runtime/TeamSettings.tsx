@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { ModelOption } from '../../backend/contract';
 import type { RuntimeSettingsClient, TeamChange, TeamRole, TeamState } from './types';
 import { messageOf, selectionSummary } from './state';
@@ -29,7 +29,16 @@ export function TeamSettings({ team, models, client, onRefresh }: { team: TeamSt
  const roleText = (id: string, part: 'name' | 'description') => t(`runtime.role_${id.replaceAll('-', '_')}_${part}` as MessageKey);
  const roleEmpty = (role: TeamRole) => role.id === 'guardian-screen' ? t('runtime.judgmentModelRequired') : t('runtime.roleNoCompatibleModel');
  const modelAnchor = useRef<HTMLElement | null>(null);
+ const section = useRef<HTMLElement | null>(null);
  const [editing, setEditing] = useState<TeamRole | null>(null);
+ // ModelPicker portals outside this section. Mark only its active host so the
+ // Team palette cannot affect model editors elsewhere in settings.
+ useLayoutEffect(() => {
+  if (!editing) return;
+  const host = section.current?.closest('.settings-window');
+  host?.classList.add('runtime-team-model-editing');
+  return () => host?.classList.remove('runtime-team-model-editing');
+ }, [editing]);
  const [panel, setPanel] = useState('');
  const [name, setName] = useState('');
  const [error, setError] = useState('');
@@ -63,7 +72,7 @@ export function TeamSettings({ team, models, client, onRefresh }: { team: TeamSt
   <button className="runtime-team-bind-button" aria-label={t('runtime.configureRole', { id: roleText(role.id, 'name') })} onClick={event => openRole(role, event.currentTarget)}><span title={summary(role)}>{summary(role)}</span><SettingsChevron/></button>
  </div>;
 
- return <section className="runtime-team-cards">
+ return <section ref={section} className="runtime-team-cards">
   {error && !panel && !editing && <div role="alert" className="inline-error"><p>{error}</p><button onClick={() => void onRefresh().then(() => { setError(''); setBlocked(false); }).catch(() => {})}>{t('runtime.readLatestConfig')}</button></div>}
   {!team.available ? <p className="settings-note">{team.reason || t('runtime.teamNeedsCaelis')}</p> : <>
    <div className="runtime-team-cards-heading"><h2>{t('runtime.agentTeam')}</h2><button className="text-action" onClick={() => openPanel('sets')}>{t('runtime.teamScheme')}</button></div>
