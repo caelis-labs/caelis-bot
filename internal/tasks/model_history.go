@@ -38,8 +38,6 @@ func (m *Manager) QueryTaskHistory(q api.TaskHistoryQuery) ([]api.TaskHistoryEnt
 	if !after.IsZero() && !before.IsZero() && !after.Before(before) {
 		return nil, errors.New("createdAfter must precede createdBefore")
 	}
-	m.op.Lock()
-	defer m.op.Unlock()
 	if err := m.refresh(); err != nil {
 		return nil, err
 	}
