@@ -51,3 +51,7 @@ connection only after preserving those records. Never resume, replay, or send
 an old stop request through the replacement connection. If process identity
 or exit cannot be verified, retain the unknown state rather than claiming
 that the original work stopped.
+
+Runtime connection changes apply without restarting the Bot app. When connection
+setup fails, keep the original task receipts and use the reported connection
+state; do not tell the user to restart the app as the normal activation step.

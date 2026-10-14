@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -150,35 +149,7 @@ func Run(assets fs.FS) error {
 	signals := make(chan os.Signal, 1)
 	s.copyText = nativeApp.Clipboard.SetText
 	s.openArtifactFile = func(path string) error { return exec.Command("/usr/bin/open", path).Run() }
-	s.restartRuntime = func() error {
-		if err := core.PrepareRestart(); err != nil {
-			return err
-		}
-		executable, err := os.Executable()
-		if err != nil {
-			back.CancelRestart()
-			return err
-		}
-		// A separate helper waits for this exact owner to exit before LaunchServices
-		// recalls the bundle; launching earlier would hit the single-instance lock.
-		script := `while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; exec "$2" --env "CAELIS_BOT_DATA_DIR=$4" "$3"`
-		target := executable
-		launcher := executable
-		if i := strings.LastIndex(executable, ".app/Contents/MacOS/"); i >= 0 {
-			target = executable[:i+4]
-			launcher = "/usr/bin/open"
-		} else {
-			script = `while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; exec "$2"`
-		}
-		helper := exec.Command("/bin/sh", "-c", script, "caelis-relaunch", strconv.Itoa(os.Getpid()), launcher, target, root)
-		if err = helper.Start(); err != nil {
-			back.CancelRestart()
-			return err
-		}
-		go func() { _ = helper.Wait() }()
-		quit()
-		return nil
-	}
+
 	s.openReleasePage = func() error { return exec.Command("/usr/bin/open", updates.ReleasePage).Run() }
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)

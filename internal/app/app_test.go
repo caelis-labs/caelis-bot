@@ -209,6 +209,67 @@ func TestCloseBeforeNativeReadyDoesNotCreateResidentState(t *testing.T) {
 		t.Fatal("incorrect lifecycle")
 	}
 }
+
+func TestCloseReleasesLifecycleLockWhileWorkersDrain(t *testing.T) {
+	a, _ := fixtureApp(t, newTestEngine(), Host{})
+	begin, stop, acquired := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	// Cleanup runs before fixtureApp's Close cleanup, including on assertion
+	// failure. A stuck old Close can then finish rather than hanging the test.
+	t.Cleanup(func() { close(stop) })
+	a.workers.Add(1)
+	go func() {
+		defer a.workers.Done()
+		select {
+		case <-begin:
+		case <-stop:
+			return
+		}
+		tick := time.NewTicker(time.Millisecond)
+		defer tick.Stop()
+		for {
+			if a.lifecycleMu.TryLock() {
+				a.lifecycleMu.Unlock()
+				close(acquired)
+				return
+			}
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+			}
+		}
+	}()
+	closed := make(chan error, 1)
+	go func() { closed <- a.Close() }()
+	deadline := time.After(2 * time.Second)
+	for {
+		a.mu.Lock()
+		stopping := a.closed
+		a.mu.Unlock()
+		if stopping {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("Close did not begin")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	close(begin)
+	select {
+	case <-acquired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close held lifecycleMu while waiting for a worker")
+	}
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not finish after its worker exited")
+	}
+}
 func TestToolBindingFailureDoesNotConnectAndReleasesEndpoint(t *testing.T) {
 	requireNativeIPC(t)
 	e := newTestEngine()

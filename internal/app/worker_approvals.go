@@ -17,7 +17,7 @@ import (
 // stay on the user's native card instead.
 func (a *Application) WorkerApprovals() []api.Approval {
 	out := []api.Approval{}
-	for _, native := range a.engine.Snapshot().Approvals {
+	for _, native := range a.currentEngine().Snapshot().Approvals {
 		if !native.GuardianEligible() || native.ID == "" {
 			continue
 		}
@@ -42,7 +42,7 @@ func (a *Application) WorkerApprovals() []api.Approval {
 
 func (a *Application) DecideWorkerApproval(ctx context.Context, d api.Decision) (api.Approval, error) {
 	var current *api.Approval
-	for _, native := range a.engine.Snapshot().Approvals {
+	for _, native := range a.currentEngine().Snapshot().Approvals {
 		if native.ID == d.ID && native.GuardianEligible() {
 			copy := native
 			current = &copy
@@ -138,10 +138,10 @@ func (a *Application) observeWorkerApprovalNotice(ctx context.Context, snapshot 
 }
 
 func (a *Application) reportWorkerInteraction(ctx context.Context, kind, nativeID, text string) {
-	if !a.engine.Snapshot().CanSend {
+	if !a.currentEngine().Snapshot().CanSend {
 		return
 	}
-	reporter, ok := a.engine.(api.ReportSubmitter)
+	reporter, ok := a.currentEngine().(api.ReportSubmitter)
 	if !ok {
 		return
 	}

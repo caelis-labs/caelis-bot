@@ -38,8 +38,8 @@ type localWorkers struct {
 }
 
 func (a *Application) configureWorkers() error {
-	active := a.engine.(api.Provider).ProviderInfo().ID
-	a.localWork = &localWorkers{active: active, resident: a.engine.(api.WorkRuntime), routes: map[string]string{}, owners: map[string]retainedWorker{}}
+	active := a.currentEngine().(api.Provider).ProviderInfo().ID
+	a.localWork = &localWorkers{active: active, resident: a.currentEngine().(api.WorkRuntime), routes: map[string]string{}, owners: map[string]retainedWorker{}}
 	a.localWork.root = a.root
 	a.localWork.path = filepath.Join(a.root, "worker-runtime.json")
 	a.localWork.defaultRuntime = active
@@ -95,6 +95,64 @@ func (a *Application) configureWorkers() error {
 func (w *localWorkers) OwnsWork(id string) bool {
 	return id == w.active || id == "codex" || id == "caelis"
 }
+
+// SwitchResident keeps task routes and the user's independent Worker default.
+// Historical work for the outgoing provider is reopened through its original
+// retained adapter on demand; no task is moved to the incoming provider.
+func (w *localWorkers) SwitchResident(id string, engine api.Engine) retainedWorker {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	retained := w.owners[id]
+	delete(w.owners, id)
+	w.active = id
+	w.resident = engine.(api.WorkRuntime)
+	return retained
+}
+
+func (w *localWorkers) RestoreRetained(id string, owner retainedWorker) {
+	if owner == nil {
+		return
+	}
+	w.mu.Lock()
+	w.owners[id] = owner
+	w.mu.Unlock()
+}
+
+func (w *localWorkers) CanSwitchResident(id string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if owner := w.owners[id]; owner != nil {
+		for _, state := range owner.WorkStates() {
+			switch state.Task.Status {
+			case "completed", "failed", "cancelled", "interrupted":
+			default:
+				return errors.New("该执行方式还有进行中的工作，请完成后再切换")
+			}
+		}
+	}
+	return nil
+}
+
+func (w *localWorkers) SelectFirstRuntime(id string) error {
+	w.settingsMu.Lock()
+	defer w.settingsMu.Unlock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := localstate.Write(w.path, struct {
+		Version int    `json:"version"`
+		Runtime string `json:"runtime"`
+	}{1, id}); err != nil {
+		return err
+	}
+	w.defaultRuntime = id
+	return nil
+}
+
+func (w *localWorkers) DefaultRuntime() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.defaultRuntime
+}
 func (w *localWorkers) BindWork(_ context.Context, in api.TaskStart, id, runtime string) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -129,7 +187,12 @@ func (w *localWorkers) BindWork(_ context.Context, in api.TaskStart, id, runtime
 	w.routes[id] = runtime
 	return runtime, nil
 }
-func (w *localWorkers) WorkAdmission(ctx context.Context) error { return w.resident.WorkAdmission(ctx) }
+func (w *localWorkers) WorkAdmission(ctx context.Context) error {
+	w.mu.Lock()
+	owner := w.resident
+	w.mu.Unlock()
+	return owner.WorkAdmission(ctx)
+}
 func (w *localWorkers) WorkStates() []api.WorkState {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -154,7 +217,9 @@ func (w *localWorkers) target(ctx context.Context, id string) (api.WorkRuntime, 
 	w.mu.Lock()
 	runtime := w.routes[id]
 	owner := w.owners[runtime]
-	if runtime != "" && runtime != w.active && owner == nil {
+	resident := w.resident
+	active := w.active
+	if runtime != "" && runtime != active && owner == nil {
 		var err error
 		owner, err = w.open(runtime)
 		if err != nil {
@@ -164,8 +229,8 @@ func (w *localWorkers) target(ctx context.Context, id string) (api.WorkRuntime, 
 		w.owners[runtime] = owner
 	}
 	w.mu.Unlock()
-	if runtime == w.active {
-		return w.resident, nil
+	if runtime == active {
+		return resident, nil
 	}
 	if owner == nil {
 		return nil, errors.New("original_task_runtime_unavailable")

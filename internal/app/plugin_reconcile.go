@@ -55,7 +55,7 @@ func (a *Application) queuePluginReconcile() {
 
 func (a *Application) observePluginReadiness(connection string, priorConnection *string, priorRecoveryPending *bool) {
 	pending := false
-	if recovery, ok := a.engine.(interface{ BotPluginRecoveryPending() bool }); ok {
+	if recovery, ok := a.currentEngine().(interface{ BotPluginRecoveryPending() bool }); ok {
 		pending = recovery.BotPluginRecoveryPending()
 	}
 	if connection == "ready" && (*priorConnection != "ready" || *priorRecoveryPending && !pending) {
@@ -99,15 +99,17 @@ func (a *Application) reconcilePlugins() {
 		if alreadyProjected {
 			continue
 		}
-		adapter, ok := a.engine.(api.PluginConfigurator)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		a.pluginAdmission.Lock()
+		adapter, ok := a.currentEngine().(api.PluginConfigurator)
 		if !ok {
+			a.pluginAdmission.Unlock()
+			cancel()
 			if a.finishFailedPluginReconcile() {
 				continue
 			}
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		a.pluginAdmission.Lock()
 		a.mu.Lock()
 		closed := a.closed
 		a.mu.Unlock()

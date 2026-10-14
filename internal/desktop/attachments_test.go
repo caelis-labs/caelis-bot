@@ -110,6 +110,55 @@ func pastePNG(t *testing.T) []byte {
 	return output.Bytes()
 }
 
+func TestRuntimeSelectionKeepsUnsentFileAndClipboardImage(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first", "draft-files.json")
+	second := filepath.Join(root, "second", "draft-files.json")
+	s, _, _ := setup()
+	if err := s.configureSelection(first); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "reference.txt")
+	if err := os.WriteFile(file, []byte("unsent"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.stageFiles([]string{file}); err != nil {
+		t.Fatal(err)
+	}
+	s.readClipboard = func() ([]string, []byte, error) { return nil, pastePNG(t), nil }
+	if _, err := s.PasteAttachments(); err != nil {
+		t.Fatal(err)
+	}
+	oldOwned := s.files[1].path
+	if err := s.switchSelection(second, true); err != nil {
+		t.Fatal(err)
+	}
+	if files := s.DraftFiles(); len(files) != 2 || files[0].Unavailable || files[1].Unavailable {
+		t.Fatalf("draft lost after switch: %+v", files)
+	}
+	if s.files[1].path == oldOwned {
+		t.Fatal("clipboard image still owned by previous connection")
+	}
+	if _, err := os.Stat(oldOwned); err != nil {
+		t.Fatal("rollback copy lost", err)
+	}
+	if err := s.switchSelection(first, true); err == nil {
+		t.Fatal("two unsent selections silently replaced")
+	}
+	if s.selectionFile != second || len(s.DraftFiles()) != 2 {
+		t.Fatal("failed switch changed active draft")
+	}
+	if err := s.switchSelection(first, false); err != nil {
+		t.Fatal("rollback could not restore original selection", err)
+	}
+	if s.files[1].path != oldOwned || len(s.DraftFiles()) != 2 {
+		t.Fatal("rollback lost original attachments")
+	}
+	if err := s.switchSelection(filepath.Join(root, "third", "draft-files.json"), false); err != nil || len(s.DraftFiles()) != 0 {
+		t.Fatal("ordinary switch moved old attachments into an empty connection", err)
+	}
+}
+
 func TestClipboardImageDraftRestoresPreviewsAndCleansAfterRemoval(t *testing.T) {
 	root := t.TempDir()
 	selection := filepath.Join(root, "draft-files.json")

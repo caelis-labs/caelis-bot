@@ -57,7 +57,7 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 	// Live provider replacement needs a separate ownership/migration transaction.
 	// Never reuse the active engine's bindings for a different provider.
 	activeProvider := s.runtimeSettings.Runtime
-	if p, ok := s.engine.(api.Provider); ok {
+	if p, ok := s.currentEngine().(api.Provider); ok {
 		activeProvider = p.ProviderInfo().ID
 	}
 	if s.switchGuard != nil {
@@ -86,7 +86,7 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 		s.runtimeLoadError = nil
 		return api.RuntimeCheck{Saved: true, Message: "已检测并保存，下次启动切换运行时；当前对话保持原连接。"}, nil
 	}
-	e, ok := s.engine.(api.RuntimeConfigurator)
+	e, ok := s.currentEngine().(api.RuntimeConfigurator)
 	if !ok {
 		return api.RuntimeCheck{}, errors.New("当前后端不支持修改连接配置")
 	}
@@ -103,6 +103,12 @@ func (s *Service) SaveRuntimeSettings(ctx context.Context, value api.RuntimeSett
 	})
 }
 func saveRuntimeSettings(path string, value any) error { return localstate.Write(path, value) }
+
+// SaveActiveRuntimeSettings commits only the successfully connected resident
+// selection. Preparing or probing a candidate never changes this file.
+func SaveActiveRuntimeSettings(root string, value api.RuntimeSettings) error {
+	return saveRuntimeSettings(filepath.Join(root, "runtime.json"), runtimeDocument{Version: 1, RuntimeSettings: value})
+}
 
 // Keep per-provider connection identity when the resident selection changes;
 // retained Workers must never reconnect through another provider's store.

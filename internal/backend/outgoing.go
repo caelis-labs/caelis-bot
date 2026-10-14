@@ -15,7 +15,7 @@ type outgoingMessage struct {
 }
 
 func (s *Service) stageOutgoing(input api.Submission, files []api.InputFile) bool {
-	v := s.engine.Snapshot()
+	v := s.currentEngine().Snapshot()
 	text := input.Text
 	for _, f := range files {
 		text += "\n" + f.Name
