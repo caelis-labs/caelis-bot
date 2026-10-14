@@ -29,7 +29,7 @@ func (c *Client) reattachPrivateOwner(old *Client, endpoint string, id ownerProc
 		return false
 	}
 	owner := &recoveredNativeOwner{endpoint: endpoint, identity: id, tools: tools, token: conn.peer.AuditToken, hasToken: conn.peer.HasToken}
-	c.owner, c.shared, c.rpc.stop, c.recoveredPrivate = owner, false, owner.stop, true
+	c.owner, c.rpc.stop, c.recoveredPrivate = owner, owner.stop, true
 	return true
 }
 

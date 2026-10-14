@@ -44,3 +44,10 @@ When the selected Caelis Host is stopped, the host may start it for the original
 Store even after a separate service stop. If the service state cannot be
 confirmed or recovery fails, preserve the work and explain the connection
 result. Do not create a replacement Runtime or task.
+
+If the original private Codex process is confirmed gone, its old tasks remain
+read-only evidence. Use the explicit recovery action to establish a new
+connection only after preserving those records. Never resume, replay, or send
+an old stop request through the replacement connection. If process identity
+or exit cannot be verified, retain the unknown state rather than claiming
+that the original work stopped.
