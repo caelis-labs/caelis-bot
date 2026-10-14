@@ -11,7 +11,26 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/diagnosticlog"
 )
 
+func (s *Session) SetFutureExecutionMode(mode string) {
+	if mode == "auto" || mode == "full-access" {
+		s.futureBotMode.Store(mode)
+	}
+}
+
+func (s *Session) botModeForThread(newThread bool) string {
+	if newThread {
+		return s.futureBotMode.Load().(string)
+	}
+	// Older thread bindings did not record permission. Preserve the safe
+	// default rather than inheriting a newly saved future-thread choice.
+	return api.NormalizeNewExecutionMode(s.binding.BotApprovalMode)
+}
+
 func (s *Session) connectionParams() map[string]any {
+	return s.connectionParamsWithMode(s.botModeForThread(s.binding.ThreadID == ""))
+}
+
+func (s *Session) connectionParamsWithMode(mode string) map[string]any {
 	instructions := ""
 	// The pinned native discovery flags are removed/no-op compatibility fields.
 	// Native tool mode decides between tool_search and Code Mode metadata.
@@ -47,7 +66,9 @@ func (s *Session) connectionParams() map[string]any {
 		params["approvalPolicy"] = "untrusted"
 		params["approvalsReviewer"] = "user"
 	}
-	s.applyExecution(params, true)
+	v := s.opts.Execution
+	v.ApprovalMode = mode
+	s.applyExecutionSettings(params, true, v)
 	return params
 }
 

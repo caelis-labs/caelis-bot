@@ -87,27 +87,30 @@ func TestWorkerExecutionModeScopedToSelectedRuntime(t *testing.T) {
 	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "invalid"); err == nil {
 		t.Fatal("invalid mode accepted")
 	}
-	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "full-access"); err == nil {
-		t.Fatal("unmapped full access accepted")
-	}
 	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "auto"); err != nil {
 		t.Fatal(err)
 	}
 	if f.value.ApprovalMode != "auto" {
 		t.Fatal("Codex owner did not receive preference", f.value)
 	}
+	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "full-access"); err != nil {
+		t.Fatal("Codex full access was not saved", err)
+	}
+	if f.value.ApprovalMode != "full-access" {
+		t.Fatal("Codex owner did not receive full access", f.value)
+	}
 	model := api.WorkExecutionSettings{Model: "work"}
 	if _, err := w.SaveLocalWorkerModel(t.Context(), model); err != nil {
 		t.Fatal(err)
 	}
-	if f.value.Model != "work" || f.value.ApprovalMode != "auto" {
+	if f.value.Model != "work" || f.value.ApprovalMode != "full-access" {
 		t.Fatal("model update erased permission", f.value)
 	}
 	w.defaultRuntime = "caelis"
 	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "full-access"); err == nil {
 		t.Fatal("unsupported Core Worker permission accepted")
 	}
-	if f.value.ApprovalMode != "auto" {
+	if f.value.ApprovalMode != "full-access" {
 		t.Fatal("Caelis choice changed Codex preference")
 	}
 }

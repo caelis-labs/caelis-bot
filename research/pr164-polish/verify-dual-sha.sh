@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run only after the coordinator names the final Bot/Core commits and Core
-# binary. All Host/Store/gateway state in these tests is synthetic and local.
+# Run against coordinator-named Bot/Core commits and Core binary. All
+# Host/Store/gateway state in these tests is synthetic and local.
 BOT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 required=(BOT_EXPECTED_SHA CORE_WORKTREE CORE_EXPECTED_SHA CORE_ELIGIBILITY_SHA CORE_PERMISSION_SHA CORE_BINARY CORE_BINARY_SHA256)
 for name in "${required[@]}"; do
-  [[ -n "${!name:-}" ]] || { echo "Set $name to the reviewed final value." >&2; exit 2; }
+  [[ -n "${!name:-}" ]] || { echo "Set $name to the coordinator-named value." >&2; exit 2; }
 done
 [[ "$(uname -s)" == Darwin ]] || { echo 'This contract run requires macOS.' >&2; exit 2; }
 [[ "$CORE_WORKTREE" == /* && -d "$CORE_WORKTREE" ]] || { echo 'CORE_WORKTREE must be an absolute directory.' >&2; exit 2; }
@@ -32,10 +32,10 @@ done
   echo 'Both source worktrees must be clean for an exact-SHA contract run.' >&2; exit 2;
 }
 git -C "$CORE_WORKTREE" merge-base --is-ancestor "$CORE_ELIGIBILITY_SHA" "$CORE_EXPECTED_SHA" || {
-  echo 'Final Core SHA does not include the specified connected-model eligibility commit.' >&2; exit 2;
+  echo 'Core SHA does not include the specified connected-model eligibility commit.' >&2; exit 2;
 }
 git -C "$CORE_WORKTREE" merge-base --is-ancestor "$CORE_PERMISSION_SHA" "$CORE_EXPECTED_SHA" || {
-  echo 'Final Core SHA does not include the specified P1 permission fix.' >&2; exit 2;
+  echo 'Core SHA does not include the specified P1 permission fix.' >&2; exit 2;
 }
 actual_binary_sha=$(shasum -a 256 "$CORE_BINARY")
 actual_binary_sha=${actual_binary_sha%% *}
@@ -48,6 +48,8 @@ export TMPDIR="$CONTRACT_ROOT/tmp" HOME="$CONTRACT_ROOT/home" ZDOTDIR="$CONTRACT
 export XDG_CONFIG_HOME="$CONTRACT_ROOT/home/.config" CODEX_HOME="$CONTRACT_ROOT/home/.codex"
 export GOCACHE="$CONTRACT_ROOT/go-build" GOMODCACHE="$cached_modules" GOWORK=off GOPROXY=off GOFLAGS=-mod=readonly
 export CAELIS_BOT_CONTRACT_ROOT="$BOT_ROOT"
+binary_commit=$("$CORE_BINARY" version | sed -n 's/^commit: //p')
+[[ "$binary_commit" == "$CORE_EXPECTED_SHA" ]] || { echo 'Core binary version does not report the reviewed source SHA.' >&2; exit 2; }
 
 echo "Bot $BOT_EXPECTED_SHA / Core $CORE_EXPECTED_SHA / Core binary SHA-256 $CORE_BINARY_SHA256"
 echo 'Core source: temporary Store + synthetic Magpie + Host HTTP + Bot InspectSetup ready/models'
@@ -55,11 +57,13 @@ echo 'Core source: temporary Store + synthetic Magpie + Host HTTP + Bot InspectS
   cd "$CORE_WORKTREE"
   go test -count=1 -timeout=5m -run '^TestConnectedModelCatalogRetainsDirectoryEligibilityThroughHostHTTP$' ./app/gatewayapp/controladapter/local
 )
-echo 'Final Core binary: Bot connection directory and isolated native Host/Guardian'
+echo 'Pinned Core binary: Bot connection directory and isolated native Host/Guardian'
 (
   cd "$BOT_ROOT"
   export CAELIS_BOT_ELIGIBILITY_BINARY="$CORE_BINARY" CAELIS_BOT_TEST_BINARY="$CORE_BINARY"
+  export CAELIS_BOT_ELIGIBILITY_OUTPUT="$CONTRACT_ROOT/core-eligibility.json"
   go test -race -count=1 -timeout=4m -run '^TestExternalHostSetupCatalogEligibility$' ./internal/backend/caelis
+  node --test script/connection-models.test.mjs
   make smoke-caelis
 )
 echo 'Dual-SHA isolated contract checks passed; native GUI, real account/model, and distribution acceptance remain separate.'

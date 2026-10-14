@@ -159,7 +159,9 @@ func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, 
 	return nil
 }
 func (s *Session) applyExecution(params map[string]any, thread bool) {
-	s.applyExecutionSettings(params, thread, s.opts.Execution)
+	v := s.opts.Execution
+	v.ApprovalMode = s.botModeForThread(s.binding.ThreadID == "")
+	s.applyExecutionSettings(params, thread, v)
 }
 func (s *Session) applyExecutionSettings(params map[string]any, thread bool, v api.ExecutionSettings) {
 	policy, reviewer, sandbox, kind := "on-request", "auto_review", "workspace-write", "workspaceWrite"

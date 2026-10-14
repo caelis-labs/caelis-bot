@@ -412,11 +412,19 @@ func TestTaskPersistenceFailureCannotDispatchOrChangeKnownState(t *testing.T) {
 }
 
 func TestWorkerParametersPreserveExplicitExecutionMode(t *testing.T) {
-	s := NewSession(SessionOptions{Directory: t.TempDir(), Execution: api.ExecutionSettings{Model: "synthetic-model", Effort: "high", ServiceTier: "fast", ApprovalMode: "read-only"}})
+	s := NewSession(SessionOptions{Directory: t.TempDir(), Execution: api.ExecutionSettings{Model: "synthetic-model", Effort: "high", ServiceTier: "fast", ApprovalMode: "full-access"}})
 	defer s.cancelLife()
 	p := s.workerParams("/synthetic/task", botpolicy.WorkerInstructions, &taskRecord{Execution: &api.WorkExecutionSettings{Model: "work-model", Effort: "high", ServiceTier: "fast"}})
-	if p["sandbox"] != "read-only" || p["approvalPolicy"] != "never" || p["approvalsReviewer"] != "user" || p["model"] != "work-model" || p["serviceTier"] != "fast" || p["config"].(map[string]any)["model_reasoning_effort"] != "high" {
-		t.Fatal("worker changed explicit settings")
+	if p["sandbox"] != "workspace-write" || p["approvalPolicy"] != "on-request" || p["approvalsReviewer"] != "auto_review" || p["model"] != "work-model" || p["serviceTier"] != "fast" || p["config"].(map[string]any)["model_reasoning_effort"] != "high" {
+		t.Fatal("worker inherited Bot mode", p)
+	}
+	full := s.workerParams("/synthetic/task", botpolicy.WorkerInstructions, &taskRecord{Execution: &api.WorkExecutionSettings{ApprovalMode: "full-access"}})
+	if full["sandbox"] != "danger-full-access" || full["approvalPolicy"] != "never" || full["approvalsReviewer"] != "user" {
+		t.Fatal("worker full-access did not reach native start", full)
+	}
+	legacy := s.workerParams("/synthetic/task", botpolicy.WorkerInstructions, &taskRecord{})
+	if legacy["sandbox"] != "workspace-write" || legacy["approvalsReviewer"] != "auto_review" {
+		t.Fatal("legacy worker inherited Bot mode", legacy)
 	}
 }
 

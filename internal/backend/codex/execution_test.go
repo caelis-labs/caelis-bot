@@ -39,7 +39,9 @@ func TestExecutionSettingsReachNewTurnsAndRejectInvalidChanges(t *testing.T) {
 	f.mu.Lock()
 	params := f.lastParams
 	f.mu.Unlock()
-	for key, want := range map[string]string{"model": `"test-model"`, "effort": `"high"`, "serviceTier": `"fast"`, "approvalPolicy": `"on-request"`, "approvalsReviewer": `"user"`} {
+	// Model preferences apply to this turn; its native thread keeps the
+	// creation-bound review mode even when an older settings value says ask.
+	for key, want := range map[string]string{"model": `"test-model"`, "effort": `"high"`, "serviceTier": `"fast"`, "approvalPolicy": `"on-request"`, "approvalsReviewer": `"auto_review"`} {
 		if string(params[key]) != want {
 			t.Fatalf("%s=%s", key, params[key])
 		}
@@ -140,6 +142,65 @@ func TestExecutionModesPreserveAcceptanceSandbox(t *testing.T) {
 		if p["sandbox"] != "workspace-write" || q["approvalPolicy"] != "untrusted" || q["approvalsReviewer"] != "user" {
 			t.Fatal("acceptance flag weakened", mode, p, q)
 		}
+	}
+}
+
+func TestFutureBotModePinsOnlyNewNativeThread(t *testing.T) {
+	for _, tc := range []struct {
+		mode, sandbox, reviewer, policy, turnKind string
+	}{
+		{"auto", "workspace-write", "auto_review", "on-request", "workspaceWrite"},
+		{"full-access", "danger-full-access", "user", "never", "dangerFullAccess"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			s, f := sessionPair(t, "hold")
+			s.mu.Lock()
+			source := s.binding.ThreadID
+			s.binding.Dreams = map[string]dreamRecord{"renew-permission": {Thread: source}}
+			s.binding.Scheduled["renew-permission"] = "completed-turn"
+			s.lastTurn = "completed-turn"
+			s.runs["completed-turn"] = "completed"
+			s.mu.Unlock()
+			s.SetFutureExecutionMode(tc.mode)
+			existing := map[string]any{}
+			s.applyExecution(existing, false)
+			if existing["sandboxPolicy"].(map[string]any)["type"] != "workspaceWrite" || existing["approvalsReviewer"] != "auto_review" {
+				t.Fatal("future choice changed existing Bot thread", existing)
+			}
+			var native map[string]any
+			f.mu.Lock()
+			f.handle = func(m wireMessage) (any, bool) {
+				if m.Method != "thread/start" {
+					return nil, false
+				}
+				_ = json.Unmarshal(m.Params, &native)
+				return map[string]any{"thread": nativeThread{ID: "next-bot-thread"}, "model": "native-default"}, true
+			}
+			f.mu.Unlock()
+			if err := s.RenewConversation(testContext(t), "renew-permission", source); err != nil {
+				t.Fatal(err)
+			}
+			if native["sandbox"] != tc.sandbox || native["approvalsReviewer"] != tc.reviewer || native["approvalPolicy"] != tc.policy {
+				t.Fatal("future Bot mode missed native thread/start", native)
+			}
+			s.mu.Lock()
+			pinned := s.binding.BotApprovalMode
+			s.mu.Unlock()
+			if pinned != tc.mode {
+				t.Fatal("new Bot mode was not pinned", pinned)
+			}
+			s.SetFutureExecutionMode("auto")
+			turn := map[string]any{}
+			s.applyExecution(turn, false)
+			if turn["sandboxPolicy"].(map[string]any)["type"] != tc.turnKind {
+				t.Fatal("later Bot preference changed bound thread", turn)
+			}
+			reloaded := NewSession(s.opts)
+			defer reloaded.cancelLife()
+			if reloaded.loadErr != nil || reloaded.binding.BotApprovalMode != tc.mode || reloaded.connectionParams()["sandbox"] != tc.sandbox {
+				t.Fatal("Bot mode changed on native resume", reloaded.loadErr, reloaded.binding.BotApprovalMode)
+			}
+		})
 	}
 }
 func TestModelPaginationRejectsCycle(t *testing.T) {

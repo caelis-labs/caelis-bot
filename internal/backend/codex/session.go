@@ -52,6 +52,7 @@ type binding struct {
 	CapacityStopAccepted bool                   `json:"capacityStopAccepted,omitempty"`
 	CapacityStopPhase    string                 `json:"capacityStopPhase,omitempty"`
 	CapacityStopStatus   string                 `json:"capacityStopStatus,omitempty"`
+	BotApprovalMode      string                 `json:"botApprovalMode,omitempty"` // permission pinned to the resident native thread
 
 	Tasks          map[string]*taskRecord `json:"tasks,omitempty"`
 	DelegationText string                 `json:"delegationText,omitempty"`
@@ -66,6 +67,7 @@ type binding struct {
 type toolRenewalRecord struct {
 	CallID, Source, Turn, NewThread string
 	Attempted                       bool
+	ApprovalMode                    string `json:"approvalMode,omitempty"`
 }
 type pendingSubmission struct {
 	ID     string `json:"id"`
@@ -172,10 +174,12 @@ type Session struct {
 	capacityWaiting         bool
 	capacityDispatchStarted bool
 	capacityStopReconciling map[string]bool
+	futureBotMode           atomic.Value // string; only future native resident threads use it
 }
 
 func NewSession(opts SessionOptions) *Session {
 	s := &Session{opts: opts, binding: binding{Version: 1}, changed: make(chan struct{}), instance: rand.Text(), start: Start}
+	s.futureBotMode.Store(api.NormalizeNewExecutionMode(opts.Execution.ApprovalMode))
 	s.opts.BotTools = opts.BotTools.Clone()
 	s.life, s.cancelLife = context.WithCancel(context.Background())
 	s.resetProjection()
@@ -653,11 +657,14 @@ func (s *Session) connect(ctx context.Context) error {
 	threadID := s.binding.ThreadID
 	unused := s.binding.Unsubmitted && s.binding.Pending == nil && len(s.binding.Tasks) == 0 && len(s.binding.Children) == 0
 	s.mu.Unlock()
-	params := s.connectionParams()
 	method := "thread/start"
 	paged := false
 	if threadID != "" {
 		method = "thread/resume"
+	}
+	mode := s.botModeForThread(method == "thread/start")
+	params := s.connectionParamsWithMode(mode)
+	if threadID != "" {
 		params["threadId"] = threadID
 		params["excludeTurns"] = true
 	}
@@ -668,7 +675,8 @@ func (s *Session) connect(ctx context.Context) error {
 	// never-submitted receipt permits replacing that missing, empty binding.
 	if err != nil && unused && nativeThreadError(err, "no rollout found for thread id ", threadID) {
 		method, threadID, paged = "thread/start", "", false
-		params = s.connectionParams()
+		mode = s.botModeForThread(true)
+		params = s.connectionParamsWithMode(mode)
 		err = callDecode(ctx, c, method, params, &response)
 	}
 	if err != nil {
@@ -696,6 +704,9 @@ func (s *Session) connect(ctx context.Context) error {
 	s.historyPaged, s.historyCursor = paged, firstPage.NextCursor
 	s.state.HasEarlier = false
 	s.binding.ThreadID = response.Thread.ID
+	if method == "thread/start" {
+		s.binding.BotApprovalMode = mode
+	}
 	if method == "thread/start" && s.opts.BotTools != nil {
 		s.binding.RuntimeVersion = s.opts.BotTools.RuntimeVersion
 		if len(s.opts.BotTools.Services) > 0 {

@@ -11,9 +11,6 @@ import (
 func (s *Session) ChangeWorkExecution(ctx context.Context, v api.WorkExecutionSettings, persist func() error) error {
 	s.op.Lock()
 	defer s.op.Unlock()
-	if v.ApprovalMode == "full-access" {
-		return errors.New("Codex Worker 完全访问仍需任务回执固定权限后才能启用")
-	}
 	var catalog []api.ModelOption
 	if v.Model != "" {
 		var err error
@@ -43,9 +40,6 @@ func (s *Session) resolveWorkExecution(ctx context.Context, workspace string) (a
 		fallback = s.residentExecution
 	}
 	s.mu.Unlock()
-	if v.ApprovalMode == "full-access" {
-		return v, errors.New("Codex Worker 完全访问仍需任务回执固定权限后才能启用")
-	}
 	if v.Model != "" {
 		v.ApprovalMode = api.NormalizeNewExecutionMode(v.ApprovalMode)
 		return v, nil
@@ -108,6 +102,18 @@ type threadExecutionResponse struct {
 
 func (r threadExecutionResponse) execution() *api.WorkExecutionSettings {
 	return &api.WorkExecutionSettings{Model: r.Model, Effort: r.ReasoningEffort, ServiceTier: r.ServiceTier}
+}
+
+// Native receipts report model metadata, but not their creation permission.
+// Keep the task's original mode when recording a first or resumed receipt.
+func pinTaskExecutionReceipt(t *taskRecord, r threadExecutionResponse) {
+	mode := "auto"
+	if t.Execution != nil {
+		mode = api.NormalizeNewExecutionMode(t.Execution.ApprovalMode)
+	}
+	t.Execution = r.execution()
+	t.Execution.ApprovalMode = mode
+	t.ModelProvider = r.ModelProvider
 }
 
 func (s *Session) applyWorkExecution(params map[string]any, thread bool, t *taskRecord) {

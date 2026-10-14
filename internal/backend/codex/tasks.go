@@ -305,7 +305,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 		return v, err
 	}
 	t.Thread = response.Thread.ID
-	t.Execution, t.ModelProvider = response.execution(), response.ModelProvider
+	pinTaskExecutionReceipt(t, response)
 	s.children[t.Thread] = true
 	s.childWatching[t.Thread] = true // thread/start already subscribed this client.
 	s.childSubscribed[t.Thread] = true
@@ -492,7 +492,7 @@ func (s *Session) sendTask(ctx context.Context, t *taskRecord, in api.TaskMessag
 		s.childSubscribed[t.Thread] = true
 		delete(s.childRetired, t.Thread)
 		s.childRetireSeq[t.Thread]++
-		t.Execution, t.ModelProvider = response.execution(), response.ModelProvider
+		pinTaskExecutionReceipt(t, response)
 		err := s.save()
 		s.mu.Unlock()
 		if err != nil {

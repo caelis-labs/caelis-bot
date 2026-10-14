@@ -69,13 +69,14 @@ to `ApprovedTools`, infer authority from model prose, or change an old binding.
 - `RuntimeSettings.tsx` passes `scene="first-run"` only from onboarding and
   calls `onDone` after `ActivateRuntime` succeeds and the refreshed overview
   confirms a committed choice. `RuntimeWorkspace.tsx` is management only.
-- Codex Worker full access stays disabled in `LocalWorkerSettings.tsx` (the
-  full-access button), `internal/app/worker_settings.go`
-  (`SaveLocalWorkerExecutionMode`), and the two guards in
-  `internal/backend/codex/work_execution.go`. The capacity worker owns the
-  Codex task creation/receipt pinning; remove these guards only after its
-  end-to-end fixture proves every new task receives its selected mode and
-  existing task continuations keep the old one.
+- Codex Worker full access is available for new tasks after the task mode is
+  saved separately from the Bot's future-thread preference. The first native
+  `thread/start` and `turn/start` use that task mode; model-only native receipts
+  preserve it, and recovery/continuation reuse it. Historical tasks without a
+  permission receipt remain on auto review. The combined fixture covers these
+  boundaries, including a Bot full-access mode with an auto-review Worker.
+  This is source/fixture evidence; independent review and native acceptance
+  remain separate.
 - Caelis Worker mode controls are replaced by an unsupported explanation in
   `LocalWorkerSettings.tsx`. `internal/app/worker_settings.go` and
   `internal/backend/caelis/work_execution.go` reject mode writes. The separate

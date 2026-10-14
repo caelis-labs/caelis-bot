@@ -195,7 +195,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 			}
 		} else {
 			freshAttempt = true
-			attempted = toolRenewalRecord{CallID: id, Source: source, Turn: turn, Attempted: true}
+			attempted = toolRenewalRecord{CallID: id, Source: source, Turn: turn, Attempted: true, ApprovalMode: s.botModeForThread(true)}
 			s.binding.ToolRenewal = &attempted
 			if err := s.save(); err != nil {
 				s.binding.ToolRenewal = nil
@@ -205,11 +205,15 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		}
 	}
 	s.mu.Unlock()
+	mode := s.botModeForThread(true)
+	if toolTurn != "" {
+		mode = api.NormalizeNewExecutionMode(attempted.ApprovalMode)
+	}
 	var response threadExecutionResponse
 	if toolTurn != "" && attempted.NewThread != "" {
 		// A known create result is read back under its original ID, never
 		// dispatched a second time after a crash or a lost save response.
-		params := s.connectionParams()
+		params := s.connectionParamsWithMode(mode)
 		params["threadId"] = attempted.NewThread
 		if err := callDecode(ctx, c, "thread/resume", params, &response); err != nil {
 			return err
@@ -221,7 +225,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	} else {
 		// thread/start creates only an empty native thread. The original
 		// binding remains authoritative until the new ID is durably saved.
-		if err := callDecode(ctx, c, "thread/start", s.connectionParams(), &response); err != nil {
+		if err := callDecode(ctx, c, "thread/start", s.connectionParamsWithMode(mode), &response); err != nil {
 			if toolTurn != "" {
 				return api.ErrConversationRenewalUnknown
 			}
@@ -252,6 +256,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	}
 	old := s.binding
 	s.binding.ThreadID, s.binding.RenewedBy = response.Thread.ID, id
+	s.binding.BotApprovalMode = mode
 	if toolTurn != "" {
 		s.binding.ToolRenewal = nil // committed receipt is in Bot's private handoff store
 	}

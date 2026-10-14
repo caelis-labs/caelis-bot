@@ -152,9 +152,6 @@ func (w *localWorkers) SaveLocalWorkerExecutionMode(ctx context.Context, mode st
 	if runtime == "caelis" {
 		return api.LocalWorkerSettings{}, errors.New("此 Caelis 版本的独立任务由 Host 管理权限，暂不支持单独设置执行模式")
 	}
-	if mode == "full-access" {
-		return api.LocalWorkerSettings{}, errors.New("Codex Worker 完全访问仍需任务回执固定权限后才能启用")
-	}
 	dir, _ := providerDirectory(w.root, runtime)
 	value, err := backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
 	if err != nil {
