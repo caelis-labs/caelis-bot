@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"errors"
+
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
 
@@ -48,7 +49,15 @@ func (w *WorkOwner) SetModel(ctx context.Context, v api.WorkExecutionSettings, p
 	return w.engine.ChangeWorkExecution(ctx, v, persist)
 }
 
-func (w *WorkOwner) Connect(ctx context.Context) error       { return w.engine.Connect(ctx) }
+func (w *WorkOwner) Connect(ctx context.Context) error { return w.engine.Connect(ctx) }
+
+// ConnectedForStop lets the local owner router reach StopWork's pre-lock
+// cancellation without first waiting for Connect on the active Turn lock.
+func (w *WorkOwner) ConnectedForStop() bool {
+	w.engine.mu.Lock()
+	defer w.engine.mu.Unlock()
+	return w.engine.client != nil && w.engine.state.Connection == "ready"
+}
 func (w *WorkOwner) WorkAdmission(ctx context.Context) error { return w.engine.WorkAdmission(ctx) }
 func (w *WorkOwner) WorkStates() []api.WorkState             { return w.engine.WorkStates() }
 func (w *WorkOwner) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {

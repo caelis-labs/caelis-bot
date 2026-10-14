@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -174,6 +175,40 @@ func TestParallelStartAdmissionReservesOneSlot(t *testing.T) {
 	}
 	if accepted != 1 || f.starts != 1 {
 		t.Fatal("admission raced", accepted, f.starts)
+	}
+}
+
+func TestDuplicateStartSnapshotsRecordWhileObservationCanProceed(t *testing.T) {
+	f := newRuntime()
+	m := openFixture(t, t.TempDir(), "codex", f)
+	original := start(t, m, "same-observed-request")
+	m.op.Lock() // Serialize dispatch, but never serialize independent observation.
+	duplicate := make(chan api.Task, 1)
+	duplicateErr := make(chan error, 1)
+	go func() {
+		v, err := m.StartTask(context.Background(), input("same-observed-request"))
+		duplicate <- v
+		duplicateErr <- err
+	}()
+	observed := make(chan error, 1)
+	go func() { observed <- m.RefreshWatchlist() }()
+	select {
+	case err := <-observed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		m.op.Unlock()
+		t.Fatal("observation waited for duplicate dispatch lock")
+	}
+	m.op.Unlock()
+	select {
+	case v := <-duplicate:
+		if err := <-duplicateErr; err != nil || v.ID != original.ID || f.starts != 1 {
+			t.Fatal("duplicate did not retain original record", v, err, f.starts)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("duplicate did not settle after observation")
 	}
 }
 

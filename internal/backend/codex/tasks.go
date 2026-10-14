@@ -27,17 +27,19 @@ type taskRecord struct {
 	CompletedMessages map[string]bool                `json:"completedMessages,omitempty"` // exact native turn/item completion receipts
 	// Native turn IDs displaced by a later, durably recorded continuation. Keep
 	// these across reconnects: an old terminal event is not the new result.
-	SupersededRuns []string               `json:"supersededRuns,omitempty"`
-	Fingerprint    string                 `json:"fingerprint"`
-	Source         string                 `json:"source"`
-	Requests       map[string]taskReceipt `json:"requests"`
-	Pending        string                 `json:"pending,omitempty"`
-	ReportID       string                 `json:"reportId,omitempty"`
-	ReportState    string                 `json:"reportState,omitempty"`
-	SuppressReport bool                   `json:"suppressReport,omitempty"`
-	Instructions   string                 `json:"instructions,omitempty"`
-	Retired        bool                   `json:"retired,omitempty"`
-	Activity       string                 `json:"-"`
+	SupersededRuns     []string               `json:"supersededRuns,omitempty"`
+	Fingerprint        string                 `json:"fingerprint"`
+	Source             string                 `json:"source"`
+	Requests           map[string]taskReceipt `json:"requests"`
+	Pending            string                 `json:"pending,omitempty"`
+	StopPendingRequest string                 `json:"stopPendingRequest,omitempty"` // original request to stop after an uncertain retry dispatch
+	StopPendingTurn    string                 `json:"stopPendingTurn,omitempty"`
+	ReportID           string                 `json:"reportId,omitempty"`
+	ReportState        string                 `json:"reportState,omitempty"`
+	SuppressReport     bool                   `json:"suppressReport,omitempty"`
+	Instructions       string                 `json:"instructions,omitempty"`
+	Retired            bool                   `json:"retired,omitempty"`
+	Activity           string                 `json:"-"`
 }
 type workerAsyncQuestion struct {
 	Run       string              `json:"run"`
@@ -183,6 +185,10 @@ func (s *Session) taskView(t *taskRecord) api.Task {
 	waitingForCapacity := s.capacityWaiting && s.capacityThread == t.Thread && v.Status == "pending"
 	if !waitingForCapacity && (t.Pending != "" || taskHasUnknownReceipt(t) || (s.state.Connection != "ready" && !terminal(v.Status))) {
 		v.Status = "unknown"
+	}
+	if t.StopPendingRequest != "" && !terminal(v.Status) {
+		v.Status = "unknown"
+		v.Result = "停止结果尚未确认；请核对原任务回执，勿重复派发工作"
 	}
 	return v
 }
@@ -522,6 +528,9 @@ func (s *Session) taskSendResult(t *taskRecord, request string, turn nativeTurn,
 	if err == nil {
 		r.Outcome = "accepted"
 		r.Phase = "settled"
+		if t.StopPendingRequest == request {
+			t.StopPendingTurn = turn.ID
+		}
 		t.Pending = ""
 		// The native acceptance has settled this exact request before the
 		// returned turn is projected; keep the unknown guard for other requests.
@@ -586,6 +595,10 @@ func (s *Session) observeTaskTurn(t *taskRecord, turn nativeTurn) (changed bool)
 	for _, item := range turn.Items {
 		changed = s.recordWorkerAsync(t, turn.ID, item) || changed
 		if item.Type == "userMessage" {
+			if item.ClientID == t.StopPendingRequest && t.StopPendingTurn != turn.ID {
+				t.StopPendingTurn = turn.ID
+				changed = true
+			}
 			if r, ok := t.Requests[item.ClientID]; ok {
 				changed = changed || r.Outcome != "accepted"
 				r.Outcome = "accepted"
@@ -813,6 +826,16 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 	s.mu.Lock()
 	cancelledCapacity := false
 	if t := s.binding.Tasks[id]; t != nil && s.capacityThread == t.Thread && s.capacityCancel != nil {
+		if s.capacityDispatchStarted && s.capacityRequest != "" {
+			previous := t.StopPendingRequest
+			t.StopPendingRequest = s.capacityRequest
+			if err := s.save(); err != nil {
+				t.StopPendingRequest = previous
+				v := s.taskView(t)
+				s.mu.Unlock()
+				return v, err
+			}
+		}
 		s.capacityCancel()
 		cancelledCapacity = true
 	}
@@ -833,7 +856,40 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 		return api.Task{}, err
 	}
 	run := s.childRuns[t.Thread]
-	v := t.View
+	v := s.taskView(t)
+	if request := t.StopPendingRequest; request != "" {
+		original := t.StopPendingTurn
+		accepted := t.Requests[request].Outcome == "accepted"
+		threadID := t.Thread
+		s.mu.Unlock()
+		if !accepted || original == "" || c == nil {
+			return v, errors.New("停止结果尚未确认；原请求可能已派发，请核对原任务回执")
+		}
+		thread, readErr := readThreadState(ctx, c, threadID)
+		if readErr != nil || thread.ID != threadID {
+			return v, errors.New("停止结果尚未确认；无法核对原生回合")
+		}
+		activeOriginal := false
+		for _, turn := range thread.Turns {
+			if turn.ID == original && turn.Status == "inProgress" {
+				activeOriginal = true
+			}
+		}
+		if !activeOriginal {
+			return v, errors.New("停止结果尚未确认；原生回合已变化")
+		}
+		err := callDecode(ctx, c, "turn/interrupt", map[string]any{"threadId": threadID, "turnId": original}, &struct{}{})
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if err == nil && t.StopPendingRequest == request && t.StopPendingTurn == original {
+			t.StopPendingRequest, t.StopPendingTurn = "", ""
+			if saveErr := s.save(); saveErr != nil {
+				t.StopPendingRequest, t.StopPendingTurn = request, original
+				return s.taskView(t), saveErr
+			}
+		}
+		return s.taskView(t), err
+	}
 	if run == "" {
 		s.mu.Unlock()
 		if cancelledCapacity {
@@ -845,7 +901,7 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 	err := callDecode(ctx, c, "turn/interrupt", map[string]any{"threadId": t.Thread, "turnId": run}, &struct{}{})
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return t.View, err
+	return s.taskView(t), err
 }
 
 // Notices retain their origin even though the native wire accepts text input.

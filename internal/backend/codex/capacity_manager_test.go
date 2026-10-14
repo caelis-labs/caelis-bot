@@ -308,6 +308,7 @@ func TestManagerCapacityStopRacingAcceptedRetryReconcilesOriginalTurn(t *testing
 	s.capacityBackoff = func(int) time.Duration { return time.Millisecond }
 	request := "manager-capacity-race"
 	secondEntered := make(chan struct{}, 1)
+	interrupts := make(chan struct{ Thread, Turn string }, 2)
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
@@ -316,6 +317,15 @@ func TestManagerCapacityStopRacingAcceptedRetryReconcilesOriginalTurn(t *testing
 	f.mu.Lock()
 	original := f.handle
 	f.handle = func(msg wireMessage) (any, bool) {
+		if msg.Method == "turn/interrupt" {
+			var params struct {
+				Thread string `json:"threadId"`
+				Turn   string `json:"turnId"`
+			}
+			_ = json.Unmarshal(msg.Params, &params)
+			interrupts <- struct{ Thread, Turn string }{params.Thread, params.Turn}
+			return map[string]any{}, true
+		}
 		if msg.Method == "turn/start" {
 			var params struct {
 				ClientID string `json:"clientUserMessageId"`
@@ -356,14 +366,14 @@ func TestManagerCapacityStopRacingAcceptedRetryReconcilesOriginalTurn(t *testing
 	if result.task.ID != pending[0].Task.ID || result.err == nil || result.task.Outcome != "unknown" {
 		t.Fatal("in-flight retry cancellation was incorrectly called rejected", result)
 	}
-	if stop := awaitManagerResult(t, "stop racing reply", stopped); stop.err != nil || stop.task.ID != result.task.ID {
-		t.Fatal("stop did not resolve after cancellation", stop)
+	if stop := awaitManagerResult(t, "stop racing reply", stopped); stop.err == nil || stop.task.ID != result.task.ID || !strings.Contains(stop.task.Result, "停止结果尚未确认") {
+		t.Fatal("uncertain native dispatch was falsely called stopped", stop)
 	}
 	releaseOnce.Do(func() { close(release) })
 	deadline := time.After(2 * time.Second)
 	for {
 		view, err := m.ReadTaskRequest(ctx, request)
-		if err == nil && view.ID == result.task.ID && view.Outcome == "accepted" {
+		if err == nil && view.ID == result.task.ID && view.Outcome == "accepted" && view.Status == "unknown" && strings.Contains(view.Result, "停止结果尚未确认") {
 			break
 		}
 		select {
@@ -371,6 +381,17 @@ func TestManagerCapacityStopRacingAcceptedRetryReconcilesOriginalTurn(t *testing
 			t.Fatal("original receipt did not reconcile native acceptance", view, err)
 		case <-time.After(time.Millisecond):
 		}
+	}
+	if _, err := m.StopTask(ctx, result.task.ID); err != nil {
+		t.Fatal("confirmed original Turn could not be stopped", err)
+	}
+	select {
+	case target := <-interrupts:
+		if target.Thread != "owned-worker-1" || target.Turn != "owned-run-1" {
+			t.Fatal("stop targeted another native Turn", target)
+		}
+	default:
+		t.Fatal("no targeted native interruption was sent")
 	}
 	duplicate, err := m.StartTask(ctx, start)
 	if err != nil || duplicate.ID != result.task.ID {

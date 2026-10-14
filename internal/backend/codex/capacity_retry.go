@@ -84,7 +84,9 @@ func (s *Session) startWithCapacityRetry(ctx context.Context, c *Client, method 
 		s.mu.Lock()
 		s.capacityCancel = nil
 		s.capacityThread = ""
+		s.capacityRequest = ""
 		s.capacityWaiting = false
+		s.capacityDispatchStarted = false
 		if s.state.Message == capacityWaitMessage {
 			s.state.Message = ""
 		}
@@ -102,6 +104,9 @@ func (s *Session) startWithCapacityRetry(ctx context.Context, c *Client, method 
 			if err := retryCtx.Err(); err != nil {
 				return &RequestError{Method: method, Cause: err}
 			}
+			s.mu.Lock()
+			s.capacityDispatchStarted = true
+			s.mu.Unlock()
 		}
 		err := callDecode(callCtx, c, method, params, result)
 		if err == nil || !capacityNativeError(err) {
@@ -113,7 +118,7 @@ func (s *Session) startWithCapacityRetry(ctx context.Context, c *Client, method 
 		s.mu.Lock()
 		// An independently correlated native user message wins over a conflicting
 		// rejection. Never issue a second Turn for an accepted request.
-		accepted := s.state.LastReceipt.ID == request && s.state.LastReceipt.Outcome == "accepted"
+		accepted := thread == s.binding.ThreadID && s.state.LastReceipt.ID == request && s.state.LastReceipt.Outcome == "accepted"
 		for _, task := range s.binding.Tasks {
 			if task != nil && task.Thread == thread && task.Requests[request].Outcome == "accepted" {
 				accepted = true
@@ -125,9 +130,10 @@ func (s *Session) startWithCapacityRetry(ctx context.Context, c *Client, method 
 		}
 		if retryCtx == nil {
 			retryCtx, cancel = context.WithCancel(ctx)
-			s.capacityCancel, s.capacityThread = cancel, thread
+			s.capacityCancel, s.capacityThread, s.capacityRequest = cancel, thread, request
 		}
 		s.capacityWaiting = true
+		s.capacityDispatchStarted = false
 		if thread == s.binding.ThreadID {
 			s.state.Message = capacityWaitMessage
 		} else if task := s.taskByThread(thread); task != nil {
