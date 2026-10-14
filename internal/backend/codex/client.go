@@ -14,11 +14,12 @@ import (
 const TestedVersion = "0.153.4"
 
 type Client struct {
-	rpc       *transport
-	home      string // Native handshake home, for attaching the user's TUI to this server.
-	userAgent string
-	shared    bool
-	owner     retainedNativeOwner
+	rpc              *transport
+	home             string // Native handshake home, for attaching the user's TUI to this server.
+	userAgent        string
+	shared           bool
+	owner            retainedNativeOwner
+	recoveredPrivate bool
 }
 
 // An attachable private server remains the same owner across a socket
@@ -127,6 +128,7 @@ func (c *Client) adoptOwner(old *Client) {
 	if old != nil && old.owner != nil {
 		c.owner = old.owner
 		c.rpc.stop = old.rpc.stop
+		c.recoveredPrivate = old.recoveredPrivate
 	}
 }
 func (c *Client) retainedSocket() string {

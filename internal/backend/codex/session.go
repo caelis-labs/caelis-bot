@@ -512,6 +512,9 @@ func (s *Session) connect(ctx context.Context) error {
 		s.mu.Unlock()
 		return err
 	}
+	var recoveredPrivate ownerProcessIdentity
+	var reconnectPrivate bool
+	var recoveredEndpoint string
 	if s.client == nil && s.retainedOwner == nil && (s.binding.OwnerProcess != nil || s.binding.OwnerClosing || s.binding.OwnerUnavailable) {
 		life, err := s.reconcilePrivateOwnerLocked()
 		if err != nil || life != ownerAlive {
@@ -523,6 +526,7 @@ func (s *Session) connect(ctx context.Context) error {
 			}
 			return errors.New("原本机 Codex 已关闭，原请求与工具效果无法再核对；请明确恢复后开始新工作")
 		}
+		recoveredPrivate, recoveredEndpoint, reconnectPrivate = *s.binding.OwnerProcess, s.binding.OwnerEndpoint, true
 	}
 	if s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" {
 		c, id, pending := s.client, s.binding.ThreadID, s.binding.Pending != nil
@@ -649,8 +653,12 @@ func (s *Session) connect(ctx context.Context) error {
 	if retained != nil {
 		c.adoptOwner(retained)
 	}
+	if reconnectPrivate && !c.adoptRecoveredPrivateOwner(recoveredEndpoint, recoveredPrivate) {
+		c.detachForReconnect()
+		return s.connectionError("原本机 Codex 身份无法核实；原请求保持未知", errors.New("原私有 owner 的 socket 对端或启动身份不匹配"))
+	}
 	closeAttempt := func() {
-		if retained != nil {
+		if retained != nil || reconnectPrivate {
 			c.detachForReconnect() // A failed handshake does not stop the original owner.
 		} else {
 			c.Close()
@@ -1741,7 +1749,8 @@ cleanup:
 	unresolvedCapacityStop := s.binding.CapacityStopRequest != "" && s.binding.CapacityStopStatus == ""
 	ownerSettled := cleanupErr == nil && c.toolCleanupError() == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && !unresolvedCapacityStop && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown")
 	privateOwner := !c.UsesSharedServer()
-	if privateOwner && !ownerSettled {
+	verifyPrivateExit := privateOwner && (!ownerSettled || c.recoveredPrivate)
+	if verifyPrivateExit {
 		previous := s.binding
 		s.binding.OwnerClosing, s.binding.OwnerUnavailable = true, false
 		s.ownerUnavailableVerified = false
@@ -1764,12 +1773,15 @@ cleanup:
 	s.mu.Unlock()
 	c.Close()
 	s.mu.Lock()
-	if privateOwner && !ownerSettled {
+	if verifyPrivateExit {
 		if s.probePrivateOwnerLocked() == ownerGone {
-			previousClosing, previousUnavailable := s.binding.OwnerClosing, s.binding.OwnerUnavailable
-			s.binding.OwnerClosing, s.binding.OwnerUnavailable = false, true
+			previous := s.binding
+			s.binding.OwnerClosing, s.binding.OwnerUnavailable = false, !ownerSettled
+			if ownerSettled {
+				s.binding.OwnerEndpoint, s.binding.OwnerProcess = "", nil
+			}
 			if err := s.save(); err != nil {
-				s.binding.OwnerClosing, s.binding.OwnerUnavailable = previousClosing, previousUnavailable
+				s.binding = previous
 				endpointErr = err
 			} else {
 				s.ownerUnavailableVerified = true
