@@ -240,8 +240,14 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
  .settings-window .setup-progress { gap:12px; }
 }
 .settings-window .runtime-model-picker .runtime-model-choices { border:0; margin:0; padding:0; flex:1 1 auto; min-height:140px; overflow:hidden; }
-.runtime-model-picker .runtime-model-list-body { display:flex; flex-direction:column; height:100%; }
-.runtime-model-picker .runtime-model-list { flex:1; min-height:80px; overflow:auto; max-height:none; }
+.runtime-model-picker .runtime-model-list-body { display:flex; flex-direction:column; height:auto; max-height:320px; }
+.runtime-model-picker .runtime-model-list { flex:1; min-height:80px; overflow:auto; max-height:240px; }
 .runtime-model-picker .runtime-model-search-field,.runtime-model-picker .runtime-model-connect { flex-shrink:0; }
 .runtime-model-picker .model-parameters { max-height:200px; overflow:auto; }
 .runtime-model-picker .runtime-fast-toggle { width:auto; gap:8px; padding:6px 10px; }
+.settings-window :is(.runtime-worker-options,.runtime-permissions-disclosure,.model-parameters)>summary { display:flex; align-items:center; gap:8px; width:fit-content; border-radius:4px; }
+.settings-window :is(.runtime-worker-options,.runtime-permissions-disclosure,.model-parameters)[open]>summary svg { transform:rotate(90deg); }
+.settings-window .runtime-model-picker { height:auto; }
+.settings-window .runtime-model-picker .runtime-model-choices { flex:0 1 auto; max-height:320px; min-height:80px; }
+.settings-window .runtime-model-search-field input { border:0; background:transparent; height:32px; padding:0; box-shadow:none; }
+.settings-window .runtime-model-connect { align-self:flex-start; text-align:left; width:auto; margin-top:10px; }

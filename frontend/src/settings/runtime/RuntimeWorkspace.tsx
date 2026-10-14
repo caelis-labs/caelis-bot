@@ -44,7 +44,7 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, preparation,a
  };
  const caelis = view?.profile.runtime === 'caelis';
  const choiceRequired = !view?.hasRuntimeChoice;
- const name = choiceRequired ? t('runtime.noConnection') : caelis ? t('runtime.modelConnections') : 'ChatGPT / Codex';
+ const name = choiceRequired ? t('runtime.noConnection') : caelis ? 'Caelis' : 'ChatGPT / Codex';
  const configured = view?.setup.state === 'ready' && !choiceRequired;
  const reconnectable = configured && view?.session?.connection === 'offline' && view.session.issue !== 'setup_required';
  const sessionLabel = view ? t(botSessionStatusKey(view.setup,view.session,!choiceRequired)) : t('runtime.statusUnknown');
@@ -67,7 +67,7 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, preparation,a
     {!configured ? <p className="settings-note">{t(setupStatusKey(view.setup))}</p> : view.connections.length ? view.connections.map(group => <button className="runtime-connection-entry" key={group.id} onClick={event=>{event.currentTarget.focus();setGroupID(group.id);}}><span><strong>{group.name}</strong><small>{group.kind === 'agent' ? t('runtime.externalAgent') : t('runtime.modelCount', { count: group.models.length })}</small></span><SettingsChevron/></button>) : <div className="runtime-empty">{t('runtime.noConnections')}</div>}
     <button className="text-action runtime-team-entry" onClick={event=>{event.currentTarget.focus();setTeamOpen(true);}}>{t('runtime.tabAdvanced')}<SettingsChevron/></button>
    </>}
-   <details className="runtime-permissions-disclosure"><summary>{t('settings.execution')}</summary>{executionSettings}</details>
+   <details className="runtime-permissions-disclosure"><summary>{t('settings.execution')}<SettingsChevron/></summary>{executionSettings}</details>
    <div className="runtime-page-footer"><button className="text-action" disabled={loading} onClick={() => void refresh()}><ArrowClockwiseIcon aria-hidden="true" size={14}/>{t('runtime.refreshConfig')}</button>{(loading || notice) && <p className="settings-note" role="status">{loading ? t('runtime.refreshing') : notice}</p>}</div>
    {error && <p role="alert" className="inline-error">{error}</p>}
   </>}
