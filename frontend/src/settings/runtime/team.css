@@ -41,3 +41,9 @@
 .runtime-team-plan-dialog>.text-action{margin-top:16px}
 @media(max-width:680px){.runtime-team-card-grid{grid-template-columns:1fr}.settings-window .runtime-team-card{min-height:0}.runtime-team-role-dialog .runtime-team-binding{grid-template-columns:1fr;gap:6px}.runtime-team-plan-list>div{flex-wrap:wrap}.runtime-team-plan-list>div>div{flex-basis:100%}}
 @media(max-width:480px){.settings-window.runtime-team-model-editing .runtime-model-popover .runtime-reset-parameters{flex-basis:100%;text-align:left}.settings-window.runtime-team-model-editing .runtime-model-popover .runtime-model-actions>button:not(.runtime-reset-parameters),.settings-window .runtime-team-plan-dialog .setup-end>button{flex:1 1 110px;min-width:0}.runtime-team-plan-dialog .setup-end{flex-wrap:wrap}}
+@media(prefers-color-scheme:dark){
+ .settings-window.runtime-team-model-editing .runtime-model-popover .runtime-model-actions button.primary,
+ .settings-window .runtime-team-plan-dialog .setup-end button.primary{background:var(--caelis-raised);border-color:var(--caelis-focus)}
+ .settings-window.runtime-team-model-editing .runtime-model-popover .runtime-model-actions button.primary:hover:not(:disabled),
+ .settings-window .runtime-team-plan-dialog .setup-end button.primary:hover:not(:disabled){background:var(--caelis-hover)}
+}
