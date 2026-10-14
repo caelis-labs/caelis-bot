@@ -11,7 +11,7 @@ import (
 // acceptance only supplies an exact target; it never authorizes another Turn.
 // Called with s.mu held, after the binding has been written successfully.
 func (s *Session) queueCapacityStopsLocked() {
-	if s.client == nil || s.state.Connection != "ready" || s.closed || s.closing {
+	if s.client == nil || s.state.Connection != "ready" || s.closed || s.closing || s.binding.OwnerUnavailable {
 		return
 	}
 	if s.capacityStopReconciling == nil {
@@ -29,7 +29,7 @@ func (s *Session) queueCapacityStopsLocked() {
 		queue("bot", s.binding.CapacityStopThread, s.binding.CapacityStopRequest, s.binding.CapacityStopTurn)
 	}
 	for id, task := range s.binding.Tasks {
-		if task != nil && task.Thread != "" && task.StopPendingRequest != "" && task.StopPendingTurn != "" && task.StopPendingStatus == "" &&
+		if task != nil && !s.binding.LostOwnerTasks[id] && task.Thread != "" && task.StopPendingRequest != "" && task.StopPendingTurn != "" && task.StopPendingStatus == "" &&
 			task.Requests[task.StopPendingRequest].Outcome == "accepted" {
 			queue("task:"+id, task.Thread, task.StopPendingRequest, task.StopPendingTurn)
 		}

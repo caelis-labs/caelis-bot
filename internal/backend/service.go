@@ -540,7 +540,23 @@ func (s *Service) connect(ctx context.Context, fence string) error {
 	s.recoveryFlight = flight
 	s.recoveryGeneration++
 	s.recoveryMu.Unlock()
-	err := s.engine.Connect(workCtx)
+	engine := s.engine
+	var err error
+	if fence != "" {
+		if recovery, ok := engine.(interface {
+			RecoverUnavailableOwner(context.Context) (bool, error)
+		}); ok {
+			var handled bool
+			handled, err = recovery.RecoverUnavailableOwner(workCtx)
+			if !handled {
+				err = engine.Connect(workCtx)
+			}
+		} else {
+			err = engine.Connect(workCtx)
+		}
+	} else {
+		err = engine.Connect(workCtx)
+	}
 	cancel()
 	s.recoveryMu.Lock()
 	flight.err = err

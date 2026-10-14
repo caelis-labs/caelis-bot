@@ -25,6 +25,12 @@ func recoveryCallbackID(nonce, fence string, window int64) string {
 
 func recoveryWindow() int64 { return time.Now().Unix() / int64((15 * time.Minute).Seconds()) }
 
+func recoveryKeyboard(nonce, fence string, window int64, label string) *tg.InlineKeyboardMarkup {
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{{
+		Text: label, CallbackData: recoveryCallbackID(nonce, fence, window),
+	}}}}
+}
+
 func (b *Bridge) mirrorRecovery(ctx context.Context, c client, snapshot api.Snapshot) {
 	state := b.recoveryState()
 	b.mu.Lock()
@@ -46,9 +52,13 @@ func (b *Bridge) mirrorRecovery(ctx context.Context, c client, snapshot api.Snap
 	var keys *tg.InlineKeyboardMarkup
 	if state.Manual && !state.Automatic && !state.InProgress && state.Fence != "" && b.host.Recover != nil && !ready(snapshot) {
 		text = b.recoveryMessage(snapshot)
-		keys = &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{{
-			Text: b.text("Reconnect", "重新连接"), CallbackData: recoveryCallbackID(nonce, state.Fence, recoveryWindow()),
-		}}}}
+		buttonText := b.text("Reconnect", "重新连接")
+		if snapshot.ConnectionIssue == "owner_unavailable" {
+			buttonText = b.text("Start new connection", "建立新连接")
+		} else if snapshot.ConnectionIssue == "owner_lifecycle_unknown" {
+			buttonText = b.text("Check original owner", "核对原连接")
+		}
+		keys = recoveryKeyboard(nonce, state.Fence, recoveryWindow(), buttonText)
 	} else if !state.Automatic && !state.InProgress && snapshot.Connection == "login" {
 		text = b.text("Sign in to the local Runtime on your Mac to continue recovery.", "请先在 Mac 登录本机 Runtime，再继续恢复。")
 	} else if !ready(snapshot) {
@@ -62,6 +72,10 @@ func (b *Bridge) mirrorRecovery(ctx context.Context, c client, snapshot api.Snap
 
 func (b *Bridge) recoveryMessage(snapshot api.Snapshot) string {
 	switch snapshot.ConnectionIssue {
+	case "owner_lifecycle_unknown":
+		return b.text("Telegram is connected, but the previous Runtime owner's process status cannot be verified. The original request and tool effects remain unknown. Check the original connection on your Mac; no replacement owner or old work will be started from an unverified result.", "Telegram 已连接，但原 Runtime 进程状态无法核实。原请求和工具效果仍未知。可在 Mac 核对原连接；未经核实不会建立替代连接或重做旧工作。")
+	case "owner_unavailable":
+		return b.text("Telegram is connected, but the previous Runtime owner has stopped. The original request and tool effects remain unconfirmed and their records are retained. Start a new connection to continue; this will not rerun the old work or interrupt. Keep the Mac app running.", "Telegram 已连接，但原 Runtime 已停止。原请求及工具效果仍未确认，原记录已保留。可建立新连接继续使用；不会重做旧任务或重发旧中断。请保持 Mac 应用运行。")
 	case "resource_exhausted":
 		return b.text("Telegram is connected, but the local Runtime lacks connection resources. Free resources on your Mac, then reconnect. Unknown work stays on its original receipt.", "Telegram 已连接，但本机 Runtime 连接资源不足。请在 Mac 释放资源后重新连接；结果未知的工作保留原收据核对。")
 	case "runtime_missing":
@@ -86,7 +100,11 @@ func (b *Bridge) recoveryCallback(ctx context.Context, c client, q *tg.CallbackQ
 		!record.Skip && record.Keyboard != "" && len(record.IDs) > 0 &&
 		record.IDs[len(record.IDs)-1] == message.MessageID &&
 		b.recoveryClaim != state.Fence
+	ownerUnavailable := false
 	if valid {
+		window := recoveryWindow()
+		ownerUnavailable = record.Keyboard == keyboardDigest(recoveryKeyboard(b.recoveryNonce, state.Fence, window, "Start new connection")) ||
+			record.Keyboard == keyboardDigest(recoveryKeyboard(b.recoveryNonce, state.Fence, window, "建立新连接"))
 		b.recoveryClaim = state.Fence
 	}
 	b.mu.Unlock()
@@ -96,7 +114,11 @@ func (b *Bridge) recoveryCallback(ctx context.Context, c client, q *tg.CallbackQ
 		cancel()
 		return true
 	}
-	_ = c.Answer(answerCtx, q.ID, b.text("Checking the original connection…", "正在核对原连接…"))
+	answer := b.text("Checking the original connection…", "正在核对原连接…")
+	if ownerUnavailable {
+		answer = b.text("Saving the previous record and starting a new connection…", "正在保留原记录并建立新连接…")
+	}
+	_ = c.Answer(answerCtx, q.ID, answer)
 	cancel()
 	if ctx.Err() != nil {
 		return true
@@ -115,6 +137,12 @@ func (b *Bridge) recoveryCallback(ctx context.Context, c client, q *tg.CallbackQ
 		text := b.text("Reconnect finished. Check /status for the original work.", "本次重连已结束，请查看 /status 核对原工作。")
 		if err != nil {
 			text = b.text("Reconnect could not finish. Bot is online; the original work is retained and recovery can be retried.", "本次重连未能完成。Bot 在线，原工作已保留，可以继续重试恢复。")
+		}
+		if ownerUnavailable {
+			text = b.text("The new connection attempt finished. Earlier work remains unconfirmed and its original record is retained; no old task or interrupt was replayed. Check /status.", "新连接尝试已结束。旧任务结果仍未确认，原记录已保留；没有重做旧任务或重发旧中断。请查看 /status。")
+			if err != nil {
+				text = b.text("The new connection could not be established. Earlier work remains unconfirmed and its original record is retained. Check /status and retry recovery.", "新连接未能建立。旧任务结果仍未确认，原记录已保留。请查看 /status 并重试恢复。")
+			}
 		}
 		feedback, finish := context.WithTimeout(ctx, 3*time.Second)
 		defer finish()

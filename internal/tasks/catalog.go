@@ -116,7 +116,7 @@ func (m *Manager) activeLocked() int {
 func (m *Manager) reservedLocked() int {
 	n := 0
 	for _, r := range m.state.Records {
-		if m.owns(r) && r.View.Status == "unknown" && r.Activity != "active" {
+		if m.owns(r) && r.View.Status == "unknown" && r.Activity != "active" && r.Activity != api.WorkActivityOwnerUnavailable {
 			n++
 		}
 	}

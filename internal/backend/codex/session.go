@@ -28,7 +28,16 @@ type binding struct {
 	Artifacts  map[string]string `json:"artifacts,omitempty"`
 	// Exact native owner used by this binding. An update detaches its observer;
 	// the next process must reconcile here before accepting new work.
-	OwnerEndpoint      string                          `json:"ownerEndpoint,omitempty"`
+	OwnerEndpoint string                `json:"ownerEndpoint,omitempty"`
+	OwnerProcess  *ownerProcessIdentity `json:"ownerProcess,omitempty"`
+	// Closing records intent before the private process is stopped. It does not
+	// prove that the owner exited after a crash or failed local write.
+	OwnerClosing bool `json:"ownerClosing,omitempty"`
+	// Ordinary Close stops a private owner. Its old receipts remain evidence,
+	// but that owner can no longer be queried or used to resume its threads.
+	OwnerUnavailable   bool                            `json:"ownerUnavailable,omitempty"`
+	LostOwners         []lostOwnerRecord               `json:"lostOwners,omitempty"`
+	LostOwnerTasks     map[string]bool                 `json:"lostOwnerTasks,omitempty"`
 	PendingApprovalIDs []string                        `json:"pendingApprovalIds,omitempty"`
 	RuntimeVersion     string                          `json:"runtimeVersion,omitempty"`
 	TrustWriteUnknown  bool                            `json:"trustWriteUnknown,omitempty"`
@@ -71,6 +80,27 @@ type toolRenewalRecord struct {
 type pendingSubmission struct {
 	ID     string `json:"id"`
 	TurnID string `json:"turnId"`
+}
+type lostOwnerRecord struct {
+	Endpoint       string                `json:"endpoint"`
+	Process        *ownerProcessIdentity `json:"process,omitempty"`
+	Thread         string                `json:"thread"`
+	LastReceipt    *api.Receipt          `json:"lastReceipt,omitempty"`
+	Pending        *pendingSubmission    `json:"pending,omitempty"`
+	StopRequest    string                `json:"stopRequest,omitempty"`
+	StopThread     string                `json:"stopThread,omitempty"`
+	StopTurn       string                `json:"stopTurn,omitempty"`
+	StopPhase      string                `json:"stopPhase,omitempty"`
+	StopStatus     string                `json:"stopStatus,omitempty"`
+	StopAccepted   bool                  `json:"stopAccepted,omitempty"`
+	StopState      string                `json:"stopState,omitempty"`
+	StopRuns       map[string]string     `json:"stopRuns,omitempty"`
+	CleanupTargets []string              `json:"cleanupTargets,omitempty"`
+	Children       []string              `json:"children,omitempty"`
+	PastThreads    []string              `json:"pastThreads,omitempty"`
+	ApprovalIDs    []string              `json:"approvalIds,omitempty"`
+	ToolRenewal    *toolRenewalRecord    `json:"toolRenewal,omitempty"`
+	TaskIDs        []string              `json:"taskIds,omitempty"`
 }
 type SessionOptions struct {
 	Diagnostics                          *diagnosticlog.Logger
@@ -176,6 +206,8 @@ type Session struct {
 	capacityStopReconciling  map[string]bool
 	stopTerminalSavePending  map[string]bool
 	stopTerminalSaveRetrying bool
+	ownerUnavailableVerified bool
+	ownerLifecycleProbe      func(ownerProcessIdentity) ownerLifecycle
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -270,8 +302,8 @@ func (s *Session) resetProjection() {
 	for _, id := range s.binding.Children {
 		s.children[id] = true
 	}
-	for _, task := range s.binding.Tasks {
-		if task != nil && task.Thread != "" {
+	for id, task := range s.binding.Tasks {
+		if task != nil && task.Thread != "" && !s.binding.LostOwnerTasks[id] {
 			s.children[task.Thread] = true
 		}
 	}
@@ -340,7 +372,15 @@ func (s *Session) update() {
 			s.backgroundResultsDirty = false
 		}
 	}
-	if s.stopTerminalSavePending["bot"] {
+	if s.binding.OwnerClosing || s.binding.OwnerUnavailable && !s.ownerUnavailableVerified {
+		s.state.Phase = "unknown"
+		s.state.ConnectionIssue = "owner_lifecycle_unknown"
+		s.state.Message = "原本机 Codex 的进程状态尚未核实；原请求与工具效果保持未知，不会建立替代连接"
+	} else if s.binding.OwnerUnavailable {
+		s.state.Phase = "unknown"
+		s.state.ConnectionIssue = "owner_unavailable"
+		s.state.Message = "原本机 Codex 已随退出关闭，原请求和工具效果无法再核对；记录已保留，请明确恢复后再开始新工作"
+	} else if s.stopTerminalSavePending["bot"] {
 		s.state.Phase = "unknown"
 		s.state.Message = "原回合终态已观察到，但本地记录尚未保存；正在重试，暂不确认停止结果"
 	} else if s.binding.CapacityStopRequest != "" && (s.binding.CapacityStopStatus == "" || s.lastTurn == s.binding.CapacityStopTurn) {
@@ -352,6 +392,8 @@ func (s *Session) update() {
 		} else {
 			s.state.Message = "停止请求未确认及时生效；原回合实际状态为" + s.binding.CapacityStopStatus
 		}
+	} else if len(s.binding.LostOwners) > 0 && s.state.Connection == "ready" && s.state.Message == "" && s.run == "" {
+		s.state.Message = "新连接已可使用；此前关闭的原 owner 的未确认请求与工具效果仍无法核对，原记录已保留"
 	}
 	s.state.Revision++
 	s.state.CanSend = s.state.Connection == "ready" && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && s.run == "" && !s.hasBlockingChildren() && !s.hasConversationPrompt() && s.state.Phase != "unknown" && !s.closed && !s.closing
@@ -468,6 +510,22 @@ func (s *Session) connect(ctx context.Context) error {
 		s.mu.Unlock()
 		return err
 	}
+	var recoveredPrivate ownerProcessIdentity
+	var reconnectPrivate bool
+	var recoveredEndpoint string
+	if s.client == nil && s.retainedOwner == nil && (s.binding.OwnerProcess != nil || s.binding.OwnerClosing || s.binding.OwnerUnavailable) {
+		life, err := s.reconcilePrivateOwnerLocked()
+		if err != nil || life != ownerAlive {
+			s.state.Connection = "offline"
+			s.update()
+			s.mu.Unlock()
+			if err != nil {
+				return err
+			}
+			return errors.New("原本机 Codex 已关闭，原请求与工具效果无法再核对；请明确恢复后开始新工作")
+		}
+		recoveredPrivate, recoveredEndpoint, reconnectPrivate = *s.binding.OwnerProcess, s.binding.OwnerEndpoint, true
+	}
 	if s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" {
 		c, id, pending := s.client, s.binding.ThreadID, s.binding.Pending != nil
 		cleanup := append([]string(nil), s.binding.CleanupTargets...)
@@ -534,6 +592,13 @@ func (s *Session) connect(ctx context.Context) error {
 		retained = old
 		s.retainedOwner = old
 	}
+	if retained != nil {
+		reconnectPrivate = true
+		recoveredEndpoint = retained.retainedSocket()
+		if id := retained.privateOwnerIdentity(); id != nil {
+			recoveredPrivate = *id
+		}
+	}
 	// A live owner in another state may still own background tools.
 	if old != nil && old.Err() == nil && s.bound {
 		if !old.UsesSharedServer() && s.hasUnresolvedTasks() {
@@ -590,11 +655,12 @@ func (s *Session) connect(ctx context.Context) error {
 	if err != nil {
 		return s.connectionError("无法连接本机 Codex，请检查连接设置后重试", err)
 	}
-	if retained != nil {
-		c.adoptOwner(retained)
+	if reconnectPrivate && !c.reattachPrivateOwner(retained, recoveredEndpoint, recoveredPrivate) {
+		c.detachForReconnect()
+		return s.connectionError("原本机 Codex 身份无法核实；原请求保持未知", errors.New("原私有 owner 的 socket 对端或启动身份不匹配"))
 	}
 	closeAttempt := func() {
-		if retained != nil {
+		if reconnectPrivate {
 			c.detachForReconnect() // A failed handshake does not stop the original owner.
 		} else {
 			c.Close()
@@ -1678,28 +1744,63 @@ cleanup:
 	// Ordinary Close deliberately stops its private owner. An idle, fully
 	// reconciled binding must not pin the next launch to that dead socket.
 	unknownTaskReceipt := false
-	for _, task := range s.binding.Tasks {
-		if task != nil && !task.Retired && (taskHasUnknownReceipt(task) || task.StopPendingRequest != "" && task.StopPendingStatus == "") {
+	for id, task := range s.binding.Tasks {
+		if task != nil && !s.binding.LostOwnerTasks[id] && !task.Retired && (taskHasUnknownReceipt(task) || task.StopPendingRequest != "" && task.StopPendingStatus == "") {
 			unknownTaskReceipt = true
 			break
 		}
 	}
 	unresolvedCapacityStop := s.binding.CapacityStopRequest != "" && s.binding.CapacityStopStatus == ""
-	if !c.UsesSharedServer() && cleanupErr == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && !unresolvedCapacityStop && s.binding.Pending == nil && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown") {
-		previous := s.binding.OwnerEndpoint
-		s.binding.OwnerEndpoint = ""
+	ownerSettled := cleanupErr == nil && c.toolCleanupError() == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && !unresolvedCapacityStop && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown")
+	privateOwner := !c.UsesSharedServer()
+	verifyPrivateExit := privateOwner && (!ownerSettled || c.recoveredPrivate)
+	if verifyPrivateExit {
+		previous := s.binding
+		s.binding.OwnerClosing, s.binding.OwnerUnavailable = true, false
+		s.ownerUnavailableVerified = false
+		if s.binding.OwnerProcess == nil {
+			s.binding.OwnerProcess = c.privateOwnerIdentity()
+		}
 		if err := s.save(); err != nil {
-			s.binding.OwnerEndpoint = previous
+			s.binding = previous
 			endpointErr = err
+		}
+	} else if privateOwner {
+		previousEndpoint, previousProcess := s.binding.OwnerEndpoint, s.binding.OwnerProcess
+		s.binding.OwnerEndpoint = ""
+		s.binding.OwnerProcess = nil
+		if err := s.save(); err != nil {
+			s.binding.OwnerEndpoint, s.binding.OwnerProcess = previousEndpoint, previousProcess
+			endpointErr = err
+		}
+	}
+	s.mu.Unlock()
+	c.Close()
+	s.mu.Lock()
+	if verifyPrivateExit {
+		if s.probePrivateOwnerLocked() == ownerGone {
+			previous := s.binding
+			s.binding.OwnerClosing, s.binding.OwnerUnavailable = false, !ownerSettled
+			if ownerSettled {
+				s.binding.OwnerEndpoint, s.binding.OwnerProcess = "", nil
+			}
+			if err := s.save(); err != nil {
+				s.binding = previous
+				endpointErr = err
+			} else {
+				s.ownerUnavailableVerified = true
+				endpointErr = nil // The final fact is durable even if the intent write failed.
+			}
+		} else if endpointErr == nil {
+			endpointErr = errors.Join(errors.New("原 owner 进程退出尚未确认"), c.toolCleanupError())
 		}
 	}
 	s.closed = true
 	s.state.Connection = "offline"
 	s.update()
 	s.mu.Unlock()
-	c.Close()
 	if endpointErr != nil {
-		return fmt.Errorf("连接已关闭，但原生 owner 绑定未能清除: %w", endpointErr)
+		return fmt.Errorf("连接已关闭，但原 owner 退出状态未能确认或保存: %w", endpointErr)
 	}
 	if cleanupErr != nil || c.toolCleanupError() != nil {
 		return errors.New("连接已关闭，但后台工具的完整清理未能确认")

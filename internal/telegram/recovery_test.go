@@ -345,6 +345,120 @@ func TestTelegramRecoveryButtonChecksOriginalOwnerAndMessage(t *testing.T) {
 	}
 }
 
+type unavailableRecoveryEngine struct {
+	api.Engine
+	mu           sync.Mutex
+	snapshot     api.Snapshot
+	recovery     api.RecoveryState
+	recoverCalls int
+	connectCalls int
+}
+
+func (e *unavailableRecoveryEngine) Snapshot() api.Snapshot {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.snapshot
+}
+
+func (e *unavailableRecoveryEngine) RecoveryState() api.RecoveryState {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.recovery
+}
+
+func (e *unavailableRecoveryEngine) Connect(context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.connectCalls++
+	return nil
+}
+
+func (e *unavailableRecoveryEngine) RecoverUnavailableOwner(context.Context) (bool, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.recoverCalls++
+	if e.snapshot.ConnectionIssue != "owner_unavailable" {
+		return true, api.ErrRecoveryPending
+	}
+	e.snapshot = api.Snapshot{Connection: "ready", Phase: "idle", CanSend: true}
+	e.recovery = api.RecoveryState{Fence: "new-owner:10"}
+	return true, nil
+}
+
+func TestTelegramUnavailableOwnerButtonUsesFencedNewConnectionRoute(t *testing.T) {
+	e := &unavailableRecoveryEngine{
+		snapshot: api.Snapshot{Connection: "offline", ConnectionIssue: "owner_unavailable", Phase: "unknown"},
+		recovery: api.RecoveryState{Fence: "lost-owner:9", Manual: true},
+	}
+	s := backend.NewService(e, nil, nil, nil, nil)
+	b, f := testBridge(t, Host{
+		Snapshot: s.Snapshot,
+		Recovery: s.RecoveryState,
+		Recover:  s.RecoverIfCurrent,
+		Chinese:  func() bool { return true },
+	})
+	paired(b)
+	if err := s.RecoverIfCurrent(t.Context(), "wrong-owner:0"); err == nil {
+		t.Fatal("stale owner fence admitted recovery")
+	}
+	b.mirrorRecovery(t.Context(), f, s.Snapshot())
+	f.mu.Lock()
+	if len(f.keyboards) != 1 || f.keyboards[0] == nil {
+		f.mu.Unlock()
+		t.Fatal("unavailable owner recovery button missing")
+	}
+	button := f.keyboards[0].InlineKeyboard[0][0]
+	message := f.texts[0]
+	f.mu.Unlock()
+	if button.Text != "建立新连接" || !strings.Contains(message, "原请求及工具效果仍未确认") ||
+		!strings.Contains(message, "不会重做旧任务或重发旧中断") || strings.Contains(message, "重新连接原工作") {
+		t.Fatalf("unavailable owner message or action misstates recovery: %q / %q", button.Text, message)
+	}
+	q := recoveryQuery("lost-owner-callback", button.CallbackData, 1)
+	b.callback(t.Context(), f, q)
+	b.callback(t.Context(), f, q)
+	b.recoveryWait.Wait()
+	e.mu.Lock()
+	recoverCalls, connectCalls := e.recoverCalls, e.connectCalls
+	e.mu.Unlock()
+	if recoverCalls != 1 || connectCalls != 0 {
+		t.Fatalf("recovery route calls = %d, ordinary Connect calls = %d", recoverCalls, connectCalls)
+	}
+	f.mu.Lock()
+	texts := append([]string(nil), f.texts...)
+	f.mu.Unlock()
+	foundResult := false
+	for _, value := range texts {
+		if strings.Contains(value, "旧任务结果仍未确认") && strings.Contains(value, "没有重做旧任务或重发旧中断") {
+			foundResult = true
+		}
+	}
+	if !foundResult {
+		t.Fatalf("recovery result hid the original uncertainty: %q", texts)
+	}
+	if err := s.RecoverIfCurrent(t.Context(), "lost-owner:9:0"); err == nil {
+		t.Fatal("old recovery button remained valid after the new connection")
+	}
+}
+
+func TestTelegramUnverifiedOwnerOffersOnlyOriginalCheck(t *testing.T) {
+	snapshot := api.Snapshot{Connection: "offline", ConnectionIssue: "owner_lifecycle_unknown", Phase: "unknown"}
+	b, f := testBridge(t, Host{
+		Snapshot: func() api.Snapshot { return snapshot },
+		Recovery: func() api.RecoveryState { return api.RecoveryState{Fence: "uncertain-owner:1", Manual: true} },
+		Recover:  func(context.Context, string) error { return api.ErrRecoveryPending },
+		Chinese:  func() bool { return true },
+	})
+	paired(b)
+	b.mirrorRecovery(t.Context(), f, snapshot)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.keyboards) != 1 || f.keyboards[0] == nil || f.keyboards[0].InlineKeyboard[0][0].Text != "核对原连接" ||
+		!strings.Contains(f.texts[0], "原请求和工具效果仍未知") || !strings.Contains(f.texts[0], "未经核实不会建立替代连接") {
+		t.Fatal("unverified original owner was offered a replacement connection", f.texts, f.keyboards)
+	}
+}
+
 func TestTelegramPollsRecoveryControlWhileRuntimeOffline(t *testing.T) {
 	var calls atomic.Int32
 	started := make(chan struct{}, 1)

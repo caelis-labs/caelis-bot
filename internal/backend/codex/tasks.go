@@ -117,8 +117,8 @@ func (s *Session) workerParams(workspace, instructions string, t *taskRecord) ma
 }
 
 func (s *Session) taskByThread(id string) *taskRecord {
-	for _, t := range s.binding.Tasks {
-		if t != nil && t.Thread == id && id != "" {
+	for taskID, t := range s.binding.Tasks {
+		if t != nil && !s.binding.LostOwnerTasks[taskID] && t.Thread == id && id != "" {
 			return t
 		}
 	}
@@ -133,8 +133,8 @@ func (s *Session) hasBlockingChildren() bool {
 	return false
 }
 func (s *Session) hasUnresolvedTasks() bool {
-	for _, task := range s.binding.Tasks {
-		if task != nil && !task.Retired && (task.Pending != "" || taskHasUnknownReceipt(task) || !terminal(task.View.Status)) {
+	for id, task := range s.binding.Tasks {
+		if task != nil && !s.binding.LostOwnerTasks[id] && !task.Retired && (task.Pending != "" || taskHasUnknownReceipt(task) || !terminal(task.View.Status)) {
 			return true
 		}
 	}
@@ -152,10 +152,12 @@ func (s *Session) WorkStates() []api.WorkState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := []api.WorkState{}
-	for _, t := range s.binding.Tasks {
+	for id, t := range s.binding.Tasks {
 		v := s.taskView(t)
 		activity := t.Activity
-		if s.state.Connection != "ready" {
+		if s.binding.LostOwnerTasks[id] {
+			activity = api.WorkActivityOwnerUnavailable
+		} else if s.state.Connection != "ready" {
 			activity = ""
 		}
 		originalStopCurrent := t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run)
@@ -182,6 +184,13 @@ func taskRequestValid(id, text string) bool {
 }
 func (s *Session) taskView(t *taskRecord) api.Task {
 	v := t.View
+	if s.binding.LostOwnerTasks[v.ID] {
+		if !terminal(v.Status) || t.StopPendingRequest != "" && t.StopPendingStatus == "" {
+			v.Status = "unknown"
+			v.Result = "原本机 Codex 已随退出关闭；此任务的请求与工具效果无法再核对，原回执已保留"
+		}
+		return v
+	}
 	if t.Retired {
 		v.Status = "unavailable"
 		return v
@@ -423,13 +432,18 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 		return api.Task{}, errors.New("只能继续 Bot 创建的任务")
 	}
 	if receipt, ok := t.Requests[in.RequestID]; ok {
-		v := t.View
+		v := s.taskView(t)
 		v.Outcome = receipt.Outcome
 		s.mu.Unlock()
 		if receipt.Fingerprint != opaque(in.Prompt) {
 			return v, errors.New("请求标识已用于其他内容")
 		}
 		return v, nil
+	}
+	if s.binding.LostOwnerTasks[in.ID] {
+		v := s.taskView(t)
+		s.mu.Unlock()
+		return v, errors.New("原 owner 已关闭，不能向新连接重发或续接旧任务")
 	}
 	if t.Retired {
 		v := s.taskView(t)
@@ -732,13 +746,18 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 		s.mu.Unlock()
 		return api.Task{}, errors.New("只能读取 Bot 创建的任务")
 	}
+	if s.binding.LostOwnerTasks[id] {
+		v := s.taskView(t)
+		s.mu.Unlock()
+		return v, nil
+	}
 	if t.Retired {
 		v := s.taskView(t)
 		s.mu.Unlock()
 		return v, nil
 	}
 	if t.Thread == "" || c == nil || s.state.Connection != "ready" {
-		v := t.View
+		v := s.taskView(t)
 		s.mu.Unlock()
 		return v, errors.New("任务创建或连接结果尚未确认，不会自动重建")
 	}
@@ -748,10 +767,10 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err != nil {
-		return t.View, err
+		return s.taskView(t), err
 	}
 	if thread.ID != t.Thread {
-		return t.View, ErrProtocol
+		return s.taskView(t), ErrProtocol
 	}
 	newlyRetired := false
 	retiredPreviousStatus, retiredPreviousActivity := "", ""
@@ -794,7 +813,7 @@ func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {
 			t.Retired = false
 			t.View.Status, t.Activity = retiredPreviousStatus, retiredPreviousActivity
 		}
-		return t.View, err
+		return s.taskView(t), err
 	}
 	if newlyRetired {
 		delete(s.childRuns, t.Thread)
@@ -815,6 +834,11 @@ func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
 	if t == nil {
 		s.mu.Unlock()
 		return api.Task{}, errors.New("task is not owned by this Bot")
+	}
+	if s.binding.LostOwnerTasks[id] {
+		v := s.taskView(t)
+		s.mu.Unlock()
+		return v, errors.New("原 owner 已关闭，不能在新连接核对或退休旧任务")
 	}
 	if t.Retired {
 		v := s.taskView(t)
@@ -854,7 +878,7 @@ func (s *Session) RetireWork(ctx context.Context, id string) (api.Task, error) {
 func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 	s.mu.Lock()
 	cancelledCapacity := false
-	if t := s.binding.Tasks[id]; t != nil && s.capacityThread == t.Thread && s.capacityCancel != nil {
+	if t := s.binding.Tasks[id]; t != nil && !s.binding.LostOwnerTasks[id] && s.capacityThread == t.Thread && s.capacityCancel != nil {
 		if s.capacityDispatchStarted && s.capacityRequest != "" {
 			previous, previousTurn, previousPhase, previousStatus := t.StopPendingRequest, t.StopPendingTurn, t.StopPendingPhase, t.StopPendingStatus
 			t.StopPendingRequest = s.capacityRequest
@@ -883,6 +907,11 @@ func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {
 	if t == nil {
 		s.mu.Unlock()
 		return api.Task{}, errors.New("只能停止 Bot 创建的任务")
+	}
+	if s.binding.LostOwnerTasks[id] {
+		v := s.taskView(t)
+		s.mu.Unlock()
+		return v, errors.New("原 owner 已关闭，不能向新连接发送旧中断")
 	}
 	if t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run) {
 		v, status := s.taskView(t), t.StopPendingStatus
