@@ -251,3 +251,26 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .settings-window .runtime-model-picker .runtime-model-choices { flex:0 1 auto; max-height:320px; min-height:80px; }
 .settings-window .runtime-dialog .runtime-model-search-field input:not([type=checkbox]):not([type=radio]):not([type=range]) { border:0; background:transparent; height:32px; padding:0; box-shadow:none; }
 .settings-window .runtime-model-connect { align-self:flex-start; text-align:left; width:auto; margin-top:10px; }
+
+/* Stable page categories; full-width rows keep labels and controls together. */
+.settings-window .runtime-workspace { max-width:960px; margin:0; }
+.settings-window .runtime-workspace-tabs { gap:28px; margin:0 0 24px; }
+.settings-window .runtime-workspace-tabs button { font-size:13px; }
+.settings-window .runtime-workspace [hidden] { display:none; }
+.settings-window .runtime-model-section { margin:20px 0; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--caelis-raised); }
+.settings-window .runtime-model-section .runtime-setting-row { margin:0; padding:16px 20px; min-height:72px; border-bottom:1px solid var(--line); }
+.settings-window .runtime-model-section .runtime-setting-row:last-child { border-bottom:0; }
+.settings-window .runtime-model-section h2 { padding:16px 20px 4px; margin:0; color:var(--muted); font-size:12px; }
+.settings-window .runtime-model-summary { background:transparent; border:1px solid var(--line); border-radius:8px; min-width:210px; }
+.settings-window .runtime-connection-entry { border:1px solid var(--line); border-radius:10px; background:var(--caelis-raised); margin:8px 0; padding:16px 20px; }
+.settings-window .runtime-team-entry { border:1px solid var(--line); border-radius:10px; background:var(--caelis-raised); padding:16px 20px; margin:0; }
+.settings-window .runtime-page-footer { margin-top:24px; }
+.settings-window .runtime-workspace .execution-settings { margin-top:0; }
+.settings-window .runtime-workspace .runtime-section-title { margin-top:0; }
+.settings-window .runtime-workspace .runtime-team small { display:none; }
+@media(max-width:800px) {
+ .settings-window .runtime-model-section .runtime-setting-row { padding:14px; }
+ .settings-window .runtime-model-summary { min-width:160px; }
+}
+
+.settings-window .runtime-model-picker .model-parameters { border-top:1px solid var(--line); margin-top:16px; padding-top:12px; }

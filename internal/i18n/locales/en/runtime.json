@@ -69,7 +69,7 @@
   "switchConnection": "Change connection",
   "completeSetup": "Complete connection setup →",
   "tabModelsAndTeam": "Models & Team",
-  "tabModels": "Conversation",
+  "tabModels": "Models in use",
   "tabConnections": "Connections",
   "tabAdvanced": "Advanced",
   "botConversation": "Chat model",
