@@ -91,6 +91,13 @@ func (w *WorkOwner) CheckFutureWorkExecutionMode(mode string) error {
 	return w.engine.CheckFutureWorkExecutionMode(mode)
 }
 
+// Native settings uses the retained Application connection for the selected
+// future Worker scope. Host credentials remain in this Go adapter and are not
+// included in CreateWorkerRequest or any model-visible Worker context.
+func (w *WorkOwner) AuthorizeFutureWorkerFullAccess(ctx context.Context) error {
+	return w.engine.AuthorizeFullAccess(ctx, "worker")
+}
+
 func (w *WorkOwner) Models(ctx context.Context) ([]api.ModelOption, error) {
 	return w.engine.Models(ctx)
 }

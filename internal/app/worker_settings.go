@@ -11,6 +11,28 @@ import (
 
 func (w *localWorkers) SelectedLocalWorker() string { return w.DefaultRuntime() }
 
+func (w *localWorkers) AuthorizeCaelisFullAccess(ctx context.Context) error {
+	w.settingsMu.Lock()
+	defer w.settingsMu.Unlock()
+	w.mu.Lock()
+	runtime := w.defaultRuntime
+	w.mu.Unlock()
+	if runtime != "caelis" {
+		return errors.New("请先选择 Caelis 作为新任务连接")
+	}
+	owner, err := w.settingsOwner(ctx, runtime)
+	if err != nil {
+		return err
+	}
+	authorizer, ok := owner.(interface {
+		AuthorizeFutureWorkerFullAccess(context.Context) error
+	})
+	if !ok {
+		return errors.New("当前 Caelis Worker 连接无法核对 Host 授权")
+	}
+	return authorizer.AuthorizeFutureWorkerFullAccess(ctx)
+}
+
 func (w *localWorkers) settingsOwner(ctx context.Context, runtime string) (api.WorkRuntime, error) {
 	w.mu.Lock()
 	if runtime == w.active {
@@ -49,14 +71,19 @@ func (w *localWorkers) inspect(ctx context.Context, runtime string) (api.LocalWo
 	if !ok {
 		return v, errors.New("worker models unavailable")
 	}
-	v.Models, err = catalog.Models(ctx)
-	if err != nil {
-		return v, err
-	}
 	dir, _ := providerDirectory(w.root, runtime)
 	v.Work, err = backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
 	if err != nil {
 		return v, err
+	}
+	v.Models, err = catalog.Models(ctx)
+	if err != nil {
+		// The model catalog can be temporarily unavailable while a saved full
+		// access preference still needs an in-app recovery path. Keep the
+		// authoritative preference visible, but never mark work ready.
+		v.Models = []api.ModelOption{}
+		v.ExecutionModeIssue = "无法读取新任务模型列表；请恢复连接并重新核对"
+		return v, nil
 	}
 	if d, e := catalog.RuntimeDefault(ctx); e == nil {
 		v.RuntimeDefault = &d
@@ -76,6 +103,7 @@ func (w *localWorkers) inspect(ctx context.Context, runtime string) (api.LocalWo
 		}
 	} else if err = owner.WorkAdmission(ctx); err != nil {
 		v.Ready = false
+		v.ExecutionModeIssue = err.Error()
 	}
 	return v, nil
 }

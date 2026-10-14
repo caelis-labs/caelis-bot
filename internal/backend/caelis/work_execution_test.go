@@ -9,6 +9,23 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
+func TestWorkerModeDowngradeKeepsSavedModelWithoutHostCatalog(t *testing.T) {
+	prior := api.WorkExecutionSettings{ApprovalMode: "full-access", Model: "saved-model"}
+	s := New(Options{Directory: t.TempDir(), WorkExecution: prior})
+	changed := prior
+	changed.ApprovalMode = "auto"
+	writes := 0
+	if err := s.ChangeWorkExecution(t.Context(), changed, func() error { writes++; return nil }); err != nil || writes != 1 || s.workExecution != changed {
+		t.Fatal("mode-only downgrade required an unavailable Host catalog", err, writes, s.workExecution)
+	}
+	s = New(Options{Directory: t.TempDir(), WorkExecution: prior})
+	changed.Model = "other-model"
+	writes = 0
+	if err := s.ChangeWorkExecution(t.Context(), changed, func() error { writes++; return nil }); err == nil || writes != 0 || s.workExecution != prior {
+		t.Fatal("a model change bypassed Host validation", err, writes, s.workExecution)
+	}
+}
+
 func TestWorkModelResolvesHostDefaultWithoutInheritingBot(t *testing.T) {
 	fallback := wire.ApplicationProfile{Model: "bot-luna", ReasoningEffort: pointer("low"), ServiceTier: pointer("priority")}
 	for _, tc := range []struct {

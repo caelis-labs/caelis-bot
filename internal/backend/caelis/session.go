@@ -289,8 +289,9 @@ func ProbeBinding(ctx context.Context, settings api.RuntimeSettings, directory s
 	return nil
 }
 
-// Enrollment is the only Host-authorized mutation. Credential and operation
-// identity are durable BEFORE dispatch; every later request uses app scope.
+// Enrollment persists its credential and operation before dispatch. The only
+// later Host-scoped mutation is an explicitly confirmed connection grant update;
+// ordinary sessions and Worker requests keep the Application credential.
 type credential struct {
 	StoreID, PrincipalID, OperationID, Token string
 }

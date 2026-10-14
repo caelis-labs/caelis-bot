@@ -366,7 +366,7 @@ func (s *Session) CheckFutureWorkExecutionMode(mode string) error {
 		return errors.New("Caelis Host 缺少新任务独立权限合同；请更新并重启 Host")
 	}
 	if mode == "full-access" && !value(life.AllowWorkerFullAccess) {
-		return errors.New("当前 Caelis Bot 的 Host 登记未授权 Worker 完全访问；请在原生 Host 授权流程中显式重新登记")
+		return errors.New("当前 Caelis 连接尚未授权新 Worker 任务完全访问；请在连接设置中明确选择并核对 Host 授权")
 	}
 	return nil
 }

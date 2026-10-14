@@ -13,6 +13,7 @@ import {botSessionStatusKey} from './setup-status';
 import {createModeReadback} from './mode-readback';
 import {createResourceReadback, type ResourceReadback} from './resource-readback';
 import {FutureModeRecovery} from './FutureModeRecovery';
+import {FullAccessConfirmation} from './FullAccessConfirmation';
 import {botCardState,connectionReadiness,verifiedSetup} from './readiness';
 import type {ExecutionOptions, RuntimeConfiguration, RuntimeSettings as Profile, SetupState} from '../../backend/contract';
 
@@ -29,11 +30,13 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, call=backend,
  const [managementState,setManagementState]=useState<ResourceReadback<RuntimeConfiguration>>({status:'idle',value:null});
  const [modeOptions,setModeOptions]=useState<ExecutionOptions|null>(null),[modeBusy,setModeBusy]=useState(false);
  const [botMode,setBotMode]=useState('');
+ const [confirmFullAccess,setConfirmFullAccess]=useState(false);
  const managedClient=useMemo(()=>switching&&profiles[switching]?createRuntimeSettingsClient(call,profiles[switching]):client,[switching,profiles,client,call]);
  const modelAnchor = useRef<HTMLElement | null>(null);
  const edit = (scope: ModelScope, anchor: HTMLElement) => { modelAnchor.current = anchor; setEditing(scope); };
  const generation = useRef(0), working = useRef(false);
  const modeReadback = useRef(createModeReadback());
+ const grantInFlight = useRef(false);
  const managementReadback = useRef(createResourceReadback<RuntimeConfiguration>());
  const loadManagement = async () => {
   await managementReadback.current.load(()=>call<RuntimeConfiguration>('RuntimeConfiguration'),setManagementState);
@@ -49,10 +52,10 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, call=backend,
  useEffect(()=>{if(switching==='caelis')void loadManagement();return()=>{managementReadback.current.invalidate();};},[switching,refreshKey]);
  // Navigation cannot silently discard an active settings/authentication dialog.
  useEffect(() => {
-  const guard = (event: Event) => { if (editing || connecting || removing || switching !== null || groupID !== null) event.preventDefault(); };
+  const guard = (event: Event) => { if (editing || connecting || removing || switching !== null || groupID !== null || confirmFullAccess) event.preventDefault(); };
   window.addEventListener('settings-navigate', guard);
   return () => window.removeEventListener('settings-navigate', guard);
- }, [editing, connecting, removing, switching, groupID]);
+ }, [editing, connecting, removing, switching, groupID, confirmFullAccess]);
  const remove = async () => {
   if (!removing || working.current) return;
   working.current = true; setBusy(true); setRemoveError('');
@@ -91,11 +94,40 @@ export function RuntimeWorkspace({ client = runtimeSettingsClient, call=backend,
     {caelis && view.work && <div className="runtime-setting-row"><div><strong>{t('runtime.dedicatedWorkModel')}</strong><p>{t('runtime.dedicatedWorkModelHint')}</p></div><ModelSummary value={view.work} models={view.models} runtimeDefault={view.runtimeDefault} label={t('runtime.dedicatedWorkModel')} disabled={loading} onClick={anchor=>edit('work',anchor)}/></div>}</>}
    </section>
    {!caelis&&<section className="runtime-scope-section"><h2>{locale==='zh-CN'?'Caelis 下次对话偏好':'Caelis next conversation preference'}</h2><FutureModeRecovery call={call}/></section>}
-   <section className="runtime-scope-section"><h2>{t('settings.execution')}</h2><p className="settings-note">{locale==='zh-CN'?(caelis?'仅用于下一段 Bot 对话的创建；当前会话权限保持不变。':'重新建立 Codex 连接后用于新对话；当前会话权限保持不变。'):(caelis?'Used when the next Bot conversation is created. Current session permissions stay unchanged.':'Used for a new conversation after the Codex connection is recreated. Current session permissions stay unchanged.')}</p><div className="runtime-scope-options runtime-permission-options" role="group" aria-label={t('settings.execution')}>{([{id:'auto',label:t('settings.approvalAuto'),detail:locale==='zh-CN'?'工作区沙箱；额外访问由自动审查决定。':'Workspace sandbox; extra access goes through automatic review.'},{id:'full-access',label:t('settings.approvalFullAccess'),detail:caelis?(locale==='zh-CN'?'仅用于新对话；需 Host 显式登记完全访问授权。':'For new conversations; requires explicit Host enrollment.'):(locale==='zh-CN'?'关闭命令沙箱，不再询问执行权限。':'Disables the command sandbox and execution prompts.')}] as const).map(option=>{const supported=!!modeOptions?.approvalModes.some(m=>m.id===option.id);const selected=botMode===option.id;return <button key={option.id} className={option.id==='full-access'?'runtime-full-access':undefined} disabled={!configured||!supported||!botMode||modeBusy} aria-pressed={selected} onClick={async()=>{if(selected)return;setModeBusy(true);setError('');try{await modeReadback.current.save(()=>call('SaveBotExecutionMode',option.id),()=>call<string>('BotExecutionMode'),setBotMode,e=>{setBotMode('');setError(messageOf(e,t('settings.executionSaveFailed')));});}catch(e){setError(messageOf(e,t('settings.executionSaveFailed')));}finally{setModeBusy(false);}}}><strong>{option.id==='full-access'?'⚠ ':''}{option.label}</strong><span>{selected?'✓ ':''}{option.detail}{!supported?' · '+(locale==='zh-CN'?'此连接暂不支持':'Unavailable for this connection'):''}</span></button>;})}</div></section>
+   <section className="runtime-scope-section">
+    <h2>{t('settings.execution')}</h2>
+    <p className="settings-note">{locale==='zh-CN'?(caelis?'仅用于下一段 Bot 对话的创建；当前会话权限保持不变。':'重新建立 Codex 连接后用于新对话；当前会话权限保持不变。'):(caelis?'Used when the next Bot conversation is created. Current session permissions stay unchanged.':'Used for a new conversation after the Codex connection is recreated. Current session permissions stay unchanged.')}</p>
+    <div className="runtime-scope-options runtime-permission-options" role="group" aria-label={t('settings.execution')}>
+     {([{id:'auto',label:t('settings.approvalAuto'),detail:locale==='zh-CN'?'工作区沙箱；额外访问由自动审查决定。':'Workspace sandbox; extra access goes through automatic review.'},{id:'full-access',label:t('settings.approvalFullAccess'),detail:caelis?(locale==='zh-CN'?'仅用于新对话；需 Host 显式授权。':'For new conversations; requires explicit Host authorization.'):(locale==='zh-CN'?'关闭命令沙箱，不再询问执行权限。':'Disables the command sandbox and execution prompts.')}] as const).map(option=>{
+      const supported=!!modeOptions?.approvalModes.some(m=>m.id===option.id), selected=botMode===option.id;
+      const canRequestGrant=caelis&&option.id==='full-access'&&configured;
+      return <button key={option.id} className={option.id==='full-access'?'runtime-full-access':undefined} disabled={!configured||(!supported&&!canRequestGrant)||!botMode||modeBusy} aria-pressed={selected&&supported} onClick={async()=>{
+       if(selected&&supported)return;
+       if(canRequestGrant){setError('');setConfirmFullAccess(true);return;}
+       setModeBusy(true);setError('');
+       try{await modeReadback.current.save(()=>call('SaveBotExecutionMode',option.id),()=>call<string>('BotExecutionMode'),setBotMode,e=>{setBotMode('');setError(messageOf(e,t('settings.executionSaveFailed')));});}
+       catch(e){setError(messageOf(e,t('settings.executionSaveFailed')));}finally{setModeBusy(false);}
+      }}><strong>{option.id==='full-access'?'⚠ ':''}{option.label}</strong><span>{selected?(supported?'✓ ':(locale==='zh-CN'?'已保存但当前不可用 · ':'Saved but unavailable · ')):''}{option.detail}{!supported?' · '+(canRequestGrant?(locale==='zh-CN'?'选择后核对 Host 授权；无授权的旧 Host 需升级':'Check Host authorization; older Hosts need an update to add a grant'):(locale==='zh-CN'?'此连接暂不支持':'Unavailable for this connection')):''}</span></button>;
+     })}
+    </div>
+   </section>
    <section className="runtime-scope-section"><h2>{t('runtime.manageConnections')}</h2><p className="settings-note">{locale==='zh-CN'?'在各连接内安装、认证、选择模型服务与配置协作。':'Install, authenticate, manage model services and configure collaboration within each connection.'}</p><div className="runtime-connection-resources">{['caelis','codex'].map(id=><button key={id} onClick={()=>setSwitching(id)}><span><strong>{executionMethodLabel(id,t)}</strong><small>{t(`runtime.connectionReadiness_${connectionReadiness(id,readiness[id])}` as Parameters<typeof t>[0])}</small></span><SettingsChevron/></button>)}</div></section>
    <div className="runtime-page-footer"><button className="text-action" disabled={loading} onClick={() => void refresh()}><ArrowClockwiseIcon aria-hidden="true" size={14}/>{t('runtime.refreshConfig')}</button>{(loading || notice) && <p className="settings-note" role="status">{loading ? t('runtime.refreshing') : notice}</p>}</div>
    {error && <p role="alert" className="inline-error">{error}</p>}
   </>}
+  {confirmFullAccess&&<FullAccessConfirmation scope="bot" busy={modeBusy} error={error} onCancel={()=>setConfirmFullAccess(false)} onConfirm={async()=>{
+   if(grantInFlight.current)return;
+   grantInFlight.current=true;
+   setModeBusy(true);setError('');
+   try{
+    await call('AuthorizeCaelisFullAccess','bot');
+    const options=await call<ExecutionOptions>('ExecutionOptions');
+    setModeOptions(options);
+    if(!options.approvalModes.some(mode=>mode.id==='full-access'))throw new Error(locale==='zh-CN'?'Host 授权回读尚未确认完全访问':'Host readback has not confirmed full access');
+    await modeReadback.current.save(()=>call('SaveBotExecutionMode','full-access'),()=>call<string>('BotExecutionMode'),setBotMode,e=>{setBotMode('');setError(messageOf(e,t('settings.executionSaveFailed')));});
+    setConfirmFullAccess(false);
+   }catch(e){setError(messageOf(e,t('settings.executionSaveFailed')));}finally{grantInFlight.current=false;setModeBusy(false);}
+  }}/ >}
   {group&&<SettingsDialog title={group.name} onClose={()=>setGroupID(null)}>{group.models.map(model => <div className="runtime-connection-model" key={model.id}><div><strong>{model.name}</strong><p>{model.unavailable ? t('runtime.reauthNeeded') : model.uses.map(u => formatModelUse(u, t)).join(' · ') || t('runtime.notInUse')}</p></div>{group.kind === 'provider' && <button aria-label={t('runtime.removeModelLabel', { label: model.name })} onClick={() => { setGroupID(null); setRemoving({ group, model }); setStopUsing(false); setRemoveError(''); }}>{model.uses.length ? t('runtime.manageDisconnect') : t('runtime.remove')}</button>}</div>)}{group.kind === 'agent' && <div className="setup-end"><button onClick={() => { setGroupID(null); setRemoving({group,model:group.models[0]});setStopUsing(false);setRemoveError(''); }}>{t('runtime.disconnectAgent')}</button></div>}<div className="setup-end"><button onClick={()=>setGroupID(null)}>{t('common.done')}</button></div></SettingsDialog>}
   {editing && selection && view && <ModelPicker anchor={modelAnchor.current} runtimeDefault={view.runtimeDefault} title={editing === 'conversation' ? t('runtime.botConversationModel') : editing === 'runtime' ? t('runtime.caelisMainModel') : t('runtime.workModel')} description={editing === 'work' ? t('runtime.dedicatedWorkModelDescription') : undefined} value={selection} models={view.models} onReload={() => refresh(true)} inherited={editing !== 'runtime'} onSave={async value => { await client.saveModel(editing, value, view.revision); setNotice(t('runtime.modelSaved')); await refresh(); }} onClose={() => setEditing(null)} onConnect={caelis ? () => { setEditing(null); setSwitching('caelis'); setConnecting(true); } : undefined}/>}
   {connecting && switching==='caelis' && profiles.caelis && <ConnectionWizard client={managedClient} active={active} onClose={() => setConnecting(false)} onConnected={async () => { setConnecting(false); await refresh();await loadManagement(); }}/ >}

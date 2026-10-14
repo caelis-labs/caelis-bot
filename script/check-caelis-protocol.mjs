@@ -7,7 +7,8 @@ assert.match(manifest.commit,/^[0-9a-f]{40}$/);
 if (manifest.contractOverlayCommit) assert.match(manifest.contractOverlayCommit,/^[0-9a-f]{40}$/);
 assert.equal(hash('protocol/caelis/openapi.json'),manifest.schemaSha256,'Caelis public schema drift');
 assert.equal(hash('internal/backend/caelis/wire/control_v1.gen.go'),manifest.wireSha256,'Caelis generated wire drift');
-const schemas=JSON.parse(readFileSync('protocol/caelis/openapi.json','utf8')).components.schemas;
+const contract=JSON.parse(readFileSync('protocol/caelis/openapi.json','utf8'));
+const schemas=contract.components.schemas;
 const profile=schemas.ApplicationProfile;
 const patch=schemas.ApplicationConfigurationPatch;
 for(const field of ['mcp_servers','skill_dirs','skill_roots']){
@@ -17,5 +18,10 @@ for(const field of ['mcp_servers','skill_dirs','skill_roots']){
 }
 assert.equal(schemas.CreateApplicationSessionRequest.allOf[1].properties.profile.$ref,'#/components/schemas/ApplicationProfile');
 assert.equal(schemas.ApplicationConfiguration.properties.profile.$ref,'#/components/schemas/ApplicationProfile');
+for(const path of ['/applications/connections/{connection_id}','/applications/connections/{connection_id}/grants','/applications/connections/{connection_id}/grant-updates/{operation_id}']) {
+  assert.ok(contract.paths[path],`Caelis Host grant contract lacks ${path}`);
+}
+assert.deepEqual(schemas.ApplicationConnectionGrantUpdate.required,['operation_id','expected_allow_worker_full_access','expected_allow_unreviewed_application_execution']);
+assert.equal(schemas.ApplicationConnectionGrantReceipt.properties.connection.$ref,'#/components/schemas/ApplicationConnection');
 assert.ok(readFileSync('protocol/caelis/LICENSE','utf8').length>100);
-console.log(`Caelis public protocol base ${manifest.commit.slice(0,12)}; terminal result overlay ${manifest.contractOverlayCommit?.slice(0,12) ?? 'none'}.`);
+console.log(`Caelis public protocol base ${manifest.commit.slice(0,12)}; additive contract overlay ${manifest.contractOverlayCommit?.slice(0,12) ?? 'none'}.`);

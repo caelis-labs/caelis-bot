@@ -11,19 +11,32 @@ import (
 func (s *Session) ChangeWorkExecution(ctx context.Context, v api.WorkExecutionSettings, persist func() error) error {
 	s.step.Lock()
 	defer s.step.Unlock()
-	if err := s.CheckFutureWorkExecutionMode(v.ApprovalMode); err != nil {
-		return err
-	}
-	var catalog []api.ModelOption
-	if v.Model != "" {
-		var err error
-		catalog, err = s.Models(ctx)
-		if err != nil {
+	s.mu.Lock()
+	previous := s.workExecution
+	s.mu.Unlock()
+	// A saved full-access preference may block new work while the Host or
+	// catalog is unavailable. An exact mode-only downgrade changes no model
+	// identity or existing task authority, so it can be saved for recovery.
+	downgrade := previous.ApprovalMode == "full-access" && v.ApprovalMode == "auto" && previous.Execution() == v.Execution()
+	if downgrade {
+		if err := api.ValidateExecutionSettings(v.Execution()); err != nil {
 			return err
 		}
-	}
-	if err := api.ValidateWorkExecution(v, catalog); err != nil {
-		return err
+	} else {
+		if err := s.CheckFutureWorkExecutionMode(v.ApprovalMode); err != nil {
+			return err
+		}
+		var catalog []api.ModelOption
+		if v.Model != "" {
+			var err error
+			catalog, err = s.Models(ctx)
+			if err != nil {
+				return err
+			}
+		}
+		if err := api.ValidateWorkExecution(v, catalog); err != nil {
+			return err
+		}
 	}
 	if err := persist(); err != nil {
 		return err

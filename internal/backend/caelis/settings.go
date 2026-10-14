@@ -34,7 +34,7 @@ func (s *Session) checkFutureBotMode(mode string) error {
 		return errors.New("Caelis Host 缺少完全访问创建权限合同；请更新并重启 Host")
 	}
 	if !value(life.AllowUnreviewedApplicationExecution) {
-		return errors.New("当前 Caelis Bot 的 Host 登记未授权免执行审查；请在原生 Host 授权流程中显式重新登记，现有授权不会自动扩大")
+		return errors.New("当前 Caelis 连接尚未授权 Bot 对话完全访问；请在连接设置中明确选择并核对 Host 授权")
 	}
 	return nil
 }

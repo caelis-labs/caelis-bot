@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/localstate"
 	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
@@ -63,7 +64,19 @@ type detachableWorkerFixture struct {
 
 type workerModeFixture struct {
 	*workerFixture
-	value api.WorkExecutionSettings
+	value           api.WorkExecutionSettings
+	authorizedScope string
+}
+
+type workerCatalogFailureFixture struct{ *workerModeFixture }
+
+func (*workerCatalogFailureFixture) Models(context.Context) ([]api.ModelOption, error) {
+	return nil, errors.New("model catalog offline")
+}
+
+func (w *workerModeFixture) AuthorizeFutureWorkerFullAccess(context.Context) error {
+	w.authorizedScope = "worker"
+	return nil
 }
 
 func (w *workerModeFixture) Models(context.Context) ([]api.ModelOption, error) {
@@ -114,6 +127,41 @@ func TestWorkerExecutionModeScopedToSelectedRuntime(t *testing.T) {
 	}
 	if f.value.ApprovalMode != "full-access" {
 		t.Fatal("Caelis choice changed Codex preference")
+	}
+}
+
+func TestWorkerFullAccessAuthorizationUsesSavedCaelisChoiceOnly(t *testing.T) {
+	root := t.TempDir()
+	codex := &workerModeFixture{workerFixture: &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}}
+	caelis := &workerModeFixture{workerFixture: &workerFixture{runtime: "caelis", states: map[string]api.WorkState{}}}
+	w := &localWorkers{root: root, active: "codex", defaultRuntime: "codex", resident: codex, owners: map[string]retainedWorker{"caelis": caelis}}
+	if err := w.AuthorizeCaelisFullAccess(t.Context()); err == nil || codex.authorizedScope != "" || caelis.authorizedScope != "" {
+		t.Fatal("authorization bypassed saved Worker choice", err)
+	}
+	w.defaultRuntime = "caelis"
+	if err := w.AuthorizeCaelisFullAccess(t.Context()); err != nil || caelis.authorizedScope != "worker" || codex.authorizedScope != "" || w.DefaultRuntime() != "caelis" {
+		t.Fatal("Worker grant targeted wrong Runtime or changed preference", err, caelis.authorizedScope, codex.authorizedScope)
+	}
+}
+
+func TestSavedCaelisWorkerModeRemainsRecoverableWhenCatalogFails(t *testing.T) {
+	root := t.TempDir()
+	f := &workerCatalogFailureFixture{workerModeFixture: &workerModeFixture{workerFixture: &workerFixture{runtime: "caelis", states: map[string]api.WorkState{}}}}
+	w := &localWorkers{root: root, active: "caelis", defaultRuntime: "caelis", resident: f}
+	dir, err := providerDirectory(root, "caelis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := localstate.Write(filepath.Join(dir, "work-execution.json"), api.WorkExecutionSettings{ApprovalMode: "full-access", Model: "saved-model"}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := w.InspectWorkerRuntime(t.Context(), "caelis")
+	if err != nil || view.Ready || view.FullAccessAvailable || view.Work.ApprovalMode != "full-access" || view.Work.Model != "saved-model" || view.ExecutionModeIssue == "" {
+		t.Fatal("catalog failure hid the saved mode or claimed readiness", err, view)
+	}
+	view, err = w.SaveLocalWorkerExecutionMode(t.Context(), "auto")
+	if err != nil || view.Work.ApprovalMode != "auto" || view.Ready {
+		t.Fatal("catalog failure trapped the user in an unavailable full preference", err, view)
 	}
 }
 

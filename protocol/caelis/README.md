@@ -12,6 +12,12 @@ advertised capabilities, including `shared-native-workers-v1` and
 `/agents/binding-status?include=eligible_profile_ids`; the default response remains
 compatible with strict clients that predate this extension.
 
+The additive Host connection grant update overlay includes exact-state CAS,
+an immutable operation receipt, and Host/Application readback. The Bot asks
+for one future execution scope only after an explicit person-facing confirmation;
+the application credential cannot update its own ceiling. No existing Session
+or Worker permission changes when the connection grant changes.
+
 `internal/backend/caelis/wire/control_v1.gen.go` originates from the public
 `control/appserver/wirev1/generated/control_v1.gen.go` at Core v0.67.1, with its
 package name changed to `wire` and the terminal result overlay. The published OpenAPI and generated Go/TS
