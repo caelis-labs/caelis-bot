@@ -85,7 +85,7 @@ export function PermissionSettings({onDone,onBack,embedded=false,active=true,foc
     {state.permissions.filter(p=>p.id==='accessibility'||p.id==='notifications'||p.id==='screenCapture'&&(!onDone||captureEnabled===true)).map(permissionRow)}
    </div>
    {!onDone&&<details className="permission-more"><summary><SettingsChevron/>{t('settings.morePermissions')}</summary><div className="permission-list">{state.permissions.filter(p=>p.id==='automation').map(permissionRow)}</div></details>}
-   <p className="permission-system-note">{t('settings.permissionSwitchHelp')}</p>
+   {!onboarding&&<p className="permission-system-note">{t('settings.permissionSwitchHelp')}</p>}
    {onDone?<details className="permission-privacy"><summary>{t('settings.permissionPrivacyTitle')}</summary><p>{t('settings.permissionPrivacyBody')}</p></details>:<section className="permission-privacy" aria-labelledby="permission-privacy-title">
     <h2 id="permission-privacy-title">{t('settings.permissionPrivacyTitle')}</h2>
     <p>{t('settings.permissionPrivacyBody')}</p>

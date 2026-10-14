@@ -50,7 +50,7 @@
 .runtime-close img { width:14px; height:14px; opacity:.55; }
 .runtime-dialog-description { font-size:13px; line-height:1.6; color:var(--muted); margin:8px 0 22px; }
 .runtime-dialog label { font-size:13px; }
-.runtime-dialog input:not([type="radio"]),.runtime-dialog select,.runtime-dialog textarea { width:100%; border:1px solid var(--line); background:var(--surface); border-radius:8px; padding:10px; color:var(--ink); box-sizing:border-box; font:inherit; }
+.runtime-dialog input:not([type="radio"]),.runtime-dialog select,.runtime-dialog textarea { width:100%; border:1px solid var(--line); background-color:var(--surface); border-radius:8px; padding:10px; color:var(--ink); box-sizing:border-box; font:inherit; }
 .runtime-dialog textarea { min-height:80px; resize:vertical; }
 .runtime-dialog input[type="radio"] { width:16px; height:16px; padding:0; margin:0; flex-shrink:0; accent-color:var(--ink); }
 .runtime-model-search { margin-top:12px; }

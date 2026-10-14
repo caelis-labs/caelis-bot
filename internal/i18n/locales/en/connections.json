@@ -6,11 +6,11 @@
   "cannotOpenBrowser": "Could not open browser. Copy the link to open manually.",
   "addConnection": "Add connection",
   "connectionTypeAria": "Connection type",
-  "modelService": "Model service",
-  "externalAgent": "External Agent",
+  "modelService": "Service URL",
+  "externalAgent": "Other tools",
   "accountLogin": "Account login",
   "apiKey": "API Key",
-  "loadingChoices": "Loading available connections…",
+  "loadingChoices": "Loading…",
   "noChoices": "No connection items currently available.",
   "backToChoices": "Back to choices",
   "startCommand": "Launch command",
@@ -18,7 +18,7 @@
   "serviceUrl": "Service URL",
   "model": "Model",
   "modelPlaceholder": "Select or enter model name",
-  "reuseAuthHint": "Can be left empty; Caelis handles auth for this endpoint",
+  "reuseAuthHint": "Optional",
   "handledByCaelis": "Handled by Caelis",
   "enterApiKey": "Enter API Key",
   "customCapabilities": "Custom model capabilities",
@@ -59,5 +59,7 @@
   "done": "Done",
   "closeAndRefresh": "Close and refresh",
   "canceling": "Canceling…",
-  "cancelConnection": "Cancel connection"
+  "cancelConnection": "Cancel connection",
+  "magpieHint": "Local gateway",
+  "gatewayEmpty": "No models found. Start the Magpie gateway or check its address."
 }

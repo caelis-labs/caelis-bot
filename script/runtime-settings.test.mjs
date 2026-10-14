@@ -147,3 +147,10 @@ test('editing inherited parameters pins the actual model and preserves other eff
  assert.equal(fastTier({...model,serviceTiers:[]}),undefined);
  assert.deepEqual(changeModelParameters(selection,model,{effort:'low'}),{...selection,effort:'low'});
 });
+
+test('Magpie local URL UX accepts a changed port without exempting remote credentials',async()=>{
+ const {localMagpie}=await server.ssrLoadModule('/src/settings/runtime/gateway.ts');
+ for(const address of ['http://127.0.0.1:3425/v1','http://127.0.0.1:4888/v1','http://localhost:4888/v1','http://[::1]:4888/v1']) assert.equal(localMagpie('magpie',address),true,address);
+ for(const address of ['https://example.com/v1','http://localhost.example.com/v1','http://127.0.0.1@example.com/v1','http://user@localhost/v1','file:///tmp/models','invalid']) assert.equal(localMagpie('magpie',address),false,address);
+ assert.equal(localMagpie('custom','http://localhost:4888/v1'),false);
+});

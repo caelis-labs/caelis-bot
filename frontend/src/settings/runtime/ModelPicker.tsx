@@ -15,8 +15,8 @@ export function ModelSummary({ value, models, disabled, onClick, label, unbound 
  return <button className="runtime-model-summary" aria-label={t('runtime.configureModel', { label })} disabled={disabled} onClick={event => onClick(event.currentTarget)}><span><strong>{summary.name}</strong>{showDetail && summary.detail && <small>{summary.detail}</small>}</span><SettingsChevron/></button>;
 }
 
-function ModelListDrawer({ models, value, inherited, runtimeDefault, anchor, onChoose, onClose, onConnect }: {
- models: ModelOption[]; value: ModelSelection; inherited: boolean; runtimeDefault?: ModelSelection | null; anchor: HTMLElement | null; onChoose: (model: ModelOption | null) => void; onClose: () => void; onConnect?: () => void;
+function ModelChoices({ models, value, inherited, runtimeDefault, onChoose, onConnect }: {
+ models: ModelOption[]; value: ModelSelection; inherited: boolean; runtimeDefault?: ModelSelection | null; onChoose: (model: ModelOption | null) => void; onConnect?: () => void;
 }) {
  const { t } = useI18n();
  const [query, setQuery] = useState('');
@@ -27,8 +27,7 @@ function ModelListDrawer({ models, value, inherited, runtimeDefault, anchor, onC
  for (const model of models) { const name = (model.name || model.model).toLocaleLowerCase(); nameCounts.set(name, (nameCounts.get(name) || 0) + 1); }
  const filtered = models.filter(m => `${m.name} ${m.model} ${m.description || ''}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
  const showDefault = inherited && defaultName.toLocaleLowerCase().includes(query.toLocaleLowerCase());
- return <SettingsDialog title={t('runtime.selectModel')} className="runtime-model-drawer" anchor={anchor} alignTo={anchor?.closest<HTMLElement>('.runtime-model-popover')} onClose={onClose}>
-  <div className="runtime-model-list-body" onKeyDown={event => {
+ return <div className="runtime-model-list-body" onKeyDown={event => {
    if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key) || event.target === search.current && event.key !== 'ArrowDown') return;
    const items = [...list.current!.querySelectorAll<HTMLButtonElement>('button')]; if (!items.length) return;
    event.preventDefault(); const index = items.indexOf(document.activeElement as HTMLButtonElement);
@@ -42,8 +41,7 @@ function ModelListDrawer({ models, value, inherited, runtimeDefault, anchor, onC
     {!filtered.length && !showDefault && <p className="settings-note">{t('runtime.noModelsFound')}</p>}
    </div>
    {onConnect && <button className="text-action runtime-model-connect" onClick={onConnect}>{t('runtime.connectOtherModels')}</button>}
-  </div>
- </SettingsDialog>;
+  </div>;
 }
 
 export function ModelPicker({ title, description, value, models, inherited = false, requireEffort = false, onSave, onClose, onConnect, onReset, onReload, anchor, runtimeDefault }: {
@@ -51,15 +49,14 @@ export function ModelPicker({ title, description, value, models, inherited = fal
  onSave: (value: ModelSelection) => Promise<void>; onClose: () => void; onConnect?: () => void; onReset?: () => Promise<void>; onReload?: () => Promise<void>;
 }) {
  const { t } = useI18n();
- const [draft, setDraft] = useState(value), [catalog, setCatalog] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false), [blocked, setBlocked] = useState(false);
- const working = useRef(false), modelButton = useRef<HTMLButtonElement>(null);
+ const [draft, setDraft] = useState(value), [error, setError] = useState(''), [busy, setBusy] = useState(false), [blocked, setBlocked] = useState(false);
+ const working = useRef(false);
  const model = draft.model ? models.find(m => m.model === draft.model) : defaultModel(models, runtimeDefault), fast = fastTier(model);
  const efforts = model?.efforts.filter(Boolean) || [];
  const effort = draft.effort || (!draft.model ? runtimeDefault?.effort : '') || model?.defaultEffort || '';
  const serviceTier = draft.serviceTier || (!draft.model ? runtimeDefault?.serviceTier : '') || '';
  const effortIndex = Math.max(0, efforts.indexOf(effort));
  const dirty = draft.model !== value.model || draft.effort !== value.effort || draft.serviceTier !== value.serviceTier;
- const closeCatalog = () => { setCatalog(false); requestAnimationFrame(() => modelButton.current?.focus()); };
  const change = (patch: Partial<ModelSelection>) => { if (model) { setDraft(changeModelParameters(draft, model, patch, runtimeDefault)); setError(''); } };
  const save = async (reset = false) => {
   if (blocked || working.current || !reset && (!validSelection(draft, models, inherited) || requireEffort && !draft.effort)) return;
@@ -70,17 +67,18 @@ export function ModelPicker({ title, description, value, models, inherited = fal
  };
  const strength = effort ? getEffortName(effort, t) : t('runtime.default');
  return <>
-  <SettingsDialog className="runtime-model-popover" title={title} busy={busy} blocked={catalog} anchor={anchor} onClose={onClose}>
-   <div className="runtime-model-parameters">
-    <div className="runtime-model-choice-row"><span>{t('runtime.model')}</span><button ref={modelButton} className="runtime-current-model" aria-label={t('runtime.selectModel')} aria-haspopup="dialog" aria-expanded={catalog} title={description} disabled={busy} onClick={() => setCatalog(true)}><span>{model?.name || draft.model || t(inherited?'runtime.default':'runtime.selectModel')}</span>{!draft.model && model && <small>{t('runtime.default')}</small>}<SettingsChevron/></button>{fast && <button className="runtime-fast-toggle" aria-label={t('runtime.fastMode')} aria-pressed={serviceTier === fast.id} disabled={busy} title={t('runtime.fastMode')} onClick={() => change({ serviceTier: serviceTier === fast.id ? '' : fast.id })}><LightningIcon aria-hidden="true" size={17}/></button>}</div>
+  <SettingsDialog className="runtime-model-dialog runtime-model-picker" title={title} description={description} busy={busy} returnFocus={anchor} onClose={onClose}>
+   <fieldset className="runtime-model-choices" disabled={busy || blocked}><ModelChoices models={models} value={draft} inherited={inherited} runtimeDefault={runtimeDefault} onChoose={model=>{if((model?.model||'')!==draft.model)setDraft(model?chooseModel(model):inheritedSelection);setError('')}} onConnect={onConnect}/></fieldset>
+   {model && <details className="model-parameters"><summary>{t('runtime.modelOptions')}</summary><div className="runtime-model-parameters">
+    {fast && <button className="runtime-fast-toggle" aria-label={t('runtime.fastMode')} aria-pressed={serviceTier === fast.id} disabled={busy} onClick={() => change({ serviceTier: serviceTier === fast.id ? '' : fast.id })}><LightningIcon aria-hidden="true" size={17}/>{t('runtime.fastMode')}</button>}
     {model && !!efforts.length && <div className="runtime-effort-control"><div className="runtime-parameter-heading"><span>{t('runtime.reasoningEffort')}</span><output aria-live="polite">{strength}</output></div>{efforts.length > 1 && <><div className={`runtime-effort-track${effort ? '' : ' is-unresolved'}`} style={{ '--effort-progress': `${effortIndex / (efforts.length - 1) * 100}%` } as React.CSSProperties}><div className="runtime-effort-ticks" aria-hidden="true">{efforts.map((level, index) => <i key={level} className={index <= effortIndex ? 'reached' : ''}/>)}</div><input type="range" aria-label={t('runtime.reasoningEffort')} aria-valuetext={strength} min={0} max={efforts.length - 1} step={1} value={effortIndex} disabled={busy} onChange={e => change({ effort: efforts[e.target.valueAsNumber] })} onPointerUp={e => { if (!effort) change({ effort: efforts[e.currentTarget.valueAsNumber] }); }}/></div><div className="runtime-effort-labels" aria-hidden="true"><span style={{ left: '0%' }}>{getEffortName(efforts[0],t)}</span><span style={{ left: '100%' }}>{getEffortName(efforts[efforts.length - 1],t)}</span></div></>}</div>}
     {model && (model.serviceTiers.some(tier => tier.id && tier.id !== fast?.id) || draft.serviceTier && !model.serviceTiers.some(tier => tier.id === draft.serviceTier)) && <label className="runtime-extra-speed">{t('runtime.responseSpeed')}<select disabled={busy} value={draft.serviceTier} onChange={e => change({ serviceTier: e.target.value })}><option value="">{t('runtime.default')}</option>{draft.serviceTier && !model.serviceTiers.some(tier => tier.id === draft.serviceTier) && <option value={draft.serviceTier}>{draft.serviceTier} · {t('runtime.currentlyUnavailable')}</option>}{model.serviceTiers.filter(tier => tier.id).map(tier => <option key={tier.id} value={tier.id}>{tierName(tier.id,tier.name)}</option>)}</select></label>}
-   </div>
+   </div></details>}
    {draft.model && (!model || !validSelection(draft,models,inherited)) && <p role="alert" className="inline-error">{t('runtime.modelUnavailable')}</p>}
    {error && <div role="alert" className="inline-error"><p>{error}</p>{onReload && <button disabled={busy} className="text-action" onClick={() => { void onReload().then(() => { setError(''); setBlocked(false); }).catch(e => setError(messageOf(e,t('runtime.actionFailed')))); }}>{t('runtime.reloadKeepSelection')}</button>}</div>}
    <div className="setup-end runtime-model-actions">{model && <button disabled={busy || blocked} className="text-action runtime-reset-parameters" onClick={() => { setDraft(draft.model ? chooseModel(model) : inheritedSelection); setError(''); }}><ArrowClockwiseIcon aria-hidden="true" size={13}/>{t('runtime.resetParameters')}</button>}<button disabled={busy} onClick={onClose}>{t('common.cancel')}</button><button className="primary" disabled={busy || blocked || !dirty || !validSelection(draft,models,inherited) || requireEffort && !draft.effort} onClick={() => void save()}>{busy ? t('runtime.saving') : t('common.save')}</button></div>
    {onReset && <button disabled={busy || blocked} className="text-action runtime-reset-binding" onClick={() => void save(true)}>{t('runtime.resetRoleDefaultBinding')}</button>}
   </SettingsDialog>
-  {catalog && <ModelListDrawer models={models} value={draft} inherited={inherited} runtimeDefault={runtimeDefault} anchor={modelButton.current} onClose={closeCatalog} onChoose={model => { if ((model?.model || '') !== draft.model) setDraft(model ? chooseModel(model) : inheritedSelection); setError(''); closeCatalog(); }} onConnect={onConnect}/>}
+
  </>;
 }

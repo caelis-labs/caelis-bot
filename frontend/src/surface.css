@@ -35,7 +35,7 @@ html[data-native-material] .context-window .settings-window aside { background:t
 .settings-window .setting-control :is(select,input:not([type=checkbox]):not([type=range])) { width:100%; min-width:0; }
 .settings-window .setting-control .task-limit { width:76px!important; text-align:center; }
 .settings-window :is(button,select,input:not([type=checkbox]):not([type=radio]):not([type=range])) { font-size:12px; min-height:34px; border-radius:8px; }
-.settings-window :is(select,input:not([type=checkbox]):not([type=radio]):not([type=range]),textarea) { background:var(--caelis-content); border-color:var(--line); }
+.settings-window :is(select,input:not([type=checkbox]):not([type=radio]):not([type=range]),textarea) { background-color:var(--caelis-content); border-color:var(--line); }
 .settings-window .general-settings .general-preferences { padding:0; background:transparent; border:0; border-radius:0; }
 .settings-window .general-settings>.setting-section { padding:0; border:0; background:transparent; border-radius:0; margin:26px 0; }
 .settings-window .general-preferences .setting-section { margin:0; }
@@ -190,3 +190,58 @@ html[data-native-material=solid] .context-window .settings-window aside { backgr
 .draft-image-canvas.actual-size img { max-width:none; max-height:none; }
 .runtime-workspace .execution-settings { margin-top:28px; }
 .runtime-account-note { margin:0 0 24px; }
+
+/* Connection setup shares the same fields and action sizes as settings. */
+.settings-window .runtime-workspace { max-width:720px; }
+.settings-window .runtime-workspace>h1 { margin-bottom:24px; }
+.settings-window .runtime-active { gap:16px; padding:0 0 20px; border-bottom:1px solid var(--line); }
+.settings-window .runtime-active>div:first-child { flex:1; }
+.settings-window .runtime-active strong { font-size:14px; font-weight:550; }
+.settings-window .runtime-active p { font-size:12px; margin:5px 0 0; }
+.settings-window .runtime-active-actions { gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.settings-window .runtime-model-section { margin:8px 0 24px; }
+.settings-window .runtime-model-section h2 { margin:20px 0 8px; }
+.settings-window .runtime-section-title { margin-top:24px; }
+.settings-window .runtime-worker-options { font-size:12px; color:var(--muted); margin:8px 0; }
+.settings-window .runtime-worker-options summary,.settings-window .runtime-permissions-disclosure>summary { cursor:pointer; padding:10px 0; }
+.settings-window .runtime-worker-options[open] summary { color:var(--ink); }
+.settings-window .runtime-worker-recovery { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 0; }
+.settings-window .runtime-worker-actions { display:flex; gap:8px; }
+.settings-window .runtime-worker-recovery p { margin:0; font-size:12px; }
+.settings-window .runtime-permissions-disclosure { border-top:1px solid var(--line); margin-top:20px; font-size:13px; }
+.settings-window .runtime-permissions-disclosure .setting-section { margin-top:8px; }
+.settings-window .runtime-team-entry { margin:12px 0 0; }
+.settings-window .runtime-connect-catalog { grid-template-columns:1fr; max-height:300px; }
+.settings-window .runtime-connect-catalog button { min-height:44px; padding:12px 14px; border-radius:8px; }
+.settings-window .runtime-dialog>label { display:flex; flex-direction:column; gap:7px; margin:18px 0; }
+.settings-window .runtime-dialog .gateway-catalog-status { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 18px; font-size:12px; color:var(--muted); }
+.settings-window .gateway-catalog-status p { margin:0; }
+.settings-window .runtime-dialog select { min-height:38px; padding-right:28px; }
+.settings-window .runtime-dialog input[type=checkbox] { width:16px; height:16px; padding:0; }
+.settings-window .setup-page { padding:32px 32px 28px; max-width:600px; }
+.settings-window .setup-progress { gap:18px; font-size:11px; margin-bottom:36px; }
+.settings-window .setup-progress li>span { width:20px; height:20px; }
+.settings-window .setup-flow h1 { font-size:25px; margin:0 0 12px; }
+.settings-window .setup-flow .setup-avatar { width:64px; height:64px; margin-bottom:20px; }
+.settings-window .setup-flow .bot-introduction textarea { min-height:72px; }
+.settings-window .setup-flow .setup-lead { margin-bottom:24px; }
+.settings-window .setup-flow .runtime-choices button { min-height:72px; padding:16px; border-radius:10px; }
+.settings-window .setup-flow .runtime-choices strong { font-size:14px; }
+.settings-window .setup-flow .runtime-choices div>span { font-size:12px; }
+.settings-window .setup-flow .runtime-location-entry { font-size:12px; margin-top:16px; }
+.settings-window .setup-flow .runtime-program { padding:4px 0 16px; }
+.settings-window .setup-flow .runtime-program-actions { margin-top:0; }
+.settings-window .setup-flow .permission-settings { padding-top:0; }
+.settings-window .setup-flow .permission-privacy { margin-top:16px; }
+@media(max-width:720px) {
+ .settings-window .runtime-active { align-items:flex-start; flex-wrap:wrap; }
+ .settings-window .runtime-worker-recovery { flex-wrap:wrap; }
+ .settings-window .setup-page { padding:24px; }
+ .settings-window .setup-progress { gap:12px; }
+}
+.settings-window .runtime-model-picker .runtime-model-choices { border:0; margin:0; padding:0; flex:1 1 auto; min-height:140px; overflow:hidden; }
+.runtime-model-picker .runtime-model-list-body { display:flex; flex-direction:column; height:100%; }
+.runtime-model-picker .runtime-model-list { flex:1; min-height:80px; overflow:auto; max-height:none; }
+.runtime-model-picker .runtime-model-search-field,.runtime-model-picker .runtime-model-connect { flex-shrink:0; }
+.runtime-model-picker .model-parameters { max-height:200px; overflow:auto; }
+.runtime-model-picker .runtime-fast-toggle { width:auto; gap:8px; padding:6px 10px; }

@@ -103,8 +103,7 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
   if (!state.required && featuresPending) return <div className="setup-flow"><SetupProgress step={1}/><SetupExtras onDone={onFeaturesDone}/></div>;
   if (!state.required && permissionsPending) return <div className="setup-flow"><SetupProgress step={2}/><PermissionSettings active={active} focusVersion={focusVersion} onBack={onFeaturesBack} onDone={onPermissionsDone}/></div>;
   if (!state.required) return <div className="setup-flow"><SetupProgress step={3}/>
-    {state.message && <p className="setup-introduction-status" role="status">{state.message}</p>}
-    <RuntimeSettings onboarding active={active} onBack={onPermissionsBack} onDone={onDone} />
+    <RuntimeSettings onboarding active={active} onBack={onPermissionsBack} onDone={() => void openConversation()} />
   </div>;
 
   return <div className="setup-flow"><SetupProgress step={0}/><section className="bot-introduction">
@@ -117,7 +116,7 @@ function BotIntroductionSetup({ onDone,active,focusVersion,featuresPending,permi
           disabled={busy} onChange={e => setName(e.target.value)} placeholder={t('chat.setupNamePlaceholder')} />
       </label>
       <label htmlFor="bot-description">{t('chat.setupDescLabel')} <span>{t('chat.setupOptional')}</span>
-        <textarea id="bot-description" rows={3} maxLength={2000} value={description}
+        <textarea id="bot-description" rows={2} maxLength={2000} value={description}
           disabled={busy} onChange={e => setDescription(e.target.value)} placeholder={t('chat.setupDescPlaceholder')} />
       </label>
       <p className="settings-note">{t('chat.setupHint')}</p>

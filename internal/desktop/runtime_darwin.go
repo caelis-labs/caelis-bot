@@ -198,25 +198,38 @@ func Run(assets fs.FS) error {
 	// Conversation and settings are retained renderer views in one contextual
 	// window. Switching views changes presentation only, never native work.
 	settings := history
-	var settingsMode atomic.Bool
+	var settingsMode, setupMode atomic.Bool
 	chatWidth, chatHeight, settingsWidth, settingsHeight := 640, 700, 1040, 740
+	setupWidth, setupHeight := 640, 660
 	presentSurface := func(preferences bool) {
-		if settingsMode.Load() != preferences {
+		welcome := preferences && s.SettingsSection() == "setup"
+		if settingsMode.Load() != preferences || setupMode.Load() != welcome {
 			width, height := history.Size()
 			resize := !history.IsFullscreen() && !history.IsMaximised()
-			if preferences {
-				if resize {
+			if resize {
+				switch {
+				case setupMode.Load():
+					setupWidth, setupHeight = width, height
+				case settingsMode.Load():
+					settingsWidth, settingsHeight = width, height
+				default:
 					chatWidth, chatHeight = width, height
 				}
+			}
+			if preferences {
 				history.ExecJS("window.dispatchEvent(new Event('history-close'))")
-				history.SetMinSize(800, 560)
-				if resize {
-					history.SetSize(settingsWidth, settingsHeight)
+				if welcome {
+					history.SetMinSize(520, 560)
+					if resize {
+						history.SetSize(setupWidth, setupHeight)
+					}
+				} else {
+					history.SetMinSize(800, 560)
+					if resize {
+						history.SetSize(settingsWidth, settingsHeight)
+					}
 				}
 			} else {
-				if resize {
-					settingsWidth, settingsHeight = width, height
-				}
 				history.ExecJS("window.dispatchEvent(new Event('settings-close'))")
 				history.SetMinSize(420, 360)
 				if resize {
@@ -224,13 +237,18 @@ func Run(assets fs.FS) error {
 				}
 			}
 			settingsMode.Store(preferences)
+			setupMode.Store(welcome)
 			clampMacContextWindow(history)
 		}
+		title := appName
 		if preferences {
-			history.SetTitle(strings.Replace(s.text("native.settingsTitle", nil), "Caelis Bot", appName, 1))
-		} else {
-			history.SetTitle(appName)
+			key := "native.settingsTitle"
+			if welcome {
+				key = "native.welcomeTitle"
+			}
+			title = strings.Replace(s.text(key, nil), "Caelis Bot", appName, 1)
 		}
+		history.SetTitle(title)
 	}
 	for _, window := range []*application.WebviewWindow{bubble, history} {
 		window.OnWindowEvent(events.Mac.WebViewDidFinishNavigation, func(*application.WindowEvent) { syncMacMaterials() })
@@ -433,7 +451,11 @@ func Run(assets fs.FS) error {
 		applicationMenu.AddRole(application.EditMenu)
 		nativeApp.Menu.Set(applicationMenu)
 		if settingsMode.Load() {
-			settings.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.settingsTitle", nil), "Caelis Bot", appName, 1))
+			key := "native.settingsTitle"
+			if setupMode.Load() {
+				key = "native.welcomeTitle"
+			}
+			settings.SetTitle(strings.Replace(i18n.Text(state.Locale, key, nil), "Caelis Bot", appName, 1))
 		}
 		pet.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.petTitle", nil), "Caelis Bot", appName, 1))
 		bubble.SetTitle(strings.Replace(i18n.Text(state.Locale, "native.bubbleTitle", nil), "Caelis Bot", appName, 1))
