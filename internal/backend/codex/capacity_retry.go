@@ -119,8 +119,8 @@ func (s *Session) startWithCapacityRetry(ctx context.Context, c *Client, method 
 		// An independently correlated native user message wins over a conflicting
 		// rejection. Never issue a second Turn for an accepted request.
 		accepted := thread == s.binding.ThreadID && s.state.LastReceipt.ID == request && s.state.LastReceipt.Outcome == "accepted"
-		for _, task := range s.binding.Tasks {
-			if task != nil && task.Thread == thread && task.Requests[request].Outcome == "accepted" {
+		for id, task := range s.binding.Tasks {
+			if task != nil && !s.binding.LostOwnerTasks[id] && task.Thread == thread && task.Requests[request].Outcome == "accepted" {
 				accepted = true
 			}
 		}

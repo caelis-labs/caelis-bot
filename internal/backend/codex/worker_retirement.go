@@ -18,8 +18,8 @@ const workerSubscriptionLimit = 8
 // saved binding and read-only thread/read retain their original IDs and receipts.
 func (s *Session) recoverUnresolvedChildren(c *Client, epoch uint64) {
 	go s.observeNativeResources(c, epoch)
-	for _, task := range s.binding.Tasks {
-		if task == nil || task.Thread == "" {
+	for id, task := range s.binding.Tasks {
+		if task == nil || task.Thread == "" || s.binding.LostOwnerTasks[id] {
 			continue
 		}
 		if task.Retired || terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task) {
@@ -195,8 +195,8 @@ func (s *Session) reconcileRecoveryWorkers(c *Client, epoch uint64) bool {
 	s.mu.Lock()
 	ids := make([]string, 0)
 	seen := map[string]bool{}
-	for _, task := range s.binding.Tasks {
-		if task == nil || task.Thread == "" || seen[task.Thread] || task.Retired || (terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task)) {
+	for id, task := range s.binding.Tasks {
+		if task == nil || task.Thread == "" || s.binding.LostOwnerTasks[id] || seen[task.Thread] || task.Retired || (terminal(task.View.Status) && task.Pending == "" && !taskHasUnknownReceipt(task)) {
 			continue
 		}
 		seen[task.Thread] = true
