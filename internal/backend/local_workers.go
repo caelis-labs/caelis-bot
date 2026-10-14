@@ -22,7 +22,7 @@ func (s *Service) SaveLocalWorkerModel(v api.WorkExecutionSettings) (api.LocalWo
 	defer cancel()
 	out, err := s.localWorkers.SaveLocalWorkerModel(ctx, v)
 	if err == nil {
-		if p, ok := s.engine.(api.Provider); ok && p.ProviderInfo().ID == out.Runtime {
+		if p, ok := s.currentEngine().(api.Provider); ok && p.ProviderInfo().ID == out.Runtime {
 			s.configurationMu.Lock()
 			s.workExecutionSettings = out.Work
 			s.configurationMu.Unlock()

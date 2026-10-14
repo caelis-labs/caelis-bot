@@ -48,7 +48,7 @@ func (a *Application) manageCaelis(ctx context.Context, action string, v api.Run
 	active := a.Backend.RuntimeSettings()
 	store, _ := caelisruntime.Store(v.CaelisStore)
 	activeStore, _ := caelisruntime.Store(active.CaelisStore)
-	if session, ok := a.engine.(*caelis.Session); ok && store == activeStore {
+	if session, ok := a.currentEngine().(*caelis.Session); ok && store == activeStore {
 		if err = session.Reconnect(ctx); err != nil {
 			return runtimeInstallation(st), fmt.Errorf("%s: %w", a.text("host.serviceReadyBotReconnectPending"), err)
 		}

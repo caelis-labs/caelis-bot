@@ -62,7 +62,7 @@ func ObserveSubmissions(s *Service, observer func(api.Submission, []api.InputFil
 func ResolveRemoteArtifact(s *Service, id string) (string, error) {
 	s.admission.RLock()
 	defer s.admission.RUnlock()
-	if resolver, ok := s.engine.(api.ArtifactResolver); ok && !s.restarting && !s.setupRequired {
+	if resolver, ok := s.currentEngine().(api.ArtifactResolver); ok && !s.restarting && !s.setupRequired {
 		return resolver.Artifact(id)
 	}
 	return "", errors.New("artifact unavailable")

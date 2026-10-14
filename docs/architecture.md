@@ -39,6 +39,13 @@ permissions never overwrite a saved product choice. Unsupported hosts fail befor
 writing preferences. Windows 11 x64 native drivers, current-user Named Pipe,
 Credential Manager, Job Objects and GUI acceptance remain the next stage.
 Shared-core compilation and native Windows CI do not prove Windows GUI behavior.
+Runtime activation replaces the resident adapter inside the same application.
+Admission pauses while the target connects; only a successful handshake commits
+the active selection. Failed activation restores the original adapter and draft.
+Existing task routes and the independent worker default keep their original
+provider. Native windows, the menu bar and the Bot identity stay alive. Only first
+activation carries unsent attachments into an empty target; ordinary switches and
+rollback load the original provider-scoped selection.
 `GOWORK=off`; no sibling private imports.
 
 The General settings login switch reads macOS `SMAppService.mainApp` through a

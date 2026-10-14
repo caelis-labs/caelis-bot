@@ -99,10 +99,3 @@ func (s *Service) OpenReleasePage() error {
 	}
 	return s.openReleasePage()
 }
-
-func (s *Service) RestartForRuntime() error {
-	if s.restartRuntime == nil {
-		return errors.New(s.text("native.restartUnavailable", nil))
-	}
-	return s.restartRuntime()
-}

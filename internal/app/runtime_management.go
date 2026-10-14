@@ -62,7 +62,7 @@ func (a *Application) guardConversationChange() error {
 	if err := a.initialization.GuardRuntimeChange(); err != nil {
 		return err
 	}
-	v := a.engine.Snapshot()
+	v := a.currentEngine().Snapshot()
 	pendingApproval := false
 	for _, approval := range v.Approvals {
 		if approval.Status != "resolved" {
@@ -70,7 +70,7 @@ func (a *Application) guardConversationChange() error {
 			break
 		}
 	}
-	if v.CanInterrupt || pendingApproval || v.Phase == "unknown" || v.Phase == "sending" {
+	if v.CanInterrupt || pendingApproval || v.Phase == "unknown" || v.Phase == "sending" || v.LastReceipt.Outcome == "unknown" {
 		return errors.New(a.text("waitWorkEndReconcile", nil))
 	}
 	return nil
@@ -81,7 +81,7 @@ func (a *Application) guardReminderChange() error {
 	resident := a.companion
 	a.mu.Unlock()
 	if resident != nil {
-		if w := resident.State().Wake; w != nil && w.Runtime == a.engine.(api.Provider).ProviderInfo().ID && w.Status != "accepted" {
+		if w := resident.State().Wake; w != nil && w.Runtime == a.currentEngine().(api.Provider).ProviderInfo().ID && w.Status != "accepted" {
 			return errors.New(a.text("pendingRemindersRemaining", nil))
 		}
 	}

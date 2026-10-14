@@ -40,6 +40,9 @@ func newProductAssembly(root string, languages []string, effects func(*Service) 
 	host.Observe = s.observeCharacter
 	host.ObserveTasks = s.observeTasks
 	host.ReportError = logError
+	host.RuntimeChanged = func(directory string, first bool) error {
+		return s.switchSelection(filepath.Join(directory, "draft-files.json"), first)
+	}
 	core, err := app.New(root, host)
 	if err != nil {
 		return nil, err

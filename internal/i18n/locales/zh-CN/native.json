@@ -154,5 +154,6 @@
   "capture.selectionOnly": "仅发送选区",
   "capture.clipboardOnly": "仅发送剪贴板图片",
   "capture.fullScreenIncluded": "已附带整屏",
-  "saveArtifactTitle": "另存附件"
+  "saveArtifactTitle": "另存附件",
+  "selectionConflict": "请先发送或移除附件，再切换连接。"
 }

@@ -154,5 +154,6 @@
   "capture.selectionOnly": "Selection only",
   "capture.clipboardOnly": "Clipboard image only",
   "capture.fullScreenIncluded": "Full screen included",
-  "saveArtifactTitle": "Save attachment"
+  "saveArtifactTitle": "Save attachment",
+  "selectionConflict": "Finish or remove attached files before switching connections."
 }

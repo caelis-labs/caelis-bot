@@ -40,13 +40,13 @@ func (a *Application) NeedsSetup() bool {
 	return a.initialization.Initialization().Required || a.setup.Overview().Onboarding
 }
 func (a *Application) ProviderDirectory() string {
-	p, _ := providerDirectory(a.root, a.engine.(api.Provider).ProviderInfo().ID)
+	p, _ := providerDirectory(a.root, a.currentEngine().(api.Provider).ProviderInfo().ID)
 	return p
 }
 func (s *runtimeSetup) Overview() api.SetupOverview {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return api.SetupOverview{Active: s.app.engine.(api.Provider).ProviderInfo().ID, HasRuntimeChoice: s.app.HasRuntimeChoice(), Pending: s.pending, Onboarding: s.fresh}
+	return api.SetupOverview{Active: s.app.currentEngine().(api.Provider).ProviderInfo().ID, HasRuntimeChoice: s.app.HasRuntimeChoice(), Pending: s.pending, Onboarding: s.fresh}
 }
 func (s *runtimeSetup) Profile(id string) (api.RuntimeSettings, error) {
 	if id != "codex" && id != "caelis" {
@@ -159,7 +159,7 @@ func (s *runtimeSetup) Apply(ctx context.Context, r api.SetupRequest) (api.Setup
 	}
 	// Installation and credentials may affect an active shared runtime. Do not
 	// discard work or unresolved receipts merely because settings is open.
-	if r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.engine.(api.Provider).ProviderInfo().ID {
+	if r.Action != "cancel-login" && r.Action != "check-update" && r.Settings.Runtime == s.app.currentEngine().(api.Provider).ProviderInfo().ID {
 		if e := s.app.guardRuntimeChange(); e != nil {
 			return api.SetupState{}, e
 		}
@@ -281,7 +281,7 @@ func (s *runtimeSetup) useModel(ctx context.Context, r api.SetupRequest) error {
 			}
 		}
 	}
-	if s.app.engine.(api.Provider).ProviderInfo().ID == r.Settings.Runtime && s.app.engine.Snapshot().Connection == "ready" {
+	if s.app.currentEngine().(api.Provider).ProviderInfo().ID == r.Settings.Runtime && s.app.currentEngine().Snapshot().Connection == "ready" {
 		return s.app.Backend.SaveExecutionSettings(ctx, preferences)
 	}
 	return localstate.Write(filepath.Join(dir, "execution.json"), preferences)
@@ -300,19 +300,10 @@ func (s *runtimeSetup) Activate(ctx context.Context, v api.RuntimeSettings) erro
 		return errors.New(s.app.text("completeRuntimeConnectionFirst", nil))
 	}
 
-	// Preserve the outgoing path before replacing the active selection.
-	if outgoing := s.app.Backend.RuntimeSettings(); outgoing.Runtime != v.Runtime {
-		if e = s.saveProfile(outgoing); e != nil {
-			return e
-		}
-	}
-	if e = localstate.Write(filepath.Join(s.app.root, "runtime.json"), struct {
-		Version int `json:"version"`
-		api.RuntimeSettings
-	}{1, v}); e != nil {
+	if e = s.app.activateRuntime(ctx, v, !s.app.HasRuntimeChoice()); e != nil {
 		return e
 	}
-	s.pending = v.Runtime
+	s.pending = ""
 	s.fresh = false
 	return nil
 }

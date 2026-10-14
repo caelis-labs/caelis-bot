@@ -101,7 +101,6 @@ type Service struct {
 	historyCanHide         func() bool
 	petChatCanHide         func() bool
 	activate               func()
-	restartRuntime         func() error
 	openSettings           func()
 	closeSettings          func()
 	settingsVisible        func() bool

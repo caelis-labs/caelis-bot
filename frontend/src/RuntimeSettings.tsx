@@ -22,12 +22,12 @@ export function RuntimeSettings({ onboarding = false, onBack,onDone,active=true,
 export function RuntimePreparation({ onboarding = false, active=true, onBack,onDone, initialRuntime = '', onBusy, call = backend, host = desktop }: { onboarding?: boolean; active?:boolean; onBack?:()=>void; onDone?: () => void; initialRuntime?: string; onBusy?: (busy: boolean) => void; call?: typeof backend; host?: typeof desktop }) {
  const { t } = useI18n();
  const errorText = (e: unknown) => e instanceof Error ? e.message : t('runtime.actionFailed');
- const [activeProfile, setActiveProfile] = useState<Profile | null>(null), [restartNeeded, setRestartNeeded] = useState(false);
+ const [activeProfile, setActiveProfile] = useState<Profile | null>(null), [reconnectNeeded, setReconnectNeeded] = useState(false);
  const [overview, setOverview] = useState<SetupOverview | null>(null), [id, setID] = useState(initialRuntime);
  const [profile, setProfile] = useState<Profile>(empty('')), [state, setState] = useState<SetupState | null>(null);
  const [busy, setBusy] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState(''), [manual, setManual] = useState(false), [locationOpen,setLocationOpen] = useState(false);
  const [form, setForm] = useState<'model' | 'key' | ''>(''), [confirm, setConfirm] = useState<SetupRequest | null>(null);
- useEffect(() => { void call<Profile>('RuntimeSettings').then(setActiveProfile).catch(() => {}); void call<{ connection: string }>('ComposerSnapshot').then(s => { if (!['ready', 'connecting'].includes(s.connection)) setRestartNeeded(true); }).catch(() => {}); }, []);
+ useEffect(() => { void call<Profile>('RuntimeSettings').then(setActiveProfile).catch(() => {}); void call<{ connection: string }>('ComposerSnapshot').then(s => { if (!['ready', 'connecting'].includes(s.connection)) setReconnectNeeded(true); }).catch(() => {}); }, []);
  const epoch = useRef(0), working = useRef(false), alive = useRef(true);
  const connectionClient = useMemo(() => createRuntimeSettingsClient(call, profile), [profile]);
  const name = names[id] ?? '', blocked = !!busy || !!confirm;
@@ -50,8 +50,8 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
     if (action === 'detect') setNotice(v.state === 'ready' ? t('runtime.connectionCheckPassed') : t(setupStatusKey(v)));
     if (['install', 'update', 'apply-update', 'start'].includes(action)) setNotice(t(setupStatusKey(v)));
     if (action === 'check-update') setNotice(v.installation.updateState === 'available' ? '' : t(setupStatusKey(v)));
-    if (overview?.hasRuntimeChoice && profile.runtime === overview.active && (['login', 'api-key', 'logout'].includes(action) || profile.runtime === 'codex' && ['update', 'install'].includes(action))) setRestartNeeded(true);
-    if (profile.runtime === 'caelis' && ['update', 'apply-update', 'start'].includes(action) && v.state === 'ready') setRestartNeeded(false);
+    if (overview?.hasRuntimeChoice && profile.runtime === overview.active && (['login', 'api-key', 'logout'].includes(action) || profile.runtime === 'codex' && ['update', 'install'].includes(action))) setReconnectNeeded(true);
+    if (profile.runtime === 'caelis' && ['update', 'apply-update', 'start'].includes(action) && v.state === 'ready') setReconnectNeeded(false);
    }
   }
   catch (e) { const message = errorText(e); if (alive.current) { setError(message); try { const current = await call<SetupState>('InspectSetup', profile); if (alive.current) setState(current); } catch { /* Keep the explicit operation failure. */ } } return message; }
@@ -61,8 +61,9 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
  const pick = async () => { try { const path = await host<string>('PickRuntimeCLI'); if (path) { setManual(true); setProfile(p => ({ ...p, cliPath: path })); setState(null); } } catch (e) { setError(errorText(e)); } };
  const activate = async () => {
   if (working.current) return; working.current = true; setBusy('activate'); setError('');
-  try { await call('ActivateRuntime', profile); await refreshOverview(); await host('RestartForRuntime'); }
-  catch (e) { setError(errorText(e)); working.current = false; setBusy(''); }
+  try { await call('ActivateRuntime', profile); await refreshOverview(); setActiveProfile(profile); setReconnectNeeded(false); setNotice(t('runtime.connectionCheckPassed')); onDone?.(); }
+  catch (e) { setError(errorText(e)); }
+  finally { working.current = false; if (alive.current) setBusy(''); }
  };
  const skip = async () => { await call('DismissSetup'); onDone?.(); };
  if (onboarding && !id) return <section className="runtime-welcome">
@@ -111,7 +112,7 @@ export function RuntimePreparation({ onboarding = false, active=true, onBack,onD
   </SettingsDialog>}
   {busy && <p className="settings-note" role="status">{busy === 'install' ? t('runtime.downloadingAndInstalling') : busy === 'update' ? (id === 'caelis' ? t('runtime.updatingCaelisNotice') : t('runtime.updatingCodexNotice')) : busy === 'apply-update' ? t('runtime.activatingServiceNotice') : busy === 'activate' ? t('runtime.preparingRestartNotice') : t('runtime.processing')}</p>}
   {error ? <p className="inline-error" role="alert">{error}</p> : notice ? <p className="settings-note" role="status">{notice}</p> : state && !serviceNeedsApply && !['ready', 'models'].includes(state.state) && (state.state !== 'incompatible' || onboarding || selectedActive) && <p className="settings-note" role="status">{t(setupStatusKey(state))}</p>}
-  {state?.state === 'ready' && (onboarding || (overview && (!overview.hasRuntimeChoice || (selectedActive && (restartNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))))) && <div className="setup-end">{!onboarding && selectedActive && <span className="settings-note">{t('runtime.restartRequiredNote')}</span>}<button className={onboarding || !overview?.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{onboarding || !overview?.hasRuntimeChoice ? t('runtime.restartAndStart') : t('runtime.restartAndApply')}</button></div>}
+  {state?.state === 'ready' && (onboarding || (overview && (!overview.hasRuntimeChoice || (selectedActive && (reconnectNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))))) && <div className="setup-end"><button className={onboarding || !overview?.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{onboarding || !overview?.hasRuntimeChoice ? t('runtime.restartAndStart') : t('runtime.restartAndApply')}</button></div>}
   {form === 'model' && <ConnectionWizard client={connectionClient} active={active} onClose={() => setForm('')} onConnected={async () => { setForm(''); await run('detect'); }}/>}
   {form === 'key' && <APIKeyForm busy={blocked} onClose={() => setForm('')} onSubmit={key => run('api-key', { apiKey: key })}/>}
   {confirm && <section className="runtime-confirm" role="alertdialog" aria-modal="false" aria-labelledby="setup-confirm-title"><h3 id="setup-confirm-title">{confirm.action === 'switch' ? t('runtime.confirmSwitchTitle', { name }) : confirm.action === 'logout' ? t('runtime.confirmLogoutTitle') : confirm.action === 'update' ? (id === 'caelis' ? t('runtime.confirmUpdateCaelisTitle') : t('runtime.confirmUpdateCodexTitle')) : confirm.action === 'apply-update' ? t('runtime.confirmApplyCaelisTitle') : t('runtime.confirmRemoveModelTitle')}</h3><p>{confirm.action === 'switch' ? t('runtime.confirmSwitchBody') : ['update', 'apply-update'].includes(confirm.action) && id === 'caelis' ? t('runtime.confirmUpdateCaelisBody') : confirm.action === 'update' ? t('runtime.confirmUpdateCodexBody') : t('runtime.confirmAffectsOtherAppsBody')}</p><div className="setup-end"><button autoFocus onClick={() => setConfirm(null)}>{t('common.cancel')}</button><button className="primary" onClick={() => { const r = confirm; setConfirm(null); if (r.action === 'switch') void activate(); else void run(r.action, r); }}>{confirm.action === 'switch' ? t('runtime.switchAndRestart') : confirm.action === 'update' ? (id === 'caelis' ? t('runtime.applyAndReconnect') : t('runtime.update')) : confirm.action === 'apply-update' ? t('runtime.applyAndReconnect') : t('runtime.confirm')}</button></div></section>}

@@ -263,35 +263,50 @@ type savedFile struct {
 }
 
 func (s *Service) persistSelection(files []draftFile, next uint64) error {
-	d := savedSelection{Version: 2, Next: next, Files: []savedFile{}}
-	for _, f := range files {
-		d.Files = append(d.Files, savedFile{ID: f.ID, Path: f.path, Size: f.Size, Name: f.Name, Type: f.Type, Owned: f.owned})
-	}
-	if err := localstate.Write(s.selectionFile, d); err != nil {
+	if err := saveSelection(s.selectionFile, files, next); err != nil {
 		return errors.New(s.text("native.selectionNotSaved", nil))
 	}
 	return nil
 }
+
+func saveSelection(path string, files []draftFile, next uint64) error {
+	d := savedSelection{Version: 2, Next: next, Files: []savedFile{}}
+	for _, f := range files {
+		d.Files = append(d.Files, savedFile{ID: f.ID, Path: f.path, Size: f.Size, Name: f.Name, Type: f.Type, Owned: f.owned})
+	}
+	return localstate.Write(path, d)
+}
 func (s *Service) configureSelection(path string) error {
+	return s.switchSelection(path, false)
+}
+
+func (s *Service) switchSelection(path string, transfer bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.selectionFile = path
+	if path == s.selectionFile {
+		return nil
+	}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		if transfer && len(s.files) > 0 {
+			return s.transferSelection(path)
+		}
+		s.selectionFile = path
+		s.selectionError = nil
+		s.files = nil
+		s.nextFile = 0
 		s.cleanupOrphanImages()
 		return nil
 	}
 	var d savedSelection
 	if err != nil || len(b) > 128*1024 || json.Unmarshal(b, &d) != nil || (d.Version != 1 && d.Version != 2) || len(d.Files) > 8 {
-		s.selectionError = errors.New(s.text("native.selectionUnreadable", nil))
-		return s.selectionError
+		return errors.New(s.text("native.selectionUnreadable", nil))
 	}
 	files := make([]draftFile, 0, len(d.Files))
 	seen := map[string]bool{}
 	for _, f := range d.Files {
-		if f.ID == "" || seen[f.ID] || !filepath.IsAbs(f.Path) || (f.Owned && (filepath.Dir(f.Path) != s.imageDirectory() || !strings.HasPrefix(filepath.Base(f.Path), "paste-"))) {
-			s.selectionError = errors.New(s.text("native.selectionUnreadable", nil))
-			return s.selectionError
+		if f.ID == "" || seen[f.ID] || !filepath.IsAbs(f.Path) || (f.Owned && (filepath.Dir(f.Path) != filepath.Join(filepath.Dir(path), "draft-images") || !strings.HasPrefix(filepath.Base(f.Path), "paste-"))) {
+			return errors.New(s.text("native.selectionUnreadable", nil))
 		}
 		seen[f.ID] = true
 		name, kind := f.Name, f.Type
@@ -303,8 +318,57 @@ func (s *Service) configureSelection(path string) error {
 		}
 		files = append(files, draftFile{DraftFile: DraftFile{ID: f.ID, Name: name, Size: f.Size, Type: kind, Image: strings.HasPrefix(kind, "image/")}, path: f.Path, owned: f.Owned})
 	}
+	if transfer && len(s.files) > 0 {
+		if len(files) > 0 {
+			return errors.New(s.text("native.selectionConflict", nil))
+		}
+		return s.transferSelection(path)
+	}
+	s.selectionFile = path
+	s.selectionError = nil
 	s.files, s.nextFile = files, d.Next
 	s.cleanupOrphanImages()
+	return nil
+}
+
+// The composer is one Bot surface even when its resident Runtime changes.
+// Copy only Bot-owned clipboard images; external file paths remain references.
+// The previous selection stays intact for rollback or a later switch back.
+func (s *Service) transferSelection(path string) error {
+	files := slices.Clone(s.files)
+	created := []string{}
+	cleanup := func() {
+		for _, name := range created {
+			_ = os.Remove(name)
+		}
+	}
+	for i := range files {
+		if !files[i].owned {
+			continue
+		}
+		info, err := os.Stat(files[i].path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > maxDraftFile {
+			cleanup()
+			return errors.New(s.text("native.selectionUnreadable", nil))
+		}
+		data, err := os.ReadFile(files[i].path)
+		if err != nil || !validPNG(data) {
+			cleanup()
+			return errors.New(s.text("native.selectionUnreadable", nil))
+		}
+		name, err := writeDraftImageAt(filepath.Join(filepath.Dir(path), "draft-images"), data)
+		if err != nil {
+			cleanup()
+			return errors.New(s.text("native.selectionNotSaved", nil))
+		}
+		created = append(created, name)
+		files[i].path = name
+	}
+	if err := saveSelection(path, files, s.nextFile); err != nil {
+		cleanup()
+		return errors.New(s.text("native.selectionNotSaved", nil))
+	}
+	s.selectionFile, s.selectionError, s.files = path, nil, files
 	return nil
 }
 
@@ -342,7 +406,10 @@ func (s *Service) writeDraftImage(data []byte) (string, error) {
 	if s.selectionFile == "" {
 		return "", errors.New("draft storage unavailable")
 	}
-	dir := s.imageDirectory()
+	return writeDraftImageAt(s.imageDirectory(), data)
+}
+
+func writeDraftImageAt(dir string, data []byte) (string, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
