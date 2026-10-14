@@ -286,10 +286,19 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 			}
 		}
 	}
-	if e := c.json(ctx, "GET", "/application/sessions/"+idPath(b.SessionId), nil, &b, "", ""); e != nil {
+	target := b.SessionId
+	if created {
+		s.mu.Lock()
+		j := s.state.Operations[op]
+		s.mu.Unlock()
+		if op == "" || target == "" || j.Path != "/application/sessions" || j.Resource != target {
+			return errors.New("Caelis 对话创建回执与请求目标不匹配；原请求和回执已保留")
+		}
+	}
+	if e := c.json(ctx, "GET", "/application/sessions/"+idPath(target), nil, &b, "", ""); e != nil {
 		return e
 	}
-	if b.ApplicationId != life.ApplicationId || b.ConnectionId != life.ConnectionId || b.PrincipalId != life.PrincipalId || b.Archived || b.Profile.Execution != s.executionMode {
+	if b.SessionId != target || b.ApplicationId != life.ApplicationId || b.ConnectionId != life.ConnectionId || b.PrincipalId != life.PrincipalId || b.Archived || b.Profile.Execution != s.executionMode {
 		return errors.New("Caelis 对话绑定不匹配或已归档")
 	}
 	if created {

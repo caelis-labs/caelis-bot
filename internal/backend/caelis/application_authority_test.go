@@ -34,6 +34,30 @@ func TestApplicationCreateJournalPinsAuthorityAfterReceipt(t *testing.T) {
 	}
 }
 
+func TestMainCreateReceiptTargetCannotActivateDifferentBinding(t *testing.T) {
+	op := "create-original"
+	profile := wire.ApplicationProfile{Execution: "workspace-write", Permissions: &wire.ApplicationPermissions{Mode: pointer("workspace-write"), ApprovalMode: pointer("auto-review")}}
+	gets, posts := 0, 0
+	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			posts++
+			t.Fatal("original create was redispatched")
+		}
+		if r.Method != "GET" || !strings.HasSuffix(r.URL.Path, "/application/sessions/A") {
+			t.Fatalf("unexpected binding read: %s %s", r.Method, r.URL.Path)
+		}
+		gets++
+		writeFixture(w, wire.ApplicationBinding{SessionId: "B", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Profile: profile})
+	})
+	s.state.Session = wire.ApplicationBinding{}
+	s.state.CreateID = op
+	s.state.Operations[op] = journal{Path: "/application/sessions", Outcome: "committed", Resource: "A", CreationAuthority: &creationAuthority{Permissions: profile.Permissions}}
+	s.retainedWorkers = true
+	if err := s.ensureSession(t.Context(), s.client); err == nil || gets != 1 || posts != 0 || s.state.Session.SessionId != "" || s.state.CreateID != op || s.state.Operations[op].Resource != "A" {
+		t.Fatal("mismatched binding replaced original create target or receipt", err, gets, posts, s.state.Session, s.state.Operations[op])
+	}
+}
+
 func TestNewAndRenewedBindingsRejectAuthorityMismatchWithoutCutover(t *testing.T) {
 	profile := wire.ApplicationProfile{Execution: "workspace-write", Permissions: &wire.ApplicationPermissions{Mode: pointer("danger-full-access"), ApprovalMode: pointer("auto-review"), ExecutionApproval: pointer("never")}, Reviewer: &wire.ApplicationReviewer{Kind: "guardian", Model: "review-model"}}
 	for _, mismatch := range []string{"sandbox", "approval", "execution-approval", "reviewer", "missing-request"} {

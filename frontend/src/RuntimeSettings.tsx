@@ -76,7 +76,7 @@ export function RuntimePreparation({ onboarding = false, manageOnly=false, activ
     if (profile.runtime === 'caelis' && ['update', 'apply-update', 'start'].includes(action) && v.state === 'ready') setRestartNeeded(false);
    }
   }
-  catch (e) { const raw = errorText(e), kind = setupFailureKind(raw,cancellationRequested.current), cancelled = kind === 'cancelled', unknown = kind === 'unknown'; const message = cancelled ? t('runtime.preparationCancelled') : unknown ? t('runtime.preparationUnknown') : raw; if (alive.current) { if (cancelled) setNotice(message); else setError(message); setUncertain(unknown); try { const current = await call<SetupState>('InspectSetup', profile); if (alive.current) setState(current); } catch { /* Keep the explicit operation result. */ } } return message; }
+  catch (e) { const raw = errorText(e), kind = setupFailureKind(raw,cancellationRequested.current), cancelled = kind === 'cancelled', unknown = kind === 'unknown'; const message = cancelled ? t('runtime.preparationCancelled') : unknown ? t('runtime.preparationUnknown') : raw; if (alive.current) { if (cancelled) setNotice(message); else setError(message); setUncertain(unknown); try { const current = verifiedSetup(profile.runtime,await call<SetupState>('InspectSetup', profile)); if (alive.current) setState(current); } catch { /* Keep the explicit operation result. */ } } return message; }
   finally { working.current = false; if (alive.current) setBusy(''); }
  };
  useEffect(() => { if (!active||!state?.loginPending) return; const timer = window.setInterval(() => { if (!working.current) void run('detect'); }, 2000); return () => clearInterval(timer); }, [active,state?.loginPending, profile]);
