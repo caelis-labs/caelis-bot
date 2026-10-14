@@ -132,6 +132,12 @@ func TestStopUsingSoleModelCommitsHostBeforeClearingBotPreference(t *testing.T) 
 			}
 			app.Backend.ConfigureExecution(path, preference)
 			profile := api.RuntimeSettings{Runtime: "caelis", CaelisStore: store}
+			// The committed Host deletion path reconciles the resident Caelis
+			// binding. An inactive connection must not mutate another resident
+			// Runtime's preferences.
+			binding := app.Backend.CurrentRuntimeBinding()
+			binding.Settings = profile
+			app.Backend.BindRuntime(binding)
 			result, err := app.setup.removeModelAndStop(t.Context(), profile, api.RuntimeConfigurationChange{Action: "remove-model-and-stop", ID: model, ExpectedRevision: "9"})
 			if err != nil || posts.Load() != 1 {
 				t.Fatalf("Host deletion: %+v, %v; posts=%d", result, err, posts.Load())

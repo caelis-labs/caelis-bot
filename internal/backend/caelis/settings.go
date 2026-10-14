@@ -13,7 +13,7 @@ import (
 func (s *Session) ExecutionOptions() api.ExecutionOptions {
 	return api.ExecutionOptions{DefaultApprovalMode: "auto", ApprovalModes: []api.ApprovalMode{
 		{ID: "auto", Name: "自动审查", Description: "新对话保留工作区沙箱，由 Guardian 审查额外访问。"},
-		{ID: "full-access", Name: "完全访问", Description: "新对话关闭原生命令沙箱，不再询问执行权限。", Dangerous: true},
+		{ID: "full-access", Name: "完全访问", Description: "新对话使用 Host 执行原生命令；需审批的 Bot 操作仍由 Guardian 自动审查。", Dangerous: true},
 	}}
 }
 func (s *Session) SetFutureExecutionMode(mode string) {

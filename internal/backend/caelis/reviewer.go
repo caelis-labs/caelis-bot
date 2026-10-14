@@ -16,28 +16,28 @@ func (s *Session) configureReviewer(profile *wire.ApplicationProfile) {
 	if s.requireApproval {
 		return
 	}
-	if api.NormalizeNewExecutionMode(s.execution.ApprovalMode) == "full-access" {
-		profile.Permissions = &wire.ApplicationPermissions{Mode: pointer("danger-full-access"), ApprovalMode: pointer("manual")}
-		profile.Reviewer = nil
-		return
-	}
-	if profile.Reviewer != nil {
-		return
-	}
-	model := s.reviewerModel
-	if model == "" {
-		model = profile.Model
-	}
+	fullAccess := api.NormalizeNewExecutionMode(s.execution.ApprovalMode) == "full-access"
 	permissions := wire.ApplicationPermissions{}
 	if profile.Permissions != nil {
 		permissions = *profile.Permissions
 	}
-	if value(permissions.Mode) == "" || value(permissions.Mode) == "danger-full-access" {
+	if fullAccess {
+		// Host execution removes the native sandbox, but manual routing would
+		// still ask a person to approve every required Bot callback. Keep those
+		// application actions under the creation-bound Guardian instead.
+		permissions.Mode = pointer("danger-full-access")
+	} else if value(permissions.Mode) == "" || value(permissions.Mode) == "danger-full-access" {
 		permissions.Mode = pointer("workspace-write")
 	}
 	permissions.ApprovalMode = pointer("auto-review")
 	profile.Permissions = &permissions
-	profile.Reviewer = &wire.ApplicationReviewer{Kind: "guardian", Model: model}
+	if profile.Reviewer == nil {
+		model := s.reviewerModel
+		if model == "" {
+			model = profile.Model
+		}
+		profile.Reviewer = &wire.ApplicationReviewer{Kind: "guardian", Model: model}
+	}
 }
 
 func (s *Session) checkReviewer(ctx context.Context, b wire.ApplicationBinding) error {

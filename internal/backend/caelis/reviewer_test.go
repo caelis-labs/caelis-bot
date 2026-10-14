@@ -147,11 +147,16 @@ func TestFutureFullAccessMapsOnlyNewCaelisProfile(t *testing.T) {
 	next := old
 	next.Model = "next"
 	s.configureReviewer(&next)
-	if value(next.Permissions.Mode) != "danger-full-access" || value(next.Permissions.ApprovalMode) != "manual" || next.Reviewer != nil {
+	if value(next.Permissions.Mode) != "danger-full-access" || value(next.Permissions.ApprovalMode) != "auto-review" || next.Reviewer == nil || next.Reviewer.Kind != "guardian" || next.Reviewer.Model != "old" {
 		t.Fatal("new profile did not map to Core full access", next)
 	}
 	if value(old.Permissions.Mode) != "workspace-write" || value(old.Permissions.ApprovalMode) != "auto-review" || old.Reviewer == nil {
 		t.Fatal("existing binding was modified", old)
+	}
+	fresh := wire.ApplicationProfile{Model: "fresh", Execution: "workspace-write"}
+	s.configureReviewer(&fresh)
+	if value(fresh.Permissions.Mode) != "danger-full-access" || value(fresh.Permissions.ApprovalMode) != "auto-review" || fresh.Reviewer == nil || fresh.Reviewer.Model != "fresh" {
+		t.Fatal("fresh full-access profile has no creation-bound Guardian", fresh)
 	}
 	s.SetFutureExecutionMode("auto")
 	auto := next
