@@ -151,10 +151,12 @@ func (s *Session) WorkStates() []api.WorkState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := []api.WorkState{}
-	for _, t := range s.binding.Tasks {
+	for id, t := range s.binding.Tasks {
 		v := s.taskView(t)
 		activity := t.Activity
-		if s.state.Connection != "ready" {
+		if s.binding.LostOwnerTasks[id] {
+			activity = api.WorkActivityOwnerUnavailable
+		} else if s.state.Connection != "ready" {
 			activity = ""
 		}
 		originalStopCurrent := t.StopPendingRequest != "" && (t.StopPendingStatus == "" || t.StopPendingTurn == t.Run)

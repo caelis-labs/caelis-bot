@@ -55,6 +55,8 @@ func (b *Bridge) mirrorRecovery(ctx context.Context, c client, snapshot api.Snap
 		buttonText := b.text("Reconnect", "重新连接")
 		if snapshot.ConnectionIssue == "owner_unavailable" {
 			buttonText = b.text("Start new connection", "建立新连接")
+		} else if snapshot.ConnectionIssue == "owner_lifecycle_unknown" {
+			buttonText = b.text("Check original owner", "核对原连接")
 		}
 		keys = recoveryKeyboard(nonce, state.Fence, recoveryWindow(), buttonText)
 	} else if !state.Automatic && !state.InProgress && snapshot.Connection == "login" {
@@ -70,6 +72,8 @@ func (b *Bridge) mirrorRecovery(ctx context.Context, c client, snapshot api.Snap
 
 func (b *Bridge) recoveryMessage(snapshot api.Snapshot) string {
 	switch snapshot.ConnectionIssue {
+	case "owner_lifecycle_unknown":
+		return b.text("Telegram is connected, but the previous Runtime owner's process status cannot be verified. The original request and tool effects remain unknown. Check the original connection on your Mac; no replacement owner or old work will be started from an unverified result.", "Telegram 已连接，但原 Runtime 进程状态无法核实。原请求和工具效果仍未知。可在 Mac 核对原连接；未经核实不会建立替代连接或重做旧工作。")
 	case "owner_unavailable":
 		return b.text("Telegram is connected, but the previous Runtime owner has stopped. The original request and tool effects remain unconfirmed and their records are retained. Start a new connection to continue; this will not rerun the old work or interrupt. Keep the Mac app running.", "Telegram 已连接，但原 Runtime 已停止。原请求及工具效果仍未确认，原记录已保留。可建立新连接继续使用；不会重做旧任务或重发旧中断。请保持 Mac 应用运行。")
 	case "resource_exhausted":

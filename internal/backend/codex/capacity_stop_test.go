@@ -12,6 +12,7 @@ import (
 
 	"github.com/caelis-labs/caelis-bot/internal/backend"
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+	"github.com/caelis-labs/caelis-bot/internal/tasks"
 )
 
 func awaitCapacityOwnerDisconnect(t *testing.T, c *Client) {
@@ -239,6 +240,8 @@ func TestCapacityStopCloseRetainsUnknownTargetWithoutDispatch(t *testing.T) {
 	s.state.Connection = "offline"
 	s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopPhase = request, "thread-native", "requested"
 	s.binding.OwnerEndpoint = "unix:///tmp/synthetic-capacity-owner.sock"
+	s.binding.OwnerProcess = &ownerProcessIdentity{PID: 1001, Birth: 91}
+	s.ownerLifecycleProbe = func(ownerProcessIdentity) ownerLifecycle { return ownerGone }
 	if err := s.save(); err != nil {
 		s.mu.Unlock()
 		t.Fatal(err)
@@ -262,7 +265,7 @@ func TestCapacityStopCloseRetainsUnknownTargetWithoutDispatch(t *testing.T) {
 }
 
 func TestPrivateOwnerCloseNewSessionManualRecoveryKeepsOldReceiptsReadOnly(t *testing.T) {
-	s, f := sessionPair(t, "hold")
+	s, f, _, _ := taskPair(t)
 	const request, taskID = "closed-owner-original-request", "closed-owner-worker"
 	endpoint := "unix://" + filepath.Join(t.TempDir(), "owned-original.sock")
 	var stopped atomic.Int32
@@ -270,6 +273,7 @@ func TestPrivateOwnerCloseNewSessionManualRecoveryKeepsOldReceiptsReadOnly(t *te
 	var oldReads atomic.Int32
 	var oldDispatches atomic.Int32
 	f.mu.Lock()
+	originalHandle := f.handle
 	f.handle = func(m wireMessage) (any, bool) {
 		if m.Method == "turn/interrupt" {
 			oldInterrupts.Add(1)
@@ -293,12 +297,18 @@ func TestPrivateOwnerCloseNewSessionManualRecoveryKeepsOldReceiptsReadOnly(t *te
 				oldDispatches.Add(1)
 			}
 		}
-		return nil, false
+		return originalHandle(m)
 	}
 	f.mu.Unlock()
 	s.mu.Lock()
-	s.client.owner = &fixtureRetainedOwner{endpoint: endpoint}
+	s.client.owner = &fixtureRetainedOwner{endpoint: endpoint, identity: ownerProcessIdentity{PID: 1002, Birth: 92}}
 	s.client.rpc.stop = func() { stopped.Add(1) }
+	s.ownerLifecycleProbe = func(ownerProcessIdentity) ownerLifecycle {
+		if stopped.Load() == 0 {
+			return ownerAlive
+		}
+		return ownerGone
+	}
 	s.binding.OwnerEndpoint = endpoint
 	s.binding.CapacityStopRequest, s.binding.CapacityStopThread, s.binding.CapacityStopTurn = request, "thread-native", "old-turn"
 	s.binding.CapacityStopPhase, s.binding.CapacityStopAccepted = "attempted", true
@@ -323,6 +333,7 @@ func TestPrivateOwnerCloseNewSessionManualRecoveryKeepsOldReceiptsReadOnly(t *te
 	oldReads.Store(0)
 	oldDispatches.Store(0)
 	loaded := NewSession(s.opts)
+	loaded.ownerLifecycleProbe = s.ownerLifecycleProbe
 	t.Cleanup(func() { _ = loaded.Close(testContext(t)) })
 	start := s.start
 	var started atomic.Int32
@@ -383,6 +394,24 @@ func TestPrivateOwnerCloseNewSessionManualRecoveryKeepsOldReceiptsReadOnly(t *te
 	}
 	if oldInterrupts.Load() != 0 || oldReads.Load() != 0 || oldDispatches.Load() != 0 {
 		t.Fatal("old work was queried, dispatched or interrupted on the new owner", oldReads.Load(), oldDispatches.Load(), oldInterrupts.Load())
+	}
+	m, err := tasks.Open(filepath.Join(t.TempDir(), "recovered-product-tasks.json"), loaded.workRoot(), "codex", loaded, loaded, loaded.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.ConfigureLimit(func() int { return 1 })
+	if err := m.RefreshWatchlist(); err != nil {
+		t.Fatal(err)
+	}
+	states := loaded.WorkStates()
+	if len(states) != 1 || states[0].Task.Status != "unknown" || states[0].Activity != api.WorkActivityOwnerUnavailable {
+		t.Fatal("archived Worker changed result or still occupied the new owner", states)
+	}
+	if _, err := m.StartTask(testContext(t), api.TaskStart{RequestID: "new-owner-worker", Title: "Fresh worker", Prompt: "Create a new fixture artifact"}); err != nil {
+		t.Fatal("archived owner consumed the new connection's only Worker slot", err)
+	}
+	if oldInterrupts.Load() != 0 || oldReads.Load() != 0 || oldDispatches.Load() != 0 {
+		t.Fatal("new Worker creation replayed old native work", oldReads.Load(), oldDispatches.Load(), oldInterrupts.Load())
 	}
 	reloaded := NewSession(loaded.opts)
 	defer reloaded.cancelLife()

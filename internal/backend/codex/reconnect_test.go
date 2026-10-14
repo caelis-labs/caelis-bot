@@ -171,11 +171,15 @@ func TestExpiredApprovalCannotBeDispatchedAfterAutoReconnect(t *testing.T) {
 	}
 }
 
-type fixtureRetainedOwner struct{ endpoint string }
+type fixtureRetainedOwner struct {
+	endpoint string
+	identity ownerProcessIdentity
+}
 
-func (o *fixtureRetainedOwner) captureTools()            {}
-func (o *fixtureRetainedOwner) toolCleanupError() error  { return nil }
-func (o *fixtureRetainedOwner) terminalEndpoint() string { return o.endpoint }
+func (o *fixtureRetainedOwner) captureTools()                         {}
+func (o *fixtureRetainedOwner) toolCleanupError() error               { return nil }
+func (o *fixtureRetainedOwner) terminalEndpoint() string              { return o.endpoint }
+func (o *fixtureRetainedOwner) processIdentity() ownerProcessIdentity { return o.identity }
 
 func TestAutoReconnectPinsOriginalPrivateOwnerEndpoint(t *testing.T) {
 	s, f := sessionPair(t, "hold")

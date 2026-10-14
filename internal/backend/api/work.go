@@ -71,6 +71,10 @@ type LocalWorkerController interface {
 	SaveLocalWorkerExecutionMode(context.Context, string) (LocalWorkerSettings, error)
 }
 
+// WorkActivityOwnerUnavailable means the original process is confirmed gone.
+// Its saved task remains unknown and readable but cannot occupy a new owner slot.
+const WorkActivityOwnerUnavailable = "owner_unavailable"
+
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque
 // native generation, never a product-generated inference from assistant prose.
 type WorkState struct {
@@ -79,8 +83,9 @@ type WorkState struct {
 	// AsyncQuestions are host-only completed Codex question items owned by this
 	// Worker. They do not turn a Worker transcript into Bot conversation history.
 	AsyncQuestions []Item `json:"-"`
-	// Activity is active, idle, or empty when the native owner has not been
-	// checked in this connection generation. It is independent of task outcome.
+	// Activity is active, idle, owner_unavailable, or empty when the native
+	// owner has not been checked in this connection generation. It is
+	// independent of task outcome.
 	Activity       string
 	OriginalPrompt string
 	ExecutionKey   string

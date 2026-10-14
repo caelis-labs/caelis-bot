@@ -28,7 +28,11 @@ type binding struct {
 	Artifacts  map[string]string `json:"artifacts,omitempty"`
 	// Exact native owner used by this binding. An update detaches its observer;
 	// the next process must reconcile here before accepting new work.
-	OwnerEndpoint string `json:"ownerEndpoint,omitempty"`
+	OwnerEndpoint string                `json:"ownerEndpoint,omitempty"`
+	OwnerProcess  *ownerProcessIdentity `json:"ownerProcess,omitempty"`
+	// Closing records intent before the private process is stopped. It does not
+	// prove that the owner exited after a crash or failed local write.
+	OwnerClosing bool `json:"ownerClosing,omitempty"`
 	// Ordinary Close stops a private owner. Its old receipts remain evidence,
 	// but that owner can no longer be queried or used to resume its threads.
 	OwnerUnavailable   bool                            `json:"ownerUnavailable,omitempty"`
@@ -79,24 +83,25 @@ type pendingSubmission struct {
 	TurnID string `json:"turnId"`
 }
 type lostOwnerRecord struct {
-	Endpoint       string             `json:"endpoint"`
-	Thread         string             `json:"thread"`
-	LastReceipt    *api.Receipt       `json:"lastReceipt,omitempty"`
-	Pending        *pendingSubmission `json:"pending,omitempty"`
-	StopRequest    string             `json:"stopRequest,omitempty"`
-	StopThread     string             `json:"stopThread,omitempty"`
-	StopTurn       string             `json:"stopTurn,omitempty"`
-	StopPhase      string             `json:"stopPhase,omitempty"`
-	StopStatus     string             `json:"stopStatus,omitempty"`
-	StopAccepted   bool               `json:"stopAccepted,omitempty"`
-	StopState      string             `json:"stopState,omitempty"`
-	StopRuns       map[string]string  `json:"stopRuns,omitempty"`
-	CleanupTargets []string           `json:"cleanupTargets,omitempty"`
-	Children       []string           `json:"children,omitempty"`
-	PastThreads    []string           `json:"pastThreads,omitempty"`
-	ApprovalIDs    []string           `json:"approvalIds,omitempty"`
-	ToolRenewal    *toolRenewalRecord `json:"toolRenewal,omitempty"`
-	TaskIDs        []string           `json:"taskIds,omitempty"`
+	Endpoint       string                `json:"endpoint"`
+	Process        *ownerProcessIdentity `json:"process,omitempty"`
+	Thread         string                `json:"thread"`
+	LastReceipt    *api.Receipt          `json:"lastReceipt,omitempty"`
+	Pending        *pendingSubmission    `json:"pending,omitempty"`
+	StopRequest    string                `json:"stopRequest,omitempty"`
+	StopThread     string                `json:"stopThread,omitempty"`
+	StopTurn       string                `json:"stopTurn,omitempty"`
+	StopPhase      string                `json:"stopPhase,omitempty"`
+	StopStatus     string                `json:"stopStatus,omitempty"`
+	StopAccepted   bool                  `json:"stopAccepted,omitempty"`
+	StopState      string                `json:"stopState,omitempty"`
+	StopRuns       map[string]string     `json:"stopRuns,omitempty"`
+	CleanupTargets []string              `json:"cleanupTargets,omitempty"`
+	Children       []string              `json:"children,omitempty"`
+	PastThreads    []string              `json:"pastThreads,omitempty"`
+	ApprovalIDs    []string              `json:"approvalIds,omitempty"`
+	ToolRenewal    *toolRenewalRecord    `json:"toolRenewal,omitempty"`
+	TaskIDs        []string              `json:"taskIds,omitempty"`
 }
 type SessionOptions struct {
 	Diagnostics                          *diagnosticlog.Logger
@@ -202,6 +207,8 @@ type Session struct {
 	futureBotMode            atomic.Value // string; only future native resident threads use it
 	stopTerminalSavePending  map[string]bool
 	stopTerminalSaveRetrying bool
+	ownerUnavailableVerified bool
+	ownerLifecycleProbe      func(ownerProcessIdentity) ownerLifecycle
 }
 
 func NewSession(opts SessionOptions) *Session {
@@ -367,7 +374,11 @@ func (s *Session) update() {
 			s.backgroundResultsDirty = false
 		}
 	}
-	if s.binding.OwnerUnavailable {
+	if s.binding.OwnerClosing || s.binding.OwnerUnavailable && !s.ownerUnavailableVerified {
+		s.state.Phase = "unknown"
+		s.state.ConnectionIssue = "owner_lifecycle_unknown"
+		s.state.Message = "原本机 Codex 的进程状态尚未核实；原请求与工具效果保持未知，不会建立替代连接"
+	} else if s.binding.OwnerUnavailable {
 		s.state.Phase = "unknown"
 		s.state.ConnectionIssue = "owner_unavailable"
 		s.state.Message = "原本机 Codex 已随退出关闭，原请求和工具效果无法再核对；记录已保留，请明确恢复后再开始新工作"
@@ -501,11 +512,17 @@ func (s *Session) connect(ctx context.Context) error {
 		s.mu.Unlock()
 		return err
 	}
-	if s.binding.OwnerUnavailable {
-		s.state.Connection = "offline"
-		s.update()
-		s.mu.Unlock()
-		return errors.New("原本机 Codex 已随退出关闭，原请求与工具效果无法再核对；请明确恢复后开始新工作")
+	if s.client == nil && s.retainedOwner == nil && (s.binding.OwnerProcess != nil || s.binding.OwnerClosing || s.binding.OwnerUnavailable) {
+		life, err := s.reconcilePrivateOwnerLocked()
+		if err != nil || life != ownerAlive {
+			s.state.Connection = "offline"
+			s.update()
+			s.mu.Unlock()
+			if err != nil {
+				return err
+			}
+			return errors.New("原本机 Codex 已关闭，原请求与工具效果无法再核对；请明确恢复后开始新工作")
+		}
 	}
 	if s.client != nil && s.client.Err() == nil && s.state.Connection == "ready" {
 		c, id, pending := s.client, s.binding.ThreadID, s.binding.Pending != nil
@@ -1723,28 +1740,51 @@ cleanup:
 	}
 	unresolvedCapacityStop := s.binding.CapacityStopRequest != "" && s.binding.CapacityStopStatus == ""
 	ownerSettled := cleanupErr == nil && c.toolCleanupError() == nil && s.run == "" && !s.hasBlockingChildren() && !s.hasUnresolvedTasks() && !unknownTaskReceipt && !unresolvedCapacityStop && s.binding.Pending == nil && len(s.binding.CleanupTargets) == 0 && len(s.prompts) == 0 && (s.binding.LastReceipt == nil || s.binding.LastReceipt.Outcome != "unknown")
-	if !c.UsesSharedServer() && !ownerSettled {
-		previous := s.binding.OwnerUnavailable
-		s.binding.OwnerUnavailable = true
+	privateOwner := !c.UsesSharedServer()
+	if privateOwner && !ownerSettled {
+		previous := s.binding
+		s.binding.OwnerClosing, s.binding.OwnerUnavailable = true, false
+		s.ownerUnavailableVerified = false
+		if s.binding.OwnerProcess == nil {
+			s.binding.OwnerProcess = c.privateOwnerIdentity()
+		}
 		if err := s.save(); err != nil {
-			s.binding.OwnerUnavailable = previous
+			s.binding = previous
 			endpointErr = err
 		}
-	} else if !c.UsesSharedServer() {
-		previous := s.binding.OwnerEndpoint
+	} else if privateOwner {
+		previousEndpoint, previousProcess := s.binding.OwnerEndpoint, s.binding.OwnerProcess
 		s.binding.OwnerEndpoint = ""
+		s.binding.OwnerProcess = nil
 		if err := s.save(); err != nil {
-			s.binding.OwnerEndpoint = previous
+			s.binding.OwnerEndpoint, s.binding.OwnerProcess = previousEndpoint, previousProcess
 			endpointErr = err
+		}
+	}
+	s.mu.Unlock()
+	c.Close()
+	s.mu.Lock()
+	if privateOwner && !ownerSettled {
+		if s.probePrivateOwnerLocked() == ownerGone {
+			previousClosing, previousUnavailable := s.binding.OwnerClosing, s.binding.OwnerUnavailable
+			s.binding.OwnerClosing, s.binding.OwnerUnavailable = false, true
+			if err := s.save(); err != nil {
+				s.binding.OwnerClosing, s.binding.OwnerUnavailable = previousClosing, previousUnavailable
+				endpointErr = err
+			} else {
+				s.ownerUnavailableVerified = true
+				endpointErr = nil // The final fact is durable even if the intent write failed.
+			}
+		} else if endpointErr == nil {
+			endpointErr = errors.New("原 owner 进程退出尚未确认")
 		}
 	}
 	s.closed = true
 	s.state.Connection = "offline"
 	s.update()
 	s.mu.Unlock()
-	c.Close()
 	if endpointErr != nil {
-		return fmt.Errorf("连接已关闭，但原 owner 退出状态未能保存: %w", endpointErr)
+		return fmt.Errorf("连接已关闭，但原 owner 退出状态未能确认或保存: %w", endpointErr)
 	}
 	if cleanupErr != nil || c.toolCleanupError() != nil {
 		return errors.New("连接已关闭，但后台工具的完整清理未能确认")
