@@ -316,12 +316,14 @@ type ExecutionSettings struct {
 	ApprovalMode string `json:"approvalMode"`
 }
 
-// WorkExecutionSettings selects only the model for newly delegated work.
-// Empty Model means Runtime default, then Bot fallback. Permissions are separate.
+// WorkExecutionSettings selects model and creation-time permissions for new work.
+// Empty Model means Runtime default, then Bot fallback. Empty ApprovalMode in
+// historical files means auto review; it never inherits the Bot's mode.
 type WorkExecutionSettings struct {
-	Model       string `json:"model"`
-	Effort      string `json:"effort"`
-	ServiceTier string `json:"serviceTier"`
+	Model        string `json:"model"`
+	Effort       string `json:"effort"`
+	ServiceTier  string `json:"serviceTier"`
+	ApprovalMode string `json:"approvalMode,omitempty"`
 }
 type ModelOption struct {
 	ImageInput    *bool         `json:"imageInput"`

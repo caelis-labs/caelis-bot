@@ -17,6 +17,9 @@ func ValidateWorkExecution(v WorkExecutionSettings, catalog []ModelOption) error
 	if err := ValidateExecutionSettings(v.Execution()); err != nil {
 		return err
 	}
+	if err := ValidateNewExecutionMode(v.ApprovalMode); err != nil {
+		return err
+	}
 	if v.Model == "" {
 		return nil
 	}
@@ -32,4 +35,21 @@ func ValidateWorkExecution(v WorkExecutionSettings, catalog []ModelOption) error
 		return errors.New("工作模型不支持所选响应速度")
 	}
 	return nil
+}
+
+// NormalizeNewExecutionMode keeps historical preferences on the safe default.
+func NormalizeNewExecutionMode(mode string) string {
+	if mode == "" || mode == "workspace-write" {
+		return "auto"
+	}
+	return mode
+}
+
+func ValidateNewExecutionMode(mode string) error {
+	switch mode {
+	case "", "auto", "full-access":
+		return nil
+	default:
+		return errors.New("执行模式仅支持自动审查或完全访问")
+	}
 }

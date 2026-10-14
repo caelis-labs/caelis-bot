@@ -18,7 +18,13 @@ func LoadWorkExecutionSettings(path string) (api.WorkExecutionSettings, error) {
 	if err != nil || json.Unmarshal(b, &v) != nil {
 		return v, errors.New("无法读取工作模型设置，请保留文件并重试")
 	}
-	return v, api.ValidateExecutionSettings(v.Execution())
+	if err := api.ValidateExecutionSettings(v.Execution()); err != nil {
+		return v, err
+	}
+	if err := api.ValidateNewExecutionMode(v.ApprovalMode); err != nil {
+		return v, err
+	}
+	return v, nil
 }
 
 func (s *Service) ConfigureWorkExecution(path string, v api.WorkExecutionSettings) {
@@ -36,7 +42,17 @@ func (s *Service) WorkExecutionSettings() api.WorkExecutionSettings {
 func (s *Service) SaveWorkExecutionSettings(ctx context.Context, v api.WorkExecutionSettings) error {
 	s.configurationMu.Lock()
 	defer s.configurationMu.Unlock()
+	if err := api.ValidateNewExecutionMode(v.ApprovalMode); err != nil {
+		return err
+	}
+	// The shared model picker does not own the Worker permission choice.
+	if v.ApprovalMode == "" {
+		v.ApprovalMode = s.workExecutionSettings.ApprovalMode
+	}
 	if err := api.ValidateExecutionSettings(v.Execution()); err != nil {
+		return err
+	}
+	if err := api.ValidateNewExecutionMode(v.ApprovalMode); err != nil {
 		return err
 	}
 	e, ok := s.currentEngine().(api.WorkExecutionProvider)

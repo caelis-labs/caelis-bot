@@ -485,4 +485,5 @@ export interface WorkExecutionSettings {
   model: string;
   effort: string;
   serviceTier: string;
+  approvalMode?: string;
 }

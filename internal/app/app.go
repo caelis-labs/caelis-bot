@@ -164,6 +164,12 @@ func newApplication(root string, host Host, resolve factoryResolver) (*Applicati
 			host.ReportError(err)
 		}
 	}
+	if mode, modeErr := backend.LoadBotExecutionMode(executionFile); modeErr == nil {
+		execution.ApprovalMode = mode
+	} else {
+		execution.ApprovalMode = "auto"
+		if host.ReportError != nil { host.ReportError(modeErr) }
+	}
 	workExecutionFile := filepath.Join(directory, "work-execution.json")
 	workExecution, err := backend.LoadWorkExecutionSettings(workExecutionFile)
 	if err != nil {

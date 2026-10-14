@@ -13,7 +13,15 @@ import (
 // reviewer: manual was hardcoded. A normal Dream handoff adopts the new product
 // default without mutating the old Session, replaying work, or relaxing its sandbox.
 func (s *Session) configureReviewer(profile *wire.ApplicationProfile) {
-	if s.requireApproval || profile.Reviewer != nil {
+	if s.requireApproval {
+		return
+	}
+	if api.NormalizeNewExecutionMode(s.execution.ApprovalMode) == "full-access" {
+		profile.Permissions = &wire.ApplicationPermissions{Mode: pointer("danger-full-access"), ApprovalMode: pointer("manual")}
+		profile.Reviewer = nil
+		return
+	}
+	if profile.Reviewer != nil {
 		return
 	}
 	model := s.reviewerModel
@@ -24,7 +32,7 @@ func (s *Session) configureReviewer(profile *wire.ApplicationProfile) {
 	if profile.Permissions != nil {
 		permissions = *profile.Permissions
 	}
-	if value(permissions.Mode) == "" {
+	if value(permissions.Mode) == "" || value(permissions.Mode) == "danger-full-access" {
 		permissions.Mode = pointer("workspace-write")
 	}
 	permissions.ApprovalMode = pointer("auto-review")

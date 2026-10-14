@@ -66,6 +66,7 @@ type LocalWorkerController interface {
 	InspectWorkerRuntime(context.Context, string) (LocalWorkerSettings, error)
 	SelectLocalWorker(context.Context, string) (LocalWorkerSettings, error)
 	SaveLocalWorkerModel(context.Context, WorkExecutionSettings) (LocalWorkerSettings, error)
+	SaveLocalWorkerExecutionMode(context.Context, string) (LocalWorkerSettings, error)
 }
 
 // WorkState projects authoritative execution facts. ExecutionKey is an opaque

@@ -139,3 +139,25 @@ func TestNewProfileAndNaturalHandoffPinReviewerWithoutRelaxingSandbox(t *testing
 		t.Fatal("explicit manual fixture changed")
 	}
 }
+
+func TestFutureFullAccessMapsOnlyNewCaelisProfile(t *testing.T) {
+	s := New(Options{Directory: t.TempDir(), Execution: api.ExecutionSettings{ApprovalMode: "auto"}})
+	old := wire.ApplicationProfile{Model: "old", Permissions: &wire.ApplicationPermissions{Mode: pointer("workspace-write"), ApprovalMode: pointer("auto-review")}, Reviewer: &wire.ApplicationReviewer{Kind: "guardian", Model: "old"}}
+	s.SetFutureExecutionMode("full-access")
+	next := old
+	next.Model = "next"
+	s.configureReviewer(&next)
+	if value(next.Permissions.Mode) != "danger-full-access" || value(next.Permissions.ApprovalMode) != "manual" || next.Reviewer != nil {
+		t.Fatal("new profile did not map to Core full access", next)
+	}
+	if value(old.Permissions.Mode) != "workspace-write" || value(old.Permissions.ApprovalMode) != "auto-review" || old.Reviewer == nil {
+		t.Fatal("existing binding was modified", old)
+	}
+	s.SetFutureExecutionMode("auto")
+	auto := next
+	auto.Model = "another"
+	s.configureReviewer(&auto)
+	if value(auto.Permissions.Mode) != "workspace-write" || value(auto.Permissions.ApprovalMode) != "auto-review" || auto.Reviewer == nil {
+		t.Fatal("automatic review mapping lost", auto)
+	}
+}

@@ -89,3 +89,34 @@ func TestProviderOwnsPolicyVocabulary(t *testing.T) {
 		t.Fatal("provider setting was lost", err)
 	}
 }
+
+func TestBotFutureModeIsPersistedWithoutChangingCurrentExecution(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "execution.json")
+	current := api.ExecutionSettings{Model: "model", ApprovalMode: "auto"}
+	s := NewService(&executionFake{}, nil, nil, nil, nil)
+	s.ConfigureExecution(path, current)
+	if mode, err := s.BotExecutionMode(); err != nil || mode != "auto" {
+		t.Fatal(mode, err)
+	}
+	if err := s.SaveBotExecutionMode("full-access"); err != nil {
+		t.Fatal(err)
+	}
+	if mode, err := s.BotExecutionMode(); err != nil || mode != "full-access" {
+		t.Fatal(mode, err)
+	}
+	if got, err := s.ExecutionSettings(); err != nil || got != current {
+		t.Fatal("current session changed", got, err)
+	}
+	if err := s.SaveBotExecutionMode("danger-full-access"); err == nil {
+		t.Fatal("native token accepted as API choice")
+	}
+	if mode, _ := s.BotExecutionMode(); mode != "full-access" {
+		t.Fatal("invalid choice changed preference")
+	}
+	if err := os.WriteFile(botModeFile(path), []byte(`{"version":1,"mode":"unknown"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BotExecutionMode(); err == nil {
+		t.Fatal("corrupt saved choice silently defaulted")
+	}
+}

@@ -120,11 +120,51 @@ func (w *localWorkers) SelectLocalWorker(ctx context.Context, runtime string) (a
 	return v, nil
 }
 func (w *localWorkers) SaveLocalWorkerModel(ctx context.Context, value api.WorkExecutionSettings) (api.LocalWorkerSettings, error) {
+	if err := api.ValidateNewExecutionMode(value.ApprovalMode); err != nil {
+		return api.LocalWorkerSettings{}, err
+	}
 	w.settingsMu.Lock()
 	defer w.settingsMu.Unlock()
 	w.mu.Lock()
 	runtime := w.defaultRuntime
 	w.mu.Unlock()
+	dir, _ := providerDirectory(w.root, runtime)
+	current, err := backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
+	if err != nil {
+		return api.LocalWorkerSettings{}, err
+	}
+	// A model picker never changes the permission choice.
+	if value.ApprovalMode == "" {
+		value.ApprovalMode = current.ApprovalMode
+	}
+	return w.saveWorkSettings(ctx, runtime, value)
+}
+
+func (w *localWorkers) SaveLocalWorkerExecutionMode(ctx context.Context, mode string) (api.LocalWorkerSettings, error) {
+	if mode != "auto" && mode != "full-access" {
+		return api.LocalWorkerSettings{}, errors.New("执行模式仅支持自动审查或完全访问")
+	}
+	w.settingsMu.Lock()
+	defer w.settingsMu.Unlock()
+	w.mu.Lock()
+	runtime := w.defaultRuntime
+	w.mu.Unlock()
+	if runtime == "caelis" {
+		return api.LocalWorkerSettings{}, errors.New("此 Caelis 版本的独立任务由 Host 管理权限，暂不支持单独设置执行模式")
+	}
+	if mode == "full-access" {
+		return api.LocalWorkerSettings{}, errors.New("Codex Worker 完全访问仍需任务回执固定权限后才能启用")
+	}
+	dir, _ := providerDirectory(w.root, runtime)
+	value, err := backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
+	if err != nil {
+		return api.LocalWorkerSettings{}, err
+	}
+	value.ApprovalMode = mode
+	return w.saveWorkSettings(ctx, runtime, value)
+}
+
+func (w *localWorkers) saveWorkSettings(ctx context.Context, runtime string, value api.WorkExecutionSettings) (api.LocalWorkerSettings, error) {
 	owner, err := w.settingsOwner(ctx, runtime)
 	if err != nil {
 		return api.LocalWorkerSettings{}, err

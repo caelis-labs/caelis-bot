@@ -52,3 +52,19 @@ func (s *Service) SaveLocalWorkerModel(v api.WorkExecutionSettings) (api.LocalWo
 	}
 	return out, err
 }
+func (s *Service) SaveLocalWorkerExecutionMode(mode string) (api.LocalWorkerSettings, error) {
+	if s.localWorkers == nil {
+		return api.LocalWorkerSettings{}, errors.New("workers unavailable")
+	}
+	ctx, cancel := s.machineContext()
+	defer cancel()
+	out, err := s.localWorkers.SaveLocalWorkerExecutionMode(ctx, mode)
+	if err == nil {
+		if p, ok := s.currentEngine().(api.Provider); ok && p.ProviderInfo().ID == out.Runtime {
+			s.configurationMu.Lock()
+			s.workExecutionSettings = out.Work
+			s.configurationMu.Unlock()
+		}
+	}
+	return out, err
+}

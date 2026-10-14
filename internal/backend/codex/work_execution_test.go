@@ -9,15 +9,17 @@ import (
 func TestWorkModelResolutionAndPinnedContinuation(t *testing.T) {
 	bot := api.ExecutionSettings{Model: "bot-luna", Effort: "low", ServiceTier: "fast", ApprovalMode: "read-only"}
 	for _, tc := range []struct {
-		name   string
-		config any
-		custom api.WorkExecutionSettings
-		want   api.WorkExecutionSettings
-		fail   bool
+		name        string
+		config      any
+		custom      api.WorkExecutionSettings
+		want        api.WorkExecutionSettings
+		wantSandbox string
+		fail        bool
 	}{
-		{name: "runtime", config: map[string]any{"config": map[string]any{"model": "runtime-astra", "model_reasoning_effort": "high", "service_tier": "priority"}}, want: api.WorkExecutionSettings{Model: "runtime-astra", Effort: "high", ServiceTier: "priority"}},
-		{name: "runtime missing model", config: map[string]any{"config": map[string]any{"model": nil, "model_reasoning_effort": "high"}}, want: api.WorkModel(bot)},
-		{name: "custom bypasses unavailable config", config: &NativeError{Code: -32601, Message: "unavailable"}, custom: api.WorkExecutionSettings{Model: "work-sol", Effort: "medium"}, want: api.WorkExecutionSettings{Model: "work-sol", Effort: "medium"}},
+		{name: "runtime", config: map[string]any{"config": map[string]any{"model": "runtime-astra", "model_reasoning_effort": "high", "service_tier": "priority"}}, want: api.WorkExecutionSettings{Model: "runtime-astra", Effort: "high", ServiceTier: "priority"}, wantSandbox: "workspace-write"},
+		{name: "runtime missing model", config: map[string]any{"config": map[string]any{"model": nil, "model_reasoning_effort": "high"}}, want: api.WorkExecutionSettings{Model: "bot-luna", Effort: "low", ServiceTier: "fast"}, wantSandbox: "workspace-write"},
+		{name: "custom bypasses unavailable config", config: &NativeError{Code: -32601, Message: "unavailable"}, custom: api.WorkExecutionSettings{Model: "work-sol", Effort: "medium"}, want: api.WorkExecutionSettings{Model: "work-sol", Effort: "medium"}, wantSandbox: "workspace-write"},
+		{name: "full access blocked until receipt pinning", custom: api.WorkExecutionSettings{Model: "work-sol", ApprovalMode: "full-access"}, fail: true},
 		{name: "failed read is not missing model", config: &NativeError{Code: -32601, Message: "unavailable"}, fail: true},
 		{name: "missing model field is not unconfigured", config: map[string]any{"config": map[string]any{}}, fail: true},
 		{name: "malformed read is not missing model", config: map[string]any{}, fail: true},
@@ -56,7 +58,7 @@ func TestWorkModelResolutionAndPinnedContinuation(t *testing.T) {
 			p := d.threadParams
 			root := f.lastParams
 			f.mu.Unlock()
-			if p["sandbox"] != "read-only" || p["model"] != tc.want.Model || string(root["model"]) != `"bot-luna"` {
+			if p["sandbox"] != tc.wantSandbox || p["model"] != tc.want.Model || string(root["model"]) != `"bot-luna"` {
 				t.Fatal("models or permission boundary crossed", p)
 			}
 			loaded := NewSession(s.opts)
@@ -88,6 +90,9 @@ func TestWorkModelResolutionAndPinnedContinuation(t *testing.T) {
 			f.mu.Unlock()
 			if resume["model"] != tc.want.Model || turn["model"] != tc.want.Model || resume["modelProvider"] != "fixture-provider" {
 				t.Fatal("continuation changed model", resume, turn)
+			}
+			if resume["sandbox"] != tc.wantSandbox {
+				t.Fatal("continuation changed pinned permission", resume)
 			}
 			if tc.want.ServiceTier == "" && (resume["serviceTier"] != nil || turn["serviceTier"] != nil) {
 				t.Fatal("manual standard inherited Bot Fast")

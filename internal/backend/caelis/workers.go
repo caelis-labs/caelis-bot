@@ -226,6 +226,12 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 			return api.Task{}, errors.New("工作目录已发生重定向")
 		}
 	}
+	// /application/workers is Host configured; the current Core contract has no
+	// per Worker permission field. Refuse an unsupported choice before intent is
+	// journaled, rather than silently creating a differently privileged task.
+	if execution.ApprovalMode == "full-access" {
+		return api.Task{}, errors.New("此 Caelis 版本尚不支持为独立任务指定完全访问")
+	}
 	profile := wire.ApplicationProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
 	w := worker{Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId}}
 	s.mu.Lock()

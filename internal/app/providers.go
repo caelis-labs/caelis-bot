@@ -31,7 +31,7 @@ type factoryResolver func(string) (providerFactory, error)
 
 func resolveProvider(id string) (providerFactory, error) {
 	if id == "caelis" {
-		return providerFactory{ID: id, Defaults: api.ExecutionSettings{ApprovalMode: "workspace-write"}, Open: func(c providerConfig) (api.Engine, error) {
+		return providerFactory{ID: id, Defaults: api.ExecutionSettings{ApprovalMode: "auto"}, Open: func(c providerConfig) (api.Engine, error) {
 			return caelis.New(caelis.Options{Diagnostics: c.Diagnostics, Directory: filepath.Dir(c.ConversationFile), Settings: c.Settings, Execution: c.Execution, WorkExecution: c.WorkExecution}), nil
 		}}, nil
 	}

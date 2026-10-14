@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { backend, desktop } from './desktop';
 import { SettingGroup, SettingRow } from './SettingsUI';
 import { ConnectionWizard } from './settings/runtime/ConnectionWizard';
@@ -13,6 +13,9 @@ import {executionMethodLabel} from './settings/runtime/state';
 
 const empty = (runtime: string): Profile => ({ runtime, cliPath: '', caelisStore: '' });
 const request = (settings: Profile, action: string, fields: Partial<SetupRequest> = {}): SetupRequest => ({ settings, action, provider: '', baseUrl: '', model: '', apiKey: '', ...fields });
+// The onboarding branch adds scene; the base branch accepts the extra React
+// prop harmlessly until the ConnectionWizard integration commit is combined.
+const SceneConnectionWizard = ConnectionWizard as ComponentType<Parameters<typeof ConnectionWizard>[0] & { scene?: 'first-run'|'settings' }>;
 
 export function RuntimeSettings({ onboarding = false, onBack,onDone,onTeam,onBusy,active=true,refreshKey=0 }: { onboarding?: boolean; onBack?:()=>void; onDone?: () => void; onTeam?:()=>void; onBusy?:(busy:boolean)=>void; active?:boolean; refreshKey?:number }) {
  return onboarding ? <RuntimePreparation onboarding active={active} onBack={onBack} onDone={onDone} onBusy={onBusy}/> : <RuntimeWorkspace workerSettings={(onConnections, workerRefreshKey)=><LocalWorkerSettings active={active} refreshKey={workerRefreshKey} onConnections={onConnections}/>} onTeam={onTeam} active={active} refreshKey={refreshKey} preparation={(id, reportBusy, onPrepared) => <RuntimePreparation manageOnly initialRuntime={id} active={active} onBusy={reportBusy} onDone={onPrepared}/>}/>;
@@ -105,6 +108,11 @@ export function RuntimePreparation({ onboarding = false, manageOnly=false, activ
   autoStep.current = `${id}:${next}`;
   if (next === 'model') setForm('model'); else void run(next);
  }, [onboarding, state, busy, error, form, id, active]);
+ useEffect(() => {
+  if (!onboarding || !active || !overview || !id || state?.state !== 'ready' || busy || error || form || autoStep.current === `${id}:activate`) return;
+  autoStep.current = `${id}:activate`;
+  void activate();
+ }, [onboarding, active, overview, id, state?.state, busy, error, form]);
  if (onboarding && !id) return <section className="runtime-welcome">
   <img className="setup-avatar" src="/icons/caelis-avatar.png" alt=""/>
   <h1>{t('runtime.prepareCaelisBot')}</h1><p className="setup-lead">{t('runtime.chooseRuntimeLead')}</p>
@@ -120,6 +128,7 @@ export function RuntimePreparation({ onboarding = false, manageOnly=false, activ
   <p className="runtime-progress-note" role="status">{slowPreparation ? t('runtime.preparingWorkSlow') : t('runtime.preparingWorkContinue')}</p>
   {['install','update','start','apply-update','activate'].includes(busy) && <button className="text-action" disabled={cancelingPreparation} onClick={() => void cancelPreparation()}>{t(cancelingPreparation ? 'runtime.cancellingPreparation' : 'runtime.cancelPreparation')}</button>}
  </section>;
+ if (onboarding && state?.state === 'ready' && !error) return <section className="runtime-onboarding runtime-onboarding-progress" role="status"><div className="runtime-progress-mark" aria-hidden="true"/><h1>{t('runtime.preparingWork')}</h1><p className="setup-lead">{t('runtime.readyToChat')}</p></section>;
  const serviceNeedsApply = id === 'caelis' && !!state?.installation.installed && (state.state === 'service' || state.serviceUpdateAvailable || state.state === 'incompatible' && state.installation.updateState === 'current');
  const recovery = onboarding && !!error && id === 'caelis' && !!state && !state.installation.installed;
  const updateAvailable = state?.installation.updateState === 'available';
@@ -134,7 +143,7 @@ export function RuntimePreparation({ onboarding = false, manageOnly=false, activ
    <div className="runtime-recovery-actions"><button className="primary" onClick={() => void run(uncertain ? 'detect' : 'install')}>{t(uncertain ? 'runtime.recheck' : 'runtime.retryDownload')}</button>{!uncertain && <button onClick={() => void run('detect')}>{t('runtime.recheck')}</button>}</div>
   </div></div>}
   {!recovery && <div className={`runtime-program${onboarding ? ' runtime-program-onboarding' : ''}`}>
-   {onboarding && state && <p className="runtime-install-summary">{state.installation.installed ? `✓ ${id === 'caelis' ? 'Caelis' : 'Codex'} ${state.installation.version} · ${installationSource}` : t('runtime.notInstalled')}</p>}
+   {onboarding && state && state.state !== 'ready' && <p className="runtime-install-summary">{state.installation.installed ? `✓ ${id === 'caelis' ? 'Caelis' : 'Codex'} ${state.installation.version} · ${installationSource}` : t('runtime.notInstalled')}</p>}
    {!onboarding&&<dl className="runtime-version-list">
     <div><dt>{t('runtime.installed')}</dt><dd>{state?.installation.installed ? state.installation.version : busy === 'detect' ? t('runtime.detecting') : t('runtime.notInstalled')}</dd></div>
     {state?.installation.installed && <div><dt>{t('runtime.installSource')}</dt><dd>{installationSource}</dd></div>}
@@ -166,11 +175,11 @@ export function RuntimePreparation({ onboarding = false, manageOnly=false, activ
   </SettingsDialog>}
   {busy && <p className="settings-note" role="status">{onboarding ? t('runtime.preparingWork') : busy === 'install' ? t('runtime.downloadingAndInstalling') : busy === 'update' ? (id === 'caelis' ? t('runtime.updatingCaelisNotice') : t('runtime.updatingCodexNotice')) : busy === 'apply-update' ? t('runtime.activatingServiceNotice') : busy === 'activate' ? t('runtime.preparingRestartNotice') : t('runtime.processing')}</p>}
   {error && !recovery ? <p className="inline-error" role="alert">{error}</p> : notice ? <p className="settings-note" role="status">{notice}</p> : state && !serviceNeedsApply && !['ready', 'models'].includes(state.state) && !(onboarding && state.state === 'missing') && (state.state !== 'incompatible' || onboarding || selectedActive) && <p className="settings-note" role="status">{t(setupStatusKey(state))}</p>}
+  {onboarding && state?.state==='ready' && error && <div className="setup-end"><button className="primary" disabled={blocked} onClick={() => void activate()}>{locale==='zh-CN'?'重试进入对话':'Retry conversation connection'}</button></div>}
   {(!onboarding || !!error) && <button className="text-action runtime-location-entry" disabled={blocked} onClick={event=>{event.currentTarget.focus();setLocationOpen(true);}}>{t(onboarding?'runtime.advancedConnection':'runtime.programAndDataDirectory')}</button>}
   {state?.accountMismatch && <p className="runtime-update-hint" role="status">{state.message}</p>}
-  {!manageOnly && state?.state === 'ready' && (onboarding || (overview && (!overview.hasRuntimeChoice || (selectedActive && (restartNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))))) && <div className={`setup-end${onboarding ? ' runtime-first-launch-end' : ''}`}><button className={onboarding || !overview?.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{!overview?.hasRuntimeChoice ? t('runtime.restartAndStart') : selectedActive ? t('runtime.restartAndApply') : t('runtime.switchAndRestart')}</button></div>}
-  {manageOnly && state?.state==='ready' && (!overview?.hasRuntimeChoice || selectedActive && (restartNeeded || !!activeProfile && (profile.cliPath!==activeProfile.cliPath || (profile.caelisStore??'')!==(activeProfile.caelisStore??'')))) && <div className="setup-end"><button disabled={blocked} onClick={()=>void activate()}>{locale==='zh-CN'?'用于 Bot 对话':'Use for Bot conversation'}</button></div>}
-  {form === 'model' && <ConnectionWizard client={connectionClient} active={active} onClose={() => setForm('')} onConnected={async () => { setForm(''); await run('detect'); }}/>}
+  {!manageOnly && !onboarding && state?.state === 'ready' && overview && (!overview.hasRuntimeChoice || (selectedActive && (restartNeeded || overview.pending || !!activeProfile && (profile.cliPath !== activeProfile.cliPath || (profile.caelisStore ?? '') !== (activeProfile.caelisStore ?? ''))))) && <div className="setup-end"><button className={!overview.hasRuntimeChoice ? 'primary' : undefined} disabled={blocked} onClick={() => void activate()}>{!overview.hasRuntimeChoice ? t('runtime.restartAndStart') : selectedActive ? t('runtime.restartAndApply') : t('runtime.switchAndRestart')}</button></div>}
+  {form === 'model' && <SceneConnectionWizard scene={onboarding?'first-run':'settings'} client={connectionClient} active={active} onClose={() => setForm('')} onConnected={async () => { setForm(''); await run('detect'); }}/>}
   {form === 'key' && <APIKeyForm busy={blocked} onClose={() => setForm('')} onSubmit={key => run('api-key', { apiKey: key })}/>}
   {confirm && <section className="runtime-confirm" role="alertdialog" aria-modal="false" aria-labelledby="setup-confirm-title"><h3 id="setup-confirm-title">{confirm.action === 'switch' ? t('runtime.confirmSwitchTitle', { name }) : confirm.action === 'logout' ? t('runtime.confirmLogoutTitle') : confirm.action === 'update' ? (id === 'caelis' ? t('runtime.confirmUpdateCaelisTitle') : t('runtime.confirmUpdateCodexTitle')) : confirm.action === 'apply-update' ? t('runtime.confirmApplyCaelisTitle') : t('runtime.confirmRemoveModelTitle')}</h3><p>{confirm.action === 'switch' ? t('runtime.confirmSwitchBody') : ['update', 'apply-update'].includes(confirm.action) && id === 'caelis' ? t('runtime.confirmUpdateCaelisBody') : confirm.action === 'update' ? t('runtime.confirmUpdateCodexBody') : t('runtime.confirmAffectsOtherAppsBody')}</p><div className="setup-end"><button autoFocus onClick={() => setConfirm(null)}>{t('common.cancel')}</button><button className="primary" onClick={() => { const r = confirm; setConfirm(null); if (r.action === 'switch') void activate(); else void run(r.action, r); }}>{confirm.action === 'switch' ? t('runtime.switchAndRestart') : confirm.action === 'update' ? (id === 'caelis' ? t('runtime.applyAndReconnect') : t('runtime.update')) : confirm.action === 'apply-update' ? t('runtime.applyAndReconnect') : t('runtime.confirm')}</button></div></section>}
  </section>;

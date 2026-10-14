@@ -23,6 +23,57 @@ type detachableWorkerFixture struct {
 	detached int
 }
 
+type workerModeFixture struct {
+	*workerFixture
+	value api.WorkExecutionSettings
+}
+
+func (w *workerModeFixture) Models(context.Context) ([]api.ModelOption, error) {
+	return []api.ModelOption{{Model: "work", Efforts: []string{""}}}, nil
+}
+func (w *workerModeFixture) RuntimeDefault(context.Context) (api.WorkExecutionSettings, error) {
+	return api.WorkExecutionSettings{}, nil
+}
+func (w *workerModeFixture) ChangeWorkExecution(_ context.Context, v api.WorkExecutionSettings, persist func() error) error {
+	if err := persist(); err != nil {
+		return err
+	}
+	w.value = v
+	return nil
+}
+
+func TestWorkerExecutionModeScopedToSelectedRuntime(t *testing.T) {
+	root := t.TempDir()
+	f := &workerModeFixture{workerFixture: &workerFixture{runtime: "codex", states: map[string]api.WorkState{}}}
+	w := &localWorkers{root: root, active: "codex", defaultRuntime: "codex", resident: f}
+	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "invalid"); err == nil {
+		t.Fatal("invalid mode accepted")
+	}
+	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "full-access"); err == nil {
+		t.Fatal("unmapped full access accepted")
+	}
+	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "auto"); err != nil {
+		t.Fatal(err)
+	}
+	if f.value.ApprovalMode != "auto" {
+		t.Fatal("Codex owner did not receive preference", f.value)
+	}
+	model := api.WorkExecutionSettings{Model: "work"}
+	if _, err := w.SaveLocalWorkerModel(t.Context(), model); err != nil {
+		t.Fatal(err)
+	}
+	if f.value.Model != "work" || f.value.ApprovalMode != "auto" {
+		t.Fatal("model update erased permission", f.value)
+	}
+	w.defaultRuntime = "caelis"
+	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "full-access"); err == nil {
+		t.Fatal("unsupported Core Worker permission accepted")
+	}
+	if f.value.ApprovalMode != "auto" {
+		t.Fatal("Caelis choice changed Codex preference")
+	}
+}
+
 func (w *detachableWorkerFixture) DetachForUpdate(context.Context) error { w.detached++; return nil }
 
 func (w *workerFixture) Connect(context.Context) error { w.connections++; return nil }

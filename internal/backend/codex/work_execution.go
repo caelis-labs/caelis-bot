@@ -11,6 +11,9 @@ import (
 func (s *Session) ChangeWorkExecution(ctx context.Context, v api.WorkExecutionSettings, persist func() error) error {
 	s.op.Lock()
 	defer s.op.Unlock()
+	if v.ApprovalMode == "full-access" {
+		return errors.New("Codex Worker 完全访问仍需任务回执固定权限后才能启用")
+	}
 	var catalog []api.ModelOption
 	if v.Model != "" {
 		var err error
@@ -40,7 +43,11 @@ func (s *Session) resolveWorkExecution(ctx context.Context, workspace string) (a
 		fallback = s.residentExecution
 	}
 	s.mu.Unlock()
+	if v.ApprovalMode == "full-access" {
+		return v, errors.New("Codex Worker 完全访问仍需任务回执固定权限后才能启用")
+	}
 	if v.Model != "" {
+		v.ApprovalMode = api.NormalizeNewExecutionMode(v.ApprovalMode)
 		return v, nil
 	}
 	native, err := readRuntimeDefault(ctx, c, workspace)
@@ -48,8 +55,10 @@ func (s *Session) resolveWorkExecution(ctx context.Context, workspace string) (a
 		return v, err
 	}
 	if native.Model == "" {
+		fallback.ApprovalMode = api.NormalizeNewExecutionMode(v.ApprovalMode)
 		return fallback, nil
 	}
+	native.ApprovalMode = api.NormalizeNewExecutionMode(v.ApprovalMode)
 	return native, nil
 }
 
@@ -104,8 +113,12 @@ func (r threadExecutionResponse) execution() *api.WorkExecutionSettings {
 func (s *Session) applyWorkExecution(params map[string]any, thread bool, t *taskRecord) {
 	v := s.opts.Execution
 	v.Model, v.Effort, v.ServiceTier = "", "", ""
+	// A task pins its permission choice when it is created. Historical task
+	// receipts without this field retain auto review, independent of Bot mode.
+	v.ApprovalMode = "auto"
 	if t.Execution != nil {
 		v.Model, v.Effort, v.ServiceTier = t.Execution.Model, t.Execution.Effort, t.Execution.ServiceTier
+		v.ApprovalMode = api.NormalizeNewExecutionMode(t.Execution.ApprovalMode)
 	}
 	s.applyExecutionSettings(params, thread, v)
 	if thread && t.ModelProvider != "" {

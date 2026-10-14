@@ -11,6 +11,9 @@ import (
 func (s *Session) ChangeWorkExecution(ctx context.Context, v api.WorkExecutionSettings, persist func() error) error {
 	s.step.Lock()
 	defer s.step.Unlock()
+	if v.ApprovalMode == "full-access" {
+		return errors.New("此 Caelis 版本尚不支持为独立任务指定完全访问")
+	}
 	var catalog []api.ModelOption
 	if v.Model != "" {
 		var err error

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 )
@@ -39,6 +40,57 @@ func (s *Service) ExecutionSettings() (api.ExecutionSettings, error) {
 		return source.CurrentExecutionSettings(context.Background())
 	}
 	return s.executionSettings, nil
+}
+
+// BotExecutionMode is the saved choice for a future conversation binding.
+// Reading it never reports or mutates the current native Session permissions.
+func (s *Service) BotExecutionMode() (string, error) {
+	s.configurationMu.Lock()
+	defer s.configurationMu.Unlock()
+	return LoadBotExecutionMode(s.executionFile)
+}
+
+func botModeFile(executionFile string) string {
+	return filepath.Join(filepath.Dir(executionFile), "bot-execution-mode.json")
+}
+
+func LoadBotExecutionMode(executionFile string) (string, error) {
+	data, err := os.ReadFile(botModeFile(executionFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return "auto", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var stored struct {
+		Version int    `json:"version"`
+		Mode    string `json:"mode"`
+	}
+	if json.Unmarshal(data, &stored) != nil || stored.Version != 1 || (stored.Mode != "auto" && stored.Mode != "full-access") {
+		return "", errors.New("Bot 执行模式设置无法识别，请保留文件并重试")
+	}
+	return stored.Mode, nil
+}
+
+func (s *Service) SaveBotExecutionMode(mode string) error {
+	if mode != "auto" && mode != "full-access" {
+		return errors.New("执行模式仅支持自动审查或完全访问")
+	}
+	s.configurationMu.Lock()
+	defer s.configurationMu.Unlock()
+	if _, err := LoadBotExecutionMode(s.executionFile); err != nil {
+		return err
+	}
+	if err := saveRuntimeSettings(botModeFile(s.executionFile), struct {
+		Version int    `json:"version"`
+		Mode    string `json:"mode"`
+	}{1, mode}); err != nil {
+		return errors.New("Bot 执行模式未能保存，原有设置保持不变")
+	}
+	if e, ok := s.currentEngine().(interface{ SetFutureExecutionMode(string) }); ok {
+		e.SetFutureExecutionMode(mode)
+	}
+	return nil
 }
 func (s *Service) Models(ctx context.Context) ([]api.ModelOption, error) {
 	e, ok := s.currentEngine().(api.ExecutionProvider)

@@ -30,6 +30,11 @@ func (a *Application) activateRuntime(ctx context.Context, settings api.RuntimeS
 	if err != nil {
 		return err
 	}
+	mode, err := backend.LoadBotExecutionMode(prepared.ExecutionFile)
+	if err != nil {
+		return err
+	}
+	prepared.Execution.ApprovalMode = mode
 	// Before a first connection the composer belongs to the Bot shell. Carry
 	// unsent input into the selected provider only if that provider has no draft.
 	transferDraft := first && prepared.Draft.Text == "" && prepared.Draft.Quoted == nil && len(prepared.Draft.ReferenceIDs) == 0 &&

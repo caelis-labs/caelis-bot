@@ -11,7 +11,15 @@ import (
 )
 
 func (s *Session) ExecutionOptions() api.ExecutionOptions {
-	return api.ExecutionOptions{DefaultApprovalMode: s.executionMode, ApprovalModes: []api.ApprovalMode{{ID: s.executionMode, Name: "自动审查", Description: "新对话由 Guardian 自动审查额外访问；保留沙箱，现有对话使用创建时的审查配置。"}}}
+	return api.ExecutionOptions{DefaultApprovalMode: "auto", ApprovalModes: []api.ApprovalMode{
+		{ID: "auto", Name: "自动审查", Description: "新对话保留工作区沙箱，由 Guardian 审查额外访问。"},
+		{ID: "full-access", Name: "完全访问", Description: "新对话关闭原生命令沙箱，不再询问执行权限。", Dangerous: true},
+	}}
+}
+func (s *Session) SetFutureExecutionMode(mode string) {
+	s.step.Lock()
+	defer s.step.Unlock()
+	s.execution.ApprovalMode = mode
 }
 func (s *Session) Models(ctx context.Context) ([]api.ModelOption, error) {
 	c, e := setupClient(ctx, s.settings)
@@ -30,8 +38,8 @@ func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, 
 	if e := api.ValidateExecutionSettings(v); e != nil {
 		return e
 	}
-	if v.ApprovalMode != "workspace-write" {
-		return errors.New("当前会话的审批策略在创建时固定；模型和推理设置可实时更改")
+	if v.ApprovalMode != "workspace-write" && v.ApprovalMode != "auto" && v.ApprovalMode != "full-access" {
+		return errors.New("Caelis 无法识别此执行模式")
 	}
 	s.step.Lock()
 	defer s.step.Unlock()
@@ -49,6 +57,9 @@ func (s *Session) ChangeExecution(ctx context.Context, v api.ExecutionSettings, 
 	if e = persist(); e != nil {
 		return errors.New("运行时已保存设置，本地偏好写入失败；请重新读取设置")
 	}
+	// Model changes may update the live configuration, but only the separate
+	// future-mode preference can change creation-time permissions.
+	v.ApprovalMode = s.execution.ApprovalMode
 	s.execution = v
 	return nil
 }
@@ -82,7 +93,10 @@ func (s *Session) CurrentExecutionSettings(ctx context.Context) (api.ExecutionSe
 	if e != nil {
 		return api.ExecutionSettings{}, e
 	}
-	return api.ExecutionSettings{Model: v.Profile.Model, Effort: value(v.Profile.ReasoningEffort), ServiceTier: value(v.Profile.ServiceTier), ApprovalMode: "workspace-write"}, nil
+	s.step.Lock()
+	mode := api.NormalizeNewExecutionMode(s.execution.ApprovalMode)
+	s.step.Unlock()
+	return api.ExecutionSettings{Model: v.Profile.Model, Effort: value(v.Profile.ReasoningEffort), ServiceTier: value(v.Profile.ServiceTier), ApprovalMode: mode}, nil
 }
 func (s *Session) ChangeRuntime(ctx context.Context, v api.RuntimeSettings, persist func() error) (api.RuntimeCheck, error) {
 	s.step.Lock()
