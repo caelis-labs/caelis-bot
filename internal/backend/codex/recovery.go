@@ -84,6 +84,9 @@ type turnError struct {
 // Codes come from the pinned TurnError schema. Do not classify generated prose.
 func (s *Session) applyFailure(e turnError) {
 	s.state.Message = e.Message
+	if capacity, _ := capacityErrorInfo(e.Message, e.Info); capacity {
+		s.state.Message = "模型仍然繁忙，Codex 此回合未完成；请核对原工作和工具结果，再决定是否重试或手动选择其他模型"
+	}
 	var code string
 	_ = json.Unmarshal(e.Info, &code)
 	var details map[string]struct {

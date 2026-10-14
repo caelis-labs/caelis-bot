@@ -1,0 +1,258 @@
+package codex
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/caelis-labs/caelis-bot/internal/backend/api"
+)
+
+func capacityRejection() *NativeError {
+	return &NativeError{Code: -32000, Message: "Selected model is at capacity. Please try a different model."}
+}
+
+func TestCapacityClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  *NativeError
+		want bool
+	}{
+		{"native text", capacityRejection(), true},
+		{"structured code", &NativeError{Code: -32000, Data: json.RawMessage(`{"codexErrorInfo":"serverOverloaded"}`)}, true},
+		{"structured variant", &NativeError{Code: -32000, Data: json.RawMessage(`{"codexErrorInfo":{"serverOverloaded":{}}}`)}, true},
+		{"runtime already exhausted", &NativeError{Code: -32000, Message: capacityRejection().Message, Data: json.RawMessage(`{"codexErrorInfo":"responseTooManyFailedAttempts"}`)}, false},
+		{"unrelated failure", &NativeError{Code: -32000, Message: "quota exceeded"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := capacityNativeError(tc.err); got != tc.want {
+				t.Fatalf("capacity = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBotCapacityRetryKeepsOriginalRequestAndStopsAtLimit(t *testing.T) {
+	for _, succeed := range []bool{true, false} {
+		s, f := sessionPair(t, "hold")
+		s.capacityBackoff = func(int) time.Duration { return time.Millisecond }
+		var mu sync.Mutex
+		var ids []string
+		f.mu.Lock()
+		f.handle = func(m wireMessage) (any, bool) {
+			if m.Method != "turn/start" {
+				return nil, false
+			}
+			var p struct {
+				ClientID string `json:"clientUserMessageId"`
+			}
+			_ = json.Unmarshal(m.Params, &p)
+			mu.Lock()
+			ids = append(ids, p.ClientID)
+			count := len(ids)
+			mu.Unlock()
+			if succeed && count == 3 {
+				return map[string]any{"turn": nativeTurn{ID: "capacity-run", Status: "inProgress"}}, true
+			}
+			return capacityRejection(), true
+		}
+		f.mu.Unlock()
+		got := sendSynthetic(t, s, "same-capacity-request")
+		mu.Lock()
+		if len(ids) != 3 {
+			t.Fatalf("dispatches = %d, want 3", len(ids))
+		}
+		for _, id := range ids {
+			if id != "same-capacity-request" {
+				t.Fatal("retry changed original client ID", ids)
+			}
+		}
+		mu.Unlock()
+		if succeed && got.Outcome != "accepted" {
+			t.Fatal("third attempt not accepted", got)
+		}
+		if !succeed && (got.Outcome != "rejected" || !strings.Contains(got.Message, "耗尽")) {
+			t.Fatal("exhaustion not visible", got)
+		}
+	}
+}
+
+func TestBotCapacityWaitCanBeInterruptedWithoutAnotherDispatch(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	s.capacityBackoff = func(int) time.Duration { return time.Hour }
+	first := make(chan struct{}, 1)
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method == "turn/start" {
+			first <- struct{}{}
+			return capacityRejection(), true
+		}
+		return nil, false
+	}
+	f.mu.Unlock()
+	done := make(chan api.Receipt, 1)
+	go func() {
+		r, _ := s.Submit(context.Background(), api.Submission{ID: "cancel-capacity-request", Text: "synthetic"}, nil)
+		done <- r
+	}()
+	select {
+	case <-first:
+	case <-time.After(time.Second):
+		t.Fatal("first dispatch missing")
+	}
+	deadline := time.After(time.Second)
+	for {
+		if v := s.Snapshot(); v.CanInterrupt && strings.Contains(v.Message, "正在等待") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("capacity wait was not observable")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if err := s.Interrupt(testContext(t)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case r := <-done:
+		if r.Outcome != "rejected" || !strings.Contains(r.Message, "取消") {
+			t.Fatal("cancel did not reject the undispatched retry", r)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("capacity wait did not cancel")
+	}
+	select {
+	case <-first:
+		t.Fatal("cancel replayed the request")
+	default:
+	}
+}
+
+func TestCapacityRetrySkipsOtherErrorsAndStartedTurns(t *testing.T) {
+	s, f := sessionPair(t, "hold")
+	var calls atomic.Int32
+	f.mu.Lock()
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method == "turn/start" {
+			calls.Add(1)
+			return &NativeError{Code: -32000, Message: "quota exceeded"}, true
+		}
+		return nil, false
+	}
+	f.mu.Unlock()
+	if r := sendSynthetic(t, s, "noncapacity-request"); r.Outcome != "rejected" || calls.Load() != 1 {
+		t.Fatal("non-capacity error retried", r, calls.Load())
+	}
+	s2, f2 := sessionPair(t, "hold")
+	if r := sendSynthetic(t, s2, "started-capacity-request"); r.Outcome != "accepted" {
+		t.Fatal(r)
+	}
+	f2.emit(wireMessage{Method: "error", Params: raw(map[string]any{"threadId": "thread-native", "turnId": "run-native", "willRetry": true, "error": turnError{Message: capacityRejection().Message}})})
+	f2.emit(wireMessage{Method: "turn/completed", Params: raw(map[string]any{"threadId": "thread-native", "turn": nativeTurn{ID: "run-native", Status: "failed", Error: &turnError{Message: capacityRejection().Message}, Items: []nativeItem{{ID: "tool", Type: "commandExecution", Status: "completed"}}}})})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for {
+		v := s2.Snapshot()
+		if v.Phase == "failed" {
+			if !strings.Contains(v.Message, "核对原工作") {
+				t.Fatal("terminal capacity error lacks safe next step", v.Message)
+			}
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("terminal failure not projected")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	f2.mu.Lock()
+	starts := f2.starts
+	f2.mu.Unlock()
+	if starts != 1 {
+		t.Fatal("started Turn was replayed", starts)
+	}
+}
+
+func TestWorkerCapacityRetryUsesOriginalTaskReceipt(t *testing.T) {
+	s, f, _, manager := taskPair(t)
+	sendSynthetic(t, s, "worker-capacity-parent")
+	s.capacityBackoff = func(int) time.Duration { return time.Millisecond }
+	f.mu.Lock()
+	original := f.handle
+	var ids []string
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method == "turn/start" {
+			var p struct {
+				ClientID string `json:"clientUserMessageId"`
+			}
+			_ = json.Unmarshal(m.Params, &p)
+			ids = append(ids, p.ClientID)
+			if len(ids) < 3 {
+				return capacityRejection(), true
+			}
+		}
+		return original(m)
+	}
+	f.mu.Unlock()
+	v := newTask(t, manager, "worker-capacity-request")
+	if len(ids) != 3 || v.Outcome != "accepted" {
+		t.Fatal("worker retry failed", ids, v)
+	}
+	for _, id := range ids {
+		if id != "worker-capacity-request" {
+			t.Fatal("worker request receipt changed", ids)
+		}
+	}
+}
+
+func TestWorkerCapacityWaitProjectsAndCancelsInAdapter(t *testing.T) {
+	s, f, _, manager := taskPair(t)
+	sendSynthetic(t, s, "worker-cancel-parent")
+	s.capacityBackoff = func(int) time.Duration { return time.Hour }
+	var calls atomic.Int32
+	f.mu.Lock()
+	original := f.handle
+	f.handle = func(m wireMessage) (any, bool) {
+		if m.Method == "turn/start" {
+			calls.Add(1)
+			return capacityRejection(), true
+		}
+		return original(m)
+	}
+	f.mu.Unlock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := manager.StartTask(context.Background(), api.TaskStart{RequestID: "worker-capacity-cancel", Title: "Synthetic worker", Prompt: "Synthetic request"})
+		done <- err
+	}()
+	var id string
+	deadline := time.After(2 * time.Second)
+	for {
+		states := s.WorkStates()
+		if len(states) == 1 && states[0].Task.Status == "pending" && strings.Contains(states[0].Task.Result, "正在等待") {
+			id = states[0].Task.ID
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("worker capacity wait not observable in adapter")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if _, err := s.StopWork(testContext(t), id); err != nil {
+		t.Fatal("adapter stop did not cancel capacity wait", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("worker wait did not exit")
+	}
+	if calls.Load() != 1 {
+		t.Fatal("worker cancellation replayed request", calls.Load())
+	}
+}
