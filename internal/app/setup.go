@@ -77,6 +77,38 @@ func (s *runtimeSetup) StageRuntime(id string) (bool, error) {
 	s.pending = id
 	return false, nil
 }
+func (s *runtimeSetup) BotExecutionModeForRuntime(id string) (string, error) {
+	dir, err := providerDirectory(s.app.root, id)
+	if err != nil || (id != "codex" && id != "caelis") {
+		return "", errors.New("运行时无效")
+	}
+	return backend.LoadBotExecutionMode(filepath.Join(dir, "execution.json"))
+}
+func (s *runtimeSetup) SaveBotExecutionModeForRuntime(id, mode string) error {
+	if id != "codex" && id != "caelis" {
+		return errors.New("运行时无效")
+	}
+	if mode != "auto" && mode != "full-access" {
+		return errors.New("执行模式仅支持自动审查或完全访问")
+	}
+	if s.app.currentEngine().(api.Provider).ProviderInfo().ID == id {
+		return s.app.Backend.SaveBotExecutionMode(mode)
+	}
+	// An inactive Runtime cannot prove the Host grants needed for a new full
+	// binding. The recovery action is an explicit auto-review choice only.
+	if mode != "auto" {
+		return errors.New("请先连接目标运行时并核验完全访问授权")
+	}
+	dir, err := providerDirectory(s.app.root, id)
+	if err != nil {
+		return err
+	}
+	file := filepath.Join(dir, "execution.json")
+	if _, err = backend.LoadBotExecutionMode(file); err != nil {
+		return err
+	}
+	return backend.SaveBotExecutionModeFile(file, mode)
+}
 func (a *Application) NeedsSetup() bool {
 	return a.initialization.Initialization().Required || a.setup.Overview().Onboarding
 }

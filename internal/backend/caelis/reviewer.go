@@ -22,12 +22,11 @@ func (s *Session) configureReviewer(profile *wire.ApplicationProfile) {
 		permissions = *profile.Permissions
 	}
 	if fullAccess {
-		// Host execution removes the native sandbox, but manual routing would
-		// still ask a person to approve every required Bot callback. Keep those
-		// application actions under the creation-bound Guardian instead.
 		permissions.Mode = pointer("danger-full-access")
+		permissions.ExecutionApproval = pointer("never")
 	} else if value(permissions.Mode) == "" || value(permissions.Mode) == "danger-full-access" {
 		permissions.Mode = pointer("workspace-write")
+		permissions.ExecutionApproval = nil
 	}
 	permissions.ApprovalMode = pointer("auto-review")
 	profile.Permissions = &permissions

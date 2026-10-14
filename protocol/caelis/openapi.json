@@ -2062,28 +2062,40 @@
         ]
       },
       "CreateWorkerRequest": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/WriteBase"
-          },
-          {
-            "type": "object",
-            "required": [
-              "cwd"
-            ],
-            "properties": {
-              "cwd": {
-                "type": "string",
-                "description": "Absolute workspace directory on the Host."
-              },
-              "title": {"type": "string"},
-              "model": {"type": "string"},
-              "reasoning_effort": {"type": "string"},
-              "fast_mode": {"type": "boolean"}
-            }
-          }
-        ]
-      },
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/WriteBase"
+    },
+    {
+      "type": "object",
+      "required": [
+        "cwd"
+      ],
+      "properties": {
+        "cwd": {
+          "type": "string",
+          "description": "Absolute workspace directory on the Host."
+        },
+        "title": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "type": "string"
+        },
+        "fast_mode": {
+          "type": "boolean"
+        },
+        "permissions": {
+          "$ref": "#/components/schemas/WorkerPermissions",
+          "description": "Explicit creation-bound native Worker choice; requires worker-creation-permissions-v1. Omission retains Host defaults."
+        }
+      }
+    }
+  ]
+},
       "ApplicationWorker": {
         "type": "object",
         "required": [
@@ -2184,7 +2196,31 @@
         ],
         "unevaluatedProperties": false
       },
-      "WorkspaceTrustLevel": {"type":"string","enum":["unknown","trusted","untrusted"]},
+      "WorkerPermissions": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode",
+    "approval_mode"
+  ],
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": [
+        "workspace-write",
+        "danger-full-access"
+      ]
+    },
+    "approval_mode": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "auto-review"
+      ]
+    }
+  }
+},
+    "WorkspaceTrustLevel": {"type":"string","enum":["unknown","trusted","untrusted"]},
       "WorkspaceTrustRequest": {
         "allOf": [
           {"$ref":"#/components/schemas/WriteBase"},
@@ -2685,22 +2721,52 @@
         }
       },
       "CommandResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["operation_id", "outcome"],
-        "properties": {
-        "input_status": {"type": "string", "enum": ["accepted"], "description": "Steering admission, not safe-point application. Correlate the canonical input receipt by operation ID."},
-          "operation_id": {"type": "string"},
-          "outcome": {"$ref": "#/components/schemas/Outcome"},
-          "session_id": {"type": "string"},
-          "revision": {"$ref": "#/components/schemas/Uint64Decimal"},
-          "target": {"$ref": "#/components/schemas/CommandTarget"},
-          "resource": {"$ref": "#/components/schemas/CommandResource"},
-          "detail": {"type": "string"},
-          "error_code": {"$ref": "#/components/schemas/ErrorCode"},
-          "error_kind": {"$ref": "#/components/schemas/ErrorKind"}
-        }
-      },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operation_id",
+    "outcome"
+  ],
+  "properties": {
+    "input_status": {
+      "type": "string",
+      "enum": [
+        "accepted"
+      ],
+      "description": "Steering admission, not safe-point application. Correlate the canonical input receipt by operation ID."
+    },
+    "operation_id": {
+      "type": "string"
+    },
+    "outcome": {
+      "$ref": "#/components/schemas/Outcome"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "revision": {
+      "$ref": "#/components/schemas/Uint64Decimal"
+    },
+    "target": {
+      "$ref": "#/components/schemas/CommandTarget"
+    },
+    "resource": {
+      "$ref": "#/components/schemas/CommandResource"
+    },
+    "detail": {
+      "type": "string"
+    },
+    "error_code": {
+      "$ref": "#/components/schemas/ErrorCode"
+    },
+    "error_kind": {
+      "$ref": "#/components/schemas/ErrorKind"
+    },
+    "worker_permissions": {
+      "$ref": "#/components/schemas/WorkerPermissions"
+    }
+  }
+},
       "ErrorResponse": {
         "type": "object",
         "additionalProperties": false,
@@ -2734,9 +2800,116 @@
       "ContentBlock": {"oneOf": [{"$ref": "#/components/schemas/TextContent"}, {"$ref": "#/components/schemas/ImageContent"}, {"$ref": "#/components/schemas/AudioContent"}, {"$ref": "#/components/schemas/ResourceContent"}], "discriminator": {"propertyName": "type"}},
       "ToolCallLocation": {"type": "object", "additionalProperties": false, "required": ["path"], "properties": {"path": {"type": "string"}, "line": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}}},
       "ToolCallContent": {"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"type": "string"}, "content": {"$ref": "#/components/schemas/JSONValue"}, "terminalId": {"type": "string"}, "path": {"type": "string"}, "oldText": {"type": "string"}, "newText": {"type": "string"}}},
-      "ACPContentChunk": {"type": "object", "additionalProperties": false, "required": ["sessionUpdate", "content"], "properties": {"sessionUpdate": {"enum": ["user_message_chunk", "agent_message_chunk", "agent_thought_chunk", "compact"]}, "content": {"$ref": "#/components/schemas/ContentBlock"}, "messageId": {"type": "string"}, "_meta": {"$ref": "#/components/schemas/ACPMetadata"}}},
+      "ACPContentChunk": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionUpdate",
+    "content"
+  ],
+  "properties": {
+    "sessionUpdate": {
+      "enum": [
+        "user_message_chunk",
+        "agent_message_chunk",
+        "agent_thought_chunk",
+        "compact"
+      ]
+    },
+    "content": {
+      "$ref": "#/components/schemas/ContentBlock"
+    },
+    "messageId": {
+      "type": "string"
+    },
+    "_meta": {
+      "$ref": "#/components/schemas/ACPMetadata"
+    },
+    "replacement": {
+      "type": "boolean",
+      "description": "Complete current content for the same messageId, including empty text. Does not finalize the turn."
+    },
+    "replacedFields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "_meta"
+        ]
+      },
+      "description": "Explicit narrative display metadata replacement, including a clear when _meta is absent. An empty text delta with only this patch does not change message content or finalize the turn."
+    }
+  }
+},
       "ACPToolCall": {"type": "object", "additionalProperties": false, "required": ["sessionUpdate", "toolCallId", "title"], "properties": {"sessionUpdate": {"const": "tool_call"}, "toolCallId": {"type": "string"}, "name": {"type": "string", "description": "Programmatic tool name. Omission retains the previous name in ACP v1."}, "title": {"type": "string"}, "kind": {"type": "string"}, "status": {"type": "string"}, "rawInput": {"$ref": "#/components/schemas/JSONValue"}, "rawOutput": {"$ref": "#/components/schemas/JSONValue"}, "content": {"type": "array", "items": {"$ref": "#/components/schemas/ToolCallContent"}}, "locations": {"type": "array", "items": {"$ref": "#/components/schemas/ToolCallLocation"}}, "_meta": {"$ref": "#/components/schemas/ACPMetadata"}}},
-      "ACPToolCallUpdate": {"type": "object", "additionalProperties": false, "required": ["sessionUpdate", "toolCallId"], "properties": {"sessionUpdate": {"const": "tool_call_update"}, "toolCallId": {"type": "string"}, "name": {"type": "string", "description": "Programmatic tool name. Omission retains the previous name in ACP v1."}, "title": {"type": "string"}, "kind": {"type": "string"}, "status": {"type": "string"}, "rawInput": {"$ref": "#/components/schemas/JSONValue"}, "rawOutput": {"$ref": "#/components/schemas/JSONValue"}, "content": {"type": "array", "items": {"$ref": "#/components/schemas/ToolCallContent"}}, "locations": {"type": "array", "items": {"$ref": "#/components/schemas/ToolCallLocation"}}, "_meta": {"$ref": "#/components/schemas/ACPMetadata"}}},
+      "ACPToolCallUpdate": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionUpdate",
+    "toolCallId"
+  ],
+  "properties": {
+    "sessionUpdate": {
+      "const": "tool_call_update"
+    },
+    "toolCallId": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "description": "Programmatic tool name. Omission retains the previous name in ACP v1."
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "rawInput": {
+      "$ref": "#/components/schemas/JSONValue"
+    },
+    "rawOutput": {
+      "$ref": "#/components/schemas/JSONValue"
+    },
+    "content": {
+      "type": "array",
+      "items": {
+        "$ref": "#/components/schemas/ToolCallContent"
+      }
+    },
+    "locations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/components/schemas/ToolCallLocation"
+      }
+    },
+    "_meta": {
+      "$ref": "#/components/schemas/ACPMetadata"
+    },
+    "replacedFields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "name",
+          "title",
+          "kind",
+          "status",
+          "rawInput",
+          "rawOutput",
+          "content",
+          "locations",
+          "_meta"
+        ]
+      },
+      "description": "Present display fields whose empty or null values replace prior values. Missing fields retain prior values and this grants no execution authority."
+    }
+  }
+},
       "PlanEntry": {"type": "object", "additionalProperties": false, "required": ["content", "status", "priority"], "properties": {"content": {"type": "string"}, "status": {"type": "string"}, "priority": {"type": "string"}}},
       "ACPPlanUpdate": {"type": "object", "additionalProperties": false, "required": ["sessionUpdate", "entries"], "properties": {"sessionUpdate": {"const": "plan"}, "entries": {"type": "array", "items": {"$ref": "#/components/schemas/PlanEntry"}}}},
       "UsageCost": {"type": "object", "additionalProperties": false, "properties": {"amount": {"type": "number", "minimum": -9007199254740991, "maximum": 9007199254740991}, "currency": {"type": "string"}, "input": {"type": "number", "minimum": -9007199254740991, "maximum": 9007199254740991}, "output": {"type": "number", "minimum": -9007199254740991, "maximum": 9007199254740991}, "cache_read": {"type": "number", "minimum": -9007199254740991, "maximum": 9007199254740991}, "cache_write": {"type": "number", "minimum": -9007199254740991, "maximum": 9007199254740991}, "total": {"type": "number", "minimum": -9007199254740991, "maximum": 9007199254740991}, "_meta": {"$ref": "#/components/schemas/ACPMetadata"}}},
@@ -2884,18 +3057,87 @@
       "ApprovalState": {"type": "object", "additionalProperties": false, "properties": {"active": {"$ref": "#/components/schemas/ActiveApproval"}, "queued_count": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}}},
       "ClientCapabilities": {"type": "object", "additionalProperties": false, "required": ["client_managed_terminal", "caelis_terminal_stream", "goal_bootstrap_supported", "manage_loop_bootstrap_supported"], "properties": {"client_managed_terminal": {"type": "boolean", "const": false}, "caelis_terminal_stream": {"type": "boolean", "const": true}, "goal_bootstrap_supported": {"type": "boolean", "const": false}, "manage_loop_bootstrap_supported": {"type": "boolean", "const": false}}},
       "SessionState": {
-        "type": "object", "additionalProperties": false,
-        "required": ["protocol_version", "envelope_version", "api_version", "session_id", "revision", "run", "controller", "approval", "capabilities"],
-        "properties": {
-          "protocol_version": {"type": "integer"}, "envelope_version": {"type": "string"}, "api_version": {"type": "string"},
-          "session_id": {"type": "string"}, "revision": {"$ref": "#/components/schemas/Uint64Decimal"}, "workspace_key": {"type": "string"},
-          "cwd": {"type": "string"}, "execution_config": {"oneOf": [{"$ref": "#/components/schemas/ExecutionConfig"}, {"type": "null"}], "description": "Creation-bound native command overrides, absent when no overrides were specified."}, "title": {"type": "string"}, "metadata": {"$ref": "#/components/schemas/JSONObject"},
-          "boundary_cursor": {"type": "string"}, "boundary_position": {"$ref": "#/components/schemas/FeedPosition"},
-          "run": {"$ref": "#/components/schemas/RunState"}, "controller": {"$ref": "#/components/schemas/ControllerBinding"},
-          "participants": {"type": "array", "items": {"$ref": "#/components/schemas/ParticipantBinding"}},
-          "approval": {"$ref": "#/components/schemas/ApprovalState"}, "capabilities": {"$ref": "#/components/schemas/ClientCapabilities"}
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "envelope_version",
+    "api_version",
+    "session_id",
+    "revision",
+    "run",
+    "controller",
+    "approval",
+    "capabilities"
+  ],
+  "properties": {
+    "protocol_version": {
+      "type": "integer"
+    },
+    "envelope_version": {
+      "type": "string"
+    },
+    "api_version": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "revision": {
+      "$ref": "#/components/schemas/Uint64Decimal"
+    },
+    "workspace_key": {
+      "type": "string"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "execution_config": {
+      "oneOf": [
+        {
+          "$ref": "#/components/schemas/ExecutionConfig"
+        },
+        {
+          "type": "null"
         }
-      },
+      ],
+      "description": "Creation-bound native command overrides, absent when no overrides were specified."
+    },
+    "title": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/components/schemas/JSONObject"
+    },
+    "boundary_cursor": {
+      "type": "string"
+    },
+    "boundary_position": {
+      "$ref": "#/components/schemas/FeedPosition"
+    },
+    "run": {
+      "$ref": "#/components/schemas/RunState"
+    },
+    "controller": {
+      "$ref": "#/components/schemas/ControllerBinding"
+    },
+    "participants": {
+      "type": "array",
+      "items": {
+        "$ref": "#/components/schemas/ParticipantBinding"
+      }
+    },
+    "approval": {
+      "$ref": "#/components/schemas/ApprovalState"
+    },
+    "capabilities": {
+      "$ref": "#/components/schemas/ClientCapabilities"
+    },
+    "worker_permissions": {
+      "$ref": "#/components/schemas/WorkerPermissions"
+    }
+  }
+},
       "ServerInfo": {"type": "object", "additionalProperties": false, "required": ["protocol_version", "envelope_version", "api_version"], "properties": {"protocol_version": {"type": "integer"}, "envelope_version": {"type": "string"}, "api_version": {"type": "string"}, "distribution_version": {"type": "string"}, "build_id": {"type": "string"}, "build_kind": {"type": "string", "enum": ["dev", "release"]}, "server_id": {"type": "string"}, "instance_id": {"type": "string"}, "capabilities": {"type": "array", "items": {"type": "string"}}, "transports": {"type": "array", "items": {"type": "string"}},
           "store_id": {
             "type": "string"
@@ -2905,8 +3147,74 @@
       "SessionSummary": {"type": "object", "additionalProperties": false, "properties": {"app_name": {"type": "string"}, "user_id": {"type": "string"}, "session_id": {"type": "string"}, "workspace_key": {"type": "string"}, "cwd": {"type": "string"}, "title": {"type": "string"}, "metadata": {"$ref": "#/components/schemas/JSONObject"}, "updated_at": {"type": "string", "format": "date-time"}}},
       "SessionList": {"type": "object", "additionalProperties": false, "properties": {"sessions": {"type": "array", "items": {"$ref": "#/components/schemas/SessionSummary"}}, "next_cursor": {"type": "string"}, "running_session_ids": {"type": "array", "items": {"type": "string"}}}},
       "ApplicationScope": {"type":"object","additionalProperties":false,"required":["principal_id","application_id","connection_id"],"properties":{"principal_id":{"type":"string"},"application_id":{"type":"string"},"connection_id":{"type":"string"}}},
-      "ApplicationRegistration": {"type":"object","additionalProperties":false,"required":["operation_id","name","credential"],"properties":{"operation_id":{"type":"string"},"name":{"type":"string"},"credential":{"type":"string","pattern":"^app-client-[0-9a-fA-F]{64}$"}}},
-      "ApplicationConnection": {"type":"object","additionalProperties":false,"required":["principal_id","application_id","connection_id","name","expires_at","revoked"],"properties":{"principal_id":{"type":"string"},"application_id":{"type":"string"},"connection_id":{"type":"string"},"name":{"type":"string"},"expires_at":{"type":"string","format":"date-time"},"revoked":{"type":"boolean"}}},
+      "ApplicationRegistration": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operation_id",
+    "name",
+    "credential"
+  ],
+  "properties": {
+    "operation_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "credential": {
+      "type": "string",
+      "pattern": "^app-client-[0-9a-fA-F]{64}$"
+    },
+    "allow_worker_full_access": {
+      "type": "boolean",
+      "description": "Host-principal enrollment ceiling for future full-access Worker creation; existing connections default false."
+    },
+    "allow_unreviewed_application_execution": {
+      "type": "boolean",
+      "description": "Host-principal enrollment ceiling for execution_approval=never Application creation; existing connections default false."
+    }
+  }
+},
+      "ApplicationConnection": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "principal_id",
+    "application_id",
+    "connection_id",
+    "name",
+    "expires_at",
+    "revoked"
+  ],
+  "properties": {
+    "principal_id": {
+      "type": "string"
+    },
+    "application_id": {
+      "type": "string"
+    },
+    "connection_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "revoked": {
+      "type": "boolean"
+    },
+    "allow_worker_full_access": {
+      "type": "boolean"
+    },
+    "allow_unreviewed_application_execution": {
+      "type": "boolean"
+    }
+  }
+},
       "ApplicationInheritance": {"type":"object","additionalProperties":false,"required":["cwd_instructions","mcp","skills","workspace_memory"],"properties":{"cwd_instructions":{"type":"boolean","const":false},"mcp":{"type":"boolean","const":false},"skills":{"type":"boolean","const":false},"workspace_memory":{"type":"boolean","const":false}}},
       "ApplicationMCPServer": {"type":"object","additionalProperties":false,"required":["name","transport"],"properties":{"name":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,31}$"},"transport":{"type":"string","enum":["stdio","streamable_http","sse"]},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"work_dir":{"type":"string"},"url":{"type":"string"}}},
       "ApplicationToolDefinition": {"oneOf":[{"$ref":"#/components/schemas/ApplicationLegacyToolDefinition"},{"$ref":"#/components/schemas/ApplicationContentToolDefinition"}],"description":"Absent result_format is the legacy arbitrary-JSON callback contract. content-v1 requires application-tool-result-content-v1 capability; old Hosts without that capability require legacy text results."},
@@ -2915,7 +3223,35 @@
       "ApplicationProfile": {"type":"object","additionalProperties":false,"required":["version","instructions","model","tools_version","execution","inherit"],"properties":{"version":{"type":"string","minLength":1,"maxLength":512},"instructions":{"type":"string"},"model":{"type":"string","minLength":1},"reasoning_effort":{"type":"string","description":"Empty or omitted selects the model default effort."},"service_tier":{"type":"string","description":"Empty or omitted selects the provider default tier; priority is the only explicit tier value and is accepted only when the selected model supports it."},"tools_version":{"type":"string","minLength":1},"tools":{"type":"array","items":{"$ref":"#/components/schemas/ApplicationToolDefinition"},"description":"Absent and an explicit empty list are equivalent (empty callback catalog); profile reads omit the field when the catalog is empty. Explicit null is invalid."},"native_tools":{"type":"array","items":{"type":"string"},"description":"Omitted selects the default native tool set; an explicit empty list selects no native tools and is preserved as [] on reads. Explicit null is invalid at creation — it would silently select the default set.","x-go-omitzero":true},"execution":{"type":"string","enum":["tools-only","workspace-write"],"description":"tools-only uses only application callbacks and rejects non-null execution_config. workspace-write adds confined native filesystem/command execution under the platform's ordinary workspace sandbox with the profile's workspace bindings; a platform without a native backend rejects it with unsupported before Session creation or activation."},"execution_config":{"oneOf":[{"$ref":"#/components/schemas/ExecutionConfig"},{"type":"null"}],"description":"Creation-bound native command environment and shell; null or omitted preserves defaults. Requires execution-configuration-v1. Does not alter workspace.cwd."},"inherit":{"$ref":"#/components/schemas/ApplicationInheritance"},"reviewer":{"$ref":"#/components/schemas/ApplicationReviewer","description":"Creation-bound, requires application-guardian-review-v1 and auto-review approval mode; never inherits the main model."},"workspace":{"$ref":"#/components/schemas/ApplicationWorkspace","description":"Creation-bound; not accepted in configuration updates."},"permissions":{"$ref":"#/components/schemas/ApplicationPermissions","description":"Creation-bound; not accepted in configuration updates."},"mcp_servers":{"type":"array","items":{"$ref":"#/components/schemas/ApplicationMCPServer"},"description":"Explicit authorized MCP services; omitted or [] selects none. Does not inherit Host, CWD or Worker services. Requires application-atomic-capabilities-v1."},"skill_dirs":{"type":"array","items":{"type":"string"},"description":"Absolute directories of direct Skill roots; omitted or [] selects none. Requires application-atomic-capabilities-v1."},"skill_roots":{"type":"array","items":{"type":"string"},"description":"Absolute individual Skill roots; omitted or [] selects none. Requires application-atomic-capabilities-v1."}}},
       "ApplicationWorkspace": {"type":"object","additionalProperties":false,"properties":{"cwd":{"type":"string","description":"Resident working directory from authenticated application configuration; empty selects the allocated Session workspace."},"access":{"type":"array","items":{"$ref":"#/components/schemas/ApplicationWorkspaceAccess"},"description":"Additional explicitly named directories. Read-only entries grant no write access."}}},
       "ApplicationWorkspaceAccess": {"type":"object","additionalProperties":false,"required":["path","mode"],"properties":{"path":{"type":"string","minLength":1},"mode":{"type":"string","enum":["read-only","read-write"]}}},
-      "ApplicationPermissions": {"type":"object","additionalProperties":false,"properties":{"mode":{"type":"string","enum":["workspace-write","danger-full-access"],"description":"Defaults to workspace-write when omitted. danger-full-access is an explicit unsandboxed Host opt-in and is only accepted when the native agent implements it."},"approval_mode":{"type":"string","enum":["manual","auto-review"],"description":"Defaults to manual when omitted. auto-review requires an explicit guardian reviewer; manual rejects reviewer. Routing does not change sandbox policy or grant callback authority."}}},
+      "ApplicationPermissions": {
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": [
+        "workspace-write",
+        "danger-full-access"
+      ],
+      "description": "Defaults to workspace-write when omitted. danger-full-access is an explicit unsandboxed Host opt-in and is only accepted when the native agent implements it."
+    },
+    "approval_mode": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "auto-review"
+      ],
+      "description": "Defaults to manual when omitted. auto-review requires an explicit guardian reviewer; manual rejects reviewer. Routing does not change sandbox policy or grant callback authority."
+    },
+    "execution_approval": {
+      "type": "string",
+      "enum": [
+        "never"
+      ],
+      "description": "Omitted retains existing Runtime review. never is creation-bound, requires full-access native execution, Host enrollment and application-execution-approval-never-v1. It skips Runtime review for native execution and authenticated required callbacks after input validation, but not separate MCP, application, OS or user-decision authorization."
+    }
+  }
+},
       "ApplicationReviewer": {"type":"object","additionalProperties":false,"required":["kind","model"],"properties":{"kind":{"type":"string","const":"guardian"},"model":{"type":"string","minLength":1,"description":"Explicit Host-configured model reference; never inherited from the main profile model."}}},
       "ApplicationReviewerState": {"type":"object","additionalProperties":false,"required":["session_id","approval_mode","status"],"properties":{"session_id":{"type":"string"},"approval_mode":{"type":"string","enum":["manual","auto-review"]},"reviewer":{"$ref":"#/components/schemas/ApplicationReviewer"},"status":{"type":"string","enum":["manual","ready","unavailable"],"description":"Local assembly readiness, not provider health or review success."},"reason":{"type":"string","description":"Non-secret explanation when unavailable."}}},
       "ApplicationModelCapabilities": {"type":"object","additionalProperties":false,"required":["session_id","configuration_revision","model"],"properties":{"session_id":{"type":"string"},"configuration_revision":{"$ref":"#/components/schemas/PositiveUint64Decimal"},"model":{"type":"string","minLength":1},"image_input":{"type":"boolean","description":"Omitted is unknown. False and true are authoritative declarations for the selected model, using the same endpoint-scoped rules as execution."}}},

@@ -73,10 +73,12 @@ type ACPConnection struct {
 }
 
 type ACPContentChunk struct {
-	Meta          *ACPMetadata `json:"_meta,omitempty"`
-	Content       ContentBlock `json:"content"`
-	MessageId     *string      `json:"messageId,omitempty"`
-	SessionUpdate string       `json:"sessionUpdate"`
+	Meta           *ACPMetadata `json:"_meta,omitempty"`
+	Content        ContentBlock `json:"content"`
+	MessageId      *string      `json:"messageId,omitempty"`
+	ReplacedFields []string     `json:"replacedFields,omitempty"`
+	Replacement    *bool        `json:"replacement,omitempty"`
+	SessionUpdate  string       `json:"sessionUpdate"`
 }
 
 type ACPCurrentModeUpdate struct {
@@ -203,17 +205,18 @@ type ACPToolCall struct {
 }
 
 type ACPToolCallUpdate struct {
-	Meta          *ACPMetadata       `json:"_meta,omitempty"`
-	Content       []ToolCallContent  `json:"content,omitempty"`
-	Kind          *string            `json:"kind,omitempty"`
-	Locations     []ToolCallLocation `json:"locations,omitempty"`
-	Name          *string            `json:"name,omitempty"`
-	RawInput      JSONValue          `json:"rawInput,omitempty"`
-	RawOutput     JSONValue          `json:"rawOutput,omitempty"`
-	SessionUpdate string             `json:"sessionUpdate"`
-	Status        *string            `json:"status,omitempty"`
-	Title         *string            `json:"title,omitempty"`
-	ToolCallId    string             `json:"toolCallId"`
+	Meta           *ACPMetadata       `json:"_meta,omitempty"`
+	Content        []ToolCallContent  `json:"content,omitempty"`
+	Kind           *string            `json:"kind,omitempty"`
+	Locations      []ToolCallLocation `json:"locations,omitempty"`
+	Name           *string            `json:"name,omitempty"`
+	RawInput       JSONValue          `json:"rawInput,omitempty"`
+	RawOutput      JSONValue          `json:"rawOutput,omitempty"`
+	ReplacedFields []string           `json:"replacedFields,omitempty"`
+	SessionUpdate  string             `json:"sessionUpdate"`
+	Status         *string            `json:"status,omitempty"`
+	Title          *string            `json:"title,omitempty"`
+	ToolCallId     string             `json:"toolCallId"`
 }
 
 type ACPUpdate = json.RawMessage
@@ -455,12 +458,14 @@ type ApplicationConfigurationRequest struct {
 }
 
 type ApplicationConnection struct {
-	ApplicationId string    `json:"application_id"`
-	ConnectionId  string    `json:"connection_id"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	Name          string    `json:"name"`
-	PrincipalId   string    `json:"principal_id"`
-	Revoked       bool      `json:"revoked"`
+	AllowUnreviewedApplicationExecution *bool     `json:"allow_unreviewed_application_execution,omitempty"`
+	AllowWorkerFullAccess               *bool     `json:"allow_worker_full_access,omitempty"`
+	ApplicationId                       string    `json:"application_id"`
+	ConnectionId                        string    `json:"connection_id"`
+	ExpiresAt                           time.Time `json:"expires_at"`
+	Name                                string    `json:"name"`
+	PrincipalId                         string    `json:"principal_id"`
+	Revoked                             bool      `json:"revoked"`
 }
 
 type ApplicationContentCallResult struct {
@@ -539,8 +544,9 @@ type ApplicationOperation struct {
 }
 
 type ApplicationPermissions struct {
-	ApprovalMode *string `json:"approval_mode,omitempty"`
-	Mode         *string `json:"mode,omitempty"`
+	ApprovalMode      *string `json:"approval_mode,omitempty"`
+	ExecutionApproval *string `json:"execution_approval,omitempty"`
+	Mode              *string `json:"mode,omitempty"`
 }
 
 type ApplicationProfile struct {
@@ -576,9 +582,11 @@ type ApplicationPromptRequest struct {
 }
 
 type ApplicationRegistration struct {
-	Credential  string `json:"credential"`
-	Name        string `json:"name"`
-	OperationId string `json:"operation_id"`
+	AllowUnreviewedApplicationExecution *bool  `json:"allow_unreviewed_application_execution,omitempty"`
+	AllowWorkerFullAccess               *bool  `json:"allow_worker_full_access,omitempty"`
+	Credential                          string `json:"credential"`
+	Name                                string `json:"name"`
+	OperationId                         string `json:"operation_id"`
 }
 
 type ApplicationResource struct {
@@ -803,16 +811,17 @@ type CommandResource struct {
 }
 
 type CommandResult struct {
-	Detail      *string          `json:"detail,omitempty"`
-	ErrorCode   ErrorCode        `json:"error_code,omitempty"`
-	ErrorKind   ErrorKind        `json:"error_kind,omitempty"`
-	InputStatus *string          `json:"input_status,omitempty"`
-	OperationId string           `json:"operation_id"`
-	Outcome     Outcome          `json:"outcome"`
-	Resource    *CommandResource `json:"resource,omitempty"`
-	Revision    *Uint64Decimal   `json:"revision,omitempty"`
-	SessionId   *string          `json:"session_id,omitempty"`
-	Target      *CommandTarget   `json:"target,omitempty"`
+	Detail            *string            `json:"detail,omitempty"`
+	ErrorCode         ErrorCode          `json:"error_code,omitempty"`
+	ErrorKind         ErrorKind          `json:"error_kind,omitempty"`
+	InputStatus       *string            `json:"input_status,omitempty"`
+	OperationId       string             `json:"operation_id"`
+	Outcome           Outcome            `json:"outcome"`
+	Resource          *CommandResource   `json:"resource,omitempty"`
+	Revision          *Uint64Decimal     `json:"revision,omitempty"`
+	SessionId         *string            `json:"session_id,omitempty"`
+	Target            *CommandTarget     `json:"target,omitempty"`
+	WorkerPermissions *WorkerPermissions `json:"worker_permissions,omitempty"`
 }
 
 type CommandTarget struct {
@@ -945,15 +954,16 @@ type CreateSessionRequest struct {
 }
 
 type CreateWorkerRequest struct {
-	Cwd                     string         `json:"cwd"`
-	ExpectedControllerEpoch *string        `json:"expected_controller_epoch,omitempty"`
-	ExpectedRevision        *Uint64Decimal `json:"expected_revision,omitempty"`
-	FastMode                *bool          `json:"fast_mode,omitempty"`
-	Model                   *string        `json:"model,omitempty"`
-	OperationId             *string        `json:"operation_id,omitempty"`
-	ReasoningEffort         *string        `json:"reasoning_effort,omitempty"`
-	SessionId               *string        `json:"session_id,omitempty"`
-	Title                   *string        `json:"title,omitempty"`
+	Cwd                     string             `json:"cwd"`
+	ExpectedControllerEpoch *string            `json:"expected_controller_epoch,omitempty"`
+	ExpectedRevision        *Uint64Decimal     `json:"expected_revision,omitempty"`
+	FastMode                *bool              `json:"fast_mode,omitempty"`
+	Model                   *string            `json:"model,omitempty"`
+	OperationId             *string            `json:"operation_id,omitempty"`
+	Permissions             *WorkerPermissions `json:"permissions,omitempty"`
+	ReasoningEffort         *string            `json:"reasoning_effort,omitempty"`
+	SessionId               *string            `json:"session_id,omitempty"`
+	Title                   *string            `json:"title,omitempty"`
 }
 
 type DeleteAgentRoleRequest struct {
@@ -1861,23 +1871,29 @@ type SessionRef struct {
 }
 
 type SessionState struct {
-	ApiVersion       string               `json:"api_version"`
-	Approval         ApprovalState        `json:"approval"`
-	BoundaryCursor   *string              `json:"boundary_cursor,omitempty"`
-	BoundaryPosition *FeedPosition        `json:"boundary_position,omitempty"`
-	Capabilities     ClientCapabilities   `json:"capabilities"`
-	Controller       ControllerBinding    `json:"controller"`
-	Cwd              *string              `json:"cwd,omitempty"`
-	EnvelopeVersion  string               `json:"envelope_version"`
-	ExecutionConfig  *ExecutionConfig     `json:"execution_config,omitempty"`
-	Metadata         JSONObject           `json:"metadata,omitempty"`
-	Participants     []ParticipantBinding `json:"participants,omitempty"`
-	ProtocolVersion  int                  `json:"protocol_version"`
-	Revision         Uint64Decimal        `json:"revision"`
-	Run              RunState             `json:"run"`
-	SessionId        string               `json:"session_id"`
-	Title            *string              `json:"title,omitempty"`
-	WorkspaceKey     *string              `json:"workspace_key,omitempty"`
+	ApiVersion        string               `json:"api_version"`
+	Approval          ApprovalState        `json:"approval"`
+	BoundaryCursor    *string              `json:"boundary_cursor,omitempty"`
+	BoundaryPosition  *FeedPosition        `json:"boundary_position,omitempty"`
+	Capabilities      ClientCapabilities   `json:"capabilities"`
+	Controller        ControllerBinding    `json:"controller"`
+	Cwd               *string              `json:"cwd,omitempty"`
+	EnvelopeVersion   string               `json:"envelope_version"`
+	ExecutionConfig   *ExecutionConfig     `json:"execution_config,omitempty"`
+	Metadata          JSONObject           `json:"metadata,omitempty"`
+	Participants      []ParticipantBinding `json:"participants,omitempty"`
+	ProtocolVersion   int                  `json:"protocol_version"`
+	Revision          Uint64Decimal        `json:"revision"`
+	Run               RunState             `json:"run"`
+	SessionId         string               `json:"session_id"`
+	Title             *string              `json:"title,omitempty"`
+	WorkerPermissions *WorkerPermissions   `json:"worker_permissions,omitempty"`
+	WorkspaceKey      *string              `json:"workspace_key,omitempty"`
+}
+
+type WorkerPermissions struct {
+	ApprovalMode string `json:"approval_mode"`
+	Mode         string `json:"mode"`
 }
 
 type SessionSummary struct {

@@ -51,7 +51,11 @@ func (w *WorkOwner) WorkAdmission(ctx context.Context) error {
 	}
 	w.engine.mu.Lock()
 	profile := w.engine.profile
+	mode := w.engine.workExecution.ApprovalMode
 	w.engine.mu.Unlock()
+	if err := w.engine.CheckFutureWorkExecutionMode(mode); err != nil {
+		return err
+	}
 	_, err := w.engine.resolveWorkExecution(ctx, profile)
 	return err
 }
@@ -82,6 +86,9 @@ func (w *WorkOwner) WorkTerminal(ctx context.Context, id string) (api.TerminalTa
 }
 func (w *WorkOwner) SetModel(ctx context.Context, v api.WorkExecutionSettings, persist func() error) error {
 	return w.engine.ChangeWorkExecution(ctx, v, persist)
+}
+func (w *WorkOwner) CheckFutureWorkExecutionMode(mode string) error {
+	return w.engine.CheckFutureWorkExecutionMode(mode)
 }
 
 func (w *WorkOwner) Models(ctx context.Context) ([]api.ModelOption, error) {

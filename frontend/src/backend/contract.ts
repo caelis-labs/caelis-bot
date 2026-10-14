@@ -115,6 +115,8 @@ export interface Item {
 export interface LocalWorkerSettings {
   runtime: string;
   ready: boolean;
+  executionModeIssue?: string;
+  fullAccessAvailable: boolean;
   work: WorkExecutionSettings;
   models: Array<ModelOption>;
   runtimeDefault: WorkExecutionSettings | null;

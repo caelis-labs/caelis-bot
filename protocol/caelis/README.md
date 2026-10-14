@@ -1,10 +1,11 @@
 # Caelis Control v1 baseline
 
 `manifest.json` pins the public Caelis OpenAPI schema and generated wire declarations.
-`commit` records the consumed baseline; `contractOverlayCommit` records the narrow
-`turn_complete` Application callback result overlay from Core Draft PR #117.
-The local hashes cover that combination. Other Core schema changes are not imported
-by this Bot feature branch. The baseline includes shared native
+`commit` records the consumed baseline; `contractOverlayCommit` records the narrow additive fields consumed from the
+isolated Core permission/schema contract; the prior terminal callback result
+overlay remains pinned as part of the local schema.
+The local hashes cover that combination. Other Core schema changes, including onboarding catalog eligibility, are not
+imported by this Bot feature branch. The baseline includes shared native
 Workers, steering and interactive Host settings. Runtime support requires the
 advertised capabilities, including `shared-native-workers-v1` and
 `turn-steering-receipts-v1`. Team settings explicitly request

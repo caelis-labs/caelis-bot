@@ -289,3 +289,34 @@ func TestMissingUserCLILeavesShellHistoryAndSettingsAvailable(t *testing.T) {
 func containsRuntime(b []byte, runtime string) bool {
 	return len(b) > 0 && string(b) == `{"version":1,"runtime":"`+runtime+`"}`
 }
+
+func TestInactiveCaelisLegacyFullPreferenceHasExplicitRecovery(t *testing.T) {
+	for _, selected := range []bool{false, true} {
+		t.Run(map[bool]string{false: "first-run", true: "codex-active"}[selected], func(t *testing.T) {
+			a, root, _ := newSwitchFixture(t, selected, nil)
+			dir, _ := providerDirectory(root, "caelis")
+			file := filepath.Join(dir, "execution.json")
+			if err := backend.SaveBotExecutionModeFile(file, "full-access"); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := a.Backend.BotExecutionModeForRuntime("caelis"); err != nil || got != "full-access" {
+				t.Fatal(got, err)
+			}
+			if err := a.Backend.SaveBotExecutionModeForRuntime("caelis", "full-access"); err == nil {
+				t.Fatal("inactive target gained unverified full access")
+			}
+			if err := a.Backend.SaveBotExecutionModeForRuntime("caelis", "auto"); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := a.Backend.BotExecutionModeForRuntime("caelis"); err != nil || got != "auto" {
+				t.Fatal(got, err)
+			}
+			if mode, err := a.Backend.BotExecutionMode(); err != nil || mode != "auto" {
+				t.Fatal("target recovery changed current Runtime", mode, err)
+			}
+			if err := a.Backend.SaveBotExecutionModeForRuntime("caelis", "invalid"); err == nil {
+				t.Fatal("invalid mode accepted")
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package caelis
 import (
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -46,16 +47,28 @@ func applyToolActivity(v *view, e wire.Envelope) {
 		index = len(v.Items) - 1
 	}
 	item := &v.Items[index]
-	if item.Status == "completed" || item.Status == "failed" {
+	if (item.Status == "completed" || item.Status == "failed") && !slices.Contains(call.ReplacedFields, "status") {
 		return
 	}
-	if call.Kind != nil || call.Name != nil || call.Locations != nil || item.Activity == nil {
+	if slices.Contains(call.ReplacedFields, "status") && call.Status == nil {
+		item.Status = "inProgress"
+	}
+	if call.Kind != nil || call.Name != nil || call.Locations != nil || item.Activity == nil || slices.Contains(call.ReplacedFields, "kind") || slices.Contains(call.ReplacedFields, "name") || slices.Contains(call.ReplacedFields, "locations") {
 		a := &api.Activity{Kind: "tool", Target: value(call.Name)}
 		if item.Activity != nil {
 			*a = *item.Activity
 		}
 		if a.Kind == "tool" && call.Name != nil {
 			a.Target = value(call.Name)
+		}
+		if slices.Contains(call.ReplacedFields, "name") && call.Name == nil {
+			a.Target = ""
+		}
+		if slices.Contains(call.ReplacedFields, "kind") && call.Kind == nil {
+			a.Kind = "tool"
+		}
+		if slices.Contains(call.ReplacedFields, "locations") && call.Locations == nil {
+			a.Target = ""
 		}
 		switch value(call.Kind) {
 		case "read", "edit", "search", "fetch", "execute":

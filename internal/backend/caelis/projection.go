@@ -358,12 +358,13 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		return
 	}
 	var update struct {
-		Kind       string          `json:"sessionUpdate"`
-		Content    json.RawMessage `json:"content"`
-		MessageID  string          `json:"messageId"`
-		Name       string          `json:"name"`
-		ToolCallID string          `json:"toolCallId"`
-		Status     string          `json:"status"`
+		Kind        string          `json:"sessionUpdate"`
+		Content     json.RawMessage `json:"content"`
+		MessageID   string          `json:"messageId"`
+		Replacement bool            `json:"replacement"`
+		Name        string          `json:"name"`
+		ToolCallID  string          `json:"toolCallId"`
+		Status      string          `json:"status"`
 	}
 	if json.Unmarshal(value(e.Update), &update) != nil {
 		return
@@ -438,7 +439,7 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		return
 	}
 	var content struct{ Type, Text string }
-	if json.Unmarshal(update.Content, &content) != nil || content.Type != "text" || content.Text == "" {
+	if json.Unmarshal(update.Content, &content) != nil || content.Type != "text" || content.Text == "" && !update.Replacement {
 		return
 	}
 	turn := value(e.TurnId)
@@ -467,7 +468,11 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 	}
 	for i := len(v.Items) - 1; i >= 0; i-- {
 		if v.Items[i].ID == id {
-			v.Items[i].Text += content.Text
+			if update.Replacement {
+				v.Items[i].Text = content.Text
+			} else {
+				v.Items[i].Text += content.Text
+			}
 			v.Items[i].Status = status
 			return
 		}
@@ -942,6 +947,7 @@ func (s *Session) recoverOperation(ctx context.Context, id string) error {
 		return errors.New("original operation outcome changed during reconciliation")
 	}
 	j = current
+	recoverCreationAuthority(id, &j)
 	j.Outcome = string(op.Outcome)
 	j.PendingInput = nil
 	if op.Result.Target != nil {

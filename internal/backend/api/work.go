@@ -54,11 +54,13 @@ type WorkPreparationRollback interface {
 }
 
 type LocalWorkerSettings struct {
-	Runtime        string                 `json:"runtime"`
-	Ready          bool                   `json:"ready"`
-	Work           WorkExecutionSettings  `json:"work"`
-	Models         []ModelOption          `json:"models"`
-	RuntimeDefault *WorkExecutionSettings `json:"runtimeDefault"`
+	Runtime             string                 `json:"runtime"`
+	Ready               bool                   `json:"ready"`
+	ExecutionModeIssue  string                 `json:"executionModeIssue,omitempty"`
+	FullAccessAvailable bool                   `json:"fullAccessAvailable"`
+	Work                WorkExecutionSettings  `json:"work"`
+	Models              []ModelOption          `json:"models"`
+	RuntimeDefault      *WorkExecutionSettings `json:"runtimeDefault"`
 }
 type LocalWorkerController interface {
 	SelectedLocalWorker() string

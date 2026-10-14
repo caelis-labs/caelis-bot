@@ -229,6 +229,21 @@ func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
 	if e != nil {
 		return i, e
 	}
+	if slices.Contains(i.Capabilities, "display-replacements-v1") {
+		// Once Host advertises the reader contract, every later request uses the
+		// negotiated route. A failed negotiation never falls back to legacy.
+		c.schema = true
+		var negotiated wire.ServerInfo
+		if e = c.json(ctx, "GET", "/initialize", nil, &negotiated, "", ""); e != nil {
+			c.schema = false
+			return i, fmt.Errorf("Caelis Control 1.0 协商失败，请更新 Host: %w", e)
+		}
+		if !slices.Contains(negotiated.Capabilities, "display-replacements-v1") || value(negotiated.InstanceId) != value(i.InstanceId) {
+			c.schema = false
+			return i, errors.New("Caelis Control 1.0 合同或服务身份不匹配；请更新 Host")
+		}
+		i = negotiated
+	}
 	if i.ProtocolVersion != 1 || i.ApiVersion != "v1" || i.EnvelopeVersion != "caelis.control.envelope/v1" || value(i.StoreId) == "" || value(i.InstanceId) == "" {
 		return i, errBotIncompatible
 	}
@@ -327,6 +342,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	scoped.schema = host.schema
 	ok := false
 	defer func() {
 		if !ok {

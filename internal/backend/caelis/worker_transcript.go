@@ -51,9 +51,10 @@ func (p *workerTranscript) apply(e wire.Envelope) error {
 		return nil
 	}
 	var update struct {
-		Kind      string          `json:"sessionUpdate"`
-		MessageID string          `json:"messageId"`
-		Content   json.RawMessage `json:"content"`
+		Kind        string          `json:"sessionUpdate"`
+		MessageID   string          `json:"messageId"`
+		Content     json.RawMessage `json:"content"`
+		Replacement bool            `json:"replacement"`
 	}
 	if err := json.Unmarshal(*e.Update, &update); err != nil {
 		return errors.New("native Worker message update is invalid")
@@ -75,7 +76,7 @@ func (p *workerTranscript) apply(e wire.Envelope) error {
 		return nil
 	}
 	var content struct{ Type, Text string }
-	if json.Unmarshal(update.Content, &content) != nil || content.Type != "text" || content.Text == "" || turn == "" {
+	if json.Unmarshal(update.Content, &content) != nil || content.Type != "text" || content.Text == "" && !update.Replacement || turn == "" {
 		return nil
 	}
 	activeKey := turn + "\x00" + role
@@ -92,7 +93,11 @@ func (p *workerTranscript) apply(e wire.Envelope) error {
 		}
 	}
 	if index, exists := p.index[id]; exists {
-		p.items[index].Text += content.Text
+		if update.Replacement {
+			p.items[index].Text = content.Text
+		} else {
+			p.items[index].Text += content.Text
+		}
 	} else {
 		p.index[id] = len(p.items)
 		p.items = append(p.items, api.TaskConversationMessage{ID: id, Role: role, Text: content.Text})

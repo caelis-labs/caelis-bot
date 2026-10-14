@@ -40,6 +40,18 @@ func (s *Service) SetupProfile(id string) (api.RuntimeSettings, error) {
 	}
 	return s.setup.Profile(id)
 }
+func (s *Service) BotExecutionModeForRuntime(id string) (string, error) {
+	if scoped, ok := s.setup.(interface{ BotExecutionModeForRuntime(string) (string, error) }); ok {
+		return scoped.BotExecutionModeForRuntime(id)
+	}
+	return "", errors.New("运行时模式管理不可用")
+}
+func (s *Service) SaveBotExecutionModeForRuntime(id, mode string) error {
+	if scoped, ok := s.setup.(interface{ SaveBotExecutionModeForRuntime(string, string) error }); ok {
+		return scoped.SaveBotExecutionModeForRuntime(id, mode)
+	}
+	return errors.New("运行时模式管理不可用")
+}
 func (s *Service) InspectSetup(ctx context.Context, v api.RuntimeSettings) (api.SetupState, error) {
 	if s.setup == nil {
 		return api.SetupState{}, errors.New("运行时管理不可用")

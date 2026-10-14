@@ -14,8 +14,60 @@ const {connectSelectedModels} = await server.ssrLoadModule('/src/settings/runtim
 const {readSelectedWorker} = await server.ssrLoadModule('/src/settings/runtime/worker-selection.ts');
 const {createModeReadback} = await server.ssrLoadModule('/src/settings/runtime/mode-readback.ts');
 const {createResourceReadback} = await server.ssrLoadModule('/src/settings/runtime/resource-readback.ts');
+const {verifiedSetup,connectionReadiness,workerCardState,botCardState} = await server.ssrLoadModule('/src/settings/runtime/readiness.ts');
+const {workerDisplayError} = await server.ssrLoadModule('/src/settings/runtime/worker-selection.ts');
 const model={model:'p/a',name:'A',description:'',default:true,defaultEffort:'high',efforts:['high','low'],serviceTiers:[{id:'priority',name:'Fast',description:''}]};
 const selection={model:'p/a',effort:'high',serviceTier:'priority'};
+
+test('saved Worker preference is distinct from available work in both directions',()=>{
+ assert.equal(workerCardState('codex','codex',false),'saved-waiting');
+ assert.equal(workerCardState('codex','codex',undefined),'saved-waiting');
+ assert.equal(workerCardState('codex','codex',true),'selected-ready');
+ assert.equal(workerCardState('caelis','codex',true),'ready');
+ assert.equal(workerCardState('caelis','codex',false),'setup');
+ assert.equal(botCardState('caelis','codex','caelis'),'pending');
+ assert.equal(botCardState('codex','codex','caelis'),'current');
+ assert.equal(botCardState('caelis','','caelis'),'pending');
+ assert.equal(botCardState('codex','','caelis'),'other');
+});
+
+test('connected catalog models are not chat-ready without Core qualification',()=>{
+ const base={state:'ready',installation:{installed:true},models:[]};
+ const registered={value:'synthetic',noAuth:true,chatEligibility:'chat'};
+ const unknown={...registered,noAuth:false,chatEligibility:'unknown'};
+ const nonchat={...unknown,chatEligibility:'non-chat'};
+ const chat={...unknown,chatEligibility:'chat'};
+ for(const models of [[registered],[unknown],[nonchat],[{value:'legacy',noAuth:false}]]) {
+  const state={...base,models};
+  assert.equal(verifiedSetup('caelis',state).state,'models');
+  assert.notEqual(connectionReadiness('caelis',state),'ready');
+ }
+ assert.equal(connectionReadiness('caelis',{...base,models:[registered]}),'auth_needed');
+ assert.equal(connectionReadiness('caelis',{...base,models:[unknown]}),'chat_unverified');
+ assert.equal(connectionReadiness('caelis',{...base,models:[nonchat]}),'no_chat_model');
+ assert.equal(connectionReadiness('caelis',{...base,models:[]}), 'no_models');
+ assert.equal(connectionReadiness('caelis',{...base,installation:{installed:false}}),'not_installed');
+ assert.equal(connectionReadiness('caelis',null),'unknown');
+ assert.equal(verifiedSetup('caelis',{...base,models:[chat]}).state,'ready');
+ assert.equal(connectionReadiness('caelis',{...base,models:[chat]}),'ready');
+ assert.equal(connectionReadiness('caelis',{...base,state:'models',models:[chat]}),'unavailable');
+ assert.equal(setupStatusKey({...base,state:'models',models:[unknown]}),'runtime.chatUnverified');
+ assert.equal(setupStatusKey({...base,state:'models',models:[nonchat]}),'runtime.noChatModel');
+ assert.equal(connectionReadiness('codex',base),'ready');
+ assert.equal(connectionReadiness('codex',{...base,state:'login'}),'unavailable');
+});
+
+test('known native model warning uses localized user-facing connection name',()=>{
+ const raw=Error('连接 Codex 后可加载模型；请在对话窗口检查连接');
+ const en=JSON.parse(readFileSync('internal/i18n/locales/en/settings.json','utf8'));
+ const zh=JSON.parse(readFileSync('internal/i18n/locales/zh-CN/settings.json','utf8'));
+ for(const catalog of [en,zh]) {
+  const shown=workerDisplayError(raw,key=>catalog[key.split('.')[1]]);
+  assert.match(shown,/ChatGPT/);
+  assert.doesNotMatch(shown,/Codex/);
+ }
+ assert.equal(workerDisplayError(Error('opaque Host detail'),()=>''),'opaque Host detail');
+});
 
 test('slow Worker inspection coalesces refreshes and always clears busy',async()=>{
  let release;const delayed=new Promise(resolve=>{release=resolve;});

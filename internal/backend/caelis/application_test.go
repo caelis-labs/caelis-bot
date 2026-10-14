@@ -206,7 +206,8 @@ func TestNativeArtifactProjectionAcceptsToolContentUnion(t *testing.T) {
 func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 	var creates, prompts, grants atomic.Int32
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/api/control/v1")
+		w.Header().Set("X-Caelis-Control-Schema", "1.0")
+		path := strings.TrimPrefix(r.URL.Path, "/api/control/v1/schema")
 		switch {
 		case r.Method == "POST" && path == "/application/workers":
 			creates.Add(1)
@@ -229,11 +230,15 @@ func TestWorkerStartRecoversLostCreateAndPromptWithoutRedispatch(t *testing.T) {
 			writeFixture(w, wire.ApplicationOperation{OperationId: op, Outcome: "accepted", Result: &wire.CommandResult{OperationId: op, Outcome: "accepted", SessionId: pointer("worker")}})
 		case path == "/application/workers":
 			writeFixture(w, []wire.ApplicationWorker{{SessionId: "worker", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner"}})
+		case path == "/sessions/worker/state":
+			writeFixture(w, wire.SessionState{SessionId: "worker", WorkerPermissions: &wire.WorkerPermissions{Mode: "workspace-write", ApprovalMode: "auto-review"}})
 		default:
 			t.Error("unexpected worker recovery route", r.Method, path)
 			w.WriteHeader(404)
 		}
 	})
+	s.client.schema = true
+	s.info.Capabilities = []string{"worker-creation-permissions-v1"}
 	s.workExecution = api.WorkExecutionSettings{Model: "fixture-model", Effort: "high", ServiceTier: "priority"}
 	s.state.PrincipalID = "owner"
 	s.state.Configurations["main"] = wire.ApplicationConfiguration{Profile: wire.ApplicationProfile{Model: "bot-luna", Execution: "workspace-write"}}

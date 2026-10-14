@@ -62,6 +62,14 @@ func (w *localWorkers) inspect(ctx context.Context, runtime string) (api.LocalWo
 		v.RuntimeDefault = &d
 	}
 	v.Ready = len(v.Models) > 0
+	if checker, ok := owner.(interface{ CheckFutureWorkExecutionMode(string) error }); ok {
+		if issue := checker.CheckFutureWorkExecutionMode("auto"); issue != nil {
+			v.Ready = false
+			v.ExecutionModeIssue = issue.Error()
+		} else {
+			v.FullAccessAvailable = checker.CheckFutureWorkExecutionMode("full-access") == nil
+		}
+	}
 	if runtime == w.active {
 		if s, ok := owner.(api.Engine); ok {
 			v.Ready = v.Ready && s.Snapshot().Connection == "ready"
@@ -149,9 +157,6 @@ func (w *localWorkers) SaveLocalWorkerExecutionMode(ctx context.Context, mode st
 	w.mu.Lock()
 	runtime := w.defaultRuntime
 	w.mu.Unlock()
-	if runtime == "caelis" {
-		return api.LocalWorkerSettings{}, errors.New("此 Caelis 版本的独立任务由 Host 管理权限，暂不支持单独设置执行模式")
-	}
 	dir, _ := providerDirectory(w.root, runtime)
 	value, err := backend.LoadWorkExecutionSettings(filepath.Join(dir, "work-execution.json"))
 	if err != nil {

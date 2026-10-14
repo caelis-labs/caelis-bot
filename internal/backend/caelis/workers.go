@@ -7,6 +7,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
@@ -16,6 +17,7 @@ import (
 type invocationKey struct{}
 type workerStart struct {
 	Profile       wire.ApplicationProfile `json:"profile"`
+	Permissions   *wire.WorkerPermissions `json:"permissions,omitempty"`
 	Prompt        string                  `json:"prompt"`
 	Authorization string                  `json:"authorization"`
 }
@@ -226,14 +228,22 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 			return api.Task{}, errors.New("工作目录已发生重定向")
 		}
 	}
-	// /application/workers is Host configured; the current Core contract has no
-	// per Worker permission field. Refuse an unsupported choice before intent is
-	// journaled, rather than silently creating a differently privileged task.
+	if err := s.CheckFutureWorkExecutionMode(execution.ApprovalMode); err != nil {
+		return api.Task{}, err
+	}
+	if execution.Model == "" {
+		var err error
+		execution, err = s.resolveWorkExecution(ctx, s.profile)
+		if err != nil {
+			return api.Task{}, err
+		}
+	}
+	permissions := &wire.WorkerPermissions{Mode: "workspace-write", ApprovalMode: "auto-review"}
 	if execution.ApprovalMode == "full-access" {
-		return api.Task{}, errors.New("此 Caelis 版本尚不支持为独立任务指定完全访问")
+		permissions.Mode = "danger-full-access"
 	}
 	profile := wire.ApplicationProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
-	w := worker{Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId}}
+	w := worker{Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Permissions: permissions, Prompt: in.Prompt, Authorization: call.Source.OperationId}}
 	s.mu.Lock()
 	s.state.Workers[in.ID] = w
 	e = s.saveLocked()
@@ -265,7 +275,7 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 		var request any = wire.CreateApplicationSessionRequest{OperationId: &op, Profile: w.Start.Profile}
 		if w.Native {
 			path = "/application/workers"
-			request = wire.CreateWorkerRequest{OperationId: &op, Cwd: w.Task.Workspace, Title: &w.Task.Title, Model: &w.Start.Profile.Model, ReasoningEffort: w.Start.Profile.ReasoningEffort, FastMode: pointer(value(w.Start.Profile.ServiceTier) == "priority")}
+			request = wire.CreateWorkerRequest{OperationId: &op, Cwd: w.Task.Workspace, Title: &w.Task.Title, Model: &w.Start.Profile.Model, ReasoningEffort: w.Start.Profile.ReasoningEffort, FastMode: pointer(value(w.Start.Profile.ServiceTier) == "priority"), Permissions: w.Start.Permissions}
 		}
 		result, e := s.command(ctx, op, path, request)
 		if e != nil || !succeeded(result.Outcome) {
@@ -274,6 +284,9 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 				return w.Task, errors.Join(e, s.saveWorker(w))
 			}
 			return w.Task, errors.Join(e, errors.New("独立任务创建未确认"))
+		}
+		if w.Native && w.Start.Permissions != nil && result.WorkerPermissions != nil && *result.WorkerPermissions != *w.Start.Permissions {
+			return w.Task, errors.New("Caelis Worker 创建回执权限与原请求不匹配；原回执已保留")
 		}
 		sid := value(result.SessionId)
 		if sid == "" && result.Resource != nil {
@@ -304,6 +317,15 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 		}
 	}
 	sid := w.Binding.SessionId
+	if w.Native && w.Start.Permissions != nil {
+		var actual wire.SessionState
+		if e := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &actual, "", ""); e != nil {
+			return w.Task, e
+		}
+		if actual.SessionId != sid || actual.WorkerPermissions == nil || *actual.WorkerPermissions != *w.Start.Permissions {
+			return w.Task, errors.New("Caelis Worker 实际执行权限与原创建请求不匹配；原回执已保留")
+		}
+	}
 	var result wire.CommandResult
 	var e error
 	if w.Native {
@@ -331,6 +353,22 @@ func (s *Session) saveWorker(w worker) error {
 	e := s.saveLocked()
 	s.bumpLocked()
 	return e
+}
+
+func (s *Session) CheckFutureWorkExecutionMode(mode string) error {
+	if mode != "" && mode != "auto" && mode != "full-access" {
+		return errors.New("执行模式仅支持自动审查或完全访问")
+	}
+	s.mu.Lock()
+	c, info, life := s.client, s.info, s.state.Connection
+	s.mu.Unlock()
+	if c == nil || !c.schema || !slices.Contains(info.Capabilities, "worker-creation-permissions-v1") {
+		return errors.New("Caelis Host 缺少新任务独立权限合同；请更新并重启 Host")
+	}
+	if mode == "full-access" && !value(life.AllowWorkerFullAccess) {
+		return errors.New("当前 Caelis Bot 的 Host 登记未授权 Worker 完全访问；请在原生 Host 授权流程中显式重新登记")
+	}
+	return nil
 }
 
 func (s *Session) ReadWork(ctx context.Context, id string) (api.Task, error) {

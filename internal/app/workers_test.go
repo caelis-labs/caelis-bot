@@ -107,8 +107,10 @@ func TestWorkerExecutionModeScopedToSelectedRuntime(t *testing.T) {
 		t.Fatal("model update erased permission", f.value)
 	}
 	w.defaultRuntime = "caelis"
-	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "full-access"); err == nil {
-		t.Fatal("unsupported Core Worker permission accepted")
+	caelis := &workerModeFixture{workerFixture: &workerFixture{runtime: "caelis", states: map[string]api.WorkState{}}}
+	w.owners = map[string]retainedWorker{"caelis": caelis}
+	if _, err := w.SaveLocalWorkerExecutionMode(t.Context(), "full-access"); err != nil || caelis.value.ApprovalMode != "full-access" {
+		t.Fatal("Caelis future Worker preference did not stay in its scope", err, caelis.value)
 	}
 	if f.value.ApprovalMode != "full-access" {
 		t.Fatal("Caelis choice changed Codex preference")

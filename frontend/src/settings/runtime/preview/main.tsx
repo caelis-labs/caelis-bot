@@ -30,7 +30,7 @@ const workerCall=(async(method:string,...args:unknown[])=>{
  if(method==='SelectLocalWorker'||method==='InspectLocalWorker'){if(args[0])workerRuntime=String(args[0]);}
  else if(method==='SaveLocalWorkerModel')workerModel=args[0] as WorkExecutionSettings;
  else if(method!=='InspectWorkerRuntime')throw new Error('Visual fixture only');
- return {runtime:method==='InspectWorkerRuntime'&&args[0]?String(args[0]):workerRuntime,ready:true,work:workerModel,models:view.models,runtimeDefault:view.runtimeDefault} satisfies WorkerSettings;
+ return {runtime:method==='InspectWorkerRuntime'&&args[0]?String(args[0]):workerRuntime,ready:true,fullAccessAvailable:false,work:workerModel,models:view.models,runtimeDefault:view.runtimeDefault} satisfies WorkerSettings;
 }) as typeof call;
 const scenario=params.get('machine')??'login', locale=params.get('lang')==='zh-CN'?'zh-CN':'en';
 const bridge:LanguageBridge={read:async()=>({preference:locale,locale,revision:1}),save:async preference=>({preference,locale,revision:2}),subscribe:()=>()=>{}};

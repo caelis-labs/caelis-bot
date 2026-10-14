@@ -19,31 +19,55 @@ func (*Session) ApplicationCapabilities() api.ApplicationCapabilities {
 
 // A create receipt identifies a Session but does not prove its effective
 // authority. The immutable request snapshot is journaled before dispatch.
-func verifyCreatedAuthority(j journal, b wire.ApplicationBinding) error {
-	if j.Path != "/application/sessions" || j.CreationAuthority == nil ||
-		!reflect.DeepEqual(j.CreationAuthority.Permissions, b.Profile.Permissions) ||
-		!reflect.DeepEqual(j.CreationAuthority.Reviewer, b.Profile.Reviewer) {
+func verifyCreatedAuthority(op string, j journal, b wire.ApplicationBinding) error {
+	if j.Path != "/application/sessions" {
+		return errors.New("Caelis 新对话权限绑定与原创建请求不匹配；原回执已保留")
+	}
+	if j.CreationAuthority == nil {
+		// Pre-snapshot journals retain the original request digest even after a
+		// committed/accepted receipt discarded Body. Core stores the exact
+		// creation profile on its immutable binding. Reconstruct only that old
+		// request shape and require byte-identical digest plus original resource.
+		if j.Digest == "" || j.Resource != b.SessionId {
+			return errors.New("旧 Caelis 创建请求缺少可验证的原始权限；原回执已保留。请在连接管理中恢复原 Host 和数据目录后重试，仍失败请联系支持处理原请求")
+		}
+		candidate, err := json.Marshal(wire.CreateApplicationSessionRequest{OperationId: &op, Profile: b.Profile})
+		if err != nil || digest(candidate) != j.Digest {
+			return errors.New("旧 Caelis 创建请求与原生权限绑定无法核对；原回执已保留。请在连接管理中恢复原 Host 和数据目录后重试，仍失败请联系支持处理原请求")
+		}
+		return nil
+	}
+	if !reflect.DeepEqual(j.CreationAuthority.Permissions, b.Profile.Permissions) || !reflect.DeepEqual(j.CreationAuthority.Reviewer, b.Profile.Reviewer) {
 		return errors.New("Caelis 新对话权限绑定与原创建请求不匹配；原回执已保留")
 	}
 	return nil
 }
 
-// Core currently routes required application callbacks through Guardian even
-// when native execution uses danger-full-access. Until it exposes a separate
-// creation-bound execution approval contract, this cannot satisfy Bot's full
-// access choice. Old bound Sessions retain their original authority.
-func rejectUnsupportedFullAccess(mode string) error {
-	if api.NormalizeNewExecutionMode(mode) == "full-access" {
-		return errors.New("Caelis 完全访问仍需 Core 提供创建时执行审批合同；不会创建或切入新对话")
+func recoverCreationAuthority(op string, j *journal) {
+	if j.Path != "/application/sessions" || j.CreationAuthority != nil || len(j.Body) == 0 || j.Digest == "" || digest(j.Body) != j.Digest {
+		return
 	}
-	return nil
+	var request wire.CreateApplicationSessionRequest
+	if json.Unmarshal(j.Body, &request) != nil || value(request.OperationId) != op {
+		return
+	}
+	j.CreationAuthority = &creationAuthority{Permissions: request.Profile.Permissions, Reviewer: request.Profile.Reviewer}
 }
-
-func rejectUnsupportedCreatedBinding(b wire.ApplicationBinding) error {
-	if b.Profile.Permissions != nil && value(b.Profile.Permissions.Mode) == "danger-full-access" {
-		return rejectUnsupportedFullAccess("full-access")
+func (s *Session) savedCreationJournal(op string) (journal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j := s.state.Operations[op]
+	if j.CreationAuthority != nil || len(j.Body) == 0 {
+		return j, nil
 	}
-	return nil
+	recoverCreationAuthority(op, &j)
+	if j.CreationAuthority != nil {
+		s.state.Operations[op] = j
+		if err := s.saveLocked(); err != nil {
+			return journal{}, err
+		}
+	}
+	return j, nil
 }
 func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	s.step.Lock()
@@ -207,7 +231,7 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 			}
 			b.SessionId = j.Resource
 		} else {
-			if err := rejectUnsupportedFullAccess(s.execution.ApprovalMode); err != nil {
+			if err := s.checkFutureBotMode(s.execution.ApprovalMode); err != nil {
 				return err
 			}
 			profile := s.profile
@@ -269,13 +293,11 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 		return errors.New("Caelis 对话绑定不匹配或已归档")
 	}
 	if created {
-		s.mu.Lock()
-		j := s.state.Operations[op]
-		s.mu.Unlock()
-		if err := verifyCreatedAuthority(j, b); err != nil {
+		j, err := s.savedCreationJournal(op)
+		if err != nil {
 			return err
 		}
-		if err := rejectUnsupportedCreatedBinding(b); err != nil {
+		if err := verifyCreatedAuthority(op, j, b); err != nil {
 			return err
 		}
 	}

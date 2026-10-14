@@ -23,6 +23,7 @@ import (
 type client struct {
 	origin, token string
 	http          *http.Client
+	schema        bool
 }
 type remoteError struct {
 	Status       int
@@ -59,7 +60,11 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 		}
 		r = bytes.NewReader(b)
 	}
-	req, e := http.NewRequestWithContext(ctx, method, c.origin+"/api/control/v1"+path, r)
+	base := "/api/control/v1"
+	if c.schema {
+		base += "/schema"
+	}
+	req, e := http.NewRequestWithContext(ctx, method, c.origin+base+path, r)
 	if e != nil {
 		return nil, e
 	}
@@ -69,6 +74,10 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 		req.GetBody = nil
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	if c.schema {
+		req.Header.Set("X-Caelis-Control-Schema", "1.0")
+		req.Header.Set("X-Caelis-Control-Client-Capabilities", "display-replacements-v1")
+	}
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
@@ -87,6 +96,10 @@ func (c *client) requestMedia(ctx context.Context, method, path string, body any
 	res, e := c.http.Do(req)
 	if e != nil {
 		return nil, errors.New("Caelis 连接中断，操作结果需要核对")
+	}
+	if c.schema && res.StatusCode >= 200 && res.StatusCode < 300 && res.Header.Get("X-Caelis-Control-Schema") != "1.0" {
+		res.Body.Close()
+		return nil, errors.New("Caelis Control 1.0 协商响应缺失；请更新并重启 Host")
 	}
 	return res, nil
 }

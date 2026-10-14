@@ -80,21 +80,42 @@ func (s *Service) SaveBotExecutionMode(mode string) error {
 	defer s.configurationMu.Unlock()
 	if mode == "full-access" {
 		provider, ok := s.currentEngine().(api.Provider)
-		if !ok || provider.ProviderInfo().ID == "caelis" {
-			return errors.New("Caelis 完全访问仍需 Core 提供创建时执行审批合同；当前连接不可选择")
+		if !ok {
+			return errors.New("当前连接无法确认完全访问能力")
+		}
+		if provider.ProviderInfo().ID == "caelis" {
+			check, ok := s.currentEngine().(interface{ CheckFutureExecutionMode(string) error })
+			if !ok {
+				return errors.New("Caelis 完全访问能力无法确认")
+			}
+			if err := check.CheckFutureExecutionMode(mode); err != nil {
+				return err
+			}
 		}
 	}
 	if _, err := LoadBotExecutionMode(s.executionFile); err != nil {
 		return err
 	}
-	if err := saveRuntimeSettings(botModeFile(s.executionFile), struct {
+	if err := SaveBotExecutionModeFile(s.executionFile, mode); err != nil {
+		return err
+	}
+	if e, ok := s.currentEngine().(interface{ SetFutureExecutionMode(string) }); ok {
+		e.SetFutureExecutionMode(mode)
+	}
+	return nil
+}
+
+// SaveBotExecutionModeFile changes only a future binding preference. Callers
+// must validate the selected Runtime and its authority before using full access.
+func SaveBotExecutionModeFile(executionFile, mode string) error {
+	if mode != "auto" && mode != "full-access" {
+		return errors.New("执行模式仅支持自动审查或完全访问")
+	}
+	if err := saveRuntimeSettings(botModeFile(executionFile), struct {
 		Version int    `json:"version"`
 		Mode    string `json:"mode"`
 	}{1, mode}); err != nil {
 		return errors.New("Bot 执行模式未能保存，原有设置保持不变")
-	}
-	if e, ok := s.currentEngine().(interface{ SetFutureExecutionMode(string) }); ok {
-		e.SetFutureExecutionMode(mode)
 	}
 	return nil
 }

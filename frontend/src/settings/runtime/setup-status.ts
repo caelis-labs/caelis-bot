@@ -23,7 +23,7 @@ export function setupStatusKey(state:SetupState):MessageKey {
  switch(state.state){
   case 'ready':return 'runtime.setupReady';
   case 'login':return 'runtime.loginCodex';
-  case 'models':return 'runtime.noModelsConnected';
+  case 'models':return state.models.some(model=>!model.noAuth)?state.models.filter(model=>!model.noAuth).every(model=>(model as typeof model & {chatEligibility?:string}).chatEligibility==='non-chat')?'runtime.noChatModel':'runtime.chatUnverified':'runtime.noModelsConnected';
   case 'service':return 'runtime.notStarted';
   case 'incompatible':return 'runtime.incompatibleConnection';
   default:return 'runtime.unavailableConnection';

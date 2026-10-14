@@ -1,6 +1,12 @@
 import type {LocalWorkerSettings} from '../../backend/contract';
 import type {backend} from '../../desktop';
 
+export function workerDisplayError(error: unknown, t: (key: any) => string): string {
+ const raw = error instanceof Error ? error.message : '';
+ if (raw === '连接 Codex 后可加载模型；请在对话窗口检查连接') return t('settings.workerConnectChatGPTForModels');
+ return raw || t('settings.workerSetupRequired');
+}
+
 // Availability is not authority. A saved Worker default must come from the
 // native read, including after a successful selection command.
 export async function readSelectedWorker(call: typeof backend, requested?: string): Promise<LocalWorkerSettings> {

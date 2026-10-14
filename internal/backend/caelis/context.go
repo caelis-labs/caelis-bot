@@ -208,7 +208,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		if !current.Idle {
 			return errors.New("对话暂不能交接")
 		}
-		if err := rejectUnsupportedFullAccess(s.execution.ApprovalMode); err != nil {
+		if err := s.checkFutureBotMode(s.execution.ApprovalMode); err != nil {
 			return err
 		}
 		config, err := s.configuration(ctx, source)
@@ -248,6 +248,10 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 		return errors.New("新上下文创建结果尚未确认")
 	}
 	sid := pending.Resource
+	pending, renewalErr = s.savedCreationJournal(op)
+	if renewalErr != nil {
+		return renewalErr
+	}
 	var next wire.ApplicationBinding
 	if err := c.json(ctx, "GET", "/application/sessions/"+idPath(sid), nil, &next, "", ""); err != nil {
 		return err
@@ -255,10 +259,7 @@ func (s *Session) renewConversation(ctx context.Context, id, source, toolTurn st
 	if next.SessionId != sid || sid == source || next.ApplicationId != life.ApplicationId || next.ConnectionId != life.ConnectionId || next.PrincipalId != life.PrincipalId || next.Archived || next.Profile.Execution != s.executionMode {
 		return errors.New("新上下文绑定不匹配")
 	}
-	if err := verifyCreatedAuthority(pending, next); err != nil {
-		return err
-	}
-	if err := rejectUnsupportedCreatedBinding(next); err != nil {
+	if err := verifyCreatedAuthority(op, pending, next); err != nil {
 		return err
 	}
 	if err := s.checkReviewer(ctx, next); err != nil {

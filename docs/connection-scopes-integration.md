@@ -1,107 +1,22 @@
 # PR 164 connection and execution scope handoff
 
-This branch is based on `6391669e`. Apply `94de4010`, `c1b87eb5`, `2809b0de`,
-`beedf9f1`, and this branch's incremental review-fix commit in order when integrating. The onboarding
-`64dee69d` and Team `9036243a` commits are separate; the optional `scene` prop
-in `RuntimeSettings.tsx` is compatible with the baseline wizard until they meet.
+The integration branch includes the scopes author chain through `505c8454` and `b9d56480`, onboarding through `9f4a1501` and `36738eeb`, Team through `5b63ae8b`, and capacity through `2714034f`. `RuntimeSettings.tsx` passes `scene="first-run"` only for onboarding.
 
-## Caelis Bot full access: Core dependency
+## Bot and Worker mode contract
 
-Verified against sibling Core HEAD `1305eff4d424199a68c6091d683d1d3bce09a612`
-and Bot source at `beedf9f1`. Core `docs/application-runtime.md` under
-"Workspace and permissions" defines creation-bound `permissions.mode` and
-`permissions.approval_mode`. `danger-full-access` selects unsandboxed Host native
-execution. It does **not** change the callback approval policy. Bot
-`internal/backend/caelis/application.go` marks callbacks outside its small
-`ApprovedTools` allowlist as `required`, including `bot_delegate` and
-`bot_schedule_update`. Core `control/application/callback_policy.go` returns
-`ActionAskApproval` for each such call; `app/gatewayapp/application_runtime.go`
-evaluates that decision before the native policy. With `manual`, Core asks a
-person. With `auto-review` and a creation-bound Guardian, Guardian can still
-deny or time out. Neither choice gives Codex-like full execution access,
-where Bot maps full access to `approvalPolicy=never` and
-`sandbox=danger-full-access` in `internal/backend/codex/execution.go`.
+The Caelis adapter consumes additive Control fields and negotiates `/api/control/v1/schema` when Host advertises `display-replacements-v1`. It declares `X-Caelis-Control-Schema: 1.0` and `X-Caelis-Control-Client-Capabilities: display-replacements-v1` on each negotiated request, checks successful response echoes, and projects same-message text replacements, including empty replacements, in Bot and Worker transcripts. Older Hosts stay on the legacy path for existing behavior; new explicit permissions require negotiated schema and capability. `protocol/caelis/manifest.json` pins the combined overlay. Isolated Core `b74b80dd9cd0eb9f3dcad4d6ddbda80bc7f86c12` is an **integration checkpoint**, not the final acceptance baseline: independent review found a historical Session pin-source P1 and a concurrent Worker permissions readback P2. The repaired Core SHA and binary must be substituted before final dual-SHA acceptance.
 
-The **minimal Core dependency** is a negotiated, creation-bound Application
-Session execution approval contract that distinguishes Runtime execution review
-from independent application authorization. Do not invent a field name in Bot
-before Core defines and generates it. Core must specify and test how full access
-handles native command/file execution, MCP execution, and `required` Bot callback
-execution. For a callback that has passed the separate Bot/Host authorization,
-full access must not send it through Guardian solely as a Runtime execution
-review. Core must continue exact connection and catalog binding, schema and
-argument validation, callback claim/receipt idempotence, Host ownership and
-explicit background grants. App-level Computer Use/turn consent, account login,
-OS permissions, and missing user decisions stay independent. Core must expose
-the effective creation-bound approval contract in the returned binding, with a
-capability for negotiation. Fixtures must prove: auto-review still routes its
-required execution calls to Guardian; full access does not; independent Host and
-OS gates still apply; existing Sessions keep their original profile; unknown
-contract values fail closed. Reviewer readiness alone cannot prove this.
+For **new Caelis Bot conversations and natural handoffs**, auto-review creates `workspace-write + auto-review + Guardian`. Full access creates `danger-full-access + auto-review + execution_approval=never + Guardian`. `never` bypasses Runtime execution review for trusted required Application callbacks after identity and argument checks. It does not grant a callback's own effect, background work, account access, Computer Use, MCP access, or macOS TCC. `application-execution-approval-never-v1` and the scoped Host connection's `allow_unreviewed_application_execution=true` must both be observed before a new full-access request. The exact permissions and Reviewer are journaled before POST and compared with the returned immutable binding. An existing bound Session keeps its original profile regardless of future preference.
 
-Until that Core contract and Bot adapter integration exist, Caelis Bot offers
-only automatic review. `ExecutionOptions` omits full access,
-`SaveBotExecutionMode` rejects it for Caelis, and new creation or handoff refuses
-a pending full-access profile. Existing bound Sessions recover under their
-original immutable permissions. Codex Bot full access is unaffected. To enable
-Caelis after Core integration, remove the guards in
-`internal/backend/caelis/settings.go` (`ExecutionOptions`),
-`internal/backend/execution.go` (`SaveBotExecutionMode`), and
-`internal/backend/caelis/application.go` (`rejectUnsupportedFullAccess` and
-`rejectUnsupportedCreatedBinding`, also called by `context.go`). Replace the
-provisional mapping in `internal/backend/caelis/reviewer.go` with the generated
-Core contract, verify effective mode/approval/reviewer against the pre-dispatch
-creation snapshot, and update the Caelis button detail in
-`frontend/src/settings/runtime/RuntimeWorkspace.tsx`. Do not add all callbacks
-to `ApprovedTools`, infer authority from model prose, or change an old binding.
+For **new Caelis Workers**, the selected auto/full preference becomes an immutable `CreateWorkerRequest.permissions` pair: `workspace-write/auto-review` or `danger-full-access/auto-review`. The adapter requires `worker-creation-permissions-v1`, and full also requires the independent `allow_worker_full_access=true` Host grant. It persists the pair in the task start, checks the creation receipt when present and the native Session state's `worker_permissions` before any prompt, including after a crash. It never uses `POST /sessions/{id}/configuration/session-mode` to change Worker approval. An old pending Worker with no explicit pair continues under its original Host default and receipt.
 
-## Integration interfaces and gates
+The current Bot registration request does **not** add either grant. Core registration is immutable; a prior connection defaults both grants to false, and renew cannot upgrade it. The full buttons therefore remain unavailable on such connections, with an explicit enrollment explanation. A separately reviewed native Host re-enrollment flow is required to grant them; do not mint a new credential or silently re-register from a preference save. Core `291fb89639a5a861159c91ac6589abc8bec417bb` now rejects Session mode and ACP controller changes that would invalidate a pinned Worker permission; its independent review remains open. This Bot adapter checks the canonical native pin before the original prompt and preserves the original receipt if a mismatch is observed. A pin conflict is reported as an actionable error, never repaired by editing a receipt or creating a replacement task.
 
-- `SelectedLocalWorker`, `InspectWorkerRuntime`, `SelectLocalWorker`,
-  `SaveLocalWorkerModel`, and `SaveLocalWorkerExecutionMode` operate on the
-  separately saved Worker runtime. An unready target cannot become the Worker
-  default. Maintenance of either connection does not switch the Bot or Worker.
-- `BotExecutionMode` and `SaveBotExecutionMode` store only a future Bot Session
-  preference per Runtime; invalid persisted values fail closed. New Bot
-  connections and natural handoffs consume it; existing sessions keep their
-  original immutable profile. Worker preferences live in each provider's
-  `work-execution.json`; no Bot mode is inherited by a Worker.
-- `RuntimeSettings.tsx` passes `scene="first-run"` only from onboarding and
-  calls `onDone` after `ActivateRuntime` succeeds and the refreshed overview
-  confirms a committed choice. `RuntimeWorkspace.tsx` is management only.
-- Codex Worker full access is available for new tasks after the task mode is
-  saved separately from the Bot's future-thread preference. The first native
-  `thread/start` and `turn/start` use that task mode; model-only native receipts
-  preserve it, and recovery/continuation reuse it. Historical tasks without a
-  permission receipt remain on auto review. The combined fixture covers these
-  boundaries, including a Bot full-access mode with an auto-review Worker.
-  This is source/fixture evidence; independent review and native acceptance
-  remain separate.
-- Caelis Worker mode controls are replaced by an unsupported explanation in
-  `LocalWorkerSettings.tsx`. `internal/app/worker_settings.go` and
-  `internal/backend/caelis/work_execution.go` reject mode writes. The separate
-  Core worker extension must first accept a creation-bound permissions/reviewer
-  request on `/application/workers`, verify the Host policy, and return the
-  effective binding. Then wire the mode at the adapter's Worker create point;
-  keep Core user/background authorization and existing Worker bindings intact.
-  Remove these guards and show the Worker buttons only after that fixture passes.
-  Do not use the Bot Application Profile as a substitute for Worker authority.
+## Recovery and integration boundaries
 
-## Evidence and remaining acceptance
+- `BotExecutionModeForRuntime` / `SaveBotExecutionModeForRuntime` expose an inactive target's future preference. Only an explicit `auto` selection is accepted for an inactive Runtime; full requires active connection capability and grant checks. `FutureModeRecovery` appears in connection settings and after failed first-run activation, reads the target mode, saves auto with native readback, and retries activation. It never changes the current Session.
+- Pre-snapshot Application create/renew journals with a retained Body recover the exact original permissions and Reviewer after validating their digest. If Body was already cleared, the original request digest must match a reconstruction from the native immutable binding's profile and original operation ID, and the original receipt resource must match the Session. An unprovable record keeps its original operation/receipt and asks the user to restore the original Host and data directory or seek support; it never re-dispatches or applies the future preference.
+- `SelectedLocalWorker`, `InspectWorkerRuntime`, `SelectLocalWorker`, and Worker model/mode saves use the separately persisted Worker Runtime. Resource maintenance never switches Bot or Worker. The combined Codex task path pins its selected mode on native creation and retains it across model-only receipts and recovery; Codex full access is enabled for new tasks. Caelis full access remains gated by the independent capability and Host grant.
+- Onboarding's `4c5aa5f7` equivalent `InspectSetup` eligibility gate is already integrated, along with `36738eeb`'s model picker. Unknown and non-chat models remain registered but cannot be called chat-ready or advance onboarding. Worker cards distinguish a saved preference from actual readiness; a failed native preference read supplies no selected identity. Bot cards show current and pending choices separately. Native GUI, first-run transition, and the pending model-input Escape fix require later review.
 
-The repository fixtures cover all four Bot/Worker Runtime combinations, an
-unready Worker target, failed and cancelled Bot switching, original task route
-retention, and newest draft revision on rollback. `script/runtime-settings.test.mjs`
-covers busy release after coalesced/failed refresh and first-run setup state.
-This branch's Caelis fixtures cover the provisional
-`danger-full-access + auto-review + Guardian` assembly, the new-binding
-readback fence, the Core-contract gate, and old-profile immutability. They do
-not prove the pending Core full-access contract. The callback conclusion is
-from the exact Core policy source paths above.
-These are source and isolated fixture results. Native GUI flow, real account,
-actual model judgment, Core Worker extension, and merged-head acceptance remain
-for the coordinator's serial integration and independent review.
-
-No Bot-facing skill change is needed: these switches belong to settings and
-native admission. Bot tool schemas, skill discovery, and recovery instructions
-do not change.
+The isolated fixtures cover source and contract behavior, not live Host enrollment, native GUI, actual model choices, or published binary compatibility. No Bot skill update is needed: the changed choices are user-only settings and native admission; Bot tool discovery, use, and recovery guidance stay the same.

@@ -11,8 +11,8 @@ import (
 func (s *Session) ChangeWorkExecution(ctx context.Context, v api.WorkExecutionSettings, persist func() error) error {
 	s.step.Lock()
 	defer s.step.Unlock()
-	if v.ApprovalMode == "full-access" {
-		return errors.New("此 Caelis 版本尚不支持为独立任务指定完全访问")
+	if err := s.CheckFutureWorkExecutionMode(v.ApprovalMode); err != nil {
+		return err
 	}
 	var catalog []api.ModelOption
 	if v.Model != "" {
@@ -43,7 +43,9 @@ func (s *Session) resolveWorkExecution(ctx context.Context, fallback wire.Applic
 	if v.Model != "" {
 		return v, nil
 	}
-	return s.readRuntimeDefault(ctx, fallback)
+	resolved, err := s.readRuntimeDefault(ctx, fallback)
+	resolved.ApprovalMode = v.ApprovalMode
+	return resolved, err
 }
 
 func (s *Session) RuntimeDefault(ctx context.Context) (api.WorkExecutionSettings, error) {

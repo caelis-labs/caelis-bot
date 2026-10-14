@@ -5,16 +5,40 @@ import (
 	"crypto/rand"
 	"errors"
 	"path/filepath"
+	"slices"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
 func (s *Session) ExecutionOptions() api.ExecutionOptions {
-	return api.ExecutionOptions{DefaultApprovalMode: "auto", ApprovalModes: []api.ApprovalMode{
+	out := api.ExecutionOptions{DefaultApprovalMode: "auto", ApprovalModes: []api.ApprovalMode{
 		{ID: "auto", Name: "自动审查", Description: "新对话保留工作区沙箱，由 Guardian 审查额外访问。"},
 	}}
+	if s.checkFutureBotMode("full-access") == nil {
+		out.ApprovalModes = append(out.ApprovalModes, api.ApprovalMode{ID: "full-access", Name: "完全访问", Description: "只用于新对话；原生命令无工作区沙箱，已获产品授权的执行免 Runtime 审查。", Dangerous: true})
+	}
+	return out
 }
+func (s *Session) checkFutureBotMode(mode string) error {
+	if mode != "full-access" {
+		return nil
+	}
+	s.mu.Lock()
+	c, info, life, manual := s.client, s.info, s.state.Connection, s.requireApproval
+	s.mu.Unlock()
+	if manual {
+		return errors.New("当前 Caelis 会话固定为人工批准，不能为新对话选择完全访问")
+	}
+	if c == nil || !c.schema || !slices.Contains(info.Capabilities, "application-execution-approval-never-v1") {
+		return errors.New("Caelis Host 缺少完全访问创建权限合同；请更新并重启 Host")
+	}
+	if !value(life.AllowUnreviewedApplicationExecution) {
+		return errors.New("当前 Caelis Bot 的 Host 登记未授权免执行审查；请在原生 Host 授权流程中显式重新登记，现有授权不会自动扩大")
+	}
+	return nil
+}
+func (s *Session) CheckFutureExecutionMode(mode string) error { return s.checkFutureBotMode(mode) }
 func (s *Session) SetFutureExecutionMode(mode string) {
 	s.step.Lock()
 	defer s.step.Unlock()
