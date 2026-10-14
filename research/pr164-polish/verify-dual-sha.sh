@@ -4,7 +4,7 @@ set -euo pipefail
 # Run against coordinator-named Bot/Core commits and Core binary. All
 # Host/Store/gateway state in these tests is synthetic and local.
 BOT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-required=(BOT_EXPECTED_SHA CORE_WORKTREE CORE_EXPECTED_SHA CORE_ELIGIBILITY_SHA CORE_PERMISSION_SHA CORE_BINARY CORE_BINARY_SHA256)
+required=(BOT_EXPECTED_SHA CORE_WORKTREE CORE_EXPECTED_SHA CORE_ELIGIBILITY_SHA CORE_PERMISSION_SHA CORE_PIN_PROVENANCE_SHA CORE_GRANT_SHA CORE_BINARY CORE_BINARY_SHA256)
 for name in "${required[@]}"; do
   [[ -n "${!name:-}" ]] || { echo "Set $name to the coordinator-named value." >&2; exit 2; }
 done
@@ -15,10 +15,10 @@ done
   echo 'CORE_BINARY must be an isolated artifact under /private/tmp or this worktree cache.' >&2; exit 2;
 }
 [[ ! -L "$CORE_BINARY" ]] || { echo 'CORE_BINARY must not be a symlink.' >&2; exit 2; }
-for value in "$BOT_EXPECTED_SHA" "$CORE_EXPECTED_SHA" "$CORE_ELIGIBILITY_SHA" "$CORE_PERMISSION_SHA" "$CORE_BINARY_SHA256"; do
+for value in "$BOT_EXPECTED_SHA" "$CORE_EXPECTED_SHA" "$CORE_ELIGIBILITY_SHA" "$CORE_PERMISSION_SHA" "$CORE_PIN_PROVENANCE_SHA" "$CORE_GRANT_SHA" "$CORE_BINARY_SHA256"; do
   [[ "$value" =~ ^[0-9a-f]{40}$ || "$value" =~ ^[0-9a-f]{64}$ ]] || { echo 'Expected a full lowercase commit or binary SHA.' >&2; exit 2; }
 done
-[[ ${#BOT_EXPECTED_SHA} == 40 && ${#CORE_EXPECTED_SHA} == 40 && ${#CORE_ELIGIBILITY_SHA} == 40 && ${#CORE_PERMISSION_SHA} == 40 && ${#CORE_BINARY_SHA256} == 64 ]] || {
+[[ ${#BOT_EXPECTED_SHA} == 40 && ${#CORE_EXPECTED_SHA} == 40 && ${#CORE_ELIGIBILITY_SHA} == 40 && ${#CORE_PERMISSION_SHA} == 40 && ${#CORE_PIN_PROVENANCE_SHA} == 40 && ${#CORE_GRANT_SHA} == 40 && ${#CORE_BINARY_SHA256} == 64 ]] || {
   echo 'Commit SHAs must have 40 characters and the binary SHA-256 must have 64.' >&2; exit 2;
 }
 [[ "$CORE_EXPECTED_SHA" != 1a956d256983c45b07ab255f62e4738602877bf1 &&
@@ -37,6 +37,12 @@ git -C "$CORE_WORKTREE" merge-base --is-ancestor "$CORE_ELIGIBILITY_SHA" "$CORE_
 git -C "$CORE_WORKTREE" merge-base --is-ancestor "$CORE_PERMISSION_SHA" "$CORE_EXPECTED_SHA" || {
   echo 'Core SHA does not include the specified P1 permission fix.' >&2; exit 2;
 }
+git -C "$CORE_WORKTREE" merge-base --is-ancestor "$CORE_PIN_PROVENANCE_SHA" "$CORE_EXPECTED_SHA" || {
+  echo 'Core SHA does not include the specified durable Worker pin provenance fix.' >&2; exit 2;
+}
+git -C "$CORE_WORKTREE" merge-base --is-ancestor "$CORE_GRANT_SHA" "$CORE_EXPECTED_SHA" || {
+  echo 'Core SHA does not include the specified Host-only Connection grant update contract.' >&2; exit 2;
+}
 actual_binary_sha=$(shasum -a 256 "$CORE_BINARY")
 actual_binary_sha=${actual_binary_sha%% *}
 [[ "$actual_binary_sha" == "$CORE_BINARY_SHA256" ]] || { echo 'Core binary SHA-256 differs from the reviewed artifact.' >&2; exit 2; }
@@ -48,14 +54,14 @@ export TMPDIR="$CONTRACT_ROOT/tmp" HOME="$CONTRACT_ROOT/home" ZDOTDIR="$CONTRACT
 export XDG_CONFIG_HOME="$CONTRACT_ROOT/home/.config" CODEX_HOME="$CONTRACT_ROOT/home/.codex"
 export GOCACHE="$CONTRACT_ROOT/go-build" GOMODCACHE="$cached_modules" GOWORK=off GOPROXY=off GOFLAGS=-mod=readonly
 export CAELIS_BOT_CONTRACT_ROOT="$BOT_ROOT"
-binary_commit=$("$CORE_BINARY" version | sed -n 's/^commit: //p')
+binary_commit=$("$CORE_BINARY" version -format json | node -e 'let raw="";process.stdin.on("data",part=>raw+=part);process.stdin.on("end",()=>{try{const value=JSON.parse(raw);if(typeof value.commit==="string")process.stdout.write(value.commit)}catch{process.exitCode=1}})')
 [[ "$binary_commit" == "$CORE_EXPECTED_SHA" ]] || { echo 'Core binary version does not report the reviewed source SHA.' >&2; exit 2; }
 
 echo "Bot $BOT_EXPECTED_SHA / Core $CORE_EXPECTED_SHA / Core binary SHA-256 $CORE_BINARY_SHA256"
-echo 'Core source: temporary Store + synthetic Magpie + Host HTTP + Bot InspectSetup ready/models'
+echo 'Core source: temporary Store + Host-only Connection grants, Worker pin provenance, synthetic Magpie + Host HTTP + Bot InspectSetup ready/models'
 (
   cd "$CORE_WORKTREE"
-  go test -count=1 -timeout=5m -run '^TestConnectedModelCatalogRetainsDirectoryEligibilityThroughHostHTTP$' ./app/gatewayapp/controladapter/local
+  go test -race -count=1 -timeout=8m -run '^Test(HostConnectionGrantUpdateIsIndependentDurableAndIdempotent|HostConnectionGrantRoutesRejectApplicationAuthority|PersistedWorkerPinRequiresIndependentCreationAuthority|GenericSessionCreationCannotMintWorkerPermissionPin|UpdatedConnectionGrantsAffectOnlyLaterCreation|ConnectionGrantUpdateRequiresHostCapabilityBeforeWrite|ConnectionGrantUpdateServerErrorDoesNotClaimSuccessOrRetry|ConnectedModelCatalogRetainsDirectoryEligibilityThroughHostHTTP)$' ./control/application ./app/controlserver ./app/gatewayapp ./app/gatewayapp/controladapter/local ./control/appserver/httpclient
 )
 echo 'Pinned Core binary: Bot connection directory and isolated native Host/Guardian'
 (
