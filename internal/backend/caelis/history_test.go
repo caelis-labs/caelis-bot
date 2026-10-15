@@ -192,10 +192,10 @@ func TestHistoryFailureAndCancellationDoNotBlockSubmit(t *testing.T) {
 			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodPost {
 					posts.Add(1)
-					if !strings.HasSuffix(r.URL.Path, "/application/sessions/main/prompt") {
+					if !strings.HasSuffix(r.URL.Path, "/sessions/main/prompt") {
 						t.Errorf("unexpected mutation route: %s", r.URL)
 					}
-					var input wire.ApplicationPromptRequest
+					var input wire.PromptRequest
 					if err := json.NewDecoder(r.Body).Decode(&input); err != nil || value(input.OperationId) != "new-input" {
 						t.Errorf("new Submit lost its own receipt: %v", err)
 					}

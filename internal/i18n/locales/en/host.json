@@ -61,6 +61,7 @@
   "caelisPathNotExecutable": "Caelis path is not an executable file",
   "caelisNotFoundInstallOrSelect": "Caelis not found. Install it or select a local executable",
   "caelisDataDirFullPath": "Caelis data directory must be a full path",
+  "caelisHostRestartRequired": "The installed Caelis Host needs a one-time restart. Finish work in all connected apps, then run caelis service restart for the same Store and reconnect.",
   "caelisCommandFailed": "Caelis command failed. Check local installation and runtime configuration",
   "outputExceededLimit": "Output exceeded limit",
   "fileInvalidCaelisVersion": "File did not return a valid Caelis version",

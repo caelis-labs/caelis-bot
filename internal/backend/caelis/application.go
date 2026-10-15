@@ -2,6 +2,7 @@ package caelis
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +25,7 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	s.tools = c.Clone()
 	catalog := map[string]api.ApplicationTools{}
 	formats := map[string]bool{}
-	profile := wire.ApplicationProfile{Version: "caelis-bot-application-v1", Execution: s.executionMode, Instructions: c.Instructions, Tools: []wire.ApplicationToolDefinition{}}
+	profile := wire.SessionProfile{Version: "caelis-bot-application-v1", Execution: s.executionMode, Instructions: c.Instructions, Tools: []wire.SessionToolDefinition{}}
 	if c.RuntimeVersion != "" {
 		profile.Version += "/" + c.RuntimeVersion
 	}
@@ -54,7 +55,7 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 			if slices.Contains(c.ApprovedTools, d.Name) {
 				policy = "direct"
 			}
-			definition := wire.ApplicationToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema, ApprovalPolicy: &policy}
+			definition := wire.SessionToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema, ApprovalPolicy: &policy}
 			if d.ResultFormat != "" {
 				if d.ResultFormat != "content-v1" {
 					return errors.New("unsupported application tool result format")
@@ -69,9 +70,9 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	b, _ := json.Marshal(profile.Tools)
 	profile.ToolsVersion = digest(b)
 	if c.NotebookDirectory != "" {
-		profile.Workspace = &wire.ApplicationWorkspace{Cwd: &c.NotebookDirectory}
+		profile.Workspace = &wire.SessionWorkspace{Cwd: &c.NotebookDirectory}
 	}
-	profile.Permissions = &wire.ApplicationPermissions{Mode: pointer("workspace-write"), ApprovalMode: pointer("manual")}
+	profile.Permissions = &wire.SessionPermissions{Mode: pointer("workspace-write"), ApprovalMode: pointer("manual")}
 	profile.McpServers, profile.SkillRoots, _ = corePlugins(c.Plugins, c.Command, c.BuiltinSkillRoots)
 	profile.SkillDirs = []string{}
 	s.mu.Lock()
@@ -97,7 +98,7 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	}
 	for _, legacy := range older {
 		if legacy != nil && legacy.Host != nil {
-			definitions := []wire.ApplicationToolDefinition{}
+			definitions := []wire.SessionToolDefinition{}
 			handlers := map[string]api.ApplicationTools{}
 			content := map[string]bool{}
 			for _, d := range legacy.Host.Definitions() {
@@ -110,7 +111,7 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 				if slices.Contains(legacy.ApprovedTools, d.Name) {
 					policy = "direct"
 				}
-				item := wire.ApplicationToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema, ApprovalPolicy: &policy}
+				item := wire.SessionToolDefinition{Name: d.Name, Description: d.Description, InputSchema: schema, ApprovalPolicy: &policy}
 				if d.ResultFormat != "" {
 					item.ResultFormat = pointer(d.ResultFormat)
 					content[d.Name] = true
@@ -138,19 +139,19 @@ func (s *Session) ConfigureBotTools(c *api.ToolConnection) error {
 	return nil
 }
 
-// Optional content-v1 tools require a positive handshake before any application
-// registration or session mutation. Ordinary text-only Bot sessions still work
+// Optional content-v1 tools require a positive handshake before any Session
+// mutation. Ordinary text-only Bot sessions still work
 // with the existing required capability baseline.
 func (s *Session) checkContentCapability(info wire.ServerInfo) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, tool := range s.profile.Tools {
-		if value(tool.ResultFormat) == "content-v1" && !slices.Contains(info.Capabilities, "application-tool-result-content-v1") {
-			return errors.New("Bot tools require Caelis application-tool-result-content-v1; update and restart the Host")
+		if value(tool.ResultFormat) == "content-v1" && !slices.Contains(info.Capabilities, "session-tool-result-content-v1") {
+			return errors.New("Bot tools require Caelis session-tool-result-content-v1; update and restart the Host")
 		}
 	}
 	if (len(s.profile.McpServers) > 0 || len(s.profile.SkillRoots) > 0) && !slices.Contains(info.Capabilities, atomicCapabilities) {
-		return errors.New("Bot plugins require Caelis application-atomic-capabilities-v1")
+		return errors.New("Bot plugins require Caelis session-atomic-capabilities-v1")
 	}
 	return nil
 }
@@ -158,13 +159,14 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	s.mu.Lock()
 	b := s.state.Session
 	op := s.state.CreateID
+	_, recordedCreate := s.state.Operations[op]
 	c := s.client
-	life := s.state.Connection
+	principal := s.state.PrincipalID
 	s.mu.Unlock()
 	if b.SessionId == "" {
 		// Profile bytes are immutable. A restarted pending create must use the saved
 		// journal and recover its operation, never regenerate a changed profile.
-		if op != "" {
+		if op != "" && recordedCreate {
 			if e := s.recoverOperations(ctx); e != nil {
 				return e
 			}
@@ -204,19 +206,21 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 				return errors.New("请先连接并选择一个 Caelis 模型")
 			}
 			s.configureReviewer(&profile)
-			// Deterministic operation from the connection: persisting CreateID then
-			// command intent cannot generate a second session across a crash.
-			op = "create-" + digest([]byte(life.ConnectionId))
-			req := wire.CreateApplicationSessionRequest{OperationId: &op, Profile: profile}
-			out, e := s.command(ctx, op, "/application/sessions", req)
+			// Persist identity before dispatch, independently of Host generations.
+			if op == "" {
+				op = "create-" + rand.Text()
+			}
 			s.mu.Lock()
 			s.state.CreateID = op
-			save := s.saveLocked()
 			s.mu.Unlock()
-			if save != nil {
-				return save
-			}
+			req := wire.CreateSessionRequest{OperationId: &op, Profile: &profile}
+			out, e := s.command(ctx, op, "/sessions", req)
 			if e != nil {
+				s.mu.Lock()
+				if _, persisted := s.state.Operations[op]; !persisted {
+					s.state.CreateID = ""
+				}
+				s.mu.Unlock()
 				return e
 			}
 			if !succeeded(out.Outcome) || (value(out.SessionId) == "" && (out.Resource == nil || value(out.Resource.Ref) == "")) {
@@ -228,10 +232,10 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 			}
 		}
 	}
-	if e := c.json(ctx, "GET", "/application/sessions/"+idPath(b.SessionId), nil, &b, "", ""); e != nil {
+	if e := c.json(ctx, "GET", "/sessions/"+idPath(b.SessionId)+"/profile", nil, &b, "", ""); e != nil {
 		return e
 	}
-	if b.ApplicationId != life.ApplicationId || b.ConnectionId != life.ConnectionId || b.PrincipalId != life.PrincipalId || b.Archived || b.Profile.Execution != s.executionMode {
+	if b.PrincipalId != principal || b.Archived || b.Profile.Execution != s.executionMode {
 		return errors.New("Caelis 对话绑定不匹配或已归档")
 	}
 	s.mu.Lock()
@@ -256,7 +260,7 @@ func (s *Session) ensureSession(ctx context.Context, host *client) error {
 	s.mu.Lock()
 	pendingPlugin := s.pluginConfigurationUnknownLocked()
 	s.mu.Unlock()
-	if !pendingPlugin && (desired.Profile.ToolsVersion != s.profile.ToolsVersion || desired.Profile.Instructions != s.profile.Instructions || !slices.EqualFunc(desired.Profile.McpServers, s.profile.McpServers, func(a, b wire.ApplicationMCPServer) bool {
+	if !pendingPlugin && (desired.Profile.ToolsVersion != s.profile.ToolsVersion || desired.Profile.Instructions != s.profile.Instructions || !slices.EqualFunc(desired.Profile.McpServers, s.profile.McpServers, func(a, b wire.SessionMCPServer) bool {
 		left, _ := json.Marshal(a)
 		right, _ := json.Marshal(b)
 		return string(left) == string(right)

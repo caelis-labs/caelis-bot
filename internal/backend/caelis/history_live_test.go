@@ -2,7 +2,6 @@ package caelis
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,15 +23,14 @@ func TestExistingNativeHistoryPages(t *testing.T) {
 	if err != nil {
 		t.Fatal("cannot read existing binding")
 	}
-	raw, err := privateRead(filepath.Join(directory, "application-credential.json"), 65536)
+	d, token, err := Discover(api.RuntimeSettings{CaelisStore: b.StoreDirectory})
 	if err != nil {
-		t.Fatal("cannot read existing scoped credential")
+		t.Fatal("cannot read original Host credential")
 	}
-	var key credential
-	if json.Unmarshal(raw, &key) != nil {
-		t.Fatal("invalid scoped credential")
+	if d.InstanceID != b.InstanceID || d.PrincipalID != b.PrincipalID {
+		t.Fatal("original Host identity changed")
 	}
-	c, err := newClient(b.Endpoint, key.Token)
+	c, err := newClient(d.Endpoint, token)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,10 +80,7 @@ func TestExistingNativeHistoryPages(t *testing.T) {
 		t.Fatal("native page did not safely prepend")
 	}
 	t.Logf("recent recovery: %s, %d display items; earlier page: %s, %d added display items", elapsed.Round(time.Millisecond), len(items), time.Since(started).Round(time.Millisecond), len(v.Items)-len(items))
-	if !b.Connection.ExpiresAt.After(time.Now().Add(3 * time.Second)) {
-		t.Log("callback wait requires the live Bot's renewed connection lease; observation did not renew it")
-		return
-	}
+
 	waitCtx, stopWait := context.WithTimeout(t.Context(), 2*time.Second)
 	defer stopWait()
 	started = time.Now()

@@ -100,9 +100,9 @@ func TestNativeDesktopWorldPluginDirectory(t *testing.T) {
 	if detail.Tools[0].Name != "exec" {
 		t.Fatal("rc.8 must expose only exec", detail.Tools)
 	}
-	var directory wire.ApplicationMCPStatus
+	var directory wire.SessionMCPStatus
 	sid := session.ConversationState().Session
-	if err := session.client.json(ctx, "GET", "/application/sessions/"+idPath(sid)+"/mcp-status", nil, &directory, "", ""); err != nil {
+	if err := session.client.json(ctx, "GET", "/sessions/"+idPath(sid)+"/mcp-status", nil, &directory, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	ready := false

@@ -21,7 +21,7 @@ func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
 			posts.Add(1)
-			var in wire.ApplicationPromptRequest
+			var in wire.PromptRequest
 			json.NewDecoder(r.Body).Decode(&in)
 			if !strings.Contains(value(in.Input), "handoff fixture") || !strings.HasSuffix(value(in.Input), "new topic") {
 				t.Error("missing context")
@@ -29,7 +29,7 @@ func TestContextLostReceiptRecoversWithoutResending(t *testing.T) {
 			drop(w)
 			return
 		}
-		writeFixture(w, wire.ApplicationOperation{OperationId: "first-user", Outcome: "accepted", Result: &wire.CommandResult{OperationId: "first-user", Outcome: "accepted", Target: &wire.CommandTarget{TurnId: pointer("turn")}}})
+		writeFixture(w, &wire.CommandResult{OperationId: "first-user", Outcome: "accepted", Target: &wire.CommandTarget{TurnId: pointer("turn")}})
 	})
 	s.tools = &api.ToolConnection{PrepareContext: func(context.Context) (api.ContextSeed, error) {
 		return api.ContextSeed{Text: "[private handoff] handoff fixture\n", HandoffDigest: "original-digest"}, nil
@@ -69,35 +69,35 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			var creates, grants atomic.Int32
-			var created wire.ApplicationProfile
+			var created wire.SessionProfile
 			const version = "caelis-bot-application-v1/new-version"
 			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 				switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
-				case "/application/sessions/main/configuration":
-					writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{Model: "retained-model", Execution: "workspace-write", Permissions: &wire.ApplicationPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}, McpServers: []wire.ApplicationMCPServer{{Name: "notes", Transport: "stdio", Command: pointer("/fixture/mcp")}}}})
-				case "/application/sessions":
+				case "/sessions/main/configuration":
+					writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: wire.SessionProfile{Model: "retained-model", Execution: "workspace-write", Permissions: &wire.SessionPermissions{Mode: pointer("read-only"), ApprovalMode: pointer("manual")}, McpServers: []wire.SessionMCPServer{{Name: "notes", Transport: "stdio", Command: pointer("/fixture/mcp")}}}})
+				case "/sessions":
 					creates.Add(1)
-					var in wire.CreateApplicationSessionRequest
+					var in wire.CreateSessionRequest
 					json.NewDecoder(r.Body).Decode(&in)
 					if in.Profile.Version != version || in.Profile.ExecutionConfig == nil || !value(in.Profile.ExecutionConfig.Environment.Inherit) || in.Profile.Model != "retained-model" || in.Profile.Reviewer == nil || in.Profile.Reviewer.Model != "retained-model" || value(in.Profile.Permissions.Mode) != "read-only" || value(in.Profile.Permissions.ApprovalMode) != "auto-review" || len(in.Profile.McpServers) != 1 || in.Profile.McpServers[0].Name != "notes" {
 						t.Error("handoff lost model, sandbox or Guardian assembly")
 					}
-					created = in.Profile
+					created = *in.Profile
 					writeFixture(w, wire.CommandResult{OperationId: value(in.OperationId), Outcome: "committed", SessionId: pointer("next")})
-				case "/application/sessions/next":
-					writeFixture(w, wire.ApplicationBinding{SessionId: "next", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Profile: created})
-				case "/application/sessions/next/reviewer-state":
-					writeFixture(w, wire.ApplicationReviewerState{SessionId: "next", ApprovalMode: "auto-review", Reviewer: created.Reviewer, Status: "ready"})
+				case "/sessions/next/profile":
+					writeFixture(w, wire.SessionBinding{SessionId: "next", PrincipalId: "owner", Profile: created})
+				case "/sessions/next/reviewer-state":
+					writeFixture(w, wire.SessionReviewerState{SessionId: "next", ApprovalMode: "auto-review", Reviewer: created.Reviewer, Status: "ready"})
 				case "/sessions/next/state":
 					writeFixture(w, wire.SessionState{SessionId: "next"})
-				case "/application/sessions/next/background-grants":
+				case "/sessions/next/background-grants":
 					grants.Add(1)
-					var in wire.ApplicationBackgroundGrantRequest
+					var in wire.CreateSessionBackgroundGrantRequest
 					json.NewDecoder(r.Body).Decode(&in)
 					if in.AuthorizationOperationId != "original-user" || in.Source != "schedule-source" {
 						t.Error("new authority invented")
 					}
-					writeFixture(w, wire.ApplicationBackgroundGrant{Id: "new-grant", SessionId: "next", Source: in.Source, AuthorizationOperationId: in.AuthorizationOperationId})
+					writeFixture(w, wire.CommandResult{OperationId: in.OperationId, Outcome: "committed", BackgroundGrant: &wire.SessionBackgroundGrant{Id: "new-grant", SessionId: "next", Source: in.Source, AuthorizationOperationId: in.AuthorizationOperationId}})
 				default:
 					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 					http.NotFound(w, r)
@@ -107,9 +107,9 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 			s.profile.ExecutionConfig = &wire.ExecutionConfig{Environment: &wire.EnvironmentConfig{Inherit: pointer(true)}}
 			s.tools = &api.ToolConnection{RuntimeVersion: "new-version"}
 			if toolCall {
-				s.state.Calls["original-tool-call"] = callRecord{Call: wire.ApplicationCall{Id: "original-tool-call", SessionId: "main", TurnId: "turn"}, Receipt: &wire.ApplicationCallResult{Outcome: "succeeded", TurnComplete: pointer(true)}}
+				s.state.Calls["original-tool-call"] = callRecord{Call: wire.SessionToolCall{Id: "original-tool-call", SessionId: "main", TurnId: "turn"}, Receipt: &wire.SessionToolCallResult{Outcome: "succeeded", TurnComplete: pointer(true)}}
 			} else {
-				s.state.Operations["dream"] = journal{Path: "/application/sessions/main/prompt", Dream: true, Scheduled: true, Outcome: "accepted", TurnID: "turn"}
+				s.state.Operations["dream"] = journal{Path: "/sessions/main/prompt", Dream: true, Scheduled: true, Outcome: "accepted", TurnID: "turn"}
 			}
 			v := s.state.Views["main"]
 			v.CommandCaughtUp = true
@@ -117,7 +117,7 @@ func TestDreamRenewalKeepsHistoryAndRebindsExistingGrant(t *testing.T) {
 			v.State.Run.TurnId = pointer("turn")
 			v.Turns = map[string]string{"turn": "completed"}
 			v.Items = []api.Item{{ID: "old", Kind: "user", TurnKey: "user-turn", Text: "old topic"}, {ID: "recap", Kind: "assistant", TurnKey: "turn", Text: "All done."}}
-			s.state.Grants["reminder"] = grantRecord{Fingerprint: "same", Grant: wire.ApplicationBackgroundGrant{Id: "old-grant", SessionId: "main", Source: "schedule-source", AuthorizationOperationId: "original-user"}}
+			s.state.Grants["reminder"] = grantRecord{Fingerprint: "same", Grant: wire.SessionBackgroundGrant{Id: "old-grant", SessionId: "main", Source: "schedule-source", AuthorizationOperationId: "original-user"}}
 			beforeGeneration := s.BotPluginGeneration()
 			if toolCall {
 				invocation := api.ToolInvocation{Provider: "caelis", CallID: "original-tool-call", Session: "main", Turn: "turn"}
@@ -152,9 +152,9 @@ func TestDreamRenewalRejectedAndUnknownRecovery(t *testing.T) {
 			op := "dream-renew-" + digest([]byte("dream"))
 			s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 				switch strings.TrimPrefix(r.URL.Path, "/api/control/v1") {
-				case "/application/sessions/main/configuration":
-					writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{Execution: "workspace-write"}})
-				case "/application/sessions":
+				case "/sessions/main/configuration":
+					writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: wire.SessionProfile{Execution: "workspace-write"}})
+				case "/sessions":
 					creates.Add(1)
 					if outcome == "unknown" || outcome == "recovered-rejected" {
 						drop(w)
@@ -163,18 +163,18 @@ func TestDreamRenewalRejectedAndUnknownRecovery(t *testing.T) {
 					} else {
 						writeFixture(w, wire.CommandResult{OperationId: op, Outcome: wire.Outcome(outcome)})
 					}
-				case "/application/operations/" + op:
+				case "/operations/" + op:
 					recovered := wire.Outcome("unknown")
 					if outcome == "recovered-rejected" {
 						recovered = "rejected"
 					}
-					writeFixture(w, wire.ApplicationOperation{OperationId: op, Outcome: recovered, Result: &wire.CommandResult{OperationId: op, Outcome: recovered}})
+					writeFixture(w, &wire.CommandResult{OperationId: op, Outcome: recovered})
 				default:
 					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 					http.NotFound(w, r)
 				}
 			})
-			s.state.Operations["dream"] = journal{Path: "/application/sessions/main/prompt", Dream: true, Outcome: "accepted", TurnID: "turn"}
+			s.state.Operations["dream"] = journal{Path: "/sessions/main/prompt", Dream: true, Outcome: "accepted", TurnID: "turn"}
 			v := s.state.Views["main"]
 			v.CommandCaughtUp = true
 			v.State.Run.Status, v.State.Run.TurnId = pointer("completed"), pointer("turn")
@@ -215,7 +215,7 @@ func TestConversationObservedOnlyAfterNativeCatchup(t *testing.T) {
 func TestDreamRenewalRejectionRequiresDurableReceipt(t *testing.T) {
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Error("repeated native create") })
 	s.state.Operations["dream"] = journal{Dream: true, Outcome: "accepted", TurnID: "turn"}
-	s.state.Operations["dream-renew-"+digest([]byte("dream"))] = journal{Path: "/application/sessions", Outcome: "rejected"}
+	s.state.Operations["dream-renew-"+digest([]byte("dream"))] = journal{Path: "/sessions", Outcome: "rejected"}
 	v := s.state.Views["main"]
 	v.CommandCaughtUp = true
 	v.State.Run.Status, v.State.Run.TurnId = pointer("completed"), pointer("turn")

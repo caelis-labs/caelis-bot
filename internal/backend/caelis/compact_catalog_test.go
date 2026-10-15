@@ -114,7 +114,7 @@ func TestBaseCompactPendingCallbackRecoversWithExactVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	var claims, results atomic.Int32
-	call := wire.ApplicationCall{Id: "base590-pending-call", CallId: "model-call", SessionId: "main", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", TurnId: "turn", ItemId: "item", Name: "bot_delegate", ToolsVersion: base590CompactVersion, ConfigurationRevision: "1", Source: wire.ApplicationSource{Kind: "user", OperationId: "original-prompt"}, State: "pending", Arguments: map[string]any{"request": map[string]any{"type": "start", "requestId": "old-original-request", "title": "Original task", "prompt": "Synthetic assignment"}}}
+	call := wire.SessionToolCall{Id: "base590-pending-call", CallId: "model-call", SessionId: "main", PrincipalId: "owner", TurnId: "turn", ItemId: "item", Name: "bot_delegate", ToolsVersion: base590CompactVersion, ConfigurationRevision: "1", Source: wire.SessionSource{Kind: "user", OperationId: "original-prompt"}, State: "pending", Arguments: map[string]any{"request": map[string]any{"type": "start", "requestId": "old-original-request", "title": "Original task", "prompt": "Synthetic assignment"}}}
 	s := fixtureSession(t, func(w http.ResponseWriter, req *http.Request) {
 		if strings.HasSuffix(req.URL.Path, "/claim") {
 			claims.Add(1)
@@ -125,7 +125,7 @@ func TestBaseCompactPendingCallbackRecoversWithExactVersion(t *testing.T) {
 		}
 		if strings.HasSuffix(req.URL.Path, "/result") {
 			results.Add(1)
-			var receipt wire.ApplicationCallResult
+			var receipt wire.SessionToolCallResult
 			if err := json.NewDecoder(req.Body).Decode(&receipt); err != nil || receipt.Outcome != "succeeded" {
 				t.Errorf("old callback lost: %+v %v", receipt, err)
 			}
@@ -140,7 +140,7 @@ func TestBaseCompactPendingCallbackRecoversWithExactVersion(t *testing.T) {
 	if s.profile.ToolsVersion != base590CompactVersion || len(s.profile.Tools) != 8 {
 		t.Fatalf("historical catalog drifted from 5903254d: %s (%d tools)", s.profile.ToolsVersion, len(s.profile.Tools))
 	}
-	s.state.Operations[call.Source.OperationId] = journal{Path: "/application/sessions/main/prompt", Outcome: "accepted", Source: call.Source}
+	s.state.Operations[call.Source.OperationId] = journal{Path: "/sessions/main/prompt", Outcome: "accepted", Source: call.Source}
 	if err := s.saveLocked(); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestBaseCompactPendingCallbackRecoversWithExactVersion(t *testing.T) {
 		t.Fatal("old compact callback catalog not restored at its original digest")
 	}
 	upgraded.client = s.client
-	if err := upgraded.handleCall(t.Context(), s.client, upgraded.state.Session, upgraded.state.Connection, call); err != nil {
+	if err := upgraded.handleCall(t.Context(), s.client, upgraded.state.Session, upgraded.state.PrincipalID, call); err != nil {
 		t.Fatal(err)
 	}
 	restarted := New(Options{Directory: filepath.Dir(s.path)})
@@ -161,7 +161,7 @@ func TestBaseCompactPendingCallbackRecoversWithExactVersion(t *testing.T) {
 	}
 	restarted.client = s.client
 	call.State = "claimed"
-	if err := restarted.handleCall(t.Context(), s.client, restarted.state.Session, restarted.state.Connection, call); err != nil {
+	if err := restarted.handleCall(t.Context(), s.client, restarted.state.Session, restarted.state.PrincipalID, call); err != nil {
 		t.Fatal(err)
 	}
 	if claims.Load() != 1 || results.Load() != 2 || worker.starts.Load() != 1 {

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/caelis-labs/caelis-bot/internal/backend/api"
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
@@ -35,7 +34,7 @@ func TestSharedNativeSteeringKeepsExpectedTurnOnDuplicate(t *testing.T) {
 			s.state.PrincipalID = "owner"
 			s.state.Views["main"].State.Run = wire.RunState{Active: pointer(true), Status: pointer("running"), HandleId: pointer("handle"), RunId: pointer("run"), TurnId: pointer("turn-original")}
 			s.state.Workers["task"] = worker{Native: true, Binding: s.state.Session, Task: api.Task{ID: "task"}}
-			ctx := context.WithValue(t.Context(), invocationKey{}, wire.ApplicationCall{SessionId: "main", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Source: wire.ApplicationSource{Kind: "user", OperationId: "source"}})
+			ctx := context.WithValue(t.Context(), invocationKey{}, wire.SessionToolCall{SessionId: "main", PrincipalId: "owner", Source: wire.SessionSource{Kind: "user", OperationId: "source"}})
 			send := func(s *Session, text string) {
 				t.Helper()
 				if workerMode {
@@ -76,7 +75,6 @@ func TestSharedNativeSteeringKeepsExpectedTurnOnDuplicate(t *testing.T) {
 
 func TestSharedWorkerProgressNeedsNoStatePollingAndNoticeIsNotFailure(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Fatal("steady subscription polled") })
-	s.state.Connection.ExpiresAt = time.Now().Add(time.Hour)
 	s.streams["main"] = true
 	s.state.Views["main"].State.Run = wire.RunState{Active: pointer(true), Status: pointer("running"), HandleId: pointer("h"), RunId: pointer("r"), TurnId: pointer("t")}
 	applyEnvelope(s.state.Views["main"], wire.Envelope{Kind: "caelis/notice", Notice: pointer("optional integration unavailable")})
@@ -88,11 +86,11 @@ func TestSharedWorkerProgressNeedsNoStatePollingAndNoticeIsNotFailure(t *testing
 func TestMainPromptRetryWhileBusyKeepsOriginalOperation(t *testing.T) {
 	var posts atomic.Int32
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/control/v1/application/sessions/main/prompt" {
+		if r.URL.Path != "/api/control/v1/sessions/main/prompt" {
 			t.Error("prompt retry changed operation", r.URL.Path)
 		}
 		posts.Add(1)
-		var in wire.ApplicationPromptRequest
+		var in wire.PromptRequest
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			t.Error(err)
 		}

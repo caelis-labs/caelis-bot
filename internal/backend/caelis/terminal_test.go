@@ -20,7 +20,7 @@ func TestTerminalResolvesOnlyOwnedNativeWorkerWithoutDispatch(t *testing.T) {
 	s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { t.Error("application must not dispatch") })
 	s.settings = settings
 	s.state.InstanceID = "setup-instance"
-	w := worker{Native: true, Binding: wire.ApplicationBinding{ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", SessionId: "native-worker"}, Task: api.Task{ID: "owned", Workspace: t.TempDir()}}
+	w := worker{Native: true, Binding: wire.SessionBinding{PrincipalId: "owner", SessionId: "native-worker"}, Task: api.Task{ID: "owned", Workspace: t.TempDir()}}
 	s.state.Workers["owned"] = w
 	target, err := s.WorkTerminal(t.Context(), "owned")
 	if err != nil || target.Runtime != "caelis" || target.Session != "native-worker" || target.Store != settings.CaelisStore || target.TokenFile != filepath.Join(settings.CaelisStore, "runtime/service/auth.token") {

@@ -383,9 +383,9 @@ func TestNativeHostIntegration(t *testing.T) {
 		if len(requests) != 1 || !strings.Contains(fmt.Sprint(requests[0]), "markdown-work") {
 			t.Fatal("installed Skill metadata did not reach the model", len(requests))
 		}
-		var status wire.ApplicationMCPStatus
+		var status wire.SessionMCPStatus
 		sid := s.ConversationState().Session
-		if err = s.client.json(ctx, "GET", "/application/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
+		if err = s.client.json(ctx, "GET", "/sessions/"+idPath(sid)+"/mcp-status", nil, &status, "", ""); err != nil {
 			t.Fatal(err)
 		}
 		ready := false
@@ -614,10 +614,10 @@ func TestNativeHostIntegration(t *testing.T) {
 			close(release)
 			t.Fatal("synthetic endpoint should not advertise official priority service")
 		}
-		var rejected *remoteError
-		if !errors.As(e, &rejected) || rejected.Status != 400 || rejected.Code != "unsupported" {
+		var rejected wire.CommandResult
+		if readErr := s.client.json(ctx, "GET", "/operations/unsupported-priority", nil, &rejected, "", ""); readErr != nil || rejected.Outcome != "rejected" || rejected.ErrorCode != "unsupported" {
 			close(release)
-			t.Fatalf("unsupported configuration must be an explicit HTTP 400: %v", e)
+			t.Fatalf("unsupported configuration lost original rejection: %+v, %v", rejected, readErr)
 		}
 		updated, e := s.UpdateConfiguration(ctx, "hot-update", string(current.Revision), map[string]any{"model": fullSelector, "reasoning_effort": "high", "service_tier": "", "instructions": next.Instructions, "tools_version": s.profile.ToolsVersion, "tools": s.profile.Tools})
 		if e != nil {
@@ -835,19 +835,15 @@ func TestNativeHostIntegration(t *testing.T) {
 		}
 		// A second application on the same Host cannot read this connection's resource.
 		otherToken := "app-client-" + strings.Repeat("b", 64)
-		var other wire.ApplicationConnection
-		if e = host.json(ctx, "POST", "/applications/register", wire.ApplicationRegistration{OperationId: "other-application", Name: "resource-scope-fixture", Credential: otherToken}, &other, "other-application", ""); e != nil {
-			t.Fatal(e)
+		other, err := newClient(s.client.origin, otherToken)
+		if err != nil {
+			t.Fatal(err)
 		}
-		otherClient, e := newClient(d.Endpoint, otherToken)
-		if e != nil {
-			t.Fatal(e)
-		}
-		defer otherClient.http.CloseIdleConnections()
-		var denied wire.ApplicationResourceContent
-		e = otherClient.json(ctx, "GET", "/application/sessions/"+idPath(s.state.Session.SessionId)+"/resources/"+idPath(resource.Id)+"/content", nil, &denied, "", "")
-		if !isRemoteStatus(e, 403) && !isRemoteStatus(e, 404) {
-			t.Fatal("cross-application resource access was not rejected", e)
+		defer other.http.CloseIdleConnections()
+		var denied wire.SessionResourceContent
+		e = other.json(ctx, "GET", "/sessions/"+idPath(s.state.Session.SessionId)+"/resources/"+idPath(resource.Id)+"/content", nil, &denied, "", "")
+		if !isRemoteStatus(e, 401) {
+			t.Fatal("invalid Host credential accessed resource", e)
 		}
 		model.set("CASE_RESOURCE", modelStep{Name: "ReadResource", Args: map[string]string{"resource_id": resource.Id}}, modelStep{Name: "Read", Args: map[string]string{"path": "$RESOURCE_PATH"}}, modelStep{Name: "RunCommand", Args: map[string]string{"command": "/bin/cat $RESOURCE_PATH > artifact.txt"}}, modelStep{Name: "PublishArtifact", Args: map[string]string{"path": "artifact.txt", "name": "artifact.txt", "media_type": "text/plain"}})
 		submitAcceptance(t, ctx, s, "CASE_RESOURCE")
@@ -1001,6 +997,51 @@ func TestNativeHostIntegration(t *testing.T) {
 	}) {
 		return
 	}
+	if !t.Run("B15_busy_host_keeps_original_turn", func(t *testing.T) {
+		entered, release := make(chan struct{}, 1), make(chan struct{})
+		defer func() {
+			select {
+			case <-release:
+			default:
+				close(release)
+			}
+		}()
+		model.set("CASE_BUSY_UPGRADE", modelStep{Entered: entered, Block: release})
+		before := s.Snapshot().CurrentTurn
+		if _, err := s.Submit(ctx, api.Submission{ID: "busy-upgrade", Text: "CASE_BUSY_UPGRADE"}, nil); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		current, err := setupClient(ctx, settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer current.http.CloseIdleConnections()
+		info, err := initialize(ctx, current)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(info.Capabilities, "host-idle-shutdown-v1") {
+			t.Fatal("idle replacement capability missing")
+		}
+		var ack wire.HostStatus
+		err = current.json(ctx, "POST", "/host/shutdown", wire.HostShutdownRequest{ExpectedInstanceId: info.InstanceId, IfIdle: pointer(true)}, &ack, "", "")
+		var remote *remoteError
+		if !errors.As(err, &remote) || remote.Status != http.StatusConflict {
+			t.Fatalf("active work allowed Host replacement: %v", err)
+		}
+		close(release)
+		waitTurn(t, ctx, s, before)
+		if len(model.seen("CASE_BUSY_UPGRADE")) != 1 {
+			t.Fatal("busy upgrade replayed the original prompt")
+		}
+	}) {
+		return
+	}
 	if !t.Run("B07_restart", func(t *testing.T) {
 		before, e := s.Configuration(ctx)
 		if e != nil {
@@ -1023,8 +1064,37 @@ func TestNativeHostIntegration(t *testing.T) {
 		if len(after.Profile.SkillRoots) != 0 || len(after.Profile.SkillDirs) != 0 || len(after.Profile.McpServers) != 0 {
 			t.Fatal("restart restored a disabled plugin selection", after.Profile)
 		}
-		// An explicit runtime update reconnects this same adapter, without a Bot restart.
-		stop()
+		// An idle Host replacement succeeds with the Bot still subscribed. Only
+		// proven busy rejections may be retried; an unknown shutdown is not resent.
+		current, err := setupClient(ctx, settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer current.http.CloseIdleConnections()
+		currentInfo, err := initialize(ctx, current)
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitAcceptance(t, ctx, func() bool {
+			var ack wire.HostStatus
+			err := current.json(ctx, "POST", "/host/shutdown", wire.HostShutdownRequest{ExpectedInstanceId: currentInfo.InstanceId, IfIdle: pointer(true)}, &ack, "", "")
+			if err == nil {
+				if ack.InstanceId != value(currentInfo.InstanceId) {
+					t.Fatal("shutdown changed identity")
+				}
+				return true
+			}
+			var remote *remoteError
+			if errors.As(err, &remote) && remote.Status == http.StatusConflict {
+				return false
+			}
+			t.Fatalf("idle Host shutdown: %v", err)
+			return false
+		})
+		if err := cmd.Wait(); err != nil {
+			t.Fatal("conditional Host exit", err)
+		}
+		cmd = nil
 		start()
 		if err := s.Reconnect(ctx); err != nil {
 			t.Fatal("in-process reconnect", err)

@@ -51,7 +51,7 @@ func (s *Session) presentScheduled(out api.Snapshot, v *view) api.Snapshot {
 		if j.Scheduled && j.TurnID != "" {
 			status := ""
 			for sid, history := range s.state.Views {
-				if j.Path == "/application/sessions/"+idPath(sid)+"/prompt" {
+				if j.Path == "/sessions/"+idPath(sid)+"/prompt" {
 					status = history.Turns[j.TurnID]
 				}
 			}
@@ -81,7 +81,7 @@ func (s *Session) captureBackgroundResultsLocked() {
 			continue
 		}
 		for sid, v := range s.state.Views {
-			if v == nil || !v.CommandCaughtUp || j.Path != "/application/sessions/"+idPath(sid)+"/prompt" {
+			if v == nil || !v.CommandCaughtUp || j.Path != "/sessions/"+idPath(sid)+"/prompt" {
 				continue
 			}
 			status := v.Turns[j.TurnID]

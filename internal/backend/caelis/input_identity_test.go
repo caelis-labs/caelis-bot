@@ -22,8 +22,8 @@ func TestUserInputIdentitySeparatesSteersInSameTurn(t *testing.T) {
 func TestPromptInputWaitsForExactReceiptAcrossReload(t *testing.T) {
 	for _, receiptFirst := range []bool{false, true} {
 		t.Run(map[bool]string{false: "event-first", true: "receipt-first"}[receiptFirst], func(t *testing.T) {
-			s := &Session{state: binding{Session: wire.ApplicationBinding{SessionId: "resident"}, Operations: map[string]journal{
-				"new": {Path: "/application/sessions/resident/prompt", Outcome: "unknown", PendingInput: &pendingInput{VisibleIDs: []string{"old"}}},
+			s := &Session{state: binding{Session: wire.SessionBinding{SessionId: "resident"}, Operations: map[string]journal{
+				"new": {Path: "/sessions/resident/prompt", Outcome: "unknown", PendingInput: &pendingInput{VisibleIDs: []string{"old"}}},
 			}}}
 			v := &view{Items: []api.Item{{ID: "old", Kind: "user", Text: "same", TurnKey: "old-turn"}}, Seen: map[string]bool{}}
 			resolve := func() {

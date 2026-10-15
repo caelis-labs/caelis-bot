@@ -13,7 +13,7 @@ import (
 func TestQuotedCaelisInputReachesNativePromptAndProjectsOnlyBody(t *testing.T) {
 	var modelText string
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		var request wire.ApplicationPromptRequest
+		var request wire.PromptRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Error(err)
 		}

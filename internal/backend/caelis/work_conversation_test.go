@@ -50,7 +50,7 @@ func TestWorkerConversationReadsNativePagesWithoutConsuming(t *testing.T) {
 			}, "")
 		}
 	})
-	s.state.Workers["task"] = worker{Task: api.Task{ID: "task", Status: "working"}, Binding: wire.ApplicationBinding{SessionId: "work"}}
+	s.state.Workers["task"] = worker{Task: api.Task{ID: "task", Status: "working"}, Binding: wire.SessionBinding{SessionId: "work"}}
 	messages, err := s.ReadWorkConversation(t.Context(), "task")
 	if err != nil || requests != 2 || len(messages) != 5 || messages[0].Role != "user" || messages[0].Text != "first" || messages[3].Text != "completed progress" || messages[4].Text != "second progress" || messages[3].ID == messages[4].ID {
 		t.Fatal("native FIFO history projection", messages, requests, err)
@@ -62,7 +62,7 @@ func TestWorkerConversationReadsNativePagesWithoutConsuming(t *testing.T) {
 
 func TestWorkerConversationRejectsUnreadableNativeHistory(t *testing.T) {
 	s := fixtureSession(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) })
-	s.state.Workers["task"] = worker{Task: api.Task{ID: "task"}, Binding: wire.ApplicationBinding{SessionId: "work"}}
+	s.state.Workers["task"] = worker{Task: api.Task{ID: "task"}, Binding: wire.SessionBinding{SessionId: "work"}}
 	if messages, err := s.ReadWorkConversation(t.Context(), "task"); err == nil || messages != nil {
 		t.Fatal("unreadable native history became empty success", messages, err)
 	}

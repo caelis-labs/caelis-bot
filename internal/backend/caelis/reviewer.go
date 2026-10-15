@@ -12,7 +12,7 @@ import (
 // Configure newly created profiles only. Legacy Bot profiles had no user-selectable
 // reviewer: manual was hardcoded. A normal Dream handoff adopts the new product
 // default without mutating the old Session, replaying work, or relaxing its sandbox.
-func (s *Session) configureReviewer(profile *wire.ApplicationProfile) {
+func (s *Session) configureReviewer(profile *wire.SessionProfile) {
 	if s.requireApproval || profile.Reviewer != nil {
 		return
 	}
@@ -20,7 +20,7 @@ func (s *Session) configureReviewer(profile *wire.ApplicationProfile) {
 	if model == "" {
 		model = profile.Model
 	}
-	permissions := wire.ApplicationPermissions{}
+	permissions := wire.SessionPermissions{}
 	if profile.Permissions != nil {
 		permissions = *profile.Permissions
 	}
@@ -29,12 +29,12 @@ func (s *Session) configureReviewer(profile *wire.ApplicationProfile) {
 	}
 	permissions.ApprovalMode = pointer("auto-review")
 	profile.Permissions = &permissions
-	profile.Reviewer = &wire.ApplicationReviewer{Kind: "guardian", Model: model}
+	profile.Reviewer = &wire.SessionReviewer{Kind: "guardian", Model: model}
 }
 
-func (s *Session) checkReviewer(ctx context.Context, b wire.ApplicationBinding) error {
-	var state wire.ApplicationReviewerState
-	if err := s.client.json(ctx, "GET", "/application/sessions/"+idPath(b.SessionId)+"/reviewer-state", nil, &state, "", ""); err != nil {
+func (s *Session) checkReviewer(ctx context.Context, b wire.SessionBinding) error {
+	var state wire.SessionReviewerState
+	if err := s.client.json(ctx, "GET", "/sessions/"+idPath(b.SessionId)+"/reviewer-state", nil, &state, "", ""); err != nil {
 		return err
 	}
 	mode := "manual"

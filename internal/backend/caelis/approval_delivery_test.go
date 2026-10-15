@@ -6,7 +6,6 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 	"net/http"
 	"testing"
-	"time"
 )
 
 func TestApprovalEventsWakeAuthoritativeRefresh(t *testing.T) {
@@ -40,7 +39,7 @@ func TestApprovalEventsWakeAuthoritativeRefresh(t *testing.T) {
 						fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
 					}
 					send("caelis.control.bootstrap", head)
-					e := wire.Envelope{Kind: "session/request_permission", ApprovalRequestId: pointer("approval"), EventId: pointer("permission"), Permission: &wire.RequestPermission{SessionId: "main", ToolCall: wire.ACPToolCallUpdate{ToolCallId: "call", Kind: pointer("execute")}}}
+					e := wire.Envelope{Kind: "session/request_permission", ApprovalRequestId: pointer("approval"), EventId: pointer("permission"), Permission: &wire.RequestPermission{SessionId: "main", ToolCall: &wire.ACPToolCallUpdate{ToolCallId: "call", Kind: pointer("execute")}}}
 					if settled {
 						e.Kind = "caelis/lifecycle"
 						e.Permission = nil
@@ -50,7 +49,6 @@ func TestApprovalEventsWakeAuthoritativeRefresh(t *testing.T) {
 				}
 			})
 			s.state.StoreID = "store"
-			s.state.Connection.ExpiresAt = time.Now().Add(time.Hour)
 			s.streams["main"] = true
 			_ = s.watch(t.Context(), s.client, "main", "instance")
 			if !s.needsRefreshLocked() {

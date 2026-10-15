@@ -33,7 +33,7 @@ func (s *Session) ChangeWorkExecution(ctx context.Context, v api.WorkExecutionSe
 
 // Read only Host model metadata. Never copy credentials or change global
 // configuration when creating an application-owned worker.
-func (s *Session) resolveWorkExecution(ctx context.Context, fallback wire.ApplicationProfile) (api.WorkExecutionSettings, error) {
+func (s *Session) resolveWorkExecution(ctx context.Context, fallback wire.SessionProfile) (api.WorkExecutionSettings, error) {
 	s.mu.Lock()
 	v := s.workExecution
 	s.mu.Unlock()
@@ -44,10 +44,10 @@ func (s *Session) resolveWorkExecution(ctx context.Context, fallback wire.Applic
 }
 
 func (s *Session) RuntimeDefault(ctx context.Context) (api.WorkExecutionSettings, error) {
-	return s.readRuntimeDefault(ctx, wire.ApplicationProfile{})
+	return s.readRuntimeDefault(ctx, wire.SessionProfile{})
 }
 
-func (s *Session) readRuntimeDefault(ctx context.Context, fallback wire.ApplicationProfile) (api.WorkExecutionSettings, error) {
+func (s *Session) readRuntimeDefault(ctx context.Context, fallback wire.SessionProfile) (api.WorkExecutionSettings, error) {
 	var v api.WorkExecutionSettings
 	c, err := setupClient(ctx, s.settings)
 	if err != nil {

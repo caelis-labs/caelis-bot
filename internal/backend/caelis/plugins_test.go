@@ -33,7 +33,7 @@ func TestPublicMCPStatusToolDetailStaysBotScoped(t *testing.T) {
 	var includeDetails atomic.Bool
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
-		if r.URL.Path != "/api/control/v1/application/sessions/main/mcp-status" {
+		if r.URL.Path != "/api/control/v1/sessions/main/mcp-status" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		server := map[string]any{"name": plugins.RuntimeName("notes", "search"), "status": state.Load().(string), "tools": []string{toolName}}
@@ -116,11 +116,11 @@ func TestPublicConfigurationPatchCanExplicitlyClearPluginSelection(t *testing.T)
 	fields := []string{"mcp_servers", "skill_dirs", "skill_roots"}
 	for _, tc := range []struct {
 		name  string
-		patch wire.ApplicationConfigurationPatch
+		patch wire.SessionConfigurationPatch
 		want  bool
 	}{
-		{name: "nil_omits", patch: wire.ApplicationConfigurationPatch{}},
-		{name: "empty_clears", patch: wire.ApplicationConfigurationPatch{McpServers: []wire.ApplicationMCPServer{}, SkillDirs: []string{}, SkillRoots: []string{}}, want: true},
+		{name: "nil_omits", patch: wire.SessionConfigurationPatch{}},
+		{name: "empty_clears", patch: wire.SessionConfigurationPatch{McpServers: []wire.SessionMCPServer{}, SkillDirs: []string{}, SkillRoots: []string{}}, want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body, err := json.Marshal(tc.patch)
@@ -253,7 +253,7 @@ func TestPluginRejectedActionUsesFreshJournaledIDOnRetry(t *testing.T) {
 			if revision == "2" {
 				roots = []string{"/reviewed/skill"}
 			}
-			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: revision, Profile: wire.ApplicationProfile{SkillRoots: roots, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+			writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: revision, Profile: wire.SessionProfile{SkillRoots: roots, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}})
 		case "POST":
 			ids = append(ids, r.Header.Get("Idempotency-Key"))
 			if len(ids) == 1 {
@@ -262,7 +262,7 @@ func TestPluginRejectedActionUsesFreshJournaledIDOnRetry(t *testing.T) {
 				return
 			}
 			revision = "2"
-			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: revision, Profile: wire.ApplicationProfile{SkillRoots: []string{"/reviewed/skill"}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+			writeFixture(w, wire.CommandResult{OperationId: r.Header.Get("Idempotency-Key"), Outcome: "committed", Configuration: &wire.SessionConfiguration{SessionId: "main", Revision: revision, Profile: wire.SessionProfile{SkillRoots: []string{"/reviewed/skill"}, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}}})
 		}
 	})
 	s.tools = &api.ToolConnection{}
@@ -294,11 +294,11 @@ func TestPluginReceiptRecoveryReadsOriginalIDAndChecksRuntimeSelection(t *testin
 				drop(w)
 				return
 			}
-			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "3", Profile: wire.ApplicationProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+			writeFixture(w, wire.CommandResult{OperationId: r.Header.Get("Idempotency-Key"), Outcome: "committed", Configuration: &wire.SessionConfiguration{SessionId: "main", Revision: "3", Profile: wire.SessionProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}}})
 			return
 		}
-		if strings.Contains(r.URL.Path, "/configuration-operations/") {
-			if r.URL.Path != "/api/control/v1/application/configuration-operations/"+original.Load().(string) {
+		if strings.Contains(r.URL.Path, "/operations/") {
+			if r.URL.Path != "/api/control/v1/operations/"+original.Load().(string) {
 				t.Error("recovery queried a different receipt", r.URL.Path)
 			}
 			if !available.Load() {
@@ -306,11 +306,11 @@ func TestPluginReceiptRecoveryReadsOriginalIDAndChecksRuntimeSelection(t *testin
 				writeFixture(w, map[string]any{"error": "receipt pending"})
 				return
 			}
-			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "2", Profile: wire.ApplicationProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+			writeFixture(w, wire.CommandResult{OperationId: original.Load().(string), Outcome: "committed", Configuration: &wire.SessionConfiguration{SessionId: "main", Revision: "2", Profile: wire.SessionProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}}})
 			return
 		}
 		if !available.Load() {
-			writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: wire.ApplicationProfile{SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+			writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: wire.SessionProfile{SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}})
 			return
 		}
 		if failReadback.Swap(false) {
@@ -322,11 +322,11 @@ func TestPluginReceiptRecoveryReadsOriginalIDAndChecksRuntimeSelection(t *testin
 		if posts.Load() >= 2 {
 			revision = "3"
 		}
-		writeFixture(w, wire.ApplicationConfiguration{SessionId: "main", Revision: revision, Profile: wire.ApplicationProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}})
+		writeFixture(w, wire.SessionConfiguration{SessionId: "main", Revision: revision, Profile: wire.SessionProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}})
 	})
 	s.tools = &api.ToolConnection{}
 	s.info.Capabilities = []string{atomicCapabilities}
-	s.profile = wire.ApplicationProfile{SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}
+	s.profile = wire.SessionProfile{SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}
 	selection := plugins.Selection{Revision: 2, SkillRoots: []string{"/new/skill"}}
 	if err := s.UpdateBotPlugins(t.Context(), selection); err == nil {
 		t.Fatal("lost POST response was treated as committed")
@@ -376,11 +376,11 @@ func TestPluginReceiptRecoveryReadsOriginalIDAndChecksRuntimeSelection(t *testin
 
 func TestPluginUnknownReceiptAndConfirmedSelectionGateSending(t *testing.T) {
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) { t.Fatal("unexpected HTTP", r.Method, r.URL.Path) })
-	s.profile = wire.ApplicationProfile{SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}
-	s.state.Configurations["main"] = wire.ApplicationConfiguration{SessionId: "main", Revision: "1", Profile: s.profile}
+	s.profile = wire.SessionProfile{SkillRoots: []string{}, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}
+	s.state.Configurations["main"] = wire.SessionConfiguration{SessionId: "main", Revision: "1", Profile: s.profile}
 	s.connected = true // public reconnect must not bypass the persisted typed receipt.
 	op := "plugin-original-unknown"
-	s.state.Typed[op] = typedRecord{Path: "/application/sessions/main/configuration", Outcome: "unknown"}
+	s.state.Typed[op] = typedRecord{Path: "/sessions/main/configuration", Outcome: "unknown"}
 	if s.Snapshot().CanSend {
 		t.Fatal("unresolved original plugin receipt admitted a new turn")
 	}
@@ -391,12 +391,12 @@ func TestPluginUnknownReceiptAndConfirmedSelectionGateSending(t *testing.T) {
 	if err != nil || restored.Typed[op].Outcome != "unknown" {
 		t.Fatal("original receipt did not survive restart", err)
 	}
-	s.state.Typed[op] = typedRecord{Path: "/application/sessions/main/configuration", Outcome: "committed"}
+	s.state.Typed[op] = typedRecord{Path: "/sessions/main/configuration", Outcome: "committed"}
 	delete(s.state.Configurations, "main")
 	if s.Snapshot().CanSend {
 		t.Fatal("committed receipt without public configuration readback admitted sending")
 	}
-	s.state.Configurations["main"] = wire.ApplicationConfiguration{SessionId: "main", Revision: "2", Profile: wire.ApplicationProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.ApplicationMCPServer{}}}
+	s.state.Configurations["main"] = wire.SessionConfiguration{SessionId: "main", Revision: "2", Profile: wire.SessionProfile{SkillRoots: []string{"/new/skill"}, SkillDirs: []string{}, McpServers: []wire.SessionMCPServer{}}}
 	if s.Snapshot().CanSend {
 		t.Fatal("runtime selection differed from confirmed Bot selection")
 	}

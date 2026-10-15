@@ -29,7 +29,7 @@ func TestManagerUnknownContinuationCannotBorrowOldCompletedProjection(t *testing
 	})
 	s.state.Workers["task"] = worker{
 		Native:   true,
-		Binding:  wire.ApplicationBinding{SessionId: "work"},
+		Binding:  wire.SessionBinding{SessionId: "work"},
 		Task:     api.Task{ID: "task", Status: "pending", Outcome: "accepted"},
 		PromptID: "original-start",
 	}
@@ -72,24 +72,24 @@ func TestOriginalContinuationReceiptSettlesAcrossRestart(t *testing.T) {
 						return
 					}
 					writeFixture(w, wire.CommandResult{OperationId: r.Header.Get("Idempotency-Key"), Outcome: "accepted"})
-				case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/control/v1/application/operations/"):
+				case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/control/v1/operations/"):
 					reads.Add(1)
 					op := original.Load().(string)
-					if r.URL.Path != "/api/control/v1/application/operations/"+op {
+					if r.URL.Path != "/api/control/v1/operations/"+op {
 						t.Error("read a different receipt", r.URL.Path)
 					}
 					result := &wire.CommandResult{OperationId: op, Outcome: outcome}
 					if outcome == "accepted" {
 						result.Target = &wire.CommandTarget{TurnId: pointer("new-turn")}
 					}
-					writeFixture(w, wire.ApplicationOperation{OperationId: op, Outcome: outcome, Result: result})
+					writeFixture(w, result)
 				case r.Method == "GET" && r.URL.Path == "/api/control/v1/sessions/work/state":
 					writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("completed"), Active: pointer(false), TurnId: pointer("old-turn")}})
 				default:
 					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 				}
 			})
-			s.state.Workers["task"] = worker{Native: true, Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "completed", Outcome: "accepted", Result: "old result"}, PromptID: "original-start"}
+			s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "completed", Outcome: "accepted", Result: "old result"}, PromptID: "original-start"}
 			s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("completed"), Active: pointer(false), TurnId: pointer("old-turn")}}, Items: []api.Item{{Kind: "assistant", TurnKey: "old-turn", Text: "old result"}}, Seen: map[string]bool{}}
 			root := t.TempDir()
 			m, err := tasks.Open(filepath.Join(root, "tasks.json"), filepath.Join(root, "Tasks"), "caelis", s, s, s.Snapshot)
@@ -157,12 +157,12 @@ func TestUnknownContinuationRequiresReceiptAndCurrentOwnerIdle(t *testing.T) {
 	op := "work-send-" + digest([]byte("unknown-request"))
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == "GET" && r.URL.Path == "/api/control/v1/application/operations/"+op:
+		case r.Method == "GET" && r.URL.Path == "/api/control/v1/operations/"+op:
 			if !settled.Load() {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			writeFixture(w, wire.ApplicationOperation{OperationId: op, Outcome: "accepted", Result: &wire.CommandResult{OperationId: op, Outcome: "accepted", Target: &wire.CommandTarget{TurnId: pointer("new-turn")}}})
+			writeFixture(w, &wire.CommandResult{OperationId: op, Outcome: "accepted", Target: &wire.CommandTarget{TurnId: pointer("new-turn")}})
 		case r.Method == "GET" && r.URL.Path == "/api/control/v1/sessions/work/state":
 			stateReads.Add(1)
 			status := "unknown"
@@ -175,7 +175,7 @@ func TestUnknownContinuationRequiresReceiptAndCurrentOwnerIdle(t *testing.T) {
 		}
 	})
 	before := api.Task{ID: "task", Status: "completed", Result: "old answer"}
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown", Outcome: "unknown"}, PromptID: op, Submission: &workerSubmission{OperationID: op, BeforeTurn: "old-turn", BeforeTask: before}}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown", Outcome: "unknown"}, PromptID: op, Submission: &workerSubmission{OperationID: op, BeforeTurn: "old-turn", BeforeTask: before}}
 	s.state.Operations[op] = journal{Path: "/sessions/work/prompt", Outcome: "unknown"}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("old-turn"), Status: pointer("completed"), Active: pointer(false)}}, Items: []api.Item{{Kind: "assistant", TurnKey: "old-turn", Text: "old answer"}}, Seen: map[string]bool{}}
 	if got, err := s.RetireWork(t.Context(), "task"); err == nil || got.Status != "unknown" || stateReads.Load() != 0 {
@@ -202,7 +202,7 @@ func TestPreparedContinuationWithoutJournalRollsBackAfterRestart(t *testing.T) {
 		t.Errorf("prepared but unsent continuation made owner request %s %s", r.Method, r.URL.Path)
 	})
 	before := api.Task{ID: "task", Status: "completed", Outcome: "accepted", Result: "old answer"}
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown", Outcome: "unknown"}, PromptID: "work-send-prepared", Submission: &workerSubmission{OperationID: "work-send-prepared", BeforePromptID: "original-start", BeforeTurn: "old-turn", BeforeTask: before}}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown", Outcome: "unknown"}, PromptID: "work-send-prepared", Submission: &workerSubmission{OperationID: "work-send-prepared", BeforePromptID: "original-start", BeforeTurn: "old-turn", BeforeTask: before}}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("old-turn"), Status: pointer("completed"), Active: pointer(false)}}, Items: []api.Item{{Kind: "assistant", TurnKey: "old-turn", Text: "old answer"}}, Seen: map[string]bool{}}
 	if err := s.saveLocked(); err != nil {
 		t.Fatal(err)
@@ -222,7 +222,7 @@ func TestAcceptedContinuationNeedsItsOwnNativeTurnIdentity(t *testing.T) {
 		t.Errorf("projection test made native request %s %s", r.Method, r.URL.Path)
 	})
 	op := "work-send-accepted"
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending", Outcome: "accepted"}, PromptID: op, Submission: &workerSubmission{OperationID: op, BeforeTurn: "old-turn", BeforeTask: api.Task{ID: "task", Status: "completed", Result: "old"}}}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending", Outcome: "accepted"}, PromptID: op, Submission: &workerSubmission{OperationID: op, BeforeTurn: "old-turn", BeforeTask: api.Task{ID: "task", Status: "completed", Result: "old"}}}
 	s.state.Operations[op] = journal{Path: "/sessions/work/prompt", Outcome: "accepted"}
 	p := &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("old-turn"), Status: pointer("completed"), Active: pointer(false)}}, Seen: map[string]bool{}}
 	s.state.Views["work"] = p
@@ -250,7 +250,7 @@ func TestAcceptedSteeringNeedsItsOwnNativeInput(t *testing.T) {
 	})
 	op := "work-send-steering"
 	s.state.Workers["task"] = worker{
-		Binding:  wire.ApplicationBinding{SessionId: "work"},
+		Binding:  wire.SessionBinding{SessionId: "work"},
 		Task:     api.Task{ID: "task", Status: "pending", Outcome: "accepted"},
 		PromptID: op,
 		Submission: &workerSubmission{OperationID: op, BeforeTurn: "same-turn", Steering: true,
@@ -308,7 +308,7 @@ func TestAcceptedSteeringCanRetireOnlyAfterOriginalOwnerIdle(t *testing.T) {
 		writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("same-turn"), Status: &status, Active: pointer(active.Load())}})
 	})
 	s.state.Workers["task"] = worker{
-		Binding:  wire.ApplicationBinding{SessionId: "work"},
+		Binding:  wire.SessionBinding{SessionId: "work"},
 		Task:     api.Task{ID: "task", Status: "pending", Outcome: "accepted"},
 		PromptID: op,
 		Submission: &workerSubmission{OperationID: op, BeforeTurn: "same-turn", Steering: true,
@@ -339,7 +339,7 @@ func TestLegacyAcceptedReceiptReadsMatchingOriginalTurn(t *testing.T) {
 		}
 		writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: &turn, Status: pointer("completed"), Active: pointer(false)}})
 	})
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "completed", Outcome: "unknown"}, PromptID: op}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "completed", Outcome: "unknown"}, PromptID: op}
 	s.state.Operations[op] = journal{Path: "/sessions/work/prompt", Outcome: "accepted", TurnID: "new-turn"}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("old-turn"), Status: pointer("completed"), Active: pointer(false)}}, Seen: map[string]bool{}}
 	if got, err := s.ReadWork(t.Context(), "task"); err != nil || got.Status != "unknown" {

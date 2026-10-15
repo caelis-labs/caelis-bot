@@ -43,7 +43,7 @@ func TestContentCapabilityAndRestartCatalog(t *testing.T) {
 	if s.checkContentCapability(wire.ServerInfo{}) == nil {
 		t.Fatal("old Host accepted content tool")
 	}
-	if err := s.checkContentCapability(wire.ServerInfo{Capabilities: []string{"application-tool-result-content-v1"}}); err != nil {
+	if err := s.checkContentCapability(wire.ServerInfo{Capabilities: []string{"session-tool-result-content-v1"}}); err != nil {
 		t.Fatal(err)
 	}
 	restored := New(Options{Directory: filepath.Dir(s.path)})

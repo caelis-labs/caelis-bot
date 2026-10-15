@@ -51,8 +51,8 @@ esac
 		t.Fatal(e)
 	}
 	calls := string(raw)
-	if !strings.Contains(calls, "update --store-dir "+dir+" --check") || strings.Contains(calls, "service start") || strings.Contains(calls, "--format json --check") {
-		t.Fatal("CLI contract changed or shared Host replaced", calls)
+	if !strings.Contains(calls, "update --store-dir "+dir+" --check") || !strings.Contains(calls, "service start --store-dir "+dir) || strings.Contains(calls, "--format json --check") {
+		t.Fatal("CLI lifecycle convergence contract changed", calls)
 	}
 	if _, e = Manage(context.Background(), "install", bin, dir); e == nil {
 		t.Fatal("installer replaced custom binary")
@@ -92,5 +92,23 @@ func TestUpdateCompletionIsStructuredAndNeverLeaksInstallerOutput(t *testing.T) 
 		if (err != nil) != tt.fail || v.UpdateState != tt.state || strings.Contains(v.Message, "PRIVATE") {
 			t.Fatal(v, err)
 		}
+	}
+}
+
+func TestOldHostReplacementShowsBoundedRestartInstruction(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture")
+	}
+	path := filepath.Join(t.TempDir(), "caelis")
+	script := `#!/bin/sh
+printf '%s\n' 'PRIVATE_CONFIG_SENTINEL CAELIS_HOST_RESTART_REQUIRED PRIVATE_CONVERSATION_SENTINEL' >&2
+exit 1
+`
+	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Manage(t.Context(), "apply-update", path, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "caelis service restart") || strings.Contains(err.Error(), "SENTINEL") {
+		t.Fatalf("unsafe or missing upgrade diagnostic: %v", err)
 	}
 }

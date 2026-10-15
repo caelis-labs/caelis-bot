@@ -41,7 +41,7 @@ func TestPendingProjectedUnknownIdleOwnersReleaseFullAdmission(t *testing.T) {
 	})
 	for i := range 8 {
 		id, sid := "task-old-"+string(rune('a'+i)), "work-"+string(rune('a'+i))
-		s.state.Workers[id] = worker{Binding: wire.ApplicationBinding{SessionId: sid}, Task: api.Task{ID: id, Status: "pending", Outcome: "accepted"}, PromptID: "original-" + sid}
+		s.state.Workers[id] = worker{Binding: wire.SessionBinding{SessionId: sid}, Task: api.Task{ID: id, Status: "pending", Outcome: "accepted"}, PromptID: "original-" + sid}
 		s.state.Views[sid] = &view{State: wire.SessionState{SessionId: sid, Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
 	}
 	f := &workerAdmissionFixture{Session: s}
@@ -75,7 +75,7 @@ func TestPersistedPendingProjectedUnknownRetiresOnlyWithOriginalIdle(t *testing.
 		gets.Add(1)
 		writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}})
 	})
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending", Outcome: "accepted"}, PromptID: "original-prompt"}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending", Outcome: "accepted"}, PromptID: "original-prompt"}
 	s.state.Operations["original-prompt"] = journal{Outcome: "unknown", Path: "/sessions/work/prompt"}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
 	if got := s.WorkStates(); len(got) != 1 || got[0].Task.Status != "unknown" || got[0].Activity != "idle" {
@@ -124,7 +124,7 @@ func TestProjectedUnknownNativeEvidenceMatrix(t *testing.T) {
 					}
 					writeFixture(w, state)
 				})
-				s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: persisted, Outcome: "unknown"}, PromptID: "original-prompt"}
+				s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: persisted, Outcome: "unknown"}, PromptID: "original-prompt"}
 				s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
 				got, err := s.RetireWork(t.Context(), "task")
 				if gets.Load() != 1 {
@@ -149,7 +149,7 @@ func TestProjectedUnknownNativeEvidenceMatrix(t *testing.T) {
 }
 
 func authorizedWorkerCall(ctx context.Context, s *Session) context.Context {
-	return context.WithValue(ctx, invocationKey{}, wire.ApplicationCall{SessionId: s.state.Session.SessionId, ApplicationId: s.state.Connection.ApplicationId, ConnectionId: s.state.Connection.ConnectionId, PrincipalId: s.state.PrincipalID, Source: wire.ApplicationSource{Kind: "user", OperationId: "fixture-user"}})
+	return context.WithValue(ctx, invocationKey{}, wire.SessionToolCall{SessionId: s.state.Session.SessionId, PrincipalId: s.state.PrincipalID, Source: wire.SessionSource{Kind: "user", OperationId: "fixture-user"}})
 }
 
 func TestCurrentWorkerProjectionGatesAllContinuationEntries(t *testing.T) {
@@ -157,7 +157,7 @@ func TestCurrentWorkerProjectionGatesAllContinuationEntries(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			var gets atomic.Int32
 			s := fixtureSession(t, func(http.ResponseWriter, *http.Request) { gets.Add(1) })
-			s.state.Workers["task"] = worker{Native: true, Binding: wire.ApplicationBinding{ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "original-prompt"}
+			s.state.Workers["task"] = worker{Native: true, Binding: wire.SessionBinding{PrincipalId: "owner", SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "original-prompt"}
 			s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer(status), Active: pointer(status == "working")}}, Seen: map[string]bool{}}
 			if status == "unknown" {
 				if _, err := s.SendWork(authorizedWorkerCall(t.Context(), s), api.TaskMessage{ID: "task", RequestID: "new-continuation", Prompt: "resume"}); err == nil {
@@ -209,7 +209,7 @@ func TestOriginalWorkerReadRejectsChangedOwnerAndProjection(t *testing.T) {
 				s.mu.Unlock()
 				writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}})
 			})
-			s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "original-prompt"}
+			s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "original-prompt"}
 			s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
 			if v, err := s.RetireWork(t.Context(), "task"); err == nil || v.Status == "unavailable" || s.state.Workers["task"].Retired {
 				t.Fatal("stale original-owner read retired a changed task", v, err)
@@ -228,7 +228,7 @@ func TestOriginalWorkerReadCannotUseOlderIdleTurn(t *testing.T) {
 		}
 		writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer(nativeTurn.Load().(string)), Status: pointer("unknown"), Active: pointer(false)}})
 	})
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "later-B-prompt"}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "later-B-prompt"}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{TurnId: pointer("current-B"), Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
 	if v, err := s.RetireWork(t.Context(), "task"); err == nil || v.Status == "unavailable" || s.state.Workers["task"].Retired {
 		t.Fatal("older idle turn retired unresolved current turn", v, err)
@@ -255,7 +255,7 @@ func TestSameOwnerReadAndRetireSerializesContinuation(t *testing.T) {
 		}
 		writeFixture(w, wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}})
 	})
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "original-prompt"}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "pending"}, PromptID: "original-prompt"}
 	s.state.Views["work"] = &view{State: wire.SessionState{SessionId: "work", Run: wire.RunState{Status: pointer("unknown"), Active: pointer(false)}}, Seen: map[string]bool{}}
 	type outcome struct {
 		task api.Task
@@ -304,7 +304,7 @@ func TestUnknownWorkerRetirementRequiresOriginalIdleState(t *testing.T) {
 		}
 		writeFixture(w, state)
 	})
-	s.state.Workers["task"] = worker{Binding: wire.ApplicationBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown", Outcome: "unknown"}, PromptID: "original-operation"}
+	s.state.Workers["task"] = worker{Binding: wire.SessionBinding{SessionId: "work"}, Task: api.Task{ID: "task", Status: "unknown", Outcome: "unknown"}, PromptID: "original-operation"}
 	if v, err := s.RetireWork(t.Context(), "task"); err == nil || v.Status == "unavailable" {
 		t.Fatal("active owner was retired", v, err)
 	}

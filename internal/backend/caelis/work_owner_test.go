@@ -11,13 +11,13 @@ import (
 func TestRetainedOwnerPreservesResidentConfigurationWithoutRebinding(t *testing.T) {
 	reads := 0
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" || r.URL.Path != "/api/control/v1/application/sessions/main" {
+		if r.Method != "GET" || r.URL.Path != "/api/control/v1/sessions/main/profile" {
 			t.Errorf("inactive owner attempted resident mutation or configuration access: %s %s", r.Method, r.URL.Path)
 			http.NotFound(w, r)
 			return
 		}
 		reads++
-		writeFixture(w, wire.ApplicationBinding{SessionId: "main", ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", Profile: wire.ApplicationProfile{Execution: "workspace-write", Instructions: "original-bot-instructions", ToolsVersion: "original-bot-tools"}})
+		writeFixture(w, wire.SessionBinding{SessionId: "main", PrincipalId: "owner", Profile: wire.SessionProfile{Execution: "workspace-write", Instructions: "original-bot-instructions", ToolsVersion: "original-bot-tools"}})
 	})
 	if err := s.saveLocked(); err != nil {
 		t.Fatal(err)

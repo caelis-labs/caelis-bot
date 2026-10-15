@@ -28,8 +28,8 @@ func fixtureSession(t *testing.T, h http.HandlerFunc) *Session {
 	s := New(Options{Directory: filepath.Join(t.TempDir(), "private")})
 	s.client = c
 	s.connected = true
-	s.state.Session = wire.ApplicationBinding{ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner", SessionId: "main"}
-	s.state.Connection = wire.ApplicationConnection{ApplicationId: "app", ConnectionId: "client", PrincipalId: "owner"}
+	s.state.Session = wire.SessionBinding{PrincipalId: "owner", SessionId: "main"}
+	s.state.PrincipalID = "owner"
 	s.state.InstanceID = "instance"
 	s.state.Views["main"] = &view{State: wire.SessionState{SessionId: "main"}, Seen: map[string]bool{}, Items: []api.Item{}}
 	return s

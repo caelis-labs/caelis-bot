@@ -88,9 +88,15 @@ func run(ctx context.Context, loc i18n.Locale, path string, args ...string) ([]b
 	cmd := exec.CommandContext(ctx, path, args...)
 	out := limitedBuffer{loc: loc}
 	cmd.Stdout = &out
-	cmd.Stderr = io.Discard
+	diagnostic := limitedBuffer{loc: loc}
+	cmd.Stderr = &diagnostic
 	cmd.Env = runtimeenv.Clean(os.Environ())
 	if err := cmd.Run(); err != nil {
+		// Only a stable lifecycle code may select a public explanation. Never
+		// expose arbitrary CLI stderr, paths, configuration or conversation data.
+		if strings.Contains(diagnostic.String(), "CAELIS_HOST_RESTART_REQUIRED") {
+			return nil, errors.New(text(loc, "host.caelisHostRestartRequired"))
+		}
 		return nil, errors.New(text(loc, "host.caelisCommandFailed"))
 	}
 	return out.Bytes(), nil
@@ -191,14 +197,11 @@ func Manage(ctx context.Context, action, path, store string, loc ...i18n.Locale)
 		if json.Unmarshal(raw, &service) != nil {
 			return Status{}, errors.New(text(l, "host.cannotVerifyServiceStatus"))
 		}
-		if service.State == "running" {
-			v, e := Inspect(ctx, p, l)
-			v.Message = text(l, "host.caelisServiceAlreadyRunning")
-			return v, e
-		}
-		if service.State != "stopped" {
+		if service.State != "running" && service.State != "stopped" {
 			return Status{}, errors.New(text(l, "host.serviceStatusUnclearNoNewProcess"))
 		}
+		// Start is the public convergence operation. A resident observer must not
+		// suppress selection of a newer candidate; Core refuses busy replacement.
 		_, e = run(ctx, l, p, "service", "start", "--store-dir", dir, "--format", "json")
 		if e != nil {
 			return Status{}, e

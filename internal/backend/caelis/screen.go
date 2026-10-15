@@ -11,7 +11,7 @@ import (
 	"github.com/caelis-labs/caelis-bot/internal/backend/caelis/wire"
 )
 
-const modelCapabilities = "application-model-capabilities-v1"
+const modelCapabilities = "session-model-capabilities-v1"
 
 func (s *Session) ImageInput(ctx context.Context) (api.ImageInputCapability, error) {
 	s.mu.Lock()
@@ -24,8 +24,8 @@ func (s *Session) ImageInput(ctx context.Context) (api.ImageInputCapability, err
 	}
 	// The creation profile and Host-wide union can both describe a different
 	// model. Observe the current application configuration through its scoped API.
-	var observed wire.ApplicationModelCapabilities
-	if err := c.json(ctx, "GET", "/application/sessions/"+idPath(sid)+"/model-capabilities", nil, &observed, "", ""); err != nil {
+	var observed wire.SessionModelCapabilities
+	if err := c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/model-capabilities", nil, &observed, "", ""); err != nil {
 		return out, err
 	}
 	revision, err := strconv.ParseUint(string(observed.ConfigurationRevision), 10, 64)

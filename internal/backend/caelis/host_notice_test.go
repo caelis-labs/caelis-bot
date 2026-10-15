@@ -14,8 +14,8 @@ import (
 func TestHostReportSubmissionIsHiddenThroughReplayAndReload(t *testing.T) {
 	const notice = "Task task-42 is completed."
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
-		var req wire.ApplicationPromptRequest
-		if !strings.HasSuffix(r.URL.Path, "/application/sessions/main/prompt") || json.NewDecoder(r.Body).Decode(&req) != nil || req.SourceKind != "application_summary" || value(req.Input) != notice {
+		var req wire.PromptRequest
+		if !strings.HasSuffix(r.URL.Path, "/sessions/main/prompt") || json.NewDecoder(r.Body).Decode(&req) != nil || value(req.SourceKind) != "application_summary" || value(req.Input) != notice {
 			t.Errorf("wrong host report submission: %s %+v", r.URL.Path, req)
 		}
 		writeFixture(w, wire.CommandResult{OperationId: value(req.OperationId), Outcome: "accepted", Target: &wire.CommandTarget{TurnId: pointer("host-turn")}})
@@ -88,7 +88,7 @@ func TestHostReportIsHiddenInOlderCaelisPage(t *testing.T) {
 		}})
 		send("caelis.control.delivery", wire.SessionFeedDelivery{Kind: "sync", Source: "exact", HistoryBefore: pointer("")})
 	})
-	s.state.Operations["host-report-42"] = journal{Path: "/application/sessions/main/prompt", Outcome: "accepted", TurnID: "host-turn", Source: wire.ApplicationSource{Kind: "application_summary"}}
+	s.state.Operations["host-report-42"] = journal{Path: "/sessions/main/prompt", Outcome: "accepted", TurnID: "host-turn", Source: wire.SessionSource{Kind: "application_summary"}}
 	s.state.Views["main"].HistoryBefore = "older"
 	if err := s.LoadEarlier(t.Context()); err != nil {
 		t.Fatal(err)

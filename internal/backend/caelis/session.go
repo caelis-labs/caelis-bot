@@ -3,7 +3,6 @@ package caelis
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -56,7 +55,7 @@ type Session struct {
 	tools                 *api.ToolConnection
 	catalog               map[string]api.ApplicationTools
 	catalogs              map[string]map[string]api.ApplicationTools
-	profile               wire.ApplicationProfile
+	profile               wire.SessionProfile
 	state                 binding
 	loadErr               error
 	client                *client
@@ -220,7 +219,7 @@ func Discover(settings api.RuntimeSettings) (discovery, string, error) {
 	return d, strings.TrimSpace(string(b)), nil
 }
 
-var required = []string{"shared-native-workers-v1", "turn-steering-receipts-v1", "application-runtime-v1", "application-hot-configuration-v1", "application-native-execution-v1", "application-workspace-binding-v1", "application-background-activation-v1", "application-resource-transfer-v1", "execution-configuration-v1", "application-guardian-review-v1"}
+var required = []string{"session-profile-control-v1", "turn-steering-receipts-v1", "session-profiles-v1", "session-hot-configuration-v1", "session-native-execution-v1", "session-workspace-binding-v1", "session-background-activation-v1", "session-resource-transfer-v1", "execution-configuration-v1", "session-guardian-review-v1"}
 var errBotIncompatible = errors.New("Caelis 应用协议不兼容，请更新运行时并重启 Caelis 服务")
 
 func initialize(ctx context.Context, c *client) (wire.ServerInfo, error) {
@@ -274,12 +273,6 @@ func ProbeBinding(ctx context.Context, settings api.RuntimeSettings, directory s
 	return nil
 }
 
-// Enrollment is the only Host-authorized mutation. Credential and operation
-// identity are durable BEFORE dispatch; every later request uses app scope.
-type credential struct {
-	StoreID, PrincipalID, OperationID, Token string
-}
-
 func (s *Session) connect(ctx context.Context) error {
 	d, token, e := Discover(s.settings)
 	if e != nil {
@@ -289,7 +282,12 @@ func (s *Session) connect(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	defer host.http.CloseIdleConnections()
+	connected := false
+	defer func() {
+		if !connected {
+			host.http.CloseIdleConnections()
+		}
+	}()
 	info, e := initialize(ctx, host)
 	if e != nil {
 		return e
@@ -306,68 +304,14 @@ func (s *Session) connect(ctx context.Context) error {
 	if mismatch {
 		return errors.New("Caelis 数据目录或授权主体已改变，原有绑定保持不变")
 	}
-	var key credential
-	raw, e := privateRead(secretPath(s.path), 65536)
-	fresh := errors.Is(e, os.ErrNotExist)
-	if fresh {
-		secret := make([]byte, 32)
-		if _, e = rand.Read(secret); e != nil {
-			return e
-		}
-		key = credential{StoreID: value(info.StoreId), PrincipalID: d.PrincipalID, OperationID: "register-" + rand.Text(), Token: "app-client-" + hex.EncodeToString(secret)}
-		if e = privateWrite(secretPath(s.path), key); e != nil {
-			return e
-		}
-	} else if e != nil {
-		return e
-	} else if json.Unmarshal(raw, &key) != nil || key.StoreID != value(info.StoreId) || key.PrincipalID != d.PrincipalID || key.Token == "" || key.OperationID == "" {
-		return errors.New("Caelis 应用凭据与绑定不一致")
-	}
-	scoped, e := newClient(d.Endpoint, key.Token)
-	if e != nil {
-		return e
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			scoped.http.CloseIdleConnections()
-		}
-	}()
-	var life wire.ApplicationConnection
-	if !fresh {
-		e = scoped.json(ctx, "GET", "/application/connection", nil, &life, "", "")
-	}
-	if fresh || isRemoteStatus(e, 401) {
-		// Replaying the exact registration is safe even after a lost response. This
-		// never creates a new credential on expiry/revocation or changes app scope.
-		e = host.json(ctx, "POST", "/applications/register", wire.ApplicationRegistration{OperationId: key.OperationID, Name: "Caelis Bot", Credential: key.Token}, &life, key.OperationID, "")
-	}
-	if e != nil {
-		return e
-	}
-	if life.PrincipalId != d.PrincipalID || life.ApplicationId == "" || life.ConnectionId == "" || life.Revoked {
-		return errors.New("Caelis 应用授权无效或已撤销")
-	}
-	s.mu.Lock()
-	previous := s.state.Connection
-	s.mu.Unlock()
-	if previous.ConnectionId != "" && (previous.ConnectionId != life.ConnectionId || previous.ApplicationId != life.ApplicationId) {
-		return errors.New("Caelis 应用授权标识改变")
-	}
-	if !life.ExpiresAt.After(time.Now().Add(3 * time.Minute)) {
-		if e = scoped.json(ctx, "POST", "/application/connection/renew", struct{}{}, &life, "", ""); e != nil {
-			return e
-		}
-	}
 	s.mu.Lock()
 	old := s.client
-	s.client = scoped
+	s.client = host
 	s.info = info
 	s.state.StoreID = value(info.StoreId)
 	s.state.StoreDirectory = s.settings.CaelisStore
 	s.state.PrincipalID = d.PrincipalID
 	s.state.Endpoint = d.Endpoint
-	s.state.Connection = life
 	s.generation++
 	if s.streamCancel != nil {
 		s.streamCancel()
@@ -387,7 +331,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if e = s.ensureSession(ctx, host); e != nil {
 		return e
 	}
-	ok = true
+	connected = true
 	return nil
 }
 func isRemoteStatus(e error, status int) bool {
@@ -395,7 +339,7 @@ func isRemoteStatus(e error, status int) bool {
 	return errors.As(e, &r) && r.Status == status
 }
 
-// Detaching observation does not revoke a lease, cancel a turn or stop the Host.
+// Detaching observation does not cancel a turn or stop the Host.
 func (s *Session) DetachForUpdate(ctx context.Context) error { return s.Close(ctx) }
 
 func (s *Session) Close(ctx context.Context) error {

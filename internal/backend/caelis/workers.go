@@ -15,9 +15,9 @@ import (
 
 type invocationKey struct{}
 type workerStart struct {
-	Profile       wire.ApplicationProfile `json:"profile"`
-	Prompt        string                  `json:"prompt"`
-	Authorization string                  `json:"authorization"`
+	Profile       wire.SessionProfile `json:"profile"`
+	Prompt        string              `json:"prompt"`
+	Authorization string              `json:"authorization"`
 }
 
 // The latest outbound prompt owns the Worker generation until its original
@@ -31,23 +31,23 @@ type workerSubmission struct {
 	Steering       bool     `json:"steering,omitempty"`
 }
 type worker struct {
-	Native      bool                    `json:"native,omitempty"`
-	Binding     wire.ApplicationBinding `json:"binding"`
-	Task        api.Task                `json:"task"`
-	Fingerprint string                  `json:"fingerprint"`
-	PromptID    string                  `json:"promptID"`
-	Stopped     bool                    `json:"stopped"`
-	Start       *workerStart            `json:"start,omitempty"`
-	Submission  *workerSubmission       `json:"submission,omitempty"`
-	Retired     bool                    `json:"retired,omitempty"`
-	Activity    string                  `json:"-"`
+	Native      bool                `json:"native,omitempty"`
+	Binding     wire.SessionBinding `json:"binding"`
+	Task        api.Task            `json:"task"`
+	Fingerprint string              `json:"fingerprint"`
+	PromptID    string              `json:"promptID"`
+	Stopped     bool                `json:"stopped"`
+	Start       *workerStart        `json:"start,omitempty"`
+	Submission  *workerSubmission   `json:"submission,omitempty"`
+	Retired     bool                `json:"retired,omitempty"`
+	Activity    string              `json:"-"`
 }
 
-func (s *Session) authority(ctx context.Context) (wire.ApplicationCall, error) {
-	call, ok := ctx.Value(invocationKey{}).(wire.ApplicationCall)
+func (s *Session) authority(ctx context.Context) (wire.SessionToolCall, error) {
+	call, ok := ctx.Value(invocationKey{}).(wire.SessionToolCall)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !ok || !s.connected || s.closed || call.SessionId != s.state.Session.SessionId || call.ApplicationId != s.state.Connection.ApplicationId || call.ConnectionId != s.state.Connection.ConnectionId || call.PrincipalId != s.state.PrincipalID {
+	if !ok || !s.connected || s.closed || call.SessionId != s.state.Session.SessionId || call.PrincipalId != s.state.PrincipalID {
 		return call, errors.New("需要当前助手请求的明确授权来源")
 	}
 	if call.Source.Kind != "user" && call.Source.Kind != "authorized_background" {
@@ -188,7 +188,7 @@ func (s *Session) workerNeedsReconcileLocked(w worker) bool {
 func sameWorkerOwner(a, b worker) bool {
 	return a.Task.ID == b.Task.ID && a.Task.Workspace == b.Task.Workspace && a.Native == b.Native && a.Fingerprint == b.Fingerprint && a.PromptID == b.PromptID &&
 		reflect.DeepEqual(a.Submission, b.Submission) &&
-		a.Binding.SessionId == b.Binding.SessionId && a.Binding.ApplicationId == b.Binding.ApplicationId && a.Binding.ConnectionId == b.Binding.ConnectionId && a.Binding.PrincipalId == b.Binding.PrincipalId && a.Binding.CreationDigest == b.Binding.CreationDigest && a.Binding.Archived == b.Binding.Archived
+		a.Binding.SessionId == b.Binding.SessionId && a.Binding.PrincipalId == b.Binding.PrincipalId && a.Binding.CreationDigest == b.Binding.CreationDigest && a.Binding.Archived == b.Binding.Archived
 }
 func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, error) {
 	call, e := s.authority(ctx)
@@ -229,7 +229,7 @@ func (s *Session) StartWork(ctx context.Context, in api.WorkStart) (api.Task, er
 			return api.Task{}, errors.New("工作目录已发生重定向")
 		}
 	}
-	profile := wire.ApplicationProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
+	profile := wire.SessionProfile{Model: execution.Model, ReasoningEffort: pointer(execution.Effort), ServiceTier: pointer(execution.ServiceTier)}
 	w := worker{Native: true, Task: api.Task{ID: in.ID, Title: in.Title, Workspace: in.Workspace, Status: "unknown", Outcome: "unknown"}, Fingerprint: fp, PromptID: "work-prompt-" + digest([]byte(in.RequestID)), Start: &workerStart{Profile: profile, Prompt: in.Prompt, Authorization: call.Source.OperationId}}
 	s.mu.Lock()
 	s.state.Workers[in.ID] = w
@@ -258,11 +258,11 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 	s.mu.Unlock()
 	op := "work-create-" + digest([]byte(w.Task.ID))
 	if w.Binding.SessionId == "" {
-		path := "/application/sessions"
-		var request any = wire.CreateApplicationSessionRequest{OperationId: &op, Profile: w.Start.Profile}
+		path := "/sessions"
+		var request any = wire.CreateSessionRequest{OperationId: &op, Profile: &w.Start.Profile}
 		if w.Native {
-			path = "/application/workers"
-			request = wire.CreateWorkerRequest{OperationId: &op, Cwd: w.Task.Workspace, Title: &w.Task.Title, Model: &w.Start.Profile.Model, ReasoningEffort: w.Start.Profile.ReasoningEffort, FastMode: pointer(value(w.Start.Profile.ServiceTier) == "priority")}
+			path = "/sessions"
+			request = wire.CreateSessionRequest{OperationId: &op, Cwd: &w.Task.Workspace, Title: &w.Task.Title, Model: &w.Start.Profile.Model, ReasoningEffort: w.Start.Profile.ReasoningEffort, FastMode: pointer(value(w.Start.Profile.ServiceTier) == "priority")}
 		}
 		result, e := s.command(ctx, op, path, request)
 		if e != nil || !succeeded(result.Outcome) {
@@ -276,24 +276,22 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 		if sid == "" && result.Resource != nil {
 			sid = value(result.Resource.Ref)
 		}
+		s.mu.Lock()
+		principal := s.state.PrincipalID
+		s.mu.Unlock()
 		if w.Native {
-			var workers []wire.ApplicationWorker
-			if e = c.json(ctx, "GET", "/application/workers", nil, &workers, "", ""); e != nil {
+			var state wire.SessionState
+			if e = c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/state", nil, &state, "", ""); e != nil {
 				return w.Task, e
 			}
-			for _, grant := range workers {
-				if grant.SessionId == sid {
-					w.Binding = wire.ApplicationBinding{SessionId: sid, ApplicationId: grant.ApplicationId, ConnectionId: grant.ConnectionId, PrincipalId: grant.PrincipalId}
-					break
-				}
+			if state.SessionId != sid {
+				return w.Task, errors.New("独立任务状态不匹配")
 			}
-		} else if e = c.json(ctx, "GET", "/application/sessions/"+idPath(sid), nil, &w.Binding, "", ""); e != nil {
+			w.Binding = wire.SessionBinding{SessionId: sid, PrincipalId: principal}
+		} else if e = c.json(ctx, "GET", "/sessions/"+idPath(sid)+"/profile", nil, &w.Binding, "", ""); e != nil {
 			return w.Task, e
 		}
-		s.mu.Lock()
-		life := s.state.Connection
-		s.mu.Unlock()
-		if w.Binding.SessionId != sid || w.Binding.ApplicationId != life.ApplicationId || w.Binding.ConnectionId != life.ConnectionId || w.Binding.PrincipalId != life.PrincipalId {
+		if w.Binding.SessionId != sid || w.Binding.PrincipalId != principal {
 			return w.Task, errors.New("独立任务绑定不匹配")
 		}
 		if e = s.saveWorker(w); e != nil {
@@ -310,7 +308,7 @@ func (s *Session) advanceWorker(ctx context.Context, w worker) (api.Task, error)
 		if grantErr != nil {
 			return w.Task, grantErr
 		}
-		result, e = s.command(ctx, w.PromptID, "/application/sessions/"+idPath(sid)+"/prompt", wire.ApplicationPromptRequest{OperationId: &w.PromptID, SessionId: &sid, SourceKind: "authorized_background", GrantId: &grant.Id, Input: &w.Start.Prompt})
+		result, e = s.command(ctx, w.PromptID, "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &w.PromptID, SessionId: &sid, SourceKind: pointer("authorized_background"), GrantId: &grant.Id, Input: &w.Start.Prompt})
 	}
 	w.Task.Outcome = productOutcome(result.Outcome)
 	if succeeded(result.Outcome) {
@@ -601,7 +599,7 @@ func (s *Session) SendWork(ctx context.Context, in api.TaskMessage) (api.Task, e
 	if e != nil {
 		return projected, e
 	}
-	res, e := s.command(ctx, op, "/application/sessions/"+idPath(sid)+"/prompt", wire.ApplicationPromptRequest{OperationId: &op, SessionId: &sid, SourceKind: "authorized_background", GrantId: &g.Id, Input: &in.Prompt})
+	res, e := s.command(ctx, op, "/sessions/"+idPath(sid)+"/prompt", wire.PromptRequest{OperationId: &op, SessionId: &sid, SourceKind: pointer("authorized_background"), GrantId: &g.Id, Input: &in.Prompt})
 	return s.finishWorkerSubmission(w, res, e)
 }
 func (s *Session) StopWork(ctx context.Context, id string) (api.Task, error) {

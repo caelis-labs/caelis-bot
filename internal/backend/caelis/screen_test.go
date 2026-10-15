@@ -18,10 +18,10 @@ func TestScreenCapabilityNegotiationAndCurrentModel(t *testing.T) {
 	var selected atomic.Int32
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		reads.Add(1)
-		if r.Method != "GET" || r.URL.Path != "/api/control/v1/application/sessions/main/model-capabilities" || r.Header.Get("Authorization") != "Bearer SCOPED_TEST_TOKEN" {
+		if r.Method != "GET" || r.URL.Path != "/api/control/v1/sessions/main/model-capabilities" || r.Header.Get("Authorization") != "Bearer SCOPED_TEST_TOKEN" {
 			t.Error("lost read-only application scope", r.Method, r.URL.Path)
 		}
-		v := wire.ApplicationModelCapabilities{SessionId: "main", ConfigurationRevision: "18446744073709551615", Model: "custom/current"}
+		v := wire.SessionModelCapabilities{SessionId: "main", ConfigurationRevision: "18446744073709551615", Model: "custom/current"}
 		if selected.Load() != 2 {
 			v.ImageInput = pointer(selected.Load() == 1)
 		}
@@ -31,7 +31,7 @@ func TestScreenCapabilityNegotiationAndCurrentModel(t *testing.T) {
 		t.Fatal("old Host must remain usable without probing", c, err)
 	}
 	s.info.Capabilities = append(s.info.Capabilities, modelCapabilities)
-	s.state.Configurations["main"] = wire.ApplicationConfiguration{Profile: wire.ApplicationProfile{Model: "stale/vision"}}
+	s.state.Configurations["main"] = wire.SessionConfiguration{Profile: wire.SessionProfile{Model: "stale/vision"}}
 	for _, tc := range []struct {
 		model int32
 		state string
@@ -79,15 +79,15 @@ func TestScreenSubmitRechecksModelAndPreservesUnknownReceipt(t *testing.T) {
 	s := fixtureSession(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			reads.Add(1)
-			writeFixture(w, wire.ApplicationModelCapabilities{SessionId: "main", ConfigurationRevision: "2", Model: "current", ImageInput: pointer(enabled.Load())})
+			writeFixture(w, wire.SessionModelCapabilities{SessionId: "main", ConfigurationRevision: "2", Model: "current", ImageInput: pointer(enabled.Load())})
 			return
 		}
 		posts.Add(1)
-		var req wire.ApplicationPromptRequest
+		var req wire.PromptRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Error(err)
 		}
-		if req.SourceKind != "user" || len(req.ContentParts) != 2 || value(req.Input) != "screen context" {
+		if value(req.SourceKind) != "user" || len(req.ContentParts) != 2 || value(req.Input) != "screen context" {
 			t.Error("lost screen input", req)
 		}
 		for _, p := range req.ContentParts {

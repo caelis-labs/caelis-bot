@@ -204,7 +204,7 @@ func (s *Session) snapshotLocked() api.Snapshot {
 	for id, j := range s.state.Operations {
 		workerOperation := false
 		for _, worker := range s.state.Workers {
-			if sid := worker.Binding.SessionId; sid != "" && sid != s.state.Session.SessionId && strings.HasPrefix(j.Path, "/application/sessions/"+idPath(sid)+"/") {
+			if sid := worker.Binding.SessionId; sid != "" && sid != s.state.Session.SessionId && strings.HasPrefix(j.Path, "/sessions/"+idPath(sid)+"/") {
 				workerOperation = true
 				break
 			}
@@ -242,7 +242,7 @@ func (s *Session) correlateUserInputs(out *api.Snapshot) {
 	s.correlateSessionInputs(out, s.state.Session.SessionId)
 }
 func (s *Session) correlateSessionInputs(out *api.Snapshot, sid string) {
-	path := "/application/sessions/" + idPath(sid) + "/prompt"
+	path := "/sessions/" + idPath(sid) + "/prompt"
 	for id, j := range s.state.Operations {
 		if j.Path != path || j.TurnID == "" || !succeeded(wire.Outcome(j.Outcome)) {
 			continue
@@ -374,7 +374,7 @@ func applyEnvelope(v *view, e wire.Envelope, scheduled ...bool) {
 		}
 		_ = json.Unmarshal(value(e.Update), &tool)
 		var output struct {
-			Resource wire.ApplicationResource `json:"resource"`
+			Resource wire.SessionResource `json:"resource"`
 		}
 		// Native resource tools return a text result. Control projects that
 		// JSON text under rawOutput.result; message content is a different
@@ -779,7 +779,6 @@ func (s *Session) refresh(ctx context.Context) error {
 	s.mu.Lock()
 	c := s.client
 	connected := s.connected
-	life := s.state.Connection
 	sid := s.state.Session.SessionId
 	s.mu.Unlock()
 	if c == nil || !connected {
@@ -791,7 +790,6 @@ func (s *Session) refresh(ctx context.Context) error {
 		}
 		s.mu.Lock()
 		c = s.client
-		life = s.state.Connection
 		sid = s.state.Session.SessionId
 		s.connected = true
 		s.issue = ""
@@ -806,18 +804,6 @@ func (s *Session) refresh(ctx context.Context) error {
 	s.mu.Unlock()
 	if !same {
 		return errors.New("Caelis Host 已变化，正在核对绑定")
-	}
-	if !life.ExpiresAt.After(time.Now().Add(3 * time.Minute)) {
-		var renewed wire.ApplicationConnection
-		if e = c.json(ctx, "POST", "/application/connection/renew", struct{}{}, &renewed, "", ""); e != nil {
-			return e
-		}
-		if renewed.ConnectionId != life.ConnectionId || renewed.ApplicationId != life.ApplicationId || renewed.PrincipalId != life.PrincipalId || renewed.Revoked {
-			return errors.New("Caelis 续租绑定不匹配")
-		}
-		s.mu.Lock()
-		s.state.Connection = renewed
-		s.mu.Unlock()
 	}
 	if s.retainedWorkers {
 		if err := s.refreshWorkers(ctx, c); err != nil {
@@ -893,7 +879,7 @@ func (s *Session) recoverOperations(ctx context.Context) error {
 	ops := clone(s.state.Operations)
 	s.mu.Unlock()
 	for id, j := range ops {
-		if j.Outcome != "unknown" || !(strings.HasPrefix(j.Path, "/application/") || strings.HasSuffix(j.Path, "/steer") || strings.HasSuffix(j.Path, "/prompt")) {
+		if j.Outcome != "unknown" {
 			continue
 		}
 		if err := s.recoverOperation(ctx, id); err != nil {
@@ -916,14 +902,18 @@ func (s *Session) recoverOperation(ctx context.Context, id string) error {
 	if c == nil {
 		return errors.New("original operation owner unavailable")
 	}
-	var op wire.ApplicationOperation
-	if err := c.json(ctx, "GET", "/application/operations/"+idPath(id), nil, &op, "", ""); err != nil {
+	receiptID := id
+	if j.ReceiptID != "" {
+		receiptID = j.ReceiptID
+	}
+	var op wire.CommandResult
+	if err := c.json(ctx, "GET", "/operations/"+idPath(receiptID), nil, &op, "", ""); err != nil {
 		if isRemoteStatus(err, 404) {
 			return nil
 		}
 		return err
 	}
-	if op.OperationId != id || op.Result == nil || op.Result.OperationId != id || op.Result.Outcome != op.Outcome {
+	if op.OperationId != receiptID {
 		return errors.New("Caelis 操作恢复回执不匹配")
 	}
 	if !slices.Contains([]wire.Outcome{"accepted", "committed", "rejected", "conflicted"}, op.Outcome) {
@@ -944,22 +934,22 @@ func (s *Session) recoverOperation(ctx context.Context, id string) error {
 	j = current
 	j.Outcome = string(op.Outcome)
 	j.PendingInput = nil
-	if op.Result.Target != nil {
-		j.TurnID = value(op.Result.Target.TurnId)
+	if op.Target != nil {
+		j.TurnID = value(op.Target.TurnId)
 	}
 	if !strings.HasSuffix(j.Path, "/steer") {
 		j.Body = nil
 	}
-	if op.Result.Resource != nil {
-		j.Resource = value(op.Result.Resource.Ref)
+	if op.Resource != nil {
+		j.Resource = value(op.Resource.Ref)
 	}
-	if (j.Path == "/application/sessions" || j.Path == "/application/workers") && value(op.Result.SessionId) != "" {
-		j.Resource = value(op.Result.SessionId)
+	if j.Path == "/sessions" && value(op.SessionId) != "" {
+		j.Resource = value(op.SessionId)
 	}
 	previousContext, previousReceipt := clone(s.state.Context), s.state.LastReceipt
 	s.state.Operations[id] = j
 	s.state.Context.Resolve(id, productOutcome(op.Outcome))
-	if j.Path == "/application/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" {
+	if j.Path == "/sessions/"+idPath(s.state.Session.SessionId)+"/prompt" {
 		s.state.LastReceipt = api.Receipt{ID: id, Outcome: productOutcome(op.Outcome)}
 	}
 	if err := s.saveLocked(); err != nil {
@@ -973,9 +963,9 @@ func (s *Session) recoverOperation(ctx context.Context, id string) error {
 }
 
 // Session progress is push-driven. Maintenance only restores a failed stream,
-// renews authority, or reconciles an unresolved operation/one terminal hook.
+// observes Host identity, or reconciles an unresolved operation/one terminal hook.
 func (s *Session) needsRefreshLocked() bool {
-	if !s.connected || s.client == nil || !s.state.Connection.ExpiresAt.After(time.Now().Add(3*time.Minute)) {
+	if !s.connected || s.client == nil {
 		return true
 	}
 	for _, j := range s.state.Operations {
